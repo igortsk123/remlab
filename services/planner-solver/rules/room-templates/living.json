@@ -1,0 +1,4184 @@
+{
+ "schema_version": "room-composition/1",
+ "unit": "cm",
+ "room_type": "living",
+ "_meta": {
+  "source": "manual + _intake/codex/2026-11-12-living-full-templates-answer.md §1–3 (состав, каталог LR-C1…X1, деградация, мелкое) + _intake/codex/2026-11-12-living-passport-carriers-answer.md (места на носителях, реестр geometry_ref) + одобренные владельцем схемы Т0 tools/scout/living_schemes.py (choose_templates, levels_for, dining_seats; T-20261112-46, «Ок» TG 1099). План living-full-01 Т1 шаг 0 (T-20261112-63/1) — ТЕНЬ: к /demo и /try не подключён.",
+  "about": "ПОЛНЫЙ СОСТАВ гостиной: крупная мебель (slots; геометрию считает старый движок по geometry_ref — реестр planner/room_templates.py:GEOMETRY) и мелочи на носителях (dependents: подушки и плед на диване, ваза на столике, лампа на комоде, картины над диваном/комодом, люстра над зоной, шторы у окна, экран ТВ над тумбой). Уровни — ЦЕЛЫЕ составы по порядку; when — при каких фактах комнаты уровень рассматривается (площадь, бюджет столовой zones.json seats_by_room_m2). Не встало место — отклоняется весь уровень (on_failure), поштучно ничего не выкидываем. Числа — rule_ref на occupancy.json distances_cm (living_select, dependents, mounting)."
+ },
+ "groups": {
+  "seating": {
+   "roles": [
+    "диван",
+    "диван 2",
+    "столик",
+    "ковёр",
+    "кресло"
+   ],
+   "variants": {
+    "sofa_table_rug": {
+     "geometry_ref": "seating.sofa_solo_group",
+     "slots": [
+      {
+       "id": "sofa",
+       "role": "диван"
+      },
+      {
+       "id": "coffee",
+       "role": "столик",
+       "near": "seating.sofa",
+       "rule_ref": "distances_cm.sofa_coffee_table_preferred"
+      },
+      {
+       "id": "rug",
+       "role": "ковёр",
+       "near": "seating.sofa",
+       "rule_ref": "distances_cm.rug_to_wall"
+      }
+     ],
+     "_why": "диван + столик + ковёр без кресла — комната < 16 м² (канон core/lr-checklist.md)"
+    },
+    "sofa_armchair": {
+     "geometry_ref": "seating.sofa_single_flank",
+     "slots": [
+      {
+       "id": "sofa",
+       "role": "диван"
+      },
+      {
+       "id": "coffee",
+       "role": "столик",
+       "near": "seating.sofa",
+       "rule_ref": "distances_cm.sofa_coffee_table_preferred"
+      },
+      {
+       "id": "rug",
+       "role": "ковёр",
+       "near": "seating.sofa",
+       "rule_ref": "distances_cm.rug_to_wall"
+      },
+      {
+       "id": "armchair",
+       "role": "кресло",
+       "near": "seating.coffee",
+       "rule_ref": "distances_cm.seats_group_max"
+      }
+     ],
+     "_why": "кресло у торца дивана, столик по оси (C1/C2/M1/O2 от 16 м²)"
+    },
+    "corner_sofa": {
+     "geometry_ref": "seating.sectional_solo",
+     "slots": [
+      {
+       "id": "sofa",
+       "role": "диван",
+       "shape": "corner"
+      },
+      {
+       "id": "coffee",
+       "role": "столик",
+       "near": "seating.sofa",
+       "rule_ref": "distances_cm.sofa_coffee_table_preferred"
+      },
+      {
+       "id": "rug",
+       "role": "ковёр",
+       "near": "seating.sofa",
+       "rule_ref": "distances_cm.rug_to_wall"
+      }
+     ],
+     "_why": "угловой диван сам — две стороны беседы, кресла нет (C3; living_schemes narm 0)"
+    },
+    "floating_sofa_armchair": {
+     "geometry_ref": "seating.floating_sofa_opposite_media",
+     "slots": [
+      {
+       "id": "sofa",
+       "role": "диван"
+      },
+      {
+       "id": "coffee",
+       "role": "столик",
+       "near": "seating.sofa",
+       "rule_ref": "distances_cm.sofa_coffee_table_preferred"
+      },
+      {
+       "id": "rug",
+       "role": "ковёр",
+       "near": "seating.sofa",
+       "rule_ref": "distances_cm.rug_to_wall"
+      },
+      {
+       "id": "armchair",
+       "role": "кресло",
+       "near": "seating.coffee",
+       "rule_ref": "distances_cm.seats_group_max"
+      }
+     ],
+     "_why": "диван-разделитель спинкой к кухне/столовой (O1)"
+    },
+    "u_sofa_2armchairs": {
+     "geometry_ref": "seating.u",
+     "slots": [
+      {
+       "id": "sofa",
+       "role": "диван"
+      },
+      {
+       "id": "coffee",
+       "role": "столик",
+       "near": "seating.sofa",
+       "rule_ref": "distances_cm.sofa_coffee_table_preferred"
+      },
+      {
+       "id": "rug",
+       "role": "ковёр",
+       "near": "seating.sofa",
+       "rule_ref": "distances_cm.rug_to_wall"
+      },
+      {
+       "id": "armchair",
+       "role": "кресло",
+       "near": "seating.coffee",
+       "rule_ref": "distances_cm.seats_group_max",
+       "count": 2
+      }
+     ],
+     "_why": "П-композиция: диван + два кресла (L1)"
+    },
+    "two_sofas_l_armchair": {
+     "geometry_ref": "seating.two_sofa_l_joint",
+     "slots": [
+      {
+       "id": "sofa",
+       "role": "диван"
+      },
+      {
+       "id": "sofa2",
+       "role": "диван 2",
+       "near": "seating.sofa"
+      },
+      {
+       "id": "coffee",
+       "role": "столик",
+       "near": "seating.sofa",
+       "rule_ref": "distances_cm.sofa_coffee_table_preferred"
+      },
+      {
+       "id": "rug",
+       "role": "ковёр",
+       "near": "seating.sofa",
+       "rule_ref": "distances_cm.rug_to_wall"
+      },
+      {
+       "id": "armchair",
+       "role": "кресло",
+       "near": "seating.coffee",
+       "rule_ref": "distances_cm.seats_group_max"
+      }
+     ],
+     "_why": "два дивана Г + кресло; визави при обязательном ТВ нельзя (Codex §2, L2)"
+    }
+   }
+  },
+  "soft": {
+   "roles": [
+    "подушка",
+    "плед"
+   ],
+   "variants": {
+    "pillows_throw": {
+     "dependents": [
+      {
+       "id": "pillows",
+       "role": "подушка",
+       "carrier": {
+        "slot_ref": "seating.sofa"
+       },
+       "anchor": {
+        "kind": "item_surface",
+        "surface": "seat"
+       },
+       "cardinality": {
+        "kind": "by_carrier_width",
+        "rule_ref": "distances_cm.dependents.sofa_pillow_count"
+       },
+       "fit": {
+        "kind": "surface_fit",
+        "rule_ref": "distances_cm.dependents.sofa_pillow_count"
+       },
+       "symmetry": "balanced",
+       "on_failure": "reject_composition"
+      },
+      {
+       "id": "throw",
+       "role": "плед",
+       "carrier": {
+        "slot_ref": "seating.sofa"
+       },
+       "anchor": {
+        "kind": "item_edge",
+        "surface": "arm_or_back"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "drape",
+        "rule_ref": "distances_cm.dependents.throw_drape"
+       },
+       "symmetry": "none",
+       "on_failure": "reject_composition"
+      }
+     ],
+     "_why": "подушки на сиденье дивана по его ширине, плед на подлокотнике (иначе на спинке) — предмет не выкидывается"
+    },
+    "pillows_throw_two_sofas": {
+     "dependents": [
+      {
+       "id": "pillows",
+       "role": "подушка",
+       "carrier": {
+        "slot_ref": "seating.sofa"
+       },
+       "anchor": {
+        "kind": "item_surface",
+        "surface": "seat"
+       },
+       "cardinality": {
+        "kind": "by_carrier_width",
+        "rule_ref": "distances_cm.dependents.sofa_pillow_count"
+       },
+       "fit": {
+        "kind": "surface_fit",
+        "rule_ref": "distances_cm.dependents.sofa_pillow_count"
+       },
+       "symmetry": "balanced",
+       "on_failure": "reject_composition"
+      },
+      {
+       "id": "pillows2",
+       "role": "подушка",
+       "carrier": {
+        "slot_ref": "seating.sofa2"
+       },
+       "anchor": {
+        "kind": "item_surface",
+        "surface": "seat"
+       },
+       "cardinality": {
+        "kind": "by_carrier_width",
+        "rule_ref": "distances_cm.dependents.sofa_pillow_count"
+       },
+       "fit": {
+        "kind": "surface_fit",
+        "rule_ref": "distances_cm.dependents.sofa_pillow_count"
+       },
+       "symmetry": "balanced",
+       "on_failure": "reject_composition"
+      },
+      {
+       "id": "throw",
+       "role": "плед",
+       "carrier": {
+        "slot_ref": "seating.sofa"
+       },
+       "anchor": {
+        "kind": "item_edge",
+        "surface": "arm_or_back"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "drape",
+        "rule_ref": "distances_cm.dependents.throw_drape"
+       },
+       "symmetry": "none",
+       "on_failure": "reject_composition"
+      }
+     ],
+     "_why": "L2: подушки на обоих диванах"
+    }
+   }
+  },
+  "media": {
+   "roles": [
+    "тв-тумба"
+   ],
+   "variants": {
+    "tv_stand": {
+     "geometry_ref": "media.media_centered",
+     "slots": [
+      {
+       "id": "tv_stand",
+       "role": "тв-тумба"
+      }
+     ],
+     "dependents": [
+      {
+       "id": "screen",
+       "role": "экран",
+       "carrier": {
+        "slot_ref": "media.tv_stand"
+       },
+       "anchor": {
+        "kind": "wall_above",
+        "surface": "wall"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "screen",
+        "rule_ref": "distances_cm.mounting.tv_screen"
+       },
+       "symmetry": "centered",
+       "sellable": false,
+       "marker": "virtual_screen",
+       "on_failure": "reject_composition"
+      }
+     ],
+     "_why": "экран — виртуальная часть тумбы (templates.json zones.media virtual_screen): места занимает, товаром не продаётся"
+    }
+   }
+  },
+  "light": {
+   "roles": [
+    "комод",
+    "лампа",
+    "торшер",
+    "приставной"
+   ],
+   "variants": {
+    "dresser_lamp": {
+     "geometry_ref": "storage.storage_perimeter",
+     "slots": [
+      {
+       "id": "dresser",
+       "role": "комод"
+      }
+     ],
+     "dependents": [
+      {
+       "id": "lamp",
+       "role": "лампа",
+       "carrier": {
+        "slot_ref": "light.dresser"
+       },
+       "anchor": {
+        "kind": "item_surface",
+        "surface": "top"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "fit": {
+        "kind": "surface_fit",
+        "rule_ref": "distances_cm.dependents.surface_decor"
+       },
+       "symmetry": "none",
+       "on_failure": "reject_composition"
+      }
+     ],
+     "_why": "комод + лампа на нём (приставных столиков в каталоге 0 — Codex §5); хранение и локальный свет одной группой"
+    },
+    "floor_lamp": {
+     "geometry_ref": "seating.sofa_lamp_group",
+     "slots": [
+      {
+       "id": "floor_lamp",
+       "role": "торшер",
+       "near": "seating.sofa",
+       "rule_ref": "distances_cm.side_table_to_armrest"
+      }
+     ],
+     "_why": "торшер у подлокотника ВМЕСТО «комод + лампа» — отдельный уровень, не выкидывание лампы"
+    },
+    "side_table_lamp": {
+     "geometry_ref": "reading.corner_vignette",
+     "slots": [
+      {
+       "id": "side_table",
+       "role": "приставной",
+       "near": "seating.sofa",
+       "rule_ref": "distances_cm.side_table_to_armrest"
+      }
+     ],
+     "dependents": [
+      {
+       "id": "lamp",
+       "role": "лампа",
+       "carrier": {
+        "slot_ref": "light.side_table"
+       },
+       "anchor": {
+        "kind": "item_surface",
+        "surface": "top"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "fit": {
+        "kind": "surface_fit",
+        "rule_ref": "distances_cm.dependents.surface_decor"
+       },
+       "symmetry": "none",
+       "on_failure": "reject_composition"
+      }
+     ],
+     "_why": "лампа на приставном столике (Codex §3 — первый вариант); в уровнях нет, пока роли нет в каталоге"
+    }
+   }
+  },
+  "dining": {
+   "roles": [
+    "стол обеденный",
+    "стул"
+   ],
+   "variants": {
+    "table_2": {
+     "geometry_ref": "dining",
+     "slots": [
+      {
+       "id": "table",
+       "role": "стол обеденный"
+      },
+      {
+       "id": "chairs",
+       "role": "стул",
+       "count": 2,
+       "near": "dining.table",
+       "rule_ref": "distances_cm.dining_chair_pullout"
+      }
+     ],
+     "_why": "стол + 2 стула; схему (остров, у стены, круглый…) перебирает движок"
+    },
+    "table_4": {
+     "geometry_ref": "dining",
+     "slots": [
+      {
+       "id": "table",
+       "role": "стол обеденный"
+      },
+      {
+       "id": "chairs",
+       "role": "стул",
+       "count": 4,
+       "near": "dining.table",
+       "rule_ref": "distances_cm.dining_chair_pullout"
+      }
+     ],
+     "_why": "стол + 4 стула; схему (остров, у стены, круглый…) перебирает движок"
+    },
+    "table_6": {
+     "geometry_ref": "dining",
+     "slots": [
+      {
+       "id": "table",
+       "role": "стол обеденный"
+      },
+      {
+       "id": "chairs",
+       "role": "стул",
+       "count": 6,
+       "near": "dining.table",
+       "rule_ref": "distances_cm.dining_chair_pullout"
+      }
+     ],
+     "_why": "стол + 6 стульев; схему (остров, у стены, круглый…) перебирает движок"
+    },
+    "table_2_compact": {
+     "geometry_ref": "dining.dining_round_compact",
+     "slots": [
+      {
+       "id": "table",
+       "role": "стол обеденный"
+      },
+      {
+       "id": "chairs",
+       "role": "стул",
+       "count": 2,
+       "near": "dining.table",
+       "rule_ref": "distances_cm.dining_chair_pullout"
+      }
+     ],
+     "_why": "компактный стол на 2 (самый малый в банке)"
+    }
+   }
+  },
+  "vase": {
+   "roles": [
+    "ваза"
+   ],
+   "variants": {
+    "vase_on_coffee": {
+     "dependents": [
+      {
+       "id": "vase",
+       "role": "ваза",
+       "carrier": {
+        "slot_ref": "seating.coffee"
+       },
+       "anchor": {
+        "kind": "item_surface",
+        "surface": "top"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "fit": {
+        "kind": "surface_fit",
+        "rule_ref": "distances_cm.dependents.surface_decor"
+       },
+       "symmetry": "none",
+       "on_failure": "reject_composition"
+      }
+     ],
+     "_why": "ваза в задней четверти столика, не в центре (Codex §3)"
+    },
+    "vase_on_dresser": {
+     "dependents": [
+      {
+       "id": "vase",
+       "role": "ваза",
+       "carrier": {
+        "slot_ref": "light.dresser"
+       },
+       "anchor": {
+        "kind": "item_surface",
+        "surface": "top"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "fit": {
+        "kind": "surface_fit",
+        "rule_ref": "distances_cm.dependents.surface_decor"
+       },
+       "symmetry": "none",
+       "on_failure": "reject_composition"
+      }
+     ],
+     "_why": "ваза на комоде — в уровнях пока нет (схемы Т0 ставят на столик)"
+    }
+   }
+  },
+  "art": {
+   "roles": [
+    "картина"
+   ],
+   "variants": {
+    "over_sofa_or_dresser": {
+     "dependents": [
+      {
+       "id": "art",
+       "role": "картина",
+       "carrier": {
+        "one_of": [
+         "seating.sofa",
+         "light.dresser"
+        ]
+       },
+       "anchor": {
+        "kind": "wall_above",
+        "surface": "wall"
+       },
+       "cardinality": {
+        "kind": "by_carrier_width",
+        "rule_ref": "distances_cm.mounting.wall_art"
+       },
+       "placement": {
+        "kind": "wall_mount",
+        "rule_ref": "distances_cm.mounting.wall_art"
+       },
+       "symmetry": "pair",
+       "on_failure": "reject_composition"
+      }
+     ],
+     "_why": "над диваном (глухой участок стены), иначе над комодом — как схемы Т0 (`living_schemes.py:soft_marks`)"
+    },
+    "over_dresser": {
+     "dependents": [
+      {
+       "id": "art",
+       "role": "картина",
+       "carrier": {
+        "slot_ref": "light.dresser"
+       },
+       "anchor": {
+        "kind": "wall_above",
+        "surface": "wall"
+       },
+       "cardinality": {
+        "kind": "by_carrier_width",
+        "rule_ref": "distances_cm.mounting.wall_art"
+       },
+       "placement": {
+        "kind": "wall_mount",
+        "rule_ref": "distances_cm.mounting.wall_art"
+       },
+       "symmetry": "pair",
+       "on_failure": "reject_composition"
+      }
+     ],
+     "_why": "O1: диван посреди комнаты — не опора картины (wall-art.json back_gap_cm), только комод"
+    }
+   }
+  },
+  "ceiling": {
+   "roles": [
+    "люстра"
+   ],
+   "variants": {
+    "chandelier_seating": {
+     "dependents": [
+      {
+       "id": "chandelier",
+       "role": "люстра",
+       "carrier": {
+        "zone": "seating"
+       },
+       "anchor": {
+        "kind": "ceiling_over"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "ceiling_mount",
+        "rule_ref": "distances_cm.mounting.chandelier"
+       },
+       "symmetry": "centered",
+       "on_failure": "reject_composition"
+      }
+     ],
+     "_why": "люстра над центром посадочного ковра/зоны (Codex §3)"
+    },
+    "chandelier_and_dining_pendant": {
+     "dependents": [
+      {
+       "id": "chandelier",
+       "role": "люстра",
+       "carrier": {
+        "zone": "seating"
+       },
+       "anchor": {
+        "kind": "ceiling_over"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "ceiling_mount",
+        "rule_ref": "distances_cm.mounting.chandelier"
+       },
+       "symmetry": "centered",
+       "on_failure": "reject_composition"
+      },
+      {
+       "id": "pendant",
+       "role": "люстра",
+       "carrier": {
+        "slot_ref": "dining.table"
+       },
+       "anchor": {
+        "kind": "ceiling_over"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "ceiling_mount",
+        "rule_ref": "distances_cm.mounting.chandelier"
+       },
+       "symmetry": "centered",
+       "on_failure": "reject_composition"
+      }
+     ],
+     "_why": "O1: два потолочных места — над посадкой и над фактическим столом (71–89 от столешницы)"
+    }
+   }
+  },
+  "textile": {
+   "roles": [
+    "шторы"
+   ],
+   "variants": {
+    "curtains": {
+     "dependents": [
+      {
+       "id": "curtains",
+       "role": "шторы",
+       "carrier": {
+        "support": "window"
+       },
+       "anchor": {
+        "kind": "opening"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "rod",
+        "rule_ref": "distances_cm.mounting.curtains"
+       },
+       "symmetry": "centered",
+       "when": [
+        {
+         "kind": "room_has_window"
+        }
+       ],
+       "on_failure": "reject_composition"
+      }
+     ],
+     "_why": "шторы по проёму окна; окна нет — места нет (условие комнаты, не выкидывание)"
+    }
+   }
+  },
+  "plant": {
+   "roles": [
+    "кашпо"
+   ],
+   "variants": {
+    "floor": {
+     "geometry_ref": "decor",
+     "slots": [
+      {
+       "id": "planter",
+       "role": "кашпо"
+      }
+     ],
+     "_why": "напольное кашпо — обычное место пола (угол или сбоку окна), не на носителе; проходы и радиатор — как у мебели"
+    },
+    "bay": {
+     "geometry_ref": "decor.bay_plant",
+     "slots": [
+      {
+       "id": "planter",
+       "role": "кашпо"
+      }
+     ],
+     "_why": "кашпо в эркере (X1)"
+    },
+    "wall": {
+     "dependents": [
+      {
+       "id": "planter",
+       "role": "кашпо",
+       "carrier": {
+        "support": "wall"
+       },
+       "anchor": {
+        "kind": "wall_above",
+        "surface": "wall",
+        "of": "free_wall"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "wall_mount",
+        "rule_ref": "distances_cm.mounting.wall_planter"
+       },
+       "symmetry": "none",
+       "on_failure": "reject_composition"
+      }
+     ],
+     "_why": "настенное кашпо — отдельное место на свободной стене; в уровнях пока нет (не было в схемах Т0)"
+    }
+   }
+  },
+  "reading": {
+   "roles": [
+    "кресло"
+   ],
+   "variants": {
+    "bay_armchair": {
+     "geometry_ref": "reading.bay_anchor",
+     "slots": [
+      {
+       "id": "armchair",
+       "role": "кресло"
+      }
+     ],
+     "_why": "кресло чтения в эркере лицом в комнату (X1)"
+    },
+    "window_armchair": {
+     "geometry_ref": "reading.window_anchor",
+     "slots": [
+      {
+       "id": "armchair",
+       "role": "кресло"
+      }
+     ],
+     "_why": "кресло у окна лицом в комнату (X1, окно без эркера)"
+    }
+   }
+  }
+ },
+ "order": [
+  "seating",
+  "media",
+  "light",
+  "dining",
+  "soft",
+  "vase",
+  "art",
+  "ceiling",
+  "textile",
+  "plant",
+  "reading"
+ ],
+ "selection": [
+  {
+   "when": [
+    {
+     "kind": "kitchen"
+    }
+   ],
+   "order": [
+    "LR-O1",
+    "LR-O2"
+   ],
+   "label": "кухня-гостиная: диван-разделитель, иначе всё у стен"
+  },
+  {
+   "when": [
+    {
+     "kind": "annex"
+    }
+   ],
+   "order": [
+    "LR-L1",
+    "LR-M1"
+   ],
+   "label": "Г-образная: П-композиция в основном прямоугольнике, хвост — столовая"
+  },
+  {
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.living_select.two_sofas_m2"
+    }
+   ],
+   "order": [
+    "LR-L2",
+    "LR-L1"
+   ],
+   "label": "≥ 38 м²: два дивана Г, иначе П"
+  },
+  {
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.living_select.large_m2"
+    }
+   ],
+   "order": [
+    "LR-L1",
+    "LR-M1",
+    "LR-C3"
+   ],
+   "label": "28–38 м²: П-композиция"
+  },
+  {
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.living_select.base_full_m2"
+    },
+    {
+     "kind": "aspect_min",
+     "rule_ref": "distances_cm.living_select.elongated_aspect_min"
+    }
+   ],
+   "order": [
+    "LR-C2",
+    "LR-M1"
+   ],
+   "label": "16–28 м², вытянутая: посадка вдоль длинной стены"
+  },
+  {
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.living_select.base_full_m2"
+    }
+   ],
+   "order": [
+    "LR-M1",
+    "LR-C3",
+    "LR-C1"
+   ],
+   "label": "16–28 м²: диван + кресло"
+  },
+  {
+   "when": [
+    {
+     "kind": "aspect_min",
+     "rule_ref": "distances_cm.living_select.elongated_aspect_min"
+    }
+   ],
+   "order": [
+    "LR-C2",
+    "LR-C1"
+   ],
+   "label": "< 16 м², вытянутая"
+  },
+  {
+   "when": [],
+   "order": [
+    "LR-C1",
+    "LR-C2"
+   ],
+   "label": "< 16 м²: диван и ТВ на противоположных стенах"
+  }
+ ],
+ "templates": [
+  {
+   "id": "LR-C1",
+   "label": "компактная: диван и ТВ на противоположных стенах (12–17 м², пропорции до ~1:1,4)",
+   "purpose": [
+    "living"
+   ],
+   "priority": 10,
+   "anchors": {
+    "seating_wall": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid_or_door_clear"
+     ]
+    },
+    "media_wall": {
+     "type": "wall_segment",
+     "relation": "opposite_seating_wall"
+    },
+    "window": {
+     "type": "window"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "door_swing_clear"
+    },
+    {
+     "kind": "radiator_clear",
+     "rule_ref": "distances_cm.sofa_to_radiator_wall"
+    },
+    {
+     "kind": "route",
+     "from": "entry_door",
+     "to": [
+      "seating",
+      "window"
+     ],
+     "rule_ref": "distances_cm.passage_main"
+    },
+    {
+     "kind": "tv_visibility",
+     "from": "sofa",
+     "to": "media",
+     "rule_ref": "distances_cm.sofa_tv_diagonals"
+    }
+   ],
+   "groups": [
+    {
+     "id": "seating",
+     "variants": [
+      "sofa_armchair",
+      "sofa_table_rug"
+     ],
+     "required": true
+    },
+    {
+     "id": "media",
+     "variants": [
+      "tv_stand"
+     ],
+     "required": true
+    },
+    {
+     "id": "light",
+     "variants": [
+      "dresser_lamp",
+      "floor_lamp"
+     ],
+     "required": true
+    },
+    {
+     "id": "dining",
+     "variants": [
+      "table_4",
+      "table_2",
+      "table_2_compact"
+     ],
+     "required": false
+    },
+    {
+     "id": "soft",
+     "variants": [
+      "pillows_throw"
+     ],
+     "required": true
+    },
+    {
+     "id": "vase",
+     "variants": [
+      "vase_on_coffee"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_sofa_or_dresser"
+     ],
+     "required": true
+    },
+    {
+     "id": "ceiling",
+     "variants": [
+      "chandelier_seating"
+     ],
+     "required": true
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "curtains"
+     ],
+     "required": true
+    },
+    {
+     "id": "plant",
+     "variants": [
+      "floor"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "media_opposite_primary_seat"
+    },
+    {
+     "kind": "no_route_between_sofa_and_coffee"
+    },
+    {
+     "kind": "children_follow_actual_carrier"
+    },
+    {
+     "kind": "curtains_follow_opening"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_4"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + стол на 4 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "диван + кресло + ТВ + торшер + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "A2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 2 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2_compact"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + компактный стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 2 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2_compact"
+     },
+     "label": "диван + кресло + ТВ + торшер + компактный стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; бюджет столовой 2 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "SA",
+     "when": [
+      {
+       "kind": "area_below",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      }
+     ],
+     "use": {
+      "seating": "sofa_table_rug",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "dining": "table_2",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser"
+     },
+     "label": "диван, столик, ковёр + ТВ + комод + лампа + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "без кресла (< 16 м²), стол на 2, ваза и кашпо"
+    },
+    {
+     "id": "SB",
+     "when": [
+      {
+       "kind": "area_below",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      }
+     ],
+     "use": {
+      "seating": "sofa_table_rug",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "dining": "table_2",
+      "art": "over_sofa_or_dresser"
+     },
+     "label": "диван, столик, ковёр + ТВ + комод + лампа + стол на 2 + подушки, плед, люстра, шторы, картины",
+     "_why": "без вазы и кашпо"
+    },
+    {
+     "id": "SC",
+     "when": [
+      {
+       "kind": "area_below",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      }
+     ],
+     "use": {
+      "seating": "sofa_table_rug",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "dining": "table_2_compact",
+      "art": "over_sofa_or_dresser"
+     },
+     "label": "диван, столик, ковёр + ТВ + комод + лампа + компактный стол на 2 + подушки, плед, люстра, шторы, картины",
+     "_why": "компактный стол на 2"
+    },
+    {
+     "id": "SD",
+     "when": [
+      {
+       "kind": "area_below",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      }
+     ],
+     "use": {
+      "seating": "sofa_table_rug",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "dining": "table_2_compact",
+      "art": "over_sofa_or_dresser"
+     },
+     "label": "диван, столик, ковёр + ТВ + торшер + компактный стол на 2 + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»"
+    },
+    {
+     "id": "SE",
+     "when": [
+      {
+       "kind": "area_below",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      }
+     ],
+     "use": {
+      "seating": "sofa_table_rug",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "art": "over_sofa_or_dresser"
+     },
+     "label": "диван, столик, ковёр + ТВ + торшер + без столовой + подушки, плед, люстра, шторы, картины",
+     "_why": "без столовой — последним и с причиной"
+    }
+   ],
+   "invariants": [
+    "required_groups_complete",
+    "sku_dimensions_intact",
+    "dependent_slots_have_carrier",
+    "door_clear",
+    "required_routes",
+    "tv_visible",
+    "no_silent_unplaced"
+   ],
+   "selection_tags": [
+    "opposed_media",
+    "compact",
+    "wall_role_based"
+   ]
+  },
+  {
+   "id": "LR-C2",
+   "label": "вытянутая: посадка вдоль длинной стены, проход сбоку (14–22 м²)",
+   "purpose": [
+    "living"
+   ],
+   "priority": 20,
+   "anchors": {
+    "seating_wall": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "long_wall",
+      "solid_or_door_clear"
+     ]
+    },
+    "media_wall": {
+     "type": "wall_segment",
+     "relation": "opposite_seating_wall"
+    },
+    "window": {
+     "type": "window"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "door_swing_clear"
+    },
+    {
+     "kind": "radiator_clear",
+     "rule_ref": "distances_cm.sofa_to_radiator_wall"
+    },
+    {
+     "kind": "route",
+     "from": "entry_door",
+     "to": [
+      "seating",
+      "window"
+     ],
+     "rule_ref": "distances_cm.passage_main"
+    },
+    {
+     "kind": "tv_visibility",
+     "from": "sofa",
+     "to": "media",
+     "rule_ref": "distances_cm.sofa_tv_diagonals"
+    }
+   ],
+   "groups": [
+    {
+     "id": "seating",
+     "variants": [
+      "sofa_armchair",
+      "sofa_table_rug"
+     ],
+     "required": true
+    },
+    {
+     "id": "media",
+     "variants": [
+      "tv_stand"
+     ],
+     "required": true
+    },
+    {
+     "id": "light",
+     "variants": [
+      "dresser_lamp",
+      "floor_lamp"
+     ],
+     "required": true
+    },
+    {
+     "id": "dining",
+     "variants": [
+      "table_4",
+      "table_2",
+      "table_2_compact"
+     ],
+     "required": false
+    },
+    {
+     "id": "soft",
+     "variants": [
+      "pillows_throw"
+     ],
+     "required": true
+    },
+    {
+     "id": "vase",
+     "variants": [
+      "vase_on_coffee"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_sofa_or_dresser"
+     ],
+     "required": true
+    },
+    {
+     "id": "ceiling",
+     "variants": [
+      "chandelier_seating"
+     ],
+     "required": true
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "curtains"
+     ],
+     "required": true
+    },
+    {
+     "id": "plant",
+     "variants": [
+      "floor"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "media_opposite_primary_seat"
+    },
+    {
+     "kind": "no_route_between_sofa_and_coffee"
+    },
+    {
+     "kind": "children_follow_actual_carrier"
+    },
+    {
+     "kind": "curtains_follow_opening"
+    },
+    {
+     "kind": "seating_along_long_wall"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_4"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + стол на 4 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "диван + кресло + ТВ + торшер + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "A2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 2 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2_compact"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + компактный стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 2 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2_compact"
+     },
+     "label": "диван + кресло + ТВ + торшер + компактный стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; бюджет столовой 2 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "SA",
+     "when": [
+      {
+       "kind": "area_below",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      }
+     ],
+     "use": {
+      "seating": "sofa_table_rug",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "dining": "table_2",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser"
+     },
+     "label": "диван, столик, ковёр + ТВ + комод + лампа + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "без кресла (< 16 м²), стол на 2, ваза и кашпо"
+    },
+    {
+     "id": "SB",
+     "when": [
+      {
+       "kind": "area_below",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      }
+     ],
+     "use": {
+      "seating": "sofa_table_rug",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "dining": "table_2",
+      "art": "over_sofa_or_dresser"
+     },
+     "label": "диван, столик, ковёр + ТВ + комод + лампа + стол на 2 + подушки, плед, люстра, шторы, картины",
+     "_why": "без вазы и кашпо"
+    },
+    {
+     "id": "SC",
+     "when": [
+      {
+       "kind": "area_below",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      }
+     ],
+     "use": {
+      "seating": "sofa_table_rug",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "dining": "table_2_compact",
+      "art": "over_sofa_or_dresser"
+     },
+     "label": "диван, столик, ковёр + ТВ + комод + лампа + компактный стол на 2 + подушки, плед, люстра, шторы, картины",
+     "_why": "компактный стол на 2"
+    },
+    {
+     "id": "SD",
+     "when": [
+      {
+       "kind": "area_below",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      }
+     ],
+     "use": {
+      "seating": "sofa_table_rug",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "dining": "table_2_compact",
+      "art": "over_sofa_or_dresser"
+     },
+     "label": "диван, столик, ковёр + ТВ + торшер + компактный стол на 2 + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»"
+    },
+    {
+     "id": "SE",
+     "when": [
+      {
+       "kind": "area_below",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      }
+     ],
+     "use": {
+      "seating": "sofa_table_rug",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "art": "over_sofa_or_dresser"
+     },
+     "label": "диван, столик, ковёр + ТВ + торшер + без столовой + подушки, плед, люстра, шторы, картины",
+     "_why": "без столовой — последним и с причиной"
+    }
+   ],
+   "invariants": [
+    "required_groups_complete",
+    "sku_dimensions_intact",
+    "dependent_slots_have_carrier",
+    "door_clear",
+    "required_routes",
+    "tv_visible",
+    "no_silent_unplaced"
+   ],
+   "selection_tags": [
+    "elongated",
+    "side_route",
+    "wall_role_based"
+   ]
+  },
+  {
+   "id": "LR-C3",
+   "label": "угловой диван в углу, ТВ напротив (18–28 м²)",
+   "purpose": [
+    "living"
+   ],
+   "priority": 30,
+   "anchors": {
+    "seating_corner": {
+     "type": "corner",
+     "relation": "solid_walls"
+    },
+    "media_wall": {
+     "type": "wall_segment",
+     "relation": "facing_corner_sofa"
+    },
+    "window": {
+     "type": "window"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "door_swing_clear"
+    },
+    {
+     "kind": "radiator_clear",
+     "rule_ref": "distances_cm.sofa_to_radiator_wall"
+    },
+    {
+     "kind": "route",
+     "from": "entry_door",
+     "to": [
+      "seating",
+      "window"
+     ],
+     "rule_ref": "distances_cm.passage_main"
+    },
+    {
+     "kind": "tv_visibility",
+     "from": "sofa",
+     "to": "media",
+     "rule_ref": "distances_cm.sofa_tv_diagonals"
+    }
+   ],
+   "groups": [
+    {
+     "id": "seating",
+     "variants": [
+      "corner_sofa"
+     ],
+     "required": true
+    },
+    {
+     "id": "media",
+     "variants": [
+      "tv_stand"
+     ],
+     "required": true
+    },
+    {
+     "id": "light",
+     "variants": [
+      "dresser_lamp",
+      "floor_lamp"
+     ],
+     "required": true
+    },
+    {
+     "id": "dining",
+     "variants": [
+      "table_4",
+      "table_2",
+      "table_2_compact"
+     ],
+     "required": true
+    },
+    {
+     "id": "soft",
+     "variants": [
+      "pillows_throw"
+     ],
+     "required": true
+    },
+    {
+     "id": "vase",
+     "variants": [
+      "vase_on_coffee"
+     ],
+     "required": true
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_sofa_or_dresser"
+     ],
+     "required": true
+    },
+    {
+     "id": "ceiling",
+     "variants": [
+      "chandelier_seating"
+     ],
+     "required": true
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "curtains"
+     ],
+     "required": true
+    },
+    {
+     "id": "plant",
+     "variants": [
+      "floor"
+     ],
+     "required": true
+    }
+   ],
+   "relations": [
+    {
+     "kind": "media_opposite_primary_seat"
+    },
+    {
+     "kind": "no_route_between_sofa_and_coffee"
+    },
+    {
+     "kind": "children_follow_actual_carrier"
+    },
+    {
+     "kind": "curtains_follow_opening"
+    },
+    {
+     "kind": "corner_sofa_in_corner"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "corner_sofa",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_4"
+     },
+     "label": "угловой диван + ТВ + комод + лампа + стол на 4 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "corner_sofa",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "угловой диван + ТВ + комод + лампа + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "corner_sofa",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "угловой диван + ТВ + торшер + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "A2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "corner_sofa",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "угловой диван + ТВ + комод + лампа + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 2 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "corner_sofa",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2_compact"
+     },
+     "label": "угловой диван + ТВ + комод + лампа + компактный стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 2 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "corner_sofa",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2_compact"
+     },
+     "label": "угловой диван + ТВ + торшер + компактный стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; бюджет столовой 2 (zones.json seats_by_room_m2)"
+    }
+   ],
+   "invariants": [
+    "required_groups_complete",
+    "sku_dimensions_intact",
+    "dependent_slots_have_carrier",
+    "door_clear",
+    "required_routes",
+    "tv_visible",
+    "no_silent_unplaced"
+   ],
+   "selection_tags": [
+    "corner_sofa",
+    "handedness"
+   ]
+  },
+  {
+   "id": "LR-M1",
+   "label": "диван + кресло (16–26 м²)",
+   "purpose": [
+    "living"
+   ],
+   "priority": 40,
+   "anchors": {
+    "seating_wall": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid_or_door_clear"
+     ]
+    },
+    "media_wall": {
+     "type": "wall_segment",
+     "relation": "opposite_seating_wall"
+    },
+    "window": {
+     "type": "window"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "door_swing_clear"
+    },
+    {
+     "kind": "radiator_clear",
+     "rule_ref": "distances_cm.sofa_to_radiator_wall"
+    },
+    {
+     "kind": "route",
+     "from": "entry_door",
+     "to": [
+      "seating",
+      "window"
+     ],
+     "rule_ref": "distances_cm.passage_main"
+    },
+    {
+     "kind": "tv_visibility",
+     "from": "sofa",
+     "to": "media",
+     "rule_ref": "distances_cm.sofa_tv_diagonals"
+    }
+   ],
+   "groups": [
+    {
+     "id": "seating",
+     "variants": [
+      "sofa_armchair"
+     ],
+     "required": true
+    },
+    {
+     "id": "media",
+     "variants": [
+      "tv_stand"
+     ],
+     "required": true
+    },
+    {
+     "id": "light",
+     "variants": [
+      "dresser_lamp",
+      "floor_lamp"
+     ],
+     "required": true
+    },
+    {
+     "id": "dining",
+     "variants": [
+      "table_6",
+      "table_4",
+      "table_2",
+      "table_2_compact"
+     ],
+     "required": true
+    },
+    {
+     "id": "soft",
+     "variants": [
+      "pillows_throw"
+     ],
+     "required": true
+    },
+    {
+     "id": "vase",
+     "variants": [
+      "vase_on_coffee"
+     ],
+     "required": true
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_sofa_or_dresser"
+     ],
+     "required": true
+    },
+    {
+     "id": "ceiling",
+     "variants": [
+      "chandelier_seating"
+     ],
+     "required": true
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "curtains"
+     ],
+     "required": true
+    },
+    {
+     "id": "plant",
+     "variants": [
+      "floor"
+     ],
+     "required": true
+    }
+   ],
+   "relations": [
+    {
+     "kind": "media_opposite_primary_seat"
+    },
+    {
+     "kind": "no_route_between_sofa_and_coffee"
+    },
+    {
+     "kind": "children_follow_actual_carrier"
+    },
+    {
+     "kind": "curtains_follow_opening"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A6",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 6
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_6"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + стол на 6 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 6 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B6",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 6
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_4"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + стол на 4 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 6 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D6",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 6
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_4"
+     },
+     "label": "диван + кресло + ТВ + торшер + стол на 4 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; бюджет столовой 6 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "A4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_4"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + стол на 4 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "диван + кресло + ТВ + торшер + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "A2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 2 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2_compact"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + компактный стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 2 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2_compact"
+     },
+     "label": "диван + кресло + ТВ + торшер + компактный стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; бюджет столовой 2 (zones.json seats_by_room_m2)"
+    }
+   ],
+   "invariants": [
+    "required_groups_complete",
+    "sku_dimensions_intact",
+    "dependent_slots_have_carrier",
+    "door_clear",
+    "required_routes",
+    "tv_visible",
+    "no_silent_unplaced"
+   ],
+   "selection_tags": [
+    "sofa_armchair",
+    "wall_role_based"
+   ]
+  },
+  {
+   "id": "LR-L1",
+   "label": "большая П-композиция: диван + два кресла, хранение, ваза, кашпо (28–40 м²)",
+   "purpose": [
+    "living"
+   ],
+   "priority": 50,
+   "anchors": {
+    "seating_wall": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid_or_door_clear"
+     ]
+    },
+    "media_wall": {
+     "type": "wall_segment",
+     "relation": "opposite_seating_wall"
+    },
+    "window": {
+     "type": "window"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "door_swing_clear"
+    },
+    {
+     "kind": "radiator_clear",
+     "rule_ref": "distances_cm.sofa_to_radiator_wall"
+    },
+    {
+     "kind": "route",
+     "from": "entry_door",
+     "to": [
+      "seating",
+      "window"
+     ],
+     "rule_ref": "distances_cm.passage_main"
+    },
+    {
+     "kind": "tv_visibility",
+     "from": "sofa",
+     "to": "media",
+     "rule_ref": "distances_cm.sofa_tv_diagonals"
+    }
+   ],
+   "groups": [
+    {
+     "id": "seating",
+     "variants": [
+      "u_sofa_2armchairs"
+     ],
+     "required": true
+    },
+    {
+     "id": "media",
+     "variants": [
+      "tv_stand"
+     ],
+     "required": true
+    },
+    {
+     "id": "light",
+     "variants": [
+      "dresser_lamp",
+      "floor_lamp"
+     ],
+     "required": true
+    },
+    {
+     "id": "dining",
+     "variants": [
+      "table_6",
+      "table_4",
+      "table_2",
+      "table_2_compact"
+     ],
+     "required": true
+    },
+    {
+     "id": "soft",
+     "variants": [
+      "pillows_throw"
+     ],
+     "required": true
+    },
+    {
+     "id": "vase",
+     "variants": [
+      "vase_on_coffee"
+     ],
+     "required": true
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_sofa_or_dresser"
+     ],
+     "required": true
+    },
+    {
+     "id": "ceiling",
+     "variants": [
+      "chandelier_seating"
+     ],
+     "required": true
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "curtains"
+     ],
+     "required": true
+    },
+    {
+     "id": "plant",
+     "variants": [
+      "floor"
+     ],
+     "required": true
+    }
+   ],
+   "relations": [
+    {
+     "kind": "media_opposite_primary_seat"
+    },
+    {
+     "kind": "no_route_between_sofa_and_coffee"
+    },
+    {
+     "kind": "children_follow_actual_carrier"
+    },
+    {
+     "kind": "curtains_follow_opening"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A6",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 6
+      }
+     ],
+     "use": {
+      "seating": "u_sofa_2armchairs",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_6"
+     },
+     "label": "диван + 2 кресла П + ТВ + комод + лампа + стол на 6 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 6 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B6",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 6
+      }
+     ],
+     "use": {
+      "seating": "u_sofa_2armchairs",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_4"
+     },
+     "label": "диван + 2 кресла П + ТВ + комод + лампа + стол на 4 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 6 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D6",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 6
+      }
+     ],
+     "use": {
+      "seating": "u_sofa_2armchairs",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_4"
+     },
+     "label": "диван + 2 кресла П + ТВ + торшер + стол на 4 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; бюджет столовой 6 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "A4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "u_sofa_2armchairs",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_4"
+     },
+     "label": "диван + 2 кресла П + ТВ + комод + лампа + стол на 4 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "u_sofa_2armchairs",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "диван + 2 кресла П + ТВ + комод + лампа + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "u_sofa_2armchairs",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "диван + 2 кресла П + ТВ + торшер + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "A2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "u_sofa_2armchairs",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "диван + 2 кресла П + ТВ + комод + лампа + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 2 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "u_sofa_2armchairs",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2_compact"
+     },
+     "label": "диван + 2 кресла П + ТВ + комод + лампа + компактный стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 2 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "u_sofa_2armchairs",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2_compact"
+     },
+     "label": "диван + 2 кресла П + ТВ + торшер + компактный стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; бюджет столовой 2 (zones.json seats_by_room_m2)"
+    }
+   ],
+   "invariants": [
+    "required_groups_complete",
+    "sku_dimensions_intact",
+    "dependent_slots_have_carrier",
+    "door_clear",
+    "required_routes",
+    "tv_visible",
+    "no_silent_unplaced"
+   ],
+   "selection_tags": [
+    "large",
+    "u_shape"
+   ]
+  },
+  {
+   "id": "LR-L2",
+   "label": "два дивана Г + кресло, только Г/П при ТВ (32+ м²)",
+   "purpose": [
+    "living"
+   ],
+   "priority": 60,
+   "anchors": {
+    "seating_corner": {
+     "type": "corner",
+     "relation": "l_joint"
+    },
+    "media_wall": {
+     "type": "wall_segment",
+     "relation": "facing_l_joint"
+    },
+    "window": {
+     "type": "window"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "door_swing_clear"
+    },
+    {
+     "kind": "radiator_clear",
+     "rule_ref": "distances_cm.sofa_to_radiator_wall"
+    },
+    {
+     "kind": "route",
+     "from": "entry_door",
+     "to": [
+      "seating",
+      "window"
+     ],
+     "rule_ref": "distances_cm.passage_main"
+    },
+    {
+     "kind": "tv_visibility",
+     "from": "sofa",
+     "to": "media",
+     "rule_ref": "distances_cm.sofa_tv_diagonals"
+    }
+   ],
+   "groups": [
+    {
+     "id": "seating",
+     "variants": [
+      "two_sofas_l_armchair"
+     ],
+     "required": true
+    },
+    {
+     "id": "media",
+     "variants": [
+      "tv_stand"
+     ],
+     "required": true
+    },
+    {
+     "id": "light",
+     "variants": [
+      "dresser_lamp",
+      "floor_lamp"
+     ],
+     "required": true
+    },
+    {
+     "id": "dining",
+     "variants": [
+      "table_6",
+      "table_4",
+      "table_2"
+     ],
+     "required": true
+    },
+    {
+     "id": "soft",
+     "variants": [
+      "pillows_throw_two_sofas"
+     ],
+     "required": true
+    },
+    {
+     "id": "vase",
+     "variants": [
+      "vase_on_coffee"
+     ],
+     "required": true
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_sofa_or_dresser"
+     ],
+     "required": true
+    },
+    {
+     "id": "ceiling",
+     "variants": [
+      "chandelier_seating"
+     ],
+     "required": true
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "curtains"
+     ],
+     "required": true
+    },
+    {
+     "id": "plant",
+     "variants": [
+      "floor"
+     ],
+     "required": true
+    }
+   ],
+   "relations": [
+    {
+     "kind": "media_opposite_primary_seat"
+    },
+    {
+     "kind": "no_route_between_sofa_and_coffee"
+    },
+    {
+     "kind": "children_follow_actual_carrier"
+    },
+    {
+     "kind": "curtains_follow_opening"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A6",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 6
+      }
+     ],
+     "use": {
+      "seating": "two_sofas_l_armchair",
+      "soft": "pillows_throw_two_sofas",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_6"
+     },
+     "label": "2 дивана Г + кресло + ТВ + комод + лампа + стол на 6 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 6 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B6",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 6
+      }
+     ],
+     "use": {
+      "seating": "two_sofas_l_armchair",
+      "soft": "pillows_throw_two_sofas",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_4"
+     },
+     "label": "2 дивана Г + кресло + ТВ + комод + лампа + стол на 4 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 6 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D6",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 6
+      }
+     ],
+     "use": {
+      "seating": "two_sofas_l_armchair",
+      "soft": "pillows_throw_two_sofas",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_4"
+     },
+     "label": "2 дивана Г + кресло + ТВ + торшер + стол на 4 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; бюджет столовой 6 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "A4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "two_sofas_l_armchair",
+      "soft": "pillows_throw_two_sofas",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_4"
+     },
+     "label": "2 дивана Г + кресло + ТВ + комод + лампа + стол на 4 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "two_sofas_l_armchair",
+      "soft": "pillows_throw_two_sofas",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "2 дивана Г + кресло + ТВ + комод + лампа + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "two_sofas_l_armchair",
+      "soft": "pillows_throw_two_sofas",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "2 дивана Г + кресло + ТВ + торшер + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; бюджет столовой 4 (zones.json seats_by_room_m2)"
+    }
+   ],
+   "invariants": [
+    "required_groups_complete",
+    "sku_dimensions_intact",
+    "dependent_slots_have_carrier",
+    "door_clear",
+    "required_routes",
+    "tv_visible",
+    "no_silent_unplaced"
+   ],
+   "selection_tags": [
+    "large",
+    "two_sofas",
+    "no_visavi_with_tv"
+   ]
+  },
+  {
+   "id": "LR-O1",
+   "label": "кухня-гостиная: диван-разделитель спинкой к кухне/столовой, два потолочных места (≥ 20–22 м²)",
+   "purpose": [
+    "kitchen_living"
+   ],
+   "priority": 10,
+   "anchors": {
+    "kitchen_boundary": {
+     "type": "zone_edge",
+     "of": "kitchen"
+    },
+    "media_wall": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid",
+      "outside_kitchen"
+     ]
+    },
+    "seating_axis": {
+     "type": "axis",
+     "relation": "parallel_kitchen_boundary"
+    },
+    "dining": {
+     "type": "free_zone",
+     "relation": "between_kitchen_and_seating_or_side"
+    },
+    "window": {
+     "type": "window"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "kitchen_zone_reserved"
+    },
+    {
+     "kind": "door_swing_clear"
+    },
+    {
+     "kind": "radiator_clear",
+     "rule_ref": "distances_cm.sofa_to_radiator_wall"
+    },
+    {
+     "kind": "route",
+     "from": "entry_door",
+     "to": [
+      "kitchen",
+      "dining",
+      "seating",
+      "window"
+     ],
+     "rule_ref": "distances_cm.passage_main"
+    },
+    {
+     "kind": "tv_visibility",
+     "from": "sofa",
+     "to": "media",
+     "rule_ref": "distances_cm.sofa_tv_diagonals"
+    },
+    {
+     "kind": "dining_operational_envelope",
+     "rule_ref": "distances_cm.dining_chair_pullout"
+    }
+   ],
+   "groups": [
+    {
+     "id": "seating",
+     "variants": [
+      "floating_sofa_armchair"
+     ],
+     "required": true
+    },
+    {
+     "id": "media",
+     "variants": [
+      "tv_stand"
+     ],
+     "required": true
+    },
+    {
+     "id": "light",
+     "variants": [
+      "dresser_lamp",
+      "floor_lamp"
+     ],
+     "required": true
+    },
+    {
+     "id": "dining",
+     "variants": [
+      "table_6",
+      "table_4",
+      "table_2",
+      "table_2_compact"
+     ],
+     "required": true
+    },
+    {
+     "id": "soft",
+     "variants": [
+      "pillows_throw"
+     ],
+     "required": true
+    },
+    {
+     "id": "vase",
+     "variants": [
+      "vase_on_coffee"
+     ],
+     "required": true
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_dresser"
+     ],
+     "required": false
+    },
+    {
+     "id": "ceiling",
+     "variants": [
+      "chandelier_and_dining_pendant"
+     ],
+     "required": true
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "curtains"
+     ],
+     "required": true
+    },
+    {
+     "id": "plant",
+     "variants": [
+      "floor"
+     ],
+     "required": true
+    }
+   ],
+   "relations": [
+    {
+     "kind": "media_opposite_primary_seat"
+    },
+    {
+     "kind": "no_route_between_sofa_and_coffee"
+    },
+    {
+     "kind": "children_follow_actual_carrier"
+    },
+    {
+     "kind": "curtains_follow_opening"
+    },
+    {
+     "kind": "sofa_back_faces_kitchen_or_dining"
+    },
+    {
+     "kind": "dining_pendant_follows_table"
+    },
+    {
+     "kind": "living_chandelier_follows_seating_zone"
+    },
+    {
+     "kind": "kitchen_route_not_cut_by_seating"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A6",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 6
+      }
+     ],
+     "use": {
+      "seating": "floating_sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_and_dining_pendant",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_dresser",
+      "dining": "table_6"
+     },
+     "label": "диван-разделитель + кресло + ТВ + комод + лампа + стол на 6 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 6 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B6",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 6
+      }
+     ],
+     "use": {
+      "seating": "floating_sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_and_dining_pendant",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_dresser",
+      "dining": "table_4"
+     },
+     "label": "диван-разделитель + кресло + ТВ + комод + лампа + стол на 4 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 6 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D6",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 6
+      }
+     ],
+     "use": {
+      "seating": "floating_sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_and_dining_pendant",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "dining": "table_4"
+     },
+     "label": "диван-разделитель + кресло + ТВ + торшер + стол на 4 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; картине нет опоры у стены — без картин; бюджет столовой 6 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "A4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "floating_sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_and_dining_pendant",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_dresser",
+      "dining": "table_4"
+     },
+     "label": "диван-разделитель + кресло + ТВ + комод + лампа + стол на 4 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "floating_sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_and_dining_pendant",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_dresser",
+      "dining": "table_2"
+     },
+     "label": "диван-разделитель + кресло + ТВ + комод + лампа + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "floating_sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_and_dining_pendant",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "dining": "table_2"
+     },
+     "label": "диван-разделитель + кресло + ТВ + торшер + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; картине нет опоры у стены — без картин; бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "A2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "floating_sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_and_dining_pendant",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_dresser",
+      "dining": "table_2"
+     },
+     "label": "диван-разделитель + кресло + ТВ + комод + лампа + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 2 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "floating_sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_and_dining_pendant",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_dresser",
+      "dining": "table_2_compact"
+     },
+     "label": "диван-разделитель + кресло + ТВ + комод + лампа + компактный стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 2 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "floating_sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_and_dining_pendant",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "dining": "table_2_compact"
+     },
+     "label": "диван-разделитель + кресло + ТВ + торшер + компактный стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; картине нет опоры у стены — без картин; бюджет столовой 2 (zones.json seats_by_room_m2)"
+    }
+   ],
+   "invariants": [
+    "required_groups_complete",
+    "sku_dimensions_intact",
+    "dependent_slots_have_carrier",
+    "door_clear",
+    "required_routes",
+    "tv_visible",
+    "no_silent_unplaced",
+    "kitchen_clear",
+    "dining_operational"
+   ],
+   "selection_tags": [
+    "open_plan",
+    "sofa_divider",
+    "two_ceiling_zones"
+   ]
+  },
+  {
+   "id": "LR-O2",
+   "label": "кухня-гостиная: всё у стен (18–26 м²)",
+   "purpose": [
+    "kitchen_living"
+   ],
+   "priority": 20,
+   "anchors": {
+    "kitchen_boundary": {
+     "type": "zone_edge",
+     "of": "kitchen"
+    },
+    "seating_wall": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "outside_kitchen"
+     ]
+    },
+    "media_wall": {
+     "type": "wall_segment",
+     "relation": "opposite_seating_wall"
+    },
+    "dining": {
+     "type": "free_zone",
+     "relation": "outside_kitchen_aisle"
+    },
+    "window": {
+     "type": "window"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "kitchen_zone_reserved"
+    },
+    {
+     "kind": "door_swing_clear"
+    },
+    {
+     "kind": "radiator_clear",
+     "rule_ref": "distances_cm.sofa_to_radiator_wall"
+    },
+    {
+     "kind": "route",
+     "from": "entry_door",
+     "to": [
+      "kitchen",
+      "dining",
+      "seating",
+      "window"
+     ],
+     "rule_ref": "distances_cm.passage_main"
+    },
+    {
+     "kind": "tv_visibility",
+     "from": "sofa",
+     "to": "media",
+     "rule_ref": "distances_cm.sofa_tv_diagonals"
+    },
+    {
+     "kind": "dining_operational_envelope",
+     "rule_ref": "distances_cm.dining_chair_pullout"
+    }
+   ],
+   "groups": [
+    {
+     "id": "seating",
+     "variants": [
+      "sofa_armchair"
+     ],
+     "required": true
+    },
+    {
+     "id": "media",
+     "variants": [
+      "tv_stand"
+     ],
+     "required": true
+    },
+    {
+     "id": "light",
+     "variants": [
+      "dresser_lamp",
+      "floor_lamp"
+     ],
+     "required": true
+    },
+    {
+     "id": "dining",
+     "variants": [
+      "table_6",
+      "table_4",
+      "table_2",
+      "table_2_compact"
+     ],
+     "required": true
+    },
+    {
+     "id": "soft",
+     "variants": [
+      "pillows_throw"
+     ],
+     "required": true
+    },
+    {
+     "id": "vase",
+     "variants": [
+      "vase_on_coffee"
+     ],
+     "required": true
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_sofa_or_dresser"
+     ],
+     "required": true
+    },
+    {
+     "id": "ceiling",
+     "variants": [
+      "chandelier_seating"
+     ],
+     "required": true
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "curtains"
+     ],
+     "required": true
+    },
+    {
+     "id": "plant",
+     "variants": [
+      "floor"
+     ],
+     "required": true
+    }
+   ],
+   "relations": [
+    {
+     "kind": "media_opposite_primary_seat"
+    },
+    {
+     "kind": "no_route_between_sofa_and_coffee"
+    },
+    {
+     "kind": "children_follow_actual_carrier"
+    },
+    {
+     "kind": "curtains_follow_opening"
+    },
+    {
+     "kind": "kitchen_route_not_cut_by_seating"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A6",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 6
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_6"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + стол на 6 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 6 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B6",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 6
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_4"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + стол на 4 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 6 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D6",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 6
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_4"
+     },
+     "label": "диван + кресло + ТВ + торшер + стол на 4 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; бюджет столовой 6 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "A4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_4"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + стол на 4 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D4",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 4
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "диван + кресло + ТВ + торшер + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; бюджет столовой 4 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "A2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "полный состав, стол по площади; бюджет столовой 2 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "B2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "dresser_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2_compact"
+     },
+     "label": "диван + кресло + ТВ + комод + лампа + компактный стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "стол на 2 места меньше (на 2 — компактный); бюджет столовой 2 (zones.json seats_by_room_m2)"
+    },
+    {
+     "id": "D2",
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      },
+      {
+       "kind": "dining_budget",
+       "seats": 2
+      }
+     ],
+     "use": {
+      "seating": "sofa_armchair",
+      "soft": "pillows_throw",
+      "media": "tv_stand",
+      "ceiling": "chandelier_seating",
+      "textile": "curtains",
+      "light": "floor_lamp",
+      "vase": "vase_on_coffee",
+      "plant": "floor",
+      "art": "over_sofa_or_dresser",
+      "dining": "table_2_compact"
+     },
+     "label": "диван + кресло + ТВ + торшер + компактный стол на 2 + ваза + кашпо + подушки, плед, люстра, шторы, картины",
+     "_why": "торшер вместо «комод + лампа»; бюджет столовой 2 (zones.json seats_by_room_m2)"
+    }
+   ],
+   "invariants": [
+    "required_groups_complete",
+    "sku_dimensions_intact",
+    "dependent_slots_have_carrier",
+    "door_clear",
+    "required_routes",
+    "tv_visible",
+    "no_silent_unplaced",
+    "kitchen_clear",
+    "dining_operational"
+   ],
+   "selection_tags": [
+    "open_plan",
+    "wall_role_based"
+   ]
+  },
+  {
+   "id": "LR-X1",
+   "label": "окно/эркер — надстройка к любому шаблону: кресло чтения или кашпо в эркере, если не забрано посадкой",
+   "purpose": [
+    "living",
+    "kitchen_living"
+   ],
+   "priority": 100,
+   "modifier": true,
+   "applies_to": [
+    "LR-C1",
+    "LR-C2",
+    "LR-C3",
+    "LR-M1",
+    "LR-L1",
+    "LR-L2",
+    "LR-O1",
+    "LR-O2"
+   ],
+   "on_no_level": "keep_base",
+   "anchors": {
+    "bay": {
+     "type": "niche",
+     "qualifiers": [
+      "with_window"
+     ]
+    },
+    "window": {
+     "type": "window"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "radiator_clear",
+     "rule_ref": "distances_cm.sofa_to_radiator_wall"
+    },
+    {
+     "kind": "route",
+     "from": "entry_door",
+     "to": [
+      "window"
+     ],
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    }
+   ],
+   "groups": [
+    {
+     "id": "reading",
+     "variants": [
+      "bay_armchair",
+      "window_armchair"
+     ],
+     "required": false
+    },
+    {
+     "id": "plant",
+     "variants": [
+      "bay"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "children_follow_actual_carrier"
+    }
+   ],
+   "levels": [
+    {
+     "id": "XA",
+     "when": [
+      {
+       "kind": "room_has_bay"
+      },
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      }
+     ],
+     "use": {
+      "reading": "bay_armchair"
+     },
+     "label": "кресло чтения в эркере",
+     "_why": "кресло — от 16 м² (канон core/lr-checklist.md)"
+    },
+    {
+     "id": "XB",
+     "when": [
+      {
+       "kind": "room_has_bay"
+      }
+     ],
+     "use": {
+      "plant": "bay"
+     },
+     "label": "кашпо в эркере (вместо напольного места основного состава)"
+    },
+    {
+     "id": "XC",
+     "when": [
+      {
+       "kind": "room_has_window"
+      },
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.living_select.base_full_m2"
+      }
+     ],
+     "use": {
+      "reading": "window_armchair"
+     },
+     "label": "кресло чтения у окна",
+     "_why": "окно без эркера; нет места — остаётся основной уровень (keep_base)"
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "no_silent_unplaced"
+   ],
+   "selection_tags": [
+    "window",
+    "bay",
+    "modifier"
+   ],
+   "_why": "модификатор: его уровень добавляется к уровню основного шаблона; не встал ни один — основной уровень без надстройки"
+  }
+ ]
+}
