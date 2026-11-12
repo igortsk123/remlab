@@ -69,6 +69,46 @@ function openingsOnSide(room: Room, side: WallSide): Opening[] {
   return list;
 }
 
+/**
+ * УГЛОВЫЕ СТОЙКИ У СТЫКА ЧАСТЕЙ КОМНАТЫ (T-20261112-51/2, владелец TG 855: светлые щели на стыке стен «Этажей»). Ядро и пристройка —
+ * отдельные коробки, стены каждой вдвинуты в неё на `INSET_CM` (см. шапку). На вогнутом углу, где стык (`junction`) кончается посреди
+ * стены, стена этой коробки обрывается у края выреза, а стена соседней части стоит на `INSET_CM` дальше, внутри соседа, — между ними
+ * просвет `INSET_CM`×`INSET_CM` на всю высоту, в нём видны небо и земля (`buildSurroundings`). Стойка закрывает ровно этот квадрат:
+ * вдоль стены — от края выреза на `INSET_CM` внутрь выреза (там стоит стена соседа), поперёк — от линии стены до вдвинутой плоскости.
+ * Край выреза на конце стены — угол выпуклый или стены на одной линии, просвета нет. Возвращает отрезки `[u0, u1]` вдоль стены.
+ */
+export function cornerPosts(lengthCm: number, wallOpenings: Opening[]): [number, number][] {
+  const eps = 0.5;
+  const out: [number, number][] = [];
+  for (const o of wallOpenings) {
+    if (o.kind !== "opening" || !o.junction) continue;
+    const u0 = o.offsetCm;
+    const u1 = o.offsetCm + o.widthCm;
+    if (u0 > eps) out.push([u0, Math.min(u0 + INSET_CM, u1)]);
+    if (u1 < lengthCm - eps) out.push([Math.max(u1 - INSET_CM, u0), u1]);
+  }
+  return out;
+}
+
+function cornerPost(ctx: MaterialCtx, wallMat: Material, room: Room, side: WallSide, f: WallFrame, [u0, u1]: [number, number]): THREE.Mesh {
+  const w = u1 - u0;
+  const mat = tiled(ctx, wallMat, w, room.heightCm);
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w * CM, room.heightCm * CM, INSET_CM * CM), mat);
+  // оси стены (как столярка): X вдоль стены от её начала, Z — внутрь комнаты; стойка — между линией стены (Z = −INSET) и плоскостью (Z = 0)
+  const holder = new THREE.Group();
+  holder.position.set(f.ox * CM, 0, f.oy * CM);
+  holder.rotation.y = f.rotY;
+  mesh.position.set(((u0 + u1) / 2) * CM, (room.heightCm / 2) * CM, (-INSET_CM / 2) * CM);
+  mesh.receiveShadow = true;
+  holder.add(mesh);
+  holder.updateMatrixWorld(true);
+  // наружу — один меш в координатах квартиры (как куски стены), имя для проверок
+  const world = mesh.clone();
+  world.applyMatrix4(holder.matrix);
+  world.name = `corner:${room.id}:${side}`;
+  return world;
+}
+
 export interface RoomVisual {
   group: THREE.Group;
   /** Плоскость пола самой комнаты (прямоугольник-ядро). */
@@ -176,6 +216,7 @@ export function buildRoom(
       mesh.receiveShadow = true;
       group.add(mesh);
     }
+    for (const p of cornerPosts(f.lengthCm, wallOpenings)) group.add(cornerPost(ctx, wallMat, room, side, f, p));
   }
 
   if (opts.ceiling !== false) {
