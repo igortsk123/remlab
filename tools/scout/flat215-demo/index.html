@@ -5507,8 +5507,13 @@ function camPoseOf(c){
   const pm=camZ().livePitchMin; if(pm!=null)p.pitchMin=pm;   // нижний предел наклона «3D» зоны (прихожая −25°, T-20261107-05/8)
   return p;
 }
+// ЗАПОМНЕННЫЕ ПОЗЫ — ТОЛЬКО ВНУТРИ ЭТОЙ КОМНАТЫ (T-20261112-108/2): ключ — вариант, а комнату варианта могли пересобрать (размеры,
+// проёмы); точка вне стен — камера снаружи, кадр фото — стена в упор. Такую пару не берём: углы по умолчанию. Внутри стен — как есть
+// (свой вид человека — `user:true` — не двигаем: заказ снимает то, что он видел); прижатие к отступу — `clampCams` при отрисовке
+function camsInRoom(r){ const R=D&&curRoom(), n=v=>typeof v==='number'&&isFinite(v);
+  return Array.isArray(r)&&r.length===2&&r.every(c=>c&&n(c.x)&&n(c.y)&&(c.rot==null||n(c.rot))&&(!R||(c.x>=0&&c.x<=R.w&&c.y>=0&&c.y<=R.d))); }
 function loadCams(){
-  try{const r=JSON.parse(localStorage.getItem(camsKey())||'null'); if(r&&r.length===2)return r;}catch(e){}
+  try{const r=JSON.parse(localStorage.getItem(camsKey())||'null'); if(camsInRoom(r))return r;}catch(e){}
   return defaultCams();
 }
 function saveCams(){try{localStorage.setItem(camsKey(),JSON.stringify(cams));}catch(e){} try{vwPreSoon();}catch(e){}}   // камеры — часть ключа кадров заранее
@@ -11333,13 +11338,13 @@ function vwSlotTip(note){ VSL.tipNote=note||''; VSL.tipUntil=Date.now()+(note?35
 // Только из готовой сцены (`LIVE.state==='ready'`): во время «Обновляем…» мебели ещё нет — кадр пустой комнаты лёг бы под тот же ключ
 // и остался бы до правки; на переходе в «готово» окошки перерисовываются (`liveUpdate` → `vwSlotsUi`)
 function vwSlotThumbs(){
-  if(!LIVE.scene||!LIVE.scene.capture||LIVE.ok!==true||LIVE.state!=='ready')return;
+  if(!liveHere()||!LIVE.scene.capture||LIVE.state!=='ready')return;
   const cs=(cams||loadCams()).slice(0,2), key=curStateId()+'|'+JSON.stringify(cs.map(c=>[c.x,c.y,c.rot,c.fov]));
   if(VSL.key===key)return; VSL.key=key;
   clearTimeout(VSL.t); VSL.t=setTimeout(()=>{
     const put=bl=>{if(VSL.key!==key)return; VSL.thumbs.forEach(u=>{if(u&&u.startsWith('blob:'))setTimeout(()=>URL.revokeObjectURL(u),2000);});
       VSL.thumbs=[0,1].map(k=>bl&&bl[k]?URL.createObjectURL(bl[k]):''); vwSlotsUi();};
-    const own=()=>vwSceneQ(async()=>{ if(VSL.key!==key||!LIVE.scene||LIVE.state!=='ready'){if(VSL.key===key)VSL.key='';return;} const r=await LIVE.scene.capture(cs.map(camPoseOf),240,164); put(r&&r.frames); });
+    const own=()=>vwSceneQ(async()=>{ if(VSL.key!==key||!liveHere()||LIVE.state!=='ready'){if(VSL.key===key)VSL.key='';return;} const r=await LIVE.scene.capture(cs.map(camPoseOf),240,164); put(r&&r.frames); });
     let pk=''; try{pk=vwPreKey();}catch(e){}
     const pre=pk&&vwPreFresh(VPF.cap,pk)?VPF.cap:null, run=!pre&&pk&&VPF.run&&VPF.run.key===pk?VPF.run:null;
     if(!pre&&!run){own(); return;}
@@ -11419,7 +11424,7 @@ function vwEditLock(){
 // сцены нет — черновой снимок этого состояния; нет и его — кадр будущего фото, когда снимутся кадры (`vwRealistic`)
 async function vwPhGrab(job){
   try{const wrap=document.querySelector('#shot .shotwrap'), r=wrap&&wrap.getBoundingClientRect();
-    if(LIVE.ok===true&&LIVE.scene&&LIVE.scene.exportFrame&&LIVE.canvas&&LIVE.canvas.isConnected&&r&&r.width>0&&r.height>0){
+    if(liveHere()&&LIVE.scene.exportFrame&&LIVE.canvas&&LIVE.canvas.isConnected&&r&&r.width>0&&r.height>0){
       const k=Math.min(2,window.devicePixelRatio||1);
       const b=await vwSceneQ(()=>LIVE.scene.exportFrame(Math.round(r.width*k),Math.round(r.height*k),'image/jpeg',0.8));
       if(b){job.bg=URL.createObjectURL(b); return;}}}catch(e){}
@@ -11509,16 +11514,16 @@ const VW_FRAME_SIZES=[[2048,1489],[1536,1117]];   // пропорция вида
 // VW_CAPTURE_WAIT_MS — дальше серверный путь, как раньше. Без видеокарты 3D не будет — не строим вовсе
 const VW_CAPTURE_WAIT_MS=25000;
 async function vwCaptureScene(){
-  if(LIVE.ok===true&&LIVE.scene)return LIVE.scene;
+  if(liveHere())return LIVE.scene;                                   // сцена другой комнаты — не она: `liveEngine` построит эту
   if(LIVE.ok===false||(liveSoftGL()&&!LIVE.force))return null;
   const sc=await Promise.race([liveEngine(), new Promise(ok=>setTimeout(()=>ok(null),VW_CAPTURE_WAIT_MS))]).catch(()=>null);
-  return sc&&LIVE.ok===true&&LIVE.scene===sc?sc:null;
+  return sc&&liveHere()===sc?sc:null;
 }
 // o.stale() — расстановка уже другая: снятое не грузим (кадры заранее, T-20261109-32); o.noUpload — только снять (грузим позже, `vwUploadViews`)
 async function vwCaptureViews(o){
   o=o||{};
   if(!await vwCaptureScene()||!LIVE.scene.capture){try{console.info('кадр из браузера не снят: 3D нет',LIVE.ok,LIVE.why||'');}catch(_){} return null;}
-  const poses=(cams||loadCams()).slice(0,2).map(camPoseOf);
+  const poses=(cams||loadCams()).slice(0,2).map(camPoseOf), room=LIVE.room;
   // СЦЕНА — ТОЧНО ЭТА РАССТАНОВКА (самопроверка 17.10: после смены варианта снимок ловил часть мебели прежнего — сцена ещё обновлялась):
   // ставим текущие предметы и декор и ждём, затем снимаем (`update` — последняя побеждает, повтор того же — без перезагрузки моделей)
   try{await LIVE.scene.update(clone(items), liveDecor());}catch(e){return null;}
@@ -11528,8 +11533,9 @@ async function vwCaptureViews(o){
       const r=await LIVE.scene.capture(poses,w,h), tc=performance.now();
       VPF.captures++;
       if(o.stale&&o.stale())return null;
+      if(LIVE.room!==room||room!==curRoom())return null;              // пока снимали, окно ушло в другую комнату — кадры не её
       try{const f=VSL.onFrames; if(f&&r&&r.frames&&f.pk===vwPreKey()){VSL.onFrames=null; f.f(r.frames);}}catch(e){}   // окошки ракурсов — те же кадры (T-20261112-76/4)
-      const cap={clay:r.clay, blobs:r.frames, sheet:'landscape', ms:{capture:Math.round(tc-t0)}, size:w+'×'+h};
+      const cap={clay:r.clay, blobs:r.frames, sheet:'landscape', ms:{capture:Math.round(tc-t0)}, size:w+'×'+h, room:roomSig(room)};
       return o.noUpload?cap:await vwUploadViews(cap);
     }catch(e){try{console.warn('кадр из браузера не снят',w,e);}catch(_){}}
   }
@@ -11539,7 +11545,8 @@ async function vwUploadViews(cap){
   const tc=performance.now();
   const ids=await Promise.all(cap.blobs.map(b=>fetch('/api/render/frame',{method:'POST',headers:{'content-type':'image/jpeg'},body:b})
     .then(x=>x.ok?x.json():Promise.reject(new Error('кадр не принят '+x.status))).then(j=>j.id)));
-  cap.views=ids.map((id,k)=>({camera:'C'+(k+1),id})); cap.ms=Object.assign({},cap.ms,{upload:Math.round(performance.now()-tc)});
+  // подпись комнаты кадра — сервер сверит с комнатой заказа (`draft_trial.py:views_room_mismatch`)
+  cap.views=ids.map((id,k)=>({camera:'C'+(k+1),id,room:cap.room||''})); cap.ms=Object.assign({},cap.ms,{upload:Math.round(performance.now()-tc)});
   return cap;
 }
 // КАДРЫ ЗАРАНЕЕ (T-20261109-32, владелец 09.11 TG 563/567: кадры всегда от человека; сменил мебель — сразу готовим, сменил снова — прежние
@@ -11556,7 +11563,7 @@ function vwPreOk(){
   if((TRIAL()&&!trPhotoHere())||document.hidden||LIVE.ok===false||(liveSoftGL()&&!LIVE.force)||!D||!items)return false;
   const c=navigator.connection; if(c&&(c.saveData||/(^|slow-)2g$/.test(c.effectiveType||'')))return false;
   const sh=document.getElementById('shot');
-  return (LIVE.ok===true&&!!LIVE.scene)||!!(sh&&sh.classList.contains('on')&&sh.classList.contains('v2'));
+  return !!liveHere()||!!(sh&&sh.classList.contains('on')&&sh.classList.contains('v2'));
 }
 function vwPreFresh(c,key){ return !!c&&c.key===key&&Date.now()-c.at<VPF_MAX_AGE_MS; }
 // ОДНА ОЧЕРЕДЬ НА РИСОВАНИЕ СЦЕНЫ В ЧУЖОМ РАЗМЕРЕ: `capture` и `exportFrame` на время кадра меняют размер холста и ждут `toBlob` —
@@ -11638,8 +11645,10 @@ async function vwRealistic(o){
   // расстановку поменяли, пока снимались кадры: заказ (`makePhoto` берёт товары и номер состояния сейчас) и кадры должны быть об
   // одном — снимаем ещё раз уже новую; иначе фото подписано новой расстановкой, а нарисовано по кадрам прежней (demo-20 Б3, 1440)
   if(job.stateId!==curStateId()){job.stateId=curStateId(); job.vid=curVid(); cap=await vwViewsNow(); vwModeUi();}
+  // кадры не этой комнаты (снятые до правила `liveHere` или чужой сценой) в заказ не идут: без них — серверная сцена, тур — отказ
+  if(cap&&cap.room!==roomSig(curRoom())){try{console.warn('кадры другой комнаты — не в заказ',cap.room);}catch(e){} VPF.cap=null; cap=null;}
   job.tm.views=Date.now()-job.t0;
-  VW.lastCapture=cap?{size:cap.size,ms:cap.ms,clay:cap.clay,pre:cap.pre,key:cap.key,ids:(cap.views||[]).map(v=>v.id),tm:job.tm,t0:job.t0}:null;   // для проверок и замера
+  VW.lastCapture=cap?{size:cap.size,ms:cap.ms,clay:cap.clay,pre:cap.pre,key:cap.key,ids:(cap.views||[]).map(v=>v.id),room:cap.room,tm:job.tm,t0:job.t0}:null;   // для проверок и замера
   if(!job.bg&&cap&&cap.blobs&&cap.blobs.length){job.bg=URL.createObjectURL(cap.blobs[job.cam]||cap.blobs[0]); vwPhWaitUi();}
   if(VW.mode==='photo')liveHide();   // съёмка кадров запускает цикл сцены — на «Фото» он не нужен
   // тур пробы: без кадров из 3D фото нет — серверной сцены для него не строим (T-20261109-34, владелец TG 567)
@@ -11851,6 +11860,14 @@ function liveDrop(){
   LIVE.canvas=null;
   try{if(sc)sc.dispose();}catch(e){}
 }
+// СЦЕНА ЭТОЙ КОМНАТЫ — ОДНО ПРАВИЛО ДЛЯ ВСЕХ, КТО СНИМАЕТ (T-20261112-108/2, заказ владельца f24c0cc7): стены и окна сцены — комнаты,
+// переданной при создании; `update` меняет только мебель. Кадры фото, миниатюры окошек и заглушка «Фото» брали готовую `LIVE.scene`
+// без сверки — побывал в 3D спальни 1, открыл гостиную, и мебель гостиной снялась в стенах спальни (окно на стене дивана). Сцена чужой
+// комнаты — как её нет: снимающий зовёт `liveEngine`, он её освобождает и строит эту
+function liveHere(){ return LIVE.ok===true&&LIVE.scene&&LIVE.room&&LIVE.room===curRoom()?LIVE.scene:null; }
+// подпись комнаты кадра: размеры и проёмы — сервер сверяет её с комнатой заказа (`draft_trial.py:room_sig`, тот же порядок)
+function roomSig(R){ if(!R)return ''; const n=v=>Math.round(+v||0);
+  return n(R.w)+'x'+n(R.d)+'|'+(R.openings||[]).map(o=>[o.kind,o.wall,n(o.offset_cm),n(o.width_cm)].join(':')).sort().join(';'); }
 function liveEngine(){
   if(LIVE.ok===false)return Promise.resolve(null);
   const room=curRoom();

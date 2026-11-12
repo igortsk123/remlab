@@ -149,6 +149,36 @@ def test_service_trial_needs_views_and_valid_id(svc):
     assert calls['render'] == []
 
 
+LIVING = {'w': 439, 'd': 325, 'openings': [{'kind': 'window', 'wall': 'west', 'offset_cm': 70, 'width_cm': 150},
+                                           {'kind': 'door', 'wall': 'east', 'offset_cm': 205, 'width_cm': 90}]}
+BED1 = {'w': 597, 'd': 293, 'openings': [{'kind': 'door', 'wall': 'south', 'offset_cm': 24, 'width_cm': 90},
+                                         {'kind': 'window', 'wall': 'east', 'offset_cm': 40, 'width_cm': 210},
+                                         {'kind': 'window', 'wall': 'north', 'offset_cm': 197, 'width_cm': 240}]}
+
+
+def test_room_sig_matches_page_rule():
+    # тот же текст, что `roomSig` страницы: размеры, проёмы по алфавиту, округление половины вверх, порядок проёмов не важен
+    assert DT.room_sig(LIVING) == '439x325|door:east:205:90;window:west:70:150'
+    assert DT.room_sig({**LIVING, 'openings': LIVING['openings'][::-1]}) == DT.room_sig(LIVING)
+    assert DT.room_sig({'w': 438.5, 'd': '325', 'openings': [{'kind': 'door', 'wall': 'east', 'offset_cm': 0.5, 'width_cm': None}]}) \
+        == '439x325|door:east:1:0'
+    assert DT.room_sig(None) == '' and DT.room_sig({}) == '0x0|'
+
+
+def test_views_of_another_room_are_refused(svc):
+    # заказ f24c0cc7 (T-20261112-108/2): мебель гостиной, кадры — из сцены спальни 1 → отказ до любых трат, и в демо, и в туре
+    S, post, calls, _ = svc
+    bed = [dict(v, room=DT.room_sig(BED1)) for v in VIEWS]
+    for extra in ({}, {'trial': None}):
+        st, body = post(order(room=LIVING, views=bed, **extra))
+        assert st == 422 and body['code'] == 'scene_room'
+    assert calls['render'] == [] and calls['registry'] == []
+    # кадры этой комнаты и кадры без подписи (страница до правила) — проходят
+    assert post(order(room=LIVING, views=[dict(v, room=DT.room_sig(LIVING)) for v in VIEWS]))[0] == 200
+    assert post(order(room=LIVING, trial='B' * 22))[0] == 200
+    assert DT.views_room_mismatch({'room': LIVING, 'views': bed}) and not DT.views_room_mismatch({'room': LIVING})
+
+
 def test_service_trial_daily_limit_on_async_and_direct(svc):
     S, post, calls, mp = svc
     assert post(order())[0] == 200 and post(order())[0] == 200

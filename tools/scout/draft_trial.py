@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import threading
@@ -43,6 +44,35 @@ def daily_limit(env=os.environ) -> int:
 def has_views(payload: dict) -> bool:
     vs = payload.get('views')
     return isinstance(vs, list) and len(vs) >= 2 and all(isinstance(v, dict) and isinstance(v.get('id'), str) for v in vs[:2])
+
+
+def _rnd(v) -> int:
+    """Как `Math.round(+v||0)` на странице: половина — вверх, не число — 0."""
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return 0
+    return 0 if math.isnan(x) or math.isinf(x) else math.floor(x + 0.5)
+
+
+def room_sig(room) -> str:
+    """Подпись комнаты: размеры и проёмы — тот же порядок, что `roomSig` страницы (`flat215-demo/index.html`)."""
+    if not isinstance(room, dict):
+        return ''
+    ops = [o for o in (room.get('openings') or []) if isinstance(o, dict)]
+    s = lambda v: '' if v is None else str(v)
+    parts = sorted(':'.join([s(o.get('kind')), s(o.get('wall')), str(_rnd(o.get('offset_cm'))), str(_rnd(o.get('width_cm')))]) for o in ops)
+    return f"{_rnd(room.get('w'))}x{_rnd(room.get('d'))}|" + ';'.join(parts)
+
+
+def views_room_mismatch(payload: dict) -> bool:
+    """КАДРЫ ЧУЖОЙ КОМНАТЫ (T-20261112-108/2, заказ f24c0cc7): кадр из 3D несёт подпись комнаты сцены (`views[].room`); она не равна
+    комнате заказа — фото нарисовалось бы в чужих стенах, заказ не принимаем. Кадр без подписи (страница до правила) — пропускаем."""
+    vs = payload.get('views')
+    if not isinstance(vs, list):
+        return False
+    want = room_sig(payload.get('room'))
+    return any(isinstance(v, dict) and isinstance(v.get('room'), str) and v['room'] and v['room'] != want for v in vs)
 
 
 class TrialDaily:
