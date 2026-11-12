@@ -421,14 +421,14 @@ ${paidDef.replaceAll('>> "$LOG"', "")}\n${sh.slice(a, b).replaceAll('>> "$LOG"',
   const order = (out) => [...out.matchAll(/^STEP (\S+)/gm)].map((m) => m[1]).join(" ");
   const okRun = await bash(), rtRun = await bash({ fail: "demo_rt" }), offRun = await bash({ off: 1 }), realFail = await bash({ fail: "demo_real" }),
     undefRun = await bash({ undef: "bedroom " });
-  check(order(okRun) === "flat215_demo trial_images demo_rt demo_real flat215_publish scene_artifacts demo_warm demo_real_check"
+  check(order(okRun) === "flat215_demo page_check trial_images demo_rt demo_real flat215_publish scene_artifacts demo_warm demo_real_check"
     && /STEP demo_real env DEMO_LOCAL=\/h\/scout-scenes\/flat215-demo bash \.\.\/ops\/demo-real\.sh\n/.test(okRun)
     && /STEP flat215_publish env PUB_PHOTOS_DONE=1 bash publish_demo\.sh\n/.test(okRun) && /STEP demo_real_check bash \.\.\/ops\/demo-real\.sh --dry\n/.test(okRun),
     "ночь: досъёмка фото на НОВОЙ сборке (DEMO_LOCAL) до публикации, публикация с отметкой «фото сняты», сухая проверка — после прогрева", okRun);
   check(order(realFail) === order(okRun), "досъёмка упала — публикация всё равно идёт (держим только фото, не сборку)", realFail);
-  check(order(rtRun) === "flat215_demo trial_images demo_rt scene_artifacts demo_warm demo_real_check" && /DIGEST:фото нейросети: пропущено — демо не опубликовано \(ворота demo_rt\)/.test(rtRun),
+  check(order(rtRun) === "flat215_demo page_check trial_images demo_rt scene_artifacts demo_warm demo_real_check" && /DIGEST:фото нейросети: пропущено — демо не опубликовано \(ворота demo_rt\)/.test(rtRun),
     "ворота demo_rt не прошли — ни досъёмки, ни публикации, строка DIGEST; сухая проверка идёт", rtRun);
-  check(order(offRun) === "flat215_demo trial_images demo_rt flat215_publish scene_artifacts demo_warm demo_real_check" && /openai\.off: платный шаг «demo_real» пропущен/.test(offRun)
+  check(order(offRun) === "flat215_demo page_check trial_images demo_rt flat215_publish scene_artifacts demo_warm demo_real_check" && /openai\.off: платный шаг «demo_real» пропущен/.test(offRun)
     && /RES=skipped/.test(offRun) && /DIGEST:фото нейросети: пропущено — платные шаги выключены \(openai\.off\)/.test(offRun),
     "openai.off — платная досъёмка пропущена со строкой DIGEST, публикация и одна сухая проверка идут", offRun);
   check(order(undefRun) === "scene_artifacts demo_warm demo_real_check" && /RES=\n/.test(undefRun + "\n"),
