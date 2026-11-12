@@ -6,7 +6,10 @@ status: draft
 created: 2026-11-12
 updated: 2026-11-12
 plan_kind: track
+superseded_by: domain/room-templates.md
 ---
+> **Заменён (12.11, T-20261112-65):** единственный правильный вариант — `.memory_bank/domain/room-templates.md` (+ `core/room-templates.md`).
+> Этот черновик не ведётся; в `archive/plans/` его переносит директор при своде памяти.
 
 ## Источник
 Владелец 12.11 (через algor, TG 1839–1843): «common ведёт шаблоны… сделает правила создания шаблонов, чтобы всё было с дорожками и
