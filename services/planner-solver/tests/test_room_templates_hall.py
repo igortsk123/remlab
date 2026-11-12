@@ -80,7 +80,7 @@ def test_levels_yield_whole_items_in_order(tid):
     prev = None
     for lv in _branch_levels(tpl):
         places, _ = RT.compile_level(doc, tpl, lv["id"])
-        roles = {p["role"] for p in places}
+        roles = {p["role"] for p in places} - {"коврик"}      # коврик — на всех уровнях (TG 1176), не ступень уступок
         if prev is not None:
             gone = prev - roles
             assert roles < prev and len(gone) == 1, (tid, lv["id"], gone)
@@ -221,3 +221,88 @@ def test_broken_copies_are_caught(break_it, msg):
     break_it(doc)
     err = _err(doc)
     assert err and msg in err, err
+
+
+# ---- листы прихожей `tools/scout/hall_schemes.py` (растр — scipy; в окружении решателя без scipy — пропуск) ----
+@pytest.fixture
+def hs():
+    """Модуль листов с числами РФ; `norms` подменяет числа движка в процессе — после теста вернуть (иначе соседние тесты
+    движка прихожей считают по стране)."""
+    pytest.importorskip("scipy")
+    pytest.importorskip("PIL")
+    import sys
+    scout = Path(__file__).resolve().parents[3] / "tools" / "scout"
+    if str(scout) not in sys.path:
+        sys.path.insert(0, str(scout))
+    import hall_schemes as mod
+    prev = mod.norms("ru")
+    yield mod
+    mod.norms(prev)
+
+
+def _corridor(hs, gap_y):
+    """Коридор 150×400: вход с юга, дверь на севере; обувница у западной и банкетка у восточной стены друг напротив
+    друга на высоте gap_y — щель между ними 80 (уже цели 90, но не уже местных 75)."""
+    room = hs.to_room({"w": 150, "d": 400, "radiators": [],
+                       "openings": [hs._d("south", 30, 90, ent=True), hs._d("north", 30, 80)]})
+    shoe = hs.Placement(role="обувница", x=17.5, y=gap_y, rot=90, item=hs.Item(role="обувница", w_cm=30, d_cm=35, h_cm=50))
+    bench = hs.Placement(role="банкетка", x=132.5, y=gap_y, rot=270, item=hs.Item(role="банкетка", w_cm=30, d_cm=35, h_cm=45))
+    return room, [shoe, bench]
+
+
+def test_hall_narrowing_at_door_is_caught(hs):
+    """T-20261112-72/3: короткая щель 80 между двумя предметами в полосе у входа — «у двери» (раньше круг цели её закрывал
+    и 80 у входа сходило за 90), та же щель в середине коридора — допустимое местное сужение."""
+    room, near = _corridor(hs, 60)
+    loc = hs.local_narrowing(room, near, 75)
+    assert loc["at_door"] and not loc["ok"], loc
+    room, far = _corridor(hs, 250)
+    loc = hs.local_narrowing(room, far, 75)
+    assert loc["ok"] and not loc["at_door"], loc
+    room, _ = _corridor(hs, 60)
+    assert hs.local_narrowing(room, [], 75)["ok"]                    # пустой коридор 150 — без сужения
+
+
+def test_hall_shelf_slides_from_corner_and_width_cap(hs):
+    """T-20261112-72/3: полка над крючками в углу сдвигается вдоль стены (в пределах стены, над крючками); полка шире
+    крючков больше чем на 20 см не ставится — строка «нет товара не шире»."""
+    room = hs.to_room({"w": 100, "d": 120, "radiators": [], "openings": [hs._d("south", 10, 80, ent=True)]})
+    hooks = hs.Placement(role="крючки", x=2, y=15, rot=90, item=hs.Item(role="крючки", w_cm=30, d_cm=4, h_cm=8))
+    poly = hs.room_polygon(room)
+    shelf = {"w": 50, "d": 20, "h": 15}
+    fp = hs.shelf_over(poly, hooks, shelf)
+    assert fp is not None and fp.difference(poly).area <= 1.0
+    assert fp.contains(hs.footprint(hooks).centroid.buffer(1)) or fp.buffer(0.5).covers(hs.footprint(hooks).centroid)
+    lo, hi = fp.bounds[1], fp.bounds[3]
+    assert lo >= -0.5 and hi - lo == pytest.approx(50, abs=0.5) and lo <= 0 + 0.5 and hi >= 30   # прижата к углу, над крючками
+    need = [{"role": "полка", "kind": "dependent"}]
+    out, empty, miss = hs.place_extras(room, [hooks], need, {"полка": [shelf]})
+    assert miss is None and [o[0] for o in out] == ["полка"] and empty == []
+    out, empty, miss = hs.place_extras(room, [hooks], need, {"полка": [{"w": 60, "d": 20, "h": 15}]})
+    assert out == [] and miss is None and empty and "не шире" in empty[0], (out, empty)
+
+
+def test_mat_in_every_hall_template():
+    """Владелец TG 1176 (T-20261112-72/3): коврик у входа — в каждом уровне каждого шаблона (H7 — надстройка ниши, без
+    своего пола); на листе не лёг — строка почему, а состав уровня не роняется."""
+    doc = RT.load("hall")
+    for t in doc["templates"]:
+        if t["id"] == "H7":
+            continue
+        for lv in t["levels"]:
+            assert lv["use"].get("mat") == "door", (t["id"], lv["id"])
+            places, err = RT.compile_level(doc, t, lv["id"])
+            assert err == [] and "коврик" in [p["role"] for p in places], (t["id"], lv["id"], err)
+
+
+def test_mat_never_drops_the_level(hs):
+    """Коврик не лёг (мебель у входа) или нет товара — строка почему, состав уровня остаётся (TG 1176)."""
+    room = hs.to_room({"w": 100, "d": 120, "radiators": [], "openings": [hs._d("south", 10, 80, ent=True)]})
+    need = [{"role": "коврик"}]
+    out, empty, miss = hs.place_extras(room, [], need, {"коврик": [{"w": 90, "d": 60, "h": 1}]})
+    assert miss is None and [o[0] for o in out] == ["коврик"] and empty == []
+    box = hs.Placement(role="обувница", x=50, y=30, rot=0, item=hs.Item(role="обувница", w_cm=100, d_cm=60, h_cm=50))
+    out, empty, miss = hs.place_extras(room, [box], need, {"коврик": [{"w": 90, "d": 60, "h": 1}]})
+    assert miss is None and out == [] and "коврик: не ложится" in empty[0], empty
+    out, empty, miss = hs.place_extras(room, [], need, {})
+    assert miss is None and out == [] and "нет товара" in empty[0], empty

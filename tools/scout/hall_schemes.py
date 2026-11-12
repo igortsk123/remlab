@@ -640,6 +640,23 @@ def local_narrowing(room: Room, placed, need):
             y, x = py, px
         if run:
             res['runs'].append(round(run))
+    # у двери и напротив — честная мерка ширины самих клеток (T-20261112-72/3): в полосе door_zone центр пути не ближе
+    # цель/2 к стене и мебели (2·edt ≥ цели), вне полосы — как везде (need). Мерка «круг цели касается клетки» (wide) короткое
+    # сужение между двумя углами мебели не видит — круги с обеих сторон закрывают щель глубиной до ~45 см; так 80 в 36–98 см
+    # от входа сходило за 90 (10 из 19 комнат листов T-72/2). Старт — шаг из входа для цели, как `route_paths`.
+    okd = np.where(zmask, edt >= tgt / 2 - G, ok)
+    labd, _n = ndimage.label(okd)
+    md = contains_xy(_entry_step(room, ent, tgt).buffer(G), X, Y) & okd
+    keep = np.zeros_like(okd)
+    if md.any():
+        sd = np.argwhere(md)[int(np.argmin((X[md] - a[0]) ** 2 + (Y[md] - a[1]) ** 2))]
+        keep = labd == labd[sd[0], sd[1]]
+    for _kind, name, region in targets(room, placed):
+        if not (contains_xy(region.buffer(need / 2), X, Y) & np.isfinite(dist)).any():
+            continue            # недостижимо и без цели страны — это ловит `route_paths`, не местное сужение
+        if not (contains_xy(region.buffer(tgt / 2), X, Y) & keep).any():
+            res['at_door'] = True
+            res.setdefault('door_targets', []).append(name)
     res['max_run'] = max(res['runs'] or [0])
     if res['max_run'] > ROUTE['local_max_length']:
         res['ok'], res['why'] = False, (f'уже {tgt:.0f} на {res["max_run"]:.0f} см подряд — местно можно ≤ '
@@ -649,18 +666,39 @@ def local_narrowing(room: Room, placed, need):
     return res
 
 
+SHELF_OVER = 20       # полка шире носителя (крючки/вешалка) не больше чем на 20 см — иначе «полка над крючками» не про них
+
+
+def shelf_over(poly, q, x):
+    """След полки над носителем q: спинкой к той же стене, по его оси; у угла — сдвиг вдоль стены (T-72/3), пока полка
+    в пределах стены и всё ещё над носителем (сдвиг ≤ половины разницы ширин). Не влезла и со сдвигом → None."""
+    it = Item(role='полка', w_cm=x['w'], d_cm=x['d'], h_cm=x['h'])
+    n = (math.sin(math.radians(q.rot)), math.cos(math.radians(q.rot)))      # лицом в комнату; спинка — к стене
+    t = (n[1], -n[0])                                                         # вдоль стены
+    sh = (x['d'] - q.item.d_cm) / 2
+    lim = abs(x['w'] - q.item.w_cm) / 2
+    steps = [0.0] + [s * k for k in range(1, int(lim) + 1) for s in (1, -1)] + ([lim, -lim] if lim % 1 else [])
+    for s in steps:
+        p = Placement(role='полка', x=q.x + n[0] * sh + t[0] * s, y=q.y + n[1] * sh + t[1] * s, rot=q.rot, item=it)
+        fp = footprint(p)
+        if fp.difference(poly).area <= 1.0:
+            return fp
+    return None
+
+
 def place_extras(room: Room, placed, need, by):
-    """Полка над крючками/вешалкой и коврик у входа — не занимают пол. Полка: на стене носителя, по его оси, не шире
-    стены комнаты; нет носителя или товара — пусто с причиной (leave_empty). Коврик (место обязательное): плоский, у входной
-    двери внутри комнаты, длинной стороной вдоль двери, не под мебелью; нет товара — уровень не годен («нет товара»)."""
+    """Полка над крючками/вешалкой и коврик у входа — не занимают пол. Полка: на стене носителя, по его оси (у угла —
+    сдвиг вдоль стены, `shelf_over`), не шире носителя + `SHELF_OVER`; нет носителя или товара — пусто с причиной
+    (leave_empty). Коврик — в каждом шаблоне (владелец TG 1176): плоский, у входной двери внутри комнаты, длинной стороной
+    вдоль двери, не под мебелью; не лёг или нет товара — пусто с причиной, состав уровня ради коврика не роняется."""
     poly = room_polygon(room)
     out, empty = [], []
     for pl in need:
         role = pl['role']
         xs = sorted(by.get(role) or [], key=lambda x: -x['w'])
         if not xs:
-            if pl.get('kind') == 'dependent':
-                empty.append(f'{RU[role]}: нет товара в каталоге')
+            if pl.get('kind') == 'dependent' or role == 'коврик':
+                empty.append(f'{RU[role].lower()}: нет товара в каталоге')
                 continue
             return out, empty, f'нет товара «{RU[role]}» в каталоге'
         if role == 'полка':
@@ -669,14 +707,13 @@ def place_extras(room: Room, placed, need, by):
                 empty.append('полка: нет крючков/вешалки под ней')
                 continue
             q = car[0]
-            fit = [x for x in xs if x['w'] <= q.item.w_cm + 20] or xs[-1:]
+            fit = [x for x in xs if x['w'] <= q.item.w_cm + SHELF_OVER]   # не шире носителя больше чем на 20 (T-72/3)
+            if not fit:
+                empty.append(f'полка: нет товара не шире {RU[base_role(q.role)].lower()} + {SHELF_OVER} см')
+                continue
             x = fit[0]
-            it = Item(role=role, w_cm=x['w'], d_cm=x['d'], h_cm=x['h'])
-            n = (math.sin(math.radians(q.rot)), math.cos(math.radians(q.rot)))      # лицом в комнату; спинка — к стене
-            sh = (x['d'] - q.item.d_cm) / 2
-            p = Placement(role=role, x=q.x + n[0] * sh, y=q.y + n[1] * sh, rot=q.rot, item=it)
-            fp = footprint(p)
-            if fp.difference(poly).area > 1.0:
+            fp = shelf_over(poly, q, x)
+            if fp is None:
                 empty.append('полка: не помещается на стене над носителем')
                 continue
             out.append((role, fp, f'полка {x["w"]:.0f} над {RU[base_role(q.role)].lower()}', x))
@@ -694,8 +731,9 @@ def place_extras(room: Room, placed, need, by):
                 out.append((role, strip, f'коврик {x["w"]:.0f}×{x["d"]:.0f}', x))
                 done = True
                 break
-            if not done:
-                return out, empty, 'коврик не ложится у входа (мебель или стены)'
+            if not done:        # коврик — в каждой прихожей (владелец TG 1176), но состав ради него не роняем: строка почему
+                wide = min(xs, key=lambda x: x['w'])['w'] > ent.width_cm + 20
+                empty.append('коврик: не ложится у входа — ' + ('все шире двери + 20 см' if wide else 'мебель или стены'))
     return out, empty, None
 
 

@@ -304,6 +304,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -333,7 +339,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -343,7 +350,8 @@
       "storage": "sliding",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -352,7 +360,8 @@
      "use": {
       "storage": "sliding",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -360,14 +369,16 @@
      "label": "купе + обувница",
      "use": {
       "storage": "sliding",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только купе верхней одежды",
      "use": {
-      "storage": "sliding"
+      "storage": "sliding",
+      "mat": "door"
      }
     },
     {
@@ -376,14 +387,16 @@
      "use": {
       "storage": "open_other",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
      "id": "G",
      "label": "другое хранение (купе не влезло): только открытая вешалка",
      "use": {
-      "storage": "open_other"
+      "storage": "open_other",
+      "mat": "door"
      }
     }
    ],
@@ -475,6 +488,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -504,7 +523,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -514,7 +534,8 @@
       "storage": "hinged",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -523,7 +544,8 @@
      "use": {
       "storage": "hinged",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -531,14 +553,16 @@
      "label": "распашной шкаф + обувница",
      "use": {
       "storage": "hinged",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только распашной шкаф верхней одежды",
      "use": {
-      "storage": "hinged"
+      "storage": "hinged",
+      "mat": "door"
      }
     }
    ],
@@ -630,6 +654,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -659,7 +689,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -669,7 +700,8 @@
       "storage": "module",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -678,7 +710,8 @@
      "use": {
       "storage": "module",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -686,14 +719,16 @@
      "label": "модуль «прихожая» + обувница",
      "use": {
       "storage": "module",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только модуль «прихожая» верхней одежды",
      "use": {
-      "storage": "module"
+      "storage": "module",
+      "mat": "door"
      }
     }
    ],
@@ -782,6 +817,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -808,7 +849,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -818,7 +860,8 @@
       "storage": "open",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -827,7 +870,8 @@
      "use": {
       "storage": "open",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -835,14 +879,16 @@
      "label": "открытая вешалка + обувница",
      "use": {
       "storage": "open",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только открытая вешалка верхней одежды",
      "use": {
-      "storage": "open"
+      "storage": "open",
+      "mat": "door"
      }
     }
    ],
@@ -931,6 +977,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -953,7 +1005,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -963,7 +1016,8 @@
       "storage": "open",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -972,7 +1026,8 @@
      "use": {
       "storage": "open",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -980,14 +1035,16 @@
      "label": "открытая вешалка + обувница",
      "use": {
       "storage": "open",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только открытая вешалка верхней одежды",
      "use": {
-      "storage": "open"
+      "storage": "open",
+      "mat": "door"
      }
     }
    ],
@@ -1079,6 +1136,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -1104,7 +1167,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -1114,7 +1178,8 @@
       "storage": "module",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -1123,7 +1188,8 @@
      "use": {
       "storage": "module",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -1131,14 +1197,16 @@
      "label": "модуль «прихожая» + обувница",
      "use": {
       "storage": "module",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только модуль «прихожая» верхней одежды",
      "use": {
-      "storage": "module"
+      "storage": "module",
+      "mat": "door"
      }
     }
    ],
@@ -1231,6 +1299,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -1260,7 +1334,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -1270,7 +1345,8 @@
       "storage": "sliding",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -1279,7 +1355,8 @@
      "use": {
       "storage": "sliding",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -1287,14 +1364,16 @@
      "label": "купе + обувница",
      "use": {
       "storage": "sliding",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только купе верхней одежды",
      "use": {
-      "storage": "sliding"
+      "storage": "sliding",
+      "mat": "door"
      }
     },
     {
@@ -1303,14 +1382,16 @@
      "use": {
       "storage": "open_other",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
      "id": "G",
      "label": "другое хранение (купе не влезло): только открытая вешалка",
      "use": {
-      "storage": "open_other"
+      "storage": "open_other",
+      "mat": "door"
      }
     }
    ],
@@ -1402,6 +1483,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -1431,7 +1518,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -1441,7 +1529,8 @@
       "storage": "hinged",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -1450,7 +1539,8 @@
      "use": {
       "storage": "hinged",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -1458,14 +1548,16 @@
      "label": "распашной шкаф + обувница",
      "use": {
       "storage": "hinged",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только распашной шкаф верхней одежды",
      "use": {
-      "storage": "hinged"
+      "storage": "hinged",
+      "mat": "door"
      }
     }
    ],
@@ -1557,6 +1649,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -1586,7 +1684,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -1596,7 +1695,8 @@
       "storage": "module",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -1605,7 +1705,8 @@
      "use": {
       "storage": "module",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -1613,14 +1714,16 @@
      "label": "модуль «прихожая» + обувница",
      "use": {
       "storage": "module",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только модуль «прихожая» верхней одежды",
      "use": {
-      "storage": "module"
+      "storage": "module",
+      "mat": "door"
      }
     }
    ],
@@ -1709,6 +1812,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -1735,7 +1844,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -1745,7 +1855,8 @@
       "storage": "open",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -1754,7 +1865,8 @@
      "use": {
       "storage": "open",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -1762,14 +1874,16 @@
      "label": "открытая вешалка + обувница",
      "use": {
       "storage": "open",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только открытая вешалка верхней одежды",
      "use": {
-      "storage": "open"
+      "storage": "open",
+      "mat": "door"
      }
     }
    ],
@@ -1862,6 +1976,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -1894,7 +2014,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -1904,7 +2025,8 @@
       "storage": "sliding",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -1913,7 +2035,8 @@
      "use": {
       "storage": "sliding",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -1921,14 +2044,16 @@
      "label": "купе + обувница",
      "use": {
       "storage": "sliding",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только купе верхней одежды",
      "use": {
-      "storage": "sliding"
+      "storage": "sliding",
+      "mat": "door"
      }
     },
     {
@@ -1937,14 +2062,16 @@
      "use": {
       "storage": "open_other",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
      "id": "G",
      "label": "другое хранение (купе не влезло): только открытая вешалка",
      "use": {
-      "storage": "open_other"
+      "storage": "open_other",
+      "mat": "door"
      }
     }
    ],
@@ -2036,6 +2163,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -2068,7 +2201,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -2078,7 +2212,8 @@
       "storage": "hinged",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -2087,7 +2222,8 @@
      "use": {
       "storage": "hinged",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -2095,14 +2231,16 @@
      "label": "распашной шкаф + обувница",
      "use": {
       "storage": "hinged",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только распашной шкаф верхней одежды",
      "use": {
-      "storage": "hinged"
+      "storage": "hinged",
+      "mat": "door"
      }
     }
    ],
@@ -2194,6 +2332,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -2226,7 +2370,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -2236,7 +2381,8 @@
       "storage": "module",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -2245,7 +2391,8 @@
      "use": {
       "storage": "module",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -2253,14 +2400,16 @@
      "label": "модуль «прихожая» + обувница",
      "use": {
       "storage": "module",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только модуль «прихожая» верхней одежды",
      "use": {
-      "storage": "module"
+      "storage": "module",
+      "mat": "door"
      }
     }
    ],
@@ -2353,6 +2502,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -2382,7 +2537,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -2392,7 +2548,8 @@
       "storage": "sliding",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -2401,7 +2558,8 @@
      "use": {
       "storage": "sliding",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -2409,14 +2567,16 @@
      "label": "купе + обувница",
      "use": {
       "storage": "sliding",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только купе верхней одежды",
      "use": {
-      "storage": "sliding"
+      "storage": "sliding",
+      "mat": "door"
      }
     },
     {
@@ -2425,14 +2585,16 @@
      "use": {
       "storage": "open_other",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
      "id": "G",
      "label": "другое хранение (купе не влезло): только открытая вешалка",
      "use": {
-      "storage": "open_other"
+      "storage": "open_other",
+      "mat": "door"
      }
     }
    ],
@@ -2524,6 +2686,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -2553,7 +2721,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -2563,7 +2732,8 @@
       "storage": "hinged",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -2572,7 +2742,8 @@
      "use": {
       "storage": "hinged",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -2580,14 +2751,16 @@
      "label": "распашной шкаф + обувница",
      "use": {
       "storage": "hinged",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только распашной шкаф верхней одежды",
      "use": {
-      "storage": "hinged"
+      "storage": "hinged",
+      "mat": "door"
      }
     }
    ],
@@ -2679,6 +2852,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -2708,7 +2887,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -2718,7 +2898,8 @@
       "storage": "module",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -2727,7 +2908,8 @@
      "use": {
       "storage": "module",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -2735,14 +2917,16 @@
      "label": "модуль «прихожая» + обувница",
      "use": {
       "storage": "module",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только модуль «прихожая» верхней одежды",
      "use": {
-      "storage": "module"
+      "storage": "module",
+      "mat": "door"
      }
     }
    ],
@@ -2834,6 +3018,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -2860,7 +3050,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -2870,7 +3061,8 @@
       "storage": "open",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -2879,7 +3071,8 @@
      "use": {
       "storage": "open",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -2887,14 +3080,16 @@
      "label": "открытая вешалка + обувница",
      "use": {
       "storage": "open",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только открытая вешалка верхней одежды",
      "use": {
-      "storage": "open"
+      "storage": "open",
+      "mat": "door"
      }
     }
    ],
@@ -2992,6 +3187,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -3024,7 +3225,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -3034,7 +3236,8 @@
       "storage": "sliding",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -3043,7 +3246,8 @@
      "use": {
       "storage": "sliding",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -3051,14 +3255,16 @@
      "label": "купе + обувница",
      "use": {
       "storage": "sliding",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только купе верхней одежды",
      "use": {
-      "storage": "sliding"
+      "storage": "sliding",
+      "mat": "door"
      }
     },
     {
@@ -3067,14 +3273,16 @@
      "use": {
       "storage": "open_other",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
      "id": "G",
      "label": "другое хранение (купе не влезло): только открытая вешалка",
      "use": {
-      "storage": "open_other"
+      "storage": "open_other",
+      "mat": "door"
      }
     }
    ],
@@ -3171,6 +3379,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -3203,7 +3417,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -3213,7 +3428,8 @@
       "storage": "hinged",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -3222,7 +3438,8 @@
      "use": {
       "storage": "hinged",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -3230,14 +3447,16 @@
      "label": "распашной шкаф + обувница",
      "use": {
       "storage": "hinged",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только распашной шкаф верхней одежды",
      "use": {
-      "storage": "hinged"
+      "storage": "hinged",
+      "mat": "door"
      }
     }
    ],
@@ -3334,6 +3553,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -3366,7 +3591,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -3376,7 +3602,8 @@
       "storage": "module",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -3385,7 +3612,8 @@
      "use": {
       "storage": "module",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -3393,14 +3621,16 @@
      "label": "модуль «прихожая» + обувница",
      "use": {
       "storage": "module",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только модуль «прихожая» верхней одежды",
      "use": {
-      "storage": "module"
+      "storage": "module",
+      "mat": "door"
      }
     }
    ],
@@ -3494,6 +3724,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -3523,7 +3759,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -3533,7 +3770,8 @@
       "storage": "open",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -3542,7 +3780,8 @@
      "use": {
       "storage": "open",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -3550,14 +3789,16 @@
      "label": "открытая вешалка + обувница",
      "use": {
       "storage": "open",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только открытая вешалка верхней одежды",
      "use": {
-      "storage": "open"
+      "storage": "open",
+      "mat": "door"
      }
     }
    ],
@@ -3634,6 +3875,12 @@
      "variants": [
       "over_low"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -3658,7 +3905,8 @@
      "use": {
       "storage": "open",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -3666,14 +3914,16 @@
      "label": "открытая вешалка + обувница",
      "use": {
       "storage": "open",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только открытая вешалка верхней одежды",
      "use": {
-      "storage": "open"
+      "storage": "open",
+      "mat": "door"
      }
     }
    ],
@@ -3765,6 +4015,12 @@
      "variants": [
       "table"
      ]
+    },
+    {
+     "id": "mat",
+     "variants": [
+      "door"
+     ]
     }
    ],
    "relations": [
@@ -3791,7 +4047,8 @@
       "shoe": "cabinet",
       "mirror": "over_low",
       "seat": "bench",
-      "console": "table"
+      "console": "table",
+      "mat": "door"
      }
     },
     {
@@ -3801,7 +4058,8 @@
       "storage": "open",
       "shoe": "cabinet",
       "mirror": "over_low",
-      "seat": "bench"
+      "seat": "bench",
+      "mat": "door"
      }
     },
     {
@@ -3810,7 +4068,8 @@
      "use": {
       "storage": "open",
       "shoe": "cabinet",
-      "mirror": "over_low"
+      "mirror": "over_low",
+      "mat": "door"
      }
     },
     {
@@ -3818,14 +4077,16 @@
      "label": "открытая вешалка + обувница",
      "use": {
       "storage": "open",
-      "shoe": "cabinet"
+      "shoe": "cabinet",
+      "mat": "door"
      }
     },
     {
      "id": "E",
      "label": "только открытая вешалка верхней одежды",
      "use": {
-      "storage": "open"
+      "storage": "open",
+      "mat": "door"
      }
     }
    ],
@@ -3935,7 +4196,8 @@
      "id": "C",
      "label": "только крючки",
      "use": {
-      "storage": "hooks"
+      "storage": "hooks",
+      "mat": "door"
      }
     },
     {
@@ -3959,7 +4221,8 @@
      "id": "F",
      "label": "только настенная вешалка",
      "use": {
-      "storage": "open"
+      "storage": "open",
+      "mat": "door"
      }
     }
    ],
