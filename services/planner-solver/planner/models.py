@@ -126,6 +126,33 @@ class Item(BaseModel):
     side_back: Literal["left", "right", "any"] | None = None
 
 
+AnchorKind = Literal["item_surface", "item_edge", "wall_above", "ceiling_over", "opening", "free_floor_region"]
+Mount = Literal["floor", "surface", "wall", "ceiling", "rod"]
+
+
+class Anchor(BaseModel):
+    """ТОЧКА КРЕПЛЕНИЯ зависимого места (T-20261112-67, паспорт `rules/room-templates/living.json` → `dependents[].anchor`):
+    kind и surface — как в паспорте; edge — какой край носителя (плед: arm_left/arm_right/back); wall — стена (картина, экран,
+    штора); opening — номер окна в `room.openings`; ceiling — место на потолке (люстра)."""
+
+    kind: AnchorKind
+    surface: str | None = None
+    edge: str | None = None
+    wall: Wall | None = None
+    opening: int | None = None
+    ceiling: bool = False
+
+
+class LocalPose(BaseModel):
+    """Сдвиг и поворот ОТНОСИТЕЛЬНО РОДИТЕЛЯ (оси носителя: x — вдоль его ширины, y — к его лицу, z — от пола носителя).
+    Мировые x/y/rot/elev_cm остаются истиной; local объясняет и позволяет пересчитать позу при сдвиге носителя."""
+
+    dx: float = 0
+    dy: float = 0
+    dz: float = 0
+    rot: float = 0
+
+
 class Placement(BaseModel):
     """Предмет, поставленный в точку: центр footprint + поворот."""
 
@@ -158,6 +185,18 @@ class Placement(BaseModel):
     # стол перпендикулярно СВОЕЙ кромке» — пишется шаблоном (build_dining), а не восстанавливается
     # эвристикой. rot остаётся истиной; facing_target объясняет и валидирует её.
     facing_target: dict | None = None
+    # PLACEMENT IR (T-20261112-67, план living-full-01 П1.6; Codex 12.11 «носители» §7 этап 1): место паспорта и его носитель.
+    # Все поля НЕОБЯЗАТЕЛЬНЫ и пусты по умолчанию — старые сцены не меняются (сторож `tests/test_dependents.py`).
+    # slot_instance_id — экземпляр места «группа.место#n»; parent_slot_instance_id — экземпляр носителя (пусто — стоит на полу);
+    # anchor/local — точка крепления и поза в осях носителя; mount — способ крепления; priced=False — место не в смете
+    # (виртуальный экран ТВ, marker «virtual_screen»); None — как раньше, решает сборка
+    slot_instance_id: str = ""
+    parent_slot_instance_id: str = ""
+    anchor: Anchor | None = None
+    local: LocalPose | None = None
+    mount: Mount | None = None
+    priced: bool | None = None
+    marker: str | None = None
 
     @model_validator(mode="after")
     def _role_matches(self) -> "Placement":

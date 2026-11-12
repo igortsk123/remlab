@@ -176,6 +176,8 @@ def test_mounting_mirrors_equal():
              (m["wall_art"]["max_count"], art["max_count"]),
              (m["wall_art"]["ceiling_gap"], art["ceiling_gap_cm"]),
              (m["wall_art"]["opening_clear"], art["opening_clear_cm"]),
+             (m["wall_carrier"]["back_gap_max"], art["back_gap_cm"]),
+             (m["wall_carrier"]["wall_edge"], art["wall_edge_cm"]),
              (m["chandelier"]["bottom_min"], h["chandelier_bottom_min"]),
              (m["chandelier"]["above_dining_table"], h["chandelier_above_dining_table"]),
              (m["chandelier"]["over_seating_bottom"], h["pendant_over_sofa"]),

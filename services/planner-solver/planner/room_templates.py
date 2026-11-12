@@ -141,6 +141,19 @@ def rule_value(ref: str, dist: dict | None = None):
     return node
 
 
+def norm_value(ref: str):
+    """Значение нормы occupancy.json по пути от корня (`heights_cm.sofa_seat`) — для высот поверхностей носителя
+    в решателе зависимых (`planner/dependents.py`); нет — _MISSING."""
+    if not isinstance(ref, str) or not ref:
+        return _MISSING
+    node = json.loads(OCCUPANCY.read_text(encoding="utf-8"))
+    for k in ref.split("."):
+        if not isinstance(node, dict) or k not in node:
+            return _MISSING
+        node = node[k]
+    return node
+
+
 def geometry_target(key: str) -> dict | None:
     """Что в старом движке стоит за ключом реестра: {zone, scheme, what}; ключа нет — None."""
     return GEOMETRY.get(key)
@@ -297,7 +310,9 @@ def _variant_places(doc: dict, g: str, v: str) -> list[dict]:
             out.append({"id": f"{g}.{s['id']}", "group": g, "variant": v, "kind": "dependent", "role": s["role"],
                         "carrier": s.get("carrier"), "anchor": s.get("anchor"), "cardinality": s.get("cardinality"),
                         "sellable": s.get("sellable", True), "marker": s.get("marker"), "when": s.get("when"),
-                        "on_failure": s.get("on_failure")})
+                        "on_failure": s.get("on_failure"),
+                        # как ставить на носителе — решателю зависимых (`planner/dependents.py`, T-20261112-67)
+                        "fit": s.get("fit"), "placement": s.get("placement"), "symmetry": s.get("symmetry", "none")})
         return out
     cnt = var.get("count") or {}
     for r in spec.get("roles") or []:

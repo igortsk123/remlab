@@ -523,7 +523,9 @@
    "tv_screen": {"center_from_floor": [120, 130], "center_from_floor_over55inch": [130, 135], "max_share_of_stand": 0.9,
     "_source": "виртуальный экран (непродаваемое место): зеркала heights_cm.tv_center_ru / tv_center_ru_over55inch; доля ширины тумбы — lib/viewer3d/scene-extras.ts TV_MAX_STAND_FRAC; templates.json zones.media virtual_screen (свод №8 v2 §14)"},
    "curtains": {"rod_above_opening": [10, 15], "beyond_opening_each_side": [8, 15],
-    "_source": "external: Bob Vila «hanging curtains», Crate & Barrel «How to Hang Curtains» — штанга 4–6″ над рамой и 3–6″ за край проёма с каждой стороны; поиск 12.11, гипотеза"}
+    "_source": "external: Bob Vila «hanging curtains», Crate & Barrel «How to Hang Curtains» — штанга 4–6″ над рамой и 3–6″ за край проёма с каждой стороны; поиск 12.11, гипотеза"},
+   "wall_carrier": {"back_gap_max": 30, "wall_edge": 10,
+    "_source": "НОСИТЕЛЬ «У СТЕНЫ» и край стены для мест над носителем (T-20261112-67, решатель planner/dependents.py): зеркала data/flat3d/wall-art.json back_gap_cm (опора у стены, если спинка не дальше 30 см) / wall_edge_cm (картина не ближе 10 см к углу); сторож — tests/test_room_templates_living.py:test_mounting_mirrors_equal"}
   }
  },
  "dynamic": {
