@@ -466,4 +466,10 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 662 — Сборку /demo в worktree не запускать → `lessons/demo-planner.md`
 - 663 — Playwright-снимки 3D берут 6–7 ядер при заявке `--cores 2` → `lessons/dev-ops.md`
 - 664 — урок 636 не держит: время — только подстановкой date в той же команде → `lessons/memory-process.md`
+- 665 — CI красный 4,3 ч: тест scout тянул shapely/torch, которых нет в задаче CI — гонять в чистом `~/venvs/ci-check` → `lessons/devops-deploy.md`
+- 666 — демо не перевыпускать поверх идущего refresh_daily; файлы демо в основную копию во время публикации не вливать → `lessons/demo-planner.md`
+- 667 — правило «/demo и туры» принимать по снимку /demo тоже → `lessons/memory-process.md`
+- 668 — влито пачкой → проверку работника из очереди heavy-slot снять → `lessons/memory-process.md`
+- 669 — cherry-pick пачки в грязном main: `--abort` откатывает всю серию — вливать в чистом worktree → `lessons/devops-deploy.md`
+- 670 — `sed '1s'` по plan-zadach.md снёс шапку `---` → `lessons/memory-process.md`
 - 528, 530 — дополнены 07.11 (gltfpack и `/tmp`; «как в CI» — py3.12, чистый venv, golden `--record`, e2e) без новых номеров

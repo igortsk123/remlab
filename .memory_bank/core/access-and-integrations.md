@@ -27,14 +27,13 @@ review_after: 2026-12-05
 
 **Tier 2:** `../domain/integrations.md` — эндпоинты, форматы, env, фиды, § Codex (`vercel*` — только `vercel-sol`, ADR-0327). Решения — ADR-0007/0011/0012/0013/0045.
 
-- **Vercel AI Gateway:** основной путь к LLM (запасной в `llm_gateway.chat` — прямой OpenAI); «нет денег» — `tools/scout/llm_gateway.py:NoCredits`,
-  баланс — `GET /v1/credits` (бесплатно), тревога `gateway_no_credits` в дайджесте DEV (`tools/ops/dev-checks.sh`).
-
+- **Vercel AI Gateway:** основной путь к LLM; «нет денег» — `tools/scout/llm_gateway.py:NoCredits`; баланс — `GET /v1/credits`
+  ключом `VERCEL_AI_GATEWAY_KEY` (0 → 402 у фото и у Codex `vercel-sol`), тревога `gateway_no_credits` (`tools/ops/dev-checks.sh`).
 - **fal.ai:** клиент `tools/scout/falmini.py`; на мешах заменён Salad (ADR-0131); 403 «locked» = баланс пуст, не повторять.
 
 ## Прочие доступы (детали — `../domain/integrations.md`)
 - **Мост мешей DEV↔прод:** `MESH_REVIEW_SECRET` (кука владельца) + `MESH_REVIEW_MACHINE_TOKEN`
-  (Bearer конвейера); общие для mesh-review/mesh-audit — Tier 2.
+  (Bearer конвейера) — Tier 2.
 - **SaladCloud + GHCR (31.08):** GPU под меши вместо fal; орг `prodstore`/`dmodel`, ключи в
   `_secrets/`, образ только digest'ом. События машин — `log-entries` (бесплатно, [[mesh-pool]] Tier 2 § 6). Грабли API — ADR-0137.
   GHCR — единственная копия образа (ADR-0232), вход `GHCR_TOKEN` (Tier 2).

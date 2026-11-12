@@ -302,6 +302,11 @@ Standard, `isDownloadable:false`, платная модель магазина.
 `/chat/completions` + `modalities:['image','text']` для Google-картинок — `draft_render._chat_edit`.
 Ключ `VERCEL_AI_GATEWAY_KEY`: `_secrets/ACCESS.md` и `/opt/remlab/.env`; клиент `gw_key()`.
 Прямые ключи OpenAI без кредитов — рабочий путь только шлюз.
+Запасной путь в `tools/scout/llm_gateway.py:chat` — прямой OpenAI (перенесено из Tier 1 12.11).
+**Баланс (12.11):** `GET https://ai-gateway.vercel.sh/v1/credits` с заголовком `Authorization: Bearer $VERCEL_AI_GATEWAY_KEY` (ключ — из
+`tools/scout/.env`, значение не копировать); `AI_GATEWAY_API_KEY` там же даёт `authentication_error` — не тот ключ. При балансе ≤ 0 отвечают
+402 сразу два потребителя: фото на сайте (`AI_PROVIDER=gateway`) и запасной Codex `--profile vercel-sol`. 12.11 в 20:19 баланс −0,0001 $
+(total_used 226) → владелец пополнил на 20 $ (TG 1242, 20:51). Тревога «нет денег» — `gateway_no_credits` в дайджесте DEV.
 
 
 ## fal.ai (2026-08-05 → 28.08)

@@ -28,9 +28,9 @@ review_after: 2026-12-05
   на замороженных данных и копии базы (`parity_guard.py`, `tools/scout/rules/parity-living.json`); код 3 — эталон старше данных.
 - **CI (`ci.yml`):** gate (postgres; memory-project-audit → селфтесты → typecheck → lint → test → build → e2e), db-init, planner, draft-image,
   scout-orient, scout-selftest (python 3.12); `memory-audit.yml`; аудиты — `warn` (`_kit/gate-mode.txt`). Статус main —
-  `tools/ops/ci-status.sh` (публичный API, ночь → DIGEST); перед пушем — хук `tools/ops/prepush-check.sh`; Tier 2 —
-  `domain/deployment-details.md` § CI.
-- **Observability:** трейс LLM (`lib/trace/`, `traceWriteFailures`); база в health (`lib/health.ts:dbCheck`) + `health-watch.sh` (ADR-0266).
+  `tools/ops/ci-status.sh` (ночь → DIGEST); перед пушем — хук `tools/ops/prepush-check.sh`; пачка веток — сборщик
+  `tools/ops/merge-queue.sh` (ADR-0406); Tier 2 — `domain/deployment-details.md` § CI.
+- **Observability:** трейс LLM (`lib/trace/`); база в health (`lib/health.ts:dbCheck`) + `health-watch.sh` (ADR-0266).
 - **Гарантии памяти (ADR-0055):** два аудита + хуки (`.claude/settings.json`): гард Bash (ADR-0195),
   SessionStart/Stop/PreCompact/PostToolUse (`tools/code-touch-hint.mjs`).
 - **Грабля:** флоу — e2e тем же коммитом; шаг CI и инструмент — одним коммитом (урок 414); `bank_*`/`rules/bank-*` —
