@@ -183,3 +183,44 @@ def test_items_engine_unchanged_by_clearances():
     with PN.using("legacy"):
         assert PN.clearance("bed_side_couple") == 75
     assert "clearance" not in a.meta
+
+
+# ─────────────── T-20261112-95: паре вторая тумба важнее режима прохода (паспорт sleep_before_mode) ───────────────
+def _demo2():
+    """Демо спальня 2 (450×293, чертёж №180) с радиатором под окном — как в банке."""
+    return Room(width_cm=450, depth_cm=293, room_type="bedroom", purpose="couple",
+                openings=[Opening(kind="door", wall="south", offset_cm=130, width_cm=85, swing_cm=85, hinge="left"),
+                          Opening(kind="window", wall="west", offset_cm=40, width_cm=210, sill_cm=85, height_cm=150)],
+                radiators=[Radiator(wall="west", offset_cm=55, width_cm=180, depth_cm=12)])
+
+
+MINI = [Item(role="кровать", w_cm=171, d_cm=212, h_cm=36), Item(role="тумба прикроватная", w_cm=40, d_cm=35, h_cm=56),
+        Item(role="тумба прикроватная 2", w_cm=40, d_cm=35, h_cm=56), Item(role="шкаф", w_cm=93, d_cm=50, h_cm=215),
+        Item(role="комод", w_cm=96, d_cm=40, h_cm=90)]
+
+
+def test_couple_nightstands_before_target_mode():
+    """Набор банка «минимализм» в демо-спальне 2: по цели — уровень C (без тумб, NIGHTSTAND_NO_FIT), compact возвращает
+    обе тумбы (A) — паре берём compact со строкой покупателю (Codex: «одна тумба + compact» выше «без тумб по цели»)."""
+    lay = solve_bedroom(_demo2(), MINI, "couple", engine="groups")
+    cl = lay.meta["clearance"]
+    assert cl["mode"] == "compact" and cl["target_level"] == "C", cl
+    assert lay.meta["sleep_variant"] == "pair" and lay.meta["composition"]["level"] == "A" and not _hard(lay)
+    assert lay.meta["allowance_text"].startswith("Компактно")
+
+
+def test_guest_keeps_target_without_nightstand_rule():
+    """Правило — только у назначений паспорта (couple): гостевая на той же комнате идёт по цели, как было."""
+    room = _demo2()
+    room.purpose = "guest"
+    kit = [Item(role="кровать", w_cm=146, d_cm=210, h_cm=92), Item(role="тумба прикроватная", w_cm=45, d_cm=40, h_cm=55),
+           Item(role="шкаф", w_cm=93, d_cm=50, h_cm=215), Item(role="комод", w_cm=96, d_cm=40, h_cm=90)]
+    lay = solve_bedroom(room, kit, "guest", engine="groups")
+    assert lay.meta["clearance"]["mode"] in ("target", "refused") or lay.meta["clearance"]["target_level"] is None
+
+
+def test_storage_alone_does_not_win_compact():
+    """«Сперва предметы, потом допуск» для хранения остаётся: 330×320 по цели — D (обе тумбы, без хранения); compact с
+    хранением (A) тумб не прибавляет — остаётся цель (тот же случай, что `test_items_go_before_allowance`)."""
+    lay = solve_bedroom(_room(330, 320), [BED] + NS + [DR, WR], "couple", engine="groups")
+    assert lay.meta["clearance"]["mode"] == "target" and lay.meta["sleep_variant"] == "pair"

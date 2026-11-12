@@ -315,6 +315,28 @@ def test_template_not_fit_goes_to_next_template(monkeypatch):
         assert tried['couple-160'] == 'no_fit' and tried['guest-160'] == 'no_fit' and tried['couple-180'] == 'no_bed'
 
 
+def test_couple_slim_nightstands_before_next_template(monkeypatch):
+    """Лестница тумб пары (T-20261112-95): обычные 45×40 «не встают» парой → узкие 33×32 из запаса банка, та же кровать 160 и тот же
+    шаблон пары, а не следующий шаблон; у гостевой (не пара) ступеней нет. Нет узкой в банке — как было (следующий шаблон)."""
+    real = TB._solve_kit
+
+    def fake(ad, cand, cfg, kit, purpose):
+        return None if kit['тумба прикроватная']['w'] > 36 else real(ad, cand, cfg, kit, purpose)
+    monkeypatch.setattr(TB, '_solve_kit', fake)
+    bank = []
+    for i, st in enumerate(TB.STYLES):
+        r = rec(st, item(f'b{i}', 170, sleep=160), item(f's{i}', 45, 40, 50))
+        r['alternates'] = {'тумба прикроватная': [item(f'n{i}', 33, 32, 50)]}
+        bank.append(r)
+    job = TB.build('t17s', plan(sizes=((420, 380),)), ctx(bank))
+    r = job['rooms'][0]
+    assert r['outcome']['state'] == 'furnished' and len(r['variants']) == len(TB.STYLES)
+    for v in r['variants']:
+        assert v['template'] == 'couple-160' and v['ns_step'] == 'slim'
+        assert [i['w'] for i in v['items'] if i['role'].startswith('тумба')] == [33, 33]
+    assert TB.slim_stands([rec('сканди', item('b', 170, sleep=160), item('s', 45, 40, 50))], 'сканди', lambda s: '', None, set()) == []
+
+
 def test_one_room_empty_others_furnished():
     job = TB.build('t18', plan(sizes=((200, 280), (420, 380))), ctx(full_bank()))
     a, b = job['rooms']

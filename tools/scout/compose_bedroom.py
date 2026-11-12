@@ -65,6 +65,15 @@ def load_json(p: str) -> dict:
 from compose_common import band_of, dominated, num, palette, side, tier_range  # noqa: E402,F401
 
 
+def sleep_ladder_only(lay) -> bool:
+    """Раскладка есть только благодаря лестнице тумб пары (T-20261112-95, `planner/bedroom.py:_sleep_first`): по цели она тоже
+    принята (`target_level`), но солвер взял compact ради тумб. В переборе кандидатов (`free_wall`, `narrow_wardrobe`) такая —
+    запас: следующий кандидат может дать пару тумб по цели, как до лестницы (ячейка спальня 2 · сканди · премиум: шкаф 96×55 давал
+    по цели C без тумб, теперь compact A; следующий 103×52 — A по цели)."""
+    cl = (getattr(lay, 'meta', None) or {}).get('clearance') or {}
+    return cl.get('mode') == 'compact' and cl.get('target_level') is not None
+
+
 def gate(it: dict, slot: dict, band: dict) -> str | None:
     """None — товар годен в слот по размерам; иначе причина. Без Ш×Г×В — не ставим (дополнение ведущего 05.11).
     Декор без полосы (шторы, плед — мягкое, ADR-0323) размеров не требует."""
@@ -331,12 +340,54 @@ class Composer:
         после всех попыток — ступень 140 (ADR-0384 поправка 1: тесной паре 140, а не отказ; паспорт
         `services/planner-solver/rules/room-templates/bedroom.json` next_step) ДО «без хранения»; поштучный движок — как было."""
         res = self._build(room_id, purpose, style, tier, spec, built, used)
-        if 'empty' not in res or not self.step140(purpose):
+        if 'empty' in res and self.step140(purpose):
+            step = self._build(room_id, purpose, style, tier, spec, built, used, bed_slot=self.step140(purpose))
+            res = dict(res, step140=step['empty']) if 'empty' in step else dict(step, bed_step=140, bed_step_why=res['empty'])
+        if 'empty' in res:
             return res
-        step = self._build(room_id, purpose, style, tier, spec, built, used, bed_slot=self.step140(purpose))
-        if 'empty' in step:
-            return dict(res, step140=step['empty'])
-        return dict(step, bed_step=140, bed_step_why=res['empty'])
+        return self.nightstand_steps(res, room_id, purpose, style, tier, spec, built, used)
+
+    def nightstand_steps(self, res: dict, room_id: str, purpose: str, style: str, tier: str, spec: dict, built: list,
+                         used: dict) -> dict:
+        """T-20261112-95 (владелец TG 910/929, Codex `_intake/codex/2026-11-12-small-bedroom-answer.md`): паре тумбы 45×40
+        не встали обе — ступени правил `nightstand_steps` (узкие 30–36 × 28–35, затем подвесные) ДО ухода на одну тумбу или
+        без тумб; ступень берётся, если уровень состава выше (`room-templates/bedroom.json` levels), при равном — по цели лучше
+        compact. Нет товара в стиле и тире — ступень пропущена (строка `ns_steps_tried` в записи). Кровать — та же ступень
+        (160–180 или 140), что у исходного набора."""
+        steps = self.R['purposes'][purpose].get('nightstand_steps') or []
+        lay = res['layout']
+        if not steps or lay.meta.get('engine') != 'groups' or lay.meta.get('sleep_variant') == 'pair':
+            return res
+        base = next((sl for sl in self.R['purposes'][purpose]['slots'] if sl['role'] == 'тумба прикроватная'), None)
+        if base is None or base.get('qty', 1) < 2:
+            return res
+        best, tried = res, []
+        for st in steps:
+            slot = dict(base, **{k: v for k, v in st.items() if not k.startswith('_') and k != 'id'}, step=st['id'])
+            got = self._build(room_id, purpose, style, tier, spec, built, used, ns_slot=slot,
+                              bed_slot=res['slots']['кровать'] if res.get('bed_step') else None)
+            if 'empty' in got or 'тумба прикроватная' not in got['chosen']:
+                tried.append(f"{st['id']}: {got.get('empty') or 'не встала'}")
+                continue
+            tried.append(f"{st['id']}: {got['layout'].meta.get('sleep_variant')} · "
+                         f"{(got['layout'].meta.get('composition') or {}).get('level')}")
+            if self._level_key(got) < self._level_key(best):
+                best = dict(got, ns_step=st['id'], ns_step_why=lay.meta.get('sleep_why'),
+                            **{k: res[k] for k in ('bed_step', 'bed_step_why') if k in res})
+            if best['layout'].meta.get('sleep_variant') == 'pair':
+                break
+        return dict(best, ns_steps_tried=tried)
+
+    @staticmethod
+    def _level_key(res: dict) -> tuple:
+        """(уровень состава по паспорту, compact ли): меньше — лучше."""
+        sys.path.insert(0, SOLVER)
+        from planner import room_templates as RT
+        m = res['layout'].meta
+        comp = m.get('composition') or {}
+        tpl = RT.template_by_id('bedroom', comp.get('template') or '') or {}
+        lvl = RT.level_index(tpl, comp.get('level'))
+        return (99 if lvl is None else lvl, (m.get('clearance') or {}).get('mode') == 'compact')
 
     def step140(self, purpose: str) -> dict | None:
         """Слот кровати ступени 140 для пары при движке групп → слот или None (не пара, поштучный движок, ступени нет)."""
@@ -355,17 +406,20 @@ class Composer:
         return dict(base, ideal=dict(base['ideal'], w=w + 15), sleep_w=[w, w], step=w)
 
     def _build(self, room_id: str, purpose: str, style: str, tier: str, spec: dict, built: list, used: dict,
-               bed_slot: dict | None = None) -> dict:
+               bed_slot: dict | None = None, ns_slot: dict | None = None) -> dict:
         from planner.bedroom import solve_bedroom
         from planner.models import Item
         cfg = self.R['purposes'][purpose]
-        if bed_slot:
-            cfg = dict(cfg, slots=[bed_slot if sl['role'] == 'кровать' else sl for sl in cfg['slots']])
+        over = {'кровать': bed_slot, 'тумба прикроватная': ns_slot}
+        if bed_slot or ns_slot:
+            cfg = dict(cfg, slots=[over.get(sl['role']) or sl for sl in cfg['slots']])
         self.purpose = purpose
         room = _room_model(spec, purpose)
         slots, lists, bands, relaxed = {}, {}, {}, []
         for sl in cfg['slots']:
-            cands, band, rx = self.pool(sl, style, tier, self.cat)
+            extra = (lambda it, rx=re.compile(sl['name_re'], re.I): bool(rx.search(it.get('name') or ''))) \
+                if sl.get('name_re') else None
+            cands, band, rx = self.pool(sl, style, tier, self.cat, extra)
             if rx:
                 relaxed.append(sl['role'])
             palette(cands)
@@ -439,13 +493,16 @@ class Composer:
         need = {i.role for i in base}
         top = int(band_of(slot, self.tol)['w'][1] // 5 * 5)
         ih = slot['ideal']['h']
+        spare = None
         for d in (slot['ideal']['d'], round(slot['ideal']['d'] * self.tol[0])):
             for w in range(top, WARDROBE_MIN_W - 1, -5):
                 lay = solve_bedroom(room, base + [Item(role='шкаф', w_cm=w, d_cm=d, h_cm=ih)], purpose)
                 pl = {p.role for p in lay.placements}
                 if 'шкаф' in pl and need <= pl:
-                    return w, d
-        return None
+                    if not sleep_ladder_only(lay):
+                        return w, d
+                    spare = spare or (w, d)
+        return spare
 
     def narrow_wardrobe(self, room, purpose: str, style: str, tier: str, slot: dict, chosen: dict, lay, built: list,
                         ctx: dict) -> dict:
@@ -480,6 +537,7 @@ class Composer:
         ctx = dict(ctx, chroma=CC.color_anchors({r: c for r, c in chosen.items() if r != 'шкаф'}, style))
         banned: set = set()
         tried = 0
+        spare = None
         if os.environ.get('BEDROOM_DEBUG'):
             print(f'    узкий шкаф: стена {w}×{d}, полоса {band}, кандидаты '
                   + ', '.join(f'{c["sid"][-6:]} {c["w"]:g}×{c["d"]:g} {c["fam"][:30]} div={diversity_ok(c["fam"], "шкаф", cur, built, style)}'
@@ -500,9 +558,14 @@ class Composer:
             if os.environ.get('BEDROOM_DEBUG'):
                 print(f'    узкий шкаф (стена {w}): {pick["sid"]} {pick["w"]:g}×{pick["d"]:g} → встали {sorted(pl)}', flush=True)
             if 'шкаф' in pl and need <= pl:
-                return {'layout': nl, 'item': dict(pick, qty=1), 'cands': cands, 'band': band, 'slot': nslot,
-                        'relaxed': rx, 'free_wall_cm': w, 'tried': tried}
+                got = {'layout': nl, 'item': dict(pick, qty=1), 'cands': cands, 'band': band, 'slot': nslot,
+                       'relaxed': rx, 'free_wall_cm': w, 'tried': tried}
+                if not sleep_ladder_only(nl):
+                    return got
+                spare = spare or got          # пара тумб только с допуском — запас; следующий шкаф может дать её по цели
             banned |= dominated(pick, cands)
+        if spare is not None:
+            return dict(spare, tried=tried)
         return {'layout': None, 'why': f'свободная стена {w} см, шкафов в стиле и полосе {len(cands)}, '
                                        f'не встал ни один из {tried}'}
 
@@ -835,7 +898,8 @@ def record(C: Composer, room_id: str, spec: dict, purpose: str, style: str, tier
     slots = {r: dict({'ideal': res['slots'][r]['ideal'], 'band': res['bands'][r], 'tolerance': list(C.tol),
                       'qty': chosen[r]['qty'], 'mesh': True},
                      **({'free_wall_cm': res['slots'][r]['free_wall_cm']} if 'free_wall_cm' in res['slots'][r] else {}),
-                     **({'sleep_w': res['slots'][r]['sleep_w'], 'step': res['slots'][r]['step']} if res['slots'][r].get('step') else {}))
+                     **({k: res['slots'][r][k] for k in ('sleep_w', 'step') if k in res['slots'][r]}
+                        if res['slots'][r].get('step') else {}))
              for r in chosen}
     slots.update(dslots)
     layout = {p.role: {'x': p.x, 'z': p.y, 'rot': int(p.rot), 'w': p.item.w_cm, 'd': p.item.d_cm, 'h': p.item.h_cm,
@@ -855,6 +919,10 @@ def record(C: Composer, room_id: str, spec: dict, purpose: str, style: str, tier
           if lay.meta.get(k)}
     if res.get('bed_step'):
         gm.update(bed_step=res['bed_step'], bed_step_why=res['bed_step_why'])
+    if res.get('ns_step'):           # T-20261112-95: узкие/подвесные тумбы вместо 45×40 (ступень правил nightstand_steps)
+        gm.update(ns_step=res['ns_step'], ns_step_why=res['ns_step_why'])
+    if res.get('ns_steps_tried'):
+        gm['ns_steps_tried'] = res['ns_steps_tried']
     layout['_meta'].update(gm)
     wd = res.get('wardrobe')
     if wd:      # шкаф не встал с общим идеалом: узкий по свободной стене или честное «без места»

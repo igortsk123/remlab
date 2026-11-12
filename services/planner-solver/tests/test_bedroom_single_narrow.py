@@ -59,10 +59,25 @@ ADDED_T68 = {
 }
 
 
+# добавки T-20261112-95 (лестница тумб пары) — дописаны в конец назначения couple; раздел — путь (кортеж)
+ADDED_T95 = {
+    "tools/scout/rules/bedroom-composition.json": [(("purposes", "couple"), "_nightstand_steps_why"),
+                                                   (("purposes", "couple"), "nightstand_steps")],
+}
+
+
+def _sec(d: dict, sec):
+    if sec is None:
+        return d
+    for k in (sec if isinstance(sec, tuple) else (sec,)):
+        d = d[k]
+    return d
+
+
 def _drop_t38(name: str, d: dict, check_order: bool = False) -> dict:
     d = copy.deepcopy(d)
-    for sec, key in reversed(ADDED_T38.get(name, []) + ADDED_T68.get(name, [])):
-        tgt = d if sec is None else d[sec]
+    for sec, key in reversed(ADDED_T38.get(name, []) + ADDED_T68.get(name, []) + ADDED_T95.get(name, [])):
+        tgt = _sec(d, sec)
         if check_order and not key.startswith("_"):
             assert list(k for k in tgt if not k.startswith("_"))[-1] == key, f"{name}: {key} — не последним ключом"
         tgt.pop(key)

@@ -700,20 +700,24 @@ def _solve_groups(room: Room, items: list[Item], purpose: str, *, beam: int = BE
     reasons = set(lay.meta.get("reason", []))
     lvl_target = (lay.meta.get("composition") or {}).get("level")
     info = {"profile": prof, "mode": "target", "target_level": lvl_target if _accepted(lay) else None}
-    if _accepted(lay) or reasons & PRELUDE_REFUSALS:
+    if reasons & PRELUDE_REFUSALS or (_accepted(lay) and not _sleep_first(room, purpose, lay, prof)):
         lay.meta["clearance"] = info
         lay.meta["allowances"] = []
         return lay
     if PN.allowances_on(prof):
         with PN.using("compact", prof):
             lay2 = _solve_groups_once(room, items, purpose, beam=beam)
-            if _accepted(lay2):
+            if _accepted(lay2) and (not _accepted(lay) or _sleep_gain(room, purpose, lay, lay2)):
                 info["mode"] = "compact"
                 optional = {p.role for p in lay2.placements if not _must(lay2.meta, p.role)}
                 lay2.meta["allowances"] = allowances(room, lay2.placements, optional)
                 lay2.meta["allowance_text"] = " ".join(dict.fromkeys(a["text"] for a in lay2.meta["allowances"]))
                 lay2.meta["clearance"] = info
                 return lay2
+        if _accepted(lay):                  # compact тумб не вернул — остаётся цель
+            lay.meta["clearance"] = info
+            lay.meta["allowances"] = []
+            return lay
         lay = lay2
     info["mode"] = "refused"
     info["refusal"] = refusal_codes(room, lay)
@@ -725,6 +729,35 @@ def _solve_groups(room: Room, items: list[Item], purpose: str, *, beam: int = BE
     lay.meta["clearance"] = info
     lay.meta["allowances"] = []
     return lay
+
+
+SLEEP_RANK = {v: i for i, v in enumerate(VARIANTS)}      # pair < one_side < solo: меньше — больше тумб
+
+
+def _sleep_tpl(room: Room, purpose: str) -> dict | None:
+    """Шаблон с `sleep_before_mode` для назначения (паспорт `rules/room-templates/bedroom.json`) или None."""
+    tpl = RT.template_for("bedroom", purpose, room.child_age)
+    sbm = (tpl or {}).get("sleep_before_mode") or {}
+    return tpl if purpose in (sbm.get("purpose") or ()) else None
+
+
+def _sleep_first(room: Room, purpose: str, lay: Layout, prof: str) -> bool:
+    """T-20261112-95: по цели паре встали не обе тумбы и допуск compact есть — пробуем compact за второй тумбой
+    (Codex: «одна тумба + compact 51» выше «без тумб по цели»)."""
+    return (_accepted(lay) and PN.allowances_on(prof) and bool(_sleep_tpl(room, purpose))
+            and lay.meta.get("sleep_variant") not in (None, "pair"))
+
+
+def _sleep_gain(room: Room, purpose: str, lay: Layout, lay2: Layout) -> bool:
+    """compact вернул тумбы (вариант «сна» лучше) И уровень состава не ниже — тогда он лучше цели. Только хранение
+    (D по цели → A compact) — нет: «сперва предметы, потом допуск» (ADR-0394) для хранения остаётся."""
+    tpl = _sleep_tpl(room, purpose)
+    if not tpl:
+        return False
+    a = RT.level_index(tpl, (lay.meta.get("composition") or {}).get("level"))
+    b = RT.level_index(tpl, (lay2.meta.get("composition") or {}).get("level"))
+    sa, sb = SLEEP_RANK.get(lay.meta.get("sleep_variant"), 9), SLEEP_RANK.get(lay2.meta.get("sleep_variant"), 9)
+    return a is not None and b is not None and b <= a and sb < sa
 
 
 def _must(meta: dict, role: str) -> bool:

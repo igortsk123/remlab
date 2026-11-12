@@ -374,14 +374,44 @@ def templates(area_m2: float, short: float) -> list:
     return out
 
 
-def pick_role(role: str, bank: list, style: str, mesh_ok, defect, used: set):
-    """Первый годный товар роли для стиля: свой стиль, потом соседние (`neighbour_styles`); незанятые раньше занятых."""
+def pick_role(role: str, bank: list, style: str, mesh_ok, defect, used: set, keep=None):
+    """Первый годный товар роли для стиля: свой стиль, потом соседние (`neighbour_styles`); незанятые раньше занятых. `keep` — отбор
+    товара (ступень тумб `slim_stands`)."""
     for st in [style] + R.neighbour_styles(style):
-        rows = [it for it in bank_pool(bank, st, role) if _ready(it, mesh_ok, defect)]
+        rows = [it for it in bank_pool(bank, st, role) if _ready(it, mesh_ok, defect) and (keep is None or keep(it))]
         rows = [it for it in rows if _sid(it) not in used] or rows
         if rows:
             return dict(rows[0], **({'_borrowed': st} if st != style else {}))
     return None
+
+
+def _ns_step_keep(step: dict):
+    """Годится ли тумба в ступень лестницы пары (`bedroom-composition.json` purposes.couple.nightstand_steps): размер в полосе ступени
+    (идеал × допуск профиля спальни, как `compose_bedroom.band_of`) и слово в имени (`name_re`, подвесные)."""
+    import compose_common as CC
+    import room_profile as RP
+    band = CC.band_of(step, tuple(RP.load('bedroom').get('tolerance') or (0.8, 1.1)))
+    name_re = re.compile(step['name_re'], re.I) if step.get('name_re') else None
+
+    def keep(it: dict) -> bool:
+        for k, (lo, hi) in band.items():
+            v = float(it.get(k) or 0)
+            if not lo <= v <= hi:
+                return False
+        return name_re is None or bool(name_re.search(it.get('name') or ''))
+    return keep
+
+
+def slim_stands(bank: list, style: str, mesh_ok, defect, used: set) -> list:
+    """ЛЕСТНИЦА ТУМБ ПАРЫ в туре (T-20261112-95, владелец TG 910/929; та же, что у сборщика банка `Composer.nightstand_steps`): по ступеням
+    правил — узкие, потом подвесные — первая годная тумба банка стиля (и соседних) → [тумба с `_ns_step`]. Ступени без товара нет в
+    списке. Полок и бра в каталоге нет — их ступени нет и здесь."""
+    out = []
+    for step in (COMP['purposes'].get('couple') or {}).get('nightstand_steps') or []:
+        it = pick_role('тумба прикроватная', bank, style, mesh_ok, defect, used, keep=_ns_step_keep(step))
+        if it is not None and _sid(it) not in {_sid(x) for x in out}:
+            out.append(dict(it, _ns_step=step['id']))
+    return out
 
 
 EXTRA_ROLES = ('шкаф', 'комод')                    # «по месту» (владелец 11.11, TG 992): шкаф главнее комода (вес решателя 3 против 2)
@@ -661,6 +691,7 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
     area = max(c['area_m2'] for c in cores)
     short = max(min(c['w'], c['d']) for c in cores)
     stand = pick_role('тумба прикроватная', ctx['bank'], style, ctx['mesh_ok'], ctx['defect'], used)
+    slims = slim_stands(ctx['bank'], style, ctx['mesh_ok'], ctx['defect'], used) if stand else []
     wall_max = max(max(c['w'], c['d']) for c in cores)
     extras = {r: role_sizes(r, ctx['bank'], style, ctx['mesh_ok'], ctx['defect'], used, wall_max) for r in EXTRA_ROLES}
     log = []
@@ -703,7 +734,16 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
                     why = 'budget'
                     break
                 core_kit = {'кровать': bed, 'тумба прикроватная': stand}     # обязательное шаблона: не встало — шкафы и комоды не пробуем
-                if not template_ok(solve_kit(ad, cand, cfg, core_kit, tpl['purpose']), tpl):
+                ok = template_ok(solve_kit(ad, cand, cfg, core_kit, tpl['purpose']), tpl)
+                if not ok and tpl['purpose'] == 'couple':
+                    # лестница тумб пары (T-20261112-95): обе обычные не встали — узкие, потом подвесные, ДО следующего шаблона
+                    # (кровать 140 — шаблон дальше по списку, как ступень 140 у сборщика банка)
+                    for s in slims:
+                        kit_s = dict(core_kit, **{'тумба прикроватная': s})
+                        if template_ok(solve_kit(ad, cand, cfg, kit_s, tpl['purpose']), tpl):
+                            core_kit, ok = kit_s, True
+                            break
+                if not ok:
                     # ВЫСОТА У ОКНА (T-20261110-20/3): решатель не ставит предмет выше подоконника у окна (`planner.bedroom._fits`);
                     # высокая рама не встала, а ТА ЖЕ рама ниже подоконника встаёт — мешала высота. Тогда высокие рамы не меньше
                     # этой не пробуем (`dominated`), прочие из очереди — как раньше и первыми (выбор там, где прежний подбор
@@ -792,6 +832,7 @@ def variant_from(res: dict, ad: dict, cand: dict, ci: int, style: str, kit: dict
     missing = [{'role': r, 'why': 'no_model' if r not in have else 'no_space'} for r in ROOM_ROLES if r not in placed]
     return {'style': style, 'style_id': STYLE_ID.get(style, ''), 'purpose': tpl['purpose'], 'template': tpl['id'], 'core_index': ci,
             'hinge': res['hinge'], 'bed_sleep_w': round(_sleep_w(bed)), 'bed_borrowed_style': bed.get('_borrowed'),
+            **({'ns_step': kit['тумба прикроватная']['_ns_step']} if (kit.get('тумба прикроватная') or {}).get('_ns_step') else {}),
             'items': items, 'missing_item': missing, 'fill_pct': res['floor_pct'], 'hard': [], 'post_ok': res['post']['ok'],
             'status': 'ok',                               # шаблон выполнен (кровать и тумбы); шкаф и комод необязательны — в `missing_item`
             'placements': TD._ps_json(res['placements'], x0, y0),
