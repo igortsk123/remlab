@@ -8282,11 +8282,21 @@ function icItem(p, role){ const r=baseRole(role), rug=r==='ковёр';
 // ЦВЕТА МОДЕЛИ — товары ленты своей роли из той же семьи цветов, только с фото; первым — сам товар. Семья — `fam` сборки
 // (`annotate_swatch`: у цвета со своей 3D-моделью `msid` свой, а семья общая, T-20261106-77/5), иначе — модель `msid`.
 // Считаем по тому, что реально есть в ленте (лимит ленты — 30 товаров на подкатегорию×стиль), не по всему семейству магазина
+// ТОЛЬКО ЦВЕТА, ЧТО МЕНЯЮТ 3D (T-20261112-110/2, правило П1.22): вид в сцене — модель `msid` + подкраска `tint`; цвет с тем же видом, что
+// у текущего (та же модель без подкраски: «Deco latte» у Tejons, молочный «Ribble-1»), менял бы список, а 3D — нет. Прежний цвет
+// без подкраски у подкрашенного текущего — другой вид (подкраска снимается), остаётся. Одно правило для кружков строки, карточки, чипов
+// ленты; /demo и туры — одна страница. Семья — по записи товара в ленте (`fam` там есть всегда): у товара слота её могло не быть
+// (состояние до правки, коллекция) — тогда цвет со своей моделью терял кружки (дефект 2 T-110)
 function famKey(p){ return p.fam||p.msid||p.sid||p.name; }
+function look3d(p){ return (p.msid||p.sid||'')+'|'+(p.tint?p.tint.join(','):''); }
+function famOf(sku, role){
+  const me=(byRoom(D.feeds,baseRole(role))||[]).find(p=>p.name===sku.name);
+  return famKey(me&&me.fam?me:sku);
+}
 function colourFam(sku, role){
   if(!sku||!sku.name)return [];
-  const m=famKey(sku), feed=byRoom(D.feeds,baseRole(role))||[];
-  const same=feed.filter(p=>p.img&&famKey(p)===m), seen=new Set([sku.name]);
+  const feed=byRoom(D.feeds,baseRole(role))||[], m=famOf(sku,role), v=look3d(sku);
+  const same=feed.filter(p=>p.img&&famKey(p)===m&&(p.name===sku.name||look3d(p)!==v)), seen=new Set([sku.name]);
   const out=[same.find(p=>p.name===sku.name)||sku];
   same.forEach(p=>{if(!seen.has(p.name)){seen.add(p.name); out.push(p);}});
   return out.length>1?out:[];
@@ -8313,7 +8323,7 @@ function swatchBtn(p, attr, on, label){
 // Порядок — порядок ленты, не «текущий первым»: после смены кружки не перескакивают под пальцем (`data-sw` — номер в `colourFamRow`)
 function colourFamRow(sku, role){
   const fam=colourFam(sku, role); if(!fam.length)return fam;
-  const m=famKey(sku), ord=new Map();
+  const m=famOf(sku,role), ord=new Map();
   (byRoom(D.feeds,baseRole(role))||[]).forEach((p,i)=>{if(p.img&&famKey(p)===m&&!ord.has(p.name))ord.set(p.name,i);});
   const at=p=>ord.has(p.name)?ord.get(p.name):-1;
   return fam.slice().sort((a,b)=>at(a)-at(b));
@@ -8913,7 +8923,7 @@ function grid(){
   // ЦВЕТА ОДНОЙ МОДЕЛИ — ЧИПАМИ, ПЕРВЫМИ — ДРУГИЕ МОДЕЛИ (приёмка владельцем 16.10 п.11а): первые три кандидата сканди-дивана были
   // цветами того же «Викс» — одна модель, и замена выглядела несработавшей. Цвета текущей модели — строкой чипов сверху, другие
   // модели — по одной карточке с пометкой «ещё N цветов»; цвет на сцене — подкраской (`sku.tint`)
-  const modelOf=famKey, curM=sel&&sel.sku?modelOf(sel.sku):'';
+  const modelOf=famKey, curM=sel&&sel.sku?famOf(sel.sku,base):'';
   // цвета текущей — тем же правилом, что кружки строки (`colourFam`, все цвета модели в ленте роли, текущий первым): фильтры ленты
   // и стиль их не прячут — меняем от текущего (demo-28; раньше выпадал текущий, если его цвет не из стиля ленты)
   const colours=sel&&sel.sku?colourFam(sel.sku,base):[], byM=new Map(), more=new Map();
@@ -9008,6 +9018,7 @@ function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.rol
       d.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop,
              sid:p.sid||null,msid:p.msid||p.sid||null,basis:p.basis||null,
              w:p.w,d:p.d,h:p.h||null,pack:p.pack||1,...(p.yaw!=null?{yaw:p.yaw}:{}),...(p.tint?{tint:p.tint}:{}),
+             ...(p.fam?{fam:p.fam}:{}),   // семья цветов едет с товаром: после выбора цвета кружки остаются (T-20261112-110/2)
              ...(p.img_art?{img_art:p.img_art}:{})};   // картина: полотно без белого поля (`wall_art.annotate_crop`)
       sel=decorSel(s.dec);
       basket(); showSwap(); refreshShotList();
@@ -9037,6 +9048,9 @@ function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.rol
          ...(p.yaw!=null?{yaw:p.yaw}:{}),
          // подкраска цветового варианта на модели семейства (приёмка 16.10 п.11б, `flat215_demo.annotate_tint`)
          ...(p.tint?{tint:p.tint}:{}),
+         // семья цветов (`annotate_swatch`): у цвета со своей моделью msid свой, семья общая — без неё после выбора такого цвета
+         // кружки строки пропадали и вернуть прежний было нельзя (дефект 2 T-20261112-110/2)
+         ...(p.fam?{fam:p.fam}:{}),
          // проба: имя на обоих языках, цвет и размер товара едут с ним — строка списка и миниатюра после замены (T-20261109-35/3)
          ...(TRIAL()?{name_en:p.name_en, colour_en:p.colour_en||'', colour_ru:p.colour_ru||'', w:p.w, d:p.d, h:p.h||null, sleep_w:p.sleep_w}:{})};
   kin.forEach(it=>{const kd=+it.d||0; it.w=s.w; it.d=s.d; it.h=s.h; it.sku=Object.assign({},s.sku); if(!s.role.startsWith('ковёр'))swapKeepBack(it,kd,curRoom());
