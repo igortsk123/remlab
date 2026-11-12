@@ -4,32 +4,72 @@
 - у каждого направленного предмета в экспорте есть orientation (yaw, фронт-вектор, intent, relation);
 - facing_target пересчитывается из координат: угловая ошибка соответствует relation
   (faces ≤15°, angled_toward ≤45°), дистанция ≤250 см.
+
+ВЫГРУЗКА — ТОЙ ЖЕ НОЧИ, ЧТО И АРТЕФАКТЫ (T-20261112-94). До 12.11 `~/scout-scenes/plans-export` никто не пересобирал
+(последняя — 26.08), и тест сверял артефакты свежего экзамена с выгрузкой другого банка: «pose mismatch set1-base» —
+другой диван (Евро 195×80 → Викс 198×90, банк пересобран по ADR-0131/0136), а не сломанный контракт. Теперь: ночная
+выгрузка свежее отчёта экзамена — берём её (её пишет `nightly_exam.sh`); иначе тест сам собирает выгрузку из текущих
+артефактов во временную папку (`export_plans_ai.py`, env `PLANS_EXPORT_OUT`) — проверяется код выгрузки, а не дата.
+Данные экзамена — `tools/scout` этой копии или env `EXAM_SCOUT_DIR` (прогон из worktree по данным основной копии).
 """
 import glob
 import json
 import math
 import os
+import subprocess
+import sys
+import tempfile
 
-SCOUT = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools', 'scout')
-EXPORT = os.path.expanduser('~/scout-scenes/plans-export')
+CODE_SCOUT = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools', 'scout')
+SCOUT = os.environ.get('EXAM_SCOUT_DIR') or CODE_SCOUT
+NIGHTLY_EXPORT = os.path.expanduser(os.environ.get('PLANS_EXPORT_DIR') or '~/scout-scenes/plans-export')
+GALLERY = os.path.expanduser(os.environ.get('ACC_GALLERY_DIR') or '~/scout-scenes/acc-gallery')
+REPORT = os.path.join(SCOUT, 'acceptance-report-zoned.jsonl')
 DIRECTIONAL = ('диван', 'кресло', 'тв-тумба', 'стенка', 'камин', 'стул')
+_CACHE = {}
 
 
-def _pairs(limit=60):
-    idx_p = os.path.join(EXPORT, 'index.json')
-    if not os.path.exists(idx_p):
-        return []
+def _export_dir():
+    """Выгрузка, согласованная с отчётом экзамена; None — сверять не с чем (скип с причиной в `_CACHE['why']`)."""
+    if 'dir' in _CACHE:
+        return _CACHE['dir']
+    _CACHE['dir'], _CACHE['why'] = None, ''
     # контракт позы сверяет артефакты ПОЛНОГО прогона с экспортом; нет отчёта приёмки —
     # значит прогон не делался или прерван, артефакты и экспорт из разных состояний,
     # и тест обязан скипаться, а не падать (19.08)
-    if not os.path.exists(os.path.join(SCOUT, 'acceptance-report-zoned.jsonl')):
+    if not os.path.exists(REPORT):
+        _CACHE['why'] = 'нет отчёта экзамена acceptance-report-zoned.jsonl'
+        return None
+    rep_t = os.path.getmtime(REPORT)
+    idx = os.path.join(NIGHTLY_EXPORT, 'index.json')
+    if os.path.exists(idx) and os.path.getmtime(idx) >= rep_t:
+        _CACHE['dir'] = NIGHTLY_EXPORT
+        return NIGHTLY_EXPORT
+    # ночной выгрузки этого экзамена нет — собрать свою; галерея (вход выгрузки) должна быть этого же экзамена
+    probe = glob.glob(os.path.join(GALLERY, '*.json'))
+    if not probe or max(map(os.path.getmtime, probe)) < rep_t - 600:
+        _CACHE['why'] = f'галерея {GALLERY} старше отчёта экзамена — выгрузку собрать не из чего (не поломка позы)'
+        return None
+    out = os.path.join(tempfile.mkdtemp(prefix='pose-export-'), 'plans-export')
+    env = dict(os.environ, PLANS_EXPORT_OUT=out, ACC_GALLERY_DIR=GALLERY, EXAM_SCOUT_DIR=SCOUT)
+    r = subprocess.run([sys.executable, os.path.join(CODE_SCOUT, 'export_plans_ai.py')], cwd=CODE_SCOUT, env=env,
+                       capture_output=True, text=True, timeout=600)
+    assert r.returncode == 0, f'export_plans_ai.py упал: {r.stderr[-800:]}'
+    _CACHE['dir'] = out
+    return out
+
+
+def _pairs(limit=60):
+    export = _export_dir()
+    if not export:
         return []
+    idx_p = os.path.join(export, 'index.json')
     idx = json.load(open(idx_p, encoding='utf-8'))['plans']
     out = []
     for it in idx[:limit]:
         n = int(it['scene'].split('-')[0][3:])
         art_p = os.path.join(SCOUT, f"v3set{n}-layout-acc-zoned-{it['scene']}.json")
-        exp_p = os.path.join(EXPORT, f"plan-{it['plan']:03d}.json")
+        exp_p = os.path.join(export, f"plan-{it['plan']:03d}.json")
         if os.path.exists(art_p) and os.path.exists(exp_p):
             out.append((json.load(open(art_p, encoding='utf-8')), json.load(open(exp_p, encoding='utf-8'))))
     return out
@@ -39,7 +79,7 @@ def test_pose_hash_round_trip():
     pairs = _pairs()
     if not pairs:
         import pytest
-        pytest.skip('нет экспорта plans-export')
+        pytest.skip(_CACHE.get('why') or 'нет экспорта plans-export')
     bad = []
     for art, exp in pairs:
         for role, v in exp['placements'].items():
@@ -56,7 +96,7 @@ def test_orientation_present_and_consistent():
     pairs = _pairs()
     if not pairs:
         import pytest
-        pytest.skip('нет экспорта plans-export')
+        pytest.skip(_CACHE.get('why') or 'нет экспорта plans-export')
     missing, incons = [], []
     for _, exp in pairs:
         pl = exp['placements']

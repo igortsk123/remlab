@@ -27,6 +27,8 @@ if [ $rc -eq 0 ]; then
     scp -q -P 22222 "$GAL_TGZ" "root@89.167.127.0:$GAL_RTMP/acc-gallery-nightly.tgz" && \
     ssh -p 22222 root@89.167.127.0 "cd '$GAL_RTMP' && rm -rf acc-gallery && tar xzf acc-gallery-nightly.tgz && rm -rf /opt/remlab/test/acceptance-plans.prev && mv /opt/remlab/test/acceptance-plans /opt/remlab/test/acceptance-plans.prev && mv acc-gallery /opt/remlab/test/acceptance-plans && rm acc-gallery-nightly.tgz" && \
     echo "галерея опубликована" ) >> "$LOG" 2>&1
+  # ВЫГРУЗКА ПЛАНОВ ИЗ ЭТОЙ ЖЕ НОЧИ (T-20261112-94): до 12.11 её никто не обновлял — тест позы сверял ночь с выгрузкой 26.08
+  ~/venvs/scout/bin/python export_plans_ai.py >> "$LOG" 2>&1 || echo "выгрузка планов НЕ обновлена (rc=$?)" >> "$LOG"
   ~/venvs/scout/bin/python - >> "$LOG" 2>&1 <<'PY'
 import json
 rep=[json.loads(l) for l in open('acceptance-report-zoned.jsonl') if l.strip()]

@@ -162,28 +162,69 @@ def test_corner_adrift_functional_gap():
     assert 'CORNER_SOFA_ADRIFT' not in codes2
 
 
+# Планка доли столовой — ДОЛЯ СЦЕН, ГДЕ В СЕТЕ ЕСТЬ ОБЕДЕННЫЙ СТОЛ (T-20261112-94). История: 209→210 (14.08, ADR-0099 — ребейс
+# на честную основу после SCREEN_OVER_WINDOW) → 220/252 (15.08, P2 свода №12). Банк тогда — товары до ADR-0131/0136; выгрузка
+# 26.08 — 222/252. С 28–29.08 банк пересобран из товаров с мешами (ADR-0131) через API Гдеслона (ADR-0136): у ВСЕХ 15 сетов
+# 19 сцен, потерявших столовую к 12.11, сменились диван/стол/тумба на более крупные (диван 80→90…167 см вглубь, стол 80×80 →
+# 90×90…120×120), отказ — те же hard-правила, что 13.08 (ACCESS_BLOCKED, DINING_IN_LIVING_ZONE, SIGHTLINE_BLOCKED; правила
+# столовой в validate.py с 13.08 не менялись) — `~/remlab-logs/t94-1112/1412/din_diff.txt`, `set_diff_lost.txt`. Это данные, не
+# солвер; по правилу ADR-0099 планка ребейсится на честную основу нового банка и дальше только вверх: 213/242 (12.11).
+# Знаменатель — сцены со столом в сете: 10 базовых сцен (сеты 2, 3, 4, 5, 7) стола не имели и в августе — столовой там быть не может.
+DINING_FLOOR = 213 / 242
+DINING_REFUSALS = {'island_candidates_failed', 'island_place_failed', 'no_fit', 'island_rejected_by_quality_gate'}
+
+
+def _exam_scout():
+    import os
+    return os.environ.get('EXAM_SCOUT_DIR') or os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools', 'scout')
+
+
+def _has_dining_table(s: dict) -> bool:
+    it = s.get('items') or {}
+    roles = list(it) if isinstance(it, dict) else [i.get('role') or '' for i in it]
+    return any((r or '').startswith('стол обеден') for r in roles)
+
+
 def test_dining_share_watchdog():
-    """Свод №7: доля планов со столовой — планка по лучшему замеру под честными правилами (209/252 после
-    SCREEN_OVER_WINDOW: прежние 210 частично держались на браке «экран на окне»,
-    ADR-0099;
-    14.08, после dining_sacrifice), двигается только вверх."""
+    """Свод №7 → T-94: столовая на месте везде, где её позволяют стол в сете и hard-правила; планка — доля сцен со столом
+    (`DINING_FLOOR`, история и обоснование — над константой), двигается только вверх. Краснеет от поломки: столовая без стола,
+    пропажа столовой без записанного отказа правил в артефакте (`_dining`), падение доли ниже честной основы."""
     import json, os
-    rep = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'tools',
-                       'scout', 'acceptance-report-zoned.jsonl')
-    if not os.path.exists(rep):
+    scout = _exam_scout()
+    rep = os.path.join(scout, 'acceptance-report-zoned.jsonl')
+    if not os.path.exists(rep) or not os.path.exists(os.path.join(scout, 'sets3.json')):
         import pytest
-        pytest.skip('нет отчёта приёмки')
-    scenes_p = os.path.join(os.path.dirname(rep), 'acceptance-scenes.json')
-    base_ids = {s['id'] for s in json.load(open(scenes_p, encoding='utf-8'))[:252]}
-    n = din = 0
+        pytest.skip('нет отчёта приёмки или банка sets3.json')
+    scenes = json.load(open(os.path.join(scout, 'acceptance-scenes.json'), encoding='utf-8'))[:252]
+    sets_ = json.load(open(os.path.join(scout, 'sets3.json'), encoding='utf-8'))
+    sets_ = sets_.get('sets', sets_) if isinstance(sets_, dict) else sets_
+    rows = {}
     for line in open(rep, encoding='utf-8'):
-        r = json.loads(line)
-        if r.get('scene') not in base_ids:
-            continue          # пакет H: планка — по стабильным №1-252; новые №253+ отдельно
-        n += 1
-        din += ('+din' in r.get('templates', ''))
-    assert n == 252, f'отчёт неполный по базовым сценам: {n}'
-    assert din >= 220, f'доля столовой упала: {din}/252 (планка 220 — P2 свода №12 beam по гипотезам: 210→220; ранее C-6 alt-кресла расширили банк, ступень с креслом освободила регион под столовую; история 209→210)'
+        if line.strip():
+            r = json.loads(line)
+            rows[r.get('scene')] = r
+    base = [s for s in scenes if s['id'] in rows]   # пакет H: планка — по стабильным №1-252; новые №253+ отдельно
+    assert len(base) == 252, f'отчёт неполный по базовым сценам: {len(base)}'
+    eligible = din = 0
+    phantom, silent = [], []
+    for sc in base:
+        has_din = '+din' in (rows[sc['id']].get('templates') or '')
+        if not _has_dining_table(sets_[sc['set'] - 1]):
+            if has_din:
+                phantom.append(sc['id'])
+            continue
+        eligible += 1
+        din += has_din
+        if not has_din:
+            art = os.path.join(scout, f"v3set{sc['set']}-layout-acc-zoned-{sc['id']}.json")
+            dn = (json.load(open(art, encoding='utf-8')).get('_dining') or {}) if os.path.exists(art) else {}
+            if dn.get('island_reject') not in DINING_REFUSALS and dn.get('fallback_reason') not in DINING_REFUSALS:
+                silent.append((sc['id'], dn.get('island_reject'), dn.get('fallback_reason')))
+    assert not phantom, f'столовая в сцене без обеденного стола в сете: {phantom[:5]}'
+    assert not silent, f'столовая пропала без записанного отказа правил (_dining в артефакте): {silent[:5]}'
+    assert din >= DINING_FLOOR * eligible - 1e-9, (
+        f'доля столовой упала: {din}/{eligible} сцен со столом < {DINING_FLOOR:.3f} (честная основа 213/242 после пересборки '
+        'банка ADR-0131/0136; сначала сверить, сменился ли банк — `bank-generations/`, потом солвер)')
 
 
 def test_dining_sacrifice_ladder():

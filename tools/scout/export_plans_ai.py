@@ -9,6 +9,11 @@
 
 Вход: acceptance-scenes.json, sets3.json, acceptance-report-zoned.jsonl,
 ~/scout-scenes/acc-gallery/*.json|png. Выход: ~/scout-scenes/plans-export/.
+
+Обновляет ночь (T-20261112-94): `nightly_exam.sh` после галереи — выгрузка того же отчёта, что и экзамен (до 12.11 её
+никто не пересобирал, и тест позы `test_pose_contract.py` сверял артефакты ночи с выгрузкой 26.08). Сборка — в соседнюю
+папку `<OUT>.new`, подмена — после полной записи (сбой посередине не оставляет полупустой выгрузки). Папки — env
+`PLANS_EXPORT_OUT` / `ACC_GALLERY_DIR` (проверки и тесты пишут в свою папку, не трогая ночную).
 """
 import json
 import math
@@ -16,8 +21,8 @@ import os
 import shutil
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-GAL = os.path.expanduser('~/scout-scenes/acc-gallery')
-OUT = os.path.expanduser('~/scout-scenes/plans-export')
+GAL = os.path.expanduser(os.environ.get('ACC_GALLERY_DIR') or '~/scout-scenes/acc-gallery')
+OUT = os.path.expanduser(os.environ.get('PLANS_EXPORT_OUT') or '~/scout-scenes/plans-export')
 
 WALL_RU = {'south': 'южной', 'north': 'северной', 'west': 'западной', 'east': 'восточной'}
 FACING = {0: 'на север', 90: 'на восток', 180: 'на юг', 270: 'на запад'}
@@ -215,15 +220,30 @@ def _with_orientation(items: dict, art: dict) -> dict:
 
 
 def main():
-    scenes = json.load(open(os.path.join(HERE, 'acceptance-scenes.json')))
-    sets_ = json.load(open(os.path.join(HERE, 'sets3.json')))
+    final = OUT
+    data = os.environ.get('EXAM_SCOUT_DIR') or HERE   # данные экзамена (env — прогон кода из worktree по основной копии)
+    scenes = json.load(open(os.path.join(data, 'acceptance-scenes.json')))
+    sets_ = json.load(open(os.path.join(data, 'sets3.json')))
     reps = {}
-    for line in open(os.path.join(HERE, 'acceptance-report-zoned.jsonl')):
-        r = json.loads(line)
-        reps[r['scene']] = r
-    if os.path.exists(OUT):
-        shutil.rmtree(OUT)
-    os.makedirs(OUT)
+    for line in open(os.path.join(data, 'acceptance-report-zoned.jsonl')):
+        if line.strip():
+            r = json.loads(line)
+            reps[r['scene']] = r
+    work = final + '.new'
+    if os.path.exists(work):
+        shutil.rmtree(work)
+    os.makedirs(work)
+    _build(scenes, sets_, reps, work, data)
+    prev = final + '.prev'
+    if os.path.exists(prev):
+        shutil.rmtree(prev)
+    if os.path.exists(final):
+        os.rename(final, prev)
+    os.rename(work, final)
+    print(f'OK: выгрузка → {final}')
+
+
+def _build(scenes, sets_, reps, OUT, data_dir):
     index = []
     for i, sc in enumerate(scenes, 1):
         sid = sc['id']
@@ -280,7 +300,7 @@ def main():
                'totals': {'count': len(index),
                           'dining': sum(1 for x in index if x['dining'])}},
               open(os.path.join(OUT, 'index.json'), 'w'), ensure_ascii=False, indent=1)
-    _mt = os.path.join(HERE, 'missing_templates.md')
+    _mt = os.path.join(data_dir, 'missing_templates.md')
     if os.path.exists(_mt):
         shutil.copy(_mt, os.path.join(OUT, 'missing_templates.md'))
     open(os.path.join(OUT, 'README.md'), 'w').write(
@@ -296,7 +316,7 @@ def main():
         'z (в JSON) / y на север. Поворот: 0 = фронт на север, 90 = восток, '
         '180 = юг, 270 = запад.\n'
         '`index.json` — сводка по всем планам.\n')
-    print(f'OK: {len(index)} планов → {OUT}')
+    print(f'планов: {len(index)}')
 
 
 if __name__ == '__main__':
