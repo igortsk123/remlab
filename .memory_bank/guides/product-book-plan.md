@@ -7,7 +7,7 @@ updated: 2026-11-09
 importance: high
 source: manual
 status: working
-last_verified: 2026-11-09
+last_verified: 2026-11-12
 ---
 
 # Книга о продукте — план и промпт для продолжения

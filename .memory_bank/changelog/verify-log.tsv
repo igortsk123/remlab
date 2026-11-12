@@ -226,3 +226,8 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-12	domain/mesh-run-playbook.md	drift	52	6	6	T-20261112-42: весь док; 400 no_credits_available, budget-стоп снимает close_wave, flock-замок, ярус 3, MESH_BATCH 2000, recreate_group то же имя
 2026-11-12	domain/viz-fidelity-playbook.md	drift	77	9	9	T-20261112-42: две части; asset-strategies front, orient-v1 ключ, relief, --recheck-roles, openai-spend, О1/О2 и сторож цвета; 5 не найдено (БД, цены, prod .env) — дата не сдвинута
 2026-11-12	domain/demo-scenario-map.md	drift	75	16	16	T-20261112-42: главная 07.11 (#hmView/#hmBot, без вкладок), CTA_REAL Сделать фото, 52/52 под живой проверкой; поведение 2.4/2.8a/2.19-2.23/2.30/2.36-2.38/2.46 только по символам — дата не сдвинута
+2026-11-12	domain/user-flow-details.md	drift	43	1	1	T-20261112-42: весь док; Сгенерировать → saveSelection → preview → GenerateOnMount → runGenerate; якорь QuizBlock
+2026-11-12	domain/observability.md	drift	40	7	7	T-20261112-42: весь док; TRACE_PUBLIC_BASE_URL→origin, retention строка на вид данных, traceWriteFailures без saveAsset, маска /try и noMetrikaPath, Сделать фото, photo_mark
+2026-11-12	core/observability-tracing.md	drift	1	1	1	T-20261112-42: досверка от Tier 2: saveAsset не идёт в traceWriteFailures
+2026-11-12	guides/product-book-plan.md	drift	14	0	0	T-20261112-42: весь док; пути глав, book-build.py, book_page, noindex — всё совпало
+2026-11-12	guides/execution-playbook.md	drift	18	2	2	T-20261112-42: весь док; секреты + tools/scout/.env (env_keys.py), выкатка: smoke и откат в deploy.yml, не в deploy-remote.sh

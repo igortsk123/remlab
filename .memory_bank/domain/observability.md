@@ -3,12 +3,12 @@ tier: 2
 topic: observability-details
 scope: Детали трейсинга AI-пайплайна — БД, env, роуты, подписанные URL, imagor, ретеншн, гочи прода
 tier1: ../core/observability-tracing.md
-updated: 2026-11-10
+updated: 2026-11-12
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-06
+last_verified: 2026-11-12
 ---
 
 # Observability — детали (Tier 2 к [[observability-tracing]])
@@ -64,32 +64,34 @@ imagor читает файл из `FILE_LOADER_BASE_DIR` (= том TRACE_DIR) п
 |---|---|
 | `TRACE_DIR` | путь к тому трейсов; локально `./.data/traces` (в .gitignore) |
 | `TRACE_ADMIN_TOKEN` | admin-гард trace-роутов + ключ HMAC подписи ассетов |
-| `TRACE_PUBLIC_BASE_URL` | база абсолютных подписанных URL в ответе `[seq]`-роута |
+| `TRACE_PUBLIC_BASE_URL` | база абсолютных подписанных URL в ответе `[seq]`-роута; пусто → origin запроса (`lib/trace/admin.ts:signedAssetUrl`) |
 | `TRACE_ASSET_TTL_MS` | TTL подписи ассета (дефолт 7 дней) |
 | `TRACE_RETENTION_DAYS` | ретеншн прогонов (дефолт 90) |
 | `IMAGOR_BASE_URL` | адрес imagor; пусто → без сжатия (исходник) |
 
 ## Хранение, ретеншн, гочи прода
-- Том `remlab-traces` → `named-том remlab-traces (см. docker-compose.yml; НЕ bind /opt/remlab/data/traces)` (app rw как `/app/data/traces`, imagor ro как `/mnt/data`).
+- Named-том `remlab-traces` (`docker-compose.yml`; не bind `/opt/remlab/data/traces`): app rw как `/app/data/traces`, imagor ro как `/mnt/data`.
 - ⚠️ **Гоча (была причиной «0 ассетов» на проде):** app работает под `nextjs` (uid 1001), а свежий
   named-том принадлежит root → запись картинок падала молча (best-effort глушил EACCES). Фикс: сервис
   `traces-init` в `docker-compose.yml` — под root `chown -R 1001:65533` + `chmod -R u+rwX` перед стартом
-  app (идемпотентно). `saveAsset` (`lib/trace/assets.ts`) при сбое пишет `console.warn` (без секретов),
+  app (идемпотентно; тем же шагом — том пробы `remlab-trial`). `saveAsset` (`lib/trace/assets.ts`) при сбое пишет `console.warn` (без секретов),
   чтобы такой класс багов не прятался. Картинки прогонов ДО фикса невосстановимы (байты не захватывались).
 - Ретеншн: ежедневно 04:10 UTC таймер `remlab-retention` (`infra/server/systemd/remlab-retention.timer`) →
   `POST /api/internal/retention` (заголовок `x-internal-token` = `INTERNAL_API_TOKEN`, иначе 403;
   `app/api/internal/retention/route.ts`) → `modules/retention/run.ts:runRetention` — одна транзакция под
   advisory-замком; прогоны + шаги + ассеты старше `TRACE_RETENTION_DAYS` (90), строка удаляется только после
-  удаления её файлов; из `_tmp` — файлы старше суток; каждый запуск — строка в `retention_runs` (план b2b-04,
-  ADR-0268). `pnpm trace:prune` (`tools/trace-prune.mjs`) — ручной дубль, `_tmp` чистит целиком.
+  удаления её файлов; из `_tmp` — файлы старше суток; каждый запуск — строка на каждый вид данных (трейсы, заявки,
+  контакты, проба) в `retention_runs`; замок занят → `skipped: "busy"`, без строк (план b2b-04, ADR-0268). `pnpm trace:prune` (`tools/trace-prune.mjs`) — ручной дубль, `_tmp` чистит целиком.
   (До b2b-04, 13.10, таймера не было — чистили руками.)
-- Логирование best-effort: ошибка записи/диска НЕ валит пайплайн, но считается
-  (`lib/trace/failures.ts:traceWriteFailed` → `traceWriteFailures` в `/api/health`, `lib/health.ts`). Секреты (API-ключи) в лог не пишем.
+- Логирование best-effort: ошибка записи НЕ валит пайплайн. Сбои записи прогона/шага в БД считаются
+  (`lib/trace/recorder.ts` → `lib/trace/failures.ts:traceWriteFailed` → `traceWriteFailures` в `/api/health`, `lib/health.ts`);
+  сбой `saveAsset` (файл/строка ассета) в счётчик не идёт — только `console.warn`. Секреты (API-ключи) в лог не пишем.
 - Фото — ПДн (TODO legal, не блокируемся).
 
 ## Аналитика: ключи доступа не уходят наружу, проверки не считаются (18.10, T-14/T-18/T-20)
 - **Метрика без ключей.** `lib/metrika.ts` `metrikaSafeUrl` маскирует ключи в адресе: параметры `s`, `c`, `coll` → `*`; пути `/e/*`
-  (смета — номер даёт правку), `/p/*/<шаг>` (проект), `/go/*/*`; `/calc` и `/embed` публичные. Применяется в `components/MetrikaPageviews.tsx`
+  (смета — номер даёт правку), `/p/*/<шаг>` (проект), `/go/*/*`, `/try/*` (проба агента); `/calc` и `/embed` публичные.
+  На `/manager`, `/partner`, `/try` Метрики нет вовсе (`lib/metrika.ts:noMetrikaPath`). Применяется в `components/MetrikaPageviews.tsx`
   и в старте счётчика `app/layout.tsx` (`init` с `defer`, `url`, `referrer`); на адресе с ключом выключены карта кликов и Вебвизор.
   Проба прода 18.10: 12 запросов к mc.yandex, утечек 0. Почему маска в `init`, а не только в хитах — урок 515. Открыто — вопрос 42.
 - **Ночные проверки не попадают в счётчики.** Живые тесты шлют заголовок `x-remlab-check: 1` (`lib/http/live-check.ts` `isLiveCheck`):
@@ -98,8 +100,9 @@ imagor читает файл из `FILE_LOADER_BASE_DIR` (= том TRACE_DIR) п
   `e2e/live/live-check.live.ts`. Грабли запуска — урок 514.
 
 ## Вне трейсинга: фото демо и VLM ориентации (свод 06–09.11)
-- **«Сделать реалистичнее» в демо в `generation_runs` не пишется** — его делает DEV-сервис `remlab-render` (`tools/scout/draft_render.py`,
-  без `lib/trace`). Время шагов — строка `ФОТО-ЗАМЕР` в `~/scout-scenes/dev-render.log` (`draft_render.py` ~1873: путь, подготовка,
+- **Фото в демо (кнопка «Сделать фото», `CTA_REAL` в `tools/scout/flat215-demo/index.html`; было «Сделать реалистичнее») в `generation_runs`
+  не пишется** — его делает DEV-сервис `remlab-render` (`tools/scout/draft_render.py`,
+  без `lib/trace`). Время шагов — строка `ФОТО-ЗАМЕР` в `~/scout-scenes/dev-render.log` (`draft_render.py:photo_mark`: путь, подготовка,
   модель, сохранение, исход); сводка и сторож скорости — `tools/ops/photo-speed.py` по `tools/scout/rules/photo-speed.json`, ночью из
   `refresh_daily.sh`. Цена одного фото в журнал не пишется — считаем по счёту шлюза (Tier 2 `viz-fidelity-playbook.md` § «Фото нейросети»).
 - **VLM ориентации** (`tools/scout/orient_worker.py`, qwen3-vl через шлюз): расход — оценкой по `tools/scout/rules/openai_prices.json`

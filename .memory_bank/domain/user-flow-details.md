@@ -3,12 +3,12 @@ tier: 2
 topic: user-flow-details
 scope: Детальные сценарии и экраны Stage 1 — 7-экранный flow, free/paid варианты, сегменты, аналитика
 tier1: ../core/user-flow.md
-updated: 2026-11-06
+updated: 2026-11-12
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-11-06
+last_verified: 2026-11-12
 ---
 
 > ⚠️ ADR-0016: **v0.4 «Смета-first»** — `plans/MASTER-cost-first.md`; ниже — v0.3-контекст.
@@ -72,7 +72,8 @@ last_verified: 2026-11-06
   модели). Дефолт `objectChoices` = предложение модели.
 - Пользователь по каждому объекту: **оставить / поменять / убрать** (`action` = keep/change/remove)
   + выбирает **стиль** + **одно поле-пожелание** (`wish`, свободный текст).
-- «Сгенерировать» → `runGenerate`: restyle с выбором пользователя в промпте + ideas, обёрнут в
+- «Сгенерировать» → `saveSelection` (`app/actions.ts`, выбор+стиль+пожелание) → `/p/[id]/preview`, там
+  `components/GenerateOnMount.tsx` → `POST /api/p/[id]/generate` → `runGenerate`: restyle с выбором пользователя в промпте + ideas, обёрнут в
   `runWithTrace` — это и есть «генерация» с номером. Проверяемо в `/trace`: промпт restyle содержит
   «Поменять/Оставить/Убрать: …» + пожелание.
 - Кнопки «что оставить» в брифе убраны (заменены пообъектным выбором); новое фото сбрасывает
@@ -118,7 +119,7 @@ confidence (low/mid/high). Сумму считает движок, НЕ LLM.
 Тест сверяет имена событий в HTML демо со словарями (`tests/unit/partner-report.test.ts`). «Передвинул» (`item_move`,
 не чаще раза в 20 с) и «поделился» (`share`: ссылка на вариант, «отправить себе») — решение владельца 14.10; в демо
 оба идут через `reportAct` → событие `remlab:act` в оба счётчика. Опрос-знакомство (onb-12): `quiz_done` входит в `ENGAGE`
-(шаг «выбирали»), счётчики опроса — отдельный блок «Знакомство» (`modules/partner-report/quiz.ts`, `ReportPage.tsx`), не строки заходов.
+(шаг «выбирали»), счётчики опроса — отдельный блок «Знакомство» (`modules/partner-report/quiz.ts`, `components/partner/QuizBlock.tsx` в `ReportPage.tsx`), не строки заходов.
 
 ## /styles — детали (перенесено из Tier 1, 13.10)
 Сид карточек — `lib/styles/quiz.ts`; лайк/скип → стиль → кнопки `/start` (дизайн) и `/calc` (материалы)

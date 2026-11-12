@@ -14,7 +14,7 @@ review_after: 2026-12-05
 
 # Observability — Tracing AI-пайплайна (ADR-0013)
 
-> По «номеру генерации» — весь путь: промпты, I/O, картинки, время, цена, ошибки (`.claude/rules/pipeline-tracing.md`).
+> По «номеру генерации» — промпты, I/O, картинки, время, цена, ошибки (`.claude/rules/pipeline-tracing.md`).
 
 ## Сущности (БД, `db/schema.ts`)
 `generation_runs` (прогон; `seq` = номер генерации) → `generation_steps` (вызов LLM: промпт
@@ -25,7 +25,7 @@ base64 НЕ пишем).
 Единая точка — слой провайдеров: `getImageProvider()/getVisionProvider()` (`lib/providers/`)
 возвращают обёртку `traced.ts` — каждый вызов LLM логирует себя сам; дочитка по ссылке — тоже (`getExtractProvider()`), но вне прогона, в лог не идёт. Прогон открывает
 `modules/generation-job` через `runWithTrace`; контекст — AsyncLocalStorage; нет прогона →
-passthrough. Смена модели/промпта/шага НЕ требует правки лога.
+passthrough. Смена модели/промпта/шага лог не правит.
 
 ## Реестры
 - `lib/prompts/registry.ts` — промпты id+version; меняешь текст → бампни version.
@@ -45,7 +45,7 @@ Tier 2: § Аналитика; § «Вне трейсинга» — фото д�
 ## Хранение/приватность
 Named-том `remlab-traces` (bind-mount нет): в app `/app/data/traces` = `TRACE_DIR` (локально `./.data/traces`). Ретеншн
 `TRACE_RETENTION_DAYS` (90) — ежедневно 04:10 UTC таймер `remlab-retention` → `POST /api/internal/retention` →
-`modules/retention/run.ts`; `pnpm trace:prune` — ручной дубль. Ошибка записи не валит пайплайн, считается
-`traceWriteFailures` в `/api/health` (`lib/trace/failures.ts`); секреты не пишем. Права тома, `traces-init` — Tier 2. Фото — ПДн (TODO legal).
+`modules/retention/run.ts`; `pnpm trace:prune` — ручной дубль. Ошибка записи не валит пайплайн; сбой записи в БД
+(`lib/trace/recorder.ts`) считается `traceWriteFailures` в `/api/health` (`lib/trace/failures.ts`), сбой файла — только `console.warn`; секреты не пишем. Права тома, `traces-init` — Tier 2. Фото — ПДн (TODO legal).
 
-**Tier 2:** `../domain/observability.md` — env, подписанные URL, imagor, роуты, гочи.
+**Tier 2:** `../domain/observability.md` — env, URL, imagor, роуты.

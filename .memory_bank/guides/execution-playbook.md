@@ -2,12 +2,12 @@
 tier: 2
 topic: execution-playbook
 scope: Как исполнитель (opus-worker, Opus 5.5) ведёт работу по подпланам коммерческого мастер-плана — правила, чекпоинты владельца, эскалация
-updated: 2026-11-09
+updated: 2026-11-12
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-11-09
+last_verified: 2026-11-12
 ---
 
 # Execution Playbook — правила движения по подпланам
@@ -30,7 +30,8 @@ last_verified: 2026-11-09
   разрешает подпланы очереди по порядку (ADR-0255, `.claude/rules/agent-workflow.md`), стоп на «⚑ владелец» и необратимом.
 - **VPN-нода `remnanode` на хосте — не трогать никогда.** Правки сервера — только с бэкапом
   и путём отката (`deployment.md`).
-- **Секреты** — в `/opt/remlab/.env` на сервере, локально — `.env.local`, ключ деплоя — секрет GitHub
+- **Секреты** — в `/opt/remlab/.env` на сервере, локально — `.env.local` и `tools/scout/.env` (конвейер; порядок поиска —
+  `tools/scout/env_keys.py`), ключ деплоя — секрет GitHub
   `DEPLOY_SSH_KEY`; не в git, не в памяти, не в логах.
 - Файлы вне scope подплана не менять. Нужен чужой компонент — импортировать, не копировать.
 - Промпт/модель/шаг пайплайна изменил → bump версии в реестре + трейсинг не отстаёт
@@ -67,8 +68,10 @@ pnpm test && pnpm build` (+ e2e где указано) зелёные + спец
 
 ## Выкатка (стандарт, постоянное разрешение владельца 2026-07-02/05)
 Завершённое изменение всегда доводится до прода: зелёные проверки → commit → merge в `main`
-(ff) → push → CI gate → автодеплой `Deploy prod` (`.github/workflows/deploy.yml` →
-`infra/server/deploy-remote.sh`: цель отката → миграции `db/init` → активация → smoke по версии с авто-откатом).
+(ff) → push → CI gate → автодеплой `Deploy prod` (`.github/workflows/deploy.yml`; правки только памяти/доков
+выкладку пропускают — шаг «Нужна ли выкладка») → `infra/server/deploy-remote.sh`: цель отката `remlab-app:prev` →
+миграции `db/init` → активация; затем в `deploy.yml` smoke `/api/health` по версии: сайт не отвечает — авто-откат на `:prev`,
+жив на чужой версии — красный шаг без отката.
 `./deploy.sh` — ручной запасной путь (когда им пользоваться — открытый вопрос владельцу, план
 `memory-kit-v19-migration`). Бэкап БД — ночной (`infra/server/systemd/remlab-db-backup.timer`), в деплой не
 входит. Прод не оставлять позади `main`. Предупреждать заранее только о необратимом (миграции с потерей данных).
