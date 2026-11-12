@@ -9,10 +9,10 @@
 
 import type { Opening } from "@/contracts/apartment";
 
-export const OPENING_IR_VERSION = 2; // 2 — вид из окна (`backdrop`)
+export const OPENING_IR_VERSION = 3; // 2 — вид из окна (`backdrop`); 3 — швы полотна (`gap`), ручка-нажим с двух сторон
 
-export type OpeningMaterial = "frame" | "reveal" | "glass" | "leaf" | "panel" | "handle" | "skirting" | "cornice" | "lamp";
-export type OpeningPartRole = "reveal" | "frame" | "mullion" | "glass" | "sill" | "casing" | "leaf" | "panel" | "handle"
+export type OpeningMaterial = "frame" | "reveal" | "glass" | "leaf" | "panel" | "handle" | "gap" | "skirting" | "cornice" | "lamp";
+export type OpeningPartRole = "reveal" | "frame" | "mullion" | "glass" | "sill" | "casing" | "leaf" | "panel" | "handle" | "seam"
   | "skirting" | "cornice" | "lamp";
 
 /** Коробка: размеры и центр в см. Если задана `group` — координаты в осях этой группы (полотно двери). */
@@ -163,24 +163,69 @@ interface LeafPose {
 
 /**
  * ДВУСТВОРЧАТАЯ ДВЕРЬ (T-20261110-16/4): дуга в данных (`swing_cm`) — длина полотна; адаптер плана пишет её половиной ширины,
- * если проём не уже `trial-room.json:double_door_min_cm` (`trial_room.py:_place_opening` → `o.leaf`, `solver_openings`). Полотно,
- * которое короче 0,6 ширины проёма, одним не закрыть — рисуем две створки. У витрины дуга = ширине, там одна створка, как было.
+ * если проём ШИРЕ `trial-room.json:double_door_min_cm` (120 см; правило числа створок — только там: `trial_room.py:_place_opening`
+ * → `o.leaf`, `solver_openings`). Полотно, которое короче 0,6 ширины проёма, одним не закрыть — рисуем две створки. Своего
+ * порога здесь нет: дуга в данных — это и место, которое расстановщик оставил под створку, иначе 3D разошлось бы с расстановкой.
+ * У витрины дуга = ширине, там одна створка.
  */
 export const isDoubleDoor = (o: Pick<Opening, "kind" | "widthCm" | "swingCm">): boolean =>
   o.kind === "door" && !!o.swingCm && o.swingCm > 0 && o.swingCm <= o.widthCm * 0.6;
 
-/** Полотно с двумя филёнками и ручкой в осях своей группы: построено вдоль +X от петли (x = 0), ручка — у свободного края
- *  (`handleAtStart` — у x = 0: закрытая створка с петлями справа стоит без разворота, см. `doorIR`). */
-function leafBoxes(leafW: number, leafH: number, group: string, handleAtStart: boolean): IrBox[] {
-  const handleY = 105;
-  const hx = (v: number): number => (handleAtStart ? v : leafW - v);
+/** Толщина полотна, зазор между створками двустворчатой и теневой шов полотна у коробки, см (T-20261112-35). */
+const LEAF_D = 4;
+export const DOOR_MEET_GAP_CM = 0.4;
+const DOOR_SEAM_CM = 0.4;
+/** Ручка-нажим: ось розетки — 100 см от пола (принято 90–105), 6 см от видимого свободного края (вылет замка 50–60 мм). */
+export const DOOR_HANDLE_Y_CM = 100;
+const HANDLE_BACKSET = 6;
+const LEVER_L = 12.5;
+
+/** Ручка-нажим одной стороны полотна: круглая розетка (квадратом 5,2 см), шейка и рычаг, повёрнутый к петлям, — как у обычной
+ *  межкомнатной ручки; `s` = +1 — лицевая сторона (+Z), −1 — обратная. Раньше был плоский брусок у края («ручки странные»). */
+function handleBoxes(hx: (v: number) => number, backset: number, toHinge: number, s: 1 | -1, group: string): IrBox[] {
+  const y = DOOR_HANDLE_Y_CM;
+  const f = LEAF_D / 2;
+  const x = hx(backset);
   return [
-    b("leaf", "leaf", leafW, leafH, 4, leafW / 2, leafH / 2, 0, group),
-    b("panel", "panel", leafW * 0.62, leafH * 0.34, 1, leafW / 2, leafH * 0.28, 2.2, group),
-    b("panel", "panel", leafW * 0.62, leafH * 0.34, 1, leafW / 2, leafH * 0.68, 2.2, group),
-    b("handle", "handle", 12, 2.2, 2.2, hx(8), handleY, 3.2, group),
-    b("handle", "handle", 2.4, 2.4, 4, hx(4), handleY, 2.6, group),
+    b("handle", "handle", 5.2, 5.2, 1, x, y, s * (f + 0.5), group),
+    b("handle", "handle", 1.6, 1.6, 4, x, y, s * (f + 3), group),
+    b("handle", "handle", LEVER_L, 1.9, 1.6, x + toHinge * (LEVER_L / 2 - 1), y, s * (f + 5.2), group),
   ];
+}
+
+/** Полотно с двумя филёнками с каждой стороны и ручкой-нажимом с обеих сторон, в осях своей группы: построено вдоль +X от петли
+ *  (x = 0), ручка — у свободного края (`handleAtStart` — у x = 0: закрытая створка с петлями справа стоит без разворота, см. `doorIR`).
+ *  Филёнки — по оси створки, поэтому у двустворчатой они симметричны на каждой. Первая коробка — само полотно (по ней мера видов
+ *  в демо ищет створку: `camLeafIts`). `hiddenEdge` — сколько свободного края уходит под стойку коробки (одностворчатая: P/2),
+ *  вылет ручки считается от видимого края — иначе розетка прижата к коробке. У притвора пары край виден целиком (0). */
+function leafBoxes(leafW: number, leafH: number, group: string, handleAtStart: boolean, hiddenEdge: number): IrBox[] {
+  const hx = (v: number): number => (handleAtStart ? v : leafW - v);
+  const toHinge = handleAtStart ? 1 : -1;
+  const backset = HANDLE_BACKSET + hiddenEdge;
+  const panels = ([1, -1] as const).flatMap((s) => [0.28, 0.68].map((k) =>
+    b("panel", "panel", leafW * 0.62, leafH * 0.34, 1, leafW / 2, leafH * k, s * (LEAF_D / 2 + 0.2), group)));
+  return [
+    b("leaf", "leaf", leafW, leafH, LEAF_D, leafW / 2, leafH / 2, 0, group),
+    ...panels,
+    ...handleBoxes(hx, backset, toHinge, 1, group),
+    ...handleBoxes(hx, backset, toHinge, -1, group),
+  ];
+}
+
+/** Тёмные швы закрытого полотна (T-20261112-35, «одна плита»): по стойкам и перекладине коробки и между створками. Полотно само
+ *  заходит под коробку (щели насквозь нет — demo-20 Б6), а шов — тонкая тёмная полоса чуть толще полотна на линии стыка, как тень
+ *  в притворе. Только у закрытой двери: у распахнутой швов нет. */
+function seamBoxes(u0: number, u1: number, top: number, P: number, double: boolean): IrBox[] {
+  const s = DOOR_SEAM_CM;
+  const d = LEAF_D + 0.2;
+  const h = top - P;
+  const out = [
+    b("seam", "gap", s, h, d, u0 + P + s / 2, h / 2, 0),
+    b("seam", "gap", s, h, d, u1 - P - s / 2, h / 2, 0),
+    b("seam", "gap", u1 - u0 - 2 * P, s, d, (u0 + u1) / 2, top - P - s / 2, 0),
+  ];
+  if (double) out.push(b("seam", "gap", DOOR_MEET_GAP_CM, h, d, (u0 + u1) / 2, h / 2, 0));
+  return out;
 }
 
 function doorIR(u0: number, u1: number, top: number, pose: LeafPose): { boxes: IrBox[]; groups: Record<string, IrGroup> } {
@@ -211,19 +256,22 @@ function doorIR(u0: number, u1: number, top: number, pose: LeafPose): { boxes: I
   const swingStart = pose.outward ? 99 : -99;
   const swingEnd = pose.outward ? 81 : -81;
   if (pose.double) {
-    // две створки по половине проёма, петли у обоих краёв, ручки — у середины; распахнуты — каждая к своей петле
-    const half = leafW / 2;
-    boxes.push(...leafBoxes(half, leafH, "leaf", false), ...leafBoxes(half, leafH, "leaf2", pose.closed));
+    // две створки по половине проёма за вычетом зазора притвора, петли у обоих краёв, ручки — у притвора (как принято у
+    // распашных пар: рабочая ручка и парная ей на второй створке); распахнуты — каждая к своей петле
+    const half = (leafW - DOOR_MEET_GAP_CM) / 2;
+    boxes.push(...leafBoxes(half, leafH, "leaf", false, 0), ...leafBoxes(half, leafH, "leaf2", pose.closed, 0));
+    if (pose.closed) boxes.push(...seamBoxes(u0, u1, top, P, true));
     return {
       boxes,
       groups: {
         leaf: { x: u0 + P / 2, y: 0, z, rotYDeg: pose.closed ? 0 : swingStart },
-        leaf2: pose.closed ? { x: cx, y: 0, z, rotYDeg: 0 } : { x: u1 - P / 2, y: 0, z, rotYDeg: swingEnd },
+        leaf2: pose.closed ? { x: cx + DOOR_MEET_GAP_CM / 2, y: 0, z, rotYDeg: 0 } : { x: u1 - P / 2, y: 0, z, rotYDeg: swingEnd },
       },
     };
   }
   const flipFree = pose.closed && pose.hingeAtEnd;
-  boxes.push(...leafBoxes(leafW, leafH, "leaf", flipFree));
+  boxes.push(...leafBoxes(leafW, leafH, "leaf", flipFree, P / 2));
+  if (pose.closed) boxes.push(...seamBoxes(u0, u1, top, P, false));
   const hx = pose.hingeAtEnd && !pose.closed ? u1 - P / 2 : u0 + P / 2;
   const rotYDeg = pose.closed ? 0 : pose.hingeAtEnd ? swingEnd : swingStart;
   return { boxes, groups: { leaf: { x: hx, y: 0, z, rotYDeg } } };

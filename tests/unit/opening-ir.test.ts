@@ -3,7 +3,7 @@ import * as THREE from "three";
 
 import type { Room } from "@/contracts/apartment";
 import { openings as demoOpenings } from "@/lib/configurator/fromDemo";
-import { openingIR, viewRooms, wallRects as irWallRects } from "@/lib/viewer3d/opening-ir";
+import { DOOR_HANDLE_Y_CM, DOOR_MEET_GAP_CM, openingIR, viewRooms, wallRects as irWallRects } from "@/lib/viewer3d/opening-ir";
 import { ceilingLampIR, wallFixturesIR } from "@/lib/viewer3d/fixtures-ir";
 import { joineryOf, wallRects } from "@/lib/viewer3d/rooms";
 import golden from "@/tests/fixtures/opening-golden.json";
@@ -136,9 +136,10 @@ describe("описание проёма", () => {
       const ir = openingIR({ kind: "door", wall: "north", offsetCm: 100, widthCm: 80, hinge }, { ...H, entrance: true });
       const g = ir.groups.leaf!;
       expect(g.rotYDeg).toBe(0);                                                 // без разворота: локальная +Z = внутрь комнаты
-      const front = ir.boxes.filter((x) => x.role === "panel" || x.role === "handle");
-      expect(front.length).toBe(4);
-      expect(front.every((x) => x.z > 0)).toBe(true);
+      // филёнки и ручка — с обеих сторон полотна: две филёнки и ручка (розетка, шейка, рычаг) смотрят в комнату (+Z)
+      const front = ir.boxes.filter((x) => (x.role === "panel" || x.role === "handle") && x.z > 0);
+      expect(front.length).toBe(5);
+      expect(ir.boxes.filter((x) => (x.role === "panel" || x.role === "handle") && x.z < 0).length).toBe(5);
       const leaf = ir.boxes.find((x) => x.role === "leaf")!;
       const handle = ir.boxes.find((x) => x.role === "handle")!;
       // ручка — у свободного края: петли у u0 — у u1, и наоборот
@@ -153,17 +154,86 @@ describe("описание проёма", () => {
       expect(Object.keys(ir.groups).sort()).toEqual(["leaf", "leaf2"]);
       const leaves = ir.boxes.filter((x) => x.role === "leaf");
       expect(leaves.map((x) => x.group)).toEqual(["leaf", "leaf2"]);
-      expect(leaves[0]!.w + leaves[1]!.w).toBeCloseTo(153.2 - 5, 5);
+      expect(leaves[0]!.w + leaves[1]!.w).toBeCloseTo(153.2 - 5 - DOOR_MEET_GAP_CM, 5);
       if (entrance) {
         const [a, c] = [ir.groups.leaf!, ir.groups.leaf2!];
         expect(a.x).toBeCloseTo(127.2 + 2.5, 5);
-        expect(c.x).toBeCloseTo(127.2 + 153.2 / 2, 5);                          // вторая — от середины до правой стойки
+        expect(c.x).toBeCloseTo(127.2 + 153.2 / 2 + DOOR_MEET_GAP_CM / 2, 5);   // вторая — от притвора до правой стойки
         const hs = ir.boxes.filter((x) => x.role === "handle" && x.w > 10);
         expect(hs.map((x) => (x.group === "leaf" ? a.x + x.x : c.x + x.x)).every((u) => Math.abs(u - (127.2 + 76.6)) < 12)).toBe(true);
       }
     }
     expect(Object.keys(openingIR({ ...o, swingCm: 153.2 }, { ...H, entrance: true }).groups)).toEqual(["leaf"]);
     expect(Object.keys(openingIR({ ...o, swingCm: 0 }, { ...H, entrance: true }).groups)).toEqual(["leaf"]);
+  });
+
+  // T-20261112-35 (владелец 12.11, TG 1733 «двери странные»): одна плита без щели, ручки — плоские чёрные бруски
+  describe("вид полотна (T-20261112-35)", () => {
+    const dbl = { kind: "door" as const, wall: "south" as const, offsetCm: 100, widthCm: 150, swingCm: 75 };
+    const one = { kind: "door" as const, wall: "south" as const, offsetCm: 100, widthCm: 90, swingCm: 90 };
+    const span = (ir: ReturnType<typeof openingIR>, grp: string) => {
+      const g = ir.groups[grp]!;
+      const lf = ir.boxes.find((x) => x.role === "leaf" && x.group === grp)!;
+      return [g.x, g.x + lf.w];
+    };
+
+    it("закрытая двустворчатая: между створками зазор 3–4 мм, в нём тёмный шов во всю высоту", () => {
+      const ir = openingIR(dbl, { ...H, entrance: true });
+      const [, aEnd] = span(ir, "leaf");
+      const [cStart] = span(ir, "leaf2");
+      expect(cStart! - aEnd!).toBeGreaterThanOrEqual(0.3);
+      expect(cStart! - aEnd!).toBeLessThanOrEqual(0.4 + 1e-9);
+      const mid = ir.boxes.find((x) => x.role === "seam" && x.h > 100 && Math.abs(x.x - 175) < 0.01)!;
+      expect(mid.material).toBe("gap");
+      expect(mid.w).toBeCloseTo(cStart! - aEnd!, 6);
+      expect(mid.d).toBeGreaterThan(4);                                           // виден с обеих сторон полотна
+    });
+
+    it("закрытое полотно — тёмный шов по стойкам и перекладине коробки; у распахнутого швов нет", () => {
+      for (const o of [one, dbl]) {
+        const shut = openingIR(o, { ...H, entrance: true });
+        const seams = shut.boxes.filter((x) => x.role === "seam");
+        expect(seams.length).toBe(o === dbl ? 4 : 3);
+        const jambs = shut.boxes.filter((x) => x.role === "casing" && x.h > x.w);
+        expect(seams.some((s) => Math.abs(s.x - s.w / 2 - (jambs[0]!.x + jambs[0]!.w / 2)) < 1e-6)).toBe(true);
+        expect(seams.some((s) => Math.abs(s.x + s.w / 2 - (jambs[1]!.x - jambs[1]!.w / 2)) < 1e-6)).toBe(true);
+        expect(openingIR(o, H).boxes.some((x) => x.role === "seam")).toBe(false);
+      }
+    });
+
+    it("филёнки симметричны на каждой створке, с обеих сторон полотна", () => {
+      const ir = openingIR(dbl, { ...H, entrance: true });
+      for (const grp of ["leaf", "leaf2"]) {
+        const lf = ir.boxes.find((x) => x.role === "leaf" && x.group === grp)!;
+        const ps = ir.boxes.filter((x) => x.role === "panel" && x.group === grp);
+        expect(ps.length).toBe(4);
+        expect(ps.every((p) => Math.abs(p.x - lf.w / 2) < 1e-9)).toBe(true);
+      }
+    });
+
+    it("ручка-нажим: розетка на 100 см от пола у свободного края, рычаг повёрнут к петлям, с обеих сторон; у пары — у притвора", () => {
+      for (const [o, entrance] of [[one, true], [one, false], [dbl, true], [dbl, false]] as const) {
+        const ir = openingIR({ ...o, hinge: "left" }, { ...H, entrance });
+        for (const grp of Object.keys(ir.groups)) {
+          const lf = ir.boxes.find((x) => x.role === "leaf" && x.group === grp)!;
+          const hs = ir.boxes.filter((x) => x.role === "handle" && x.group === grp);
+          expect(hs.length).toBe(6);
+          expect(hs.every((h) => h.y === DOOR_HANDLE_Y_CM)).toBe(true);
+          const roses = hs.filter((h) => h.w > 5 && h.h > 5);
+          const levers = hs.filter((h) => h.w > 10);
+          expect(roses.map((r) => Math.sign(r.z)).sort()).toEqual([-1, 1]);
+          // свободный край створки в её осях: у закрытой второй створки пары (петли справа) — x = 0, иначе — x = ширина
+          const freeAt0 = grp === "leaf2" && entrance;
+          // вылет — от видимого края: у одностворчатой край уходит под стойку на 2,5 см, у притвора пары виден весь
+          for (const r of roses) expect(Math.abs(r.x - (freeAt0 ? 0 : lf.w))).toBeCloseTo(o === one ? 8.5 : 6, 6);
+          for (const l of levers) expect(freeAt0 ? l.x > roses[0]!.x : l.x < roses[0]!.x).toBe(true);
+        }
+      }
+    });
+
+    it("коробок в проёме не больше, чем примет серверный кадр (`opening_ir.py:MAX_BOXES` = 40)", () => {
+      expect(openingIR(dbl, { ...H, entrance: true }).boxes.length).toBeLessThanOrEqual(40);
+    });
   });
 });
 

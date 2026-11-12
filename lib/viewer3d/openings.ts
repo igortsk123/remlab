@@ -31,7 +31,11 @@ const GLASS = new THREE.MeshPhysicalMaterial({
 });
 const DOOR_LEAF = new THREE.MeshStandardMaterial({ color: 0xf2f0ec, roughness: 0.6 });
 const DOOR_PANEL = new THREE.MeshStandardMaterial({ color: 0xe8e5e0, roughness: 0.65 });
-const HANDLE = new THREE.MeshStandardMaterial({ color: 0xb9bdc2, roughness: 0.25, metalness: 0.85 });
+// РУЧКА — МАТОВЫЙ МЕТАЛЛ (T-20261112-35, «ручки — чёрные бруски»): при metalness 0.85 маленькая деталь отражала тёмные части
+// карты окружения и на кадре была чёрной. Сатиновый никель: светлый, мягкий блик, читается на белом полотне.
+const HANDLE = new THREE.MeshStandardMaterial({ color: 0xc8cacd, roughness: 0.42, metalness: 0.45 });
+// шов полотна в коробке и притвор между створками — тень в зазоре 3–4 мм
+const DOOR_GAP = new THREE.MeshStandardMaterial({ color: 0x6b6761, roughness: 0.9 });
 
 function box(
   w: number,
@@ -61,6 +65,7 @@ const MATERIAL: Record<OpeningMaterial, THREE.Material> = {
   leaf: DOOR_LEAF,
   panel: DOOR_PANEL,
   handle: HANDLE,
+  gap: DOOR_GAP,
   skirting: SKIRTING,
   cornice: CORNICE,
   lamp: LAMP,

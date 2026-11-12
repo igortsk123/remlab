@@ -491,7 +491,8 @@ def _place_opening(P: Polygon, op: dict, T, cfg: dict) -> dict:
     o = {'kind': kind, 'c': (round(c[0], 1), round(c[1], 1)), 'w': w, 'axis': 'x' if ux else 'y', 'n_in': nin,
          'exterior': bool(op.get('exterior')), 'src': op['_idx'], 'edge_q': (q.x, q.y), 'between': bool(op.get('_between'))}
     if kind == 'door':
-        o['leaf'] = min(w / 2 if w >= cfg['double_door_min_cm'] else w, cfg['door_leaf_max_cm'])
+        # две створки — только у проёма СТРОГО шире порога (T-20261112-35); 3D узнаёт пару по дуге (`opening-ir.ts:isDoubleDoor`)
+        o['leaf'] = min(w / 2 if w > cfg['double_door_min_cm'] else w, cfg['door_leaf_max_cm'])
     return o
 
 

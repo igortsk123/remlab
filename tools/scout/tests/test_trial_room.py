@@ -483,6 +483,22 @@ def test_thresholds_from_rules_not_literals():
         assert k in cfg and f'_{k}' in cfg or k in ('ortho_iou_min', 'core_min_side_cm', 'core_share_diag'), k
 
 
+def test_double_door_only_strictly_wider_than_rule():
+    """T-20261112-35 («проём широкий — по плану одна дверь»): две створки (дуга = половина ширины) — только у проёма СТРОГО шире
+    `double_door_min_cm`; на пороге и уже — одна створка во всю ширину (не больше `door_leaf_max_cm`)."""
+    from shapely.geometry import Polygon
+    cfg = TR.rules()
+    lim, cap = cfg['double_door_min_cm'], cfg['door_leaf_max_cm']
+    P = Polygon([(0, 0), (400, 0), (400, 300), (0, 300)])
+
+    def leaf(w):
+        return TR._place_opening(P, {'kind': 'door', 'c': (200, 0), 'widthCm': w, '_idx': 0}, lambda p: p, cfg)['leaf']
+    assert leaf(85) == 85
+    assert leaf(lim) == min(lim, cap)                  # ровно порог — одна створка
+    assert leaf(lim + 1) == (lim + 1) / 2              # шире — пара, дуга каждой = половина
+    assert leaf(150.5) == 75.25
+
+
 def test_group_fits_uses_band_distance():
     n = TR.need_group(band='31-40')
     assert n['tv_min_cm'] == 220
