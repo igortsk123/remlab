@@ -43,6 +43,9 @@ def _order_key(role: str) -> tuple:
     return (ORDER.index(b) if b in ORDER else len(ORDER), role)
 
 
+JUNCTION_STRIP_CM = 20.0      # стык ядра с нишей/проходом (дверь без полотна): вплотную не ставим, спинкой в воздух нельзя (T-96/2)
+
+
 class _Statics:
     """Что занято до мебели: дуги и проходы дверей, радиаторы с отступом, окна (для высокого)."""
 
@@ -59,8 +62,11 @@ class _Statics:
             # граница одной комнаты, не дверь: полоса 220×76 запирала малое ядро, хотя настоящая дверь — в нише со своей дугой и
             # полосой (`trial_room.post_check`). Путь от стыка держит проверка маршрута (`bedroom_checks`: вход — door, 75/50).
             # T-20261112-96/2, Codex `_intake/codex/2026-11-12-t96-niche-junction-answer.md` п.1
-            if op.kind == "door" and not sw.is_empty:
-                door.append(_wall_strip(room, op.wall, op.offset_cm, op.width_cm, 76.0).buffer(-1.0))
+            # У стыка — узкая полоса JUNCTION_STRIP_CM: за стыком воздух (ниша), спинкой к нему ставить нельзя — без полосы решатель
+            # прижимал туда комод, а проверка спинки (`trial_bedroom.back_off_wall`) его снимала (тест «щель 20 см», T-96/2)
+            if op.kind == "door":
+                door.append(_wall_strip(room, op.wall, op.offset_cm, op.width_cm,
+                                        76.0 if not sw.is_empty else JUNCTION_STRIP_CM).buffer(-1.0))
         hard = num("sofa_to_radiator_wall", 15)
         rads = [radiator_polygon(room, r).buffer(hard - 1.0) for r in room.radiators]
         self.blocked = unary_union(door + rads) if (door or rads) else None
