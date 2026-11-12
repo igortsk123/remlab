@@ -54,7 +54,12 @@ class _Statics:
             sw = swing_polygon(room, op)
             if not sw.is_empty:
                 door.append(sw.buffer(-1.0))
-            if op.kind == "door":
+            # полоса 76 перед дверью — только у двери с полотном, как у проверки (`validate.check_openings`: дверь без дуги —
+            # без полосы). Стык ядра с нишей/проходом (`trial_room.solver_openings`: door swing 0 по всей ширине стыка) — открытая
+            # граница одной комнаты, не дверь: полоса 220×76 запирала малое ядро, хотя настоящая дверь — в нише со своей дугой и
+            # полосой (`trial_room.post_check`). Путь от стыка держит проверка маршрута (`bedroom_checks`: вход — door, 75/50).
+            # T-20261112-96/2, Codex `_intake/codex/2026-11-12-t96-niche-junction-answer.md` п.1
+            if op.kind == "door" and not sw.is_empty:
                 door.append(_wall_strip(room, op.wall, op.offset_cm, op.width_cm, 76.0).buffer(-1.0))
         hard = num("sofa_to_radiator_wall", 15)
         rads = [radiator_polygon(room, r).buffer(hard - 1.0) for r in room.radiators]

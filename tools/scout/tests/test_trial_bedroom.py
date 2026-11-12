@@ -694,3 +694,46 @@ def test_sliver_gap_is_wall_for_back_check():
     r = TB.build('t42', p, ctx(_bank_with_dresser()))['rooms'][0]
     assert r['outcome']['state'] == 'furnished'
     assert any({'шкаф', 'комод'} <= {TB.base_role(i['role']) for i in v['items']} for v in r['variants'])
+
+
+NICHE_FIXTURE = os.path.join(HERE, 'fixtures', 'bedroom-niche-door-iT0X.json')
+
+
+def test_niche_junction_is_not_a_door_strip():
+    """T-20261112-96/2: спальня 7,85 м² тура iT0X — дверь в нише за ядром 330×250. Стык ядра с нишей решатель получает как дверь без
+    полотна во всю ширину стыка (`trial_room.solver_openings`); полоса 76 перед ней запирала ядро — после T-68 (окно 70 у бока) кровать
+    не вставала ни в один слот. Полоса — только у двери с полотном (как `validate.check_openings`): кровать гостя встаёт на это ядро."""
+    from planner.bedroom import _Statics, solve_bedroom
+    from planner.models import Item, Opening, Room
+    from shapely.geometry import Point
+    p = json.load(open(NICHE_FIXTURE, encoding='utf-8'))
+    panel, room, rid = TB.bedrooms_of(p)[2]
+    assert room.get('name') == 'Bedroom 3' and rid == 'bedroom-3'
+    cfg = TB.TR.rules()
+    cand = TB.adapt_room(panel, room, cfg)['candidates'][0]
+    assert (cand['w'], cand['d']) == (330.0, 250.0)
+    r, ops = TB.build_room(cand, cfg, 'left', 'guest')
+    assert any(o['kind'] == 'door' and o['swing_cm'] == 0 and o['width_cm'] >= 200 for o in ops)      # стык ниши, не дверь
+    lay = solve_bedroom(r, [Item(role='кровать', w_cm=130, d_cm=212, h_cm=85),
+                            Item(role='тумба прикроватная', w_cm=42, d_cm=35, h_cm=52)], 'guest')
+    assert any(TB.base_role(q.role) == 'кровать' for q in lay.placements), lay.meta.get('clearance')
+    # дверь с полотном полосу держит (точка перед дверью вне дуги, 70 см от стены — занята); та же дверь без полотна — нет
+    def blocked_at(swing):
+        rm = Room(width_cm=400, depth_cm=400, openings=[Opening(kind='door', wall='south', offset_cm=100, width_cm=80, swing_cm=swing,
+                                                                hinge='left')], radiators=[], room_type='bedroom', purpose='guest')
+        b = _Statics(rm).blocked
+        return b is not None and any(b.contains(Point(175, y)) for y in (70.0, 330.0))
+    assert blocked_at(80) and not blocked_at(0)
+
+
+def test_catalog_bed_without_goods_not_in_pool():
+    """T-20261112-96/2: кровать каталога без товара (ушла из фида — `catalog_media` None) в подбор не идёт: иначе сборщик подменял её
+    крупнейшей кроватью витрины без ширины спального места («Лео», тур iT0X, спальня 2). Каталог недоступен — список прежний."""
+    from types import SimpleNamespace as NS
+    cat = [NS(mid='1', eid='a'), NS(mid='2', eid='b'), NS(mid='3', eid='c')]
+    keep = TB.sellable_catalog(cat, goods=lambda sid: None if sid == '2_b' else {'name': 'x', 'price': 1})
+    assert [c.mid for c in keep] == ['1', '3']
+
+    def down(sid):
+        raise RuntimeError('каталог недоступен')
+    assert TB.sellable_catalog(cat, goods=down) == cat
