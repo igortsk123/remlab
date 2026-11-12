@@ -9419,6 +9419,14 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
   box-shadow:var(--e3);cursor:pointer;overflow:hidden;color:#fff;font:600 13px/1.1 system-ui,sans-serif}
 .vslot.on{outline:3px solid var(--accent);outline-offset:1px}
 .vslot.empty{border-style:dashed;background-image:none!important;background-color:rgba(43,38,34,.5)}
+/* КАДР ЕЩЁ СНИМАЕТСЯ (T-20261112-76/4): вместо серого пятна — тон страницы и спокойный перелив без текста; пришёл кадр — класс снят,
+   перелив уходит плавно (кадр проявляется). «Уменьшить движение» — без перелива, ровный тон */
+.vslot::before{content:'';position:absolute;inset:0;background:rgb(242 240 235 / .55);opacity:0;transition:opacity .35s ease;pointer-events:none}
+.vslot.wait::before{opacity:1}
+@media(prefers-reduced-motion:no-preference){
+  .vslot.wait::before{background:linear-gradient(100deg,rgb(242 240 235 / .42) 35%,rgb(247 245 241 / .78) 50%,rgb(242 240 235 / .42) 65%) 0 0/250% 100%;
+    animation:vslWait 1.8s ease-in-out infinite}}
+@keyframes vslWait{from{background-position:100% 0}to{background-position:0 0}}
 .vslot i{position:absolute;left:4px;top:4px;background:rgba(43,38,34,.78);color:#fff;font:600 11px/1 system-ui,sans-serif;font-style:normal;border-radius:6px;padding:3px 6px}
 .vslot u{position:absolute;right:4px;bottom:4px;background:#fff;color:#2b2622;font:600 10px/1 system-ui,sans-serif;text-decoration:none;border-radius:6px;padding:3px 5px}
 .vslot b{font-size:18px}
@@ -11250,7 +11258,7 @@ function vwSlotsUi(){
   const EN=LANG==='en', cs=(cams||loadCams()).slice(0,2), pick=vwPickOn(), user=cs.some(c=>c&&c.user);
   box.querySelectorAll('[data-slot]').forEach(b=>{const k=+b.dataset.slot, empty=pick&&k===1, c=cs[k]||{}, on=!VW.free&&VW.photo===k&&!empty;
     b.classList.toggle('empty',empty); b.classList.toggle('on',on||(pick&&k===1));
-    b.style.backgroundImage=!empty&&VSL.thumbs[k]?`url("${VSL.thumbs[k]}")`:'';
+    b.style.backgroundImage=!empty&&VSL.thumbs[k]?`url("${VSL.thumbs[k]}")`:''; b.classList.toggle('wait',!empty&&!VSL.thumbs[k]);
     b.innerHTML=empty?'<i>2</i><b>?</b>':`<i>${k+1}</i>`+(c.user?'':`<u>${EN?'auto':'авто'}</u>`);
     b.setAttribute('aria-label',(EN?'View ':'Ракурс ')+(k+1)+(empty?(EN?': choose':': выберите'):''));
     if(!b.onclick)b.onclick=e=>{e.stopPropagation(); vwSlotTap(+b.dataset.slot);};});
