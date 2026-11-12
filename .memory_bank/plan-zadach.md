@@ -1,4 +1,4 @@
-# План задач remlab · ≈ 76 % · чт 12 ноя, 17:24 Лондон
+---
 tier: 2
 topic: plan-zadach
 scope: План задач remlab — все задачи по приоритетам, кто делает, %; кнопка «План задач» (/plan) в ботах присылает этот файл
@@ -85,7 +85,7 @@ source: manual
 
 **П1.28 · algor, помощник · 40 %**
 Дневная сборка демо не ест рабочий день: каталог и меши утром (10:40), тяжёлая сборка, экзамены и фото демо — с 18:30; сперва замер шагов
-<!-- владелец TG 1093 «Да да» (17:06) на ❓ TG 1092 · Codex § Б: целиком на вечер нельзя (фид Гдеслона к 10:40, ADR 0151-0200:587; wave_guard по demo-спросу) — делить refresh_daily.sh: утро 10:40 фиды/load/catalog/mesh_family/mesh_bind/ранний demo_band; 18:30 сборка/экзамены банков (стр. 464–552), demo/PageCheck/demo-real/публикация (569–614), weekly (616–632) · шаг 1 — длительности шагов по refresh.log + маркер mesh-demand-ready, без разрезания вслепую · код — только worktree (урок 516), правка crontab + infra/dev/crontab вместе · выдано algor 17:08 | T-20261112-56 · бриф _intake/brief-T-20261112-56.md · algor:0fc5fa15 (фоновый помощник) · worktree refresh-split-1112 · шаг 1: замер 07–12.11 по косвенным (у step() нет времени), время шагов в step() + маркер mesh-demand-ready (worktree), план plans/refresh-split-01.md с Codex; crontab не трогаем · выдано 17:12, ориентир 19:15 -->
+<!-- владелец TG 1093 «Да да» (17:06) на ❓ TG 1092 · Codex § Б: целиком на вечер нельзя (фид Гдеслона к 10:40, ADR 0151-0200:587; wave_guard по demo-спросу) — делить refresh_daily.sh: утро 10:40 фиды/load/catalog/mesh_family/mesh_bind/ранний demo_band; 18:30 сборка/экзамены банков (стр. 464–552), demo/PageCheck/demo-real/публикация (569–614), weekly (616–632) · шаг 1 — длительности шагов по refresh.log + маркер mesh-demand-ready, без разрезания вслепую · код — только worktree (урок 516), правка crontab + infra/dev/crontab вместе · выдано algor 17:08 | T-20261112-56 · бриф _intake/brief-T-20261112-56.md · algor:0fc5fa15 (фоновый помощник) · worktree refresh-split-1112 · шаг 1: замер 07–12.11 по косвенным (у step() нет времени), время шагов в step() + маркер mesh-demand-ready (worktree), план plans/refresh-split-01.md с Codex; crontab не трогаем · выдано 17:12, ориентир 19:15 · время шагов eba3ef45 влито директором (f62ac6a7, 17:3x) — завтрашние 10:40 дадут точный замер; план с Codex в работе -->
 
 ## П2 · следом
 
