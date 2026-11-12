@@ -42,6 +42,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { demoUrl } from "./demo-url.cjs";
 import { camOkFrom, pairLabel, regOf, withoutShot } from "./demo-warm.mjs";
+import { captureViews, launchLive, openLivePage } from "./lib/live-shoot.mjs";
 
 const BASE = process.env.DEMO_BASE ?? "https://remont-lab.online";
 const NIGHT = process.argv.includes("--night"), DRY = process.argv.includes("--dry");
@@ -200,7 +201,7 @@ export function staleLines(todo, shot, reg) {
 async function main() {
   const rules = NIGHT ? nightRules(readFileSync(RULES, "utf8"), process.argv) : null;
   const paid = await (await fetch(`${BASE}/api/draft/paid`)).json().catch(() => ({ available: false, code: "нет ответа" }));
-  const browser = await chromium.launch(FRAMES ? { args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] } : {});
+  const browser = await launchLive(chromium, FRAMES);
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   if (LOCAL) {
     const file = (n) => readFileSync(join(LOCAL, n));
@@ -211,9 +212,8 @@ async function main() {
   let done = 0, failed = 0;
   try {
     // без 3D-сцены (см. demo-warm.mjs); с --frames — со сценой: кадры снимает браузер
-    await page.goto(demoUrl(`${BASE}/demo/?live=${FRAMES ? "force" : "0"}&lang=ru`), { waitUntil: FRAMES ? "load" : "domcontentloaded", timeout: 120_000 });
-    await page.waitForFunction("typeof D !== 'undefined' && !!D && !!FLAT && typeof allVariants === 'function' && allVariants().length > 0", null, { timeout: 90_000 });
-    await page.waitForTimeout(4000); // реестр кадров приезжает позже данных
+    // реестр кадров приезжает позже данных — 4 с после готовности
+    await openLivePage(page, demoUrl(`${BASE}/demo/?live=${FRAMES ? "force" : "0"}&lang=ru`), { gl: FRAMES, settleMs: 4000 });
     // кому нужно фото: у варианта нет реалистичного снимка его нынешней расстановки (то же правило, что у вкладки «Фото»)
     // все комнаты витрины (onb-12): номер состояния `curStateId` считает страница по комнате открытого варианта (`curRoom`);
     // вариант, чьей комнаты нет в данных (`roomGeoOf` → null), главная не показывает — его не снимаем
@@ -277,16 +277,13 @@ async function main() {
  *  `frames` — кадры из браузера (по умолчанию флаг `--frames`; самопроверка передаёт явно) */
 async function shootOne(page, t, before, frames = FRAMES) {
   const t0 = Date.now();
-  const res = await page.evaluate(async ([i, frames]) => {
+  // кадры — общим модулем с автофото тура (`lib/live-shoot.mjs:pageCapture`: сцена ЭТОЙ комнаты, кадры загружены на сервер);
+  // не снялись — платный вызов не делаем
+  const cap = frames ? await captureViews(page, t.i) : null;
+  const res = frames && !cap?.ok ? { error: "кадры из браузера не сняты — платный вызов не делаю" } : await page.evaluate(async ([i, frames]) => {
     pickVariant(i);
-    let extra = {};
-    if (frames) {
-      openLiveWindow(); if (VW.mode !== "walk") vwMode("walk");
-      for (let k = 0; k < 600 && !(LIVE.scene && LIVE.state === "ready"); k++) await new Promise((ok) => setTimeout(ok, 300));
-      const cap = await vwCaptureViews();
-      if (!cap) return { error: "кадры из браузера не сняты — платный вызов не делаю" };
-      extra = { views: cap.views, clay: cap.clay, sheet: cap.sheet };
-    }
+    const c = frames ? globalThis.__liveCap : null;
+    const extra = c ? { views: c.views, clay: c.clay, sheet: c.sheet } : {};
     // код отказа (`lost`/`not_found` — «сервер обновлялся») страница отдаёт вторым аргументом (T-20261107-34) — для повтора ночью
     return await new Promise((ok) => makePhoto("realistic", "", "", { bg: true, extra, progress: () => {}, fail: (m, code) => ok({ error: String(m), code: code || "" }),
       done: (n0) => ok({ n: shots.length - n0, frames: (shots[n0] || {}).timing?.frames }) }));
@@ -447,6 +444,7 @@ ${paidDef.replaceAll('>> "$LOG"', "")}\n${sh.slice(a, b).replaceAll('>> "$LOG"',
   let paidCalls = 0, paidExtra = null;
   const pageStub = (cap) => Object.assign(g, { pickVariant: () => {}, openLiveWindow: () => {}, VW: { mode: "walk" }, vwMode: () => {},
     LIVE: { scene: {}, state: "ready" }, vwCaptureViews: async () => cap, shots: [{ timing: { frames: "browser" } }],
+    allVariants: () => [{ id: "v0" }], cams: null,
     makePhoto: (q, a, b, opt) => { paidCalls += 1; paidExtra = opt.extra; opt.done(0); } });
   const fakePage = { evaluate: (fn, arg) => fn(arg) };
   g.fetch = async () => ({ json: async () => [] });
