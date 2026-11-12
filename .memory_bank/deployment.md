@@ -23,8 +23,8 @@ review_after: 2026-12-05
 - Статика: `/test/*`, `/demo` (ADR-0201), `/test/mesh-audit/*` и `/rt/*` immutable (ADR-0194, 0212); `/lab/*` — Next.
   Без парного `redir /x /x/` — 404 без слэша.
 - **Caddyfile едет деплоем** (`infra/server/caddy-sync.sh`, ADR-0256) — руками на сервере НЕ править.
-  **Один сервис — только `up -d --no-deps`**: иначе `app`
-  пересоздаётся на дефолтном образе и прод откатывается (ADR-0202; образ — в `.env`).
+  **Один сервис — только `up -d --no-deps`** (иначе трогает и `app`). Образ `app` — из `/opt/remlab/.env`
+  (`deploy-remote.sh`); нет там — дефолт `remlab-app:latest` = откат прода (ADR-0202).
 
 ## Сервер
 exit-fi 89.167.127.0 (2 vCPU/3.7G/38G), compose v2, `/opt/remlab`, swap 4G.
@@ -46,5 +46,5 @@ Push в `main` → CI gate → `Deploy prod` (`deploy.yml`). Сервер — `i
 
 ## Сторожа
 Каталог (ADR-0172), диск `cleanup.sh` (ADR-0005), безопасность — `disk-watchdog.sh`. Правка сервера = бэкап + rollback.
-Доступность — `health-watch.sh` → Telegram; дампы, миграция дев-БД — DEV `tools/ops/`. «Прод без DEV», «DEV-рендер», очередь тяжёлого — Tier 2.
+Доступность — `health-watch.sh` → Telegram; дампы, миграция дев-БД — DEV `tools/ops/`. «Прод без DEV», DEV-рендер — Tier 2.
 **Tier 2:** `domain/deployment-details.md` — конвейер, две базы, Caddy и статик, сторожа.

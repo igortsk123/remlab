@@ -3,7 +3,7 @@ tier: 1
 topic: user-flow
 scope: Stage 1 UX-flow, аналитика
 tier2: ../domain/user-flow-details.md
-updated: 2026-11-06
+updated: 2026-11-12
 importance: high
 source: manual
 status: working
@@ -19,17 +19,18 @@ review_after: 2026-12-05
 ## Навигация (v0.4, сквозная шапка — ADR-0017)
 Одна шапка `SiteHeader.tsx`: логотип + «Моя лаборатория»; ряд материалы · ремонт · Дизайн ·
 Стили · Советы; адаптив ≤700/≤480 (урок 7 [[lessons]]); активный раздел — заливка (кнопки расчёта) или жирный (остальные).
-Иконки — [[access-and-integrations]]. Главная = ХАБ из шести плиток и два CTA (не «о проекте»).
+Главная = ХАБ из шести плиток и два CTA.
 - `/styles` (игра-карточки, `components/StyleQuiz.tsx`), `/sovety`, `/start`, `/calc/remont` — за заглушкой `ComingSoon`
   (`NEXT_PUBLIC_SHOW_WIP=1`); `/lab` — центр сохранений (ADR-0038, вкладки `?tab=`, «Мой стиль» → `style_results`).
 Детали — `completed_plans/site-nav-and-scenarios.md`.
 
 ## AI-флоу (Stage 1 → ступень М5; сверено 2026-08-06) — детали Tier 2
-Главная `/` — хаб из 6 плиток (calc/remont/start/styles/sovety/lab). Экраны `/start` →
+Экраны `/start` →
 `/p/[id]/{brief→select→preview→paywall}`, `/rooms`, `/soon` (fake-door, событие не эмитится). Выбор
 управляет генерацией: `/select` — `runAnalyze` + keep/change/remove (`objectChoices`) + стиль + `wish`;
-«Сгенерировать» → `runGenerate` (restyle+ideas). Free/Paid = уровень (owner 2026-07-02): «Освежить» бесплатно, один платный пакет
-490 ₽ (`app/p/[id]/paywall/page.tsx`), paywall-триггер = выбор 2/3. ⚠️ Код-долг: товары seed, вар.2/3 и YooKassa нет.
+«Сгенерировать» → `runGenerate` (restyle+ideas). Превью бесплатно, полный план 490 ₽
+(`app/p/[id]/paywall/page.tsx:PRICE`) — кнопкой на `/preview`. ⚠️ Код-долг: товары seed (`modules/ideas:buildCatalog`),
+«Освежить» и вар.2/3 нет, оплата — заглушка (`unlockPack`; YooKassa — лишь у виз., `app/viz-actions.ts`).
 
 **Избранное (18.10, ADR-0306/0307):** ♡ → коллекция «<Комната> #N» с секретом (`modules/collections/repository.ts`; v3 `roomId/styleId` — `contracts/collection.ts`);
 корзина сертификата по комнатам (`lib/basket/basket.ts`); главная — стили → комнаты, липкая шапка, «назад» через `history.state`.
@@ -37,7 +38,7 @@ review_after: 2026-12-05
 
 ## Аналитика
 `lib/analytics.ts` (PostHog, no-op без ключа), сверка 11.10: 17 событий объявлено (`EventName`), 12 эмитится
-(estimate_*, lab_tab, lead_*, quiz_completed, viz_started, project_started, preview_ready…); цель Метрики `calc_started` — `lib/calc/started-goal.ts`.
+(estimate_created/deleted, lab_tab, lead_*, quiz_completed, app_error, viz_started, project_started, preview_ready…); цель Метрики `calc_started` — `lib/calc/started-goal.ts`.
 
 **Отчёт застройщику (ADR-0265):** `/partner/report#<ключ>` — воронка по ссылкам менеджеров
 (`modules/partner-report/report.ts:buildReport`) + анонимные счётчики `/api/events`; детали — Tier 2.

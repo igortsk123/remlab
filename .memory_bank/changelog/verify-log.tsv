@@ -214,3 +214,9 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-12	core/furniture.md	drift	20	1	1	T-20261112-42: viz_qa без 3 ретраев; док целиком
 2026-11-12	core/mesh-pipeline.md	drift	22	1	1	T-20261112-42: прополка: принят ИЛИ старше 14 сут; док целиком
 2026-11-12	core/mesh-color.md	drift	13	2	2	T-20261112-42: прополка; mesh_color_check метит, room_bindings прячет; док целиком
+2026-11-12	core/styles.md	drift	19	2	2	T-20261112-42: игра в /styles; якорь compose2:pick2; док целиком
+2026-11-12	core/lr-checklist.md	drift	18	0	0	T-20261112-42: док целиком
+2026-11-12	core/knowledge-db.md	drift	19	0	0	T-20261112-42: расход LLM и ~20 CONFLICTING — не код; док целиком
+2026-11-12	deployment.md	drift	44	1	1	T-20261112-42: up --no-deps: образ из .env; 6 утверждений о сервере/DNS по репо не проверить — дата не сдвинута
+2026-11-12	core/manager-links.md	drift	19	1	1	T-20261112-42: no_channel и без подключения менеджера; состояние бота на проде не проверить — дата не сдвинута
+2026-11-12	core/user-flow.md	drift	24	3	3	T-20261112-42: превью/490 кнопкой; YooKassa только виз.; estimate_saved только Метрика; номера CJM не сверены — дата не сдвинута
