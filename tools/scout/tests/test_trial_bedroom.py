@@ -190,6 +190,20 @@ def test_build_fails_closed_on_leak(monkeypatch):
         TB.build('t9', plan(), ctx(full_bank()))
 
 
+def test_stage_item_carries_offer_origin_by_room_profile():
+    """T-20261112-96/3 (Codex В2): у предмета стадии рядом с ключом товара `sid` — его источник: мебель спальни — `room_catalog:bedroom`
+    (сборщик берёт товар из ЕГО таблицы, не из `products` с тем же mid/eid), декор — `products`; без ключа — без источника."""
+    from types import SimpleNamespace
+    p = SimpleNamespace(role='кровать', x=100.0, y=50.0, rot=0)
+    it = {'mid': 5, 'eid': 'bed', 'name': 'Кровать', 'w': 170.0, 'd': 210.0, 'h': 100.0, 'sleep_w': 160}
+    sk = TB.public_item(p, it, 'm-5_bed')['sku']
+    assert (sk['sid'], sk['offer_origin'], sk['sleep_w']) == ('5_bed', 'room_catalog:bedroom', 160)
+    assert TB.offer_origin('шкаф') == TB.offer_origin('тумба прикроватная') == 'room_catalog:bedroom'
+    assert TB.offer_origin('ковёр') == 'products'
+    sk2 = TB.public_item(SimpleNamespace(role='шкаф', x=1.0, y=1.0, rot=0), {'w': 100.0, 'd': 60.0, 'h': 200.0, 'name': 'Шкаф'}, None)['sku']
+    assert 'offer_origin' not in sk2 and sk2['sid'] is None
+
+
 def test_bank_layout_not_used():
     bank = full_bank()
     for r in bank:

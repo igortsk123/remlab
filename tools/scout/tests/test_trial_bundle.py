@@ -1488,3 +1488,149 @@ def test_carried_items_get_colour_family_by_sku_scene():
     assert own['fam'] == '1_rep' and 'fam' not in rep_sku and 'fam' not in other and kept['fam'] == '1_keep'
     assert not any('_sid' in s for s in (own, rep_sku, other, kept))      # ключ товара — только на время расчёта
     assert TB.carried_fams(vs, None, rep) == 0
+
+
+# ───────── предложение room_catalog (T-20261112-96/3, Codex В2): на странице — ровно поставленный товар ─────────
+
+RC_ROWS = {'5_bed': ['5', 'bed', 'Кровать divan.ru Нордик 160 Бежевый', 'divan.ru', '18990.00',
+                     'https://xf.gdeslon.ru/cm/d9/?mid=5&goto=https%3A%2F%2Fwww.divan.ru%2Fp', 'https://cdn.example/n.jpg', 'https://cdn.example/n-hd.jpg'],
+           '5_nourl': ['5', 'nourl', 'Тумба Икс', 's', '5000', 'http://bad', None, None],
+           '5_free': ['5', 'free', 'Кровать без цены', 's', None, 'https://x.example/a', 'https://cdn.example/f.jpg', None]}
+
+
+def test_room_goods_exact_offer_from_room_catalog(monkeypatch):
+    """Кровать `room_catalog`: своё название, магазин, цена, ПАРТНЁРСКАЯ ссылка, фото (плитка по адресу банка, затем строки);
+    без цены / нет среди показываемых — None; ссылка не https — без ссылки."""
+    monkeypatch.setattr(TB.TD, '_names_en', lambda it, role: {'name_en': 'Nordic bed 160', 'colour_en': 'beige'})
+    monkeypatch.setattr(TB, 'demo_img', lambda us: None)
+    g = TB.room_goods('5_bed', 'кровать', 'bedroom', bank={}, rows=RC_ROWS)
+    assert g == {'name': 'Кровать divan.ru Нордик 160 Бежевый', 'name_en': 'Nordic bed 160', 'colour_en': 'beige', 'price': 18990, 'img': None,
+                 'url': RC_ROWS['5_bed'][5], 'shop': 'divan.ru', '_imgs': ['https://cdn.example/n.jpg', 'https://cdn.example/n-hd.jpg']}
+    seen = []
+    monkeypatch.setattr(TB, 'demo_img', lambda us: seen.append(list(us)) or 'img/0123456789abcdef.jpg')
+    g = TB.room_goods('5_bed', 'кровать', 'bedroom', bank={'5_bed': {'img': 'https://bank.example/b.jpg'}}, rows=RC_ROWS)
+    assert g['img'] == 'img/0123456789abcdef.jpg' and seen[-1][0] == 'https://bank.example/b.jpg'      # адрес банка — первым (ночь качает банк)
+    assert TB.room_goods('5_nourl', 'тумба прикроватная', 'bedroom', bank={}, rows=RC_ROWS)['url'] is None
+    assert TB.room_goods('5_free', 'кровать', 'bedroom', bank={}, rows=RC_ROWS) is None
+    assert TB.room_goods('9_gone', 'кровать', 'bedroom', bank={}, rows=RC_ROWS) is None
+    assert TB.room_goods(None, 'кровать', 'bedroom', bank={}, rows=RC_ROWS) is None
+
+
+def test_room_rows_one_query_per_room_by_shown_where(monkeypatch):
+    monkeypatch.setattr(TB, '_ROOM_ROWS', {})
+    qs = []
+
+    def get(q):
+        qs.append(q)
+        return [list(RC_ROWS['5_bed'])]
+    assert set(TB.room_rows('bedroom', get)) == {'5_bed'} and TB.room_rows('bedroom', get) and len(qs) == 1
+    assert "room='bedroom'" in qs[0] and 'missing_runs' in qs[0] and 'photo_alive' in qs[0]      # показ — тем же предикатом, что отбор
+    TB.room_rows('hall', get)
+    assert len(qs) == 2 and "room='hall'" in qs[1]
+
+
+def test_offer_states_by_origin_and_mid_eid_collision():
+    """Одинаковый ключ «mid_eid» в `products`, спальне и прихожей — три разных товара: источник решает `offer_origin`. Состояния:
+    available / media_missing (адреса фото — в очередь) / gone / catalog_down (не «ушёл») / no_resolver; счёт по источникам."""
+    prod = {'5_bed': {'name': 'Товар products', 'price': 1, 'img': 'img/aaaaaaaaaaaaaaaa.jpg', 'url': 'https://p.example/a', 'shop': 'p'}}
+    room = {('5_bed', 'bedroom'): {'name': 'Кровать спальни', 'price': 2, 'img': None, 'url': 'https://r.example/a', 'shop': 'r',
+                                   '_imgs': ['https://cdn.example/x.jpg']},
+            ('5_bed', 'hall'): {'name': 'Вешалка прихожей', 'price': 3, 'img': 'img/bbbbbbbbbbbbbbbb.jpg', 'url': 'https://h.example/a', 'shop': 'h'}}
+    G = TB._Goods(lambda sid, role: prod.get(sid), lambda sid, role, rm: room.get((sid, rm)))
+    assert G.offer('5_bed', 'кровать') == ('available', prod['5_bed'])
+    assert G.offer('5_bed', 'кровать', 'нечто') == ('available', prod['5_bed'])                  # чужой источник — products, как было
+    st, g = G.offer('5_bed', 'кровать', 'room_catalog:bedroom')
+    assert (st, g['name'], '_imgs' in g) == ('media_missing', 'Кровать спальни', False) and G.want_img == {'5_bed': ['https://cdn.example/x.jpg']}
+    assert G.offer('5_bed', 'вешалка', 'room_catalog:hall')[1]['name'] == 'Вешалка прихожей'
+    assert G.offer('9_x', 'кровать', 'room_catalog:bedroom') == ('gone', None)
+    assert G.states == {'products': {'available': 2}, 'room_catalog:bedroom': {'media_missing': 1, 'gone': 1},
+                        'room_catalog:hall': {'available': 1}}
+    assert room[('5_bed', 'bedroom')]['_imgs']                                                    # резолвер не портится
+
+    def down(sid, role, rm):
+        raise RuntimeError('catalog_items: SQL упал')
+    G2 = TB._Goods(lambda sid, role: prod.get(sid), down)
+    assert G2.offer('5_bed', 'кровать', 'room_catalog:bedroom') == ('catalog_down', None) and G2.down
+    assert TB._Goods(lambda sid, role: None, None).offer('5_bed', 'кровать', 'room_catalog:bedroom') == ('no_resolver', None)
+
+
+ROOM_G = {'5_bed': {'name': 'Кровать divan.ru Нордик 160 Бежевый', 'name_en': 'Nordic bed 160', 'colour_en': 'beige', 'price': 18990, 'img': None,
+                    'url': 'https://xf.gdeslon.ru/cm/d9/?goto=n', 'shop': 'divan.ru', '_imgs': ['https://cdn.example/n.jpg'],
+                    'msid': 'ЧУЖАЯ', 'w': 1, 'sleep_w': 1}}        # лишние поля резолвера модель и размеры не трогают
+
+
+def _rc_part(sid='5_bed'):
+    p = goods_bedroom_part(sid)
+    p['variants'][0]['items'][0]['sku']['offer_origin'] = 'room_catalog:bedroom'
+    return p
+
+
+def _rc_build(room_goods, demo=None):
+    flat = flat_with_bedrooms()
+    q, stats = [], {}
+    ctx = {**GCTX, 'goods': lambda sid, role: {'name': 'Товар products с тем же ключом', 'price': 1, 'img': 'img/aaaaaaaaaaaaaaaa.jpg',
+                                                'url': 'https://p.example/a', 'shop': 'p'} if sid == '5_bed' else GCTX['goods'](sid, role),
+           'room_goods': room_goods, 'img_queue': lambda want: q.append(dict(want)) or len(want),
+           **({'demo_feeds': lambda: demo} if demo else {})}
+    d = TB.build(JOB, flat, scene_for(flat), ctx=ctx, parts=[_rc_part()], stats=stats)
+    bed = next(it for v in d['variants'] if v['room_id'] == 'bedroom-1' for it in v['items'])
+    return d, bed, stats, q
+
+
+SHOWCASE = {'bedroom': {'кровать': [{'sid': '8_show', 'name': 'Кровать витрины', 'w': 160, 'd': 200, 'h': 90, 'styles': ['сканди'],
+                                     'style': 'сканди', 'msid': 'm-show', 'img': 'img/cccccccccccccccc.jpg', 'url': 'https://s.example/a',
+                                     'shop': 'Витрина', 'price': 7000}]}}
+
+
+def test_room_catalog_bed_on_page_is_the_placed_offer():
+    """Сквозной инвариант (Codex В2): кровать `room_catalog` на странице — её название, цена, партнёрская ссылка, магазин, английское
+    название (как у гостиной: цена — рубли + `money_en`); `msid/w/d/h/sleep_w` и место — поставленные; товар `products` с тем же
+    ключом не берётся; фото без плитки — в очередь кэша, не подмена витринной."""
+    part = _rc_part()['variants'][0]['items'][0]
+    d, bed, stats, q = _rc_build(lambda sid, role, room: dict(ROOM_G[sid]) if room == 'bedroom' and sid in ROOM_G else None, SHOWCASE)
+    sk = bed['sku']
+    assert (sk['name'], sk['name_en'], sk['price'], sk['url'], sk['shop']) == (
+        ROOM_G['5_bed']['name'], 'Nordic bed 160', 18990, 'https://xf.gdeslon.ru/cm/d9/?goto=n', 'divan.ru')
+    assert {k: sk[k] for k in ('msid', 'w', 'd', 'h', 'sleep_w')} == {k: part['sku'][k] for k in ('msid', 'w', 'd', 'h', 'sleep_w')}
+    assert (bed['x'], bed['y'], bed['w'], bed['d']) == (part['x'], part['y'], part['w'], part['d']) and 'img' not in sk
+    assert set(sk) <= TB.PUBLIC_SKU_KEYS and not set(_walk_keys(d)) & TB.NEVER_KEYS
+    assert d['trial']['goods'] is True and d['trial']['money_en'] == MONEY
+    assert stats['offers']['room_catalog:bedroom'] == {'media_missing': 1} and stats['goods_from_feeds']['own'] == 1
+    assert q == [{'5_bed': ['https://cdn.example/n.jpg']}] and stats['img_queued'] == {'new': 1, 'want': 1}
+
+
+def test_room_catalog_gone_or_down_keeps_placed_bed_without_showcase_swap():
+    """Ушла из продажи или каталог недоступен — кровать остаётся поставленной моделью и размером (нейтральное имя, без цены и ссылки),
+    витринная кровать по месту её не подменяет; сбой каталога — флаг `goods_unavailable`."""
+    part = _rc_part()['variants'][0]['items'][0]
+
+    def down(sid, role, room):
+        raise RuntimeError('catalog_items: SQL упал')
+    for fn, flag in ((lambda sid, role, room: None, False), (down, True)):
+        d, bed, stats, q = _rc_build(fn, SHOWCASE)
+        sk = bed['sku']
+        assert {k: sk[k] for k in ('msid', 'w', 'd', 'h', 'sleep_w')} == {k: part['sku'][k] for k in ('msid', 'w', 'd', 'h', 'sleep_w')}
+        assert not {'price', 'url', 'shop', 'img'} & set(sk) and sk['name'].startswith('Кровать 160 см')
+        # сбой — без товара и предметы гостиной (у них тоже свой ключ): ни один не подменён
+        assert stats['goods_from_feeds']['slot'] == 0 and stats['goods_from_feeds']['own'] == (5 if flag else 1) and q == []
+        assert ('goods_unavailable' in d['trial']['flags']) is flag
+
+
+def test_img_queue_merges_caps_and_night_cache_takes_it(tmp_path, monkeypatch):
+    """Очередь фото: слияние, повтор — не новый, потолок; ночная докачка берёт очередь вместе с банком, получивший плитку уходит."""
+    qp = str(tmp_path / 'q' / 'img-queue.json')
+    assert TB.queue_images({'1_a': ['//a1', '//a2']}, qp) == 1 and TB.queue_images({'1_a': ['//a1'], '2_b': ['//b']}, qp) == 1
+    assert TB.read_img_queue(qp) == {'1_a': ['//a1'], '2_b': ['//b']} and TB.queue_images({}, qp) == 0
+    monkeypatch.setattr(TB, 'IMG_QUEUE_CAP', 2)
+    TB.queue_images({'3_c': ['//c']}, qp)
+    assert list(TB.read_img_queue(qp)) == ['2_b', '3_c']
+    d = str(tmp_path / 'img')
+    os.makedirs(d)
+
+    def fetch(urls, imgdir):
+        for u in urls:
+            if u == '//c':
+                _tile(imgdir, u)
+        return {'got': {}, 'fail': {}}
+    st = TB.cache_bank_images({}, media=lambda m, e: None, fetch=fetch, imgdir=d, log=lambda s: None, queue=qp)
+    assert st['sources']['queue'] == 2 and st['tiled_after'] == 1 and TB.read_img_queue(qp) == {'2_b': ['//b']} and st['queue_left'] == 1

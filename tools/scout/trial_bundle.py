@@ -232,15 +232,20 @@ ITEM_KEYS = {'role', 'x', 'y', 'rot', 'w', 'd', 'h', 'dims_src', 'sku', 'corner'
 SKU_KEYS = {'name', 'name_en', 'colour_en', 'colour_ru', 'msid', 'w', 'd', 'h', 'sleep_w'}
 # товар как в /demo (см. шапку): цена (₽ витрины), фото — плитка витрины `img/<md5>.jpg`, ссылка — та же партнёрская, магазин
 PRODUCT_KEYS = {'price', 'img', 'url', 'shop', 'swatch'}       # swatch — цвет товара по фото (`put_swatches`, T-20261112-29)
+# что товар каталога пишет в `sku` поставленного предмета (`attach_goods`): только поля товара, не модель и не размеры (T-96/3)
+GOODS_ONLY = {'name', 'name_en', 'colour_en', 'colour_ru', 'price', 'img', 'url', 'shop'}
 # поля 3D-сцены — тем же кодом, что у /demo (`sku_scene`, T-20261112-96): подкраска цвета, разворот модели, «подвесная»
 SCENE_SKU_KEYS = {'tint', 'yaw', 'hung', 'fam'}            # fam — семья цветов («Цвета этой модели», `sku_scene.family`)
 PUBLIC_SKU_KEYS = SKU_KEYS | PRODUCT_KEYS | SCENE_SKU_KEYS
-# куски стадий (внутренние файлы DEV, в выход не идут): плюс ключ товара `sid` — по нему сборщик берёт товар из каталога
-STAGE_SKU_KEYS = SKU_KEYS | {'sid'}
+# куски стадий (внутренние файлы DEV, в выход не идут): плюс ключ товара `sid` — по нему сборщик берёт товар из каталога — и его
+# источник `offer_origin` (T-20261112-96/3: одинаковые mid/eid есть в `products` и в `room_catalog` спальни и прихожей)
+STAGE_SKU_KEYS = SKU_KEYS | {'sid', 'offer_origin'}
+# источник предложения: гостиная и декор — `products` (`catalog_media`), мебель спальни/прихожей — `room_catalog` своей комнаты
+OFFER_ORIGINS = ('products', 'room_catalog:bedroom', 'room_catalog:hall')
 FEED_KEYS = PUBLIC_SKU_KEYS | {'style', 'styles', 'src', 'corner'}
 BANNED_KEYS = {'url', 'url_direct', 'shop', 'img', 'img_hd', 'price', 'brand'}
 # в данных страницы — нигде и никогда: ключи товара у поставщика, служебная прямая ссылка, бренд
-NEVER_KEYS = {'sid', 'mid', 'eid', 'probe_url', 'url_direct', 'img_hd', 'brand'}
+NEVER_KEYS = {'sid', 'mid', 'eid', 'probe_url', 'url_direct', 'img_hd', 'brand', 'offer_origin'}
 # где у данных страницы товар: предмет и декор варианта (лампа на комоде, T-20261112-101), строки лент замен (`sofa_feed` — лента дивана)
 GOODS_AT = re.compile(r'\$\.variants\[\d+\]\.(?:items|decor)\[\d+\]\.sku|\$\.feeds\.[^\[\]]+\[\d+\]|\$\.sofa_feed\[\d+\]')
 IMG_RE = re.compile(r'img/[0-9a-f]{16}\.jpg')
@@ -272,7 +277,7 @@ def default_ctx() -> dict:
     """Что берётся у живого демо: числа правил страницы, модель товара, правило опроса. Импорт `flat215_demo` тяжёлый — только здесь."""
     import flat215_demo as FD
     return {'rules': {**FD._rules(), 'soft_roles': FD.soft_roles()}, 'msid_of': FD._msid, 'slot_band': FD._slot_band, 'quiz': quiz_rule(),
-            'goods': _demo_goods, 'money_en': uk_money(), 'demo_feeds': _demo_feeds, 'dev_flat': dev_flat(), 'scene_live': scene_live}
+            'goods': _demo_goods, 'room_goods': _demo_room_goods, 'img_queue': queue_images, 'money_en': uk_money(), 'demo_feeds': _demo_feeds, 'dev_flat': dev_flat(), 'scene_live': scene_live}
 
 
 PARTNERS_DIR = os.path.join(HERE, '..', '..', 'data', 'partners')
@@ -361,9 +366,11 @@ def bank_img_plan(idx: dict, media) -> tuple[dict, dict]:
 
 
 def cache_bank_images(idx: dict | None = None, media=None, fetch=None, imgdir: str | None = None, dry: bool = False,
-                      log=print) -> dict:
+                      log=print, queue: str | None = None) -> dict:
     """Докачать плитки товаров банков пробы. Первый проход — первый адрес у товаров без плитки; второй — адрес каталога у тех, чей
-    адрес банка не скачался. Итог — счётчики (до/после, источники, отказы по причинам, размер папки) строками в журнал."""
+    адрес банка не скачался. Итог — счётчики (до/после, источники, отказы по причинам, размер папки) строками в журнал.
+    `queue` — файл очереди фото поставленных туром товаров вне банка (`queue_images`, T-96/3): качаются вместе с банком; получившие
+    плитку из очереди уходят."""
     import flat215_demo as FD
     idx = _bank() if idx is None else idx
     if media is None:
@@ -384,6 +391,11 @@ def cache_bank_images(idx: dict | None = None, media=None, fetch=None, imgdir: s
         return sum(1 for us in plan.values() if any(has(u) for u in us))
 
     plan, src = bank_img_plan(idx, media)
+    queued = ({k: v for k, v in read_img_queue(queue).items() if k not in plan and v}   # поставленные туром вне банка (T-96/3)
+              if queue else {})
+    plan.update(queued)
+    if queue:
+        src['queue'] = len(queued)
     before = tiled()
     need = sorted({us[0] for us in plan.values() if us and not any(has(u) for u in us)})
     size0 = _dir_mb(imgdir)
@@ -408,6 +420,10 @@ def cache_bank_images(idx: dict | None = None, media=None, fetch=None, imgdir: s
     tried = len(need) + len(alt)
     size1 = _dir_mb(imgdir)
     st.update({'catalog_retry': len(alt), 'tiled_after': after, 'fail': fail, 'dir_mb_after': round(size1, 1)})
+    if queued:
+        rest = {k: v for k, v in read_img_queue(queue).items() if not any(has(u) for u in v)}
+        write_atomic(queue, rest)
+        st['queue_left'] = len(rest)
     log(f'плитки товаров пробы: с плиткой {before} → {after} из {len(plan)}; адрес каталога вторым — {len(alt)}; '
         f'{FD.fail_text(fail)}; без адреса фото — {src["none"]}; папка {size0:.1f} → {size1:.1f} МБ')
     nfail = sum(fail.values())
@@ -475,6 +491,96 @@ def catalog_goods(sid: str | None, role: str, bank: dict | None = None, tile=Non
             'img': demo_img(goods_img_urls(b, m)) or (tile(sid) if tile else None), 'url': url, 'shop': (src.get('shop') or None)}
 
 
+# ───────────────────────── предложение `room_catalog` (T-20261112-96/3, ответ Codex В2) ─────────────────────────
+# Мебель спальни (и прихожей) стадия берёт из `room_catalog` своей комнаты; `catalog_goods` читает только банк и `products`, и кровать
+# каталога на странице подменялась витринной (45 из 45 на трёх турах). Здесь — то же предложение из ЕГО таблицы: название, магазин,
+# цена, партнёрская ссылка, фото; показываемое — тем же предикатом, что отбор (`<модуль комнаты>.shown_where`: цена, живое фото,
+# свежий фид). Строки комнаты — одним запросом на процесс (как `catalog_media._load`); база недоступна — исключение, не «ушёл».
+_ROOM_ROWS: dict = {}
+ROOM_ROW_COLS = 'shop_mid, external_id, name, shop, price_rub, url, image_url, image_url_hd'
+
+
+def room_rows(room: str, get=None) -> dict:
+    """{'mid_eid': строка} показываемых строк `room_catalog` комнаты (`catalog_items._rc(room).shown_where`)."""
+    if room not in _ROOM_ROWS:
+        import catalog_items as CI
+        M = CI._rc(room)
+        rows = (get or CI.fetch)(f'select {ROOM_ROW_COLS} from room_catalog where {M.shown_where(M.rules())}')
+        _ROOM_ROWS[room] = {f'{r[0]}_{r[1]}': r for r in rows}
+    return _ROOM_ROWS[room]
+
+
+def room_goods(sid: str | None, role: str, room: str, bank: dict | None = None, tile=None, rows: dict | None = None) -> dict | None:
+    """Товар `room_catalog` комнаты по ключу «mid_eid» — поля как у `catalog_goods`; фото — плитка витрины по адресу банка (ночь качает
+    банк), затем адресам строки; `_imgs` — адреса по порядку (внутреннее: очередь кэша фото, `_Goods`). Строки нет среди показываемых
+    (ушла из фида, без цены, мёртвое фото) или без названия/цены — None."""
+    if not isinstance(sid, str) or '_' not in sid:
+        return None
+    r = (rows if rows is not None else room_rows(room)).get(sid)
+    if r is None:
+        return None
+    mid, eid = sid.split('_', 1)
+    name, shop, url = r[2], r[3], r[5]
+    try:
+        price = float(r[4]) if r[4] not in (None, '') else None
+    except (TypeError, ValueError):
+        price = None
+    if not name or price is None or not price > 0:
+        return None
+    b = (bank if bank is not None else _bank()).get(sid)
+    urls = goods_img_urls(b, {'img': r[6]})
+    if r[7] and r[7] not in urls:
+        urls.append(r[7])
+    ne = TD._names_en({'name': name, 'mid': mid, 'eid': eid}, role)
+    return {'name': name, 'name_en': ne.get('name_en') or None, 'colour_en': ne.get('colour_en') or None, 'price': int(round(price)),
+            'img': demo_img(urls) or (tile(sid) if tile else None),
+            'url': url if URL_RE.fullmatch(str(url or '')) else None, 'shop': shop or None, '_imgs': urls}
+
+
+def _demo_room_goods(sid, role, room):
+    import demo_feeds as DF
+    return room_goods(sid, role, room, tile=DF.tile_of)
+
+
+def offer_origin(origin) -> str:
+    """Источник предложения куска стадии; нет или чужой — `products` (старые куски и гостиная — как было)."""
+    return origin if origin in OFFER_ORIGINS else 'products'
+
+
+# ОЧЕРЕДЬ ФОТО (Codex В2: ночь кэширует банк и представителей /demo, а не все 1376 кроватей каталога): товар, поставленный туром без
+# плитки фото, — адреса в очередь; ночной шаг `trial_images` (`cache_bank_images`) качает их вместе с банком, перевыпуск тура берёт плитку.
+IMG_QUEUE = os.environ.get('TRIAL_IMG_QUEUE') or os.path.join(os.path.expanduser('~'), 'remlab-logs', 'trial', 'img-queue.json')
+IMG_QUEUE_CAP = 3000                     # потолок очереди (товаров): старые вытесняются
+
+
+def read_img_queue(path: str | None = None) -> dict:
+    try:
+        q = json.load(open(path or IMG_QUEUE, encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+    return {k: [u for u in v if isinstance(u, str) and u] for k, v in q.items() if isinstance(v, list)} if isinstance(q, dict) else {}
+
+
+def queue_images(want: dict, path: str | None = None) -> int:
+    """{sid: [адреса]} → в очередь (слияние, новые — в конец, потолок `IMG_QUEUE_CAP`). → сколько новых."""
+    if not want:
+        return 0
+    path = path or IMG_QUEUE
+    q = read_img_queue(path)
+    new = 0
+    for sid, urls in want.items():
+        if urls and sid not in q:
+            new += 1
+        if urls:
+            q.pop(sid, None)
+            q[sid] = list(urls)
+    if len(q) > IMG_QUEUE_CAP:
+        q = dict(list(q.items())[-IMG_QUEUE_CAP:])
+    os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+    write_atomic(path, q)
+    return new
+
+
 _BANK: dict | None = None
 
 
@@ -505,26 +611,56 @@ def uk_money() -> dict | None:
 
 class _Goods:
     """Обёртка резолвера товара на одну сборку: каталог недоступен — товары выключаются на всю сборку (флаг `goods_unavailable`),
-    тур собирается как раньше, без цен, а не падает."""
+    тур собирается как раньше, без цен, а не падает.
 
-    def __init__(self, fn):
-        self.fn, self.down = fn, None
+    СОСТОЯНИЕ ПРЕДЛОЖЕНИЯ (T-20261112-96/3, Codex В2): `available` (товар с фото) · `media_missing` (товар есть, плитки фото ещё нет —
+    адреса в очередь кэша `want_img`) · `gone` (не продаётся / нет в каталоге) · `catalog_down` (база недоступна — это не «ушёл») ·
+    `no_resolver` (у источника нет резолвера в контексте). Счёт — `states` {источник: {состояние: n}} в журнал сборки.
+    `fn(sid, role)` — `products`; `room_fn(sid, role, room)` — `room_catalog` комнаты."""
 
-    def __call__(self, sid, role):
-        if not self.fn or self.down:
-            return None
-        try:
-            return self.fn(sid, role)
-        except Exception as e:  # noqa: BLE001 — сбой каталога не роняет тур: без товаров, с флагом
-            self.down = str(e)[:200]
-            return None
+    def __init__(self, fn, room_fn=None):
+        self.fn, self.room_fn, self.down = fn, room_fn, None
+        self.states: dict = {}
+        self.want_img: dict = {}
+
+    def offer(self, sid, role, origin=None) -> tuple:
+        """→ (состояние, товар | None)."""
+        origin = offer_origin(origin)
+        room = origin.split(':', 1)[1] if origin.startswith('room_catalog:') else None
+        fn = self.fn if room is None else self.room_fn
+        if not fn:
+            st, g = 'no_resolver', None
+        elif self.down:
+            st, g = 'catalog_down', None
+        else:
+            try:
+                g = fn(sid, role) if room is None else fn(sid, role, room)
+                g = dict(g) if g else None
+                imgs = g.pop('_imgs', None) if g else None
+                st = 'gone' if not g else 'available' if g.get('img') else 'media_missing'
+                if st == 'media_missing' and imgs:
+                    self.want_img[sid] = imgs
+            except Exception as e:  # noqa: BLE001 — сбой каталога не роняет тур: без товаров, с флагом
+                self.down = str(e)[:200]
+                st, g = 'catalog_down', None
+        if sid:
+            c = self.states.setdefault(origin, {})
+            c[st] = c.get(st, 0) + 1
+        return st, g
+
+    def __call__(self, sid, role, origin=None):
+        return self.offer(sid, role, origin)[1]
 
 
-def attach_goods(sku: dict, sid, role: str, goods) -> dict:
-    """Поля товара /demo в `sku` (на месте): название и английское название, цвет, цена, фото, ссылка, магазин. Нет товара — как было."""
-    g = goods(sid, _base_role(role)) if goods and sid else None
+def attach_goods(sku: dict, sid, role: str, goods, origin=None) -> dict:
+    """Поля товара /demo в `sku` (на месте): название и английское название, цвет, цена, фото, ссылка, магазин. Нет товара — как было.
+    `origin` — источник предложения (`OFFER_ORIGINS`; резолвер — `_Goods`). Товар меняет ТОЛЬКО поля товара: модель, размеры рамы и
+    спального места — поставленного предмета (инвариант Codex В2: `msid/w/d/h/sleep_w` до и после одинаковы)."""
+    if not (goods and sid):
+        return sku
+    g = goods(sid, _base_role(role), origin) if isinstance(goods, _Goods) else goods(sid, _base_role(role))
     if g:
-        sku.update({k: v for k, v in g.items() if v not in (None, '')})
+        sku.update({k: v for k, v in g.items() if v not in (None, '') and k in GOODS_ONLY})
     return sku
 
 
@@ -1330,9 +1466,13 @@ def goods_from_feeds(variants: list, demo: dict | None, goods=None, geo: dict | 
     влезает в место (`free_place`, `demo_feeds.slot_pick`; ковёр — не короче дивана варианта, `index.html:rugFitsSofa`): центр
     прежний, край у стены — у стены (`_keep_wall_edge`), размер — товара, ковёр — длинной стороной вдоль своей длинной; у мебели — его
     модель. Ничего не нашлось — предмет как был (в списке — снимок модели). `geo` — коробки комнат {room_id: {w, d}}.
-    Меняет варианты на месте → счётчики {same, bank, slot, model_only, none}."""
+    ПОСТАВЛЕННЫЙ ТОВАР НЕ ПОДМЕНЯЕТСЯ (T-20261112-96/3, Codex В2): у предмета с ключом товара `sku._sid` (собран после T-25) товар —
+    свой: ушёл из продажи, нет плитки фото, каталог недоступен — предмет остаётся своей моделью и размером (без цены/фото), а не
+    витринным товаром под видом поставленного (кровать каталога спальни подменялась на трёх турах 45 из 45). Можно только взять у
+    витрины фото ТОГО ЖЕ товара (строка с тем же `sid`). Счёт `own` — такие предметы без полного товара. Без `_sid` — как было.
+    Меняет варианты на месте → счётчики {same, bank, slot, model_only, none, own}."""
     import demo_feeds as DF
-    st = {'same': 0, 'bank': 0, 'slot': 0, 'model_only': 0, 'none': 0}
+    st = {'same': 0, 'bank': 0, 'slot': 0, 'model_only': 0, 'none': 0, 'own': 0}
     if not demo and not goods:
         return st
     for v in variants:
@@ -1343,6 +1483,14 @@ def goods_from_feeds(variants: list, demo: dict | None, goods=None, geo: dict | 
                 continue
             base = _base_role(it.get('role') or '')
             r = DF.same_goods(demo or {}, kind, base, sku)
+            own = sku.get('_sid')
+            if own:
+                if r is not None and str(r.get('sid') or '').replace(':', '_', 1) == own:
+                    sku.update({k: r[k] for k in DF.GOODS_FIELDS if r.get(k) not in (None, '') and not sku.get(k)})
+                    st['same'] += 1
+                else:
+                    st['own'] += 1
+                continue
             if r is not None:
                 sku.update({k: r[k] for k in DF.GOODS_FIELDS if r.get(k) not in (None, '')})
                 sku.pop('_sid', None)                  # товар витрины без подкраски (фото = цвет модели): `scene_fields` не красит
@@ -1515,6 +1663,7 @@ def _part_item(it: dict, goods=None) -> dict:
     Поля товара из куска не берём никогда; товар — из каталога по `sku.sid` куска (`attach_goods`; кусок старой сборки без `sid` —
     нейтральный предмет, как раньше)."""
     sid = (it.get('sku') or {}).get('sid') if isinstance(it.get('sku'), dict) else None
+    origin = offer_origin((it.get('sku') or {}).get('offer_origin') if isinstance(it.get('sku'), dict) else None)
     out = public_item(it, SKU_KEYS)
     sku = dict(out.get('sku') or {})
     ru, en = neutral_names(out.get('role') or '')
@@ -1522,7 +1671,7 @@ def _part_item(it: dict, goods=None) -> dict:
     if isinstance(sw, (int, float)) and sw > 0:
         ru, en = f'{ru} {round(sw)} см', f'{en} {round(sw)} cm'
     sku.update(name=ru, name_en=en)
-    out['sku'] = attach_goods(sku, sid, out.get('role') or '', goods)
+    out['sku'] = attach_goods(sku, sid, out.get('role') or '', goods, origin)
     return _keep_sid(out, sid)
 
 
@@ -1579,7 +1728,8 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
                 key = OUTDOOR if OUTDOOR in (r.get('flags') or []) else r['kind']
                 counters[key] = counters.get(key, 0) + 1
                 ids[id(r)] = f"{key}-{counters[key]}"
-    goods = _Goods(ctx.get('goods'))                 # товар как в /demo — из каталога по `sid` (контекст теста без него — без товаров)
+    # товар как в /demo — из каталога по `sid` (контекст теста без него — без товаров); мебель спальни — из `room_catalog` (T-96/3)
+    goods = _Goods(ctx.get('goods'), ctx.get('room_goods'))
     pmap = _map_parts(parts, panels, ids, {id(r) for _, r in livings}, goods)
     storey_map, storey_flags = storeys(panels)
     rooms_geo, apartment_rooms, variants = {}, [], []
@@ -1736,7 +1886,15 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
     # подкраска, разворот, «подвесная», плоскость — тем же кодом, что /demo (T-20261112-96); строки лент приходят из /demo уже с ними
     scene_st = scene_fields(variants, ctx.get('scene_live'))
     if stats is not None:
-        stats.update(feeds={k: len(v) for k, v in feeds.items()}, feeds_short=short, goods_from_feeds=got, scene_fields=scene_st)
+        stats.update(feeds={k: len(v) for k, v in feeds.items()}, feeds_short=short, goods_from_feeds=got, scene_fields=scene_st,
+                     offers=goods.states)
+    if goods.want_img and ctx.get('img_queue'):      # фото поставленного товара без плитки — в очередь ночного кэша (T-96/3)
+        try:
+            n = ctx['img_queue'](goods.want_img)
+            if stats is not None:
+                stats['img_queued'] = {'new': n, 'want': len(goods.want_img)}
+        except OSError as e:
+            print(f'WARN:trial_img_queue: {repr(e)[:160]}', flush=True)
     note =SCALE_NOTE.get(result['scale']['status'])
     trial = {'job_id': job_id, 'scale': result['scale']['status'],
              **({'scale_note': {'ru': note[0], 'en': note[1]}} if note else {}), 'furniture': SCENE_FURNITURE[scene['status']] if scene else 'pending',
@@ -2030,7 +2188,7 @@ def _arg(args: list, name: str) -> str | None:
 def main() -> int:
     args = sys.argv[1:]
     if args[:1] == ['--cache-images']:          # ночной шаг `trial_images` (и разовая докачка): плитки товаров банков пробы
-        cache_bank_images(dry='--dry' in args)
+        cache_bank_images(dry='--dry' in args, queue=IMG_QUEUE)
         return 0
     scene_path, parts_path, out = _arg(args, '--scene'), _arg(args, '--parts'), _arg(args, '--out')
     release = [x for x in (_arg(args, '--release') or '').split(',') if x]

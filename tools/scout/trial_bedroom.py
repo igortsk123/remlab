@@ -753,6 +753,20 @@ def _solve_kit(ad: dict, cand: dict, cfg: dict, kit: dict, purpose: str):
     return best
 
 
+_ORIGIN_OF: dict = {}
+
+
+def offer_origin(base: str) -> str:
+    """Источник предложения роли спальни — по профилю комнаты (`catalog_items.profile_roles`): мебель — `room_catalog:bedroom`,
+    декор — `products` (T-20261112-96/3: сборщик берёт товар из ЕГО таблицы; mid/eid повторяются между ними)."""
+    if not _ORIGIN_OF:
+        import catalog_items as CI
+        for src, roles in CI.profile_roles('bedroom').items():
+            for r in roles:
+                _ORIGIN_OF[r] = 'room_catalog:bedroom' if src == 'room_catalog' else 'products'
+    return _ORIGIN_OF.get(base, 'room_catalog:bedroom')
+
+
 def public_item(p, it: dict, msid: str | None) -> dict:
     """Предмет варианта через ОБЩИЙ фильтр сборщика (`BU.public_item`): роль, модель, размер; имена — нейтральные по роли на обеих локалях
     (`BU.neutral_names`; ширину спального места к имени кровати добавляет сборщик), цвет `colour_en` — только слова словарей цвета и
@@ -762,6 +776,8 @@ def public_item(p, it: dict, msid: str | None) -> dict:
     base = base_role(p.role)
     ru, en = BU.neutral_names(p.role)
     sku = {'name': ru, 'name_en': en, 'msid': msid, 'sid': (_sid(it) or '').replace(':', '_', 1) or None, 'w': it['w'], 'd': it['d'], 'h': it['h']}
+    if sku['sid']:
+        sku['offer_origin'] = offer_origin(base)       # источник товара — сборщику (`BU._Goods`); в данные страницы не идёт (`NEVER_KEYS`)
     if base == 'кровать':
         sku['sleep_w'] = round(_sleep_w(it))
     c = BU.colour_en(it.get('name'), base)

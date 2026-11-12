@@ -157,7 +157,11 @@ def reissue(job_id: str, result: dict, old: dict, ctx: dict | None = None) -> tu
         e['contentState'] = 'ready' if e['id'] in with_variant else 'soon'
     demo = ctx['demo_feeds']() if ctx.get('demo_feeds') else None
     # товар у перенесённого предмета без товара (тур собран до T-25) — из витрины, как у сборщика (T-40); до имён
-    report['goods_from_feeds'] = TB.goods_from_feeds(variants, demo, TB._Goods(ctx.get('goods')), new['rooms_geo'])
+    # только ПЕРЕНЕСЁННЫЕ варианты (T-20261112-96/3): свежие варианты сборщик уже обогатил своим правилом — поставленный товар не
+    # подменяется (`goods_from_feeds`: `_sid`); его ключ снят к этому месту (`scene_fields`), и второй проход принял бы кровать каталога
+    # без плитки фото за старый предмет и поставил бы витринную
+    report['goods_from_feeds'] = TB.goods_from_feeds([v for rid in carried for v in carried[rid]], demo, TB._Goods(ctx.get('goods')),
+                                                     new['rooms_geo'])
     TB.name_items(variants)
     # семья цветов у перенесённых предметов (тур собран до T-96) — тем же `sku_scene.family`, что у сборки (T-20261112-53);
     # переключатель — тот же, что у живых полей сцены сборки (`scene_live`)

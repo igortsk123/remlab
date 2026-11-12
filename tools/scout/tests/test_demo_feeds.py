@@ -164,7 +164,7 @@ def test_goods_from_feeds_same_bank_slot_and_wall_edge():
         _it('стул', 377.5, 22.5, 45, 45, msid='GONE')]}
     bank = {'name': 'Кресло банка', 'img': 'img/k.jpg', 'url': 'https://shop.example/k', 'price': 5000, 'shop': 'Магазин'}
     st = TB.goods_from_feeds([v], demo, lambda sid, role: dict(bank) if sid == 'K' else None, {'living': GEO})
-    assert st == {'same': 1, 'bank': 1, 'slot': 2, 'model_only': 0, 'none': 0}
+    assert st == {'same': 1, 'bank': 1, 'slot': 2, 'model_only': 0, 'none': 0, 'own': 0}
     sofa, chair, rug, stool = v['items']
     assert sofa['sku']['msid'] == 'S' and sofa['w'] == 200 and DF.has_goods(sofa['sku'])            # модель и место те же
     assert chair['sku']['name'] == 'Кресло банка' and chair['sku']['msid'] == 'K'
@@ -174,7 +174,30 @@ def test_goods_from_feeds_same_bank_slot_and_wall_edge():
     assert stool['sku']['msid'] == 'C2' and (stool['w'], stool['d']) == (44, 44) and (stool['x'], stool['y']) == (378.0, 22.0)
     # без витрины и без резолвера — ничего не трогаем
     v2 = {'room_id': 'living', 'style': 'лофт', 'items': [_it('стул', 100, 100, 45, 45, msid='GONE')]}
-    assert TB.goods_from_feeds([v2], None, None) == {'same': 0, 'bank': 0, 'slot': 0, 'model_only': 0, 'none': 0}
+    assert TB.goods_from_feeds([v2], None, None) == {'same': 0, 'bank': 0, 'slot': 0, 'model_only': 0, 'none': 0, 'own': 0}
+
+
+def test_goods_from_feeds_never_replaces_placed_offer():
+    """T-20261112-96/3 (Codex В2): предмет с ключом товара `_sid` (кровать каталога спальни: ушла из продажи, нет плитки фото, каталог
+    недоступен) — НЕ подменяется витринным товаром ни по модели, ни по банку, ни по месту: модель, размеры рамы и спального места,
+    место — поставленные. Витрина может дать только фото того же товара (строка с тем же `sid`). Предмет без `_sid` — как было."""
+    demo = {'bedroom': {'кровать': [row('B9', 160, 200, ['лофт'], msid='MB'), row('1:B1', 180, 210, ['лофт'], msid='MB1')]}}
+    bed = _it('кровать', 200, 150, 160, 200, msid='MB', sleep_w=140, h=95, _sid='77_bed')      # той же модели и размера, что B9
+    bed2 = _it('кровать', 200, 150, 180, 210, msid='MB1', sleep_w=160, h=95, _sid='1_B1', name='Кровать Б1', price=9000,
+               url='https://shop.example/B1', shop='Магазин')                                  # свой товар есть, нет только фото
+    legacy = _it('кровать', 200, 150, 150, 200, msid='OLD', sleep_w=140)                      # тур до T-25: без ключа товара
+    before = [{k: it['sku'].get(k) for k in ('msid', 'w', 'd', 'h', 'sleep_w', '_sid')} | {k: it[k] for k in ('x', 'y', 'w', 'd')}
+              for it in (bed, bed2)]
+    vs = [{'room_id': 'bedroom-1', 'style': 'лофт', 'items': [x]} for x in (bed, bed2, legacy)]
+    st = TB.goods_from_feeds(vs, demo, lambda sid, role: {'name': 'чужой', 'img': 'img/x.jpg', 'url': 'https://x.example/a', 'price': 1},
+                             {'bedroom-1': {'w': 400, 'd': 350}})
+    after = [{k: it['sku'].get(k) for k in ('msid', 'w', 'd', 'h', 'sleep_w', '_sid')} | {k: it[k] for k in ('x', 'y', 'w', 'd')}
+             for it in (bed, bed2)]
+    assert after == before and st['own'] == 1 and st['same'] == 1
+    assert 'price' not in bed['sku'] and 'img' not in bed['sku'] and bed['sku']['name'] == 'кровать'      # B9 — другой товар той же модели
+    # фото того же товара — с витрины; свои название, цена, ссылка — не тронуты
+    assert bed2['sku']['img'] == 'img/0123456789abcdef.jpg' and (bed2['sku']['name'], bed2['sku']['price']) == ('Кровать Б1', 9000)
+    assert legacy['sku']['name'] == 'чужой' and st['bank'] == 1           # старый — прежний fallback (товар по модели)
 
 
 def test_feeds_for_writes_page_band_from_place():
