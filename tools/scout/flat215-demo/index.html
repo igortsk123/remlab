@@ -8234,9 +8234,21 @@ function rowCard(row, p){
 function rowSwatch(row, sw){
   const r=rowSlot(row); if(!r||!r.slot)return;
   const p=sw.dataset.sw==='more'?null:colourFamRow(r.s,r.a.role)[+sw.dataset.sw];
-  if(p&&p.name===r.s.name)return;   // этот цвет уже стоит
-  if(p&&p.in_stock!==false&&((p.w&&p.d)||(r.slot.dec!==undefined&&isSoft(r.slot.role)))){saveColour(r.slot,p,true); return;}
+  if(p&&p.name===r.s.name){swatchShow(); return;}   // этот цвет уже стоит — показываем его в 3D
+  if(p&&p.in_stock!==false&&((p.w&&p.d)||(r.slot.dec!==undefined&&isSoft(r.slot.role)))){saveColour(r.slot,p,true); swatchShow(); return;}
   rowCard(row,p);
+}
+// КРУЖОК ЦВЕТА НА ТЕЛЕФОНЕ — РЕЗУЛЬТАТ ВИДНО (T-20261112-104/2, владелец TG 1244, 1272): шторка вниз и выбор снят ПРЯМО ЗДЕСЬ — из любого
+// положения шторки (полная, средняя), в списке и в карточке над предметом (оба идут через `rowSwatch`), и когда этот цвет уже стоит.
+// Раньше сворачивала только цепочка истории (`histPush` → `remlab:hist` → `vwAfterChange`); на iPhone владельца из полной шторки
+// не свернула. Цепочка осталась (замены, пол, ↶/↷), повторный вызов ничего не делает. Идёт улучшение фото (`vwEditLock`: правка не прошла,
+// сообщение уже есть) — шторку не трогаем. Компьютер не трогаем: карточка закрывается по правилу 22.10 (`tryOn` → `vwSelect(null)`)
+function swatchShow(){
+  const sh=document.getElementById('shot');
+  if(typeof VW==='undefined'||!VW_PHONE()||!sh||!sh.classList.contains('on')||!sh.classList.contains('v2')||VW.mode==='plan')return;
+  if(typeof vwJobHere==='function'&&vwJobHere())return;
+  vwSelect(null);
+  const sd=document.getElementById('vside'); if(sd&&+sd.dataset.pos>0)vwSheet(0);
 }
 // «Заменить» из просмотра: находим предмет текущей расстановки по названию товара
 function wireShotList(){
