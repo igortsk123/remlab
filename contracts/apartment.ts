@@ -160,6 +160,12 @@ export const slot = z.object({
    * над комодом (`lib/configurator/wall-art.ts:placeWallArt`, числа — `data/flat3d/wall-art.json`); места нет — `unplaced`.
    */
   wallArt: z.boolean().optional(),
+  /**
+   * Люстра на потолке (T-20261112-66, «место на носителе» `ceiling_over`): точку и низ даёт решатель паспорта при сборке
+   * (`planner/dependents.py:resolve`, место `placeId` — `ceiling.chandelier#0`), в `placement` слота; сцена своего расчёта
+   * не держит. Есть такое место — условный плафон комнаты не рисуется, рамка и бирка не выше потолка (`viewer.ts`).
+   */
+  ceilingOver: z.object({ placeId: z.string() }).optional(),
 });
 export type Slot = z.infer<typeof slot>;
 

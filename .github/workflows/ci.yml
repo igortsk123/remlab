@@ -160,6 +160,7 @@ jobs:
       - run: python -m pytest tools/ops/tests/test_trial_e2e.py -q -p no:cacheprovider   # замерщик пробы агента: стадии, p50/p95, 429/503, без --live на прод не грузит (T-20261109-14)
       - run: python -m pytest tools/tokeny/tests -q -p no:cacheprovider   # учёт токенов (кит _optional/tokeny): цены, машины, % недели (T-20261105-19)
       - run: python tools/scout/scene_checks.py --selftest   # ворота артефактов сцены демо (demo-05 п.1)
+      - run: python tools/scout/tests/test_chandelier.py   # люстра гостиной: размер по мешу, подвес укорачивается до нормы, следующая — только если не влез корпус (T-20261112-66)
       # opencv-python-headless — список товаров промпта v4 меряет тон фото (`improve_mode` → `refs_check`, cv2); без него
       # test_improve_sheet падал «No module named 'cv2'» (T-20261106-95)
       - run: pip install numpy pillow opencv-python-headless

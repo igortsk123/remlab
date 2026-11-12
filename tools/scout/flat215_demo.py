@@ -385,6 +385,46 @@ def soft_role(role: str | None) -> bool:
     return feed_base(role or '') in soft_roles()
 
 
+def chandelier_decor(sets: list, idx: int, tag: str, objs: list, room_wd: tuple) -> dict | None:
+    """ЛЮСТРА НАБОРА → строка декора варианта гостиной (T-20261112-66; правила — `chandelier.py`): товар с моделью на сервере,
+    цветом как на фото, габарит сцены — по мешу (высота каталога у подвесных без шнура, сцена сплющила бы модель). МЕСТО —
+    решатель паспорта (`dependents.resolve`, место `ceiling.chandelier`) на носителях этого варианта `objs` (ковёр, столик,
+    диваны — `CH.carriers_from_variant`): в данных `place` {x, y, bottom_cm, slot_instance_id}, сцена рисует там и сама не
+    считает. Корпус не влезает — следующая люстра стиля; нет ни одной или решатель отказал — строки нет вовсе."""
+    import chandelier as CH
+    idx_m = _mesh_index()
+
+    def model(it: dict) -> tuple:
+        sid = f"{it['mid']}_{it['eid']}"
+        m = _msid(sid)
+        if not m or m not in idx_m:
+            return None, 'нет модели на сервере'
+        if not color_ok(m, it.get('name') or '') or colour_flagged(sid):
+            return None, 'модель не того цвета'
+        ext = _mesh_extents(m)
+        return (ext, None) if ext else (None, 'меш не читается')
+
+    own = [it for r, it in ((sets[idx] or {}).get('items') or {}).items() if CH.is_role(r) and it]
+    ceil = float(demo_ceiling() or CH.DEFAULT_CEILING_CM)
+    it, dims, pl, why = CH.pick(sets, idx, objs, room_wd, ceil, model)
+    if not own and not it:
+        return None
+    if not it:
+        print(f"WARN:chandelier: {tag} — люстры нет ни в цене, ни в 3D: {'; '.join(why) or 'нет кандидатов'}", flush=True)
+        return None
+    sk = _sku({CH.ROLE: it}, CH.ROLE)
+    # в карточке покупателю (бирка в 3D, строка списка) — каталог: Ш = Г = диаметр, В — корпус; Ш×Г×В сцены по мешу (подвес со
+    # шнуром) — отдельно, `sku.hang` (`fromDemo.ts:isCeilingDecor`), иначе бирка показала бы «В 98 см» у корпуса 32 см
+    dia = CH.diameter(it)
+    sk.update(w=dia, d=dia, h=CH.body_h(it, dims), dia=dia, hang=dims)
+    swap = '' if it is (own[0] if own else None) else f" (вместо «{(own[0] if own else {}).get('name')}»: {'; '.join(why)})"
+    place = {'x': pl.x, 'y': pl.y, 'bottom_cm': pl.elev_cm, 'slot_instance_id': pl.slot_instance_id}
+    print(f"  люстра {tag}: «{it.get('name')}» {dims['w']:g}×{dims['d']:g}×{dims['h']:g} см по мешу, место "
+          f"{place['x']:g},{place['y']:g} над {pl.parent_slot_instance_id}, низ {place['bottom_cm']:g} см при потолке {ceil:g}"
+          f"{swap}", flush=True)
+    return {'role': CH.ROLE, 'strategy': CH.STRATEGY, 'place': place, 'sku': sk}
+
+
 _MESH_EXT_CACHE: dict = {}
 
 
@@ -1733,6 +1773,10 @@ def build() -> dict:
                     if soft:
                         sk['msid'] = None
                     decor.append({'role': role, 'sku': sk})
+        # ЛЮСТРА — В ЦЕНУ И НА ПОТОЛОК (T-20261112-66): раньше роль не выгружалась вовсе, в 3D висел условный плафон
+        ch = chandelier_decor(sets, n - 1, f'set{n}', objs, (liv['w'], liv['d']))
+        if ch:
+            decor.append(ch)
         variants.append({'id': f'set{n}', 'title': style, 'style': sets[n - 1].get('style'),
                          # ключ главной «стиль → комната → вариант» (demo-16): латинский id стиля для адреса `?style=`
                          # и комната квартиры, которую обставляет вариант (пока все варианты — гостиная)

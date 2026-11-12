@@ -440,7 +440,9 @@ export class FlatViewer {
       const entranceWall = ent.fallbackWall;
       const doorsClosed = isIsolatedRoom(this.apartment, room);
       const accent = s.wall?.accent;
-      const { group, floors } = buildRoom(this.matCtx, room, floorMat, wallMat, { entranceWall, doorsClosed, ...(accent ? { accent } : {}) });
+      // условный плафон — только когда люстры-товара нет (T-20261112-66: место `ceilingOver` от решателя паспорта)
+      const lamp = !this.apartment.slots.some((sl) => sl.roomId === room.id && sl.ceilingOver);
+      const { group, floors } = buildRoom(this.matCtx, room, floorMat, wallMat, { entranceWall, doorsClosed, lamp, ...(accent ? { accent } : {}) });
       group.userData.roomId = room.id;
       for (const f of floors) f.userData.roomId = room.id;   // пол пристройки — пол её комнаты (T-20261112-36)
       if (this.viewMode === "top") group.traverse((o) => { if (o.name === "window-view:skirt") o.visible = false; });
@@ -1574,11 +1576,24 @@ export class FlatViewer {
       return;
     }
     const { size, centre, yaw } = outlineFrame(placed.group, this._bb);
+    // люстра (T-20261112-66): лишний подвес уходит выше потолка и потолком спрятан — рамку (она поверх всего) режем по потолку
+    const top = slotId ? this.ceilingTopM(slotId) : Infinity, bottom = centre.y - size.y / 2;
+    if (centre.y + size.y / 2 > top && top > bottom) {
+      size.y = top - bottom;
+      centre.y = bottom + size.y / 2;
+    }
     this.outline.scale.copy(size);
     this.outline.position.copy(centre);
     this.outline.rotation.y = yaw;
     (this.outline.material as THREE.LineBasicMaterial).color.setHex(this.outlineWarn ? 0xd2453a : 0xc8805c);
     this.outline.visible = true;
+  }
+
+  /** Высота потолка (м) над местом на потолке (`slot.ceilingOver`, люстра T-20261112-66); прочие места — без предела. */
+  private ceilingTopM(slotId: string): number {
+    const slot = this.apartment.slots.find((sl) => sl.id === slotId);
+    const room = slot?.ceilingOver ? this.apartment.rooms.find((r) => r.id === slot.roomId) : undefined;
+    return room ? room.heightCm * 0.01 : Infinity;
   }
 
   /** Рамка-предупреждение (T-20261111-05 п.7): повёрнутый предмет задевает соседний — рамка красная, сам поворот не отменяется. */
@@ -1965,6 +1980,8 @@ export class FlatViewer {
           if (cx >= own.min.x && cx <= own.max.x && cz >= own.min.z && cz <= own.max.z && b2.min.y >= own.min.y) bb.union(b2);
         }
       }
+      const top = this.ceilingTopM(slotId);   // люстра: ценник — над видимой частью, не над спрятанным за потолком шнуром (T-66)
+      if (bb.max.y > top && top > bb.min.y) bb.max.y = top;
       a = { g, px: g.position.x, pz: g.position.z, ry: g.rotation.y, t: now, bb,
         c: new THREE.Vector3((bb.min.x + bb.max.x) / 2, (bb.min.y + bb.max.y) / 2, (bb.min.z + bb.max.z) / 2) };
       this.anchors.set(slotId, a);

@@ -10,7 +10,7 @@
 
 import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
-import { fromDemoVariant, isWallArtDecor, isWallPlane, stableSlotIds, wallArtItems, type DemoData } from "@/lib/configurator/fromDemo";
+import { fromDemoVariant, isCeilingDecor, isWallArtDecor, isWallPlane, stableSlotIds, wallArtItems, type DemoData } from "@/lib/configurator/fromDemo";
 import { type DecorIn } from "@/lib/viewer3d/scene-extras";
 import { meshUrl, RUNTIME_BASE, setRuntimeMeshes, type RuntimeEntry } from "@/lib/configurator/mesh-url";
 import { windowView } from "@/lib/viewer3d/window-views";
@@ -207,6 +207,9 @@ export function wallArtWhere(opts: Pick<DemoSceneOptions, "room" | "items" | "de
 export function sceneSlotIndex(items: DemoItem[], decor: DemoDecor[], art: boolean = artFromUrl()): Map<string, number> {
   const idx = items.map((it, i) => ({ it, i })).filter(({ it }) => !isRug(it) && it.w && it.d && it.h && it.sku?.msid && !isWallPlane(it));
   const out = new Map(stableSlotIds(idx.map(({ it }) => it)).map((id, k): [string, number] => [id, idx[k]!.i]));
+  // люстра (T-20261112-66) — как картина: `items.length` + номер в декоре; страница (`vwItemAt`) даёт ценник и строку списка
+  const lights = decor.map((x, k) => ({ x, k })).filter(({ x }) => isCeilingDecor(x));
+  stableSlotIds(lights.map(({ x }) => ({ role: x.role ?? "люстра" }))).forEach((id, j) => out.set(`ceiling:${id}`, items.length + lights[j]!.k));
   if (!art) return out;
   const pics = decor.map((x, k) => ({ x, k })).filter(({ x }) => isWallArtDecor(x))
     .map(({ x, k }) => ({ it: wallArtItems([x])[0]!, k })).filter(({ it }) => isWallPlane(it));

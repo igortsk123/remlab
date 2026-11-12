@@ -468,7 +468,9 @@ def decor_layout(payload) -> tuple:
     table = [d for d in (payload.get('decor') or []) if not soft_role(d.get('role'))]
     # КАРТИНА — НЕ НАСТОЛЬНЫЙ ДЕКОР (viz-decor-01 шаг 3): у неё Ш×Г×В есть (толщина подрамника), и правило «всё или ничего» сняло
     # бы со столика вазы. Место над кроватью/диваном считает живая сцена (`wall-art.ts`); кадру сервера — в `rest` (дорисовать)
-    decor = [d for d in table if not wall_art(d)
+    # ЛЮСТРА — ТОЖЕ НЕ НАСТОЛЬНЫЙ (T-20261112-66): висит над зоной отдыха (место — решатель паспорта, `chandelier.py:solve`); на столешнице её 64 см
+    # по правилу «всё или ничего» сняли бы вазы. Кадру сервера — в `rest`
+    decor = [d for d in table if not wall_art(d) and d.get('strategy') != 'ceiling_over'
              and (d.get('sku') or {}).get('w') and (d.get('sku') or {}).get('d')
              and (d.get('sku') or {}).get('h')]
     rest = [d for d in table if d not in decor]

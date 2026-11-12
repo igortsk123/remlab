@@ -14,7 +14,7 @@
 // Вывод — JSON {файл: {variants: [{id, room_id, style, rows: [...]}]}}; разбор причин и итоги — `priced_vs_3d.py`.
 
 import { readFileSync } from "node:fs";
-import { fromDemoVariant, isWallArtDecor, isWallPlane, stableSlotIds, wallArtItems } from "@/lib/configurator/fromDemo";
+import { fromDemoVariant, isCeilingDecor, isWallArtDecor, isWallPlane, stableSlotIds, wallArtItems } from "@/lib/configurator/fromDemo";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { planObjects } from "@/lib/viewer3d/build-scene";
 
@@ -61,8 +61,11 @@ function slotMap(items: Entry[], live: Entry[]): { items: string[][]; decor: Map
   const decor = new Map<number, string>();
   art.forEach(({ k }, j) => decor.set(k, planeIds[planesI.length + j]!));
   const tab = live.map((x, k) => ({ x, k }))
-    .filter(({ x }) => !x.list_only && !isWallArtDecor(x) && x.sku?.msid && x.sku.w && x.sku.d && x.sku.h);
+    .filter(({ x }) => !x.list_only && !isWallArtDecor(x) && !isCeilingDecor(x) && x.sku?.msid && x.sku.w && x.sku.d && x.sku.h);
   stableSlotIds(tab.map(({ x }) => ({ role: x.role ?? "декор" }))).forEach((id, j) => decor.set(tab[j]!.k, `decor:${id}`));
+  // люстра — слот на потолке (`fromDemo.ts` «ЛЮСТРА ИЗ ДЕКОРА ВАРИАНТА», T-20261112-66)
+  const lights = live.map((x, k) => ({ x, k })).filter(({ x }) => isCeilingDecor(x));
+  stableSlotIds(lights.map(({ x }) => ({ role: x.role ?? "люстра" }))).forEach((id, j) => decor.set(lights[j]!.k, `ceiling:${id}`));
   return { items: out, decor };
 }
 

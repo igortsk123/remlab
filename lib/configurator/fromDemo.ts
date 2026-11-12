@@ -136,8 +136,10 @@ type DemoItem = {
 /** Настольный декор варианта (`flat215_demo`: ваза) — габариты в карточке товара, места нет: его даёт опора. */
 /** `list_only` — строка списка без места в 3D (лампа на тумбе спальни, `demo_bedroom.LIST_ROLES`, T-20261106-77/2). */
 /** Картина (`strategy: procedural_plane`, роль «картина»; `tools/scout/wall_art.py`): `img_art` — фото без белого поля. */
+/** Люстра (`strategy: ceiling_over`, `tools/scout/chandelier.py`): `w/d/h` — каталог (диаметр, корпус), `hang` — Ш×Г×В сцены по мешу. */
 type DemoDecor = { role?: string; list_only?: boolean; strategy?: string;
-  sku?: DemoItem["sku"] & { w?: number; d?: number; h?: number; img_art?: string } };
+  place?: { x?: number; y?: number; bottom_cm?: number; slot_instance_id?: string };
+  sku?: DemoItem["sku"] & { w?: number; d?: number; h?: number; img_art?: string; dia?: number; hang?: { w?: number; d?: number; h?: number } } };
 type DemoVariant = { id?: string; title?: string; style?: string; items?: DemoItem[]; decor?: DemoDecor[];
   /** Комната варианта (ADR-0330 п.3, `demo-rooms.ts:roomIdOf`); нет — гостиная. */
   room_id?: string; room_type?: string;
@@ -273,6 +275,15 @@ const baseRoleOf = (role?: string): string => String(role ?? "").replace(/\s+\d+
  */
 export const isWallArtDecor = (x: DemoDecor): boolean =>
   !x.list_only && (x.strategy === "procedural_plane" || baseRoleOf(x.role) === WALL_ART_ROLE) && !!x.sku?.w && !!x.sku.h;
+
+/**
+ * ЛЮСТРА ИЗ ДЕКОРА ВАРИАНТА (T-20261112-66): товар со стратегией `ceiling_over`, моделью, габаритом по мешу и МЕСТОМ от решателя
+ * паспорта (`place` — `tools/scout/chandelier.py:solve` → `planner/dependents.py:resolve`, место `ceiling.chandelier`): своего
+ * расчёта центра у сцены нет (условие директора 12.11 — одно правило). Без места — не в сцене; на столешницу не идёт.
+ */
+export const isCeilingDecor = (x: DemoDecor): boolean =>
+  !x.list_only && x.strategy === "ceiling_over" && !!x.sku?.msid && !!x.sku.hang?.w && !!x.sku.hang.d && !!x.sku.hang.h
+  && Number.isFinite(x.place?.x) && Number.isFinite(x.place?.y) && Number.isFinite(x.place?.bottom_cm);
 
 export function wallArtItems(decor: DemoDecor[]): DemoItem[] {
   return decor.filter(isWallArtDecor).map((x) => {
@@ -437,7 +448,9 @@ function roomPart(data: DemoData, at: RoomAt<DemoVariant>, ctx: DemoContext): Ro
   // высотой, и в /flat не было ни ковра, ни вазы, хотя в окне и в цене они были. Ковёр — плита с фото товара (как серверный
   // «фото-ковёр»), ваза — модель на опоре (место пересчитывает `resolve.placeTabletop`)
   const rugs = (v.items ?? []).filter((it) => isRugRole(it.role) && it.w && it.d);
-  const decor = (v.decor ?? []).filter((x) => !x.list_only && !isWallArtDecor(x) && x.sku?.msid && x.sku.w && x.sku.d && x.sku.h);
+  const decor = (v.decor ?? []).filter((x) => !x.list_only && !isWallArtDecor(x) && !isCeilingDecor(x)
+    && x.sku?.msid && x.sku.w && x.sku.d && x.sku.h);
+  const lights = (v.decor ?? []).filter(isCeilingDecor);
   const extraOptions: Mat[] = [];
   const extraMaterials: Mat[] = [];
   // плита ковра: материал с фото товара (повтор — один на ковёр) и опция-кит с размером товара вдоль длинной стороны места
@@ -496,6 +509,23 @@ function roomPart(data: DemoData, at: RoomAt<DemoVariant>, ctx: DemoContext): Ro
     slots.push({ id, roomId: at.id, category: "furniture" as const, kind: "furniture" as const, titleRu: x.role ?? "декор",
       titleEn: roleEn(x.role ?? "декор"), photoRole: x.role, tabletop: true, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
       placement: { x: 0, y: 0, rot: 0, wCm: sk.w!, dCm: sk.d!, hCm: sk.h!, elevCm: 0 } });
+  });
+  const lightIds = stableSlotIds(lights.map((x) => ({ role: x.role ?? "люстра" })));
+  lights.forEach((x, k) => {
+    const id = `${pre}ceiling:${lightIds[k]}`;
+    const sk = x.sku!, hg = sk.hang!;
+    // подпись — диаметр и корпус по каталогу; в сцене — Ш×Г×В по мешу (у подвесной с фото снят и шнур)
+    const size = `⌀${Math.round(sk.dia ?? sk.w ?? hg.w!)}${sk.h ? ` × ${Math.round(sk.h)}` : ""} см`;
+    extraOptions.push({ id: `opt:${id}`, category: "furniture", titleRu: sk.name ?? x.role ?? "Люстра", titleEn: nameEnOf(sk, x.role, sk.name ?? "Chandelier"),
+      descRu: size, tier: "standard", price: rub(sk.price), availability: "available", roomKinds: kinds,
+      asset: { kind: "mesh", meshId: sk.msid, yawDeg: sk.yaw ?? 0, wCm: hg.w, dCm: hg.d, hCm: hg.h, ...tintOf((sk as { tint?: unknown }).tint) },
+      ...(assetUrl(sk.img, ctx.assetBase) ? { previewUrl: assetUrl(sk.img, ctx.assetBase) } : {}), ...shopOf(sk) });
+    // место — как прислал решатель паспорта (оси комнаты → квартиры), низ — его же; сцена не пересчитывает
+    const pl = x.place!;
+    slots.push({ id, roomId: at.id, category: "furniture" as const, kind: "furniture" as const, titleRu: x.role ?? "люстра",
+      titleEn: roleEn(x.role ?? "люстра"), photoRole: x.role, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
+      ceilingOver: { placeId: pl.slot_instance_id ?? "ceiling.chandelier#0" },
+      placement: { x: ox + pl.x!, y: oy + pl.y!, rot: 0, wCm: hg.w!, dCm: hg.d!, hCm: hg.h!, elevCm: pl.bottom_cm! } });
   });
 
   // СТЕНЫ И ПОЛ — СВОИ МАТЕРИАЛЫ (живая проверка 14.10, /flat 15.10): у набора витрины своей отделки нет, и движок брал на
