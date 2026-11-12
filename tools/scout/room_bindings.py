@@ -381,13 +381,19 @@ def appearance(sku: str, rep: str | None, F: Facts, groups: dict) -> tuple:
 COLOUR_REASON = 'mesh_color_mismatch'
 
 
-def measured_colour(sku: str, aid: str | None, via: bool, F: Facts) -> tuple:
+def measured_colour(sku: str, aid: str | None, via: bool, F: Facts, app_why: list | tuple = ()) -> tuple:
     """Сторож «меш не того цвета» (T-20261107-14/2): (причины blocked, предупреждения). Вердикт ночного замера
     (`mesh_color_check.guard`) действует, только если он про ЭТОТ ассет: модель сменилась — старый вердикт не считается.
     Вариант семьи с расхождением — blocked `mesh_color_mismatch:ΔL…,Δab…` (не в ленту и не в вариант; кандидат на свой меш,
-    `room_mesh_demand`); свой меш — только пометка в строке (прятать нечем; число — в DIGEST сторожа, список — для К8)."""
+    `room_mesh_demand`); свой меш — только пометка в строке (прятать нечем; число — в DIGEST сторожа, список — для К8).
+    ВАРИАНТ СЕМЬИ ДРУГОЙ ГРУППЫ ЦВЕТА БЕЗ ЗАМЕРА (T-20261112-89): `appearance` дал `family_colour_mismatch`, а замера про этот
+    ассет нет (таблицы нет, модель сменилась, нет фото) — `mesh_color_mismatch:unmeasured`: лента его прячет, спрос ставит
+    свой меш. Раньше `colour_flagged` такие не видел, и чужая модель другого цвета шла в «Заменить» без проверки."""
     r = (F.mesh_colour or {}).get(sku)
-    if not r or not aid or r.get('asset_id') != aid or r.get('verdict') != 'mismatch':
+    fam_other = via and any(str(x).startswith('family_colour_mismatch') for x in app_why)
+    if not r or not aid or r.get('asset_id') != aid or r.get('verdict') not in ('mismatch', 'ok'):
+        return ([f'{COLOUR_REASON}:unmeasured'], []) if fam_other else ([], [])
+    if r.get('verdict') != 'mismatch':
         return [], []
     if not via:
         return [], [COLOUR_REASON]
@@ -523,7 +529,7 @@ def _offer_binding(sku: str, cat: dict, F: Facts, pol: dict, groups: dict, asset
     if cat.get('footprint_required') and not cat.get('footprint_ok'):
         solver_why.append('footprint_unverified')
     app_ok, app_why = appearance(sku, rep, F, groups)
-    mc_why, mc_warn = measured_colour(sku, aid, via, F)
+    mc_why, mc_warn = measured_colour(sku, aid, via, F, app_why)
     app_ok, app_why, warn = app_ok and not mc_why, app_why + mc_why, warn + mc_warn
     local_3d = rec is not None and bool(aid) and not local
     caps = {'solver': not solver_why, 'local_3d': local_3d, 'appearance': app_ok,
@@ -1462,7 +1468,15 @@ def _selftest() -> int:
        and v['asset_id'] == 'sha256:' + full['/g/rep'] and v['family_id'].startswith('mesh-family:v1:')) or print(v)
     w = bind('7:w', cat(7, 'w', 93, 50, 76, role='комод', origin='products', urls=('uw',)))
     ok('вариант другого цвета: геометрия да, вид нет', w['status'] == 'blocked' and w['capabilities']['local_3d']
-       and not w['capabilities']['appearance'] and w['reasons'] == ['family_colour_mismatch:чёрный→светлый'])
+       and not w['capabilities']['appearance']
+       and w['reasons'] == ['family_colour_mismatch:чёрный→светлый', 'mesh_color_mismatch:unmeasured'])
+    ok('вариант другой группы цвета без замера — отметка сторожа (лента прячет, спрос — свой меш; T-20261112-89)',
+       colour_flagged(w)) or print(w)
+    Fw = copy.copy(F)
+    Fw.mesh_colour = {'7:w': {'asset_id': 'sha256:' + full['/g/rep'], 'verdict': 'ok', 'seen_vs_sku': {'dL': 3.0, 'dab': 2.0}}}
+    w2 = bind('7:w', cat(7, 'w', 93, 50, 76, role='комод', origin='products', urls=('uw',)), Fw)
+    ok('вариант другой группы цвета, замер этого ассета «ok» (подкраска свела) — не отметка, в ленту можно',
+       not colour_flagged(w2) and w2['reasons'] == ['family_colour_mismatch:чёрный→светлый']) or print(w2)
     # сторож цвета мешей (T-20261107-14/2): вердикт замера про ЭТОТ ассет
     rep_aid = 'sha256:' + full['/g/rep']
     Fc = copy.copy(F)

@@ -2416,11 +2416,21 @@ def annotate_tint(data: dict, out_dir: str = OUT) -> int:
             and not tone.get(sk['msid'])}
     tone.update({k: v for k, v in _rep_tones(need).items() if v})
     R = _MCC.rules()
+    # ПОДКРАСКА ОТ МОДЕЛИ (T-20261112-89): строка ночного замера про эту пару (вариант → модель представителя) — её множитель,
+    # тот самый, по которому сторож судил видимый цвет; нет строки — прежняя формула по тонам двух фото
+    table, _why = _MCC.load_table(R=R)
+    table = table or {}
     n = 0
     for sk in skus:
         sk.pop('tint', None)
         sid, msid = sk.get('sid'), sk.get('msid')
         if not sid or not msid or sid == msid:
+            continue
+        row = table.get(sid.replace('_', ':', 1)) or {}
+        if row.get('via_family') and row.get('owner') == msid.replace('_', ':', 1) and row.get('verdict') in ('ok', 'mismatch'):
+            if row.get('tint'):
+                sk['tint'] = row['tint']
+                n += 1
             continue
         t = _MCC.tint_of(tone.get(sid), tone.get(msid), R)
         if t:

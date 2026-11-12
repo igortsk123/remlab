@@ -112,11 +112,13 @@ def diff(x: dict | None, y: dict | None) -> dict | None:
             'stops': round(math.log2(max(x['y'], 1e-4) / max(y['y'], 1e-4)), 2)}
 
 
-def verdict(d: dict | None, R: dict) -> str:
-    """ok | mismatch | unknown: |ΔL| или Δab выше порога правил — mismatch; нет замера — unknown (не судим)."""
+def verdict(d: dict | None, R: dict, via: bool = False) -> str:
+    """ok | mismatch | unknown: |ΔL| или Δab выше порога правил — mismatch; нет замера — unknown (не судим). Вариант семьи на
+    чужой модели (`via`) — строгий порог `family_thresholds` (T-20261112-89: «Латте» ΔL −24,5 / Δab 15,4 проходила порог своих
+    мешей и в туре была зелёной); свой меш — прежний `thresholds`."""
     if not d:
         return 'unknown'
-    T = R['thresholds']
+    T = (R.get('family_thresholds') or R['thresholds']) if via else R['thresholds']
     return 'mismatch' if abs(d['dL']) > T['dL'] or d['dab'] > T['dab'] else 'ok'
 
 
@@ -144,6 +146,25 @@ def tint_of(a, b, R: dict | None = None):
         return None
     t = (R or rules())['tint']
     out = [round(min(t['hi'], max(t['lo'], x / max(y, 0.02))), 3) for x, y in zip(a, b)]
+    return out if max(abs(x - 1) for x in out) >= t['min_change'] else None
+
+
+SPREAD = 'spread'
+
+
+def tint_from_mesh(photo_rgb, mesh_rgb, R: dict | None = None):
+    """ПОДКРАСКА ОТ МОДЕЛИ (T-20261112-89): лин(цвет фото варианта) / лин(цвет текстуры модели представителя) по каналу, в
+    границах lo…hi_mesh — сцена умножает на неё линейный цвет материала, значит видимый цвет ≈ фото. Прежняя `tint_of` делила
+    тоны двух ФОТО, а текстура модели темнее и зеленее фото представителя: оливковая «Имин» под «Латте» выходила хаки.
+    → список | None (разница < min_change, нет замера) | SPREAD (каналы разошлись больше max_spread — перекраска меняет
+    оттенок через упор, вариант на этой модели не годен; Codex 12.11)."""
+    if not photo_rgb or not mesh_rgb:
+        return None
+    t = (R or rules())['tint']
+    raw = _lin(photo_rgb) / np.maximum(_lin(mesh_rgb), 1e-4)
+    out = [round(float(min(t.get('hi_mesh', t['hi']), max(t['lo'], x))), 3) for x in raw]
+    if max(out) / max(min(out), 1e-4) > t.get('max_spread', float('inf')):
+        return SPREAD
     return out if max(abs(x - 1) for x in out) >= t['min_change'] else None
 
 
@@ -449,12 +470,22 @@ def judge(pairs: list, mesh_of, photo_of, R: dict) -> dict:
         return cols[sku]
     for p in pairs:
         mesh = mesh_of(p['glb'])
-        t = tint_of(tn(p['sku']), tn(p['owner']), R) if p['via'] else None
+        t, spread = None, False
+        if p['via']:
+            # подкраска от МОДЕЛИ (T-20261112-89); нет замера модели или цвета фото — прежняя, от фото представителя
+            t = tint_from_mesh((pc(p['sku']) or {}).get('rgb'), (mesh or {}).get('rgb'), R)
+            spread = t == SPREAD
+            if spread:
+                t = None
+            elif t is None and not (mesh and pc(p['sku'])):
+                t = tint_of(tn(p['sku']), tn(p['owner']), R)
         seen = tinted(mesh, t)
         d = diff(seen, pc(p['sku']))
+        v = 'mismatch' if spread and d else verdict(d, R, p['via'])
         rows[p['sku']] = {'asset_id': p['asset_id'], 'owner': p['owner'], 'via_family': p['via'], 'tint': t,
                           'mesh_rgb': (mesh or {}).get('rgb'), 'seen_rgb': (seen or {}).get('rgb'),
-                          'photo_rgb': (pc(p['sku']) or {}).get('rgb'), 'seen_vs_sku': d, 'verdict': verdict(d, R)}
+                          'photo_rgb': (pc(p['sku']) or {}).get('rgb'), 'seen_vs_sku': d, 'verdict': v,
+                          **({'tint_spread': True} if spread else {})}
     return rows
 
 
@@ -520,6 +551,7 @@ def guard(out_dir: str = TABLE_DIR, snap_path: str = BINDINGS, workers: int = 3,
     counts = {'pairs': len(rows), 'unknown': sum(1 for r in rows.values() if r['verdict'] == 'unknown'),
               'family_mismatch': len(fam), 'own_mismatch': len(own), 'family_mismatch_shown': len(set(fam) & shown)}
     table = {'version': R['version'], 'thresholds': {k: R['thresholds'][k] for k in ('dL', 'dab')},
+             'family_thresholds': {k: (R.get('family_thresholds') or R['thresholds'])[k] for k in ('dL', 'dab')},
              'bindings_sha': snap.get('content_sha'), 'built_at': datetime.datetime.now().isoformat(timespec='seconds'),
              'counts': counts, 'rows': rows}
     _atomic_json(os.path.join(out_dir, TABLE), table)
@@ -621,8 +653,22 @@ def _selftest() -> int:
              {'sku': '1:orange', 'owner': '1:orange', 'via': False, 'glb': '/m/grey.glb', 'asset_id': 'D'},  # свой меш другого цвета
              {'sku': '1:none', 'owner': '1:grey', 'via': True, 'glb': '/m/grey.glb', 'asset_id': 'E'}]       # нет фото товара
         rows = judge(P, meshes.get, ph.get, R)
-        ok('оранжевая основа, серый товар — подкраска не спасает (синего канала нет): mismatch',
-           rows['1:grey']['verdict'] == 'mismatch' and rows['1:grey']['tint'] is not None)
+        ok('оранжевая основа, серый товар — каналы множителя разошлись > max_spread: mismatch без подкраски (T-20261112-89)',
+           rows['1:grey']['verdict'] == 'mismatch' and rows['1:grey']['tint'] is None and rows['1:grey'].get('tint_spread'))
+        # «Имин Латте» (T-20261112-89, владелец TG 859): оливковая модель 99,102,68, фото 190,180,170
+        lat = judge([{'sku': '9:latte', 'owner': '9:olive', 'via': True, 'glb': '/m/olive.glb', 'asset_id': 'L'}],
+                    {'/m/olive.glb': summary(np.array([[99, 102, 68]] * 4))}.get,
+                    {'9:latte': card('latte', [190, 180, 170])}.get, R)['9:latte']
+        ok('«Латте» на оливковой модели: подкраска от модели (×5 по синему), оттенок всё равно мимо (Δab > 6) — mismatch',
+           lat['verdict'] == 'mismatch' and lat['tint'] and max(lat['tint']) == R['tint']['hi_mesh']
+           and lat['seen_vs_sku']['dab'] > R['family_thresholds']['dab']) or print(lat)
+        bei = judge([{'sku': '9:beige', 'owner': '9:grey', 'via': True, 'glb': '/m/grey.glb', 'asset_id': 'G'}],
+                    meshes.get, {'9:beige': card('beige', [200, 190, 175])}.get, R)['9:beige']
+        ok('серая модель → бежевый вариант: подкраска от модели сводит к фото (|ΔL| ≤ 15, Δab ≤ 6) — ok',
+           bei['verdict'] == 'ok' and bei['tint']) or print(bei)
+        ok('вердикт: вариант семьи — строгий порог (ΔL 20 — mismatch), свой меш с тем же — ok',
+           verdict({'dL': 20, 'dab': 1}, R, True) == 'mismatch' and verdict({'dL': 20, 'dab': 1}, R, False) == 'ok'
+           and verdict({'dL': 0, 'dab': 7}, R, True) == 'mismatch')
         ok('серая основа, тёмный вариант — подкраска сводит: ok', rows['1:dark']['verdict'] == 'ok' and rows['1:dark']['tint'])
         ok('чёрная основа, белый товар — ×2,5 не поднимает чёрное: mismatch', rows['1:white']['verdict'] == 'mismatch')
         ok('свой меш другого цвета — mismatch без подкраски, в список «свои»',
