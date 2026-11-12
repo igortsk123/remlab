@@ -124,7 +124,10 @@ export interface DemoScene {
   floorAt(clientX: number, clientY: number): { x: number; y: number } | null;
   /** Повернуть взгляд прогулки на `deg` градусов (тап по краю сцены в «3D», demo-02 v3: поворот не только перетаскиванием). */
   turn(deg: number): void;
-  /** Тап в «3D»: по предмету — его номер в расстановке; по полу (и ковру) — шаг туда (`viewer.goTo`, если `walk` не выключен) и -1. */
+  /** Тап по окну — подойти к нему (`viewer.walkToWindow`); не окно — false. Для краёв сцены, где тап иначе поворачивает взгляд. */
+  windowTap(clientX: number, clientY: number): boolean;
+  /** Тап в «3D»: по предмету — его номер в расстановке; по окну — подойти к нему (`viewer.walkToWindow`) и -1; по полу (и ковру) —
+   *  шаг туда (`viewer.goTo`, если `walk` не выключен) и -1. */
   walkTap(clientX: number, clientY: number): number;
   /** Где стоит и куда смотрит прогулка (см, градусы) — живая проверка поворота тапом по краю и шага по полу. */
   pose(): { x: number; y: number; yaw: number; pitch: number };
@@ -362,11 +365,14 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     },
     floorAt: (x, y) => viewer.floorPoint(x, y, canvas.getBoundingClientRect()),
     turn: (deg) => viewer.look(-deg / 0.22, 0),
+    windowTap: (x, y) => viewer.walkToWindow(x, y, canvas.getBoundingClientRect()),
     walkTap: (x, y) => {
       const rect = canvas.getBoundingClientRect();
       const hit = viewer.pick(x, y, rect);
       const i = hit.slotId ? slotIndex().get(hit.slotId) : undefined;
       if (i !== undefined) return i;
+      // тап по окну — подойти к нему и посмотреть наружу (T-20261112-30, TG 1731); и там, где шаг по полу выключен (телефон)
+      if (viewer.walkToWindow(x, y, rect)) return -1;
       if (opts.walk === false) return -1;
       // ковёр не выбирается (нет в `slotIndex`) — под ним пол: шаг туда, как по полу
       const point = hit.point ?? (hit.slotId ? viewer.floorPoint(x, y, rect) : null);

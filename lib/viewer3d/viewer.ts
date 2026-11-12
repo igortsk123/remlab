@@ -33,6 +33,7 @@ import { buildRoom, buildSurroundings } from "@/lib/viewer3d/rooms";
 import { boxPoints, livePitchDeg, liveSpot, lookPitchRange, LIVE_EYE_CM, type LiveBand, type LivePoint } from "@/lib/viewer3d/live-eye";
 import { canStand, frameSpot, inRooms, nearestStandable, obstacleDistanceCm, walkArea, type WalkArea } from "@/lib/viewer3d/walk";
 import { followRoute, newRoute, planRoute, slideStep, type RouteState, type SlideMemo } from "@/lib/viewer3d/walk-motion";
+import { windowAtPoint, windowSpot } from "@/lib/viewer3d/window-walk";
 
 // ВХОД БЕЗ ФЛАГА (T-20261106-72): прихожая без проёма `isEntrance` — вход угадан стеной; говорим об этом один раз на комнату
 const entranceWarned = new Set<string>();
@@ -229,6 +230,8 @@ export class FlatViewer {
   private keys = new Set<string>();
   /** Путь «иди сюда» (тап по полу): точки поворота в обход мебели и счётчик упора (`walk-motion.ts:followRoute`). */
   private moveTarget: RouteState | null = null;
+  /** Куда повернуться, дойдя до окна (`walkToWindow`): курс и наклон; взгляд рукой, тап по полу, клавиши, ракурс — снимают. */
+  private faceAt: { heading: number; pitch: number } | null = null;
   /** Сторона обхода «почти в лоб» при ходьбе клавишами — липкая, чтобы обход не метался (`walk-motion.ts:slideStep`). */
   private slideMemo: SlideMemo = { side: 0, free: 0 };
   /** Плавный вход в прогулку из точки ракурса (T-20261111-14): с какого угла обзора, высоты глаз и сдвига камера доезжает до своих. */
@@ -855,6 +858,7 @@ export class FlatViewer {
     const now = performance.now();
     const cur = this.viewMode === "photo" ? this.livePose(now)
       : { x: this.pos.x, y: this.pos.y, rot: (540 - this.heading) % 360, pitch: this.pitch };
+    this.faceAt = null;
     this.setPhotoPose(pose);
     if (pitch !== undefined) this.photoLook.pitch = this.clampLook(pitch);   // наклон к предмету (`frameItem`)
     if (!cur) return;
@@ -1032,6 +1036,7 @@ export class FlatViewer {
   }
 
   look(dxPx: number, dyPx: number): void {
+    this.faceAt = null;
     if (this.viewMode === "top") {
       // сверху мышь крутит сцену вокруг точки и меняет наклон, а не «голову»
       this.heading = (this.heading + dxPx * 0.25 + 360) % 360;
@@ -1059,9 +1064,35 @@ export class FlatViewer {
   goTo(xCm: number, yCm: number): void {
     const target = nearestStandable(this.area, xCm, yCm);
     if (!target) return;
+    this.faceAt = null;
     // путь в обход мебели (T-20261111-14): прежде шаг к цели огибал предмет сам и метался «вбок — назад» у косяков и мебели
     const from = { x: this.pos.x, y: this.pos.y };
     this.moveTarget = newRoute(planRoute(this.area, from, target) ?? [target]);
+  }
+
+  /**
+   * ПОДОЙТИ К ОКНУ (T-20261112-30, владелец TG 1731): луч из точки экрана упёрся в оболочку комнаты в вырезе окна (стекло, рама,
+   * подоконник, откос) — идём к окну тем же путём в обход мебели, что и по тапу в пол, и, дойдя, поворачиваемся к нему: курс —
+   * наружу по нормали, наклон — середина видимой полосы на середину окна (`window-walk.ts`). Не окно или негде встать — false.
+   */
+  walkToWindow(clientX: number, clientY: number, rect: DOMRect): boolean {
+    if (this.viewMode === "top") return false;
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const shown = (o: THREE.Object3D | null): boolean => { for (; o; o = o.parent) if (!o.visible) return false; return true; };
+    const hit = this.raycaster.intersectObjects([...this.roomGroups.values()], true).find((h) => shown(h.object));
+    if (!hit) return false;
+    const w = windowAtPoint(this.apartment.rooms, hit.point.x / CM, hit.point.z / CM, hit.point.y / CM);
+    const spot = w ? windowSpot(this.area, w) : null;
+    if (!w || !spot) return false;
+    if (this.viewMode === "photo") this.photoToWalk();   // 3D из точки съёмки — уже прогулка, как шаг по полу
+    const from = { x: this.pos.x, y: this.pos.y };
+    this.moveTarget = newRoute(planRoute(this.area, from, spot) ?? [spot]);
+    // середина видимой полосы (у телефона она выше середины холста — `lookPitchRange` с пределом 0 даёт этот сдвиг) — на середину окна
+    const aim = (Math.atan2((w.sill + w.top) / 2 - EYE_CM, spot.gapCm) * 180) / Math.PI;
+    const [off] = lookPitchRange(this.liveEye?.band, this.quality.fov, 0);
+    this.faceAt = { heading: spot.heading, pitch: this.clampLook(aim + off) };
+    return true;
   }
 
   /**
@@ -1550,6 +1581,7 @@ export class FlatViewer {
       this.clampTopTarget();
     } else if (fx || fy) {
       this.moveTarget = null;
+      this.faceAt = null;
       const rad = (this.heading * Math.PI) / 180;
       const dirX = Math.sin(rad);
       const dirY = Math.cos(rad);
@@ -1575,6 +1607,13 @@ export class FlatViewer {
       }
       if (r.done) this.moveTarget = null;
       this.updateRoom();
+    } else if (this.faceAt && this.viewMode === "walk") {
+      // дошёл до окна (`walkToWindow`) — плавно поворачиваемся к нему и смотрим на середину окна
+      const k = Math.min(1, dt * 4), f = this.faceAt;
+      const dh = (((f.heading - this.heading + 540) % 360) - 180), dp = f.pitch - this.pitch;
+      this.heading = (this.heading + dh * k + 360) % 360;
+      this.pitch += dp * k;
+      if (Math.abs(dh) < 0.3 && Math.abs(dp) < 0.3) this.faceAt = null;
     }
 
     if (this.viewMode === "photo" && this.photo) {

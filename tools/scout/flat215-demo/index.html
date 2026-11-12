@@ -11364,7 +11364,8 @@ function liveWire(){
       return;}
     if(VW.mode==='walk'&&tap){
       const r=cv.getBoundingClientRect(), fx=(e.clientX-r.left)/Math.max(1,r.width);
-      if(fx<0.2||fx>0.8){LIVE.scene.turn(fx<0.2?-30:30); LIVE.scene.start(); return;}
+      // окно у края кадра — подойти к нему, а не поворот (T-20261112-30, TG 1731: «при клике на окно к нему надо подходить»)
+      if(fx<0.2||fx>0.8){if(!(LIVE.scene.windowTap&&LIVE.scene.windowTap(e.clientX,e.clientY)))LIVE.scene.turn(fx<0.2?-30:30); LIVE.scene.start(); return;}
       const i=LIVE.scene.walkTap?LIVE.scene.walkTap(e.clientX,e.clientY):LIVE.scene.pick(e.clientX,e.clientY);
       if(i>=0)vwHighlight(i); else vwSelect(null); LIVE.scene.start();}});
 }
