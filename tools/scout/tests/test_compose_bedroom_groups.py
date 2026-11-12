@@ -28,9 +28,9 @@ def composer():
 
 
 def test_step140_only_groups_couple(composer, monkeypatch):
-    monkeypatch.delenv('BEDROOM_ENGINE', raising=False)
-    assert composer.step140('couple') is None                    # поштучный движок — как было
-    monkeypatch.setenv('BEDROOM_ENGINE', 'groups')
+    monkeypatch.setenv('BEDROOM_ENGINE', 'items')
+    assert composer.step140('couple') is None                    # поштучный движок (откат) — как было
+    monkeypatch.delenv('BEDROOM_ENGINE', raising=False)          # по умолчанию groups (T-20261112-47)
     sl = composer.step140('couple')
     assert sl['sleep_w'] == [140, 140] and sl['step'] == 140 and sl['ideal']['w'] == 155 and sl['role'] == 'кровать'
     assert composer.step140('single') is None

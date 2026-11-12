@@ -1,5 +1,5 @@
 """Движок групп-шаблонов спальни (T-20261112-38/2, план bedroom-groups-01, ADR-0384): переключатель `engine`
-(по умолчанию items — ровно прежние раскладки), варианты «сна» pair → one_side → solo, ступень 140 для пары,
+(по умолчанию groups с T-20261112-47; items — откат, ровно прежние раскладки), варианты «сна» pair → one_side → solo, ступень 140 для пары,
 пара в малой квадратной — без шкафа, без кровати — «кабинет», строгие правила (ноги в дуге двери, хранение у изголовья,
 батарея перед шкафом/комодом)."""
 from __future__ import annotations
@@ -49,9 +49,9 @@ def _no_env(monkeypatch):
 
 @pytest.mark.parametrize("cid", [c["id"] for c in json.loads(SNAP.read_text(encoding="utf-8"))["cases"]])
 def test_items_engine_snapshot(cid):
-    """engine=items (по умолчанию) даёт ровно раскладки origin/main до групп (снимок 14 сцен экзамена)."""
+    """engine=items (откат, явно) даёт ровно раскладки origin/main до групп (снимок 14 сцен экзамена)."""
     c = _case(cid)
-    lay = solve_bedroom(_room(c["room"], c["purpose"], c.get("child_age")), _items(c["kit"]))
+    lay = solve_bedroom(_room(c["room"], c["purpose"], c.get("child_age")), _items(c["kit"]), engine="items")
     assert lay.meta["solver"] == "bedroom-v1"
     assert [[p.role, p.x, p.y, int(p.rot), p.tpl_id] for p in lay.placements] == c["placements"]
     assert lay.meta.get("reason", []) == c["reason"]
@@ -59,12 +59,14 @@ def test_items_engine_snapshot(cid):
 
 
 def test_engine_default_and_env(monkeypatch):
-    assert BC.engine() == "items"
-    monkeypatch.setenv("BEDROOM_ENGINE", "groups")
-    assert BC.engine() == "groups" and BC.engine("items") == "items"
+    assert BC.engine() == "groups"                  # по умолчанию с T-20261112-47 (rules _meta.engine)
     c = _case("narrow270-couple")
     lay = solve_bedroom(_room(c["room"], c["purpose"]), _items(c["kit"]))
     assert lay.meta["solver"] == "bedroom-groups-v1" and lay.meta["engine"] == "groups"
+    monkeypatch.setenv("BEDROOM_ENGINE", "items")   # откат на прогон
+    assert BC.engine() == "items" and BC.engine("groups") == "groups"
+    lay = solve_bedroom(_room(c["room"], c["purpose"]), _items(c["kit"]))
+    assert lay.meta["solver"] == "bedroom-v1"
     monkeypatch.setenv("BEDROOM_ENGINE", "nonsense")
     with pytest.raises(ValueError):                 # опечатка в переключателе — громко, а не тихо прежний движок
         BC.engine()
@@ -225,7 +227,8 @@ def test_level_of_subset_and_composition_meta():
     assert lay.meta["composition"] == {"template": "br.pair_axis", "level": "A", "degraded_from": []}
 
 
-def test_group_rules_off_for_items_engine():
+def test_group_rules_off_for_items_engine(monkeypatch):
+    monkeypatch.setenv("BEDROOM_ENGINE", "items")
     c = _case("flat215-bedroom-2-drawing-180-couple")
     room = _room(c["room"], "couple")
     lay = solve_bedroom(room, _items(c["kit"]))

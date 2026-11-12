@@ -67,9 +67,10 @@ ENGINES = ("items", "groups")
 
 
 def engine(explicit: str | None = None) -> str:
-    """Движок солвера спальни (T-20261112-38/2): явный → env BEDROOM_ENGINE → `rules/bedroom.json` _meta.engine → items.
-    items — поштучная расстановка (прежнее байт в байт), groups — группы-шаблоны (`planner/bedroom.py:_solve_groups`)."""
-    e = explicit or os.environ.get("BEDROOM_ENGINE") or bedroom_rules().get("_meta", {}).get("engine") or "items"
+    """Движок солвера спальни (T-20261112-38/2): явный → env BEDROOM_ENGINE → `rules/bedroom.json` _meta.engine → groups.
+    items — поштучная расстановка (прежнее байт в байт, откат), groups — группы-шаблоны (`planner/bedroom.py:_solve_groups`;
+    по умолчанию с T-20261112-47, «ок» владельца TG 1833)."""
+    e = explicit or os.environ.get("BEDROOM_ENGINE") or bedroom_rules().get("_meta", {}).get("engine") or "groups"
     if e not in ENGINES:
         raise ValueError(f"движок спальни {e!r}? можно {', '.join(ENGINES)}")
     return e

@@ -1091,9 +1091,9 @@ def main(argv: list) -> int:
 # ---------------------------------------------------------------- селфтест
 def _selftest() -> int:
     bad = 0
-    # геометрия селфтеста (свободная стена, ковёр у двери) подобрана под поштучный движок; движок групп проверяют
-    # `tests/test_compose_bedroom_groups.py` и `services/planner-solver/tests/test_bedroom_groups.py` (T-20261112-38/2)
-    os.environ['BEDROOM_ENGINE'] = 'items'
+    # селфтест — на движке групп (по умолчанию с T-20261112-47); закреплён явно, чтобы откат `engine: items` в правилах
+    # не ломал проверки геометрии (ковёр, свободная стена). Подробно группы — `tests/test_compose_bedroom_groups.py`
+    os.environ['BEDROOM_ENGINE'] = 'groups'
 
     def ok(name, cond):
         nonlocal bad
@@ -1126,8 +1126,9 @@ def _selftest() -> int:
     _base = [_It(role='кровать', w_cm=175, d_cm=213, h_cm=110), _It(role='тумба прикроватная', w_cm=45, d_cm=40, h_cm=55),
              _It(role='тумба прикроватная 2', w_cm=45, d_cm=40, h_cm=55)]
     _shk = next(x for x in _R['purposes']['couple']['slots'] if x['role'] == 'шкаф')
-    ok('спальня 2 (450×293), кровать 175×213 + 2 тумбы: свободная стена под шкаф 110 см (общий идеал 150 не встаёт)',
-       _C.free_wall(_room2, _base, _shk, 'couple') == (110, 60))
+    ok('спальня 2 (450×293), кровать 175×213 + 2 тумбы группой «сон» по центру стены: свободная стена под шкаф 100 см '
+       '(общий идеал 150 не встаёт; поштучный движок давал 110 — тумбы не вплотную)',
+       _C.free_wall(_room2, _base, _shk, 'couple') == (100, 60))
     _cat = [{'mid': 1, 'eid': 'a', 'name': 'Кровать divan.ru Стелла 160'}, {'mid': 1, 'eid': 'b', 'name': 'Кровать Рио 160'},
             {'mid': 1, 'eid': 'c', 'name': 'Тумба Норд'}, {'mid': 1, 'eid': 'd', 'name': 'Комод Лайт'}]
     Composer(_cat, [], {'1:b'}, {'1:a', '1:c', '1:d'}, {'mesh_defect': {'names': 'Стелла'}}, (0.8, 1.1), 6.6, {'1:d'})
@@ -1217,8 +1218,15 @@ def _selftest() -> int:
     room2 = _room_model(room_spec('bedroom-2', R['rooms']['bedroom-2']['variant']), 'single')
     lay2 = solve_bedroom(room2, [Item(role='кровать', w_cm=126, d_cm=210, h_cm=98)])   # спальня 2: в угол, бок у стены
     ok('А выключен: кровать боком к стене — ковёр по центру не лёг', rug_place(lay2, room2, {'w': 160, 'd': 230}, fit=True) is None)
-    ok('А: в спальне 2 дверь в 25 см от изножья — ковёр с выступом ≥ 45 в ногах лёг бы под дугу двери: не лёг',
-       rug_place(lay2, room2, {'w': 160, 'd': 230}, fit={'wall_side': True, 'overhang_tolerated': True}) is None)
+    # движок групп ставит кровать одного изножьем ОТ двери — ковёр ложится; отказ «под дугой двери» проверяем на фикстуре
+    # поштучного движка (кровать в углу у двери, изножье в 25 см от дуги) — это проверка ковра, не солвера
+    _A = {'wall_side': True, 'overhang_tolerated': True}
+    _rg = rug_place(lay2, room2, {'w': 160, 'd': 230}, fit=_A)
+    ok('А, группы: кровать одного в спальне 2 изножьем от двери — 160×230 лёг, с открытой стороны 45–70',
+       _rg is not None and 45 <= _rg['fit']['side'] <= 70)
+    lay2d = solve_bedroom(room2, [Item(role='кровать', w_cm=126, d_cm=210, h_cm=98)], engine='items')
+    ok('А: фикстура — дверь в 25 см от изножья: ковёр с выступом ≥ 45 в ногах лёг бы под дугу двери: не лёг',
+       rug_place(lay2d, room2, {'w': 160, 'd': 230}, fit=_A) is None)
     import copy
     room2 = copy.deepcopy(room2)
     room2.openings = [o for o in room2.openings if o.kind != 'door']
