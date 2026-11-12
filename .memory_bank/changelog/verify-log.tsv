@@ -222,3 +222,7 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-12	core/user-flow.md	drift	24	3	3	T-20261112-42: превью/490 кнопкой; YooKassa только виз.; estimate_saved только Метрика; номера CJM не сверены — дата не сдвинута
 2026-11-12	domain/flat3d-configurator.md	drift	123	28	28	T-20261112-42: обе половины; 3 не найдено (замер 6 с, наблюдение 320 px, наружные 119 см парой) — дата не сдвинута
 2026-11-12	domain/demo-planner-ui.md	drift	232	77	77	T-20261112-42: 4 части, весь док; CAMS_VER v14-opp, camPairV2, Сделать фото, editRestore, главная 07.11; 7 не найдено (замеры, сервер, home-check) — дата не сдвинута
+2026-11-12	domain/stock-and-dims.md	drift	50	4	4	T-20261112-42: весь док; price_truth decide+21 день, flat_face/COMPOSITE_KEYS, transformer_dims, HASH_VERSION 10
+2026-11-12	domain/mesh-run-playbook.md	drift	52	6	6	T-20261112-42: весь док; 400 no_credits_available, budget-стоп снимает close_wave, flock-замок, ярус 3, MESH_BATCH 2000, recreate_group то же имя
+2026-11-12	domain/viz-fidelity-playbook.md	drift	77	9	9	T-20261112-42: две части; asset-strategies front, orient-v1 ключ, relief, --recheck-roles, openai-spend, О1/О2 и сторож цвета; 5 не найдено (БД, цены, prod .env) — дата не сдвинута
+2026-11-12	domain/demo-scenario-map.md	drift	75	16	16	T-20261112-42: главная 07.11 (#hmView/#hmBot, без вкладок), CTA_REAL Сделать фото, 52/52 под живой проверкой; поведение 2.4/2.8a/2.19-2.23/2.30/2.36-2.38/2.46 только по символам — дата не сдвинута

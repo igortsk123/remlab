@@ -3,8 +3,8 @@ tier: 2
 topic: stock-and-dims-details
 scope: Контроль наличия и честность размеров — модель, состояния, парсер, правило footprint
 tier1: ../core/stock-and-dims.md
-updated: 2026-11-10
-last_verified: 2026-11-06
+updated: 2026-11-12
+last_verified: 2026-11-12
 importance: high
 source: manual
 ---
@@ -23,7 +23,8 @@ source: manual
 `stock_evidence_at`; пишет только `stock_truth.reconcile()`; демо помечает «наличие не проверено» (замер 11.10: основание `page` — 20 002, `feed` — 1 389). Парсер v2
 (snake_case, `href=`, JSON-LD Product, inline-остаток tvoydom) включён по умолчанию с 03.09 после gold-замера в тени
 (`page_alive.py:PARSER_V2`, откат — `STOCK_PARSER_V2=0`); тень — `stock_check.py --shadow`, отчёт — `stock_shadow_report.py`. Со страницы берём цену/имя/canonical как наблюдения (`product_page_facts`); цену со страницы показывает покупателю
-`tools/scout/price_truth.py` (`price_shown_rub`) у магазинов с основанием `page` по `tools/scout/rules/price-truth.json`.
+`tools/scout/price_truth.py` (`price_shown_rub`) у магазинов с основанием `page` (явно в `tools/scout/rules/price-truth.json`, иначе по
+замеру расхождения, `price_truth.py:decide`), если цене страницы ≤ `max_page_age_days` (21), иначе фид с пометкой `feed-stale`.
 
 ## Размеры (`tools/scout/footprint.py`, `dim_resolver.py`)
  `footprint.py` — одно правило «Ш×Г или диаметр известны» для compose2, лечения, солвера,
@@ -40,9 +41,9 @@ source: manual
 фото (Риббл w:d 1,87:1,99 vs фид 1,62) — не включать; `available` API — precision 0 % (замер 03.09, история).
 
 **Потери размеров по магазинам (07.11, T-20261107-22, `HASH_VERSION` 10):** хроническая тревога `dims_lost` (716 товаров) разобрана:
-~250 чинилось загрузчиком — картины/зеркала divan.ru «Размеры» Ш×В и толщина плоских от 0,5 см (`dim_resolver.py:flat_face`,
-`source='shape_rule:flat_face'`), лицо+толщина зеркал tvoydom, «Длина» gipfel (112098) → d у ваз, одна горизонталь у круглого декора
-(`estimated`), «Длина» ковра tvoydom → d; ~466 — не потеря парсера (ковры — ложное правило сторожа, только высота, диваны divanboss — чертёж).
+~250 чинилось загрузчиком — картины/зеркала divan.ru «Размеры» Ш×В (`dim_resolver.py:COMPOSITE_KEYS`), толщина плоских от 0,5 см
+(`ROLE_MIN_D_CM`), лицо+толщина зеркал tvoydom (`dim_resolver.py:flat_face`, только 99272, `source='shape_rule:flat_face'`), «Длина» gipfel
+(112098) → d у ваз, одна горизонталь у круглого декора tvoydom (`one_horizontal`, `estimated`), «Длина» ковра tvoydom → d; ~466 — не потеря парсера (ковры — ложное правило сторожа, только высота, диваны divanboss — чертёж).
 Сторож `tools/scout/dim_audit.py` тревожит только о том, что чинится кодом. Подложки ковров — без роли (`category_map.py:rug_role`).
 **Стулья divan.ru (07.11, план dims-effective-01):** «Ширина габаритная» = копия ширины (w==d сам по себе не доказательство —
 круглые/квадратные). Свой меш сверяет глубину паспорта по отношению сторон следа (допуск 12 %, `tools/scout/rules/catalog-bindings.json:passport.d_by_mesh`),
@@ -70,7 +71,7 @@ source: manual
   «Раскладной конструкцией» или «кровать» в названии хвост «A×B» — спальное место (короче 170 — габарит, правило молчит). Тип:
   кресло / угловой / прямой; место «вперёд» (аккордеон, выкатной, каскад, отелло, седафлекс…) или «вдоль» (остальные; неизвестный —
   «вдоль», фронт больше). Ш = место + прибавка, Г и В — таблица (квантиль 0,75 по 956 трансформерам divan.ru, пересчёт и сверка —
-  `transformer_calib.py`); «Ширина» фида больше места (+5) и больше расчётного фронта — это собранный фронт, берём её (`dim_resolver.py:322`); измеренная высота остаётся.
+  `transformer_calib.py`); «Ширина» фида больше места (+5) и больше расчётного фронта — это собранный фронт, берём её (`dim_resolver.py:transformer_dims`); измеренная высота остаётся.
   Недооценка > 10 % на divan.ru: прямой 0–7 %, кресло до 13 %, угловой — сторона 22 % (форма «Г»/«П» по названию не видна).
   `bank_ready.py:PROVEN_SQL` считает `shape_rule:transformer` и `dims_evidence.d.source='drawing'` доказанными; «Не раскладывается» — не трансформер (`TRANSFORMER_SQL`).
   Замер 23.10: доказано 0 → 84 из 86 (2 кресла с хвостом-габаритом ждут). Квантиль 0,9 для стороны угловых — отвергнут (ведущий):
@@ -85,7 +86,7 @@ source: manual
   tvoydom 23.10: «Высота» диапазоном у 341 люстры, «Длина цепи» — 597, флаг регулировки — 371. Вне слота в пуле 4 253 люстр:
   при 270 — 1 131 (+31 подвес, +37 регулируемых без высоты), 250 — 1 586, 300 — 790, 320 — 530.
 - **Подъём `load3.py:HASH_VERSION`** при каждой смене правил (5 — пороги света и шар, 6 — трансформеры, 7 — вылет, 8 — глубина divan.ru, 9 — глубина с чертежа — не правило
-  `dim_resolver`): ночь-baseline без
+  `dim_resolver`, 10 — T-22 выше; сейчас 10, `load3.py:47`): ночь-baseline без
   платного переобогащения; сторож — `dim_resolver.py --selftest` (`RULES_FINGERPRINT`).
 - **Глубина с чертежа (conv-15, вкл. 04.11, первая ночь 05.11):** диваны mnogomebeli 114667 / divanboss 114082 без d в карточке —
   ИИ читает «Изображение с размерами» один раз на sha (`drawing_dims.py`, кэш `~/scout-scenes/drawing-dims.json`), d выбирает код:
