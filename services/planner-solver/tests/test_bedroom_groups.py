@@ -117,6 +117,34 @@ def test_free_side_wall_or_passage(n_ns):
         assert flush or z[s].difference(poly).area < 1, s
 
 
+def _uk_guest_335() -> Room:
+    """Гостевая UK 335×280 из туров агентов (один план в 5 турах; T-20261112-47)."""
+    return Room(width_cm=335, depth_cm=280, room_type="bedroom", purpose="guest", openings=[
+        Opening(kind="door", wall="east", offset_cm=149.9, width_cm=78.8, swing_cm=79, hinge="left"),
+        Opening(kind="window", wall="north", offset_cm=116.3, width_cm=151, sill_cm=85, height_cm=150)])
+
+
+LOFT_GUEST = [["кровать", 146, 210, 92], ["тумба прикроватная", 45, 44, 48], ["шкаф", 91, 50, 212], ["комод", 96, 45, 89]]
+
+
+def test_guest_storage_before_nightstand():
+    """TG 1833: в тесной гостевой — комод, не тумба, и когда шкаф уже стоит: шкаф + комод без тумбы (C) лучше тумбы + шкафа (B)."""
+    lay = solve_bedroom(_uk_guest_335(), _items(LOFT_GUEST), "guest", engine="groups")
+    roles = {p.role for p in lay.placements}
+    assert {"кровать", "шкаф", "комод"} <= roles and "тумба прикроватная" not in roles and not _hard(lay)
+    assert lay.meta["sleep_variant"] == "solo" and lay.meta["composition"]["level"] == "C"
+    assert lay.meta["variants_tried"] == ["one_side", "solo"]      # остановки на B нет: хранение встало не всё
+
+
+def test_storage_first_only_guest():
+    """Правило «хранение по числу раньше уровня» — только у guest (паспорт storage_count_first): пара на той же комнате и
+    наборе — по уровню, как было (тумба + шкаф, B)."""
+    room = _uk_guest_335()
+    room.purpose = "couple"
+    lay = solve_bedroom(room, _items(LOFT_GUEST), "couple", engine="groups")
+    assert lay.meta["composition"]["level"] in ("A", "B") and any(p.role.startswith("тумба") for p in lay.placements)
+
+
 def test_couple_bed_no_fit_asks_140():
     c = _case("tiny-couple")
     lay = solve_bedroom(_room(c["room"], "couple"), _items(c["kit"]), engine="groups")

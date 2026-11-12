@@ -655,6 +655,11 @@ def _solve_groups(room: Room, items: list[Item], purpose: str, *, beam: int = BE
     def n_storage(placed):
         return sum(1 for p in placed if group_of(p.role) == "storage")
 
+    # хранение по числу раньше уровня (паспорт `storage_count_first`, TG 1833, T-20261112-47/2): у гостевой «шкаф + комод
+    # без тумбы» лучше «тумба + шкаф»; у остальных назначений — уровень, как было
+    storage_first = purpose in ((tpl.get("storage_count_first") or {}).get("purpose") or ())
+    storage_max = sum(1 for r in by_role if group_of(r) == "storage" and r not in denied)
+
     best, best_key, tried, failed = None, None, [], None
     for i, v in enumerate(variants):
         states, why = _run_variant(S, by_role, stages, v, must_have, beam)
@@ -669,13 +674,17 @@ def _solve_groups(room: Room, items: list[Item], purpose: str, *, beam: int = BE
             soft = sum(SOFT_PENALTY.get(x.code, 0.5) for x in lay.violations if x.severity is Severity.SOFT)
             miss = sum(1 for r in by_role if must_have(r) and r not in {p.role for p in st.placed})
             lvl, _ = RT.level_of(tpl, _found(tpl, st.placed))
-            k = (hard, miss, lvl, -n_storage(st.placed), -round(st.score - soft, 3), st.key()[1])
+            ns_ = n_storage(st.placed)
+            k = (hard, miss, -ns_, lvl, -round(st.score - soft, 3), st.key()[1]) if storage_first else \
+                (hard, miss, lvl, -ns_, -round(st.score - soft, 3), st.key()[1])
             if top is None or k < top[0]:
                 top = (k, st, lay)
         if best_key is None or top[0] < best_key:
             best_key, best = top[0], (top[1], top[2])
         rest = [RT.best_possible(tpl, "sleep", w) for w in variants[i + 1:]]
-        if best_key[0] == 0 and best_key[1] == 0 and (not rest or best_key[2] <= min(rest)):
+        lvl_best = best_key[3] if storage_first else best_key[2]
+        full = not storage_first or -best_key[2] >= storage_max   # хранение первым: остановка, только когда встало всё
+        if best_key[0] == 0 and best_key[1] == 0 and full and (not rest or lvl_best <= min(rest)):
             break                                  # лучший уровень дальше не улучшить — следующие варианты «сна» не нужны
     meta["variants_tried"] = tried
     if best is None:
