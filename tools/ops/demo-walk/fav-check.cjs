@@ -1,6 +1,6 @@
 const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
-// ОКНО ВАРИАНТА, ИЗБРАННОЕ И «ПОДЕЛИТЬСЯ» (план demo-15): тап по предмету → шторка до верха и строка в верхней трети; после замены
+// ОКНО ВАРИАНТА, ИЗБРАННОЕ И «ПОДЕЛИТЬСЯ» (план demo-15): тап по предмету → строка подсвечена, шторка на месте (T-37); после замены
 // камера наведена на новый предмет; ракурсы подписями (ни стрелок, ни точек); сердечко и «поделиться» в шапке окна; окошко имени
 // «<Стиль> #N»; раздел «Избранное» на главной; EN без кириллицы в новых подписях. Платный путь подменён; сохранение в избранное —
 // настоящее (`POST /api/collections`).
@@ -39,14 +39,14 @@ const openWin=async(p,i)=>{await p.evaluate(i=>{pickVariant(i); VW.collapse=true
       return {top:Math.round(c.top-w.top), bottom:Math.round(w.bottom-c.bottom)};});
     ok('сцена во всю высоту области, без полос',Math.abs(band.top)<=8&&Math.abs(band.bottom)<=8,JSON.stringify(band));
     ok('ракурсы — подписями, переключатель виден',st0.camsOn&&st0.cams.length===2&&!st0.cams.some(t=>/‹|›/.test(t)),st0.cams.join(' | '));
-    // тап по предмету (ценник дивана) → шторка до верха, строка в верхней трети, подсвечена
+    // тап по предмету (ценник дивана) → строка подсвечена; шторка остаётся, как была (T-20261112-37, вариант А: замена — по ⇄ в плашке)
     const k=await p.evaluate(()=>items.findIndex(i=>String(i.role)==='диван'));
+    const pos0=await p.evaluate(()=>document.getElementById('vside').dataset.pos);
     await p.evaluate(k=>vwHighlight(k),k); await p.waitForTimeout(900);
-    const st1=await p.evaluate(k=>{const r=vwRowOf(items[k]), sc=document.getElementById('vscroll'); const rr=r&&r.getBoundingClientRect(), sr=sc.getBoundingClientRect();
-      return {pos:document.getElementById('vside').dataset.pos, hl:!!r&&r.classList.contains('hl'), sel:VW.sel, rel:rr?(rr.top-sr.top)/sr.height:null};},k);
-    if(PHONE)ok('тап по предмету → шторка до верха',st1.pos==='3','pos='+st1.pos);
+    const st1=await p.evaluate(k=>{const r=vwRowOf(items[k]);
+      return {pos:document.getElementById('vside').dataset.pos, hl:!!r&&r.classList.contains('hl'), sel:VW.sel};},k);
+    if(PHONE)ok('тап по предмету шторку не поднимает',st1.pos===pos0,'pos '+pos0+' → '+st1.pos);
     ok('строка предмета подсвечена, пока выделен',st1.hl&&st1.sel===k);
-    if(PHONE)ok('строка предмета — в верхней трети списка',st1.rel!=null&&st1.rel>=0&&st1.rel<0.34,st1.rel&&st1.rel.toFixed(2));
     // компьютер: кнопка «Сделать реалистичнее» целиком видна под плашкой и после прокрутки к строке (fable-lead 18.10, цикл 1)
     // правило 2.32 — общее с sheet-gestures (`cta-rule.cjs`): кнопка над списком, под плашкой, целиком в экране
     const ctaOk=async()=>{const g=await p.evaluate(CTA.ctaGeom); return {ok:CTA.ctaUnderPlate(g), ...g};};
@@ -56,7 +56,7 @@ const openWin=async(p,i)=>{await p.evaluate(i=>{pickVariant(i); VW.collapse=true
     await p.waitForTimeout(4500);
     ok('подсветка держится дольше 4 с',await p.evaluate(k=>{const r=vwRowOf(items[k]); return !!r&&r.classList.contains('hl');},k));
     await p.evaluate(k=>vwHighlight(k),k); await p.waitForTimeout(400);
-    ok('повторный тап по тому же предмету снимает выделение, шторку не трогает',await p.evaluate(ph=>VW.sel==null&&!document.querySelector('#shotbody .row.hl')&&(!ph||document.getElementById('vside').dataset.pos==='3'),PHONE));
+    ok('повторный тап по тому же предмету снимает выделение, шторку не трогает',await p.evaluate(([ph,pos0])=>VW.sel==null&&!document.querySelector('#shotbody .row.hl')&&(!ph||document.getElementById('vside').dataset.pos===pos0),[PHONE,pos0]));
     // замена через ленту → 3D, шторка свёрнута, камера наведена на новый предмет
     // как кнопка ленты (`openPicker` → `tryOn` → `closePicker` → `refreshShotList`)
     const tryN=await p.evaluate(k=>{sel=items[k]; draw(); openPicker(items[k]); const cur0=(skuOf(items[k])||{}).name;

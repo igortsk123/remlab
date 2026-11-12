@@ -136,7 +136,7 @@ let opened=0; const tl=[]; for(let k=0;k<10;k++){await p.evaluate(()=>vwSheet(0)
   const got=await p.waitForFunction(()=>document.getElementById('vside').dataset.pos==='3',null,{timeout:3000}).then(()=>true).catch(()=>false);
   await still(); tl.push(got?'3':'0'); if(got)opened++;}
 ok('v5.1 тап по чипу ×10: раскрыта 10/10, ложных «Сделать фото» 0',opened===10&&(await p.evaluate('window.__mp'))===0,`раскрыта ${opened}, makePhoto ${await p.evaluate('window.__mp')} · ${tl.join('')}`);
-// v5.2 п.5: тап по предмету — прокрутка списка сразу, вместе с подъёмом шторки (не вторым движением)
+// v5.2 п.5: тап по предмету — прокрутка списка сразу (шторку тап с T-37 не поднимает)
 {const idx=await p.evaluate(()=>{vwSelect(null); const k=items.map((it,i)=>[i,vwRowOf(it)]).filter(x=>x[1]).map(x=>x[0]); return k[Math.floor(k.length/2)];});   // средняя строка — прокрутка нужна и возможна
  await p.evaluate(()=>{vwSheet(0); document.getElementById('vscroll').scrollTop=0;}); await still();
  const st0=await p.evaluate(i=>{vwHighlight(i); return document.getElementById('vscroll').scrollTop;},idx);
@@ -144,7 +144,8 @@ ok('v5.1 тап по чипу ×10: раскрыта 10/10, ложных «Сд�
  const hl=await p.evaluate(()=>{const r=document.querySelector('#shotbody .row.hl'), sc=document.getElementById('vscroll'); const rr=r&&r.getBoundingClientRect(), sr=sc.getBoundingClientRect();
    return {pos:document.getElementById('vside').dataset.pos, top:Math.round(sc.scrollTop), row:rr?Math.round(rr.top-sr.top):null, list:sc.clientHeight};});
  ok('v5.2 тап по предмету: список прокручен через 50 мс',st50>0&&Math.abs(st50-hl.top)<=2,`сразу ${st0}, 50 мс ${st50}, итог ${hl.top}`);
- ok('v5.2 тап по предмету: полная, строка в верхней трети',hl.pos==='3'&&hl.row!=null&&hl.row>=0&&hl.row<=hl.list/3,JSON.stringify(hl));
+ // T-20261112-37 (вариант А): тап по предмету шторку не поднимает — остаётся свёрнутой; строка списка всё равно в верхней трети
+ ok('v5.2 тап по предмету: шторка свёрнута (T-37), строка в верхней трети',hl.pos==='0'&&hl.row!=null&&hl.row>=0&&hl.row<=hl.list/3,JSON.stringify(hl));
  await p.evaluate(()=>vwSelect(null));}
 // v5.2: замена товара (как кнопка ленты) → свёрнутая с кнопкой целиком
 {await p.evaluate(()=>vwSheet(3)); await still();

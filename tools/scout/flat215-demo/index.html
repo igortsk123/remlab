@@ -9369,25 +9369,38 @@ body.trial .vtop:not(:has(.vcta:not([hidden]),#vCtaErr,#vCtaNote)){display:none}
 .vpin.sel{background:var(--accent);color:#fff;z-index:2}
 /* ГРУППА У ЦЕНЫ ВЫБРАННОГО В 3D (T-05/5, владелец TG 1530): одна пилюля в тон ценника `.vpin` — «↻ Повернуть | ✥ Переместить | ⤢ размеры»,
    тонкие разделители; ставится как одно целое (`vwRotPlace`); тянуть — за «Переместить» (`touch-action:none`) */
-.vacts{position:absolute;left:0;top:0;will-change:transform;display:inline-flex;align-items:stretch;background:var(--surface);border-radius:999px;
- box-shadow:var(--e3);overflow:hidden;pointer-events:auto;z-index:3}
+/* ПЛАШКА ЗНАЧКАМИ (T-20261112-37, вариант А, владелец TG 748): «цена · ⇄ Заменить · ↻ Повернуть · ✥ Переместить · ⤢ размеры» ровно над
+   предметом по центру его рамки; подписи словами — подсказкой при наведении (компьютер), на телефоне только значки. Внешний слой `.vacts`
+   не обрезает (в нём живёт подсказка `.vatip`), пилюля с кнопками — `.vain`: одна высота 36, ячейки значков одной ширины, значки — SVG
+   по центру ячейки, разделители — 1 px на всю высоту (`.vsep` у первой видимой кнопки после цены снимается в `vwRotPlace`) */
+.vacts{position:absolute;left:0;top:0;will-change:transform;display:flex;pointer-events:auto;z-index:3}
 .vacts[hidden]{display:none}
-/* КОМПЬЮТЕР (T-05/6, владелец TG 1558: «на компе продумай ещё», «лучше по центру»): плашка «цена · ↻ Повернуть · ✥ Переместить · ⤢ размеры»
-   по центру над рамкой выбранного, кнопки крупнее (высота 32, шрифт 14); цена — акцентным отрезком, как у выбранного ценника `.vpin.sel` */
+.vain{display:inline-flex;align-items:stretch;height:36px;background:var(--surface);border-radius:999px;box-shadow:var(--e3);overflow:hidden;
+ vertical-align:top}
+/* цена — акцентным отрезком, как у выбранного ценника `.vpin.sel` (T-05/6, владелец TG 1558) */
 .vcost{display:inline-flex;align-items:center;padding:0 12px;background:var(--accent);color:#fff;font-weight:700;font-size:14px;
  font-variant-numeric:tabular-nums;white-space:nowrap}
 .vacts.vnocost .vcost,.vacts.vcut .vcost{display:none}
-.vrot,.vmove,.vsize{display:inline-flex;align-items:center;gap:5px;background:none;border:0;border-radius:0;margin:0;color:var(--accent);
- min-height:32px;padding:0 12px;font-family:inherit;font-weight:600;font-size:14px;line-height:1.3;white-space:nowrap;cursor:pointer}
-.vacts>button+button{border-left:1px solid var(--line)}
+.vrep,.vrot,.vmove,.vsize{display:inline-flex;align-items:center;justify-content:center;gap:5px;box-sizing:border-box;height:100%;
+ background:none;border:0;border-radius:0;margin:0;padding:0 10px;min-width:42px;color:var(--accent);font-family:inherit;font-weight:600;
+ font-size:14px;line-height:1;white-space:nowrap;cursor:pointer}
+.vain>button.vsep{border-left:1px solid var(--line)}
+.vrep:hover,.vrot:hover,.vmove:hover,.vsize:hover{background:var(--accent-soft)}
 .vmove{cursor:grab;touch-action:none}
-.vrot .vic,.vmove .vic{font-size:16px;line-height:1}
-.vsize{color:var(--ink);font-variant-numeric:tabular-nums}.vsize .vic{color:var(--muted);font-size:14px}
+.vain .vic{display:block;flex:none;width:18px;height:18px}
+.vain .vic svg{display:block;width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.vlb{display:none}
+.vsize{color:var(--ink);font-variant-numeric:tabular-nums;padding:0 14px 0 10px;font-size:13.5px}.vsize .vic{color:var(--muted);width:15px;height:15px}
 .vsz-s{display:none}
-.vacts.vnorot .vrot,.vacts.vnorot .vmove,.vacts.vnodims .vsize{display:none}
-.vacts.vnorot .vsize{border-left:0}
-/* сцена уже плашки (узкое окно компьютера) — как на телефоне: значки и короткие размеры, подписи — во всплывающей подсказке */
-.vacts.vtight .vlb,.vacts.vtight .vsz-f{display:none}.vacts.vtight .vsz-s{display:inline}
+.vacts.vnorot .vrot,.vacts.vnorot .vmove,.vacts.vnodims .vsize,.vacts.vnorep .vrep{display:none}
+/* сцена уже плашки (узкое окно компьютера) — короткие размеры */
+.vacts.vtight .vsz-f{display:none}.vacts.vtight .vsz-s{display:inline}
+/* ПОДСКАЗКА ЗНАЧКА (компьютер, наведение мышью): под плашкой, у плашки в нижней части сцены — над ней (`.vtipup`); нажатий не ловит */
+.vatip{position:absolute;top:calc(100% + 8px);transform:translateX(-50%);background:var(--ink);color:#fff;font-size:12.5px;font-weight:600;
+ line-height:1.2;white-space:nowrap;padding:5px 9px;border-radius:8px;box-shadow:var(--e3);pointer-events:none}
+.vatip[hidden]{display:none}
+.vatip::before{content:"";position:absolute;left:50%;top:-4px;width:8px;height:8px;background:inherit;transform:translateX(-50%) rotate(45deg)}
+.vacts.vtipup .vatip{top:auto;bottom:calc(100% + 8px)}.vacts.vtipup .vatip::before{top:auto;bottom:-4px}
 /* чужой ценник, который плашка выбранного всё же накрывает, — приглушён, а не спрятан */
 .vpin.vdim{opacity:.35}
 /* ПРЕДМЕТ «В РУКЕ» (T-05/8, как в Sims): плашка выбранного не мешает — прозрачна и не ловит нажатий (кнопка, с которой взяли, держит
@@ -9411,10 +9424,11 @@ body.trial .vtop:not(:has(.vcta:not([hidden]),#vCtaErr,#vCtaNote)){display:none}
 @media (max-width:599px){.vcarry{font-size:12.5px;padding-left:12px}.vcarry button{min-height:30px;font-size:13px;padding:0 10px}}
 /* телефон: только значки и короткие размеры; подпись значка — на 1,5 с после нажатия (`.vpeek`), полные размеры — по нажатию (`.vszopen`) */
 @media (max-width:599px){
-  .vrot,.vmove,.vsize{min-height:0;padding:5px 10px;font-size:12.5px;gap:4px}
-  .vrot .vic,.vmove .vic{font-size:14px}.vsize .vic{font-size:12px}
-  .vcost{padding:0 10px;font-size:12.5px}
-  .vrot .vlb,.vmove .vlb{display:none}.vrot.vpeek .vlb,.vmove.vpeek .vlb{display:inline}
+  .vrep,.vrot,.vmove{min-width:40px;padding:0 9px}
+  .vsize{padding:0 12px 0 9px;font-size:13px;gap:4px}
+  .vcost{padding:0 11px;font-size:13.5px}
+  .vrot.vpeek .vlb,.vmove.vpeek .vlb{display:inline}
+  .vrep:hover,.vrot:hover,.vmove:hover,.vsize:hover{background:none}
   .vsz-s{display:inline}.vsz-f{display:none}.vacts.vszopen .vsz-s{display:none}.vacts.vszopen .vsz-f{display:inline}
 }
 /* строка списка справа — выбирает предмет в 3D (компьютер) */
@@ -10116,8 +10130,8 @@ function vwRowOf(it){
   const name=(skuOf(it)||{}).name, k=shotRows.findIndex(a=>a.name===name);
   const b=k>=0&&document.querySelector(`#shotbody [data-rep="${k}"]`); return b?(b.closest('.row')||b):null;
 }
-// ТАП ПО ПРЕДМЕТУ (владелец 18.10, demo-15 п.1): шторка — до верха, строка предмета — в верхней трети списка, подсвечена, пока
-// предмет выделен; повторный тап по тому же предмету снимает выделение, шторку не трогает. `open:false` — без шторки (после замены)
+// ТАП ПО ПРЕДМЕТУ (владелец 18.10, demo-15 п.1; шторку не поднимает с T-37): строка предмета — в верхней трети списка, подсвечена, пока
+// предмет выделен; повторный тап по тому же предмету снимает выделение, шторку не трогает. `open:false` — не снимать выделение (после замены)
 function vwHighlight(idx, opt){
   const it=vwItemAt(idx); if(!it)return;
   const open=!(opt&&opt.open===false);
@@ -10127,9 +10141,8 @@ function vwHighlight(idx, opt){
   const r=vwRowOf(it); if(!r)return;
   document.querySelectorAll('#shotbody .row.hl').forEach(x=>x.classList.remove('hl'));
   r.classList.add('hl'); clearTimeout(VW.hlT);
-  // шторку раскрыл сам тап — запоминаем, как было (demo-20 А5: «×» листа замены вернёт), до раскрытия
-  if(open&&VW_PHONE()){const sd=document.getElementById('vside'), sc0=document.getElementById('vscroll');
-    if(sd&&+sd.dataset.pos!==3){VW.auto={pos:+sd.dataset.pos||0, top:sc0?sc0.scrollTop:0}; vwSheet(3);}}
+  // ТЕЛЕФОН: ТАП ПО ПРЕДМЕТУ ШТОРКУ НЕ ПОДНИМАЕТ (T-20261112-37, вариант А, владелец TG 748): шторка остаётся, как была, действия — в плашке
+  // над предметом, замена — по ⇄ (`vwReplace`). Прежде тап раскрывал шторку до верха и закрывал саму сцену (владелец 18.10, demo-15 п.1)
   // прокрутка — СРАЗУ и мгновенно на телефоне (v5.2 п.5, владелец 18.10: «сначала шторка открывается, потом перелистывается» — два
   // движения): высота шторки всегда полная, едет только сдвиг, геометрия списка не меняется — к концу подъёма строка уже в верхней
   // трети. Только сам список: `scrollIntoView` двигал и окно над шторкой. Компьютер — плавно, как было
@@ -10169,7 +10182,8 @@ function vwPinsTick(now){
   PINS.raf=0;
   const shot=document.getElementById('shot'), box=document.getElementById('vpins'); if(!box)return;
   if(box!==PINS.box){PINS.box=box; PINS.map.clear(); PINS.fr=null;
-    box.onclick=e=>{const r=e.target.closest&&e.target.closest('.vrot'); if(r){vwPeek(r); vwRotate(); return;}
+    box.onclick=e=>{const q=e.target.closest&&e.target.closest('.vrep'); if(q){vwReplace(); return;}
+      const r=e.target.closest&&e.target.closest('.vrot'); if(r){vwPeek(r); vwRotate(); return;}
       const z=e.target.closest&&e.target.closest('.vsize'); if(z){vwSizeToggle(z); return;}
       const b=e.target.closest&&e.target.closest('[data-pi]'); if(b)vwHighlight(+b.dataset.pi);};}
   const live=shot.classList.contains('on')&&VW.mode==='walk'&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode;
@@ -10234,25 +10248,51 @@ function vwCanRot(it){
 }
 function vwRotHide(){ if(PINS.rot)PINS.rot.hidden=true; }
 // ГРУППА У ЦЕНЫ ВЫБРАННОГО (T-05/5, владелец TG 1530: «компактнее, одной группой; на телефоне по клику раскрывать надпись»): одна
-// пилюля в тон ценника — [↻ Повернуть | ✥ Переместить | ⤢ 198×150×95]. Компьютер — значки с подписями и размеры целиком; телефон
-// (< 600 px) — только значки и короткие размеры: нажатие на значок сразу делает дело и на 1,5 с показывает подпись (`vwPeek`), нажатие
-// на размеры раскрывает «Ш × Г × В см», повторное — сворачивает. Висящее и кухню не крутим и не двигаем — тогда в группе только размеры
-function vwDimsTxt(it, full){ const EN=LANG==='en', r=v=>Math.round(+v||0);
-  if(!full)return `${r(it.w)}×${r(it.d)}×${r(it.h)}`;
+// пилюля в тон ценника — [цена | ⇄ | ↻ | ✥ | ⤢ 198×150×95] (вариант А, T-20261112-37). Компьютер — значки, подпись — подсказкой при
+// наведении, размеры целиком; телефон (< 600 px) — значки и короткие размеры: нажатие на ↻/✥ сразу делает дело и на 1,5 с показывает
+// подпись (`vwPeek`), нажатие на размеры раскрывает «Ш × Г × В см», повторное — сворачивает. Висящее и кухню не крутим и не двигаем —
+// тогда в группе ⇄ и размеры
+// плоское на стене (картина, зеркало: глубина ленты 2–3 см) — «Ш × В», без «Г 3» (макет варианта А, T-37)
+function vwWallFlat(it){ return !!it&&(it.dec!==undefined||(it.strategy==='procedural_plane'&&+it.h>+it.d)||(+it.d>0&&+it.d<=5&&+it.h>+it.d*5)); }
+function vwDimsTxt(it, full){ const EN=LANG==='en', r=v=>Math.round(+v||0), fl=vwWallFlat(it);
+  if(!full)return fl?`${r(it.w)}×${r(it.h)}`:`${r(it.w)}×${r(it.d)}×${r(it.h)}`;
+  if(fl)return EN?`W ${r(it.w)} × H ${r(it.h)} cm`:`Ш ${r(it.w)} × В ${r(it.h)} см`;
   return EN?`W ${r(it.w)} × D ${r(it.d)} × H ${r(it.h)} cm`:`Ш ${r(it.w)} × Г ${r(it.d)} × В ${r(it.h)} см`; }
+// значки плашки — SVG 24×24 обводкой (`currentColor`): знаки шрифта ⇄ ↻ ✥ ⤢ стоят на разной высоте строки и в ячейке не по центру
+const VA_IC={
+  rep:'<path d="M4 8h15M15 4l4 4-4 4M20 16H5M9 12l-4 4 4 4"/>',
+  rot:'<path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/>',
+  move:'<path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>',
+  size:'<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>'};
+const vaIc=k=>`<span class="vic" aria-hidden="true"><svg viewBox="0 0 24 24">${VA_IC[k]}</svg></span>`;
 function vwActsNode(box){
   let b=PINS.rot;
   if(b&&b.isConnected)return b;
   const EN=LANG==='en';
   b=document.createElement('span'); b.className='vacts'; b._w=0;
-  // цена выбранного — первым отрезком плашки (T-05/6, владелец TG 1558); отдельный ценник предмета тогда не рисуется (`vwPinsTick`)
-  b.innerHTML=`<span class="vcost"></span>`+
-    `<button class="vrot" type="button" title="${EN?'Rotate (R)':'Повернуть (R)'}" aria-label="${EN?'Rotate 90°':'Повернуть на 90°'}"><span class="vic" aria-hidden="true">↻</span><span class="vlb">${EN?'Rotate':'Повернуть'}</span></button>`+
-    `<button class="vmove" type="button" title="${EN?'Move (M)':'Переместить (M)'}" aria-label="${EN?'Move: drag along the floor':'Переместить: тяните по полу'}"><span class="vic" aria-hidden="true">✥</span><span class="vlb">${EN?'Move':'Переместить'}</span></button>`+
-    `<button class="vsize" type="button" aria-label="${EN?'Size':'Размеры'}"><span class="vic" aria-hidden="true">⤢</span><span class="vsz-s"></span><span class="vsz-f"></span></button>`;
-  b.querySelector('.vmove').addEventListener('pointerdown',e=>{vwPeek(e.currentTarget); vwMoveDown(e);});
+  // цена выбранного — первым отрезком плашки (T-05/6, владелец TG 1558); отдельный ценник предмета тогда не рисуется (`vwPinsTick`).
+  // Подпись значка — `data-tip` (подсказка при наведении, `vwTipShow`); `title` не ставим — иначе вторая, системная подсказка
+  b.innerHTML=`<span class="vain"><span class="vcost"></span>`+
+    `<button class="vrep" type="button" data-tip="${EN?'Replace':'Заменить'}" aria-label="${EN?'Replace':'Заменить'}">${vaIc('rep')}</button>`+
+    `<button class="vrot" type="button" data-tip="${EN?'Rotate (R)':'Повернуть (R)'}" aria-label="${EN?'Rotate 90°':'Повернуть на 90°'}">${vaIc('rot')}<span class="vlb">${EN?'Rotate':'Повернуть'}</span></button>`+
+    `<button class="vmove" type="button" data-tip="${EN?'Move (M)':'Переместить (M)'}" aria-label="${EN?'Move: drag along the floor':'Переместить: тяните по полу'}">${vaIc('move')}<span class="vlb">${EN?'Move':'Переместить'}</span></button>`+
+    `<button class="vsize" type="button" aria-label="${EN?'Size':'Размеры'}">${vaIc('size')}<span class="vsz-s"></span><span class="vsz-f"></span></button></span>`+
+    `<span class="vatip" role="tooltip" hidden></span>`;
+  b.querySelector('.vmove').addEventListener('pointerdown',e=>{vwTipHide(); vwPeek(e.currentTarget); vwMoveDown(e);});
+  // подсказка — только мышью (на телефоне наведения нет: касание дало бы «залипшую» подсказку)
+  b.addEventListener('pointerover',e=>{if(e.pointerType!=='mouse')return; const t=e.target.closest&&e.target.closest('.vain button[data-tip]'); if(t)vwTipShow(t); else vwTipHide();});
+  b.addEventListener('pointerleave',vwTipHide);
   box.appendChild(b); PINS.rot=b; return b;
 }
+function vwTipShow(btn){
+  const g=btn.closest('.vacts'), tip=g&&g.querySelector('.vatip'); if(!tip||VW_NARROW())return;
+  tip.textContent=btn.dataset.tip||''; tip.style.left=Math.round(btn.offsetLeft+btn.offsetWidth/2)+'px'; tip.hidden=false;
+}
+function vwTipHide(){ const t=PINS.rot&&PINS.rot.querySelector('.vatip'); if(t)t.hidden=true; }
+// «ЗАМЕНИТЬ» В ПЛАШКЕ (T-37, вариант А) — та же кнопка «Заменить» строки этого предмета в списке (`wireShotList`, `[data-rep]`): тот же
+// лист подбора и та же лента замен; у мебели — `openPicker(it)`, у картины-товара — её лента декора. Кнопки в строке нет — нет и ⇄
+function vwRepBtn(it){ const r=it&&vwRowOf(it); return r&&r.querySelector('[data-rep]')||null; }
+function vwReplace(){ vwTipHide(); const b=vwRepBtn(vwItemAt(VW.sel)); if(b)b.click(); }
 // узкий экран группы (< 600 px, как правило `.vacts` в CSS); `VW_PHONE` (≤ 700) — про шторку, не про подписи
 const VW_NARROW=()=>!!(window.matchMedia&&matchMedia('(max-width:599px)').matches);
 // ширина группы поменялась (подпись, размеры) — место пересчитываем СРАЗУ, в той же задаче: без 3D-видеокарты кадр идёт сотни мс, и до
@@ -10269,8 +10309,8 @@ function vwPeek(btn){
 }
 function vwSizeToggle(btn){ const g=btn&&btn.closest('.vacts'); if(!g)return; g.classList.toggle('vszopen'); g._w=0; vwPinsNow(); }
 // → {r: прямоугольник плашки на экране, cost: цена выбранного показана в плашке} или null (плашки нет)
-function vwRotPlace(box, fr, pad, kept, all, hit, underHint, pr){
-  const i=VW.sel, it=vwItemAt(i);
+function vwRotPlace(box, fr, pad0, kept, all, hit, underHint, pr){
+  const i=VW.sel, it=vwItemAt(i), pad=Math.max(pad0,8);   // у края кадра плашка прижата с полем 8 px (ценники — 4)
   if(!it||(typeof TR_NOGOODS==='function'&&TR_NOGOODS())){vwRotHide(); return null;}
   const p=all.find(q=>q.index===i);
   const free0=(x,y,w,h)=>{const r={left:fr.left+x, right:fr.left+x+w, top:fr.top+y, bottom:fr.top+y+h};
@@ -10279,37 +10319,46 @@ function vwRotPlace(box, fr, pad, kept, all, hit, underHint, pr){
   if(!p||!p.visible){vwRotHide(); return null;}
   const b=vwActsNode(box), dims=+it.w>0&&+it.d>0&&+it.h>0, can=vwCanRot(it), cost=pr?money(pr):'';
   if(!can&&!dims&&!cost){vwRotHide(); return null;}
-  b.classList.toggle('vnorot',!can); b.classList.toggle('vnodims',!dims); b.classList.toggle('vnocost',!cost);
-  if(b._for!==i){b._for=i; b.classList.remove('vszopen');}   // другой предмет — размеры снова короткие
+  const rep=!!vwRepBtn(it), cls=[!can,!dims,!cost,!rep].join();
+  if(b._cls!==cls){b._cls=cls; b._w=0;
+    b.classList.toggle('vnorot',!can); b.classList.toggle('vnodims',!dims); b.classList.toggle('vnocost',!cost); b.classList.toggle('vnorep',!rep);}
+  if(b._for!==i){b._for=i; b.classList.remove('vszopen'); b._w=0; vwTipHide();}   // другой предмет — размеры снова короткие
   if(dims){const s=b.querySelector('.vsz-s'), f=b.querySelector('.vsz-f'), ts=vwDimsTxt(it,false), tf=vwDimsTxt(it,true);
     if(s.textContent!==ts||f.textContent!==tf){s.textContent=ts; f.textContent=tf; b._w=0;}}
   const ce=b.querySelector('.vcost'); if(ce.textContent!==cost){ce.textContent=cost; b._w=0;}
   if(b.hidden){b.hidden=false; b._w=0;}
   if(b._fw!==fr.width){b._fw=fr.width; b._w=0;}
   // ПЛАШКА ВЛЕЗАЕТ В КАДР ЦЕЛИКОМ: шире кадра — сперва без цены (`.vcut`, тогда ценник предмета рисуется отдельно: телефон с подписью
-  // значка или с полными размерами), затем на компьютере — без подписей (`.vtight`, подсказка при наведении остаётся)
-  if(!b._w){const room=fr.width-2*pad, m=()=>{b._w=b.offsetWidth; b._h=b.offsetHeight;};
+  // значка или с полными размерами), затем на компьютере — короткие размеры (`.vtight`)
+  if(!b._w){const room=fr.width-2*pad, v=b.firstElementChild, m=()=>{b._w=v.offsetWidth; b._h=v.offsetHeight;};
+    // разделитель — между видимыми кнопками (после цены и у левого края пилюли его нет); видимость кнопок от `.vcut`/`.vtight` не зависит
+    let first=true; v.querySelectorAll(':scope>button').forEach(e=>{if(getComputedStyle(e).display==='none')return; e.classList.toggle('vsep',!first); first=false;});
     b.classList.remove('vcut','vtight'); m();
     if(b._w>room&&cost){b.classList.add('vcut'); m();}
     if(b._w>room&&!VW_NARROW()){b.classList.add('vtight'); m();}}
   const w=b._w, h=b._h;
-  // МЕСТО — ПО ЦЕНТРУ НАД РАМКОЙ ПРЕДМЕТА (владелец TG 1559 «лучше по центру»; рамка — проекция его коробки, `pins().box`), у края кадра —
-  // сдвиг внутрь. Занято (кнопки, шторка, подсказка) — выше на высоту плашки и на две, затем под рамкой; нет и там — ближайшая свободная
-  // строка: сперва не закрывая предмет, потом любая. В каждой строке — середина, затем ближайший сдвиг вбок: у правого края сцены
-  // середина упиралась в колонку списка (занята), и плашка пропадала (проба 1280, ТВ-тумба). Во время «Переместить» рамка едет — плашка с ней
+  // МЕСТО — ПО ЦЕНТРУ НАД РАМКОЙ ПРЕДМЕТА (владелец TG 1559 «лучше по центру», вариант А T-37 TG 748 «ровно над предметом, по центру»;
+  // рамка — проекция его коробки, `pins().box`), у края кадра — прижата к краю. Занято (кнопки, шторка, подсказка) — сперва та же середина
+  // выше на высоту плашки и на две, и только потом сдвиг вбок: прежде первым шёл сдвиг вбок на той же высоте, сначала ВЛЕВО (−12, −24 …),
+  // и плашка уезжала влево от центра предмета. Дальше — под рамкой; нет и там — ближайшая свободная строка: сперва не закрывая предмет,
+  // потом любая. У правого края сцены середина упирается в колонку списка (занята) — тогда сдвиг (проба 1280, ТВ-тумба). Во время
+  // «Переместить» рамка едет — плашка с ней
   const bx=p.box, cx=bx?(bx[0]+bx[2])/2:p.x, top=bx?bx[1]:p.y, bot=bx?bx[3]:p.y;
   const X=Math.round(Math.max(pad,Math.min(fr.width-w-pad,cx-w/2))), up=Math.round(top-PIN_GAP-h);
   const xs=[X]; for(let d=12; d<fr.width; d+=12)[X-d,X+d].forEach(x=>{if(x>=pad&&x<=fr.width-w-pad)xs.push(x);});
   const itemR=bx?{left:fr.left+bx[0], right:fr.left+bx[2], top:fr.top+bx[1], bottom:fr.top+bx[3]}:null;
   const ok=(x,y,over)=>{const r=free0(x,y,w,h); return !!r&&(over||!(itemR&&hit(r,itemR)));};
   const row=(y,over)=>{const x=xs.find(v=>ok(v,y,over)); return x==null?null:[x,y];};
+  const ups=[up, up-h-4, up-2*(h+4)], below=Math.round(bot+PIN_GAP);
   let at=null;
-  for(const y of [up, up-h-4, up-2*(h+4), Math.round(bot+PIN_GAP)])if((at=row(y,false)))break;
+  for(const y of ups)if(ok(X,y,false)){at=[X,y]; break;}
+  if(!at)for(const y of [...ups, below])if((at=row(y,false)))break;
   if(!at){const ys=[]; for(let v=pad; v<=fr.height-h-pad; v+=8)ys.push(v);
     ys.sort((a,c)=>Math.abs(a-up)-Math.abs(c-up));
     for(const over of [false,true]){for(const y of ys)if((at=row(y,over)))break; if(at)break;}}
-  if(!at){b.hidden=true; return null;}
+  if(!at){b.hidden=true; vwTipHide(); return null;}
   b.style.transform=`translate(${at[0]}px,${at[1]}px)`;
+  b.classList.toggle('vtipup',at[1]+h+40>fr.height);   // подсказке под плашкой нет места — над ней
   const r=free0(at[0],at[1],w,h); kept.push(r);
   return {r, cost:!!cost&&!b.classList.contains('vcut')};
 }
