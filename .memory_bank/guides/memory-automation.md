@@ -3,8 +3,8 @@ tier: 2
 topic: memory-automation
 scope: Как история проекта попадает в Memory Bank — слои, мост, хуки-напоминания, гейты
 tier1: ""
-last_verified: 2026-11-09
-updated: 2026-11-09
+last_verified: 2026-11-12
+updated: 2026-11-12
 importance: high
 source: manual
 ---
@@ -52,17 +52,19 @@ source: manual
   (dry-run → подтверждение). Отдельно от memory-check.
 
 ## Механический слой (Node, опционально, но рекомендован)
-- `tools/memory-audit.mjs` — детерминированная проверка: полный список категорий в его шапке
-  (ORPHAN/STALE/LAGGING/BROKEN/REVIEW/UNVERIFIED/LAST-VERIFIED-OLD/BLOATED/TIER1-BLOAT/
-  TIER0-BLOAT/NO-TIER1/PLACEHOLDER/DUP-TOPIC/BAD-FM/INDEX-REF/REGISTRY-STALE/PLAN-*/DIVERGENCE/
-  SECRET/CODE-REF/CODE-DRIFT/FROZEN-MEMORY/RULES-FM/MEM-INJECT — полный список в шапке аудита) + регенерация
-  decision tree и реестров. Для CI/хука: `--check` (не пишет файлы).
+- `tools/memory-audit.mjs` — детерминированная проверка; полный список категорий — в его шапке. Основные
+  (ORPHAN/STALE/LAGGING/BROKEN/REVIEW/UNVERIFIED/BLOATED/TIER1-BLOAT/TIER0-BLOAT/NO-TIER1/PLACEHOLDER/
+  DUP-TOPIC/BAD-FM/INDEX-REF/REGISTRY-STALE/PLAN-STUCK/PLAN-MISPLACED/DIVERGENCE/SECRET/CODE-REF/FROZEN-MEMORY/
+  RULES-FM/MEM-INJECT/ADR-DUP) — проблемы (exit 1, Stop-гейт); CODE-DRIFT, LAST-VERIFIED-OLD, NO-ANCHOR, TIER0-RULES,
+  DOC-*, остальные ADR-*/PLAN-*, DECISIONS-BLOAT, CANON-INTAKE-REF, INTAKE-*, KIT-* — предупреждения (прогон не грязнят). Плюс регенерация decision tree и реестров.
+  Для CI/хука: `--check` (не пишет файлы); пороги remlab — `_kit/audit-flags.txt`. CI: `.github/workflows/memory-audit.yml`
+  (режим `_kit/gate-mode.txt` = `warn`) и `memory-project-audit --check` в `.github/workflows/ci.yml`.
 - В remlab хуки — в `.claude/settings.json` (в репозитории, ADR-0208): SessionStart = `tools/session-freshness.mjs` +
   `memory-project-audit.mjs --brief`; Stop = `session-reminder.mjs --block --scratch-fresh-days 2` (аудит встроен, без
   CODE-DRIFT); PreCompact = `tools/precompact-guard.mjs`; PostToolUse = `tools/read-logger.mjs` (Read) и
   `tools/code-touch-hint.mjs` (Edit|Write); PreToolUse(Bash) = `tools/hooks/guard-bash.mjs`. Мягкий шаблон для чужих
   проектов — `tools/stop-hook.example.json`. Без Node, но с `r` — хуки идут через `r node tools/…`
-  на pakardev; без Node и без `r` — только shell-напоминание у Stop.
+  на pakardev (кроме `guard-bash`: он только при локальном Node); без Node и без `r` — только shell-напоминание у Stop.
 
 ## Почему не авто-хук ЗАПИСИ на каждый SessionEnd
 Авто-запись контента опасна (рекурсия, стоимость, нужно суждение о том, что durable). Поэтому
@@ -91,8 +93,8 @@ Memory Bank самодостаточен: новая сессия читает `
 - **Sync Tier 1 ↔ Tier 2.** Рассинхрон `Tier2.updated > Tier1.updated` ловит STALE; отставание слоя
   от `project-state` — LAGGING; реестры (core/plans/completed_plans) и decision tree — только аудитом.
 - **Якорь на код.** Не «трейсинг пишет шаги», а «трейсинг пишет шаги — `lib/trace/`, таблицы
-  `db/schema.ts`»: якорь включает CODE-REF (путь исчез) и CODE-DRIFT (код изменился после
-  `last_verified`). Аннотировать каждую фразу не надо — Tier 1 ограничен 3 КБ.
+  `db/schema.ts`»: якорь включает CODE-REF (путь исчез) и CODE-DRIFT (warning: код изменён позже `last_verified`,
+  без неё — `updated`, на `--code-drift-days` = 7 дн. и больше; журналы decisions/project-state/source-of-truth не проверяются). Аннотировать каждую фразу не надо — Tier 1 ограничен 3 КБ.
 - **Отравление памяти (OWASP ASI06).** Персистентная память превращает разовую инъекцию в постоянную;
   external-доки аудит сканирует на императивы (MEM-INJECT).
 - **Гигиена.** `/memory-check` — часто (структурный гейт); `/memory-cleanup` — после крупных изменений

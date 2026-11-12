@@ -3,12 +3,12 @@ tier: 2
 topic: lr-composition-guide
 scope: Справка владельца — состав и доли площади предметов гостиной по типовым метражам (для автосборки сетов и планировщика)
 tier1: ../core/lr-composition.md
-updated: 2026-11-09
+updated: 2026-11-12
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-09
+last_verified: 2026-11-12
 ---
 
 # Композиция гостиной — доли площади по метражу (справка владельца, 2026-08-01)
@@ -125,15 +125,16 @@ last_verified: 2026-11-09
 | Любая | Пледы и покрывала | до 25–30% видимой площади дивана |
 
 ## Применение
-- Автосборка сетов: сетка **7 метражей × 3 тира ≈ 21 сет**; из доли считается целевой footprint предмета
+- Автосборка сетов: сетка **7 метражей × 6 стилей × 3 тира = 126 сетов** (`compose2.py --style --bands all` →
+  `sets3.json`, `tools/scout/run.sh`; без `--style` — 7 × 3 = 21 в `sets2.json`); из доли считается целевой footprint предмета
   от площади ЗОНЫ, не выше 30 м², при qty>1 — на штуку (`tools/scout/compose2.py:pick2`, `zone_m2=min(m2,30)`):
   диван для 15 м² = 10–14% → 1,5–2,1 м² → подбор по Ш×Г каталога; для 45 м² доля берётся от 30 м².
 - Предел заполнения пола в коде — не 28–38/40 этой справки, а `occupancy.json → dynamic.floor_cap_pct` по метражу
   (14–16 → 40–50, 17–20 → 38–47, 21–25 → 36–44, 26–30 → 34–42, 31–40 → 31–39, 41–50 → 28–36, 50+ → 26–34; читают
   `services/planner-solver/planner/validate.py:check_floor_cap` и `tools/scout/compose2.py`). Превышение — мягкое
   `FLOOR_OVERFILL` (S1, `services/planner-solver/rules/severity.json`), не жёсткий отказ. У планировщика ковёр в
-  пределе учитывается (`services/planner-solver/planner/geometry.py:floor_used_pct`; без ковра — только диагностика
-  `floor_fill_diag_pct`), у композитора — нет (ковёр выбирается после кап-цикла, [[lr-composition]]). Предел справки
+  пределе учитывается (`services/planner-solver/planner/geometry.py:floor_used_pct`; без ковра, пристенное за половину — диагностика и
+  порог добора цепочки зон `floor_fill_diag_pct`, коридор `zones.json fill_policy.target_pct` 30–45), у композитора — нет (ковёр выбирается после кап-цикла, [[lr-composition]]). Предел справки
   28/38/40 остался запасным для старого `tools/scout/compose.py` и для `compose2`, если нет occupancy.
 - Машиночитаемая копия: `tools/scout/composition.json` (в git, правится руками) и будущий `data/planner/composition.ts`.
   В ней сверх таблиц выше — дополнения свода №7 (владелец 14.08, `_why_dining_small`): для 14–16 м² «стол обеденный

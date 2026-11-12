@@ -8,7 +8,7 @@ importance: med
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-11-06
+last_verified: 2026-11-12
 ---
 
 # Пул нод Salad — эксплуатация (Tier 2)
@@ -27,16 +27,19 @@ last_verified: 2026-11-06
 
 ## 1. Регламент
 - **Правила групп** — `tools/scout/rules/salad-groups.json`: тариф (`low`/`batch`), окно, цена;
-  код не хранит копий этих чисел (ADR-0177). Группу `batch` поднимает `batch_window.sh up` в 09:00
-  UTC и гасит `down` в 15:00; ручной подъём владельца вне окна допустим (это «наш» запрет, не
+  код не хранит копий этих чисел (ADR-0177; исключения — курс `pool_ledger.py:USD_RUB` и тарифы пилотного
+  `submit.py:RATE_PER_HOUR`). Группы с окном поднимает `batch_window.sh up` (крон 09:00 UTC) — только без стоп-файла
+  и при живом `batch_show.py`, и не группу под запретом цены (`salad_groups.py --can-start`); гасит `down` в 15:00
+  (404 = группы нет, не тревога); ручной подъём владельца вне окна допустим (это «наш» запрет, не
   платформы) — считать такие часы отдельно.
 - **Смена образа** — только новой группой (`migrate_groups.py --apply`; без флага — сухой
   прогон), старую гасить: квота 50 реплик общая (ADR-0154/0157). Смена ресурсов или GPU — тоже
   новой группой: `tools/scout/salad/recreate_group.py` (порядок — `mesh-run-playbook.md` § 4); PATCH живой
   группы перезапускает машины, а новая версия приходит без `ssh_port` (урок 518).
-- **Стоп-файл** `~/scout-scenes/mesh-group-halt.json` — сторож денег (ADR-0174) и обвал связи
-  (15 минут → гасим пул + Telegram) пишут его; он сильнее `autostart_policy`. Снимать руками
-  только после разбора причины (`kind`: `shared_infra`, `silence`, …).
+- **Стоп-файл** `~/scout-scenes/mesh-group-halt.json` — пишет `money_guard.py` (ADR-0174) перед гашением пула + Telegram:
+  тишина без мешей, обвал связи (≥ `MESH_GUARD_BURST_N`=25 отказов одной ошибкой за `MESH_GUARD_BURST_MIN`=15 мин) или
+  выбраны деньги волны; он сильнее `autostart_policy`. Снимать руками
+  только после разбора причины (`kind`: `budget`, `shared_infra`, `silence`).
 - **Живые логи**: `batch-hardened.log` (конвейер, `tools/scout/mesh_wave_start.sh:LOG`) пока пишется в
   `.memory_bank/_intake/` — при следующей остановке конвейера перенаправить в `~/scout-logs/`.
 
@@ -85,11 +88,11 @@ last_verified: 2026-11-06
 ## 4. Чистка приёмника и прополка — шесть шагов
 `drain.sh --keep` → `ingest_registry` → **`apply_repairs` (приёмка)** → `mesh_bind` →
 `receiver_purge --apply` → `prune_shapes.py --apply` (прополка болванок, ADR-0233; добавлена
-02.10 — `tools/scout/salad/sink_keeper.sh:92` и `tools/scout/salad/batch_show.py:649`).
+02.10 — `tools/scout/salad/sink_keeper.sh:93` и `tools/scout/salad/batch_show.py:649`).
 Пропуск приёмки даёт «к удалению: 0, нет в базе 161»: без вердикта база не помечает
 `mesh_status` (так было 04.09); с 20.10 (mesh-12) чистилка судит по реестру поколений `mesh_generations`, а не по `mesh_status`:
 комплект с моделью, не записанный `ingest_registry`, остаётся («нет в реестре», `tools/scout/salad/receiver_purge.py:225-229`, шапка `:13-29`;
-пояснение — `tools/scout/salad/sink_keeper.sh:14-18`).
+пояснение — `tools/scout/salad/sink_keeper.sh:15-19`).
 **Порядок двух последних шагов обязателен:** прополка уменьшает объём локальной копии, а
 `receiver_purge.py:222-224` и `drain.sh:65-74` судят по сравнению объёмов — болванка, снятая раньше
 выезда комплекта, навсегда оставила бы его на приёмнике.
@@ -119,7 +122,7 @@ last_verified: 2026-11-06
   только A5000 (**отменено 22.10, ADR-0315**); применено 20.10 (T-20261020-21): `mesh-low-8` (30 реплик) + `mesh-batch-5` (20, окно 09–15), обе только RTX A5000,
   `memory 24576`, тот же digest; `mesh-low-6/7`, `mesh-batch-4` удалены; волна перезапущена 20:29 UTC, первое ok 20:52 (A5000, 167 с).
   A5000 на low дают скупо: 1 нода из 30, к 21:05 и та ушла. Процедура — `mesh-run-playbook.md` § 4. На потом: телеметрия памяти наружу
-  каждые 1–2 с (`memory.stat`, PSI, `nvidia-smi`), 3090-canary на 48 ГБ. `del mesh` уже сделан — сразу после стадии формы (`tools/scout/salad/pipeline.py:543`, `_shape_stage`).
+  каждые 1–2 с (`memory.stat`, PSI, `nvidia-smi`), 3090-canary на 48 ГБ. `del mesh` уже сделан — сразу после стадии формы (`tools/scout/salad/pipeline.py:547`, `_shape_stage`).
   Группы Salad: ресурсы живой группы не патчить (PATCH → версия 2 без ssh_port); имя удалённой группы Salad держит (name_conflict).
 - **Сторож денег был слеп при смене групп (20.10, закрыто T-20261020-24, урок 519):** вечный цикл `money_guard.py` читал `SALAD_GROUP`
   один раз на старте — после смены salad.env опрашивал удалённые группы (HTTPError) и писал «работающих нод нет — не платим», новую
@@ -152,8 +155,8 @@ last_verified: 2026-11-06
   После вытеснения/пересадки у машины всегда новый `instance_id` — лимиты и карантин вести по `machine_id` (`tools/scout/salad/machine_list.py`).
 - **Ночь 23→24.10 (SSH, `mesh-low-10`):** 106 мешей; 108 из 202 прогретых машин раздатчик не увидел (SSH `/health` молчит — шлюз рвёт до
   приветствия, `kex_exchange_identification`), 54 % оплаты; цена по тарифу 3090 завышала 4060 Ti (low $0.10 против $0.143) → по классу
-  ≈ 500 ₽ (4,7 ₽/меш), сторож погасил в 00:42 UTC. SSH теперь на `ssh_ip:ssh_port` из API (`ssh_run.Addr`), молчащие — 2 пробы × 240 с,
-  бюджет 12/ч; у всех машин пробы 24.10 `ssh_ip` один — «другой шлюз» не подтвердился → mesh-18.
+  ≈ 500 ₽ (4,7 ₽/меш), сторож погасил в 00:42 UTC. SSH теперь на `ssh_ip:ssh_port` из API (`ssh_run.Addr`), молчащая — снимается после ≥ 240 с и ≥ 2 проб подряд
+  (`ssh_run.silent_fault`), бюджет пересадок 12/ч (`node_health.py:MAX_SILENT_CULL_PER_HOUR`); у всех машин пробы 24.10 `ssh_ip` один — «другой шлюз» не подтвердился → mesh-18.
 - **Очередь Salad (mesh-18):** `queue_connection` только при создании группы (PATCH существующей — `container_groups` пуст, задания
   `pending`, так было 28.08); `container_groups` очереди пуст и у работающей группы — не мерило связи; Salad ставит `succeeded` на любой
   HTTP 200 → итог по `output.status`; квота реплик при СОЗДАНИИ группы не проверяется (было 52/50). Режим очереди держит `.batch_show.lock`
@@ -161,12 +164,13 @@ last_verified: 2026-11-06
 
 ## 7. 06–09.11: мёртвая рука, имя группы, баланс
 - **Живая группа = есть машины** (T-92, 06.11): сторож сервера `infra/server/salad-deadman.py` считает машины по
-  `current_state.instance_status_counts`; группа не в stopped, но без машин (`pending` — кэш образа, allocating/creating с 0) —
+  `current_state.instance_status_counts` (allocating+creating+running+stopping; счётчиков нет — группа не в stopped/failed
+  считается живой); группа не в stopped, но без машин (`pending` — кэш образа, allocating/creating с 0) —
   решение `no_machines`: не платится, не гасится, тревоги нет. До правки слал «не остановились» по `pending`, а `/stop` в `pending`
   не работает (ложная тревога 06.11 TG 267).
 - **Группу-очередь по самой себе не пересоздавать:** образец удаляется вместе с группой, а Salad держит имя удалённой группы
   `name_conflict` > 50 мин — ни группы, ни образца. `recreate_group.py` отказывает (`self_donor_refusal`), группу-очередь создаёт
-  `queue_setup.py` по живому донору под новым именем (06.11: запасное `mesh-q-color-canary2`).
+  `queue_setup.py` по живому донору под новым именем (06.11: запасное `mesh-q-color2-canary` — окончание `-canary` обязательно, `tools/scout/rules/salad-groups.json`).
 - **Баланс Salad программно не узнать** (в API нет; `tools/scout/salad/wave_guard.py`, шапка) — остаток сообщает владелец; у нас только
   учёт трат (`pool_ledger.py`, книга сторожа денег).
 

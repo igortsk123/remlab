@@ -3,7 +3,7 @@ tier: 1
 topic: observability-tracing
 scope: Трейсинг AI-пайплайна — лог, разбор
 tier2: ../domain/observability.md
-updated: 2026-11-10
+updated: 2026-11-12
 importance: high
 source: manual
 status: working

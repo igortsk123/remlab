@@ -231,3 +231,10 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-12	core/observability-tracing.md	drift	1	1	1	T-20261112-42: досверка от Tier 2: saveAsset не идёт в traceWriteFailures
 2026-11-12	guides/product-book-plan.md	drift	14	0	0	T-20261112-42: весь док; пути глав, book-build.py, book_page, noindex — всё совпало
 2026-11-12	guides/execution-playbook.md	drift	18	2	2	T-20261112-42: весь док; секреты + tools/scout/.env (env_keys.py), выкатка: smoke и откат в deploy.yml, не в deploy-remote.sh
+2026-11-12	guides/memory-automation.md	drift	32	3	3	T-20261112-42: весь док; категории аудита проблемы/предупреждения + audit-flags, guard-bash без r, CODE-DRIFT: updated-запас и 7 дн
+2026-11-12	guides/layout-engine-spec.md	drift	48	10	10	T-20261112-42: весь док; блок «Сейчас в коде»: zoned-движок, BEAM_WIDTH 20, сетка 25 см, см float, JSON-правила, стек pydantic/shapely; путь weights.json
+2026-11-12	domain/interior-styles.md	drift	46	7	7	T-20261112-42: весь док; кэш 19.2k, формула балла товара/набора compose2, SETS_OUTPUT, тв-тумба — своя роль, спальня/прихожая --db; якоря строк
+2026-11-12	domain/living-room-checklist.md	drift	29	2	2	T-20261112-42: весь док; приставной только при кресле (A2), слой 21+ — _ENRICH при заполнении <30%; 2 не о коде
+2026-11-12	domain/lr-composition-guide.md	drift	14	2	2	T-20261112-42: весь док; 126 сетов (7×6×3), floor_fill_diag_pct ещё порог добора зон
+2026-11-12	core/lr-checklist.md	drift	9	0	0	T-20261112-42: сводка сверена с обновлённым Tier 2 (ядро CORE, _EXCL, картина вне ROLES, unfit) — расхождений нет; updated поднят
+2026-11-12	domain/mesh-pool-ops.md	drift	49	9	9	T-20261112-42: весь док; копии цен pool_ledger/submit, batch_window условия, стоп-файл 3 повода, якоря sink_keeper/pipeline, deadman, имя mesh-q-color2-canary; 3 — поведение Salad

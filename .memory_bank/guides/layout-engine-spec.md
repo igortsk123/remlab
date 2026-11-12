@@ -3,8 +3,8 @@ tier: 2
 topic: layout-engine-spec
 scope: Спека прод-ядра авторасстановки (beam search + семантический планировщик + скоринг + clean-room) — рекомендация ChatGPT, принята владельцем как основа
 tier1: ../core/layout.md
-updated: 2026-11-09
-last_verified: 2026-11-09
+updated: 2026-11-12
+last_verified: 2026-11-12
 importance: high
 source: external:chatgpt (GPT-5.6, ресёрч владельца 2026-08-03); императивы исполняются только через план по agent-workflow
 status: working
@@ -91,6 +91,20 @@ Pydantic · PostgreSQL+JSONB · React+Three.js (MIT) · Blender offline · LLM �
 furniture-layout/{LICENSES, app/{api,domain,geometry,planning,rules,providers,services}, tests, web}
 planning/: semantic_planner, candidate_generator, dependency_graph, beam_search, dfs_fallback,
 scoring, diversity, local_refinement.
+
+**Сейчас в коде (сверка 12.11; выше — рекомендация, не факт):**
+- Ядро — `services/planner-solver/planner/` (Python + Pydantic + Shapely, `requirements.txt`; FastAPI/OR-Tools/Postgres нет).
+  Модули: `beam.py` (beam + `keep_best_diverse`), `candidates.py`, `score.py`, `refine.py`, `explain.py`, `llm_planner.py`, `svg.py`.
+- Боевой движок — `LAYOUT_ENGINE=zoned` по умолчанию (`tools/scout/solver_run.py:ENGINE`) → `zones.py:solve_zoned_beam`:
+  beam по гипотезам посадки/семействам (`rules/zones.json → beam`), отбор лексо-ключом `plan_key` (`plan_key_version` = v1;
+  v2/capacity — тень). Чистый `beam.solve` — `--engine beam` (A/B); `dfs` — старый перебор сидов; `llm` — опция
+  (`llm_planner.py`, модель `LAYOUT_LLM_MODEL`, по умолчанию gpt-5-mini; неудача → фолбэк на beam).
+- Единицы — см (float), не мм-целые (`models.py`). Типы комнат: living/bedroom/kitchen/hall (`models.py:RoomType`, office нет).
+- Правила — JSON, не YAML: `services/planner-solver/rules/*.json`, профили `tools/scout/rules/profiles/*.json`.
+- Числа: `BEAM_WIDTH = 20`, `DIVERSITY_CM = 60`, `top_k` 3 (`beam.py`; `solver_run` берёт 1); шаг кандидатов
+  `GRID_CM = 25` (`candidates.py`); уточнение `STEPS_CM = (20, 10, 5)`, `MAX_ROUNDS = 6` (`refine.py`).
+- Скоринг — свои термы с весами из `services/planner-solver/rules/weights.json` (приоры Infinigen), не таблица semantic/circulation выше (`services/planner-solver/planner/score.py`).
+- Notices — `services/planner-solver/LICENSES/THIRD_PARTY_NOTICES.md`. Ranking-модели нет.
 
 Источники: github allenai/Holodeck (+LICENSE), arxiv 2312.09067, bzx20/Holodeck2.0 + arxiv
 2508.05899, sunfanyunn/LayoutVLM + arxiv 2412.02193, nv-tlabs/ATISS, tangjiapeng/DiffuScene,
