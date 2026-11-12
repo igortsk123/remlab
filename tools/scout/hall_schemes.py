@@ -717,29 +717,50 @@ def local_narrowing(room: Room, placed, need):
     return res
 
 
-SHELF_OVER = 20       # полка шире носителя (крючки/вешалка) не больше чем на 20 см — иначе «полка над крючками» не про них
+SHELF_Z = 180         # низ полки — выше головы: под ней низкое (обувница, банкетка, крючки) не мешает, выше — мешает
+SHELF_COVER = 0.75    # полка «над крючками»: общая с носителем длина вдоль стены ≥ 3/4 узкого из двух (сдвиг от двери у угла)
 
 
-def shelf_over(poly, q, x):
-    """След полки над носителем q: спинкой к той же стене, по его оси; у угла — сдвиг вдоль стены (T-72/3), пока полка
-    в пределах стены и всё ещё над носителем (сдвиг ≤ половины разницы ширин). Не влезла и со сдвигом → None."""
+def shelf_block(room: Room, placed, q):
+    """Что занимает стену на высоте полки (T-72/4, владелец TG 1221 «полку шире крючков ок»): проёмы (дверь, окно — их
+    коробка выше головы), дуги дверей, высокая мебель (верх выше `SHELF_Z`: шкаф, стеллаж) и настенные зеркала (верх
+    зеркала у головы). Носитель q и низкое под полкой — не мешают."""
+    parts = [_wall_strip(room, op.wall, op.offset_cm, op.width_cm, 5) for op in room.openings]
+    parts += [swing_polygon(room, op) for op in room.openings if op.kind != 'window' and op.swing_cm > 0]
+    for p in placed:
+        if p is q or p.item is None:
+            continue
+        top = (p.elev_cm or 0) + (p.item.h_cm or 999)
+        if is_wall_mirror(p) or top > SHELF_Z:
+            parts.append(footprint(p))
+    return unary_union(parts) if parts else None
+
+
+def shelf_over(poly, q, x, block=None):
+    """След полки над носителем q: спинкой к той же стене, по его оси; у угла, проёма или шкафа — сдвиг вдоль стены
+    (T-72/3), пока полка в пределах свободной стены (`shelf_block`) и всё ещё над носителем: общая длина — не меньше
+    `SHELF_COVER` от узкого из двух. Полка шире носителя — можно (владелец TG 1221), предел — свободная длина стены.
+    Не влезла → None."""
     it = Item(role='полка', w_cm=x['w'], d_cm=x['d'], h_cm=x['h'])
     n = (math.sin(math.radians(q.rot)), math.cos(math.radians(q.rot)))      # лицом в комнату; спинка — к стене
     t = (n[1], -n[0])                                                         # вдоль стены
     sh = (x['d'] - q.item.d_cm) / 2
-    lim = abs(x['w'] - q.item.w_cm) / 2
-    steps = [0.0] + [s * k for k in range(1, int(lim) + 1) for s in (1, -1)] + ([lim, -lim] if lim % 1 else [])
+    half = abs(x['w'] - q.item.w_cm) / 2                       # торец полки — вровень с торцом носителя (у угла)
+    lim = half + (1 - SHELF_COVER) * min(x['w'], q.item.w_cm)
+    steps = sorted({0.0, half, -half, lim, -lim} | {s * k for k in range(1, int(lim) + 1) for s in (1, -1)},
+                   key=lambda s: (abs(s), -s))
     for s in steps:
         p = Placement(role='полка', x=q.x + n[0] * sh + t[0] * s, y=q.y + n[1] * sh + t[1] * s, rot=q.rot, item=it)
         fp = footprint(p)
-        if fp.difference(poly).area <= 1.0:
+        if fp.difference(poly).area <= 1.0 and (block is None or fp.intersection(block).area <= 1.0):
             return fp
     return None
 
 
 def place_extras(room: Room, placed, need, by):
     """Полка над крючками/вешалкой и коврик у входа — не занимают пол. Полка: на стене носителя, по его оси (у угла —
-    сдвиг вдоль стены, `shelf_over`), не шире носителя + `SHELF_OVER`; нет носителя или товара — пусто с причиной
+    сдвиг вдоль стены, `shelf_over`), выше головы; шире носителя — можно до свободной длины стены (владелец TG 1221),
+    из товаров — ближайшая по ширине к носителю, что встаёт; нет носителя или товара — пусто с причиной
     (leave_empty). Коврик — в каждом шаблоне (владелец TG 1176): плоский, у входной двери внутри комнаты, длинной стороной
     вдоль двери, не под мебелью; не лёг или нет товара — пусто с причиной, состав уровня ради коврика не роняется."""
     poly = room_polygon(room)
@@ -758,15 +779,18 @@ def place_extras(room: Room, placed, need, by):
                 empty.append('полка: нет крючков/вешалки под ней')
                 continue
             q = car[0]
-            fit = [x for x in xs if x['w'] <= q.item.w_cm + SHELF_OVER]   # не шире носителя больше чем на 20 (T-72/3)
-            if not fit:
-                empty.append(f'полка: нет товара не шире {RU[base_role(q.role)].lower()} + {SHELF_OVER} см')
+            block = shelf_block(room, placed, q)
+            got = None
+            for x in sorted(xs, key=lambda x: (abs(x['w'] - q.item.w_cm), -x['w'])):   # ближе к ширине носителя
+                fp = shelf_over(poly, q, x, block)
+                if fp is not None:
+                    got = (x, fp)
+                    break
+            if got is None:
+                empty.append(f'полка: не помещается на свободной стене над {RU[base_role(q.role)].lower()} '
+                             f'(самая узкая {min(x["w"] for x in xs):.0f} см)')
                 continue
-            x = fit[0]
-            fp = shelf_over(poly, q, x)
-            if fp is None:
-                empty.append('полка: не помещается на стене над носителем')
-                continue
+            x, fp = got
             out.append((role, fp, f'полка {x["w"]:.0f} над {RU[base_role(q.role)].lower()}', x))
         else:
             ent = entrance(room)

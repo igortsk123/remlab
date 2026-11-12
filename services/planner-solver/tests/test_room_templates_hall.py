@@ -279,9 +279,8 @@ def test_sheet_pinch_sits_in_the_real_gap(hs):
     assert pinch and 40 <= pinch[1][1] <= 80, pinch           # щель у входа — точка у входа
 
 
-def test_hall_shelf_slides_from_corner_and_width_cap(hs):
-    """T-20261112-72/3: полка над крючками в углу сдвигается вдоль стены (в пределах стены, над крючками); полка шире
-    крючков больше чем на 20 см не ставится — строка «нет товара не шире»."""
+def test_hall_shelf_slides_from_corner(hs):
+    """T-20261112-72/3: полка над крючками в углу сдвигается вдоль стены (в пределах стены, над крючками)."""
     room = hs.to_room({"w": 100, "d": 120, "radiators": [], "openings": [hs._d("south", 10, 80, ent=True)]})
     hooks = hs.Placement(role="крючки", x=2, y=15, rot=90, item=hs.Item(role="крючки", w_cm=30, d_cm=4, h_cm=8))
     poly = hs.room_polygon(room)
@@ -294,8 +293,40 @@ def test_hall_shelf_slides_from_corner_and_width_cap(hs):
     need = [{"role": "полка", "kind": "dependent"}]
     out, empty, miss = hs.place_extras(room, [hooks], need, {"полка": [shelf]})
     assert miss is None and [o[0] for o in out] == ["полка"] and empty == []
-    out, empty, miss = hs.place_extras(room, [hooks], need, {"полка": [{"w": 60, "d": 20, "h": 15}]})
-    assert out == [] and miss is None and empty and "не шире" in empty[0], (out, empty)
+
+
+def test_hall_shelf_wider_than_hooks(hs):
+    """Владелец TG 1221 (T-20261112-72/4): полка над крючками может быть шире крючков — до свободной длины стены, выше
+    головы; проход не меняет. Шкаф или дверь на стене — полка сдвигается мимо них или не ставится (строка почему)."""
+    room = hs.to_room({"w": 100, "d": 120, "radiators": [], "openings": [hs._d("south", 20, 80, ent=True)]})
+    hooks = hs.Placement(role="крючки", x=2, y=15, rot=90, item=hs.Item(role="крючки", w_cm=30, d_cm=4, h_cm=8))
+    need = [{"role": "полка", "kind": "dependent"}]
+    wide = {"w": 80.5, "d": 19, "h": 26}
+    # дверь в 10 см от угла: полка не висит над её проёмом — уходит от двери, но остаётся над крючками (≥ 3/4)
+    near = hs.to_room({"w": 100, "d": 120, "radiators": [], "openings": [hs._d("south", 10, 80, ent=True)]})
+    out, empty, _ = hs.place_extras(near, [hooks], need, {"полка": [wide]})
+    lo, hi = out[0][1].bounds[1], out[0][1].bounds[3]
+    assert lo >= 4.5 and min(hi, 30) - lo >= 0.75 * 30 - 0.5, (out, empty)
+    placed = [hooks]
+    bw0, pinch0 = hs.best_width(room, placed), hs.route_paths(room, placed, 60, widest=True)[1]
+    out, empty, miss = hs.place_extras(room, placed, need, {"полка": [wide]})
+    assert miss is None and empty == [] and [o[0] for o in out] == ["полка"], (out, empty)
+    fp = out[0][1]
+    lo, hi = fp.bounds[1], fp.bounds[3]
+    assert hi - lo == pytest.approx(80.5, abs=0.5) and lo <= 0.5 and hi >= 30, fp.bounds   # накрывает крючки, у угла
+    # полка висит выше головы: в расстановку не попадает, ширина прохода и узкое место те же
+    assert placed == [hooks]
+    assert hs.best_width(room, placed) == bw0 and hs.route_paths(room, placed, 60, widest=True)[1] == pinch0
+    # шкаф вплотную над крючками (высокий) — полка 80 не влезает, узкая 30 — встаёт
+    tall = hs.Placement(role="шкаф", x=25, y=70, rot=90, item=hs.Item(role="шкаф", w_cm=40, d_cm=50, h_cm=210))
+    out, empty, miss = hs.place_extras(room, [hooks, tall], need, {"полка": [wide]})
+    assert out == [] and miss is None and "не помещается на свободной стене" in empty[0], (out, empty)
+    out, empty, miss = hs.place_extras(room, [hooks, tall], need, {"полка": [wide, {"w": 30, "d": 19, "h": 26}]})
+    assert [o[3]["w"] for o in out] == [30], (out, empty)
+    # низкая обувница под полкой не мешает
+    low = hs.Placement(role="обувница", x=12, y=70, rot=90, item=hs.Item(role="обувница", w_cm=60, d_cm=23, h_cm=90))
+    out, empty, miss = hs.place_extras(room, [hooks, low], need, {"полка": [wide]})
+    assert [o[3]["w"] for o in out] == [80.5], (out, empty)
 
 
 def test_mat_in_every_hall_template():
