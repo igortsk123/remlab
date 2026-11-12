@@ -9,6 +9,7 @@
      «не выдумывать подушки»; без мягкого текст прежний; третий лист реально уходит в модель.
     ~/venvs/scout/bin/python tools/scout/tests/test_demo_soft.py"""
 import ast
+import json
 import os
 import sys
 
@@ -111,7 +112,12 @@ soft = IM.soft_items(pay)
 check('запрос: мягкое берётся из списка варианта', [d['role'] for d in soft] == ['подушка', 'шторы'])
 sl = IM.soft_list(soft, 1, pay['items'] + [{'role': 'диван'}])
 check('место словами: подушка — на диване, шторы — на окне',
-      'sofa' in sl[0]['place'] and 'window' in sl[1]['place'] and sl[0]['size_cm'] == '45×45' and sl[1]['size_cm'] == '260×300', str(sl))
+      'sofa' in sl[0]['place'] and 'window' in sl[1]['place'] and sl[0]['size_cm'] == '45×45', str(sl))
+# ШТОРЫ (T-20261112-113): в модель — длина полотна, ширина на окне — по окну; ширина рулона (260/300 см) не уходит — по ней модель
+# растягивала панели по стене за мебель и сужала окно
+check('шторы: длина полотна, ширина — по окну, без ширины рулона',
+      sl[1].get('length_cm') == 300 and 'size_cm' not in sl[1] and 'window width' in sl[1].get('hung_width', '')
+      and '260' not in json.dumps(sl[1], ensure_ascii=False) and 'little past the window frame' in sl[1]['place'], str(sl[1]))
 th = IM.soft_list([{'role': 'плед', 'sku': {'name': 'Плед'}}], 1, [{'role': 'кресло'}])
 th2 = IM.soft_list([{'role': 'плед', 'sku': {'name': 'Плед'}}], 1, [{'role': 'диван'}])
 check('плед — на кресле, без кресла — на подлокотнике дивана', 'armchair' in th[0]['place'] and 'sofa arm' in th2[0]['place'])
@@ -123,12 +129,26 @@ check('с мягким: три картинки, блок SOFT TEXTILES со с�
       and 'SOFT TEXTILES FROM IMAGE 3 — MUST BE ADDED' in p1 and '"item": "cushion"' in p1)
 check('с мягким: шторы — товар с листа, не «под стиль»', 'HANG THE CURTAINS FROM IMAGE 3 (#2)' in p1
       and 'DRESS THE WINDOW WITH CURTAINS' not in p1)
+check('шторы товаром и «под стиль»: одно правило CURTAINS (окно не сужать, за мебель не вешать) — один раз',
+      p1.count(IM.CURTAINS) == 1 and p0.count(IM.CURTAINS) == 1 and 'Never narrow, shift' in IM.CURTAINS
+      and 'never hangs behind, over or through furniture' in IM.CURTAINS)
 check('с мягким: исключение из «не выдумывать подушки» — в жёстких правилах',
       'EXCEPTION: the cushions and throws listed under SOFT TEXTILES' in p1
       and p1.index('EXCEPTION: the cushions') < p1.index('STYLE GUIDE'))
 pd = IM.prompt_for('сканди', [{'role': 'ваза'}], None, None, None, None, IM.soft_list(soft, 2, pay['items']))
 check('декор и мягкое вместе: декор — по своим номерам на опору, мягкое — после',
       'Every decor item on IMAGE 3 (#1)' in pd and 'HANG THE CURTAINS FROM IMAGE 3 (#3)' in pd)
+# ДЕКОР ПО МЕСТУ (T-113): картины — на стену над диваном, люстра — над зоной отдыха; на столешницу — только остальное, номера как на листе
+pa = IM.prompt_for('современный', [{'role': 'ваза'}, {'role': 'люстра'}, {'role': 'картина'}, {'role': 'картина 2'}], None, None, None,
+                   None, IM.soft_list(soft, 5, pay['items']))
+check('декор по месту: ваза — на столешницу (#1), картины #3, #4 — на стену, люстра #2 — к потолку, шторы — #6',
+      'Every decor item on IMAGE 3 (#1) has to appear' in pa and 'WALL ART #3, #4 from IMAGE 3' in pa
+      and 'centred above the sofa' in pa and 'never above a window, door or radiator' in pa
+      and 'CEILING LAMP #2 from IMAGE 3' in pa and 'above the seating area' in pa and 'HANG THE CURTAINS FROM IMAGE 3 (#6)' in pa, pa[:200])
+po = IM.prompt_for('современный', [{'role': 'картина'}])
+check('только картина: строки «на столешницу» нет', 'standing ON an existing horizontal' not in po and 'WALL ART #1 from IMAGE 3' in po)
+check('контур мебели — в жёстких правилах', 'never enlarge, stretch or widen a product' in pa
+      and pa.index('never enlarge, stretch') < pa.index('STYLE GUIDE'))
 RSRC = open(os.path.join(HERE, '..', 'draft_render.py'), encoding='utf-8').read()
 check('третий лист уходит в модель (был только в тексте)', "built.get('dsheet') is not None and 'IMAGE 3' in prompt" in RSRC)
 ISRC = open(os.path.join(HERE, '..', 'improve_mode.py'), encoding='utf-8').read()

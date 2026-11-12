@@ -21,7 +21,7 @@ def check(name, cond, info=''):
 
 import re
 
-_want = 'improve-v4.3' if os.environ.get('IMPROVE_PROMPT') == 'v4' else 'improve-v3.3'   # v4 — у рисующего процесса прода
+_want = 'improve-v4.4' if os.environ.get('IMPROVE_PROMPT') == 'v4' else 'improve-v3.4'   # v4 — у рисующего процесса прода
 check(f'версия промпта {_want}', IM.PROMPT_VERSION == _want, IM.PROMPT_VERSION)
 db = json.load(open(os.path.join(HERE, '..', 'styles.json'), encoding='utf-8'))
 # ДОБАВЛЕНИЯ, КОТОРЫЕ ГАЙД ДЕЛАТЬ НЕ ВПРАВЕ (demo-13): светильники, ниши, экраны радиатора, ковры, мебель. Ссылки на уже стоящее
@@ -95,8 +95,8 @@ check('ALLOWED: светильник стиля — запись решения 
       any('ceiling fixture' in k for k in db['_decor_policy']['allow_now']) and 'ceiling fixture' in IM.prompt_for('сканди').split('Explicitly ALLOWED')[1])
 check('отпечаток промпта стабилен', IM.prompt_sha('abc') == IM.prompt_sha('abc') and len(IM.prompt_sha('abc')) == 12)
 # improve-v4 (demo-14): список товаров — только по флагу; без флага промпт и версия прежние
-check('без флага — improve-v3.3 и без списка товаров', (os.environ.get('IMPROVE_PROMPT') == 'v4') or
-      (IM.PROMPT_VERSION == 'improve-v3.3' and 'PRODUCT LIST' not in IM.prompt_for('сканди')))
+check('без флага — improve-v3.4 и без списка товаров', (os.environ.get('IMPROVE_PROMPT') == 'v4') or
+      (IM.PROMPT_VERSION == 'improve-v3.4' and 'PRODUCT LIST' not in IM.prompt_for('сканди')))
 _pl = [{'id': [1], 'role': 'диван', 'name': 'Диван Викс Рогожка Серый', 'material': 'woven matting fabric', 'colour_name': 'Серый',
         'colour_hex': '#82828C', 'confidence': 0.8}]
 _p4 = IM.prompt_for('сканди', products=_pl)
@@ -109,7 +109,10 @@ import hashlib  # noqa: E402
 _cases = lambda **kw: '\n\n'.join(x for st in ('сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди') for x in
                                      (IM.prompt_for(st, **kw), IM.prompt_for(st, [{'role': 'ваза'}], 'Ламинат', 'Белая', 'portrait', **kw)))
 _h = lambda t: hashlib.sha256(t.encode()).hexdigest()[:12]
-check('гостиная: промпт побайтно прежний (без комнаты и с room=living)', _h(_cases()) == '447225d2bbec' and _cases(room='living') == _cases(),
+# T-113 (12.11, improve-v*.4): промпт сменён НАМЕРЕННО — шторы по ширине окна, окно строго по кадру, контур мебели, картины на стену,
+# люстра к потолку; отпечатки 12 случаев пересняты с нового кода (было: гостиная 447225d2bbec, спальня 69d208d9d4ea,
+# прихожая 3dc602321119, ключ кадров bd8cc75634b0db84ca37ee0142c311f8)
+check('гостиная: промпт побайтно прежний (без комнаты и с room=living)', _h(_cases()) == 'eb0e3784780e' and _cases(room='living') == _cases(),
       _h(_cases()))
 _rr = json.load(open(os.path.join(HERE, '..', 'rules', 'improve-rooms.json'), encoding='utf-8'))
 _pb = IM.prompt_for('минимализм', room='bedroom')
@@ -135,7 +138,7 @@ check('тип комнаты из запроса — room.kind', IM.room_kind({'
       and IM.room_kind({}) is None)
 # ДЕТСКАЯ 7–12 (T-20261107-46/1, kids-room-01 «Фото»): свой промпт по `purpose` запроса; спальня взрослых и прихожая — побайтно прежние
 # (отпечатки 12 случаев сняты с кода до правки: спальня 69d208d9d4ea, прихожая 3dc602321119)
-check('спальня и прихожая: промпт побайтно прежний', _h(_cases(room='bedroom')) == '69d208d9d4ea' and _h(_cases(room='hall')) == '3dc602321119',
+check('спальня и прихожая: промпт побайтно прежний', _h(_cases(room='bedroom')) == '8298219663d2' and _h(_cases(room='hall')) == '4ff99eb6d779',
       (_h(_cases(room='bedroom')), _h(_cases(room='hall'))))
 _bed = {'room': {'kind': 'bedroom'}}
 check('назначение запроса: детская — своя запись, взрослые и неизвестные — тип, без комнаты — None',
@@ -158,6 +161,7 @@ check('детская не задевает спальню, прихожую и 
       and 'school child' not in _cases(room='hall') and 'school child' not in _cases())
 _fk = {'views': [{'camera': 'C1', 'id': 'a'}, {'camera': 'C2', 'id': 'b'}], 'style': 'сканди', 'items': [{'role': 'кровать', 'name': 'X', 'img': 'u'}],
        **_bed}
-check('ключ кадров: взрослая спальня прежний (и с purpose), детская — свой', IM.frames_key(_fk, 'm', 'medium') == 'bd8cc75634b0db84ca37ee0142c311f8'
+check('ключ кадров: взрослая спальня прежний (и с purpose), детская — свой', IM.frames_key(_fk, 'm', 'medium') == {'improve-v3.4': '76bcaf93ccaba87fb48b4f5ef9081710',
+                                                                                    'improve-v4.4': '8aba89e1be7571059b69d30caad9a5e0'}[_want]
       == IM.frames_key({**_fk, 'purpose': 'couple'}, 'm', 'medium') != IM.frames_key({**_fk, 'purpose': 'child:7-12'}, 'm', 'medium'))
 sys.exit(1 if fails else 0)

@@ -24,6 +24,7 @@
 import io
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
@@ -48,8 +49,12 @@ SIZE = os.environ.get('IMPROVE_SIZE', '2048x3072')     # замер: прини�
 # «.2» (demo-20 Г4, владелец 22.10 TG 830–836): белый плафон-заглушка сцены → потолочный светильник стиля (CEILING LIGHT гайда, блок CEILING FIXTURE)
 # «.3» (demo-24, владелец 23.10): МЯГКОЕ комплекта (подушки, шторы, плед) — в запрос третьим листом и местом словами (блок SOFT TEXTILES):
 # в 3D их нет, мешей нет, на фото — есть. Третий лист теперь и правда уходит в модель (`draft_render`: раньше только упоминался в тексте)
+# «.4» (T-20261112-113, владелец TG 1284 «софа врезана в окно, окно не там»): шторы — по ширине окна плюс немного, только под карнизом
+# листа, окно ради них не сужать и не двигать, на мебель и за мебель не заходят; уже нарисованные на листе — их место и ширина (блок
+# CURTAINS); в модель — длина полотна вместо ширины рулона (тюль 300 см при окне 150 давал панели на стене за подлокотником); контур
+# мебели — по листу (растяжка дивана +17 % на том же кадре). Одно правило для всех комнат, стилей и туров
 PROMPT_V4 = os.environ.get('IMPROVE_PROMPT') == 'v4'
-PROMPT_VERSION = ('improve-v4' if PROMPT_V4 else 'improve-v3') + '.3'
+PROMPT_VERSION = ('improve-v4' if PROMPT_V4 else 'improve-v3') + '.4'
 _MATERIALS = [('рогожк', 'woven matting fabric'), ('шенилл', 'chenille'), ('велюр', 'velour'), ('букле', 'bouclé'), ('вельвет', 'corduroy'),
               ('экокож', 'faux leather'), ('кож', 'leather'), ('лён', 'linen'), ('шерст', 'wool'), ('хлоп', 'cotton'), ('дуб', 'oak'),
               ('орех', 'walnut'), ('ясень', 'ash'), ('сосн', 'pine'), ('древесн', 'wood'), ('дерев', 'wood'), ('металл', 'metal'),
@@ -60,8 +65,9 @@ _MATERIALS = [('рогожк', 'woven matting fabric'), ('шенилл', 'chenil
 # Ключ — роль без номера; нет кресла — плед на диване
 SOFT_PLACE = {
     'подушка': ('cushion', 'on the sofa seat, leaning against the backrest'),
-    'шторы': ('curtains', 'hung at the window from a rod above the opening, one panel at each side, without covering the glass '
-                          'centre, the radiator or any furniture'),
+    'шторы': ('curtains', 'hung at the window from the existing rod above the opening, within its ends, one gathered panel at each '
+                          'side reaching only a little past the window frame, without covering the glass centre, the radiator or any '
+                          'furniture (see CURTAINS)'),
     'плед': ('throw', 'draped over the armchair'),
     'покрывало': ('throw', 'draped over the armchair'),
     'полка': ('wall shelf', 'mounted on a free wall, not above the television'),
@@ -84,7 +90,13 @@ def soft_list(soft: list, first: int, items: list | None = None) -> list:
         what, place = SOFT_PLACE.get(base, (base, 'where it naturally belongs in a living room'))
         if what == 'throw' and items is not None and 'кресло' not in roles:
             place = 'folded over the sofa arm'
-        # подушка — лицевая сторона (Ш×Г), шторы и плед — ширина×высота полотна
+        # подушка — лицевая сторона (Ш×Г), плед — ширина×высота полотна. ШТОРЫ (T-113) — только длина: ширина рулона (тюль 300 см)
+        # не ширина на окне, по ней модель растягивала панели по стене за мебель; ширина на окне — правилом CURTAINS
+        if what == 'curtains':
+            drop = sk.get('h') or sk.get('d')
+            out.append({'id': first + k, 'item': what, 'name': sk.get('name'), **({'length_cm': round(float(drop))} if drop else {}),
+                        'hung_width': 'the window width plus a little on each side, gathered; not the fabric width', 'place': place})
+            continue
         dims = [round(float(x)) for x in ((sk.get('w'), sk.get('d')) if what == 'cushion' else (sk.get('w'), sk.get('h') or sk.get('d'))) if x]
         out.append({'id': first + k, 'item': what, 'name': sk.get('name'), **({'size_cm': '×'.join(map(str, dims))} if len(dims) == 2 else {}),
                     'place': place})
@@ -163,6 +175,19 @@ CEILING_FIXTURE = '\n'.join([
     'fixture merely to make it visible. The fixture emits no glow and must not change the original daylight direction, exposure, '
     'white balance or shadows.',
 ])
+
+# ШТОРЫ — ОДНО ПРАВИЛО ДЛЯ ВСЕХ КОМНАТ, СТИЛЕЙ И ТУРОВ (T-20261112-113, владелец TG 1284). Разбор кадра set6 C1 12.11 (improve-164818):
+# тюль 300 см при окне 150 и «по панели с каждой стороны стекла» под карнизом, который на листе всего на ~15 см шире проёма, — модель
+# сузила окно на ~30 % и повесила левую панель за подлокотник дивана; то же 08.11 и 09.11. Окно и мебель важнее штор: окно не трогаем,
+# полотно у мебели остаётся на раме. Нарисованные сценой полотна (T-74, тюль «во всю штангу») — разметка места, меняется только ткань
+CURTAINS = ('CURTAINS — WIDTH AND PLACE. Curtains hang only from the curtain rod above the window in IMAGE 1, within its ends (if IMAGE 1 '
+            'shows no rod, add a slim rod just above the opening). Hung and gathered, the curtains of a window are only slightly wider '
+            'than the window opening: each panel reaches a little past the window frame onto the wall and no further, whatever the '
+            'fabric width of the product. Never narrow, shift, split or redesign the window, its frame or its glass to make room for '
+            'curtains: the opening keeps its exact size and position from IMAGE 1. A curtain never hangs behind, over or through '
+            'furniture and never touches it: where furniture stands at the edge of the window, the panel on that side stays on the '
+            'window frame instead of the wall. If IMAGE 1 already shows curtain panels at a window, they mark the exact position, width '
+            'and length: keep them and change only their fabric.')
 
 
 def guide_for(guide: str, floor: str | None = None, walls: str | None = None) -> str:
@@ -283,6 +308,14 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
     allow = list((pol.get('allow_now') or {}).keys())
     # `soft` — строки `soft_list` (номера на третьем листе после декора); шторы товаром — вместо «шторы под стиль»
     curt = [x for x in (soft or []) if x.get('item') == 'curtains']
+    # ДЕКОР ТРЕТЬЕГО ЛИСТА ПО МЕСТУ (T-113): картины — на стену, люстра — к потолку над зоной отдыха, прочее — на столешницу;
+    # номера — как на листе (позиция в `decor` + 1). Без картин и люстры текст побайтно прежний
+    art, lamp, table = [], [], []
+    for i, x in enumerate(decor or []):
+        r = re.sub(r'\s+\d+$', '', (x.get('role') if isinstance(x, dict) else '') or '').strip()
+        strat = x.get('strategy') if isinstance(x, dict) else None
+        (art if r == 'картина' or strat == 'procedural_plane' else lamp if r == 'люстра' or strat == 'ceiling_over'
+         else table).append(i + 1)
     third = bool(decor or soft)
     return '\n'.join([
         f'You are given {"THREE" if third else "TWO"} images:',
@@ -313,9 +346,16 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         '',
         '* camera, crop, perspective or proportions;',
         '* room geometry, wall corners, ceiling, door or window openings;',
+        # ОКНО СТРОГО ПО КАДРУ (T-113, владелец TG 1315: на фото 21:49 обычное окно стало почти панорамным, от пола до потолка)
+        '* every window exactly as IMAGE 1 shows it: the same frame, width, sill height, top of the opening and number of sections; '
+        'never enlarge a window, never extend it down to the floor or up to the ceiling, never turn it into a panoramic or French '
+        'window and never add sections or glazing;',
         '* the position, silhouette, size, rotation, orientation, count or design of any '
         'furniture, catalogue lamp or rug;',
         '* the furniture arrangement or object visibility;',
+        # КОНТУР МЕБЕЛИ (T-113: диван на кадре C1 вырос на ~17 % к камере при том же дальнем крае)
+        '* the outline of every piece of furniture: its left, right, top and bottom edges stay exactly where IMAGE 1 has them; '
+        'never enlarge, stretch or widen a product, not even to correct the wide-angle perspective;',
         '* the two-view layout or magenta separator;',
         SHAPE_RULE,
     ] + ([
@@ -353,7 +393,9 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
     ] + ([
         'DECOR FROM IMAGE 3 — MUST BE PLACED:',
         '',
-        ('Every item on IMAGE 3' if not soft else 'Every decor item on IMAGE 3 (' + ', '.join(f'#{i + 1}' for i in range(len(decor or []))) + ')')
+    ] + ([
+        ('Every item on IMAGE 3' if not soft and not (art or lamp) else 'Every decor item on IMAGE 3 ('
+         + ', '.join(f'#{i}' for i in table) + ')')
         + ' has to appear in the room, standing ON an existing horizontal '
         'surface: the TV console, the coffee table or the dining table. Choose the surface that '
         'suits it, keep it small and natural in scale, and do not let it hide, touch or move any '
@@ -361,7 +403,19 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         'visible in both. Nothing else may be added except the ceiling fixture governed by CEILING FIXTURE below'
         + (' and the SOFT TEXTILES.' if soft else '.'),
         '',
-    ] if decor else []) + ([
+    ] if table else []) + ([
+        # КАРТИНЫ (T-113, директор 12.11): на серверном кадре их нет (`draft_render.decor_layout` → `rest`), «на столешницу» для них неверно
+        'WALL ART ' + ', '.join(f'#{i}' for i in art) + ' from IMAGE 3: if IMAGE 1 already shows it on a wall, keep it exactly as '
+        'rendered and do not add a second one; otherwise hang it flat on a wall at eye level, centred above the sofa, else above the '
+        'bed, else above the chest of drawers, never above a window, door or radiator and never behind curtains. Paired pictures hang '
+        'side by side as one group. Keep the catalogue size and image, place each ONCE.',
+        '',
+    ] if art else []) + ([
+        'CEILING LAMP ' + ', '.join(f'#{i}' for i in lamp) + ' from IMAGE 3: if IMAGE 1 already shows it, keep it exactly as rendered; '
+        'otherwise hang it from the ceiling above the seating area (the sofa and the coffee table). It is then the single ceiling '
+        'fixture of CEILING FIXTURE below and replaces the white placeholder disc; add no other ceiling light.',
+        '',
+    ] if lamp else []) if decor else []) + ([
         'SOFT TEXTILES FROM IMAGE 3 — MUST BE ADDED (numbers as on IMAGE 3):',
         '',
         'These are bought soft furnishings without a 3D model, so they are missing from IMAGE 1. Add each one ONCE, in the place '
@@ -383,7 +437,7 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
         'hangs on the wall, do not place it on the console. Same height and gap as in IMAGE 1.',
     ]) + [
         '* A BLUE wall rectangle is a WINDOW. Render a typical white PVC window with frame, glass, '
-        'sashes and windowsill. Keep the exact opening.',
+        'sashes and windowsill. Keep the exact opening: the same width, sill height and top, never down to the floor.',
         '* A BROWN rectangle is a DOOR. Render a real door leaf with frame, trim and handle, '
         'finished to suit the renovation.',
         '* Keep the rug flat on the floor with its exact existing size, position, pattern and '
@@ -414,6 +468,8 @@ def prompt_for(style: str | None, decor: list | None = None, floor: str | None =
          'or blinds. They must not cover furniture or change the window opening.' if curt else
          '* DRESS THE WINDOW WITH CURTAINS or blinds that suit the style, hung correctly and '
          'identical in both views. They must not cover furniture or change the window opening.'),
+        '',
+        CURTAINS,
         '',
         'The two views show the SAME room. Use exactly the same wall colour, floor material and '
         'direction, trim, door finish, window design and light temperature in both views.',
