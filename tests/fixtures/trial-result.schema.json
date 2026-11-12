@@ -352,6 +352,9 @@
                 "leaves": {
                   "type": "number",
                   "const": 2
+                },
+                "arc": {
+                  "type": "boolean"
                 }
               },
               "required": [

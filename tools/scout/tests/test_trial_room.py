@@ -560,6 +560,56 @@ def test_wide_door_of_tail_is_portal_with_passage_behind():
     assert s['openings'] == [{'kind': 'opening', 'wall': 'east', 'offset_cm': ext, 'width_cm': 90, 'junction': True}]
 
 
+def test_inner_boundary_follows_arc_on_sheet():
+    """T-20261112-51/2 (владелец TG 870, «Этажи»: «Д1 как у застройщика, всё ровно как у застройщика»). Внутренняя граница — как на листе:
+    без дуги/полотна (`arc: false` разбора) — открытый проход реальной ширины (`open`, ни стены, ни портала); с дугой — дверь с полотном
+    реальной ширины, шире `double_door_min_cm` — две створки; без факта (результат до T-51/2) и в сверке старых коробок (`legacy`) —
+    правило ширины T-41. Наружная дверь факт не читает. Проходом становится только разрыв строго шире `inner_open_min_cm` (план тура —
+    то же число `index.html:TR_OPEN_MIN`)."""
+    from shapely.geometry import Polygon
+    cfg = TR.rules()
+    P = Polygon([(0, 0), (400, 0), (400, 300), (0, 300)])
+
+    def placed(w, ext=False, legacy=False, **kw):
+        op_ = {'kind': 'door', 'c': (200, 0), 'widthCm': w, '_idx': 0, 'exterior': ext, **kw}
+        return TR._place_opening(P, op_, lambda p: p, cfg, legacy=legacy)
+    o = placed(156.8, arc=False)
+    assert (o['kind'], o['w'], o.get('open'), o.get('wide_door')) == ('opening', 156.8, True, None) and 'leaf' not in o
+    # узкая без дуги — дверь, как раньше: у узких «нет дуги» на регрессе чаще промах замера (FYyX en-suite 107 см с дугой у торца)
+    n = placed(80, arc=False)
+    assert (n['kind'], n['w'], n['leaf']) == ('door', 80, 80) and 'open' not in n
+    lim = cfg['inner_open_min_cm']
+    assert placed(lim, arc=False)['kind'] == 'door' and placed(lim + 0.5, arc=False)['kind'] == 'opening'   # порог — строго шире
+    assert placed(119.9, arc=False).get('open')                     # «Этажи»: коридор → прихожая на новом разборе 119,9 см
+    page = open(os.path.join(os.path.dirname(TR.__file__), 'flat215-demo', 'index.html'), encoding='utf-8').read()
+    assert f'TR_OPEN_MIN={lim:g}' in page.replace(' ', '')          # план тура рисует проход по тому же порогу
+    d = placed(156.8, arc=True)
+    assert (d['kind'], d['w'], d['leaf']) == ('door', 156.8, 78.4) and 'open' not in d             # с дугой — двустворчатая
+    assert placed(80, arc=True)['leaf'] == 80
+    assert placed(156.8)['w'] == cfg['wide_inner_gap_cm'] and placed(156.8)['wide_door']           # без факта — T-41
+    assert placed(156.8, arc=False, legacy=True)['w'] == cfg['wide_inner_gap_cm']
+    assert placed(156.8, ext=True, arc=False)['kind'] == 'door'
+    # расстановка — резерв прохода без дуги; страница пишет проход `open` (3D — без перемычки и наличника)
+    cand = {'openings': [{'o': o, 'wall': 'south', 'offset_cm': 121.6, 'width_cm': 156.8}], 'residues': []}
+    so = TR.solver_openings(cand, cfg)
+    assert so == [{'wall': 'south', 'offset_cm': 121.6, 'width_cm': 156.8, 'kind': 'door', 'swing_cm': 0, '_open': True}]
+    import trial_bundle as TB
+    assert TB._openings_for_page(so) == [{'wall': 'south', 'offset_cm': 121.6, 'width_cm': 156.8, 'kind': 'opening', 'open': True}]
+
+
+def test_open_passage_of_tail_has_real_width_and_passage_behind():
+    """T-20261112-51/2: проход без дуги из хвоста Г-комнаты («Этажи»: коридор → кухня-гостиная) — в пристройке проход реальной ширины
+    `open`, не стык; за ним — кусок прохода той же ширины."""
+    cfg = TR.rules()
+    door = dict(op('door', (0, 525), 157), arc=False)
+    ad = TR.adapt(result([room('r1', 'living', L_ROOM)], [op('window', (300, 0), 150, True), door]))
+    (a,) = TR.annexes(ad['candidates'][0], ad['ops'], cfg)
+    side = a['openings'][1]
+    assert (side['kind'], side['wall'], side['width_cm'], side.get('open')) == ('opening', 'west', 157, True) and 'junction' not in side
+    (s,) = TR.portal_stubs(600, 400, [], [a], cfg)
+    assert s['stub'] and s['openings'][0]['width_cm'] == 157
+
+
 def test_portal_stub_shrinks_instead_of_overlapping():
     """Кусок прохода не налезает на ядро и пристройки: без боковых запасов, затем мельче; совсем некуда — без него."""
     cfg = TR.rules()

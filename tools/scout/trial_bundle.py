@@ -636,11 +636,13 @@ def _openings_for_page(ops: list) -> list:
     """Проёмы ядра → формат `room.openings` страницы: служебное (`_…`) снято; проход без полотна (`door` без дуги) — `opening`,
     как `trial_demo.core_room(render=True)`: дверь в проходе рисовать нечем."""
     out = []
-    for o in ops:
-        o = {k: v for k, v in o.items() if not k.startswith('_')}
+    for src in ops:
+        o = {k: v for k, v in src.items() if not k.startswith('_')}
         if o.get('kind') == 'door' and not o.get('swing_cm'):
             o = {k: v for k, v in o.items() if k != 'swing_cm'}
             o['kind'] = 'opening'
+            if src.get('_open'):
+                o['open'] = True          # открытый проход без стены на листе (T-20261112-51/2): 3D — без перемычки и наличника
         out.append(o)
     return out
 
@@ -691,15 +693,27 @@ def _core_of(panel: dict, room: dict, geo: dict, cfg: dict):
     """Ядро ГОТОВОЙ коробки `geo` в кадре контура комнаты: прямоугольник тех же размеров с теми же порталами-стыками →
     (кандидат ядра, проёмы в кадре, кадр `ortho_frame`); не нашлось или проёмы неоднозначны — None."""
     want = _portals(geo.get('openings') or [])
-    from planner.geometry import largest_free_rectangles
     try:
         ours, amb = TR._openings_of(panel, room, cfg)
         if amb:
             return None
         fr = TR.ortho_frame(room['contour'], cfg)
-        ops = [TR._place_opening(fr['poly'], o, fr['T'], cfg) for o in ours]
+        # коробка, собранная до T-20261112-51/2, считала проёмы без факта дуги (портал 90 на месте широкой внутренней «двери») — ядро
+        # сверяем и по нынешним проёмам, и по прежнему правилу; совпало по прежнему — пристройки строятся по нему (коробка та же)
+        ops_now = [TR._place_opening(fr['poly'], o, fr['T'], cfg) for o in ours]
+        ops_old = [TR._place_opening(fr['poly'], o, fr['T'], cfg, legacy=True) for o in ours]
     except TR.Refusal:
         return None
+    for ops in (ops_now, ops_old) if ops_old != ops_now else (ops_now,):
+        m = _core_match(fr, ops, geo, want, cfg)
+        if m:
+            return m
+    return None
+
+
+def _core_match(fr: dict, ops: list, geo: dict, want: list, cfg: dict):
+    """Ядро тех же размеров с теми же порталами-стыками среди прямоугольников контура при проёмах `ops` → (ядро, ops, кадр) | None."""
+    from planner.geometry import largest_free_rectangles
     seen = set()
     for side in (float(cfg['core_min_side_cm']), 150.0):         # 150 — ядра спален уже порога гостиной (`trial_bedroom`)
         for g in largest_free_rectangles(fr['poly'], min_side_cm=side, limit=48):

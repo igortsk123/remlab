@@ -55,6 +55,9 @@ DEEP_DOOR = os.environ.get('FP_DEEP_DOOR', '1') != '0'   # T-20261112-48: про
 # (французская 110–120 см рисуется парой створок, а порог `trial-room.json:double_door_min_cm` давал одну). 0 — как до
 TWO_ARCS = os.environ.get('FP_TWO_ARCS', '1') != '0'
 TWO_ARCS_M = (0.8, 2.4)   # ширина проёма, где ищем пару дуг, м: створка французской ≥ 0,4 м; шире 2,4 — раздвижные/витрины
+# T-20261112-51/2 (владелец TG 870, «Этажи»: «всё ровно как у застройщика»): у внутреннего разрыва-двери мерим дугу/полотно на листе;
+# нет их — открытый проход (сборщик тура не ставит там ни стены, ни портала, `trial_room.py:_place_opening`). 0 — не мерить (как до)
+INNER_ARC = os.environ.get('FP_INNER_ARC', '1') != '0'
 TEXT_EV_MIN = 0.5   # без строк подписей дуги должно остаться хоть половина: прихожая TGva 0,95 → 0,26 (дугу давали буквы);
                     # кухня 4y0o 0,80 → 0,63 (настоящая дверь, разрыв длиннее двери, часть точек попадала на подпись)
 
@@ -1386,6 +1389,32 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
                 ev, how = fc.door_evidence(thin, c, u, nrm, L, dpt, wall=wall_drawn, want_how=True)
                 if how == 'double' and ev >= DOOR_EV:
                     g.leaves = 2
+    if INNER_ARC:
+        # T-20261112-51/2: внутренняя «дверь» здесь — любой межкомнатный разрыв нормы и шире (дугу выше проверяли только у узких).
+        # Доля дуги/полотна (одна створка или пара, `door_evidence`) — факт листа; решение «дверь или открытый проход» — у сборщика
+        dark_gaps = []
+        for g in gaps:
+            if not g.exterior and g.kind == 'door':
+                ys, xs = np.nonzero(lab_g == g.id)
+                c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
+                src = thin
+                if fc.hatch_share(thin, c, L, dpt, wall_drawn) >= fc.FLOOR_HATCH:
+                    # пол заштрихован (паркет «Этажей»): `door_evidence` без «чистоты» находит «дугу» в штриховке у ЛЮБОГО разрыва —
+                    # мерим по графике темнее штриховки; не отделить — факта нет (сборщик — прежнее правило)
+                    src = fc.dark_strokes(thin, gray, c, L, dpt, wall_drawn)
+                    g.arc_dark = src is not None                     # для разбора замера (модель: `arc_dark`)
+                    if src is None:
+                        g.arc = None
+                        continue
+                    dark_gaps.append(g)
+                # и «вогнутая» дуга створки, нарисованной закрытой в линии стены (наш план /try, лист yb3_: спальня 2 → гостиная 130 см)
+                g.arc = round(max(float(fc.door_evidence(src, c, u, nrm, L, dpt, wall=wall_drawn)),
+                                  float(fc.door_evidence(src, c, u, nrm, L, dpt, tangent_only=True))), 3)
+        if dark_gaps and not any(g.arc >= DOOR_EV for g in dark_gaps):
+            # замер по тёмной графике ни одной двери листа не нашёл — он здесь слеп (Codex 12.11: «дуги не нашли» ≠ «двери нет»):
+            # факта нет у всех, сборщик — прежнее правило
+            for g in dark_gaps:
+                g.arc, g.arc_dark = None, False
     gaps += tails
     if os.environ.get('FP_DEBUG_ENV', '').startswith('/'):
         vis = np.full(wall.shape + (3,), 255, np.uint8)
@@ -2416,10 +2445,14 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
             continue
         parts = split_by_drawn(g, lab_g, r.get('drawn'))
         two = g.kind == 'door' and len(parts) == 1 and getattr(g, 'leaves', 1) == 2     # T-48: пара дуг — две створки
+        # T-51/2: доля дуги внутренней двери (разрыв, поделённый по нарисованным дверям, — двери с рисунком: доли нет)
+        arc = g.arc if g.kind == 'door' and len(parts) == 1 and g.arc is not None else None
         for cx, cy, L in parts:
             model['openings'].append({'kind': g.kind, 'c': [round(cx / ppm, 3), round(cy / ppm, 3)],
                                       'width_m': round(L / ppm, 3), 'glaze': round(g.glaze, 2), 'exterior': g.exterior,
-                                      **({'leaves': 2} if two else {})})
+                                      **({'leaves': 2} if two else {}),
+                                      **({'arc': bool(arc >= DOOR_EV), 'arc_ev': arc} if arc is not None else {}),
+                                      **({'arc_dark': g.arc_dark} if getattr(g, 'arc_dark', None) is not None else {})})
     Path(outdir).mkdir(parents=True, exist_ok=True)
     (Path(outdir) / f'model-{plan}-{pi}.json').write_text(json.dumps(model, ensure_ascii=False))
     # наложение

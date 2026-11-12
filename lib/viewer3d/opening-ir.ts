@@ -307,8 +307,9 @@ export function openingIR(o: Opening, opts: OpeningIrOpts): OpeningIR {
     return { schemaVersion: OPENING_IR_VERSION, kind: o.kind, cut, boxes, groups: {}, ...(backdrop ? { backdrop } : {}) };
   }
   // СТЫК ЧАСТЕЙ ОДНОЙ КОМНАТЫ (`junction`, T-20261112-41, «Этажи»): стены между ядром и пристройкой нет — вырез на всю высоту, без
-  // наличника; перемычка 205…310 над стыком делила кухню-гостиную на две комнаты
-  if (o.kind === "opening" && o.junction) {
+  // наличника; перемычка 205…310 над стыком делила кухню-гостиную на две комнаты. Так же — открытый проход (`open`, T-20261112-51/2,
+  // владелец TG 870: «всё ровно как у застройщика»): на листе между комнатами нет ни стены, ни дуги
+  if (o.kind === "opening" && (o.junction || o.open)) {
     return { schemaVersion: OPENING_IR_VERSION, kind: o.kind, cut: { u0, u1, bottom: 0, top: opts.wallHeightCm }, boxes: [], groups: {} };
   }
   const top = Math.min(opts.wallHeightCm - 5, o.heightCm ?? 205);

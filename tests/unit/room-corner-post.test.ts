@@ -78,6 +78,28 @@ describe("угол стыка ядра и пристройки — без про
     expect(open).toBe(0);
   });
 
+  it("открытый проход без стены на листе (`open`, T-20261112-51/2): на всю высоту, без перемычки и наличника, стойки у краёв", () => {
+    const geo = { w: 335, d: 380, height_cm: 310,
+      openings: [{ kind: "opening", wall: "east", offset_cm: 100, width_cm: 156.8, open: true },
+                 { kind: "opening", wall: "west", offset_cm: 100, width_cm: 90 }] };
+    const r = living(geo);
+    expect(r.openings.map((o) => !!o.open)).toEqual([true, false]);
+    const { group } = buildRoom(createMaterialCtx(1, false), r, MAT, MAT);
+    const above = (side: string): number => {
+      let n = 0;
+      group.traverse((o) => { if (o.name === `wall:living:${side}` && o.position.y > 2.06) n++; });
+      return n;
+    };
+    expect(above("east")).toBe(0);                                   // над проходом стены нет
+    expect(above("west")).toBe(1);                                   // над обычным порталом — перемычка
+    let casing = 0;
+    group.getObjectByName("joinery:living:east")?.traverse((o) => { if (o.userData.part === "casing") casing++; });
+    expect(casing).toBe(0);
+    const posts: string[] = [];
+    group.traverse((o) => { if (o.name.startsWith("corner:")) posts.push(o.name); });
+    expect(posts).toEqual(["corner:living:east", "corner:living:east"]);
+  });
+
   it("без стойки просвет есть (проверка видит щель)", () => {
     const { group } = buildRoom(createMaterialCtx(1, false), living(GEO), MAT, MAT);
     const posts: THREE.Object3D[] = [];

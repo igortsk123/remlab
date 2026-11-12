@@ -31,6 +31,9 @@ export const opening = z.object({
   // стык частей ОДНОЙ комнаты (ядро ↔ пристройка тура, T-20261112-41): у портала нет стены — проём на всю высоту без наличника
   // (`lib/viewer3d/opening-ir.ts:openingIR`); считает сборщик (`tools/scout/trial_room.py:mark_junctions`)
   junction: z.boolean().optional(),
+  // открытый проход между комнатами — на листе нет ни стены, ни дуги/полотна (T-20261112-51/2): рисуется как стык — на всю высоту, без
+  // перемычки и наличника; за ним сборщик ставит кусок прохода (`tools/scout/trial_room.py:_place_opening`, `portal_stubs`)
+  open: z.boolean().optional(),
 });
 export type Opening = z.infer<typeof opening>;
 

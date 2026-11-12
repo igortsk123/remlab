@@ -81,7 +81,8 @@ export function cornerPosts(lengthCm: number, wallOpenings: Opening[]): [number,
   const eps = 0.5;
   const out: [number, number][] = [];
   for (const o of wallOpenings) {
-    if (o.kind !== "opening" || !o.junction) continue;
+    // открытый проход (`open`, T-51/2) — тот же вырез без наличника; стойку у края кладёт и комната, и кусок прохода за ним
+    if (o.kind !== "opening" || !(o.junction || o.open)) continue;
     const u0 = o.offsetCm;
     const u1 = o.offsetCm + o.widthCm;
     if (u0 > eps) out.push([u0, Math.min(u0 + INSET_CM, u1)]);

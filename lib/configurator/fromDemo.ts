@@ -220,6 +220,8 @@ export function openings(room: DemoRoom): Opening[] {
       ...(o.is_entrance === true ? { isEntrance: true } : {}),
       // стык частей одной комнаты тура (T-20261112-41): портал без стены над ним и без наличника
       ...(o.kind === "opening" && o.junction === true ? { junction: true } : {}),
+      // открытый проход без стены на листе (T-20261112-51/2) — так же, без перемычки и наличника
+      ...(o.kind === "opening" && o.open === true ? { open: true } : {}),
     }));
 }
 

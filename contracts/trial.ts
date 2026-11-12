@@ -232,8 +232,12 @@ const panel = z.object({
   walls: z.array(z.object({ z0: num, z1: num, polys: z.array(z.object({ outer: ring, holes: z.array(ring).max(200) })).max(400) })).max(20),
   /** `leaves: 2` — у наружной двери на листе пара дуг (французская/патио, `tools/floorplan/bench.py:TWO_ARCS`, T-20261112-48):
    *  тур рисует её двустворчатой при любой ширине (`tools/scout/trial_room.py:_place_opening`); нет поля — одна створка */
+  /** `arc` — у внутренней двери: есть ли на листе дуга или полотно (`tools/floorplan/bench.py:INNER_ARC`, T-20261112-51/2). `false` —
+   *  открытый проход: сборщик не ставит там ни стены, ни портала, план тура не рисует границу (`trial_room.py:_place_opening`); нет поля —
+   *  не мерили (результаты до T-51/2), прежнее правило ширины */
   openings: z.array(z.object({
     kind: z.enum(["door", "window", "opening"]), c: pt, widthCm: num.positive(), exterior: z.boolean(), leaves: z.literal(2).optional(),
+    arc: z.boolean().optional(),
   })).max(400),
 });
 

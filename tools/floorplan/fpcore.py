@@ -1051,6 +1051,7 @@ class Gap:
     exterior: bool
     bbox: tuple
     leaves: int = 1        # створок у наружной двери: 2 — на листе пара дуг (T-20261112-48, `bench._analyze`)
+    arc: float | None = None   # у внутренней двери — доля дуги/полотна на листе (`door_evidence`, T-20261112-51/2); None — не мерили
 
 
 # T-36: проём проходит стену насквозь — глубина разрыва ~ толщина стены (у дверей стенда A/B 0,5–1 t). Полоска в 1–3 px вдоль
@@ -1627,6 +1628,43 @@ HALF_ANGLES = tuple(range(30, 61, 5))   # углы приоткрытой ств
 def arc_pure():
     """Радиусы «чистой дуги» `door_evidence`; FP_ARC_PURE=0 — без проверки (прежнее правило, сравнение)."""
     return None if os.environ.get('FP_ARC_PURE', '1') == '0' else ARC_PURE
+
+
+DARK_GAP = 40   # T-20261112-51/2: знаки двери темнее штриховки пола хотя бы на столько (лист «Этажей»: ёлочка ~200, полотна ~130)
+
+
+def _evidence_box(shape, c, L: float, depth: float) -> tuple:
+    """Вырез вокруг разрыва — тот же, что у `door_evidence` (2,5 L + глубина)."""
+    H, W = shape
+    m = int(2.5 * L + depth) + 8
+    cx, cy = int(round(float(c[0]))), int(round(float(c[1])))
+    return max(0, cy - m), min(H, cy + m + 1), max(0, cx - m), min(W, cx + m + 1)
+
+
+def hatch_share(thin: np.ndarray, c, L: float, depth: float, wall: np.ndarray | None = None) -> float:
+    """Доля пола у разрыва (вырез `door_evidence`, вне стен), покрытая тонкой графикой в окне 5×5; ≥ FLOOR_HATCH — пол заштрихован."""
+    y0, y1, x0, x1 = _evidence_box(thin.shape, c, L, depth)
+    dil = cv2.dilate((thin[y0:y1, x0:x1] > 0).astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+    if wall is not None:
+        dil = dil[~(wall[y0:y1, x0:x1] > 0)]
+    return float(dil.mean()) if dil.size else 0.0
+
+
+def dark_strokes(thin: np.ndarray, gray: np.ndarray, c, L: float, depth: float, wall: np.ndarray | None = None):
+    """Тонкая графика ТЕМНЕЕ штриховки пола (T-20261112-51/2): у разрыва на заштрихованном полу штриховки большинство, порог —
+    медиана яркости тонких пикселей выреза вне стен минус DARK_GAP. → маска того же размера (вне выреза пусто) или None,
+    если и тёмная графика покрывает пол (штриховку не отделить)."""
+    y0, y1, x0, x1 = _evidence_box(thin.shape, c, L, depth)
+    t = thin[y0:y1, x0:x1] > 0
+    if wall is not None:
+        t &= ~(wall[y0:y1, x0:x1] > 0)
+    v = gray[y0:y1, x0:x1][t]
+    if v.size == 0:
+        return None
+    keep = t & (gray[y0:y1, x0:x1] < float(np.median(v)) - DARK_GAP)
+    out = np.zeros(thin.shape, np.uint8)
+    out[y0:y1, x0:x1] = keep
+    return None if hatch_share(out, c, L, depth, wall) >= FLOOR_HATCH else out
 
 
 def _tangent_evidence(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: int = 5) -> float:

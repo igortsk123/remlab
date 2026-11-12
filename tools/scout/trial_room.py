@@ -473,8 +473,9 @@ def ortho_frame(contour: list, cfg: dict | None = None) -> dict:
     return {'poly': P, 'contour': [[round(x), round(y)] for x, y in list(P.exterior.coords)[:-1]], 'T': T, 'control': ctl}
 
 
-def _place_opening(P: Polygon, op: dict, T, cfg: dict) -> dict:
-    """Проём листа → кадр осевого контура: центр, ширина, направление ребра, внутренняя нормаль."""
+def _place_opening(P: Polygon, op: dict, T, cfg: dict, legacy: bool = False) -> dict:
+    """Проём листа → кадр осевого контура: центр, ширина, направление ребра, внутренняя нормаль.
+    `legacy` — без факта дуги (правило ширины T-41, как до T-51/2): сверка коробок, собранных раньше (`trial_bundle._core_of`)."""
     c = T(op['c'])
     pt = Point(c)
     d = P.exterior.distance(pt)
@@ -489,21 +490,33 @@ def _place_opening(P: Polygon, op: dict, T, cfg: dict) -> dict:
         nin = (-nin[0], -nin[1])
     w = float(op['widthCm'])
     kind = op['kind']
-    # ШИРОКАЯ ВНУТРЕННЯЯ «ДВЕРЬ» (T-20261112-41, владелец TG 1781: «Этажи» — двустворчатая дверь там, где на плане открытый проход):
-    # у распознавания рамка межкомнатной двери шире `wide_inner_door_cm` бывает вдвое шире настоящей или стоит там, где двери нет
-    # вовсе (проход коридор → кухня-гостиная). План квартиры рисует её проёмом без дуги шириной `wide_inner_gap_cm` по центру
-    # (`index.html:trOpeningsOf`, TR_DOOR_MAX/TR_DOOR_STD) — 3D и расстановка берут то же: портал без полотна той же ширины
-    wide = kind == 'door' and not op.get('exterior') and w > float(cfg['wide_inner_door_cm'])
-    if wide:
+    inner = kind == 'door' and not op.get('exterior')
+    arc = None if legacy else op.get('arc')
+    # ВНУТРЕННЯЯ ГРАНИЦА — КАК НА ЛИСТЕ (T-20261112-51/2, владелец TG 870, «Этажи»: «всё ровно как у застройщика»). Разбор мерит у
+    # каждой внутренней двери дугу/полотно (`arc`, `tools/floorplan/bench.py:INNER_ARC`). Без них и строго шире `inner_open_min_cm` —
+    # открытый проход (`open`): ни стены, ни портала, ни перемычки, реальной ширины (`opening-ir.ts:openingIR`, за ним — кусок прохода
+    # `portal_stubs`); с ними — дверь с полотном реальной ширины (две створки — шире `double_door_min_cm`, ниже). Узкая без дуги остаётся
+    # дверью: на регрессе 12.11 у узких «нет дуги» — чаще промах замера (FYyX en-suite 107 см с дугой у торца, ниша камина 57), чем
+    # настоящий проход. Факта нет (результат до T-51/2) — правило ширины T-41: внутренняя «дверь» шире `wide_inner_door_cm` — портал
+    # `wide_inner_gap_cm` по центру (`index.html:trOpeningsOf` — те же правила)
+    opened = (inner and arc is False and w > float(cfg.get('inner_open_min_cm', 110))
+              and bool(cfg.get('inner_open_without_arc', True)))
+    wide = inner and arc is None and w > float(cfg['wide_inner_door_cm'])
+    if opened:
+        kind = 'opening'
+    elif wide:
         kind, w = 'opening', float(cfg['wide_inner_gap_cm'])
     o = {'kind': kind, 'c': (round(c[0], 1), round(c[1], 1)), 'w': w, 'axis': 'x' if ux else 'y', 'n_in': nin,
          'exterior': bool(op.get('exterior')), 'src': op['_idx'], 'edge_q': (q.x, q.y), 'between': bool(op.get('_between'))}
+    if opened:
+        o['open'] = True
     if wide:
         o['wide_door'] = True
     if kind == 'door':
         # две створки — у проёма СТРОГО шире порога (T-20261112-35) и у двери, на листе которой пара дуг (`leaves: 2`, T-20261112-48:
         # французская 110–120 см). Признак разбор пишет только НАРУЖНОЙ по листу двери (`bench.TWO_ARCS`); здесь она бывает и
-        # внутренней — за ней комната вне контура дома (оранжерея iT0X), — створки те же. Широкая внутренняя выше уже стала порталом.
+        # внутренней — за ней комната вне контура дома (оранжерея iT0X), — створки те же. Внутренняя шире порога здесь — только с дугой на
+        # листе (T-51/2): двустворчатая реальной ширины; без дуги или без факта выше уже стала проходом/порталом.
         # 3D узнаёт пару по дуге (`opening-ir.ts:isDoubleDoor`)
         two = w > cfg['double_door_min_cm'] or op.get('leaves') == 2
         o['leaf'] = min(w / 2 if two else w, cfg['door_leaf_max_cm'])
@@ -755,7 +768,9 @@ def solver_openings(cand: dict, cfg: dict, hinge: str = 'left') -> list:
         elif o['kind'] == 'opening':
             # `_wide` — портал из широкой внутренней «двери» (`_place_opening`, T-20261112-41): у коробок, собранных раньше, на его месте
             # дверь — сверка ядра готовой коробки (`trial_bundle._core_of`) сравнивает порталы и с ним, и без него
-            out.append(dict(base, kind='door', swing_cm=0, **({'_wide': True} if o.get('wide_door') else {})))
+            # `_open` — открытый проход без стены (T-20261112-51/2): страница пишет его `open` (`trial_bundle._openings_for_page`)
+            out.append(dict(base, kind='door', swing_cm=0, **({'_wide': True} if o.get('wide_door') else {}),
+                            **({'_open': True} if o.get('open') else {})))
         else:
             ent = bool(o['exterior']) and o['w'] < cfg['patio_door_min_cm']
             # дверь из ниши обрезана до общей со стороной ядра части — полотно не шире её (полная дуга — в `post_check`)
@@ -836,7 +851,8 @@ def annexes(cand: dict, ops: list, cfg: dict) -> list:
                 if o['kind'] == 'window':
                     ops_out.append(dict(base, kind='window', sill_cm=cfg['window_sill_cm'], height_cm=cfg['window_height_cm']))
                 elif o['kind'] == 'opening':
-                    ops_out.append(dict(base, kind='opening'))   # проход без полотна; за ним — кусок прохода (`portal_stubs`)
+                    # проход без полотна; за ним — кусок прохода (`portal_stubs`); без стены на листе — `open` (T-51/2)
+                    ops_out.append(dict(base, kind='opening', **({'open': True} if o.get('open') else {})))
                 else:
                     ent = bool(o['exterior']) and o['w'] < cfg['patio_door_min_cm']
                     ops_out.append(dict(base, kind='door', swing_cm=round(min(o['leaf'], w)), hinge='left', is_entrance=ent))

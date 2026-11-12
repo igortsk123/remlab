@@ -27,7 +27,7 @@ export type RoomGeo = {
   finish?: Record<string, { id?: string; colorHex?: string }>;
   openings?: {
     kind?: string; wall?: string; offset_cm?: number; width_cm?: number; sill_cm?: number; height_cm?: number;
-    swing_cm?: number; hinge?: string; into?: boolean; is_entrance?: boolean; junction?: boolean;
+    swing_cm?: number; hinge?: string; into?: boolean; is_entrance?: boolean; junction?: boolean; open?: boolean;
   }[];
   /** Пристройки тура (`contracts/apartment.ts:annex`, T-20261111-08): остаток контура за порталом, с его проёмами;
    *  `outdoor` — балкон за наружной стеной `wall` комнаты (T-20261111-20/2). */
