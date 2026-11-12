@@ -379,6 +379,21 @@ json.dump(cache,open(OUT,'w'),ensure_ascii=False)
 print(f"OK: {os.path.basename(OUT)} — {len(cache)} товаров; отказов LLM (партий): {fails}; с одним ответом из {RUNS}: {half}"
       +(f"; пересчёт: тройка удержана порогом у {held}" if prev_of else ""),flush=True)
 if SOURCE=='living':
+    # ПОПРАВКА ПО ПРИЗНАКАМ ФИДА (T-20261112-119, rules/style-calibration.json): в базу — балл после узких правил и сдвига
+    # шкалы, по каждому товару (близнецы модели различаются цветом/обивкой); кэш файла остаётся сырым — от него считается
+    # удержание тройки и сдвиг правил. Выключено (enabled=false) — пишем как раньше.
+    import style_calib as _SC
+    _cal=_SC.load()
+    if _cal.get('enabled') and scored_now:
+        _info=_SC.params_of([(m,e) for m,e,_ in scored_now])
+        _fix=[]
+        for m,e,rec in scored_now:
+            role,name,pr=_info.get((int(m),str(e)),(None,None,None))
+            if name is None: _fix.append((m,e,rec)); continue
+            new,_f=_SC.apply({st:rec[st] for st in SNAMES},role,name,pr,_cal)
+            _fix.append((m,e,{**rec,**new,'src':f"{rec['src']}+{_SC.mark(_cal)}"}))
+        scored_now=_fix
+        print(f"поправка стиля {_cal['version']}: {sum(1 for *_x,r in scored_now if _SC.calibrated(r['src'],_cal))} из {len(scored_now)}",flush=True)
     print(f"OK: в базу записано оценок — {save_to_db(scored_now)}",flush=True)
 elif '--db' in sys.argv and SOURCE=='hall' and fails:
     # запись в базу без перезаписи (keep): фолбэк «правила+CLIP» лёг бы туда навсегда — следующий прогон его не исправит
