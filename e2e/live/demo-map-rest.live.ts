@@ -94,7 +94,9 @@ async function openWalk(page: Page) {
 }
 
 // ——— 2.30 тап по предмету ———
-test("2.30 тап по предмету в 3D: шторка до верха, строка предмета в верхней трети, подсветка держится (VW.sel); тап мимо — выделение снято", async ({ browser }) => {
+// С T-20261112-37 (карточка Б, владелец TG 748/781) тап по предмету на телефоне шторку НЕ поднимает: над предметом — карточка выбранного
+// (`index.html:vwActsNode`/`vwRotPlace`: миниатюра, название, цена, размеры; «Заменить» · ↻ · ✥; × снимает выбор); строка списка — подсвечена
+test("2.30 тап по предмету в 3D: шторка не поднимается, карточка выбранного в кадре, строка предмета в верхней трети, подсветка держится (VW.sel); тап мимо — выделение и карточка сняты", async ({ browser }) => {
   test.setTimeout(4 * 60_000);
   const { page, close } = await demoPage(browser, phone, "?live=force");
   await openWalk(page);
@@ -114,26 +116,50 @@ test("2.30 тап по предмету в 3D: шторка до верха, с�
   });
   say("точка предмета:", JSON.stringify(pts.item), "· пустая:", JSON.stringify(pts.empty));
   expect(pts.item, "на сцене нет предмета под тапом").not.toBeNull();
+  const pos0 = await page.evaluate("document.getElementById('vside').dataset.pos");
   await page.touchscreen.tap(pts.item!.x, pts.item!.y);
   await expect.poll(() => page.evaluate("VW.sel")).toBe(pts.item!.i);
-  await expect.poll(() => page.evaluate("document.getElementById('vside').dataset.pos")).toBe("3");
+  // карточка выбранного: видна, целиком в экране 375, с названием, «×» и (если у предмета есть замена/цена) «Заменить» и ценой
+  const card = () => page.evaluate(() => {
+    const b = document.querySelector("#shot .vacts") as HTMLElement | null;
+    if (!b || b.hidden) return null;
+    const r = b.querySelector(".vcard")!.getBoundingClientRect(), vis = (s: string) => { const e = b.querySelector(s) as HTMLElement | null; return !!e && e.offsetParent !== null; };
+    return { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom), vw: innerWidth, vh: innerHeight,
+      name: (b.querySelector(".vcnm")?.textContent || "").trim(), cost: (b.querySelector(".vcost")?.textContent || "").trim(),
+      close: vis(".vcx"), rep: vis(".vrep"), norep: b.classList.contains("vnorep"), nocost: b.classList.contains("vnocost") };
+  });
+  await expect.poll(card, { message: "карточка выбранного не появилась" }).not.toBeNull();
   await page.waitForTimeout(700);
+  const c = (await card())!;
+  say("карточка:", JSON.stringify(c));
+  expect(await page.evaluate("document.getElementById('vside').dataset.pos"), "тап поднял шторку (с T-37 не должен)").toBe(pos0);
+  expect(c.name, "в карточке нет названия").not.toBe("");
+  expect(c.close, "в карточке нет «×»").toBe(true);
+  if (!c.norep) expect(c.rep, "у предмета есть замена, а «Заменить» в карточке не видно").toBe(true);
+  if (!c.nocost) expect(c.cost, "у предмета есть цена, а в карточке её нет").not.toBe("");
+  expect(c.left).toBeGreaterThanOrEqual(0);
+  expect(c.right).toBeLessThanOrEqual(c.vw);
+  expect(c.top).toBeGreaterThanOrEqual(0);
+  expect(c.bottom).toBeLessThanOrEqual(c.vh);
   const row = await page.evaluate((i) => {
     const W = { items: (window as unknown as { __g: (n: string) => unknown }).__g("items") as { sku?: { sid?: string } }[] };
     const r = document.querySelector("#shotbody .row.hl"), sc = document.getElementById("vscroll")!.getBoundingClientRect();
     if (!r) return null;
-    const b = r.getBoundingClientRect();
-    return { sid: (r as HTMLElement).dataset.sid ?? null, want: W.items[i]?.sku?.sid ?? null, top: Math.round(b.top - sc.top), third: Math.round(sc.height / 3) };
+    const b = r.getBoundingClientRect(), el = document.getElementById("vscroll")!;
+    return { sid: (r as HTMLElement).dataset.sid ?? null, want: W.items[i]?.sku?.sid ?? null, top: Math.round(b.top - sc.top), third: Math.round(sc.height / 3),
+      atEnd: el.scrollTop >= el.scrollHeight - el.clientHeight - 2 };
   }, pts.item!.i);
   say("строка:", JSON.stringify(row));
   await shoot(page, "2.30-tap");
   expect(row, "строка предмета не подсвечена").not.toBeNull();
   if (row!.want) expect(row!.sid).toBe(row!.want);                  // строка — того самого предмета (по артикулу)
   expect(row!.top).toBeGreaterThanOrEqual(0);
-  expect(row!.top).toBeLessThanOrEqual(row!.third);
+  // список уже докручен до конца (строка — из последних, выше подняться некуда) — `vwHighlight` сделал, что мог; иначе — верхняя треть
+  if (!row!.atEnd) expect(row!.top, "строка выбранного не в верхней трети списка").toBeLessThanOrEqual(row!.third);
   await page.waitForTimeout(1500);
   expect(await page.evaluate("VW.sel"), "подсветка не держится").toBe(pts.item!.i);
-  // тап мимо: шторка поднята — пустая точка выше неё (ищем заново: шторка закрыла низ сцены)
+  expect(await card(), "карточка пропала, хотя предмет выбран").not.toBeNull();
+  // тап мимо: пустая точка, где сверху сам холст (не карточка, не ценник, не шторка) — ищем заново: карточка закрыла часть сцены
   const empty = await page.evaluate(() => {
     const W = { LIVE: (window as unknown as { __g: (n: string) => unknown }).__g("LIVE") as { canvas: HTMLCanvasElement; scene: { pick: (x: number, y: number) => number } } };
     const cv = W.LIVE.canvas.getBoundingClientRect(), side = document.getElementById("vside")!.getBoundingClientRect();
@@ -154,6 +180,7 @@ test("2.30 тап по предмету в 3D: шторка до верха, с�
   await page.touchscreen.tap(e!.x, e!.y);
   await expect.poll(() => page.evaluate("VW.sel")).toBeNull();
   expect(await page.locator("#shotbody .row.hl").count()).toBe(0);
+  await expect.poll(card, { message: "карточка не снялась после тапа мимо" }).toBeNull();
   await close();
 });
 
