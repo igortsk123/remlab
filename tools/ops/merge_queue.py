@@ -5,7 +5,7 @@
 набор проверок и при падении сам находит виновную ветку. Не пушит, не вливает, main и основную копию не трогает — только отчёт.
 
     tools/ops/merge-queue.sh <ветка>[@sha] <ветка>[@sha] …     пачка 2–4 веток (sha — проверить ровно этот хеш, урок 612)
-        [--steps typecheck,lint,test,build,prepush,memory]  какие шаги (по умолчанию все, по порядку)
+        [--steps typecheck,lint,test,build,prepush,memory]  какие шаги (по умолчанию все, кроме build; порядок — всегда этот)
         [--base main] [--out ПАПКА] [--keep] [--no-slot] [--pkg пакет.json …]
     tools/ops/merge-queue.sh --selftest                     временный репозиторий, подставные шаги, без heavy-slot
 
@@ -16,7 +16,7 @@
   3. `pnpm install --offline --frozen-lockfile` (жёсткие ссылки из хранилища pnpm, без сети; урок 611) — повторно только если
      сменился pnpm-lock.yaml;
   4. ОДИН полный прогон шагов (первый упавший шаг останавливает прогон); весь сборщик — один слот `heavy-slot.sh mq-full
-     --min-gb 3 --cores 3` (повтор, main и бисекция в очередь заново не встают; `--no-slot` — без очереди);
+     --min-gb 2 --cores 3 --prio 1` (с build — 3 ГБ; повтор, main и бисекция в очередь заново не встают; `--no-slot` — без очереди);
   5. упало → повтор упавшего шага (прошёл — «мигает», вину не вешаем) → тот же шаг на чистом main (упал — «main красный») →
      деление пополам по префиксам набора (main+B1, main+B1+B2 …) одним упавшим шагом → виновная выбывает → полный прогон без неё;
   6. отчёт `report.md` (строка на ветку `ветка · SHA · ok | конфликт | падает: <шаг>: <тест>`), `summary.json`, логи шагов,
@@ -43,7 +43,16 @@ STEPS = [
     ('prepush', 'bash tools/ops/prepush-check.sh --budget 600 --files {files}'),
     ('memory', 'node tools/memory-audit.mjs --check . && node tools/memory-project-audit.mjs --check .'),
 ]
-SLOT_ARGS = ['--min-gb', '3', '--cores', '3']       # heavy-slot --stats: набор full пик 1,5 ГБ, сборка RSS 2,4; vitest ~2,6 ядра
+# по умолчанию — как велел директор (T-20261112-57): typecheck + lint + vitest, плюс дешёвые селфтесты CI по изменённым файлам
+# и аудиты памяти (CI-гейт). Сборка — по `--steps …,build` (она одна поднимает порог памяти до 3 ГБ).
+DEFAULT_STEPS = ['typecheck', 'lint', 'test', 'prepush', 'memory']
+
+
+def slot_args(step_names: list) -> list:
+    """Порог по `heavy-slot.sh --stats` (12.11): typecheck/lint/test — пик 1,1–1,5 ГБ, эфф. порог 2; сборка (тип full) RSS 2,24 → 3.
+    vitest ~2,6 ядра → 3. `--prio 1` — проверка пачки ждёт директор, как интерактивную пробу."""
+    gb = '3' if 'build' in step_names else '2'
+    return ['--min-gb', gb, '--cores', '3', '--prio', '1']
 GIT_ID = {'GIT_AUTHOR_NAME': 'merge-queue', 'GIT_AUTHOR_EMAIL': 'mq@remlab.local',
           'GIT_COMMITTER_NAME': 'merge-queue', 'GIT_COMMITTER_EMAIL': 'mq@remlab.local'}
 
@@ -99,9 +108,11 @@ class Run:
                           'detail': ''})
         return items
 
-    def commits_of(self, sha: str) -> list:
-        """Коммиты ветки, которых в базе нет (по содержимому: перенесённое cherry-pick'ом — «-», пропускаем)."""
-        out = git(['cherry', self.base, sha], self.repo)
+    def commits_of(self, sha: str, upstream: str | None = None) -> list:
+        """Коммиты ветки, которых нет в upstream (база или уже собранный префикс набора; по содержимому: перенесённое
+        cherry-pick'ом — «-», пропускаем). Префикс как upstream нужен веткам, перебазированным на соседнюю: её коммиты
+        уже в наборе и второй раз не берутся."""
+        out = git(['cherry', upstream or self.base, sha], self.repo)
         return [l[2:] for l in out.splitlines() if l.startswith('+ ')]
 
     # ---------- worktree ----------
@@ -119,9 +130,12 @@ class Run:
         for it in items:
             if it['status'] is not None:
                 continue
-            cs = self.commits_of(it['sha'])
-            if not cs:
+            if not self.commits_of(it['sha']):
                 it['status'], it['detail'] = 'ok', 'уже в main'
+                continue
+            cs = self.commits_of(it['sha'], prefixes[-1])
+            if not cs:
+                it['status'], it['detail'] = 'ok', 'целиком внутри веток выше по набору'
                 continue
             p = subprocess.run(['git', 'cherry-pick', '--allow-empty', '--keep-redundant-commits'] + cs, cwd=self.wt,
                                capture_output=True, text=True, env={**os.environ, **GIT_ID})
@@ -182,7 +196,7 @@ class Run:
         cmd = ['bash', sh]
         if self.slot:
             label = 'mq-full' if len(plan) > 1 else f'mq-{plan[0][0]}' if plan else 'mq'
-            cmd = ['bash', HEAVY, label] + SLOT_ARGS + ['--', 'bash', sh]
+            cmd = ['bash', HEAVY, label] + slot_args([n for n, _ in plan]) + ['--', 'bash', sh]
         t = time.time()
         with open(os.path.join(d, 'runner.log'), 'w', encoding='utf-8') as f:
             subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT)
@@ -411,12 +425,13 @@ def main(argv: list) -> int:
     if steps and [s for s in steps if s not in known]:
         print(f'шаги: {",".join(known)}', file=sys.stderr)
         return 2
-    sel = [(n, c) for n, c in STEPS if not steps or n in steps]
+    sel = [(n, c) for n, c in STEPS if n in (steps or DEFAULT_STEPS)]
     if slot and os.environ.get('MQ_IN_SLOT') != '1':
         # весь сборщик — ОДИН слот heavy-slot: повтор шага, main и бисекция идут без новой очереди (12.11: 14-е место в очереди
         # на каждый шаг превращало 5 одиночных шагов в 5 ожиданий)
         os.environ['MQ_IN_SLOT'] = '1'
-        os.execvp('bash', ['bash', HEAVY, 'mq-full'] + SLOT_ARGS + ['--', sys.executable, os.path.abspath(__file__)] + argv)
+        os.execvp('bash', ['bash', HEAVY, 'mq-full'] + slot_args([n for n, _ in sel]) +
+                  ['--', sys.executable, os.path.abspath(__file__)] + argv)
     if os.environ.get('MQ_IN_SLOT') == '1':
         slot = False                                     # уже внутри слота
     repo = git(['rev-parse', '--show-toplevel'], os.getcwd())
@@ -490,6 +505,12 @@ def selftest() -> int:
         ok(b['c2']['status'] == 'конфликт' and 'shared.txt' in b['c2']['detail'], f'конфликт c2 после c1: {b["c2"]}')
         ok(all(b[n]['status'] == 'ok' for n in ('b1', 'c1', 'b3')), 'остальные прошли')
         ok(s['all_ok'] is False and s['full_runs'] == 1, 'один полный прогон, итог «есть проблемы»')
+
+        commit(repo, 'b4', 'marks/b4', 'ok\n', base='b1')      # ветка перебазирована на соседнюю b1 (как ff-цепочка директора)
+        s, b, out = run(['b1', 'b4'], tag='rebased')
+        mlog = open(os.path.join(out, 'mq.log'), encoding='utf-8').read()
+        ok(s['all_ok'] and b['b4']['status'] == 'ok' and re.search(r'слита: b4 \S+ \(1 коммит', mlog),
+           f'ветка поверх соседней: коммиты соседней второй раз не берутся: {b["b4"]}')
 
         s, b, out = run(['b1', 'b3'], tag='green')
         ok(s['all_ok'] and s['full_runs'] == 1 and s['step_runs'] == 0, 'всё зелёное — один прогон')
