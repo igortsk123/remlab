@@ -159,6 +159,10 @@ def reissue(job_id: str, result: dict, old: dict, ctx: dict | None = None) -> tu
     # товар у перенесённого предмета без товара (тур собран до T-25) — из витрины, как у сборщика (T-40); до имён
     report['goods_from_feeds'] = TB.goods_from_feeds(variants, demo, TB._Goods(ctx.get('goods')), new['rooms_geo'])
     TB.name_items(variants)
+    # семья цветов у перенесённых предметов (тур собран до T-96) — тем же `sku_scene.family`, что у сборки (T-20261112-53);
+    # переключатель — тот же, что у живых полей сцены сборки (`scene_live`)
+    if ctx.get('scene_live'):
+        report['carried_fams'] = TB.carried_fams(variants, demo, ctx.get('fam_rep'))
     # ленты — как у сборщика: /demo под слот комнаты (T-37), `feeds_short` — в отчёт перевыпуска; места перенесённых предметов —
     # свободное место в коробке комнаты, полоса «по размеру» страницы — от места (T-40)
     bands: dict = {}

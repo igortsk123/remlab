@@ -8075,19 +8075,40 @@ function trThumbs(again){
   }
   if(document.querySelector('#shot .pinlist .tr-thph[data-th]')&&++_trThN<40)_trThT=setTimeout(()=>trThumbs(true),1500);
 }
+// строка списка → её товар и место: предмет расстановки или декор варианта (по названию товара, как «Заменить»)
+function rowSlot(row){
+  const a=row&&shotRows[+row.dataset.k]; if(!a)return null;
+  const it=items.find(i=>(skuOf(i)||{}).name===a.name), dx=decorList().find(x=>(x.sku||{}).name===a.name);
+  return {a, s:(it&&skuOf(it))||(dx&&dx.sku)||{}, slot:dx?decorSel(dx.i):it};
+}
+// карточка товара строки (demo-26 Д); `p` — цвет, который показать в предпросмотре (нет — сам товар)
+function rowCard(row, p){
+  const r=rowSlot(row); if(!r)return;
+  const {a, s, slot}=r, rep=row.querySelector('[data-rep]'), fam=colourFam(s,a.role), at=p?fam.findIndex(x=>x.name===p.name):0;
+  // глубина в подписи карточки — каталожная: `d_catalog` товара идёт вместе с `d` сцены (иначе стул К2 «47×52», T-25/11)
+  itemCardOpen(icItem({...a, w:s.w, d:s.d, ...(s.d_catalog!=null?{d_catalog:s.d_catalog}:{}), h:s.h}, a.role), rep?()=>rep.click():null,
+    {fam, cur:0, at:Math.max(0,at), save:q=>saveColour(slot,q)});
+}
+// ТАП ПО КРУЖКУ ЦВЕТА (строка списка и карточка над предметом в 3D, T-20261112-53) — товар места сразу меняется на этот цвет тем же путём,
+// что «Сохранить» карточки (`saveColour` → `tryOn`: модель цвета или подкраска `tint` на модели семьи, цена, название, ссылка, смета, пара
+// одинаковых стульев — вместе). Прямо не ставим только цвет «нет в наличии» (карточка и раньше не давала его сохранить) и товар без
+// габаритов (`tryOn` отказал бы): им — карточка с предпросмотром этого цвета, как прежде
+function rowSwatch(row, sw){
+  const r=rowSlot(row); if(!r||!r.slot)return;
+  const p=sw.dataset.sw==='more'?null:colourFamRow(r.s,r.a.role)[+sw.dataset.sw];
+  if(p&&p.name===r.s.name)return;   // этот цвет уже стоит
+  if(p&&p.in_stock!==false&&((p.w&&p.d)||(r.slot.dec!==undefined&&isSoft(r.slot.role)))){saveColour(r.slot,p,true); return;}
+  rowCard(row,p);
+}
 // «Заменить» из просмотра: находим предмет текущей расстановки по названию товара
 function wireShotList(){
   if(TRIAL())setTimeout(trThumbs,0);
   // название или миниатюра — карточка товара (demo-26 Д); «Заменить» в ней — та же кнопка строки
   const pl=document.querySelector('#shotbody .pinlist');
-  // кружок цвета — та же карточка, сразу с этим цветом в предпросмотре (demo-28)
-  if(pl)pl.onclick=ev=>{const sw=ev.target.closest&&ev.target.closest('[data-sw]'), h=sw||icHit(ev), row=h&&h.closest('.row'), a=row&&shotRows[+row.dataset.k];
-    if(!a)return;
-    const it=items.find(i=>(skuOf(i)||{}).name===a.name), dx=decorList().find(x=>(x.sku||{}).name===a.name);
-    const s=(it&&skuOf(it))||(dx&&dx.sku)||{}, rep=row.querySelector('[data-rep]'), slot=dx?decorSel(dx.i):it;
-    // глубина в подписи карточки — каталожная: `d_catalog` товара идёт вместе с `d` сцены (иначе стул К2 «47×52», T-25/11)
-    itemCardOpen(icItem({...a, w:s.w, d:s.d, ...(s.d_catalog!=null?{d_catalog:s.d_catalog}:{}), h:s.h}, a.role), rep?()=>rep.click():null,
-      {fam:colourFam(s,a.role), cur:0, at:sw?+sw.dataset.sw:0, save:q=>saveColour(slot,q)});};
+  // кружок цвета — сразу смена цвета (`rowSwatch`, T-53); «+N» — карточка с предпросмотром всех цветов
+  if(pl)pl.onclick=ev=>{const sw=ev.target.closest&&ev.target.closest('[data-sw]'), h=sw||icHit(ev), row=h&&h.closest('.row');
+    if(!row)return;
+    if(sw)rowSwatch(row,sw); else rowCard(row,null);};
   document.querySelectorAll('#shotbody [data-rep]').forEach(b=>b.onclick=()=>{
     const a=shotRows[+b.dataset.rep];
     const dx=a&&decorList().find(x=>(x.sku||{}).name===a.name);
@@ -8164,18 +8185,32 @@ function swatchBtn(p, attr, on, label){
   const bg=p.swatch?`background:${p.swatch}`:p.img?`background:var(--surface) url('${escHtml(p.img)}') center/170% no-repeat`:'background:repeating-linear-gradient(135deg,var(--wash-2) 0 3px,var(--surface) 3px 6px)';   // нет фото и тона — штриховка «неизвестно», не цвет (T-65)
   return `<button class="sw${on?' on':''}" type="button" ${attr} style="${bg}" aria-label="${escHtml(label)}"${on?' aria-pressed="true"':''}></button>`;
 }
-// КРУЖКИ ЦВЕТОВ В СТРОКЕ (demo-28): до 5, дальше «+N»; тап — карточка сразу с этим цветом в предпросмотре (`data-sw` — номер в `colourFam`)
+// КРУЖКИ ЦВЕТОВ В СТРОКЕ (demo-28): до 5, дальше «+N». ТАП ПО КРУЖКУ — СРАЗУ СМЕНА ЦВЕТА (T-20261112-53, владелец TG 936: прежде
+// открывалось окно предпросмотра с «Сохранить»): товар места меняется на этот цвет в 3D, в списке и в смете (`rowSwatch`). Цвета — те же,
+// что в ленте «Заменить» (`colourFam`: только товары ленты роли), а в ленту сборка не пускает цвет, который сторож цвета mcg-v2 отметил
+// (`flat215_demo.colour_flagged`: вариант семьи на чужой модели далеко от фото, другая группа цвета без замера) — одно правило, кружка нет.
+// Порядок — порядок ленты, не «текущий первым»: после смены кружки не перескакивают под пальцем (`data-sw` — номер в `colourFamRow`)
+function colourFamRow(sku, role){
+  const fam=colourFam(sku, role); if(!fam.length)return fam;
+  const m=famKey(sku), ord=new Map();
+  (byRoom(D.feeds,baseRole(role))||[]).forEach((p,i)=>{if(p.img&&famKey(p)===m&&!ord.has(p.name))ord.set(p.name,i);});
+  const at=p=>ord.has(p.name)?ord.get(p.name):-1;
+  return fam.slice().sort((a,b)=>at(a)-at(b));
+}
 function swatchRow(sku, role){
-  const fam=colourFam(sku, role); if(!fam.length)return '';
-  return `<span class="sws">`+fam.slice(0,5).map((p,j)=>swatchBtn(p,`data-sw="${j}"`,j===0,colourName(fam,j))).join('')+
-    (fam.length>5?`<button class="swn" type="button" data-sw="0">+${fam.length-5}</button>`:'')+`</span>`;
+  const fam=colourFamRow(sku, role); if(!fam.length)return '';
+  const cur=fam.findIndex(p=>p.name===sku.name), show=fam.map((p,j)=>j).slice(0,5);
+  if(cur>=5)show[4]=cur;   // текущий цвет дальше пятого — виден на месте пятого
+  return `<span class="sws">`+show.map(j=>swatchBtn(fam[j],`data-sw="${j}"`,j===cur,colourName(fam,j))).join('')+
+    (fam.length>5?`<button class="swn" type="button" data-sw="more">+${fam.length-5}</button>`:'')+`</span>`;
 }
 // «Сохранить» цвета товара места — тот же путь, что замена (`tryOn`: пара одинаковых кресел — вместе, подкраска 3D, новый номер
-// состояния, фото устаревает честно) + подсказка, как увидеть цвет на фото (как у мягкого, `CTA_REAL`)
-function saveColour(slot, p){
+// состояния, фото устаревает честно) + подсказка, как увидеть цвет на фото (как у мягкого, `CTA_REAL`); `quiet` — кружок: смена видна
+// сразу в 3D, подсказку не показываем
+function saveColour(slot, p, quiet){
   if(!slot)return; sel=slot; if(typeof VW!=='undefined')VW.auto=null;
   if(tryOn(p)===false)return;
-  refreshShotList(); softSwapToast();
+  refreshShotList(); if(!quiet)softSwapToast();
 }
 function itemCardOpen(p, swap, opts){
   let el=document.getElementById('itemCard');
@@ -9421,6 +9456,9 @@ div.vcth{background:var(--wash)}
 .vcmeta{display:flex;align-items:baseline;gap:8px;min-width:0;white-space:nowrap}
 .vcost{font-weight:800;font-size:15px;font-variant-numeric:tabular-nums}
 .vcsz{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+/* кружки цветов в карточке (T-20261112-53) — как в строке списка, под ценой */
+.vcsws{display:flex;align-items:center;gap:8px;min-height:24px;margin-top:2px}.vcsws[hidden]{display:none}
+.vcsws .swn{border:0;background:none;padding:0 2px;font:inherit;font-size:13.5px;color:var(--muted);cursor:pointer}
 .vcx{position:absolute;top:6px;right:6px;width:28px;height:28px;margin:0;padding:0;border:0;border-radius:999px;background:none;color:var(--muted);cursor:pointer;
  display:inline-flex;align-items:center;justify-content:center}
 .vcx:hover{background:var(--wash);color:var(--ink)}
@@ -10235,6 +10273,8 @@ function vwPinsTick(now){
   const shot=document.getElementById('shot'), box=document.getElementById('vpins'); if(!box)return;
   if(box!==PINS.box){PINS.box=box; PINS.map.clear(); PINS.fr=null;
     box.onclick=e=>{const q=e.target.closest&&e.target.closest('.vrep'); if(q){vwReplace(); return;}
+      // кружок цвета карточки — как кружок строки этого предмета (`rowSwatch`, T-53)
+      const sw=e.target.closest&&e.target.closest('.vcsws [data-sw]'); if(sw){const rw=vwRowOf(vwItemAt(VW.sel)); if(rw)rowSwatch(rw,sw); return;}
       const r=e.target.closest&&e.target.closest('.vrot'); if(r){vwRotate(); return;}
       // × карточки — снять выбор; карточку прячем сразу, не ждём кадра сцены (без 3D-видеокарты кадр идёт сотни мс — проба тура 1280)
       if(e.target.closest&&e.target.closest('.vcx')){vwTipHide(); vwSelect(null); vwRotHide(); return;}
@@ -10323,7 +10363,7 @@ function vwActsNode(box){
   // цена выбранного — в карточке; отдельный ценник предмета, пока она открыта, не рисуется (`vwPinsTick`). Подпись круга — `data-tip`
   // (подсказка при наведении, `vwTipShow`); `title` не ставим — иначе вторая, системная подсказка
   b.innerHTML=`<div class="vcard"><div class="vctop"><div class="vcth" aria-hidden="true"></div>`+
-      `<div class="vctx"><b class="vcnm"></b><span class="vcmeta"><span class="vcost"></span><span class="vcsz"></span></span></div>`+
+      `<div class="vctx"><b class="vcnm"></b><span class="vcmeta"><span class="vcost"></span><span class="vcsz"></span></span><span class="sws vcsws" hidden></span></div>`+
       `<button class="vcx" type="button" aria-label="${EN?'Close':'Закрыть'}">${vaIc('x')}</button></div>`+
     `<div class="vcbot"><button class="vrep" type="button">${EN?'Replace':'Заменить'}</button>`+
       `<button class="vrot" type="button" data-tip="${EN?'Rotate (R)':'Повернуть (R)'}" aria-label="${EN?'Rotate 90°':'Повернуть на 90°'}">${vaIc('rot')}</button>`+
@@ -10338,9 +10378,9 @@ function vwActsNode(box){
 // миниатюра и название — из строки этого предмета в списке (та же картинка; в туре — снимок 3D-модели и нейтральное название, правило
 // очистки `trial_bundle.py`); строки нет — название товара (в туре — роль), плитка без картинки
 function vwCardInfo(it){
-  const r=vwRowOf(it), im=r&&r.querySelector('img'), nm=r&&r.querySelector('.t b');
+  const r=vwRowOf(it), im=r&&r.querySelector('img'), nm=r&&r.querySelector('.t b'), sw=r&&r.querySelector('.t .sws');
   const name=(nm&&nm.textContent.trim())||(TRIAL()?baseRole(it.role):((skuOf(it)||{}).name||baseRole(it.role)||''));
-  return {img:im&&im.getAttribute('src')||'', name};
+  return {img:im&&im.getAttribute('src')||'', name, sws:sw?sw.innerHTML:''};
 }
 function vwTipShow(btn){
   const g=btn.closest('.vacts'), tip=g&&g.querySelector('.vatip'); if(!tip||VW_NARROW())return;
@@ -10377,6 +10417,8 @@ function vwRotPlace(box, fr, pad0, kept, all, hit, underHint, pr){
     if(ci.img){n.alt=''; n.src=ci.img;} th.replaceWith(n);}
   const sz=cloth?(LANG==='en'?'illustrative look':'вид условный'):dims?vwDimsTxt(it,false)+(LANG==='en'?' cm':' см'):'', se=v.querySelector('.vcsz'); if(se.textContent!==sz){se.textContent=sz; b._w=0;}
   const ce=v.querySelector('.vcost'); if(ce.textContent!==cost){ce.textContent=cost; b._w=0;}
+  // КРУЖКИ ЦВЕТОВ (T-20261112-53, владелец TG 936) — те же, что в строке списка (копия её `.sws`), тап — сразу смена цвета (`rowSwatch`)
+  const swh=ci.sws||'', sv=v.querySelector('.vcsws'); if(sv._h!==swh){sv._h=swh; sv.innerHTML=swh; sv.hidden=!swh; b._w=0;}
   if(b.hidden){b.hidden=false; b._w=0;}
   // ШИРИНА: на компьютере постоянная, на узкой сцене (телефон 375) — не шире сцены без полей 8 px
   if(b._fw!==fr.width){b._fw=fr.width; b._w=0; v.style.width=Math.max(200,Math.min(VCARD_W,Math.floor(fr.width-2*pad)))+'px';}

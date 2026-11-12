@@ -1139,6 +1139,38 @@ def scene_live(skus: list) -> dict:
     return st
 
 
+def carried_fams(variants: list, demo: dict | None, rep: dict | None = None) -> int:
+    """СЕМЬЯ ЦВЕТОВ У ПЕРЕНЕСЁННЫХ ПРЕДМЕТОВ (T-20261112-53, владелец TG 936: кружки цвета в туре — как в /demo). Сборка ставит `fam`
+    в `scene_fields` → `sku_scene.family` по артикулу товара `_sid`; у предмета, который перевыпуск перенёс из тура, собранного до
+    T-96, нет ни `fam`, ни артикула — цвета со своей 3D-моделью выпадали из кружков. Артикул — из строки витрины того же товара
+    (название + модель), семья — тем же `sku_scene.family` (`rep` — `room_bindings.mesh_rep`; без базы — без семьи, но громко).
+    Трогаем только `sku` без `fam` и с найденным артикулом. → сколько отмечено."""
+    import sku_scene as SS
+    sid_of = {(r['name'], r.get('msid')): r['sid'] for rows in (demo or {}).values() if isinstance(rows, dict)
+              for lst in rows.values() for r in lst or [] if isinstance(r, dict) and r.get('sid') and r.get('name')}
+    skus = []
+    for v in variants:
+        for it in (v.get('items') or []) + (v.get('decor') or []):
+            sk = it.get('sku') if isinstance(it, dict) else None
+            sid = isinstance(sk, dict) and not sk.get('fam') and sid_of.get((sk.get('name'), sk.get('msid')))
+            if sid:
+                sk['_sid'] = str(sid).replace(':', '_', 1)
+                skus.append(sk)
+    if not skus:
+        return 0
+    try:
+        if rep is None:
+            import flat215_demo as FD
+            rep = FD._mesh_rep()
+        return SS.family(skus, rep)
+    except Exception as e:  # noqa: BLE001 — без базы тур перевыпускается без семьи, но громко
+        print(f'WARN:trial_carried_fams: {repr(e)[:160]}', flush=True)
+        return 0
+    finally:
+        for sk in skus:
+            sk.pop('_sid', None)
+
+
 def _scene_variant(sv: dict, room_id: str, geo: dict, msid_of, goods=None) -> dict:
     style = sv.get('style') or PENDING_STYLE
     failed = bool(sv.get('failed'))

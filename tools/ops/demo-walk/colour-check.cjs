@@ -1,8 +1,8 @@
 const {demoUrl}=require('../demo-url.cjs');
 const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.readdirSync('node_modules/.pnpm').find(d=>d.startsWith('playwright-core@'))+'/node_modules/playwright-core');
 // ЦВЕТА ТОВАРА (demo-28, владелец 23.10): кружки цвета в строке окна — только у товаров, у модели которых в ленте ≥ 2 цветов; тап по
-// кружку — карточка с предпросмотром этого цвета (фото, название, цена, ссылка), ничего не применено; закрыли — как было; «Сохранить» —
-// цвет сменился (модель та же, `msid`), номер состояния новый, тост «Сделать фото»; пара одинаковых предметов — вместе; лента —
+// кружку — СРАЗУ смена цвета без окна (T-20261112-53, владелец TG 936): название, цена, ссылка, модель цвета или подкраска, номер
+// состояния новый, кружки на местах; «+N» и название строки — карточка с предпросмотром и «Сохранить»; пара одинаковых предметов — вместе; лента —
 // чип цвета текущего открывает ту же карточку («×» закрывает только её, лист замен остаётся — не больше двух слоёв), плитка модели —
 // её цвета и «Заменить» выбранным. Платного нет, на сервер ничего не пишется.
 //   BASE=http://127.0.0.1:8790/demo/ OUT=<папка/> [V=2] [TAG=after] node tools/ops/demo-walk/colour-check.cjs 375x667
@@ -27,7 +27,12 @@ const ST=`({card:!!document.querySelector('#itemCard.on'), sheet:document.getEle
     await p.waitForFunction(()=>document.querySelectorAll('#shotbody .pinlist .row').length>2,null,{timeout:60000}); await p.waitForTimeout(1200);
     await p.evaluate(()=>{const x=[...document.querySelectorAll('#shot button')].find(e=>/Мебель и|Furniture/.test(e.innerText)); if(x)x.click();}); await p.waitForTimeout(1200);
     const shot=async n=>{for(let i=0;i<4;i++){try{await p.screenshot({path:`${OUT}${TAG}-${W}-${lang}-${n}.png`,timeout:20000,animations:'disabled'});return;}catch(e){await p.waitForTimeout(1500);}}};
-    const tap=async sel=>{const l=p.locator(sel).first(); await l.scrollIntoViewIfNeeded(); if(PHONE)await l.tap(); else await l.click();};
+    // телефон: после смены цвета шторка сворачивается (видна сцена с заменой) — перед нажатием в списке открыть её снова
+    const sheetUp=async()=>{if(!PHONE)return; const was=await p.evaluate(()=>{const sd=document.getElementById('vside'); if(!sd||+sd.dataset.pos>0)return 0;
+      const x=[...document.querySelectorAll('#shot button')].find(e=>/Мебель и|Furniture/.test(e.innerText)); if(x)x.click(); return 1;}); if(was)await p.waitForTimeout(1200);};
+    const tap=async sel=>{await sheetUp(); const l=p.locator(sel).first();
+      if(sel.startsWith('#shotbody'))await l.evaluate(e=>e.scrollIntoView({block:'center'})); else await l.scrollIntoViewIfNeeded(); await p.waitForTimeout(300);
+      if(PHONE)await l.tap(); else await l.click();};
     const st=()=>p.evaluate(ST);
     // 1. кружки — ровно у тех строк, у чьей модели ≥ 2 цветов в ленте
     const rows=await p.evaluate(()=>[...document.querySelectorAll('#shotbody .pinlist .row')].map(r=>{const a=shotRows[+r.dataset.k];
@@ -42,33 +47,44 @@ const ST=`({card:!!document.querySelector('#itemCard.on'), sheet:document.getEle
     const R0=`#shotbody .pinlist .row[data-k="${row.k}"]`;
     await p.evaluate(s=>document.querySelector(s).scrollIntoView({block:'center'}),R0); await p.waitForTimeout(400);
     await shot('row');
+    // цвета строки — в порядке ленты (`colourFamRow`, T-20261112-53): номер кружка `data-sw` — номер в этом списке
     const fam=await p.evaluate(k=>{const a=shotRows[k], it=items.find(i=>(skuOf(i)||{}).name===a.name), dx=decorList().find(x=>(x.sku||{}).name===a.name);
-      const s=(it&&skuOf(it))||(dx&&dx.sku); return colourFam(s,a.role).map(f=>({name:f.name,img:f.img,price:f.price,url:f.url,sid:f.sid,msid:f.msid||f.sid}));},row.k);
-    const s0=await st(), msid0=await p.evaluate(n=>{const it=items.find(i=>(skuOf(i)||{}).name===n); return it?(skuOf(it).msid||skuOf(it).sid):null;},row.name);
-    // 2. кружок № 2 — карточка с предпросмотром второго цвета, «Сохранить»; ничего не применено
-    await tap(R0+' .sws [data-sw="1"]'); await p.waitForTimeout(700);
-    let s1=await st();
-    ok(`${lang}: кружок — карточка с этим цветом: фото, название, «Сохранить»`,s1.card&&s1.nm===fam[1].name&&s1.img===fam[1].img&&s1.btns[0]===(lang==='en'?'Save':'Сохранить')&&/:/.test(s1.cl),
-      {nm:s1.nm,img:s1.img,btns:s1.btns,cl:s1.cl});
-    ok(`${lang}: предпросмотр ничего не применил`,s1.state===s0.state&&(await p.evaluate(k=>shotRows[k].name,row.k))===row.name);
-    await p.waitForTimeout(400); await shot('card-preview');
-    // 3. в карточке — свой цвет: «Заменить», не «Сохранить»; снова второй
-    await p.locator('#itemCard [data-icsw="0"]').click(); await p.waitForTimeout(400); s1=await st();
-    ok(`${lang}: свой цвет в карточке — «Заменить»`,s1.nm===fam[0].name&&s1.btns[0]===(lang==='en'?'Replace':'Заменить'),s1.btns);
-    await p.locator('#itemCard [data-icsw="1"]').click(); await p.waitForTimeout(400);
-    // 4. «×» — как было
-    await p.locator('#itemCard .ic-x').click(); await p.waitForTimeout(500); let s2=await st();
-    ok(`${lang}: закрыли без «Сохранить» — ничего не изменилось`,!s2.card&&s2.state===s0.state&&(await p.evaluate(k=>shotRows[k].name,row.k))===row.name);
-    // 5. «Сохранить» — цвет сменился, модель та же, состояние новое, тост
-    await tap(R0+' .sws [data-sw="1"]'); await p.waitForTimeout(600);
-    await p.locator('#itemCard .ic-sv').click(); await p.waitForTimeout(1000); s2=await st();
-    const after=await p.evaluate(n=>{const its=items.filter(i=>(skuOf(i)||{}).name===n); return {n:its.length, msid:its.map(i=>skuOf(i).msid||skuOf(i).sid), rows:shotRows.map(a=>a.name)};},fam[1].name);
-    ok(`${lang}: «Сохранить» — цвет в строке новый, модель та же, состояние новое`,!s2.card&&after.rows.includes(fam[1].name)&&!after.rows.includes(row.name)&&after.msid.every(m=>m===msid0)&&s2.state!==s0.state,
-      {rows:after.rows.slice(0,3), msid:after.msid, msid0, st:[s0.state,s2.state]});
-    ok(`${lang}: тост «Сделать фото»`,/Сделать фото|Take photo/.test(s2.toast),s2.toast);
-    const kin=await p.evaluate(([a,b])=>({old:items.filter(i=>(skuOf(i)||{}).name===a).length, nu:items.filter(i=>(skuOf(i)||{}).name===b).length}),[row.name,fam[1].name]);
+      const s=(it&&skuOf(it))||(dx&&dx.sku); return colourFamRow(s,a.role).map(f=>({name:f.name,img:f.img,price:f.price,url:f.url,sid:f.sid,msid:f.msid||f.sid,tint:f.tint||null,u:itemUrl(f)||''}));},row.k);
+    const s0=await st(), j1=fam.findIndex(f=>f.name!==row.name);
+    const labels=()=>p.evaluate(()=>[...document.querySelectorAll('#shotbody .pinlist .row .sws .sw')].map(e=>e.getAttribute('aria-label')));
+    const lab0=await labels();
+    // 2. КРУЖОК ДРУГОГО ЦВЕТА — СРАЗУ СМЕНА (T-20261112-53, владелец TG 936): окна нет, товар места — этот цвет (название, цена, ссылка,
+    //    модель цвета или подкраска), состояние новое, кружки на своих местах, выбранный — нажатый; подсказки «Сделать фото» нет
+    await tap(R0+` .sws [data-sw="${j1}"]`); await p.waitForTimeout(1000);
+    let s2=await st();
+    const after=await p.evaluate(n=>{const its=items.filter(i=>(skuOf(i)||{}).name===n), a=shotRows.find(x=>x.name===n)||{};
+      return {n:its.length, msid:its.map(i=>skuOf(i).msid||skuOf(i).sid), tint:its.map(i=>skuOf(i).tint||null), rows:shotRows.map(a=>a.name), price:a.price, url:itemUrl(a)};},fam[j1].name);
+    ok(`${lang}: кружок — без окна, цвет в строке новый, состояние новое`,!s2.card&&after.rows.includes(fam[j1].name)&&!after.rows.includes(row.name)&&s2.state!==s0.state,
+      {rows:after.rows.slice(0,3), st:[s0.state,s2.state]});
+    ok(`${lang}: модель и подкраска — того цвета (своя модель или подкраска из сборки)`,after.n>=1&&after.msid.every(m=>m===fam[j1].msid)&&after.tint.every(t=>JSON.stringify(t)===JSON.stringify(fam[j1].tint)),
+      {msid:after.msid, want:fam[j1].msid, tint:after.tint});
+    ok(`${lang}: цена и ссылка строки — того цвета`,after.price===fam[j1].price&&(after.url||'')===fam[j1].u,{price:after.price,want:fam[j1].price});
+    ok(`${lang}: подсказки «Сделать фото» нет (смена видна сразу)`,!/Сделать фото|Take photo/.test(s2.toast),s2.toast);
+    const lab1=await labels(), on=await p.evaluate(s=>{const b=document.querySelector(s+' .sws .sw.on'); return b?b.dataset.sw:null;},`#shotbody .pinlist .row[data-k="${await p.evaluate(n=>shotRows.findIndex(a=>a.name===n),fam[j1].name)}"]`);
+    ok(`${lang}: кружки не перескочили, выбранный — нажатый`,JSON.stringify(lab0)===JSON.stringify(lab1)&&on===String(j1),{on,j1});
+    const kin=await p.evaluate(([a,b])=>({old:items.filter(i=>(skuOf(i)||{}).name===a).length, nu:items.filter(i=>(skuOf(i)||{}).name===b).length}),[row.name,fam[j1].name]);
     ok(`${lang}: все одинаковые предметы места сменили цвет вместе (старого не осталось)`,kin.old===0&&kin.nu>=1,kin);
     await shot('saved');
+    // 3. кружок нажатого цвета — ничего не меняет; кружок прежнего — вернул как было
+    const R1=`#shotbody .pinlist .row[data-k="${await p.evaluate(n=>shotRows.findIndex(a=>a.name===n),fam[j1].name)}"]`;
+    await tap(R1+` .sws [data-sw="${j1}"]`); await p.waitForTimeout(600); let s3=await st();
+    ok(`${lang}: кружок того же цвета — ничего не изменилось`,!s3.card&&s3.state===s2.state);
+    const j0=fam.findIndex(f=>f.name===row.name);
+    await tap(R1+` .sws [data-sw="${j0}"]`); await p.waitForTimeout(900); s3=await st();
+    ok(`${lang}: кружок прежнего цвета — вернул прежний товар`,!s3.card&&(await p.evaluate(()=>shotRows.map(a=>a.name))).includes(row.name));
+    // 4. «+N» (цветов больше пяти) — карточка со всеми цветами, как прежде
+    if(await p.locator(R0+' .sws .swn').count()){await tap(R0+' .sws .swn'); await p.waitForTimeout(600); const s4=await st();
+      ok(`${lang}: «+N» — карточка со всеми цветами`,s4.card,s4); await p.locator('#itemCard .ic-x').click(); await p.waitForTimeout(400);}
+    // 5. название строки — карточка товара с цветами (предпросмотр и «Сохранить» там — как прежде)
+    await p.evaluate(s=>document.querySelector(s+' .t b').click(),R0); await p.waitForTimeout(600);
+    await p.locator(`#itemCard [data-icsw="1"]`).click(); await p.waitForTimeout(400); const s5=await st();
+    ok(`${lang}: в карточке товара кружок — предпросмотр и «Сохранить»`,s5.card&&s5.btns[0]===(lang==='en'?'Save':'Сохранить'),s5.btns);
+    await p.locator('#itemCard .ic-x').click(); await p.waitForTimeout(400);
     // 6. лента: чип цвета текущего — карточка поверх листа; «×» закрывает только её; «Сохранить» — цвет и лист закрыт
     await p.evaluate(k=>{const b=document.querySelector(`#shotbody .pinlist .row[data-k="${k}"] [data-rep]`); if(b)b.click();},row.k); await p.waitForTimeout(900);
     const chip=await p.evaluate(()=>{const c=[...document.querySelectorAll('#grid .colchip:not(.on)')]; return c.length;});
@@ -104,9 +120,9 @@ const ST=`({card:!!document.querySelector('#itemCard.on'), sheet:document.getEle
     const pair=await p.evaluate(()=>[...document.querySelectorAll('#shotbody .pinlist .row')].map(r=>shotRows[+r.dataset.k]).find(a=>a&&(a.qty||1)>1&&
       document.querySelector(`#shotbody .pinlist .row[data-k="${shotRows.indexOf(a)}"] .sws`)));
     if(pair){const k=await p.evaluate(n=>shotRows.findIndex(a=>a.name===n),pair.name), n0=await p.evaluate(n=>items.filter(i=>(skuOf(i)||{}).name===n&&i.sku&&i.sku.name).length,pair.name);
-      await p.evaluate(k=>document.querySelector(`#shotbody .pinlist .row[data-k="${k}"] .sws [data-sw="1"]`).click(),k); await p.waitForTimeout(600);
-      const want=await p.evaluate(()=>document.querySelector('#itemCard .ic-nm').innerText);
-      await p.locator('#itemCard .ic-sv').click(); await p.waitForTimeout(900);
+      const want=await p.evaluate(k=>{const b=document.querySelector(`#shotbody .pinlist .row[data-k="${k}"] .sws .sw:not(.on)`), a=shotRows[k];
+        const it=items.find(i=>(skuOf(i)||{}).name===a.name); const w=colourFamRow(skuOf(it),a.role)[+b.dataset.sw].name; b.click(); return w;},k);
+      await p.waitForTimeout(900);
       const c=await p.evaluate(([a,b])=>({old:items.filter(i=>i.sku&&i.sku.name===a).length, nu:items.filter(i=>i.sku&&i.sku.name===b).length}),[pair.name,want]);
       ok(`${lang}: пара (${pair.qty} шт.) — цвет сменился у всех`,c.old===0&&c.nu===n0&&n0>=2,{...c,n0});}
     else R.push(`ИНФО ${lang}: пары с цветами в варианте нет`);

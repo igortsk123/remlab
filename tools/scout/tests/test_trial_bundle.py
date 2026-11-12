@@ -1472,3 +1472,19 @@ def test_swatch_on_plan_goods_only_hex():
     for bad in ('red', '#AABBCC', '#aabbcc"', 7):
         with pytest.raises(TB.BundleRefused):
             TB.assert_public({'variants': [{'items': [{'sku': {'swatch': bad}}]}]}, [], goods=True)
+
+
+def test_carried_items_get_colour_family_by_sku_scene():
+    """T-20261112-53: у предмета, перенесённого перевыпуском из старого тура (нет `fam` и артикула), семья цветов — тем же
+    `sku_scene.family`, что у сборки: артикул — из строки витрины (название + модель); свой `fam` и чужой товар не трогаем."""
+    demo = {'living': {'диван': [{'name': 'Викс Синий', 'msid': '1_own', 'sid': '1:own', 'fam': '1_rep'},
+                                 {'name': 'Викс Серый', 'msid': '1_rep', 'sid': '1:rep'}]}}
+    own, rep_sku = {'name': 'Викс Синий', 'msid': '1_own'}, {'name': 'Викс Серый', 'msid': '1_rep'}
+    other = {'name': 'Викс Синий', 'msid': '9_x'}                         # то же название, другая модель — не тот товар
+    kept = {'name': 'Викс Синий', 'msid': '1_own', 'fam': '1_keep'}
+    vs = [{'items': [{'sku': own}, {'sku': rep_sku}, {'sku': other}, {'sku': None}], 'decor': [{'sku': kept}]}]
+    rep = {'1_own': '1_rep', '1_rep': '1_rep'}
+    assert TB.carried_fams(vs, demo, rep) == 1
+    assert own['fam'] == '1_rep' and 'fam' not in rep_sku and 'fam' not in other and kept['fam'] == '1_keep'
+    assert not any('_sid' in s for s in (own, rep_sku, other, kept))      # ключ товара — только на время расчёта
+    assert TB.carried_fams(vs, None, rep) == 0
