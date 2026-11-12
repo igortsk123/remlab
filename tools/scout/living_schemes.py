@@ -29,6 +29,7 @@ from scipy import ndimage
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import bedroom_schemes as bs  # noqa: E402
+import slot_rules  # noqa: E402
 from bedroom_schemes import (EPS, OPPOSITE, RAD_HARD, DOOR_PASS, WALLS, WALL_RU, V, Canvas, area, band,  # noqa: E402
                              bfs_path, clip, door_geo, draw_hatch, expand, font, inter, rdist, swing_hit, text_c,
                              wall_len, wall_offsets, wall_point)
@@ -69,7 +70,12 @@ CODE_RU = {
     'ROUTE_SEAT': f'нет пути {P_MAIN:.0f} от двери к дивану', 'ROUTE_WINDOW': f'нет пути {P_SEC:.0f} от двери к окну',
     'ROUTE_DINING': f'нет пути {P_MAIN:.0f} к столовой', 'ROUTE_KITCHEN': f'нет пути {P_MAIN:.0f} к кухне',
     'ROUTE_ARM': f'нет подхода {P_LOC:.0f} к креслу', 'ROUTE_DRESSER': f'нет подхода {P_LOC:.0f} к комоду',
+    'SEAT_OFF_RUG': 'посадка не стоит передними ножками на ковре',
+    'RUG_GAP': 'дыра каталога: в банке нет ковра нужного размера',
 }
+_INV = json.load(open(HERE.parent.parent / 'services/planner-solver/rules/templates.json'))['invariants']['seats_front_legs_on_rug']
+SEAT_RUG_MIN = 0.02   # templates.json invariants.seats_front_legs_on_rug: «перекрытие ≥2% футпринта» (число — в тексте check)
+SEAT_RUG_TUCK = float(_INV['tuck_cm'])   # 15
 SOLID = ('sofa', 'sofa2', 'table', 'tv', 'arm', 'lamp', 'dresser', 'dtable', 'chair', 'plant', 'pouf', 'kitchen')
 
 
@@ -98,21 +104,34 @@ def choose_templates(area_m2, aspect, kitchen=False, annex=False):
     return ['C1', 'C2'], f'{area_m2:.1f} м² < 16, пропорции 1:{aspect:.2f}: диван и ТВ на противоположных стенах'
 
 
+def dining_seats(area_m2):
+    """Мест за столом — по общей площади комнаты (`slot_rules.seats_for_room`, zones.json `seats_by_room_m2`: <22 → 2,
+    <40 → 4, ≥40 → 6; ADR-0270), одно число с подбором комплекта."""
+    cfg = ((slot_rules.slot_envelopes().get('slots') or {}).get('стол обеденный')) or {}
+    return int(slot_rules.seats_for_room(cfg, area_m2))
+
+
 def levels_for(room, tpl):
-    """Целые составы по порядку (Codex §2 «Деградация»): A — всё; B — столовая меньше; C — малая (< 16 м²) без кресла/вазы/
-    кашпо; D — торшер вместо «комод + лампа». Ничего не выбрасываем поштучно."""
+    """Целые составы по порядку; ничего не выбрасываем поштучно.
+    < 16 м² (канон `core/lr-checklist.md`: кресло, ваза, кашпо — от 16 м²): A — без кресла, ваза и кашпо по желанию, стол
+    на 2; B — без вазы и кашпо; C — компактный стол на 2 (самый малый в банке); D — ещё и торшер вместо «комод + лампа»
+    (хранение — ТВ-тумба: комод только если нет иного хранения); E — без столовой, последним и с причиной.
+    ≥ 16 м²: A — всё, стол по площади; B — стол на 2 места меньше (на 2 — компактный); D — торшер вместо «комод + лампа».
+    Места для столовой на каждом уровне перебираются все (`complete`)."""
     big = room['area'] >= 16
-    dreq = bool(room.get('kitchen') or room.get('annex') or room['area'] >= 20)
+    n = dining_seats(room['area'])
     narm = {'C1': 1, 'C2': 1, 'C3': 0, 'M1': 1, 'O1': 1, 'O2': 1, 'L1': 2, 'L2': 1}[tpl]
-    A = {'arm': narm, 'light': 'dresser', 'vase': True, 'plant': True, 'dining': 4 if dreq else 2, 'sofa2': tpl == 'L2'}
-    B = dict(A, dining=2 if dreq else 0)
-    out = [('A', A), ('B', B)]
-    last = B
     if not big:
-        C = dict(B, arm=0, vase=False, plant=False)
-        out.append(('C', C))
-        last = C
-    out.append(('D', dict(last, light='floor')))
+        A = {'arm': 0, 'light': 'dresser', 'vase': True, 'plant': True, 'dining': n, 'sofa2': False, 'optional': ('vase', 'plant')}
+        B = dict(A, vase=False, plant=False, optional=())
+        C = dict(B, compact=True)
+        D = dict(C, light='floor')
+        E = dict(D, dining=0, compact=False)
+        out = [('A', A), ('B', B), ('C', C), ('D', D), ('E', E)]
+    else:
+        A = {'arm': narm, 'light': 'dresser', 'vase': True, 'plant': True, 'dining': n, 'sofa2': tpl == 'L2'}
+        B = dict(A, dining=n - 2) if n > 2 else dict(A, compact=True)
+        out = [('A', A), ('B', B), ('D', dict(B, light='floor'))]
     return [(k, v, level_desc(v, room)) for k, v in out]
 
 
@@ -124,11 +143,14 @@ def level_desc(L, room):
         p.append(f"кресло ×{L['arm']}" if L['arm'] > 1 else 'кресло')
     p.append('комод + лампа' if L['light'] == 'dresser' else 'торшер')
     if L['dining']:
-        p.append(f"стол + {L['dining']} стула")
-    if L['vase']:
-        p.append('ваза')
-    if L['plant']:
-        p.append('кашпо')
+        ch = 'стула' if L['dining'] < 5 else 'стульев'
+        p.append(f"{'компактный стол' if L.get('compact') else 'стол'} + {L['dining']} {ch}")
+    else:
+        p.append('без столовой')
+    opt = L.get('optional') or ()
+    for k, ru in (('vase', 'ваза'), ('plant', 'кашпо')):
+        if L[k]:
+            p.append(f'{ru} (если влезет)' if k in opt else ru)
     return ' + '.join(p)
 
 
@@ -249,7 +271,38 @@ def _fill(sets, main):
                     sk[role] = x
                     break
     sk['_set'] = main
+    for role, key, lo in (('стол обеденный', 'стол компакт', 70.0), ('стул', 'стул компакт', 35.0)):
+        x = smallest(sets, role, main['style'], lo)
+        if x:
+            sk[key] = x
     return sk
+
+
+def smallest(sets, role, style, lo):
+    """Самый малый по площади товар роли в банке (свой стиль первым), обе стороны не меньше lo — компактная столовая."""
+    best = None
+    for s in sets:
+        it = s['items'].get(role)
+        if not it:
+            continue
+        x = _sku(it, s)
+        if min(x['w'], x['d']) < lo:
+            continue
+        key = (x['style'] != style, x['w'] * x['d'])
+        if best is None or key < best[0]:
+            best = (key, x)
+    return best[1] if best else None
+
+
+def bank_rugs(sets):
+    """Ковры банка по возрастанию площади (уникальные габариты)."""
+    out = {}
+    for s in sets:
+        it = s['items'].get('ковёр')
+        if it:
+            x = _sku(it, s)
+            out.setdefault((x['w'], x['d']), x)
+    return [out[k] for k in sorted(out, key=lambda k: k[0] * k[1])]
 
 
 # ---------------------------------------------------------------- комнаты (координаты: x — восток, y — север, см)
@@ -467,8 +520,9 @@ def dresser_cands(room, sku):
     return out
 
 
-def dining_group(room, tbl, chair, n, cx, cy, along_x):
-    """Стол + n стульев на длинных сторонах (2 — по одному, 4 — по два); за стулом — 60 отодвинуть (55) / подойти."""
+def dining_group(room, tbl, chair, n, cx, cy, along_x, adj=None):
+    """Стол + n стульев на длинных сторонах (2 — по одному, 4 — по два); за стулом — 60 отодвинуть (55) / подойти.
+    adj=(sx, sy) при n=2 — стулья на двух СОСЕДНИХ сторонах (стол в углу, как на /demo): sx — сторона по x, sy — по y."""
     tw, td = (max(tbl['w'], tbl['d']), min(tbl['w'], tbl['d']))
     if not along_x:
         tw, td = td, tw
@@ -476,8 +530,34 @@ def dining_group(room, tbl, chair, n, cx, cy, along_x):
     g = [obj('dtable', 'стол обеденный', tbl, T, 'dining')]
     cw, cd = chair['w'], chair['d']
     tuck = min(15.0, cd / 3)
+    if adj and n == 2:
+        sx, sy = adj
+        x0 = T[2] - tuck if sx > 0 else T[0] + tuck - cd
+        y0 = T[3] - tuck if sy > 0 else T[1] + tuck - cd
+        pairs = [((x0, cy - cw / 2, x0 + cd, cy + cw / 2),
+                  (T[2], cy - cw / 2, T[2] + CHAIR_ZONE, cy + cw / 2) if sx > 0 else (T[0] - CHAIR_ZONE, cy - cw / 2, T[0], cy + cw / 2)),
+                 ((cx - cw / 2, y0, cx + cw / 2, y0 + cd),
+                  (cx - cw / 2, T[3], cx + cw / 2, T[3] + CHAIR_ZONE) if sy > 0 else (cx - cw / 2, T[1] - CHAIR_ZONE, cx + cw / 2, T[1]))]
+        for rr, zz in pairs:
+            c_ = obj('chair', 'стул', chair, rr, 'dining')
+            c_['zones'].append({'code': 'CHAIR_ZONE', 'rect': zz, 'label': f'{CHAIR_ZONE:.0f}', 'wall': None})
+            g.append(c_)
+        return g
     long_x = tw >= td
-    per = max(1, n // 2)
+    per = 2 if n == 6 else max(1, n // 2)      # на 6: по 2 на длинных + по торцам (61 см кромки на едока)
+    if n == 6:
+        for side in (-1, 1):
+            if long_x:
+                x0 = T[2] - tuck if side > 0 else T[0] + tuck - cd
+                r = (x0, cy - cw / 2, x0 + cd, cy + cw / 2)
+                z = (T[2], cy - cw / 2, T[2] + CHAIR_ZONE, cy + cw / 2) if side > 0 else (T[0] - CHAIR_ZONE, cy - cw / 2, T[0], cy + cw / 2)
+            else:
+                y0 = T[3] - tuck if side > 0 else T[1] + tuck - cd
+                r = (cx - cw / 2, y0, cx + cw / 2, y0 + cd)
+                z = (cx - cw / 2, T[3], cx + cw / 2, T[3] + CHAIR_ZONE) if side > 0 else (cx - cw / 2, T[1] - CHAIR_ZONE, cx + cw / 2, T[1])
+            c_ = obj('chair', 'стул', chair, r, 'dining')
+            c_['zones'].append({'code': 'CHAIR_ZONE', 'rect': z, 'label': f'{CHAIR_ZONE:.0f}', 'wall': None})
+            g.append(c_)
     if n == 4 and max(tw, td) < 2 * cw + 10:      # квадратный/маленький стол: по стулу на каждую сторону
         for side in (-1, 1):
             y0 = T[3] - tuck if side > 0 else T[1] + tuck - cd
@@ -509,15 +589,26 @@ def dining_group(room, tbl, chair, n, cx, cy, along_x):
     return g
 
 
-def dining_cands(room, sk, n, taken=()):
-    """Стол + стулья по сетке 15 см в двух поворотах; сразу отбрасываем, где стол вне пола или на уже стоящем предмете."""
-    tbl, ch = sk['стол обеденный'], sk['стул']
+def dining_cands(room, sk, n, taken=(), compact=False):
+    """Стол + стулья по сетке 15 см в двух поворотах — ВСЕ места комнаты (углы, стены, у окна, середина); сразу отбрасываем,
+    где стол вне пола или на уже стоящем предмете. compact — самый малый стол и стул банка."""
+    tbl = sk.get('стол компакт') if compact else sk['стол обеденный']
+    ch = sk.get('стул компакт') if compact else sk['стул']
+    tbl, ch = tbl or sk['стол обеденный'], ch or sk['стул']
     reg = (0.0, 0.0, room['W'], room['D'])      # в Г-образной хвост предпочтительнее (мягко, `soft_checks`), но не обязателен
     out = []
-    for along in (True, False):
-        for cx in np.arange(reg[0] + 30, reg[2] - 29, 15):
-            for cy in np.arange(reg[1] + 30, reg[3] - 29, 15):
-                g = dining_group(room, tbl, ch, n, float(cx), float(cy), along)
+    lays = [(a, None) for a in (True, False)]
+    if n == 2:      # стол в углу/у стены — стулья на соседних сторонах
+        lays += [(True, (sx, sy)) for sx in (-1, 1) for sy in (-1, 1)]
+    a_, b_ = max(tbl['w'], tbl['d']), min(tbl['w'], tbl['d'])
+    for along, adj in lays:
+        hw, hd = (a_ / 2, b_ / 2) if along else (b_ / 2, a_ / 2)
+        # сетка 15 см + места вплотную к стенам (2 см): сетка не попадает «к стене», а угол у стены — главное место малой
+        xs = sorted(set(list(np.arange(reg[0] + 30, reg[2] - 29, 15)) + [reg[0] + hw + 2, reg[2] - hw - 2]))
+        ys = sorted(set(list(np.arange(reg[1] + 30, reg[3] - 29, 15)) + [reg[1] + hd + 2, reg[3] - hd - 2]))
+        for cx in xs:
+            for cy in ys:
+                g = dining_group(room, tbl, ch, n, float(cx), float(cy), along, adj)
                 if not floor_ok(room, g[0]['rect']) or any(inter(g[0]['rect'], t) for t in taken):
                     continue
                 out.append(g)
@@ -644,6 +735,14 @@ def core_checks(room, items, meta):
     t, r = table['rect'], rug['rect']
     if not (r[0] <= t[0] + EPS and r[1] <= t[1] + EPS and r[2] >= t[2] - EPS and r[3] >= t[3] - EPS):
         out.append(V('RUG_TABLE', 'столик не целиком на ковре', [t]))
+    for it in items:      # передние ножки всей посадки на ковре (templates.json `seats_front_legs_on_rug`)
+        if it['kind'] in ('sofa', 'sofa2', 'arm'):
+            fp = sum(area(x) for x in it['rects'])
+            ov = sum(area(inter(x, r) or (0, 0, 0, 0)) for x in it['rects'])
+            # канон: ≥ 2 % футпринта; и не меньше половины полосы tuck_cm (15) по фронту — иначе «касается краем»
+            need = max(SEAT_RUG_MIN * fp, 0.5 * SEAT_RUG_TUCK * it['sku']['w'])
+            if fp and ov < need - EPS:
+                out.append(V('SEAT_OFF_RUG', f'«{it["role"]}» не стоит передними ножками на ковре', list(it['rects'])))
     d, diag = meta['dist'], meta['diag']
     if d > TV_HARD:
         out.append(V('TV_FAR', f'ТВ в {d:.0f} см (> {TV_HARD:.0f})', []))
@@ -803,7 +902,7 @@ def seat_walls(room, tpl):
     return [(w, 0.0) for w in walls]
 
 
-def search(room, tpl, lid, L, sk, keep=10, force=None):
+def search(room, tpl, lid, L, sk, keep=12, force=None):
     cache = {}
     cores = []
     so = sk['диван']
@@ -831,11 +930,15 @@ def search(room, tpl, lid, L, sk, keep=10, force=None):
                         vs = evaluate(room, its, meta, cache)
                         cores.append((score(vs), its, meta))
     cores.sort(key=lambda t: t[0])
-    per, top = {}, []
-    for sc, its, meta in cores:     # разнообразие: лучшие на каждой стене
+    per, top, seen = {}, [], set()
+    for sc, its, meta in cores:     # разнообразие: лучшие на каждой стене, разные места дивана и ТВ (под углы столовой)
         k = meta['s']
-        if per.get(k, 0) < max(2, keep // 3):
+        pos = (k, round(meta['c'] / 20), round((meta.get('tvo') or 0) / 20), round(meta['v0'] / 20))
+        if sc[0] == 0 and pos in seen:
+            continue
+        if per.get(k, 0) < max(2, keep // 2):
             per[k] = per.get(k, 0) + 1
+            seen.add(pos)
             top.append((sc, its, meta))
         if len(top) >= keep:
             break
@@ -853,15 +956,25 @@ def search(room, tpl, lid, L, sk, keep=10, force=None):
     return best
 
 
-def greedy(room, items, meta, cands, cache, n=1, routes=True, tries=8):
+def greedy(room, items, meta, cands, cache, n=1, routes=True, tries=8, spread=None):
     """Лучшее место по проверкам; из первых `tries` без жёстких нарушений берём первое, где проходят пути от двери
-    (пути с частью предметов — необходимое условие: остальное их только сужает)."""
+    (пути с частью предметов — необходимое условие: остальное их только сужает). spread (см) — разные места: из
+    кандидатов в одной клетке spread×spread берём лучший, чтобы n мест были по всей комнате, а не соседями."""
     sc = []
     for c in cands:
         cc = c if isinstance(c, list) else [c]
         vs = evaluate(room, items + cc, meta, cache)
         sc.append((score(vs), cc))
     sc.sort(key=lambda t: t[0])
+    if spread:
+        seen, uniq = set(), []
+        for s_, cc in sc:
+            r = cc[0]['rect']
+            key = (round((r[0] + r[2]) / 2 / spread), round((r[1] + r[3]) / 2 / spread))
+            if key not in seen:
+                seen.add(key)
+                uniq.append((s_, cc))
+        sc = uniq
     if routes:
         good = []
         for s_, cc in sc[:tries]:
@@ -901,27 +1014,36 @@ def complete(room, tpl, L, sk, core_items, meta, cache):
                 its += greedy(room, its, meta, flank_cands(meta, sku, sd, kind, '2-й диван' if kind == 'sofa2' else 'кресло', sofa),
                               cache)[0]
                 used.add(sd)
+        its = fit_rug(room, its, meta, cache)
         din_opts = [[]]     # крупное первым: столовая, потом хранение и свет, кашпо — в оставшийся угол
         if L['dining'] and sk.get('стол обеденный') and sk.get('стул'):
             taken = [r for i in its for r in i['rects']] + list(room['_geo']['rads']) + \
                 ([room['_geo']['kitchen']] if room['_geo'].get('kitchen') else [])
-            din_opts = greedy(room, its, meta, dining_cands(room, sk, L['dining'], taken), cache, n=3)
+            # все свободные места: разные клетки 60 см по всей комнате, каждое — до конца состава
+            din_opts = greedy(room, its, meta, dining_cands(room, sk, L['dining'], taken, L.get('compact')), cache,
+                              n=12, tries=40, spread=60)
+        opt = L.get('optional') or ()
         for dg in din_opts:
             full = its + dg
+            skipped = []
             if L['light'] == 'floor' and sk.get('торшер'):
                 free_sides = [x for x in ('lo', 'hi') if x not in used] or ['lo', 'hi']
                 full += greedy(room, full, meta, [floor_lamp(meta, sk['торшер'], sofa, x) for x in free_sides], cache)[0]
             if L['light'] == 'dresser' and sk.get('комод'):
                 full += greedy(room, full, meta, dresser_cands(room, sk['комод']), cache)[0]
             if L['plant'] and sk.get('кашпо'):
-                full += greedy(room, full, meta, plant_cands(room, sk['кашпо']), cache)[0]
+                pl = greedy(room, full, meta, plant_cands(room, sk['кашпо']), cache)[0]
+                if 'plant' not in opt or score(evaluate(room, full + pl, meta, cache))[0] == 0:
+                    full += pl          # «по желанию»: кашпо, которому нет места, не ставим
+                else:
+                    skipped.append('кашпо')
             vs = evaluate(room, full, meta, cache)
             sc = score(vs)
             if sc[0] == 0:
                 rv, _ = check_routes(room, full)
                 vs = vs + rv
                 sc = score(vs)
-            outs.append({'items': full, 'vs': vs, 'score': sc, 'meta': meta})
+            outs.append({'items': full, 'vs': vs, 'score': sc, 'meta': meta, 'skipped': skipped})
             if sc[0] == 0:
                 break
     return outs
@@ -930,11 +1052,69 @@ def complete(room, tpl, L, sk, core_items, meta, cache):
 OPPOSITE_SIDE = {'hi': 'lo', 'lo': 'hi'}
 
 
+def fit_rug(room, its, meta, cache):
+    """Посадка стоит — ковёр сдвигаем вдоль стены дивана (до ±60 см, шаг 5), если так передние ножки кресел и 2-го дивана
+    встают на ковёр; столик остаётся целиком на ковре (проверки те же). Без нарушения посадки — ковёр не трогаем."""
+    ri = next(i for i, x in enumerate(its) if x['kind'] == 'rug')
+
+    def bad(lst):
+        vs = evaluate(room, lst, meta, cache)
+        sc = score(vs)
+        return (sc[0], sum(1 for v in vs if v['hard'] and v['code'] == 'SEAT_OFF_RUG'), sc[1])
+    base = bad(its)
+    if not base[1]:
+        return its
+    r = its[ri]['rect']
+    along_x = meta['s'] in ('south', 'north')
+    best = (base, its)
+    for du in sorted(np.arange(-60, 61, 5), key=abs):
+        if not du:
+            continue
+        r2 = (r[0] + du, r[1], r[2] + du, r[3]) if along_x else (r[0], r[1] + du, r[2], r[3] + du)
+        cand = list(its)
+        cand[ri] = dict(its[ri], rect=r2, rects=[r2])
+        b = bad(cand)
+        if b < best[0]:
+            best = (b, cand)
+    return best[1]
+
+
+def search_rugs(room, tpl, lid, L, sk, rugs):
+    """Расстановка с ковром набора; если посадка не стоит ножками на ковре — ковры банка крупнее по очереди. Нет такого
+    ковра — красная отметка «дыра каталога» (templates.json `seats_front_legs_on_rug`)."""
+    res = search(room, tpl, lid, L, sk)
+    res['sk'] = sk
+    if res['ok'] or not any(v['code'] == 'SEAT_OFF_RUG' and v['hard'] for v in res['vs']):
+        return res
+    own = sk['ковёр']
+    tried = []
+    for rug in rugs:
+        if rug['w'] * rug['d'] <= own['w'] * own['d'] + EPS:
+            continue
+        sk2 = dict(sk)
+        sk2['ковёр'] = rug
+        r2 = search(room, tpl, lid, L, sk2)
+        r2['sk'] = sk2
+        tried.append(f"{rug['w']:.0f}×{rug['d']:.0f}")
+        if r2['ok']:
+            r2['notes'] = [f"ковёр набора {own['w']:.0f}×{own['d']:.0f} мал для посадки — взят больше из банка "
+                           f"{rug['w']:.0f}×{rug['d']:.0f}"]
+            return r2
+        if r2['score'] < res['score']:
+            res = r2
+    big = max(rugs, key=lambda x: x['w'] * x['d'])
+    res['vs'].insert(0, V('RUG_GAP', f"дыра каталога: в банке нет ковра, на котором стоит вся посадка "
+                                     f"(пробовали {', '.join(tried) or 'нет крупнее'}; самый большой {big['w']:.0f}×{big['d']:.0f})", []))
+    res['ok'] = False
+    return res
+
+
 def run_room(room, sets, style):
     tpls, why = choose_templates(room['area'], max(room['W'], room['D']) / min(room['W'], room['D']) if not room.get('annex') else 1.5,
                                  bool(room.get('kitchen')), bool(room.get('annex')))
     tried = []
     chosen = None
+    rugs = bank_rugs(sets)
     for tpl in tpls:
         sks = pick_skus(sets, room['area'], tpl, style, room, k=4)
         if not sks:
@@ -944,8 +1124,7 @@ def run_room(room, sets, style):
         for lid, L, _d in levels_for(room, tpl):
             best_l = None
             for sk in sks:
-                res = search(room, tpl, lid, L, sk)
-                res['sk'] = sk
+                res = search_rugs(room, tpl, lid, L, sk, rugs)
                 if not fit:
                     res['vs'].insert(0, V('CORE_TIGHT', why_not, []))
                     res['ok'] = False
@@ -953,6 +1132,12 @@ def run_room(room, sets, style):
                     best_l = res
                 if res['ok']:
                     break
+            best_l.setdefault('notes', [])
+            if best_l.get('skipped'):
+                best_l['notes'].append(f"{', '.join(best_l['skipped'])} — по желанию, места нет: не ставим")
+            if L['dining'] == 0 and tried and tried[-1].get('tpl') == tpl:
+                why_d = '; '.join(hard_reasons(tried[-1])[:2]) or 'не влезает'
+                best_l['notes'].append(f"без столовой: стол на 2 (и компактный) не встал ни на одно место — {why_d}")
             tried.append(best_l)
             if best_l['ok']:
                 chosen = best_l
@@ -1485,6 +1670,8 @@ def foot_for(room, res, note=None):
         small += ['люстра над центром ковра', f"шторы ({(sk.get('шторы') or {}).get('name', '—')[:30]})", 'картины — отметка на стене (подбор отдельным каталогом)']
         L.append('  На носителях: ' + ', '.join(small))
         L.append(f"  Набор банка: {sk['_set']['set_id']} · {sk['_set']['style']} · полоса {sk['_set']['band']} м²")
+        for nt in res.get('notes') or []:
+            L.append(f"  ! {nt}")
     m = res['meta']
     L.append(f"ТВ: {m['dist']:.0f} см от глаз до экрана = {m['dist'] / max(m['diag'], 1):.1f} диагонали (норма {TV_DIAG_MIN}–2,5, лучше {TV_PREF}); "
              f"экран {m['screen_w']:.0f} см ({m['diag'] / 2.54:.0f}″) ≤ 0,9 тумбы")
