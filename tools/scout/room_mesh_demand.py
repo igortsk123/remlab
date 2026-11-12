@@ -25,7 +25,7 @@
 а в отчёт («ждёт оценки фото»: досчитает вырезка, пересчитать).
 
 ДЕНЬГИ. Цена модели — по замеру T-11 (проба 10 = 13,8 ₽ → 1,4 ₽; волна 45 = 48,5 ₽ → 1,1 ₽): считаем по верхней 1,4 ₽.
-ОБЩИЙ ОСТАТОК (T-20261106-75, критика Codex к hall-demo-01: «бюджет не общий»): потолок владельца 600 ₽ (до 12.11 — 500) — один на ВСЕ
+ОБЩИЙ ОСТАТОК (T-20261106-75, критика Codex к hall-demo-01: «бюджет не общий»): потолок владельца 1000 ₽ (до 12.11 — 500) — один на ВСЕ
 комнаты и ВСЕ запуски, а не на каждый запуск. Каждый запуск считает остаток = потолок − факт волн комнат − удержание открытых − резерв
 снимков, ещё не ушедших в волну (`ledger`). Факт денег по заданиям в БД не пишется (`mesh_generations` без цены), поэтому
 источник — журнал ручных волн `salad/wave_cap.py` (`~/scout-scenes/wave-manual.json`: `spent_rub` закрытой волны — по книге
@@ -40,13 +40,13 @@
 меша из банка `compose_hall`. По каждому — годно ли вырезанное фото (`photo_assessment` ok); нет — «ждёт вырезки» с причиной.
 
   ~/venvs/scout/bin/python room_mesh_demand.py --room bedroom --bank <sets-bedroom.next.json> (--out FILE | --dry) [--k 3]
-        [--budget 600] [--price 1.4] [--report-out DIR]                                  # спрос по слотам (весь каталог)
+        [--budget 1000] [--price 1.4] [--report-out DIR]                                  # спрос по слотам (весь каталог)
   ~/venvs/scout/bin/python room_mesh_demand.py --room bedroom --want rules/room-mesh-want.json (--out FILE | --dry) [--report-out DIR]
   ~/venvs/scout/bin/python room_mesh_demand.py --room hall --hall-bank <sets-hall.next.json> (--out FILE | --dry)
   ~/venvs/scout/bin/python room_mesh_demand.py --ledger            # остаток денег мешей комнат
   ~/venvs/scout/bin/python room_mesh_demand.py --release FILE      # снять резерв снимка, который не пойдёт в волну
   python3 room_mesh_demand.py --selftest      # правила на подставных данных, без базы
-`--budget` — общий потолок (600), не потолок запуска. Env: `BEDROOM_STYLE_SCORES` — как у `compose_bedroom.py` (в worktree —
+`--budget` — общий потолок (1000), не потолок запуска. Env: `BEDROOM_STYLE_SCORES` — как у `compose_bedroom.py` (в worktree —
 путь основной копии); `MESH_WAVE_MANUAL`, `ROOM_MESH_RESERVE` — пути журнала волн и резерва (тесты).
 """
 import datetime
@@ -63,8 +63,8 @@ sys.path.insert(0, os.path.join(HERE, 'salad'))
 import room_profile as _RP  # noqa: E402
 
 K_DEFAULT = 3
-BUDGET_RUB = 600.0          # ОБЩИЙ потолок владельца на меши всех комнат (план room-pipeline-01 § Деньги) — см. ledger;
-#                             500 → 600 ₽ по слову директора 12.11 (T-20261112-47/3: остаток 6,41 ₽ не давал волну спальни)
+BUDGET_RUB = 1000.0         # ОБЩИЙ потолок владельца на меши всех комнат (план room-pipeline-01 § Деньги) — см. ledger;
+#                             500 → 1000 ₽ 12.11 (владелец TG 1163; T-20261112-47/3: остаток 6,41 ₽ не давал волну спальни)
 BUDGET_SINCE = '2026-11-05T00:00:00+00:00'   # учёт с начала трека комнат (onb-10 создан 05.11; волны T-11 13,8 + 48,5 ₽ — в счёт, решение ведущего T-75/1)
 PRICE_RUB = 1.4             # верх замера T-11 (13,8 ₽ / 10); волна 45 моделей — 1,08 ₽
 PRICE_LOW_RUB = 1.1
