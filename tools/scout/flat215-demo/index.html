@@ -1989,7 +1989,7 @@ function trFitLabel(B,L,r){
 // Внутренняя «дверь» шире 1,2 м (/2): у распознавания рамка двери бывает вдвое шире настоящей (кухня–прихожая тура D — 160 см при двери
 // ~80 на чертеже; 184 см у ванной там, где на чертеже двери нет) — стену не стираем: проём стандартной ширины TR_DOOR_STD по центру, без
 // дуги (направление и сама дверь сомнительны). Наружная или «проход» — реальной ширины
-const TR_DOOR_MAX=120, TR_WALL_NEAR=45, TR_DOOR_STD=90;
+const TR_DOOR_MAX=120, TR_WALL_NEAR=45, TR_DOOR_STD=90, TR_OPEN_MIN=110;
 function trPolyOf(r){ const b=r.bbox; return (r.contour||[]).length>=3?r.contour:[[b.x,b.y],[b.x+b.w,b.y],[b.x+b.w,b.y+b.d],[b.x,b.y+b.d]]; }
 function trSegDist(p,a,b){ const dx=b[0]-a[0], dy=b[1]-a[1], L=dx*dx+dy*dy, t=L?Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/L)):0;
   return Math.hypot(p[0]-a[0]-t*dx, p[1]-a[1]-t*dy); }
@@ -2001,7 +2001,11 @@ function trOpeningsOf(panel,rs){
   (panel.openings||[]).forEach((o,i)=>{
     const c=o&&o.c; let w=+(o&&o.widthCm); if(!Array.isArray(c)||!(w>0)||!/^(door|window|opening)$/.test(o.kind))return;
     const key=typeof o.key==='string'?o.key:'s'+i;   // ключ проёма для правки агентом (сборка с правками даёт свой, T-20261110-39)
-    const wide=o.kind==='door'&&!o.exterior&&w>TR_DOOR_MAX; if(wide)w=TR_DOOR_STD;
+    // T-20261112-51/2 (владелец TG 870: «всё ровно как у застройщика»): внутренняя «дверь» без дуги/полотна на листе (`arc:false`)
+    // шире TR_OPEN_MIN — открытый проход: граница комнат не рисуется на всю ширину (как у застройщика); узкая без дуги — дверь, как
+    // раньше (`trial_room.py:_place_opening`, `trial-room.json:inner_open_min_cm` — то же правило); TR_DOOR_STD — только без факта
+    const inner=o.kind==='door'&&!o.exterior, open=inner&&o.arc===false&&w>TR_OPEN_MIN;
+    const wide=inner&&typeof o.arc!=='boolean'&&w>TR_DOOR_MAX; if(wide)w=TR_DOOR_STD;
     // стена — ближайшее ребро контура, достаточно длинное для проёма (короткий скос угла направление не задаёт)
     let best=null;
     R.forEach(x=>{const P=x.P; for(let i=0;i<P.length;i++){const a=P[i], b=P[(i+1)%P.length], d=trSegDist(c,a,b), L=Math.hypot(b[0]-a[0],b[1]-a[1]);
@@ -2030,7 +2034,7 @@ function trOpeningsOf(panel,rs){
     // между контурами (у распознавания 10–40 см) закрашена стеной, и разрыв в ней лёг бы белой полосой посреди стены
     const clear=sg=>[10,20,30,40,50].every(s=>{const p=[q[0]+n[0]*s*sg, q[1]+n[1]*s*sg]; return !R.some(x=>trInPoly(p,x.P));});
     const ext=side[0]&&!side[1]&&clear(-1)?[-n[0],-n[1]]:side[1]&&!side[0]&&clear(1)?[n[0],n[1]]:null;
-    if(o.kind!=='door'||wide||w>TR_DOOR_MAX||!(side[0]||side[1])){out.push({kind:o.kind==='window'?'window':'gap', pts:[e1,e2], more, main, t, key, ext}); return;}
+    if(o.kind!=='door'||open||wide||w>TR_DOOR_MAX||!(side[0]||side[1])){out.push({kind:o.kind==='window'?'window':'gap', pts:[e1,e2], more, main, t, key, ext}); return;}
     const pref=x=>!x?-1:(x.r.kind!=='hall'&&x.a>=1.5?2:1);
     const k=pref(side[0])!==pref(side[1])?(pref(side[0])>pref(side[1])?0:1):((side[0]?side[0].a:0)>=(side[1]?side[1].a:0)?0:1);
     const sg=k===0?1:-1, sw=side[k];   // в какую сторону открывается
@@ -2474,14 +2478,14 @@ function troInit(){
     const c=o&&o.c, w=+(o&&o.widthCm); if(!Array.isArray(c)||!(w>0)||!/^(door|window|opening)$/.test(o.kind))return;
     const key=typeof o.key==='string'?o.key:'s'+i, e=troEdge(p,c,Math.min(w*0.5,60));
     if(!e||e.d>TR_WALL_NEAR)return;                                       // на плане не нарисован — и править нечего
-    TRO.ops[p.id+'|'+key]={panel:p.id, key, kind:o.kind, w, edge:e, t:e.s, c0:[+c[0],+c[1]], exterior:!!o.exterior, src:true, draft:!!o.draft, removed:false, touched:false};
+    TRO.ops[p.id+'|'+key]={panel:p.id, key, kind:o.kind, w, edge:e, t:e.s, c0:[+c[0],+c[1]], exterior:!!o.exterior, src:true, draft:!!o.draft, removed:false, touched:false, arc:o.arc};
   }));
 }
 const troC=op=>op.touched?troAt(op.edge,op.t).map(v=>Math.round(v*10)/10):op.c0;
 // панели для рисунка: проёмы — из рабочей копии (снятые не рисуем)
 function troLayoutOps(){
   const PN=troPanels().map(p=>Object.assign({},p,{openings:Object.values(TRO.ops).filter(op=>op.panel===p.id&&!op.removed)
-    .map(op=>({kind:op.kind, c:troC(op), widthCm:op.w, exterior:op.exterior, key:op.key}))}));
+    .map(op=>({kind:op.kind, c:troC(op), widthCm:op.w, exterior:op.exterior, key:op.key, arc:op.arc}))}));   // arc — факт листа (T-51/2)
   return trPlanLayout(PN).ops;
 }
 const troTouched=()=>Object.values(TRO.ops).filter(op=>op.touched&&!(op.removed&&!op.src&&!op.draft));   // снятый черновик — тоже правка
