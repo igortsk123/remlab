@@ -238,3 +238,6 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-12	domain/lr-composition-guide.md	drift	14	2	2	T-20261112-42: весь док; 126 сетов (7×6×3), floor_fill_diag_pct ещё порог добора зон
 2026-11-12	core/lr-checklist.md	drift	9	0	0	T-20261112-42: сводка сверена с обновлённым Tier 2 (ядро CORE, _EXCL, картина вне ROLES, unfit) — расхождений нет; updated поднят
 2026-11-12	domain/mesh-pool-ops.md	drift	49	9	9	T-20261112-42: весь док; копии цен pool_ledger/submit, batch_window условия, стоп-файл 3 повода, якоря sink_keeper/pipeline, deadman, имя mesh-q-color2-canary; 3 — поведение Salad
+2026-11-12	guides/orchestration.md	drift	31	0	0	T-20261112-42: весь док; расхождений нет; 6 — скрипты вне репо (~/.local/bin, systemd), не код проекта
+2026-11-12	lessons/viz-render.md	drift	68	5	5	T-20261112-42: две части; --selftest нет, paste_role ×1,35 по оси, план 3-м изображением, axis_plane не вызывается, viz_qa после генерации
+2026-11-12	lessons/flat3d-configurator.md	drift	52	5	5	T-20261112-42: две части; старт с видом на диван+стол, остров с двумя проходами, двери <13 м², BuildBar по barOpen, frontSource geometry/weak/symmetric, placement исключения

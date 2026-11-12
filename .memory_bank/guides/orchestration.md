@@ -6,7 +6,7 @@ updated: 2026-11-12
 source: manual
 importance: med
 status: working
-last_verified: 2026-11-09
+last_verified: 2026-11-12
 ---
 # Оркестрация fable-lead ↔ opus-worker (полная версия правила `.claude/rules/orchestration.md`)
 
