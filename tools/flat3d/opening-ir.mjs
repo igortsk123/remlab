@@ -37,7 +37,9 @@ for (const o of room.openings ?? []) {
   const op = { kind, wall: o.wall, offsetCm: offset, widthCm: o.width_cm, hinge: atEnd !== mirrored ? "right" : "left",
     // дуга — длина полотна: короче 0,6 ширины — двустворчатая (`opening-ir.ts:isDoubleDoor`, как `fromDemo.ts:openings`)
     ...(o.into === false || o.swing_cm === 0 ? { swingCm: 0 } : o.swing_cm > 0 ? { swingCm: o.swing_cm } : {}),
-    ...(o.sill_cm !== undefined ? { sillCm: o.sill_cm } : {}), ...(o.height_cm !== undefined ? { heightCm: o.height_cm } : {}) };
+    ...(o.sill_cm !== undefined ? { sillCm: o.sill_cm } : {}), ...(o.height_cm !== undefined ? { heightCm: o.height_cm } : {}),
+    // стык частей одной комнаты тура — без стены и наличника (как `fromDemo.ts:openings`, T-20261112-41)
+    ...(kind === "opening" && o.junction === true ? { junction: true } : {}) };
   prepared.push({ op, len });
 }
 for (const { op, len } of prepared) {

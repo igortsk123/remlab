@@ -73,4 +73,30 @@ describe("пристройка комнаты тура (остаток конт�
       expect(leaf, nm).toBeGreaterThan(0);
     }
   });
+
+  it("стык комнаты с пристройкой (`junction`) — без перемычки и наличника; обычный портал — как был (T-20261112-41)", () => {
+    // кухня-гостиная «Этажей»: ядро 335×380, хвост 255×265 за стыком 80…335 на севере; перемычка 205…310 над стыком делила её на две
+    const geo = { w: 335, d: 380, openings: [{ kind: "opening", wall: "north", offset_cm: 80, width_cm: 255, junction: true },
+                                             { kind: "opening", wall: "east", offset_cm: 100, width_cm: 90 }] };
+    const ops = fromDemoVariant({ rooms_geo: { living: geo }, variants: [{ id: "v1", style: "сканди", items: [] }] }, "v1", CTX)!
+      .apartment.rooms[0]!.openings;
+    expect(ops.map((o) => !!o.junction)).toEqual([true, false]);
+    const r: Room = roomSchema.parse({ id: "living", kind: "living", titleRu: "Кухня-гостиная", titleEn: "Kitchen-living", x: 0, y: 0,
+      w: 335, d: 380, heightCm: 310, openings: ops });
+    const { group } = buildRoom(createMaterialCtx(1, false), r, MAT, MAT);
+    const above = (side: string): number => {
+      let n = 0;
+      group.traverse((o) => { if (o.name === `wall:living:${side}` && o.position.y > 2.06) n++; });
+      return n;
+    };
+    expect(above("north")).toBe(0);                                  // над стыком стены нет
+    expect(above("east")).toBe(1);                                   // над обычным порталом — перемычка
+    const casing = (side: string): number => {
+      let n = 0;
+      group.getObjectByName(`joinery:living:${side}`)?.traverse((o) => { if (o.userData.part === "casing") n++; });
+      return n;
+    };
+    expect(casing("north")).toBe(0);
+    expect(casing("east")).toBe(3);
+  });
 });

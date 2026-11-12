@@ -28,6 +28,9 @@ export const opening = z.object({
   hinge: z.enum(["left", "right"]).optional(), // петли у начала отступа (left, по умолчанию) или у конца — как у расстановщика
   // входная дверь квартиры — данные экземпляра (T-20261106-72), тот же флаг, что `planner/models.py:Opening.is_entrance`
   isEntrance: z.boolean().optional(),
+  // стык частей ОДНОЙ комнаты (ядро ↔ пристройка тура, T-20261112-41): у портала нет стены — проём на всю высоту без наличника
+  // (`lib/viewer3d/opening-ir.ts:openingIR`); считает сборщик (`tools/scout/trial_room.py:mark_junctions`)
+  junction: z.boolean().optional(),
 });
 export type Opening = z.infer<typeof opening>;
 

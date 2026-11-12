@@ -488,8 +488,17 @@ def _place_opening(P: Polygon, op: dict, T, cfg: dict) -> dict:
         nin = (-nin[0], -nin[1])
     w = float(op['widthCm'])
     kind = op['kind']
+    # ШИРОКАЯ ВНУТРЕННЯЯ «ДВЕРЬ» (T-20261112-41, владелец TG 1781: «Этажи» — двустворчатая дверь там, где на плане открытый проход):
+    # у распознавания рамка межкомнатной двери шире `wide_inner_door_cm` бывает вдвое шире настоящей или стоит там, где двери нет
+    # вовсе (проход коридор → кухня-гостиная). План квартиры рисует её проёмом без дуги шириной `wide_inner_gap_cm` по центру
+    # (`index.html:trOpeningsOf`, TR_DOOR_MAX/TR_DOOR_STD) — 3D и расстановка берут то же: портал без полотна той же ширины
+    wide = kind == 'door' and not op.get('exterior') and w > float(cfg['wide_inner_door_cm'])
+    if wide:
+        kind, w = 'opening', float(cfg['wide_inner_gap_cm'])
     o = {'kind': kind, 'c': (round(c[0], 1), round(c[1], 1)), 'w': w, 'axis': 'x' if ux else 'y', 'n_in': nin,
          'exterior': bool(op.get('exterior')), 'src': op['_idx'], 'edge_q': (q.x, q.y), 'between': bool(op.get('_between'))}
+    if wide:
+        o['wide_door'] = True
     if kind == 'door':
         # две створки — только у проёма СТРОГО шире порога (T-20261112-35); 3D узнаёт пару по дуге (`opening-ir.ts:isDoubleDoor`)
         o['leaf'] = min(w / 2 if w > cfg['double_door_min_cm'] else w, cfg['door_leaf_max_cm'])
@@ -739,7 +748,9 @@ def solver_openings(cand: dict, cfg: dict, hinge: str = 'left') -> list:
         if o['kind'] == 'window':
             out.append(dict(base, kind='window', sill_cm=cfg['window_sill_cm'], height_cm=cfg['window_height_cm']))
         elif o['kind'] == 'opening':
-            out.append(dict(base, kind='door', swing_cm=0))
+            # `_wide` — портал из широкой внутренней «двери» (`_place_opening`, T-20261112-41): у коробок, собранных раньше, на его месте
+            # дверь — сверка ядра готовой коробки (`trial_bundle._core_of`) сравнивает порталы и с ним, и без него
+            out.append(dict(base, kind='door', swing_cm=0, **({'_wide': True} if o.get('wide_door') else {})))
         else:
             ent = bool(o['exterior']) and o['w'] < cfg['patio_door_min_cm']
             # дверь из ниши обрезана до общей со стороной ядра части — полотно не шире её (полная дуга — в `post_check`)
@@ -768,8 +779,10 @@ def annexes(cand: dict, ops: list, cfg: dict) -> list:
     «Этажи», спальня 1) пропадали. Пристройка — прямоугольник остатка за стыком (охват части остатка по ту сторону стороны ядра) в
     координатах ядра (юго-западный угол ядра = 0, оси те же, что у `openings`), с проёмами в формате страницы: портал стыка на
     стороне к ядру и проёмы остатка — каждый на ближайшую стену пристройки своей оси (дверь — с полотном, как в ядре; окно — как
-    в ядре). Портал из остатка (`opening` распознавания) не ставим: за ним снова пустота — стена честнее. Две пристройки не
-    перекрываются (второй стык того же угла остаётся порталом). Эркер (`bay`) — окно-пролёт ядра, пристройки нет."""
+    в ядре). Портал стыка — `junction` (стены между частями комнаты нет). Портал из остатка (`opening` распознавания или широкая
+    внутренняя «дверь», `_place_opening`) — проход без полотна (T-20261112-41; до того — стена: за ним была пустота, теперь за ним
+    кусок прохода, `portal_stubs`). Две пристройки не перекрываются (второй стык того же угла остаётся порталом). Эркер (`bay`) —
+    окно-пролёт ядра, пристройки нет."""
     x0, y0, x1, y1 = cand['rect']
     by_src = {o['src']: o for o in ops}
     out, boxes = [], []
@@ -795,10 +808,13 @@ def annexes(cand: dict, ops: list, cfg: dict) -> list:
             start = ax0 if axis == 'x' else ay0
             span = aw if axis == 'x' else ad
             u0 = max(0.0, A + a - start)
-            ops_out = [{'kind': 'opening', 'wall': near_side, 'offset_cm': round(u0, 1), 'width_cm': round(min(b - a, span - u0), 1)}]
+            # портал стыка — граница двух частей ОДНОЙ комнаты, стены там нет: `junction` — проём на всю высоту без наличника
+            # (`lib/viewer3d/opening-ir.ts:openingIR`; T-20261112-41, «Этажи»: перемычка над стыком делила кухню-гостиную на две комнаты)
+            ops_out = [{'kind': 'opening', 'wall': near_side, 'offset_cm': round(u0, 1), 'width_cm': round(min(b - a, span - u0), 1),
+                        'junction': True}]
             for src in r['openings']:
                 o = by_src.get(src)
-                if o is None or o['kind'] not in ('door', 'window'):
+                if o is None or o['kind'] not in ('door', 'window', 'opening'):
                     continue
                 cx, cy = o['c']
                 if o['axis'] == 'x':
@@ -814,11 +830,76 @@ def annexes(cand: dict, ops: list, cfg: dict) -> list:
                 base = {'wall': side, 'offset_cm': round(off, 1), 'width_cm': round(w, 1)}
                 if o['kind'] == 'window':
                     ops_out.append(dict(base, kind='window', sill_cm=cfg['window_sill_cm'], height_cm=cfg['window_height_cm']))
+                elif o['kind'] == 'opening':
+                    ops_out.append(dict(base, kind='opening'))   # проход без полотна; за ним — кусок прохода (`portal_stubs`)
                 else:
                     ent = bool(o['exterior']) and o['w'] < cfg['patio_door_min_cm']
                     ops_out.append(dict(base, kind='door', swing_cm=round(min(o['leaf'], w)), hinge='left', is_entrance=ent))
             out.append({'x': round(ax0 - x0, 1), 'y': round(ay0 - y0, 1), 'w': round(aw, 1), 'd': round(ad, 1),
                         'junction': wall, 'openings': ops_out})
+    return out
+
+
+JUNCTION_TOL_CM = 1.5
+
+
+def _box_of(x: float, y: float, w: float, d: float):
+    return (float(x), float(y), float(x) + float(w), float(y) + float(d))
+
+
+def mark_junctions(openings: list, annexes_: list) -> list:
+    """Проёмы коробки (формат страницы) → копия, где портал на месте стыка с пристройкой помечен `junction` (T-20261112-41): это
+    граница двух частей одной комнаты, 3D рисует её проёмом на всю высоту без наличника и перемычки (`opening-ir.ts:openingIR`).
+    Стык — по порталу пристройки с `junction` (`annexes`): та же сторона ядра, то же место вдоль неё (± JUNCTION_TOL_CM)."""
+    spans = []
+    for a in annexes_ or []:
+        if a.get('outdoor') or a.get('stub') or a.get('junction') not in OPPOSITE:
+            continue
+        j = next((o for o in a.get('openings') or [] if o.get('junction')), None)
+        if j is None:
+            continue
+        base = a['x'] if a['junction'] in ('north', 'south') else a['y']
+        spans.append((a['junction'], float(base) + float(j['offset_cm']), float(j['width_cm'])))
+    out = []
+    for o in openings or []:
+        o = dict(o)
+        if o.get('kind') == 'opening' and any(o.get('wall') == w and abs(float(o.get('offset_cm') or 0) - lo) <= JUNCTION_TOL_CM
+                                              and abs(float(o.get('width_cm') or 0) - ln) <= JUNCTION_TOL_CM for w, lo, ln in spans):
+            o['junction'] = True
+        out.append(o)
+    return out
+
+
+def portal_stubs(w: float, d: float, openings: list, annexes_: list, cfg: dict) -> list:
+    """КУСОК ПРОХОДА ЗА ПОРТАЛОМ (T-20261112-41): сцена тура — одна комната, соседей в ней нет; портал наружу (проход в коридор —
+    `opening` распознавания, широкая внутренняя «дверь») открывал улицу вокруг дома. За каждым таким порталом коробки и её
+    пристроек — пристройка-заглушка `stub`: глубина `portal_stub_depth_cm`, шире портала на `portal_stub_side_cm` с каждой стороны,
+    её сторона к порталу — стык без стены (`junction`). Заглушка не налезает на ядро, пристройки, балкон и другие заглушки: не
+    влезает — без боковых запасов, затем вполовину мельче; совсем нет — без неё (портал как был). Координаты — как у `annexes`."""
+    depth0, side0 = float(cfg['portal_stub_depth_cm']), float(cfg['portal_stub_side_cm'])
+    hosts = [((0.0, 0.0, float(w), float(d)), openings or [])]
+    hosts += [(_box_of(a['x'], a['y'], a['w'], a['d']), a.get('openings') or []) for a in annexes_ or [] if not a.get('outdoor')]
+    taken = [box(*h[0]) for h in hosts] + [box(*_box_of(a['x'], a['y'], a['w'], a['d'])) for a in annexes_ or [] if a.get('outdoor')]
+    out = []
+    for (x0, y0, x1, y1), ops in hosts:
+        for o in ops:
+            if o.get('kind') != 'opening' or o.get('junction') or o.get('wall') not in OPPOSITE:
+                continue
+            wall, off, pw = o['wall'], float(o.get('offset_cm') or 0), float(o.get('width_cm') or 0)
+            if pw <= 0:
+                continue
+            along0 = (x0 if wall in ('north', 'south') else y0) + off
+            for side, depth in ((side0, depth0), (0.0, depth0), (side0, depth0 / 2), (0.0, depth0 / 2)):
+                lo, hi = along0 - side, along0 + pw + side
+                r = {'south': (lo, y0 - depth, hi, y0), 'north': (lo, y1, hi, y1 + depth),
+                     'west': (x0 - depth, lo, x0, hi), 'east': (x1, lo, x1 + depth, hi)}[wall]
+                if any(box(*r).intersection(t).area > 1.0 for t in taken):
+                    continue
+                taken.append(box(*r))
+                out.append({'x': round(r[0], 1), 'y': round(r[1], 1), 'w': round(r[2] - r[0], 1), 'd': round(r[3] - r[1], 1),
+                            'stub': True, 'openings': [{'kind': 'opening', 'wall': OPPOSITE[wall], 'offset_cm': round(side, 1),
+                                                        'width_cm': round(pw, 1), 'junction': True}]})
+                break
     return out
 
 

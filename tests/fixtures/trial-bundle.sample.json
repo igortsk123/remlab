@@ -275,6 +275,24 @@
    ]
   },
   "room": {
+   "annexes": [
+    {
+     "d": 120.0,
+     "openings": [
+      {
+       "junction": true,
+       "kind": "opening",
+       "offset_cm": 30.0,
+       "wall": "south",
+       "width_cm": 150.0
+      }
+     ],
+     "stub": true,
+     "w": 210.0,
+     "x": -20.0,
+     "y": 400.0
+    }
+   ],
    "approx": false,
    "d": 400,
    "name_src": "Lounge",
@@ -313,6 +331,24 @@
   ],
   "rooms_geo": {
    "living": {
+    "annexes": [
+     {
+      "d": 120.0,
+      "openings": [
+       {
+        "junction": true,
+        "kind": "opening",
+        "offset_cm": 30.0,
+        "wall": "south",
+        "width_cm": 150.0
+       }
+      ],
+      "stub": true,
+      "w": 210.0,
+      "x": -20.0,
+      "y": 400.0
+     }
+    ],
     "approx": false,
     "d": 400,
     "name_src": "Lounge",
@@ -781,6 +817,24 @@
    ]
   },
   "room": {
+   "annexes": [
+    {
+     "d": 120.0,
+     "openings": [
+      {
+       "junction": true,
+       "kind": "opening",
+       "offset_cm": 30.0,
+       "wall": "south",
+       "width_cm": 150.0
+      }
+     ],
+     "stub": true,
+     "w": 210.0,
+     "x": -20.0,
+     "y": 400.0
+    }
+   ],
    "approx": false,
    "d": 400,
    "name_src": "Lounge",
@@ -863,6 +917,24 @@
     "w": 400
    },
    "living": {
+    "annexes": [
+     {
+      "d": 120.0,
+      "openings": [
+       {
+        "junction": true,
+        "kind": "opening",
+        "offset_cm": 30.0,
+        "wall": "south",
+        "width_cm": 150.0
+       }
+      ],
+      "stub": true,
+      "w": 210.0,
+      "x": -20.0,
+      "y": 400.0
+     }
+    ],
     "approx": false,
     "d": 400,
     "name_src": "Lounge",

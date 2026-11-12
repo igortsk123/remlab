@@ -706,10 +706,12 @@ def _core_of(panel: dict, room: dict, geo: dict, cfg: dict):
             if abs(rect[2] - rect[0] - float(geo['w'])) > ANNEX_TOL_CM or abs(rect[3] - rect[1] - float(geo['d'])) > ANNEX_TOL_CM:
                 continue
             cand = TR.core_candidate(fr['poly'], g.bounds, ops, TR.need_group(), cfg)
-            got = _portals(TR.solver_openings(cand, cfg))
-            if len(got) == len(want) and all(p[0] == q[0] and abs(p[1] - q[1]) <= ANNEX_TOL_CM and abs(p[2] - q[2]) <= ANNEX_TOL_CM
-                                             for p, q in zip(got, want)):
-                return cand, ops, fr
+            so = TR.solver_openings(cand, cfg)
+            # коробка, собранная до T-20261112-41, на месте портала широкой внутренней «двери» (`_wide`) держит дверь — сверяем и без него
+            for got in (_portals(so), _portals([o for o in so if not o.get('_wide')])):
+                if len(got) == len(want) and all(p[0] == q[0] and abs(p[1] - q[1]) <= ANNEX_TOL_CM and abs(p[2] - q[2]) <= ANNEX_TOL_CM
+                                                 for p, q in zip(got, want)):
+                    return cand, ops, fr
     return None
 
 
@@ -763,6 +765,17 @@ def outdoor_of(panel: dict, room: dict, geo: dict, cfg: dict, annexes: list = ()
             res.append({'x': _num(hit[0]), 'y': _num(hit[1]), 'w': _num(w), 'd': _num(d), 'outdoor': True, 'wall': hit[2],
                         'openings': []})
     return res
+
+
+def shell_of(panel: dict, room: dict, geo: dict, cfg: dict) -> tuple[list, list]:
+    """Всё, что 3D дорисовывает к коробке `geo` (w, d, openings), → (проёмы коробки, пристройки). Одно место для сборки и пересборки
+    (`trial_reissue`): пристройки-остатки (`annexes_of`), балкон (`outdoor_of`), стыки с пристройками — без перемычки
+    (`trial_room.mark_junctions`) и кусок прохода за порталом наружу (`trial_room.portal_stubs`; оба — T-20261112-41)."""
+    ax = annexes_of(panel, room, geo, cfg)
+    ax += outdoor_of(panel, room, geo, cfg, ax)
+    ops = TR.mark_junctions(geo.get('openings') or [], ax)
+    ax += TR.portal_stubs(float(geo['w']), float(geo['d']), ops, ax, cfg)
+    return ops, ax
 
 
 # ───────────────────────── очистка ─────────────────────────
@@ -1476,8 +1489,8 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
                 'approx': _approx(room, geo)}
         # за порталом-стыком — остаток комнаты с его дверями, а не пустота (T-20261111-08, `annexes_of`)
         # и балкон за наружной стеной — плитой с ограждением (T-20261111-20/2, `outdoor_of`)
-        ax = annexes_of(panel, room, full, cfg)
-        ax += outdoor_of(panel, room, full, cfg, ax)
+        # и за порталом наружу — кусок прохода, стык с пристройкой — без перемычки (T-20261112-41, `shell_of`)
+        full['openings'], ax = shell_of(panel, room, full, cfg)
         if ax:
             full['annexes'] = ax
         # ВИД КОМНАТЫ — В КОРОБКУ, КАК У /demo (T-20261110-16/3): правила ракурсов (`index.html:camZ`, ими же `demo-cams.mjs` при

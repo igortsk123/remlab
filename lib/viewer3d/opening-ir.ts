@@ -306,6 +306,11 @@ export function openingIR(o: Opening, opts: OpeningIrOpts): OpeningIR {
     const backdrop = backdropOf(cut, opts);
     return { schemaVersion: OPENING_IR_VERSION, kind: o.kind, cut, boxes, groups: {}, ...(backdrop ? { backdrop } : {}) };
   }
+  // СТЫК ЧАСТЕЙ ОДНОЙ КОМНАТЫ (`junction`, T-20261112-41, «Этажи»): стены между ядром и пристройкой нет — вырез на всю высоту, без
+  // наличника; перемычка 205…310 над стыком делила кухню-гостиную на две комнаты
+  if (o.kind === "opening" && o.junction) {
+    return { schemaVersion: OPENING_IR_VERSION, kind: o.kind, cut: { u0, u1, bottom: 0, top: opts.wallHeightCm }, boxes: [], groups: {} };
+  }
   const top = Math.min(opts.wallHeightCm - 5, o.heightCm ?? 205);
   if (o.kind === "opening") {
     return { schemaVersion: OPENING_IR_VERSION, kind: o.kind, cut: { u0, u1, bottom: 0, top }, boxes: portalIR(u0, u1, top), groups: {} };

@@ -88,7 +88,8 @@ def test_l_room_tail_annex_carries_tail_door():
     assert len(ax) == 1
     a = ax[0]
     assert (a['x'], a['y'], a['w'], a['d'], a['junction']) == (0, 400, 250, 250, 'north')
-    assert a['openings'][0] == {'kind': 'opening', 'wall': 'south', 'offset_cm': 0, 'width_cm': 250}
+    # стык — граница частей одной комнаты: без стены и наличника (T-20261112-41)
+    assert a['openings'][0] == {'kind': 'opening', 'wall': 'south', 'offset_cm': 0, 'width_cm': 250, 'junction': True}
     door = a['openings'][1]
     assert (door['kind'], door['wall'], door['offset_cm'], door['width_cm'], door['swing_cm']) == ('door', 'north', 80, 90, 90)
     assert len(a['openings']) == 2                                  # окно ядра в пристройку не попадает
@@ -334,7 +335,8 @@ def test_door_partly_in_niche_enters_core():
     """Дверь 200 см на верхней стене, 70 см её — над нишей: ядро 400×400 нишу не включает; на сторону ядра приходится
     130 см ≥ прохода → дверь на стороне ядра обрезанной (флаг `entry_via_niche`), створка не шире общей части,
     полная дверь — в `post_check` по полному контуру."""
-    ad = TR.adapt(result([room('r1', 'living', NICHE)], [op('door', (130, 0), 200), op('window', (500, 250), 120, True)]))
+    # наружная (патио): внутренняя шире 120 — уже портал 90 см (T-20261112-41), нишу он не задевает
+    ad = TR.adapt(result([room('r1', 'living', NICHE)], [op('door', (130, 0), 200, True), op('window', (500, 250), 120, True)]))
     c = ad['candidates'][0]
     assert c['rect'] == [100, 0, 500, 400] and 'entry_via_niche' in c['flags']
     door = [x for x in c['openings'] if x['o']['kind'] == 'door']
@@ -491,12 +493,68 @@ def test_double_door_only_strictly_wider_than_rule():
     lim, cap = cfg['double_door_min_cm'], cfg['door_leaf_max_cm']
     P = Polygon([(0, 0), (400, 0), (400, 300), (0, 300)])
 
-    def leaf(w):
-        return TR._place_opening(P, {'kind': 'door', 'c': (200, 0), 'widthCm': w, '_idx': 0}, lambda p: p, cfg)['leaf']
-    assert leaf(85) == 85
-    assert leaf(lim) == min(lim, cap)                  # ровно порог — одна створка
-    assert leaf(lim + 1) == (lim + 1) / 2              # шире — пара, дуга каждой = половина
+    def leaf(w, ext=True):
+        return TR._place_opening(P, {'kind': 'door', 'c': (200, 0), 'widthCm': w, '_idx': 0, 'exterior': ext}, lambda p: p, cfg)['leaf']
+    assert leaf(85) == 85 and leaf(85, ext=False) == 85
+    assert leaf(lim) == min(lim, cap) and leaf(lim, ext=False) == min(lim, cap)   # ровно порог — одна створка
+    assert leaf(lim + 1) == (lim + 1) / 2              # шире — пара, дуга каждой = половина (наружная: патио)
     assert leaf(150.5) == 75.25
+
+
+def test_wide_inner_door_is_portal_like_on_plan():
+    """T-20261112-41 (владелец TG 1781, «Этажи»: проход коридор → кухня-гостиная распознан «дверью» 157 см — в 3D стала двустворчатой,
+    на плане её нет). Внутренняя «дверь» строго шире `wide_inner_door_cm` — портал без полотна шириной `wide_inner_gap_cm` по центру,
+    как её рисует план (`index.html:TR_DOOR_MAX`/`TR_DOOR_STD`); наружная и на пороге — дверь как была."""
+    from shapely.geometry import Polygon
+    cfg = TR.rules()
+    lim, gap = cfg['wide_inner_door_cm'], cfg['wide_inner_gap_cm']
+    P = Polygon([(0, 0), (400, 0), (400, 300), (0, 300)])
+
+    def placed(w, ext=False):
+        return TR._place_opening(P, {'kind': 'door', 'c': (200, 0), 'widthCm': w, '_idx': 0, 'exterior': ext}, lambda p: p, cfg)
+    o = placed(156.8)
+    assert (o['kind'], o['w'], o['c'], o.get('wide_door')) == ('opening', gap, (200, 0), True) and 'leaf' not in o
+    assert placed(lim)['kind'] == 'door' and placed(156.8, ext=True)['kind'] == 'door'
+    # в расстановке — резерв прохода без дуги, а сверке готовой коробки — метка `_wide`
+    cand = {'openings': [{'o': o, 'wall': 'south', 'offset_cm': 155, 'width_cm': gap}], 'residues': []}
+    assert TR.solver_openings(cand, cfg) == [{'wall': 'south', 'offset_cm': 155, 'width_cm': gap, 'kind': 'door', 'swing_cm': 0,
+                                              '_wide': True}]
+
+
+def test_wide_door_of_tail_is_portal_with_passage_behind():
+    """T-20261112-41: широкая внутренняя «дверь» хвоста Г-комнаты — в пристройке проход без полотна, а не двустворчатая дверь; за ним —
+    кусок прохода (`portal_stubs`), стыки ядра с пристройкой помечены `junction` (без перемычки)."""
+    cfg = TR.rules()
+    ad = TR.adapt(result([room('r1', 'living', L_ROOM)], [op('window', (300, 0), 150, True), op('door', (0, 525), 157)]))
+    c = ad['candidates'][0]
+    (a,) = TR.annexes(c, ad['ops'], cfg)
+    assert [(o['kind'], o['wall']) for o in a['openings']] == [('opening', 'south'), ('opening', 'west')]
+    side = a['openings'][1]
+    assert (side['offset_cm'], side['width_cm']) == (80, cfg['wide_inner_gap_cm']) and 'junction' not in side
+    assert not any(o['kind'] == 'door' for o in a['openings'])
+    core_ops = [{'kind': 'window', 'wall': 'south', 'offset_cm': 225, 'width_cm': 150},
+                {'kind': 'opening', 'wall': 'north', 'offset_cm': 0, 'width_cm': 250}]
+    marked = TR.mark_junctions(core_ops, [a])
+    assert marked[1]['junction'] is True and 'junction' not in marked[0] and 'junction' not in core_ops[1]
+    (s,) = TR.portal_stubs(600, 400, marked, [a], cfg)
+    depth, ext = cfg['portal_stub_depth_cm'], cfg['portal_stub_side_cm']
+    assert s['stub'] and (s['x'], s['w']) == (-depth, depth)          # за западной стеной хвоста, вглубь от неё
+    assert (s['y'], s['d']) == (400 + 80 - ext, 90 + 2 * ext)
+    assert s['openings'] == [{'kind': 'opening', 'wall': 'east', 'offset_cm': ext, 'width_cm': 90, 'junction': True}]
+
+
+def test_portal_stub_shrinks_instead_of_overlapping():
+    """Кусок прохода не налезает на ядро и пристройки: без боковых запасов, затем мельче; совсем некуда — без него."""
+    cfg = TR.rules()
+    annex = {'x': 0, 'y': 400, 'w': 250, 'd': 250, 'junction': 'north',
+             'openings': [{'kind': 'opening', 'wall': 'south', 'offset_cm': 0, 'width_cm': 250, 'junction': True},
+                          {'kind': 'opening', 'wall': 'east', 'offset_cm': 10, 'width_cm': 90}]}
+    # портал на восточной стене хвоста у самого ядра: вверх запас 30 налез бы на ядро — проход без запасов
+    (s,) = TR.portal_stubs(600, 400, [], [annex], cfg)
+    assert (s['x'], s['y'], s['w'], s['d']) == (250, 410, cfg['portal_stub_depth_cm'], 90)
+    # за порталом ядра — балкон вплотную: прохода нет
+    out = {'x': 100, 'y': -400, 'w': 400, 'd': 400, 'outdoor': True, 'wall': 'south', 'openings': []}
+    assert TR.portal_stubs(600, 400, [{'kind': 'opening', 'wall': 'south', 'offset_cm': 200, 'width_cm': 90}], [out], cfg) == []
 
 
 def test_group_fits_uses_band_distance():

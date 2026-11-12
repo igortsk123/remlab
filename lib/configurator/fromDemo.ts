@@ -205,6 +205,8 @@ export function openings(room: DemoRoom): Opening[] {
       ...(o.into === false || o.swing_cm === 0 ? { swingCm: 0 } : o.swing_cm !== undefined ? { swingCm: o.swing_cm } : {}),
       // входная дверь — флаг данных экземпляра (`flat215-hall.json` is_entrance, T-20261106-72)
       ...(o.is_entrance === true ? { isEntrance: true } : {}),
+      // стык частей одной комнаты тура (T-20261112-41): портал без стены над ним и без наличника
+      ...(o.kind === "opening" && o.junction === true ? { junction: true } : {}),
     }));
 }
 

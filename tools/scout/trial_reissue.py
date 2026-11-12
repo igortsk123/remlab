@@ -128,8 +128,8 @@ def reissue(job_id: str, result: dict, old: dict, ctx: dict | None = None) -> tu
             key = new_keys.get(rid)
             if key in plan_room:
                 cfg = TB.TR.rules()
-                ax = TB.annexes_of(panel_of[key[0]], plan_room[key], geo, cfg)
-                ax += TB.outdoor_of(panel_of[key[0]], plan_room[key], geo, cfg, ax)   # и балкон за стеной (T-20261111-20/2)
+                # и балкон за стеной (T-20261111-20/2), стыки без перемычки и кусок прохода за порталом (T-20261112-41)
+                geo['openings'], ax = TB.shell_of(panel_of[key[0]], plan_room[key], geo, cfg)
                 if ax:
                     geo['annexes'] = ax
             new['rooms_geo'][rid] = geo

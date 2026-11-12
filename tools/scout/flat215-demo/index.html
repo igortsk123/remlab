@@ -2027,18 +2027,25 @@ function trOpeningsOf(panel,rs){
 // в тон страницы; масштаб и отступ подменяются на время рисунка и возвращаются
 function trialPlanSvg(v){
   const R=roomGeoOf(v); if(!R||!R.w||!R.d)return '';
-  const its=(v.items||[]).filter(it=>it&&it.role&&it.w&&it.d), s0=S, p0=PAD, sel0=sel, k=Math.min(560/R.w,360/R.d);
+  // ФОРМА КОМНАТЫ — КАК В 3D (T-20261112-41, «Этажи»): ядро и пристройки-остатки (`annexes`, без балкона и куска прохода за порталом);
+  // стык с пристройкой и проход без полотна — разрыв стены (раньше стык рисовался синей полосой окна, а хвоста не было вовсе)
+  const parts=[{x:0,y:0,w:R.w,d:R.d,openings:R.openings||[]}].concat((R.annexes||[]).filter(a=>a&&!a.outdoor&&!a.stub&&a.w>0&&a.d>0)
+    .map(a=>({x:+a.x||0,y:+a.y||0,w:+a.w,d:+a.d,openings:a.openings||[]})));
+  const x0=Math.min(...parts.map(p=>p.x)), y0=Math.min(...parts.map(p=>p.y)), x1=Math.max(...parts.map(p=>p.x+p.w)), y1=Math.max(...parts.map(p=>p.y+p.d));
+  const its=(v.items||[]).filter(it=>it&&it.role&&it.w&&it.d), s0=S, p0=PAD, sel0=sel, k=Math.min(560/(x1-x0),360/(y1-y0));
   let out='';
   try{ S=k; PAD=14; sel=null;
-    const W=R.w*S+2*PAD, H=R.d*S+2*PAD, svg=el('svg',{viewBox:`0 0 ${W.toFixed(1)} ${H.toFixed(1)}`,preserveAspectRatio:'xMidYMid meet','aria-hidden':'true'});
-    svg.appendChild(el('rect',{x:X(0),y:Y(0),width:R.w*S,height:R.d*S,fill:'#FAF8F3',stroke:'#3A3A3A','stroke-width':3}));
-    (R.openings||[]).forEach(o=>{const W0=R.w,H0=R.d,f=o.offset_cm||0,l=o.width_cm||0,
-      p=o.wall==='south'?{x1:f,y1:0,x2:f+l,y2:0}:o.wall==='north'?{x1:f,y1:H0,x2:f+l,y2:H0}:o.wall==='west'?{x1:0,y1:f,x2:0,y2:f+l}:{x1:W0,y1:f,x2:W0,y2:f+l};
-      svg.appendChild(el('line',{x1:X(p.x1),y1:Y(p.y1),x2:X(p.x2),y2:Y(p.y2),stroke:o.kind==='door'?'#C8783C':'#5A9BD4','stroke-width':7}));});
+    const W=(x1-x0)*S+2*PAD, H=(y1-y0)*S+2*PAD, svg=el('svg',{viewBox:`0 0 ${W.toFixed(1)} ${H.toFixed(1)}`,preserveAspectRatio:'xMidYMid meet','aria-hidden':'true'});
+    const g=el('g',{transform:`translate(${(-x0*S).toFixed(1)},${(-y0*S).toFixed(1)})`}); svg.appendChild(g);
+    parts.forEach(p=>g.appendChild(el('rect',{x:X(p.x),y:Y(p.y),width:p.w*S,height:p.d*S,fill:'#FAF8F3',stroke:'#3A3A3A','stroke-width':3})));
+    parts.forEach(p=>p.openings.forEach(o=>{const W0=p.w,H0=p.d,f=o.offset_cm||0,l=o.width_cm||0,
+      q=o.wall==='south'?{x1:f,y1:0,x2:f+l,y2:0}:o.wall==='north'?{x1:f,y1:H0,x2:f+l,y2:H0}:o.wall==='west'?{x1:0,y1:f,x2:0,y2:f+l}:{x1:W0,y1:f,x2:W0,y2:f+l};
+      const gap=o.kind==='opening';   // проход и стык — разрыв стены цветом пола
+      g.appendChild(el('line',{x1:X(p.x+q.x1),y1:Y(p.y+q.y1),x2:X(p.x+q.x2),y2:Y(p.y+q.y2),stroke:gap?'#FAF8F3':o.kind==='door'?'#C8783C':'#5A9BD4','stroke-width':gap?5:7}));}));
     // экземпляр комплекта без своего товара — цвет товара базовой роли ЭТОГО варианта (`skuOf` смотрит открытый в окне, не этот)
     const own={}; its.forEach(it=>{const b=baseRole(it.role); if(it.sku&&it.sku.name&&!own[b])own[b]=it.sku;});
     its.slice().sort((a,b)=>(a.role.startsWith('ковёр')?0:1)-(b.role.startsWith('ковёр')?0:1)).forEach(it=>{
-      const s=it.sku&&it.sku.name?null:own[baseRole(it.role)]; try{svg.appendChild(shape(s?{...it,sku:s}:it));}catch(e){}});
+      const s=it.sku&&it.sku.name?null:own[baseRole(it.role)]; try{g.appendChild(shape(s?{...it,sku:s}:it));}catch(e){}});
     out=svg.outerHTML;
   }catch(e){ out=''; }
   finally{ S=s0; PAD=p0; sel=sel0; }
