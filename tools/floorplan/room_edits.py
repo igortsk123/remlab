@@ -9,8 +9,8 @@
 
 Что делает правка с комнатой копии:
   * имя и вид — как у правки (вид по имени считает сервер, `lib/trial/room-kind.ts`); `user_name` — имя сменил агент;
-  * ширина × длина (`w_cm`×`d_cm` — охват контура по осям листа): контур масштабируется от центра охвата (sx = W/w, sy = D/d), площадь —
-    в sx·sy; исходные охват и контур — в `plan` (2D-план тура и привязка проёмов — по ним: `trial_room.openings_of`, `trial_bundle`),
+  * ширина × длина (`w_cm`×`d_cm` — охват контура по осям листа): контур масштабируется от центра охвата (sx = W/w, sy = D/d), площадь
+    для показа — в sx·sy (та же формула, что у окошка правки, `index.html:tcfArea`); исходные охват и контур — в `plan` (2D-план тура и привязка проёмов — по ним: `trial_room.openings_of`, `trial_bundle`),
     `edited` = {w, d}, флаг `user_dims` — размер дал человек: проверка размера снята, фото можно (`trial_bundle.size_check/photo_ok`);
   * без размеров, но с `dimsOk` (галочка «размеры верны» при «Подтвердить планировку», T-20261111-16) — только флаг `user_dims`.
 Проёмы панели не двигаются: привязка считается по исходным контурам, центр проёма своей комнаты переносится тем же масштабом.
@@ -71,13 +71,14 @@ def _scaled(room: dict, w: float, d: float) -> None:
     room['plan'] = {'bbox': dict(b), 'contour': [list(p) for p in room.get('contour') or []], 'sx': sx, 'sy': sy, 'cx': cx, 'cy': cy}
     room['contour'] = [[round(cx + (p[0] - cx) * sx, 1), round(cy + (p[1] - cy) * sy, 1)] for p in room.get('contour') or []]
     room['bbox'] = {'x': round(cx - w / 2, 1), 'y': round(cy - d / 2, 1), 'w': float(w), 'd': float(d)}
-    # T-20261111-12: площадь — от КОНТУРА (`areaContourM2`, если показ шёл по подписи листа): агент задал стороны — его мерка
-    # истина, подпись листа к растянутому контуру больше не относится (`area_from_label` снимается)
-    base = room.get('areaContourM2') or room.get('areaM2')
-    if base:
-        room['areaM2'] = round(float(base) * sx * sy, 2)
-    if room.pop('areaContourM2', None) is not None:
-        room['flags'] = [f for f in room.get('flags') or [] if f != 'area_from_label']
+    # T-20261112-28: площадь — та, что агент видел в окошке правки (`flat215-demo/index.html:tcfArea`): ПОКАЗАННАЯ до правки
+    # (подпись листа при `area_from_label`, иначе контур) × sx·sy. Прежде бралась площадь контура — у комнаты с подписью
+    # 14,9 при контуре 11,3 окошко обещало 16,2, а после пересчёта выходило 12,3 (меньше исходной). Площадь контура
+    # (`areaContourM2`) тянется тем же масштабом — сверка с подписью (`area_label_off`, «форма приблизительная») остаётся в силе
+    if room.get('areaM2'):
+        room['areaM2'] = round(float(room['areaM2']) * sx * sy, 2)
+    if room.get('areaContourM2'):
+        room['areaContourM2'] = round(float(room['areaContourM2']) * sx * sy, 2)
     room['edited'] = {'w': int(w), 'd': int(d)}
     if USER_DIMS not in (room.get('flags') or []):
         room['flags'] = list(room.get('flags') or []) + [USER_DIMS]

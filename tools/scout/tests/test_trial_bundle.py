@@ -878,6 +878,24 @@ def test_panels_keep_plan_geometry_and_carry_agent_size():
     assert pr['b2']['areaM2'] == round(14 * 450 / 400 * 300 / 350, 2) and 'edited' not in pr['b1']
 
 
+def test_edit_area_is_what_edit_window_promised():
+    """T-20261112-28 (проход по проду, «Спальня 1»): площадь показана по подписи листа (14,9; контур 11,29 — `area_label_off`), агент
+    сменил ширину 3,28 → 3,58. Окошко правки (`index.html:tcfArea`) обещало 14,9 × 358/328,4 × 364/364,4 = 16,2 — после пересчёта
+    столько же, а не 12,29 от контура. Площадь контура тянется тем же масштабом, сверка с подписью (флаги) не теряется."""
+    flat = flat_with_bedrooms()
+    b1 = next(r for r in flat['panels'][0]['rooms'] if r['id'] == 'b1')
+    b1.update(bbox={**b1['bbox'], 'w': 328.4, 'd': 364.4}, areaM2=14.9, areaContourM2=11.29,
+              flags=['area_label_off', 'area_from_label'])
+    ed = _user_edit(flat, 'b1', 358, 364)
+    r = next(x for x in ed['panels'][0]['rooms'] if x['id'] == 'b1')
+    promised = 14.9 * (358 / 328.4) * (364 / 364.4)                 # = tcfArea(A0, W0, L0, w, l) окошка
+    assert r['areaM2'] == round(promised, 2) == 16.23 and f"{r['areaM2']:.1f}" == '16.2'
+    assert r['areaContourM2'] == round(11.29 * (358 / 328.4) * (364 / 364.4), 2)
+    assert {'area_label_off', 'area_from_label', 'user_dims'} <= set(r['flags']) and r['edited'] == {'w': 358, 'd': 364}
+    d = TB.build(JOB, ed, scene_for(ed), ctx=CTX, parts=[bedroom_part()])
+    assert next(x for x in d['trial']['panels'][0]['rooms'] if x['src_id'] == 'b1')['areaM2'] == 16.23
+
+
 def test_parts_matched_by_source_room_and_foreign_room_refused():
     res = flat_with_bedrooms()
     part = bedroom_part('bedroom-7')

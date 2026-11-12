@@ -8,7 +8,7 @@ const block = html.slice(html.indexOf("// TCF PURE START"), html.indexOf("// TCF
 type Resp = { status: number } | null;
 type Model = { st: string; err?: string; done?: number; total?: number; eta?: number | null; el?: number; queued?: boolean;
   rooms?: Record<string, { st: string; eta: number | null }> };
-const api = new Function(`${block};return {tcfRetry,TCF_WAIT,tcfClock,tcfLeft,tcfEtaTxt,tcfPlural,tcfArea,tcfDefaultOk,tcfModel};`)() as {
+const api = new Function(`${block};return {tcfRetry,TCF_WAIT,tcfClock,tcfLeft,tcfEtaTxt,tcfPlural,tcfArea,tcfDraftName,tcfDefaultOk,tcfModel};`)() as {
   tcfRetry: (go: () => Promise<Resp>, wait: (ms: number) => Promise<void>, say?: (n: number) => void) => Promise<Resp>;
   TCF_WAIT: number[];
   tcfClock: (s: number) => string;
@@ -16,6 +16,7 @@ const api = new Function(`${block};return {tcfRetry,TCF_WAIT,tcfClock,tcfLeft,tc
   tcfEtaTxt: (left: number | null, en: boolean) => string;
   tcfPlural: (n: number, en: boolean) => string;
   tcfArea: (a0: number, w0: number, d0: number, w: number, d: number) => number;
+  tcfDraftName: (name: unknown, plan: unknown) => string;
   tcfDefaultOk: (draft: unknown, was: boolean, scale: string) => boolean;
   tcfModel: (j: unknown, ver: number, was: boolean) => Model;
 };
@@ -104,6 +105,18 @@ describe("таймеры и подписи", () => {
   it("площадь черновика — пропорцией от построенной", () => {
     expect(api.tcfArea(12, 400, 300, 440, 300)).toBeCloseTo(13.2, 6);
     expect(api.tcfArea(12, 400, 300, 0, 300)).toBe(12);
+  });
+  it("площадь в окне правки — той же tcfArea, что и после пересчёта (T-20261112-28: 14,9 → 16,2, а не 12,3)", () => {
+    expect(html).toContain("const areaOf=(w,l)=>tcfArea(A0,W0,L0,w,l);");
+    expect(Math.round(api.tcfArea(14.9, 328.4, 364.4, 358, 364) * 100) / 100).toBe(16.23);   // = room_edits._scaled
+  });
+  it("имя черновика: не меняли — пусто (страница покажет своё «Спальня 1», не «Bedroom 1» с листа), сменили — как ввели", () => {
+    expect(api.tcfDraftName("Bedroom 1", "Bedroom 1")).toBe("");
+    expect(api.tcfDraftName(" Bedroom 1 ", "Bedroom 1")).toBe("");
+    expect(api.tcfDraftName("Кабинет", "Bedroom 1")).toBe("Кабинет");
+    expect(api.tcfDraftName("", "Bedroom 1")).toBe("");
+    expect(api.tcfDraftName("Bedroom 1", "")).toBe("Bedroom 1");      // комнаты в плане нет — имя как есть
+    expect(html).toContain("name:tcfDraftName(r.name,trPlanName(r.room))");
   });
   it("галочка «размеры верны» по умолчанию", () => {
     expect(api.tcfDefaultOk({ w: 1 }, false, "not_verified")).toBe(true);   // правил агент

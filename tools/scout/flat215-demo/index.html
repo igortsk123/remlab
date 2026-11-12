@@ -2307,6 +2307,11 @@ function trPanelRoom(id){
     return {w:+((r.edited||{}).w||r.bbox.w), d:+((r.edited||{}).d||r.bbox.d)};
   return null;
 }
+// подпись комнаты в плане распознавания (`trial.panels[].rooms[].name`: с листа или сменённая агентом) — с ней сервер сверяет «имя не меняли»
+function trPlanName(id){
+  for(const p of ((D.trial||{}).panels||[]))for(const r of ((p&&p.rooms)||[]))if(r&&r.id===id)return String(r.name||'');
+  return '';
+}
 const trEdited=id=>!!((trRoom(id)||{}).edited);
 // ответ `version.json` во время правки: упала — текст; закончилась (новая версия или та же) — перезагрузка
 function trEditSeen(j){
@@ -2352,8 +2357,9 @@ function trEditOpen(id){
   const q=s=>bk.querySelector(s), N=q('#tr-ed-n'), Wi=q('#tr-ed-w'), Li=q('#tr-ed-l'), Ai=q('#tr-ed-a'), err=q('.tr-ed-err'), sv=q('[data-tr-ed=save]');
   const chips=[...bk.querySelectorAll('.tr-ed-kinds .chip')];
   const say=c=>{err.hidden=!c; err.textContent=c?(TRE_TXT[c]||TRE_TXT._)[EN?1:0]:'';};
-  // площадь ↔ размеры: площадь комнаты — от её контура, поэтому пропорция от исходной (A0 при W0 × L0), а не произведение
-  const areaOf=(w,l)=>A0*(w/W0)*(l/L0);
+  // площадь ↔ размеры: пропорция от показанной (A0 при W0 × L0), а не произведение — та же `tcfArea`, что у сборки после пересчёта
+  // (`tools/floorplan/room_edits.py:_scaled`): что окошко пообещало, то и будет в туре
+  const areaOf=(w,l)=>tcfArea(A0,W0,L0,w,l);
   Ai.oninput=()=>{const a=trNum(Ai.value), w=trNum(Wi.value), l=trNum(Li.value); say(''); if(!(a>0&&w>0&&l>0))return;
     const k=Math.sqrt(a/areaOf(w,l)); Wi.value=trFmt(w*k,2); Li.value=trFmt(l*k,2);};
   Wi.oninput=Li.oninput=()=>{const w=trNum(Wi.value), l=trNum(Li.value); say(''); if(w>0&&l>0)Ai.value=trFmt(areaOf(w,l),1);};
@@ -2623,6 +2629,9 @@ const tcfEtaTxt=(left,en)=>left==null?'':left<=0?(en?'almost there':'ещё не
 const tcfPlural=(n,en)=>en?(n===1?'edit':'edits'):(n%10===1&&n%100!==11?'правка':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'правки':'правок'));
 // площадь правленой комнаты — пропорцией от построенной (у непрямоугольной площадь ≠ ширина × длина), как в окне правки
 const tcfArea=(a0,w0,d0,w,d)=>a0>0&&w0>0&&d0>0&&w>0&&d>0?a0*(w/w0)*(d/d0):a0;
+// имя черновика для показа: имя не меняли — сервер хранит подпись плана (`repo-room-edit.ts`: «Bedroom 1» с листа), страница показывает
+// своё (русский тур — «Спальня 1»); пусто = «как было» (T-20261112-28). Сменённое агентом — как ввёл
+const tcfDraftName=(name,plan)=>{const n=String(name||'').trim(); return n&&n!==String(plan||'').trim()?n:'';};
 // галочка «размеры верны» по умолчанию: правил агент, уже подтверждал или масштаб плана проверен (`verified` / `listing`)
 const tcfDefaultOk=(draft,was,scale)=>!!draft||!!was||/^(verified|listing)$/.test(scale||'');
 // ответ `rebuild-status` → что показать. Пересчёт правок — вид `edit` (другие — «Обустроить» и текст размеров, у них свой показ).
@@ -2687,7 +2696,7 @@ function tcfApply(ed){
   if(!ed||!ed.ok)return;
   const had=!!(TCF.ed&&(TCF.ed.openings||[]).length);
   TCF.ed=ed; TCF.rooms={};
-  (ed.rooms||[]).forEach(r=>{if(r&&r.room)TCF.rooms[r.room]={name:String(r.name||''), w:+r.w_cm||0, d:+r.d_cm||0};});
+  (ed.rooms||[]).forEach(r=>{if(r&&r.room)TCF.rooms[r.room]={name:tcfDraftName(r.name,trPlanName(r.room)), w:+r.w_cm||0, d:+r.d_cm||0};});
   if((had||(ed.openings||[]).length)&&D.plan&&D.plan.trTf){try{D.plan.trOpenings=trPlanLayout(tcfPanels()).ops;}catch(e){}}
 }
 const tcfPlanRedraw=()=>{try{if(curScreen()==='plan')flatPlan();}catch(e){}};
