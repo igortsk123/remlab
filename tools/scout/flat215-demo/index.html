@@ -5733,7 +5733,7 @@ function decorRows(){
       (p.img?`<img src="${p.img}" loading="lazy" alt="">`:'<div class="noimg-sm">нет фото</div>')+
       // роль — без номера слота («подушка 2» → «подушка», ведущий 23.10); мягкое — без пометки (владелец 23.10: вариант и так
       // открывается улучшенным фото, подушки там видны; подсказка — только тостом при замене, `softSwapToast`)
-      `<div class="t"><b>${itemName(p,x.role)}</b><span>`+(isSoft(x.role)&&!isCloth3d(x)?baseRole(x.role):`${baseRole(x.role)} · ${decorWhere(x)}`)+
+      `<div class="t"><b>${itemName(p,x.role)}</b><span>`+(isSoft(x.role)&&!isCloth3d(x)?dwRole(x.role):`${dwRole(x.role)} · ${decorWhere(x)}`)+
       (itemShop(p)?' · '+itemShop(p):'')+(p.basis&&p.basis!=='page'?' · <i title="наличие по данным магазина, карточка не проверена">наличие не проверено</i>':'')+`</span>`+
       `</div><div class="p">${money(p.price)}</div>`+
       // действия — своей строкой под фото и текстом (`.row>.acts`, demo-26 Г)
@@ -13325,7 +13325,7 @@ function quizPick(rule, answers, available, styleColours){
     'вешалка':'coat rack','зеркало':'mirror'};
   var STYLE={'сканди':'Scandi','современный':'Modern','минимализм':'Minimalist','лофт':'Loft','неоклассика':'Neoclassic','джапанди':'Japandi'};
   var ROOM={'Гостиная':'Living room','Кухня':'Kitchen','Спальня 1':'Bedroom 1','Спальня 2':'Bedroom 2','Спальня':'Bedroom','Холл':'Hall','Санузел':'Bathroom','Прихожая':'Hallway'};
-  var EX={'Отправить выбор риелтору':'Send my selection to the agent','Написать менеджеру':'Message the manager','Закрыть подсказку':'Close the tip',
+  var EX={'Отправить выбор риелтору':'Send my selection to the agent','наличие не проверено':'stock not checked','Написать менеджеру':'Message the manager','Закрыть подсказку':'Close the tip',
     'Оплата 100%':'Full payment','Ипотека, рассрочка':'Mortgage, instalments','Ипотека':'Mortgage','Подробнее':'Details','Консультация':'Get advice','← К стилям':'← Back to styles',
     'Оплата 100 %: сумма при условии оплаты наличными, без ипотеки и рассрочки':'Full payment: the price when paying in full, without a mortgage or instalments',
     'Подобрали вашу квартиру в разных стилях. Можете менять мебель, отделку и встраиваемое.':'We have furnished your apartment in different styles. You can change the furniture, finishes and fitted items.',
@@ -13387,7 +13387,7 @@ function quizPick(rule, answers, available, styleColours){
     'Изменить план':'Edit the plan','Фото сейчас не сделать: у сервиса картинок закончился баланс. Попробуйте позже.':'The photo cannot be made right now: the image service has run out of balance. Please try later.',
     'Фото сейчас не сделать: сервер улучшения не отвечает. Попробуйте позже.':'The photo cannot be made right now: the enhancement server is not responding. Please try later.','Отделка и ремонт':'Options & upgrades','Встраиваемое':'Fitted & integrated','← Назад':'← Back',
     'Изменено вами':'Changed by you'};
-  var ATTR={'Что значит оплата 100%':'What does full payment mean','Цена, подробнее':'Price details','Стили':'Styles','Что показать':'What to show','Избранное':'Favourites','Скопировать ссылку на этот вариант':'Copy a link to this option','В избранное':'Add to favourites',
+  var ATTR={'Что значит оплата 100%':'What does full payment mean','наличие по данным магазина, карточка не проверена':'stock as reported by the shop; product page not checked','Цена, подробнее':'Price details','Стили':'Styles','Что показать':'What to show','Избранное':'Favourites','Скопировать ссылку на этот вариант':'Copy a link to this option','В избранное':'Add to favourites',
     'переставить точки съёмки в следующие углы':'move camera points to the next corners','Просмотр кадра':'Shot view','Закрыть':'Close','Предыдущий вид':'Previous view',
     'Следующий вид':'Next view','скоро':'soon'};
   var role=function(r){var k=String(r).toLowerCase().replace(/\s+\d+$/,'');return ROLE[k]||null;};
