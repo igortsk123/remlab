@@ -61,6 +61,36 @@ const ST = () => { const sd = document.getElementById('vside'); return { pos: sd
       return cand.find(c => /диван|кресл|стул/i.test(c.role)) || cand[0] || null; }, pk);
     const nameAt = i => p.evaluate(i => (skuOf(items[i]) || {}).name, i);
     const mid = async (pos = 1) => { await p.evaluate(q => { vwSelect(null); vwSheet(q); }, pos); await p.waitForTimeout(800); return p.evaluate(ST); };
+    // ЦВЕТ ПРЕДМЕТА В 3D ЧИСЛОМ (T-20261112-104/3, директор: «проверка цвета дивана в кадре числом, не на глаз»): через ≥3 с после нажатия
+    // (модель цвета успевает загрузиться) — точки кадра, где сцена отдаёт этот предмет (`LIVE.scene.pick`, только где сверху сам холст,
+    // не ценник), средний цвет пикселей снимка → ближайший по оттенку (доли r:g:b, без яркости — свет сцены её меняет) кружок семьи
+    // обязан быть цветом товара места. Кружков-цветов (`swatch`) у семьи нет — INFO, не меряем; без видеоконтекста — тоже
+    const sharp = require(pick('sharp'));
+    const col3d = async (lbl, i) => {
+      if (process.env.LOSE === '1') { R.push(`INFO ${lbl}: 3D без видеоконтекста — цвет в кадре не меряем`); return; }
+      await p.waitForTimeout(3000);
+      let last = null;
+      for (let tr = 0; tr < 3; tr++) {
+        const g = await p.evaluate(i => { const cv = LIVE.canvas, r = cv.getBoundingClientRect(), pts = [];
+          for (let y = r.top + 5; y < Math.min(r.bottom, innerHeight); y += 10) for (let x = r.left + 5; x < Math.min(r.right, innerWidth); x += 10) {
+            if (document.elementFromPoint(x, y) !== cv) continue; if (LIVE.scene.pick(x, y) === i) pts.push([x, y]); }
+          const it = items[i], sku = skuOf(it) || {}, fam = colourFamRow(sku, it.role) || [], tmp = document.createElement('i'); document.body.appendChild(tmp);
+          const rgb = s => { tmp.style.color = ''; tmp.style.color = s; const m = getComputedStyle(tmp).color.match(/[\d.]+/g); return m ? m.slice(0, 3).map(Number) : null; };
+          const sw = fam.filter(f => f.swatch).map(f => ({ name: f.name, rgb: rgb(f.swatch) })).filter(f => f.rgb); tmp.remove();
+          return { pts, dpr: devicePixelRatio, cur: sku.name, sw }; }, i);
+        if (g.sw.length < 2) { R.push(`INFO ${lbl}: у семьи нет кружков-цветов — цвет в кадре не меряем`); return; }
+        const shot = await p.screenshot(), { data, info } = await sharp(shot).raw().toBuffer({ resolveWithObject: true });
+        const m = [0, 0, 0]; let n = 0;
+        for (const [x, y] of g.pts) { const px = Math.round(x * g.dpr), py = Math.round(y * g.dpr); if (px >= info.width || py >= info.height) continue;
+          const o = (py * info.width + px) * info.channels; for (let c = 0; c < 3; c++) m[c] += data[o + c]; n++; }
+        const mean = m.map(v => Math.round(v / Math.max(1, n))), ch = c => { const s = c[0] + c[1] + c[2] || 1; return c.map(v => v / s); };
+        const d = g.sw.map(f => ({ name: f.name, rgb: f.rgb, d: Math.round(1000 * Math.hypot(...ch(mean).map((v, k) => v - ch(f.rgb)[k]))) })).sort((a, b) => a.d - b.d);
+        last = { points: n, mean, cur: g.cur, near: d.slice(0, 3) };
+        if (n >= 30 && d[0].name === g.cur) break;
+        await p.waitForTimeout(3000);
+      }
+      ok(`${lbl}: цвет предмета в 3D (среднее по ${last.points} точкам) ближе всего к кружку товара места`, last.points >= 30 && last.near[0].name === last.cur, last);
+    };
     const tapEl = async sel => { const l = p.locator(sel).first(); await l.evaluate(e => e.scrollIntoView({ block: 'center' })); await p.waitForTimeout(300);
       if (PHONE) await l.tap(); else await l.click(); };
 
@@ -77,6 +107,7 @@ const ST = () => { const sd = document.getElementById('vside'); return { pos: sd
       await p.screenshot({ path: `${OUT}${TAG}-A-${fn}-tap.png` });
       for (const ms of [600, 1800]) { await p.waitForTimeout(ms === 600 ? 600 : 1200); const s = await p.evaluate(ST), nm = await nameAt(t.i);
         ok(`А${tg}: кружок в строке — через ${ms} мс цвет новый, шторка свёрнута, карточки нет`, nm !== t.name && s.pos === '0' && !s.card, { was: t.name, now: nm, s }); }
+      await col3d(`А${tg}`, t.i);
       await p.screenshot({ path: `${OUT}${TAG}-A-${fn}.png` });
       // В. кружок цвета, который уже стоит (снимок владельца TG 1272: терракотовый уже выбран, шторка полная) — шторка всё равно
       // сворачивается, чтобы цвет было видно в 3D; цвет не меняется
@@ -86,6 +117,7 @@ const ST = () => { const sd = document.getElementById('vside'); return { pos: sd
       else { await tapEl(`#shotbody .pinlist .row[data-k="${t.k}"] .sws [data-sw="${on}"]`);
         await p.waitForTimeout(900); const s3 = await p.evaluate(ST), nm1 = await nameAt(t.i);
         ok(`В${tg}: кружок уже выбранного цвета — шторка свёрнута, цвет тот же`, s2.pos === PDATA[q] && s3.pos === '0' && nm1 === nm0, { before: s2.pos, nm0, nm1, s: s3 });
+        await col3d(`В${tg}`, t.i);
         await p.screenshot({ path: `${OUT}${TAG}-C-${fn}.png` }); }
       // Г. путь владельца (TG 1272): предмет выбран на сцене (строка подсвечена, карточка над ним), шторка раскрыта — кружок в СТРОКЕ списка
       t = await target();
@@ -97,6 +129,8 @@ const ST = () => { const sd = document.getElementById('vside'); return { pos: sd
       await tapEl(`#shotbody .pinlist .row[data-k="${t.k}"] .sws [data-sw="${t.j}"]`);
       for (const ms of [600, 1800]) { await p.waitForTimeout(ms === 600 ? 600 : 1200); const s = await p.evaluate(ST), nm = await nameAt(t.i);
         ok(`Г${tg}: кружок в строке выбранного — через ${ms} мс цвет новый, шторка свёрнута, выбор снят`, nm !== t.name && s.pos === '0' && !s.card && s.sel == null, { was: t.name, now: nm, s }); }
+      // снимок Г — после ≥3 с и замера цвета (директор T-104/3: прежний снимок шёл через 1,8 с; цвет у него был верный — коричневый)
+      await col3d(`Г${tg}`, t.i);
       await p.screenshot({ path: `${OUT}${TAG}-D-${fn}.png` });
       // Б. кружок в карточке над выбранным предметом (на полной шторке карточка — над краем шторки, если сцена видна)
       t = await target();
