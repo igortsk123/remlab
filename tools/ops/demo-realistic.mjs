@@ -10,7 +10,8 @@
 //   node tools/ops/demo-realistic.mjs --night [--cap-rub 200] [--dry]   # ночной шаг demo_real (demo-29), см. ниже
 //   node tools/ops/demo-realistic.mjs --selftest   # ночной учёт и потолок на заглушках — без браузера и денег
 //   REAL_STYLES=современный,лофт   только эти стили и в этом порядке (проба на 1–2 парах, T-20261106-88); комната — `REAL_ROOM`
-//   --frames   кадры из браузера (живая 3D-сцена, как у покупателя: `vwCaptureViews`), а не серверный эскиз; не снялись — СТОП без оплаты
+//   --frames   кадры из браузера (живая 3D-сцена, как у покупателя: `vwCaptureViews`), а не серверный эскиз; не снялись — СТОП без оплаты.
+//              Ночь и ручная выкладка идут с ним (`demo-real.sh`, T-20261112-114: эскиз не видит картин, штор и тюля из 3D); в `--dry` не действует
 //   DEMO_LOCAL=<папка сборки>   страница и данные витрины — из локальной сборки (`FLAT215_DEMO_OUT`), сервер и реестр — прода: фото
 //              новых ракурсов снимаются ДО публикации (demo-22: опубликованная страница их сразу показывает — номер состояния тот же).
 //              Так идёт и ночь (T-20261107-34). Строки «пустые пары» и «прежнее фото» в этом режиме не печатаются: они про то, что
@@ -44,7 +45,8 @@ import { camOkFrom, pairLabel, regOf, withoutShot } from "./demo-warm.mjs";
 
 const BASE = process.env.DEMO_BASE ?? "https://remont-lab.online";
 const NIGHT = process.argv.includes("--night"), DRY = process.argv.includes("--dry");
-const GO = process.argv.includes("--go") || (NIGHT && !DRY), ALL = process.argv.includes("--all") || NIGHT, FRAMES = process.argv.includes("--frames");
+// --frames в сухом ходе не действует: съёмки нет — 3D не грузим (ночная сухая проверка `demo-real.sh --dry` идёт с тем же --frames)
+const GO = process.argv.includes("--go") || (NIGHT && !DRY), ALL = process.argv.includes("--all") || NIGHT, FRAMES = process.argv.includes("--frames") && !DRY;
 const fi = process.argv.indexOf("--force"), FORCE = fi >= 0 ? (process.argv[fi + 1] || "all") : "";
 const EXPECT_MODEL = process.env.EXPECT_MODEL ?? "improve/openai/gpt-image-2.5-sunburst";
 const LOCAL = process.env.DEMO_LOCAL ?? "";
@@ -271,8 +273,9 @@ async function main() {
   if (failed && !NIGHT) process.exitCode = 1;
 }
 
-/** Одно платное задание «realistic» для варианта `t` и проверка по реестру сервера. → {ok, why, sec, urls} */
-async function shootOne(page, t, before) {
+/** Одно платное задание «realistic» для варианта `t` и проверка по реестру сервера. → {ok, why, sec, urls}
+ *  `frames` — кадры из браузера (по умолчанию флаг `--frames`; самопроверка передаёт явно) */
+async function shootOne(page, t, before, frames = FRAMES) {
   const t0 = Date.now();
   const res = await page.evaluate(async ([i, frames]) => {
     pickVariant(i);
@@ -287,8 +290,8 @@ async function shootOne(page, t, before) {
     // код отказа (`lost`/`not_found` — «сервер обновлялся») страница отдаёт вторым аргументом (T-20261107-34) — для повтора ночью
     return await new Promise((ok) => makePhoto("realistic", "", "", { bg: true, extra, progress: () => {}, fail: (m, code) => ok({ error: String(m), code: code || "" }),
       done: (n0) => ok({ n: shots.length - n0, frames: (shots[n0] || {}).timing?.frames }) }));
-  }, [t.i, FRAMES]);
-  if (FRAMES && !res.error && res.frames !== "browser") res.error = `снято не из кадров браузера (${res.frames ?? "?"})`;
+  }, [t.i, frames]);
+  if (frames && !res.error && res.frames !== "browser") res.error = `снято не из кадров браузера (${res.frames ?? "?"})`;
   // проверка по реестру сервера, а не по странице: запись этого варианта (комната и номер — `regOf`, как у прогрева и страницы)
   // с номером его состояния и обеими точками
   const reg = await (await fetch(`${BASE}/test/share/shots.json?v=${Date.now()}`)).json();
@@ -436,14 +439,39 @@ ${paidDef.replaceAll('>> "$LOG"', "")}\n${sh.slice(a, b).replaceAll('>> "$LOG"',
   check(order(undefRun) === "scene_artifacts demo_warm demo_real_check" && /RES=\n/.test(undefRun + "\n"),
     "состояние банка комнат не определено — ни сборки, ни досъёмки, ни публикации, ни перевыпуска туров; сухая проверка по опубликованному идёт", undefRun);
   const wrap = readFileSync(new URL("./demo-real.sh", import.meta.url), "utf8");
-  check(/demo-realistic\.mjs --night "\$@"/.test(wrap), "demo-real.sh передаёт аргументы (--dry) в скрипт", null);
+  check(/demo-realistic\.mjs --night --frames "\$@"/.test(wrap),
+    "demo-real.sh: ночь и ручная выкладка — с кадрами из браузера (--frames, T-20261112-114), аргументы (--dry) — дальше в скрипт", null);
+  // 8а) КАДРЫ НЕ СНЯЛИСЬ — СТОП БЕЗ ОПЛАТЫ (T-20261112-114): `vwCaptureViews` вернул null (3D нет, кадр не загрузился) — платный
+  // `makePhoto` не зовётся, задание — ошибка, ночь встаёт. Функции страницы — заглушки в этом процессе, реестр сервера — пустой
+  const g = globalThis, fetch0 = g.fetch;
+  let paidCalls = 0, paidExtra = null;
+  const pageStub = (cap) => Object.assign(g, { pickVariant: () => {}, openLiveWindow: () => {}, VW: { mode: "walk" }, vwMode: () => {},
+    LIVE: { scene: {}, state: "ready" }, vwCaptureViews: async () => cap, shots: [{ timing: { frames: "browser" } }],
+    makePhoto: (q, a, b, opt) => { paidCalls += 1; paidExtra = opt.extra; opt.done(0); } });
+  const fakePage = { evaluate: (fn, arg) => fn(arg) };
+  g.fetch = async () => ({ json: async () => [] });
+  try {
+    pageStub(null);
+    const sf = await shootOne(fakePage, { i: 0, style: "лофт", cams: "" }, new Set(), true);
+    check(!sf.ok && paidCalls === 0 && sf.why === "кадры из браузера не сняты — платный вызов не делаю",
+      "--frames: кадры не снялись — платный вызов не делается, задание — ошибка", { sf, paidCalls });
+    r = await runNight(todo.slice(0, 3), { shoot: (t) => shootOne(fakePage, t, new Set(), true), used: async () => null, sleep: nap }, { ...R, cap: 200 });
+    check(paidCalls === 0 && r.done === 0 && r.failed === 1 && r.stop === "error" && r.left === 2,
+      "--frames: ночь встаёт на первом варианте без кадров, платных вызовов 0, остальные не тронуты", { r, paidCalls });
+    pageStub({ views: [{ camera: "C1", id: "a" }, { camera: "C2", id: "b" }], clay: "c", sheet: "landscape" });
+    await shootOne(fakePage, { i: 0, style: "лофт", cams: "" }, new Set(), true);
+    check(paidCalls === 1 && paidExtra?.views?.length === 2, "--frames: кадры снялись — задание уходит с ними (views C1, C2)", { paidCalls, paidExtra });
+  } finally { g.fetch = fetch0; }
   // 9) очередь тяжёлых прогонов (T-20261107-03): вне слота — перезапуск себя под heavy-slot с теми же аргументами; в слоте — нет
   const sNight = underSlot({}, ["--night", "--cap-rub", "10"], "/n", "/s.mjs"), sGo = underSlot({}, ["--go"], "/n", "/s.mjs");
-  check(sNight && sNight[0].endsWith("/heavy-slot.sh") && sNight[1].join(" ") === "demo-real-night --min-gb 2 --timeout 7200 -- /n /s.mjs --night --cap-rub 10"
-    && sGo && sGo[1].join(" ") === "demo-real --min-gb 2 --timeout 3600 -- /n /s.mjs --go"
+  check(sNight && sNight[0].endsWith("/heavy-slot.sh") && sNight[1].join(" ") === "demo-real-night --min-gb 2 --cores 2 --timeout 7200 -- /n /s.mjs --night --cap-rub 10"
+    && sGo && sGo[1].join(" ") === "demo-real --min-gb 2 --cores 2 --timeout 3600 -- /n /s.mjs --go"
     && underSlot({ HEAVY_SLOT_HELD: "123" }, ["--go"], "/n", "/s.mjs") === null && underSlot({ REAL_NO_SLOT: "1" }, [], "/n", "/s.mjs") === null
     && underSlot({ REAL_SLOT_GB: "3" }, [], "/n", "/s.mjs")[1][2] === "3",
     "вне очереди — себя под heavy-slot (ночь ждёт 2 ч, ручной — час), аргументы те же; в слоте (HEAVY_SLOT_HELD) и REAL_NO_SLOT=1 — без", { sNight, sGo });
+  const sFr = underSlot({}, ["--night", "--frames"], "/n", "/s.mjs"), sFrDry = underSlot({}, ["--night", "--frames", "--dry"], "/n", "/s.mjs");
+  check(sFr[1].slice(0, 5).join(" ") === "demo-real-night --min-gb 3 --cores 6" && sFrDry[1].slice(0, 5).join(" ") === "demo-real-night --min-gb 2 --cores 2",
+    "очередь честно: с кадрами (3D процессором) — 6 ядер и 3 ГБ; сухой ход и без кадров — 2 ядра и 2 ГБ (T-20261112-114)", { sFr, sFrDry });
   const outer = Number((/timeout (\d+) node tools\/ops\/demo-realistic\.mjs --night/.exec(wrap) || [])[1] || 0);
   check(outer >= NIGHT_WAIT_S + 3600, "demo-real.sh: внешний timeout ≥ ожидание очереди ночью + час съёмки (иначе он оборвал бы ожидание)", { outer });
   const miss3 = slotMissedLine("фото нейросети: без фото своей расстановки — 3: bedroom-2/лофт …\nDIGEST:…"), missQ = slotMissedLine("");
@@ -467,11 +495,14 @@ ${paidDef.replaceAll('>> "$LOG"', "")}\n${sh.slice(a, b).replaceAll('>> "$LOG"',
  * перенос на сутки = голая обложка у сменивших состояние; за ночь очередь освобождается), вручную час; внешний `timeout` в
  * `demo-real.sh` — больше ожидания и съёмки (NIGHT_WAIT_S + 3600). */
 export const NIGHT_WAIT_S = 7200;
+// ЯДРА И ПАМЯТЬ — ЧЕСТНО (T-20261112-114): с кадрами (`--frames`, не сухой ход) браузер рисует 3D процессором — 6 ядер, 3 ГБ (правило
+// очереди для Playwright с 3D); без 3D (сухой ход, серверный эскиз) — 2 ядра, 2 ГБ: прежде очередь выводила 6 ядер по признаку
+// «подключает playwright», и сухая проверка на 7 с ждала свободных 6 ядер до часа (12.11: 3522 с)
 export function underSlot(env, argv, node, self) {
   if (env.HEAVY_SLOT_HELD || env.REAL_NO_SLOT === "1") return null;
-  const night = argv.includes("--night");
+  const night = argv.includes("--night"), frames = argv.includes("--frames") && !argv.includes("--dry");
   return [fileURLToPath(new URL("./heavy-slot.sh", import.meta.url)),
-    [night ? "demo-real-night" : "demo-real", "--min-gb", env.REAL_SLOT_GB ?? "2",
+    [night ? "demo-real-night" : "demo-real", "--min-gb", env.REAL_SLOT_GB ?? (frames ? "3" : "2"), "--cores", frames ? "6" : "2",
       "--timeout", env.REAL_SLOT_WAIT_S ?? String(night ? NIGHT_WAIT_S : 3600), "--", node, self, ...argv]];
 }
 
