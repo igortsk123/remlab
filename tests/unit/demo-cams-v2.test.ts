@@ -96,9 +96,9 @@ const bigCuts = (api: Api, c: Cam, list: It[], W: number, H: number) => {
 
 describe("правило видов v2: данные и снятое", () => {
   const api = apiOf(load(FX.bed1).room);
-  it("смысл видов — у гостиной, спальни и прихожей; у кухни нет (прежний подбор); правило «с двух концов» и виды зоны спальни сняты", () => {
-    for (const k of ["living", "bedroom", "hall"]) expect(api.CAM_ZONES[k]!.intent, k).toBeTruthy();
-    expect(api.CAM_ZONES.kitchen!.intent).toBeUndefined();
+  // T-20261112-76/2: смысл видов — у каждого типа комнаты (кухня, санузел, прочие — профили `demo-cams-kinds.test.ts`)
+  it("смысл видов — у гостиной, спальни, прихожей и кухни; правило «с двух концов» и виды зоны спальни сняты", () => {
+    for (const k of ["living", "bedroom", "hall", "kitchen"]) expect(api.CAM_ZONES[k]!.intent, k).toBeTruthy();
     for (const k of ["living", "bedroom", "hall", "kitchen"]) expect(api.CAM_ZONES[k]!.ends, k).toBeUndefined();
     expect(api.CAM_ZONES.bedroom!.views).toBeUndefined();
     expect(api.has("camEndsOk")).toBe(false);
