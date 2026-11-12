@@ -36,7 +36,7 @@ Push в `main` → CI gate → `Deploy prod` (`deploy.yml`). Сервер — `i
 `.deploy.lock`: `prev` → образ → БД → активация. `tools/ops/deploy-need.sh`: доки — без выката, предка прода не катит (ADR-0360), `--status`. Детали — Tier 2. `./deploy.sh` — запасной (не с DEV-VM).
 
 ## Откат / smoke
-- smoke = `ok=true` И `version == TARGET_SHA` (одного 200 мало). Откат — тег `prev` (Tier 2).
+- smoke = `ok=true` И `version == TARGET_SHA` . Не 200 → откат на `prev`; версия не та — стоп (Tier 2).
   Вручную: `/`=200, `/api/health` ok, remnanode Up.
 - Демо: `tools/scout/publish_demo.sh --rollback` (копии `demo.prev-*` ×3); кладёт `.br`/`.gz`, Caddy — `precompressed`.
 

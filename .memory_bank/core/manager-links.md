@@ -8,7 +8,7 @@ importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-05
+last_verified: 2026-11-12
 review_after: 2026-12-13
 ---
 
@@ -27,7 +27,7 @@ review_after: 2026-12-13
 - **Статусы:** `sent→opened→engaged` — система, `contacted/meeting/deal/lost` — только менеджер
   (`contracts/send.ts:autoAdvanceAllowed`, `modules/sends/service.ts:setStatusByManager`).
 - **Антишум** (`modules/sends/service.ts`): «открыл» — раз в сутки; выбор — сводкой через 30 мин; дубль клика — 2 мин;
-  `quiz_done` — сразу, повтор раз в 30 мин; `selection_send` — сразу; 20 сигналов/час на менеджера. Доставка — очередь
+  `quiz_done` — сразу, повтор раз в 30 мин; `selection_send` — сразу, дубль 2 мин отсекается; 20 сигналов/час на менеджера. Доставка — очередь
   `signal_outbox` с повторами, таймер `remlab-signals` раз в минуту; нет бота или подключения — `no_channel`, видно на странице.
 - Словарь событий — `contracts/send.ts:buyerEventKind` (`flat3d_open` — без сигнала); отчёт застройщику — ADR-0265.
 

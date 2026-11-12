@@ -26,7 +26,9 @@ last_verified: 2026-11-06
    `*.md` → `deploy=false`, сборка/выкат/smoke пропускаются (`::notice` + Step Summary). Цель — строгий предок
    выкатанной версии (CI кончились не по порядку, T-20261110-01) → тоже пропуск, проверяется ДО здоровья: старый
    коммит сам не выкатывается никогда (`deploy-need.sh:older_than_prod`). Прочее сомнение (версия не 40-hex, `ok≠true`,
-   draft ≠ сайт, коммит не найден, история глубже `HIST_DEPTH`, шаг упал) → выкладка; `workflow_dispatch` — всегда.
+   draft ≠ сайт, коммит не найден, шаг упал) → выкладка; история глубже `HIST_DEPTH` (`order=2`) — только «старой не признана»
+   + хвост «порядок не доказан», дальше обычные проверки: разница лишь в доках → `skip` (`deploy-need.sh:70-84`; комментарии
+   `deploy-need.sh:11-12` и `deploy.yml:47` здесь неточны); `workflow_dispatch` — всегда.
    «Прод не позади main» — `bash tools/ops/deploy-need.sh --status` (rc 0 — разница только документы), не `version == HEAD`.
    Caddy (`caddy/Caddyfile` сниппет `retry_restart`): app и draft — повтор до 15 с при пересоздании контейнера;
    `request_buffers 1MB` обязателен — без него повтор POST падает «invalid Read on closed Body» (проба 06.11).
@@ -173,7 +175,7 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
 |---|---|---|---|
 | Рендер кадров и фото «Сделать фото» (`tools/scout/dev_render_backend.sh`, туннель `172.18.0.1:8601`) | черновые кадры — прод сам падает на локальный рендер (`draft_service.py`, `backend`), дольше; платное фото (ключа шлюза на проде нет) и фото тура пробы — 503 `unavailable` | сразу | ничего; готовые кадры лежат на сервере |
 | Ночной прогон каталога `refresh_daily.sh` (10:40 по DEV): цены, наличие, сборка и публикация демо | демо и 3D живут на последнем опубликованном `demo-data.json` (лежит на сервере); цены стареют | сутки | сторож каталога на сервере (15:30 UTC) шлёт тревогу |
-| Конвейер мешей и сторож простоя Salad (`tools/scout/salad/idle_guard.sh`, cron DEV) | ноды Salad гасит сервер: нет отметки жизни конвейера 30 мин → `/stop` с проверкой (`infra/server/salad-deadman.py`, ADR-0274) | ≤ 40 мин | ничего |
+| Конвейер мешей и сторож простоя Salad (`tools/scout/salad/idle_guard.sh`, cron DEV) | ноды Salad гасит сервер: нет отметки жизни конвейера 30 мин → `/stop` с проверкой — только группы с машинами (`pending` без машин — `no_machines`); файл `/opt/remlab/mesh/deadman-off-until` с датой в будущем отключает (`inhibited`) (`infra/server/salad-deadman.py`, ADR-0274) | ≤ 40 мин | ничего |
 | Мост приёмки мешей (`mesh_review_sync.py`) | решения владельца на `/lab/mesh-*` копятся на сервере, не теряются | — | догонит при включении |
 | Копия бэкапа вне сервера (`tools/ops/backup-pull.sh`, 04:15) и репетиция (`restore-drill.sh`, вс 04:30) | копии нет за эти сутки; дампы на сервере остаются (7 шт.) | — | после включения — `backup-pull.sh` руками |
 | Публикация моделей/статики (scp с DEV) | новые модели не появляются | — | — |
@@ -213,7 +215,7 @@ Docker общий с tamara: автоочистка кэша сборок и б�
 
 **Сторож места (07.11, T-20261107-48):** диск DEV к 10.11 — 391 ГБ, занято 95 % (`df -h /`); 07.11 оставалось 10–21 ГБ при резерве
 tamara 25 ГБ. Ночной шаг `disk_keeper` (`tools/scout/refresh_daily.sh`) → `tools/ops/disk-keeper.py --apply --digest`: убирает только
-БЕЛЫЙ СПИСОК `tools/scout/rules/dev-disk.json` — подпапки `~/remlab-scratch` (кроме `parity`, контейнер `tmp`), `~/remlab-logs`
+БЕЛЫЙ СПИСОК `tools/scout/rules/dev-disk.json` — подпапки `~/remlab-scratch` (кроме `parity` и `tmp/node-compile-cache`, контейнер `tmp`), `~/remlab-logs`
 (кроме `heavy-slot.log`, `batch-window.log`, `money-guard.log`), `~/onb06-out`, в `~/scout-scenes` — только папки задач по шаблонам
 `only`, `never` (меши, галерея, кадры, `flat215-demo`) не трогает; папка старше `dir_days` 7 сут, журналы `log_days` 14; папку, которую
 называет код, не трогает; свободно < `warn_free_gb` 30 → `WARN:disk_free`. Болванки `shape.glb` старше `shape_max_age_d` 14 сут
@@ -238,7 +240,8 @@ Caddy отдаёт их по `precompressed br gzip` (`caddy/Caddyfile`, бло�
 Claude и тысячи `playwright_*`. При квоте запись падает EDQUOT — часто молча (Bash-вывод теряется, скрипт с `rc 0`): ночь 06.11
 публикация демо упала rc 2 без причины в журнале (tar и журнал шага в `/tmp`), ночь 07.11 — `demo_rt.sh` (вывод `publish_rt` в
 `/tmp`) → демо не опубликовалось. Правило в коде: `tools/ops/remlab-tmp.sh` (shell, подключать через `.`) и `tools/scout/remlab_tmp.py`
-задают `REMLAB_TMP` = `~/remlab-scratch/tmp` (в CI — `RUNNER_TEMP`); `refresh_daily.sh` экспортирует `TMPDIR=$REMLAB_TMP` и пишет в
+задают `REMLAB_TMP` = `~/remlab-scratch/tmp` (shell: в CI при `CI`/`GITHUB_ACTIONS` и непустом `RUNNER_TEMP` — он; python: в CI без
+`REMLAB_TMP` — `None` = системный `tempfile`, вне CI — `~/remlab-scratch/tmp`, только если `~/remlab-scratch` уже есть); `refresh_daily.sh` экспортирует `TMPDIR=$REMLAB_TMP` и пишет в
 журнал свободное место; шаг `tmp_sweep` (`tools/ops/tmp-sweep.sh`) убирает своё старше суток; CI — `tools/scout/tests/test_tmp_hygiene.py`
 (новый питон-тест с временным — `tempfile`, `/tmp` — сразу через `remlab_tmp.use`, иначе красный). gltfpack 0.24 пишет временные текстуры ЖЁСТКО
 в `/tmp/gltfpack-temp*` (TMPDIR не слушает) и при EDQUOT кладёт `data:…ERR` с `rc 0` (ночь 07.11: 14 моделей / 28 копий `/rt/` белые на проде) — страховка: сторож текстур в
@@ -297,4 +300,5 @@ DEV `GET /credits` через туннель (снаружи `/api/draft/credits
 
 ## Модели 3D демо — кэш (14.10, b2b-12)
 `handle_path /test/mesh-pilot10/*` в `caddy/Caddyfile`: `Cache-Control: public, no-cache` (браузер хранит и перепроверяет
-по ETag — 304 без тела) вместо `no-store` общего `/test/*`; `browse` сохранён. Первый вход в 3D ≈30 МБ (лёгких копий нет).
+по ETag — 304 без тела) вместо `no-store` общего `/test/*`; `browse` сохранён. Для пилота тогда — первый вход в 3D ≈30 МБ; /demo теперь грузит лёгкие копии `/rt/` (`rt-meshes.json` →
+`runtimeMeshes`, `tools/scout/flat215-demo/index.html:rtMeshes`; Caddy — `immutable`).

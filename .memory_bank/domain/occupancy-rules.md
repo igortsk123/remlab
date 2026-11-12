@@ -117,7 +117,7 @@ status: working
 
 **Дыры (не покрыто, а солверу нужно):**
 
-*Статус 12.11:* дыры 1–3, 5, 6 закрыты данными `occupancy.json` → `dynamic.window_tv_glare`, `window_sofa`, `door_swing`, `radiator`, `narrow_room`, `distances_cm.sofa_tv_aim_deg_max` + `TV_OFF_AXIS` (`validate.py:check_facing`), `dynamic.chandelier_size`, `cushions_count`, `extras.dining_rug_overhang_min_cm`, `armchair_clearances` (пледов нет); 4 — шкалы `dynamic.*` на всех 7 бэндах, но `counts.seats` для 31+ м² — `null`.
+*Статус 12.11:* дыры 1–3, 5, 6 закрыты данными `occupancy.json` → `dynamic.window_tv_glare`, `window_sofa`, `door_swing`, `radiator`, `narrow_room`, `distances_cm.sofa_tv_aim_deg_max` (30°, держит `validate.py:check_sofa_aim` → `SOFA_AIM_OFF_TV`; `TV_OFF_AXIS` в `check_facing` — перекрытие ≥30 %), `dynamic.chandelier_size`, `cushions_count`, `extras.dining_rug_overhang_min_cm`, `armchair_clearances`; плед — место есть (`distances_cm.dependents.throw_drape`: подлокотник 35–60 см свеса или спинка 25–35 % секции, читает `services/planner-solver/planner/dependents.py` в тени), числа пледов правила нет; 4 — шкалы `dynamic.*` на всех 7 бэндах, но `counts.seats` для 31+ м² — `null`.
 
 1. Привязка к проёмам/инженерке: нет правил про окна (не блокировать, блики на ТВ), распах дверей, батареи под окном, балконную дверь — для авто-расстановки это первичные констрейнты, покрыт только «от входа до мебели 150–200».
 2. Геометрия комнаты: ничего про узкие/вытянутые комнаты (пропорция сторон), выбор ТВ-стены и ориентацию дивана (вдоль/поперёк), ориентацию угла Г-дивана — а угловой диван в конфликте #8 упомянут как типовой.
@@ -159,7 +159,7 @@ status: working
 - **Кап пола — динамический от площади**: маленькая комната до ~50%, большая — пропорционально меньше (шкала в JSON).
 - **Ковёр — привязка к дивану**, не к проценту пола.
 - **Диван↔столик и диван↔ТВ — шкалы от площади комнаты** (решение 01.08). **Сейчас (W2, 08.08) иначе:** диван↔столик — фикс-вилка hard 32–50 / комфорт 36–46 (`distances_cm.sofa_coffee_table_hard`, `sofa_coffee_table`), шкала `dynamic.sofa_table_cm` в проверке не используется; диван↔ТВ — от диагонали по ширине тумбы (экран 70–90 % тумбы, дистанция 1,2·d_min…2,5·d_max — `services/planner-solver/planner/tv.py:distance_range`), шкала `dynamic.sofa_tv_cm` — только при тумбе <60 см (`services/planner-solver/planner/validate.py:check_distances`).
-- Кап пола сейчас — `dynamic.floor_cap_pct` (14–16 м² до 50 %, 50+ до 34 %), превышение — мягкое `FLOOR_OVERFILL` (`validate.py:check_floor_cap`); ковёр — якорь на передних ножках всей посадки (`rug_rules.anchor`), мягкое `RUG_DETACHED` (`validate.py:check_zone`).
+- Кап пола сейчас — `dynamic.floor_cap_pct` (14–16 м² до 50 %, 50+ до 34 %), превышение — мягкое `FLOOR_OVERFILL` (`validate.py:check_floor_cap`); ковёр — якорь на передних ножках всей посадки записан в `rug_rules.anchor` (только данные, код ключ не читает); мягкое `RUG_DETACHED` (`validate.py:check_zone`) проверяет привязку ковра к дивану, не ко всей посадке.
 
 ### Новые правила: окна, двери, батареи, розетки
 

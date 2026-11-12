@@ -262,3 +262,14 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-12	.memory_bank/domain/demo-scenario-map.md	code	80	10	10	
 2026-11-12	.memory_bank/core/demo-scenarios.md	code	29	0	0	
 2026-11-12	.memory_bank/domain/pipeline-order-details.md	code	138	11	11	
+2026-11-12	core/agent-trial.md	drift	29	0	0	
+2026-11-12	core/manager-links.md	drift	29	1	1	
+2026-11-12	deployment.md	drift	37	1	1	
+2026-11-12	core/bedroom.md	drift	31	4	4	
+2026-11-12	core/layout.md	drift	21	0	0	
+2026-11-12	core/room-templates.md	drift	14	2	2	
+2026-11-12	domain/room-templates.md	drift	54	6	6	
+2026-11-12	domain/occupancy-rules.md	drift	54	3	3	
+2026-11-12	domain/deployment-details.md	drift	149	5	5	
+2026-11-12	domain/demo-scenario-map.md	drift	88	4	4	
+2026-11-12	domain/demo-planner-ui.md	drift	260	18	18	
