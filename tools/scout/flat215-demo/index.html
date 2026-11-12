@@ -9484,8 +9484,15 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
 #shot.vphoto.vmany .vcams,#shot.vwalk.vmany .vcams{display:flex}
 /* ОКОШКИ РАКУРСОВ В «3D» (T-20261112-76/2, владелец TG 1061 → макет А, TG 1095): два окошка слева внизу — что уйдёт в фото. Пустое — пунктир
    и «?» (ракурс 1 запомнен, второй выбрать); «авто» — пара выбрана сама; тап — встать в этот ракурс, а ушли с точки — поставить сюда текущий
-   вид (`vwSlotTap`). В «3D» окошки заменяют переключатель «Со стороны двери / Другой ракурс», в «Фото» он прежний */
+   вид (`vwSlotTap`). ОКОШКИ — ТОЛЬКО ПО КНОПКЕ ФОТО (T-20261112-108, владелец TG 1266/1268: «я не должен это видеть, пока не нажал
+   кнопку; и где переключатель видов»): в «3D» по умолчанию — переключатель «От двери / Другой ракурс»; «Сделать фото» (📷) открывает
+   окошки на его месте как шаг выбора ракурсов, «×», заказ фото или другая комната — снова переключатель (`vwSlotsOpen`) */
 #shot.vwalk.vslots-on .vcams{display:none!important}
+.vslx{flex:none;align-self:center;width:30px;height:30px;border-radius:50%;border:0;padding:0;background:rgba(255,255,255,.96);color:#2b2622;
+  font:600 18px/30px system-ui,sans-serif;box-shadow:var(--e3);cursor:pointer}
+/* ШТОРКА ДО ВЕРХА — КНОПКИ ФОТО НЕТ (T-20261112-108, владелец TG 1273): сцены не видно — непонятно, что снимать; место кнопки остаётся
+   (без скачка шапки), на средней и свёрнутой она снова видна */
+@media(max-width:700px){#vside[data-pos="3"] .vcta{visibility:hidden}}
 .vslots{display:none;position:absolute;left:14px;bottom:14px;z-index:var(--zl-float);flex-direction:column;align-items:flex-start;gap:8px;
   max-width:calc(100% - 28px);pointer-events:none}
 #shot.vwalk.vslots-on .vslots{display:flex}
@@ -9872,7 +9879,8 @@ function vwHtml(s, navs, list){
     `<div class="vcams" id="vCams" role="tablist">${vwCamLabels().map((t,k)=>`<button type="button" role="tab" data-cam="${k}">${escHtml(t)}</button>`).join('')}</div>`+
     // окошки ракурсов «3D» (T-20261112-76/2, макет А): содержимое — `vwSlotsUi`
     `<div class="vslots" id="vSlots"><div class="vsltip" id="vSlTip" role="status" hidden></div><div class="vslrow">`+
-    `<button type="button" class="vslot" data-slot="0"></button><button type="button" class="vslot" data-slot="1"></button></div></div>`+
+    `<button type="button" class="vslot" data-slot="0"></button><button type="button" class="vslot" data-slot="1"></button>`+
+    `<button type="button" class="vslx" data-sl="x" aria-label="${LANG==='en'?'Close':'Закрыть'}">×</button></div></div>`+
     `<div class="vplanbox" id="vPlan"></div>`+
     `<div class="vstub" id="vStub"><p>${EN?'3D does not open on this device. Open the link on another phone or a computer.':'3D на этом устройстве не открывается. Откройте ссылку на другом телефоне или компьютере.'}</p>`+
     `<button class="btn" id="vStubLink" type="button">${EN?'Copy the link':'Скопировать ссылку'}</button></div>`+
@@ -10991,7 +10999,8 @@ function vwMount(s){
   if(cta)cta.onclick=()=>{
     if(VW.mode==='plan'){if(vwEditLock())return; const ed=document.getElementById('shEdit'); if(ed&&ed.onclick)ed.onclick(); return;}
     if(TRIAL()&&!trPhotoHere()){vwMode('photo'); return;}   // тур, фото нельзя: «Фото» с карточкой, как его получить (T-20261111-05 п.2)
-    if(vwPickCta())return;   // «3D», ушли с точки: текущий вид — ракурс 1, ждём второй (окошки, T-20261112-76/2)
+    if(vwPickCta())return;   // «3D»: первое нажатие — окошки (T-108); ушли с точки — текущий вид в ракурс 1, ждём второй (T-76/2)
+    if(VW.mode==='walk'&&VSL.open){VSL.open=null; vwCamsUi(); vwCtaUi();}   // заказ ушёл с позами окошек — окошки прячем, снова переключатель видов
     vwRealistic();};
   const sl=document.getElementById('vStubLink'); if(sl)sl.onclick=()=>{if(window.__fav)window.__fav.share();};
   vwSheetWire();
@@ -11258,6 +11267,9 @@ function vwCamsUi(){
 // точки — поставить туда текущий вид, иначе встать в этот ракурс. Наклон взгляда в позу не идёт — кадр снимается позой съёмки (`POSE_VER`)
 const VSL={pick:null, thumbs:['',''], key:'', t:0, tipT:0, tipUntil:0, tipNote:'', onFrames:null};
 const vwPickOn=()=>!!VSL.pick&&VSL.pick.vid===curVid()&&VW.mode==='walk';
+// окошки открыты кнопкой фото в этой комнате (T-20261112-108); без неё в «3D» — переключатель видов
+const vwSlotsOpen=()=>VSL.open===curVid()||vwPickOn();
+function vwSlotsClose(){ VSL.open=null; VSL.pick=null; VSL.tipNote=''; vwCtaUi(); vwCamsUi(); }
 // текущий взгляд живой сцены → точка съёмки (`viewer.ts:viewPose`: yaw = (540 − rot) mod 360, обратное — то же)
 function vwPoseCam(k){
   const s=LIVE.scene; if(!s||!s.pose)return null;
@@ -11279,6 +11291,11 @@ function vwSlotsAuto(){
 function vwPickCta(){
   if(VW.mode!=='walk'||!LIVE.scene||!LIVE.scene.pose||VJ.job)return false;
   if(vwPickOn()){VSL.pick=null; vwSlotSet(1); return false;}          // второй ракурс — текущий вид, дальше фото
+  // ПЕРВОЕ НАЖАТИЕ — ШАГ ВЫБОРА РАКУРСОВ (T-20261112-108): окошки открываются; стоим в ракурсе — показываем, что уйдёт в фото, и ждём
+  // второго нажатия; ушли с точки — как прежде: текущий вид в окошко 1, второе выбрать
+  if(!vwSlotsOpen()){VSL.open=curVid();
+    if(!VW.free){if(VW_PHONE()){const sd=document.getElementById('vside'); if(sd&&+sd.dataset.pos>0)vwSheet(0);}
+      vwCtaUi(); vwCamsUi(); return true;}}
   if(!VW.free)return false;                                           // стоим в ракурсе — фото обоих окошек
   if(!vwSlotSet(0))return false;
   VSL.pick={vid:curVid()}; VW.free=true;                               // ждём второй: подсветки ракурса нет, пока не выбран
@@ -11331,10 +11348,9 @@ function vwSlotSmall(blobs){
 }
 function vwSlotsUi(){
   const box=document.getElementById('vSlots'), shot=document.getElementById('shot'); if(!box||!shot)return;
-  const ok=VW.mode==='walk'&&LIVE.ok===true&&!!LIVE.scene&&vwCamN()>1&&!(TRIAL()&&!trPhotoHere());
+  const ok=VW.mode==='walk'&&LIVE.ok===true&&!!LIVE.scene&&vwCamN()>1&&!(TRIAL()&&!trPhotoHere())&&vwSlotsOpen();
   shot.classList.toggle('vslots-on',ok); if(!ok)return;
-  // первое «3D» этой комнаты в окне — строка «Ракурсы выбраны сами · Поменять» (или «Свои ракурсы») на 5 с
-  if(VSL.shown!==curVid()){VSL.shown=curVid(); VSL.tipNote=''; VSL.tipUntil=Date.now()+5000; clearTimeout(VSL.tipT); VSL.tipT=setTimeout(vwSlotsUi,5050);}
+  const x=box.querySelector('[data-sl="x"]'); if(x&&!x.onclick)x.onclick=e=>{e.stopPropagation(); vwSlotsClose();};
   const EN=LANG==='en', cs=(cams||loadCams()).slice(0,2), pick=vwPickOn(), user=cs.some(c=>c&&c.user);
   box.querySelectorAll('[data-slot]').forEach(b=>{const k=+b.dataset.slot, empty=pick&&k===1, c=cs[k]||{}, on=!VW.free&&VW.photo===k&&!empty;
     b.classList.toggle('empty',empty); b.classList.toggle('on',on||(pick&&k===1));
@@ -11346,7 +11362,8 @@ function vwSlotsUi(){
   let html='';
   if(pick)html=EN?'View 1 saved · choose the second':'Ракурс 1 запомнен · выберите второй';
   else if(now<VSL.tipUntil&&VSL.tipNote)html=escHtml(VSL.tipNote);
-  else if(now<VSL.tipUntil)html=user?(EN?'Your views · <button type="button" data-sl="auto">Reset</button>':'Свои ракурсы · <button type="button" data-sl="auto">Вернуть авто</button>')
+  // окошки открыты кнопкой фото — строка всё время, пока они видны: чьи ракурсы и как поменять (снять — та же кнопка ещё раз)
+  else html=user?(EN?'Your views · <button type="button" data-sl="auto">Reset</button>':'Свои ракурсы · <button type="button" data-sl="auto">Вернуть авто</button>')
     :(EN?'Views picked for you · <button type="button" data-sl="chg">Change</button>':'Ракурсы выбраны сами · <button type="button" data-sl="chg">Поменять</button>');
   if(tip.dataset.h!==html){tip.dataset.h=html; tip.innerHTML=html;
     const a=tip.querySelector('[data-sl="auto"]'); if(a)a.onclick=e=>{e.stopPropagation(); vwSlotsAuto();};
@@ -11437,7 +11454,8 @@ function vwCtaUi(){
   cta.hidden=m==='photo';
   if(!ico){cta.removeAttribute('aria-label'); cta.removeAttribute('title'); cta.style.removeProperty('--p');}
   // ждём второй ракурс (окошки «3D», T-20261112-76/2) — «Запомнить ракурс 2» вместо «Сделать фото»
-  const lab0=m==='walk'&&vwPickOn()?(EN?'Save view 2':'Запомнить ракурс 2'):(EN?CTA_REAL_EN:CTA_REAL);
+  // окошки открыты (T-20261112-108) — следующее нажатие снимает: «Снять эти ракурсы»
+  const lab0=m==='walk'&&vwPickOn()?(EN?'Save view 2':'Запомнить ракурс 2'):m==='walk'&&vwSlotsOpen()?(EN?'Shoot these views':'Снять эти ракурсы'):(EN?CTA_REAL_EN:CTA_REAL);
   if(ico){const w=VJ.job?photoWait(VJ.job.t0):null, lab=w?photoWaitText(w):lab0;   // подпись — и отсчёт съёмки
     cta.classList.toggle('busy',!!w); if(!cta.querySelector('svg'))cta.innerHTML=VW_CAM_SVG;
     cta.style.setProperty('--p',w?w.pct.toFixed(1):'0'); cta.setAttribute('aria-label',lab); cta.title=lab;
