@@ -53,8 +53,8 @@ from planner import room_templates as RT  # noqa: E402
 from planner.bedroom import _slots, _wall_point  # noqa: E402
 from planner.geometry import base_role, footprint, room_polygon, swing_polygon  # noqa: E402
 from planner.hall import ORDER, WEIGHT, _fits, _pass_ok, _place, _State, _Statics, _zone, solve_hall  # noqa: E402
-from planner.hall_checks import (_entry_step, door_front, entrance, entry_landing, is_low, is_wall_mirror,  # noqa: E402
-                                 validate_hall)
+from planner.hall_checks import (_entry_step, _wall_strip, door_front, entrance, entry_landing, is_low,  # noqa: E402
+                                 is_wall_mirror, validate_hall)
 from planner.models import Item, Opening, Placement, Radiator, Room, Severity  # noqa: E402
 
 import planner.hall as _HH  # noqa: E402
@@ -535,8 +535,52 @@ def targets(room: Room, placed):
     return out
 
 
-def route_paths(room: Room, placed, need=P_HARD):
-    """Путь от входа до каждой цели: ширина `need` (центр пути — не ближе need/2 к стене/мебели); узкое место — мин. 2·edt."""
+def widest_pinch(X, Y, ok, edt, start, ends, skip, cap):
+    """Самое узкое место САМОГО ШИРОКОГО пути от start до клеток ends (T-20261112-72/4): путь выбирается так, чтобы его
+    узкое место было как можно шире (Дейкстра «максимум минимума» по edt), — он идёт по середине щели, и минимум 2·edt на нём
+    стоит там, где теснее всего на самом деле. Кратчайший путь (BFS) жмётся к углам, и минимум на нём ложился не туда
+    (c110, rad140, l250, uk: «80» у входа, а щель — дальше по коридору). Клетки skip (шаг из входа, подход к цели) в мерку
+    не идут: там ширину режет сама стена у двери или предмет-цель. За щелью путь может брести у стены по клеткам с тем же
+    edt — место выбирается по cap (наибольший edt в 10 см вокруг): в щели шире не станет, у стены широкого коридора — станет.
+    → (2·edt, (x, y)) или None."""
+    import heapq
+    H, W = ok.shape
+    val = np.where(skip, np.inf, edt)
+    best = np.full(ok.shape, -1.0)
+    prev = -np.ones(ok.shape, dtype=np.int64)
+    sy, sx = int(start[0]), int(start[1])
+    best[sy, sx], prev[sy, sx] = val[sy, sx], sy * W + sx
+    pq = [(-best[sy, sx], sy, sx)]
+    while pq:
+        b, y, x = heapq.heappop(pq)
+        b = -b
+        if b < best[y, x] or ends[y, x]:
+            continue
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < H and 0 <= nx < W and ok[ny, nx]:
+                nb = min(b, val[ny, nx])
+                if nb > best[ny, nx]:
+                    best[ny, nx], prev[ny, nx] = nb, y * W + x
+                    heapq.heappush(pq, (-nb, ny, nx))
+    reach = ends & (best >= 0)
+    if not reach.any():
+        return None
+    y, x = divmod(int(np.argmax(np.where(reach, best, -1.0))), W)
+    m = None
+    while True:
+        if np.isfinite(val[y, x]) and (m is None or (cap[y, x], val[y, x]) < m[:2]):
+            m = (float(cap[y, x]), float(val[y, x]), y, x)
+        py, px = divmod(int(prev[y, x]), W)
+        if (py, px) == (y, x):
+            break
+        y, x = py, px
+    return None if m is None else (m[1] * 2, (float(X[m[2], m[3]]), float(Y[m[2], m[3]])))
+
+
+def route_paths(room: Room, placed, need=P_HARD, widest=False):
+    """Путь от входа до каждой цели: ширина `need` (центр пути — не ближе need/2 к стене/мебели); узкое место — мин. 2·edt.
+    widest=True (лист): узкое место — на самом широком пути (`widest_pinch`), иначе — на кратчайшем без концов (быстро)."""
     X, Y, inside, edt = free_space(room, placed)
     from shapely import contains_xy
     ent = entrance(room)
@@ -555,17 +599,24 @@ def route_paths(room: Room, placed, need=P_HARD):
     starts = cand[[int(np.argmin((X[sm] - a[0]) ** 2 + (Y[sm] - a[1]) ** 2))]]   # одна точка: у середины входной двери
     ids = {int(lab[starts[0][0], starts[0][1]])}
     out, pinch = [], None
+    # шаг из входа для цели страны: ближе половины цели к двери ширину режет сама стена у проёма — это не щель
+    near_door = contains_xy(_wall_strip(room, ent.wall, ent.offset_cm, ent.width_cm, P_TARGET / 2 + 2 * G), X, Y)
+    cap = ndimage.maximum_filter(np.where(ok, edt, 0.0), size=2 * int(10 / G) + 1) if widest else None
     for kind, name, region in targets(room, placed):
         tm = contains_xy(region.buffer(need / 2), X, Y) & ok & np.isin(lab, list(ids))
         if not tm.any():
             out.append((kind, name, None))
             continue
+        if widest:
+            m = widest_pinch(X, Y, ok, edt, starts[0], tm, near_door | tm, cap)
+            if m and (pinch is None or m[0] < pinch[0]):
+                pinch = m
         c = region.centroid                       # одна цель: ближайшая к середине полосы двери / зоны подхода
         k = int(np.argmin(np.where(tm, (X - c.x) ** 2 + (Y - c.y) ** 2, np.inf)))
         tm = np.zeros_like(tm)
         tm.flat[k] = True
         path = _bfs(ok, starts, tm)
-        if path:
+        if path and not widest:
             vals = [(edt[iy, ix] * 2, (X[iy, ix], Y[iy, ix])) for iy, ix in path[len(path) // 8: len(path) - len(path) // 8 or None]]
             if vals:
                 m = min(vals, key=lambda v: v[0])
@@ -958,7 +1009,7 @@ def render(r, placed, violations, s, title, subtitle, foot, ok, show_paths=True,
         hatch(cv, [poly.buffer(-2)])
     # дорожки
     # дорожки — шириной лучшего прохода (центр пути не ближе bw/2 к стене и мебели), красное число — узкое место на них
-    paths, pinch = route_paths(room, placed, max(bw, 60)) if show_paths else ([], None)
+    paths, pinch = route_paths(room, placed, max(bw, 60), widest=True) if show_paths else ([], None)
     for kind, name, pts in paths:
         if not pts:
             continue

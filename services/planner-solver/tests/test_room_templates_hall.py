@@ -263,6 +263,22 @@ def test_hall_narrowing_at_door_is_caught(hs):
     assert hs.local_narrowing(room, [], 75)["ok"]                    # пустой коридор 150 — без сужения
 
 
+def test_sheet_pinch_sits_in_the_real_gap(hs):
+    """T-20261112-72/4: точка «узкое место» на листе — в самой щели (середина коридора), а не у входа; число в ней —
+    та же ширина, с которой путь проходит целиком (`best_width`), как мерит сверка по полосам (diag_zone)."""
+    room, far = _corridor(hs, 250)
+    bw = hs.best_width(room, far)
+    assert bw == 80
+    _paths, pinch = hs.route_paths(room, far, bw, widest=True)
+    assert pinch is not None
+    w, (x, y) = pinch
+    assert 230 <= y <= 270 and 55 <= x <= 95, pinch          # в щели между обувницей и банкеткой
+    assert bw - 2 <= w <= bw + 4, pinch
+    room, near = _corridor(hs, 60)
+    _paths, pinch = hs.route_paths(room, near, hs.best_width(room, near), widest=True)
+    assert pinch and 40 <= pinch[1][1] <= 80, pinch           # щель у входа — точка у входа
+
+
 def test_hall_shelf_slides_from_corner_and_width_cap(hs):
     """T-20261112-72/3: полка над крючками в углу сдвигается вдоль стены (в пределах стены, над крючками); полка шире
     крючков больше чем на 20 см не ставится — строка «нет товара не шире»."""
