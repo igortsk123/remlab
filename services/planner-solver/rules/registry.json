@@ -772,6 +772,20 @@
    "где": "planner/bedroom_checks.py"
   },
   {
+   "id": "BED_SIDE_BACK_COUPLE",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "у «{b.role}» боковая спинка — паре нужен подход с двух сторон",
+   "где": "planner/bedroom_checks.py"
+  },
+  {
+   "id": "BED_SIDE_BACK_OFF_WALL",
+   "вид": "hard",
+   "стадия": "спальня",
+   "сообщение": "боковая спинка «{b.role}» не у стены",
+   "где": "planner/bedroom_checks.py"
+  },
+  {
    "id": "BED_NEAR_RADIATOR",
    "вид": "hard",
    "стадия": "спальня",

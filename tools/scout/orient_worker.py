@@ -361,9 +361,13 @@ def decide(sku: str, glb: str, inf: dict, use_vlm: bool) -> dict:
 
 
 def headboard_witness(res: dict, glb: str, R) -> dict:
-    """Изголовье по геометрии в каноне решения `R` → вердикт `bed_headboard`; кратко — в evidence.headboard."""
-    hb = HB.infer_headboard(HB.canonical_vertices(glb, R))
-    res.setdefault('evidence', {})['headboard'] = {k: hb.get(k) for k in ('status', 'head_side', 'fix_deg', 'margin', 'xz', 'version')}
+    """Изголовье по геометрии в каноне решения `R` → вердикт `bed_headboard`; кратко — в evidence.headboard. Рядом — боковая
+    спинка (`infer_side_back`, T-20261112-31: угловая модель — только в угол спинкой к стене), `hb['side_back']`."""
+    V = HB.canonical_vertices(glb, R)
+    hb = HB.infer_headboard(V)
+    hb['side_back'] = HB.side_back_brief(HB.infer_side_back(V, hb))
+    res.setdefault('evidence', {})['headboard'] = {k: hb.get(k) for k in ('status', 'head_side', 'fix_deg', 'margin', 'xz', 'version',
+                                                                          'side_back')}
     return hb
 
 
@@ -677,7 +681,7 @@ def bed_guard(apply: bool, out: str | None = None) -> list:
     rows, n = [], {}
     published, meta = published_orient(), state_index()[2]     # тот же сторож поворота, что у каскада (`run`)
     for rk, sku, st, res, glb in bed_rows():
-        sig = hashlib.sha1(json.dumps(res, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16] + f'|hb{HB.VERSION}'
+        sig = hashlib.sha1(json.dumps(res, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16] + f'|hb{HB.VERSION}.{HB.SIDE_VERSION}'
         rec = {'rk': rk, 'sku': sku, 'was': {'status': st, 'source': res.get('source'), 'yaw': res.get('legacy_front_yaw')}}
         if cache.get(rk, {}).get('sig') == sig:
             rec.update(action='cached', hb=cache[rk].get('hb'))
@@ -697,14 +701,14 @@ def bed_guard(apply: bool, out: str | None = None) -> list:
                     guarded = yaw_guard(new, rk, published, meta.get(rk))
                     if guarded.get('source') == 'yaw_change_guard':
                         action, new = 'guarded', None
-                rec.update(action=action, hb={k: hb.get(k) for k in ('status', 'head_side', 'fix_deg', 'margin', 'xz')})
+                rec.update(action=action, hb={k: hb.get(k) for k in ('status', 'head_side', 'fix_deg', 'margin', 'xz', 'side_back')})
                 if new is not None:
                     rec['now'] = {'status': new['status'], 'source': new['source'], 'yaw': new.get('legacy_front_yaw')}
                     if apply:
                         store(rk, sku, new)
                 if apply:                    # сухой прогон кэш не трогает (он общий с ночным путём)
                     cache[rk] = {'sig': sig if new is None else hashlib.sha1(json.dumps(new, sort_keys=True, ensure_ascii=False)
-                                                                           .encode()).hexdigest()[:16] + f'|hb{HB.VERSION}',
+                                                                           .encode()).hexdigest()[:16] + f'|hb{HB.VERSION}.{HB.SIDE_VERSION}',
                                  'hb': rec['hb']}
         n[rec['action']] = n.get(rec['action'], 0) + 1
         rows.append(rec)

@@ -32,7 +32,8 @@
   "storage_solid_wall": {"_enforce": "WINDOW_BLOCKED (planner/validate.py) + штраф окна в planner/bedroom.py:_score", "_why": "шкаф/комод — на стене без окна"},
   "work_at_window": {"_enforce": "DESK_FAR_FROM_WINDOW", "_why": "стол у окна, свет сбоку или спереди (Н8)"},
   "dressing_table": {"_enforce": "BR_ACCESS_BLOCKED / BR_ACCESS_WALL", "_why": "туалетный столик спинкой к стене, перед ним место под пуф"},
-  "bed_narrow_wall": {"for": ["single_narrow"], "beds": "single", "added": "2026-11-09", "_enforce": "planner/bedroom.py:_pref (длинный бок к стене, в угол) + BED_NARROW_OFF_WALL + BED_SIDE_PASSAGE + NIGHTSTAND_DETACHED", "_why": "узкая односпальная (UK single 90×190) изголовьем и длинным боком к стенам — в угол; проход 75 с одной открытой стороны, тумба у изголовья с открытой стороны; освободившаяся стена — под шкаф, комод или стол. Отличие от bed_corner: для рамы до ~110, бок у стены — правило с проверкой, а не слабое предпочтение"}
+  "bed_narrow_wall": {"for": ["single_narrow"], "beds": "single", "added": "2026-11-09", "_enforce": "planner/bedroom.py:_pref (длинный бок к стене, в угол) + BED_NARROW_OFF_WALL + BED_SIDE_PASSAGE + NIGHTSTAND_DETACHED", "_why": "узкая односпальная (UK single 90×190) изголовьем и длинным боком к стенам — в угол; проход 75 с одной открытой стороны, тумба у изголовья с открытой стороны; освободившаяся стена — под шкаф, комод или стол. Отличие от bed_corner: для рамы до ~110, бок у стены — правило с проверкой, а не слабое предпочтение"},
+  "bed_side_back_corner": {"for": ["single", "guest", "office", "single_narrow", "child"], "added": "2026-11-12", "_enforce": "planner/bedroom.py:_candidates/_pref (угол) + BED_SIDE_BACK_OFF_WALL + BED_SIDE_PASSAGE", "_why": "кровать с боковой спинкой (угловая модель): изголовье и боковая спинка к стенам — в угол; проход 75 с открытой стороны, тумба — у изголовья с открытой стороны (T-20261112-31)"}
  },
  "rules": {
   "bed_side_passage": {"_enforce": "BED_SIDE_PASSAGE", "num": "distances_cm.bed_side_passage"},
@@ -52,6 +53,13 @@
   "nightstand_at_head": {"_enforce": "NIGHTSTAND_DETACHED"},
   "floor_occupancy": {"_enforce": "BEDROOM_FLOOR_OVERFILL", "num": "distances_cm.bedroom_floor_max_pct"},
   "crib_child": {"_enforce": "none", "_why": "Н10 — после ролей onb-04 (кроватка, пеленальный комод)"},
-  "bed_narrow_side_wall": {"_enforce": "BED_NARROW_OFF_WALL", "_why": "только назначение с шаблоном bed_narrow_wall (single_narrow): длинный бок узкой кровати — к стене (зазор ≤ 10 см); иначе мягко — кровать посреди малой комнаты съедает два прохода"}
+  "bed_narrow_side_wall": {"_enforce": "BED_NARROW_OFF_WALL", "_why": "только назначение с шаблоном bed_narrow_wall (single_narrow): длинный бок узкой кровати — к стене (зазор ≤ 10 см); иначе мягко — кровать посреди малой комнаты съедает два прохода"},
+  "bed_side_back_wall": {"_enforce": "BED_SIDE_BACK_OFF_WALL", "added": "2026-11-12", "_why": "кровать с боковой спинкой (Item.side_back: угловая модель — «Кейси-Б», тахта, кровать-софа) — только в угол, боковой спинкой к стене: по центру стены спинка закрывает подход сбоку (T-27, спальня 1 · сканди). Сторона известна по мешу — к стене именно она; по названию (any) — любой длинный бок. Выключатель — switches.bed_side_back"},
+  "bed_side_back_not_couple": {"_enforce": "BED_SIDE_BACK_COUPLE", "added": "2026-11-12", "_why": "паре нужен подход с двух сторон (Н1) — кровать с боковой спинкой ей не берём (назначения — switches.bed_side_back.deny_purposes; солвер отвечает отказом, сборщик не берёт в кандидаты)"}
+ },
+ "switches": {
+  "_about": "ВЫКЛЮЧАТЕЛИ правил спальни (T-20261112-31): on=false — прежнее поведение байт в байт. Чисел норм здесь нет (они — occupancy.json distances_cm).",
+  "bed_side_back": {"on": true, "deny_purposes": ["couple"], "added": "2026-11-12",
+                    "_why": "признак Item.side_back учитывается: угловая кровать — в угол спинкой к стене (BED_SIDE_BACK_OFF_WALL), паре — нет (BED_SIDE_BACK_COUPLE); признак ставит сборщик по мешу (`tools/scout/bed_headboard.py:infer_side_back`) и подсказкой по названию (`tools/scout/rules/bedroom-roles.json` bed_side_back)"}
  }
 }

@@ -15,7 +15,8 @@ from shapely.geometry import Point
 from shapely.ops import unary_union
 
 from .bedroom_checks import (AREA_EPS, _zone_clear, bed_zones, bedroom_role, bedroom_rules, bedroom_spec, both_sides,
-                             check_bed, is_double, light_side, nightstand_ok, num, same_group, validate_bedroom)
+                             check_bed, is_double, light_side, nightstand_ok, num, same_group, side_back, side_back_denied,
+                             validate_bedroom)
 from .geometry import (SAFE_GAP_CM, _wall_point, _wall_strip, access_zone, footprint, opening_polygon,
                        radiator_polygon, room_edges, room_polygon, swing_polygon)
 from .models import Item, Layout, Placement, Room, Severity
@@ -160,8 +161,9 @@ def _pref(S: _Statics, p: Placement, slot) -> float:
     fp = footprint(p)
     win_on_wall = any(fp.distance(w) < p.item.d_cm / 2 + 30 and _edge_has(w, _edge) for _, w in S.windows)
     if r == "кровать":
-        if p.tpl_id == "bed_narrow_wall":
-            # узкая односпальная: изголовье и длинный бок к стенам (в угол) — сильнее мягких штрафов, отход от угла дорог
+        if p.tpl_id in ("bed_narrow_wall", "bed_side_back_corner"):
+            # узкая односпальная и кровать с боковой спинкой: изголовье и длинный бок к стенам (в угол) — сильнее мягких
+            # штрафов, отход от угла дорог (у боковой спинки «не у стены» ещё и жёстко — BED_SIDE_BACK_OFF_WALL)
             corner = min(frac * L - p.item.w_cm / 2, L - frac * L - p.item.w_cm / 2)
             return -0.05 * min(corner, 100) + (1.0 if corner < 1 else 0.0)
         if is_double(p):
@@ -217,8 +219,11 @@ def _candidates(st: _State, S: _Statics, role: str, item: Item):
         x, y, rot = slot[0], slot[1], slot[2]
         tpl = ""
         if b == "кровать":
-            dbl = is_double(Placement(role=role, item=item, x=0, y=0))
+            probe = Placement(role=role, item=item, x=0, y=0)
+            dbl = is_double(probe)
             tpl = S.bed_tpl if (S.bed_tpl and not dbl) else ("bed_center_wall" if dbl else "bed_corner")
+            if side_back(probe):
+                tpl = "bed_side_back_corner"      # угловая модель — в угол спинкой к стене (T-20261112-31)
         elif b in ("шкаф", "комод"):
             tpl = "storage_solid_wall"
         elif b == "стол рабочий":
@@ -265,6 +270,9 @@ def solve_bedroom(room: Room, items: list[Item], purpose: str | None = None, *, 
         return Layout(room=room, placements=[], meta=meta, unplaced=["кровать"])
     if bed is not None and cfg.get("bed") == "single" and is_double(Placement(role="кровать", item=bed, x=0, y=0)):
         meta["reason"].append("BED_NOT_SINGLE")      # узкое назначение (single_narrow) двуспальную не ставит
+        return Layout(room=room, placements=[], meta=meta, unplaced=["кровать"])
+    if bed is not None and side_back_denied(purpose, bed):
+        meta["reason"].append("BED_SIDE_BACK_COUPLE")  # угловая модель паре не годится — подход нужен с двух сторон
         return Layout(room=room, placements=[], meta=meta, unplaced=["кровать"])
 
     S = _Statics(room)

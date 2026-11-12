@@ -35,6 +35,12 @@ ADDED = {
                                                    ("rules", "bed_narrow_side_wall")],
     "tools/scout/rules/bedroom-composition.json": [("purposes", "single_narrow")],
 }
+# добавки T-20261112-31 (боковая спинка, полоса прохода, ковёр) — тоже только дописаны, после добавок 09.11; раздел None — корень
+ADDED_T31 = {
+    "services/planner-solver/rules/bedroom.json": [("templates", "bed_side_back_corner"), ("rules", "bed_side_back_wall"),
+                                                   ("rules", "bed_side_back_not_couple"), (None, "switches")],
+    "tools/scout/rules/bedroom-roles.json": [(None, "bed_side_back")],
+}
 
 
 def _h(o) -> str:
@@ -43,6 +49,10 @@ def _h(o) -> str:
 
 def _without_additions(name: str, d: dict) -> dict:
     d = copy.deepcopy(d)
+    for sec, key in reversed(ADDED_T31.get(name, [])):
+        tgt = d if sec is None else d[sec]
+        assert list(k for k in tgt if not k.startswith("_"))[-1] == key, f"{name}: {key} — не последним ключом"
+        tgt.pop(key)
     if name.endswith("bedroom-roles.json"):           # тег назначения — последним ключом у каждой роли
         n = 0
         for tags in d["purposes"].values():          # детские роли тега не получили — у них прежний набор
@@ -58,6 +68,13 @@ def _without_additions(name: str, d: dict) -> dict:
     return d
 
 
+def _drop_t31(name: str, d: dict) -> dict:
+    d = copy.deepcopy(d)
+    for sec, key in ADDED_T31.get(name, []):
+        (d if sec is None else d[sec]).pop(key)
+    return d
+
+
 @pytest.mark.parametrize("name", sorted(FROZEN))
 def test_old_entries_unchanged(name):
     cur = json.loads((ROOT / name).read_text(encoding="utf-8"))
@@ -65,7 +82,8 @@ def test_old_entries_unchanged(name):
 
 
 def test_additions_are_last_keys():
-    br = json.loads((ROOT / "services/planner-solver/rules/bedroom.json").read_text(encoding="utf-8"))
+    br = _drop_t31("services/planner-solver/rules/bedroom.json",
+                   json.loads((ROOT / "services/planner-solver/rules/bedroom.json").read_text(encoding="utf-8")))
     assert list(br["purposes"])[-1] == "single_narrow"
     assert list(k for k in br["templates"] if not k.startswith("_"))[-1] == "bed_narrow_wall"
     assert list(k for k in br["rules"] if not k.startswith("_"))[-1] == "bed_narrow_side_wall"

@@ -12,6 +12,9 @@
 Сторона — в той же конвенции, что `mesh_front.back_side`: 0 = +Z, 180 = −Z, 90 = +X, 270 = −X. Поправка `fix_deg` —
 поворот вокруг +Y, после которого изголовье у +Z: R' = ry(fix)·R (`rotate_R`).
 
+Боковая спинка (T-20261112-31, `infer_side_back`): тот же подъём сторон по ДЛИННЫМ бокам — угловая модель («Кейси-Б», тахта)
+ставится только в угол спинкой к стене; признак — в evidence.headboard.side_back и кэше сторожа (`load_side_backs`).
+
     python tools/scout/bed_headboard.py --selftest
     python tools/scout/bed_headboard.py <model.glb> '<R как JSON>'     # одна модель
 """
@@ -71,6 +74,79 @@ def infer_headboard(V) -> dict:
     if rise[best] < MIN_RISE or margin < MARGIN:
         return {**out, 'status': 'sideways' if xz > SQUARE[1] else 'ambiguous'}
     return {**out, 'status': 'confident', 'head_side': best, 'fix_deg': (360 - best) % 360}
+
+
+# БОКОВАЯ СПИНКА (T-20261112-31): угловая модель («Кейси-Б», кровать-софа, тахта) — вторая высокая сторона вдоль ДЛИННОГО
+# бока. Тот же замер подъёма сторон (`side_tops`), только по двум длинным бокам. Порог — от высоты изголовья: спинка бока
+# у угловых моделей почти с изголовье (Кейси-Б), у обычной рамы бок ниже матраса (подъём ≤ 0).
+SIDE_MIN_RISE = 0.12      # бок выше спального места хотя бы на 12 % высоты меша (как изголовье)
+SIDE_OF_HEAD = 0.5        # и не ниже половины подъёма изголовья
+SIDE_MARGIN = 0.10        # и выше другого длинного бока на 10 % высоты: высокие ОБА бока — не угловая (бортики, короб)
+SIDE_VERSION = 1
+
+
+def long_sides(t: dict, hb: dict | None = None) -> tuple:
+    """Стороны длинных боков в конвенции `SIDES`: изголовье известно — перпендикуляр к нему; нет — по вытянутости меша."""
+    h = (hb or {}).get('head_side')
+    if h is not None:
+        return (90, 270) if h in (0, 180) else (0, 180)
+    if t['xz'] < SQUARE[0]:
+        return (90, 270)
+    if t['xz'] > SQUARE[1]:
+        return (0, 180)
+    return ()
+
+
+def infer_side_back(V, hb: dict | None = None) -> dict:
+    """V — вершины в каноне решения, hb — `infer_headboard(V)` (None — посчитать). → {status yes|no|both|unknown, side,
+    side_canon, rise, version}. side — бок КРОВАТИ в осях солвера (`planner/bedroom_checks.bed_zones`): 'left' — −x,
+    'right' — +x при изголовье у стены и лице к изножью. Канон: изголовье +Z, перед −Z; сцена и солвер ставят меш
+    передом к +Z (`scene_mesh.world_vertices`: ry(−front_yaw)), т. е. канон повёрнут на 180° — его +X (сторона 90) у
+    солвера −x ('left'), −X (270) — +x ('right'). Изголовье не у +Z (поправка решения ещё не применена) — бок по сторонам
+    относительно изголовья, тот же счёт."""
+    t = side_tops(V)
+    hb = hb if hb is not None else infer_headboard(V)
+    sides = long_sides(t, hb if hb.get('status') == 'confident' else None)
+    out = {'rise': {s: round(t['rise'][s], 3) for s in sides}, 'version': SIDE_VERSION}
+    if not sides:
+        return {**out, 'status': 'unknown', 'why': 'почти квадратная, изголовье не найдено'}
+    head = hb.get('head_side') if hb.get('status') == 'confident' else None
+    hr = t['rise'][head] if head is not None else max(t['rise'][s] for s in (0, 180, 90, 270) if s not in sides)
+    a, b = sorted(sides, key=lambda s: t['rise'][s], reverse=True)
+    ra, rb = t['rise'][a], t['rise'][b]
+    need = max(SIDE_MIN_RISE, SIDE_OF_HEAD * hr)
+    if ra < need:
+        return {**out, 'status': 'no'}
+    if ra - rb < SIDE_MARGIN:
+        # оба бока высокие — короб/бортики (не угловая); один чуть выше порога без отрыва — обычная рама
+        return {**out, 'status': 'both' if rb >= need else 'no'}
+    # сторона относительно изголовья: при изголовье у +Z (0) бок +X (90) → солвер 'left'; поворот изголовья поворачивает и бок
+    rel = (a - (head if head is not None else 0)) % 360
+    return {**out, 'status': 'yes', 'side_canon': a, 'side': 'left' if rel == 90 else 'right'}
+
+
+def side_back_brief(sb: dict) -> dict:
+    """Кратко для хранения рядом с изголовьем (evidence.headboard.side_back, кэш сторожа): статус, сторона, версия."""
+    return {k: sb[k] for k in ('status', 'side', 'version') if k in sb}
+
+
+# Где лежит признак: сторож изголовья (`orient_worker.py --bed-guard --apply`, ночной шаг `orient_bed_guard`) пишет в свой кэш
+# {revision_key: {sig, hb: {…, side_back}}}; `BED_SHAPE_FILE` — тот же формат из другого места (проба в worktree до ночи).
+def load_side_backs(path: str | None = None) -> dict:
+    """{sku: {status, side, version}} по кэшу сторожа изголовья. Нет файла — {} (признака нет — по названию)."""
+    import os
+    path = path or os.environ.get('BED_SHAPE_FILE') or os.path.join(
+        os.environ.get('SCENE_DIR', os.path.expanduser('~/scout-scenes')), 'orientation', 'bed-guard-cache.json')
+    try:
+        cache = json.load(open(path, encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for rk in sorted(cache):
+        sb = ((cache[rk] or {}).get('hb') or {}).get('side_back')
+        if sb and sb.get('status'):
+            out[rk.split('|')[0]] = sb
+    return out
 
 
 def ry(deg: float):
@@ -172,6 +248,17 @@ def selftest() -> int:
     ok('изножье почти как изголовье → ambiguous', r['status'] == 'ambiguous')
     r = infer_headboard(_box(0, 1.3, 0, 0.4, 0, 2.1, 10))
     ok('подиум без спинки → ambiguous', r['status'] == 'ambiguous')
+    # боковая спинка (T-20261112-31): тахта — спинка у −X канона (270) → у солвера правый бок (+x); зеркально — левый
+    r = infer_side_back(T)
+    ok('тахта: боковая спинка у −X канона → солвер «right»', r['status'] == 'yes' and r['side'] == 'right')
+    r = infer_side_back(np.vstack([_bed('+z'), _box(1.2, 1.3, 0, 0.95, 0, 2.1, 10)]))
+    ok('спинка у +X канона → «left»', r['status'] == 'yes' and r['side'] == 'left')
+    ok('обычная кровать — боковой спинки нет', infer_side_back(V)['status'] == 'no')
+    B2 = np.vstack([_bed('+z'), _box(0, 0.1, 0, 0.95, 0, 2.1, 10), _box(1.2, 1.3, 0, 0.95, 0, 2.1, 10)])
+    ok('высокие оба бока (короб) — не угловая', infer_side_back(B2)['status'] == 'both')
+    Rm = np.asarray(ry(90))
+    ok('тахта повёрнута на 90° (решение без поправки) — бок тот же относительно изголовья',
+       infer_side_back(T @ Rm.T)['side'] == 'right')
     Rq = rotate_R([[-1, 0, 0], [0, 1, 0], [0, 0, -1]], 90)
     q = quat_wxyz(Rq)
     ok('кватернион: w ≥ 0 и единичный', q[0] >= 0 and abs(sum(v * v for v in q) - 1) < 1e-5)
@@ -183,4 +270,6 @@ def selftest() -> int:
 if __name__ == '__main__':
     if sys.argv[1:] == ['--selftest']:
         sys.exit(selftest())
-    print(json.dumps(infer_headboard(canonical_vertices(sys.argv[1], json.loads(sys.argv[2]))), ensure_ascii=False))
+    _V = canonical_vertices(sys.argv[1], json.loads(sys.argv[2]))
+    _hb = infer_headboard(_V)
+    print(json.dumps({**_hb, 'side_back': infer_side_back(_V, _hb)}, ensure_ascii=False))

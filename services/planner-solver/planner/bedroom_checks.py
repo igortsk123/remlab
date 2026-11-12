@@ -54,6 +54,27 @@ def is_double(p: Placement) -> bool:
     return p.item is not None and p.item.w_cm >= lim
 
 
+def switch(name: str) -> dict:
+    """Выключатель правила спальни (`rules/bedroom.json` switches, T-20261112-31): включён — его настройки, иначе {}
+    (нет ключа или on=false — прежнее поведение)."""
+    s = bedroom_rules().get("switches", {}).get(name) or {}
+    return s if s.get("on") else {}
+
+
+def side_back(p: Placement) -> str | None:
+    """Боковая спинка кровати — left | right (бок в осях кровати) | any (по названию, сторона неизвестна) | None.
+    Выключатель `switches.bed_side_back` снят — None для всех."""
+    if p.item is None or not switch("bed_side_back"):
+        return None
+    return p.item.side_back
+
+
+def side_back_denied(purpose: str | None, item) -> bool:
+    """Назначение не берёт кровать с боковой спинкой (паре нужен подход с двух сторон, `deny_purposes`)."""
+    sw = switch("bed_side_back")
+    return bool(sw and item is not None and item.side_back and (purpose or "couple") in sw.get("deny_purposes", ()))
+
+
 def both_sides(room: Room, p: Placement) -> bool:
     """Подход с ДВУХ сторон — норма пары (Н1); одному, гостю, в кабинете кровать может стоять боком к стене (Н3)."""
     return is_double(p) and (room.purpose or "couple") == "couple"
@@ -167,6 +188,15 @@ def check_bed(room: Room, ps: list[Placement]) -> list[Violation]:
         if any(op.kind in ("door", "balcony") and op.wall == head_wall(b) for op in room.openings):
             out.append(_v("BED_DOOR_WALL", f"изголовье «{b.role}» на стене двери", [b.role], None,
                           "изголовье не на стене двери", Severity.SOFT))
+        sb = side_back(b)
+        if sb:
+            if side_back_denied(room.purpose, b.item):
+                out.append(_v("BED_SIDE_BACK_COUPLE", f"у «{b.role}» боковая спинка — паре нужен подход с двух сторон",
+                              [b.role], None, "кровать без боковой спинки"))
+            walls = {s: _against_wall(room, z[f"{s}_wall"]) for s in ("left", "right")}
+            if not (walls[sb] if sb in walls else any(walls.values())):
+                out.append(_v("BED_SIDE_BACK_OFF_WALL", f"боковая спинка «{b.role}» не у стены", [b.role], None,
+                              "в угол, боковой спинкой к стене"))
         if bed_template(room) == "bed_narrow_wall" and not is_double(b) and not side_on_wall(room, b):
             out.append(_v("BED_NARROW_OFF_WALL", f"длинный бок «{b.role}» не у стены", [b.role], None,
                           "узкая кровать боком к стене (шаблон bed_narrow_wall)", Severity.SOFT))

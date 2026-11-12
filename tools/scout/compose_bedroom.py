@@ -211,6 +211,48 @@ def to_dicts(got: list) -> tuple:
     return cat, decor
 
 
+BED_ROLES = ('кровать', 'кровать детская')
+
+
+def side_back_switch() -> dict:
+    """Выключатель правила боковой спинки — тот же, что у солвера (`rules/bedroom.json` switches.bed_side_back)."""
+    sys.path.insert(0, SOLVER)
+    from planner.bedroom_checks import switch
+    return switch('bed_side_back')
+
+
+def mark_side_back(cat: list, mesh: dict, name_re: str | None) -> dict:
+    """Боковая спинка кровати (T-20261112-31) → поля `side_back` (left|right|any|None) и `side_back_src` у кроватей `cat`.
+    Порядок доверия: свой меш (`mesh` — {sku: {status, side}}, `bed_headboard.load_side_backs`) → меш семьи (все меши семьи
+    согласны о стороне; разошлись — any) → название (`name_re`, сторона неизвестна — any). Меш сказал «нет» — название не
+    перебивает. → счёт {источник: кроватей}."""
+    pat = re.compile(name_re, re.I) if name_re else None
+    # «не знаю» меша — как нет меша; «спинки с обеих сторон» (both) — не угловая модель, правилу не подлежит
+    mesh = {k: v for k, v in mesh.items() if v.get('status') in ('yes', 'no', 'both')}
+    fam: dict = {}
+    for it in cat:
+        m = mesh.get(it.get('sid') or f"{it['mid']}:{it['eid']}")
+        if it['role'] in BED_ROLES and m:
+            fam.setdefault(it.get('fam'), set()).add(m.get('side') if m.get('status') == 'yes' else None)
+    n: dict = {}
+    for it in cat:
+        if it['role'] not in BED_ROLES:
+            continue
+        m = mesh.get(it.get('sid') or f"{it['mid']}:{it['eid']}")
+        if m:
+            side, src = (m.get('side') if m.get('status') == 'yes' else None), 'mesh'
+        elif it.get('fam') in fam:
+            sides = fam[it['fam']]
+            side, src = ((next(iter(sides)) if len(sides) == 1 else 'any') if sides - {None} else None), 'family'
+        else:
+            side, src = ('any' if pat and pat.search(it.get('name') or '') else None), 'name'
+        it['side_back'] = side
+        if side:
+            it['side_back_src'] = src
+            n[src] = n.get(src, 0) + 1
+    return n
+
+
 # ---------------------------------------------------------------- сборка
 class Composer:
     def __init__(self, cat: list, decor: list, ready: set, gen: set, rules: dict, tol: tuple, thr: float,
@@ -234,8 +276,9 @@ class Composer:
         (как гостиная); в стиле нет ни одного товара этой цены — квантили внутри стиля (`tier_relaxed` в записи:
         «премиум лофта» дешевле премиума современного, но тройка тиров в стиле есть). extra — доп. фильтр слота."""
         band = band_of(slot, self.tol)
+        deny = slot['role'] in BED_ROLES and self.purpose.split(':')[0] in (side_back_switch().get('deny_purposes') or ())
         fit = [it for it in source if it['role'] == slot['role'] and gate(it, slot, band) is None
-               and (extra is None or extra(it))]
+               and (extra is None or extra(it)) and not (deny and it.get('side_back'))]   # паре угловую не берём (T-31)
         lo, hi = tier_range([it['price'] for it in fit], self.R['tiers'][tier])
         styled = [it for it in fit if _RP.in_style(it.get('styles'), style, self.thr)]
         k = (slot['role'], style, self.purpose)    # у назначений разный идеал слота — считаем раздельно
@@ -322,7 +365,7 @@ class Composer:
             for role, it in chosen.items():
                 for n in range(it['qty']):
                     items.append(Item(role=role if n == 0 else f'{role} {n + 1}', w_cm=it['w'], d_cm=it['d'], h_cm=it['h'],
-                                      name=it['name'], item_id=it['sid']))
+                                      name=it['name'], item_id=it['sid'], side_back=it.get('side_back')))
             lay = solve_bedroom(room, items, purpose.split(':')[0])
             placed = {p.role for p in lay.placements}
             if os.environ.get('BEDROOM_DEBUG'):
@@ -384,7 +427,7 @@ class Composer:
         p_ = purpose.split(':')[0]
         keep = [p for p in lay.placements if p.role.split(' ')[0] in ('кровать', 'тумба')]
         base = [Item(role=p.role, w_cm=p.item.w_cm, d_cm=p.item.d_cm, h_cm=p.item.h_cm, name=p.item.name,
-                     item_id=p.item.item_id) for p in keep]
+                     item_id=p.item.item_id, side_back=p.item.side_back) for p in keep]
         fw = self.free_wall(room, base, slot, p_)
         if fw is None:
             return {'layout': None, 'why': f'свободной стены под шкаф ≥ {WARDROBE_MIN_W} см нет'}
@@ -557,7 +600,7 @@ def _alt(c: dict) -> dict:
 
 def _item(c: dict) -> dict:
     keep = ('mid', 'eid', 'sid', 'name', 'price', 'w', 'd', 'h', 'shop', 'img', 'url', 'qty', 'why', 'score', 'style_score',
-            'mesh', 'cls', 'cls2', 'rgb', 'sleep_w', 'fam')
+            'mesh', 'cls', 'cls2', 'rgb', 'sleep_w', 'fam', 'side_back', 'side_back_src')
     # «меш есть/нет» на позицию (ведущий 05.11): по нему Работник 2 строит 3D, нет — список заказа мешей T-35
     return dict({k: c.get(k) for k in keep if k in c}, has_mesh=bool(c.get('mesh')), mesh_defect=bool(c.get('mesh_defect')))
 
@@ -570,8 +613,10 @@ def record(C: Composer, room_id: str, spec: dict, purpose: str, style: str, tier
     items.update({r: _item(c) for r, c in picks.items()})
     # запасные роли — с пределом цветных якорей БЕЗ самой роли (её и заменят)
     rctx = {r: dict(res['ctx'], chroma=CC.color_anchors({k: v for k, v in chosen.items() if k != r}, style)) for r in chosen}
-    alts = {r: [_alt(c) for c in C.ranked([x for x in res['lists'][r] if x['sid'] != chosen[r]['sid']], style, rctx[r])
-                ][:C.R['alternates']] for r in chosen}
+    # угловая кровать (боковая спинка) встаёт только в угол — заменой на место обычной её не предлагаем (T-20261112-31)
+    alts = {r: [_alt(c) for c in C.ranked([x for x in res['lists'][r] if x['sid'] != chosen[r]['sid']
+                                           and not (r in BED_ROLES and x.get('side_back') and not chosen[r].get('side_back'))],
+                                          style, rctx[r])][:C.R['alternates']] for r in chosen}
     alts.update(alts_d)
     slots = {r: dict({'ideal': res['slots'][r]['ideal'], 'band': res['bands'][r], 'tolerance': list(C.tol),
                       'qty': chosen[r]['qty'], 'mesh': True},
@@ -579,7 +624,8 @@ def record(C: Composer, room_id: str, spec: dict, purpose: str, style: str, tier
              for r in chosen}
     slots.update(dslots)
     layout = {p.role: {'x': p.x, 'z': p.y, 'rot': int(p.rot), 'w': p.item.w_cm, 'd': p.item.d_cm, 'h': p.item.h_cm,
-                       'sid': p.item.item_id} for p in lay.placements}
+                       'sid': p.item.item_id, **({'side_back': p.item.side_back} if p.item.side_back else {})}
+              for p in lay.placements}
     layout.update(lay_extra)
     layout['_room'] = {'variant': spec['variant'], 'w': spec['w'], 'd': spec['d'],
                        'openings': [{k: v for k, v in o.items() if not k.startswith('_')} for o in spec.get('openings', [])],
@@ -698,7 +744,8 @@ def check_bank(bank: list, R: dict, tol: tuple, spare: str = 'hard') -> list:
         lay = s['layout']
         rm = lay['_room']
         room = _room_model(rm, s['purpose'])
-        pls = [Placement(role=r, x=p['x'], y=p['z'], rot=p['rot'], item=Item(role=r, w_cm=p['w'], d_cm=p['d'], h_cm=p['h']))
+        pls = [Placement(role=r, x=p['x'], y=p['z'], rot=p['rot'], item=Item(role=r, w_cm=p['w'], d_cm=p['d'], h_cm=p['h'],
+                                                                             side_back=p.get('side_back')))
                for r, p in lay.items() if not r.startswith('_') and r.split(' ')[0] in ('кровать', 'тумба', 'шкаф', 'комод')]
         hard = [v.code for v in validate(room, pls).violations if v.severity is Severity.HARD]
         if hard:
@@ -775,6 +822,11 @@ def main(argv: list) -> int:
     import catalog_items as CI
     cat, decor = load_items(R)
     ready, gen, rejected = CI.mesh_state()
+    if side_back_switch():          # боковая спинка кровати (T-20261112-31): меш → семья → название
+        import bed_headboard as HB
+        import room_catalog as RCat
+        sb = mark_side_back(cat, HB.load_side_backs(), (RCat.rules().get('bed_side_back') or {}).get('name_re'))
+        print(f'боковая спинка у кроватей: {sb or "нет"}', flush=True)
     C = Composer(cat, decor, ready, gen, R, tol, thr, rejected)
     import room_identity as RI
     C.prov = RI.provenance('bedroom')
@@ -914,6 +966,27 @@ def _selftest() -> int:
     pl = rug_place(lay, room, {'w': 300, 'd': 200})
     ok('ковёр 200×300 лёг под кровать спальни 1', pl is not None and pl['w'] == 300 and pl['rot'] == int(lay.placements[0].rot))
     ok('ковёр шире комнаты не лёг', rug_place(lay, room, {'w': 700, 'd': 200}) is None)
+    # боковая спинка (T-20261112-31): меш → семья → название; меш «нет» перебивает название
+    import room_catalog as RCat
+    _rx = (RCat.rules().get('bed_side_back') or {}).get('name_re')
+    _cat = [{'role': 'кровать', 'mid': 1, 'eid': 1, 'fam': 'a', 'name': 'Кровать Кейси-Б 160'},
+            {'role': 'кровать', 'mid': 1, 'eid': 2, 'fam': 'a', 'name': 'Кровать Кейси-Б 140'},
+            {'role': 'кровать', 'mid': 1, 'eid': 3, 'fam': 'b', 'name': 'Кровать-тахта Lancaster'},
+            {'role': 'кровать', 'mid': 1, 'eid': 4, 'fam': 'c', 'name': 'Кровать-софа Porto'},
+            {'role': 'кровать', 'mid': 1, 'eid': 5, 'fam': 'd', 'name': 'Кровать Сканди 160'},
+            {'role': 'комод', 'mid': 1, 'eid': 6, 'fam': 'e', 'name': 'Комод-софа'}]
+    _n = mark_side_back(_cat, {'1:1': {'status': 'yes', 'side': 'right'}, '1:4': {'status': 'no'},
+                               '1:5': {'status': 'unknown'}}, _rx)
+    ok('боковая спинка: свой меш → right, семья → right, название → any, меш «нет» и обычная → нет, комод не трогаем',
+       [c.get('side_back') for c in _cat] == ['right', 'right', 'any', None, None, None]
+       and [c.get('side_back_src') for c in _cat[:3]] == ['mesh', 'family', 'name'] and _n == {'mesh': 1, 'family': 1, 'name': 1})
+    _two = [dict(good, mid=2, eid=i, price=100, styles={'сканди': 1.0}, side_back=sb) for i, sb in ((1, 'right'), (2, None))]
+    _c2 = Composer(_two, [], set(), set(), R, tol, 0.0)
+    _c2.purpose = 'couple'
+    _pair = {c['sid'] for c in _c2.pool(bed, 'сканди', 'комфорт', _two)[0]}
+    _c2.purpose = 'single'
+    _one = {c['sid'] for c in _c2.pool(bed, 'сканди', 'комфорт', _two)[0]}
+    ok('паре кровать с боковой спинкой в кандидаты не идёт, одному — идёт', _pair == {'2:2'} and _one == {'2:1', '2:2'})
     print(f'FAILS {bad}')
     return bad
 
