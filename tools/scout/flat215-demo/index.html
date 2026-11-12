@@ -9369,41 +9369,50 @@ body.trial .vtop:not(:has(.vcta:not([hidden]),#vCtaErr,#vCtaNote)){display:none}
 .vpin.sel{background:var(--accent);color:#fff;z-index:2}
 /* ГРУППА У ЦЕНЫ ВЫБРАННОГО В 3D (T-05/5, владелец TG 1530): одна пилюля в тон ценника `.vpin` — «↻ Повернуть | ✥ Переместить | ⤢ размеры»,
    тонкие разделители; ставится как одно целое (`vwRotPlace`); тянуть — за «Переместить» (`touch-action:none`) */
-/* ПЛАШКА ЗНАЧКАМИ (T-20261112-37, вариант А, владелец TG 748): «цена · ⇄ Заменить · ↻ Повернуть · ✥ Переместить · ⤢ размеры» ровно над
-   предметом по центру его рамки; подписи словами — подсказкой при наведении (компьютер), на телефоне только значки. Внешний слой `.vacts`
-   не обрезает (в нём живёт подсказка `.vatip`), пилюля с кнопками — `.vain`: одна высота 36, ячейки значков одной ширины, значки — SVG
-   по центру ячейки, разделители — 1 px на всю высоту (`.vsep` у первой видимой кнопки после цены снимается в `vwRotPlace`) */
-.vacts{position:absolute;left:0;top:0;will-change:transform;display:flex;pointer-events:auto;z-index:3}
+/* КАРТОЧКА ВЫБРАННОГО (T-20261112-37/3, вариант Б, владелец TG 781 — вместо плашки значками варианта А): ровно над предметом по центру
+   его рамки. Верхний ряд — миниатюра товара (как в строке списка) · название в 2 строки с многоточием · × снять выбор; под названием цена
+   жирно и размеры серым. Нижний ряд одной линией — «Заменить» цветом бренда на всю оставшуюся ширину · ↻ · ✥ — круги той же высоты 40.
+   Картина и другое настенное — без ↻ ✥. Внешний слой `.vacts` не обрезает: в нём живёт подсказка `.vatip` (↻ ✥ на компьютере) */
+.vacts{position:absolute;left:0;top:0;will-change:transform;display:block;pointer-events:auto;z-index:3}
 .vacts[hidden]{display:none}
-.vain{display:inline-flex;align-items:stretch;height:36px;background:var(--surface);border-radius:999px;box-shadow:var(--e3);overflow:hidden;
- vertical-align:top}
-/* цена — акцентным отрезком, как у выбранного ценника `.vpin.sel` (T-05/6, владелец TG 1558) */
-.vcost{display:inline-flex;align-items:center;padding:0 12px;background:var(--accent);color:#fff;font-weight:700;font-size:14px;
- font-variant-numeric:tabular-nums;white-space:nowrap}
-.vacts.vnocost .vcost,.vacts.vcut .vcost{display:none}
-.vrep,.vrot,.vmove,.vsize{display:inline-flex;align-items:center;justify-content:center;gap:5px;box-sizing:border-box;height:100%;
- background:none;border:0;border-radius:0;margin:0;padding:0 10px;min-width:42px;color:var(--accent);font-family:inherit;font-weight:600;
- font-size:14px;line-height:1;white-space:nowrap;cursor:pointer}
-.vain>button.vsep{border-left:1px solid var(--line)}
-.vrep:hover,.vrot:hover,.vmove:hover,.vsize:hover{background:var(--accent-soft)}
+.vcard{position:relative;box-sizing:border-box;width:288px;display:flex;flex-direction:column;gap:10px;padding:10px;background:var(--surface);color:var(--ink);
+ border-radius:var(--radius);box-shadow:var(--e3)}
+.vctop{display:flex;align-items:flex-start;gap:10px;min-width:0}
+/* миниатюра — та же плитка, что в строке списка (`.pinlist .row img`), меньше: 56 px */
+.vcth{flex:0 0 56px;width:56px;height:56px;box-sizing:border-box;padding:4px;object-fit:contain;border:1px solid var(--line);
+ border-radius:var(--r-xs);background:var(--surface)}
+div.vcth{background:var(--wash)}
+.vctx{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.vcnm{padding-right:24px;font-weight:700;font-size:14px;line-height:1.25;overflow:hidden;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;
+ -webkit-box-orient:vertical}
+.vcmeta{display:flex;align-items:baseline;gap:8px;min-width:0;white-space:nowrap}
+.vcost{font-weight:800;font-size:15px;font-variant-numeric:tabular-nums}
+.vcsz{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+.vcx{position:absolute;top:6px;right:6px;width:28px;height:28px;margin:0;padding:0;border:0;border-radius:999px;background:none;color:var(--muted);cursor:pointer;
+ display:inline-flex;align-items:center;justify-content:center}
+.vcx:hover{background:var(--wash);color:var(--ink)}
+.vcbot{display:flex;align-items:center;gap:8px}
+.vrep{flex:1 1 auto;min-width:0;height:40px;margin:0;padding:0 14px;border:0;border-radius:999px;background:var(--accent);color:#fff;
+ font-family:inherit;font-weight:700;font-size:15px;line-height:1;white-space:nowrap;cursor:pointer}
+.vrep:hover{filter:brightness(.93)}
+.vrot,.vmove{flex:none;width:40px;height:40px;margin:0;padding:0;box-sizing:border-box;border:1px solid var(--line);border-radius:999px;
+ background:var(--surface);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.vrot:hover,.vmove:hover{background:var(--accent-soft)}
 .vmove{cursor:grab;touch-action:none}
-.vain .vic{display:block;flex:none;width:18px;height:18px}
-.vain .vic svg{display:block;width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.vlb{display:none}
-.vsize{color:var(--ink);font-variant-numeric:tabular-nums;padding:0 14px 0 10px;font-size:13.5px}.vsize .vic{color:var(--muted);width:15px;height:15px}
-.vsz-s{display:none}
-.vacts.vnorot .vrot,.vacts.vnorot .vmove,.vacts.vnodims .vsize,.vacts.vnorep .vrep{display:none}
-/* сцена уже плашки (узкое окно компьютера) — короткие размеры */
-.vacts.vtight .vsz-f{display:none}.vacts.vtight .vsz-s{display:inline}
-/* ПОДСКАЗКА ЗНАЧКА (компьютер, наведение мышью): под плашкой, у плашки в нижней части сцены — над ней (`.vtipup`); нажатий не ловит */
+.vcard .vic{display:block;flex:none;width:18px;height:18px}
+.vcx .vic{width:16px;height:16px}
+.vcard .vic svg{display:block;width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.vacts.vnorot .vrot,.vacts.vnorot .vmove,.vacts.vnorep .vrep,.vacts.vnocost .vcost,.vacts.vnodims .vcsz{display:none}
+.vacts.vnorot.vnorep .vcbot{display:none}
+/* нет «Заменить» — круги справа, не растянутые */
+.vacts.vnorep .vcbot{justify-content:flex-end}
+/* ПОДСКАЗКА ЗНАЧКА (компьютер, наведение мышью на ↻ ✥): под карточкой, у карточки в нижней части сцены — над ней (`.vtipup`); нажатий не ловит */
 .vatip{position:absolute;top:calc(100% + 8px);transform:translateX(-50%);background:var(--ink);color:#fff;font-size:12.5px;font-weight:600;
  line-height:1.2;white-space:nowrap;padding:5px 9px;border-radius:8px;box-shadow:var(--e3);pointer-events:none}
 .vatip[hidden]{display:none}
 .vatip::before{content:"";position:absolute;left:50%;top:-4px;width:8px;height:8px;background:inherit;transform:translateX(-50%) rotate(45deg)}
 .vacts.vtipup .vatip{top:auto;bottom:calc(100% + 8px)}.vacts.vtipup .vatip::before{top:auto;bottom:-4px}
-/* чужой ценник, который плашка выбранного всё же накрывает, — приглушён, а не спрятан */
-.vpin.vdim{opacity:.35}
-/* ПРЕДМЕТ «В РУКЕ» (T-05/8, как в Sims): плашка выбранного не мешает — прозрачна и не ловит нажатий (кнопка, с которой взяли, держит
+/* ПРЕДМЕТ «В РУКЕ» (T-05/8, как в Sims): карточка выбранного не мешает — прозрачна и не ловит нажатий (кнопка, с которой взяли, держит
    захват указателя — убирать её из раскладки нельзя); ценники не перехватывают щелчок «поставить»; внизу сцены — полоска переноса */
 #shot.vcarrying .vacts{opacity:0;pointer-events:none}
 #shot.vcarrying #vpins,#shot.vcarrying #vpins *{pointer-events:none}
@@ -9422,14 +9431,10 @@ body.trial .vtop:not(:has(.vcta:not([hidden]),#vCtaErr,#vCtaNote)){display:none}
 .vcarry .vcrot{font-size:17px;padding:0 10px;border-left:1px solid var(--line);border-radius:0}
 .vcarry .vcx{background:var(--accent);color:#fff}
 @media (max-width:599px){.vcarry{font-size:12.5px;padding-left:12px}.vcarry button{min-height:30px;font-size:13px;padding:0 10px}}
-/* телефон: только значки и короткие размеры; подпись значка — на 1,5 с после нажатия (`.vpeek`), полные размеры — по нажатию (`.vszopen`) */
+/* телефон: ширина карточки — не шире сцены без полей 8 px (ставит `vwRotPlace`), наведения нет — без подсветки */
 @media (max-width:599px){
-  .vrep,.vrot,.vmove{min-width:40px;padding:0 9px}
-  .vsize{padding:0 12px 0 9px;font-size:13px;gap:4px}
-  .vcost{padding:0 11px;font-size:13.5px}
-  .vrot.vpeek .vlb,.vmove.vpeek .vlb{display:inline}
-  .vrep:hover,.vrot:hover,.vmove:hover,.vsize:hover{background:none}
-  .vsz-s{display:inline}.vsz-f{display:none}.vacts.vszopen .vsz-s{display:none}.vacts.vszopen .vsz-f{display:inline}
+  .vcnm{font-size:13.5px}
+  .vrep:hover{filter:none}.vrot:hover,.vmove:hover,.vcx:hover{background:none}
 }
 /* строка списка справа — выбирает предмет в 3D (компьютер) */
 @media (hover:hover) and (min-width:701px){#shot.v2.vwalk #shotbody .pinlist .row[data-k]{cursor:pointer!important}}
@@ -10141,8 +10146,8 @@ function vwHighlight(idx, opt){
   const r=vwRowOf(it); if(!r)return;
   document.querySelectorAll('#shotbody .row.hl').forEach(x=>x.classList.remove('hl'));
   r.classList.add('hl'); clearTimeout(VW.hlT);
-  // ТЕЛЕФОН: ТАП ПО ПРЕДМЕТУ ШТОРКУ НЕ ПОДНИМАЕТ (T-20261112-37, вариант А, владелец TG 748): шторка остаётся, как была, действия — в плашке
-  // над предметом, замена — по ⇄ (`vwReplace`). Прежде тап раскрывал шторку до верха и закрывал саму сцену (владелец 18.10, demo-15 п.1)
+  // ТЕЛЕФОН: ТАП ПО ПРЕДМЕТУ ШТОРКУ НЕ ПОДНИМАЕТ (T-20261112-37, владелец TG 748, 781): шторка остаётся, как была, действия — в карточке
+  // над предметом, замена — «Заменить» (`vwReplace`). Прежде тап раскрывал шторку до верха и закрывал саму сцену (владелец 18.10, demo-15 п.1)
   // прокрутка — СРАЗУ и мгновенно на телефоне (v5.2 п.5, владелец 18.10: «сначала шторка открывается, потом перелистывается» — два
   // движения): высота шторки всегда полная, едет только сдвиг, геометрия списка не меняется — к концу подъёма строка уже в верхней
   // трети. Только сам список: `scrollIntoView` двигал и окно над шторкой. Компьютер — плавно, как было
@@ -10183,8 +10188,9 @@ function vwPinsTick(now){
   const shot=document.getElementById('shot'), box=document.getElementById('vpins'); if(!box)return;
   if(box!==PINS.box){PINS.box=box; PINS.map.clear(); PINS.fr=null;
     box.onclick=e=>{const q=e.target.closest&&e.target.closest('.vrep'); if(q){vwReplace(); return;}
-      const r=e.target.closest&&e.target.closest('.vrot'); if(r){vwPeek(r); vwRotate(); return;}
-      const z=e.target.closest&&e.target.closest('.vsize'); if(z){vwSizeToggle(z); return;}
+      const r=e.target.closest&&e.target.closest('.vrot'); if(r){vwRotate(); return;}
+      // × карточки — снять выбор; карточку прячем сразу, не ждём кадра сцены (без 3D-видеокарты кадр идёт сотни мс — проба тура 1280)
+      if(e.target.closest&&e.target.closest('.vcx')){vwTipHide(); vwSelect(null); vwRotHide(); return;}
       const b=e.target.closest&&e.target.closest('[data-pi]'); if(b)vwHighlight(+b.dataset.pi);};}
   const live=shot.classList.contains('on')&&VW.mode==='walk'&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode;
   const on=live&&!PRICES_OFF&&!TR_NOGOODS();   // проба: ценников нет
@@ -10207,20 +10213,21 @@ function vwPinsTick(now){
     if(!n._w){n.hidden=false; n._w=n.offsetWidth; n._h=n.offsetHeight;}
     seen.add(p.index); cand.push({n,p,pr:+pr});});
   const kept=[];
-  // ПЛАШКА ВЫБРАННОГО — ПЕРВОЙ (T-05/6): она всегда в кадре, ценники — вокруг неё. Цену выбранного она показывает сама — его ценник не рисуем
+  // КАРТОЧКА ВЫБРАННОГО — ПЕРВОЙ (T-05/6): она всегда в кадре, ценники — вокруг неё. Цену выбранного она показывает сама — его ценник,
+  // пока карточка открыта, не рисуем (T-37/3: не дублируется и не наезжает)
   const sc=cand.find(c=>c.p.index===VW.sel), plate=vwRotPlace(box, fr, pad, kept, all, hit, underHint, sc?sc.pr:0);
   cand.sort((a,b)=>b.pr-a.pr).forEach(c=>{const w=c.n._w, h=c.n._h, sel=c.p.index===VW.sel;
-    if(sel&&plate&&plate.cost){c.n.hidden=true; return;}
+    if(sel&&plate){c.n.hidden=true; return;}
     const free=(x,y,skip)=>{const r={left:fr.left+x, right:fr.left+x+w, top:fr.top+y, bottom:fr.top+y+h};
       return !(r.left<fr.left+pad||r.right>fr.right-pad||r.top<fr.top+pad||r.bottom>fr.bottom-pad||PINS.busy.some(o=>hit(r,o))||kept.some(k=>k!==skip&&hit(r,k)))&&r;};
-    // места мимо плашки нет — ценник на своём месте под ней, приглушённый (`.vdim`), а не исчезает
+    // места мимо карточки нет — ценник не рисуем (T-37/3): у пилюли он стоял под ней приглушённым (T-05/6), из-под крупной карточки
+    // торчал его край — наезд
     const sp=pinSpots(c.p, w, h, fr.width, pad);
-    let at=sp.find(([x,y])=>free(x,y)), dim=false;
-    if(!at&&plate){at=sp.find(([x,y])=>free(x,y,plate.r)); dim=!!at;}
-    const r=at&&free(at[0],at[1],dim?plate.r:null);
+    const at=sp.find(([x,y])=>free(x,y));
+    const r=at&&free(at[0],at[1]);
     if(r&&underHint(r)){c.n.hidden=true; return;}
     c.n.hidden=!r; if(!r)return; kept.push(r);
-    c.n.classList.toggle('sel',sel); c.n.classList.toggle('vdim',dim); c.n._x=at[0]; c.n._y=at[1];
+    c.n.classList.toggle('sel',sel); c.n._x=at[0]; c.n._y=at[1];
     c.n.style.transform=`translate(${at[0]}px,${at[1]}px)${sel?' scale(1.08)':''}`;});
   PINS.map.forEach((n,i)=>{if(!seen.has(i)){n.remove(); PINS.map.delete(i);}});
   PINS.raf=requestAnimationFrame(vwPinsTick);
@@ -10247,102 +10254,91 @@ function vwCanRot(it){
   return !(k.hung||(+it.elev||0)>0||/^кухн/i.test(role));
 }
 function vwRotHide(){ if(PINS.rot)PINS.rot.hidden=true; }
-// ГРУППА У ЦЕНЫ ВЫБРАННОГО (T-05/5, владелец TG 1530: «компактнее, одной группой; на телефоне по клику раскрывать надпись»): одна
-// пилюля в тон ценника — [цена | ⇄ | ↻ | ✥ | ⤢ 198×150×95] (вариант А, T-20261112-37). Компьютер — значки, подпись — подсказкой при
-// наведении, размеры целиком; телефон (< 600 px) — значки и короткие размеры: нажатие на ↻/✥ сразу делает дело и на 1,5 с показывает
-// подпись (`vwPeek`), нажатие на размеры раскрывает «Ш × Г × В см», повторное — сворачивает. Висящее и кухню не крутим и не двигаем —
-// тогда в группе ⇄ и размеры
-// плоское на стене (картина, зеркало: глубина ленты 2–3 см) — «Ш × В», без «Г 3» (макет варианта А, T-37)
+// КАРТОЧКА ВЫБРАННОГО (T-20261112-37/3, вариант Б, владелец TG 781; прежде — пилюля «цена · ↻ · ✥ · размеры», T-05/5): миниатюра,
+// название, цена и размеры; «Заменить» · ↻ · ✥ одной линией; × снимает выбор. Висящее и кухню не крутим и не двигаем — тогда только «Заменить»
+// плоское на стене (картина, зеркало: глубина ленты 2–3 см) — «Ш × В», без «Г 3» (T-37)
 function vwWallFlat(it){ return !!it&&(it.dec!==undefined||(it.strategy==='procedural_plane'&&+it.h>+it.d)||(+it.d>0&&+it.d<=5&&+it.h>+it.d*5)); }
 function vwDimsTxt(it, full){ const EN=LANG==='en', r=v=>Math.round(+v||0), fl=vwWallFlat(it);
   if(!full)return fl?`${r(it.w)}×${r(it.h)}`:`${r(it.w)}×${r(it.d)}×${r(it.h)}`;
   if(fl)return EN?`W ${r(it.w)} × H ${r(it.h)} cm`:`Ш ${r(it.w)} × В ${r(it.h)} см`;
   return EN?`W ${r(it.w)} × D ${r(it.d)} × H ${r(it.h)} cm`:`Ш ${r(it.w)} × Г ${r(it.d)} × В ${r(it.h)} см`; }
-// значки плашки — SVG 24×24 обводкой (`currentColor`): знаки шрифта ⇄ ↻ ✥ ⤢ стоят на разной высоте строки и в ячейке не по центру
+// значки карточки — SVG 24×24 обводкой (`currentColor`): знаки шрифта ↻ ✥ × стоят на разной высоте строки и в круге не по центру
 const VA_IC={
-  rep:'<path d="M4 8h15M15 4l4 4-4 4M20 16H5M9 12l-4 4 4 4"/>',
   rot:'<path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/>',
   move:'<path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>',
-  size:'<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>'};
+  x:'<path d="M6 6l12 12M18 6L6 18"/>'};
 const vaIc=k=>`<span class="vic" aria-hidden="true"><svg viewBox="0 0 24 24">${VA_IC[k]}</svg></span>`;
 function vwActsNode(box){
   let b=PINS.rot;
   if(b&&b.isConnected)return b;
   const EN=LANG==='en';
   b=document.createElement('span'); b.className='vacts'; b._w=0;
-  // цена выбранного — первым отрезком плашки (T-05/6, владелец TG 1558); отдельный ценник предмета тогда не рисуется (`vwPinsTick`).
-  // Подпись значка — `data-tip` (подсказка при наведении, `vwTipShow`); `title` не ставим — иначе вторая, системная подсказка
-  b.innerHTML=`<span class="vain"><span class="vcost"></span>`+
-    `<button class="vrep" type="button" data-tip="${EN?'Replace':'Заменить'}" aria-label="${EN?'Replace':'Заменить'}">${vaIc('rep')}</button>`+
-    `<button class="vrot" type="button" data-tip="${EN?'Rotate (R)':'Повернуть (R)'}" aria-label="${EN?'Rotate 90°':'Повернуть на 90°'}">${vaIc('rot')}<span class="vlb">${EN?'Rotate':'Повернуть'}</span></button>`+
-    `<button class="vmove" type="button" data-tip="${EN?'Move (M)':'Переместить (M)'}" aria-label="${EN?'Move: drag along the floor':'Переместить: тяните по полу'}">${vaIc('move')}<span class="vlb">${EN?'Move':'Переместить'}</span></button>`+
-    `<button class="vsize" type="button" aria-label="${EN?'Size':'Размеры'}">${vaIc('size')}<span class="vsz-s"></span><span class="vsz-f"></span></button></span>`+
+  // цена выбранного — в карточке; отдельный ценник предмета, пока она открыта, не рисуется (`vwPinsTick`). Подпись круга — `data-tip`
+  // (подсказка при наведении, `vwTipShow`); `title` не ставим — иначе вторая, системная подсказка
+  b.innerHTML=`<div class="vcard"><div class="vctop"><div class="vcth" aria-hidden="true"></div>`+
+      `<div class="vctx"><b class="vcnm"></b><span class="vcmeta"><span class="vcost"></span><span class="vcsz"></span></span></div>`+
+      `<button class="vcx" type="button" aria-label="${EN?'Close':'Закрыть'}">${vaIc('x')}</button></div>`+
+    `<div class="vcbot"><button class="vrep" type="button">${EN?'Replace':'Заменить'}</button>`+
+      `<button class="vrot" type="button" data-tip="${EN?'Rotate (R)':'Повернуть (R)'}" aria-label="${EN?'Rotate 90°':'Повернуть на 90°'}">${vaIc('rot')}</button>`+
+      `<button class="vmove" type="button" data-tip="${EN?'Move (M)':'Переместить (M)'}" aria-label="${EN?'Move: drag along the floor':'Переместить: тяните по полу'}">${vaIc('move')}</button></div></div>`+
     `<span class="vatip" role="tooltip" hidden></span>`;
-  b.querySelector('.vmove').addEventListener('pointerdown',e=>{vwTipHide(); vwPeek(e.currentTarget); vwMoveDown(e);});
+  b.querySelector('.vmove').addEventListener('pointerdown',e=>{vwTipHide(); vwMoveDown(e);});
   // подсказка — только мышью (на телефоне наведения нет: касание дало бы «залипшую» подсказку)
-  b.addEventListener('pointerover',e=>{if(e.pointerType!=='mouse')return; const t=e.target.closest&&e.target.closest('.vain button[data-tip]'); if(t)vwTipShow(t); else vwTipHide();});
+  b.addEventListener('pointerover',e=>{if(e.pointerType!=='mouse')return; const t=e.target.closest&&e.target.closest('.vcard button[data-tip]'); if(t)vwTipShow(t); else vwTipHide();});
   b.addEventListener('pointerleave',vwTipHide);
   box.appendChild(b); PINS.rot=b; return b;
+}
+// миниатюра и название — из строки этого предмета в списке (та же картинка; в туре — снимок 3D-модели и нейтральное название, правило
+// очистки `trial_bundle.py`); строки нет — название товара (в туре — роль), плитка без картинки
+function vwCardInfo(it){
+  const r=vwRowOf(it), im=r&&r.querySelector('img'), nm=r&&r.querySelector('.t b');
+  const name=(nm&&nm.textContent.trim())||(TRIAL()?baseRole(it.role):((skuOf(it)||{}).name||baseRole(it.role)||''));
+  return {img:im&&im.getAttribute('src')||'', name};
 }
 function vwTipShow(btn){
   const g=btn.closest('.vacts'), tip=g&&g.querySelector('.vatip'); if(!tip||VW_NARROW())return;
   tip.textContent=btn.dataset.tip||''; tip.style.left=Math.round(btn.offsetLeft+btn.offsetWidth/2)+'px'; tip.hidden=false;
 }
 function vwTipHide(){ const t=PINS.rot&&PINS.rot.querySelector('.vatip'); if(t)t.hidden=true; }
-// «ЗАМЕНИТЬ» В ПЛАШКЕ (T-37, вариант А) — та же кнопка «Заменить» строки этого предмета в списке (`wireShotList`, `[data-rep]`): тот же
-// лист подбора и та же лента замен; у мебели — `openPicker(it)`, у картины-товара — её лента декора. Кнопки в строке нет — нет и ⇄
+// «ЗАМЕНИТЬ» В КАРТОЧКЕ (T-37) — та же кнопка «Заменить» строки этого предмета в списке (`wireShotList`, `[data-rep]`): тот же лист подбора
+// и та же лента замен; у мебели — `openPicker(it)`, у картины-товара — её лента декора. Кнопки в строке нет — нет и «Заменить»
 function vwRepBtn(it){ const r=it&&vwRowOf(it); return r&&r.querySelector('[data-rep]')||null; }
 function vwReplace(){ vwTipHide(); const b=vwRepBtn(vwItemAt(VW.sel)); if(b)b.click(); }
-// узкий экран группы (< 600 px, как правило `.vacts` в CSS); `VW_PHONE` (≤ 700) — про шторку, не про подписи
+// узкий экран (< 600 px, как правило `.vcnm` в CSS): подсказок при наведении нет; `VW_PHONE` (≤ 700) — про шторку
 const VW_NARROW=()=>!!(window.matchMedia&&matchMedia('(max-width:599px)').matches);
-// ширина группы поменялась (подпись, размеры) — место пересчитываем СРАЗУ, в той же задаче: без 3D-видеокарты кадр идёт сотни мс, и до
-// следующего `vwPinsTick` широкая группа успевала показаться за краем экрана (проба 375: правый край 399)
-function vwPinsNow(){ if(PINS.raf){cancelAnimationFrame(PINS.raf); PINS.raf=0;} vwPinsTick(performance.now()); }
-// подпись значка на телефоне — на 1,5 с; ширина группы меняется — мерим заново (`_w`)
-function vwPeek(btn){
-  if(!btn||!VW_NARROW())return;
-  const g=btn.closest('.vacts'); if(!g)return;
-  g.querySelectorAll('.vpeek').forEach(o=>{if(o!==btn)o.classList.remove('vpeek');});
-  btn.classList.add('vpeek'); g._w=0; clearTimeout(btn._peek);
-  btn._peek=setTimeout(()=>{btn.classList.remove('vpeek'); g._w=0; vwPinsNow();},1500);
-  vwPinsNow();
-}
-function vwSizeToggle(btn){ const g=btn&&btn.closest('.vacts'); if(!g)return; g.classList.toggle('vszopen'); g._w=0; vwPinsNow(); }
-// → {r: прямоугольник плашки на экране, cost: цена выбранного показана в плашке} или null (плашки нет)
+const VCARD_W=288;   // ширина карточки на компьютере; на узкой сцене — сцена без полей 8 px
+// → {r: прямоугольник карточки на экране} или null (карточки нет)
 function vwRotPlace(box, fr, pad0, kept, all, hit, underHint, pr){
-  const i=VW.sel, it=vwItemAt(i), pad=Math.max(pad0,8);   // у края кадра плашка прижата с полем 8 px (ценники — 4)
+  const i=VW.sel, it=vwItemAt(i), pad=Math.max(pad0,8);   // у края кадра карточка прижата с полем 8 px (ценники — 4)
   if(!it||(typeof TR_NOGOODS==='function'&&TR_NOGOODS())){vwRotHide(); return null;}
   const p=all.find(q=>q.index===i);
   const free0=(x,y,w,h)=>{const r={left:fr.left+x, right:fr.left+x+w, top:fr.top+y, bottom:fr.top+y+h};
     return !(r.left<fr.left+pad||r.right>fr.right-pad||r.top<fr.top+pad||r.bottom>fr.bottom-pad||PINS.busy.some(o=>hit(r,o))||kept.some(k=>hit(r,k))
       ||(underHint&&underHint(r)))&&r;};
   if(!p||!p.visible){vwRotHide(); return null;}
-  const b=vwActsNode(box), dims=+it.w>0&&+it.d>0&&+it.h>0, can=vwCanRot(it), cost=pr?money(pr):'';
-  if(!can&&!dims&&!cost){vwRotHide(); return null;}
+  const b=vwActsNode(box), v=b.firstElementChild, dims=+it.w>0&&+it.d>0&&+it.h>0, can=vwCanRot(it), cost=pr?money(pr):'';
   const rep=!!vwRepBtn(it), cls=[!can,!dims,!cost,!rep].join();
   if(b._cls!==cls){b._cls=cls; b._w=0;
     b.classList.toggle('vnorot',!can); b.classList.toggle('vnodims',!dims); b.classList.toggle('vnocost',!cost); b.classList.toggle('vnorep',!rep);}
-  if(b._for!==i){b._for=i; b.classList.remove('vszopen'); b._w=0; vwTipHide();}   // другой предмет — размеры снова короткие
-  if(dims){const s=b.querySelector('.vsz-s'), f=b.querySelector('.vsz-f'), ts=vwDimsTxt(it,false), tf=vwDimsTxt(it,true);
-    if(s.textContent!==ts||f.textContent!==tf){s.textContent=ts; f.textContent=tf; b._w=0;}}
-  const ce=b.querySelector('.vcost'); if(ce.textContent!==cost){ce.textContent=cost; b._w=0;}
+  if(b._for!==i){b._for=i; b._w=0; vwTipHide();}
+  // содержимое — на каждом кадре сверяем, меняем только разницу (строка списка перерисовалась, миниатюра тура доснялась, замена товара)
+  const ci=vwCardInfo(it), nm=v.querySelector('.vcnm'); if(nm.textContent!==ci.name){nm.textContent=ci.name; b._w=0;}
+  const th=v.querySelector('.vcth'), src=th.tagName==='IMG'?th.getAttribute('src'):'';
+  if(src!==ci.img){const n=ci.img?document.createElement('img'):document.createElement('div'); n.className='vcth'; n.setAttribute('aria-hidden','true');
+    if(ci.img){n.alt=''; n.src=ci.img;} th.replaceWith(n);}
+  const sz=dims?vwDimsTxt(it,false)+(LANG==='en'?' cm':' см'):'', se=v.querySelector('.vcsz'); if(se.textContent!==sz){se.textContent=sz; b._w=0;}
+  const ce=v.querySelector('.vcost'); if(ce.textContent!==cost){ce.textContent=cost; b._w=0;}
   if(b.hidden){b.hidden=false; b._w=0;}
-  if(b._fw!==fr.width){b._fw=fr.width; b._w=0;}
-  // ПЛАШКА ВЛЕЗАЕТ В КАДР ЦЕЛИКОМ: шире кадра — сперва без цены (`.vcut`, тогда ценник предмета рисуется отдельно: телефон с подписью
-  // значка или с полными размерами), затем на компьютере — короткие размеры (`.vtight`)
-  if(!b._w){const room=fr.width-2*pad, v=b.firstElementChild, m=()=>{b._w=v.offsetWidth; b._h=v.offsetHeight;};
-    // разделитель — между видимыми кнопками (после цены и у левого края пилюли его нет); видимость кнопок от `.vcut`/`.vtight` не зависит
-    let first=true; v.querySelectorAll(':scope>button').forEach(e=>{if(getComputedStyle(e).display==='none')return; e.classList.toggle('vsep',!first); first=false;});
-    b.classList.remove('vcut','vtight'); m();
-    if(b._w>room&&cost){b.classList.add('vcut'); m();}
-    if(b._w>room&&!VW_NARROW()){b.classList.add('vtight'); m();}}
+  // ШИРИНА: на компьютере постоянная, на узкой сцене (телефон 375) — не шире сцены без полей 8 px
+  if(b._fw!==fr.width){b._fw=fr.width; b._w=0; v.style.width=Math.max(200,Math.min(VCARD_W,Math.floor(fr.width-2*pad)))+'px';}
+  if(!b._w){b._w=v.offsetWidth; b._h=v.offsetHeight;}
   const w=b._w, h=b._h;
-  // МЕСТО — ПО ЦЕНТРУ НАД РАМКОЙ ПРЕДМЕТА (владелец TG 1559 «лучше по центру», вариант А T-37 TG 748 «ровно над предметом, по центру»;
+  // МЕСТО — ПО ЦЕНТРУ НАД РАМКОЙ ПРЕДМЕТА (владелец TG 1559 «лучше по центру», T-37 TG 748/781 «ровно над предметом, по центру»;
   // рамка — проекция его коробки, `pins().box`), у края кадра — прижата к краю. Занято (кнопки, шторка, подсказка) — сперва та же середина
-  // выше на высоту плашки и на две, и только потом сдвиг вбок: прежде первым шёл сдвиг вбок на той же высоте, сначала ВЛЕВО (−12, −24 …),
-  // и плашка уезжала влево от центра предмета. Дальше — под рамкой; нет и там — ближайшая свободная строка: сперва не закрывая предмет,
+  // выше на высоту карточки и на две, и только потом сдвиг вбок: прежде первым шёл сдвиг вбок на той же высоте, сначала ВЛЕВО (−12, −24 …),
+  // и карточка уезжала влево от центра предмета. Дальше — под рамкой; нет и там — ближайшая свободная строка: сперва не закрывая предмет,
   // потом любая. У правого края сцены середина упирается в колонку списка (занята) — тогда сдвиг (проба 1280, ТВ-тумба). Во время
-  // «Переместить» рамка едет — плашка с ней
+  // «Переместить» рамка едет — карточка с ней
   const bx=p.box, cx=bx?(bx[0]+bx[2])/2:p.x, top=bx?bx[1]:p.y, bot=bx?bx[3]:p.y;
   const X=Math.round(Math.max(pad,Math.min(fr.width-w-pad,cx-w/2))), up=Math.round(top-PIN_GAP-h);
   const xs=[X]; for(let d=12; d<fr.width; d+=12)[X-d,X+d].forEach(x=>{if(x>=pad&&x<=fr.width-w-pad)xs.push(x);});
@@ -10352,15 +10348,20 @@ function vwRotPlace(box, fr, pad0, kept, all, hit, underHint, pr){
   const ups=[up, up-h-4, up-2*(h+4)], below=Math.round(bot+PIN_GAP);
   let at=null;
   for(const y of ups)if(ok(X,y,false)){at=[X,y]; break;}
+  // небольшой сдвиг вбок (до трети ширины) — ещё «над предметом»
+  if(!at){const near=xs.filter(x=>Math.abs(x-X)<=w/3); for(const y of ups){const x=near.find(v=>ok(v,y,false)); if(x!=null){at=[x,y]; break;}}}
+  // над предметом места нет (кнопки верха сцены, проба 1280 спальня: «Фото | 3D» и «Скрыть цены» над кроватью) — та же середина, сразу
+  // под кнопками, поверх верхней части предмета (низ карточки не ниже середины его рамки): не уезжать в угол сцены (T-37/3)
+  if(!at&&bx)for(let y=up+4; y+h<=(top+bot)/2; y+=4)if(ok(X,y,true)){at=[X,y]; break;}
   if(!at)for(const y of [...ups, below])if((at=row(y,false)))break;
   if(!at){const ys=[]; for(let v=pad; v<=fr.height-h-pad; v+=8)ys.push(v);
     ys.sort((a,c)=>Math.abs(a-up)-Math.abs(c-up));
     for(const over of [false,true]){for(const y of ys)if((at=row(y,over)))break; if(at)break;}}
   if(!at){b.hidden=true; vwTipHide(); return null;}
   b.style.transform=`translate(${at[0]}px,${at[1]}px)`;
-  b.classList.toggle('vtipup',at[1]+h+40>fr.height);   // подсказке под плашкой нет места — над ней
+  b.classList.toggle('vtipup',at[1]+h+40>fr.height);   // подсказке под карточкой нет места — над ней
   const r=free0(at[0],at[1],w,h); kept.push(r);
-  return {r, cost:!!cost&&!b.classList.contains('vcut')};
+  return {r};
 }
 // СТРОКА ВЫБРАННОГО В СПИСКЕ (T-05/6 п.3): подсвечена, пока предмет выбран, и после перерисовки списка (правка, замена); на компьютере
 // прокручена в видимую часть, если ушла. Телефон — шторкой ведает `vwHighlight`
