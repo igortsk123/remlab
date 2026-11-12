@@ -9446,6 +9446,14 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
  border-radius:var(--radius);box-shadow:var(--e4);font-size:14px;color:var(--ink)}
 .vload i{width:34px;height:34px;border-radius:50%;border:3px solid var(--accent-soft);border-top-color:var(--accent);
  animation:sp .8s linear infinite}
+/* ВОССТАНАВЛИВАЕМ 3D (T-20261112-112/2): браузер отобрал видеоконтекст — сцену собираем заново; на это время тон страницы со спокойным
+   переливом, как у окошек ракурсов (`vslWait`), без колёсика и без рамки. «Уменьшить движение» — ровный тон */
+.vload.calm{background:rgb(242 240 235 / .94)}
+.vload.calm i{display:none}
+.vload.calm div{background:none;box-shadow:none;color:var(--muted,#6b625a)}
+@media(prefers-reduced-motion:no-preference){
+  .vload.calm{background:linear-gradient(100deg,rgb(242 240 235 / .9) 35%,rgb(247 245 241 / .98) 50%,rgb(242 240 235 / .9) 65%) 0 0/250% 100%;
+    animation:vslWait 1.8s ease-in-out infinite}}
 .vold{position:absolute;left:12px;top:60px;background:var(--veil);color:#fff;font-size:13px;padding:5px 10px;border-radius:999px;z-index:calc(var(--zl-scene) + 1)}
 .vtop{padding:10px 18px 10px;flex:none}
 /* ШАПКА ШТОРКИ НАД ПРОКРУТКОЙ (demo-21 п.3, владелец TG 846: «шапка липкая и контент — некрасиво»): линия и тень `--e2` у последнего
@@ -10176,9 +10184,10 @@ function vwTapZoom(el, fn){
   el.addEventListener('pointerup',e=>{const q=p; p=null;
     if(q&&q.still&&Math.hypot(e.clientX-q.x,e.clientY-q.y)<8&&Math.abs(el.scrollLeft-q.sl)<1&&el._tapFn)el._tapFn();});
 }
-function vwLoad(on, txt, corner){
+// calm — «Восстанавливаем 3D…»: тон страницы с переливом, без колёсика (T-20261112-112/2)
+function vwLoad(on, txt, corner, calm){
   const l=document.getElementById('vload'); if(!l)return;
-  l.classList.toggle('on',!!on); l.classList.toggle('corner',!!corner); if(txt){const t=document.getElementById('vloadTxt'); if(t)t.textContent=txt;}
+  l.classList.toggle('on',!!on); l.classList.toggle('corner',!!corner); l.classList.toggle('calm',!!(on&&calm)); if(txt){const t=document.getElementById('vloadTxt'); if(t)t.textContent=txt;}
 }
 // ШТОРКА v4 «КАК НАТИВНАЯ» (план demo-02 § «Шторка v4», разбор Codex 16.10, владелец на iPhone: «некультяпистая»). Шторка —
 // наложение над сценой, двигается ТОЛЬКО `transform: translateY` (композитор); высота шторки и геометрия области сцены во время
@@ -11586,7 +11595,8 @@ const VPF_QUIET_MS=1500, VPF_UP_MAX=20, VPF_UP_WIN_MS=600000, VPF_MAX_AGE_MS=360
 const VPF={cap:null, run:null, t:0, q:Promise.resolve(), up:[], captures:0, log:[]};
 function vwPreKey(){ return curStateId()+'|'+(isTouchUI()?'t':'d')+'|'+JSON.stringify((cams||loadCams()).slice(0,2).map(camPoseOf)); }
 function vwPreOk(){
-  if((TRIAL()&&!trPhotoHere())||document.hidden||LIVE.ok===false||(liveSoftGL()&&!LIVE.force)||!D||!items)return false;
+  // после потери видеоконтекста сцену заранее в фоне не поднимаем — только по входу в «3D» или заказу фото (T-20261112-112/2)
+  if((TRIAL()&&!trPhotoHere())||document.hidden||LIVE.ok===false||LIVE.state==='lost'||(liveSoftGL()&&!LIVE.force)||!D||!items)return false;
   const c=navigator.connection; if(c&&(c.saveData||/(^|slow-)2g$/.test(c.effectiveType||'')))return false;
   const sh=document.getElementById('shot');
   return !!liveHere()||!!(sh&&sh.classList.contains('on')&&sh.classList.contains('v2'));
@@ -11789,7 +11799,7 @@ const TRY_PLURAL={'стул':'стулья','кресло':'кресла','пу�
    живую сцену не показываем, остаётся старое фото с полосой «Посмотреть фото с изменениями» (как до demo-01). */
 // `?live=0` — выключить (сравнить с прежним поведением), `?live=force` — включить и на программном рендере (проверки).
 const LIVE={ok:/[?&]live=0(?:&|$)/.test(location.search)?false:null, force:/[?&]live=force(?:&|$)/.test(location.search),
-  scene:null, canvas:null, badge:null, loading:null, why:''};
+  scene:null, canvas:null, badge:null, loading:null, why:'', losses:[], lostAt:0, restoreT:0, restoring:false};
 // ПОЗА КАДРА: эскиз, снятый прежней позой камеры, устарел, даже если расстановка та же (номер состояния камеры не включает,
 // Codex 14.10). Фото нейросети не трогаем — оно и так подписано «расстановка могла отличаться».
 function poseStale(s){
@@ -11808,6 +11818,9 @@ function liveStale(s){
   return !!(s&&items.length&&(s.revision?revision()!==s.revision:(baseRev&&revision()!==baseRev)));
 }
 function liveOff(why){
+  if(LIVE.ok===false)return;   // уже выключена — второй раз не считаем и не шлём
+  clearTimeout(LIVE.restoreT); LIVE.restoring=false;
+  liveEv('live_off:'+liveWhyKey(why)+'-l'+Math.min(3,LIVE.losses.length)+'-'+liveEvTail());
   LIVE.ok=false; LIVE.why=why; LIVE.state='fallback'; liveHide();
   // показанную сцену освобождаем: видеоконтекст и модели не держим до закрытия страницы (verify 14.10)
   if(LIVE.scene){try{LIVE.scene.dispose();}catch(e){} LIVE.scene=null;}
@@ -11818,6 +11831,41 @@ function liveOff(why){
   if(TRIAL()&&st&&!/видеоконтекст|медленный кадр|программный рендер|webgl/i.test(String(why))){st.classList.add('tr-flat');
     st.innerHTML=`<div class="tr-plan">${trialPlanSvg(allVariants()[cur]||{})}</div>`;}
   try{console.info('живая сцена выключена:',why);}catch(e){}
+}
+// ПОТЕРЯ ВИДЕОКОНТЕКСТА ≠ «УСТРОЙСТВО НЕ ТЯНЕТ» (T-20261112-112/2, владелец TG 1280/1282: iPhone, «Сделать фото» в «Фото» → «3D» —
+// «3D на этом устройстве не открывается»). Safari отбирает видеоконтекст у холста, пока тот вне экрана (в «Фото»), при нехватке памяти;
+// раньше одна потеря выключала 3D до перезагрузки. Теперь: сцену сбрасываем (память — сразу браузеру), по `webglcontextrestored` или
+// при следующем входе в «3D» собираем заново, на это время — спокойное «Восстанавливаем 3D…». Заглушка — только при повторных
+// потерях: LIVE_LOST_MAX за LIVE_LOST_WIN_MS (устройство правда не держит сцену). Одинаково /demo и туры (одна страница)
+const LIVE_LOST_MAX=3, LIVE_LOST_WIN_MS=120000, LIVE_RESTORE_MS=1500;
+// СОБЫТИЕ — СЧЁТЧИКОМ В /api/events (тот же канал, `contracts/analytics.ts:pageCounterKind`): почему выключили, сколько потерь за
+// 2 мин, режим «Фото»/«3D», шёл ли заказ фото. Имя — только из словаря, сервер незнакомое отбросит
+function liveEvTail(){ const m=VW.mode==='photo'?'photo':VW.mode==='walk'?'walk':'other'; return m+'-'+(VJ.job?'job':'idle'); }
+function liveWhyKey(why){ const w=String(why||'');
+  return /видеоконтекст/.test(w)?'lost':/медленный кадр/.test(w)?'slow':/программный рендер/.test(w)?'soft':/webgl/i.test(w)?'webgl':'error'; }
+function liveEv(kind){ try{document.dispatchEvent(new CustomEvent('remlab:live',{detail:kind}));}catch(e){} }
+function liveLost(sc){
+  if(!sc||sc._lost||LIVE.ok===false)return;
+  sc._lost=true;
+  const now=Date.now(); LIVE.losses=LIVE.losses.filter(t=>now-t<LIVE_LOST_WIN_MS); LIVE.losses.push(now);
+  liveEv('live_lost:'+liveEvTail());
+  if(LIVE.losses.length>=LIVE_LOST_MAX){liveOff('видеоконтекст потерян '+LIVE.losses.length+' раза за 2 мин'); return;}
+  try{console.info('живая сцена: видеоконтекст потерян, соберём заново',LIVE.losses.length);}catch(e){}
+  const cv=sc===LIVE.scene?LIVE.canvas:null;
+  if(sc===LIVE.scene)liveDrop();               // строящуюся сцену освободит сама сборка (`liveEngine`: проверка `_lost`)
+  LIVE.ok=null; LIVE.state='lost'; LIVE.lostAt=now; LIVE.why='видеоконтекст потерян';
+  liveRestoreSoon(cv);
+}
+// в «3D» — собрать заново, как только браузер вернул видеоконтекст или через LIVE_RESTORE_MS; вне «3D» (Фото, План, окно закрыто) —
+// ждём входа в «3D» (`liveShow`), заказ фото сам поднимет сцену для кадра (`vwCaptureScene`)
+function liveRestoreSoon(cv){
+  clearTimeout(LIVE.restoreT);
+  const here=()=>VW.mode==='walk'&&document.getElementById('shot').classList.contains('on');
+  const go=()=>{clearTimeout(LIVE.restoreT); if(LIVE.state!=='lost'||LIVE.ok===false||!here())return;
+    if(document.hidden){document.addEventListener('visibilitychange',go,{once:true}); return;}
+    liveShow();};
+  if(cv)cv.addEventListener('webglcontextrestored',go,{once:true});
+  if(here()){vwLoad(true,LANG==='en'?'Restoring 3D…':'Восстанавливаем 3D…',false,true); LIVE.restoreT=setTimeout(go,LIVE_RESTORE_MS);}
 }
 // ДЕКОР В ЖИВУЮ СЦЕНУ — ТОТ ЖЕ, ЧТО УХОДИТ В СЕРВЕРНЫЙ КАДР (`payload().decor`, demo-05 п.9): ваза встаёт на столик
 // одним правилом с кадром (`scene-extras.decorLayout`) и приходит одним состоянием с расстановкой
@@ -11901,46 +11949,63 @@ function liveEngine(){
   if(LIVE.scene)return Promise.resolve(LIVE.scene);
   if(LIVE.loading)return LIVE.loadingRoom===room?LIVE.loading:LIVE.loading.then(()=>liveEngine());   // строилась прежняя комната
   LIVE.loadingRoom=room;
-  LIVE.loading=(async()=>{
+  let sc=null;   // строящаяся сцена: потеря видеоконтекста во время сборки — не сбой, а повод собрать заново (T-20261112-112/2)
+  const lost=()=>LIVE.ok===false||!!(sc&&sc._lost);
+  const p=LIVE.loading=(async()=>{
     try{
       await sceneModule();
       const rt=await rtMeshes();
       const cv=document.createElement('canvas'); cv.className='livecv'; cv.width=896; cv.height=597;
-      const sc=window.RemlabScene.createDemoScene(cv,{room, items:clone(items), decor:liveDecor(), base:location.href,
+      sc=window.RemlabScene.createDemoScene(cv,{room, items:clone(items), decor:liveDecor(), base:location.href,
         runtimeMeshes:rt, lite:isTouchUI(), walk:true, floor:devFloor()||undefined, wall:devWall()||undefined});
-      sc.on('contextlost',()=>liveOff('видеоконтекст потерян'));
-      // крутилка считает модели: «Загружаем модели 3 из 8» при первом открытии, «Загружаем модель…» при замене
-      sc.on('progress',(l,t)=>{if(LIVE.state==='warming')vwLoad(true,(LANG==='en'?'Loading models ':'Загружаем модели ')+l+(LANG==='en'?' of ':' из ')+t);
+      const sc1=sc; sc1.on('contextlost',()=>liveLost(sc1));
+      // крутилка считает модели: «Загружаем модели 3 из 8» при первом открытии, «Загружаем модель…» при замене; при восстановлении —
+      // одна спокойная строка «Восстанавливаем 3D…» без счёта
+      sc.on('progress',(l,t)=>{if(LIVE.state==='warming'&&!LIVE.restoring)vwLoad(true,(LANG==='en'?'Loading models ':'Загружаем модели ')+l+(LANG==='en'?' of ':' из ')+t);
         else if(LIVE.state==='updating'&&l<t)vwLoad(true,LANG==='en'?'Loading the model…':'Загружаем модель…',true);});
       sc.setSize(896,597);
       await sc.ready;
-      if(LIVE.ok===false){sc.dispose(); return null;}       // контекст потерян, пока грузились модели
+      if(lost()){sc.dispose(); return null;}       // контекст потерян, пока грузились модели
       let pr=sc.probe(10);
+      // ТЕЛЕФОН: ОДИН ПОВТОР ПРОБЫ (T-20261112-112/2): первые кадры после сборки на iPhone бывают медленными (разбор текстур, догрузка
+      // моделей) — прежде чем выключать 3D, ждём ~2 с и меряем ещё раз. Порог и число кадров — те же (общие для всех, менять — через Codex)
+      if(!LIVE.force&&isTouchUI()&&!pr.software&&pr.p95Ms>120){
+        await new Promise(ok=>setTimeout(ok,2000));
+        if(lost()){sc.dispose(); return null;}
+        pr=Object.assign(sc.probe(10),{retry:Math.round(pr.p95Ms)});
+      }
       LIVE.probe=pr;
       // СРЕДНЯЯ МАШИНА — ЛЁГКИЙ РЕЖИМ, А НЕ ОТКАЗ (demo-01 п.7): p95 60–120 мс в обычном режиме → та же сцена лёгкими
       // копиями без теней, проба заново; медленнее 120 мс — серверный эскиз
       if(!LIVE.force&&!pr.software&&!isTouchUI()&&pr.p95Ms>60&&pr.p95Ms<=120){
         sc.dispose();
         const cv2=document.createElement('canvas'); cv2.className='livecv'; cv2.width=896; cv2.height=597;
-        const sc2=window.RemlabScene.createDemoScene(cv2,{room, items:clone(items), decor:liveDecor(), base:location.href, runtimeMeshes:rt, lite:true, walk:true,
+        sc=window.RemlabScene.createDemoScene(cv2,{room, items:clone(items), decor:liveDecor(), base:location.href, runtimeMeshes:rt, lite:true, walk:true,
           floor:devFloor()||undefined, wall:devWall()||undefined});
-        sc2.on('contextlost',()=>liveOff('видеоконтекст потерян'));
+        const sc2=sc; sc2.on('contextlost',()=>liveLost(sc2));
         sc2.setSize(896,597); await sc2.ready;
-        if(LIVE.ok===false){sc2.dispose(); return null;}
+        if(lost()){sc2.dispose(); return null;}
         pr=Object.assign(sc2.probe(10),{lite:true}); LIVE.probe=pr;
         if(pr.p95Ms>120){sc2.dispose(); liveOff('медленный кадр '+Math.round(pr.p95Ms)+' мс (лёгкий режим)'); return null;}
-        LIVE.ok=true; LIVE.scene=sc2; LIVE.canvas=cv2; LIVE.room=room;
-        const b2=document.createElement('div'); b2.className='livebadge'; b2.textContent='Живая сцена: так стоит сейчас'; LIVE.badge=b2;
-        return sc2;
+        return liveReady(sc2,cv2,room);
       }
       if(!LIVE.force&&(pr.software||pr.p95Ms>120)){sc.dispose(); liveOff(pr.software?'программный рендер':'медленный кадр '+Math.round(pr.p95Ms)+' мс'); return null;}
-      LIVE.ok=true; LIVE.scene=sc; LIVE.canvas=cv; LIVE.room=room;
-      const b=document.createElement('div'); b.className='livebadge';
-      b.textContent='Живая сцена: так стоит сейчас'; LIVE.badge=b;
-      return sc;
-    }catch(e){liveOff(String(e&&e.message||e)); return null;}
+      return liveReady(sc,cv,room);
+    }catch(e){
+      if(sc&&sc._lost){try{sc.dispose();}catch(_){} return null;}   // сборка упала из-за потерянного контекста — соберём заново
+      liveOff(String(e&&e.message||e)); return null;}
   })();
-  return LIVE.loading;
+  // сборка не удалась, а 3D не выключена (контекст потерян по ходу) — следующий вызов строит заново, а не получает этот null
+  p.then(r=>{if(!r&&LIVE.loading===p)LIVE.loading=null;});
+  return p;
+}
+function liveReady(sc,cv,room){
+  LIVE.ok=true; LIVE.scene=sc; LIVE.canvas=cv; LIVE.room=room;
+  if(LIVE.state==='lost')LIVE.state='warming';
+  if(LIVE.lostAt){LIVE.lostAt=0; liveEv('live_restore:ok');}
+  const b=document.createElement('div'); b.className='livebadge';
+  b.textContent='Живая сцена: так стоит сейчас'; LIVE.badge=b;
+  return sc;
 }
 // ХОЛСТ: в «3D» перетаскивание поворачивает взгляд; короткое нажатие на предмет — его строка в списке (demo-02)
 function liveWire(){
@@ -12035,8 +12100,14 @@ async function liveShow(){
   const vi=s?allVariants().findIndex(v=>(v.id||'')===(s.vid||'')):-1;
   if(!s||vi!==cur||!document.getElementById('shot').classList.contains('on')){liveHide();return;}
   const at=shotAt;
-  if(!LIVE.scene){LIVE.state='warming'; vwLoad(true, LANG==='en'?'Loading models…':'Загружаем модели…');}
-  const sc=await liveEngine(); if(!sc){vwLoad(false); vwPins(); return;}
+  if(!LIVE.scene){
+    // после потери видеоконтекста — «Восстанавливаем 3D…» спокойным тоном, не «Загружаем модели» (T-20261112-112/2)
+    LIVE.restoring=LIVE.restoring||LIVE.state==='lost'; LIVE.state='warming';
+    if(LIVE.restoring)vwLoad(true,LANG==='en'?'Restoring 3D…':'Восстанавливаем 3D…',false,true);
+    else vwLoad(true, LANG==='en'?'Loading models…':'Загружаем модели…');}
+  const sc=await liveEngine();
+  if(!sc){if(LIVE.state==='lost'&&LIVE.ok!==false){liveRestoreSoon(null); return;}   // потеряли и эту сборку — ещё раз, счёт потерь растёт
+    LIVE.restoring=false; vwLoad(false); vwPins(); return;}
   // ПОКА ГРУЗИЛСЯ ДВИЖОК, ОКНО МОГЛИ ЗАКРЫТЬ ИЛИ ПЕРЕЛИСТНУТЬ (verify 14.10): холст к закрытому окну не цепляем
   const wrap=document.querySelector('#shot .shotwrap');
   const s2=shots[shotAt];
@@ -12056,7 +12127,7 @@ async function liveShow(){
   LIVE.lastMode=VW.mode;
   liveWire();
   sc.start(); vwPins();
-  LIVE.state='updating'; vwLoad(true, LANG==='en'?'Updating…':'Обновляем…', true);
+  LIVE.state='updating'; LIVE.restoring=false; vwLoad(true, LANG==='en'?'Updating…':'Обновляем…', true);
   await sc.update(clone(items), liveDecor());
   // наклон «глазами стоящего» — по мебели, которая только что пришла в сцену (при входе её ещё не было); не после замены — там наведение
   if(entering&&LIVE.focus==null&&!VW.free&&sc.aimLive)sc.aimLive();
@@ -12673,6 +12744,8 @@ function quizPick(rule, answers, available, styleColours){
   // опрос (onb-12 + home-mix-01): действие и каждый ответ — свой счётчик (`quiz_open`, `quiz_photo:loft` …); имя — только по виду,
   // сервер незнакомое отбросит (`pageCounterKind`)
   document.addEventListener('remlab:quiz',function(e){((e.detail&&e.detail.counters)||[]).forEach(function(k){if(/^[a-z_]+(:[a-z0-9-]+)?$/.test(k))hit(k);});});
+  // живая 3D (T-20261112-112/2): потеря видеоконтекста, причина выключения, восстановление — `live_lost:…`, `live_off:…`, `live_restore:ok`
+  document.addEventListener('remlab:live',function(e){var k=e.detail; if(typeof k==='string'&&/^live_[a-z]+:[a-z0-9-]+$/.test(k))hit(k);});
   function boot(){if(typeof D==='undefined'||!D)return setTimeout(boot,300);hit('designer_open');}
   boot();
 })();

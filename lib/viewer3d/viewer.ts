@@ -1980,7 +1980,11 @@ export class FlatViewer {
       this.renderer.setSize(prev.x, prev.y, false);
       this.renderer.render(this.scene, this.camera);   // `setSize` очистил холст — видимый вид на место до показа
     }
-    const blob = await new Promise<Blob | null>((ok) => copy.toBlob(ok, type, quality));
+    // видеоконтекст отобрали посреди кадра — в копии пусто (чёрный кадр ушёл бы программе рисования): кадра нет, демо снимет заново
+    if (this.renderer.getContext().isContextLost()) { copy.width = copy.height = 0; throw new Error("кадр не собрался: видеоконтекст потерян"); }
+    // копию освобождаем сразу после сжатия (T-20261112-112/2): 2D-холст кадра 1536×1117 держит ~7 МБ, а Safari на iPhone при нехватке
+    // памяти отбирает видеоконтекст у сцены
+    const blob = await new Promise<Blob | null>((ok) => copy.toBlob(ok, type, quality)).finally(() => { copy.width = copy.height = 0; });
     if (!blob) throw new Error("кадр не собрался");
     return blob;
   }

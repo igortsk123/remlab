@@ -3,6 +3,7 @@
 // «отправлены на неделе; результат на дату отчёта». Шаги считаются по отправкам (есть ли событие), не по
 // людям. Статус менеджера — текущий и взаимоисключающий (его можно исправлять), это не «дошли до».
 
+import { livePart } from "@/contracts/analytics";
 import type { ManagerStatus } from "@/contracts/send";
 import { buildQuiz, quizPart, type QuizRow } from "@/modules/partner-report/quiz";
 
@@ -92,6 +93,7 @@ export function buildReport(inp: ReportInput): { weeks: FunnelRow[]; byApartment
     const w = mondayOf(c.day);
     if (inp.fromWeek && w < inp.fromWeek) continue;
     if (quizPart(c.kind)) { quizCounters.push(c); continue; }   // опрос — своим блоком, строк «заходов» не создаёт
+    if (livePart(c.kind)) continue;   // живая 3D — служебный счётчик качества (T-20261112-112/2), застройщику не показываем
     const k = `${w}|${c.apartmentId}`;
     const r = direct.get(k) ?? direct.set(k, { week: w, apartmentId: c.apartmentId, designerOpen: 0, variantView: 0, itemSwap: 0, flat3dOpen: 0, itemMove: 0, share: 0, staleLink: 0, floorPick: 0, wallsPick: 0 }).get(k)!;
     if (c.kind === "designer_open") r.designerOpen += c.n;

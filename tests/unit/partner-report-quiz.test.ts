@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { pageCounterKind } from "@/contracts/analytics";
+import { livePart, pageCounterKind } from "@/contracts/analytics";
 import { QUIZ_CHILD_RU, QUIZ_COLOUR_RU, QUIZ_HOUSEHOLD_RU, QUIZ_KIDS_RU, QUIZ_STYLE_RU } from "@/contracts/quiz";
 import { buildQuiz, quizPart } from "@/modules/partner-report/quiz";
 import { buildReport, type ReportInput } from "@/modules/partner-report/report";
@@ -45,7 +45,8 @@ describe("блок «Знакомство»", () => {
   it("все 44 счётчика опроса из словаря `pageCounterKind` узнаются блоком, прочие — нет", () => {
     const quiz = pageCounterKind.options.filter((k) => quizPart(k));
     expect(quiz).toHaveLength(44);   // 38 + шаг спальни `quiz_bedroom:<стиль>` (опрос по комнатам, home-mix-01)
-    expect(pageCounterKind.options.filter((k) => !quizPart(k))).toEqual(OLD_KINDS);
+    // служебные счётчики живой 3D (`live_*`, T-20261112-112/2) — не опрос и не «заходы»: отчёт их пропускает (`livePart`)
+    expect(pageCounterKind.options.filter((k) => !quizPart(k) && !livePart(k))).toEqual(OLD_KINDS);
     for (const k of ["quiz_photo:pink", "quiz_child:5", "quiz_kids:4", "quiz_household:", "quiz_x:loft", "quiz"]) expect(quizPart(k)).toBeNull();
   });
 

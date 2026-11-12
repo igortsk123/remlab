@@ -53,6 +53,22 @@ describe("отчёт застройщику", () => {
     expect(r.direct).toEqual([{ week: "2026-10-19", apartmentId: "flat215", designerOpen: 5, variantView: 0, itemSwap: 0, flat3dOpen: 0, itemMove: 0, share: 0, staleLink: 0, floorPick: 0, wallsPick: 0 }]);
   });
 
+  it("живая 3D (T-20261112-112/2): имена счётчиков страницы — в словаре, в отчёт застройщика не идут", () => {
+    const html = readFileSync("tools/scout/flat215-demo/index.html", "utf8");
+    // страница собирает имя так: `live_off:` + причина (`liveWhyKey`) + `-l` + потерь 0…3 + `-` + режим-заказ (`liveEvTail`)
+    const whys = [...html.matchAll(/[?:]'(lost|slow|soft|webgl|error)'/g)].map((m) => m[1]!);
+    expect(new Set(whys)).toEqual(new Set(["lost", "slow", "soft", "webgl", "error"]));
+    for (const w of whys) for (const n of [0, 1, 2, 3]) for (const m of ["photo", "walk", "other"]) for (const j of ["job", "idle"]) {
+      expect(pageCounterKind.options).toContain(`live_off:${w}-l${n}-${m}-${j}`);
+      expect(pageCounterKind.options).toContain(`live_lost:${m}-${j}`);
+    }
+    expect(pageCounterKind.options).toContain("live_restore:ok");
+    expect(html).toContain("liveEv('live_restore:ok')");
+    const r = buildReport({ sends: [], events: [], savedSendIds: [], timezone: "Europe/Moscow", now: NOW,
+      counters: [{ day: "2026-10-20", apartmentId: "flat215", kind: "live_lost:photo-job", n: 2 }, { day: "2026-10-20", apartmentId: "flat215", kind: "live_restore:ok", n: 1 }] });
+    expect(r.direct).toEqual([]);
+  });
+
   it("имена событий на демо-странице — из словарей контрактов", () => {
     const html = readFileSync("tools/scout/flat215-demo/index.html", "utf8");
     const used = (re: RegExp) => [...html.matchAll(re)].map((m) => m[1]!);
