@@ -948,7 +948,8 @@ def text_c(d, xy, txt, f, fill=(20, 20, 20)):
     d.multiline_text((xy[0] - (bb[2] - bb[0]) / 2, xy[1] - (bb[3] - bb[1]) / 2), txt, font=f, fill=fill, align='center')
 
 
-def render(room, res, s, compact=False, title=None, subtitle=None, foot_lines=None, paths=None):
+def render(room, res, s, compact=False, title=None, subtitle=None, foot_lines=None, paths=None, extra=None):
+    """extra(cv, d) — дорисовать своё поверх плана (координаты — cv.P/cv.R), до заголовка и строк низа."""
     fs = 15 if compact else 14
     mt = 96 if compact else 92
     cv = Canvas(room, s, ml=56, mt=mt, mr=36, mb=40 + (len(foot_lines or []) * (fs + 9) + 12),
@@ -961,13 +962,25 @@ def render(room, res, s, compact=False, title=None, subtitle=None, foot_lines=No
         d.line([cv.P(x, 0), cv.P(x, D)], fill=(225, 225, 225) if x % 100 else (200, 200, 200), width=1)
     for y in range(0, int(D) + 1, 50):
         d.line([cv.P(0, y), cv.P(W, y)], fill=(225, 225, 225) if y % 100 else (200, 200, 200), width=1)
-    # подписи сетки
+    # подписи сетки — кроме тех, на которые ляжет подпись проёма той же стены («дверь 9100»)
     fsm = font(11 if not compact else 12)
+    fo = font(12 if not compact else 13)
+    busy = {'south': [], 'west': []}
+    for o, kind in [(x, 'окно') for x in room['wins']] + [(x, 'дверь') for x in room['doors']]:
+        if o['wall'] in busy:
+            c = cv.P(*wall_point(room, o['wall'], o['off'] + o['width'] / 2))
+            if o['wall'] == 'south':
+                busy['south'].append((c[0], d.textlength(f"{kind} {o['width']:.0f}", font=fo) / 2 + 16))
+            else:
+                busy['west'].append((c[1], 22))
     for x in range(0, int(W) + 1, 100):
-        text_c(d, (cv.P(x, 0)[0], cv.P(x, 0)[1] + 14), str(x), fsm, (120, 120, 120))
+        px = cv.P(x, 0)[0]
+        if not any(abs(px - c) < h for c, h in busy['south']):
+            text_c(d, (px, cv.P(x, 0)[1] + 14), str(x), fsm, (120, 120, 120))
     for y in range(0, int(D) + 1, 100):
         p = cv.P(0, y)
-        text_c(d, (p[0] - 22, p[1]), str(y), fsm, (120, 120, 120))
+        if not any(abs(p[1] - c) < h for c, h in busy['west']):
+            text_c(d, (p[0] - 22, p[1]), str(y), fsm, (120, 120, 120))
     # зоны (полупрозрачно)
     od = ImageDraw.Draw(cv.ov)
     zlabels = []
@@ -1125,8 +1138,17 @@ def render(room, res, s, compact=False, title=None, subtitle=None, foot_lines=No
     dimv = Image.new('RGBA', (120, 24), (255, 255, 255, 0))
     ImageDraw.Draw(dimv).text((2, 2), f'{D:.0f} см', font=fdim, fill=(40, 40, 40))
     dimv = dimv.rotate(90, expand=True)
-    cv.img.paste(dimv, (int(x0 - 54), int((y0 + y1) / 2 - 60)), dimv)
+    yc = (y0 + y1) / 2          # размер стены — в стороне от подписи окна/двери на западной стене
+    for k in range(0, int((y1 - y0) / 2), 8):
+        hit = [c for c in (yc - k, yc + k) if y0 + 50 <= c <= y1 - 50 and not any(abs(c - b) < 60 + h for b, h in busy['west'])]
+        if hit:
+            yc = hit[0]
+            break
+    cv.img.paste(dimv, (int(x0 - 54), int(yc - 60)), dimv)
     text_c(d, (x1 + 18, y0 - 34), 'С↑', font(13, True), (90, 90, 90))
+    if extra:
+        extra(cv, d)
+        d = ImageDraw.Draw(cv.img)
     # заголовок
     d.text((10, 6), title or room['title'], font=font(20 if compact else 19, True), fill=(10, 10, 10))
     if subtitle:

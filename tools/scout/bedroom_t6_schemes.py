@@ -105,7 +105,170 @@ def evaluate(room, items, purpose):
     vs = bs.evaluate(room, geo, items, purpose, {})
     rv, paths = bs.check_routes(room, geo, items, purpose, want_paths=True)
     vs += rv
-    return {'items': items, 'vs': vs, 'ok': not any(v['hard'] for v in vs), 'purpose': purpose}, paths
+    pins = pinches(room, geo, items, purpose) if rv else []
+    return {'items': items, 'vs': vs, 'ok': not any(v['hard'] for v in vs), 'purpose': purpose, 'pins': pins}, paths
+
+
+def clearance(room, geo, items):
+    """Карта «сколько см до ближайшего препятствия» (сетка 1 см, как `bs.free_mask`): предметы, радиаторы, стены.
+    Дуга двери — не препятствие (человек проходит через свой проём; в `bs.free_mask` её тоже нет)."""
+    import numpy as np
+    from scipy import ndimage
+    _free, X, Y = bs.free_mask(room, geo, items)
+    occ = np.zeros(X.shape, bool)
+    for o in [i['rect'] for i in items] + list(geo['rads']):
+        occ |= (X >= o[0]) & (X <= o[2]) & (Y >= o[1]) & (Y <= o[3])
+    dist, idx = ndimage.distance_transform_edt(np.pad(~occ, 1), return_indices=True)   # за краем — стена
+    return dist[1:-1, 1:-1] - 0.5, idx[1][1:-1, 1:-1] - 0.5, idx[0][1:-1, 1:-1] - 0.5, X, Y
+
+
+def widest(c, start, m):
+    """Самый широкий проход от start к цели m: наибольший t, при котором они связаны по клеткам c ≥ t (целые см)."""
+    from scipy import ndimage
+    sy, sx = start
+
+    def linked(t):
+        lab, _n = ndimage.label(c >= t)
+        L0 = lab[sy, sx]
+        return bool(L0 and (m & (lab == L0)).any())
+    lo, hi = -1, int(bs.ROUTE / 2) + 1
+    while hi - lo > 1:
+        t = (lo + hi) // 2
+        if linked(t):
+            lo = t
+        else:
+            hi = t
+    return lo
+
+
+def obstacles(room, geo, items):
+    """Препятствия пути с именами: предметы, радиаторы и четыре стены (полосы за краем комнаты)."""
+    W, D, B = room['W'], room['D'], 1e4
+    out = [(bs.ITEM_RU[i['kind']].lower(), i['rect']) for i in items] + [('радиатор', r) for r in geo['rads']]
+    return out + [('стена', (-B, -B, 0, D + B)), ('стена', (W, -B, W + B, D + B)), ('стена', (-B, -B, W + B, 0)),
+                  ('стена', (-B, D, W + B, D + B))]
+
+
+def near_pt(r, p):
+    return (min(max(p[0], r[0]), r[2]), min(max(p[1], r[1]), r[3]))
+
+
+def gap_at(obs, p):
+    """Ширина прохода в точке p: ближайшее препятствие и ближайшее ДРУГОЕ — с противоположной стороны.
+    → (ширина см, точка 1, точка 2, имя 1, имя 2) или None."""
+    import math
+    d = sorted((math.dist(p, near_pt(r, p)), k) for k, (_n, r) in enumerate(obs))
+    k1 = d[0][1]
+    q1 = near_pt(obs[k1][1], p)
+    v1 = (q1[0] - p[0], q1[1] - p[1])
+    for _dist, k in d[1:]:
+        q2 = near_pt(obs[k][1], p)
+        if (q2[0] - p[0]) * v1[0] + (q2[1] - p[1]) * v1[1] < 0:      # по другую сторону от p
+            return math.dist(q1, q2), q1, q2, obs[k1][0], obs[k][0]
+    return None
+
+
+def pinch_point(c, pts, t):
+    """Где на пути (порог t) настоящее узкое место: путь переходит между разными областями порога t+1
+    (сужение «перерезает» проход). Точки, где путь лишь огибает угол той же области, — не сужение."""
+    from scipy import ndimage
+    lab, _n = ndimage.label(c >= t + 1)
+    H, Wd = c.shape
+    cell = [(min(int(y), H - 1), min(int(x), Wd - 1)) for x, y in pts]
+    L = [lab[q] for q in cell]
+    best, i, n = None, 0, len(pts)
+    while i < n:
+        if L[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and not L[j]:
+            j += 1
+        before = L[i - 1] if i > 0 else 'старт'
+        after = L[j] if j < n else 'цель'
+        if before != after:                               # отрезок без «широкой» области разделяет разные — сужение
+            k = min(range(i, j), key=lambda q: c[cell[q]])
+            if best is None or c[cell[k]] < c[cell[best]]:
+                best = k
+        i = j
+    if best is None:                                      # запасной путь: самая тесная точка
+        best = min(range(n), key=lambda q: c[cell[q]])
+    return best
+
+
+def pinches(room, geo, items, purpose):
+    """Для каждого НЕпройденного пути от двери — самое узкое место лучшего маршрута: где, сколько см, между чем.
+    Те же старты и цели, что `bs.check_routes` (паре — оба бока кровати; остальным — хотя бы один)."""
+    from scipy import ndimage
+    free, X, Y = bs.free_mask(room, geo, items)
+    lab, _n = ndimage.label(free)
+    c, _qx, _qy, _X, _Y = clearance(room, geo, items)
+    obs = obstacles(room, geo, items)
+    targets = bs.route_targets(room, geo, items, X, Y)
+    out = []
+    for d in room['doors']:
+        sx, sy = bs.wall_point(room, d['wall'], d['off'] + d['width'] / 2, bs.ROUTE / 2 + 1)
+        st = (int(sy), int(sx))
+        L0 = lab[st] if 0 <= st[0] < lab.shape[0] and 0 <= st[1] < lab.shape[1] else 0
+        fails = [(k, n, m) for k, n, m in targets if not (L0 and (m & (lab == L0)).any())]
+        beds = [t for t in targets if t[0].startswith('bed')]
+        if purpose != 'couple':      # не паре хватает одного бока — отмечаем лучший из непройденных, если не прошёл ни один
+            bf = [t for t in fails if t[0].startswith('bed')]
+            fails = [t for t in fails if not t[0].startswith('bed')]
+            if beds and len(bf) == len(beds):
+                fails.append(max(bf, key=lambda t: widest(c, st, t[2])))
+        for key, name, m in fails:
+            t = widest(c, st, m)
+            p = {'key': key, 'name': name, 'width': None, 'seg': None, 'path_ok': [], 'path_bad': [], 'between': None}
+            if t >= 0:
+                pts = bs.bfs_path(c >= t, st, m) or bs.bfs_path(c >= t - 1, st, m)   # bfs по сетке 2 см может порвать путь
+                if pts:
+                    k = pinch_point(c, pts, t)
+                    g = gap_at(obs, pts[k])
+                    if g:
+                        p.update(width=g[0], seg=(g[1], g[2]), between=(g[3], g[4]))
+                    else:
+                        p.update(width=2 * float(c[min(int(pts[k][1]), c.shape[0] - 1), min(int(pts[k][0]), c.shape[1] - 1)]))
+                    p.update(path_ok=pts[:k + 1], path_bad=pts[k:])
+            out.append(p)
+    return out
+
+
+def draw_pinches(pins):
+    """Дорисовка для `bs.render(extra=…)`: путь до узкого места — своим цветом, после — красным; поперёк — красный
+    отрезок с числом см."""
+    red = (211, 47, 47)
+    col = {'bed': (27, 94, 32), 'win': (13, 71, 161), 'desk': (230, 81, 0)}
+
+    def dashed(cv, d, pts, c):
+        pp = [cv.P(x, y) for x, y in pts[::3]] + ([cv.P(*pts[-1])] if pts else [])
+        for i in range(0, len(pp) - 1, 2):
+            d.line([pp[i], pp[i + 1]], fill=c, width=3)
+
+    def f(cv, d):
+        for p in pins:
+            if not p['path_ok']:
+                continue
+            dashed(cv, d, p['path_ok'], col['bed' if p['key'].startswith('bed') else 'win' if p['key'].startswith('win') else 'desk'])
+            dashed(cv, d, p['path_bad'], red)
+            if p['path_bad']:
+                ex, ey = cv.P(*p['path_bad'][-1])
+                d.ellipse([ex - 5, ey - 5, ex + 5, ey + 5], outline=red, width=3)
+            if not p['seg']:
+                continue
+            a, b = cv.P(*p['seg'][0]), cv.P(*p['seg'][1])
+            d.line([a, b], fill=red, width=5)
+            for q in (a, b):
+                d.ellipse([q[0] - 4, q[1] - 4, q[0] + 4, q[1] + 4], fill=red)
+            txt = f"{p['width']:.0f} см"
+            fb = bs.font(15, True)
+            mx, my = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
+            vert = abs(a[1] - b[1]) > abs(a[0] - b[0])
+            tx, ty = (mx + 8, my - 9) if vert else (mx - d.textlength(txt, font=fb) / 2, my - 26)
+            bb = d.textbbox((tx, ty), txt, font=fb)
+            d.rectangle([bb[0] - 3, bb[1] - 2, bb[2] + 3, bb[3] + 2], fill=(255, 255, 255), outline=red)
+            d.text((tx, ty), txt, font=fb, fill=red)
+    return f
 
 
 def engine_verdict(model, lay, strict=True):
@@ -280,7 +443,19 @@ def reasons(res):
             t = bs.CODE_RU.get(v['code'], v['code'])
             dd = [min(r[2] - r[0], r[3] - r[1]) for r in v['regions']]
             depth[t] = max(depth.get(t) or 0, max(dd)) if dd else depth.get(t)
-    return [t + (f' — на {d:.0f} см' if d is not None and d <= SMALL else '') for t, d in depth.items()]
+    narrow = {}       # путь от двери: самое узкое место (`pinches`) — «узко 69 см: кровать — радиатор»
+    for p in res.get('pins', []):
+        code = 'ROUTE_BED' if p['key'].startswith('bed') else 'ROUTE_WINDOW' if p['key'].startswith('win') else 'ROUTE_DESK'
+        t = bs.CODE_RU[code]
+        if p['width'] is None:
+            cand = (-1.0, 'закрыто со всех сторон')
+        else:
+            a, b = p['between'] or ('?', '?')
+            cand = (p['width'], f"узко {p['width']:.0f} см: {a} — {b}")
+        if t not in narrow or cand[0] < narrow[t][0]:       # несколько непройденных (два бока) — самое узкое
+            narrow[t] = cand
+    return [t + (f' — {narrow[t][1]}' if t in narrow else f' — на {d:.0f} см' if d is not None and d <= SMALL else '')
+            for t, d in depth.items()]
 
 
 def wrap(text, f, maxw, indent='   '):
@@ -330,14 +505,15 @@ def render_panel(pn, colw):
     d = ImageDraw.Draw(Image.new('RGB', (4, 4)))
     rt = room['title']
     for cut in (lambda t: t.rsplit(' · ', 1)[0],           # не влезло — без размеров (они на чертеже)
-                lambda t: t.replace('Демо спальня', 'Спальня').replace('UK ', '')):
+                lambda t: t.replace('Демо спальня', 'Спальня').replace('UK ', ''),
+                lambda t: t.replace('Спальня ', 'сп. ').replace('Bedroom ', 'BR ')):
         if d.textlength(title, font=f) <= colw - 24:
             break
         rt = cut(rt)
         title = f"{pn['kind']} · {rt} — {pn['cipher']}"
     sub = f"{bs.PURPOSE_RU.get(res['purpose'], res['purpose'])} · схема {res['tpl']}: {composition(res['items'])}"
     return bs.render(room, res, s, compact=True, title=title, subtitle=sub[:84], foot_lines=foot_lines(pn, colw - 30),
-                     paths=pn['paths'])
+                     paths=pn['paths'], extra=draw_pinches(res.get('pins', [])))
 
 
 LEGEND = ('зелёное — проход 75 у боков и 60 у изножья · синее — 90 перед шкафом · фиолетовое — 76 перед комодом · '

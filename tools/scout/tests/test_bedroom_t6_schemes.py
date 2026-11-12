@@ -41,6 +41,25 @@ def test_to_item_bed_side_and_foot_zones():
     assert it['gap'] == {'lo': 120.0, 'hi': 120.0}
 
 
+def test_pinch_finds_narrow_gap_and_its_sides():
+    bs = t6.bs
+    room = bs._room('t', 't', 't', 300, 300,
+                    [{'kind': 'door', 'wall': 'south', 'offset_cm': 20, 'width_cm': 80, 'swing_cm': 80, 'hinge': 'left'},
+                     {'kind': 'window', 'wall': 'north', 'offset_cm': 100, 'width_cm': 100, 'sill_cm': 85}], [], [])
+    room['_geo'] = {'doors': [bs.door_geo(room, d) for d in room['doors']], 'rads': [],
+                    'wins': [bs.band(room, w['wall'], w['off'], w['width'], 0, 1) for w in room['wins']]}
+    block = {'role': 'комод', 'kind': 'dresser', 'rect': (0.0, 120.0, 270.0, 180.0), 'zones': []}   # до окна — щель 30 у стены
+    vs, _paths = bs.check_routes(room, room['_geo'], [block], 'guest')
+    assert [v['code'] for v in vs] == ['ROUTE_WINDOW']
+    pins = t6.pinches(room, room['_geo'], [block], 'guest')
+    assert len(pins) == 1 and pins[0]['key'] == 'win0'
+    assert pins[0]['width'] == pytest.approx(30, abs=1)          # меряем между препятствиями, не по сетке
+    xs = sorted(q[0] for q in pins[0]['seg'])
+    assert xs[0] == pytest.approx(270, abs=1) and xs[1] == pytest.approx(300, abs=1)   # от комода до стены
+    assert set(pins[0]['between']) == {'комод', 'стена'}
+    assert pins[0]['path_ok'] and pins[0]['path_bad']
+
+
 def test_moved_matches_twin_items_by_place():
     def ns(x):
         return {'role': 'тумба', 'kind': 'ns', 'wall': 'south', 'rect': (x, 0, x + 40, 40)}
