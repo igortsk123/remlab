@@ -7,7 +7,8 @@ import { describe, expect, it } from "vitest";
 // ПРАВИЛО ВИДОВ v2 (T-20261108-73/4; владелец 08.11 TG 668 → план TG 670 → «Да» TG 671; план `room-cams-ends-01` § «Решение v2»).
 // Вид 1 «Со стороны двери» — точка в проёме входа комнаты (глубина ≤ 75 см, на ступени 6 — 100; сдвиг вдоль двери ≤ 20 % её ширины),
 // взгляд внутрь. Вид 2 «Другой ракурс» — по смыслу: гостиная — обеденный стол и его стулья целиком (нет стола — полоса у окна),
-// спальня и прихожая — дальняя от двери зона. Виды не дубли (разворот ≥ 30° или точки 3D дальше 120 см). Мера — точный силуэт в окнах
+// спальня и прихожая — дальняя от двери зона; у любого смысла точка вида 2 — у противоположной от входа стены, взгляд обратно к
+// входу (T-20261112-30, `oppCheck`). Виды не дубли (разворот ≥ 30° или точки 3D дальше 120 см). Мера — точный силуэт в окнах
 // показа (`camV2Raw`: живое 3D телефона и компьютера, кадр фото позой съёмки и фото на телефоне — T-73/6); крупное (≥ 5 % окна) и
 // обязательное не срезаны (окно телефона — мягко: доля главного на экране, `phoneQ`). Не вышло
 // строго — ступень лестницы и машинная строка WARN. Функции — из блока CAMFIT страницы (его же исполняет `tools/flat3d/demo-cams.mjs`).
@@ -28,7 +29,7 @@ type Api = {
   camAng: (a: number, b: number) => number;
   CAM_ZONES: Record<string, { intent?: unknown; ends?: unknown; views?: unknown }>;
   CAM_V2: { depth: number[]; depthWide: number[]; shift: number; inward: number; turn: number; apart: number; big: number; far: number; farWide: number;
-    band: { side: number; depth: number[] } };
+    band: { side: number; depth: number[] }; back: number; pairFar: number };
   CAM_V2_BAND: number;
   JPH: number;
 };
@@ -59,6 +60,22 @@ const doorCheck = (api: Api, room: Room, c: Cam, tag: string, band = false) => {
   const a = (c.rot * Math.PI) / 180;
   expect(Math.sin(a) * nx - Math.cos(a) * ny, `${tag}: взгляд внутрь`).toBeGreaterThanOrEqual(Math.cos((G.inward * Math.PI) / 180) - 1e-9);
   return { px, py };
+};
+// ВИД 2 — С ПРОТИВОПОЛОЖНОЙ СТОРОНЫ (T-20261112-30, владелец: «ракурсы должны быть с противоположных стен, а сейчас ты просто
+// поворачиваешь камеру на месте»): глубина точки вида 2 от стены входа по нормали проёма ≥ `farWide` глубины комнаты (иначе — WARN
+// `zone_any`, и тогда хотя бы дальше вида 1), взгляд обратно к входу (≤ `back`°), точки пары разнесены ≥ `pairFar` диагонали
+const oppCheck = (api: Api, room: Room, c1: Cam, c2: Cam, ws: string, tag: string) => {
+  const G = api.CAM_V2, o = api.camEntry()!.o, W = room.w, H = room.d, u = o.offset_cm + o.width_cm / 2;
+  const [px, py, nx, ny] = o.wall === "west" ? [0, u, 1, 0] : o.wall === "east" ? [W, u, -1, 0] : o.wall === "south" ? [u, 0, 0, 1] : [u, H, 0, -1];
+  const dep = (x: number, y: number) => (x - px) * nx + (y - py) * ny;
+  const depN = Math.max(...[[0, 0], [W, 0], [W, H], [0, H]].map(([x, y]) => dep(x!, y!)));
+  if (/zone_any/.test(ws)) expect(dep(c2.x, c2.y), `${tag}: вид 2 дальше вида 1 от стены входа`).toBeGreaterThan(dep(c1.x, c1.y));
+  else {
+    expect(dep(c2.x, c2.y) / depN, `${tag}: вид 2 у противоположной стены`).toBeGreaterThanOrEqual(G.farWide - 1e-9);
+    expect(Math.hypot(c1.x - c2.x, c1.y - c2.y), `${tag}: точки пары разнесены`).toBeGreaterThanOrEqual(G.pairFar * Math.hypot(W, H) - 1e-9);
+  }
+  const back = (Math.atan2(px - c2.x, -(py - c2.y)) * 180) / Math.PI;   // взгляд позы: (sin rot, −cos rot)
+  expect(api.camAng(c2.rot, back), `${tag}: вид 2 смотрит к входу`).toBeLessThanOrEqual(G.back + 1e-9);
 };
 // не дубль: разворот ≥ turn° или точки живого 3D дальше apart
 const notDup = (api: Api, a: Cam, b: Cam, W: number, H: number, tag: string) => {
@@ -93,6 +110,14 @@ describe("правило видов v2: данные и снятое", () => {
     const e = apiOf(two).camEntry()!;
     expect([e.o.wall, e.warn]).toEqual(["east", "entry_ambiguous"]);
   });
+  // T-20261112-30: у туров по плану вход гостиной и спальни — проём без полотна (`kind: opening`, `pipeline.py`); прежде вход искался
+  // только среди дверей → `no_entry` и прежняя пара (обе точки у одной стены в 10–60 см)
+  it("вход — и проём без двери (kind opening), окно — не вход", () => {
+    const room: Room = { w: 335, d: 380, openings: [{ kind: "window", wall: "south", offset_cm: 90, width_cm: 150 }, { kind: "opening", wall: "north", offset_cm: 80, width_cm: 255 }] };
+    const e = apiOf(room).camEntry()!;
+    expect([e.o.kind, e.o.wall, e.warn]).toEqual(["opening", "north", ""]);
+    expect(apiOf({ ...room, openings: room.openings.slice(0, 1) }).camEntry()).toBeNull();
+  });
 });
 
 describe("правило видов v2: гостиная (слепок 07.11, 6 стилей)", () => {
@@ -104,18 +129,22 @@ describe("правило видов v2: гостиная (слепок 07.11, 6 
     return memo.get(v.id)!;
   };
   for (const [vi, v] of fx.variants.entries()) {
-    it(`${v.style}: вид 1 у двери, вид 2 — стол и стулья целиком, разворот, крупное не срезано, строго (ступень 0)`, () => {
-      const p = pairOf(vi), list = its(v), [c1, c2] = p.cams as [Cam, Cam], S = api.camV2Set(list, api.camZ().intent);
+    // T-20261112-30: вид 2 теперь у противоположной от двери (окно) стены и смотрит обратно — строго (ступень 0) не выходит:
+    // ближняя к глазу мебель у окна в кадр целиком не входит (доля целиком < `fullMin`), крупное режется краем; это цена «видов с
+    // противоположных стен» — ступень и WARN по виду, крупное без срезов — у вида 1
+    it(`${v.style}: вид 1 у двери, вид 2 — с противоположной стороны к входу, стол и стулья целиком; ступень > 0 — с WARN`, () => {
+      const p = pairOf(vi), list = its(v), [c1, c2] = p.cams as [Cam, Cam], S = api.camV2Set(list, api.camZ().intent), ws = p.warns.join(" ");
       expect(p.intent).toBe("dining");
-      expect(p.relax, p.how).toBe(0);
-      expect(p.warns).toEqual([]);
-      doorCheck(api, fx.room, c1, v.style);
+      if (p.relax > 0) expect(p.warns.length, `ступень ${p.relax} без WARN (${p.how})`).toBeGreaterThan(0);
+      for (const w of p.warns) expect(w).toMatch(/^view=C[12]( intent=\w+)? relax=\d reason=/);
+      doorCheck(api, fx.room, c1, v.style, /door_wall_band/.test(ws));
+      oppCheck(api, fx.room, c1, c2, ws, v.style);
       expect(S.tbl, "стол в наборе").toBeGreaterThanOrEqual(0);
-      expect(whole(api, c2, list, W, H, [S.tbl!]), "стол целиком").toEqual([true]);
+      expect(whole(api, c2, list, W, H, [S.tbl!]), `стол целиком (${p.how})`).toEqual([true]);
       expect(whole(api, c2, list, W, H, S.chairs).every(Boolean), "стулья целиком").toBe(true);
       expect(whole(api, c1, list, W, H, S.mains).some(Boolean), "главное в виде 1 целиком").toBe(true);
       notDup(api, c1, c2, W, H, v.style);
-      for (const c of [c1, c2]) expect(bigCuts(api, c, list, W, H), `${v.style} ${c.name}`).toEqual([]);
+      expect(bigCuts(api, c1, list, W, H), `${v.style} C1`).toEqual([]);
       expect(p.cams.filter((c) => c.poster)).toHaveLength(1);
     }, 120_000);
   }
@@ -151,9 +180,8 @@ describe("правило видов v2: спальни (слепки 07.11, 5 с
     const p = api.camPairAll(L, W, H, corners(W, H)), [c1, c2] = p.cams as [Cam, Cam], ws = p.warns.join(" ");
     expect(p.intent).toBe("far");
     if (p.relax > 0) expect(ws, `ступень ${p.relax} без WARN`).toMatch(/view=C1 relax=\d reason=/);
-    const { px, py } = doorCheck(api, fx.room, c1, "спальня 1", /door_wall_band/.test(ws));
-    const maxD = Math.max(...[[0, 0], [W, 0], [W, H], [0, H]].map(([x, y]) => Math.hypot(x! - px, y! - py)));
-    if (!/zone_any/.test(ws)) expect(Math.hypot(c2.x - px, c2.y - py), "вид 2 — дальняя зона").toBeGreaterThanOrEqual(api.CAM_V2.farWide * maxD - 1e-9);
+    doorCheck(api, fx.room, c1, "спальня 1", /door_wall_band/.test(ws));
+    oppCheck(api, fx.room, c1, c2, ws, "спальня 1");
     notDup(api, c1, c2, W, H, "спальня 1");
     expect(api.camAng(c1.rot, c2.rot), "виды смотрят на разные стены").toBeGreaterThanOrEqual(90);
     for (const list of L) {
@@ -168,29 +196,39 @@ describe("правило видов v2: спальни (слепки 07.11, 5 с
   // целиком не видна. T-73/5 (ведущий): вид 1 — в полосе у стены двери (ступень `CAM_V2_BAND` и выше, WARN `door_wall_band`).
   // T-73/6: мера — кадр позы съёмки (низ режет) и фото на телефоне. Замер 08.11: было в кадре 0,36–0,65, на телефоне 0,24–0,47;
   // стало — кровать целиком хотя бы в одном виде, в каждом виде ≥ 0,9 кадра и ≥ 0,7 на телефоне; что не вышло — WARN по виду
-  it("спальня 2, своя пара стиля: вид 1 у двери или у стены двери — кровать целиком хотя бы в одном виде, в каждом ≥ 0,9; что не вышло — WARN", () => {
+  // [кадр, телефон] вида 1 и вида 2. Замер 12.11 (вид 2 у стены напротив двери): вид 1 — кадр 0,91–1,00, телефон 0,80–0,90; вид 2 —
+  // кадр 0,41–0,99, телефон 0,25–0,70 (хуже всех джапанди: кровать изголовьем к стене вида 2, с той стороны видна сбоку)
+  const BED2_MIN: [number, number][] = [[0.9, 0.7], [0.4, 0.25]];
+  it("спальня 2, своя пара стиля: вид 1 у двери или у стены двери — кровать целиком хотя бы в одном виде, вид 2 — у стены напротив; что не вышло — WARN", () => {
     const fx = load(FX.bed2), api = apiOf(fx.room), { w: W, d: H } = fx.room;
     // доля кровати в худшем окне показа, кроме телефона
     const q = (c: Cam, list: It[], ids: number[]) =>
       Math.max(0, ...api.camV2Raw(c, list, W, H, ids).map((r) => Math.min(...r.filter((_, j) => j !== api.JPH).map((x) => (x.s ? x.q : 0)))));
+    const got: string[] = [], low: string[] = [];
     for (const v of fx.variants) {
       const list = its(v), p = api.camPairAll([list], W, H, corners(W, H)), [c1, c2] = p.cams as [Cam, Cam], S = api.camV2Set(list, api.camZ().intent);
       const ws = p.warns.join(" "), band = /reason=.*door_wall_band/.test(ws);
       if (band) expect(p.relax, `${v.style}: полоса у стены двери не раньше своей ступени`).toBeGreaterThanOrEqual(api.CAM_V2_BAND);
       doorCheck(api, fx.room, c1, v.style, band);
+      oppCheck(api, fx.room, c1, c2, ws, v.style);
       notDup(api, c1, c2, W, H, v.style);
       const w1 = whole(api, c1, list, W, H, S.mains)[0], w2 = whole(api, c2, list, W, H, S.mains)[0];
-      expect(w1 || w2, `${v.style}: кровать целиком хотя бы в одном виде (${p.how})`).toBe(true);
-      for (const c of [c1, c2]) {
-        expect(q(c, list, S.mains), `${v.style} ${c.name}: кровать в кадре`).toBeGreaterThanOrEqual(0.9);
-        expect(phoneQ(api, c, list, W, H, S.mains), `${v.style} ${c.name}: кровать на телефоне`).toBeGreaterThanOrEqual(0.7);
+      // T-20261112-30: вид 2 — у стены напротив двери (северной), взгляд к двери; кровать изголовьем к этой стене с той стороны
+      // целиком в кадр не входит, а у джапанди кровать целиком была видна только от окна (западная стена — сбоку, не напротив):
+      // теперь «почти целиком» (≥ 0,95 кадра) хотя бы в одном виде; пороги вида 2 — `BED2_MIN` (замер 12.11)
+      expect(w1 || w2 || Math.max(q(c1, list, S.mains), q(c2, list, S.mains)) >= 0.95, `${v.style}: кровать (почти) целиком хотя бы в одном виде (${p.how})`).toBe(true);
+      for (const [k, c] of [c1, c2].entries()) {
+        const fr = q(c, list, S.mains), ph = phoneQ(api, c, list, W, H, S.mains), [lf, lp] = BED2_MIN[k]!;
+        got.push(`${v.style} ${c.name} кадр ${fr.toFixed(2)} телефон ${ph.toFixed(2)}`);
+        if (fr < lf || ph < lp) low.push(got.at(-1)!);
       }
       if (!w1) expect(ws, `${v.style}: вид 1 без кровати целиком — WARN`).toMatch(/view=C1 relax=\d reason=.*main_not_whole/);
       if (p.relax > 0) expect(p.warns.length, `${v.style}: ступень ${p.relax} без WARN`).toBeGreaterThan(0);
       for (const w of p.warns) expect(w).toMatch(/^view=C[12]( intent=\w+)? relax=\d reason=/);
       const k = p.cams.findIndex((c) => c.poster);
-      expect(whole(api, p.cams[k]!, list, W, H, S.mains), `${v.style}: обложка с кроватью`).toEqual([true]);
+      expect(whole(api, p.cams[k]!, list, W, H, S.mains)[0] || q(p.cams[k]!, list, S.mains) >= 0.95, `${v.style}: обложка с кроватью`).toBe(true);
     }
+    expect(low, got.join("; ")).toEqual([]);
   }, 600_000);
 });
 
@@ -220,10 +258,12 @@ describe("правило видов v2: demo-cams.mjs", () => {
     expect(Date.now() - t).toBeLessThan(300_000);
     for (const s of log.split("\n").filter((x) => x.startsWith("WARN:demo_cams room=")))
       expect(s).toMatch(/^WARN:demo_cams room=\S+ style=\S+ view=(C1|C2|pair)( intent=\w+)? relax=\d reason=/);
-    const out = JSON.parse(readFileSync(f, "utf8")) as Fx, api = apiOf(out.room);
+    const out = JSON.parse(readFileSync(f, "utf8")) as Fx, api = apiOf(out.room), lines = log.split("\n");
     for (const v of out.variants) {
       expect(v.cams, v.id).toHaveLength(2);
-      doorCheck(api, out.room, v.cams![0]!, v.id);
+      // вид 1 в полосе у стены двери — только со строкой WARN `door_wall_band` своего стиля (`demo-cams.mjs`: `style=${style || id}`)
+      const band = lines.some((s) => s.startsWith("WARN:demo_cams room=") && s.includes(`style=${v.style || v.id} `) && s.includes("door_wall_band"));
+      doorCheck(api, out.room, v.cams![0]!, v.id, band);
     }
   }, 600_000);
 });
