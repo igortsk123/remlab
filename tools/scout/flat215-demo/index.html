@@ -5599,7 +5599,7 @@ function artWhere(){ const M=window.RemlabScene;
   if(!M||typeof M.wallArtWhere!=='function')return null;
   try{ return M.wallArtWhere({room:curRoom(), items:clone(items), decor:liveDecor(), base:location.href}); }catch(e){ return null; } }
 // настольный декор — то, что сцена ставит на столешницу; мягкое места в 3D не имеет, картина висит на стене
-function tableDecor(){ return decorList().filter(x=>!isSoft(x.role)&&!isWallArt(x)); }
+function tableDecor(){ return decorList().filter(x=>!isSoft(x.role)&&!isWallArt(x)&&x.strategy!=='ceiling_over'); }   // люстра — на потолке (T-66, `ceiling.ts`)
 // цена и число товаров варианта считаются С ДЕКОРОМ (владелец 08.09: «добавлять в список товаров
 // и считать сумму»): он такая же покупка, просто стоит не на полу
 function decorSum(v){ return (variantDecor(v)||[]).reduce((t,x)=>t+((x.sku||{}).price||0),0); }
@@ -5610,7 +5610,7 @@ function decorRows(){
   // ДЕКОР МЕНЯЕТСЯ ТАК ЖЕ, КАК МЕБЕЛЬ (владелец 08.09: «они добавляются вроде, но не работает
   // кнопка заменить»). Раньше кнопки не было вовсе — строка была только ценником. Индекс строки
   // (`data-d`) нужен потому, что декор живёт не в расстановке, а в списке варианта.
-  const html=d.map(x=>{const p=x.sku; sum+=(p.price||0);
+  const html=d.map(x=>{const p=x.sku, sw=x.strategy!=='ceiling_over'; sum+=(p.price||0);   // люстру не меняем (T-66): у замены нет размеров по мешу
     return `<div class="row" data-d="${x.i}">`+
       (p.img?`<img src="${p.img}" loading="lazy" alt="">`:'<div class="noimg-sm">нет фото</div>')+
       // роль — без номера слота («подушка 2» → «подушка», ведущий 23.10); мягкое — без пометки (владелец 23.10: вариант и так
@@ -5619,8 +5619,8 @@ function decorRows(){
       (itemShop(p)?' · '+itemShop(p):'')+(p.basis&&p.basis!=='page'?' · <i title="наличие по данным магазина, карточка не проверена">наличие не проверено</i>':'')+`</span>`+
       `</div><div class="p">${money(p.price)}</div>`+
       // действия — своей строкой под фото и текстом (`.row>.acts`, demo-26 Г)
-      `<span class="acts"><button class="lnk swap">Заменить</button>`+
-      (itemUrl(p)?` · <a href="${itemUrl(p)}" target="_blank" rel="noopener">В магазин</a>`:'')+`</span></div>`;}).join('');
+      `<span class="acts">${sw?'<button class="lnk swap">Заменить</button>':''}`+
+      (itemUrl(p)?`${sw?' · ':''}<a href="${itemUrl(p)}" target="_blank" rel="noopener">В магазин</a>`:'')+`</span></div>`;}).join('');
   return {html:html, n:d.length, sum:sum};
 }
 // КУДА СТАВИТСЯ ДЕКОР. Правило одно со сценой (`decorSupport`): журнальный столик, если он есть,
@@ -5667,6 +5667,7 @@ function decorSupport(){
 }
 function decorWhere(x){
   if(x&&isSoft(x.role))return '';                 // мягкому места в 3D нет — и подписи «куда встанет» тоже (demo-24)
+  if(x&&x.strategy==='ceiling_over')return 'на потолке над зоной отдыха';   // люстра (T-66): место считает сцена, `ceiling.ts`
   if(isWallArt(x)){                               // опора — из расчёта сцены; движок ещё не пришёл — без выдуманной опоры
     const m=artWhere();
     if(!m||!(x.role in m))return 'на стене, где есть место';
@@ -5708,8 +5709,8 @@ function basket(){                    // СПИСОК ТОВАРОВ КОМНА�
     // строка декора адресуется своим индексом: у него нет места в расстановке
     // название или миниатюра — карточка товара (demo-26 Д), её «Заменить» — то же, что тап по строке
     if(r.dataset.d!==undefined){
-      const k=+r.dataset.d, x=decorList().find(y=>y.i===k), go=()=>openPicker(decorSel(k));
-      r.onclick=e=>{if(icHit(e)&&x&&x.sku){itemCardOpen(icItem(x.sku,x.role),go,{fam:colourFam(x.sku,x.role),cur:0,save:q=>saveColour(decorSel(k),q)}); return;} go();};
+      const k=+r.dataset.d, x=decorList().find(y=>y.i===k), go=x&&x.strategy==='ceiling_over'?null:()=>openPicker(decorSel(k));   // люстра — без замены (T-66)
+      r.onclick=e=>{if(icHit(e)&&x&&x.sku){itemCardOpen(icItem(x.sku,x.role),go,{fam:colourFam(x.sku,x.role),cur:0,save:q=>saveColour(decorSel(k),q)}); return;} if(go)go();};
       const a2=r.querySelector('a'); if(a2)a2.onclick=e=>e.stopPropagation();
       return;
     }
@@ -7998,8 +7999,8 @@ function shotListHtml(s){
           `<div class="p">${money(a.price)}</div>`+
           // действия — своей строкой под фото и текстом: цена их не сжимает (`.row>.acts`, demo-26 Г)
           `<span class="acts">`+
-            (own?`<button class="lnk" data-rep="${k}">Заменить</button>`:'')+
-            (itemUrl(a)?`${own?' · ':''}<a href="${itemUrl(a)}" target="_blank" rel="noopener">В магазин</a>`:'')+
+            (own&&own.strategy!=='ceiling_over'?`<button class="lnk" data-rep="${k}">Заменить</button>`:'')+   // люстра — без замены (T-66); нет кнопки — нет и в карточке
+            (itemUrl(a)?`${own&&own.strategy!=='ceiling_over'?' · ':''}<a href="${itemUrl(a)}" target="_blank" rel="noopener">В магазин</a>`:'')+
           `</span></div>`;}).join('')+
       `</div>`;
 }
