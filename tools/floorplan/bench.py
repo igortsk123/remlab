@@ -924,10 +924,12 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
     wall_drawn = wall
     # T-20261111-09/3: мелкий отдельный кусок маски (стрелка высоты скоса ~0,2 × 0,4 м) — не опора закрытия. rgK5… Bedroom 5:
     # цепочка закрытий шла от стены санузла через две стрелки посреди спальни и отрезала её от площадки — при сдвиге масштаба
-    # на 0,3 % (дверь ↔ стена). Кусок остаётся в маске (препятствие), но закрытия строим по стене без него
+    # на 0,3 % (дверь ↔ стена). Кусок остаётся в маске (препятствие), но закрытия строим по стене без него.
+    # /4: продления углов — по всей маске, как раньше: без них после T-11 (5444e00a) лист rgK5 p0 протекал наружу через
+    # Boot room ↔ Sitting (Snooker/Cinema — «снаружи», десятки наружных проёмов 10–26 см), а Cupboard p1 терял дверь
     isle = fc.islands(wall, ISLE_M * ppm) if ISLE_M > 0 else np.zeros(wall.shape, bool)
     anchor = np.where(isle, 0, wall).astype(wall.dtype)
-    corner = fc.extend_corners(anchor, int(0.6 * ppm), fl, fc.bevel_end_zone(anchor, t, Ls))
+    corner = fc.extend_corners(wall, int(0.6 * ppm), fl, fc.bevel_end_zone(wall, t, Ls))
     wall = (wall | corner).astype(np.uint8)
     wall_a = (anchor | corner).astype(np.uint8)
     thin = fc.thin_lines(gray, wall, thin_thr)
