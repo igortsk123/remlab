@@ -571,8 +571,8 @@ def arrow_doors(gaps, lab_g, arrows, t, wall=None, thin=None, ppm=None, dark=Non
             elif not by_leaf(g):
                 drop.add(g.id)
             continue
-        ys, xs = np.nonzero((al == a) | np.isin(lab_g, [g.id for g in gs]))
-        c, u, n, L, depth = fc.gap_axes(ys, xs)
+        ys, xs = np.nonzero(np.isin(lab_g, [g.id for g in gs]))   # оси проёма — по самим разрывам, без стрелки: она стоит
+        c, u, n, L, depth = fc.gap_axes(ys, xs)        # поперёк и выше их глубины, клонит ось (T-09: тонкие разрывы «торец ↔ торец»)
         if L < sum(g.length for g in gs) or depth > 1.5 * max(max(g.depth for g in gs), t):
             continue                                   # не на одной прямой — не один проём
         hb = max(max(g.depth for g in gs), float(t)) / 2.0

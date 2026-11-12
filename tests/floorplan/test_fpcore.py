@@ -826,6 +826,28 @@ def test_arrow_doors_merged_needs_wall_ends_both_sides():
     assert bench.arrow_doors(gaps, lab_g, arrows, t)[2] == {1, 2, 3, 4}   # без маски стен — как в /2: оба слиты
 
 
+def test_arrow_doors_merge_thin_gaps_by_their_own_axis():
+    """T-20261111-09/4 (rgK p1 Principal ↔ Dressing): стрелка не опора перемычки (`fpcore.islands`) — перемычка идёт от торца до
+    торца сквозь неё, разрывы по бокам тонкие (глубина 5 px). Стрелка поперёк проёма выше 1,5 t: ось и «на одной прямой» — по самим
+    разрывам, без стрелки, иначе она клонит ось и проём делился на две двери 64 + 56 см."""
+    import bench
+    t = 8
+    wall = np.zeros((120, 120), np.uint8)
+    lab_g = np.zeros((120, 120), np.int32)
+    arrows = np.zeros_like(wall)
+    wall[90:98, 0:40] = 1                                           # стена с проёмом x 40..80
+    wall[90:98, 80:120] = 1
+    arrows[78:108, 57:63] = 1                                       # стрелка поперёк, 30 px в высоту
+    lab_g[92:97, 40:57] = 1
+    lab_g[93:98, 63:80] = 2
+    wall |= arrows
+    gaps = [fc.Gap(i, 0, 0, 17, 5, 'door', 0.0, False, (0, 0, 0, 0)) for i in (1, 2)]
+    drop, merged, used = bench.arrow_doors(gaps, lab_g, arrows, t, wall)
+    assert drop == set() and used == {1, 2} and len(merged) == 1
+    cx, cy, L, ext, quad = merged[0]
+    assert abs(cx - 59.5) <= 1.5 and abs(cy - 94.5) <= 1.5 and abs(L - 40) <= 2
+
+
 def test_arc_trim_door_width_by_leaf_arc():
     """T-20261111-13/3 (rgK, Cupboard): пролёт со стрелкой шире двери. Дуга створки на листе (петля у торца, R 20 px при пролёте
     30) — дверь от петли шириной R; без дуги — пролёт как был; дуга во весь пролёт — тоже как был."""
