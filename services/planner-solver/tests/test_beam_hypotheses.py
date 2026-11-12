@@ -204,6 +204,19 @@ def test_kitchen_living_room_kind_needs_dining_required():
     assert Z.scenario_needs(**Z.room_kind_needs(None, 'Кухня-гостиная'))['dining'] == 'required'
 
 
+def test_living_dining_titles_need_table():
+    """T-20261112-98/3 (владелец «Да», TG 1207): гостиная-столовая — стол обязателен, как в кухне-гостиной; просто гостиная — нет.
+    «Dining room» / «Столовая» отдельно — тоже да (то же слово; комнату взяли под гостиную — стол по смыслу обязателен)."""
+    from planner import zones as Z
+    yes = ['Living/Dining room', 'Living / Dining Room', 'Living-dining room', 'Гостиная-столовая', 'Гостиная-столовая 22 м²',
+           'Столовая', 'Dining room', 'Kitchen/Living/Dining', 'Kitchen-living room']
+    no = ['Living room', 'Living', 'Lounge', 'Reception Room', 'Sitting room', 'Гостиная', 'Гостиная 14.4 м²', 'Зал', '']
+    assert [t for t in yes if Z.room_kind_of('living', t) != 'kitchen_living'] == []
+    assert [t for t in no if Z.room_kind_of('living', t) != 'living'] == []
+    assert Z.room_kind_needs('living', 'Living/Dining room') == {'dining_need': 'required'}
+    assert Z.room_kind_needs('living', 'Lounge') == {}
+
+
 def test_kitchen_living_keeps_table_with_light_carrier_in_bank():
     """T-98/2 ①: кухня-гостиная с носителем света (комод + лампа) в банке — решатель целиком (beam) оставляет стол."""
     from planner import zones as Z

@@ -1102,7 +1102,8 @@
     "kitchen_living": {
      "dining_need": "required"
     },
-    "kitchen_living_title_re": "кухн|kitchen",
+    "kitchen_living_title_re": "кухн|kitchen|dining|столов",
+    "_title_re_why": "T-20261112-98/3 (владелец «Да», TG 1207): гостиная-столовая («Living/Dining room», «Гостиная-столовая», «Столовая») — тоже стол обязателен, как в кухне-гостиной. «Dining room» отдельно ловится тем же словом (= «столовая»): раз комнату взяли под гостиную, стол там по смыслу обязателен. «Living room», «Lounge», «Reception Room», «Гостиная» — нет.",
     "_why": "T-20261112-98/2 (Codex): паспорт гостиной (room-templates/living.json, шаблоны LR-O1/O2 кухни-гостиной) требует стол со стульями — в кухне-гостиной есть, где ещё сесть за стол, нет. Без этого ярус light_missing в plan_key вытеснял бы стол светом. Тип комнаты вызывающие (тур/«Этажи»/новая загрузка — trial_demo, /demo — flat215_demo) передают решателю как есть (`SCENE_ROOM_KIND`/`SCENE_ROOM_TITLE` → solver_run.py), правило — только здесь и в `planner/zones.py:room_kind_needs`."
    }
   },
