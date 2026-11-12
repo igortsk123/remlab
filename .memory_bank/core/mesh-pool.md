@@ -8,7 +8,7 @@ importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-11-06
+last_verified: 2026-11-12
 review_after: 2026-12-05
 ---
 
@@ -30,9 +30,9 @@ Interrupted (Priority)`), не OOM. Квота 50 реплик общая; ре�
 Боевая — `mesh-q-low-1`; «живая» = есть машины (`infra/server/salad-deadman.py`, Tier 2 § 7).
 
 **Деньги.** Платим за `running`, не за работу (ADR-0135). **Потолок 2 ₽/меш (ADR-0313 → 0370, `tools/scout/rules/salad-groups.json:price_ceiling`):**
-сторож цены `tools/scout/salad/mesh_price.py` в цикле `money_guard.py` судит по средней после 8 ч работы группы; цена — по классу
-карты (`prices_by_class_usd_h`), меши — только новые `job_id` (урок 523); дорого → stop + `mesh-price-halt.json`, снимает человек.
-Учёт по машине — `pool_ledger.py`. 27.10 очередь — 0,92 ₽/меш в работе.
+сторож цены `tools/scout/salad/mesh_price.py` в цикле `money_guard.py:price_tick` судит по средней за 24 ч, если окно группы ≥ 8 ч
+и ≥ 4 рабочих нодо-ч (`judge_after_h`/`judge_after_node_h`); цена — по классу карты (`prices_by_class_usd_h`), меши — только
+новые `job_id` (урок 523); дорого → stop + `mesh-price-halt.json`, снимает человек. Учёт по машине — `pool_ledger.py`.
 
 **Стопоры — один свод (ADR-0175).** Стоп-файл `mesh-group-halt.json` сильнее автостарта (ADR-0169/0174); приёмник проверяется ДО
 раздачи; кредиты кончились — только по `no_credits_available` (урок 404); слепой опрос ≠ «не платим» (урок 519); ручной старт — с

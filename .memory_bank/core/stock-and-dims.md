@@ -3,12 +3,12 @@ tier: 1
 topic: stock-and-dims
 scope: Наличие и честность размеров — состояния, парсер, footprint
 tier2: "../domain/stock-and-dims.md"
-updated: 2026-11-10
+updated: 2026-11-12
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-06
+last_verified: 2026-11-12
 review_after: 2026-12-05
 ---
 
@@ -21,9 +21,8 @@ review_after: 2026-12-05
 негатив только по текущей ссылке; модель `availability_state`/`page_state`/`availability_basis`/`stock_evidence_at` пишет только
 `stock_truth.reconcile()`; парсер v2 включён (`page_alive.py:PARSER_V2`); цену показа выбирает `price_truth.py` (ADR-0260).
 
-**Размеры (`tools/scout/footprint.py`, `dim_resolver.py`):** одно правило «Ш×Г или диаметр из каталога» для сборки, лечения,
-солвера, сцены, экспорта и демо. Тройка «Ш×Г×В» в названии — авторитет; оси по магазинам —
-`dim_resolver.py:SHOP_DIM_KEYS`; у диванов/кресел divan.ru глубина — «Размеры: Глубина габаритная» (`dim_resolver.py:49`, урок 548); у стульев divan.ru d фида — копия ширины: сцене — d меша (`passport.effective_dims`), каталогу — фид.
+**Размеры (`tools/scout/footprint.py`, `dim_resolver.py`):** одно правило «Ш×Г или диаметр из каталога» для всех потребителей. Тройка «Ш×Г×В» в названии — авторитет; оси по магазинам —
+`dim_resolver.py:SHOP_DIM_KEYS`; у диванов/кресел divan.ru глубина — «Глубина габаритная» (`dim_resolver.py:49`); у стульев divan.ru d фида — копия ширины: сцене — d паспорта, сверенная своим мешом (`room_bindings.py:effective_d`, при `d_by_mesh.effective`), каталогу — фид.
 
 **Выведенные размеры — «чтобы влезло», с провенансом в `dims_evidence.<ось>.source` (ADR-0310):** `role_prior` — глубина по роли
 и форме (`dim_prior.py`); `shape_rule:sphere` — ваза-шар (`dim_resolver.py:sphere_height`); `shape_rule:transformer` — трансформер

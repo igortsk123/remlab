@@ -198,3 +198,11 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-12	core/agent-trial.md	drift	31	4	4	T-20261112-42: воркер ≥2 тяжёлых; awaiting_check+size_check; uk_money; photo_ok; док целиком
 2026-11-12	core/apartment-configurator.md	drift	32	0	0	T-20261112-42: док целиком
 2026-11-12	core/layout.md	drift	22	2	2	T-20261112-42: реестр типов комнат room_registry; детская в bedroom_checks; док целиком
+2026-11-12	core/demo-scenarios.md	drift	35	4	4	T-20261112-42: frameItem только в 3D; Сделать фото; закрытые 2.23-2.32; шапка без Подробнее; док целиком
+2026-11-12	core/mesh-pool.md	drift	28	1	1	T-20261112-42: суд цены 24 ч при окне ≥8 ч; набор карт — настройка Salad (внешнее); док целиком
+2026-11-12	core/mesh-run.md	drift	18	1	1	T-20261112-42: автоволны wave_guard по wave-lease; док целиком
+2026-11-12	core/mesh-owner-audit.md	drift	30	2	2	T-20261112-42: enough_space после заливки; прополка 14 сут; док целиком
+2026-11-12	core/pipeline-order.md	drift	22	2	2	T-20261112-42: судья не в ночи; сторож изголовья при включённом банке; числа замера 11.10 — не код; док целиком
+2026-11-12	core/catalog.md	drift	27	2	2	T-20261112-42: якорь load3:main; vision кроме openai.off; док целиком
+2026-11-12	core/stock-and-dims.md	drift	18	1	1	T-20261112-42: стулья: d паспорта, сверенная мешом (room_bindings.effective_d); док целиком
+2026-11-12	core/demo-planner.md	drift	3	1	1	T-20261112-42: доп. к ночной: одна пара на все стили, cams_own — на стиль (demo-cams.mjs)

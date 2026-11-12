@@ -3,12 +3,12 @@ tier: 1
 topic: catalog
 scope: Каталог — загрузка из фидов/API, свежесть, сторожа
 tier2: "../domain/catalog-enrichment.md"
-updated: 2026-11-10
+updated: 2026-11-12
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-06
+last_verified: 2026-11-12
 review_after: 2026-12-05
 ---
 
@@ -29,7 +29,7 @@ API (`catalog_api_sync.py`, ежедневно, ADR-0239) — `charge`, пуст
 **Дельта (`load3.py:HASH_VERSION` = 10; смена правил `dim_resolver` — подъём, сторож `RULES_FINGERPRINT`):** text/geometry/image/attrs → `stale`
 (commercial и image_hd — только счётчики), смена контракта → baseline. Исчез → `missing`, 3 дня → `archived`; не удаляем.
 Порог «< 70 %» — по магазину против последнего успеха (`catalog_import_runs`).
-Карантин фидов — `feed_guard.py` (30–54 ч `degraded` грузится; `stale/broken/empty` — пропуск, `load3.py:404`). Обогащение `enrich.py --vision` — ежедневно, ≤200, сперва товары банков (`enrich.py:daily_pick`).
+Карантин фидов — `feed_guard.py` (30–54 ч `degraded` грузится; `stale/broken/empty` — пропуск, `load3.py:main`). Обогащение `enrich.py --vision` — ежедневно (кроме `openai.off`), ≤200, сперва товары банков (`enrich.py:daily_pick`).
 
 **Наличие и размеры честно** — [[stock-and-dims]]; там же категория без размеров — карантин, роль остаётся (ADR-0309, `dimless.py`).
 
