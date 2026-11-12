@@ -646,9 +646,13 @@ def _job(F: dict, room: str, seeds: list, job_of) -> tuple:
     return j, w
 
 
-def evaluate(e: dict, F: dict, sibs: list, room: str, job_of) -> dict:
-    """Строка спроса → {state, reason, job?, photo}. F — want_rows по sku и его вариантам семьи; sibs — варианты семьи."""
+def evaluate(e: dict, F: dict, sibs: list, room: str, job_of, own: bool = False) -> dict:
+    """Строка спроса → {state, reason, job?, photo}. F — want_rows по sku и его вариантам семьи; sibs — варианты семьи.
+    own — вариант семьи, отмеченный сторожем цвета (`colour_own`, как в `state_of`): меш представителя ему не годится, он
+    кандидат на СВОЙ меш — «меш у семьи есть» и «меш делается представителю» к нему не относятся (T-20261112-47/3)."""
     me = F.get(e['sku'])
+    if own and me:
+        me = dict(me, rep=None)
     res = {'state': None, 'reason': '', 'job': None, 'photo': None, 'job_sku': None}
     if not me or not me['in_room']:
         return dict(res, state='not_in_room', reason=f'нет в room_catalog ({room})')
@@ -703,8 +707,10 @@ def evaluate(e: dict, F: dict, sibs: list, room: str, job_of) -> dict:
                                             'семьи — нет в каталоге комнаты, негодно или уже с мешем')
 
 
-def want_demand(room: str, entries: list, price: float, fetch=None) -> dict:
-    """Спрос по вариантам витрины: строки → решения → задания по приоритету (без потолка — его режет commit/dry)."""
+def want_demand(room: str, entries: list, price: float, fetch=None, binds: dict | None = None) -> dict:
+    """Спрос по вариантам витрины: строки → решения → задания по приоритету (без потолка — его режет commit/dry).
+    binds — привязка {sku: строка} (`room_bindings.load_db`); по ней вариант, отмеченный сторожем цвета, остаётся СОБОЙ
+    (`colour_own`, как в спросе по слотам), а не уходит к представителю с мешем другого цвета."""
     import room_catalog as RC
     import room_mesh_jobs as RMJ
     fetch = fetch or __import__('catalog_items').fetch
@@ -714,12 +720,19 @@ def want_demand(room: str, entries: list, price: float, fetch=None) -> dict:
     E0 = [e for e in entries if e['room'] == room]
     if not E0:
         raise DemandError(f'спрос по вариантам: для комнаты {room} строк нет')
-    # вариант семьи мешей (другой цвет) → представитель: меш один на семью (как в спросе по слотам)
+    if binds is None:
+        import room_bindings as RB
+        binds, why = RB.load_db(fetch)
+        if binds is None:
+            raise DemandError(f'привязка не читается ({why}) — без неё не знаю, чей меш не годится по цвету')
+    own = {e['sku'] for e in E0 if colour_own(binds.get(e['sku']))}
+    # вариант семьи мешей (другой цвет) → представитель: меш один на семью (как в спросе по слотам); отмеченный сторожем
+    # цвета — нет: ему нужен свой меш
     r0 = want_rows(sorted({e['sku'] for e in E0}), room, fetch, mh)
     E1 = []
     for e in E0:
         rep = (r0.get(e['sku']) or {}).get('rep')
-        if rep and rep != e['sku']:
+        if rep and rep != e['sku'] and e['sku'] not in own:
             e = dict(e, sku=rep, shown=list(e.get('shown') or []) + [e['sku']],
                      note='; '.join(x for x in (e.get('note'), f"показан вариант {e['sku']} → представитель") if x))
         E1.append(e)
@@ -734,7 +747,7 @@ def want_demand(room: str, entries: list, price: float, fetch=None) -> dict:
     for e in E:
         rep = (F.get(e['sku']) or {}).get('rep') or e['sku']
         sibs = [x for x in S.get(rep, []) + ([rep] if rep != e['sku'] else []) if x != e['sku']]
-        r = evaluate(e, F, sibs, room, RMJ.job_of)
+        r = evaluate(e, F, sibs, room, RMJ.job_of, own=e['sku'] in own)
         if r['job'] and r['job_sku'] in taken:
             r = dict(r, state='not_job', reason=f'задание на {r["job_sku"]} уже есть в этом снимке', job=None)
         if r['job']:
@@ -1545,6 +1558,27 @@ def _selftest() -> int:
     r = ev('regen', {'1:x': card('1:x', verdict=None)})
     ok('в списке брака, но меша у семьи нет → первая генерация (ждёт вырезки, с пометкой)',
        r['state'] == 'wait_cut' and 'первая генерация' in r['reason'])
+    # T-20261112-47/3: оливковый вариант семьи при светлом меше представителя (сторож цвета) — кандидат на СВОЙ меш
+    fv = {'1:v': card('1:v', rep='1:r')}
+    r = evaluate({'sku': '1:v', 'why': 'empty'}, fv, [], 'bedroom', RMJ.job_of, own=True)
+    ok('вариант с отметкой сторожа цвета → задание на свой sku, не «меш делается представителю»',
+       r['state'] == 'job' and r['job_sku'] == '1:v'
+       and evaluate({'sku': '1:v', 'why': 'empty'}, fv, [], 'bedroom', RMJ.job_of)['state'] == 'not_job')
+
+    def fake_fetch(sql):
+        if 'mesh_family_rep in' in sql:
+            return []
+        rows = {'1:v': ('1:v', 'комод', 'Комод Оливковый', 93, 45, 87, 't', 't', 't', '1:r', 'sha-v', 'u-v', 'ok', None, None, 't', '.'),
+                '1:r': ('1:r', 'комод', 'Комод Светлый', 93, 45, 87, 't', 't', 't', '1:r', 'sha-r', 'u-r', 'ok', 'sha-r', 0, 't', '.')}
+        return [v for k, v in rows.items() if f"'{k}'" in sql]
+    olive = [{'room': 'bedroom', 'sku': '1:v', 'role': 'комод', 'why': 'empty', 'variants': ['v']}]
+    flag = {'1:v': {'status': 'blocked', 'via_family': True,
+                    'reasons': ['family_colour_mismatch:зелёный→светлый', 'mesh_color_mismatch:dL+6,dab8']}}
+    Wf = want_demand('bedroom', olive, 1.4, fetch=fake_fetch, binds=flag)
+    Wn = want_demand('bedroom', olive, 1.4, fetch=fake_fetch, binds={})
+    ok('спрос по вариантам: оливковый товар при светлом меше семьи → свой меш (job на 1:v), без отметки → «меш есть» у представителя',
+       [j['sku'] for j in Wf['jobs']] == ['1:v'] and Wf['rows'][0]['state'] == 'job'
+       and not Wn['jobs'] and Wn['rows'][0]['sku'] == '1:r' and Wn['rows'][0]['state'] == 'has_mesh')
     print(f'итог: {"OK" if not bad else f"FAIL {bad}"}')
     return 1 if bad else 0
 
