@@ -13,13 +13,13 @@
 | Файл | topic | Когда читать (scope) | Tier 2 | updated |
 |------|-------|----------------------|--------|---------|
 | `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — ключи, клиенты | `../domain/integrations.md` | 2026-11-12 |
-| `agent-trial.md` | agent-trial | Проба для агента недвижимости (UK) — лендинг, загрузка плана, задание, воркер DEV, конвейер стадий, тур /try под план | `../plans/MASTER-agent-trial.md` | 2026-11-12 |
+| `agent-trial.md` | agent-trial | Проба агента недвижимости (UK) — план, воркер, стадии, тур /try | `../plans/MASTER-agent-trial.md` | 2026-11-12 |
 | `apartment-configurator.md` | apartment-configurator | 3D-конфигуратор квартиры — что это, из чего собран, где детали | `../domain/flat3d-configurator.md` | 2026-11-12 |
 | `architecture.md` | architecture | Стек, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-11-12 |
 | `catalog.md` | catalog | Каталог — загрузка из фидов/API, свежесть, сторожа | `../domain/catalog-enrichment.md` | 2026-11-12 |
 | `data-model.md` | data-model | Схема БД, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-11-12 |
 | `demo-planner.md` | demo-planner | Демо-планировщик для партнёра — расстановка и кадр | `../domain/demo-planner-ui.md` | 2026-11-12 |
-| `demo-scenarios.md` | demo-scenarios | Сценарии демо /demo — карта кнопок «ожидание → факт», живые проверки, дефекты прогона и планы demo-01…03 | `../domain/demo-scenario-map.md` | 2026-11-12 |
+| `demo-scenarios.md` | demo-scenarios | Сценарии /demo — карта кнопок «ожидание → факт», живые проверки, дефекты | `../domain/demo-scenario-map.md` | 2026-11-12 |
 | `estimate.md` | estimate | Смета — калькуляторы, /go/ реф | `../domain/pricing-works-ru.md` | 2026-10-17 |
 | `furniture.md` | furniture | Мебель — сеты, визуализация | `../domain/viz-fidelity-playbook.md` | 2026-11-12 |
 | `goals.md` | goals | Цели v0.4 — сценарий, монетизация, порядок ступеней | `../plans/MASTER-cost-first.md` | 2026-10-19 |
@@ -41,13 +41,14 @@
 | `pipeline-order.md` | pipeline-order | Порядок конвейера — от фида до расстановки | `../domain/pipeline-order-details.md` | 2026-11-12 |
 | `regression-net.md` | regression-net | Регресс-защита — тесты, CI, гардрейлы | `../../docs/tech-spec-ts-stack.md` | 2026-11-12 |
 | `room-measurement.md` | room-measurement | Замер комнаты по фото | `../domain/room-measurement.md` | 2026-11-12 |
+| `room-templates.md` | room-templates | Шаблоны комнат — порядок создания, паспорт, листы в масштабе | `../domain/room-templates.md` | 2026-11-12 |
 | `stock-and-dims.md` | stock-and-dims | Наличие и честность размеров — состояния, парсер, footprint | `../domain/stock-and-dims.md` | 2026-11-12 |
 | `styles.md` | styles | Стили — паспорта, скоринг, сеты | `../domain/interior-styles.md` | 2026-11-12 |
 | `user-flow.md` | user-flow | Stage 1 UX-flow, аналитика | `../domain/user-flow-details.md` | 2026-11-12 |
-| `bedroom.md` | bedroom | Спальня — каталог, банк наборов, показ на /demo (с 06.11), детская; что дальше | `../domain/pipeline-order-details.md` | 2026-11-12 |
-| `design-figma.md` | design-figma | Дизайн демо в Фигме для дизайнера — книги, страницы, как пересобрать, что правлено руками | `../completed_plans/design-01-figma-export.md` | 2026-11-10 |
+| `bedroom.md` | bedroom | Спальня — каталог, банк наборов, показ на /demo, группы, детская | `../domain/pipeline-order-details.md` | 2026-11-12 |
+| `design-figma.md` | design-figma | Дизайн демо в Фигме — книги, страницы, пересборка, ручные правки | `../completed_plans/design-01-figma-export.md` | 2026-11-10 |
 | `lr-checklist.md` | lr-checklist | Состав гостиной — роли и пригодность | `../domain/living-room-checklist.md` | 2026-11-12 |
-| `onboarding-quiz.md` | onboarding-quiz | Опрос-знакомство на /demo — где показываем, правило подбора 3 стилей, события менеджеру и застройщику, матрица приёмки комнат | `../domain/onboarding-quiz.md` | 2026-11-12 |
+| `onboarding-quiz.md` | onboarding-quiz | Опрос-знакомство на /demo — показ, подбор 3 стилей, события, приёмка комнат | `../domain/onboarding-quiz.md` | 2026-11-12 |
 <!-- GENERATED:core-registry END -->
 
 > Реестр и decision tree в INDEX регенерирует `tools/memory-audit.mjs` (или `/memory-check`

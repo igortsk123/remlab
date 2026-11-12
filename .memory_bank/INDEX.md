@@ -12,13 +12,13 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт → реф-сме�
 | Задача (scope) | Tier 1 | Tier 2 |
 |----------------|--------|--------|
 | Интеграции/доступы — ключи, клиенты | `core/access-and-integrations.md` | `domain/integrations.md` |
-| Проба для агента недвижимости (UK) — лендинг, загрузка плана, задание, воркер DEV, конвейер стадий, тур /try под план | `core/agent-trial.md` | `plans/MASTER-agent-trial.md` |
+| Проба агента недвижимости (UK) — план, воркер, стадии, тур /try | `core/agent-trial.md` | `plans/MASTER-agent-trial.md` |
 | 3D-конфигуратор квартиры — что это, из чего собран, где детали | `core/apartment-configurator.md` | `domain/flat3d-configurator.md` |
 | Стек, модули, генерация, деплой — по коду | `core/architecture.md` | `../docs/tech-spec-ts-stack.md` |
 | Каталог — загрузка из фидов/API, свежесть, сторожа | `core/catalog.md` | `domain/catalog-enrichment.md` |
 | Схема БД, миграции, pgvector | `core/data-model.md` | `../docs/tech-spec-ts-stack.md` |
 | Демо-планировщик для партнёра — расстановка и кадр | `core/demo-planner.md` | `domain/demo-planner-ui.md` |
-| Сценарии демо /demo — карта кнопок «ожидание → факт», живые проверки, дефекты прогона и планы demo-01…03 | `core/demo-scenarios.md` | `domain/demo-scenario-map.md` |
+| Сценарии /demo — карта кнопок «ожидание → факт», живые проверки, дефекты | `core/demo-scenarios.md` | `domain/demo-scenario-map.md` |
 | Деплой/откат/сервер exit-fi | `deployment.md` | `domain/deployment-details.md` |
 | Смета — калькуляторы, /go/ реф | `core/estimate.md` | `domain/pricing-works-ru.md` |
 | Мебель — сеты, визуализация | `core/furniture.md` | `domain/viz-fidelity-playbook.md` |
@@ -42,13 +42,14 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт → реф-сме�
 | Бизнес-контекст — кто, зачем, как зарабатываем | `product_brief.md` | `domain/brief-details.md` |
 | Регресс-защита — тесты, CI, гардрейлы | `core/regression-net.md` | `../docs/tech-spec-ts-stack.md` |
 | Замер комнаты по фото | `core/room-measurement.md` | `domain/room-measurement.md` |
+| Шаблоны комнат — порядок создания, паспорт, листы в масштабе | `core/room-templates.md` | `domain/room-templates.md` |
 | Наличие и честность размеров — состояния, парсер, footprint | `core/stock-and-dims.md` | `domain/stock-and-dims.md` |
 | Стили — паспорта, скоринг, сеты | `core/styles.md` | `domain/interior-styles.md` |
 | Stage 1 UX-flow, аналитика | `core/user-flow.md` | `domain/user-flow-details.md` |
-| Спальня — каталог, банк наборов, показ на /demo (с 06.11), детская; что дальше | `core/bedroom.md` | `domain/pipeline-order-details.md` |
-| Дизайн демо в Фигме для дизайнера — книги, страницы, как пересобрать, что правлено руками | `core/design-figma.md` | `completed_plans/design-01-figma-export.md` |
+| Спальня — каталог, банк наборов, показ на /demo, группы, детская | `core/bedroom.md` | `domain/pipeline-order-details.md` |
+| Дизайн демо в Фигме — книги, страницы, пересборка, ручные правки | `core/design-figma.md` | `completed_plans/design-01-figma-export.md` |
 | Состав гостиной — роли и пригодность | `core/lr-checklist.md` | `domain/living-room-checklist.md` |
-| Опрос-знакомство на /demo — где показываем, правило подбора 3 стилей, события менеджеру и застройщику, матрица приёмки комнат | `core/onboarding-quiz.md` | `domain/onboarding-quiz.md` |
+| Опрос-знакомство на /demo — показ, подбор 3 стилей, события, приёмка комнат | `core/onboarding-quiz.md` | `domain/onboarding-quiz.md` |
 <!-- GENERATED:decision-tree END -->
 
 ## Always-on docs (Tier 0/1)

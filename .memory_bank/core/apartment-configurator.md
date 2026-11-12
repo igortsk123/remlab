@@ -17,8 +17,7 @@ review_after: 2026-12-28
 **05.11:** основной сценарий — `/demo` со шторкой; `/flat` не в ходу, его мост строит 3D `/demo` — [[flat3d-configurator]].
 
 **Что это:** `/flat` — покупатель ходит по квартире в 3D и собирает её:
-пол, кухня с техникой, плитка санузла, стены, мебель. Видит сумму в валюте застройщика и строку
-сертификата, сохраняет подбор ссылкой. Вход — `?coll=`, `?s=`, `?c=`. Квартира — из реестра застройщиков
+пол, кухня с техникой, плитка санузла, стены, мебель. Видит сумму и строку сертификата, сохраняет подбор ссылкой. Вход — `?coll=`, `?s=`, `?c=`. Квартира — из реестра застройщиков
 [[partners]] через одну точку `lib/configurator/source.ts` (ADR-0258).
 
 **Работа (ADR-0221/0224):** 3D на весь экран, выбор — полосой внизу (`components/flat3d/BuildBar.tsx`).
@@ -27,7 +26,7 @@ review_after: 2026-12-28
 
 **Мебель /flat:** сдвиг, поворот 15°, стулья группой (ADR-0227, 0230).
 **Из чего собрано** (Tier 2): ядро — `contracts/apartment.ts`, `lib/configurator/resolve.ts`; сцена — `lib/viewer3d/*`;
-сохранение — `flat_configs`; вход с витрины — `lib/configurator/fromDemo.ts` (`?demo=<вариант>&flat=<квартира>`).
+сохранение — `flat_configs`; вход с витрины — `lib/configurator/fromDemo.ts` (`?demo=&flat=`).
 
 **Общий движок с демо (ADR-0288):** `lib/viewer3d` собирается и бандлом для `/demo` (`demo-scene.ts`); предмет = опора
 + модель (сдвиг без пересоздания), фото-поза = серверная камера (`viewer.ts:photoRay`).
@@ -36,7 +35,7 @@ review_after: 2026-12-28
 **С 16.10 (demo-06/07, ADR-0297/0298):** пол и стены витрины — опции места из группы застройщика (`source.floorChoiceOf`,
 `source.finishChoiceOf(hit,"wall")`, `?opt=`), итоги `totals.bySettlement`/`byBudget` (ADR-0308); UK-двойник — курс × маска (ADR-0328, `demo-mask.ts`) — Tier 2.
 **С 11–12.11:** свет F + шторы (ADR-0367), пол CC0 (ADR-0365, `data/flat3d/floor-scans.json`), картины (ADR-0366,
-`lib/configurator/wall-art.ts`); прогулка `lib/viewer3d/walk-motion.ts`; «Переместить» как в Sims, поворот 90° (ADR-0378);
+`lib/configurator/wall-art.ts`); прогулка `lib/viewer3d/walk-motion.ts` (и телефон касанием — `lib/viewer3d/walk-aim.ts`, ADR-0387); «Переместить» как в Sims, поворот 90° (ADR-0378);
 двери и ковёр — `lib/viewer3d/opening-ir.ts`, `lib/viewer3d/kits/bedroom.ts:buildRug` — Tier 2 § «Движок сцены 3D».
 **Нет:** маски перекраски, лайтмапов, косых комнат. **Открыто:** `furniture.json`; кухня (`lib/viewer3d/kits/kitchen.ts`) на паузе (08.11).
 

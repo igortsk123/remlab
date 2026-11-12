@@ -143,8 +143,17 @@ TG 331: ссылка агента — «посмотреть какой-то в�
   `~/remlab-logs/regress-cache/` (ключ — весь код снимка + входы + окружение, урок 606).
 - **Правка агентом (ADR-0373):** комнаты — `db/init/028-trial-room-edits.sql`, `tools/floorplan/room_edits.py` (площадь sx·sy, `_scaled`;
   спальни переиспользуются по отпечатку); проёмы — `029-trial-opening-edits.sql`, `tools/floorplan/opening_edits.py` (пересобирает комнаты,
-  чья стена ≤ 60 см от центра правки); черновики и «Подтвердить планировку» — раздел выше. Две створки — только при ширине > 120 см
-  (`tools/scout/rules/trial-room.json:double_door_min_cm`).
+  чья стена ≤ 60 см от центра правки); черновики и «Подтвердить планировку» — раздел выше. Две створки — только у НАРУЖНОГО проёма шире
+  120 см (`tools/scout/rules/trial-room.json:double_door_min_cm`); внутренняя дверь шире `wide_inner_door_cm` 120 → портал-проём
+  `wide_inner_gap_cm` 90 (`tools/scout/trial_room.py:_place_opening`), стык частей одной комнаты — без перемычки (пометка `trial_room.py:mark_junctions`,
+  вырез — `lib/viewer3d/opening-ir.ts:openingIR`; за порталом — `trial_room.py:portal_stubs`; T-41, ADR-0388).
+- **Ссылка покупателя (T-40, ADR-0386):** у задания с ключом агента (`trial_jobs.edit_key_hash`; старые без ключа открыты) без `k` тур закрыт,
+  пока агент не нажал «Подтвердить планировку» (строка `trial_rebuilds` `kind='edit'` с `progress @> '{"confirm": true}'`) —
+  `lib/trial/buyer-gate.ts`; воркер DEV проходит по Bearer. До того — заглушка `lib/trial/tour-stub.ts` («Ссылка не активирована, обратитесь
+  к вашему менеджеру», `lib/trial/i18n.ts`); cookie `trial_tk` (пропуск, не ключ) открывает только данные, не страницу.
+- **Пунктир и «≈» на плане:** пунктир — форма комнаты приблизительная (`roomApprox`, `tools/scout/flat215-demo/index.html`; флаг — ядро заметно
+  меньше контура или площадь разошлась с подписью листа, `tools/scout/trial_bundle.py`); «≈» в названии — ещё и при неподтверждённом масштабе
+  (`roomConsent`).
 - **«Перечитать» (ADR-0377):** `031-trial-reparse.sql`, `tools/floorplan/conveyor.py:Reparse`, одобрения `reparse-approve/<id>.json`;
   ограничение вида пересборки — `trial_rebuilds_kind_chk`. 11.11: 11 из 15 туров перечитаны, 4 остановил сторож (двери en-suite ±1).
 - **Наполнение (ADR-0372):** `trial_bundle.py:catalog_goods`, `uk_money`, `feeds_for` (ленты /demo по месту), `free_place`; плитки — ночной шаг
@@ -160,7 +169,7 @@ TG 331: ссылка агента — «посмотреть какой-то в�
   `systemctl --user restart remlab-trial-worker` при пустой очереди (урок 608). Публикация /demo кладёт `.br`/`.gz` рядом
   (`tools/scout/precompress.mjs`), Caddy `precompressed br gzip`.
 - **Открыто (12.11):** «Этажи» `aOv8kTVEKMgu2H6iD6UIJg` — балкон придёт после «Перечитать»; дверь Спальни 1 не распознана (no_entry);
-  кухня-гостиная (ADR-0382) не начата; «OCR первым» (ADR-0383) не сделан; наружные остеклённые двери 119 см рисуются парой.
+  кухня-гостиная (ADR-0382) не начата; «OCR первым» (ADR-0383) не сделан; наружные остеклённые двери 119 см на листе парой, а по коду выходят одной створкой (пара — только > 120 см).
 
 ## Скоуп — НЕ входит
 Оплата/тарифы для агентов (решение человека), личный кабинет, CRM-интеграции агентств, генерация новых мешей на лету, юр. тексты (TODO).

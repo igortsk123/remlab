@@ -246,3 +246,12 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-12	domain/integrations.md	drift	94	11	11	T-20261112-42: две части + досверка помощником (Гдеслон: search.xml gdeslon_api.py:26, link_routes 004-estimates.sql, direct_url load3; pipeline2/viz_frame свой .env первым; openai_vision_name не вызывается); 11 исправлено; не найдено — только внешнее (кабинеты, кредиты, сессия Codex)
 2026-11-12	domain/occupancy-rules.md	drift	56	7	7	T-20261112-42: три части; прихожая HALL_ROOM_NARROW, детская только 7-12, движок beam, статус дыр 12.11, диван↔столик фикс-вилка, ТВ от диагонали тумбы
 2026-11-12	domain/catalog-enrichment.md	drift	136	17	17	T-20261112-42: три части; pgvector вне каталога, enrich daily_pick/limit, imgcache, category_map порядок, style_rules без генератора, ROLE_MAX_CM, тв-тумба 0.62, in_stock TRUTH_SQL, rug_kids после каталогов комнат; не найдено — только сайт/сервер
+2026-11-12	.memory_bank/domain/flat3d-configurator.md	code	27	2	2	
+2026-11-12	.memory_bank/plans/MASTER-agent-trial.md	code	10	3	3	
+2026-11-12	.memory_bank/domain/demo-planner-ui.md	code	17	0	0	
+2026-11-12	.memory_bank/core/agent-trial.md	code	27	1	1	
+2026-11-12	.memory_bank/core/bedroom.md	code	21	1	1	
+2026-11-12	.memory_bank/core/demo-planner.md	code	18	0	0	
+2026-11-12	.memory_bank/core/room-templates.md	code	8	0	0	
+2026-11-12	.memory_bank/domain/room-templates.md	code	16	2	2	
+2026-11-12	.memory_bank/core/apartment-configurator.md	code	17	0	0	

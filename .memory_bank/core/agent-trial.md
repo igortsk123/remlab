@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: agent-trial
-scope: Проба для агента недвижимости (UK) — лендинг, загрузка плана, задание, воркер DEV, конвейер стадий, тур /try под план
+scope: Проба агента недвижимости (UK) — план, воркер, стадии, тур /try
 tier2: "../plans/MASTER-agent-trial.md"
 updated: 2026-11-12
 importance: high
@@ -14,7 +14,7 @@ review_after: 2026-12-10
 
 # Проба агента — Tier 1
 
-План (+ объявление) → ссылка; стены → комнаты → гостиная и спальни → фото. Итог — `/demo` под план (ADR-0372).
+План (+ объявление) → стены → комнаты → гостиная и спальни → фото; итог — `/demo` под план (ADR-0372).
 
 ## По коду
 - **Задание:** `app/try/page.tsx` → `POST /api/trial` → `trial_jobs` (`db/init/022-trial-jobs.sql` … 032);
@@ -26,14 +26,14 @@ review_after: 2026-12-10
 - **Стадии:** `tools/floorplan/conveyor.py` — v1 → гостиная `tools/scout/trial_demo.py` → спальни `tools/scout/trial_bedroom.py`; данные —
   `tools/scout/trial_bundle.py`. Не подтверждён масштаб или размер комнаты — `awaiting_check` (`trial_bundle.py:size_check`), «Обустроить» — `conveyor.Rebuild`.
 - **Тур:** `app/try/[id]/tour/[[...path]]/route.ts`; витрина закреплена (`lib/trial/tour-bundle.ts:ensureJobRelease`) — правки
-  страницы — после публикации демо и `tools/floorplan/reissue.py`; кэш — `lib/trial/tour-cache.ts`.
-- **Скорость (ADR-0376):** ракурсы на сервере (`tools/scout/cams_par.py`, `trial_bundle.py:add_cams`); снимки карточек —
-  `tools/floorplan/cards.py` → `POST /api/trial/worker/cards`, страница — `lib/trial/tour-cards.ts`.
-- **Товары и ленты:** `trial_bundle.py:catalog_goods`, `tools/scout/demo_feeds.py`; EN — £ = ₽ × курс × 1,5 (`trial_bundle.py:uk_money`), без магазина.
+  страницы — после публикации демо и `tools/floorplan/reissue.py`. Ссылка покупателя (без `k`) закрыта до «Подтвердить планировку» —
+  `lib/trial/buyer-gate.ts` (ADR-0386). Широкий внутренний проём — портал (ADR-0388).
+- **Скорость (ADR-0376):** ракурсы на сервере (`tools/scout/cams_par.py`); карточки — `tools/floorplan/cards.py`.
+- **Товары:** `trial_bundle.py:catalog_goods`; EN — £ = ₽ × курс × 1,5 (`trial_bundle.py:uk_money`).
 - **Правка агентом (ссылка с `k`, ADR-0373):** комнаты — `tools/floorplan/room_edits.py` (площадь sx·sy, `_scaled`), проёмы —
   `tools/floorplan/opening_edits.py`; черновики — `lib/trial/repo-draft.ts`, один пересчёт — `lib/trial/repo-confirm.ts`.
 - **Перечитать (ADR-0377):** `conveyor.py:Reparse`, сторож регресса, тот же адрес.
-- **Фото:** `trial_bundle.py:photo_ok` — обставленная гостиная/спальня и `user_dims` или проверенный масштаб без флага
+- **Фото:** `trial_bundle.py:photo_ok` — обставленная гостиная/спальня и `user_dims` или масштаб `verified`/`listing` без флага
   размера и не «как есть»; ≤ 10 на задание за 24 ч (`lib/trial/repo-photo.ts`).
 
 Детали — Tier 2 § «Устройство 10–12.11»; уроки — `lessons/floorplan-trial.md`.

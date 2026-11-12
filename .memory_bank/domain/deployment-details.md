@@ -82,7 +82,9 @@ remlab-app:prev` не срабатывала ни разу — сервер тя
   `systemctl disable --now`; юниты — `infra/server/systemd/`.
 - **Диск и очистка (ADR-0005/0176):** `remlab-cleanup` weekly + из CI (теги `remlab-app:*` кроме
   используемых, под flock); `pg_dump` ×7; `remlab-watchdog.timer` ежечасно: ≥80% → cleanup →
-  Telegram; рестарты `remlab-app` → `backups/app-mem.log`.
+  Telegram; рестарты `remlab-app` → `backups/app-mem.log`. Системный журнал прода ограничен 1 ГБ
+  (`/etc/systemd/journald.conf.d/remlab-size.conf`, 12.11, вне репо: рос до 3,6 ГБ, свободное упало до 6,9 ГБ < ворот волн мешей 7 ГБ
+  `tools/scout/salad/sink_health.py:verdict` — волны 18 ч не стартовали, урок 630).
 - Скрипты `infra/server/*` деплой везёт по списку в `deploy.yml` (тот же список — `deploy.sh`), с 20.10 (T-20261020-02)
   в нём и `infra/server/db-backup.sh`, и `infra/server/scripts/catalog-watchdog.sh`; сторож `tests/unit/deploy-scripts.test.ts` — каждый
   `ExecStart=/opt/remlab/scripts/<файл>` из `infra/server/systemd/*.service` обязан быть в scp и `chmod +x` обоих списков.
