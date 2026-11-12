@@ -77,6 +77,11 @@ RESERVE_FILE = os.environ.get('ROOM_MESH_RESERVE') or os.path.expanduser('~/scou
 LEASE_FILE = os.environ.get('ROOM_MESH_LEASE') or os.path.expanduser('~/scout-scenes/wave-lease.json')   # = salad/wave_guard.LEASE
 WANT_FILE = os.path.join(HERE, 'rules', 'room-mesh-want.json')
 LIVING = ('living', 'living_room', 'гостиная')
+# ПРЕДУПРЕЖДЕНИЕ НА 80 % (владелец 12.11, TG 1167): факт + удержание открытых волн (как `ledger`, без резерва снимков) ≥ доли
+# потолка → строка `WARN:room_mesh_budget:` (дайджест ночи, шаг `room_mesh_budget` в refresh_daily.sh) и тревога `alert.sh`
+# не чаще раза в сутки (метка с датой UTC). 100 % — как раньше: снимок режется до остатка (`cut_budget`), волна не стартует.
+WARN_SHARE = 0.8
+WARN_STAMP = os.environ.get('ROOM_MESH_WARN_STAMP') or os.path.expanduser('~/scout-scenes/room-mesh-budget-warn.json')
 
 
 class DemandError(Exception):
@@ -460,6 +465,45 @@ def ledger_text(L: dict) -> str:
     if pre:
         s += f" До начала учёта (не в счёт): {len(pre)} волн, {sum(r['rub'] for r in pre):g} ₽."
     return s
+
+
+def _alert_sh(text: str) -> int:
+    import subprocess
+    return subprocess.run(['bash', os.path.join(HERE, 'alert.sh'), text], check=False).returncode
+
+
+def budget_warn(L: dict, stamp_path: str | None = None, alert=None, today: str | None = None) -> str | None:
+    """Потрачено + удержано (`ledger`: spent + held) ≥ WARN_SHARE потолка → печатает строку WARN (её берёт дайджест) и, если
+    сегодня (UTC) тревоги ещё не было, шлёт `alert.sh` и пишет метку {date, used, total, rc}. Код alert.sh ≠ 0 (TG не ответил
+    или не настроен) — второй строкой WARN, метку всё равно пишем: «не чаще раза в сутки» важнее повторов. → строка WARN или None."""
+    used, total = round(L['spent'] + L['held'], 2), float(L['total'])
+    if total <= 0 or used < WARN_SHARE * total:
+        return None
+    pct = round(100 * used / total)
+    line = (f"WARN:room_mesh_budget: меши комнат — потрачено и удержано {used:g} из {total:g} ₽ ({pct} %), остаток "
+            f"{L['left']:g} ₽; на 100 % снимки режутся до остатка и волны встают")
+    print(line, flush=True)
+    stamp_path = stamp_path or WARN_STAMP
+    day = today or datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
+    try:
+        last = json.load(open(stamp_path, encoding='utf-8')).get('date')
+    except FileNotFoundError:
+        last = None
+    except ValueError as e:                             # битая метка — тревогу шлём (громче лучше тишины), метку перепишем
+        print(f'WARN:room_mesh_budget_stamp: метка {stamp_path} битая ({e}) — пишу заново', flush=True)
+        last = None
+    if last == day:
+        return line
+    rc = (alert or _alert_sh)(f"remlab: деньги мешей комнат — {pct} % потолка ({used:g} из {total:g} ₽), остаток {L['left']:g} ₽. "
+                              f"На 100 % волны комнат встанут: поднять потолок или ждать.")
+    if rc != 0:
+        print(f'WARN:room_mesh_budget_alert: alert.sh вернул {rc} (1 — TG не ответил, 2 — не настроен)', flush=True)
+    os.makedirs(os.path.dirname(os.path.abspath(stamp_path)), exist_ok=True)
+    tmp = stamp_path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump({'date': day, 'used': used, 'total': total, 'pct': pct, 'rc': rc}, f, ensure_ascii=False)
+    os.replace(tmp, stamp_path)
+    return line
 
 
 def commit_snapshot(jobs: list, out: str, room: str, price: float, meta: dict, total: float = BUDGET_RUB,
@@ -1311,6 +1355,26 @@ def _selftest() -> int:
     except DemandError:
         ok('битое разрешение — отказ, а не «остаток 500»', True)
     globals()['LEASE_FILE'] = lease_keep
+    # ---- предупреждение на 80 % (владелец TG 1167): заглушка тревоги, метка во временной папке, настоящий TG не трогаем
+    sent, stamp = [], os.path.join(tmpd, 'warn.json')
+    fake = lambda text: sent.append(text) or 0  # noqa: E731
+    Lw = lambda used: {'total': 1000.0, 'spent': used - 100.0, 'held': 100.0, 'left': 1000.0 - used}  # noqa: E731
+    ok('799 из 1000 ₽ — тихо: ни WARN, ни тревоги, ни метки',
+       budget_warn(Lw(799.0), stamp, fake, '2026-11-12') is None and not sent and not os.path.exists(stamp))
+    w1 = budget_warn(Lw(800.0), stamp, fake, '2026-11-12')
+    ok('800 из 1000 ₽ (факт + удержание) — WARN и одна тревога, метка с датой',
+       bool(w1) and w1.startswith('WARN:room_mesh_budget:') and len(sent) == 1 and '80 %' in sent[0]
+       and json.load(open(stamp, encoding='utf-8'))['date'] == '2026-11-12')
+    w2 = budget_warn(Lw(850.0), stamp, fake, '2026-11-12')
+    ok('повтор в тот же день — WARN есть, тревоги нет', bool(w2) and len(sent) == 1)
+    budget_warn(Lw(850.0), stamp, fake, '2026-11-13')
+    ok('на следующий день — тревога снова (одна)', len(sent) == 2)
+    ok('резерв снимков в 80 % не входит (только факт + удержание)',
+       budget_warn({'total': 1000.0, 'spent': 500.0, 'held': 200.0, 'reserved': 300.0, 'left': 0.0}, stamp, fake, '2026-11-14') is None)
+    bad_rc = []
+    budget_warn(Lw(900.0), os.path.join(tmpd, 'warn2.json'), lambda t: bad_rc.append(t) or 1, '2026-11-12')
+    ok('alert.sh вернул 1 — метка всё равно записана (не чаще раза в сутки)',
+       json.load(open(os.path.join(tmpd, 'warn2.json'), encoding='utf-8'))['rc'] == 1 and len(bad_rc) == 1)
     shutil.rmtree(tmpd, ignore_errors=True)
 
     # ---- квота 30 на (комната × стиль) с долями ролей (T-20261106-82/2): один меш — всем строкам, где он кандидат
@@ -1494,11 +1558,18 @@ def main(a: list) -> int:
     if '--release' in a:
         release(arg('--release'))
         print(f'резерв снят: {arg("--release")}')
-        print(ledger_text(ledger(total, since)))
-        return 0
-    if '--ledger' in a:
         L = ledger(total, since)
         print(ledger_text(L))
+        budget_warn(L)
+        return 0
+    if '--ledger' in a:
+        try:
+            L = ledger(total, since)
+        except DemandError as e:
+            print(f'ОТКАЗ: {e}', flush=True)
+            return 2
+        print(ledger_text(L))
+        budget_warn(L)
         for r in L['rows']:
             at = r['at'] if isinstance(r['at'], str) else __import__('time').strftime('%Y-%m-%d %H:%M', __import__('time').gmtime(r['at']))
             print(f"  {at:<16}  {r['kind']:<34} {r['room'] or '?':<8} {r['rub']:>7.1f} ₽  {r['snapshot']}")
@@ -1517,6 +1588,7 @@ def main(a: list) -> int:
         print(f'ОТКАЗ: {e}', flush=True)
         return 2
     print(ledger_text(L))
+    budget_warn(L)
     if not dry:
         fit, over, L = commit_snapshot(D['jobs'], out, room, price, {
             'source': f"room_mesh_demand:{room}", 'demand': {'k': D['k'], 'bank': D['bank'], 'binding_snapshot': D['snapshot']}},
@@ -1562,6 +1634,7 @@ def main_want(a: list, arg, room: str, total: float, since: str, price: float, o
     except (DemandError, OSError, KeyError, ValueError) as e:
         print(f'ОТКАЗ: {e}', flush=True)
         return 2
+    budget_warn(L)
     if dry:
         fit, over = cut_budget(W['jobs'], L['left'], price)
     else:

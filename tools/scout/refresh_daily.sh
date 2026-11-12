@@ -592,6 +592,8 @@ room_digest "прихожая (банк)" привязка=room_bindings сбо�
 step demo_band "$PY" demo_band.py --report
 [ -n "${DEMAND_READY:-}" ] && mesh_demand_ready load3 stock_check pool_photos capabilities mesh_family_early mesh_bind_early \
   bank_pending room_bindings demo_band
+# деньги мешей комнат (владелец 12.11, TG 1167): ≥ 80 % потолка → WARN в сводку и тревога alert.sh раз в сутки (room_mesh_demand.budget_warn)
+step room_mesh_budget "$PY" room_mesh_demand.py --ledger
 # меши комнат — на прод вместе с гостиной (`room_publish.py`), только комнаты с `rooms.<комната>.publish` (live|next); пусто — как прежде
 ROOM_PUB=$("$PY" room_bank_spec.py --publish 2>/dev/null || true)
 if [ -n "$ROOM_PUB" ]; then step mesh_publish env ROOM_PUBLISH="$ROOM_PUB" "$PY" mesh_publish.py
