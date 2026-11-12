@@ -5604,6 +5604,14 @@ function decorList(){
 // (`rules.soft_roles` ← `asset_strategy.soft_roles`); сцена (`liveDecor`) и план (`tableDecor`) их не берут
 const SOFT_DEF=['плед','подушка','покрывало','полка','шторы'];
 function isSoft(role){ return (((D&&D.rules)||{}).soft_roles||SOFT_DEF).includes(String(role||'').replace(/\s+\d+$/,'')); }
+// ШТОРЫ И ПЛЕД — УСЛОВНО, ЦВЕТОМ ТОВАРА (T-20261112-74, владелец TG 953): у строки с местом и цветом СВОЕГО товара (`textile_abstract.py`)
+// в 3D простая форма с ценой и карточкой «вид условный»; замена товара в списке — снова только список (цвета новой нет). То же правило —
+// `lib/configurator/textile.ts:isTextileDecor`; расходиться нельзя: по нему же номера мест сцены (`vwItemAt`)
+function isCloth3d(x){ const p=x&&x.place, l=x&&x.look, k=(x&&x.sku)||{};
+  return !!x&&!x.list_only&&x.strategy==='textile_abstract'&&!!k.name&&!!p&&(p.kind==='curtain'||p.kind==='throw')&&!!l&&/^#[0-9a-fA-F]{6}$/.test(l.hex||'')
+    &&l.of===String(k.sid||k.name||'')&&[p.x,p.y,p.elev_cm].every(Number.isFinite)&&(p.kind!=='curtain'||Number.isInteger(p.opening)); }
+// в живую сцену: без мягкого (кроме условной ткани) и без «только в списке»
+function in3dDecor(x){ return !!x&&!x.list_only&&(!isSoft(x.role)||isCloth3d(x)); }
 // КАРТИНА (viz-decor-01 шаг 3, T-20261112-26): товар каталога в декоре варианта (`wall_art.py`), висит на стене над кроватью,
 // иначе диваном, иначе комодом — место считает живая сцена от текущей опоры (`lib/configurator/wall-art.ts`); на столешницу не идёт
 function isWallArt(x){ return !!x&&(x.strategy==='procedural_plane'||String(x.role||'').replace(/\s+\d+$/,'')==='картина'); }
@@ -5629,7 +5637,7 @@ function decorRows(){
       (p.img?`<img src="${p.img}" loading="lazy" alt="">`:'<div class="noimg-sm">нет фото</div>')+
       // роль — без номера слота («подушка 2» → «подушка», ведущий 23.10); мягкое — без пометки (владелец 23.10: вариант и так
       // открывается улучшенным фото, подушки там видны; подсказка — только тостом при замене, `softSwapToast`)
-      `<div class="t"><b>${itemName(p,x.role)}</b><span>`+(isSoft(x.role)?baseRole(x.role):`${baseRole(x.role)} · ${decorWhere(x)}`)+
+      `<div class="t"><b>${itemName(p,x.role)}</b><span>`+(isSoft(x.role)&&!isCloth3d(x)?baseRole(x.role):`${baseRole(x.role)} · ${decorWhere(x)}`)+
       (itemShop(p)?' · '+itemShop(p):'')+(p.basis&&p.basis!=='page'?' · <i title="наличие по данным магазина, карточка не проверена">наличие не проверено</i>':'')+`</span>`+
       `</div><div class="p">${money(p.price)}</div>`+
       // действия — своей строкой под фото и текстом (`.row>.acts`, demo-26 Г)
@@ -5680,6 +5688,7 @@ function decorSupport(){
   return null;
 }
 function decorWhere(x){
+  if(isCloth3d(x))return x.place.kind==='curtain'?'у окна, вид условный':'на подлокотнике дивана, вид условный';   // T-74
   if(x&&isSoft(x.role))return '';                 // мягкому места в 3D нет — и подписи «куда встанет» тоже (demo-24)
   if(x&&x.strategy==='ceiling_over')return 'на потолке над зоной отдыха';   // люстра (T-66): место считает сцена, `ceiling.ts`
   if(isWallArt(x)){                               // опора — из расчёта сцены; движок ещё не пришёл — без выдуманной опоры
@@ -7039,7 +7048,7 @@ async function trHomeShot(v){
   // `dispose` растянуло его до 5–48 с в одной задаче). Сцена живёт столько же, сколько раньше
   await bgQuiet();
   const cv=document.createElement('canvas'); cv.width=1024; cv.height=723;
-  const decor=clone(((v.decor)||[]).filter(x=>!isSoft(x.role)&&!x.list_only));   // как `liveDecor`
+  const decor=clone(((v.decor)||[]).filter(in3dDecor));   // как `liveDecor`
   // пол и стены — отделка застройщика, как в окне (`liveEngine`): снимок на карточке = то, что откроется в 3D, и те же адреса текстур в кэше
   const sc=M.createDemoScene(cv,{room, items:its, decor, base:location.href, runtimeMeshes:rt, lite:isTouchUI(), walk:false,
     floor:devFloor()||undefined, wall:devWall()||undefined});
@@ -7083,7 +7092,7 @@ async function homePre3d(v){
   const soft=liveSoftGL(); if(soft&&!LIVE.force)return;
   let urls;
   try{ const room=roomOf(v), M=await sceneModule(); if(!room||!M.sceneAssetUrls)return;
-    const a=M.sceneAssetUrls({room, items:clone(variantItems(v)), decor:clone((v.decor||[]).filter(x=>!isSoft(x.role)&&!x.list_only)),
+    const a=M.sceneAssetUrls({room, items:clone(variantItems(v)), decor:clone((v.decor||[]).filter(in3dDecor)),
       base:location.href, runtimeMeshes:await rtMeshes(), lite:isTouchUI()||soft, floor:devFloor()||undefined, wall:devWall()||undefined});
     urls=[...a.shell, ...a.meshes]; }
   catch(e){ return; }
@@ -10152,13 +10161,13 @@ function vwItemAt(i){
   if(i==null||i<0)return null;
   if(i<items.length)return items[i]||null;
   const ds=(allVariants()[cur]||{}).decor||[]; let k=i-items.length;
-  for(let j=0;j<ds.length;j++){const x=ds[j]; if(isSoft(x.role)||x.list_only)continue; if(!k--)return decorSel(j);}
+  for(let j=0;j<ds.length;j++){const x=ds[j]; if(!in3dDecor(x))continue; if(!k--)return decorSel(j);}
   return null;
 }
 // обратное: номер декора варианта (`v.decor`) → номер в сцене; -1 — в 3D его нет (мягкое, «только в списке»)
 function vwDecIndex(j){
-  const ds=(allVariants()[cur]||{}).decor||[], x=ds[j]; if(!x||isSoft(x.role)||x.list_only)return -1;
-  let k=0; for(let n=0;n<j;n++)if(!isSoft(ds[n].role)&&!ds[n].list_only)k++;
+  const ds=(allVariants()[cur]||{}).decor||[], x=ds[j]; if(!in3dDecor(x))return -1;
+  let k=0; for(let n=0;n<j;n++)if(in3dDecor(ds[n]))k++;
   return items.length+k;
 }
 // картина-товар на сцене (номер как у `vwItemAt`) → номер в декоре варианта; не картина — -1. Её «✥» ведёт по стене (T-97)
@@ -10354,7 +10363,9 @@ function vwRotPlace(box, fr, pad0, kept, all, hit, underHint, pr){
     return !(r.left<fr.left+pad||r.right>fr.right-pad||r.top<fr.top+pad||r.bottom>fr.bottom-pad||PINS.busy.some(o=>hit(r,o))||kept.some(k=>hit(r,k))
       ||(underHint&&underHint(r)))&&r;};
   if(!p||!p.visible){vwRotHide(); return null;}
-  const b=vwActsNode(box), v=b.firstElementChild, dims=+it.w>0&&+it.d>0&&+it.h>0, can=vwCanRot(it), mv=can||vwArtJ(i)>=0, cost=pr?money(pr):'';
+  // штора и плед (T-74): вместо размеров — пометка «вид условный» (форма не по фото товара)
+  const cloth=it.dec!==undefined&&isCloth3d(((allVariants()[cur]||{}).decor||[])[it.dec]);
+  const b=vwActsNode(box), v=b.firstElementChild, dims=cloth||+it.w>0&&+it.d>0&&+it.h>0, can=vwCanRot(it), mv=can||vwArtJ(i)>=0, cost=pr?money(pr):'';
   const rep=!!vwRepBtn(it), cls=[!can,!mv,!dims,!cost,!rep].join();
   if(b._cls!==cls){b._cls=cls; b._w=0;
     b.classList.toggle('vnorot',!can); b.classList.toggle('vnomove',!mv); b.classList.toggle('vnodims',!dims); b.classList.toggle('vnocost',!cost); b.classList.toggle('vnorep',!rep);}
@@ -10364,7 +10375,7 @@ function vwRotPlace(box, fr, pad0, kept, all, hit, underHint, pr){
   const th=v.querySelector('.vcth'), src=th.tagName==='IMG'?th.getAttribute('src'):'';
   if(src!==ci.img){const n=ci.img?document.createElement('img'):document.createElement('div'); n.className='vcth'; n.setAttribute('aria-hidden','true');
     if(ci.img){n.alt=''; n.src=ci.img;} th.replaceWith(n);}
-  const sz=dims?vwDimsTxt(it,false)+(LANG==='en'?' cm':' см'):'', se=v.querySelector('.vcsz'); if(se.textContent!==sz){se.textContent=sz; b._w=0;}
+  const sz=cloth?(LANG==='en'?'illustrative look':'вид условный'):dims?vwDimsTxt(it,false)+(LANG==='en'?' cm':' см'):'', se=v.querySelector('.vcsz'); if(se.textContent!==sz){se.textContent=sz; b._w=0;}
   const ce=v.querySelector('.vcost'); if(ce.textContent!==cost){ce.textContent=cost; b._w=0;}
   if(b.hidden){b.hidden=false; b._w=0;}
   // ШИРИНА: на компьютере постоянная, на узкой сцене (телефон 375) — не шире сцены без полей 8 px
@@ -10437,7 +10448,7 @@ document.addEventListener('click',e=>{
   const a=shotRows[+row.dataset.k]; if(!a)return;
   let ix=items.findIndex(t=>{const s=skuOf(t)||{}; return a.sid?s.sid===a.sid||s.name===a.name:s.name===a.name;});
   // картина-товар выбирается и строкой (T-20261112-45); ваза и мягкое в сцене не выбираются — как прежде
-  if(ix<0){const dx=decorList().find(x=>isWallArt(x)&&((x.sku||{}).sid&&a.sid?x.sku.sid===a.sid:(x.sku||{}).name===a.name)); ix=dx?vwDecIndex(dx.i):-1;}
+  if(ix<0){const dx=decorList().find(x=>(isWallArt(x)||isCloth3d(x))&&((x.sku||{}).sid&&a.sid?x.sku.sid===a.sid:(x.sku||{}).name===a.name)); ix=dx?vwDecIndex(dx.i):-1;}
   if(ix<0)return;
   if(VW.sel===ix){vwSelect(null); return;}
   vwSelect(ix);
@@ -11420,7 +11431,7 @@ function liveOff(why){
 }
 // ДЕКОР В ЖИВУЮ СЦЕНУ — ТОТ ЖЕ, ЧТО УХОДИТ В СЕРВЕРНЫЙ КАДР (`payload().decor`, demo-05 п.9): ваза встаёт на столик
 // одним правилом с кадром (`scene-extras.decorLayout`) и приходит одним состоянием с расстановкой
-function liveDecor(){ return clone(((allVariants()[cur]||{}).decor||[]).filter(x=>!isSoft(x.role)&&!x.list_only)); }   // мягкого (demo-24) и «только в списке» (лампа спальни, T-77) в 3D нет
+function liveDecor(){ return clone(((allVariants()[cur]||{}).decor||[]).filter(in3dDecor)); }   // мягкого (demo-24) и «только в списке» (лампа спальни, T-77) в 3D нет
 // модуль движка (~1,1 МБ) — один на страницу: его берут и сцена, и подгрузка заранее; ядро денег пришло — строки опций в сумме
 let _sceneMod=null;
 function sceneModule(){ if(!_sceneMod)_sceneMod=sceneManifest().then(m=>import(new URL('lib/'+m.file,document.baseURI).href))
