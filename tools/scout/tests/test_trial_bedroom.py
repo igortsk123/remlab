@@ -727,19 +727,6 @@ def test_niche_junction_is_not_a_door_strip():
     assert blocked_at(80, 70.0) and not blocked_at(0, 70.0) and blocked_at(0, 10.0)
 
 
-def test_catalog_bed_without_goods_not_in_pool():
-    """T-20261112-96/2: кровать каталога без товара (ушла из фида — `catalog_media` None) в подбор не идёт: иначе сборщик подменял её
-    крупнейшей кроватью витрины без ширины спального места («Лео», тур iT0X, спальня 2). Каталог недоступен — список прежний."""
-    from types import SimpleNamespace as NS
-    cat = [NS(mid='1', eid='a'), NS(mid='2', eid='b'), NS(mid='3', eid='c')]
-    keep = TB.sellable_catalog(cat, goods=lambda sid: None if sid == '2_b' else {'name': 'x', 'price': 1})
-    assert [c.mid for c in keep] == ['1', '3']
-
-    def down(sid):
-        raise RuntimeError('каталог недоступен')
-    assert TB.sellable_catalog(cat, goods=down) == cat
-
-
 def _nofit_rig(monkeypatch, refuse):
     """Поддельный решатель: `refuse(items)` → причина отказа (кровать не ставится) или None (кровать и тумба встают)."""
     import planner.bedroom as PB

@@ -322,22 +322,6 @@ def load_catalog() -> tuple[list, str]:
         return [], repr(e)[:200]
 
 
-def sellable_catalog(catalog: list, goods=None) -> list:
-    """Кровать каталога — в подбор только с товаром (T-20261112-96/2): решатель брал кровать, ушедшую из фида (`catalog_media.media`
-    — None), сборщик не находил товара (`trial_bundle.catalog_goods`) и подменял её крупнейшей кроватью витрины (`goods_from_feeds`,
-    ветка slot_pick): другая модель, другой размер, без ширины спального места. Правило то же, что у товара страницы: не нашли / без
-    названия / без цены / «ушёл из продажи» — не берём. Каталог недоступен — список как был (подбор не обнуляется)."""
-    goods = goods or (lambda sid: BU.catalog_goods(sid, 'кровать', bank={}))
-    try:
-        keep = [c for c in catalog if goods(f'{c.mid}_{c.eid}') is not None]
-    except Exception as e:  # noqa: BLE001 — каталог недоступен: отчёт, подбор на прежнем списке
-        print(f'WARN:trial_bedroom_catalog_goods: {repr(e)[:200]}', flush=True)
-        return catalog
-    if len(keep) < len(catalog):
-        print(f'каталог кроватей: без товара снято {len(catalog) - len(keep)} из {len(catalog)}', flush=True)
-    return keep
-
-
 def _thr() -> float:
     return float(json.load(open(os.path.join(HERE, 'rules', 'demo-swap.json'), encoding='utf-8'))['in_style_min'])
 
@@ -1031,7 +1015,6 @@ def default_ctx() -> dict:
     bank = load_bank()
     TD.drop_gone(bank)                      # не в продаже — тем же рубежом, что /demo (T-20261112-96)
     catalog, why = load_catalog()
-    catalog = sellable_catalog(catalog)
     return {'bank': bank, 'catalog': catalog, 'catalog_error': why, 'mesh_ok': gate, 'msid': gate.msid, 'defect': _defect_names(), 'thr': _thr(), 'used': {}}
 
 
