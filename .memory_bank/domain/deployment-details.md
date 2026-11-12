@@ -302,3 +302,11 @@ DEV `GET /credits` через туннель (снаружи `/api/draft/credits
 `handle_path /test/mesh-pilot10/*` в `caddy/Caddyfile`: `Cache-Control: public, no-cache` (браузер хранит и перепроверяет
 по ETag — 304 без тела) вместо `no-store` общего `/test/*`; `browse` сохранён. Для пилота тогда — первый вход в 3D ≈30 МБ; /demo теперь грузит лёгкие копии `/rt/` (`rt-meshes.json` →
 `runtimeMeshes`, `tools/scout/flat215-demo/index.html:rtMeshes`; Caddy — `immutable`).
+
+## Дополнено сводом недели (свод недели T-20261112-85)
+- **Образ `remlab-draft` и файлы правил (T-03, 07.11):** каждый файл правил, который читает код образа, — COPY в `/app/rules/`
+  (`infra/draft/Dockerfile`: `improve-rooms.json` — без него фото спальни падало «No such file»); тест
+  `tools/scout/tests/test_draft_image_rules.py` сверяет чтения `'rules', '<файл>'` с COPY и `.dockerignore` (в CI).
+- **Стенд паритета сам убирает прогоны (T-48, 07.11):** хранит `keep_runs` (4) последних `run-*` плюс прогоны свежего эталона каждой
+  комнаты (`tools/scout/parity_living.py` prune); эталон, указывающий на удалённый прогон, — WARN, переснять. Ловушки сверки — урок 646.
+

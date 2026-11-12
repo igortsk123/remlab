@@ -168,6 +168,17 @@ TG 331: ссылка агента — «посмотреть какой-то в�
   --days 14` (сперва `--dry-run`) в окружении воркера (`set -a; . ~/.config/remlab/env; set +a`). Python воркера — после вливания
   `systemctl --user restart remlab-trial-worker` при пустой очереди (урок 608). Публикация /demo кладёт `.br`/`.gz` рядом
   (`tools/scout/precompress.mjs`), Caddy `precompressed br gzip`.
+- **Масштаб по общей площади (T-26, T-30, 09.11; свод недели T-20261112-85):** порядок опор `verified` → `listing` → `area` → `not_verified`
+  (`tools/floorplan/pipeline.py:scale_of`, статус `area`). Площадь — из текста объявления (`tools/floorplan/listing.py:total_area`: m², sq ft,
+  запятая, GIA, approx.) или с листа (`sheet_area`; нет подписи Total — сумма частей, флаг `area_sum_of_parts`); текст и лист разошлись
+  > 5 % — `area_conflict`, площадь не берётся (`pick_area`). На размеченных планах площадь только сверяется. Подпись «размеры по общей
+  площади, примерные» — `trial.scale_note` ru/en (`tools/scout/trial_bundle.py`).
+- **Перерисовка листа нейросетью (свод недели T-20261112-85):** выключатель `FP_REDRAW` (пусто/0/off — выкл.; `1` — только при тревожном разборе;
+  `force` — всегда, для оценки), потолок `FP_REDRAW_CAP_USD` (по умолчанию 0,12 $, `tools/floorplan/redraw.py:CAP_USD`), шаг
+  `tools/floorplan/pipeline.py:redraw_stage`; из перерисовки — только стены и проёмы (ADR-0364).
+- **Спальни в турах — свой ракурс и первая комната (T-20261110-16/3; свод недели T-20261112-85):** `put_geo` пишет `kind` в рамку спальни
+  (`tools/scout/trial_bundle.py`), иначе камера бралась из зоны гостиной; большая карточка — первая комната списка с вариантом
+  (`tools/scout/flat215-demo/index.html:homeDefRoom`), `?room=` главнее, на /demo — гостиная.
 - **Открыто (12.11):** «Этажи» `aOv8kTVEKMgu2H6iD6UIJg` — балкон придёт после «Перечитать»; дверь Спальни 1 не распознана (no_entry);
   кухня-гостиная (ADR-0382) не начата; «OCR первым» (ADR-0383) не сделан; наружные остеклённые двери 119 см на листе парой, а по коду выходят одной створкой (пара — только > 120 см).
 
