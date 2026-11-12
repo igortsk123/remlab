@@ -397,6 +397,11 @@ def scene_from_request(payload: dict) -> tuple:
     # дивана, а в присланных вариантах он где угодно»). Пока ТВ существовал только фразой в
     # промпте, модель вешала его на любую понравившуюся стену. Теперь это пронумерованная панель
     # на стене над тумбой: у неё есть место, размер и разворот, как у любого другого предмета.
+    # ПОДВЕСНАЯ ТУМБА ЛЮБОЙ РОЛИ ВИСИТ (T-20261112-43, владелец TG 1052): не только ТВ-тумба — комод и прикроватная
+    # «подвесная» тоже стояли на полу. Низ — те же 40 см, что у ТВ-тумбы (`HUNG_CABINET_ROLES`, порт — `scene-extras.ts`)
+    for p in placements:
+        if _base_role(p.role) in HUNG_CABINET_ROLES and _hung_stand(p) and not p.elev_cm:
+            p.elev_cm = float(os.environ.get('TV_STAND_HANG_CM', 40))
     stand = next((p for p in placements if _base_role(p.role) == 'тв-тумба'), None)
     if stand is not None and not any(_base_role(p.role) == 'тв' for p in placements):
         seat = next((p for p in placements if _base_role(p.role) == 'диван'), None) \
@@ -418,8 +423,17 @@ def scene_from_request(payload: dict) -> tuple:
         # у модели с подставкой ножка и шея сплющиваются в плоскость экрана, начинают спорить с
         # ним за глубину и проступают сквозь панель. Читается это ровно как вид сзади.
         # Панель на стене — 8 см; телевизор на тумбе — с подставкой, ей нужно место.
-        depth = 8.0 if _hung_stand(stand) else 22.0
-        placements.append(Placement(role='тв', x=stand.x, y=stand.y, rot=stand.rot,
+        # НА СТЕНЕ — ЗНАЧИТ У СТЕНЫ (T-20261112-43, владелец TG 1052): панель вставала над серединой тумбы и висела в воздухе
+        # в полглубины тумбы от стены (у подвесной 32 см — в 12 см), сверху читалось «телевизор воткнут в тумбу». Теперь
+        # задом к задней плоскости тумбы; на тумбе — как было, по её середине
+        wall = _hung_stand(stand) or how == 'на стене'
+        depth = 8.0 if wall else 22.0
+        tx, ty = stand.x, stand.y
+        if wall:
+            back = float(stand.item.d_cm) / 2 - depth / 2
+            a = math.radians(stand.rot)
+            tx, ty = tx - math.sin(a) * back, ty - math.cos(a) * back
+        placements.append(Placement(role='тв', x=tx, y=ty, rot=stand.rot,
                                     elev_cm=elev,
                                     item=Item(role='тв', w_cm=w, d_cm=depth, h_cm=h,
                                               name=f'телевизор {inch}″ ({how})')))
@@ -528,6 +542,10 @@ def _decor_places(payload, photos) -> list:
 TV_BY_DIST_CM = ((150, 43), (200, 50), (250, 55), (300, 65), (350, 75), (10 ** 9, 85))
 TV_SEAT_EYE_CM = 105.0     # центр экрана на уровне глаз сидящего — норма установки
 TV_MAX_CENTER_CM = 125.0   # выше этого шею уже задирают: значит вешаем, а не ставим
+
+
+# подвесная тумба этих ролей висит низом на TV_STAND_HANG_CM (T-20261112-43); полка и кашпо «настенные» — не тумбы, высота им не задана
+HUNG_CABINET_ROLES = ('тв-тумба', 'комод', 'тумба прикроватная', 'тумба')
 
 
 def _hung_stand(stand) -> bool:

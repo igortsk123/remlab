@@ -77,6 +77,17 @@ export function isHungStand(name: string | undefined, hung?: boolean): boolean {
 /** Роль без номера экземпляра: «стул 2» → «стул», «стол обеденный» — целиком. */
 export const baseRole = (role: string | undefined): string => String(role ?? "").replace(/\s+\d+$/, "").trim();
 
+/**
+ * Подвесная тумба этих ролей висит низом на `TV_STAND_HANG_CM` (T-20261112-43, владелец TG 1052; `draft_render.HUNG_CABINET_ROLES`):
+ * комод и прикроватная «подвесная» стояли на полу. Полка и кашпо «настенные» — не тумбы, высоты им правило не задаёт.
+ */
+export const HUNG_CABINET_ROLES: readonly string[] = ["тв-тумба", "комод", "тумба прикроватная", "тумба"];
+
+/** На сколько поднять предмет над полом: подвесная тумба — `TV_STAND_HANG_CM`, остальное — 0 (стоит, где стоял). */
+export function hungLiftCm(role: string | undefined, name: string | undefined, hung?: boolean): number {
+  return HUNG_CABINET_ROLES.includes(baseRole(role)) && isHungStand(name, hung) ? TV_STAND_HANG_CM : 0;
+}
+
 export interface ExtraItem {
   role?: string;
   x?: number;
@@ -100,7 +111,10 @@ export interface AutoTv {
   dCm: number;
   hCm: number;
   elevCm: number;
+  /** Тумба подвесная. */
   hung: boolean;
+  /** Телевизор на стене (подвесная тумба или высокая напольная): панель без подставки, задом к задней плоскости тумбы. */
+  wall: boolean;
   inch: number;
   how: TvSpec["how"];
   /** Подъём самой тумбы (подвесная висит на 40 см) — `undefined`, если тумба стоит на полу. */
@@ -110,7 +124,8 @@ export interface AutoTv {
 /**
  * Авто-ТВ над тумбой (`draft_render.scene_from_request`): есть «тв-тумба» и нет своего «тв» → телевизор по расстоянию до дивана
  * (иначе кресла, иначе 300 см). Подвесная тумба поднимается на 40 см, телевизор — всегда на стене, панель 8 см; на тумбе —
- * с подставкой, глубина 22 см.
+ * с подставкой, глубина 22 см. На стене — значит у стены (T-20261112-43, владелец TG 1052): панель задом к задней плоскости
+ * тумбы, а не над её серединой (висела в полглубины тумбы от стены, сверху — «воткнут в тумбу»).
  */
 export function autoTv(items: readonly ExtraItem[]): AutoTv | null {
   const stand = items.find((p) => baseRole(p.role) === "тв-тумба" && p.w);
@@ -127,8 +142,12 @@ export function autoTv(items: readonly ExtraItem[]): AutoTv | null {
     top = TV_STAND_HANG_CM + top;
   }
   const s = tvSpec(dist, stand.w as number, top, hung);
-  return { x: sx, y: sy, rot: stand.rot ?? 0, wCm: s.wCm, dCm: hung ? 8 : 22, hCm: s.hCm, elevCm: s.elevCm, hung,
-    inch: s.inch, how: s.how, ...(standElevCm !== undefined ? { standElevCm } : {}) };
+  const wall = hung || s.how === "на стене";
+  const dCm = wall ? 8 : 22;
+  const a = ((stand.rot ?? 0) * Math.PI) / 180;
+  const back = wall ? (stand.d ?? dCm) / 2 - dCm / 2 : 0;   // лицо предмета при rot 0 — +y (`transform.frontDirection`)
+  return { x: sx - Math.sin(a) * back, y: sy - Math.cos(a) * back, rot: stand.rot ?? 0, wCm: s.wCm, dCm, hCm: s.hCm, elevCm: s.elevCm,
+    hung, wall, inch: s.inch, how: s.how, ...(standElevCm !== undefined ? { standElevCm } : {}) };
 }
 
 /** Опоры настольного декора — буквально по словам владельца 08.09: журнальный столик, иначе обеденный стол. */

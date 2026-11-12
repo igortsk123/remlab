@@ -7,7 +7,7 @@ import { findRoom } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
 import type { ResolvedScene, ResolvedSurface } from "@/lib/configurator/resolve";
 import { meshUrl } from "@/lib/configurator/mesh-url";
-import { autoTv, baseRole } from "@/lib/viewer3d/scene-extras";
+import { autoTv, baseRole, hungLiftCm } from "@/lib/viewer3d/scene-extras";
 
 export interface RoomSurfaces {
   floor?: ResolvedSurface;
@@ -212,6 +212,12 @@ export function sceneExtras(scene: ResolvedScene, specs: ObjectSpec[]): ObjectSp
   const rooms = [...new Set(scene.items.map((i) => i.roomId))];
   for (const roomId of rooms) {
     const items = scene.items.filter((i) => i.roomId === roomId && i.photoRole);
+    // подвесная тумба любой роли висит (T-20261112-43): комод и прикроватная «подвесная» стояли на полу, как серверный кадр — тоже
+    for (const it of items) {
+      const lift = hungLiftCm(it.photoRole ?? undefined, it.titleRu);
+      const spec = lift ? specs.find((sp) => sp.slotId === it.slotId) : undefined;
+      if (spec && !spec.placement.elevCm) spec.placement = { ...spec.placement, elevCm: lift };
+    }
     const tv = autoTv(items.map((i) => ({ role: i.photoRole ?? undefined, x: i.placement.x, y: i.placement.y, rot: i.placement.rot,
       w: i.placement.wCm, d: i.placement.dCm, h: i.placement.hCm, elev: i.placement.elevCm, name: i.titleRu })));
     if (!tv) continue;
@@ -220,7 +226,7 @@ export function sceneExtras(scene: ResolvedScene, specs: ObjectSpec[]): ObjectSp
       const spec = specs.find((sp) => sp.slotId === stand?.slotId);
       if (spec && !spec.placement.elevCm) spec.placement = { ...spec.placement, elevCm: tv.standElevCm };
     }
-    extras.push({ kind: "tv", slotId: `${EXTRA_PREFIX}tv:${roomId}`, roomId, titleRu: `Телевизор ${tv.inch}″`, hung: tv.hung,
+    extras.push({ kind: "tv", slotId: `${EXTRA_PREFIX}tv:${roomId}`, roomId, titleRu: `Телевизор ${tv.inch}″`, hung: tv.wall,
       placement: { x: tv.x, y: tv.y, rot: tv.rot, wCm: tv.wCm, dCm: tv.dCm, hCm: tv.hCm, elevCm: tv.elevCm } });
   }
   return extras;
