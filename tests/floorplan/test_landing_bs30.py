@@ -239,3 +239,20 @@ def test_doorless_room_shared_candidate_serves_both(monkeypatch):
     monkeypatch.setattr(bench, 'DOORLESS', True)
     added = bench.doorless_doors(r, 30.0)
     assert [a[0] for a in added] == [2] and r['gaps'][1].kind == 'window'
+
+
+def test_window_with_arrow_becomes_door():
+    """T-11/6 (rgK5f3 p4 Cellar): стрелка (вход, лестница) в «окне» или вплотную (2 px) — дверь; окно без стрелки и дальше
+    2 px — окно; дверь не трогаем."""
+    r = doorless_case()
+    lab_g, gaps = r['lab_g'], r['gaps']
+    lab_g[0:2, 20:40] = 3
+    gaps.append(fc.regap(fc.Gap(3, 0, 0, 0, 0, 'window', 0.0, True, (0, 0, 0, 0)), *np.nonzero(lab_g == 3)))
+    arr = np.zeros(lab_g.shape, np.uint8)
+    arr[53:56, 158:162] = 1                                          # в 1 px под окном 2 (строки 50..51)
+    lab_g[0:2, 100:110] = 4                                          # короткая (10 px ≤ 3 t) щель у стрелки — дело arrow_doors
+    gaps.append(fc.regap(fc.Gap(4, 0, 0, 0, 0, 'window', 0.0, True, (0, 0, 0, 0)), *np.nonzero(lab_g == 4)))
+    arr[2:4, 104:106] = 1
+    assert bench.arrow_windows(gaps, lab_g, None, 4.0) == [] and gaps[1].kind == 'window'
+    assert bench.arrow_windows(gaps, lab_g, arr, 4.0) == [2]
+    assert [g.kind for g in gaps] == ['door', 'door', 'window', 'window']

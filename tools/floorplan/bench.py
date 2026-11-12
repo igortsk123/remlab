@@ -699,6 +699,24 @@ STAIR_EDGE = os.environ.get('FP_STAIR_EDGE', '1') != '0'   # T-20261111-11: ве
 DOORLESS = os.environ.get('FP_DOORLESS', '1') != '0'       # T-11/3: запасная дверь комнаты без дверей (`doorless_doors`); 0 — без неё
 BAY_OLD = os.environ.get('FP_BAY_OLD', '1') != '0'         # T-11/3: дверь у «эркера» — прежнее правило (`bay_windows`); 0 — с «чистотой»
 DOORLESS_TOL_M = 0.3    # проём «у комнаты» — не дальше от её пола (как ROOM_TOL_CM сравнения `regress`)
+ARROW_WIN = os.environ.get('FP_ARROW_WIN', '1') != '0'     # T-11/6: «окно» у стрелки — дверь (`arrow_windows`); 0 — как было
+
+
+def arrow_windows(gaps, lab_g, arrows, t) -> list:
+    """T-11/6: стрелку (`sheet_arrows`, T-13: вход, лестница) рисуют в проходе, в окне её не бывает. Наружный разрыв, ставший
+    окном, но со стрелкой в нём или вплотную (2 px), — дверь (rgK5f3 p4 Cellar: вход с лестницы в нише, заливка серым, дуги
+    нет — «чистота» делала его окном, подвал оставался без входа). Короткий (≤ ARROW_GAP_T·t) — щель «торец стены ↔ стрелка»,
+    это `arrow_doors` (T-11/7: rgK5f3 Utility — щель 0,39 м у стрелки дверью делила слитую дверь 0,78 м на две).
+    Правит kind на месте → id ставших дверями."""
+    if arrows is None or not arrows.any():
+        return []
+    near = cv2.dilate((arrows > 0).astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+    out = []
+    for g in gaps:
+        if g.kind == 'window' and g.length > ARROW_GAP_T * t and near[lab_g == g.id].any():
+            g.kind = 'door'
+            out.append(g.id)
+    return out
 
 
 def doorless_doors(r: dict, ppm: float) -> list:
@@ -1803,6 +1821,8 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
         if cfg.get('dev_sheet'):
             pocket_doors(r['gaps'], r['lab_g'], r['lab'], r['final'], r['outside'], r['areas'], POCKET_M2 * ppm * ppm,
                          POCKET_W_M * ppm)
+        if arrows is not None and ARROW_WIN:           # T-11/6: «окно» со стрелкой (вход, лестница) — дверь
+            arrow_windows(r['gaps'], r['lab_g'], arrows[Y0:Y1, X0:X1], t)
         doorless = doorless_doors(r, ppm)              # T-11/3: комнате без дверей — лучшая дверь прежнего правила
         hit, obs = match_gold(r, groom, fams, core=True)
         fit = fc.fit_scale(obs)
