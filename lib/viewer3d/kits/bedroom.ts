@@ -12,6 +12,7 @@ import {
   splitUnits,
   type KitCtx,
 } from "@/lib/viewer3d/kits/common";
+import { tiled } from "@/lib/viewer3d/materials";
 
 export interface BedSpec {
   level: "base" | "practical" | "comfort" | "premium";
@@ -109,15 +110,23 @@ export interface RugSpec {
 export function buildRug(ctx: KitCtx, spec: RugSpec): THREE.Group {
   const g = new THREE.Group();
   const h = spec.pile === "soft" ? 3 : 1.5;
-  const body = mat(ctx, spec.materialId, [spec.widthCm, spec.depthCm]);
-  g.add(boxOn(spec.widthCm, h, spec.depthCm, 0, 0, 0, body));
+  const { widthCm: W, depthCm: D } = spec;
   // КАЙМА — ТОЛЬКО РАМКОЙ. Первая версия клала поверх ковра сплошную плиту и полностью
   // закрывала рисунок: в кадре 29.09 ковёр читался серым прямоугольником.
+  // РАМКА ВОКРУГ ПОЛОТНА, НЕ ПОВЕРХ (T-20261112-33, владелец 12.11 «когда двигаю — полоска белая мерцает под ковром»). Прежде
+  // плита с фото шла во весь ковёр, а рамка лежала на её верхней половине: верх рамки и верх плиты — одна плоскость (y = h),
+  // наружные бока рамки — в плоскостях боков плиты. Глубина у них равная, и при движении камеры пиксель достаётся то рамке, то
+  // плите — по краю «рвётся» полоса, а бок плиты (сжатое в 1,5 см фото, на свету почти белое) ещё и виден ниже рамки. Теперь
+  // полотно — внутри рамки, рамка — во всю высоту ковра: общих плоскостей у коробок нет, бока ковра — серая рамка.
+  const t = Math.min(4, W / 4, D / 4);
+  const iw = W - 2 * t, id = D - 2 * t;
+  // фото — как прежде во весь ковёр: полотну достаётся его середина, край шириной в рамку остаётся под ней (повтор и сдвиг)
+  const body = tiled(ctx.materials, (spec.materialId ? ctx.byId(spec.materialId) : undefined) ?? ctx.fallback, iw, id, 0, [t, t]);
+  g.add(boxOn(iw, h, id, 0, 0, 0, body));
   const trim = new THREE.MeshStandardMaterial({ color: 0x9a958c, roughness: 1 });
-  const t = 4;
-  g.add(boxOn(spec.widthCm, h * 0.5, t, 0, h * 0.5, spec.depthCm / 2 - t / 2, trim));
-  g.add(boxOn(spec.widthCm, h * 0.5, t, 0, h * 0.5, -spec.depthCm / 2 + t / 2, trim));
-  g.add(boxOn(t, h * 0.5, spec.depthCm - t * 2, -spec.widthCm / 2 + t / 2, h * 0.5, 0, trim));
-  g.add(boxOn(t, h * 0.5, spec.depthCm - t * 2, spec.widthCm / 2 - t / 2, h * 0.5, 0, trim));
+  g.add(boxOn(W, h, t, 0, 0, D / 2 - t / 2, trim));
+  g.add(boxOn(W, h, t, 0, 0, -D / 2 + t / 2, trim));
+  g.add(boxOn(t, h, id, -W / 2 + t / 2, 0, 0, trim));
+  g.add(boxOn(t, h, id, W / 2 - t / 2, 0, 0, trim));
   return g;
 }
