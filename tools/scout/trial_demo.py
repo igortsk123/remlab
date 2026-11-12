@@ -250,7 +250,22 @@ def geometry_set(styles: list[dict], band: str) -> tuple[dict, dict]:
             it['h'] = low[r][0]
         items[r] = it
     src = {r: {'style': best[r][0], 'role': best[r][2], 'sid': _sid(best[r][1])} for r in sorted(keep)}
-    return {'band': band, 'style': 'геометрия', 'm2': None, 'items': items, 'set_id': 'trial-geometry'}, src
+    # T-20261112-98/2: декор (роли вне пола: лампа, шторы…) в геометрию не входит, но решателю нужен его список — комод считается
+    # светом только под лампу (services/planner-solver/rules/zones.json light_carriers.requires_decor). Правило то же, что у ролей.
+    dcount: dict = {}
+    for st in styles:
+        for r in decor_roles(st):
+            dcount[r] = dcount.get(r, 0) + 1
+    decor = sorted(r for r, n in dcount.items() if n >= need_n)
+    return {'band': band, 'style': 'геометрия', 'm2': None, 'items': items, 'set_id': 'trial-geometry',
+            'decor_roles': decor}, src
+
+
+def decor_roles(st: dict) -> list:
+    """Роли набора вне пола (нет в `typical-dims.json`: лампа, шторы, подушки…) — список для решателя (`solver_run.py`
+    DECOR_ROLES), состав набора не меняется (T-20261112-98/2)."""
+    floor = set(json.load(open(os.path.join(HERE, 'typical-dims.json'), encoding='utf-8')))
+    return sorted({_base(r) for r, it in (st.get('items') or {}).items() if it and _base(r) not in floor and r not in BEARERS})
 
 
 def trim_to_geometry(st: dict, geo: dict) -> dict:
@@ -261,7 +276,7 @@ def trim_to_geometry(st: dict, geo: dict) -> dict:
     for role, it in (st.get('items') or {}).items():
         if role == _base(role) and ('тв-тумба' if role in BEARERS else role) in geo['items']:
             keep[role] = it
-    return dict(st, items=keep)
+    return dict(st, items=keep, decor_roles=decor_roles(st))   # T-98/2: декор стиля — решателю списком (лампа → комод = свет)
 
 
 def shape_groups(styles: list[dict], band: str) -> list[dict]:
@@ -314,8 +329,11 @@ def run_solver(cand: dict, cfg: dict, sets_file: str, layouts: str, hinge: str, 
     ops = TR_strip(TR.solver_openings(cand, cfg, hinge))
     env = dict(os.environ, SETS_SNAPSHOT=sets_file, SCENE_OPENINGS=json.dumps(ops, ensure_ascii=False),
                SCENE_RADIATORS='[]', LAYOUT_SUFFIX=f'-{tag}', LAYOUT_OUT_DIR=layouts)
-    for k in ('SCENE_CONTOUR', 'LAYOUT_SIGNATURE_FILE'):
+    for k in ('SCENE_CONTOUR', 'LAYOUT_SIGNATURE_FILE', 'SCENE_ROOM_KIND', 'SCENE_ROOM_TITLE'):
         env.pop(k, None)
+    for k, v in (('SCENE_ROOM_KIND', cand.get('room_kind')), ('SCENE_ROOM_TITLE', cand.get('room_title'))):
+        if v:
+            env[k] = str(v)
     if beam_off(cand):
         env.setdefault('LAYOUT_BEAM', '0')
     t = time.time()
@@ -1123,6 +1141,11 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
         _write_scene(OUT, scene)
         return scene
     t_ad = time.time() - t0
+    # T-20261112-98/2: тип и название комнаты — решателю (кухня-гостиная → стол обязателен; правило — в zones.json
+    # `scenario_needs.by_room_kind`, передача — env SCENE_ROOM_KIND/SCENE_ROOM_TITLE в `run_solver`)
+    for c in ad['candidates']:
+        c.setdefault('room_kind', (ad.get('room') or {}).get('kind'))
+        c.setdefault('room_title', (ad.get('room') or {}).get('name'))
     # входы комнаты — для исхода «нет места» (проходная или нет, `outcome_of`); пишем до солвера: ранние выходы тоже его читают
     scene['entries'] = sum(1 for o in ad['ops'] if o['kind'] in ('door', 'opening'))
     scene.update(status='pending')                         # подбор идёт: читатель сцены видит `pending`, а не пустоту

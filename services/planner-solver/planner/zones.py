@@ -196,6 +196,26 @@ def scenario_needs(**overrides) -> dict:
     return out
 
 
+def room_kind_of(kind: str | None = None, title: str | None = None) -> str:
+    """Тип гостиной для сценария: 'kitchen_living' — по типу комнаты из разбора плана (`kitchen_living`) или по названию
+    (rules/zones.json → scenario_needs.by_room_kind.kitchen_living_title_re: «Кухня-гостиная», «Kitchen/Living»); иначе 'living'."""
+    import re as _re
+    if (kind or '').strip().lower() == 'kitchen_living':
+        return 'kitchen_living'
+    by = ((zone_rules().get('zone_priority', {}) or {}).get('scenario_needs', {}) or {}).get('by_room_kind') or {}
+    rx = by.get('kitchen_living_title_re')
+    return 'kitchen_living' if rx and title and _re.search(rx, str(title), _re.I) else 'living'
+
+
+def room_kind_needs(kind: str | None = None, title: str | None = None) -> dict:
+    """T-20261112-98/2: переопределения сценария по типу комнаты (`media_need`/`dining_need` для solve_zoned*): кухня-гостиная →
+    стол обязателен (паспорт LR-O1/O2). ЕДИНСТВЕННОЕ место правила — данные rules/zones.json scenario_needs.by_room_kind;
+    вызывающие передают только тип/название комнаты."""
+    by = ((zone_rules().get('zone_priority', {}) or {}).get('scenario_needs', {}) or {}).get('by_room_kind') or {}
+    spec = by.get(room_kind_of(kind, title)) or {}
+    return {k: v for k, v in spec.items() if k in ('media_need', 'dining_need')}
+
+
 def solve_zoned(room: Room, items, **kw):
     """P1 свода №12: финальный медиа-контракт поверх _solve_zoned_impl — MEDIA_MISSING
     hard на ГОТОВОМ плане (внутри validate() правило не живёт: било бы промежуточные
@@ -1593,24 +1613,29 @@ def _main_path_violations(lay) -> int:
     return sum(1 for v in getattr(lay, 'violations', []) or [] if getattr(v, 'code', '') == 'MAIN_PATH_TIGHT')
 
 
-def light_carrier_roles() -> set:
+def light_carrier_roles(decor_roles=None) -> set:
     """Носители света гостиной (паспорт living.json, группа light): торшер или комод под лампу —
-    из rules/zones.json → zone_priority.light_carriers (T-20261112-98)."""
+    из rules/zones.json → zone_priority.light_carriers (T-20261112-98). `requires_decor` (T-98/2): носитель считается
+    светом, только если нужный декор есть в наборе (`decor_roles`; комод — с лампой). decor_roles=None — декор неизвестен,
+    носители с требованием выпадают."""
     lc = (zone_rules().get('zone_priority', {}) or {}).get('light_carriers') or {}
-    return set(lc.get('roles') or ())
+    req = lc.get('requires_decor') or {}
+    decor = set(decor_roles or ())
+    return {r for r in (lc.get('roles') or ()) if all(d in decor for d in (req.get(r) or ()))}
 
 
-def light_missing(lay, items) -> int:
+def light_missing(lay, items, decor_roles=None) -> int:
     """Ярус ключа (T-20261112-98): носитель света в банке есть, а в плане ни одного → 1.
-    Носителя нет в банке (или items не передан) — 0 у всех гипотез, ярус нейтрален."""
+    Носителя нет в банке (или items не передан) — 0 у всех гипотез, ярус нейтрален. Комод — носитель только при лампе
+    в наборе (`decor_roles`, T-98/2)."""
     from .geometry import base_role as _br
-    carriers = light_carrier_roles()
+    carriers = light_carrier_roles(decor_roles)
     if not carriers or not items or not any(_br(i.role) in carriers for i in items):
         return 0
     return 0 if any(_br(p.role) in carriers for p in lay.placements) else 1
 
 
-def plan_key(room: Room, lay, needs: dict, seat_rank: int = 0, items=None) -> tuple:
+def plan_key(room: Room, lay, needs: dict, seat_rank: int = 0, items=None, decor_roles=None) -> tuple:
     """Ключ сравнения ГОТОВОГО плана (меньше — лучше):
     (hard, missing_required, route, light_missing, -covered_preferred, …, circulation, functional,
     zone_q, aesthetics). Обязательность зон — из scenario_needs/zone_priority.status (данные);
@@ -1656,8 +1681,10 @@ def plan_key(room: Room, lay, needs: dict, seat_rank: int = 0, items=None) -> tu
     # комнатой; ярус стоит до -covered_pref/-seat_rank, иначе более богатая ступень выигрывает
     # у варианта с настоящим проходом (set5-trapezoid: 60 см против ≥75)
     # СВЕТ (T-20261112-98): после маршрута (проход важнее), до богатства состава — иначе столовая
-    # (preferred) всегда вытесняла комод, единственный носитель света в наборах 17+ м²
-    return (hard, missing_req, main_route_tier(room, lay), light_missing(lay, items), -covered_pref,
+    # (preferred) всегда вытесняла комод, единственный носитель света в наборах 17+ м². Кухня-гостиная — стол обязателен
+    # (room_kind_needs → dining_need=required → missing_req, ВЫШЕ света). TODO при переходе на plan_key_version=v2 (Q7):
+    # перенести ярус light_missing и в plan_key_v2 — иначе правка исчезнет (Codex 12.11)
+    return (hard, missing_req, main_route_tier(room, lay), light_missing(lay, items, decor_roles), -covered_pref,
             -seat_rank, axis_cls, _main_path_violations(lay), template_degradation(ps), _orphan) + tuple(lk[1:])
 
 
@@ -1964,7 +1991,7 @@ def _solve_zoned_beam_inner(room: Room, items, **kw):
     if base_outs and base_outs[0].placements:
         _g0 = (base_gid or '').split('+')[0]
         cands.append(('greedy', base_gid, base_outs,
-                      plan_key(room, base_outs[0], needs, seat_rank=_rank.get(_g0, 0), items=items)))
+                      plan_key(room, base_outs[0], needs, seat_rank=_rank.get(_g0, 0), items=items, decor_roles=kw.get('decor_roles'))))
     # ступени лестницы (те же, что видит greedy) — верхние K_steps
     from .template import place_template as _pt
     # Кодекс (разбор dining 220→218): бюджет ступеней — по ступеням, реально давшим
@@ -2107,7 +2134,7 @@ def _solve_zoned_beam_inner(room: Room, items, **kw):
             _fam_done += 1
             _nm = f"{fam}:{g_['id']}#{getattr(blk[0], 'tpl_variant', '') or shapes_[0]}"
             cands.append((_nm, gid, outs,
-                          plan_key(room, outs[0], needs, seat_rank=_rank.get(g_['id'], 0), items=items)))
+                          plan_key(room, outs[0], needs, seat_rank=_rank.get(g_['id'], 0), items=items, decor_roles=kw.get('decor_roles'))))
             break                                # одна лучшая позиция на семейство
     # Q5 свода №13: сертификат ВТОРОГО POD (для 40+ м² — обязателен): full_valid | inventory_gap |
     # quality_rejected | template_infeasible | search_budget_exhausted — из записи семейства
@@ -2202,7 +2229,7 @@ def _solve_zoned_beam_inner(room: Room, items, **kw):
                     + ('/inst' if _mm == 'installation' else '')
                 _cert['budget']['attempted'] = _full_attempts
                 cands.append((_nm, gid, outs,
-                              plan_key(room, outs[0], needs, seat_rank=_rank.get(g['id'], 0), items=items)))
+                              plan_key(room, outs[0], needs, seat_rank=_rank.get(g['id'], 0), items=items, decor_roles=kw.get('decor_roles'))))
     cands = _signature_filter(room, cands)
     if not cands:
         return base_outs, base_gid

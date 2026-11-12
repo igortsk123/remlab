@@ -532,7 +532,9 @@ def solve_layouts(flat: dict, only: list | None = None) -> None:
                SCENE_OPENINGS=json.dumps([{k: v for k, v in o.items() if not k.startswith('_')}
                                           for o in liv['openings']], ensure_ascii=False),
                SCENE_RADIATORS=json.dumps([{k: v for k, v in r.items() if not k.startswith('_')}
-                                           for r in (liv.get('radiators') or [])], ensure_ascii=False))
+                                           for r in (liv.get('radiators') or [])], ensure_ascii=False),
+               # T-20261112-98/2: тип/название комнаты → сценарий решателя (кухня-гостиная — стол обязателен)
+               SCENE_ROOM_KIND=str(liv.get('kind') or ''), SCENE_ROOM_TITLE=str(liv.get('title') or ''))
     py = os.path.expanduser('~/venvs/scout/bin/python')
     for n in (only if only is not None else BANKS):
         art = layout_path(n)

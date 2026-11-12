@@ -642,8 +642,19 @@ def attempt_beam():
             # Z3/Z5: зонный солвер — группа по полезной площади, лексо-отбор (A/B со старым)
             # P2 свода №12: beam по гипотезам посадки (rules/zones.json → beam;
             # LAYOUT_BEAM=0 — A/B с прежним greedy)
-            from planner.zones import solve_zoned_beam as solve_zoned
+            from planner.zones import solve_zoned_beam as _szb, room_kind_needs as _rkn
+            # T-20261112-98/2: сценарий по типу комнаты (кухня-гостиная → стол обязателен) — правило в rules/zones.json
+            # scenario_needs.by_room_kind; тип/название передают вызывающие (trial_demo, flat215_demo) через окружение
+            ROOM_NEEDS = _rkn(os.environ.get('SCENE_ROOM_KIND'), os.environ.get('SCENE_ROOM_TITLE'))
+            # T-98/2: декор набора (роли вне пола) — комод считается светом только при лампе (zones.json requires_decor)
+            # набор тура несёт список сам (`trial_demo.decor_roles`: геометрия и урезанные стили — только пол), банк — из своих ролей
+            DECOR_ROLES = (list(s['decor_roles']) if isinstance(s.get('decor_roles'), list)
+                           else sorted({r for r in items if r not in {fr for fr, _ in FLOOR}}))
+            def solve_zoned(r_, i_, **k_):
+                return _szb(r_, i_, **{**ROOM_NEEDS, 'decor_roles': DECOR_ROLES, **k_})
             outs, _gid = solve_zoned(room_p, its, top_k=1)
+            if ROOM_NEEDS:
+                print(f"сценарий комнаты: {ROOM_NEEDS}", flush=True)
             print(f"зонная группа: {_gid}", flush=True)
             _bm = (outs[0].meta or {}).get('beam') if outs else None
             if _bm:

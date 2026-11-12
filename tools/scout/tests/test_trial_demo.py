@@ -306,6 +306,48 @@ def test_run_solver_env_points_into_trial_dir(tmp_path, monkeypatch):
     assert all(not k.startswith('_') for o in json.loads(seen['env']['SCENE_OPENINGS']) for k in o)
 
 
+def test_room_kind_and_decor_reach_solver(tmp_path, monkeypatch):
+    """T-20261112-98/2 (условия Codex): тип и название комнаты — решателю через env (кухня-гостиная → стол обязателен,
+    правило в planner-solver rules/zones.json); декор набора (лампа) — полем `decor_roles` у геометрии и у урезанных стилей:
+    комод считается светом только под лампу. Путь общий для тура, «Этажей» и новой загрузки (`conveyor` → `trial_demo.py`)."""
+    seen = {}
+
+    class P:
+        returncode = 1
+
+        def __init__(self, cmd, cwd=None, env=None, **kw):
+            seen.update(env=env)
+
+        def communicate(self, timeout=None):
+            return '', 'x'
+    monkeypatch.setattr(TD.subprocess, 'Popen', P)
+    monkeypatch.setenv('SCENE_ROOM_KIND', 'stale')
+    cand = dict(TR.adapt(plan())['candidates'][0], room_kind='living', room_title='Kitchen-living room')
+    TD.run_solver(cand, TR.rules(), str(tmp_path / 's.json'), str(tmp_path), 'left', 't', 10)
+    assert seen['env']['SCENE_ROOM_KIND'] == 'living' and seen['env']['SCENE_ROOM_TITLE'] == 'Kitchen-living room'
+    TD.run_solver(TR.adapt(plan())['candidates'][0], TR.rules(), str(tmp_path / 's.json'), str(tmp_path), 'left', 't', 10)
+    assert 'SCENE_ROOM_KIND' not in seen['env'] and 'SCENE_ROOM_TITLE' not in seen['env']   # чужое окружение не протекает
+    # build ставит тип/название комнаты на кандидатов
+    monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+    no_hard(monkeypatch)
+    got = []
+    sv = fake_solver()
+
+    def spy(cand, *a, **k):
+        got.append((cand.get('room_kind'), cand.get('room_title')))
+        return sv(cand, *a, **k)
+    b = bank()
+    for st in b:
+        st['items']['лампа'] = it(30, 30, 30)
+        st['items']['шторы'] = it(31, 140, 5)
+    TD.build('t-kind', plan(), sets=b, solver=spy, pick=lambda sets, band: [1, 2] if band == '17-20' else [])
+    assert got and set(got) == {('living', 'Living')}
+    snap = json.load(open(os.path.join(TD.out_dir('t-kind'), 'trial-sets.json'), encoding='utf-8'))
+    assert all('лампа' in s['decor_roles'] for s in snap), [s.get('decor_roles') for s in snap]
+    assert all('лампа' not in s['items'] for s in snap)                     # состав для решателя прежний — только пол
+    assert TD.decor_roles({'items': {'лампа': it(1, 1, 1), 'диван': it(2, 1, 1), 'тв-тумба': it(3, 1, 1)}}) == ['лампа']
+
+
 def test_geometry_failure_falls_back_to_own_sets(tmp_path, monkeypatch):
     monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
     no_hard(monkeypatch)
