@@ -5617,11 +5617,14 @@ function in3dDecor(x){ return !!x&&!x.list_only&&(!isSoft(x.role)||isCloth3d(x))
 function isWallArt(x){ return !!x&&(x.strategy==='procedural_plane'||String(x.role||'').replace(/\s+\d+$/,'')==='картина'); }
 // где висит — ТОТ ЖЕ расчёт, что строит 3D (`demo-scene.ts:wallArtWhere`, T-20261112-26/2): роль картины → опора или null (места нет)
 const ART_OVER={'кровать':'кроватью','диван':'диваном','комод':'комодом'};
+function carrierWhere(){ const M=window.RemlabScene;
+  if(!M||typeof M.carrierWhere!=='function')return null;
+  try{ return M.carrierWhere({room:curRoom(), items:clone(items), decor:liveDecor(), base:location.href}); }catch(e){ return null; } }
 function artWhere(){ const M=window.RemlabScene;
   if(!M||typeof M.wallArtWhere!=='function')return null;
   try{ return M.wallArtWhere({room:curRoom(), items:clone(items), decor:liveDecor(), base:location.href}); }catch(e){ return null; } }
 // настольный декор — то, что сцена ставит на столешницу; мягкое места в 3D не имеет, картина висит на стене
-function tableDecor(){ return decorList().filter(x=>!isSoft(x.role)&&!isWallArt(x)&&x.strategy!=='ceiling_over'); }   // люстра — на потолке (T-66, `ceiling.ts`)
+function tableDecor(){ return decorList().filter(x=>!isSoft(x.role)&&!isWallArt(x)&&x.strategy!=='ceiling_over'&&x.strategy!=='carrier_surface'); }   // лампа — на комоде (T-101, `carrier-decor.ts`)   // люстра — на потолке (T-66, `ceiling.ts`)
 // цена и число товаров варианта считаются С ДЕКОРОМ (владелец 08.09: «добавлять в список товаров
 // и считать сумму»): он такая же покупка, просто стоит не на полу
 function decorSum(v){ return (variantDecor(v)||[]).reduce((t,x)=>t+((x.sku||{}).price||0),0); }
@@ -5692,7 +5695,12 @@ function decorWhere(x){
   if(isCloth3d(x))return LANG==='en'?(x.place.kind==='curtain'?'by the window, illustrative look':'on the sofa arm, illustrative look')
     :(x.place.kind==='curtain'?'у окна, вид условный':'на подлокотнике дивана, вид условный');
   if(x&&isSoft(x.role))return '';                 // мягкому места в 3D нет — и подписи «куда встанет» тоже (demo-24)
-  if(x&&x.strategy==='ceiling_over')return 'на потолке над зоной отдыха';   // люстра (T-66): место считает сцена, `ceiling.ts`
+  if(x&&x.strategy==='ceiling_over')return 'на потолке над зоной отдыха';
+  if(x&&x.strategy==='carrier_surface'){          // лампа на комоде (T-101): место — тот же расчёт, что строит 3D (`demo-scene.ts:carrierWhere`)
+    const m=carrierWhere();
+    if(!m||!(x.role in m))return 'на комоде';
+    return m[x.role]?'на '+m[x.role]:'в кадр не ставим: нет комода или не влезает';
+  }   // люстра (T-66): место считает сцена, `ceiling.ts`
   if(isWallArt(x)){                               // опора — из расчёта сцены; движок ещё не пришёл — без выдуманной опоры
     const m=artWhere();
     if(!m||!(x.role in m))return 'на стене, где есть место';
