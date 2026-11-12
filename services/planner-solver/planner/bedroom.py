@@ -752,22 +752,35 @@ def _sleep_tpl(room: Room, purpose: str) -> dict | None:
     return tpl if purpose in (sbm.get("purpose") or ()) else None
 
 
+def _sleep_want(tpl: dict, purpose: str) -> str:
+    """Вариант «сна», ради которого допуск compact лучше цели (`sleep_before_mode.want`): паре — pair (T-95), гостевой и
+    односпальным — one_side (владелец TG 1219, T-20261112-96/2). Не задан — pair, как было."""
+    return ((tpl.get("sleep_before_mode") or {}).get("want") or {}).get(purpose, "pair")
+
+
 def _sleep_first(room: Room, purpose: str, lay: Layout, prof: str) -> bool:
-    """T-20261112-95: по цели паре встали не обе тумбы и допуск compact есть — пробуем compact за второй тумбой
-    (Codex: «одна тумба + compact 51» выше «без тумб по цели»)."""
-    return (_accepted(lay) and PN.allowances_on(prof) and bool(_sleep_tpl(room, purpose))
-            and lay.meta.get("sleep_variant") not in (None, "pair"))
+    """T-20261112-95: по цели тумб меньше, чем ждёт назначение (`_sleep_want`), и допуск compact есть — пробуем compact
+    за тумбой (Codex: «одна тумба + compact 51» выше «без тумб по цели»; гостевой и односпальной — владелец TG 1219)."""
+    tpl = _sleep_tpl(room, purpose)
+    v = lay.meta.get("sleep_variant")
+    return (_accepted(lay) and PN.allowances_on(prof) and bool(tpl) and v is not None
+            and SLEEP_RANK.get(v, 9) > SLEEP_RANK[_sleep_want(tpl, purpose)])
 
 
 def _sleep_gain(room: Room, purpose: str, lay: Layout, lay2: Layout) -> bool:
     """compact вернул тумбы (вариант «сна» лучше) И уровень состава не ниже — тогда он лучше цели. Только хранение
-    (D по цели → A compact) — нет: «сперва предметы, потом допуск» (ADR-0394) для хранения остаётся."""
+    (D по цели → A compact) — нет: «сперва предметы, потом допуск» (ADR-0394) для хранения остаётся. У назначений
+    `storage_count_first` (гостевая, TG 1833) compact не берётся ценой шкафа или комода: хранения — не меньше, чем по цели."""
     tpl = _sleep_tpl(room, purpose)
     if not tpl:
         return False
     a = RT.level_index(tpl, (lay.meta.get("composition") or {}).get("level"))
     b = RT.level_index(tpl, (lay2.meta.get("composition") or {}).get("level"))
     sa, sb = SLEEP_RANK.get(lay.meta.get("sleep_variant"), 9), SLEEP_RANK.get(lay2.meta.get("sleep_variant"), 9)
+    if purpose in ((tpl.get("storage_count_first") or {}).get("purpose") or ()):
+        n = lambda L: sum(1 for p in L.placements if group_of(p.role) == "storage")  # noqa: E731
+        if n(lay2) < n(lay):
+            return False
     return a is not None and b is not None and b <= a and sb < sa
 
 

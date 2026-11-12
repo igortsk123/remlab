@@ -209,14 +209,45 @@ def test_couple_nightstands_before_target_mode():
     assert lay.meta["allowance_text"].startswith("Компактно")
 
 
-def test_guest_keeps_target_without_nightstand_rule():
-    """Правило — только у назначений паспорта (couple): гостевая на той же комнате идёт по цели, как было."""
-    room = _demo2()
-    room.purpose = "guest"
-    kit = [Item(role="кровать", w_cm=146, d_cm=210, h_cm=92), Item(role="тумба прикроватная", w_cm=45, d_cm=40, h_cm=55),
-           Item(role="шкаф", w_cm=93, d_cm=50, h_cm=215), Item(role="комод", w_cm=96, d_cm=40, h_cm=90)]
-    lay = solve_bedroom(room, kit, "guest", engine="groups")
-    assert lay.meta["clearance"]["mode"] in ("target", "refused") or lay.meta["clearance"]["target_level"] is None
+def _narrow_guest(purpose="guest"):
+    return Room(width_cm=270, depth_cm=300, room_type="bedroom", purpose=purpose, radiators=[], openings=[
+        Opening(kind="door", wall="south", offset_cm=10, width_cm=80, swing_cm=80, hinge="left"),
+        Opening(kind="window", wall="north", offset_cm=75, width_cm=120, sill_cm=85, height_cm=150)])
+
+
+def test_guest_nightstand_via_compact_not_level_f():
+    """Владелец TG 1219 (T-20261112-96/2, исключение из ADR-0394): гостевой «одна тумба + compact лучше, чем без тумбы по цели».
+    Узкая гостевая 270×300, кровать 150×210: по цели — уровень F (без тумбы), compact ставит тумбу (E) со строкой покупателю.
+    Вторую тумбу compact гостевой не добывает (`sleep_before_mode.want`: guest → one_side)."""
+    kit = [Item(role="кровать", w_cm=150, d_cm=210, h_cm=90), Item(role="тумба прикроватная", w_cm=40, d_cm=35, h_cm=50)]
+    lay = solve_bedroom(_narrow_guest(), kit, "guest", engine="groups")
+    cl = lay.meta["clearance"]
+    assert cl["mode"] == "compact" and cl["target_level"] == "F", cl
+    assert lay.meta["sleep_variant"] == "one_side" and lay.meta["composition"]["level"] == "E" and not _hard(lay)
+    assert lay.meta["allowance_text"].startswith("Компактно")
+
+
+def test_single_purposes_want_one_nightstand():
+    """Односпальной и узкой односпальной правило то же (TG 1219): цель — одна тумба; пара (pair) поводом для compact не служит."""
+    from planner import room_templates as RT
+    from planner.bedroom import _sleep_want
+    for p in ("single", "single_narrow", "guest"):
+        assert _sleep_want(RT.template_for("bedroom", p, None), p) == "one_side", p
+    assert _sleep_want(RT.template_for("bedroom", "couple", None), "couple") == "pair"
+
+
+def test_guest_compact_not_at_cost_of_storage():
+    """У гостевой хранение по числу важнее уровня (TG 1833, `storage_count_first`): compact с тумбой, но без комода, цель
+    «шкаф + комод без тумбы» не перебивает."""
+    from types import SimpleNamespace as NS_
+    from planner.bedroom import _sleep_gain
+
+    def lay(variant, level, roles):
+        return NS_(meta={"sleep_variant": variant, "composition": {"level": level}}, placements=[NS_(role=r) for r in roles])
+    room = _narrow_guest()
+    tgt = lay("solo", "C", ["кровать", "шкаф", "комод"])
+    assert not _sleep_gain(room, "guest", tgt, lay("one_side", "B", ["кровать", "тумба прикроватная", "шкаф"]))
+    assert _sleep_gain(room, "guest", tgt, lay("one_side", "B", ["кровать", "тумба прикроватная", "шкаф", "комод"]))
 
 
 def test_storage_alone_does_not_win_compact():
