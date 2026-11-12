@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 
-import { boxPoints, livePitchDeg, liveSpot, LIVE_EYE_CM, LIVE_PITCH_DEFAULT, LIVE_PITCH_MIN, LIVE_TOP_CAP_CM, LIVE_WALL_CM, type LiveBand } from "@/lib/viewer3d/live-eye";
+import { boxPoints, livePitchDeg, liveSpot, lookPitchRange, LOOK_PITCH_DEG, LIVE_EYE_CM, LIVE_PITCH_DEFAULT, LIVE_PITCH_MIN, LIVE_TOP_CAP_CM, LIVE_WALL_CM, type LiveBand } from "@/lib/viewer3d/live-eye";
 import { verticalFov } from "@/lib/viewer3d/viewer";
 
 // «3D» ГЛАЗАМИ СТОЯЩЕГО (demo-27): наклон из `livePitchDeg` ставится настоящей камерой three.js так, как это делает движок (глаз
@@ -77,6 +77,26 @@ describe("наклон «3D» глазами стоящего", () => {
 
 // ГЛАЗ «3D» НЕ У СТЕНЫ (demo-27 Г): точки ракурсов демо стоят в 3 см от стены — при повороте стена ближе ближней плоскости камеры
 // срезалась, сквозь неё была видна панорама вокруг дома, а окно в упор — край картинки вида
+// ПРЕДЕЛ ВЗГЛЯДА (T-20261112-30): середина видимой полосы — ±60° вверх и вниз; на телефоне полоса выше центра холста (шторка),
+// и прежние ±35° у камеры давали середине −11…+59° — пол не досмотреть
+describe("предел взгляда вверх-вниз — у середины видимой полосы", () => {
+  const cases: [string, number, LiveBand][] = [["телефон 375×667, шторка", 375 / 667, { top: 0.1, bottom: 0.55 }], ["компьютер 1280×720", 1280 / 720, { top: 0.09, bottom: 0.86 }], ["весь холст", 1.5, { top: 0, bottom: 1 }]];
+  for (const [tag, aspect, band] of cases) it(tag, () => {
+    const [lo, hi] = lookPitchRange(band, verticalFov(pose.fov, aspect));
+    const mid = (band.top + band.bottom) / 2, f = 400;
+    for (const [pitch, el] of [[lo, -LOOK_PITCH_DEG], [hi, LOOK_PITCH_DEG]] as const) {
+      // точка по взгляду на угле места `el` ложится в середину полосы
+      const y = screenY(pitch, aspect, { x: 0, y: f, h: LIVE_EYE_CM + Math.tan((el * Math.PI) / 180) * f });
+      expect(y, `${tag}: наклон ${pitch.toFixed(1)}°, угол места ${el}°`).toBeCloseTo(mid, 3);
+    }
+    expect(lo).toBeGreaterThanOrEqual(-85);
+    expect(hi).toBeLessThanOrEqual(85);
+  });
+  it("без полосы — симметрично ±60° у камеры", () => {
+    expect(lookPitchRange(null, 60)).toEqual([-60, 60]);
+  });
+});
+
 describe("глаз «3D» — не ближе 50 см к стенам", () => {
   const room = { x: 0, y: 0, w: 439, d: 325 };
   it("точки ракурсов демо (3 см от стены) отходят в комнату на 50 см, вдоль стены не сдвигаются", () => {

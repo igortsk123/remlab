@@ -88,6 +88,23 @@ export function livePitchDeg(
   return Math.max(minDeg, Math.min(0, (theta * 180) / Math.PI));
 }
 
+/**
+ * ПРЕДЕЛ ВЗГЛЯДА ВВЕРХ-ВНИЗ (T-20261112-30, владелец: «на телефоне на потолок смотреть можно, на пол — нет»). Предел — у СЕРЕДИНЫ
+ * ВИДИМОЙ ПОЛОСЫ, не у центра холста: на телефоне низ холста закрывает шторка, полоса выше центра, и прежний предел наклона камеры
+ * ±35° давал середине видимого −11…+59° (пол не досмотреть). Теперь середина полосы — ±`LOOK_PITCH_DEG` и в «3D» тура, и в /demo.
+ */
+export const LOOK_PITCH_DEG = 60;
+/** Наклон камеры (градусы) не дальше этого от горизонта: у отвеса взгляд «переворачивается». */
+const LOOK_CAMERA_MAX = 85;
+
+/** Пределы наклона КАМЕРЫ [вниз, вверх] (градусы), при которых середина видимой полосы `band` — в ±`limit`; `vfovDeg` — угол холста по вертикали. */
+export function lookPitchRange(band: LiveBand | null | undefined, vfovDeg: number, limit = LOOK_PITCH_DEG): [number, number] {
+  const top = band ? Math.min(Math.max(band.top, 0), 1) : 0, bottom = band ? Math.min(Math.max(band.bottom, top), 1) : 1;
+  const mid = 1 - (top + bottom);   // середина полосы в долях полувысоты холста от центра (вверх — плюс)
+  const off = (Math.atan(mid * Math.tan((vfovDeg * Math.PI) / 360)) * 180) / Math.PI;
+  return [Math.max(-LOOK_CAMERA_MAX, -limit - off), Math.min(LOOK_CAMERA_MAX, limit - off)];
+}
+
 /** Точки предмета для `livePitchDeg` из его габаритной коробки (см): 8 углов; висящее выше `LIVE_TOP_CAP_CM` (люстра, полка) — нет. */
 export function boxPoints(min: { x: number; y: number; h: number }, max: { x: number; y: number; h: number }): LivePoint[] {
   if (min.h > LIVE_TOP_CAP_CM) return [];

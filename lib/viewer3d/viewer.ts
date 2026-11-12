@@ -30,7 +30,7 @@ import { MeshLibrary, chaiseSide, disposeObject, placeMesh, stubBox } from "@/li
 import { outlineFrame } from "@/lib/viewer3d/outline";
 import { renderThumbs } from "@/lib/viewer3d/thumbs";
 import { buildRoom, buildSurroundings } from "@/lib/viewer3d/rooms";
-import { boxPoints, livePitchDeg, liveSpot, LIVE_EYE_CM, type LiveBand, type LivePoint } from "@/lib/viewer3d/live-eye";
+import { boxPoints, livePitchDeg, liveSpot, lookPitchRange, LIVE_EYE_CM, type LiveBand, type LivePoint } from "@/lib/viewer3d/live-eye";
 import { canStand, frameSpot, inRooms, nearestStandable, obstacleDistanceCm, walkArea, type WalkArea } from "@/lib/viewer3d/walk";
 import { followRoute, newRoute, planRoute, slideStep, type RouteState, type SlideMemo } from "@/lib/viewer3d/walk-motion";
 
@@ -856,7 +856,7 @@ export class FlatViewer {
     const cur = this.viewMode === "photo" ? this.livePose(now)
       : { x: this.pos.x, y: this.pos.y, rot: (540 - this.heading) % 360, pitch: this.pitch };
     this.setPhotoPose(pose);
-    if (pitch !== undefined) this.photoLook.pitch = Math.max(-35, Math.min(35, pitch));   // наклон к предмету (`frameItem`)
+    if (pitch !== undefined) this.photoLook.pitch = this.clampLook(pitch);   // наклон к предмету (`frameItem`)
     if (!cur) return;
     const yaw = ((cur.rot - pose.rot + 540) % 360) - 180;
     const to = this.photo ?? pose;   // глаз «3D» мог отойти от стены (`livePlaced`) — переход к нему, не к точке кадра
@@ -881,7 +881,7 @@ export class FlatViewer {
     this.pos.set(spot.x, spot.y);
     this.walkBlend = { t0: performance.now(), ms: 500, fov: fov0, eye: eye0, dx: p.x - spot.x, dy: p.y - spot.y };
     this.heading = (540 - p.rot) % 360;
-    this.pitch = Math.max(-55, Math.min(45, p.pitch));
+    this.pitch = this.clampLook(p.pitch);
     this.moveTarget = null;
   }
 
@@ -1041,11 +1041,18 @@ export class FlatViewer {
     if (this.viewMode === "photo" && this.photo) {
       // взгляд из точки съёмки: та же чувствительность, что у прогулки (у позы угол растёт в другую сторону)
       this.photoLook.yaw -= dxPx * 0.22;
-      this.photoLook.pitch = Math.max(-35, Math.min(35, this.photoLook.pitch - dyPx * 0.18));
+      this.photoLook.pitch = this.clampLook(this.photoLook.pitch - dyPx * 0.18);
       return;
     }
     this.heading = (this.heading + dxPx * 0.22 + 360) % 360;
-    this.pitch = Math.max(-55, Math.min(45, this.pitch - dyPx * 0.18));
+    this.pitch = this.clampLook(this.pitch - dyPx * 0.18);
+  }
+
+  /** Наклон взгляда в пределах: середина видимой полосы холста — ±60° вверх и вниз (`live-eye.ts:lookPitchRange`), фото-поза и прогулка. */
+  private clampLook(pitch: number): number {
+    const vfov = this.viewMode === "photo" && this.photo ? verticalFov(this.photo.fov ?? 72, this.camera.aspect) : this.camera.fov;
+    const [lo, hi] = lookPitchRange(this.liveEye?.band, vfov);
+    return Math.max(lo, Math.min(hi, pitch));
   }
 
   /** Тап по полу — «иди сюда» (мобильный сценарий из ТЗ). */
