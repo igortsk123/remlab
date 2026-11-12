@@ -1366,7 +1366,11 @@ body.tr-nogoods #shot .pinlist .row>.p{flex:0 0 40px}
 .vstage:has(.vtrph)>.tr-confirm{display:none}
 /* компьютер (T-20261110-40): по центру сверху — переключатель «Фото | 3D», слева сверху — «3D: тяните…»/«Фото нейросети…», справа —
    «Скрыть цены»; пометка — слева внизу над ракурсами (ракурсы по центру ниже), не пересекает верхние кнопки ни на одной ширине */
-@media(min-width:701px){body.trial #shot .vstage>.tr-approx{left:12px;top:auto;bottom:62px;transform:none}}
+@media(min-width:701px){body.trial #shot .vstage>.tr-approx{left:12px;top:auto;bottom:62px;transform:none}
+  /* окошки ракурсов в «3D» (T-20261112-76/3): они слева внизу (14 + окошко 66 + 8 + подсказка ~30) — пометка отдельной строкой НАД
+     ними с отступом 10 px; подсказки нет — над окошками */
+  body.trial #shot.vslots-on .vstage>.tr-approx{bottom:128px}
+  body.trial #shot.vslots-on:has(#vSlTip[hidden]) .vstage>.tr-approx{bottom:90px}}
 /* карточка пробы без фото: план комнаты с мебелью (тот же рисунок, что план окна) и подпись «Откройте, покажем в 3D» */
 .hm-room .hm-ph .nopv.tr-plan{background:var(--wash,#F3F0EA);padding:42px 14px 44px}
 .hm-room .hm-ph .nopv.tr-plan svg{width:100%;height:100%;display:block}
@@ -10353,7 +10357,7 @@ function vwPinsTick(now){
   // цены скрыты — ценников нет, а «Повернуть» у выбранного остаётся (`vwRotPlace`)
   if(!on){PINS.map.forEach(n=>n.remove()); PINS.map.clear(); if(!live||VW.sel==null){vwRotHide(); return;}}
   if(!PINS.fr||now-PINS.t>80){PINS.t=now; PINS.fr=box.getBoundingClientRect();
-    PINS.busy=[...document.querySelectorAll('#shot .vmodes, #shot .vstyle, #shot .vprice, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vcams, #shot .vready, #shot .vstage>.tr-confirm, #vcarry:not([hidden])')]
+    PINS.busy=[...document.querySelectorAll('#shot .vmodes, #shot .vstyle, #shot .vprice, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vcams, #shot .vslots, #shot .vready, #shot .vstage>.tr-confirm, #vcarry:not([hidden])')]
       .map(e=>e.getBoundingClientRect()).filter(r=>r.width>0);
     PINS.hint=LIVE.badge&&LIVE.badge.isConnected?LIVE.badge.getBoundingClientRect():null;
     vwRowSync();}
@@ -11190,17 +11194,20 @@ function vwSlotTap(k){
   vwCamGo(k);
 }
 function vwSlotTip(note){ VSL.tipNote=note||''; VSL.tipUntil=Date.now()+(note?3500:5000); clearTimeout(VSL.tipT); VSL.tipT=setTimeout(vwSlotsUi,(note?3500:5000)+50); vwSlotsUi(); }
-// миниатюры — кадры тех же поз, что уйдут в фото (`capture`), маленькие; кадры заранее этой пары есть — из них
+// миниатюры — кадры тех же поз, что уйдут в фото (`capture`), маленькие, всегда снятые под окошко (240×164). Заранее снятые кадры
+// фото (`vwPreReady`) сюда не берём: на телефоне они под вертикальный кадр, и обрезка в окошко 74×52 давала один пол (T-20261112-76/3).
+// Снимаем один раз на пару поз (ключ — состояние + позы), держим в памяти; пауза 200 мс — склеить «запомнил вид → перерисовал окошки»
+// Только из готовой сцены (`LIVE.state==='ready'`): во время «Обновляем…» мебели ещё нет — кадр пустой комнаты лёг бы под тот же ключ
+// и остался бы до правки; на переходе в «готово» окошки перерисовываются (`liveUpdate` → `vwSlotsUi`)
 function vwSlotThumbs(){
-  if(!LIVE.scene||!LIVE.scene.capture||LIVE.ok!==true)return;
+  if(!LIVE.scene||!LIVE.scene.capture||LIVE.ok!==true||LIVE.state!=='ready')return;
   const cs=(cams||loadCams()).slice(0,2), key=curStateId()+'|'+JSON.stringify(cs.map(c=>[c.x,c.y,c.rot,c.fov]));
   if(VSL.key===key)return; VSL.key=key;
   clearTimeout(VSL.t); VSL.t=setTimeout(()=>{
-    const pre=vwPreReady(), put=bl=>{if(VSL.key!==key)return; VSL.thumbs.forEach(u=>{if(u&&u.startsWith('blob:'))setTimeout(()=>URL.revokeObjectURL(u),2000);});
+    const put=bl=>{if(VSL.key!==key)return; VSL.thumbs.forEach(u=>{if(u&&u.startsWith('blob:'))setTimeout(()=>URL.revokeObjectURL(u),2000);});
       VSL.thumbs=[0,1].map(k=>bl&&bl[k]?URL.createObjectURL(bl[k]):''); vwSlotsUi();};
-    if(pre&&pre.blobs&&pre.blobs.length===2){put(pre.blobs); return;}
-    vwSceneQ(async()=>{ if(VSL.key!==key||!LIVE.scene)return; const r=await LIVE.scene.capture(cs.map(camPoseOf),240,164); put(r&&r.frames); });
-  },700);
+    vwSceneQ(async()=>{ if(VSL.key!==key||!LIVE.scene||LIVE.state!=='ready'){if(VSL.key===key)VSL.key='';return;} const r=await LIVE.scene.capture(cs.map(camPoseOf),240,164); put(r&&r.frames); });
+  },200);
 }
 function vwSlotsUi(){
   const box=document.getElementById('vSlots'), shot=document.getElementById('shot'); if(!box||!shot)return;
@@ -11865,7 +11872,7 @@ async function liveShow(){
   if(VW.mode==='walk'&&LIVE.focus!=null){const k=LIVE.focus;
     const how=sc.frameItem?sc.frameItem(k):(sc.focus&&sc.focus(k),'turn'); LIVE.framed=how; VW.free=true; vwCamsUi(); sc.start();}
   LIVE.focus=null;
-  LIVE.state='ready'; vwLoad(false);
+  LIVE.state='ready'; vwLoad(false); vwSlotsUi();   // окошки ракурсов — кадры уже готовой сцены (T-20261112-76/3)
   if(LIVE.readyMs==null)LIVE.readyMs=performance.now();   // плашка замера `?perf=1` (блок PERF): первое «3D готово» от начала загрузки
   if(entering&&VW.mode==='walk')liveHint();
   liveShotSoon(); vwPreSoon(); trThumbs();   // проба: миниатюры строк — из готовой сцены (T-20261109-35/2)
