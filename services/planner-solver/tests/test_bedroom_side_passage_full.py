@@ -7,6 +7,7 @@ import copy
 import pytest
 
 from planner import bedroom_checks as BC
+from planner import passage_norms as PN
 from planner.bedroom import solve_bedroom
 from planner.bedroom_checks import validate_bedroom
 from planner.models import Item, Opening, Placement, Room, Severity
@@ -36,14 +37,19 @@ def _hard(ps) -> set[str]:
 
 
 def test_dresser_next_to_nightstand_blocks_head_of_passage():
-    """Комод вплотную к тумбе (как в банке T-27: x≈482) — в полосе у изголовья: прохода к изголовью нет."""
-    assert "BED_SIDE_PASSAGE" in _hard(_layout(482.5))
+    """Комод вплотную к тумбе (тумба до 424, комод от 424) — в полосе у изголовья: прохода к изголовью нет. С T-68 бок пары —
+    цель 60 / допуск 50 (`distances_cm.clearances`): вне движка проверка по допуску, в проходе 1 движка — по цели (банк
+    T-27: x≈482, зазор 49 — уже цели 60)."""
+    assert "BED_SIDE_PASSAGE" in _hard(_layout(424 + 52.5))
+    with PN.using("target"):
+        assert "BED_SIDE_PASSAGE" in _hard(_layout(482.5))
 
 
 def test_nightstands_alone_and_dresser_beyond_strip_ok():
     assert "BED_SIDE_PASSAGE" not in _hard(_layout(None))
-    # полоса справа кончается на 298.5 + 82.5 + 75 = 456; комод от 457 — уже за ней
-    assert "BED_SIDE_PASSAGE" not in _hard(_layout(457 + 52.5))
+    # полоса справа по цели кончается на 298.5 + 82.5 + 60 = 441; комод от 442 — уже за ней
+    with PN.using("target"):
+        assert "BED_SIDE_PASSAGE" not in _hard(_layout(442 + 52.5))
 
 
 def test_solver_keeps_full_strip():
@@ -70,5 +76,5 @@ def switch_off(monkeypatch):
 
 
 def test_switch_off_restores_old_strip(switch_off):
-    assert "BED_SIDE_PASSAGE" not in _hard(_layout(482.5))
+    assert "BED_SIDE_PASSAGE" not in _hard(_layout(424 + 52.5))
     assert "left_head" not in BC.bed_zones(_layout(None)[0])

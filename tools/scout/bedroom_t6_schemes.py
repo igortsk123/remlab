@@ -23,6 +23,38 @@ ROOT = HERE.parent.parent
 sys.path.insert(0, str(ROOT / 'services' / 'planner-solver'))
 sys.path.insert(0, str(HERE))
 import bedroom_schemes as bs  # noqa: E402
+from planner import passage_norms as PN  # noqa: E402
+
+# T-20261112-68 (ADR-0394): проходы по норме обычного жилья — цель / допуск compact / жёстко (`distances_cm.clearances`).
+# Проверка схемы (`bedroom_schemes`) идёт дважды: по цели и по допуску; итог панели — «цель» | «compact» | «✗».
+# Заливка зон — допуск (меньше — нарушение), тонкий контур — цель.
+MODE_RU = {'target': 'цель', 'compact': 'compact', 'refused': '✗ отказ', None: '—'}
+REFUSAL_RU = {'COUPLE_NO_SECOND_SIDE': 'паре нет второго бока', 'BED_SIDE_NO_PASSAGE': 'нет прохода у бока',
+              'ROUTE_TOO_NARROW': 'путь от двери уже 50', 'STORAGE_CANT_OPEN': 'шкаф/комод не открыть',
+              'FURNITURE_IN_DOOR_SWING': 'мебель в дуге двери', 'WINDOW_UNREACHABLE': 'окно недостижимо',
+              'RADIATOR_BLOCKED': 'радиатор закрыт', 'BED_NO_FIT': 'кровать не встала', 'REQUIRED_NO_FIT': 'не встало обязательное',
+              'BED_NO_ROOM': 'кровать не влезает в контур'}
+
+
+def set_norm(level, placements=()):
+    """Числа проверки схемы `bedroom_schemes` по уровню прохода (target | compact): бок, изножье, шкаф и комод — как у
+    движка, `PN.front_need` по предмету раскладки (тип шкафа из данных, неизвестен — распашной; вылет ящика неизвестен —
+    70), путь от двери; подписи причин — заново под эти числа."""
+    with PN.using(level):
+        bs.SIDE, bs.FOOT = PN.clearance('bed_side_couple'), PN.clearance('bed_foot_route')
+        bs.WARD = PN.clearance('wardrobe_hinged_front')
+        bs.DRESS = max(PN.clearance('dresser_front'), PN.drawer_reach_unknown())
+        for p in placements:
+            k = kind_of(p.role)
+            if k == 'wardrobe' and p.item is not None:
+                bs.WARD = PN.front_need(p.item, 'шкаф')[1]
+            elif k == 'dresser' and p.item is not None:
+                bs.DRESS = PN.front_need(p.item, 'комод')[1]
+        bs.ROUTE = PN.clearance('route_door_window')
+    bs.CODE_RU.update({'BED_SIDE_PASSAGE': f'нет прохода {bs.SIDE:.0f} у бока кровати', 'BED_FOOT_PASSAGE': f'нет {bs.FOOT:.0f} у изножья',
+                       'WARDROBE_FRONT': f'нет {bs.WARD:.0f} перед шкафом', 'DRESSER_FRONT': f'нет {bs.DRESS:.0f} перед комодом',
+                       'ROUTE_BED': f'нет пути {bs.ROUTE:.0f} от двери к кровати', 'ROUTE_WINDOW': f'нет пути {bs.ROUTE:.0f} от двери к окну',
+                       'ROUTE_DESK': f'нет пути {bs.ROUTE:.0f} от двери к столу'})
 
 BANK = Path('/home/pakar/igor/remlab/tools/scout/sets-bedroom.json')     # не в git — основная копия (как в Т6)
 UK_SCENES = Path('/home/pakar/remlab-logs/t13-1111/1943-r3/bed/scenes')   # сцены UK-туров, на которых строился Т6
@@ -398,30 +430,124 @@ def uk_pairs(scenes_dir):
     return out
 
 
+def before_allowances(model, placements):
+    """Допуски раскладки «было» по той же мерке, что у движка (`planner.bedroom_allowances.allowances`, режим compact)."""
+    from planner.bedroom_allowances import allowances
+    with PN.using('compact'):
+        return allowances(model, placements, {p.role for p in placements if not p.role.startswith('кровать')})
+
+
+def target_outline(items):
+    """Дорисовка: зоны по ЦЕЛИ тонким контуром (заливка на схеме — допуск)."""
+    col = {'side': (46, 125, 50), 'foot': (46, 125, 50), 'WARDROBE_FRONT': (21, 101, 192), 'DRESSER_FRONT': (106, 27, 154),
+           'DESK_CHAIR': (230, 81, 0)}
+
+    def f(cv, d):
+        for it in items:
+            rects = [(z['code'], z['rect']) for z in it['zones']]
+            if it['kind'] == 'bed':
+                rects += [('side', it['side_zone']['lo']), ('side', it['side_zone']['hi']), ('foot', it['foot_zone'])]
+            for code, r in rects:
+                x0, y0 = cv.P(r[0], r[1])
+                x1, y1 = cv.P(r[2], r[3])
+                d.rectangle([min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)], outline=col.get(code, (90, 90, 90)), width=2)
+    return f
+
+
+def both(*fs):
+    def f(cv, d):
+        for g in fs:
+            g(cv, d)
+    return f
+
+
+from planner.bedroom_checks import AREA_EPS  # noqa: E402  залезание в зону до 100 см² — округление движка, не нарушение
+
+
+def ok_tol(res):
+    """Схема годна с допуском движка: у каждого жёсткого нарушения зон площадь залезания ≤ AREA_EPS (путь — без допуска)."""
+    if res['ok']:
+        return True
+    for v in res['vs']:
+        if v['hard']:
+            area = sum((r[2] - r[0]) * (r[3] - r[1]) for r in v['regions'])
+            if not v['regions'] or area > AREA_EPS:
+                return False
+    return True
+
+
+_bs_route_targets = bs.route_targets
+
+
+def route_targets_t68(room, geo, items, X, Y):
+    """Цели пути от двери по канону T-68: до ПОЛОСЫ бока кровати (вдоль бока — своя норма бока 60/50, а не путь 75),
+    а не до изголовья бока, как в Т6; окно и стол — как в Т6. Так же меряет движок (`bedroom_checks.route_violations`)."""
+    import numpy as np
+    out = [t for t in _bs_route_targets(room, geo, items, X, Y) if not t[0].startswith('bed')]
+    beds = [i for i in items if i['kind'] == 'bed']
+    if beds:
+        b = beds[0]
+        st = b.get('side_state', {})
+        for s in ('lo', 'hi'):
+            if st.get(s) == 'ok':     # дошёл телом: центр человека в ROUTE/2 + 1 от полосы (движок: main.buffer(need/2 + 1))
+                z = b['side_zone'][s]
+                dx = np.maximum(np.maximum(z[0] - X, X - z[2]), 0)
+                dy = np.maximum(np.maximum(z[1] - Y, Y - z[3]), 0)
+                out.insert(0, ('bed_' + s, 'кровать', dx * dx + dy * dy <= (bs.ROUTE / 2 + 1) ** 2))
+    return out
+
+
+bs.route_targets = route_targets_t68
+
+
+def status(room, placements, names, variant, purpose):
+    """Проверка схемы по цели и по допуску → (итог target|compact|refused, items/res/paths по допуску, items по цели)."""
+    set_norm('target', placements)
+    it_t = items_from(room, placements, names, variant)
+    r_t, _p = evaluate(room, it_t, purpose)
+    r_t['why'] = reasons(r_t)                          # подписи — под числа своей нормы, пока они выставлены
+    set_norm('compact', placements)
+    it_c = items_from(room, placements, names, variant)
+    r_c, p_c = evaluate(room, it_c, purpose)
+    r_c['why'] = reasons(r_c)
+    st = 'target' if ok_tol(r_t) else 'compact' if ok_tol(r_c) else 'refused'
+    decided = r_t if st == 'target' else r_c          # по какой норме вышел итог — её «впритык» и подписываем
+    r_c['tol_only'] = st != 'refused' and not decided['ok']
+    r_c['tol_res'] = decided
+    return st, it_c, r_c, p_c, it_t
+
+
 def build_panels(pair):
-    """Две панели схемы на пару: БЫЛО и СТАЛО — с проверками, дорожками, строкой движка и списком изменений."""
+    """Две панели схемы на пару: БЫЛО и СТАЛО — с проверками по цели и допуску, дорожками, строкой движка, допусками
+    покупателю и списком изменений."""
     room = scheme_room(pair['id'], pair['title'], pair['model'], pair.get('notes', ()))
     purpose = PURPOSE.get(pair['purpose'], 'couple')
     meta = pair['after'].meta or {}
     variant = meta.get('sleep_variant')
-    ib = items_from(room, pair['before'].placements, pair['names'], variant)
-    ia = items_from(room, pair['after'].placements, pair['names'], variant)
-    rb, pb = evaluate(room, ib, purpose)
-    ra, pa = evaluate(room, ia, purpose)
+    sb, ib, rb, pb, tb = status(room, pair['before'].placements, pair['names'], variant, purpose)
+    sa, ia, ra, pa, ta = status(room, pair['after'].placements, pair['names'], variant, purpose)
     comp = meta.get('composition') or {}
+    cl = meta.get('clearance') or {}
     out = []
-    for kind, res, paths, lay in (('БЫЛО', rb, pb, pair['before']), ('СТАЛО', ra, pa, pair['after'])):
+    for kind, res, paths, lay, st, tit in (('БЫЛО', rb, pb, pair['before'], sb, tb), ('СТАЛО', ra, pa, pair['after'], sa, ta)):
         res['tpl'] = bs.classify(room, res)
-        if kind == 'СТАЛО':   # шифр шаблона и уровень — из паспорта движка (meta.composition)
-            cipher = f"{comp.get('template') or meta.get('template') or '—'} · ур. {comp.get('level') or '—'}"
+        if kind == 'СТАЛО':   # шифр шаблона, уровень и проход движка — из meta (composition, clearance)
+            cipher = (f"{comp.get('template') or meta.get('template') or '—'} · ур. {comp.get('level') or '—'} · "
+                      f"{MODE_RU.get(cl.get('mode'), cl.get('mode'))}")
             src = f"движок групп; раскладка группы сна {meta.get('template') or '—'}, вариант {variant or '—'}"
             if comp.get('degraded_from'):
                 src += f"; упрощено с уровня {', '.join(comp['degraded_from'])}"
+            allow = [a['text'] for a in meta.get('allowances') or []]
+            refusal = cl.get('refusal') or []
+            blockers = cl.get('bed_blockers') or []
         else:
-            cipher = 'без шаблона'
+            cipher = f"без шаблона · {MODE_RU[st]}"
             src = pair['before_src']
+            allow = [a['text'] for a in before_allowances(pair['model'], lay.placements)] if st == 'compact' else []
+            refusal, blockers = [], []
         eng = engine_verdict(pair['model'], lay, strict=True)
-        out.append({'room': room, 'res': res, 'paths': paths, 'kind': kind, 'cipher': cipher, 'src': src,
+        out.append({'room': room, 'res': res, 'paths': paths, 'kind': kind, 'cipher': cipher, 'src': src, 'status': st,
+                    'allow': list(dict.fromkeys(allow)), 'refusal': refusal, 'blockers': blockers, 'target_items': tit,
                     'engine_hard': eng, 'lost': [], 'moved': moved(ib, ia) if kind == 'СТАЛО' else []})
     lost = [bs.ITEM_RU[x['kind']].lower() for x, y in match(ib, ia)[0] if y is None]
     if lost:
@@ -476,10 +602,19 @@ def foot_lines(pn, maxw):
     res = pn['res']
     f = bs.font(15)
     L = []
-    if res['ok']:
-        L.append('✓ влезает')
+    st = pn.get('status')
+    if st == 'target':
+        L.append('✓ влезает по цели')
+    elif st == 'compact':
+        L.append('✓ влезает с допуском compact (по цели — нет)')
     else:
         L += ['✗ ' + t for t in reasons(res)]     # все, не прячем
+    if res.get('tol_only'):
+        L.append(f'впритык, залезание ≤{AREA_EPS:.0f} см² (округление, как у движка): ' + '; '.join(res['tol_res']['why']))
+    L += ['допуск: ' + t for t in pn.get('allow', [])]
+    if pn.get('refusal'):
+        why = list(dict.fromkeys(pn['refusal'] + pn.get('blockers', [])))
+        L.append('✗ отказ движка: ' + ', '.join(REFUSAL_RU.get(c, c) for c in why))
     if pn['engine_hard']:
         L.append('✗ проверка движка: ' + '; '.join(dict.fromkeys(pn['engine_hard']))[:200])
     else:
@@ -511,14 +646,26 @@ def render_panel(pn, colw):
             break
         rt = cut(rt)
         title = f"{pn['kind']} · {rt} — {pn['cipher']}"
-    sub = f"{bs.PURPOSE_RU.get(res['purpose'], res['purpose'])} · схема {res['tpl']}: {composition(res['items'])}"
+    if d.textlength(title, font=f) > colw - 24:     # всё ещё не влезло — без шаблона: уровень и цель|compact|✗ важнее
+        title = f"{pn['kind']} · {rt} — {pn['cipher'].split(' · ', 1)[-1]}"
+    sub =f"{bs.PURPOSE_RU.get(res['purpose'], res['purpose'])} · схема {res['tpl']}: {composition(res['items'])}"
     return bs.render(room, res, s, compact=True, title=title, subtitle=sub[:84], foot_lines=foot_lines(pn, colw - 30),
-                     paths=pn['paths'], extra=draw_pinches(res.get('pins', [])))
+                     paths=pn['paths'], extra=both(target_outline(pn.get('target_items', [])),
+                                                   draw_pinches(res.get('pins', []))))
 
 
-LEGEND = ('зелёное — проход 75 у боков и 60 у изножья · синее — 90 перед шкафом · фиолетовое — 76 перед комодом · '
-          'жёлтое — дверь 76 и дуга · пунктир — путь 75 от двери: зелёный к кровати, синий к окну, оранжевый к столу · '
-          'оранжевое у стены — радиатор · красная штриховка — нарушение · схема P1…P10 — тип по образцу Т0')
+def _legend():
+    t = {lv: {n: PN.clearance(n, lv) for n in ('bed_side_couple', 'bed_foot_route', 'wardrobe_hinged_front', 'dresser_front',
+                                                 'route_door_window')} for lv in ('target', 'compact')}
+    g = lambda n: f"{t['target'][n]:.0f}/{t['compact'][n]:.0f}"   # noqa: E731
+    return (f"нормы обычного жилья (ADR-0394), цель/допуск: бок кровати {g('bed_side_couple')}, изножье {g('bed_foot_route')}, "
+            f"распашной шкаф {g('wardrobe_hinged_front')}, комод {g('dresser_front')}, путь от двери {g('route_door_window')} · "
+            'заливка зоны — допуск (меньше — нарушение), тонкий контур — цель · зелёное — бока и изножье, синее — шкаф, '
+            'фиолетовое — комод, жёлтое — дверь 76 и дуга · пунктир — путь от двери шириной допуска: зелёный к кровати, синий к '
+            'окну · красная штриховка — нарушение · в шапке: шаблон · уровень · цель | compact | ✗ · «допуск:» — строка покупателю')
+
+
+LEGEND = _legend()
 
 
 def make_sheets(out, pairs_panels, name, head, per=4, colw=640):
@@ -562,17 +709,65 @@ def main(out, bank=BANK, scenes=UK_SCENES):
         pp = build_panels(p)
         allp.setdefault(p['group'], []).append(pp)
         b, a = pp
-        notes.append({'id': p['id'], 'before_ok': b['res']['ok'], 'after_ok': a['res']['ok'],
+        cl = p['after'].meta.get('clearance') or {}
+        notes.append({'id': p['id'], 'title': p['title'], 'before_status': b['status'], 'after_status': a['status'],
+                      'engine_mode': cl.get('mode'), 'level': (p['after'].meta.get('composition') or {}).get('level'),
                       'before_hard': bs.hard_reasons(b['res']), 'after_hard': bs.hard_reasons(a['res']),
                       'engine_before': b['engine_hard'], 'engine_after': a['engine_hard'], 'cipher_after': a['cipher'],
-                      'moved': a['moved'], 'lost': a['lost']})
-        print(p['id'], '| было', 'ok' if b['res']['ok'] else bs.hard_reasons(b['res']), '| стало',
-              'ok' if a['res']['ok'] else bs.hard_reasons(a['res']), '| движок стало', a['engine_hard'], flush=True)
+                      'allow_before': b['allow'], 'allow_after': a['allow'], 'refusal': a['refusal'] + a['blockers'],
+                      'moved': a['moved'], 'lost': a['lost'], 'lost_why': a.get('lost_why'),
+                      'forecast': FORECAST.get(p['id'])})
+        print(p['id'], '| было', b['status'], bs.hard_reasons(b['res']) if b['status'] == 'refused' else '', '| стало',
+              a['status'], '| движок', cl.get('mode'), (p['after'].meta.get('composition') or {}).get('level'),
+              '| потерял', a['lost'], flush=True)
     heads = {'demo-1': 'Демо спальня 1 (597×293) по стилям', 'demo-2': 'Демо спальня 2 (450×293) по стилям',
              'uk': 'Спальни UK-туров'}
     for g, pp in allp.items():
         make_sheets(out, pp, f'sheet-{g}', heads.get(g, g))
     json.dump(notes, open(out / 'notes.json', 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    write_matrix(out / 'matrix.md', notes)
+
+
+# прогноз канона (`.memory_bank/domain/room-templates.md` § «Пересчёт 14 спален листов T-62»): «стало» T-62 по новой норме,
+# без смены уровня — 9 ✓ / 1 условно / 4 ✗ (ключ — id пары листа)
+FORECAST_RULES = (('bedroom-1-', '✓'), ('bedroom-2-минимализм', '✓'), ('bedroom-2-лофт', '✓'), ('bedroom-2-современный', 'условно'),
+                  ('bedroom-2-сканди', '✗'), ('bedroom-2-джапанди', '✗'), ('-325x280-', '✓'), ('-330x390-', '✓'),
+                  ('-295x370-', '✗'), ('-210x370-', '✗'))
+
+
+class _Forecast(dict):
+    def get(self, k, default=None):
+        return next((v for pre, v in FORECAST_RULES if pre in k), default)
+
+
+FORECAST = _Forecast()
+VERDICT = {'target': '✓ цель', 'compact': '✓ compact', 'refused': '✗'}
+
+
+def write_matrix(path, notes):
+    """Итог «комната → уровень → цель | compact | ✗ → почему» против прогноза канона 9 ✓ / 1 условно / 4 ✗."""
+    L = ['# Спальни T-62 по нормам обычного жилья (T-20261112-68, ADR-0394)', '',
+         'Было — раскладка банка (демо) или поштучный движок (UK); стало — движок групп: проход 1 все уровни по цели, '
+         'проход 2 с допуском compact, дальше отказ. Проверка схемы — по цели и по допуску.', '',
+         '| комната | прогноз канона | было | стало (схема) | движок: проход · уровень | ушло (уровень без предмета) | допуск покупателю / отказ |',
+         '|---|---|---|---|---|---|---|']
+    cnt = {}
+    for n in notes:
+        st = n['after_status']
+        cnt[st] = cnt.get(st, 0) + 1
+        lost = ', '.join(n['lost']) + (f" ({n['lost_why']})" if n.get('lost_why') else '') if n['lost'] else '—'
+        why = '; '.join(n['allow_after']) or ('отказ: ' + ', '.join(REFUSAL_RU.get(c, c) for c in dict.fromkeys(n['refusal']))
+                                              if n['refusal'] else '—')
+        L.append(f"| {n['title']} | {n['forecast'] or '—'} | {VERDICT[n['before_status']]} | {VERDICT[st]} | "
+                 f"{MODE_RU.get(n['engine_mode'], n['engine_mode'])} · {n['level'] or '—'} | {lost} | {why} |")
+    fc = {}
+    for n in notes:
+        fc[n['forecast']] = fc.get(n['forecast'], 0) + 1
+    L += ['', f"**Итог стало:** по цели {cnt.get('target', 0)} · с допуском {cnt.get('compact', 0)} · ✗ {cnt.get('refused', 0)} "
+          f"(из {len(notes)}). **Прогноз канона:** ✓ {fc.get('✓', 0)} · условно {fc.get('условно', 0)} · ✗ {fc.get('✗', 0)} — "
+          'по «стало» T-62 без смены уровня; движок теперь уходит на уровень без предмета (колонка «ушло»).']
+    path.write_text('\n'.join(L) + '\n', encoding='utf-8')
+    print('matrix', path, flush=True)
 
 
 if __name__ == '__main__':

@@ -40,8 +40,10 @@ def test_bedroom_numbers_live_in_occupancy():
         assert k in dist, f"норма {k} не в occupancy.json distances_cm"
     for rid, r in _load("bedroom.json")["rules"].items():
         if "num" in r:
-            key = r["num"].split(".", 1)[1]
-            assert key in dist, f"{rid}: ссылка на {r['num']} — ключа нет"
+            node = dist          # вложенные блоки (distances_cm.clearances.<проход>, T-68) — по точкам
+            for part in r["num"].split(".")[1:]:
+                assert isinstance(node, dict) and part in node, f"{rid}: ссылка на {r['num']} — ключа нет"
+                node = node[part]
 
 
 def test_numbers_not_hardcoded_in_bedroom_json():

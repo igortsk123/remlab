@@ -53,9 +53,15 @@ ADDED_T38 = {
 }
 
 
+# добавки T-20261112-68 (проходы по норме обычного жилья, ADR-0394) — дописаны после добавок T-38
+ADDED_T68 = {
+    "services/planner-solver/rules/bedroom.json": [("rules", "bed_long_side_window_wall"), ("rules", "route_to_window_and_bed_sides")],
+}
+
+
 def _drop_t38(name: str, d: dict, check_order: bool = False) -> dict:
     d = copy.deepcopy(d)
-    for sec, key in reversed(ADDED_T38.get(name, [])):
+    for sec, key in reversed(ADDED_T38.get(name, []) + ADDED_T68.get(name, [])):
         tgt = d if sec is None else d[sec]
         if check_order and not key.startswith("_"):
             assert list(k for k in tgt if not k.startswith("_"))[-1] == key, f"{name}: {key} — не последним ключом"

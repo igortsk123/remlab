@@ -849,7 +849,9 @@ def record(C: Composer, room_id: str, spec: dict, purpose: str, style: str, tier
                        'soft': sorted({v.code for v in lay.violations}), 'skipped_optional': lay.skipped_optional,
                        'floor_used_pct': lay.floor_used_pct, 'attempts': res['attempts']}
     # движок групп (T-20261112-38/2): вариант «сна», почему без пары тумб / без шкафа, ступень 140, «кабинет»
-    gm = {k: lay.meta[k] for k in ('engine', 'sleep_variant', 'sleep_why', 'storage_why', 'room_label', 'composition')
+    # + проходы (T-20261112-68, ADR-0394): режим (цель / compact / отказ), допуски и готовая строка покупателю для /demo
+    gm = {k: lay.meta[k] for k in ('engine', 'sleep_variant', 'sleep_why', 'storage_why', 'room_label', 'composition',
+                                   'clearance', 'allowances', 'allowance_text')
           if lay.meta.get(k)}
     if res.get('bed_step'):
         gm.update(bed_step=res['bed_step'], bed_step_why=res['bed_step_why'])
@@ -1126,9 +1128,10 @@ def _selftest() -> int:
     _base = [_It(role='кровать', w_cm=175, d_cm=213, h_cm=110), _It(role='тумба прикроватная', w_cm=45, d_cm=40, h_cm=55),
              _It(role='тумба прикроватная 2', w_cm=45, d_cm=40, h_cm=55)]
     _shk = next(x for x in _R['purposes']['couple']['slots'] if x['role'] == 'шкаф')
-    ok('спальня 2 (450×293), кровать 175×213 + 2 тумбы группой «сон» по центру стены: свободная стена под шкаф 100 см '
-       '(общий идеал 150 не встаёт; поштучный движок давал 110 — тумбы не вплотную)',
-       _C.free_wall(_room2, _base, _shk, 'couple') == (100, 60))
+    # T-20261112-68 (ADR-0394): бок пары 60 по цели вместо 75 — стена под шкаф шире (было 100), по цели, без допуска
+    ok('спальня 2 (450×293), кровать 175×213 + 2 тумбы группой «сон» по центру стены: свободная стена под шкаф 120 см '
+       '(общий идеал 150 не встаёт; до норм проходов T-68 — 100, поштучный движок давал 110)',
+       _C.free_wall(_room2, _base, _shk, 'couple') == (120, 60))
     _cat = [{'mid': 1, 'eid': 'a', 'name': 'Кровать divan.ru Стелла 160'}, {'mid': 1, 'eid': 'b', 'name': 'Кровать Рио 160'},
             {'mid': 1, 'eid': 'c', 'name': 'Тумба Норд'}, {'mid': 1, 'eid': 'd', 'name': 'Комод Лайт'}]
     Composer(_cat, [], {'1:b'}, {'1:a', '1:c', '1:d'}, {'mesh_defect': {'names': 'Стелла'}}, (0.8, 1.1), 6.6, {'1:d'})

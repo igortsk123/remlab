@@ -17,8 +17,9 @@ from shapely.affinity import rotate, translate
 from shapely.geometry import box
 from shapely.ops import unary_union
 
+from . import passage_norms as PN
 from .clearances import ClearanceSpec, distances
-from .geometry import (access_zone, base_role, facing_vector, floor_used_pct, footprint, opening_polygon,
+from .geometry import (_wall_strip, access_zone, base_role, facing_vector, floor_used_pct, footprint, opening_polygon,
                        radiator_polygon, room_polygon, swing_polygon)
 from .models import Layout, Placement, Room, Severity, Violation
 from .validate import _v, check_boundary, check_collisions, check_openings, check_radiators, check_wall_only, is_flat_floor
@@ -105,14 +106,16 @@ def both_sides(room: Room, p: Placement) -> bool:
     return is_double(p) and (room.purpose or "couple") == "couple"
 
 
-# Фронт-зоны спальни. Своя таблица, а не `clearances._table`: шкаф спальни держит норму ADR-0330 п.7
-# независимо от того, принят ли подъём для гостиной (её путь читает свою таблицу).
-def bedroom_spec(role: str) -> ClearanceSpec | None:
+# Фронт-зоны спальни. Своя таблица, а не `clearances._table`: шкаф спальни держит свою норму независимо от гостиной.
+# С T-20261112-68 (ADR-0394) числа — `distances_cm.clearances` по режиму проходов (`planner/passage_norms.py`): шкаф — по
+# типу товара (распашной 90/70, купе 70/50), комод 76/70 и не меньше вылета ящика; режим legacy — прежние ключи.
+def bedroom_spec(role: str, item=None) -> ClearanceSpec | None:
     r = bedroom_role(role)
     if r == "шкаф":
-        return ClearanceSpec(num("wardrobe_hinged_front_min", 90), 0, 0, "распашной фасад (ADR-0330 п.7)")
+        name, v = PN.front_need(item, "шкаф")
+        return ClearanceSpec(v, 0, 0, "купе / открытое" if name == "storage_sliding_front" else "распашной фасад")
     if r == "комод":
-        return ClearanceSpec(num("dresser_front", 76), 0, 0, "выдвижной ящик")
+        return ClearanceSpec(PN.front_need(item, "комод")[1], 0, 0, "выдвижной ящик")
     if r in ("туалетный столик", "стол рабочий"):
         return ClearanceSpec(num("desk_chair_clear", 75), 0, 0, "место под стул (Н9)")
     return None
@@ -133,12 +136,22 @@ def _local(p: Placement, x0: float, y0: float, x1: float, y1: float):
     return translate(rotate(box(x0, y0, x1, y1), -p.rot, origin=(0, 0), use_radians=False), p.x, p.y)
 
 
+def side_name(p: Placement) -> str:
+    """Проход у бока кровати (`distances_cm.clearances`): двуспальная — бок пары, иначе — рабочий бок."""
+    return "bed_side_couple" if is_double(p) else "bed_side_work"
+
+
+def side_need(p: Placement) -> float:
+    """Ширина прохода у бока по текущему режиму проходов (target / compact; legacy — bed_side_passage)."""
+    return PN.clearance(side_name(p))
+
+
 def bed_zones(p: Placement) -> dict:
     """Полосы прохода кровати: левый/правый бок (без места тумбы у изголовья) и изножье. Выключатель
     `switches.bed_side_passage_full` (T-20261112-31) добавляет часть полосы У ИЗГОЛОВЬЯ (`left_head`/`right_head`): проход
     тянется на всю длину кровати, у изголовья в нём может стоять только тумба и лампа (`head_exempt_roles`), не комод."""
     w, d = p.item.w_cm, p.item.d_cm
-    side, foot, head = num("bed_side_passage", 75), num("bed_foot_min", 60), num("bed_head_zone", 50)
+    side, foot, head = side_need(p), PN.clearance("bed_foot_route"), num("bed_head_zone", 50)
     head = min(head, d)
     z = {
         "left": _local(p, -w / 2 - side, -d / 2 + head, -w / 2, d / 2),
@@ -223,7 +236,7 @@ def head_side_zones(room: Room, bed: Placement) -> list:
     """Полосы у изголовья по НЕ пристенным бокам кровати (bed_side_passage × bed_head_zone): там место тумбе и лампе,
     не шкафу/комоду/столу (движок групп, BED_SIDE_STORAGE)."""
     w, d = bed.item.w_cm, bed.item.d_cm
-    side, head = num("bed_side_passage", 75), min(num("bed_head_zone", 50), d)
+    side, head = side_need(bed), min(num("bed_head_zone", 50), d)
     z = bed_zones(bed)
     out = []
     if not _against_wall(room, z["left_wall"]):
@@ -267,7 +280,7 @@ def check_group_rules(room: Room, ps: list[Placement]) -> list[Violation]:
     for a in ps:
         if a.item is None or bedroom_role(a.role) not in ("шкаф", "комод") or not rads:
             continue
-        near, zone = front_reach(a), access_zone(a, spec=bedroom_spec(a.role))
+        near, zone = front_reach(a), access_zone(a, spec=bedroom_spec(a.role, a.item))
         if any(near.intersection(r).area > AREA_EPS for r in rads):
             out.append(_v("BR_ACCESS_RADIATOR", f"перед «{a.role}» радиатор ближе {num('storage_open_reach', 45):.0f} см — "
                           "створка/ящик упрётся", [a.role], None, "радиатор вне вылета фасада"))
@@ -283,7 +296,7 @@ def check_bed(room: Room, ps: list[Placement]) -> list[Violation]:
         z = bed_zones(b)
         others = [o for o in ps if o is not b]
         sides = {s: side_clear(room, z, s, others) for s in ("left", "right")}
-        need = num("bed_side_passage", 75)
+        need = side_need(b)
         if both_sides(room, b):
             for s, ok in sides.items():
                 if not ok:
@@ -293,9 +306,14 @@ def check_bed(room: Room, ps: list[Placement]) -> list[Violation]:
             out.append(_v("BED_SIDE_PASSAGE", f"к «{b.role}» нет подхода {need:.0f} см ни с одного бока", [b.role],
                           need, f"≥{need:.0f} см с одной стороны"))
         if not _zone_clear(room, z["foot"], others):
-            foot = num("bed_foot_min", 60)
+            foot = PN.clearance("bed_foot_route")
             out.append(_v("BED_FOOT_PASSAGE", f"у изножья «{b.role}» меньше {foot:.0f} см", [b.role],
                           foot, f"≥{foot:.0f} см у изножья"))
+        if PN.mode() != "legacy":
+            lim = PN.clearance("bed_long_side_window_wall")
+            for s, gap in window_wall_gaps(room, b):
+                out.append(_v("BED_SIDE_WINDOW_WALL", f"от бока «{b.role}» до стены с окном {gap:.0f} см", [b.role],
+                              round(gap), f"≥{lim:.0f} см от длинного бока до стены с окном"))
         # изголовье — к СПЛОШНОЙ стене: спинка у стены и за ней нет двери/балкона
         if not _against_wall(room, z["back"]):
             out.append(_v("BED_HEAD_WALL", f"изголовье «{b.role}» не у стены", [b.role], None,
@@ -332,6 +350,26 @@ def check_bed(room: Room, ps: list[Placement]) -> list[Violation]:
     return out
 
 
+def window_wall_gaps(room: Room, b: Placement) -> list[tuple[str, float]]:
+    """Длинный бок кровати вдоль стены с окном ближе нормы (`clearances.bed_long_side_window_wall`, R2 «до продольной
+    стороны ≥ 70», T-68): [(бок, зазор до стены, см)]. Окно — напротив бока в пределах длины кровати (окна стены
+    изголовья и изножья сюда не попадают); бок к стене с окном — тоже нарушение (зазор 0)."""
+    lim = PN.clearance("bed_long_side_window_wall")
+    if lim is None or b.item is None:
+        return []
+    w, d = b.item.w_cm, b.item.d_cm
+    fp = footprint(b)
+    out = []
+    for s, (x0, x1) in (("left", (-w / 2 - lim, -w / 2)), ("right", (w / 2, w / 2 + lim))):
+        strip = _local(b, x0, -d / 2 + 2, x1, d / 2 - 2)
+        gaps = [fp.distance(wp) + 1.0 for wp in (opening_polygon(room, op) for op in room.openings if op.kind == "window")
+                if strip.intersects(wp)]
+        gaps = [g for g in gaps if g < lim - 0.5]      # полоса окна толщиной 1 см лежит у стены: зазор до стены = +1
+        if gaps:
+            out.append((s, min(gaps)))
+    return out
+
+
 def back_strip(p: Placement, depth: float = 15.0):
     """Полоса за спинкой предмета: лежит за стеной — предмет стоит спинкой к стене."""
     w, d = p.item.w_cm, p.item.d_cm
@@ -360,7 +398,7 @@ def check_bedroom_access(room: Room, ps: list[Placement]) -> list[Violation]:
     out = []
     rp = room_polygon(room)
     for a in ps:
-        spec = bedroom_spec(a.role)
+        spec = bedroom_spec(a.role, a.item)
         if spec is None or a.item is None:
             continue
         zone = access_zone(a, spec=spec)
@@ -423,35 +461,59 @@ def check_bedroom_floor(room: Room, ps: list[Placement]) -> list[Violation]:
     return []
 
 
+def _route_main(room: Room, ps: list[Placement], need: float, *, swing_free: bool = False):
+    """Свободный пол, по которому проходит человек шириной need, связный с дверью → (main, None) | (None, [нарушение]).
+
+    swing_free (T-68, не legacy): дуга двери — обычный пол, а доступна часть, в которую человек шириной need ВХОДИТ
+    С ПОРОГА (ядро пересекает полосу проёма глубиной need/2 + 1). Прежде (legacy) дуга вырезалась, а доступной считалась
+    любая часть в need см от дуги — так проходил путь, узкий у самого входа (450×293: угол шкафа — угол кровати 59 см
+    шёл как 75; кончик ядра задевал дугу у петли)."""
+    from .geometry import free_space, radiator_polygon, room_polygon, static_blockers, swing_polygon
+
+    if swing_free:
+        solid = [footprint(p) for p in ps if base_role(p.role) != "ковёр"] + [radiator_polygon(room, r) for r in room.radiators]
+        free = room_polygon(room).difference(unary_union(solid)) if solid else room_polygon(room)
+    else:
+        free = free_space(room, ps, with_clearance=False)
+        for b in static_blockers(room):
+            free = free.difference(b)
+    core = free.buffer(-need / 2)
+    if core.is_empty:
+        return None, [_v("BR_NO_PASSAGE", f"в спальне не осталось прохода {need:.0f} см", [], 0, f"≥{need:.0f} см")]
+    parts = [core] if core.geom_type == "Polygon" else list(core.geoms)
+    if swing_free:
+        doors = [_wall_strip(room, op.wall, op.offset_cm, op.width_cm, need / 2 + 1.0)
+                 for op in room.openings if op.kind in ("door", "balcony")]
+    else:
+        doors = [swing_polygon(room, op) for op in room.openings if op.kind in ("door", "balcony")]
+    entry = unary_union([d for d in doors if not d.is_empty]) if doors else None
+    if entry is None or entry.is_empty:
+        return max(parts, key=lambda g: g.area), None
+    touching = [g for g in parts if (g.intersects(entry) if swing_free else g.buffer(need).intersects(entry))]
+    if not touching:
+        return None, [_v("BR_DOOR_UNREACHABLE", "от двери нет прохода в спальню", [], None, f"≥{need:.0f} см")]
+    return unary_union(touching), None
+
+
 def check_bedroom_passages(room: Room, ps: list[Placement]) -> list[Violation]:
-    """Проход 46 см от двери до каждого высокого предмета (`passage_absolute_min_tight`, как у гостиной).
+    """Путь от двери (T-68: `clearances.route_door_window` по режиму — цель 75, допуск 50; legacy — прежние 46
+    `passage_absolute_min_tight`) до каждого высокого предмета, а с T-68 (не legacy) — и до окна, и до каждого рабочего
+    бока кровати (канон «путь от двери к окну и к каждому рабочему боку»)."""
+    return route_violations(room, ps, PN.clearance("route_door_window"), extra=PN.mode() != "legacy")
+
+
+def route_violations(room: Room, ps: list[Placement], need: float, *, extra: bool = True) -> list[Violation]:
+    """Проход need см от двери до каждого высокого предмета; extra — ещё до окна и рабочих боков кровати.
 
     Отличие от `validate.check_passages`: дуга двери — не стена. В спальне дверь часто открывается в узкий
     карман между кроватью и стеной; общий путь вырезает дугу и считает доступной лишь бо́льшую из частей
     по обе стороны — комод слева от двери выходил «недоступным», хотя к нему идут прямо от входа.
     Здесь доступна ЛЮБАЯ часть, касающаяся дуги двери."""
-    from shapely.ops import unary_union
-
     from .clearances import LOW_ITEM_MAX_H_CM
-    from .geometry import free_space, static_blockers, swing_polygon
 
-    need = num("passage_absolute_min_tight", 46)
-    free = free_space(room, ps, with_clearance=False)
-    for b in static_blockers(room):
-        free = free.difference(b)
-    core = free.buffer(-need / 2)
-    if core.is_empty:
-        return [_v("BR_NO_PASSAGE", f"в спальне не осталось прохода {need:.0f} см", [], 0, f"≥{need:.0f} см")]
-    parts = [core] if core.geom_type == "Polygon" else list(core.geoms)
-    doors = [swing_polygon(room, op) for op in room.openings if op.kind in ("door", "balcony")]
-    entry = unary_union([d for d in doors if not d.is_empty]) if doors else None
-    if entry is None or entry.is_empty:
-        main = max(parts, key=lambda g: g.area)
-    else:
-        touching = [g for g in parts if g.buffer(need).intersects(entry)]
-        if not touching:
-            return [_v("BR_DOOR_UNREACHABLE", "от двери нет прохода в спальню", [], None, f"≥{need:.0f} см")]
-        main = unary_union(touching)
+    main, bad = _route_main(room, ps, need, swing_free=extra)
+    if bad:
+        return bad
     out = []
     for p in ps:
         if is_flat_floor(p) or ((p.item.h_cm if p.item else None) or 999) <= LOW_ITEM_MAX_H_CM:
@@ -461,6 +523,37 @@ def check_bedroom_passages(room: Room, ps: list[Placement]) -> list[Violation]:
         reach = unary_union([footprint(p)] + [footprint(q) for q in ps if q is not p and same_group(p.role, q.role)])
         if not reach.buffer(need / 2 + 1.0).intersects(main):
             out.append(_v("BR_UNREACHABLE", f"к «{p.role}» нет прохода {need:.0f} см", [p.role], need, f"≥{need:.0f} см"))
+    if not extra:
+        return out
+    near = main.buffer(need / 2 + 1.0)
+    reached_sides = []                       # полосы рабочих боков, до которых дошли (через них дойти и до окна)
+    for b in [p for p in ps if is_bed(p) and p.item is not None]:
+        z = bed_zones(b)
+        others = [o for o in ps if o is not b]
+        if both_sides(room, b):
+            want = ("left", "right")
+        else:
+            want = tuple(s for s in ("left", "right") if not _against_wall(room, z[f"{s}_wall"]) and side_clear(room, z, s, others))
+        got = [s for s in want if z[s].intersection(near).area > 1.0]
+        reached_sides += [unary_union([z[s]] + ([z[f"{s}_head"]] if f"{s}_head" in z else [])) for s in got]
+        miss = [s for s in want if s not in got] if both_sides(room, b) else ([] if got or not want else list(want))
+        if miss:
+            out.append(_v("BR_BED_SIDE_UNREACHABLE", f"к боку «{b.role}» ({', '.join(miss)}) нет прохода {need:.0f} см от двери",
+                          [b.role], need, f"≥{need:.0f} см до рабочего бока"))
+    depth = PN.clearance("route_door_window", "hard")
+    for op in room.openings:
+        if op.kind != "window":
+            continue
+        front = _wall_strip(room, op.wall, op.offset_cm, op.width_cm, depth)
+        # до окна тянутся и через низкое под ним (стол у окна со стулом, комод ниже подоконника) — дошли до него, дошли до окна
+        low = [p for p in ps if p.item is not None and footprint(p).intersects(front)
+               and (p.item.h_cm or 999) <= max(op.sill_cm, 80) + 5]
+        low += [q for q in ps if any(q is not p and same_group(p.role, q.role) for p in low)]
+        target = unary_union([front] + [footprint(p) for p in low])
+        if target.intersection(near).area > 1.0 or any(s.intersects(front) for s in reached_sides):
+            continue
+        out.append(_v("BR_WINDOW_UNREACHABLE", f"до окна нет прохода {need:.0f} см от двери", [], need,
+                      f"≥{need:.0f} см до окна"))
     return out
 
 

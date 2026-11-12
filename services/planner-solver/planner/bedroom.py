@@ -19,9 +19,11 @@ from .bedroom_checks import (AREA_EPS, STORAGE_LIKE, bed_zones, bedroom_role, be
                              is_double, light_side, nightstand_ok, num, same_group, side_back, side_back_denied, side_clear,
                              validate_bedroom)
 from .bedroom_checks import engine as _engine_of
+from .bedroom_allowances import allowances
 from .geometry import (SAFE_GAP_CM, _wall_point, _wall_strip, access_zone, footprint, opening_polygon,
                        radiator_polygon, room_edges, room_polygon, swing_polygon)
 from .models import Item, Layout, Placement, Room, Severity
+from . import passage_norms as PN
 from . import room_templates as RT
 
 BEAM = 8
@@ -123,7 +125,7 @@ def _keepouts(p: Placement, placed: list[Placement], room: Room) -> list[tuple]:
             return [(z["foot"], NONE)] + strip("left") + strip("right")
         clear = [s for s in ("left", "right") if side_clear(room, z, s, others)]
         return [(z["foot"], NONE)] + (strip(clear[0]) if clear else [])
-    spec = bedroom_spec(p.role)
+    spec = bedroom_spec(p.role, p.item)
     return [(access_zone(p, spec=spec), NONE)] if spec is not None else []
 
 
@@ -290,12 +292,18 @@ def _prelude(room: Room, items: list[Item], purpose: str, solver: str):
 
 
 def solve_bedroom(room: Room, items: list[Item], purpose: str | None = None, *, beam: int = BEAM,
-                  engine: str | None = None) -> Layout:
+                  engine: str | None = None, profile: str | None = None) -> Layout:
     """engine — движок (`bedroom_checks.engine`: явный → env BEDROOM_ENGINE → rules _meta.engine). items — поштучно
-    (прежнее байт в байт), groups — группы-шаблоны (`_solve_groups`, T-20261112-38)."""
+    (прежнее байт в байт: проходы — прежние ключи, режим legacy), groups — группы-шаблоны (`_solve_groups`, T-20261112-38)
+    с проходами по норме обычного жилья (T-20261112-68: profile — `distances_cm.clearances._profiles`, None — по умолчанию)."""
     purpose = purpose or room.purpose or "couple"
     if _engine_of(engine) == "groups":
-        return _solve_groups(room, items, purpose, beam=beam)
+        return _solve_groups(room, items, purpose, beam=beam, profile=profile)
+    with PN.using("legacy"):
+        return _solve_items(room, items, purpose, beam=beam)
+
+
+def _solve_items(room: Room, items: list[Item], purpose: str, *, beam: int = BEAM) -> Layout:
     cfg, meta, must_have, by_role, early = _prelude(room, items, purpose, "bedroom-v1")
     if early is not None:
         return early
@@ -624,7 +632,113 @@ def _variant_of(placed: list[Placement]) -> str | None:
     return "pair" if n >= 2 else ("one_side" if n == 1 else "solo")
 
 
-def _solve_groups(room: Room, items: list[Item], purpose: str, *, beam: int = BEAM) -> Layout:
+# ───────── проходы по норме обычного жилья (T-20261112-68, ADR-0394, канон domain/room-templates.md § «Проходы») ─────────
+# Проход 1 — все уровни паспорта по ЦЕЛИ (малая комната сперва теряет предметы); ни один не годен — проход 2: те же уровни в
+# том же порядке с допуском compact (покупателю — строкой, `bedroom_allowances.allowances`); ни один — честный отказ с
+# причинами «нельзя никогда». Жёсткие минимумы держатся всегда: у профиля general compact = hard.
+PRELUDE_REFUSALS = {"PURPOSE_UNKNOWN", "PURPOSE_PENDING", "BED_NOT_DOUBLE", "BED_NOT_SINGLE", "BED_SIDE_BACK_COUPLE"}
+NEVER = {   # код нарушения → причина отказа «нельзя никогда» (канон)
+    "BED_SIDE_PASSAGE": "BED_SIDE_NO_PASSAGE", "BR_NO_PASSAGE": "ROUTE_TOO_NARROW", "BR_DOOR_UNREACHABLE": "ROUTE_TOO_NARROW",
+    "BR_UNREACHABLE": "ROUTE_TOO_NARROW", "BR_BED_SIDE_UNREACHABLE": "ROUTE_TOO_NARROW",
+    "BR_ACCESS_WALL": "STORAGE_CANT_OPEN", "BR_ACCESS_BLOCKED": "STORAGE_CANT_OPEN", "BR_ACCESS_RADIATOR": "STORAGE_CANT_OPEN",
+    "DOOR_SWING": "FURNITURE_IN_DOOR_SWING", "DOOR_PASSAGE": "FURNITURE_IN_DOOR_SWING", "BED_FOOT_IN_SWING": "FURNITURE_IN_DOOR_SWING",
+    "BR_WINDOW_UNREACHABLE": "WINDOW_UNREACHABLE", "BED_SIDE_WINDOW_WALL": "WINDOW_UNREACHABLE", "WINDOW_BLOCKED": "WINDOW_UNREACHABLE",
+    "RADIATOR": "RADIATOR_BLOCKED",
+}
+
+
+def _accepted(lay: Layout) -> bool:
+    return bool(lay.placements) and not lay.unplaced and not any(v.severity is Severity.HARD for v in lay.violations)
+
+
+def refusal_codes(room: Room, lay: Layout) -> list[str]:
+    """Причины отказа «нельзя никогда» по жёстким нарушениям раскладки; паре без второго бока — COUPLE_NO_SECOND_SIDE."""
+    out = []
+    for v in lay.violations:
+        if v.severity is not Severity.HARD:
+            continue
+        c = NEVER.get(v.code, v.code)
+        if v.code == "BED_SIDE_PASSAGE" and (room.purpose or lay.meta.get("purpose")) == "couple":
+            c = "COUPLE_NO_SECOND_SIDE"
+        if c not in out:
+            out.append(c)
+    for r in lay.meta.get("reason", []):
+        if r in ("BED_NO_FIT", "REQUIRED_NO_FIT") and r not in out:
+            out.append(r)
+    return out
+
+
+def bed_blockers(room: Room, bed_role: str, bed: Item) -> list[str]:
+    """Почему кровать не встала ни в одно место (отказ BED_NO_FIT): жёсткие нарушения самой кровати по всем слотам
+    (`check_bed`, режим проходов — текущий), «нельзя никогда» по убыванию частоты. Слот, где кровать не влезла в контур
+    или легла на дугу двери/радиатор, — FURNITURE_IN_DOOR_SWING / RADIATOR_BLOCKED / BED_NO_ROOM."""
+    S = _Statics(room)
+    cnt: dict = {}
+    for slot in _slots(room, bed):
+        p = _place(bed_role, bed, slot[0], slot[1], slot[2], "")
+        fp = footprint(p)
+        codes = set()
+        if fp.difference(S.poly).area > AREA_EPS / 10:
+            codes.add("BED_NO_ROOM")
+        elif S.blocked is not None and fp.intersects(S.blocked):
+            codes.add("RADIATOR_BLOCKED" if any(fp.intersects(radiator_polygon(room, r).buffer(num("sofa_to_radiator_wall", 15)))
+                                                for r in room.radiators) else "FURNITURE_IN_DOOR_SWING")
+        else:
+            for v in check_bed(room, [p]):
+                if v.severity is Severity.HARD:
+                    c = NEVER.get(v.code, v.code)
+                    codes.add("COUPLE_NO_SECOND_SIDE" if v.code == "BED_SIDE_PASSAGE" and (room.purpose or "couple") == "couple" else c)
+        for c in codes:
+            cnt[c] = cnt.get(c, 0) + 1
+    return sorted(cnt, key=lambda c: (-cnt[c], c))
+
+
+def _solve_groups(room: Room, items: list[Item], purpose: str, *, beam: int = BEAM, profile: str | None = None) -> Layout:
+    prof = profile or PN.profile()
+    with PN.using("target", prof):
+        lay = _solve_groups_once(room, items, purpose, beam=beam)
+    reasons = set(lay.meta.get("reason", []))
+    lvl_target = (lay.meta.get("composition") or {}).get("level")
+    info = {"profile": prof, "mode": "target", "target_level": lvl_target if _accepted(lay) else None}
+    if _accepted(lay) or reasons & PRELUDE_REFUSALS:
+        lay.meta["clearance"] = info
+        lay.meta["allowances"] = []
+        return lay
+    if PN.allowances_on(prof):
+        with PN.using("compact", prof):
+            lay2 = _solve_groups_once(room, items, purpose, beam=beam)
+            if _accepted(lay2):
+                info["mode"] = "compact"
+                optional = {p.role for p in lay2.placements if not _must(lay2.meta, p.role)}
+                lay2.meta["allowances"] = allowances(room, lay2.placements, optional)
+                lay2.meta["allowance_text"] = " ".join(dict.fromkeys(a["text"] for a in lay2.meta["allowances"]))
+                lay2.meta["clearance"] = info
+                return lay2
+        lay = lay2
+    info["mode"] = "refused"
+    info["refusal"] = refusal_codes(room, lay)
+    if "BED_NO_FIT" in info["refusal"]:
+        bed = next((i for i in items if bedroom_role(i.role) == "кровать"), None)
+        if bed is not None:
+            with PN.using("compact" if PN.allowances_on(prof) else "target", prof):
+                info["bed_blockers"] = bed_blockers(room, bed.role, bed)
+    lay.meta["clearance"] = info
+    lay.meta["allowances"] = []
+    return lay
+
+
+def _must(meta: dict, role: str) -> bool:
+    """Обязательная роль по назначению (как `_prelude.must_have`, по meta раскладки)."""
+    cfg = bedroom_rules()["purposes"].get(meta.get("purpose") or "") or {}
+    if cfg.get("ages"):
+        cfg = cfg["ages"].get(meta.get("child_age") or "", cfg)
+    req = set(cfg.get("required", ()))
+    alias = bedroom_rules().get("aliases", {})
+    b = bedroom_role(role)
+    return role in req or b in req or alias.get(role) in req
+
+
+def _solve_groups_once(room: Room, items: list[Item], purpose: str, *, beam: int = BEAM) -> Layout:
     cfg, meta, must_have, by_role, early = _prelude(room, items, purpose, "bedroom-groups-v1")
     meta["engine"] = "groups"
     if early is not None:
