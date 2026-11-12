@@ -9,7 +9,7 @@ export const ROLE_EN: Record<string, string> = {
   "диван": "sofa", "кресло": "armchair", "столик": "coffee table", "тв-тумба": "TV unit", "ковёр": "rug", "торшер": "floor lamp",
   "стеллаж": "shelving", "комод": "chest of drawers", "пуф": "pouf", "кашпо": "planter", "ваза": "vase", "стул": "chair", "стол": "table",
   "стол обеденный": "dining table", "банкетка": "bench", "витрина": "display cabinet", "камин": "fireplace", "стенка": "wall unit",
-  "люстра": "chandelier", "лампа": "lamp", "подушка": "cushion", "шторы": "curtains", "плед": "throw", "покрывало": "bedspread",
+  "люстра": "chandelier", "лампа": "lamp", "картина": "wall art", "подушка": "cushion", "шторы": "curtains", "плед": "throw", "покрывало": "bedspread",
   "полка": "shelf", "приставной": "side table", "декор": "decor",
 };
 /** Стили витрины по-английски (`index.html` → `STYLE`). */

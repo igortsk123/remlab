@@ -70,7 +70,15 @@ def main():
                      ('Детская кровать divan.ru Петти 80 Букле Серый', 'Petti 80 kids bed, grey bouclé'),
                      ('Письменный стол divan.ru Хейден 120x60 Орех/Черный', 'Kheyden desk 120x60, walnut/black'),
                      ('Офисное кресло divan.ru Фирес Рогожка Зеленый', 'Fires office chair, green woven fabric'),
-                     ('Стул детский divan.ru Плампи Белый/Древесный', 'Plampi kids chair, white/wood')]:
+                     ('Стул детский divan.ru Плампи Белый/Древесный', 'Plampi kids chair, white/wood'),
+                     # декор (T-20261112-103): картина, постер, люстра, лампа, шторы — английские слова, не транслит
+                     ('Картина divan.ru Абстракция Арки Золотистый 60x90', 'Abstract Arches wall art 60x90, gold'),
+                     ('Картина divan.ru Ботаник Папоротник Зеленый 40x50', 'Botanical Fern wall art 40x50, green'),
+                     ('Постер divan.ru Сити Лондон 20x30', 'City London poster 20x30'),
+                     ('Люстра Светпромъ 14606 нити золотые е14', 'Svetprom 14606 threads chandelier, gold E14'),
+                     ('Лампа настольная Arte Lamp CLINT A4022LT-1CC', 'Arte Lamp CLINT A4022LT-1CC table lamp'),
+                     ('Комплект штор с подхватами Togas Плассе графит 260x275-2шт.подхваты-2шт. 4 предмета',
+                      'Togas Plasse curtain set with tie-backs 260x275, graphite ×2 tie-backs ×2 4 pieces')]:
         got = N.translate(ru, '', D)['name']
         check(f'словарь: «{ru}» → «{want}»', got == want, got)
     # новые роли спальни и детской (onb-04): размеченные карточки фидов — 0 кириллицы, тип переведён, не транслитерирован
