@@ -96,7 +96,8 @@
     бронь, и обгон уже не отнимает её ядра. `--status` — ядра у каждого держателя и ожидающего, строка ЯДРА (сумма из бюджета,
     нагрузка за 1 мин). Вывод ядер из команды (`cores_hint`; --cores перекрывает):
         регресс разбора `regress.py run … -j K` → K (без -j — 4, умолчание regress.py);
-        pnpm test / vitest / pytest → 3 (замер 11.11: 2,6 ядра в среднем; без HEAVY_SLOT_CORES vitest пускал до nproc − 1);
+        pnpm test / vitest → 3 (замер 11.11: 2,6 ядра в среднем; без HEAVY_SLOT_CORES vitest пускал до nproc − 1);
+        pytest → 1 (замер 12.11, T-75/2: без xdist 1,0 ядра), `pytest -n K` → K;
         pnpm typecheck и прочее → 2 (typecheck — замер 1,75);
         Playwright (`playwright`, `pnpm e2e`, скрипт с playwright) → 6 (3D без видеокарты рисует процессор); без 3D — укажи 2.
   * ДОЛГИЕ (T-20261111-17, владелец TG 1490/1491: «работай с тем, что дали, оптимизируй»): `--long` — обёртка после
@@ -135,7 +136,7 @@ HEAVY_SLOT_EFF_FLOOR_GB, HEAVY_SLOT_MEM_STUB (файл «метка ГБ» — �
 HEAVY_SLOT_BACKFILL_MIN, HEAVY_SLOT_PRIO, HEAVY_SLOT_PRIO_AGE_MIN, HEAVY_SLOT_PRIO_SLOTS, HEAVY_SLOT_CORES_BUDGET,
 HEAVY_SLOT_LONG_NICE, HEAVY_SLOT_CPU_FACT, HEAVY_SLOT_CPU_WINDOW, HEAVY_SLOT_CPU_WARM, HEAVY_SLOT_CPU_MARGIN,
 HEAVY_SLOT_CORES_OVERCOMMIT, HEAVY_SLOT_MAX_SLOTS, HEAVY_SLOT_PROCSTAT (подмена /proc/stat), HEAVY_SLOT_CPU_STUB (файл «метка
-ядер» — подмена факта CPU дерева), HEAVY_SLOT_STATUS_CPU_S (своё окно `--status`, когда держатели замер ещё не написали; 1 с).
+ядер» — подмена факта CPU дерева), HEAVY_SLOT_STATUS_CPU_S (своё окно `--status`, когда держатели замер ещё не написали; 0 — не ждать, по умолчанию).
 """
 from __future__ import annotations
 
@@ -299,11 +300,17 @@ def cores_hint(cmd: list) -> tuple[float, str]:
         return float(k), f'регрессу разбора -j {k}' + ('' if m else ', умолчание regress.py')
     if re.search(r'playwright|pnpm\s+(?:run\s+)?e2e', s) or _uses_playwright(cmd):
         return 6.0, 'Playwright: 3D без видеокарты рисует процессор, 6–7 ядер на страницу'
-    if re.search(r'pnpm\s+(?:run\s+)?test\b|vitest|pytest', s):
+    if re.search(r'pytest', s) and not re.search(r'pnpm\s+(?:run\s+)?test\b|vitest', s):
+        # замер 12.11 (T-75/2): pytest без xdist — 1,0 ядра (заявка 3 держала 2 ядра простоя); с `-n K` — K
+        m = re.search(r'(?:^|\s)-n\s*(\d+)(?=\s|$)', s)
+        if m:
+            return float(m.group(1)), f'pytest -n {m.group(1)} (xdist)'
+        return 1.0, 'pytest без xdist: замер 12.11 — 1,0 ядра'
+    if re.search(r'pnpm\s+(?:run\s+)?test\b|vitest', s):
         # замер 11.11 (нагрузка 10–15): pnpm test — 638 с процессора за 245 с = 2,6 ядра в среднем, но vitest 2 пускает
         # до nproc − 1 = 14 процессов сразу (пик в начале) — поэтому vitest.config.ts берёт число воркеров из HEAVY_SLOT_CORES;
         # typecheck — 1,75 ядра (по умолчанию 2 хватает)
-        return 3.0, 'pnpm test / vitest / pytest: замер 2,6 ядра в среднем, воркеры vitest — по HEAVY_SLOT_CORES'
+        return 3.0, 'pnpm test / vitest: замер 2,6 ядра в среднем, воркеры vitest — по HEAVY_SLOT_CORES'
     return 0.0, ''
 
 
@@ -347,6 +354,16 @@ def cores_overcommit() -> float:
 def legacy_top() -> int:
     """Последний номер слота, который видит версия до T-75 (обычные + резерв пробы); дальше — новые слоты."""
     return slots() + prio_slots()
+
+
+def _holders_sig(d: str, n: int) -> tuple:
+    """Снимок записей держателей (слот, pid, стадия, старт) — дёшево: голова сверяет его под `queue.lock` перед записью
+    своей (T-75/2), чтобы не пройти по состоянию, которое сменил одновременный обгон."""
+    out = []
+    for j in range(1, n + 1):
+        h = _read_kv(_holder_file(d, j)) or {}
+        out.append((j, h.get('pid'), h.get('stage'), h.get('run_t') or h.get('since')))
+    return tuple(out)
 
 
 def _legacy_waiting(d: str, live: list) -> bool:
@@ -1263,34 +1280,49 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
         for k in ids:
             if k > 1 and not try_extra:
                 break
-            try:
-                fcntl.flock(fds[k], fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                continue
             if k == 1:
+                try:
+                    fcntl.flock(fds[k], fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    continue
                 if not _my_turn(d, ticket):
                     fcntl.flock(fds[k], fcntl.LOCK_UN)
                     return -1
                 return 1
-            # дополнительный слот: проверка «я первый», допуск и запись держателя — одним шагом под `queue.lock`, как в
-            # обгоне (T-75, совет Codex): иначе голова и обгоняющий допускаются по одному окну простоя, не видя друг друга
+            if is_held(k):
+                continue
+            # дополнительный слот (T-75, совет Codex: голова и обгоняющий не должны пройти по одному окну простоя, не видя
+            # друг друга). Допуск — дорогой (PSS деревьев), и ни `queue.lock`, ни замок слота на это время не держу
+            # (T-75/2: под нагрузкой ~35 голова держала `queue.lock` каждый шаг — новые ждали билет до 1,7 с, порядок
+            # прихода путался; замок слота на время допуска — обгоняющий видел слот занятым без записи и брал следующий).
+            # Вместо этого — проверка «держатели не сменились»: снимок записей до допуска; после — замок слота и под
+            # `queue.lock` сверка снимка и запись своей. Обгоняющий решает и пишет под тем же `queue.lock` — значит, его
+            # запись либо видна в снимке, либо снимок с ней не совпадёт (тогда заново на следующем шаге)
             with _qlock(d):
                 live = _tickets(d, clean=True)
                 if not live or live[0][1] != ticket:
-                    fcntl.flock(fds[k], fcntl.LOCK_UN)
                     return -1
-                if k > legacy_top() and _legacy_waiting(d, live):
-                    ok, free_k = False, 0.0
-                    what, why = f'слоты сверх {legacy_top()}', 'ждёт процесс старой версии — он их не видит'
-                else:
-                    ok, why, free_k, what = _admit(d, k, own, n, cores, pr)
-                if ok:
-                    extra_why = why
-                    _write_kv(_holder_file(d, k), dict(me, since=int(time.time()), stage='работает',
-                                                       free_gb=round(free_k, 1), yields=yields, slot=k,
-                                                       run_t=f'{time.time():.2f}'))
-                    return k
-                fcntl.flock(fds[k], fcntl.LOCK_UN)
+                legacy = k > legacy_top() and _legacy_waiting(d, live)
+                sig = _holders_sig(d, n)
+            if legacy:
+                ok, free_k = False, 0.0
+                what, why = f'слоты сверх {legacy_top()}', 'ждёт процесс старой версии — он их не видит'
+            else:
+                ok, why, free_k, what = _admit(d, k, own, n, cores, pr)
+            if ok:
+                try:
+                    fcntl.flock(fds[k], fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    return 0                          # слот взяли, пока я считал допуск — заново на следующем шаге
+                with _qlock(d):
+                    if _holders_sig(d, n) == sig:
+                        extra_why = why
+                        _write_kv(_holder_file(d, k), dict(me, since=int(time.time()), stage='работает',
+                                                           free_gb=round(free_k, 1), yields=yields, slot=k,
+                                                           run_t=f'{time.time():.2f}'))
+                        return k
+                fcntl.flock(fds[k], fcntl.LOCK_UN)     # держатели сменились во время допуска — заново на следующем шаге
+                return 0
             if what != 'слот 1' and (what != refused[0] or (report > 0 and time.time() - refused[1] >= report)):
                 note(f'дополнительный слот не даю — жду {what}: {why}')
                 refused[:] = [what, time.time()]
@@ -1660,14 +1692,16 @@ def status(out=sys.stdout) -> int:
     pr(f'ЯДРА: держатели {used:g} из {budget:g} ({src}; {rule}; долгие — nice {long_nice()}) · нагрузка за 1 мин {la}')
     if fact_on():
         f = cpu_fact(d, n)
-        s_win = _env_f('HEAVY_SLOT_STATUS_CPU_S', 1)
-        if f is None and s_win > 0:              # держатели замер ещё не написали — своё короткое окно
+        s_win = _env_f('HEAVY_SLOT_STATUS_CPU_S', 0)
+        if f is None and s_win > 0:              # держатели замер ещё не написали — своё короткое окно, только по просьбе:
+            #                                      --status не ждёт (T-75/2: его зовут в циклах и самопроверке)
             _CPU.sample()
             time.sleep(s_win)
             m = _CPU.busy(win=s_win)
             f = (m[0], m[1], f'своё окно {s_win:g} с — грубо') if m else None
         if f is None:
-            pr('ЯДРА ПО ФАКТУ: нет замера (/proc/stat не прочитан) — допуск по заявкам')
+            pr('ЯДРА ПО ФАКТУ: свежего замера держателей нет — допуск по заявкам, пока окно не наберётся '
+               '(своё окно --status — HEAVY_SLOT_STATUS_CPU_S=1)')
         else:
             busy, win, fsrc = f
             warm, wparts = _warm_reserve(d, 0, n, strict=False)

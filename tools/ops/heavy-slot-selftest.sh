@@ -42,7 +42,7 @@ export HEAVY_SLOT_DIR="$T/slot" HEAVY_SLOT_LOG="$T/heavy-slot.log" HEAVY_SLOT_ME
 export HEAVY_SLOT_CORES_BUDGET=64
 # ядра по факту (T-75) — выключены до своего блока в конце: случаи выше проверяют правила по заявкам и потолок slots(), а
 # настоящий /proc/stat раннера (занят чем угодно) их решать не должен
-export HEAVY_SLOT_CPU_FACT=0 HEAVY_SLOT_STATUS_CPU_S=0.2
+export HEAVY_SLOT_CPU_FACT=0 HEAVY_SLOT_STATUS_CPU_S=0
 unset HEAVY_SLOT_HELD HEAVY_SLOT_NOSLOT HEAVY_SLOT_PRIO HEAVY_SLOT_CORES HEAVY_SLOT_PROCSTAT HEAVY_SLOT_CPU_STUB HEAVY_SLOT_MAX_SLOTS
 fails=0
 ok() {
@@ -179,11 +179,16 @@ ok "питон и shell — одна очередь: with heavy_slot ждёт д
   "$(yes_if '[ "$out" = "short-timeout
 step-ran True True" ]')"
 # --- T-57/2: строгий порядок прихода (билеты), повторный захват, умерший ожидающий, уступка по памяти
-"$S" q-hold -- sleep 1.5 &
+# держатель — на флаге, следующий ожидающий — после билета предыдущего (T-75/2: под нагрузкой ~35 «sleep 1.5» и «через 0,3 с»
+# не гарантировали ни «держатель ещё держит», ни порядок прихода — проверка падала по времени, не по правилу)
+nt() { echo $(( $(ls "$HEAVY_SLOT_DIR/wait" | grep -c "^[0-9]\{8\}-") - ${nt0:-0} )); }   # новых билетов с отметки nt0
+"$S" q-hold -- sh -c "while [ ! -e $T/q-go ]; do sleep 0.05; done" &
 pq=$!
 until_held
-for w in w1 w2 w3; do "$S" "$w" -- sh -c "echo $w >> $T/order3" & eval "p_$w=$!"; sleep 0.3; done
+i=0; nt0=0; nt0=$(nt)
+for w in w1 w2 w3; do i=$((i + 1)); "$S" "$w" -- sh -c "echo $w >> $T/order3" & eval "p_$w=$!"; until_f "[ \$(nt) -ge $i ]"; done
 st=$("$S" --status)
+touch "$T/q-go"
 ok "--status: очередь по порядку прихода (1. w1, 2. w2, 3. w3)" \
   "$(yes_if 'grep -q "^ЖДУТ: 3 (по порядку прихода)" <<<"$st" && grep -q "^  1\. w1 " <<<"$st" && grep -q "^  2\. w2 " <<<"$st" && grep -q "^  3\. w3 " <<<"$st"')"
 wait $pq $p_w1 $p_w2 $p_w3
@@ -196,11 +201,12 @@ gate() { echo "while [ ! -e $T/$1 ]; do sleep 0.05; done"; }
 "$S" p-hold -- sh -c "$(gate p-go)" &
 pph=$!
 until_held
-"$S" p-n1 -- sh -c "echo n1 >> $T/order-p1" & pn1=$!; sleep 0.3
-"$S" p-u1 --prio 1 -- sh -c "echo u1 >> $T/order-p1" & pu1=$!; sleep 0.3
-HEAVY_SLOT_PRIO=2 "$S" p-r1 -- sh -c "echo r1 >> $T/order-p1" & pr1=$!; sleep 0.3
-"$S" p-u2 --prio 1 -- sh -c "echo u2 >> $T/order-p1" & pu2=$!; sleep 0.3
-"$S" p-r2 --prio 2 -- sh -c "echo r2 >> $T/order-p1" & pr2=$!; sleep 0.3
+nt0=0; nt0=$(nt)
+"$S" p-n1 -- sh -c "echo n1 >> $T/order-p1" & pn1=$!; until_f '[ $(nt) -ge 1 ]'     # следующий — после билета предыдущего
+"$S" p-u1 --prio 1 -- sh -c "echo u1 >> $T/order-p1" & pu1=$!; until_f '[ $(nt) -ge 2 ]'
+HEAVY_SLOT_PRIO=2 "$S" p-r1 -- sh -c "echo r1 >> $T/order-p1" & pr1=$!; until_f '[ $(nt) -ge 3 ]'
+"$S" p-u2 --prio 1 -- sh -c "echo u2 >> $T/order-p1" & pu2=$!; until_f '[ $(nt) -ge 4 ]'
+"$S" p-r2 --prio 2 -- sh -c "echo r2 >> $T/order-p1" & pr2=$!; until_f '[ $(nt) -ge 5 ]'
 st=$("$S" --status)
 touch "$T/p-go"
 wait $pph $pn1 $pu1 $pr1 $pu2 $pr2
@@ -216,8 +222,9 @@ mem 5
 "$S" m-hold --min-gb 4 -- sh -c "$(gate m-go)" &
 pmh=$!
 until_held
-"$S" m-n --min-gb 1 -- sh -c "echo n >> $T/order-p2" & pmn=$!; sleep 0.3
-"$S" m-r --min-gb 7 --prio 2 -- sh -c "echo r >> $T/order-p2" & pmr=$!; sleep 0.3
+nt0=0; nt0=$(nt)                                   # T-75/2: следующий — после билета предыдущего, не «через 0,3 с»
+"$S" m-n --min-gb 1 -- sh -c "echo n >> $T/order-p2" & pmn=$!; until_f '[ $(nt) -ge 1 ]'
+"$S" m-r --min-gb 7 --prio 2 -- sh -c "echo r >> $T/order-p2" & pmr=$!; until_f '[ $(nt) -ge 2 ]'
 touch "$T/m-go"
 wait $pmh
 until_f '"$S" --status | grep -q "^ДЕРЖИТ: m-r .* память "'; held_mem=$?
@@ -238,7 +245,8 @@ ok "приоритет не обходит порог памяти: при 5 Г�
 mem 5
 "$S" y-h --min-gb 7 -- sh -c "echo h >> $T/order-p4" & pyh=$!
 until_f '"$S" --status | grep -q "^ДЕРЖИТ: y-h .* память "'; yh_mem=$?
-"$S" y-n --min-gb 3 -- sh -c "echo n >> $T/order-p4" & pyn=$!; sleep 0.3
+nt0=0; nt0=$(nt)
+"$S" y-n --min-gb 3 -- sh -c "echo n >> $T/order-p4" & pyn=$!; until_f '[ $(nt) -ge 1 ]'
 "$S" y-r --min-gb 1 --prio 2 -- sh -c "echo r >> $T/order-p4" & pyr=$!
 wait $pyr
 sleep 0.8
@@ -255,8 +263,9 @@ export HEAVY_SLOT_PRIO_AGE_MIN=0.0002             # 12 мс: обычный «с
 "$S" a-hold -- sh -c "$(gate a-go)" &
 pah=$!
 until_held
-"$S" a-n -- sh -c "echo n >> $T/order-p3" & pan=$!; sleep 0.3
-"$S" a-r --prio 2 -- sh -c "echo r >> $T/order-p3" & par=$!; sleep 0.3
+nt0=0; nt0=$(nt)
+"$S" a-n -- sh -c "echo n >> $T/order-p3" & pan=$!; until_f '[ $(nt) -ge 1 ]'
+"$S" a-r --prio 2 -- sh -c "echo r >> $T/order-p3" & par=$!; until_f '[ $(nt) -ge 2 ]'
 touch "$T/a-go"
 wait $pah $pan $par
 unset HEAVY_SLOT_PRIO_AGE_MIN
@@ -272,7 +281,8 @@ export HEAVY_SLOT_SLOTS=2
 until_held
 "$S" v-h2 --min-gb 1 -- sh -c "$(gate v-go)" & pv2=$!
 until_f '"$S" --status | grep -q "^ДЕРЖИТ: v-h2 .* · слот 2$"'; v2_up=$?
-"$S" v-n --min-gb 1 -- sh -c "echo n >> $T/order-v" & pvn=$!; sleep 0.3
+nt0=0; nt0=$(nt)
+"$S" v-n --min-gb 1 -- sh -c "echo n >> $T/order-v" & pvn=$!; until_f '[ $(nt) -ge 1 ]'
 HEAVY_SLOT_PRIO_SLOTS=0 "$S" v-x --min-gb 1 --prio 1 --timeout 1 -- sh -c "echo x >> $T/order-v"; rc_x=$?
 "$S" v-u --min-gb 1 --prio 1 -- sh -c "echo u >> $T/order-v" & pvu=$!
 wait $pvu
@@ -761,7 +771,12 @@ cenv() { echo "printf %s \"\$HEAVY_SLOT_CORES\" > $T/cenv-$1"; }
 "$S" ci-t --min-gb 1 -- sh -c "$(cenv t)" vitest run
 "$S" ci-o --min-gb 1 -- sh -c "$(cenv o)"
 "$S" ci-k --min-gb 1 --cores 5 -- sh -c "$(cenv k)" regress.py run x -j 3
+"$S" ci-y --min-gb 1 -- sh -c "$(cenv y)" pytest tools/scout -q       # T-75/2: pytest без xdist — 1 ядро (замер 12.11)
+"$S" ci-x --min-gb 1 -- sh -c "$(cenv x)" pytest -n 4 tools/scout      # с xdist -n K — K
 r="$(cat "$T/cenv-j") $(cat "$T/cenv-4") $(cat "$T/cenv-p") $(cat "$T/cenv-t") $(cat "$T/cenv-o") $(cat "$T/cenv-k")"
+ry="$(cat "$T/cenv-y") $(cat "$T/cenv-x")"
+ok "ядра выведены: pytest без xdist → 1, pytest -n 4 → 4 ($ry)" \
+  "$(yes_if '[ "$ry" = "1 4" ] && grep -q "ci-y .*ядра выведены: 1 (по pytest без xdist" "$HEAVY_SLOT_LOG" && grep -q "ci-x .*ядра выведены: 4 (по pytest -n 4" "$HEAVY_SLOT_LOG"')"
 ok "ядра выведены из команды: регресс -j 3 → 3, без -j → 4, playwright → 6, vitest → 3, прочее → 2, --cores 5 перекрывает; HEAVY_SLOT_CORES у команды ($r)" \
   "$(yes_if '[ "$r" = "3 4 6 3 2 5" ] && grep -q "ci-j .*ядра выведены: 3 (по регрессу разбора -j 3)" "$HEAVY_SLOT_LOG" && grep -q "ci-4 .*ядра выведены: 4 (по регрессу разбора -j 4, умолчание regress.py)" "$HEAVY_SLOT_LOG" && grep -q "ci-p .*ядра выведены: 6 (по Playwright" "$HEAVY_SLOT_LOG" && grep -q "ci-j .*взял: .*, ядер 3," "$HEAVY_SLOT_LOG" && ! grep -q "ci-[ok] .*ядра выведены" "$HEAVY_SLOT_LOG" && [ -z "${HEAVY_SLOT_CORES:-}" ]')"
 r=$(python3 -c "
