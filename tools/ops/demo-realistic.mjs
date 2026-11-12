@@ -470,8 +470,12 @@ ${paidDef.replaceAll('>> "$LOG"', "")}\n${sh.slice(a, b).replaceAll('>> "$LOG"',
     && underSlot({ REAL_SLOT_GB: "3" }, [], "/n", "/s.mjs")[1][2] === "3",
     "вне очереди — себя под heavy-slot (ночь ждёт 2 ч, ручной — час), аргументы те же; в слоте (HEAVY_SLOT_HELD) и REAL_NO_SLOT=1 — без", { sNight, sGo });
   const sFr = underSlot({}, ["--night", "--frames"], "/n", "/s.mjs"), sFrDry = underSlot({}, ["--night", "--frames", "--dry"], "/n", "/s.mjs");
-  check(sFr[1].slice(0, 5).join(" ") === "demo-real-night --min-gb 3 --cores 6" && sFrDry[1].slice(0, 5).join(" ") === "demo-real-night --min-gb 2 --cores 2",
-    "очередь честно: с кадрами (3D процессором) — 6 ядер и 3 ГБ; сухой ход и без кадров — 2 ядра и 2 ГБ (T-20261112-114)", { sFr, sFrDry });
+  const sGoFr = underSlot({}, ["--go", "--frames"], "/n", "/s.mjs");
+  check(sFr[1].join(" ") === "demo-real-night --min-gb 3 --cores 6 --prio 1 --timeout 7200 -- /n /s.mjs --night --frames"
+    && sFrDry[1].join(" ") === "demo-real-night --min-gb 2 --cores 2 --timeout 7200 -- /n /s.mjs --night --frames --dry"
+    && sGoFr[1].join(" ") === "demo-real --min-gb 3 --cores 6 --timeout 3600 -- /n /s.mjs --go --frames",
+    "очередь честно: ночь с кадрами — 6 ядер, 3 ГБ, приоритет 1; сухой ход — 2 ядра, 2 ГБ, без приоритета; ручной --go с кадрами — без приоритета (T-114/2)",
+    { sFr, sFrDry, sGoFr });
   const outer = Number((/timeout (\d+) node tools\/ops\/demo-realistic\.mjs --night/.exec(wrap) || [])[1] || 0);
   check(outer >= NIGHT_WAIT_S + 3600, "demo-real.sh: внешний timeout ≥ ожидание очереди ночью + час съёмки (иначе он оборвал бы ожидание)", { outer });
   const miss3 = slotMissedLine("фото нейросети: без фото своей расстановки — 3: bedroom-2/лофт …\nDIGEST:…"), missQ = slotMissedLine("");
@@ -498,11 +502,15 @@ export const NIGHT_WAIT_S = 7200;
 // ЯДРА И ПАМЯТЬ — ЧЕСТНО (T-20261112-114): с кадрами (`--frames`, не сухой ход) браузер рисует 3D процессором — 6 ядер, 3 ГБ (правило
 // очереди для Playwright с 3D); без 3D (сухой ход, серверный эскиз) — 2 ядра, 2 ГБ: прежде очередь выводила 6 ядер по признаку
 // «подключает playwright», и сухая проверка на 7 с ждала свободных 6 ядер до часа (12.11: 3522 с)
+// ПРИОРИТЕТ НОЧИ С КАДРАМИ (T-20261112-114/2, директор): заявку на 6 ядер вечером обгоняют мелкие задачи (проба 12.11 стояла 40+ мин при
+// 14,5 из 15 занятых) — за 2 ч ожидания ночь осталась бы без фото. `--prio 1` (класс загрузки тура): в очереди — впереди обычных,
+// бюджет ядер не ждёт, может взять резерв пробы; память и «Обустроить» (класс 2) — как прежде. Сухой ход и ручной `--go` — без приоритета
 export function underSlot(env, argv, node, self) {
   if (env.HEAVY_SLOT_HELD || env.REAL_NO_SLOT === "1") return null;
   const night = argv.includes("--night"), frames = argv.includes("--frames") && !argv.includes("--dry");
   return [fileURLToPath(new URL("./heavy-slot.sh", import.meta.url)),
     [night ? "demo-real-night" : "demo-real", "--min-gb", env.REAL_SLOT_GB ?? (frames ? "3" : "2"), "--cores", frames ? "6" : "2",
+      ...(night && frames ? ["--prio", "1"] : []),
       "--timeout", env.REAL_SLOT_WAIT_S ?? String(night ? NIGHT_WAIT_S : 3600), "--", node, self, ...argv]];
 }
 
