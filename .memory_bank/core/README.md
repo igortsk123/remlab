@@ -12,7 +12,7 @@
 
 | Файл | topic | Когда читать (scope) | Tier 2 | updated |
 |------|-------|----------------------|--------|---------|
-| `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — ключи, клиенты | `../domain/integrations.md` | 2026-11-10 |
+| `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — ключи, клиенты | `../domain/integrations.md` | 2026-11-12 |
 | `agent-trial.md` | agent-trial | Проба для агента недвижимости (UK) — лендинг, загрузка плана, задание, воркер DEV, конвейер стадий, тур /try под план | `../plans/MASTER-agent-trial.md` | 2026-11-12 |
 | `apartment-configurator.md` | apartment-configurator | 3D-конфигуратор квартиры — что это, из чего собран, где детали | `../domain/flat3d-configurator.md` | 2026-11-12 |
 | `architecture.md` | architecture | Стек, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-11-12 |

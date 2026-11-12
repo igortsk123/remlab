@@ -3,12 +3,12 @@ tier: 2
 topic: integrations-details
 scope: Детали внешних интеграций — эндпоинты, форматы запросов/ответов, env-переменные, конфиги, цены
 tier1: ../core/access-and-integrations.md
-updated: 2026-11-10
+updated: 2026-11-12
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-06
+last_verified: 2026-11-12
 ---
 
 # Интеграции — детали (Tier 2)
@@ -21,7 +21,7 @@ last_verified: 2026-11-06
 1. Google Gemini — через шлюз Vercel по умолчанию (ADR-0277), прямой ключ — запасной путь
 2. OpenAI — ключ есть ✅ (автопилот рекламы + ИИ-фолбэк разбора ссылок в приложении)
 3. Observability — PostHog (ADR-0012)
-4. Affiliate-сеть и фиды (М0/v0.4 — КЛЮЧЕВАЯ; доступ есть, код ещё НЕ написан)
+4. Affiliate-сеть и фиды (М0/v0.4 — КЛЮЧЕВАЯ; доступ есть, в приложении кода нет, фиды — `tools/scout/`)
 5. Трейсинг пайплайна + imagor (ADR-0013)
 6. Деплой / CI-доступы (ADR-0011)
 7. Яндекс: Wordstat / Директ / Метрика — доступ есть ✅ (проверен 2026-07-11)
@@ -59,8 +59,8 @@ last_verified: 2026-11-06
 - Ключ соседей (`v0-health-card/backend/.env`) жив (проверено 2026-07-11: биллинг ок, доступ
   gpt-4.1/gpt-5/5.1) — прежняя запись «ключа НЕТ» от 2026-07-01 неверна. Значение —
   `_secrets/ACCESS.md`; на сервере — `/opt/remlab/ads-watchdog/.env`.
-- Используется: ads-watchdog `common.llm_for_ads` — тексты объявлений на `gpt-5.1-chat-latest`
-  (бенч 2026-07-11: RU лучше Gemini), фолбэк Gemini. Приложение: ИИ-фолбэк разбора ссылок
+- Используется: ads-watchdog `infra/server/ads-watchdog/common.py:llm_for_ads` — тексты объявлений на `gpt-5.1-chat-latest`
+  (`OPENAI_AD_MODEL` меняет; бенч 2026-07-11: RU лучше Gemini), нет `OPENAI_API_KEY` или ошибка → Gemini `gemini-flash-latest`. Приложение: ИИ-фолбэк разбора ссылок
   `lib/calc/link-parse-ai.ts` — модель OpenAI через шлюз Vercel (`lib/providers/index.ts:getExtractProvider`, ключ
   `VERCEL_AI_GATEWAY_KEY`, модель `EXTRACT_MODEL`, по умолчанию `openai/gpt-4o-mini`, ответ строго JSON, срок 12 с; ADR-0026).
   Прямого ключа OpenAI у приложения нет.
@@ -76,7 +76,7 @@ last_verified: 2026-11-06
   объявлены, но НЕ эмитятся.
 - Бесплатный тариф PostHog: 1M событий/мес. Sentry не заводим (покрыто PostHog).
 
-## Affiliate-сеть и фиды (М0/v0.4 — КЛЮЧЕВАЯ; доступ есть, код ещё НЕ написан)
+## Affiliate-сеть и фиды (М0/v0.4 — КЛЮЧЕВАЯ; доступ есть, в приложении кода нет, фиды — `tools/scout/`)
 - **Статус 2026-08-01 (ADR-0042):** аккаунт Гдеслон есть, **доступ одобрен к 14 магазинам**.
   Merchant ID (mid = `_id` в shops.json): divan.ru 112923, sanok.ru 109882, petrovich.ru 94804,
   ormatek.com 93965, nonton.ru 116933, askona.ru 111950, tvoydom.ru 99272, lemanapro.ru 95644,
@@ -149,12 +149,14 @@ last_verified: 2026-11-06
   `Authorization: Bearer <YANDEX_DIRECT_TOKEN>`, `Accept-Language: ru`, `Content-Type: application/json; charset=utf-8`;
   body `{"method":"get","params":{...}}`. Токен до ≈2027-04-05, refresh-flow — в ACCESS.md.
   ⚠️ В аккаунте чужие кампании v0-health-card: `708745261` (SUSPENDED) + 26 архивных — НЕ трогать.
-  Кампании remlab: Этапы 1–4 (`712721026`, `712722343…345`) — снимок `../advertising/campaign_state.md`.
+  Кампании remlab — 4 (`712721026`, `712722343…345`), роли — `infra/server/ads-watchdog/common.py:CAMPAIGNS`;
+  снимок — `../advertising/campaign_state.md`.
   Грабли: autotargeting не удаляется (ставка-минимум при ручной стратегии); минусовка скрупулёзно;
   РСЯ выключена до валидации Поиска.
 - **Метрика (аналитика):** наш счётчик **`110599064`** (remont-lab.online; создан 2026-07-11 через
   `POST api-metrika.yandex.net/management/v1/counters`, OAuth тот же; гоча: `code_options`-флаги —
-  ЧИСЛА 0/1, не bool). 6 целей воронки (id 581463533…540, cutoff 2026-07-11). Код: `lib/metrika.ts`
+  ЧИСЛА 0/1, не bool). Цели: AI-воронка 01–06 (id 581463533…540) — legacy; отчёт ads-watchdog считает воронку сметы
+  (4 цели 581529922…581530035, `infra/server/ads-watchdog/common.py:GOALS`). Код: `lib/metrika.ts`
   (`trackGoal`) + `components/MetrikaPageviews.tsx` (SPA-hit). Чужой счётчик health-card — 108400985.
 - **Семантика ниши remlab** (Wordstat-исследование 2026-07-11): `wordstat-semantics.md` (Tier 2).
 
@@ -207,7 +209,7 @@ PNG 512 от владельца (Drive `1l2j65g8…`) → `public/icons/`; вс�
 | Гдеслон | доступ ✅ 14 магазинов (ADR-0042) | фиды→каталог, /go/ реф | `GDESLON_*` в `.env` | app-интеграции нет; scout-разведка живёт (`tools/scout/*`); план `gdeslon-catalog` |
 | imagor | активен (ADR-0013) | сжатие картинок, internal | ключей НЕТ (unsafe) | `lib/images/compress.ts` |
 | GHCR/CI | авто-деплой ✅ (arm64) | образы + деплой | `GITHUB_TOKEN`; SSH `remlab_ci_deploy` | GitHub Actions |
-| Яндекс (WS/Директ/Метрика) | доступ ✅ | реклама/аналитика | `_secrets/ACCESS.md` (вне git) | кода нет, curl |
+| Яндекс (WS/Директ/Метрика) | доступ ✅ | реклама/аналитика | `_secrets/ACCESS.md` (вне git) | Директ/Метрика — `infra/server/ads-watchdog/common.py`; счётчик — `lib/metrika.ts`; Wordstat — curl |
 | Лид-канал П7 | скелет до токенов | заявки+диалог | `LEADS_*` в `/opt/remlab/.env` — `[[leads]]` | `lib/leads/*` |
 | YooKassa | код-скелет, БЕЗ ключей (К5) | оплата 60₽ визуализации; вебхук — только IP ЮKassa + перезапрос статуса, без ключей 403 (ADR-0256) | ключи не заданы (и не проброшены в compose) | `lib/payments/yookassa.ts`, `lib/payments/yookassa-ip.ts` |
 | fal.ai | активен ✅ | NB2/Seedream/Flux/SAM2/LaMa per-request | `FAL_KEY` (`tools/scout/.env`, резолвер `env_keys.py`) | scout/mltest |
@@ -215,7 +217,7 @@ PNG 512 от владельца (Drive `1l2j65g8…`) → `public/icons/`; вс�
 
 ## Codex (OpenAI CLI) — постоянная сессия-советник (16.08.2026)
 > **Скоуп правила (20.08.2026):** владелец убрал правило из глобального `~/.claude/CLAUDE.md` —
-> оно действует ТОЛЬКО в remlab и sup2, полный текст в `CLAUDE.md` каждого проекта (§ Codex).
+> оно действует ТОЛЬКО в remlab и sup2; в remlab полный текст — `.claude/rules/codex-adviser.md` (`CLAUDE.md` ссылается на него).
 > Два `resume` одной сессии параллельно не запускать: вызовы конфликтуют.
 - **Сессия проекта:** `01a00a62-33e2-7051-93c6-37bff5c6937e` (онбординг 16.08: прочитал CLAUDE.md, INDEX, ADR-0099…0106,
   MASTER-zones-v7, свои аудиты, карту кода; конспект — `archive/evidence/codex-onboarding-notes.md`).
@@ -297,7 +299,7 @@ Standard, `isDownloadable:false`, платная модель магазина.
 > проверять надо оба. Наш `openai_budget` расходы на картинки не считает, поэтому упор в лимит
 > приходит без предупреждения.
 `https://ai-gateway.vercel.sh/v1`: `/images/edits` (`image[]`, `mask`) для `gpt-image-*`;
-`/chat/completions` + `modalities:['image']` для Google-картинок — `draft_render._chat_edit`.
+`/chat/completions` + `modalities:['image','text']` для Google-картинок — `draft_render._chat_edit`.
 Ключ `VERCEL_AI_GATEWAY_KEY`: `_secrets/ACCESS.md` и `/opt/remlab/.env`; клиент `gw_key()`.
 Прямые ключи OpenAI без кредитов — рабочий путь только шлюз.
 
@@ -312,7 +314,7 @@ Standard, `isDownloadable:false`, платная модель магазина.
   СЕБЯ ЖЕ (`http://127.0.0.1:$DRAFT_PORT/render`), чтобы не дублировать маршрутизацию (прокси на
   DEV + локальный фолбэк). Требует МАРШРУТА `/api/job*` в `/opt/remlab/caddy/Caddyfile` — без
   него опрос даёт 404 (маршрут есть в `caddy/Caddyfile`, едет деплоем). Сервис кадров — сервис compose `draft`
-  (`docker-compose.yml`), образ `remlab-draft:<sha>` собирает CI (`.github/workflows/deploy.yml`), поднимает
+  (`docker-compose.yml`), образ `ghcr.io/<владелец>/remlab-draft:<sha>` собирает CI (`.github/workflows/deploy.yml`), поднимает
   `infra/server/deploy-remote.sh` (ждёт `/health` с версией, при сбое — прежний образ); `docker cp` в штатном пути нет,
   `infra/server/draft-run.sh` — только аварийный (ADR-0278).
 - **Кеш результата** по `src_id`: `SRC_DIR/<id>/result.json`; повтор с тем же исходником отдаёт
@@ -359,8 +361,8 @@ Standard, `isDownloadable:false`, платная модель магазина.
 ## Мост DEV ↔ прод для мешей: `/lab/mesh-review` и `/lab/mesh-audit` (2026-09-05)
 - Два секрета в `/opt/remlab/.env` прода (значения — только `_secrets/ACCESS.md`):
   `MESH_REVIEW_SECRET` — вход владельца (кука HMAC, закладка `/api/lab/mesh-review/session?key=…`,
-  кука общая для обеих страниц), `MESH_REVIEW_MACHINE_TOKEN` — Bearer конвейера. Fail-closed:
-  нет секрета в env → 503 (`lib/mesh-review/auth.ts`).
+  кука общая для обеих страниц), `MESH_REVIEW_MACHINE_TOKEN` — Bearer конвейера. Fail-closed (`lib/mesh-review/auth.ts`):
+  нет `MESH_REVIEW_SECRET` → вход `/session` отвечает 503; ручки без годной куки/токена — 401 (`app/api/lab/mesh-audit/decisions/route.ts`).
 - На DEV токен и URL — `~/.config/remlab/env` (`MESH_REVIEW_MACHINE_TOKEN`, `MESH_REVIEW_URL`);
   читают `tools/scout/mesh_audit_sync.py --tick` (крон раз в минуту, `infra/dev/crontab`) и `tools/scout/mesh_review_sync.py`
   (шаги `review_push`/`review_pull` в `tools/scout/refresh_daily.sh` — раз в сутки).
@@ -405,8 +407,8 @@ base 2833 против 85 у `gpt-4o`, то есть в долларах как 
 
 ## UptimeRobot и клиентский бот (14.10)
 - **UptimeRobot:** аккаунт владельца (igortsk12345@gmail.com), ключ API — `_secrets/ACCESS.md`; мониторы: главная, `/api/health` (ключевое слово `"ok":true`, тревога при отсутствии), `/demo/`; интервал 5 мин (лимит бесплатного: 50 мониторов, 5 мин; только некоммерческое использование с конца 2024); тревога — письмом, Telegram подключается в интерфейсе.
-- **@remlabservice_bot как клиентский бот:** вебхук `https://remont-lab.online/api/leads/tg-client` с секретом `LEADS_TG_WEBHOOK_SECRET`; `/start sh_<10 hex>` → ссылка на подборку `/test/share/<id>/` (`app/api/leads/tg-client/route.ts`); сервис кадров отдаёт `tg_link` при `SHARE_TG_BOT` в /opt/remlab/draft/.env и только для канала `telegram` (`tools/scout/draft_service.py:732`). Тот же бот шлёт алерты DEV/сервера (sendMessage, без getUpdates — вебхук им не мешает).
+- **@remlabservice_bot как клиентский бот:** вебхук `https://remont-lab.online/api/leads/tg-client` с секретом `LEADS_TG_WEBHOOK_SECRET`; `/start sh_<10 hex>` → ссылка на подборку `/test/share/<id>/` (`app/api/leads/tg-client/route.ts`); сервис кадров отдаёт `tg_link` при `SHARE_TG_BOT` в /opt/remlab/draft/.env и только для канала `telegram` (`tools/scout/draft_service.py:790`). Тот же бот шлёт алерты DEV/сервера (sendMessage, без getUpdates — вебхук им не мешает).
 
 ## env_keys — откуда скрипты scout берут ключи (T-52, 05.11)
 Резолвер `tools/scout/env_keys.py`: окружение → своё дерево → основная копия (из worktree, через git common-dir) → mltest последним с WARN; `--where` — откуда возьмётся (только путь), `--ping` — бесплатная проверка; журнал трат `openai-spend.jsonl` — всегда основной копии (`openai_budget.SPEND_LOG`). 12 старых скриптов (fixone.py, judge.py, pipeline.py, pipeline2.py, viz5/7/8/9/10/11.py, viz_frame.py, viz_plan.py; у pipeline2 и viz_frame сперва свой `.env`) ещё берут OpenAI-ключ из `v0-health-card/backend/.env` — вопрос владельцу.
-- GHCR (02.10): вход — `GHCR_TOKEN` (`_secrets/`), не `gh auth token`: токену под пакеты `gh` требует ещё `read:org` (ADR-0232).
+- GHCR (02.10): в CI вход на сервере — `GHCR_TOKEN` = `secrets.GITHUB_TOKEN` (`.github/workflows/deploy.yml:141`, `docker login ghcr.io` — :147); ручной вход — `GHCR_TOKEN` из `_secrets/`, не `gh auth token`: токену под пакеты `gh` требует ещё `read:org` (ADR-0232).

@@ -3,8 +3,8 @@ tier: 2
 topic: occupancy-rules
 scope: Свод количественных правил гостиной — наполняемость, пропорции, количества, клиренсы, высоты (мульти-джоб ресёрч)
 tier1: ../core/layout.md
-updated: 2026-11-10
-last_verified: 2026-11-06
+updated: 2026-11-12
+last_verified: 2026-11-12
 importance: high
 source: external:web (~35 источников, 4 research-джоба; workflow wf_882a3ed0)
 status: working
@@ -65,15 +65,15 @@ status: working
 - **Разговорная зона**: диван↔кресла напротив 110 см ([ivd.ru](https://www.ivd.ru/dizajn-i-dekor/kvartira/matematika-v-interere-70-vazhnyh-razmerov-rasstoyanij-i-vysot-kotorye-nuzhno-znat-44271)); RU-максимум между собеседниками 200 см ([inmyroom](https://www.inmyroom.ru/posts/11655-ergonomika-gostinoy-chto-nuzhno-uchest-pri-rasstanovke-mebeli)); EN: лицом к лицу 120–240 см, максимум между головами 210–280 см ([houseplanshelper](https://www.houseplanshelper.com/conversation-area.html), [povison](https://www.povison.com/blog/design/conversational-living-room.html)).
 - **Диван у стены**: зазор 8–10 см (вентиляция/кабели) ([couchhaus](https://www.couchhaus.com/blogs/news/how-to-space-out-living-room-furniture)); у радиатора — 15–20 см ([instylewood](https://instylewood.ru/blog/kuda-i-kak-pravilno-postavit-divan/)); до стены для прохода — 70 см ([ivd.ru](https://www.ivd.ru/dizajn-i-dekor/kvartira/matematika-v-interere-70-vazhnyh-razmerov-rasstoyanij-i-vysot-kotorye-nuzhno-znat-44271)).
 - **Шкафы/комоды**: перед распашным шкафом в ядре ≥90 см — одна норма для всех комнат (ADR-0330 п.7; число — `services/planner-solver/rules/occupancy.json` `distances_cm.wardrobe_hinged_front_min`, читают `services/planner-solver/planner/clearances.py` (гостиная, через `validate.py:check_access`), `services/planner-solver/planner/bedroom_checks.py`, `services/planner-solver/rules/hall.json`; источники дают от 80) ([ivd.ru](https://www.ivd.ru/dizajn-i-dekor/kvartira/matematika-v-interere-70-vazhnyh-razmerov-rasstoyanij-i-vysot-kotorye-nuzhno-znat-44271), [dom.mail.ru](https://dom.mail.ru/articles/64031-ergonomika-spalni-chto-nuzhno-uchest-pri/)); купе 50–70 см; перед комодом 76–91 см (ящик 40 + человек 45) ([rocabudesigns](https://rocabudesigns.com/en-us/blogs/storage-closets/dresser-and-wardrobe-spacing-guide)).
-- **Прихожая (05–06.11, onb-13, room-bank-01; ГИПОТЕЗЫ, источники — `_note_*` в `services/planner-solver/rules/occupancy.json`):** проход до каждой двери и предмета ≥85 жёстко (`hall_passage_min`; старый норматив коридора 0,85 м, в СП 54.13330.2022 не подтверждён), уже 90 — мягкий штраф (`hall_passage_comfort`); площадка у входной двери глубиной 120 свободна (`hall_entry_depth`); обувница/банкетка ≤150 от входа (`hall_shoe_entry_max`), зеркало ≤300 (`hall_mirror_exit_max`). Солвер `services/planner-solver/planner/hall.py`, проверка `services/planner-solver/planner/hall_checks.py:validate_hall`, состав — `services/planner-solver/rules/hall.json`.
-- **Детская (kids-room-01):** спальня 2 с назначением `child`; состав по возрасту — `services/planner-solver/planner/bedroom.py` (`cfg["ages"]`, `Room.child_age`), детские роли проверяются нормами взрослых (`services/planner-solver/planner/bedroom_checks.py`).
+- **Прихожая (05–06.11, onb-13, room-bank-01; ГИПОТЕЗЫ, источники — `_note_*` в `services/planner-solver/rules/occupancy.json`):** проход от входа до каждой двери и предмета ≥85 жёстко (`hall_passage_min`; старый норматив коридора 0,85 м, в СП 54.13330.2022 не подтверждён); где сами стены уже 85 — держим ширину пустой комнаты, узость мягко (`HALL_ROOM_NARROW`); уже 90 — мягкий штраф (`hall_passage_comfort`); мягко же: площадка у входной двери глубиной 120 (`hall_entry_depth`), обувница/банкетка ≤150 от входа (`hall_shoe_entry_max`), зеркало ≤300 (`hall_mirror_exit_max`) — `services/planner-solver/planner/hall_checks.py:check_hall_passages`, `:check_hall_entry`, `:check_hall_near_entry`. Солвер `services/planner-solver/planner/hall.py`, проверка `services/planner-solver/planner/hall_checks.py:validate_hall`, состав — `services/planner-solver/rules/hall.json`.
+- **Детская (kids-room-01):** спальня 2 с назначением `child`; состав по возрасту — `services/planner-solver/planner/bedroom.py` (`cfg["ages"]`, `Room.child_age`); в `services/planner-solver/rules/bedroom.json` пока только `7-12`, прочие возрасты и детская без возраста — `PURPOSE_PENDING`; детские роли (псевдонимы `aliases`) проверяются нормами взрослых (`services/planner-solver/planner/bedroom_checks.py`).
 - **Приоры практики (07.11, T-20261107-07):** файл один — `tools/scout/rules/practice_priors.json`; солвер ищет по порядку env `PRACTICE_PRIORS_PATH` (только он, если задан) → `rules/` рядом с пакетом (образ draft) → репо (`services/planner-solver/planner/opportunities.py:priors_candidates`). До правки в образе draft приоры молча были пустыми; вреда не было — draft расстановку не считает, на DEV приоры меняют лишь трейс и сертификат (A/B 10/10 — та же расстановка).
 - **Обеденный стол**: стул с отодвиганием +55–71 см; до стены 91 см (без прохода) / 112 см (с проходом, NKBA) ([thewcsupply](https://www.thewcsupply.com/pages/kitchen-design-guidelines-standard-clearances), [dimensions.com](https://www.dimensions.com/element/dining-room-clearances)).
 - **Прочее**: перед камином 100–150 см ([inmyroom](https://www.inmyroom.ru/posts/10640-soblyudaem-distantsiyu-5-pravil-rasstanovki-mebeli-v-gostinoy)); от входа до мебели 150–200 см ([d4u](https://d4u.ru/m/ideas/pravila-ehrgonomiki-v-gostinoj)); перед сидящим 46 см для ног / 92 см если там проход ([flatica](https://flatica.ru/statyi/schitaem-santimetry-pravila-ergonomichnogo-raspolozheniya-mebeli-stsetivw-vs~58651842)); приставной столик в 5–10 см от подлокотника ([rocabudesigns](https://rocabudesigns.com/en-us/blogs/living-room-design/living-room-furniture-spacing-rules)); смещение дивана от стены задаёт зону: <50 см консоль / 1–1,5 м рабочая / >1 м обеденная ([design-homes](https://design-homes.ru/komnaty/gostinaya/rasstanovka-mebeli-v-gostinoj)).
 
 ## 5. Высоты
 
-- **ТВ**: RU центр экрана 120–130 см (>55″ → 130–135) ([tut-news](https://www.tut-news.ru/dizayn-i-interer/zachem-v-gostinoy-veshayut-televizor-na-vysote-120-sm-ot-pola), [rbc](https://realty.rbc.ru/news/66be45359a7947d2b9da8157)); EN 107–122 см ([mount-it](https://www.mount-it.com/blogs/articles/ideal-tv-mounting-height)); LG: 100–120 см ([lg.com](https://www.lg.com/ru/lg-magazine/how-to/na-kakoj-vysote-veshat-televizor-na-stenu)). Для РФ дефолт — 110–130.
+- **ТВ**: RU центр экрана 120–130 см (>55″ → 130–135) ([tut-news](https://www.tut-news.ru/dizayn-i-interer/zachem-v-gostinoy-veshayut-televizor-na-vysote-120-sm-ot-pola), [rbc](https://realty.rbc.ru/news/66be45359a7947d2b9da8157)); EN 107–122 см ([mount-it](https://www.mount-it.com/blogs/articles/ideal-tv-mounting-height)); LG: 100–120 см ([lg.com](https://www.lg.com/ru/lg-magazine/how-to/na-kakoj-vysote-veshat-televizor-na-stenu)). Для РФ дефолт — 110–130 (синтез ресёрча; в `occupancy.json` его нет: `heights_cm.tv_center_ru` 120–130, `tv_center_en` 107–122, `dynamic.extras.tv_center_height_cm` 100–120).
 - **ТВ-тумба**: низкая h 40–45 (длина 90–120), средняя 55–70; глубина 35–50 см ([ramart](https://ramart.ru/articles/mebel/razmery_tumb_po_televizor_standartnaya_vysota_i_shirina_mebeli/)).
 - **Журнальный столик**: 36–46 см, на 2,5–5 см ниже сиденья дивана ([woodstockoutlet](https://www.woodstockoutlet.com/blog/coffee-table-height-guide), [povison](https://www.povison.com/blog/buying-guide/coffee-table-height-guide.html)); приставной столик ±5 см от подлокотника ([zmhome](https://www.zmhome.store/blogs/furniture/how-to-choose-side-table-height)).
 - **Диван (эргономика)**: сиденье 40–50, спинка 80–100, подлокотники 50–70, глубина сиденья 50–70 см ([mrdoors](https://www.mrdoors.ru/blog_new/vybor_razmerov_divana_standartnye_i_nestandartnye_resheniya_/)).
@@ -96,6 +96,7 @@ status: working
 | [Planner 5D for Business](https://planner5d.com/business/api-integrations) | Smart Wizard (авторасстановка из каталога партнёра) + API; trial €99 за 10+10, дальше кастомная годовая лицензия | Единственное готовое коммерческое; закрытая экосистема, неизвестный ценник, Smart Wizard через API — только через sales-scoping. Держать как запасной путь |
 
 **Рекомендация**: Holodeck-DFS + правила этого свода как численные констрейнты; опционально VLM-слой в духе LayoutVLM (Gemini взвешивает констрейнты) — тренд 2025–26 ровно такой.
+**Сейчас (12.11):** движок — не DFS, а beam-поиск по кандидатам с атомарными шаблонами (`services/planner-solver/planner/beam.py`); правила свода — данные `services/planner-solver/rules/occupancy.json`, проверки — `services/planner-solver/planner/validate.py`.
 
 ## 7. КОНФЛИКТЫ с правилами на 08.2026 (до раунда 2; решает владелец)
 
@@ -115,6 +116,8 @@ status: working
 ## Критика свода (агент-критик; дыры = следующий раунд ресёрча)
 
 **Дыры (не покрыто, а солверу нужно):**
+
+*Статус 12.11:* дыры 1–3, 5, 6 закрыты данными `occupancy.json` → `dynamic.window_tv_glare`, `window_sofa`, `door_swing`, `radiator`, `narrow_room`, `distances_cm.sofa_tv_aim_deg_max` + `TV_OFF_AXIS` (`validate.py:check_facing`), `dynamic.chandelier_size`, `cushions_count`, `extras.dining_rug_overhang_min_cm`, `armchair_clearances` (пледов нет); 4 — шкалы `dynamic.*` на всех 7 бэндах, но `counts.seats` для 31+ м² — `null`.
 
 1. Привязка к проёмам/инженерке: нет правил про окна (не блокировать, блики на ТВ), распах дверей, батареи под окном, балконную дверь — для авто-расстановки это первичные констрейнты, покрыт только «от входа до мебели 150–200».
 2. Геометрия комнаты: ничего про узкие/вытянутые комнаты (пропорция сторон), выбор ТВ-стены и ориентацию дивана (вдоль/поперёк), ориентацию угла Г-дивана — а угловой диван в конфликте #8 упомянут как типовой.
@@ -155,7 +158,8 @@ status: working
 ### Решения владельца (обязательны для движка)
 - **Кап пола — динамический от площади**: маленькая комната до ~50%, большая — пропорционально меньше (шкала в JSON).
 - **Ковёр — привязка к дивану**, не к проценту пола.
-- **Диван↔столик и диван↔ТВ — шкалы от площади комнаты** (в JSON, ТВ дополнительно клампится 1,2–2,5 диагонали).
+- **Диван↔столик и диван↔ТВ — шкалы от площади комнаты** (решение 01.08). **Сейчас (W2, 08.08) иначе:** диван↔столик — фикс-вилка hard 32–50 / комфорт 36–46 (`distances_cm.sofa_coffee_table_hard`, `sofa_coffee_table`), шкала `dynamic.sofa_table_cm` в проверке не используется; диван↔ТВ — от диагонали по ширине тумбы (экран 70–90 % тумбы, дистанция 1,2·d_min…2,5·d_max — `services/planner-solver/planner/tv.py:distance_range`), шкала `dynamic.sofa_tv_cm` — только при тумбе <60 см (`services/planner-solver/planner/validate.py:check_distances`).
+- Кап пола сейчас — `dynamic.floor_cap_pct` (14–16 м² до 50 %, 50+ до 34 %), превышение — мягкое `FLOOR_OVERFILL` (`validate.py:check_floor_cap`); ковёр — якорь на передних ножках всей посадки (`rug_rules.anchor`), мягкое `RUG_DETACHED` (`validate.py:check_zone`).
 
 ### Новые правила: окна, двери, батареи, розетки
 
