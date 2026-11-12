@@ -6932,8 +6932,12 @@ document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&TR_HS.wa
 // Пары ракурсов считает сборка (`tools/scout/cams_par.py`); не успела к сроку — у части вариантов пары в данных нет, и страница
 // перебирала точки сама, секунды на вариант посреди нажатий (замер T-21: 5,3 с на телефоне при открытии). Теперь — в отдельном потоке
 // тем же блоком CAMFIT и тем же вызовом, что сборка (`tools/flat3d/demo-cams.mjs`: `camPairAll([мебель], W, H, углы)`; общая пара
-// комнаты `one_layout` — не здесь, как было). Блок берём из текста этой же страницы. Worker не завёлся — `camsFor` отвечает null, и
+// комнаты `one_layout` — не здесь, как было). Worker не завёлся — `camsFor` отвечает false, и
 // дальше всё как раньше (подбор при открытии окна). Итог — в `v.cams`/`v.cam_level`, только если пары всё ещё нет
+// ИСТОЧНИК БЛОКА — ФАЙЛ СБОРКИ, НЕ ТЕКСТ СТРАНИЦЫ (T-20261112-90, ловушка из критики Codex): раньше блок искали по меткам-комментариям
+// в `document.scripts`; сжатая сборкой страница (`tools/scout/page_build.mjs`) комментариев не несёт, и поток молча не заводился бы.
+// Сборка кладёт блок файлом `lib/camfit.<хеш>.js`, имя — в `lib/scene.json` (`camfit.file`); качаем его, только когда поток нужен.
+// Пока файл в пути, `CAMW.ok` = null (подбор ждёт поток); файла нет / не скачался / поток упал — false, и подбор — в главном потоке
 // источник потока: тело — чистая функция, её же исполняет тест (`tests/unit/demo-cam-worker.test.ts`)
 function camWorkerSrc(block){
   return `const B=${JSON.stringify(block)}; const API=new Map(); let D=null;
@@ -6945,33 +6949,35 @@ onmessage=e=>{const m=e.data||{}; if(m.D){D=m.D; API.clear(); return;}
   catch(x){ r={err:String(x&&x.message||x)}; }
   postMessage({id:m.id, r}); };`;
 }
-const CAMW={w:null, id:0, wait:new Map(), by:new Map()};
+const CAMW={p:null, ok:null, id:0, wait:new Map(), by:new Map()};
+// → Promise<Worker|false>; один на страницу
 function camWorker(){
-  if(CAMW.w!==null)return CAMW.w;
-  CAMW.w=false;
-  // метки собираем из частей: иначе этот текст сам нашёлся бы как блок
-  const A='// CAMFIT '+'START', Z='// CAMFIT '+'END';
-  try{ const t=[...document.scripts].map(x=>x.textContent||'').find(x=>x.includes(A)&&x.includes(Z));
-    if(!t||typeof Worker!=='function')return false;
-    const w=new Worker(URL.createObjectURL(new Blob([camWorkerSrc(t.slice(t.indexOf(A),t.indexOf(Z)))],{type:'text/javascript'})));
-    w.onmessage=e=>{const f=CAMW.wait.get(e.data&&e.data.id); if(f){CAMW.wait.delete(e.data.id); f(e.data.r);}};
-    w.onerror=()=>{CAMW.wait.forEach(f=>f(null)); CAMW.wait.clear(); CAMW.w=false;};
-    // данные — один раз (правила камер читают `D.rules` и прочее); вариант — комната и мебель
-    w.postMessage({D:JSON.parse(JSON.stringify({...D, variants:[], feeds:{}, sofa_feed:[]}))});
-    CAMW.w=w; }
-  catch(e){ CAMW.w=false; }
-  return CAMW.w;
+  if(CAMW.p)return CAMW.p;
+  const no=()=>{CAMW.ok=false; CAMW.p=Promise.resolve(false); return false;};
+  if(typeof Worker!=='function')return no(), CAMW.p;
+  CAMW.p=sceneManifest().then(m=>{ const f=m&&m.camfit&&m.camfit.file;
+      if(!f||!/^camfit\.[0-9a-f]{6,64}\.js$/.test(f))throw new Error('нет camfit в lib/scene.json');
+      return fetch('lib/'+f).then(r=>{ if(!r.ok)throw new Error('lib/'+f+': '+r.status); return r.text(); }); })
+    .then(t=>{
+      const w=new Worker(URL.createObjectURL(new Blob([camWorkerSrc(t)],{type:'text/javascript'})));
+      w.onmessage=e=>{const f=CAMW.wait.get(e.data&&e.data.id); if(f){CAMW.wait.delete(e.data.id); f(e.data.r);}};
+      w.onerror=()=>{CAMW.wait.forEach(f=>f(null)); CAMW.wait.clear(); no();};
+      // данные — один раз (правила камер читают `D.rules` и прочее); вариант — комната и мебель
+      w.postMessage({D:JSON.parse(JSON.stringify({...D, variants:[], feeds:{}, sofa_feed:[]}))});
+      CAMW.ok=true; return w; })
+    .catch(e=>{ try{console.info('camWorker: подбор ракурсов — в главном потоке ('+(e&&e.message||e)+')');}catch(_){} return no(); });
+  return CAMW.p;
 }
 // пара ракурсов варианта в потоке → true (пара легла в `v.cams`) / false; один запрос на вариант
 function camsFor(v){
   const id=String(v&&v.id||''); if(!v||!D||D.one_layout||(Array.isArray(v.cams)&&v.cams.length===2))return Promise.resolve(!!v);
   if(CAMW.by.has(id))return CAMW.by.get(id);
-  const geo=roomGeoOf(v), w=geo&&camWorker();
-  const p=!w?Promise.resolve(false):new Promise(ok=>{ const n=++CAMW.id;
+  const geo=roomGeoOf(v);
+  const p=!geo?Promise.resolve(false):camWorker().then(w=>!w?false:new Promise(ok=>{ const n=++CAMW.id;
     const its=(v.items||[]).map(it=>({...it, x:+it.x, y:+it.y, w:+it.w, d:+it.d, rot:+it.rot||0}));
     CAMW.wait.set(n,r=>{ if(r&&Array.isArray(r.cams)&&r.cams.length===2&&!(Array.isArray(v.cams)&&v.cams.length===2)){v.cams=r.cams; v.cam_level=r.level;}
       ok(Array.isArray(v.cams)&&v.cams.length===2); });
-    w.postMessage({id:n, rid:roomIdOf(v), geo:JSON.parse(JSON.stringify(geo)), its}); });
+    w.postMessage({id:n, rid:roomIdOf(v), geo:JSON.parse(JSON.stringify(geo)), its}); }));
   CAMW.by.set(id,p); return p;
 }
 // ЗАПУСК ТУРА БЕЗ ПАРЫ В ДАННЫХ (замер T-23: 3,5–5 с одной задачей при открытии на телефоне): план редактора (`draw` → `drawCams`)
@@ -6982,13 +6988,14 @@ function camsDefer(){
   const v=TRIAL()&&D&&!D.one_layout?allVariants()[cur]:null;
   if(!v||(Array.isArray(v.cams)&&v.cams.length===2)||v.mine||v.cid)return false;
   try{if(localStorage.getItem(camsKey()))return false;}catch(e){}
-  if(!camWorker())return false;
+  // поток уже известен как неработающий — подбор здесь же; пока файл блока в пути — ждём поток (ответ false → `draw` сюда вернётся с ok=false)
+  if(CAMW.ok===false)return false;
   camsFor(v).then(()=>{ if(!cams&&allVariants()[cur]===v)try{draw();}catch(e){} });
   return true;
 }
 // у всех вариантов без пары — по очереди, в тишине (окно откроется с готовой парой, без перебора в главном потоке)
 async function camsFill(){ for(const v of allVariants()){ if(Array.isArray(v.cams)&&v.cams.length===2||v.mine||v.cid)continue;
-  await bgQuiet(); if(!await camsFor(v)&&!camWorker())return; } }
+  await bgQuiet(); if(!await camsFor(v)&&CAMW.ok===false)return; } }
 // CAMWORK END
 // точки съёмки варианта — тем же выбором, что у окна: сохранённые в браузере → готовая пара из данных → подбор. Правила камер читают
 // комнату открытого варианта (`camRoom` → `cur`), поэтому на время СИНХРОННОГО подбора подставляем этот вариант и возвращаем
@@ -11561,6 +11568,7 @@ async function liveShow(){
     const how=sc.frameItem?sc.frameItem(k):(sc.focus&&sc.focus(k),'turn'); LIVE.framed=how; VW.free=true; vwCamsUi(); sc.start();}
   LIVE.focus=null;
   LIVE.state='ready'; vwLoad(false);
+  if(LIVE.readyMs==null)LIVE.readyMs=performance.now();   // плашка замера `?perf=1` (блок PERF): первое «3D готово» от начала загрузки
   if(entering&&VW.mode==='walk')liveHint();
   liveShotSoon(); vwPreSoon(); trThumbs();   // проба: миниатюры строк — из готовой сцены (T-20261109-35/2)
 }
@@ -13032,5 +13040,41 @@ function quizPick(rule, answers, available, styleColours){
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start); else start();
 })();
+</script>
+<script>
+// PERF START — ПЛАШКА ЗАМЕРА `?perf=1` (T-20261112-90, владелец 13:32 «да»): в безголовом браузере DEV живая сцена уходит в запасной
+// режим, и «3D готово» мерит только настоящий телефон. С `?perf=1` внизу — маленькая плашка, время от начала загрузки страницы:
+// HTML пришёл (и сколько весил по сети), первый экран (LCP; где браузер его не знает — FCP), данные, движок 3D, «3D готово»
+// (`LIVE.readyMs` — живая сцена ставит при первом `LIVE.state='ready'`), модели `.glb` — сколько, сколько МБ, когда последняя.
+// Покупатель без `?perf=1` ничего не видит и ничего не платит: блок выходит сразу.
+(function(){
+  if(!/[?&]perf=1(?:&|$)/.test(location.search)||typeof performance!=='object')return;
+  const P={lcp:null, fcp:null, lcpOn:false};
+  try{ new PerformanceObserver(l=>{const e=l.getEntries(); if(e.length)P.lcp=e[e.length-1].startTime;}).observe({type:'largest-contentful-paint', buffered:true}); P.lcpOn=true; }catch(e){}
+  try{ new PerformanceObserver(l=>{for(const e of l.getEntries())if(e.name==='first-contentful-paint')P.fcp=e.startTime;}).observe({type:'paint', buffered:true}); }catch(e){}
+  const s=ms=>ms==null?'—':(ms/1000).toFixed(1)+' с', kb=b=>b>=1048576?(b/1048576).toFixed(1)+' МБ':Math.round(b/1024)+' КБ';
+  const size=e=>e.transferSize||e.encodedBodySize||0;
+  let el=null;
+  function tick(){
+    if(!document.body)return;
+    if(!el){ el=document.createElement('div'); el.id='perfBadge';
+      el.style.cssText='position:fixed;left:4px;bottom:4px;z-index:2147483647;max-width:calc(100vw - 8px);padding:4px 6px;border-radius:6px;'+
+        'background:rgba(0,0,0,.72);color:#fff;font:11px/1.35 ui-monospace,Menlo,monospace;pointer-events:none;white-space:pre-wrap';
+      document.body.appendChild(el); }
+    const nav=(performance.getEntriesByType('navigation')||[])[0]||{}, res=performance.getEntriesByType('resource')||[];
+    const one=re=>res.find(e=>re.test(e.name)), glb=res.filter(e=>/\.glb(\?|$)/.test(e.name));
+    const data=one(/demo-data\.json/), eng=one(/\/lib\/scene\.[0-9a-f]+\.js/);
+    const L=typeof LIVE==='object'&&LIVE?LIVE:null, c=navigator.connection;
+    el.textContent=[
+      'HTML '+s(nav.responseEnd)+' · '+kb(size(nav))+(c&&c.effectiveType?' · '+c.effectiveType:''),
+      (P.lcpOn?'экран (LCP) ':'экран (FCP) ')+s(P.lcpOn?P.lcp:P.fcp)+' · данные '+s(data&&data.responseEnd),
+      'движок 3D '+s(eng&&eng.responseEnd)+' · 3D готово '+(L&&L.readyMs!=null?s(L.readyMs):L&&L.state==='fallback'?'запасной режим':'—'),
+      'модели '+glb.length+' шт · '+kb(glb.reduce((a,e)=>a+size(e),0))+' · последняя '+s(glb.length?Math.max(...glb.map(e=>e.responseEnd)):null),
+    ].join('\n');
+  }
+  try{ performance.setResourceTimingBufferSize(1000); }catch(e){}
+  setInterval(tick,500);
+})();
+// PERF END
 </script>
 </body></html>

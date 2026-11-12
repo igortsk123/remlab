@@ -20,6 +20,8 @@ import { stubHtml, type StubKind, type StubOpts } from "@/lib/trial/tour-stub";
 
 const SCENE_JS = /^lib\/scene\.[a-f0-9]{6,64}\.js$/;
 const BASKET_JS = /^lib\/basket\.[a-f0-9]{6,64}\.js$/;
+// блок подбора ракурсов для фонового потока страницы (T-20261112-90, `tools/scout/page_build.mjs`) — часть закреплённой версии
+const CAMFIT_JS = /^lib\/camfit\.[a-f0-9]{6,64}\.js$/;
 // общие картинки витрины — только имя файла в одной папке, без подкаталогов
 const SHARED_IMG = /^(img|topsprites)\/([\w.-]{1,160}\.(?:jpe?g|png|webp))$/;
 // готовый снимок карточки комнаты этого задания (T-20261112-29, `tour-cards.ts`): имя — хеш содержимого
@@ -45,7 +47,7 @@ export function tourTarget(parts: readonly string[]): TourTarget | null {
   if (rel === "demo-data.json") return { kind: "data" };
   if (rel === "version.json") return { kind: "version" };
   if (rel === "lib/scene.json" || rel === "rt-meshes.json") return { kind: "release", rel, type: JSON_TYPE };
-  if (SCENE_JS.test(rel) || BASKET_JS.test(rel)) return { kind: "release", rel, type: JS };
+  if (SCENE_JS.test(rel) || BASKET_JS.test(rel) || CAMFIT_JS.test(rel)) return { kind: "release", rel, type: JS };
   if (SHARED_IMG.test(rel)) return { kind: "shared", url: `/demo/${rel}` }; // картинки товаров общие (103 МБ на витрине), личного в них нет
   const card = CARD_IMG.exec(rel);
   if (card) return { kind: "card", file: card[1]! };

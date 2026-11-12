@@ -26,6 +26,8 @@ describe("тур пробы: список разрешённых адресов"
     expect(tourTarget(["lib", "scene.json"])).toMatchObject({ kind: "release", rel: "lib/scene.json" });
     expect(tourTarget(["lib", "scene.50b388b725c6.js"])).toMatchObject({ kind: "release" });
     expect(tourTarget(["lib", "basket.c8af646371ed.js"])).toMatchObject({ kind: "release" });
+    expect(tourTarget(["lib", "camfit.0a1b2c3d4e5f.js"])).toMatchObject({ kind: "release", rel: "lib/camfit.0a1b2c3d4e5f.js" });
+    expect(tourTarget(["lib", "camfit.js"])).toBeNull();
     expect(tourTarget(["rt-meshes.json"])).toMatchObject({ kind: "release" });
     expect(tourTarget(["version.json"])).toEqual({ kind: "version" });
   });
@@ -132,7 +134,9 @@ describe("тур пробы: ответы и закреплённая верси
     dir = join(root, "trial");
     mkdirSync(join(demo, "lib"), { recursive: true });
     writeFileSync(join(demo, "index.html"), "<html><head></head><body>v1</body></html>");
-    writeFileSync(join(demo, "lib", "scene.json"), JSON.stringify({ file: "scene.abc123.js", basket: { file: "basket.def456.js" } }));
+    writeFileSync(join(demo, "lib", "scene.json"), JSON.stringify({ file: "scene.abc123.js", basket: { file: "basket.def456.js" },
+      camfit: { file: "camfit.0a1b2c3d4e5f.js" } }));
+    writeFileSync(join(demo, "lib", "camfit.0a1b2c3d4e5f.js"), "// camfit v1");
     writeFileSync(join(demo, "lib", "scene.abc123.js"), "// scene v1");
     writeFileSync(join(demo, "lib", "basket.def456.js"), "// basket v1");
     writeFileSync(join(demo, "rt-meshes.json"), '{"meshes":{}}');
@@ -391,9 +395,9 @@ describe("тур пробы: ответы и закреплённая верси
     expect(await none.text()).toContain('data-stub="wait"');      // версии данных нет — закреплять нечего
   });
 
-  it("копия версии целая: index, сцена, корзина, модели", () => {
+  it("копия версии целая: index, сцена, корзина, блок ракурсов, модели", () => {
     const rd = releaseDir(dir, release);
-    for (const f of ["index.html", "lib/scene.json", "lib/scene.abc123.js", "lib/basket.def456.js", "rt-meshes.json"]) {
+    for (const f of ["index.html", "lib/scene.json", "lib/scene.abc123.js", "lib/basket.def456.js", "lib/camfit.0a1b2c3d4e5f.js", "rt-meshes.json"]) {
       expect(readFileSync(join(rd, f)).length, f).toBeGreaterThan(0);
     }
   });

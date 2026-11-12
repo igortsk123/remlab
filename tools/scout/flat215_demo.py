@@ -2665,6 +2665,21 @@ def demo_cams(root: str, path: str, timeout: float = DEMO_CAMS_TIMEOUT, run=subp
     return f'WARN:demo_cams: ракурсы окна в данные не записались (rc={r.returncode}): {(r.stderr or r.stdout or "").strip()[-200:]}'
 
 
+def page_step(root: str, src: str) -> None:
+    """СТРАНИЦА В ВИТРИНУ — СЖАТОЙ (T-20261112-90, план tour-page-split-01 А): `tools/scout/page_build.mjs` убирает комментарии и
+    пробелы каждого блока (имена не трогает) и кладёт блок ракурсов файлом `lib/camfit.<хеш>.js` (имя — в `lib/scene.json`, поэтому
+    шаг идёт ПОСЛЕ сборки движка, которая этот манифест переписывает). Исходник в репо не меняется. node не запустился — копия как
+    есть (как было до T-90) и громкий WARN: страница работает, только тяжелее, а запасной подбор ракурсов — в главном потоке."""
+    r = subprocess.run(['bash', '-c', f'. "{root}/tools/ops/node-env.sh" && node "{root}/tools/scout/page_build.mjs" "$0" "$1"',
+                        src, OUT], capture_output=True, text=True, timeout=180)
+    if r.returncode == 0:
+        print((r.stdout or '').strip()[-400:], flush=True)
+        return
+    _AIO.write_text(os.path.join(OUT, 'index.html'), open(src, encoding='utf-8').read())
+    print(f'WARN:page_build: страница не собралась (rc={r.returncode}) — в витрину исходник как есть: '
+          f'{(r.stderr or r.stdout or "").strip()[-200:]}', flush=True)
+
+
 def main() -> None:
     if '--publish' in sys.argv and not _BP.same(OUT, _BP.DEMO_OUT_DEFAULT):
         # publish_demo.sh публикует ПАПКУ ВИТРИНЫ, а не OUT: сборка рядом (копия банка, проверка) на прод не едет
@@ -2673,8 +2688,6 @@ def main() -> None:
     # ИСХОДНИК СТРАНИЦЫ ЖИВЁТ В РЕПО (26.08): до этого index.html лежал только в ~/scout-scenes и
     # не попадал в git — демо было невоспроизводимо и терялось при чистке. Копия — подменой (T-20261105-59)
     src = os.path.join(HERE, 'flat215-demo', 'index.html')
-    if os.path.exists(src):
-        _AIO.write_text(os.path.join(OUT, 'index.html'), open(src, encoding='utf-8').read())
     rt_table_side()
     # ДВИЖОК ЖИВОЙ СЦЕНЫ (demo-01): тот же исходник, что /flat (`lib/viewer3d`), собирается рядом со страницей
     # (`lib/scene.<версия>.js` + `lib/scene.json`). Не собрался — остаётся вчерашний файл, страница работает с ним
@@ -2684,6 +2697,8 @@ def main() -> None:
                         f'--out "{os.path.join(OUT, "lib")}"'], capture_output=True, text=True, timeout=300)
     print((r.stdout or '').strip()[-300:] if r.returncode == 0 else
           f'WARN:scene_bundle: движок живой сцены не собрался (rc={r.returncode}): {(r.stderr or r.stdout or "").strip()[-200:]}')
+    if os.path.exists(src):
+        page_step(root, src)
     data = build()
     wall_art_step(data)
     data = cache_images(data)

@@ -20,8 +20,11 @@ async function write(file: string, data: Buffer | string): Promise<void> {
  * появляется атомарно (папка `.part-*` → rename), поэтому страница не бывает наполовину скопированной.
  */
 export async function pinRelease(demoDir: string, dir = trialDir()): Promise<string> {
-  const man = JSON.parse(await fs.readFile(path.join(demoDir, "lib", "scene.json"), "utf8")) as { file: string; basket?: { file: string } };
-  const rels = ["index.html", "lib/scene.json", `lib/${man.file}`, ...(man.basket ? [`lib/${man.basket.file}`] : []), "rt-meshes.json"];
+  const man = JSON.parse(await fs.readFile(path.join(demoDir, "lib", "scene.json"), "utf8")) as {
+    file: string; basket?: { file: string }; camfit?: { file: string } };
+  // `camfit` — блок ракурсов для фонового потока сжатой страницы (T-20261112-90); у витрин до него поля нет
+  const rels = ["index.html", "lib/scene.json", `lib/${man.file}`, ...(man.basket ? [`lib/${man.basket.file}`] : []),
+    ...(man.camfit ? [`lib/${man.camfit.file}`] : []), "rt-meshes.json"];
   const hash = createHash("sha256");
   const files: Array<[string, Buffer]> = [];
   for (const rel of rels) {

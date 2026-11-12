@@ -42,6 +42,8 @@ tools/scout/*
 !tools/scout/precompress.mjs
 # снимальщик карточек комнат тура — код воркера (`tools/floorplan/cards.py` зовёт его), T-20261112-29
 !tools/scout/trial_cards.mjs
+# сжатие страницы демо при сборке и файл блока ракурсов (`flat215_demo.py:page_step` зовёт его), T-20261112-90
+!tools/scout/page_build.mjs
 # факты «в цене ↔ в 3D» кодом сцены страницы — код отчёта (`priced_vs_3d.py` собирает и зовёт его), T-20261112-64
 !tools/scout/priced_vs_3d_scene.ts
 # паспорта стилей — канон (core/styles.md), их читает сервис кадров: в git (b2b-08, 13.10 — жили только на DEV)

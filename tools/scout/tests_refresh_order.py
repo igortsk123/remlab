@@ -95,7 +95,8 @@ CHAIN = ('bank_prepare', 'mesh_cand', 'room_bindings', 'bank_pending', 'bank_pro
 # сторож изголовья кроватей (T-20261110-20/3) — перед ним: его доворот/блок (orientation_state) читает та же привязка
 ROOM_BANK = ('orient_bed_guard', 'mesh_color_guard', 'room_bindings', *(f'{s}_{r}' for r in ROOMS for s in ('compose', 'room_check', *CHAIN,
                                                                                          'bank_rehearse', 'bank_state')))
-DEMO = ('flat215_demo', 'trial_images', 'demo_rt', 'flat215_publish')
+# проверка СОБРАННОЙ (сжатой) страницы в браузере (T-20261112-90) — сразу за сборкой витрины
+DEMO = ('flat215_demo', 'page_check', 'trial_images', 'demo_rt', 'flat215_publish')
 
 
 def chain_of(room: str) -> list[str]:
@@ -350,8 +351,9 @@ def _rooms_bank(text: str, ok) -> int:
        'прогрев → сухая проверка по опубликованному',
        fn.index('flat215_demo') < fn.index('demo_rt') < fn.index('demo_real') < fn.index('flat215_publish') < fn.index('demo_warm')
        < fn.index('demo_real_check') and fn.count('demo_real_check') == 1
-       # плитки товаров пробы (T-20261110-25/2) — сразу за сборкой витрины, в её папку, до ворот и публикации
-       and fn.index('flat215_demo') + 1 == fn.index('trial_images') < fn.index('demo_rt')
+       # проверка собранной страницы (T-20261112-90) — сразу за сборкой; плитки товаров пробы (T-20261110-25/2) — за ней, до ворот и публикации
+       and fn.index('flat215_demo') + 1 == fn.index('page_check') and fn.index('page_check') + 1 == fn.index('trial_images') < fn.index('demo_rt')
+       and cmd['page_check'].startswith('bash -c') and 'page-check.mjs' in cmd['page_check'] and '--src flat215-demo/index.html' in cmd['page_check']
        and cmd['trial_images'] == '$PY trial_bundle.py --cache-images'
        and cmd['demo_real'].startswith('env DEMO_LOCAL=') and cmd['demo_real'].endswith('/scout-scenes/flat215-demo bash ../ops/demo-real.sh')
        and cmd['flat215_publish'] == 'env PUB_PHOTOS_DONE=1 bash publish_demo.sh'

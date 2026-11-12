@@ -436,7 +436,9 @@ def live_quiz_golden(r: Report) -> None:
     if not d.get('quiz_enabled'):
         r.skip('quiz_golden', 'опрос не включён (в demo-data.json нет quiz_enabled) — проверять нечего')
         return
-    res = quiz_golden_run(os.path.join(root, 'index.html'), QUIZ_RULES)
+    # блок QUIZPICK — из ИСХОДНИКА страницы: в витрину она едет сжатой, без меток-комментариев (T-20261112-90, `page_build.mjs`),
+    # а код тот же; данные (`quiz_enabled`) — витрины
+    res = quiz_golden_run(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'flat215-demo', 'index.html'), QUIZ_RULES)
     if 'skip' in res:
         r.warn('quiz_golden', False, f"опрос включён, а проверить нечем: {res['skip']}")
         return
