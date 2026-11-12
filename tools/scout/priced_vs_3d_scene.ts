@@ -14,7 +14,7 @@
 // Вывод — JSON {файл: {variants: [{id, room_id, style, rows: [...]}]}}; разбор причин и итоги — `priced_vs_3d.py`.
 
 import { readFileSync } from "node:fs";
-import { fromDemoVariant, isCeilingDecor, isWallArtDecor, isWallPlane, stableSlotIds, wallArtItems } from "@/lib/configurator/fromDemo";
+import { fromDemoVariant, isCeilingDecor, isTextileDecor, isWallArtDecor, isWallPlane, stableSlotIds, wallArtItems } from "@/lib/configurator/fromDemo";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { planObjects } from "@/lib/viewer3d/build-scene";
 
@@ -66,6 +66,9 @@ function slotMap(items: Entry[], live: Entry[]): { items: string[][]; decor: Map
   // люстра — слот на потолке (`fromDemo.ts` «ЛЮСТРА ИЗ ДЕКОРА ВАРИАНТА», T-20261112-66)
   const lights = live.map((x, k) => ({ x, k })).filter(({ x }) => isCeilingDecor(x));
   stableSlotIds(lights.map(({ x }) => ({ role: x.role ?? "люстра" }))).forEach((id, j) => decor.set(lights[j]!.k, `ceiling:${id}`));
+  // условные штора и плед — слот ткани (`fromDemo.ts` «ШТОРЫ И ПЛЕД», T-20261112-74)
+  const cloth = live.map((x, k) => ({ x, k })).filter(({ x }) => isTextileDecor(x));
+  stableSlotIds(cloth.map(({ x }) => ({ role: x.role ?? "шторы" }))).forEach((id, j) => decor.set(cloth[j]!.k, `textile:${id}`));
   return { items: out, decor };
 }
 
@@ -75,7 +78,8 @@ function variantFacts(D: Data, v: Variant) {
   const isRefused = refused(D, v);
   const items = isRefused ? [] : v.items ?? [];
   const decorAll = isRefused ? [] : (v.decor ?? []).map((x, i) => ({ x, i })).filter(({ x }) => x.sku?.name);
-  const liveIdx = decorAll.filter(({ x }) => !isSoft(x.role) && !x.list_only);
+  // мягкое — не в сцене, КРОМЕ условной ткани с местом и цветом (`liveDecor` страницы, T-20261112-74)
+  const liveIdx = decorAll.filter(({ x }) => (!isSoft(x.role) || isTextileDecor(x)) && !x.list_only);
   const live = liveIdx.map(({ x }) => x);
   const room = (D.rooms_geo ?? {})[roomIdOf(v)] ?? (roomIdOf(v) === "living" || !D.rooms_geo ? D.room : undefined) ?? D.room;
   let rendered = new Set<string>(), unplaced = new Set<string>(), error = "";

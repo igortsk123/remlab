@@ -171,6 +171,11 @@ export const slot = z.object({
    * не держит. Есть такое место — условный плафон комнаты не рисуется, рамка и бирка не выше потолка (`viewer.ts`).
    */
   ceilingOver: z.object({ placeId: z.string() }).optional(),
+  /**
+   * Условная ткань (T-20261112-74): штора у окна `opening` (номер в `room.openings`) или плед на подлокотнике — место от решателя
+   * паспорта при сборке (`tools/scout/textile_abstract.py`), форма — кодом сцены (`viewer.ts`). Покупатель её не двигает.
+   */
+  textile: z.object({ shape: z.enum(["curtain", "throw"]), opening: z.number().int().nonnegative().optional() }).optional(),
 });
 export type Slot = z.infer<typeof slot>;
 

@@ -76,7 +76,8 @@ export type Material = z.infer<typeof material>;
  */
 export const kitAsset = z.object({
   kind: z.literal("kit"),
-  kit: z.enum(["kitchen", "bathroom", "bed", "wardrobe", "rug", "wall-plane"]),
+  // `textile` (T-20261112-74) — условная штора или плед цветом товара (`lib/configurator/textile.ts`); признак формы — в `features`
+  kit: z.enum(["kitchen", "bathroom", "bed", "wardrobe", "rug", "wall-plane", "textile"]),
   /** Уровень исполнения — им кит решает, что показать (например, встроенную технику). */
   level: z.enum(["base", "practical", "comfort", "premium"]).default("base"),
   materials: z.record(z.string(), z.string()).default({}), // слот кита → id материала

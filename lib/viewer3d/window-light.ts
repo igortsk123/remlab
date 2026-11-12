@@ -82,39 +82,55 @@ export function sunPose(rooms: readonly Room[]): SunPose | null {
  * складками; плоскость — перед подоконником (`CURTAIN_PLANE_CM` от поверхности стены, она вдвинута на `WALL_INSET_CM`), там же
  * штанга (`fixtures-ir.ts`). Окон нет — пустая группа.
  */
-export function buildCurtains(rooms: readonly Room[]): THREE.Group {
+export function buildCurtains(rooms: readonly Room[], skip?: ReadonlyMap<string, ReadonlySet<number>>): THREE.Group {
   const g = new THREE.Group();
   g.name = "curtains";
   const mat = new THREE.MeshStandardMaterial({ color: 0xd8c4a6, roughness: 0.95, side: THREE.DoubleSide });
-  const out = (WALL_INSET_CM + CURTAIN_PLANE_CM) * CM;
   for (const r of rooms) {
-    roomCurtains(r).forEach((span, i) => {
-      const o = r.openings[i]!;
-      if (!span) return;
-      const sill = o.kind === "balcony" ? 0 : o.sillCm ?? 90;
-      const top = Math.min(r.heightCm, o.kind === "balcony" ? o.heightCm ?? 220 : sill + (o.heightCm ?? 140));
-      const h = (curtainRodY(top, r.heightCm) - 1) * CM;   // верх — на штанге, низ — в 1 см от пола
-      const n = o.wall === "south" ? [0, 1] : o.wall === "north" ? [0, -1] : o.wall === "west" ? [1, 0] : [-1, 0];
-      for (const p of span.panels) {
-        const pw = (p.u1 - p.u0) * CM, um = (p.u0 + p.u1) / 2;
-        // offset — от начала стены: запад→восток у южной/северной, юг→север у западной/восточной (`contracts/apartment.ts:opening`)
-        const [px, pz] = o.wall === "south" ? [r.x + um, r.y] : o.wall === "north" ? [r.x + um, r.y + r.d]
-          : o.wall === "west" ? [r.x, r.y + um] : [r.x + r.w, r.y + um];
-        // складки у верха сходят на нет (до 0,9 см — меньше полутолщины штанги): кромка прячется в штангу, гребни не торчат над ней
-        const geo = new THREE.PlaneGeometry(pw, h, 28, Math.ceil(h / 0.08));
-        const pos = geo.attributes.position!, folds = Math.max(3, Math.round((9 * (p.u1 - p.u0)) / CURTAIN_PANEL_CM));
-        for (let k = 0; k < pos.count; k++) {
-          const fade = 0.3 + 0.7 * Math.min(1, (h / 2 - pos.getY(k)) / 0.1);
-          pos.setZ(k, fade * CURTAIN_PLEAT_CM * CM * Math.sin((pos.getX(k) / pw + 0.5) * Math.PI * folds));
-        }
-        geo.computeVertexNormals();
-        const m = new THREE.Mesh(geo, mat);
-        m.position.set(px * CM + n[0]! * out, 0.01 + h / 2, pz * CM + n[1]! * out);
-        m.rotation.y = Math.atan2(n[0]!, n[1]!);
+    // окно со шторой-товаром (T-20261112-74) — её рисует предмет сцены (`viewer.ts`), декоративную тут не ставим
+    r.openings.forEach((_, i) => {
+      if (skip?.get(r.id)?.has(i)) return;
+      for (const m of curtainPanels(r, i, mat)) {
         m.raycast = () => undefined;
         g.add(m);
       }
     });
   }
   return g;
+}
+
+/**
+ * Полотна шторы одного окна комнаты в координатах сцены (м). Плотная штора — по краям окна (`roomCurtains`); тюль (`sheer`,
+ * T-20261112-74) — во всю штангу, две половины встык: окно и свет видны сквозь него. Не окно или места нет — пусто.
+ */
+export function curtainPanels(r: Room, i: number, mat: THREE.Material, opts: { sheer?: boolean } = {}): THREE.Mesh[] {
+  const o = r.openings[i], span = o ? roomCurtains(r)[i] : null;
+  if (!o || !span) return [];
+  const out = (WALL_INSET_CM + CURTAIN_PLANE_CM) * CM;
+  const sill = o.kind === "balcony" ? 0 : o.sillCm ?? 90;
+  const top = Math.min(r.heightCm, o.kind === "balcony" ? o.heightCm ?? 220 : sill + (o.heightCm ?? 140));
+  const h = (curtainRodY(top, r.heightCm) - 1) * CM;   // верх — на штанге, низ — в 1 см от пола
+  const n = o.wall === "south" ? [0, 1] : o.wall === "north" ? [0, -1] : o.wall === "west" ? [1, 0] : [-1, 0];
+  const mid = (span.rod.u0 + span.rod.u1) / 2;
+  const panels = opts.sheer ? [{ u0: span.rod.u0, u1: mid }, { u0: mid, u1: span.rod.u1 }] : span.panels;
+  return panels.map((p) => {
+    const pw = (p.u1 - p.u0) * CM, um = (p.u0 + p.u1) / 2;
+    // offset — от начала стены: запад→восток у южной/северной, юг→север у западной/восточной (`contracts/apartment.ts:opening`)
+    const [px, pz] = o.wall === "south" ? [r.x + um, r.y] : o.wall === "north" ? [r.x + um, r.y + r.d]
+      : o.wall === "west" ? [r.x, r.y + um] : [r.x + r.w, r.y + um];
+    // складки у верха сходят на нет (до 0,9 см — меньше полутолщины штанги): кромка прячется в штангу, гребни не торчат над ней
+    const geo = new THREE.PlaneGeometry(pw, h, 28, Math.ceil(h / 0.08));
+    const pos = geo.attributes.position!, folds = Math.max(3, Math.round((9 * (p.u1 - p.u0)) / CURTAIN_PANEL_CM));
+    for (let k = 0; k < pos.count; k++) {
+      const fade = 0.3 + 0.7 * Math.min(1, (h / 2 - pos.getY(k)) / 0.1);
+      pos.setZ(k, fade * CURTAIN_PLEAT_CM * CM * Math.sin((pos.getX(k) / pw + 0.5) * Math.PI * folds));
+    }
+    geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, mat);
+    // тюль — на 1 см ближе к стеклу, чем плотная штора: полотна у одной штанги не мерцают друг в друге
+    const back = opts.sheer ? 1 * CM : 0;
+    m.position.set(px * CM + n[0]! * (out - back), 0.01 + h / 2, pz * CM + n[1]! * (out - back));
+    m.rotation.y = Math.atan2(n[0]!, n[1]!);
+    return m;
+  });
 }

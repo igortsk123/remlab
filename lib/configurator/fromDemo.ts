@@ -19,7 +19,10 @@ import { maskedName, roleEn, styleEn } from "@/lib/configurator/demo-mask";
 import { finishPassport } from "@/lib/viewer3d/finish-passport";
 import { DEFAULT_CEILING_CM, apartment as apartmentSchema, type Annex, type Apartment, type CropWindow, type Opening } from "@/contracts/apartment";
 import { catalogue as catalogueSchema, type Catalogue, type Configuration } from "@/contracts/configurator";
+import { isTextileDecor, textilePart, type TextileLook, type TextilePlace } from "@/lib/configurator/textile";
 import wallArtRules from "@/data/flat3d/wall-art.json";
+
+export { isTextileDecor } from "@/lib/configurator/textile";
 
 /** Роль картины и толщина подрамника — одно место с подбором и расчётом места (`data/flat3d/wall-art.json`). */
 const WALL_ART_ROLE = wallArtRules.role;
@@ -140,7 +143,8 @@ type DemoItem = {
 /** Картина (`strategy: procedural_plane`, роль «картина»; `tools/scout/wall_art.py`): `img_art` — фото без белого поля. */
 /** Люстра (`strategy: ceiling_over`, `tools/scout/chandelier.py`): `w/d/h` — каталог (диаметр, корпус), `hang` — Ш×Г×В сцены по мешу. */
 type DemoDecor = { role?: string; list_only?: boolean; strategy?: string;
-  place?: { x?: number; y?: number; bottom_cm?: number; slot_instance_id?: string };
+  /** Штора и плед (`strategy: textile_abstract`, T-20261112-74): место и цвет — `tools/scout/textile_abstract.py`. */
+  place?: { x?: number; y?: number; bottom_cm?: number; slot_instance_id?: string } & TextilePlace; look?: TextileLook;
   sku?: DemoItem["sku"] & { w?: number; d?: number; h?: number; img_art?: string; dia?: number; hang?: { w?: number; d?: number; h?: number };
     /** Картина, перевешенная покупателем «✥» (T-20261112-97): страница пишет место в товар декора — так его несут история и правки. */
     wall_at?: WallPin } };
@@ -457,7 +461,7 @@ function roomPart(data: DemoData, at: RoomAt<DemoVariant>, ctx: DemoContext): Ro
   // высотой, и в /flat не было ни ковра, ни вазы, хотя в окне и в цене они были. Ковёр — плита с фото товара (как серверный
   // «фото-ковёр»), ваза — модель на опоре (место пересчитывает `resolve.placeTabletop`)
   const rugs = (v.items ?? []).filter((it) => isRugRole(it.role) && it.w && it.d);
-  const decor = (v.decor ?? []).filter((x) => !x.list_only && !isWallArtDecor(x) && !isCeilingDecor(x)
+  const decor = (v.decor ?? []).filter((x) => !x.list_only && !isWallArtDecor(x) && !isCeilingDecor(x) && !isTextileDecor(x)
     && x.sku?.msid && x.sku.w && x.sku.d && x.sku.h);
   const lights = (v.decor ?? []).filter(isCeilingDecor);
   const extraOptions: Mat[] = [];
@@ -535,6 +539,19 @@ function roomPart(data: DemoData, at: RoomAt<DemoVariant>, ctx: DemoContext): Ro
       titleEn: roleEn(x.role ?? "люстра"), photoRole: x.role, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
       ceilingOver: { placeId: pl.slot_instance_id ?? "ceiling.chandelier#0" },
       placement: { x: ox + pl.x!, y: oy + pl.y!, rot: 0, wCm: hg.w!, dCm: hg.d!, hCm: hg.h!, elevCm: pl.bottom_cm! } });
+  });
+  // ШТОРЫ И ПЛЕД — УСЛОВНО, ЦВЕТОМ ТОВАРА (T-20261112-74): место и цвет — от сборки витрины, форму строит сцена
+  const cloth = (v.decor ?? []).filter(isTextileDecor);
+  const clothIds = stableSlotIds(cloth.map((x) => ({ role: x.role ?? "шторы" })));
+  const roomOps = openings(at.geo);
+  cloth.forEach((x, k) => {
+    const part = textilePart(x, `${pre}textile:${clothIds[k]}`, k, { id: at.id, prefix: pre, ox, oy }, roomOps, at.geo.openings,
+      { kinds, price: rub(x.sku?.price), titleEn: nameEnOf(x.sku, x.role, x.sku?.name ?? "Textile"),
+        previewUrl: assetUrl(x.sku?.img, ctx.assetBase), shop: shopOf(x.sku) });
+    if (!part) return;
+    extraMaterials.push(part.material);
+    extraOptions.push(part.option);
+    slots.push(part.slot);
   });
 
   // СТЕНЫ И ПОЛ — СВОИ МАТЕРИАЛЫ (живая проверка 14.10, /flat 15.10): у набора витрины своей отделки нет, и движок брал на

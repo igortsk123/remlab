@@ -74,6 +74,21 @@ export type ObjectSpec =
       materialId?: string;
     }
   | {
+      /**
+       * Условная ткань (T-20261112-74): штора у окна `opening` своей комнаты (полотна той же формы, что `window-light.ts`) или
+       * сложенный плед на подлокотнике; цвет — материал товара, тюль — полупрозрачный. Не препятствие и не в рамке ракурса.
+       */
+      kind: "textile";
+      slotId: string;
+      roomId: string;
+      titleRu: string;
+      placement: Placement;
+      shape: "curtain" | "throw";
+      opening?: number;
+      sheer: boolean;
+      materialId?: string;
+    }
+  | {
       /** Телевизор над тумбой — производный объект, не слот: не выбирается, не препятствие (`sceneExtras`). */
       kind: "tv";
       slotId: string;
@@ -180,6 +195,15 @@ export function planObjects(
       continue;
     }
 
+    if (asset.kit === "textile") {
+      const tx = a.slots.find((s) => s.id === item.slotId)?.textile;
+      if (!tx || (tx.shape === "curtain" && tx.opening === undefined)) continue;   // штора без окна — только в списке
+      out.push({ kind: "textile", slotId: item.slotId, roomId: item.roomId, titleRu: item.titleRu, placement: item.placement,
+        shape: tx.shape, ...(tx.opening !== undefined ? { opening: tx.opening } : {}), sheer: asset.features.includes("sheer"),
+        materialId: asset.materials.body });
+      continue;
+    }
+
     out.push({
       kind: asset.kit === "bed" ? "bed" : asset.kit === "rug" ? "rug" : "wardrobe",
       slotId: item.slotId,
@@ -196,10 +220,22 @@ export function planObjects(
 
 /**
  * Плоское на полу или стене — ковёр и настенная плоскость (зеркало, картина; T-20261106-73): ни прогулке, ни старту камеры не
- * мешает. Зеркало висит над обувницей — препятствие там уже обувница.
+ * мешает. Зеркало висит над обувницей — препятствие там уже обувница. Штора у стены и плед на диване (T-20261112-74) — так же:
+ * препятствие там стена и диван.
  */
 export function isFlatOnSurface(spec: ObjectSpec): boolean {
-  return spec.kind === "rug" || spec.kind === "wall-plane";
+  return spec.kind === "rug" || spec.kind === "wall-plane" || spec.kind === "textile";
+}
+
+/** Шторы-товары по комнатам: номера окон, у которых декоративную штору сцены не рисуем (`window-light.ts:buildCurtains`). */
+export function productCurtains(a: Apartment): Map<string, Set<number>> {
+  const out = new Map<string, Set<number>>();
+  for (const s of a.slots) {
+    if (s.textile?.shape !== "curtain" || s.textile.opening === undefined) continue;
+    if (!out.has(s.roomId)) out.set(s.roomId, new Set());
+    out.get(s.roomId)!.add(s.textile.opening);
+  }
+  return out;
 }
 
 /**

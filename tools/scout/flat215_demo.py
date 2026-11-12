@@ -1777,6 +1777,10 @@ def build() -> dict:
         ch = chandelier_decor(sets, n - 1, f'set{n}', objs, (liv['w'], liv['d']))
         if ch:
             decor.append(ch)
+        # ШТОРЫ И ПЛЕД — УСЛОВНО, ЦВЕТОМ ТОВАРА (T-20261112-74, владелец TG 953): место — решатель паспорта на носителях варианта,
+        # цвет — по названию (`textile_abstract.look_of`); отказ — строка только в списке, как было
+        import textile_abstract as _TX
+        _TX.annotate(decor, objs, liv, f'set{n}', demo_ceiling())
         variants.append({'id': f'set{n}', 'title': style, 'style': sets[n - 1].get('style'),
                          # ключ главной «стиль → комната → вариант» (demo-16): латинский id стиля для адреса `?style=`
                          # и комната квартиры, которую обставляет вариант (пока все варианты — гостиная)

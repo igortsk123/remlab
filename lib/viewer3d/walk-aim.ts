@@ -27,3 +27,13 @@ export function chooseAim(h: WalkHits, tie = AIM_TIE_M): WalkAimKind {
   if (h.block !== undefined && h.block < near - tie) return "none";
   return ORDER.find((k) => h[k] !== undefined && h[k]! <= near + tie) ?? "none";
 }
+
+/** Прозрачная ткань на луче (тюль во всю штангу перед стеклом, T-20261112-74): `thru` — расстояние до неё. За ней окно — цель окно
+ *  (подойти к нему, тюль выбирают ценником и краем у стены); за ней стена или пол — сама ткань, если ближе прочего предмета.
+ *  Ответ — взяла ли цель ткань (тогда `item` = `thru`). */
+export function seeThroughWins(h: WalkHits, thru: number | undefined): boolean {
+  if (thru === undefined || h.window !== undefined) return false;
+  if (h.item !== undefined && h.item < thru) return false;
+  h.item = thru;
+  return true;
+}

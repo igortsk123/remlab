@@ -15,7 +15,8 @@ import type { Apartment, Placement, Room, WallSide } from "@/contracts/apartment
 import { DEFAULT_CEILING_CM, entranceOf, findRoom, isIsolatedRoom, roomAt, roomCentre } from "@/contracts/apartment";
 import { material as materialSchema, type Catalogue, type Material } from "@/contracts/configurator";
 import type { ResolvedScene } from "@/lib/configurator/resolve";
-import { isExtra, isFlatOnSurface, type ObjectSpec, planObjects, surfacesByRoom } from "@/lib/viewer3d/build-scene";
+import { isExtra, isFlatOnSurface, type ObjectSpec, planObjects, productCurtains, surfacesByRoom } from "@/lib/viewer3d/build-scene";
+import { buildProductCurtain, buildThrow } from "@/lib/viewer3d/kits/textile";
 import { buildKitchen } from "@/lib/viewer3d/kits/kitchen";
 import { buildBathroom } from "@/lib/viewer3d/kits/bathroom";
 import { buildBed, buildRug, buildWardrobe } from "@/lib/viewer3d/kits/bedroom";
@@ -33,7 +34,7 @@ import { buildRoom, buildSurroundings } from "@/lib/viewer3d/rooms";
 import { boxPoints, livePitchDeg, liveSpot, lookPitchRange, LIVE_EYE_CM, type LiveBand, type LivePoint } from "@/lib/viewer3d/live-eye";
 import { canStand, frameSpot, inRooms, nearestStandable, obstacleDistanceCm, walkArea, walkRoomAt, type WalkArea } from "@/lib/viewer3d/walk";
 import { followRoute, newRoute, planRoute, slideStep, type RouteState, type SlideMemo } from "@/lib/viewer3d/walk-motion";
-import { chooseAim, type WalkHits } from "@/lib/viewer3d/walk-aim";
+import { chooseAim, seeThroughWins, type WalkHits } from "@/lib/viewer3d/walk-aim";
 import { createWalkMarker, placeWalkMarker, pulseWalkMarker, type WalkMarker } from "@/lib/viewer3d/walk-marker";
 import { windowAtPoint, windowGap, windowSpot } from "@/lib/viewer3d/window-walk";
 
@@ -466,7 +467,7 @@ export class FlatViewer {
       this.curtains = null;
     }
     if (this.options.curtains ?? CURTAINS_DEFAULT) {
-      this.curtains = buildCurtains(this.apartment.rooms);
+      this.curtains = buildCurtains(this.apartment.rooms, productCurtains(this.apartment));
       this.scene.add(this.curtains);
     }
     if (this.placed.size) this.bakeContact();   // смена отделки при готовой мебели; первую тень запечёт `syncObjects`
@@ -643,6 +644,16 @@ export class FlatViewer {
       group = buildTv(this.kitCtx, { widthCm: p.wCm, heightCm: p.hCm, depthCm: p.dCm, hung: spec.hung });
     } else if (spec.kind === "wall-plane") {
       group = buildWallPlane(this.kitCtx, { widthCm: p.wCm, heightCm: p.hCm, depthCm: p.dCm, mirror: spec.mirror, materialId: spec.materialId });
+    } else if (spec.kind === "textile") {
+      // условная штора/плед цветом товара (T-20261112-74): штора — полотна своего окна, плед — брусок на подлокотнике
+      const room = findRoom(this.apartment, spec.roomId);
+      if (spec.shape === "curtain" && room && spec.opening !== undefined) {
+        const frame = new THREE.Group();
+        placeGroup(frame, p);
+        group = buildProductCurtain(this.kitCtx, room, spec.opening, spec.materialId, spec.sheer, frame);
+      } else {
+        group = buildThrow(this.kitCtx, { widthCm: p.wCm, depthCm: p.dCm, heightCm: p.hCm, materialId: spec.materialId });
+      }
     } else if (spec.kind === "rug") {
       group = buildRug(this.kitCtx, {
         materialId: spec.materialId,
@@ -799,7 +810,9 @@ export class FlatViewer {
    * не входят — картина над кроватью не задирает и не уводит взгляд, ракурс тот же, что без неё (T-20261112-26/2).
    */
   private framed(roomId: string | undefined): Placed[] {
-    return [...this.placed.values()].filter((p) => (!roomId || p.spec.roomId === roomId) && p.spec.kind !== "wall-plane");
+    // штора и плед (T-20261112-74) — тоже нет: штора на окне задирала бы взгляд к потолку
+    return [...this.placed.values()].filter((p) => (!roomId || p.spec.roomId === roomId) && p.spec.kind !== "wall-plane"
+      && p.spec.kind !== "textile");
   }
 
   /** Наклон, при котором мебель комнаты позы — в видимой полосе холста (`live-eye.ts`). */
@@ -1118,12 +1131,15 @@ export class FlatViewer {
     const shown = (o: THREE.Object3D | null): boolean => { for (; o; o = o.parent) if (!o.visible) return false; return true; };
     const hits: WalkHits = {};
     let slotId = "";
+    // прозрачная ткань (тюль у стекла, T-20261112-74): за ней окно — главнее (подойти к нему); за ней стена — выбор самой шторы
+    let thru: { d: number; id: string } | null = null;
     for (const h of this.raycaster.intersectObjects([...this.placed.values()].map((p) => p.group), true)) {
       if (!shown(h.object)) continue;
       let o: THREE.Object3D | null = h.object;
       while (o && !o.userData?.slotId) o = o.parent;
       const id = o?.userData?.slotId ? String(o.userData.slotId) : "";
       const spec = this.placed.get(id)?.spec;
+      if (id && selectable(id) && !isExtra(id) && h.object.userData?.seeThrough) { thru ??= { d: h.distance, id }; continue; }
       if (id && selectable(id) && !isExtra(id)) { hits.item = h.distance; slotId = id; break; }
       if (spec && !isFlatOnSurface(spec) && hits.block === undefined) hits.block = h.distance;   // ТВ над тумбой закрывает пол за ним
     }
@@ -1135,6 +1151,7 @@ export class FlatViewer {
     } else if (shell && windowAtPoint(this.apartment.rooms, shell.point.x / CM, shell.point.z / CM, shell.point.y / CM)) {
       hits.window = shell.distance;
     } else if (shell) hits.block = Math.min(hits.block ?? Infinity, shell.distance);
+    if (thru && seeThroughWins(hits, thru.d)) slotId = thru.id;
     const kind = chooseAim(hits);
     if (kind === "item") return { kind, slotId };
     if (kind === "window") return { kind };
@@ -2262,5 +2279,7 @@ function signatureOf(spec: ObjectSpec): string {
   if (spec.kind === "bathroom") return `bath|${spec.level}|${spec.features.join(",")}|${spec.vanityMaterialId}|${geom}|${at}`;
   if (spec.kind === "tv") return `tv|${spec.hung}|${geom}`;
   if (spec.kind === "wall-plane") return `plane|${spec.mirror}|${spec.materialId}|${geom}`;
+  // штора собрана в координатах своего окна — сдвиг места тоже пересборка
+  if (spec.kind === "textile") return `textile|${spec.shape}|${spec.opening ?? "-"}|${spec.sheer}|${spec.materialId}|${geom}|${at}`;
   return `${spec.kind}|${spec.level}|${spec.features.join(",")}|${spec.materialId}|${geom}|${at}`;
 }

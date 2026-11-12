@@ -10,7 +10,7 @@
 
 import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
-import { fromDemoVariant, isCeilingDecor, isWallArtDecor, isWallPlane, stableSlotIds, wallArtItems, type DemoData } from "@/lib/configurator/fromDemo";
+import { fromDemoVariant, isCeilingDecor, isTextileDecor, isWallArtDecor, isWallPlane, stableSlotIds, wallArtItems, type DemoData } from "@/lib/configurator/fromDemo";
 import { type DecorIn } from "@/lib/viewer3d/scene-extras";
 import { meshUrl, RUNTIME_BASE, setRuntimeMeshes, type RuntimeEntry } from "@/lib/configurator/mesh-url";
 import { windowView } from "@/lib/viewer3d/window-views";
@@ -220,6 +220,9 @@ export function sceneSlotIndex(items: DemoItem[], decor: DemoDecor[], art: boole
   // люстра (T-20261112-66) — как картина: `items.length` + номер в декоре; страница (`vwItemAt`) даёт ценник и строку списка
   const lights = decor.map((x, k) => ({ x, k })).filter(({ x }) => isCeilingDecor(x));
   stableSlotIds(lights.map(({ x }) => ({ role: x.role ?? "люстра" }))).forEach((id, j) => out.set(`ceiling:${id}`, items.length + lights[j]!.k));
+  // условные штора и плед (T-20261112-74) — так же: ценник, клик и карточка — строки декора
+  const cloth = decor.map((x, k) => ({ x, k })).filter(({ x }) => isTextileDecor(x));
+  stableSlotIds(cloth.map(({ x }) => ({ role: x.role ?? "шторы" }))).forEach((id, j) => out.set(`textile:${id}`, items.length + cloth[j]!.k));
   if (!art) return out;
   const pics = decor.map((x, k) => ({ x, k })).filter(({ x }) => isWallArtDecor(x))
     .map(({ x, k }) => ({ it: wallArtItems([x])[0]!, k })).filter(({ it }) => isWallPlane(it));
