@@ -91,18 +91,21 @@ def all_widths() -> tuple:
     return (NARROW_WIDTHS if narrow_enabled() else ()) + BED_WIDTHS
 
 
-def _norm(key: str, default: float) -> float:
-    """Число нормы спальни — из `services/planner-solver/rules/occupancy.json` (тот же `num`, что у солвера; одно число — одно место)."""
-    from planner.bedroom_checks import num
-    return num(key, default)
+def _clear(purpose: str) -> tuple[float, float]:
+    """(проход у бока, проход у изножья), см — ТЕ ЖЕ числа, с какими движок групп спальни принимает раскладку
+    (`planner/bedroom_checks.py:bed_clear_min`: `occupancy.json` `distances_cm.clearances`, допуск compact). Прежде здесь были свои
+    `bed_side_passage` 75 / `bed_foot_min` 60, и тур отказывал («мала», «рама не встаёт») там, где движок демо ставит кровать
+    (T-20261112-96: один набор правил для демо и загрузки)."""
+    from planner.bedroom_checks import bed_clear_min
+    return bed_clear_min(purpose == 'couple')
 
 
 def bed_need(sleep_w: float, purpose: str, length: float | None = None) -> tuple[float, float]:
     """Наименьшая площадка под кровать шаблона по нормам солвера: поперёк — спальное место (нижняя граница рамы) + проход сбоку
-    `bed_side_passage` (паре — с двух сторон, Н1), вдоль — длина рамы (`length`: самая короткая реальная рама ширины шаблона —
-    `frames_len`; нет — `BED_LEN_MIN_CM`) + проход у изножья `bed_foot_min`. Необходимое условие, не достаточное: двери, окна и тумбы
+    (`_clear`; паре — с двух сторон, Н1), вдоль — длина рамы (`length`: самая короткая реальная рама ширины шаблона —
+    `frames_len`; нет — `BED_LEN_MIN_CM`) + проход у изножья. Необходимое условие, не достаточное: двери, окна и тумбы
     решает солвер."""
-    side, foot = _norm('bed_side_passage', 75), _norm('bed_foot_min', 60)
+    side, foot = _clear(purpose)
     return float(sleep_w) + side * (2 if purpose == 'couple' else 1), (length or BED_LEN_MIN_CM) + foot
 
 
@@ -121,7 +124,7 @@ def frames_len(beds: list) -> float | None:
 def frame_need(it: dict, purpose: str) -> tuple[float, float]:
     """Площадка под РАМУ конкретной кровати: ширина рамы + проход сбоку (паре — с двух), длина рамы + проход у изножья. Рама шире
     `bed_frame_max` ядра — заведомо не встанет (T-20261110-20: в ядре 205 Кевия 150 и Сейлор 153 занимали оба места шаблона)."""
-    side, foot = _norm('bed_side_passage', 75), _norm('bed_foot_min', 60)
+    side, foot = _clear(purpose)
     return float(it.get('w') or 0) + side * (2 if purpose == 'couple' else 1), _frame_d(it) + foot
 
 
@@ -132,7 +135,7 @@ def fits_core(need: tuple, cand: dict) -> bool:
 
 def bed_frame_max(cores: list) -> float:
     """Диагностика (спрос волны мешей): самая широкая рама кровати одному, что проходит по проходу сбоку хоть на одном ядре, см."""
-    side, foot = _norm('bed_side_passage', 75), _norm('bed_foot_min', 60)
+    side, foot = _clear('single')
     return max([a - side for c in cores for a, b in ((c['w'], c['d']), (c['d'], c['w'])) if b >= BED_LEN_MIN_CM + foot] or [0.0])
 
 
@@ -200,8 +203,8 @@ def adapt_room(panel: dict, room: dict, cfg: dict) -> dict:
         ops = [TR._place_opening(fr['poly'], o, fr['T'], cfg) for o in ours]
     except TR.Refusal as e:
         raise BedroomRefusal(e.code, e.detail) from e
-    # ядро спальни — не уже самой узкой кровати шаблонов с проходом сбоку (120 + 75 = 195; общий порог ядра 200 — для гостиной)
-    side = _norm('bed_side_passage', 75)
+    # ядро спальни — не уже самой узкой кровати шаблонов с проходом сбоку (`_clear`: 120 + 50 = 170; общий порог ядра 200 — для гостиной)
+    side = _clear('single')[0]
     core_min = min(float(cfg['core_min_side_cm']), min(all_widths()) + side)
     rects = [g.bounds for g in largest_free_rectangles(fr['poly'], min_side_cm=core_min, limit=24)]
     if not rects:
@@ -304,7 +307,8 @@ def catalog_beds(style: str, thr: float, catalog: list) -> list:
         if 'кровать' not in c.roles or not RP.in_style(c.style, style, thr):
             continue
         d = c.dims
-        out.append({'mid': c.mid, 'eid': c.eid, 'sid': f'{c.mid}:{c.eid}', 'name': c.name or '', 'w': d.get('w'), 'd': d.get('d'), 'h': d.get('h'),
+        out.append({'mid': c.mid, 'eid': c.eid, 'sid': f'{c.mid}:{c.eid}', 'name': c.name or '', 'fam': c.family,
+                    'w': d.get('w'), 'd': d.get('d'), 'h': d.get('h'),
                     'sleep_w': d.get('sleep_w'), 'style_score': (c.style or {}).get(style), '_style': style, '_src': 'catalog'})
     return out
 
@@ -340,7 +344,41 @@ def bed_pool(style: str, bank: list, catalog: list, mesh_ok, defect, thr: float,
     def key(it):
         return (_sid(it) in room_used, abs(_sleep_w(it) - ideal), bool(it.get('_borrowed')), _sid(it) in used, it['_src'] != 'bank', -float(it.get('style_score') or 0))
     rows.sort(key=key)
+    mark_side_back(rows)
     return rows
+
+
+_SIDE_BACKS: dict = {}
+
+
+def mark_side_back(rows: list) -> int:
+    """Кровать с боковой спинкой (угловая модель, T-20261112-31) — ТЕМ ЖЕ правилом, что у ночной сборки банка демо
+    (`compose_bedroom.mark_side_back`: свой меш → меш семьи → название; выключатель `switches.bed_side_back`). Строки банка несут
+    признак сборки банка — их не трогаем; кровати каталога размечаются здесь (T-20261112-96). → сколько с признаком."""
+    import compose_bedroom as CB
+    if not CB.side_back_switch():
+        return 0
+    todo = [r for r in rows if r.get('_src') == 'catalog' and 'side_back' not in r]
+    if todo:
+        if 'mesh' not in _SIDE_BACKS:
+            import bed_headboard as HB
+            import room_catalog as RCat
+            _SIDE_BACKS['mesh'] = HB.load_side_backs()
+            _SIDE_BACKS['re'] = (RCat.rules().get('bed_side_back') or {}).get('name_re')
+        tmp = [dict(r, role='кровать', sid=_sid(r), fam=r.get('fam') or f'_own:{_sid(r)}') for r in todo]   # без семьи — сама себе семья
+        CB.mark_side_back(tmp, _SIDE_BACKS['mesh'], _SIDE_BACKS['re'])
+        for r, t in zip(todo, tmp):
+            r['side_back'] = t.get('side_back')
+            if t.get('side_back_src'):
+                r['side_back_src'] = t['side_back_src']
+    return sum(1 for r in rows if r.get('side_back'))
+
+
+def side_back_denied(purpose: str) -> bool:
+    """Назначение, которому кровать с боковой спинкой не берётся (паре — подход с двух сторон, Н1): тот же список, что у сборки
+    банка (`compose_bedroom.Composer.pool`, `switches.bed_side_back.deny_purposes`)."""
+    import compose_bedroom as CB
+    return purpose.split(':')[0] in ((CB.side_back_switch() or {}).get('deny_purposes') or ())
 
 
 def ideal_bed(area_m2: float, short: float) -> float:
@@ -616,7 +654,7 @@ def solve_kit(ad: dict, cand: dict, cfg: dict, kit: dict, purpose: str):
     """Набор на ядре, обе петли дверей → лучшая попытка {placements, hard, post, ops, room, meta} или None. Память `ad['memo']`: одинаковые
     размеры на том же ядре считаем один раз (у стилей и кроватей они часто совпадают — комната не упирается в бюджет)."""
     key = (cand['area_m2'], tuple(cand['rect']), purpose, ad.get('hinges', HINGES),
-           tuple(sorted((r, it['w'], it['d'], it['h']) for r, it in kit.items())))
+           tuple(sorted((r, it['w'], it['d'], it['h'], _kind_key(r, it)) for r, it in kit.items())))
     if key in ad['memo']:
         return ad['memo'][key]
     res = _solve_kit(ad, cand, cfg, kit, purpose)
@@ -624,13 +662,28 @@ def solve_kit(ad: dict, cand: dict, cfg: dict, kit: dict, purpose: str):
     return res
 
 
+def kit_item(role: str, it: dict):
+    """Товар набора → предмет решателя ТЕМ ЖЕ конструктором, что у ночной сборки банка демо (`compose_bedroom.solver_item`):
+    название (по нему решатель знает тип шкафа — купе мерится проходом 70, распашной 90: `passage_norms.wardrobe_kind`), ключ товара,
+    боковая спинка кровати (`side_back`: только в угол, паре нельзя — `bedroom_checks.side_back`). Прежде тур передавал только
+    размеры: купе мерилось как распашной, угловая кровать ставилась как обычная (T-20261112-96)."""
+    import compose_bedroom as CB
+    return CB.solver_item(role, dict(it, sid=_sid(it)))
+
+
+def _kind_key(role: str, it: dict) -> tuple:
+    """Что кроме размеров меняет решение решателя — для памяти `solve_kit`: тип шкафа по названию, боковая спинка кровати."""
+    from planner.passage_norms import wardrobe_kind
+    it2 = kit_item(role, it)
+    return (wardrobe_kind(it2) if base_role(role) == 'шкаф' else '', it2.side_back or '')
+
+
 def _solve_kit(ad: dict, cand: dict, cfg: dict, kit: dict, purpose: str):
     from planner.bedroom import solve_bedroom
-    from planner.models import Item
     items = []
     for role, it in kit.items():
         for k in range(NIGHTSTANDS[purpose] if role == 'тумба прикроватная' else 1):
-            items.append(Item(role=f'{role} {k + 1}' if k else role, w_cm=float(it['w']), d_cm=float(it['d']), h_cm=float(it['h'])))
+            items.append(kit_item(f'{role} {k + 1}' if k else role, it))
     best = None
     for hinge in ad.get('hinges', HINGES):
         room, ops = build_room(cand, cfg, hinge, purpose)
@@ -702,7 +755,8 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
             continue
         pool = bed_pool(style, ctx['bank'], ctx['catalog'], ctx['mesh_ok'], ctx['defect'], ctx['thr'], tpl['sleep_w'], used,
                         ad.get('room_used', set()))
-        width_beds = [b for b in pool if bed_width_bucket(_sleep_w(b)) == tpl['sleep_w']]
+        deny = side_back_denied(tpl['purpose'])
+        width_beds = [b for b in pool if bed_width_bucket(_sleep_w(b)) == tpl['sleep_w'] and not (deny and b.get('side_back'))]
         # длина предпроверки — по самой короткой реальной раме этой ширины (запасная BED_LEN_MIN_CM): заведомо малые ядра — не решателю
         need = bed_need(tpl['sleep_w'], tpl['purpose'], frames_len(width_beds))
         if width_beds and not any(fits_core(need, c) for c in cores):
@@ -907,7 +961,11 @@ def default_ctx() -> dict:
     """Живые данные (БД и индекс прода — только чтение): банк, каталог кроватей, сторож моделей."""
     import flat215_demo as FD
     gate = FD.room_mesh_gate('bedroom')
+    if gate is None:                        # BEDROOM_MESH_GATE=0 — откат витрины демо; туру без модели нечего показать в 3D
+        print('WARN:trial_bedroom_gate: BEDROOM_MESH_GATE=0 — тур берёт сторож orient (предмет без модели — серая коробка)', flush=True)
+        gate = FD.room_mesh_gate('bedroom', mode='orient')
     bank = load_bank()
+    TD.drop_gone(bank)                      # не в продаже — тем же рубежом, что /demo (T-20261112-96)
     catalog, why = load_catalog()
     return {'bank': bank, 'catalog': catalog, 'catalog_error': why, 'mesh_ok': gate, 'msid': gate.msid, 'defect': _defect_names(), 'thr': _thr(), 'used': {}}
 

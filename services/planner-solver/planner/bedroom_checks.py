@@ -146,6 +146,16 @@ def side_need(p: Placement) -> float:
     return PN.clearance(side_name(p))
 
 
+def bed_clear_min(double: bool, prof: str | None = None) -> tuple[float, float]:
+    """(проход у бока, проход у изножья), см — самые малые, с какими движок групп ещё ПРИМЕТ раскладку (`bedroom._solve_groups`:
+    цель, затем допуск compact, если он есть у профиля). Для предпроверок «кровать с проходами влезает» вне движка — тур загруженного
+    плана (`tools/scout/trial_bedroom.py:bed_need`): необходимое условие не строже самого движка (T-20261112-96: предпроверка читала
+    прежние 75/60 и отказывала там, где движок демо ставит кровать с проходом 50–60)."""
+    lvl = "compact" if PN.allowances_on(prof) else "target"
+    return (PN.clearance("bed_side_couple" if double else "bed_side_work", lvl, prof),
+            PN.clearance("bed_foot_route", lvl, prof))
+
+
 def bed_zones(p: Placement) -> dict:
     """Полосы прохода кровати: левый/правый бок (без места тумбы у изголовья) и изножье. Выключатель
     `switches.bed_side_passage_full` (T-20261112-31) добавляет часть полосы У ИЗГОЛОВЬЯ (`left_head`/`right_head`): проход

@@ -230,6 +230,17 @@ def side_back_switch() -> dict:
     return switch('bed_side_back')
 
 
+def solver_item(role: str, it: dict):
+    """Товар → предмет решателя спальни. ОДИН конструктор для ночной сборки банка демо (`Composer._build`) и тура загруженного
+    плана (`trial_bedroom.kit_item`, T-20261112-96): размеры, название (по нему решатель знает тип шкафа — купе мерится проходом 70,
+    распашной 90: `passage_norms.wardrobe_kind`), ключ товара `sid`, боковая спинка (`side_back` — только у кровати: в угол, паре
+    нельзя, `bedroom_checks.side_back`). Тур прежде передавал только размеры — купе мерилось как распашной, угловая как обычная."""
+    from planner.models import Item
+    sb = it.get('side_back') if re.sub(r'\s+\d+$', '', role or '') in BED_ROLES else None
+    return Item(role=role, w_cm=float(it['w']), d_cm=float(it['d']), h_cm=float(it['h']), name=it.get('name') or None,
+                item_id=it.get('sid') or None, side_back=sb if sb in ('left', 'right', 'any') else None)
+
+
 def mark_side_back(cat: list, mesh: dict, name_re: str | None) -> dict:
     """Боковая спинка кровати (T-20261112-31) → поля `side_back` (left|right|any|None) и `side_back_src` у кроватей `cat`.
     Порядок доверия: свой меш (`mesh` — {sku: {status, side}}, `bed_headboard.load_side_backs`) → меш семьи (все меши семьи
@@ -408,7 +419,6 @@ class Composer:
     def _build(self, room_id: str, purpose: str, style: str, tier: str, spec: dict, built: list, used: dict,
                bed_slot: dict | None = None, ns_slot: dict | None = None) -> dict:
         from planner.bedroom import solve_bedroom
-        from planner.models import Item
         cfg = self.R['purposes'][purpose]
         over = {'кровать': bed_slot, 'тумба прикроватная': ns_slot}
         if bed_slot or ns_slot:
@@ -449,8 +459,7 @@ class Composer:
             items = []
             for role, it in chosen.items():
                 for n in range(it['qty']):
-                    items.append(Item(role=role if n == 0 else f'{role} {n + 1}', w_cm=it['w'], d_cm=it['d'], h_cm=it['h'],
-                                      name=it['name'], item_id=it['sid'], side_back=it.get('side_back')))
+                    items.append(solver_item(role if n == 0 else f'{role} {n + 1}', it))
             lay = solve_bedroom(room, items, purpose.split(':')[0])
             placed = {p.role for p in lay.placements}
             if os.environ.get('BEDROOM_DEBUG'):
@@ -548,11 +557,9 @@ class Composer:
             if pick is None:
                 break
             tried += 1
-            items = base + [Item(role='шкаф', w_cm=pick['w'], d_cm=pick['d'], h_cm=pick['h'], name=pick['name'],
-                                 item_id=pick['sid'])]
+            items = base + [solver_item('шкаф', pick)]
             if 'комод' in chosen:
-                c = chosen['комод']
-                items.append(Item(role='комод', w_cm=c['w'], d_cm=c['d'], h_cm=c['h'], name=c['name'], item_id=c['sid']))
+                items.append(solver_item('комод', chosen['комод']))
             nl = solve_bedroom(room, items, p_)
             pl = {p.role for p in nl.placements}
             if os.environ.get('BEDROOM_DEBUG'):

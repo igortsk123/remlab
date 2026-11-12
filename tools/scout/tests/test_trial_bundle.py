@@ -1075,7 +1075,9 @@ def test_stage_keys_carry_sid_but_page_never():
     it = {'role': 'кровать', 'x': 1, 'y': 2, 'sku': {'name': 'Кровать', 'sid': '7_bed', 'price': 1, 'url': 'https://x'}}
     assert TB.public_item(it, TB.STAGE_SKU_KEYS)['sku'] == {'name': 'Кровать', 'sid': '7_bed'}
     assert TB.public_item(it)['sku'] == {'name': 'Кровать', 'price': 1, 'url': 'https://x'}
-    assert TB._part_item(it)['sku'].keys() <= TB.SKU_KEYS
+    sk = TB._part_item(it)['sku']
+    # ключ товара на время сборки — `_sid` (подкраске нужен товар, T-20261112-96); в данные страницы его не пускает `scene_fields`
+    assert sk.pop('_sid') == '7_bed' and sk.keys() <= TB.SKU_KEYS
 
 
 def test_catalog_goods_like_demo_sku_bank_first_price_from_catalog(monkeypatch, tmp_path):
@@ -1098,6 +1100,9 @@ def test_catalog_goods_like_demo_sku_bank_first_price_from_catalog(monkeypatch, 
     assert g == {'name': 'Банк', 'name_en': 'Sofa', 'colour_en': None, 'price': 900, 'img': None, 'url': 'https://bank.example/x', 'shop': 'divan.ru'}
     assert TB.catalog_goods('2_b', 'кровать', idx)['price'] == 300
     assert TB.catalog_goods('3_c', 'диван', idx) is None
+    cat[('1', 'a')]['state'] = 'gone'                     # товар банка снят с продажи — в туре его нет, как в демо (T-96)
+    assert TB.catalog_goods('1_a', 'диван', idx) is None
+    cat[('1', 'a')]['state'] = 'available'
     g4 = TB.catalog_goods('4_d', 'диван', idx)
     assert (g4['name'], g4['url'], g4['shop']) == ('Только каталог', None, 's')
     assert TB.catalog_goods('9_z', 'диван', idx) is None and TB.catalog_goods(None, 'диван', idx) is None

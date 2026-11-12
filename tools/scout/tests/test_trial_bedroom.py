@@ -431,13 +431,14 @@ def test_narrow_room_gets_single_bed_with_passages(name, ops):
         assert ok, (name, bad)
         roles = [p['role'] for p in v['placements']]
         assert 'кровать' in roles and 'тумба прикроватная' in roles
-    assert r['bed_frame_max_cm'] == 135                         # 210 − проход 75: спрос на кровати уже рамы 135
+    assert r['bed_frame_max_cm'] == 160                         # 210 − проход 50 (нормы движка, T-96): спрос на кровати уже рамы 160
 
 
 def test_narrow_room_only_wide_beds_is_no_products_not_no_fit():
-    # лист T до правки: готовые кровати — только 140 (рама 145): 145 + 75 > 210 — шаблон 140 «больше комнаты», 120 — товаров нет →
-    # честное «нет подходящих по размеру товаров» (`no_products`), а не «не встала» (`bed_no_fit`)
-    job = TB.build('t23', one_room(210, 370, [door([47, 370]), window([99, 0], 177)]), ctx(narrow_bank(145, 140)))
+    # готовые кровати — только 140 (рама 145), комната 1,85: 140 + проход 50 > 185 — шаблон 140 «больше комнаты», 120 — товаров нет →
+    # честное «нет подходящих по размеру товаров» (`no_products`), а не «не встала» (`bed_no_fit`). Проход — норма движка (T-96: прежде
+    # 75, и так отсекался лист T 2,1 м; при 50 там рама 145 по размеру проходит и решает решатель)
+    job = TB.build('t23', one_room(185, 370, [door([47, 370]), window([92, 0], 150)]), ctx(narrow_bank(145, 140)))
     r = job['rooms'][0]
     assert r['variants'] == [] and r['outcome']['state'] == 'no_products' and r['outcome']['code'] == 'no_products'
     for f in r['style_failures']:
@@ -458,8 +459,9 @@ def test_t_like_room_bed_under_window_only_with_low_headboard():
 
 
 def test_tiny_room_honest_too_small():
-    # 1,8×2,6: уже любой кровати шаблонов с проходом (120 + 75) — «мала», а не «не прочитана» (было `no_core` → not_readable)
-    job = TB.build('t26', one_room(180, 260, [door([44, 260]), window([90, 0])]), ctx(narrow_bank()))
+    # 1,6×2,6: уже любой кровати шаблонов с проходом (120 + 50, нормы движка, T-96) — «мала», а не «не прочитана» (было `no_core` →
+    # not_readable)
+    job = TB.build('t26', one_room(160, 260, [door([44, 260]), window([80, 0])]), ctx(narrow_bank()))
     r = job['rooms'][0]
     assert r['variants'] == [] and r['outcome']['state'] == 'no_products' and r['outcome']['code'] == 'room_too_small'
 
@@ -506,13 +508,14 @@ def bank_120(order=('kevia', 'seilor', 'vilena'), d=None):
     return out
 
 
-NARROW_OPS = [door([205, 110]), window([102, 0])]
+# ядро 1,8 (нормы движка, T-96: проход у бока 50; прежде то же правило проверялось на 2,05 при проходе 75)
+NARROW_OPS = [door([180, 110]), window([90, 0])]
 
 
 def test_narrow_core_frame_filtered_before_cut():
     # первыми в банке — широкие Кевия 150 и Сейлор 153: раньше они занимали оба места шаблона (BEDS_PER_TEMPLATE) → no_fit; теперь
-    # их рама с проходом (150 + 75 > 205) отсеяна до среза — встаёт Вилена 126
-    r = TB.build('t30', one_room(205, 370, NARROW_OPS), ctx(bank_120()))['rooms'][0]
+    # их рама с проходом (150 + 50 > 180) отсеяна до среза — встаёт Вилена 126
+    r = TB.build('t30', one_room(180, 370, NARROW_OPS), ctx(bank_120()))['rooms'][0]
     assert r['outcome']['state'] == 'furnished', (r['outcome'], r['style_failures'][:1])
     assert {b['sku']['w'] for b in beds(r)} == {126}
     assert r['bed_frame_max_cm'] == 130
@@ -520,7 +523,7 @@ def test_narrow_core_frame_filtered_before_cut():
 
 def test_narrow_core_only_wide_frames_honest_bed_no_fit():
     # кровати ширины есть, но ни одна рама с проходами не встаёт → «не встала» (bed_no_fit), а не «нет товаров»
-    r = TB.build('t31', one_room(205, 370, NARROW_OPS), ctx(bank_120(('kevia', 'seilor'))))['rooms'][0]
+    r = TB.build('t31', one_room(180, 370, NARROW_OPS), ctx(bank_120(('kevia', 'seilor'))))['rooms'][0]
     assert r['variants'] == [] and r['outcome']['state'] == 'no_products' and r['outcome']['code'] == 'bed_no_fit'
     for f in r['style_failures']:
         why = {t['template']: t['why'] for t in f['templates']}
@@ -535,10 +538,10 @@ def test_wide_core_order_unchanged():
 
 
 def test_template_length_from_real_frames():
-    # ядро 210×275: по запасной длине 195 + 60 = 255 «влезает», но самая короткая готовая рама 120 — 226 (226 + 60 > 275) —
-    # шаблон честно «мал» (too_small), решатель не тратится
+    # ядро 210×275: по запасной длине 195 + 50 = 245 «влезает», но самая короткая готовая рама 120 — 226 (226 + 50 > 275) —
+    # шаблон честно «мал» (too_small), решатель не тратится. Проход у изножья — норма движка `bed_foot_route` (T-96)
     need_old = TB.bed_need(120, 'single')
-    assert need_old[1] == TB.BED_LEN_MIN_CM + 60 and TB.bed_need(120, 'single', 226)[1] == 286
+    assert need_old[1] == TB.BED_LEN_MIN_CM + 50 and TB.bed_need(120, 'single', 226)[1] == 276
     assert TB.frames_len([]) is None and TB.frames_len([{'d': 226}, {'d': 210}, {'d': None}]) == TB.BED_LEN_MIN_CM
     r = TB.build('t33', one_room(210, 275, [door([210, 110]), window([105, 0])]), ctx(bank_120(('vilena',), d=226)))['rooms'][0]
     assert r['variants'] == []

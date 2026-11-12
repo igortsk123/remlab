@@ -173,6 +173,20 @@ def sets_path() -> str:
     return os.environ.get('TRIAL_SETS') or os.path.join(HERE, 'sets3.json')
 
 
+def drop_gone(sets: list) -> int:
+    """Снять из банка товары, которых уже нет в продаже, — ТЕМ ЖЕ рубежом, что у сборки /demo (`flat215_demo.drop_unavailable`,
+    владелец 01.09: «диван с карточкой 404»). Прежде тур ставил такой товар (T-20261112-96). Каталог недоступен — банк как есть, WARN."""
+    try:
+        import flat215_demo as FD
+        n = FD.drop_unavailable(sets)
+    except Exception as e:  # noqa: BLE001 — без каталога наличие не проверить: банк как есть, но громко
+        print(f'WARN:trial_drop_gone: наличие не проверено ({repr(e)[:120]})', flush=True)
+        return 0
+    if n:
+        print(f'банк: снято не в продаже — {n}', flush=True)
+    return n
+
+
 def band_for(area_m2: float) -> tuple[str, list]:
     """Полоса банка по площади ЯДРА (мебель стоит в нём): наибольшая, чья нижняя граница ≤ площади."""
     if area_m2 < BANDS[0][1]:
@@ -1116,7 +1130,9 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
     # ── полоса, стили, геометрия (часть «адаптера»: это ещё до солвера) ──
     # ПЕРЕБОР ШАБЛОНОВ (владелец 09.11): полоса → наборы стилей (`pick`: у стиля нет годного набора — его полоса ниже) → влезает
     # ли обязательная группа в ядро → нет — полоса ниже; не влезло нигде — комната ПУСТАЯ, исход `no_products`
-    sets = sets if sets is not None else json.load(open(sets_path(), encoding='utf-8'))
+    if sets is None:
+        sets = json.load(open(sets_path(), encoding='utf-8'))
+        drop_gone(sets)
     band, bflags = band_for(ad['candidates'][0]['area_m2'])
     flags = list(ad['flags']) + bflags
     i_band = [b for b, _ in BANDS].index(band)

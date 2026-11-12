@@ -577,6 +577,7 @@ def drop_unavailable(sets: list) -> int:
     показывает партнёру мёртвый товар — ровно это и нашёл владелец 01.09 (диван с карточкой 404).
     Страница не считает наличие сама: спрашивает каталог, единственный источник (ADR-0141).
     `unknown` (фид магазина не приехал) НЕ снимаем — «не знаю про фид» это не «товара нет».
+    Тот же рубеж у тура загруженного плана: банки гостиной и спальни (`trial_demo.build`, `trial_bedroom.default_ctx`, T-20261112-96).
     """
     from catalog_media import media as _media
     n = 0
@@ -2077,18 +2078,10 @@ def build() -> dict:
 
 
 def _hung(name: str | None) -> bool:
-    """Подвесная (навесная) тумба? Размечаем ПО НАЗВАНИЮ ТОВАРА, а не по высоте.
-
-    Владелец 02.09: «посмотри все тв-тумбы на замену и размети навесные». Соблазн был считать
-    низкие тумбы подвесными, но проверка карточки показала обратный пример: «Флавир 140x27» при
-    высоте 27 см — НАПОЛЬНАЯ, на ножках («Расположение: напольное» в характеристиках). Высота
-    признаком не является; название — является.
-
-    Зачем признак: у подвесной тумбы её «высота» — толщина корпуса, а не уровень верхней
-    плоскости, и телевизор на неё не ставят, а вешают над ней (`draft_render.tv_spec`).
-    """
-    n = (name or '').lower()
-    return any(k in n for k in ('подвесн', 'навесн', 'настенн'))
+    """Подвесная (навесная) тумба по НАЗВАНИЮ товара (владелец 02.09; высота признаком не является) — `sku_scene.hung`,
+    общее с туром загруженного плана (T-20261112-96)."""
+    import sku_scene as _SS
+    return _SS.hung(name)
 
 
 # ПОДХВАТ ФОТО С ОПУБЛИКОВАННОЙ ГЛАВНОЙ (T-20261106-65): магазин режет массовое скачивание (403 «через раз»; пустая папка
@@ -2378,113 +2371,40 @@ def annotate_yaw(data: dict) -> int:
     """Разворот фронта модели — в каждый предмет вариантов (`sku.yaw`), чтобы 3D по кнопке из демо
     (`lib/configurator/fromDemo.ts`) ставил модель так же, как 3D-сцена самого демо (`orient.json` прода) и базовая
     квартира (ручные поправки `data/flat3d/front-overrides.json` — сильнее). Раньше 3D по ссылке из демо брал 0 у всех
-    (разбор Codex 14.10). Нет сети — разворотов нет, как раньше."""
-    import urllib.request
-    try:
-        orient = json.load(urllib.request.urlopen('https://remont-lab.online/test/mesh-pilot10/orient.json', timeout=30))
-    except Exception:  # noqa: BLE001
-        orient = {}
-    try:
-        over = json.load(open(os.path.join(HERE, '..', '..', 'data', 'flat3d', 'front-overrides.json'),
-                              encoding='utf-8')).get('overrides') or {}
-    except Exception:  # noqa: BLE001
-        over = {}
-    n = 0
-    # ЛЕНТЫ И ДЕКОР ТОЖЕ (demo-01, 14.10): живая сцена демо ставит модель заменённого предмета прямо из ленты —
-    # без разворота у кандидата заменённый диван встал бы боком (в лентах 0 из 478 имели `yaw`).
-    skus = [it.get('sku') or {} for v in data.get('variants') or [] for it in (v.get('items') or []) + (v.get('decor') or [])]
-    skus += [f for lst in (data.get('feeds') or {}).values() for f in lst if isinstance(f, dict)]
-    for sk in skus:
-        m = sk.get('msid')
-        if not m:
-            continue
-        y = (over.get(m) or {}).get('yawDeg', (orient.get(m) or {}).get('yaw'))
-        if y is not None:
-            sk['yaw'] = float(y)
-            n += 1
-    return n
+    (разбор Codex 14.10). Нет сети — разворотов нет, как раньше.
+    ЛЕНТЫ И ДЕКОР ТОЖЕ (demo-01, 14.10): живая сцена ставит модель заменённого предмета прямо из ленты.
+    Тело — `sku_scene.yaw`: тот же шаг делает тур загруженного плана (`trial_bundle.scene_fields`, T-20261112-96)."""
+    import sku_scene as _SS
+    return _SS.yaw(_SS.skus_of(data))
 
 
 def annotate_strategy(data: dict) -> int:
     """СТРАТЕГИЯ 3D-АССЕТА — В ПРЕДМЕТ ВАРИАНТА (T-20261107-05/3; контракт `lib/configurator/fromDemo.ts` поле `strategy`, T-73).
     Мост рисует зеркало и картину плоскостью на стене только по этому полю (`isWallPlane`): канон ролей лежит в `tools/`, которых
     нет в образе приложения, поэтому решение идёт ДАННЫМИ. Без поля зеркало прихожей шло коробкой и искало модель (404).
-    Пишем только не-меш стратегию `procedural_plane` (зеркало, картина, ковёр — `asset_strategy`, тот же JSON, что у конвейера
-    и серверного кадра): у остальных предметов данные не меняются. Ковру поле поведения не меняет — стена только при высоте
-    больше глубины."""
-    import asset_strategy as _AS
-    n = 0
-    for v in data.get('variants') or []:
-        for it in v.get('items') or []:
-            if _AS.strategy(it.get('role')) == 'procedural_plane':
-                it['strategy'] = 'procedural_plane'
-                n += 1
-    return n
+    Тело — `sku_scene.strategy` (общее с туром, T-20261112-96)."""
+    import sku_scene as _SS
+    return _SS.strategy([it for v in data.get('variants') or [] for it in v.get('items') or []])
 
 
 def _tone(path: str):
-    """Средний цвет товара по фото без белого фона — то же правило, что у кадра (`draft_render._photo_hex`), в долях 0..1.
-    Тело — `mesh_color_check.tone` (одно правило со сторожем цвета мешей, T-20261107-14/2)."""
-    import mesh_color_check as _MCC
-    return _MCC.tone(path)
+    """Средний цвет товара по фото без белого фона — `sku_scene.tone` (= `mesh_color_check.tone`, одно правило со сторожем)."""
+    import sku_scene as _SS
+    return _SS.tone(path)
 
 
 def _rep_tones(msids: set) -> dict:
-    """Тон фото ПРЕДСТАВИТЕЛЯ, которого нет среди товаров демо (T-20261107-14/2: у 182 вариантов лент подкраски не было —
-    представитель не в ленте, и тона «основы» взять было неоткуда; «Босс» жёлтый рисовался синей моделью без поправки).
-    Текущее фото представителя (`product_photo_current`) → малая копия `thumbs/`. Нет базы или фото — без подкраски, как прежде."""
-    if not msids:
-        return {}
-    try:
-        import mesh_color_check as _MCC
-        th = _MCC.thumbs_of(_MCC.photo_urls({m.replace('_', ':', 1) for m in msids}))
-        return {k.replace(':', '_', 1): _tone(p) for k, p in th.items()}
-    except Exception as e:  # noqa: BLE001 — нет базы/сети: подкраска только по товарам демо, громко
-        print(f'WARN:tint_rep: фото представителей вне демо не прочитаны ({repr(e)[:120]}) — подкраска только по товарам демо',
-              flush=True)
-        return {}
+    """Тон фото ПРЕДСТАВИТЕЛЯ, которого нет среди товаров демо (T-20261107-14/2) — `sku_scene.rep_tones`."""
+    import sku_scene as _SS
+    return _SS.rep_tones(msids)
 
 
 def annotate_tint(data: dict, out_dir: str = OUT) -> int:
-    """ЦВЕТ ВАРИАНТА НА МОДЕЛИ СЕМЕЙСТВА (demo-02 приёмка 16.10 п.11б). У цветового варианта своей 3D-модели нет: он показывается
-    моделью представителя (`msid`), и замена «Серый → Графит» не меняла сцену ни на пиксель. Подкраска = средний тон фото
-    варианта / тон фото представителя, по каналу (`sku.tint`, множитель цвета материала — `lib/viewer3d/meshes.ts`); простая
-    заливка до полной перекраски (demo-05 п.11). Нет фото представителя или разница < 6 % — без подкраски. Представителя нет
-    среди товаров демо — тон его текущего фото из каталога (`_rep_tones`, T-20261107-14/2). Формула и границы — одно правило со
-    сторожем цвета мешей (`mesh_color_check.tint_of`, `rules/mesh-color-guard.json`)."""
-    import mesh_color_check as _MCC
-    skus = [it.get('sku') or {} for v in data.get('variants') or [] for it in (v.get('items') or []) + (v.get('decor') or [])]
-    skus += [f for lst in (data.get('feeds') or {}).values() for f in lst if isinstance(f, dict)]
-    tone: dict = {}
-    for sk in skus:
-        sid, img = sk.get('sid'), sk.get('img')
-        if sid and sid not in tone and img and not str(img).startswith('http'):
-            tone[sid] = _tone(os.path.join(out_dir, img))
-    need = {sk.get('msid') for sk in skus if sk.get('sid') and sk.get('msid') and sk['sid'] != sk['msid']
-            and not tone.get(sk['msid'])}
-    tone.update({k: v for k, v in _rep_tones(need).items() if v})
-    R = _MCC.rules()
-    # ПОДКРАСКА ОТ МОДЕЛИ (T-20261112-89): строка ночного замера про эту пару (вариант → модель представителя) — её множитель,
-    # тот самый, по которому сторож судил видимый цвет; нет строки — прежняя формула по тонам двух фото
-    table, _why = _MCC.load_table(R=R)
-    table = table or {}
-    n = 0
-    for sk in skus:
-        sk.pop('tint', None)
-        sid, msid = sk.get('sid'), sk.get('msid')
-        if not sid or not msid or sid == msid:
-            continue
-        row = table.get(sid.replace('_', ':', 1)) or {}
-        if row.get('via_family') and row.get('owner') == msid.replace('_', ':', 1) and row.get('verdict') in ('ok', 'mismatch'):
-            if row.get('tint'):
-                sk['tint'] = row['tint']
-                n += 1
-            continue
-        t = _MCC.tint_of(tone.get(sid), tone.get(msid), R)
-        if t:
-            sk['tint'] = t
-            n += 1
-    return n
+    """ЦВЕТ ВАРИАНТА НА МОДЕЛИ СЕМЕЙСТВА (demo-02 приёмка 16.10 п.11б): `sku.tint` у вариантов, декора и лент. Тело —
+    `sku_scene.tint` (строка ночного замера сторожа, T-20261112-89, или тоны двух фото); тот же шаг делает тур загруженного
+    плана (`trial_bundle.scene_fields`, T-20261112-96). `_rep_tones` — здесь, чтобы проверки могли подменить базу."""
+    import sku_scene as _SS
+    return _SS.tint(_SS.skus_of(data), out_dir, rep=lambda need: _rep_tones(need))
 
 
 def _swatch_tone(path: str):
@@ -2545,15 +2465,8 @@ def annotate_swatch(data: dict, out_dir: str = OUT) -> int:
     отличается от `msid`, она пишется в `sku.fam` — по ней же страница собирает «Цвета этой модели» (`famKey`)."""
     skus = [it.get('sku') or {} for v in data.get('variants') or [] for it in (v.get('items') or []) + (v.get('decor') or [])]
     skus += [f for lst in (data.get('feeds') or {}).values() for f in lst if isinstance(f, dict)]
-    rep = _mesh_rep()
-    fam: dict = {}
-    for sk in skus:
-        sk.pop('fam', None)
-        if sk.get('msid') and sk.get('sid'):
-            key = rep.get(sk['sid']) or sk['msid']      # семьи не знаем — как раньше, по модели
-            fam.setdefault(key, set()).add(sk['sid'])
-            if key != sk['msid']:
-                sk['fam'] = key
+    import sku_scene as _SS
+    _SS.family(skus, _mesh_rep())                         # то же правило — у тура загруженного плана (T-20261112-96)
     tone: dict = {}
     n = 0
     for sk in skus:

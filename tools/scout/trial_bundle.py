@@ -228,11 +228,13 @@ def _alias_key(name: str) -> str:
     return listing.alias_key(name)
 
 # ───────────────────────── общий разрешённый список полей товара (все комнаты) ─────────────────────────
-ITEM_KEYS = {'role', 'x', 'y', 'rot', 'w', 'd', 'h', 'dims_src', 'sku', 'corner', 'corner_left', 'section', 'elev'}
+ITEM_KEYS = {'role', 'x', 'y', 'rot', 'w', 'd', 'h', 'dims_src', 'sku', 'corner', 'corner_left', 'section', 'elev', 'strategy'}
 SKU_KEYS = {'name', 'name_en', 'colour_en', 'colour_ru', 'msid', 'w', 'd', 'h', 'sleep_w'}
 # товар как в /demo (см. шапку): цена (₽ витрины), фото — плитка витрины `img/<md5>.jpg`, ссылка — та же партнёрская, магазин
 PRODUCT_KEYS = {'price', 'img', 'url', 'shop', 'swatch'}       # swatch — цвет товара по фото (`put_swatches`, T-20261112-29)
-PUBLIC_SKU_KEYS = SKU_KEYS | PRODUCT_KEYS
+# поля 3D-сцены — тем же кодом, что у /demo (`sku_scene`, T-20261112-96): подкраска цвета, разворот модели, «подвесная»
+SCENE_SKU_KEYS = {'tint', 'yaw', 'hung', 'fam'}            # fam — семья цветов («Цвета этой модели», `sku_scene.family`)
+PUBLIC_SKU_KEYS = SKU_KEYS | PRODUCT_KEYS | SCENE_SKU_KEYS
 # куски стадий (внутренние файлы DEV, в выход не идут): плюс ключ товара `sid` — по нему сборщик берёт товар из каталога
 STAGE_SKU_KEYS = SKU_KEYS | {'sid'}
 FEED_KEYS = PUBLIC_SKU_KEYS | {'style', 'styles', 'src', 'corner'}
@@ -270,7 +272,7 @@ def default_ctx() -> dict:
     """Что берётся у живого демо: числа правил страницы, модель товара, правило опроса. Импорт `flat215_demo` тяжёлый — только здесь."""
     import flat215_demo as FD
     return {'rules': {**FD._rules(), 'soft_roles': FD.soft_roles()}, 'msid_of': FD._msid, 'slot_band': FD._slot_band, 'quiz': quiz_rule(),
-            'goods': _demo_goods, 'money_en': uk_money(), 'demo_feeds': _demo_feeds, 'dev_flat': dev_flat()}
+            'goods': _demo_goods, 'money_en': uk_money(), 'demo_feeds': _demo_feeds, 'dev_flat': dev_flat(), 'scene_live': scene_live}
 
 
 PARTNERS_DIR = os.path.join(HERE, '..', '..', 'data', 'partners')
@@ -450,16 +452,18 @@ def catalog_goods(sid: str | None, role: str, bank: dict | None = None, tile=Non
     """Товар по ключу `sid` («mid_eid») — ровно как у товара `/demo` (`flat215_demo._sku`): название, фото, партнёрская ссылка и
     магазин — из товара БАНКА, цена — текущая из каталога `catalog_media`, нет её — цена банка. Товара нет в банке (старые сцены) —
     всё из каталога. Английское название — `trial_demo._names_en` (правило живой витрины). Не нашли / без названия / без цены — None
-    (предмет остаётся нейтральным); каталог ушёл из продажи и банка нет — None. Каталог недоступен — исключение."""
+    (предмет остаётся нейтральным); каталог говорит «ушёл из продажи» — None и для товара банка (как демо снимает его из банка). Каталог недоступен — исключение."""
     if not isinstance(sid, str) or '_' not in sid:
         return None
     mid, eid = sid.split('_', 1)
     import catalog_media as CM
     m = CM.media(mid, eid) or {}
     b = (bank if bank is not None else _bank()).get(sid)
+    if m.get('state') == 'gone':                          # снят с продажи — и товар банка тоже (`flat215_demo.drop_unavailable`, T-96)
+        return None
     if b:
         src, price = b, m.get('price') or b.get('price')
-    elif m and m.get('state') != 'gone':
+    elif m:
         src, price = m, m.get('price')
     else:
         return None
@@ -1088,9 +1092,51 @@ def _item(row: dict, place: dict | None, msid_of, goods=None) -> dict:
     colour = clean_colour(row['colour_en']) if row.get('colour_en') else colour_en(row.get('name'), _base_role(row['role']))
     sku = attach_goods({'name': ru, 'name_en': en, 'colour_en': colour, 'msid': msid, 'w': row.get('w'), 'd': row.get('d'), 'h': h},
                        row.get('sid'), row['role'], goods)
-    return public_item({'role': row['role'], 'x': row['x'], 'y': row['y'], 'rot': int(row.get('rot') or 0), 'w': row.get('w'), 'd': row.get('d'),
-                        'h': h, 'dims_src': 'каталог', 'sku': sku, 'corner': bool(row.get('corner')), 'corner_left': bool(p.get('corner_left')),
-                        'section': p.get('section')})
+    out = public_item({'role': row['role'], 'x': row['x'], 'y': row['y'], 'rot': int(row.get('rot') or 0), 'w': row.get('w'), 'd': row.get('d'),
+                       'h': h, 'dims_src': 'каталог', 'sku': sku, 'corner': bool(row.get('corner')), 'corner_left': bool(p.get('corner_left')),
+                       'section': p.get('section')})
+    return _keep_sid(out, row.get('sid'))
+
+
+def _keep_sid(it: dict, sid: str | None) -> dict:
+    """Ключ товара на время сборки — `sku._sid` (подкраске цвета нужен товар, `scene_fields`); в данные страницы не идёт: его снимает
+    `scene_fields` до `assert_public`."""
+    if sid and isinstance(it.get('sku'), dict):
+        it['sku']['_sid'] = str(sid).replace(':', '_', 1)
+    return it
+
+
+def scene_fields(variants: list, live=None) -> dict:
+    """ПОЛЯ 3D-СЦЕНЫ У ПРЕДМЕТОВ ТУРА — ТЕМ ЖЕ КОДОМ, ЧТО У /demo (T-20261112-96, `sku_scene`; у демо — `flat215_demo.annotate_*`):
+    «подвесная» `hung` (по названию товара) и `strategy` зеркала/картины/ковра — всегда; разворот модели `yaw`, подкраска цветового
+    варианта `tint` и семья цветов `fam` — из живых данных (`live(skus)`, у живой сборки — `scene_live` из `default_ctx`).
+    Раньше тур их не ставил: вариант цвета — цветом представителя, модель с калибровкой — неразвёрнутой, подвесная тумба в «Фото» —
+    на полу. Ключ товара `_sid` снимается всегда (в данные страницы не идёт). → счётчики."""
+    import sku_scene as SS
+    skus = [it['sku'] for v in variants for it in (v.get('items') or []) + (v.get('decor') or [])
+            if isinstance(it, dict) and isinstance(it.get('sku'), dict)]
+    items = [it for v in variants for it in v.get('items') or [] if isinstance(it, dict)]
+    st = {'hung': SS.mark_hung(skus), 'strategy': SS.strategy(items)}
+    if live is not None:
+        st.update(live(skus))
+    for sk in skus:
+        sk.pop('_sid', None)
+    return st
+
+
+def scene_live(skus: list) -> dict:
+    """Живая часть `scene_fields`: разворот (`orient.json` прода + ручные поправки), подкраска (замер сторожа или тоны плиток витрины
+    `flat215_demo.OUT`, как у `put_swatches`), семья цветов (`room_bindings.mesh_rep`). Нет базы/сети — без них, но громко."""
+    import sku_scene as SS
+    st = {'yaw': 0, 'tint': 0, 'fam': 0}
+    try:
+        import flat215_demo as FD
+        st['yaw'] = SS.yaw(skus)
+        st['tint'] = SS.tint(skus, FD.OUT)
+        st['fam'] = SS.family(skus, FD._mesh_rep())
+    except Exception as e:  # noqa: BLE001 — без базы/сети тур собирается без подкраски, но громко
+        print(f'WARN:trial_scene_fields: {repr(e)[:160]}', flush=True)
+    return st
 
 
 def _scene_variant(sv: dict, room_id: str, geo: dict, msid_of, goods=None) -> dict:
@@ -1138,7 +1184,9 @@ def _feeds(variants: list, room_keys: bool = True) -> dict:
 
 # поля строки ленты витрины, которые страница читает у замены (штук в покупке, сторона угла, подвес, глубина каталога, поворот и тон
 # модели) — числа и флаги, не данные магазина
-FEED_EXTRA_KEYS = {'corner_left', 'pack', 'hung', 'd_catalog', 'yaw', 'swatch', 'tint'}
+# color_low — стили, где цвет товара «не очень» (в конец ленты, `demo-feeds.ts`), fam — семья цветов: у строк лент /demo они есть,
+# тур их срезал (T-20261112-96)
+FEED_EXTRA_KEYS = {'corner_left', 'pack', 'hung', 'd_catalog', 'yaw', 'swatch', 'tint', 'color_low', 'fam'}
 SLOTS_KEY = '_slots'     # служебное поле варианта: места предметов сцены гостиной; `feeds_for` снимает его (в данные страницы не идёт)
 
 
@@ -1232,12 +1280,14 @@ def goods_from_feeds(variants: list, demo: dict | None, goods=None, geo: dict | 
             r = DF.same_goods(demo or {}, kind, base, sku)
             if r is not None:
                 sku.update({k: r[k] for k in DF.GOODS_FIELDS if r.get(k) not in (None, '')})
+                sku.pop('_sid', None)                  # товар витрины без подкраски (фото = цвет модели): `scene_fields` не красит
                 st['same'] += 1
                 continue
             if sku.get('msid') and base not in DF.NOMESH:
                 g = goods(sku['msid'], base) if goods else None
                 if g and DF.has_goods(g):
                     sku.update({k: x for k, x in g.items() if x not in (None, '')})
+                    sku.pop('_sid', None)              # товар, с которого снята модель, — без подкраски
                     st['bank'] += 1
                     continue
             if not demo:
@@ -1408,7 +1458,7 @@ def _part_item(it: dict, goods=None) -> dict:
         ru, en = f'{ru} {round(sw)} см', f'{en} {round(sw)} cm'
     sku.update(name=ru, name_en=en)
     out['sku'] = attach_goods(sku, sid, out.get('role') or '', goods)
-    return out
+    return _keep_sid(out, sid)
 
 
 def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None = None, parts: list | None = None,
@@ -1618,8 +1668,10 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
     rules['slot_band_cm'] = {**(rules.get('slot_band_cm') or {}), **bands}   # полоса «по размеру» — от места, как у ленты (T-40)
     # цвет предмета на плане — цвет товара по фото, не условная палитра (T-20261112-29): у предметов вариантов и у товаров лент (замена)
     put_swatches(variants + [{'items': [{'sku': f} for f in lst if isinstance(f, dict)]} for lst in feeds.values()])
+    # подкраска, разворот, «подвесная», плоскость — тем же кодом, что /demo (T-20261112-96); строки лент приходят из /demo уже с ними
+    scene_st = scene_fields(variants, ctx.get('scene_live'))
     if stats is not None:
-        stats.update(feeds={k: len(v) for k, v in feeds.items()}, feeds_short=short, goods_from_feeds=got)
+        stats.update(feeds={k: len(v) for k, v in feeds.items()}, feeds_short=short, goods_from_feeds=got, scene_fields=scene_st)
     note =SCALE_NOTE.get(result['scale']['status'])
     trial = {'job_id': job_id, 'scale': result['scale']['status'],
              **({'scale_note': {'ru': note[0], 'en': note[1]}} if note else {}), 'furniture': SCENE_FURNITURE[scene['status']] if scene else 'pending',
