@@ -24,7 +24,7 @@
 
 ## Как записать новый урок
 
-- **Следующий номер: 637.** (480 — бывший второй «472» из demo-planner, перенумерован 13.10) Номер берётся отсюда и сразу двигается здесь же (`414` → `415`).
+- **Следующий номер: 657.** (480 — бывший второй «472» из demo-planner, перенумерован 13.10) Номер берётся отсюда и сразу двигается здесь же (`414` → `415`).
 - Формат: `**N. Заголовок** — ситуация → пробовали → почему не сработало → правило` (одна запись — один абзац).
 - Куда: в конец файла своей темы `lessons/<тема>.md` (под заголовком `## Новые (после 2026-09-05)` — завести при первой записи).
 - Затем при необходимости — одна строка в `../core/lessons.md` (Tier 1, ≤3 КБ: только живые правила, не пересказ).
@@ -438,4 +438,24 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 634 — publish_rt.sh: SIGPIPE под pipefail — /demo не публикуется → `lessons/devops-deploy.md`
 - 635 — prepush golden банка: путь TMPDIR не нормализуется → `lessons/dev-ops.md`
 - 636 — время только из date, % только скриптом → `lessons/memory-process.md`
+- 637 — пол комнаты лезет сквозь перегородку — чужие двери → `lessons/floorplan-trial.md`
+- 638 — косая дверь в углу не замыкалась → `lessons/floorplan-trial.md`
+- 639 — дверь на наружной стене принималась за окно → `lessons/floorplan-trial.md`
+- 640 — дверь «у комнаты»: ложный сосед и мерка от центра → `lessons/floorplan-trial.md`
+- 641 — Giraffe360: тонкие светлые дуги — 0 дверей → `lessons/floorplan-trial.md`
+- 642 — правка страницы не доходит до туров, пока не опубликовано демо → `lessons/floorplan-trial.md`
+- 643 — «72 ошибки 5xx» в сводке — это 36 запросов в рестартах → `lessons/devops-deploy.md`
+- 644 — самопроверка CI ходила в docker — 46 красных прогонов → `lessons/devops-deploy.md`
+- 645 — publish_demo.sh упал rc=2 без вывода → `lessons/devops-deploy.md`
+- 646 — стенд паритета врёт «равно» на старой заморозке → `lessons/devops-deploy.md`
+- 647 — CI красный трижды подряд: правка файла, который читает чужой тест → `lessons/devops-deploy.md`
+- 648 — тесты читали живые данные вне git → `lessons/devops-deploy.md`
+- 649 — прод с common/algor — только через pakardev → `lessons/devops-deploy.md`
+- 650 — CI: системные пакеты Playwright не ставились → `lessons/devops-deploy.md`
+- 651 — headless Chrome падает от /tmp, а не от сцены → `lessons/dev-ops.md`
+- 652 — id варианта спальни ронял ярус банка и у гостиной → `lessons/catalog-stock.md`
+- 653 — модель в карантине: «столика нет», хотя файл на сервере → `lessons/mesh-salad-pool.md`
+- 654 — группа-канарейка Salad вне охраны → `lessons/mesh-salad-pool.md`
+- 655 — окно 3D мигало при съёмке кадров заранее → `lessons/flat3d-configurator.md`
+- 656 — Г-диван: подушки и плед по всей букве Г → `lessons/layout-solver.md`
 - 528, 530 — дополнены 07.11 (gltfpack и `/tmp`; «как в CI» — py3.12, чистый venv, golden `--record`, e2e) без новых номеров

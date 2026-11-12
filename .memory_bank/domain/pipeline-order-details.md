@@ -206,3 +206,29 @@ bedroom (сборщик `compose_bedroom`); по вариантам витрин
 
 ## Стыки этапов (ADR-0272)
 Пороги — `tools/scout/rules/pipeline-map.json`, расчёт — `tools/scout/pipeline_map.py`, страница `/test/pipeline/`; тревога при смене состояния, напоминание жёлтый/72 ч, красный/24 ч.
+
+## Дополнено сводом недели (свод недели 06–12.11 по журналам, T-20261112-85)
+- **Прихожая — комплекты из модулей** (T-71, 06.11): товар роли «прихожая» с признаками комплекта (`kits` в
+  `tools/scout/rules/hall-roles.json`: `name_re` «модульн|комплект|набор|стенк» или ≥2 модуля «Серия-N» в параметрах;
+  `tools/scout/hall_catalog.py:kit_of`) получает `footprint_ok=false` — идёт только по фото, меш и спрос не нужны. Правило общее, не по SKU.
+- **Прихожая — типоразмеры слотов** (T-90, 06.11): у слотов обувница/банкетка/консоль `sizes` `{id, ideal}`
+  (`tools/scout/compose_common.py:slot_sizes`, `tools/scout/compose_hall.py:fit_size`); допуск −20…+10 % — внутри типоразмера,
+  в запись набора идёт типоразмер товара, суд `check_bank` проверяет по нему же. Квота мешей прихожей от этого 34 → 54.
+- **Прихожая — распашной шкаф** (T-10/2, 07.11): роль «шкаф» в прихожей — габарит `min` w80 d40 h150, `max` w200 d66
+  (`hall-roles.json`, проверка `max` — `tools/scout/room_catalog.py:role_guard`); у спальни `max` нет. Квота «купе + распашной» общая (8 на стиль).
+- **«В стиле» — одно правило** (T-90): `tools/scout/room_profile.py:in_style` — балл ≥ `in_style_min` (6,6), `universal` не засчитывается;
+  им пользуются `style_score.py` и `compose_bedroom.py` (раньше скорер брал 6,5 или `universal`).
+- **Годность модели спальни** (T-51/T-70/T-93, 06.11): одно правило `tools/scout/room_bindings.py:usable` (режимы `strict` | `orient` | `0`),
+  его зовут сторож витрины и адаптер банка (банк не импортирует тяжёлый `flat215_demo`). Переключатель `BEDROOM_MESH_GATE`
+  (`tools/scout/flat215_demo.py:BEDROOM_MESH_GATE_ENV`, по умолчанию `orient`: привязка `ready` или заблокированная только по `orientation_*`,
+  каждая такая — `WARN:bedroom_orient_unresolved`); неизвестное значение — отказ. Для банка режим — `rooms.<комната>.mesh_gate`.
+- **Запасной ковёр стиля** (T-11/2, 07.11): если у стиля НЕТ ни одного своего ковра — нейтральный «универсальный»
+  (`tools/scout/demo_swap_pool.py:universal_rugs`, правила `rug_universal` в `tools/scout/rules/demo-swap.json`: серый/бежевый/белый/
+  кремовый/молочный, однотонный); общая функция для дозаполнения (`demo_fill.RUG_SQL`) и ленты (`rug_sql`). Стили со своими коврами не меняются.
+- **Таймаут ракурсов** (T-47, 07.11): `flat215_demo.demo_cams` ловит `TimeoutExpired` (300 с) — `WARN:demo_cams … таймаут`, сборка идёт
+  дальше, у вариантов нет `v.cams`, ракурс считает страница (`tools/scout/flat215_demo.py`, блок `except subprocess.TimeoutExpired`).
+  Причина замедления 07.11 — `camPairAll` на каждый стиль при промахе «двух концов» (112 → 259 с).
+- **Сторож изголовья — внутри блока комнат** (T-20/3–4, 10.11): шаг `orient_bed_guard` в `tools/scout/refresh_daily.sh` стоит под
+  `[ -n "$rooms_on" ]` перед `mesh_color_guard` и `room_bindings`; вне блока при выключенных комнатах он рвал цепочку писателя банка
+  (ловит `tools/scout/tests_refresh_order.py`).
+- **Источники каталога комнат** — только divan.ru, tvoydom.ru, ormatek.com; новые магазины и фиды не ищем (владелец 06.11, TG 262).

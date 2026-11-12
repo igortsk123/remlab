@@ -355,3 +355,23 @@ medium 0.197, high 0.250. При РАВНОМ образе и равном ра�
   `tools/scout/mesh_dark.py:COLOUR_GROUPS` пускает белое на графитовую модель — разделение отложено 06.11 (сняло бы 164 привязки).
 - **Чистка мусора** `cut_alien_debris` (починена 06.11 — падала на trimesh Scene в 258/400 паспортов): на 20 мешах все 11 пометок ложные
   (ножки, цоколи, полки) → `ALIEN_CUT=0`, только пишет `.alien_suspect` (`tools/scout/salad/pipeline.py:451`).
+
+## Дополнено сводом недели (свод недели 06–12.11 по журналам, T-20261112-85)
+- **Ночная досъёмка фото ждёт слот** (T-03, 07.11): ночью ожидание тяжёлого слота — 120 мин (`tools/ops/demo-realistic.mjs:NIGHT_WAIT_S`),
+  вручную 60; не дождался — бесплатный сухой проход и `WARN:demo_real: … вариантов без фото: N`, код 0. Внешний `timeout 10800`
+  в `tools/ops/demo-real.sh` (ожидание + час съёмки). Почему: перенос фото на следующую ночь = голая обложка на сутки.
+- **Шлюз платных фото** (T-33, 07.11): заказ «Сделать реалистичнее» пускается, если баланс шлюза − `REALISTIC_COST_USD` (0,25) ×
+  идущие задания ≥ `REALISTIC_MIN_BALANCE` (0,30) (`tools/scout/draft_service.py:PAID_MIN_USD`, `PAID_COST_USD`); баланс —
+  `tools/scout/draft_render.py:gw_credits` (`CREDITS_URL` шлюза Vercel). Баланс ниже — ночная досъёмка уходит в WARN, это ожидаемо.
+- **Скорость фото за деньги не купить** (07.11, T-33): у `sunburst medium` приоритета/ускорения нет; ночную досъёмку на Batch не переводим;
+  пробу `flare` не делали — ведущий рекомендовал оставить `sunburst medium`.
+- **Роль для ориентации** (T-10/2, 07.11): `tools/scout/orient_worker.py:pick_room_role` — роль из `room_catalog` первой (раньше
+  `products.cat_role`, `mesh_demand`, manifest); узкая вытесняет общую (`ROLE_NARROWER` «шкаф-купе» → «шкаф»); сдвиг роли ловит
+  `role_changed`, `MANIFEST_ROLE_RULE` не повышали (иначе чужие решения «?» стали бы устаревшими).
+- **Цвет К8 — без вечного WARN** (T-14/3, 07.11): свои меши с расхождением цвета — только числом в DIGEST, их список —
+  `own-mismatch.tsv` рядом с таблицей (`tools/scout/mesh_color_check.py:OWN_TSV`); warn/FAIL шага — только сбой.
+  Опыт К8 «только покраска»: `generate(shape_glb=…)` → `tools/scout/salad/pipeline.py:_paint_only` (форма пропускается), шаги
+  меряет `tools/scout/salad/color_steps.py`; ≈130 с и ≈0,31 ₽ на 4060 Ti, снимки шагов вдвое замедляют.
+- **Зеркало и картина — плоскость на стене** (T-73, T-05/3, 07.11): стратегия `procedural_plane` при `h > d` — не меш, не clay,
+  не препятствие; сборщик пишет `strategy` предметам (`tools/scout/flat215_demo.py:annotate_strategy`) из `tools/scout/rules/asset-strategies.json`
+  — второго способа нет (T-81 закрыта как дубль). Стекло не режется рамой «лесенкой» — `lib/viewer3d/kits/wall-plane.ts:SHEET_DEPTH_BIAS`.

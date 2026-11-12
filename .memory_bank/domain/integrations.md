@@ -412,3 +412,9 @@ base 2833 против 85 у `gpt-4o`, то есть в долларах как 
 ## env_keys — откуда скрипты scout берут ключи (T-52, 05.11)
 Резолвер `tools/scout/env_keys.py`: окружение → своё дерево → основная копия (из worktree, через git common-dir) → mltest последним с WARN; `--where` — откуда возьмётся (только путь), `--ping` — бесплатная проверка; журнал трат `openai-spend.jsonl` — всегда основной копии (`openai_budget.SPEND_LOG`). 12 старых скриптов (fixone.py, judge.py, pipeline.py, pipeline2.py, viz5/7/8/9/10/11.py, viz_frame.py, viz_plan.py; у pipeline2 и viz_frame сперва свой `.env`) ещё берут OpenAI-ключ из `v0-health-card/backend/.env` — вопрос владельцу.
 - GHCR (02.10): в CI вход на сервере — `GHCR_TOKEN` = `secrets.GITHUB_TOKEN` (`.github/workflows/deploy.yml:141`, `docker login ghcr.io` — :147); ручной вход — `GHCR_TOKEN` из `_secrets/`, не `gh auth token`: токену под пакеты `gh` требует ещё `read:org` (ADR-0232).
+
+## Вырезка фона: BiRefNet local и fal (свод недели 06–12.11 по журналам, T-20261112-85)
+- Веса и код BiRefNet закреплены ревизией (`tools/scout/cutout_sync.py:BIREFNET_REVISION`, T-46/3): модель грузится с
+  `trust_remote_code=True`, без ревизии transformers сам скачивал новый `birefnet.py`. На ноде Salad (`tools/scout/salad/preprocess.py`) ревизия НЕ закреплена.
+- `CUTOUT_BACKEND=local` — CPU, 18–23 с на фото, порциями по 100 под `tools/ops/heavy-slot.sh` (`--min-gb 4`); fal ≈ $0,0005–0,0008
+  за фото (4 потока: 372 фото за 624 с).
