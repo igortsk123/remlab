@@ -190,6 +190,22 @@ def _role_n(ids: list[str]) -> list[str]:
     return [f"{SLOT_ROLE.get(x.rsplit('×', 1)[0], x)}×{x.rsplit('×', 1)[1]}" for x in ids]
 
 
+LIGHT_GROUP = 'light'   # группа света паспорта `living.json`: торшер ИЛИ комод с лампой — обязательна (T-20261112-71/2)
+
+
+def light_label(missing: list[str]) -> list[str]:
+    """«комод×1» / «торшер×1» ближайшего уровня → одна метка «свет (торшер или комод + лампа)»: недостаёт группы, а не комода."""
+    roles = {SLOT_ROLE[k] for k in SLOT_ROLE if k.split('.')[0] == LIGHT_GROUP}
+    out = [m for m in missing if m.rsplit('×', 1)[0] not in roles]
+    return out + ['свет (торшер или комод + лампа)'] if len(out) < len(missing) else out
+
+
+def only_light(bad: list[dict]) -> bool:
+    """Уровня нет, но хоть одному уровню не хватает ТОЛЬКО света (все недостающие места — группы света): дыра набора,
+    которую закрывает сборка наборов, а не паспорт."""
+    return any(b.get('missing') and all(x.split('.')[0] == LIGHT_GROUP for x in b['missing']) for b in bad)
+
+
 def try_levels(room: Room, facts: dict, items: list[dict], decor: list[dict]) -> dict:
     """Выбор уровня ПО НАБОРУ — общее правило `RT.levels_by_set` (обязательное есть — уровень годен, места «по желанию» без
     предмета пусты; годные — по числу пустых мест, затем порядок паспорта). Годные по очереди → `dependents.resolve`; первый
@@ -224,7 +240,7 @@ def try_levels(room: Room, facts: dict, items: list[dict], decor: list[dict]) ->
         part, dropped = partial_places(places, gone)
         cars, _, extra, sid_of, _ = match(part, items)
         res = DEP.resolve(part, cars + extra, room, dep_items(part, decor), facts, dep_counts(part, decor))
-        return {'tried': tried, 'chosen': None, 'rejected': None,
+        return {'tried': tried, 'chosen': None, 'rejected': None, 'only_light': only_light(bad),
                 'closest': {'tpl': b['tpl'], 'level': b['level'], 'missing': _role_n(b['missing']), 'dropped': dropped,
                             'places': part, 'cars': cars, 'extra': extra, 'sid_of': sid_of, 'res': res, 'empty': []}}
     return {'tried': tried, 'chosen': None, 'rejected': rejected}
@@ -361,11 +377,13 @@ def shadow_variant(geo: dict, v: dict, rows: list[dict] | None = None) -> dict:
     elif lv.get('closest'):
         c = lv['closest']
         part = 'OK' if c['res'].ok else f"{c['res'].reject['code']} {c['res'].reject['place']}"
-        status = f"нет уровня: не хватает {', '.join(c['missing'])}; частично без {'/'.join(c['dropped'])}: {part}"
-        why_none = f"нет покрытого уровня (не хватает {', '.join(c['missing'])})"
+        need = ', '.join(light_label(c['missing']))
+        status = f"нет уровня: не хватает {need}; частично без {'/'.join(c['dropped'])}: {part}"
+        why_none = f"нет покрытого уровня (не хватает {need})"
     else:
         status, why_none = 'нет уровней для комнаты', 'нет уровней для комнаты'
     deps = pick['res'].placements if pick and pick['res'].ok else []
+    no_item = no_item_places(deps)
     floor = (pick['cars'] + pick['extra']) if pick else [carrier(it, f'extra.{base_role(it["role"])}#{i}') for i, it in enumerate(items)]
     judged = judge_rows(rows or [], pick if lv.get('chosen') else None, why_none)
     return {
@@ -378,12 +396,32 @@ def shadow_variant(geo: dict, v: dict, rows: list[dict] | None = None) -> dict:
         'skipped': pick['res'].skipped if pick else [], 'limits': pick['res'].limits if pick else {},
         'missing': lv['closest']['missing'] if lv.get('closest') else [],  # обязательное, чего нет (ближайший уровень)
         'empty_slots': _role_n(pick['empty']) if pick else [],            # места «по желанию», которых нет в наборе
-        'empty_deps': pick['res'].empty if pick else [],                  # условные места (картины), что не встали — с причиной
+        'empty_deps': (pick['res'].empty if pick else []) + no_item,      # картины не встали; места без товара набора (NO_ITEM)
+        'only_light': bool(lv.get('only_light')),                         # уровня нет только из-за света (торшер / комод+лампа)
         'deps': deps, 'floor': floor, 'rows': judged,
         'drift_cm': drift(items, pick['sid_of'], floor) if pick else 0.0,
         'hard': hard_checks(room, deps), 'art': art_compare(pick if lv.get('chosen') else None, room, facts, decor),
         '_room': room,
     }
+
+
+NO_ITEM = 'NO_ITEM'
+
+
+def no_item_places(deps: list[Placement]) -> list[dict]:
+    """Зависимые места, на которые в наборе нет товара (туры: декора в данных нет) — место есть, но ПУСТО; виртуальное
+    (`priced` False, экран ТВ) не в счёт. Число мест по норме остаётся (их и закроет подбор товара)."""
+    out = {}
+    for p in deps:
+        if p.item is None and p.priced is not False:
+            pid = p.slot_instance_id.split('#')[0]
+            out.setdefault(pid, {'code': NO_ITEM, 'place': pid, 'message': f'пусто: нет в наборе ({base_role(p.role)})', 'n': 0})
+            out[pid]['n'] += 1
+    return list(out.values())
+
+
+def is_no_item(p: Placement) -> bool:
+    return p.item is None and p.priced is not False
 
 
 def scene_json(src: str, sv: dict) -> dict:
@@ -450,9 +488,87 @@ def _rub(x: float) -> str:
     return f'{round(x):,}'.replace(',', ' ')
 
 
-def empty_summary(demo: list[dict], tours: list[dict]) -> list[str]:
+def _arts(sv: dict) -> list[dict]:
+    return [e for e in sv['empty_deps'] if e['code'] != NO_ITEM]
+
+
+def _no_items(sv: dict) -> list[dict]:
+    return [e for e in sv['empty_deps'] if e['code'] == NO_ITEM]
+
+
+def sets_light(path: str) -> dict:
+    """Банк наборов гостиной (`sets3.json`, его берут туры — `trial_demo.sets_path`): по стилю — наборов всего, с торшером,
+    с комодом. Файла нет — пусто (отчёт так и скажет)."""
+    import ast
+    try:
+        sets = json.load(open(path, encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for st in sets:
+        items = st.get('items') or {}
+        items = ast.literal_eval(items) if isinstance(items, str) else items
+        c = out.setdefault(st.get('style') or '?', {'n': 0, 'торшер': 0, 'комод': 0})
+        c['n'] += 1
+        for r in ('торшер', 'комод'):
+            c[r] += any(base_role(k) == r for k in items)
+    return out
+
+
+CATALOG_SQL = ("select coalesce(s.top_style, '-'), count(*) from lr_roles l left join product_style_scores s using (shop_mid, external_id) "
+               "where l.role = 'торшер' and l.price_rub is not null and l.in_stock group by 1")
+
+
+def catalog_floor_lamps() -> dict | None:
+    """Торшеры каталога в наличии по стилю (`product_style_scores.top_style`) — локальная база DEV, как `compose.py` (без ключей).
+    База недоступна — None."""
+    psql = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab', '-q', '-t', '-A', '-F', '|']
+    try:
+        r = subprocess.run(psql, input=CATALOG_SQL, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode:
+        return None
+    return {k: int(n) for k, n in (ln.split('|') for ln in r.stdout.split() if '|' in ln)}
+
+
+def light_summary(tours: list[dict], light: dict | None) -> list[str]:
+    """Строка-итог «не хватает ТОЛЬКО света» и вход задачи сборки наборов: по стилям этих туров — сколько наборов банка с
+    торшером/комодом и сколько торшеров в каталоге."""
+    only = [sv for sv in tours if not sv.get('skip') and sv['status'] != 'OK' and sv.get('only_light')]
+    L = [f"**Не хватает ТОЛЬКО света (торшер или комод + лампа): {len(only)} туров** — свет обязателен (таблица Codex); это "
+         'дыра набора, её закрывает сборка наборов, паспорт её не прячет.']
+    if not only:
+        return L
+    light = light or {}
+    sets, cat = light.get('sets') or {}, light.get('catalog')
+    by = {}
+    for sv in only:
+        by[sv['style']] = by.get(sv['style'], 0) + 1
+    L += ['', '| стиль | туров «только свет» | наборов банка (`sets3.json`) | с торшером | с комодом | торшеров в каталоге (в наличии) |',
+          '|---|---|---|---|---|---|']
+    for st, n in sorted(by.items(), key=lambda kv: -kv[1]):
+        c = sets.get(st, {})
+        L.append(f"| {st} | {n} | {c.get('n', '—')} | {c.get('торшер', '—')} | {c.get('комод', '—')} | "
+                 f"{'не опрошен' if cat is None else cat.get(st, 0)} |")
+    no_cat = sorted(st for st in by if cat is not None and not cat.get(st))
+    in_cat = sorted(st for st in by if cat is not None and cat.get(st))
+    if cat is None:
+        L.append('Каталог не опрошен (локальная база недоступна) — по стилям смотреть только банк.')
+    else:
+        L.append('Из них стилей без торшера в каталоге: ' + (', '.join(no_cat) or 'нет') + '.')
+        if in_cat:
+            live = [sv for sv in tours if not sv.get('skip')]
+            has = lambda r: sum(any(base_role(p.role) == r for p in sv['floor']) for sv in live)  # noqa: E731
+            L.append('Торшеры в каталоге по стилям ' + ', '.join(in_cat) + ' ЕСТЬ, а в наборы этих туров не попали (столбец '
+                     f"«с торшером» — доля наборов банка). Во всех турах вариантов с торшером {has('торшер')}, с комодом "
+                     f"{has('комод')} из {len(live)} — где теряется комод банка, разбирает сборка наборов (вход задачи).")
+    return L
+
+
+def empty_summary(demo: list[dict], tours: list[dict], light: dict | None = None) -> list[str]:
     """Выбор уровня по набору (T-71): сколько получили уровень, какие места пусты (нет в наборе), где картины не встали,
-    чего из обязательного нет у отказанных."""
+    чего из обязательного нет у отказанных; сверху — «не хватает только света» (T-71/2)."""
     live = lambda xs: [x for x in xs if not x.get('skip')]  # noqa: E731
     ok = lambda xs: [x for x in live(xs) if x['status'] == 'OK']  # noqa: E731
 
@@ -467,28 +583,37 @@ def empty_summary(demo: list[dict], tours: list[dict]) -> list[str]:
          f"Туры: уровень получили **{len(ok(tours))} из {len(live(tours))}** гостиных (T-69: 0); /demo — {len(ok(demo))} из "
          f"{len(live(demo))}. Правило — `room_templates.levels_by_set`: обязательное место нет в наборе → уровень не годен целиком "
          '(следующий); место «по желанию» (`required` в паспорте) нет → пусто, уровень остаётся; годные — по числу пустых мест '
-         '(с мелочами, что ушли вместе с носителем), затем порядок паспорта; годных нет — честный отказ с причиной.', '',
-         '### Пустые места выбранных уровней (нет в наборе — место ждёт товар, уровень не теряется)',
+         '(с мелочами, что ушли вместе с носителем), затем порядок паспорта; годных нет — честный отказ с причиной.', '']
+    L += light_summary(tours, light)
+    L += ['', '### Пустые места выбранных уровней (нет в наборе — место ждёт товар, уровень не теряется)',
          '| место | туров | /demo |', '|---|---|---|']
     d_e = dict(count(ok(demo), lambda sv: sv['empty_slots']))
     L += [f"| {k} | {n} | {d_e.get(k, 0)} |" for k, n in count(ok(tours), lambda sv: sv['empty_slots'])] or ['| — | 0 | 0 |']
-    art = lambda sv: [f"{e['code']}: {e['message'].split(':')[0]}" for e in sv['empty_deps']]  # noqa: E731
+    art = lambda sv: [f"{e['code']}: {e['message'].split(':')[0]}" for e in _arts(sv)]  # noqa: E731
     L += ['', '### Картины не встали — место пусто (условно обязательны «при глухой стене», `on_failure: leave_empty`)',
           '| причина | туров | /demo |', '|---|---|---|']
     d_a = dict(count(ok(demo), art))
     L += [f"| {k} | {n} | {d_a.get(k, 0)} |" for k, n in count(ok(tours), art)] or ['| — | 0 | 0 |']
+    noi = lambda sv: [f"{e['place']} ({e['message'].split('(')[-1].rstrip(')')})" for e in _no_items(sv)]  # noqa: E731
+    L += ['', '### Места мелочей без товара в наборе — пусто: нет в наборе (на схеме — пустой кружок)',
+          '| место | туров | /demo |', '|---|---|---|']
+    with_deps = [sv for sv in live(tours) if sv['deps']]                  # и частичная проверка: места те же, товара нет
+    t_n, d_n = dict(count(with_deps, noi)), dict(count(ok(demo), noi))
+    L += [f"| {k} | {t_n.get(k, 0)} | {d_n.get(k, 0)} |" for k in sorted(set(t_n) | set(d_n), key=lambda k: -t_n.get(k, 0))] \
+        or ['| — | 0 | 0 |']
+    L.append(f"(туры — {len(with_deps)} с местами мелочей, включая частичную проверку уровня без носителя)")
     bad = [sv for sv in live(tours) if sv['status'] != 'OK']
     L += ['', f"### Отказы туров ({len(bad)}) — чего из обязательного нет в наборе (ближайший уровень)",
           '| не хватает | туров | ближайший уровень |', '|---|---|---|']
     by = {}
     for sv in bad:
-        k = ', '.join(sv['missing']) or sv['status']
+        k = ', '.join(light_label(sv['missing'])) or sv['status']
         by.setdefault(k, []).append(f"{sv['tpl']}.{sv['level']}")
     L += [f"| {k} | {len(v)} | {', '.join(sorted(set(v)))} |" for k, v in sorted(by.items(), key=lambda kv: -len(kv[1]))]
     return L
 
 
-def render_md(meta: dict, demo: list[dict], tours: list[dict], t64: dict) -> str:
+def render_md(meta: dict, demo: list[dict], tours: list[dict], t64: dict, light: dict | None = None) -> str:
     td, tt = totals(demo), totals(tours)
     L = [f"# Тень гостиной на живых данных — {meta['at']}", '',
          f"Источник: /demo `{meta['demo']}`, туры `{meta['tours']}` ({meta['tours_n']} файлов). Цена и «в 3D» — тем же кодом, что T-64 "
@@ -505,7 +630,7 @@ def render_md(meta: dict, demo: list[dict], tours: list[dict], t64: dict) -> str
     if td['why']:
         L += ['', '### Почему у тени нет места (топ)', '| причина | строк | ₽ |', '|---|---|---|']
         L += [f"| {k} | {a['n']} | {_rub(a['rub'])} |" for k, a in td['why'].items()]
-    L += empty_summary(demo, tours)
+    L += empty_summary(demo, tours, light)
     L += ['', '## Комнаты /demo', '| вариант | стиль | комната | шаблон.уровень | итог | ушёл с | вне уровня | дрейф см | жёсткое |',
           '|---|---|---|---|---|---|---|---|---|']
     for sv in demo:
@@ -554,7 +679,8 @@ def render_md(meta: dict, demo: list[dict], tours: list[dict], t64: dict) -> str
             L.append(f"| {sv['src']} | {sv['variant']} | {sv['room_id']} | | {sv['status']} | | | | | | |")
             continue
         r = sv['room']
-        empty = ', '.join(sv['empty_slots'] + [f"картины: {e['code']}" for e in sv['empty_deps']]) if sv['status'] == 'OK' else ''
+        empty = ', '.join(sv['empty_slots'] + [f"картины: {e['code']}" for e in _arts(sv)]
+                          + [f"{e['place']} ×{e['n']}: нет в наборе" for e in _no_items(sv)]) if sv['status'] == 'OK' else ''
         L.append(f"| {sv['src']} | {sv['variant']} | {sv['room_id']} {r['w']:g}×{r['d']:g} ({r['area_m2']} м²) | {sv['tpl']}.{sv['level']} | "
                  f"{sv['status']} | {empty} | {sv['down_from'] or ''} | {', '.join(sv['outside_level'])} | {sv['drift_cm']} | "
                  f"{len(sv['hard'])} | {'; '.join(n for n in r['notes'] if not n.startswith('потолок'))} |")
@@ -581,6 +707,14 @@ COLORS = {'подушка': (214, 96, 77), 'плед': (232, 160, 60), 'ваза
           'шторы': (60, 120, 200), 'люстра': (230, 60, 160), 'экран': (40, 40, 40), 'кашпо': (40, 140, 60)}
 
 
+RUG_ROLES = ('ковёр', 'ковер')
+
+
+def floor_draw_order(floor: list[Placement]) -> list[Placement]:
+    """Ковёр — первым (под мебелью): иначе его след закрывает журнальный столик, и ваза «висит» на ковре."""
+    return sorted(floor, key=lambda p: base_role(p.role) not in RUG_ROLES)
+
+
 def draw(sv: dict, path: str, s: float = 1.6) -> None:
     """Схема сверху: стены и проёмы, носители (след), зависимые — точки с подписью и родителем. Юг — снизу."""
     from PIL import Image, ImageDraw, ImageFont
@@ -590,35 +724,45 @@ def draw(sv: dict, path: str, s: float = 1.6) -> None:
         font = ImageFont.load_default()
     room = sv['_room']
     m = 40
-    W, H = max(900, int(room.width_cm * s + 2 * m)), int(room.depth_cm * s + 2 * m + 60)    # шапка — не уже 900 px
+    W, H = max(900, int(room.width_cm * s + 2 * m)), int(room.depth_cm * s + 2 * m + 76)    # шапка — не уже 900 px
     im = Image.new('RGB', (W, H), 'white')
     g = ImageDraw.Draw(im)
     g.font = font
-    P = lambda x, y: (m + x * s, m + 60 + (room.depth_cm - y) * s)  # noqa: E731
+    P = lambda x, y: (m + x * s, m + 76 + (room.depth_cm - y) * s)  # noqa: E731
     g.text((8, 6), f"{sv.get('src', '')} {sv['variant']} · {sv['style']} · {sv['tpl']}.{sv['level']} · {sv['status']}", fill='black')
-    empty = sv.get('empty_slots', []) + [f"картины ({e['code']})" for e in sv.get('empty_deps', [])]
+    empty = sv.get('empty_slots', []) + [f"картины ({e['code']})" for e in sv.get('empty_deps', []) if e['code'] != NO_ITEM]
     g.text((8, 24), f"{room.width_cm:g}×{room.depth_cm:g} см, потолок {room.ceiling_cm:g} · юг снизу · окно синим, дверь красным"
                     f"{' · пусто: ' + ', '.join(empty) if empty else ''}\n"
-                    'точка — место тени (число — низ, см; пустая — непродаваемое), розовый след — вне паспорта уровня', fill='black')
+                    'точка — место тени (число — низ, см); пустой кружок — товара нет в наборе или непродаваемое;\n'
+                    'ковёр — под мебелью; розовый след — вне паспорта уровня', fill='black')
     g.rectangle([P(0, room.depth_cm), P(room.width_cm, 0)], outline='black', width=3)
     for op in room.openings:
         a, b = op.offset_cm, op.offset_cm + op.width_cm
         seg = {'south': (P(a, 0), P(b, 0)), 'north': (P(a, room.depth_cm), P(b, room.depth_cm)),
                'west': (P(0, a), P(0, b)), 'east': (P(room.width_cm, a), P(room.width_cm, b))}[op.wall]
         g.line(seg, fill=(80, 160, 230) if op.kind == 'window' else (200, 60, 60), width=7)
-    for p in sv['floor']:
+    for p in floor_draw_order(sv['floor']):
         poly = [P(x, y) for x, y in footprint(p).exterior.coords]
         extra = p.slot_instance_id.startswith('extra.')
         g.polygon(poly, fill=(235, 235, 235) if not extra else (250, 230, 230), outline=(110, 110, 110))
         cx, cy = footprint(p).centroid.coords[0]
         g.text(P(cx - 15, cy + 4), base_role(p.role)[:9], fill=(60, 60, 60))
+    n_of = {e['place']: e['n'] for e in sv.get('empty_deps', []) if e['code'] == NO_ITEM}
+    said = set()
     for p in sv['deps']:
         b = base_role(p.role)
+        pid = p.slot_instance_id.split('#')[0]
         c = COLORS.get(b, (0, 0, 0))
         x, y = P(p.x, p.y)
         r = 5 if p.mount in ('surface', 'wall', 'rod') else 8
-        g.ellipse([x - r, y - r, x + r, y + r], fill=c if p.priced is not False else None, outline=c, width=2)
-        g.text((x + 6, y - 12), f"{b}{' ' + str(int(p.elev_cm)) if p.mount != 'surface' else ''}", fill=c)
+        hollow = p.priced is False or is_no_item(p)
+        g.ellipse([x - r, y - r, x + r, y + r], fill=None if hollow else c, outline=c, width=2)
+        if is_no_item(p) and pid in said:
+            continue                                         # подпись пустого места — одна на место (три подушки не наезжают)
+        said.add(pid)
+        n = n_of.get(pid, 1) if is_no_item(p) else 1
+        g.text((x + 6, y - 12), f"{b}{f' ×{n}' if n > 1 else ''}{' ' + str(int(p.elev_cm)) if p.mount != 'surface' else ''}"
+                                f"{' · пусто: нет в наборе' if is_no_item(p) else ''}", fill=c)
     im.save(path)
 
 
@@ -628,6 +772,8 @@ def main(argv: list) -> int:
     ap.add_argument('--demo', default=PV.DEMO)
     ap.add_argument('--tours', default=TOURS)
     ap.add_argument('--draw', type=int, default=3, help='сколько схем /demo нарисовать')
+    ap.add_argument('--sets', default=os.path.join(HERE, 'sets3.json'), help='банк наборов гостиной (вход «только свет»)')
+    ap.add_argument('--no-catalog', action='store_true', help='не опрашивать торшеры в локальной базе')
     a = ap.parse_args(argv[1:])
     os.makedirs(os.path.join(a.out, 'scenes'), exist_ok=True)
     os.makedirs(os.path.join(a.out, 'schemes'), exist_ok=True)
@@ -651,13 +797,14 @@ def main(argv: list) -> int:
         draw(sv, os.path.join(a.out, 'schemes', f"{sv['src']}__{sv['variant']}.png"))
     meta = {'at': subprocess.run(['date', '-u', '+%Y-%m-%d %H:%M UTC'], capture_output=True, text=True).stdout.strip(),
             'demo': a.demo, 'tours': a.tours, 'tours_n': len(tours)}
+    light = {'sets': sets_light(a.sets), 'catalog': None if a.no_catalog else catalog_floor_lamps()}
     strip = lambda sv: {k: v for k, v in sv.items() if k not in ('_room', 'deps', 'floor')}  # noqa: E731
-    json.dump({'meta': meta, 'totals': {'demo': totals(demo), 'tours': totals(tour)},
+    json.dump({'meta': meta, 'totals': {'demo': totals(demo), 'tours': totals(tour)}, 'light': light,
                't64_demo': {k: t64[k] for k in ('missing_n', 'missing_rub', 'priced_rub')},
                'demo': [strip(sv) for sv in demo], 'tours': [strip(sv) for sv in tour]},
               open(os.path.join(a.out, 'report.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1, default=str)
     with open(os.path.join(a.out, 'report.md'), 'w', encoding='utf-8') as fh:
-        fh.write(render_md(meta, demo, tour, t64))
+        fh.write(render_md(meta, demo, tour, t64, light))
     td, tt = totals(demo), totals(tour)
     print(f"/demo гостиные: {td['variants']} вар., OK {td['ok']}; в цене без 3D сейчас {td['live_missing_n']} строк "
           f"{round(td['live_missing_rub'])} ₽ → при тени {td['shadow_missing_n']} строк {round(td['shadow_missing_rub'])} ₽ "

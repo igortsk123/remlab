@@ -73,19 +73,58 @@ def test_variant_like_demo_set1():
     pil = [p for p in sv['deps'] if p.role == 'подушка']
     assert len(pil) == 2 and {p.parent_slot_instance_id for p in pil} == {'seating.sofa#0'}   # 2 товара — 2 места, не 3 по ширине
     assert sv['art']['shift_cm'] == 7.0                                    # живые числа (22 над спинкой) против середины 10–20
-    assert sv['empty_slots'] == [] and sv['empty_deps'] == []
+    assert sv['empty_slots'] == [] and [e for e in sv['empty_deps'] if e['code'] != S.NO_ITEM] == []
+    assert {e['place'] for e in sv['empty_deps']} == {'ceiling.chandelier', 'soft.throw'}   # в декоре примера нет люстры и пледа
 
 
-def test_tour_set_without_light_gets_level_with_empty_place():
-    """Набор тура без торшера и комода, декора нет (T-71): уровень есть (D — торшер пуст, «нет в наборе»), мест подушек по норме."""
+def test_tour_set_without_light_no_level_only_light():
+    """Набор тура без торшера и комода (T-71/2): свет обязателен — уровня нет, признак «не хватает только света»; без столика
+    — тоже отказ, но уже не «только свет»."""
     items = [x for x in ITEMS if x['role'] != 'торшер']
     sv = S.shadow_variant(GEO, {'id': 't', 'style': 'сканди', 'items': items, 'decor': []}, [])
-    assert (sv['tpl'], sv['level'], sv['status']) == ('LR-C1', 'SD', 'OK'), sv['tried']
-    assert sv['empty_slots'] == ['торшер×1']
-    assert len([p for p in sv['deps'] if p.role == 'подушка']) == 3       # товаров не знаем — по норме: диван 198 см (190–253) — 3
+    assert sv['status'].startswith('нет уровня') and sv['only_light'], sv['status']
+    assert sv['missing'] and all(m in ('торшер×1', 'комод×1') for m in sv['missing'])
     no_table = [x for x in items if x['role'] != 'столик']                 # столик — всегда: нет его — честный отказ
     sv2 = S.shadow_variant(GEO, {'id': 't2', 'style': 'сканди', 'items': no_table, 'decor': []}, [])
-    assert sv2['status'].startswith('нет уровня') and 'столик×1' in sv2['missing']
+    assert sv2['status'].startswith('нет уровня') and 'столик×1' in sv2['missing'] and not sv2['only_light']
+
+
+def test_tour_without_decor_places_empty_no_item():
+    """Тур с торшером, декора в данных нет: уровень есть, места подушек по норме (3), но ПУСТЫЕ — «нет в наборе» в `empty_deps`
+    (NO_ITEM) и пустым кружком на схеме; экран ТВ (непродаваемое) — не в счёт."""
+    sv = S.shadow_variant(GEO, {'id': 't', 'style': 'сканди', 'items': ITEMS, 'decor': []}, [])
+    assert (sv['tpl'], sv['level'], sv['status']) == ('LR-C1', 'SD', 'OK'), sv['tried']
+    pil = [p for p in sv['deps'] if p.role == 'подушка']
+    assert len(pil) == 3 and all(S.is_no_item(p) for p in pil)        # товаров не знаем — по норме: диван 198 см — 3
+    no = {e['place']: e for e in sv['empty_deps'] if e['code'] == S.NO_ITEM}
+    assert no['soft.pillows']['n'] == 3 and 'нет в наборе' in no['soft.pillows']['message']
+    assert not any(p.priced is False and p.slot_instance_id.split('#')[0] in no for p in sv['deps'])
+
+
+def test_demo_set_with_decor_has_no_empty_places():
+    """/demo-набор с декором: у мест мелочей есть товар — пустых «нет в наборе» нет (схема рисует их заполненными)."""
+    full = DECOR + [{'role': r, 'sku': {'name': r, 'w': w, 'd': w, 'h': h, 'price': 500}} for r, w, h in (('плед', 130, 2), ('люстра', 60, 40))]
+    sv = S.shadow_variant(GEO, {'id': 'set1', 'style': 'сканди', 'items': ITEMS, 'decor': full}, [])
+    assert sv['status'] == 'OK' and [e for e in sv['empty_deps'] if e['code'] == S.NO_ITEM] == []
+
+
+def test_rug_drawn_first_under_furniture():
+    """Ковёр на схеме — первым (под мебелью): иначе закрывает журнальный столик и ваза «висит» на ковре."""
+    sv = S.shadow_variant(GEO, {'id': 'set1', 'style': 'сканди', 'items': ITEMS, 'decor': DECOR}, [])
+    order = [S.base_role(p.role) for p in S.floor_draw_order(sv['floor'])]
+    assert order[0] == 'ковёр' and order.index('столик') > order.index('ковёр')
+
+
+def test_only_light_summary_line():
+    """Строка-итог отчёта: «не хватает ТОЛЬКО света: N туров» + стили с торшерами каталога и банка."""
+    items = [x for x in ITEMS if x['role'] != 'торшер']
+    sv = {**S.shadow_variant(GEO, {'id': 't', 'style': 'сканди', 'items': items, 'decor': []}, []), 'src': 'x'}
+    L = S.light_summary([sv], {'sets': {'сканди': {'n': 21, 'торшер': 3, 'комод': 15}}, 'catalog': {'сканди': 11}})
+    assert 'ТОЛЬКО света (торшер или комод + лампа): 1 туров' in L[0]
+    assert any(ln.startswith('| сканди | 1 | 21 | 3 | 15 | 11 |') for ln in L)
+    assert any('стилей без торшера в каталоге: нет' in ln for ln in L)
+    assert S.light_label(['кресло×1', 'комод×1']) == ['кресло×1', 'свет (торшер или комод + лампа)']
+    assert S.light_label(['столик×1']) == ['столик×1']
 
 
 def test_area_counts_annex_but_not_corridor_stub():

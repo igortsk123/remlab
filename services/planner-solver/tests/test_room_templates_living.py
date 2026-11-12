@@ -269,16 +269,26 @@ def _found(have: dict):
     return lambda places: {p["id"]: min(p.get("count", 1), have.get(key(p), 0)) for p in places if p["kind"] == "slot"}
 
 
+def test_by_set_light_required_no_light_no_level():
+    """Свет обязателен (таблица Codex, T-20261112-71/2): нет ни торшера, ни комода — годных уровней нет, у каждого уровня
+    LR-M1 не хватает только места группы света (дыра набора, паспорт её не прячет)."""
+    good, bad = RT.levels_by_set(RT.load("living"), FULL, _found({**NEED_M1, "plant.planter": 1}))
+    assert good == []
+    m1 = [b for b in bad if b["tpl"] == "LR-M1"]
+    assert m1 and all(b["missing"] and all(x.startswith("light.") for x in b["missing"]) for b in m1), m1
+
+
 def test_by_set_optional_role_absent_place_stays_empty():
-    """Нет торшера и комода (свет — по желанию), нет стола и стульев в гостиной (не кухня) — уровень всё равно годен, места
-    пусты; лампа уходит вместе с комодом, поэтому уровень с торшером (одно пустое место) раньше уровня с комодом."""
-    good, _ = RT.levels_by_set(RT.load("living"), FULL, _found({**NEED_M1, "plant.planter": 1}))
+    """Есть торшер, нет стола и стульев в гостиной (не кухня) — уровень годен, места стола пусты; уровень с торшером (D2) —
+    первым: «комод + лампа» без комода не годен (свет обязателен)."""
+    good, _ = RT.levels_by_set(RT.load("living"), FULL, _found({**NEED_M1, "plant.planter": 1, "light.floor_lamp": 1}))
     first = good[0]
     assert (first["tpl"], first["level"]) == ("LR-M1", "D2"), [(g["tpl"], g["level"], g["empty"]) for g in good[:4]]
-    assert set(first["empty"]) == {"light.floor_lamp×1", "dining.table×1", "dining.chairs×2"}
+    assert set(first["empty"]) == {"dining.table×1", "dining.chairs×2"}
     ids = {p["id"] for p in first["places"]}
-    assert not ids & {"light.floor_lamp", "dining.table", "dining.chairs", "ceiling.pendant"}
-    assert {"seating.sofa", "soft.pillows", "art.art", "vase.vase"} <= ids
+    assert not ids & {"dining.table", "dining.chairs", "ceiling.pendant"}
+    assert {"seating.sofa", "light.floor_lamp", "soft.pillows", "art.art", "vase.vase"} <= ids
+    assert all("light.dresser" not in {p["id"] for p in g["places"]} for g in good)
 
 
 def test_by_set_fewer_empty_first_then_passport_order():
@@ -298,9 +308,13 @@ def test_by_set_required_role_absent_next_level_then_honest_refusal():
     assert good == []
     m1 = [b for b in bad if b["tpl"] == "LR-M1"]
     assert m1 and all("seating.armchair×1" in b["missing"] for b in m1)
-    # меньше 16 м²: кресла в составе нет, кашпо и стол — по желанию → годны все малые; меньше всего пустого у SE (без стола)
-    good, _ = RT.levels_by_set(RT.load("living"), {"area_m2": 14.4, "aspect": 1.35}, _found(have))
-    assert [(g["tpl"], g["level"], g["empty"]) for g in good[:1]] == [("LR-C1", "SE", ["light.floor_lamp×1"])]
+    # меньше 16 м²: кресла в составе нет, кашпо и стол — по желанию; свет обязателен (T-71/2) — без него малым уровням не годно
+    small = {"area_m2": 14.4, "aspect": 1.35}
+    good, _ = RT.levels_by_set(RT.load("living"), small, _found(have))
+    assert good == []
+    good, _ = RT.levels_by_set(RT.load("living"), small, _found({**have, "light.floor_lamp": 1}))   # торшер — меньше пустого у SE
+    assert [(g["tpl"], g["level"], g["empty"]) for g in good[:1]] == [("LR-C1", "SE", [])]
+    good, _ = RT.levels_by_set(RT.load("living"), small, _found({**have, "light.dresser": 1}))      # комод — уровни с лампой
     sa = next(g for g in good if g["tpl"] == "LR-C1" and g["level"] == "SA")
     assert "plant.planter×1" in sa["empty"]
 
