@@ -282,7 +282,7 @@ describe.skipIf(!URL)("очередь пробы (real postgres)", () => {
     const up = await upload(new Request("http://app/api/trial", { method: "POST", body: fd, headers: { "x-forwarded-for": "9.9.9.1" } }));
     expect(up.status).toBe(201);
     expect(up.headers.get("referrer-policy")).toBe("no-referrer");
-    const { id } = (await up.json()) as { id: string };
+    const { id, editKey } = (await up.json()) as { id: string; editKey: string };
     expect(id).toMatch(L.token.TOKEN_RE);
 
     const v = await view(new Request("http://app/x"), ctx(id));
@@ -316,11 +316,14 @@ describe.skipIf(!URL)("очередь пробы (real postgres)", () => {
     expect(await again.json()).toMatchObject({ ok: true, repeated: true });
     expect((await jpost(resR, { ...lease, result: sampleResult({ costUsd: 0.05 }) })).status).toBe(409);
 
-    const r1 = await result(new Request("http://app/x"), ctx(id));
+    // до «Подтвердить планировку» результат — только по ключу агента (T-20261112-40, `buyer-gate.ts`); 304 — тоже после ворот
+    expect((await result(new Request("http://app/x"), ctx(id))).status).toBe(403);
+    expect((await result(new Request("http://app/x", { headers: { "if-none-match": '"v1"' } }), ctx(id))).status).toBe(403);
+    const r1 = await result(new Request(`http://app/x?k=${editKey}`), ctx(id));
     expect(r1.status).toBe(200);
     expect(r1.headers.get("etag")).toBe('"v1"');
     expect(((await r1.json()) as { result: { version: number } }).result.version).toBe(1);
-    expect((await result(new Request("http://app/x", { headers: { "if-none-match": '"v1"' } }), ctx(id))).status).toBe(304);
+    expect((await result(new Request(`http://app/x?k=${editKey}`, { headers: { "if-none-match": '"v1"' } }), ctx(id))).status).toBe(304);
   });
 
   const mkUpload = (ip: string, extra: Record<string, string> = {}) => {

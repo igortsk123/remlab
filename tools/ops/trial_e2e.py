@@ -89,6 +89,7 @@ class Run:
     temp: str
     input: str
     id: str | None = None
+    key: str = ""  # ключ агента из ответа загрузки (`editKey`): `/result` до подтверждения планировки — только с ним (T-20261112-40)
     outcome: str = "pending"  # done | failed:<code> | refused:<http>:<error> | upload_error | client_timeout | no_worker
     upload_sec: float | None = None
     client_sec: float | None = None
@@ -258,6 +259,7 @@ class Series:
             js = as_json(raw)
             if code == 201 and js.get("id"):
                 run.id, run.upload_sec = js["id"], round(time.time() - t0, 3)
+                run.key = str(js.get("editKey") or "")
                 run.t0 = t0
                 self.last_upload = time.time()
                 self.jot("uploaded", run, http=code, upload_sec=run.upload_sec, bytes=len(data), input=run.input, temp=run.temp)
@@ -328,7 +330,7 @@ class Series:
 
     def fetch_result(self, run: Run) -> None:
         try:
-            code, _h, raw = self.http.req("GET", f"/api/trial/{run.id}/result")
+            code, _h, raw = self.http.req("GET", f"/api/trial/{run.id}/result" + (f"?k={run.key}" if run.key else ""))
         except (urllib.error.URLError, OSError):
             run.result_ok = False
             return
@@ -534,7 +536,7 @@ def main(argv: list[str] | None = None) -> int:
     runs = s.run()
     meta = {"when": datetime.now().isoformat(timespec="minutes"), "base": a.base, "plans": [i.name for i in items],
             "poll": a.poll, "gap": a.gap, "batch": a.batch, "abort": s.abort}
-    dicts = [asdict(r) for r in runs]
+    dicts = [{k: v for k, v in asdict(r).items() if k != "key"} for r in runs]   # ключ агента в журнал не пишется
     (outdir / "runs.json").write_text(json.dumps({"meta": meta, "runs": dicts}, ensure_ascii=False, indent=1), encoding="utf-8")
     print(write_report(outdir, dicts, meta))
     return 0 if all(r.outcome == "done" for r in runs) else 1

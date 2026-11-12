@@ -7,6 +7,7 @@ import path from "node:path";
 
 import type { TrialJobView } from "@/contracts/trial";
 import type { LatestBundle } from "@/lib/trial/repo-bundle";
+import { gateCheck, keyCookie, OPEN, type TourGate } from "@/lib/trial/buyer-gate";
 import { TRIAL_HEADERS, trialDemoDir, trialDir } from "@/lib/trial/config";
 import { validId } from "@/lib/trial/http";
 import { acceptsBrotli, brotliPage } from "@/lib/trial/tour-brotli";
@@ -76,6 +77,9 @@ export type TourDeps = {
   acceptEncoding?: string | null;
   /** Папка витрины (`trialDemoDir`): из её таблицы лёгких копий тур добирает модели, которых нет в закреплённой (T-23). */
   demoDir?: string;
+  /** Ворота ссылки покупателя (`buyer-gate.ts`, T-20261112-40): страница, данные и снимки — только агенту, пока не подтверждено.
+   *  Нет — открыто (юнит-тесты прочих веток); маршрут передаёт всегда. */
+  gate?: TourGate;
 };
 const NO_LATEST = async (): Promise<LatestBundle> => "not_ready";
 
@@ -118,10 +122,10 @@ function cached(body: Uint8Array | string, tag: string, type: string, deps: Tour
 }
 
 /** Страница тура: метка по телу; brotli, если клиент просит; с ключом `k` — не хранится (как раньше), без ключа — со сверкой. */
-async function pageResponse(out: string, deps: TourDeps): Promise<Response> {
+async function pageResponse(out: string, deps: TourDeps, cookie: string | null): Promise<Response> {
   const tag = contentTag(out);
   const br = acceptsBrotli(deps.acceptEncoding);
-  const h = headers({ "Content-Type": HTML, Vary: "Accept-Encoding" });
+  const h = headers({ "Content-Type": HTML, Vary: "Accept-Encoding", ...(cookie ? { "Set-Cookie": cookie } : {}) });
   if (!deps.keyed) {
     Object.assign(h, { "Cache-Control": REVALIDATE, ETag: br ? encodedTag(tag, "br") : tag });
     if (tagMatches(deps.ifNoneMatch, tag)) return new Response(null, { status: 304, headers: h });
@@ -132,6 +136,7 @@ async function pageResponse(out: string, deps: TourDeps): Promise<Response> {
 
 /** Тур не открывается: адрес страницы — человеку короткая страница (`tour-stub.ts`), машинным адресам — текст, как раньше. */
 function notOpen(page: boolean, status: number, body: string, kind: StubKind, id: string, deps: TourDeps): Response {
+  // `TRIAL_HEADERS` — `private, no-store`: та же ссылка скоро откроет тур (готов / подтверждён), заглушка из кэша не покажется
   if (!page) return text(status, body);
   const o = deps.stub ?? { lang: MARKET_LANG };
   return new Response(stubHtml(kind, id, tourHref(id, o.lang, o.k), o),
@@ -172,6 +177,10 @@ export async function tourResponse(id: string, parts: readonly string[], deps: T
       tourUpdate: view.tourUpdate };
     return new Response(JSON.stringify(v), { headers: headers({ "Content-Type": JSON_TYPE }) });
   }
+  // ворота покупателя — до любых данных тура: страница, `demo-data.json`, снимки карточек (код витрины и опрос версии — общие, без личного)
+  const personal = target.kind === "page" || target.kind === "data" || target.kind === "card";
+  const gate = personal && deps.gate ? await gateCheck(deps.gate, id, page) : OPEN;
+  if (!gate.open) return notOpen(page, 403, "not active", "inactive", id, deps);
   const dir = deps.dir ?? trialDir();
   const release = await releaseOf(dir, id, view, deps.pin);
   // задание идёт (или версия есть, а закрепить не вышло) — «готовится»; закрыто без тура — «не получилось»
@@ -182,7 +191,7 @@ export async function tourResponse(id: string, parts: readonly string[], deps: T
     if (!html) return notOpen(true, 404, "not ready", "wait", id, deps);
     // карта готовых снимков карточек — в саму страницу: карточка с картинкой с первого кадра (T-20261112-29)
     const out = injectTour(html.toString("utf8"), id, view.resultVersion, await pageCards(dir, id));
-    return pageResponse(out, deps);
+    return pageResponse(out, deps, gate.pass ? keyCookie(id, gate.pass, deps.gate?.secure ?? false) : null);
   }
   if (target.kind === "data") {
     const data = await readTourData(dir, id, deps.latest ?? NO_LATEST);

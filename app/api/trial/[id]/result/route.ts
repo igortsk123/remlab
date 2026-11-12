@@ -1,4 +1,5 @@
 import { guard } from "@/lib/ratelimit/http";
+import { apiOpen } from "@/lib/trial/buyer-gate";
 import { TRIAL_HEADERS } from "@/lib/trial/config";
 import { fail, trialJson, validId } from "@/lib/trial/http";
 import { jobResult } from "@/lib/trial/repo-public";
@@ -16,6 +17,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   if (!r) return fail(404, "not_found");
   if (r === "expired") return fail(410, "expired");
   if (r === "not_ready") return fail(404, "not_ready");
+  // ворота покупателя (T-20261112-40, `buyer-gate.ts`): геометрия плана — до подтверждения только по ключу агента `?k=`
+  if (!(await apiOpen(req, id))) return fail(403, "not_active");
   const etag = `"v${r.version}"`;
   if (req.headers.get("if-none-match") === etag) {
     return new Response(null, { status: 304, headers: { ...TRIAL_HEADERS, ETag: etag } });

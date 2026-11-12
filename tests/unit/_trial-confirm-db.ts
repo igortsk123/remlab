@@ -134,6 +134,42 @@ export function confirmDbTests(c: () => Ctx): void {
       expect((await get("rebuild-status", id)).body).toMatchObject({ rebuild: { status: "queued", total: 0, done: 0, etaS: expect.any(Number) } });
     });
 
+    // T-20261112-40 (план trial-buyer-gate-01): ссылка покупателя закрыта до подтверждения — и тур, и API данных; ключ агента проходит
+    it("ворота покупателя: до кнопки без ключа — 403 (тур, result, bundle), с ключом — открыто; после кнопки — открыто всем", async () => {
+      const id = await doneJob();
+      const { tourAccess } = await import("@/lib/trial/buyer-gate");
+      const tour = await import("@/app/try/[id]/tour/[[...path]]/route");
+      const res = await import("@/app/api/trial/[id]/result/route");
+      const bun = await import("@/app/api/trial/[id]/bundle/route");
+      const at = (u: string) => new Request(`http://app${u}`, { headers: { "x-forwarded-for": `10.40.${n % 250}.${++n % 250}` } });
+      const page = async (q = "") => (await tour.GET(at(`/try/${id}/tour${q}`), { params: Promise.resolve({ id, path: [] }) })).status;
+      const data = async (q = "") => (await tour.GET(at(`/try/${id}/tour/demo-data.json${q}`),
+        { params: Promise.resolve({ id, path: ["demo-data.json"] }) })).status;
+      const api = async (m: typeof res | typeof bun, q = "") => (await m.GET(at(`/api/trial/${id}/x${q}`), { params: Promise.resolve({ id }) })).status;
+      expect(await tourAccess(id)).toEqual({ keyHash: expect.stringMatching(/^[0-9a-f]{64}$/), confirmed: false });
+      expect(await page()).toBe(403);
+      expect(await data()).toBe(403);
+      expect(await api(res)).toBe(403);
+      expect(await api(bun)).toBe(403);
+      expect(await page(`?k=${"D".repeat(22)}`)).toBe(403);           // чужой ключ
+      expect(await page(`?k=${KEY}`)).not.toBe(403);
+      expect(await data(`?k=${KEY}`)).not.toBe(403);
+      expect(await api(res, `?k=${KEY}`)).toBe(200);
+      expect(await api(bun, `?k=${KEY}`)).not.toBe(403);
+      // черновик правки — ещё не подтверждение
+      expect((await post("room-edit", id, draft())).status).toBeLessThan(300);
+      expect((await tourAccess(id))?.confirmed).toBe(false);
+      expect(await post("confirm", id, confirm())).toMatchObject({ status: 202 });
+      expect((await tourAccess(id))?.confirmed).toBe(true);           // сразу с нажатия, пересборка ещё в очереди
+      expect(await page()).not.toBe(403);
+      expect(await data()).not.toBe(403);
+      expect(await api(res)).toBe(200);
+      expect(await api(bun)).not.toBe(403);
+      // задание без ключа (старое): подтвердить некому — открыто
+      const { id: old } = await c().seed();
+      expect(await tourAccess(old)).toEqual({ keyHash: null, confirmed: false });
+    });
+
     it("публикация не теряет правку, пришедшую во время пересборки: она остаётся черновиком, свои — built", async () => {
       const id = await doneJob();
       await post("room-edit", id, draft());

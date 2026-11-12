@@ -21,13 +21,15 @@ export const OPEN_TOUR_DELAY_MS = 2500;
 // scaleOk — масштаб не not_verified; scaleArea — он по общей площади (`area`): комнаты обставлены, размеры примерные — мягкая строка
 type Summary = { rooms: number; scaleOk: boolean; scaleArea: boolean };
 
-function useSummary(id: string, version: number): Summary | null {
+// `k` — ключ агента: до «Подтвердить планировку» результат отдаётся только с ним (`lib/trial/buyer-gate.ts`, T-20261112-40)
+function useSummary(id: string, version: number, k: string | null): Summary | null {
   const [sum, setSum] = useState<Summary | null>(null);
   useEffect(() => {
     let alive = true;
     void (async () => {
       try {
-        const res = await fetch(`/api/trial/${encodeURIComponent(id)}/result`, { cache: "no-store" });
+        const q = k && /^[A-Za-z0-9_-]{22}$/.test(k) ? `?k=${k}` : "";
+        const res = await fetch(`/api/trial/${encodeURIComponent(id)}/result${q}`, { cache: "no-store" });
         if (!res.ok) return;
         const r = floorplanResult.parse(((await res.json()) as { result?: unknown }).result);
         if (alive) setSum({ rooms: r.panels.reduce((n, p) => n + p.rooms.length, 0), scaleOk: r.scale.status !== "not_verified",
@@ -35,7 +37,7 @@ function useSummary(id: string, version: number): Summary | null {
       } catch { /* сводки нет — карточка без неё */ }
     })();
     return () => { alive = false; };
-  }, [id, version]);
+  }, [id, version, k]);
   return sum;
 }
 
@@ -46,7 +48,7 @@ export function TrialResult({ id, job, lang, steps, refresh }: Props) {
   // ключ правки агента едет из его ссылки `/try/<id>?k=…` в тур — без него «Обустроить» на странице нет (только просмотр)
   const k = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("k");
   const href = tourHref(id, lang, k);
-  const sum = useSummary(id, job.resultVersion);
+  const sum = useSummary(id, job.resultVersion, k);
   // Р2-текст: размеров нет — у агента окошко «напишите размеры»; сам в тур не уводим (он пишет), кнопка «Открыть тур» остаётся.
   // Однажды показанное окошко не прячем, пока агент на странице (опрос мог сменить признак, а он уже печатает).
   const [asked, setAsked] = useState(false);

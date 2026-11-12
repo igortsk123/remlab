@@ -33,6 +33,15 @@ try {
   // телефон: `isTouchUI` → лёгкие модели, как у карточки на телефоне (главный случай; компьютер берёт тот же кадр)
   const ctx = await b.newContext({ viewport: { width: 375, height: 667 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, locale: "ru-RU" });
   await ctx.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));   // это не посетитель
+  // тур до «Подтвердить планировку» агента без ключа закрыт (`lib/trial/buyer-gate.ts`, T-20261112-40): снимальщик проходит Bearer-ом
+  // воркера (окружение `cards.py`) — только к адресам этого тура на том же сервере, больше никуда
+  const TOKEN = process.env.TRIAL_WORKER_TOKEN || "";
+  const tourPath = new URL(URL0).pathname.replace(/\/?$/, "");
+  if (TOKEN && /^\/try\/[A-Za-z0-9_-]{22}\/tour$/.test(tourPath)) {
+    const origin = new URL(URL0).origin;
+    await ctx.route((u) => u.origin === origin && (u.pathname === tourPath || u.pathname.startsWith(tourPath + "/")),
+      (r) => r.continue({ headers: { ...r.request().headers(), authorization: `Bearer ${TOKEN}` } }));
+  }
   if (BUNDLE) {
     const body = fs.readFileSync(BUNDLE);
     await ctx.route((u) => u.pathname.endsWith("/demo-data.json"), (r) => r.fulfill({ status: 200, contentType: "application/json", body }));

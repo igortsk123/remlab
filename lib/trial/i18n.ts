@@ -82,6 +82,8 @@ const en = {
   tour: {
     waitTitle: "Your tour is still being prepared", waitText: "Please refresh the page in a minute.", refresh: "Refresh",
     progress: "See progress", failText: "Please upload the plan again.", status: "Upload page",
+    // ссылка покупателя до «Подтвердить планировку» агента (T-20261112-40, текст владельца TG 1780)
+    inactive: "This link isn’t active yet — please contact your agent",
   },
   done: {
     title: "Your 3D is ready", opening: "Opening the tour…", open: "Open the tour", history: "How it went",
@@ -139,6 +141,7 @@ const ru: TrialText = {
   tour: {
     waitTitle: "Тур ещё готовится", waitText: "Обновите страницу через минуту.", refresh: "Обновить",
     progress: "Ход работы", failText: "Загрузите план ещё раз.", status: "Страница загрузки",
+    inactive: "Ссылка не активирована, обратитесь к вашему менеджеру",
   },
   done: {
     title: "3D готово", opening: "Открываем тур…", open: "Открыть тур", history: "Как шла работа",

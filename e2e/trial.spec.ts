@@ -220,8 +220,49 @@ test("серый тур: пока версии нет — тур «готови�
   await expect(page.getByTestId("trial-done").getByRole("link", { name: "Открыть тур" })).toBeVisible({ timeout: 10_000 });
   await page.goto(tour);
   await expect(page.locator("body[data-e2e-tour]")).toBeAttached();
-  expect((await request.get(`${TRIAL_BASE}/try/${id}/tour/demo-data.json`)).status()).toBe(200);
+  // данные: страница агента — по cookie-пропуску (закреплённая страница грузит их без ключа); чужой запрос без ключа — 403 (T-20261112-40)
+  expect((await page.request.get(`${TRIAL_BASE}/try/${id}/tour/demo-data.json`)).status()).toBe(200);
+  expect((await request.get(`${TRIAL_BASE}/try/${id}/tour/demo-data.json`)).status()).toBe(403);
 });
+
+// T-20261112-40 (план trial-buyer-gate-01, владелец 12.11 TG 1778–1780): ссылка покупателя не работает, пока агент не подтвердил планировку
+test("ссылка покупателя: до «Подтвердить планировку» — «Ссылка не активирована», данных нет; после — тот же адрес открывает тур",
+  async ({ page, browser, request }) => {
+    const id = await upload(page, "", "ru");
+    const k = new URL(page.url()).searchParams.get("k")!;
+    const lease = await claim(request, id);
+    await publish(request, lease, "awaiting_check");
+    await finish(request, lease, JSON.parse(await fs.readFile(FIXTURE, "utf8")));
+    const buyerUrl = `${TRIAL_BASE}/try/${id}/tour/?quiz=1&lang=ru`;
+    const buyer = await browser.newContext();                       // покупатель — свой браузер, без cookie агента
+    const bp = await buyer.newPage();
+    const r0 = await bp.goto(buyerUrl);
+    expect(r0?.status()).toBe(403);
+    await expect(bp.getByRole("heading", { name: "Ссылка не активирована, обратитесь к вашему менеджеру" })).toBeVisible();
+    await expect(bp.locator("body[data-e2e-tour]")).toHaveCount(0);
+    for (const p of ["demo-data.json", ""]) expect((await request.get(`${TRIAL_BASE}/try/${id}/tour/${p}`)).status()).toBe(403);
+    expect((await request.get(`${TRIAL_BASE}/api/trial/${id}/result`)).status()).toBe(403);
+    expect((await request.get(`${TRIAL_BASE}/api/trial/${id}/bundle`)).status()).toBe(403);
+    const en = await request.get(`${TRIAL_BASE}/try/${id}/tour/?lang=en`);
+    expect(await en.text()).toContain("This link isn’t active yet — please contact your agent");
+    // агент по своей ссылке — тур; в ТОМ ЖЕ браузере ссылка покупателя — по-прежнему заглушка (cookie открывает только данные)
+    await page.goto(`${TRIAL_BASE}/try/${id}/tour/?lang=ru&k=${k}`);
+    await expect(page.locator("body[data-e2e-tour]")).toBeAttached();
+    expect((await page.request.get(`${TRIAL_BASE}/try/${id}/tour/demo-data.json`)).status()).toBe(200);
+    expect((await page.goto(buyerUrl))?.status()).toBe(403);
+    // «Подтвердить планировку» агентом
+    const ver = ((await (await request.get(`${TRIAL_BASE}/try/${id}/tour/version.json`)).json()) as { bundle: number }).bundle;
+    const c = await request.post(`${TRIAL_BASE}/api/trial/${id}/confirm`,
+      { data: { k, request_id: `e2e-gate-${id.slice(0, 8)}`, base_version: ver, rooms_ok: [] } });
+    expect(c.status()).toBe(202);
+    const r1 = await bp.goto(buyerUrl);
+    expect(r1?.status()).toBe(200);
+    await expect(bp.locator("body[data-e2e-tour]")).toBeAttached();
+    expect((await request.get(`${TRIAL_BASE}/try/${id}/tour/demo-data.json`)).status()).toBe(200);
+    expect((await request.get(`${TRIAL_BASE}/api/trial/${id}/result`)).status()).toBe(200);
+    await buyer.close();
+    await pg`update trial_rebuilds set status = 'failed' where job_id = ${id} and status in ('queued', 'running')`; // воркера пересборки в e2e нет
+  });
 
 test("задание закрыто без версии данных → «не получилось собрать тур» без перехода; адрес тура — страница, не «not ready»", async ({ page, request }) => {
   const id = await upload(page);
@@ -232,12 +273,15 @@ test("задание закрыто без версии данных → «не 
   await page.waitForTimeout(3500); // дольше паузы автоперехода (2,5 с)
   expect(new URL(page.url()).pathname).toBe(`/try/${id}`);
   await expect(page.getByRole("main").getByRole("link", { name: "Upload a floor plan" })).toHaveAttribute("href", "/try?lang=en");
-  const r = await page.goto(`${TRIAL_BASE}/try/${id}/tour/?lang=en`);
+  const k = new URL(page.url()).searchParams.get("k")!;
+  // покупателю тур не подтверждён — «не активирована» (T-20261112-40); агенту по ключу — «не получилось собрать»
+  expect((await request.get(`${TRIAL_BASE}/try/${id}/tour/?lang=en`)).status()).toBe(403);
+  const r = await page.goto(`${TRIAL_BASE}/try/${id}/tour/?lang=en&k=${k}`);
   expect(r?.status()).toBe(404);
   await expect(page.getByRole("heading", { name: "We couldn't build this tour" })).toBeVisible();
   await expect(page.getByText("not ready")).toHaveCount(0);
   await page.getByRole("link", { name: "Upload page" }).click();
-  await page.waitForURL(new RegExp(`/try/${id}\\?lang=en$`));
+  await page.waitForURL(new RegExp(`/try/${id}\\?k=${k}&lang=en$`));       // ключ агента едет обратно на страницу задания
   const miss = await request.get(`${TRIAL_BASE}/try/${"Z".repeat(22)}/tour/?lang=ru`);
   expect(miss.status()).toBe(404);
   expect(await miss.text()).toContain("Тур не найден");

@@ -1813,7 +1813,10 @@ const approxTag=id=>roomConsent(id)?`<span class="tr-approx" data-consent="1">${
 // ОДНА ТОЧКА-ПРИЗНАК: размеры комнаты подтверждены агентом. Сейчас всегда «нет»; часть 2 плана `trial-confirm-plan-01` (кнопка
 // «Подтвердить планировку», флаг комнаты `USER_DIMS`) вернёт здесь «да» — и подсказка у этой комнаты пропадёт
 function trRoomConfirmed(id){ return !!(TCF.ed&&(TCF.ed.roomsOk||[]).indexOf(id)>=0); }   // галочка «размеры верны» (`GET edits`)
-const confirmTag=id=>(roomConsent(id)||roomApprox(id))&&!trRoomConfirmed(id)
+// ПОКУПАТЕЛЬ (без ключа агента, T-20261112-40, владелец TG 1778): подтвердить не может, а тур ему открыт только после подтверждения
+// агентом — зова нет; «Размеры примерные» — лишь у комнаты, обставленной «как есть» (согласие агента)
+const confirmTag=id=>!trKey()?(roomConsent(id)?`<span class="tr-approx" data-consent="1">${consentTxt()}</span>`:'')
+  :(roomConsent(id)||roomApprox(id))&&!trRoomConfirmed(id)
   ?`<button class="tr-approx tr-confirm" type="button" data-tr-confirm="1">${TR_EN()?'Confirm the floor plan':'Подтвердите планировку'}</button>`:'';
 // на вкладку «План квартиры»: окно комнаты закрываем, страницу — наверх (там и правят планировку)
 function trGoPlan(){
@@ -10707,11 +10710,12 @@ function trPhotoStubUi(){
   if(el&&el.dataset.key===key)return;
   if(el)el.remove();
   el=document.createElement('div'); el.className='vtrph'; el.dataset.key=key; el.dataset.ok=String(ok);
+  // покупатель (T-20261112-40): «подтвердите планировку» ему не говорим — подтвердить он не может; только «фото ещё нет»
   el.innerHTML=ok?`<div class="vphcard"><b>${trPhT('ready')}</b><button class="btn primary" type="button" data-trph="shot">${TR_EN()?CTA_REAL_EN:CTA_REAL}</button></div>`
-    :`<div class="vphcard"><b>${trPhT('ask')}</b><button class="btn primary" type="button" data-trph="plan">${trPhT('go')}</button>`+
-      (trKey()?'':`<small>${trPhT('agent')}</small>`)+`</div>`;
+    :!trKey()?`<div class="vphcard"><b>${trPhT('ready')}</b></div>`
+    :`<div class="vphcard"><b>${trPhT('ask')}</b><button class="btn primary" type="button" data-trph="plan">${trPhT('go')}</button></div>`;
   const b=el.querySelector('button');
-  b.onclick=()=>{ if(b.dataset.trph==='shot'){if(!VJ.job)vwRealistic(); return;} trGoPlan(); };
+  if(b)b.onclick=()=>{ if(b.dataset.trph==='shot'){if(!VJ.job)vwRealistic(); return;} trGoPlan(); };
   wrap.appendChild(el);
 }
 function vwMode(m){
