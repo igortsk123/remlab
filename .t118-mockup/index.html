@@ -30,6 +30,7 @@
   /* разделы — ряд «таблеток», на телефоне прокручивается вбок */
   .tabs { position: sticky; top: 0; z-index: 5; background: var(--bg); margin: 0 -16px; padding: 8px 16px;
     display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--line); }
+  @media (min-width: 900px) { .tabs { flex-wrap: wrap; overflow: visible; } } /* на компьютере все разделы видны сразу */
   .tabs::-webkit-scrollbar { display: none; }
   .tab { flex: none; display: inline-flex; align-items: baseline; gap: 6px; padding: 6px 10px; border-radius: 999px;
     border: 1px solid var(--line2); background: var(--card); color: var(--text2); font-size: 13px; cursor: pointer; white-space: nowrap; }
@@ -77,7 +78,7 @@
   .v.ok.on { background: var(--ok); border-color: var(--ok); color: #fff; }
   .v.bad.on { background: var(--bad); border-color: var(--bad); color: #fff; }
   .note { position: relative; }
-  .note textarea { width: 100%; min-height: 40px; resize: vertical; border: 1px solid var(--line2); border-radius: 8px; padding: 9px 10px 18px;
+  .note textarea { width: 100%; min-height: 40px; resize: none; overflow: hidden; border: 1px solid var(--line2); border-radius: 8px; padding: 9px 10px 18px;
     font: inherit; font-size: 14px; color: var(--text); background: var(--card); }
   .note textarea:focus { outline: 2px solid var(--brand50); border-color: var(--brand); }
   .saved { position: absolute; right: 8px; bottom: 6px; font-size: 11px; color: var(--text3); }
@@ -112,6 +113,8 @@
   .zfoot .v.ok.on { background: var(--ok); border-color: var(--ok); color: #fff; }
   .zfoot .v.bad.on { background: var(--bad); border-color: var(--bad); color: #fff; }
   .hint { text-align: center; font-size: 11px; color: #a8a29e; }
+  .hint.pc { display: none; }
+  @media (min-width: 900px) { .hint.ph { display: none; } .hint.pc { display: block; } }
   .mock { font-size: 11px; color: var(--text3); margin-top: 18px; text-align: center; }
 </style>
 </head>
@@ -144,7 +147,8 @@
   <div class="zfoot">
     <div class="seg" id="zseg"><button data-z="photo">фото</button><button data-z="model">модель</button></div>
     <div class="row" id="zv"></div>
-    <div class="hint">щипком увеличить · смахнуть вбок: фото / модель</div>
+    <div class="hint ph">щипком увеличить · смахнуть вбок: фото / модель</div>
+    <div class="hint pc">колёсиком увеличить · Esc закрыть · ← → соседняя карточка</div>
   </div>
 </div>
 
@@ -218,6 +222,10 @@ document.getElementById('grid').innerHTML = (ITEMS[tab] || []).map((it, i) => `
     <div class="note"><textarea rows="1" placeholder="Комментарий, необязательно">${it.note}</textarea>${savedTxt[it.saved]}</div>
     ${it.state ? `<span class="state bad">${it.state}</span>` : ''}
   </section>`).join('');
+
+// поле комментария растёт по тексту (без ручки размера: она наезжала на «сохранено»)
+const grow = (t) => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 2 + 'px'; };
+document.querySelectorAll('.note textarea').forEach((t) => { grow(t); t.addEventListener('input', () => grow(t)); });
 
 function openZoom(i, which) {
   const it = ITEMS[tab][i];
