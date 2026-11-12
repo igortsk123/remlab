@@ -591,11 +591,15 @@ def merge_want(entries: list) -> list:
     return sorted(out.values(), key=lambda e: (WANT_ORDER[e['why']], -len(e['variants']), e['sku']))
 
 
-def want_rows(skus: list, room: str, fetch, missing_after: int = 1) -> dict:
-    """sku → факты для решения: карточка комнаты, фото текущей ревизии и его вердикт, фото уже сделанных мешей. SELECT."""
-    import preprocess as PRE
+def want_rows(skus: list, room: str, fetch, missing_after: int = 1, assessor: str | None = None) -> dict:
+    """sku → факты для решения: карточка комнаты, фото текущей ревизии и его вердикт, фото уже сделанных мешей. SELECT.
+    assessor — версия оценщика вырезки; по умолчанию `preprocess.ASSESSOR_VERSION` (импорт тянет torch — селфтест передаёт
+    свою строку, в CI scout-orient torch нет)."""
     if not skus:
         return {}
+    if assessor is None:
+        import preprocess as PRE
+        assessor = PRE.ASSESSOR_VERSION
     arr = ','.join("'" + s.replace("'", "''") + "'" for s in skus)
     rows = fetch(f"""select s.sku, r.role, r.name, r.w_cm, r.d_cm, r.h_cm, coalesce(r.footprint_ok, false),
         (r.price_rub is not null and coalesce(r.image_url_hd, r.image_url) is not null and r.missing_runs < {int(missing_after)}),
@@ -606,7 +610,7 @@ def want_rows(skus: list, room: str, fetch, missing_after: int = 1) -> dict:
       left join room_catalog r on r.room = '{room}' and r.shop_mid || ':' || r.external_id = s.sku
       left join products p on p.shop_mid || ':' || p.external_id = s.sku
       left join product_photo_current pc on pc.sku = s.sku
-      left join photo_assessment a on a.source_sha = pc.source_sha and a.assessor_version = '{PRE.ASSESSOR_VERSION}'""")
+      left join photo_assessment a on a.source_sha = pc.source_sha and a.assessor_version = '{assessor}'""")
     t = lambda v: v in (True, 't')  # noqa: E731
     f = lambda v: float(v) if v not in (None, '') else None  # noqa: E731
     out = {}
@@ -707,10 +711,12 @@ def evaluate(e: dict, F: dict, sibs: list, room: str, job_of, own: bool = False)
                                             'семьи — нет в каталоге комнаты, негодно или уже с мешем')
 
 
-def want_demand(room: str, entries: list, price: float, fetch=None, binds: dict | None = None) -> dict:
+def want_demand(room: str, entries: list, price: float, fetch=None, binds: dict | None = None,
+                assessor: str | None = None) -> dict:
     """Спрос по вариантам витрины: строки → решения → задания по приоритету (без потолка — его режет commit/dry).
     binds — привязка {sku: строка} (`room_bindings.load_db`); по ней вариант, отмеченный сторожем цвета, остаётся СОБОЙ
-    (`colour_own`, как в спросе по слотам), а не уходит к представителю с мешем другого цвета."""
+    (`colour_own`, как в спросе по слотам), а не уходит к представителю с мешем другого цвета. assessor — в `want_rows`
+    (None — боевая версия оценщика из `preprocess`)."""
     import room_catalog as RC
     import room_mesh_jobs as RMJ
     fetch = fetch or __import__('catalog_items').fetch
@@ -728,7 +734,7 @@ def want_demand(room: str, entries: list, price: float, fetch=None, binds: dict 
     own = {e['sku'] for e in E0 if colour_own(binds.get(e['sku']))}
     # вариант семьи мешей (другой цвет) → представитель: меш один на семью (как в спросе по слотам); отмеченный сторожем
     # цвета — нет: ему нужен свой меш
-    r0 = want_rows(sorted({e['sku'] for e in E0}), room, fetch, mh)
+    r0 = want_rows(sorted({e['sku'] for e in E0}), room, fetch, mh, assessor)
     E1 = []
     for e in E0:
         rep = (r0.get(e['sku']) or {}).get('rep')
@@ -738,11 +744,11 @@ def want_demand(room: str, entries: list, price: float, fetch=None, binds: dict 
         E1.append(e)
     E = merge_want(E1)
     regen = [e['sku'] for e in E if e['why'] == 'regen']
-    base = want_rows([e['sku'] for e in E], room, fetch, mh)
+    base = want_rows([e['sku'] for e in E], room, fetch, mh, assessor)
     reps = sorted({(base.get(s) or {}).get('rep') or s for s in regen})
     S = siblings_of(reps, fetch)
     sib_all = sorted({x for v in S.values() for x in v} | set(reps))
-    F = dict(base, **{k: v for k, v in want_rows(sib_all, room, fetch, mh).items() if k not in base})
+    F = dict(base, **{k: v for k, v in want_rows(sib_all, room, fetch, mh, assessor).items() if k not in base})
     out, jobs, taken = [], [], set()
     for e in E:
         rep = (F.get(e['sku']) or {}).get('rep') or e['sku']
@@ -1574,8 +1580,8 @@ def _selftest() -> int:
     olive = [{'room': 'bedroom', 'sku': '1:v', 'role': 'комод', 'why': 'empty', 'variants': ['v']}]
     flag = {'1:v': {'status': 'blocked', 'via_family': True,
                     'reasons': ['family_colour_mismatch:зелёный→светлый', 'mesh_color_mismatch:dL+6,dab8']}}
-    Wf = want_demand('bedroom', olive, 1.4, fetch=fake_fetch, binds=flag)
-    Wn = want_demand('bedroom', olive, 1.4, fetch=fake_fetch, binds={})
+    Wf = want_demand('bedroom', olive, 1.4, fetch=fake_fetch, binds=flag, assessor='selftest')
+    Wn = want_demand('bedroom', olive, 1.4, fetch=fake_fetch, binds={}, assessor='selftest')
     ok('спрос по вариантам: оливковый товар при светлом меше семьи → свой меш (job на 1:v), без отметки → «меш есть» у представителя',
        [j['sku'] for j in Wf['jobs']] == ['1:v'] and Wf['rows'][0]['state'] == 'job'
        and not Wn['jobs'] and Wn['rows'][0]['sku'] == '1:r' and Wn['rows'][0]['state'] == 'has_mesh')
