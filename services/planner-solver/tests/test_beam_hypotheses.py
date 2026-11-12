@@ -93,3 +93,29 @@ def test_plan_key_prefers_canonical_over_tolerated_table():
     for src in (src_v1, src_v2):
         assert 'template_degradation(ps)' in src and 'lk[1:]' in src
         assert src.index('template_degradation(ps)') < src.index('lk[1:]'), 'деградация — до мягких термов'
+
+
+def test_light_missing_tier_prefers_light_over_dining():
+    """T-20261112-98: носитель света (торшер или комод под лампу, zones.json light_carriers) в банке есть, а в плане нет —
+    ярус light_missing=1; план со светом выигрывает у плана со столовой (стол — preferred, хранение в have не считалось),
+    но не у плана с лучшим маршрутом. Носителя в банке нет — ярус нейтрален (0 у всех)."""
+    from types import SimpleNamespace
+    from planner import zones as Z
+    from planner.models import Item, Placement
+
+    def _lay(*roles):
+        return SimpleNamespace(placements=[Placement(role=r, x=0, y=0, item=Item(role=r, w_cm=90, d_cm=45, h_cm=80))
+                                           for r in roles])
+    assert Z.light_carrier_roles() == {'торшер', 'комод'}
+    bank = [Item(role=r, w_cm=90, d_cm=45, h_cm=80) for r in ('диван', 'комод', 'стол обеденный')]
+    assert Z.light_missing(_lay('диван', 'стол обеденный'), bank) == 1
+    assert Z.light_missing(_lay('диван', 'комод'), bank) == 0
+    assert Z.light_missing(_lay('диван', 'торшер 2'), bank) == 0                 # базовая роль
+    assert Z.light_missing(_lay('диван'), bank[:1] + bank[2:]) == 0              # в банке нечем светить — нейтрально
+    assert Z.light_missing(_lay('диван'), None) == 0                             # старые вызовы без items
+    import inspect
+    src = inspect.getsource(Z.plan_key)
+    ret = src[src.index('return (hard'):]
+    assert ret.index('main_route_tier') < ret.index('light_missing') < ret.index('-covered_pref'), \
+        'свет — после маршрута, до богатства состава'
+    assert inspect.getsource(Z._solve_zoned_beam_inner).count('items=items)))') == 3     # все гипотезы beam — с банком

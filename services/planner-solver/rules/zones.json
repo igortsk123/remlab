@@ -1052,6 +1052,13 @@
    "light": "optional",
    "decor": "optional"
   },
+  "light_carriers": {
+   "roles": [
+    "торшер",
+    "комод"
+   ],
+   "_why": "T-20261112-98: паспорт гостиной (rules/room-templates/living.json, группа light) требует свет — торшер ИЛИ комод с лампой. Статус light=optional не штрафует план без света, а storage в ключе plan_key не учитывался, поэтому столовая (preferred) всегда вытесняла комод: в турах /try комод «passed_not_placed» в 27 из 30 прогонов. Ярус light_missing в plan_key: носитель света ЕСТЬ в банке, а в плане нет ни одного → план хуже. Стоит после маршрута (проход важнее) и до -covered_pref; недостижим ни в одной гипотезе → ярус одинаков у всех и нейтрален (как primary_sofa_missing)."
+  },
   "_status_why": "Пакет F свода №8 v2 §4/§7 (согласован 14.08): явные статусы зон вместо хардкода. required — зона ядра, гейт not_worse НЕ применяется (медиа/камин ставились безусловно и до этого — формализация; +tvw вейвер и last-attempt — часть required-семантики медиа). preferred — каскад+retry (dining: остров→edge→sacrifice, ADR-0096/0097; storage — ярусы ADR-0053). optional — только через гейт качества not_worse; отсутствие НЕ штрафуется (negative space легален, ADR-0095) | P0 свода №12: media/dining — дефолты, переопределяются scenario_needs (media_need/dining_need) на входе солвера.",
   "cardinality": {
    "media": {

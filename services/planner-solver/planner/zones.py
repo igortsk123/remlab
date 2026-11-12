@@ -1593,10 +1593,28 @@ def _main_path_violations(lay) -> int:
     return sum(1 for v in getattr(lay, 'violations', []) or [] if getattr(v, 'code', '') == 'MAIN_PATH_TIGHT')
 
 
-def plan_key(room: Room, lay, needs: dict, seat_rank: int = 0) -> tuple:
+def light_carrier_roles() -> set:
+    """Носители света гостиной (паспорт living.json, группа light): торшер или комод под лампу —
+    из rules/zones.json → zone_priority.light_carriers (T-20261112-98)."""
+    lc = (zone_rules().get('zone_priority', {}) or {}).get('light_carriers') or {}
+    return set(lc.get('roles') or ())
+
+
+def light_missing(lay, items) -> int:
+    """Ярус ключа (T-20261112-98): носитель света в банке есть, а в плане ни одного → 1.
+    Носителя нет в банке (или items не передан) — 0 у всех гипотез, ярус нейтрален."""
+    from .geometry import base_role as _br
+    carriers = light_carrier_roles()
+    if not carriers or not items or not any(_br(i.role) in carriers for i in items):
+        return 0
+    return 0 if any(_br(p.role) in carriers for p in lay.placements) else 1
+
+
+def plan_key(room: Room, lay, needs: dict, seat_rank: int = 0, items=None) -> tuple:
     """Ключ сравнения ГОТОВОГО плана (меньше — лучше):
-    (hard, missing_required, -covered_preferred, circulation, functional, zone_q, aesthetics).
-    Обязательность зон — из scenario_needs/zone_priority.status (данные)."""
+    (hard, missing_required, route, light_missing, -covered_preferred, …, circulation, functional,
+    zone_q, aesthetics). Обязательность зон — из scenario_needs/zone_priority.status (данные);
+    light_missing — свет паспорта гостиной (торшер или комод под лампу), если носитель есть в банке."""
     from .score import score_layout
     from .validate import Severity
     ps = list(lay.placements)
@@ -1637,8 +1655,10 @@ def plan_key(room: Room, lay, needs: dict, seat_rank: int = 0) -> tuple:
     # ЦИРКУЛЯЦИЯ ВЫШЕ БОГАТСТВА (20.08): маршрут — не «лишний предмет», а условие пользования
     # комнатой; ярус стоит до -covered_pref/-seat_rank, иначе более богатая ступень выигрывает
     # у варианта с настоящим проходом (set5-trapezoid: 60 см против ≥75)
-    return (hard, missing_req, main_route_tier(room, lay), -covered_pref, -seat_rank, axis_cls,
-            _main_path_violations(lay), template_degradation(ps), _orphan) + tuple(lk[1:])
+    # СВЕТ (T-20261112-98): после маршрута (проход важнее), до богатства состава — иначе столовая
+    # (preferred) всегда вытесняла комод, единственный носитель света в наборах 17+ м²
+    return (hard, missing_req, main_route_tier(room, lay), light_missing(lay, items), -covered_pref,
+            -seat_rank, axis_cls, _main_path_violations(lay), template_degradation(ps), _orphan) + tuple(lk[1:])
 
 
 EXTERNAL_SEAT_ZONES = ('quiet', 'reading', 'bay_armchair')   # зоны, где кресло — полноценное место
@@ -1944,7 +1964,7 @@ def _solve_zoned_beam_inner(room: Room, items, **kw):
     if base_outs and base_outs[0].placements:
         _g0 = (base_gid or '').split('+')[0]
         cands.append(('greedy', base_gid, base_outs,
-                      plan_key(room, base_outs[0], needs, seat_rank=_rank.get(_g0, 0))))
+                      plan_key(room, base_outs[0], needs, seat_rank=_rank.get(_g0, 0), items=items)))
     # ступени лестницы (те же, что видит greedy) — верхние K_steps
     from .template import place_template as _pt
     # Кодекс (разбор dining 220→218): бюджет ступеней — по ступеням, реально давшим
@@ -2087,7 +2107,7 @@ def _solve_zoned_beam_inner(room: Room, items, **kw):
             _fam_done += 1
             _nm = f"{fam}:{g_['id']}#{getattr(blk[0], 'tpl_variant', '') or shapes_[0]}"
             cands.append((_nm, gid, outs,
-                          plan_key(room, outs[0], needs, seat_rank=_rank.get(g_['id'], 0))))
+                          plan_key(room, outs[0], needs, seat_rank=_rank.get(g_['id'], 0), items=items)))
             break                                # одна лучшая позиция на семейство
     # Q5 свода №13: сертификат ВТОРОГО POD (для 40+ м² — обязателен): full_valid | inventory_gap |
     # quality_rejected | template_infeasible | search_budget_exhausted — из записи семейства
@@ -2182,7 +2202,7 @@ def _solve_zoned_beam_inner(room: Room, items, **kw):
                     + ('/inst' if _mm == 'installation' else '')
                 _cert['budget']['attempted'] = _full_attempts
                 cands.append((_nm, gid, outs,
-                              plan_key(room, outs[0], needs, seat_rank=_rank.get(g['id'], 0))))
+                              plan_key(room, outs[0], needs, seat_rank=_rank.get(g['id'], 0), items=items)))
     cands = _signature_filter(room, cands)
     if not cands:
         return base_outs, base_gid
