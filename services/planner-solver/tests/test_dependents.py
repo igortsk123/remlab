@@ -170,14 +170,35 @@ def test_art_falls_to_next_carrier_when_wall_has_window():
     assert {a.parent_slot_instance_id for a in _by(res, "art.art#")} == {"light.dresser#0"}
 
 
-def test_art_rejects_composition_when_no_solid_wall():
-    """Окна над диваном и над комодом — уровень честно не годится (отказ с причиной), не «без картин»."""
+def test_art_empty_with_reason_when_no_solid_wall():
+    """Окна над диваном и над комодом: картины «условно обязательны при глухой стене» (T-71, `on_failure: leave_empty`) —
+    места нет, причина в `empty`, уровень остаётся; остальное стоит. Не молча: строка с кодом и местом."""
     places = _level("LR-C1", "A4")
     r = room(openings=[Opening(kind="window", wall="north", offset_cm=200, width_cm=100, sill_cm=85, height_cm=150),
                        Opening(kind="window", wall="east", offset_cm=120, width_cm=100, sill_cm=85, height_cm=150)])
     res = D.resolve(places, scene(places, r), r)
-    assert not res.ok and res.placements == []
-    assert res.reject["code"] == "WALL_NOT_SOLID" and res.reject["place"] == "art.art"
+    assert res.ok, res.reject
+    assert not _by(res, "art.art#") and _by(res, "soft.pillows#") and _by(res, "media.screen#")
+    assert [(e["code"], e["place"]) for e in res.empty] == [("WALL_NOT_SOLID", "art.art")]
+
+
+def test_reject_composition_still_rejects_whole_level():
+    """То же место с `reject_composition` — отказ уровня целиком, как раньше (правило не стало «тихо без»)."""
+    places = [{**p, "on_failure": "reject_composition"} if p["id"] == "art.art" else p for p in _level("LR-C1", "A4")]
+    r = room(openings=[Opening(kind="window", wall="north", offset_cm=200, width_cm=100, sill_cm=85, height_cm=150),
+                       Opening(kind="window", wall="east", offset_cm=120, width_cm=100, sill_cm=85, height_cm=150)])
+    res = D.resolve(places, scene(places, r), r)
+    assert not res.ok and res.placements == [] and res.reject["code"] == "WALL_NOT_SOLID"
+
+
+def test_places_not_more_than_goods():
+    """Подушек в наборе 2 при ширине на 3 — мест 2 (не лишние пустые); картина одна — пара не ставится. Сведений нет — по норме."""
+    places = _level("LR-C1", "A4")
+    r = room()
+    res = D.resolve(places, scene(places, r), r, counts={"soft.pillows": 2, "art.art": 1})
+    assert res.ok, res.reject
+    assert len(_by(res, "soft.pillows#")) == 2 and len(_by(res, "art.art#")) == 1
+    assert len(_by(D.resolve(places, scene(places, r), r, counts={"soft.pillows": 0}), "soft.pillows#")) == 3
 
 
 def test_chandelier_center_of_rug_and_long_one_rejected():

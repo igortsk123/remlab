@@ -57,8 +57,8 @@ def test_each_template_level_compiles_to_places(tid):
         screen = [p for p in places if p["role"] == "экран"]
         assert len(screen) == 1 and screen[0]["sellable"] is False and screen[0]["marker"] == "virtual_screen"
         for p in places:
-            if p["kind"] == "dependent":
-                assert p["on_failure"] == "reject_composition"
+            if p["kind"] == "dependent":   # условное место «при глухой стене» — только картины (T-71); остальное — отказ уровня
+                assert p["on_failure"] == ("leave_empty" if p["role"] == "картина" else "reject_composition"), p["id"]
 
 
 def test_x1_modifier_compiles_on_every_base_level():
@@ -117,7 +117,8 @@ def test_levels_are_whole_compositions_as_t0_schemes():
     assert (b6["light"], d6["light"]) == ("dresser_lamp", "floor_lamp")
     sa, sb, sc, sd, se = (_use(c1, k) for k in ("SA", "SB", "SC", "SD", "SE"))
     assert sa["seating"] == "sofa_table_rug" and _use(c1, "A2")["seating"] == "sofa_armchair"   # кресло — от 16 м²
-    assert set(sa) - set(sb) == {"vase", "plant"} and sc["dining"] == "table_2_compact"
+    assert set(sa) - set(sb) == {"plant"} and sc["dining"] == "table_2_compact"
+    assert all(x["vase"] == "vase_on_coffee" for x in (sa, sb, sc, sd, se))     # ваза на столике у всех малых (T-71)
     assert sd["light"] == "floor_lamp" and "dining" not in se
     m1 = _tpl(doc, "LR-M1")
     assert RT.level_of(m1, {**_use(m1, "B4")}, {"area_m2": 30}) == (RT.level_index(m1, "B4"), "B4")
@@ -243,7 +244,74 @@ def test_broken_geometry_ref_outside_registry_caught():
 def test_broken_on_failure_not_reject_caught():
     doc = _doc()
     _var(doc, "art", "over_sofa_or_dresser")["dependents"][0]["on_failure"] = "drop_item"
-    assert "on_failure 'drop_item' — допустимо только reject_composition" in _err(doc)
+    assert "on_failure 'drop_item' — допустимо ['leave_empty', 'reject_composition']" in _err(doc)
+
+
+def test_broken_slot_required_caught():
+    doc = _doc()
+    _var(doc, "plant", "floor")["slots"][0]["required"] = "иногда"
+    _var(doc, "seating", "sofa_armchair")["slots"][3]["required"] = [{"kind": "full_moon"}]
+    e = _err(doc)
+    assert "required — true/false или список условий when" in e and "when kind 'full_moon' неизвестен" in e
+
+
+# ── выбор уровня по набору (T-20261112-71, ADR-0391) ──
+
+FULL = {"area_m2": 20.0, "aspect": 1.2}          # 16–28 м², не вытянутая → LR-M1, LR-C3, LR-C1
+NEED_M1 = {"seating.sofa": 1, "seating.coffee": 1, "seating.rug": 1, "seating.armchair": 1, "media.tv_stand": 1}
+
+
+def _found(have: dict):
+    """found_of для `levels_by_set`: столько предметов на место, сколько есть в наборе (как сопоставление тени); угловое
+    место дивана — только угловой диван (`corner_sofa` в наборе)."""
+    def key(p):
+        return "corner_sofa" if p["variant"] == "corner_sofa" and p["id"] == "seating.sofa" else p["id"]
+    return lambda places: {p["id"]: min(p.get("count", 1), have.get(key(p), 0)) for p in places if p["kind"] == "slot"}
+
+
+def test_by_set_optional_role_absent_place_stays_empty():
+    """Нет торшера и комода (свет — по желанию), нет стола и стульев в гостиной (не кухня) — уровень всё равно годен, места
+    пусты; лампа уходит вместе с комодом, поэтому уровень с торшером (одно пустое место) раньше уровня с комодом."""
+    good, _ = RT.levels_by_set(RT.load("living"), FULL, _found({**NEED_M1, "plant.planter": 1}))
+    first = good[0]
+    assert (first["tpl"], first["level"]) == ("LR-M1", "D2"), [(g["tpl"], g["level"], g["empty"]) for g in good[:4]]
+    assert set(first["empty"]) == {"light.floor_lamp×1", "dining.table×1", "dining.chairs×2"}
+    ids = {p["id"] for p in first["places"]}
+    assert not ids & {"light.floor_lamp", "dining.table", "dining.chairs", "ceiling.pendant"}
+    assert {"seating.sofa", "soft.pillows", "art.art", "vase.vase"} <= ids
+
+
+def test_by_set_fewer_empty_first_then_passport_order():
+    """Есть торшер и стол на 2 — D2 без пустых раньше A2 (пустой комод с лампой); есть и комод — порядок паспорта (A2)."""
+    have = {**NEED_M1, "plant.planter": 1, "dining.table": 1, "dining.chairs": 2, "light.floor_lamp": 1}
+    good, _ = RT.levels_by_set(RT.load("living"), FULL, _found(have))
+    assert (good[0]["level"], good[0]["empty"]) == ("D2", [])
+    good, _ = RT.levels_by_set(RT.load("living"), FULL, _found({**have, "light.dresser": 1}))
+    assert [g["level"] for g in good[:3]] == ["A2", "B2", "D2"]
+
+
+def test_by_set_required_role_absent_next_level_then_honest_refusal():
+    """Кресло обязательно от 16 м²: нет его — LR-M1 и LR-C1 (≥16 — с креслом) не годны целиком, угловой C3 без углового
+    дивана — тоже; годных нет — честный отказ с перечнем, чего не хватает."""
+    have = {k: v for k, v in NEED_M1.items() if k != "seating.armchair"}
+    good, bad = RT.levels_by_set(RT.load("living"), FULL, _found(have))
+    assert good == []
+    m1 = [b for b in bad if b["tpl"] == "LR-M1"]
+    assert m1 and all("seating.armchair×1" in b["missing"] for b in m1)
+    # меньше 16 м²: кресла в составе нет, кашпо и стол — по желанию → годны все малые; меньше всего пустого у SE (без стола)
+    good, _ = RT.levels_by_set(RT.load("living"), {"area_m2": 14.4, "aspect": 1.35}, _found(have))
+    assert [(g["tpl"], g["level"], g["empty"]) for g in good[:1]] == [("LR-C1", "SE", ["light.floor_lamp×1"])]
+    sa = next(g for g in good if g["tpl"] == "LR-C1" and g["level"] == "SA")
+    assert "plant.planter×1" in sa["empty"]
+
+
+def test_by_set_kitchen_dining_required():
+    """Кухня-гостиная: стол и стулья обязательны («по типу комнаты») — без стола уровня нет; в гостиной — место пусто."""
+    have = {**NEED_M1, "plant.planter": 1, "light.floor_lamp": 1}
+    good, bad = RT.levels_by_set(RT.load("living"), {**FULL, "kitchen": True}, _found(have))
+    assert good == [] and all("dining.table×1" in b["missing"] for b in bad if "missing" in b)
+    assert RT.slot_required({"required": [{"kind": "kitchen"}]}, {"kitchen": False}) is False
+    assert RT.slot_required({}, {}) is True and RT.slot_required({"required": False}, {}) is False
 
 
 def test_broken_unknown_field_and_rule_ref_caught():

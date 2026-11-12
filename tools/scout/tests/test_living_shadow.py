@@ -3,6 +3,8 @@
 import os
 import sys
 
+import pytest
+
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 import living_shadow as S  # noqa: E402
 from planner import room_templates as RT  # noqa: E402
@@ -66,7 +68,31 @@ def test_variant_like_demo_set1():
     kind = {r['role']: r['kind'] for r in sv['rows']}
     assert kind['подушка'] == kind['подушка 2'] == 'тень добавила'
     assert kind['шторы'] == 'место есть, товар отдельно'
-    assert kind['ваза'] == 'тень потеряла'                                 # у уровня SD нет места вазы (находка T-69)
+    assert kind['ваза'] == 'оба'                                           # место вазы на столике у SD есть (T-71; в T-69 не было)
     assert kind['картина'] == kind['картина 2'] == 'оба'
-    assert {p.parent_slot_instance_id for p in sv['deps'] if p.role == 'подушка'} == {'seating.sofa#0'}
+    pil = [p for p in sv['deps'] if p.role == 'подушка']
+    assert len(pil) == 2 and {p.parent_slot_instance_id for p in pil} == {'seating.sofa#0'}   # 2 товара — 2 места, не 3 по ширине
     assert sv['art']['shift_cm'] == 7.0                                    # живые числа (22 над спинкой) против середины 10–20
+    assert sv['empty_slots'] == [] and sv['empty_deps'] == []
+
+
+def test_tour_set_without_light_gets_level_with_empty_place():
+    """Набор тура без торшера и комода, декора нет (T-71): уровень есть (D — торшер пуст, «нет в наборе»), мест подушек по норме."""
+    items = [x for x in ITEMS if x['role'] != 'торшер']
+    sv = S.shadow_variant(GEO, {'id': 't', 'style': 'сканди', 'items': items, 'decor': []}, [])
+    assert (sv['tpl'], sv['level'], sv['status']) == ('LR-C1', 'SD', 'OK'), sv['tried']
+    assert sv['empty_slots'] == ['торшер×1']
+    assert len([p for p in sv['deps'] if p.role == 'подушка']) == 3       # товаров не знаем — по норме: диван 198 см (190–253) — 3
+    no_table = [x for x in items if x['role'] != 'столик']                 # столик — всегда: нет его — честный отказ
+    sv2 = S.shadow_variant(GEO, {'id': 't2', 'style': 'сканди', 'items': no_table, 'decor': []}, [])
+    assert sv2['status'].startswith('нет уровня') and 'столик×1' in sv2['missing']
+
+
+def test_area_counts_annex_but_not_corridor_stub():
+    """Площадь для выбора уровня — весь контур: пристройка в счёт, хвост коридора (stub) и балкон (outdoor) — нет."""
+    geo = {**GEO, 'w': 335, 'd': 380, 'title': 'Кухня-гостиная',
+           'annexes': [{'x': 80, 'y': 380, 'w': 255, 'd': 265}, {'x': -40, 'y': 398, 'w': 120, 'd': 90, 'stub': True},
+                       {'x': 0, 'y': -100, 'w': 200, 'd': 100, 'outdoor': True}]}
+    _, notes, facts = S.to_room(geo)
+    assert facts['area_m2'] == pytest.approx(3.35 * 3.80 + 2.55 * 2.65) and facts['kitchen'] and facts['annex']
+    assert RT.select(S.DOC, facts)[0] == 'LR-O1'

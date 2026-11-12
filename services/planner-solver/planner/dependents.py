@@ -6,7 +6,9 @@
 Вход: размещённые носители (`Placement` с `slot_instance_id` «группа.место#n» и габаритами товара), компилированный уровень
 паспорта (`room_templates.compile_level`), комната (стены, окна, потолок). Выход — `Result`: зависимые места с родителем,
 точкой крепления, позой в осях носителя и мировыми координатами — ЛИБО отказ всей композиции с причиной
-(`on_failure: reject_composition`: частичного набора нет, «тихо без вазы» не бывает).
+(`on_failure: reject_composition`: частичного набора нет, «тихо без вазы» не бывает). Исключение — места, что паспорт
+объявил условными (`on_failure: leave_empty`, картины «при глухой стене», T-20261112-71): не встало — пусто с причиной в
+`Result.empty`, не молча.
 
 Шаг детерминированный, после пола: порядок — поверхности носителей → края → проёмы (шторы) → стена (экран, картины, кашпо)
 → потолок. Числа — только из `rules/occupancy.json` по ссылке паспорта (`rule_ref`) или по таблице ссылок `_SURFACE_REF`
@@ -59,6 +61,7 @@ class Result:
     reject: dict | None = None            # {code, place, message} — композиция не годится целиком
     limits: dict = field(default_factory=dict)   # slot_instance_id → конверт места (для подбора товара)
     skipped: list[str] = field(default_factory=list)  # места, чьё `when` не выполнено (не нужны — не отказ)
+    empty: list[dict] = field(default_factory=list)   # места `on_failure: leave_empty`, что не встали: {code, place, message}
 
     @property
     def ok(self) -> bool:
@@ -190,9 +193,16 @@ def _section(it: Item) -> float:
     return min(it.corner_section_cm, it.d_cm) if it.corner else it.d_cm
 
 
-def _surface(group: list[dict], car: Placement, items: dict, out: Result) -> None:
-    """item_surface: подушки на сиденье (число и клетки по ширине), ваза/лампа на столешнице (клетки вдоль ширины носителя,
-    отступ от края, доля площади). Несколько мест на одной поверхности делят её поровну, порядок — по id места."""
+def _cap(n: int, p: dict, counts: dict) -> int:
+    """Мест не больше, чем товаров набора на это место (`counts`; нет сведений или 0 — по норме: место ждёт подбора)."""
+    k = counts.get(p["id"])
+    return min(n, k) if k else n
+
+
+def _surface(group: list[dict], car: Placement, items: dict, out: Result, counts: dict | None = None) -> None:
+    """item_surface: подушки на сиденье (число и клетки по ширине; товаров набора меньше — мест столько, сколько товаров),
+    ваза/лампа на столешнице (клетки вдоль ширины носителя, отступ от края, доля площади). Несколько мест на одной поверхности
+    делят её поровну, порядок — по id места."""
     it = car.item
     surface = group[0]["anchor"].get("surface")
     if it is None:
@@ -201,7 +211,7 @@ def _surface(group: list[dict], car: Placement, items: dict, out: Result) -> Non
     if surface == "seat":
         for p in group:
             rule = _rule((p.get("cardinality") or {}).get("rule_ref"), p["id"])
-            n = RT.count_by_width(rule["by_outer_width_cm"], it.w_cm)
+            n = _cap(RT.count_by_width(rule["by_outer_width_cm"], it.w_cm), p, counts or {})
             inset, gap = rule["arm_inset_cm"][0], _mid(rule["gap_between_cm"])
             span = it.w_cm - 2 * inset
             cell = (span - gap * (n - 1)) / n
@@ -358,7 +368,7 @@ def _screen(p: dict, car: Placement, room: Room, walls: _Wall, items: dict, out:
     out.limits[_inst(p["id"], 0)] = {"w_max": round(w_max, 1), "center": center}
 
 
-def _art_on(p: dict, car: Placement, room: Room, walls: _Wall, items: dict) -> tuple[list[tuple], dict, str]:
+def _art_on(p: dict, car: Placement, room: Room, walls: _Wall, items: dict, n_max: int | None = None) -> tuple[list[tuple], dict, str]:
     """Картины над одним носителем: (места, конверт, стена) или Reject. Пара — рядом с зазором, общий ширинный коридор
     `width_share_range`; не влезла пара — одна (как живая сцена `lib/configurator/wall-art.ts`)."""
     rule = _rule((p.get("placement") or {}).get("rule_ref"), p["id"])
@@ -369,6 +379,7 @@ def _art_on(p: dict, car: Placement, room: Room, walls: _Wall, items: dict) -> t
     W, gap = hi - lo, _mid(rule["gap_between_frames"])
     sku = items.get(p["id"])
     n = rule["max_count"] if p.get("symmetry") == "pair" else 1
+    n = min(n, n_max) if n_max else n
     if sku is not None:
         while n > 1 and n * sku.w_cm + gap * (n - 1) > rule["width_share_range"][1] * W:
             n -= 1
@@ -395,12 +406,13 @@ def _art_on(p: dict, car: Placement, room: Room, walls: _Wall, items: dict) -> t
                    if room.ceiling_cm else None, "s": s, "z": z}, wall
 
 
-def _art(p: dict, cars: list[Placement], room: Room, walls: _Wall, items: dict, out: Result) -> None:
-    """wall_above над носителем: кандидаты по порядку one_of (следующий носитель — раньше отказа, Codex §5)."""
+def _art(p: dict, cars: list[Placement], room: Room, walls: _Wall, items: dict, out: Result, counts: dict | None = None) -> None:
+    """wall_above над носителем: кандидаты по порядку one_of (следующий носитель — раньше отказа, Codex §5). Пара — не больше
+    картин, чем товаров набора (`counts`)."""
     last = None
     for car in cars:
         try:
-            spots, env, wall = _art_on(p, car, room, walls, items)
+            spots, env, wall = _art_on(p, car, room, walls, items, (counts or {}).get(p["id"]))
         except Reject as e:
             last = e
             continue
@@ -491,11 +503,13 @@ def room_facts(room: Room) -> dict:
 
 
 def resolve(places: list[dict], carriers: list[Placement], room: Room, items: dict | None = None,
-            facts: dict | None = None) -> Result:
+            facts: dict | None = None, counts: dict | None = None) -> Result:
     """Зависимые места уровня. places — из `compile_level`; carriers — размещённые самостоятельные места
     (slot_instance_id «группа.место#n»); items — выбранные товары мест {id места: Item} (нет — место без товара, конверт
-    в `limits`). Любая неудача места — отказ композиции целиком (on_failure reject_composition)."""
+    в `limits`); counts — сколько товаров набора на место {id места: n} (подушки, пара картин — мест не больше товаров).
+    Неудача места `reject_composition` — отказ композиции целиком; `leave_empty` — место пусто, причина в `Result.empty`."""
     items = items or {}
+    counts = counts or {}
     facts = {**room_facts(room), **(facts or {})}
     out = Result()
     by_place: dict[str, list[Placement]] = {}
@@ -509,60 +523,71 @@ def resolve(places: list[dict], carriers: list[Placement], room: Room, items: di
     try:
         surf: dict[tuple, list[dict]] = {}
         for p in deps:
-            if p.get("on_failure") != "reject_composition":
+            if p.get("on_failure") not in RT.ON_FAILURE:
                 raise Reject("ON_FAILURE_UNKNOWN", p["id"], f"on_failure {p.get('on_failure')!r}")
             if not RT.when_ok(p.get("when"), facts):
                 out.skipped.append(p["id"])
                 continue
-            kind, car = (p.get("anchor") or {}).get("kind"), p.get("carrier") or {}
-            if "slot_ref" in car or "one_of" in car:
-                refs = [car["slot_ref"]] if "slot_ref" in car else list(car["one_of"])
-                cands = [c for r in refs for c in by_place.get(r, [])[:1]]
-                if not cands:
-                    raise Reject("CARRIER_MISSING", p["id"], f"носителя {' / '.join(refs)} нет среди размещённых")
-            elif "zone" in car:
-                cands = [c for k, v in sorted(by_place.items()) if k.split(".")[0] == car["zone"] for c in v]
-                if not cands:
-                    raise Reject("CARRIER_MISSING", p["id"], f"зоны {car['zone']} нет среди размещённых")
-            else:
-                cands = []
-            if kind == "item_surface":
-                surf.setdefault((cands[0].slot_instance_id, p["anchor"].get("surface")), []).append(p)
-                continue
-            if surf:      # поверхности — раньше остальных (порядок _ORDER), сводим при первом не-поверхностном месте
-                _flush(surf, by_place, carriers, items, out)
-            if kind == "item_edge":
-                _edge(p, cands[0], room, carriers, items, out)
-            elif kind == "opening":
-                _opening(p, room, walls, items, out)
-            elif kind == "wall_above" and car.get("support") == "wall":
-                _free_wall(p, room, walls, carriers, items, out)
-            elif kind == "wall_above" and p.get("marker") == "virtual_screen":
-                _screen(p, cands[0], room, walls, items, out)
-            elif kind == "wall_above":
-                _art(p, cands, room, walls, items, out)
-            elif kind == "ceiling_over":
-                _ceiling(p, cands, room, "zone" in car, items, out)
-            else:
-                raise Reject("ANCHOR_UNSUPPORTED", p["id"], f"вид крепления {kind!r} решателем не поддержан")
-        _flush(surf, by_place, carriers, items, out)
+            kind = (p.get("anchor") or {}).get("kind")
+            if kind != "item_surface" and surf:   # поверхности — раньше остальных (порядок _ORDER), сводим при первом другом
+                _flush(surf, by_place, carriers, items, out, counts)
+            try:
+                _one(p, kind, by_place, surf, carriers, room, walls, items, out, counts)
+            except Reject as e:
+                if p.get("on_failure") != "leave_empty" or kind == "item_surface":
+                    raise
+                out.empty.append({"code": e.code, "place": e.place, "message": e.message})
+        _flush(surf, by_place, carriers, items, out, counts)
     except Reject as e:
         return Result(reject={"code": e.code, "place": e.place, "message": e.message})
     out.placements.sort(key=lambda q: q.slot_instance_id)
     return out
 
 
-def _flush(surf: dict, by_place: dict, carriers: list[Placement], items: dict, out: Result) -> None:
+def _one(p: dict, kind: str | None, by_place: dict, surf: dict, carriers: list[Placement], room: Room, walls: _Wall,
+         items: dict, out: Result, counts: dict) -> None:
+    """Одно зависимое место: носители-кандидаты → вид крепления. Места на поверхности копятся в `surf` (сводятся `_flush`)."""
+    car = p.get("carrier") or {}
+    if "slot_ref" in car or "one_of" in car:
+        refs = [car["slot_ref"]] if "slot_ref" in car else list(car["one_of"])
+        cands = [c for r in refs for c in by_place.get(r, [])[:1]]
+        if not cands:
+            raise Reject("CARRIER_MISSING", p["id"], f"носителя {' / '.join(refs)} нет среди размещённых")
+    elif "zone" in car:
+        cands = [c for k, v in sorted(by_place.items()) if k.split(".")[0] == car["zone"] for c in v]
+        if not cands:
+            raise Reject("CARRIER_MISSING", p["id"], f"зоны {car['zone']} нет среди размещённых")
+    else:
+        cands = []
+    if kind == "item_surface":
+        surf.setdefault((cands[0].slot_instance_id, p["anchor"].get("surface")), []).append(p)
+    elif kind == "item_edge":
+        _edge(p, cands[0], room, carriers, items, out)
+    elif kind == "opening":
+        _opening(p, room, walls, items, out)
+    elif kind == "wall_above" and car.get("support") == "wall":
+        _free_wall(p, room, walls, carriers, items, out)
+    elif kind == "wall_above" and p.get("marker") == "virtual_screen":
+        _screen(p, cands[0], room, walls, items, out)
+    elif kind == "wall_above":
+        _art(p, cands, room, walls, items, out, counts)
+    elif kind == "ceiling_over":
+        _ceiling(p, cands, room, "zone" in car, items, out)
+    else:
+        raise Reject("ANCHOR_UNSUPPORTED", p["id"], f"вид крепления {kind!r} решателем не поддержан")
+
+
+def _flush(surf: dict, by_place: dict, carriers: list[Placement], items: dict, out: Result, counts: dict | None = None) -> None:
     index = {c.slot_instance_id: c for c in carriers}
     for (cid, _surf), group in sorted(surf.items()):
-        _surface(sorted(group, key=lambda p: p["id"]), index[cid], items, out)
+        _surface(sorted(group, key=lambda p: p["id"]), index[cid], items, out, counts)
     surf.clear()
 
 
 def resolve_level(doc: dict, tpl: dict, level_id: str, carriers: list[Placement], room: Room, items: dict | None = None,
-                  facts: dict | None = None) -> Result:
+                  facts: dict | None = None, counts: dict | None = None) -> Result:
     """Уровень паспорта целиком: разворот (`compile_level`) → зависимые. Ошибка разворота — тоже отказ с причиной."""
     places, err = RT.compile_level(doc, tpl, level_id)
     if err:
         return Result(reject={"code": "LEVEL_INVALID", "place": level_id, "message": "; ".join(err)})
-    return resolve(places, carriers, room, items, facts)
+    return resolve(places, carriers, room, items, facts, counts)

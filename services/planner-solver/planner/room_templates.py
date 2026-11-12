@@ -68,7 +68,9 @@ SURFACES = {"seat", "top", "arm", "back", "arm_or_back", "front", "wall"}
 SUPPORTS = {"window", "bay", "wall", "floor", "ceiling"}
 CARDINALITY = {"fixed", "by_carrier_width"}
 SYMMETRY = {"none", "balanced", "centered", "pair"}
-ON_FAILURE = {"reject_composition"}
+# reject_composition — не встало место → отказ уровня целиком; leave_empty — место «условно обязательное» (картины при глухой
+# стене, T-20261112-71): не встало → пусто с причиной в `Result.empty`, уровень остаётся
+ON_FAILURE = {"reject_composition", "leave_empty"}
 # условия комнаты: у уровня, места, модификатора и правила выбора. Числовые — через rule_ref, без чисел в паспорте
 WHEN = {"room_has_window", "room_has_bay", "kitchen", "annex", "area_min", "area_below", "aspect_min", "dining_budget",
         "shape_l", "has_niche", "has_stairs", "door_dense", "squareish", "micro"}
@@ -104,7 +106,7 @@ FIELDS = {
     "doc": {"schema_version", "unit", "room_type", "groups", "order", "templates", "selection"},
     "group": {"roles", "variants", "label"},
     "variant": {"count", "slots", "dependents", "geometry_ref", "label"},
-    "slot": {"id", "role", "count", "sellable", "marker", "geometry_ref", "near", "rule_ref", "shape", "label"},
+    "slot": {"id", "role", "count", "sellable", "marker", "geometry_ref", "near", "rule_ref", "shape", "label", "required"},
     "dependent": {"id", "role", "carrier", "anchor", "cardinality", "fit", "placement", "symmetry", "when", "on_failure",
                   "sellable", "marker", "label"},
     "template": {"id", "purpose", "priority", "anchors", "predicates", "groups", "relations", "levels", "next_step",
@@ -252,6 +254,10 @@ def _check_variant(g: str, v: str, var: dict, groups: dict, index: dict, dist: d
                     err.append(f"{sw}: count — целое ≥ 1")
                 if s.get("near") and s["near"] not in index:
                     err.append(f"{sw}: near {s['near']} — ссылка в никуда")
+                if isinstance(s.get("required"), list):
+                    _check_when(f"{sw}.required", s["required"], dist, err)
+                elif "required" in s and not isinstance(s["required"], bool):
+                    err.append(f"{sw}: required — true/false или список условий when")
                 continue
             _check_dependent(sw, s, groups, index, dist, err)
 
@@ -298,7 +304,7 @@ def _check_dependent(w: str, s: dict, groups: dict, index: dict, dist: dict, err
     if s.get("symmetry") is not None and s["symmetry"] not in SYMMETRY:
         err.append(f"{w}: symmetry {s['symmetry']!r} неизвестна")
     if s.get("on_failure") not in ON_FAILURE:
-        err.append(f"{w}: on_failure {s.get('on_failure')!r} — допустимо только reject_composition")
+        err.append(f"{w}: on_failure {s.get('on_failure')!r} — допустимо {sorted(ON_FAILURE)}")
     _check_when(w, s.get("when"), dist, err)
 
 
@@ -314,7 +320,8 @@ def _variant_places(doc: dict, g: str, v: str) -> list[dict]:
         for s in var.get("slots") or []:
             out.append({"id": f"{g}.{s['id']}", "group": g, "variant": v, "kind": "slot", "role": s["role"],
                         "count": s.get("count", 1), "sellable": s.get("sellable", True), "marker": s.get("marker"),
-                        "near": s.get("near"), "geometry_ref": s.get("geometry_ref") or gref})
+                        "near": s.get("near"), "geometry_ref": s.get("geometry_ref") or gref,
+                        "required": s.get("required", True)})
         for s in var.get("dependents") or []:
             out.append({"id": f"{g}.{s['id']}", "group": g, "variant": v, "kind": "dependent", "role": s["role"],
                         "carrier": s.get("carrier"), "anchor": s.get("anchor"), "cardinality": s.get("cardinality"),
@@ -637,6 +644,84 @@ def select(doc: dict, facts: dict) -> list[str]:
 def levels_for(tpl: dict, facts: dict) -> list[str]:
     """Уровни шаблона, разрешённые для этой комнаты (по `when`), в порядке предпочтения."""
     return [lv["id"] for lv in tpl.get("levels", []) if when_ok(lv.get("when"), facts)]
+
+
+# ───────────── выбор уровня по набору (T-20261112-71; ADR-0391 «шаблон собирается из предметов набора») ─────────────
+
+def slot_required(p: dict, facts: dict) -> bool:
+    """Обязательно ли место-слот в этой комнате. Поле паспорта `required`: true (по умолчанию), false («по желанию»: нет в
+    наборе — место пусто) или список условий `when` (обязательно, когда все выполнены, — «от 16 м²», «в кухне-гостиной»)."""
+    r = p.get("required", True)
+    return when_ok(r, facts) if isinstance(r, list) else bool(r)
+
+
+def coverage(places: list[dict], found: dict, facts: dict) -> tuple[list[str], list[str]]:
+    """Что набор закрыл в уровне: found — {id места-слота: сколько предметов нашлось}. → (недостающее обязательное «id×n»,
+    пустое по желанию «id×n»). Первое непусто — уровень не годится ЦЕЛЫМ составом; второе — места уровня остаются пустыми."""
+    miss, empty = [], []
+    for p in places:
+        if p["kind"] != "slot":
+            continue
+        short = p.get("count", 1) - min(found.get(p["id"], 0), p.get("count", 1))
+        if short > 0:
+            (miss if slot_required(p, facts) else empty).append(f"{p['id']}×{short}")
+    return miss, empty
+
+
+def drop_places(places: list[dict], gone: set) -> list[dict]:
+    """Уровень без пустых мест-слотов `gone`: убираются они и зависимые, чей носитель только среди них (у `one_of` остаются
+    кандидаты, которые в уровне есть; у зоны — пока в ней есть хоть одно место)."""
+    live = {p["id"] for p in places if p["kind"] == "slot"} - set(gone)
+    out = []
+    for p in places:
+        if p["id"] in gone:
+            continue
+        car = p.get("carrier") or {}
+        if "slot_ref" in car and car["slot_ref"] not in live:
+            continue
+        if "one_of" in car:
+            keep = [r for r in car["one_of"] if r in live]
+            if not keep:
+                continue
+            p = {**p, "carrier": {**car, "one_of": keep}}
+        if "zone" in car and not any(x.split(".")[0] == car["zone"] for x in live):
+            continue
+        out.append(p)
+    return out
+
+
+def levels_by_set(doc: dict, facts: dict, found_of) -> tuple[list[dict], list[dict]]:
+    """ВЫБОР УРОВНЯ ПО НАБОРУ — общее правило для любой комнаты с паспортом. Шаблоны — `select`, уровни — `levels_for`.
+    found_of(places) → {id места-слота: сколько предметов набора на него нашлось} (сопоставление предметов — у вызывающего).
+    Уровень годен, если набор закрыл все его ОБЯЗАТЕЛЬНЫЕ места (`slot_required`); место «по желанию», которого нет, — пусто,
+    уровень не теряется. Нет обязательного — уровень не годен целиком (следующий). Внутри шаблона годные — по числу пустых мест
+    (меньше — раньше: уровень, что лучше использует набор), при равенстве — порядок паспорта; шаблоны — порядок `select`.
+    → (годные [{tpl, level, places (без пустых), empty}], негодные [{tpl, level, missing | error}]). Годных нет — честный отказ
+    с причинами из второго списка."""
+    ok, bad = [], []
+    for tid in select(doc, facts):
+        tpl = next((t for t in doc.get("templates", []) if t.get("id") == tid), None)
+        if tpl is None or tpl.get("modifier"):
+            continue
+        good = []
+        for i, lid in enumerate(levels_for(tpl, facts)):
+            places, err = compile_level(doc, tpl, lid)
+            if err:
+                bad.append({"tpl": tid, "level": lid, "error": "; ".join(err)})
+                continue
+            found = found_of(places)
+            miss, empty = coverage(places, found, facts)
+            if miss:
+                bad.append({"tpl": tid, "level": lid, "missing": miss})
+                continue
+            gone = {p["id"] for p in places if p["kind"] == "slot" and not found.get(p["id"])}   # частично закрытое — остаётся
+            kept = drop_places(places, gone)
+            ids = {p["id"] for p in kept}
+            empty += [f"{p['id']}×1" for p in places if p["kind"] == "dependent" and p["id"] not in ids]  # ушли с носителем
+            n_empty = sum(int(e.rsplit("×", 1)[1]) for e in empty)
+            good.append((n_empty, i, {"tpl": tid, "level": lid, "places": kept, "empty": empty}))
+        ok += [x[2] for x in sorted(good, key=lambda x: x[:2])]
+    return ok, bad
 
 
 def level_of(tpl: dict, found: dict, facts: dict | None = None) -> tuple[int, str | None]:
