@@ -10,7 +10,7 @@
 
 import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
-import { fromDemoVariant, isWallArtDecor, isWallPlane, stableSlotIds, type DemoData } from "@/lib/configurator/fromDemo";
+import { fromDemoVariant, isWallArtDecor, isWallPlane, stableSlotIds, wallArtItems, type DemoData } from "@/lib/configurator/fromDemo";
 import { type DecorIn } from "@/lib/viewer3d/scene-extras";
 import { meshUrl, RUNTIME_BASE, setRuntimeMeshes, type RuntimeEntry } from "@/lib/configurator/mesh-url";
 import { windowView } from "@/lib/viewer3d/window-views";
@@ -96,7 +96,8 @@ export interface DemoScene {
   capture(poses: PhotoPose[], width: number, height: number): Promise<{ frames: Blob[]; clay: string[] }>;
   /** Повернуть взгляд в прогулке (перетаскивание пальцем/мышью). */
   look(dx: number, dy: number): void;
-  /** Какой предмет под точкой холста: номер в расстановке страницы (как в `update`), иначе -1. */
+  /** Какой предмет под точкой холста: номер в расстановке страницы (как в `update`; картина декора — `items.length` + номер в `decor`,
+   *  `sceneSlotIndex`), иначе -1. Тот же номер — у `pins`, `select`, `walkTap`. */
   pick(clientX: number, clientY: number): number;
   /** Метки предметов на холсте: номер в расстановке и точка (px холста), видна ли (demo-02: цены на сцене); рамка предмета на холсте
    *  `[left, top, right, bottom]` — ценник над ней (demo-27 В), null — угол коробки за камерой. */
@@ -189,7 +190,25 @@ export function wallArtWhere(opts: Pick<DemoSceneOptions, "room" | "items" | "de
     .map((i) => [i.photoRole as string, i.unplaced ? null : i.hungOver ?? null]));
 }
 
-type PrefetchOptions = Pick<DemoSceneOptions, "room" | "items" | "decor" | "base" | "runtimeMeshes" | "lite" | "floor" | "wall">;
+/**
+ * Место движка («диван#0», «картина#0») → номер предмета страницы — тем же счётом, что у моста (`fromDemo.ts`). Мебель — номер
+ * в `items` (ковёр и настенные плоскости расстановки не выбираются). КАРТИНА-ТОВАР ИЗ ДЕКОРА (T-20261112-45, владелец TG 1062:
+ * «цена, выделяется и даёт заменить — той же логикой») — `items.length` + номер в переданном `decor`: место той же нумерацией,
+ * что `wallPlanes` (зеркала расстановки, затем картины); без картин в сцене (`?art=0`) — не добавляются.
+ */
+export function sceneSlotIndex(items: DemoItem[], decor: DemoDecor[], art: boolean = artFromUrl()): Map<string, number> {
+  const idx = items.map((it, i) => ({ it, i })).filter(({ it }) => !isRug(it) && it.w && it.d && it.h && it.sku?.msid && !isWallPlane(it));
+  const out = new Map(stableSlotIds(idx.map(({ it }) => it)).map((id, k): [string, number] => [id, idx[k]!.i]));
+  if (!art) return out;
+  const pics = decor.map((x, k) => ({ x, k })).filter(({ x }) => isWallArtDecor(x))
+    .map(({ x, k }) => ({ it: wallArtItems([x])[0]!, k })).filter(({ it }) => isWallPlane(it));
+  const mirrors = items.filter(isWallPlane);
+  const ids = stableSlotIds([...mirrors, ...pics.map(({ it }) => it)]);
+  pics.forEach(({ k }, j) => out.set(ids[mirrors.length + j]!, items.length + k));
+  return out;
+}
+
+type PrefetchOptions =Pick<DemoSceneOptions, "room" | "items" | "decor" | "base" | "runtimeMeshes" | "lite" | "floor" | "wall">;
 /** Транскодер KTX2 (`viewer.ts`: `ktx2Path`): лёгкие копии `/rt/` сжаты в KTX2, и сцена тянет его при первой модели (~0,5 МБ). */
 const BASIS = ["/vendor/basis/basis_transcoder.js", "/vendor/basis/basis_transcoder.wasm"];
 /** Панорама за окнами (`rooms.ts:buildSurroundings`, адрес по умолчанию). */
@@ -247,9 +266,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
   // номер места в движке («диван#0») ↔ номер предмета в расстановке страницы — тем же счётом, что у моста
   let current: DemoItem[] = opts.items;
   const slotIndex = (): Map<string, number> => {
-    const idx = current.map((it, i) => ({ it, i })).filter(({ it }) => !isRug(it) && it.w && it.d && it.h && it.sku?.msid && !isWallPlane(it));
-    const ids = stableSlotIds(idx.map(({ it }) => it));
-    return new Map(ids.map((id, k) => [id, idx[k]!.i]));
+    return sceneSlotIndex(current, decor);
   };
   let running: Promise<void> = ready;
   // выделенный предмет переживает пересборку расстановки (замена модели пересоздаёт объект — выделение ставим заново)
@@ -374,7 +391,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
       // тап по окну — подойти к нему и посмотреть наружу (T-20261112-30, TG 1731); и там, где шаг по полу выключен (телефон)
       if (viewer.walkToWindow(x, y, rect)) return -1;
       if (opts.walk === false) return -1;
-      // ковёр не выбирается (нет в `slotIndex`) — под ним пол: шаг туда, как по полу
+      // ковёр не выбирается (нет в `slotIndex`) — под ним пол: шаг туда, как по полу; картина выбирается (номер — выше)
       const point = hit.point ?? (hit.slotId ? viewer.floorPoint(x, y, rect) : null);
       if (point) {
         if (viewer.mode === "photo") viewer.photoToWalk();   // 3D из точки съёмки: шаг по полу — уже прогулка

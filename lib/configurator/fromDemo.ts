@@ -272,7 +272,7 @@ const baseRoleOf = (role?: string): string => String(role ?? "").replace(/\s+\d+
 export const isWallArtDecor = (x: DemoDecor): boolean =>
   !x.list_only && (x.strategy === "procedural_plane" || baseRoleOf(x.role) === WALL_ART_ROLE) && !!x.sku?.w && !!x.sku.h;
 
-function wallArtItems(decor: DemoDecor[]): DemoItem[] {
+export function wallArtItems(decor: DemoDecor[]): DemoItem[] {
   return decor.filter(isWallArtDecor).map((x) => {
     const sk = x.sku!;
     const d = sk.d && sk.d > 0 && sk.d < sk.h! ? sk.d : WALL_ART_DEPTH_CM;

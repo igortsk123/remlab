@@ -8077,7 +8077,7 @@ function refreshShotList(){
   if(!nu){box.remove();return;}
   box.replaceWith(nu); wireShotList();
   // выделенный предмет — его строка снова подсвечена (список перерисован после замены)
-  if(VW.sel!=null&&items[VW.sel]){const r=vwRowOf(items[VW.sel]); if(r)r.classList.add('hl');}
+  if(vwItemAt(VW.sel)){const r=vwRowOf(vwItemAt(VW.sel)); if(r)r.classList.add('hl');}
   liveShow();      // замена в окне — живая сцена показывает её сразу (demo-01)
 }
 // ——— КАРТОЧКА ТОВАРА (demo-26 Д, владелец 23.10): тап по НАЗВАНИЮ или МИНИАТЮРЕ строки (список окна — мебель, декор, мягкое; избранное
@@ -10083,6 +10083,22 @@ function vwSelect(idx){
   if(VW.sel==null)document.querySelectorAll('#shotbody .row.hl').forEach(x=>x.classList.remove('hl'));
   try{vwPins();}catch(e){}
 }
+// НОМЕР ПРЕДМЕТА СЦЕНЫ → ПРЕДМЕТ (T-20261112-45, владелец TG 1062): мебель — номер в `items`; картина-товар из декора — `items.length` +
+// номер в `liveDecor()` (`demo-scene.ts:sceneSlotIndex`) → тот же вид, что у ленты декора (`decorSel`): ценник, выделение, строка списка
+// и «Заменить» — тем же кодом, что у мебели. Поворота и переноса у картины нет (`vwCanRot`: глубины у декора нет)
+function vwItemAt(i){
+  if(i==null||i<0)return null;
+  if(i<items.length)return items[i]||null;
+  const ds=(allVariants()[cur]||{}).decor||[]; let k=i-items.length;
+  for(let j=0;j<ds.length;j++){const x=ds[j]; if(isSoft(x.role)||x.list_only)continue; if(!k--)return decorSel(j);}
+  return null;
+}
+// обратное: номер декора варианта (`v.decor`) → номер в сцене; -1 — в 3D его нет (мягкое, «только в списке»)
+function vwDecIndex(j){
+  const ds=(allVariants()[cur]||{}).decor||[], x=ds[j]; if(!x||isSoft(x.role)||x.list_only)return -1;
+  let k=0; for(let n=0;n<j;n++)if(!isSoft(ds[n].role)&&!ds[n].list_only)k++;
+  return items.length+k;
+}
 // строка списка этого предмета — по артикулу (`sid`), не по названию: у одинаковых названий и комплектов имя не уникально
 function vwRowOf(it){
   const sid=(skuOf(it)||{}).sid;
@@ -10093,7 +10109,7 @@ function vwRowOf(it){
 // ТАП ПО ПРЕДМЕТУ (владелец 18.10, demo-15 п.1): шторка — до верха, строка предмета — в верхней трети списка, подсвечена, пока
 // предмет выделен; повторный тап по тому же предмету снимает выделение, шторку не трогает. `open:false` — без шторки (после замены)
 function vwHighlight(idx, opt){
-  const it=items[idx]; if(!it)return;
+  const it=vwItemAt(idx); if(!it)return;
   const open=!(opt&&opt.open===false);
   if(open&&VW.sel===idx&&!(opt&&opt.keep)){vwSelect(null); return;}
   vwSelect(idx);
@@ -10113,7 +10129,7 @@ function vwHighlight(idx, opt){
   sc.scrollTo({top:Math.max(0,sc.scrollTop+(rr.top-sr.top)-gap),behavior:VW_PHONE()||VW_SLOW()?'auto':'smooth'});
   // компьютер: плавную прокрутку может оборвать перерисовка списка (миниатюры, суммы), и строка остаётся за нижним краем
   // (проба T-05/7: прокрутка 0, низ строки за окном) — через 0,8 с строку выбранного, если она ещё не целиком видна, доводим (`vwRowShow`)
-  if(!VW_PHONE()){clearTimeout(VW.rowT); VW.rowT=setTimeout(()=>{const x=VW.sel===idx&&vwRowOf(items[idx]); if(x)vwRowShow(x);},800);}
+  if(!VW_PHONE()){clearTimeout(VW.rowT); VW.rowT=setTimeout(()=>{const x=VW.sel===idx&&vwRowOf(vwItemAt(idx)); if(x)vwRowShow(x);},800);}
 }
 // ЦЕННИКИ НАД МЕБЕЛЬЮ В 3D (demo-09, Codex 17.10): метки — постоянные узлы, двигаются `transform` на каждом кадре; точки предметов —
 // из кэша движка (`viewer.projectSlot`), замеры окна и кнопок — 12 раз в секунду, не на каждом кадре. В «Фото» (снимок нейросети)
@@ -10160,7 +10176,7 @@ function vwPinsTick(now){
   // подсказка «3D: тяните…» видна (5 с) — ценник, который она накрыла бы, ждёт, пока она погаснет (T-05/3: показ по очереди, не внахлёст)
   const hintR=liveHintOn()&&PINS.hint&&PINS.hint.width>0?PINS.hint:null, underHint=r=>!!(hintR&&hit(r,hintR));
   const all=LIVE.scene.pins();
-  if(on)all.forEach(p=>{if(!p.visible)return; const it=items[p.index], pr=it&&(skuOf(it)||{}).price; if(!pr)return;
+  if(on)all.forEach(p=>{if(!p.visible)return; const it=vwItemAt(p.index), pr=it&&(skuOf(it)||{}).price; if(!pr)return;
     let n=PINS.map.get(p.index); const txt=money(pr);
     if(!n){n=document.createElement('span'); n.className='vpin'; n.dataset.pi=String(p.index); box.appendChild(n); PINS.map.set(p.index,n);}
     if(n.textContent!==txt){n.textContent=txt; n._w=0;}
@@ -10201,6 +10217,7 @@ function rotNext(rot){
 // ROTSTEP END
 function vwCanRot(it){
   if(!it||!(+it.w>0)||!(+it.d>0))return false;
+  if(it.dec!==undefined)return false;   // декор (картина на стене, T-20261112-45): у ленты есть глубина 2,5 см, но крутить и двигать нечего
   const role=String(it.role||''), k=it.sku||{};
   if(it.strategy==='procedural_plane'&&+it.h>+it.d)return false;   // картина, зеркало
   return !(k.hung||(+it.elev||0)>0||/^кухн/i.test(role));
@@ -10243,7 +10260,7 @@ function vwPeek(btn){
 function vwSizeToggle(btn){ const g=btn&&btn.closest('.vacts'); if(!g)return; g.classList.toggle('vszopen'); g._w=0; vwPinsNow(); }
 // → {r: прямоугольник плашки на экране, cost: цена выбранного показана в плашке} или null (плашки нет)
 function vwRotPlace(box, fr, pad, kept, all, hit, underHint, pr){
-  const i=VW.sel, it=i!=null?items[i]:null;
+  const i=VW.sel, it=vwItemAt(i);
   if(!it||(typeof TR_NOGOODS==='function'&&TR_NOGOODS())){vwRotHide(); return null;}
   const p=all.find(q=>q.index===i);
   const free0=(x,y,w,h)=>{const r={left:fr.left+x, right:fr.left+x+w, top:fr.top+y, bottom:fr.top+y+h};
@@ -10289,7 +10306,7 @@ function vwRotPlace(box, fr, pad, kept, all, hit, underHint, pr){
 // СТРОКА ВЫБРАННОГО В СПИСКЕ (T-05/6 п.3): подсвечена, пока предмет выбран, и после перерисовки списка (правка, замена); на компьютере
 // прокручена в видимую часть, если ушла. Телефон — шторкой ведает `vwHighlight`
 function vwRowSync(){
-  const it=VW.sel!=null?items[VW.sel]:null; if(!it)return;
+  const it=vwItemAt(VW.sel); if(!it)return;
   const r=vwRowOf(it); if(!r||r.classList.contains('hl'))return;
   document.querySelectorAll('#shotbody .row.hl').forEach(x=>x.classList.remove('hl')); r.classList.add('hl');
   if(!VW_PHONE())vwRowShow(r);
@@ -10320,7 +10337,10 @@ document.addEventListener('click',e=>{
   const row=e.target.closest&&e.target.closest('#shot.v2.vwalk #shotbody .pinlist .row[data-k]');
   if(!row||VW_PHONE()||!LIVE.scene||e.target.closest('button,a,input,select,label,[data-sw]')||icHit(e))return;
   const a=shotRows[+row.dataset.k]; if(!a)return;
-  const ix=items.findIndex(t=>{const s=skuOf(t)||{}; return a.sid?s.sid===a.sid||s.name===a.name:s.name===a.name;}); if(ix<0)return;
+  let ix=items.findIndex(t=>{const s=skuOf(t)||{}; return a.sid?s.sid===a.sid||s.name===a.name:s.name===a.name;});
+  // картина-товар выбирается и строкой (T-20261112-45); ваза и мягкое в сцене не выбираются — как прежде
+  if(ix<0){const dx=decorList().find(x=>isWallArt(x)&&((x.sku||{}).sid&&a.sid?x.sku.sid===a.sid:(x.sku||{}).name===a.name)); ix=dx?vwDecIndex(dx.i):-1;}
+  if(ix<0)return;
   if(VW.sel===ix){vwSelect(null); return;}
   vwSelect(ix);
   document.querySelectorAll('#shotbody .row.hl').forEach(x=>x.classList.remove('hl')); row.classList.add('hl');
