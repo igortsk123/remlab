@@ -439,6 +439,8 @@
    60
   ],
   "_note_bed_rug_overhang": "СПАЛЬНЯ (T-20261112-31): ковёр под кроватью выступает за боковины и за изножье на 45–60 см (18–24″ — Rugs USA / Ruggable sizing guides; T-27: 200×300 под рамой 165 давал 68 с боков); зазор ковра до стен — rug_to_wall (комната ≤ 16 м² — rug_to_wall_small_room_le16m2). Читает сборщик спальни `tools/scout/compose_bedroom.py:rug_place` при tools/scout/rules/bedroom-composition.json rug_fit.on",
+  "bed_rug_overhang_tolerated_max": 70,
+  "_note_bed_rug_overhang_tolerated_max": "СПАЛЬНЯ (T-20261112-31/2, решение ведущего): верх выступа ковра под кроватью при rug_fit.overhang_tolerated — 70 вместо 60 (200×300 под рамой 160 → 70 с боков). Источники дают только НИЗ и верхнего предела не ставят: Castlery (castlery.com/us/blog/rug-placement-under-bed) — «minimum of 18 to 24 inches» с открытых сторон, до стен 6–12″; Houzz «11 Area Rug Rules» — ≥ 18″ у queen/king, «depending upon the size of the room, there can be more»; Bassett (rug-size-under-queen-bed) — «more, preferably not less, as long as you have enough space»; таблица Ruggable UK (queen 152 + 275×365) даёт ~62 с боков. Практический предел — место в комнате (зазор rug_to_wall), поэтому 70 не противоречит источникам. Читает `tools/scout/compose_bedroom.py:rug_norm`",
   "rug_beyond_sofa_side": [
    15,
    20

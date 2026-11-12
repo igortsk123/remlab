@@ -564,7 +564,7 @@ class Composer:
             if not cs:
                 return []
             palette(cs)
-            return [(c, pl) for c in self.ranked(cs, st, ctx) if (pl := rug_place(lay, room, c, fit=True))]
+            return [(c, pl) for c in self.ranked(cs, st, ctx) if (pl := rug_place(lay, room, c, fit=cfg))]
 
         def pool_free(st: str) -> list:
             keep = dict(self.shortage)      # пул без полосы — учёт нехватки слота (shortage) не трогаем
@@ -587,7 +587,7 @@ class Composer:
                 if got:
                     nb_from = nb
                     break
-        nm = rug_norm(room)
+        nm = rug_norm(room, cfg)
         why = f'выступ {nm["over"][0]:g}–{nm["over"][1]:g}, до стен ≥ {nm["wall"]:g}'
         own = 'нет в стиле' if not cands else f'в стиле ни один не лёг по норме ({why})'
         if not got:
@@ -644,63 +644,114 @@ def _decor_filter(dc: dict, windows: list, rules: dict | None = None, source: li
 RUG_BLOCKERS = ('шкаф', 'комод', 'туалетный столик', 'стол рабочий')
 
 
-def rug_norm(room) -> dict:
+def rug_norm(room, cfg: dict | None = None) -> dict:
     """Норма ковра под кроватью (T-20261112-31, `bedroom-composition.json` rug_fit): выступ за боковины и изножье
-    (`occupancy.json` distances_cm.bed_rug_overhang) и зазор до стен (rug_to_wall; комната ≤ 16 м² — малый)."""
+    (`occupancy.json` distances_cm.bed_rug_overhang; при rug_fit.overhang_tolerated верх — bed_rug_overhang_tolerated_max)
+    и зазор до стен (rug_to_wall; комната ≤ 16 м² — малый)."""
     sys.path.insert(0, SOLVER)
     from planner.clearances import distances
     d = distances()
     wall = d['rug_to_wall_small_room_le16m2'] if room.area_m2 <= 16 else d['rug_to_wall'][0]
     lo, hi = d['bed_rug_overhang']
+    if (cfg or {}).get('overhang_tolerated'):
+        hi = d['bed_rug_overhang_tolerated_max']
     return {'over': (float(lo), float(hi)), 'wall': float(wall)}
 
 
-def rug_fit_place(lay, room, rug: dict) -> dict | None:
+def _bed_wall_sides(room, bed) -> dict:
+    """Длинные бока кровати у стены (зазор ≤ WALL_GAP_CM, `planner/bedroom_checks.py:_against_wall`) → {бок: зазор до стены}."""
+    from shapely.geometry import Point
+    from planner.bedroom_checks import _against_wall, bed_zones
+    from planner.geometry import room_polygon
+    z, ext = bed_zones(bed), room_polygon(room).exterior
+    bw = bed.item.w_cm
+    return {s: ext.distance(Point(local_to_world(bed.x, bed.y, bed.rot, k * bw / 2, 0)))
+            for s, k in (('left', -1), ('right', 1)) if _against_wall(room, z[f'{s}_wall'])}
+
+
+def _rug_sides(A: float, bw: float, lo: float, hi: float, walls: dict) -> tuple | None:
+    """Выступ ковра шириной A за левый и правый бок кровати шириной bw. Без стен — поровну, в [lo, hi]. Бок у стены
+    (rug_fit.wall_side): с открытой стороны — в [lo, hi], у стены — до стены (≤ зазора, на стену не лезет), можно уйти под
+    кровать, но не дальше её середины; к стене — как можно ближе. → (левый, правый) или None."""
+    if not walls:
+        s = (A - bw) / 2
+        return (s, s) if lo <= s <= hi else None
+    if len(walls) == 2:
+        s = (A - bw) / 2
+        return (s, s) if -bw / 2 <= s <= min(walls.values()) + 0.5 else None
+    ws, gap = next(iter(walls.items()))
+    o_open = max(lo, min(hi, A - bw - gap))
+    o_wall = A - bw - o_open
+    if not (-bw / 2 <= o_wall <= gap + 0.5):
+        return None
+    return (o_wall, o_open) if ws == 'left' else (o_open, o_wall)
+
+
+def rug_fit_place(lay, room, rug: dict, cfg: dict | None = None) -> dict | None:
     """Ковёр ПО НОРМЕ (rug_fit): выступ с боков и в ногах — в `rug_norm`.over, до стен ≥ .wall, не под дугой двери и не под
     шкафом/комодом/столом. Пробуем длинной стороной поперёк кровати, потом вдоль; выступ в ногах подбираем так, чтобы край
-    ковра у изголовья был ближе к трети кровати и не дальше её середины (ковёр под нижними 2/3). None — не лёг."""
+    ковра у изголовья был ближе к трети кровати и не дальше её середины (ковёр под нижними 2/3). rug_fit.wall_side — бок
+    кровати у стены: норма выступа только с открытых сторон, со стороны стены ковёр доходит до стены (`_rug_sides`).
+    None — не лёг."""
     sys.path.insert(0, SOLVER)
     from shapely.geometry import Polygon
     from planner.bedroom_checks import bedroom_role
     from planner.geometry import footprint, room_polygon, swing_polygon
+    cfg = cfg or {}
     bed = next((p for p in lay.placements if p.role in ('кровать', 'кровать детская')), None)
     if bed is None or not (rug.get('w') and rug.get('d')):
         return None
-    nm = rug_norm(room)
+    nm = rug_norm(room, cfg)
     lo, hi = nm['over']
     poly = room_polygon(room)
     swings = [s for s in (swing_polygon(room, o) for o in room.openings if o.kind == 'door') if not s.is_empty]
     blockers = [footprint(p) for p in lay.placements if bedroom_role(p.role) in RUG_BLOCKERS]
     bw, bd = bed.item.w_cm, bed.item.d_cm
+    walls = _bed_wall_sides(room, bed) if cfg.get('wall_side') else {}
+    W = nm['wall']
     L, S = max(rug['w'], rug['d']), min(rug['w'], rug['d'])
+
+    def box(x0, x1, y0, y1):
+        return Polygon([local_to_world(bed.x, bed.y, bed.rot, x, y) for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1))])
     for A, B in ((L, S), (S, L)) if L != S else ((L, S),):
-        side = (A - bw) / 2
-        if not lo <= side <= hi:
+        sides = _rug_sides(A, bw, lo, hi, walls)
+        if sides is None:
             continue
+        oL, oR = sides
+        x0, x1 = -bw / 2 - oL, bw / 2 + oR
         # край у изголовья t = bd + foot − B: ближе к bd/3, в [0, bd/2]
         feet = sorted((f for f in range(int(math.ceil(lo)), int(hi) + 1) if 0 <= bd + f - B <= bd / 2),
                       key=lambda f: abs(bd + f - B - bd / 3))
         for foot in feet:
             t = bd + foot - B
             cy = -bd / 2 + t + B / 2
-            g = Polygon([local_to_world(bed.x, bed.y, bed.rot, sx * A / 2, cy + sy * B / 2)
-                         for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1))])
-            if g.difference(poly).area > 1.0 or poly.exterior.distance(g) < nm['wall'] - 0.5:
+            g = box(x0, x1, cy - B / 2, cy + B / 2)
+            if g.difference(poly).area > 1.0:
+                continue
+            if walls:   # зазор до стен ≥ W — со всех сторон, кроме бока у стены (там ковёр доходит до стены)
+                gx = box(x0 - (0 if 'left' in walls else W), x1 + (0 if 'right' in walls else W), cy - B / 2 - W, cy + B / 2 + W)
+                if gx.difference(poly).area > 1.0:
+                    continue
+            elif poly.exterior.distance(g) < W - 0.5:
                 continue
             if any(g.intersects(s.buffer(-1.0)) for s in swings) or any(g.intersection(b).area > 1.0 for b in blockers):
                 continue
-            x, z = local_to_world(bed.x, bed.y, bed.rot, 0, cy)
-            return {'x': x, 'z': z, 'rot': int(bed.rot), 'w': A, 'd': B, 'h': rug.get('h') or 1,
-                    'fit': {'side': round(side, 1), 'foot': float(foot), 'wall': round(poly.exterior.distance(g), 1),
-                            'head_edge': round(t, 1), 'norm': f'выступ {lo:g}–{hi:g}, до стен ≥ {nm["wall"]:g}'}}
+            x, z = local_to_world(bed.x, bed.y, bed.rot, (x0 + x1) / 2, cy)
+            fit = {'side': round(max(oL, oR) if walls else oL, 1), 'foot': float(foot),
+                   'wall': round(poly.exterior.distance(g), 1), 'head_edge': round(t, 1),
+                   'norm': f'выступ {lo:g}–{hi:g}, до стен ≥ {W:g}'}
+            if walls:
+                fit.update(side_wall=round(min(oL, oR) if len(walls) == 1 else oL, 1), wall_side='+'.join(sorted(walls)))
+            return {'x': x, 'z': z, 'rot': int(bed.rot), 'w': A, 'd': B, 'h': rug.get('h') or 1, 'fit': fit}
     return None
 
 
-def rug_place(lay, room, rug: dict, fit: bool = False) -> dict | None:
+def rug_place(lay, room, rug: dict, fit=False) -> dict | None:
     """Ковёр поперёк кровати под её нижние 2/3; внутри комнаты и не под дугой двери (иначе дверь цепляет). None — не лёг.
-    fit=True — по норме выступа и зазора до стен (`rug_fit_place`, выключатель rug_fit)."""
+    fit — по норме выступа и зазора до стен (`rug_fit_place`, выключатель rug_fit): True — базовая норма, dict — настройки
+    rug_fit (wall_side, overhang_tolerated)."""
     if fit:
-        return rug_fit_place(lay, room, rug)
+        return rug_fit_place(lay, room, rug, fit if isinstance(fit, dict) else None)
     sys.path.insert(0, SOLVER)
     from shapely.geometry import Polygon
     from planner.geometry import room_polygon, swing_polygon
@@ -1111,6 +1162,26 @@ def _selftest() -> int:
     lay_c = solve_bedroom(_room_model(spec, 'single'), [Item(role='кровать', w_cm=126, d_cm=210, h_cm=98)])
     ok('кровать в углу: ковёр по центру кровати упирается в стену — не лёг (как и прежде)',
        rug_place(lay_c, _room_model(spec, 'single'), {'w': 160, 'd': 230}, fit=True) is None)
+    # А+Б (T-20261112-31/2): бок у стены — норма только с открытой стороны; верх выступа 70
+    ok('норма с допуском (overhang_tolerated): выступ 45–70', rug_norm(room, {'overhang_tolerated': True})['over'] == (45.0, 70.0))
+    f = rug_place(lay165, room, {'w': 300, 'd': 200}, fit={'overhang_tolerated': True})
+    ok('Б: 200×300 под рамой 165 — с боков 67,5 ≤ 70: лёг', f is not None and f['fit']['side'] == 67.5)
+    room2 = _room_model(room_spec('bedroom-2', R['rooms']['bedroom-2']['variant']), 'single')
+    lay2 = solve_bedroom(room2, [Item(role='кровать', w_cm=126, d_cm=210, h_cm=98)])   # спальня 2: в угол, бок у стены
+    ok('А выключен: кровать боком к стене — ковёр по центру не лёг', rug_place(lay2, room2, {'w': 160, 'd': 230}, fit=True) is None)
+    ok('А: в спальне 2 дверь в 25 см от изножья — ковёр с выступом ≥ 45 в ногах лёг бы под дугу двери: не лёг',
+       rug_place(lay2, room2, {'w': 160, 'd': 230}, fit={'wall_side': True, 'overhang_tolerated': True}) is None)
+    import copy
+    room2 = copy.deepcopy(room2)
+    room2.openings = [o for o in room2.openings if o.kind != 'door']
+    f = rug_place(lay2, room2, {'w': 160, 'd': 230}, fit={'wall_side': True, 'overhang_tolerated': True})
+    ok('А: та же кровать без двери — 160×230 лёг: с открытой стороны 45–70, у стены — не на стену, не дальше середины кровати',
+       f is not None and f['fit'].get('wall_side') in ('left', 'right') and 45 <= f['fit']['side'] <= 70
+       and -63 <= f['fit']['side_wall'] <= 10.5 and f['fit']['wall'] >= 0)
+    ok('А: бок у стены распознан у кровати в углу спальни 2, у кровати по центру стены — нет',
+       bool(_bed_wall_sides(room2, lay2.placements[0])) and not _bed_wall_sides(room, lay165.placements[0]))
+    ok('А: выступ у стены — до стены, с открытой стороны в норме', _rug_sides(160, 126, 45, 70, {'right': 0.0}) == (45, -11)
+       and _rug_sides(230, 126, 45, 70, {'left': 2.0}) is None and _rug_sides(230, 136, 45, 70, {}) == (47.0, 47.0))
     ok('выключатель rug_fit читается', bool(rug_fit(R)) and not rug_fit({'rug_fit': {'on': False}}))
     # боковая спинка (T-20261112-31): меш → семья → название; меш «нет» перебивает название
     import room_catalog as RCat
