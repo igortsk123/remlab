@@ -9979,7 +9979,11 @@ function vwLayout(){
 function vwSheetApply(vis, anim){
   if(typeof histKeepSoon==='function')histKeepSoon();
   const sd=document.getElementById('vside'); if(!sd||!VW_PHONE())return;
-  const e=vwEdges(), was=VW.sheetVis; VW.sheetVis=vis;
+  const e=vwEdges(), was=VW.sheetVis;
+  // ПРЕДМЕТ В РУКЕ — ШТОРКА НЕ ВЫШЕ СРЕДНЕЙ (T-20261112-97/2, мебель и картина): полоска переноса с «Отменой» стоит над шторкой и слоем
+  // ниже неё — поднятая до верха шторка уводила «Отмену» за верх экрана (проба 375: −45 px), а ставить предмет, не видя сцены, нельзя
+  if(VW.mv){const cap=vwMid(e); if(vis>cap)vis=cap;}
+  VW.sheetVis=vis;
   // высота шторки — по текущим краям: при открытии окно ещё въезжает, и замер «полной» мог отстать на 7–13 px (v5.1, 3/3)
   if(Math.abs((parseFloat(sd.style.height)||0)-e.max)>1)sd.style.height=e.max+'px';
   // клик по содержимому сразу после настоящего сдвига — не нажатие (см. `vwSheetWire`); перерисовка на месте сдвигом не считается
@@ -10705,7 +10709,7 @@ function vwCarryBar(){
   // родитель — тот же, что у переключателя ракурсов (`#vCams`): полоска встаёт на его место и на телефоне идёт над шторкой, как он
   const m=VW.mv, cv=LIVE.canvas, vc=document.getElementById('vCams'), host=vc&&vc.parentNode||cv&&cv.parentNode; let b=document.getElementById('vcarry');
   if(!m||!host){if(b)b.hidden=true; return;}
-  const EN=LANG==='en';
+  const EN=LANG==='en', fresh=!b||b.hidden||b.parentNode!==host;
   if(!b||b.parentNode!==host){if(b)b.remove(); b=document.createElement('div'); b.id='vcarry'; b.className='vcarry';
     b.innerHTML=`<span class="vct"></span><button type="button" class="vcrot" title="${EN?'Rotate (R)':'Повернуть (R)'}" aria-label="${EN?'Rotate 90°':'Повернуть на 90°'}"><span aria-hidden="true">↻</span></button>`+
       `<button type="button" class="vcx">${EN?'Cancel':'Отмена'}</button>`;
@@ -10713,7 +10717,9 @@ function vwCarryBar(){
     b.querySelector('.vcrot').addEventListener('click',e=>{e.stopPropagation(); vwCarryRotate();});
     b.querySelector('.vcx').addEventListener('click',e=>{e.stopPropagation(); vwCarryCancel();});
     host.appendChild(b);}
-  // телефон: над текущим верхом шторки, как переключатель ракурсов (`vwSheetApply` двигает обоих); компьютер — по CSS
+  // телефон: над текущим верхом шторки, как переключатель ракурсов (`vwSheetApply` двигает обоих); компьютер — по CSS. Взяли предмет
+  // при поднятой шторке — опускаем её до средней (там же предел, пока предмет в руке)
+  if(fresh&&VW_PHONE()&&VW.sheetVis!=null&&VW.sheetVis>vwMid(vwEdges())+1)vwSheetApply(VW.sheetVis,true);
   b.style.bottom=VW_PHONE()&&VW.sheetVis!=null?Math.round(VW.sheetVis+12)+'px':'';
   b.hidden=false; b.classList.toggle('bad',!m.ok); b.classList.toggle('vart',!!m.art);
   const touch=isTouchUI();

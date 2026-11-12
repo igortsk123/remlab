@@ -52,8 +52,10 @@ async function openTour(b) {
   return p;
 }
 
-// точки стен под сценой (сетка 8 px): где на экране какая стена, вдоль и высота — то, что видит курсор (`scene.wallAt`)
+// точки стен под сценой (сетка 10 px): где на экране какая стена, вдоль и высота — то, что видит курсор (`scene.wallAt`); только где
+// сверху сам холст — под шторкой, полоской переноса и кнопками палец до стены не дойдёт (T-97/2 п.4: касание уходило в кнопку)
 const SCAN = `(()=>{const c=LIVE.canvas.getBoundingClientRect(), out=[]; for(let y=c.top+6;y<c.bottom-6;y+=10)for(let x=c.left+6;x<c.right-6;x+=10){
+  if(document.elementFromPoint(x,y)!==LIVE.canvas)continue;
   const w=LIVE.scene.wallAt(x,y); if(w)out.push({x,y,wall:w.wall,along:w.along,z:w.z});} return out;})()`;
 const ST = `(()=>{const m=VW.mv, j=m?m.j:VW.artJ, x=((allVariants()[cur]||{}).decor||[])[j]||{}; return {mv:!!m, ok:m?m.ok:null, why:m?m.why:null, spot:m?m.spot:null,
   bar:(document.querySelector('#vcarry:not([hidden]) .vct')||{}).textContent||'', at:(x.sku||{}).wall_at||null, id:curStateId(), live:LIVE.state,
@@ -82,8 +84,10 @@ const ST = `(()=>{const m=VW.mv, j=m?m.j:VW.artJ, x=((allVariants()[cur]||{}).de
     ok('картина висит на стене (есть место в сцене)', !!info.spot, info.spot);
     if (!info.spot) throw new Error('нет картины');
     // встать посреди комнаты (ближайшее место, где можно стоять) — от стены соседние стены и дверь у плеча не видны; до «взять»
-    const start = async () => p.evaluate(r => { if (VW.mv) vwCarryCancel(); LIVE.scene.setWalk({ x: r.w / 2, y: r.d / 2, rot: 0 });
-      vwSelect(VW.artI); return vwCarryStart(); }, info.room).then(async v => { await p.waitForTimeout(800); return v; });
+    // тур — квартира из нескольких комнат, план комнаты сдвинут от угла квартиры: там встаём, где камера стояла при открытии (в комнате)
+    const home = TOUR ? await p.evaluate(() => { const q = LIVE.scene.pose(); return { x: q.x, y: q.y }; }) : { x: info.room.w / 2, y: info.room.d / 2 };
+    const start = async () => p.evaluate(h => { if (VW.mv) vwCarryCancel(); LIVE.scene.setWalk({ x: h.x, y: h.y, rot: 0 });
+      vwSelect(VW.artI); return vwCarryStart(); }, home).then(async v => { await p.waitForTimeout(800); return v; });
     const st = () => p.evaluate(ST);
     // повернуть камеру, пока стена wall (и место along ± 60) не окажется в кадре
     const face = async (wall, along) => {
@@ -187,6 +191,11 @@ const ST = `(()=>{const m=VW.mv, j=m?m.j:VW.artJ, x=((allVariants()[cur]||{}).de
       const xr = await p.evaluate(() => { const r = document.querySelector('#vcarry .vcx').getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
         const top = document.elementFromPoint(x, y); return { r: [r.left, r.top, r.right, r.bottom].map(Math.round), vh: innerHeight, sy: scrollY, top: top ? top.className || top.tagName : null }; });
       ok('«Отмена» на экране и сверху', xr.r[1] >= 0 && xr.r[3] <= xr.vh && /vcx/.test(xr.top), xr);
+      // T-97/2 п.2: шторку подняли до верха с предметом в руке — она встаёт на средней, «Отмена» остаётся на экране (мебель — тот же путь)
+      if (PHONE) { await p.evaluate(() => vwSheet(3)); await p.waitForTimeout(700);
+        const up = await p.evaluate(() => { const r = document.querySelector('#vcarry .vcx').getBoundingClientRect(), t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return { r: [r.left, r.top, r.right, r.bottom].map(Math.round), pos: document.getElementById('vside').dataset.pos, top: t ? t.className || t.tagName : null }; });
+        ok('шторку подняли с картиной в руке: шторка не выше средней, «Отмена» на экране', up.pos !== '3' && up.r[1] >= 0 && /vcx/.test(up.top), up); }
       await p.evaluate(() => document.querySelector('#vcarry .vcx').click()); await p.waitForTimeout(400);
       s = await st(); ok('«Отмена»: картина не в руке, место то же', !s.mv && JSON.stringify(s.at) === JSON.stringify(at0));
       await p.evaluate(() => vwSelect(null)); await p.waitForTimeout(300);

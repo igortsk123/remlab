@@ -1473,8 +1473,8 @@ export class FlatViewer {
     const pad = WALL_GHOST_PAD_CM;
     const geo = new THREE.PlaneGeometry((wCm + 2 * pad) * CM, (hCm + 2 * pad) * CM).translate(0, (hCm / 2) * CM, (-dCm / 2 + 0.3) * CM);
     const mat = new THREE.MeshBasicMaterial({
-      color: 0x3aa55c, transparent: true, opacity: 0.6, depthWrite: false, side: THREE.DoubleSide,
-      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+      // поверх всего (T-97/2): за картиной на двери подсветку прятало полотно двери, и красного «нельзя» не было видно
+      color: 0x3aa55c, transparent: true, opacity: 0.6, depthWrite: false, depthTest: false, side: THREE.DoubleSide,
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.renderOrder = MOVE_GHOST_ORDER;
