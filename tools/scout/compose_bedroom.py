@@ -487,6 +487,19 @@ class Composer:
             sl.setdefault('ideal', {})
             src = [it for it in self.decor if it['role'] == role]
             cands, band, rx = self.pool(sl, style, tier, self.decor, _decor_filter(dc, windows, self.R, src))
+            if role == 'ковёр' and rug_fit(self.R):       # ковёр по норме выступа и зазора (T-20261112-31)
+                got = self.rug_by_norm(sl, dc, style, tier, ctx, lay, room, cands, _decor_filter(dc, windows, self.R, src))
+                if got['gap']:
+                    gaps.append(got['gap'])
+                if got['pick'] is None:
+                    continue
+                pick = got['pick']
+                lay_extra['ковёр'] = dict(got['place'], sid=pick['sid'])
+                picks[role] = dict(pick, qty=1)
+                alts[role] = got['alts'][:self.R['alternates']]
+                slots[role] = {'ideal': dc.get('ideal', {}), 'band': band, 'tolerance': list(self.tol), 'qty': 1, 'mesh': False,
+                               'fit': got['place']['fit'], **({'size_relaxed': True} if got['size_relaxed'] else {})}
+                continue
             if not cands:
                 gaps.append(dc.get('gap') or (f'{role}: нет в стиле' + (' по размеру окна' if dc.get('min_w') == 'window' else '')))
                 continue
@@ -537,6 +550,64 @@ class Composer:
                                               for o in windows], 'sid': picks['шторы']['sid']}
         return picks, alts, gaps, lay_extra, slots, relaxed
 
+    def rug_by_norm(self, sl: dict, dc: dict, style: str, tier: str, ctx: dict, lay, room, cands: list, flt) -> dict:
+        """Ковёр по норме (rug_fit, T-20261112-31): первый по рангу, что ложится (`rug_fit_place`), из полосы слота → любого
+        другого размера в стиле и тире → у соседнего стиля (neighbour_spare; цвет — preferred/allowed для СВОЕГО стиля,
+        товар помечен style_from) → нет ковра. Замены — только того же размера, что лёг (место в раскладке одно).
+        → {pick, place, alts, gap, size_relaxed}"""
+        import compose_common as CC
+        cfg = rug_fit(self.R)
+        out = {'pick': None, 'place': None, 'alts': [], 'gap': None, 'size_relaxed': False}
+        free = dict({k: v for k, v in sl.items() if k != 'band'}, need_dims=('w', 'd'))
+
+        def fitted(cs: list, st: str) -> list:
+            if not cs:
+                return []
+            palette(cs)
+            return [(c, pl) for c in self.ranked(cs, st, ctx) if (pl := rug_place(lay, room, c, fit=True))]
+
+        def pool_free(st: str) -> list:
+            keep = dict(self.shortage)      # пул без полосы — учёт нехватки слота (shortage) не трогаем
+            got, _, _ = self.pool(free, st, tier, self.decor, flt)
+            self.shortage = keep
+            return got
+        got = fitted(cands, style)
+        if not got:
+            seen = {c['sid'] for c in cands}
+            got = fitted([c for c in pool_free(style) if c['sid'] not in seen], style)
+            out['size_relaxed'] = bool(got)
+        nb_from = None
+        if not got and cfg.get('neighbour_spare'):
+            import demo_room
+            for nb in demo_room.neighbour_styles(style):
+                c3 = pool_free(nb)
+                palette(c3)
+                c3 = [c for c in c3 if CC.color_eval(c, 'ковёр', style, ctx=ctx)['tier'] in ('preferred', 'allowed')]
+                got = fitted(c3, nb)
+                if got:
+                    nb_from = nb
+                    break
+        nm = rug_norm(room)
+        why = f'выступ {nm["over"][0]:g}–{nm["over"][1]:g}, до стен ≥ {nm["wall"]:g}'
+        own = 'нет в стиле' if not cands else f'в стиле ни один не лёг по норме ({why})'
+        if not got:
+            out['gap'] = f'ковёр: {own}' if not cands and not pool_free(style) else f'ковёр: ни один не лёг по норме ({why})'
+            return out
+        pick, place = got[0]
+        size = sorted((pick['w'], pick['d']))
+        if nb_from:
+            pick = dict(pick, style_from=nb_from)
+            out['gap'] = f'ковёр: {own} — взят у соседа «{nb_from}» (запас)'
+        out.update(pick=pick, place=place,
+                   alts=[_alt(c) for c, _ in got[1:] if sorted((c['w'], c['d'])) == size])
+        return out
+
+
+def rug_fit(R: dict) -> dict:
+    """Выключатель ковра по норме (`bedroom-composition.json` rug_fit): включён — его настройки, иначе {}."""
+    c = R.get('rug_fit') or {}
+    return c if c.get('on') else {}
+
 
 MODEL_CODE = re.compile(r'\b([A-Z]{1,3}\d{4,6}[A-Z]{0,3})')
 
@@ -570,8 +641,66 @@ def _decor_filter(dc: dict, windows: list, rules: dict | None = None, source: li
     return ok if (deny or wmin) else None
 
 
-def rug_place(lay, room, rug: dict) -> dict | None:
-    """Ковёр поперёк кровати под её нижние 2/3; внутри комнаты и не под дугой двери (иначе дверь цепляет). None — не лёг."""
+RUG_BLOCKERS = ('шкаф', 'комод', 'туалетный столик', 'стол рабочий')
+
+
+def rug_norm(room) -> dict:
+    """Норма ковра под кроватью (T-20261112-31, `bedroom-composition.json` rug_fit): выступ за боковины и изножье
+    (`occupancy.json` distances_cm.bed_rug_overhang) и зазор до стен (rug_to_wall; комната ≤ 16 м² — малый)."""
+    sys.path.insert(0, SOLVER)
+    from planner.clearances import distances
+    d = distances()
+    wall = d['rug_to_wall_small_room_le16m2'] if room.area_m2 <= 16 else d['rug_to_wall'][0]
+    lo, hi = d['bed_rug_overhang']
+    return {'over': (float(lo), float(hi)), 'wall': float(wall)}
+
+
+def rug_fit_place(lay, room, rug: dict) -> dict | None:
+    """Ковёр ПО НОРМЕ (rug_fit): выступ с боков и в ногах — в `rug_norm`.over, до стен ≥ .wall, не под дугой двери и не под
+    шкафом/комодом/столом. Пробуем длинной стороной поперёк кровати, потом вдоль; выступ в ногах подбираем так, чтобы край
+    ковра у изголовья был ближе к трети кровати и не дальше её середины (ковёр под нижними 2/3). None — не лёг."""
+    sys.path.insert(0, SOLVER)
+    from shapely.geometry import Polygon
+    from planner.bedroom_checks import bedroom_role
+    from planner.geometry import footprint, room_polygon, swing_polygon
+    bed = next((p for p in lay.placements if p.role in ('кровать', 'кровать детская')), None)
+    if bed is None or not (rug.get('w') and rug.get('d')):
+        return None
+    nm = rug_norm(room)
+    lo, hi = nm['over']
+    poly = room_polygon(room)
+    swings = [s for s in (swing_polygon(room, o) for o in room.openings if o.kind == 'door') if not s.is_empty]
+    blockers = [footprint(p) for p in lay.placements if bedroom_role(p.role) in RUG_BLOCKERS]
+    bw, bd = bed.item.w_cm, bed.item.d_cm
+    L, S = max(rug['w'], rug['d']), min(rug['w'], rug['d'])
+    for A, B in ((L, S), (S, L)) if L != S else ((L, S),):
+        side = (A - bw) / 2
+        if not lo <= side <= hi:
+            continue
+        # край у изголовья t = bd + foot − B: ближе к bd/3, в [0, bd/2]
+        feet = sorted((f for f in range(int(math.ceil(lo)), int(hi) + 1) if 0 <= bd + f - B <= bd / 2),
+                      key=lambda f: abs(bd + f - B - bd / 3))
+        for foot in feet:
+            t = bd + foot - B
+            cy = -bd / 2 + t + B / 2
+            g = Polygon([local_to_world(bed.x, bed.y, bed.rot, sx * A / 2, cy + sy * B / 2)
+                         for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1))])
+            if g.difference(poly).area > 1.0 or poly.exterior.distance(g) < nm['wall'] - 0.5:
+                continue
+            if any(g.intersects(s.buffer(-1.0)) for s in swings) or any(g.intersection(b).area > 1.0 for b in blockers):
+                continue
+            x, z = local_to_world(bed.x, bed.y, bed.rot, 0, cy)
+            return {'x': x, 'z': z, 'rot': int(bed.rot), 'w': A, 'd': B, 'h': rug.get('h') or 1,
+                    'fit': {'side': round(side, 1), 'foot': float(foot), 'wall': round(poly.exterior.distance(g), 1),
+                            'head_edge': round(t, 1), 'norm': f'выступ {lo:g}–{hi:g}, до стен ≥ {nm["wall"]:g}'}}
+    return None
+
+
+def rug_place(lay, room, rug: dict, fit: bool = False) -> dict | None:
+    """Ковёр поперёк кровати под её нижние 2/3; внутри комнаты и не под дугой двери (иначе дверь цепляет). None — не лёг.
+    fit=True — по норме выступа и зазора до стен (`rug_fit_place`, выключатель rug_fit)."""
+    if fit:
+        return rug_fit_place(lay, room, rug)
     sys.path.insert(0, SOLVER)
     from shapely.geometry import Polygon
     from planner.geometry import room_polygon, swing_polygon
@@ -600,7 +729,7 @@ def _alt(c: dict) -> dict:
 
 def _item(c: dict) -> dict:
     keep = ('mid', 'eid', 'sid', 'name', 'price', 'w', 'd', 'h', 'shop', 'img', 'url', 'qty', 'why', 'score', 'style_score',
-            'mesh', 'cls', 'cls2', 'rgb', 'sleep_w', 'fam', 'side_back', 'side_back_src')
+            'mesh', 'cls', 'cls2', 'rgb', 'sleep_w', 'fam', 'side_back', 'side_back_src', 'style_from')
     # «меш есть/нет» на позицию (ведущий 05.11): по нему Работник 2 строит 3D, нет — список заказа мешей T-35
     return dict({k: c.get(k) for k in keep if k in c}, has_mesh=bool(c.get('mesh')), mesh_defect=bool(c.get('mesh_defect')))
 
@@ -966,6 +1095,23 @@ def _selftest() -> int:
     pl = rug_place(lay, room, {'w': 300, 'd': 200})
     ok('ковёр 200×300 лёг под кровать спальни 1', pl is not None and pl['w'] == 300 and pl['rot'] == int(lay.placements[0].rot))
     ok('ковёр шире комнаты не лёг', rug_place(lay, room, {'w': 700, 'd': 200}) is None)
+    # ковёр по норме (T-20261112-31): выступ 45–60 с боков и в ногах, до стен ≥ 30 (спальня 1 — 17,5 м²)
+    nm = rug_norm(room)
+    ok('норма ковра из occupancy: выступ 45–60, до стен 30 (комната > 16 м²)', nm == {'over': (45.0, 60.0), 'wall': 30.0})
+    lay165 = solve_bedroom(room, [Item(role='кровать', w_cm=165, d_cm=203, h_cm=98)])
+    ok('200×300 под рамой 165 — с боков 67,5 > 60: не лёг', rug_place(lay165, room, {'w': 300, 'd': 200}, fit=True) is None)
+    lay185 = solve_bedroom(room, [Item(role='кровать', w_cm=185, d_cm=214, h_cm=98)])
+    f = rug_place(lay185, room, {'w': 300, 'd': 200}, fit=True)
+    ok('200×300 под рамой 185: поперёк, с боков 57,5, в ногах 45–60, до стен ≥ 30, край у изголовья ≤ середины',
+       f is not None and f['w'] == 300 and f['fit']['side'] == 57.5 and 45 <= f['fit']['foot'] <= 60 and f['fit']['wall'] >= 30
+       and 0 <= f['fit']['head_edge'] <= 107)
+    lay136 = solve_bedroom(room, [Item(role='кровать', w_cm=136, d_cm=210, h_cm=98)])
+    f = rug_place(lay136, room, {'w': 160, 'd': 230}, fit=True)
+    ok('160×230 под рамой 136 по центру стены: 230 поперёк, с боков 47', f is not None and f['w'] == 230 and f['fit']['side'] == 47.0)
+    lay_c = solve_bedroom(_room_model(spec, 'single'), [Item(role='кровать', w_cm=126, d_cm=210, h_cm=98)])
+    ok('кровать в углу: ковёр по центру кровати упирается в стену — не лёг (как и прежде)',
+       rug_place(lay_c, _room_model(spec, 'single'), {'w': 160, 'd': 230}, fit=True) is None)
+    ok('выключатель rug_fit читается', bool(rug_fit(R)) and not rug_fit({'rug_fit': {'on': False}}))
     # боковая спинка (T-20261112-31): меш → семья → название; меш «нет» перебивает название
     import room_catalog as RCat
     _rx = (RCat.rules().get('bed_side_back') or {}).get('name_re')

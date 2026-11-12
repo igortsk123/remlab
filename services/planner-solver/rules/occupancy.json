@@ -434,6 +434,11 @@
    46
   ],
   "rug_to_wall_small_room_le16m2": 15,
+  "bed_rug_overhang": [
+   45,
+   60
+  ],
+  "_note_bed_rug_overhang": "СПАЛЬНЯ (T-20261112-31): ковёр под кроватью выступает за боковины и за изножье на 45–60 см (18–24″ — Rugs USA / Ruggable sizing guides; T-27: 200×300 под рамой 165 давал 68 с боков); зазор ковра до стен — rug_to_wall (комната ≤ 16 м² — rug_to_wall_small_room_le16m2). Читает сборщик спальни `tools/scout/compose_bedroom.py:rug_place` при tools/scout/rules/bedroom-composition.json rug_fit.on",
   "rug_beyond_sofa_side": [
    15,
    20

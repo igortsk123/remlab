@@ -40,6 +40,7 @@ ADDED_T31 = {
     "services/planner-solver/rules/bedroom.json": [("templates", "bed_side_back_corner"), ("rules", "bed_side_back_wall"),
                                                    ("rules", "bed_side_back_not_couple"), (None, "switches")],
     "tools/scout/rules/bedroom-roles.json": [(None, "bed_side_back")],
+    "tools/scout/rules/bedroom-composition.json": [(None, "rug_fit")],
 }
 
 
