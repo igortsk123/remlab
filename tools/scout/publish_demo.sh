@@ -100,7 +100,9 @@ prune() {  # хранить KEEP обычных и KEEP «до отката»; �
   for k in reg undo; do
     n=$(prevs "$k" | wc -l)
     [ "$n" -gt "$KEEP" ] || continue
-    prevs "$k" | head -n $((n - KEEP)) | while read -r d; do rm -rf -- "$d"; echo "убрана старая копия: $(basename "$d")"; done
+    # `sed -n 1,Np` дочитывает вход до конца: `head -n` закрывал бы канал раньше, prevs получил бы SIGPIPE (141) и под
+    # pipefail упал бы весь серверный скрипт после публикации (T-20261112-50, тот же сбой, что у publish_rt.sh)
+    prevs "$k" | sed -n "1,$((n - KEEP))p" | while read -r d; do rm -rf -- "$d"; echo "убрана старая копия: $(basename "$d")"; done
   done
 }
 newprev() {  # newprev [суффикс] — свободное имя копии «сейчас» (две операции в одну секунду — ждём следующую)
