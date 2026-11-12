@@ -8784,6 +8784,19 @@ function trNowCard(g,base){
   g.appendChild(c);
 }
 let TRY_LAST={n:1, base:''};   // последняя замена: сколько предметов группы сменилось (сообщение «Заменено: стулья ×2»)
+// ЗАМЕНА У СТЕНЫ — СПИНОЙ К СТЕНЕ (T-20261112-43, владелец TG 1052): место предмета — его центр, и после замены на товар другой
+// глубины центр оставался прежним: мельче — предмет повисал в воздухе от стены (подвесная ТВ-тумба 32 см вместо 50 — в 9 см от неё),
+// глубже — уходил в стену. Стоял задом у стены (ближе `SNAP_CM`) — задняя сторона остаётся на месте, сдвигается перёд. Правило общее
+// для любой роли; тест — `tests/unit/demo-swap-back.test.ts` (берёт блок SWAPBACK)
+// SWAPBACK START
+function swapKeepBack(it, d0, R){
+  const r=((Math.round(+it.rot||0)%360)+360)%360, dd=(+it.d||0)-d0; if(!R||!d0||!dd||r%90)return;
+  const gap=r===0?+it.y-d0/2:r===90?+it.x-d0/2:r===180?R.d-(+it.y+d0/2):R.w-(+it.x+d0/2);
+  if(gap>SNAP_CM||gap<-1)return;
+  const a=r*Math.PI/180;   // лицо при rot 0 — +y, задом к южной стене (`wall-art-geo.backWall`)
+  it.x=Math.round((+it.x+Math.sin(a)*dd/2)*10)/10; it.y=Math.round((+it.y+Math.cos(a)*dd/2)*10)/10;
+}
+// SWAPBACK END
 function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.role==='диван'); TRY_LAST={n:1, base:''};
   if(!s){toast('Сначала коснитесь предмета на плане');return;}
   const soft=s.dec!==undefined&&isSoft(s.role);      // мягкое не примеряется на пол — габариты ему не нужны (demo-24)
@@ -8813,8 +8826,9 @@ function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.rol
   const kin=was?items.filter(it=>it!==s&&baseRole(it.role)===baseRole(s.role)&&(skuOf(it)||{}).name===was):[];
   TRY_LAST={n:1+kin.length, base:baseRole(s.role)};
   // ковёр ложится вдоль длинной стороны своего места (demo-18 п.2, как `resolve.fitPlacement` в /flat): в ленте длинная — `w`
+  const d0=+s.d||0;
   if(s.role.startsWith('ковёр')){const a=Math.max(p.w,p.d), b=Math.min(p.w,p.d); [s.w,s.d]=s.w>=s.d?[a,b]:[b,a];}
-  else{s.w=p.w;s.d=p.d;s.h=p.h||s.h;}
+  else{s.w=p.w;s.d=p.d;s.h=p.h||s.h; swapKeepBack(s,d0,curRoom());}
   // каталожная глубина для подписи — от НОВОГО товара (у стульев К2 сцена по мешу, T-20261107-25/9); у прежнего не оставлять
   if(p.d_catalog!=null&&!s.role.startsWith('ковёр'))s.d_catalog=p.d_catalog; else delete s.d_catalog;
   // msid — артикул МОДЕЛИ (представителя семейства): у цветового варианта своего меша нет, и
@@ -8827,7 +8841,7 @@ function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.rol
          ...(p.tint?{tint:p.tint}:{}),
          // проба: имя на обоих языках, цвет и размер товара едут с ним — строка списка и миниатюра после замены (T-20261109-35/3)
          ...(TRIAL()?{name_en:p.name_en, colour_en:p.colour_en||'', colour_ru:p.colour_ru||'', w:p.w, d:p.d, h:p.h||null, sleep_w:p.sleep_w}:{})};
-  kin.forEach(it=>{it.w=s.w; it.d=s.d; it.h=s.h; it.sku=Object.assign({},s.sku);
+  kin.forEach(it=>{const kd=+it.d||0; it.w=s.w; it.d=s.d; it.h=s.h; it.sku=Object.assign({},s.sku); if(!s.role.startsWith('ковёр'))swapKeepBack(it,kd,curRoom());
     if(s.d_catalog!=null)it.d_catalog=s.d_catalog; else delete it.d_catalog;});
   sel=s;
   // проба: размер уже в названии («Диван · 214×98 см») — второй раз не пишем
