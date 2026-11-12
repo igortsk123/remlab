@@ -22,6 +22,7 @@ from .bedroom_checks import engine as _engine_of
 from .geometry import (SAFE_GAP_CM, _wall_point, _wall_strip, access_zone, footprint, opening_polygon,
                        radiator_polygon, room_edges, room_polygon, swing_polygon)
 from .models import Item, Layout, Placement, Room, Severity
+from . import room_templates as RT
 
 BEAM = 8
 STEP_CM = 10.0
@@ -387,28 +388,49 @@ def _dedupe(states: list[_State]) -> list[_State]:
 # ───────────────────────── движок ГРУПП-ШАБЛОНОВ (T-20261112-38/2, план bedroom-groups-01, ADR-0384) ─────────────────────────
 # Группа ставится целиком или не ставится: «сон» (кровать + тумбы вплотную по бокам) — по варианту pair → one_side → solo;
 # работа (стол + стул) — вместе; хранение и туалетный — каждый предмет спинкой к стене. Порядок — сначала группы с
-# обязательными ролями назначения (кабинет и детская 7–12 — стол первым), потом `groups.order`. Вариант «сна» — уровень
-# целого состава (Codex): pair + хранение > one_side + хранение > pair без хранения; уровни перебираем по порядку и
-# останавливаемся на первом полном. Строгие проверки (`bedroom_checks.check_group_rules`) — и в луче, и в финальной.
+# обязательными ролями назначения (кабинет и детская 7–12 — стол первым), потом `order` паспорта. Шаблон, группы, варианты
+# и уровни-составы — паспорт общего формата `rules/room-templates/bedroom.json` (`planner/room_templates.py`); здесь —
+# геометрия групп. Уровень — ЦЕЛЫЙ состав (Codex): pair + хранение > one_side + хранение > pair без хранения; варианты «сна»
+# перебираем по порядку шаблона и останавливаемся, когда лучший уровень уже не улучшить. Строгие проверки
+# (`bedroom_checks.check_group_rules`) — и в луче, и в финальной.
 
 VARIANTS = ("pair", "one_side", "solo")
-VARIANT_RANK = {"pair": 0, "one_side": 1, "solo": 2, None: 3}
 NS_NEED = {"pair": 2, "one_side": 1, "solo": 0}
 CENTER_PER_CM = 0.01          # пара: штраф за отход центра кровати от центра стены, на см (мягко — уступает дуге двери)
+_GENERIC = {"id": "br.generic", "groups": [{"id": "sleep", "variants": list(VARIANTS)}, {"id": "storage", "variants": ["each_on_wall"]}],
+            "levels": [{"id": f"{s}{i}", "use": u} for i, (s, u) in enumerate(
+                [(v[0].upper(), {"sleep": v, "storage": "each_on_wall"}) for v in VARIANTS] + [(v[0], {"sleep": v}) for v in VARIANTS])]}
 
 
 def group_of(role: str) -> str:
-    """Группа роли по `rules/bedroom.json` groups[*].roles (детские роли — через псевдонимы); вне групп — сама роль."""
-    b = bedroom_role(role)
-    for g, spec in bedroom_rules().get("groups", {}).items():
-        if isinstance(spec, dict) and b in spec.get("roles", ()):
-            return g
-    return "other:" + role
+    """Группа роли по паспорту `rules/room-templates/bedroom.json` groups[*].roles (детские роли — через псевдонимы);
+    вне групп — сама роль."""
+    return RT.group_of("bedroom", bedroom_role(role)) or "other:" + role
 
 
-def _wardrobe_denied(room: Room, purpose: str) -> bool:
-    """ADR-0384 поправка 2: пара в малой (≤ bedroom_small_couple_max_m2) и НЕ вытянутой комнате — без шкафа."""
-    if purpose != "couple":
+def _found(tpl: dict, placed: list[Placement]) -> dict:
+    """{группа: вариант} фактической раскладки для выбора уровня: «сон» — по числу тумб, прочие — первый вариант группы,
+    если её роль стоит."""
+    out = {}
+    roles = {group_of(p.role) for p in placed}
+    for g in tpl.get("groups", []):
+        if g["id"] == "sleep":
+            v = _variant_of(placed)
+            if v:
+                out["sleep"] = v
+        elif g["id"] in roles and g.get("variants"):
+            out[g["id"]] = g["variants"][0]
+    return out
+
+
+def _relation(tpl: dict, kind: str, purpose: str) -> bool:
+    return any(r.get("kind") == kind and (not r.get("purpose") or purpose in r["purpose"]) for r in tpl.get("relations", []))
+
+
+def _wardrobe_denied(room: Room, purpose: str, tpl: dict | None = None) -> bool:
+    """ADR-0384 поправка 2: пара в малой (≤ bedroom_small_couple_max_m2) и НЕ вытянутой комнате — без шкафа
+    (связь шаблона no_wardrobe_small_square)."""
+    if purpose != "couple" or (tpl is not None and not _relation(tpl, "no_wardrobe_small_square", purpose)):
         return False
     w, d = room.width_cm, room.depth_cm
     aspect = max(w, d) / max(1.0, min(w, d))
@@ -593,29 +615,34 @@ def _solve_groups(room: Room, items: list[Item], purpose: str, *, beam: int = BE
     meta["engine"] = "groups"
     if early is not None:
         return early
-    rules = bedroom_rules().get("groups", {})
+    doc = RT.load("bedroom")
+    tpl = RT.template_for("bedroom", purpose, room.child_age) or _GENERIC
     S = _Statics(room)
     S.bed_tpl = cfg.get("bed_template")
     S.swings = door_swings(room)
     S.rads = [radiator_polygon(room, r) for r in room.radiators]
     S.hz, S.reach = {}, {}
     denied = set()
-    if _wardrobe_denied(room, purpose):
+    if _wardrobe_denied(room, purpose, tpl):
         denied = {r for r in by_role if bedroom_role(r) == "шкаф" and not must_have(r)}
         if denied:
             meta["storage_why"] = "WARDROBE_SMALL_SQUARE"
-    stages = _stages(by_role, must_have, rules.get("order", ["sleep", "work", "storage", "dressing"]), denied)
+    stages = _stages(by_role, must_have, doc.get("order", ["sleep", "work", "storage", "dressing"]), denied)
     has_bed = any(bedroom_role(r) == "кровать" for r in by_role)
     n_ns = sum(1 for r in by_role if bedroom_role(r) == "тумба прикроватная")
-    variants = [v for v in VARIANTS if NS_NEED[v] <= n_ns] if has_bed else [None]
+    order = RT.variants(tpl, "sleep") or list(VARIANTS)
+    variants = [v for v in order if NS_NEED.get(v, 99) <= n_ns] if has_bed else [None]
     storage_kit = any(group_of(r) == "storage" for r in by_role if r not in denied)
     couple = cfg.get("bed") == "double"
+    step = tpl.get("next_step") or {}
+    step_on = bool(step) and purpose in (step.get("purpose") or [purpose])
+    sleep_next = f"bed_{step.get('value')}" if step_on else None
 
     def n_storage(placed):
         return sum(1 for p in placed if group_of(p.role) == "storage")
 
     best, best_key, tried, failed = None, None, [], None
-    for v in variants:
+    for i, v in enumerate(variants):
         states, why = _run_variant(S, by_role, stages, v, must_have, beam)
         tried.append(v)
         if not states:
@@ -626,24 +653,25 @@ def _solve_groups(room: Room, items: list[Item], purpose: str, *, beam: int = BE
             st, lay = _repair(room, st, must_have, strict=True)
             hard = sum(x.severity is Severity.HARD for x in lay.violations)
             soft = sum(SOFT_PENALTY.get(x.code, 0.5) for x in lay.violations if x.severity is Severity.SOFT)
-            ns_ = n_storage(st.placed)
             miss = sum(1 for r in by_role if must_have(r) and r not in {p.role for p in st.placed})
-            k = (hard, miss, int(storage_kit and ns_ == 0), VARIANT_RANK[_variant_of(st.placed)], -ns_,
-                 -round(st.score - soft, 3), st.key()[1])
+            lvl, _ = RT.level_of(tpl, _found(tpl, st.placed))
+            k = (hard, miss, lvl, -n_storage(st.placed), -round(st.score - soft, 3), st.key()[1])
             if top is None or k < top[0]:
                 top = (k, st, lay)
         if best_key is None or top[0] < best_key:
             best_key, best = top[0], (top[1], top[2])
-        if best_key[0] == 0 and best_key[1] == 0 and best_key[2] == 0:
-            break                                  # полный уровень: следующий вариант «сна» хуже по определению
+        rest = [RT.best_possible(tpl, "sleep", w) for w in variants[i + 1:]]
+        if best_key[0] == 0 and best_key[1] == 0 and (not rest or best_key[2] <= min(rest)):
+            break                                  # лучший уровень дальше не улучшить — следующие варианты «сна» не нужны
     meta["variants_tried"] = tried
     if best is None:
         bed_role = next((r for r in (failed or []) if bedroom_role(r) == "кровать"), None)
         code = "BED_NO_FIT" if bed_role else "REQUIRED_NO_FIT"
         meta["reason"].append(code)
         meta["no_fit"] = bed_role or next((r for r in (failed or []) if must_have(r)), None)
-        if couple and code == "BED_NO_FIT":
-            meta["sleep_next"] = f"bed_{(rules.get('next_bed') or {}).get('couple', 140)}"
+        meta["composition"] = {"template": tpl["id"], "level": None, "degraded_from": [lv["id"] for lv in tpl.get("levels", [])]}
+        if couple and code == "BED_NO_FIT" and sleep_next:
+            meta["sleep_next"] = sleep_next
         return Layout(room=room, placements=[], meta=meta, unplaced=sorted(r for r in by_role if must_have(r)),
                       skipped_optional=sorted(r for r in by_role if not must_have(r)))
     st, lay = best
@@ -662,9 +690,14 @@ def _solve_groups(room: Room, items: list[Item], purpose: str, *, beam: int = BE
     meta["groups"] = {}
     for p in st.placed:
         meta["groups"].setdefault(group_of(p.role), []).append(p.role)
-    if couple and var is not None and storage_kit and n_storage(st.placed) == 0:
-        meta["sleep_next"] = f"bed_{(rules.get('next_bed') or {}).get('couple', 140)}"   # ступень 140 раньше «без хранения»
-    if var is None and not lay.unplaced and st.placed:
-        meta["room_label"] = "office"           # ADR-0384 поправка 3: без кровати — «кабинет», не спальня
+    lvl, lid = RT.level_of(tpl, _found(tpl, st.placed))
+    meta["composition"] = {"template": tpl["id"], "level": lid,
+                           "degraded_from": [lv["id"] for lv in tpl.get("levels", [])[:lvl]]}
+    before = RT.level_index(tpl, step.get("before_level"))
+    if couple and sleep_next and var is not None and storage_kit and before is not None and lvl >= before:
+        meta["sleep_next"] = sleep_next          # ступень 140 раньше «без хранения» (next_step.before_level шаблона)
+    lw = tpl.get("label_without") or {}
+    if lw and lw.get("group") not in _found(tpl, st.placed) and not lay.unplaced and st.placed:
+        meta["room_label"] = lw["label"]         # ADR-0384 поправка 3: без кровати — «кабинет», не спальня
     lay.meta = meta
     return lay

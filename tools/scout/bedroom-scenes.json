@@ -389,6 +389,37 @@
     }
    ],
    "_why": "7 м² — двуспальной с двумя проходами 75 не встать"
+  },
+  "sq300": {
+   "w": 300,
+   "d": 300,
+   "openings": [
+    {"kind": "door", "wall": "west", "offset_cm": 105, "width_cm": 90, "swing_cm": 90, "hinge": "left"},
+    {"kind": "window", "wall": "north", "offset_cm": 75, "width_cm": 150, "sill_cm": 85, "height_cm": 150}
+   ],
+   "radiators": [{"wall": "north", "offset_cm": 90, "width_cm": 120, "depth_cm": 12}],
+   "_why": "9 м² квадрат, дверь посередине стены (T-20261112-38/2: малая квадратная — пара 140, без шкафа)"
+  },
+  "uk244x333": {
+   "w": 333,
+   "d": 244,
+   "openings": [
+    {"kind": "door", "wall": "south", "offset_cm": 230, "width_cm": 76, "swing_cm": 76, "hinge": "right"},
+    {"kind": "window", "wall": "north", "offset_cm": 100, "width_cm": 120, "sill_cm": 85, "height_cm": 120}
+   ],
+   "radiators": [{"wall": "north", "offset_cm": 100, "width_cm": 100, "depth_cm": 10}],
+   "_why": "британская малая спальня 2,44×3,33 (8,1 м²), дверь на ДЛИННОЙ стене у угла, батарея под окном (T-20261112-38/2)"
+  },
+  "jog400": {
+   "w": 400,
+   "d": 340,
+   "contour": [[0, 0], [340, 0], [340, 50], [400, 50], [400, 340], [0, 340]],
+   "openings": [
+    {"kind": "door", "wall": "south", "offset_cm": 30, "width_cm": 90, "swing_cm": 90, "hinge": "left"},
+    {"kind": "window", "wall": "west", "offset_cm": 100, "width_cm": 150, "sill_cm": 85, "height_cm": 150}
+   ],
+   "radiators": [{"wall": "west", "offset_cm": 115, "width_cm": 120, "depth_cm": 12}],
+   "_why": "неровный контур: короб стояка 60×50 в углу (13,3 м², T-20261112-38/2)"
   }
  },
  "kits": {
@@ -578,7 +609,10 @@
     45,
     86
    ]
-  ]
+  ],
+  "couple_140": [["кровать", 150, 210, 100], ["тумба прикроватная", 45, 40, 55], ["тумба прикроватная 2", 45, 40, 55],
+                 ["шкаф", 120, 60, 210], ["комод", 91, 42, 96]],
+  "uk_single": [["кровать", 97, 198, 90], ["тумба прикроватная", 40, 35, 50], ["шкаф", 80, 55, 190], ["комод", 80, 40, 80]]
  },
  "scenes": [
   {
@@ -875,6 +909,17 @@
    "kit": "couple_std",
    "expect": "fail",
    "note": "7 м²"
-  }
+  },
+  {"id": "sq300-couple", "room": "sq300", "purpose": "couple", "kit": "couple_std", "expect": "fail",
+   "note": "9 м² квадрат: 170 + 2×75 = 320 > 300 — отказ с причиной (движок групп добавляет sleep_next = bed_140)"},
+  {"id": "sq300-couple-140", "room": "sq300", "purpose": "couple", "kit": "couple_140", "expect": "solve",
+   "note": "та же комната с кроватью 140 (ступень ADR-0384 поправка 1); у групп шкаф снят (малая квадратная)"},
+  {"id": "uk244x333-single_narrow", "room": "uk244x333", "purpose": "single_narrow", "kit": "uk_single", "expect": "solve",
+   "note": "UK single 90×190 в 2,44×3,33, дверь на длинной стене"},
+  {"id": "uk244x333-couple-140", "room": "uk244x333", "purpose": "couple", "kit": "couple_140", "expect": "fail",
+   "note": "8,1 м²: 150 + 2×75 = 300 > 244 поперёк; вдоль 333 — изножье у двери; отказ с причиной"},
+  {"id": "jog400-couple", "room": "jog400", "purpose": "couple", "kit": "couple_std", "expect": "solve",
+   "note": "неровный контур (короб стояка в углу)"},
+  {"id": "jog400-single", "room": "jog400", "purpose": "single", "kit": "single", "expect": "solve"}
  ]
 }

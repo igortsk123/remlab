@@ -1,0 +1,129 @@
+{
+ "schema_version": "room-composition/1",
+ "unit": "cm",
+ "room_type": "bedroom",
+ "_meta": {
+  "source": "manual + _intake/codex/2026-11-12-bedroom-templates-answer.md § «Универсальный формат комнатного шаблона» (ADR-0384, план bedroom-groups-01, T-20261112-38/2)",
+  "about": "ПАСПОРТА КОМПОЗИЦИЙ спальни в общем формате комнатного шаблона (`planner/room_templates.py`: загрузка, проверка схемы, выбор уровня). Числа — НЕ здесь: rule_ref указывает на occupancy.json distances_cm. Геометрия групп (как ставится «сон» pair и т. п.) — в коде движка `planner/bedroom.py:_solve_groups`; здесь — какие группы, варианты, уровни-составы и порядок. Действует при движке groups (`rules/bedroom.json` _meta.engine / env BEDROOM_ENGINE)."
+ },
+ "groups": {
+  "sleep": {"roles": ["кровать", "тумба прикроватная"],
+            "variants": {"pair": {"count": {"тумба прикроватная": 2}}, "one_side": {"count": {"тумба прикроватная": 1}}, "solo": {"count": {"тумба прикроватная": 0}}},
+            "_why": "кровать изголовьем к сплошной стене + тумбы вплотную по бокам; pair — 2 тумбы симметрично, one_side — 1 (причина NIGHTSTAND_PAIR_NO_FIT), solo — без тумб (NIGHTSTAND_NO_FIT)"},
+  "work": {"roles": ["стол рабочий", "стул рабочий"], "variants": {"desk_chair": {}},
+           "_why": "стол спинкой к стене (у окна — мягко) + стул перед ним — вместе"},
+  "storage": {"roles": ["шкаф", "комод"], "variants": {"each_on_wall": {}},
+              "_why": "шкаф и комод — каждый спинкой к стене, фронт свободен, не у бока кровати у изголовья, батарея не перед фасадом"},
+  "dressing": {"roles": ["туалетный столик"], "variants": {"table_seat": {}},
+               "_why": "туалетный столик спинкой к стене, перед ним место под пуф"}
+ },
+ "order": ["sleep", "work", "storage", "dressing"],
+ "templates": [
+  {
+   "id": "br.pair_axis",
+   "purpose": ["couple", "guest"],
+   "priority": 10,
+   "anchors": {"sleep": {"type": "wall_segment", "qualifiers": ["solid"]}, "storage": {"type": "wall_segment", "relation": "outside_sleep_access"}},
+   "predicates": [
+    {"kind": "side_access", "sides": 2, "rule_ref": "distances_cm.bed_side_passage"},
+    {"kind": "door_swing_clear", "rule_ref": "distances_cm.bed_foot_swing_max_share"}
+   ],
+   "groups": [
+    {"id": "sleep", "variants": ["pair", "one_side", "solo"], "required": true},
+    {"id": "storage", "variants": ["each_on_wall"], "required": false},
+    {"id": "dressing", "variants": ["table_seat"], "required": false}
+   ],
+   "relations": [
+    {"kind": "no_storage_in_sleep_side_zone"},
+    {"kind": "storage_front_radiator", "rule_ref": "distances_cm.storage_open_reach"},
+    {"kind": "no_wardrobe_small_square", "purpose": ["couple"], "rule_ref": "distances_cm.bedroom_small_couple_max_m2"}
+   ],
+   "levels": [
+    {"id": "A", "use": {"sleep": "pair", "storage": "each_on_wall"}},
+    {"id": "B", "use": {"sleep": "one_side", "storage": "each_on_wall"}},
+    {"id": "C", "use": {"sleep": "solo", "storage": "each_on_wall"}},
+    {"id": "D", "use": {"sleep": "pair"}},
+    {"id": "E", "use": {"sleep": "one_side"}},
+    {"id": "F", "use": {"sleep": "solo"}}
+   ],
+   "next_step": {"kind": "bed_sleep_width", "purpose": ["couple"], "value": 140, "before_level": "D",
+                 "_why": "ADR-0384 поправка 1: тесной паре — кровать 140 вместо отказа, раньше «без хранения». Солвер товар не меняет — meta.sleep_next; ступень делает сборщик (`tools/scout/compose_bedroom.py:Composer.build`)"},
+   "invariants": ["sku_dimensions_intact", "door_clear", "required_routes"],
+   "selection_tags": ["axis_from_door", "solid_head_wall"],
+   "_why": "P1/P2 каталога: пара тумб у двуспальной по центру сплошной стены; хранение важнее второй тумбы (Codex): pair+хранение > one_side+хранение > pair без хранения"
+  },
+  {
+   "id": "br.single_corner",
+   "purpose": ["single", "single_narrow"],
+   "priority": 20,
+   "anchors": {"sleep": {"type": "corner", "relation": "solid_wall"}, "storage": {"type": "wall_segment", "relation": "outside_sleep_access"}},
+   "predicates": [
+    {"kind": "side_access", "sides": 1, "rule_ref": "distances_cm.bed_side_passage"},
+    {"kind": "door_swing_clear", "rule_ref": "distances_cm.bed_foot_swing_max_share"}
+   ],
+   "groups": [
+    {"id": "sleep", "variants": ["one_side", "solo", "pair"], "required": true},
+    {"id": "work", "variants": ["desk_chair"], "required": false},
+    {"id": "storage", "variants": ["each_on_wall"], "required": false}
+   ],
+   "relations": [
+    {"kind": "no_storage_in_sleep_side_zone"},
+    {"kind": "storage_front_radiator", "rule_ref": "distances_cm.storage_open_reach"}
+   ],
+   "levels": [
+    {"id": "A", "use": {"sleep": "one_side", "storage": "each_on_wall", "work": "desk_chair"}},
+    {"id": "B", "use": {"sleep": "one_side", "storage": "each_on_wall"}},
+    {"id": "C", "use": {"sleep": "solo", "storage": "each_on_wall"}},
+    {"id": "D", "use": {"sleep": "pair", "storage": "each_on_wall"}},
+    {"id": "E", "use": {"sleep": "one_side"}},
+    {"id": "F", "use": {"sleep": "solo"}}
+   ],
+   "invariants": ["sku_dimensions_intact", "door_clear", "required_routes"],
+   "selection_tags": ["long_side_on_wall"],
+   "_why": "односпальная в угол, тумба у изголовья с открытой стороны (UK single — bed_narrow_wall)"
+  },
+  {
+   "id": "br.office_work",
+   "purpose": ["office"],
+   "priority": 5,
+   "anchors": {"work": {"type": "window", "qualifiers": ["radiator_checked"]}, "sleep": {"type": "corner", "relation": "outside_work_access"}},
+   "predicates": [{"kind": "route", "from": "door", "to": ["work"]}],
+   "groups": [
+    {"id": "work", "variants": ["desk_chair"], "required": true},
+    {"id": "sleep", "variants": ["solo", "one_side", "pair"], "required": false},
+    {"id": "storage", "variants": ["each_on_wall"], "required": false}
+   ],
+   "relations": [{"kind": "no_storage_in_sleep_side_zone"}, {"kind": "storage_front_radiator", "rule_ref": "distances_cm.storage_open_reach"}],
+   "levels": [
+    {"id": "A", "use": {"work": "desk_chair", "sleep": "solo", "storage": "each_on_wall"}},
+    {"id": "B", "use": {"work": "desk_chair", "sleep": "one_side", "storage": "each_on_wall"}},
+    {"id": "C", "use": {"work": "desk_chair", "storage": "each_on_wall"}},
+    {"id": "D", "use": {"work": "desk_chair"}}
+   ],
+   "label_without": {"group": "sleep", "label": "office", "_why": "ADR-0384 поправка 3: без кровати — «кабинет», не спальня (meta.room_label)"},
+   "invariants": ["required_roles", "sku_dimensions_intact", "door_clear"],
+   "selection_tags": ["desk_near_window"]
+  },
+  {
+   "id": "br.child_7_12_work_window",
+   "purpose": ["child:7-12"],
+   "priority": 5,
+   "anchors": {"work": {"type": "window", "qualifiers": ["radiator_checked"]}, "sleep": {"type": "corner", "relation": "outside_work_access"},
+               "storage": {"type": "wall_segment", "relation": "remaining_solid"}},
+   "predicates": [{"kind": "route", "from": "door", "to": ["sleep", "work"]}],
+   "groups": [
+    {"id": "work", "variants": ["desk_chair"], "required": true},
+    {"id": "sleep", "variants": ["one_side", "solo"], "required": true},
+    {"id": "storage", "variants": ["each_on_wall"], "required": false}
+   ],
+   "relations": [{"kind": "no_storage_in_sleep_side_zone"}, {"kind": "storage_front_radiator", "rule_ref": "distances_cm.storage_open_reach"}],
+   "levels": [
+    {"id": "A", "use": {"work": "desk_chair", "sleep": "one_side", "storage": "each_on_wall"}},
+    {"id": "B", "use": {"work": "desk_chair", "sleep": "solo", "storage": "each_on_wall"}},
+    {"id": "C", "use": {"work": "desk_chair", "sleep": "solo"}}
+   ],
+   "invariants": ["required_roles", "sku_dimensions_intact", "door_clear"],
+   "selection_tags": ["desk_near_window"]
+  }
+ ]
+}

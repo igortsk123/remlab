@@ -70,6 +70,10 @@ def run_scene(s: dict, rooms: dict, kits: dict) -> dict:
             'unplaced': lay.unplaced, 'skipped_optional': lay.skipped_optional, 'template': lay.meta.get('template', ''),
             'deterministic': _sig(lay) == _sig(again), 'seconds': round(dt, 2),
             'floor_used_pct': lay.floor_used_pct, 'area_m2': round(room.area_m2, 1),
+            # движок групп (T-20261112-38/2; env BEDROOM_ENGINE): вариант «сна», уровень состава, ступень 140, «кабинет»
+            'engine': lay.meta.get('engine', 'items'),
+            **{k: lay.meta[k] for k in ('sleep_variant', 'sleep_why', 'sleep_next', 'storage_why', 'room_label', 'composition')
+               if lay.meta.get(k)},
             'placements': [{'role': p.role, 'x': p.x, 'y': p.y, 'rot': p.rot, 'w': p.item.w_cm, 'd': p.item.d_cm,
                             'h': p.item.h_cm, 'tpl': p.tpl_id} for p in lay.placements]}, room, lay
 
@@ -138,6 +142,11 @@ def draw(room, lay, res: dict, path: str):
     sub = f"жёстких {len(res['hard'])}, мягких {len(res['soft'])}; без места: {', '.join(res['skipped_optional']) or '—'}"
     if res['reason']:
         sub += f"; причина: {','.join(res['reason'])}"
+    if res.get('engine') == 'groups':
+        comp = res.get('composition') or {}
+        sub += f"; {comp.get('template', '')} ур. {comp.get('level') or '—'}"
+        if res.get('sleep_next'):
+            sub += f"; дальше {res['sleep_next']}"
     g.text((pad, 30), sub[:110], fill=(80, 80, 80), font=f12)
     img.save(path)
 
@@ -180,7 +189,7 @@ def main() -> int:
     nondet = [r['id'] for r in rows if not r['deterministic']]
     slow = [r['id'] for r in rows if r['seconds'] > SCENE_MAX_S]
     rate = solve_ok / len(by['solve']) if by['solve'] else 1.0
-    summary = {'scenes': len(rows), 'solve': f"{solve_ok}/{len(by['solve'])}", 'solve_rate': round(rate, 3),
+    summary = {'engine': rows[0]['engine'] if rows else None, 'scenes': len(rows), 'solve': f"{solve_ok}/{len(by['solve'])}", 'solve_rate': round(rate, 3),
                'fail_with_reason': f"{fail_ok}/{len(by['fail'])}",
                'pending_onb04': f"{sum(r['pass'] for r in by['pending'])}/{len(by['pending'])}",
                'nondeterministic': nondet, 'slow': slow, 'max_seconds': max((r['seconds'] for r in rows), default=0),

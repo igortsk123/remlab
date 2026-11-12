@@ -281,7 +281,7 @@ class Composer:
                and (extra is None or extra(it)) and not (deny and it.get('side_back'))]   # паре угловую не берём (T-31)
         lo, hi = tier_range([it['price'] for it in fit], self.R['tiers'][tier])
         styled = [it for it in fit if _RP.in_style(it.get('styles'), style, self.thr)]
-        k = (slot['role'], style, self.purpose)    # у назначений разный идеал слота — считаем раздельно
+        k = (slot['role'] + (f" {slot['step']}" if slot.get('step') else ''), style, self.purpose)    # у назначений и ступени 140 разный идеал — раздельно
         self.shortage[k] = (len(styled), sum(1 for it in styled if it['mesh']))
         out = [it for it in styled if lo <= it['price'] <= hi]
         if out or not styled:
@@ -327,9 +327,40 @@ class Composer:
         return sorted(out, key=rank_key)
 
     def build(self, room_id: str, purpose: str, style: str, tier: str, spec: dict, built: list, used: dict) -> dict:
+        """Набор ячейки. Движок групп (`planner/bedroom_checks.py:engine`) и пара: 160–180 не встала или встала без хранения
+        после всех попыток — ступень 140 (ADR-0384 поправка 1: тесной паре 140, а не отказ; паспорт
+        `services/planner-solver/rules/room-templates/bedroom.json` next_step) ДО «без хранения»; поштучный движок — как было."""
+        res = self._build(room_id, purpose, style, tier, spec, built, used)
+        if 'empty' not in res or not self.step140(purpose):
+            return res
+        step = self._build(room_id, purpose, style, tier, spec, built, used, bed_slot=self.step140(purpose))
+        if 'empty' in step:
+            return dict(res, step140=step['empty'])
+        return dict(step, bed_step=140, bed_step_why=res['empty'])
+
+    def step140(self, purpose: str) -> dict | None:
+        """Слот кровати ступени 140 для пары при движке групп → слот или None (не пара, поштучный движок, ступени нет)."""
+        sys.path.insert(0, SOLVER)
+        from planner import room_templates as RT
+        from planner.bedroom_checks import engine
+        p = purpose.split(':')[0]
+        if p != 'couple' or engine() != 'groups':
+            return None
+        st = (RT.template_for('bedroom', p) or {}).get('next_step') or {}
+        w = st.get('value') if st.get('kind') == 'bed_sleep_width' and p in (st.get('purpose') or [p]) else None
+        if not w:
+            return None
+        base = next(sl for sl in self.R['purposes'][purpose]['slots'] if sl['role'] == 'кровать')
+        # рама 140 — спальное 140×200 плюс типовая рама (как 175×215 у 160): идеал 155×215, полоса −20…+10 %
+        return dict(base, ideal=dict(base['ideal'], w=w + 15), sleep_w=[w, w], step=w)
+
+    def _build(self, room_id: str, purpose: str, style: str, tier: str, spec: dict, built: list, used: dict,
+               bed_slot: dict | None = None) -> dict:
         from planner.bedroom import solve_bedroom
         from planner.models import Item
         cfg = self.R['purposes'][purpose]
+        if bed_slot:
+            cfg = dict(cfg, slots=[bed_slot if sl['role'] == 'кровать' else sl for sl in cfg['slots']])
         self.purpose = purpose
         room = _room_model(spec, purpose)
         slots, lists, bands, relaxed = {}, {}, {}, []
@@ -707,7 +738,10 @@ def rug_fit_place(lay, room, rug: dict, cfg: dict | None = None) -> dict | None:
     swings = [s for s in (swing_polygon(room, o) for o in room.openings if o.kind == 'door') if not s.is_empty]
     blockers = [footprint(p) for p in lay.placements if bedroom_role(p.role) in RUG_BLOCKERS]
     bw, bd = bed.item.w_cm, bed.item.d_cm
-    walls = _bed_wall_sides(room, bed) if cfg.get('wall_side') else {}
+    # вариант «сна» от движка групп (T-20261112-38/2): пара тумб — кровать по центру, ковёр симметрично (без «бока у стены»);
+    # одна тумба / без тумб — бок кровати может стоять у стены, его ищем; поштучный движок варианта не пишет — как было
+    variant = (getattr(lay, 'meta', None) or {}).get('sleep_variant')
+    walls = _bed_wall_sides(room, bed) if cfg.get('wall_side') and variant != 'pair' else {}
     W = nm['wall']
     L, S = max(rug['w'], rug['d']), min(rug['w'], rug['d'])
 
@@ -800,7 +834,8 @@ def record(C: Composer, room_id: str, spec: dict, purpose: str, style: str, tier
     alts.update(alts_d)
     slots = {r: dict({'ideal': res['slots'][r]['ideal'], 'band': res['bands'][r], 'tolerance': list(C.tol),
                       'qty': chosen[r]['qty'], 'mesh': True},
-                     **({'free_wall_cm': res['slots'][r]['free_wall_cm']} if 'free_wall_cm' in res['slots'][r] else {}))
+                     **({'free_wall_cm': res['slots'][r]['free_wall_cm']} if 'free_wall_cm' in res['slots'][r] else {}),
+                     **({'sleep_w': res['slots'][r]['sleep_w'], 'step': res['slots'][r]['step']} if res['slots'][r].get('step') else {}))
              for r in chosen}
     slots.update(dslots)
     layout = {p.role: {'x': p.x, 'z': p.y, 'rot': int(p.rot), 'w': p.item.w_cm, 'd': p.item.d_cm, 'h': p.item.h_cm,
@@ -813,6 +848,12 @@ def record(C: Composer, room_id: str, spec: dict, purpose: str, style: str, tier
     layout['_meta'] = {'solver': lay.meta.get('solver'), 'template': lay.meta.get('template'), 'reason': lay.meta.get('reason'),
                        'soft': sorted({v.code for v in lay.violations}), 'skipped_optional': lay.skipped_optional,
                        'floor_used_pct': lay.floor_used_pct, 'attempts': res['attempts']}
+    # движок групп (T-20261112-38/2): вариант «сна», почему без пары тумб / без шкафа, ступень 140, «кабинет»
+    gm = {k: lay.meta[k] for k in ('engine', 'sleep_variant', 'sleep_why', 'storage_why', 'room_label', 'composition')
+          if lay.meta.get(k)}
+    if res.get('bed_step'):
+        gm.update(bed_step=res['bed_step'], bed_step_why=res['bed_step_why'])
+    layout['_meta'].update(gm)
     wd = res.get('wardrobe')
     if wd:      # шкаф не встал с общим идеалом: узкий по свободной стене или честное «без места»
         layout['_meta']['wardrobe'] = ({'narrow': True, 'free_wall_cm': wd['free_wall_cm'], 'tried': wd['tried']}
@@ -913,15 +954,19 @@ def check_bank(bank: list, R: dict, tol: tuple, spare: str = 'hard') -> list:
         for r, x in it.items():
             if r in MAJOR:      # полоса — из записи: у узкого шкафа она от свободной стены комнаты, не общая
                 sc = dict(slot_cfg[r], ideal=s['slots'][r]['ideal'])
+                if s['slots'][r].get('sleep_w'):     # ступень 140 пары (движок групп): спальное место — из записи
+                    sc['sleep_w'] = s['slots'][r]['sleep_w']
                 g = gate(dict(x, role=r, footprint_ok=True), sc, s['slots'][r]['band'])
                 if g:
                     bad.append(f'{sid}: {r} {x["sid"]} — {g}')
             if r in short:      # декор тоньше мебели — предупреждение (`~`), не нарушение
                 n, major = short[r]
                 bad.append(('' if major and spare == 'hard' else '~ ') + f'{sid}: {r} — альтернатив {n} < {SPARE_MIN}')
-        if s['purpose'] == 'couple' and (it.get('тумба прикроватная') or {}).get('qty') != 2:
-            bad.append(f'{sid}: пара без двух тумб')
         lay = s['layout']
+        if s['purpose'] == 'couple' and (it.get('тумба прикроватная') or {}).get('qty') != 2:
+            # движок групп: «одна тумба» — шаблон P2 с причиной (NIGHTSTAND_PAIR_NO_FIT), предупреждение, не нарушение
+            one = (lay.get('_meta') or {}).get('sleep_variant') == 'one_side'
+            bad.append(('~ ' if one else '') + f'{sid}: пара без двух тумб')
         rm = lay['_room']
         room = _room_model(rm, s['purpose'])
         pls = [Placement(role=r, x=p['x'], y=p['z'], rot=p['rot'], item=Item(role=r, w_cm=p['w'], d_cm=p['d'], h_cm=p['h'],
@@ -1046,6 +1091,9 @@ def main(argv: list) -> int:
 # ---------------------------------------------------------------- селфтест
 def _selftest() -> int:
     bad = 0
+    # геометрия селфтеста (свободная стена, ковёр у двери) подобрана под поштучный движок; движок групп проверяют
+    # `tests/test_compose_bedroom_groups.py` и `services/planner-solver/tests/test_bedroom_groups.py` (T-20261112-38/2)
+    os.environ['BEDROOM_ENGINE'] = 'items'
 
     def ok(name, cond):
         nonlocal bad

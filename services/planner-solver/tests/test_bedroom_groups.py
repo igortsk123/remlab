@@ -173,6 +173,40 @@ def test_office_without_bed_labelled_office():
     assert {"стол рабочий", "стул рабочий"} <= {p.role for p in lay.placements}
 
 
+# ── общий формат комнатного шаблона (planner/room_templates.py) ──
+
+def test_bedroom_passport_schema_clean():
+    from planner import room_templates as RT
+    assert RT.check(RT.load("bedroom")) == []
+    for p, tid in (("couple", "br.pair_axis"), ("guest", "br.pair_axis"), ("single_narrow", "br.single_corner"),
+                   ("office", "br.office_work")):
+        assert RT.template_for("bedroom", p)["id"] == tid
+    assert RT.template_for("bedroom", "child", "7-12")["id"] == "br.child_7_12_work_window"
+    assert RT.group_of("bedroom", "комод") == "storage" and RT.group_of("bedroom", "лампа") is None
+
+
+def test_passport_check_catches_errors():
+    from planner import room_templates as RT
+    bad = {"schema_version": "room-composition/1", "groups": {"sleep": {"roles": ["кровать"], "variants": {"pair": {}}}},
+           "order": ["sleep"],
+           "templates": [{"id": "x", "purpose": ["couple"], "groups": [{"id": "sleep", "variants": ["pair", "nope"], "required": True}],
+                          "predicates": [{"kind": "teleport"}], "relations": [{"kind": "storage_front_radiator", "rule_ref": "distances_cm.no_such"}],
+                          "levels": [{"id": "A", "use": {}}]}]}
+    err = " | ".join(RT.check(bad))
+    for frag in ("sleep.nope", "teleport", "no_such", "без обязательной группы"):
+        assert frag in err, err
+
+
+def test_level_of_subset_and_composition_meta():
+    from planner import room_templates as RT
+    tpl = RT.template_for("bedroom", "couple")
+    assert RT.level_of(tpl, {"sleep": "pair", "storage": "each_on_wall", "dressing": "table_seat"}) == (0, "A")
+    assert RT.level_of(tpl, {"sleep": "one_side"})[1] == "E"
+    c = _case("narrow270-couple")
+    lay = solve_bedroom(_room(c["room"], "couple"), _items(c["kit"]), engine="groups")
+    assert lay.meta["composition"] == {"template": "br.pair_axis", "level": "A", "degraded_from": []}
+
+
 def test_group_rules_off_for_items_engine():
     c = _case("flat215-bedroom-2-drawing-180-couple")
     room = _room(c["room"], "couple")
