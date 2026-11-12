@@ -1,0 +1,7 @@
+You are an independent senior software-engineering reviewer. Do not modify, create or delete files.
+
+USER OBJECTIVE: the /demo page and buyer tour page of this repo (single file `tools/scout/flat215-demo/index.html`, 1.3 MB, built by `tools/scout/flat215_demo.py` → `tools/assets/demo_rt.sh` → `tools/scout/publish_demo.sh`; tours pin files via `lib/trial/tour-bundle.ts:pinRelease` and serve by whitelist `lib/trial/tour.ts:tourTarget`) should (a) show the first screen faster on a weak phone over slow 4G (measured LCP 4.4–8.1 s) and (b) stop being a single file that only one of three machines can edit at a time.
+
+TECHNICAL QUESTION: critically review the draft plan `.memory_bank/plans/tour-page-split-01.md` (variants A: minify at build only; B: extract JS/CSS into hashed lib/page.<hash>.* at build; C: split the source into modules by area + lazy-load). Inspect the repository directly: build/publish chain, tour pinning and whitelist, the ~55 files that read index.html directly (tests by START/END markers, CAMFIT scripts, demo-walk scripts), caching headers (Caddy/server config in repo).
+
+Return: 1) is the order A → B → C right, or is there a cheaper path to (b); 2) concrete risks the plan misses for A and B (e.g. tests reading built vs source, precompress.mjs, pinned tour releases, cache invalidation, CSP, inline handlers relying on globals); 3) whether B is worth it given tours are no-cache today; 4) what you would change in the plan; 5) uncertainties. Be specific with file paths and symbols. Answer in Russian, concise (≤ 60 lines).
