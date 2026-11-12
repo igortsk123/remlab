@@ -672,15 +672,26 @@ for bi,band in enumerate(COMP['bands']):
                .get('placement_tiers',{}).get('exclusive_by_band',{}).get(band['band'],[]))]
         # Z4: группа — связная система; роли, ТРЕБУЕМЫЕ группой, обходят взаимоисключение
         # (сет 17: exclusive «пуф vs кресло» в 14-16 убивал кресла заявленной sofa_2armchairs)
+        # Роль «только вместо» (`placement_tiers.instead_only_by_band`, T-20261112-102: комод в 14-16) у снятой так группы в набор
+        # НЕ идёт: она заменяет пуф/кресло, а не встаёт сверху к креслам, которых требует посадочная группа (Codex 12.11, директор)
+        _INSTEAD=set((json.load(open(os.path.join(HERE,'occupancy.json'))).get('placement_tiers',{})
+                      .get('instead_only_by_band',{}).get(band['band'],[])))
+        _INSTEAD_OFF={r for g in _EXCL_ORDERED if set(g) & set(_zreq) for r in g if r in _INSTEAD and r not in _zreq}
+        if _INSTEAD_OFF:
+            print(f"  14-16: посадочная группа требует {sorted(set(_zreq))} — «{', '.join(sorted(_INSTEAD_OFF))}» не берём (только вместо)")
         _EXCL_ORDERED=[g for g in _EXCL_ORDERED if not (set(g) & set(_zreq))]
         _EXCL=[g for g in _EXCL if not (g & set(_zreq))]
-        # предпочтительная роль из взаимоисключающей пары идёт РАНЬШЕ (первая в списке правил)
+        # предпочтительная роль из взаимоисключающей группы идёт РАНЬШЕ (порядок группы в правилах; у пары — как прежде).
+        # Группа из трёх (T-20261112-102, 14-16: комод → пуф → кресло, Codex 12.11 — один необязательный предмет на место): все её роли
+        # встают подряд в порядке группы на место самой ранней из них
         for _g in _EXCL_ORDERED:
-            if len(_g) > 1 and _g[0] in order and _g[1] in order:
-                order = [r for r in order if r != _g[0]]
-                order.insert(order.index(_g[1]), _g[0])
+            _in = [r for r in _g if r in order]
+            if len(_in) > 1:
+                _at = min(order.index(r) for r in _in)
+                order = [r for r in order if r not in _in]
+                order[_at:_at] = _in
         for role in order:
-            if role not in band['floor']: continue
+            if role not in band['floor'] or role in _INSTEAD_OFF: continue
             if any(role in g and (g & set(chosen)) for g in _EXCL):
                 continue     # роль-конкурент уже в сете (напр. кресло при выбранном пуфе)
             # Правило владельца 08.08: в стенке ВСЕГДА есть место под ТВ по центру —
@@ -1072,6 +1083,11 @@ for bi,band in enumerate(COMP['bands']):
             if _fill_now()>=30: break
             _base_r=_r.split(' ')[0]
             if chosen.get(_r): continue
+            # взаимоисключение полосы действует и в доборе (T-20261112-102): раньше добор клал пуф к уже выбранному
+            # комоду/креслу в 14-16 (8 из 10 наборов с комодом) — «вместо» превращалось в «сверху»
+            if any(_base_r in g and (g & {x.split(' ')[0] for x in chosen}) for g in _EXCL):
+                print(f"  исключение полосы: «{_r}» не добираем — конкурент уже в наборе")
+                continue
             # A5 (свод №5, малые): концентрация хранения — в ≤18 м² ВТОРАЯ единица
             # хранения не добирается (три узких по 80 см = анти-паттерн «россыпь»);
             # коридор заполнения добивают следующие роли списка (пуф/приставной/столовая)
