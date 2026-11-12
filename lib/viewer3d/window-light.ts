@@ -1,7 +1,8 @@
 import * as THREE from "three";
 
 import type { Room } from "@/contracts/apartment";
-import { CURTAIN_ON_OPENING_CM, CURTAIN_PANEL_CM } from "@/lib/configurator/curtains";
+import { CURTAIN_PANEL_CM, CURTAIN_PLANE_CM, CURTAIN_PLEAT_CM, curtainRodY, roomCurtains } from "@/lib/configurator/curtains";
+import { WALL_INSET_CM } from "@/lib/viewer3d/rooms";
 
 /**
  * СВЕТ ОТ ОКНА (T-20261111-22, владелец TG 1604 «красиво, как на фото»). Солнце стояло в одной точке (-6, 9, -4) при любой
@@ -76,29 +77,44 @@ export function sunPose(rooms: readonly Room[]): SunPose | null {
   };
 }
 
-/** Шторы: по полотну 55 см с каждого края окна, от карниза (14 см над проёмом) до пола, со складками. Окон нет — пустая группа. */
+/**
+ * Шторы: полотна у краёв окна (`curtains.ts:roomCurtains` — ширина по свободному месту, до 55 см), от штанги карниза до пола, со
+ * складками; плоскость — перед подоконником (`CURTAIN_PLANE_CM` от поверхности стены, она вдвинута на `WALL_INSET_CM`), там же
+ * штанга (`fixtures-ir.ts`). Окон нет — пустая группа.
+ */
 export function buildCurtains(rooms: readonly Room[]): THREE.Group {
   const g = new THREE.Group();
   g.name = "curtains";
-  const wins = roomWindows(rooms);
-  if (!wins.length) return g;
   const mat = new THREE.MeshStandardMaterial({ color: 0xd8c4a6, roughness: 0.95, side: THREE.DoubleSide });
-  const pw = CURTAIN_PANEL_CM * CM, on = CURTAIN_ON_OPENING_CM * CM;
-  for (const w of wins) {
-    const top = Math.min(w.roomH - 0.04, w.top + 0.14), h = top - 0.01;
-    const geo = new THREE.PlaneGeometry(pw, h, 28, 1);
-    const pos = geo.attributes.position!;
-    for (let i = 0; i < pos.count; i++) pos.setZ(i, 0.03 * Math.sin((pos.getX(i) / pw + 0.5) * Math.PI * 9));
-    geo.computeVertexNormals();
-    for (const side of [-1, 1]) {
-      const m = new THREE.Mesh(geo, mat);
-      const along = side * (w.w / 2 + pw / 2 - on);   // слегка заходит на проём
-      const ax = -w.nz, az = w.nx;                       // ось «вдоль стены»
-      m.position.set(w.x + ax * along + w.nx * 0.09, 0.01 + h / 2, w.z + az * along + w.nz * 0.09);
-      m.rotation.y = Math.atan2(w.nx, w.nz);
-      m.raycast = () => undefined;
-      g.add(m);
-    }
+  const out = (WALL_INSET_CM + CURTAIN_PLANE_CM) * CM;
+  for (const r of rooms) {
+    roomCurtains(r).forEach((span, i) => {
+      const o = r.openings[i]!;
+      if (!span) return;
+      const sill = o.kind === "balcony" ? 0 : o.sillCm ?? 90;
+      const top = Math.min(r.heightCm, o.kind === "balcony" ? o.heightCm ?? 220 : sill + (o.heightCm ?? 140));
+      const h = (curtainRodY(top, r.heightCm) - 1) * CM;   // верх — на штанге, низ — в 1 см от пола
+      const n = o.wall === "south" ? [0, 1] : o.wall === "north" ? [0, -1] : o.wall === "west" ? [1, 0] : [-1, 0];
+      for (const p of span.panels) {
+        const pw = (p.u1 - p.u0) * CM, um = (p.u0 + p.u1) / 2;
+        // offset — от начала стены: запад→восток у южной/северной, юг→север у западной/восточной (`contracts/apartment.ts:opening`)
+        const [px, pz] = o.wall === "south" ? [r.x + um, r.y] : o.wall === "north" ? [r.x + um, r.y + r.d]
+          : o.wall === "west" ? [r.x, r.y + um] : [r.x + r.w, r.y + um];
+        // складки у верха сходят на нет (до 0,9 см — меньше полутолщины штанги): кромка прячется в штангу, гребни не торчат над ней
+        const geo = new THREE.PlaneGeometry(pw, h, 28, Math.ceil(h / 0.08));
+        const pos = geo.attributes.position!, folds = Math.max(3, Math.round((9 * (p.u1 - p.u0)) / CURTAIN_PANEL_CM));
+        for (let k = 0; k < pos.count; k++) {
+          const fade = 0.3 + 0.7 * Math.min(1, (h / 2 - pos.getY(k)) / 0.1);
+          pos.setZ(k, fade * CURTAIN_PLEAT_CM * CM * Math.sin((pos.getX(k) / pw + 0.5) * Math.PI * folds));
+        }
+        geo.computeVertexNormals();
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(px * CM + n[0]! * out, 0.01 + h / 2, pz * CM + n[1]! * out);
+        m.rotation.y = Math.atan2(n[0]!, n[1]!);
+        m.raycast = () => undefined;
+        g.add(m);
+      }
+    });
   }
   return g;
 }

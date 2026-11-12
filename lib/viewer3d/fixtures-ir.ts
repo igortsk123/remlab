@@ -6,6 +6,7 @@
 // (`rooms.ts`), сервер получает то же самое (`room.fixtures_ir`, `tools/scout/opening_ir.py`). Цвета — без фантазий:
 // плинтус в тон стены, карниз графитовый, светильник белый матовый.
 
+import { CURTAIN_PLANE_CM, curtainRodY } from "@/lib/configurator/curtains";
 import type { IrBox } from "@/lib/viewer3d/opening-ir";
 
 export const SKIRTING_H = 7;
@@ -18,8 +19,11 @@ interface Rect {
   v1: number;
 }
 
-/** Плинтус по низу кусков стены (у двери прерывается) и карниз над каждым окном/балконом стены. */
-export function wallFixturesIR(rects: Rect[], windows: { u0: number; u1: number; top: number }[], wallHeightCm: number): IrBox[] {
+/** Плинтус по низу кусков стены (у двери прерывается) и карниз над каждым окном/балконом стены. `rod` — штанга под шторы
+ *  (`configurator/curtains.ts:curtainSpan`, оси стены): по полотнам с концевиками, в плоскости штор перед подоконником. Нет — прежняя
+ *  штанга серверного кадра (там штор нет): на 15 см шире проёма, в 10 см от стены. */
+export function wallFixturesIR(rects: Rect[], windows: { u0: number; u1: number; top: number; rod?: { u0: number; u1: number } }[],
+  wallHeightCm: number): IrBox[] {
   const out: IrBox[] = [];
   for (const r of rects) {
     if (r.v0 > 0 || r.u1 - r.u0 < 2) continue;
@@ -27,13 +31,14 @@ export function wallFixturesIR(rects: Rect[], windows: { u0: number; u1: number;
       x: (r.u0 + r.u1) / 2, y: SKIRTING_H / 2, z: SKIRTING_D / 2 });
   }
   for (const w of windows) {
-    // карниз: штанга шире проёма на 15 см с каждой стороны, на 12 см над ним (не выше потолка), в 10 см от стены
-    const y = Math.min(w.top + 12, wallHeightCm - 6);
-    const len = w.u1 - w.u0 + 30;
-    const cx = (w.u0 + w.u1) / 2;
-    out.push({ role: "cornice", material: "cornice", w: len, h: 2.2, d: 2.2, x: cx, y, z: 10 });
+    // карниз: на 12 см над проёмом (не выше потолка)
+    const y = curtainRodY(w.top, wallHeightCm);
+    const u0 = w.rod ? w.rod.u0 : w.u0 - 15, u1 = w.rod ? w.rod.u1 : w.u1 + 15, z = w.rod ? CURTAIN_PLANE_CM : 10;
+    const len = u1 - u0;
+    const cx = (u0 + u1) / 2;
+    out.push({ role: "cornice", material: "cornice", w: len, h: 2.2, d: 2.2, x: cx, y, z });
     for (const sx of [-1, 1]) {
-      out.push({ role: "cornice", material: "cornice", w: 2, h: 2, d: 10, x: cx + sx * (len / 2 - 6), y, z: 5 });
+      out.push({ role: "cornice", material: "cornice", w: 2, h: 2, d: z, x: cx + sx * (len / 2 - 6), y, z: z / 2 });
     }
   }
   return out;

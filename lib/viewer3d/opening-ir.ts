@@ -122,6 +122,12 @@ export function viewRooms(openings: { offsetCm: number; widthCm: number }[], len
   });
 }
 
+/** Подоконник: глубина и центр от плоскости стены, см. Передний край (`WINDOW_SILL_FRONT_CM`) — самая выступающая в комнату часть
+ *  окна; перед ним висят шторы и карниз (`configurator/curtains.ts:CURTAIN_PLANE_CM`, T-20261112-34). */
+const SILL_D = 20;
+const SILL_Z = 9;
+export const WINDOW_SILL_FRONT_CM = SILL_Z + SILL_D / 2;
+
 const b = (role: OpeningPartRole, material: OpeningMaterial, w: number, h: number, d: number, x: number, y: number, z: number,
   group?: string): IrBox => ({ role, material, w, h, d, x, y, z, ...(group ? { group } : {}) });
 
@@ -148,7 +154,7 @@ function windowIR(u0: number, u1: number, sill: number, top: number): IrBox[] {
     // стекло — чуть наружу от плоскости стены
     b("glass", "glass", w - P * 2, h - P * 2, 1.2, cx, cy, -3),
     // подоконник внутрь комнаты
-    b("sill", "frame", w + 10, 3.5, 20, cx, sill - 1, 9),
+    b("sill", "frame", w + 10, 3.5, SILL_D, cx, sill - 1, SILL_Z),
   ];
 }
 

@@ -16,6 +16,7 @@ import type { Material } from "@/contracts/configurator";
 import { type MaterialCtx, tiled } from "@/lib/viewer3d/materials";
 import { finishPassport } from "@/lib/viewer3d/finish-passport";
 import { jointStrips } from "@/lib/viewer3d/joints";
+import { roomCurtains } from "@/lib/configurator/curtains";
 import { ceilingLampIR, wallFixturesIR } from "@/lib/viewer3d/fixtures-ir";
 import { buildOpenings, meshesFromBoxes } from "@/lib/viewer3d/openings";
 import { openingIR, wallRects } from "@/lib/viewer3d/opening-ir";
@@ -23,6 +24,8 @@ import { buildOutdoor, outdoorRects, touchesOutdoor, type Rect } from "@/lib/vie
 
 const CM = 0.01;
 const INSET_CM = 1;
+/** На сколько поверхность стены вдвинута в комнату (см. шапку) — от неё отсчитывают шторы (`window-light.ts:buildCurtains`). */
+export const WALL_INSET_CM = INSET_CM;
 
 // куски стены вокруг проёмов считает общий модуль без three.js — его же зовёт ночная сборка (`tools/flat3d/opening-ir.mjs`)
 export { wallRects } from "@/lib/viewer3d/opening-ir";
@@ -119,6 +122,7 @@ export function buildRoom(
   floor.receiveShadow = true;
   group.add(floor);
 
+  const curtains = roomCurtains(room);
   for (const side of ["south", "north", "west", "east"] as WallSide[]) {
     const f = frameOf(room, side);
     const wallOpenings = openingsOnSide(room, side);
@@ -137,8 +141,15 @@ export function buildRoom(
     joints.name = `joints:${room.id}:${side}`;
     group.add(joints);
     // плинтус по кускам стены и карниз над окнами — то же описание получает серверный кадр (`fixtures-ir.ts`, demo-04 п.6)
-    const wins = wallOpenings.filter((o) => o.kind === "window" || o.kind === "balcony")
-      .map((o) => openingIR(o, { wallHeightCm: room.heightCm }).cut);
+    // штанга — под шторы (`curtains.ts:roomCurtains`, оси отступа; у north/west зеркалим, как сами проёмы — `openingsOnSide`)
+    const spans = curtains.filter((_, i) => room.openings[i]!.wall === side);
+    const mirror = side === "north" || side === "west";
+    const wins = wallOpenings.flatMap((o, i) => {
+      const s = spans[i];
+      if (!s) return [];
+      const rod = mirror ? { u0: f.lengthCm - s.rod.u1, u1: f.lengthCm - s.rod.u0 } : s.rod;
+      return [{ ...openingIR(o, { wallHeightCm: room.heightCm }).cut, rod }];
+    });
     const fixtures = meshesFromBoxes(wallFixturesIR(rects, wins, room.heightCm), { skirting: fp.skirting.colorHex });
     fixtures.position.set(f.ox * CM, 0, f.oy * CM);
     fixtures.rotation.y = f.rotY;
