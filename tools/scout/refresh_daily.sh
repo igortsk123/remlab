@@ -20,6 +20,7 @@ paid_step() { if [ "$OPENAI_OFF" = "1" ]; then echo "openai.off: платный 
 # Дневной лимит $ на все модели — rules/openai_prices.json daily_cap_usd (5.0, владелец 17.08); гейт внутри
 # enrich/judge (openai_budget.allow) перед каждой отправкой; отчёт: `openai_budget.py --report 7`
 STATUS=refresh-status.json
+DEMAND_READY="${DEMAND_READY-$HOME/scout-scenes/mesh-demand-ready}"   # метка «спрос мешей готов» (mesh_demand_ready ниже)
 today=$(date +%F)
 if [ "${1:-}" != "--force" ] && [ -f "$STAMP" ] && [ "$(cat $STAMP)" = "$today" ]; then exit 0; fi
 # ПАУЗА ОБСЛУЖИВАНИЯ (onb-12): миграция БД / подмена банка — `tools/ops/cron-pause.sh on`; на паузе — строка в лог и владельцу,
@@ -54,10 +55,19 @@ STEP_TMP="$(mktemp -p "$HOME/.cache/remlab-refresh" remlab-step.XXXXXX)"
 # Вывод шага пишется во временный файл без pipeline (tee съел бы код возврата: `set -o pipefail`
 # в скрипте нет) и ДОПИСЫВАЕТСЯ в общий лог. step() ВОЗВРАЩАЕТ код команды — раньше возвращал 0
 # всегда (последним был echo), и цепочки `step a && step b` шли дальше после падения (Codex 03.09).
+# ВРЕМЯ И ПРОЦЕССОР ШАГА (T-20261112-56, план refresh-split-01): после вывода шага — строка
+#   STEPTIME name=<шаг> start=<ГГГГ-ММ-ДДTЧЧ:ММ:СС> end=<…> sec=<с> rc=<код> res=<ok|warn|FAIL> cpu=<с>
+# cpu — user+sys всех дочерних процессов шага, которых он дождался (cutime+cstime из /proc/$$/stat; работа базы в контейнере и
+# фоновые хвосты сюда не входят; нет /proc — «-»). Без внешних программ: время — встроенными EPOCHSECONDS и printf, процессор —
+# чтением /proc, поэтому замер не попадает в сам себя. Таблицу «шаг → минуты по дням» считает `refresh_step_times.py`.
 step() {                       # step <имя> <команда...>
   local name="$1"; shift
+  local t0=${EPOCHSECONDS:-0} t1 c0=- c1=- st f
+  { read -r st < "/proc/$$/stat"; } 2>/dev/null && { st="${st##*) }"; read -r -a f <<< "$st"; c0=$(( ${f[13]:-0} + ${f[14]:-0} )); }
   : > "$STEP_TMP"
   "$@" > "$STEP_TMP" 2>&1; local rc=$?
+  t1=${EPOCHSECONDS:-0}
+  { read -r st < "/proc/$$/stat"; } 2>/dev/null && { st="${st##*) }"; read -r -a f <<< "$st"; c1=$(( ${f[13]:-0} + ${f[14]:-0} )); }
   if [ "$rc" -eq 0 ]; then
     local n; n=$(grep -c '^WARN:' "$STEP_TMP" || true)
     if [ "${n:-0}" -gt 0 ]; then
@@ -69,7 +79,22 @@ step() {                       # step <имя> <команда...>
     RES[$name]=FAIL; echo "$name FAIL (rc=$rc)" >> "$STEP_TMP"
   fi
   cat "$STEP_TMP" >> "$LOG"
+  local a b cpu=- tk=${CLK_TCK:-100}
+  printf -v a '%(%FT%T)T' "$t0"; printf -v b '%(%FT%T)T' "$t1"
+  [ "$c0" != - ] && [ "$c1" != - ] && cpu="$(( (c1 - c0) / tk )).$(( (c1 - c0) % tk * 10 / tk ))"
+  echo "STEPTIME name=$name start=$a end=$b sec=$(( t1 - t0 )) rc=$rc res=${RES[$name]:-} cpu=$cpu" >> "$LOG"
   return "$rc"
+}
+# МЕТКА «СПРОС МЕШЕЙ ГОТОВ» (T-20261112-56, план refresh-split-01): пишется сразу за `demo_band` — к этому месту сегодняшние ВСЕ
+# входы, из которых сторож волн считает очередь (`salad/wave_guard.py:86` → `mesh_wave_start.sh:137` → `mesh_priority.py:demo_rank`):
+# каталог, наличие и фото в БД (`demo_band.py:load`), семейства и привязка, ожидание ячеек банка (`bank_pending.queue_skus`), банки и
+# привязка комнат (`demo_band.py:room_jobs`). Файл — одна строка `ГГГГ-ММ-ДД ЧЧ:ММ:СС шаг=итог …`. Пока его никто не читает (сторож
+# волн по метке — следующий шаг плана). Путь — DEMAND_READY (пусто — не писать)
+mesh_demand_ready() {          # mesh_demand_ready <шаг…> — итоги перечисленных шагов в метку
+  local s="" k now
+  for k in "$@"; do s+=" $k=${RES[$k]:-нет}"; done
+  printf -v now '%(%F %T)T' -1
+  mkdir -p "$(dirname "$DEMAND_READY")" && echo "$now$s" > "$DEMAND_READY.tmp" && mv -f "$DEMAND_READY.tmp" "$DEMAND_READY"
 }
 publish_status() {             # атомарно: локально .tmp→mv уже сделано; на прод — во временный файл и mv
   local target="${STATUS_PUBLISH:-root@89.167.127.0:/opt/remlab/test/status/refresh-status.json}"
@@ -148,6 +173,7 @@ mkdir -p feeds2
 # Понадобится — добавить хеш сюда и разметить его категории; решение за владельцем.
 FEEDS="f7633bdd943d41c718c12dc88e7a61f2b88b55c6 c0021e3fe460caf057f3d7823043b14adf6acb0c a5906abd53d7d2efaff63c5021bd1cd4fb337a45 a5bb9dc9178031fc6c3b165c3df9c20bfcc55e18 bb618f0e32cb08ab8d5a247cd15d494516ba3523 4255a3608faf6a4bd3b7007f2f0a9977b1f0c89c ec02cfec770831e51450542cf9e6fc0ee53657e4 1b9f77d20e11b89864c73ac9551ff57be0bff818 e2fccbea464497bf6273f6a714ceada976dd4cfe 5794c67294065084b001f25543ee6368803c1553"
 ok=1; dl_ok=0; dl_total=0; dead=""
+feeds_t0=${EPOCHSECONDS:-0}    # скачивание фидов — не step(), время пишем той же строкой STEPTIME (T-20261112-56)
 for h in $FEEDS; do
   dl_total=$((dl_total+1)); got=0
   for try in 1 2; do
@@ -182,6 +208,9 @@ PYEOF
   fi
 done
 echo "фиды: скачано $dl_ok из $dl_total; мёртвые ссылки:${dead:- нет}" >> "$LOG"
+feeds_t1=${EPOCHSECONDS:-0}; printf -v feeds_a '%(%FT%T)T' "$feeds_t0"; printf -v feeds_b '%(%FT%T)T' "$feeds_t1"
+feeds_res=ok; [ "$ok" = 1 ] || feeds_res=warn
+echo "STEPTIME name=feeds start=$feeds_a end=$feeds_b sec=$(( feeds_t1 - feeds_t0 )) rc=0 res=$feeds_res cpu=-" >> "$LOG"
 # 2 дня подряд без выгрузки — это не «моргнуло», это ссылка сменилась в кабинете партнёрки
 STALE_LINKS=$("$PY" -c "
 import json,os
@@ -550,6 +579,8 @@ done
 room_digest "спальня (банк)" привязка=room_bindings сборка=compose_bedroom суд=room_check_bedroom цепочка=chain_bedroom репетиция=bank_rehearse_bedroom состояние=bank_state_bedroom
 room_digest "прихожая (банк)" привязка=room_bindings сборка=compose_hall суд=room_check_hall цепочка=chain_hall репетиция=bank_rehearse_hall состояние=bank_state_hall
 step demo_band "$PY" demo_band.py --report
+[ -n "${DEMAND_READY:-}" ] && mesh_demand_ready load3 stock_check pool_photos capabilities mesh_family_early mesh_bind_early \
+  bank_pending room_bindings demo_band
 # меши комнат — на прод вместе с гостиной (`room_publish.py`), только комнаты с `rooms.<комната>.publish` (live|next); пусто — как прежде
 ROOM_PUB=$("$PY" room_bank_spec.py --publish 2>/dev/null || true)
 if [ -n "$ROOM_PUB" ]; then step mesh_publish env ROOM_PUBLISH="$ROOM_PUB" "$PY" mesh_publish.py
