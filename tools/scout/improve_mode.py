@@ -179,15 +179,17 @@ CEILING_FIXTURE = '\n'.join([
 # ШТОРЫ — ОДНО ПРАВИЛО ДЛЯ ВСЕХ КОМНАТ, СТИЛЕЙ И ТУРОВ (T-20261112-113, владелец TG 1284). Разбор кадра set6 C1 12.11 (improve-164818):
 # тюль 300 см при окне 150 и «по панели с каждой стороны стекла» под карнизом, который на листе всего на ~15 см шире проёма, — модель
 # сузила окно на ~30 % и повесила левую панель за подлокотник дивана; то же 08.11 и 09.11. Окно и мебель важнее штор: окно не трогаем,
-# полотно у мебели остаётся на раме. Нарисованные сценой полотна (T-74, тюль «во всю штангу») — разметка места, меняется только ткань
+# полотно у мебели остаётся на раме. Нарисованные сценой полотна (T-74, тюль «во всю штангу» — на кадре 12.11 висит за диваном) — только
+# подсказка ткани и длины: ширину режет то же правило
 CURTAINS = ('CURTAINS — WIDTH AND PLACE. Curtains hang only from the curtain rod above the window in IMAGE 1, within its ends (if IMAGE 1 '
             'shows no rod, add a slim rod just above the opening). Hung and gathered, the curtains of a window are only slightly wider '
             'than the window opening: each panel reaches a little past the window frame onto the wall and no further, whatever the '
             'fabric width of the product. Never narrow, shift, split or redesign the window, its frame or its glass to make room for '
             'curtains: the opening keeps its exact size and position from IMAGE 1. A curtain never hangs behind, over or through '
             'furniture and never touches it: where furniture stands at the edge of the window, the panel on that side stays on the '
-            'window frame instead of the wall. If IMAGE 1 already shows curtain panels at a window, they mark the exact position, width '
-            'and length: keep them and change only their fabric.')
+            'window frame instead of the wall. If IMAGE 1 already shows curtain fabric at a window, it only marks the length and the fabric '
+            'to use: wherever it spreads wider than this, or hangs behind or over furniture, draw it narrower to follow these rules and show '
+            'the plain wall there instead.')
 
 
 def guide_for(guide: str, floor: str | None = None, walls: str | None = None) -> str:

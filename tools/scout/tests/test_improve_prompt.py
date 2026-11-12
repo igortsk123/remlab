@@ -112,7 +112,7 @@ _h = lambda t: hashlib.sha256(t.encode()).hexdigest()[:12]
 # T-113 (12.11, improve-v*.4): промпт сменён НАМЕРЕННО — шторы по ширине окна, окно строго по кадру, контур мебели, картины на стену,
 # люстра к потолку; отпечатки 12 случаев пересняты с нового кода (было: гостиная 447225d2bbec, спальня 69d208d9d4ea,
 # прихожая 3dc602321119, ключ кадров bd8cc75634b0db84ca37ee0142c311f8)
-check('гостиная: промпт побайтно прежний (без комнаты и с room=living)', _h(_cases()) == 'eb0e3784780e' and _cases(room='living') == _cases(),
+check('гостиная: промпт побайтно прежний (без комнаты и с room=living)', _h(_cases()) == 'f67c3f4c294b' and _cases(room='living') == _cases(),
       _h(_cases()))
 _rr = json.load(open(os.path.join(HERE, '..', 'rules', 'improve-rooms.json'), encoding='utf-8'))
 _pb = IM.prompt_for('минимализм', room='bedroom')
@@ -138,7 +138,7 @@ check('тип комнаты из запроса — room.kind', IM.room_kind({'
       and IM.room_kind({}) is None)
 # ДЕТСКАЯ 7–12 (T-20261107-46/1, kids-room-01 «Фото»): свой промпт по `purpose` запроса; спальня взрослых и прихожая — побайтно прежние
 # (отпечатки 12 случаев сняты с кода до правки: спальня 69d208d9d4ea, прихожая 3dc602321119)
-check('спальня и прихожая: промпт побайтно прежний', _h(_cases(room='bedroom')) == '8298219663d2' and _h(_cases(room='hall')) == '4ff99eb6d779',
+check('спальня и прихожая: промпт побайтно прежний', _h(_cases(room='bedroom')) == '7e5c628c7e46' and _h(_cases(room='hall')) == '3fc897fd9df6',
       (_h(_cases(room='bedroom')), _h(_cases(room='hall'))))
 _bed = {'room': {'kind': 'bedroom'}}
 check('назначение запроса: детская — своя запись, взрослые и неизвестные — тип, без комнаты — None',
