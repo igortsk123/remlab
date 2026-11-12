@@ -20,13 +20,19 @@
 Итог шаблона дополнительно проходит растровую мерку пути `hall_passage_min` от входа (старт — шаг из двери, как у движка:
 `hall_checks._entry_step`; щель у входа, которую движок пропускал как 85, найдена в T-70 и починена в T-20261112-93).
 
-  ~/venvs/scout/bin/python hall_schemes.py OUT_DIR [--only id,id] [--jobs N]
-  # → OUT_DIR/<комната>.png, sheet-N.png, matrix.md, results.json
+СТРАНА (T-20261112-72, владелец TG 907): «стало» считается по числам страны `distances_cm.clearances.hall_*` (ru — /demo,
+uk — туры): те же функции движка, но прежние ключи подменены числами страны (`norms`, только в этом процессе); сверх движка —
+сужение до местного минимума только на ≤ 2 м и не у двери (`local_narrowing`); короткая прихожая H10 — крючки/вешалка + полка +
+коврик (`place_extras`), товары — выгрузка `hall_extra_roles.py` (`--extra`). «Было» — движок как есть.
+
+  ~/venvs/scout/bin/python hall_schemes.py OUT_DIR [--only id,id] [--jobs N] [--country ru,uk] [--extra roles.json]
+  # → OUT_DIR/<комната>-<страна>.png, sheet-<страна>-N.png, matrix.md, results.json
 
 Только чтение банка и правил. Без сети и БД.
 """
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -49,42 +55,97 @@ from planner.geometry import base_role, footprint, room_polygon, swing_polygon  
 from planner.hall import ORDER, WEIGHT, _fits, _pass_ok, _place, _State, _Statics, _zone, solve_hall  # noqa: E402
 from planner.hall_checks import (_entry_step, door_front, entrance, entry_landing, is_low, is_wall_mirror,  # noqa: E402
                                  validate_hall)
-from planner.models import Item, Opening, Radiator, Room, Severity  # noqa: E402
+from planner.models import Item, Opening, Placement, Radiator, Room, Severity  # noqa: E402
+
+import planner.hall as _HH  # noqa: E402
+import planner.hall_checks as _HC  # noqa: E402
 
 OCC = bs.OCC
-P_HARD = float(OCC['hall_passage_min'])                 # 85 — проход от входа (жёстко у движка)
-P_COMF = float(OCC['hall_passage_comfort'])             # 90 — комфорт (мягко)
-P_COMPACT = 75.0     # ADM M4(1) 1.15 / табл. 1.1: местное сужение 750 мм (Codex T-70 § 1) — ключа в occupancy.json НЕТ, только мерка
-P_TARGET = 90.0      # ADM M4(1)/M4(2): коридор 900 мм — цель (Codex T-70); = hall_passage_comfort
-DOOR_FRONT = float(OCC['passage_secondary_comfort'][0])  # 76 — полоса перед каждой дверью
-ENTRY = float(OCC['hall_entry_depth'])                  # 120 — площадка у входа
-SHOE_MAX = float(OCC['hall_shoe_entry_max'])            # 150
+# СТРАНА квартиры (T-20261112-72, владелец TG 907): проходы прихожей — `distances_cm.clearances.hall_*` с блоками ru / uk;
+# страна квартиры = market застройщика (`contracts/partner.ts:market`; /demo — ru, туры и английское демо — uk).
+CL = OCC['clearances']
+COUNTRIES = ('ru', 'uk')
+SHAPE = CL['hall_shape']
+ROUTE = CL['hall_route']
+# прежний ключ движка → (проход страны, число): «стало» считает теми же функциями движка, но с числами страны — подмена
+# `num` только в процессе листов (`norms`); сам движок `planner/hall.py` и его ключи не меняются
+# Полоса перед дверью (passage_secondary_comfort 76 — глубина, где нет мебели) — без страны: ADM 900 у двери — это ШИРИНА пути
+# у двери, её держит `local_narrowing` (в полосе door_zone путь не уже цели); 90 как глубина полосы съедало стены малой прихожей
+ENGINE_KEYS = {'hall_passage_min': ('hall_route', 'hard'), 'hall_passage_comfort': ('hall_route', 'target'),
+               'hall_entry_depth': ('hall_entry_inside', 'compact'),
+               'wardrobe_sliding_front': ('hall_sliding_front', 'compact'),
+               'wardrobe_hinged_front_min': ('hall_hinged_front', 'compact'),
+               'shoe_cabinet_front': ('hall_shoe_tilt', 'compact'), 'bench_legroom': ('hall_bench_front', 'compact')}
+_ORIG_NUM = _HC.num
+COUNTRY = None       # страна текущего «стало»; None — движок как есть («было»)
+SHOE_MAX = float(OCC['hall_shoe_entry_max'])            # 150 — без страны
 MIRROR_MAX = float(OCC['hall_mirror_exit_max'])         # 300
-FRONT = {'шкаф-купе': float(OCC['wardrobe_sliding_front'][0]), 'шкаф': float(OCC['wardrobe_hinged_front_min']),
-         'прихожая': float(OCC['wardrobe_hinged_front_min']), 'обувница': float(OCC['shoe_cabinet_front']),
-         'банкетка': float(OCC['bench_legroom'])}
 BEAM = 16
 PASSPORT = RT.load('hall')
 CARRIER_ROLES = ('обувница', 'консоль', 'банкетка')
+EXTRA_ROLES = ('полка', 'коврик')       # не занимают пол: полка — над крючками/вешалкой, коврик — плоский у входа
 
 RU = {'шкаф-купе': 'Купе', 'шкаф': 'Шкаф', 'прихожая': 'Модуль', 'вешалка': 'Вешалка', 'обувница': 'Обувница',
-      'банкетка': 'Банкетка', 'консоль': 'Консоль', 'зеркало': 'Зеркало'}
+      'банкетка': 'Банкетка', 'консоль': 'Консоль', 'зеркало': 'Зеркало', 'крючки': 'Крючки', 'полка': 'Полка',
+      'коврик': 'Коврик'}
 SHORT = {'шкаф-купе': 'Купе', 'шкаф': 'Шкаф', 'прихожая': 'Мод', 'вешалка': 'Веш', 'обувница': 'Обув',
-         'банкетка': 'Банк', 'консоль': 'Конс', 'зеркало': 'Зерк'}
+         'банкетка': 'Банк', 'консоль': 'Конс', 'зеркало': 'Зерк', 'крючки': 'Крюч', 'полка': 'Полка', 'коврик': 'Ковр'}
 COL = {'шкаф-купе': (144, 164, 174), 'шкаф': (120, 144, 156), 'прихожая': (144, 164, 174), 'вешалка': (188, 170, 164),
-       'обувница': (179, 157, 219), 'банкетка': (255, 204, 128), 'консоль': (215, 196, 163), 'зеркало': (79, 195, 247)}
+       'обувница': (179, 157, 219), 'банкетка': (255, 204, 128), 'консоль': (215, 196, 163), 'зеркало': (79, 195, 247),
+       'крючки': (161, 136, 127), 'полка': (205, 220, 57), 'коврик': (200, 230, 201)}
 ZCOL = {'шкаф-купе': (30, 136, 229, 60), 'шкаф': (30, 136, 229, 60), 'прихожая': (30, 136, 229, 60),
         'обувница': (142, 36, 170, 55), 'банкетка': (251, 140, 0, 65), 'door': (255, 193, 7, 85)}
-CODE_RU = {
-    'HALL_NO_PASSAGE': f'от входа нет прохода {P_HARD:.0f}', 'HALL_DOOR_UNREACHABLE': f'нет прохода {P_HARD:.0f} к двери',
-    'HALL_UNREACHABLE': f'к предмету нет прохода {P_HARD:.0f}', 'HALL_DOOR_FRONT': f'предмет в полосе {DOOR_FRONT:.0f} у двери',
-    'HALL_ACCESS_BLOCKED': 'фронт предмета перекрыт', 'HALL_ACCESS_WALL': 'фронт упирается в стену',
-    'HALL_NOT_AT_WALL': 'не спинкой к стене', 'COLLISION': 'предметы налезают', 'DOOR_SWING': 'предмет в дуге двери',
-    'RADIATOR': 'у радиатора', 'WINDOW_BLOCKED': 'закрыто окно', 'OUT_OF_ROOM': 'не влезает в стены',
-    'HALL_PASSAGE_TIGHT': f'проход уже {P_COMF:.0f} (мягко)', 'HALL_ENTRY_TIGHT': f'занята площадка {ENTRY:.0f} у входа (мягко)',
-    'HALL_SHOE_FAR': f'обувь дальше {SHOE_MAX:.0f} от входа (мягко)', 'HALL_MIRROR_FAR': f'зеркало дальше {MIRROR_MAX:.0f} (мягко)',
-    'HALL_ROOM_NARROW': 'стены уже нормы (свойство квартиры, мягко)',
-}
+
+
+def cnum(key, level, c=None):
+    """Число прохода страны: `clearances.<key>.<c>.<level>`."""
+    return float(CL[key][c or COUNTRY or CL['_countries']['default']][level])
+
+
+def _set_globals():
+    global P_HARD, P_COMF, P_COMPACT, P_TARGET, DOOR_FRONT, ENTRY, FRONT, CODE_RU
+    n = _HC.num
+    P_HARD = n('hall_passage_min', 85)              # жёсткий проход от входа: движок 85 / страна — hard 75 местами
+    P_COMF = n('hall_passage_comfort', 90)          # комфорт (мягко)
+    P_TARGET, P_COMPACT = cnum('hall_route', 'target'), cnum('hall_route', 'compact')   # цвет узкого места — по стране
+    DOOR_FRONT = n('passage_secondary_comfort', 76)
+    ENTRY = n('hall_entry_depth', 120)
+    FRONT = {'шкаф-купе': n('wardrobe_sliding_front', 50), 'шкаф': n('wardrobe_hinged_front_min', 90),
+             'прихожая': n('wardrobe_hinged_front_min', 90), 'обувница': n('shoe_cabinet_front', 50),
+             'банкетка': n('bench_legroom', 60)}
+    CODE_RU = {
+        'HALL_NO_PASSAGE': f'от входа нет прохода {P_HARD:.0f}', 'HALL_DOOR_UNREACHABLE': f'нет прохода {P_HARD:.0f} к двери',
+        'HALL_UNREACHABLE': f'к предмету нет прохода {P_HARD:.0f}', 'HALL_DOOR_FRONT': f'предмет в полосе {DOOR_FRONT:.0f} у двери',
+        'HALL_ACCESS_BLOCKED': 'фронт предмета перекрыт', 'HALL_ACCESS_WALL': 'фронт упирается в стену',
+        'HALL_NOT_AT_WALL': 'не спинкой к стене', 'COLLISION': 'предметы налезают', 'DOOR_SWING': 'предмет в дуге двери',
+        'RADIATOR': 'у радиатора', 'WINDOW_BLOCKED': 'закрыто окно', 'OUT_OF_ROOM': 'не влезает в стены',
+        'HALL_PASSAGE_TIGHT': f'проход уже {P_COMF:.0f} (мягко)', 'HALL_ENTRY_TIGHT': f'занята площадка {ENTRY:.0f} у входа (мягко)',
+        'HALL_SHOE_FAR': f'обувь дальше {SHOE_MAX:.0f} от входа (мягко)', 'HALL_MIRROR_FAR': f'зеркало дальше {MIRROR_MAX:.0f} (мягко)',
+        'HALL_ROOM_NARROW': 'стены уже нормы (свойство квартиры, мягко)',
+    }
+
+
+def norms(c):
+    """Числа проходов для расчёта: c = 'ru' | 'uk' — страна (прежние ключи движка → `ENGINE_KEYS`), None — движок как есть.
+    Возвращает прежнее значение — для `norms(prev)`."""
+    global COUNTRY
+    prev = COUNTRY
+    if c is None:
+        _HC.num = _HH.num = _ORIG_NUM
+    else:
+        if c not in COUNTRIES:
+            raise ValueError(f'страна {c!r}? есть {", ".join(COUNTRIES)}')
+
+        def num(key, default, _c=c):
+            m = ENGINE_KEYS.get(key)
+            return cnum(m[0], m[1], _c) if m else _ORIG_NUM(key, default)
+        _HC.num = _HH.num = num
+    COUNTRY = c
+    _set_globals()
+    return prev
+
+
+norms(None)
 
 
 # ---------------------------------------------------------------- комнаты (x — восток, y — север; offset от юга/запада)
@@ -156,15 +217,14 @@ def facts(r, room: Room) -> dict:
     doors = [o for o in r['openings'] if o['kind'] == 'door']
     walls = {o['wall'] for o in doors if not o.get('is_entrance')}
     aspect = max(r['w'], r['d']) / min(r['w'], r['d'])
-    # флаги формы — ПРОДУКТОВЫЕ классификаторы листа (ключей occupancy.json нет — список в отчёте T-70):
-    #   micro: короткая сторона < 100 или площадь < 1,5 м²; squareish: прямоугольник, стороны ≤ 1,75 : 1 и площадь < 6 м²;
-    #   door_dense: вытянутый (≥ 2 : 1), дверей ≥ 3 вместе со входом и межкомнатные — на двух и более стенах
-    micro = rect and (short < 100 or area < 1.5)
+    # флаги формы — продуктовые пороги без страны: `distances_cm.clearances.hall_shape` (T-20261112-72; список — отчёт T-70)
+    micro = rect and (short < SHAPE['micro_short_max'] or area < SHAPE['micro_area_max_m2'])
     return {'area_m2': round(area, 2), 'short_cm': short, 'doors': len(doors),
             'shape_l': bool(r.get('contour')) and not r.get('niche') and not r.get('stairs'),
             'has_niche': bool(r.get('niche')), 'has_stairs': bool(r.get('stairs')), 'micro': bool(micro),
-            'squareish': bool(rect and not micro and aspect <= 1.75 and area < 6),
-            'door_dense': bool(rect and aspect >= 2 and len(doors) >= 3 and len(walls) >= 2)}
+            'squareish': bool(rect and not micro and aspect <= SHAPE['square_aspect_max'] and area < SHAPE['square_area_max_m2']),
+            'door_dense': bool(rect and aspect >= SHAPE['corridor_aspect_min'] and len(doors) >= SHAPE['corridor_doors_min']
+                               and len(walls) >= SHAPE['corridor_walls_min'])}
 
 
 # ---------------------------------------------------------------- товары (банк-кандидат сборщика прихожей, 5 стилей)
@@ -183,7 +243,50 @@ def load_pool():
     by = {}
     for x in pool.values():
         by.setdefault(x['role'], []).append(x)
+    if EXTRA:
+        for role, xs in load_extra(EXTRA).items():
+            by[role] = xs
     return sets, by
+
+
+EXTRA = None      # --extra roles.json (`hall_extra_roles.py`): крючки, полка, коврик из свежих фидов; нет файла — «нет товара»
+_DIMS = re.compile(r'(\d+(?:[.,]\d+)?)\s*[xх×]\s*(\d+(?:[.,]\d+)?)(?:\s*[xх×]\s*(\d+(?:[.,]\d+)?))?\s*(см|мм)?', re.I)
+
+
+def name_dims(name):
+    """Ш×Г×В из названия товара («… 46,5х19х8 см», коврик «40x60 см»): у фидов этих ролей размеров в полях нет."""
+    m = _DIMS.search(name or '')
+    if not m:
+        return None
+    k = 0.1 if (m.group(4) or '').lower() == 'мм' else 1.0
+    v = [float(x.replace(',', '.')) * k for x in m.groups()[:3] if x]
+    return v
+
+
+def load_extra(path):
+    """Новые роли прихожей (T-20261112-72) из выгрузки `hall_extra_roles.py`: только товары с размерами в названии.
+    крючки — настенная планка/вешалка с крючками шириной ≥ 30 (одиночная фурнитура не в счёт); полка — над крючками
+    (вешалка с полкой, полка-вешалка); коврик — придверный, плоский."""
+    raw = json.load(open(path, encoding='utf-8'))
+    out = {}
+    for role in ('крючки', 'полка', 'коврик'):
+        for _id, x in (raw.get(role) or {}).items():
+            v = name_dims(x.get('name'))
+            if not v:
+                continue
+            if role == 'коврик':
+                w, d, h = max(v[:2]), min(v[:2]), 1.0
+            elif len(v) < 3:
+                continue
+            else:
+                w, d, h = v[0], min(v[1:]), max(v[1:])
+            if role == 'крючки' and (w < 30 or not re.search(r'настенн|планк|крючк', x['name'], re.I)):
+                continue
+            if role != 'коврик' and not (2 <= d <= 45 and w <= 200):
+                continue
+            out.setdefault(role, []).append({'role': role, 'w': w, 'd': d, 'h': h, 'name': x['name'], 'style': x.get('style') or '',
+                                             'sku': _id})
+    return out
 
 
 def choose_skus(by, role):
@@ -229,7 +332,7 @@ def pref(r, tid, room, S, p, slot, placed):
         sc += 0.004 * p.item.w_cm - 0.002 * min(d, 500)
         if r.get('niche') and fp.within(box(*r['niche']).buffer(1)):
             sc += 6.0
-    elif role in ('обувница', 'банкетка', 'вешалка'):
+    elif role in ('обувница', 'банкетка', 'вешалка', 'крючки'):
         sc += -0.01 * min(d, 400) + 0.002 * p.item.w_cm
         if role == 'банкетка' and any(base_role(q.role) == 'обувница' and footprint(q).distance(fp) < 15 for q in placed):
             sc += 0.6
@@ -260,12 +363,14 @@ def search_level(r, room, S, tid, lv, by, base=None):
     in_niche = bool(base)        # надстройка H7: закрытое хранение — целиком в нише
     # порядок постановки — как у движка (`planner/hall.py:ORDER`): крупное → у входа → вешалка → зеркало
     places = sorted(places, key=lambda p: (ORDER.index(p['role']) if p['role'] in ORDER else 99, p['id']))
+    extra = [p for p in places if p['role'] in EXTRA_ROLES]       # полка, коврик — после пола (`place_extras`)
+    places = [p for p in places if p['role'] not in EXTRA_ROLES]
     states = [_State([], [], 0.0, [])]
     for pl in places:
         role = pl['role']
         skus = choose_skus(by, role)
         if not skus:
-            return None, f'в банке нет «{role}»'
+            return None, (f'нет товара «{role}» в каталоге' if role == 'крючки' else f'в банке нет «{role}»')
         nxt = []
         for st in states:
             for sku in skus:
@@ -308,13 +413,26 @@ def search_level(r, room, S, tid, lv, by, base=None):
     need = min(P_HARD, float(best_width(room, [])) or P_HARD)   # стены уже нормы — мерка по пустой комнате (как у движка)
     # итог — проверки движка + растровая мерка пути (вторая, независимая от многоугольников: шаг сетки, диагонали);
     # дефект «рта» входа (щель 80 у двери сходила за 85, T-70) починен в движке — T-20261112-93
+    loc_why, ex_why = '', ''
     for st in states:
         lay = validate_hall(room, st.placed)
         if any(v.severity is Severity.HARD for v in lay.violations):
             continue
         paths, _p = route_paths(room, st.placed, need)
-        if paths and all(x[2] for x in paths):
-            return {'placed': st.placed, 'violations': lay.violations, 'score': st.score}, None
+        if not (paths and all(x[2] for x in paths)):
+            continue
+        loc = local_narrowing(room, st.placed, need) if COUNTRY else None
+        if loc and not loc['ok']:
+            loc_why = loc_why or loc['why']
+            continue
+        extras, empty, miss = place_extras(room, st.placed, extra, by)
+        if miss:
+            ex_why = ex_why or miss
+            continue
+        return {'placed': st.placed, 'violations': lay.violations, 'score': st.score, 'narrow': loc, 'extras': extras,
+                'empty': empty}, None
+    if loc_why or ex_why:
+        return None, loc_why or ex_why
     if any(not any(v.severity is Severity.HARD for v in validate_hall(room, st.placed).violations) for st in states[:3]):
         return None, f'движок пропускает, но честный путь {need:.0f} от входа рвётся (щель у входа)'
     lay = validate_hall(room, states[0].placed)
@@ -368,7 +486,8 @@ def run_room(r, by):
     cands.sort(key=lambda c: (c[0], c[1]))
     _v, _rank, tid, lv, got = cands[0]
     return {'room': r, 'facts': f, 'order': order, 'tried': tried, 'tpl': tid, 'level': lv['id'], 'level_label': lv.get('label', ''),
-            'placed': got['placed'], 'violations': got['violations'], 'ok': True,
+            'placed': got['placed'], 'violations': got['violations'], 'ok': True, 'extras': got.get('extras') or [],
+            'empty': got.get('empty') or [], 'narrow': got.get('narrow'),
             'mirror_variant': (lv.get('use') or {}).get('mirror', ''), 'cands': [(c[2], c[3]['id'], -c[0]) for c in cands]}
 
 
@@ -454,6 +573,135 @@ def route_paths(room: Room, placed, need=P_HARD):
                     pinch = m
         out.append((kind, name, [(X[iy, ix], Y[iy, ix]) for iy, ix in path] if path else None))
     return out, pinch
+
+
+def local_narrowing(room: Room, placed, need):
+    """Сужение — только МЕСТАМИ (ADM M4(1) п. 1.15, владелец TG 907; `clearances.hall_route`): там, где путь от входа уже
+    цели страны, участок не длиннее `local_max_length` и не в полосе `door_zone` перед любой дверью (у двери и напротив).
+    «Широко» в клетке пути — в неё попадает круг диаметра цели, целиком в свободном месте (у стены широкого коридора — тоже
+    широко). Путь — с наименьшей длиной узкого (Дейкстра по растру), до каждой двери и предмета. Стены уже цели — свойство
+    квартиры: цель = ширине пустой комнаты."""
+    import heapq
+    from shapely import contains_xy
+    from planner.hall_checks import _wall_strip
+    ent = entrance(room)
+    bw0 = best_width(room, [])
+    tgt = min(P_TARGET, float(bw0)) if bw0 else P_TARGET
+    res = {'ok': True, 'runs': [], 'max_run': 0.0, 'at_door': False, 'why': '', 'target': tgt}
+    if ent is None or tgt <= need:
+        return res
+    X, Y, inside, edt = free_space(room, placed)
+    ok = edt >= need / 2 - G
+    centres = edt >= tgt / 2 - G
+    wide = (ndimage.distance_transform_edt(~centres) * G <= tgt / 2) if centres.any() else np.zeros_like(ok)
+    zones = unary_union([_wall_strip(room, op.wall, op.offset_cm, op.width_cm, float(ROUTE['door_zone']))
+                         for op in room.openings if op.kind == 'door'])
+    zmask = contains_xy(zones, X, Y)
+    mouth = _entry_step(room, ent, need).buffer(G)
+    sm = contains_xy(mouth, X, Y) & ok
+    if not sm.any():
+        return res
+    a = bs_mid(room, ent)
+    s0 = np.argwhere(sm)[int(np.argmin((X[sm] - a[0]) ** 2 + (Y[sm] - a[1]) ** 2))]
+    H, W = ok.shape
+    dist = np.full(ok.shape, np.inf)
+    prev = -np.ones(ok.shape, dtype=np.int64)
+    dist[s0[0], s0[1]] = 0.0
+    pq = [(0.0, int(s0[0]), int(s0[1]))]
+    while pq:
+        dv, y, x = heapq.heappop(pq)
+        if dv > dist[y, x]:
+            continue
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < H and 0 <= nx < W and ok[ny, nx]:
+                step = G * (1.4142 if dy and dx else 1.0)
+                nd = dv + step * (1.0 if wide[ny, nx] else 40.0)
+                if nd < dist[ny, nx]:
+                    dist[ny, nx], prev[ny, nx] = nd, y * W + x
+                    heapq.heappush(pq, (nd, ny, nx))
+    for _kind, name, region in targets(room, placed):
+        tm = contains_xy(region.buffer(need / 2), X, Y) & np.isfinite(dist)
+        if not tm.any():
+            continue
+        c = region.centroid
+        k = int(np.argmin(np.where(tm, (X - c.x) ** 2 + (Y - c.y) ** 2, np.inf)))
+        y, x = divmod(k, W)
+        run, last = 0.0, None
+        while (y, x) != (int(s0[0]), int(s0[1])):
+            py, px = divmod(int(prev[y, x]), W)
+            if not wide[y, x]:
+                run += G * (1.4142 if (py != y and px != x) else 1.0)
+                if zmask[y, x] and not res['at_door']:
+                    res['at_door'], res['door_pt'] = True, (float(X[y, x]), float(Y[y, x]))
+            elif run:
+                res['runs'].append(round(run))
+                run = 0.0
+            y, x = py, px
+        if run:
+            res['runs'].append(round(run))
+    res['max_run'] = max(res['runs'] or [0])
+    if res['max_run'] > ROUTE['local_max_length']:
+        res['ok'], res['why'] = False, (f'уже {tgt:.0f} на {res["max_run"]:.0f} см подряд — местно можно ≤ '
+                                        f'{ROUTE["local_max_length"]} (ADM M4(1) 1.15)')
+    elif res['at_door']:
+        res['ok'], res['why'] = False, f'уже {tgt:.0f} у двери или напротив неё (полоса {ROUTE["door_zone"]})'
+    return res
+
+
+def place_extras(room: Room, placed, need, by):
+    """Полка над крючками/вешалкой и коврик у входа — не занимают пол. Полка: на стене носителя, по его оси, не шире
+    стены комнаты; нет носителя или товара — пусто с причиной (leave_empty). Коврик (место обязательное): плоский, у входной
+    двери внутри комнаты, длинной стороной вдоль двери, не под мебелью; нет товара — уровень не годен («нет товара»)."""
+    poly = room_polygon(room)
+    out, empty = [], []
+    for pl in need:
+        role = pl['role']
+        xs = sorted(by.get(role) or [], key=lambda x: -x['w'])
+        if not xs:
+            if pl.get('kind') == 'dependent':
+                empty.append(f'{RU[role]}: нет товара в каталоге')
+                continue
+            return out, empty, f'нет товара «{RU[role]}» в каталоге'
+        if role == 'полка':
+            car = [q for q in placed if base_role(q.role) in ('крючки', 'вешалка')]
+            if not car:
+                empty.append('полка: нет крючков/вешалки под ней')
+                continue
+            q = car[0]
+            fit = [x for x in xs if x['w'] <= q.item.w_cm + 20] or xs[-1:]
+            x = fit[0]
+            it = Item(role=role, w_cm=x['w'], d_cm=x['d'], h_cm=x['h'])
+            n = (math.sin(math.radians(q.rot)), math.cos(math.radians(q.rot)))      # лицом в комнату; спинка — к стене
+            sh = (x['d'] - q.item.d_cm) / 2
+            p = Placement(role=role, x=q.x + n[0] * sh, y=q.y + n[1] * sh, rot=q.rot, item=it)
+            fp = footprint(p)
+            if fp.difference(poly).area > 1.0:
+                empty.append('полка: не помещается на стене над носителем')
+                continue
+            out.append((role, fp, f'полка {x["w"]:.0f} над {RU[base_role(q.role)].lower()}', x))
+        else:
+            ent = entrance(room)
+            fl = unary_union([footprint(q) for q in placed if not is_wall_mirror(q)]) if placed else None
+            done = False
+            for x in xs:
+                w = min(x['w'], ent.width_cm + 20)
+                if w < x['w'] - 0.5:
+                    continue
+                strip = _wall_strip_c(room, ent, w, x['d'])
+                if strip.difference(poly).area > 1.0 or (fl is not None and strip.intersection(fl).area > 1.0):
+                    continue
+                out.append((role, strip, f'коврик {x["w"]:.0f}×{x["d"]:.0f}', x))
+                done = True
+                break
+            if not done:
+                return out, empty, 'коврик не ложится у входа (мебель или стены)'
+    return out, empty, None
+
+
+def _wall_strip_c(room, op, w, d):
+    from planner.hall_checks import _wall_strip
+    return _wall_strip(room, op.wall, op.offset_cm + (op.width_cm - w) / 2, w, d)
 
 
 def bs_mid(room: Room, op):
@@ -545,7 +793,7 @@ def hatch(cv, geoms, col=(220, 0, 0)):
             d.polygon(poly_px(cv, gg), outline=col, width=2)
 
 
-def render(r, placed, violations, s, title, subtitle, foot, ok, show_paths=True, bw=0, sub2=''):
+def render(r, placed, violations, s, title, subtitle, foot, ok, show_paths=True, bw=0, sub2='', extras=()):
     room = to_room(r)
     poly = room_polygon(room)
     W, D = float(r['w']), float(r['d'])
@@ -652,6 +900,15 @@ def render(r, placed, violations, s, title, subtitle, foot, ok, show_paths=True,
             d = ImageDraw.Draw(cv.img)
         else:
             text_c(d, cv.P(c.x, c.y), txt, tf)
+    # коврик (плоский) и полка (над крючками) — контуром поверх, проход не занимают
+    for role, g, lab, _x in extras:
+        pts = poly_px(cv, g)
+        if role == 'коврик':
+            d.polygon(pts, fill=COL['коврик'], outline=(56, 142, 60))
+        else:
+            dashed(d, pts + pts[:1], (130, 119, 23), w=2, on=4, off=3)
+        c = g.centroid
+        text_c(d, cv.P(c.x, c.y), lab.split(' над ')[0], font(9, True), (51, 105, 30))
     # нарушения
     bad = {}
     for v in violations:
@@ -686,8 +943,8 @@ def render(r, placed, violations, s, title, subtitle, foot, ok, show_paths=True,
     d.text((12, 30), subtitle, font=font(13, True), fill=(46, 125, 50) if ok else (198, 40, 40))
     d.text((12, 49), sub2, font=font(11), fill=(60, 60, 60))
     d.text((12, 68), 'сетка 50 см · пунктир от входа: синий — к дверям, зелёный — к предметам', font=font(10), fill=(110, 110, 110))
-    d.text((12, 81), 'в кружке — узкое место, см: зел. ≥ 90 · оранж. 75–89 · красн. < 75',
-           font=font(10), fill=(110, 110, 110))
+    d.text((12, 81), f'узкое место, см: зел. ≥ {P_TARGET:.0f} · оранж. {P_COMPACT:.0f}–{P_TARGET - 1:.0f} · '
+           f'красн. < {P_COMPACT:.0f}', font=font(10), fill=(110, 110, 110))
     y = cv.h - (lines * (fs + 7)) - 14
     for ln in foot:
         col = (198, 40, 40) if ln.startswith('✗') else (46, 125, 50) if ln.startswith('✓') else (50, 50, 50)
@@ -740,6 +997,7 @@ def tpl_label(name):
 
 
 def panel_pair(r, res, was, s):
+    cur = norms(None)           # «было» — движок с прежними ключами
     bw = best_width(to_room(r), was['placed']) if was['placed'] else 0
     hard = hard_line(was['violations'])
     f1 = items_line(was['placed'])
@@ -754,9 +1012,19 @@ def panel_pair(r, res, was, s):
     f1 += soft_line(was['violations'])
     img1, _ = render(r, was['placed'], was['violations'], s, r['title'], 'БЫЛО — движок hall-v1 сейчас', f1,
                      not hard and bool(was['placed']), bw=bw, sub2='набор сканди целиком; неудобное движок выкидывает по одному')
+    norms(cur)
+    cname = CL['_countries'][cur]['label'] if cur else ''
     if res['ok']:
         bw2 = best_width(to_room(r), res['placed'])
-        f2 = [f'✓ влезает · проход ≥ {bw2} см (цель {P_TARGET:.0f}, местно {P_COMPACT:.0f})'] + items_line(res['placed'])
+        f2 = [f'✓ влезает · проход ≥ {bw2} (цель {P_TARGET:.0f}, местно {P_COMPACT:.0f})'] + items_line(res['placed'])
+        nar = res.get('narrow') or {}
+        if nar.get('runs'):
+            f2 += wrap(f"уже {nar['target']:.0f} местами: {', '.join(str(x) for x in nar['runs'][:4])} см (можно ≤ "
+                       f"{ROUTE['local_max_length']}, не у двери)")
+        if res.get('extras'):
+            f2 += wrap('Ещё: ' + ', '.join(e[2] for e in res['extras']) + ' (в проход не входят)')
+        for e in res.get('empty') or []:
+            f2 += wrap(f'пусто: {e}')
         mir = [q for q in res['placed'] if base_role(q.role) == 'зеркало']
         if mir and 'over_low' in str(res.get('mirror_variant', '')) and not any(
                 is_low(o) and footprint(o).intersection(footprint(mir[0])).area > 1 for o in res['placed']):
@@ -765,8 +1033,9 @@ def panel_pair(r, res, was, s):
         skip = [t for t in res['tried'] if not t['ok'] and t['tpl'] == res['tpl']]
         for t in skip[:2]:
             f2 += wrap(f"уровень {t['level']} не встал: {t['why']}")
-        sub = f"ПО ШАБЛОНУ {res['tpl']} · уровень {res['level']}"
-        sub2 = tpl_label(res['tpl'])
+        sub = f"ПО ШАБЛОНУ {res['tpl']} · уровень {res['level']} · {cname}"
+        lvl = res.get('level_label', '')
+        sub2 = tpl_label(res['tpl']) + (' · ДРУГОЕ ХРАНЕНИЕ' if lvl.startswith('другое хранение') else '')
     else:
         bw2 = 0
         f2 = ['✗ отказ: ни одна ветка хранения не встала']
@@ -777,9 +1046,10 @@ def panel_pair(r, res, was, s):
                 f2 += wrap(f"{t['tpl']}: {t['why']}")
             if len(seen) >= 3:
                 break
-        sub = 'ПО ШАБЛОНУ — честный отказ'
+        sub = f'ПО ШАБЛОНУ — честный отказ · {cname}'
         sub2 = 'ни одно семейство не дало целый состав'
-    img2, _ = render(r, res['placed'], res['violations'], s, r['title'], sub, f2, res['ok'], bw=bw2, sub2=sub2)
+    img2, _ = render(r, res['placed'], res['violations'], s, r['title'], sub, f2, res['ok'], bw=bw2, sub2=sub2,
+                     extras=res.get('extras') or ())
     h = max(img1.height, img2.height)
     out = Image.new('RGB', (img1.width + img2.width + 12, h), (255, 255, 255))
     out.paste(img1, (0, 0))
@@ -788,7 +1058,7 @@ def panel_pair(r, res, was, s):
     return out, bw, bw2
 
 
-def make_sheets(out, pngs, per=4):
+def make_sheets(out, pngs, per=4, prefix='sheet'):
     files = []
     for k in range(0, len(pngs), per):
         ims = [Image.open(p) for p in pngs[k:k + per]]
@@ -804,7 +1074,7 @@ def make_sheets(out, pngs, per=4):
                 if i < len(ims):
                     sheet.paste(ims[i], (c * (cw + 20), y))
             y += rh[j] + 10
-        f = out / f'sheet-{k // per + 1}.png'
+        f = out / f'{prefix}-{k // per + 1}.png'
         sheet.save(f)
         files.append(f.name)
     return files
@@ -831,34 +1101,45 @@ def why_line(res):
 
 
 def one_room(args):
-    r, out = args
+    r, out, c, extra = args
+    global EXTRA
+    EXTRA = extra
     sets, by = load_pool()
     kit = next(s for s in sets if s['style'] == 'сканди')['items']
-    res = run_room(r, by)
-    was = bylo(r, kit)
+    norms(None)
+    was = bylo(r, kit)                 # «было» — движок как есть, прежние ключи
+    norms(c)
+    res = run_room(r, by)              # «стало» — паспорт, числа страны
     s = min(1.15, 560.0 / r['d'], 380.0 / r['w'])
     img, bw, bw2 = panel_pair(r, res, was, s)
-    f = Path(out) / f"{r['id']}.png"
+    f = Path(out) / f"{r['id']}-{c}.png"
     img.save(f)
+    for e in res.get('extras') or []:      # в процесс-родитель — без геометрии shapely
+        e[3].setdefault('role', e[0])
+    res['extras'] = [(e[0], None, e[2], e[3]) for e in res.get('extras') or []]
+    res['country'] = c
     return r, res, was, bw, bw2, f
 
 
-def main(out, only=None, jobs=1):
+def main(out, only=None, jobs=1, countries=COUNTRIES, extra=None):
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     rooms = [r for r in load_rooms() if not only or r['id'] in only]
-    rows, pngs, js = [], [], []
+    rows, pngs, js = [], {c: [] for c in countries}, []
+    tasks = [(r, str(out), c, extra) for c in countries for r in rooms]
     if jobs > 1:
         import multiprocessing as mp
         with mp.Pool(jobs) as pool:
-            done = pool.map(one_room, [(r, str(out)) for r in rooms], chunksize=1)
+            done = pool.map(one_room, tasks, chunksize=1)
     else:
-        done = [one_room((r, str(out))) for r in rooms]
+        done = [one_room(t) for t in tasks]
     for r, res, was, bw, bw2, f in done:
-        pngs.append(f)
+        pngs[res['country']].append(f)
         facts_s, fails = why_line(res)
         rows.append((r, res, was, facts_s, fails, bw, bw2))
-        js.append({'room': r['id'], 'title': r['title'], 'src': r['src'], 'facts': res['facts'], 'order': res['order'],
+        js.append({'room': r['id'], 'country': res['country'], 'title': r['title'], 'src': r['src'], 'facts': res['facts'],
+                   'order': res['order'], 'extras': [e[3] for e in res.get('extras') or []], 'empty': res.get('empty') or [],
+                   'narrow': {k: v for k, v in (res.get('narrow') or {}).items() if k != 'door_pt'},
                    'template': res['tpl'], 'level': res['level'], 'ok': res['ok'], 'tried': res['tried'],
                    'placed': [{'role': p.role, 'x': p.x, 'y': p.y, 'rot': p.rot, 'w': p.item.w_cm, 'd': p.item.d_cm,
                                'h': p.item.h_cm, 'elev': p.elev_cm} for p in res['placed']],
@@ -868,26 +1149,42 @@ def main(out, only=None, jobs=1):
                             'hard': sorted({v.code for v in was['violations'] if v.severity is Severity.HARD}),
                             'soft': sorted({v.code for v in was['violations'] if v.severity is Severity.SOFT})},
                    'width_bylo': bw, 'width_tpl': bw2})
-        print(f"{r['id']:8s} {res['tpl'] or '—'}-{res['level'] or '✗'}  было: {len(was['placed'])} шт. "
+        print(f"{res['country']} {r['id']:8s} {res['tpl'] or '—'}-{res['level'] or '✗'}  было: {len(was['placed'])} шт. "
               f"{'✓' if was['ok'] else '✗'}  проход было {bw} / шаблон {bw2}", flush=True)
-    sheets = make_sheets(out, pngs)
+    sheets = [f for c in countries for f in make_sheets(out, pngs[c], prefix=f'sheet-{c}')]
     write_matrix(out, rows, sheets)
     (out / 'results.json').write_text(json.dumps(js, ensure_ascii=False, indent=1))
 
 
 def write_matrix(out, rows, sheets):
-    L = ['# Прихожая — комната → шаблон → уровень → почему (T-20261112-70)', '',
-         f'Паспорт: `services/planner-solver/rules/room-templates/hall.json` (тень). Листы: {", ".join(sheets)}; по комнате — `<id>.png` '
-         '(слева «было» — движок hall-v1 на наборе сканди, справа — по шаблону).',
-         f'Проверки — как у движка (`planner/hall_checks.py`, ключи occupancy.json не менялись): проход от входа {P_HARD:.0f} жёстко, '
-         f'{P_COMF:.0f} комфорт; на листе ширина пути окрашена по таблице Codex/ADM M4(1): цель {P_TARGET:.0f}, местно {P_COMPACT:.0f}; полоса '
-         f'{DOOR_FRONT:.0f} у каждой двери; фронт купе {FRONT["шкаф-купе"]:.0f}, распашного {FRONT["шкаф"]:.0f}, обувницы '
-         f'{FRONT["обувница"]:.0f}, банкетки {FRONT["банкетка"]:.0f}; площадка у входа {ENTRY:.0f}. Товары — банк-кандидат '
-         '`sets-hall.next.json` (5 стилей + запасные), размеры настоящие.', '',
-         '| Комната | Факты | Порядок семейств | Шаблон · уровень | Состав по шаблону | Проход, см (было → шаблон) | Было (движок) | Другие ветки, что встали | Почему не выше |',
-         '|---|---|---|---|---|---|---|---|---|']
+    old = {}
+    prev = norms(None)
+    old.update(P_HARD=P_HARD, P_COMF=P_COMF, DOOR_FRONT=DOOR_FRONT, ENTRY=ENTRY, FRONT=dict(FRONT))
+    cn = {}
+    for c in COUNTRIES:
+        norms(c)
+        cn[c] = (f'**{c.upper()}** — проход цель {P_TARGET:.0f}, местно {P_HARD:.0f} на ≤ {ROUTE["local_max_length"]} см и не в '
+                 f'полосе {ROUTE["door_zone"]} у двери; полоса у двери {DOOR_FRONT:.0f}; фронт купе/вешалки '
+                 f'{FRONT["шкаф-купе"]:.0f}, распашного и модуля {FRONT["шкаф"]:.0f}, обувницы {FRONT["обувница"]:.0f}, '
+                 f'банкетки {FRONT["банкетка"]:.0f}; площадка у входа {ENTRY:.0f}')
+    norms(prev)
+    L = ['# Прихожая — комната × страна → шаблон → уровень → почему (T-20261112-72)', '',
+         f'Паспорт: `services/planner-solver/rules/room-templates/hall.json` (тень). Листы: {", ".join(sheets)}; по комнате — '
+         '`<id>-<страна>.png` (слева «было» — движок hall-v1 на наборе сканди с прежними ключами, справа — по шаблону с числами '
+         'страны). Страна квартиры — market застройщика (`contracts/partner.ts`): /demo — ru, туры и английское демо — uk.',
+         f'«Было» — движок как есть: проход от входа {old["P_HARD"]:.0f} жёстко, {old["P_COMF"]:.0f} комфорт, полоса '
+         f'{old["DOOR_FRONT"]:.0f} у двери, фронт купе {old["FRONT"]["шкаф-купе"]:.0f}, распашного {old["FRONT"]["шкаф"]:.0f}, '
+         f'обувницы {old["FRONT"]["обувница"]:.0f}, банкетки {old["FRONT"]["банкетка"]:.0f}, площадка {old["ENTRY"]:.0f}.',
+         '«Стало» — `distances_cm.clearances.hall_*`: ' + '; '.join(cn.values()) + '. Товары — банк-кандидат '
+         '`sets-hall.next.json` + крючки/полка/коврик из свежих фидов (`hall_extra_roles.py`, размеры из названия).', '',
+         '| Комната | Страна | Факты | Порядок семейств | Шаблон · уровень | Состав по шаблону | Проход, см (было → шаблон) | Было (движок) | Другие ветки, что встали | Почему не выше |',
+         '|---|---|---|---|---|---|---|---|---|---|']
     for r, res, was, facts_s, fails, bw, bw2 in rows:
         comp = ', '.join(f"{RU.get(base_role(p.role), p.role)} {p.item.w_cm:.0f}×{p.item.d_cm:.0f}" for p in res['placed']) or '—'
+        if res.get('extras'):
+            comp += ' + ' + ', '.join(e[2] for e in res['extras'])
+        if str(res.get('level_label', '')).startswith('другое хранение'):
+            comp = '**другое хранение:** ' + comp
         wasc = ', '.join(RU.get(base_role(p.role), p.role) for p in was['placed']) or 'отказ'
         hard = hard_line(was['violations'])
         if hard:
@@ -898,7 +1195,7 @@ def write_matrix(out, rows, sheets):
         fam = ' → '.join(dict.fromkeys(t.split('.')[0] for t in res['order']))
         alt = ', '.join(f'{n}-{lv}' for n, lv, _v in res.get('cands', []) if n != res['tpl']) or '—'
         own = [x for x in fails if x.split('-')[0] == res['tpl']]
-        L.append(f"| {r['title']} | {facts_s} | {fam} | {tl} | {comp} | {bw or '—'} → {bw2 or '—'} | {wasc} | {alt} | "
+        L.append(f"| {r['title']} | {res['country'].upper()} | {facts_s} | {fam} | {tl} | {comp} | {bw or '—'} → {bw2 or '—'} | {wasc} | {alt} | "
                  f"{'; '.join(own[:2]) or ('—' if res['ok'] else '; '.join(fails[-2:]))} |")
     L += ['', '## Шаблоны паспорта', '']
     for t in PASSPORT['templates']:
@@ -911,4 +1208,6 @@ if __name__ == '__main__':
     a = sys.argv[1:]
     only = a[a.index('--only') + 1].split(',') if '--only' in a else None
     jobs = int(a[a.index('--jobs') + 1]) if '--jobs' in a else 1
-    main(a[0] if a and not a[0].startswith('--') else 'hall-schemes-out', only, jobs)
+    cs = tuple(a[a.index('--country') + 1].split(',')) if '--country' in a else COUNTRIES
+    ex = a[a.index('--extra') + 1] if '--extra' in a else None
+    main(a[0] if a and not a[0].startswith('--') else 'hall-schemes-out', only, jobs, cs, ex)
