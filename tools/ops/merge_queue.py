@@ -199,15 +199,26 @@ class Run:
             cmd = ['bash', HEAVY, label] + slot_args([n for n, _ in plan]) + ['--', 'bash', sh]
         t = time.time()
         with open(os.path.join(d, 'runner.log'), 'w', encoding='utf-8') as f:
-            subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT)
+            runner_rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT).returncode
         res = []
         for n, c in plan:
             rcf = os.path.join(d, f'{n}.rc')
+            soft = n == 'memory' and self.memory_soft
             if not os.path.isfile(rcf):
+                if self.first_fail(res) is None:
+                    # ЛОЖНЫЙ ЗЕЛЁНЫЙ (12.11, директор): шаг не оставил код возврата, а до него ничего не падало — значит, прогон не
+                    # дошёл до шага (очередь heavy-slot не пустила/таймаут 124, обрыв, ошибка скрипта). Это провал, а не «ok».
+                    res.append({'step': n, 'rc': runner_rc or 99, 's': 0, 'log': os.path.join(d, 'runner.log'),
+                                'soft': False, 'missing': True})
                 break
-            rc, secs = (open(rcf).read().split() + ['0'])[:2]
-            res.append({'step': n, 'rc': int(rc), 's': int(secs), 'log': os.path.join(d, f'{n}.log'),
-                        'soft': n == 'memory' and self.memory_soft})
+            parts = open(rcf).read().split()
+            rc = int(parts[0]) if parts and parts[0].lstrip('-').isdigit() else 99
+            secs = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+            res.append({'step': n, 'rc': rc, 's': secs, 'log': os.path.join(d, f'{n}.log'), 'soft': soft})
+        if runner_rc != 0 and self.first_fail(res) is None:
+            # все шаги записали 0, а исполнитель упал (heavy-slot, bash) — тоже не зелёный
+            res.append({'step': plan[-1][0] if plan else '?', 'rc': runner_rc, 's': 0,
+                        'log': os.path.join(d, 'runner.log'), 'soft': False, 'missing': True})
         if len(plan) > 1:
             self.n_full += 1
         else:
@@ -270,6 +281,8 @@ class Run:
                         break
                     bad, step = bad2, bad2['step']
                 detail = fail_detail(bad['log'])
+                if bad.get('missing'):
+                    detail = f'шаг не дошёл до кода возврата (исполнитель rc={bad["rc"]}): {detail}'
                 # (2) чистый main
                 if not self.green(self.base, step, f'main-{step}'):
                     verdict['main_red'] = f'{step}: {fail_detail(self._last_log(step))}'
@@ -492,6 +505,7 @@ def selftest() -> int:
         s, b, out = run(['b1', 'b2', 'b3'], tag='culprit')
         ok(b['b2']['status'] == 'падает' and 'b2.test.ts' in b['b2']['detail'], f'виновная найдена: b2 → {b["b2"]}')
         ok(b['b1']['status'] == 'ok' and b['b3']['status'] == 'ok', 'b1, b3 — ok (проверены без b2)')
+        ok(s['all_ok'] is False, 'шаг упал → итог FAIL (не «все ok»)')
         ok(s['full_runs'] == 2, f'полных прогонов 2 (набор, набор без виновной): {s["full_runs"]}')
         ok(s['step_runs'] <= 4, f'одиночных шагов ≤ 4 (повтор, main, бисекция): {s["step_runs"]}')
         rep = open(os.path.join(out, 'report.md')).read()
@@ -511,6 +525,12 @@ def selftest() -> int:
         mlog = open(os.path.join(out, 'mq.log'), encoding='utf-8').read()
         ok(s['all_ok'] and b['b4']['status'] == 'ok' and re.search(r'слита: b4 \S+ \(1 коммит', mlog),
            f'ветка поверх соседней: коммиты соседней второй раз не берутся: {b["b4"]}')
+
+        # ложный зелёный (директор 12.11): исполнитель шагов оборвался, кода возврата у шага нет → не «ok»
+        s, b, out = run(['b1'], st=[('lint', 'echo lint'), ('test', 'kill -TERM $$')], tag='killed')
+        ok(s['all_ok'] is False and b['b1']['status'] != 'ok', f'шаг без кода возврата (обрыв) → FAIL: {b["b1"]}')
+        s, b, out = run(['b1'], st=[('lint', 'echo lint'), ('test', 'exit 3')], tag='rc3')
+        ok(s['all_ok'] is False and s['main_red'] and 'test' in s['main_red'], f'шаг rc=3 → FAIL: {s["main_red"]}')
 
         s, b, out = run(['b1', 'b3'], tag='green')
         ok(s['all_ok'] and s['full_runs'] == 1 and s['step_runs'] == 0, 'всё зелёное — один прогон')
