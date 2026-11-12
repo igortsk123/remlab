@@ -656,7 +656,7 @@
     "missing_item": [
      {
       "role": "комод",
-      "why": "модель не готова (привязка blocked); кандидатов 1: не встаёт: BED_FOOT_PASSAGE|кровать, BR_ACCESS_BLOCKED|комод,кровать, BR_ACCESS_BLOCKED|комод,шкаф, BR_ACCESS_WALL|комод, OUT_OF_ROOM|комод, RADIATOR|комод, WINDOW_BLOCKED|комод"
+      "why": "модель не готова (привязка blocked); кандидатов 1: не встаёт: BED_FOOT_PASSAGE|кровать, BR_ACCESS_BLOCKED|комод,кровать, BR_ACCESS_BLOCKED|комод,шкаф, BR_ACCESS_WALL|комод, BR_BED_SIDE_UNREACHABLE|кровать, BR_WINDOW_UNREACHABLE|, OUT_OF_ROOM|комод, RADIATOR|комод, WINDOW_BLOCKED|комод"
      }
     ],
     "purpose": "couple",
@@ -1325,7 +1325,7 @@
    [
     {
      "role": "комод",
-     "why": "модель не готова (привязка blocked); кандидатов 1: не встаёт: BED_FOOT_PASSAGE|кровать, BR_ACCESS_BLOCKED|комод,кровать, BR_ACCESS_BLOCKED|комод,шкаф, BR_ACCESS_WALL|комод, OUT_OF_ROOM|комод, RADIATOR|комод, WINDOW_BLOCKED|комод"
+     "why": "модель не готова (привязка blocked); кандидатов 1: не встаёт: BED_FOOT_PASSAGE|кровать, BR_ACCESS_BLOCKED|комод,кровать, BR_ACCESS_BLOCKED|комод,шкаф, BR_ACCESS_WALL|комод, BR_BED_SIDE_UNREACHABLE|кровать, BR_WINDOW_UNREACHABLE|, OUT_OF_ROOM|комод, RADIATOR|комод, WINDOW_BLOCKED|комод"
     }
    ],
    []
@@ -3174,5 +3174,5 @@
    }
   }
  },
- "rev": "62a8e0dd"
+ "rev": "509bd2f7"
 }
