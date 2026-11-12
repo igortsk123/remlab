@@ -8,7 +8,7 @@ importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-06
+last_verified: 2026-11-12
 review_after: 2026-12-05
 ---
 
@@ -19,9 +19,9 @@ review_after: 2026-12-05
 **Путь меша:** вырезка (`tools/scout/salad/hybrid_mask.py`, ADR-0133/0182) → генерация →
 пост-шаги пачки (`batch_show.py:post_steps`): слив приёмника → реестр → приёмка `apply_repairs.py`
 (ремонт ОТМЕНЁН, ADR-0143) → привязка → чистка приёмника → прополка болванок `prune_shapes.py`
-(ADR-0233) → ориентация (ADR-0129), топ-вью; семейства — при старте волны. Цвет — [[mesh-color]].
+→ ориентация (ADR-0129), топ-вью; семейства — при старте волны. Цвет — [[mesh-color]].
 
-**`shape.glb`** (продукт — `model.glb`) полется у принятых (ADR-0233) и старше 14 сут (`tools/scout/rules/dev-disk.json`). Образ — GHCR.
+**`shape.glb`** (продукт — `model.glb`) полется у принятых (ADR-0233) или старше 14 сут (`tools/scout/rules/dev-disk.json`), кроме стоящих в перегон/перекраску. Образ — GHCR.
 **Ориентация:** на прод — только решённые (`tools/scout/orient_policy.py`; Tier 2 § «Ориентация мешей»).
 
 **Учёт поколений (ADR-0188…0191).** Физический меш = строка `mesh_generations`; ревизия держит
@@ -31,14 +31,14 @@ review_after: 2026-12-05
 **Один меш на модель (ADR-0196).** Цвет/ткань — варианты семейства
 (`tools/scout/mesh_family.py`, `mesh_family_rep` липкий); в очередь встаёт представитель,
 варианты получают его меш и готовность (`tools/scout/mesh_bind.py`). `products.mesh_uri` =
-`file://`-путь поколения — ссылка у каждого товара; отказ владельца → товар без меша (ADR-0190).
+`file://`-путь поколения; отказ владельца → товар без меша (ADR-0190).
 
 **Очередь и старт волны.** Снимок пишет `mesh_priority.py --build-queue` атомарно, курсор —
 `<снимок>.progress.json`; пересборка — только `tools/scout/mesh_wave_start.sh`;
 профиль демо — `MESH_QUEUE_PROFILE=demo` (ADR-0241). Подробно — [[mesh-run]].
 
 **Публикация на прод (ADR-0243):** `mesh_publish.py` перед сборкой витрины; индекс
-`/test/mesh-pilot10/mesh-index.json` пересобирается по серверу. Весь склад (26 ГБ) не выкладываем.
+`/test/mesh-pilot10/mesh-index.json` пересобирается по серверу. Только товары банка.
 
 **Автобрак:** `generated` = годный (`tools/scout/mesh_ready.py`); обрезка чужих кусков на ноде выключена
 (`tools/scout/salad/pipeline.py` `ALIEN_CUT=0` — только метка).

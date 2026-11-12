@@ -3,12 +3,12 @@ tier: 1
 topic: architecture
 scope: Стек, модули, генерация, деплой — по коду
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-11-10
+updated: 2026-11-12
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-11-06
+last_verified: 2026-11-12
 review_after: 2026-12-05
 ---
 
@@ -25,27 +25,27 @@ Untitled UI React, `components/base|application`; бренд — `styles/brand.c
 
 ## Структура (факт)
 - `/app`: `page.tsx` (хаб). Смета: `/calc`, `/calc/[kind]`, `/calc/remont`, `/e/[id]`, `/estimates`→`/lab`, `/go/[eid]/[iid]`.
-  `SiteHeader.tsx` (ADR-0017); `/styles` (квиз-заглушка); `/lab` (+ `mesh-review`, `mesh-audit`); `/flat` — 3D
-  ([[apartment-configurator]]); B2B: `/manager`, `/partner/report`, `/embed/[partner]/[flat]`; проба агента `/try`; юр.: `/cookies`, `/privacy`,
-  `/terms`; legacy М5: `/start`, `/p/[id]/*`. `/api` — 17 каталогов (`ls app/api`): apartments, calc, collections, events,
-  flat, health, internal, lab, leads, manager, manager-bot, p, partner, pay, sends, trace, trial.
+  `components/SiteHeader.tsx`; заглушки (`ComingSoon`, если не `NEXT_PUBLIC_SHOW_WIP=1`): `/styles`, `/sovety`, `/calc/remont`, `/start`; `/soon`;
+  `/lab` (+ `mesh-review`, `mesh-audit`); `/flat` — 3D ([[apartment-configurator]]); B2B: `/manager`, `/partner/report`,
+  `/embed/[partner]/[flat]`; проба `/try`, `/try/[id]`; юр.: `/cookies`, `/privacy`, `/terms`; legacy М5: `/rooms`,
+  `/p/[id]/*`. `/api` — 17 каталогов (`ls app/api`; в т.ч. manager-bot, pay, trial).
 - `/modules` — store, estimate (memory/pg), leads, style, collections, sends, share-requests, partner-report,
   owner-reviews, retention; legacy М5 — ideas, room-analysis, visual-generation, generation-job.
 - **Смета (v0.4):** `contracts/estimate.ts`, `lib/estimate/*`, `lib/pricing/works`; наружу только через `/go/`.
   **Калькулятор v2 (ADR-0018):** `contracts/calc.ts` + `lib/calc/*` + `components/calc/*` (localStorage).
-- `/db` (init 001–026 — `ls db/init`), `/contracts`, `/lib` (+ `configurator`, `viewer3d`, `basket`, `collections`,
-  `partners`, `embed`, `legal`, `telegram`, `mesh-review`, `mesh-audit`), `/e2e`, `/docs`; `/tools` — в git, кроме данных
+- `/db` (init 001–032), `/contracts`, `/lib` (+ `configurator`, `viewer3d`, `basket`, `collections`, `partners`,
+  `embed`, `legal`, `telegram`, `trial`, `mesh-review`, `mesh-audit`), `/e2e`, `/docs`; `/tools` — в git, кроме данных
   scout (ADR-0055); каталог/меши — `tools/scout/` (Python, дев-БД).
 - Генерация AI (legacy М5): синхронно `app/api/p/[id]/generate` → `runGenerate`, `maxDuration=60`.
 
 ## Деплой (self-host, ADR-0001)
 Compose (`remlab-net`): caddy :443 (LE) → app (Next standalone :3000); db pgvector:pg17; imagor;
 traces-init; mesh-receiver; **draft** (`tools/scout/draft_service.py`, образ `infra/draft/Dockerfile` из ghcr, в compose с
-14.10, ADR-0278; кадр — fal, `draft_render.py`). Caddy проксирует `/api/{draft,warm,render,job,share}*` → `draft:8099`.
+14.10, ADR-0278; кадр — gpt-image-2 через шлюз Vercel, fal — запас, `draft_render.py`). Caddy проксирует `/api/{draft,warm,render,job,share}*` → `draft:8099`.
 Детали — `deployment.md`.
 
 ## Цели (НЕ реализовано)
 Inngest · платежи/export · Vertex · YooKassa (проводка есть — `lib/payments/yookassa.ts`, вебхук; нет ключей) ·
-Sentry · `/eval` · Cost Engine (вход Б = плейсхолдер).
+`/eval` · Cost Engine (вход Б = плейсхолдер `/soon`).
 
 **Tier 2:** `../../docs/tech-spec-ts-stack.md`.

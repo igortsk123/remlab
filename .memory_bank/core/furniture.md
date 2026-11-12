@@ -8,7 +8,7 @@ importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-06
+last_verified: 2026-11-12
 review_after: 2026-12-05
 ---
 
@@ -28,7 +28,7 @@ review_after: 2026-12-05
   рендер 3D-моделей товаров (`scene_mesh.py`; приёмка `mesh_gate`, фронт — `mesh_front`+`orient_selftest`, VLM-фоллбэк qwen3-vl — Tier 2 §Роли); проход Б — «только улучшить» (с 17.10 gpt-image-2.5-sunburst medium — `tools/scout/systemd/remlab-render.service`; промпт improve-v3 по умолчанию, в сервисе v4 по `IMPROVE_PROMPT=v4` — ADR-0302/0305, Tier 2). Ремонт по кропам
   (ADR-0127) — страховка. Демо — [[demo-planner]] (на плане — SVG-схемы предметов, `index.html:shape`).
 - **Ветка B** (ADR-0061..0063, `viz_build.py`): вставка → приёмка числами → 3D непрошедшим.
-- **Меши (ADR-0131/0132):** только свой Hunyuan3D 2.1 на Salad — [[mesh-pipeline]]. **А4/А6:** `viz_qa.py` гейтит батчи; 3 ретрая; A/B `viz_ab.py`.
+- **Меши (ADR-0131/0132):** только свой Hunyuan3D 2.1 на Salad — [[mesh-pipeline]]. **А4/А6:** `viz_qa.py` гейтит батчи (exit 3); A/B `viz_ab.py`.
 
 **Фото нейросети:** sunburst medium (ADR-0302, бенч 07.11 подтвердил); досъёмка до публикации — `tools/scout/publish_demo.sh` (Tier 2).
 **Tier 2:** `../domain/viz-fidelity-playbook.md` · `../domain/lr-composition-guide.md` · `../domain/integrations.md`.

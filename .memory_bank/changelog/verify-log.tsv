@@ -206,3 +206,11 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-12	core/catalog.md	drift	27	2	2	T-20261112-42: якорь load3:main; vision кроме openai.off; док целиком
 2026-11-12	core/stock-and-dims.md	drift	18	1	1	T-20261112-42: стулья: d паспорта, сверенная мешом (room_bindings.effective_d); док целиком
 2026-11-12	core/demo-planner.md	drift	3	1	1	T-20261112-42: доп. к ночной: одна пара на все стили, cams_own — на стиль (demo-cams.mjs)
+2026-11-12	core/observability-tracing.md	drift	36	0	0	T-20261112-42: док целиком
+2026-11-12	core/regression-net.md	drift	25	4	4	T-20261112-42: 121 тест; БД-тесты trial-claim; e2e путей ошибок есть; док целиком
+2026-11-12	core/architecture.md	drift	24	3	3	T-20261112-42: страницы /rooms /soon /sovety /try; db/init 001-032; кадр gpt-image-2 через шлюз; YooKassa-ключи — сервер; док целиком
+2026-11-12	core/data-model.md	drift	17	1	1	T-20261112-42: таблицы trial_* 022-032; док целиком
+2026-11-12	core/onboarding-quiz.md	drift	24	6	6	T-20261112-42: шаги STEPS; shouldOpen; фото гостиной; вес цвета 0; события шлёт; док целиком
+2026-11-12	core/furniture.md	drift	20	1	1	T-20261112-42: viz_qa без 3 ретраев; док целиком
+2026-11-12	core/mesh-pipeline.md	drift	22	1	1	T-20261112-42: прополка: принят ИЛИ старше 14 сут; док целиком
+2026-11-12	core/mesh-color.md	drift	13	2	2	T-20261112-42: прополка; mesh_color_check метит, room_bindings прячет; док целиком
