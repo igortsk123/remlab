@@ -427,3 +427,7 @@ systemd — крон-подъём раз в 10 минут (`tools/ops/dev-checks
   `lib/viewer3d`/движка — цепочка `flat215_demo.py` → `demo_rt.sh` → `publish_demo.sh` → reissue туров под heavy-slot; проверка — хеш движка на живом
   /demo. Запускает только выпускающий (algor, ADR-0389). Попутно (T-44): ворота `tools/assets/demo_rt.sh` ждали копии 31 картины → 404;
   декор без 3D-модели (картина — плоскость) копий не требует (`tools/assets/runtime_mesh.py:demo_ids`).
+- **634 (12.11)** — `tools/assets/publish_rt.sh` под `set -euo pipefail` молча падал после rsync: проба `find … | head -1` даёт
+  SIGPIPE у `find` (код 141), либо `curl -m 25` с ненулевым кодом → `demo_rt` «выкладка копий на /rt/ не прошла» при «не хватает 0»,
+  /demo не публикуется (12:55, повтор прошёл). Правка: `find … -print -quit`; `code=$(curl …) || code=000`. Код крона — только в
+  worktree. Источник: 12.11, algor.

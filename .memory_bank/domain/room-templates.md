@@ -126,7 +126,14 @@ Panero / Time-Saver Standards, числа Нойферта для гостино
 
 ## Состояние по комнатам (12.11)
 - **Спальня** — паспорт `bedroom.json` есть, движок групп за переключателем `BEDROOM_ENGINE` (`services/planner-solver/planner/bedroom_checks.py:engine`), план
-  `plans/bedroom-groups-01.md`; листы «было|стало» Т6 — T-62.
-- **Гостиная** — листы в масштабе `tools/scout/living_schemes.py` (T-46: шаблоны C1/C2/C3/M1/O1/O2/L1/L2; уровни — < 16 м² A–E, E без столовой; ≥ 16 м² A, B, D); паспорт `living.json`
-  ещё не создан — план `plans/living-full-01.md`. Дыры банка по T-46: нет приставных столиков и картин; норма радиатора действует на все предметы,
-  кроме плоского ковра (`services/planner-solver/planner/validate.py:check_radiators`) — уточнить в паспорте гостиной.
+  `plans/bedroom-groups-01.md`; листы «было|стало» Т6 — `tools/scout/bedroom_t6_schemes.py` (T-62, узкое место пути — `free_mask`).
+- **Гостиная** — листы в масштабе `tools/scout/living_schemes.py` (T-46: шаблоны C1/C2/C3/M1/O1/O2/L1/L2; уровни — < 16 м² A–E, E без столовой; ≥ 16 м² A, B, D).
+  Паспорт `services/planner-solver/rules/room-templates/living.json` (T-63, 0d805baa): 8 шаблонов + X1, 73 уровня — целые составы (состав целиком или отказ);
+  уровень собирает `services/planner-solver/planner/room_templates.py:compile_level`; геометрию пока даёт старый движок через закрытый реестр `geometry_ref`.
+  Мелочи — «места на носителе» (`item_surface`/`item_edge`/`wall_above`/`ceiling_over`/`opening`/`free_floor_region`), ставятся после крупной мебели
+  решателем `services/planner-solver/planner/dependents.py` (T-67, 6eb5b4c0; Placement: родитель, якорь, крепление, «в цене»); нормы — `occupancy.json`
+  `distances_cm.living_select/dependents/mounting`. Тень на живых данных — `tools/scout/living_shadow.py` (T-69, 32011994): /demo — уровень LR-C1.SD,
+  0 нарушений, без 3D только вазы; туры — 0 из 54 (уровни требуют комод/торшер, которых нет в наборах) → T-71: обязательность по таблице Codex,
+  уровень из наличного набора. Порядок ввода: тень → общие места → отчёт «в цене − в 3D» → ворота → переключатель legacy|shadow|composition
+  (`plans/living-full-01.md`). Не сведено: картины — живая сцена 22/25 и зазор 10 против паспорта 10–20 и 5–8.
+  Норма радиатора — на все предметы, кроме плоского ковра (`services/planner-solver/planner/validate.py:check_radiators`).

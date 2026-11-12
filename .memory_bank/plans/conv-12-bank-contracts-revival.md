@@ -98,6 +98,8 @@ parent_plan: MASTER-conveyor-gaps
 - 2026-10-20 — T-05 (рабочий 1): п.1 — отказ предохранителя contracts = `WARN:contracts_fuse` (статус warn, дайджест), без heal_policy — FAIL, сбой каталога в `_slot_ok` — отклонение + `WARN:slot_gate_catalog`, тест `tools/scout/tests/test_contracts_fuse.py`; п.3 — 107/126 сетов, 192 из 239 слотов «каталог gone» (divan.ru archived при живой странице — 61 сет; tvoydom мёртвые/нет в наличии), Р1 — 13 сетов, мёртвые фото — 33.
 - 2026-10-20 — T-07 (рабочий 1): п.2 — шаг `sets_pairs` (`--sync-pairs`, после heal и еженедельного refresh; `sync_pairs` общая с contracts), журнал pair_sync/refresh_upgrade, gap при снятии кресла 2; на копии банка 27/126 сетов (21 % < 25 %) → `…pod_pair_is_one_sku` зелёный, `…second_armchair` — 4 сета (83/100/118/119: «кресло» = банкетка/кресло-кровать) ждут п.4; п.1 — heal/pairs/stock_check/ворота (`WARN:slot_gate`)/catalog_media rc — видимы.
 
+- 2026-11-12 — T-20261112-81 (ночные падения экзамена): регресса нет — проверка устарела (тренд 213/252, выгрузка планов от 26.08, set105); решение «доделать малыми шагами после П1 или в архив» — у владельца (`_intake/owner-questions.md`).
+
 ## Completion summary
 
 ### Уроки
