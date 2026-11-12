@@ -673,9 +673,42 @@ def solve_kit(ad: dict, cand: dict, cfg: dict, kit: dict, purpose: str):
            tuple(sorted((r, it['w'], it['d'], it['h'], _kind_key(r, it)) for r, it in kit.items())))
     if key in ad['memo']:
         return ad['memo'][key]
-    res = _solve_kit(ad, cand, cfg, kit, purpose)
+    if bed_nofit_known(ad, cand, kit, purpose):
+        res = None                                   # кровать сама по себе не встаёт на это ядро — решатель не зовём
+    else:
+        res = _solve_kit(ad, cand, cfg, kit, purpose)
     ad['memo'][key] = res
     return res
+
+
+BED_ALONE_ROLES = {'кровать', 'тумба прикроватная'}
+
+
+def bed_fit_key(ad: dict, cand: dict, kit: dict, purpose: str) -> tuple | None:
+    """Ключ памяти отказа кровати (T-20261112-96/2): ядро, назначение, петли и кровать так, как её видит решатель (w×d×h, боковая
+    спинка) — без тумбы и стиля. Кровати в наборе нет — None."""
+    bed = kit.get('кровать')
+    if bed is None:
+        return None
+    it = kit_item('кровать', bed)
+    return (cand['area_m2'], tuple(cand['rect']), purpose, ad.get('hinges', HINGES), it.w_cm, it.d_cm, it.h_cm, it.side_back or '')
+
+
+def bed_nofit_known(ad: dict, cand: dict, kit: dict, purpose: str) -> bool:
+    """Отказ этой кровати на этом ядре уже доказан (`_solve_kit`: ни на одной петле, причина BED_NO_FIT)."""
+    k = bed_fit_key(ad, cand, kit, purpose)
+    return k is not None and k in ad.get('bed_nofit', ())
+
+
+def note_bed_nofit(ad: dict, cand: dict, kit: dict, purpose: str, reasons: list) -> None:
+    """Запомнить отказ кровати самой по себе. Доказан, только если набор — кровать и тумбы (сон — первая группа, у всех шаблонов
+    паспорта есть вариант «solo» без тумб: `planner.bedroom._solve_groups_once`, BED_NO_FIT — кровать не встала и одна) и на КАЖДОЙ
+    петле решатель ответил BED_NO_FIT. Не встала тумба (REQUIRED_NO_FIT), набор со шкафом — не пишем: с другой тумбой кровать может встать."""
+    if not reasons or set(kit) - BED_ALONE_ROLES or not all('BED_NO_FIT' in r for r in reasons):
+        return
+    k = bed_fit_key(ad, cand, kit, purpose)
+    if k is not None:
+        ad.setdefault('bed_nofit', set()).add(k)
 
 
 def kit_item(role: str, it: dict):
@@ -700,12 +733,13 @@ def _solve_kit(ad: dict, cand: dict, cfg: dict, kit: dict, purpose: str):
     for role, it in kit.items():
         for k in range(NIGHTSTANDS[purpose] if role == 'тумба прикроватная' else 1):
             items.append(kit_item(f'{role} {k + 1}' if k else role, it))
-    best = None
+    best, refused = None, []
     for hinge in ad.get('hinges', HINGES):
         room, ops = build_room(cand, cfg, hinge, purpose)
         lay = solve_bedroom(room, items, purpose)
         ps = lay.placements
         if not any(base_role(p.role) == 'кровать' for p in ps):
+            refused.append(list(lay.meta.get('reason') or []))
             continue
         hard = sorted(set(TD.hard_of(room, ps)) | {f"{v.code}|{','.join(sorted(v.roles))}" for v in lay.violations if v.severity.name == 'HARD'})
         post = TR.post_check(ad, cand, ps)
@@ -718,6 +752,8 @@ def _solve_kit(ad: dict, cand: dict, cfg: dict, kit: dict, purpose: str):
             best = rec
         if rec['score'][0] == 0:
             break
+    if best is None:
+        note_bed_nofit(ad, cand, kit, purpose, refused)
     return best
 
 
@@ -800,10 +836,13 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
                 i += 1
                 if not fits_core(frame_need(bed, tpl['purpose']), cand):     # рама не на это ядро — на другом из списка
                     continue
-                if time.time() > deadline:
+                core_kit = {'кровать': bed, 'тумба прикроватная': stand}     # обязательное шаблона: не встало — шкафы и комоды не пробуем
+                # отказ кровати на ядре уже доказан (`bed_nofit_known`, T-20261112-96/2) — ответ из памяти без решателя: исход
+                # такой кровати — «не встала», а не «не дошли» (`budget`), даже когда доля времени стиля кончилась
+                known = bed_nofit_known(ad, cand, core_kit, tpl['purpose'])
+                if time.time() > deadline and not known:
                     why = 'budget'
                     break
-                core_kit = {'кровать': bed, 'тумба прикроватная': stand}     # обязательное шаблона: не встало — шкафы и комоды не пробуем
                 ok = template_ok(solve_kit(ad, cand, cfg, core_kit, tpl['purpose']), tpl)
                 if not ok and tpl['purpose'] == 'couple':
                     # лестница тумб пары (T-20261112-95): обе обычные не встали — узкие, потом подвесные, ДО следующего шаблона
@@ -819,6 +858,9 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
                     # этой не пробуем (`dominated`), прочие из очереди — как раньше и первыми (выбор там, где прежний подбор
                     # находил кровать, не меняется), за ними — низкие рамы этой ширины по прежнему порядку
                     if not low_done:
+                        if known and time.time() > deadline and low_probe_pending(cand, cfg, tpl, bed):
+                            why = 'budget'                         # проба низкой рамы — вызов решателя, а время стиля вышло
+                            break
                         got = window_low_beds(ad, cand, cfg, core_kit, tpl, fit, tries)
                         if got is not None:
                             lim, low = got
@@ -870,6 +912,12 @@ def window_limit(cand: dict, cfg: dict, purpose: str) -> float | None:
     room, _ = build_room(cand, cfg, HINGES[0], purpose)
     lims = [max(float(op.sill_cm or 0), 80.0) for op in room.openings if op.kind == 'window']
     return min(lims) if lims else None
+
+
+def low_probe_pending(cand: dict, cfg: dict, tpl: dict, bed: dict) -> bool:
+    """`window_low_beds` позовёт решатель: у ядра есть окно и рама выше его предела."""
+    lim = window_limit(cand, cfg, tpl['purpose'])
+    return lim is not None and float(bed.get('h') or 0) > lim
 
 
 def window_low_beds(ad: dict, cand: dict, cfg: dict, core_kit: dict, tpl: dict, fit: list, tried: list) -> tuple | None:

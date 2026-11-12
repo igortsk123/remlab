@@ -717,13 +717,14 @@ def test_niche_junction_is_not_a_door_strip():
     lay = solve_bedroom(r, [Item(role='кровать', w_cm=130, d_cm=212, h_cm=85),
                             Item(role='тумба прикроватная', w_cm=42, d_cm=35, h_cm=52)], 'guest')
     assert any(TB.base_role(q.role) == 'кровать' for q in lay.placements), lay.meta.get('clearance')
-    # дверь с полотном полосу держит (точка перед дверью вне дуги, 70 см от стены — занята); та же дверь без полотна — нет
-    def blocked_at(swing):
+    # дверь с полотном держит полосу 76 (точка перед дверью вне дуги, 70 см от стены — занята); стык без полотна — только узкую
+    # полосу у самой линии (`JUNCTION_STRIP_CM`: спинкой в проём ниши нельзя), 70 см от стены свободно
+    def blocked_at(swing, y_off):
         rm = Room(width_cm=400, depth_cm=400, openings=[Opening(kind='door', wall='south', offset_cm=100, width_cm=80, swing_cm=swing,
                                                                 hinge='left')], radiators=[], room_type='bedroom', purpose='guest')
         b = _Statics(rm).blocked
-        return b is not None and any(b.contains(Point(175, y)) for y in (70.0, 330.0))
-    assert blocked_at(80) and not blocked_at(0)
+        return b is not None and any(b.contains(Point(175, y)) for y in (y_off, 400 - y_off))
+    assert blocked_at(80, 70.0) and not blocked_at(0, 70.0) and blocked_at(0, 10.0)
 
 
 def test_catalog_bed_without_goods_not_in_pool():
@@ -737,3 +738,59 @@ def test_catalog_bed_without_goods_not_in_pool():
     def down(sid):
         raise RuntimeError('каталог недоступен')
     assert TB.sellable_catalog(cat, goods=down) == cat
+
+
+def _nofit_rig(monkeypatch, refuse):
+    """Поддельный решатель: `refuse(items)` → причина отказа (кровать не ставится) или None (кровать и тумба встают)."""
+    import planner.bedroom as PB
+    from types import SimpleNamespace as NS
+    calls = []
+
+    def fake(room, items, purpose):
+        calls.append([(i.role, i.w_cm) for i in items])
+        why = refuse(items)
+        if why:
+            return NS(placements=[], meta={'reason': [why]}, violations=[], skipped_optional=[], floor_used_pct=0)
+        ps = [NS(role=i.role, x=0, y=0, rot=0, item=i) for i in items]
+        return NS(placements=ps, meta={'reason': []}, violations=[], skipped_optional=[], floor_used_pct=30)
+    monkeypatch.setattr(PB, 'solve_bedroom', fake)
+    monkeypatch.setattr(TB, 'build_room', lambda cand, cfg, hinge, purpose: (NS(openings=[]), []))
+    monkeypatch.setattr(TB.TD, 'hard_of', lambda room, ps: [])
+    monkeypatch.setattr(TB.TR, 'post_check', lambda ad, cand, ps: {'problems': [], 'ok': True})
+    monkeypatch.setattr(TB, 'back_off_wall', lambda ad, cand, ps: [])
+    ad = {'memo': {}, 'hinges': TB.HINGES}
+    cand = {'area_m2': 8.2, 'rect': (0, 0, 330, 250), 'w': 330, 'd': 250}
+    return ad, cand, calls
+
+
+def test_bed_nofit_memo_skips_solver_for_same_bed(monkeypatch):
+    """T-20261112-96/2: кровать не встала на ядре ни на одной петле (BED_NO_FIT) — та же кровать с другой тумбой и в другом стиле
+    решателю не идёт (ответ из памяти); иначе медленные отказы съедали долю времени стиля и исход был «budget», а не «не встала»."""
+    ad, cand, calls = _nofit_rig(monkeypatch, lambda items: 'BED_NO_FIT')
+    bed = {'w': 150, 'd': 212, 'h': 100, 'name': 'Кровать'}
+    assert TB.solve_kit(ad, cand, {}, {'кровать': bed, 'тумба прикроватная': {'w': 42, 'd': 35, 'h': 52}}, 'guest') is None
+    assert len(calls) == len(TB.HINGES)
+    n = len(calls)
+    other = {'кровать': dict(bed, name='Та же рама, другой стиль'), 'тумба прикроватная': {'w': 30, 'd': 30, 'h': 45}}
+    assert TB.bed_nofit_known(ad, cand, other, 'guest')
+    assert TB.solve_kit(ad, cand, {}, other, 'guest') is None and len(calls) == n          # решатель не звали
+    # другая рама (ниже, у окна), другое ядро, другое назначение — память не режет
+    assert not TB.bed_nofit_known(ad, cand, {'кровать': dict(bed, h=80)}, 'guest')
+    assert not TB.bed_nofit_known(ad, dict(cand, rect=(0, 0, 220, 365), area_m2=8.0), other, 'guest')
+    assert not TB.bed_nofit_known(ad, cand, other, 'single')
+
+
+def test_bed_nofit_memo_not_cut_by_stand_refusal(monkeypatch):
+    """Отказ из-за тумбы (REQUIRED_NO_FIT) и набор со шкафом — не доказательство для кровати самой по себе: кровать, которая встаёт
+    с другой (узкой) тумбой, память не режет."""
+    wide = lambda items: 'REQUIRED_NO_FIT' if any(i.role.startswith('тумба') and i.w_cm > 40 for i in items) else None  # noqa: E731
+    ad, cand, calls = _nofit_rig(monkeypatch, wide)
+    bed = {'w': 150, 'd': 212, 'h': 100, 'name': 'Кровать'}
+    assert TB.solve_kit(ad, cand, {}, {'кровать': bed, 'тумба прикроватная': {'w': 50, 'd': 40, 'h': 55}}, 'guest') is None
+    assert not ad.get('bed_nofit')
+    got = TB.solve_kit(ad, cand, {}, {'кровать': bed, 'тумба прикроватная': {'w': 30, 'd': 30, 'h': 45}}, 'guest')
+    assert got is not None and any(TB.base_role(p.role) == 'кровать' for p in got['placements'])
+    # BED_NO_FIT в наборе со шкафом в память не идёт (шкаф мог помешать по порядку групп)
+    ad2, cand2, _ = _nofit_rig(monkeypatch, lambda items: 'BED_NO_FIT')
+    TB.solve_kit(ad2, cand2, {}, {'кровать': bed, 'шкаф': {'w': 100, 'd': 60, 'h': 200, 'name': 'Шкаф'}}, 'guest')
+    assert not ad2.get('bed_nofit')
