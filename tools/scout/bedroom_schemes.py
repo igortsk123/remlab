@@ -1089,7 +1089,16 @@ def render(room, res, s, compact=False, title=None, subtitle=None, foot_lines=No
         else:
             txt = f"{name}\n{dims}"
         bb = d.multiline_textbbox((0, 0), txt, font=fi, align='center')
-        if bb[2] - bb[0] > wpx - 4 or bb[3] - bb[1] > hpx - 4:
+        rt = f"{name} {dims}"          # узкий высокий предмет (шкаф боком на схеме) — подпись поворотом, размер не теряется
+        rb = d.textbbox((0, 0), rt, font=fi2)
+        if (bb[2] - bb[0] > wpx - 4 or bb[3] - bb[1] > hpx - 4) and hpx > wpx and \
+                rb[2] - rb[0] <= hpx - 6 and rb[3] - rb[1] <= wpx - 4 and not it['sku'].get('cond'):
+            lab = Image.new('RGBA', (int(rb[2] - rb[0]) + 4, int(rb[3]) + 4), (255, 255, 255, 0))
+            ImageDraw.Draw(lab).text((2 - rb[0], 1), rt, font=fi2, fill=(20, 20, 20))
+            lab = lab.rotate(90, expand=True)
+            cv.img.paste(lab, (int((r[0] + r[2] - lab.width) / 2), int((r[1] + r[3] - lab.height) / 2)), lab)
+            d = ImageDraw.Draw(cv.img)
+        elif bb[2] - bb[0] > wpx - 4 or bb[3] - bb[1] > hpx - 4:
             txt = f"{ITEM_SHORT[it['kind']]}\n{dims}"
             bb = d.multiline_textbbox((0, 0), txt, font=fi2, align='center')
             if bb[2] - bb[0] > wpx - 2 or bb[3] - bb[1] > hpx - 2:
