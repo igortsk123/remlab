@@ -25,12 +25,12 @@ review_after: 2026-12-10
 4. «Ок» владельца → код: группы в движке (`services/planner-solver/planner/bedroom.py:_solve_groups`); листы «было | стало».
 
 ## Проходы
-**Предложение T-65, в коде пока нет** (сейчас — одиночные числа `occupancy.json:distances_cm`: бок кровати 75, распашной шкаф 90).
+Принято ADR-0394 (TG 790), в коде — `services/planner-solver/rules/occupancy.json` (`passage_*`, `_profile_default`), тест `services/planner-solver/tests/test_passage_norms.py`.
 Норм «по м²» нет: площадь и ширина выбирают состав, проход — одна норма: цель · допуск `compact` · жёсткий минимум.
 Сперва уходят предметы, потом допуск. RU-обычная: бок кровати и путь к окну 50, распашной шкаф и ящики 70, купе 50, диван–столик 30
 (Пособие к СНиП 2.08.01-89 п. 3.1). M4(2) 75 и M4(3) 100 — только жильё «доступное». Пороги — до «ок» владельца (T-65).
 
 ## Сейчас
-Спальня — движок групп ([[bedroom]]); гостиная — паспорт `living.json` тенью, `plans/living-full-01.md`.
+Спальня — движок групп ([[bedroom]]); гостиная — паспорт `living.json` тенью, уровень по набору `room_templates.py:levels_by_set`; прихожая — `hall.json` H1–H9 тенью, проход от входа `hall_checks.py:_entry_step` (детали — Tier 2).
 
 **Tier 2:** `../domain/room-templates.md` · ADR-0369, 0384, 0390–0392 · [[layout]].

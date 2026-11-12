@@ -3,7 +3,7 @@ tier: 2
 topic: market-research
 scope: Рынок RU/UK — детальные цифры спроса, источники, юнит-экономика монетизации, разбор конкурентов, контекст основателя (локация/платежи)
 tier1: ../core/market.md
-updated: 2026-09-28
+updated: 2026-11-12
 importance: high
 source: manual
 status: working
@@ -91,3 +91,8 @@ fal.ai, Replicate, OpenAI, Anthropic, GPU-воркеры) оплачиваютс
   доступ владельца к Вордстату; оценки 8/10 и 7/10 — наши собственные, не внешние данные.
 
 **Tier 1:** `../core/market.md` — сводка (позиционирование, 5 слоёв, выводы для remlab).
+
+## Ограничение UK: лицензия генератора мешей (12.11, `source: external:github.com/Tencent-Hunyuan/Hunyuan3D-2.1/LICENSE`)
+Меши делает Hunyuan3D 2.1 (ADR-0131, код пула Salad). Его лицензия (Tencent Hunyuan Community License) задаёт Territory без UK, ЕС
+и Южной Кореи и запрещает использовать и показывать Outputs вне Territory (найдено Codex, вопрос q24, 12.11). Для РФ ограничения нет;
+UK на 12.11 — только тесты, запуск сначала в России (владелец TG 1037). Решение по UK владелец ведёт сам — не напоминать (TG 1038).

@@ -458,4 +458,12 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 654 — группа-канарейка Salad вне охраны → `lessons/mesh-salad-pool.md`
 - 655 — окно 3D мигало при съёмке кадров заранее → `lessons/flat3d-configurator.md`
 - 656 — Г-диван: подушки и плед по всей букве Г → `lessons/layout-solver.md`
+- 657 — Проценты плана застыли при работающих → `lessons/memory-process.md`
+- 658 — `~` в Telegram MarkdownV2 — зачёркивание → `lessons/memory-process.md`
+- 659 — Эталон спальни не пойман при влитии → `lessons/layout-solver.md`
+- 660 — reissue.py руками падает без окружения воркера → `lessons/floorplan-trial.md`
+- 661 — Устаревший тест вне CI → `lessons/floorplan-trial.md`
+- 662 — Сборку /demo в worktree не запускать → `lessons/demo-planner.md`
+- 663 — Playwright-снимки 3D берут 6–7 ядер при заявке `--cores 2` → `lessons/dev-ops.md`
+- 664 — урок 636 не держит: время — только подстановкой date в той же команде → `lessons/memory-process.md`
 - 528, 530 — дополнены 07.11 (gltfpack и `/tmp`; «как в CI» — py3.12, чистый venv, golden `--record`, e2e) без новых номеров
