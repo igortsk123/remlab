@@ -272,7 +272,7 @@ jobs:
       - run: python tools/scout/tests/test_drawing_dims.py   # глубина с чертежа: строгий разбор ответа модели, выбор d кодом и гейты, сухо без вызовов (conv-15)
       - run: python tools/scout/tests/test_mesh_bind_args.py   # mesh_bind: неизвестный ключ (--selftest…) — отказ rc 2 до базы (T-20261023-10)
       - run: python tools/scout/tests/test_room_scores.py   # оценки стиля комнат не смешиваются: выборка близнецов — только своя комната room_catalog (T-20261105-34/2)
-      - run: python tools/scout/tests/test_style_calib.py   # поправка балла стиля по признакам фида: правила, текстиль не судим по металлу, метка версии, выключено до решения (T-20261112-119)
+      - run: python tools/scout/tests/test_style_calib.py   # поправка балла стиля по признакам фида: правила, текстиль не судим по металлу, метка версии, включён вариант А (T-20261112-119)
 
   scout-selftest:
     # Селфтесты загрузки каталога (план catalog-load-hardening П0.4): правила разбора фида, единиц

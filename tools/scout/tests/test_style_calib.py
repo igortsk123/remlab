@@ -49,7 +49,7 @@ check('другая версия — не своя метка', not SC.calibrate
 # правила — в одном месте (JSON), у каждого есть «почему»; включение — решением, не по умолчанию
 check('у каждого правила есть id, delta и _why', all(r.get('id') and r.get('delta') and r.get('_why') for r in cfg['rules']))
 check('стили в правилах — из шести', all(set(r['delta']) <= set(SC.STYLES) for r in cfg['rules']))
-check('поставка выключена (включает директор после снимка «было|стало»)', cfg['enabled'] is False)
+check('включён вариант А (директор 12.11, T-20261112-119/2): правила без сдвига шкалы', cfg['enabled'] is True and not cfg.get('offsets'))
 
 # style_score: поправка только у гостиной и только при enabled (иначе запись как раньше)
 src = open(os.path.join(HERE, '..', 'style_score.py'), encoding='utf-8').read()
