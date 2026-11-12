@@ -20,6 +20,9 @@ out = a[a.index('--out') + 1]
 assert '--cards' in a and a[a.index('--cards') + 1] == 'batch', a
 time.sleep(float(os.environ.get('STUB_SLEEP') or 0))
 rows = json.loads(os.environ['STUB_ROWS'])
+hold = a[a.index('--hold') + 1] if '--hold' in a else ''
+held = {x.strip() for x in open(hold).read().splitlines()} - {''} if hold and os.path.exists(hold) else set()
+rows = [dict(id=r['id'], status='skipped', why='hold') if r['id'] in held else r for r in rows]   # как reissue.py --hold
 demo = json.load(open(os.environ['STUB_DEMO']))
 for r in rows:
     if r['status'] in ('published', 'built'):
@@ -43,7 +46,7 @@ run() {   # run <случай> [env…] — свежая папка журнал
   [ -n "${KEEP_LOGS:-}" ] || rm -rf "$T/logs" "$T/alerts.txt"
   env TOUR_REISSUE_CMD="$T/reissue-stub.sh" TOUR_REISSUE_HASH_CMD="$T/hash-stub.sh" TOUR_REISSUE_ALERT="$T/alert-stub.sh" \
     TOUR_REISSUE_ENV="$T/none.env" TOUR_REISSUE_LOGS="$T/logs" TOUR_REISSUE_LOCK="$T/lock" TOUR_REISSUE_NO_SLOT=1 \
-    TOUR_REISSUE_DEMO_URL="$T/demo/" TOUR_REISSUE_PY=python3 TOUR_REISSUE_TMP="$T/tmp" STUB_DEMO="$T/demo/demo-data.json" \
+    TOUR_REISSUE_DEMO_URL="$T/demo/" TOUR_REISSUE_PY=python3 TOUR_REISSUE_TMP="$T/tmp" TOUR_REISSUE_HOLD="$T/hold.txt" STUB_DEMO="$T/demo/demo-data.json" \
     STUB_HASH=$H "$@" bash "$HERE/tour-reissue.sh" ${BG_ARG:-} --why "проба $c" > "$T/out-$c.txt" 2>&1
   echo $? > "$T/rc-$c.txt"
 }
@@ -92,7 +95,7 @@ has drift 'правила страницы отличаются: sofa_tv_cm' && 
 rm -rf "$T/logs"; mkdir -p "$T/logs"
 env TOUR_REISSUE_CMD="$T/reissue-stub.sh" TOUR_REISSUE_HASH_CMD="$T/hash-stub.sh" TOUR_REISSUE_ALERT="$T/alert-stub.sh" \
   TOUR_REISSUE_ENV="$T/none.env" TOUR_REISSUE_LOGS="$T/logs" TOUR_REISSUE_LOCK="$T/lock" TOUR_REISSUE_NO_SLOT=1 \
-  TOUR_REISSUE_DEMO_URL="$T/demo/" TOUR_REISSUE_PY=python3 TOUR_REISSUE_TMP="$T/tmp" STUB_DEMO="$T/demo/demo-data.json" \
+  TOUR_REISSUE_DEMO_URL="$T/demo/" TOUR_REISSUE_PY=python3 TOUR_REISSUE_TMP="$T/tmp" TOUR_REISSUE_HOLD="$T/hold.txt" STUB_DEMO="$T/demo/demo-data.json" \
   STUB_HASH=$H STUB_ROWS="$R1" STUB_SLEEP=2 bash "$HERE/tour-reissue.sh" --why first > "$T/out-first.txt" 2>&1 &
 pid=$!
 for _ in $(seq 1 50); do [ -n "$(ls "$T/logs/reissue" 2>/dev/null)" ] && break; sleep 0.1; done
@@ -116,6 +119,22 @@ has bg 'проход запущен в фоне без systemd' && [ $(( $(date 
   || bad "--bg: $(cat "$T/out-bg.txt")"
 for _ in $(seq 1 100); do grep -q 'повод: проба bg' "$T/logs/reissue.log" 2>/dev/null && break; sleep 0.1; done
 grep -q 'повод: проба bg' "$T/logs/reissue.log" 2>/dev/null && ok "фоновый проход дошёл до журнала" || bad "фоновый проход не записал итог"
+
+# 8. «держать» (T-92/5): id в файле — тур пропущен строкой hold и WARN с id; остальные идут
+printf 'a3\n' > "$T/hold.txt"
+run hold1 STUB_ROWS="$R1"
+has hold1 'пропущено 2 (busy 1, hold 1)' && has hold1 'WARN:tour_reissue: держим 1 тур(ов) по списку «держать» — не перевыпущены: a3' \
+  && has hold1 'перевыпущено 1' && ok "держать по id — тур пропущен, WARN с id" || bad "держать по id: $(grep -E 'tour_reissue|WARN' "$T/out-hold1.txt")"
+# 9. «*» — прохода нет вовсе (сборщик не зван), строка warn «на паузе» в журнал; днём тревога, ночью нет
+printf '# починка спален, T-96\n*\n' > "$T/hold.txt"
+run holdall STUB_ROWS="$R1"
+! has holdall 'stub ' && ! ls "$T"/logs/reissue/*/pass.log >/dev/null 2>&1 && ok "«*» — сборщик не зван" || bad "«*»: сборщик зван"
+grep -qP '\twarn\ttour_reissue: на паузе .*\tзамечаний 1, первое — перевыпуск туров на паузе' "$T/logs/reissue.log" \
+  && ok "«*» — строка «на паузе» в журнал проходов" || bad "«*» журнал: $(cat "$T/logs/reissue.log")"
+grep -q 'на паузе' "$T/alerts.txt" 2>/dev/null && ok "«*» днём — тревога" || bad "«*» днём тревоги нет"
+run holdnight STUB_ROWS="$R1" TOUR_REISSUE_NIGHT=1
+[ ! -e "$T/alerts.txt" ] && grep -q 'на паузе' "$T/logs/reissue.log" && ok "«*» ночью — без тревоги, в сводку" || bad "«*» ночью"
+rm -f "$T/hold.txt"
 
 [ "$fail" = 0 ] && echo "tour-reissue selftest: все случаи прошли" || echo "tour-reissue selftest: ЕСТЬ ПРОВАЛЫ"
 exit "$fail"

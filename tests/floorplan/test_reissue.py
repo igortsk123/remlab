@@ -153,6 +153,22 @@ def test_stale_retried_once(env, capsys, monkeypatch):
     assert RS.main(['--job', A], cfg=cfg, cmd=cmd) == 0 and seq == []           # второй stale — пропуск, не бесконечный круг
 
 
+def test_hold_list_skips_tours_without_touching_them(env, capsys, tmp_path):
+    """«держать» (T-20261112-92/5): id из файла — skipped/hold, тур не читается и не публикуется; «*» — все; нет файла — как обычно."""
+    p, cfg, cmd = env
+    hold = tmp_path / 'hold.txt'
+    hold.write_text(f'# спальни в отказе\n{B}\n\n{C}  # сбоит\n')
+    assert RS.main(['--days', '7', '--hold', str(hold)], cfg=cfg, cmd=cmd) == 0      # держим отказ и сбой — код 0
+    out = capsys.readouterr().out
+    assert [j for j, _ in p.posts] == [A]
+    assert f'{B}: пропущен — hold: в списке «держать»' in out and f'{C}: пропущен — hold' in out
+    hold.write_text('*\n')
+    assert RS.main(['--days', '7', '--hold', str(hold)], cfg=cfg, cmd=cmd) == 0 and [j for j, _ in p.posts] == [A]
+    rep = json.loads(sorted((cfg.base / 'reissue').iterdir())[-1].joinpath('report.json').read_text())
+    assert {(r['status'], r['why']) for r in rep} == {('skipped', 'hold')}
+    assert RS.hold_list(str(tmp_path / 'нет.txt')) == set() and RS.hold_list(None) == set()
+
+
 def test_without_token_or_target(env):
     p, cfg, cmd = env
     cfg.token = ''

@@ -16,6 +16,9 @@
 АВТОПЕРЕВЫПУСК (T-20261112-92): после каждой выкладки витрины его зовёт `tools/ops/tour-reissue.sh` (`--days 60 --cards batch`).
 «Без изменений» — те же байты данных и та же витрина: ни новой версии, ни карточек. `stale` (агент пересобрал, пока собирали) —
 один повтор тура сразу.
+«ДЕРЖАТЬ» (T-20261112-92/5, директор 12.11: на main спальни уходят в отказ — туры не трогать, пока не починят): `--hold <файл>` —
+id туров построчно (`#` — комментарий) или строка `*` — все; такие туры не собираются и не публикуются, строка отчёта
+`skipped/hold`. Обёртка передаёт `~/scout-scenes/tour-reissue-hold.txt`; при `*` она и вовсе не начинает проход.
 
 «ПЕРЕЧИТАТЬ ПЛАНИРОВКУ» (план trial-reparse-01; T-20261111-02) — `--reparse`: исходный лист тура заново через текущий разбор (кэш VLM,
 0 $), мебель заново, ОДНА версия с новым `result` — только если сторож регресса чист (`regress.guard_*`) или разница одобрена:
@@ -50,7 +53,7 @@ from conveyor import BUNDLE_MAX_BYTES, child_failure  # noqa: E402
 
 READ_MAX = 24 * 1024 * 1024                  # ответ «исходник»: результат (≤ 2 МБ) + версия (≤ 8 МБ), экранированная в JSON
 SKIP = ('busy', 'expired', 'not_ready', 'not_found', 'no_bundle')   # пропуски: тур не трогаем, пересборка не сбоила
-WHY = {'busy': 'идёт пересборка агента', 'expired': 'срок тура вышел', 'not_ready': 'тур ещё не готов', 'not_found': 'тура нет',
+WHY = {'hold': 'в списке «держать» (--hold) — не перевыпускаем, пока ведущий не снимет', 'busy': 'идёт пересборка агента', 'expired': 'срок тура вышел', 'not_ready': 'тур ещё не готов', 'not_found': 'тура нет',
        'no_bundle': 'файла версии данных нет на сервере — пересобирать не из чего', 'stale': 'версия сменилась, пока собирали'}
 ROOMS = ('kept_furniture', 'kept_outcome', 'no_source', 'renamed_rooms')
 
@@ -117,6 +120,17 @@ def one(api: wk.Api, cfg: wk.Cfg, jid: str, run_dir: Path, dry: bool, cmd: list 
                 'previous': r.get('previous'), 'unchanged': same, 'cards_need': bool(cfg.cards and not same and cards == 'batch')}
     why = (r or {}).get('error') if isinstance(r, dict) else None
     return {**row, 'status': 'skipped' if why in SKIP + ('stale',) else 'failed', 'why': why or f'http {st}'}
+
+
+def hold_list(path: str | None) -> set[str]:
+    """Файл «держать»: id туров построчно, «*» — все; пустые строки и `#…` — мимо. Нет файла — пусто."""
+    if not path:
+        return set()
+    try:
+        text = Path(path).expanduser().read_text(encoding='utf-8')
+    except FileNotFoundError:
+        return set()
+    return {x.split('#', 1)[0].strip() for x in text.splitlines()} - {''}
 
 
 def line(r: dict) -> str:
@@ -356,6 +370,7 @@ def main(argv=None, api: wk.Api | None = None, cfg: wk.Cfg | None = None, cmd: l
     ap.add_argument('--sheets', help='--reparse --dry-run: TSV «id, лист, [текст объявления|-]»')
     ap.add_argument('--approve', help='--reparse: TSV «id, ключ находки, [почему]» — одобренная ведущим разница')
     ap.add_argument('--out', help='папка прогона (по умолчанию <TRIAL_WORK_DIR>/reparse|reissue/<время>)')
+    ap.add_argument('--hold', help='файл «держать»: id туров построчно или «*» — такие не пересобираются (skipped/hold)')
     a = ap.parse_args(argv)
     cfg = cfg or wk.Cfg.from_env()
     if not cfg.token:
@@ -376,7 +391,13 @@ def main(argv=None, api: wk.Api | None = None, cfg: wk.Cfg | None = None, cmd: l
     run_dir = Path(a.out).expanduser() if a.out else cfg.base / 'reissue' / time.strftime('%Y%m%d-%H%M%S')
     run_dir.mkdir(parents=True, exist_ok=True)
     rows = []
+    held = hold_list(a.hold)
     for jid in ids:
+        if '*' in held or jid in held:
+            r = {'id': jid, 'status': 'skipped', 'why': 'hold', 'sec': 0}
+            rows.append(r)
+            print(line(r), flush=True)
+            continue
         t0 = time.monotonic()
         for attempt in (1, 2):               # `stale` — агент пересобрал, пока мы собирали: один повтор от его новой версии
             try:

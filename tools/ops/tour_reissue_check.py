@@ -57,6 +57,10 @@ def summary(rows: list[dict]) -> tuple[str, list[str]]:
         parts.append(f'сбой {len(st("failed"))}')
     warns = [f"WARN:tour_reissue: тур {r['id']} — отказ сборщика {r.get('why')}, тур остался прежним" for r in st('refused')]
     warns += [f"WARN:tour_reissue: тур {r['id']} — сбой {str(r.get('why'))[:80]}, тур остался прежним" for r in st('failed')]
+    held = [r['id'] for r in skip if r.get('why') == 'hold']
+    if held:                                 # «держать» (T-92/5): не молча — ведущий видит, что туры стоят на прежней витрине
+        warns.append(f"WARN:tour_reissue: держим {len(held)} тур(ов) по списку «держать» — не перевыпущены: "
+                     + ', '.join(held[:8]) + (' …' if len(held) > 8 else ''))
     return 'tour_reissue: ' + ' · '.join(parts), warns
 
 

@@ -23,6 +23,9 @@
 #     сутки; отказ/сбой/расхождение — `WARN:tour_reissue: …` с id туров, днём ещё и тревога (`tools/scout/alert.sh`), ночной проход
 #     тревогу не шлёт — его замечания уходят важной строкой в сводку следующей ночи. Код выхода 1 — был отказ/сбой или проход не
 #     дождался очереди (как у reissue.py).
+# «ДЕРЖАТЬ» (T-20261112-92/5): файл `~/scout-scenes/tour-reissue-hold.txt` (TOUR_REISSUE_HOLD) — id туров построчно: их проход
+# пропускает (`reissue.py --hold`, строка skipped/hold и WARN); строка `*` — проход не начинается вовсе, в reissue.log строка warn
+# «на паузе» (ночная сводка покажет её важной строкой, днём — тревога). Снять — убрать строку или файл.
 # Подмены для самопроверки (`tools/ops/tour-reissue-selftest.sh`): TOUR_REISSUE_CMD (вместо reissue.py), TOUR_REISSUE_HASH_CMD,
 # TOUR_REISSUE_ALERT, TOUR_REISSUE_ENV, TOUR_REISSUE_LOGS, TOUR_REISSUE_LOCK, TOUR_REISSUE_NO_SLOT=1, TOUR_REISSUE_DEMO_URL,
 # TOUR_REISSUE_NO_SYSTEMD=1 (`--bg` — сразу через setsid).
@@ -71,6 +74,7 @@ DEMO_URL=${TOUR_REISSUE_DEMO_URL:-https://remont-lab.online/demo/}
 ENVF=${TOUR_REISSUE_ENV:-$HOME/.config/remlab/env}
 ALERT=${TOUR_REISSUE_ALERT:-$ROOT/tools/scout/alert.sh}
 NIGHT=${TOUR_REISSUE_NIGHT:-0}
+HOLD=${TOUR_REISSUE_HOLD:-$HOME/scout-scenes/tour-reissue-hold.txt}
 PASSES=${TOUR_REISSUE_PASSES:-0}            # сколько проходов уже было у этого запуска (повтор после замка — exec сам себя)
 
 exec 9>>"$LOCK"
@@ -96,9 +100,17 @@ while :; do
   rm -f "$AGAIN"
   RUN="$LOGS/reissue/$(date +%Y%m%d-%H%M%S)-$$-auto"   # номер процесса: два прохода в одну секунду — разные папки
   mkdir -p "$RUN"
+  if [ -f "$HOLD" ] && grep -qE '^[[:space:]]*\*[[:space:]]*(#.*)?$' "$HOLD"; then   # «*» — все туры держим: прохода нет
+    head="tour_reissue: на паузе — в $HOLD стоит «*», туры не перевыпущены · повод: $WHY${DRY:+ · сухой прогон}"
+    first="перевыпуск туров на паузе (файл «держать»: *) — туры остаются на прежней витрине"
+    echo "WARN:tour_reissue: $first"; echo "$head"
+    [ "$NIGHT" = 1 ] || bash "$ALERT" "Туры после выкладки демо: $head" >/dev/null 2>&1 9>&- || true
+    printf '%s\t%s\t%s\t%s\t%s\n' "$(date '+%F %T')" warn "$head" "замечаний 1, первое — $first" "$RUN" >> "$LOGS/reissue.log"
+    break
+  fi
   t0=$(date +%s)
   # 9>&- у КАЖДОГО дочернего: замок держит только этот процесс, потомки (браузеры, node, службы карточек) его не наследуют
-  "${SLOT[@]}" "${REISSUE[@]}" --days "$DAYS" --cards batch "${DRY[@]}" --out "$RUN" > "$RUN/pass.log" 2>&1 9>&-
+  "${SLOT[@]}" "${REISSUE[@]}" --days "$DAYS" --cards batch --hold "$HOLD" "${DRY[@]}" --out "$RUN" > "$RUN/pass.log" 2>&1 9>&-
   rc=$?
   sec=$(( $(date +%s) - t0 ))
   expect=$("${HASH[@]}" "$DEMO_URL" 2>>"$RUN/pass.log" 9>&-) || expect=-
