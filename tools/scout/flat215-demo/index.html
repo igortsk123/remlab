@@ -5783,27 +5783,44 @@ function decorSupport(){
   }
   return null;
 }
+// ПОДПИСИ МЕСТА ДЕКОРА ПО-АНГЛИЙСКИ — ОДНИМ СЛОВАРЁМ (T-20261112-103, владелец TG 1244): строку «роль · место» DOM-перевод знает только
+// целиком, а место собирается из частей («на стене над диваном», «на комоде») — в EN оставалось русским. Пары [RU, EN] по ключу,
+// опора — роль через словарь страницы (`__trText` → ROLE: «комод» → «chest of drawers»). Новое место — новая пара здесь
+const DW={
+  ceil:['на потолке над зоной отдыха','on the ceiling above the seating area'],
+  onCarrier:['на комоде','on the chest of drawers'],
+  noCarrier:['в кадр не ставим: нет комода или не влезает','not shown in 3D: no chest of drawers, or it does not fit'],
+  wallAny:['на стене, где есть место','on the wall where there is room'],
+  wallHung:['на стене, где повесили','on the wall where you hung it'],
+  wallFull:['в кадр не ставим: на стене нет места','not shown in 3D: no room on the wall'],
+  wallNone:['в кадр не ставим: нет кровати, дивана или комода','not shown in 3D: no bed, sofa or chest of drawers'],
+  noTop:['в кадр не ставим: не указан размер или не влезает','not shown in 3D: size not given, or it does not fit'],
+  curtain:['у окна, вид условный','by the window, illustrative look'],
+  throwArm:['на подлокотнике дивана, вид условный','on the sofa arm, illustrative look']};
+function dwT(k){ return DW[k][LANG==='en'?1:0]; }
+function dwRole(r){ const b=baseRole(r); return LANG==='en'?((window.__trText&&window.__trText(b))||'item'):b; }
+// «на комоде» / «над диваном» / «на столик, по центру»: в EN — «on the chest of drawers», «above the sofa», «on the coffee table, centred»
+function dwOn(r,tail){ return LANG==='en'?'on the '+dwRole(r)+(tail?', centred':''):'на '+baseRole(r)+(tail?', по центру':''); }
 function decorWhere(x){
-  // T-74; EN — здесь же (T-74/2): строку с пометкой DOM-перевод не знает, роль переводит, а хвост оставил бы русским
-  if(isCloth3d(x))return LANG==='en'?(x.place.kind==='curtain'?'by the window, illustrative look':'on the sofa arm, illustrative look')
-    :(x.place.kind==='curtain'?'у окна, вид условный':'на подлокотнике дивана, вид условный');
+  // T-74; EN — здесь же (T-74/2, T-103): строку с пометкой DOM-перевод не знает, роль переводит, а хвост оставил бы русским
+  if(isCloth3d(x))return dwT(x.place.kind==='curtain'?'curtain':'throwArm');
   if(x&&isSoft(x.role))return '';                 // мягкому места в 3D нет — и подписи «куда встанет» тоже (demo-24)
-  if(x&&x.strategy==='ceiling_over')return 'на потолке над зоной отдыха';
+  if(x&&x.strategy==='ceiling_over')return dwT('ceil');
   if(x&&x.strategy==='carrier_surface'){          // лампа на комоде (T-101): место — тот же расчёт, что строит 3D (`demo-scene.ts:carrierWhere`)
     const m=carrierWhere();
-    if(!m||!(x.role in m))return 'на комоде';
-    return m[x.role]?'на '+m[x.role]:'в кадр не ставим: нет комода или не влезает';
+    if(!m||!(x.role in m))return dwT('onCarrier');
+    return m[x.role]?dwOn(m[x.role]):dwT('noCarrier');
   }   // люстра (T-66): место считает сцена, `ceiling.ts`
   if(isWallArt(x)){                               // опора — из расчёта сцены; движок ещё не пришёл — без выдуманной опоры
     const m=artWhere();
-    if(!m||!(x.role in m))return 'на стене, где есть место';
+    if(!m||!(x.role in m))return dwT('wallAny');
     const r=m[x.role];
-    if(r&&ART_OVER[r])return 'на стене над '+ART_OVER[r];
-    if(r==='стена')return 'на стене, где повесили';   // перевешена «✥» (T-97, `wall-art-spot.HUNG_FREE`)
-    return items.some(i=>ART_OVER[baseRole(i.role)])?'в кадр не ставим: на стене нет места':'в кадр не ставим: нет кровати, дивана или комода';
+    if(r&&ART_OVER[r])return LANG==='en'?'on the wall above the '+dwRole(r):'на стене над '+ART_OVER[r];
+    if(r==='стена')return dwT('wallHung');   // перевешена «✥» (T-97, `wall-art-spot.HUNG_FREE`)
+    return items.some(i=>ART_OVER[baseRole(i.role)])?dwT('wallFull'):dwT('wallNone');
   }
   const s=decorSupport();
-  return s?('на '+s.role.replace(/\s+\d+$/,'')+', по центру'):'в кадр не ставим: не указан размер или не влезает';
+  return s?dwOn(s.role,true):dwT('noTop');
 }
 function basket(){                    // СПИСОК ТОВАРОВ КОМНАТЫ — справа от плана (структура референса,
   const withSku=items.filter(i=>i.sku&&i.sku.name);   // 26.08): строка = миниатюра, название, магазин,
@@ -13301,7 +13318,7 @@ function quizPick(rule, answers, available, styleColours){
   var ROLE={'диван':'sofa','кресло':'armchair','столик':'coffee table','тв-тумба':'TV unit','ковёр':'rug','торшер':'floor lamp',
     'стеллаж':'shelving','комод':'chest of drawers','пуф':'pouf','кашпо':'planter','ваза':'vase','стул':'chair','стол':'table',
     'стол обеденный':'dining table','банкетка':'bench','витрина':'display cabinet','камин':'fireplace','стенка':'wall unit',
-    'люстра':'chandelier','лампа':'lamp','подушка':'cushion','шторы':'curtains','плед':'throw','покрывало':'bedspread','полка':'shelf','приставной':'side table','окно':'window','дверь':'door',
+    'люстра':'chandelier','лампа':'lamp','картина':'wall art','подушка':'cushion','шторы':'curtains','плед':'throw','покрывало':'bedspread','полка':'shelf','приставной':'side table','окно':'window','дверь':'door',
     // спальня и прихожая (T-20261106-77 Д6: в EN шли «кровать», «шкаф»); полнота по профилям комнат — tests/test_demo_en_roles.py
     'кровать':'bed','тумба прикроватная':'bedside table','шкаф':'wardrobe','туалетный столик':'dressing table','стол рабочий':'desk',
     'стул рабочий':'desk chair','шкаф-купе':'sliding wardrobe','прихожая':'hallway unit','обувница':'shoe cabinet','консоль':'console table',
