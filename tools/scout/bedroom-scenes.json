@@ -394,11 +394,11 @@
    "w": 300,
    "d": 300,
    "openings": [
-    {"kind": "door", "wall": "west", "offset_cm": 105, "width_cm": 90, "swing_cm": 90, "hinge": "left"},
+    {"kind": "door", "wall": "west", "offset_cm": 15, "width_cm": 80, "swing_cm": 80, "hinge": "left"},
     {"kind": "window", "wall": "north", "offset_cm": 75, "width_cm": 150, "sill_cm": 85, "height_cm": 150}
    ],
    "radiators": [{"wall": "north", "offset_cm": 90, "width_cm": 120, "depth_cm": 12}],
-   "_why": "9 м² квадрат, дверь посередине стены (T-20261112-38/2: малая квадратная — пара 140, без шкафа)"
+   "_why": "9 м² квадрат, дверь у угла (T-20261112-38/2: малая квадратная — пара 140, без шкафа)"
   },
   "uk244x333": {
    "w": 333,
@@ -912,8 +912,10 @@
   },
   {"id": "sq300-couple", "room": "sq300", "purpose": "couple", "kit": "couple_std", "expect": "fail",
    "note": "9 м² квадрат: 170 + 2×75 = 320 > 300 — отказ с причиной (движок групп добавляет sleep_next = bed_140)"},
-  {"id": "sq300-couple-140", "room": "sq300", "purpose": "couple", "kit": "couple_140", "expect": "solve",
-   "note": "та же комната с кроватью 140 (ступень ADR-0384 поправка 1); у групп шкаф снят (малая квадратная)"},
+  {"id": "sq300-couple-140", "room": "sq300", "purpose": "couple", "kit": "couple_140", "expect": "fail",
+   "note": "та же комната с кроватью 140 (рама 150): по нормам не встаёт и 140 — изголовье к южной: проход у двери (DOOR_PASSAGE) и подход к батарее под окном (RADIATOR); к восточной/западной — 150 + 2×75 = 300 впритык минус батарея. Честный отказ с причиной (T-20261112-38/2)"},
+  {"id": "r10-couple-140", "room": "r10", "purpose": "couple", "kit": "couple_140", "expect": "solve",
+   "note": "10 м², где 160 не встаёт (r10-couple — отказ): ступень 140 (ADR-0384 поправка 1); у групп шкаф снят — комната не вытянутая"},
   {"id": "uk244x333-single_narrow", "room": "uk244x333", "purpose": "single_narrow", "kit": "uk_single", "expect": "solve",
    "note": "UK single 90×190 в 2,44×3,33, дверь на длинной стене"},
   {"id": "uk244x333-couple-140", "room": "uk244x333", "purpose": "couple", "kit": "couple_140", "expect": "fail",
