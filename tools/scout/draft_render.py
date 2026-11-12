@@ -475,7 +475,9 @@ def decor_layout(payload) -> tuple:
     # бы со столика вазы. Место над кроватью/диваном считает живая сцена (`wall-art.ts`); кадру сервера — в `rest` (дорисовать)
     # ЛЮСТРА — ТОЖЕ НЕ НАСТОЛЬНЫЙ (T-20261112-66): висит над зоной отдыха (место — решатель паспорта, `chandelier.py:solve`); на столешнице её 64 см
     # по правилу «всё или ничего» сняли бы вазы. Кадру сервера — в `rest`
-    decor = [d for d in table if not wall_art(d) and d.get('strategy') != 'ceiling_over'
+    # ЛАМПА НА КОМОДЕ (`carrier_surface`, T-20261112-101) — тоже не в ряд ваз: стоит на комоде (место — решатель паспорта,
+    # `dependent_decor.py`), крупная лампа правилом «всё или ничего» сняла бы вазы. Кадру сервера — в `rest` (дорисовать на комоде)
+    decor = [d for d in table if not wall_art(d) and d.get('strategy') not in ('ceiling_over', 'carrier_surface')
              and (d.get('sku') or {}).get('w') and (d.get('sku') or {}).get('d')
              and (d.get('sku') or {}).get('h')]
     rest = [d for d in table if d not in decor]

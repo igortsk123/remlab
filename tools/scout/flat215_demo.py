@@ -385,6 +385,37 @@ def soft_role(role: str | None) -> bool:
     return feed_base(role or '') in soft_roles()
 
 
+def decor_model(it: dict) -> tuple:
+    """Годная модель декора паспорта (люстра, лампа): на сервере, цвета как на фото → (габариты меша, None) или (None, причина)."""
+    sid = f"{it['mid']}_{it['eid']}"
+    m = _msid(sid)
+    if not m or m not in _mesh_index():
+        return None, 'нет модели на сервере'
+    if not color_ok(m, it.get('name') or '') or colour_flagged(sid):
+        return None, 'модель не того цвета'
+    ext = _mesh_extents(m)
+    return (ext, None) if ext else (None, 'меш не читается')
+
+
+def lamp_decor(sets: list, idx: int, tag: str, objs: list, room_wd: tuple) -> dict | None:
+    """ЛАМПА НАБОРА НА КОМОДЕ → строка декора варианта (T-20261112-101; правила — `dependent_decor.py`): место — решатель паспорта
+    (`light.lamp` на `light.dresser`), сцена пересчитывает его от текущего комода. Лампы в наборе нет или комода в варианте нет —
+    строки нет (как было); лампа без модели или не влезает — следующая того же стиля; ни одной — громко, строки нет."""
+    import dependent_decor as DD
+    own = [it for r, it in ((sets[idx] or {}).get('items') or {}).items() if DD.is_lamp(r) and it]
+    if not own or not DD.carrier_objs(objs, DD.LAMP_CARRIERS):
+        return None
+    it, pl, why = DD.lamp_pick(sets, idx, objs, room_wd, decor_model)
+    if not it:
+        print(f"WARN:lamp: {tag} — лампы на комоде нет ни в цене, ни в 3D: {'; '.join(why) or 'нет кандидатов'}", flush=True)
+        return None
+    sk = _sku({DD.LAMP_ROLE: it}, DD.LAMP_ROLE)
+    row = DD.lamp_row(pl, objs, sk)
+    swap = '' if it.get('eid') == own[0].get('eid') else f" (вместо «{own[0].get('name')}»: {'; '.join(why)})"
+    print(f"  лампа {tag}: «{it.get('name')}» на {pl.parent_slot_instance_id}, низ {row['place']['bottom_cm']:g} см{swap}", flush=True)
+    return row
+
+
 def chandelier_decor(sets: list, idx: int, tag: str, objs: list, room_wd: tuple) -> dict | None:
     """ЛЮСТРА НАБОРА → строка декора варианта гостиной (T-20261112-66; правила — `chandelier.py`): товар с моделью на сервере,
     цветом как на фото, габарит сцены — по мешу (высота каталога у подвесных без шнура, сцена сплющила бы модель). МЕСТО —
@@ -392,21 +423,9 @@ def chandelier_decor(sets: list, idx: int, tag: str, objs: list, room_wd: tuple)
     диваны — `CH.carriers_from_variant`): в данных `place` {x, y, bottom_cm, slot_instance_id}, сцена рисует там и сама не
     считает. Корпус не влезает — следующая люстра стиля; нет ни одной или решатель отказал — строки нет вовсе."""
     import chandelier as CH
-    idx_m = _mesh_index()
-
-    def model(it: dict) -> tuple:
-        sid = f"{it['mid']}_{it['eid']}"
-        m = _msid(sid)
-        if not m or m not in idx_m:
-            return None, 'нет модели на сервере'
-        if not color_ok(m, it.get('name') or '') or colour_flagged(sid):
-            return None, 'модель не того цвета'
-        ext = _mesh_extents(m)
-        return (ext, None) if ext else (None, 'меш не читается')
-
     own = [it for r, it in ((sets[idx] or {}).get('items') or {}).items() if CH.is_role(r) and it]
     ceil = float(demo_ceiling() or CH.DEFAULT_CEILING_CM)
-    it, dims, pl, why = CH.pick(sets, idx, objs, room_wd, ceil, model)
+    it, dims, pl, why = CH.pick(sets, idx, objs, room_wd, ceil, decor_model)
     if not own and not it:
         return None
     if not it:
@@ -1780,6 +1799,10 @@ def build() -> dict:
         ch = chandelier_decor(sets, n - 1, f'set{n}', objs, (liv['w'], liv['d']))
         if ch:
             decor.append(ch)
+        # ЛАМПА НА КОМОДЕ — В ЦЕНУ И НА КОМОД (T-20261112-101): раньше роль выпадала из декора молча — ни в списке, ни в 3D
+        lp = lamp_decor(sets, n - 1, f'set{n}', objs, (liv['w'], liv['d']))
+        if lp:
+            decor.append(lp)
         # ШТОРЫ И ПЛЕД — УСЛОВНО, ЦВЕТОМ ТОВАРА (T-20261112-74, владелец TG 953): место — решатель паспорта на носителях варианта,
         # цвет — по названию (`textile_abstract.look_of`); отказ — строка только в списке, как было
         import textile_abstract as _TX

@@ -10,6 +10,7 @@
 
 import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
+import { isCarrierDecor } from "@/lib/configurator/carrier-decor";
 import { fromDemoVariant, isCeilingDecor, isTextileDecor, isWallArtDecor, isWallPlane, stableSlotIds, wallArtItems, type DemoData } from "@/lib/configurator/fromDemo";
 import { type DecorIn } from "@/lib/viewer3d/scene-extras";
 import { meshUrl, RUNTIME_BASE, setRuntimeMeshes, type RuntimeEntry } from "@/lib/configurator/mesh-url";
@@ -209,6 +210,21 @@ export function wallArtWhere(opts: Pick<DemoSceneOptions, "room" | "items" | "de
 }
 
 /**
+ * Где стоит декор на носителе — ТОТ ЖЕ расчёт, что строит 3D (лампа на комоде, T-20261112-101, `carrier-decor.ts`): роль → роль
+ * носителя («комод») или null (носителя нет или не влезает — в кадр не ставим). Страница пишет по нему место в строке списка.
+ */
+export function carrierWhere(opts: Pick<DemoSceneOptions, "room" | "items" | "decor" | "base">): Record<string, string | null> {
+  const built = liveApartment(opts.room, opts.items, opts.base, opts.decor ?? []);
+  if (!built) return {};
+  const { apartment, catalogue } = built;
+  const link = new Map(apartment.slots.filter((s) => s.onCarrier).map((s) => [s.id, s.onCarrier!.slotId]));
+  const sc = resolveScene(apartment, catalogue, defaultConfiguration(apartment, catalogue));
+  const role = new Map(sc.items.map((i) => [i.slotId, i.photoRole]));
+  return Object.fromEntries(sc.items.filter((i) => link.has(i.slotId) && i.photoRole)
+    .map((i) => [i.photoRole as string, i.unplaced ? null : String(role.get(link.get(i.slotId)!) ?? "").replace(/\s+\d+$/, "") || null]));
+}
+
+/**
  * Место движка («диван#0», «картина#0») → номер предмета страницы — тем же счётом, что у моста (`fromDemo.ts`). Мебель — номер
  * в `items` (ковёр и настенные плоскости расстановки не выбираются). КАРТИНА-ТОВАР ИЗ ДЕКОРА (T-20261112-45, владелец TG 1062:
  * «цена, выделяется и даёт заменить — той же логикой») — `items.length` + номер в переданном `decor`: место той же нумерацией,
@@ -223,6 +239,9 @@ export function sceneSlotIndex(items: DemoItem[], decor: DemoDecor[], art: boole
   // условные штора и плед (T-20261112-74) — так же: ценник, клик и карточка — строки декора
   const cloth = decor.map((x, k) => ({ x, k })).filter(({ x }) => isTextileDecor(x));
   stableSlotIds(cloth.map(({ x }) => ({ role: x.role ?? "шторы" }))).forEach((id, j) => out.set(`textile:${id}`, items.length + cloth[j]!.k));
+  // лампа на комоде (T-20261112-101) — так же: ценник, клик и карточка — строки декора
+  const tops = decor.map((x, k) => ({ x, k })).filter(({ x }) => isCarrierDecor(x));
+  stableSlotIds(tops.map(({ x }) => ({ role: x.role ?? "лампа" }))).forEach((id, j) => out.set(`carrier:${id}`, items.length + tops[j]!.k));
   if (!art) return out;
   const pics = decor.map((x, k) => ({ x, k })).filter(({ x }) => isWallArtDecor(x))
     .map(({ x, k }) => ({ it: wallArtItems([x])[0]!, k })).filter(({ it }) => isWallPlane(it));

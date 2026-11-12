@@ -802,6 +802,41 @@ def public_row(r: dict, mesh_ok) -> dict:
     return {k: out.get(k) for k in ROW_KEYS if k in out}
 
 
+def lamp_rows(st: dict, rows: list, room_wd: tuple, mesh_ok) -> list:
+    """ЛАМПА НАБОРА НА КОМОДЕ ТУРА (T-20261112-101) — тем же правилом, что у /demo (`flat215_demo.lamp_decor` → `dependent_decor`):
+    место — решатель паспорта на комоде варианта (строки `rows` после прижима к стенам), товар — лампа набора, иначе следующая того
+    же набора с годной моделью (`mesh_ok`; подставной банк тестов — без проверки). Строка декора — по разрешённому списку, как
+    предмет (`public_row`) + `strategy` и `place`; товар (цена, фото) сборщик берёт из каталога по `sid` (`trial_bundle._decor_item`).
+    Лампы или комода нет — пусто; не встала ни одна — громко, пусто."""
+    import dependent_decor as DD
+    if not any(DD.is_lamp(r) and it for r, it in (st.get('items') or {}).items()):
+        return []
+    objs = [{'role': r['role'], 'x': r['x'], 'y': r['y'], 'rot': r.get('rot') or 0, 'w': r.get('w'), 'd': r.get('d'), 'h': r.get('h'),
+             'sku': {'name': (r.get('_it') or {}).get('name')}} for r in rows]
+    if not DD.carrier_objs(objs, DD.LAMP_CARRIERS):
+        return []
+
+    def model(it):                                  # габариты меша — для высоты лампы без высоты в карточке (`DD.lamp_pick`)
+        if mesh_ok is None:
+            return True, None
+        if not mesh_ok(it):
+            return None, 'нет годной модели'
+        import flat215_demo as FD
+        return FD._mesh_extents(FD._msid(_sid(it))) or True, None
+    it, pl, why = DD.lamp_pick([st], 0, objs, room_wd, model)
+    if not it:
+        print(f"WARN:lamp: {st.get('style')} — лампы на комоде нет ни в цене, ни в 3D: {'; '.join(why) or 'нет кандидатов'}", flush=True)
+        return []
+    row = DD.lamp_row(pl, objs, None)
+    del row['sku']
+    pub = public_row({'role': DD.LAMP_ROLE, 'sid': _sid(it), 'w': it['w'], 'd': it['d'], 'h': it['h'], '_it': it},
+                     None if mesh_ok is None else (lambda _x: True))
+    if mesh_ok is not None:                         # модель проверена выше (`model`): лампа не из `PLACEABLE`, `public_row` её не ставит
+        import flat215_demo as FD
+        pub.update(msid=FD._msid(_sid(it)), mesh='model')
+    return [{**row, **{k: v for k, v in pub.items() if k != 'role'}}]
+
+
 def shop_tokens(styles: list) -> list:
     """Что нельзя выдать: имена магазинов (словарь `names_en`), домены ссылок и русские названия товаров наборов пробы."""
     import names_en as NE
@@ -1338,6 +1373,7 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
                         [_moved(p, ext['west'], ext['south']) for p in ps])
         return {'style': st.get('style'), 'set_index': n, 'set_id': st.get('set_id'), 'geometry': gi,
                 'items': [public_row(r, mesh_ok) for r in rows], 'absent_roles': absent,
+                'decor': lamp_rows(st, rows, (cand['w'], cand['d']), mesh_ok),   # лампа на комоде (T-20261112-101)
                 'no_mesh_dropped': st.get('no_mesh_dropped') or [], 'pushed': pushes,
                 'dropped_for_norms': dropped, 'partly_at_wall': partly,
                 'hard': shard, 'post_ok': not probs, 'problems': probs, 'placements': _ps_json(ps, x0, y0),

@@ -24,7 +24,9 @@ if _SOLVER not in sys.path:
     sys.path.insert(0, _SOLVER)
 from planner import dependents as DEP  # noqa: E402
 from planner import room_templates as RT  # noqa: E402
-from planner.models import Item, Placement, Room  # noqa: E402
+from planner.models import Item, Room  # noqa: E402
+
+import dependent_decor as DD  # noqa: E402  (общий контракт зависимого декора паспорта, T-20261112-101)
 
 ROLE = 'люстра'
 STRATEGY = 'ceiling_over'
@@ -61,12 +63,8 @@ def diameter(it: dict) -> float | None:
 
 
 def hang_dims(ext, dia: float) -> dict | None:
-    """Габарит в сцене по мешу (Ш, В, Г в единицах меша): один масштаб, наибольшая сторона плана = диаметр."""
-    if not ext or not dia or min(ext) <= 1e-6:
-        return None
-    ex, ey, ez = ext
-    k = dia / max(ex, ez)
-    return {'w': round(ex * k, 1), 'd': round(ez * k, 1), 'h': round(ey * k, 1)}
+    """Габарит в сцене по мешу (Ш, В, Г в единицах меша): один масштаб, наибольшая сторона плана = диаметр (`DD.mesh_dims`, общее с лампой)."""
+    return DD.mesh_dims(ext, dia)
 
 
 def body_h(it: dict, dims: dict) -> float:
@@ -85,20 +83,8 @@ def drop_cm(dims: dict, ceiling_cm: float, bottom_min: float) -> float:
 
 
 def carriers_from_variant(objs: list) -> list:
-    """Предметы варианта витрины (`role, x, y, rot, w, d, h` — см, центр, оси комнаты) → носители зоны отдыха для решателя:
-    `Placement` с `slot_instance_id` «seating.<место>#n» (n — порядок предметов роли в варианте). Чужие роли не берём."""
-    out, seen = [], {}
-    for o in objs or []:
-        pid = _SEATING.get(str(o.get('role') or '').strip()) or _SEATING.get(base_role(o.get('role')))
-        if not pid or not o.get('w') or not o.get('d'):
-            continue
-        n = seen.get(pid, 0)
-        seen[pid] = n + 1
-        out.append(Placement(role=base_role(o['role']), x=float(o['x']), y=float(o['y']), rot=float(o.get('rot') or 0),
-                             item=Item(role=base_role(o['role']), w_cm=float(o['w']), d_cm=float(o['d']),
-                                       h_cm=float(o['h']) if o.get('h') else None),
-                             slot_instance_id=f'{pid}#{n}'))
-    return out
+    """Предметы варианта витрины → носители зоны отдыха для решателя (общий `dependent_decor.variant_carriers`, T-20261112-101)."""
+    return DD.variant_carriers(objs, _SEATING)
 
 
 def solve(objs: list, room_wd: tuple, ceiling_cm: float, item: Item | None):
@@ -109,22 +95,8 @@ def solve(objs: list, room_wd: tuple, ceiling_cm: float, item: Item | None):
 
 
 def candidates(sets: list, idx: int) -> list:
-    """Люстра набора, затем люстры других наборов ТОГО ЖЕ СТИЛЯ по порядку банка (после набора, по кругу); артикулы — без повторов."""
-    style = (sets[idx] or {}).get('style')
-    order = [idx] + [(idx + k) % len(sets) for k in range(1, len(sets))]
-    out, seen = [], set()
-    for j in order:
-        s = sets[j] or {}
-        if j != idx and s.get('style') != style:
-            continue
-        for role, it in (s.get('items') or {}).items():
-            if not is_role(role) or not it or not it.get('mid') or not it.get('eid'):
-                continue
-            sid = f"{it['mid']}_{it['eid']}"
-            if sid not in seen:
-                seen.add(sid)
-                out.append((j, role, it))
-    return out
+    """Люстра набора, затем люстры других наборов ТОГО ЖЕ СТИЛЯ по порядку банка (общий `dependent_decor.candidates`)."""
+    return DD.candidates(sets, idx, is_role)
 
 
 def pick(sets: list, idx: int, objs: list, room_wd: tuple, ceiling_cm: float | None, model) -> tuple:

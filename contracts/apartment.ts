@@ -172,6 +172,17 @@ export const slot = z.object({
    */
   ceilingOver: z.object({ placeId: z.string() }).optional(),
   /**
+   * Декор на носителе (T-20261112-101, «место на поверхности» `carrier_surface`): лампа на комоде. `slotId` — место носителя, `dx/dy` —
+   * поза в его осях от решателя паспорта, `fit` — норма поверхности; место пересчитывается от текущего носителя
+   * (`lib/configurator/carrier-decor.ts:placeOnCarriers`), нет носителя или не влезает — `unplaced`, цена остаётся.
+   */
+  onCarrier: z.object({
+    slotId: z.string(),
+    dx: z.number(),
+    dy: z.number(),
+    fit: z.object({ edge_inset_min_cm: z.number(), edge_inset_over_half_base_cm: z.number(), max_share_of_top: z.number() }),
+  }).optional(),
+  /**
    * Условная ткань (T-20261112-74): штора у окна `opening` (номер в `room.openings`) или плед на подлокотнике — место от решателя
    * паспорта при сборке (`tools/scout/textile_abstract.py`), форма — кодом сцены (`viewer.ts`). Покупатель её не двигает.
    */

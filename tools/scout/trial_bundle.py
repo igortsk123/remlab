@@ -241,8 +241,8 @@ FEED_KEYS = PUBLIC_SKU_KEYS | {'style', 'styles', 'src', 'corner'}
 BANNED_KEYS = {'url', 'url_direct', 'shop', 'img', 'img_hd', 'price', 'brand'}
 # в данных страницы — нигде и никогда: ключи товара у поставщика, служебная прямая ссылка, бренд
 NEVER_KEYS = {'sid', 'mid', 'eid', 'probe_url', 'url_direct', 'img_hd', 'brand'}
-# где у данных страницы товар: предмет варианта, строки лент замен (`sofa_feed` — лента дивана)
-GOODS_AT = re.compile(r'\$\.variants\[\d+\]\.items\[\d+\]\.sku|\$\.feeds\.[^\[\]]+\[\d+\]|\$\.sofa_feed\[\d+\]')
+# где у данных страницы товар: предмет и декор варианта (лампа на комоде, T-20261112-101), строки лент замен (`sofa_feed` — лента дивана)
+GOODS_AT = re.compile(r'\$\.variants\[\d+\]\.(?:items|decor)\[\d+\]\.sku|\$\.feeds\.[^\[\]]+\[\d+\]|\$\.sofa_feed\[\d+\]')
 IMG_RE = re.compile(r'img/[0-9a-f]{16}\.jpg')
 URL_RE = re.compile(r'https://[^\s"\'<>`\\]{4,2000}')
 UK_PARTNER = os.path.join(HERE, '..', '..', 'data', 'partners', 'demo-uk.json')   # британский двойник /demo: курс и наценка
@@ -1171,13 +1171,32 @@ def carried_fams(variants: list, demo: dict | None, rep: dict | None = None) -> 
             sk.pop('_sid', None)
 
 
+DECOR_PLACE_KEYS = {'x', 'y', 'bottom_cm', 'slot_instance_id', 'parent_slot_instance_id', 'anchor', 'local', 'carrier', 'fit'}
+
+
+def _decor_item(row: dict, goods=None) -> dict:
+    """Строка декора сцены `trial_demo` (лампа на комоде, `lamp_rows`, T-20261112-101) → декор варианта, как у /demo
+    (`flat215_demo.lamp_decor`): роль, стратегия, место решателя паспорта (поля `DECOR_PLACE_KEYS` — числа и id мест), товар — нейтральное
+    имя, модель и размеры строки, поля товара — из каталога по `sid` (`attach_goods`), как у предмета."""
+    ru, en = neutral_names(row['role'])
+    colour = clean_colour(row['colour_en']) if row.get('colour_en') else ''
+    sku = attach_goods({'name': ru, 'name_en': en, 'colour_en': colour, 'msid': row.get('msid'), 'w': row.get('w'), 'd': row.get('d'),
+                        'h': row.get('h')}, row.get('sid'), row['role'], goods)
+    out = {'role': row['role'], 'strategy': row['strategy'],
+           'place': {k: v for k, v in (row.get('place') or {}).items() if k in DECOR_PLACE_KEYS},
+           'sku': {k: v for k, v in sku.items() if k in PUBLIC_SKU_KEYS}}
+    return _keep_sid(out, row.get('sid'))
+
+
 def _scene_variant(sv: dict, room_id: str, geo: dict, msid_of, goods=None) -> dict:
     style = sv.get('style') or PENDING_STYLE
     failed = bool(sv.get('failed'))
     state = 'failed' if failed else ('ready' if sv.get('post_ok') and not sv.get('hard') else 'partial')
     place = {p['role']: p for p in sv.get('placements_core') or []}
     out = {'id': f"set{sv['set_index']}", 'title': style.capitalize(), 'style': style, 'style_id': STYLE_IDS.get(style, ''),
-           'room_id': room_id, 'items': [_item(r, place.get(r['role']), msid_of, goods) for r in sv.get('items') or []], 'decor': [],
+           'room_id': room_id, 'items': [_item(r, place.get(r['role']), msid_of, goods) for r in sv.get('items') or []],
+           # лампа на комоде (T-20261112-101) — товар выбран и поставлен ещё в `trial_demo.lamp_rows`, банк здесь не перечитываем
+           'decor': [_decor_item(r, goods) for r in sv.get('decor') or [] if not failed],
            'dims_unknown': [], 'missing_item': [{'role': r} for r in sv.get('absent_roles') or []], 'fill': [], 'fill_pct': None,
            'cams': [], 'pending': False, 'furniture_state': state, 'room_size': {'w': geo['w'], 'd': geo['d']}}
     if sv.get('slots'):

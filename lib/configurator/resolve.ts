@@ -10,6 +10,7 @@ import type { Catalogue, Configuration, Material, Option, OptionAsset } from "@/
 import { materialById, optionById } from "@/contracts/configurator";
 import { budgetBucket, type BudgetBucket } from "@/lib/configurator/budget";
 import { placeWallArt } from "@/lib/configurator/wall-art";
+import { placeOnCarriers } from "@/lib/configurator/carrier-decor";
 import type { Settlement } from "@/lib/configurator/settlement";
 
 export interface ResolvedItem {
@@ -236,6 +237,8 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
     });
   }
   placeTabletop(a, items);
+  // лампа на комоде — от текущего комода, отдельно от ваз (`carrier-decor.ts`, T-20261112-101)
+  placeOnCarriers(a, items);
   // картины — над текущей опорой (кровать → диван → комод) после перестановок покупателя (`wall-art.ts`, viz-decor-01 шаг 3)
   placeWallArt(a, items);
   // ВТОРОЙ ПРОХОД — АКЦЕНТНАЯ СТЕНА «ЗА ДИВАНОМ» (demo-07, Codex 16.10): сторона — от итогового места дивана в той же комнате

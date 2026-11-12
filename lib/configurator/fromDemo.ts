@@ -20,6 +20,7 @@ import { finishPassport } from "@/lib/viewer3d/finish-passport";
 import { DEFAULT_CEILING_CM, apartment as apartmentSchema, type Annex, type Apartment, type CropWindow, type Opening } from "@/contracts/apartment";
 import { catalogue as catalogueSchema, type Catalogue, type Configuration } from "@/contracts/configurator";
 import { isTextileDecor, textilePart, type TextileLook, type TextilePlace } from "@/lib/configurator/textile";
+import { CARRIER_STRATEGY, carrierLink, isCarrierDecor, type CarrierPlace } from "@/lib/configurator/carrier-decor";
 import wallArtRules from "@/data/flat3d/wall-art.json";
 
 export { isTextileDecor } from "@/lib/configurator/textile";
@@ -144,7 +145,8 @@ type DemoItem = {
 /** Люстра (`strategy: ceiling_over`, `tools/scout/chandelier.py`): `w/d/h` — каталог (диаметр, корпус), `hang` — Ш×Г×В сцены по мешу. */
 type DemoDecor = { role?: string; list_only?: boolean; strategy?: string;
   /** Штора и плед (`strategy: textile_abstract`, T-20261112-74): место и цвет — `tools/scout/textile_abstract.py`. */
-  place?: { x?: number; y?: number; bottom_cm?: number; slot_instance_id?: string } & TextilePlace; look?: TextileLook;
+  /** Лампа на комоде (`strategy: carrier_surface`, T-20261112-101): носитель, поза и норма — `tools/scout/dependent_decor.py`. */
+  place?: { x?: number; y?: number; bottom_cm?: number; slot_instance_id?: string } & TextilePlace & CarrierPlace; look?: TextileLook;
   sku?: DemoItem["sku"] & { w?: number; d?: number; h?: number; img_art?: string; dia?: number; hang?: { w?: number; d?: number; h?: number };
     /** Картина, перевешенная покупателем «✥» (T-20261112-97): страница пишет место в товар декора — так его несут история и правки. */
     wall_at?: WallPin } };
@@ -461,8 +463,11 @@ function roomPart(data: DemoData, at: RoomAt<DemoVariant>, ctx: DemoContext): Ro
   // высотой, и в /flat не было ни ковра, ни вазы, хотя в окне и в цене они были. Ковёр — плита с фото товара (как серверный
   // «фото-ковёр»), ваза — модель на опоре (место пересчитывает `resolve.placeTabletop`)
   const rugs = (v.items ?? []).filter((it) => isRugRole(it.role) && it.w && it.d);
+  // декор на носителе (лампа на комоде, T-20261112-101) — своей группой, не в ряду ваз (`carrier-decor.ts`); строка с той же
+  // стратегией, но без модели или нормы — ни туда, ни туда (не вазой на столик)
   const decor = (v.decor ?? []).filter((x) => !x.list_only && !isWallArtDecor(x) && !isCeilingDecor(x) && !isTextileDecor(x)
-    && x.sku?.msid && x.sku.w && x.sku.d && x.sku.h);
+    && x.strategy !== CARRIER_STRATEGY && x.sku?.msid && x.sku.w && x.sku.d && x.sku.h);
+  const onTop = (v.decor ?? []).filter(isCarrierDecor);
   const lights = (v.decor ?? []).filter(isCeilingDecor);
   const extraOptions: Mat[] = [];
   const extraMaterials: Mat[] = [];
@@ -522,6 +527,28 @@ function roomPart(data: DemoData, at: RoomAt<DemoVariant>, ctx: DemoContext): Ro
     slots.push({ id, roomId: at.id, category: "furniture" as const, kind: "furniture" as const, titleRu: x.role ?? "декор",
       titleEn: roleEn(x.role ?? "декор"), photoRole: x.role, tabletop: true, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
       placement: { x: 0, y: 0, rot: 0, wCm: sk.w!, dCm: sk.d!, hCm: sk.h!, elevCm: 0 } });
+  });
+  // ЛАМПА НА КОМОДЕ (T-20261112-101): носитель — место комода варианта по номеру среди комодов (как `dependent_decor.carrier_objs`),
+  // место считает `carrier-decor.placeOnCarriers` от текущего комода; исходная точка решателя — в `placement`
+  const carrierSlot = (role: string, ordinal: number): string | undefined => {
+    const raw = (v.items ?? []).filter((it) => baseOf(it.role) === role && it.w && it.d)[ordinal];
+    const i = raw ? items.indexOf(raw) : -1;
+    return i >= 0 ? ids[i] : undefined;
+  };
+  const topIds = stableSlotIds(onTop.map((x) => ({ role: x.role ?? "лампа" })));
+  onTop.forEach((x, k) => {
+    const id = `${pre}carrier:${topIds[k]}`;
+    const sk = x.sku!, pl = x.place!;
+    const link = carrierLink(pl, carrierSlot(pl.carrier!.role!, pl.carrier!.ordinal!));
+    extraOptions.push({ id: `opt:${id}`, category: "furniture", titleRu: sk.name ?? x.role ?? "Лампа", titleEn: nameEnOf(sk, x.role, sk.name ?? "Lamp"),
+      descRu: `${Math.round(sk.w!)}×${Math.round(sk.d!)}×${Math.round(sk.h!)} см`, tier: "standard",
+      price: rub(sk.price), availability: "available", roomKinds: kinds,
+      asset: { kind: "mesh", meshId: sk.msid, yawDeg: sk.yaw ?? 0, wCm: sk.w, dCm: sk.d, hCm: sk.h, ...tintOf((sk as { tint?: unknown }).tint) },
+      ...(assetUrl(sk.img, ctx.assetBase) ? { previewUrl: assetUrl(sk.img, ctx.assetBase) } : {}), ...shopOf(sk) });
+    slots.push({ id, roomId: at.id, category: "furniture" as const, kind: "furniture" as const, titleRu: x.role ?? "лампа",
+      titleEn: roleEn(x.role ?? "лампа"), photoRole: x.role, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
+      ...(link ? { onCarrier: link } : {}),
+      placement: { x: ox + pl.x!, y: oy + pl.y!, rot: 0, wCm: sk.w!, dCm: sk.d!, hCm: sk.h!, elevCm: pl.bottom_cm! } });
   });
   const lightIds = stableSlotIds(lights.map((x) => ({ role: x.role ?? "люстра" })));
   lights.forEach((x, k) => {
