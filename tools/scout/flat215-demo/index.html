@@ -162,7 +162,7 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
    цена · ♡ (липкая), ЖК · сдача · этаж и две короткие кнопки в строку, сертификат одной строкой с полосой, подсказка, вкладки-стили
    (липкие под строкой квартиры), ниже — комнаты стиля. Бюджет до начала фото ≈ 260–300 px (Codex 18.10 (б)), метрика —
    `tools/ops/mock/home-v2/check.cjs` и `tools/ops/demo-walk/home-check.cjs` (≥ 120 px фото до сгиба на 375×667 и 390×844) */
-:root{--hm-hd:60px;--hm-gut:14px;--hm-bot:0px}     /* поле = поле `.wrap` (14 px, телефон 12); `--hm-bot` — высота липкого низа (`certStick`) */
+:root{--hm-hd:60px;--hm-gut:14px;--hm-bot:0px;--hm-kbfix:0px}     /* поле = поле `.wrap` (14 px, телефон 12); `--hm-bot` — высота липкого низа (`certStick`); `--hm-kbfix` — поправка низа после клавиатуры iOS 26 (`hmKbCheck`) */
 @media(max-width:700px){:root{--hm-gut:12px}}
 .wrap{padding-top:0}                              /* строка квартиры — от самого верха, липкая */
 /* ШАПКА ОДНОЙ СТРОКОЙ (home-figma-02, макет 158:452): круг 44 · «3-комн. цена» над «ЖК … · сдача …» (многоточием) · значок чата 44 */
@@ -209,7 +209,7 @@ h1{font-size:clamp(28px,5vw,40px);margin:8px 0 4px;line-height:1.2}
 /* ЛИПКИЙ НИЗ ГЛАВНОЙ (home-figma-02, макет 158:452): шкала «Выбрано X (i) … 600 000 ₽» (без слова «сертификат») и большая кнопка
    «Отправить выбор риелтору». Выбрано — сумма вариантов всех комнат на главной (`homeChosen`). Высота — в `--hm-bot` (`certStick`):
    на столько поднят низ страницы, и над ним встаёт вторая подсказка. Шкала сверху страницы убрана */
-.hm-bot{position:fixed;left:0;right:0;bottom:0;z-index:calc(var(--z-sticky) + 3);background:var(--surface);box-shadow:0 -1px 0 var(--line),0 -6px 16px rgba(0,0,0,.06);
+.hm-bot{position:fixed;left:0;right:0;bottom:calc(0px - var(--hm-kbfix,0px));z-index:calc(var(--z-sticky) + 3);background:var(--surface);box-shadow:0 -1px 0 var(--line),0 -6px 16px rgba(0,0,0,.06);
   padding:8px var(--hm-gut) calc(8px + env(safe-area-inset-bottom,0px))}
 .hm-bot[hidden]{display:none}
 /* ширина — как у содержимого колонки (`.wrap` 1100/1440/1600 минус поля 2×14): на 1440 низ был на 14 px шире карточек */
@@ -231,7 +231,7 @@ body.hm-bot-on{padding-bottom:var(--hm-bot)}
 .hm-tip-x{flex:none;width:28px;height:28px;margin:-4px 0 -4px;border:0;border-radius:50%;background:none;color:var(--ink);font-size:22px;line-height:1;padding:0;cursor:pointer}
 @media(hover:hover){.hm-tip-x:hover{background:var(--wash-2)}}
 #hmTip1{position:absolute;left:0;right:0;top:8px}
-#hmTip2{position:fixed;left:var(--hm-gut);right:var(--hm-gut);bottom:calc(var(--hm-bot) + 8px);z-index:calc(var(--z-sticky) + 3);max-width:560px;margin:0 auto}
+#hmTip2{position:fixed;left:var(--hm-gut);right:var(--hm-gut);bottom:calc(var(--hm-bot) + 8px - var(--hm-kbfix,0px));z-index:calc(var(--z-sticky) + 3);max-width:560px;margin:0 auto}
 /* ЛИПКИЙ БЛОК ГЛАВНОЙ — ОДНИМ СЛОЕМ (demo-21 п.3): строка квартиры, шкала и вкладки стилей прилипают встык, фон общий; линия и тень
    `--e2` — только у НИЖНЕГО прилипшего (`certStuck` ставит `.e2on`), и только когда под ним есть прокрученное. Прежняя кромка-градиент
    под шкалой (приёмка Б 20.10) заменена этой тенью. Открытый пузырь «i» шкалы — над всеми липкими (слой пузырей) */
@@ -2403,7 +2403,8 @@ function trEditOpen(id){
     if(r.status===202){close(); TRE.state='run'; TRE.err=''; trEditMine(true); trRedraw(); trialPoll(1500); return;}   // сервер без черновиков (старый)
     say(j.error||'_');
   };
-  setTimeout(()=>{try{N.focus({preventScroll:true});}catch(e){}},0);
+  // на сенсорном экране поле само не берёт фокус: клавиатура — только по нажатию в поле (её скрытие на iOS 26 ломает липкий низ, T-20261112-32)
+  if(!matchMedia('(pointer:coarse)').matches)setTimeout(()=>{try{N.focus({preventScroll:true});}catch(e){}},0);
   return bk;
 }
 // карандаш на плане — раньше клика по комнате (тот открыл бы её обстановку)
@@ -3321,6 +3322,33 @@ function certStick(){
   certStuck();
 }
 function certStuck(){ hmE2(); }
+// ЛИПКИЙ НИЗ ПОСЛЕ КЛАВИАТУРЫ (T-20261112-32, снимок владельца 12.11 05:52, iPhone SE-класс, iOS 26): Safari 26 после скрытия
+// клавиатуры иногда держит «окно» для `position:fixed` ужатым на её высоту — низ с `bottom:0` висит посреди экрана, под ним видно
+// карточки (WebKit 297779, форум Apple 800125; на снимке сдвиг ≈ 261 pt = клавиатура SE с подсказками). Чинит сама система; мы
+// только возвращаем низ на место: при входе в поле запомнили, где был его низ, после выхода — если он поднялся на правдоподобную
+// высоту клавиатуры (120–400 px) и ширина та же, опускаем на разницу (`--hm-kbfix`: `bottom` низа и второй подсказки), пока система
+// не вернёт размер сама. Пока поле в фокусе, страница заперта слоем или увеличена щипком — не трогаем
+const HM_KB={clean:null, w:0, on:false, raf:0};
+function hmKbEditable(e){return !!e&&(e.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(e.tagName));}
+function hmKbSet(px){document.documentElement.style.setProperty('--hm-kbfix',px+'px');}
+function hmKbCheck(){ HM_KB.raf=0;
+  const b=document.getElementById('hmBot'); if(!HM_KB.on||!b||b.hidden||HM_KB.clean==null)return;
+  if(innerWidth!==HM_KB.w){HM_KB.on=false; hmKbSet(0); return;}                          // поворот — прежний замер не годится
+  const vv=window.visualViewport;
+  if(hmKbEditable(document.activeElement)||(PAGE_LOCK&&PAGE_LOCK.on)||(vv&&Math.abs(vv.scale-1)>.01))return;
+  const fix=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hm-kbfix'))||0;
+  const d=Math.round(HM_KB.clean-(b.getBoundingClientRect().bottom-fix));   // на сколько низ выше, чем был до поля (без нашей поправки)
+  if(d<4){HM_KB.on=false; hmKbSet(0); return;}                                          // система вернула размер — снимаем
+  hmKbSet(d>=120&&d<=400?d:0);
+}
+function hmKbLater(){ if(HM_KB.on&&!HM_KB.raf)HM_KB.raf=requestAnimationFrame(hmKbCheck); }
+document.addEventListener('focusin',e=>{ if(!hmKbEditable(e.target)||HM_KB.on)return;
+  const b=document.getElementById('hmBot'); if(!b||b.hidden||(PAGE_LOCK&&PAGE_LOCK.on&&HM_KB.clean!=null))return;
+  HM_KB.clean=Math.round(b.getBoundingClientRect().bottom); HM_KB.w=innerWidth; });
+document.addEventListener('focusout',e=>{ if(!hmKbEditable(e.target)||HM_KB.clean==null)return;
+  HM_KB.on=true; setTimeout(hmKbLater,350); setTimeout(hmKbLater,1200); });           // клавиатура уезжает ~0,3 с
+addEventListener('scroll',hmKbLater,{passive:true}); addEventListener('resize',hmKbLater);
+if(window.visualViewport){visualViewport.addEventListener('resize',hmKbLater); visualViewport.addEventListener('scroll',hmKbLater);}
 // ОДНА ТЕНЬ У ЛИПКОГО БЛОКА ГЛАВНОЙ (demo-21 п.3): строка квартиры, шкала и вкладки стилей — один слой; линию и тень `--e2` получает
 // НИЖНИЙ из прилипших (стоит ровно на своём `top`), и только когда страница прокручена — под ним есть уехавшее содержимое
 function hmE2(){
