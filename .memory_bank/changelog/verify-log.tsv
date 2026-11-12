@@ -194,3 +194,7 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-12	core/room-measurement.md	rotation	11	1	1	
 2026-11-12	core/demo-planner.md	code	33	2	2	nightly (c1ac6bda, перенесено T-20261112-42)
 2026-11-12	core/partners.md	code	29	0	0	nightly (c1ac6bda, перенесено T-20261112-42)
+2026-11-12	core/bedroom.md	drift	22	1	1	T-20261112-42: window_low_beds без условия площади; док целиком
+2026-11-12	core/agent-trial.md	drift	31	4	4	T-20261112-42: воркер ≥2 тяжёлых; awaiting_check+size_check; uk_money; photo_ok; док целиком
+2026-11-12	core/apartment-configurator.md	drift	32	0	0	T-20261112-42: док целиком
+2026-11-12	core/layout.md	drift	22	2	2	T-20261112-42: реестр типов комнат room_registry; детская в bedroom_checks; док целиком

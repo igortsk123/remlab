@@ -9,7 +9,7 @@ source: manual
 status: working
 source_of_truth: canonical
 review_after: 2026-12-05
-last_verified: 2026-11-06
+last_verified: 2026-11-12
 ---
 
 # Спальня — Tier 1 сводка
@@ -31,7 +31,7 @@ last_verified: 2026-11-06
 ## Расстановка
 - Угловая кровать (боковая спинка) — только в угол, не для пары; проход у бока на всю длину; ковёр по норме выступа 45–70 см
   (`services/planner-solver/planner/bedroom.py`, `tools/scout/compose_bedroom.py:rug_norm`; T-20261112-31).
-- Узкие 5,8–5,9 м²: низкие рамы под окно (`tools/scout/trial_bedroom.py:window_low_beds`).
+- Проба /try: высокая рама не встала у окна, а ниже подоконника встаёт → низкие рамы (`tools/scout/trial_bedroom.py:window_low_beds`).
 - **Шаблоны P1–P10 приняты 12.11 (ADR-0384):** пара в тесной — кровать 140 вместо отказа; в 9–10 м² шкаф только во вытянутой комнате; без кровати в маленькой — «кабинет». Дальше — Т1, перенос в солвер (`plans/bedroom-groups-01.md`).
 
 ## Стили и назначения

@@ -3,8 +3,8 @@ tier: 1
 topic: layout
 scope: Расстановка: правила, зоны, прод-ядро
 tier2: ../domain/occupancy-rules.md
-updated: 2026-11-10
-last_verified: 2026-11-06
+updated: 2026-11-12
+last_verified: 2026-11-12
 importance: high
 source: manual
 status: working
@@ -27,18 +27,16 @@ review_after: 2026-12-05
 
 **Q11–Q12 — каноны и ситуационный канон (ADR-0109…0114):** `/test/canons/` рисуется кодом
 рабочих планов; схема выбирается под ЯКОРЬ комнаты (окно/эркер/угол/камин/стена), паспорт
-объявляет якорь и форму, приоры практики — только локальный тайбрейк. Аудиты владельца
-21.08 (ADR-0115…0119) и разбор канонов — в Tier 2.
+объявляет якорь и форму, приоры практики — только локальный тайбрейк. Аудиты 21.08 — в Tier 2.
 
-**26.08 (разбор владельца):** ось «диван → носитель» считается ОТ ГЛАВНОЙ
-СЕКЦИИ (`geometry.seat_axis_origin`) во всех местах, включая фильтр центрированных позиций
-(ADR-0122; медиана смещения 17 → 0 см); ярус ГЛАВНОГО МАРШРУТА (`zones.main_route_tier` по
+**26.08:** ось «диван → носитель» — ОТ ГЛАВНОЙ СЕКЦИИ (`geometry.seat_axis_origin`, ADR-0122); ярус ГЛАВНОГО МАРШРУТА (`zones.main_route_tier` по
 `quality.route_width_cm`) стоит ВЫШЕ богатства состава, ниже пола 70 см — терминальный
 `CIRCULATION_MISSING` с сертификатом; контракты подбора банка (конверт слота, ковёр↔диван,
 экземпляры пары) применяются и при лечении данных, а не только при сборке (ADR-0121).
 
-**Спальня (onb-05, 05.11):** то же ядро за флагом `room_type=bedroom` (`services/planner-solver/planner/bedroom_checks.py:validate_bedroom`); фронт
-распашного шкафа 90 см во всех комнатах (ADR-0330 п.7); гостиная ускорена вдвое без смены раскладок (`services/planner-solver/planner/geometry.py`).
-**Прихожая, детская** (`services/planner-solver/planner/hall_checks.py:validate_hall`) — Tier 2.
+**Типы комнат (T-37):** проверки — по `room.room_type` через реестр `services/planner-solver/planner/room_registry.py:PLAGINY`
+(гостиная `validate.py:validate_living`, спальня `bedroom_checks.py:validate_bedroom`, кухня `kitchen_checks.py`, прихожая
+`hall_checks.py:validate_hall`); детская — роли спальни (`purpose == "child"`). Фронт распашного шкафа 90 см
+(`occupancy.json:wardrobe_hinged_front_min`, ADR-0330); гостиная вдвое быстрее (`services/planner-solver/planner/geometry.py`).
 
 **Tier 2:** `../domain/occupancy-rules.md` · `../guides/layout-engine-spec.md`
