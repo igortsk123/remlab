@@ -10,7 +10,7 @@
 
 import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
-import { fromDemoVariant, isWallPlane, stableSlotIds, type DemoData } from "@/lib/configurator/fromDemo";
+import { fromDemoVariant, isWallArtDecor, isWallPlane, stableSlotIds, type DemoData } from "@/lib/configurator/fromDemo";
 import { type DecorIn } from "@/lib/viewer3d/scene-extras";
 import { meshUrl, RUNTIME_BASE, setRuntimeMeshes, type RuntimeEntry } from "@/lib/configurator/mesh-url";
 import { windowView } from "@/lib/viewer3d/window-views";
@@ -20,8 +20,10 @@ import { DESKTOP_QUALITY, FlatViewer, LITE_QUALITY, type PhotoPose } from "@/lib
 
 type DemoRoom = NonNullable<DemoData["room"]>;
 type DemoItem = NonNullable<NonNullable<DemoData["variants"]>[number]["items"]>[number] & { sku?: { img?: string } };
-/** Настольный декор варианта (`v.decor` витрины): товар с моделью и габаритами, место — по опоре. */
-export type DemoDecor = DecorIn & { sku?: DecorIn["sku"] & { yaw?: number; price?: number } };
+/** Декор варианта (`v.decor` витрины): настольный — товар с моделью, место по столику; картина (`strategy: procedural_plane`) —
+ *  фото товара на стене над опорой (`wall-art.ts`). */
+export type DemoDecor = DecorIn & { strategy?: string; list_only?: boolean;
+  sku?: DecorIn["sku"] & { yaw?: number; price?: number; img?: string; img_art?: string } };
 
 export interface DemoSceneOptions {
   room: DemoRoom;
@@ -43,6 +45,14 @@ export interface DemoSceneOptions {
   walk?: boolean;
   /** Декоративные шторы у окон (T-20261111-22, владелец TG 1643). Нет — адрес страницы (`curtainsFromUrl`), иначе по умолчанию вкл. */
   curtains?: boolean;
+}
+
+/**
+ * Выключатель картин в адресе страницы (viz-decor-01 шаг 3): `?art=0` — картины не висят в 3D (откат без выкладки; в списке и сумме
+ * страницы они остаются); иначе — по правилам `data/flat3d/wall-art.json` (`enabled`).
+ */
+export function artFromUrl(search: string = (globalThis as { location?: { search?: string } }).location?.search ?? ""): boolean {
+  return !/[?&]art=0(&|$)/.test(search);
 }
 
 /** Выключатель штор в адресе страницы: `?curtains=0` — без штор (откат без выкладки), `?curtains=1` — со шторами; нет — решает движок. */
@@ -143,7 +153,8 @@ const isRug = (it: DemoItem): boolean => String(it.role ?? "").startsWith("ко�
  */
 export function liveApartment(room: DemoRoom, items: DemoItem[], base: string, decor: DemoDecor[] = [],
   floor?: Record<string, unknown> & { id: string }, wall?: DemoWall): { apartment: Apartment; catalogue: Catalogue } | null {
-  const built = fromDemoVariant({ room, variants: [{ id: "live", items, decor }] }, "live",
+  const live = artFromUrl() ? decor : decor.filter((d) => !isWallArtDecor(d));
+  const built = fromDemoVariant({ room, variants: [{ id: "live", items, decor: live }] }, "live",
     { ...CTX, assetBase: base, ...(floor ? { floorMaterial: floor } : {}), ...(wall ? { wallMaterial: wall } : {}) });
   if (!built) return null;
   const { apartment, catalogue } = built;

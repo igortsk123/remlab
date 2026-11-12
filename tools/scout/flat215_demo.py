@@ -1026,6 +1026,27 @@ def soft_pool_ok(p: dict) -> bool:
         return True
 
 
+def wall_art_step(data: dict) -> None:
+    """КАРТИНЫ НАД МЕБЕЛЬЮ (viz-decor-01 шаг 3, T-20261112-26): товары каталога роли «картина» стиля варианта — в декор гостиной
+    и спальни и в ленты замен (`wall_art.annotate`); место в 3D считает сцена от текущей опоры (`lib/configurator/wall-art.ts`).
+    Строки — формой ленты мягкого (`glue_soft`: цена с датой, основание наличия). Сбой — громко, витрина без картин."""
+    try:
+        import demo_swap_pool
+        import wall_art as WA
+        r = WA.rules()
+        if not WA.enabled(r):
+            print('картины: выключены (wall-art.json enabled=false или DEMO_WALL_ART=0)')
+            return
+        pool: dict = {}
+        glue_soft(demo_swap_pool.soft_pool(r['role'], soft_pool_ok), pool, {})
+        got = WA.annotate(data, pool.get(r['role'], []), r, demo_ceiling())
+        print(f"картины: пул {len(pool.get(r['role'], []))}, повешены в {sum(1 for g in got if g[2])} из {len(got)} вариантов с опорой")
+        for vid, sup, names in got:
+            print(f"  картины {vid} над «{sup}»: " + ('; '.join(names) if names else 'нет товара по размеру и стилю'))
+    except Exception as e:  # noqa: BLE001
+        print(f'WARN:wall_art: картины в витрину не попали: {repr(e)[:160]}')
+
+
 def glue_soft(rows: list, target: dict, have: dict) -> int:
     """Мягкое пула → в ленты `target` строкой мягкого (как `soft_feed_row`: без меша и конверта); товар уже в ленте — только
     стиль ему дописываем. → сколько добавлено."""
@@ -2592,9 +2613,16 @@ def main() -> None:
                         f'--out "{os.path.join(OUT, "lib")}"'], capture_output=True, text=True, timeout=300)
     print((r.stdout or '').strip()[-300:] if r.returncode == 0 else
           f'WARN:scene_bundle: движок живой сцены не собрался (rc={r.returncode}): {(r.stderr or r.stdout or "").strip()[-200:]}')
-    data = cache_images(build())
+    data = build()
+    wall_art_step(data)
+    data = cache_images(data)
     print(f'разворот фронта в предметах вариантов: {annotate_yaw(data)}')
     print(f'стратегия плоскости (зеркало, картина, ковёр) в предметах вариантов: {annotate_strategy(data)}')
+    try:
+        import wall_art as _WA
+        print('картины: фото без белого поля — {} из {}'.format(*_WA.annotate_crop(data, OUT)))
+    except Exception as e:  # noqa: BLE001 — без обрезки полотно — фото товара как есть
+        print(f'WARN:wall_art_crop: {repr(e)[:160]}')
     print(f'подкраска цветовых вариантов семейства: {annotate_tint(data)}')
     print(f'образцы цвета у товаров с цветами: {annotate_swatch(data)}')
     # ВОРОТА АРТЕФАКТОВ (demo-05 п.1): наезд глубже 2 см или модель намного темнее товара — вариант не публикуется. Если

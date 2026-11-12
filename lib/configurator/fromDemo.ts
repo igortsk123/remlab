@@ -19,6 +19,11 @@ import { maskedName, roleEn, styleEn } from "@/lib/configurator/demo-mask";
 import { finishPassport } from "@/lib/viewer3d/finish-passport";
 import { DEFAULT_CEILING_CM, apartment as apartmentSchema, type Annex, type Apartment, type CropWindow, type Opening } from "@/contracts/apartment";
 import { catalogue as catalogueSchema, type Catalogue, type Configuration } from "@/contracts/configurator";
+import wallArtRules from "@/data/flat3d/wall-art.json";
+
+/** Роль картины и толщина подрамника — одно место с подбором и расчётом места (`data/flat3d/wall-art.json`). */
+const WALL_ART_ROLE = wallArtRules.role;
+const WALL_ART_DEPTH_CM = wallArtRules.depth_cm;
 
 /** Чья квартира и в какой валюте: из реестра застройщиков (b2b-06), не из файла витрины. */
 export type DemoContext = {
@@ -122,13 +127,17 @@ type DemoItem = {
    * не копией таблицы ролей. Нет поля — как раньше (меш по `msid`, ковёр по роли).
    */
   strategy?: string;
+  /** Картина из декора варианта (`wallArtItems`): место считает `resolve` → `wall-art.ts:placeWallArt`, а не солвер. */
+  wallArt?: boolean;
   sku?: { name?: string; name_en?: string; price?: number; url?: string; shop?: string; msid?: string; sid?: string; pack?: number; yaw?: number; img?: string;
     /** Подкраска цветового варианта на модели семейства (`flat215_demo.annotate_tint`): множитель цвета по каналу. */
     tint?: number[] };
 };
 /** Настольный декор варианта (`flat215_demo`: ваза) — габариты в карточке товара, места нет: его даёт опора. */
 /** `list_only` — строка списка без места в 3D (лампа на тумбе спальни, `demo_bedroom.LIST_ROLES`, T-20261106-77/2). */
-type DemoDecor = { role?: string; list_only?: boolean; sku?: DemoItem["sku"] & { w?: number; d?: number; h?: number } };
+/** Картина (`strategy: procedural_plane`, роль «картина»; `tools/scout/wall_art.py`): `img_art` — фото без белого поля. */
+type DemoDecor = { role?: string; list_only?: boolean; strategy?: string;
+  sku?: DemoItem["sku"] & { w?: number; d?: number; h?: number; img_art?: string } };
 type DemoVariant = { id?: string; title?: string; style?: string; items?: DemoItem[]; decor?: DemoDecor[];
   /** Комната варианта (ADR-0330 п.3, `demo-rooms.ts:roomIdOf`); нет — гостиная. */
   room_id?: string; room_type?: string;
@@ -246,6 +255,8 @@ function wallPlanes(items: DemoItem[], at: RoomAt<DemoVariant>, kinds: string[],
         ...(img ? { previewUrl: img } : {}), ...shopOf(it.sku) },
       slot: { id, roomId: at.id, category: "furniture" as const, kind: "furniture" as const, titleRu: it.role ?? "зеркало",
         titleEn: roleEn(it.role), photoRole: it.role, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
+        // картина из декора: место — заглушка, настоящее считает `wall-art.ts:placeWallArt` от текущей опоры
+        ...(it.wallArt ? { wallArt: true } : {}),
         placement: { x: (it.x ?? 0) + at.ox, y: (it.y ?? 0) + at.oy, rot: it.rot ?? 0, wCm: w, dCm: d, hCm: h,
           elevCm: Math.max(0, it.elev ?? 0) } },
     };
@@ -253,6 +264,22 @@ function wallPlanes(items: DemoItem[], at: RoomAt<DemoVariant>, kinds: string[],
 }
 
 const baseRoleOf = (role?: string): string => String(role ?? "").replace(/\s+\d+$/, "").trim();
+
+/**
+ * КАРТИНА ИЗ ДЕКОРА ВАРИАНТА (viz-decor-01 шаг 3): товар каталога роли «картина» со стратегией плоскости и размерами Ш×В —
+ * настенная плоскость с фото товара (без белого поля — `img_art`). Глубины у картин в каталоге нет — толщина подрамника из правил.
+ */
+export const isWallArtDecor = (x: DemoDecor): boolean =>
+  !x.list_only && (x.strategy === "procedural_plane" || baseRoleOf(x.role) === WALL_ART_ROLE) && !!x.sku?.w && !!x.sku.h;
+
+function wallArtItems(decor: DemoDecor[]): DemoItem[] {
+  return decor.filter(isWallArtDecor).map((x) => {
+    const sk = x.sku!;
+    const d = sk.d && sk.d > 0 && sk.d < sk.h! ? sk.d : WALL_ART_DEPTH_CM;
+    return { role: x.role, strategy: "procedural_plane", wallArt: true, x: 0, y: 0, rot: 0, w: sk.w, d, h: sk.h,
+      sku: { ...sk, img: sk.img_art ?? sk.img } };
+  });
+}
 
 /** Что ставит вариант: предметы с моделью и габаритами (без меша серая коробка хуже отсутствия). */
 const placeable = (v: DemoVariant): DemoItem[] =>
@@ -408,7 +435,7 @@ function roomPart(data: DemoData, at: RoomAt<DemoVariant>, ctx: DemoContext): Ro
   // высотой, и в /flat не было ни ковра, ни вазы, хотя в окне и в цене они были. Ковёр — плита с фото товара (как серверный
   // «фото-ковёр»), ваза — модель на опоре (место пересчитывает `resolve.placeTabletop`)
   const rugs = (v.items ?? []).filter((it) => isRugRole(it.role) && it.w && it.d);
-  const decor = (v.decor ?? []).filter((x) => !x.list_only && x.sku?.msid && x.sku.w && x.sku.d && x.sku.h);
+  const decor = (v.decor ?? []).filter((x) => !x.list_only && !isWallArtDecor(x) && x.sku?.msid && x.sku.w && x.sku.d && x.sku.h);
   const extraOptions: Mat[] = [];
   const extraMaterials: Mat[] = [];
   // плита ковра: материал с фото товара (повтор — один на ковёр) и опция-кит с размером товара вдоль длинной стороны места
@@ -449,7 +476,7 @@ function roomPart(data: DemoData, at: RoomAt<DemoVariant>, ctx: DemoContext): Ro
       titleEn: "rug", photoRole: it.role, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`, ...feedIds],
       placement: { x: (it.x ?? 0) + ox, y: (it.y ?? 0) + oy, rot: it.rot ?? 0, wCm: it.w as number, dCm: it.d as number, hCm: 1, elevCm: 0 } });
   });
-  wallPlanes(v.items ?? [], at, kinds, ctx, rub, shopOf).forEach((x) => {
+  wallPlanes([...(v.items ?? []), ...wallArtItems(v.decor ?? [])], at, kinds, ctx, rub, shopOf).forEach((x) => {
     extraMaterials.push(x.material);
     extraOptions.push(x.option);
     slots.push(x.slot);

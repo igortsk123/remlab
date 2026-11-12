@@ -5504,8 +5504,12 @@ function decorList(){
 // (`rules.soft_roles` ← `asset_strategy.soft_roles`); сцена (`liveDecor`) и план (`tableDecor`) их не берут
 const SOFT_DEF=['плед','подушка','покрывало','полка','шторы'];
 function isSoft(role){ return (((D&&D.rules)||{}).soft_roles||SOFT_DEF).includes(String(role||'').replace(/\s+\d+$/,'')); }
-// настольный декор — то, что сцена ставит на столешницу; мягкое места в 3D не имеет
-function tableDecor(){ return decorList().filter(x=>!isSoft(x.role)); }
+// КАРТИНА (viz-decor-01 шаг 3, T-20261112-26): товар каталога в декоре варианта (`wall_art.py`), висит на стене над кроватью,
+// иначе диваном, иначе комодом — место считает живая сцена от текущей опоры (`lib/configurator/wall-art.ts`); на столешницу не идёт
+function isWallArt(x){ return !!x&&(x.strategy==='procedural_plane'||String(x.role||'').replace(/\s+\d+$/,'')==='картина'); }
+const ART_SUPPORTS=['кровать','диван','комод'];
+// настольный декор — то, что сцена ставит на столешницу; мягкое места в 3D не имеет, картина висит на стене
+function tableDecor(){ return decorList().filter(x=>!isSoft(x.role)&&!isWallArt(x)); }
 // цена и число товаров варианта считаются С ДЕКОРОМ (владелец 08.09: «добавлять в список товаров
 // и считать сумму»): он такая же покупка, просто стоит не на полу
 function decorSum(v){ return (variantDecor(v)||[]).reduce((t,x)=>t+((x.sku||{}).price||0),0); }
@@ -5573,6 +5577,10 @@ function decorSupport(){
 }
 function decorWhere(x){
   if(x&&isSoft(x.role))return '';                 // мягкому места в 3D нет — и подписи «куда встанет» тоже (demo-24)
+  if(isWallArt(x)){                               // опора — по тому же порядку, что у сцены; окно за ней сцена проверит сама
+    const r=ART_SUPPORTS.find(r=>items.some(i=>i.role.replace(/\s+\d+$/,'')===r));
+    return r?('на стене над '+{'кровать':'кроватью','диван':'диваном','комод':'комодом'}[r]):'в кадр не ставим: нет кровати, дивана или комода';
+  }
   const s=decorSupport();
   return s?('на '+s.role.replace(/\s+\d+$/,'')+', по центру'):'в кадр не ставим: не указан размер или не влезает';
 }
@@ -8695,7 +8703,8 @@ function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.rol
     if(d){
       d.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop,
              sid:p.sid||null,msid:p.msid||p.sid||null,basis:p.basis||null,
-             w:p.w,d:p.d,h:p.h||null,pack:p.pack||1,...(p.yaw!=null?{yaw:p.yaw}:{}),...(p.tint?{tint:p.tint}:{})};
+             w:p.w,d:p.d,h:p.h||null,pack:p.pack||1,...(p.yaw!=null?{yaw:p.yaw}:{}),...(p.tint?{tint:p.tint}:{}),
+             ...(p.img_art?{img_art:p.img_art}:{})};   // картина: полотно без белого поля (`wall_art.annotate_crop`)
       sel=decorSel(s.dec);
       basket(); showSwap(); refreshShotList();
       // В 3D МЯГКОГО НЕТ — говорим, как увидеть замену (владелец 23.10)

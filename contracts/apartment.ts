@@ -152,6 +152,11 @@ export const slot = z.object({
    * серверном кадре (`resolve.placeTabletop` → `scene-extras.decorLayout`); покупатель его не двигает (владелец 08.09).
    */
   tabletop: z.boolean().optional(),
+  /**
+   * Картина на стене (viz-decor-01 шаг 3): место считается от ТЕКУЩЕЙ опоры — над изголовьем кровати, иначе над диваном, иначе
+   * над комодом (`lib/configurator/wall-art.ts:placeWallArt`, числа — `data/flat3d/wall-art.json`); места нет — `unplaced`.
+   */
+  wallArt: z.boolean().optional(),
 });
 export type Slot = z.infer<typeof slot>;
 

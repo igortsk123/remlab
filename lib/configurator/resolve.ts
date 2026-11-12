@@ -9,6 +9,7 @@ import { resolveAccentSide } from "@/lib/configurator/accent";
 import type { Catalogue, Configuration, Material, Option, OptionAsset } from "@/contracts/configurator";
 import { materialById, optionById } from "@/contracts/configurator";
 import { budgetBucket, type BudgetBucket } from "@/lib/configurator/budget";
+import { placeWallArt } from "@/lib/configurator/wall-art";
 import type { Settlement } from "@/lib/configurator/settlement";
 
 export interface ResolvedItem {
@@ -23,7 +24,8 @@ export interface ResolvedItem {
   asset: OptionAsset;
   photoRole: string | null;
   price: number;
-  /** Настольный декор без опоры (столика нет или не влезает): в составе и цене есть, в сцене не рисуется. */
+  /** Настольный декор без опоры (столика нет или не влезает) или картина без свободной стены над опорой (`wall-art.ts`): в составе и
+   *  цене есть, в сцене не рисуется. */
   unplaced?: boolean;
 }
 
@@ -232,6 +234,8 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
     });
   }
   placeTabletop(a, items);
+  // картины — над текущей опорой (кровать → диван → комод) после перестановок покупателя (`wall-art.ts`, viz-decor-01 шаг 3)
+  placeWallArt(a, items);
   // ВТОРОЙ ПРОХОД — АКЦЕНТНАЯ СТЕНА «ЗА ДИВАНОМ» (demo-07, Codex 16.10): сторона — от итогового места дивана в той же комнате
   // (после перестановок покупателя); дивана нет — акцента нет, стены базовые, без молчаливой «северной»
   for (const sf of surfaces) {

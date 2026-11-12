@@ -452,8 +452,10 @@ def decor_layout(payload) -> tuple:
     # МЯГКОЕ — НЕ НАСТОЛЬНЫЙ ДЕКОР (demo-24): подушка с размерами встала бы на столешницу. В сцене его нет, на фото его
     # дорисовывает «Улучшить» отдельным блоком (`improve_mode.soft_items`), поэтому здесь его нет ни в `placed`, ни в `rest`
     table = [d for d in (payload.get('decor') or []) if not soft_role(d.get('role'))]
-    decor = [d for d in table
-             if (d.get('sku') or {}).get('w') and (d.get('sku') or {}).get('d')
+    # КАРТИНА — НЕ НАСТОЛЬНЫЙ ДЕКОР (viz-decor-01 шаг 3): у неё Ш×Г×В есть (толщина подрамника), и правило «всё или ничего» сняло
+    # бы со столика вазы. Место над кроватью/диваном считает живая сцена (`wall-art.ts`); кадру сервера — в `rest` (дорисовать)
+    decor = [d for d in table if not wall_art(d)
+             and (d.get('sku') or {}).get('w') and (d.get('sku') or {}).get('d')
              and (d.get('sku') or {}).get('h')]
     rest = [d for d in table if d not in decor]
     if not decor:
@@ -482,6 +484,11 @@ def decor_layout(payload) -> tuple:
                         'w': w, 'd': dd, 'h': h})
         return out, rest
     return [], rest + decor
+
+
+def wall_art(d: dict) -> bool:
+    """Картина декора варианта (`wall_art.is_art`: стратегия плоскости или роль «картина»)."""
+    return d.get('strategy') == 'procedural_plane' or _base_role(d.get('role') or '') == 'картина'
 
 
 def soft_role(role: str | None) -> bool:
