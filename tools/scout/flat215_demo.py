@@ -39,8 +39,8 @@ ONE_LAYOUT = _ONE.enabled()
 # заменить товаром из любого комплекта.
 # СЕТЫ ДЛЯ ДЕМО ВЫБИРАЮТСЯ ПО СОСТАВУ, А НЕ ПО НОМЕРУ (26.08). Жёсткий список [1,4,7,…] сломался,
 # как только контракт снял из банков позиции закрывшегося магазина: два сета остались без дивана,
-# и движок честно вернул пустую комнату. Берём банки нужного метража, где есть диван и больше
-# всего расставляемых ролей.
+# и движок честно вернул пустую комнату. Берём банки нужного метража с полным ядром (T-20261112-122:
+# число предметов не награждается — лишний комод не обгоняет набор с полным ядром).
 PLACEABLE = {'диван', 'кресло', 'столик', 'ковёр', 'тв-тумба', 'стеллаж', 'комод', 'витрина',
              'торшер', 'пуф', 'кашпо', 'стул', 'банкетка', 'стол обеденный', 'камин', 'стенка'}
 
@@ -61,10 +61,12 @@ def pick_banks(sets: list, band: str = '14-16', n: int = 6) -> list:
     по одному варианту на каждый, порядок стилей фиксирован, чтобы страница не прыгала.
 
     Внутри стиля выигрывает тот набор, который МОЖНО ПОКАЗАТЬ ЦЕЛИКОМ: сперва меньше предметов
-    без меша (серая коробка в кадре хуже, чем набор поскромнее), потом больше расставляемых
-    предметов. Замер 13.10: по этому правилу шести сценам не хватало 12 мешей против 26 у
-    прежнего отбора «кто богаче».
+    без меша (серая коробка в кадре хуже, чем набор поскромнее). Замер 13.10: по этому правилу
+    шести сценам не хватало 12 мешей против 26 у прежнего отбора «кто богаче». T-20261112-122:
+    сперва полное обязательное ядро и его модели (`bank_invariants.selection_key`, общий с турами),
+    число предметов больше не награждается.
     """
+    import bank_invariants as BI
     idx = _mesh_index()
     order = ['сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди']
     best: dict = {}
@@ -72,11 +74,11 @@ def pick_banks(sets: list, band: str = '14-16', n: int = 6) -> list:
         if st.get('band') != band or 'диван' not in (st.get('items') or {}) or hidden(st):
             continue
         items = st.get('items') or {}
-        placeable = sum(1 for r in items if r.split(' ')[0] in PLACEABLE)
-        no_mesh = sum(1 for r, it in items.items()
-                      if r.split(' ')[0] in PLACEABLE and it and it.get('mid')
-                      and _msid(f"{it['mid']}_{it['eid']}") not in idx)
-        key = (no_mesh, -placeable, len(st.get('gaps') or []), i)
+        nm = [r for r, it in items.items()
+              if r.split(' ')[0] in PLACEABLE and it and it.get('mid') and _msid(f"{it['mid']}_{it['eid']}") not in idx]
+        # T-20261112-122: ключ — общий с турами (`bank_invariants.selection_key`): ядро, его модели, прочие модели; число предметов
+        # не награждается (лишний предмет не делает набор «лучше»)
+        key = BI.selection_key(st, sum(1 for r in nm if r.split(' ')[0] in BI.CORE_ROLES), len(nm)) + (i,)
         style = st.get('style') or ''
         if style not in best or key < best[style][0]:
             best[style] = (key, i)
@@ -86,7 +88,7 @@ def pick_banks(sets: list, band: str = '14-16', n: int = 6) -> list:
         if style in best:
             k = best[style][0]
             print(f'  вариант стиля «{style}»: набор {best[style][1]}, '
-                  f'без меша {k[0]}, расставляемых {-k[1]}', flush=True)
+                  f'нет ядра {k[0]}, без меша {k[2]}', flush=True)
     return picked[:n]
 SHOW_ROLES = ('диван', 'диван 2', 'кресло', 'кресло 2', 'столик', 'ковёр', 'тв-тумба', 'стенка',
               'торшер', 'пуф', 'стеллаж', 'комод', 'витрина', 'кашпо', 'камин', 'банкетка',
@@ -808,10 +810,11 @@ DEMO_ENV = {k: tuple(v) for k, v in _SWAP_RULES['room_fit_envelope_cm'].items() 
 def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[list, dict, list]:
     """Выбор набора стиля ПОСЛЕ дозаполнения (план conv-09 п.2/п.5) → (BANKS, журнал, неполные стили).
 
-    На стиль берём `per_style` лучших по прежнему ключу, каждый дозаполняем (`demo_fill.fill_set`) в
-    копии и выбираем того, у кого полнее ядро, меньше без модели и больше расставляемых. Банк на диске
+    На стиль берём `per_style` лучших по ключу ядра (`bank_invariants.selection_key`), каждый дозаполняем (`demo_fill.fill_set`) в
+    копии и выбираем того, у кого полнее ядро и меньше без модели; число предметов не награждается (T-20261112-122). Банк на диске
     не трогаем — его лечит ночной конвейер."""
     import copy
+    import bank_invariants as BI
     import demo_fill as DF
     import footprint as _fp
     from catalog_media import media as _media
@@ -859,9 +862,8 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
         if hidden(st):
             n_hidden += 1
             continue
-        items = st.get('items') or {}
-        placeable = sum(1 for r in items if DF.base_role(r) in PLACEABLE)
-        by_style.setdefault(st.get('style') or '', []).append((-placeable, len(st.get('gaps') or []), i))
+        # T-20261112-122: очередь наборов стиля — по ядру (`bank_invariants.selection_key`), не по числу предметов
+        by_style.setdefault(st.get('style') or '', []).append(BI.selection_key(st) + (i,))
     if n_hidden:
         print(f'скрыты банком (bank_status hidden) — не варианты: {n_hidden} наборов полосы {band}', flush=True)
     order = ['сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди']
@@ -879,20 +881,21 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
             items = s.get('items') or {}
             no_mesh = sum(1 for r, it in items.items() if DF.base_role(r) in PLACEABLE
                           and DF.base_role(r) not in NOMESH_ROLES and it and not has_mesh(it))
-            placeable = sum(1 for r in items if DF.base_role(r) in PLACEABLE)
-            return ((len(DF.core_missing(s)), no_mesh, -placeable, i, 0 if own else 1, 0 if colour else 1), i, s, j)
+            # T-20261112-122: без награды за число предметов — лишний предмет набор «лучше» не делает (встанет ли — решает расстановка,
+            # не встало обязательное — `choose_banks` берёт следующий)
+            return ((len(DF.core_missing(s)), no_mesh, i, 0 if own else 1, 0 if colour else 1), i, s, j)
         for _k in sorted(by_style.get(style, []))[:per_style]:
-            c = filled(_k[2], True)
+            c = filled(_k[-1], True)
             cands.append(c)
             # ЗАМЕНА ПО ЦВЕТУ НЕ ВЫБИВАЕТ ВЕЩЬ ИЗ РАССТАНОВКИ (T-25/2): тот же набор без замен по цвету — сразу следом (ключ на
             # единицу хуже); `choose_banks` возьмёт его, если заменённая по цвету вещь не встала на пол
             if any(DF.is_colour_swap(x) for x in c[3]):
-                cands.append(filled(_k[2], True, False))
+                cands.append(filled(_k[-1], True, False))
             # СВОЙ ЗАПАСНОЙ НЕ ДЕЛАЕТ ХУЖЕ ПРЕЖНЕГО (T-20261023-10): ворота он проходит, но расстановку может не дать (23.10
             # «современный»: свой столик 120×58 вытеснил торшер). Брали свой запасной — тот же набор с прежним дозаполнением
             # из пула идёт сразу следом (ключ на единицу хуже), и `choose_banks` попробует его раньше следующего набора
             if any(x.get('source') for x in c[3]):
-                cands.append(filled(_k[2], False))
+                cands.append(filled(_k[-1], False))
         if cands:
             ranked[style] = sorted(cands, key=lambda c: c[0])
             # запасной нейтральный ковёр (`demo_swap_pool.universal_rugs`) — не «занят»: стиль на запасном не отнимает его у
@@ -1320,7 +1323,7 @@ def choose_banks(flat: dict, sets: list, ranked: dict) -> tuple[list, dict, list
                 sets[i - 1] = orig
                 why = why or {'style': style, 'missing': ['замена по цвету не встала в расстановку']}
                 continue
-            print(f'  вариант стиля «{style}»: набор {i}, ядро полное, без модели {key[1]}, расставляемых {-key[2]}, '
+            print(f'  вариант стиля «{style}»: набор {i}, ядро полное, без модели {key[1]}, '
                   f'замен {sum(1 for x in j if x["to"])}, снято без замены {sum(1 for x in j if not x["to"])}', flush=True)
             banks.append(i)
             journal[f'set{i}'] = j
@@ -1803,6 +1806,12 @@ def build() -> dict:
         lp = lamp_decor(sets, n - 1, f'set{n}', objs, (liv['w'], liv['d']))
         if lp:
             decor.append(lp)
+        # АТОМ «КОМОД + ЛАМПА» (T-20261112-122, одно правило с турами — `bank_invariants.dresser_atom_drop`): лампа не встала — комода нет
+        import bank_invariants as BI
+        lone = BI.dresser_atom_drop([o['role'] for o in objs], bool(lp))
+        if lone:
+            print(f"  атом комод+лампа set{n}: лампы на комоде нет — {', '.join(lone)} не показываем", flush=True)
+            objs[:] = [o for o in objs if o['role'] not in lone]
         # ШТОРЫ И ПЛЕД — УСЛОВНО, ЦВЕТОМ ТОВАРА (T-20261112-74, владелец TG 953): место — решатель паспорта на носителях варианта,
         # цвет — по названию (`textile_abstract.look_of`); отказ — строка только в списке, как было
         import textile_abstract as _TX

@@ -56,6 +56,8 @@ OWN_MIN_S = 12.0
 BANDS = [('14-16', 14), ('17-20', 17), ('21-25', 21), ('26-30', 26), ('31-40', 31), ('41-50', 41), ('50+', 50)]
 STYLES = ['сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди']
 BEARERS = ('стенка', 'тв-тумба')
+RETRY_SETS = 2           # T-20261112-122: сколько следующих наборов стиля пробовать, если обязательное у его набора не встало
+CORE_PLACE = ('диван', 'столик') + BEARERS   # T-20261112-122: обязательное ядро гостиной — есть в наборе, не встало → следующий набор
 GEOMETRY_MIN_STYLES = 3  # роль входит в геометрию, если она есть хотя бы у половины стилей группы (не больше 3; диван и носитель ТВ — всегда)
 
 
@@ -802,12 +804,13 @@ def public_row(r: dict, mesh_ok) -> dict:
     return {k: out.get(k) for k in ROW_KEYS if k in out}
 
 
-def lamp_rows(st: dict, rows: list, room_wd: tuple, mesh_ok) -> list:
+def lamp_rows(st: dict, rows: list, room_wd: tuple, mesh_ok, bank: list | None = None, idx: int | None = None) -> list:
     """ЛАМПА НАБОРА НА КОМОДЕ ТУРА (T-20261112-101) — тем же правилом, что у /demo (`flat215_demo.lamp_decor` → `dependent_decor`):
-    место — решатель паспорта на комоде варианта (строки `rows` после прижима к стенам), товар — лампа набора, иначе следующая того
-    же набора с годной моделью (`mesh_ok`; подставной банк тестов — без проверки). Строка декора — по разрешённому списку, как
+    место — решатель паспорта на комоде варианта (строки `rows` после прижима к стенам), товар — лампа набора, иначе следующая лампа
+    ТОГО ЖЕ СТИЛЯ по банку (`bank` и номер набора в нём `idx`, как у /demo — T-20261112-122; без банка — только своя) с годной
+    моделью (`mesh_ok`; подставной банк тестов — без проверки). Строка декора — по разрешённому списку, как
     предмет (`public_row`) + `strategy` и `place`; товар (цена, фото) сборщик берёт из каталога по `sid` (`trial_bundle._decor_item`).
-    Лампы или комода нет — пусто; не встала ни одна — громко, пусто."""
+    Лампы или комода нет — пусто; не встала ни одна — громко, пусто (комод тогда снимает `place`: атом «комод + лампа»)."""
     import dependent_decor as DD
     if not any(DD.is_lamp(r) and it for r, it in (st.get('items') or {}).items()):
         return []
@@ -823,7 +826,12 @@ def lamp_rows(st: dict, rows: list, room_wd: tuple, mesh_ok) -> list:
             return None, 'нет годной модели'
         import flat215_demo as FD
         return FD._mesh_extents(FD._msid(_sid(it))) or True, None
-    it, pl, why = DD.lamp_pick([st], 0, objs, room_wd, model)
+    if bank is not None and idx is not None and 0 <= idx < len(bank):
+        pool, at = list(bank), idx
+        pool[at] = st                               # свой набор — каким он стоит в варианте (замены ленты), остальное — банк
+    else:
+        pool, at = [st], 0
+    it, pl, why = DD.lamp_pick(pool, at, objs, room_wd, model)
     if not it:
         print(f"WARN:lamp: {st.get('style')} — лампы на комоде нет ни в цене, ни в 3D: {'; '.join(why) or 'нет кандидатов'}", flush=True)
         return []
@@ -1123,26 +1131,34 @@ def slot_fit(st: dict, geo_ps: list, picker: FeedPicker, mesh_ok=None, full: boo
     return dict(st, items=items), sorted(set(swaps))
 
 
-def _pick_styles(sets: list, band: str) -> list:
+def _style_ranking(sets: list, band: str) -> dict:
     """ПЕРЕБОР ШАБЛОНОВ ПО СТИЛЮ (владелец 09.11: шаблон → товары под него → нет → следующий; не подошёл ни один — пусто).
-    По ОДНОМУ набору на стиль: годный (`eligible`) набор этой полосы, ключ `flat215_demo.pick_banks` (меньше предметов без
-    модели → больше расставляемых), но «без модели» — СТРОГО, правилом демо (`item_has_mesh`), а не «есть в индексе». У стиля
-    нет годного набора в полосе — следующая полоса ВНИЗ (товары мельче, в ядро влезут); нет нигде — стиля нет."""
+    Наборы каждого стиля по очереди предпочтения: годный (`eligible`) набор этой полосы или ниже (у стиля нет годного набора в
+    полосе — следующая полоса ВНИЗ: товары мельче, в ядро влезут). Ключ — общий с /demo `bank_invariants.selection_key`
+    (T-20261112-122): полное ядро (диван, столик, носитель ТВ) → годные модели ядра → годные модели прочего («без модели» —
+    СТРОГО, правилом демо `item_has_mesh`) → дыры состава → номер. Число предметов НЕ награждается: лишний комод не делает набор
+    «лучше» (прежде набор без столика, но с комодом выигрывал, и гостиная выходила пустой). → {стиль: [номера наборов]}."""
+    import bank_invariants as BI
     import flat215_demo as FD
     names = [b for b, _ in BANDS]
     lower = names[:names.index(band) + 1][::-1] if band in names else [band]
-    best: dict = {}
+    rank: dict = {}
     for i, st in enumerate(sets, 1):
         items = st.get('items') or {}
         if st.get('band') not in lower or 'диван' not in items or FD.hidden(st) or not eligible(st):
             continue
-        placeable = sum(1 for r in items if r.split(' ')[0] in FD.PLACEABLE)
-        key = (lower.index(st['band']), len(no_mesh_roles(st)), -placeable, len(st.get('gaps') or []), i)
-        style = st.get('style') or ''
-        if style not in best or key < best[style][0]:
-            best[style] = (key, i)
-    picked = [best[s][1] for s in STYLES if s in best]
-    picked += [v[1] for k, v in sorted(best.items()) if k not in STYLES]
+        nm = no_mesh_roles(st)
+        core_nm = sum(1 for r in nm if ('тв-тумба' if _base(r) in BEARERS else _base(r)) in BI.CORE_ROLES)
+        key = (lower.index(st['band']),) + BI.selection_key(st, core_nm, len(nm)) + (i,)
+        rank.setdefault(st.get('style') or '', []).append((key, i))
+    return {s: [i for _, i in sorted(v)] for s, v in rank.items()}
+
+
+def _pick_styles(sets: list, band: str) -> list:
+    """По ОДНОМУ набору на стиль — первый по `_style_ranking`; порядок стилей — `STYLES`."""
+    rank = _style_ranking(sets, band)
+    picked = [rank[s][0] for s in STYLES if s in rank]
+    picked += [v[0] for k, v in sorted(rank.items()) if k not in STYLES]
     return picked[:len(STYLES)]
 
 
@@ -1226,7 +1242,13 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
     sets_file = os.path.join(OUT, 'trial-sets.json')
     # геометрии — первые номера снимка; за ними свои наборы стилей, урезанные до ролей геометрии (см. `trim_to_geometry`)
     geo_of = {id(st): g['set'] for g in groups for st, _ in g['styles']}
-    _write(sets_file, [g['set'] for g in groups] + [trim_to_geometry(st, geo_of[id(st)]) for st in styles])
+    snap = [g['set'] for g in groups] + [trim_to_geometry(st, geo_of[id(st)]) for st in styles]
+    _write(sets_file, snap)
+    # очередь наборов стиля — для «следующего набора того же стиля» (настоящий отбор; у подставного `pick` тестов — нет)
+    alt_rank = _style_ranking(sets, band) if pick is _pick_styles else {}
+    used = {}
+    for i, st in chosen_sets.items():
+        used.setdefault(st.get('style'), set()).add(i)
     _write(os.path.join(OUT, 'adapter.json'), TR.summary(ad))
     t_prep = time.time() - t0 - t_ad
     # ── солвер: по ОДНОЙ геометрии на форму дивана (обе — параллельно); проверка по полному контуру; есть проблемы —
@@ -1310,6 +1332,60 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
         return [{'tag': f"s{n}", 'kind': 'own', 'n': n_geo + picked.index(n) + 1, 'shape': u['shape'], 'source': None,
                  'styles': [(st, n)], 'from': u['tag']} for st, n in styles]
 
+    def next_unit(style, frm):
+        """СЛЕДУЮЩИЙ НАБОР ТОГО ЖЕ СТИЛЯ (T-20261112-122, как /demo `flat215_demo.choose_banks`): обязательное у набора стиля не встало —
+        его свой набор следующего по очереди `_style_ranking` (ещё не пробованный) → единица «свой набор»; снимок наборов дополняется
+        (номера прежних не меняются, прогоны к этому моменту закончены). Пробовать нечего — None."""
+        for j in alt_rank.get(style, []):
+            if j in used.setdefault(style, set()):
+                continue
+            used[style].add(j)
+            st2 = usable_set(sets[j - 1], mesh_ok, picker)
+            shape = 'corner' if _sofa_corner((st2.get('items') or {}).get('диван')) else 'straight'
+            geo = next((g['set'] for g in groups if g['shape'] == shape), None) or geometry_set([st2], band)[0]
+            snap.append(trim_to_geometry(st2, geo))
+            _write(sets_file, snap)
+            chosen_sets[j] = st2
+            return {'tag': f's{j}', 'kind': 'own', 'n': len(snap), 'shape': shape, 'source': None, 'styles': [(st2, j)],
+                    'from': frm, 'next_set': True}
+        return None
+
+    def retry_next(ci, cand, best, units, pool):
+        """Стиль, у которого обязательное не встало (своя расстановка не вышла, её проверка не прошла или роль ядра — диван, столик,
+        носитель ТВ — есть в наборе, но в комнату не встала), — следующим набором того же стиля (до `RETRY_SETS`), пока есть время.
+        Встал чисто и ядра потеряно меньше — вместо прежнего; нет — прежний остаётся (дальше `rescue`). → units."""
+        def lost(v):
+            """Сколько обязательного потеряно: сбой/жёсткое/проверка — больше любой потери ядра; иначе — роли ядра вне комнаты."""
+            if v.get('failed') or v['hard'] or not v['post_ok']:
+                return 99
+            return sum(1 for r in v.get('absent_roles') or [] if _base(r) in CORE_PLACE) + \
+                (0 if any(_base(r['role']) == 'диван' for r in v['items']) else 1)
+        _, draft, _ = assemble(ci, cand, best, units)
+        was = {v['style']: lost(v) for v in draft}
+        fails = [st for st, k in was.items() if k]
+        for style in fails:
+            for _ in range(RETRY_SETS):
+                if STOP_S - elapsed() < OWN_MIN_S:
+                    return units
+                old = next(((u, x) for u in units for x in u['styles'] if x[0].get('style') == style), None)
+                nu = next_unit(style, old[0]['tag'] if old else None) if old else None
+                if nu is None:
+                    break
+                got, _ = solve_units([nu], ci, cand, pool, have=True)
+                if nu['tag'] not in got:
+                    continue
+                st2, j = nu['styles'][0]
+                nv = place(0, got[nu['tag']], st2, j, cand)
+                if lost(nv) >= was[style]:
+                    continue
+                ou, ox = old
+                ou['styles'] = [x for x in ou['styles'] if x is not ox]
+                units = [u for u in units if u['styles']] + [nu]
+                best[nu['tag']] = got[nu['tag']]
+                flags.append(f'style_next_set:{style}')
+                break
+        return units
+
     def assemble(ci, cand, best, units):
         """Товары каждого стиля на места СВОЕЙ расстановки → (геометрии, варианты, проблемы)."""
         x0, y0 = cand['rect'][0], cand['rect'][1]
@@ -1365,6 +1441,16 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
         for r in rows:                              # место строки — после прижима к стене
             if r['role'] in at:
                 r.update(x=round(at[r['role']].x, 1), y=round(at[r['role']].y, 1))
+        # АТОМ «КОМОД + ЛАМПА» (T-20261112-122, паспорт living.json light.dresser_lamp): комод показываем только с лампой на нём.
+        # Лампа не встала (нет в наборе, не влезла на столешницу, без модели) — комода в варианте нет: необязательный предмет,
+        # строкой `skipped_optional`; обязательное (диван, столик, ТВ) от этого не меняется
+        decor = lamp_rows(st, rows, (cand['w'], cand['d']), mesh_ok, sets, n - 1)
+        import bank_invariants as BI
+        lone = BI.dresser_atom_drop([r['role'] for r in rows], bool(decor))
+        if lone:
+            ps = [p for p in ps if p.role not in lone]
+            rows = [r for r in rows if r['role'] not in lone]
+            absent = absent + lone
         media[st.get('style')] = {r['role']: (r.get('_it') or {}).get('img') for r in rows}
         ext = overhang(ps, cand['w'], cand['d'])
         spc = TR.post_check(ad, cand, ps)
@@ -1373,7 +1459,8 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
                         [_moved(p, ext['west'], ext['south']) for p in ps])
         return {'style': st.get('style'), 'set_index': n, 'set_id': st.get('set_id'), 'geometry': gi,
                 'items': [public_row(r, mesh_ok) for r in rows], 'absent_roles': absent,
-                'decor': lamp_rows(st, rows, (cand['w'], cand['d']), mesh_ok),   # лампа на комоде (T-20261112-101)
+                'decor': decor,                     # лампа на комоде (T-20261112-101)
+                'skipped_optional': [{'role': r, 'why': 'lamp_not_placed'} for r in lone],
                 'no_mesh_dropped': st.get('no_mesh_dropped') or [], 'pushed': pushes,
                 'dropped_for_norms': dropped, 'partly_at_wall': partly,
                 'hard': shard, 'post_ok': not probs, 'problems': probs, 'placements': _ps_json(ps, x0, y0),
@@ -1396,24 +1483,35 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
             st = chosen_sets.get(v.get('set_index'))
             if not v.get('failed') or st is None or not hosts:
                 continue
-            shape = 'corner' if _sofa_corner((st.get('items') or {}).get('диван')) else 'straight'
             why = (v.get('problems') or [{}])[0].get('code')
             done, tried = None, []
-            for gi, u, b in sorted(hosts, key=lambda h: h[1]['shape'] != shape):
-                croom = core_room(cand, b['sr']['openings'])
-                caps, screens = window_caps(croom, b['ps']), screen_caps(croom, b['ps'])
-                for full in (False, True):
-                    fst, swaps = slot_fit(st, b['ps'], picker, mesh_ok, full, caps, screens)
-                    nv = place(gi, b, fst, v['set_index'], cand)
-                    sofa = any(_base(r['role']) == 'диван' for r in nv['items'])
-                    if nv['post_ok'] and not nv['hard'] and sofa:
-                        done = dict(nv, substituted={'why': why, 'from_geometry': v.get('geometry'), 'swapped': swaps,
-                                                     'mode': 'all' if full else 'misfit'})
+            # свой набор, затем следующие наборы того же стиля (T-20261112-122, до `RETRY_SETS`): подстановка без решателя — дёшево,
+            # а у соседнего набора стиля может найтись свой товар под место (низкий диван под окном), которого нет в ленте
+            queue = [(st, v['set_index'])] + [(usable_set(sets[j - 1], mesh_ok, picker), j) for j in
+                                               [j for j in alt_rank.get(v['style'], []) if j != v['set_index']][:RETRY_SETS]]
+            for cst, cn in queue:
+                shape = 'corner' if _sofa_corner((cst.get('items') or {}).get('диван')) else 'straight'
+                for gi, u, b in sorted(hosts, key=lambda h: h[1]['shape'] != shape):
+                    croom = core_room(cand, b['sr']['openings'])
+                    caps, screens = window_caps(croom, b['ps']), screen_caps(croom, b['ps'])
+                    for full in (False, True):
+                        fst, swaps = slot_fit(cst, b['ps'], picker, mesh_ok, full, caps, screens)
+                        nv = place(gi, b, fst, cn, cand)
+                        sofa = any(_base(r['role']) == 'диван' for r in nv['items'])
+                        if nv['post_ok'] and not nv['hard'] and sofa:
+                            done = dict(nv, substituted={'why': why, 'from_geometry': v.get('geometry'), 'swapped': swaps,
+                                                         'mode': 'all' if full else 'misfit'})
+                            break
+                        # почему не встал — кодом (правило и роль), для разбора и журнала
+                        tried.append({'set_index': cn, 'geometry': gi, 'mode': 'all' if full else 'misfit', 'no_sofa': not sofa,
+                                      'hard': nv['hard'], 'problems': sorted({p.get('code') for p in nv['problems']}),
+                                      'absent': nv['absent_roles'], 'swapped': swaps})
+                    if done:
                         break
-                    # почему не встал — кодом (правило и роль), для разбора и журнала
-                    tried.append({'geometry': gi, 'mode': 'all' if full else 'misfit', 'no_sofa': not sofa,
-                                  'hard': nv['hard'], 'problems': sorted({p.get('code') for p in nv['problems']})})
                 if done:
+                    if cn != v['set_index']:
+                        chosen_sets[cn] = cst
+                        flags.append(f"style_next_set:{v['style']}")
                     break
             if done:
                 variants[k] = done
@@ -1455,6 +1553,23 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
                         units = units + own
                         best.update(got)
                     chosen = (chosen[0], ci, cand, best, units)
+                # обязательное у стиля так и не встало — следующий набор того же стиля (T-20261112-122, как у /demo)
+                if alt_rank:
+                    units = retry_next(ci, cand, best, units, pool)
+                    chosen = (chosen[0], ci, cand, best, units)
+            elif alt_rank:
+                # ни одна расстановка не вышла ни на одном ядре — по следующему набору каждого стиля, своими наборами
+                retry = [nu for nu in (next_unit(st.get('style'), None) for st in styles) if nu is not None]
+                for ci, cand in enumerate(cands):
+                    if not retry or elapsed() > STOP_S:
+                        break
+                    best, units = solve_units(retry, ci, cand, pool)
+                    if best:
+                        lost = sum(len(u['styles']) for u in units if u['tag'] not in best)
+                        chosen = ((lost, sum(b['score'][0] for b in best.values())), ci, cand, best, units)
+                        flags += sorted(f"style_next_set:{st.get('style')}" for u in units if u['tag'] in best
+                                        for st, _ in u['styles'])
+                        break
     except Exception as e:  # noqa: BLE001 — разбираем только очередь машины, остальное — наверх
         if not _slot_timeout(e):
             raise

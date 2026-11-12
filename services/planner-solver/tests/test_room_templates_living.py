@@ -308,15 +308,34 @@ def test_by_set_required_role_absent_next_level_then_honest_refusal():
     assert good == []
     m1 = [b for b in bad if b["tpl"] == "LR-M1"]
     assert m1 and all("seating.armchair×1" in b["missing"] for b in m1)
-    # меньше 16 м²: кресла в составе нет, кашпо и стол — по желанию; свет обязателен (T-71/2) — без него малым уровням не годно
+    # меньше 16 м²: кресла в составе нет, кашпо, стол и свет — по желанию (T-20261112-122: свет обязателен только от 16 м²,
+    # комод с лампой — необязательный атом, малая комната без него не теряет уровень)
     small = {"area_m2": 14.4, "aspect": 1.35}
     good, _ = RT.levels_by_set(RT.load("living"), small, _found(have))
-    assert good == []
+    assert good and good[0]["tpl"] == "LR-C1", [(g["tpl"], g["level"], g["empty"]) for g in good[:3]]
     good, _ = RT.levels_by_set(RT.load("living"), small, _found({**have, "light.floor_lamp": 1}))   # торшер — меньше пустого у SE
     assert [(g["tpl"], g["level"], g["empty"]) for g in good[:1]] == [("LR-C1", "SE", [])]
     good, _ = RT.levels_by_set(RT.load("living"), small, _found({**have, "light.dresser": 1}))      # комод — уровни с лампой
     sa = next(g for g in good if g["tpl"] == "LR-C1" and g["level"] == "SA")
     assert "plant.planter×1" in sa["empty"]
+
+
+def test_small_room_dresser_atom_optional():
+    """T-20261112-122: гостиная 13 м² (325×400) — набор без комода и без света получает уровень (атом «комод + лампа» по желанию);
+    с комодом — тоже уровень; кухня-гостиная той же площади без стола — уровня нет (TG 1207: стол обязателен); от 16 м² без
+    света уровня нет, как прежде (17–20 м² не меняются)."""
+    small = {"area_m2": 13.0, "aspect": 400 / 325}
+    core = {"seating.sofa": 1, "seating.coffee": 1, "seating.rug": 1, "media.tv_stand": 1}
+    good, bad = RT.levels_by_set(RT.load("living"), small, _found(core))
+    assert good, [(b["tpl"], b["level"], b.get("missing")) for b in bad[:4]]
+    good_d, _ = RT.levels_by_set(RT.load("living"), small, _found({**core, "light.dresser": 1, "light.lamp": 1}))
+    assert good_d
+    good_k, _ = RT.levels_by_set(RT.load("living"), {**small, "kitchen": True}, _found(core))
+    assert good_k == []                                                      # кухня-гостиная без стола — не годно
+    have = {**NEED_M1, "plant.planter": 1, "dining.table": 1, "dining.chairs": 2}
+    good_big, bad_big = RT.levels_by_set(RT.load("living"), {"area_m2": 18.0, "aspect": 1.3}, _found(have))
+    assert good_big == [] and any("light.floor_lamp" in str(b.get("missing")) or "light.dresser" in str(b.get("missing"))
+                                  or "свет" in str(b.get("missing")) for b in bad_big), [b.get("missing") for b in bad_big[:3]]
 
 
 def test_by_set_kitchen_dining_required():

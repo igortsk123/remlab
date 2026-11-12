@@ -77,15 +77,31 @@ def test_variant_like_demo_set1():
     assert {e['place'] for e in sv['empty_deps']} == {'ceiling.chandelier', 'soft.throw'}   # в декоре примера нет люстры и пледа
 
 
-def test_tour_set_without_light_no_level_only_light():
-    """Набор тура без торшера и комода (T-71/2): свет обязателен — уровня нет, признак «не хватает только света»; без столика
-    — тоже отказ, но уже не «только свет»."""
+# от 16 м² (`distances_cm.living_select.base_full_m2`): кресло и кашпо в составе, свет обязателен (T-71/2, T-20261112-122)
+GEO_BIG = {**GEO, 'w': 520, 'd': 340, 'title': 'Гостиная 17.7 м²'}
+ITEMS_BIG = ITEMS + [it('кресло', 400, 250, 270, 80, 80, 80), it('кашпо', 480, 300, 0, 40, 40, 90)]
+
+
+def test_small_room_without_light_level_ok():
+    """T-20261112-122: меньше 16 м² свет (торшер / комод + лампа) — по желанию: набор без них получает уровень, а не «нет
+    уровня»; столик — всегда: нет его — честный отказ."""
     items = [x for x in ITEMS if x['role'] != 'торшер']
     sv = S.shadow_variant(GEO, {'id': 't', 'style': 'сканди', 'items': items, 'decor': []}, [])
+    assert sv['status'] == 'OK' and not sv['only_light'], (sv['status'], sv['tried'])
+    no_table = [x for x in items if x['role'] != 'столик']
+    sv2 = S.shadow_variant(GEO, {'id': 't2', 'style': 'сканди', 'items': no_table, 'decor': []}, [])
+    assert sv2['status'].startswith('нет уровня') and 'столик×1' in sv2['missing'] and not sv2['only_light']
+
+
+def test_tour_set_without_light_no_level_only_light():
+    """Набор тура без торшера и комода в комнате от 16 м² (T-71/2): свет обязателен — уровня нет, признак «не хватает только
+    света»; без столика — тоже отказ, но уже не «только свет»."""
+    items = [x for x in ITEMS_BIG if x['role'] != 'торшер']
+    sv = S.shadow_variant(GEO_BIG, {'id': 't', 'style': 'сканди', 'items': items, 'decor': []}, [])
     assert sv['status'].startswith('нет уровня') and sv['only_light'], sv['status']
     assert sv['missing'] and all(m in ('торшер×1', 'комод×1') for m in sv['missing'])
     no_table = [x for x in items if x['role'] != 'столик']                 # столик — всегда: нет его — честный отказ
-    sv2 = S.shadow_variant(GEO, {'id': 't2', 'style': 'сканди', 'items': no_table, 'decor': []}, [])
+    sv2 = S.shadow_variant(GEO_BIG, {'id': 't2', 'style': 'сканди', 'items': no_table, 'decor': []}, [])
     assert sv2['status'].startswith('нет уровня') and 'столик×1' in sv2['missing'] and not sv2['only_light']
 
 
@@ -117,8 +133,8 @@ def test_rug_drawn_first_under_furniture():
 
 def test_only_light_summary_line():
     """Строка-итог отчёта: «не хватает ТОЛЬКО света: N туров» + стили с торшерами каталога и банка."""
-    items = [x for x in ITEMS if x['role'] != 'торшер']
-    sv = {**S.shadow_variant(GEO, {'id': 't', 'style': 'сканди', 'items': items, 'decor': []}, []), 'src': 'x'}
+    items = [x for x in ITEMS_BIG if x['role'] != 'торшер']
+    sv = {**S.shadow_variant(GEO_BIG, {'id': 't', 'style': 'сканди', 'items': items, 'decor': []}, []), 'src': 'x'}
     L = S.light_summary([sv], {'sets': {'сканди': {'n': 21, 'торшер': 3, 'комод': 15}}, 'catalog': {'сканди': 11}})
     assert 'ТОЛЬКО света (торшер или комод + лампа): 1 туров' in L[0]
     assert any(ln.startswith('| сканди | 1 | 21 | 3 | 15 | 11 |') for ln in L)
