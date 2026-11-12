@@ -219,7 +219,7 @@ class Run:
             # все шаги записали 0, а исполнитель упал (heavy-slot, bash) — тоже не зелёный
             res.append({'step': plan[-1][0] if plan else '?', 'rc': runner_rc, 's': 0,
                         'log': os.path.join(d, 'runner.log'), 'soft': False, 'missing': True})
-        if len(plan) > 1:
+        if tag.startswith('full'):                       # по роли прогона, не по числу шагов (--steps test — тоже «полный»)
             self.n_full += 1
         else:
             self.n_step += 1
