@@ -3,11 +3,11 @@ tier: 1
 topic: room-measurement
 scope: Замер комнаты по фото
 tier2: ../domain/room-measurement.md
-updated: 2026-10-11
+updated: 2026-11-12
 importance: high
 source: manual
 status: working
-last_verified: 2026-10-11
+last_verified: 2026-11-12
 review_after: 2026-12-05
 ---
 
@@ -16,7 +16,7 @@ review_after: 2026-12-05
 **Статус: сам сервис СПИТ с 04.08** — в v0.4 не подключён. Но потребитель замера появился:
 `tools/scout/room_bridge.py` (07.08) кладёт результат замера в сцену солвера (файлы сцен — вне git)
 (сверено 04.09: код на месте и соответствует описанию ниже, `fit_check.py`, `run_viz.py`).
-Это не отставание памяти, а отсутствие изменений.
+Это не отставание памяти, а отсутствие изменений. Второй потребитель — разбор планов `/try`: `tools/scout/trial_room.py:47` берёт `room_bridge.orthogonalize` (выпрямление контура).
 
 **Код:** `services/room-measure/` (перенесён из `/home/pakar/mltest` 2026-08-04; до этого лежал
 вне репозитория и в памяти отсутствовал — из-за чего наработки переоткрывались заново).

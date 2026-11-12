@@ -3,7 +3,7 @@ tier: 2
 topic: mesh-pool-ops
 scope: Эксплуатация пула Salad — регламент подъёма/остановки, замеры темпа и цены, разбор остановок 04–05.09
 tier1: ../core/mesh-pool.md
-updated: 2026-11-10
+updated: 2026-11-12
 importance: med
 source: manual
 status: working
@@ -140,7 +140,7 @@ last_verified: 2026-11-06
   (повторы готовых; `job_id` в реестре не уникален — `generation_key` включает `glb_sha`).
 - **Проба 3090 (21.10):** машина пришла за 1 мин и 29 мин качала образ 26,4 ГБ — стоп «30 мин без running» погасил её до работы;
   скачивание не считать простоем (и Salad его не берёт в оплату). На low 3090 Ti / A5000 с ~07 UTC 21.10 не выдавались.
-- **Сторож цены (ADR-0313):** `tools/scout/salad/mesh_price.py`; правило `price_ceiling` в `tools/scout/rules/salad-groups.json`; правила сторож читает
+- **Сторож цены (ADR-0313; потолок 2 ₽/меш с 10.11 — ADR-0370, было 1,5):** `tools/scout/salad/mesh_price.py`; правило `price_ceiling` в `tools/scout/rules/salad-groups.json`; правила сторож читает
   один раз на процесс — смена потолка/окна/курса = перезапуск `money_guard`. Тревога «пул стоит, причина неизвестна» теперь видит стоп по
   цене и окно batch (mesh-17).
 - **ОЗУ и 403 (22.10, mesh-16):** `node_reject` (MemTotal < `node_ram.min_gb`) — выключен 24.10 (ADR-0316); 403 дважды на товар → карантин

@@ -4,7 +4,7 @@ slug: MASTER-agent-trial
 title: МЕТАПЛАН — «Попробовать бесплатно» для агента недвижимости UK: лендинг → план (фото/PDF) → 3D-тур с мебелью и товарами ≤ 3 мин
 status: in_progress
 created: 2026-11-09
-updated: 2026-11-11
+updated: 2026-11-12
 completed:
 plan_kind: track_master
 parent_plan: MASTER-cost-first
@@ -120,6 +120,44 @@ TG 331: ссылка агента — «посмотреть какой-то в�
   (`conveyor.py:Reparse.draft_map`); сервер переписывает их ключи (`lib/trial/repo-reparse-map.ts:applyReparseMap`), не легшие и
   пришедшие во время перечитывания снимает, причины кладёт в `trial_rebuilds.progress.dropped_drafts`; `GET edits.dropped` показывает их до
   следующего подтверждения. Карта старого воркера без `drafts` черновики не трогает.
+
+## Устройство и решения 10–12.11 (свод блокнота 12.11; решения — ADR-0371…0377, 0382, 0383)
+- **Хранение и лимиты (ADR-0371):** файл и тур 30 дн (`db/init/027-trial-file-30-days.sql`), 10/ч и 30/сут с адреса, 300/сут на сайт;
+  наши машины — `TRIAL_OWN_KEY` / `TRIAL_OWN_IPS` (`lib/trial/own-key.ts`). Тяжёлая очередь держит резервный слот для проб (класс ≥ 1).
+- **Разбор листа (`tools/floorplan/`):** обрыв VLM → повтор с effort=low и флаг `vlm_truncated:<вид>` (`pipeline.py`); вопрос `labels3` =
+  подписи + заголовки этажей (`vlm.py:label_kind`, выкл. `FP_TITLES=0`); панели — по заголовкам этажей при ≥ 2 (`bench.py:panels_by_titles`,
+  `vlm_groups`), расхождение с контурами VLM — флаг `vlm_panels_disagree`. Мелкие безымянные куски, отрезанные нашими закрытиями, — к соседу
+  (`repair.py:absorb_fragments`, выкл. `FP_ABSORB=0`). Двери: сквозной разрыв ≥ 4 px — проём (`fpcore.py:passes_through`), второй проход
+  закрытий для тонких перегородок (`fpcore.py:thin_partition_t`), клин вдоль грани нарисованной стены — не дверь (`fpcore.py:along_face`,
+  `wedge_tails`); спорный проём — той стороне, у которой нет другого входа (T-33/3); окно со стрелкой → дверь (`FP_ARROW_WIN`); острова и значки
+  внутри комнат не режут её (T-09). Объявление: мм/см/м главнее футов, синонимы, один к одному (`listing.py`); потолок — `listing.py:ceiling_height`.
+- **Лист застройщика (ADR-0374):** `bench.py:dev_sheet` → серые перегородки (`fpcore.py:grey_partitions`), `bench.py:pocket_doors`, тип по
+  мебели (`kind_by_furniture`), подпись площади = площадь (`areaContourM2` в `contracts/trial.ts` хранит площадь контура), AVIF (030).
+  Балкон и прочее уличное — `other` + `outdoor` (ADR-0375, `tools/floorplan/outdoor.py`).
+- **Имена (TG 736–750):** безымянное уже 1,5 м — коридор; «Неизвестное помещение» не обставлять до переименования; имена безымянных — по рангу
+  площади; английские имена из объявления на русском туре — переводятся (T-28, `lib/trial/repo-room-edit.ts`).
+- **Регресс разбора:** `tools/floorplan/regress.py` (снимок кода → прогон → сравнение по комнатам, тот же код сравнивать отказывается), кэш
+  `~/remlab-logs/regress-cache/` (ключ — весь код снимка + входы + окружение, урок 606).
+- **Правка агентом (ADR-0373):** комнаты — `db/init/028-trial-room-edits.sql`, `tools/floorplan/room_edits.py` (площадь sx·sy, `_scaled`;
+  спальни переиспользуются по отпечатку); проёмы — `029-trial-opening-edits.sql`, `tools/floorplan/opening_edits.py` (пересобирает комнаты,
+  чья стена ≤ 60 см от центра правки); черновики и «Подтвердить планировку» — раздел выше. Две створки — только при ширине > 120 см
+  (`tools/scout/rules/trial-room.json:double_door_min_cm`).
+- **«Перечитать» (ADR-0377):** `031-trial-reparse.sql`, `tools/floorplan/conveyor.py:Reparse`, одобрения `reparse-approve/<id>.json`;
+  ограничение вида пересборки — `trial_rebuilds_kind_chk`. 11.11: 11 из 15 туров перечитаны, 4 остановил сторож (двери en-suite ±1).
+- **Наполнение (ADR-0372):** `trial_bundle.py:catalog_goods`, `uk_money`, `feeds_for` (ленты /demo по месту), `free_place`; плитки — ночной шаг
+  `trial_images` (`trial_bundle.py --cache-images`, потолок папки 300 МБ). Данные старых туров (товары, ленты) меняет только перевыпуск.
+- **Скорость (ADR-0376):** ракурсы — при сборке параллельно (`tools/scout/cams_par.py`, `trial_bundle.py:add_cams`; «Этажи» 17/17 за 41–44 с);
+  кадры карточек — `tools/floorplan/cards.py` (Playwright `tools/scout/trial_cards.mjs`) → `POST /api/trial/worker/cards`
+  (`lib/trial/tour-cards.ts`); страница тура: без `k` — `private, no-cache` + ETag по телу, с `k` — `no-store` (`lib/trial/tour-cache.ts`), brotli 5
+  сразу и 11 фоном, LRU 32 МБ (`lib/trial/tour-brotli.ts`); данные — ранний запрос после DOMContentLoaded. Телефон: данные 4,6 → 0,63 с.
+- **Выпуск правок страницы в туры:** тур закреплён за релизом витрины (`lib/trial/tour-bundle.ts:ensureJobRelease`) → после правки
+  `tools/scout/flat215-demo/index.html` или движка сцены: `cd tools/scout && flat215_demo.py && trial_bundle.py --cache-images &&
+  ../assets/demo_rt.sh && PUB_PHOTOS_DONE=1 publish_demo.sh` (без `PUB_PHOTOS_DONE` — платная досъёмка), затем `tools/floorplan/reissue.py
+  --days 14` (сперва `--dry-run`) в окружении воркера (`set -a; . ~/.config/remlab/env; set +a`). Python воркера — после вливания
+  `systemctl --user restart remlab-trial-worker` при пустой очереди (урок 608). Публикация /demo кладёт `.br`/`.gz` рядом
+  (`tools/scout/precompress.mjs`), Caddy `precompressed br gzip`.
+- **Открыто (12.11):** «Этажи» `aOv8kTVEKMgu2H6iD6UIJg` — балкон придёт после «Перечитать»; дверь Спальни 1 не распознана (no_entry);
+  кухня-гостиная (ADR-0382) не начата; «OCR первым» (ADR-0383) не сделан; наружные остеклённые двери 119 см рисуются парой.
 
 ## Скоуп — НЕ входит
 Оплата/тарифы для агентов (решение человека), личный кабинет, CRM-интеграции агентств, генерация новых мешей на лету, юр. тексты (TODO).

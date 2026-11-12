@@ -3,7 +3,7 @@ tier: 1
 topic: mesh-color
 scope: Цвет мешей — диагноз, мерка, рычаги
 tier2: "../domain/viz-fidelity-playbook.md"
-updated: 2026-11-10
+updated: 2026-11-12
 importance: high
 source: manual
 status: working
@@ -38,7 +38,7 @@ review_after: 2026-12-05
 
 **Рычаги.** Перепокраска готовой формы (paint = 42% задания, геометрия не меняется) — **болванка
 `shape.glb` живёт до приёмки владельцем и не дольше 14 сут (07.11, `tools/scout/rules/dev-disk.json`) — у прочих только перегон**.
-**К8 (06–07.11):** чинить владелец отложил; `tools/scout/mesh_color_check.py` прячет варианты на чужом меше (Tier 2 § «К8»).
+**К8 (06–07.11):** отложен; `tools/scout/mesh_color_check.py` прячет варианты на чужом меше. Дальше (TG 1614): правка — только моделям с сильной разницей с фото, планом после П1.
 Плюс сдвиг экспозиции входа в линейном RGB (`photo_color.shift_exposure`, план —
 `tools/scout/salad/exposure_plan.py`: замер −2 ст. … до засветов, итог режет `EV_MAX` ±0.45). Покраска
 на вход РЕАГИРУЕТ (~0.8 ст. на ступень) — закрыто опытом.

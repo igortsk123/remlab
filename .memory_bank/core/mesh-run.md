@@ -3,7 +3,7 @@ tier: 1
 topic: mesh-run
 scope: Прогон мешей — РАБОЧИЙ вариант, старт, остановка
 tier2: "../domain/mesh-run-playbook.md"
-updated: 2026-11-10
+updated: 2026-11-12
 importance: high
 source: manual
 status: working
@@ -23,7 +23,7 @@ review_after: 2026-12-05
 - **Группы:** боевая — очередь Salad `mesh-q-low-1` (автоволны с 07.11); SSH `mesh-low-10`/`mesh-batch-7` — запас.
   Тариф, окно, цена — `tools/scout/rules/salad-groups.json` (ADR-0177).
 - **Что генерим:** только демо — профиль `demo` (ADR-0314) + квота комнат; общую очередь не включать (09.11; Tier 2 § «Меши конвейером»).
-- **Замер:** 27.10 очередь — 0,92 ₽/меш в работе; потолок 1,5 ₽ (ADR-0313).
+- **Замер:** 27.10 очередь — 0,92 ₽/меш в работе; потолок 2 ₽ с 10.11 (ADR-0370).
 
 ## Три команды
 - **Старт** (единственный законный): `tools/scout/mesh_wave_start.sh --launch --rub-cap N` (₽ обязателен).

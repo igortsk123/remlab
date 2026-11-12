@@ -3,7 +3,7 @@ tier: 1
 topic: deployment
 scope: Деплой/откат/сервер exit-fi
 tier2: "domain/deployment-details.md"
-updated: 2026-11-11
+updated: 2026-11-12
 importance: high
 source: manual
 status: working
@@ -38,10 +38,10 @@ Push в `main` → CI gate → `Deploy prod` (`deploy.yml`). Сервер — `i
 ## Откат / smoke
 - smoke = `ok=true` И `version == TARGET_SHA` (одного 200 мало). Откат — тег `prev` (Tier 2).
   Вручную: `/`=200, `/api/health` ok, remnanode Up.
-- Демо: `tools/scout/publish_demo.sh --rollback` (копии `demo.prev-*` ×3).
+- Демо: `tools/scout/publish_demo.sh --rollback` (копии `demo.prev-*` ×3); кладёт `.br`/`.gz`, Caddy — `precompressed`.
 
 ## Безопасность (ADR-0207, ADR-0256)
-Патчи с публичным RCE — сразу (инцидент 08.09: майнер на 15.5.4). Заслон `@nextrce` в Caddy не снимать.
+Патчи с публичным RCE — сразу. Заслон `@nextrce` в Caddy не снимать.
 **13.10 (ADR-0256):** ПДн только в базе; после деплоя `tools/security-smoke.sh`; `remlab-draft` выкатывает деплой (ADR-0278). Детали — Tier 2.
 
 ## Сторожа

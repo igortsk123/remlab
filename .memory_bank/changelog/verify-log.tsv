@@ -188,3 +188,7 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-09	.memory_bank/lessons/flat3d-configurator.md	drift	67	8	8	T-20261109-18/1: aimAtCentre по символу; scene3d снят; пороги 80/20/150; ObjectTools; frontSource; швы без запасного; мост fromDemo; имя теста; док сверен целиком
 2026-11-09	.memory_bank/core/apartment-configurator.md	drift	36	0	0	T-20261109-18/1: всё OK; док сверен целиком
 2026-11-10	.memory_bank/core/agent-trial.md	code	30	6	6	
+2026-11-12	core/partners.md	drift	16	0	0	
+2026-11-12	core/lr-composition.md	drift	12	1	1	
+2026-11-12	core/manager-links.md	drift	18	0	0	
+2026-11-12	core/room-measurement.md	rotation	11	1	1	

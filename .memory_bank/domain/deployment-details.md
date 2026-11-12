@@ -3,7 +3,7 @@ tier: 2
 topic: deployment-details
 scope: Деплой exit-fi — подробности конвейера, сторожа, история правок сервера
 tier1: "../deployment.md"
-updated: 2026-11-11
+updated: 2026-11-12
 importance: med
 source: manual
 last_verified: 2026-11-06
@@ -214,6 +214,18 @@ tamara 25 ГБ. Ночной шаг `disk_keeper` (`tools/scout/refresh_daily.sh
 уходят и без приёмки меша (`tools/scout/salad/prune_shapes.py`; владелец 07.11 TG 486 — меняет условие ADR-0233), кроме стоящих в
 очереди перегона/перекраски. Ручная уборка ведущего 06–07.11 — влитые worktree (`git worktree remove`), старые копии баз стенда
 паритета (`remlab_parity_*`); нужное для стендов держать в `~/remlab-scratch`, не в worktree (банк-кандидат пропал вместе с worktree).
+
+**Второй круг уборки (10.11, ADR-0379, T-20261110-30):** `tools/ops/disk_clean.py` по правилам `tools/scout/rules/dev-disk-clean.json`
+(удаляет только `approved: true`; виды — влитые worktree, кэши стенда разбора планов, старые поколения мешей без ссылок, висячие тома
+и контейнеры стендов БД; `.memory_bank`, `_secrets`, `.env*` не трогает никогда). Ночной шаг `disk_clean` в
+`tools/scout/refresh_daily.sh:202` — с `--apply --digest`. Повод: 10.11 на 391 ГБ осталось 7 ГБ (47 влитых worktree — 16 ГБ).
+Диск DEV к 12.11 — 411 ГБ.
+
+## /demo: заранее сжатые копии (10.11, T-20261110-43/2)
+`tools/scout/publish_demo.sh` после сборки кладёт рядом с текстами `.br` (brotli 11) и `.gz` (gzip 9) — `tools/scout/precompress.mjs`
+(пересоздаёт при смене исходника, сирот убирает); не вышло целиком — убирает ВСЕ свои копии (устаревшая сжатая хуже сжатия на лету).
+Caddy отдаёт их по `precompressed br gzip` (`caddy/Caddyfile`, блок /demo). Разметка /demo 411 → 290 КБ, данные 161 → 99 КБ.
+Самопроверка — `tools/scout/tests/test_publish_demo.py` (`PUB_PRECOMPRESS_CMD`).
 
 ## DEV: `/tmp` — tmpfs с квотой; временное конвейера — на диск (07.11, T-20261107-02/13, урок 528)
 `/tmp` на pakardev — tmpfs ~788 МБ с квотой на пользователя; его забивают чужие проекты (mycoruja-img 255 МБ), папки сессий
