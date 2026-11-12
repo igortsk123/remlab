@@ -36,7 +36,8 @@ const FLOOR = ([y0, y1]) => { const c = LIVE.canvas.getBoundingClientRect();
     await p.addInitScript(() => { try { localStorage.setItem('remlab-sheet-hint-v1', '1'); } catch (e) {} });
     await p.goto(demoUrl((process.env.BASE || 'http://127.0.0.1:8797/demo/') + '?lang=' + LANG + '&quiz=0&live=force'), { waitUntil: 'load', timeout: 120000 });
     await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT", null, { timeout: 90000 });
-    await p.evaluate(v => vwOpenVariant(v), +(process.env.V || 0));
+    // вариант с картиной на стене (как diag T-97/2, на нём подъём воспроизводится); V=<номер> — свой
+    await p.evaluate(v => vwOpenVariant(v == null ? Math.max(0, allVariants().findIndex(x => (x.decor || []).some(isWallArt))) : v), process.env.V == null ? null : +process.env.V);
     await p.evaluate(() => { if (VW.mode !== 'walk') vwMode('walk'); });
     await p.waitForFunction(() => LIVE.scene && LIVE.state === 'ready', null, { timeout: 180000 }); await p.waitForTimeout(2000);
     await p.evaluate(() => { window.__sl = []; const o = window.vwSheet;
