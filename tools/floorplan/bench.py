@@ -500,6 +500,33 @@ def leaf_door(g, thin, dark, arr, t, ppm, angles=(0.0, 90.0)):
     return float(m[0]), float(m[1]), R, quad, sc
 
 
+WALL_END_FILL = 0.5       # конец разрыва упирается в стену: за ним (1–3 px вдоль оси, поперёк в его глубину) стены ≥ половины
+
+
+def wall_both_ends(w0, gm, depth, t):
+    """T-20261111-09/4: оба конца разрыва (маска `gm`, оси `fpcore.gap_axes`) упираются в стену `w0` (маска стен без стрелок), а не
+    в стрелку и не в пустоту. Так выглядит проём, когда стрелка не опора перемычки (`fpcore.islands`): перемычка идёт от стены до
+    стены сквозь стрелку или мимо неё (rgK p2 Bedroom 8 ↔ Playroom, Landing ↔ Bathroom). Щель «торец ↔ стрелка» одним концом
+    упирается в стрелку."""
+    ys, xs = np.nonzero(gm)
+    if len(xs) < 2:
+        return False
+    c, u, n, L, _ = fc.gap_axes(ys, xs)
+    H, W = w0.shape
+    hb = max(1, int(max(float(depth), float(t)) / 2.0) - 1)
+    for sg in (1.0, -1.0):
+        hit = tot = 0
+        for k in (1, 2, 3):
+            for s in range(-hb, hb + 1):
+                p = c + u * sg * ((L - 1.0) / 2.0 + k) + n * s
+                xi, yi = int(round(p[0])), int(round(p[1]))
+                tot += 1
+                hit += int(0 <= xi < W and 0 <= yi < H and bool(w0[yi, xi]))
+        if hit < WALL_END_FILL * tot:
+            return False
+    return True
+
+
 def arrow_doors(gaps, lab_g, arrows, t, wall=None, thin=None, ppm=None, dark=None, angles=None):
     """T-20261111-13: короткие (≤ ARROW_GAP_T·t) дверные разрывы у залитой стрелки. Один такой у стрелки — щель «торец стены ↔
     стрелка», не проём (rgK, Bedroom 3: стрелка «→» в коридоре в 23 см от угла спальни давала «дверь» 43 см, ядро её резало —
@@ -516,7 +543,7 @@ def arrow_doors(gaps, lab_g, arrows, t, wall=None, thin=None, ppm=None, dark=Non
     if arrows is None or not arrows.any() or not t:
         return drop, merged, used
     dbg = os.environ.get('FP_ARROW_DBG')
-    ends = None
+    ends = w0 = None
     if wall is not None:
         w0 = (wall > 0) & (arrows == 0)                # торцы — без стрелок (стрелка у торца продлевает скелет)
         ends = fc.wall_ends(w0.astype(np.uint8), t)
@@ -562,6 +589,11 @@ def arrow_doors(gaps, lab_g, arrows, t, wall=None, thin=None, ppm=None, dark=Non
     for a, gs in by.items():
         if len(gs) == 1:
             g = gs[0]
+            if w0 is not None and wall_both_ends(w0, lab_g == g.id, g.depth, t):
+                if dbg:                                # T-09: стрелка не опора перемычки (`fpcore.islands`) — разрыв идёт от
+                    print(f'[arrow] один разрыв {g.id} ({g.cx:.0f}, {g.cy:.0f}): с обоих концов стена — проём как есть',
+                          file=sys.stderr)             # стены до стены сквозь неё или мимо: это сам проём (rgK p2)
+                continue
             d = arrow_in_opening(g, lab_g, al == a, wall, t) if wall is not None else None
             if dbg:
                 print(f'[arrow] один разрыв {g.id} L {g.length:.1f} глуб {g.depth:.1f} ({g.cx:.0f}, {g.cy:.0f}) t {t:.1f} → '
