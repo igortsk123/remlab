@@ -65,7 +65,13 @@ BACK_GAP_CM = 12.0                                 # задняя кромка �
 BACK_MIN_SHARE = 0.8                               # доля точек кромки, что обязаны быть у стены
 HINGES = ('left', 'right')                         # петля двери на плане неизвестна — пробуем обе; первый вариант комнаты фиксирует свою
 MAX_CORES = 3                                   # ядер на стиль: дальше — те же кровати на всё меньшей площади
-ROOM_BUDGET_S = 30.0                               # бюджет на комнату (чтобы плохой план не ел конвейер); вышло — лучшее, что есть
+STYLE_SOLVES = 16                                  # ПОИСК СТИЛЯ — в вызовах решателя, не в секундах (T-20261112-96/3, Codex
+#                                                    `_intake/codex/2026-11-12-t96-3-answer.md` В3): у каждого стиля свои STYLE_SOLVES
+#                                                    вызовов `solve_bedroom` на кровать и тумбы (ответ из памяти `solve_kit` — бесплатно),
+#                                                    шкаф и комод — свои EXTRA_TRIES; кончились — `search_exhausted`. Прежде комната
+#                                                    делила 30 с стенных часов: на загруженной машине одни и те же стили то вставали, то
+#                                                    нет (sVE0 спальня 1: 1 и 5 стилей на одном коде). Число — замер 3 туров 12.11
+#                                                    (iT0X·sVE0·aRQV: 48 стилей, max 8 вызовов): запас вдвое; время — метрика `seconds`
 MIN_STYLES_READY = 2                               # меньше стилей — комната честно «частично» (владелец TG 1382: разные стили)
 BED_LEN_MIN_CM = 195.0                             # самая короткая кровать (спальное 190 + рама) — нижняя граница длины для проверки «влезает»
 
@@ -456,8 +462,6 @@ EXTRA_ROLES = ('шкаф', 'комод')                    # «по месту�
 EXTRA_SIZES = 3                                    # разных размеров на роль: от самого широкого, что влезает в стену ядра, к узкому
 EXTRA_TRIES = 4                                    # проб размеров на вариант сверх обязательных (`fit_extras`): 4 размера и без потолка
 #                                                    перебор съедал бюджет большой спальни (T-20261111-06/2: Jsfx20 30 → 25 предметов)
-EXTRA_SLICE_S = 4.0                                # потолок времени подбора размеров на вариант (страховка; обычно раньше — EXTRA_TRIES):
-#                                                    вышел — лучшее найденное
 EXTRA_GIVEUP = 4                                   # роль столько проб на ядре ломала шаблон «не у стены» и ни разу не встала — дальше
 #                                                    её не пробуем (кроме первой пробы варианта): «Этажи» спальня 1 — каждый шкаф и
 #                                                    комод «в воздухе» (`back_off_wall`), 25 проб впустую, ×2,4 времени
@@ -506,14 +510,15 @@ def cramped(dims: dict, failed: dict) -> bool:
     return all(r in dims and dims[r][0] >= w and dims[r][1] >= d for r, (w, d) in failed.items())
 
 
-def fit_extras(ad: dict, cand: dict, cfg: dict, core_kit: dict, extras: dict, tpl: dict, deadline: float) -> tuple[dict, dict]:
+def fit_extras(ad: dict, cand: dict, cfg: dict, core_kit: dict, extras: dict, tpl: dict) -> tuple[dict, dict]:
     """Шкаф и комод поверх выполненного шаблона (кровать + тумбы) — ПО МЕСТУ, от широкого к узкому (`extras` — `role_sizes`).
     Лучшее — больше вставших предметов, при равном — со шкафом (вес решателя 3 против 2), затем шире; солвер сам снимает
     необязательное без места (`skipped_optional`), поэтому в набор варианта идут только вставшие роли.
       1) самые широкие шкаф и комод вместе — всегда (как полный набор прежней лестницы `kit_ladder`); встали оба — готово;
       2) шкаф не встал — самый узкий шкаф при комоде, что встал (или самом узком): не встал — шире не пробуем, встал — шире его
          от широкого (`fit_role`); так же комод при шкафе, что встал; шкаф есть, а комода нет — самый узкий шкаф с самым узким
-         комодом. Не больше EXTRA_TRIES проб и EXTRA_SLICE_S секунд (и не позже `deadline` стиля): вышло — лучшее найденное;
+         комодом. Не больше EXTRA_TRIES проб (счёт, не время — T-20261112-96/3; вызовы стиля `STYLE_SOLVES` здесь не тратятся):
+         вышло — лучшее найденное;
          набор не меньше того, где на этом ядре что-то уже не встало (у прошлого стиля тоже), не пробуется (`cramped`); роль,
          что на ядре EXTRA_GIVEUP проб ломала шаблон (проверка назвала её, например `back_off_wall`) и ни разу не встала, дальше
          не пробуется (`hopeless`);
@@ -524,8 +529,8 @@ def fit_extras(ad: dict, cand: dict, cfg: dict, core_kit: dict, extras: dict, tp
     purpose = tpl['purpose']
     wards, dressers = extras.get('шкаф') or [], extras.get('комод') or []
     want = bool(wards) + bool(dressers)
-    stop = min(deadline, time.time() + EXTRA_SLICE_S)
-    best = {'rank': (0, False, 0.0, 0.0), 'res': solve_kit(ad, cand, cfg, core_kit, purpose), 'kit': dict(core_kit)}
+    ad['solves_left'] = None                            # шкаф и комод — свой потолок EXTRA_TRIES, лимит поиска кровати их не режет
+    best ={'rank': (0, False, 0.0, 0.0), 'res': solve_kit(ad, cand, cfg, core_kit, purpose), 'kit': dict(core_kit)}
     tried, left = set(), [EXTRA_TRIES]
     # пробы ядра, где чего-то из шкафа и комода не встало, — общие для стилей комнаты (ядро у них одно); петли у первого стиля —
     # обе, дальше — одна его (`furnish_room`): не встало при обеих — не встанет и при одной
@@ -548,7 +553,7 @@ def fit_extras(ad: dict, cand: dict, cfg: dict, core_kit: dict, extras: dict, tp
         if must != 'always' and any(cramped(dims, f) for f in fails):
             return
         if not must:
-            if left[0] <= 0 or time.time() > stop:
+            if left[0] <= 0:
                 return
             left[0] -= 1
         tried.add(key)
@@ -660,6 +665,10 @@ def solve_kit(ad: dict, cand: dict, cfg: dict, kit: dict, purpose: str):
     if bed_nofit_known(ad, cand, kit, purpose):
         res = None                                   # кровать сама по себе не встаёт на это ядро — решатель не зовём
     else:
+        left = ad.get('solves_left')
+        if left is not None and left <= 0:           # вызовы стиля кончились (`STYLE_SOLVES`): не ответ «не встало» — в память не пишем
+            ad['exhausted'] = True
+            return None
         res = _solve_kit(ad, cand, cfg, kit, purpose)
     ad['memo'][key] = res
     return res
@@ -721,6 +730,9 @@ def _solve_kit(ad: dict, cand: dict, cfg: dict, kit: dict, purpose: str):
     for hinge in ad.get('hinges', HINGES):
         room, ops = build_room(cand, cfg, hinge, purpose)
         lay = solve_bedroom(room, items, purpose)
+        ad['solver_calls'] = ad.get('solver_calls', 0) + 1               # метрика комнаты (`furnish_room` → `solver_calls`)
+        if ad.get('solves_left') is not None:
+            ad['solves_left'] -= 1
         ps = lay.placements
         if not any(base_role(p.role) == 'кровать' for p in ps):
             refused.append(list(lay.meta.get('reason') or []))
@@ -768,14 +780,17 @@ def template_ok(res: dict | None, tpl: dict) -> bool:
     return 'кровать' in roles and roles.count('тумба прикроватная') >= tpl['nightstands']
 
 
-def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadline: float) -> tuple[dict | None, dict | None]:
+def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set) -> tuple[dict | None, dict | None]:
     """Стиль в спальне по ПРАВИЛУ ШАБЛОНОВ (владелец 09.11, TG 478/480): шаблоны по порядку (`templates`) → под шаблон подбираются
     товары стиля (кровать его ширины с готовой моделью, тумба; запас — соседние стили) → товаров нет или не встали ни на одном ядре —
     следующий шаблон. Первый выполненный шаблон — вариант; ни одного — (None, {style, code, templates}) с причиной по каждому шаблону:
     `too_small` (ни одно ядро меньше нормы кровати шаблона — `bed_need`; длина — по самой короткой готовой раме ширины, `frames_len`) /
     `no_bed` / `frame_too_wide` (кровати ширины есть, но рама с проходами не встаёт ни на одно ядро — `frame_need`; отсев ДО среза
-    `BEDS_PER_TEMPLATE`, T-20261110-20) / `no_nightstand` (товаров нет) / `no_fit` (не встали) / `budget` (не дошли). Код стиля: что-то не встало (`no_fit` или `frame_too_wide`) — `bed_no_fit`; все шаблоны больше комнаты — `room_too_small`;
-    иначе — `no_products` (подходящих по размеру товаров нет). Шкаф и комод — по месту (`fit_extras`: от самого широкого, что встаёт, к узкому)."""
+    `BEDS_PER_TEMPLATE`, T-20261110-20) / `no_nightstand` (товаров нет) / `no_fit` (не встали) / `search_exhausted` (кончились вызовы
+    решателя стиля, `STYLE_SOLVES`). Код стиля: поиск исчерпан — `search_exhausted`; что-то не встало (`no_fit` или `frame_too_wide`) — `bed_no_fit`; все шаблоны больше комнаты — `room_too_small`;
+    иначе — `no_products` (подходящих по размеру товаров нет). Шкаф и комод — по месту (`fit_extras`: от самого широкого, что встаёт, к узкому).
+    Исход не зависит от скорости машины: лимит — число вызовов решателя, свой у каждого стиля, без перераспределения (T-20261112-96/3)."""
+    ad['solves_left'], ad['exhausted'] = STYLE_SOLVES, False
     cores = ad['candidates'][:MAX_CORES]
     area = max(c['area_m2'] for c in cores)
     short = max(min(c['w'], c['d']) for c in cores)
@@ -821,12 +836,6 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
                 if not fits_core(frame_need(bed, tpl['purpose']), cand):     # рама не на это ядро — на другом из списка
                     continue
                 core_kit = {'кровать': bed, 'тумба прикроватная': stand}     # обязательное шаблона: не встало — шкафы и комоды не пробуем
-                # отказ кровати на ядре уже доказан (`bed_nofit_known`, T-20261112-96/2) — ответ из памяти без решателя: исход
-                # такой кровати — «не встала», а не «не дошли» (`budget`), даже когда доля времени стиля кончилась
-                known = bed_nofit_known(ad, cand, core_kit, tpl['purpose'])
-                if time.time() > deadline and not known:
-                    why = 'budget'
-                    break
                 ok = template_ok(solve_kit(ad, cand, cfg, core_kit, tpl['purpose']), tpl)
                 if not ok and tpl['purpose'] == 'couple':
                     # лестница тумб пары (T-20261112-95): обе обычные не встали — узкие, потом подвесные, ДО следующего шаблона
@@ -841,26 +850,28 @@ def furnish_style(ad: dict, cfg: dict, style: str, ctx: dict, used: set, deadlin
                     # высокая рама не встала, а ТА ЖЕ рама ниже подоконника встаёт — мешала высота. Тогда высокие рамы не меньше
                     # этой не пробуем (`dominated`), прочие из очереди — как раньше и первыми (выбор там, где прежний подбор
                     # находил кровать, не меняется), за ними — низкие рамы этой ширины по прежнему порядку
-                    if not low_done:
-                        if known and time.time() > deadline and low_probe_pending(cand, cfg, tpl, bed):
-                            why = 'budget'                         # проба низкой рамы — вызов решателя, а время стиля вышло
-                            break
+                    if not low_done and not ad.get('exhausted'):
                         got = window_low_beds(ad, cand, cfg, core_kit, tpl, fit, tries)
                         if got is not None:
                             lim, low = got
                             low_done = True
                             tries = tries[:i] + [b for b in tries[i:] if not dominated(b, bed, lim)] + low
                             low_frames = True
+                    if ad.get('exhausted'):                  # вызовы стиля кончились (`STYLE_SOLVES`) — дальше не ищем
+                        why = 'search_exhausted'
+                        break
                     continue
-                res, kit = fit_extras(ad, cand, cfg, core_kit, extras, tpl, deadline)
+                res, kit = fit_extras(ad, cand, cfg, core_kit, extras, tpl)
                 return dict(variant_from(res, ad, cand, ci, style, kit, extras, tpl, ctx), templates_tried=log), None
+            if why == 'search_exhausted':
+                break
         # low_frames — мешала высота рамы у окна (проба `window_low_beds`), низкие тоже не встали: подсказка спросу на низкие кровати
         log.append({'template': tpl['id'], 'why': why, **({'low_frames': True} if low_frames else {})})
-        if why == 'budget':
+        if why == 'search_exhausted':
             break
     whys = {x['why'] for x in log}
     # «кровати есть, но рама не встала» (`frame_too_wide`) — для человека это «не встала», как `no_fit` (ведущий, T-20261110-20/1)
-    code = 'budget' if 'budget' in whys else ('bed_no_fit' if whys & {'no_fit', 'frame_too_wide'} else
+    code = 'search_exhausted' if 'search_exhausted' in whys else ('bed_no_fit' if whys & {'no_fit', 'frame_too_wide'} else
                                               ('room_too_small' if whys == {'too_small'} else 'no_products'))
     return None, {'style': style, 'code': code, 'templates': log}
 
@@ -896,12 +907,6 @@ def window_limit(cand: dict, cfg: dict, purpose: str) -> float | None:
     room, _ = build_room(cand, cfg, HINGES[0], purpose)
     lims = [max(float(op.sill_cm or 0), 80.0) for op in room.openings if op.kind == 'window']
     return min(lims) if lims else None
-
-
-def low_probe_pending(cand: dict, cfg: dict, tpl: dict, bed: dict) -> bool:
-    """`window_low_beds` позовёт решатель: у ядра есть окно и рама выше его предела."""
-    lim = window_limit(cand, cfg, tpl['purpose'])
-    return lim is not None and float(bed.get('h') or 0) > lim
 
 
 def window_low_beds(ad: dict, cand: dict, cfg: dict, core_kit: dict, tpl: dict, fit: list, tried: list) -> tuple | None:
@@ -952,11 +957,11 @@ def furnish_room(trial_id: str, panel: dict, room: dict, rid: str, cfg: dict, ct
         return rec
     rec.update(contour=ad['contour'], control=ad['control'], flags=list(ad['flags']),
                bed_frame_max_cm=round(bed_frame_max(ad['candidates'][:MAX_CORES])))
-    deadline = time.time() + ROOM_BUDGET_S
-    ad['memo'], ad['room_used'] = {}, set()
-    for i, st in enumerate(STYLES):
-        share = time.time() + max(deadline - time.time(), 0.0) / (len(STYLES) - i)   # доля бюджета: тяжёлый стиль не съедает бюджет остальных
-        var, fail = furnish_style(ad, cfg, st, ctx, ctx['used'].setdefault(st, set()), share)
+    ad['memo'], ad['room_used'], ad['solver_calls'] = {}, set(), 0
+    for st in STYLES:
+        # у каждого стиля свой лимит вызовов решателя (`STYLE_SOLVES`, T-20261112-96/3): тяжёлый стиль не режет следующие, и исход не
+        # зависит от скорости машины; время комнаты — только метрика (`seconds`)
+        var, fail = furnish_style(ad, cfg, st, ctx, ctx['used'].setdefault(st, set()))
         if var is None:
             rec['style_failures'].append(fail)
             continue
@@ -980,6 +985,7 @@ def furnish_room(trial_id: str, panel: dict, room: dict, rid: str, cfg: dict, ct
     rec['openings_core'] = rec['variants'][0]['openings_core'] if rec['variants'] else TD.TR_strip(TR.solver_openings(cand, cfg, HINGES[0]))
     rec['outcome'] = outcome_of(rec)
     rec['seconds'] = round(time.time() - t0, 2)
+    rec['solver_calls'] = ad['solver_calls']
     return rec
 
 
@@ -996,7 +1002,7 @@ def outcome_of(rec: dict) -> dict:
     if not rec['variants']:
         codes = {f['code'] for f in fails}
         code = next((c for c, ok in (('room_too_small', {'room_too_small'}), ('no_products', {'no_products', 'room_too_small'}),
-                                     ('bed_no_fit', {'no_products', 'room_too_small', 'bed_no_fit'})) if codes and codes <= ok), 'budget')
+                                     ('bed_no_fit', {'no_products', 'room_too_small', 'bed_no_fit'})) if codes and codes <= ok), 'search_exhausted')
         return dict(refused(code), styles_total=total)
     few = len(rec['variants']) < MIN_STYLES_READY
     return {'state': 'furnished', 'code': 'few_styles' if few else ('styles_missing' if fails else None), 'detail': None,

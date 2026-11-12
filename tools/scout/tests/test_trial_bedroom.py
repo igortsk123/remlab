@@ -667,7 +667,7 @@ def test_fit_extras_tries_bounded(monkeypatch):
     extras = {'шкаф': [item(f'w{i}', 200 - 40 * i, 60, 210) for i in range(3)],
               'комод': [item(f'k{i}', 120 - 20 * i, 45, 80) for i in range(3)]}
     core = {'кровать': item('b', 170, sleep=160), 'тумба прикроватная': item('s', 45, 40, 50)}
-    res, kit = TB.fit_extras({}, {}, {}, core, extras, {'purpose': 'couple', 'nightstands': 2}, deadline=float('inf'))
+    res, kit = TB.fit_extras({}, {}, {}, core, extras, {'purpose': 'couple', 'nightstands': 2})
     tries = calls[1:]                                  # первый вызов — сам шаблон (кровать и тумбы)
     assert len(tries) <= 3 + TB.EXTRA_TRIES
     assert any('комод' in k and 'шкаф' not in k for k in tries) and any('шкаф' in k and 'комод' not in k for k in tries)
@@ -752,7 +752,7 @@ def _nofit_rig(monkeypatch, refuse):
 
 def test_bed_nofit_memo_skips_solver_for_same_bed(monkeypatch):
     """T-20261112-96/2: кровать не встала на ядре ни на одной петле (BED_NO_FIT) — та же кровать с другой тумбой и в другом стиле
-    решателю не идёт (ответ из памяти); иначе медленные отказы съедали долю времени стиля и исход был «budget», а не «не встала»."""
+    решателю не идёт (ответ из памяти): отказ стоит вызовов решателя стиля (`STYLE_SOLVES`), а исход — «не встала»."""
     ad, cand, calls = _nofit_rig(monkeypatch, lambda items: 'BED_NO_FIT')
     bed = {'w': 150, 'd': 212, 'h': 100, 'name': 'Кровать'}
     assert TB.solve_kit(ad, cand, {}, {'кровать': bed, 'тумба прикроватная': {'w': 42, 'd': 35, 'h': 52}}, 'guest') is None
@@ -781,3 +781,66 @@ def test_bed_nofit_memo_not_cut_by_stand_refusal(monkeypatch):
     ad2, cand2, _ = _nofit_rig(monkeypatch, lambda items: 'BED_NO_FIT')
     TB.solve_kit(ad2, cand2, {}, {'кровать': bed, 'шкаф': {'w': 100, 'd': 60, 'h': 200, 'name': 'Шкаф'}}, 'guest')
     assert not ad2.get('bed_nofit')
+
+
+# ───────────────────────── поиск стиля — в вызовах решателя, не в секундах (T-20261112-96/3, Codex В3) ─────────────────────────
+
+def _sized_bank():
+    """Банк, где у каждого стиля свои размеры: память решателя (`solve_kit`) не схлопывает стили в один вызов."""
+    return [rec(st, item(f'b{i}', 166 + 2 * i, 208 + i, sleep=160), item(f's{i}', 40 + i, 38, 50), item(f'w{i}', 100 + 5 * i, 60, 210))
+            for i, st in enumerate(TB.STYLES)]
+
+
+def _room_run(monkeypatch, jump_s=0.0, solves=None, refuse=None):
+    """Спальня 420×380 (дверь, окно) по всем стилям → (стили, что встали; (стиль, код) отказов; вызовы решателя по стилям).
+    jump_s — на сколько секунд «прыгают» часы за вызов решателя (загруженная машина); solves — свой STYLE_SOLVES;
+    refuse — решатель не ставит ничего (проверка лимита)."""
+    import time as _t
+    import planner.bedroom as PB
+    from types import SimpleNamespace as NS
+    real_time, real_solve, shift, per = _t.time, PB.solve_bedroom, [0.0], {}
+    cur = {'st': None}
+
+    def solve(room, items, purpose):
+        shift[0] += jump_s
+        per[cur['st']] = per.get(cur['st'], 0) + 1
+        if refuse:
+            return NS(placements=[], meta={'reason': ['REQUIRED_NO_FIT']}, violations=[], skipped_optional=[], floor_used_pct=0)
+        return real_solve(room, items, purpose)
+    monkeypatch.setattr(PB, 'solve_bedroom', solve)
+    monkeypatch.setattr(TB.time, 'time', lambda: real_time() + shift[0])
+    if solves is not None:
+        monkeypatch.setattr(TB, 'STYLE_SOLVES', solves)
+    orig = TB.furnish_style
+
+    def style(ad, cfg, st, ctx_, used):
+        cur['st'] = st
+        return orig(ad, cfg, st, ctx_, used)
+    monkeypatch.setattr(TB, 'furnish_style', style)
+    p = plan(sizes=((420, 380),))
+    panel = p['panels'][0]
+    r = TB.furnish_room('t96-3', panel, panel['rooms'][0], 'bedroom-1', TB.TR.rules(), ctx(_sized_bank()))
+    monkeypatch.undo()
+    return (sorted(v['style'] for v in r['variants']), sorted((f['style'], f['code']) for f in r['style_failures']), per,
+            r['outcome'], r.get('solver_calls'))
+
+
+def test_room_outcome_independent_of_machine_speed(monkeypatch):
+    """T-20261112-96/3: тот же план при «медленном» решателе (часы прыгают на 6 с за вызов — прежде это выбивало 3 стиля из 6 по
+    бюджету 30 с) даёт те же стили, те же отказы и то же число вызовов решателя, что при обычном."""
+    fast = _room_run(monkeypatch)
+    slow = _room_run(monkeypatch, jump_s=6.0)
+    assert len(fast[0]) == len(TB.STYLES)
+    assert slow[:3] == fast[:3] and slow[4] == fast[4]
+
+
+def test_style_cap_own_per_style_and_exhausted_code(monkeypatch):
+    """Лимит вызовов решателя — свой у каждого стиля, не делится между стилями: решатель ничего не ставит — каждый стиль тратит
+    ровно свой лимит (± одна петля последнего набора) и получает `search_exhausted`, а не «не встала» и не `budget`; пустая комната —
+    код `search_exhausted`. Лимит 0 — решатель не зовётся вовсе."""
+    styles, fails, per, outcome, calls = _room_run(monkeypatch, solves=3, refuse=True)
+    assert not styles and {c for _, c in fails} == {'search_exhausted'} and len(fails) == len(TB.STYLES)
+    assert set(per) == set(TB.STYLES) and all(3 <= n <= 3 + len(TB.HINGES) - 1 for n in per.values()), per
+    assert outcome['code'] == 'search_exhausted' and calls == sum(per.values())
+    styles, fails, per, outcome, calls = _room_run(monkeypatch, solves=0)
+    assert not styles and calls == 0 and not per and {c for _, c in fails} == {'search_exhausted'}
