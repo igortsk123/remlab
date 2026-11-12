@@ -47,3 +47,4 @@ _optional/
 tools/scout/style-scores.json
 .claude/worktrees/
 .claude/tmp-chk/
+tools/scout/imgcache/
