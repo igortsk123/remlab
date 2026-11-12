@@ -184,6 +184,12 @@ def _dep(p: dict, i: int, parent: str, xy, rot, elev, anchor: Anchor, local: Loc
                      mount=mount, priced=bool(p.get("sellable", True)), marker=p.get("marker"))
 
 
+def _section(it: Item) -> float:
+    """Глубина основной секции дивана: у Г-дивана — `corner_section_cm` (плечо глубже, d — вся буква Г), у прямого — d.
+    Спинка — на тыльной стороне следа (-d/2 в осях носителя), сиденье и подлокотники — в пределах секции."""
+    return min(it.corner_section_cm, it.d_cm) if it.corner else it.d_cm
+
+
 def _surface(group: list[dict], car: Placement, items: dict, out: Result) -> None:
     """item_surface: подушки на сиденье (число и клетки по ширине), ваза/лампа на столешнице (клетки вдоль ширины носителя,
     отступ от края, доля площади). Несколько мест на одной поверхности делят её поровну, порядок — по id места."""
@@ -203,7 +209,8 @@ def _surface(group: list[dict], car: Placement, items: dict, out: Result) -> Non
             if cell <= 0 or (sku is not None and sku.w_cm > cell):
                 raise Reject("FIT_FAIL", p["id"], f"{n} шт. не влезают на сиденье {it.w_cm:g} см (клетка {cell:.1f})")
             depth = _norm(_SURFACE_REF["диван"]["seat_depth"])
-            dy = it.d_cm / 2 - _mid(depth) if depth is not None and it.d_cm > _mid(depth) else 0.0
+            sec = _section(it)
+            dy = -it.d_cm / 2 + (sec - _mid(depth) if depth is not None and sec > _mid(depth) else sec / 2)
             for i in range(n):
                 dx = -span / 2 + cell / 2 + i * (cell + gap)
                 out.placements.append(_dep(p, i, car.slot_instance_id, _world(car, dx, dy), car.rot, elev,
@@ -268,7 +275,7 @@ def _edge(p: dict, car: Placement, room: Room, floor: list[Placement], items: di
         dx, h = s * (it.w_cm / 2 - share * it.w_cm / 2), _surface_h(car, "back", p["id"])
         anchor = Anchor(kind="item_edge", surface="back", edge="back")
         out.limits[_inst(p["id"], 0)] = {"w": round(share * it.w_cm, 1)}
-    dy = -it.d_cm / 2 if anchor.surface == "back" else 0.0
+    dy = -it.d_cm / 2 if anchor.surface == "back" else -it.d_cm / 2 + _section(it) / 2   # подлокотник — середина основной секции
     out.placements.append(_dep(p, 0, car.slot_instance_id, _world(car, dx, dy), car.rot, h, anchor,
                                LocalPose(dx=round(dx, 2), dy=round(dy, 2), dz=h), "surface", sku))
 

@@ -312,6 +312,27 @@ def test_no_numbers_in_solver_code():
     assert nums <= {0, 1, 2, 90, 180, 270, 360, 2.54}, nums
 
 
+def test_corner_sofa_soft_on_main_section():
+    """Г-диван (T-69, живые туры): d — вся буква Г, сиденье и подлокотник — в основной секции у спинки. Прежде подушки вставали
+    по полной глубине — у переднего края секции (152 − 60 от спинки), плед — посреди буквы Г."""
+    places = _level("LR-C1", "A4")
+    r = room()
+    sec, d = 95, 152
+    cars = [_pl("seating.sofa#0", "диван", 250, r.depth_cm - d / 2, 180, size=(214, d, 94), corner=True, corner_section_cm=sec)
+            if c.slot_instance_id == "seating.sofa#0" else c for c in scene(places, r)]
+    res = D.resolve(places, cars, r)
+    assert res.ok, res.reject
+    depth = D._mid(RT.norm_value("heights_cm.sofa_seat_depth"))
+    back = r.depth_cm                                   # rot 180 — спинка к северной стене
+    pil = _by(res, "soft.pillows#")
+    assert pil and all(abs((back - p.y) - (sec - depth)) < 0.01 for p in pil), [(p.x, p.y) for p in pil]
+    throw = _by(res, "soft.throw#")[0]
+    assert back - sec <= throw.y <= back, (throw.x, throw.y)
+    # прямой диван — как раньше: подушки на d/2 − глубина сиденья от центра
+    straight = _by(D.resolve(places, scene(places, r), r), "soft.pillows#")
+    assert all(abs(p.local.dy - (95 / 2 - depth)) < 0.01 for p in straight)
+
+
 # ── прогон по уровням паспорта на трёх сценах ──
 
 SCENES = {
