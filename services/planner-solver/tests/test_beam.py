@@ -48,21 +48,63 @@ def test_candidates_shrink_as_room_fills():
     assert len(second) <= len(first)
 
 
-@pytest.mark.parametrize("idx", [0, 2, 4, 9])
-def test_solve_returns_valid_diverse_layouts(idx):
-    room = ROOMS[idx]
-    t = time.time()
-    outs = solve(room, _items(), top_k=3)
-    dt = time.time() - t
+SPEED_CASES = (0, 2, 4, 9)
+
+
+def _ref_cpu() -> float:
+    """Эталонная нагрузка той же библиотеки, что у перебора (shapely + чистый Python), — секунды процессора. Мерка «сколько
+    стоит работа на этой машине сейчас»: занятые соседями ядра и кэш замедляют её так же, как движок."""
+    from shapely.geometry import Point, box
+    c, acc = time.process_time(), 0.0
+    for i in range(4000):
+        a, b = box(0, 0, 200 + i % 50, 150), box(100, 50 + i % 30, 300, 260)
+        acc += a.intersection(b).area + Point(i % 90, 40).buffer(35, quad_segs=8).intersection(a).area
+        acc += a.distance(b) + sum(1 for _ in range(60))
+    return time.process_time() - c
+
+
+@pytest.fixture(scope="module")
+def solved():
+    """Случаи скорости считаются ОДИН раз на модуль: валидность и скорость читают один и тот же прогон. Эталон — до и после
+    каждого случая (нагрузка машины плавает), берётся медиана."""
+    import statistics
+    res, refs = {}, [_ref_cpu()]
+    for idx in SPEED_CASES:
+        t, c = time.time(), time.process_time()
+        outs = solve(ROOMS[idx], _items(), top_k=3)
+        res[idx] = (outs, time.process_time() - c, time.time() - t)
+        refs.append(_ref_cpu())
+    return res, statistics.median(refs)
+
+
+@pytest.mark.parametrize("idx", SPEED_CASES)
+def test_solve_returns_valid_diverse_layouts(idx, solved):
+    outs, cpu, dt = solved[0][idx]
     assert outs, "движок обязан вернуть хотя бы один вариант"
     assert outs[0].ok, f"лучший вариант забракован: {why_not(outs[0])}"
-    # ПОРОГ ПРОДУКТА МЕРЯЕТСЯ НЕ НА ОБЩЕМ РАННЕРЕ (08.09). На DEV самый долгий случай — 7,8 с
-    # (замер: 4,9 / 6,2 / 6,9 / 7,8 с), на раннере GitHub те же случаи дают 16–18 с: это в два с
-    # лишним раза медленнее, и порог 15 с стал ловить не движок, а соседей по железу — CI был
-    # красным подряд, и из-за этого на прод не уехала ЗАПЛАТКА БЕЗОПАСНОСТИ. Продуктовый порог
-    # («секунды») остаётся локальным — 9 с; на CI держим только защиту от явного зависания.
-    limit = 25.0 if os.environ.get('CI') else 9.0
-    assert dt < limit, f"слишком долго: {dt:.1f} с"   # правил стало больше; порог продукта — «секунды»
+    # Защита от зависания — везде; скорость движка — `test_solve_speed_vs_machine` (здесь только явная поломка).
+    # Время ПРОЦЕССОРА, не часы (T-20261112-87): перебор однопоточный, без пулов и бюджета времени — ожидание процессора на
+    # занятой машине работой движка не считается. На раннере GitHub случаи — 16–18 с по часам (08.09).
+    assert cpu < 25.0, f"слишком долго: {cpu:.1f} с процессора ({dt:.1f} с по часам)"
+    assert dt < 120.0, f"похоже на зависание: {dt:.1f} с по часам"
+
+
+# ПОРОГ СКОРОСТИ — ОТНОСИТЕЛЬНО МАШИНЫ, НЕ В СЕКУНДАХ (T-20261112-87). Был «каждый случай < 9 с» (08.09, тихая DEV: 4,9–7,8 с).
+# 12.11 на занятой DEV (load 18–49 на 15 ядрах) тот же код давал 9,4–19,5 с ПРОЦЕССОРА — 10 прогонов из 10 красные, номера
+# «плавали»; виновного коммита нет (версии 12.11 — 7,6–14,7 с вперемешку, версия до 05.11 — 15–27 с: движок ускорился).
+# Теперь: Σ(время процессора 4 случаев) / эталон shapely той же минуты. Замер 12.11, 3 круга, load 9–22: HEAD 416639ff —
+# 38,6 / 44,8 / 45,7; версия 6aaf114e (до 05.11, вдвое медленнее) — 77,9 / 83,8 / 92,9. Порог 60 ловит замедление ~×1,35.
+# На CI не проверяем: отношение снято на процессоре DEV, на другом железе его надо мерить заново (там держит 25 с выше).
+SPEED_RATIO_MAX = 60.0
+
+
+@pytest.mark.skipif(bool(os.environ.get('CI')), reason="отношение откалибровано на DEV; на CI — защита 25 с процессора на случай")
+def test_solve_speed_vs_machine(solved):
+    res, ref = solved
+    total = sum(cpu for _, cpu, _ in res.values())
+    ratio = total / ref
+    assert ratio < SPEED_RATIO_MAX, (f"движок потяжелел: {total:.1f} с процессора на {len(res)} случая = {ratio:.1f} эталонов "
+                                     f"(эталон {ref:.2f} с, порог {SPEED_RATIO_MAX:g}; HEAD 12.11 — 39–46)")
 
 
 def test_unsolvable_room_gets_explicit_reason():
