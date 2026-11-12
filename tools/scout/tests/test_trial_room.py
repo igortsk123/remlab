@@ -501,6 +501,23 @@ def test_double_door_only_strictly_wider_than_rule():
     assert leaf(150.5) == 75.25
 
 
+def test_door_with_two_arcs_is_double_at_any_width():
+    """T-20261112-48: на листе у наружной двери пара дуг (разбор пишет `leaves: 2`) — две створки и при ширине до порога
+    (французская 110–120 см), в том числе в комнату вне контура дома (оранжерея iT0X: в туре дверь внутренняя). Без признака —
+    как было; широкая внутренняя (T-41) — портал и с признаком."""
+    from shapely.geometry import Polygon
+    cfg = TR.rules()
+    P = Polygon([(0, 0), (400, 0), (400, 300), (0, 300)])
+
+    def placed(w, ext=True, **kw):
+        op = {'kind': 'door', 'c': (200, 0), 'widthCm': w, '_idx': 0, 'exterior': ext, **kw}
+        return TR._place_opening(P, op, lambda p: p, cfg)
+    assert placed(115, leaves=2)['leaf'] == 57.5 and placed(119.2, ext=False, leaves=2)['leaf'] == 59.6
+    cap = cfg['door_leaf_max_cm']
+    assert placed(115)['leaf'] == min(115, cap) and placed(115, ext=False)['leaf'] == min(115, cap)
+    assert placed(156.8, ext=False, leaves=2)['kind'] == 'opening'
+
+
 def test_wide_inner_door_is_portal_like_on_plan():
     """T-20261112-41 (владелец TG 1781, «Этажи»: проход коридор → кухня-гостиная распознан «дверью» 157 см — в 3D стала двустворчатой,
     на плане её нет). Внутренняя «дверь» строго шире `wide_inner_door_cm` — портал без полотна шириной `wide_inner_gap_cm` по центру,

@@ -794,7 +794,8 @@ def panel_result(pi: int, P: dict, model: dict, G_by: dict, scale_ok: bool, nd: 
         c = _cm(o['c'], nd)
         if wcm > 0 and all(math.isfinite(v) for v in c):
             openings.append({'kind': o['kind'] if o.get('kind') in ('door', 'window') else 'opening', 'c': c,
-                             'widthCm': wcm, 'exterior': bool(o.get('exterior'))})
+                             'widthCm': wcm, 'exterior': bool(o.get('exterior')),
+                             **({'leaves': 2} if o.get('leaves') == 2 and o.get('kind') == 'door' else {})})
     if sheet and sheet.get('gray') is not None and float(P.get('ppm') or 0) > 0:
         # выход на уличное помещение: окно у балкона без двери — балконный блок / дверь (`outdoor.exits`)
         ppm_cm = float(P['ppm']) / float(sheet.get('k') or 1.0) / 100

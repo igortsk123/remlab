@@ -193,6 +193,51 @@ def test_mouth_strip_keeps_only_doorway_of_closet():
     assert len(sy) < 0.2 * comp.sum()
 
 
+def closet_with_mouths(mouths):
+    """Каморка 108×64 px за стеной t=6 (внутри x 46–153, y 106–169), проёмы в верхней стене по x; кусок перемычки = пол каморки
+    + проёмы (залит целиком, как кладовка TGva)."""
+    wall = np.zeros((200, 200), np.uint8)
+    wall[100:106, 40:160] = 1; wall[170:176, 40:160] = 1; wall[100:176, 40:46] = 1; wall[100:176, 154:160] = 1
+    comp = np.zeros_like(wall)
+    comp[106:170, 46:154] = 1
+    for a, b in mouths:
+        wall[100:106, a:b] = 0
+        comp[100:106, a:b] = 1
+    return comp, wall
+
+
+def test_cavity_mouth_is_the_doorway_of_filled_closet():
+    """T-20261112-48 (TGva Cupboard): перемычка залила кладовку целиком — устье одно, это проём (самый узкий слой полосы у
+    свободного места), не пол каморки за косяками. Два проёма (проход, отросток комнаты) — не каморка: None."""
+    comp, wall = closet_with_mouths([(80, 120)])
+    ys, xs = fc.cavity_mouth(comp, wall, 7.0, 20.0, 100.0)
+    assert xs.min() >= 79 and xs.max() <= 120 and ys.min() >= 100 and ys.max() <= 107   # проём ±1 px у косяков
+    comp2, wall2 = closet_with_mouths([(55, 75), (120, 140)])
+    assert fc.cavity_mouth(comp2, wall2, 7.0, 15.0, 100.0) is None
+
+
+def test_door_evidence_tells_two_arcs_from_one():
+    """T-20261112-48: французская дверь — две дуги по половине проёма от каждого косяка (`want_how` → 'double'), обычная — одна
+    дуга во всю ширину ('arc'); по 'double' наружная дверь двустворчатая при любой ширине (`bench.TWO_ARCS`)."""
+    pair = np.zeros((240, 260), np.uint8)
+    cv2.ellipse(pair, (60, 100), (60, 60), 0, 0, 90, 1, 1)
+    cv2.ellipse(pair, (180, 100), (60, 60), 0, 90, 180, 1, 1)
+    ys, xs = np.mgrid[97:104, 60:181]
+    c, u, n, L, d = fc.gap_axes(ys.ravel(), xs.ravel())
+    ev, how = fc.door_evidence(pair, c, u, n, L, d, want_how=True)
+    assert ev >= 0.75 and how == 'double'
+    one = np.zeros_like(pair)
+    cv2.ellipse(one, (60, 100), (120, 120), 0, 0, 90, 1, 1)
+    cv2.line(one, (60, 100), (60, 220), 1, 1)                  # створка
+    ev, how = fc.door_evidence(one, c, u, n, L, d, want_how=True)
+    assert ev >= 0.75 and how in ('arc', 'leaf')
+    # пол «ёлочкой» (aOv8): пару малых дуг даёт штриховка — без проверки «чистоты» створки не считаем
+    hatch = pair.copy()
+    for k in range(-260, 260, 6):
+        cv2.line(hatch, (k, 0), (k + 240, 240), 1, 1)
+    assert fc.door_evidence(hatch, c, u, n, L, d, want_how=True)[1] != 'double'
+
+
 def test_largest_rect_and_core_extent_of_l_room():
     m = np.zeros((120, 160), np.uint8)
     m[10:110, 10:150] = 1

@@ -230,7 +230,11 @@ const panel = z.object({
   title: z.string().max(120),
   rooms: z.array(room).max(80),
   walls: z.array(z.object({ z0: num, z1: num, polys: z.array(z.object({ outer: ring, holes: z.array(ring).max(200) })).max(400) })).max(20),
-  openings: z.array(z.object({ kind: z.enum(["door", "window", "opening"]), c: pt, widthCm: num.positive(), exterior: z.boolean() })).max(400),
+  /** `leaves: 2` — у наружной двери на листе пара дуг (французская/патио, `tools/floorplan/bench.py:TWO_ARCS`, T-20261112-48):
+   *  тур рисует её двустворчатой при любой ширине (`tools/scout/trial_room.py:_place_opening`); нет поля — одна створка */
+  openings: z.array(z.object({
+    kind: z.enum(["door", "window", "opening"]), c: pt, widthCm: num.positive(), exterior: z.boolean(), leaves: z.literal(2).optional(),
+  })).max(400),
 });
 
 export const floorplanResult = z.object({

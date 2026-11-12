@@ -120,7 +120,8 @@ def from_bench_models(models: list[dict]) -> dict:
                   'polys': [{'outer': _ring_cm(p['outer']), 'holes': [_ring_cm(h) for h in p.get('holes') or []]}
                             for p in b.get('polys') or []]} for b in m.get('bands') or []]
         ops = [{'kind': o['kind'], 'c': [round(o['c'][0] * 100, 1), round(o['c'][1] * 100, 1)],
-                'widthCm': round(o['width_m'] * 100, 1), 'exterior': bool(o.get('exterior'))}
+                'widthCm': round(o['width_m'] * 100, 1), 'exterior': bool(o.get('exterior')),
+                **({'leaves': 2} if o.get('leaves') == 2 else {})}
                for o in m.get('openings') or [] if o.get('kind') in ('door', 'window', 'opening')]
         panels.append({'id': f"p{i}", 'title': str(m.get('panel') or '')[:120], 'rooms': rooms, 'walls': walls,
                        'openings': ops})
@@ -500,8 +501,12 @@ def _place_opening(P: Polygon, op: dict, T, cfg: dict) -> dict:
     if wide:
         o['wide_door'] = True
     if kind == 'door':
-        # две створки — только у проёма СТРОГО шире порога (T-20261112-35); 3D узнаёт пару по дуге (`opening-ir.ts:isDoubleDoor`)
-        o['leaf'] = min(w / 2 if w > cfg['double_door_min_cm'] else w, cfg['door_leaf_max_cm'])
+        # две створки — у проёма СТРОГО шире порога (T-20261112-35) и у двери, на листе которой пара дуг (`leaves: 2`, T-20261112-48:
+        # французская 110–120 см). Признак разбор пишет только НАРУЖНОЙ по листу двери (`bench.TWO_ARCS`); здесь она бывает и
+        # внутренней — за ней комната вне контура дома (оранжерея iT0X), — створки те же. Широкая внутренняя выше уже стала порталом.
+        # 3D узнаёт пару по дуге (`opening-ir.ts:isDoubleDoor`)
+        two = w > cfg['double_door_min_cm'] or op.get('leaves') == 2
+        o['leaf'] = min(w / 2 if two else w, cfg['door_leaf_max_cm'])
     return o
 
 

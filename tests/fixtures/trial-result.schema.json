@@ -348,6 +348,10 @@
                 },
                 "exterior": {
                   "type": "boolean"
+                },
+                "leaves": {
+                  "type": "number",
+                  "const": 2
                 }
               },
               "required": [

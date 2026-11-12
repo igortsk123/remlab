@@ -50,6 +50,11 @@ PS_TAIL = os.environ.get('FP_PS_TAIL', '1') != '0'   # T-20261111-09: малый
 TEXT_MASK = os.environ.get('FP_TEXT_MASK', '1') != '0'  # T-20261111-09: дуга внутренней перемычки — без букв подписей
 ISLE_M = float(os.environ.get('FP_ISLE_M', '0.5'))   # T-20261111-09/3: отдельный кусок маски не больше — значок, не опора закрытия (0 — как до)
 PPM_MUL = float(os.environ.get('FP_PPM_MUL', '1'))   # T-20261111-09/3: проверка устойчивости — масштаб панели ×k после подгонки
+DEEP_DOOR = os.environ.get('FP_DEEP_DOOR', '1') != '0'   # T-20261112-48: проём внутри залитой перемычкой каморки/отростка (0 — как до)
+# T-20261112-48: наружная дверь с ДВУМЯ дугами (по половине проёма от каждого косяка) — двустворчатая при любой ширине
+# (французская 110–120 см рисуется парой створок, а порог `trial-room.json:double_door_min_cm` давал одну). 0 — как до
+TWO_ARCS = os.environ.get('FP_TWO_ARCS', '1') != '0'
+TWO_ARCS_M = (0.8, 2.4)   # ширина проёма, где ищем пару дуг, м: створка французской ≥ 0,4 м; шире 2,4 — раздвижные/витрины
 TEXT_EV_MIN = 0.5   # без строк подписей дуги должно остаться хоть половина: прихожая TGva 0,95 → 0,26 (дугу давали буквы);
                     # кухня 4y0o 0,80 → 0,63 (настоящая дверь, разрыв длиннее двери, часть точек попадала на подпись)
 
@@ -411,7 +416,7 @@ IN_R, IN_TH = _IN[:, 0], np.radians(_IN[:, 1])
 LEAF_JAMB_T = 2.5       # торец: стена за гранью (на t вглубь) не шире 2,5 t поперёк проёма — иначе грань длинной стены
 
 
-def leaf_door(g, thin, dark, arr, t, ppm, angles=(0.0, 90.0)):
+def leaf_door(g, thin, dark, arr, t, ppm, angles=(0.0, 90.0), inside=None):
     """T-20261111-13/4: одиночный короткий разрыв у стрелки, но рядом на листе — дуга створки (rgK p0 Family ↔ Utility: разрыв
     13 px между стрелкой и проёмом 86 см; p2 Bedroom 8 ↔ Playroom: разрыв у стрелки ступеней в 40 см от настоящей двери).
     Проём: от грани торца стены (по направлениям стен панели `angles`, не дальше R от разрыва) до встречной стены — пусто на R
@@ -474,6 +479,8 @@ def leaf_door(g, thin, dark, arr, t, ppm, angles=(0.0, 90.0)):
             seg = q + d * np.clip((gc - q) @ d, 0.0, R)
             if np.hypot(*(gc - seg)) > R:
                 continue                               # разрыв не в зоне этой двери
+            if inside is not None and not dot(inside, q + d * (R + 1.0) / 2.0):
+                continue                               # T-20261112-48: середина двери — внутри заданного куска
             for s in (nrm, -nrm):
                 for hc, dd in ((q, d), (q + d * (R + 1.0), -d)):    # петля у торца / у встречной стены
                     pts = hc[None, :] + R * (np.cos(th)[:, None] * dd[None, :] + np.sin(th)[:, None] * s[None, :])
@@ -662,8 +669,8 @@ def analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_thr
     for a in (wall, gray):
         h.update(np.ascontiguousarray(a).tobytes()); h.update(str(a.shape).encode())
     h.update(repr((round(float(ppm), 6), [round(float(f), 4) for f in fams], round(float(t), 4), regions, thin_thr,
-                   glaze_thr, ENV_GEO, SPLIT_DEEP, PS_TAIL, TEXT_MASK, TEXT_EV_MIN, ISLE_M, 'tm1')).encode())
-    h.update(inspect.getsource(_analyze).encode() + inspect.getsource(bay_windows).encode())
+                   glaze_thr, ENV_GEO, SPLIT_DEEP, PS_TAIL, TEXT_MASK, TEXT_EV_MIN, ISLE_M, DEEP_DOOR, TWO_ARCS, 'tm1')).encode())
+    h.update(inspect.getsource(_analyze).encode() + inspect.getsource(bay_windows).encode() + inspect.getsource(leaf_door).encode())
     p = Path(cdir) / f'an-{h.hexdigest()[:20]}.pkl'
     if p.exists():
         return pickle.loads(p.read_bytes())
@@ -1012,6 +1019,41 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
         if raw >= DOOR_EV:
             alts.append((ys_, xs_, float(raw)))
 
+    tp_deep = []
+
+    def deep_door(g, comp):
+        """T-20261112-48: внутренняя перемычка глубже 2,2 t залила целиком отросток комнаты или каморку (TGva…: «рукав» ванной
+        у двери 0,75 м и кладовка за раздвижной дверцей) — раньше кусок отбрасывался целиком, вместе с проёмом в нём, и ванна,
+        кладовка и прихожая сливались. Проём ищем внутри куска: (а) створка с дугой от узкого торца стены до встречной стены
+        (`leaf_door`, середина двери — в куске), дуга проверяется, как у малого разрыва (`ev_of`); (б) каморка с одним устьем
+        (`fpcore.cavity_mouth`, глубина — толщина перегородок листа) и рамой в устье (раздвижная/складная дверца в линии стены,
+        `fpcore.frame_coverage` ≥ GLAZE_MIN) — закрытие, как у внутреннего разрыва с «рамой»."""
+        lf = leaf_door(g, thin, wall_drawn, np.zeros_like(wall_drawn), t, ppm,
+                       tuple(fams) if fams else (0.0, 90.0), inside=comp)
+        if lf is not None:
+            q = np.zeros(wall.shape, np.uint8)
+            cv2.fillPoly(q, [np.round(lf[3]).astype(np.int32)], 1)
+            ys_, xs_ = np.nonzero((q > 0) & comp)
+            if len(ys_) >= 3:
+                c_, u_, n_, L_, d_ = fc.gap_axes(ys_, xs_)
+                if d_ <= max_depth:
+                    ev_, px_ = ev_of(c_, u_, n_, L_, d_)
+                    if ev_ >= DOOR_EV:
+                        mark(ys_, xs_)
+                        claims.append((ys_, xs_, ev_, px_))
+                        return
+                    alt_of(ys_, xs_, c_, u_, n_, L_, d_)
+        if not tp_deep:
+            tp_deep.append(fc.thin_partition_t(wall_drawn, t) or t)
+        mm = fc.cavity_mouth(comp, wall, min(float(t), float(tp_deep[0])) + 1.0, 0.4 * ppm, (0.5 * ppm) ** 2, ang)
+        if mm is None:
+            return
+        ys_, xs_ = mm
+        c_, u_, n_, L_, d_ = fc.gap_axes(ys_, xs_)
+        if L_ <= Ls and fc.frame_coverage(ys_, xs_, dark) >= GLAZE_MIN:
+            mark(ys_, xs_)
+            keep_other[ys_, xs_] = 1
+
     # малые разрывы: закрываем, только если есть след проёма — рама окна в толщине стены или дуга двери
     for p in ps_s:
         lab_s, gs = fc.gap_components(p, dark, out1)
@@ -1020,6 +1062,8 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
             c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
             win = g.glaze >= GLAZE_MIN and g.exterior and dpt <= 2.2 * t
             if dpt > 2.2 * t:
+                if DEEP_DOOR and not g.exterior:
+                    deep_door(g, lab_s == g.id)
                 continue
             ev, px = ev_of(c, u, nrm, L, dpt)
             if dpt > max_depth and not win and ev < DOOR_EV:
@@ -1332,6 +1376,16 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
                 raw = fc.door_evidence(thin, c, u, nrm, L, dpt, pure_check=False)
                 if raw >= DOOR_EV:
                     retype.append((g.id, float(raw)))     # T-11/3: запасная дверь (`doorless_doors`) — окно только по «чистоте»
+    if TWO_ARCS:
+        # T-20261112-48: число створок наружной двери — по рисунку: лучшая дуга `door_evidence` — пара дуг по L/2 от обоих
+        # косяков. Окна тоже: дверью их может сделать `doorless_doors`; у окна признак не читается
+        for g in gaps:
+            if g.exterior and g.kind in ('door', 'window') and TWO_ARCS_M[0] * ppm <= g.length <= TWO_ARCS_M[1] * ppm:
+                ys, xs = np.nonzero(lab_g == g.id)
+                c, u, nrm, L, dpt = fc.gap_axes(ys, xs)
+                ev, how = fc.door_evidence(thin, c, u, nrm, L, dpt, wall=wall_drawn, want_how=True)
+                if how == 'double' and ev >= DOOR_EV:
+                    g.leaves = 2
     gaps += tails
     if os.environ.get('FP_DEBUG_ENV', '').startswith('/'):
         vis = np.full(wall.shape + (3,), 255, np.uint8)
@@ -2360,9 +2414,12 @@ def export_panel(outdir, plan, pi, P, r, img, wall, fams, groom, gopen):
     for g in r['gaps']:
         if g.kind == 'wall' or g.id in a_drop or g.id in a_used:
             continue
-        for cx, cy, L in split_by_drawn(g, lab_g, r.get('drawn')):
+        parts = split_by_drawn(g, lab_g, r.get('drawn'))
+        two = g.kind == 'door' and len(parts) == 1 and getattr(g, 'leaves', 1) == 2     # T-48: пара дуг — две створки
+        for cx, cy, L in parts:
             model['openings'].append({'kind': g.kind, 'c': [round(cx / ppm, 3), round(cy / ppm, 3)],
-                                      'width_m': round(L / ppm, 3), 'glaze': round(g.glaze, 2), 'exterior': g.exterior})
+                                      'width_m': round(L / ppm, 3), 'glaze': round(g.glaze, 2), 'exterior': g.exterior,
+                                      **({'leaves': 2} if two else {})})
     Path(outdir).mkdir(parents=True, exist_ok=True)
     (Path(outdir) / f'model-{plan}-{pi}.json').write_text(json.dumps(model, ensure_ascii=False))
     # наложение

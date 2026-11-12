@@ -1050,6 +1050,7 @@ class Gap:
     glaze: float           # доля «не белого» внутри разрыва (стекло окна)
     exterior: bool
     bbox: tuple
+    leaves: int = 1        # створок у наружной двери: 2 — на листе пара дуг (T-20261112-48, `bench._analyze`)
 
 
 # T-36: проём проходит стену насквозь — глубина разрыва ~ толщина стены (у дверей стенда A/B 0,5–1 t). Полоска в 1–3 px вдоль
@@ -1407,8 +1408,59 @@ def mouth_strip(comp: np.ndarray, wall: np.ndarray, t: float):
     return sy + y0, sx + x0
 
 
+def cavity_mouth(comp: np.ndarray, wall: np.ndarray, depth: float, min_len: float, min_free: float, angles=(0.0,)):
+    """T-20261112-48: перемычка залила целиком каморку (шкаф, кладовка) — у каморки ОДНО устье: полоса куска глубиной `depth`
+    у свободного места снаружи куска. Свободное место считается, если его кусок в окне не меньше `min_free` px (щель в углу
+    каморки, недолитая перемычкой, — не устье); полоса — не короче `min_len` px. Устьев два и больше (отросток комнаты,
+    проход) или ни одного — None. → (ys, xs) устья."""
+    ys, xs = np.nonzero(comp)
+    if not len(ys):
+        return None
+    m = int(2 * depth + max(min_len, 4))
+    H, W = comp.shape
+    y0, y1, x0, x1 = max(0, ys.min() - m), min(H, ys.max() + m + 1), max(0, xs.min() - m), min(W, xs.max() + m + 1)
+    c = comp[y0:y1, x0:x1].astype(bool)
+    free = (wall[y0:y1, x0:x1] == 0) & ~c
+    n, lab, st, _ = cv2.connectedComponentsWithStats(free.astype(np.uint8), connectivity=4)
+    big = np.zeros(n, bool)
+    big[1:] = st[1:, cv2.CC_STAT_AREA] >= min_free
+    free = big[lab]
+    if not free.any():
+        return None
+    # глубина — по свободному месту (через проём), не по прямой: сквозь тонкую стену каморки прямая мера дотягивается до
+    # соседнего помещения и даёт «устье» вдоль стены
+    near = grow_within(free, (wall[y0:y1, x0:x1] == 0), int(round(depth))) > 0
+    strip = (c & near).astype(np.uint8)
+    n, lab, st, _ = cv2.connectedComponentsWithStats(strip, connectivity=8)
+    ok = [k for k in range(1, n) if max(st[k, cv2.CC_STAT_WIDTH], st[k, cv2.CC_STAT_HEIGHT]) >= min_len]
+    if len(ok) != 1:
+        return None
+    sy, sx = np.nonzero(lab == ok[0])
+    # устье — самое узкое место полосы (проём между косяками), слои поперёк не шире него на 2 px; каморка за косяками
+    # шире проёма — её пол не закрываем
+    cc, u, nn, _, _ = gap_axes(sy, sx)
+    # слои — по направлению стен листа (наклон minAreaRect в 1–2° даёт по краям полосы слои-огрызки)
+    dirs = [np.array([math.cos(math.radians(a_ + k)), math.sin(math.radians(a_ + k))]) for a_ in angles for k in (0.0, 90.0)]
+    u = max(dirs, key=lambda v: abs(float(v @ u)))
+    nn = np.array([-u[1], u[0]])
+    P = np.column_stack([sx, sy]).astype(float) - cc
+    a, b = np.round(P @ u).astype(int), np.round(P @ nn).astype(int)
+    bs = np.unique(b)
+    wid = np.array([np.unique(a[b == k]).size for k in bs])
+    if not (wid >= min_len).any():
+        return None
+    i0 = int(np.argmin(np.where(wid >= min_len, wid, np.iinfo(np.int64).max)))
+    lo = hi = i0
+    while lo > 0 and wid[lo - 1] <= wid[i0] + 2:
+        lo -= 1
+    while hi < len(bs) - 1 and wid[hi + 1] <= wid[i0] + 2:
+        hi += 1
+    sel = (b >= bs[lo]) & (b <= bs[hi])
+    return sy[sel] + y0, sx[sel] + x0
+
+
 def door_evidence(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: int = 5, tangent_only: bool = False,
-                  want_px: bool = False, wall: np.ndarray | None = None, pure_check: bool = True):
+                  want_px: bool = False, wall: np.ndarray | None = None, pure_check: bool = True, want_how: bool = False):
     """Есть ли у разрыва дуга двери: доля углов 0–90°, где на радиусе створки от петли (конец разрыва, грань стены)
     лежит тонкая линия. Створка одна (радиус L) или две (по L/2 от каждого конца, обе дуги). → лучшая доля 0..1.
     `tangent_only` — только «вогнутая» дуга створки, нарисованной закрытой в линии стены (T-20261110-11): касается грани
@@ -1416,7 +1468,9 @@ def door_evidence(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: i
     `want_px` → (доля, пиксели рисунка `_evidence_px`) — для «одна дуга — одна дверь» (T-20261111-11).
     `wall` (маска стен) — створка вплотную к грани стены (ближе LEAF_WALL·R) не засчитывается: это обвод стены или
     тетива лестницы у неё, а «разрыв» упирается в стену поперёк (T-20261111-11, bs30: площадка у санузла, верх лестницы).
-    `pure_check=False` — прежнее правило без «чистоты» (запасная дверь комнаты без дверей, `bench.doorless_doors`, T-11/3)."""
+    `pure_check=False` — прежнее правило без «чистоты» (запасная дверь комнаты без дверей, `bench.doorless_doors`, T-11/3).
+    `want_how` → (доля, рисунок лучшего: 'arc' | 'double' | 'leaf' | None) — число створок наружной двери (T-20261112-48);
+    'double' — только при проверке «чистоты» (на заштрихованном полу и при `pure_check=False` — None)."""
     if tangent_only:
         v = _tangent_evidence(thin, c, u, n, L, depth, step_deg)
         return (v, frozenset()) if want_px else v
@@ -1522,6 +1576,13 @@ def door_evidence(thin: np.ndarray, c, u, n, L: float, depth: float, step_deg: i
                                 break
     if want_px:
         return best, _evidence_px(thin, how, cov_mask, arc_pts, leaf_mask, leaf_pts)
+    if want_how:
+        kind = how[0] if how else None
+        if kind == 'double' and not pure:
+            # пол заштрихован (паркет «ёлочкой», aOv8 вход: одна створка наружу) — без «чистоты» пару малых дуг даёт сама
+            # штриховка (1,0 у любой пары): число створок по ней не читаем
+            kind = None
+        return best, kind
     return best
 
 
