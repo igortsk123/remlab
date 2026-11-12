@@ -9,15 +9,17 @@
 from __future__ import annotations
 
 import json
+import os
 from functools import lru_cache
 from pathlib import Path
 
 from shapely.affinity import rotate, translate
 from shapely.geometry import box
+from shapely.ops import unary_union
 
 from .clearances import ClearanceSpec, distances
 from .geometry import (access_zone, base_role, facing_vector, floor_used_pct, footprint, opening_polygon,
-                       radiator_polygon, room_polygon)
+                       radiator_polygon, room_polygon, swing_polygon)
 from .models import Layout, Placement, Room, Severity, Violation
 from .validate import _v, check_boundary, check_collisions, check_openings, check_radiators, check_wall_only, is_flat_floor
 
@@ -59,6 +61,28 @@ def switch(name: str) -> dict:
     (нет ключа или on=false — прежнее поведение)."""
     s = bedroom_rules().get("switches", {}).get(name) or {}
     return s if s.get("on") else {}
+
+
+ENGINES = ("items", "groups")
+
+
+def engine(explicit: str | None = None) -> str:
+    """Движок солвера спальни (T-20261112-38/2): явный → env BEDROOM_ENGINE → `rules/bedroom.json` _meta.engine → items.
+    items — поштучная расстановка (прежнее байт в байт), groups — группы-шаблоны (`planner/bedroom.py:_solve_groups`)."""
+    e = explicit or os.environ.get("BEDROOM_ENGINE") or bedroom_rules().get("_meta", {}).get("engine") or "items"
+    if e not in ENGINES:
+        raise ValueError(f"движок спальни {e!r}? можно {', '.join(ENGINES)}")
+    return e
+
+
+def strict_on(eng: str | None = None) -> bool:
+    """Строгие проверки движка групп (`switches.group_checks`): изножье в дуге двери, радиатор перед хранением, хранение у
+    бока кровати у изголовья. Включены, только когда движок — из `engines` выключателя; у items — прежние проверки."""
+    sw = switch("group_checks")
+    return bool(sw) and engine(eng) in sw.get("engines", ())
+
+
+STORAGE_LIKE = ("шкаф", "комод", "стол рабочий", "стул рабочий", "туалетный столик")
 
 
 def side_back(p: Placement) -> str | None:
@@ -177,6 +201,79 @@ def side_on_wall(room: Room, p: Placement) -> bool:
 
 def head_wall(p: Placement) -> str:
     return {0: "south", 90: "west", 180: "north", 270: "east"}[int(p.rot) % 360]
+
+
+def door_swings(room: Room):
+    """Дуги створок дверей и балконных дверей комнаты одной фигурой (None — дуг нет)."""
+    sw = [s for s in (swing_polygon(room, op) for op in room.openings if op.kind in ("door", "balcony")) if not s.is_empty]
+    return unary_union(sw) if sw else None
+
+
+def foot_swing_share(room: Room, bed: Placement, swings=None) -> float:
+    """Доля полосы у изножья (`bed_zones` foot, глубина bed_foot_min) под дугой створки двери: 0 — дуга не задевает."""
+    sw = door_swings(room) if swings is None else swings
+    if sw is None:
+        return 0.0
+    z = bed_zones(bed)["foot"]
+    return z.intersection(sw).area / z.area if z.area > 0 else 0.0
+
+
+def head_side_zones(room: Room, bed: Placement) -> list:
+    """Полосы у изголовья по НЕ пристенным бокам кровати (bed_side_passage × bed_head_zone): там место тумбе и лампе,
+    не шкафу/комоду/столу (движок групп, BED_SIDE_STORAGE)."""
+    w, d = bed.item.w_cm, bed.item.d_cm
+    side, head = num("bed_side_passage", 75), min(num("bed_head_zone", 50), d)
+    z = bed_zones(bed)
+    out = []
+    if not _against_wall(room, z["left_wall"]):
+        out.append(_local(bed, -w / 2 - side, -d / 2, -w / 2, -d / 2 + head))
+    if not _against_wall(room, z["right_wall"]):
+        out.append(_local(bed, w / 2, -d / 2, w / 2 + side, -d / 2 + head))
+    return out
+
+
+def front_reach(p: Placement):
+    """Ближняя часть фронт-зоны шкафа/комода — вылет створки или ящика (`storage_open_reach`)."""
+    w, d = p.item.w_cm, p.item.d_cm
+    return _local(p, -w / 2, d / 2, w / 2, d / 2 + num("storage_open_reach", 45))
+
+
+def check_group_rules(room: Room, ps: list[Placement]) -> list[Violation]:
+    """Строгие проверки движка групп (`switches.group_checks`, дыры схем Т0 T-20261112-38): изножье в дуге двери, проход
+    у бока в дуге, радиатор перед шкафом/комодом, хранение у бока кровати у изголовья."""
+    out = []
+    sw = door_swings(room)
+    lim = num("bed_foot_swing_max_share", 0.15)
+    for b in [p for p in ps if is_bed(p) and p.item is not None]:
+        share = foot_swing_share(room, b, sw)
+        if share >= lim:
+            out.append(_v("BED_FOOT_IN_SWING", f"изножье «{b.role}» в дуге двери ({share * 100:.0f} % прохода)", [b.role],
+                          round(share * 100), f"< {lim * 100:.0f} % полосы у изножья"))
+        elif share > 0.005:
+            out.append(_v("BED_FOOT_SWING_EDGE", f"край дуги двери задевает угол прохода у изножья «{b.role}»", [b.role],
+                          round(share * 100), "дуга не у изножья", Severity.SOFT))
+        z = bed_zones(b)
+        if sw is not None and any(z[s].intersection(sw).area > AREA_EPS for s in ("left", "right")
+                                  if both_sides(room, b) or side_clear(room, z, s, [o for o in ps if o is not b])):
+            out.append(_v("BED_SIDE_IN_SWING", f"проход у бока «{b.role}» в дуге двери", [b.role], None,
+                          "дверь не открывается в проход у кровати", Severity.SOFT))
+        for hz in head_side_zones(room, b):
+            for o in ps:
+                if bedroom_role(o.role) in STORAGE_LIKE and hz.intersection(footprint(o)).area > AREA_EPS:
+                    out.append(_v("BED_SIDE_STORAGE", f"«{o.role}» у бока «{b.role}» у изголовья — там место тумбе",
+                                  [o.role, b.role], None, "у изголовья по бокам — только тумба и лампа"))
+    rads = [radiator_polygon(room, r) for r in room.radiators]
+    for a in ps:
+        if a.item is None or bedroom_role(a.role) not in ("шкаф", "комод") or not rads:
+            continue
+        near, zone = front_reach(a), access_zone(a, spec=bedroom_spec(a.role))
+        if any(near.intersection(r).area > AREA_EPS for r in rads):
+            out.append(_v("BR_ACCESS_RADIATOR", f"перед «{a.role}» радиатор ближе {num('storage_open_reach', 45):.0f} см — "
+                          "створка/ящик упрётся", [a.role], None, "радиатор вне вылета фасада"))
+        elif any(zone.intersection(r).area > AREA_EPS for r in rads):
+            out.append(_v("BR_ACCESS_RADIATOR_FAR", f"радиатор в дальней части прохода перед «{a.role}»", [a.role], None,
+                          "фронт-зона без радиатора", Severity.SOFT))
+    return out
 
 
 def check_bed(room: Room, ps: list[Placement]) -> list[Violation]:
@@ -367,7 +464,9 @@ def check_bedroom_passages(room: Room, ps: list[Placement]) -> list[Violation]:
 
 
 def validate_bedroom(room: Room, placements: list[Placement], *, passage: str = "secondary",
-                     fast_hard: bool = False) -> Layout:
+                     fast_hard: bool = False, strict: bool | None = None) -> Layout:
+    """strict — строгие проверки движка групп (`check_group_rules`); None — по движку (`strict_on`: env/правила)."""
+    strict = strict_on() if strict is None else strict
     checks = [
         lambda: check_boundary(room, placements),
         lambda: check_collisions(placements),
@@ -380,8 +479,10 @@ def validate_bedroom(room: Room, placements: list[Placement], *, passage: str = 
         lambda: check_desk_window(room, placements),
         lambda: check_desk_light(room, placements),
         lambda: check_bedroom_floor(room, placements),
-        lambda: check_bedroom_passages(room, placements),   # самая дорогая — последней
     ]
+    if strict:
+        checks.append(lambda: check_group_rules(room, placements))
+    checks.append(lambda: check_bedroom_passages(room, placements))   # самая дорогая — последней
     vs: list[Violation] = []
     for chk in checks:
         vs += chk()

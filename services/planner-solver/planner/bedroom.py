@@ -14,9 +14,11 @@ from shapely.affinity import rotate as _rot
 from shapely.geometry import Point
 from shapely.ops import unary_union
 
-from .bedroom_checks import (AREA_EPS, bed_zones, bedroom_role, bedroom_rules, bedroom_spec, both_sides,
-                             check_bed, head_exempt, is_double, light_side, nightstand_ok, num, same_group, side_back,
-                             side_back_denied, side_clear, validate_bedroom)
+from .bedroom_checks import (AREA_EPS, STORAGE_LIKE, bed_zones, bedroom_role, bedroom_rules, bedroom_spec, both_sides,
+                             check_bed, door_swings, foot_swing_share, front_reach, head_exempt, head_side_zones,
+                             is_double, light_side, nightstand_ok, num, same_group, side_back, side_back_denied, side_clear,
+                             validate_bedroom)
+from .bedroom_checks import engine as _engine_of
 from .geometry import (SAFE_GAP_CM, _wall_point, _wall_strip, access_zone, footprint, opening_polygon,
                        radiator_polygon, room_edges, room_polygon, swing_polygon)
 from .models import Item, Layout, Placement, Room, Severity
@@ -246,20 +248,21 @@ def _bed_ok(room: Room, S: _Statics, p: Placement) -> bool:
     return not any(v.severity is Severity.HARD for v in check_bed(room, [p]))
 
 
-def solve_bedroom(room: Room, items: list[Item], purpose: str | None = None, *, beam: int = BEAM) -> Layout:
-    purpose = purpose or room.purpose or "couple"
+def _prelude(room: Room, items: list[Item], purpose: str, solver: str):
+    """Общее начало обоих движков: назначение → состав (`purposes`), обязательное, отказы по кровати.
+    → (cfg, meta, must_have, by_role, Layout-отказ | None)."""
     cfg = bedroom_rules()["purposes"].get(purpose)
-    meta = {"solver": "bedroom-v1", "purpose": purpose, "reason": []}
+    meta = {"solver": solver, "purpose": purpose, "reason": []}
     if cfg is None:
         meta["reason"].append("PURPOSE_UNKNOWN")
-        return Layout(room=room, placements=[], meta=meta, unplaced=sorted(i.role for i in items))
+        return None, meta, None, None, Layout(room=room, placements=[], meta=meta, unplaced=sorted(i.role for i in items))
     if cfg.get("ages"):            # детская: состав по возрасту (Room.child_age); возраста нет в правилах — ждёт
         meta["child_age"] = room.child_age
         cfg = cfg["ages"].get(room.child_age or "", cfg)
     if cfg.get("pending"):
         meta["reason"].append("PURPOSE_PENDING")
         meta["pending"] = cfg["pending"]
-        return Layout(room=room, placements=[], meta=meta, unplaced=sorted(i.role for i in items))
+        return cfg, meta, None, None, Layout(room=room, placements=[], meta=meta, unplaced=sorted(i.role for i in items))
     required = set(cfg["required"])
     alias = bedroom_rules().get("aliases", {})
 
@@ -272,15 +275,29 @@ def solve_bedroom(room: Room, items: list[Item], purpose: str | None = None, *, 
         meta["reason"].append("MISSING_ITEM")
         meta["missing"] = missing
     bed = by_role.get("кровать") or next((i for x, i in by_role.items() if alias.get(x) == "кровать"), None)
+    refuse = None
     if bed is not None and cfg.get("bed") == "double" and not is_double(Placement(role="кровать", item=bed, x=0, y=0)):
-        meta["reason"].append("BED_NOT_DOUBLE")
-        return Layout(room=room, placements=[], meta=meta, unplaced=["кровать"])
-    if bed is not None and cfg.get("bed") == "single" and is_double(Placement(role="кровать", item=bed, x=0, y=0)):
-        meta["reason"].append("BED_NOT_SINGLE")      # узкое назначение (single_narrow) двуспальную не ставит
-        return Layout(room=room, placements=[], meta=meta, unplaced=["кровать"])
-    if bed is not None and side_back_denied(purpose, bed):
-        meta["reason"].append("BED_SIDE_BACK_COUPLE")  # угловая модель паре не годится — подход нужен с двух сторон
-        return Layout(room=room, placements=[], meta=meta, unplaced=["кровать"])
+        refuse = "BED_NOT_DOUBLE"
+    elif bed is not None and cfg.get("bed") == "single" and is_double(Placement(role="кровать", item=bed, x=0, y=0)):
+        refuse = "BED_NOT_SINGLE"      # узкое назначение (single_narrow) двуспальную не ставит
+    elif bed is not None and side_back_denied(purpose, bed):
+        refuse = "BED_SIDE_BACK_COUPLE"  # угловая модель паре не годится — подход нужен с двух сторон
+    if refuse:
+        meta["reason"].append(refuse)
+        return cfg, meta, must_have, by_role, Layout(room=room, placements=[], meta=meta, unplaced=["кровать"])
+    return cfg, meta, must_have, by_role, None
+
+
+def solve_bedroom(room: Room, items: list[Item], purpose: str | None = None, *, beam: int = BEAM,
+                  engine: str | None = None) -> Layout:
+    """engine — движок (`bedroom_checks.engine`: явный → env BEDROOM_ENGINE → rules _meta.engine). items — поштучно
+    (прежнее байт в байт), groups — группы-шаблоны (`_solve_groups`, T-20261112-38)."""
+    purpose = purpose or room.purpose or "couple"
+    if _engine_of(engine) == "groups":
+        return _solve_groups(room, items, purpose, beam=beam)
+    cfg, meta, must_have, by_role, early = _prelude(room, items, purpose, "bedroom-v1")
+    if early is not None:
+        return early
 
     S = _Statics(room)
     S.bed_tpl = cfg.get("bed_template")
@@ -331,13 +348,13 @@ def solve_bedroom(room: Room, items: list[Item], purpose: str | None = None, *, 
     return lay
 
 
-def _repair(room: Room, st: _State, must_have) -> tuple[_State, Layout]:
+def _repair(room: Room, st: _State, must_have, strict: bool = False) -> tuple[_State, Layout]:
     """Полная проверка ловит то, чего не видит пошаговая (проход 46 до предмета через всю комнату). Жёсткое
     из-за ОПЦИОНАЛЬНОГО предмета — снимаем его (самый лёгкий по весу первым) в «не нашлось места», а не сдаём брак.
-    must_have(роль) — обязательна ли роль по назначению (с детскими псевдонимами)."""
+    must_have(роль) — обязательна ли роль по назначению (с детскими псевдонимами). strict — проверки движка групп."""
     placed = list(st.placed)
     while True:
-        lay = validate_bedroom(room, placed)
+        lay = validate_bedroom(room, placed, strict=strict)
         bad = {r for v in lay.violations if v.severity is Severity.HARD for r in v.roles}
         drop = sorted((p for p in placed if p.role in bad and not must_have(p.role)),
                       key=lambda p: (WEIGHT.get(bedroom_role(p.role), 1.0), p.role))
@@ -365,3 +382,289 @@ def _dedupe(states: list[_State]) -> list[_State]:
         seen.add(k)
         out.append(st)
     return out
+
+
+# ───────────────────────── движок ГРУПП-ШАБЛОНОВ (T-20261112-38/2, план bedroom-groups-01, ADR-0384) ─────────────────────────
+# Группа ставится целиком или не ставится: «сон» (кровать + тумбы вплотную по бокам) — по варианту pair → one_side → solo;
+# работа (стол + стул) — вместе; хранение и туалетный — каждый предмет спинкой к стене. Порядок — сначала группы с
+# обязательными ролями назначения (кабинет и детская 7–12 — стол первым), потом `groups.order`. Вариант «сна» — уровень
+# целого состава (Codex): pair + хранение > one_side + хранение > pair без хранения; уровни перебираем по порядку и
+# останавливаемся на первом полном. Строгие проверки (`bedroom_checks.check_group_rules`) — и в луче, и в финальной.
+
+VARIANTS = ("pair", "one_side", "solo")
+VARIANT_RANK = {"pair": 0, "one_side": 1, "solo": 2, None: 3}
+NS_NEED = {"pair": 2, "one_side": 1, "solo": 0}
+CENTER_PER_CM = 0.01          # пара: штраф за отход центра кровати от центра стены, на см (мягко — уступает дуге двери)
+
+
+def group_of(role: str) -> str:
+    """Группа роли по `rules/bedroom.json` groups[*].roles (детские роли — через псевдонимы); вне групп — сама роль."""
+    b = bedroom_role(role)
+    for g, spec in bedroom_rules().get("groups", {}).items():
+        if isinstance(spec, dict) and b in spec.get("roles", ()):
+            return g
+    return "other:" + role
+
+
+def _wardrobe_denied(room: Room, purpose: str) -> bool:
+    """ADR-0384 поправка 2: пара в малой (≤ bedroom_small_couple_max_m2) и НЕ вытянутой комнате — без шкафа."""
+    if purpose != "couple":
+        return False
+    w, d = room.width_cm, room.depth_cm
+    aspect = max(w, d) / max(1.0, min(w, d))
+    return room.area_m2 <= num("bedroom_small_couple_max_m2", 10.5) and aspect < num("bedroom_elongated_aspect_min", 1.4)
+
+
+def _bed_tpl(S: _Statics, role: str, item: Item) -> str:
+    probe = Placement(role=role, item=item, x=0, y=0)
+    dbl = is_double(probe)
+    tpl = S.bed_tpl if (S.bed_tpl and not dbl) else ("bed_center_wall" if dbl else "bed_corner")
+    return "bed_side_back_corner" if side_back(probe) else tpl
+
+
+def _pref_g(S: _Statics, p: Placement, slot) -> float:
+    """Предпочтения движка групп: как `_pref`, но двуспальная — к центру стены по сантиметрам (центр уступает дуге двери
+    и проходам, которые здесь жёсткие), а не по доле стены."""
+    if bedroom_role(p.role) == "кровать" and is_double(p) and p.tpl_id == "bed_center_wall":
+        _, _, _rot, frac, L, _edge = slot
+        return -CENTER_PER_CM * abs(frac * L - L / 2)
+    return _pref(S, p, slot)
+
+
+def _hz(S: _Statics, bed: Placement) -> list:
+    """Зоны у изголовья кровати (кэш на позицию: в луче одна кровать проверяется тысячи раз)."""
+    k = (bed.x, bed.y, int(bed.rot), bed.item.w_cm, bed.item.d_cm)
+    if k not in S.hz:
+        S.hz[k] = head_side_zones(S.room, bed)
+    return S.hz[k]
+
+
+def _strict_fit(S: _Statics, p: Placement, placed: list[Placement]) -> bool:
+    """Строгие проверки движка групп для одного нового предмета (то же, что `check_group_rules`, но сразу в луче)."""
+    r = bedroom_role(p.role)
+    if r == "кровать":
+        if foot_swing_share(S.room, p, S.swings) >= num("bed_foot_swing_max_share", 0.15):
+            return False
+        stor = [q for q in placed if bedroom_role(q.role) in STORAGE_LIKE]
+        return not stor or not any(z.intersection(footprint(q)).area > AREA_EPS for z in _hz(S, p) for q in stor)
+    if r in STORAGE_LIKE:
+        fp = footprint(p)
+        for b in placed:
+            if bedroom_role(b.role) == "кровать" and any(z.intersection(fp).area > AREA_EPS for z in _hz(S, b)):
+                return False
+        if r in ("шкаф", "комод") and S.rads:
+            k = (p.x, p.y, int(p.rot), p.item.w_cm, p.item.d_cm)
+            if k not in S.reach:
+                S.reach[k] = front_reach(p)
+            near = S.reach[k]
+            if any(near.intersection(rp).area > AREA_EPS for rp in S.rads):
+                return False
+    return True
+
+
+def _chain(st: _State, S: _Statics, plist: list[Placement], pref: float) -> _State | None:
+    """Группа целиком: каждый предмет проходит «влезает» и строгие проверки с уже стоящими и предыдущими из группы."""
+    cur = st
+    for p in plist:
+        if bedroom_role(p.role) == "кровать" and not _bed_ok(S.room, S, p):
+            return None
+        if not _fits(cur, S, p) or not _strict_fit(S, p, cur.placed):
+            return None
+        keep = cur.keep + [(p.role, z, ex) for z, ex in _keepouts(p, cur.placed + [p], S.room)]
+        cur = _State(cur.placed + [p], keep, cur.score, cur.skipped)
+    cur.score = st.score + pref
+    return cur
+
+
+def _sleep_units(st: _State, S: _Statics, bed_role: str, bed: Item, ns: list[tuple[str, Item]], variant: str):
+    """Кандидаты группы «сон» варианта: кровать в слоте + тумбы вплотную по бокам (pair — обе, one_side — одна слева или
+    справа, solo — без тумб)."""
+    for slot in _slots(S.room, bed):
+        p = _place(bed_role, bed, slot[0], slot[1], slot[2], _bed_tpl(S, bed_role, bed))
+        pref = _pref_g(S, p, slot)
+        if variant == "solo":
+            yield [p], pref
+            continue
+        if variant == "pair":
+            (r0, i0), (r1, i1) = ns[0], ns[1]
+            a = list(_nightstand_spots(p, i0))[0]
+            b = list(_nightstand_spots(p, i1))[1]
+            ps = [_place(r0, i0, a[0], a[1], int(p.rot), p.tpl_id), _place(r1, i1, b[0], b[1], int(p.rot), p.tpl_id)]
+            if all(nightstand_ok(S.room, n, [p]) for n in ps):
+                yield [p] + ps, pref
+            continue
+        r0, i0 = ns[0]
+        for x, y in _nightstand_spots(p, i0):
+            n = _place(r0, i0, x, y, int(p.rot), p.tpl_id)
+            if nightstand_ok(S.room, n, [p]):
+                yield [p, n], pref
+
+
+def _work_units(st: _State, S: _Statics, desk_role: str, desk: Item, chair: tuple[str, Item] | None):
+    for p, pref in _candidates(st, S, desk_role, desk):
+        if chair is None:
+            yield [p], pref
+            continue
+        x, y, rot = _chair_spot(p, chair[1])
+        yield [p, _place(chair[0], chair[1], x, y, rot, p.tpl_id)], pref
+
+
+def _single_units(st: _State, S: _Statics, role: str, item: Item):
+    for p, pref in _candidates(st, S, role, item):
+        yield [p], pref
+
+
+def _diverse(states: list[_State], beam: int) -> list[_State]:
+    """Луч по группе «сон»: держим РАЗНЫЕ стены изголовья (Codex: пары «сон × хранение» на разных стенах), по кругу —
+    лучший каждой стены, потом второй и т. д."""
+    buckets: dict = {}
+    for st in states:
+        bed = next((p for p in st.placed if bedroom_role(p.role) == "кровать"), None)
+        buckets.setdefault(int(bed.rot) if bed else -1, []).append(st)
+    out, k = [], 0
+    while len(out) < beam and any(len(v) > k for v in buckets.values()):
+        for v in buckets.values():
+            if len(v) > k and len(out) < beam:
+                out.append(v[k])
+        k += 1
+    return sorted(out, key=_State.key)
+
+
+def _stages(by_role: dict, must_have, order: list[str], denied: set) -> list[tuple]:
+    """Группы набора по порядку: (имя, обязательна ли, роли). Группы с обязательной ролью — первыми."""
+    groups: dict = {}
+    for role in sorted(by_role, key=_order_key):
+        if role in denied:
+            continue
+        groups.setdefault(group_of(role), []).append(role)
+    idx = {g: i for i, g in enumerate(order)}
+    names = sorted(groups, key=lambda g: (not any(must_have(r) for r in groups[g]), idx.get(g, len(order)), g))
+    return [(g, any(must_have(r) for r in groups[g]), groups[g]) for g in names]
+
+
+def _run_variant(S: _Statics, by_role: dict, stages: list, variant: str | None, must_have, beam: int) -> tuple:
+    """Луч по группам для одного варианта «сна» → (состояния, None) или (None, роли не вставшей обязательной группы)."""
+    states = [_State([], [], 0.0, [])]
+    for g, required, roles in stages:
+        if g == "sleep":
+            bed_role = next((r for r in roles if bedroom_role(r) == "кровать"), None)
+            ns = [(r, by_role[r]) for r in roles if bedroom_role(r) == "тумба прикроватная"]
+            units = [("sleep", roles, lambda st, br=bed_role, ns=ns: _sleep_units(st, S, br, by_role[br], ns, variant))] \
+                if bed_role else [(r, [r], lambda st, r=r: _single_units(st, S, r, by_role[r])) for r in roles]
+            bed_required = bool(bed_role) and must_have(bed_role)
+        elif g == "work":
+            desk = next((r for r in roles if bedroom_role(r) == "стол рабочий"), None)
+            chair = next(((r, by_role[r]) for r in roles if bedroom_role(r) == "стул рабочий"), None)
+            units = [("work", roles, lambda st, d=desk, c=chair: _work_units(st, S, d, by_role[d], c))] if desk else \
+                [(r, [r], lambda st, r=r: _single_units(st, S, r, by_role[r])) for r in roles]
+            bed_required = False
+        else:
+            units = [(r, [r], lambda st, r=r: _single_units(st, S, r, by_role[r])) for r in roles]
+            bed_required = False
+        for name, uroles, gen in units:
+            must = any(must_have(r) for r in uroles) or (name == "sleep" and bed_required)
+            nxt = []
+            for st in states:
+                for plist, pref in gen(st):
+                    got = _chain(st, S, plist, pref)
+                    if got is not None:
+                        nxt.append(got)
+                if not must:
+                    lost = [r for r in uroles if not (name == "sleep" and bedroom_role(r) == "тумба прикроватная")]
+                    nxt.append(_State(st.placed, st.keep,
+                                      st.score - sum(WEIGHT.get(bedroom_role(r), 1.0) * 10 for r in lost), st.skipped + uroles))
+            if not nxt:
+                return None, uroles
+            nxt.sort(key=_State.key)
+            nxt = _dedupe(nxt)
+            states = _diverse(nxt, beam) if name == "sleep" else nxt[:beam]
+    return states, None
+
+
+def _variant_of(placed: list[Placement]) -> str | None:
+    if not any(bedroom_role(p.role) == "кровать" for p in placed):
+        return None
+    n = sum(1 for p in placed if bedroom_role(p.role) == "тумба прикроватная")
+    return "pair" if n >= 2 else ("one_side" if n == 1 else "solo")
+
+
+def _solve_groups(room: Room, items: list[Item], purpose: str, *, beam: int = BEAM) -> Layout:
+    cfg, meta, must_have, by_role, early = _prelude(room, items, purpose, "bedroom-groups-v1")
+    meta["engine"] = "groups"
+    if early is not None:
+        return early
+    rules = bedroom_rules().get("groups", {})
+    S = _Statics(room)
+    S.bed_tpl = cfg.get("bed_template")
+    S.swings = door_swings(room)
+    S.rads = [radiator_polygon(room, r) for r in room.radiators]
+    S.hz, S.reach = {}, {}
+    denied = set()
+    if _wardrobe_denied(room, purpose):
+        denied = {r for r in by_role if bedroom_role(r) == "шкаф" and not must_have(r)}
+        if denied:
+            meta["storage_why"] = "WARDROBE_SMALL_SQUARE"
+    stages = _stages(by_role, must_have, rules.get("order", ["sleep", "work", "storage", "dressing"]), denied)
+    has_bed = any(bedroom_role(r) == "кровать" for r in by_role)
+    n_ns = sum(1 for r in by_role if bedroom_role(r) == "тумба прикроватная")
+    variants = [v for v in VARIANTS if NS_NEED[v] <= n_ns] if has_bed else [None]
+    storage_kit = any(group_of(r) == "storage" for r in by_role if r not in denied)
+    couple = cfg.get("bed") == "double"
+
+    def n_storage(placed):
+        return sum(1 for p in placed if group_of(p.role) == "storage")
+
+    best, best_key, tried, failed = None, None, [], None
+    for v in variants:
+        states, why = _run_variant(S, by_role, stages, v, must_have, beam)
+        tried.append(v)
+        if not states:
+            failed = failed or why
+            continue
+        top = None
+        for st in states:
+            st, lay = _repair(room, st, must_have, strict=True)
+            hard = sum(x.severity is Severity.HARD for x in lay.violations)
+            soft = sum(SOFT_PENALTY.get(x.code, 0.5) for x in lay.violations if x.severity is Severity.SOFT)
+            ns_ = n_storage(st.placed)
+            miss = sum(1 for r in by_role if must_have(r) and r not in {p.role for p in st.placed})
+            k = (hard, miss, int(storage_kit and ns_ == 0), VARIANT_RANK[_variant_of(st.placed)], -ns_,
+                 -round(st.score - soft, 3), st.key()[1])
+            if top is None or k < top[0]:
+                top = (k, st, lay)
+        if best_key is None or top[0] < best_key:
+            best_key, best = top[0], (top[1], top[2])
+        if best_key[0] == 0 and best_key[1] == 0 and best_key[2] == 0:
+            break                                  # полный уровень: следующий вариант «сна» хуже по определению
+    meta["variants_tried"] = tried
+    if best is None:
+        bed_role = next((r for r in (failed or []) if bedroom_role(r) == "кровать"), None)
+        code = "BED_NO_FIT" if bed_role else "REQUIRED_NO_FIT"
+        meta["reason"].append(code)
+        meta["no_fit"] = bed_role or next((r for r in (failed or []) if must_have(r)), None)
+        if couple and code == "BED_NO_FIT":
+            meta["sleep_next"] = f"bed_{(rules.get('next_bed') or {}).get('couple', 140)}"
+        return Layout(room=room, placements=[], meta=meta, unplaced=sorted(r for r in by_role if must_have(r)),
+                      skipped_optional=sorted(r for r in by_role if not must_have(r)))
+    st, lay = best
+    placed_roles = {p.role for p in st.placed}
+    lay.unplaced = sorted(r for r in by_role if must_have(r) and r not in placed_roles)
+    lay.skipped_optional = sorted(r for r in by_role if not must_have(r) and r not in placed_roles)
+    if any(v.severity is Severity.HARD for v in lay.violations):
+        meta["reason"].append("HARD_LEFT")
+    if lay.unplaced and not meta["reason"]:
+        meta["reason"].append("REQUIRED_NO_FIT")
+    var = _variant_of(st.placed)
+    meta["template"] = next((p.tpl_id for p in st.placed if bedroom_role(p.role) == "кровать"), "")
+    meta["sleep_variant"] = var
+    if var in ("one_side", "solo") and n_ns > NS_NEED[var]:
+        meta["sleep_why"] = "NIGHTSTAND_PAIR_NO_FIT" if var == "one_side" else "NIGHTSTAND_NO_FIT"
+    meta["groups"] = {}
+    for p in st.placed:
+        meta["groups"].setdefault(group_of(p.role), []).append(p.role)
+    if couple and var is not None and storage_kit and n_storage(st.placed) == 0:
+        meta["sleep_next"] = f"bed_{(rules.get('next_bed') or {}).get('couple', 140)}"   # ступень 140 раньше «без хранения»
+    if var is None and not lay.unplaced and st.placed:
+        meta["room_label"] = "office"           # ADR-0384 поправка 3: без кровати — «кабинет», не спальня
+    lay.meta = meta
+    return lay

@@ -1,0 +1,1514 @@
+{
+ "_about": "снимок поштучного солвера спальни (engine=items) на origin/main b0e6e4c3 до групп-шаблонов (T-20261112-38/2); тест test_bedroom_groups.py::test_items_engine_snapshot — engine=items даёт ровно это",
+ "cases": [
+  {
+   "id": "flat215-bedroom-1-drawing-180-couple",
+   "room": {
+    "id": "bedroom-1",
+    "variant": "drawing-180",
+    "title": "Спальня 1 · 18,1 м² (чертёж №180)",
+    "enabled": false,
+    "w": 618,
+    "d": 293,
+    "openings": [
+     {
+      "kind": "door",
+      "wall": "south",
+      "offset_cm": 24,
+      "width_cm": 90,
+      "swing_cm": 90,
+      "hinge": "left",
+      "_why": "дверь из холла (7.4;6.2) r0.9; сторона петель на чертеже не видна — к углу, створка к стене"
+     },
+     {
+      "kind": "window",
+      "wall": "east",
+      "offset_cm": 40,
+      "width_cm": 210,
+      "sill_cm": 85,
+      "height_cm": 150,
+      "_why": "окно (13.34;6.6) длина 2.1 — торцевая наружная стена"
+     },
+     {
+      "kind": "window",
+      "wall": "north",
+      "offset_cm": 204,
+      "width_cm": 240,
+      "sill_cm": 85,
+      "height_cm": 150,
+      "_why": "окно (9.2;9.13) длина 2.4 — длинная наружная стена"
+     }
+    ],
+    "radiators": [
+     {
+      "wall": "east",
+      "offset_cm": 55,
+      "width_cm": 180,
+      "depth_cm": 12,
+      "_why": "под окном — есть (владелец 05.11)"
+     },
+     {
+      "wall": "north",
+      "offset_cm": 234,
+      "width_cm": 180,
+      "depth_cm": 12,
+      "_why": "под окном — есть (владелец 05.11)"
+     }
+    ]
+   },
+   "purpose": "couple",
+   "child_age": null,
+   "kit": [
+    [
+     "кровать",
+     170,
+     210,
+     94
+    ],
+    [
+     "тумба прикроватная",
+     45,
+     40,
+     55
+    ],
+    [
+     "тумба прикроватная 2",
+     45,
+     40,
+     55
+    ],
+    [
+     "шкаф",
+     120,
+     60,
+     210
+    ],
+    [
+     "комод",
+     91,
+     42,
+     96
+    ]
+   ],
+   "placements": [
+    [
+     "кровать",
+     309.0,
+     105.0,
+     0,
+     "bed_center_wall"
+    ],
+    [
+     "тумба прикроватная",
+     200.5,
+     20.0,
+     0,
+     "bed_center_wall"
+    ],
+    [
+     "тумба прикроватная 2",
+     417.5,
+     20.0,
+     0,
+     "bed_center_wall"
+    ],
+    [
+     "шкаф",
+     30.0,
+     153.0,
+     90,
+     "storage_solid_wall"
+    ],
+    [
+     "комод",
+     515.5,
+     21.0,
+     0,
+     "storage_solid_wall"
+    ]
+   ],
+   "reason": [],
+   "template": "bed_center_wall",
+   "skipped_optional": [],
+   "unplaced": []
+  },
+  {
+   "id": "flat215-bedroom-1-registry-17.5-couple",
+   "room": {
+    "id": "bedroom-1",
+    "variant": "registry-17.5",
+    "title": "Спальня 1 · 17,5 м² (реестр)",
+    "enabled": false,
+    "w": 597,
+    "d": 293,
+    "_why": "площадь реестра 17,5 м² при той же глубине 293 (наружная стена): ширина 17.5/2.93 = 5.97 м; проёмы — как на чертеже",
+    "openings": [
+     {
+      "kind": "door",
+      "wall": "south",
+      "offset_cm": 24,
+      "width_cm": 90,
+      "swing_cm": 90,
+      "hinge": "left",
+      "_why": "как на чертеже №180"
+     },
+     {
+      "kind": "window",
+      "wall": "east",
+      "offset_cm": 40,
+      "width_cm": 210,
+      "sill_cm": 85,
+      "height_cm": 150,
+      "_why": "как на чертеже №180"
+     },
+     {
+      "kind": "window",
+      "wall": "north",
+      "offset_cm": 197,
+      "width_cm": 240,
+      "sill_cm": 85,
+      "height_cm": 150,
+      "_why": "как на чертеже №180, сдвиг пропорционально ширине"
+     }
+    ],
+    "radiators": [
+     {
+      "wall": "east",
+      "offset_cm": 55,
+      "width_cm": 180,
+      "depth_cm": 12,
+      "_why": "под окном — типовое решение"
+     },
+     {
+      "wall": "north",
+      "offset_cm": 227,
+      "width_cm": 180,
+      "depth_cm": 12,
+      "_why": "под окном — типовое решение"
+     }
+    ]
+   },
+   "purpose": "couple",
+   "child_age": null,
+   "kit": [
+    [
+     "кровать",
+     170,
+     210,
+     94
+    ],
+    [
+     "тумба прикроватная",
+     45,
+     40,
+     55
+    ],
+    [
+     "тумба прикроватная 2",
+     45,
+     40,
+     55
+    ],
+    [
+     "шкаф",
+     120,
+     60,
+     210
+    ],
+    [
+     "комод",
+     91,
+     42,
+     96
+    ]
+   ],
+   "placements": [
+    [
+     "кровать",
+     298.5,
+     105.0,
+     0,
+     "bed_center_wall"
+    ],
+    [
+     "тумба прикроватная",
+     190.0,
+     20.0,
+     0,
+     "bed_center_wall"
+    ],
+    [
+     "тумба прикроватная 2",
+     407.0,
+     20.0,
+     0,
+     "bed_center_wall"
+    ],
+    [
+     "шкаф",
+     30.0,
+     153.0,
+     90,
+     "storage_solid_wall"
+    ],
+    [
+     "комод",
+     505.5,
+     21.0,
+     0,
+     "storage_solid_wall"
+    ]
+   ],
+   "reason": [],
+   "template": "bed_center_wall",
+   "skipped_optional": [],
+   "unplaced": []
+  },
+  {
+   "id": "flat215-bedroom-2-drawing-180-couple",
+   "room": {
+    "id": "bedroom-2",
+    "variant": "drawing-180",
+    "title": "Спальня 2 · 13,2 м² (основной; чертёж №180 = реестр)",
+    "enabled": false,
+    "w": 450,
+    "d": 293,
+    "openings": [
+     {
+      "kind": "door",
+      "wall": "south",
+      "offset_cm": 130,
+      "width_cm": 85,
+      "swing_cm": 85,
+      "hinge": "left",
+      "_why": "дверь из холла (1.3;6.2) r0.85"
+     },
+     {
+      "kind": "window",
+      "wall": "west",
+      "offset_cm": 40,
+      "width_cm": 210,
+      "sill_cm": 85,
+      "height_cm": 150,
+      "_why": "окно (0;6.6) длина 2.1 — наружная стена"
+     }
+    ],
+    "radiators": [
+     {
+      "wall": "west",
+      "offset_cm": 55,
+      "width_cm": 180,
+      "depth_cm": 12,
+      "_why": "под окном — есть (владелец 05.11)"
+     }
+    ]
+   },
+   "purpose": "couple",
+   "child_age": null,
+   "kit": [
+    [
+     "кровать",
+     170,
+     210,
+     94
+    ],
+    [
+     "тумба прикроватная",
+     45,
+     40,
+     55
+    ],
+    [
+     "тумба прикроватная 2",
+     45,
+     40,
+     55
+    ],
+    [
+     "шкаф",
+     120,
+     60,
+     210
+    ],
+    [
+     "комод",
+     91,
+     42,
+     96
+    ]
+   ],
+   "placements": [
+    [
+     "кровать",
+     245.0,
+     188.0,
+     180,
+     "bed_center_wall"
+    ],
+    [
+     "тумба прикроватная",
+     136.5,
+     273.0,
+     180,
+     "bed_center_wall"
+    ],
+    [
+     "тумба прикроватная 2",
+     353.5,
+     273.0,
+     180,
+     "bed_center_wall"
+    ],
+    [
+     "шкаф",
+     390.0,
+     30.0,
+     0,
+     "storage_solid_wall"
+    ],
+    [
+     "комод",
+     65.5,
+     21.0,
+     0,
+     "storage_solid_wall"
+    ]
+   ],
+   "reason": [],
+   "template": "bed_center_wall",
+   "skipped_optional": [],
+   "unplaced": []
+  },
+  {
+   "id": "flat215-bedroom-2-drawing-180-child-7-12",
+   "room": {
+    "id": "bedroom-2",
+    "variant": "drawing-180",
+    "title": "Спальня 2 · 13,2 м² (основной; чертёж №180 = реестр)",
+    "enabled": false,
+    "w": 450,
+    "d": 293,
+    "openings": [
+     {
+      "kind": "door",
+      "wall": "south",
+      "offset_cm": 130,
+      "width_cm": 85,
+      "swing_cm": 85,
+      "hinge": "left",
+      "_why": "дверь из холла (1.3;6.2) r0.85"
+     },
+     {
+      "kind": "window",
+      "wall": "west",
+      "offset_cm": 40,
+      "width_cm": 210,
+      "sill_cm": 85,
+      "height_cm": 150,
+      "_why": "окно (0;6.6) длина 2.1 — наружная стена"
+     }
+    ],
+    "radiators": [
+     {
+      "wall": "west",
+      "offset_cm": 55,
+      "width_cm": 180,
+      "depth_cm": 12,
+      "_why": "под окном — есть (владелец 05.11)"
+     }
+    ]
+   },
+   "purpose": "child",
+   "child_age": "7-12",
+   "kit": [
+    [
+     "кровать детская",
+     86,
+     166,
+     80
+    ],
+    [
+     "стол детский",
+     100,
+     55,
+     75
+    ],
+    [
+     "стул детский",
+     51,
+     45,
+     57
+    ],
+    [
+     "шкаф",
+     93,
+     55,
+     195
+    ],
+    [
+     "комод",
+     80,
+     45,
+     86
+    ]
+   ],
+   "placements": [
+    [
+     "кровать детская",
+     367.0,
+     43.0,
+     270,
+     "bed_corner"
+    ],
+    [
+     "стол детский",
+     77.0,
+     27.5,
+     0,
+     "work_at_window"
+    ],
+    [
+     "стул детский",
+     77.0,
+     78.5,
+     180,
+     "work_at_window"
+    ],
+    [
+     "шкаф",
+     73.5,
+     265.5,
+     180,
+     "storage_solid_wall"
+    ],
+    [
+     "комод",
+     160.0,
+     270.5,
+     180,
+     "storage_solid_wall"
+    ]
+   ],
+   "reason": [],
+   "template": "bed_corner",
+   "skipped_optional": [],
+   "unplaced": []
+  },
+  {
+   "id": "flat215-bedroom-2-small-9.7-couple",
+   "room": {
+    "id": "bedroom-2",
+    "variant": "small-9.7",
+    "title": "Маленькая спальня · 9,7 м² (тест, не квартира 215)",
+    "enabled": false,
+    "w": 331,
+    "d": 293,
+    "_why": "тест маленькой комнаты (было — прежняя площадь реестра 9,7 м²; с 05.11 в реестре 13,2): глубина 293, ширина 9.7/2.93 = 3.31 м; дверь и окно — как на чертеже",
+    "openings": [
+     {
+      "kind": "door",
+      "wall": "south",
+      "offset_cm": 130,
+      "width_cm": 85,
+      "swing_cm": 85,
+      "hinge": "left",
+      "_why": "как на чертеже №180"
+     },
+     {
+      "kind": "window",
+      "wall": "west",
+      "offset_cm": 40,
+      "width_cm": 210,
+      "sill_cm": 85,
+      "height_cm": 150,
+      "_why": "как на чертеже №180"
+     }
+    ],
+    "radiators": [
+     {
+      "wall": "west",
+      "offset_cm": 55,
+      "width_cm": 180,
+      "depth_cm": 12,
+      "_why": "под окном — типовое решение"
+     }
+    ]
+   },
+   "purpose": "couple",
+   "child_age": null,
+   "kit": [
+    [
+     "кровать",
+     170,
+     210,
+     94
+    ],
+    [
+     "тумба прикроватная",
+     45,
+     40,
+     55
+    ],
+    [
+     "тумба прикроватная 2",
+     45,
+     40,
+     55
+    ],
+    [
+     "шкаф",
+     120,
+     60,
+     210
+    ],
+    [
+     "комод",
+     91,
+     42,
+     96
+    ]
+   ],
+   "placements": [],
+   "reason": [
+    "BED_NO_FIT"
+   ],
+   "template": "",
+   "skipped_optional": [
+    "комод",
+    "тумба прикроватная",
+    "тумба прикроватная 2",
+    "шкаф"
+   ],
+   "unplaced": [
+    "кровать"
+   ]
+  },
+  {
+   "id": "r10-couple",
+   "room": {
+    "w": 330,
+    "d": 300,
+    "openings": [
+     {
+      "kind": "door",
+      "wall": "west",
+      "offset_cm": 20,
+      "width_cm": 90,
+      "swing_cm": 90,
+      "hinge": "left"
+     },
+     {
+      "kind": "window",
+      "wall": "east",
+      "offset_cm": 75,
+      "width_cm": 150,
+      "sill_cm": 85,
+      "height_cm": 150
+     }
+    ],
+    "radiators": [
+     {
+      "wall": "east",
+      "offset_cm": 90,
+      "width_cm": 120,
+      "depth_cm": 12
+     }
+    ],
+    "_why": "10 м², дверь на короткой стене"
+   },
+   "purpose": "couple",
+   "child_age": null,
+   "kit": [
+    [
+     "кровать",
+     170,
+     210,
+     94
+    ],
+    [
+     "тумба прикроватная",
+     45,
+     40,
+     55
+    ],
+    [
+     "тумба прикроватная 2",
+     45,
+     40,
+     55
+    ],
+    [
+     "шкаф",
+     120,
+     60,
+     210
+    ],
+    [
+     "комод",
+     91,
+     42,
+     96
+    ]
+   ],
+   "placements": [],
+   "reason": [
+    "BED_NO_FIT"
+   ],
+   "template": "",
+   "skipped_optional": [
+    "комод",
+    "тумба прикроватная",
+    "тумба прикроватная 2",
+    "шкаф"
+   ],
+   "unplaced": [
+    "кровать"
+   ]
+  },
+  {
+   "id": "r10-office",
+   "room": {
+    "w": 330,
+    "d": 300,
+    "openings": [
+     {
+      "kind": "door",
+      "wall": "west",
+      "offset_cm": 20,
+      "width_cm": 90,
+      "swing_cm": 90,
+      "hinge": "left"
+     },
+     {
+      "kind": "window",
+      "wall": "east",
+      "offset_cm": 75,
+      "width_cm": 150,
+      "sill_cm": 85,
+      "height_cm": 150
+     }
+    ],
+    "radiators": [
+     {
+      "wall": "east",
+      "offset_cm": 90,
+      "width_cm": 120,
+      "depth_cm": 12
+     }
+    ],
+    "_why": "10 м², дверь на короткой стене"
+   },
+   "purpose": "office",
+   "child_age": null,
+   "kit": [
+    [
+     "стол рабочий",
+     120,
+     60,
+     75
+    ],
+    [
+     "стул рабочий",
+     50,
+     55,
+     90
+    ],
+    [
+     "шкаф",
+     90,
+     54,
+     210
+    ],
+    [
+     "комод",
+     91,
+     42,
+     96
+    ],
+    [
+     "кровать",
+     101,
+     212,
+     91
+    ]
+   ],
+   "placements": [
+    [
+     "кровать",
+     106.0,
+     249.5,
+     90,
+     "bed_corner"
+    ],
+    [
+     "стол рабочий",
+     270.0,
+     30.0,
+     0,
+     "work_at_window"
+    ],
+    [
+     "стул рабочий",
+     270.0,
+     88.5,
+     180,
+     "work_at_window"
+    ],
+    [
+     "шкаф",
+     145.0,
+     27.0,
+     0,
+     "storage_solid_wall"
+    ]
+   ],
+   "reason": [],
+   "template": "bed_corner",
+   "skipped_optional": [
+    "комод"
+   ],
+   "unplaced": []
+  },
+  {
+   "id": "r12-couple",
+   "room": {
+    "w": 400,
+    "d": 300,
+    "openings": [
+     {
+      "kind": "door",
+      "wall": "south",
+      "offset_cm": 290,
+      "width_cm": 90,
+      "swing_cm": 90,
+      "hinge": "left"
+     },
+     {
+      "kind": "window",
+      "wall": "north",
+      "offset_cm": 125,
+      "width_cm": 150,
+      "sill_cm": 85,
+      "height_cm": 150
+     }
+    ],
+    "radiators": [
+     {
+      "wall": "north",
+      "offset_cm": 140,
+      "width_cm": 120,
+      "depth_cm": 12
+     }
+    ],
+    "_why": "12 м², дверь на длинной стене у угла"
+   },
+   "purpose": "couple",
+   "child_age": null,
+   "kit": [
+    [
+     "кровать",
+     170,
+     210,
+     94
+    ],
+    [
+     "тумба прикроватная",
+     45,
+     40,
+     55
+    ],
+    [
+     "тумба прикроватная 2",
+     45,
+     40,
+     55
+    ],
+    [
+     "шкаф",
+     120,
+     60,
+     210
+    ],
+    [
+     "комод",
+     91,
+     42,
+     96
+    ]
+   ],
+   "placements": [
+    [
+     "кровать",
+     200.0,
+     105.0,
+     0,
+     "bed_center_wall"
+    ],
+    [
+     "тумба прикроватная",
+     91.5,
+     20.0,
+     0,
+     "bed_center_wall"
+    ],
+    [
+     "комод",
+     21.0,
+     224.5,
+     90,
+     "storage_solid_wall"
+    ]
+   ],
+   "reason": [],
+   "template": "bed_center_wall",
+   "skipped_optional": [
+    "тумба прикроватная 2",
+    "шкаф"
+   ],
+   "unplaced": []
+  },
+  {
+   "id": "r14-office",
+   "room": {
+    "w": 420,
+    "d": 333,
+    "openings": [
+     {
+      "kind": "door",
+      "wall": "east",
+      "offset_cm": 20,
+      "width_cm": 90,
+      "swing_cm": 90,
+      "hinge": "left"
+     },
+     {
+      "kind": "window",
+      "wall": "west",
+      "offset_cm": 90,
+      "width_cm": 150,
+      "sill_cm": 85,
+      "height_cm": 150
+     }
+    ],
+    "radiators": [
+     {
+      "wall": "west",
+      "offset_cm": 105,
+      "width_cm": 120,
+      "depth_cm": 12
+     }
+    ],
+    "_why": "14 м², дверь на короткой стене"
+   },
+   "purpose": "office",
+   "child_age": null,
+   "kit": [
+    [
+     "стол рабочий",
+     120,
+     60,
+     75
+    ],
+    [
+     "стул рабочий",
+     50,
+     55,
+     90
+    ],
+    [
+     "шкаф",
+     90,
+     54,
+     210
+    ],
+    [
+     "комод",
+     91,
+     42,
+     96
+    ],
+    [
+     "кровать",
+     101,
+     212,
+     91
+    ]
+   ],
+   "placements": [
+    [
+     "кровать",
+     314.0,
+     282.5,
+     270,
+     "bed_corner"
+    ],
+    [
+     "стол рабочий",
+     60.0,
+     30.0,
+     0,
+     "work_at_window"
+    ],
+    [
+     "стул рабочий",
+     60.0,
+     88.5,
+     180,
+     "work_at_window"
+    ],
+    [
+     "шкаф",
+     45.0,
+     306.0,
+     180,
+     "storage_solid_wall"
+    ],
+    [
+     "комод",
+     165.5,
+     21.0,
+     0,
+     "storage_solid_wall"
+    ]
+   ],
+   "reason": [],
+   "template": "bed_corner",
+   "skipped_optional": [],
+   "unplaced": []
+  },
+  {
+   "id": "narrow270-couple",
+   "room": {
+    "w": 270,
+    "d": 486,
+    "openings": [
+     {
+      "kind": "door",
+      "wall": "south",
+      "offset_cm": 20,
+      "width_cm": 90,
+      "swing_cm": 90,
+      "hinge": "left"
+     },
+     {
+      "kind": "window",
+      "wall": "north",
+      "offset_cm": 60,
+      "width_cm": 150,
+      "sill_cm": 85,
+      "height_cm": 150
+     }
+    ],
+    "radiators": [
+     {
+      "wall": "north",
+      "offset_cm": 75,
+      "width_cm": 120,
+      "depth_cm": 12
+     }
+    ],
+    "_why": "узкая 1:1,8 (13,1 м²), дверь и окно на коротких стенах"
+   },
+   "purpose": "couple",
+   "child_age": null,
+   "kit": [
+    [
+     "кровать",
+     170,
+     210,
+     94
+    ],
+    [
+     "тумба прикроватная",
+     45,
+     40,
+     55
+    ],
+    [
+     "тумба прикроватная 2",
+     45,
+     40,
+     55
+    ],
+    [
+     "шкаф",
+     120,
+     60,
+     210
+    ],
+    [
+     "комод",
+     91,
+     42,
+     96
+    ]
+   ],
+   "placements": [
+    [
+     "кровать",
+     105.0,
+     243.0,
+     90,
+     "bed_center_wall"
+    ],
+    [
+     "тумба прикроватная",
+     20.0,
+     134.5,
+     90,
+     "bed_center_wall"
+    ],
+    [
+     "тумба прикроватная 2",
+     20.0,
+     351.5,
+     90,
+     "bed_center_wall"
+    ],
+    [
+     "шкаф",
+     170.0,
+     30.0,
+     0,
+     "storage_solid_wall"
+    ],
+    [
+     "комод",
+     249.0,
+     375.5,
+     270,
+     "storage_solid_wall"
+    ]
+   ],
+   "reason": [],
+   "template": "bed_center_wall",
+   "skipped_optional": [],
+   "unplaced": []
+  },
+  {
+   "id": "narrow240-single",
+   "room": {
+    "w": 240,
+    "d": 432,
+    "openings": [
+     {
+      "kind": "door",
+      "wall": "east",
+      "offset_cm": 20,
+      "width_cm": 90,
+      "swing_cm": 90,
+      "hinge": "left"
+     },
+     {
+      "kind": "window",
+      "wall": "north",
+      "offset_cm": 45,
+      "width_cm": 150,
+      "sill_cm": 85,
+      "height_cm": 150
+     }
+    ],
+    "radiators": [
+     {
+      "wall": "north",
+      "offset_cm": 60,
+      "width_cm": 120,
+      "depth_cm": 12
+     }
+    ],
+    "_why": "узкая 1:1,8 (10,4 м²), дверь на длинной стене"
+   },
+   "purpose": "single",
+   "child_age": null,
+   "kit": [
+    [
+     "кровать",
+     105,
+     212,
+     82
+    ],
+    [
+     "тумба прикроватная",
+     45,
+     40,
+     55
+    ],
+    [
+     "шкаф",
+     90,
+     54,
+     210
+    ],
+    [
+     "стол рабочий",
+     120,
+     60,
+     75
+    ],
+    [
+     "стул рабочий",
+     50,
+     55,
+     90
+    ]
+   ],
+   "placements": [
+    [
+     "кровать",
+     52.5,
+     106.0,
+     0,
+     "bed_corner"
+    ],
+    [
+     "стол рабочий",
+     30.0,
+     342.0,
+     90,
+     "work_at_window"
+    ],
+    [
+     "стул рабочий",
+     88.5,
+     342.0,
+     270,
+     "work_at_window"
+    ],
+    [
+     "шкаф",
+     213.0,
+     255.0,
+     270,
+     "storage_solid_wall"
+    ]
+   ],
+   "reason": [],
+   "template": "bed_corner",
+   "skipped_optional": [
+    "тумба прикроватная"
+   ],
+   "unplaced": []
+  },
+  {
+   "id": "lshape-single",
+   "room": {
+    "w": 450,
+    "d": 400,
+    "contour": [
+     [
+      0,
+      0
+     ],
+     [
+      450,
+      0
+     ],
+     [
+      450,
+      250
+     ],
+     [
+      300,
+      250
+     ],
+     [
+      300,
+      400
+     ],
+     [
+      0,
+      400
+     ]
+    ],
+    "openings": [
+     {
+      "kind": "door",
+      "wall": "south",
+      "offset_cm": 330,
+      "width_cm": 90,
+      "swing_cm": 90,
+      "hinge": "left"
+     },
+     {
+      "kind": "window",
+      "wall": "west",
+      "offset_cm": 125,
+      "width_cm": 150,
+      "sill_cm": 85,
+      "height_cm": 150
+     }
+    ],
+    "radiators": [
+     {
+      "wall": "west",
+      "offset_cm": 140,
+      "width_cm": 120,
+      "depth_cm": 12
+     }
+    ],
+    "_why": "Г-контур 15,75 м² (вырез 150×150 — шахта/гардеробная)"
+   },
+   "purpose": "single",
+   "child_age": null,
+   "kit": [
+    [
+     "кровать",
+     105,
+     212,
+     82
+    ],
+    [
+     "тумба прикроватная",
+     45,
+     40,
+     55
+    ],
+    [
+     "шкаф",
+     90,
+     54,
+     210
+    ],
+    [
+     "стол рабочий",
+     120,
+     60,
+     75
+    ],
+    [
+     "стул рабочий",
+     50,
+     55,
+     90
+    ]
+   ],
+   "placements": [
+    [
+     "кровать",
+     194.0,
+     347.5,
+     270,
+     "bed_corner"
+    ],
+    [
+     "тумба прикроватная",
+     280.0,
+     271.5,
+     270,
+     "bed_corner"
+    ],
+    [
+     "стол рабочий",
+     30.0,
+     64.0,
+     90,
+     "work_at_window"
+    ],
+    [
+     "стул рабочий",
+     88.5,
+     64.0,
+     270,
+     "work_at_window"
+    ],
+    [
+     "шкаф",
+     185.0,
+     27.0,
+     0,
+     "storage_solid_wall"
+    ]
+   ],
+   "reason": [],
+   "template": "bed_corner",
+   "skipped_optional": [],
+   "unplaced": []
+  },
+  {
+   "id": "balcony-guest",
+   "room": {
+    "w": 380,
+    "d": 330,
+    "openings": [
+     {
+      "kind": "door",
+      "wall": "south",
+      "offset_cm": 280,
+      "width_cm": 90,
+      "swing_cm": 90,
+      "hinge": "left"
+     },
+     {
+      "kind": "balcony",
+      "wall": "north",
+      "offset_cm": 40,
+      "width_cm": 80,
+      "swing_cm": 80,
+      "hinge": "right"
+     },
+     {
+      "kind": "window",
+      "wall": "north",
+      "offset_cm": 140,
+      "width_cm": 120,
+      "sill_cm": 85,
+      "height_cm": 150
+     }
+    ],
+    "radiators": [
+     {
+      "wall": "north",
+      "offset_cm": 140,
+      "width_cm": 120,
+      "depth_cm": 12
+     }
+    ],
+    "_why": "выход на балкон рядом с окном (12,5 м²)"
+   },
+   "purpose": "guest",
+   "child_age": null,
+   "kit": [
+    [
+     "кровать",
+     148,
+     207,
+     89
+    ],
+    [
+     "тумба прикроватная",
+     45,
+     40,
+     55
+    ],
+    [
+     "тумба прикроватная 2",
+     45,
+     40,
+     55
+    ],
+    [
+     "комод",
+     93,
+     45,
+     87
+    ]
+   ],
+   "placements": [
+    [
+     "кровать",
+     103.5,
+     165.0,
+     90,
+     "bed_center_wall"
+    ],
+    [
+     "тумба прикроватная",
+     20.0,
+     67.5,
+     90,
+     "bed_center_wall"
+    ],
+    [
+     "тумба прикроватная 2",
+     20.0,
+     262.5,
+     90,
+     "bed_center_wall"
+    ],
+    [
+     "комод",
+     357.5,
+     126.5,
+     270,
+     "storage_solid_wall"
+    ]
+   ],
+   "reason": [],
+   "template": "bed_center_wall",
+   "skipped_optional": [],
+   "unplaced": []
+  },
+  {
+   "id": "tiny-couple",
+   "room": {
+    "w": 250,
+    "d": 280,
+    "openings": [
+     {
+      "kind": "door",
+      "wall": "south",
+      "offset_cm": 20,
+      "width_cm": 80,
+      "swing_cm": 80,
+      "hinge": "left"
+     },
+     {
+      "kind": "window",
+      "wall": "north",
+      "offset_cm": 60,
+      "width_cm": 120,
+      "sill_cm": 85,
+      "height_cm": 150
+     }
+    ],
+    "radiators": [
+     {
+      "wall": "north",
+      "offset_cm": 70,
+      "width_cm": 100,
+      "depth_cm": 12
+     }
+    ],
+    "_why": "7 м² — двуспальной с двумя проходами 75 не встать"
+   },
+   "purpose": "couple",
+   "child_age": null,
+   "kit": [
+    [
+     "кровать",
+     170,
+     210,
+     94
+    ],
+    [
+     "тумба прикроватная",
+     45,
+     40,
+     55
+    ],
+    [
+     "тумба прикроватная 2",
+     45,
+     40,
+     55
+    ],
+    [
+     "шкаф",
+     120,
+     60,
+     210
+    ],
+    [
+     "комод",
+     91,
+     42,
+     96
+    ]
+   ],
+   "placements": [],
+   "reason": [
+    "BED_NO_FIT"
+   ],
+   "template": "",
+   "skipped_optional": [
+    "комод",
+    "тумба прикроватная",
+    "тумба прикроватная 2",
+    "шкаф"
+   ],
+   "unplaced": [
+    "кровать"
+   ]
+  }
+ ]
+}
