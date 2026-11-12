@@ -100,7 +100,7 @@ FIELDS = {
                   "sellable", "marker", "label"},
     "template": {"id", "purpose", "priority", "anchors", "predicates", "groups", "relations", "levels", "next_step",
                  "label_without", "invariants", "selection_tags", "geometry_ref", "modifier", "applies_to", "when",
-                 "on_no_level", "label"},
+                 "on_no_level", "storage_count_first", "label"},
     "tgroup": {"id", "variants", "required", "geometry_ref"},
     "level": {"id", "use", "when", "label"},
     "anchor": {"type", "qualifiers", "relation", "of"},
