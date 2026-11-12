@@ -23,6 +23,11 @@
 # пускает новых, идёт одна; класс ≥ 1 бюджет не ждёт; обгон по ядрам и защита головы; --status — ядра и строка ЯДРА.
 # Долгие — `--long` / признак в команде (regress.py, playwright) → nice +10, `--short` — нет. T-17/2: без --cores ядра
 # выводятся из команды, команда получает HEAVY_SLOT_CORES (целое ≤ объявленного, ≥ 1).
+# T-20261112-75: ядра по факту — подменённый /proc/stat (HEAVY_SLOT_PROCSTAT, счётчики растут в фоне) и факт CPU держателя
+# (HEAVY_SLOT_CPU_STUB): простой ядер — пускает сверх пяти, до жёсткого верха HEAVY_SLOT_MAX_SLOTS; ядра заняты по факту —
+# ждёт при малых заявках; держатель в разгоне (стартовал, CPU окно ещё не видит) — по заявке; большая голова не голодает
+# (защита головы); --status — факт у держателя и строка ЯДРА ПО ФАКТУ. Случаи до T-75 идут с HEAVY_SLOT_CPU_FACT=0 —
+# правила по заявкам (они же — запасной путь, пока окна нет) проверяются как прежде.
 # Временная папка — в REMLAB_TMP на диске (T-20261107-13: в /tmp их скопилось 25); успех — удаляется, провал или
 # REMLAB_KEEP_TMP=1 — остаётся, путь в конце.
 set -uo pipefail
@@ -35,7 +40,10 @@ export HEAVY_SLOT_DIR="$T/slot" HEAVY_SLOT_LOG="$T/heavy-slot.log" HEAVY_SLOT_ME
 # бюджет ядер — подменой, не nproc машины (T-20261111-17): в CI 2–4 ядра, и до-ядерные случаи (по 2 ядра на задачу,
 # до 6 держателей) упирались бы в процессор раннера; ядерные случаи ставят свой бюджет явно
 export HEAVY_SLOT_CORES_BUDGET=64
-unset HEAVY_SLOT_HELD HEAVY_SLOT_NOSLOT HEAVY_SLOT_PRIO HEAVY_SLOT_CORES
+# ядра по факту (T-75) — выключены до своего блока в конце: случаи выше проверяют правила по заявкам и потолок slots(), а
+# настоящий /proc/stat раннера (занят чем угодно) их решать не должен
+export HEAVY_SLOT_CPU_FACT=0 HEAVY_SLOT_STATUS_CPU_S=0.2
+unset HEAVY_SLOT_HELD HEAVY_SLOT_NOSLOT HEAVY_SLOT_PRIO HEAVY_SLOT_CORES HEAVY_SLOT_PROCSTAT HEAVY_SLOT_CPU_STUB HEAVY_SLOT_MAX_SLOTS
 fails=0
 ok() {
   if [ "$2" = 0 ]; then echo "  [ ok ] $1"; return; fi
@@ -446,11 +454,17 @@ o=$(HEAVY_SLOT_SLOTS=1; export HEAVY_SLOT_SLOTS; pair one c7 4 c8 4)
 ok "HEAVY_SLOT_SLOTS=1: по одному даже при лишней памяти, --status без строки слотов ($o)" \
   "$(yes_if '[ "$o" = "sc7|ec7|sc8|ec8|" ] && ! grep -q "СЛОТОВ\|слот 2" "$T/one.st" && [ $(grep -c "^ДЕРЖИТ" "$T/one.st") = 1 ]')"
 
-"$S" f1 --min-gb 4 -- sh -c "echo sf1 >> $T/free1; sleep 0.5; echo ef1 >> $T/free1" & pf1=$!
-until_held
-"$S" f2 --min-gb 4 -- sh -c "echo sf2 >> $T/free1; sleep 2; echo ef2 >> $T/free1" & pf2=$!
-sleep 0.3
+# детерминированно (T-75; было sleep 0,5 / 0,3 — под нагрузкой f2 стартовал после конца f1, мигало sf1|ef1|sf2|…): держат до
+# флага; f1 отпускает, когда f3 встал в очередь; f2 — когда f3 в слоте 1 ждёт память на обоих
+"$S" f1 --min-gb 4 -- sh -c "$(holdp f1 free1)" & pf1=$!
+until_f "[ -e $T/free1.up-f1 ]"
+"$S" f2 --min-gb 4 -- sh -c "$(holdp f2 free1)" & pf2=$!
+until_f "[ -e $T/free1.up-f2 ]"
 "$S" f3 --min-gb 10 -- sh -c "echo sf3 >> $T/free1" & pf3=$!
+until_f 'grep -q " f3 pid=[0-9]* ждёт очередь" "$HEAVY_SLOT_LOG"'
+touch "$T/free1.go-f1"
+until_f 'grep -q "f3 .*держит очередь, ждёт память" "$HEAVY_SLOT_LOG"'
+touch "$T/free1.go-f2"
 wait $pf1 $pf2 $pf3
 o=$(tr '\n' '|' < "$T/free1")
 ok "первый слот освободился при идущем втором — следующий ждёт память на обоих (14 < 10 + 4 + 1,5), идёт после ($o)" \
@@ -760,6 +774,164 @@ ok "питон: на время with HEAVY_SLOT_CORES = целое ≤ объя�
 "$S" bad-c1 --cores abc -- true 2>"$T/badc.err"; rc1=$?
 "$S" bad-c2 --cores -1 -- true 2>>"$T/badc.err"; rc2=$?
 ok "кривой --cores: abc / -1 → rc 2" "$(yes_if '[ $rc1 = 2 ] && [ $rc2 = 2 ] && [ $(grep -c "нужно число ≥ 0" "$T/badc.err") = 2 ]')"
+mem 8
+
+# --- T-20261112-75: ядра по факту. /proc/stat подменён: фон пишет счётчики, которые растут по «<ядер машины> <занято>» из
+# cpucfg (доля простоя точная при любом темпе записи); факт CPU держателя — HEAVY_SLOT_CPU_STUB («метка ядер»). Окно 0,5 с,
+# замер держателя — 0,1 с; детерминированно — по флагам «стартовал»/«отпускай» и строкам журнала, sleep — только «окно уже
+# видит новую нагрузку» (≥ окна после смены cpucfg)
+cpucfg() { echo "$1 $2" > "$T/cpucfg.tmp" && mv -f "$T/cpucfg.tmp" "$T/cpucfg"; }
+cpugen() {
+  local tot=0 idl=0 n b i s
+  while [ -e "$T/cpugen.on" ]; do
+    read -r n b < "$T/cpucfg"
+    tot=$((tot + n * 10)); idl=$((idl + (n - b) * 10))
+    s="cpu  $((tot - idl)) 0 0 $idl 0 0 0 0 0 0"
+    for i in $(seq 0 $((n - 1))); do s="$s
+cpu$i 0 0 0 0 0 0 0 0 0 0"; done
+    printf '%s\n' "$s" > "$HEAVY_SLOT_PROCSTAT.tmp" && mv -f "$HEAVY_SLOT_PROCSTAT.tmp" "$HEAVY_SLOT_PROCSTAT"
+    sleep 0.05
+  done
+}
+until_l() { for _ in $(seq 1 400); do eval "$1" && return 0; sleep 0.05; done; return 1; }   # до 20 с
+ups() { ls "$T" | grep -c "^up-$1-" ; }
+export HEAVY_SLOT_CPU_FACT=1 HEAVY_SLOT_PROCSTAT="$T/procstat" HEAVY_SLOT_CPU_STUB="$T/cpustub" HEAVY_SLOT_CPU_WINDOW=0.5 \
+  HEAVY_SLOT_SAMPLE=0.1 HEAVY_SLOT_CPU_WARM=0.3 HEAVY_SLOT_CORES_BUDGET=8 HEAVY_SLOT_CPU_MARGIN=1 HEAVY_SLOT_CORES_OVERCOMMIT=2
+: > "$HEAVY_SLOT_CPU_STUB"
+mem 14
+cpucfg 8 1
+touch "$T/cpugen.on"
+cpugen & pgen=$!
+until_f "[ -s $HEAVY_SLOT_PROCSTAT ]"
+
+# простой ядер: машина занята на 1 из 8, держатели берут по 0,2 при заявке 2 — по заявкам вошли бы четверо (4 × 2 = 8), по
+# факту — сверх пяти слотов, до жёсткого верха (здесь HEAVY_SLOT_MAX_SLOTS=6); седьмой ждёт слот
+export HEAVY_SLOT_MAX_SLOTS=6
+for x in 1 2 3 4 5 6 7; do echo "fx-$x 0.2" >> "$HEAVY_SLOT_CPU_STUB"; done
+for x in 1 2 3 4 5 6 7; do "$S" "fx-$x" --min-gb 1 --cores 2 -- sh -c "$(hold3 $x fx)" & eval "pfx_$x=$!"; done
+until_l '[ "$(ups fx)" -ge 6 ]'; six=$?
+until_l '"$S" --status | grep -q "^  1\. fx-"'
+"$S" --status > "$T/fx.st"
+n_up=$(ups fx)
+touch "$T/go-fx"
+wait $pfx_1 $pfx_2 $pfx_3 $pfx_4 $pfx_5 $pfx_6 $pfx_7
+unset HEAVY_SLOT_MAX_SLOTS
+ok "по факту: простой ядер (занято 1 из 8, заявки 6 × 2 = 12 > 8) — шестеро сразу, сверх пяти (слот 7), седьмой ждёт жёсткий верх 6 ($n_up)" \
+  "$(yes_if '[ $six = 0 ] && [ "$n_up" = 6 ] && [ $(grep -c "^ДЕРЖИТ" "$T/fx.st") = 6 ] && grep -q "^ДЕРЖИТ: fx-. .* · слот 7$" "$T/fx.st" && grep -q "^  1\. fx-" "$T/fx.st" && grep -q "fx-. .*взял: .*слот 7: .*ядра по факту: занято 1.0 из 8" "$HEAVY_SLOT_LOG"')"
+ok "--status по факту: у держателя «ядер 2 · факт 0.2», строка ЯДРА ПО ФАКТУ (занято 1.0 из 8 → свободно по факту 7.0 ядер), верх слотов 6" \
+  "$(yes_if '[ $(grep -c "^ДЕРЖИТ: fx-. .* · ядер 2 · факт 0.2" "$T/fx.st") = 6 ] && grep -q "^ЯДРА ПО ФАКТУ: занято 1.0 из 8 за .* → свободно по факту 7.0 ядер; .*войдёт задача до" "$T/fx.st" && grep -q "^СЛОТОВ: 5 .*по факту ядер — до 6 обычных" "$T/fx.st"')"
+
+# ядра заняты по факту (чужая нагрузка 7 из 8): заявки 1 + 1 ≤ 8 — по заявкам прошёл бы, по факту ждёт; нагрузка ушла — идёт
+cpucfg 8 7
+echo "bz-h 0.1" >> "$HEAVY_SLOT_CPU_STUB"
+"$S" bz-h --min-gb 1 --cores 1 -- sh -c "$(holdp bz-h bz)" & pbh=$!
+until_f "[ -e $T/bz.up-bz-h ]"
+sleep 0.6                                          # окно (0,5 с) видит только новую нагрузку
+until_f 'grep -q "^fbusy=7" "$HEAVY_SLOT_DIR/holder"'  # держатель пишет замер — у второго факт есть с первой попытки
+"$S" bz-b --min-gb 1 --cores 1 -- sh -c "$(holdp bz-b bz)" & pbb=$!
+until_l 'grep -q "bz-b .*дополнительный слот не даю — жду ядра: .*ядра по факту: занято 7.0 из 8" "$HEAVY_SLOT_LOG"'; bz_w=$?
+b_early=$([ -e "$T/bz.up-bz-b" ] && echo 1 || echo 0)
+cpucfg 8 2
+until_l "[ -e $T/bz.up-bz-b ]"; bz_up=$?
+touch "$T/bz.go-bz-h" "$T/bz.go-bz-b"
+wait $pbh $pbb
+o=$(tr '\n' '|' < "$T/bz")
+ok "по факту: ядра заняты (7 из 8) — ждёт при малых заявках (1 + 1 ≤ 8), нагрузка 2 из 8 — идёт рядом с держателем ($o)" \
+  "$(yes_if '[ $bz_w = 0 ] && [ $b_early = 0 ] && [ $bz_up = 0 ] && [[ "$o" =~ ^sbz-h\|sbz-b\| ]]')"
+
+# в разгоне: держатель (заявка 4) стартовал, CPU окно ещё не видит (факт 0) — считается по заявке: 8 − 1 − 4 − запас 1 = 2 < 4,
+# второй ждёт (без этого прошёл бы сразу: 8 − 1 − 1 = 6); разгон кончился (HEAVY_SLOT_CPU_WARM 3 с) — идёт рядом
+cpucfg 8 1
+sleep 0.6
+export HEAVY_SLOT_CPU_WARM=3
+echo "wa-h 0" >> "$HEAVY_SLOT_CPU_STUB"
+"$S" wa-h --min-gb 1 --cores 4 -- sh -c "$(holdp wa-h wa)" & pwh=$!
+until_f "[ -e $T/wa.up-wa-h ]"
+until_f 'grep -q "^fbusy=" "$HEAVY_SLOT_DIR/holder"'; wa_pub=$?   # держатель уже пишет замер — у второго факт есть сразу
+"$S" wa-b --min-gb 1 --cores 4 -- sh -c "$(holdp wa-b wa)" & pwb=$!
+until_l 'grep -q "wa-b .*дополнительный слот не даю — жду ядра: .*в разгоне 4.0 (wa-h 4.0)" "$HEAVY_SLOT_LOG"'; wa_w=$?
+b_early=$([ -e "$T/wa.up-wa-b" ] && echo 1 || echo 0)
+until_l "[ -e $T/wa.up-wa-b ]"; wa_up=$?
+h_alive=$(grep -qx 'ewa-h' "$T/wa" && echo 0 || echo 1)
+touch "$T/wa.go-wa-h" "$T/wa.go-wa-b"
+wait $pwh $pwb
+export HEAVY_SLOT_CPU_WARM=0.3
+ok "в разгоне — по заявке: стартовавший без CPU держит свои 4 ядра, второй ждёт (свободно 2 < 4); после разгона — рядом, пока первый идёт" \
+  "$(yes_if '[ $wa_pub = 0 ] && [ $wa_w = 0 ] && [ $b_early = 0 ] && [ $wa_up = 0 ] && [ $h_alive = 1 ]')"
+
+# большая голова не голодает: занято 4 из 8, держатель (1); голова (6) по факту не проходит (место 3), хвост (1) проходит,
+# но голова ждёт дольше HEAVY_SLOT_BACKFILL_MIN — обгон закрыт; держатель ушёл — голова идёт (одиночная), хвост после неё
+cpucfg 8 4
+sleep 0.6
+echo "gh-h 0.1" >> "$HEAVY_SLOT_CPU_STUB"
+export HEAVY_SLOT_BACKFILL_MIN=0.0002
+"$S" gh-h --min-gb 1 --cores 1 -- sh -c "$(holdp gh-h gh)" & pgh=$!
+until_f "[ -e $T/gh.up-gh-h ]"
+until_f 'grep -q "^fbusy=4" "$HEAVY_SLOT_DIR/holder"'
+"$S" gh-a --min-gb 1 --cores 6 -- sh -c "$(holdp gh-a gh)" & pga=$!
+until_l 'grep -q "gh-a .*дополнительный слот не даю — жду ядра: .*ядра по факту: занято 4.0 из 8" "$HEAVY_SLOT_LOG"'; gh_aw=$?
+"$S" gh-b --min-gb 1 --cores 1 -- sh -c "$(holdp gh-b gh)" & pgb=$!
+until_l 'grep -q "gh-b .*обгон закрыт: голова gh-a ждёт" "$HEAVY_SLOT_LOG"'; gh_cl=$?
+b_early=$([ -e "$T/gh.up-gh-b" ] && echo 1 || echo 0)
+touch "$T/gh.go-gh-h"
+until_l "[ -e $T/gh.up-gh-a ]"; gh_up=$?
+touch "$T/gh.go-gh-a"
+until_l "[ -e $T/gh.up-gh-b ]"
+touch "$T/gh.go-gh-b"
+wait $pgh $pga $pgb
+unset HEAVY_SLOT_BACKFILL_MIN
+o=$(tr '\n' '|' < "$T/gh")
+ok "по факту большая голова не голодает: хвост (1) проходит, но обгон закрыт — голова (6) идёт первой, когда стекли держатели ($o)" \
+  "$(yes_if '[ $gh_aw = 0 ] && [ $gh_cl = 0 ] && [ $b_early = 0 ] && [ $gh_up = 0 ] && [[ "$o" =~ ^sgh-h\|egh-h\|sgh-a\|.*sgh-b ]]')"
+
+# два почти одновременных допуска (совет Codex): занято 1 из 8, держатель (1); двое по 4 стартуют разом — место 8 − 1 − 1 = 6
+# каждому по отдельности, вдвоём — нет: первый вошёл (в разгоне 4) — второй ждёт ядра; держатель и первый ушли — второй идёт
+cpucfg 8 1
+sleep 0.6
+for x in cc-h cc-a cc-b; do echo "$x 0.1" >> "$HEAVY_SLOT_CPU_STUB"; done
+export HEAVY_SLOT_CPU_WARM=5
+"$S" cc-h --min-gb 1 --cores 1 -- sh -c "$(holdp cc-h cc)" & pch=$!
+until_f "[ -e $T/cc.up-cc-h ]"
+until_f 'grep -q "^fbusy=1" "$HEAVY_SLOT_DIR/holder"'
+"$S" cc-a --min-gb 1 --cores 4 -- sh -c "$(holdp cc-a cc)" & pca=$!
+"$S" cc-b --min-gb 1 --cores 4 -- sh -c "$(holdp cc-b cc)" & pcb=$!
+until_l '[ -e $T/cc.up-cc-a ] || [ -e $T/cc.up-cc-b ]'; cc_one=$?
+until_l 'grep -q "cc-[ab] .*жду ядра: .*в разгоне .*cc-[ab] [34]\." "$HEAVY_SLOT_LOG"'; cc_w=$?
+cc_n=$(ls "$T" | grep -c "^cc\.up-cc-[ab]$")
+touch "$T/cc.go-cc-h" "$T/cc.go-cc-a" "$T/cc.go-cc-b"
+wait $pch $pca $pcb
+export HEAVY_SLOT_CPU_WARM=0.3
+ok "по факту два допуска разом: по отдельности проходят оба (6 ≥ 4), вдвоём — один, второй ждёт ядра «в разгоне» ($cc_n из 2 сразу)" \
+  "$(yes_if '[ $cc_one = 0 ] && [ $cc_w = 0 ] && [ "$cc_n" = 1 ] && [ $(grep -c "^ecc-[ab]$" "$T/cc") = 2 ]')"
+
+# переход (совет Codex): ждёт процесс версии до T-75 (билет без «v») — слоты сверх 6 он не видит, их не выдают: из шести
+# новых по факту входят пятеро (1…5, шестой — резерв пробы), шестой ждёт; старый ушёл — шестой берёт слот 7
+export HEAVY_SLOT_MAX_SLOTS=6
+sh -c "while [ ! -e $T/lgo.go ]; do sleep 0.05; done" & plo=$!
+python3 -c "import sys, time; sys.path.insert(0, '$DIR'); import heavy_slot as H
+p = int(sys.argv[1]); H._write_kv(sys.argv[2] + '/wait/99999990-%d' % p, {'label': 'lg-old', 'pid': p, 'since': int(time.time()),
+    'min_gb': 30, 'ticket': 99999990, 'start': H._starttime(p), 'stage': 'очередь'})" "$plo" "$HEAVY_SLOT_DIR"
+until_l '"$S" --status | grep -q "lg-old"'; lg_seen=$?
+for x in 1 2 3 4 5 6; do echo "lg-$x 0.2" >> "$HEAVY_SLOT_CPU_STUB"; done
+for x in 1 2 3 4 5 6; do "$S" "lg-$x" --min-gb 1 --cores 2 -- sh -c "$(hold3 $x lg)" & eval "plg_$x=$!"; done
+until_l '[ "$(ups lg)" -ge 5 ]'
+until_l 'grep -q "lg-. .*дополнительный слот не даю — жду слоты сверх 6: ждёт процесс старой версии" "$HEAVY_SLOT_LOG"'; lg_w=$?
+lg_n=$(ups lg)
+touch "$T/lgo.go"
+wait $plo
+until_l '[ "$(ups lg)" -ge 6 ]'; lg_up=$?
+"$S" --status > "$T/lg.st"
+touch "$T/go-lg"
+wait $plg_1 $plg_2 $plg_3 $plg_4 $plg_5 $plg_6
+unset HEAVY_SLOT_MAX_SLOTS
+ok "переход: ждёт старая версия — слоты сверх 6 закрыты (вошли $lg_n из 6), ушла — шестой в слоте 7" \
+  "$(yes_if '[ $lg_seen = 0 ] && [ $lg_w = 0 ] && [ "$lg_n" = 5 ] && [ $lg_up = 0 ] && grep -q "^ДЕРЖИТ: lg-. .* · слот 7$" "$T/lg.st"')"
+
+mv -f "$T/cpugen.on" "$T/cpugen.off"
+wait $pgen
+export HEAVY_SLOT_CPU_FACT=0 HEAVY_SLOT_CORES_BUDGET=64
+unset HEAVY_SLOT_PROCSTAT HEAVY_SLOT_CPU_STUB HEAVY_SLOT_CPU_WINDOW HEAVY_SLOT_SAMPLE HEAVY_SLOT_CPU_WARM HEAVY_SLOT_CPU_MARGIN \
+  HEAVY_SLOT_CORES_OVERCOMMIT
 mem 8
 
 st=$("$S" --status)

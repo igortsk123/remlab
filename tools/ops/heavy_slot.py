@@ -105,13 +105,37 @@
     js/cjs/mjs/ts/py из команды, который подключает playwright; `--short` — признак не брать. Очередь и допуск долгая не меняет.
     В питоне (`heavy_slot(long=True)`) — только метка: свой процесс обратно не повысить. `--status`: «· долгая, nice 10» —
     nice фактический, из /proc держателя.
+  * ЯДРА ПО ФАКТУ (T-20261112-75, владелец TG 1031: «если задача в очереди — перераспределяй по ядрам, чтоб не ждали»; 12.11
+    в 15:41 пять слотов заняты, заявлено 14 из 15 ядер, ждут 15, а по /proc/stat за 15 с занято 9,6, держатели — 7,5: pytest с
+    заявкой 3 берёт 1,0 ядра — xdist на DEV нет). Допуск по ядрам при других держателях — по ФАКТУ, а не по сумме заявок:
+        место = min(бюджет − занято машиной за окно − «в разгоне» − запас, перебор × бюджет − Σ заявок держателей)
+    занято — /proc/stat (простой idle+iowait) за скользящее окно HEAVY_SLOT_CPU_WINDOW (с, 20), не мгновенный снимок: своё окно
+    процесса (ожидающий замеряет, пока ждёт), а пока своё короче окна — свежий замер держателя (его замер раз в
+    HEAVY_SLOT_SAMPLE пишет `fbusy` в запись); окна нет нигде — по заявкам, как до T-75. «В разгоне» — держатель, чей CPU окно ещё
+    не видит: ждёт в слоте 1 — заявка целиком; стартовал меньше HEAVY_SLOT_CPU_WARM с назад (окно + 10) — заявка минус уже
+    видимое (факт дерева × доля окна); замок без записи — 2 (иначе всплеск допуска: двое подряд по одному и тому же простою).
+    Запас — HEAVY_SLOT_CPU_MARGIN (2 ядра); перебор — HEAVY_SLOT_CORES_OVERCOMMIT (1,5: заявки всех держателей вместе не
+    больше 1,5 × бюджета — если все разом разгонятся, нагрузка не выше 1,5 на ядро; числа — по совету Codex до замеров пиков).
+    Окно после паузы замеров дольше 2 окон — заново (среднее за паузу не годится); `fbusy` — только у слота, который держат.
+    Допуск головы в дополнительный слот — под `queue.lock` вместе с записью держателя, как обгон (двое по одному простою не
+    проходят). Свободно по факту ≥ заявки — пускаю (память —
+    как прежде, сторож не ослаблен), иначе жду, даже если заявки малы (ядра заняты чужим). Без изменений: одиночный (других
+    держателей нет) и шире бюджета — по заявке, класс ≥ 1 бюджет не ждёт, защита головы 20 мин (обгон закрыт — слоты стекают
+    к большой голове, дальше она одиночная). Слотов — сколько пройдёт по ядрам и памяти, но не больше HEAVY_SLOT_MAX_SLOTS
+    (8 обычных; номера сверх резерва пробы — `slot7.lock`…; 1…6 те же, что у старой версии) + резерв пробы. Факт CPU дерева
+    держателя за окно (`fcpu`) — тот же замер, что память. HEAVY_SLOT_CPU_FACT=0 — как до T-75 (по заявкам, слотов slots()).
+    `--status`: у держателя «ядер N · факт X», строка «ЯДРА ПО ФАКТУ» — занято за окно, свободно по факту, в разгоне, сколько
+    войдёт. Переходный период: ожидающий старой версии держателей слотов 7+ не видит (их память и ядра не считает) — пока
+    есть его билет (без `v`) или он ждёт память в слоте 1, слоты 7+ не выдаются (`_legacy_waiting`), 1…6 — как прежде.
 Переменные (для самопроверки и особых случаев): HEAVY_SLOT_DIR (замок и состояние, по умолчанию ~/.cache/remlab-heavy-slot —
 одинаково в кроне и в сессии, не в репо), HEAVY_SLOT_LOG, HEAVY_SLOT_MEMINFO (подмена /proc/meminfo), HEAVY_SLOT_POLL (с, 30),
 HEAVY_SLOT_REPORT (строка «ждёт» в журнал раз в N с, 300), HEAVY_SLOT_YIELD, HEAVY_SLOT_MAX_YIELDS, HEAVY_SLOT_SLOTS,
 HEAVY_SLOT_RESERVE_GB, HEAVY_SLOT_HEAD_POLL, HEAVY_SLOT_SAMPLE, HEAVY_SLOT_LONG_S, HEAVY_SLOT_MEASURE_MIN_S,
 HEAVY_SLOT_EFF_FLOOR_GB, HEAVY_SLOT_MEM_STUB (файл «метка ГБ» — подмена замера памяти дерева для самопроверки),
 HEAVY_SLOT_BACKFILL_MIN, HEAVY_SLOT_PRIO, HEAVY_SLOT_PRIO_AGE_MIN, HEAVY_SLOT_PRIO_SLOTS, HEAVY_SLOT_CORES_BUDGET,
-HEAVY_SLOT_LONG_NICE.
+HEAVY_SLOT_LONG_NICE, HEAVY_SLOT_CPU_FACT, HEAVY_SLOT_CPU_WINDOW, HEAVY_SLOT_CPU_WARM, HEAVY_SLOT_CPU_MARGIN,
+HEAVY_SLOT_CORES_OVERCOMMIT, HEAVY_SLOT_MAX_SLOTS, HEAVY_SLOT_PROCSTAT (подмена /proc/stat), HEAVY_SLOT_CPU_STUB (файл «метка
+ядер» — подмена факта CPU дерева), HEAVY_SLOT_STATUS_CPU_S (своё окно `--status`, когда держатели замер ещё не написали; 1 с).
 """
 from __future__ import annotations
 
@@ -170,9 +194,32 @@ def prio_slots() -> int:
     return max(0, int(_env_f('HEAVY_SLOT_PRIO_SLOTS', 1)))
 
 
+def fact_on() -> bool:
+    """ЯДРА ПО ФАКТУ (T-20261112-75): HEAVY_SLOT_CPU_FACT (1); 0 — только по заявкам и не больше slots() слотов, как до T-75."""
+    return _env_f('HEAVY_SLOT_CPU_FACT', 1) > 0
+
+
+def max_slots() -> int:
+    """Жёсткий верх обычных держателей (T-75): с допуском по факту — HEAVY_SLOT_MAX_SLOTS (8: на 3 больше прежних пяти; не
+    30 мелких сразу; Codex советовал 6–7 до замеров), не меньше slots(); без него — slots(), как прежде."""
+    if not fact_on():
+        return slots()
+    return max(slots(), int(_env_f('HEAVY_SLOT_MAX_SLOTS', 8)))
+
+
 def all_slots() -> int:
     """Все слоты: обычные + резерв пробы (его держателей считают все — их доля памяти)."""
-    return slots() + prio_slots()
+    return max_slots() + prio_slots()
+
+
+def reserve_ids() -> list:
+    """Номера слотов резерва пробы: сразу за slots() (как до T-75 — старая версия видит те же номера)."""
+    return list(range(slots() + 1, slots() + prio_slots() + 1))
+
+
+def regular_ids() -> list:
+    """Номера обычных слотов: 1…slots(), а сверх них (T-75) — после резерва пробы, до all_slots()."""
+    return list(range(1, slots() + 1)) + list(range(slots() + prio_slots() + 1, all_slots() + 1))
 
 
 CORES_DEFAULT = 2.0                              # T-20261111-17: столько ядер считает задача без --cores (старые вызовы)
@@ -269,6 +316,104 @@ def reserve_gb() -> float:
     return max(_env_f('HEAVY_SLOT_RESERVE_GB', 1.0), floor)
 
 
+# ---------------------------------------------------------------- ядра по факту (T-20261112-75)
+
+_HZ = os.sysconf('SC_CLK_TCK')
+
+
+def cpu_window() -> float:
+    """Окно замера занятости машины (HEAVY_SLOT_CPU_WINDOW, с, 20): не мгновенный снимок — всплеск в секунду не решает допуск."""
+    return max(_env_f('HEAVY_SLOT_CPU_WINDOW', 20), 0.05)
+
+
+def cpu_warm_s() -> float:
+    """Сколько секунд после старта держатель «в разгоне» — считается по заявке (HEAVY_SLOT_CPU_WARM, по умолчанию окно + 10)."""
+    return _env_f('HEAVY_SLOT_CPU_WARM', cpu_window() + 10)
+
+
+def cpu_margin() -> float:
+    """Запас ядер при допуске по факту (HEAVY_SLOT_CPU_MARGIN, 2 — совет Codex 12.11: чужая нагрузка вне очереди 2–5 ядер
+    скачет)."""
+    return max(_env_f('HEAVY_SLOT_CPU_MARGIN', 2), 0.0)
+
+
+def cores_overcommit() -> float:
+    """Верх суммы заявок держателей при допуске по факту — во столько раз больше бюджета (HEAVY_SLOT_CORES_OVERCOMMIT, 1,5;
+    ≥ 1): 12.11 заявлено 14 при факте 7,5 (×1,9) — 1,5 берёт большую часть простоя, но если допущенные по простою разом
+    разгонятся, нагрузка не выше 1,5 на ядро (совет Codex: 1,25–1,5 до замеров)."""
+    return max(_env_f('HEAVY_SLOT_CORES_OVERCOMMIT', 1.5), 1.0)
+
+
+def legacy_top() -> int:
+    """Последний номер слота, который видит версия до T-75 (обычные + резерв пробы); дальше — новые слоты."""
+    return slots() + prio_slots()
+
+
+def _legacy_waiting(d: str, live: list) -> bool:
+    """ПЕРЕХОД (T-75, совет Codex): ждёт ли процесс версии до T-75 — билет без `v` (заместитель старой версии — тоже) или
+    держатель слота 1 без `v`, ещё ждущий память. Он держателей слотов сверх `legacy_top()` не видит ни по памяти, ни по
+    ядрам — пока он ждёт, новые слоты не выдаются (слоты 1…6 — как прежде)."""
+    if any(not kv.get('v') for _, _, kv in live):
+        return True
+    h = _read_kv(_holder_file(d, 1)) or {}
+    return bool(h) and not h.get('v') and h.get('stage') == 'память' and is_held(1)
+
+
+def _procstat() -> tuple[int, int, int] | None:
+    """(всего тиков, простоя тиков — idle+iowait, ядер) из /proc/stat (HEAVY_SLOT_PROCSTAT — подмена); не прочитать — None."""
+    try:
+        with open(os.environ.get('HEAVY_SLOT_PROCSTAT') or '/proc/stat', encoding='ascii') as f:
+            lines = f.read().splitlines()
+        a = lines[0].split()
+        if a[0] != 'cpu':
+            return None
+        v = [int(x) for x in a[1:9]]                # user nice system idle iowait irq softirq steal (guest — уже в user)
+        return sum(v), v[3] + v[4], sum(1 for ln in lines if re.match(r'cpu\d', ln)) or 1
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+class _CpuWin:
+    """Скользящее окно занятости машины: замер /proc/stat не чаще раза в 0,2 с; занято = ядер × (1 − Δпростоя / Δвсего) между
+    самым свежим замером и самым старым, что не моложе окна. История короче окна — None (тогда допуск по заявкам)."""
+
+    def __init__(self):
+        self.s: list = []
+        self.lock = threading.Lock()                # замер держателя (поток) и допуск (основной поток) — в одном процессе
+
+    def sample(self) -> None:
+        now = time.time()
+        with self.lock:
+            if self.s and now - self.s[-1][0] < 0.2:
+                return
+            v = _procstat()
+            if v is None:
+                return
+            w = cpu_window()
+            if self.s and (v[0] < self.s[-1][1] or now - self.s[-1][0] > 2 * w):
+                self.s.clear()                      # счётчики сброшены (подмена) или долгая пауза без замеров (питон звал
+                #                                     слот снова после тела) — среднее за паузу не годится, окно заново
+            self.s.append((now, *v))
+            while len(self.s) > 2 and now - self.s[1][0] >= w:
+                self.s.pop(0)
+
+    def busy(self, win: float | None = None) -> tuple[float, float] | None:
+        """→ (занято ядер, окно с) или None. `win` — своё окно короче обычного (только для `--status`)."""
+        self.sample()
+        w = cpu_window() if win is None else win
+        with self.lock:
+            if len(self.s) < 2:
+                return None
+            t0, a0, i0, _ = self.s[0]
+            t1, a1, i1, nc = self.s[-1]
+            if t1 - t0 < w * 0.95 or a1 <= a0:
+                return None
+            return nc * (1 - (i1 - i0) / (a1 - a0)), t1 - t0
+
+
+_CPU = _CpuWin()
+
+
 def log(label: str, msg: str) -> None:
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {label} pid={os.getpid()} {msg}\n"
     try:                                          # журнал не должен ронять прогон (стенд паритета запрещает запись вне себя)
@@ -281,7 +426,7 @@ def log(label: str, msg: str) -> None:
 
 
 def _write_kv(path: str, d: dict) -> None:
-    tmp = f'{path}.tmp-{os.getpid()}'
+    tmp = f'{path}.tmp-{os.getpid()}-{threading.get_ident()}'     # поток замера и основной — не в один файл (T-75)
     with open(tmp, 'w', encoding='utf-8') as f:
         f.write(''.join(f'{k}={str(v).replace(chr(10), " ")}\n' for k, v in d.items()))
     os.replace(tmp, path)
@@ -614,9 +759,10 @@ def task_type(label: str) -> str:
     return s2 or s
 
 
-def _mem_stub(label: str) -> float | None:
-    """Самопроверка: HEAVY_SLOT_MEM_STUB — файл строк «метка ГБ» (последняя строка метки побеждает)."""
-    p = os.environ.get('HEAVY_SLOT_MEM_STUB')
+def _mem_stub(label: str, env: str = 'HEAVY_SLOT_MEM_STUB') -> float | None:
+    """Самопроверка: HEAVY_SLOT_MEM_STUB — файл строк «метка ГБ» (последняя строка метки побеждает); HEAVY_SLOT_CPU_STUB —
+    так же «метка ядер» (факт CPU дерева, T-75)."""
+    p = os.environ.get(env)
     if not p:
         return None
     v = None
@@ -653,20 +799,48 @@ def tree_mem(pid: int, label: str = '') -> tuple[float, float]:
         return stub, stub
     if not pid or not _alive(pid):
         return 0.0, 0.0
-    kids: dict = {}
-    for p in os.listdir('/proc'):
-        if p.isdigit():
-            kids.setdefault(_ppid(int(p)), []).append(int(p))
-    todo, seen, pss, rss = [pid], set(), 0, 0
+    pss, rss = 0, 0
+    for p in _tree_pids(pid):
+        a, b = _proc_mem(p)
+        pss, rss = pss + a, rss + b
+    return pss / 2**30, rss / 2**30
+
+
+_KIDS: list = [0.0, {}]                          # (время, {родитель: [дети]}) — один обход /proc на все деревья за 0,5 с
+
+
+def _tree_pids(pid: int) -> set:
+    """pid и все его потомки сейчас (карта родителей — общая на 0,5 с: допуск считает деревья всех держателей подряд, с T-75
+    держателей до 8 — обход /proc на каждого стоил бы процессора самой очереди)."""
+    now = time.time()
+    if now - _KIDS[0] > 0.5:
+        kids: dict = {}
+        for p in os.listdir('/proc'):
+            if p.isdigit():
+                kids.setdefault(_ppid(int(p)), []).append(int(p))
+        _KIDS[:] = [now, kids]
+    kids = _KIDS[1]
+    todo, seen = [pid], set()
     while todo:
         p = todo.pop()
         if p in seen:
             continue
         seen.add(p)
-        a, b = _proc_mem(p)
-        pss, rss = pss + a, rss + b
         todo.extend(kids.get(p, ()))
-    return pss / 2**30, rss / 2**30
+    return seen
+
+
+def tree_cpu_ticks(pid: int) -> int:
+    """CPU дерева процессов pid в тиках: utime+stime+cutime+cstime живых (умерший потомок, которого дождался родитель из дерева,
+    уходит в cutime родителя — разность между замерами остаётся честной). Процесса нет — 0."""
+    tot = 0
+    for p in _tree_pids(pid):
+        try:
+            with open(f'/proc/{p}/stat', encoding='utf-8', errors='replace') as f:
+                tot += sum(int(x) for x in f.read().rsplit(')', 1)[1].split()[11:15])
+        except (OSError, IndexError, ValueError):
+            continue
+    return tot
 
 
 def _peaks_path(d: str) -> str:
@@ -742,6 +916,7 @@ class _Meter(threading.Thread):
         self.label, self.pid, self.every, self.long_s = label, pid, every, long_s
         self.peak, self.peak_rss, self.t0, self.warned = 0.0, 0.0, time.time(), False
         self.holder, self.eff, self.told = holder, eff, 0.0
+        self.cpu_s: list = []                         # (время, тики CPU дерева) за окно — факт держателя (T-75)
         self._stop_ev = threading.Event()
 
     def sample(self) -> None:
@@ -749,6 +924,32 @@ class _Meter(threading.Thread):
             a, b = tree_mem(self.pid, self.label)
             self.peak, self.peak_rss = max(self.peak, a), max(self.peak_rss, b)
             self.tell()
+
+    def publish(self) -> None:
+        """ЯДРА ПО ФАКТУ (T-75): в запись держателя — CPU своего дерева за окно (`fcpu`, ядер) и занятость машины за окно
+        (`fbusy`, `fwin`, время `ft`): новый ожидающий, чьё окно ещё короче, допускается по ним, `--status` — показывает."""
+        if not fact_on() or not self.holder:
+            return
+        now = time.time()
+        rate = _mem_stub(self.label, 'HEAVY_SLOT_CPU_STUB')
+        if rate is None:
+            self.cpu_s.append((now, tree_cpu_ticks(self.pid)))
+            w = cpu_window()
+            while len(self.cpu_s) > 2 and now - self.cpu_s[1][0] >= w:
+                self.cpu_s.pop(0)
+            (t0, j0), (t1, j1) = self.cpu_s[0], self.cpu_s[-1]
+            rate = max(j1 - j0, 0) / _HZ / (t1 - t0) if t1 - t0 >= min(1.0, w) else None
+        m = _CPU.busy()
+        if rate is None and m is None:
+            return
+        h = _read_kv(self.holder) or {}
+        if h.get('pid') != str(os.getpid()):
+            return
+        if rate is not None:
+            h['fcpu'] = f'{rate:.2f}'
+        if m:
+            h['fbusy'], h['fwin'], h['ft'] = f'{m[0]:.2f}', f'{m[1]:.1f}', f'{now:.2f}'
+        _write_kv(self.holder, h)
 
     def tell(self) -> None:
         """ПРЕВЫШЕНИЕ (T-91): пик прогона выше своего порога — пишу его в запись держателя (`peak_gb`), чтобы другие считали
@@ -768,6 +969,8 @@ class _Meter(threading.Thread):
     def run(self) -> None:
         while True:
             self.sample()
+            with contextlib.suppress(Exception):      # замер не должен ронять прогон
+                self.publish()
             held = time.time() - self.t0
             if not self.warned and held > self.long_s:
                 self.warned = True
@@ -779,7 +982,12 @@ class _Meter(threading.Thread):
     def stop(self) -> tuple[float, float]:
         self._stop_ev.set()
         self.join(timeout=5)
-        self.sample()
+        if self.is_alive():                           # поток замера не вышел за 5 с — в запись держателя рядом с ним не пишу
+            with contextlib.suppress(Exception):      # (T-75, совет Codex: две записи одной записи наперегонки)
+                a, b = tree_mem(self.pid, self.label)
+                self.peak, self.peak_rss = max(self.peak, a), max(self.peak_rss, b)
+        else:
+            self.sample()
         return self.peak, self.peak_rss
 
 
@@ -842,18 +1050,99 @@ def _holders_cores(d: str, k: int, n: int, strict: bool = True) -> tuple[float, 
     return total, any_h
 
 
-def _cores_ok(d: str, k: int, n: int, cores: float, prio: int) -> tuple[bool, str]:
-    """Допуск по ядрам (T-20261111-17), дополнительное условие к памяти: Σ ядер других держателей + свои ≤ бюджета.
-    Шире бюджета (свои > бюджета) — только одна: других держателей нет. Класс ≥ 1 (проба агента: секунды, человек ждёт)
-    бюджет не ждёт — как резерв пробы обходит потолок слотов; его ядра другие считают. → (да/нет, пояснение)."""
+def cpu_fact(d: str, n: int) -> tuple[float, float, str] | None:
+    """Занятость машины за окно (T-75) → (занято ядер, окно с, откуда) или None: своё окно процесса (`_CPU`); пока оно короче
+    окна — самый свежий замер держателя (`fbusy` в записи; свежий — не старше 3 замеров + 5 с)."""
+    m = _CPU.busy()
+    if m:
+        return m[0], m[1], 'своё окно'
+    best, now = None, time.time()
+    fresh = 3 * max(0.05, _env_f('HEAVY_SLOT_SAMPLE', 5)) + 5
+    for j in range(1, n + 1):
+        h = _read_kv(_holder_file(d, j)) or {}
+        try:
+            t, b, w = float(h['ft']), float(h['fbusy']), float(h.get('fwin') or 0)
+        except (KeyError, ValueError):
+            continue
+        if not is_held(j):
+            continue                                  # запись осталась после аварии — слот никто не держит
+        if now - t <= fresh and (best is None or t > best[3]):
+            best = (b, w, f"замер {h.get('label', '?')}", t)
+    return best[:3] if best else None
+
+
+def _warm_reserve(d: str, k: int, n: int, strict: bool = True) -> tuple[float, list]:
+    """«В разгоне» (T-75) — ядра держателей (кроме слота k), которых окно ещё не видит, по заявке → (ядер, [пояснения]):
+    держатель слота 1, ещё ждущий память/ядра, — заявка целиком (бронь, как в T-17); стартовал меньше HEAVY_SLOT_CPU_WARM с
+    назад — заявка минус уже видимое окном (факт дерева × доля окна, которую он работает); замок без записи — CORES_DEFAULT
+    (strict; новый держатель до записи или чужая проба — двое подряд иначе прошли бы по одному простою)."""
+    now, w, ws = time.time(), cpu_window(), cpu_warm_s()
+    total, parts = 0.0, []
+    for j in range(1, n + 1):
+        if j == k or not is_held(j):
+            continue
+        h = _read_kv(_holder_file(d, j))
+        if h is None:
+            if strict:
+                total += CORES_DEFAULT
+                parts.append(f'слот {j} без записи {CORES_DEFAULT:g}')
+            continue
+        c = cores_of(h)
+        if h.get('stage') != 'работает':
+            total += c
+            parts.append(f"{h.get('label', '?')} {c:g} ждёт в слоте")
+            continue
+        try:                                          # run_t — точное время старта (since — целые секунды; старая версия — его нет)
+            age = max(now - float(h.get('run_t') or h.get('since') or 0), 0.0)
+        except ValueError:
+            age = 0.0
+        if age >= ws:
+            continue
+        try:
+            fc = float(h.get('fcpu') or 0)
+        except ValueError:
+            fc = 0.0
+        part = max(c - fc * min(age, w) / w, 0.0)
+        if part >= 0.05:
+            total += part
+            parts.append(f"{h.get('label', '?')} {part:.1f}")
+    return total, parts
+
+
+def _core_room(d: str, k: int, n: int, strict: bool = True) -> tuple[float, str, float, bool, bool]:
+    """Сколько ядер может заявить новый (держатели — кроме слота k) → (место, пояснение по факту, Σ заявок держателей, есть ли
+    держатели, по факту ли). По заявкам (как T-17: допуск по факту выключен, держателей нет или окна нет нигде): бюджет −
+    Σ заявок. ПО ФАКТУ (T-75): min(бюджет − занято за окно − в разгоне − запас, перебор × бюджет − Σ заявок)."""
     budget = cores_budget()
-    used, any_h = _holders_cores(d, k, n)
+    used, any_h = _holders_cores(d, k, n, strict)
+    f = cpu_fact(d, n) if fact_on() and any_h else None
+    if f is None:
+        return budget - used, '', used, any_h, False
+    busy, win, src = f
+    warm, wparts = _warm_reserve(d, k, n, strict)
+    mg, cap = cpu_margin(), cores_overcommit() * budget
+    rf = budget - busy - warm - mg
+    why = (f'ядра по факту: занято {busy:.1f} из {budget:g} за {win:.0f} с ({src})'
+           + (f' + в разгоне {warm:.1f} ({", ".join(wparts)})' if wparts else '')
+           + f' + запас {mg:g} → свободно {rf:.1f}; заявки {used:g} + свои ≤ {cap:g}')
+    return min(rf, cap - used), why, used, any_h, True
+
+
+def _cores_ok(d: str, k: int, n: int, cores: float, prio: int) -> tuple[bool, str]:
+    """Допуск по ядрам (T-20261111-17), дополнительное условие к памяти: свои ≤ места (`_core_room`: по факту — T-75, иначе
+    Σ ядер других держателей + свои ≤ бюджета). Шире бюджета (свои > бюджета) — только одна: других держателей нет. Класс ≥ 1
+    (проба агента: секунды, человек ждёт) бюджет не ждёт — как резерв пробы обходит потолок слотов; его ядра другие считают.
+    → (да/нет, пояснение)."""
+    budget = cores_budget()
+    room, fwhy, used, any_h, fact = _core_room(d, k, n)
     if prio >= 1:
         return True, f'ядра {used:g} + свои {cores:g} из {budget:g} (приоритет {prio} — бюджет ядер не ждёт)'
     if cores > budget:
         return (not any_h), (f'ядра: свои {cores:g} > бюджета {budget:g} — только одна, '
                              + ('других нет' if not any_h else f'жду, пока уйдут держатели (у них {used:g})'))
-    ok = used + cores <= budget
+    ok = cores <= room
+    if fact:
+        return ok, f"{fwhy}: свои {cores:g} {'≤' if ok else '>'} {max(room, 0):.1f}"
     return ok, f"ядра {used:g} + свои {cores:g} {'≤' if ok else '>'} {budget:g}"
 
 
@@ -861,24 +1150,30 @@ def _need(d: str, k: int, own: float, n: int, cores: float = CORES_DEFAULT, prio
     """Допуск держателя слота k. Параллельно с другими: MemAvailable ≥ Σ по другим max(порог_h − память_h, 0) + свой порог
     + запас. Одиночный (других держателей нет) — как до T-74: MemAvailable ≥ свой порог, без запаса (ведущий 06.11: иначе
     порог 7 при свободных 8 встаёт навсегда). Сторож для всех: MemAvailable < запаса — нового нет при любом пороге
-    (идущих не трогаем). И ядра (`_cores_ok`, T-20261111-17). → (да/нет, пояснение, свободно ГБ, чего ждёт: память|ядра)."""
+    (идущих не трогаем). И ядра (`_cores_ok`, T-20261111-17). → (да/нет, пояснение, свободно ГБ, чего ждёт: память|ядра).
+    Ядра — ПЕРВЫМИ (T-75): их проверка читает только записи и /proc/stat, а доля памяти держателей — PSS их деревьев (замер
+    12.11: ~0,1 с процессора на пятерых держателей); с 10 слотами свободный слот есть чаще, и каждый ожидающий раз в секунду
+    платил бы его зря — ядра не проходят, память не считаю."""
     free, res = mem_available_gb(), reserve_gb()
     if free < res:
         return False, f'сторож: свободно {free:.1f} ГБ < запаса {res:.1f} — новых не пускаю', free, 'память'
+    cok, cwhy = _cores_ok(d, k, n, cores, prio)
+    if not cok:
+        return False, f'память не считал; {cwhy}', free, 'ядра'
     others, why, any_h = _holders_need(d, k, n)
     mok = free >= (others + own + res if any_h else own)
-    cok, cwhy = _cores_ok(d, k, n, cores, prio)
     return mok and cok, (f"свободно {free:.1f} ГБ {'≥' if mok else '<'} свой {own:g}"
                          + (f' + {why} + запас {res:.1f}' if any_h else ' (одиночный — без запаса)')
                          + f'; {cwhy}'), free, ('память' if not mok else 'ядра')
 
 
-def _admit(d: str, k: int, own: float, n: int, cores: float = CORES_DEFAULT, prio: int = 0) -> tuple[bool, str, float]:
+def _admit(d: str, k: int, own: float, n: int, cores: float = CORES_DEFAULT,
+           prio: int = 0) -> tuple[bool, str, float, str]:
     """Можно ли занять только что взятый слот k ≥ 2: только при занятом другом слоте и по допуску `_need` ПО ФАКТУ сейчас
-    (ждать память и ядра в дополнительном слоте нельзя — стартует сразу)."""
+    (ждать память и ядра в дополнительном слоте нельзя — стартует сразу). → (да/нет, пояснение, свободно ГБ, чего ждёт)."""
     if not any(is_held(j) for j in range(1, n + 1) if j != k):
-        return False, 'другие слоты свободны', 0.0
-    return _need(d, k, own, n, cores, prio)[:3]
+        return False, 'другие слоты свободны', 0.0, 'слот 1'
+    return _need(d, k, own, n, cores, prio)
 
 
 @contextlib.contextmanager
@@ -932,10 +1227,13 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
         log(label, f'вложенный вызов: слот уже у предка pid={parent} — не ждём')
         yield info
         return
-    # n — все слоты (обычные + резерв пробы): доли памяти держателей и «занят ли другой слот» — по всем; top — до какого слота
-    # могу брать я: класс ≥ 1 — и резерв (T-20261110-29), обычный — только `slots()`
+    # n — все слоты (обычные + резерв пробы): доли памяти держателей и «занят ли другой слот» — по всем; ids — какие слоты
+    # могу брать я: класс ≥ 1 — и резерв (T-20261110-29), обычный — только обычные (с T-75 — до max_slots(), номера сверх
+    # резерва идут после него)
     n = all_slots()
-    top = n if pr >= 1 else slots()
+    ids = list(range(1, n + 1)) if pr >= 1 else regular_ids()
+    res_ids = set(reserve_ids())
+    top = len(ids)
     d = os.path.dirname(_lock_file())
     holder_p = os.path.join(d, 'holder')
     yield_s = _env_f('HEAVY_SLOT_YIELD', 600) if yield_after is None else yield_after
@@ -950,34 +1248,53 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
     if eff_why:
         note(eff_why)
     me = {'label': label, 'pid': os.getpid(), 'since': int(t0), 'min_gb': min_gb, 'eff_gb': round(own, 3), 'type': typ,
-          'bf': 1, 'cmd': cmd[:300], 'prio': pr, 'cores': f'{cores:g}', 'long': int(bool(long))}
+          'bf': 1, 'cmd': cmd[:300], 'prio': pr, 'cores': f'{cores:g}', 'long': int(bool(long)),
+          'v': 75}                                    # версия: видит слоты сверх legacy_top() (T-75, `_legacy_waiting`)
     got, ticket, yields, t_lock, extra_why, said_closed = False, None, 0, 0.0, '', False
     keep = None                                       # номер билета, с которым вернуться после уступки старшему классу
+    refused = ['', 0.0]                               # чего ждал при последнем отказе в дополнительном слоте и когда писал
 
     def grab(try_extra: bool) -> int:
         """Первый в очереди: занять слот 1, иначе (раз в step) — второй по памяти. → номер слота, 0 — нет, −1 — я уже не первый.
         «Первый» сверяется раз в step, а старший класс встаёт впереди в любой момент (T-20261109-31): взяв замок, сверяю
-        ещё раз под `queue.lock` — не первый → замок назад."""
+        ещё раз под `queue.lock` — не первый → замок назад. Отказ в дополнительном слоте — один на круг (для других свободных
+        допуск тот же) и строка в журнал, когда сменилось, чего жду (T-75)."""
         nonlocal extra_why
-        for k in range(1, top + 1):
+        for k in ids:
             if k > 1 and not try_extra:
                 break
             try:
                 fcntl.flock(fds[k], fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 continue
-            if not _my_turn(d, ticket):
-                fcntl.flock(fds[k], fcntl.LOCK_UN)
-                return -1
             if k == 1:
+                if not _my_turn(d, ticket):
+                    fcntl.flock(fds[k], fcntl.LOCK_UN)
+                    return -1
                 return 1
-            ok, why, free_k = _admit(d, k, own, n, cores, pr)
-            if ok:
-                extra_why = why
-                _write_kv(_holder_file(d, k), dict(me, since=int(time.time()), stage='работает', free_gb=round(free_k, 1),
-                                                   yields=yields, slot=k))
-                return k
-            fcntl.flock(fds[k], fcntl.LOCK_UN)
+            # дополнительный слот: проверка «я первый», допуск и запись держателя — одним шагом под `queue.lock`, как в
+            # обгоне (T-75, совет Codex): иначе голова и обгоняющий допускаются по одному окну простоя, не видя друг друга
+            with _qlock(d):
+                live = _tickets(d, clean=True)
+                if not live or live[0][1] != ticket:
+                    fcntl.flock(fds[k], fcntl.LOCK_UN)
+                    return -1
+                if k > legacy_top() and _legacy_waiting(d, live):
+                    ok, free_k = False, 0.0
+                    what, why = f'слоты сверх {legacy_top()}', 'ждёт процесс старой версии — он их не видит'
+                else:
+                    ok, why, free_k, what = _admit(d, k, own, n, cores, pr)
+                if ok:
+                    extra_why = why
+                    _write_kv(_holder_file(d, k), dict(me, since=int(time.time()), stage='работает',
+                                                       free_gb=round(free_k, 1), yields=yields, slot=k,
+                                                       run_t=f'{time.time():.2f}'))
+                    return k
+                fcntl.flock(fds[k], fcntl.LOCK_UN)
+            if what != 'слот 1' and (what != refused[0] or (report > 0 and time.time() - refused[1] >= report)):
+                note(f'дополнительный слот не даю — жду {what}: {why}')
+                refused[:] = [what, time.time()]
+            break
         return 0
 
     def backfill(tk: str) -> int:
@@ -990,18 +1307,25 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
         lim = backfill_s()
         if not is_held(1):
             return 0
-        free_k = [k for k in range(2, top + 1) if not is_held(k)]
-        res_only = bool(free_k) and all(k > slots() for k in free_k)
+        free_k = [k for k in ids[1:] if not is_held(k)]
+        res_only = bool(free_k) and all(k in res_ids for k in free_k)
         if lim <= 0 and not res_only:
             return 0
         res = reserve_gb()
         if not free_k or mem_available_gb() - res < own:      # дешёвые отсечки до разбора держателей
+            return 0
+        if pr < 1 and cores > _core_room(d, 0, n)[0]:      # и по ядрам (T-75: дешевле доли памяти — записи и /proc/stat)
             return 0
         with _qlock(d):                               # решение и запись держателя — одним шагом против других обгоняющих
             live = _tickets(d)
             pos = next((i for i, x in enumerate(live) if x[1] == tk), -1)
             if pos <= 0:
                 return 0
+            if any(k > legacy_top() for k in free_k) and _legacy_waiting(d, live):
+                free_k = [k for k in free_k if k <= legacy_top()]   # переход (T-75): старая версия слоты сверх не видит
+                if not free_k:
+                    return 0
+                res_only = all(k in res_ids for k in free_k)
             who, waited = _head_wait(d, live)
             if waited >= lim and not res_only:
                 if not said_closed:
@@ -1009,14 +1333,15 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                          f'слоты стекают к ней; жду по очереди')
                     said_closed = True
                 return 0
+            # ядра (T-20261111-17): обгоняет только тот, кто проходит и по ядрам; впереди проходящий — и по памяти, и по
+            # ядрам (класс ≥ 1 бюджет ядер не ждёт; шире бюджета при держателях не проходит никогда — ждёт слот 1).
+            # Ядра — до памяти (T-75): доля памяти держателей — PSS их деревьев, дорого
+            croom = _core_room(d, 0, n)[0]            # по факту (T-75) или по заявкам — как в допуске
+            if pr < 1 and cores > croom:
+                return 0
             others = _holders_need(d, 0, n)[0]
             room = mem_available_gb() - others - res
             if own > room:
-                return 0
-            # ядра (T-20261111-17): обгоняет только тот, кто проходит и по ядрам; впереди проходящий — и по памяти, и по
-            # ядрам (класс ≥ 1 бюджет ядер не ждёт; шире бюджета при держателях не проходит никогда — ждёт слот 1)
-            croom = cores_budget() - _holders_cores(d, 0, n)[0]
-            if pr < 1 and cores > croom:
                 return 0
             for i, (_, _, kv) in enumerate(live[:pos]):
                 if kv.get('proxy') == '1' or (i > 0 and kv.get('bf') != '1'):
@@ -1035,20 +1360,20 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                     fcntl.flock(fds[k], fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except BlockingIOError:
                     continue
-                ok, why, free_k_gb = _admit(d, k, own, n, cores, pr)
+                ok, why, free_k_gb, _ = _admit(d, k, own, n, cores, pr)
                 if ok:
                     h_th = _num(hd.get('eff_gb') or hd.get('min_gb'))
                     try:
                         h_mem = float(hd.get('eff_gb') or hd.get('min_gb')) <= room
                     except (TypeError, ValueError):
                         h_mem = False
-                    blk = (f'ядер {cores_of(hd):g} не проходит: свободно ядер {croom:g} из {cores_budget():g}, '
+                    blk = (f'ядер {cores_of(hd):g} не проходит: свободно ядер {round(croom, 1):g} из {cores_budget():g}, '
                            f'место {room:.1f} ГБ' if h_mem else f'порог {h_th} не проходит: место {room:.1f} ГБ')
                     extra_why = (f"обогнал голову {hd.get('label', '?')} ({blk}; "
                                  f"голова ждёт {waited / 60:.0f} мин из {lim / 60:g}); {why}")
                     _write_kv(_holder_file(d, k), dict(me, since=int(time.time()), stage='работает',
                                                        free_gb=round(free_k_gb, 1), yields=yields, slot=k, backfill=1,
-                                                       over=hd.get('label', '?')))
+                                                       over=hd.get('label', '?'), run_t=f'{time.time():.2f}'))
                     return k
                 fcntl.flock(fds[k], fcntl.LOCK_UN)
         return 0
@@ -1057,8 +1382,11 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
             ticket = _take_ticket(d, dict(me, yields=yields), keep)
             my_n, keep = int(os.path.basename(ticket)[:8]), None
             said, head, t_chk, t_extra, t_bf = False, False, -1e9, -1e9, -1e9
+            fact = fact_on()
             while True:
                 now = time.time()
+                if fact:
+                    _CPU.sample()                     # своё окно занятости, пока жду (T-75; не чаще раза в 0,2 с)
                 if now - t_chk >= step:               # первого не сдвинуть (новые — в конец): сверка раз в step
                     head, t_chk = _my_turn(d, ticket), now
                 k = 0
@@ -1106,7 +1434,7 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                     raise SlotTimeout(label)
                 if time.time() - t_mem >= yield_s:
                     oth, _, any_h = _holders_need(d, 1, n)
-                    croom = cores_budget() - _holders_cores(d, 1, n)[0]
+                    croom = _core_room(d, 1, n)[0]
                     w = (_fits_now(d, os.getpid(), free - oth - reserve_gb() if any_h else free, croom)
                          if yields < max_y else None)
                     if w:
@@ -1128,6 +1456,8 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                 t_end, w = time.time() + poll, None
                 while True:
                     w = _outranked(d, me)
+                    if fact_on():
+                        _CPU.sample()                 # окно занятости — и пока держу слот 1 в ожидании (T-75)
                     if w or time.time() >= t_end:
                         break
                     time.sleep(min(step, max(t_end - time.time(), 0.0)))
@@ -1146,7 +1476,8 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                 break
         waited = time.time() - t0
         if slot == 1:
-            _write_kv(holder_p, dict(me, since=int(time.time()), stage='работает', free_gb=round(free, 1), yields=yields))
+            _write_kv(holder_p, dict(me, since=int(time.time()), stage='работает', free_gb=round(free, 1), yields=yields,
+                                     run_t=f'{time.time():.2f}'))
         note(f'взял: ждал {_sec(waited)} с (очередь {_sec(t_lock)}, память {_sec(waited - t_lock)}), свободно {free:.1f} ГБ'
              + (f', уступок {yields}' if yields else '') + f', ядер {cores:g}' + (', долгая' if long else '')
              + (f', приоритет {pr}' if pr else '')
@@ -1261,14 +1592,18 @@ def status(out=sys.stdout) -> int:
         lock = _lock_file(k)
         held = is_held(k)
         h = _read_kv(_holder_file(d, k))
-        tag = (f' · слот {k}' if k > 1 else '') + (' (резерв пробы)' if k > slots() else '')
+        tag = (f' · слот {k}' if k > 1 else '') + (' (резерв пробы)' if k in reserve_ids() else '')
         if held and h and _alive(int(h.get('pid', 0) or 0)):
             eff = h.get('eff_gb')
             eff_s = f" (по замеру {float(eff):.2f})" if eff and float(eff) < float(h.get('min_gb') or 0) else ''
             if h.get('peak_gb'):
                 with contextlib.suppress(ValueError):
                     eff_s += f" · превысил порог: пик {float(h['peak_gb']):.2f} ГБ — доля по факту"
-            cpu_s = (f" · ядер {cores_of(h):g}" + (' (старая версия — по умолчанию)' if 'cores' not in h else '')
+            fact_s = ''
+            if fact_on() and h.get('fcpu'):
+                with contextlib.suppress(ValueError):
+                    fact_s = f" · факт {float(h['fcpu']):.1f}"   # CPU дерева за окно (T-75)
+            cpu_s = (f" · ядер {cores_of(h):g}" + (' (старая версия — по умолчанию)' if 'cores' not in h else '') + fact_s
                      + (f" · долгая, nice {_nice_of(int(h['pid']))}" if h.get('long') == '1' else ''))
             pr(f"ДЕРЖИТ: {h['label']} · pid {h['pid']} · {h.get('stage', '?')} {_ago(h.get('since'))} · порог {h.get('min_gb')} ГБ"
                + eff_s + cpu_s + (f" · уступок {h['yields']}" if h.get('yields') not in (None, '0') else '')
@@ -1320,12 +1655,34 @@ def status(out=sys.stdout) -> int:
     except (OSError, IndexError):
         la = '?'
     src = 'HEAVY_SLOT_CORES_BUDGET' if os.environ.get('HEAVY_SLOT_CORES_BUDGET') else 'nproc'
-    pr(f'ЯДРА: держатели {used:g} из {budget:g} ({src}; новый ждёт, если держатели + свои > {budget:g}; долгие — nice '
-       f'{long_nice()}) · нагрузка за 1 мин {la}')
+    rule = ('при других держателях допуск по факту — строка ниже' if fact_on()
+            else f'новый ждёт, если держатели + свои > {budget:g}')
+    pr(f'ЯДРА: держатели {used:g} из {budget:g} ({src}; {rule}; долгие — nice {long_nice()}) · нагрузка за 1 мин {la}')
+    if fact_on():
+        f = cpu_fact(d, n)
+        s_win = _env_f('HEAVY_SLOT_STATUS_CPU_S', 1)
+        if f is None and s_win > 0:              # держатели замер ещё не написали — своё короткое окно
+            _CPU.sample()
+            time.sleep(s_win)
+            m = _CPU.busy(win=s_win)
+            f = (m[0], m[1], f'своё окно {s_win:g} с — грубо') if m else None
+        if f is None:
+            pr('ЯДРА ПО ФАКТУ: нет замера (/proc/stat не прочитан) — допуск по заявкам')
+        else:
+            busy, win, fsrc = f
+            warm, wparts = _warm_reserve(d, 0, n, strict=False)
+            mg, cap = cpu_margin(), cores_overcommit() * budget
+            room = min(budget - busy - warm - mg, cap - used)
+            pr(f'ЯДРА ПО ФАКТУ: занято {busy:.1f} из {budget:g} за {win:.0f} с ({fsrc}) → свободно по факту '
+               f'{budget - busy:.1f} ядер'
+               + (f'; в разгоне {warm:.1f} ({", ".join(wparts)})' if wparts else '')
+               + f'; запас {mg:g}, заявки держателей ≤ {cap:g} → войдёт задача до {max(room, 0):.1f} ядер'
+               + ('' if used else ' (сейчас одиночная — по заявке)'))
     if slots() > 1:
         res = reserve_gb()
         line = (f'СЛОТОВ: {slots()} (дополнительный — только пока занят другой и свободно ≥ Σ держателей max(порог − память, 0)'
                 f' + свой + запас {res:.1f} ГБ; иначе по одному)'
+                + (f'; по факту ядер — до {max_slots()} обычных (HEAVY_SLOT_MAX_SLOTS)' if max_slots() > slots() else '')
                 + (f' + резерв пробы {prio_slots()} (только приоритет ≥ 1, допуск тот же)' if prio_slots() else ''))
         with contextlib.suppress(OSError, RuntimeError):
             others = _holders_need(d, 0, n)[0]
