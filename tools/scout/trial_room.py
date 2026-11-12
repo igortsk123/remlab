@@ -755,6 +755,12 @@ def core_candidate(P: Polygon, rect, ops: list, need: dict, cfg: dict) -> dict:
     return cand
 
 
+def recess_open(cand: dict, wall: str, a: float, b: float) -> bool:
+    """Стык ядра с углублением открыт (портал + пристройка, T-20261112-96/3), если на этом отрезке стороны нет проёма ядра: в мелкую
+    нишу окно/дверь проецируются на сторону ядра (`_on_core`, allow = проход) — там остаётся стена с этим проёмом, как было."""
+    return not any(x['wall'] == wall and x['offset_cm'] < b - 1 and x['offset_cm'] + x['width_cm'] > a + 1 for x in cand['openings'])
+
+
 def solver_openings(cand: dict, cfg: dict, hinge: str = 'left') -> list:
     """Проёмы ядра для `SCENE_OPENINGS` солвера (`planner/models.py:Opening`): двери — с дугой (петля `hinge`, вторая сторона —
     в `post_check`), портал `opening` и стык с проходом/хвостом — `door` без полотна (swing 0: резерв маршрута, без дуги),
@@ -786,6 +792,15 @@ def solver_openings(cand: dict, cfg: dict, hinge: str = 'left') -> list:
             elif r['kind'] == 'bay':
                 out.append({'kind': 'window', 'wall': wall, 'offset_cm': a, 'width_cm': round(b - a, 1),
                             'sill_cm': cfg['window_sill_cm'], 'height_cm': cfg['window_height_cm'], '_junction': 'bay'})
+            elif r['kind'] == 'recess' and recess_open(cand, wall, a, b):
+                # УГЛУБЛЕНИЕ — НЕ СТЕНА И НЕ ВХОД (T-20261112-96/3, Codex `_intake/codex/2026-11-12-t96-3-answer.md` В1, вариант «д»):
+                # раньше стык с ним молча оставался стеной ядра — решатель ставил шкаф/комод спинкой к нему, а проверка спинки по
+                # полному контуру (`trial_bedroom.back_off_wall`) их снимала (iT0X спальни 1–2: за стыком 55–60 см воздуха). Портал
+                # без полотна `opening` (не `door`): у гостиной не создаёт входной резерв (`zones.route_reserve` — только двери),
+                # у спальни — узкая полоса `planner.bedroom.JUNCTION_STRIP_CM` (спинкой к нему нельзя); в 3D — пристройка (`annexes`).
+                # Закуток (`nook`) и щель ≤ `SLIVER_CM` — стена, как были; мелкая ниша с окном/дверью, спроецированными на сторону
+                # ядра (`recess_open`), — тоже стена: портал лёг бы поверх проёма
+                out.append({'kind': 'opening', 'wall': wall, 'offset_cm': a, 'width_cm': round(b - a, 1), '_junction': 'recess'})
     return out
 
 
@@ -802,16 +817,18 @@ def annexes(cand: dict, ops: list, cfg: dict) -> list:
     в ядре). Портал стыка — `junction` (стены между частями комнаты нет). Портал из остатка (`opening` распознавания или широкая
     внутренняя «дверь», `_place_opening`) — проход без полотна (T-20261112-41; до того — стена: за ним была пустота, теперь за ним
     кусок прохода, `portal_stubs`). Две пристройки не перекрываются (второй стык того же угла остаётся порталом). Эркер (`bay`) —
-    окно-пролёт ядра, пристройки нет."""
+    окно-пролёт ядра, пристройки нет. Углубление (`recess`, T-20261112-96/3) — пристройка без своих проёмов (их у него нет по
+    определению), портал стыка — `junction`."""
     x0, y0, x1, y1 = cand['rect']
     by_src = {o['src']: o for o in ops}
     out, boxes = [], []
     big = 1e5
     for r in cand['residues']:
-        if r['kind'] not in ('passage', 'tail') or r.get('poly') is None:
+        # углубление (`recess`, T-20261112-96/3) — тоже часть комнаты за порталом: без пристройки за ним была бы пустота
+        if r['kind'] not in ('passage', 'tail', 'recess') or r.get('poly') is None:
             continue
         for wall, a, b in r['junctions']:
-            if b - a < 5:
+            if b - a < 5 or (r['kind'] == 'recess' and not recess_open(cand, wall, a, b)):
                 continue
             hp = {'north': box(-big, y1, big, big), 'south': box(-big, -big, big, y0),
                   'east': box(x1, -big, big, big), 'west': box(-big, -big, x0, big)}[wall]

@@ -741,6 +741,52 @@ def test_niche_junction_is_not_a_door_strip():
     assert blocked_at(80, 70.0) and not blocked_at(0, 70.0) and blocked_at(0, 10.0)
 
 
+def _sku(mid, w, d, h, name):
+    return {'mid': mid, 'eid': mid + '0', 'sid': f'{mid}:{mid}0', 'name': name, 'w': w, 'd': d, 'h': h}
+
+
+@pytest.mark.parametrize('rid,idx,bed,stand', [
+    # кровать и тумбы стилей тура iT0X (прогон 20:03, T-96/2), шкаф и комод — размеры, что встали в той же комнате у соседних стилей
+    ('bedroom-1', 0, _sku('b1', 185.0, 203.0, 98.0, 'Кровать'), _sku('s1', 36.0, 38.0, 49.0, 'Тумба')),
+    ('bedroom-2', 1, _sku('b2', 169.0, 203.0, 85.0, 'Кровать'), _sku('s2', 42.0, 35.0, 52.0, 'Тумба')),
+])
+def test_recess_junction_keeps_wardrobe_and_dresser(rid, idx, bed, stand):
+    """T-20261112-96/3 (Codex В1 «д»): у спален 1–2 iT0X углубление 55–60 см за стороной ядра. Стык был стеной ядра — решатель ставил
+    шкаф и комод спинкой к нему, `back_off_wall` (спинка по полному контуру) их снимал: в варианте не было ни шкафа, ни комода. Теперь
+    стык — портал `opening` с узкой полосой: оба встают у настоящих стен, спинкой в воздух — никто."""
+    p = json.load(open(NICHE_FIXTURE, encoding='utf-8'))
+    panel, room, got = TB.bedrooms_of(p)[idx]
+    assert got == rid
+    cfg = TB.TR.rules()
+    ad = TB.adapt_room(panel, room, cfg)
+    ad['memo'] = {}
+    cand = ad['candidates'][0]
+    assert any(r['kind'] == 'recess' for r in cand['residues'])
+    assert any(o.get('_junction') == 'recess' and o['kind'] == 'opening' for o in TB.TR.solver_openings(cand, cfg))
+    sleep_w = 180 if bed['w'] >= 180 else 160
+    tpl = {'id': f'couple-{sleep_w}', 'purpose': 'couple', 'sleep_w': sleep_w, 'nightstands': TB.NIGHTSTANDS['couple']}
+    extras = {'шкаф': [_sku('w1', 150.0, 60.0, 200.0, 'Шкаф распашной')], 'комод': [_sku('c1', 96.0, 45.0, 89.0, 'Комод')]}
+    res, _kit = TB.fit_extras(ad, cand, cfg, {'кровать': bed, 'тумба прикроватная': stand}, extras, tpl)
+    assert res is not None
+    assert {'шкаф', 'комод'} <= {TB.base_role(q.role) for q in res['placements']}
+    assert TB.back_off_wall(ad, cand, res['placements']) == []
+
+
+def test_recess_portal_strip_blocks_back_not_room():
+    """Портал углубления (`opening`) в решателе спальни — узкая полоса `JUNCTION_STRIP_CM` у линии стыка, как стык ниши (T-96/2): у самой
+    линии занято (спинкой туда ни шкаф, ни комод, ни изголовье), в 70 см — свободно (не вход: полосы 76 нет)."""
+    from planner.bedroom import JUNCTION_STRIP_CM, _Statics
+    from planner.models import Opening, Room
+    from shapely.geometry import Point
+    rm = Room(width_cm=400, depth_cm=400, openings=[Opening(kind='opening', wall='south', offset_cm=100, width_cm=150)], radiators=[],
+              room_type='bedroom', purpose='guest')
+    b = _Statics(rm).blocked
+    assert b is not None
+    assert any(b.contains(Point(175, y)) for y in (JUNCTION_STRIP_CM / 2, 400 - JUNCTION_STRIP_CM / 2))
+    assert not any(b.contains(Point(175, y)) for y in (70.0, 330.0))
+    assert not any(b.contains(Point(x, JUNCTION_STRIP_CM / 2)) for x in (50.0, 300.0)) and not b.contains(Point(50.0, 390.0))
+
+
 def _nofit_rig(monkeypatch, refuse):
     """Поддельный решатель: `refuse(items)` → причина отказа (кровать не ставится) или None (кровать и тумба встают)."""
     import planner.bedroom as PB

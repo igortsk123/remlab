@@ -350,6 +350,36 @@ def test_annex_only_for_the_box_it_was_found_in():
     assert TB.annexes_of(p, r, dict(geo, openings=moved), cfg) == []
 
 
+RECESS = [(0, 40), (150, 40), (150, 0), (350, 0), (350, 40), (500, 40), (500, 440), (0, 440)]
+
+
+def recess_flat():
+    return result(panel('p0', [room('r1', 'living', RECESS, name='Lounge')], [op('window', (500, 240), 120), op('door', (100, 440), 90)]))
+
+
+def test_recess_portal_and_annex_on_page_old_box_stays_valid():
+    """T-20261112-96/3 (Codex В1 «д»): стык ядра с углублением — портал на странице (стык частей одной комнаты: `junction`, без
+    наличника) и пристройка в 3D без своих проёмов. Коробка, собранная раньше (на месте портала — стена), сверяется с ядром как
+    прежде (`_core_of`) и пристройки углубления не получает — иначе за стеной висела бы пустая ниша."""
+    res = recess_flat()
+    geo = build(res)['rooms_geo']['living']
+    assert (geo['w'], geo['d']) == (500, 400)
+    portal = [o for o in geo['openings'] if o['kind'] == 'opening']
+    assert [(o['wall'], o['offset_cm'], o['width_cm'], o.get('junction')) for o in portal] == [('south', 150, 200, True)]
+    assert not any(k.startswith('_') for o in geo['openings'] for k in o)
+    (a,) = geo['annexes']
+    assert (a['x'], a['y'], a['w'], a['d']) == (150, -40, 200, 40)
+    assert [(o['kind'], o['wall'], o.get('junction')) for o in a['openings']] == [('opening', 'north', True)]
+    p, r = res['panels'][0], res['panels'][0]['rooms'][0]
+    cfg = TB.TR.rules()
+    new = TB.core_geometry(p, r, cfg)
+    assert TB._core_of(p, r, new, cfg)[0]['residues'][0]['kind'] == 'recess'
+    old = dict(new, openings=[o for o in new['openings'] if o['kind'] != 'opening'])
+    got = TB._core_of(p, r, old, cfg)
+    assert got is not None and not [x for x in got[0]['residues'] if x['kind'] == 'recess']
+    assert TB.annexes_of(p, r, old, cfg) == []
+
+
 def balcony(y0=-190, y1=-30, x0=100, x1=400):
     b = room('o1', 'other', [(x0, y0), (x1, y0), (x1, y1), (x0, y1)], name='Balcony', area=4.8)
     b['flags'] = ['outdoor', 'outdoor_outline']

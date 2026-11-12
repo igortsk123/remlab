@@ -152,6 +152,64 @@ def test_shallow_bay_window_projects_to_core_side():
     assert [r['kind'] for r in c['residues']] == ['recess']
     win = [x for x in c['openings'] if x['o']['kind'] == 'window']
     assert len(win) == 1 and win[0]['offset_cm'] == 160 and win[0]['width_cm'] == 180
+    # T-20261112-96/3: портал углубления лёг бы поверх окна — стык остаётся стеной с окном, пристройки нет
+    sop = TR.solver_openings(c, TR.rules())
+    assert not [o for o in sop if o.get('_junction')] and TR.annexes(c, ad['ops'], TR.rules()) == []
+
+
+# ───────────────────────── углубление: портал, не стена и не вход (T-20261112-96/3) ─────────────────────────
+
+RECESS = [(0, 40), (150, 40), (150, 0), (350, 0), (350, 40), (500, 40), (500, 440), (0, 440)]
+SIDE_OPS = [op('window', (500, 240), 120, True), op('door', (100, 440), 90)]
+
+
+def _solver_room(sop):
+    from planner.models import Opening, Room
+    return Room(width_cm=500, depth_cm=400, room_type='living',
+                openings=[Opening(**{k: v for k, v in o.items() if not k.startswith('_')}) for o in sop])
+
+
+def test_recess_is_portal_not_wall_and_not_entrance():
+    """Codex В1 (д): стык ядра с мелкой нишей без проёмов — портал `opening` (раньше — стена ядра: шкаф/комод вставали спинкой к нему,
+    `back_off_wall` их снимал). Не дверь: входного резерва гостиной (`zones.route_reserve`) он не создаёт."""
+    from planner.zones import route_reserve
+    ad = TR.adapt(result([room('r1', 'living', RECESS)], SIDE_OPS))
+    c = ad['candidates'][0]
+    assert [r['kind'] for r in c['residues']] == ['recess']
+    sop = TR.solver_openings(c, TR.rules())
+    j = [o for o in sop if o.get('_junction')]
+    assert j == [{'kind': 'opening', 'wall': 'south', 'offset_cm': 150.0, 'width_cm': 200.0, '_junction': 'recess'}]
+    assert route_reserve(_solver_room(sop)).equals(route_reserve(_solver_room([o for o in sop if o not in j])))
+
+
+def test_recess_annex_has_only_junction_portal():
+    """В 3D за порталом углубления — пристройка без стены и полотна на стыке; своих проёмов у углубления нет."""
+    ad = TR.adapt(result([room('r1', 'living', RECESS)], SIDE_OPS))
+    assert TR.annexes(ad['candidates'][0], ad['ops'], TR.rules()) == [
+        {'x': 150.0, 'y': -40.0, 'w': 200.0, 'd': 40.0, 'junction': 'south',
+         'openings': [{'kind': 'opening', 'wall': 'north', 'offset_cm': 0.0, 'width_cm': 200.0, 'junction': True}]}]
+
+
+@pytest.mark.parametrize('contour,want', [
+    # два углубления одной стороны — два портала и две пристройки
+    ([(0, 40), (80, 40), (80, 0), (180, 0), (180, 40), (300, 40), (300, 0), (420, 0), (420, 40), (500, 40), (500, 440), (0, 440)],
+     [(80.0, 100.0), (300.0, 120.0)]),
+    # углубление в углу — портал от угла
+    ([(0, 0), (150, 0), (150, 40), (500, 40), (500, 440), (0, 440)], [(0.0, 150.0)]),
+    # щель ≤ SLIVER_CM — дрожь стены, остатка нет: стена
+    ([(0, 15), (150, 15), (150, 0), (350, 0), (350, 15), (500, 15), (500, 415), (0, 415)], []),
+    # закуток (глубже прохода, меньше хвоста) — стена, как был
+    ([(0, 90), (150, 90), (150, 0), (220, 0), (220, 90), (500, 90), (500, 490), (0, 490)], []),
+])
+def test_recess_portals_many_corner_nook_sliver(contour, want):
+    ys = max(p[1] for p in contour)
+    ad = TR.adapt(result([room('r1', 'living', contour)], [op('window', (500, 240), 120, True), op('door', (100, ys), 90)]))
+    c = ad['candidates'][0]
+    cfg = TR.rules()
+    sop = TR.solver_openings(c, cfg)
+    assert sorted((o['offset_cm'], o['width_cm']) for o in sop if o.get('_junction') == 'recess') == want
+    assert all(o['kind'] == 'opening' and o['wall'] == 'south' for o in sop if o.get('_junction') == 'recess')
+    assert sorted((a['x'], a['w']) for a in TR.annexes(c, ad['ops'], cfg)) == want
 
 
 # ───────────────────────── вход через гостиную ─────────────────────────

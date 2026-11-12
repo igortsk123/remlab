@@ -67,6 +67,10 @@ class _Statics:
             if op.kind == "door":
                 door.append(_wall_strip(room, op.wall, op.offset_cm, op.width_cm,
                                         76.0 if not sw.is_empty else JUNCTION_STRIP_CM).buffer(-1.0))
+            elif op.kind == "opening":
+                # портал без полотна — стык ядра с углублением (`trial_room.solver_openings`, T-20261112-96/3, Codex В1 «д»): не вход
+                # (без полосы 76), но и не стена — та же узкая полоса, спинкой к нему не встанет ни шкаф, ни комод, ни изголовье
+                door.append(_wall_strip(room, op.wall, op.offset_cm, op.width_cm, JUNCTION_STRIP_CM).buffer(-1.0))
         hard = num("sofa_to_radiator_wall", 15)
         rads = [radiator_polygon(room, r).buffer(hard - 1.0) for r in room.radiators]
         self.blocked = unary_union(door + rads) if (door or rads) else None

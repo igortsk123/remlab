@@ -861,10 +861,15 @@ def _core_match(fr: dict, ops: list, geo: dict, want: list, cfg: dict):
                 continue
             cand = TR.core_candidate(fr['poly'], g.bounds, ops, TR.need_group(), cfg)
             so = TR.solver_openings(cand, cfg)
-            # коробка, собранная до T-20261112-41, на месте портала широкой внутренней «двери» (`_wide`) держит дверь — сверяем и без него
-            for got in (_portals(so), _portals([o for o in so if not o.get('_wide')])):
+            # коробка, собранная до T-20261112-41, на месте портала широкой внутренней «двери» (`_wide`) держит дверь — сверяем и без него;
+            # собранная до T-20261112-96/3 — без портала углубления (`_junction` 'recess': там была стена) — и без него
+            old = [o for o in so if o.get('_junction') != 'recess']
+            for i, got in enumerate((_portals(so), _portals([o for o in so if not o.get('_wide')]), _portals(old),
+                                     _portals([o for o in old if not o.get('_wide')]))):
                 if len(got) == len(want) and all(p[0] == q[0] and abs(p[1] - q[1]) <= ANNEX_TOL_CM and abs(p[2] - q[2]) <= ANNEX_TOL_CM
                                                  for p, q in zip(got, want)):
+                    if i >= 2 and len(old) < len(so):        # у старой коробки там стена — пристройки углубления за ней нет
+                        cand = dict(cand, residues=[r for r in cand['residues'] if r['kind'] != 'recess'])
                     return cand, ops, fr
     return None
 
