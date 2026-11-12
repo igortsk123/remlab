@@ -92,6 +92,13 @@ describe("тур пробы: вставка песочницы", () => {
     expect((await f(`/api/trial/${ID}/photo`)).status).toBe(200);
     expect((await f(`/api/trial/${OTHER}/photo`)).status).toBe(403);
     expect((await f(`/api/trial/${ID}/photo?x=1`)).status).toBe(403);
+    // готовые фото задания (T-20261112-115): список — без параметров (покупатель) или с ключом агента; заказ агента — с ключом
+    const PK = "P".repeat(22);
+    for (const p of [`/api/trial/${ID}/photos`, `/api/trial/${ID}/photos?k=${PK}`, `/api/trial/${ID}/photo?k=${PK}`])
+      expect((await f(p)).status, p).toBe(200);
+    for (const p of [`/api/trial/${OTHER}/photos`, `/api/trial/${ID}/photos?x=1`, `/api/trial/${ID}/photos?k=short`,
+      `/api/trial/${ID}/photos?k=${PK}&x=1`, `/api/trial/${OTHER}/photos?k=${PK}`]) expect((await f(p)).status, p).toBe(403);
+    seen.splice(seen.length - 3, 3);
     expect((await f("/api/render/frame")).status).toBe(200);
     expect((await f("/api/job?id=abc123")).status).toBe(200);
     for (const p of ["/api/render", "/api/render?async=1", "/api/render/frame?x=1", "/api/job", "/api/job?id=a&x=1", "/api/jobs?id=a",

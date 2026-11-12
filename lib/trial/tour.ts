@@ -16,6 +16,7 @@ import { contentTag, encodedTag, IMMUTABLE, REVALIDATE, tagMatches } from "@/lib
 import { MARKET_LANG, tourHref } from "@/lib/trial/i18n";
 import { pageCards, readCard } from "@/lib/trial/tour-cards";
 import { jobRelease, readRegular, readTourData, releaseDir } from "@/lib/trial/tour-files";
+import { PHOTO_TYPES, readPhoto } from "@/lib/trial/tour-photos";
 import { injectTour } from "@/lib/trial/tour-page";
 import { sourceResponse, type SourceDeps } from "@/lib/trial/tour-source";
 import { stubHtml, type StubKind, type StubOpts } from "@/lib/trial/tour-stub";
@@ -28,6 +29,8 @@ const CAMFIT_JS = /^lib\/camfit\.[a-f0-9]{6,64}\.js$/;
 const SHARED_IMG = /^(img|topsprites)\/([\w.-]{1,160}\.(?:jpe?g|png|webp))$/;
 // готовый снимок карточки комнаты этого задания (T-20261112-29, `tour-cards.ts`): имя — хеш содержимого
 const CARD_IMG = /^cards\/([a-f0-9]{16}\.jpg)$/;
+// готовое фото тура (T-20261112-115, `tour-photos.ts`): имя — хеш содержимого, миниатюра — `.t`
+const PHOTO_IMG = /^photos\/([a-f0-9]{16}(?:\.t)?\.(jpg|png|webp))$/;
 
 export type TourTarget =
   | { kind: "page" }
@@ -36,6 +39,7 @@ export type TourTarget =
   | { kind: "release"; rel: string; type: string }
   | { kind: "shared"; url: string }
   | { kind: "card"; file: string }
+  | { kind: "photo"; file: string; type: string }
   | { kind: "source" }
   | { kind: "sourceFile" };
 
@@ -57,6 +61,8 @@ export function tourTarget(parts: readonly string[]): TourTarget | null {
   if (SHARED_IMG.test(rel)) return { kind: "shared", url: `/demo/${rel}` }; // картинки товаров общие (103 МБ на витрине), личного в них нет
   const card = CARD_IMG.exec(rel);
   if (card) return { kind: "card", file: card[1]! };
+  const photo = PHOTO_IMG.exec(rel);
+  if (photo) return { kind: "photo", file: photo[1]!, type: PHOTO_TYPES[photo[2]!]! };
   return null;
 }
 
@@ -191,10 +197,16 @@ export async function tourResponse(id: string, parts: readonly string[], deps: T
     return new Response(JSON.stringify(v), { headers: headers({ "Content-Type": JSON_TYPE }) });
   }
   // ворота покупателя — до любых данных тура: страница, `demo-data.json`, снимки карточек (код витрины и опрос версии — общие, без личного)
-  const personal = target.kind === "page" || target.kind === "data" || target.kind === "card";
+  const personal = target.kind === "page" || target.kind === "data" || target.kind === "card" || target.kind === "photo";
   const gate = personal && deps.gate ? await gateCheck(deps.gate, id, page) : OPEN;
   if (!gate.open) return notOpen(page, 403, "not active", "inactive", id, deps);
   const dir = deps.dir ?? trialDir();
+  // готовое фото тура (T-20261112-115) от закрепления страницы не зависит: имя = хеш содержимого — не меняется
+  if (target.kind === "photo") {
+    const img = await readPhoto(dir, id, target.file);
+    if (!img) return text(404, "not found");
+    return cached(img, contentTag(img), target.type, deps, IMMUTABLE);
+  }
   const release = await releaseOf(dir, id, view, deps.pin);
   // задание идёт (или версия есть, а закрепить не вышло) — «готовится»; закрыто без тура — «не получилось»
   const closed = view.bundleVersion <= 0 && ["done", "failed", "cancelled"].includes(view.status);

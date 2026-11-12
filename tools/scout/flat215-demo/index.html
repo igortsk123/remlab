@@ -6624,6 +6624,16 @@ async function loadServerShots(){
     return srvShotsOf(data);
   }catch(e){ return []; }
 }
+// ФОТО ТУРА — У ТУРА (T-20261112-115): общий реестр подбирает кадры по стилю и названию, в туре это чужие фото; свои готовые фото задания
+// отдаёт сервер тура (`/api/trial/<id>/photos`, ворота как у данных: агент — с ключом ссылки) в той же форме, что записи реестра
+async function loadTourShots(){
+  try{
+    const k=trKey(), r=await fetch('/api/trial/'+trJobId()+'/photos'+(k?'?k='+k:''),{cache:'no-store'});
+    if(!r.ok)return [];
+    const j=await r.json(); SHOTS_LOADED=Array.isArray(j&&j.shots);
+    return srvShotsOf(SHOTS_LOADED?j.shots:[]);
+  }catch(e){ return []; }
+}
 // кадр реестра → номер варианта витрины (`loadShots`, `homePreload`)
 function shotVidFn(){
   const list=allVariants(), byTitle={}, byStyle={};
@@ -6654,7 +6664,6 @@ function srvShotsOf(data){
     return out;
 }
 function loadShots(){
-  if(TRIAL()){shots=[];return;}   // проба: общий реестр подбирает кадры по стилю и названию — чужие фото; своих у задания пока нет
   // ИСТОЧНИК ИСТИНЫ — СЕРВЕР (владелец 08.09: «фотки должны загружаться с сервера, а не
   // сохраняться в кэше; если нет генерации — то и фото нет»). Раньше коллекция жила в
   // localStorage и лишь ДОПОЛНЯЛАСЬ серверным реестром: с телефона она была пустой, а кадры,
@@ -6663,7 +6672,8 @@ function loadShots(){
   // приходит с сервера (реестр пополняет `draft_service._registry_add`).
   shots=[];
   const shotVid=shotVidFn();
-  loadServerShots().then(srv=>{
+  // проба: только фото своего задания (`loadTourShots`), сопоставление с вариантами — то же, что у /demo (`shotVid`, `shotFits`)
+  (TRIAL()?loadTourShots():loadServerShots()).then(srv=>{
     let skipped=0;
     // СНЯТОЕ ВО ВКЛАДКЕ НЕ ТЕРЯЕМ (разбор Codex 14.10): реестр приходит позже, и присваивание `shots=srv` стирало кадр,
     // снятый, пока он грузился. Свои кадры, которых ещё нет в реестре, добавляем к нему по адресу картинки.
@@ -7913,7 +7923,8 @@ async function makePhoto(quality, srcId, replaceBatch, opt){
     // работаем по-прежнему, ответ придёт целиком.
     // В ФОН — ОБА КАЧЕСТВА (b2b-08 п.3): занятый сервер ставит кадр в очередь и говорит место и время, а не отказывает
     const bg = true;
-    const r=await fetch(trialPhoto?'/api/trial/'+trJobId()+'/photo':'/api/render',{method:'POST',headers:{'content-type':'application/json'},
+    // тур: агент шлёт ключ ссылки — сервер пишет, кто снимал (T-20261112-115); покупатель — без ключа
+    const r=await fetch(trialPhoto?'/api/trial/'+trJobId()+'/photo'+(trKey()?'?k='+trKey():''):'/api/render',{method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify(Object.assign(req,srcId?{src_id:srcId}:{},bg?{async:1}:{}))});
     let j=await r.json().catch(()=>({error:'сервер кадров недоступен (HTTP '+r.status+')',code:'lost'}));
     // ЧЕСТНЫЙ ОТКАЗ СРАЗУ (demo-03, 14.10): без денег у сервиса картинок сервер отвечает за доли секунды кодом

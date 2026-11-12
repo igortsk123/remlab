@@ -211,3 +211,108 @@ def test_registry_skips_trial(tmp_path, monkeypatch):
     import draft_service as S
     monkeypatch.setattr(S, 'load_pub', lambda *a: (_ for _ in ()).throw(AssertionError('реестр тронут')))
     S._registry_add({'trial': TID, 'items': []}, {'shots': [{'url': '/x.jpg'}]})   # не падает и ничего не пишет
+
+
+# ───────── готовое фото — туру (T-20261112-115 Ф1) ─────────
+
+JPG = b'\xff\xd8\xff' + b'x' * 200
+
+
+def _thumb(n):
+    base, ext = os.path.splitext(n)
+    return f'{base}.t{ext}'
+
+
+def test_report_body_reads_frames_and_thumbs_from_disk(tmp_path):
+    (tmp_path / 'a-C1.jpg').write_bytes(JPG)
+    (tmp_path / 'a-C1.t.jpg').write_bytes(JPG[:150])
+    (tmp_path / 'a-C2.jpg').write_bytes(JPG)
+    out = {'shots': [{'camera': 'C1', 'url': 'https://x.test/test/share/frames/a-C1.jpg'},
+                     {'camera': 'C2', 'url': 'https://x.test/test/share/frames/a-C2.jpg'},
+                     {'camera': 'C3', 'url': 'https://x.test/test/share/frames/missing.jpg'},       # файла нет — не шлём
+                     {'camera': 'X9', 'url': 'https://x.test/test/share/frames/a-C1.jpg'}]}        # кривой ракурс — не шлём
+    b = DT.report_body('j1', out, str(tmp_path), _thumb)
+    assert b['status'] == 'done' and b['draft_job'] == 'j1' and [s['camera'] for s in b['shots']] == ['C1', 'C2']
+    import base64
+    assert base64.b64decode(b['shots'][0]['img']) == JPG and base64.b64decode(b['shots'][0]['thumb']) == JPG[:150]
+    assert 'thumb' not in b['shots'][1]
+    # кадров на диске нет вовсе — сбой `no_file`; сбой задания — его код; кривой код — общий
+    assert DT.report_body('j2', {'shots': [{'camera': 'C1', 'url': '/f/none.jpg'}]}, str(tmp_path), _thumb) == \
+        {'draft_job': 'j2', 'status': 'failed', 'code': 'no_file'}
+    assert DT.report_body('j3', None, str(tmp_path), _thumb, 'no_credits')['code'] == 'no_credits'
+    assert DT.report_body('j4', None, str(tmp_path), _thumb, 'Bad Code!')['code'] == 'draft_failed'
+    # симлинк вместо кадра не читаем
+    os.symlink('/etc/hostname', tmp_path / 'link-C1.jpg')
+    assert DT.report_body('j5', {'shots': [{'camera': 'C1', 'url': '/f/link-C1.jpg'}]}, str(tmp_path), _thumb)['status'] == 'failed'
+
+
+def test_report_retries_404_and_5xx_stops_on_other_4xx_needs_token():
+    seen, slept = [], []
+
+    def post_seq(codes):
+        it = iter(codes)
+
+        def post(url, body, token):
+            seen.append((url, token))
+            c = next(it)
+            if c == 'net':
+                raise OSError('обрыв')
+            return c
+        return post
+    body = {'draft_job': 'j1', 'status': 'done', 'shots': []}
+    assert DT.report(TID, body, 'tok', post_seq([404, 'net', 502, 200]), slept.append)
+    assert len(seen) == 4 and seen[0] == (f'http://remlab-app:3000/api/trial/worker/{TID}/photo', 'tok') and slept == [5, 20, 60]
+    seen.clear()
+    assert not DT.report(TID, body, 'tok', post_seq([400, 200]), slept.append) and len(seen) == 1   # кривое тело — без повторов
+    seen.clear()
+    assert not DT.report(TID, body, 'tok', post_seq([404, 404, 404, 404]), lambda s: None) and len(seen) == 4
+    seen.clear()
+    assert not DT.report(TID, body, '', post_seq([200]), lambda s: None) and seen == []             # нет ключа — не шлём вовсе
+
+
+def test_work_reports_trial_result_and_failure(tmp_path, monkeypatch):
+    import draft_service as S
+    monkeypatch.setattr(S, 'JOBS', S.JobStore(str(tmp_path / 'jobs.json')))
+    monkeypatch.setattr(S.DR, 'FRAMES_DIR', str(tmp_path))
+    (tmp_path / 'f-C1.jpg').write_bytes(JPG)
+    got = []
+    monkeypatch.setattr(S.DT, 'report', lambda tid, body: got.append((tid, body)))
+
+    class T:                                                       # поток отчёта — сразу, без фона
+        def __init__(self, target, args, daemon):
+            self.f, self.a = target, args
+
+        def start(self):
+            self.f(*self.a)
+    monkeypatch.setattr(S.threading, 'Thread', T)
+
+    class R:
+        def __init__(self, body):
+            self.b = json.dumps(body).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return self.b
+    replies = [R({'shots': [{'camera': 'C1', 'url': 'https://x.test/test/share/frames/f-C1.jpg'}]})]
+    monkeypatch.setattr(urllib.request, 'urlopen', lambda req, timeout=0: replies.pop(0))
+    jid = S.JOBS.new('realistic', {'trial': TID, 'room': 1, 'items': [1]})
+    S._work(jid)
+    assert got and got[0][0] == TID and got[0][1]['status'] == 'done' and got[0][1]['draft_job'] == jid
+    # сбой рендера — `failed` туру; заказ демо (без `trial`) туру не пишет
+    got.clear()
+
+    def boom(req, timeout=0):
+        raise urllib.error.HTTPError('u', 402, 'x', {}, None)
+    monkeypatch.setattr(urllib.request, 'urlopen', boom)
+    monkeypatch.setattr(S, '_http_error_body', lambda e: {'error': 'нет денег', 'code': 'no_credits'})
+    jid2 = S.JOBS.new('realistic', {'trial': TID, 'room': 1, 'items': [1]})
+    S._work(jid2)
+    assert got == [(TID, {'draft_job': jid2, 'status': 'failed', 'code': 'no_credits'})]
+    got.clear()
+    S._work(S.JOBS.new('draft', {'room': 1, 'items': [1]}))
+    assert got == []

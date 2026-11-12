@@ -1,11 +1,13 @@
 // Фото нейросети из тура пробы (план agent-trial-08 § «Правило фото»; T-20261109-34; `db/init/026-trial-photos.sql`). Право — у ссылки
 // (агент и покупатель одинаково); решает сервер: комната с доверием к размерам (`photo_ok` в ПОСЛЕДНЕЙ версии данных задания, не слова
-// страницы), её размеры совпадают с данными, два кадра из 3D браузера, суточный предел на задание. Счёт и заказ — под блокировкой строки
-// задания (`for update`): два нажатия разом не проскочат предел. Заказ уходит в сервис кадров с сервера (`trial` — метка расхода и второй
-// предел там же); ссылки магазина от страницы не передаём — фото товаров сервис кадров берёт сам.
+// страницы), её размеры совпадают с данными, два кадра из 3D браузера, суточный предел на задание. Счёт и бронь строки — под блокировкой
+// строки задания (`for update`): два нажатия разом не проскочат предел; сетевой вызов — после (T-20261112-115). Заказ уходит в сервис
+// кадров с сервера (`trial` — метка расхода и второй предел там же); ссылки магазина от страницы не передаём — фото товаров сервис кадров
+// берёт сам. Строка хранит, что снималось (`photoMeta`), готовое фото приходит в неё позже (`repo-photo-done.ts`).
 
 import { sql, type SQL } from "drizzle-orm";
 import type { TrialPhotoIn } from "@/contracts/trial";
+import { photoCams, type PhotoCam, type PhotoSource } from "@/contracts/trial-photos";
 import { db } from "@/lib/db";
 import { randomToken } from "@/lib/token";
 import { trialDir, trialDraftUrl, trialPhotoDaily } from "@/lib/trial/config";
@@ -64,30 +66,54 @@ export const sendToDraft: DraftSend = async (payload, ip) => {
   }
 };
 
+/** Что снималось — в строку заказа (T-20261112-115 Ф1): вариант, стиль, номер состояния, позы с углом обзора и их подпись. Поля страницы
+ *  проверяются формой; кривое — пусто (заказ не ломаем, фото просто не найдёт расстановку). */
+export function photoMeta(inp: TrialPhotoIn): { stateId: string | null; variantId: string | null; style: string | null;
+  cams: PhotoCam[] | null; camsSig: string | null } {
+  const o = inp as Record<string, unknown>;
+  const str = (v: unknown, re: RegExp) => (typeof v === "string" && re.test(v) ? v : null);
+  const cams = photoCams.safeParse(o.cams);
+  const list = cams.success ? [...cams.data].sort((a, b) => a.name.localeCompare(b.name)) : null;
+  return { stateId: str(o.stateId, /^[A-Za-z0-9_-]{1,64}$/), variantId: str(o.variant_id, /^[A-Za-z0-9_.:-]{1,80}$/),
+    style: typeof o.style === "string" && o.style.length > 0 ? o.style.slice(0, 60) : null, cams: list,
+    camsSig: list ? list.map((c) => `${c.name}:${Math.round(c.x)},${Math.round(c.y)},${Math.round(c.rot ?? 0)},${c.fov ?? 72},${c.pose ?? 1}`).join(";") : null };
+}
+
+/** Заказ фото. Счёт и бронь строки — под блокировкой строки задания (два нажатия разом не проскочат предел), сам вызов сервиса кадров —
+ *  уже без неё (Codex 12.11): бронь `queued` без номера; принято — номер в бронь, отказ — бронь снимается (строки счёта нет). */
 export async function askPhoto(id: string, inp: TrialPhotoIn, ip: string, send: DraftSend = sendToDraft, dir = trialDir(),
-  env = process.env): Promise<PhotoAsk> {
+  env = process.env, source: PhotoSource = "buyer"): Promise<PhotoAsk> {
   const latest = await latestBundle(id, dir);
   if (latest === "expired") return no(410, "expired");
   if (latest === "not_ready") return no(409, "not_ready");
   const problem = photoRoomProblem(latest.json, inp.room_id, inp.room);
   if (problem) return no(problem === "stale" ? 409 : 403, problem);
-  return db().transaction(async (tx) => {
+  const m = photoMeta(inp);
+  const rid = randomToken();
+  const held = await db().transaction(async (tx): Promise<PhotoAsk | null> => {
     const [job] = await q<{ status: string; past_term: boolean }>(tx, sql`select status,
         coalesce(result_expires_at < now(), false) as past_term from trial_jobs where id = ${id} for update`);
     if (!job) return no(404, "not_found");
     if (job.status === "expired" || job.past_term) return no(410, "expired");
-    const [day] = await q<{ n: number }>(tx, sql`select count(*)::int as n from trial_photos
-        where job_id = ${id} and created_at > now() - interval '24 hours'`);
+    // бронь без номера — только пока идёт вызов (≤ 20 с); застрявшая после сбоя приложения перестаёт считаться через 10 минут
+    const [day] = await q<{ n: number }>(tx, sql`select count(*)::int as n from trial_photos where job_id = ${id}
+        and created_at > now() - interval '24 hours' and (draft_job is not null or created_at > now() - interval '10 minutes')`);
     if ((day?.n ?? 0) >= trialPhotoDaily(env)) return no(429, "photo_limit");
-    const r = await send(draftPayload(id, inp), ip);
-    const jobId = r.body?.job;
-    if (r.status === 200 && typeof jobId === "string" && jobId.length > 0 && jobId.length <= 64) {
-      await tx.execute(sql`insert into trial_photos (id, job_id, room_id, draft_job) values (${randomToken()}, ${id}, ${inp.room_id}, ${jobId})`);
-      return { ok: true, job: jobId };
-    }
-    // отказ сервиса — его код и текст как есть (нет денег, лимит адреса, свой суточный предел), без строки счёта
-    const code = typeof r.body?.code === "string" ? r.body.code : "draft_failed";
-    const msg = typeof r.body?.error === "string" ? r.body.error.slice(0, 300) : undefined;
-    return no(r.status >= 400 && r.status < 600 ? r.status : 502, code, msg);
+    await tx.execute(sql`insert into trial_photos (id, job_id, room_id, status, source, state_id, variant_id, style, quality, cams, cams_sig)
+        values (${rid}, ${id}, ${inp.room_id}, 'queued', ${source}, ${m.stateId}, ${m.variantId}, ${m.style}, 'realistic',
+        ${m.cams ? JSON.stringify(m.cams) : null}::jsonb, ${m.camsSig})`);
+    return null;
   });
+  if (held) return held;
+  const r = await send(draftPayload(id, inp), ip);
+  const jobId = r.body?.job;
+  if (r.status === 200 && typeof jobId === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(jobId)) {
+    await db().execute(sql`update trial_photos set draft_job = ${jobId} where id = ${rid}`);
+    return { ok: true, job: jobId };
+  }
+  await db().execute(sql`delete from trial_photos where id = ${rid} and draft_job is null`);
+  // отказ сервиса — его код и текст как есть (нет денег, лимит адреса, свой суточный предел), без строки счёта
+  const code = typeof r.body?.code === "string" ? r.body.code : "draft_failed";
+  const msg = typeof r.body?.error === "string" ? r.body.error.slice(0, 300) : undefined;
+  return no(r.status >= 400 && r.status < 600 ? r.status : 502, code, msg);
 }

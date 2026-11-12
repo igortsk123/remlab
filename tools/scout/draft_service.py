@@ -424,6 +424,8 @@ def _work(jid: str) -> None:
     if not body:
         return JOBS.fail(jid, 'задание без запроса. Нажмите «Повторить»', 'lost')
     body['_job'] = jid                     # внутренний номер: локальный рендер ставит задание в очередь
+    tid = DT.trial_id(body)
+    out, code = None, ''
     try:
         _port = int(os.environ.get('DRAFT_PORT', 8099))
         req = _u.Request(f'http://127.0.0.1:{_port}/render', data=json.dumps(body).encode(), method='POST',
@@ -433,12 +435,17 @@ def _work(jid: str) -> None:
         JOBS.finish(jid, out)
     except _ue.HTTPError as e:
         j = _http_error_body(e)
-        JOBS.fail(jid, j['error'], j.get('code') or 'error')
+        code = j.get('code') or 'error'
+        JOBS.fail(jid, j['error'], code)
     except BaseException as e:  # noqa: BLE001 — ЛЮБОЙ сбой обязан стать статусом
         # ПОЧЕМУ BaseException (13.10): рендер местами поднимает `SystemExit` как «ответ негоден»; фоновый поток
         # умирал молча, задание навсегда оставалось `running`, и страница через две минуты опроса писала «сервер
         # долго не отвечает» — без причины и в логе, и на экране.
+        code = 'render_failed'
         JOBS.fail(jid, f'рендер не удался: {str(e)[:200]}')
+    if tid:                                # фото тура пробы: готовое (или сбой) — туру, чтобы его было видно после перезагрузки (T-115)
+        threading.Thread(target=DT.report, args=(tid, DT.report_body(jid, out, DR.FRAMES_DIR, DR.thumb_name, code)),
+                         daemon=True).start()
 
 
 def _resume(jids: list) -> None:

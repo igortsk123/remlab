@@ -199,6 +199,91 @@ def warm_photos(urls, cache_dir: str, base: str, get=_get) -> int:
         return sum(ex.map(one, todo))
 
 
+# ───────── готовое фото — туру (T-20261112-115 Ф1) ─────────
+# Раньше готовое фото тура видела только вкладка, которая его заказала (опрос `/api/job`): после перезагрузки его не было. Теперь по
+# готовности фонового задания кадры уходят приложению (`POST /api/trial/worker/<id>/photo`, сеть remlab-net, ключ INTERNAL_API_TOKEN —
+# как заявка «отправить себе»): оно кладёт файлы в папку тура и отмечает заказ готовым; сбой задания — `failed` с кодом.
+REPORT_URL = os.environ.get('TRIAL_PHOTO_SINK_URL', 'http://remlab-app:3000/api/trial/worker/{id}/photo')
+REPORT_DELAYS = (0, 5, 20, 60)            # строка заказа пишется сразу после номера задания — 404 в первые секунды повторяем
+SHOT_MAX = 6 * 1024 * 1024                # = contracts/trial-photos.ts:PHOTO_MAX_BYTES
+THUMB_MAX = 1024 * 1024                   # = PHOTO_THUMB_MAX_BYTES
+CODE_RE = re.compile(r'^[a-z_]{1,40}$')
+
+
+def _read_small(path: str, limit: int) -> bytes | None:
+    """Обычный файл не больше `limit` (симлинк и папка — нет)."""
+    try:
+        if os.path.islink(path) or not os.path.isfile(path) or os.path.getsize(path) > limit:
+            return None
+        with open(path, 'rb') as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def report_body(jid: str, out: dict | None, frames_dir: str, thumb_name, code: str = '') -> dict:
+    """Тело для приложения: готово — кадры файлами из `frames_dir` (имя — из адреса кадра, миниатюра рядом); кадров нет на диске —
+    `failed`/`no_file`; сбой задания — `failed` с кодом (кривой код — `draft_failed`)."""
+    import base64
+    if out is not None:
+        shots = []
+        for sh in (out.get('shots') or [])[:4]:
+            name = str((sh or {}).get('url') or '').rsplit('/', 1)[-1]
+            cam = str((sh or {}).get('camera') or '')
+            if not name or '..' in name or not re.match(r'^C[1-4]$', cam):
+                continue
+            img = _read_small(os.path.join(frames_dir, name), SHOT_MAX)
+            if not img:
+                continue
+            rec = {'camera': cam, 'img': base64.b64encode(img).decode()}
+            th = _read_small(os.path.join(frames_dir, thumb_name(name)), THUMB_MAX)
+            if th:
+                rec['thumb'] = base64.b64encode(th).decode()
+            shots.append(rec)
+        if shots:
+            return {'draft_job': jid, 'status': 'done', 'shots': shots}
+        code = 'no_file'
+    return {'draft_job': jid, 'status': 'failed', 'code': code if CODE_RE.match(code or '') else 'draft_failed'}
+
+
+def _post(url: str, body: dict, token: str) -> int:
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method='POST',
+                                 headers={'Content-Type': 'application/json', 'x-internal-token': token})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+def report(tid: str, body: dict, token: str | None = None, post=_post, sleep=time.sleep, delays=REPORT_DELAYS) -> bool:
+    """Отдать готовое (или сбой) приложению: 200 — True; 404 (строки ещё нет), 5xx, обрыв — повтор по `delays`; прочие 4xx — сразу
+    False. Каждый исход — строка в журнал (без кадров)."""
+    token = os.environ.get('INTERNAL_API_TOKEN', '') if token is None else token
+    tag = f'фото тура {tid[:6]}… задание {body.get("draft_job")}: {body.get("status")}'
+    if not token:
+        print(f'{tag} — не отдано туру: нет INTERNAL_API_TOKEN', flush=True)
+        return False
+    url = REPORT_URL.replace('{id}', tid)
+    st = 0
+    for d in delays:
+        if d:
+            sleep(d)
+        try:
+            st = post(url, body, token)
+        except Exception as e:  # noqa: BLE001 — сеть: повтор, итог — в журнал
+            print(f'{tag} — сеть: {str(e)[:120]}', flush=True)
+            st = 0
+            continue
+        if st == 200:
+            print(f'{tag} — отдано туру', flush=True)
+            return True
+        if st != 404 and st < 500:
+            break
+    print(f'{tag} — не отдано туру (HTTP {st})', flush=True)
+    return False
+
+
 def fill_imgs(payload: dict, lookup=catalog_imgs) -> tuple[int, int]:
     """Фото товаров заказа тура — только из каталога по `msid` (ссылки страницы снимаются). → (предметов, из них с фото)."""
     items = [it for it in payload.get('items') or [] if isinstance(it, dict)]

@@ -34,6 +34,9 @@ export const confirmPath = (id: string): string => `/api/trial/${id}/confirm`;
 /** Чтение черновиков правок и хода пересборки ЭТОГО задания (T-20261111-16) — GET только с `?k=<ключ правки>` (и ничем больше). */
 export const editsPath = (id: string): string => `/api/trial/${id}/edits`;
 export const rebuildStatusPath = (id: string): string => `/api/trial/${id}/rebuild-status`;
+/** Готовые фото ЭТОГО задания (T-20261112-115): покупатель — без поиска, агент — с `?k=` (ворота как у данных тура). Заказ фото
+ *  (`photoPath`) агент тоже шлёт с `?k=` — так сервер пишет, кто снимал. */
+export const photosPath = (id: string): string => `/api/trial/${id}/photos`;
 const FRAME_PATH = "/api/render/frame";
 const JOB_PATH = "/api/job";
 
@@ -76,7 +79,7 @@ P.key=function(i){var k=own(this)[i];return k==null?null:k.slice(PRE.length);};
 P.clear=function(){own(this).forEach(function(k){R.call(this,k);},this);};
 Object.defineProperty(P,'length',{configurable:true,enumerable:true,get:function(){return own(this).length;}});
 var BLOCK=${BLOCK};
-var OK=${JSON.stringify([rebuildPath(id), listingPath(id), photoPath(id), roomEditPath(id), openingEditPath(id), confirmPath(id), FRAME_PATH])},JOB=${JSON.stringify(JOB_PATH)},DEV=${JSON.stringify(devCardPaths())},KEYED=${JSON.stringify([editsPath(id), rebuildStatusPath(id)])};
+var OK=${JSON.stringify([rebuildPath(id), listingPath(id), photoPath(id), photosPath(id), roomEditPath(id), openingEditPath(id), confirmPath(id), FRAME_PATH])},JOB=${JSON.stringify(JOB_PATH)},DEV=${JSON.stringify(devCardPaths())},KEYED=${JSON.stringify([editsPath(id), rebuildStatusPath(id), photoPath(id), photosPath(id)])};
 function fine(x){return x.search?((x.pathname===JOB&&/^\\?id=[A-Za-z0-9_-]{1,64}$/.test(x.search))||(DEV.indexOf(x.pathname)>=0&&/^\\?lang=(?:ru|en)&demo=1$/.test(x.search))||(KEYED.indexOf(x.pathname)>=0&&/^\\?k=[A-Za-z0-9_-]{22}$/.test(x.search))):OK.indexOf(x.pathname)>=0;}
 function bad(u,ok){try{var x=new URL(String(u),document.baseURI);return x.origin===location.origin&&BLOCK.test(x.pathname)&&!(ok&&fine(x));}catch(e){return false;}}
 var F=window.fetch;
