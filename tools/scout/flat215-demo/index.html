@@ -10910,7 +10910,10 @@ function vwMount(s){
       const at=Date.now(), isBusy=()=>{const vl=document.getElementById('vload');
         // занято: 3D ещё грузит модели или на экране крутилка (окно могло само уйти в «Фото», пока грузилась сцена — 2.25)
         // и пока видна подсказка 3D «тяните…» (T-05/3): две подсказки по очереди, не одновременно
-        return (VW.mode==='walk'&&typeof LIVE!=='undefined'&&LIVE.ok!==false&&(LIVE.state!=='ready'||liveHintOn()))||!!(vl&&vl.classList.contains('on'));};
+        // и пока в «3D» видны окошки ракурсов со строкой «Ракурсы выбраны сами» (T-20261112-76/3: подсказка ложилась на окошки; в «3D»
+        // с окошками её нет вовсе — шторку она позовёт в «Фото» или при следующем открытии)
+        return (VW.mode==='walk'&&typeof LIVE!=='undefined'&&LIVE.ok!==false&&(LIVE.state!=='ready'||liveHintOn()))||!!(vl&&vl.classList.contains('on'))
+          ||(VW.mode==='walk'&&shot.classList.contains('vslots-on'));};
       // первый показ — через 0,7 с: человек успевает переключить «Фото»/«3D», и подсказка не встаёт поверх загрузки
       (function tip(){
         if(!shot.classList.contains('on'))return;
