@@ -275,6 +275,19 @@ body.hm-bot-on{padding-bottom:var(--hm-bot)}
 @container (max-width:420px){.cs-lg.two{display:block}.cs-lg.two .li{display:flex}.cs-lg.two .nv{margin-left:auto;order:2}}
 .cs-ov{margin-top:3px;font-size:12.5px;line-height:1.35}
 .cs .cs-dop{display:none}
+/* ТЕЛЕФОН — ЛЕГЕНДА ДВУХ БЮДЖЕТОВ ОДНОЙ СТРОКОЙ (T-20261112-77, снимок владельца TG 1063–1065): «■ Мебель ■ Улучшения ▨ доплата N»
+   без столбца «N / лимит» — суммы видны по шкале сверху; доплата — последним элементом той же строки, не влезла — переносится сама.
+   Компьютер — как было: обёртка `.cs-lgw` прозрачна */
+.cs-lgw{display:contents}
+@media(max-width:700px){
+  .cs-lgw{display:flex;flex-wrap:wrap;align-items:center;gap:1px 10px;margin-top:4px;font-size:12.5px;line-height:1.35}
+  .cs-lgw .cs-lg.two{display:contents}
+  .cs-lgw .cs-lg.two .li{display:inline-flex}
+  .cs-lgw .cs-lg.two .lf,.cs-lgw .cs-lg.two .nv{display:none}
+  .cs-lgw .cs-lg.two .sh{display:inline}
+  .cs-lgw .cs-ov{margin-top:0}
+  .hm-cert.stuck .cs-lgw{display:none}
+}
 /* ЛИПКАЯ ШАПКА — КОМПАКТ (ведущий 22.10, T-19/2: UK split 178 px из 667 — треть экрана): после прокрутки — строка «Выбрано … сертификат»
    и трек; легенда и строка перерасхода скрыты (детали — в «i»), при доплате справа вместо суммы — «▨ доплата N». Высота, которую
    отдала легенда, остаётся полем снизу (`certStuck`) — содержимое под шапкой не прыгает */
@@ -3281,8 +3294,9 @@ function certScale(o){
   // легенда — только «Эта комната N ₽»: строки «Другие комнаты» нет нигде — «только место занимает, по общей сумме и так понятно»
   // (T-20261108-74, владелец 08.11 TG 598, 612); цвет «других» на шкале прежний
   const rmLg=rm!=null?`<div class="cs-lg cs-room"><span class="li"><span class="lsw r"></span>${EN?'This room':'Эта комната'} <span class="nv">${fmtCard(rm)}</span></span></div>`:'';
-  const legend=rmLg+(two?`<div class="cs-lg two">`+parts.map(([k,Lm,c])=>`<span class="li"><span class="lsw ${cls[k]}"></span>`+
-      `<span class="lf">${NM[k]}</span><span class="sh">${BUD_SHORT()[k]}</span> <span class="nv"><b>${fmtNum(c)}</b> / ${fmtNum(Lm)}</span></span>`).join('')+`</div>`:'')+ovLine;
+  // `.cs-lgw` — обёртка легенды двух бюджетов и строки доплаты: на компьютере прозрачна, на телефоне — одна строка (T-20261112-77)
+  const legend=rmLg+(two?`<div class="cs-lgw"><div class="cs-lg two">`+parts.map(([k,Lm,c])=>`<span class="li"><span class="lsw ${cls[k]}"></span>`+
+      `<span class="lf">${NM[k]}</span><span class="sh">${BUD_SHORT()[k]}</span> <span class="nv"><b>${fmtNum(c)}</b> / ${fmtNum(Lm)}</span></span>`).join('')+`</div>${ovLine}</div>`:ovLine);
   return `<div class="cs${over?' over':''}${two?' two':''}"><div class="cs-t"><span class="cs-l">${EN?'Chosen':'Выбрано'} `+
       `<b data-k="inc" data-to="${chosen}">${fmtCard(chosen)}</b></span>`+
       `<button class="vpl-i" type="button" aria-label="${EN?'What is this':'Что это'}" aria-expanded="false">i</button>`+
