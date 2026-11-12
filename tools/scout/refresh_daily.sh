@@ -631,11 +631,13 @@ else
     paid_step demo_real env DEMO_LOCAL="$DEMO_OUT" bash ../ops/demo-real.sh
     [ "${OPENAI_OFF:-0}" = "1" ] && echo "DIGEST:фото нейросети: пропущено — платные шаги выключены (openai.off)" >> "$LOG"
     # АВТОПЕРЕВЫПУСК ТУРОВ (T-20261112-92, TG 873: «поправил тумбу — это должно везде автоматически работать»): сразу за
-    # публикацией все живые туры агентов пересобираются «как есть» на новую витрину (`tools/ops/tour-reissue.sh`; итог и
-    # «демо = туры» — DIGEST, отказ/расхождение — WARN и `DIGEST:!`). Публикация зовётся с PUB_REISSUE=0 — свой хук
-    # `publish_demo.sh` не запускает второй проход. Публикация не прошла — туры остаются на вчерашней витрине, шаг пропущен.
+    # публикацией все живые туры агентов пересобираются «как есть» на новую витрину (`tools/ops/tour-reissue.sh`). ФОНОМ (`--bg`,
+    # свой юнит): ночь не держит свой замок, пока проход ждёт очередь тяжёлых прогонов (до 2 ч) и идёт, — шаги ниже не ждут; шаг
+    # пишет «запущен». Итог прохода и «демо = туры» — `~/remlab-logs/trial/reissue.log`, в сводку следующей ночи (`refresh_digest.py:
+    # tour_passes`). Публикация зовётся с PUB_REISSUE=0 — свой хук `publish_demo.sh` не запускает второй проход. Публикация не
+    # прошла — туры остаются на прежней витрине, шаг пропущен.
     if step flat215_publish env PUB_PHOTOS_DONE=1 PUB_REISSUE=0 bash publish_demo.sh; then
-      step tour_reissue env TOUR_REISSUE_NIGHT=1 bash ../ops/tour-reissue.sh --why ночь
+      step tour_reissue env TOUR_REISSUE_NIGHT=1 bash ../ops/tour-reissue.sh --bg --why ночь
     else
       echo "tour_reissue пропущен: демо не опубликовано — туры остаются на прежней витрине" >> "$LOG"
     fi

@@ -32,7 +32,8 @@ sys.exit(1 if any(r['status'] in ('refused', 'failed') for r in rows) else 0)
 PY
 printf '#!/bin/sh\necho "$STUB_HASH"\n' > "$T/hash-stub.sh"
 printf '#!/bin/sh\nprintf "%%s\\n" "$1" >> "%s/alerts.txt"\n' "$T" > "$T/alert-stub.sh"
-printf '#!/bin/sh\nexec python3 "%s/reissue-stub.py" "$@"\n' "$T" > "$T/reissue-stub.sh"
+# STUB_ORPHAN=1 — сборщик оставляет живого потомка (как зависший браузер): он не должен держать замок прохода
+printf '#!/bin/sh\n[ -n "$STUB_ORPHAN" ] && (sleep 6 >/dev/null 2>&1 &)\nexec python3 "%s/reissue-stub.py" "$@"\n' "$T" > "$T/reissue-stub.sh"
 chmod +x "$T"/*.sh
 mkdir -p "$T/demo"
 printf '{"build": "abc.r1", "rules": {"sofa_tv_cm": 200, "slot_band_cm": {"x": 1}}, "feeds": {"диван": [1, 2]}}\n' > "$T/demo/demo-data.json"
@@ -43,7 +44,7 @@ run() {   # run <случай> [env…] — свежая папка журнал
   env TOUR_REISSUE_CMD="$T/reissue-stub.sh" TOUR_REISSUE_HASH_CMD="$T/hash-stub.sh" TOUR_REISSUE_ALERT="$T/alert-stub.sh" \
     TOUR_REISSUE_ENV="$T/none.env" TOUR_REISSUE_LOGS="$T/logs" TOUR_REISSUE_LOCK="$T/lock" TOUR_REISSUE_NO_SLOT=1 \
     TOUR_REISSUE_DEMO_URL="$T/demo/" TOUR_REISSUE_PY=python3 TOUR_REISSUE_TMP="$T/tmp" STUB_DEMO="$T/demo/demo-data.json" \
-    STUB_HASH=$H "$@" bash "$HERE/tour-reissue.sh" --why "проба $c" > "$T/out-$c.txt" 2>&1
+    STUB_HASH=$H "$@" bash "$HERE/tour-reissue.sh" ${BG_ARG:-} --why "проба $c" > "$T/out-$c.txt" 2>&1
   echo $? > "$T/rc-$c.txt"
 }
 has() { grep -qF -- "$2" "$T/out-$1.txt"; }
@@ -57,7 +58,8 @@ run ok STUB_ROWS="$R1"
 [ "$(cat "$T/rc-ok.txt")" = 0 ] && ok "чистый проход — код 0" || bad "чистый проход — код $(cat "$T/rc-ok.txt")"
 has ok 'tour_reissue: туров 4 · перевыпущено 2 (из них «только страница» 1) · без изменений 1 · пропущено 1 (busy 1) · отказ 0' \
   && ok "итог со счётчиками" || bad "итог со счётчиками: $(grep tour_reissue: "$T/out-ok.txt")"
-has ok 'DIGEST:tour_reissue: туров 4' && ok "строка ночной сводки" || bad "нет DIGEST"
+grep -qP '^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\tok\ttour_reissue: туров 4 .*\t\t.*-auto$' "$T/logs/reissue.log" \
+  && ok "журнал проходов: время, ok, итог, папка (для ночной сводки)" || bad "журнал проходов: $(cat "$T/logs/reissue.log")"
 has ok 'на витрине /demo 2 из 2 опубликованных' || has ok 'на витрине /demo 3 из 3 опубликованных' && ok "страница сверена" || bad "страница не сверена"
 has ok 'данные a1: сверено' && ok "данные сверены" || bad "данные: $(grep 'данные' "$T/out-ok.txt")"
 [ ! -e "$T/alerts.txt" ] && ok "без тревоги" || bad "лишняя тревога"
@@ -75,7 +77,8 @@ grep -q 'Замечаний 2' "$T/alerts.txt" 2>/dev/null && ok "днём — �
 
 # 3. ночью — без тревоги, важной строкой сводки
 run night STUB_ROWS="$R2" TOUR_REISSUE_NIGHT=1
-has night 'DIGEST:!Туры после выкладки демо: 2 замечаний' && ok "ночью — DIGEST:!" || bad "ночью нет DIGEST:!"
+grep -qP '\twarn\ttour_reissue: туров 2 .*\tзамечаний 2, первое — тур b2 — отказ сборщика no_source' "$T/logs/reissue.log" \
+  && ok "ночью — замечания в журнал проходов (сводка следующей ночи)" || bad "ночью: $(cat "$T/logs/reissue.log")"
 [ ! -e "$T/alerts.txt" ] && ok "ночью тревоги нет" || bad "ночью ушла тревога"
 
 # 4. данные тура собраны другими правилами — расхождение
@@ -99,6 +102,20 @@ wait "$pid"
 has second 'проход уже идёт' && has third 'проход уже идёт' && ok "второй и третий — не параллельно" || bad "запустились параллельно"
 n=$(ls "$T/logs/reissue" | grep -c auto)
 [ "$n" = 2 ] && ok "три выкладки подряд — два прохода" || bad "проходов $n (ждали 2)"
+
+# 6. сборщик оставил живого потомка — замок им не держится: следующий проход идёт сразу, а не «уже идёт»
+run orphan STUB_ROWS="$R1" STUB_ORPHAN=1
+KEEP_LOGS=1 run after STUB_ROWS="$R1"
+! has after 'проход уже идёт' && [ "$(ls "$T/logs/reissue" | grep -c auto)" = 2 ] \
+  && ok "зависший потомок не держит замок" || bad "потомок держит замок: $(cat "$T/out-after.txt")"
+
+# 7. --bg (как ночь и хук выкладки): сразу «запущен», проход идёт сам и пишет журнал
+t0=$(date +%s)
+BG_ARG=--bg run bg STUB_ROWS="$R1" TOUR_REISSUE_NO_SYSTEMD=1 STUB_SLEEP=1
+has bg 'проход запущен в фоне без systemd' && [ $(( $(date +%s) - t0 )) -lt 2 ] && ok "--bg не ждёт прохода" \
+  || bad "--bg: $(cat "$T/out-bg.txt")"
+for _ in $(seq 1 100); do grep -q 'повод: проба bg' "$T/logs/reissue.log" 2>/dev/null && break; sleep 0.1; done
+grep -q 'повод: проба bg' "$T/logs/reissue.log" 2>/dev/null && ok "фоновый проход дошёл до журнала" || bad "фоновый проход не записал итог"
 
 [ "$fail" = 0 ] && echo "tour-reissue selftest: все случаи прошли" || echo "tour-reissue selftest: ЕСТЬ ПРОВАЛЫ"
 exit "$fail"

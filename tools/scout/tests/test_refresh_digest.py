@@ -48,7 +48,7 @@ def fixture(d):
     json.dump({'a': {'state': 'fresh'}, 'b': {'state': 'stale'}}, open(fresh, 'w'))
     return dict(REFRESH_RC='0', STATUS_FILE=os.path.join(d, 'refresh-status.json'), RES_FILE=res, TODAY='2026-11-04',
                 STARTED='2026-11-04T10:40:00Z', FEEDS_OK='1', DL_OK='10', DL_TOTAL='10', DEAD='', PRODUCTS='17672',
-                LOG_FILE=log, FRESH_FILE=fresh)
+                LOG_FILE=log, FRESH_FILE=fresh, TOUR_REISSUE_LOG=os.path.join(d, 'reissue.log'))
 
 
 def run_digest(env):
@@ -99,6 +99,30 @@ with tempfile.TemporaryDirectory() as d:     # важная строка `DIGEST
                                                             '=== 2026-11-04 10:40:00 старт ===\n')
     rc, out, err = run_digest(yesterday)
     check('DIGEST:! — только сегодняшняя ночь (вчерашняя важная строка не повторяется)', rc == 0 and DEMO not in out, out)
+
+# ПРОХОДЫ АВТОПЕРЕВЫПУСКА ТУРОВ (T-20261112-92): идут фоном — сводка берёт их из журнала `tour-reissue.sh` за сутки; проход с
+# замечаниями — важной строкой; старше суток и битые строки — мимо; журнала нет — строки нет
+import datetime as _dt  # noqa: E402
+NOW = _dt.datetime(2026, 11, 4, 10, 40)
+with tempfile.TemporaryDirectory() as d:
+    tl = os.path.join(d, 'reissue.log')
+    open(tl, 'w', encoding='utf-8').write(
+        '2026-11-03 09:00:00\tok\ttour_reissue: туров 9 · перевыпущено 9 · отказ 0 · 60 с · повод: старое\t\t/x\n'
+        'мусор без полей\n'
+        '2026-11-03 18:00:00\twarn\ttour_reissue: туров 16 · перевыпущено 15 · отказ 1 · 70 с · повод: выкладка\t'
+        'замечаний 1, первое — тур b2 — отказ сборщика no_source, тур остался прежним\t/y\n'
+        '2026-11-04 10:50:00\tok\ttour_reissue: туров 16 · перевыпущено 1 · без изменений 15 · отказ 0 · 40 с · повод: ночь\t\t/z\n')
+    info, pin = RD.tour_passes(tl, now=NOW + _dt.timedelta(minutes=20))
+    check('туры: проходы за сутки — 2 (старше суток и мусор мимо), последний — итогом',
+          info == ['туры агентов за сутки: проходов 2, с замечаниями 1; последний — туров 16 · перевыпущено 1 · без изменений 15 · '
+                   'отказ 0 · 40 с · повод: ночь'], info)
+    check('туры: проход с замечанием — важной строкой с временем и первым замечанием',
+          pin == ['❗ туры агентов (18:00): замечаний 1, первое — тур b2 — отказ сборщика no_source, тур остался прежним'], pin)
+    check('туры: журнала нет — ничего', RD.tour_passes(os.path.join(d, 'нет.log')) == ([], []))
+    env = fixture(d)
+    rc, out, err = run_digest(env)
+    check('туры: строка проходов в ночной сводке (журнал из TOUR_REISSUE_LOG)', rc == 0 and 'туры агентов за сутки: проходов' in out
+          or 'туры агентов: за сутки перевыпусков не было' in out, out)
 
 DRIVER = r'''
 set -u

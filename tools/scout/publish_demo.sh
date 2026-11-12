@@ -191,26 +191,14 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 # АВТОПЕРЕВЫПУСК ТУРОВ (T-20261112-92, план tour-auto-reissue-01; владелец 12.11 TG 873: «поправил тумбу — это должно везде
 # автоматически работать»). После выкладки главной витрины и после отката — все живые туры агентов пересобираются «как есть» на
 # то, что теперь на /demo (`tools/ops/tour-reissue.sh`: замок и «ещё проход», очередь тяжёлых прогонов, проверка «демо = туры»,
-# тревога при отказе). Идёт ФОНОМ своим юнитом — выкладка не ждёт сборки ~50 туров и переживает закрытие сессии; юнит виден в
-# `systemctl --user list-units 'remlab-tour-reissue*'`, итог — строкой в ~/remlab-logs/trial/reissue.log. systemd недоступен —
-# тем же скриптом через setsid. PUB_REISSUE=0 — не запускать (ночь зовёт перевыпуск своим шагом); проба под /test/ — не зовёт.
-# PUB_REISSUE_CMD — подмена для самопроверки (зовётся сразу, без фона).
+# тревога при отказе). `--bg` — фоном своим юнитом (без systemd — setsid): выкладка не ждёт сборки туров и переживает закрытие
+# сессии; итог — строкой в ~/remlab-logs/trial/reissue.log. Сбой запуска выкладку не валит — строка WARN. PUB_REISSUE=0 — не
+# запускать (ночь зовёт перевыпуск своим шагом); проба под /test/ — не зовёт. PUB_REISSUE_CMD — подмена для самопроверки.
 reissue_tours() {
   [ "$PUB_DIR" = demo ] && [ "${PUB_REISSUE:-1}" != 0 ] || return 0
-  if [ -n "${PUB_REISSUE_CMD:-}" ]; then
-    "$PUB_REISSUE_CMD" --why "$1" || echo "WARN:publish_demo: перевыпуск туров — код $?"
-    return 0
-  fi
-  local unit wrapper="$HERE/../ops/tour-reissue.sh"
-  unit="remlab-tour-reissue-$(date +%Y%m%d-%H%M%S)"
-  export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}    # из крона без него systemd-run --user не находит менеджер
-  if systemd-run --user --collect --quiet --unit "$unit" --nice=10 -- bash "$wrapper" --why "$1" 2>/dev/null; then
-    echo "туры агентов: перевыпуск на новую витрину запущен в фоне ($unit; итог — ~/remlab-logs/trial/reissue.log)"
-  else
-    mkdir -p "$HOME/remlab-logs/trial"
-    setsid nohup bash "$wrapper" --why "$1" >> "$HOME/remlab-logs/trial/reissue-bg.log" 2>&1 < /dev/null &
-    echo "туры агентов: перевыпуск запущен в фоне без systemd (журнал ~/remlab-logs/trial/reissue-bg.log)"
-  fi
+  local cmd=(bash "$HERE/../ops/tour-reissue.sh" --bg)
+  [ -n "${PUB_REISSUE_CMD:-}" ] && cmd=("$PUB_REISSUE_CMD")
+  "${cmd[@]}" --why "$1" || echo "WARN:publish_demo: перевыпуск туров — код $?"
 }
 
 case "${1:-}" in

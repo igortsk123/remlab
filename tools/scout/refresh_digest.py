@@ -35,6 +35,38 @@ def read_res(path: str) -> dict:
     return out
 
 
+TOUR_LOG = os.path.expanduser('~/remlab-logs/trial/reissue.log')
+
+
+def tour_passes(path: str, now: datetime.datetime | None = None, hours: int = 24) -> tuple[list, list]:
+    """Проходы автоперевыпуска туров за сутки (T-20261112-92) — из журнала `tools/ops/tour-reissue.sh` (поля через TAB: время,
+    ok|warn, итог, первое замечание, папка). Проходы идут фоном (ночью и после дневных выкладок), поэтому итог ночного попадает
+    в сводку СЛЕДУЮЩЕЙ ночи. → (строка-сводка, важные строки по проходам с замечаниями). Журнала нет — ничего."""
+    try:
+        lines = open(path, encoding='utf-8', errors='replace').read().splitlines()
+    except OSError:
+        return [], []
+    since = (now or datetime.datetime.now()) - datetime.timedelta(hours=hours)
+    rows = []
+    for ln in lines:
+        p = ln.split('\t')
+        if len(p) < 3:
+            continue
+        try:
+            t = datetime.datetime.strptime(p[0], '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            continue
+        if t >= since:
+            rows.append(p)
+    if not rows:
+        return ['туры агентов: за сутки перевыпусков не было'], []
+    bad = [p for p in rows if p[1] == 'warn']
+    last = rows[-1][2].removeprefix('tour_reissue: ')
+    info = [f'туры агентов за сутки: проходов {len(rows)}, с замечаниями {len(bad)}; последний — {last}'[:300]]
+    pinned = [f'❗ туры агентов ({p[0][11:16]}): {p[3] if len(p) > 3 and p[3] else p[2]}'[:300] for p in bad[-2:]]
+    return info, pinned
+
+
 def build(env) -> tuple[dict, str]:
     steps, warns = {}, {}
     for name, (state, n, first) in read_res(env['RES_FILE']).items():
@@ -63,6 +95,8 @@ def build(env) -> tuple[dict, str]:
             elif seen and line.startswith('DIGEST:'): info.append(line[len('DIGEST:'):].strip()[:300])
     except Exception:
         pass
+    tours, tour_bad = tour_passes(env.get('TOUR_REISSUE_LOG') or TOUR_LOG)
+    pinned += tour_bad
     fresh = '?'
     try:
         ff = json.load(open(env.get('FRESH_FILE') or 'feed-freshness.json'))
@@ -80,7 +114,7 @@ def build(env) -> tuple[dict, str]:
     head = {'ok': 'ок', 'warn': 'с предупреждениями', 'FAIL': 'С ОШИБКАМИ'}[overall]
     msg = [f"remlab каталог {env['TODAY']}: прогон {head}, {status['finished_at'][11:16]} UTC",
            f"фиды: скачано {status['feeds_downloaded']}/{status['feeds_total']}, свежих {fresh}; товаров в наличии: {status['products']}",
-           f"дельта: {delta or 'нет'}"] + pinned + info[-6:]
+           f"дельта: {delta or 'нет'}"] + pinned + info[-6:] + tours
     if fails: msg.append('FAIL: ' + ', '.join(fails) + (f' (exit {rc})' if rc else ''))
     for k, w in sorted(warns.items()): msg.append(f"WARN {k}" + (f" ×{w['n']}" if w['n'] > 1 else '') + f": {w['first']}")
     if skipped: msg.append('пропущено (openai.off): ' + ', '.join(skipped))

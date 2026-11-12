@@ -359,7 +359,7 @@ def _rooms_bank(text: str, ok) -> int:
        and cmd['flat215_publish'] == 'env PUB_PHOTOS_DONE=1 PUB_REISSUE=0 bash publish_demo.sh'
        # автоперевыпуск туров (T-20261112-92) — сразу за публикацией, ночным режимом; свой хук публикации выключен (PUB_REISSUE=0)
        and fn.index('flat215_publish') + 1 == fn.index('tour_reissue')
-       and cmd['tour_reissue'] == 'env TOUR_REISSUE_NIGHT=1 bash ../ops/tour-reissue.sh --why ночь'
+       and cmd['tour_reissue'] == 'env TOUR_REISSUE_NIGHT=1 bash ../ops/tour-reissue.sh --bg --why ночь'   # фоном: ночь проход не ждёт
        and cmd['demo_real_check'] == 'bash ../ops/demo-real.sh --dry', {n: cmd.get(n) for n in ('demo_real', 'flat215_publish', 'demo_real_check')})
     gn, _, glog = run(0, full, fail='demo_rt')
     ok('ворота demo_rt не прошли — ни досъёмки, ни публикации; сухая проверка идёт; строка «фото: пропущено» в дайджест',
