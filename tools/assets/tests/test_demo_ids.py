@@ -80,6 +80,18 @@ with tempfile.TemporaryDirectory() as tmp:
     json.dump(D2, open(p2, 'w', encoding='utf-8'), ensure_ascii=False)
     var2, fd2 = RM.demo_ids(p2, rule=RULE, strategies=STRAT)
     ok('декор «только в списке» (лампа) — без копии; ваза спальни — с копией', 'LAMP' not in var2 and 'V2' in var2, var2)
+    # T-20261112-44: картина-декор — плоскость (procedural_plane), модели нет: в списке моделей её быть не должно, ваза — есть
+    D3 = {**D, 'variants': [{**D['variants'][0], 'decor': [
+        {'role': 'картина', 'sku': {'sid': 'ART1'}}, {'role': 'картина 2', 'sku': {'sid': 'ART2'}},
+        {'role': 'ваза', 'sku': {'msid': 'V3'}}]}]}
+    p3 = os.path.join(tmp, 'demo-data-3.json')
+    json.dump(D3, open(p3, 'w', encoding='utf-8'), ensure_ascii=False)
+    STRAT3 = {**STRAT, 'картина': 'procedural_plane'}
+    var3, _ = RM.demo_ids(p3, rule=RULE, strategies=STRAT3)
+    ok('декор-картина (и «картина 2») — плоскость, без копии; ваза — с копией', 'ART1' not in var3 and 'ART2' not in var3
+       and 'V3' in var3, var3)
+    var3c, _ = RM.demo_ids(p3, rule=RULE)
+    ok('по живому канону rules/asset-strategies.json — картина без копии, ваза с копией', 'ART1' not in var3c and 'V3' in var3c, var3c)
     ok('ковёр спальни под ключом «bedroom:ковёр» — плоскость, без копий', not any(x[0] in 'rq' for x in fd2), fd2)
     ok('кровать под ключом спальни — вся лента (правило типа комнаты)', sum(x.startswith('b') for x in fd2) == 20
        and RM.feed_tops(D2, RULE)['bedroom:кровать'] == 0 and RM.feed_tops(D2, RULE)['диван'] == 6, RM.feed_tops(D2, RULE))

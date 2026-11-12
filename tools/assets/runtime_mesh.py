@@ -349,7 +349,9 @@ def demo_ids(path: str, feed_top: int | None = None, rule: dict | None = None,
                 var.append(m)
     for v in d.get("variants") or []:                   # декор тоже на сцене (ваза на столике)
         for x in v.get("decor") or []:
-            if is_soft(x.get("role")) or x.get("list_only"):   # «только в списке» (лампа спальни, T-77/2) — в 3D нет
+            # «только в списке» (лампа спальни, T-77/2) — в 3D нет; роль без 3D-модели по канону стратегий (картина —
+            # плоскость, T-20261112-26) — копия не нужна, как у items (T-20261112-44: иначе ворота ждали 31 картину → 404)
+            if not model(x.get("role")) or x.get("list_only"):
                 continue
             m = mid(x.get("sku") or {})
             if m and ":" not in m and m not in var:
