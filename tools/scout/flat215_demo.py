@@ -2766,6 +2766,8 @@ def main() -> None:
         print(f'WARN:names_en_error: английские названия не записались: {repr(e)[:160]}', flush=True)
     # АТОМАРНО (T-20261105-59): раньше файл обрезался и писался заново — упавшая посреди записи сборка оставляла
     # обрывок, и публикация увозила его на прод. Теперь временный файл рядом + os.replace (`atomic_io.py`)
+    import build_stamp as _BS                       # метка правил сборщика — проверка «демо = туры» (T-20261112-92)
+    data['build'] = _BS.stamp()
     _AIO.write_json(os.path.join(OUT, 'demo-data.json'), data, ensure_ascii=False, indent=1)
     # РАКУРСЫ ОКНА — В ДАННЫЕ (demo-05 п.8): тот же блок CAMFIT страницы считает пару ракурсов каждого варианта
     # (`tools/flat3d/demo-cams.mjs` → `v.cams`), ими снимает «Фото» в /flat. Не посчиталось — /flat покажет прежний вид

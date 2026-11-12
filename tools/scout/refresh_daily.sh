@@ -630,7 +630,15 @@ else
     # WARN:demo_real (шаг warn, не FAIL). `PUB_PHOTOS_DONE=1` — фото этой сборки уже сняты, обёртка публикации их не повторяет
     paid_step demo_real env DEMO_LOCAL="$DEMO_OUT" bash ../ops/demo-real.sh
     [ "${OPENAI_OFF:-0}" = "1" ] && echo "DIGEST:фото нейросети: пропущено — платные шаги выключены (openai.off)" >> "$LOG"
-    step flat215_publish env PUB_PHOTOS_DONE=1 bash publish_demo.sh
+    # АВТОПЕРЕВЫПУСК ТУРОВ (T-20261112-92, TG 873: «поправил тумбу — это должно везде автоматически работать»): сразу за
+    # публикацией все живые туры агентов пересобираются «как есть» на новую витрину (`tools/ops/tour-reissue.sh`; итог и
+    # «демо = туры» — DIGEST, отказ/расхождение — WARN и `DIGEST:!`). Публикация зовётся с PUB_REISSUE=0 — свой хук
+    # `publish_demo.sh` не запускает второй проход. Публикация не прошла — туры остаются на вчерашней витрине, шаг пропущен.
+    if step flat215_publish env PUB_PHOTOS_DONE=1 PUB_REISSUE=0 bash publish_demo.sh; then
+      step tour_reissue env TOUR_REISSUE_NIGHT=1 bash ../ops/tour-reissue.sh --why ночь
+    else
+      echo "tour_reissue пропущен: демо не опубликовано — туры остаются на прежней витрине" >> "$LOG"
+    fi
   else
     RES[flat215_publish]=FAIL; echo "flat215_publish пропущен: ворота demo_rt" >> "$LOG"
     echo "DIGEST:фото нейросети: пропущено — демо не опубликовано (ворота demo_rt)" >> "$LOG"

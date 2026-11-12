@@ -1699,15 +1699,19 @@ def _stage_s() -> float | None:
         return None
 
 
-def _cams_run(path: str) -> str:
+def _cams_run(path: str, skip: frozenset = frozenset()) -> str:
     """Куски → слот машины (ядра = процессы) → параллельный подбор к сроку. Очередь не дала слот за CAMS_SLOT_WAIT_S или модуля
-    очереди нет — один процесс без слота (как до T-23)."""
+    очереди нет — один процесс без слота (как до T-23). `skip` — id вариантов, чьи пары перенесены из прежней версии (`reuse_cams`):
+    кусок, целиком из них, не считается."""
     import cams_par as CP
     root = os.path.abspath(os.path.join(HERE, '..', '..'))
     try:
         units = CP.units_of(root, path)
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as e:
         return f'WARN:trial_cams: куски ракурсов не получены — ракурсы считает страница: {type(e).__name__}: {str(e)[:160]}'
+    units = [u for u in units if not set(u) <= skip]
+    if not units:
+        return f'ракурсы окна в данных: все {len(skip)} перенесены из прежней версии (подбор не нужен)'
     jobs = min(cams_jobs(), len(units) or 1)
     budget = cams_budget(len(units), jobs, _stage_s(), time.monotonic() - _T0)
     if budget < CAMS_BASE_S:
@@ -1730,25 +1734,112 @@ def _cams_run(path: str) -> str:
     return line + ' (без слота машины, одним процессом)'
 
 
-def add_cams(path: str, tokens: list, runner=None) -> str:
+# ПЕРЕНОС РАКУРСОВ ИЗ ПРЕЖНЕЙ ВЕРСИИ (T-20261112-92, автоперевыпуск туров после выкладки витрины): подбор пары — 82 из 83 с сборки
+# тура (сухой прогон 12.11), 54 тура — ~75 мин на каждую выкладку. Пара зависит только от правил подбора (блок CAMFIT страницы),
+# коробки комнаты и мебели варианта — правка движка (высота тумбы, свет, лента «Заменить») её не меняет. Поэтому у варианта
+# хранится ключ этих входов (`v.cams_key`); совпал с прежней версией и пара там есть — пара переносится, подбор не идёт.
+CAMS_FIELDS = ('cams', 'cam_level', 'cam_cover')
+
+
+def camfit_sig(root: str | None = None) -> str:
+    """Хеш правил подбора ракурсов — блок CAMFIT страницы, тот же срез, что исполняет `tools/flat3d/demo-cams.mjs`. Блока нет — ''."""
+    root = root or os.path.abspath(os.path.join(HERE, '..', '..'))
+    try:
+        with open(os.path.join(root, 'tools', 'scout', 'flat215-demo', 'index.html'), encoding='utf-8') as f:
+            html = f.read()
+    except OSError:
+        return ''
+    a, b = html.find('// CAMFIT START'), html.find('// CAMFIT END')
+    return hashlib.sha256(html[a:b].encode('utf-8')).hexdigest()[:16] if 0 <= a < b else ''
+
+
+def _cams_geo(D: dict, v: dict):
+    """Коробка комнаты варианта — правило `demo-cams.mjs:geoOf` (= `index.html:roomGeoOf`)."""
+    rid = str(v.get('room_id') or 'living')
+    rg = D.get('rooms_geo')
+    if rg and rid in rg:
+        return rg[rid]
+    return D.get('room') if rid == 'living' or not rg else None
+
+
+def cams_key(D: dict, v: dict, fit: str) -> str:
+    """Ключ входов подбора пары варианта: правила (CAMFIT), «одна расстановка», коробка комнаты, сам вариант без ракурсов."""
+    body = {k: x for k, x in v.items() if k not in CAMS_FIELDS and k != 'cams_key'}
+    raw = json.dumps([fit, bool(D.get('one_layout')), _cams_geo(D, v), body], ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(raw.encode('utf-8')).hexdigest()[:16]
+
+
+def reuse_cams(path: str, old: dict | None, fit: str | None = None) -> set:
+    """Ключи пар — всем вариантам файла; пары прежней версии с тем же ключом — переносятся. Общая пара комнаты (`one_layout`, без
+    `cams_own`) — только если совпали ВСЕ варианты комнаты и их состав тот же. Правил подбора нет (`fit` пуст) — ничего не переносим.
+    → id вариантов с перенесённой парой. Файл переписывается подменой."""
+    fit = camfit_sig() if fit is None else fit
+    with open(path, encoding='utf-8') as f:
+        D = json.load(f)
+    vs = D.get('variants') or []
+    for v in vs:
+        v['cams_key'] = cams_key(D, v, fit) if fit else ''
+    got: set = set()
+    if fit and old:
+        prev = {str(v.get('id')): v for v in old.get('variants') or []}
+        rooms: dict = {}
+        for v in vs:
+            rooms.setdefault(str(v.get('room_id') or 'living'), []).append(v)
+        for rid, list_ in rooms.items():
+            ok = [v for v in list_ if (p := prev.get(str(v.get('id')))) and p.get('cams_key') == v['cams_key']
+                  and isinstance(p.get('cams'), list) and len(p['cams']) == 2]
+            geo = _cams_geo(D, list_[0]) or {}
+            if D.get('one_layout') and len(list_) > 1 and not geo.get('cams_own'):
+                same = {str(p.get('id')) for p in prev.values() if str(p.get('room_id') or 'living') == rid} == {str(v.get('id')) for v in list_}
+                ok = ok if len(ok) == len(list_) and same else []
+            for v in ok:
+                p = prev[str(v.get('id'))]
+                v.update({k: p[k] for k in CAMS_FIELDS if k in p})
+                got.add(str(v.get('id')))
+        if got and old.get('cams_shared'):
+            D['cams_shared'] = True
+    tmp = f'{path}.reuse-{os.getpid()}.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(D, f, ensure_ascii=False, separators=(',', ':'))
+    os.replace(tmp, path)
+    return got
+
+
+def add_cams(path: str, tokens: list, runner=None, old: dict | None = None) -> str:
     """Пара ракурсов каждого варианта — в файл версии тем же подбором (`tools/flat3d/demo-cams.mjs` → `v.cams`), что у /demo,
     параллельно и к сроку (`_cams_run`). НЕ ВАЛИТ СБОРКУ: ни одной пары — версия без ракурсов (страница посчитает сама). Ракурсы
-    дописаны (все или часть) — версия ещё раз проходит `assert_public`; не прошла — возвращаются прежние байты. → строка лога."""
+    дописаны (все или часть) — версия ещё раз проходит `assert_public`; не прошла — возвращаются прежние байты. → строка лога.
+    `old` — прежняя версия (перевыпуск): пары с тем же ключом входов переносятся (`reuse_cams`), считаются только остальные."""
+    note = ''
     with open(path, 'rb') as f:
-        before = f.read()
-    line = (runner or _cams_run)(path)
-    if line.startswith('WARN:') and before == open(path, 'rb').read():
-        return line
+        orig = f.read()
     try:
-        with open(path, encoding='utf-8') as f:
-            assert_public(json.load(f), tokens, goods=True)
-    except (OSError, ValueError, BundleRefused) as e:
+        reused = reuse_cams(path, old)
+    except (OSError, ValueError) as e:            # перенос — ускорение, не условие: не вышел — считаем всё, как раньше
+        reused, note = set(), f' · WARN перенос ракурсов: {type(e).__name__}: {str(e)[:120]}'
+    if reused:
+        note = f' · перенесено из прежней версии {len(reused)}' + note
+    with open(path, 'rb') as f:
+        mid = f.read()
+    # откат — к перенесённым парам, если они есть (они из прежней проверенной версии), иначе к исходным байтам версии
+    before = mid if reused else orig
+
+    def restore():
         tmp = f'{path}.{os.getpid()}.tmp'
         with open(tmp, 'wb') as f:
             f.write(before)
         os.replace(tmp, path)
+    line = (runner or (lambda p: _cams_run(p, frozenset(reused))))(path)
+    if line.startswith('WARN:') and mid == open(path, 'rb').read():
+        restore()
+        return line + note
+    try:
+        with open(path, encoding='utf-8') as f:
+            assert_public(json.load(f), tokens, goods=True)
+    except (OSError, ValueError, BundleRefused) as e:
+        restore()
         return f'WARN:trial_cams: ракурсы сняты, версия — без них: {type(e).__name__}: {getattr(e, "detail", str(e))[:160]}'
-    return line
+    return line + note
 
 
 # СТОРОЖ ЛЁГКИХ КОПИЙ (T-20261111-23): мебель тура подбирается из банков пробы, а копии (`tools/assets/runtime_mesh.py`) ночь делает
@@ -1830,6 +1921,8 @@ def main() -> int:
         print(json.dumps({'refusal': e.code, 'detail': e.detail}, ensure_ascii=False))
         return 2
     if out:
+        import build_stamp as BS                    # метка правил сборщика — проверка «демо = туры» (T-20261112-92)
+        data['build'] = BS.stamp()
         write_atomic(out, data)
         if cams:
             print(add_cams(out, shop_tokens(scene)), flush=True)   # до итоговой строки: конвейер читает последнюю

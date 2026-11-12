@@ -250,6 +250,7 @@ jobs:
       - run: python tools/scout/tests/test_parity_prune.py   # уборка стенда паритета: последние keep_runs прогонов + прогоны свежих эталонов; data-*, эталоны и жёсткие ссылки целы (T-20261107-48/2)
       - run: python tools/scout/tests/test_parity_living.py   # стенд паритета гостиной: шум, подмешанное различие, устаревший эталон, сторож записи и сети (T-20261105-41)
       - run: bash tools/ops/heavy-slot-selftest.sh   # общая очередь тяжёлых прогонов DEV: по одному, смерть держателя освобождает, порог памяти, rc, таймаут, вложенный (T-20261105-57)
+      - run: bash tools/ops/tour-reissue-selftest.sh   # автоперевыпуск туров после выкладки демо: счётчики, отказ не молча, «демо = туры» (витрина и правила), день — тревога, ночь — DIGEST:!, три выкладки подряд = два прохода (T-20261112-92)
       - run: node tools/scout/precompress.mjs --selftest   # заранее сжатые копии витрины: .br/.gz распаковываются в исходник, пересжатие по времени исходника, сироты и мелкое — прочь, img/topsprites не трогаем (T-20261110-43/2)
       - run: python tools/scout/atomic_io.py --selftest && python tools/scout/tests/test_publish_demo.py   #выходные json сборки демо — подменой; публикация: копия прежней версии, хранится 3, откат переносом без подмены каталога, проба на /test/ (T-20261105-59)
       - run: python tools/scout/tests/test_no_hard_tmp.py   # ночной путь демо без жёсткого /tmp: временное в REMLAB_TMP, TMPDIR в refresh_daily, demo_rt убирает свой файл (T-20261107-02)

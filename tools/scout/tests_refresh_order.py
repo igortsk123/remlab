@@ -96,7 +96,7 @@ CHAIN = ('bank_prepare', 'mesh_cand', 'room_bindings', 'bank_pending', 'bank_pro
 ROOM_BANK = ('orient_bed_guard', 'mesh_color_guard', 'room_bindings', *(f'{s}_{r}' for r in ROOMS for s in ('compose', 'room_check', *CHAIN,
                                                                                          'bank_rehearse', 'bank_state')))
 # проверка СОБРАННОЙ (сжатой) страницы в браузере (T-20261112-90) — сразу за сборкой витрины
-DEMO = ('flat215_demo', 'page_check', 'trial_images', 'demo_rt', 'flat215_publish')
+DEMO = ('flat215_demo', 'page_check', 'trial_images', 'demo_rt', 'flat215_publish', 'tour_reissue')  # туры — за публикацией (T-92)
 
 
 def chain_of(room: str) -> list[str]:
@@ -356,15 +356,20 @@ def _rooms_bank(text: str, ok) -> int:
        and cmd['page_check'].startswith('bash -c') and 'page-check.mjs' in cmd['page_check'] and '--src flat215-demo/index.html' in cmd['page_check']
        and cmd['trial_images'] == '$PY trial_bundle.py --cache-images'
        and cmd['demo_real'].startswith('env DEMO_LOCAL=') and cmd['demo_real'].endswith('/scout-scenes/flat215-demo bash ../ops/demo-real.sh')
-       and cmd['flat215_publish'] == 'env PUB_PHOTOS_DONE=1 bash publish_demo.sh'
+       and cmd['flat215_publish'] == 'env PUB_PHOTOS_DONE=1 PUB_REISSUE=0 bash publish_demo.sh'
+       # автоперевыпуск туров (T-20261112-92) — сразу за публикацией, ночным режимом; свой хук публикации выключен (PUB_REISSUE=0)
+       and fn.index('flat215_publish') + 1 == fn.index('tour_reissue')
+       and cmd['tour_reissue'] == 'env TOUR_REISSUE_NIGHT=1 bash ../ops/tour-reissue.sh --why ночь'
        and cmd['demo_real_check'] == 'bash ../ops/demo-real.sh --dry', {n: cmd.get(n) for n in ('demo_real', 'flat215_publish', 'demo_real_check')})
     gn, _, glog = run(0, full, fail='demo_rt')
     ok('ворота demo_rt не прошли — ни досъёмки, ни публикации; сухая проверка идёт; строка «фото: пропущено» в дайджест',
        'demo_real' not in gn and 'flat215_publish' not in gn and 'demo_real_check' in gn
        and 'DIGEST:фото нейросети: пропущено — демо не опубликовано (ворота demo_rt)' in glog, (gn[-8:], glog[-300:]))
-    for bad in ('demo_real', 'flat215_publish'):
-        gn, _, _ = run(0, full, fail=bad)
-        ok(f'сбой {bad} — ночь та же: публикация не зависит от фото (TG 378), проверка по опубликованному идёт', gn == fn, gn[-8:])
+    gn, _, _ = run(0, full, fail='demo_real')
+    ok('сбой demo_real — ночь та же: публикация не зависит от фото (TG 378), проверка по опубликованному идёт', gn == fn, gn[-8:])
+    gn, _, plog = run(0, full, fail='flat215_publish')
+    ok('сбой flat215_publish — туры не перевыпускаются (на вчерашнюю витрину незачем), строка в журнал; остальная ночь та же',
+       gn == [n for n in fn if n != 'tour_reissue'] and 'tour_reissue пропущен: демо не опубликовано' in plog, (gn[-8:], plog[-300:]))
     # ТЕНЬ (этап Е): репетиция записи в копию — за rehearse_enabled, после цепочки (или суда), до проверки состояния; сбой — WARN
     # в смысле ночи: остальное идёт, витрина и публикация — идут
     reh = 'bedroom:rehearse_enabled'

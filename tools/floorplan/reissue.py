@@ -11,6 +11,11 @@
   python tools/floorplan/reissue.py --job <id> [--job <id> …]   # эти туры
   python tools/floorplan/reissue.py --days 7                    # все готовые туры младше 7 дней
   … --dry-run                                                   # собрать и показать, не публиковать
+  … --cards each|batch|off                                      # снимки карточек: по туру сразу (как было) | одной пачкой после
+                                                                # прохода и только где поменялись данные или витрина | не снимать
+АВТОПЕРЕВЫПУСК (T-20261112-92): после каждой выкладки витрины его зовёт `tools/ops/tour-reissue.sh` (`--days 60 --cards batch`).
+«Без изменений» — те же байты данных и та же витрина: ни новой версии, ни карточек. `stale` (агент пересобрал, пока собирали) —
+один повтор тура сразу.
 
 «ПЕРЕЧИТАТЬ ПЛАНИРОВКУ» (план trial-reparse-01; T-20261111-02) — `--reparse`: исходный лист тура заново через текущий разбор (кэш VLM,
 0 $), мебель заново, ОДНА версия с новым `result` — только если сторож регресса чист (`regress.guard_*`) или разница одобрена:
@@ -74,8 +79,9 @@ def build(cfg: wk.Cfg, jid: str, d: Path, result: dict, old: str, cmd: list | No
     return rc, last, new_p
 
 
-def one(api: wk.Api, cfg: wk.Cfg, jid: str, run_dir: Path, dry: bool, cmd: list | None = None) -> dict:
-    """Один тур: исходник → сборка → публикация. → строка отчёта {id, status, …}."""
+def one(api: wk.Api, cfg: wk.Cfg, jid: str, run_dir: Path, dry: bool, cmd: list | None = None, cards: str = 'each') -> dict:
+    """Один тур: исходник → сборка → публикация. → строка отчёта {id, status, …}. `cards` — снимки карточек: `each` — сразу
+    по туру (`cards.spawn`), `batch` — пометка `cards_need` (снимет пачка после прохода), `off` — не снимать."""
     st, src = api.call('GET', f'/api/trial/worker/reissue/{jid}', read_max=READ_MAX)
     if st != 200 or not isinstance(src, dict) or not src.get('ok'):
         why = (src or {}).get('error') if isinstance(src, dict) else None
@@ -102,11 +108,13 @@ def one(api: wk.Api, cfg: wk.Cfg, jid: str, run_dir: Path, dry: bool, cmd: list 
     st, r = api.call('POST', f'/api/trial/worker/reissue/{jid}',
                      {'baseVersion': base, 'bundle': data.decode('utf-8'), 'sha256': hashlib.sha256(data).hexdigest()})
     if st == 200 and isinstance(r, dict) and r.get('ok'):
-        if cfg.cards:                        # готовые снимки карточек под новую витрину и данные — в фоне (`cards.spawn`, T-20261112-29)
+        # «без изменений»: те же байты данных и та же витрина — смотреть агенту нечего, карточки прежние (T-20261112-92)
+        same = bool(r.get('repeated')) and r.get('release') not in (None, 'failed') and r.get('release') == r.get('previous')
+        if cfg.cards and not same and cards == 'each':   # снимки карточек под новую витрину и данные — в фоне (`cards.spawn`, T-29)
             import cards as CD
             CD.spawn(jid, cfg.base / 'cards', python=cfg.python, log=lambda m: print(m, flush=True))
         return {**row, 'status': 'published', 'version': r.get('version'), 'repeated': r.get('repeated'), 'release': r.get('release'),
-                'previous': r.get('previous')}
+                'previous': r.get('previous'), 'unchanged': same, 'cards_need': bool(cfg.cards and not same and cards == 'batch')}
     why = (r or {}).get('error') if isinstance(r, dict) else None
     return {**row, 'status': 'skipped' if why in SKIP + ('stale',) else 'failed', 'why': why or f'http {st}'}
 
@@ -114,6 +122,8 @@ def one(api: wk.Api, cfg: wk.Cfg, jid: str, run_dir: Path, dry: bool, cmd: list 
 def line(r: dict) -> str:
     """Строка оператору по-русски: что вышло и что осталось прежним."""
     s = r['status']
+    if s == 'published' and r.get('unchanged'):
+        return f"{r['id']}: без изменений (v{r['from']}, витрина {str(r.get('release'))[:12]} — те же данные и страница)"
     if s == 'published':
         rel = 'витрина НЕ закреплена (release_pin_failed)' if r.get('release') == 'failed' else f"витрина {str(r.get('release'))[:12]}"
         ver = f"v{r['from']} → v{r['version']}" + (' (данные те же, обновлена только витрина)' if r.get('repeated') else '')
@@ -340,6 +350,8 @@ def main(argv=None, api: wk.Api | None = None, cfg: wk.Cfg | None = None, cmd: l
     ap.add_argument('--job', action='append', default=[], help='id тура (можно несколько раз)')
     ap.add_argument('--days', type=int, help='все готовые туры младше N дней')
     ap.add_argument('--dry-run', action='store_true', help='собрать, не публиковать')
+    ap.add_argument('--cards', choices=('each', 'batch', 'off'), default='each',
+                    help='снимки карточек: each — по туру сразу; batch — пачкой после прохода, только где поменялось; off — нет')
     ap.add_argument('--reparse', action='store_true', help='перечитать планировку (новый разбор листа), а не пересборка «как есть»')
     ap.add_argument('--sheets', help='--reparse --dry-run: TSV «id, лист, [текст объявления|-]»')
     ap.add_argument('--approve', help='--reparse: TSV «id, ключ находки, [почему]» — одобренная ведущим разница')
@@ -365,14 +377,28 @@ def main(argv=None, api: wk.Api | None = None, cfg: wk.Cfg | None = None, cmd: l
     run_dir.mkdir(parents=True, exist_ok=True)
     rows = []
     for jid in ids:
-        try:
-            r = one(api, cfg, jid, run_dir, a.dry_run, cmd)
-        except wk.NetError as e:
-            r = {'id': jid, 'status': 'failed', 'why': str(e)[:300]}
+        t0 = time.monotonic()
+        for attempt in (1, 2):               # `stale` — агент пересобрал, пока мы собирали: один повтор от его новой версии
+            try:
+                r = one(api, cfg, jid, run_dir, a.dry_run, cmd, a.cards)
+            except wk.NetError as e:
+                r = {'id': jid, 'status': 'failed', 'why': str(e)[:300]}
+            if not (r['status'] == 'skipped' and r.get('why') == 'stale' and attempt == 1):
+                break
+            print(f'{jid}: версия сменилась, пока собирали — повтор', flush=True)
+        r['sec'] = round(time.monotonic() - t0, 1)
         rows.append(r)
         print(line(r), flush=True)
     (run_dir / 'report.json').write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding='utf-8')
+    need = [r['id'] for r in rows if r.get('cards_need')]
+    if need:                                 # одна служба на пачку (`cards.spawn`): браузер по турам по очереди, а не N сразу
+        import cards as CD
+        CD.spawn(need, cfg.base / 'cards', python=cfg.python, log=lambda m: print(m, flush=True))
     n = {s: sum(1 for r in rows if r['status'] == s) for s in ('published', 'built', 'skipped', 'refused', 'failed')}
+    same = sum(1 for r in rows if r.get('unchanged'))
+    if same:
+        n['published'] -= same
+        n['unchanged'] = same
     print(f"итого туров {len(rows)}: " + ', '.join(f'{k} {v}' for k, v in n.items() if v) + f' · отчёт {run_dir / "report.json"}')
     return 1 if n['refused'] or n['failed'] else 0
 

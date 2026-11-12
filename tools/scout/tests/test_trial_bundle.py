@@ -3,8 +3,10 @@
 и формату `scene.json` из `trial_demo.py`.
     ~/venvs/scout/bin/python -m pytest tools/scout/tests/test_trial_bundle.py -q"""
 import ast
+import hashlib
 import json
 import os
+import re
 import sys
 
 import pytest
@@ -1277,6 +1279,111 @@ def test_add_cams_none_keeps_bundle(tmp_path):
     line = TB.add_cams(str(p), [], runner=lambda path: 'WARN:trial_cams: ракурсы 0 из 1 вариантов (срок 50 с, процессов 1)')
     assert line.startswith('WARN:trial_cams: ракурсы 0 из 1') and p.read_bytes() == before
 
+
+
+# ───────── перенос пар из прежней версии (T-20261112-92): автоперевыпуск после выкладки не пересчитывает ракурсы зря ─────────
+
+PAIR = [{'name': 'C1', 'x': 3, 'y': 3, 'rot': 138, 'fov': 72}, {'name': 'C2', 'x': 165, 'y': 190, 'rot': -39, 'fov': 72}]
+GEO = {'living': {'w': 400, 'd': 300}, 'bedroom-1': {'w': 300, 'd': 300}}
+
+
+def _vars(*specs):
+    return [{'id': i, 'room_id': r, 'items': [{'role': 'диван', 'x': x, 'y': 50, 'w': 200, 'd': 90, 'rot': 0}]} for i, r, x in specs]
+
+
+def _old_with_cams(data, fit='fit1'):
+    """Прежняя версия: те же данные, пары посчитаны, ключи записаны."""
+    old = json.loads(json.dumps(data))
+    for v in old['variants']:
+        v['cams'], v['cam_level'], v['cams_key'] = PAIR, 0, TB.cams_key(old, v, fit)
+    return old
+
+
+def _counting_node(seen):
+    def run(path):
+        d = json.load(open(path, encoding='utf-8'))
+        for v in d['variants']:
+            if not v.get('cams'):
+                seen.append(v['id'])
+                v['cams'], v['cam_level'] = PAIR, 0
+        json.dump(d, open(path, 'w', encoding='utf-8'), ensure_ascii=False)
+        return 'ракурсы окна в данных'
+    return run
+
+
+def test_reuse_cams_same_inputs_carried_changed_recomputed(tmp_path, monkeypatch):
+    monkeypatch.setattr(TB, 'camfit_sig', lambda root=None: 'fit1')
+    data = {'rooms_geo': GEO, 'variants': _vars(('set1', 'living', 10), ('set2', 'bedroom-1', 20))}
+    old = _old_with_cams(data)
+    data['variants'][1]['items'][0]['x'] = 25                     # мебель спальни сдвинули — её пару считать заново
+    p = tmp_path / 'b.json'
+    TB.write_atomic(str(p), data)
+    seen = []
+    line = TB.add_cams(str(p), [], runner=_counting_node(seen), old=old)
+    assert seen == ['set2'] and 'перенесено из прежней версии 1' in line
+    got = json.load(open(p))['variants']
+    assert got[0]['cams'] == PAIR and all(len(v['cams_key']) == 16 for v in got)
+
+
+def test_reuse_cams_rules_or_room_change_recomputes_all(tmp_path, monkeypatch):
+    data = {'rooms_geo': GEO, 'variants': _vars(('set1', 'living', 10))}
+    old = _old_with_cams(data)
+    monkeypatch.setattr(TB, 'camfit_sig', lambda root=None: 'fit2')           # правила подбора поменялись
+    p = tmp_path / 'b.json'
+    TB.write_atomic(str(p), data)
+    assert TB.reuse_cams(str(p), old) == set()
+    monkeypatch.setattr(TB, 'camfit_sig', lambda root=None: 'fit1')
+    data2 = {'rooms_geo': {**GEO, 'living': {'w': 410, 'd': 300}}, 'variants': _vars(('set1', 'living', 10))}   # комната другая
+    TB.write_atomic(str(p), data2)
+    assert TB.reuse_cams(str(p), old) == set()
+    TB.write_atomic(str(p), data)
+    assert TB.reuse_cams(str(p), old) == {'set1'}
+    assert TB.reuse_cams(str(p), old, fit='') == set()                       # правил нет — не переносим
+
+
+def test_reuse_cams_shared_room_needs_all_variants_same(tmp_path, monkeypatch):
+    """Общая пара комнаты (`one_layout`) зависит от мебели всех стилей: один стиль сменился или добавился — считать всю комнату."""
+    monkeypatch.setattr(TB, 'camfit_sig', lambda root=None: 'fit1')
+    data = {'one_layout': True, 'rooms_geo': GEO, 'variants': _vars(('set1', 'living', 10), ('set2', 'living', 10))}
+    old = _old_with_cams(data)
+    old['cams_shared'] = True
+    p = tmp_path / 'b.json'
+    TB.write_atomic(str(p), data)
+    assert TB.reuse_cams(str(p), old) == {'set1', 'set2'} and json.load(open(p))['cams_shared'] is True
+    data['variants'][1]['items'][0]['x'] = 30
+    TB.write_atomic(str(p), data)
+    assert TB.reuse_cams(str(p), old) == set()
+    data3 = {'one_layout': True, 'rooms_geo': GEO, 'variants': _vars(('set1', 'living', 10), ('set2', 'living', 10), ('set3', 'living', 10))}
+    TB.write_atomic(str(p), data3)
+    assert TB.reuse_cams(str(p), old) == set()
+
+
+def test_cams_run_skips_units_fully_carried(tmp_path, monkeypatch):
+    import cams_par as CP
+    monkeypatch.setattr(CP, 'units_of', lambda root, path: [['set1'], ['set2', 'set3']])
+    called = {}
+
+    def fake(root, path, jobs, budget, units=None, **k):
+        called['units'] = units
+        return 'ракурсы окна в данных'
+    monkeypatch.setattr(CP, 'cams', fake)
+    TB._cams_run(str(tmp_path / 'x.json'), frozenset({'set1', 'set2'}))
+    assert called['units'] == [['set2', 'set3']]                  # кусок с одним непереносённым — считается целиком
+    assert 'все 3 перенесены' in TB._cams_run(str(tmp_path / 'x.json'), frozenset({'set1', 'set2', 'set3'}))
+
+
+def test_camfit_sig_is_the_block_demo_cams_runs():
+    """Хеш — по тому же срезу CAMFIT START..END исходника, что исполняет `demo-cams.mjs` (и собирает `page_build.mjs:camfitBlock`)."""
+    html = open(os.path.join(TB.HERE, 'flat215-demo', 'index.html'), encoding='utf-8').read()
+    block = html[html.index('// CAMFIT START'):html.index('// CAMFIT END')]
+    assert TB.camfit_sig() == hashlib.sha256(block.encode('utf-8')).hexdigest()[:16]
+
+
+def test_build_stamp_shape():
+    import build_stamp as BS
+    s = BS.stamp()
+    assert re.fullmatch(r'[0-9a-f]{10}\.[0-9a-f]{10}', s), s
+    assert BS.rules_of(s) == s.split('.')[1] and BS.rules_of(None) == '' 
 
 def test_cams_budget_scales_with_rounds_and_fits_stage():
     """Срок растёт с числом кругов (кусков на процесс), но не выходит за срок стадии минус прошедшее и хвост (T-20261111-23)."""

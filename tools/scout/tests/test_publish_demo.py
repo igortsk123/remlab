@@ -70,6 +70,8 @@ def shims(bin_dir):
         'photos': '#!/usr/bin/env bash\necho "photos DEMO_LOCAL=$DEMO_LOCAL $*" >> "$SHIM_LOG"\nexit "${FAKE_PHOTOS_RC:-0}"\n',
         # сжатие упало целиком (нет node и т.п., T-20261110-43/2) — ничего не сделав
         'precompress-fail': '#!/usr/bin/env bash\necho "precompress-fail $*" >> "$SHIM_LOG"\nexit 1\n',
+        # вместо `tools/ops/tour-reissue.sh` (автоперевыпуск туров, T-20261112-92) — запись «перевыпустили бы» и код FAKE_REISSUE_RC
+        'reissue': '#!/usr/bin/env bash\necho "reissue $*" >> "$SHIM_LOG"\nexit "${FAKE_REISSUE_RC:-0}"\n',
         # FAKE_TAR_FAIL=1 — упаковка (czf) падает молча с кодом 2, как `tar` при забитом /tmp, когда и его сообщение
         # некуда записать (T-20261106-87); иначе — настоящий tar (распаковка на «сервере» тоже идёт через него)
         'tar': '#!/usr/bin/env bash\nif [ -n "${FAKE_TAR_FAIL:-}" ] && [ "${1:-}" = czf ]; then exit 2; fi\n'
@@ -103,7 +105,9 @@ def main():
                  PUB_SRC=src, PUB_KEEP='3', SHIM_LOG=os.path.join(base, 'shim.log'), TMPDIR=base,
                  PUB_TMP=os.path.join(base, 'pubtmp'),
                  # съёмка фото до выкладки — всегда подменная, рубильник openai.off — свой файл случая (не tools/scout/openai.off)
-                 PUB_PHOTOS_CMD=os.path.join(bin_dir, 'photos'), PUB_OFF_FLAG=os.path.join(base, 'openai.off'))
+                 PUB_PHOTOS_CMD=os.path.join(bin_dir, 'photos'), PUB_OFF_FLAG=os.path.join(base, 'openai.off'),
+                 # перевыпуск туров после выкладки — всегда подменный (настоящий пересобрал бы туры агентов на проде)
+                 PUB_REISSUE_CMD=os.path.join(bin_dir, 'reissue'))
         e.update(kw)
         return e
 
@@ -323,6 +327,27 @@ def main():
        and not os.path.exists(os.path.join(live, 'index.html.br')) and not os.path.exists(gz)
        and open(os.path.join(live, 'index.html'), encoding='utf-8').read() == big(15),
        f'сжатие упало — публикация есть, старых сжатых копий на витрине нет ({r.stdout[-200:]!r})')
+
+    # 17. АВТОПЕРЕВЫПУСК ТУРОВ (T-20261112-92): после выкладки главной и после отката — перевыпуск туров агентов; PUB_REISSUE=0
+    # (ночь зовёт его своим шагом) и проба под /test/ — нет; сбой перевыпуска выкладку не валит (WARN)
+    reissued = lambda n: [ln for ln in shim_since(n) if ln.startswith('reissue ')]  # noqa: E731
+    build(16)
+    n = shim_len()
+    r = run(PUB_PHOTOS_DONE='1')
+    ok(r.returncode == 0 and reissued(n) == ['reissue --why выкладка'], f'выкладка главной — перевыпуск туров ({reissued(n)})')
+    n = shim_len()
+    r = run('--rollback')
+    ok(r.returncode == 0 and reissued(n) == ['reissue --why откат'], f'откат главной — перевыпуск туров ({reissued(n)})')
+    build(17)
+    n = shim_len()
+    r = run(PUB_PHOTOS_DONE='1', PUB_REISSUE='0')
+    ok(r.returncode == 0 and not reissued(n), 'PUB_REISSUE=0 — без перевыпуска')
+    n = shim_len()
+    r = run(PUB_DIR='test/pubsafe-probe')
+    ok(r.returncode == 0 and not reissued(n), 'проба под /test/ — без перевыпуска')
+    build(18)
+    r = run(PUB_PHOTOS_DONE='1', FAKE_REISSUE_RC='3')
+    ok(r.returncode == 0 and 'WARN:publish_demo: перевыпуск туров — код 3' in r.stdout, 'сбой перевыпуска — выкладка есть, WARN')
 
     # 14. запреты (код 2 из проверок) не печатают ложный «сбой в строке»
     r = run(PUB_DIR='caddy')

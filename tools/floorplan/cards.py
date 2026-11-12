@@ -110,9 +110,12 @@ def make(jid: str, api_url: str, run_dir: Path, call=None, dry: bool = False, cm
 PASS_ENV = ('TRIAL_API_URL', 'TRIAL_WORKER_TOKEN', 'TRIAL_WORK_DIR', 'PATH', 'TMPDIR', 'PLAYWRIGHT_BROWSERS_PATH', 'HOME')
 
 
-def spawn(jid: str, log_dir: Path, python: str = sys.executable, runner=subprocess.run, log=print, env=os.environ) -> bool:
+def spawn(jid: str | list, log_dir: Path, python: str = sys.executable, runner=subprocess.run, log=print, env=os.environ) -> bool:
     """Снять и отправить кадры тура В ФОНЕ: временная служба `systemd-run --user` со своим потолком (вне 2 ядер и 2 ГБ воркера),
-    токен и адрес — из окружения вызывающего (`-E` не пишет значение в командную строку). → True — служба запущена."""
+    токен и адрес — из окружения вызывающего (`-E` не пишет значение в командную строку). → True — служба запущена.
+    Список id — ОДНА служба на пачку (автоперевыпуск после выкладки, T-20261112-92): туры снимаются по очереди, не N браузеров сразу."""
+    ids = [jid] if isinstance(jid, str) else list(jid)
+    jid = ids[0] if len(ids) == 1 else f'batch{len(ids)}-{ids[0][:8]}'
     log_dir.mkdir(parents=True, exist_ok=True)
     unit = f'remlab-cards-{re.sub(r"[^A-Za-z0-9_-]", "", jid)[:24]}-{int(time.time())}'
     lf = log_dir / f'{jid}.log'
@@ -120,7 +123,7 @@ def spawn(jid: str, log_dir: Path, python: str = sys.executable, runner=subproce
     envs = [x for n in PASS_ENV if n in env for x in ('-E', n)]
     cmd = ['systemd-run', '--user', '--collect', '--quiet', f'--unit={unit}', '--nice=15',
            '-p', 'MemoryMax=1536M', '-p', 'CPUQuota=400%', '-p', f'StandardOutput=append:{lf}', '-p', f'StandardError=append:{lf}',
-           f'--working-directory={ROOT}', *envs, '--', python, str(HERE / 'cards.py'), '--job', jid]
+           f'--working-directory={ROOT}', *envs, '--', python, str(HERE / 'cards.py'), *[x for i in ids for x in ('--job', i)]]
     try:
         r = runner(cmd, capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as e:

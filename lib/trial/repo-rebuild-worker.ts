@@ -16,7 +16,7 @@ import { TRIAL_LEASE_SEC, trialDir, trialRebuildQuota } from "@/lib/trial/config
 import { KEEP_VERSIONS, pinAfterPublish, type Published } from "@/lib/trial/repo-bundle";
 import { applyReparseMap } from "@/lib/trial/repo-reparse-map";
 import { claimable, iso, jsonOf, rows } from "@/lib/trial/sql";
-import { ensureJobRelease } from "@/lib/trial/tour-bundle";
+import { repinCurrentRelease } from "@/lib/trial/tour-bundle";
 
 const fenceR = (f: TrialRebuildLease) => sql`id = ${f.id} and status = 'running'
   and attempt = ${f.attempt} and lease_token = ${f.leaseToken} and lease_until > now()`;
@@ -148,7 +148,7 @@ type PublishOut = Published | "lease_lost" | "stale" | "result_unexpected";
  *  `map` (только `reparse`): снятые комнаты новыми id страницы (заменяют накопленные) и правки агента на новые номера комнат/проёмов. */
 export async function publishRebuild(
   f: TrialRebuildLease & { jobId: string; timings?: Record<string, number> }, json: string, hash: string, dir = trialDir(),
-  pin = ensureJobRelease, result?: NewResult, map?: TrialReparseMap,
+  pin = repinCurrentRelease, result?: NewResult, map?: TrialReparseMap,
 ): Promise<PublishOut> {
   const out = await db().transaction(async (tx): Promise<PublishOut> => {
     const ex = async <T>(q: SQL) => (await tx.execute(q)) as unknown as T[];
@@ -192,6 +192,7 @@ export async function publishRebuild(
   });
   if (out === "lease_lost" || out === "stale" || out === "result_unexpected") return out;
   if (!out.repeated) await pruneBundles(dir, f.jobId, out.version - KEEP_VERSIONS + 1).catch(() => undefined);
+  // витрина — ТЕКУЩАЯ (T-20261112-92): пересборка агента после выкладки не оставляет новые данные на старой странице
   return { ...out, release: await pinAfterPublish(f.jobId, dir, pin) };
 }
 

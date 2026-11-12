@@ -119,6 +119,40 @@ def test_busy_stale_and_dry_run_leave_tour_alone(env, capsys):
     assert p.posts == [] and f'{A}: собран (без публикации)' in capsys.readouterr().out
 
 
+def test_cards_batch_only_where_changed_and_unchanged_counted(env, capsys, monkeypatch):
+    """`--cards batch` (автоперевыпуск, T-20261112-92): одна пачка карточек после прохода, только туры с новыми данными или
+    витриной; «те же байты и та же витрина» — «без изменений», ни версии, ни карточек; `stale` — один повтор сразу."""
+    p, cfg, cmd = env
+    import cards as CD
+    calls = []
+    monkeypatch.setattr(CD, 'spawn', lambda jid, *a, **k: calls.append(jid) or True)
+    cfg.cards = True
+    del p.tours[B], p.tours[C]
+    assert RS.main(['--days', '7', '--cards', 'batch'], cfg=cfg, cmd=cmd) == 0
+    assert calls == [[A]]                                                    # пачкой, а не по туру
+    out = capsys.readouterr().out
+    assert 'итого туров 1: published 1' in out
+    # тот же проход ещё раз: сборка даёт те же байты, сервер — repeated и та же витрина → «без изменений», без карточек
+    calls.clear()
+    monkeypatch.setattr(RS, 'one', lambda api, cfg, jid, run_dir, dry, cmd=None, cards='each': {
+        'id': jid, 'status': 'published', 'from': 4, 'version': 4, 'repeated': True, 'release': 'f' * 32, 'previous': 'f' * 32,
+        'unchanged': True, 'cards_need': False})
+    assert RS.main(['--days', '7', '--cards', 'batch'], cfg=cfg, cmd=cmd) == 0 and calls == []
+    out = capsys.readouterr().out
+    assert f'{A}: без изменений (v4' in out and 'итого туров 1: unchanged 1' in out
+
+
+def test_stale_retried_once(env, capsys, monkeypatch):
+    p, cfg, cmd = env
+    seq = [{'id': A, 'status': 'skipped', 'why': 'stale'}, {'id': A, 'status': 'published', 'from': 4, 'version': 5}]
+    monkeypatch.setattr(RS, 'one', lambda *a, **k: seq.pop(0))
+    assert RS.main(['--job', A], cfg=cfg, cmd=cmd) == 0 and seq == []
+    out = capsys.readouterr().out
+    assert 'версия сменилась, пока собирали — повтор' in out and f'{A}: опубликован v4 → v5' in out
+    seq[:] = [{'id': A, 'status': 'skipped', 'why': 'stale'}, {'id': A, 'status': 'skipped', 'why': 'stale'}]
+    assert RS.main(['--job', A], cfg=cfg, cmd=cmd) == 0 and seq == []           # второй stale — пропуск, не бесконечный круг
+
+
 def test_without_token_or_target(env):
     p, cfg, cmd = env
     cfg.token = ''

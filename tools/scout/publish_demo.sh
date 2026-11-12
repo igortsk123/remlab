@@ -11,8 +11,8 @@
 # публиковать (по умолчанию ~/scout-scenes/flat215-demo); PUB_KEEP — сколько копий хранить (3); PUB_TMP — где собрать архив
 # (по умолчанию ~/.cache/remlab-publish, на диске); PUB_PHOTOS_DONE=1 — фото нейросети этой сборки уже сняты (ставит ночь),
 # без неё выкладка главной сперва снимает их (ниже, T-20261107-34). Для самопроверки —
-# PUB_ROOT, PUB_RTMP, PUB_CHOWN, PUB_URL, PUB_PHOTOS_CMD, PUB_OFF_FLAG, PUB_PRECOMPRESS_CMD (`tests/test_publish_demo.py`, ssh/scp/curl,
-# съёмка и сжатие подменены).
+# PUB_ROOT, PUB_RTMP, PUB_CHOWN, PUB_URL, PUB_PHOTOS_CMD, PUB_OFF_FLAG, PUB_PRECOMPRESS_CMD, PUB_REISSUE_CMD (`tests/test_publish_demo.py`,
+# ssh/scp/curl, съёмка, сжатие и перевыпуск туров подменены). PUB_REISSUE=0 — не перевыпускать туры после выкладки (ниже, T-92).
 #
 # ТОП-СПРАЙТЫ ПЕРЕЖИВАЮТ ПУБЛИКАЦИЮ (01.09). `rm -rf flat215-demo` чистил и `topsprites/`,
 # а туда виды сверху приезжают ОТДЕЛЬНО, прямым scp из мешевого конвейера
@@ -187,13 +187,39 @@ check_http() {
   [ "$code" = 200 ] || { echo "страница не подтвердилась: HTTP $code ($PUB_URL)"; return 1; }
 }
 
+HERE=$(cd "$(dirname "$0")" && pwd)
+# АВТОПЕРЕВЫПУСК ТУРОВ (T-20261112-92, план tour-auto-reissue-01; владелец 12.11 TG 873: «поправил тумбу — это должно везде
+# автоматически работать»). После выкладки главной витрины и после отката — все живые туры агентов пересобираются «как есть» на
+# то, что теперь на /demo (`tools/ops/tour-reissue.sh`: замок и «ещё проход», очередь тяжёлых прогонов, проверка «демо = туры»,
+# тревога при отказе). Идёт ФОНОМ своим юнитом — выкладка не ждёт сборки ~50 туров и переживает закрытие сессии; юнит виден в
+# `systemctl --user list-units 'remlab-tour-reissue*'`, итог — строкой в ~/remlab-logs/trial/reissue.log. systemd недоступен —
+# тем же скриптом через setsid. PUB_REISSUE=0 — не запускать (ночь зовёт перевыпуск своим шагом); проба под /test/ — не зовёт.
+# PUB_REISSUE_CMD — подмена для самопроверки (зовётся сразу, без фона).
+reissue_tours() {
+  [ "$PUB_DIR" = demo ] && [ "${PUB_REISSUE:-1}" != 0 ] || return 0
+  if [ -n "${PUB_REISSUE_CMD:-}" ]; then
+    "$PUB_REISSUE_CMD" --why "$1" || echo "WARN:publish_demo: перевыпуск туров — код $?"
+    return 0
+  fi
+  local unit wrapper="$HERE/../ops/tour-reissue.sh"
+  unit="remlab-tour-reissue-$(date +%Y%m%d-%H%M%S)"
+  export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}    # из крона без него systemd-run --user не находит менеджер
+  if systemd-run --user --collect --quiet --unit "$unit" --nice=10 -- bash "$wrapper" --why "$1" 2>/dev/null; then
+    echo "туры агентов: перевыпуск на новую витрину запущен в фоне ($unit; итог — ~/remlab-logs/trial/reissue.log)"
+  else
+    mkdir -p "$HOME/remlab-logs/trial"
+    setsid nohup bash "$wrapper" --why "$1" >> "$HOME/remlab-logs/trial/reissue-bg.log" 2>&1 < /dev/null &
+    echo "туры агентов: перевыпуск запущен в фоне без systemd (журнал ~/remlab-logs/trial/reissue-bg.log)"
+  fi
+}
+
 case "${1:-}" in
   --list) remote list; exit 0 ;;
   --rollback)
     [[ -z "${2:-}" || "$2" =~ ^[0-9]{8}-[0-9]{6}(-undo)?$ ]] || { echo "метка $2: нужен вид ГГГГММДД-ЧЧММСС[-undo]"; exit 2; }
     remote rollback "${2:-}"
     check_http || { echo "после отката страница не отвечает — смотри сервер"; exit 1; }
-    echo "демо после отката: $PUB_URL"; exit 0 ;;
+    echo "демо после отката: $PUB_URL"; reissue_tours откат; exit 0 ;;
   "") ;;
   *) echo "неизвестный ключ $1 (есть: --list, --rollback [метка])"; exit 2 ;;
 esac
@@ -205,7 +231,6 @@ esac
 # очередь тяжёлых прогонов, повтор «сервер обновлялся» — как ночью), обхода днём нет. Публикацию фото НЕ держат (TG 378): не
 # досняли — WARN, страница покажет прежнее фото варианта. Платные шаги выключены (`openai.off` рядом) — без съёмки, с WARN.
 # Проба под /test/ — без съёмки (её фото главной не нужны). Для самопроверки — PUB_PHOTOS_CMD (вместо demo-real.sh), PUB_OFF_FLAG.
-HERE=$(cd "$(dirname "$0")" && pwd)
 if [ "$PUB_DIR" = demo ] && [ "${PUB_PHOTOS_DONE:-0}" != 1 ]; then
   if [ -f "${PUB_OFF_FLAG:-$HERE/openai.off}" ]; then
     echo "WARN:publish_demo: платные шаги выключены (openai.off) — фото нейросети новой сборки не сняты, варианты покажут прежнее фото"
@@ -244,3 +269,4 @@ scp -P "$PORT" -o StrictHostKeyChecking=no "$TGZ" "$HOST:$PUB_RTMP/remlab-pub-$(
 remote publish
 check_http || { echo "публикация не подтвердилась. Вернуть прежнюю версию: PUB_DIR=$PUB_DIR $0 --rollback"; exit 1; }
 echo "демо опубликовано: $PUB_URL"
+reissue_tours выкладка

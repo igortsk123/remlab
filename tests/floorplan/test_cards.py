@@ -91,6 +91,15 @@ def test_spawn_systemd_run_without_secret_values(tmp_path):
     assert CD.spawn('J', tmp_path, runner=boom, log=lambda m: None, env=env) is False
 
 
+def test_spawn_batch_one_service_for_many_tours(tmp_path):
+    """Автоперевыпуск (T-20261112-92): пачка туров — ОДНА служба с несколькими `--job`, не по браузеру на тур."""
+    seen = []
+    run = lambda cmd, **k: seen.append(cmd) or SimpleNamespace(returncode=0, stderr='')  # noqa: E731
+    assert CD.spawn(['J-1', 'J-2', 'J-3'], tmp_path, python='/py', runner=run, log=lambda m: None, env={}) is True
+    assert len(seen) == 1 and seen[0][-7:] == ['/py', str(CD.HERE / 'cards.py'), '--job', 'J-1', '--job', 'J-2', '--job', 'J-3'][-7:]
+    assert any(x.startswith('--unit=remlab-cards-batch3-') for x in seen[0])
+
+
 def test_conveyor_hook_only_when_enabled(monkeypatch):
     import conveyor as CV
     calls = []

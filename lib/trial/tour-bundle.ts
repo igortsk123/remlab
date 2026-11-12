@@ -14,26 +14,35 @@ async function write(file: string, data: Buffer | string): Promise<void> {
   await fs.writeFile(file, data);
 }
 
+type SceneManifest = { file: string; basket?: { file: string }; camfit?: { file: string } };
+
+/** Файлы витрины, которые закрепляет тур, по `lib/scene.json`. То же правило читает проверка «демо = туры»
+ *  (`tools/ops/demo-release-hash.mjs`, T-20261112-92) — менять вместе. `camfit` — блок ракурсов (T-20261112-90), у старых витрин нет. */
+export function releaseFiles(man: SceneManifest): string[] {
+  return ["index.html", "lib/scene.json", `lib/${man.file}`, ...(man.basket ? [`lib/${man.basket.file}`] : []),
+    ...(man.camfit ? [`lib/${man.camfit.file}`] : []), "rt-meshes.json"];
+}
+
+/** Имя закреплённой витрины: sha256 по «путь \0 содержимое» файлов в порядке `releaseFiles`, первые 32 знака. */
+export function releaseName(files: Array<[string, Buffer]>): string {
+  const hash = createHash("sha256");
+  for (const [rel, body] of files) hash.update(rel).update("\0").update(body);
+  return hash.digest("hex").slice(0, 32);
+}
+
 /**
  * Закрепить текущую витрину: копия `index.html`, `lib/scene.json`, файлов из него и `rt-meshes.json` в
  * `tour/_releases/<хеш содержимого>/`. Одинаковое содержимое — одна копия (меняется только при новой выкладке),
  * появляется атомарно (папка `.part-*` → rename), поэтому страница не бывает наполовину скопированной.
  */
 export async function pinRelease(demoDir: string, dir = trialDir()): Promise<string> {
-  const man = JSON.parse(await fs.readFile(path.join(demoDir, "lib", "scene.json"), "utf8")) as {
-    file: string; basket?: { file: string }; camfit?: { file: string } };
-  // `camfit` — блок ракурсов для фонового потока сжатой страницы (T-20261112-90); у витрин до него поля нет
-  const rels = ["index.html", "lib/scene.json", `lib/${man.file}`, ...(man.basket ? [`lib/${man.basket.file}`] : []),
-    ...(man.camfit ? [`lib/${man.camfit.file}`] : []), "rt-meshes.json"];
-  const hash = createHash("sha256");
+  const rels = releaseFiles(JSON.parse(await fs.readFile(path.join(demoDir, "lib", "scene.json"), "utf8")) as SceneManifest);
   const files: Array<[string, Buffer]> = [];
   for (const rel of rels) {
     if (rel !== "index.html" && !tourTarget(rel.split("/"))) throw new Error(`pinRelease: файл вне списка: ${rel}`);
-    const body = await fs.readFile(path.join(demoDir, rel));
-    hash.update(rel).update("\0").update(body);
-    files.push([rel, body]);
+    files.push([rel, await fs.readFile(path.join(demoDir, rel))]);
   }
-  const name = hash.digest("hex").slice(0, 32);
+  const name = releaseName(files);
   const target = releaseDir(dir, name);
   try { await fs.access(target); return name; } catch { /* копии ещё нет */ }
   const part = `${target}.part-${randomBytes(6).toString("hex")}`;
@@ -92,6 +101,14 @@ export async function repinJobRelease(id: string, dir = trialDir(), demoDir = tr
   await write(tmp, `${release}\n`);
   await fs.rename(tmp, path.join(d, "release"));
   return { release, previous };
+}
+
+/** Пересборка агентом («Обустроить», «Перечитать»; T-20261112-92): новая версия данных — на ТЕКУЩЕЙ витрине, как у перевыпуска.
+ *  Раньше (`ensureJobRelease`) тур оставался на витрине первой сборки: новые данные на старой странице. → "pinned" — витрина сменилась,
+ *  "exists" — была та же. */
+export async function repinCurrentRelease(id: string, dir = trialDir(), demoDir = trialDemoDir()): Promise<"pinned" | "exists"> {
+  const r = await repinJobRelease(id, dir, demoDir);
+  return r.previous === r.release ? "exists" : "pinned";
 }
 
 /** Положить данные задания атомарно (страница не увидит половину JSON). Временная запись до вливания ветки данных — для проверок и фикстур. */

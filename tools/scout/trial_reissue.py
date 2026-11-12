@@ -197,9 +197,12 @@ def main() -> int:
     except TB.BundleRefused as e:
         print(json.dumps({'refusal': e.code, 'detail': e.detail}, ensure_ascii=False))
         return 2
+    import build_stamp as BS                        # метка правил сборщика — проверка «демо = туры» (T-20261112-92)
+    data['build'] = BS.stamp()
     TB.write_atomic(out, data)
-    # ракурсы — в данные (T-20261110-32): перевыпуск доносит их и до старых туров, страница которых закреплена (`lib/trial/tour.ts`)
-    print(TB.add_cams(out, []), flush=True)                  # до итоговой строки: `floorplan/reissue.py` читает последнюю
+    # ракурсы — в данные (T-20261110-32): перевыпуск доносит их и до старых туров, страница которых закреплена (`lib/trial/tour.ts`);
+    # пары прежней версии с теми же входами (правила CAMFIT, комната, мебель варианта) переносятся без подбора (T-20261112-92)
+    print(TB.add_cams(out, [], old=old), flush=True)                  # до итоговой строки: `floorplan/reissue.py` читает последнюю
     print(TB.rt_watch(out), flush=True)
     print(json.dumps({'ok': True, **report}, ensure_ascii=False))
     return 0
