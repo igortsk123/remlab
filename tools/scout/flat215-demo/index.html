@@ -11168,7 +11168,7 @@ function vwCamsUi(){
 // «Сделать фото» в «3D»: стоим в ракурсе (не двигали) — фото обоих окошек сразу; ушли с точки (`VW.free`: повернули, шагнули) — текущий вид
 // встаёт в окошко 1, окошко 2 пустое, кнопка «Запомнить ракурс 2»; второе нажатие — текущий вид в окошко 2 и фото. Тап по окошку: ушли с
 // точки — поставить туда текущий вид, иначе встать в этот ракурс. Наклон взгляда в позу не идёт — кадр снимается позой съёмки (`POSE_VER`)
-const VSL={pick:null, thumbs:['',''], key:'', t:0, tipT:0, tipUntil:0, tipNote:''};
+const VSL={pick:null, thumbs:['',''], key:'', t:0, tipT:0, tipUntil:0, tipNote:'', onFrames:null};
 const vwPickOn=()=>!!VSL.pick&&VSL.pick.vid===curVid()&&VW.mode==='walk';
 // текущий взгляд живой сцены → точка съёмки (`viewer.ts:viewPose`: yaw = (540 − rot) mod 360, обратное — то же)
 function vwPoseCam(k){
@@ -11205,8 +11205,11 @@ function vwSlotTap(k){
   vwCamGo(k);
 }
 function vwSlotTip(note){ VSL.tipNote=note||''; VSL.tipUntil=Date.now()+(note?3500:5000); clearTimeout(VSL.tipT); VSL.tipT=setTimeout(vwSlotsUi,(note?3500:5000)+50); vwSlotsUi(); }
-// миниатюры — кадры тех же поз, что уйдут в фото (`capture`), маленькие, всегда снятые под окошко (240×164). Заранее снятые кадры
-// фото (`vwPreReady`) сюда не берём: на телефоне они под вертикальный кадр, и обрезка в окошко 74×52 давала один пол (T-20261112-76/3).
+// миниатюры — кадры тех же поз, что уйдут в фото, уменьшенные под окошко (240×164).
+// КАДРЫ ФОТО ЗАРАНЕЕ — ПЕРВЫМИ (T-20261112-76/4): съёмка кадров фото (`vwViewsRun`) начинается ещё до готовой сцены и занимает общую
+// очередь (`vwSceneQ`); своя съёмка окошек вставала за ней и снимала те же позы второй раз — на ПК окошки пустовали 20–35 с (живой /demo
+// 1440, программная 3D). Есть свежие кадры этой расстановки или их съёмка идёт — берём их (уменьшив; `update` перед съёмкой ставит ту же
+// расстановку, кадры всегда горизонтальные — VW_FRAME_SIZES), иначе снимаем сами 240×164.
 // Снимаем один раз на пару поз (ключ — состояние + позы), держим в памяти; пауза 200 мс — склеить «запомнил вид → перерисовал окошки»
 // Только из готовой сцены (`LIVE.state==='ready'`): во время «Обновляем…» мебели ещё нет — кадр пустой комнаты лёг бы под тот же ключ
 // и остался бы до правки; на переходе в «готово» окошки перерисовываются (`liveUpdate` → `vwSlotsUi`)
@@ -11217,8 +11220,26 @@ function vwSlotThumbs(){
   clearTimeout(VSL.t); VSL.t=setTimeout(()=>{
     const put=bl=>{if(VSL.key!==key)return; VSL.thumbs.forEach(u=>{if(u&&u.startsWith('blob:'))setTimeout(()=>URL.revokeObjectURL(u),2000);});
       VSL.thumbs=[0,1].map(k=>bl&&bl[k]?URL.createObjectURL(bl[k]):''); vwSlotsUi();};
-    vwSceneQ(async()=>{ if(VSL.key!==key||!LIVE.scene||LIVE.state!=='ready'){if(VSL.key===key)VSL.key='';return;} const r=await LIVE.scene.capture(cs.map(camPoseOf),240,164); put(r&&r.frames); });
+    const own=()=>vwSceneQ(async()=>{ if(VSL.key!==key||!LIVE.scene||LIVE.state!=='ready'){if(VSL.key===key)VSL.key='';return;} const r=await LIVE.scene.capture(cs.map(camPoseOf),240,164); put(r&&r.frames); });
+    let pk=''; try{pk=vwPreKey();}catch(e){}
+    const pre=pk&&vwPreFresh(VPF.cap,pk)?VPF.cap:null, run=!pre&&pk&&VPF.run&&VPF.run.key===pk?VPF.run:null;
+    if(!pre&&!run){own(); return;}
+    // съёмка идёт — кадры берём сразу после `capture` (`vwCaptureViews` → VSL.onFrames), не ждём отправки на сервер; не вышло — после неё
+    let done=false; const take=blobs=>vwSlotSmall(blobs).then(bl=>{ if(done||VSL.key!==key)return; if(bl&&bl[0]&&bl[1]){done=true; put(bl);} });
+    if(run)VSL.onFrames={pk, f:take};
+    Promise.resolve(pre||run.p).then(c=>c&&c.key===pk&&!done?take(c.blobs):null).catch(()=>null)
+      .then(()=>{ if(VSL.onFrames&&VSL.onFrames.f===take)VSL.onFrames=null; if(!done&&VSL.key===key)own(); });
   },200);
+}
+// два кадра фото → два маленьких под окошко (заполнить с обрезкой по центру), jpeg; не вышло — null (снимем сами)
+function vwSlotSmall(blobs){
+  if(!blobs||blobs.length<2||typeof createImageBitmap!=='function')return Promise.resolve(null);
+  const W=240, H=164;
+  return Promise.all(blobs.slice(0,2).map(b=>createImageBitmap(b).then(im=>{
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+    const s=Math.max(W/im.width,H/im.height), w=im.width*s, h=im.height*s;
+    cv.getContext('2d').drawImage(im,(W-w)/2,(H-h)/2,w,h); if(im.close)im.close();
+    return new Promise(ok=>cv.toBlob(ok,'image/jpeg',0.82));}))).catch(()=>null);
 }
 function vwSlotsUi(){
   const box=document.getElementById('vSlots'), shot=document.getElementById('shot'); if(!box||!shot)return;
@@ -11387,6 +11408,7 @@ async function vwCaptureViews(o){
       const r=await LIVE.scene.capture(poses,w,h), tc=performance.now();
       VPF.captures++;
       if(o.stale&&o.stale())return null;
+      try{const f=VSL.onFrames; if(f&&r&&r.frames&&f.pk===vwPreKey()){VSL.onFrames=null; f.f(r.frames);}}catch(e){}   // окошки ракурсов — те же кадры (T-20261112-76/4)
       const cap={clay:r.clay, blobs:r.frames, sheet:'landscape', ms:{capture:Math.round(tc-t0)}, size:w+'×'+h};
       return o.noUpload?cap:await vwUploadViews(cap);
     }catch(e){try{console.warn('кадр из браузера не снят',w,e);}catch(_){}}
