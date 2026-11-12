@@ -534,6 +534,8 @@ export const trialJobs = pgTable(
     inputMime: text("input_mime").notNull(),
     inputBytes: integer("input_bytes").notNull(),
     inputDeletedAt: timestamp("input_deleted_at", { withTimezone: true }),
+    // превью чертежа агента `<id>.src.webp` (`db/init/033-trial-preview.sql`, T-20261112-52)
+    previewPath: text("preview_path"),
     listingText: text("listing_text"),
     consentVersion: text("consent_version"),
     budgetUsd: numeric("budget_usd", { precision: 8, scale: 4 }).notNull().default("0.10"),

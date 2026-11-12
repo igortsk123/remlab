@@ -864,6 +864,18 @@ def _sheet_gray(log: dict):
     return cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
 
 
+def sheet_frame(P: dict, k: float = 1.0) -> dict | None:
+    """Рамка панели в пикселях листа (T-20261112-52): точка листа = (x0, y0) + см результата × pxPerCm. Модель панели — в метрах от угла
+    её выреза `bbox_px` (`bench.poly_m`), × k при масштабе по площади (`_scale_model`) — как `outdoor.exits`. Нет масштаба — None."""
+    try:
+        ppm, x0, y0 = float(P.get('ppm') or 0), int(P['bbox_px'][0]), int(P['bbox_px'][1])
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None
+    if not (ppm > 0 and k > 0 and math.isfinite(ppm)):
+        return None
+    return {'x0': x0, 'y0': y0, 'pxPerCm': round(ppm / float(k) / 100, 6)}
+
+
 def to_result(log: dict, out: Path, plan: str, G: dict, source: dict, cost: float, timings: dict, flags: list,
               guess: bool, area: dict | None = None) -> dict:
     G_by = {g['name']: g for g in G['rooms']}
@@ -886,7 +898,11 @@ def to_result(log: dict, out: Path, plan: str, G: dict, source: dict, cost: floa
             if m is None:
                 continue
             sheet = {'gray': gray, 't': log.get('thickness_px'), 'k': k.get(tuple(P['bbox_px']), 1.0)} if gray is not None else None
-            panels.append(panel_result(pi, P, m, G_by, scale['status'] != 'not_verified', nd, bool(log.get('dev_sheet')), sheet))
+            pr = panel_result(pi, P, m, G_by, scale['status'] != 'not_verified', nd, bool(log.get('dev_sheet')), sheet)
+            fr = sheet_frame(P, k.get(tuple(P['bbox_px']), 1.0))
+            if fr:
+                pr['sheet'] = fr
+            panels.append(pr)
         for p in panels:
             flags += [f for f in p.pop('_flags', []) if f not in flags]
         panels = [p for p in panels if p['rooms'] or any(w['polys'] for w in p['walls'])]
@@ -1074,6 +1090,22 @@ def _atomic(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
+PREVIEW_NAME = 'source.webp'
+
+
+def add_preview(res: dict, sheet: Path, W: Path) -> None:
+    """Превью чертежа для тура (`source_preview.make`, T-20261112-52): файл `W/source.webp` (его шлёт воркер), раскладка вырезов —
+    в `res.source.preview`. Сбой превью задание не роняет: тура без колонки чертежа лучше, чем тура нет."""
+    import source_preview
+    try:
+        meta = source_preview.make(sheet, res, W / PREVIEW_NAME)
+    except Exception as e:  # noqa: BLE001 — битый лист / нет Pillow-webp: без превью
+        print(f'preview: {type(e).__name__}: {e}', file=sys.stderr, flush=True)
+        return
+    if meta:
+        res['source']['preview'] = meta
+
+
 def job_main(a) -> int:
     """Режим воркера: всё тяжёлое и чужие разборщики — в этом процессе (воркер шлёт heartbeat и снимет его по таймауту)."""
     W = Path(a.workdir)
@@ -1092,6 +1124,7 @@ def job_main(a) -> int:
         res = run(sheet, listing, W, source=source, vlm_root=a.vlm_root, cap_usd=a.cap_usd, stage=stage,
                   slot=not a.no_slot, an_cache=a.an_cache, job=a.job_id, timings={'raster': time.time() - t0},
                   flags=flags, spent=spent, cache_only=a.cache_only)
+        add_preview(res, sheet, W)
         _atomic(W / 'result.json', json.dumps(res, separators=(',', ':')))
         return 0
     except TrialError as e:

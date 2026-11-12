@@ -1,7 +1,8 @@
 // Тур пробы: `/try/<id>/tour` — ТА ЖЕ страница `/demo`, собранная под загруженный план (план agent-trial-08, «демо = шаблон»).
 // Страница и общие файлы — ЗАКРЕПЛЁННАЯ копия витрины на задание (`tour/_releases/<версия>/`), данные — `readTourData`:
 // выкладка `/demo` идёт через `rsync --delete` и иначе развела бы код и данные (Codex 09.11, п.2).
-// Отдаём только файлы из списка, после проверки id и пути; исходный файл плана и любые другие файлы наружу не идут.
+// Отдаём только файлы из списка, после проверки id и пути. Чертёж агента и его исходный файл — только агенту по ключу `?k=`
+// (`tour-source.ts`, T-20261112-52); прочие файлы тома наружу не идут.
 
 import path from "node:path";
 
@@ -16,6 +17,7 @@ import { MARKET_LANG, tourHref } from "@/lib/trial/i18n";
 import { pageCards, readCard } from "@/lib/trial/tour-cards";
 import { jobRelease, readRegular, readTourData, releaseDir } from "@/lib/trial/tour-files";
 import { injectTour } from "@/lib/trial/tour-page";
+import { sourceResponse, type SourceDeps } from "@/lib/trial/tour-source";
 import { stubHtml, type StubKind, type StubOpts } from "@/lib/trial/tour-stub";
 
 const SCENE_JS = /^lib\/scene\.[a-f0-9]{6,64}\.js$/;
@@ -33,7 +35,9 @@ export type TourTarget =
   | { kind: "version" }
   | { kind: "release"; rel: string; type: string }
   | { kind: "shared"; url: string }
-  | { kind: "card"; file: string };
+  | { kind: "card"; file: string }
+  | { kind: "source" }
+  | { kind: "sourceFile" };
 
 const JS = "text/javascript; charset=utf-8";
 const JSON_TYPE = "application/json; charset=utf-8";
@@ -46,6 +50,8 @@ export function tourTarget(parts: readonly string[]): TourTarget | null {
   const rel = parts.join("/");
   if (rel === "demo-data.json") return { kind: "data" };
   if (rel === "version.json") return { kind: "version" };
+  if (rel === "source") return { kind: "source" };            // превью чертежа агента (T-20261112-52)
+  if (rel === "source/file") return { kind: "sourceFile" };   // его исходный файл — «Открыть файл»
   if (rel === "lib/scene.json" || rel === "rt-meshes.json") return { kind: "release", rel, type: JSON_TYPE };
   if (SCENE_JS.test(rel) || BASKET_JS.test(rel) || CAMFIT_JS.test(rel)) return { kind: "release", rel, type: JS };
   if (SHARED_IMG.test(rel)) return { kind: "shared", url: `/demo/${rel}` }; // картинки товаров общие (103 МБ на витрине), личного в них нет
@@ -82,6 +88,8 @@ export type TourDeps = {
   /** Ворота ссылки покупателя (`buyer-gate.ts`, T-20261112-40): страница, данные и снимки — только агенту, пока не подтверждено.
    *  Нет — открыто (юнит-тесты прочих веток); маршрут передаёт всегда. */
   gate?: TourGate;
+  /** Чертёж агента (`tour-source.ts`): строка файлов задания; нет — 404 (юнит-тесты прочих веток). */
+  source?: SourceDeps["source"];
 };
 const NO_LATEST = async (): Promise<LatestBundle> => "not_ready";
 
@@ -171,6 +179,9 @@ export async function tourResponse(id: string, parts: readonly string[], deps: T
   const view = await deps.view(id);
   if (view === undefined) return notOpen(page, 404, "not found", "missing", id, deps);
   if (view === "expired") return notOpen(page, 410, "expired", "expired", id, deps);
+  if (target.kind === "source" || target.kind === "sourceFile") {
+    return sourceResponse(id, target.kind, { gate: deps.gate, source: deps.source, dir: deps.dir });
+  }
   if (target.kind === "version") {
     // опрос страницы: `version` растёт — перезагрузка; `bundle` — версия данных (база для «Обустроить»); `rebuild` — пересборка идёт / упала
     // `askSizes`/`listing` — окошко «размеры своими словами» на плане (Р2-текст): звать ли агента и что с его текстом (самого текста нет)

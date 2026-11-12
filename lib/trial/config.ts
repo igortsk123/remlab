@@ -35,9 +35,10 @@ export const trialFileHours = (env = process.env) => {
   const tour = trialResultDays(env) * 24;
   return envInt(env.TRIAL_FILE_RETENTION_HOURS, tour, tour);
 };
-/** «Размеры своими словами» (Р2-текст): держать исходник готового тура, пока жив тур, даже если `TRIAL_FILE_RETENTION_HOURS` задан короче.
- *  По умолчанию срок файла и так равен сроку тура (10.11) — переключатель нужен лишь при укороченном сроке файла. */
-export const trialKeepSourceForTour = (env = process.env) => env.TRIAL_KEEP_SOURCE_FOR_TOUR === "1";
+/** Исходник готового тура живёт, пока жив тур (уходит вместе с результатом), даже если `TRIAL_FILE_RETENTION_HOURS` задан короче или тур
+ *  продлён: агент открывает свой чертёж из вкладки «План квартиры» (T-20261112-52) и перечитывает план (Р2-текст). По умолчанию ВКЛ;
+ *  `TRIAL_KEEP_SOURCE_FOR_TOUR=0` — файл по своему сроку (`expires_at`). */
+export const trialKeepSourceForTour = (env = process.env) => env.TRIAL_KEEP_SOURCE_FOR_TOUR !== "0";
 
 /** «Обустроить» (план agent-trial-08, Р1): пересборок на одно задание за сутки — DEV тратит минуты машины, не деньги. */
 export const trialRebuildDaily = (env = process.env) => envInt(env.TRIAL_REBUILD_DAILY, 10, 100);

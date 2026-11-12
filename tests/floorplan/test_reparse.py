@@ -356,3 +356,28 @@ def test_copy_is_untouched():
     keep = copy.deepcopy(e)
     OE.translate(e, plan(), plan(ops_order=(3, 2, 1, 0)), 1.0)
     assert e == keep
+
+
+def test_reparse_published_with_preview_sends_drawing_after_publish(prod, mk, monkeypatch, tmp_path):
+    """T-20261112-52: перечитанный план принят с новым `result`, в нём превью чертежа → картинка уходит ПОСЛЕ публикации версии
+    (не принятая версия не разведёт раскладку вырезов и картинку), Bearer, без аренды."""
+    new = plan(ids=('n1', 'n2', 'n3'))
+    new['source'] = {'preview': {'w': 10, 'h': 10, 'crops': [{'panel': 'p0', 'sheet': [0, 0, 10, 10], 'at': [0, 0, 10, 10]}]}}
+    reparse(prod, monkeypatch, tmp_path, new)
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert w.done == [(RID, 'rebuilt')]
+    paths = [p for p, _, _ in prod.reqs]
+    src = f'/api/trial/worker/{JID}/source'
+    assert paths.count(src) == 1 and paths.index(src) > paths.index('/api/trial/worker/rebuild/publish')
+    body = prod.by(src)[0]
+    import base64
+    assert body['id'] == JID and base64.b64decode(body['webp']).startswith(b'RIFF') and b'reread' in base64.b64decode(body['webp'])
+
+
+def test_reparse_same_reading_sends_no_drawing(prod, mk, monkeypatch, tmp_path):
+    """Прочитано то же самое — новой версии с `result` нет, картинку не шлём (у тура прежняя раскладка)."""
+    reparse(prod, monkeypatch, tmp_path, plan())
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert prod.by(f'/api/trial/worker/{JID}/source') == []

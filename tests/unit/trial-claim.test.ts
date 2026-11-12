@@ -12,6 +12,7 @@ import { reissueDbTests } from "./_trial-reissue-db";
 import { reparseDbTests } from "./_trial-reparse-db";
 import { openingEditDbTests } from "./_trial-opening-edit-db";
 import { roomEditDbTests } from "./_trial-room-edit-db";
+import { sourceDbTests } from "./_trial-source-db";
 import { png, sampleResult, withOneRowStats } from "./_trial-helpers";
 
 // Очередь пробы на НАСТОЯЩЕЙ Postgres (agent-trial-01, T-A; поправки Codex 09.11): гонки claim, ограждение аренды
@@ -31,7 +32,7 @@ type Lib = {
 let L: Lib;
 let pg: ReturnType<typeof postgresT>;
 
-const ENV_KEYS = ["TRIAL_QUEUE_MAX", "TRIAL_DAILY_CAP", "TRIAL_OWN_KEY"] as const;
+const ENV_KEYS = ["TRIAL_QUEUE_MAX", "TRIAL_DAILY_CAP", "TRIAL_OWN_KEY", "TRIAL_KEEP_SOURCE_FOR_TOUR"] as const;
 const lsDir = async () => (await fs.readdir(DIR).catch(() => [] as string[])).sort();
 const row = async (id: string) => (await pg`select * from trial_jobs where id = ${id}`)[0]!;
 const expire = (id: string, sec = 1) => pg`update trial_jobs set lease_until = now() - make_interval(secs => ${sec}) where id = ${id}`;
@@ -401,6 +402,7 @@ describe.skipIf(!URL)("очередь пробы (real postgres)", () => {
     const { GET: view } = await import("@/app/api/trial/[id]/route");
     const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
     process.env.TRIAL_QUEUE_MAX = "50";
+    process.env.TRIAL_KEEP_SOURCE_FOR_TOUR = "0"; // файл по своему сроку (по умолчанию держим, пока жив тур — `_trial-source-db.ts`)
     const { id } = await seed();
     const a = (await L.repo.claim("w1"))!;
     await L.repo.acceptResult({ id, attempt: 1, leaseToken: a.leaseToken }, JSON.stringify(sampleResult()), "r".repeat(64));
@@ -462,4 +464,5 @@ describe.skipIf(!URL)("очередь пробы (real postgres)", () => {
   roomEditDbTests(() => ({ pg, repo: L.repo, seed, dir: DIR, token: TOKEN }));
   openingEditDbTests(() => ({ pg, repo: L.repo, seed, dir: DIR, token: TOKEN }));
   confirmDbTests(() => ({ pg, repo: L.repo, seed, dir: DIR, token: TOKEN }));
+  sourceDbTests(() => ({ pg, repo: L.repo, seed, row, dir: DIR, token: TOKEN }));
 });

@@ -359,6 +359,26 @@ def reparse_main(a, api: wk.Api, cfg: wk.Cfg, ids: list) -> int:
     return 0 if all(r.get('verdict') in ('same', 'clean', 'approved') or r['status'] in ('published', 'skipped') for r in rows) else 1
 
 
+def sources_main(api: wk.Api, ids: list) -> int:
+    """Какие туры получат превью чертежа при «перечитать планировку» (T-20261112-52): живой исходный файл есть (`hasSource`,
+    его не снял срок хранения) и превью ещё нет (`hasPreview`). Только чтение, ничего не ставит."""
+    n = {'есть файл, без превью': 0, 'превью уже есть': 0, 'файла нет': 0, 'пропущен': 0}
+    for jid in ids:
+        src, why = reparse_source(api, jid)
+        if src is None:
+            k, txt = 'пропущен', f'пропущен: {why}'
+        elif not src.get('hasSource'):
+            k, txt = 'файла нет', 'файла нет (срок хранения снял) — превью не сделать'
+        elif src.get('hasPreview'):
+            k, txt = 'превью уже есть', 'превью уже есть'
+        else:
+            k, txt = 'есть файл, без превью', 'есть файл, превью нет — даст «перечитать планировку»'
+        n[k] += 1
+        print(f'{jid}: {txt}', flush=True)
+    print(f'итого туров {len(ids)}: ' + ', '.join(f'{k} — {v}' for k, v in n.items() if v))
+    return 0
+
+
 def main(argv=None, api: wk.Api | None = None, cfg: wk.Cfg | None = None, cmd: list | None = None) -> int:
     ap = argparse.ArgumentParser(description='Пересборка готовых туров «как есть» (оператор)')
     ap.add_argument('--job', action='append', default=[], help='id тура (можно несколько раз)')
@@ -371,6 +391,7 @@ def main(argv=None, api: wk.Api | None = None, cfg: wk.Cfg | None = None, cmd: l
     ap.add_argument('--approve', help='--reparse: TSV «id, ключ находки, [почему]» — одобренная ведущим разница')
     ap.add_argument('--out', help='папка прогона (по умолчанию <TRIAL_WORK_DIR>/reparse|reissue/<время>)')
     ap.add_argument('--hold', help='файл «держать»: id туров построчно или «*» — такие не пересобираются (skipped/hold)')
+    ap.add_argument('--sources', action='store_true', help='только список: у каких туров жив исходный файл (превью чертежа)')
     a = ap.parse_args(argv)
     cfg = cfg or wk.Cfg.from_env()
     if not cfg.token:
@@ -386,6 +407,8 @@ def main(argv=None, api: wk.Api | None = None, cfg: wk.Cfg | None = None, cmd: l
             print(f'список туров: http {st} {got}', file=sys.stderr)
             return 1
         ids += [j['id'] for j in got.get('jobs') or [] if j['id'] not in ids]
+    if a.sources:
+        return sources_main(api, ids)
     if a.reparse:
         return reparse_main(a, api, cfg, ids)
     run_dir = Path(a.out).expanduser() if a.out else cfg.base / 'reissue' / time.strftime('%Y%m%d-%H%M%S')

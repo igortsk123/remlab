@@ -218,7 +218,8 @@ export function bundleDbTests(c: () => Ctx): void {
       await c().pg`update trial_jobs set expires_at = now() - interval '1 minute' where id = ${f.id}`;
       const live = await started();
       await pub(live, 1);
-      await db().transaction((tx) => trialRetention(tx, new Date()));
+      // файл по своему сроку (по умолчанию держим, пока жив тур, — `_trial-source-db.ts`)
+      await db().transaction((tx) => trialRetention(tx, new Date(), { ...process.env, TRIAL_KEEP_SOURCE_FOR_TOUR: "0" }));
       expect((await c().row(f.id)).input_path).toBeNull();
       expect((await get(f.id)).status).toBe(200);
 

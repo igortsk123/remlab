@@ -10,7 +10,7 @@ import type { db } from "@/lib/db";
 import { TRIAL_STALE_HOURS, TRIAL_TOMBSTONE_DAYS, trialDir, trialFileHours, trialKeepSourceForTour, trialResultDays } from "@/lib/trial/config";
 import { removeBundles } from "@/lib/trial/bundle";
 import { terminalSet } from "@/lib/trial/sql";
-import { INPUT_NAME_RE, removeInput } from "@/lib/trial/storage";
+import { INPUT_NAME_RE, PREVIEW_NAME_RE, previewName, previewPath, removeInput } from "@/lib/trial/storage";
 import { TOKEN_RE } from "@/lib/token";
 
 type Tx = Parameters<Parameters<ReturnType<typeof db>["transaction"]>[0]>[0];
@@ -40,14 +40,15 @@ async function orphans(tx: Tx, now: Date, dir: string): Promise<number> {
   const names = await fs.readdir(dir).catch(() => [] as string[]);
   const old: string[] = [];
   for (const n of names) {
-    if (!n.endsWith(".part") && !INPUT_NAME_RE.test(n)) continue;
+    if (!n.endsWith(".part") && !INPUT_NAME_RE.test(n) && !PREVIEW_NAME_RE.test(n)) continue;
     const st = await fs.lstat(path.join(dir, n)).catch(() => null);
     if (st && st.mtimeMs < now.getTime() - ORPHAN_AGE_MS) old.push(n);
   }
-  const finals = old.filter((n) => INPUT_NAME_RE.test(n));
+  const finals = old.filter((n) => INPUT_NAME_RE.test(n) || PREVIEW_NAME_RE.test(n));
+  const list = sql.join(finals.map((n) => sql`${n}`), sql`, `);
   const known = finals.length
-    ? new Set((await q<{ input_path: string }>(tx, sql`select input_path from trial_jobs
-        where input_path in (${sql.join(finals.map((n) => sql`${n}`), sql`, `)})`)).map((r) => r.input_path))
+    ? new Set((await q<{ name: string }>(tx, sql`select input_path as name from trial_jobs where input_path in (${list})
+        union select preview_path from trial_jobs where preview_path in (${list})`)).map((r) => r.name))
     : new Set<string>();
   let n = 0;
   for (const name of old) {
@@ -83,14 +84,16 @@ export async function trialRetention(tx: Tx, now: Date, env = process.env, rm: t
     returning id`);
   const f = await files(tx, now, dir, rm, trialKeepSourceForTour(env));
   const results = await q<{ id: string }>(tx, sql`update trial_jobs set status = 'expired', result = null, result_hash = null,
-      listing_text = null, input_hash = null, error_detail = null, lease_token = null, bundle_version = 0, bundle_hash = null
+      listing_text = null, preview_path = null, input_hash = null, error_detail = null, lease_token = null, bundle_version = 0, bundle_hash = null
     where status in ('done', 'failed', 'cancelled') and input_path is null and result_expires_at < ${now.toISOString()} returning id`);
   // текст агента «размеры своими словами» (Р2-текст) не переживает результат, даже если пересборка так и не дошла до воркера
   await tx.execute(sql`update trial_rebuilds r set listing_text = null from trial_jobs j
     where j.id = r.job_id and j.status = 'expired' and r.listing_text is not null`);
   let bundlesKept = 0;
-  for (const r of results) { // данные страницы уходят вместе с результатом; не вышло — повторит `orphanBundleDirs`
+  for (const r of results) { // данные страницы и превью чертежа уходят вместе с результатом; не вышло — повторят `orphanBundleDirs`/`orphans`
     await removeBundles(dir, r.id, rm).catch(() => { bundlesKept++; });
+    const pv = previewPath(dir, previewName(r.id));
+    if (pv) await rm(pv, { force: true }).catch(() => undefined);
   }
   const tomb = await q<{ id: string }>(tx, sql`delete from trial_jobs where status = 'expired'
     and result_expires_at < ${new Date(now.getTime() - TRIAL_TOMBSTONE_DAYS * 86_400_000).toISOString()} returning id`);

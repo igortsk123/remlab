@@ -56,16 +56,19 @@ export async function reparseState(id: string): Promise<ReparseState | undefined
 }
 
 type Refused = Exclude<Awaited<ReturnType<typeof reissueSource>>, ReissueSource>;
-export type ReparseSource = ReissueSource & { listingText: string; inputMime: string; hasSource: boolean; released: string[] };
+export type ReparseSource = ReissueSource & { listingText: string; inputMime: string; hasSource: boolean; hasPreview: boolean;
+  released: string[] };
 
 /** Исходник для пробного прогона оператора (`reissue.py --reparse --dry-run`): то же, что у перевыпуска (результат, точные байты версии,
  *  правки), плюс ИСХОДНЫЙ текст объявления, вид листа и снятые агентом комнаты. Сам лист этой ручкой не отдаётся (только воркеру под арендой). */
 export async function reparseSource(jobId: string, dir = trialDir()): Promise<ReparseSource | Refused> {
   const src = await reissueSource(jobId, dir);
   if (typeof src === "string") return src;
-  const [j] = await rows<{ listing_text: string | null; input_mime: string; has_source: boolean; released_rooms: unknown }>(sql`select
-      listing_text, input_mime, input_path is not null as has_source, released_rooms from trial_jobs where id = ${jobId}`);
+  const [j] = await rows<{ listing_text: string | null; input_mime: string; has_source: boolean; has_preview: boolean;
+    released_rooms: unknown }>(sql`select listing_text, input_mime, input_path is not null as has_source,
+      preview_path is not null as has_preview, released_rooms from trial_jobs where id = ${jobId}`);
   const rel = jsonOf<unknown>(j?.released_rooms ?? []);
   return { ...src, listingText: j?.listing_text ?? "", inputMime: j?.input_mime ?? "", hasSource: j?.has_source ?? false,
+    hasPreview: j?.has_preview ?? false,
     released: Array.isArray(rel) ? rel.map(String) : [] };
 }

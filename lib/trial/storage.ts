@@ -1,6 +1,7 @@
 // Файлы пробы на томе (план agent-trial-01, T-A). В базе — ТОЛЬКО имя `<id>.<ext>` (CHECK в `db/init/022-trial-jobs.sql`);
 // путь собирается здесь и только из имени, прошедшего ту же проверку: «../», абсолютный путь и симлинк не проходят.
-// Наружу файлы не отдаются никогда — только воркеру DEV по Bearer и текущей аренде.
+// Кому отдаются: воркеру DEV по Bearer и текущей аренде; агенту — его же файл и превью чертежа во вкладке тура «План квартиры», только по
+// ключу его ссылки `?k=` (T-20261112-52, `lib/trial/tour-source.ts`). Покупателю (без ключа) — никогда.
 
 import { constants, promises as fs } from "node:fs";
 import path from "node:path";
@@ -40,7 +41,40 @@ export function inputPath(dir: string, name: string | null): string | null {
 
 /** Открыть файл задания на чтение: только обычный файл, симлинк не разыменовываем (O_NOFOLLOW). */
 export async function openInput(dir: string, name: string | null): Promise<{ handle: fs.FileHandle; size: number } | null> {
-  const full = inputPath(dir, name);
+  return openRegular(inputPath(dir, name));
+}
+
+/** Превью чертежа (T-20261112-52): `<id>.src.webp` рядом с файлом задания; имя — то же правило, что CHECK `db/init/033-trial-preview.sql`. */
+export const PREVIEW_NAME_RE = /^[A-Za-z0-9_-]{22}\.src\.webp$/;
+export const PREVIEW_MAX_BYTES = 3 * 1024 * 1024; // = tools/floorplan/worker.py:SOURCE_MAX
+export const previewName = (id: string) => `${id}.src.webp`;
+
+/** Полный путь превью по имени из базы; кривое имя — null. */
+export function previewPath(dir: string, name: string | null): string | null {
+  if (!name || !PREVIEW_NAME_RE.test(name)) return null;
+  const base = path.resolve(dir);
+  const full = path.resolve(base, name);
+  return path.dirname(full) === base ? full : null;
+}
+
+/** Записать превью подменой (читатель не видит половину файла). → имя для базы. */
+export async function writePreview(dir: string, id: string, data: Buffer): Promise<string> {
+  const name = previewName(id);
+  const full = previewPath(dir, name);
+  if (!full) throw new Error("bad preview name");
+  await fs.mkdir(path.dirname(full), { recursive: true });
+  const tmp = `${full}.${process.pid}.part`;
+  await fs.writeFile(tmp, data, { mode: 0o600 });
+  await fs.rename(tmp, full);
+  return name;
+}
+
+/** Открыть превью на чтение — как `openInput` (без симлинков, только обычный файл). */
+export async function openPreview(dir: string, name: string | null): Promise<{ handle: fs.FileHandle; size: number } | null> {
+  return openRegular(previewPath(dir, name));
+}
+
+async function openRegular(full: string | null): Promise<{ handle: fs.FileHandle; size: number } | null> {
   if (!full) return null;
   let handle: fs.FileHandle;
   try {

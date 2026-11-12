@@ -48,6 +48,14 @@ export async function gateCheck(g: TourGate, id: string, page: boolean): Promise
   return { open: false, pass: null };
 }
 
+/** Только агент (T-20261112-52, чертёж агента и его исходный файл): ключ из адреса `?k=` совпал с хэшем задания. Cookie-пропуск,
+ *  подтверждение планировки и Bearer воркера НЕ открывают — покупатель по подтверждённой ссылке файла не видит; задание без ключа — никому. */
+export async function agentOnly(g: TourGate | undefined, id: string): Promise<boolean> {
+  if (!g?.creds.urlKey) return false;
+  const a = await g.access(id);
+  return Boolean(a?.keyHash) && editKeyMatches(g.creds.urlKey, a!.keyHash!);
+}
+
 export const KEY_COOKIE = "trial_tk";
 const COOKIE_DAYS = 30;                          // как срок результата (`config.ts:trialResultDays`): дольше тур не живёт
 const PASS_RE = /^[A-Za-z0-9_-]{43}$/;

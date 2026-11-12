@@ -1756,13 +1756,26 @@ def build(job_id: str, result: dict, scene: dict | None = None, ctx: dict | None
                                     'bbox': (r.get('plan') or {}).get('bbox') or r.get('bbox'),
                                     'contour': (r.get('plan') or {}).get('contour') or r.get('contour'), 'flags': r.get('flags') or [],
                                     **({'edited': r['edited']} if r.get('edited') else {})} for r in p['rooms']],
-                         'openings': p.get('openings') or [], 'walls': p.get('walls') or []} for i, p in enumerate(panels)]}
+                         'openings': p.get('openings') or [], 'walls': p.get('walls') or [],
+                         **({'sheet': p['sheet']} if p.get('sheet') else {})} for i, p in enumerate(panels)],
+             **source_meta(result)}
     room = rooms_geo.get(LIVING) or next(iter(rooms_geo.values()))
     out = {'room': room, 'rooms_geo': rooms_geo, 'apartment_id': '', 'plan': {}, 'apartment_rooms': apartment_rooms,
            'rooms_enabled': sorted(with_variant), 'variants': variants, 'sets': [], 'sofa_feed': feeds.get('диван', []), 'feeds': feeds,
            'rules': rules, 'incomplete_styles': [], 'quiz': quiz, 'trial': trial}
     assert_public(out, shop_tokens(scene), goods=True)   # поймали — отказ, а не публикация
     return out
+
+
+def source_meta(result: dict) -> dict:
+    """Чертёж агента рядом с нашим планом (T-20261112-52): раскладка вырезов превью (`result.source.preview`) и страницы PDF.
+    Саму картинку страница берёт ручкой тура `source?k=` — только по ключу агента; без превью — пусто (колонки чертежа нет)."""
+    s = result.get('source') or {}
+    pv = s.get('preview')
+    if not pv:
+        return {}
+    return {'source': {'w': pv['w'], 'h': pv['h'], 'crops': pv['crops'], 'pdf': s.get('mime') == 'application/pdf',
+                       'pages': s.get('pages'), 'used': s.get('usedPages')}}
 
 
 def write_atomic(path: str, data: dict) -> None:

@@ -1464,6 +1464,14 @@ button.tr-acc-st{cursor:pointer}
 /* телефон: «Окна и двери» на своём месте справа, под ней «Подтвердить планировку» во всю ширину одной строкой */
 @media(max-width:700px){.tcf-bar [data-tr-op="open"]{order:-1;margin-left:auto}
   .tcf-bar .tcf-go{flex:1 1 100%;min-height:44px}}
+/* чертёж агента рядом с нашим планом (T-20261112-52, `trSrcPlan`): компьютер — две колонки одной высоты, телефон — переключатель в полосе */
+.tr-src2{flex:0 0 100%;display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;min-width:0}
+.tr-src2>.c{min-width:0}.tr-src2>.c.s{order:-1}.tr-src1{flex:0 0 100%;min-width:0}
+.tr-src-cap{font-size:13px;color:var(--muted);margin:0 0 6px;display:flex;justify-content:space-between;gap:8px}
+.tr-src-cap a{color:var(--accent)}.tr-src-note{font-size:12.5px;color:var(--muted);margin:6px 0 0}
+.tr-src-seg{display:inline-flex;gap:4px;padding:3px;border:1px solid var(--line);border-radius:999px;background:var(--surface);order:-2}
+.tr-src-seg button{border:0;background:transparent;border-radius:999px;padding:6px 12px;font:inherit;font-size:14px;color:var(--muted);cursor:pointer;min-height:34px}
+.tr-src-seg button.on{background:var(--accent);color:var(--surface)}
 .tcf-dlg h3{margin:0 0 4px}
 .tcf-dlg .tcf-sub{margin:0 0 12px;font-size:14px;color:var(--muted);line-height:1.4}
 .tcf-dlg .tcf-say{margin:10px 0 0;font-size:14px;color:var(--muted)}
@@ -3695,10 +3703,61 @@ function flatPlan(){
   if(TRO_ON){const wr=document.createElement('div'); wr.className='tr-op-wrap'; wr.appendChild(svg); box.appendChild(wr); svg.setAttribute('data-tr-op-svg','1');
     svg.addEventListener('pointerdown',e=>{if(e.button>0)return; e.preventDefault(); troDown(svg,e);}); troPaint(svg);}
   else box.appendChild(svg);
+  if(TRIAL())trSrcPlan(box,svg,TRO_ON);               // агент: его чертёж рядом (T-20261112-52)
   // проба: под планом — «ждут проверки → Обустроить» и один блок точности размеров (`trPlanInfo`: форма комнат, масштаб, «как есть»,
   // расшифровка меток отказа — в подробностях, поле «Уточнить размеры»), T-20261111-05 п.4
   if(TRIAL()){trPlanNotes(box); trPlanInfo(box,R);}
 
+}
+// ЧЕРТЁЖ АГЕНТА РЯДОМ С НАШИМ ПЛАНОМ (T-20261112-52; владелец TG 855, выбор TG 1000 вариант А, TG 1002): «2D-планировка» — загруженный
+// чертёж, «3D-планировка» — наша. Только агенту по своей ссылке: картинка `source?k=` (без ключа сервер отдаёт 404, `lib/trial/tour-source.ts`).
+// Превью — вырезы листа разбора по этажам (`D.trial.source.crops`: `sheet` — пиксели листа, `at` — пиксели картинки, `tools/floorplan/
+// source_preview.py`); вырез этажа кладётся в метры нашей схемы по рамке панели (`panels[].sheet`: лист = x0 + см × pxPerCm) и раскладке
+// этажей (`D.plan.trTf`, `trPlanLayout`) — у обеих схем один viewBox, поэтому масштаб и высота одинаковые и комнаты совпадают.
+// Картинка грузится один раз в blob (перерисовки плана её не перекачивают); не пришла — колонки нет, план как был.
+const TR_SRC={url:null, bad:false, busy:false, view:'3d'};
+const trSrcUrl=f=>'source'+(f?'/file':'')+'?k='+encodeURIComponent(trKey());
+function trSrcLoad(){
+  if(TR_SRC.url||TR_SRC.bad||TR_SRC.busy)return; TR_SRC.busy=true;
+  fetch(trSrcUrl()).then(r=>r.ok?r.blob():Promise.reject(r.status)).then(b=>{TR_SRC.url=URL.createObjectURL(b);})
+    .catch(()=>{TR_SRC.bad=true;}).finally(()=>{TR_SRC.busy=false; flatPlan();});
+}
+function trSrcPlan(box,svg,edit){
+  const S=(D.trial||{}).source, TF=(D.plan||{}).trTf||[], EN=TR_EN(), T=(ru,en)=>EN?en:ru;
+  if(!S||!(S.crops||[]).length||TR_SRC.bad||!trEditable())return;
+  trSrcLoad();
+  const PN={}; ((D.trial||{}).panels||[]).forEach(p=>{if(p&&p.id)PN[p.id]=p;});
+  const ns='http://www.w3.org/2000/svg', mk=(t,a,par)=>{const e=document.createElementNS(ns,t); for(const k in a)e.setAttribute(k,a[k]); if(par)par.appendChild(e); return e;};
+  const src=mk('svg',{viewBox:svg.getAttribute('viewBox'),width:'100%',role:'img','aria-label':T('2D-планировка','2D plan'),'data-tr-src':'1'});
+  src.style.cssText='display:block;max-height:68vh';
+  let n=0;
+  S.crops.forEach(c=>{const p=PN[c.panel], f=p&&p.sheet, t=TF.find(x=>x.id===c.panel); if(!f||!t||!(f.pxPerCm>0))return;
+    const k=f.pxPerCm, v=mk('svg',{x:t.ox+((c.sheet[0]-f.x0)/k-t.x0)/100, y:t.top+((c.sheet[1]-f.y0)/k-t.y0)/100,
+      width:c.sheet[2]/k/100, height:c.sheet[3]/k/100, viewBox:c.at.join(' '), preserveAspectRatio:'none'},src);
+    if(TR_SRC.url)mk('image',{href:TR_SRC.url, width:S.w, height:S.h},v); n++;});
+  if(!n)return;
+  ((D.plan||{}).labels||[]).forEach(l=>{mk('text',{x:l.x,y:l.y,'font-size':0.36,fill:'#5C655E','font-weight':'600'},src).textContent=l.t;});
+  const used=+S.used||0, all=+S.pages||0;
+  const note=S.pdf&&all>used&&used>0?`<p class="tr-src-note">${used===1?T('Показана первая страница из '+all,'Showing the first page of '+all)
+    :T(`Показаны первые ${used} страницы из ${all}`,`Showing the first ${used} pages of ${all}`)}</p>`:'';
+  const cap=(a,b)=>`<p class="tr-src-cap"><span>${a}</span>${b||''}</p>`;
+  const open=`<a href="${escHtml(trSrcUrl(true))}" target="_blank" rel="noopener">${T('Открыть файл','Open file')}</a>`;
+  const node=svg.parentNode===box?svg:svg.parentNode;   // наш план (в режиме «Окна и двери» — в своей обёртке)
+  const col=(cls,html)=>{const d=document.createElement('div'); d.className=cls; d.innerHTML=html; return d;};
+  if(!matchMedia('(max-width:700px)').matches){        // компьютер: слева чертёж, справа наш план (в DOM наш первым — `#flatRooms svg`)
+    const two=col('tr-src2',''), our=col('c',cap(T('3D-планировка','3D plan'))), s=col('c s',cap(T('2D-планировка','2D plan'),open));
+    box.insertBefore(two,node); our.appendChild(node); s.appendChild(src); s.insertAdjacentHTML('beforeend',note); two.append(our,s); return;
+  }
+  if(edit)return;                                     // телефон, правка окон и дверей: только наш план
+  const seg=col('tr-src-seg',[['2d',T('2D-планировка','2D plan')],['3d',T('3D-планировка','3D plan')]]
+    .map(([v,t])=>`<button type="button" data-tr-src-v="${v}" aria-pressed="${TR_SRC.view===v}"${TR_SRC.view===v?' class="on"':''}>${t}</button>`).join(''));
+  seg.setAttribute('role','group');
+  seg.onclick=e=>{const b=e.target.closest('[data-tr-src-v]'); if(b&&b.dataset.trSrcV!==TR_SRC.view){TR_SRC.view=b.dataset.trSrcV; flatPlan();}};
+  const bar=box.querySelector('.tcf-bar,.tr-op-open');
+  if(bar)bar.insertBefore(seg,bar.firstChild); else box.insertBefore(seg,node);
+  if(TR_SRC.view!=='2d')return;
+  node.style.display='none';                          // наш остаётся в DOM (первым) — его ищут по `#flatRooms svg`
+  const one=col('tr-src1',cap('',open)); one.appendChild(src); one.insertAdjacentHTML('beforeend',note); node.after(one);
 }
 // комнаты схемы плана ↔ комнаты реестра квартиры (`homeRooms`) — по id: у схемы id реестра (T-20261022-04; сборка падает, если
 // комнаты схемы в реестре нет — `flat215_demo.apartment_area_check`)

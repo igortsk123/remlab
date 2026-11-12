@@ -46,7 +46,10 @@ if '--cache-only' in a:                  # план заново с тексто
         put('error.json', json.dumps({'code': 'source_gone', 'retryable': False, 'detail': 'vlm cache missing'})); sys.exit(3)
     if os.environ.get('FAKE_REREAD'):    # «перечитать планировку» (T-20261111-02): заданный перечитанный результат
         open(os.path.join(W, 'listing-seen.txt'), 'w').write(open(a[a.index('--listing-file') + 1], encoding='utf-8').read())
-        put('result.json', open(os.environ['FAKE_REREAD'], encoding='utf-8').read()); sys.exit(0)
+        put('result.json', open(os.environ['FAKE_REREAD'], encoding='utf-8').read())
+        if 'preview' in json.load(open(os.environ['FAKE_REREAD'])).get('source', {}):    # превью чертежа (T-20261112-52)
+            open(os.path.join(W, 'source.webp'), 'wb').write(b'RIFF\x10\x00\x00\x00WEBPVP8 reread')
+        sys.exit(0)
     if os.environ.get('FAKE_NAMES'):     # подписи плана с этими именами; текст — настоящим разбором `listing` (как bench.blind_gold)
         sys.path.insert(0, os.environ['FAKE_FP'])
         import listing
@@ -82,7 +85,11 @@ if os.environ.get('FAKE_NO_LIVING') == '1':                       # гостин
     rooms = [r for r in rooms if r['kind'] != 'living']
 for r in rooms:
     r['flags'] = ['dims_mismatch'] if r['id'] in flagged else []
-put('result.json', json.dumps({'version': 1, 'units': 'cm', 'fake': True, 'panels': [{'id': 'p0', 'rooms': rooms}]}))
+res = {'version': 1, 'units': 'cm', 'fake': True, 'panels': [{'id': 'p0', 'rooms': rooms}]}
+if os.environ.get('FAKE_PREVIEW'):       # превью чертежа (T-20261112-52, `pipeline.add_preview`)
+    open(os.path.join(W, 'source.webp'), 'wb').write(b'RIFF\x10\x00\x00\x00WEBPVP8 fake')
+    res['source'] = {'preview': {'w': 10, 'h': 10, 'crops': [{'panel': 'p0', 'sheet': [0, 0, 10, 10], 'at': [0, 0, 10, 10]}]}}
+put('result.json', json.dumps(res))
 '''
 
 # ── поддельные стадии конвейера (`conveyor.py`): тот же интерфейс командной строки, что у настоящих ──
@@ -302,6 +309,8 @@ def make_handler(prod: Prod):
                     return self.send(200, {'ok': True, 'version': len(prod.bundles), 'repeated': False})
             if self.path == '/api/trial/worker/fail':
                 return self.send(200 if self.fenced(b) else 409, {'ok': True, 'status': 'queued'})
+            if self.path == f"/api/trial/worker/{b.get('id')}/source":   # = app/api/trial/worker/[id]/source/route.ts (Bearer, без аренды)
+                return self.send(200, {'ok': True})
             self.send(404, {})
     return H
 
@@ -363,6 +372,30 @@ def test_happy_path_claim_input_heartbeat_result(prod, mk):
     argv = json.loads((wd / 'argv.json').read_text())
     assert argv[argv.index('--mime') + 1] == 'image/png' and (wd / 'input.png').read_bytes() == prod.input
     assert (wd / 'listing.txt').read_text() == 'Lounge 3x4' and argv[argv.index('--cap-usd') + 1] == '0.1'
+
+
+def test_preview_of_drawing_sent_before_result(prod, mk, monkeypatch):
+    """T-20261112-52: разбор сделал превью чертежа → воркер шлёт его (Bearer, base64) ДО результата и версий страницы, которые на
+    него ссылаются; нет превью — ничего не шлёт."""
+    import base64
+    monkeypatch.setenv('FAKE_PREVIEW', '1')
+    prod.add_job()
+    w = mk()
+    w.loop(max_iter=2)
+    assert w.done == [(JID, 'done')]
+    paths = [p for p, _, _ in prod.reqs]
+    src = f'/api/trial/worker/{JID}/source'
+    assert paths.count(src) == 1 and paths.index(src) < paths.index('/api/trial/worker/result')
+    b = prod.by(src)[0]
+    assert b['id'] == JID and base64.b64decode(b['webp']).startswith(b'RIFF') and b'WEBP' in base64.b64decode(b['webp'])
+    assert [h for p, _, h in prod.reqs if p == src][0]['Authorization'] == f'Bearer {TOKEN}'
+
+
+def test_no_preview_nothing_sent(prod, mk):
+    prod.add_job()
+    w = mk()
+    w.loop(max_iter=2)
+    assert w.done == [(JID, 'done')] and not any(p.endswith('/source') for p, _, _ in prod.reqs)
 
 
 def test_heartbeat_right_after_claim_and_on_each_stage_change(prod, mk):

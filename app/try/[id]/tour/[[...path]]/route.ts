@@ -6,6 +6,7 @@ import { requestGate } from "@/lib/trial/buyer-gate";
 import { langFromAccept, parseLang } from "@/lib/trial/i18n";
 import { latestBundle } from "@/lib/trial/repo-bundle";
 import { jobView } from "@/lib/trial/repo-public";
+import { sourceRow } from "@/lib/trial/repo-source";
 import { tourResponse } from "@/lib/trial/tour";
 import { ensureJobRelease } from "@/lib/trial/tour-bundle";
 
@@ -17,5 +18,5 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string; pat
   const q = new URL(req.url).searchParams;
   const lang = parseLang(q.get("lang")) ?? langFromAccept(req.headers.get("accept-language"));
   return tourResponse(id, path ?? [], { view: jobView, latest: latestBundle, pin: ensureJobRelease, stub: { lang, k: q.get("k") },
-    gate: requestGate(req), ifNoneMatch: req.headers.get("if-none-match"), keyed: q.has("k"), acceptEncoding: req.headers.get("accept-encoding") });
+    gate: requestGate(req), source: sourceRow, ifNoneMatch: req.headers.get("if-none-match"), keyed: q.has("k"), acceptEncoding: req.headers.get("accept-encoding") });
 }

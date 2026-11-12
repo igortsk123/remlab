@@ -239,6 +239,17 @@ const panel = z.object({
     kind: z.enum(["door", "window", "opening"]), c: pt, widthCm: num.positive(), exterior: z.boolean(), leaves: z.literal(2).optional(),
     arc: z.boolean().optional(),
   })).max(400),
+  /** рамка панели в пикселях листа разбора (T-20261112-52, `tools/floorplan/pipeline.py:sheet_frame`): точка листа = (x0, y0) + см × pxPerCm;
+   *  по ней страница кладёт вырез чертежа (`source.preview`) в ту же раскладку, что наш план. Старые результаты — без неё */
+  sheet: z.object({ x0: num, y0: num, pxPerCm: num.positive() }).optional(),
+});
+const pxRect = z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative(), z.number().int().positive(), z.number().int().positive()]);
+/** Превью чертежа для агента (T-20261112-52, `tools/floorplan/source_preview.py`): картинка `<id>.src.webp` w×h, в ней по вырезу на панель —
+ *  `sheet` (пиксели листа разбора) и `at` (пиксели картинки). Сама картинка — только агенту по ключу (`lib/trial/tour-source.ts`). */
+const sourcePreview = z.object({
+  w: z.number().int().positive().max(4000),
+  h: z.number().int().positive().max(4000),
+  crops: z.array(z.object({ panel: z.string().min(1).max(40), sheet: pxRect, at: pxRect })).min(1).max(6),
 });
 
 export const floorplanResult = z.object({
@@ -250,6 +261,7 @@ export const floorplanResult = z.object({
     usedPages: z.number().int().min(1),
     imageW: z.number().int().positive(),
     imageH: z.number().int().positive(),
+    preview: sourcePreview.optional(),
   }),
   scale: z.object({
     /** опоры по порядку: подписи плана → размеры текстом → общая площадь (`area`, размеры примерные) → толщина стены */

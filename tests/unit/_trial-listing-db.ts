@@ -206,7 +206,7 @@ export function listingDbTests(c: () => Ctx): void {
       expect((await get(lease)).status).toBe(410);
     });
 
-    it("срок исходника: вышел срок файла — без переключателя удалён; переключатель держит лист, пока жив тур", async () => {
+    it("срок исходника: переключатель (по умолчанию вкл.) держит лист, пока жив тур; выключен — удалён по сроку файла", async () => {
       const { id, f } = await runningJob();
       await finish(f);
       await c().pg`update trial_jobs set expires_at = now() - interval '1 minute' where id = ${id}`;
@@ -216,8 +216,8 @@ export function listingDbTests(c: () => Ctx): void {
       const run = (env: NodeJS.ProcessEnv) => db().transaction((tx) => trialRetention(tx, new Date(), env, rm));
       await run({ ...process.env, TRIAL_KEEP_SOURCE_FOR_TOUR: "1" });
       expect((await c().row(id)).input_path).not.toBeNull(); // включён: тур жив — лист держим
-      await run({ ...process.env, TRIAL_KEEP_SOURCE_FOR_TOUR: undefined });
-      expect((await c().row(id)).input_path).toBeNull(); // выключен — по сроку файла (по умолчанию 30 дн., как тур) удалён
+      await run({ ...process.env, TRIAL_KEEP_SOURCE_FOR_TOUR: "0" });
+      expect((await c().row(id)).input_path).toBeNull(); // выключен (`=0`) — по сроку файла (по умолчанию 30 дн., как тур) удалён
     });
 
     it("задание не удалось — ждущий текст снимается (stale), текст стёрт; сбой воркера source_gone виден странице", async () => {

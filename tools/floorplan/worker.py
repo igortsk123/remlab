@@ -25,6 +25,7 @@ TRIAL_FP_CACHE (кэш analyze стенда, по умолчанию нет).
 from __future__ import annotations
 
 import argparse
+import base64
 import io
 import json
 import os
@@ -57,6 +58,8 @@ REBUILD_CODES = ('stale', 'timeout', 'pipeline_error', 'internal', 'waiting_capa
                  'cache_miss', 'edits_conflict', 'regress')   # последние три — «перечитать планировку» (T-20261111-02)
 CLAIM_READ_MAX = 24 * 1024 * 1024    # claim `reparse` несёт и точные байты версии (≤ 8 МБ, экранированные в JSON) — как `reissue.READ_MAX`
 USER_CODES = {'pdf_unreadable', 'unsupported', 'too_large', 'no_plan', 'budget'}   # вина файла, не DEV: в серию сбоев не идут
+PREVIEW_FILE = 'source.webp'         # = pipeline.PREVIEW_NAME
+SOURCE_MAX = 3 * 1024 * 1024         # = lib/trial/storage.ts:PREVIEW_MAX_BYTES
 
 
 def log(msg: str) -> None:
@@ -478,6 +481,8 @@ class Worker:
         if rc == 0 and res_p.exists():
             res = json.loads(res_p.read_text())
             last = None
+            if (res.get('source') or {}).get('preview'):   # картинка чертежа — до версий страницы, которые на неё ссылаются
+                self.send_source(jid, wd)
             if self.cfg.furnish:                     # стены готовы → версии страницы по очереди (`conveyor.py`), `done` — последним
                 cv = conveyor.Conveyor(self, lease, wd, hb, res_p)
                 end = cv.run()
@@ -499,6 +504,21 @@ class Worker:
         why = child_failure('pipeline', rc, wd / 'pipeline.log')
         log(f'{jid}: {why}')
         self.fail(lease, wd, 'pipeline_error', True, why)
+
+    def send_source(self, jid: str, d: Path) -> bool:
+        """Превью чертежа (`<d>/source.webp`, `pipeline.add_preview`; T-20261112-52) → прод `POST …/<id>/source` (Bearer). Сбой — только
+        журнал: тур без колонки чертежа (страница прячет её, если картинки нет)."""
+        p = d / PREVIEW_FILE
+        try:
+            data = p.read_bytes()
+        except OSError:
+            return False
+        if not data or len(data) > SOURCE_MAX:
+            log(f'{jid}: превью чертежа {len(data)} Б — не шлю')
+            return False
+        st = self._post(f'/api/trial/worker/{jid}/source', {'id': jid, 'webp': base64.b64encode(data).decode('ascii')}, tries=3)
+        log(f'{jid}: превью чертежа {len(data)} Б → {st}')
+        return st == 200
 
     # ── пересборка «Обустроить» (план agent-trial-08, Р1; T-20261109-27) ──
     def process_rebuild(self, rb: dict) -> None:
@@ -543,8 +563,9 @@ class Worker:
                                       draft_opening_edits=rb.get('draftOpeningEdits') if isinstance(rb.get('draftOpeningEdits'), list) else [])
                 end = cv.rebuild()
             elif text:
-                end = conveyor.ListingRebuild(self, lease, wd, hb, res_p, jid, rb.get('rooms') or [], str(rb['listingText']),
-                                              mime, EXT[mime], edits=edits, opening_edits=ops).rebuild()
+                cv = conveyor.ListingRebuild(self, lease, wd, hb, res_p, jid, rb.get('rooms') or [], str(rb['listingText']),
+                                             mime, EXT[mime], edits=edits, opening_edits=ops)
+                end = cv.rebuild()
             elif edit:
                 end = conveyor.EditRebuild(self, lease, wd, hb, res_p, jid, rb.get('rooms') or [], edits, opening_edits=ops,
                                            confirm=rb.get('confirm') is True).rebuild()
@@ -560,6 +581,11 @@ class Worker:
         if end == 'published':
             self.streak = 0
             self.done.append((rid, 'rebuilt'))
+            # перечитанный план (текст агента, «перечитать планировку») принят с новым `result` — его превью чертежа (раскладка вырезов
+            # в новом `result.source.preview`); прежнюю картинку до публикации не трогаем: не принятая версия не разведёт их
+            nr = getattr(cv, 'new_result', None)
+            if isinstance(nr, dict) and (nr.get('source') or {}).get('preview'):
+                self.send_source(jid, wd / 'plan')
         elif end in ('stale', 'lost'):               # stale — сервер уже пометил пересборку; lost — она не наша
             self.done.append((rid, end))
         elif end == 'stop':
