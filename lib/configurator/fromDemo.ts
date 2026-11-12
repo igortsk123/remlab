@@ -129,6 +129,8 @@ type DemoItem = {
   strategy?: string;
   /** Картина из декора варианта (`wallArtItems`): место считает `resolve` → `wall-art.ts:placeWallArt`, а не солвер. */
   wallArt?: boolean;
+  /** Место картины, выбранное покупателем (`sku.wall_at` декора, T-20261112-97) — в слот как `wallPin`. */
+  wallPin?: WallPin;
   sku?: { name?: string; name_en?: string; price?: number; url?: string; shop?: string; msid?: string; sid?: string; pack?: number; yaw?: number; img?: string;
     /** Подкраска цветового варианта на модели семейства (`flat215_demo.annotate_tint`): множитель цвета по каналу. */
     tint?: number[] };
@@ -139,7 +141,10 @@ type DemoItem = {
 /** Люстра (`strategy: ceiling_over`, `tools/scout/chandelier.py`): `w/d/h` — каталог (диаметр, корпус), `hang` — Ш×Г×В сцены по мешу. */
 type DemoDecor = { role?: string; list_only?: boolean; strategy?: string;
   place?: { x?: number; y?: number; bottom_cm?: number; slot_instance_id?: string };
-  sku?: DemoItem["sku"] & { w?: number; d?: number; h?: number; img_art?: string; dia?: number; hang?: { w?: number; d?: number; h?: number } } };
+  sku?: DemoItem["sku"] & { w?: number; d?: number; h?: number; img_art?: string; dia?: number; hang?: { w?: number; d?: number; h?: number };
+    /** Картина, перевешенная покупателем «✥» (T-20261112-97): страница пишет место в товар декора — так его несут история и правки. */
+    wall_at?: WallPin } };
+type WallPin = { wall: "north" | "south" | "east" | "west"; along: number; elev: number };
 type DemoVariant = { id?: string; title?: string; style?: string; items?: DemoItem[]; decor?: DemoDecor[];
   /** Комната варианта (ADR-0330 п.3, `demo-rooms.ts:roomIdOf`); нет — гостиная. */
   room_id?: string; room_type?: string;
@@ -261,6 +266,7 @@ function wallPlanes(items: DemoItem[], at: RoomAt<DemoVariant>, kinds: string[],
         titleEn: roleEn(it.role), photoRole: it.role, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
         // картина из декора: место — заглушка, настоящее считает `wall-art.ts:placeWallArt` от текущей опоры
         ...(it.wallArt ? { wallArt: true } : {}),
+        ...(it.wallArt && it.wallPin ? { wallPin: it.wallPin } : {}),
         placement: { x: (it.x ?? 0) + at.ox, y: (it.y ?? 0) + at.oy, rot: it.rot ?? 0, wCm: w, dCm: d, hCm: h,
           elevCm: Math.max(0, it.elev ?? 0) } },
     };
@@ -289,7 +295,10 @@ export function wallArtItems(decor: DemoDecor[]): DemoItem[] {
   return decor.filter(isWallArtDecor).map((x) => {
     const sk = x.sku!;
     const d = sk.d && sk.d > 0 && sk.d < sk.h! ? sk.d : WALL_ART_DEPTH_CM;
+    const pin = sk.wall_at;
+    const okPin = !!pin && ["north", "south", "east", "west"].includes(pin.wall) && Number.isFinite(pin.along) && Number.isFinite(pin.elev);
     return { role: x.role, strategy: "procedural_plane", wallArt: true, x: 0, y: 0, rot: 0, w: sk.w, d, h: sk.h,
+      ...(okPin ? { wallPin: { wall: pin.wall, along: +pin.along, elev: +pin.elev } } : {}),
       sku: { ...sk, img: sk.img_art ?? sk.img } };
   });
 }

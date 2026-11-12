@@ -39,6 +39,16 @@ describe("номер состояния расстановки", () => {
   it("подвесная тумба и угловой диван различаются", () => {
     expect(id([{ ...sofa, corner: true }, chairA, chairB])).not.toBe(base);
   });
+  // T-20261112-97: картину перевесили (`sku.wall_at`) — другое состояние; без перевески номер прежний, шум < 0,5 см не в счёт
+  it("перевешенная картина — другой номер; без перевески — прежний", () => {
+    const pic = (at?: object) => [{ role: "картина", sku: { sid: "1_p", ...(at ? { wall_at: at } : {}) } }];
+    const flat = [sofa, chairA, chairB];
+    expect(id(flat, pic())).toBe(id(flat, [{ role: "картина", sku: { sid: "1_p" } }]));
+    const west = id(flat, pic({ wall: "west", along: 120, elev: 110 }));
+    expect(west).not.toBe(id(flat, pic()));
+    expect(id(flat, pic({ wall: "west", along: 120.3, elev: 110.2 }))).toBe(west);
+    expect(id(flat, pic({ wall: "east", along: 120, elev: 110 }))).not.toBe(west);
+  });
   // demo-06: выбор пола застройщика — часть состояния; без выбора номер прежний (s1), кадры и коллекции не устаревают
   it("пол по умолчанию — прежний s1; выбранный пол — s2 и другой номер; порядок групп не важен", () => {
     expect(stateIdOf([sofa, chairA, chairB], vase, room, {})).toBe(base);

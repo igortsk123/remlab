@@ -5687,6 +5687,7 @@ function decorWhere(x){
     if(!m||!(x.role in m))return 'на стене, где есть место';
     const r=m[x.role];
     if(r&&ART_OVER[r])return 'на стене над '+ART_OVER[r];
+    if(r==='стена')return 'на стене, где повесили';   // перевешена «✥» (T-97, `wall-art-spot.HUNG_FREE`)
     return items.some(i=>ART_OVER[baseRole(i.role)])?'в кадр не ставим: на стене нет места':'в кадр не ставим: нет кровати, дивана или комода';
   }
   const s=decorSupport();
@@ -9043,7 +9044,8 @@ function stateCanon(items, decor, room, opts){
   const ent=(items||[]).map(it=>{const k=it.sku||{};
     return JSON.stringify([base(it.role),k.msid||k.sid||'',k.sid||'',r(it.x),r(it.y),rot(it.rot),r(it.w),r(it.d),r(it.h),r(it.elev),
       it.corner?1:0,r(it.section),k.hung?1:0]);})
-    .concat((decor||[]).map(x=>JSON.stringify(['декор',base(x.role),(x.sku||{}).sid||''])));
+    .concat((decor||[]).map(x=>{const k=x.sku||{}, w=k.wall_at;   // картина, перевешенная «✥» (T-97), — другое состояние; без места — как прежде
+      return JSON.stringify(['декор',base(x.role),k.sid||''].concat(w?[String(w.wall||''),r(w.along),r(w.elev)]:[]));}));
   ent.sort();
   const rm=room||{}, op=(rm.openings||[]).map(o=>JSON.stringify([o.kind||'',o.wall||'',r(o.offset_cm),r(o.width_cm),r(o.sill_cm),r(o.height_cm)])).sort();
   const pairs=Object.keys(opts||{}).filter(k=>opts[k]).sort().map(k=>[k,String(opts[k])]);
@@ -9424,8 +9426,9 @@ div.vcth{background:var(--wash)}
 .vcard .vic{display:block;flex:none;width:18px;height:18px}
 .vcx .vic{width:16px;height:16px}
 .vcard .vic svg{display:block;width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.vacts.vnorot .vrot,.vacts.vnorot .vmove,.vacts.vnorep .vrep,.vacts.vnocost .vcost,.vacts.vnodims .vcsz{display:none}
-.vacts.vnorot.vnorep .vcbot{display:none}
+.vacts.vnorot .vrot,.vacts.vnomove .vmove,.vacts.vnorep .vrep,.vacts.vnocost .vcost,.vacts.vnodims .vcsz{display:none}
+.vacts.vnorot.vnomove.vnorep .vcbot{display:none}
+.vcarry.vart .vcrot{display:none}   /* картину не крутят: лицом в комнату на любой стене (T-97) */
 /* нет «Заменить» — круги справа, не растянутые */
 .vacts.vnorep .vcbot{justify-content:flex-end}
 /* ПОДСКАЗКА ЗНАЧКА (компьютер, наведение мышью на ↻ ✥): под карточкой, у карточки в нижней части сцены — над ней (`.vtipup`); нажатий не ловит */
@@ -9440,18 +9443,22 @@ div.vcth{background:var(--wash)}
 #shot.vcarrying #vpins,#shot.vcarrying #vpins *{pointer-events:none}
 #shot.vcarrying .livecv{cursor:grabbing}
 #shot.vcarrying .vcams{display:none!important}   /* полоска переноса — на месте переключателя ракурсов: ракурс с предметом в руке не меняем */
-.vcarry{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:var(--zl-float);display:inline-flex;align-items:center;gap:2px;
+/* по центру, как переключатель ракурсов (`.vcams`): left:0/right:0 + width:max-content — при left:50% ширина зажималась половиной
+   сцены, и длинная причина отказа картины («Не на окно и не на дверь», T-97) уходила под «Отмена» */
+.vcarry{position:absolute;left:0;right:0;margin:0 auto;width:max-content;bottom:14px;z-index:var(--zl-float);display:flex;align-items:center;gap:2px;
  max-width:calc(100% - 24px);background:var(--surface);border-radius:999px;box-shadow:var(--e3);padding:3px 3px 3px 14px;
  font-size:13.5px;line-height:1.3;color:var(--ink);pointer-events:auto}
 .vcarry[hidden]{display:none}
 .vcarry .vct{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;padding-right:8px}
 .vcarry.bad .vct{color:#c0392b;font-weight:600}
 .vcarry.flash{animation:vcflash .45s ease}
-@keyframes vcflash{0%,100%{transform:translateX(-50%)}25%{transform:translateX(calc(-50% - 6px))}75%{transform:translateX(calc(-50% + 6px))}}
+@keyframes vcflash{0%,100%{transform:none}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
 .vcarry button{border:0;background:none;font-family:inherit;font-size:14px;font-weight:600;color:var(--accent);min-height:32px;
  padding:0 12px;border-radius:999px;cursor:pointer;white-space:nowrap}
 .vcarry .vcrot{font-size:17px;padding:0 10px;border-left:1px solid var(--line);border-radius:0}
-.vcarry .vcx{background:var(--accent);color:#fff}
+/* «Отмена» полоски — тот же класс, что «×» карточки Б (`.vcx` выше: абсолютная кнопка 28×28 в углу) — без сброса кнопка сжималась
+   в кружок, и текст уходил под неё (T-97, ловила проба pic-wall-check) */
+.vcarry .vcx,.vcarry .vcx:hover{position:static;width:auto;height:auto;background:var(--accent);color:#fff;flex:none}
 @media (max-width:599px){.vcarry{font-size:12.5px;padding-left:12px}.vcarry button{min-height:30px;font-size:13px;padding:0 10px}}
 /* телефон: ширина карточки — не шире сцены без полей 8 px (ставит `vwRotPlace`), наведения нет — без подсветки */
 @media (max-width:599px){
@@ -10150,6 +10157,11 @@ function vwDecIndex(j){
   let k=0; for(let n=0;n<j;n++)if(!isSoft(ds[n].role)&&!ds[n].list_only)k++;
   return items.length+k;
 }
+// картина-товар на сцене (номер как у `vwItemAt`) → номер в декоре варианта; не картина — -1. Её «✥» ведёт по стене (T-97)
+function vwArtJ(i){
+  const it=i!=null&&i>=items.length?vwItemAt(i):null, ds=(allVariants()[cur]||{}).decor||[];
+  return it&&it.dec!=null&&isWallArt(ds[it.dec])?it.dec:-1;
+}
 // строка списка этого предмета — по артикулу (`sid`), не по названию: у одинаковых названий и комплектов имя не уникально
 function vwRowOf(it){
   const sid=(skuOf(it)||{}).sid;
@@ -10338,10 +10350,10 @@ function vwRotPlace(box, fr, pad0, kept, all, hit, underHint, pr){
     return !(r.left<fr.left+pad||r.right>fr.right-pad||r.top<fr.top+pad||r.bottom>fr.bottom-pad||PINS.busy.some(o=>hit(r,o))||kept.some(k=>hit(r,k))
       ||(underHint&&underHint(r)))&&r;};
   if(!p||!p.visible){vwRotHide(); return null;}
-  const b=vwActsNode(box), v=b.firstElementChild, dims=+it.w>0&&+it.d>0&&+it.h>0, can=vwCanRot(it), cost=pr?money(pr):'';
-  const rep=!!vwRepBtn(it), cls=[!can,!dims,!cost,!rep].join();
+  const b=vwActsNode(box), v=b.firstElementChild, dims=+it.w>0&&+it.d>0&&+it.h>0, can=vwCanRot(it), mv=can||vwArtJ(i)>=0, cost=pr?money(pr):'';
+  const rep=!!vwRepBtn(it), cls=[!can,!mv,!dims,!cost,!rep].join();
   if(b._cls!==cls){b._cls=cls; b._w=0;
-    b.classList.toggle('vnorot',!can); b.classList.toggle('vnodims',!dims); b.classList.toggle('vnocost',!cost); b.classList.toggle('vnorep',!rep);}
+    b.classList.toggle('vnorot',!can); b.classList.toggle('vnomove',!mv); b.classList.toggle('vnodims',!dims); b.classList.toggle('vnocost',!cost); b.classList.toggle('vnorep',!rep);}
   if(b._for!==i){b._for=i; b._w=0; vwTipHide();}
   // содержимое — на каждом кадре сверяем, меняем только разницу (строка списка перерисовалась, миниатюра тура доснялась, замена товара)
   const ci=vwCardInfo(it), nm=v.querySelector('.vcnm'); if(nm.textContent!==ci.name){nm.textContent=ci.name; b._w=0;}
@@ -10530,6 +10542,7 @@ function vwCarryBase(i){
 }
 // взять выбранный предмет «в руку»; true — взят
 function vwCarryStart(viaKey){
+  if(vwArtJ(VW.sel)>=0)return vwArtStart(viaKey);
   const i=VW.sel, it=i!=null?items[i]:null, sc=LIVE.scene;
   if(VW.mv||!vwCanRot(it)||vwEditLock()||!sc||!sc.moveBegin||!sc.moveOrigin||VW.mode!=='walk')return false;
   const base=vwCarryBase(i);
@@ -10561,11 +10574,12 @@ function vwCarrySet(wx, wy){
 // мышь: центр предмета — в точку пола под курсором
 function vwCarryAt(cx, cy){
   const m=VW.mv, sc=LIVE.scene; if(!m||!sc)return;
+  if(m.art){vwArtAt(cx,cy); return;}
   const f=sc.floorAt(cx,cy); if(!f)return;   // выше горизонта — предмет стоит, где был
   vwCarrySet(m.ox+f.x-m.org.x, m.oy+f.y-m.org.y);
 }
 function vwCarryRotate(){
-  const m=VW.mv; if(!m)return;
+  const m=VW.mv; if(!m||m.art)return;   // картину не крутят — она всегда лицом в комнату
   m.rot=rotNext(m.rot); vwCarrySet(m.wx,m.wy);
 }
 function vwCarryEnd(){
@@ -10583,6 +10597,7 @@ function vwCarryDrop(){
   const m=VW.mv, sc=LIVE.scene; if(!m||!sc)return;
   // красный — не ставим; полоска переноса уже говорит «Здесь не помещается» (всплывашка легла бы на неё же), мигнём ею
   if(!m.ok){const b=document.getElementById('vcarry'); if(b){b.classList.remove('flash'); void b.offsetWidth; b.classList.add('flash');} return;}
+  if(m.art){vwArtDrop(); return;}
   vwCarryEnd();
   if(m.x===m.ox&&m.y===m.oy&&m.rot===m.orot){sc.moveEnd(false); return;}   // поставили, где стоял
   sc.moveEnd(true);
@@ -10599,7 +10614,8 @@ function vwCarryDown(e, fromBtn){
   const touch=e.pointerType!=='mouse';
   let a=[e.clientX,e.clientY];
   if(touch){const cr=LIVE.canvas.getBoundingClientRect(), p=(sc.pins()||[]).find(q=>q.index===m.i);
-    if(p&&p.box)a=[cr.left+(p.box[0]+p.box[2])/2, cr.top+p.box[3]-4];}
+    // картина — от её середины на стене (палец ведёт её по стене, `vwArtAt`); мебель — от точки пола у низа рамки
+    if(p&&p.box)a=[cr.left+(p.box[0]+p.box[2])/2, m.art?cr.top+(p.box[1]+p.box[3])/2:cr.top+p.box[3]-4];}
   m.drag={id:e.pointerId, c0:[e.clientX,e.clientY], a, f0:touch?sc.floorAt(a[0],a[1]):null, x0:m.wx, y0:m.wy, moved:false, touch, fromBtn:!!fromBtn};
 }
 function vwCarryMove(e){
@@ -10608,6 +10624,7 @@ function vwCarryMove(e){
   if(d&&d.id===e.pointerId){
     if(!d.moved&&Math.hypot(e.clientX-d.c0[0],e.clientY-d.c0[1])<6)return;
     d.moved=true;
+    if(m.art&&d.touch){vwArtAt(d.a[0]+e.clientX-d.c0[0], d.a[1]+e.clientY-d.c0[1]); return;}
     if(d.touch){if(!d.f0)return; const f=LIVE.scene.floorAt(d.a[0]+e.clientX-d.c0[0], d.a[1]+e.clientY-d.c0[1]); if(!f)return;
       vwCarrySet(d.x0+f.x-d.f0.x, d.y0+f.y-d.f0.y); return;}
   }
@@ -10618,6 +10635,9 @@ function vwCarryUp(e){
   m.drag=null;
   if(e.type==='pointercancel')return;            // жест прервала система — предмет остаётся в руке
   if(d.fromBtn&&!d.moved)return;                  // нажали «Переместить» — только взяли
+  // картина: касание или щелчок по стене — повесить туда (владелец TG 865 «повесить на любую стену»); мимо стены (пол, потолок) —
+  // остаётся в руке, тап по полу ничего не ломает; палец протянул по стене и отпустил — повесить, где она сейчас
+  if(m.art){if(d.touch&&d.moved||vwArtAt(e.clientX,e.clientY))vwCarryDrop(); return;}
   if(d.touch&&!d.moved)return;                    // тап без движения — подсказка на полоске: тянуть по полу
   vwCarryDrop();
 }
@@ -10630,6 +10650,55 @@ function vwMoveDown(e){
   vwCarryDown(e,true);
   const up=ev=>{el.removeEventListener('pointerup',up); el.removeEventListener('pointercancel',up); vwCarryUp(ev);};
   el.addEventListener('pointerup',up); el.addEventListener('pointercancel',up);
+}
+// «✥» У КАРТИНЫ — ПО СТЕНЕ (T-20261112-97, владелец TG 865: «перемещать вдоль стены, повесить на любую стену»). Взятая картина идёт
+// за курсором (пальцем) по стене, а не по полу: точка стены под ним (`scene.wallAt`) — середина картины; дошли до другой стены —
+// картина на ней, лицом в комнату. Пределы и проверка — сцена (`scene.artDrag` → `wall-art-spot.ts`: то же правило, что вешает
+// картины при сборке, — край стены, окно, дверь и её створка, шкаф и другая мебель у стены по высоте, другая картина, ТВ, потолок;
+// центр не ниже нормы 145 см, `occupancy.json` mounting.wall_art). За картиной кайма: зелёная — повесить можно, красная — нет и
+// почему (полоска внизу). Поставили — место в товаре декора (`sku.wall_at`): его несут история ↶/↷, правки в браузере и номер
+// состояния; сцена вешает картину туда, пока место проходит правило (переставили мебель — снова над опорой)
+function vwArtStart(viaKey){
+  const i=VW.sel, j=vwArtJ(i), sc=LIVE.scene;
+  if(VW.mv||j<0||vwEditLock()||!sc||!sc.artSpot||!sc.artDrag||VW.mode!=='walk')return false;
+  const spot0=sc.artSpot(i); if(!spot0)return false;   // картина не висит (места не нашлось) — переносить нечего
+  if(!sc.moveBegin(i))return false;
+  VW.mv={i, j, art:true, spot0, spot:spot0, why:null, ok:true, drag:null};
+  const sh=document.getElementById('shot'); sh.classList.add('vcarrying'); sh.dataset.mv='ok';
+  vwCarryBar();
+  const p=VW.lastPtr; if(viaKey&&p&&p.mouse&&vwInCanvas(p.x,p.y))vwArtAt(p.x,p.y);
+  return true;
+}
+// экранная точка → середина картины там на стене; мимо стены — картина стоит, где была (→ false)
+function vwArtAt(cx, cy){
+  const m=VW.mv, sc=LIVE.scene; if(!m||!m.art||!sc)return false;
+  const w=sc.wallAt(cx,cy); if(!w)return false;
+  const it=vwItemAt(m.i)||{}, h=+it.h||0;
+  const r=sc.artDrag({wall:w.wall, along:w.along, elev:w.z-h/2}); if(!r)return false;
+  m.spot=r.spot; m.why=r.why; m.ok=!r.why;
+  document.getElementById('shot').dataset.mv=m.ok?'ok':'bad';
+  vwCarryBar();
+  return true;
+}
+function vwArtDrop(){
+  const m=VW.mv, sc=LIVE.scene, s=m.spot, s0=m.spot0;
+  vwCarryEnd();
+  const same=s.wall===s0.wall&&Math.abs(s.along-s0.along)<0.5&&Math.abs(s.elev-s0.elev)<0.5;
+  const x=((allVariants()[cur]||{}).decor||[])[m.j];
+  if(same||!x||!x.sku){sc.moveEnd(false); return;}   // повесили, где висела
+  sc.moveEnd(true);
+  x.sku=Object.assign({},x.sku,{wall_at:{wall:s.wall, along:Math.round(s.along), elev:Math.round(s.elev)}});
+  histPush();
+  try{draw();}catch(e){}
+  liveShow();
+}
+const ART_WHY={edge:['Слишком близко к углу','Too close to the corner'], ceiling:['Упирается в потолок','It hits the ceiling'],
+  floor:['Слишком низко','Too low'], opening:['Не на окно и не на дверь','Not over a window or door'], swing:['Мешает двери','The door would hit it'],
+  furniture:['Мешает мебель','Furniture is in the way'], art:['Мешает другая картина','Another picture is in the way'], tv:['Мешает телевизор','The TV is in the way']};
+function vwArtTxt(m, touch, EN){
+  if(!m.ok){const t=ART_WHY[m.why]||['Здесь не повесить','It cannot hang here']; return t[EN?1:0];}
+  return touch?(EN?'Drag along any wall':'Тяните по любой стене')   // коротко: на 375 px длинная строка обрезалась
+    :(EN?'Click to hang · Esc: cancel':'Щелчок: повесить · Esc: отмена');
 }
 // ПОЛОСКА ПЕРЕНОСА внизу сцены: что делать сейчас и «Отмена» (на телефоне Esc нет); красный след — «здесь не помещается»
 function vwCarryBar(){
@@ -10646,9 +10715,9 @@ function vwCarryBar(){
     host.appendChild(b);}
   // телефон: над текущим верхом шторки, как переключатель ракурсов (`vwSheetApply` двигает обоих); компьютер — по CSS
   b.style.bottom=VW_PHONE()&&VW.sheetVis!=null?Math.round(VW.sheetVis+12)+'px':'';
-  b.hidden=false; b.classList.toggle('bad',!m.ok);
+  b.hidden=false; b.classList.toggle('bad',!m.ok); b.classList.toggle('vart',!!m.art);
   const touch=isTouchUI();
-  const txt=!m.ok?(EN?'It does not fit here':'Здесь не помещается')
+  const txt=m.art?vwArtTxt(m,touch,EN):!m.ok?(EN?'It does not fit here':'Здесь не помещается')
     :touch?(EN?'Drag on the floor, then release':'Тяните по полу и отпустите')
     :(EN?'Click to place · R or wheel: rotate · Esc: cancel':'Щелчок: поставить · R или колесо: повернуть · Esc: отмена');
   const t=b.querySelector('.vct'); if(t.textContent!==txt)t.textContent=txt;

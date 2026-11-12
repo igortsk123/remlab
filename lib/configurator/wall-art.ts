@@ -5,11 +5,10 @@
 // Числа — ОДНО МЕСТО с подбором товара сборкой витрины: `data/flat3d/wall-art.json` (`tools/scout/wall_art.py`).
 
 import type { Apartment, Room } from "@/contracts/apartment";
-import { DEFAULT_CEILING_CM } from "@/contracts/apartment";
 import rulesJson from "@/data/flat3d/wall-art.json";
-import { CURTAIN_OVERHANG_CM } from "@/lib/configurator/curtains";
 import type { ResolvedItem } from "@/lib/configurator/resolve";
-import { alongOf, backWall, footprint, onWall, overlaps, stripRect, swingZones, wallLength, WALL_INSET_CM } from "@/lib/configurator/wall-art-geo";
+import { alongOf, backWall, onWall, WALL_INSET_CM } from "@/lib/configurator/wall-art-geo";
+import { baseRole, blockersOf, hangAt, HUNG_FREE, spanProblem, type Blocker } from "@/lib/configurator/wall-art-spot";
 
 export interface WallArtRules {
   enabled: boolean;
@@ -26,19 +25,14 @@ export interface WallArtRules {
 
 export const WALL_ART_RULES: WallArtRules = rulesJson;
 
-/** Полоса у стены, в которой соседняя мебель «загораживает» картину (шкаф рядом с кроватью), см. */
-const NEAR_WALL_CM = 45;
-
-const baseRole = (role?: string | null): string => String(role ?? "").replace(/\s+\d+$/, "").trim();
-
 type Spot = { x: number; y: number; rot: number; elev: number };
 
 /**
- * Повесить группу картин над опорой: ряд по центру опоры с зазором, низ — над верхом опоры, центры по одной линии. Любая
- * помеха — null: край стены, проём той же стены (± зазор), створка двери любой стены, высокая мебель у стены, потолок,
- * группа шире опоры (верх коридора доли).
+ * Повесить группу картин над опорой: ряд по центру опоры с зазором, низ — над верхом опоры, центры по одной линии. Опора должна
+ * стоять спинкой к стене, группа — не шире верха коридора доли; остальное — общее правило места (`wall-art-spot.spanProblem`:
+ * край стены, потолок, проёмы, створки, мебель, картины, ТВ). Любая помеха — null.
  */
-function hangOver(room: Room, sup: ResolvedItem, art: ResolvedItem[], others: ResolvedItem[], r: WallArtRules): Spot[] | null {
+function hangOver(room: Room, sup: ResolvedItem, art: ResolvedItem[], blockers: Blocker[], r: WallArtRules): Spot[] | null {
   const back = backWall(room, sup.placement);
   if (!back || back.gap > r.back_gap_cm || back.gap < -WALL_INSET_CM - 1) return null;
   const { wall } = back;
@@ -46,22 +40,10 @@ function hangOver(room: Room, sup: ResolvedItem, art: ResolvedItem[], others: Re
   if (total > sup.placement.wCm * (r.share_range[1] ?? 0.85)) return null;
   const centre = alongOf(room, wall, sup.placement.x, sup.placement.y);
   const [a0, a1] = [centre - total / 2, centre + total / 2];
-  if (a0 < r.wall_edge_cm || a1 > wallLength(room, wall) - r.wall_edge_cm) return null;
   const tallest = Math.max(...art.map((i) => i.placement.hCm));
   const bottom = (sup.placement.elevCm ?? 0) + sup.placement.hCm + (r.above_cm[baseRole(sup.photoRole)] ?? r.above_cm["*"] ?? 22);
-  if (bottom + tallest > (room.heightCm || DEFAULT_CEILING_CM) - r.ceiling_gap_cm) return null;
-  // у окна и балконного блока висит штора — картина не должна уйти за полотно (T-20261112-26/2)
-  const clear = (k: string): number => r.opening_clear_cm + (k === "window" || k === "balcony" ? CURTAIN_OVERHANG_CM : 0);
-  if (room.openings.some((o) => o.wall === wall && o.offsetCm - clear(o.kind) < a1 && a0 < o.offsetCm + o.widthCm + clear(o.kind))) return null;
   const depth = Math.max(...art.map((i) => i.placement.dCm)) + WALL_INSET_CM;
-  const strip = stripRect(room, wall, a0, a1, depth);
-  if (swingZones(room).some((z) => overlaps(z, strip))) return null;
-  const near = stripRect(room, wall, a0, a1, NEAR_WALL_CM);
-  const top = bottom + tallest;
-  const blocked = others.some((o) => o !== sup && !o.unplaced && !(o.asset.kind === "kit" && o.asset.kit === "rug")
-    && overlaps(footprint(o.placement), near)
-    && (o.placement.elevCm ?? 0) < top && (o.placement.elevCm ?? 0) + o.placement.hCm > bottom);
-  if (blocked) return null;
+  if (spanProblem(room, wall, a0, a1, bottom, bottom + tallest, depth, blockers, r)) return null;
   let at = a0;
   return art.map((i) => {
     const mid = at + i.placement.wCm / 2;
@@ -85,18 +67,30 @@ export function placeWallArt(a: Apartment, items: ResolvedItem[], rules: WallArt
     const room = a.rooms.find((x) => x.id === roomId);
     if (!room || !rules.enabled) continue;
     const others = items.filter((i) => i.roomId === roomId && !artIds.has(i.slotId) && i.kind === "furniture");
-    const full = art.slice(0, Math.max(1, rules.max_count));
+    const base = blockersOf(others);
+    const hung: Blocker[] = [];
+    const hang = (i: ResolvedItem, s: Spot, over: string): void => {
+      i.placement = { ...i.placement, x: s.x, y: s.y, rot: s.rot, elevCm: s.elev };
+      i.hungOver = over;   // подпись страницы «над кроватью» / «на стене» — отсюда (`demo-scene.ts:wallArtWhere`)
+      delete i.unplaced;
+      hung.push(...blockersOf([i]));
+    };
+    // ПЕРЕВЕШЕННЫЕ ПОКУПАТЕЛЕМ — первыми, своим местом (T-20261112-97); место больше не проходит (переставили мебель) — над опорой
+    const pins = new Map(a.slots.filter((s) => s.wallPin).map((s) => [s.id, s.wallPin!]));
+    for (const i of art) {
+      const pin = pins.get(i.slotId);
+      const s = pin ? hangAt(room, i.placement, pin, [...base, ...hung], rules) : null;
+      if (s && !("problem" in s)) hang(i, s, HUNG_FREE);
+    }
+    const rest = art.filter((i) => i.unplaced);
+    if (!rest.length) continue;
+    const full = rest.slice(0, Math.max(1, rules.max_count - (art.length - rest.length)));
     const groups = full.length > 1 ? [full, full.slice(0, 1)] : [full];
     rules.supports.some((role) => others.filter((o) => !o.unplaced && baseRole(o.photoRole) === role)
       .some((sup) => groups.some((g) => {
-        const spots = hangOver(room, sup, g, others, rules);
+        const spots = hangOver(room, sup, g, [...blockersOf(others, sup), ...hung], rules);
         if (!spots) return false;
-        g.forEach((i, k) => {
-          const s = spots[k]!;
-          i.placement = { ...i.placement, x: s.x, y: s.y, rot: s.rot, elevCm: s.elev };
-          i.hungOver = role;   // подпись страницы «над кроватью» — отсюда (`demo-scene.ts:wallArtWhere`)
-          delete i.unplaced;
-        });
+        g.forEach((i, k) => hang(i, spots[k]!, role));
         return true;
       })));
   }

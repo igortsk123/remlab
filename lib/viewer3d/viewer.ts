@@ -11,8 +11,8 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
-import type { Apartment, Placement, Room } from "@/contracts/apartment";
-import { entranceOf, findRoom, isIsolatedRoom, roomAt, roomCentre } from "@/contracts/apartment";
+import type { Apartment, Placement, Room, WallSide } from "@/contracts/apartment";
+import { DEFAULT_CEILING_CM, entranceOf, findRoom, isIsolatedRoom, roomAt, roomCentre } from "@/contracts/apartment";
 import { material as materialSchema, type Catalogue, type Material } from "@/contracts/configurator";
 import type { ResolvedScene } from "@/lib/configurator/resolve";
 import { isExtra, isFlatOnSurface, type ObjectSpec, planObjects, surfacesByRoom } from "@/lib/viewer3d/build-scene";
@@ -1388,22 +1388,25 @@ export class FlatViewer {
   // загруженную группу, а в подбор пишем один раз — на отпускании.
   private moving: {
     slotId: string;
-    from: { x: number; y: number; rot: number };
-    now: { x: number; y: number; rot: number };
+    from: { x: number; y: number; rot: number; elev: number };
+    now: { x: number; y: number; rot: number; elev: number };
     /** Исходное положение группы в сцене — двигаем и вращаем ОТ него, без пересборки объекта. */
-    base: { posX: number; posZ: number; rotY: number };
+    base: { posX: number; posY: number; posZ: number; rotY: number };
   } | null = null;
   private ghost: THREE.Mesh | null = null;
+  /** След переносимой картины — рамка на стене за ней (T-20261112-97), а не пятно на полу: высота следа — высота группы. */
+  private ghostOnWall = false;
 
   /** Начать перемещение предмета. Возвращает исходное место — на случай отмены. */
   beginMove(slotId: string): { x: number; y: number; rot: number } | null {
     const p = this.placed.get(slotId);
     if (!p) return null;
     const pl = p.spec.placement;
-    const from = { x: pl.x, y: pl.y, rot: pl.rot };
-    const base = { posX: p.group.position.x, posZ: p.group.position.z, rotY: p.group.rotation.y };
+    const from = { x: pl.x, y: pl.y, rot: pl.rot, elev: pl.elevCm ?? 0 };
+    const base = { posX: p.group.position.x, posY: p.group.position.y, posZ: p.group.position.z, rotY: p.group.rotation.y };
     this.moving = { slotId, from, now: { ...from }, base };
-    this.ensureGhost(p.group, pl.wCm, pl.dCm);
+    if (p.spec.kind === "wall-plane") this.ensureWallGhost(pl.wCm, pl.dCm, pl.hCm);
+    else this.ensureGhost(p.group, pl.wCm, pl.dCm);
     this.fadeModel(p.group);
     this.applyMove(true);
     // тень предмета «в руке» снимаем: на старом месте она висела бы пятном, под ним самим — след переноса
@@ -1453,15 +1456,40 @@ export class FlatViewer {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.renderOrder = MOVE_GHOST_ORDER;
     this.ghost = mesh;
+    this.ghostOnWall = false;
     this.scene.add(mesh);
   }
 
-  /** Перенести черновик в новую точку. `ok` решает вызывающая сторона (проверка места). */
-  moveDraftTo(x: number, y: number, ok: boolean, rot?: number): void {
+  /**
+   * След картины «в руке» (T-20261112-97): прямоугольник на стене ЗА ней, шире полотна на `WALL_GHOST_PAD_CM` с каждой стороны —
+   * зелёная или красная кайма вокруг картины читается так же, как след мебели на полу. Геометрия — в осях картины (начало — низ
+   * середины, лицо — +z), у самой стены (полглубины назад) со сдвигом глубины: не мерцает со стеной.
+   */
+  private ensureWallGhost(wCm: number, dCm: number, hCm: number): void {
+    if (this.ghost) {
+      this.scene.remove(this.ghost);
+      this.ghost.geometry.dispose();
+    }
+    const pad = WALL_GHOST_PAD_CM;
+    const geo = new THREE.PlaneGeometry((wCm + 2 * pad) * CM, (hCm + 2 * pad) * CM).translate(0, (hCm / 2) * CM, (-dCm / 2 + 0.3) * CM);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x3aa55c, transparent: true, opacity: 0.6, depthWrite: false, side: THREE.DoubleSide,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.renderOrder = MOVE_GHOST_ORDER;
+    this.ghost = mesh;
+    this.ghostOnWall = true;
+    this.scene.add(mesh);
+  }
+
+  /** Перенести черновик в новую точку. `ok` решает вызывающая сторона (проверка места). `elev` — низ от пола, см (картина на стене). */
+  moveDraftTo(x: number, y: number, ok: boolean, rot?: number, elev?: number): void {
     if (!this.moving) return;
     this.moving.now.x = x;
     this.moving.now.y = y;
     if (rot !== undefined && Number.isFinite(rot)) this.moving.now.rot = ((rot % 360) + 360) % 360;
+    if (elev !== undefined && Number.isFinite(elev)) this.moving.now.elev = elev;
     this.applyMove(ok);
   }
 
@@ -1475,9 +1503,10 @@ export class FlatViewer {
   private applyMove(ok: boolean): void {
     if (!this.moving) return;
     const p = this.placed.get(this.moving.slotId);
-    const { x, y, rot } = this.moving.now;
+    const { x, y, rot, elev } = this.moving.now;
     const { from, base } = this.moving;
     if (p) {
+      p.group.position.y = base.posY + (elev - from.elev) * CM;
       // сдвиг и поворот СЧИТАЕМ ОТ ИСХОДНОГО положения группы: так отмена возвращает предмет
       // ровно туда, где он стоял, без накопления ошибки за время перетаскивания
       p.group.position.x = base.posX + (x - from.x) * CM;
@@ -1487,7 +1516,7 @@ export class FlatViewer {
     }
     if (this.ghost && p) {
       // след — там же, где группа предмета, и повёрнут, как она: модель и след опираются на одно место
-      this.ghost.position.set(p.group.position.x, GHOST_LIFT_CM * CM, p.group.position.z);
+      this.ghost.position.set(p.group.position.x, this.ghostOnWall ? p.group.position.y : GHOST_LIFT_CM * CM, p.group.position.z);
       this.ghost.rotation.y = p.group.rotation.y;
       (this.ghost.material as THREE.MeshBasicMaterial).color.set(ok ? 0x3aa55c : 0xc0392b);
     }
@@ -1496,12 +1525,12 @@ export class FlatViewer {
   }
 
   /** Текущее положение черновика. */
-  moveDraft(): { x: number; y: number; rot: number } | null {
+  moveDraft(): { x: number; y: number; rot: number; elev: number } | null {
     return this.moving ? { ...this.moving.now } : null;
   }
 
   /** Завершить перемещение: вернуть куда встало (вызывающая сторона запишет в подбор). */
-  endMove(): { slotId: string; x: number; y: number; rot: number } | null {
+  endMove(): { slotId: string; x: number; y: number; rot: number; elev: number } | null {
     if (!this.moving) return null;
     const out = { slotId: this.moving.slotId, ...this.moving.now };
     this.clearMove();
@@ -1530,6 +1559,33 @@ export class FlatViewer {
       (this.ghost.material as THREE.Material).dispose();
       this.ghost = null;
     }
+  }
+
+  /**
+   * Точка на стене комнаты под курсором (T-20261112-97: картину ведут по стене) — первая стена прямоугольника комнаты, в которую
+   * упирается луч изнутри: сторона, место вдоль неё от начала стены (`wall-art-geo.alongOf`) и высота от пола, см. Луч в пол или
+   * в потолок (точка ниже пола / выше потолка) — null.
+   */
+  wallPoint(clientX: number, clientY: number, rect: DOMRect, roomId: string): { wall: WallSide; along: number; z: number } | null {
+    const room = this.apartment.rooms.find((r) => r.id === roomId);
+    if (!room) return null;
+    this.raycaster.setFromCamera(new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1), this.camera);
+    const { origin: o, direction: d } = this.raycaster.ray;
+    const [ox, oy, oz] = [o.x / CM, o.z / CM, o.y / CM];
+    const walls: [WallSide, "x" | "y", number][] = [["west", "x", room.x], ["east", "x", room.x + room.w], ["south", "y", room.y], ["north", "y", room.y + room.d]];
+    let best: { wall: WallSide; along: number; z: number; t: number } | null = null;
+    for (const [wall, axis, v] of walls) {
+      const dv = axis === "x" ? d.x : d.z;
+      if (Math.abs(dv) < 1e-9) continue;
+      const t = (v - (axis === "x" ? ox : oy)) / dv;
+      if (t <= 0 || (best && t >= best.t)) continue;
+      const [px, py, pz] = [ox + d.x * t, oy + d.z * t, oz + d.y * t];
+      const along = axis === "x" ? py - room.y : px - room.x;
+      if (along < -1 || along > (axis === "x" ? room.d : room.w) + 1) continue;
+      best = { wall, along, z: pz, t };
+    }
+    if (!best || best.z < 0 || best.z > (room.heightCm || DEFAULT_CEILING_CM)) return null;
+    return { wall: best.wall, along: best.along, z: best.z };
   }
 
   /** Точка на полу под курсором — куда тянут предмет. */
@@ -2184,6 +2240,8 @@ const MOVE_MODEL_ALPHA = 0.8;
 const MOVE_GHOST_ORDER = 1000;
 /** След переноса над полом, см: выше ворса ковра (до 3 см, `kits` ковра), чтобы ковёр его не закрывал. */
 const GHOST_LIFT_CM = 3.5;
+/** Кайма следа картины на стене вокруг полотна, см (T-20261112-97): шире — читается цвет «можно / нельзя» и у маленькой картины. */
+const WALL_GHOST_PAD_CM = 6;
 
 function placeGroup(g: THREE.Object3D, p: Placement): void {
   g.position.set(p.x * CM, (p.elevCm ?? 0) * CM, p.y * CM);

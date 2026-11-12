@@ -17,6 +17,8 @@ import { windowView } from "@/lib/viewer3d/window-views";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { planObjects } from "@/lib/viewer3d/build-scene";
 import { DESKTOP_QUALITY, FlatViewer, LITE_QUALITY, type PhotoPose } from "@/lib/viewer3d/viewer";
+import { WALL_ART_RULES } from "@/lib/configurator/wall-art";
+import { ART_CENTRE_CM, blockersOf, clampSpot, hangAt, placeOn, spotOf, type ArtProblem, type ArtSpot } from "@/lib/configurator/wall-art-spot";
 
 type DemoRoom = NonNullable<DemoData["room"]>;
 type DemoItem = NonNullable<NonNullable<DemoData["variants"]>[number]["items"]>[number] & { sku?: { img?: string } };
@@ -123,6 +125,14 @@ export interface DemoScene {
   moveEnd(commit: boolean): void;
   /** Точка пола под экранной точкой, см (тянут палец или мышь); null — луч мимо пола (выше горизонта). */
   floorAt(clientX: number, clientY: number): { x: number; y: number } | null;
+  /** Картина (номер как в `update`, T-20261112-97): где висит — стена, центр вдоль неё и низ, см; не картина или не висит — null. */
+  artSpot(index: number): ArtSpot | null;
+  /** Перенос картины (после `moveBegin`): стена под экранной точкой — сторона, место вдоль стены и высота точки, см; мимо стены — null. */
+  wallAt(clientX: number, clientY: number): { wall: ArtSpot["wall"]; along: number; z: number } | null;
+  /** Перенос картины: желаемое место → место в пределах стены (центр не ниже нормы `ART_CENTRE_CM`, верх не выше потолка с зазором),
+   *  проверка тем же правилом, что авторасчёт (`wall-art-spot.hangAt`), и черновик туда — рамка за ним зелёная или красная.
+   *  `why` — причина отказа или null (можно). */
+  artDrag(want: ArtSpot): { spot: ArtSpot; why: ArtProblem | null } | null;
   /** Повернуть взгляд прогулки на `deg` градусов (тап по краю сцены в «3D», demo-02 v3: поворот не только перетаскиванием). */
   turn(deg: number): void;
   /** Тап по окну — подойти к нему (`viewer.walkToWindow`); не окно — false. Для краёв сцены, где тап иначе поворачивает взгляд. */
@@ -267,6 +277,8 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
   // сторона акцентной стены — из расчёта сцены; меняется, когда переставили диван, — тогда оболочку перестраиваем
   const sideOf = (sc: ReturnType<typeof resolved>): string | null => sc.surfaces.find((x) => x.surface === "wall")?.accent?.side ?? null;
   const sc0 = resolved(first.apartment, first.catalogue);
+  // последняя собранная расстановка (квартира и расчёт сцены) — перенос картины проверяет место по ней, без пересчёта на каждое движение
+  let last = { a: first.apartment, sc: sc0 };
   let lastSide = sideOf(sc0);
   viewer.buildShell(sc0);
   const ready = viewer.syncObjects(sc0);
@@ -284,6 +296,13 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
   let selected: number | null = null;
   // «Переместить»: исходное место предмета в координатах движка — черновик двигаем от него на сдвиг пальца
   let moveFrom: { x: number; y: number; rot: number } | null = null;
+  // переносимая картина: её место в расчёте сцены и нижняя граница низа (норма центра или исходная высота, если висела ниже)
+  let moveArt: { slotId: string; minElev: number } | null = null;
+  const artOf = (slotId: string) => {
+    const it = last.sc.items.find((i) => i.slotId === slotId && i.asset.kind === "kit" && i.asset.kit === "wall-plane" && !i.unplaced);
+    const room = it && last.a.rooms.find((r) => r.id === it.roomId);
+    return it && room ? { it, room } : null;
+  };
   // кольцо под мышью (T-20261112-36): луч по мебели — не на каждое движение, а раз в HOVER_MS; последнее положение — хвостовым вызовом
   let hover: { x: number; y: number } | null = null;
   let hoverAt = 0;
@@ -312,6 +331,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
         if (!next) return;
         viewer.setApartment(next.apartment, next.catalogue);
         const sc = resolved(next.apartment, next.catalogue);
+        last = { a: next.apartment, sc };
         if (sideOf(sc) !== lastSide) { lastSide = sideOf(sc); viewer.buildShell(sc); }   // акцент переехал за диваном
         await viewer.syncObjects(sc);
         reselect();
@@ -328,6 +348,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
       if (!next) return;
       viewer.setApartment(next.apartment, next.catalogue);
       const sc = resolved(next.apartment, next.catalogue);
+      last = { a: next.apartment, sc };
       lastSide = sideOf(sc);
       viewer.buildShell(sc);
       await viewer.syncObjects(sc);
@@ -388,6 +409,8 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     moveBegin: (index) => {
       const id = [...slotIndex()].find(([, i]) => i === index)?.[0];
       moveFrom = id ? viewer.beginMove(id) : null;
+      const art = id && moveFrom ? artOf(id) : null;
+      moveArt = art ? { slotId: id!, minElev: Math.min(ART_CENTRE_CM[0] - art.it.placement.hCm / 2, art.it.placement.elevCm ?? 0) } : null;
       viewer.start();
       return moveFrom != null;
     },
@@ -400,9 +423,31 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     moveEnd: (commit) => {
       if (commit) viewer.endMove(); else viewer.cancelMove();
       moveFrom = null;
+      moveArt = null;
       viewer.start();
     },
     floorAt: (x, y) => viewer.floorPoint(x, y, canvas.getBoundingClientRect()),
+    artSpot: (index) => {
+      const id = [...slotIndex()].find(([, i]) => i === index)?.[0];
+      const art = id ? artOf(id) : null;
+      return art ? spotOf(art.room, art.it.placement) : null;
+    },
+    wallAt: (x, y) => {
+      const art = moveArt ? artOf(moveArt.slotId) : null;
+      return art ? viewer.wallPoint(x, y, canvas.getBoundingClientRect(), art.room.id) : null;
+    },
+    artDrag: (want) => {
+      const art = moveArt ? artOf(moveArt.slotId) : null;
+      if (!art || !moveArt) return null;
+      const spot = clampSpot(art.room, art.it.placement, want, moveArt.minElev, WALL_ART_RULES);
+      const others = last.sc.items.filter((i) => i.roomId === art.room.id && i !== art.it);
+      const r = hangAt(art.room, art.it.placement, spot, blockersOf(others), WALL_ART_RULES);
+      const why = "problem" in r ? r.problem : null;
+      const at = placeOn(art.room, art.it.placement, spot);
+      viewer.moveDraftTo(at.x, at.y, !why, at.rot, at.elev);
+      viewer.start();
+      return { spot, why };
+    },
     turn: (deg) => viewer.look(-deg / 0.22, 0),
     windowTap: (x, y) => viewer.walkToWindow(x, y, canvas.getBoundingClientRect()),
     walkTap: (x, y) => {
