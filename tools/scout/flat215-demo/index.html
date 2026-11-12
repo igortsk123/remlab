@@ -10178,7 +10178,7 @@ function vwSheetWire(){
       setTimeout(()=>sc.removeEventListener('click',kill,{capture:true}),350);}};
   // шапка — указатель с захватом: тянет всегда, второй палец игнорируется
   heads.forEach(h=>{
-    h.addEventListener('pointerdown',e=>{if(!VW_PHONE()||st||own(e.target))return; begin(e.clientY,e.pointerId,true); if(h!==vtop)try{h.setPointerCapture(e.pointerId);}catch(_){}});
+    h.addEventListener('pointerdown',e=>{h._downAt=performance.now(); if(!VW_PHONE()||st||own(e.target))return; begin(e.clientY,e.pointerId,true); if(h!==vtop)try{h.setPointerCapture(e.pointerId);}catch(_){}});
     h.addEventListener('pointermove',e=>{if(!st||e.pointerId!==st.id)return; if(!st.moved&&Math.abs(e.clientY-st.y0)<6)return;
       if(h===vtop&&!st.moved)try{h.setPointerCapture(e.pointerId);}catch(_){}
       drag(e.clientY);});
@@ -10186,6 +10186,10 @@ function vwSheetWire(){
     ['pointercancel','lostpointercapture'].forEach(n=>h.addEventListener(n,e=>{if(st&&st.grip&&e.pointerId===st.id)end(true);}));
     if(h!==vtop)h.addEventListener('click',e=>{if(!VW_PHONE()||own(e.target))return; e.preventDefault();
       if(performance.now()-(VW.dragEndAt||0)<350)return;    // клик в конце перетаскивания — не тап
+      // ТАП ПО ПОЛУ ШТОРКУ НЕ ПОДНИМАЕТ (T-20261112-97/3, владелец TG 1175): Chrome на телефоне «доводит» касание рядом с шапкой до неё
+      // (подгонка касания к ближней кнопке) — палец на полу у верха шторки, а `click` приходил шапке и раскрывал шторку до верха.
+      // Переключаем, только если палец опустился на саму шапку (её `pointerdown`); клавиатура (`detail` 0) — как была
+      const down=h._downAt; h._downAt=0; if(e.detail!==0&&!(down&&performance.now()-down<1500))return;
       VW.auto=null; vwSheet();});});
   // пока шторка едет после программного сдвига (и 150 мс после), нажатия по содержимому и кнопке не проходят (v5.1 п.2; v5.2 —
   // кнопка прямо под чипом); клик в конце перетаскивания за блок кнопки — тоже не нажатие
