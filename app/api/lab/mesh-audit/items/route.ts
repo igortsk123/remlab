@@ -36,6 +36,7 @@ const ItemIn = z.object({
   name: z.string().nullable().optional(),
   imageUrl: z.string().nullable().optional(),
   posterUrl: z.string().nullable().optional(),
+  posterHdUrl: z.string().nullable().optional(), // снимок 1024 для /lab/mesh-check (T-20261112-118)
   modelPath: z.string().min(1),
   seed: z.number().int().optional(),
   attempt: z.number().int().optional(),

@@ -1,8 +1,8 @@
 // Серверный слой /lab/mesh-audit: список карточек, push с DEV, ACK переделок, прогресс просмотра.
 
-import { and, asc, count, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { meshAuditDecisions, meshAuditItems } from "@/db/schema";
+import { meshAuditDecisions, meshAuditItems, meshAuditMarks, meshAuditNotes } from "@/db/schema";
 import { PAGE_SIZE, reworkToItemStatus } from "./rules";
 import type { AuditItemView } from "./types";
 
@@ -29,6 +29,11 @@ export function toView(i: AuditItem): AuditItemView {
     reworkError: i.reworkError,
     redoneAt: i.redoneAt?.toISOString() ?? null,
     seenAt: i.seenAt?.toISOString() ?? null,
+    posterHdUrl: i.posterHdUrl,
+    mark: i.mark,
+    markBy: i.markBy,
+    note: i.note,
+    noteSeq: i.noteSeq,
   };
 }
 
@@ -53,6 +58,7 @@ export interface ItemIn {
   name?: string | null;
   imageUrl?: string | null;
   posterUrl?: string | null;
+  posterHdUrl?: string | null;
   modelPath: string;
   seed?: number;
   attempt?: number;
@@ -78,6 +84,7 @@ export async function upsertItems(items: ItemIn[]): Promise<number> {
           name: it.name ?? null,
           imageUrl: it.imageUrl ?? null,
           posterUrl: it.posterUrl ?? null,
+          posterHdUrl: it.posterHdUrl ?? null,
           modelPath: it.modelPath,
           seed: it.seed ?? null,
           attempt: it.attempt ?? null,
@@ -93,6 +100,8 @@ export async function upsertItems(items: ItemIn[]): Promise<number> {
             name: sql`excluded.name`,
             imageUrl: sql`excluded.image_url`,
             posterUrl: sql`excluded.poster_url`,
+            // снимок 1024 рендерится ночными порциями: push без него не стирает уже опубликованный того же поколения
+            posterHdUrl: sql`case when ${same} then coalesce(excluded.poster_hd_url, ${meshAuditItems.posterHdUrl}) else excluded.poster_hd_url end`,
             modelPath: sql`excluded.model_path`,
             seed: sql`excluded.seed`,
             attempt: sql`excluded.attempt`,
@@ -104,6 +113,12 @@ export async function upsertItems(items: ItemIn[]): Promise<number> {
             status: sql`case when ${same} then ${meshAuditItems.status} else 'open' end`,
             reworkStatus: sql`case when ${same} then ${meshAuditItems.reworkStatus} else null end`,
             reworkError: sql`case when ${same} then ${meshAuditItems.reworkError} else null end`,
+            // отметка и текст /lab/mesh-check — про конкретную модель: новая модель снова «не проверена» (журналы хранят старое)
+            mark: sql`case when ${same} then ${meshAuditItems.mark} else null end`,
+            markAt: sql`case when ${same} then ${meshAuditItems.markAt} else null end`,
+            markBy: sql`case when ${same} then ${meshAuditItems.markBy} else null end`,
+            note: sql`case when ${same} then ${meshAuditItems.note} else null end`,
+            noteSeq: sql`case when ${same} then ${meshAuditItems.noteSeq} else null end`,
             generationKey: sql`excluded.generation_key`,
             updatedAt: sql`now()`,
           },
@@ -137,12 +152,14 @@ export async function applyAcks(acks: AckIn[]): Promise<number> {
 }
 
 // Снятие карточек, которых на странице быть не должно (роль без меша по канону, товар исчез).
-// Карточку с решениями владельца не удаляем — журнал решений ссылается на неё.
+// Карточку с решениями владельца, отметками или комментариями /lab/mesh-check не удаляем — журналы ссылаются на неё.
 export async function retireItems(skus: string[]): Promise<number> {
   if (skus.length === 0) return 0;
   const d = db();
   const decided = await d.selectDistinct({ sku: meshAuditDecisions.sku }).from(meshAuditDecisions).where(inArray(meshAuditDecisions.sku, skus));
-  const keep = new Set(decided.map((r) => r.sku));
+  const marked = await d.selectDistinct({ sku: meshAuditMarks.sku }).from(meshAuditMarks).where(inArray(meshAuditMarks.sku, skus));
+  const noted = await d.selectDistinct({ sku: meshAuditNotes.sku }).from(meshAuditNotes).where(inArray(meshAuditNotes.sku, skus));
+  const keep = new Set([...decided, ...marked, ...noted].map((r) => r.sku));
   const victims = skus.filter((s) => !keep.has(s));
   if (victims.length === 0) return 0;
   const rows = await d.delete(meshAuditItems).where(inArray(meshAuditItems.sku, victims)).returning({ id: meshAuditItems.id });
@@ -168,7 +185,8 @@ export async function acceptedGenerationKeys(limit = 20000): Promise<string[]> {
   const rows = await db()
     .select({ k: meshAuditItems.generationKey })
     .from(meshAuditItems)
-    .where(and(isNotNull(meshAuditItems.seenAt), eq(meshAuditItems.status, "open")))
+    // «брак» на /lab/mesh-check снимает принятие сразу (отметка «ок» прополку НЕ запускает — Codex 12.11: прополка необратима)
+    .where(and(isNotNull(meshAuditItems.seenAt), eq(meshAuditItems.status, "open"), or(isNull(meshAuditItems.mark), sql`${meshAuditItems.mark} <> 'bad'`)))
     .orderBy(asc(meshAuditItems.id))
     .limit(limit);
   return rows.map((r) => r.k);

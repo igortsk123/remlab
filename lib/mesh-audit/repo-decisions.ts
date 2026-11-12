@@ -2,10 +2,11 @@
 // смена состояния) и курсор для конвейера. Две вкладки разом: строка карточки берётся
 // `for update`, плюс уникальность (sku, manual_attempt_no) в схеме — третьей «первой» не будет.
 
-import { asc, desc, eq, gt } from "drizzle-orm";
+import { asc, eq, gt } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { meshAuditCancellations, meshAuditDecisions, meshAuditItems } from "@/db/schema";
-import { checkCancel, checkDecision, type Verdict } from "./rules";
+import { meshAuditCancellations, meshAuditDecisions } from "@/db/schema";
+import type { Verdict } from "./rules";
+import { cancelTx, decideTx, lockItem, type TxFail, type TxOk } from "./repo-decisions-tx";
 import { toView } from "./repo-items";
 import type { AuditItemView } from "./types";
 
@@ -21,64 +22,25 @@ export async function decide(
   comment: string | null = null,
 ): Promise<DecideResult> {
   return db().transaction(async (tx) => {
-    const [item] = await tx.select().from(meshAuditItems).where(eq(meshAuditItems.id, itemId)).for("update");
+    const item = await lockItem(tx, itemId);
     if (!item) return { http: 404, body: { error: "нет карточки", code: "not_found" } };
     const dup = await tx.select({ id: meshAuditDecisions.id }).from(meshAuditDecisions).where(eq(meshAuditDecisions.idemKey, idemKey));
     if (dup.length > 0) return { http: 200, body: { ok: true, duplicate: true, item: toView(item) } };
-    const chk = checkDecision(item, generationKey, verdict);
-    if (!chk.ok) return { http: chk.http as 400 | 409, body: { error: chk.message, code: chk.code } };
-    await tx.insert(meshAuditDecisions).values({
-      itemId: item.id,
-      sku: item.sku,
-      generationKey,
-      verdict,
-      manualAttemptNo: chk.attemptNo,
-      idemKey,
-      comment,
-    });
-    const [upd] = await tx
-      .update(meshAuditItems)
-      .set({ manualAttempts: chk.manualAttempts, status: chk.status, reworkStatus: "requested", reworkError: null, updatedAt: new Date() })
-      .where(eq(meshAuditItems.id, item.id))
-      .returning();
-    if (!upd) return { http: 404, body: { error: "карточка исчезла во время записи", code: "not_found" } };
-    return { http: 200, body: { ok: true, item: toView(upd) } };
+    return asResult(await decideTx(tx, item, { generationKey, verdict, idemKey, comment }));
   });
 }
 
-// Отмена случайного клика: последнее решение (с комментарием) по этому поколению удаляется из журнала, факт
-// отмены пишется append-only (конвейер откатит у себя), карточка возвращается в open и попытка
-// возвращается владельцу. Только пока переделка не ушла в снимок очереди.
+// Отмена случайного клика — правило в `repo-decisions-tx.cancelTx`.
 export async function cancel(itemId: number, generationKey: string): Promise<DecideResult> {
   return db().transaction(async (tx) => {
-    const [item] = await tx.select().from(meshAuditItems).where(eq(meshAuditItems.id, itemId)).for("update");
+    const item = await lockItem(tx, itemId);
     if (!item) return { http: 404, body: { error: "нет карточки", code: "not_found" } };
-    const [last] = await tx
-      .select()
-      .from(meshAuditDecisions)
-      .where(eq(meshAuditDecisions.itemId, item.id))
-      .orderBy(desc(meshAuditDecisions.id))
-      .limit(1);
-    if (!last || last.generationKey !== generationKey) return { http: 409, body: { error: "нечего отменять", code: "not_pending" } };
-    const chk = checkCancel(item, generationKey, last.verdict);
-    if (!chk.ok) return { http: chk.http, body: { error: chk.message, code: chk.code } };
-    await tx.insert(meshAuditCancellations).values({
-      decisionId: last.id,
-      itemId: item.id,
-      sku: item.sku,
-      generationKey,
-      verdict: last.verdict,
-      manualAttemptNo: last.manualAttemptNo,
-    });
-    await tx.delete(meshAuditDecisions).where(eq(meshAuditDecisions.id, last.id));
-    const [upd] = await tx
-      .update(meshAuditItems)
-      .set({ manualAttempts: chk.manualAttempts, status: "open", reworkStatus: null, reworkError: null, updatedAt: new Date() })
-      .where(eq(meshAuditItems.id, item.id))
-      .returning();
-    if (!upd) return { http: 404, body: { error: "карточка исчезла во время записи", code: "not_found" } };
-    return { http: 200, body: { ok: true, item: toView(upd) } };
+    return asResult(await cancelTx(tx, item, generationKey));
   });
+}
+
+function asResult(r: TxOk | TxFail): DecideResult {
+  return r.ok ? { http: 200, body: { ok: true, item: toView(r.item) } } : { http: r.http, body: { error: r.error, code: r.code } };
 }
 
 export async function listCancellations(afterId: number, limit = 200) {

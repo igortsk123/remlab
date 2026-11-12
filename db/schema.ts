@@ -222,6 +222,14 @@ export const meshAuditItems = pgTable(
     reworkError: text("rework_error"),
     redoneAt: timestamp("redone_at", { withTimezone: true }), // пришло новое поколение после переделки
     seenAt: timestamp("seen_at", { withTimezone: true }), // владелец открывал страницу с этой карточкой
+    // Страница проверки /lab/mesh-check (T-20261112-118, `db/init/035-mesh-audit-marks.sql`): текущее состояние по ТЕКУЩЕМУ
+    // поколению (новое поколение сбрасывает — `repo-items.upsertItems`); полная история — журналы mesh_audit_marks/notes.
+    posterHdUrl: text("poster_hd_url"), // снимок 1024 px для увеличения
+    mark: text("mark"), // ok | bad | null
+    markAt: timestamp("mark_at", { withTimezone: true }),
+    markBy: text("mark_by"),
+    note: text("note"), // последняя версия комментария
+    noteSeq: bigint("note_seq", { mode: "number" }), // её client_seq: поздняя старая версия не затирает новую
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -264,6 +272,50 @@ export const meshAuditCancellations = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("mesh_audit_cancellations_item_idx").on(t.itemId)],
+);
+
+// Журнал нажатий «ок»/«брак»/снятие на /lab/mesh-check (T-20261112-118, `db/init/035-mesh-audit-marks.sql`): append-only. Повтор
+// запроса — idem_key; не применённое нажатие (старая вкладка, модель заменена) тоже строка, applied=false. «Брак» ссылается на
+// созданное им решение (та же очередь переделки, что у /lab/mesh-audit).
+export const meshAuditMarks = pgTable(
+  "mesh_audit_marks",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    itemId: integer("item_id").notNull(),
+    sku: text("sku").notNull(),
+    generationKey: text("generation_key").notNull(),
+    mark: text("mark").notNull(), // ok | bad | clear
+    expected: text("expected"), // какую отметку видела вкладка
+    applied: boolean("applied").notNull().default(true),
+    reason: text("reason"), // stale | state_conflict | queued_kept
+    reviewer: text("reviewer").notNull(),
+    decisionId: integer("decision_id"),
+    cancelledDecisionId: integer("cancelled_decision_id"),
+    idemKey: text("idem_key").notNull().unique("mesh_audit_marks_idem_uq"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("mesh_audit_marks_item_idx").on(t.itemId, t.id)],
+);
+
+// Каждая версия комментария — строка. op_id: fetch, маяк закрытия вкладки и повтор одного пакета дают одну строку; версия старше
+// принятой (client_seq меньше) журналится с applied=false и текст не затирает.
+export const meshAuditNotes = pgTable(
+  "mesh_audit_notes",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    itemId: integer("item_id").notNull(),
+    sku: text("sku").notNull(),
+    generationKey: text("generation_key").notNull(),
+    body: text("body").notNull(), // как набрано; пустая строка — текст стёрт (тоже версия)
+    reviewer: text("reviewer").notNull(),
+    editorId: text("editor_id").notNull(),
+    clientSeq: bigint("client_seq", { mode: "number" }).notNull(),
+    applied: boolean("applied").notNull().default(true),
+    reason: text("reason"), // stale | older
+    opId: text("op_id").notNull().unique("mesh_audit_notes_op_uq"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("mesh_audit_notes_item_idx").on(t.itemId, t.id)],
 );
 
 export const meshAuditBatches = pgTable(

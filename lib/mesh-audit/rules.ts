@@ -56,6 +56,7 @@ export function checkDecision(item: ItemState, generationKey: string, verdict: V
     return { ok: true, attemptNo: item.manualAttempts + 1, manualAttempts: item.manualAttempts + 1, status: "redo_requested" };
   }
   if (item.status === "replace_needed") return { ok: false, http: 409, code: "pending", message: "уже помечен «нужна замена»" };
+  if (PENDING_STATUSES.has(item.status)) return { ok: false, http: 409, code: "pending", message: "уже на переделке" }; // Codex 12.11
   if (item.manualAttempts < MAX_MANUAL_REDO) return { ok: false, http: 400, code: "too_early", message: "сначала две переделки" };
   return { ok: true, attemptNo: item.manualAttempts + 1, manualAttempts: item.manualAttempts, status: "replace_needed" };
 }
@@ -99,6 +100,7 @@ export function reworkToItemStatus(rework: string): ItemStatus | null {
 // возвращает карточку в `open` (`repo-items.upsertItems`), так что приёмка не протекает на
 // следующую попытку. От этого правила зависит прополка болванок формы на DEV (ADR-0233):
 // болванка живёт, пока меш не принят, — иначе теряется рычаг перепокраски ADR-0145.
-export function isAccepted(item: { seenAt: Date | string | null; status: string }): boolean {
-  return item.seenAt !== null && item.seenAt !== undefined && item.status === "open";
+// «Брак» на /lab/mesh-check (T-20261112-118) снимает принятие; «ок» там прополку НЕ запускает — отметка обратима, прополка нет.
+export function isAccepted(item: { seenAt: Date | string | null; status: string; mark?: string | null }): boolean {
+  return item.seenAt !== null && item.seenAt !== undefined && item.status === "open" && item.mark !== "bad";
 }

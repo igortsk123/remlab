@@ -12,6 +12,10 @@
   ~/venvs/scout/bin/python mesh_audit_posters.py                 # всё, чего нет (бюджет 1 ч)
   ~/venvs/scout/bin/python mesh_audit_posters.py --budget 300    # шаг конвейера: 5 минут
   ~/venvs/scout/bin/python mesh_audit_posters.py --publish       # …и rsync постеров на прод
+  ~/venvs/scout/bin/python mesh_audit_posters.py --hd --limit 300 # снимки 1024 px для увеличения (/lab/mesh-check,
+                                                                  # T-20261112-118): порция, ночью под heavy-slot --cores 1 --long
+Снимок 1024 — тот же ракурс и фон, свой каталог `posters-hd` и свой замок: обычные постеры он не держит. Тот же файл
+`poster_name(gk)`, поэтому мост находит пару по ключу поколения (`mesh_audit_sync.current_items` → `posterHdUrl`).
 """
 import fcntl
 import os
@@ -21,11 +25,15 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-OUT = os.path.expanduser('~/scout-scenes/mesh-audit/posters')
-LOCK = os.path.expanduser('~/scout-scenes/mesh-audit/posters.lock')
-REMOTE = 'root@89.167.127.0:/opt/remlab/test/mesh-audit/posters/'
+HD = '--hd' in sys.argv
+OUT_SD = os.path.expanduser('~/scout-scenes/mesh-audit/posters')
+OUT_HD = os.path.expanduser('~/scout-scenes/mesh-audit/posters-hd')
+OUT = OUT_HD if HD else OUT_SD
+LOCK = os.path.expanduser('~/scout-scenes/mesh-audit/posters-hd.lock' if HD else '~/scout-scenes/mesh-audit/posters.lock')
+REMOTE = 'root@89.167.127.0:/opt/remlab/test/mesh-audit/posters-hd/' if HD else 'root@89.167.127.0:/opt/remlab/test/mesh-audit/posters/'
 CHUNK = int(os.environ.get('POSTER_CHUNK', '20'))
-SIZE = 320
+SIZE = 1024 if HD else 320
+QUALITY = 86 if HD else 85   # 1024: 42–64 КБ на модель (замер 12.11), на весь пул ≈ 150 МБ
 YAW, PITCH = 35.0, 12.0   # три четверти: видны фронт и бок — то, по чему владелец судит форму
 
 
@@ -34,9 +42,32 @@ def poster_name(generation_key: str) -> str:
     return generation_key.replace('|', '_').replace(':', '-') + '.jpg'
 
 
+# Порядок обхода страницы проверки — как разделы `lib/mesh-audit/sections.ts` (снимки 1024 нужны сперва тем, кого смотрят первыми)
+HD_ROLE_ORDER = ['диван', 'кресло', 'стул', 'столик', 'стол обеденный', 'тв-тумба', 'комод', 'шкаф', 'стеллаж', 'витрина',
+                 'стенка', 'пуф', 'кашпо', 'ваза', 'торшер', 'лампа', 'люстра', 'камин']
+
+
+def hd_order(items: list[dict]) -> list[str]:
+    """Ключи текущих поколений карточек страницы в порядке разделов, внутри — порядок карточек. Чистая функция (селфтест)."""
+    rank = {r: i for i, r in enumerate(HD_ROLE_ORDER)}
+    idx = sorted(range(len(items)), key=lambda i: (rank.get(items[i].get('role') or '', len(rank)), i))
+    return [items[i]['generationKey'] for i in idx]
+
+
+def _todo_hd() -> list[tuple[str, str]]:
+    """Только ТЕКУЩИЕ поколения карточек страницы (старые попытки увеличивать незачем), в порядке разделов."""
+    from mesh_audit_sync import current_items
+    from mesh_queue import db
+    paths = {r[0]: r[1] for r in db("select generation_key, path from mesh_generations") if len(r) == 2}
+    return [(gk, paths[gk]) for gk in hd_order(current_items())
+            if gk in paths and not os.path.exists(os.path.join(OUT, poster_name(gk)))]
+
+
 def _todo() -> list[tuple[str, str]]:
     """(generation_key, каталог) поколений без постера — по порядку регистрации."""
     from mesh_queue import db
+    if HD:
+        return _todo_hd()
     rows = db("select generation_key, path from mesh_generations order by generated_at, generation_key")
     return [(r[0], r[1]) for r in rows if len(r) == 2 and not os.path.exists(os.path.join(OUT, poster_name(r[0])))]
 
@@ -53,7 +84,7 @@ def render_one(generation_key: str, path: str) -> bool:
     bg.paste(im, (0, 0), im)
     dst = os.path.join(OUT, poster_name(generation_key))
     tmp = dst + '.tmp'
-    bg.save(tmp, 'JPEG', quality=85)
+    bg.save(tmp, 'JPEG', quality=QUALITY)
     os.replace(tmp, dst)
     return True
 
@@ -77,7 +108,18 @@ def publish() -> None:
     print('публикация постеров: ' + ('ok' if r.returncode == 0 else 'СБОЙ ' + r.stderr[-200:]), flush=True)
 
 
+def _selftest() -> int:
+    items = [{'generationKey': 'a', 'role': 'кашпо'}, {'generationKey': 'b', 'role': None}, {'generationKey': 'c', 'role': 'диван'},
+             {'generationKey': 'd', 'role': 'кашпо'}, {'generationKey': 'e', 'role': 'диван'}]
+    got = hd_order(items)
+    ok = got == ['c', 'e', 'a', 'd', 'b']
+    print(f'mesh_audit_posters selftest: порядок снимков 1024 {"ok" if ok else "ОШИБКА " + str(got)}')
+    return 0 if ok else 1
+
+
 def main() -> int:
+    if '--selftest' in sys.argv:
+        return _selftest()
     os.makedirs(OUT, exist_ok=True)
     if '--child' in sys.argv:
         return child(int(sys.argv[sys.argv.index('--child') + 1]))
@@ -88,9 +130,13 @@ def main() -> int:
         print('постеры уже рендерит другой процесс', flush=True)
         return 75
     budget = float(sys.argv[sys.argv.index('--budget') + 1]) if '--budget' in sys.argv else 3600.0
+    limit = int(sys.argv[sys.argv.index('--limit') + 1]) if '--limit' in sys.argv else None   # порция: не больше N за заход
     t0, total = time.time(), 0
     while time.time() - t0 < budget:
-        r = subprocess.run([sys.executable, os.path.abspath(__file__), '--child', str(CHUNK)],
+        n_child = CHUNK if limit is None else min(CHUNK, limit - total)
+        if n_child <= 0:
+            break
+        r = subprocess.run([sys.executable, os.path.abspath(__file__), '--child', str(n_child)] + (['--hd'] if HD else []),
                            capture_output=True, text=True, timeout=max(60, budget))
         n = 0
         for ln in r.stdout.splitlines():
@@ -101,8 +147,9 @@ def main() -> int:
         total += n
         if n == 0:
             break
-    print(f'постеры: отрисовано {total}, всего файлов {len(os.listdir(OUT))}, '
-          f'{(time.time() - t0) / 60:.1f} мин', flush=True)
+    dt = time.time() - t0
+    print(f'постеры{" 1024" if HD else ""}: отрисовано {total}, всего файлов {len(os.listdir(OUT))}, '
+          f'{dt / 60:.1f} мин' + (f', {dt / total:.1f} с на модель' if total else ''), flush=True)
     if '--publish' in sys.argv and total:
         publish()
     return 0

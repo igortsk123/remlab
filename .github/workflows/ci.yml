@@ -138,7 +138,7 @@ jobs:
           for t in projects generation_runs generation_steps generation_assets estimates \
                    link_clicks link_routes leads lead_messages style_results \
                    mesh_review_tasks mesh_review_decisions \
-                   mesh_audit_items mesh_audit_decisions mesh_audit_batches mesh_audit_cancellations \
+                   mesh_audit_items mesh_audit_decisions mesh_audit_batches mesh_audit_cancellations mesh_audit_marks mesh_audit_notes \
                    flat_configs trial_jobs trial_workers; do
             got=$(psql -h localhost -U remlab -d remlab -tAc "select to_regclass('public.$t')")
             [ "$got" = "$t" ] || { echo "НЕТ таблицы $t после применения db/init"; exit 1; }
@@ -295,7 +295,7 @@ jobs:
       # без него цикл падал «No module named 'PIL'» (T-20261106-95)
       - run: pip install pillow
       - run: |
-          for m in dim_resolver reflink stock_truth feed_guard load3 category_map page_alive stock_check footprint dim_audit dim_prior render_strategy salad/ingest_registry salad/prune_shapes salad/pool_ledger mesh_priority mesh_family tests_chain draft_guard draft_jobs demo_fill price_truth style_axes style_bench slot_rules pipeline_map salad/wave_guard mesh_quarantine bed_dims room_catalog upholstery orient_review heal_policy demo_swap_pool demo_band sofa_shape pool_gate photo_hash bank_paths compose_gates mesh_publish enrich set_identity bank_invariants bank_pending bank_ready mesh_decisions mesh_audit_sync bank_run bank_prepare bank_keep bank_promote tests_compose_dining bank_refresh room_bank_spec room_identity room_ready tests_refresh_order dimless sets_incremental db_migrate; do
+          for m in dim_resolver reflink stock_truth feed_guard load3 category_map page_alive stock_check footprint dim_audit dim_prior render_strategy salad/ingest_registry salad/prune_shapes salad/pool_ledger mesh_priority mesh_family tests_chain draft_guard draft_jobs demo_fill price_truth style_axes style_bench slot_rules pipeline_map salad/wave_guard mesh_quarantine bed_dims room_catalog upholstery orient_review heal_policy demo_swap_pool demo_band sofa_shape pool_gate photo_hash bank_paths compose_gates mesh_publish enrich set_identity bank_invariants bank_pending bank_ready mesh_decisions mesh_audit_sync mesh_audit_posters bank_run bank_prepare bank_keep bank_promote tests_compose_dining bank_refresh room_bank_spec room_identity room_ready tests_refresh_order dimless sets_incremental db_migrate; do
             echo "== $m --selftest"; python tools/scout/$m.py --selftest || exit 1
           done
       - run: python tools/scout/tests/test_bank_spec_golden.py   # банк гостиной через RoomBankSpec: вывод и файлы всех bank_* побайтно как до этапа Б (room-bank-01, T-20261106-67)

@@ -20,6 +20,12 @@ export interface AuditItemView {
   reworkError: string | null;
   redoneAt: string | null;
   seenAt: string | null;
+  // страница проверки /lab/mesh-check (T-20261112-118): текущее состояние по ТЕКУЩЕМУ поколению; журнал — mesh_audit_marks/notes
+  posterHdUrl: string | null; // снимок 1024 px для увеличения
+  mark: string | null; // ok | bad | null
+  markBy: string | null;
+  note: string | null;
+  noteSeq: number | null;
 }
 
 export interface BatchView {

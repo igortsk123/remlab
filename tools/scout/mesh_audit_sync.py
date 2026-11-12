@@ -37,6 +37,7 @@ CURSOR = os.path.join(STATE_DIR, 'decisions.cursor')
 PUSH_STATE = os.path.join(STATE_DIR, 'push-state.json')
 STUCK = os.path.join(STATE_DIR, 'decision-stuck.json')
 POSTERS = os.path.join(STATE_DIR, 'posters')
+POSTERS_HD = os.path.join(STATE_DIR, 'posters-hd')   # снимки 1024 для увеличения на /lab/mesh-check (T-20261112-118)
 STUCK_S = 1800
 PIPELINE_VERSION = os.environ.get('PIPELINE_VERSION', 'v1')
 
@@ -268,6 +269,7 @@ def current_items() -> list[dict]:
         item = {'sku': sku, 'generationKey': gk, 'revisionKey': f'{sku}|{sha16}|{PIPELINE_VERSION}',
                 'role': role or None, 'name': name or None, 'imageUrl': img or None,
                 'posterUrl': f'/test/mesh-audit/posters/{poster}' if os.path.exists(os.path.join(POSTERS, poster)) else None,
+                'posterHdUrl': f'/test/mesh-audit/posters-hd/{poster}' if os.path.exists(os.path.join(POSTERS_HD, poster)) else None,
                 'modelPath': f'{sku.replace(":", "_", 1)}/model.glb',
                 'seed': int(seed), 'attempt': int(n), 'generatedAt': gen_at, 'photoStale': fresh == 'stale',
                 'variantsNote': variants_note(name, variants.split('\x1e') if variants else [])}
@@ -343,13 +345,14 @@ def serve_batches() -> None:
 def publish_posters() -> None:
     """Инкрементальный rsync постеров (секунда-две, когда нового нет): карточка получает
     `posterUrl`, как только файл есть локально, — на проде он должен появиться тем же тиком."""
-    if not os.path.isdir(POSTERS):
-        return
-    r = subprocess.run(['rsync', '-aq', '-e', 'ssh -p 22222 -o BatchMode=yes -o ConnectTimeout=20',
-                        POSTERS + '/', 'root@89.167.127.0:/opt/remlab/test/mesh-audit/posters/'],
-                       capture_output=True, text=True, timeout=600)
-    if r.returncode != 0:
-        print(f'[audit] постеры не синхронизированы: {r.stderr.strip()[-160:]}', flush=True)
+    for local, remote in ((POSTERS, 'posters'), (POSTERS_HD, 'posters-hd')):
+        if not os.path.isdir(local):
+            continue
+        r = subprocess.run(['rsync', '-aq', '-e', 'ssh -p 22222 -o BatchMode=yes -o ConnectTimeout=20',
+                            local + '/', f'root@89.167.127.0:/opt/remlab/test/mesh-audit/{remote}/'],
+                           capture_output=True, text=True, timeout=600)
+        if r.returncode != 0:
+            print(f'[audit] {remote} не синхронизированы: {r.stderr.strip()[-160:]}', flush=True)
 
 
 def tick() -> None:
