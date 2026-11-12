@@ -42,18 +42,24 @@ ZONES = Path(__file__).resolve().parent.parent / "rules" / "zones.json"
 
 # известные kind — неизвестный в паспорте = ошибка схемы (Codex: «запретить неизвестные kind»)
 KINDS = {
-    "anchors": {"wall_segment", "corner", "window", "door", "niche", "zone_edge", "axis", "free_zone"},
+    "anchors": {"wall_segment", "corner", "window", "door", "niche", "zone_edge", "axis", "free_zone",
+                "stairs"},   # лестница в зале (прихожая H9, T-20261112-70); вход — door + qualifier entrance
     "predicates": {"side_access", "door_swing_clear", "route", "bed_sleep_width", "area_max", "aspect_min",
-                   "radiator_clear", "tv_visibility", "kitchen_zone_reserved", "dining_operational_envelope"},
+                   "radiator_clear", "tv_visibility", "kitchen_zone_reserved", "dining_operational_envelope",
+                   "clear_width", "near_entrance", "entry_landing_clear", "turn_clear"},
     "relations": {"no_storage_in_sleep_side_zone", "no_storage_in_sleep_or_work_access", "storage_front_radiator",
                   "no_wardrobe_small_square", "reserve_wall_for",
                   "media_opposite_primary_seat", "no_route_between_sofa_and_coffee", "children_follow_actual_carrier",
                   "curtains_follow_opening", "sofa_back_faces_kitchen_or_dining", "dining_pendant_follows_table",
                   "living_chandelier_follows_seating_zone", "kitchen_route_not_cut_by_seating", "corner_sofa_in_corner",
-                  "seating_along_long_wall"},
+                  "seating_along_long_wall",
+                  # прихожая (T-20261112-70): хранение не на стене с дверями; банкетка рядом с обувницей; консоль (с зеркалом)
+                  # напротив хранения в холле; зеркало не над вешалкой и не на проёме
+                  "storage_on_solid_wall", "seat_beside_shoe", "console_opposite_storage", "mirror_not_over_hanger",
+                  "single_primary_storage", "no_furniture_in_door_approach", "storage_in_l_branch"},
     "invariants": {"sku_dimensions_intact", "door_clear", "required_routes", "required_roles",
                    "required_groups_complete", "dependent_slots_have_carrier", "tv_visible", "no_silent_unplaced",
-                   "kitchen_clear", "dining_operational"},
+                   "kitchen_clear", "dining_operational", "storage_required"},
     "next_step": {"bed_sleep_width"},
 }
 # места на носителе — один набор на все комнаты (Codex carriers-answer § «Общий формат носителей»)
@@ -64,7 +70,10 @@ CARDINALITY = {"fixed", "by_carrier_width"}
 SYMMETRY = {"none", "balanced", "centered", "pair"}
 ON_FAILURE = {"reject_composition"}
 # условия комнаты: у уровня, места, модификатора и правила выбора. Числовые — через rule_ref, без чисел в паспорте
-WHEN = {"room_has_window", "room_has_bay", "kitchen", "annex", "area_min", "area_below", "aspect_min", "dining_budget"}
+WHEN = {"room_has_window", "room_has_bay", "kitchen", "annex", "area_min", "area_below", "aspect_min", "dining_budget",
+        "shape_l", "has_niche", "has_stairs", "door_dense", "squareish", "micro"}
+# флаги формы комнаты (прихожая, T-20261112-70): факт комнаты true/false, без чисел — `when_ok` читает facts[kind]
+WHEN_FLAGS = {"shape_l", "has_niche", "has_stairs", "door_dense", "squareish", "micro"}
 WHEN_NUMERIC = {"area_min", "area_below", "aspect_min"}
 
 # ЗАКРЫТЫЙ реестр geometry_ref: ключ → кто ставит крупную мебель в старом движке гостиной. Произвольный символ Python в
@@ -588,7 +597,9 @@ def count_by_width(rule: dict, width_cm: float) -> int:
 
 def when_ok(conds: list | None, facts: dict) -> bool:
     """Условия комнаты выполнены? facts: area_m2, aspect, kitchen, annex, has_window, has_bay, dining_budget
-    (нет — считается по area_m2). Неизвестный факт — условие не выполнено."""
+    (нет — считается по area_m2), прихожая — флаги формы `WHEN_FLAGS` (shape_l, has_niche, has_stairs, door_dense,
+    squareish, micro).
+    Неизвестный факт — условие не выполнено."""
     for c in conds or []:
         k = c.get("kind")
         if k in WHEN_NUMERIC:
@@ -607,7 +618,7 @@ def when_ok(conds: list | None, facts: dict) -> bool:
         elif k in ("room_has_window", "room_has_bay"):
             if not facts.get("has_window" if k == "room_has_window" else "has_bay"):
                 return False
-        elif k in ("kitchen", "annex"):
+        elif k in ("kitchen", "annex") or k in WHEN_FLAGS:
             if not facts.get(k):
                 return False
         else:

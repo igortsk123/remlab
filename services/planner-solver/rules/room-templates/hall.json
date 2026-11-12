@@ -1,0 +1,3859 @@
+{
+ "schema_version": "room-composition/1",
+ "unit": "cm",
+ "room_type": "hall",
+ "_meta": {
+  "source": "manual (T-20261112-70) + _intake/codex/2026-11-12-hall-templates-answer.md (каталог H1–H9, ветки хранения)",
+  "about": "ТЕНЬ: паспорт для листов tools/scout/hall_schemes.py и показа владельцу; движок planner/hall.py его НЕ читает.",
+  "_why": "Хранение — ветка шаблона (CS купе, CH распашной, M модуль, OW открытая вешалка), не ступень: проданный шкаф молча не превращается в вешалку. Внутри ветки уступки только целыми составами: консоль → банкетка → зеркало → обувница → отказ (Codex § 3). H7 «ниша заподлицо» — надстройка к закрытым веткам H1–H6. Флаги формы (shape_l, door_dense, squareish, micro, has_stairs, has_niche) считает вызывающий код; их пороги — продуктовые классификаторы до ключей occupancy.json (список — отчёт T-70)."
+ },
+ "groups": {
+  "storage": {
+   "roles": [
+    "шкаф-купе",
+    "шкаф",
+    "прихожая",
+    "вешалка"
+   ],
+   "variants": {
+    "sliding": {
+     "slots": [
+      {
+       "id": "wardrobe",
+       "role": "шкаф-купе"
+      }
+     ]
+    },
+    "hinged": {
+     "slots": [
+      {
+       "id": "wardrobe",
+       "role": "шкаф"
+      }
+     ]
+    },
+    "module": {
+     "slots": [
+      {
+       "id": "module",
+       "role": "прихожая"
+      }
+     ]
+    },
+    "open": {
+     "slots": [
+      {
+       "id": "hanger",
+       "role": "вешалка"
+      }
+     ]
+    },
+    "niche": {
+     "slots": [
+      {
+       "id": "wardrobe",
+       "role": "шкаф-купе",
+       "label": "купе в нише заподлицо"
+      }
+     ]
+    }
+   }
+  },
+  "shoe": {
+   "roles": [
+    "обувница"
+   ],
+   "variants": {
+    "cabinet": {
+     "slots": [
+      {
+       "id": "cabinet",
+       "role": "обувница"
+      }
+     ]
+    }
+   }
+  },
+  "seat": {
+   "roles": [
+    "банкетка"
+   ],
+   "variants": {
+    "bench": {
+     "slots": [
+      {
+       "id": "bench",
+       "role": "банкетка"
+      }
+     ]
+    }
+   }
+  },
+  "console": {
+   "roles": [
+    "консоль"
+   ],
+   "variants": {
+    "table": {
+     "slots": [
+      {
+       "id": "table",
+       "role": "консоль"
+      }
+     ]
+    }
+   }
+  },
+  "mirror": {
+   "roles": [
+    "зеркало"
+   ],
+   "variants": {
+    "over_low": {
+     "dependents": [
+      {
+       "id": "mirror",
+       "role": "зеркало",
+       "carrier": {
+        "one_of": [
+         "shoe.cabinet",
+         "console.table",
+         "seat.bench"
+        ]
+       },
+       "anchor": {
+        "kind": "wall_above"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "on_failure": "reject_composition"
+      }
+     ]
+    },
+    "wall": {
+     "slots": [
+      {
+       "id": "mirror",
+       "role": "зеркало"
+      }
+     ]
+    }
+   }
+  }
+ },
+ "order": [
+  "storage",
+  "shoe",
+  "mirror",
+  "seat",
+  "console"
+ ],
+ "templates": [
+  {
+   "id": "H1.CS",
+   "label": "H1 · одна глубокая стена · купе",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 20,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "sliding"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "storage_on_solid_wall"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "купе + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "купе + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "купе + обувница + зеркало",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "купе + обувница",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только купе верхней одежды",
+     "use": {
+      "storage": "sliding"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H1.CH",
+   "label": "H1 · одна глубокая стена · распашной шкаф",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 21,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "hinged"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "storage_on_solid_wall"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "распашной шкаф + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "распашной шкаф + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "распашной шкаф + обувница + зеркало",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "распашной шкаф + обувница",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только распашной шкаф верхней одежды",
+     "use": {
+      "storage": "hinged"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H1.M",
+   "label": "H1 · одна глубокая стена · модуль «прихожая»",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 22,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "module"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "storage_on_solid_wall"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "модуль «прихожая» + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "модуль «прихожая» + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "модуль «прихожая» + обувница + зеркало",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "модуль «прихожая» + обувница",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только модуль «прихожая» верхней одежды",
+     "use": {
+      "storage": "module"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H1.OW",
+   "label": "H1 · одна глубокая стена · открытая вешалка",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 23,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "open"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "открытая вешалка + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "открытая вешалка + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "открытая вешалка + обувница + зеркало",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "открытая вешалка + обувница",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только открытая вешалка верхней одежды",
+     "use": {
+      "storage": "open"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H2.OW",
+   "label": "H2 · узкая линия · открытая вешалка",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 40,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "open"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "открытая вешалка + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "открытая вешалка + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "открытая вешалка + обувница + зеркало",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "открытая вешалка + обувница",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только открытая вешалка верхней одежды",
+     "use": {
+      "storage": "open"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H2.M",
+   "label": "H2 · узкая линия · модуль «прихожая»",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 41,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "module"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "storage_on_solid_wall"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "модуль «прихожая» + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "модуль «прихожая» + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "модуль «прихожая» + обувница + зеркало",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "модуль «прихожая» + обувница",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только модуль «прихожая» верхней одежды",
+     "use": {
+      "storage": "module"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H3.CS",
+   "label": "H3 · дверной коридор, продольные карманы · купе",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 15,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "sliding"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "storage_on_solid_wall"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "купе + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "купе + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "купе + обувница + зеркало",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "купе + обувница",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только купе верхней одежды",
+     "use": {
+      "storage": "sliding"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H3.CH",
+   "label": "H3 · дверной коридор, продольные карманы · распашной шкаф",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 16,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "hinged"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "storage_on_solid_wall"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "распашной шкаф + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "распашной шкаф + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "распашной шкаф + обувница + зеркало",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "распашной шкаф + обувница",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только распашной шкаф верхней одежды",
+     "use": {
+      "storage": "hinged"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H3.M",
+   "label": "H3 · дверной коридор, продольные карманы · модуль «прихожая»",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 17,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "module"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "storage_on_solid_wall"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "модуль «прихожая» + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "модуль «прихожая» + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "модуль «прихожая» + обувница + зеркало",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "модуль «прихожая» + обувница",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только модуль «прихожая» верхней одежды",
+     "use": {
+      "storage": "module"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H3.OW",
+   "label": "H3 · дверной коридор, продольные карманы · открытая вешалка",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 18,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "open"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "открытая вешалка + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "открытая вешалка + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "открытая вешалка + обувница + зеркало",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "открытая вешалка + обувница",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только открытая вешалка верхней одежды",
+     "use": {
+      "storage": "open"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H4.CS",
+   "label": "H4 · две стены просторного холла · купе",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 10,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "sliding"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "storage_on_solid_wall"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    },
+    {
+     "kind": "console_opposite_storage"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "купе + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "купе + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "купе + обувница + зеркало",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "купе + обувница",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только купе верхней одежды",
+     "use": {
+      "storage": "sliding"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H4.CH",
+   "label": "H4 · две стены просторного холла · распашной шкаф",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 11,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "hinged"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "storage_on_solid_wall"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    },
+    {
+     "kind": "console_opposite_storage"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "распашной шкаф + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "распашной шкаф + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "распашной шкаф + обувница + зеркало",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "распашной шкаф + обувница",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только распашной шкаф верхней одежды",
+     "use": {
+      "storage": "hinged"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H4.M",
+   "label": "H4 · две стены просторного холла · модуль «прихожая»",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 12,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "module"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "storage_on_solid_wall"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    },
+    {
+     "kind": "console_opposite_storage"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "модуль «прихожая» + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "модуль «прихожая» + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "модуль «прихожая» + обувница + зеркало",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "модуль «прихожая» + обувница",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только модуль «прихожая» верхней одежды",
+     "use": {
+      "storage": "module"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H5.CS",
+   "label": "H5 · компактный угловой холл · купе",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 12,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "corner"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "sliding"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "storage_on_solid_wall"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "купе + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "купе + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "купе + обувница + зеркало",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "купе + обувница",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только купе верхней одежды",
+     "use": {
+      "storage": "sliding"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H5.CH",
+   "label": "H5 · компактный угловой холл · распашной шкаф",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 13,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "corner"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "hinged"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "storage_on_solid_wall"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "распашной шкаф + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "распашной шкаф + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "распашной шкаф + обувница + зеркало",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "распашной шкаф + обувница",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только распашной шкаф верхней одежды",
+     "use": {
+      "storage": "hinged"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H5.M",
+   "label": "H5 · компактный угловой холл · модуль «прихожая»",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 14,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "corner"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "module"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "storage_on_solid_wall"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "модуль «прихожая» + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "модуль «прихожая» + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "модуль «прихожая» + обувница + зеркало",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "модуль «прихожая» + обувница",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только модуль «прихожая» верхней одежды",
+     "use": {
+      "storage": "module"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H5.OW",
+   "label": "H5 · компактный угловой холл · открытая вешалка",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 15,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "corner"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "open"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "открытая вешалка + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "открытая вешалка + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "открытая вешалка + обувница + зеркало",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "открытая вешалка + обувница",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только открытая вешалка верхней одежды",
+     "use": {
+      "storage": "open"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H6.CS",
+   "label": "H6 · Г-образная: хранение в тупиковой ноге · купе",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 12,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ],
+     "relation": "dead_end_leg"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    },
+    {
+     "kind": "turn_clear",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "sliding"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "storage_on_solid_wall"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    },
+    {
+     "kind": "storage_in_l_branch"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "купе + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "купе + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "купе + обувница + зеркало",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "купе + обувница",
+     "use": {
+      "storage": "sliding",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только купе верхней одежды",
+     "use": {
+      "storage": "sliding"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H6.CH",
+   "label": "H6 · Г-образная: хранение в тупиковой ноге · распашной шкаф",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 13,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ],
+     "relation": "dead_end_leg"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    },
+    {
+     "kind": "turn_clear",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "hinged"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "storage_on_solid_wall"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    },
+    {
+     "kind": "storage_in_l_branch"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "распашной шкаф + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "распашной шкаф + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "распашной шкаф + обувница + зеркало",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "распашной шкаф + обувница",
+     "use": {
+      "storage": "hinged",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только распашной шкаф верхней одежды",
+     "use": {
+      "storage": "hinged"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H6.M",
+   "label": "H6 · Г-образная: хранение в тупиковой ноге · модуль «прихожая»",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 14,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ],
+     "relation": "dead_end_leg"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    },
+    {
+     "kind": "turn_clear",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "module"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "storage_on_solid_wall"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    },
+    {
+     "kind": "storage_in_l_branch"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "модуль «прихожая» + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "модуль «прихожая» + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "модуль «прихожая» + обувница + зеркало",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "модуль «прихожая» + обувница",
+     "use": {
+      "storage": "module",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только модуль «прихожая» верхней одежды",
+     "use": {
+      "storage": "module"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H6.OW",
+   "label": "H6 · Г-образная: хранение в тупиковой ноге · открытая вешалка",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 15,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "relation": "dead_end_leg"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    },
+    {
+     "kind": "turn_clear",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "open"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    },
+    {
+     "kind": "storage_in_l_branch"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "открытая вешалка + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "открытая вешалка + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "открытая вешалка + обувница + зеркало",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "открытая вешалка + обувница",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только открытая вешалка верхней одежды",
+     "use": {
+      "storage": "open"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H8.OW",
+   "label": "H8 · микро-тамбур · открытая вешалка",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 50,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "open"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    }
+   ],
+   "levels": [
+    {
+     "id": "C",
+     "label": "открытая вешалка + обувница + зеркало",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "открытая вешалка + обувница",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только открытая вешалка верхней одежды",
+     "use": {
+      "storage": "open"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H9.OW",
+   "label": "H9 · UK hall с лестницей · открытая вешалка",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 8,
+   "anchors": {
+    "entrance": {
+     "type": "door",
+     "qualifiers": [
+      "entrance"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment"
+    },
+    "stairs": {
+     "type": "stairs"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "rule_ref": "distances_cm.hall_passage_min",
+     "from": "entrance",
+     "to": [
+      "doors",
+      "item_fronts"
+     ]
+    },
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.passage_secondary_comfort"
+    },
+    {
+     "kind": "entry_landing_clear",
+     "rule_ref": "distances_cm.hall_entry_depth"
+    },
+    {
+     "kind": "near_entrance",
+     "rule_ref": "distances_cm.hall_shoe_entry_max",
+     "of": "shoe"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "open"
+     ],
+     "required": true
+    },
+    {
+     "id": "shoe",
+     "variants": [
+      "cabinet"
+     ]
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "over_low"
+     ]
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ]
+    },
+    {
+     "id": "console",
+     "variants": [
+      "table"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    },
+    {
+     "kind": "mirror_not_over_hanger"
+    },
+    {
+     "kind": "no_furniture_in_door_approach"
+    },
+    {
+     "kind": "seat_beside_shoe",
+     "rule_ref": "distances_cm.bench_legroom"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "label": "открытая вешалка + обувница + зеркало + банкетка + консоль",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench",
+      "console": "table"
+     }
+    },
+    {
+     "id": "B",
+     "label": "открытая вешалка + обувница + зеркало + банкетка",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet",
+      "mirror": "over_low",
+      "seat": "bench"
+     }
+    },
+    {
+     "id": "C",
+     "label": "открытая вешалка + обувница + зеркало",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet",
+      "mirror": "over_low"
+     }
+    },
+    {
+     "id": "D",
+     "label": "открытая вешалка + обувница",
+     "use": {
+      "storage": "open",
+      "shoe": "cabinet"
+     }
+    },
+    {
+     "id": "E",
+     "label": "только открытая вешалка верхней одежды",
+     "use": {
+      "storage": "open"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "storage_required",
+    "no_silent_unplaced"
+   ]
+  },
+  {
+   "id": "H7",
+   "label": "H7 · ниша заподлицо — надстройка: закрытое хранение уходит в нишу, путь — от плоскости фасада",
+   "purpose": [
+    "hall"
+   ],
+   "priority": 100,
+   "modifier": true,
+   "applies_to": [
+    "H1.CS",
+    "H1.CH",
+    "H3.CS",
+    "H3.CH",
+    "H4.CS",
+    "H4.CH",
+    "H5.CS",
+    "H5.CH",
+    "H6.CS",
+    "H6.CH"
+   ],
+   "on_no_level": "keep_base",
+   "anchors": {
+    "niche": {
+     "type": "niche"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "clear_width",
+     "rule_ref": "distances_cm.hall_passage_comfort"
+    }
+   ],
+   "groups": [
+    {
+     "id": "storage",
+     "variants": [
+      "niche"
+     ]
+    }
+   ],
+   "relations": [
+    {
+     "kind": "single_primary_storage"
+    }
+   ],
+   "levels": [
+    {
+     "id": "N",
+     "label": "купе в нише вместо шкафа у стены",
+     "when": [
+      {
+       "kind": "has_niche"
+      }
+     ],
+     "use": {
+      "storage": "niche"
+     }
+    }
+   ]
+  }
+ ],
+ "selection": [
+  {
+   "when": [
+    {
+     "kind": "has_stairs"
+    }
+   ],
+   "order": [
+    "H9.OW",
+    "H2.OW",
+    "H2.M",
+    "H8.OW"
+   ],
+   "label": "лестница в зале — UK hall"
+  },
+  {
+   "when": [
+    {
+     "kind": "micro"
+    }
+   ],
+   "order": [
+    "H8.OW",
+    "H2.OW",
+    "H2.M"
+   ],
+   "label": "микро-тамбур"
+  },
+  {
+   "when": [
+    {
+     "kind": "shape_l"
+    }
+   ],
+   "order": [
+    "H6.CS",
+    "H6.CH",
+    "H6.M",
+    "H6.OW",
+    "H1.CS",
+    "H1.CH",
+    "H1.M",
+    "H1.OW",
+    "H2.OW",
+    "H2.M",
+    "H8.OW"
+   ],
+   "label": "Г-образная"
+  },
+  {
+   "when": [
+    {
+     "kind": "door_dense"
+    }
+   ],
+   "order": [
+    "H3.CS",
+    "H3.CH",
+    "H3.M",
+    "H3.OW",
+    "H1.CS",
+    "H1.CH",
+    "H1.M",
+    "H1.OW",
+    "H2.OW",
+    "H2.M",
+    "H8.OW"
+   ],
+   "label": "много дверей на обеих длинных стенах"
+  },
+  {
+   "when": [
+    {
+     "kind": "squareish"
+    }
+   ],
+   "order": [
+    "H5.CS",
+    "H5.CH",
+    "H5.M",
+    "H5.OW",
+    "H4.CS",
+    "H4.CH",
+    "H4.M",
+    "H1.CS",
+    "H1.CH",
+    "H1.M",
+    "H1.OW",
+    "H2.OW",
+    "H2.M",
+    "H8.OW"
+   ],
+   "label": "почти квадратная малая"
+  },
+  {
+   "when": [],
+   "order": [
+    "H4.CS",
+    "H4.CH",
+    "H4.M",
+    "H1.CS",
+    "H1.CH",
+    "H1.M",
+    "H1.OW",
+    "H3.CS",
+    "H3.CH",
+    "H3.M",
+    "H3.OW",
+    "H2.OW",
+    "H2.M",
+    "H8.OW"
+   ],
+   "label": "прочие"
+  }
+ ]
+}
