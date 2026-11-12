@@ -96,14 +96,24 @@ mesh_demand_ready() {          # mesh_demand_ready <шаг…> — итоги п
   printf -v now '%(%F %T)T' -1
   mkdir -p "$(dirname "$DEMAND_READY")" && echo "$now$s" > "$DEMAND_READY.tmp" && mv -f "$DEMAND_READY.tmp" "$DEMAND_READY"
 }
-publish_status() {             # атомарно: локально .tmp→mv уже сделано; на прод — во временный файл и mv
-  local target="${STATUS_PUBLISH:-root@89.167.127.0:/opt/remlab/test/status/refresh-status.json}"
+publish_status() {             # publish_status [файл] (по умолчанию $STATUS); атомарно: на прод — во временный файл и mv
+  local src="${1:-$STATUS}" target="${STATUS_PUBLISH:-root@89.167.127.0:/opt/remlab/test/status/refresh-status.json}"
   if [[ "$target" == *:* ]]; then
     local host="${target%%:*}" path="${target#*:}"
-    timeout 60 scp -q "$STATUS" "$host:$path.tmp" && timeout 30 ssh "$host" "mv -f '$path.tmp' '$path'"
+    timeout 60 scp -q "$src" "$host:$path.tmp" && timeout 30 ssh "$host" "mv -f '$path.tmp' '$path'"
   else
-    cp "$STATUS" "$target.tmp" && mv -f "$target.tmp" "$target"
+    cp "$src" "$target.tmp" && mv -f "$target.tmp" "$target"
   fi
+}
+# СТАТУС «ИДЁТ» — НА ПРОД СРАЗУ ПОСЛЕ СТАРТА (T-20261112-56/2): прогон кончается после 15:30, а прод-сторож
+# (`infra/server/scripts/catalog-watchdog.sh`, таймер 15:30 UTC) видел только вчерашний статус и каждый день слал ложное «НЕ
+# СОСТОЯЛСЯ». Теперь он видит `overall: running` с сегодняшней датой и ждёт конца прогона (его статус пишет finish()). Локальный
+# refresh-status.json не трогаем (его читают `pipeline_snapshot.py` и др. — там последний ЗАКОНЧЕННЫЙ прогон); файл «идёт» —
+# отдельный, перезаписывается каждый день. Не опубликовался — строка в лог, прогон идёт дальше.
+status_running() {
+  local f="$HOME/.cache/remlab-refresh/status-running.json"
+  printf '{"date": "%s", "started_at": "%s", "overall": "running", "host": "%s", "pid": %d}\n' \
+    "$today" "$STARTED" "${HOSTNAME:-?}" "$$" > "$f.tmp" && mv -f "$f.tmp" "$f" && publish_status "$f"
 }
 finish() {                     # статус пишем ВСЕГДА, даже если шаг упал; JSON собирает python, не printf
   local rc=$?
@@ -146,6 +156,7 @@ products_count() {
 trap finish EXIT
 
 echo "=== $(date '+%F %T') старт ===" >> "$LOG"
+status_running >> "$LOG" 2>&1 || echo "WARN:status_running: статус «идёт» не опубликован на прод (сторож в 15:30 может прислать «не состоялся»)" >> "$LOG"
 
 # 0. База должна быть жива — иначе весь прогон бессмыслен
 if ! docker exec remlab-devdb pg_isready -U remlab >/dev/null 2>&1; then

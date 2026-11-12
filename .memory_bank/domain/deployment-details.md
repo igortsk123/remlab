@@ -81,7 +81,11 @@ remlab-app:prev` не срабатывала ни разу — сервер тя
 
 - **Каталог (ADR-0172):** `remlab-catalog-watchdog.timer` 15:30 UTC — нет сегодняшнего статуса в
   `refresh-status.json` или `overall=FAIL` → Telegram. Kill-switch `DISABLED`, откат
-  `systemctl disable --now`; юниты — `infra/server/systemd/`.
+  `systemctl disable --now`; юниты — `infra/server/systemd/`. С 12.11 (T-20261112-56/2): `refresh_daily.sh:status_running`
+  сразу после старта публикует `overall: running`; сторож (`infra/server/scripts/catalog-watchdog.sh:main`) на сегодняшнем
+  running ждёт конца (опрос 10 мин, срок started_at + 10 ч → «идёт дольше»), а не шлёт ложное «НЕ СОСТОЯЛСЯ». Скрипт едет на
+  прод с CI-выкладкой (`.github/workflows/deploy.yml` scp в `/opt/remlab/scripts/`); юниты — вручную. Тест —
+  `tools/scout/tests/test_catalog_watchdog.py`.
 - **Диск и очистка (ADR-0005/0176):** `remlab-cleanup` weekly + из CI (теги `remlab-app:*` кроме
   используемых, под flock); `pg_dump` ×7; `remlab-watchdog.timer` ежечасно: ≥80% → cleanup →
   Telegram; рестарты `remlab-app` → `backups/app-mem.log`. Системный журнал прода ограничен 1 ГБ
