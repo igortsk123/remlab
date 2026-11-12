@@ -241,6 +241,29 @@ def test_doorless_room_shared_candidate_serves_both(monkeypatch):
     assert [a[0] for a in added] == [2] and r['gaps'][1].kind == 'window'
 
 
+def test_pocket_door_trimmed_to_mouth_at_room():
+    """T-11/7 (rgK5f3 p4 Cellar): наружная дверь, залившая карман 1,1 м (33 px при 30 px/м) между фоном листа слева и
+    комнатой справа, — полоса у пола комнаты (середина у её стены), остаток кармана — стена. Мелкая (в толщине стены) — как была."""
+    H, W = 80, 120
+    wall = np.zeros((H, W), np.uint8)
+    wall[10:70, 40:44] = 1                                           # стена комнаты (справа от x=44 — пол)
+    wall[10:14, 0:44] = wall[66:70, 0:44] = 1                        # стенки кармана; слева он открыт на фон
+    wall[14:20, 5:40] = wall[60:66, 5:40] = 1
+    outside = np.zeros((H, W), np.uint8)
+    outside[:, 0:5] = 1
+    lab_g = np.zeros((H, W), np.int32)
+    lab_g[20:60, 5:40] = 1                                           # карман: 35 px вглубь (1,17 м), 40 px поперёк
+    lab_g[0:10, 60:70] = 2                                           # мелкая наружная дверь в стене
+    gaps = [fc.regap(fc.Gap(1, 0, 0, 0, 0, 'door', 0.0, True, (0, 0, 0, 0)), *np.nonzero(lab_g == 1)),
+            fc.regap(fc.Gap(2, 0, 0, 0, 0, 'door', 0.0, True, (0, 0, 0, 0)), *np.nonzero(lab_g == 2))]
+    wall[20:60, 40:44] = 0                                           # проём кармана в комнату
+    d2 = gaps[1].depth
+    out = bench.pocket_mouths(gaps, lab_g, wall, outside, 4.0, 30.0)
+    assert [o[0] for o in out] == [1]
+    assert gaps[0].kind == 'door' and gaps[0].depth <= 6 and gaps[0].cx > 30           # у стены комнаты (x 40..43)
+    assert gaps[2].kind == 'wall' and (lab_g == gaps[2].id).sum() > 0 and gaps[1].depth == d2
+
+
 def test_window_with_arrow_becomes_door():
     """T-11/6 (rgK5f3 p4 Cellar): стрелка (вход, лестница) в «окне» или вплотную (2 px) — дверь; окно без стрелки и дальше
     2 px — окно; дверь не трогаем."""

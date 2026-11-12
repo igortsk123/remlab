@@ -700,6 +700,37 @@ DOORLESS = os.environ.get('FP_DOORLESS', '1') != '0'       # T-11/3: запас�
 BAY_OLD = os.environ.get('FP_BAY_OLD', '1') != '0'         # T-11/3: дверь у «эркера» — прежнее правило (`bay_windows`); 0 — с «чистотой»
 DOORLESS_TOL_M = 0.3    # проём «у комнаты» — не дальше от её пола (как ROOM_TOL_CM сравнения `regress`)
 ARROW_WIN = os.environ.get('FP_ARROW_WIN', '1') != '0'     # T-11/6: «окно» у стрелки — дверь (`arrow_windows`); 0 — как было
+POCKET_MOUTH = os.environ.get('FP_POCKET_MOUTH', '1') != '0'   # T-11/7: наружная дверь-карман — до устья (`pocket_mouths`)
+POCKET_MOUTH_M = 0.5    # глубже — разрыв залил нишу/карман целиком, а не проём в толщине стены
+
+
+def pocket_mouths(gaps, lab_g, wall, outside, t, ppm) -> list:
+    """T-11/7: наружная дверь, залившая нишу/карман глубже POCKET_MOUTH_M (вход с лестницы в нише, крыльцо), — только её
+    «устье» у пола комнаты (`fpcore.mouth_strip`; фон листа считается стеной, чтобы устье не легло на наружную сторону); остаток
+    кармана — стена. Иначе середина двери в середине кармана, дальше допуска от контура комнаты: в туре и в `regress` у комнаты
+    нет входа (rgK5f3 p4 Cellar). Правит gaps/lab_g на месте → [(id двери, глубина до, глубина после)], px."""
+    blocked = ((wall > 0) | (outside > 0)).astype(np.uint8)
+    out = []
+    for g in list(gaps):
+        if g.kind != 'door' or not g.exterior or g.depth < POCKET_MOUTH_M * ppm:
+            continue
+        m = lab_g == g.id
+        mm = fc.mouth_strip(m, blocked, t)
+        if mm is None:
+            continue
+        ys2, xs2 = mm
+        keep = np.zeros(m.shape, bool)
+        keep[ys2, xs2] = True
+        rest = m & ~keep
+        if not rest.any() or len(ys2) < 3:
+            continue
+        d0 = g.depth
+        nid = int(lab_g.max()) + 1
+        lab_g[rest] = nid
+        gaps.append(fc.regap(dataclasses.replace(g, id=nid, kind='wall'), *np.nonzero(rest)))
+        fc.regap(g, ys2, xs2)
+        out.append((g.id, round(d0, 1), round(g.depth, 1)))
+    return out
 
 
 def arrow_windows(gaps, lab_g, arrows, t) -> list:
@@ -1823,6 +1854,8 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
                          POCKET_W_M * ppm)
         if arrows is not None and ARROW_WIN:           # T-11/6: «окно» со стрелкой (вход, лестница) — дверь
             arrow_windows(r['gaps'], r['lab_g'], arrows[Y0:Y1, X0:X1], t)
+        if POCKET_MOUTH:                               # T-11/7: дверь, залившая карман, — до устья у комнаты
+            pocket_mouths(r['gaps'], r['lab_g'], r['wall'], r['outside'], t, ppm)
         doorless = doorless_doors(r, ppm)              # T-11/3: комнате без дверей — лучшая дверь прежнего правила
         hit, obs = match_gold(r, groom, fams, core=True)
         fit = fc.fit_scale(obs)
