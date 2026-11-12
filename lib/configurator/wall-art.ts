@@ -7,6 +7,7 @@
 import type { Apartment, Room } from "@/contracts/apartment";
 import { DEFAULT_CEILING_CM } from "@/contracts/apartment";
 import rulesJson from "@/data/flat3d/wall-art.json";
+import { CURTAIN_OVERHANG_CM } from "@/lib/configurator/curtains";
 import type { ResolvedItem } from "@/lib/configurator/resolve";
 import { alongOf, backWall, footprint, onWall, overlaps, stripRect, swingZones, wallLength, WALL_INSET_CM } from "@/lib/configurator/wall-art-geo";
 
@@ -49,8 +50,9 @@ function hangOver(room: Room, sup: ResolvedItem, art: ResolvedItem[], others: Re
   const tallest = Math.max(...art.map((i) => i.placement.hCm));
   const bottom = (sup.placement.elevCm ?? 0) + sup.placement.hCm + (r.above_cm[baseRole(sup.photoRole)] ?? r.above_cm["*"] ?? 22);
   if (bottom + tallest > (room.heightCm || DEFAULT_CEILING_CM) - r.ceiling_gap_cm) return null;
-  const clear = r.opening_clear_cm;
-  if (room.openings.some((o) => o.wall === wall && o.offsetCm - clear < a1 && a0 < o.offsetCm + o.widthCm + clear)) return null;
+  // у окна и балконного блока висит штора — картина не должна уйти за полотно (T-20261112-26/2)
+  const clear = (k: string): number => r.opening_clear_cm + (k === "window" || k === "balcony" ? CURTAIN_OVERHANG_CM : 0);
+  if (room.openings.some((o) => o.wall === wall && o.offsetCm - clear(o.kind) < a1 && a0 < o.offsetCm + o.widthCm + clear(o.kind))) return null;
   const depth = Math.max(...art.map((i) => i.placement.dCm)) + WALL_INSET_CM;
   const strip = stripRect(room, wall, a0, a1, depth);
   if (swingZones(room).some((z) => overlaps(z, strip))) return null;
@@ -92,6 +94,7 @@ export function placeWallArt(a: Apartment, items: ResolvedItem[], rules: WallArt
         g.forEach((i, k) => {
           const s = spots[k]!;
           i.placement = { ...i.placement, x: s.x, y: s.y, rot: s.rot, elevCm: s.elev };
+          i.hungOver = role;   // подпись страницы «над кроватью» — отсюда (`demo-scene.ts:wallArtWhere`)
           delete i.unplaced;
         });
         return true;

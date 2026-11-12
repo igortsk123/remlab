@@ -5507,7 +5507,11 @@ function isSoft(role){ return (((D&&D.rules)||{}).soft_roles||SOFT_DEF).includes
 // КАРТИНА (viz-decor-01 шаг 3, T-20261112-26): товар каталога в декоре варианта (`wall_art.py`), висит на стене над кроватью,
 // иначе диваном, иначе комодом — место считает живая сцена от текущей опоры (`lib/configurator/wall-art.ts`); на столешницу не идёт
 function isWallArt(x){ return !!x&&(x.strategy==='procedural_plane'||String(x.role||'').replace(/\s+\d+$/,'')==='картина'); }
-const ART_SUPPORTS=['кровать','диван','комод'];
+// где висит — ТОТ ЖЕ расчёт, что строит 3D (`demo-scene.ts:wallArtWhere`, T-20261112-26/2): роль картины → опора или null (места нет)
+const ART_OVER={'кровать':'кроватью','диван':'диваном','комод':'комодом'};
+function artWhere(){ const M=window.RemlabScene;
+  if(!M||typeof M.wallArtWhere!=='function')return null;
+  try{ return M.wallArtWhere({room:curRoom(), items:clone(items), decor:liveDecor(), base:location.href}); }catch(e){ return null; } }
 // настольный декор — то, что сцена ставит на столешницу; мягкое места в 3D не имеет, картина висит на стене
 function tableDecor(){ return decorList().filter(x=>!isSoft(x.role)&&!isWallArt(x)); }
 // цена и число товаров варианта считаются С ДЕКОРОМ (владелец 08.09: «добавлять в список товаров
@@ -5577,9 +5581,12 @@ function decorSupport(){
 }
 function decorWhere(x){
   if(x&&isSoft(x.role))return '';                 // мягкому места в 3D нет — и подписи «куда встанет» тоже (demo-24)
-  if(isWallArt(x)){                               // опора — по тому же порядку, что у сцены; окно за ней сцена проверит сама
-    const r=ART_SUPPORTS.find(r=>items.some(i=>i.role.replace(/\s+\d+$/,'')===r));
-    return r?('на стене над '+{'кровать':'кроватью','диван':'диваном','комод':'комодом'}[r]):'в кадр не ставим: нет кровати, дивана или комода';
+  if(isWallArt(x)){                               // опора — из расчёта сцены; движок ещё не пришёл — без выдуманной опоры
+    const m=artWhere();
+    if(!m||!(x.role in m))return 'на стене, где есть место';
+    const r=m[x.role];
+    if(r&&ART_OVER[r])return 'на стене над '+ART_OVER[r];
+    return items.some(i=>ART_OVER[baseRole(i.role)])?'в кадр не ставим: на стене нет места':'в кадр не ставим: нет кровати, дивана или комода';
   }
   const s=decorSupport();
   return s?('на '+s.role.replace(/\s+\d+$/,'')+', по центру'):'в кадр не ставим: не указан размер или не влезает';

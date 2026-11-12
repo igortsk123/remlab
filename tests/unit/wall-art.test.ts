@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { fromDemoVariant } from "@/lib/configurator/fromDemo";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { placeWallArt, WALL_ART_RULES } from "@/lib/configurator/wall-art";
+import { wallArtWhere } from "@/lib/viewer3d/demo-scene";
 import type { Configuration } from "@/contracts/configurator";
 
 // КАРТИНЫ НАД МЕБЕЛЬЮ (viz-decor-01 шаг 3, T-20261112-26): место — от ТЕКУЩЕЙ опоры после перестановок; нет места — `unplaced`,
@@ -45,6 +46,11 @@ describe("картина над мебелью", () => {
     const door = [{ kind: "door", wall: "south", offset_cm: 120, width_cm: 90 }];
     expect(scene([BED, SOFA], [art(0)], { openings: door }).pics[0]!.placement.rot).toBe(180);
     const bed = { ...BED, x: 110 };
+    // окно на той же стене в 40 см от края картины: проём не задет, но штора (43 см за край) закрыла бы её — к дивану (T-26/2)
+    const nearWin = [{ kind: "window", wall: "south", offset_cm: 180, width_cm: 100, sill_cm: 90 }];
+    expect(scene([bed, SOFA], [art(0)], { openings: nearWin }).pics[0]!.placement.rot).toBe(180);
+    const nearDoor = [{ kind: "door", wall: "south", offset_cm: 180, width_cm: 90 }];
+    expect(scene([bed, SOFA], [art(0)], { openings: nearDoor }).pics[0]!.placement.rot).toBe(0);   // у двери шторы нет
     const swing = [{ kind: "door", wall: "west", offset_cm: 0, width_cm: 90, swing_cm: 90 }];
     expect(scene([bed], [art(0)], { openings: swing }).pics[0]!.unplaced).toBe(true);
     expect(scene([bed], [art(0)], { openings: [{ ...swing[0]!, swing_cm: 0 }] }).pics[0]!.unplaced).toBeUndefined();
@@ -80,6 +86,18 @@ describe("картина над мебелью", () => {
     expect(opt.price).toBe(3990);
     expect(opt.asset).toMatchObject({ kind: "kit", kit: "wall-plane" });
     expect(sc.totals.upgrades).toBe(40000 + 3990);
+  });
+
+  it("подпись страницы — из того же расчёта, что 3D: опора по роли картины, места нет — null (T-20261112-26/2)", () => {
+    const room = { w: 400, d: 350, title: "Комната", height_cm: 270, openings: [] };
+    const where = (items: object[], decor: object[], h = 270) =>
+      wallArtWhere({ room: { ...room, height_cm: h } as never, items: items as never, decor: decor as never, base: "/demo/" });
+    expect(where([BED, SOFA], [art(0, 50, 70), art(1, 50, 60)])).toEqual({ "картина": "кровать", "картина 2": "кровать" });
+    const win = { ...room, openings: [{ kind: "window", wall: "south", offset_cm: 150, width_cm: 120, sill_cm: 90 }] };
+    expect(wallArtWhere({ room: win as never, items: [BED, SOFA] as never, decor: [art(0)] as never, base: "/demo/" }))
+      .toEqual({ "картина": "диван" });             // окно за кроватью — не «над кроватью», а где на самом деле
+    expect(where([BED], [art(0)], 200)).toEqual({ "картина": null });
+    expect(where([BED], [art(0, 80), art(1, 80)])).toEqual({ "картина": "кровать", "картина 2": null });
   });
 
   it("правила выключены — картины не висят нигде", () => {

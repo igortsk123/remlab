@@ -1,6 +1,7 @@
 import * as THREE from "three";
 
 import type { Room } from "@/contracts/apartment";
+import { CURTAIN_ON_OPENING_CM, CURTAIN_PANEL_CM } from "@/lib/configurator/curtains";
 
 /**
  * СВЕТ ОТ ОКНА (T-20261111-22, владелец TG 1604 «красиво, как на фото»). Солнце стояло в одной точке (-6, 9, -4) при любой
@@ -82,7 +83,7 @@ export function buildCurtains(rooms: readonly Room[]): THREE.Group {
   const wins = roomWindows(rooms);
   if (!wins.length) return g;
   const mat = new THREE.MeshStandardMaterial({ color: 0xd8c4a6, roughness: 0.95, side: THREE.DoubleSide });
-  const pw = 0.55;
+  const pw = CURTAIN_PANEL_CM * CM, on = CURTAIN_ON_OPENING_CM * CM;
   for (const w of wins) {
     const top = Math.min(w.roomH - 0.04, w.top + 0.14), h = top - 0.01;
     const geo = new THREE.PlaneGeometry(pw, h, 28, 1);
@@ -91,7 +92,7 @@ export function buildCurtains(rooms: readonly Room[]): THREE.Group {
     geo.computeVertexNormals();
     for (const side of [-1, 1]) {
       const m = new THREE.Mesh(geo, mat);
-      const along = side * (w.w / 2 + pw / 2 - 0.12);   // слегка заходит на проём
+      const along = side * (w.w / 2 + pw / 2 - on);   // слегка заходит на проём
       const ax = -w.nz, az = w.nx;                       // ось «вдоль стены»
       m.position.set(w.x + ax * along + w.nx * 0.09, 0.01 + h / 2, w.z + az * along + w.nz * 0.09);
       m.rotation.y = Math.atan2(w.nx, w.nz);

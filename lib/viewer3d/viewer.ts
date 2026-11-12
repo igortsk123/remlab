@@ -723,7 +723,7 @@ export class FlatViewer {
     const spot = nearestStandable(this.area, pose.x, pose.y, 8, 12) ?? { x: pose.x, y: pose.y };
     this.pos.set(spot.x, spot.y);
     const room = roomAt(this.apartment, spot.x, spot.y);
-    const own = [...this.placed.values()].filter((p) => !room || p.spec.roomId === room.id).map((p) => p.spec.placement);
+    const own = this.framed(room?.id).map((p) => p.spec.placement);
     const c = own.length > 0
       ? { x: own.reduce((a, o) => a + o.x, 0) / own.length, y: own.reduce((a, o) => a + o.y, 0) / own.length }
       : room ? roomCentre(room) : { x: spot.x, y: spot.y + 100 };
@@ -784,13 +784,20 @@ export class FlatViewer {
     return this.liveEye ? this.livePitch(pose) : this.tilt ? this.tiltFor(pose) : 0;
   }
 
+  /**
+   * Предметы комнаты (все — без комнаты), по которым строится ракурс: взгляд, наклон, рамка. Настенные плоскости (картина, зеркало)
+   * не входят — картина над кроватью не задирает и не уводит взгляд, ракурс тот же, что без неё (T-20261112-26/2).
+   */
+  private framed(roomId: string | undefined): Placed[] {
+    return [...this.placed.values()].filter((p) => (!roomId || p.spec.roomId === roomId) && p.spec.kind !== "wall-plane");
+  }
+
   /** Наклон, при котором мебель комнаты позы — в видимой полосе холста (`live-eye.ts`). */
   private livePitch(pose: PhotoPose): number {
     const room = roomAt(this.apartment, pose.x, pose.y);
     const pts: LivePoint[] = [];
-    for (const [id, p] of this.placed) {
-      if (room && p.spec.roomId !== room.id) continue;
-      const bb = this.anchorOf(id)?.bb;
+    for (const p of this.framed(room?.id)) {
+      const bb = this.anchorOf(p.spec.slotId)?.bb;
       if (!bb || bb.isEmpty()) continue;
       pts.push(...boxPoints({ x: bb.min.x / CM, y: bb.min.z / CM, h: bb.min.y / CM }, { x: bb.max.x / CM, y: bb.max.z / CM, h: bb.max.y / CM }));
     }
@@ -813,7 +820,7 @@ export class FlatViewer {
   private tiltFor(pose: PhotoPose): number {
     if (typeof pose.pshift === "number") return 0;   // вертикальный кадр уже выставлен сдвигом объектива (demo-12)
     const room = roomAt(this.apartment, pose.x, pose.y);
-    const own = [...this.placed.values()].filter((p) => !room || p.spec.roomId === room.id).map((p) => p.spec.placement);
+    const own = this.framed(room?.id).map((p) => p.spec.placement);
     if (!own.length) return 0;
     const cx = own.reduce((a, o) => a + o.x, 0) / own.length, cy = own.reduce((a, o) => a + o.y, 0) / own.length;
     const eye = photoRay(pose).eye[1];
@@ -879,10 +886,11 @@ export class FlatViewer {
   }
 
   /** Где камера и куда смотрит (heading: 0 = +y), в любой из поз — живые проверки поворота и шага. */
-  viewPose(): { x: number; y: number; yaw: number } {
+  viewPose(): { x: number; y: number; yaw: number; pitch: number } {
     const p = this.viewMode === "photo" ? this.livePose() : null;
-    if (p) return { x: Math.round(p.x), y: Math.round(p.y), yaw: Math.round((((540 - p.rot) % 360) + 360) % 360) };
-    return { x: Math.round(this.pos.x), y: Math.round(this.pos.y), yaw: Math.round(this.heading) };
+    const r1 = (v: number): number => Math.round(v * 10) / 10;   // наклон — живая проверка «ракурс тот же, что без картины» (T-26/2)
+    if (p) return { x: Math.round(p.x), y: Math.round(p.y), yaw: Math.round((((540 - p.rot) % 360) + 360) % 360), pitch: r1(p.pitch) };
+    return { x: Math.round(this.pos.x), y: Math.round(this.pos.y), yaw: Math.round(this.heading), pitch: r1(this.pitch) };
   }
 
   /** Рисует ли браузер силами процессора — обёртка демо в этом случае берёт серверный эскиз. */

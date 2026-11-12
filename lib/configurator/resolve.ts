@@ -27,6 +27,8 @@ export interface ResolvedItem {
   /** Настольный декор без опоры (столика нет или не влезает) или картина без свободной стены над опорой (`wall-art.ts`): в составе и
    *  цене есть, в сцене не рисуется. */
   unplaced?: boolean;
+  /** Картина: роль опоры, над которой повесил `wall-art.ts:placeWallArt` («кровать», «диван», «комод»); подпись страницы — по ней. */
+  hungOver?: string;
 }
 
 export interface ResolvedSurface {

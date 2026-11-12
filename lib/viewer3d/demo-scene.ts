@@ -127,7 +127,7 @@ export interface DemoScene {
   /** Тап в «3D»: по предмету — его номер в расстановке; по полу (и ковру) — шаг туда (`viewer.goTo`, если `walk` не выключен) и -1. */
   walkTap(clientX: number, clientY: number): number;
   /** Где стоит и куда смотрит прогулка (см, градусы) — живая проверка поворота тапом по краю и шага по полу. */
-  pose(): { x: number; y: number; yaw: number };
+  pose(): { x: number; y: number; yaw: number; pitch: number };
   /** Номер предмета расстановки → подпись модели на сцене (живая проверка «замена дошла до сцены»). */
   models(): Record<number, string>;
   /** Подгрузить модели кандидатов заранее (лента замен открылась) — замена потом без сети. */
@@ -169,6 +169,21 @@ export function liveApartment(room: DemoRoom, items: DemoItem[], base: string, d
  */
 export function sceneMeshUrls(opts: PrefetchOptions): string[] {
   return sceneAssetUrls(opts).meshes;
+}
+
+/**
+ * Где висят картины расстановки — тот же расчёт, что строит 3D (`resolveScene` → `wall-art.ts:placeWallArt`), без холста:
+ * роль картины («картина», «картина 2») → роль опоры, над которой она висит, или null — места на стене нет (в составе и цене
+ * есть, в 3D не висит). Подпись страницы «где стоит» берётся отсюда, а не своим порядком опор (T-20261112-26/2).
+ */
+export function wallArtWhere(opts: Pick<DemoSceneOptions, "room" | "items" | "decor" | "base">): Record<string, string | null> {
+  const built = liveApartment(opts.room, opts.items, opts.base, opts.decor ?? []);
+  if (!built) return {};
+  const { apartment, catalogue } = built;
+  const art = new Set(apartment.slots.filter((s) => s.wallArt).map((s) => s.id));
+  const sc = resolveScene(apartment, catalogue, defaultConfiguration(apartment, catalogue));
+  return Object.fromEntries(sc.items.filter((i) => art.has(i.slotId) && i.photoRole)
+    .map((i) => [i.photoRole as string, i.unplaced ? null : i.hungOver ?? null]));
 }
 
 type PrefetchOptions = Pick<DemoSceneOptions, "room" | "items" | "decor" | "base" | "runtimeMeshes" | "lite" | "floor" | "wall">;
