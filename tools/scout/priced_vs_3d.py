@@ -15,6 +15,16 @@
   ~/venvs/scout/bin/python priced_vs_3d.py OUTDIR [--demo demo-data.json] [--tours DIR_С_bundle.json] [--fetch-tours]
 --fetch-tours: последние `bundle-<N>.json` 16 туров с тома прода (ssh, только чтение) → OUTDIR/tours/<id>.json.
 Итог: OUTDIR/report.md + report.json.
+
+СТОРОЖ «В ЦЕНЕ — ЗНАЧИТ В 3D» (T-20261113-23, П1.62; владелец TG 1619/1623: всё, что в списке, видно в 3D — предметы мешами,
+шторы абстракцией). Тот же помощник и те же причины, но как ворота: строка в цене без места в 3D — отказ.
+  priced_vs_3d.py --guard <demo-data.json>                  # витрина: `publish_demo.sh` и шаг ночи `priced_3d` — код 1 = не выкладывать
+  priced_vs_3d.py --guard <bundle-new.json> --vs <old.json> # тур: отказ только за НОВЫЕ строки (прежняя версия их не имела)
+Условные шторы и плед с местом и цветом (`isTextileDecor`) — показаны (место `textile:`). Комнаты из `REPORT_ONLY_KINDS` — только
+строкой WARN (спальни /demo чинит T-22; после его влития — пустой кортеж, и сторож блокирует везде). Сам сторож не сработал (нет
+node/esbuild, помощник упал) — WARN и `DIGEST:!`, выкладку не держим: проверка не должна валить витрину своей поломкой.
+Ядро гостиной (диван, столик, носитель ТВ) — в каждом непустом варианте и в 3D, иначе отказ (`core_gaps`, причина «ядро: нет в 3D»).
+Где ещё зовётся: перевыпуск туров (`tools/floorplan/reissue.py:one`), новые туры — строкой в журнал (`conveyor.Conveyor.build`).
 """
 from __future__ import annotations
 
@@ -23,12 +33,19 @@ import glob
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
-NODE_MODULES = os.environ.get('REMLAB_NODE_MODULES', '/home/pakar/igor/remlab/node_modules')
+# пакеты: свои у копии (CI, worktree со ссылкой), иначе основная копия DEV
+NODE_MODULES = os.environ.get('REMLAB_NODE_MODULES') or next(
+    (p for p in (os.path.join(REPO, 'node_modules'), '/home/pakar/igor/remlab/node_modules') if os.path.isdir(p)),
+    '/home/pakar/igor/remlab/node_modules')
+# СТОРОЖ: комнаты, где «в цене без 3D» пока только отчёт (WARN), — по виду комнаты (`bedroom-2` → `bedroom`). Спальни /demo чинит
+# T-20261113-22; после его влития — `()`: сторож блокирует во всех комнатах
+REPORT_ONLY_KINDS: tuple = ('bedroom',)
 DEMO = os.path.expanduser('~/scout-scenes/flat215-demo/demo-data.json')
 # живой банк (`bank_paths.LIVE`) — файл сборки, не в git: в worktree его нет — тогда основная копия репо
 BANK = os.environ.get('SETS_BANK') or next((p for p in (os.path.join(HERE, 'sets3.json'), '/home/pakar/igor/remlab/tools/scout/sets3.json')
@@ -161,16 +178,128 @@ def bank_not_exported(demo: dict, bank: list, roles: tuple[set, set] | None = No
     return out
 
 
+_BUILT: dict = {}   # папка сборки → собранный помощник (перевыпуск зовёт сторож на каждый тур — собираем один раз)
+
+
+def _node(cmd: list, **kw) -> subprocess.CompletedProcess:
+    """node и esbuild — из PATH, а нет (кроны, служба воркера) — через `tools/ops/node-env.sh`, как шаг ракурсов сборки."""
+    if shutil.which('node'):
+        return subprocess.run(cmd, **kw)
+    return subprocess.run(['bash', '-c', f'. "{REPO}/tools/ops/node-env.sh" && exec "$@"', 'node-env', *cmd], **kw)
+
+
 def scene_facts(paths: list, out_dir: str) -> dict:
     """Собрать помощник (esbuild, `@/` — tsconfig репо) и прогнать node по файлам данных."""
     build = os.path.join(out_dir, 'build')
-    os.makedirs(build, exist_ok=True)
     mjs = os.path.join(build, 'scene.mjs')
-    env = dict(os.environ, NODE_PATH=NODE_MODULES)
-    subprocess.run([os.path.join(NODE_MODULES, '.bin', 'esbuild'), os.path.join(HERE, 'priced_vs_3d_scene.ts'), '--bundle',
-                    '--platform=node', '--format=esm', '--log-level=warning', f'--outfile={mjs}'], cwd=REPO, env=env, check=True)
-    res = subprocess.run(['node', mjs, *paths], capture_output=True, text=True, check=True)
+    if _BUILT.get(build) != mjs or not os.path.exists(mjs):
+        os.makedirs(build, exist_ok=True)
+        env = dict(os.environ, NODE_PATH=NODE_MODULES)
+        _node([os.path.join(NODE_MODULES, '.bin', 'esbuild'), os.path.join(HERE, 'priced_vs_3d_scene.ts'), '--bundle',
+               '--platform=node', '--format=esm', '--log-level=warning', f'--outfile={mjs}'], cwd=REPO, env=env, check=True)
+        _BUILT[build] = mjs
+    res = _node(['node', mjs, *paths], capture_output=True, text=True, check=True)
     return json.loads(res.stdout)
+
+
+# ───────────────────────── сторож «в цене — значит в 3D» ─────────────────────────
+def room_kind(room_id) -> str:
+    """Вид комнаты по id варианта: `bedroom-2` → `bedroom`, `living` → `living`."""
+    return re.sub(r'-\d+$', '', str(room_id or 'living'))
+
+
+# ЯДРО ГОСТИНОЙ (директор 13.11 к T-23, совет Codex `_intake/codex/2026-11-13-living-no-coffee-table-answer.md`): диван, столик и
+# носитель ТВ — в каждом выкладываемом варианте гостиной И в 3D. Нет — вариант не выкладывается: ядро не снимают, только заменяют
+# товаром или скрывают вариант (сборка туров — `trial_demo.core_guard`, /demo — `demo_fill`/`flat215_demo`). Роли — общие с банком
+# (`bank_invariants.core_lost`). Пустой вариант (отказ комнаты, `items: []`) ядро не проверяет — его покупатель не видит.
+CORE_KINDS: tuple = ('living',)
+NO_CORE = 'ядро: нет в 3D'
+
+
+def core_gaps(facts: dict) -> list:
+    """Строки «роль ядра не в 3D» по вариантам гостиной (того же вида, что строки `summarize`, цена 0)."""
+    import bank_invariants as BI
+    out = []
+    for v in facts.get('variants') or []:
+        items = [r for r in v.get('rows') or [] if r.get('src') == 'item']
+        if room_kind(v.get('room_id')) not in CORE_KINDS or v.get('refused') or v.get('error') or not items:
+            continue
+        shown = [r.get('role') for r in items if r.get('shown', 0) > 0]
+        for role in BI.core_lost(('диван', 'столик', BI.BEARERS[0]), shown):
+            out.append({'where': 'demo', 'variant': v.get('id'), 'room': v.get('room_id'), 'style': v.get('style'), 'role': role,
+                        'name': 'ядро', 'sid': None, 'rub': 0.0, 'reason': NO_CORE})
+    return out
+
+
+def violations(facts: dict) -> tuple[list, list]:
+    """Факты помощника одного файла → (блокирующие строки, строки только для отчёта). Строка — то же, что в отчёте (`summarize`),
+    плюс дыры ядра гостиной (`core_gaps`)."""
+    rows = summarize({'f': facts}, 'demo')['rows'] + core_gaps(facts)
+    report = [r for r in rows if room_kind(r['room']) in REPORT_ONLY_KINDS]
+    return [r for r in rows if r not in report], report
+
+
+def row_key(r: dict) -> tuple:
+    return (str(r.get('variant')), str(r.get('role')), str(r.get('sid') or r.get('name')))
+
+
+def brief(rows: list, n: int = 4) -> str:
+    s = '; '.join(f"{r['variant']} {r['role']} «{str(r['name'])[:40]}» — {r['reason']}" for r in rows[:n])
+    return s + (f' и ещё {len(rows) - n}' if len(rows) > n else '')
+
+
+_GDIR: list = []
+
+
+def _guard_dir() -> str:
+    """Своя папка сборки помощника на процесс (ночь и перевыпуск могут идти разом), на диске (`REMLAB_TMP`, не квота /tmp);
+    убирается при выходе."""
+    if not _GDIR:
+        import atexit
+        import tempfile
+        d = tempfile.mkdtemp(prefix='priced3d-guard-', dir=os.environ.get('REMLAB_TMP') or None)
+        atexit.register(shutil.rmtree, d, True)
+        _GDIR.append(d)
+    return _GDIR[0]
+
+
+def guard(new_path: str, old_path: str | None = None, out_dir: str | None = None) -> dict:
+    """→ {ok, block: [строки], report: [строки], error}. С `old_path` блокируют только строки, которых в прежней версии не было
+    (перевыпуск тура не держится за то, что уже опубликовано). `error` — сам сторож не сработал: ok=True, решения нет."""
+    try:
+        root = out_dir or _guard_dir()
+        paths = [new_path] + ([old_path] if old_path else [])
+        facts = scene_facts(paths, root)
+    except (OSError, ValueError, subprocess.CalledProcessError) as e:
+        tail = (getattr(e, 'stderr', '') or str(e) or type(e).__name__).strip()[-200:]
+        return {'ok': True, 'block': [], 'report': [], 'error': f'{type(e).__name__}: {tail}'}
+    block, report = violations(facts.get(new_path) or {})
+    if old_path:
+        had = {row_key(r) for r in sum(violations(facts.get(old_path) or {}), [])}
+        block = [r for r in block if row_key(r) not in had]
+    return {'ok': not block, 'block': block, 'report': report, 'error': ''}
+
+
+def guard_lines(g: dict, what: str = 'витрина') -> list:
+    """Строки вывода по контракту ночи: `ОТКАЗ:`/`WARN:` — в журнал шага, `DIGEST:!` — важная строка сводки."""
+    if g['error']:
+        return [f'WARN:priced_3d: сторож «в цене — в 3D» не сработал ({g["error"]}) — {what} без проверки',
+                f'DIGEST:!сторож «в цене — в 3D» не сработал: {g["error"][:120]}']
+    out = []
+    if g['block']:
+        rub = round(sum(r['rub'] for r in g['block']))
+        core = [r for r in g['block'] if r['reason'] == NO_CORE]
+        price = [r for r in g['block'] if r['reason'] != NO_CORE]
+        head = '; '.join(([f"в цене без места в 3D — {len(price)} строк на {rub} ₽"] if price else []) +
+                         ([f"гостиная без ядра (диван, столик, носитель ТВ) — {len(core)}"] if core else []))
+        out += [f"ОТКАЗ:priced_3d: {head} ({brief(core + price)}) — {what} не выложена, на проде прежняя",
+                f"DIGEST:!{what} не опубликована: {head} ({brief(core + price, 2)})"]
+    if g['report']:
+        out.append(f"WARN:priced_3d: (только отчёт — {', '.join(REPORT_ONLY_KINDS)}) в цене без 3D {len(g['report'])} строк: "
+                   f"{brief(g['report'])}")
+    if not out:
+        out.append('priced_3d: OK — всё, что в цене, есть в 3D')
+    return out
 
 
 def fetch_tours(dst: str) -> list:
@@ -225,6 +354,11 @@ def render_md(demo: dict, tours: dict, bank: list, meta: dict) -> str:
 
 
 def main(argv: list) -> int:
+    if len(argv) > 2 and argv[1] == '--guard':
+        old = argv[argv.index('--vs') + 1] if '--vs' in argv else None
+        g = guard(argv[2], old)
+        print('\n'.join(guard_lines(g)))
+        return 0 if g['ok'] else 1
     out = argv[1]
     os.makedirs(out, exist_ok=True)
     arg = lambda k, d=None: argv[argv.index(k) + 1] if k in argv else d  # noqa: E731

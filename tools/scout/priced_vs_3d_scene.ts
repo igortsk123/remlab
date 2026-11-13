@@ -14,7 +14,8 @@
 // Вывод — JSON {файл: {variants: [{id, room_id, style, rows: [...]}]}}; разбор причин и итоги — `priced_vs_3d.py`.
 
 import { readFileSync } from "node:fs";
-import { fromDemoVariant, isCeilingDecor, isTextileDecor, isWallArtDecor, isWallPlane, stableSlotIds, wallArtItems } from "@/lib/configurator/fromDemo";
+import { isCarrierDecor } from "@/lib/configurator/carrier-decor";
+import { fromDemoVariant, isCeilingDecor, isTabletopDecor, isTextileDecor, isWallArtDecor, isWallPlane, stableSlotIds, wallArtItems } from "@/lib/configurator/fromDemo";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { planObjects } from "@/lib/viewer3d/build-scene";
 
@@ -60,9 +61,13 @@ function slotMap(items: Entry[], live: Entry[]): { items: string[][]; decor: Map
   planesI.forEach(({ i }, j) => out[i]!.push(planeIds[j]!));
   const decor = new Map<number, string>();
   art.forEach(({ k }, j) => decor.set(k, planeIds[planesI.length + j]!));
-  const tab = live.map((x, k) => ({ x, k }))
-    .filter(({ x }) => !x.list_only && !isWallArtDecor(x) && !isCeilingDecor(x) && x.sku?.msid && x.sku.w && x.sku.d && x.sku.h);
+  // ваза на опоре и лампа на комоде — ТЕ ЖЕ отборы, что у моста (`fromDemo.ts:isTabletopDecor`, `carrier-decor.ts:isCarrierDecor`):
+  // своя копия фильтра отстала от лампы на комоде (T-20261112-101) — лампа считалась вазой `decor:…`, а мост рисует её местом
+  // `carrier:…`, и отчёт писал «в цене без 3D» про нарисованную лампу (27 строк туров 13.11, T-20261113-23)
+  const tab = live.map((x, k) => ({ x, k })).filter(({ x }) => isTabletopDecor(x));
   stableSlotIds(tab.map(({ x }) => ({ role: x.role ?? "декор" }))).forEach((id, j) => decor.set(tab[j]!.k, `decor:${id}`));
+  const onTop = live.map((x, k) => ({ x, k })).filter(({ x }) => isCarrierDecor(x));
+  stableSlotIds(onTop.map(({ x }) => ({ role: x.role ?? "лампа" }))).forEach((id, j) => decor.set(onTop[j]!.k, `carrier:${id}`));
   // люстра — слот на потолке (`fromDemo.ts` «ЛЮСТРА ИЗ ДЕКОРА ВАРИАНТА», T-20261112-66)
   const lights = live.map((x, k) => ({ x, k })).filter(({ x }) => isCeilingDecor(x));
   stableSlotIds(lights.map(({ x }) => ({ role: x.role ?? "люстра" }))).forEach((id, j) => decor.set(lights[j]!.k, `ceiling:${id}`));

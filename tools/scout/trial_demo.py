@@ -964,6 +964,18 @@ def no_mesh_roles(st: dict) -> list:
 
 
 CORE_ROLES = ('диван',) + BEARERS     # без годной модели этих ролей набор не показываем (их не снять из комнаты)
+# ЯДРО ВАРИАНТА ГОСТИНОЙ (директор 13.11 к T-20261113-23, совет Codex `_intake/codex/2026-11-13-living-no-coffee-table-answer.md`):
+# диван, столик и носитель ТВ — в КАЖДОМ показанном варианте, как у /demo (`bank_invariants.core_missing`, `demo_fill`). Ядро не
+# снимают: столик без модели меняется товаром ленты (`usable_set`), не встал — следующий набор стиля (`retry_next`), подстановка на
+# обставленную геометрию (`rescue`); не вышло нигде — вариант скрыт (`style_rejected`, причина `core_missing:<роль>`). Требуем ядро
+# независимо от состава набора: набор банка без столика тоже не даёт показать гостиную без столика. Сторож выкладки — `priced_vs_3d.core_gaps`.
+LIVING_CORE = ('диван', 'столик', 'тв-тумба')
+
+
+def core_gone(placed_roles) -> list:
+    """Роли ядра гостиной, которых нет среди вставших предметов: «диван», «столик», «носитель ТВ» (тумба или стенка)."""
+    import bank_invariants as BI
+    return BI.core_lost(LIVING_CORE, placed_roles)
 
 
 def eligible(st: dict, mesh_ok=None) -> bool:
@@ -1372,9 +1384,9 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
             """Сколько обязательного потеряно: сбой/жёсткое/проверка — больше любой потери ядра; иначе — роли ядра вне комнаты."""
             if v.get('failed') or v['hard'] or not v['post_ok']:
                 return 99
-            # ядро по факту (T-20261113-12): набор стиля против вставших предметов — `absent_roles` не видит роль, срезанную геометрией
-            want = list(((chosen_sets.get(v.get('set_index')) or {}).get('items') or {})) or ['диван']
-            return len(BI.core_lost(want + ['диван'], [r['role'] for r in v['items']]))
+            # ядро по факту (T-20261113-12): вставшие предметы — `absent_roles` не видит роль, срезанную геометрией; ядро требуем
+            # всегда (`core_gone`, T-20261113-23), а не только когда роль есть в наборе — снятый столик без модели тоже потеря
+            return len(core_gone([r['role'] for r in v['items']]))
         _, draft, _ = assemble(ci, cand, best, units)
         was = {v['style']: lost(v) for v in draft}
         fails = [st for st, k in was.items() if k]
@@ -1524,7 +1536,7 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
                         sofa = any(_base(r['role']) == 'диван' for r in nv['items'])
                         # ЯДРО ПО ФАКТУ (T-20261113-12): один диван — не успех, пока есть подстановка с полным ядром (диван, столик,
                         # носитель ТВ из набора); полной нет нигде — лучший запасной с меньшей потерей (комода в нём нет — `place`)
-                        lost = len(BI.core_lost(list((cst.get('items') or {})) + ['диван'], [r['role'] for r in nv['items']]))
+                        lost = len(core_gone([r['role'] for r in nv['items']]))
                         if nv['post_ok'] and not nv['hard'] and sofa:
                             cur = dict(nv, substituted={'why': why, 'from_geometry': v.get('geometry'), 'swapped': swaps,
                                                         'mode': 'all' if full else 'misfit'})
@@ -1636,6 +1648,16 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
     t_res = time.time()
     rescued = rescue(variants, cand, best, units)
     t_res = time.time() - t_res
+    # ЯДРО НЕ СНИМАЕМ (T-20261113-23): вариант, где после всех замен нет дивана, столика или носителя ТВ, не показываем — скрыт с
+    # причиной, как снятый проверкой (`rescue` мог оставить «лучший запасной» с неполным ядром — его тоже сюда)
+    for v in variants:
+        gone = [] if v.get('failed') else core_gone([r['role'] for r in v['items']])
+        if gone:
+            why = [f'core_missing:{r}' for r in gone]
+            problems.append({'code': 'style_rejected', 'style': v['style'], 'why': why, 'geometry': v.get('geometry')})
+            flags.append(f"core_hidden:{v['style']}")
+            v.update(items=[], placements=[], placements_core=[], post_ok=False, failed=True, hard=[],
+                     problems=[{'code': 'style_rejected', 'why': why}])
     order = {s: i for i, s in enumerate(STYLES)}
     variants.sort(key=lambda v: order.get(v['style'], 99))
     ok_styles = [v for v in variants if v['post_ok'] and not v['hard']]

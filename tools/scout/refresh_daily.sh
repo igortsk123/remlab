@@ -629,7 +629,10 @@ else
   # у вариантов нет `v.cams`, телефон считал бы их сам с зависанием на десятки секунд. Проверка — ДО платной досъёмки фото (не платим
   # за сборку, которая не уедет); отказ — шаг FAIL, строка `DIGEST:!` в сводку, на проде прежняя витрина (`cams_gate.py`). Те же
   # ворота стоят в `publish_demo.sh` (ручная выкладка) и в перевыпуске туров (`tools/floorplan/reissue.py:one`)
-  if step demo_rt bash ../assets/demo_rt.sh && step cams_gate "$PY" cams_gate.py --check "$DEMO_OUT/demo-data.json"; then
+  # В ЦЕНЕ — ЗНАЧИТ В 3D (T-20261113-23, П1.62; владелец TG 1619/1623): строка списка с ценой без места в сцене — отказ тем же
+  # кодом сцены, что у страницы (`priced_vs_3d.py --guard`); спальни — пока только WARN (`REPORT_ONLY_KINDS`, до влития T-22)
+  if step demo_rt bash ../assets/demo_rt.sh && step cams_gate "$PY" cams_gate.py --check "$DEMO_OUT/demo-data.json" \
+     && step priced_3d "$PY" priced_vs_3d.py --guard "$DEMO_OUT/demo-data.json"; then
     # ДОСЪЁМКА ФОТО НЕЙРОСЕТИ — ДО ПУБЛИКАЦИИ, НА НОВОЙ СБОРКЕ (демо-29 → photo-before-publish-01): у вариантов без фото своей
     # расстановки «Сделать реалистичнее» страницей ИЗ ЛОКАЛЬНОЙ СБОРКИ (`DEMO_LOCAL`; номер состояния тот же, что увидит покупатель),
     # потолок трат — rules/demo-realistic.json (200 ₽, WARN в дайджест выше 100 ₽), трата — по счётчику шлюза; «сервер обновлялся» —
@@ -651,8 +654,8 @@ else
       echo "tour_reissue пропущен: демо не опубликовано — туры остаются на прежней витрине" >> "$LOG"
     fi
   else
-    RES[flat215_publish]=FAIL; echo "flat215_publish пропущен: ворота demo_rt / cams_gate — на проде прежняя витрина" >> "$LOG"
-    echo "DIGEST:фото нейросети: пропущено — демо не опубликовано (ворота demo_rt / cams_gate)" >> "$LOG"
+    RES[flat215_publish]=FAIL; echo "flat215_publish пропущен: ворота demo_rt / cams_gate / priced_3d — на проде прежняя витрина" >> "$LOG"
+    echo "DIGEST:фото нейросети: пропущено — демо не опубликовано (ворота demo_rt / cams_gate / priced_3d)" >> "$LOG"
   fi
 fi
 # ОТЧЁТ ОБ АРТЕФАКТАХ СЦЕНЫ ПО ОПУБЛИКОВАННОМУ (demo-05 п.1, 18.10): данные — с прода (то, что видит покупатель, даже если

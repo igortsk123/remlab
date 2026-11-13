@@ -175,7 +175,26 @@ class Conveyor:
         data = out.read_bytes()
         if len(data) > self.cfg.bundle_max_bytes:
             return None, 'bundle_too_large'
+        if cams:
+            self.priced_note(out)
         return data, None
+
+    def priced_note(self, out: Path) -> None:
+        """«В цене — значит в 3D» и ядро гостиной (T-20261113-23) у версии, что уйдёт на страницу, — СТРОКОЙ В ЖУРНАЛ, не отказом: код
+        отказа сборщика здесь делает комнату пустой («мебель не подобрана») — хуже строки без места. Перевыпуск и витрина — отказом
+        (`reissue.one`, `publish_demo.sh`); сборка тура скрывает вариант без ядра сама (`trial_demo.core_gone`)."""
+        try:
+            if str(SCOUT) not in sys.path:
+                sys.path.append(str(SCOUT))
+            import priced_vs_3d as PV
+            g = PV.guard(str(out))
+            if g['error']:
+                self.log(f'priced_3d: сторож не сработал ({g["error"][:160]})')
+            elif g['block'] or g['report']:
+                rows = g['block'] + g['report']
+                self.log(f'priced_3d (только журнал): в цене без 3D или без ядра {len(rows)}: {PV.brief(rows)}')
+        except Exception as e:  # noqa: BLE001 — строка журнала не валит сборку тура
+            self.log(f'priced_3d: сторож не сработал ({type(e).__name__}: {e})')
 
     def publish(self, tag: str, data: bytes) -> bool:
         """Версия на сервер. → True — принята (или уже была); False — нет (код в журнале). 409 — аренда потеряна: стоп."""

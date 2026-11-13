@@ -190,6 +190,23 @@ def test_lost_cams_refused_tour_kept(env, capsys):
     assert RS.main(['--job', A], cfg=cfg, cmd=cmd) == 0 and [j for j, _ in p.posts] == [A] and p.tours[A]['version'] == 4
 
 
+def test_priced_not_3d_refused_tour_kept(env, capsys, monkeypatch):
+    """В ЦЕНЕ — ЗНАЧИТ В 3D (T-20261113-23): сторож витрины (`priced_vs_3d.guard`) против прежней версии нашёл НОВУЮ строку — отказ
+    `priced_not_3d`, публикации нет, тур на прежней версии, код 1. Чисто — публикуется; сам сторож не сработал — публикуется с причиной."""
+    p, cfg, cmd = env
+    del p.tours[B], p.tours[C]
+    seen = []
+    row = {'variant': 'living-scandi', 'role': 'столик', 'name': 'ядро', 'reason': 'ядро: нет в 3D', 'rub': 0.0}
+    monkeypatch.setattr(RS.priced_vs_3d, 'guard', lambda new, old: (seen.append(Path(old).name),
+                                                                   {'ok': False, 'block': [row], 'report': [], 'error': ''})[1])
+    assert RS.main(['--job', A], cfg=cfg, cmd=cmd) == 1
+    out = capsys.readouterr().out
+    assert p.posts == [] and p.tours[A]['version'] == 3 and seen == ['bundle-old.json']
+    assert f'{A}: отказ сборщика priced_not_3d — тур остался прежним (в цене без 3D или без ядра 1: living-scandi столик' in out
+    monkeypatch.setattr(RS.priced_vs_3d, 'guard', lambda new, old: {'ok': True, 'block': [], 'report': [], 'error': 'OSError: нет node'})
+    assert RS.main(['--job', A], cfg=cfg, cmd=cmd) == 0 and [j for j, _ in p.posts] == [A] and p.tours[A]['version'] == 4
+
+
 def test_without_token_or_target(env):
     p, cfg, cmd = env
     cfg.token = ''

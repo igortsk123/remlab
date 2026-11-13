@@ -420,21 +420,25 @@ ${paidDef.replaceAll('>> "$LOG"', "")}\n${sh.slice(a, b).replaceAll('>> "$LOG"',
   };
   const order = (out) => [...out.matchAll(/^STEP (\S+)/gm)].map((m) => m[1]).join(" ");
   const okRun = await bash(), rtRun = await bash({ fail: "demo_rt" }), offRun = await bash({ off: 1 }), realFail = await bash({ fail: "demo_real" }),
-    undefRun = await bash({ undef: "bedroom " }), camsRun = await bash({ fail: "cams_gate" });
-  check(order(okRun) === "flat215_demo page_check trial_images demo_rt cams_gate demo_real flat215_publish tour_reissue scene_artifacts demo_warm demo_real_check"
+    undefRun = await bash({ undef: "bedroom " }), camsRun = await bash({ fail: "cams_gate" }), pricedRun = await bash({ fail: "priced_3d" });
+  check(order(okRun) === "flat215_demo page_check trial_images demo_rt cams_gate priced_3d demo_real flat215_publish tour_reissue scene_artifacts demo_warm demo_real_check"
     && /STEP cams_gate py cams_gate\.py --check \/h\/scout-scenes\/flat215-demo\/demo-data\.json\n/.test(okRun)
+    && /STEP priced_3d py priced_vs_3d\.py --guard \/h\/scout-scenes\/flat215-demo\/demo-data\.json\n/.test(okRun)
     && /STEP demo_real env DEMO_LOCAL=\/h\/scout-scenes\/flat215-demo bash \.\.\/ops\/demo-real\.sh\n/.test(okRun)
     && /STEP flat215_publish env PUB_PHOTOS_DONE=1 PUB_REISSUE=0 bash publish_demo\.sh\n/.test(okRun)
     && /STEP tour_reissue env TOUR_REISSUE_NIGHT=1 bash \.\.\/ops\/tour-reissue\.sh --bg --why ночь\n/.test(okRun)
     && /STEP demo_real_check bash \.\.\/ops\/demo-real\.sh --dry\n/.test(okRun),
     "ночь: досъёмка фото на НОВОЙ сборке (DEMO_LOCAL) до публикации, публикация с отметкой «фото сняты» без своего хука туров, перевыпуск туров фоном сразу после (T-92), сухая проверка — после прогрева", okRun);
   check(order(realFail) === order(okRun), "досъёмка упала — публикация всё равно идёт (держим только фото, не сборку)", realFail);
-  check(order(rtRun) === "flat215_demo page_check trial_images demo_rt scene_artifacts demo_warm demo_real_check" && /DIGEST:фото нейросети: пропущено — демо не опубликовано \(ворота demo_rt \/ cams_gate\)/.test(rtRun),
+  check(order(rtRun) === "flat215_demo page_check trial_images demo_rt scene_artifacts demo_warm demo_real_check" && /DIGEST:фото нейросети: пропущено — демо не опубликовано \(ворота demo_rt \/ cams_gate \/ priced_3d\)/.test(rtRun),
     "ворота demo_rt не прошли — ни досъёмки, ни публикации, ни перевыпуска туров, строка DIGEST; сухая проверка идёт", rtRun);
   check(order(camsRun) === "flat215_demo page_check trial_images demo_rt cams_gate scene_artifacts demo_warm demo_real_check"
-    && /DIGEST:фото нейросети: пропущено — демо не опубликовано \(ворота demo_rt \/ cams_gate\)/.test(camsRun),
+    && /DIGEST:фото нейросети: пропущено — демо не опубликовано \(ворота demo_rt \/ cams_gate \/ priced_3d\)/.test(camsRun),
     "нет ракурсов в данных (cams_gate, T-20261113-17/2) — ни платной досъёмки, ни публикации, ни перевыпуска туров; сухая проверка идёт", camsRun);
-  check(order(offRun) === "flat215_demo page_check trial_images demo_rt cams_gate flat215_publish tour_reissue scene_artifacts demo_warm demo_real_check" && /openai\.off: платный шаг «demo_real» пропущен/.test(offRun)
+  check(order(pricedRun) === "flat215_demo page_check trial_images demo_rt cams_gate priced_3d scene_artifacts demo_warm demo_real_check"
+    && /DIGEST:фото нейросети: пропущено — демо не опубликовано \(ворота demo_rt \/ cams_gate \/ priced_3d\)/.test(pricedRun),
+    "в цене без 3D или без ядра гостиной (priced_3d, T-20261113-23) — ни платной досъёмки, ни публикации, ни перевыпуска туров", pricedRun);
+  check(order(offRun) === "flat215_demo page_check trial_images demo_rt cams_gate priced_3d flat215_publish tour_reissue scene_artifacts demo_warm demo_real_check" && /openai\.off: платный шаг «demo_real» пропущен/.test(offRun)
     && /RES=skipped/.test(offRun) && /DIGEST:фото нейросети: пропущено — платные шаги выключены \(openai\.off\)/.test(offRun),
     "openai.off — платная досъёмка пропущена со строкой DIGEST, публикация, перевыпуск туров и одна сухая проверка идут", offRun);
   check(order(undefRun) === "scene_artifacts demo_warm demo_real_check" && /RES=\n/.test(undefRun + "\n"),

@@ -52,6 +52,7 @@ import worker as wk  # noqa: E402
 from conveyor import BUNDLE_MAX_BYTES, child_failure  # noqa: E402
 sys.path.append(str(HERE.parent / 'scout'))                  # в конец: свои модули папки — первыми
 import cams_gate  # noqa: E402  (ворота «без ракурсов не выкладываем» — одно правило с витриной, T-20261113-17/2)
+import priced_vs_3d  # noqa: E402  (сторож «в цене — значит в 3D» и ядро гостиной — одно правило с витриной, T-20261113-23)
 
 READ_MAX = 24 * 1024 * 1024                  # ответ «исходник»: результат (≤ 2 МБ) + версия (≤ 8 МБ), экранированная в JSON
 SKIP = ('busy', 'expired', 'not_ready', 'not_found', 'no_bundle')   # пропуски: тур не трогаем, пересборка не сбоила
@@ -114,7 +115,15 @@ def one(api: wk.Api, cfg: wk.Cfg, jid: str, run_dir: Path, dry: bool, cmd: list 
     if gone:
         return {'id': jid, 'status': 'refused', 'why': 'no_cams', 'from': base,
                 'detail': f"нет ракурсов у {len(gone)}: {', '.join(gone[:6])} — шаг ракурсов сборки тура не уложился, тур на прежней версии"}
-    row = {'id': jid, 'from': base, 'same_bytes': data == src['bundle'].encode('utf-8'), **{k: rep.get(k) for k in ROOMS}}
+    # В ЦЕНЕ — ЗНАЧИТ В 3D, ЯДРО ГОСТИНОЙ НА МЕСТЕ (T-20261113-23, П1.62): тот же сторож, что у витрины (`priced_vs_3d.guard`), против
+    # прежней версии — держит только НОВЫЕ строки (товар в цене без места в 3D, вариант гостиной без дивана/столика/носителя ТВ);
+    # то, что уже было опубликовано, перевыпуск не держит. Сам сторож не сработал — тур выходит, причина в строке отчёта
+    g = priced_vs_3d.guard(str(new_p), str(run_dir / jid / 'bundle-old.json'))
+    if not g['ok']:
+        return {'id': jid, 'status': 'refused', 'why': 'priced_not_3d', 'from': base,
+                'detail': f"в цене без 3D или без ядра {len(g['block'])}: {priced_vs_3d.brief(g['block'])} — тур на прежней версии"}
+    row = {'id': jid, 'from': base, 'same_bytes': data == src['bundle'].encode('utf-8'), **{k: rep.get(k) for k in ROOMS},
+           **({'priced_3d_error': g['error']} if g['error'] else {})}
     if dry:
         return {**row, 'status': 'built'}
     st, r = api.call('POST', f'/api/trial/worker/reissue/{jid}',

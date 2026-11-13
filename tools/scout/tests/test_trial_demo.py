@@ -223,6 +223,9 @@ def fake_solver(fail_geometry=False):
             s, t = st['items']['диван'], st['items']['тв-тумба']
             art = {'диван': {'x': 250, 'z': 400 - s['d'] / 2, 'rot': _facing(0, -1), 'w': s['w'], 'd': s['d']},
                    'тв-тумба': {'x': 250, 'z': 20 + t['d'] / 2 + 60, 'rot': _facing(0, 1), 'w': t['w'], 'd': t['d']}}
+            if st['items'].get('столик'):     # ядро гостиной — диван, столик, носитель ТВ (`trial_demo.core_gone`, T-20261113-23)
+                c = st['items']['столик']
+                art['столик'] = {'x': 250, 'z': 250, 'rot': _facing(0, -1), 'w': c['w'], 'd': c['d']}
         path = os.path.join(layouts, f'v3set{n}-layout-{tag}.json')
         json.dump(art, open(path, 'w', encoding='utf-8'))
         return {'rc': 0, 'seconds': 0.01, 'artifact': path, 'openings': ops, 'stderr': '', 'art': art, 'missing': []}
@@ -245,6 +248,23 @@ def test_build_writes_only_trial_dir(tmp_path, monkeypatch):
     assert s['band'] == '17-20' and [v['style'] for v in s['variants']] == ['сканди', 'лофт']
     assert all(v['items'] for v in s['variants']) and s['openings_core']
     assert {'adapter_s', 'solver_s', 'assembly_s', 'total_s'} <= set(s['timings'])
+
+
+def test_variant_without_core_hidden(tmp_path, monkeypatch):
+    """T-20261113-23 (директор 13.11, Codex `2026-11-13-living-no-coffee-table-answer.md`): ядро гостиной — диван, столик, носитель
+    ТВ — в каждом показанном варианте. Набор без столика (в банке нет / снят без модели) — вариант скрыт `style_rejected` с причиной
+    `core_missing:столик`, а не выложен гостиной без столика; соседний стиль с полным ядром — как был."""
+    monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+    no_hard(monkeypatch)
+    sets = bank()
+    del sets[1]['items']['столик']
+    s = TD.build('c1', plan(), sets=sets, solver=fake_solver(), pick=lambda sets, band: [1, 2] if band == '17-20' else [])
+    by = {v['style']: v for v in s['variants']}
+    assert by['сканди']['items'] and {'диван', 'столик', 'тв-тумба'} <= {r['role'] for r in by['сканди']['items']}
+    assert by['лофт']['failed'] and not by['лофт']['items']
+    assert by['лофт']['problems'] == [{'code': 'style_rejected', 'why': ['core_missing:столик']}]
+    assert 'core_hidden:лофт' in s['flags'] and s['status'] == 'partial'
+    assert TD.core_gone(['диван', 'столик', 'стенка']) == [] and TD.core_gone(['диван 2', 'столик']) == ['носитель ТВ']
 
 
 def test_tour_drops_soft_without_catalog_role(tmp_path, monkeypatch):
@@ -745,6 +765,9 @@ def test_scene_core_extended_for_pushed_furniture(tmp_path, monkeypatch):
         W = cand['w']
         art = {'тв-тумба': {'x': t['d'] / 2, 'z': 200, 'rot': _facing(1, 0), 'w': t['w'], 'd': t['d']},
                'диван': {'x': W - s['d'] / 2 - 5, 'z': 200, 'rot': _facing(-1, 0), 'w': s['w'], 'd': s['d']}}
+        if st['items'].get('столик'):     # ядро гостиной (`trial_demo.core_gone`, T-20261113-23): столик перед диваном
+            c = st['items']['столик']
+            art['столик'] = {'x': W - s['d'] - 45 - c['d'] / 2, 'z': 200, 'rot': _facing(-1, 0), 'w': c['w'], 'd': c['d']}
         path = os.path.join(layouts, f'v3set{n}-layout-{tag}.json')
         json.dump(art, open(path, 'w', encoding='utf-8'))
         return {'rc': 0, 'seconds': 0.01, 'artifact': path, 'openings': TD.TR_strip(TR.solver_openings(cand, cfg, hinge)),

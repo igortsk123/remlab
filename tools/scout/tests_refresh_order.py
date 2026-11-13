@@ -97,7 +97,7 @@ ROOM_BANK = ('orient_bed_guard', 'mesh_color_guard', 'room_bindings', *(f'{s}_{r
                                                                                          'bank_rehearse', 'bank_state')))
 # проверка СОБРАННОЙ (сжатой) страницы в браузере (T-20261112-90) — сразу за сборкой витрины
 # ворота «без ракурсов не выкладываем» (T-20261113-17/2) — сразу за demo_rt, до платной досъёмки
-DEMO = ('flat215_demo', 'page_check', 'trial_images', 'demo_rt', 'cams_gate', 'flat215_publish', 'tour_reissue')  # туры — за публикацией (T-92)
+DEMO = ('flat215_demo', 'page_check', 'trial_images', 'demo_rt', 'cams_gate', 'priced_3d', 'flat215_publish', 'tour_reissue')  # туры — за публикацией (T-92)
 
 
 def chain_of(room: str) -> list[str]:
@@ -359,6 +359,9 @@ def _rooms_bank(text: str, ok) -> int:
        # ракурсы в данных (T-20261113-17/2) — сразу за demo_rt, до платной досъёмки: не платим за сборку, которая не уедет
        and fn.index('demo_rt') + 1 == fn.index('cams_gate') < fn.index('demo_real')
        and cmd['cams_gate'].startswith('$PY cams_gate.py --check ') and cmd['cams_gate'].endswith('/demo-data.json')
+       # «в цене — значит в 3D» и ядро гостиной (T-20261113-23) — сразу за ракурсами, тоже до платной досъёмки
+       and fn.index('cams_gate') + 1 == fn.index('priced_3d') < fn.index('demo_real')
+       and cmd['priced_3d'].startswith('$PY priced_vs_3d.py --guard ') and cmd['priced_3d'].endswith('/demo-data.json')
        and cmd['demo_real'].startswith('env DEMO_LOCAL=') and cmd['demo_real'].endswith('/scout-scenes/flat215-demo bash ../ops/demo-real.sh')
        and cmd['flat215_publish'] == 'env PUB_PHOTOS_DONE=1 PUB_REISSUE=0 bash publish_demo.sh'
        # автоперевыпуск туров (T-20261112-92) — сразу за публикацией, ночным режимом; свой хук публикации выключен (PUB_REISSUE=0)
@@ -368,13 +371,18 @@ def _rooms_bank(text: str, ok) -> int:
     gn, _, glog = run(0, full, fail='demo_rt')
     ok('ворота demo_rt не прошли — ни досъёмки, ни публикации; сухая проверка идёт; строка «фото: пропущено» в дайджест',
        'demo_real' not in gn and 'flat215_publish' not in gn and 'demo_real_check' in gn
-       and 'cams_gate' not in gn and 'DIGEST:фото нейросети: пропущено — демо не опубликовано (ворота demo_rt / cams_gate)' in glog,
+       and 'cams_gate' not in gn and 'DIGEST:фото нейросети: пропущено — демо не опубликовано (ворота demo_rt / cams_gate / priced_3d)' in glog,
        (gn[-8:], glog[-300:]))
     gn, _, clog = run(0, full, fail='cams_gate')
     ok('нет ракурсов в данных (cams_gate) — ни досъёмки, ни публикации, ни перевыпуска туров; сухая проверка идёт; строка в дайджест',
        'demo_real' not in gn and 'flat215_publish' not in gn and 'tour_reissue' not in gn and 'demo_real_check' in gn
-       and gn == [n for n in fn if n not in ('demo_real', 'flat215_publish', 'tour_reissue')]
-       and 'ворота demo_rt / cams_gate — на проде прежняя витрина' in clog, (gn[-8:], clog[-300:]))
+       and gn == [n for n in fn if n not in ('priced_3d', 'demo_real', 'flat215_publish', 'tour_reissue')]
+       and 'ворота demo_rt / cams_gate / priced_3d — на проде прежняя витрина' in clog, (gn[-8:], clog[-300:]))
+    gn, _, prlog = run(0, full, fail='priced_3d')
+    ok('в цене без 3D или без ядра гостиной (priced_3d, T-20261113-23) — ни досъёмки, ни публикации, ни перевыпуска туров; строка в дайджест',
+       gn == [n for n in fn if n not in ('demo_real', 'flat215_publish', 'tour_reissue')]
+       and 'ворота demo_rt / cams_gate / priced_3d — на проде прежняя витрина' in prlog
+       and 'DIGEST:фото нейросети: пропущено — демо не опубликовано (ворота demo_rt / cams_gate / priced_3d)' in prlog, (gn[-8:], prlog[-300:]))
     gn, _, _ = run(0, full, fail='demo_real')
     ok('сбой demo_real — ночь та же: публикация не зависит от фото (TG 378), проверка по опубликованному идёт', gn == fn, gn[-8:])
     gn, _, plog = run(0, full, fail='flat215_publish')
