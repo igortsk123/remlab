@@ -2,6 +2,7 @@
 // со ссылкой на страницу задания, а не голый текст «not ready». Машинным адресам (`version.json`, `demo-data.json`, файлы
 // витрины) — по-прежнему текст (`lib/trial/tour.ts`).
 
+import { noZoomHead } from "@/lib/page/no-zoom";
 import { textOf, type TrialLang } from "@/lib/trial/i18n";
 
 /** wait — тур ещё готовится (задание идёт / страница не закрепилась); failed — задание закрыто без тура; missing / expired;
@@ -41,7 +42,7 @@ export function stubHtml(kind: StubKind, id: string, self: string, o: StubOpts):
         : kind === "expired" ? [t.msg.expiredTitle, t.msg.expiredText, [[upload, t.msg.upload, "p"]]]
           : [t.msg.missingTitle, t.msg.missingText, [[upload, t.msg.upload, "p"]]];
   const a = links.map(([href, label, c]) => `<a class="${c}" href="${esc(href)}">${esc(label)}</a>`).join("");
-  return `<!doctype html><html lang="${o.lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">`
+  return `<!doctype html><html lang="${o.lang}"><head><meta charset="utf-8">${noZoomHead()}`
     + `<meta name="robots" content="noindex,nofollow"><title>${esc(title)}</title><style>${CSS}</style></head>`
     + `<body><main role="status" data-stub="${kind}"><h1>${esc(title)}</h1>${text ? `<p>${esc(text)}</p>` : ""}${a}</main></body></html>`;
 }

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import Script from "next/script";
 import { Inter } from "next/font/google";
@@ -13,6 +13,11 @@ import { VersionWatcher } from "@/components/VersionWatcher";
 import { MetrikaPageviews } from "@/components/MetrikaPageviews";
 import { CookieBanner } from "@/components/legal/CookieBanner";
 import { METRIKA_COUNTER_ID, METRIKA_READY_EVENT, metrikaSafeUrl, noMetrikaPath } from "@/lib/metrika";
+import { NO_ZOOM_CSS, NO_ZOOM_JS } from "@/lib/page/no-zoom";
+
+// Масштаб страницы на телефоне запрещён (T-20261113-15, владелец TG 1466–1479) — правило `lib/page/no-zoom.ts`; крупный шрифт для
+// чтения остаётся своим переключателем (`data-font-scale` ниже).
+export const viewport: Viewport = { width: "device-width", initialScale: 1, maximumScale: 1, userScalable: false };
 
 export const metadata: Metadata = {
   title: "remont-lab: ремонт своими руками, смета и материалы",
@@ -28,6 +33,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="ru" className={inter.variable}>
       <head>
+        <style dangerouslySetInnerHTML={{ __html: NO_ZOOM_CSS }} />
+        <script dangerouslySetInnerHTML={{ __html: NO_ZOOM_JS }} />
         {/* Анти-FOUC масштаба (П4): применяем сохранённый data-font-scale ДО первой отрисовки. */}
         <script
           dangerouslySetInnerHTML={{
