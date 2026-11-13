@@ -4,6 +4,8 @@
 // и снимает два ракурса функциями самой страницы (общий модуль `lib/live-shoot.mjs`, тот же путь, что у ночной досъёмки витрины), грузит
 // кадры (`/api/render/frame`) и заказывает фото нейросети кнопкой страницы (`makePhoto`) классом `auto` по своей задаче (`auto_task`):
 // сервер пускает ровно один заказ на задачу, потолки 50 ₽ на тур и 500 ₽ в сутки держит очередь. Готовые фото скачивает в папку прогона.
+// До съёмки комнаты — предпроверка листа товаров у сервиса кадров DEV (`sheetChecker`, T-115/6): фото товаров меньше порога `paid_gate` —
+// задача `skipped`/`no_product_sheet` без 3D и без заказа (повтор — по правилу очереди, `max_tries`).
 //
 //   node tools/ops/tour-auto-photos.mjs --claim [--dry] [--max-tasks N] [--only <id22>] [--base URL]   # одна партия (юнит DEV — systemd/)
 //   node tools/ops/tour-auto-photos.mjs --tour <id22> --rooms bedroom-1[:вариант][,…] [--out папка]   # СУХАЯ съёмка без очереди и заказа
@@ -112,6 +114,30 @@ export async function runTour(job, deps) {
 
 /** Ошибка съёмки с кодом для отметки задачи (`[a-z_]{1,40}`, контракт `autoTaskIn`). */
 const fail = (code, msg) => Object.assign(new Error(msg), { code });
+/** Комната не снимается по данным (не сбой): задача `skipped` с кодом — резерв вернулся, повтор — по правилу очереди (`max_tries`). */
+const skip = (code, msg) => Object.assign(fail(code, msg), { skip: true });
+
+/** Предпроверка листа товаров у сервиса кадров DEV (тот же процесс, что заказ тура проходит перед оплатой; только изнутри). */
+export const SHEET_CHECK_URL = "http://127.0.0.1:8600/render/sheet-check";
+
+/**
+ * Предпроверка листа комнаты (T-20261112-115/6): заказ страницы для выбранного варианта (`readPayload(i)` — `payload()` страницы) → сервис
+ * кадров считает фото товаров тем же счётом и порогом, что `paid_gate` перед оплатой. Порога здесь нет — он в ответе (`min_share`).
+ * → {ok, n_items, n_photos, min_share, …} | {error} (сервис недоступен — снимаем как раньше; деньги стережёт `paid_gate`)
+ */
+export function sheetChecker(readPayload, tour, url = SHEET_CHECK_URL, fetchFn = fetch) {
+  return async (i) => {
+    try {
+      const p = await readPayload(i);
+      if (!p || !Array.isArray(p.items)) return { error: "заказ страницы не прочитан" };
+      const r = await fetchFn(url, { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ trial: tour, items: p.items }), signal: AbortSignal.timeout(60_000) });
+      const b = await r.json().catch(() => null);
+      if (r.status !== 200 || !b || typeof b.ok !== "boolean" || !Number.isFinite(b.min_share)) return { error: `http ${r.status}` };
+      return b;
+    } catch (e) { return { error: `сеть: ${String(e?.message ?? e).slice(0, 120)}` }; }
+  };
+}
 
 /** Одна комната: вариант → состояние → кадры своей комнаты (`upload` — загружены на сервер, есть `views`) → файлы. Бросает с `code`. */
 async function shootRoom(list, room, rec, deps, upload) {
@@ -121,6 +147,15 @@ async function shootRoom(list, room, rec, deps, upload) {
   const st = await deps.stateOf(i);
   rec.stateId = st;
   if (room.state_id && st !== room.state_id) throw fail("state_changed", `состояние комнаты ${st} ≠ заданного ${room.state_id} — тур пересобран, не снимаю`);
+  if (deps.sheetCheck) {   // лист товаров — до съёмки (T-115/6): 3D на процессоре — минута, а без фото товаров оплата всё равно не пройдёт
+    const s = await deps.sheetCheck(i);
+    rec.sheet = s;
+    if (s?.ok === false) {
+      const why = `фото товаров на листе ${s.n_photos} из ${s.n_items} (нужно не меньше ${Math.round(s.min_share * 100)} %)`;
+      if (upload) throw skip("no_product_sheet", `${why} — не снимаю: оплата всё равно не прошла бы`);
+      deps.log?.(`ROOM ${room.room_id}: ${why} — в боевом ходе комната была бы пропущена (сухой ход снимает)`);
+    } else if (s?.error) deps.log?.(`ROOM ${room.room_id}: предпроверка листа недоступна (${s.error}) — снимаю; деньги стережёт проверка перед оплатой`);
+  }
   const cap = await deps.capture(i, room.poses, upload);
   if (!cap?.ok) throw fail("capture_failed", `${cap?.error ?? "кадры не сняты"}${cap?.live ? ` (3D: ${cap.live})` : ""}`);
   if (cap.roomId !== room.room_id) throw fail("room_mismatch", `кадры комнаты ${cap.roomId}, ждали ${room.room_id}`);
@@ -153,7 +188,7 @@ export const STOP_CODES = new Set(["no_credits", "unavailable", "daily_limit", "
  * → {rooms:[…], ok, failed, ordered, refusals, left, lost, stop}
  */
 export async function runBatch(batch, job, deps, { dry = false, maxTasks = Infinity } = {}) {
-  const out = { rooms: [], ok: 0, failed: 0, ordered: 0, refusals: 0, left: 0, lost: false, stop: "" };
+  const out = { rooms: [], ok: 0, failed: 0, skipped: 0, ordered: 0, refusals: 0, left: 0, lost: false, stop: "" };
   const list = await deps.list();
   let n = 0;
   for (let k = 0; k < batch.tasks.length; k++) {
@@ -182,16 +217,19 @@ export async function runBatch(batch, job, deps, { dry = false, maxTasks = Infin
       }
       rec.ok = true; out.ok += 1;
     } catch (e) {
-      rec.why = String(e?.message ?? e).slice(0, 300); rec.code = e?.code ?? "shoot_error"; out.failed += 1;
-      // до заказа — задача failed с кодом (резерв вернулся); после заказа деньги ушли — задачу ведёт сервер (готово/сбой фото)
+      rec.why = String(e?.message ?? e).slice(0, 300); rec.code = e?.code ?? "shoot_error"; rec.skipped = !!e?.skip;
+      if (rec.skipped) out.skipped += 1; else out.failed += 1;
+      // до заказа — задача failed (сбой) или skipped (данные не дают фото) с кодом, резерв вернулся; после заказа деньги ушли — задачу
+      // ведёт сервер (готово/сбой фото)
       if (!ordered && !out.lost && rec.code !== "bad_transition") {
-        const r = await deps.mark(t.id, "failed", codeOf(rec.code, "shoot_error"));
+        const r = await deps.mark(t.id, rec.skipped ? "skipped" : "failed", codeOf(rec.code, "shoot_error"));
         if (r.lost) out.lost = true;
       }
     }
     rec.sec = Math.round((Date.now() - t0) / 100) / 10;
     out.rooms.push(rec);
-    deps.log?.(`ROOM ${t.roomId} ${rec.variant || "?"}: ${rec.ok ? (dry ? `снято ${rec.files.length} кадра (сухой ход)` : `фото ${rec.photos.length}`) : `НЕ СНЯТО [${rec.code}] — ${rec.why}`}, ${rec.sec} с`);
+    deps.log?.(`ROOM ${t.roomId} ${rec.variant || "?"}: ${rec.ok ? (dry ? `снято ${rec.files.length} кадра (сухой ход)` : `фото ${rec.photos.length}`)
+      : `${rec.skipped ? "ПРОПУСК" : "НЕ СНЯТО"} [${rec.code}] — ${rec.why}`}, ${rec.sec} с`);
   }
   return out;
 }
@@ -362,13 +400,14 @@ async function shootBatch(batch, out, opt) {
     const pageMs = Date.now() - t0;
     console.log(`партия ${batch.batchId} тур ${job.tour} v${ver}: страница за ${(pageMs / 1000).toFixed(1)} с, задач ${batch.tasks.length}, ${opt.dry ? "СУХОЙ ХОД" : "с заказом"}; папка ${out}`);
     const deps = { ...pageDeps(page, out), mark: (taskId, status, code) => api.mark(batch, taskId, status, code),
-      order: pageOrder(page), fetchPhotos: photoFetcher(base, token, out) };
+      order: pageOrder(page), fetchPhotos: photoFetcher(base, token, out),
+      sheetCheck: sheetChecker((i) => page.evaluate((k) => (cur === k ? payload() : null), i), job.tour, process.env.TOUR_SHEET_CHECK_URL || SHEET_CHECK_URL) };
     res = await runBatch(batch, job, deps, { dry: opt.dry, maxTasks: opt.maxTasks });
     res.pageMs = pageMs;
   } catch (e) {
     const why = String(e?.message ?? e).slice(0, 300);
     console.log(`ПАРТИЯ ${batch.batchId}: НЕ СНЯТА — ${why}`);
-    res = { rooms: [], ok: 0, failed: batch.tasks.length, ordered: 0, refusals: 0, left: batch.tasks.length, lost: false, stop: back || "page_error", why };
+    res = { rooms: [], ok: 0, failed: batch.tasks.length, skipped: 0, ordered: 0, refusals: 0, left: batch.tasks.length, lost: false, stop: back || "page_error", why };
     back ||= "shooter_error";
   } finally { await browser?.close(); }
   res.pageErrors = errs.slice(0, 5);
@@ -377,11 +416,11 @@ async function shootBatch(batch, out, opt) {
   else if (back || opt.dry || res.stop || res.left) {
     const code = back || (opt.dry ? "dry_run" : res.stop || "max_tasks");
     end = { action: "release", code, ...(await api.release(batch, code)) };
-  } else end = { action: "finish", ...(await api.finish(batch, `ok ${res.ok}, failed ${res.failed}, ordered ${res.ordered}`)) };
+  } else end = { action: "finish", ...(await api.finish(batch, `ok ${res.ok}, failed ${res.failed}, skipped ${res.skipped}, ordered ${res.ordered}`)) };
   Object.assign(res, { batchId: batch.batchId, jobId: batch.jobId, bundleVersion: batch.bundleVersion, attempt: batch.attempt, urgency: batch.urgency,
     dry: !!opt.dry, end, totalSec: Math.round((Date.now() - t0) / 100) / 10 });
   writeFileSync(join(out, "result.json"), JSON.stringify(res, null, 1));
-  console.log(`итого: снято ${res.ok}, не снято ${res.failed}, заказов ${res.ordered}, отказов ${res.refusals}, осталось ${res.left}; партия: ${end.action}${end.code ? " " + end.code : ""} (${end.status ?? "-"}), ${res.totalSec} с → ${join(out, "result.json")}`);
+  console.log(`итого: снято ${res.ok}, не снято ${res.failed}, пропущено ${res.skipped}, заказов ${res.ordered}, отказов ${res.refusals}, осталось ${res.left}; партия: ${end.action}${end.code ? " " + end.code : ""} (${end.status ?? "-"}), ${res.totalSec} с → ${join(out, "result.json")}`);
   return res.failed || back || res.left || res.lost || opt.dry ? 3 : 0;
 }
 
@@ -550,6 +589,35 @@ async function selftest() {
   m = mk({ order: () => ({ ok: false, error: "задача уже заказана", code: "auto_task_busy" }) });
   r = await runBatch({ ...B, tasks: B.tasks.slice(0, 1) }, { ...BJ, rooms: BJ.rooms.slice(0, 1) }, m.deps);
   check(r.refusals === 1 && !r.stop && r.rooms[0].code === "auto_task_busy", "второй заказ той же задачи сервер не пускает — отказ с кодом, не стоп партии", r);
+
+  // ПРЕДПРОВЕРКА ЛИСТА ДО СЪЁМКИ (T-115/6): мало фото товаров — skipped/no_product_sheet без 3D и заказа; сухой ход снимает; сервис молчит — снимаем
+  const sheetBy = (byRoom) => async (i) => byRoom[V[i].room_id] ?? { ok: true, n_items: 4, n_photos: 4, min_share: 0.75 };
+  const low = { ok: false, n_items: 4, n_photos: 1, min_share: 0.75 };
+  m = mk();
+  let nCaps = 0;
+  const capCount = { ...m.deps, capture: (...a) => { nCaps += 1; return m.deps.capture(...a); } };
+  r = await runBatch(B, BJ, { ...capCount, sheetCheck: sheetBy({ living: low }) });
+  check(r.skipped === 1 && r.failed === 1 && r.ordered === 1 && nCaps === 2 && m.orders.map((o) => o[1]).join() === "t-bed1-001"
+    && m.marks.some((x) => x.join(":") === "t-living-1:skipped:no_product_sheet") && !m.marks.some((x) => x[0] === "t-living-1" && x[1] === "failed")
+    && r.rooms[0].skipped && /1 из 4.*75 %/.test(r.rooms[0].why),
+  "мало фото товаров — комната не снимается и не заказывается: skipped/no_product_sheet, остальные идут", { r, marks: m.marks, nCaps });
+  m = mk(); nCaps = 0;
+  r = await runBatch(B, BJ, { ...m.deps, capture: (...a) => { nCaps += 1; return m.deps.capture(...a); }, sheetCheck: sheetBy({ living: low }) }, { dry: true });
+  check(r.skipped === 0 && r.ok === 2 && nCaps === 3 && !m.marks.some((x) => x[1] === "skipped") && r.rooms[0].sheet?.ok === false,
+    "сухой ход: предпроверка в итоге, но комнату снимает (кадры для разбора), задачу не закрывает", { r, marks: m.marks });
+  m = mk();
+  r = await runBatch(B, BJ, { ...m.deps, sheetCheck: async () => ({ error: "http 404" }) });
+  check(r.ok === 2 && r.skipped === 0 && r.ordered === 2, "сервис предпроверки молчит (старый сервис кадров, 404) — снимаем как раньше; деньги стережёт paid_gate", r);
+  const sc = [];
+  const scFetch = (status, body) => async (url, init) => { sc.push({ url, body: JSON.parse(init.body) }); return { status, json: async () => body }; };
+  const its = [{ role: "диван", msid: "1_a", name: "Диван" }];
+  const okR = await sheetChecker(async () => ({ items: its, room: {} }), T, SHEET_CHECK_URL, scFetch(200, low))(3);
+  const e404 = await sheetChecker(async () => ({ items: its }), T, SHEET_CHECK_URL, scFetch(404, { error: "нет такого пути" }))(3);
+  const eNoPage = await sheetChecker(async () => null, T, SHEET_CHECK_URL, scFetch(200, low))(3);
+  const eBadBody = await sheetChecker(async () => ({ items: its }), T, SHEET_CHECK_URL, scFetch(200, { ok: false }))(3);
+  check(okR.ok === false && okR.n_photos === 1 && sc[0].url === SHEET_CHECK_URL && sc[0].body.trial === T && JSON.stringify(sc[0].body.items) === JSON.stringify(its)
+    && Object.keys(sc[0].body).join() === "trial,items" && e404.error === "http 404" && /не прочитан/.test(eNoPage.error) && sc.length === 3 && !!eBadBody.error,
+  "предпроверка: сервису — только тур и предметы заказа страницы; порог и счёт — из ответа сервиса; 404/нет заказа/кривой ответ — {error}", { okR, e404, eNoPage, eBadBody });
 
   // ручки и ключ: Bearer только в заголовке, адреса ручек, аренда в теле; ключ нигде не печатается
   const calls = [];

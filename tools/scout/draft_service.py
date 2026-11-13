@@ -595,6 +595,15 @@ class H(BaseHTTPRequestHandler):
             if ip and not ip_allowed(ip, 'share'):
                 return self._send(429, {'error': 'слишком много подборок подряд, попробуйте через 10 минут'})
             return self._share(payload)
+        if self.route.startswith(('/render/sheet-check', '/draft/sheet-check')):
+            # ПРЕДПРОВЕРКА ЛИСТА ТОВАРОВ ДО СЪЁМКИ (автофото тура, T-20261112-115/6): съёмщик DEV спрашивает здесь, хватит ли фото товаров
+            # комнаты, — тем же счётом и порогом, что `paid_gate` перед оплатой. Только изнутри (без X-Forwarded-For), как `/credits`: снаружи
+            # это лишь способ гонять скачивание фото каталога
+            if ip:
+                return self._send(404, {'error': 'нет такого пути'})
+            if not (DT.trial_id(payload) and isinstance(payload.get('items'), list)):
+                return self._send(400, {'error': 'нужны trial и items', 'code': 'bad_request'})
+            return self._send(200, DT.sheet_check(payload, DR.CACHE, DR.PUBLIC_BASE or 'https://remont-lab.online'))
         if not self.route.startswith(('/draft', '/render')):
             return self._send(404, {'error': 'нет такого пути'})
         # автофото тура (T-20261112-115 Ф2): класс `auto` — только с внутренним ключом приложения; своя IP-корзина и свой суточный счёт

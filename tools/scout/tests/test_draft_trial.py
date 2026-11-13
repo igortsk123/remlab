@@ -344,3 +344,90 @@ def test_work_reports_trial_result_and_failure(tmp_path, monkeypatch):
     got.clear()
     S._work(S.JOBS.new('draft', {'room': 1, 'items': [1]}))
     assert got == []
+
+
+# ───────── предпроверка листа до съёмки (автофото тура, T-20261112-115/6) ─────────
+
+def test_sheet_check_threshold_is_paid_gate_rule():
+    # один порог: где `photo_share_ok` — да, там `paid_gate` пропускает; где нет — отказ no_product_sheet. Числа порога в тесте нет
+    import draft_render as DR
+    import improve_mode as IM
+    for n in range(0, 10):
+        for k in range(0, n + 1):
+            try:
+                IM.paid_gate({'ident': object(), 'n_items': n, 'n_photos': k})
+                passed = True
+            except DR.NoProductSheet:
+                passed = False
+            assert IM.photo_share_ok(n, k) == passed, (n, k)
+
+
+def test_sheet_check_counts_like_build_from_views(monkeypatch):
+    # тот же счёт карточек, что у листа эталонов: роль — один раз, «стул»/«стул 2» — одна карточка, без названия — не карточка
+    import draft_render as DR
+    import improve_mode as IM
+    monkeypatch.setattr(DR, 'photo', lambda u: object() if u and 'ok' in u else None)
+    items = [{'role': 'диван', 'name': 'Диван А', 'img': '//x/ok1'}, {'role': 'стул', 'name': 'Стул Б', 'img': '//x/ok2'},
+             {'role': 'стул 2', 'name': 'Стул Б', 'img': '//x/ok2'}, {'role': 'кровать', 'name': 'Кровать', 'img': '//x/no'},
+             {'role': 'ковёр', 'img': '//x/ok3'}, 'мусор']
+    r = IM.sheet_check(items)
+    assert (r['n_items'], r['n_photos'], r['min_share']) == (*IM.sheet_counts([i for i in items if isinstance(i, dict)],
+                                                                             {'диван': 1, 'стул': 1, 'стул 2': 1}), IM.MIN_PHOTO_SHARE)
+    assert r['ok'] == IM.photo_share_ok(r['n_items'], r['n_photos'])
+
+
+def test_sheet_check_trial_steps_and_no_mutation():
+    # шаги заказа тура: фото каталога по модели → кэш → счёт; заказ страницы не портится (копия предметов)
+    p = {'trial': TID, 'items': [{'role': 'диван', 'msid': '1_a', 'img': 'https://evil.example/x.jpg'}]}
+    seen = {}
+
+    def fill(b):
+        seen['fill'] = [dict(i) for i in b['items']]
+        b['items'][0]['img'] = '//cat/sofa.jpg'
+        return 1, 1
+
+    def warm(urls, cache, base):
+        seen['warm'] = (urls, cache, base)
+        return 1
+    r = DT.sheet_check(p, '/c', 'https://b.test', fill, warm, lambda its: {'n_items': 1, 'n_photos': 1, 'min_share': .75, 'ok': True,
+                                                                           'imgs': [i.get('img') for i in its]})
+    assert r == {'n_items': 1, 'n_photos': 1, 'min_share': .75, 'ok': True, 'imgs': ['//cat/sofa.jpg'], 'catalog': '1 из 1', 'cached': 1}
+    assert seen['warm'] == (['//cat/sofa.jpg'], '/c', 'https://b.test')
+    assert p['items'][0]['img'] == 'https://evil.example/x.jpg'
+
+
+def test_service_sheet_check_internal_only_no_render(svc):
+    S, _, calls, monkeypatch = svc
+    import improve_mode as IM
+
+    def fill(b):
+        for it in b['items']:
+            if it.get('msid') == '1_a':
+                it['img'] = '//cat/a.jpg'
+        return len(b['items']), 1
+    monkeypatch.setattr(S.DT, 'fill_imgs', fill)
+    monkeypatch.setattr(S.DR, 'photo', lambda u: object() if u else None)
+    # `post` фикстуры шлёт всегда X-Forwarded-For и только на `/render` — поднимаем свой сервер на том же обработчике
+    srv = ThreadingHTTPServer(('127.0.0.1', 0), S.H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f'http://127.0.0.1:{srv.server_address[1]}'
+
+    def ask(body, path='/render/sheet-check', xff=None):
+        req = urllib.request.Request(base + path, data=json.dumps(body).encode(), method='POST',
+                                     headers={'Content-Type': 'application/json', **({'X-Forwarded-For': xff} if xff else {})})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+    try:
+        two = [{'role': 'диван', 'name': 'Диван', 'msid': '1_a'}, {'role': 'кровать', 'name': 'Кровать', 'msid': '2_b'}]
+        st, r = ask({'trial': TID, 'items': two})
+        assert st == 200 and (r['n_items'], r['n_photos'], r['ok'], r['min_share']) == (2, 1, False, IM.MIN_PHOTO_SHARE)
+        st, r = ask({'trial': TID, 'items': two[:1]}, path='/api/draft/sheet-check')
+        assert st == 200 and (r['n_items'], r['n_photos'], r['ok']) == (1, 1, True)
+        assert ask({'trial': TID, 'items': two}, xff='10.0.0.1')[0] == 404          # снаружи (через Caddy) — нет такого пути
+        assert ask({'items': two})[1]['code'] == 'bad_request' and ask({'trial': TID})[0] == 400
+        assert calls['render'] == []                                                # ни рендера, ни заказа
+    finally:
+        srv.shutdown()

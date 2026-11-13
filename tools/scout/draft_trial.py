@@ -299,6 +299,24 @@ def report(tid: str, body: dict, token: str | None = None, post=_post, sleep=tim
     return False
 
 
+def sheet_check(payload: dict, cache_dir: str, base: str, fill=None, warm=None, count=None) -> dict:
+    """ПРЕДПРОВЕРКА ЛИСТА ТОВАРОВ ДО СЪЁМКИ (автофото тура, T-20261112-115/6): те же шаги, что у заказа тура в сервисе кадров перед
+    `paid_gate`, — фото из каталога по модели (`fill_imgs`), в кэш (`warm_photos`), счёт и порог листа (`improve_mode.sheet_check`). Кадров
+    и денег не нужно: доля ниже порога — съёмщик закрывает задачу сразу (`skipped`/`no_product_sheet`), не тратя минуту процессора на 3D.
+    Заказ потом всё равно проходит `paid_gate` — предпроверка его не заменяет. → {n_items, n_photos, min_share, ok, catalog, cached}"""
+    if fill is None:
+        fill = fill_imgs
+    if warm is None:
+        warm = warm_photos
+    if count is None:
+        import improve_mode as IM
+        count = IM.sheet_check
+    body = {'items': [dict(it) for it in payload.get('items') or [] if isinstance(it, dict)]}
+    n_it, n_img = fill(body)
+    n_ok = warm([it.get('img') for it in body['items']], cache_dir, base)
+    return {**count(body['items']), 'catalog': f'{n_img} из {n_it}', 'cached': n_ok}
+
+
 def fill_imgs(payload: dict, lookup=catalog_imgs) -> tuple[int, int]:
     """Фото товаров заказа тура — только из каталога по `msid` (ссылки страницы снимаются). → (предметов, из них с фото)."""
     items = [it for it in payload.get('items') or [] if isinstance(it, dict)]

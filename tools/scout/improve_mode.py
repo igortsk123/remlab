@@ -556,6 +556,23 @@ _IDENT_CACHE: dict = {}      # состав товаров → (лист эта�
 MIN_PHOTO_SHARE = 0.75
 
 
+def photo_share_ok(n_items: int, n_photos: int) -> bool:
+    """Хватает ли листу настоящих фото: позиций > 0 и с фото не меньше `MIN_PHOTO_SHARE`. Одно правило для `paid_gate` (перед оплатой) и
+    `sheet_check` (предпроверка автофото тура до съёмки, T-20261112-115/6) — порог не копируется."""
+    return bool(n_items) and n_photos >= MIN_PHOTO_SHARE * n_items
+
+
+def sheet_check(items: list) -> dict:
+    """ПРЕДПРОВЕРКА ЛИСТА ДО СЪЁМКИ (T-20261112-115/6): тот же счёт, что у `build_from_views` перед `paid_gate` — фото по `img` предметов
+    (`draft_render.photo`: кэш, затем сеть) и `sheet_counts`, — но без кадров и без листа. `items` — уже с фото каталога (`draft_trial.
+    fill_imgs`). → {n_items, n_photos, min_share, ok}"""
+    import draft_render as DR
+    items = [it for it in items or [] if isinstance(it, dict)]
+    photos = {it['role']: DR.photo(it.get('img')) for it in items if it.get('img') and it.get('role')}
+    n, k = sheet_counts(items, photos)
+    return {'n_items': n, 'n_photos': k, 'min_share': MIN_PHOTO_SHARE, 'ok': photo_share_ok(n, k)}
+
+
 def sheet_counts(items: list, photos: dict, skus: dict | None = None) -> tuple[int, int]:
     """(позиций на листе эталонов, из них с настоящим фото) — та же группировка, что у `draft_render._identity`: только товары
     с названием, одна роль — один раз, одинаковый товар («стул», «стул 2») — одна карточка, фото — у первой роли карточки."""
@@ -875,7 +892,7 @@ def paid_gate(built: dict) -> None:
     n, k = built.get('n_items'), built.get('n_photos')
     if n is None or k is None:
         raise DR.NoProductSheet('неизвестно, сколько товаров листа с фото — платный вызов не делаю')
-    if n == 0 or k < MIN_PHOTO_SHARE * n:
+    if not photo_share_ok(n, k):
         raise DR.NoProductSheet(f'фото товаров на листе {k} из {n} (нужно не меньше {MIN_PHOTO_SHARE:.0%}) — модель рисовала бы товары '
                                 'по названию; платный вызов не делаю')
 
