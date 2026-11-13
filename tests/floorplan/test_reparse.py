@@ -105,7 +105,8 @@ def bundle(rooms, goods=None, bad=0):
     """Страница: [(id страницы, id плана, состояние, исход)], товары по комнате (с ценой и ссылкой) и `bad` без цены у гостиной."""
     var = []
     for pid, n in (goods or {}).items():
-        var.append({'room_id': pid, 'items': [{'sku': {'price': 100, 'url': 'https://x'}} for _ in range(n)] +
+        roles = ('диван', 'столик', 'тв-тумба', 'ковёр', 'торшер', 'кресло')    # от 3 предметов у гостиной полное ядро
+        var.append({'room_id': pid, 'items': [{'role': roles[i % len(roles)], 'sku': {'price': 100, 'url': 'https://x'}} for i in range(n)] +
                     ([{'sku': {'price': 0, 'url': 'https://x'}} for _ in range(bad)] if pid == 'living' else [])})
     return {'apartment_rooms': [{'id': p, 'kind': p.split('-')[0], 'furniture_state': s, 'furniture_outcome': o} for p, _, s, o in rooms],
             'variants': var, 'trial': {'panels': [{'id': 'p0', 'rooms': [{'id': p, 'src_id': s} for p, s, *_ in rooms]}]}}
@@ -127,19 +128,42 @@ def test_page_guard_style_lost_blocks():
     видел только «обставлена, товары есть». Стилей с мебелью стало меньше — блок с ключом; столько же или больше — чисто."""
     pc = RG.pair_canon(plan(), plan(ids=('a', 'b', 'c')))
 
+    core = ('диван', 'столик', 'тв-тумба', 'ковёр', 'торшер', 'кресло', 'стеллаж', 'кашпо', 'полка')
+
     def page(styles, sid):
         b = bundle([('living', sid, 'ready', 'furnished')])
-        b['variants'] = [{'room_id': 'living', 'style': s, 'items': [{'sku': {'price': 100, 'url': 'https://x'}}] * n}
-                         for s, n in styles]
+        b['variants'] = [{'room_id': 'living', 'style': s,
+                          'items': [{'role': r, 'sku': {'price': 100, 'url': 'https://x'}} for r in (roles if isinstance(roles, tuple) else core[:roles])]}
+                         for s, roles in styles]
         return b
     was = page([('сканди', 9), ('современный', 9), ('минимализм', 8), ('лофт', 6), ('неоклассика', 9), ('джапанди', 9)], 'r1')
     lost = page([('сканди', 8), ('современный', 8), ('неоклассика', 8), ('джапанди', 6), ('минимализм', 0)], 'a')
     f = RG.guard_page(was, lost, pc)
     assert [(x['key'], x['level']) for x in f] == [('p0/r1:page:styles:6→4', 'block')]
-    assert 'нет: лофт, минимализм' in f[0]['text']
+    assert 'нет: лофт, минимализм' in f[0]['text'] and 'с мебелью и ядром 6 → 4' in f[0]['text']
     assert RG.verdict(f)[0] == 'block' and RG.verdict(f, ['p0/r1:page:styles:6→4'])[0] == 'approved'
     same = page([(s, 5) for s in ('сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди')], 'a')
     assert RG.guard_page(was, same, pc) == []
+    # T-20261113-23/2 (директор): «стиль с мебелью» гостиной = стиль с полным ядром, до и после. Прод — 5 стилей, у двух нет столика или
+    # тумбы ТВ (`(...)` — роли без ядра); честная перечитка даёт 3 с ядром → чисто: дырявые стили и раньше не считались.
+    holey = page([('сканди', 8), ('современный', 8), ('неоклассика', 8), ('минимализм', ('диван', 'столик', 'ковёр')),
+                  ('джапанди', ('диван', 'тв-тумба', 'стеллаж'))], 'r1')
+    assert RG.page_rooms(holey)[('p0', 'r1')]['styles'] == ['неоклассика', 'сканди', 'современный']
+    honest = page([('сканди', 8), ('современный', 8), ('неоклассика', 8)], 'a')
+    assert RG.guard_page(holey, honest, pc) == []
+    # стенка — тоже носитель ТВ; столик у стиля пропал на перечитке — потеря стиля с ядром, блок
+    assert RG.guard_page(holey, page([('сканди', ('диван', 'столик', 'стенка')), ('современный', 8),
+                                      ('неоклассика', ('диван', 'тв-тумба'))], 'a'), pc)[0]['key'] == 'p0/r1:page:styles:3→2'
+    # прод yb3_DQ: 5 стилей, ни у одного нет полного ядра → перечитка честно отказала гостиной («нет места») — не блок
+    hollow = page([('сканди', ('диван', 'тв-тумба', 'ковёр')), ('лофт', ('диван', 'столик'))], 'r1')
+    refused = bundle([('living', 'a', 'ready', 'no_space')])
+    assert RG.guard_page(hollow, refused, pc) == []
+    # а у честной гостиной тот же отказ — блок, как раньше
+    assert RG.guard_page(page([('сканди', 8)], 'r1'), refused, pc)[0]['key'] == 'p0/r1:page:ready/no_space'
+    # не гостиная: ядро не требуется — спальня с мебелью считается стилем как раньше
+    bed = bundle([('bedroom', 'b1', 'ready', 'furnished')], goods={'bedroom': 3})
+    bed['variants'][0]['style'] = 'сканди'
+    assert RG.page_rooms(bed)[('p0', 'b1')]['styles'] == ['сканди']
 
 
 def test_verdict_and_detail():

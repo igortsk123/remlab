@@ -96,6 +96,16 @@ def core_lost(want_roles, got_roles) -> list[str]:
     return out
 
 
+# ЯДРО ВАРИАНТА ГОСТИНОЙ — ОДНО НА ВСЕ МЕСТА (T-20261113-23): подбор тура (`trial_demo.core_gone`: вариант без ядра скрыт) и сторож
+# перечитки (`tools/floorplan/regress.page_rooms`: «стиль с мебелью» гостиной = стиль с полным ядром). Требуем независимо от состава набора.
+LIVING_CORE = ('диван', 'столик', 'тв-тумба')
+
+
+def living_core_gone(placed_roles) -> list[str]:
+    """Роли ядра гостиной, которых нет среди вставших предметов: «диван», «столик», «носитель ТВ» (тумба или стенка)."""
+    return core_lost(LIVING_CORE, placed_roles)
+
+
 def dresser_yield_drop(want_roles, got_roles) -> list[str]:
     """Роли комода, которые снять, раз ядро потеряно (`core_lost`). Ядро полное — ничего."""
     if not core_lost(want_roles, got_roles):

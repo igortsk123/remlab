@@ -968,14 +968,12 @@ CORE_ROLES = ('диван',) + BEARERS     # без годной модели э
 # диван, столик и носитель ТВ — в КАЖДОМ показанном варианте, как у /demo (`bank_invariants.core_missing`, `demo_fill`). Ядро не
 # снимают: столик без модели меняется товаром ленты (`usable_set`), не встал — следующий набор стиля (`retry_next`), подстановка на
 # обставленную геометрию (`rescue`); не вышло нигде — вариант скрыт (`style_rejected`, причина `core_missing:<роль>`). Требуем ядро
-# независимо от состава набора: набор банка без столика тоже не даёт показать гостиную без столика. Сторож выкладки — `priced_vs_3d.core_gaps`.
-LIVING_CORE = ('диван', 'столик', 'тв-тумба')
-
-
+# независимо от состава набора: набор банка без столика тоже не даёт показать гостиную без столика. Сторож выкладки — `priced_vs_3d.core_gaps`,
+# сторож перечитки — `regress.page_rooms`; само ядро — `bank_invariants.LIVING_CORE` (одно определение).
 def core_gone(placed_roles) -> list:
     """Роли ядра гостиной, которых нет среди вставших предметов: «диван», «столик», «носитель ТВ» (тумба или стенка)."""
     import bank_invariants as BI
-    return BI.core_lost(LIVING_CORE, placed_roles)
+    return BI.living_core_gone(placed_roles)
 
 
 def eligible(st: dict, mesh_ok=None) -> bool:

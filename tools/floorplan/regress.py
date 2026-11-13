@@ -498,10 +498,23 @@ def guard_canon(old: dict, new: dict, pc: dict) -> list[dict]:
     return out
 
 
+def _living_core_gone(roles) -> list[str]:
+    """Ядро гостиной — одно определение на подбор и сторож (`tools/scout/bank_invariants.living_core_gone`); импорт ленивый: scout в
+    sys.path разбора не нужен."""
+    sc = str(HERE.parents[1] / 'tools' / 'scout')
+    if sc not in sys.path:
+        sys.path.insert(0, sc)
+    import bank_invariants as BI
+    return BI.living_core_gone(roles)
+
+
 def page_rooms(bundle: dict) -> dict:
     """Страница тура → {(панель, id плана): {'page', 'kind', 'state', 'outcome', 'goods', 'bad', 'styles'}}: товары с ценой и ссылкой,
-    `bad` — без цены или ссылки, `styles` — стили комнаты, у которых есть мебель (вариант с предметами; без стиля — по id варианта)."""
+    `bad` — без цены или ссылки, `styles` — стили комнаты, у которых есть мебель (вариант с предметами; без стиля — по id варианта).
+    У гостиной стиль с мебелью = стиль с ПОЛНЫМ ядром (диван, столик, носитель ТВ; директор 13.11, T-20261113-23/2): вариант без ядра
+    подбор больше не показывает, и перечитка, заменившая дырявые стили честными, не должна считаться потерей стиля."""
     src = {x['id']: (p['id'], str(x.get('src_id'))) for p in (bundle.get('trial') or {}).get('panels') or [] for x in p.get('rooms') or []}
+    living = {r['id'] for r in bundle.get('apartment_rooms') or [] if r.get('kind') == 'living'}
     goods: dict = {}
     styles: dict = {}
     for v in bundle.get('variants') or []:
@@ -509,7 +522,8 @@ def page_rooms(bundle: dict) -> dict:
         for it in v.get('items') or []:
             s = it.get('sku') or {}
             g[0 if (s.get('price') or 0) > 0 and s.get('url') else 1] += 1
-        if v.get('items'):
+        its = v.get('items') or []
+        if its and not (v.get('room_id') in living and _living_core_gone([it.get('role') for it in its])):
             styles.setdefault(v.get('room_id'), set()).add(str(v.get('style') or v.get('id')))
     out = {}
     for r in bundle.get('apartment_rooms') or []:
@@ -539,7 +553,12 @@ def guard_page(old_b: dict, new_b: dict, pc: dict) -> list[dict]:
         if y is None:
             out.append(_f(f'{tag}:page:lost', 'block', f"{x['page']}: комнаты нет на новой странице"))
             continue
-        if _furnished(x) and not _furnished(y):
+        # гостиная без единого стиля с ядром не была обставлена честно (директор 13.11, T-20261113-23/2: пустая гостиная с надписью лучше
+        # 3 предметов без ТВ) — переход в «нет места / нет товаров» не блок; цены и ссылки сторожим как у любой комнаты
+        hollow = x['kind'] == 'living' and not x['styles']
+        if hollow:
+            pass
+        elif _furnished(x) and not _furnished(y):
             out.append(_f(f"{tag}:page:{y['state']}/{y['outcome']}", 'block',
                           f"{x['page']}: была обставлена → {y['state']} / {y['outcome']}"))
         elif x['goods'] and not y['goods']:
@@ -547,7 +566,8 @@ def guard_page(old_b: dict, new_b: dict, pc: dict) -> list[dict]:
         elif len(y.get('styles') or []) < len(x.get('styles') or []):
             gone = [s for s in x['styles'] if s not in y['styles']]
             out.append(_f(f"{tag}:page:styles:{len(x['styles'])}→{len(y['styles'])}", 'block',
-                          f"{x['page']}: стилей с мебелью {len(x['styles'])} → {len(y['styles'])} (нет: {', '.join(gone) or '—'})"))
+                          f"{x['page']}: стилей с мебелью{' и ядром' if x['kind'] == 'living' else ''} {len(x['styles'])} → "
+                          f"{len(y['styles'])} (нет: {', '.join(gone) or '—'})"))
         if y['bad'] > x['bad']:
             out.append(_f(f"{tag}:page:bad:{x['bad']}→{y['bad']}", 'block', f"{x['page']}: товаров без цены или ссылки {x['bad']} → {y['bad']}"))
     return out
