@@ -55,12 +55,15 @@ const boxOf = (p: Placement): { rect: Rect; z0: number; z1: number } =>
   ({ rect: footprint(p), z0: p.elevCm ?? 0, z1: (p.elevCm ?? 0) + p.hCm });
 
 /**
- * Что занимает стены комнаты: мебель (без ковра и неразмещённого), повешенные картины и зеркала (`kit: wall-plane`) и
+ * Что занимает стены комнаты: мебель (без ковра, тканей и неразмещённого), повешенные картины и зеркала (`kit: wall-plane`) и
  * телевизор над тумбой, если своего «тв» в расстановке нет (`autoTv` — тот же расчёт, что рисует сцена). `skip` — опора картины:
  * сама себе не помеха (ТВ при этом считается по всей расстановке).
  */
 export function blockersOf(items: readonly ResolvedItem[], skip?: ResolvedItem): Blocker[] {
-  const live = items.filter((o) => o.kind === "furniture" && !o.unplaced && !(o.asset.kind === "kit" && o.asset.kit === "rug"));
+  // ТКАНЬ СТЕНЕ НЕ ПОМЕХА (T-20261113-24/3): подушка и плед лежат на своей мебели, штора висит у проёма (её свес держит проверка
+  // проёма). Подушка выше спинки дивана считалась мебелью у стены — картина над диваном оставалась без места, а ворота витрины
+  // `priced_vs_3d --guard` не выпускали /demo (set13, 13.11). Место картины от тканей не зависит ни в одной комнате.
+  const live = items.filter((o) => o.kind === "furniture" && !o.unplaced && !o.textile && !(o.asset.kind === "kit" && o.asset.kit === "rug"));
   const out: Blocker[] = live.filter((o) => o !== skip).map((o) => ({ ...boxOf(o.placement),
     kind: o.asset.kind === "kit" && o.asset.kit === "wall-plane" ? "art" : baseRole(o.photoRole) === "тв" ? "tv" : "furniture" }));
   const tv = autoTv(live.map((o) => ({ role: o.photoRole ?? "", x: o.placement.x, y: o.placement.y, rot: o.placement.rot,

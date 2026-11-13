@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { fromDemoVariant } from "@/lib/configurator/fromDemo";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { WALL_ART_RULES } from "@/lib/configurator/wall-art";
-import { ART_CENTRE_CM, clampSpot, hangAt, HUNG_FREE, spanProblem, spotOf } from "@/lib/configurator/wall-art-spot";
+import { ART_CENTRE_CM, blockersOf, clampSpot, hangAt, HUNG_FREE, spanProblem, spotOf } from "@/lib/configurator/wall-art-spot";
 
 // КАРТИНУ ДВИГАЮТ ВДОЛЬ СТЕНЫ И ПЕРЕВЕШИВАЮТ НА ЛЮБУЮ СТЕНУ (T-20261112-97, владелец TG 865). Одно правило места — для авторасчёта
 // над опорой и для переноса покупателем: окно/дверь/проём, створка, мебель у стены по высоте, другая картина, ТВ, край, потолок.
@@ -83,5 +83,38 @@ describe("правило места на стене", () => {
   it("место висящей картины читается обратно; косая — null", () => {
     expect(spotOf(room, { x: 2.25, y: 175, rot: 90, wCm: 60, dCm: 2.5, hCm: 80, elevCm: 120 })).toEqual({ wall: "west", along: 175, elev: 120 });
     expect(spotOf(room, { x: 50, y: 50, rot: 45, wCm: 60, dCm: 2.5, hCm: 80, elevCm: 120 })).toBeNull();
+  });
+});
+
+// ТКАНЬ НЕ ОТНИМАЕТ МЕСТО У КАРТИНЫ (T-20261113-24/3): ворота витрины не выпустили /demo 13.11 — в гостиной set13 подушка 50×61 на
+// диване (верх 106 см, выше спинки 79 + зазор 22) считалась мебелью у стены, и две картины над диваном оставались без места.
+describe("подушки, плед и шторы — не помеха картине", () => {
+  const pillow = (k: number, msid?: string) => ({ role: k ? `подушка ${k + 1}` : "подушка", strategy: "textile_abstract",
+    sku: { name: `Подушка ${k + 1}`, price: 990, sid: `q${k}`, w: 50, d: 20, h: 61, ...(msid ? { msid } : {}) },
+    place: { x: 150 + 90 * k, y: 312, rot: 180, elev_cm: 45, kind: "pillow", w: 50, d: 20, h: 61, parent: "seating.sofa#0" },
+    look: { hex: "#d8c4a6", of: `q${k}` } });
+  const curtain = { role: "шторы", strategy: "textile_abstract", sku: { name: "Шторы", price: 4990, sid: "c0", w: 260, h: 270 },
+    place: { x: 200, y: 347, rot: 180, elev_cm: 260, kind: "curtain", opening: 0, wall: "north" }, look: { hex: "#3fa4a0", of: "c0" } };
+  const hung = (decor: object[], openings: object[] = []) => scene([SOFA], [art(0), art(1), ...decor], openings).pics.map((p) => p.hungOver ?? null);
+
+  it("высокие подушки на диване — с моделью и условные: обе картины висят над диваном, как без подушек", () => {
+    expect(hung([])).toEqual(["диван", "диван"]);
+    expect(hung([pillow(0), pillow(1)])).toEqual(["диван", "диван"]);
+    expect(hung([pillow(0, "m_0"), pillow(1, "m_1")])).toEqual(["диван", "диван"]);
+  });
+
+  it("подушки в сцене есть, а в помехах стены их нет; мебель у стены по-прежнему мешает", () => {
+    const { sc, pics } = scene([SOFA], [art(0), pillow(0, "m_0")]);
+    expect(sc.items.filter((i) => i.textile === "pillow").map((i) => i.unplaced ?? false)).toEqual([false]);
+    expect(pics[0]!.hungOver).toBe("диван");
+    expect(blockersOf(sc.items).length).toBe(sc.items.filter((i) => !i.textile && !i.unplaced).length);
+    const tall = { role: "стеллаж", x: 200, y: 330, rot: 180, w: 60, d: 30, h: 200, sku: { name: "Стеллаж", price: 1, msid: "r_1" } };
+    const { pics: blocked } = scene([SOFA, tall], [art(0)]);
+    expect(blocked[0]!.unplaced).toBe(true);
+  });
+
+  it("штора у окна на другой стене не меняет место картины над диваном", () => {
+    const win = [{ kind: "window", wall: "south", offset_cm: 140, width_cm: 120, sill_cm: 85 }];
+    expect(hung([{ ...curtain, place: { ...curtain.place, y: 3, rot: 0, wall: "south" } }], win)).toEqual(hung([], win));
   });
 });

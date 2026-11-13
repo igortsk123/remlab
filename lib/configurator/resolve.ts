@@ -30,6 +30,9 @@ export interface ResolvedItem {
   unplaced?: boolean;
   /** Картина: роль опоры, над которой повесил `wall-art.ts:placeWallArt` («кровать», «диван», «комод»); подпись страницы — по ней. */
   hungOver?: string;
+  /** Условная ткань (подушка на диване, плед, штора — `slot.textile`): лежит на мебели или висит у проёма, место стены не занимает
+   *  (`wall-art-spot.blockersOf`, T-20261113-24/3). */
+  textile?: "curtain" | "throw" | "pillow";
 }
 
 export interface ResolvedSurface {
@@ -234,6 +237,7 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
       asset: opt.asset,
       photoRole: slot.photoRole ?? null,
       price: price,
+      ...(slot.textile ? { textile: slot.textile.shape } : {}),
     });
   }
   placeTabletop(a, items);
