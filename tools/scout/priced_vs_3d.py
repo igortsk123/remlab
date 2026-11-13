@@ -21,7 +21,7 @@
   priced_vs_3d.py --guard <demo-data.json>                  # витрина: `publish_demo.sh` и шаг ночи `priced_3d` — код 1 = не выкладывать
   priced_vs_3d.py --guard <bundle-new.json> --vs <old.json> # тур: отказ только за НОВЫЕ строки (прежняя версия их не имела)
 Условные шторы и плед с местом и цветом (`isTextileDecor`) — показаны (место `textile:`). Комнаты из `REPORT_ONLY_KINDS` — только
-строкой WARN (спальни /demo чинит T-22; после его влития — пустой кортеж, и сторож блокирует везде). Сам сторож не сработал (нет
+строкой WARN (сейчас пусто: после T-22 сторож блокирует во всех комнатах, спальни тоже). Сам сторож не сработал (нет
 node/esbuild, помощник упал) — WARN и `DIGEST:!`, выкладку не держим: проверка не должна валить витрину своей поломкой.
 Ядро гостиной (диван, столик, носитель ТВ) — в каждом непустом варианте и в 3D, иначе отказ (`core_gaps`, причина «ядро: нет в 3D»).
 Где ещё зовётся: перевыпуск туров (`tools/floorplan/reissue.py:one`), новые туры — строкой в журнал (`conveyor.Conveyor.build`).
@@ -43,9 +43,9 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 NODE_MODULES = os.environ.get('REMLAB_NODE_MODULES') or next(
     (p for p in (os.path.join(REPO, 'node_modules'), '/home/pakar/igor/remlab/node_modules') if os.path.isdir(p)),
     '/home/pakar/igor/remlab/node_modules')
-# СТОРОЖ: комнаты, где «в цене без 3D» пока только отчёт (WARN), — по виду комнаты (`bedroom-2` → `bedroom`). Спальни /demo чинит
-# T-20261113-22; после его влития — `()`: сторож блокирует во всех комнатах
-REPORT_ONLY_KINDS: tuple = ('bedroom',)
+# СТОРОЖ: комнаты, где «в цене без 3D» только отчёт (WARN), — по виду комнаты (`bedroom-2` → `bedroom`). Пусто: сторож блокирует во
+# всех комнатах. Спальни включены 13.11 после T-20261113-22 (0183e250: лампы на тумбах, плед, шторы; /demo 15:14 — 0 строк спален)
+REPORT_ONLY_KINDS: tuple = ()
 DEMO = os.path.expanduser('~/scout-scenes/flat215-demo/demo-data.json')
 # живой банк (`bank_paths.LIVE`) — файл сборки, не в git: в worktree его нет — тогда основная копия репо
 BANK = os.environ.get('SETS_BANK') or next((p for p in (os.path.join(HERE, 'sets3.json'), '/home/pakar/igor/remlab/tools/scout/sets3.json')

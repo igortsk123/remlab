@@ -630,7 +630,7 @@ else
   # за сборку, которая не уедет); отказ — шаг FAIL, строка `DIGEST:!` в сводку, на проде прежняя витрина (`cams_gate.py`). Те же
   # ворота стоят в `publish_demo.sh` (ручная выкладка) и в перевыпуске туров (`tools/floorplan/reissue.py:one`)
   # В ЦЕНЕ — ЗНАЧИТ В 3D (T-20261113-23, П1.62; владелец TG 1619/1623): строка списка с ценой без места в сцене — отказ тем же
-  # кодом сцены, что у страницы (`priced_vs_3d.py --guard`); спальни — пока только WARN (`REPORT_ONLY_KINDS`, до влития T-22)
+  # кодом сцены, что у страницы (`priced_vs_3d.py --guard`); во всех комнатах, спальни тоже (`REPORT_ONLY_KINDS` пуст после T-22)
   if step demo_rt bash ../assets/demo_rt.sh && step cams_gate "$PY" cams_gate.py --check "$DEMO_OUT/demo-data.json" \
      && step priced_3d "$PY" priced_vs_3d.py --guard "$DEMO_OUT/demo-data.json"; then
     # ДОСЪЁМКА ФОТО НЕЙРОСЕТИ — ДО ПУБЛИКАЦИИ, НА НОВОЙ СБОРКЕ (демо-29 → photo-before-publish-01): у вариантов без фото своей
