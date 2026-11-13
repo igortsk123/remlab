@@ -26,6 +26,7 @@ import sys
 import tempfile
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))  # tools/scout — помощник временного
 import remlab_tmp  # noqa: E402
+import build_stamp  # noqa: E402
 remlab_tmp.use('test_publish_demo')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -121,7 +122,8 @@ def main():
         """Сборка версии `ver`: index.html, demo-data.json, lib/scene.js, файл только этой версии; mock — файл или папка."""
         shutil.rmtree(src, ignore_errors=True)
         put(os.path.join(src, 'index.html'), f'<html>v{ver}</html>')
-        put(os.path.join(src, 'demo-data.json'), '{"v": %d}' % ver)
+        # метка правил = правила этой копии: публикатор сверяет её до выкладки (T-20261112-121, шаг 5; случай 15 — отказы)
+        put(os.path.join(src, 'demo-data.json'), '{"v": %d, "build": "test.%s"}' % (ver, build_stamp.rules_hash()))
         put(os.path.join(src, 'lib', 'scene.js'), f'// v{ver}')
         put(os.path.join(src, f'only-v{ver}.txt'), str(ver))
         if mock_dir:
@@ -352,6 +354,19 @@ def main():
     # 14. запреты (код 2 из проверок) не печатают ложный «сбой в строке»
     r = run(PUB_DIR='caddy')
     ok(r.returncode == 2 and 'сбой в строке' not in r.stdout + r.stderr, 'отказ по PUB_DIR — без строки «сбой»')
+
+    # 15. сборка не по правилам этой копии (T-20261112-121, шаг 5): нет метки / другие правила / битые данные — код 1 до съёмки
+    # и упаковки, витрина цела, «пересоберите flat215_demo.py»
+    for why, text in (('без метки правил', '{"v": 19}'),
+                      ('метка других правил', '{"v": 19, "build": "test.0123456789"}'),
+                      ('битые данные', '{"v": 19')):
+        build(19)
+        put(os.path.join(src, 'demo-data.json'), text)
+        before, n = tree(live), shim_len()
+        r = run()
+        out = r.stdout + r.stderr
+        ok(r.returncode == 1 and tree(live) == before and not shim_since(n) and 'flat215_demo.py' in out
+           and 'сбой в строке' not in out, f'{why}: отказ (код {r.returncode}), витрина цела, без съёмки и scp: {out.strip()[-160:]}')
 
     print('итог:', 'OK' if not BAD else f'FAIL ({len(BAD)})')
     if BAD:
