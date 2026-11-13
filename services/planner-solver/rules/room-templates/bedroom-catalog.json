@@ -505,13 +505,14 @@
        "role": "игровая зона",
        "sellable": false,
        "marker": "play_zone",
-       "rule_ref": "distances_cm.bedroom_catalog.play_zone"
+       "rule_ref": "distances_cm.bedroom_catalog.play_zone",
+       "required": false
       }
      ],
      "label": "свободная игровая зона / free play area"
     }
    },
-   "_why": "размер — гипотеза (play_zone: 150×150 цель, 120×120 compact; Codex 13.11 п.4 — нормы нет): не нашлась — мягкий штраф, не отказ"
+   "_why": "НЕ обязательная группа — мягкая цель-гипотеза (play_zone: 150×150 цель, 120×120 compact; Codex 13.11 п.4 — нормы нет; ревью Codex T-120/2 п.4): не нашлась — мягкий штраф после уровня и полноты хранения, не отказ и не обязательность"
   },
   "light": {
    "roles": [
@@ -4236,7 +4237,7 @@
      "variants": [
       "zone"
      ],
-     "required": true
+     "required": false
     },
     {
      "id": "storage",
@@ -4418,7 +4419,7 @@
      "variants": [
       "zone"
      ],
-     "required": true
+     "required": false
     },
     {
      "id": "storage",

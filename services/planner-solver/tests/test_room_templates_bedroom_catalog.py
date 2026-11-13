@@ -102,6 +102,11 @@ def test_play_zone_is_soft_hypothesis():
     pz = RT._distances()["bedroom_catalog"]["play_zone"]
     assert pz["_status"] == "гипотеза"
     assert pz["target"][0] >= pz["compact"][0] > 0
+    # мягкая цель, не обязательность: ни группа play в шаблонах, ни её место не required (ревью Codex T-120/2 п.4)
+    doc = _doc()
+    assert all(not s.get("required") for v in doc["groups"]["play"]["variants"].values() for s in v["slots"])
+    uses = [g for t in doc["templates"] for g in t["groups"] if g["id"] == "play"]
+    assert uses and all(g["required"] is False for g in uses)
 
 
 def test_sconce_mirror():
