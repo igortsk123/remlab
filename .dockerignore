@@ -23,3 +23,6 @@ test-results
 !.env.example
 remlab_knowledge_db_v1
 services/knowledge-db
+
+# lib/trial/auto-photos-pick.ts импортирует правило автофото — без него next build в образе падал (T-115 Ф2, 13.11)
+!tools/scout/rules/tour-auto-photos.json
