@@ -288,8 +288,9 @@ def _selftest() -> int:
 
 def main(argv: list) -> int:
     import build_inputs as BI  # входы сборки витрины = список метки правил (T-20261112-121/2)
+    import docker_context as DC  # код образа прода не импортирует выкинутое .dockerignore (T-20261112-121/3)
     if '--selftest' in argv:
-        return _selftest() | BI._selftest()
+        return _selftest() | BI._selftest() | DC._selftest()
     root = argv[argv.index('--root') + 1] if '--root' in argv else ROOT_DEFAULT
     m = load(root)
     if '--writers' in argv:
@@ -309,7 +310,9 @@ def main(argv: list) -> int:
     n = sum(len(m.get(k) or []) for k in ('tracked', 'live'))
     print(f'реестр конвейера: записей {n}, нарушений {len(fails)}')
     # правило, которое читает сборка витрины, а в списке входов метки его нет, — красный (`build_inputs.py`)
-    return 1 if fails or BI.check(root) else 0
+    # импорт/чтение из папки, которую .dockerignore выкидывает, без `!путь` — образ прода не соберётся (`docker_context.py`)
+    bi, dc = BI.check(root), DC.check(root)
+    return 1 if fails or bi or dc else 0
 
 
 if __name__ == '__main__':
