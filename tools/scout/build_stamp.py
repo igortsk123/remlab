@@ -149,6 +149,8 @@ def watch_report(root: str | None = None, inputs=DEMO_INPUTS) -> list[str]:
 
 def _selftest() -> int:
     import tempfile
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
+    remlab_tmp.use('build_stamp-selftest')
     bad = []
 
     def ok(c, m):
