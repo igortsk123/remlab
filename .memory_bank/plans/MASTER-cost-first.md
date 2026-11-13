@@ -6,7 +6,7 @@ status: in_progress
 plan_kind: portfolio_master
 created: 2026-07-11
 updated: 2026-10-14
-review_after: 2026-11-13
+review_after: 2026-11-27
 completed:
 ---
 
