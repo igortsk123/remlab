@@ -34,7 +34,11 @@ export function translator(html) {
 // (`liveOff(why)` → `LIVE.why`, `console.info`, `liveWhyKey` → латинский ключ). Строка в них, в том числе склейкой «'…'+n+'…'», —
 // служебная. Чтобы правило не спрятало надпись, `internalLeaks` валит проверку, если параметр функции или поле попадут в DOM.
 export const INTERNAL_CALLS = ["liveOff"];
-export const INTERNAL_FIELDS = ["LIVE.why"];
+// `*.how` (T-20261112-111/6) — поле любого объекта: разбор подбора ракурсов (`r.how`, `q.how+=…`) идёт только в лог сборки
+// `demo-cams.mjs`; присваивание — и `=`, и `+=`
+export const INTERNAL_FIELDS = ["LIVE.why", "*.how"];
+const fieldRe = (f) => (f.startsWith("*.") ? new RegExp(`\\.${f.slice(2)}\\b`) : null);
+const isInternalField = (t) => INTERNAL_FIELDS.some((f) => (fieldRe(f) ? new RegExp(`\\.${f.slice(2)}$`).test(t) : f === t));
 const DOM_WRITE = /\.(innerHTML|outerHTML|textContent|innerText|title|placeholder|alt)\s*[+]?=(?!=)|\.(setAttribute|insertAdjacentHTML|insertAdjacentText|append|prepend|replaceChildren)\s*\(/;
 
 /** Попадает ли «внутренняя причина» на экран? → [описание] (пусто — нет). Неизвестное имя в списке — тоже ошибка (список устарел). */
@@ -53,7 +57,7 @@ export function internalLeaks(html) {
         };
         look(n.body);
       }
-      if (ts.isExpressionStatement(n) && DOM_WRITE.test(n.getText())) for (const f of INTERNAL_FIELDS) if (n.getText().includes(f)) out.push(`${f} уходит в DOM — ${n.getText().slice(0, 120)}`);
+      if (ts.isExpressionStatement(n) && DOM_WRITE.test(n.getText())) for (const f of INTERNAL_FIELDS) if (fieldRe(f) ? fieldRe(f).test(n.getText()) : n.getText().includes(f)) out.push(`${f} уходит в DOM — ${n.getText().slice(0, 120)}`);
       ts.forEachChild(n, visit);
     };
     visit(sf);
@@ -84,8 +88,8 @@ export function scan(html) {
         || (ts.isConditionalExpression(up) && up.condition !== q))) { q = up; up = up.parent; }
       if (up && ts.isCallExpression(up) && up.arguments.includes(q)
         && (INTERNAL_CALLS.includes(up.expression.getText()) || /^console\.\w+$/.test(up.expression.getText()))) return add("служебное");
-      if (up && ts.isBinaryExpression(up) && up.operatorToken.kind === ts.SyntaxKind.EqualsToken && up.right === q
-        && INTERNAL_FIELDS.includes(up.left.getText())) return add("служебное");
+      if (up && ts.isBinaryExpression(up) && [ts.SyntaxKind.EqualsToken, ts.SyntaxKind.PlusEqualsToken].includes(up.operatorToken.kind)
+        && up.right === q && isInternalField(up.left.getText())) return add("служебное");
       if (ts.isCaseClause(p)) return add("сравнение");
       if (ts.isCallExpression(p)) {
         const f = p.expression.getText();

@@ -46,6 +46,8 @@ describe("перевод страницы демо RU/EN", () => {
     expect(one("liveOff('Пробная причина '+n+' раза за 2 мин');")).toEqual([]);
     expect(one("liveOff(a?'Пробная причина':'Пробная другая '+n);")).toEqual([]);
     expect(one("LIVE.why='Пробная причина';")).toEqual([]);
+    expect(one("q.how+=`Пробная причина ${n}`; r.how='Пробная причина';")).toEqual([]);   // разбор ракурсов — лог сборки
+    expect(internalLeaks(`${html}<script>function f(){ el.textContent=p.how; }</script>`)).toHaveLength(1);
     expect(one("x.textContent='Пробная причина '+n+' раз';")).toEqual(["Пробная причина", "раз"]);   // надпись — по-прежнему ловится
     expect(internalLeaks(html)).toEqual([]);
     expect(internalLeaks(`${html}<script>function f(){ el.textContent='3D: '+LIVE.why; }</script>`)).toHaveLength(1);
