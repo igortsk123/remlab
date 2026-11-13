@@ -46,7 +46,17 @@ export function MeshCheckNote({ item, reviewer, saverRef }: { item: AuditItemVie
     const draft = restoreDraft(store, { itemId: item.id, generationKey: item.generationKey }, serverSeq.current);
     const s = createNoteSaver(
       { itemId: item.id, generationKey: item.generationKey, reviewer, editorId: editorId() },
-      { send: sendNote, beacon: beaconNote, store, now: Date.now, newId: nonce, setTimer: setTimeout, clearTimer: (t) => clearTimeout(t as number), onState: setState },
+      {
+        send: sendNote,
+        beacon: beaconNote,
+        store,
+        now: () => Date.now(),
+        newId: nonce,
+        // обёртки обязательны: setTimeout, вызванный как метод объекта, в браузере падает «Illegal invocation» (снимок 00:26)
+        setTimer: (fn, ms) => window.setTimeout(fn, ms),
+        clearTimer: (t) => window.clearTimeout(t as number),
+        onState: setState,
+      },
       draft, // черновик, которого сервер не видел, досылается той же версией (тот же opId — без второй строки)
     );
     saver.current = s;

@@ -1,5 +1,5 @@
 // Шапка /lab/mesh-check (макет `.t118-mockup`): общий итог и полоса, разделы по типу товара с «проверено N из M» (липкие,
-// на телефоне листаются вбок), фильтр раздела «все / непроверенные / брак». Переходы — ссылками (?s=&f=&p=), без своего состояния.
+// под сквозной шапкой сайта, на телефоне листаются вбок), фильтр раздела «все / непроверенные / брак». Переходы — ссылками (?s=&f=&p=), без своего состояния.
 
 import Link from "next/link";
 import type { CheckFilter } from "@/lib/mesh-audit/repo-check";
@@ -36,7 +36,7 @@ export function MeshCheckTop({ counts }: { counts: readonly SectionCount[] }) {
 
 export function MeshCheckTabs({ counts, section }: { counts: readonly SectionCount[]; section: string }) {
   return (
-    <nav aria-label="Разделы" className="sticky top-0 z-10 -mx-4 flex gap-1.5 overflow-x-auto bg-secondary px-4 py-2 lg:flex-wrap lg:overflow-visible">
+    <nav aria-label="Разделы" style={{ top: "var(--site-header-h, 56px)" }} className="sticky z-10 -mx-4 flex gap-1.5 overflow-x-auto bg-secondary px-4 py-2 lg:flex-wrap lg:overflow-visible">
       {counts.map((c) => {
         const on = c.key === section;
         const done = c.checked === c.total;
