@@ -273,3 +273,6 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-12	domain/deployment-details.md	drift	149	5	5	
 2026-11-12	domain/demo-scenario-map.md	drift	88	4	4	
 2026-11-12	domain/demo-planner-ui.md	drift	260	18	18	
+2026-11-13	.memory_bank/core/bedroom.md	code	34	1	1	
+2026-11-13	.memory_bank/core/furniture.md	code	20	0	0	
+2026-11-13	.memory_bank/core/leads.md	rotation	30	0	0	

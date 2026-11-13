@@ -488,4 +488,6 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 684 — тест с импортом планера в CI-job без его зависимостей → CI красный, prepush зелёный → `lessons/devops-deploy.md`
 - 685 — ручной `demo-realistic --force` без повтора при выкатке потерял оплаченный кадр → `lessons/demo-planner.md`
 - 686 — тормоза 3D на телефоне в headless не видны — мерить с `?live=force` ×4 → `lessons/demo-planner.md`
+- 687 — рабочий не прогнал эталон сборки /demo до отчёта → prepush остановил вливание → `lessons/demo-planner.md`
+- 688 — ткань считалась помехой картине на стене → ворота сняли выкладку /demo → `lessons/demo-planner.md`
 - 528, 530 — дополнены 07.11 (gltfpack и `/tmp`; «как в CI» — py3.12, чистый venv, golden `--record`, e2e) без новых номеров
