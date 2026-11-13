@@ -66,7 +66,9 @@ const res = { size: TAG, variants: [] };
       const q = LIVE.scene.pins().find((z) => z.index === i);
       return { sel: VW.sel, card: !!(r && r.width > 0) && got === exp, cardName: got, want: exp, ms, pricesOff: PRICES_OFF, vis: !!(q && q.visible) }; }, [want, Date.now() - t0]); };
 
-  for (const vi of living) {
+  // ONLY=1,6 — только эти варианты (снимки «стало» на тех же местах без полного прогона)
+  const ONLY = process.env.ONLY ? process.env.ONLY.split(",").map(Number) : null;
+  for (const vi of living.filter((i) => !ONLY || ONLY.includes(i))) {
     await p.evaluate((i) => { pickVariant(i); VW.collapse = true; vwOpenVariant(i); if (VW.mode !== "walk") vwMode("walk"); if (PRICES_OFF) vwPricesToggle(); }, vi);
     await p.waitForFunction("LIVE.ok===false||(LIVE.scene&&LIVE.state==='ready')", null, { timeout: 240000 }).catch(() => {});
     for (const cam of CAMS) {
@@ -155,7 +157,8 @@ const res = { size: TAG, variants: [] };
         it.tapAt = pt || [it.x, it.y]; it.fresh = !!pt;
         await tap(it.tapAt[0], it.tapAt[1]);
         it.tap = await state(it.i);
-        if (it.tap.sel !== it.i || !it.tap.card) await p.screenshot({ path: `${OUT}${TAG}-v${vi}-c${cam}-item-${it.i}-net.png`, timeout: 120000 }).catch(() => {});
+        // SHOT_RE — снимать и удачные тапы предметов с таким именем (было/стало на тех же местах); промахи — всегда
+        if (it.tap.sel !== it.i || !it.tap.card || (process.env.SHOT_RE && new RegExp(process.env.SHOT_RE, "i").test(it.name))) await p.screenshot({ path: `${OUT}${TAG}-v${vi}-c${cam}-item-${it.i}-net.png`, timeout: 120000 }).catch(() => {});
         // тап в «3D» по полу/предмету может увести камеру (шаг) — вернуть ракурс
         await p.evaluate((k) => { vwSelect(null); vwCamGo(k); }, cam); await p.waitForTimeout(1500);
       }
