@@ -11,6 +11,15 @@
             "command": "if command -v node >/dev/null 2>&1 && [ -f tools/hooks/guard-bash.mjs ]; then node tools/hooks/guard-bash.mjs; fi"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v python3 >/dev/null 2>&1 && [ -f \"$CLAUDE_PROJECT_DIR/tools/hooks/guard_conveyor.py\" ]; then python3 \"$CLAUDE_PROJECT_DIR/tools/hooks/guard_conveyor.py\"; fi"
+          }
+        ]
       }
     ],
     "SessionStart": [
