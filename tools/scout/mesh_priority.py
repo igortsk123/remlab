@@ -173,9 +173,9 @@ def demo_rank() -> list[dict]:
     # `rules/mesh-queue-demo.json → set_items`. Потолок — остаток общего `mesh_queue_max` после того, что РЕАЛЬНО встаёт выше
     sets = []
     if (prof.get('set_items') or {}).get('enabled'):
-        taken = {r['sku'] for r in base}
         left = demo_band.QUEUE_MAX - sum(1 for r in base if r['status'] != 'ready')
-        sets = [j for j in set_item_jobs() if j['sku'] not in taken][:max(0, left)]
+        cap = int(prof['set_items'].get('max_jobs') or 0) or left     # свой потолок — чтобы комнатам осталось место
+        sets = set_item_jobs({r['sku'] for r in base})[:max(0, min(left, cap))]
     if not demo_band.ROOMS:
         return demo_pick(pinned, band, prod, ver, bank, own=own, sets=sets) if sets else base
     # КОМНАТЫ КРОМЕ ГОСТИНОЙ (T-20261106-82/2): квота 30 на (комната × стиль) — `demo_band.room_jobs`; потолок очереди — остаток
@@ -187,43 +187,39 @@ def demo_rank() -> list[dict]:
 
 
 def set_item_sources() -> dict:
-    """sku → {'n': в скольких опубликованных наборах стоит, 'slot': роль места} — банк туров `sets3.json` (items) и варианты /demo
-    (`demo_band.DEMO_DATA → variants[].items[].sku.sid`). Роль места нужна: у части подушек каталога `cat_role` пустая."""
+    """sku → число РАЗНЫХ опубликованных наборов, где он стоит: банк туров `sets3.json` (items, по set_id) и варианты /demo
+    (`demo_band.DEMO_DATA → variants[].items[].sku.sid`, по id варианта). Два места в одном наборе — один набор."""
     out: dict = {}
-
-    def add(sku: str, slot: str) -> None:
-        parts = slot.split(' ')
-        base = ' '.join(parts[:-1]) if len(parts) > 1 and parts[-1].isdigit() else slot   # «подушка 2» → «подушка»
-        o = out.setdefault(sku, {'n': 0, 'slot': base})
-        o['n'] += 1
     if os.path.exists(SETS):
         for s in json.load(open(SETS, encoding='utf-8')):
-            for slot, it in (s.get('items') or {}).items():
-                add(f"{it['mid']}:{it['eid']}", slot)
+            for it in (s.get('items') or {}).values():
+                out.setdefault(f"{it['mid']}:{it['eid']}", set()).add(f"tour:{s.get('set_id')}")
     import demo_band
     if os.path.exists(demo_band.DEMO_DATA):
         for v in json.load(open(demo_band.DEMO_DATA, encoding='utf-8')).get('variants') or []:
             for it in v.get('items') or []:
                 sid = (it.get('sku') or {}).get('sid')
                 if sid:
-                    add(sid.replace('_', ':', 1), it.get('role') or '')
-    return out
+                    out.setdefault(sid.replace('_', ':', 1), set()).add(f"demo:{v.get('id')}")
+    return {k: len(v) for k, v in out.items()}
 
 
-def set_item_pick(src: dict, cards: dict, has_mesh: set, mesh_role) -> list[dict]:
-    """Чистый отбор яруса 3: предмет набора (`src` — `set_item_sources`) в роли с мешем по канону (`mesh_role(role)`), без
-    своего меша и меша семьи (`has_mesh` — sku и представители с поколением или mesh_status ready), одна модель на семью.
-    `cards[sku]` — (роль каталога, фото, название, w, d, h, dia, представитель). Нужны фото и ширина (или диаметр); высота
-    может быть пустой — у подушек каталога её часто нет, узел без неё молчит (`salad/pipeline.py: flat_shape`).
-    Порядок — чаще стоит в наборах, затем sku. → готовые задания (форма `own_job`)."""
+def set_item_pick(src: dict, cards: dict, tried: set, mesh_role, skip: set | frozenset = frozenset()) -> list[dict]:
+    """Чистый отбор яруса 3 (T-20261113-07; разбор Codex 13.11 — оплачиваем только то, что дойдёт до сцены, и не дважды).
+    `src` — `set_item_sources`; `cards[sku]` — (роль каталога, фото, название, w, d, h, dia, представитель, в наличии).
+    Берём: роль каталога НЕ пустая и с мешем по канону (`mesh_role`; без роли нет asset_strategy и строки привязки — меш в сцену
+    не попадёт), в наличии (иначе нет строки `offer_asset_binding`), фото и ширина или диаметр (высота может быть пустой — у
+    подушек каталога её часто нет; узел без неё молчит, `salad/pipeline.py: flat_shape`). Семья (`представитель`) — не в `tried`
+    (у кого-то из семьи уже есть поколение, попытка в реестре или ready: отказ без model.glb пишется только в `asset_revisions`,
+    и без этой проверки он оплачивался бы каждую ночь), не в `skip` (семья уже стоит выше в очереди), одна модель на семью.
+    Порядок — больше наборов, затем sku. → готовые задания (форма `own_job`) с `strata.family`."""
     jobs, fam = [], set()
-    for sku in sorted(src, key=lambda s: (-src[s]['n'], s)):
+    for sku in sorted(src, key=lambda s: (-src[s], s)):
         c = cards.get(sku)
         if not c:
             continue
-        role, img, name, w, d, h, dia, rep = c
-        role = role or src[sku]['slot']
-        if not mesh_role(role) or sku in has_mesh or rep in has_mesh or rep in fam:
+        role, img, name, w, d, h, dia, rep, stock = c
+        if not role or not mesh_role(role) or stock != 't' or rep in tried or rep in skip or rep in fam:
             continue
         dims = {k: float(v or 0) or None for k, v in zip(('w', 'd', 'h', 'dia'), (w, d, h, dia))}
         if not img or not (dims['w'] or dims['dia']):
@@ -231,12 +227,21 @@ def set_item_pick(src: dict, cards: dict, has_mesh: set, mesh_role) -> list[dict
         fam.add(rep)
         mid, eid = sku.split(':', 1)
         jobs.append({'sku': sku, 'mid': int(mid), 'eid': eid, 'role': role, 'name': name or '', 'image_url': img,
-                     'dims_cm': dims, 'strata': {'set_item': src[sku]['n']}})
+                     'dims_cm': dims, 'strata': {'set_item': src[sku], 'family': rep}})
     return jobs
 
 
-def set_item_jobs() -> list[dict]:
-    """Задания яруса 3 по базе: карточки предметов наборов, их представители и у кого меш уже есть."""
+def _family_of(skus) -> dict:
+    """sku → представитель семьи (сам sku, если семьи нет)."""
+    if not skus:
+        return {}
+    lit = ','.join("'" + s.replace("'", "''") + "'" for s in skus)
+    return {r[0]: r[1] for r in db("select shop_mid||':'||external_id, coalesce(mesh_family_rep, shop_mid||':'||external_id) "
+                                   f"from products where shop_mid||':'||external_id in ({lit});")}
+
+
+def set_item_jobs(taken=()) -> list[dict]:
+    """Задания яруса 3 по базе. `taken` — sku, уже стоящие выше в очереди: их семьи второй раз не платим."""
     import asset_strategy as AS
     src = set_item_sources()
     if not src:
@@ -247,14 +252,21 @@ def set_item_jobs() -> list[dict]:
     cards = {r[0]: r[1:] for r in db(
         "select shop_mid||':'||external_id, coalesce(cat_role,''), coalesce(image_url_hd, image_url, ''), coalesce(name,''), "
         "coalesce(w_cm,0), coalesce(d_cm,0), coalesce(h_cm,0), coalesce(dia_cm,0), "
-        "coalesce(mesh_family_rep, shop_mid||':'||external_id) "
+        "coalesce(mesh_family_rep, shop_mid||':'||external_id), case when in_stock then 't' else 'f' end "
         f"from products where shop_mid||':'||external_id in ({lit});")}
-    keys = set(cards) | {c[7] for c in cards.values()}
-    klit = ','.join("'" + s.replace("'", "''") + "'" for s in keys)
-    has = {r[0] for r in db(f"select distinct sku from mesh_generations where sku in ({klit});")}
-    has |= {r[0] for r in db("select shop_mid||':'||external_id from products where coalesce(mesh_status,'')='ready' "
-                             f"and shop_mid||':'||external_id in ({klit});")}
-    return set_item_pick(src, cards, has, lambda role: AS.strategy(role) == 'hunyuan3d')
+    reps = {c[7] for c in cards.values()}
+    if not reps:
+        return []
+    rlit = ','.join("'" + s.replace("'", "''") + "'" for s in reps)
+    # семья «пробована»: у любого её товара есть поколение, попытка в реестре (в т.ч. отказ без модели) или ready
+    tried = {r[0] for r in db(
+        "select distinct coalesce(p.mesh_family_rep, p.shop_mid||':'||p.external_id) from products p "
+        f"where coalesce(p.mesh_family_rep, p.shop_mid||':'||p.external_id) in ({rlit}) and ("
+        "coalesce(p.mesh_status,'') = 'ready' "
+        "or exists (select 1 from mesh_generations g where g.sku = p.shop_mid||':'||p.external_id) "
+        "or exists (select 1 from asset_revisions a where a.sku = p.shop_mid||':'||p.external_id));")}
+    skip = set(_family_of(list(taken)).values()) | set(taken)
+    return set_item_pick(src, cards, tried, lambda role: AS.strategy(role) == 'hunyuan3d', skip)
 
 
 def own_job(row: list) -> dict | None:
@@ -618,22 +630,26 @@ def _selftest() -> int:
     r_s = srows[3]
     if r_s.get('job') is not SJ[0] or r_s['status'] != 'none' or 'наборов 5' not in r_s['reason']:
         bad_demo += 1; print(f'  FAIL ряд предмета набора — готовое задание, «нет меша», причина с числом наборов: {r_s}')
-    # отбор set_item_pick: роль по канону, свой меш и меш семьи — нет, одна модель на семью, роль места при пустой роли каталога
-    SRC = {'9:1': {'n': 3, 'slot': 'подушка'}, '9:2': {'n': 9, 'slot': 'подушка'}, '9:3': {'n': 5, 'slot': 'люстра'},
-           '9:4': {'n': 4, 'slot': 'ковёр'}, '9:5': {'n': 2, 'slot': 'лампа'}, '9:6': {'n': 2, 'slot': 'лампа'},
-           '9:7': {'n': 1, 'slot': 'подушка'}, '9:8': {'n': 1, 'slot': 'лампа'}, '9:9': {'n': 7, 'slot': 'торшер'}}
-    CARDS = {'9:1': ('', 'u1', 'Подушка', '45', '45', '0', '0', '9:1'),        # роль пустая → роль места; без высоты — можно
-             '9:2': ('подушка', 'u2', '', '45', '45', '12', '0', '9:2'),
-             '9:3': ('люстра', 'u3', '', '0', '0', '30', '60', 'f:3'),         # меш у представителя семьи — нет
-             '9:4': ('ковёр', 'u4', '', '200', '300', '1', '0', '9:4'),        # роль без меша по канону — нет
-             '9:5': ('лампа', 'u5', '', '30', '30', '50', '0', 'f:5'),
-             '9:6': ('лампа', 'u6', '', '30', '30', '50', '0', 'f:5'),         # та же семья, что 9:5 — одна модель
-             '9:7': ('подушка', '', '', '45', '45', '0', '0', '9:7'),          # без фото — нет
-             '9:8': ('лампа', 'u8', '', '0', '0', '40', '0', '9:8'),           # без ширины и диаметра — нет
-             '9:9': ('торшер', 'u9', '', '40', '40', '160', '0', '9:9')}       # свой меш есть — нет
-    got = set_item_pick(SRC, CARDS, {'f:3', '9:9'}, lambda r: r != 'ковёр')
-    if [j['sku'] for j in got] != ['9:2', '9:1', '9:5'] or got[1]['role'] != 'подушка' \
-            or got[1]['dims_cm'] != {'w': 45.0, 'd': 45.0, 'h': None, 'dia': None} or got[0]['strata'] != {'set_item': 9} \
+    # отбор set_item_pick (Codex 13.11): роль каталога с мешем по канону, в наличии, фото и ширина; семья без попыток и не выше
+    # в очереди; одна модель на семью; порядок — больше наборов
+    SRC = {'9:1': 3, '9:2': 9, '9:3': 5, '9:4': 4, '9:5': 2, '9:6': 2, '9:7': 1, '9:8': 1, '9:9': 7, '9:10': 8, '9:11': 6,
+           '9:12': 6}
+    CARDS = {'9:1': ('подушка', 'u1', 'Подушка', '45', '45', '0', '0', '9:1', 't'),   # без высоты — можно
+             '9:2': ('подушка', 'u2', '', '45', '45', '12', '0', '9:2', 't'),
+             '9:3': ('люстра', 'u3', '', '0', '0', '30', '60', 'f:3', 't'),         # семья пробована — нет
+             '9:4': ('ковёр', 'u4', '', '200', '300', '1', '0', '9:4', 't'),        # роль без меша по канону — нет
+             '9:5': ('лампа', 'u5', '', '30', '30', '50', '0', 'f:5', 't'),
+             '9:6': ('лампа', 'u6', '', '30', '30', '50', '0', 'f:5', 't'),         # та же семья, что 9:5 — одна модель
+             '9:7': ('подушка', '', '', '45', '45', '0', '0', '9:7', 't'),          # без фото — нет
+             '9:8': ('лампа', 'u8', '', '0', '0', '40', '0', '9:8', 't'),           # без ширины и диаметра — нет
+             '9:9': ('торшер', 'u9', '', '40', '40', '160', '0', '9:9', 't'),       # своя попытка в реестре — нет
+             '9:10': ('', 'u10', 'Подушка', '45', '45', '10', '0', '9:10', 't'),     # пустая роль каталога — нет (не привяжется)
+             '9:11': ('подушка', 'u11', '', '45', '45', '10', '0', '9:11', 'f'),    # не в наличии — нет
+             '9:12': ('диван', 'u12', '', '200', '90', '80', '0', 'f:12', 't')}     # семья уже выше в очереди — нет
+    got = set_item_pick(SRC, CARDS, {'f:3', '9:9'}, lambda r: r != 'ковёр', {'f:12'})
+    if [j['sku'] for j in got] != ['9:2', '9:1', '9:5'] \
+            or got[1]['dims_cm'] != {'w': 45.0, 'd': 45.0, 'h': None, 'dia': None} \
+            or got[0]['strata'] != {'set_item': 9, 'family': '9:2'} or got[2]['strata']['family'] != 'f:5' \
             or (got[2]['mid'], got[2]['eid'], got[2]['image_url']) != (9, '5', 'u5'):
         bad_demo += 1; print(f'  FAIL set_item_pick: {[(j["sku"], j["role"], j["dims_cm"]) for j in got]}')
     if not all(r.get('job') is RJ[1] for r in rows if r['sku'] == 'r:7') or rows[-1]['status'] != 'none':
