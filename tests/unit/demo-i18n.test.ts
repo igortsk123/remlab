@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — модуль .mjs без типов (тот же код запускается из командной строки)
-import { DEBT, PAGE, cyrillicInDicts, scan, translator } from "../../tools/ops/demo-i18n-scan.mjs";
+import { DEBT, PAGE, cyrillicInDicts, internalLeaks, scan, translator } from "../../tools/ops/demo-i18n-scan.mjs";
 
 // СТОРОЖ ПЕРЕВОДА СТРАНИЦЫ ДЕМО (T-20261112-116, владелец TG 1337/1341: «на английском всегда английские слова, на русском — русские;
 // всегда, когда добавляется функционал, проходить контроль»). Каждая строка кода страницы с кириллицей либо служебная, либо с парой
@@ -38,5 +38,18 @@ describe("перевод страницы демо RU/EN", () => {
     expect(one("x.textContent=EN?'Test label':'Пробная надпись';")).toEqual([]);
     expect(one("x.textContent=T('Пробная надпись','Test label');")).toEqual([]);
     expect(one("if(s==='Пробная надпись')go();")).toEqual([]);
+  });
+
+  it("внутренняя причина (liveOff, LIVE.why, console) — служебная, но на экран не попадает (T-20261112-116/2)", () => {
+    const one = (js: string) => (scan(`${html}<script>${js}</script>`) as { unpaired: Unpaired[] }).unpaired.map((u) => u.text)
+      .filter((t) => t.startsWith("Пробная") || t.startsWith("раз"));
+    expect(one("liveOff('Пробная причина '+n+' раза за 2 мин');")).toEqual([]);
+    expect(one("liveOff(a?'Пробная причина':'Пробная другая '+n);")).toEqual([]);
+    expect(one("LIVE.why='Пробная причина';")).toEqual([]);
+    expect(one("x.textContent='Пробная причина '+n+' раз';")).toEqual(["Пробная причина", "раз"]);   // надпись — по-прежнему ловится
+    expect(internalLeaks(html)).toEqual([]);
+    expect(internalLeaks(`${html}<script>function f(){ el.textContent='3D: '+LIVE.why; }</script>`)).toHaveLength(1);
+    const own = html.replace("function liveOff(why){", "function liveOff(why){ el.innerHTML=why;");
+    expect(internalLeaks(own).some((s: string) => s.startsWith("liveOff"))).toBe(true);
   });
 });
