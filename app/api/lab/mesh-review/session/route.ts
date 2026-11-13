@@ -1,16 +1,19 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { COOKIE_NAME, cookieValue, loginOk, originOk } from "@/lib/mesh-review/auth";
+import { loginTarget } from "@/lib/mesh-review/login-target";
 
 // Ссылка-вход (владелец 28.08: «без кода доступа»): GET ?key=<секрет> ставит куку и
 // уводит на страницу. Секрет остаётся обязательным — он просто зашит в закладку владельца;
 // совсем без секрета нельзя: решения пишут ориентации в конвейер.
+// Редирект — ОТНОСИТЕЛЬНЫЙ Location из списка (lib/mesh-review/login-target.ts): хост из req.url за прокси внутренний.
 export async function GET(req: Request): Promise<Response> {
   const value = cookieValue();
   if (!value) return NextResponse.json({ error: "review disabled" }, { status: 503 });
-  const key = new URL(req.url).searchParams.get("key") ?? "";
+  const q = new URL(req.url).searchParams;
+  const key = q.get("key") ?? "";
   if (!key || !loginOk(key)) return NextResponse.json({ error: "нет" }, { status: 401 });
-  const res = NextResponse.redirect(new URL("/lab/mesh-review", req.url), 302);
+  const res = new NextResponse(null, { status: 302, headers: { location: loginTarget(q.get("to")) } });
   res.cookies.set(COOKIE_NAME, value, {
     httpOnly: true,
     secure: true,
