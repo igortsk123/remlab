@@ -250,7 +250,8 @@ def current_items() -> list[dict]:
                   when pc.source_sha like c.source_sha||'%' then 'fresh' else 'stale' end,
              coalesce((select string_agg(regexp_replace(coalesce(v.name,''), E'[\\n\\r\\x1f]', ' ', 'g'), '\x1e' order by v.name)
                          from products v where v.mesh_family_rep = c.sku
-                          and v.shop_mid||':'||v.external_id <> c.sku), '')
+                          and v.shop_mid||':'||v.external_id <> c.sku), ''),
+             case when p.external_id is null then 'gone' else '' end
         from cur c
         join att on att.sku = c.sku
         left join products p on p.shop_mid||':'||p.external_id = c.sku
@@ -260,10 +261,12 @@ def current_items() -> list[dict]:
        order by att.first_at, c.sku""")
     out = []
     for r in rows:
-        if len(r) != 12:
+        if len(r) != 13:
             continue
-        sku, gk, sha16, seed, gen_at, n, _first, role, name, img, fresh, variants = r
-        if AS.strategy(role or None) != 'hunyuan3d':
+        sku, gk, sha16, seed, gen_at, n, _first, role, name, img, fresh, variants, gone = r
+        # ТОВАРА НЕТ В КАТАЛОГЕ (T-20261113-05): ни названия, ни раздела, ни фото — проверять нечего; карточка уходит в `retire`
+        # (прод не снимает карточку с решением, отметкой или комментарием — `repo-items.ts:retireItems`)
+        if gone or AS.strategy(role or None) != 'hunyuan3d':
             continue
         poster = poster_name(gk)
         item = {'sku': sku, 'generationKey': gk, 'revisionKey': f'{sku}|{sha16}|{PIPELINE_VERSION}',
@@ -427,6 +430,12 @@ def _selftest() -> int:
            len(recs) == 3 and recs[2]['decision'] == 'cleared' and recs[2]['generation_key'] == 'g1', recs)
         ok('отмена: комментарий ушёл вместе с решением — разбор его не считает', MD.summarize(recs, {}, '2000-01-01')['n'] == 0)
         ok('отмена: решение по товару снято (журнал)', 'm:1' not in MD.latest(recs, {'m:1': 'g1', 'm:2': 'g2'}))
+        # карточки: товар исчез из каталога — не на странице (T-20261113-05)
+        row = ['m:5', 'g5', 'sha16', '0', '2026-11-13T00:00:00Z', '1', '2026-11-13T00:00:00Z', 'диван', 'Диван Тест', 'http://img', 'fresh', '']
+        cards_db = [row + [''], ['m:6', 'g6', 'sha16', '0', '2026-11-13T00:00:00Z', '1', '2026-11-13T00:00:00Z', '', '', '', 'unknown', '', 'gone']]
+        db = lambda sql: cards_db if 'mesh_family_rep' in sql else []  # noqa: E731
+        cards = current_items()
+        ok('карточки: товара нет в каталоге — карточки нет; есть — на месте', [c['sku'] for c in cards] == ['m:5'], cards)
     db, api, STATE_DIR, CURSOR, CANCEL_CURSOR, STUCK, MD.LOG, mb = keep
     if mb is None:
         sys.modules.pop('mesh_bind', None)
