@@ -109,6 +109,7 @@ def test_warm_photos_showcase_copy_first_then_shop_with_retries(tmp_path):
 def svc(tmp_path, monkeypatch):
     import draft_service as S
     monkeypatch.setattr(S, 'TRIAL_DAY', DT.TrialDaily(str(tmp_path / 'trial-photos.json'), 2))
+    monkeypatch.setattr(S, 'TRIAL_AUTO_DAY', DT.TrialDaily(str(tmp_path / 'trial-photos-auto.json'), 3))
     monkeypatch.setattr(S, 'JOBS', S.JobStore(str(tmp_path / 'jobs.json')))
     monkeypatch.setattr(S, '_paid_gate', lambda: None)
     monkeypatch.setattr(S, '_work', lambda jid: None)
@@ -125,9 +126,9 @@ def svc(tmp_path, monkeypatch):
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     base = f'http://127.0.0.1:{srv.server_address[1]}'
 
-    def post(body, ip='10.0.0.1'):
+    def post(body, ip='10.0.0.1', headers=None):
         req = urllib.request.Request(base + '/render', data=json.dumps(body).encode(), method='POST',
-                                     headers={'Content-Type': 'application/json', 'X-Forwarded-For': ip})
+                                     headers={'Content-Type': 'application/json', 'X-Forwarded-For': ip, **(headers or {})})
         try:
             with urllib.request.urlopen(req, timeout=10) as r:
                 return r.status, json.loads(r.read())
@@ -191,6 +192,33 @@ def test_service_trial_daily_limit_on_async_and_direct(svc):
     assert st == 200 and len(calls['render']) == 1
     assert post(order(trial='B' * 22, **{'async': 0}))[1]['code'] == 'photo_limit'
     assert post(order(trial='B' * 22, _job='j1', **{'async': 0}))[0] == 200
+
+
+def test_auto_class_only_with_internal_key():
+    env = {'INTERNAL_API_TOKEN': 'k' * 32}
+    p = {'trial_class': 'auto'}
+    assert DT.auto_class(p, 'k' * 32, env) and 'trial_class' not in p          # поле снимается из заказа всегда
+    assert not DT.auto_class({'trial_class': 'auto'}, 'x' * 32, env)          # чужой ключ — заказ человека
+    assert not DT.auto_class({'trial_class': 'auto'}, None, env)
+    assert not DT.auto_class({'trial_class': 'auto'}, '', {})                 # ключа у сервиса нет — auto не бывает
+    assert not DT.auto_class({}, 'k' * 32, env)
+    assert DT.auto_limit({'TRIAL_AUTO_DAILY': '7'}) == 7 and DT.auto_limit({}) == 10
+
+
+def test_service_auto_orders_have_own_daily_counter(svc, monkeypatch):
+    # T-20261112-115 Ф2: автофото по внутреннему ключу — свой счёт (3 в фикстуре), квота людей (2) от него не уменьшается
+    S, post, calls, _ = svc
+    monkeypatch.setenv('INTERNAL_API_TOKEN', 'k' * 32)
+    key = {'x-internal-token': 'k' * 32}
+    for _ in range(3):
+        assert post(order(trial_class='auto'), headers=key)[0] == 200
+    st, body = post(order(trial_class='auto'), headers=key)
+    assert st == 429 and body['code'] == 'photo_limit'
+    assert post(order())[0] == 200 and post(order())[0] == 200                # люди — свои 2
+    assert post(order())[1]['code'] == 'photo_limit'
+    # без ключа класс `auto` не признаётся: заказ идёт в счёт людей, автосчёт не тронут
+    assert post(order(trial='B' * 22, trial_class='auto'))[0] == 200
+    assert len(S.TRIAL_AUTO_DAY._load().get('B' * 22, [])) == 0 and len(S.TRIAL_DAY._load().get('B' * 22, [])) == 1
 
 
 def test_service_trial_renders_without_registry_and_never_locally_on_proxy_failure(svc):

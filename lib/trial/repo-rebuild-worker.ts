@@ -11,6 +11,7 @@ import type {
 import type { TrialReparseMap } from "@/contracts/trial-bundle";
 import { db } from "@/lib/db";
 import { randomToken } from "@/lib/token";
+import { enqueueAutoPhotos } from "@/lib/trial/auto-photos-queue";
 import { pruneBundles, readBundle, writeBundle } from "@/lib/trial/bundle";
 import { TRIAL_LEASE_SEC, trialDir, trialRebuildQuota } from "@/lib/trial/config";
 import { KEEP_VERSIONS, pinAfterPublish, type Published } from "@/lib/trial/repo-bundle";
@@ -152,8 +153,8 @@ export async function publishRebuild(
 ): Promise<PublishOut> {
   const out = await db().transaction(async (tx): Promise<PublishOut> => {
     const ex = async <T>(q: SQL) => (await tx.execute(q)) as unknown as T[];
-    const [cur] = await ex<{ job_id: string; base_version: number; rooms: unknown; kind: string }>(sql`select job_id, base_version, rooms,
-        kind from trial_rebuilds where ${fenceR(f)} for update`);
+    const [cur] = await ex<{ job_id: string; base_version: number; rooms: unknown; kind: string; confirm: boolean }>(sql`select job_id,
+        base_version, rooms, kind, coalesce((progress->>'confirm')::boolean, false) as confirm from trial_rebuilds where ${fenceR(f)} for update`);
     if (cur && ((result && cur.kind !== "listing" && cur.kind !== "reparse") || (map && cur.kind !== "reparse"))) return "result_unexpected";
     if (!cur || cur.job_id !== f.jobId) {
       const [again] = await ex<{ result_version: number }>(sql`select result_version from trial_rebuilds where id = ${f.id}
@@ -188,6 +189,8 @@ export async function publishRebuild(
       await tx.execute(sql`update ${t} set built = true where job_id = ${cur.job_id} and not built and confirmed_at is not null
           and (rebuild_id = ${f.id} or confirmed_at < (select created_at from trial_rebuilds where id = ${f.id}))`);
     }
+    // агент подтвердил планировку — автофото тура в очередь той же транзакцией (outbox, T-20261112-115 Ф2); сети здесь нет
+    if (cur.kind === "edit" && cur.confirm) await enqueueAutoPhotos(tx, { jobId: cur.job_id, version: next, rebuildId: f.id, json });
     return { version: next, repeated: same };
   });
   if (out === "lease_lost" || out === "stale" || out === "result_unexpected") return out;

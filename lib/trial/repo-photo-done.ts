@@ -5,6 +5,7 @@
 
 import { sql } from "drizzle-orm";
 import type { PhotoCam, PhotoSource, TourPhotoRec, TrialPhotoDoneIn } from "@/contracts/trial-photos";
+import { settleAutoTask } from "@/lib/trial/auto-photos-order";
 import { trialDir } from "@/lib/trial/config";
 import { iso, jsonOf, rows } from "@/lib/trial/sql";
 import { writePhotos } from "@/lib/trial/tour-photos";
@@ -27,6 +28,7 @@ export async function finishPhoto(id: string, inp: TrialPhotoDoneIn, dir = trial
   if (inp.status === "failed") {
     await rows(sql`update trial_photos set status = 'failed', fail_code = ${inp.code ?? "draft_failed"}
         where id = ${r.id} and status is distinct from 'done'`);
+    await settleAutoTask(r.id, "failed", inp.code);
     return { ok: true, status: "failed", repeated: r.status === "failed" };
   }
   if (!inp.shots?.length) return no(400, "no_shots");
@@ -41,6 +43,7 @@ export async function finishPhoto(id: string, inp: TrialPhotoDoneIn, dir = trial
   });
   await rows(sql`update trial_photos set status = 'done', shots = ${JSON.stringify(shots)}::jsonb, done_at = now(), fail_code = null
       where id = ${r.id} and status is distinct from 'done'`);
+  await settleAutoTask(r.id, "done");                          // автофото: задача снята (T-115 Ф2)
   return { ok: true, status: "done", repeated: false };
 }
 

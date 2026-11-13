@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type postgresT from "postgres";
 
+import { autoPhotoDbTests } from "./_trial-auto-photos-db";
 import { bundleDbTests } from "./_trial-bundle-db";
 import { confirmDbTests } from "./_trial-confirm-db";
 import { listingDbTests } from "./_trial-listing-db";
@@ -464,5 +465,6 @@ describe.skipIf(!URL)("очередь пробы (real postgres)", () => {
   roomEditDbTests(() => ({ pg, repo: L.repo, seed, dir: DIR, token: TOKEN }));
   openingEditDbTests(() => ({ pg, repo: L.repo, seed, dir: DIR, token: TOKEN }));
   confirmDbTests(() => ({ pg, repo: L.repo, seed, dir: DIR, token: TOKEN }));
+  autoPhotoDbTests(() => ({ pg, repo: L.repo, seed, dir: DIR, token: TOKEN }));
   sourceDbTests(() => ({ pg, repo: L.repo, seed, row, dir: DIR, token: TOKEN }));
 });

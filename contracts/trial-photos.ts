@@ -29,6 +29,10 @@ export const photoCam = z.object({
 });
 export type PhotoCam = z.infer<typeof photoCam>;
 export const photoCams = z.array(photoCam).min(1).max(PHOTO_SHOTS_MAX);
+/** Подпись поз (по имени камеры, место/поворот до единицы, угол обзора, версия позы) — одна у заказа страницы (`repo-photo.ts:photoMeta`)
+ *  и у задачи автофото (`auto-photos-pick.ts`): по ней «эти ракурсы уже сняты». */
+export const camsSigOf = (cams: PhotoCam[]): string => [...cams].sort((a, b) => a.name.localeCompare(b.name))
+  .map((c) => `${c.name}:${Math.round(c.x)},${Math.round(c.y)},${Math.round(c.rot ?? 0)},${c.fov ?? 72},${c.pose ?? 1}`).join(";");
 
 /** Готово / не вышло — от сервиса кадров (`tools/scout/draft_trial.py:report`) или воркера. `draft_job` — номер его задания. */
 export const trialPhotoDoneIn = z.object({

@@ -41,6 +41,8 @@ from draft_jobs import JobStore, public_view  # noqa: E402
 import draft_trial as DT  # noqa: E402
 # фото тура пробы (T-20261109-34): суточный счёт по заданию — файлом рядом с реестром кадров (на проде — том share, переживает выкладку)
 TRIAL_DAY = DT.TrialDaily(os.path.join(os.path.dirname(DR.FRAMES_DIR), 'trial-photos.json'), DT.daily_limit())
+# автофото тура (T-20261112-115 Ф2) — отдельный счёт: квота людей от него не уменьшается
+TRIAL_AUTO_DAY = DT.TrialDaily(os.path.join(os.path.dirname(DR.FRAMES_DIR), 'trial-photos-auto.json'), DT.auto_limit())
 TRIAL_LIMIT_TEXT = 'На сегодня фото по этому туру закончились. Попробуйте завтра.'
 SHARE_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -595,8 +597,11 @@ class H(BaseHTTPRequestHandler):
             return self._share(payload)
         if not self.route.startswith(('/draft', '/render')):
             return self._send(404, {'error': 'нет такого пути'})
-        if ip and not ip_allowed(ip, 'render'):
+        # автофото тура (T-20261112-115 Ф2): класс `auto` — только с внутренним ключом приложения; своя IP-корзина и свой суточный счёт
+        auto = isinstance(payload, dict) and DT.auto_class(payload, self.headers.get('x-internal-token'))
+        if ip and not ip_allowed('auto' if auto else ip, 'render'):
             return self._send(429, {'error': 'слишком много кадров подряд, попробуйте через 10 минут'})
+        day = TRIAL_AUTO_DAY if auto else TRIAL_DAY
         if not (payload.get('room') and payload.get('items')):
             return self._send(400, {'error': 'нужны room и items'})
         # кадры из 3D другой комнаты (сцена прошлой комнаты, T-20261112-108/2) — платный заказ не уходит никогда, и в демо, и в туре
@@ -626,7 +631,7 @@ class H(BaseHTTPRequestHandler):
                 # создаётся никогда — даже если деньги пополнили между её вопросом и запросом. С demo-11 — ещё и чем будет
                 # нарисовано: модель и промпт того процесса, который рисует (DEV за туннелем; его `/health`), и блоки промпта
                 return self._send(200, {'dry_run': True, 'would': 'job', 'quality': quality, **_dry_info(payload)})
-            if tid and not TRIAL_DAY.take(tid):
+            if tid and not day.take(tid):
                 return self._send(429, {'error': TRIAL_LIMIT_TEXT, 'code': 'photo_limit'})
             body = dict(payload); body.pop('async', None)
             jid = JOBS.new(quality, body)
@@ -635,7 +640,7 @@ class H(BaseHTTPRequestHandler):
         # ВРЕМЕННЫЙ КОСТЫЛЬ ДЛЯ ДЕМО (владелец 31.08): полный кадр рендерит DEV-машина
         # через ssh-туннель; конфиг кладётся файлом в share (env контейнера не пересоздать).
         # DEV молчит/упала → фолбэк на локальный (декимированный) рендер, кнопка живёт
-        if tid and '_job' not in payload and not payload.get('dry_run') and not TRIAL_DAY.take(tid):
+        if tid and '_job' not in payload and not payload.get('dry_run') and not day.take(tid):
             return self._send(429, {'error': TRIAL_LIMIT_TEXT, 'code': 'photo_limit'})
         prx = _proxy_url()
         if prx and not payload.get('no_proxy'):

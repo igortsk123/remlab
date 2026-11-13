@@ -7,9 +7,10 @@
 
 import { sql, type SQL } from "drizzle-orm";
 import type { TrialPhotoIn } from "@/contracts/trial";
-import { photoCams, type PhotoCam, type PhotoSource } from "@/contracts/trial-photos";
+import { camsSigOf, photoCams, type PhotoCam, type PhotoSource } from "@/contracts/trial-photos";
 import { db } from "@/lib/db";
 import { randomToken } from "@/lib/token";
+import { autoTaskOf, releaseAutoTask, takeAutoTask } from "@/lib/trial/auto-photos-order";
 import { trialDir, trialDraftUrl, trialPhotoDaily } from "@/lib/trial/config";
 import { latestBundle } from "@/lib/trial/repo-bundle";
 
@@ -38,10 +39,11 @@ export function photoRoomProblem(json: string, roomId: string, room: { w: number
 
 // поля магазина у предметов (сервис кадров для тура берёт фото товара сам, по модели) и служебные поля заказа, которые ставит только сервер
 const SHOP = ["img", "img_hd", "url", "url_direct", "shop", "price", "brand"];
-const SERVICE = ["async", "quality", "dry_run", "no_proxy", "_job", "trial", "no_registry", "cost_label"];
+const SERVICE = ["async", "quality", "dry_run", "no_proxy", "_job", "trial", "no_registry", "cost_label", "auto_task", "trial_class"];
 
-/** Заказ страницы → тело для сервиса кадров: реалистичное, в фон, с меткой задания, без записи в общий реестр кадров демо. */
-export function draftPayload(id: string, inp: TrialPhotoIn): Record<string, unknown> {
+/** Заказ страницы → тело для сервиса кадров: реалистичное, в фон, с меткой задания, без записи в общий реестр кадров демо. Класс `auto`
+ *  (T-115 Ф2) ставит только сервер для заказа по Bearer воркера — сервис кадров считает его отдельным счётчиком при верном внутреннем ключе. */
+export function draftPayload(id: string, inp: TrialPhotoIn, auto = false): Record<string, unknown> {
   const out: Record<string, unknown> = { ...inp };
   for (const k of SERVICE) delete out[k];
   out.items = inp.items.map((it) => {
@@ -49,14 +51,17 @@ export function draftPayload(id: string, inp: TrialPhotoIn): Record<string, unkn
     for (const k of SHOP) delete o[k];
     return o;
   });
-  return { ...out, quality: "realistic", async: 1, trial: id, no_registry: 1 };
+  return { ...out, quality: "realistic", async: 1, trial: id, no_registry: 1, ...(auto ? { trial_class: "auto" } : {}) };
 }
 
-/** Заказ в сервис кадров (`/render` — тот же вход, что у `/api/render`); адрес человека — для его IP-предела там. */
+/** Заказ в сервис кадров (`/render` — тот же вход, что у `/api/render`); адрес человека — для его IP-предела там. Заказ автофото — с
+ *  внутренним ключом (`x-internal-token`): по нему сервис кадров верит классу `auto` (своя квота и своя IP-корзина). */
 export const sendToDraft: DraftSend = async (payload, ip) => {
+  const key = payload.trial_class === "auto" ? process.env.INTERNAL_API_TOKEN : undefined;
+  const internal: Record<string, string> = key ? { "x-internal-token": key } : {};
   try {
     const r = await fetch(`${trialDraftUrl()}/render`, {
-      method: "POST", headers: { "content-type": "application/json", ...(ip ? { "x-forwarded-for": ip } : {}) },
+      method: "POST", headers: { "content-type": "application/json", ...(ip ? { "x-forwarded-for": ip } : {}), ...internal },
       body: JSON.stringify(payload), signal: AbortSignal.timeout(20_000),
     });
     const body = (await r.json().catch(() => null)) as Record<string, unknown> | null;
@@ -76,7 +81,7 @@ export function photoMeta(inp: TrialPhotoIn): { stateId: string | null; variantI
   const list = cams.success ? [...cams.data].sort((a, b) => a.name.localeCompare(b.name)) : null;
   return { stateId: str(o.stateId, /^[A-Za-z0-9_-]{1,64}$/), variantId: str(o.variant_id, /^[A-Za-z0-9_.:-]{1,80}$/),
     style: typeof o.style === "string" && o.style.length > 0 ? o.style.slice(0, 60) : null, cams: list,
-    camsSig: list ? list.map((c) => `${c.name}:${Math.round(c.x)},${Math.round(c.y)},${Math.round(c.rot ?? 0)},${c.fov ?? 72},${c.pose ?? 1}`).join(";") : null };
+    camsSig: list ? camsSigOf(list) : null };
 }
 
 /** Заказ фото. Счёт и бронь строки — под блокировкой строки задания (два нажатия разом не проскочат предел), сам вызов сервиса кадров —
@@ -90,22 +95,32 @@ export async function askPhoto(id: string, inp: TrialPhotoIn, ip: string, send: 
   if (problem) return no(problem === "stale" ? 409 : 403, problem);
   const m = photoMeta(inp);
   const rid = randomToken();
+  const auto = source === "auto";
+  const task = auto ? autoTaskOf(inp) : null;
+  if (auto && !task) return no(403, "auto_task_required");     // автофото — только по своей задаче-резерву (T-115 Ф2)
   const held = await db().transaction(async (tx): Promise<PhotoAsk | null> => {
     const [job] = await q<{ status: string; past_term: boolean }>(tx, sql`select status,
         coalesce(result_expires_at < now(), false) as past_term from trial_jobs where id = ${id} for update`);
     if (!job) return no(404, "not_found");
     if (job.status === "expired" || job.past_term) return no(410, "expired");
-    // бронь без номера — только пока идёт вызов (≤ 20 с); застрявшая после сбоя приложения перестаёт считаться через 10 минут
-    const [day] = await q<{ n: number }>(tx, sql`select count(*)::int as n from trial_photos where job_id = ${id}
-        and created_at > now() - interval '24 hours' and (draft_job is not null or created_at > now() - interval '10 minutes')`);
-    if ((day?.n ?? 0) >= trialPhotoDaily(env)) return no(429, "photo_limit");
+    if (task) {
+      const ok = await takeAutoTask(tx, { jobId: id, taskId: task, roomId: inp.room_id, variantId: m.variantId, photoId: rid, stateId: m.stateId });
+      if (!ok) return no(409, "auto_task_busy");
+    } else {
+      // квота людей: автофото в неё не входит. Бронь без номера — только пока идёт вызов (≤ 20 с); застрявшая после сбоя приложения
+      // перестаёт считаться через 10 минут
+      const [day] = await q<{ n: number }>(tx, sql`select count(*)::int as n from trial_photos where job_id = ${id}
+          and source is distinct from 'auto' and created_at > now() - interval '24 hours'
+          and (draft_job is not null or created_at > now() - interval '10 minutes')`);
+      if ((day?.n ?? 0) >= trialPhotoDaily(env)) return no(429, "photo_limit");
+    }
     await tx.execute(sql`insert into trial_photos (id, job_id, room_id, status, source, state_id, variant_id, style, quality, cams, cams_sig)
         values (${rid}, ${id}, ${inp.room_id}, 'queued', ${source}, ${m.stateId}, ${m.variantId}, ${m.style}, 'realistic',
         ${m.cams ? JSON.stringify(m.cams) : null}::jsonb, ${m.camsSig})`);
     return null;
   });
   if (held) return held;
-  const r = await send(draftPayload(id, inp), ip);
+  const r = await send(draftPayload(id, inp, auto), ip);
   const jobId = r.body?.job;
   if (r.status === 200 && typeof jobId === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(jobId)) {
     await db().execute(sql`update trial_photos set draft_job = ${jobId} where id = ${rid}`);
@@ -114,6 +129,7 @@ export async function askPhoto(id: string, inp: TrialPhotoIn, ip: string, send: 
   await db().execute(sql`delete from trial_photos where id = ${rid} and draft_job is null`);
   // отказ сервиса — его код и текст как есть (нет денег, лимит адреса, свой суточный предел), без строки счёта
   const code = typeof r.body?.code === "string" ? r.body.code : "draft_failed";
+  if (task) await releaseAutoTask(rid, code);
   const msg = typeof r.body?.error === "string" ? r.body.error.slice(0, 300) : undefined;
   return no(r.status >= 400 && r.status < 600 ? r.status : 502, code, msg);
 }

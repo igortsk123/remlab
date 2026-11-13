@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import io
 import json
 import math
@@ -33,12 +34,26 @@ def trial_id(payload: dict) -> str | None:
     return t if isinstance(t, str) and TRIAL_RE.match(t) else (None if t in (None, '', False) else '')
 
 
-def daily_limit(env=os.environ) -> int:
+def daily_limit(env=os.environ, key: str = 'TRIAL_PHOTO_DAILY') -> int:
     try:
-        n = int(env.get('TRIAL_PHOTO_DAILY') or 10)
+        n = int(env.get(key) or 10)
     except ValueError:
         n = 10
     return min(max(n, 1), 100)
+
+
+def auto_limit(env=os.environ) -> int:
+    """Автофото тура (T-20261112-115 Ф2) — СВОЙ суточный счёт заказов на задание (`TRIAL_AUTO_DAILY`, 10): квоту людей не трогает. Деньги
+    держат потолки очереди приложения (`tools/scout/rules/tour-auto-photos.json`: 50 ₽ на тур, 500 ₽ в сутки); этот счёт — второй замок."""
+    return daily_limit(env, 'TRIAL_AUTO_DAILY')
+
+
+def auto_class(payload: dict, token: str | None, env=os.environ) -> bool:
+    """Заказ класса `auto`: поле `trial_class` ставит только приложение для заказа по Bearer воркера, и верим ему только с верным
+    внутренним ключом (`x-internal-token` = INTERNAL_API_TOKEN). Поле снимается из заказа всегда; без ключа — обычный заказ человека."""
+    want = payload.pop('trial_class', None) == 'auto'
+    key = env.get('INTERNAL_API_TOKEN') or ''
+    return bool(want and key and token and hmac.compare_digest(token.encode(), key.encode()))
 
 
 def has_views(payload: dict) -> bool:
