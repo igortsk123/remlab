@@ -2,7 +2,8 @@
 // (`repo-rebuild-worker.ts`): claim скалярным подзапросом `skip locked` (урок devops-deploy: иначе одним запросом уходят несколько), attempt+1,
 // новый lease_token; каждая отметка — под ограждением (leased, попытка, токен, аренда не истекла) и продлевает аренду. Версия данных тура
 // сменилась после постановки — партия не снимается (`stale_version`): исполнитель снял бы другую расстановку. Сорвавшееся до заказа
-// (`photo_id` пуст) возвращает резерв; место в UNIQUE остаётся занятым — та же расстановка не ставится снова (деньги важнее, Codex § 2).
+// (`photo_id` пуст) возвращает резерв; строка остаётся в UNIQUE, но следующее подтверждение ставит её снова в новую партию (не больше
+// `max_tries`, `auto-photos-queue.ts`, миграция 037); сорвавшееся после заказа (`photo_id` есть, деньги ушли) — никогда (Codex § 2).
 
 import { sql, type SQL } from "drizzle-orm";
 import type { AutoBatchClaimed, AutoFinishIn, AutoLease, AutoReleaseIn, AutoTaskIn, AutoTaskView } from "@/contracts/trial-auto-photos";

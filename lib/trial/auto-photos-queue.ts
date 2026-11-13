@@ -1,7 +1,8 @@
 // Постановка автофото тура — outbox публикации подтверждённой пересборки (T-20261112-115 Ф2; Codex 12.11 § 1, 3). Вызывается ВНУТРИ
 // транзакции `publishRebuild` (строка задания уже под замком — два подтверждения одного тура не пересекутся), сети не трогает: партия
 // с версией данных + задачи-резервы по комнатам (`auto-photos-pick.ts`). Резерв — `INSERT … ON CONFLICT DO NOTHING` по UNIQUE задачи:
-// комната, уже снятая (или снимаемая) в той же расстановке теми же ракурсами, второй раз не ставится. Деньги — до постановки: потолок тура
+// комната, уже снятая (или снимаемая, или оплаченная) в той же расстановке теми же ракурсами, второй раз не ставится; сорвавшаяся БЕЗ траты
+// (`photo_id` пуст) — та же строка уходит в новую партию, `tries` + 1, после `max_tries` — отказ `retry_cap` (037). Деньги — до постановки: потолок тура
 // (за всё время, факт `spent_rub`, пока нет — резерв) и суточный на все туры (скользящие 24 ч) — под общим замком бюджета
 // (`pg_advisory_xact_lock`), чтобы два тура разом не перешли сутки. Что не встало — `refused` партии с кодом; переход порога
 // предупреждения — `warn` партии и строка в журнале приложения.
@@ -35,15 +36,25 @@ export async function enqueueAutoPhotos(tx: Tx, a: { jobId: string; version: num
       where t.created_at > now() - interval '24 hours'`);
   let tourRub = tour?.rub ?? 0, dayRub = day?.rub ?? 0, n = 0, reserved = 0;
   for (const p of picks) {
-    const taken = await q<{ id: string }>(tx, sql`select id from trial_photo_tasks where job_id = ${a.jobId} and room_id = ${p.roomId}
-        and variant_sig = ${p.variantSig} and cams_sig = ${p.camsSig} and quality = ${rules.quality}`);
-    if (taken.length) continue;                                  // уже снято/снимается в этой расстановке — не тратим и не отказ
+    const [old] = await q<{ id: string; free: boolean; tries: number }>(tx, sql`select id, tries,
+        (status in ('failed', 'skipped') and photo_id is null and spent_rub is null) as free from trial_photo_tasks
+        where job_id = ${a.jobId} and room_id = ${p.roomId} and variant_sig = ${p.variantSig} and cams_sig = ${p.camsSig}
+        and quality = ${rules.quality} for update`);
+    if (old && !old.free) continue;                              // уже снято/снимается/оплачено в этой расстановке — не тратим и не отказ
+    if (old && old.tries >= rules.max_tries) { out.push({ room: p.roomId, code: "retry_cap" }); continue; }
     if (tourRub + rules.reserve_rub > rules.tour_cap_rub) { out.push({ room: p.roomId, code: "tour_cap" }); continue; }
     if (dayRub + rules.reserve_rub > rules.daily_cap_rub) { out.push({ room: p.roomId, code: "daily_cap" }); continue; }
-    const ins = await q<{ id: string }>(tx, sql`insert into trial_photo_tasks (id, batch_id, job_id, room_id, variant_id, style, ord, area_m2,
-        variant_sig, cams, cams_sig, quality, reserve_rub) values (${randomToken()}, ${batchId}, ${a.jobId}, ${p.roomId}, ${p.variantId},
-        ${p.style}, ${n}, ${p.areaM2}, ${p.variantSig}, ${JSON.stringify(p.cams)}::jsonb, ${p.camsSig}, ${rules.quality}, ${rules.reserve_rub})
-        on conflict (job_id, room_id, variant_sig, cams_sig, quality) do nothing returning id`);
+    // сорвалось БЕЗ траты (abandoned, lease_lost, tour_not_ready, stale_version, отказ сервиса до оплаты) — та же строка в новую партию:
+    // место в UNIQUE одно, второй оплаченный заказ невозможен; время постановки — сейчас (суточный потолок считает по нему)
+    const ins = old
+      ? await q<{ id: string }>(tx, sql`update trial_photo_tasks set batch_id = ${batchId}, status = 'reserved', fail_code = null,
+          tries = tries + 1, variant_id = ${p.variantId}, style = ${p.style}, ord = ${n}, area_m2 = ${p.areaM2},
+          cams = ${JSON.stringify(p.cams)}::jsonb, reserve_rub = ${rules.reserve_rub}, spent_rub = null, state_id = null,
+          created_at = now(), updated_at = now() where id = ${old.id} returning id`)
+      : await q<{ id: string }>(tx, sql`insert into trial_photo_tasks (id, batch_id, job_id, room_id, variant_id, style, ord, area_m2,
+          variant_sig, cams, cams_sig, quality, reserve_rub) values (${randomToken()}, ${batchId}, ${a.jobId}, ${p.roomId}, ${p.variantId},
+          ${p.style}, ${n}, ${p.areaM2}, ${p.variantSig}, ${JSON.stringify(p.cams)}::jsonb, ${p.camsSig}, ${rules.quality}, ${rules.reserve_rub})
+          on conflict (job_id, room_id, variant_sig, cams_sig, quality) do nothing returning id`);
     if (!ins.length) continue;
     n++; reserved += rules.reserve_rub; tourRub += rules.reserve_rub; dayRub += rules.reserve_rub;
   }

@@ -32,8 +32,16 @@ export async function releaseAutoTask(photoId: string, code: string): Promise<vo
     where photo_id = ${photoId} and status = 'ordered'`);
 }
 
-/** Фото заказа готово или сорвалось (`repo-photo-done.ts`) — задача следом; деньги ушли — `photo_id` остаётся. */
+/** Сбой задания сервиса кадров, случившийся ДО платного вызова модели (`draft_render.py`: `NoProductSheet` — лист товаров не собрался,
+ *  `paid_gate`; `NoCreditsError` — шлюз отказал из-за денег, HTTP 402): денег не ушло. Проба T-115/5 13.11 — обе спальни тестового тура
+ *  `no_product_sheet` уже ПОСЛЕ приёма заказа (асинхронно), задача держала 10 ₽ потолка тура и не ставилась снова. */
+export const NO_SPEND_CODES: ReadonlySet<string> = new Set(["no_product_sheet", "no_credits"]);
+
+/** Фото заказа готово или сорвалось (`repo-photo-done.ts`) — задача следом; деньги ушли — `photo_id` остаётся; сорвалось до платного
+ *  вызова (`NO_SPEND_CODES`) — номер фото снят, как при отказе на приёме: резерв вернулся, следующее подтверждение поставит задачу снова. */
 export async function settleAutoTask(photoId: string, status: "done" | "failed", code?: string): Promise<void> {
-  await db().execute(sql`update trial_photo_tasks set status = ${status}, fail_code = ${status === "failed" ? (code ?? "draft_failed").slice(0, 40) : null},
-    updated_at = now() where photo_id = ${photoId} and status in ('ordered', 'failed')`);
+  const failCode = status === "failed" ? (code ?? "draft_failed").slice(0, 40) : null;
+  const free = failCode !== null && NO_SPEND_CODES.has(failCode);
+  await db().execute(sql`update trial_photo_tasks set status = ${status}, fail_code = ${failCode},
+    photo_id = ${free ? null : sql`photo_id`}, updated_at = now() where photo_id = ${photoId} and status in ('ordered', 'failed')`);
 }

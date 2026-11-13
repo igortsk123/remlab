@@ -11,7 +11,7 @@ import RULES from "@/tools/scout/rules/tour-auto-photos.json";
 
 export type AutoRules = { max_rooms: number; shots_per_room: number; kind_order: string[]; quality: "realistic" | "draft";
   reserve_rub: number; tour_cap_rub: number; daily_cap_rub: number; daily_warn_rub: number; lease_s: number;
-  retry_s: number; max_releases: number; urgent_window_s: number };
+  retry_s: number; max_releases: number; urgent_window_s: number; max_tries: number };
 export const AUTO_RULES = RULES as AutoRules;
 
 export type AutoPick = { roomId: string; variantId: string; style: string; areaM2: number | null; ord: number; variantSig: string;

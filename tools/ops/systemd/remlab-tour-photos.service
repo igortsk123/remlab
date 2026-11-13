@@ -1,0 +1,32 @@
+# АВТОФОТО ТУРА — ИСПОЛНИТЕЛЬ DEV (план tour-auto-photos-01 Ф3, T-20261112-115/5): один запуск = одна партия из очереди прода
+# (`node tools/ops/tour-auto-photos.mjs --claim`: claim → слот тяжёлых прогонов → 3D-кадры → заказ фото класса auto → итог).
+# Запускает таймер `remlab-tour-photos.timer` (раз в 2 мин; пока прошлый запуск идёт, новый не стартует — партия за раз одна).
+# НЕ ВКЛЮЧЁН. Включает ведущий по слову владельца (деньги: до 50 ₽ на тур, 500 ₽ в сутки — потолки очереди):
+#   cp tools/ops/systemd/remlab-tour-photos.{service,timer} ~/.config/systemd/user/ && systemctl --user daemon-reload
+#   systemctl --user enable --now remlab-tour-photos.timer
+# Вручную: systemctl --user start remlab-tour-photos · журнал — ~/remlab-logs/tour-photos/worker.log, папки партий — рядом.
+# Токен TRIAL_WORKER_TOKEN — из ~/.config/remlab/env (вне git; не печатать). Без токена — выход 2, партию не берёт.
+[Unit]
+Description=remlab: автофото тура после подтверждения агентом (одна партия)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/igor/remlab
+EnvironmentFile=-%h/.config/remlab/env
+# 3D без видеокарты рисует процессор: квота режет дерево съёмки (Chromium SwiftShader) до 2 ядер — столько и заявляем очереди
+# (директор 13.11: срочная съёмка — не больше 2 ядер); замер без квоты — отчёт T-115/5
+Environment=TRIAL_API_URL=https://remont-lab.online TOUR_SLOT_CORES=2
+Environment=TMPDIR=%h/remlab-scratch/tmp
+ExecStartPre=/usr/bin/mkdir -p %h/remlab-logs/tour-photos %h/remlab-scratch/tmp
+ExecStart=/usr/local/bin/node tools/ops/tour-auto-photos.mjs --claim
+StandardOutput=append:%h/remlab-logs/tour-photos/worker.log
+StandardError=append:%h/remlab-logs/tour-photos/worker.log
+# потолок одного запуска: ожидание слота (до 1 ч) + 5 комнат по ~2–5 мин с заказом
+TimeoutStartSec=2h
+Nice=10
+CPUQuota=200%
+MemoryHigh=2G
+MemoryMax=3G
+MemorySwapMax=0
+OOMScoreAdjust=500

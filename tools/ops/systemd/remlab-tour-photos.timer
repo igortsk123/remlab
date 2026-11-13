@@ -1,0 +1,11 @@
+# Таймер исполнителя автофото тура (см. remlab-tour-photos.service). НЕ ВКЛЮЧЁН — включает ведущий по слову владельца.
+[Unit]
+Description=remlab: автофото тура — взять партию из очереди раз в 2 мин
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=2min
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target

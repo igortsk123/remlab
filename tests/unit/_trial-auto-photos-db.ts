@@ -85,10 +85,94 @@ export function autoPhotoDbTests(c: () => Ctx): void {
     const tasks = (id: string) => c().pg`select id, room_id, variant_id, style, ord, status, reserve_rub::float8 as rub, photo_id, fail_code,
       jsonb_array_length(cams) as cams from trial_photo_tasks where job_id = ${id} order by created_at, ord`;
 
-    it("миграция 036 повторяется без ошибки", async () => {
-      const text = await fs.readFile(path.join(process.cwd(), "db/init/036-trial-auto-photos.sql"), "utf8");
-      await c().pg.unsafe(text);
-      await c().pg.unsafe(text);
+    it("миграции 036 и 037 повторяются без ошибки", async () => {
+      for (const f of ["036-trial-auto-photos.sql", "037-trial-auto-photo-tries.sql"]) {
+        const text = await fs.readFile(path.join(process.cwd(), "db/init", f), "utf8");
+        await c().pg.unsafe(text);
+        await c().pg.unsafe(text);
+      }
+    });
+
+    it("сорвалось без траты (abandoned/lease_lost) — следующее подтверждение ставит ту же строку снова; после max_tries — retry_cap", async () => {
+      const id = await doneJob();
+      await publish(id, tourBundle(id, { rev: 1 }));
+      const a = await A();
+      const drop = async () => {                                                      // съёмщик взял партию и закрыл, ничего не заказав
+        const b = (await a.claimAutoBatch("dev-1"))!;
+        expect(await a.finishAutoBatch({ batchId: b.batchId, leaseToken: b.leaseToken })).toMatchObject({ ok: true });
+        return b;
+      };
+      const b1 = await drop();
+      const before = await tasks(id);
+      expect(before.every((t) => t.status === "failed" && t.fail_code === "abandoned" && t.photo_id === null)).toBe(true);
+      await publish(id, tourBundle(id, { rev: 2 }));                                   // расстановки те же — раньше было 0 задач навсегда
+      const bs = await batches(id);
+      expect(bs.map((b) => [b.status, b.tasks, b.rub])).toEqual([["done", 3, 30], ["queued", 3, 30]]);
+      const after = await c().pg`select id, batch_id, status, fail_code, tries from trial_photo_tasks where job_id = ${id} order by ord`;
+      expect(after.map((t) => t.id).sort()).toEqual(before.map((t) => t.id).sort());   // те же строки, не новые
+      expect(after.every((t) => t.batch_id === bs[1]!.id && t.status === "reserved" && t.fail_code === null && t.tries === 2)).toBe(true);
+      const b2 = await drop();
+      expect(b2.batchId).not.toBe(b1.batchId);
+      expect(b2.tasks.map((t) => t.roomId)).toEqual(["living", "bedroom-2", "bedroom-1"]);
+      await publish(id, tourBundle(id, { rev: 3 }));                                   // 3-я постановка
+      await drop();
+      await publish(id, tourBundle(id, { rev: 4 }));                                   // 4-я — отказ: max_tries = 3
+      const last = (await batches(id)).at(-1)!;
+      expect([last.status, last.tasks]).toEqual(["empty", 0]);
+      expect(last.refused).toEqual(expect.arrayContaining(["living", "bedroom-2", "bedroom-1"].map((room) => ({ room, code: "retry_cap" }))));
+      expect(await tasks(id)).toHaveLength(3);
+    });
+
+    it("сорвалось после заказа (номер фото есть, деньги ушли) — не повторяется; отказ сервиса до оплаты — повторяется", async () => {
+      const id = await doneJob();
+      await publish(id, tourBundle(id, { rev: 1 }));
+      const [t0, t1] = await tasks(id);
+      await c().pg`update trial_photo_tasks set status = 'failed', fail_code = 'gen_failed', photo_id = 'p-paid' where id = ${t0!.id}`;
+      await c().pg`update trial_photo_tasks set status = 'failed', fail_code = 'no_credits', photo_id = null where id = ${t1!.id}`;
+      await c().pg`update trial_photo_tasks set status = 'done', photo_id = 'p-done' where id not in (${t0!.id}, ${t1!.id})`;
+      await c().pg`update trial_photo_batches set status = 'done' where job_id = ${id}`;
+      await publish(id, tourBundle(id, { rev: 2 }));
+      const last = (await batches(id)).at(-1)!;
+      expect([last.status, last.tasks, last.rub]).toEqual(["queued", 1, 10]);
+      expect((await tasks(id)).find((t) => t.id === t1!.id)).toMatchObject({ status: "reserved", fail_code: null });
+      expect((await tasks(id)).find((t) => t.id === t0!.id)).toMatchObject({ status: "failed", photo_id: "p-paid" });
+    });
+
+    it("задание сервиса сорвалось ДО платного вызова (no_product_sheet, no_credits) — номер фото снят, задача ставится снова; иной сбой — нет", async () => {
+      const id = await doneJob();
+      await publish(id, tourBundle(id, { rev: 1 }));
+      const [t0, t1, t2] = await tasks(id);
+      await c().pg`update trial_photo_tasks set status = 'ordered', photo_id = 'ph-' || ord where job_id = ${id}`;
+      const { settleAutoTask } = await import("@/lib/trial/auto-photos-order");
+      await settleAutoTask("ph-0", "failed", "no_product_sheet");
+      await settleAutoTask("ph-1", "failed", "no_credits");
+      await settleAutoTask("ph-2", "failed", "gen_failed");
+      const ts = await tasks(id);
+      expect([t0, t1, t2].map((t) => ts.find((x) => x.id === t!.id)).map((t) => [t!.status, t!.fail_code, t!.photo_id])).toEqual([
+        ["failed", "no_product_sheet", null], ["failed", "no_credits", null], ["failed", "gen_failed", "ph-2"]]);
+      await c().pg`update trial_photo_batches set status = 'done' where job_id = ${id}`;
+      await publish(id, tourBundle(id, { rev: 2 }));
+      expect((await batches(id)).at(-1)).toMatchObject({ status: "queued", tasks: 2, rub: 20 });
+    });
+
+    it("повтор той же строки упирается в потолок тура и считается в сутках заново", async () => {
+      const id = await doneJob();
+      const { enqueueAutoPhotos } = await import("@/lib/trial/auto-photos-queue");
+      const { AUTO_RULES } = await import("@/lib/trial/auto-photos-pick");
+      const { db } = await import("@/lib/db");
+      const run = (rb: string, rules = AUTO_RULES) =>
+        db().transaction((tx) => enqueueAutoPhotos(tx, { jobId: id, version: 1, rebuildId: rb, json: tourBundle(id, { rev: 1 }) }, rules));
+      expect(await run("rb-r-1")).toMatchObject({ tasks: 3 });
+      // living оплачен (факт 40 ₽), две спальни сорвались без траты (2 дня назад); потолок тура 45 — заново не встаёт ни одна (40 + 10 > 45)
+      await c().pg`update trial_photo_tasks set status = 'failed', fail_code = 'abandoned', created_at = now() - interval '2 days'
+        where job_id = ${id}`;
+      await c().pg`update trial_photo_tasks set status = 'done', photo_id = 'p1', spent_rub = 40 where job_id = ${id} and room_id = 'living'`;
+      const r2 = await run("rb-r-2", { ...AUTO_RULES, tour_cap_rub: 45 });
+      expect(r2).toMatchObject({ tasks: 0 });
+      expect(r2!.refused).toEqual(expect.arrayContaining([{ room: "bedroom-2", code: "tour_cap" }, { room: "bedroom-1", code: "tour_cap" }]));
+      expect(await run("rb-r-3", { ...AUTO_RULES, tour_cap_rub: 60 })).toMatchObject({ tasks: 2, reservedRub: 20 });
+      const [day] = await c().pg`select count(*)::int as n from trial_photo_tasks where job_id = ${id} and created_at > now() - interval '1 hour'`;
+      expect(day!.n).toBe(2);                                                         // поставленные заново — в сутках по новому времени
     });
 
     it("подтверждение → партия той же транзакцией: версия, гостиная и спальни по площади, активный стиль, C1/C2, резерв 10 ₽; отказы с кодом", async () => {
@@ -259,6 +343,28 @@ export function autoPhotoDbTests(c: () => Ctx): void {
       expect(await a.claimAutoBatch("dev-4")).toBeNull();
       expect((await batches(id2))[0]).toMatchObject({ status: "failed" });
       expect((await tasks(id2)).every((t) => t.status === "failed" && t.fail_code === "lease_lost")).toBe(true);
+    });
+
+    it("воркер упал посреди съёмки (аренда истекла на всех попытках, заказа не было) — следующее подтверждение снимает те же комнаты", async () => {
+      const id = await doneJob();
+      await publish(id, tourBundle(id, { rev: 1 }));
+      const a = await A();
+      const expire = () => c().pg`update trial_photo_batches set lease_until = now() - interval '1 second' where job_id = ${id}`;
+      const b1 = (await a.claimAutoBatch("dev-1"))!;                                 // взял и упал на первой комнате: «снимаю», заказа нет
+      expect(await a.markAutoTask({ batchId: b1.batchId, leaseToken: b1.leaseToken, taskId: b1.tasks[0]!.id, status: "shooting" }))
+        .toMatchObject({ ok: true });
+      for (let k = 0; k < 3; k++) { await expire(); await a.claimAutoBatch(`dev-${k + 2}`); }
+      expect((await batches(id))[0]).toMatchObject({ status: "failed" });
+      const lost = await c().pg`select id, status, fail_code, photo_id, tries from trial_photo_tasks where job_id = ${id}`;
+      expect(lost.every((t) => t.status === "failed" && t.fail_code === "lease_lost" && t.photo_id === null && t.tries === 1)).toBe(true);
+      await publish(id, tourBundle(id, { rev: 2 }));                                   // агент подтвердил снова, расстановки те же
+      const last = (await batches(id)).at(-1)!;
+      expect([last.status, last.tasks, last.rub]).toEqual(["queued", 3, 30]);
+      const again = await c().pg`select id, status, tries from trial_photo_tasks where job_id = ${id}`;
+      expect(again.map((t) => t.id).sort()).toEqual(lost.map((t) => t.id).sort());   // те же строки — второго места в UNIQUE нет
+      expect(again.every((t) => t.status === "reserved" && t.tries === 2)).toBe(true);
+      const b2 = (await a.claimAutoBatch("dev-9"))!;
+      expect([b2.batchId, b2.tasks.length]).toEqual([last.id, 3]);
     });
 
     it("тур не готов (TOUR_READY) — партия обратно в очередь без траты попытки, не раньше паузы; срочная/догон; много возвратов — failed", async () => {
