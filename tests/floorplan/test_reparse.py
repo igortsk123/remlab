@@ -122,6 +122,26 @@ def test_page_guard_furnished_room_must_stay_furnished_with_goods_prices_links()
     assert f == {'p0/r1:page:awaiting_check/awaiting_check': 'block', 'p0/r1:page:bad:0→1': 'block', 'p0/b1:page:goods:3→0': 'block'}
 
 
+def test_page_guard_style_lost_blocks():
+    """T-20261113-23 (директор, прод 13.11): перечитка oTlA… v22 → v23 — гостиная 6 стилей → 4 (минимализм пустой, лофта нет), а сторож
+    видел только «обставлена, товары есть». Стилей с мебелью стало меньше — блок с ключом; столько же или больше — чисто."""
+    pc = RG.pair_canon(plan(), plan(ids=('a', 'b', 'c')))
+
+    def page(styles, sid):
+        b = bundle([('living', sid, 'ready', 'furnished')])
+        b['variants'] = [{'room_id': 'living', 'style': s, 'items': [{'sku': {'price': 100, 'url': 'https://x'}}] * n}
+                         for s, n in styles]
+        return b
+    was = page([('сканди', 9), ('современный', 9), ('минимализм', 8), ('лофт', 6), ('неоклассика', 9), ('джапанди', 9)], 'r1')
+    lost = page([('сканди', 8), ('современный', 8), ('неоклассика', 8), ('джапанди', 6), ('минимализм', 0)], 'a')
+    f = RG.guard_page(was, lost, pc)
+    assert [(x['key'], x['level']) for x in f] == [('p0/r1:page:styles:6→4', 'block')]
+    assert 'нет: лофт, минимализм' in f[0]['text']
+    assert RG.verdict(f)[0] == 'block' and RG.verdict(f, ['p0/r1:page:styles:6→4'])[0] == 'approved'
+    same = page([(s, 5) for s in ('сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди')], 'a')
+    assert RG.guard_page(was, same, pc) == []
+
+
 def test_verdict_and_detail():
     fs = [{'key': 'a', 'level': 'change', 'text': 'дверей 2 → 1'}, {'key': 'b', 'level': 'block', 'text': 'площадь'}]
     assert RG.verdict(fs) == ('block', fs)

@@ -499,21 +499,25 @@ def guard_canon(old: dict, new: dict, pc: dict) -> list[dict]:
 
 
 def page_rooms(bundle: dict) -> dict:
-    """Страница тура → {(панель, id плана): {'page', 'kind', 'state', 'outcome', 'goods', 'bad'}}: товары с ценой и ссылкой, `bad` —
-    без цены или ссылки."""
+    """Страница тура → {(панель, id плана): {'page', 'kind', 'state', 'outcome', 'goods', 'bad', 'styles'}}: товары с ценой и ссылкой,
+    `bad` — без цены или ссылки, `styles` — стили комнаты, у которых есть мебель (вариант с предметами; без стиля — по id варианта)."""
     src = {x['id']: (p['id'], str(x.get('src_id'))) for p in (bundle.get('trial') or {}).get('panels') or [] for x in p.get('rooms') or []}
     goods: dict = {}
+    styles: dict = {}
     for v in bundle.get('variants') or []:
         g = goods.setdefault(v.get('room_id'), [0, 0])
         for it in v.get('items') or []:
             s = it.get('sku') or {}
             g[0 if (s.get('price') or 0) > 0 and s.get('url') else 1] += 1
+        if v.get('items'):
+            styles.setdefault(v.get('room_id'), set()).add(str(v.get('style') or v.get('id')))
     out = {}
     for r in bundle.get('apartment_rooms') or []:
         if r['id'] in src:
             g = goods.get(r['id'], [0, 0])
             out[src[r['id']]] = {'page': r['id'], 'kind': r.get('kind'), 'state': r.get('furniture_state'),
-                                 'outcome': r.get('furniture_outcome'), 'goods': g[0], 'bad': g[1]}
+                                 'outcome': r.get('furniture_outcome'), 'goods': g[0], 'bad': g[1],
+                                 'styles': sorted(styles.get(r['id'], ()))}
     return out
 
 
@@ -522,7 +526,9 @@ def _furnished(x: dict | None) -> bool:
 
 
 def guard_page(old_b: dict, new_b: dict, pc: dict) -> list[dict]:
-    """Находки по готовой странице ПОСЛЕ правок агента: обставленная комната осталась обставленной, с товарами, ценами и ссылками."""
+    """Находки по готовой странице ПОСЛЕ правок агента: обставленная комната осталась обставленной, с товарами, ценами и ссылками,
+    и стилей с мебелью в ней не меньше, чем было (T-20261113-23, директор: перечитка oTlA… v22 → v23 выложила гостиную 4 стилями из
+    6 — «обставлена» и «товары есть» потерю стиля не видят). Потеря стиля — блок; одобрить можно ключом, как любую находку."""
     out = []
     po, pn = page_rooms(old_b), page_rooms(new_b)
     for k, x in po.items():
@@ -538,6 +544,10 @@ def guard_page(old_b: dict, new_b: dict, pc: dict) -> list[dict]:
                           f"{x['page']}: была обставлена → {y['state']} / {y['outcome']}"))
         elif x['goods'] and not y['goods']:
             out.append(_f(f'{tag}:page:goods:{x["goods"]}→0', 'block', f"{x['page']}: товаров {x['goods']} → 0"))
+        elif len(y.get('styles') or []) < len(x.get('styles') or []):
+            gone = [s for s in x['styles'] if s not in y['styles']]
+            out.append(_f(f"{tag}:page:styles:{len(x['styles'])}→{len(y['styles'])}", 'block',
+                          f"{x['page']}: стилей с мебелью {len(x['styles'])} → {len(y['styles'])} (нет: {', '.join(gone) or '—'})"))
         if y['bad'] > x['bad']:
             out.append(_f(f"{tag}:page:bad:{x['bad']}→{y['bad']}", 'block', f"{x['page']}: товаров без цены или ссылки {x['bad']} → {y['bad']}"))
     return out
