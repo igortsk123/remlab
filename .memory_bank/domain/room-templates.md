@@ -3,7 +3,7 @@ tier: 2
 topic: room-templates-rules
 scope: Шаблоны комнат — порядок создания для любой комнаты, паспорт room-composition/1, как шаблон ложится на комнату, требования к листам
 tier1: "../core/room-templates.md"
-updated: 2026-11-12
+updated: 2026-11-13
 importance: high
 source: "external:СП 54.13330.2022, Пособие к СНиП 2.08.01-89, Approved Document M, NDSS (раздел «Проходы»); остальное — _intake/session-scratch.md"
 status: working
@@ -148,6 +148,12 @@ Panero / Time-Saver Standards, числа Нойферта для гостино
 Паспорт гостиной (`living.json`, место «экран» → `distances_cm.mounting.tv_screen`) — на той же вилке 100–110 (зеркало
 `hung_furniture.tv_center_range_cm`, сторож `services/planner-solver/tests/test_room_templates_living.py:test_mounting_mirrors_equal`);
 `heights_cm.tv_center_ru` 120–130 — сырой факт источника «ТВ на стене вообще», не для дивана.
+
+## Строго по шаблонам (ADR-0407, владелец TG 1352/1366, 12.11)
+Расстановка любой комнаты — перебор ВСЕХ совместимых шаблонов (назначение + условия `when`) → уровни → лестница размеров → стены ×
+повороты × отражения. Подходящего шаблона нет — это кандидат в НОВЫЙ шаблон (каталог с Codex → листы → «ок»), а не правка расстановки
+под конкретную квартиру или ID в коде (линт `tools/ops/conveyor_ids.py`). Первый такой каталог — спальня, 24 шаблона тенью
+(`services/planner-solver/rules/room-templates/bedroom-catalog.json`, T-120; деталь — `domain/pipeline-order-details.md` § «Спальня 10–12.11»).
 
 ## Состояние по комнатам (12.11)
 - **Спальня** — паспорт `bedroom.json` есть, движок групп включён по умолчанию (`services/planner-solver/rules/bedroom.json` `_meta.engine: "groups"`, T-47, f6df9aec);

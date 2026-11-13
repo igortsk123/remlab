@@ -3,7 +3,7 @@ tier: 2
 topic: viz-fidelity-playbook
 scope: Плейбук схожести товаров в генерациях сцен (сеты/визуализация М5) — правила, модели, цены
 tier1: ../core/furniture.md
-updated: 2026-11-12
+updated: 2026-11-13
 importance: high
 source: external:ресёрч 2026-08-01 (BFL/Google/OpenAI доки + практика) + собственные A/B на Сете 1
 status: working
@@ -376,3 +376,10 @@ medium 0.197, high 0.250. При РАВНОМ образе и равном ра�
 - **Зеркало и картина — плоскость на стене** (T-73, T-05/3, 07.11): стратегия `procedural_plane` при `h > d` — не меш, не clay,
   не препятствие; сборщик пишет `strategy` предметам (`tools/scout/flat215_demo.py:annotate_strategy`) из `tools/scout/rules/asset-strategies.json`
   — второго способа нет (T-81 закрыта как дубль). Стекло не режется рамой «лесенкой» — `lib/viewer3d/kits/wall-plane.ts:SHEET_DEPTH_BIAS`.
+
+## Поправка светлоты видов до запекания — CAL (T-20261112-49, влито 13.11 `1102477b`+`b099e7a9`)
+- `tools/scout/salad/mv_color_cal.py`: светлота шести видов альбедо подгоняется к фото товара по участкам до увеличения и
+  запекания; крючок `tools/scout/salad/pipeline.py:_cal_hook` включается параметром `params._mv_cal`.
+- Предохранители: силуэты фото и вида не совпадают (IoU < `MIN_IOU` 0,6) или цветность расходится больше `AB_MAX` 15 — поправки нет.
+- В боевых группах ВЫКЛЮЧЕНА; включалась только в опытной группе плана mesh-color-03 (`tools/scout/rules/salad-groups.json`,
+  потолок сторожа 6 ₽, после опыта остановлена). Решение о включении — по итогам опыта (план mesh-color-03 отложен владельцем).

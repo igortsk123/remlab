@@ -3,7 +3,7 @@ tier: 1
 topic: room-templates
 scope: Шаблоны комнат — порядок создания, паспорт, листы в масштабе
 tier2: "../domain/room-templates.md"
-updated: 2026-11-12
+updated: 2026-11-13
 importance: high
 source: _intake/session-scratch.md
 status: working
@@ -15,6 +15,8 @@ review_after: 2026-12-10
 # Шаблоны комнат — Tier 1
 
 Единственный вариант правил (TG 768). Ведёт common (ADR-0390); шаблон комнаты → товары стиля −20…+10 % → на ТО ЖЕ место (ADR-0391).
+**Строго по шаблонам (ADR-0407):** расстановка — перебор всех совместимых шаблонов; подходящего нет — новый шаблон, не правка под квартиру
+(в каталоге спальни — `NO_ROOM_TEMPLATE_FITS` → кандидат, `tools/scout/bedroom_catalog_schemes.py`).
 
 ## Порядок
 1. Состав и каталог шаблонов с Codex; ни одного товара без места в 3D.
@@ -31,6 +33,6 @@ review_after: 2026-12-10
 (Пособие к СНиП 2.08.01-89 п. 3.1). M4(2) 75 и M4(3) 100 — только жильё «доступное». Пороги — до «ок» владельца (T-65).
 
 ## Сейчас
-Спальня — движок групп ([[bedroom]]); гостиная — паспорт `living.json` тенью, уровень по набору `room_templates.py:levels_by_set`; прихожая — `hall.json` H1–H9 тенью, проход от входа `hall_checks.py:_entry_step` (детали — Tier 2).
+Спальня — движок групп ([[bedroom]]), каталог 24 шаблонов `bedroom-catalog.json` — тенью (T-120, назначение 6–7,5 м² — ADR-0408); гостиная — паспорт `living.json` тенью, уровень по набору `room_templates.py:levels_by_set`; прихожая — `hall.json` H1–H9 тенью, проход от входа `hall_checks.py:_entry_step` (детали — Tier 2).
 
 **Tier 2:** `../domain/room-templates.md` · ADR-0369, 0384, 0390–0392 · [[layout]].

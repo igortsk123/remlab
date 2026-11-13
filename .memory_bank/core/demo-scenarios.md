@@ -3,7 +3,7 @@ tier: 1
 topic: demo-scenarios
 scope: Сценарии /demo — карта кнопок «ожидание → факт», живые проверки, дефекты
 tier2: "../domain/demo-scenario-map.md"
-updated: 2026-11-12
+updated: 2026-11-13
 importance: high
 source: manual
 status: working

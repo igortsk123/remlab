@@ -3,7 +3,7 @@ tier: 1
 topic: mesh-pool
 scope: Пул нод Salad — группы, тарифы, деньги, стопоры
 tier2: "../domain/mesh-pool-ops.md"
-updated: 2026-11-12
+updated: 2026-11-13
 importance: high
 source: manual
 status: working
@@ -16,13 +16,11 @@ review_after: 2026-12-05
 
 **Запуск и остановка прогона — [[mesh-run]].**
 
-**Что это.** Группы SaladCloud с образом Hunyuan3D под конвейером
-`tools/scout/salad/` (`batch_show.py` + раздатчик `ssh_run.py`); тариф, окно, цена — ТОЛЬКО из
+**Что это.** Группы SaladCloud (Hunyuan3D) под `tools/scout/salad/` (`batch_show.py`, `ssh_run.py`); тариф, окно, цена — ТОЛЬКО из
 `tools/scout/rules/salad-groups.json` (ADR-0177). Путь меша — [[mesh-pipeline]].
 
 **Карты и тариф (ADR-0315):** любые NVIDIA ≥ 16 ГБ, кроме RTX 50xx и 4090; тариф `low`/`batch`, выше — только владелец.
-Фильтр ОЗУ выключен (`node_ram.min_gb 0`, ADR-0316): обрывы — вытеснение тарифом, не OOM. Квота 50 реплик общая; ресурсы/GPU/образ — только новой группой
-(`recreate_group.py`, `queue_setup.py`; урок 518).
+Фильтр ОЗУ выключен (`node_ram.min_gb 0`, ADR-0316): обрывы — вытеснение тарифом, не OOM. Квота 50 реплик; GPU/образ — только новой группой (`recreate_group.py`; урок 518).
 
 **Транспорт (ADR-0317):** очередь Salad (Job Queue) — группа с `queue_connection` при создании, посредник `queue_proxy.py` (порт 8001)
 отдаёт машину задания; транспорт `auto` по правилам группы. SSH (молчит на ~половине машин) — запасной.
@@ -35,7 +33,7 @@ review_after: 2026-12-05
 
 **Стопоры — один свод (ADR-0175).** Стоп-файл `mesh-group-halt.json` сильнее автостарта (ADR-0169/0174); приёмник проверяется ДО
 раздачи; кредиты кончились — только по `no_credits_available` (урок 404); ручной старт — с `--rub-cap` (ADR-0317); открытая автоволна
-держит потолок lease и гасит любую пробу (`money_guard.py:budget_breach`, Tier 2 § 8). **ADR-0198:** `/start` — только лежащим группам
+держит потолок lease и гасит пробу (`money_guard.py:budget_breach`); конец волны — `launched` следующей (`wave_guard.py`, Tier 2 § 9). **ADR-0198:** `/start` — только лежащим группам
 
 **Чистка приёмника** — только через API `DELETE /prefix/...` (ADR-0178), сторож `sink_keeper.sh`, порог — `sink_health.tight` (предел−2 ГБ; ADR-0199).
 

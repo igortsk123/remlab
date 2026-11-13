@@ -3,7 +3,7 @@ tier: 2
 topic: deployment-details
 scope: Деплой exit-fi — подробности конвейера, сторожа, история правок сервера
 tier1: "../deployment.md"
-updated: 2026-11-12
+updated: 2026-11-13
 importance: med
 source: manual
 last_verified: 2026-11-06
@@ -234,7 +234,7 @@ tamara 25 ГБ. Ночной шаг `disk_keeper` (`tools/scout/refresh_daily.sh
 **Второй круг уборки (10.11, ADR-0379, T-20261110-30):** `tools/ops/disk_clean.py` по правилам `tools/scout/rules/dev-disk-clean.json`
 (удаляет только `approved: true`; виды — влитые worktree, кэши стенда разбора планов, старые поколения мешей без ссылок, висячие тома
 и контейнеры стендов БД; `.memory_bank`, `_secrets`, `.env*` не трогает никогда). Ночной шаг `disk_clean` в
-`tools/scout/refresh_daily.sh:202` — с `--apply --digest`. Повод: 10.11 на 391 ГБ осталось 7 ГБ (47 влитых worktree — 16 ГБ).
+`tools/scout/refresh_daily.sh` (шаг `disk_clean`) — с `--apply --digest`. Повод: 10.11 на 391 ГБ осталось 7 ГБ (47 влитых worktree — 16 ГБ).
 Диск DEV к 12.11 — 411 ГБ. **12.11 17:59** свободно 18 ГБ (96 %) при пороге волн `wave_guard` 20 ГБ — кандидаты algor (`~/remlab-logs/disk-cand-1112.txt`):
 `.claude/worktrees` 35 ГБ / 135 копий, `~/remlab-logs/floorplan-bench` 11, `~/remlab-scratch` 15, неактивные образы docker 8,6, `~/.cache` 6,8;
 НЕ трогать: `~/scout-scenes/meshes-hunyuan` 29 ГБ (боевые меши), чужие проекты `igor/tamara`, `igor/julia`. Директор удалил 76 влитых
@@ -245,6 +245,17 @@ worktree → 40 ГБ свободно (18:06). Удаляет только ди�
 (пересоздаёт при смене исходника, сирот убирает); не вышло целиком — убирает ВСЕ свои копии (устаревшая сжатая хуже сжатия на лету).
 Caddy отдаёт их по `precompressed br gzip` (`caddy/Caddyfile`, блок /demo). Разметка /demo 411 → 290 КБ, данные 161 → 99 КБ.
 Самопроверка — `tools/scout/tests/test_publish_demo.py` (`PUB_PRECOMPRESS_CMD`).
+- **Метка правил сборки (13.11, T-20261112-121, ADR-0407):** `publish_demo.sh` до съёмки и упаковки сверяет `build_stamp.py --check-data`
+  с правилами копии; метка — sha256 только ВХОДОВ сборки витрины (`tools/scout/build_stamp.py:DEMO_INPUTS`, вкл. шаблоны комнат): чужое новое
+  правило в `rules/**` её не двигает (урок 672). Нет метки или не та — `exit 1`, обхода нет, лечится пересборкой `flat215_demo.py`.
+- **Перевыпуск туров после выкладки (13.11, T-20261112-92/11):** `PUB_REISSUE=0` принимается только от живого ночного прогона —
+  `refresh_daily.sh` экспортирует `REFRESH_DAILY_RUN=$$` в начале, `publish_demo.sh:reissue_tours` проверяет `/proc/<pid>`; иначе WARN и
+  перевыпуск всё равно (13.11 ручные выкладки, списанные с ночной строки, оставили 18 туров на старой витрине). Придержать туры — только
+  файлом `~/scout-scenes/tour-reissue-hold.txt` (`tools/ops/tour-reissue.sh`). Во время `publish_demo` (копия `demo.prev`) свободное место
+  на проде на минуты падает ниже 7 ГБ — ворота волн мешей (`sink_health`) это видят.
+- **Ночной прогон:** у каждого шага строка `STEPTIME` (время и процессор, T-20261112-56); сразу после старта публикуется на прод статус
+  `overall=running` — `infra/server/scripts/catalog-watchdog.sh` ждёт конца прогона, а не тревожит в 15:30; шаг `room_mesh_budget`
+  (`room_mesh_demand.py --ledger`) — деньги мешей комнат, ≥ 80 % потолка → WARN и тревога раз в сутки.
 
 ## DEV: `/tmp` — tmpfs с квотой; временное конвейера — на диск (07.11, T-20261107-02/13, урок 528)
 `/tmp` на pakardev — tmpfs ~788 МБ с квотой на пользователя; его забивают чужие проекты (mycoruja-img 255 МБ), папки сессий
@@ -264,7 +275,8 @@ Claude и тысячи `playwright_*`. При квоте запись падае
 - **Статус main** — `bash tools/ops/ci-status.sh` (публичный API `actions/workflows/<файл>/runs`, без входа; код 0/1/2) и ночной шаг
   `ci_status` → строка DIGEST, красный — `WARN:ci_status` (`tools/ops/ci_status.py`). `gh` на pakardev протух (401) — не нужен. Лимит API
   без токена — 60 запросов/час на адрес DEV (общий с ночными кронами): ждать CI не чаще раза в 3–5 мин (опрос раз в 30–45 с выжег лимит
-  07.11 и 09.11); прод — `tools/ops/deploy-need.sh --status` (без GitHub). После каждого вливания кода — статус CI: 05.11 гейт был красным
+  07.11 и 09.11); прод — `tools/ops/deploy-need.sh --status` (без GitHub; его строка «позади: изменён код: <файл>» называет
+  один файл, даже когда позади десятки — сверять `version` в `/api/health`, урок 673). После каждого вливания кода — статус CI: 05.11 гейт был красным
   3 ч, 06.11 — с 15:18 весь день (деплой «skipped» ≥ 30 пушей), 07.11 — ~3 ч / 37 пушей.
 - **Перед пушем** — `.git/hooks/pre-push` → ссылка на `tools/ops/prepush-check.sh` (`tools/ops/prepush_check.py`): карта «путь → команда»
   разбирается из `ci.yml` (команда касается файла, если запускает его или её исходник его упоминает/импортирует), окружение job + `CI=true`,
@@ -327,7 +339,10 @@ DEV `GET /credits` через туннель (снаружи `/api/draft/credits
 ## Дополнено сводом недели (свод недели T-20261112-85)
 - **Образ `remlab-draft` и файлы правил (T-03, 07.11):** каждый файл правил, который читает код образа, — COPY в `/app/rules/`
   (`infra/draft/Dockerfile`: `improve-rooms.json` — без него фото спальни падало «No such file»); тест
-  `tools/scout/tests/test_draft_image_rules.py` сверяет чтения `'rules', '<файл>'` с COPY и `.dockerignore` (в CI).
+  `tools/scout/tests/test_draft_image_rules.py` сверяет чтения `'rules', '<файл>'` с COPY и `infra/draft/Dockerfile.dockerignore` (в CI).
+- **Образ приложения и `tools/` (13.11, урок 674):** корневой `.dockerignore` выкидывает `tools/`; код `app/`/`lib/`, импортирующий файл
+  правил оттуда, ломает `next build` в образе (CI и локальная сборка зелёные). Исключение — по одному файлу (строка `!` + `tools/scout/rules/tour-auto-photos.json`),
+  сторож — `tools/ops/docker_context.py` (из `tools/ops/conveyor_check.py`; вывод сборки Next `.next/` — не источник).
 - **Стенд паритета сам убирает прогоны (T-48, 07.11):** хранит `keep_runs` (4) последних `run-*` плюс прогоны свежего эталона каждой
   комнаты (`tools/scout/parity_living.py` prune); эталон, указывающий на удалённый прогон, — WARN, переснять. Ловушки сверки — урок 646.
 

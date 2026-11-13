@@ -3,7 +3,7 @@ tier: 2
 topic: lessons-devops-deploy
 scope: Уроки: devops — docker/buildkit, exit-fi, gitignore, деплой, CI, хуки, инструменты dev-машины — читать перед планом по этой теме
 tier1: ../core/lessons.md
-updated: 2026-11-12
+updated: 2026-11-13
 importance: med
 source: manual
 status: stable
@@ -451,3 +451,18 @@ systemd — крон-подъём раз в 10 минут (`tools/ops/dev-checks
 - **669 (12.11)** — cherry-pick пачки в основной копии `main`, где лежат чужие незакоммиченные правки, падает, а `git cherry-pick --abort`
   откатывает ВСЮ серию — два уже применённых коммита пропали, пришлось переприменять. Правило: пачку вливать во временном чистом worktree
   от `main` (как `tools/ops/merge_queue.py`, ADR-0406), в основную копию — только ff до проверенного хеша. (директор, 17:55)
+- **672 (13.11)** — метка правил сборки `build_stamp` по ВСЕМУ `tools/scout/rules/**` (T-121): посторонний новый файл
+  (`tour-auto-photos.json`, влит посреди ночной сборки) сорвал выкладку /demo (сверка 92/9, 01:24). Правило: замок «по всему каталогу» ломает
+  конвейер при любом влитии — метка только по входам сборки (`tools/scout/build_stamp.py:DEMO_INPUTS`, сторож `tools/ops/build_inputs.py`). (T-121/2)
+- **673 (13.11)** — CI main красный ~1 ч (01:16–02:1x), прод не выкатывался: селфтест `build_stamp` (T-121) брал `tempfile` без
+  `remlab_tmp.use` → `test_tmp_hygiene`; `prepush_check.py` его не гонял (тест читает весь код, по карте путей не привязан). Видно не было:
+  `gh` на pakardev — 401, а `tools/ops/deploy-need.sh --status` писал «позади: изменён код: .github/workflows/ci.yml» при 50+ файлах позади.
+  Правило: после вливания — статус CI через публичный API без токена (`tools/ops/ci-status.sh` / `api.github.com/repos/<репо>/actions/runs`),
+  прод — по `version` в `/api/health`; новый селфтест с временными файлами — через `remlab_tmp`. Починка `90465ec3`.
+- **674 (13.11)** — выкладка прода упала на `next build` в образе, хотя CI gate и локальная сборка зелёные: `lib/trial/auto-photos-pick.ts`
+  (T-115 Ф2) импортирует `tools/scout/rules/tour-auto-photos.json`, а корневой `.dockerignore` выкидывает `tools/`. Правило: код `app/`/`lib/`
+  из `tools/` не импортирует; если правило нужно и образу, и scout — исключение `!<файл>` в `.dockerignore` (`7763fa7d`) и сторож
+  `tools/ops/docker_context.py` (T-121/3–4; вывод сборки `.next/` — не источник, урок 676). Приёмка менеджера этого не ловит — только сборка образа.
+- **680 (13.11)** — ссылка-вход `/api/lab/mesh-review/session?key=…` уводила на `https://0.0.0.0:3000/…`: адрес редиректа строился из
+  `req.url`, а за прокси Caddy это внутренний хост. Правило: редирект — относительный `Location` из белого списка путей
+  (`lib/mesh-review/login-target.ts`, тест с `req.url = https://0.0.0.0:3000`), хост из `req.url` не брать. (T-118/3, algor)

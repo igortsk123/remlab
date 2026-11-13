@@ -24,7 +24,7 @@
 
 ## Как записать новый урок
 
-- **Следующий номер: 657.** (480 — бывший второй «472» из demo-planner, перенумерован 13.10) Номер берётся отсюда и сразу двигается здесь же (`414` → `415`).
+- **Следующий номер: 682.** (480 — бывший второй «472» из demo-planner, перенумерован 13.10) Номер берётся отсюда и сразу двигается здесь же (`414` → `415`).
 - Формат: `**N. Заголовок** — ситуация → пробовали → почему не сработало → правило` (одна запись — один абзац).
 - Куда: в конец файла своей темы `lessons/<тема>.md` (под заголовком `## Новые (после 2026-09-05)` — завести при первой записи).
 - Затем при необходимости — одна строка в `../core/lessons.md` (Tier 1, ≤3 КБ: только живые правила, не пересказ).
@@ -472,4 +472,15 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 668 — влито пачкой → проверку работника из очереди heavy-slot снять → `lessons/memory-process.md`
 - 669 — cherry-pick пачки в грязном main: `--abort` откатывает всю серию — вливать в чистом worktree → `lessons/devops-deploy.md`
 - 670 — `sed '1s'` по plan-zadach.md снёс шапку `---` → `lessons/memory-process.md`
+- 671 — ручная волна мешей в чужом лизе автоволны → halt money_guard; таймер «без машин» считал halt → `lessons/mesh-salad-pool.md`
+- 672 — метка `build_stamp` по всему `rules/**` сорвала выкладку /demo — только входы сборки → `lessons/devops-deploy.md`
+- 673 — CI красный ~1 ч (`test_tmp_hygiene`), gh 401, `deploy-need --status` вводил в заблуждение → `lessons/devops-deploy.md`
+- 674 — `lib/` импортирует `tools/scout/rules/*.json`, а `.dockerignore` выкидывает `tools/` — образ не собрался → `lessons/devops-deploy.md`
+- 675 — `prepush_check.py` вне хука ждёт stdin и держит heavy-slot → `</dev/null` → `lessons/dev-ops.md`
+- 676 — сторож «по диску» зависит от машины (`.next/` в основной копии) → `lessons/dev-ops.md`
+- 677 — systemd `StandardOutput=append:` открывается до `ExecStartPre` → 209/STDOUT → `lessons/dev-ops.md`
+- 678 — `trial-tour.test.ts` (память сжатых страниц) нестабилен под нагрузкой → `lessons/floorplan-trial.md`
+- 679 — проба тапов по ценникам без видеокарты: 2 стабильных кадра, 12 px от кнопок → `lessons/demo-planner.md`
+- 680 — редирект из `req.url` за прокси → `0.0.0.0:3000`; только относительный `Location` → `lessons/devops-deploy.md`
+- 681 — пересборка банка ради одного правила меняла 12–18 товаров набора → `lessons/layout-solver.md`
 - 528, 530 — дополнены 07.11 (gltfpack и `/tmp`; «как в CI» — py3.12, чистый venv, golden `--record`, e2e) без новых номеров

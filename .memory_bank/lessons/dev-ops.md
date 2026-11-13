@@ -2,7 +2,7 @@
 tier: 2
 topic: lessons-dev-ops
 scope: Уроки DEV-машины — память, earlyoom, туннели, systemd
-updated: 2026-11-12
+updated: 2026-11-13
 importance: med
 source: manual
 status: working
@@ -64,3 +64,9 @@ status: working
   `tools/scout/tests/test_bank_spec_golden.py` приводит `$REMLAB_TMP`/`$TMPDIR`/`remlab_tmp.root` к `<T>/tmp` (сверено 12.11).
 - **651 (07.11)** — headless Chrome падает от /tmp, а не от сцены: чёрный кадр 1440, «Target crashed», зависший `page.evaluate`: Playwright запускает Chrome с `--disable-dev-shm-usage`, и общая память, профиль и кэш браузера идут в TMPDIR=`/tmp` — tmpfs 788 МБ, где EDQUOT наступает уже на ~630 МБ (квота пользователя меньше tmpfs); в логе браузера `AllocateRingBuffer() failed`, `ERR_INSUFFICIENT_RESOURCES`. Правило: у браузерных прогонов TMPDIR на диске (`REMLAB_TMP` или `~/remlab-scratch/tmp`, `tools/ops/demo-warm.mjs`, `tools/flat3d/hall-snap.mjs`); «WebGL потерян» = переснять набор. Дополняет 495/528. (T-73, T-16, pakardev) Источник: свод недели 06–12.11 (T-20261112-85).
 - **663 (12.11)** — Playwright-снимки 3D берут 6–7 ядер при заявке `--cores 2`: WebGL без видеокарты считается программно (SwiftShader, `headless_shell --type=gpu-process` 667 % CPU) — нагрузка 18 при 16 ядрах, очередь heavy-slot стоит (TG 1079). Правило: заявку снимков 3D — по замеру, не по числу страниц.
+- **675 (13.11)** — `tools/ops/prepush_check.py`, запущенный вне git-хука (в скрипте проверок работника), ждал stdin вечно и 40 мин держал
+  слот heavy-slot при 0 ядрах (`t121-3-checks`). Правило: вне хука — с `</dev/null`; защита в самом скрипте (T-121/4).
+- **676 (13.11)** — сторож, проверяющий ссылки «по диску», зависит от машины: в основной копии `.next/` есть, в worktree нет →
+  `docker_context` ложно падал на `next-env.d.ts → .next/types`. Правило: вывод сборки отсекать ДО проверки существования файла. (T-121/4)
+- **677 (13.11)** — юнит systemd автофото тура падал `209/STDOUT`: `StandardOutput=append:<файл>` открывается ДО `ExecStartPre`, поэтому
+  `mkdir` папки логов в `ExecStartPre` не спасает. Правило: вывод юнитов — в journald (T-115/7), либо папка должна существовать заранее.

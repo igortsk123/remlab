@@ -3,7 +3,7 @@ tier: 2
 topic: interior-styles
 scope: Паспорта 6 типовых стилей интерьера — признаки с весами, скоринг товаров, промпт-блоки генерации
 tier1: ../core/styles.md
-updated: 2026-11-12
+updated: 2026-11-13
 importance: med
 source: external:web (t-j.ru, netology.ru, domovita.by, ivd.ru, vc.ru, vm.ru; гайды для фото 17.10 — см. § «Гайды для фото») + гипотеза владельца
 status: working
@@ -117,3 +117,15 @@ v3 (план `style-vote-v3`): прежнее `no` показывается ка
 (`style_score.py --source room_catalog|hall`); в `product_style_scores` — только с `--db` и без перезаписи чужих строк
 (`style_score.py:383-389`): ночью прихожая идёт с `--db`, спальня — только в файл (`refresh_daily.sh:309-310`). Стили комнат —
 `tools/scout/rules/bedroom-composition.json:styles` (6), `tools/scout/rules/hall-composition.json:styles` (5, без неоклассики).
+
+## Калибровка балла по разметке (T-20261112-119, 12.11, ADR-0412)
+- Разметка 165 карточек /lab (жена владельца, TG 1361; экспорт `style_bench --vote-export`); совпадение нашей оценки с разметкой 0,77:
+  минимализм и лофт ставили втрое чаще человека, неоклассику и сканди недобирали; «универсальный» человек/мы совпал 9 из 24.
+- Слой `tools/scout/style_calib.py` + `tools/scout/rules/style-calibration.json` (`t119-v3`, `enabled: true`): 7 узких правил по признакам
+  фида (название + параметры с ключами материал/цвет/обивка/опоры…), только для мебели и света (`not_hard_roles`); сдвигов шкалы нет
+  (`offsets` пуст; лофт −0,5 — отложен). Порог один — 6,6 (`demo-swap.json:in_style_min`). Применяется к гостиной (`product_style_scores`)
+  при записи балла и разово `style_calib.py --apply` (выполнен 12.11: 18 573 строки с меткой `cal:t119-v3`; откат —
+  `~/remlab-logs/t119-1112/pss-before-apply.sql`).
+- Банк гостиной берёт стиль из обогащения (`enrich_bridge`) — калибровка меняет только ленты /demo и `demo_band`; в `style-scores.json`
+  только представитель модели, близнецы — в БД. Проверка на отложенной трети — в `_check` файла правил. Codex —
+  `_intake/codex/2026-11-12-t119-style-votes-answer.md`.

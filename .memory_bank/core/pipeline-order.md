@@ -3,7 +3,7 @@ tier: 1
 topic: pipeline-order
 scope: Порядок конвейера — от фида до расстановки
 tier2: "../domain/pipeline-order-details.md"
-updated: 2026-11-12
+updated: 2026-11-13
 importance: high
 source: manual
 status: working
@@ -30,13 +30,14 @@ review_after: 2026-12-05
 
 **Стыки (ADR-0272):** `tools/scout/rules/pipeline-map.json` → `tools/scout/pipeline_map.py` → `/test/pipeline/` — Tier 2.
 
-**Этап 4 — ворота:** срезанное не войдёт в меш, прилипшее — станет. **Очередь ≠ генерация:** генерим только под демо (ADR-0314).
+**Этап 4 — ворота:** срезанное не войдёт в меш. **Очередь ≠ генерация:** генерим только под демо (ADR-0314).
 
 **Банк (ADR-0318):** `bank_prepare && bank_pending && bank_promote` с одним `BANK_RUN_ID`, писатель
 `bank_refresh.py` — только при целой цепочке (`tools/scout/refresh_daily.sh:bank_chain_ok`; `write_enabled` выключен) — Tier 2.
-**Демо:** `flat215_demo` → `publish_demo.sh` — копия прежней и `--rollback` (`tools/scout/publish_demo.sh`).
+**Демо:** `flat215_demo` → `tools/scout/publish_demo.sh` (копия прежней, `--rollback`); перевыпуск туров — после, мебель
+подтверждённого тура держит; придержать — файл-стоп (Tier 2).
 
-**Комнаты:** шаги — `tools/scout/room_profile.py:CAPABILITIES`; ночью до привязки (при включённом банке комнаты) — сторож изголовья (`orient_bed_guard`); банки, привязка, квота, спальня 10–12.11 — Tier 2.
+**Комнаты:** шаги — `tools/scout/room_profile.py:CAPABILITIES`; до привязки — сторож изголовья (`orient_bed_guard`); банки, квота — Tier 2.
 
 **13.10 (ADR-0247):** живость фото (`pool_photos`) — ДО стиля, стиль — ДО отбора и вырезки (`tools/scout/refresh_daily.sh`).
 

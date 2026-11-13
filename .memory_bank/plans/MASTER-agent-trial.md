@@ -4,7 +4,7 @@ slug: MASTER-agent-trial
 title: МЕТАПЛАН — «Попробовать бесплатно» для агента недвижимости UK: лендинг → план (фото/PDF) → 3D-тур с мебелью и товарами ≤ 3 мин
 status: in_progress
 created: 2026-11-09
-updated: 2026-11-12
+updated: 2026-11-13
 completed:
 plan_kind: track_master
 parent_plan: MASTER-cost-first
@@ -189,6 +189,27 @@ TG 331: ссылка агента — «посмотреть какой-то в�
   Старым 16 турам превью даст «Перечитать» после снятия стопа перевыпуска (T-96/3).
 - **Открыто (12.11):** «Этажи» `aOv8kTVEKMgu2H6iD6UIJg` — балкон придёт после «Перечитать»; дверь Спальни 1 не распознана (no_entry);
   кухня-гостиная (ADR-0382) не начата; «OCR первым» (ADR-0383) не сделан; наружные остеклённые двери 119 см на листе парой, а по коду выходят одной створкой (пара — только > 120 см).
+
+## Автофото тура и фото у тура (T-20261112-115 Ф1–Ф3, 12–13.11; ADR-0416; план `plans/tour-auto-photos-01.md`)
+- **Фото вручную** — `tools/scout/trial_bundle.py:photo_ok`: обставленная гостиная/спальня и `user_dims` или масштаб `verified`/`listing`
+  без флага размера и не «как есть»; ≤ 10 на задание за 24 ч (`lib/trial/repo-photo.ts`). EN-цены — £ = ₽ × курс × 1,5 (`trial_bundle.py:uk_money`).
+- **Ф1 — фото у тура** (миграция `db/init/034-trial-photo-urls.sql`, прод 13.11 00:48, дамп `db-pre034-20261113-004840`): строка `trial_photos`
+  хранит вариант, стиль, `stateId`, позы камер (`cams`, `cams_sig`), качество и `source` (агент по ключу, покупатель, `auto` — только Bearer
+  воркера); кадры — `POST /api/trial/worker/<id>/photo` (`lib/trial/repo-photo-done.ts`) в `<TRIAL_DIR>/<id>/photos/`; тур отдаёт только
+  `done` (`GET /api/trial/<id>/photos`, ворота как у тура).
+- **Ф2 — партия «снять тур»** (`db/init/036-trial-auto-photos.sql`): публикация подтверждённой пересборки (`lib/trial/repo-rebuild-worker.ts:publishRebuild`)
+  той же транзакцией пишет `trial_photo_batches` + `trial_photo_tasks` (комната × активный вариант × 2 ракурса = один заказ). UNIQUE
+  `trial_photo_tasks_once_uq` (тур, комната, подпись расстановки, подпись поз, качество) — ровно один раз за деньги; повтор подтверждения
+  без правок = 0 задач. Потолки и резерв — `lib/trial/auto-photos-queue.ts` по `tools/scout/rules/tour-auto-photos.json` (`max_rooms` 5,
+  `reserve_rub` 10, `tour_cap_rub` 50, `daily_cap_rub` 500, `daily_warn_rub` 400, `lease_s` 1800); отказы — в `refused` партии. Исполнитель берёт
+  партию `POST /api/trial/worker/photos/claim` (Bearer). Живая проба 13.11 02:5x на проде: 5 задач, 50 ₽ резерва, 0 ₽ трат.
+- **Ф3 — съёмщик** (`db/init/037-trial-auto-photo-tries.sql`, прод 13.11 04:46, дамп `db-pre037-20261113-044606`): сорвавшееся без траты
+  (`photo_id` и `spent_rub` пусты) берётся той же строкой в новую партию, `tries` ≤ `max_tries` (3), дальше `retry_cap`. Съёмщик DEV
+  `tools/ops/tour-auto-photos.mjs` (общий модуль `tools/ops/lib/live-shoot.mjs`), предпроверка листа до съёмки (сервис кадров отвечает
+  `/render/sheet-check` только изнутри), heavy-slot `--prio 1 --short` сразу после подтверждения; таймер `remlab-tour-photos` (юнит из
+  `tools/ops/systemd/`, раз в 2 мин, вывод в journald — урок 677) включён 13.11 05:18. Замер: ~1,8 ядра в среднем, 65–76 с на комнату.
+- **Ограничение:** перевыпуск тура держит подтверждённую мебель (`report.json:kept_furniture`) — новые правила расстановки до живых туров
+  без переподтверждения агентом не доходят.
 
 ## Скоуп — НЕ входит
 Оплата/тарифы для агентов (решение человека), личный кабинет, CRM-интеграции агентств, генерация новых мешей на лету, юр. тексты (TODO).
