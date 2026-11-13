@@ -145,6 +145,49 @@ def test_own_arcs_one_arc_one_door():
     assert bench.own_arcs([A, C], other) is None
 
 
+def test_own_arcs_frame_on_foreign_leaf():
+    """T-20261112-48/2 (XfPu): внутреннее закрытие «по раме» на створке ЧУЖОЙ двери (рисунок ≥ доли уже у принятой заявки)
+    снимается, хотя оно в `keep_other`; рама со своим рисунком — остаётся; рама рисунок не забирает (заявка B не теряет свой)."""
+    H, W = 50, 50
+    pa, pb = frozenset(range(0, 100)), frozenset(range(500, 600))
+    A = (np.array([1, 1]), np.array([1, 2]), 0.9, pa)
+    B = (np.array([7]), np.array([7]), 0.7, pb)
+    other = np.zeros((H, W), np.uint8)
+    other[3, 3:6] = 1
+    other[8, 8:10] = 1
+    F1 = (np.array([3, 3, 3]), np.array([3, 4, 5]), 1.0, frozenset(range(10, 90)))      # дуга двери A
+    F2 = (np.array([8, 8]), np.array([8, 9]), 1.0, frozenset(range(900, 950)))          # свой рисунок
+    drop = bench.own_arcs([A, B], other, frames=[F1, F2])
+    assert drop is not None and drop[3, 3:6].all() and not drop[8, 8:10].any()
+    assert not drop[1, 1:3].any() and not drop[7, 7]
+    assert bench.own_arcs([A, B], other, frames=[F2]) is None
+
+
+def frame_box_case(pocket_h=9, split=False):
+    """Комната 60×60 px (ppm 40 → 1,5 м) в стене 3 px; поперёк у верхней стены — закрытие «по раме» (y 3+pocket_h, 2 px),
+    отрезавшее полосу-короб высотой pocket_h. split — закрытие посередине (две комнаты 1,5 × 0,7 м)."""
+    wall = np.zeros((60, 60), np.uint8)
+    wall[:3, :] = wall[-3:, :] = wall[:, :3] = wall[:, -3:] = 1
+    y = 30 if split else 3 + pocket_h
+    keep = np.zeros_like(wall)
+    kid = np.zeros(wall.shape, np.int32)
+    keep[y:y + 2, 3:57] = 1
+    kid[y:y + 2, 3:57] = 1
+    ys, xs = np.nonzero(keep)
+    return wall, keep, kid, [(ys, xs, 1)]
+
+
+def test_frame_pockets_box_back_to_room():
+    """T-20261112-48/2 (XfPu, короб бачка WC): рама без дуги, отрезавшая от одной комнаты узкую малую полость, снимается —
+    полость снова часть комнаты. Рама между двумя комнатами и рама у полости от POCKET_M2 остаются."""
+    wall, keep, kid, boxes = frame_box_case(pocket_h=6)                   # 0,15 × 1,35 м = 0,2 м²
+    assert bench.frame_pockets(boxes, wall, keep, kid, 40.0) == 1 and not keep.any() and not kid.any()
+    wall, keep, kid, boxes = frame_box_case(split=True)
+    assert bench.frame_pockets(boxes, wall, keep, kid, 40.0) == 0 and keep.sum() == 2 * 54
+    wall, keep, kid, boxes = frame_box_case(pocket_h=20)                  # 0,5 × 1,35 м = 0,7 м² — шкаф, не короб
+    assert bench.frame_pockets(boxes, wall, keep, kid, 40.0) == 0 and keep.sum() == 2 * 54
+
+
 def doorless_case(c0=140):
     """Три комнаты в ряд (ppm 30, допуск 9 px): у A дверь (разрыв 1), у B и C дверей нет. У B — две кандидатки прежнего правила
     (0,8 и 0,95; вторая — у C, если C начинается ближе 9 px), у C — наружный разрыв 2, ставший окном только по «чистоте»."""

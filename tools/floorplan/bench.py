@@ -894,13 +894,17 @@ def open_max(px: int) -> int | None:
     return None if os.environ.get('FP_OPEN_BAND', '1') == '0' else px
 
 
-def own_arcs(claims: list, keep_other: np.ndarray, share: float = OWN_SHARE) -> np.ndarray | None:
+def own_arcs(claims: list, keep_other: np.ndarray, share: float = OWN_SHARE, frames: list | None = None) -> np.ndarray | None:
     """«Одна дуга — одна дверь» (T-20261111-11). Заявки закрытий по дуге (ys, xs, доля, пиксели рисунка `door_evidence`)
     по убыванию доли забирают свой рисунок; заявка, у которой ≥ `share` рисунка уже забрала более сильная, — дугу чужой двери
     приняли за свою: её закрытие снимается. bs30 (площадка 2-го этажа): поперёк коридора у шкафа — «двери» по дуге и створке
     дверцы шкафа (0,8 против 1,0 у самой дверцы), коридор резался на куски, площадка — 0,74 м² вместо L-образной ~4,7.
     → маска снимаемых пикселей (кроме пикселей принятых заявок и закрытий не по дуге `keep_other`) или None.
-    FP_ARC_OWN=0 — без правила (сравнение)."""
+    T-20261112-48/2: `frames` — внутренние закрытия «по раме» (две параллельные линии в разрыве, `keep_other`) с дугой у разрыва
+    (ys, xs, доля, пиксели). Рисунок они не забирают, но закрытие, чей рисунок ≥ `share` уже у принятой заявки, — легло на
+    створку или дугу ЧУЖОЙ двери (XfPu: «рама» 0,8 м поперёк тамбура — линия полотна двери WC и грань стены кухни; дуга —
+    та же дверь WC) и снимается: одна дверь — одна запись, тамбур — часть прихожей.
+    FP_ARC_OWN=0 — без правила (сравнение); FP_FRAME_OWN=0 — без правила для рам."""
     if not claims or os.environ.get('FP_ARC_OWN', '1') == '0':
         return None
     order = sorted(range(len(claims)), key=lambda i: -claims[i][2])        # устойчиво: при равной доле — порядок проходов
@@ -912,7 +916,9 @@ def own_arcs(claims: list, keep_other: np.ndarray, share: float = OWN_SHARE) -> 
         else:
             owned |= px
             kept.append(i)
-    if not lost:
+    lost_f = [f for f in (frames or []) if f[3] and len(f[3] & owned) >= share * len(f[3])] \
+        if os.environ.get('FP_FRAME_OWN', '1') != '0' else []
+    if not lost and not lost_f:
         return None
     drop = np.zeros(keep_other.shape, bool)
     for i in lost:
@@ -920,7 +926,48 @@ def own_arcs(claims: list, keep_other: np.ndarray, share: float = OWN_SHARE) -> 
     for i in kept:
         drop[claims[i][0], claims[i][1]] = False
     drop &= keep_other == 0
+    for f in lost_f:
+        drop[f[0], f[1]] = True
+    for i in kept:
+        drop[claims[i][0], claims[i][1]] = False
     return drop if drop.any() else None
+
+
+def frame_pockets(boxes: list, wall: np.ndarray, keep: np.ndarray, kid: np.ndarray, ppm: float) -> int:
+    """T-20261112-48/2: внутреннее закрытие «по раме» (две параллельные линии в разрыве) без дуги двери, отрезавшее от ОДНОЙ
+    комнаты полость меньше POCKET_M2 и уже POCKET_W_M (не наружа), — не проём и не стена, а линии короба внутри комнаты
+    (XfPu: короб бачка WC 0,16 × 1,2 м под стеной кухни). Закрытие снимается — полость остаётся частью комнаты; иначе каждое такое
+    закрытие становилось «дверью» (`_analyze`: любой внутренний разрыв — дверь), а слипшись углом с дверью WC — «дверью» 1,57 м
+    с дугой там, где на листе стена. Двери с дугой, наружные рамы (окна) и закрытия между двумя комнатами не трогаются.
+    На месте (keep, kid) → сколько снято. FP_FRAME_POCKET=0 — без правила."""
+    if not boxes or os.environ.get('FP_FRAME_POCKET', '1') == '0':
+        return 0
+    fk = (wall | keep).astype(np.uint8)
+    _, labf, outf = fc.free_components(fk)
+    areas = np.bincount(labf.ravel())
+    dt = cv2.distanceTransform((fk == 0).astype(np.uint8), cv2.DIST_L2, 5)
+    k3 = np.ones((3, 3), np.uint8)
+    pocket_px, pocket_w = POCKET_M2 * ppm * ppm, POCKET_W_M * ppm
+    small_of = {}
+    n = 0
+    for ys, xs, i in boxes:
+        own = kid[ys, xs] == i
+        if own.sum() < 3:
+            continue
+        gm = np.zeros(fk.shape, np.uint8)
+        gm[ys[own], xs[own]] = 1
+        ring = (cv2.dilate(gm, k3, iterations=2) > 0) & (fk == 0)
+        sides = [int(j) for j in np.unique(labf[ring]) if j > 0]
+        for j in sides:
+            if j not in small_of:
+                m = labf == j
+                small_of[j] = bool(areas[j] < pocket_px and not outf[m].any() and 2 * float(dt[m].max()) < pocket_w)
+        small = [j for j in sides if small_of[j]]
+        if small and len(sides) - len(small) == 1:
+            keep[ys[own], xs[own]] = 0
+            kid[ys[own], xs[own]] = 0
+            n += 1
+    return n
 
 
 def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_thr=215):
@@ -995,7 +1042,7 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
 
     # T-20261111-11: закрытия «по дуге» (малые, устье каморки, угловые, тонкие перегородки) — заявки с пикселями рисунка; одна
     # дуга — одна дверь (`own_arcs` ниже). keep_other — закрытия не по дуге (рама окна, большие проёмы): их не трогаем
-    claims, keep_other = [], np.zeros_like(wall)
+    claims, frames, boxes, keep_other = [], [], [], np.zeros_like(wall)
 
     def ev_of(c_, u_, n_, L_, d_):
         return fc.door_evidence(thin, c_, u_, n_, L_, d_, want_px=True, wall=wall_drawn)
@@ -1088,6 +1135,10 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
             if win or (g.glaze >= GLAZE_MIN and not stair):
                 mark(ys, xs)
                 keep_other[ys, xs] = 1
+                if not g.exterior and ev >= DOOR_EV:
+                    frames.append((ys, xs, ev, px))     # T-48/2: рама на чужой створке — `own_arcs`
+                elif not g.exterior:
+                    boxes.append((ys, xs, nkid[0]))     # T-48/2: рама без дуги у короба — `frame_pockets`
             elif ev >= DOOR_EV:
                 if not stair and span_ok(g, c, u, nrm, L, dpt):   # T-11/2: не стрелка «Down» поперёк ступеней; T-09: не буквы
                     mark(ys, xs)
@@ -1199,11 +1250,12 @@ def _analyze(img, gray, wall, ppm, fams, t, regions=None, thin_thr=210, glaze_th
                         claims.append((ys, xs, ev, px))
                     else:
                         alt_of(ys, xs, c, u, nrm, L, dpt)
-    drop = own_arcs(claims, keep_other)
+    drop = own_arcs(claims, keep_other, frames=frames)
     if drop is not None:
         keep[drop] = 0
         kid[drop] = 0
         thin_keep[drop] = 0
+    frame_pockets(boxes, wall, keep, kid, ppm)
     # наружный контур: закрытие ~1,8 м по каждому куску листа — наружные окна/двери закрываются без «следа» проёма
     final0 = (wall | keep).astype(np.uint8)
     _, _, out0 = fc.free_components(final0)
