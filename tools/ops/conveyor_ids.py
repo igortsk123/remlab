@@ -133,8 +133,11 @@ JS_NUM = re.compile(r'(?<![\w.])\d{17,20}(?=n?(?![\w.]))')
 def _js_hits(src: str) -> list[tuple[int, str, str, str]]:
     """JS/TS/HTML: литералы в кавычках и голые длинные числа; комментарии // и /* */ — мимо."""
     lines, out, pos = src.split('\n'), [], 0
+    skip = _js_selftest_spans(src)
 
     def add(at: int, text: str):
+        if any(a <= at < b for a, b in skip):          # внутри самопроверки — тестовый номер
+            return
         ln = src.count('\n', 0, at) + 1
         for det, lit in find_ids(text, lines[ln - 1]):
             out.append((ln, det, lit, ''))
@@ -150,6 +153,28 @@ def _js_hits(src: str) -> list[tuple[int, str, str, str]]:
             add(m.start(), m.group(0)[1:-1])
     gap(pos, len(src))
     return out
+
+
+JS_SELFTEST = re.compile(r'\bfunction\s+_?(?:selftest|self_test|test)\w*\s*\(|\b_?(?:selftest|self_test)\w*\s*=\s*(?:async\s*)?\(')
+
+
+def _js_selftest_spans(src: str) -> list[tuple[int, int]]:
+    """Тела функций самопроверки JS (`function selftest() {…}`, `const selftest = () => {…}`) — их номера = тестовые."""
+    code = JS_TOK.sub(lambda m: re.sub(r'[^\n]', ' ', m.group(0)), src)   # строки и комментарии — пробелами, скобки внутри них не считаем
+    spans = []
+    for m in JS_SELFTEST.finditer(code):
+        i = code.find('{', m.end())
+        if i < 0:
+            continue
+        depth, j = 0, i
+        while j < len(code):
+            c = code[j]
+            depth += (c == '{') - (c == '}')
+            if depth == 0:
+                break
+            j += 1
+        spans.append((m.start(), j + 1))
+    return spans
 
 
 def _sh_hits(src: str) -> list[tuple[int, str, str, str]]:
@@ -364,6 +389,13 @@ def _selftest() -> int:
        and ('eid', '15016742574867170700', '') in got and ('set', 'bed-0badc0de-2', '') in got, 'js: строки, шаблон и число — находки', got)
     ok(not any(d[1] in ('112923:3989998131928467167', '112923:1111111111') for d in got)
        and sum(1 for d in got if d[1] == '114667:13118255813066192472') == 0, 'js: комментарии // и /* */ — не находки', got)
+    jst = ('async function selftest() {\n  const T = "aRQVC9nJ1g1WqBTXeA6VqA"; if (x) { y("}"); }\n}\n'
+           'const selftest2 = () => { return "112923_10153166443740156800"; };\n'
+           'function pick(tour) { return tour === "aRQVC9nJ1g1WqBTXeA6VqA"; }\n')
+    got = dets('tools/ops/x.mjs', jst)
+    ok(got == [('tour', 'aRQVC9nJ1g1WqBTXeA6VqA', '')] and dets('tools/ops/x.mjs', jst)[0][0] == 'tour'
+       and [h['line'] for h in scan_text('tools/ops/x.mjs', jst)] == [5],
+       'js: номер в функции самопроверки (и «}» в её строке) — не находка, тот же номер в коде — находка', got)
     sh = '# 112923:3989998131928467167\nX=112923_10153166443740156800  # 99272:2147763667486905198\n'
     got = dets('tools/x.sh', sh)
     ok(got == [('msid', '112923_10153166443740156800', '')], 'sh: код — находка, комментарии — нет', got)
