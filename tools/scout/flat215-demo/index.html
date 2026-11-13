@@ -945,7 +945,7 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 
 /* ——— ВИТРИНА: коллекция расстановок (план demo-collection-flow) ——— */
 .sechead{margin:22px 0 0}
-#coll[hidden],#collHead[hidden]{display:none}   /* коллекций по ссылке нет — раздела нет (demo-19 Б5) */
+#coll[hidden]{display:none}   /* раздела коллекций по ссылке нет (владелец 13.11, TG 1449) */
 .sechead h2{margin:0;font-size:clamp(22px,2.2vw,29px)}
 .sechead p{margin:4px 0 0;color:var(--muted)}
 .budget{background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 25%,transparent);
@@ -1640,7 +1640,8 @@ button.tr-acc-st{cursor:pointer}
 
   <!-- ИЗБРАННОЕ НА ЭТОМ УСТРОЙСТВЕ (владелец 18.10, demo-15 п.6): все сохранённые сердечком расстановки — над готовыми вариантами;
        пусто — раздела нет. Межустройственное «все» — только с аккаунтом (не сейчас) -->
-  <div class="sechead" id="collHead" hidden><h2>Расстановки по ссылке</h2></div>
+  <!-- РАЗДЕЛА «РАССТАНОВКИ ПО ССЫЛКЕ» НЕТ (владелец 13.11, TG 1449/1453): чужая ссылка открывает свою расстановку и на главной не
+       копится; `#coll` — пустой якорь для подсказки «ссылка недоступна» (`boot` модуля коллекций) -->
   <div class="grid" id="coll" hidden></div>
 
   <!-- разворот «Заменить мебель»: список предметов выбранного варианта прямо на витрине -->
@@ -6906,97 +6907,18 @@ function bestShot(v,cam){
 let _collSig='';
 function drawColl(force){
   const box=document.getElementById('coll'); if(!box)return;
-  // КАРТИНКИ НЕ ДОЛЖНЫ МОРГАТЬ ПРИ ПРОКРУТКЕ (владелец 01.09). `drawColl` вызывается из `draw()`,
-  // а тот срабатывает на любое движение; каждый раз сетка пересобиралась через `innerHTML`,
-  // браузер выбрасывал элементы `<img>` и заново их декодировал — отсюда мерцание. Собираем
-  // заново, только если реально изменилось то, из чего сетка состоит.
+  // КАРТИНКИ НЕ ДОЛЖНЫ МОРГАТЬ ПРИ ПРОКРУТКЕ (владелец 01.09): `drawColl` зовётся из `draw()` на любое движение — главную
+  // перерисовываем, только если реально изменилось то, из чего она состоит
   const sig=JSON.stringify([cur, allVariants().map(v=>[v.id,v.style,variantPrice(v),variantCount(v)]),
     allVariants().map(v=>{const b=bestShot(v);return b?[b.url,b.quality,!!b.pick]:0;})]);
   if(!force&&sig===_collSig)return;
   _collSig=sig;
-  box.innerHTML='';
-  const list=allVariants();
-  const F=window.__fav;
-  list.forEach((v,i)=>{
-    if(v.mine&&v.own)return;          // своя сохранённая расстановка — в разделе «Избранное» (demo-15 п.6)
-    if(!v.mine)return;                // вариант стиля — во вкладках стилей и карточке комнаты (demo-16); здесь — коллекции по ссылке
-    const sh=bestShot(v), p=variantPrice(v), fav=F&&F.ofState(F.baseState(v));
-    const n=variantCount(v);   // у открытого варианта — по живой расстановке, а не по данным
-    const el=document.createElement('div');
-    el.className='lay'+(i===cur?' on':'');
-    const views=sh?shots.filter(x=>x.batch&&x.batch===sh.batch).length:0;
-    el.innerHTML=
-      `<div class="wrapimg">`+
-      // НА КАРТОЧКЕ — МИНИАТЮРА (владелец 02.09): полный кадр 2048 px весит под мегабайт и на
-      // телефоне грузится секундами. Не нашлась — подставляем полный, карточка не ломается.
-      (sh?`<img class="pv" src="${thumbOf(sh)}" alt="${styleOf(sh)}" loading="lazy" `+
-          `decoding="async" data-url="${sh.url}" onerror="this.onerror=null;this.src='${sh.url}'">`
-         :`<div class="nopv">${LANG==='en'?'Open to see it in 3D':'Откройте, покажем в 3D'}</div>`)+
-      (views>1?`<div class="badge2">${views} вида</div>`:'')+
-      `</div>`+
-      `<div class="body"><div class="nm">${v.style||v.title||('вариант '+(i+1))}</div>`+
-      `<div class="pr">${n} ${n%10===1&&n%100!==11?'товар':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'товара':'товаров')}${TR_NOGOODS()?'':` · <b>${money(p)}</b>`}</div>`+
-      `<div class="acts">`+
-        `<button class="btn" data-swap="${i}">Открыть</button>`+
-        // ПУСТАЯ КАРТОЧКА ДОЛЖНА ПРЕДЛАГАТЬ СНЯТЬ (владелец 01.09: «когда фото чернового нет,
-        // пиши кнопки „Заменить мебель“ и „Создать фото“»). Иначе вариант без кадра — тупик:
-        // человек видит цену комплекта и не понимает, как получить картинку.
-        // «Создать фото»/«Улучшить фото» с карточки сняты (demo-09): черновик — не режим покупателя, фото нейросети — в окне,
-        // кнопкой «Сделать реалистичнее»
-        // СЕРДЕЧКО, КАК В ИНСТАГРАМЕ (владелец 02.09): понятнее и занимает меньше места, чем
-        // кнопка со словами. Заполненное — вариант в избранном.
-        // ССЫЛКА ЕСТЬ У КАЖДОГО ВАРИАНТА, ДАЖЕ БЕЗ ФОТОГРАФИИ (владелец 08.09): окно кадра
-        // открывается не всегда, а поделиться расстановкой человек хочет в любом случае.
-        // «ПОДЕЛИТЬСЯ» ИКОНКОЙ И СЕРДЕЧКО ИЗБРАННОГО (владелец 18.10, demo-15 п.4–5): текстовой «Ссылки» нет
-        `<button class="iconbtn" data-share="${i}" aria-label="${LANG==='en'?'Share':'Поделиться'}" title="${LANG==='en'?'Share':'Поделиться'}">${SHARE_SVG}</button>`+
-        `<button class="heart${fav?' on':''}" data-favorite="${i}" aria-pressed="${fav?'true':'false'}" `+
-          `aria-label="${fav?(LANG==='en'?'In favourites':'В избранном'):(LANG==='en'?'Add to favourites':'В избранное')}">${fav?'♥':'♡'}</button>`+
-      `</div></div>`;
-    box.appendChild(el);
-    // ВСЯ КАРТОЧКА ВЕДЁТ В ОДНО МЕСТО (владелец 02.09: «кликаю на область названия и цены —
-    // открывается другое»). Фотография, кнопка «Открыть» и подпись с ценой — это один и тот же
-    // жест «покажи мне этот стиль», и раньше он давал два разных результата: по фото — кадр,
-    // по подписи — список мебели. Кадра у варианта нет — открывается список, как раньше.
-    el.onclick=e=>{ if(e.target.closest('button'))return;
-      vwOpenVariant(i); };   // окно варианта открывается и без кадра — в 3D (demo-09)
-  });
-  // «СВОЯ РАССТАНОВКА» / «ДОБАВИТЬ НОВУЮ» СНЯТЫ (demo-19 Б5, владелец 20.10: «свою люди делают на основе любой») — конструктор
-  // открывается из окна варианта («Изменить план»)
-  // «ОТКРЫТЬ» = НАЖАТИЕ ПО ФОТОГРАФИИ (владелец 02.09: «открывается модалка без фото, а должна
-  // так же, как по фото»). Кнопка вела в список мебели — окно без кадра; человек нажимал
-  // «Открыть» у карточки со снимком и снимка не видел. Кадра нет — открываем список, как раньше.
-  box.querySelectorAll('[data-swap]').forEach(b=>b.onclick=()=>{
-    vwOpenVariant(+b.dataset.swap);
-  });
-  // СТРОКИ «СТИЛЬ … НЕТ ПОЛНОГО НАБОРА» / «ВРЕМЕННО СКРЫТ» (conv-09) сняты вместе с блоком (demo-19 Б5): покупателю ни к чему — во вкладках
-  // только опубликованные стили; причины — в журнале сборки (`D.incomplete_styles`)
-  showSwap();   // список выбранного варианта рисуется вместе с коллекцией, не отдельным событием
-  box.querySelectorAll('[data-share]').forEach(b=>b.onclick=e=>{
-    e.stopPropagation(); const v=allVariants()[+b.dataset.share]||{};
-    if(window.__fav)window.__fav.shareUrlOpen(variantLink(v.id||('v'+b.dataset.share)), v.style||'');
-  });
-  box.querySelectorAll('[data-favorite]').forEach(b=>b.onclick=e=>{
-    e.stopPropagation(); const i=+b.dataset.favorite; if(!window.__fav)return;
-    if(i!==cur)pickVariant(i);        // сохраняется расстановка этого варианта
-    window.__fav.toggle();
-  });
-  box.querySelectorAll('[data-shot]').forEach(b=>b.onclick=()=>{
-    // вариант сперва загружаем: съёмка идёт по ТЕКУЩЕЙ расстановке, а не по той, что была открыта
-    // ТОЛЬКО НАШ КАДР, БЕЗ МОДЕЛИ (владелец 01.09: «пока кнопку „улучшить фото“ не нажал —
-    // никакого ГПТ»). Платный вызов делается исключительно по отдельному нажатию.
-    pickVariant(+b.dataset.shot); makePhoto('draft');});
-  box.querySelectorAll('[data-up]').forEach(b=>b.onclick=()=>{
-    const sh=bestShot(allVariants()[+b.dataset.up]);
-    // готовый лист кадра — только если он того же состояния (Codex 14.10): иначе сервер собрал бы фото по старой расстановке
-    if(sh)makePhoto('realistic', (!sh.stateId||sh.stateId===curStateId())?srcIdOf(sh):'', sh.batch||'');});
-  // ОТМЕТКА СТАВИТСЯ НА ВАРИАНТ, А НЕ НА ОТДЕЛЬНЫЙ КАДР. Иначе так: человек добавил карточку
-  // в подборку, потом снял по этому же стилю новое фото — превью сменилось на неотмеченное,
-  // и карточка молча «выпала» из подборки.
+  // РАЗДЕЛА «РАССТАНОВКИ ПО ССЫЛКЕ» НЕТ (владелец 13.11, TG 1449/1453: «убрать»; было — demo-16/demo-19 Б5): свои сохранённые —
+  // в «Избранном», варианты стилей — во вкладках и карточках комнат, чужая ссылка открывает свою расстановку (`boot` → `openId`)
+  // и на главной карточкой не остаётся. Сетка пуста и скрыта всегда
+  box.innerHTML=''; box.hidden=true;
+  // ОТМЕТКА СТАВИТСЯ НА ВАРИАНТ, А НЕ НА ОТДЕЛЬНЫЙ КАДР (избранное рисует себя само)
   try{window.__fav&&window.__fav.draw();}catch(e){}
-  // ЗАГОЛОВОК СЕТКИ (demo-16): варианты стилей ушли во вкладки — здесь только коллекции по ссылке; их нет — раздела нет (demo-19 Б5)
-  const head=document.getElementById('collHead'), shared=list.some(v=>v.mine&&!v.own), EN=LANG==='en';
-  if(head){head.hidden=!shared; head.innerHTML=`<h2>${EN?'Layouts from links':'Расстановки по ссылке'}</h2>`;}
-  box.hidden=!shared;
   drawHome();
 }
 // СПИСОК ФАЙЛОВ СБОРКИ — ОДИН НА СТРАНИЦУ (demo-16 шаг 2, Codex 18.10 п.16): модуль корзины берёт его сразу, движок сцены — лениво
@@ -13097,6 +13019,9 @@ function quizPick(rule, answers, available, styleColours){
       setTimeout(function(){try{openSwapFull();}catch(_){}},200);}}
   function boot(){
     if(typeof D==='undefined'||!D)return setTimeout(boot,300);
+    // ЧУЖИЕ ССЫЛКИ, ЗАПОМНЕННЫЕ ДО 13.11, — убираем: раньше каждая открытая ссылка вставала на главной карточкой «по ссылке» навсегда
+    // (TG 1449); своё (`own`) остаётся, избранное живёт в корзине (`BKP`) и этим не задевается
+    try{var keep=list().filter(function(x){return x.own;}); if(keep.length!==list().length)localStorage.setItem(KEY,JSON.stringify(keep));}catch(_){}
     var want=window.__collHash||(String(location.hash).match(/^#c=([A-Za-z0-9_-]{22})/)||[])[1];
     var ids=list().map(function(x){return x.id;}); if(want&&ids.indexOf(want)<0)ids.unshift(want);
     // избранное всех квартир этого устройства (корзины v2) и прежний список demo-15 (для переноса)
@@ -13112,7 +13037,8 @@ function quizPick(rule, answers, available, styleColours){
       if(want){var v=MINE.find(function(x){return x.cid===want;});
         // коллекция — своей квартиры (британский двойник английского демо, ADR-0298): карточка, валюта и рынок — её
         if(v&&v.apt&&window.__loadFlatCard&&(typeof FLAT==='undefined'||!FLAT||FLAT.id!==v.apt)){window.__sendFlat=v.apt; window.__loadFlatCard();}
-        if(v){remember(want,v.style,false);openId(want);}
+        // чужую ссылку НЕ запоминаем (владелец 13.11, TG 1449): открылась — и всё; своя (`own`) уже в списке с сохранения
+        if(v)openId(want);
         else{var b=document.createElement('div');b.className='hint';b.style.margin='10px 0';
           b.textContent=EN()?'This collection link is no longer available.':'Коллекция по этой ссылке больше недоступна.';
           var c=document.getElementById('coll'); if(c)c.parentNode.insertBefore(b,c);}}
