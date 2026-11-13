@@ -1,11 +1,12 @@
 // СТОРОЖ «СТЕНЫ СЦЕНЫ = КОМНАТА ДАННЫХ» (T-20261112-108/2, заказ владельца f24c0cc7, TG 1284/1315): побывал в 3D спальни 1, открыл гостиную —
 // кадры фото снимались прежней сценой спальни (окно на стене дивана). Путь покупателя: (1) 3D спальни 1 построена; (2) окно гостиной
-// (set6, без входа в 3D — так открывают с главной); (3) кадры фото (`vwCaptureViews`, без выгрузки) — сцена в момент съёмки должна быть
+// (первый вариант гостиной этой сборки, без входа в 3D — так открывают с главной); (3) кадры фото (`vwCaptureViews`, без выгрузки) — сцена в момент съёмки должна быть
 // сценой ГОСТИНОЙ: размеры и проёмы `LIVE.room` = `curRoom()`; (4) правка: кадр несёт подпись комнаты (`cap.room`) = подписи комнаты
 // заказа (`roomOf` варианта) — по ней сервер отказывает чужим кадрам (`draft_trial.py:views_room_mismatch`); (5) заглушка «Фото»/окошки
 // (`vwPreOk`) не опираются на сцену другой комнаты. Кадры C1/C2 — в OUT для глаза: в гостиной окно на западной (левой от дивана) стене.
 // Запись на прод нет: POST в /api/(render|events|draft|photo|lead|fav) отклоняется в браузере, выгрузка кадров подменена.
 //   STAGE-прокси → BASE=http://127.0.0.1:8799/demo/ OUT=<папка/> [TAG=fix] [LANG_UI=en|ru] node scene-room-check.cjs 375x667|1280x800
+//   самопроверка выбора комнат (без браузера): node scene-room-check.cjs --selftest
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '../../..');
 const NM = fs.realpathSync(path.join(ROOT, 'node_modules'));
@@ -16,6 +17,27 @@ const [W, H] = (process.argv[2] || '375x667').split('x').map(Number), PHONE = W 
 const OUT = (process.env.OUT || require('os').tmpdir() + '/').replace(/\/?$/, '/'); fs.mkdirSync(OUT, { recursive: true });
 const LANG = process.env.LANG_UI || 'en', EN = LANG === 'en', TAG = (process.env.TAG ? process.env.TAG + '-' : '') + LANG + '-' + W;
 const R = []; const ok = (n, c, i) => R.push((c ? 'OK  ' : 'FAIL') + ' ' + n + (i === undefined ? '' : ' ' + JSON.stringify(i)));
+// КОМНАТЫ — ПО ТИПУ, НЕ ПО НОМЕРУ ВАРИАНТА (живой /demo 13.11: в сборке f5b13d09 гостиные — set1/4/7/10/13/16, варианта set6 нет — сторож
+// падал «нет вариантов» без дефекта страницы; номера вариантов меняет каждая пересборка, ID в коде проверки — тот же запрет, что в T-121).
+// `vs` — [{id, room}] в порядке вариантов страницы (`room` = `roomIdOf`): спальня 1 — первый вариант комнаты bedroom-1, гостиная —
+// первый вариант комнаты living
+function pickRooms(vs) {
+  return { bed: vs.findIndex(v => v.room === 'bedroom-1'), liv: vs.findIndex(v => v.room === 'living'), ids: [...new Set(vs.map(v => v.room))] };
+}
+if (process.argv.includes('--selftest')) {
+  const mk = (liv, bed) => [...liv.map(id => ({ id, room: 'living' })), ...bed.map(id => ({ id, room: 'bedroom-1' }))];
+  const cases = [
+    ['прежняя нумерация (set1…set6)', mk(['set1', 'set2', 'set3', 'set4', 'set5', 'set6'], ['bedroom-1-scandi']), { bed: 6, liv: 0 }],
+    ['сборка 13.11 (set1/4/7/10/13/16, set6 нет)', mk(['set1', 'set4', 'set7', 'set10', 'set13', 'set16'], ['bedroom-1-scandi', 'bedroom-1-modern']), { bed: 6, liv: 0 }],
+    ['спальни раньше гостиных, другие имена', [{ id: 'b-x', room: 'bedroom-1' }, { id: 'zz9', room: 'living' }], { bed: 0, liv: 1 }],
+    ['гостиной нет — сторож обязан сказать FAIL', mk([], ['bedroom-1-loft']), { bed: 0, liv: -1 }],
+  ];
+  let bad = 0;
+  for (const [n, vs, want] of cases) { const r = pickRooms(vs), good = r.bed === want.bed && r.liv === want.liv; if (!good) bad++;
+    console.log(`${good ? 'OK  ' : 'FAIL'} ${n}: спальня ${r.bed}, гостиная ${r.liv} (ждали ${want.bed}/${want.liv})`); }
+  console.log(bad ? `САМОПРОВЕРКА: ${bad} FAIL` : `САМОПРОВЕРКА OK (${cases.length})`);
+  process.exit(bad ? 1 : 0);
+}
 /* global D, cur, allVariants, roomIdOf, roomOf, curRoom, vwOpenVariant, VW, vwMode, LIVE, vwCaptureViews, vwUploadViews, vwPreOk, roomSig, liveHere */
 // подпись комнаты — та же, что `roomSig` страницы (на странице до правки её нет — считаем здесь)
 const SIG = () => { window.__sig = R => !R ? '' : Math.round(+R.w || 0) + 'x' + Math.round(+R.d || 0) + '|' +
@@ -36,9 +58,8 @@ const SIG = () => { window.__sig = R => !R ? '' : Math.round(+R.w || 0) + 'x' + 
     await p.goto(demoUrl((process.env.BASE || 'http://127.0.0.1:8799/demo/') + '?lang=' + LANG + '&quiz=0&live=force'), { waitUntil: 'load', timeout: 120000 });
     await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT", null, { timeout: 90000 });
     await p.evaluate(SIG);
-    const ix = await p.evaluate(() => { const vs = allVariants();
-      return { bed: vs.findIndex(v => roomIdOf(v) === 'bedroom-1'), liv: vs.findIndex(v => v.id === 'set6'), ids: [...new Set(vs.map(roomIdOf))] }; });
-    ok('в данных есть спальня 1 и гостиная set6', ix.bed >= 0 && ix.liv >= 0, ix);
+    const ix = pickRooms(await p.evaluate(() => allVariants().map(v => ({ id: v.id, room: roomIdOf(v) }))));
+    ok('в данных есть спальня 1 и гостиная (первые варианты своих комнат)', ix.bed >= 0 && ix.liv >= 0, ix);
     if (ix.bed < 0 || ix.liv < 0) throw new Error('нет вариантов');
     // (1) 3D спальни 1
     await p.evaluate(i => vwOpenVariant(i), ix.bed); await p.waitForTimeout(1500);
