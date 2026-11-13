@@ -29,11 +29,14 @@ TimeoutStopSec=60
 # E 0,17, F 0,25, G 0,30;
 # лист ужимается до 2000 px по длинной стороне, поэтому больше C не бывает. Потолок ×4 к C — на чужие планировки.
 # Сверх MemoryMax ядро снимает стенд → fail pipeline_error с повтором; второй раз — failed.
+# 13.11 (директор): стадия гостиной перевыпуска (trial_demo.py) — пик 2,10 ГБ (peaks.tsv trial-living-*), anon 1,2 ГБ;
+# при MemoryHigh=1G ядро душило её (memory.events high 249 тыс., состояние D) → гостиная 30 мин вместо 1 и stage_timeout.
+# Подняли MemoryHigh 3G / MemoryMax 4G (свободно ~15 ГБ из 29).
 Nice=15
 IOSchedulingClass=idle
 CPUQuota=200%
-MemoryHigh=1G
-MemoryMax=2G
+MemoryHigh=3G
+MemoryMax=4G
 MemorySwapMax=0
 OOMScoreAdjust=500
 
