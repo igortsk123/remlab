@@ -5726,8 +5726,10 @@ function isSoft(role){ return (((D&&D.rules)||{}).soft_roles||SOFT_DEF).includes
 // в 3D простая форма с ценой и карточкой «вид условный»; замена товара в списке — снова только список (цвета новой нет). То же правило —
 // `lib/configurator/textile.ts:isTextileDecor`; расходиться нельзя: по нему же номера мест сцены (`vwItemAt`)
 function isCloth3d(x){ const p=x&&x.place, l=x&&x.look, k=(x&&x.sku)||{};
-  return !!x&&!x.list_only&&x.strategy==='textile_abstract'&&!!k.name&&!!p&&(p.kind==='curtain'||p.kind==='throw')&&!!l&&/^#[0-9a-fA-F]{6}$/.test(l.hex||'')
+  return !!x&&!x.list_only&&x.strategy==='textile_abstract'&&!!k.name&&!!p&&(p.kind==='curtain'||p.kind==='throw'||p.kind==='pillow')&&!!l&&/^#[0-9a-fA-F]{6}$/.test(l.hex||'')
     &&l.of===String(k.sid||k.name||'')&&[p.x,p.y,p.elev_cm].every(Number.isFinite)&&(p.kind!=='curtain'||Number.isInteger(p.opening)); }
+// ПОДУШКА НА ДИВАНЕ (T-20261113-02): тем же правилом; с годной моделью (`sku.msid` от сборки) — настоящая, иначе — условная цветом товара
+function isClothAbstract(x){ return isCloth3d(x)&&!(x.place.kind==='pillow'&&(x.sku||{}).msid); }
 // в живую сцену: без мягкого (кроме условной ткани) и без «только в списке»
 function in3dDecor(x){ return !!x&&!x.list_only&&(!isSoft(x.role)||isCloth3d(x)); }
 // КАРТИНА (viz-decor-01 шаг 3, T-20261112-26): товар каталога в декоре варианта (`wall_art.py`), висит на стене над кроватью,
@@ -5821,14 +5823,16 @@ const DW={
   wallNone:['в кадр не ставим: нет кровати, дивана или комода','not shown in 3D: no bed, sofa or chest of drawers'],
   noTop:['в кадр не ставим: не указан размер или не влезает','not shown in 3D: size not given, or it does not fit'],
   curtain:['у окна, вид условный','by the window, illustrative look'],
-  throwArm:['на подлокотнике дивана, вид условный','on the sofa arm, illustrative look']};
+  throwArm:['на подлокотнике дивана, вид условный','on the sofa arm, illustrative look'],
+  pillowSofa:['на диване, вид условный','on the sofa, illustrative look'],
+  pillowSofaMesh:['на диване','on the sofa']};
 function dwT(k){ return DW[k][LANG==='en'?1:0]; }
 function dwRole(r){ const b=baseRole(r); return LANG==='en'?((window.__trText&&window.__trText(b))||'item'):b; }
 // «на комоде» / «над диваном» / «на столик, по центру»: в EN — «on the chest of drawers», «above the sofa», «on the coffee table, centred»
 function dwOn(r,tail){ return LANG==='en'?'on the '+dwRole(r)+(tail?', centred':''):'на '+baseRole(r)+(tail?', по центру':''); }
 function decorWhere(x){
   // T-74; EN — здесь же (T-74/2, T-103): строку с пометкой DOM-перевод не знает, роль переводит, а хвост оставил бы русским
-  if(isCloth3d(x))return dwT(x.place.kind==='curtain'?'curtain':'throwArm');
+  if(isCloth3d(x))return dwT(x.place.kind==='curtain'?'curtain':x.place.kind==='throw'?'throwArm':isClothAbstract(x)?'pillowSofa':'pillowSofaMesh');
   if(x&&isSoft(x.role))return '';                 // мягкому места в 3D нет — и подписи «куда встанет» тоже (demo-24)
   if(x&&x.strategy==='ceiling_over')return dwT('ceil');
   if(x&&x.strategy==='carrier_surface'){          // лампа на комоде (T-101): место — тот же расчёт, что строит 3D (`demo-scene.ts:carrierWhere`)
@@ -10707,7 +10711,7 @@ function vwRotPlace(box, fr, pad0, kept, all, hit, underHint, pr){
       ||(underHint&&underHint(r)))&&r;};
   if(!p||!p.visible){vwRotHide(); return null;}
   // штора и плед (T-74): вместо размеров — пометка «вид условный» (форма не по фото товара)
-  const cloth=it.dec!==undefined&&isCloth3d(((allVariants()[cur]||{}).decor||[])[it.dec]);
+  const cloth=it.dec!==undefined&&isClothAbstract(((allVariants()[cur]||{}).decor||[])[it.dec]);   // подушка с моделью — с размерами
   const b=vwActsNode(box), v=b.firstElementChild, dims=cloth||+it.w>0&&+it.d>0&&+it.h>0, can=vwCanRot(it), mv=can||vwArtJ(i)>=0, cost=pr?money(pr):'';
   const rep=!!vwRepBtn(it), cls=[!can,!mv,!dims,!cost,!rep].join();
   if(b._cls!==cls){b._cls=cls; b._w=0;

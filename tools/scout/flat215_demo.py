@@ -404,6 +404,16 @@ def decor_model(it: dict) -> tuple:
     return (ext, None) if ext else (None, 'меш не читается')
 
 
+def decor_sku_model(sk: dict) -> tuple:
+    """`decor_model` для товара строки декора (`sku` с `sid` «<mid>_<eid>») → (msid, габарит меша) или (None, причина)."""
+    sid = str(sk.get('sid') or '')
+    if '_' not in sid:
+        return None, 'нет артикула'
+    mid, eid = sid.split('_', 1)
+    ext, why = decor_model({'mid': mid, 'eid': eid, 'name': sk.get('name')})
+    return (_msid(sid), ext) if ext else (None, why)
+
+
 def lamp_decor(sets: list, idx: int, tag: str, objs: list, room_wd: tuple) -> dict | None:
     """ЛАМПА НАБОРА НА КОМОДЕ → строка декора варианта (T-20261112-101; правила — `dependent_decor.py`): место — решатель паспорта
     (`light.lamp` на `light.dresser`), сцена пересчитывает его от текущего комода. Лампы в наборе нет или комода в варианте нет —
@@ -1818,9 +1828,10 @@ def build() -> dict:
             print(f"  атом комод+лампа set{n}: лампы на комоде нет — {', '.join(lone)} не показываем", flush=True)
             objs[:] = [o for o in objs if o['role'] not in lone]
         # ШТОРЫ И ПЛЕД — УСЛОВНО, ЦВЕТОМ ТОВАРА (T-20261112-74, владелец TG 953): место — решатель паспорта на носителях варианта,
-        # цвет — по названию (`textile_abstract.look_of`); отказ — строка только в списке, как было
+        # цвет — по названию (`textile_abstract.look_of`); отказ — строка только в списке, как было. ПОДУШКИ (T-20261113-02) — на
+        # сиденье дивана: годная модель — настоящая (`decor_sku_model`), нет — условная цветом товара
         import textile_abstract as _TX
-        _TX.annotate(decor, objs, liv, f'set{n}', demo_ceiling())
+        _TX.annotate(decor, objs, liv, f'set{n}', demo_ceiling(), decor_sku_model)
         variants.append({'id': f'set{n}', 'title': style, 'style': sets[n - 1].get('style'),
                          # ключ главной «стиль → комната → вариант» (demo-16): латинский id стиля для адреса `?style=`
                          # и комната квартиры, которую обставляет вариант (пока все варианты — гостиная)

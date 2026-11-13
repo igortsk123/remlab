@@ -2,6 +2,8 @@
 // у штор 1 из 8, у пледов 0 из 8), поэтому в 3D — простая форма ЦВЕТОМ ТОВАРА, с ценой и карточкой, как у прочего декора. Место и
 // цвет даёт сборка витрины (`tools/scout/textile_abstract.py`: решатель паспорта `dependents.resolve`, цвет — по названию товара);
 // здесь — только перевод строки декора в место, опцию и материал каталога. Без места или цвета — строка остаётся только в списке.
+// ПОДУШКИ (T-20261113-02, ADR-0402): то же место решателя (сиденье дивана); есть годная модель (`sku.msid` от сборки) — меш, нет —
+// условная подушка цветом товара.
 
 import type { Opening } from "@/contracts/apartment";
 
@@ -9,7 +11,7 @@ export const TEXTILE_STRATEGY = "textile_abstract";
 /** Пометка в карточке: форма не по фото товара. */
 export const TEXTILE_NOTE_RU = "вид условный";
 
-export type TextileShape = "curtain" | "throw";
+export type TextileShape = "curtain" | "throw" | "pillow";
 export type TextilePlace = {
   x?: number; y?: number; rot?: number; elev_cm?: number; slot_instance_id?: string; parent?: string | null;
   kind?: string; opening?: number | null; wall?: string | null; edge?: string | null; w?: number; d?: number; h?: number;
@@ -18,11 +20,17 @@ export type TextilePlace = {
 export type TextileLook = { hex?: string; from?: string; sheer?: boolean; of?: string };
 export type TextileDecor = {
   role?: string; list_only?: boolean; strategy?: string; place?: TextilePlace; look?: TextileLook;
-  sku?: { name?: string; name_en?: string; price?: number; url?: string; shop?: string; sid?: string; img?: string; w?: number; d?: number; h?: number };
+  sku?: { name?: string; name_en?: string; price?: number; url?: string; shop?: string; sid?: string; img?: string; w?: number; d?: number; h?: number;
+    msid?: string | null; yaw?: number };
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
-const shapeOf = (p?: TextilePlace): TextileShape | null => (p?.kind === "curtain" || p?.kind === "throw" ? p.kind : null);
+const SHAPES: readonly TextileShape[] = ["curtain", "throw", "pillow"];
+const shapeOf = (p?: TextilePlace): TextileShape | null => (SHAPES.includes(p?.kind as TextileShape) ? p!.kind as TextileShape : null);
+/** Подпись формы: материал и роль места (`titleEn` слота — по-английски для перевода страницы). */
+const SHAPE_TITLE: Record<TextileShape, [string, string, string]> = {
+  curtain: ["Штора", "Curtain", "curtains"], throw: ["Плед", "Throw", "throw"], pillow: ["Подушка", "Cushion", "cushion"],
+};
 
 /** Ключ товара для `look.of`: артикул, иначе название (то же — `tools/scout/textile_abstract.py:look_key`). */
 export const lookKey = (sku?: { sid?: string | null; name?: string }): string => String(sku?.sid || sku?.name || "");
@@ -40,6 +48,8 @@ export const isTextileDecor = (x: TextileDecor): boolean =>
 /** Толщина шторы и пледа в месте сцены — коробка выбора и рамка; форму строит сцена (`viewer.ts`). */
 const CURTAIN_D_CM = 6;
 const THROW_DEF = { w: 36, d: 55, h: 5 };
+/** Подушка стоя у спинки: лицо 45×45, толщина 12 (как `textile_abstract.PILLOW_DEF_CM`). */
+const PILLOW_DEF = { w: 45, d: 12, h: 45 };
 
 /**
  * Номер проёма шторы в проёмах комнаты моста (`fromDemo.ts:openings` выбрасывает проёмы без ширины): решатель считает по сырому
@@ -69,21 +79,28 @@ export function textilePart(x: TextileDecor, id: string, k: number, at: { id: st
   const opening = shape === "curtain" ? openingIndex(rawOpenings, ops, p.opening!) : undefined;
   if (opening !== undefined && opening < 0) return null;
   const o = opening !== undefined ? ops[opening]! : undefined;
+  const def = shape === "pillow" ? PILLOW_DEF : THROW_DEF;
   const size = shape === "curtain"
     ? { w: o!.widthCm + 2 * 55, d: CURTAIN_D_CM, h: Math.max(1, p.elev_cm!), elev: 0 }
-    : { w: p.w ?? THROW_DEF.w, d: p.d ?? THROW_DEF.d, h: p.h ?? THROW_DEF.h, elev: Math.max(0, p.elev_cm!) };
+    : { w: p.w ?? def.w, d: p.d ?? def.d, h: p.h ?? def.h, elev: Math.max(0, p.elev_cm!) };
   const mat = `textile:${at.prefix}${k}:${sk.sid ?? sk.name}`;
   const sheer = !!x.look?.sheer;
-  const dims = shape === "curtain" && sk.w && sk.h ? `${Math.round(sk.w)}×${Math.round(sk.h)} см · ` : "";
+  const [titleRu, titleEn, slotEn] = SHAPE_TITLE[shape];
+  // подушка с годной моделью (сборка проверила её и записала `msid`) — настоящая: меш в габарите места, в карточке размеры товара
+  const mesh = shape === "pillow" && !!sk.msid;
+  const dims = (shape === "curtain" && sk.w && sk.h) ? `${Math.round(sk.w)}×${Math.round(sk.h)} см`
+    : shape === "pillow" && sk.w && sk.d ? `${Math.round(sk.w)}×${Math.round(sk.d)}${sk.h ? `×${Math.round(sk.h)}` : ""} см` : "";
+  const desc = mesh ? dims : [dims, TEXTILE_NOTE_RU].filter(Boolean).join(" · ");
   return {
-    material: { id: mat, titleRu: shape === "curtain" ? "Штора" : "Плед", titleEn: shape === "curtain" ? "Curtain" : "Throw",
-      colorHex: x.look!.hex!.toLowerCase(), roughness: 0.95, tileCm: [100, 100] },
-    option: { id: `opt:${id}`, category: "furniture", titleRu: sk.name, titleEn: opt.titleEn, descRu: `${dims}${TEXTILE_NOTE_RU}`,
+    material: { id: mat, titleRu, titleEn, colorHex: x.look!.hex!.toLowerCase(), roughness: 0.95, tileCm: [100, 100] },
+    option: { id: `opt:${id}`, category: "furniture", titleRu: sk.name, titleEn: opt.titleEn, descRu: desc,
       tier: "standard", price: opt.price, availability: "available", roomKinds: opt.kinds,
-      asset: { kind: "kit", kit: "textile", materials: { body: mat }, features: [shape, ...(sheer ? ["sheer"] : [])] },
+      asset: mesh
+        ? { kind: "mesh", meshId: sk.msid, yawDeg: sk.yaw ?? 0, wCm: size.w, dCm: size.d, hCm: size.h }
+        : { kind: "kit", kit: "textile", materials: { body: mat }, features: [shape, ...(sheer ? ["sheer"] : [])] },
       ...(opt.previewUrl ? { previewUrl: opt.previewUrl } : {}), ...opt.shop },
     slot: { id, roomId: at.id, category: "furniture" as const, kind: "furniture" as const, titleRu: x.role ?? "шторы",
-      titleEn: shape === "curtain" ? "curtains" : "throw", photoRole: x.role, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
+      titleEn: slotEn, photoRole: x.role, defaultOptionId: `opt:${id}`, optionIds: [`opt:${id}`],
       textile: { shape, ...(opening !== undefined ? { opening } : {}) },
       placement: { x: at.ox + p.x!, y: at.oy + p.y!, rot: p.rot ?? 0, wCm: size.w, dCm: size.d, hCm: size.h, elevCm: size.elev } },
   };

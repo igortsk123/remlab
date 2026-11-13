@@ -187,9 +187,10 @@ export const slot = z.object({
   }).optional(),
   /**
    * Условная ткань (T-20261112-74): штора у окна `opening` (номер в `room.openings`) или плед на подлокотнике — место от решателя
-   * паспорта при сборке (`tools/scout/textile_abstract.py`), форма — кодом сцены (`viewer.ts`). Покупатель её не двигает.
+   * паспорта при сборке (`tools/scout/textile_abstract.py`), форма — кодом сцены (`viewer.ts`). Покупатель её не двигает. Подушка на
+   * сиденье дивана (T-20261113-02) — так же; с годной моделью товара опция места — меш, без неё — условная подушка цветом товара.
    */
-  textile: z.object({ shape: z.enum(["curtain", "throw"]), opening: z.number().int().nonnegative().optional() }).optional(),
+  textile: z.object({ shape: z.enum(["curtain", "throw", "pillow"]), opening: z.number().int().nonnegative().optional() }).optional(),
 });
 export type Slot = z.infer<typeof slot>;
 

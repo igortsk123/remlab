@@ -61,5 +61,39 @@ ok('annotate: цвет пледа по названию', decor[2]['look']['hex'
 thr0, why0 = TX.place_of('плед', [objs[1]], geo, {'name': 'Плед'}, 270)
 ok('плед без дивана — без места, с причиной', thr0 is None and bool(why0), why0)
 
+# 6) ПОДУШКИ (T-20261113-02): габарит стоя у спинки — малая сторона толщина, большая ширина
+ok('подушка 45×45×11 — лицо 45×45, толщина 11', TX.pillow_size({'w': 45, 'd': 45, 'h': 11}) == {'w': 45, 'd': 11, 'h': 45})
+ok('валик 50×18×18 — вдоль сиденья', TX.pillow_size({'w': 18, 'd': 50, 'h': 18}) == {'w': 50, 'd': 18, 'h': 18})
+ok('без размеров — типовая', TX.pillow_size({}) == {'w': 45.0, 'd': 12.0, 'h': 45.0})
+
+# 7) по месту на строку на сиденье дивана; без модели — условная цветом товара, с моделью — msid и габарит по мешу
+pil = [{'role': 'подушка', 'sku': {'name': 'Подушка Линкс бежевая', 'sid': 'a_1', 'w': 45, 'd': 45, 'h': 11}},
+       {'role': 'подушка 2', 'sku': {'name': 'Подушка Удина серая', 'sid': 'a_2', 'w': 45, 'd': 45, 'h': 11, 'msid': None}}]
+model = lambda sk: ('m1', (1.99, 1.95, 0.72)) if sk['sid'] == 'a_1' else (None, 'нет модели на сервере')  # noqa: E731
+n = TX.annotate(pil, objs, geo, 'test', 270, model)
+p0, p1 = pil[0].get('place') or {}, pil[1].get('place') or {}
+ok('подушки: обе с местом', n == 2 and all(d.get('strategy') == TX.STRATEGY for d in pil), [d.get('place') for d in pil])
+ok('подушки: разные места на одном диване', p0.get('slot_instance_id') == 'soft.pillows#0' and p1.get('slot_instance_id') == 'soft.pillows#1'
+   and p0.get('parent') == p1.get('parent') and str(p0.get('parent')).startswith('seating.sofa'), (p0, p1))
+ok('подушки: на высоте сиденья', 40 <= p0.get('elev_cm', 0) <= 50, p0)
+ok('подушки: в следе дивана', all(abs(p['x'] - sofa['x']) < sofa['w'] / 2 and abs(p['y'] - sofa['y']) < sofa['d'] / 2 for p in (p0, p1)),
+   (p0, p1))
+ok('подушки: лицом как диван', p0.get('rot') == sofa['rot'] and p0.get('kind') == 'pillow', p0)
+ok('с моделью — msid и габарит по мешу одним масштабом', pil[0]['sku'].get('msid') == 'm1' and p0['w'] == 45 and 15 < p0['d'] < 17
+   and 43 < p0['h'] < 45, (pil[0]['sku'], p0))
+ok('без модели — условная: msid пуст, габарит товара, цвет по названию', not pil[1]['sku'].get('msid') and p1['d'] == 11
+   and pil[1]['look']['hex'] == '#9a9c9e', (pil[1]['sku'], p1, pil[1].get('look')))
+ok('служебный размер в строку не утёк', all('_size' not in d for d in pil))
+# центр подушки — на толщину вперёд от спинки: диван смотрит на юг (rot 180) — подушка ближе к стене дивана, чем его центр
+ok('подушка у спинки, не на краю сиденья', sofa['y'] < p0['y'] < sofa['y'] + sofa['d'] / 2, p0)
+
+# 8) подушек больше, чем влезает на узкий диван — лишняя только в списке; без дивана — ни одной
+narrow = [dict(sofa, w=120)] + objs[1:]
+many = [{'role': f'подушка {i}' if i else 'подушка', 'sku': {'name': f'Подушка {i}', 'w': 45, 'd': 45, 'h': 11}} for i in range(3)]
+ok('узкий диван: две из трёх', TX.annotate(many, narrow, geo, 'test', 270) == 2 and many[2].get('place') is None,
+   [d.get('place') for d in many])
+none = [{'role': 'подушка', 'sku': {'name': 'Подушка'}}]
+ok('без дивана — без места', TX.annotate(none, [objs[1]], geo, 'test', 270) == 0 and 'place' not in none[0])
+
 print('ИТОГ:', 'всё OK' if not fails else f'{fails} FAIL')
 sys.exit(1 if fails else 0)

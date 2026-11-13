@@ -83,7 +83,7 @@ export type ObjectSpec =
       roomId: string;
       titleRu: string;
       placement: Placement;
-      shape: "curtain" | "throw";
+      shape: "curtain" | "throw" | "pillow";
       opening?: number;
       sheer: boolean;
       materialId?: string;

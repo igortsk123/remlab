@@ -53,6 +53,22 @@ export function buildProductCurtain(ctx: KitCtx, room: Room, opening: number, ma
   return g;
 }
 
+/**
+ * Условная подушка (T-20261113-02) — у товара нет годной модели: мягкий брусок со скруглением в половину толщины, стоит на сиденье
+ * лицом вперёд (X — ширина лица, Y — высота, Z — толщина), низ — на высоте места.
+ */
+export function buildPillow(ctx: KitCtx, spec: { widthCm: number; depthCm: number; heightCm: number; materialId?: string }): THREE.Group {
+  const g = new THREE.Group();
+  const { widthCm: w, depthCm: d, heightCm: h } = spec;
+  const m = new THREE.Mesh(new RoundedBoxGeometry(w * CM, h * CM, d * CM, 4, Math.min(d / 2, w / 4, h / 4) * CM),
+    clothMaterial(ctx, spec.materialId, false));
+  m.position.set(0, (h / 2) * CM, 0);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  g.add(m);
+  return g;
+}
+
 /** Сложенный плед: брусок со скруглёнными краями на подлокотнике и свисающий край спереди (тоньше, чуть отстоит от подлокотника). */
 export function buildThrow(ctx: KitCtx, spec: { widthCm: number; depthCm: number; heightCm: number; materialId?: string }): THREE.Group {
   const g = new THREE.Group();

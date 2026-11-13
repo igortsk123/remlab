@@ -9,6 +9,12 @@
 {hex, from, sheer}. Цвет — ПО НАЗВАНИЮ товара (`colour_of_name`); `sku.swatch` — только если в названии цвета нет (на интерьерных фото
 он берёт цвет кресла: «Вуаль сливочный экрю» → #6a6156, T-73); нет ни того, ни другого — нейтральный, `from: neutral`, строка WARN.
 Тюль и вуаль — полупрозрачные (`sheer`). Решатель отказал — строка остаётся только в списке, как раньше (без места).
+
+ПОДУШКИ (T-20261113-02, директор: «есть годная модель → настоящая; нет → условная в тон товара с ценником, как плед»; ADR-0402):
+место — тот же решатель (`soft.pillows` на сиденье дивана, по месту на строку подушки, `annotate_pillows`), `place.kind: pillow`.
+Модель проверяет сборка (`flat215_demo.decor_sku_model`: на сервере, цвет как на фото) — годна: `sku.msid` и габарит сцены по мешу,
+сцена ставит меш; нет — условная подушка цветом товара (`lib/viewer3d/kits/textile.ts:buildPillow`). Канон стратегий не трогаем
+(`подушка: cutout` в `rules/asset-strategies.json` держит ночную очередь мешей).
 """
 import os
 import re
@@ -23,7 +29,10 @@ from planner import room_templates as RT  # noqa: E402
 from planner.models import Item, Opening, Room  # noqa: E402
 
 STRATEGY = 'textile_abstract'
-ROLES = {'шторы': ('textile', 'curtains', 'textile.curtains'), 'плед': ('soft', 'pillows_throw', 'soft.throw')}
+ROLES = {'шторы': ('textile', 'curtains', 'textile.curtains'), 'плед': ('soft', 'pillows_throw', 'soft.throw'),
+         'подушка': ('soft', 'pillows_throw', 'soft.pillows')}
+PILLOW = 'подушка'
+PILLOW_DEF_CM = (45.0, 45.0, 12.0)      # подушка без размеров в карточке: лицо 45×45, толщина 12 (типовая диванная)
 NEUTRAL = '#d8c4a6'                     # прежний общий цвет штор сцены (`window-light.ts`)
 DEFAULT_CEILING_CM = 270.0              # как `contracts/apartment.ts:DEFAULT_CEILING_CM`
 THROW_CM = {'w': 36.0, 'd': 55.0, 'h': 5.0}   # сложенный плед на подлокотнике: поперёк, вдоль глубины дивана, толщина
@@ -120,14 +129,95 @@ def place_of(role: str, objs: list, geo: dict, sk: dict, ceiling_cm: float | Non
     return out, None
 
 
-def annotate(decor: list, objs: list, geo: dict, tag: str, ceiling_cm: float | None = None) -> int:
-    """Строкам штор и пледа декора варианта гостиной — `strategy`, `place`, `look`. Возвращает, скольким дали место."""
+def pillow_size(sk: dict) -> dict:
+    """Габарит подушки СТОЯ у спинки (сцена: w — ширина лица, h — высота лица, d — толщина): из трёх размеров карточки самый малый —
+    толщина, самый большой — ширина (валик 50×18×18 лежит вдоль сиденья, 45×45×11 стоит лицом вперёд). Нет размеров — типовая."""
+    dims = [float(sk[k]) for k in ('w', 'd', 'h') if sk.get(k)]
+    a, b, c = sorted(dims) if len(dims) == 3 else sorted(PILLOW_DEF_CM)
+    return {'w': c, 'd': a, 'h': b}
+
+
+def pillow_places(rows: list, objs: list, geo: dict, ceiling_cm: float | None = None) -> tuple[list, str | None]:
+    """Места подушек на сиденье дивана решателем паспорта (`soft.pillows`: число по ширине дивана, но не больше товаров набора —
+    `counts`): по месту на строку, по порядку экземпляров (`подушка` → `#0`, `подушка 2` → `#1`). Центр подушки — на толщину вперёд
+    от начала сиденья (решатель даёт точку у спинки), низ — высота сиденья. → (места по строкам, None для лишних; причина отказа)."""
+    import chandelier as CH
+    group, variant, pid = ROLES[PILLOW]
+    places = [p for p in RT._variant_places(RT.load('living'), group, variant) if p['kind'] != 'dependent' or p['id'] == pid]
+    sizes = [r['_size'] for r in rows]
+    item = Item(role=PILLOW, w_cm=max(s['w'] for s in sizes), d_cm=max(s['d'] for s in sizes), h_cm=max(s['h'] for s in sizes))
+    cars = CH.carriers_from_variant(objs)
+    try:
+        res = DEP.resolve(places, cars, to_room(geo, ceiling_cm), items={pid: item}, counts={pid: len(rows)})
+    except Exception as e:  # noqa: BLE001 — отказ решателя не роняет сборку: строки остаются в списке без места
+        return [None] * len(rows), f'{type(e).__name__}: {str(e)[:120]}'
+    got = sorted((p for p in res.placements if p.slot_instance_id.startswith(pid + '#')),
+                 key=lambda p: int(p.slot_instance_id.split('#')[1]))
+    if not got:
+        bad = [res.reject] if res.reject else [e for e in res.empty if str(e.get('place', '')).startswith(pid)]
+        return [None] * len(rows), '; '.join(f"{e.get('code')}: {e.get('message')}" for e in bad) or 'решатель не дал места'
+    by_id = {c.slot_instance_id: c for c in cars}
+    out = []
+    for i, row in enumerate(rows):
+        p = got[i] if i < len(got) else None
+        car = by_id.get(p.parent_slot_instance_id) if p else None
+        if p is None or car is None or p.local is None:
+            out.append(None)
+            continue
+        s = row['_size']
+        x, y = DEP._world(car, p.local.dx or 0.0, (p.local.dy or 0.0) + s['d'] / 2)
+        out.append({'x': round(x, 1), 'y': round(y, 1), 'rot': p.rot, 'elev_cm': round(p.elev_cm, 1),
+                    'slot_instance_id': p.slot_instance_id, 'parent': p.parent_slot_instance_id, 'kind': 'pillow', **s})
+    return out, (None if len(got) >= len(rows) else f'на сиденье мест {len(got)} из {len(rows)}')
+
+
+def annotate_pillows(decor: list, objs: list, geo: dict, tag: str, ceiling_cm: float | None = None, model=None) -> int:
+    """ПОДУШКИ НА ДИВАНЕ (T-20261113-02, ADR-0402 «ничего из сметы без места в 3D»): каждой строке подушки — место на сиденье
+    (`pillow_places`) и цвет товара. Годная модель (`model(sku)` → (msid, габарит меша) или (None, причина)) — настоящая подушка:
+    `sku.msid` и габарит сцены по мешу (ширина — как у товара); нет модели — условная подушка цветом товара, как плед."""
+    import dependent_decor as DD
+    rows = [r for r in decor if str(r.get('role') or '').split(' ')[0] == PILLOW and (r.get('sku') or {}).get('name')]
+    if not rows:
+        return 0
+    meshes = []
+    for r in rows:
+        size = pillow_size(r['sku'])
+        msid, ext = model(r['sku']) if model else (None, 'проверки модели нет')
+        dims = DD.mesh_dims(ext, size['w']) if msid else None        # меш не тянем до размеров карточки: один масштаб по ширине
+        meshes.append((msid, dims) if msid and dims else (None, ext if isinstance(ext, str) else 'меш не читается'))
+        r['_size'] = dims if msid and dims else size
+    try:
+        places, why = pillow_places(rows, objs, geo, ceiling_cm)
+    finally:
+        for r in rows:
+            r.pop('_size')
     n = 0
+    for row, place, (msid, note) in zip(rows, places, meshes):
+        sk = row['sku']
+        if not place:
+            print(f'WARN:textile: {tag} «{sk.get("name")}» — подушке нет места в 3D: {why}', flush=True)
+            continue
+        if msid:
+            sk['msid'] = msid
+            what = f'модель {msid}'
+        else:
+            what = f'условная ({note})'
+        lk = look_of(sk)
+        row.update(strategy=STRATEGY, place=place, look=lk)
+        n += 1
+        print(f"  подушка {tag}: «{sk.get('name')}» → {place['slot_instance_id']}, {what}, цвет {lk['hex']} ({lk['from']})", flush=True)
+    return n
+
+
+def annotate(decor: list, objs: list, geo: dict, tag: str, ceiling_cm: float | None = None, model=None) -> int:
+    """Строкам штор, пледа и подушек декора варианта гостиной — `strategy`, `place`, `look`. Возвращает, скольким дали место.
+    `model` — проверка модели подушки (`annotate_pillows`)."""
+    n = annotate_pillows(decor, objs, geo, tag, ceiling_cm, model)
     taken: set = set()
     for row in decor:
         role = str(row.get('role') or '').split(' ')[0]
         sk = row.get('sku') or {}
-        if role not in ROLES or not sk.get('name') or role in taken:
+        if role not in ROLES or role == PILLOW or not sk.get('name') or role in taken:
             continue                                       # одно место на роль: второй комплект — только в списке
         place, why = place_of(role, objs, geo, sk, ceiling_cm)
         if not place:

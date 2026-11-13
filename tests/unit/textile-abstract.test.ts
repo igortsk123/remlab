@@ -8,7 +8,7 @@ import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { roomCurtains } from "@/lib/configurator/curtains";
 import { planObjects, productCurtains } from "@/lib/viewer3d/build-scene";
 import { sceneSlotIndex } from "@/lib/viewer3d/demo-scene";
-import { buildProductCurtain, buildThrow, SHEER_OPACITY } from "@/lib/viewer3d/kits/textile";
+import { buildPillow, buildProductCurtain, buildThrow, SHEER_OPACITY } from "@/lib/viewer3d/kits/textile";
 import { createMaterialCtx } from "@/lib/viewer3d/materials";
 import { chooseAim, seeThroughWins } from "@/lib/viewer3d/walk-aim";
 import { buildCurtains, curtainPanels } from "@/lib/viewer3d/window-light";
@@ -28,6 +28,12 @@ const THROW = { role: "плед", strategy: "textile_abstract",
   place: { x: 56.3, y: 280, rot: 180, elev_cm: 60, slot_instance_id: "soft.throw#0", kind: "throw", edge: "arm_right", w: 36, d: 55, h: 5 },
   look: { hex: "#b8644a", from: "name:терракот", sheer: false, of: "t1" }, sku: { name: "Плед терракотовый", price: 2990, sid: "t1" } };
 const TULLE = curtain({ hex: "#e6dcc6", from: "name:экрю", sheer: true, of: "c1" });
+const pillow = (role: string, sid: string, name: string, price: number, msid: string | null, dims: object) => ({ role,
+  strategy: "textile_abstract", place: { x: 180, y: 289.5, rot: 180, elev_cm: 45, slot_instance_id: `soft.pillows#${role.endsWith("2") ? 1 : 0}`,
+    parent: "seating.sofa#0", kind: "pillow", ...dims },
+  look: { hex: "#d8c4a6", from: "name:бежев", sheer: false, of: sid }, sku: { name, price, sid, ...(msid ? { msid } : {}), w: 45, d: 45, h: 11 } });
+const PILLOW_MESH = pillow("подушка", "p1", "Подушка Линкс бежевая", 1290, "m_p1", { w: 45, d: 16.3, h: 44.2 });
+const PILLOW_ABS = pillow("подушка 2", "p2", "Подушка Удина серая", 990, null, { w: 45, d: 11, h: 45 });
 
 const build = (decor: object[]) => fromDemoVariant({ room: GEO, variants: [{ id: "v", style: "сканди", items: [SOFA], decor }] } as never, "v", CTX)!;
 const MAT = { id: "x", titleRu: "", titleEn: "", colorHex: "#cccccc", roughness: 0.8, metalness: 0, tileCm: [100, 100], surfaces: [] } as unknown as Material;
@@ -75,12 +81,33 @@ describe("условная ткань: мост витрины → места с
     expect(productCurtains(plain.apartment).size).toBe(0);
   });
 
+  it("подушки на диване (T-20261113-02): с моделью — меш в габарите места, без — условная цветом товара; обе с ценой", () => {
+    const { apartment, catalogue } = build([PILLOW_MESH, PILLOW_ABS]);
+    const slots = apartment.slots.filter((s) => s.textile?.shape === "pillow");
+    expect(slots.map((s) => s.id)).toEqual(["textile:подушка#0", "textile:подушка 2#0"]);
+    const [mesh, abs] = slots.map((s) => catalogue.options.find((o) => o.id === s.defaultOptionId)!);
+    expect(mesh!.asset).toMatchObject({ kind: "mesh", meshId: "m_p1", wCm: 45, dCm: 16.3, hCm: 44.2 });
+    expect(mesh!.descRu).toBe("45×45×11 см");                              // настоящая модель — без «вид условный»
+    expect(abs!.asset).toMatchObject({ kind: "kit", kit: "textile", features: ["pillow"] });
+    expect(abs!.descRu).toBe("45×45×11 см · вид условный");
+    expect([mesh!.price, abs!.price]).toEqual([1290, 990]);
+    const sc = resolveScene(apartment, catalogue, defaultConfiguration(apartment, catalogue));
+    const specs = planObjects(apartment, catalogue, sc);
+    const tx = specs.find((s) => s.kind === "textile" && s.shape === "pillow")!;
+    expect(tx.placement).toMatchObject({ rot: 180, wCm: 45, dCm: 11, hCm: 45, elevCm: 45 });
+    expect(specs.some((s) => s.kind === "mesh" && s.slotId === slots[0]!.id)).toBe(true);
+    // заменили подушку в списке — цвет посчитан для прежней: в 3D её больше нет (как штора)
+    expect(isTextileDecor({ ...PILLOW_ABS, sku: { name: "Подушка Винси", sid: "p9" } })).toBe(false);
+  });
+
   it("номер места сцены → строка декора страницы, id — те же, что у моста", () => {
     const VASE = { role: "ваза", sku: { name: "Ваза", price: 1500, msid: "v_1", w: 15, d: 15, h: 30 } };
-    const decor = [VASE, TULLE, THROW];
+    const decor = [VASE, TULLE, THROW, PILLOW_MESH, PILLOW_ABS];
     const m = sceneSlotIndex([SOFA], decor, false);
     expect(m.get("textile:шторы#0")).toBe(1 + 1);
     expect(m.get("textile:плед#0")).toBe(1 + 2);
+    expect(m.get("textile:подушка#0")).toBe(1 + 3);
+    expect(m.get("textile:подушка 2#0")).toBe(1 + 4);
     const ids = new Set(build(decor).apartment.slots.map((s) => s.id));
     for (const id of m.keys()) expect(ids.has(id)).toBe(true);
   });
@@ -137,6 +164,15 @@ describe("условная ткань: форма", () => {
     const g = (sheer: boolean) => buildProductCurtain(ctx, r, 1, "x", sheer, new THREE.Group()).children.map((m) => !!m.userData.seeThrough);
     expect(g(true).every(Boolean)).toBe(true);
     expect(g(false).some(Boolean)).toBe(false);
+  });
+
+  it("условная подушка — мягкий брусок в габарите места, низ на сиденье", () => {
+    const ctx = { materials: createMaterialCtx(1, false), byId: () => MAT, fallback: MAT };
+    const bb = new THREE.Box3().setFromObject(buildPillow(ctx, { widthCm: 45, depthCm: 11, heightCm: 45, materialId: "x" }));
+    expect(bb.max.x - bb.min.x).toBeCloseTo(0.45, 3);
+    expect(bb.max.z - bb.min.z).toBeCloseTo(0.11, 3);
+    expect(bb.min.y).toBeCloseTo(0, 3);
+    expect(bb.max.y).toBeCloseTo(0.45, 3);
   });
 
   it("плед — брусок на месте и свисающий край спереди, в габарите места по ширине", () => {
