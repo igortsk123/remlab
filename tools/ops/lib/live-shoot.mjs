@@ -26,8 +26,10 @@ export async function routeTourBearer(ctx, url, token) {
   return true;
 }
 
-/** Готовность данных страницы (витрина и тур): данные, квартира и список вариантов. */
-export const PAGE_READY = "typeof D !== 'undefined' && !!D && !!FLAT && typeof allVariants === 'function' && allVariants().length > 0";
+/** Готовность данных (витрина и тур): данные и список вариантов. */
+export const DATA_READY = "typeof D !== 'undefined' && !!D && typeof allVariants === 'function' && allVariants().length > 0";
+/** Готовность ВИТРИНЫ: ещё и карточка квартиры `FLAT` (её грузит только /demo; у тура `FLAT` нет — ждать его там нельзя). */
+export const PAGE_READY = `${DATA_READY} && !!FLAT`;
 
 /** Открыть страницу и дождаться данных; `settleMs` — реестр кадров приезжает позже данных (витрина). */
 export async function openLivePage(page, url, { gl = true, settleMs = 0, ready = PAGE_READY } = {}) {

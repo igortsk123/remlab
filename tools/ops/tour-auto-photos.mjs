@@ -15,7 +15,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { PAGE_READY, captureViews, launchLive, openLivePage, routeTourBearer } from "./lib/live-shoot.mjs";
+import { DATA_READY, captureViews, launchLive, openLivePage, routeTourBearer } from "./lib/live-shoot.mjs";
 
 const ID_RE = /^[A-Za-z0-9_-]{22}$/, ROOM_RE = /^[a-z0-9-]{1,40}$/;
 /** Больше комнат за один тур не снимаем (владелец 12.11 TG 1318: «5 помещений максимум»). */
@@ -58,17 +58,16 @@ export function roomsArg(s) {
   });
 }
 
-/**
- * Покупательский адрес тура для съёмки: 3D даже на программном рендере, без опроса, русский. Косая в конце `/tour/` ОБЯЗАТЕЛЬНА
- * (как `tools/floorplan/cards.py:tour_url`): данные страница берёт относительным `demo-data.json` — без косой он уходит на
- * `/try/<id>/demo-data.json` (404) и страница не оживает (проба 13.11 00:27: ожидание данных 90 с — таймаут).
- */
+/** Покупательский адрес тура для съёмки: 3D даже на программном рендере, без опроса, русский (`/tour/` сервер сам ведёт 308 сюда). */
 export function tourUrl(job) {
-  return `${job.base}/try/${job.tour}/tour/?live=force&quiz=0&lang=ru`;
+  return `${job.base}/try/${job.tour}/tour?live=force&quiz=0&lang=ru`;
 }
 
-/** Готовность страницы ТУРА: общие данные + это именно тур (`TRIAL()`), а не витрина. */
-export const TOUR_READY = `${PAGE_READY} && typeof TRIAL === 'function' && TRIAL()`;
+/**
+ * Готовность страницы ТУРА: данные + это именно тур (`TRIAL()`). Без `FLAT`: карточку квартиры грузит только витрина — с ним тур
+ * не дождаться (проба 13.11 00:27: 90 с ожидания, таймаут, ни одного кадра).
+ */
+export const TOUR_READY = `${DATA_READY} && typeof TRIAL === 'function' && TRIAL()`;
 
 /** Номер варианта на странице для комнаты задания: свой `variant` или первый с мебелью, без ожидания и отказа. → индекс | -1 */
 export function pickIndex(list, room) {
@@ -155,13 +154,13 @@ async function main() {
   const { chromium } = await import("@playwright/test");
   const browser = await launchLive(chromium, true);
   const t0 = Date.now();
-  let res;
+  let res, page = null;
   const errs = [];
   try {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: "ru-RU" });
     await ctx.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));   // это не посетитель
     const bearer = await routeTourBearer(ctx, `${job.base}/try/${job.tour}/tour`, process.env.TRIAL_WORKER_TOKEN || "");
-    const page = await ctx.newPage();
+    page = await ctx.newPage();
     page.on("pageerror", (e) => errs.push(String(e).slice(0, 200)));
     await openLivePage(page, tourUrl(job), { gl: true, ready: TOUR_READY });
     const pageMs = Date.now() - t0;
@@ -177,7 +176,11 @@ async function main() {
     res.pageMs = pageMs; res.pageErrors = errs.slice(0, 5);
   } catch (e) {
     // страница тура не открылась (данные, доступ, 3D) — ни одна комната не снята; громко, с причиной, без падения без итога
-    const why = `страница тура не готова: ${String(e?.message ?? e).split("\n")[0].slice(0, 200)}`;
+    // что именно не готово — снимок признаков страницы (данные, тур, варианты, 3D), чтобы разбирать без повторной очереди
+    const seen = page ? await page.evaluate(() => [typeof D !== "undefined" && !!D ? "данные есть" : "данных нет",
+      typeof TRIAL === "function" && TRIAL() ? "тур" : "не тур", typeof allVariants === "function" ? `вариантов ${allVariants().length}` : "нет allVariants",
+      typeof LIVE !== "undefined" ? `3D ${LIVE.ok}/${LIVE.state}` : "нет LIVE"].join(", ")).catch((x) => `признаки не прочитаны: ${String(x?.message ?? x).slice(0, 80)}`) : "страницы нет";
+    const why = `страница тура не готова: ${String(e?.message ?? e).split("\n")[0].slice(0, 160)} [${seen}]`;
     console.log(`ТУР ${job.tour}: НЕ СНЯТ — ${why}`);
     res = { rooms: job.rooms.map((r) => ({ room_id: r.room_id, ok: false, why, files: [] })), ok: 0, failed: job.rooms.length, pageErrors: errs.slice(0, 5) };
   } finally { await browser.close(); }
@@ -203,8 +206,8 @@ async function selftest() {
   "задание: пара поз — ровно C1, C2 с числами", null);
   check(JSON.stringify(roomsArg("bedroom-1:bedroom-1-loft, living")) === '[{"room_id":"bedroom-1","variant":"bedroom-1-loft"},{"room_id":"living","variant":""}]',
     "--rooms: комната[:вариант] через запятую", roomsArg("bedroom-1:bedroom-1-loft, living"));
-  check(tourUrl(parseJob({ tour: T, rooms: [{ room_id: "a" }] })) === `https://remont-lab.online/try/${T}/tour/?live=force&quiz=0&lang=ru`
-    && TOUR_READY.includes("TRIAL()"), "адрес тура: покупательский, с косой /tour/ (данные — относительно), 3D принудительно, без опроса; ждём именно тур", null);
+  check(tourUrl(parseJob({ tour: T, rooms: [{ room_id: "a" }] })) === `https://remont-lab.online/try/${T}/tour?live=force&quiz=0&lang=ru`
+    && TOUR_READY.includes("TRIAL()") && !TOUR_READY.includes("FLAT"), "адрес тура: покупательский, 3D принудительно, без опроса; ждём именно тур и без карточки квартиры витрины", null);
   const L = [{ i: 0, id: "b1-s", room: "bedroom-1", items: 0 }, { i: 1, id: "b1-m", room: "bedroom-1", items: 4, pending: true },
     { i: 2, id: "b1-l", room: "bedroom-1", items: 5 }, { i: 3, id: "lv", room: "living", items: 7 }];
   check(pickIndex(L, { room_id: "bedroom-1" }) === 2 && pickIndex(L, { room_id: "bedroom-1", variant: "b1-s" }) === 0 && pickIndex(L, { room_id: "kitchen" }) === -1
