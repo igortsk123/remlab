@@ -1925,8 +1925,8 @@ function trPlanLayout(PN){
 // ДВЕРИ И ОКНА ПЛАНА ПРОБЫ (T-20261110-04): у распознавания проём — центр в стене и ширина (`panels[].openings`: kind, c, widthCm), без
 // направления. Направление стены — ближайшее ребро контура комнаты (стена может быть и косой); по разные стороны — какие комнаты.
 // Дверь (до 1,2 м) — проём + полотно + дуга: открывается в комнату, а не в коридор/прихожую (кроме кладовок < 1,5 м² — в коридор),
-// между двумя комнатами — в большую; петля — у ближнего угла этой комнаты. Шире 1,2 м или «проход» — только проём (арка/двойная — не
-// угадываем). Окно — разрыв стены и голубая линия, как в /demo. Нет стены рядом (> 45 см) — проём не рисуем. Всё в см панели → `pts`
+// между двумя комнатами — в большую; петля — у ближнего угла этой комнаты. Шире 1,2 м или с парой дуг на листе — две створки (T-48/2);
+// «проход» и внутренняя шире 1,2 м без факта дуги — только проём. Окно — разрыв стены и голубая линия, как в /demo. Нет стены рядом (> 45 см) — проём не рисуем. Всё в см панели → `pts`
 // (точки: концы проёма [0,1], у двери — петля [2], конец открытого полотна [3], свободный конец проёма [4]); толщина разрыва `t` — в см,
 // в метры схемы переводит вызывающий (`trialPlanFromPanels`)
 // ПОДПИСЬ КОМНАТЫ ПЛАНА ПРОБЫ — ЦЕЛИКОМ В СТЕНАХ (T-20261110-04): кегль по самой длинной строке (ширина — по шрифту страницы, не по
@@ -1940,12 +1940,17 @@ function trTextEm(t,wt){ try{ if(!TR_MEAS)TR_MEAS=document.createElement('canvas
   TR_MEAS.font=`${wt||400} 100px ${getComputedStyle(box).fontFamily||'sans-serif'}`; return TR_MEAS.measureText(String(t)).width/100;
   }catch(e){ return String(t).length*0.62; } }
 // дверь плана пробы (точки `pts` в метрах схемы): радиус дуги и «занятая зона» — сектор открывания (петля H, полотно к T, дуга к F) с запасом
+// TRLEAF START
+// створки двери: тройки [H, T, F] после концов проёма — одна у обычной, две у двустворчатой (T-20261112-48/2)
+function trLeaves(o){ const p=o.pts, out=[]; for(let i=2;i+2<p.length;i+=3)out.push([p[i],p[i+1],p[i+2]]); return out; }
 function trDoorR(o){ const [,,H,T]=o.pts; return Math.hypot(T[0]-H[0],T[1]-H[1]); }
-function trInDoor(c,o,pad){ const [,,H,T,F]=o.pts, r=trDoorR(o), dx=c[0]-H[0], dy=c[1]-H[1]; if(!(r>0)||Math.hypot(dx,dy)>r+pad)return false;
+function trInLeaf(c,[H,T,F],pad){ const r=Math.hypot(T[0]-H[0],T[1]-H[1]), dx=c[0]-H[0], dy=c[1]-H[1]; if(!(r>0)||Math.hypot(dx,dy)>r+pad)return false;
   return (dx*(T[0]-H[0])+dy*(T[1]-H[1]))/r>=-pad&&(dx*(F[0]-H[0])+dy*(F[1]-H[1]))/r>=-pad; }
+function trInDoor(c,o,pad){ return trLeaves(o).some(l=>trInLeaf(c,l,pad)); }
 // только линии двери — дуга и полотно (внутри сектора пусто: подпись там не мешает, если не задевает линий) — запасной уровень для кладовок
-function trOnDoor(c,o,pad){ const [,,H,T]=o.pts, r=trDoorR(o); if(trSegDist(c,H,T)<=pad)return true;
-  return Math.abs(Math.hypot(c[0]-H[0],c[1]-H[1])-r)<=pad&&trInDoor(c,o,pad); }
+function trOnDoor(c,o,pad){ return trLeaves(o).some(([H,T,F])=>{const r=Math.hypot(T[0]-H[0],T[1]-H[1]); if(trSegDist(c,H,T)<=pad)return true;
+  return Math.abs(Math.hypot(c[0]-H[0],c[1]-H[1])-r)<=pad&&trInLeaf(c,[H,T,F],pad);}); }
+// TRLEAF END
 // комнаты схемы → id → прямоугольники {x,y,w,h} из клеток комнаты, свободных от чужих контуров и от секторов дверей (`doors` —
 // `P.trOpenings`; /2: дуга шла через «Обустроить →» — кликабельную строку): {strict — вне секторов дверей, loose — не задевая только
 // дуг и полотен}; `trFitLabel` выберет. Свободного нет — сперва уступаем чужим контурам (наезд распознавания), двери — в последнюю очередь
@@ -2000,7 +2005,8 @@ function trFitLabel(B,L,r){
 // Внутренняя «дверь» шире 1,2 м (/2): у распознавания рамка двери бывает вдвое шире настоящей (кухня–прихожая тура D — 160 см при двери
 // ~80 на чертеже; 184 см у ванной там, где на чертеже двери нет) — стену не стираем: проём стандартной ширины TR_DOOR_STD по центру, без
 // дуги (направление и сама дверь сомнительны). Наружная или «проход» — реальной ширины
-const TR_DOOR_MAX=120, TR_WALL_NEAR=45, TR_DOOR_STD=90, TR_OPEN_MIN=110;
+// TROPEN START
+const TR_DOOR_MAX=120, TR_WALL_NEAR=45, TR_DOOR_STD=90, TR_OPEN_MIN=110, TR_LEAF_MAX=100;
 function trPolyOf(r){ const b=r.bbox; return (r.contour||[]).length>=3?r.contour:[[b.x,b.y],[b.x+b.w,b.y],[b.x+b.w,b.y+b.d],[b.x,b.y+b.d]]; }
 function trSegDist(p,a,b){ const dx=b[0]-a[0], dy=b[1]-a[1], L=dx*dx+dy*dy, t=L?Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/L)):0;
   return Math.hypot(p[0]-a[0]-t*dx, p[1]-a[1]-t*dy); }
@@ -2045,16 +2051,26 @@ function trOpeningsOf(panel,rs){
     // между контурами (у распознавания 10–40 см) закрашена стеной, и разрыв в ней лёг бы белой полосой посреди стены
     const clear=sg=>[10,20,30,40,50].every(s=>{const p=[q[0]+n[0]*s*sg, q[1]+n[1]*s*sg]; return !R.some(x=>trInPoly(p,x.P));});
     const ext=side[0]&&!side[1]&&clear(-1)?[-n[0],-n[1]]:side[1]&&!side[0]&&clear(1)?[n[0],n[1]]:null;
-    if(o.kind!=='door'||open||wide||w>TR_DOOR_MAX||!(side[0]||side[1])){out.push({kind:o.kind==='window'?'window':'gap', pts:[e1,e2], more, main, t, key, ext}); return;}
+    if(o.kind!=='door'||open||wide||!(side[0]||side[1])){out.push({kind:o.kind==='window'?'window':'gap', pts:[e1,e2], more, main, t, key, ext}); return;}
     const pref=x=>!x?-1:(x.r.kind!=='hall'&&x.a>=1.5?2:1);
     const k=pref(side[0])!==pref(side[1])?(pref(side[0])>pref(side[1])?0:1):((side[0]?side[0].a:0)>=(side[1]?side[1].a:0)?0:1);
     const sg=k===0?1:-1, sw=side[k];   // в какую сторону открывается
+    // ДВУСТВОРЧАТАЯ (T-20261112-48/2, П1.9: «всё ровно как у застройщика»): то же правило, что 3D (`trial_room.py:_place_opening`,
+    // `trial-room.json:double_door_min_cm`/`door_leaf_max_cm`) — дверь СТРОГО шире TR_DOOR_MAX или с парой дуг на листе (`leaves: 2`,
+    // `bench.py:TWO_ARCS`) — две створки по половине проёма с петлями у обоих концов, открываются в одну сторону; створка не шире
+    // TR_LEAF_MAX. Раньше такая дверь рисовалась проёмом без створок, а пара 2×60 — одной дугой на всю ширину. `pts` — [e1, e2] и по
+    // тройке [петля, конец открытого полотна, свободный конец] на створку (`trLeaves`)
+    const two=w>TR_DOOR_MAX||o.leaves===2, lf=Math.min(two?w/2:w, TR_LEAF_MAX);
+    const leaf=(H,E)=>{const L=Math.hypot(E[0]-H[0],E[1]-H[1])||1, d=[(E[0]-H[0])/L,(E[1]-H[1])/L];
+      return [H, [H[0]+n[0]*sg*lf, H[1]+n[1]*sg*lf], [H[0]+d[0]*lf, H[1]+d[1]*lf]];};
+    if(two){out.push({kind:'door', pts:[e1,e2,...leaf(e1,e2),...leaf(e2,e1)], more, main, t, key, ext, leaves:2}); return;}
     const near=e=>Math.min(...sw.P.map(p=>Math.hypot(p[0]-e[0],p[1]-e[1])));
-    const [H,F]=near(e2)<near(e1)?[e2,e1]:[e1,e2], T=[H[0]+n[0]*sg*w, H[1]+n[1]*sg*w];
-    out.push({kind:'door', pts:[e1,e2,H,T,F], more, main, t, key, ext});
+    const [H,F]=near(e2)<near(e1)?[e2,e1]:[e1,e2];
+    out.push({kind:'door', pts:[e1,e2,...leaf(H,F)], more, main, t, key, ext});
   });
   return out;
 }
+// TROPEN END
 // ПРЕВЬЮ КАРТОЧКИ ПРОБЫ (фото нейросети у задания нет): план комнаты сверху с мебелью — тем же рисунком, что план окна (`shape`),
 // в тон страницы; масштаб и отступ подменяются на время рисунка и возвращаются
 function trialPlanSvg(v){
@@ -3681,7 +3697,7 @@ function flatPlan(){
   });
   OPS.forEach(o=>{                                   // проба: проёмы распознавания по направлению стены (`trOpeningsOf`)
     if(TRO_ON&&o.panel+'|'+o.key===TRO.sel)return;   // выбранный агентом — поверх плана (`troOverlay`)
-    const [a,b,H,T,F]=o.pts;
+    const [a,b]=o.pts;
     el('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:'#fff','stroke-width':o.main===false?0:o.t,'data-door':o.kind});   // своя обводка закрыта соседом — не стираем
     (o.more||[]).forEach(([c,d])=>el('line',{x1:c[0],y1:c[1],x2:d[0],y2:d[1],stroke:'#fff','stroke-width':o.t}));   // обводка соседа, наехавшего контуром
     // проём в наружной стене (`ext`, T-20261110-41): разрыв — на всю её толщину, голубая линия окна — по середине стены, как в /demo
@@ -3698,9 +3714,10 @@ function flatPlan(){
       ln(...sd(0),'#2F7FC1',0.035);
       [wa,wb].forEach(e=>ln([e[0]+nx,e[1]+ny],[e[0]-nx,e[1]-ny],'#3A3F3B',0.05));}}
     if(o.kind!=='door')return;
-    const rr=trDoorR(o), cr=(T[0]-H[0])*(F[1]-H[1])-(T[1]-H[1])*(F[0]-H[0]);
-    el('path',{d:`M ${T[0]} ${T[1]} A ${rr.toFixed(3)} ${rr.toFixed(3)} 0 0 ${cr>0?1:0} ${F[0]} ${F[1]}`,fill:'none',stroke:'#C8783C','stroke-width':0.035,'data-arc':'1'});
-    el('line',{x1:H[0],y1:H[1],x2:T[0],y2:T[1],stroke:'#C8783C','stroke-width':0.05,'data-arc':'1'});
+    trLeaves(o).forEach(([H,T,F])=>{   // створка: дуга и полотно (у двустворчатой — две, T-20261112-48/2)
+      const rr=Math.hypot(T[0]-H[0],T[1]-H[1]), cr=(T[0]-H[0])*(F[1]-H[1])-(T[1]-H[1])*(F[0]-H[0]);
+      el('path',{d:`M ${T[0]} ${T[1]} A ${rr.toFixed(3)} ${rr.toFixed(3)} 0 0 ${cr>0?1:0} ${F[0]} ${F[1]}`,fill:'none',stroke:'#C8783C','stroke-width':0.035,'data-arc':'1'});
+      el('line',{x1:H[0],y1:H[1],x2:T[0],y2:T[1],stroke:'#C8783C','stroke-width':0.05,'data-arc':'1'});});
   });
   LB.forEach(l=>{el('text',{x:l.x,y:l.y,'font-size':0.36,fill:'#5C655E','font-weight':'600'}).textContent=l.t;});
   if(TRO_ON){const wr=document.createElement('div'); wr.className='tr-op-wrap'; wr.appendChild(svg); box.appendChild(wr); svg.setAttribute('data-tr-op-svg','1');
