@@ -41,7 +41,8 @@ export function MeshCheckReviewer({ children }: { children: ReactNode }) {
   if (name === null) return null;
   if (!name) {
     return (
-      <div className="mx-auto flex max-w-sm flex-col gap-3 py-10">
+      // отступ 16 px по краям, как у основной страницы (снимок 375-who: поле прижималось к краям); ширина не больше 384 px
+      <div className="mx-auto flex w-full max-w-sm flex-col gap-3 px-4 py-10">
         <h1 className="text-lg font-semibold text-primary">Кто проверяет?</h1>
         <Input aria-label="Имя" value={draft} onChange={setDraft} placeholder="Имя" />
         <Button color="primary" onClick={save} isDisabled={!draft.trim()}>
