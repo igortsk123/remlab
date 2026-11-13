@@ -12086,6 +12086,11 @@ function liveWire(){
   // осмотр, короткий тап в крайних 20 % ширины = поворот на 30°, по окну = подойти, по предмету = выбор, по полу = шаг туда с кольцом
   // в точке, где встанем, — и пальцем (T-20261112-36, владелец «да» TG 1791; прежде, demo-20 Б6, на сенсорном экране ходьбы не было)
   cv.addEventListener('pointerup',e=>{if(!p0)return; const dx=e.clientX-p0.x, dy=e.clientY-p0.y, tap=Math.hypot(dx,dy)<8; p0=null;
+    // ТАП ПАЛЬЦЕМ НЕ НАЖИМАЕТ ТО, ЧТО ПОЯВИЛОСЬ ПОД НИМ (T-20261112-111/3): выбор — здесь, на pointerup, карточка над предметом встаёт сразу
+    // (`vwSelect` → `vwPins`), а click после касания браузер отдаёт тому, что теперь под пальцем, — тап по торшеру нажимал «Заменить» его
+    // карточки и открывал выбор торшера. Ближайший click после тапа по сцене (≤500 мс), попавший не в сцену, гасим; мышь не трогаем
+    if(tap&&e.pointerType!=='mouse'){const kill=ev=>{if(ev.target!==cv){ev.stopPropagation(); ev.preventDefault();}};
+      document.addEventListener('click',kill,{capture:true,once:true}); setTimeout(()=>document.removeEventListener('click',kill,{capture:true}),500);}
     if(!LIVE.scene)return;
     if(VW.mode==='photo'){
       if(tap){const i=LIVE.scene.pick(e.clientX,e.clientY); if(i>=0)vwHighlight(i); else vwSelect(null);}
