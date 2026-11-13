@@ -9,7 +9,7 @@
     замена, копирование, `>` в shell — по имени файла или по переменной с ним), но не назван в `generator`/`writers` записи;
   • писатель файла с печатью, который не ставит печать (не импортирует conveyor_seal);
   • устаревший реестр: генератора/писателя/публикатора нет в репо, ночного шага нет в `refresh_daily.sh`.
-Тесты и фикстуры (`tests/`, `test_*.py`, `tests_*.py`) не считаются писателями. Это не граница безопасности (обфускацию не
+Тесты и фикстуры (`tests/`, `test_*.py`, `tests_*.py`, `*_test.py`, `*.test.mjs`) не считаются писателями. Это не граница безопасности (обфускацию не
 поймать) — граница будет на шаге 7 (права пользователя конвейера); здесь — чтобы обход не прошёл незамеченным в коммите.
 
     python3 tools/ops/conveyor_check.py              # проверка (CI scout-selftest; prepush — всегда)
@@ -29,7 +29,7 @@ import conveyor_seal as SEAL  # noqa: E402
 MANIFEST = 'tools/ops/conveyor-manifest.yml'
 CODE_DIRS = ('tools/', 'services/', 'lib/', 'scripts/', 'app/', 'infra/')
 CODE_EXT = ('.py', '.sh', '.mjs', '.cjs', '.js', '.ts')
-NOT_WRITER = re.compile(r'(^|/)(tests?|fixtures|__tests__)/|(^|/)tests?_[^/]*\.py$|\.test\.ts$|(^|/)node_modules/|selftest[^/]*$')
+NOT_WRITER = re.compile(r'(^|/)(tests?|fixtures|__tests__)/|(^|/)tests?_[^/]*\.py$|_test\.py$|\.test\.(ts|mjs|cjs|js)$|(^|/)node_modules/|selftest[^/]*$')
 SELFTEST = re.compile(r'selftest|self_test', re.I)
 # операция записи: куда пишут — последний аргумент (замена/копия) или первый (открытие)
 W_OPEN = re.compile(r'''open\(\s*([^,()]+(?:\([^()]*\))?[^,()]*)\s*,\s*['"](?:w|wb|a|ab|w\+|x)['"]''')
@@ -115,26 +115,29 @@ def writers(root: str, lit: str, files=None) -> dict:
             src = open(os.path.join(root, f), encoding='utf-8', errors='replace').read()
         except OSError:
             continue
-        if lit not in src:
-            continue
-        ext = os.path.splitext(f)[1]
-        names = _names(src, lit, ext)
-        hits, top = [], ''
-        for i, ln in enumerate(src.split('\n'), 1):
-            d = re.match(r'(?:async\s+)?(?:def|function|class)\s+(\w+)', ln)   # функция верхнего уровня (столбец 0)
-            if d:
-                top = d.group(1)
-            if SELFTEST.search(top):
-                continue   # самопроверка модуля пишет во временную папку
-            code = ln.split('#', 1)[0] if ext in ('.py', '.sh') else re.sub(r'//.*$', '', ln)
-            live = {n for n, since in names.items() if since <= i}
-            for t in _targets(code, ext):
-                if _is_ref(t, live, lit):
-                    hits.append(i)
-                    break
+        hits = code_writes(src, lit, os.path.splitext(f)[1])
         if hits:
             out[f] = hits
     return out
+
+
+def code_writes(src: str, lit: str, ext: str) -> list:
+    """Строки кода `src`, которые пишут в файл `lit` (общее правило CI и хука guard_conveyor.py: `python -c`, heredoc)."""
+    if lit not in src:
+        return []
+    names = _names(src, lit, ext)
+    hits, top = [], ''
+    for i, ln in enumerate(src.split('\n'), 1):
+        d = re.match(r'(?:async\s+)?(?:def|function|class)\s+(\w+)', ln)   # функция верхнего уровня (столбец 0)
+        if d:
+            top = d.group(1)
+        if SELFTEST.search(top):
+            continue   # самопроверка модуля пишет во временную папку
+        code = ln.split('#', 1)[0] if ext in ('.py', '.sh') else re.sub(r'//.*$', '', ln)
+        live = {n for n, since in names.items() if since <= i}
+        if any(_is_ref(t, live, lit) for t in _targets(code, ext)):
+            hits.append(i)
+    return hits
 
 
 def allowed_of(e: dict) -> set:
@@ -190,6 +193,17 @@ def check(root: str, m: dict = None, files=None) -> list:
                     src = open(os.path.join(root, w), encoding='utf-8', errors='replace').read() if ex(w) else ''
                     if src and 'conveyor_seal' not in src and 'conveyor-seal' not in src:
                         fails.append(f'{p}: писатель {w} не ставит печать (нет conveyor_seal)')
+    for g in m.get('force_guard') or []:   # обходы, которые держит хук: устаревший реестр = дыра в хуке
+        p = g.get('path', '?')
+        if not ex(p):
+            fails.append(f'force_guard {p}: файла нет в репо — реестр устарел')
+            continue
+        src = open(os.path.join(root, p), encoding='utf-8', errors='replace').read()
+        for f in g.get('flags') or []:
+            if f not in src:
+                fails.append(f'force_guard {p}: флага {f} в файле нет — реестр устарел')
+        if not g.get('flags') or not str(g.get('why') or '').strip():
+            fails.append(f'force_guard {p}: нужны flags и why')
     return fails
 
 
@@ -263,6 +277,11 @@ def _selftest() -> int:
         ok('команды пересборки нет в ci.yml — FAIL', any('нет в ci.yml' in x for x in check(d, m, files)))
         m['live'][0]['step'] = 'night_zz'
         ok('ночного шага нет — FAIL', any('night_zz' in x for x in check(d, m, files)))
+        put('tools/x/promo.py', "if '--force' in argv: go()\n")
+        m['force_guard'] = [{'path': 'tools/x/promo.py', 'flags': ['--force', '--no-exam'], 'why': 'проба'}]
+        ok('обход: флага в файле нет — FAIL', any('--no-exam' in x and 'promo.py' in x for x in check(d, m, files)))
+        m['force_guard'] = [{'path': 'tools/x/promo.py', 'flags': ['--force'], 'why': 'проба'}]
+        ok('обход: файл и флаг есть — без FAIL', not any('force_guard' in x for x in check(d, m, files)))
     print('FAILS', fails)
     return 1 if fails else 0
 

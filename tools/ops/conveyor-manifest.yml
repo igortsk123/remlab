@@ -68,3 +68,26 @@ live:
     writers:
       - path: lib/trial/tour-bundle.ts
         why: свой файл тура (<папка тура>/demo-data.json) — пересобирается выпуском тура, не витрина
+
+# force_guard — обходы конвейера: флаг снимает выключатель/экзамен/суточную метку. Агенту — только с разовым разрешением
+# директора по слову владельца в TG (хук tools/hooks/guard_conveyor.py; инцидент 12.11 — спальня продвинута --force при
+# promote_enabled=false, otchety-direktoru.md:160). Проверка реестра сверяет: файл есть, флаг в нём есть.
+force_guard:
+  - path: tools/scout/bank_prepare.py
+    flags: [--force]
+    why: собирает кандидата банка при выключенном prepare_enabled (rules/bank-candidate.json)
+  - path: tools/scout/bank_pending.py
+    flags: [--force]
+    why: копит кандидатов спальни/прихожей при выключенном prepare_enabled
+  - path: tools/scout/bank_promote.py
+    flags: [--force, --force-ready, --no-exam]
+    why: продвигает банк при выключенном promote_enabled, без готовности или без экзамена
+  - path: tools/scout/bank_refresh.py
+    flags: [--force]
+    why: пишет живой банк при выключенном write_enabled
+  - path: tools/scout/refresh_daily.sh
+    flags: [--force]
+    why: второй прогон ночи за сутки — внахлёст с кроном (две загрузки фидов в одну БД)
+  - path: tools/ops/demo-realistic.mjs
+    flags: [--force]
+    why: платная пересъёмка фото витрины мимо кэша
