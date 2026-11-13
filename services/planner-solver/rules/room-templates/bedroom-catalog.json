@@ -560,7 +560,7 @@
        },
        "fit": {
         "kind": "surface_fit",
-        "rule_ref": "distances_cm.dependents.surface_decor"
+        "rule_ref": "distances_cm.dependents.table_lamp_on_surface"
        },
        "symmetry": "pair",
        "_why": "локальный свет у каждого рабочего бока кровати — по лампе на каждую тумбу (Codex §1 «Свет»)",
@@ -656,7 +656,7 @@
        },
        "fit": {
         "kind": "surface_fit",
-        "rule_ref": "distances_cm.dependents.surface_decor"
+        "rule_ref": "distances_cm.dependents.table_lamp_on_surface"
        },
        "symmetry": "pair",
        "_why": "локальный свет у каждого рабочего бока кровати — по лампе на каждую тумбу (Codex §1 «Свет»)",
@@ -678,7 +678,7 @@
        },
        "fit": {
         "kind": "surface_fit",
-        "rule_ref": "distances_cm.dependents.surface_decor"
+        "rule_ref": "distances_cm.dependents.table_lamp_on_surface"
        },
        "_why": "локальный свет стола; правше свет слева (Роспотребнадзор, external: Codex §1)",
        "on_failure": "leave_empty"
@@ -747,7 +747,7 @@
        },
        "fit": {
         "kind": "surface_fit",
-        "rule_ref": "distances_cm.dependents.surface_decor"
+        "rule_ref": "distances_cm.dependents.table_lamp_on_surface"
        },
        "_why": "локальный свет стола; правше свет слева (Роспотребнадзор, external: Codex §1)",
        "on_failure": "leave_empty"
@@ -794,7 +794,7 @@
        },
        "fit": {
         "kind": "surface_fit",
-        "rule_ref": "distances_cm.dependents.surface_decor"
+        "rule_ref": "distances_cm.dependents.table_lamp_on_surface"
        },
        "_why": "локальный свет стола; правше свет слева (Роспотребнадзор, external: Codex §1)",
        "on_failure": "leave_empty"
@@ -841,7 +841,7 @@
        },
        "fit": {
         "kind": "surface_fit",
-        "rule_ref": "distances_cm.dependents.surface_decor"
+        "rule_ref": "distances_cm.dependents.table_lamp_on_surface"
        },
        "_why": "детская 0–3: ночник на комоде, не над кроваткой",
        "on_failure": "leave_empty"
@@ -913,17 +913,18 @@
         "slot_ref": "sleep.bed"
        },
        "anchor": {
-        "kind": "item_surface",
-        "surface": "top"
+        "kind": "item_edge",
+        "surface": "foot"
        },
        "cardinality": {
         "kind": "fixed",
         "count": 1
        },
        "placement": {
-        "kind": "drape"
+        "kind": "drape",
+        "rule_ref": "distances_cm.dependents.bed_throw"
        },
-       "_why": "плед в изножье на кровати",
+       "_why": "покрывало/плед сложенной дорожкой поперёк изножья, на матрасе (норма bed_throw; T-20261113-22, владелец TG 1623 «всё видно»); не встал — пусто, состав не теряется",
        "on_failure": "leave_empty"
       }
      ],

@@ -49,15 +49,17 @@ def carrier_objs(objs: list, mapping: dict) -> list:
     return out
 
 
-def variant_carriers(objs: list, mapping: dict) -> list:
+def variant_carriers(objs: list, mapping: dict, caps=None) -> list:
     """Предметы варианта витрины (`role, x, y, rot, w, d, h`, см, центр, оси комнаты; `sku.name` — для «подвесной») → носители для
-    решателя: `Placement` с `slot_instance_id` «<место паспорта>#n» (`carrier_objs`). Роли вне `mapping` не берём."""
+    решателя: `Placement` с `slot_instance_id` «<место паспорта>#n» (`carrier_objs`). Роли вне `mapping` не берём.
+    `caps(o)` → замеры поверхностей предмета (`{'foot_h_cm': …}` — верх матраса у изножья по мешу) или None."""
     out = []
     for sid, o in carrier_objs(objs, mapping):
         b = base_role(o['role'])
         out.append(Placement(role=b, x=float(o['x']), y=float(o['y']), rot=float(o.get('rot') or 0),
                              item=Item(role=b, w_cm=float(o['w']), d_cm=float(o['d']),
-                                       h_cm=float(o['h']) if o.get('h') else None, name=(o.get('sku') or {}).get('name')),
+                                       h_cm=float(o['h']) if o.get('h') else None, name=(o.get('sku') or {}).get('name'),
+                                       caps=(caps(o) if caps else None) or {}),
                              slot_instance_id=sid))
     return out
 
@@ -102,6 +104,18 @@ LAMP_STRATEGY = 'carrier_surface'
 LAMP_PLACE = ('light', 'dresser_lamp')          # группа и вариант паспорта гостиной: комод + лампа на нём
 LAMP_CARRIERS = {'комод': 'light.dresser'}      # роль предмета варианта → место-носитель паспорта
 LAMP_DEP = 'light.lamp'                         # зависимое место лампы
+# ЗАВИСИМЫЙ ДЕКОР ПО ТИПУ КОМНАТЫ (T-20261113-22, владелец TG 1623 «всё видно»): паспорт, носители (роль предмета варианта → место
+# паспорта), место лампы (группа, вариант, id) и роль её носителя. Спальня — каталог шаблонов `bedroom-catalog.json`: лампа на КАЖДОЙ
+# тумбе (`light.bedside`, symmetry pair — не больше ламп набора), покрывало в ногах кровати и шторы (`textile_abstract.ROOM_ROLES`)
+ROOM_DEPS = {
+    'living': {'doc': 'living', 'carriers': LAMP_CARRIERS, 'lamp': LAMP_PLACE + (LAMP_DEP,), 'lamp_carrier': 'комод'},
+    'bedroom': {'doc': 'bedroom-catalog', 'carriers': {'тумба прикроватная': 'sleep.ns', 'кровать': 'sleep.bed'},
+                'lamp': ('light', 'bedside', 'light.lamp'), 'lamp_carrier': 'тумба прикроватная'},
+}
+FRONT_BAND = (0.08, 0.30)       # верх у изножья: полоса глубины от лица кровати внутрь (мимо спинки-изножья и изголовья)
+FRONT_WIDTH = (0.20, 0.80)      # и полоса ширины по центру — мимо боковых спинок и царг (кровать-софа «Кейси» — спинки вдоль всей длины)
+FRONT_TOP_PCT = 100             # верх матраса — плоскость из немногих вершин: перцентиль ниже 100 её недобирает (замер 13.11:
+                                # «Силини» матрас 0,54 высоты, p95 — 0,39 → покрывало уходило в матрас); выбросы снимает полоса
 FIT_REF = 'distances_cm.dependents.table_lamp_on_surface'
 BASE_SLICE = 0.03                               # основание лампы — нижние 3 % высоты модели (замер банка 13.11: 10–34 см, сотни вершин)
 BASE_MIN_VERTS = 50                             # меньше вершин в срезе — основанию не верим, опора = весь габарит
@@ -141,6 +155,27 @@ def mesh_base_units(verts) -> tuple | None:
     return float(np.ptp(sl[:, 0])), float(np.ptp(sl[:, 2]))
 
 
+def mesh_front_top(verts) -> float | None:
+    """Верх предмета у ЛИЦА (кровать — матрас у изножья) долей высоты модели: вершины в канонической ориентации (x — ширина, y — высота,
+    z — глубина, лицо +Z, `scene_mesh.py`); полоса `FRONT_BAND` глубины от лица внутрь × `FRONT_WIDTH` ширины по центру, перцентиль
+    `FRONT_TOP_PCT`. Мало вершин — None."""
+    import numpy as np
+    v = np.asarray(verts, dtype=float)
+    if v.ndim != 2 or len(v) < BASE_MIN_VERTS:
+        return None
+    zlo, zhi = v[:, 2].min(), v[:, 2].max()
+    ylo, yhi = v[:, 1].min(), v[:, 1].max()
+    if zhi - zlo <= 1e-6 or yhi - ylo <= 1e-6:
+        return None
+    xlo, xhi = v[:, 0].min(), v[:, 0].max()
+    a, b = zhi - FRONT_BAND[1] * (zhi - zlo), zhi - FRONT_BAND[0] * (zhi - zlo)
+    l, r = xlo + FRONT_WIDTH[0] * (xhi - xlo), xlo + FRONT_WIDTH[1] * (xhi - xlo)
+    band = v[(v[:, 2] >= a) & (v[:, 2] <= b) & (v[:, 0] >= l) & (v[:, 0] <= r)]
+    if len(band) < BASE_MIN_VERTS:
+        return None
+    return float((np.percentile(band[:, 1], FRONT_TOP_PCT) - ylo) / (yhi - ylo))
+
+
 def base_cm(it: dict, ext, units) -> tuple:
     """Основание в см тем же масштабом, что габарит лампы по мешу (`mesh_dims`): бо́льшая сторона плана меша = max(Ш, Г) карточки;
     не больше габарита карточки. Нет меша или среза — (None, None): опора = весь габарит."""
@@ -169,17 +204,20 @@ def lamp_score(item: Item, car: dict | None) -> float:
     return round(pen, 4)
 
 
-def lamp_solve(objs: list, room_wd: tuple, item: Item | None):
-    """Место лампы решателем паспорта на комоде варианта → `dependents.Result` (место `light.lamp#0` на `light.dresser#0`)."""
-    places = RT._variant_places(RT.load('living'), *LAMP_PLACE)
+def lamp_solve(objs: list, room_wd: tuple, item: Item | None, room_type: str = 'living', n: int = 1):
+    """Место лампы решателем паспорта на носителях варианта → `dependents.Result`: гостиная — `light.lamp#0` на `light.dresser#0`,
+    спальня — по лампе на каждую тумбу (`light.lamp#k` на `sleep.ns#k`), не больше `n` ламп набора."""
+    cfg = ROOM_DEPS[room_type]
+    g, v, pid = cfg['lamp']
+    places = [p for p in RT._variant_places(RT.load(cfg['doc']), g, v) if p['kind'] != 'dependent' or p['id'] == pid]
     room = Room(width_cm=float(room_wd[0]), depth_cm=float(room_wd[1]), ceiling_cm=DEFAULT_CEILING_CM)
-    return DEP.resolve(places, variant_carriers(objs, LAMP_CARRIERS), room, items={LAMP_DEP: item} if item else {})
+    return DEP.resolve(places, variant_carriers(objs, cfg['carriers']), room, items={pid: item} if item else {}, counts={pid: n})
 
 
-def carrier_lift_cm(objs: list, parent: str) -> float:
+def carrier_lift_cm(objs: list, parent: str, room_type: str = 'living') -> float:
     """Подъём подвесного носителя над полом (`draft_render.hung_lift_cm` ↔ `scene-extras.ts:hungLiftCm`): верх комода — низ + корпус."""
     import draft_render as DR
-    o = dict(carrier_objs(objs, LAMP_CARRIERS)).get(parent)
+    o = dict(carrier_objs(objs, ROOM_DEPS[room_type]['carriers'])).get(parent)
     if o is None or o.get('elev'):
         return float((o or {}).get('elev') or 0)
     sku = o.get('sku') or {}
@@ -198,13 +236,22 @@ def mesh_dims(ext, plan_cm: float) -> dict | None:
 
 
 def lamp_pick(sets: list, idx: int, objs: list, room_wd: tuple, model, base=None) -> tuple:
+    """Лампа на комоде гостиной → (товар, место, журнал) — `lamp_pick_all` с одним местом."""
+    it, pls, why = lamp_pick_all(sets, idx, objs, room_wd, model, base)
+    return it, (pls[0] if pls else None), why
+
+
+def lamp_pick_all(sets: list, idx: int, objs: list, room_wd: tuple, model, base=None, room_type: str = 'living',
+                  n: int = 1) -> tuple:
     """→ (товар банка, место решателя `Placement`, журнал отказов). `model(it)` → (габариты меша или иное «да», или None; причина отказа);
     `base(it)` → основание по модели в единицах меша (`mesh_base_units`) или None. ВСЕ лампы стиля (набор, затем банк того же стиля):
     без ширины и глубины, без модели или не влезает на комод (`FIT_FAIL`) — мимо; из годных — лучшая по пропорции к комоду
     (`lamp_score`), при равенстве — своя лампа набора, затем по артикулу. Отказ по комнате (комода нет) — (None, None, журнал).
     Высоты нет в карточке (у трети ламп банка) — по мешу тем же масштабом, что у люстры (`mesh_dims`); тогда товар — копия с этой высотой."""
     why, ok = [], []
-    car = dict(carrier_objs(objs, LAMP_CARRIERS)).get(f'{LAMP_CARRIERS["комод"]}#0')
+    cfg = ROOM_DEPS[room_type]
+    pid = cfg['lamp'][2]
+    car = dict(carrier_objs(objs, cfg['carriers'])).get(f"{cfg['carriers'][cfg['lamp_carrier']]}#0")
     for j, role, it in candidates(sets, idx, is_lamp):
         name = it.get('name') or role
         if not (it.get('w') and it.get('d')):
@@ -222,25 +269,29 @@ def lamp_pick(sets: list, idx: int, objs: list, room_wd: tuple, model, base=None
             it = {**it, 'h': h}
         bw, bd = base_cm(it, ext, base(it) if base else None)
         item = Item(role=LAMP_ROLE, w_cm=float(it['w']), d_cm=float(it['d']), h_cm=float(it['h']), base_w_cm=bw, base_d_cm=bd)
-        res = lamp_solve(objs, room_wd, item)
+        res = lamp_solve(objs, room_wd, item, room_type, n)
         if not res.ok:
             why.append(f"{name}: решатель {res.reject['code']} — {res.reject['message']}")
             if res.reject['code'] == FIT_FAIL:
                 continue
             return None, None, why
-        (pl,) = [p for p in res.placements if p.slot_instance_id.startswith(f'{LAMP_DEP}#')]
-        ok.append((lamp_score(item, car), j != idx, f"{it['mid']}_{it['eid']}", it, pl))
+        pls = sorted((p for p in res.placements if p.slot_instance_id.startswith(f'{pid}#')),
+                     key=lambda p: int(p.slot_instance_id.split('#')[1]))
+        if not pls:
+            why.append(f'{name}: решатель не дал места')
+            return None, None, why
+        ok.append((lamp_score(item, car), j != idx, f"{it['mid']}_{it['eid']}", it, pls))
     if not ok:
         return None, None, why
     best = min(ok, key=lambda t: t[:3])
     return best[3], best[4], why
 
 
-def lamp_row(pl: Placement, objs: list, sku: dict) -> dict:
+def lamp_row(pl: Placement, objs: list, sku: dict, room_type: str = 'living', role: str = LAMP_ROLE) -> dict:
     """Строка декора лампы: место решателя + носитель (роль и номер среди предметов роли), норма лампы и её опора для пересчёта сценой;
-    низ — верх комода с подъёмом подвесного (`carrier_lift_cm`)."""
+    низ — верх носителя с подъёмом подвесного (`carrier_lift_cm`). `role` — роль строки набора («лампа 2» — вторая тумба)."""
     parent = pl.parent_slot_instance_id
-    place = place_of(pl, round(pl.elev_cm + carrier_lift_cm(objs, parent), 2))
-    place['carrier'] = {'role': 'комод', 'ordinal': int(parent.split('#')[1])}
+    place = place_of(pl, round(pl.elev_cm + carrier_lift_cm(objs, parent, room_type), 2))
+    place['carrier'] = {'role': ROOM_DEPS[room_type]['lamp_carrier'], 'ordinal': int(parent.split('#')[1])}
     place['fit'] = surface_fit(pl.item)
-    return {'role': LAMP_ROLE, 'strategy': LAMP_STRATEGY, 'place': place, 'sku': sku}
+    return {'role': role, 'strategy': LAMP_STRATEGY, 'place': place, 'sku': sku}

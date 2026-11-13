@@ -138,9 +138,10 @@ def test_server_frame_keeps_vases_lamp_goes_to_rest():
     assert [r['role'] for r in rest] == ['лампа']
 
 
-def test_bedroom_lamp_stays_list_only():
+def test_bedroom_lamp_is_dependent_decor():
+    """T-20261113-22 (владелец TG 1623 «всё видно»): лампа спальни — не «только в списке», а зависимый декор на тумбе."""
     import demo_bedroom as DB
-    assert DB.LIST_ROLES == ('лампа',)
+    assert DB.LIST_ROLES == () and DB.DEP_ROLES == ('лампа',) and DB.SPEC.dep_roles == ('лампа',)
 
 
 # ───── T-20261113-12: лампа по размеру комода — основание по модели, лучшая по пропорции ─────
@@ -186,3 +187,16 @@ def test_proportional_lamp_beats_first_in_bank():
     assert it['eid'] == '2'                    # равенство — своя набора
     it, _pl, _why = DD.lamp_pick(other + sets_with(good), 0, [DRESSER_42], ROOM, ext, lambda x: (10.0, 10.0))
     assert it['eid'] == '3'
+
+
+def test_bed_foot_top_is_mattress_not_side_backs_or_dense_base():
+    """Верх у изножья (T-20261113-22): матрас — плоскость из немногих вершин над густым основанием; боковые спинки кровати-софы идут
+    вдоль всей длины. Замер берёт центр ширины и верх полосы — матрас, а не спинки (1,0) и не основание (0,3)."""
+    import numpy as np
+    rng = np.random.default_rng(1)
+    n = 4000
+    base = np.c_[rng.uniform(-1, 1, n), rng.uniform(0, 0.3, n), rng.uniform(-1, 1, n)]           # густое основание до 0,3
+    top = np.c_[rng.uniform(-0.8, 0.8, 120), np.full(120, 0.5), rng.uniform(-1, 1, 120)]       # редкий верх матраса 0,5
+    sides = np.c_[np.repeat([-0.98, 0.98], 600), rng.uniform(0, 1, 1200), rng.uniform(-1, 1, 1200)]   # спинки по бокам до 1,0
+    v = np.vstack([base, top, sides])
+    assert abs(DD.mesh_front_top(v) - 0.5) < 0.02

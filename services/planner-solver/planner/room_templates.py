@@ -73,7 +73,7 @@ KINDS = {
 }
 # места на носителе — один набор на все комнаты (Codex carriers-answer § «Общий формат носителей»)
 ANCHOR_KINDS = {"item_surface", "item_edge", "wall_above", "ceiling_over", "opening", "free_floor_region"}
-SURFACES = {"seat", "top", "arm", "back", "arm_or_back", "front", "wall"}
+SURFACES = {"seat", "top", "arm", "back", "arm_or_back", "front", "wall", "foot"}
 SUPPORTS = {"window", "bay", "wall", "floor", "ceiling"}
 CARDINALITY = {"fixed", "by_carrier_width"}
 SYMMETRY = {"none", "balanced", "centered", "pair"}

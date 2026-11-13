@@ -463,6 +463,7 @@ def chandelier_decor(sets: list, idx: int, tag: str, objs: list, room_wd: tuple)
 
 _MESH_EXT_CACHE: dict = {}
 _MESH_BASE_CACHE: dict = {}     # sid → основание модели (Ш, Г в единицах меша) или None — `_mesh_base`
+_MESH_FRONT_CACHE: dict = {}    # sid → верх у лица долей высоты модели (кровать — матрас у изножья) или None — `_mesh_front`
 
 
 def _mesh_extents(sid: str | None):
@@ -496,6 +497,7 @@ def _mesh_extents(sid: str | None):
             ext = (float(e[0]), float(e[1]), float(e[2]))
             import dependent_decor as DD
             _MESH_BASE_CACHE[sid] = DD.mesh_base_units(v3)     # основание по нижнему срезу — для лампы на комоде (T-20261113-12)
+            _MESH_FRONT_CACHE[sid] = DD.mesh_front_top(v3)     # верх у лица — покрывало в ногах кровати (T-20261113-22)
         except Exception:  # noqa: BLE001 — битый меш не должен ронять сборку демо
             ext = None
     _MESH_EXT_CACHE[sid] = ext
@@ -507,6 +509,61 @@ def _mesh_base(sid: str | None):
     if sid and sid not in _MESH_EXT_CACHE:
         _mesh_extents(sid)
     return _MESH_BASE_CACHE.get(sid)
+
+
+def _mesh_front(sid: str | None):
+    """Верх модели у лица долей её высоты (`dependent_decor.mesh_front_top`) или None; читается вместе с габаритом."""
+    if sid and sid not in _MESH_EXT_CACHE:
+        _mesh_extents(sid)
+    return _MESH_FRONT_CACHE.get(sid)
+
+
+def carrier_caps(o: dict) -> dict | None:
+    """Замеры поверхностей предмета варианта для решателя зависимых: у кровати — верх матраса у изножья (`foot_h_cm`) = доля высоты
+    модели у лица × высота предмета (сцена тянет модель по Ш×В×Г предмета). Замер выше нормы `heights_cm.bed_top` (лицом к нам
+    изголовье — разворот модели не тот) или нет модели — None: решатель берёт норму."""
+    import dependent_decor as DD
+    if DD.base_role(o.get('role')) != 'кровать' or not o.get('h'):
+        return None
+    frac = _mesh_front((o.get('sku') or {}).get('msid'))
+    if frac is None:
+        return None
+    top = DD.RT.norm_value('heights_cm.bed_top')
+    h = round(frac * float(o['h']), 1)
+    return {'foot_h_cm': h} if top is not DD.RT._MISSING and 0 < h <= max(top) else None
+
+
+def room_dependent_decor(room_type: str, v: dict, geo: dict, bank: list, rec: dict) -> None:
+    """ЗАВИСИМЫЙ ДЕКОР КОМНАТЫ КРОМЕ ГОСТИНОЙ (T-20261113-22, владелец TG 1619/1623 «всё видно: предметы мешами, шторы — абстракцией»):
+    по паспорту типа (`dependent_decor.ROOM_DEPS`; нет типа — ничего). ЛАМПЫ — на тумбах по размеру (`lamp_pick_all`: лампа набора, иначе
+    лучшая лампа того же стиля банка с годной моделью, влезающая на ВСЕ тумбы; по лампе на тумбу, не больше ламп набора). Ни одна не
+    встала (нет тумбы, модели, не влезает) — строки ламп СНЯТЫ из набора и цены: «ничего в цене без 3D» (ADR-0402). ТКАНИ — условно
+    цветом товара: шторы у окна, покрывало в ногах кровати (`textile_abstract.annotate`)."""
+    import dependent_decor as DD
+    import textile_abstract as TX
+    if room_type not in DD.ROOM_DEPS or room_type == 'living':
+        return
+    tag = v.get('id') or rec.get('room_id')
+    rows = [d for d in v.get('decor') or [] if DD.is_lamp(d.get('role'))]
+    if rows:
+        sets = [rec] + [b for b in bank if b is not rec]
+        it, pls, why = DD.lamp_pick_all(sets, 0, v['items'], (geo['w'], geo['d']), decor_model, decor_base, room_type, len(rows))
+        keep = []
+        if it:
+            sk = _sku({DD.LAMP_ROLE: it}, DD.LAMP_ROLE)
+            for row, pl in zip(rows, pls):
+                keep.append(DD.lamp_row(pl, v['items'], sk, room_type, row.get('role') or DD.LAMP_ROLE))
+            own = (rows[0].get('sku') or {}).get('sid')
+            swap = '' if sk.get('sid') == own else f" (вместо «{(rows[0].get('sku') or {}).get('name')}»: {'; '.join(why)})"
+            print(f"  лампа {tag}: «{it.get('name')}» × {len(keep)} на " + ', '.join(p.parent_slot_instance_id for p in pls) + swap,
+                  flush=True)
+        dropped = rows[len(keep):]
+        if dropped:
+            print(f"WARN:lamp: {tag} — {len(dropped)} из {len(rows)} ламп сняты из набора и цены (в 3D им места нет): "
+                  f"{'; '.join(why) or 'тумб меньше, чем ламп'}", flush=True)
+        placed = {id(r): k for r, k in zip(rows, keep)}         # строка набора → её лампа на тумбе; лишние строки — прочь
+        v['decor'] = [placed.get(id(d), d) for d in v['decor'] if not DD.is_lamp(d.get('role')) or id(d) in placed]
+    TX.annotate(v['decor'], v['items'], geo, tag, demo_ceiling(), decor_sku_model, room_type, carrier_caps)
 
 
 def decor_base(it: dict):
@@ -1723,6 +1780,7 @@ def room_variants(room_type: str, apt: dict, flags: dict, variants: list, feeds:
                   'не публикуем', flush=True)
             incomplete.append(why)
             continue
+        room_dependent_decor(room_type, v, geos[rec['room_id']], bank, rec)
         if not gate:
             for it in v['items']:
                 if (w := no_mesh(it['role'], it.get('sku'))):

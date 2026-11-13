@@ -292,7 +292,7 @@ def run(data: dict, rt_dir: str, data_dir: str, thr: float = SC.OVERLAP_CM, rule
         models: dict[str, str] = {}
         import asset_strategy as _AS
         soft = _AS.soft_roles()          # мягкое (demo-24) — без модели по канону: проверять у него текстуры нечего
-        # декор «только в списке» (`list_only`, лампы спальни — demo_bedroom.LIST_ROLES) в 3D не ставится — модель и копия не нужны
+        # декор «только в списке» (`list_only`, `demo_room.Showcase.list_roles`) в 3D не ставится — модель и копия не нужны
         for it in list(items) + [x for x in v.get('decor') or []
                                  if SC._base(x.get('role', '')) not in soft and not x.get('list_only')]:
             m = model_id(it.get('sku'))

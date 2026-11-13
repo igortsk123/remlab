@@ -32,6 +32,13 @@ STRATEGY = 'textile_abstract'
 ROLES = {'шторы': ('textile', 'curtains', 'textile.curtains'), 'плед': ('soft', 'pillows_throw', 'soft.throw'),
          'подушка': ('soft', 'pillows_throw', 'soft.pillows')}
 PILLOW = 'подушка'
+# СПАЛЬНЯ (T-20261113-22, владелец TG 1623 «шторы можно абстракцией, как сейчас»): паспорт — каталог шаблонов спальни, шторы — на окне
+# (`textile.curtains`), покрывало/плед — сложенной дорожкой в ногах кровати (`textile.throw`, крепление «foot», норма `bed_throw`).
+# Носители — кровать и тумбы варианта (`dependent_decor.ROOM_DEPS`). Подушек в наборах спальни нет.
+ROOM_ROLES = {
+    'living': ('living', ROLES),
+    'bedroom': ('bedroom-catalog', {'шторы': ('textile', 'curtains', 'textile.curtains'), 'плед': ('textile', 'bed', 'textile.throw')}),
+}
 PILLOW_DEF_CM = (45.0, 45.0, 12.0)      # подушка без размеров в карточке: лицо 45×45, толщина 12 (типовая диванная)
 NEUTRAL = '#d8c4a6'                     # прежний общий цвет штор сцены (`window-light.ts`)
 DEFAULT_CEILING_CM = 270.0              # как `contracts/apartment.ts:DEFAULT_CEILING_CM`
@@ -98,11 +105,23 @@ def to_room(geo: dict, ceiling_cm: float | None = None) -> Room:
                 or DEFAULT_CEILING_CM), openings=ops)
 
 
-def place_of(role: str, objs: list, geo: dict, sk: dict, ceiling_cm: float | None = None) -> tuple[dict | None, str | None]:
-    """Место условной ткани решателем паспорта на носителях варианта → (place, причина отказа)."""
-    import chandelier as CH                              # переходник зоны отдыха (диван → `seating.sofa#n`), T-66
-    group, variant, pid = ROLES[role]
-    places = [p for p in RT._variant_places(RT.load('living'), group, variant)
+def carriers_of(objs: list, room_type: str = 'living', caps=None) -> list:
+    """Носители варианта для решателя: гостиная — переходник зоны отдыха (`chandelier.carriers_from_variant`, T-66), иначе — роли
+    комнаты из `dependent_decor.ROOM_DEPS` (`caps(o)` — замеры поверхностей предмета, у кровати — верх матраса у изножья)."""
+    if room_type == 'living':
+        import chandelier as CH
+        return CH.carriers_from_variant(objs)
+    import dependent_decor as DD
+    return DD.variant_carriers(objs, DD.ROOM_DEPS[room_type]['carriers'], caps)
+
+
+def place_of(role: str, objs: list, geo: dict, sk: dict, ceiling_cm: float | None = None, room_type: str = 'living',
+             caps=None) -> tuple[dict | None, str | None]:
+    """Место условной ткани решателем паспорта на носителях варианта → (place, причина отказа). Плед в ногах кровати (крепление
+    «foot») — размер дорожки от решателя (`limits`: по ширине кровати, глубина по норме `bed_throw`)."""
+    doc, roles = ROOM_ROLES[room_type]
+    group, variant, pid = roles[role]
+    places = [p for p in RT._variant_places(RT.load(doc), group, variant)
               if p['kind'] != 'dependent' or p['id'] == pid]
     if role == 'шторы':
         item = Item(role=role, w_cm=float(sk.get('w') or 1), d_cm=float(sk.get('d') or sk.get('w') or 1),
@@ -110,7 +129,7 @@ def place_of(role: str, objs: list, geo: dict, sk: dict, ceiling_cm: float | Non
     else:
         item = Item(role=role, w_cm=THROW_CM['w'], d_cm=THROW_CM['d'], h_cm=THROW_CM['h'], name=sk.get('name'))
     try:
-        res = DEP.resolve(places, CH.carriers_from_variant(objs), to_room(geo, ceiling_cm), items={pid: item})
+        res = DEP.resolve(places, carriers_of(objs, room_type, caps), to_room(geo, ceiling_cm), items={pid: item})
     except Exception as e:  # noqa: BLE001 — отказ решателя не роняет сборку: строка остаётся в списке без места
         return None, f'{type(e).__name__}: {str(e)[:120]}'
     got = [p for p in res.placements if p.slot_instance_id.startswith(pid + '#')]
@@ -124,6 +143,9 @@ def place_of(role: str, objs: list, geo: dict, sk: dict, ceiling_cm: float | Non
            'slot_instance_id': p.slot_instance_id, 'parent': p.parent_slot_instance_id}
     if role == 'шторы':
         out.update(kind='curtain', opening=a.opening if a else None, wall=a.wall if a else None)
+    elif a is not None and a.surface == 'foot':
+        lim = res.limits.get(p.slot_instance_id) or {}
+        out.update(kind='throw', edge=a.edge, w=lim.get('w', THROW_CM['w']), d=lim.get('d', THROW_CM['d']), h=THROW_CM['h'])
     else:
         out.update(kind='throw', edge=a.edge if a else None, **THROW_CM)
     return out, None
@@ -209,17 +231,19 @@ def annotate_pillows(decor: list, objs: list, geo: dict, tag: str, ceiling_cm: f
     return n
 
 
-def annotate(decor: list, objs: list, geo: dict, tag: str, ceiling_cm: float | None = None, model=None) -> int:
-    """Строкам штор, пледа и подушек декора варианта гостиной — `strategy`, `place`, `look`. Возвращает, скольким дали место.
-    `model` — проверка модели подушки (`annotate_pillows`)."""
-    n = annotate_pillows(decor, objs, geo, tag, ceiling_cm, model)
+def annotate(decor: list, objs: list, geo: dict, tag: str, ceiling_cm: float | None = None, model=None,
+             room_type: str = 'living', caps=None) -> int:
+    """Строкам штор, пледа и подушек декора варианта (гостиная; спальня — шторы и покрывало, `ROOM_ROLES`) — `strategy`, `place`,
+    `look`. Возвращает, скольким дали место. `model` — проверка модели подушки (`annotate_pillows`); `caps` — замеры носителей."""
+    n = annotate_pillows(decor, objs, geo, tag, ceiling_cm, model) if room_type == 'living' else 0
+    roles = ROOM_ROLES[room_type][1]
     taken: set = set()
     for row in decor:
         role = str(row.get('role') or '').split(' ')[0]
         sk = row.get('sku') or {}
-        if role not in ROLES or role == PILLOW or not sk.get('name') or role in taken:
+        if role not in roles or role == PILLOW or not sk.get('name') or role in taken:
             continue                                       # одно место на роль: второй комплект — только в списке
-        place, why = place_of(role, objs, geo, sk, ceiling_cm)
+        place, why = place_of(role, objs, geo, sk, ceiling_cm, room_type, caps)
         if not place:
             print(f'WARN:textile: {tag} «{sk.get("name")}» — без места в 3D: {why}', flush=True)
             continue

@@ -113,9 +113,7 @@
    },
    "BANK_LIVE": "sets-bedroom.json",
    "GEO_FILE": "flat215-bedrooms.json",
-   "LIST_ROLES": [
-    "лампа"
-   ],
+   "LIST_ROLES": [],
    "MESH_FREE_ROLES": [
     "ковёр"
    ],
@@ -1442,7 +1440,6 @@
    {
     "decor": [
      {
-      "list_only": true,
       "role": "лампа",
       "sku": {
        "d": 11,
@@ -1456,7 +1453,6 @@
       }
      },
      {
-      "list_only": true,
       "role": "лампа 2",
       "sku": {
        "d": 11,
@@ -1594,7 +1590,6 @@
       }
      },
      {
-      "list_only": true,
       "role": "лампа",
       "sku": {
        "d": 11,
@@ -1608,7 +1603,6 @@
       }
      },
      {
-      "list_only": true,
       "role": "лампа 2",
       "sku": {
        "d": 11,
@@ -3174,5 +3168,5 @@
    }
   }
  },
- "rev": "509bd2f7"
+ "rev": "T-20261113-22 (лампа спальни — зависимый декор)"
 }

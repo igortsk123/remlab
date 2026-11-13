@@ -5930,6 +5930,8 @@ const DW={
   ceil:['на потолке над зоной отдыха','on the ceiling above the seating area'],
   onCarrier:['на комоде','on the chest of drawers'],
   noCarrier:['в кадр не ставим: нет комода или не влезает','not shown in 3D: no chest of drawers, or it does not fit'],
+  onNightstand:['на прикроватной тумбе','on the bedside table'],
+  noNightstand:['в кадр не ставим: нет тумбы или не влезает','not shown in 3D: no bedside table, or it does not fit'],
   wallAny:['на стене, где есть место','on the wall where there is room'],
   wallHung:['на стене, где повесили','on the wall where you hung it'],
   wallFull:['в кадр не ставим: на стене нет места','not shown in 3D: no room on the wall'],
@@ -5937,21 +5939,25 @@ const DW={
   noTop:['в кадр не ставим: не указан размер или не влезает','not shown in 3D: size not given, or it does not fit'],
   curtain:['у окна, вид условный','by the window, illustrative look'],
   throwArm:['на подлокотнике дивана, вид условный','on the sofa arm, illustrative look'],
+  throwFoot:['в ногах кровати, вид условный','at the foot of the bed, illustrative look'],
   pillowSofa:['на диване, вид условный','on the sofa, illustrative look'],
   pillowSofaMesh:['на диване','on the sofa']};
 function dwT(k){ return DW[k][LANG==='en'?1:0]; }
+// носитель лампы — роль из строки декора (`dependent_decor.lamp_row`: комод гостиной, тумба спальни, T-20261113-22) → пара подписей
+const DW_CARRIER={'комод':['onCarrier','noCarrier'],'тумба прикроватная':['onNightstand','noNightstand']};
+function dwCarrier(x,k){ const c=DW_CARRIER[baseRole(((x.place||{}).carrier||{}).role)]||DW_CARRIER['комод']; return dwT(c[k]); }
 function dwRole(r){ const b=baseRole(r); return LANG==='en'?((window.__trText&&window.__trText(b))||'item'):b; }
 // «на комоде» / «над диваном» / «на столик, по центру»: в EN — «on the chest of drawers», «above the sofa», «on the coffee table, centred»
 function dwOn(r,tail){ return LANG==='en'?'on the '+dwRole(r)+(tail?', centred':''):'на '+baseRole(r)+(tail?', по центру':''); }
 function decorWhere(x){
   // T-74; EN — здесь же (T-74/2, T-103): строку с пометкой DOM-перевод не знает, роль переводит, а хвост оставил бы русским
-  if(isCloth3d(x))return dwT(x.place.kind==='curtain'?'curtain':x.place.kind==='throw'?'throwArm':isClothAbstract(x)?'pillowSofa':'pillowSofaMesh');
+  if(isCloth3d(x))return dwT(x.place.kind==='curtain'?'curtain':x.place.kind==='throw'?(x.place.edge==='foot'?'throwFoot':'throwArm'):isClothAbstract(x)?'pillowSofa':'pillowSofaMesh');
   if(x&&isSoft(x.role))return '';                 // мягкому места в 3D нет — и подписи «куда встанет» тоже (demo-24)
   if(x&&x.strategy==='ceiling_over')return dwT('ceil');
   if(x&&x.strategy==='carrier_surface'){          // лампа на комоде (T-101): место — тот же расчёт, что строит 3D (`demo-scene.ts:carrierWhere`)
     const m=carrierWhere();
-    if(!m||!(x.role in m))return dwT('onCarrier');
-    return m[x.role]?dwOn(m[x.role]):dwT('noCarrier');
+    if(!m||!(x.role in m)||m[x.role])return dwCarrier(x,0);
+    return dwCarrier(x,1);
   }   // люстра (T-66): место считает сцена, `ceiling.ts`
   if(isWallArt(x)){                               // опора — из расчёта сцены; движок ещё не пришёл — без выдуманной опоры
     const m=artWhere();

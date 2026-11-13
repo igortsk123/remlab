@@ -47,7 +47,9 @@ sys.path.insert(0, HERE)
 SOLVER = os.path.join(HERE, '..', '..', 'services', 'planner-solver')
 
 COMPOSERS = {'bedroom': 'compose_bedroom', 'hall': 'compose_hall'}
-LIST_ONLY = {'bedroom': ('лампа',)}        # в витрине только строкой (`demo_bedroom.LIST_ROLES`, T-77/2) — модели не требуют
+# модели у банка не требуют: лампа спальни — зависимый декор (`demo_bedroom.DEP_ROLES`, T-20261113-22), лампу с моделью из ламп стиля
+# подбирает шаг сборки витрины (`dependent_decor.lamp_pick_all`); без годной — строка снята из цены
+LIST_ONLY = {'bedroom': ('лампа',)}
 SHARE_DEFAULT = 0.25
 
 

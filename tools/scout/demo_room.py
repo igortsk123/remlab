@@ -32,7 +32,8 @@ STYLE_AXES = os.path.join(HERE, 'rules', 'style-axes.json')
 class Showcase:
     """Что у витрины комнаты своё. Роли — базовые имена (без номера экземпляра «… 2»).
     solver_roles — ставит солвер (и проверяет сторож модели, запас — `role_spares`); place_roles — в сцену и план (солвер + место
-    из готовой расстановки записи, напр. ковёр); list_roles — в списке набора, не в 3D (`list_only`); нужна ли роли модель — не
+    из готовой расстановки записи, напр. ковёр); list_roles — в списке набора, не в 3D (`list_only`); dep_roles — строка декора набора,
+    место в 3D и модель даёт шаг зависимого декора (`flat215_demo.room_dependent_decor`: лампа на тумбе, T-20261113-22); нужна ли роли модель — не
     список, а стратегия ассета (`needs_mesh`); one_free_roles — «одна расстановка»: по центру места опорной; band_cm — полоса «подходящих по размеру»
     ленты: {назначение | '*': {роль: {lo, hi}}}; tier_order/purpose_order — ячейка витрины на комнату и стиль;
     solve(geo, dims, purpose) — солвер комнаты → `{роль: {x, z, rot}, '_fill_pct'[, '_reason']}`."""
@@ -41,6 +42,7 @@ class Showcase:
     place_roles: tuple
     solve: Callable
     list_roles: tuple = ()
+    dep_roles: tuple = ()
     one_free_roles: tuple = ()
     tier_order: tuple = ()
     purpose_order: tuple = ()
@@ -439,8 +441,9 @@ def distinct_items(spec: Showcase, rec: dict, items: dict, art: dict | None, sku
             t = sku({role: alt}, role)
             if not t or not t.get('sid') or t['sid'] in used or t['sid'] == s.get('sid'):
                 continue
-            # модель нужна только тому, что стоит в 3D: строка списка (`list_roles`, лампа спальни) модели не требует
-            w = mesh_ok(t) if mesh_ok is not None and needs_mesh(role) and role not in spec.list_roles else ''
+            # модель проверяет не здесь: строка списка (`list_roles`) её не требует, зависимый декор (`dep_roles`, лампа спальни) берёт
+            # лампу с моделью сам — из всех ламп стиля (`dependent_decor.lamp_pick_all`)
+            w = mesh_ok(t) if mesh_ok is not None and needs_mesh(role) and role not in spec.list_roles + spec.dep_roles else ''
             a2 = art
             if not w and role in spec.place_roles:
                 dm = dims_of({}, t, role)
@@ -548,14 +551,14 @@ def build_variant(spec: Showcase, rec: dict, geo: dict, sku, dims_of, style_id, 
                       **({'mesh': [e for e in empty if e['role'] in lost]} if empty else {}),
                       **({'orient_unresolved': len(orient)} if orient else {})}
     decor = []
-    lst = lambda r: decor_role(r) or base_role(r) in spec.list_roles   # noqa: E731
+    lst = lambda r: decor_role(r) or base_role(r) in spec.list_roles + spec.dep_roles   # noqa: E731
     for role in list(items) + [r for r in art if not r.startswith('_') and r not in items and lst(base_role(r))
                                and (base_role(r) == r or base_role(r) in pairs)]:
         if lst(role) or lst(base_role(role)):
             s = sku(items, role)
             if s:
-                # ТОЛЬКО В СПИСКЕ (T-20261106-77/2): лампа на тумбе — строка списка и запрос фото, в 3D её нет (модели у ламп нет —
-                # окно ставило бы её на тумбу пустым местом, ворота копий моделей `demo_rt` ждали её копию и стопорили публикацию)
+                # ТОЛЬКО В СПИСКЕ (`list_roles`): строка списка и запрос фото, в 3D её нет. Лампа спальни с T-20261113-22 — зависимый
+                # декор (`dep_roles`): строка без метки, место на тумбе и модель ставит `flat215_demo.room_dependent_decor`
                 decor.append({'role': role, 'sku': s, **({'list_only': True} if base_role(role) in spec.list_roles else {})})
     return ({'id': variant_id(rec['room_id'], sid), 'title': (style or sid).capitalize(), 'style': style, 'style_id': sid,
              'room_id': rec['room_id'], 'purpose': rec.get('purpose'), 'fill_pct': art.get('_fill_pct'), 'items': objs,

@@ -38,6 +38,8 @@ _SURFACE_REF = {
     "столик": {"top": "heights_cm.coffee_table"},
     "тв-тумба": {"top": "heights_cm.tv_stand_low_h"},
     "стол обеденный": {"top": "heights_cm.dining_table"},
+    # верх матраса у изножья: у кровати `h_cm` — высота изголовья, поэтому «top» не годится (T-20261113-22)
+    "кровать": {"foot": "heights_cm.bed_top"},
 }
 # Порядок шагов (детерминизм и зависимости по стене): шторы раньше картин — штанга занимает стену у окна
 _ORDER = ("item_surface", "item_edge", "opening", "wall_above", "ceiling_over")
@@ -241,7 +243,8 @@ def _surface(group: list[dict], car: Placement, items: dict, out: Result, counts
             why = lamp_on_top(cell, it.d_cm, sku, rule)
             if why:
                 raise Reject("FIT_FAIL", p["id"], f"не влезает на {car.slot_instance_id}: {why}")
-            out.limits[_inst(p["id"], 0)] = {"w_max": round(cell, 1), "d_max": round(it.d_cm + 2 * rule["shade_overhang_front_cm"], 1)}
+            out.limits[_inst(p["id"], p.get("_inst", 0))] = {"w_max": round(cell, 1),
+                                                             "d_max": round(it.d_cm + 2 * rule["shade_overhang_front_cm"], 1)}
         else:
             base = max(sku.w_cm, sku.d_cm) if sku is not None else 0.0
             m = max(rule["edge_inset_min_cm"], base / 2 + rule["edge_inset_over_half_base_cm"])
@@ -249,8 +252,9 @@ def _surface(group: list[dict], car: Placement, items: dict, out: Result, counts
                 raise Reject("FIT_FAIL", p["id"], f"не влезает на {car.slot_instance_id}: клетка {cell:.1f}×{it.d_cm:g}, отступ {m:g}")
             used += sku.w_cm * sku.d_cm if sku is not None else 0.0
             share = rule["max_share_of_top"] if share is None else min(share, rule["max_share_of_top"])
-            out.limits[_inst(p["id"], 0)] = {"w_max": round(cell - 2 * (m - base / 2), 1), "d_max": round(it.d_cm - 2 * (m - base / 2), 1)}
-        out.placements.append(_dep(p, 0, car.slot_instance_id, _world(car, dx, 0.0), car.rot, elev,
+            out.limits[_inst(p["id"], p.get("_inst", 0))] = {"w_max": round(cell - 2 * (m - base / 2), 1),
+                                                             "d_max": round(it.d_cm - 2 * (m - base / 2), 1)}
+        out.placements.append(_dep(p, p.get("_inst", 0), car.slot_instance_id, _world(car, dx, 0.0), car.rot, elev,
                                    Anchor(kind="item_surface", surface=surface),
                                    LocalPose(dx=round(dx, 2), dz=elev), "surface", sku))
     if share is not None and used > share * it.w_cm * it.d_cm:
@@ -302,6 +306,9 @@ def _edge(p: dict, car: Placement, room: Room, floor: list[Placement], items: di
     if it is None:
         raise Reject("CARRIER_NO_SIZE", p["id"], f"у носителя {car.slot_instance_id} нет габаритов товара")
     rule = _rule((p.get("placement") or {}).get("rule_ref"), p["id"])
+    if (p.get("anchor") or {}).get("surface") == "foot":
+        _foot(p, car, rule, items, out)
+        return
     sides = [1 if it.corner_left else -1] if it.corner else [1, -1]
     free = [s for s in sides if _clearance_side(room, car, s, floor) > 0]
     sku = items.get(p["id"])
@@ -319,6 +326,24 @@ def _edge(p: dict, car: Placement, room: Room, floor: list[Placement], items: di
     dy = -it.d_cm / 2 if anchor.surface == "back" else -it.d_cm / 2 + _section(it) / 2   # подлокотник — середина основной секции
     out.placements.append(_dep(p, 0, car.slot_instance_id, _world(car, dx, dy), car.rot, h, anchor,
                                LocalPose(dx=round(dx, 2), dy=round(dy, 2), dz=h), "surface", sku))
+
+
+def _foot(p: dict, car: Placement, rule: dict, items: dict, out: Result) -> None:
+    """item_edge «foot» (покрывало, плед на кровати, T-20261113-22): сложенной дорожкой поперёк изножья — по ширине кровати без
+    выхода за её след (`side_inset_cm`), глубиной `folded_depth_cm`, передний край — у изножья (лицо кровати, +y в осях носителя).
+    Низ — верх матраса у изножья: замер меша (`caps.foot_h_cm`), иначе норма `heights_cm.bed_top`, но не выше габарита кровати."""
+    it = car.item
+    depth, inset = _mid(rule["folded_depth_cm"]), _mid(rule["side_inset_cm"])
+    w = it.w_cm - 2 * inset
+    if w <= 0 or depth >= it.d_cm:
+        raise Reject("FIT_FAIL", p["id"], f"кровать {it.w_cm:g}×{it.d_cm:g} мала для покрывала глубиной {depth:g}")
+    cap = (it.caps or {}).get("foot_h_cm")
+    h = float(cap) if cap else min(_surface_h(car, "foot", p["id"]), float(it.h_cm or math.inf))
+    dy = it.d_cm / 2 - depth / 2
+    out.placements.append(_dep(p, 0, car.slot_instance_id, _world(car, 0.0, dy), car.rot, h,
+                               Anchor(kind="item_edge", surface="foot", edge="foot"),
+                               LocalPose(dx=0.0, dy=round(dy, 2), dz=h), "surface", items.get(p["id"])))
+    out.limits[_inst(p["id"], 0)] = {"w": round(w, 1), "d": round(depth, 1)}
 
 
 def _opening(p: dict, room: Room, walls: _Wall, items: dict, out: Result) -> None:
@@ -590,7 +615,13 @@ def _one(p: dict, kind: str | None, by_place: dict, surf: dict, carriers: list[P
             raise Reject("CARRIER_MISSING", p["id"], f"зоны {car['zone']} нет среди размещённых")
     else:
         cands = []
-    if kind == "item_surface":
+    if kind == "item_surface" and p.get("symmetry") == "pair" and "slot_ref" in car:
+        # «по предмету на каждый носитель» (лампа на каждой тумбе, T-20261113-22): все экземпляры места-носителя по порядку,
+        # но не больше товаров набора на место (`counts`); экземпляр зависимого = номер носителя
+        every = by_place.get(car["slot_ref"], [])
+        for i, c in enumerate(every[:_cap(len(every), p, counts)]):
+            surf.setdefault((c.slot_instance_id, p["anchor"].get("surface")), []).append({**p, "_inst": i})
+    elif kind == "item_surface":
         surf.setdefault((cands[0].slot_instance_id, p["anchor"].get("surface")), []).append(p)
     elif kind == "item_edge":
         _edge(p, cands[0], room, carriers, items, out)

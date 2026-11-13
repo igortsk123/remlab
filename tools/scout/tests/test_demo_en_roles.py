@@ -30,7 +30,7 @@ for t in ('bedroom', 'hall'):
 for f in ('bedroom-roles.json', 'hall-roles.json'):
     for r in rules(f).get('roles_enabled') or []:
         need.setdefault(r, f)
-for r in DB.PLACE_ROLES + DB.LIST_ROLES:
+for r in DB.PLACE_ROLES + DB.LIST_ROLES + DB.DEP_ROLES:
     need.setdefault(r, 'demo_bedroom.PLACE_ROLES')
 
 miss = sorted(f'{r} ({src})' for r, src in need.items() if r.lower() not in ROLE)

@@ -20,7 +20,7 @@ from demo_room import (STYLE_AXES, _ext, _instances, _key, base_role, bank_room,
                        on_ref_place, room_key, merge_room_feeds, variant_id, zone)
 
 # прежний открытый набор имён модуля (сборка, сторожа и тесты зовут их как `demo_bedroom.<имя>`)
-__all__ = ['HERE', 'GEO_FILE', 'BANK_LIVE', 'STYLE_AXES', 'SOLVER_ROLES', 'PLACE_ROLES', 'LIST_ROLES', 'TIER_ORDER', 'PURPOSE_ORDER',
+__all__ = ['HERE', 'GEO_FILE', 'BANK_LIVE', 'STYLE_AXES', 'SOLVER_ROLES', 'PLACE_ROLES', 'LIST_ROLES', 'DEP_ROLES', 'TIER_ORDER', 'PURPOSE_ORDER',
            'BAND_CM', 'ONE_FREE_ROLES', 'MESH_FREE_ROLES', 'SPEC', 'lead_roles', 'neighbour_styles', '_key', 'role_spares',
            'base_role', 'load_bank', 'bank_room', 'room_geo', 'solve', 'one_rule', '_placed', 'zone', 'zones', 'reference', '_ext',
            'on_ref_place', 'hard_codes', 'one_layout', 'variant_id', '_instances', '_fits', '_in_band', 'gate_items',
@@ -45,8 +45,11 @@ CATALOG_SHOW = {'кровать': 24, 'тумба прикроватная': 12,
 SOLVER_ROLES = ('кровать', 'тумба прикроватная', 'шкаф', 'комод', 'туалетный столик', 'стол рабочий', 'стул рабочий')
 # в сцену и план идут ещё ковёр (место — из готовой расстановки записи, солвер ковёр не ставит; рисуется как у гостиной)
 PLACE_ROLES = SOLVER_ROLES + ('ковёр',)
-# в списке набора, но не в 3D: настольная лампа на тумбе (`layout.лампа.on`) — строкой списка и в запрос «Улучшить фото», как декор
-LIST_ROLES = ('лампа',)
+# в списке набора, но не в 3D — нет (с T-20261113-22, владелец TG 1623 «всё видно»; было: лампа, T-20261106-77/2)
+LIST_ROLES = ()
+# ЗАВИСИМЫЙ ДЕКОР: строка декора набора, место в 3D — на носителе по паспорту (`flat215_demo.room_dependent_decor`): настольная лампа —
+# на тумбе по размеру (`dependent_decor.ROOM_DEPS['bedroom']`, лампа с моделью из ламп стиля); не встала — строка снята из цены
+DEP_ROLES = ('лампа',)
 # ЯЧЕЙКА НА КОМНАТУ И СТИЛЬ (onb-06: 3 ступени цены × назначение): витрина показывает одну — средняя ступень, назначение по
 # порядку; нет такой — следующая по порядку
 TIER_ORDER = ('комфорт', 'mid', 'эконом', 'премиум')
@@ -78,7 +81,7 @@ def solve(geo: dict, dims: list, purpose: str | None) -> dict:
     return out
 
 
-SPEC = R.Showcase(room_type='bedroom', solver_roles=SOLVER_ROLES, place_roles=PLACE_ROLES, solve=solve, list_roles=LIST_ROLES,
+SPEC = R.Showcase(room_type='bedroom', solver_roles=SOLVER_ROLES, place_roles=PLACE_ROLES, solve=solve, list_roles=LIST_ROLES, dep_roles=DEP_ROLES,
                   one_free_roles=ONE_FREE_ROLES, tier_order=TIER_ORDER, purpose_order=PURPOSE_ORDER, band_cm=BAND_CM)
 
 
