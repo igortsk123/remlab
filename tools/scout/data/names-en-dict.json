@@ -205,6 +205,7 @@
   "массив": "solid wood",
   "стекло": "glass",
   "бетон": "concrete",
+  "гранит": "granite",
   "металл": "metal",
   "фарфор": "porcelain",
   "ротанг": "rattan",
@@ -374,6 +375,7 @@
  },
  "patterns": {
   "грань": "Facet",
+  "волна": "Wave",
   "косы": "Braid",
   "линии": "Lines",
   "ритм": "Rhythm",
