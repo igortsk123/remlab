@@ -1051,6 +1051,11 @@ a.srcbtn:hover{color:var(--accent);border-color:var(--accent)}
 .qz-ph .qz-img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:12px;background:var(--wash-2);border:2px solid transparent}
 .qz-ph b{font-size:15px;font-weight:700;line-height:1.2}
 .qz-ph[aria-pressed=true] .qz-img{border-color:var(--accent)}.qz-ph[aria-pressed=true] b{color:var(--accent)}
+/* ПЛИТКА — ОДНА ЦЕЛЬ КАСАНИЯ (T-20261113-16, владелец TG 1527–1530, iPhone: «стиль выбирается тапом в кружок, а не в фото»): палец
+   попадает в саму кнопку, а не в картинку внутри — у картинки iOS включает своё (удержание с меню, выделение, перетаскивание), и клика
+   нет; двойной тап не увеличивает. Всем плиткам `.qz-ph` — окно «Другой стиль», опрос /demo, туры */
+.qz-ph{touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.qz-ph *{pointer-events:none;-webkit-user-drag:none}
 .qz-ph:disabled{cursor:default}.qz-ph:disabled .qz-img{filter:grayscale(1);opacity:.45}.qz-ph:disabled b{color:var(--muted)}.qz-ph:disabled .qz-tick{opacity:.45}   /* выбрано 2 — остальные серые (T-28) */
 .qz-tick{position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.88);box-shadow:inset 0 0 0 1.5px var(--line);
  display:flex;align-items:center;justify-content:center;color:var(--surface);font-size:14px;line-height:1}
@@ -7405,13 +7410,38 @@ function mixBox(){
   b.addEventListener('click',e=>{
     if(e.target===b){mixClose(); return;}   // мимо окна
     const t=e.target.closest('button'); if(!t||t.disabled)return;
-    // ОДИН ВЫБОР (владелец TG 451): нажал на стиль — окно закрывается, выбор применяется сразу
-    if(t.dataset.mxPh){const id=t.dataset.mxPh, room=MIX.room; mixClose(); if(room)mixRoomApply(room,id); else mixApply([id]); return;}
+    if(t.dataset.mxPh){mixTilePick(t); return;}
     const a=t.dataset.mx;
     if(a==='close'){mixClose(); return;}
     if(a==='quiz'){mixClose(); if(window.__quizOpen)window.__quizOpen(); return;}
   });
+  tapTiles(b, '[data-mx-ph]', mixTilePick);   // касание пальцем — выбор и без click (iPhone, T-20261113-16)
   return b;
+}
+// ОДИН ВЫБОР (владелец TG 451): нажал на стиль — окно закрывается, выбор применяется сразу; окно уже закрыто — второй раз не применяем
+function mixTilePick(t){
+  if(!MIX.open||!t||t.disabled)return;
+  const id=t.dataset.mxPh, room=MIX.room; mixClose(); if(room)mixRoomApply(room,id); else mixApply([id]);
+}
+// ВЫБОР ПЛИТКИ ОДНИМ КАСАНИЕМ (T-20261113-16, владелец TG 1527–1530, iPhone: и по фото, и по кружку выбор срабатывал через раз): на iOS
+// click после касания теряется (сдвиг на пару пикселей, инерция прокрутки окна, удержание), поэтому касание решаем сами по touchend —
+// ТОЛЬКО если палец за всё касание не ушёл дальше 10 px, касание было одним пальцем и окно за это время не прокрутилось (иначе прокрутка
+// окна выбирала бы стиль). Тогда preventDefault — браузер click не шлёт, двойного выбора нет; мышь и клавиатура — обычным click
+function tapTiles(box, sel, pick){
+  const MOVE=10, sc=()=>{const c=box.querySelector('.qz-card'); return (c?c.scrollTop:0)+'|'+(window.scrollY||0);};
+  let t=null;
+  box.addEventListener('touchstart',e=>{
+    const x=e.target&&e.target.closest&&e.target.closest(sel), p=e.touches[0];
+    t=x&&!x.disabled&&e.touches.length===1&&p?{x, cx:p.clientX, cy:p.clientY, s:sc(), moved:false}:null;},{passive:true});
+  box.addEventListener('touchmove',e=>{
+    if(!t)return; const p=e.touches[0];
+    if(e.touches.length>1||!p||Math.hypot(p.clientX-t.cx,p.clientY-t.cy)>MOVE)t.moved=true;},{passive:true});
+  box.addEventListener('touchcancel',()=>{t=null;});
+  box.addEventListener('touchend',e=>{
+    const q=t; t=null; const p=e.changedTouches&&e.changedTouches[0];
+    if(!q||q.moved||!p||(e.touches&&e.touches.length)||Math.hypot(p.clientX-q.cx,p.clientY-q.cy)>MOVE||sc()!==q.s)return;
+    if(!q.x.isConnected||q.x.disabled)return;
+    e.preventDefault(); pick(q.x);},{passive:false});
 }
 function mixRender(){
   // подписи — названия стилей (владелец TG 447–448: «стиль напиши как рекомендуемый, другие называй как есть»); у рекомендуемого — метка
