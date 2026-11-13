@@ -10554,7 +10554,8 @@ function vwPinsTick(now){
   // цены скрыты — ценников нет, а «Повернуть» у выбранного остаётся (`vwRotPlace`)
   if(!on){PINS.map.forEach(n=>n.remove()); PINS.map.clear(); if(!live||VW.sel==null){vwRotHide(); return;}}
   if(!PINS.fr||now-PINS.t>80){PINS.t=now; PINS.fr=box.getBoundingClientRect();
-    PINS.busy=[...document.querySelectorAll('#shot .vmodes, #shot .vstyle, #shot .vprice, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vcams, #shot .vslots, #shot .vready, #shot .vstage>.tr-confirm, #vcarry:not([hidden])')]
+    // «×» окна — тоже занятое место: ценник предмета в правом верхнем углу кадра ложился под кнопку белым пятном (T-20261112-111/5)
+    PINS.busy=[...document.querySelectorAll('#shot #shotx, #shot .vmodes, #shot .vstyle, #shot .vprice, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vcams, #shot .vslots, #shot .vready, #shot .vstage>.tr-confirm, #vcarry:not([hidden])')]
       .map(e=>e.getBoundingClientRect()).filter(r=>r.width>0);
     PINS.hint=LIVE.badge&&LIVE.badge.isConnected?LIVE.badge.getBoundingClientRect():null;
     vwRowSync();}
