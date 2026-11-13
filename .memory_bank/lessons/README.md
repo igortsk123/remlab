@@ -484,7 +484,7 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 680 — редирект из `req.url` за прокси → `0.0.0.0:3000`; только относительный `Location` → `lessons/devops-deploy.md`
 - 681 — пересборка банка ради одного правила меняла 12–18 товаров набора → `lessons/layout-solver.md`
 - 682 — перечитка 30 мин = MemoryHigh службы trial-worker 1G, не нагрузка; диагностика wchan + memory.events → `lessons/floorplan-trial.md`
-- 683 — «тур потерял стиль» — смотреть выложенный bundle, конвейер держит прежнюю мебель комнаты → `lessons/floorplan-trial.md`
+- 683 — перечитка выложила тур с пустым стилем; «мебель прежняя» — у перевыпуска, не у перечитки; смотреть предметы в bundle → `lessons/floorplan-trial.md`
 - 684 — тест с импортом планера в CI-job без его зависимостей → CI красный, prepush зелёный → `lessons/devops-deploy.md`
 - 685 — ручной `demo-realistic --force` без повтора при выкатке потерял оплаченный кадр → `lessons/demo-planner.md`
 - 686 — тормоза 3D на телефоне в headless не видны — мерить с `?live=force` ×4 → `lessons/demo-planner.md`
