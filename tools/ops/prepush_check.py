@@ -17,7 +17,8 @@
   (б) исходник этого файла упоминает F: путь от корня, путь от своей папки (`../scout/x.sh`), имя файла (если оно в репо
       одно), а для .py — `import F` / `from F import`.
 Не локально (медленно или нужна установка): pnpm, docker, playwright, pip, `-m pytest` — их проверяет CI.
-ВСЕГДА и первыми — команды `ALWAYS` (реестр конвейера `tools/ops/conveyor_check.py`, T-20261112-121): при любой правке;
+ВСЕГДА и первыми — команды `ALWAYS` (реестр конвейера `tools/ops/conveyor_check.py` и линт особых случаев `conveyor_ids.py`,
+T-20261112-121): при любой правке;
 не успела в потолок — стоп, как упавшая.
 Окружение — как у job: его `env:`, CI=true, GITHUB_ACTIONS=true, RUNNER_TEMP; `python` — venv scout, если есть.
 Код выхода: 1 — какая-то проверка упала (пуш остановить); 0 — все прошли или не успели в потолок (это не стоп, их проверит CI)."""
@@ -36,7 +37,8 @@ RUNNERS = ('python', 'python3', 'node', 'bash', 'sh', 'diff')
 ZERO = '0' * 40
 # проверки при ЛЮБОЙ правке, первыми; не успела — стоп, а не «проверит CI» (реестр конвейера, T-20261112-121:
 # ручную правку собранного файла или новый писатель в обход генератора ловим до пуша, какой бы файл ни поменялся)
-ALWAYS = ('python tools/ops/conveyor_check.py',)
+# + линт особых случаев (ID товара/тура в коде, шаг 6): пока предупреждение — печатает WARN, пуш не держит; кривой реестр — стоп
+ALWAYS = ('python tools/ops/conveyor_check.py', 'python tools/ops/conveyor_ids.py')
 
 
 def _strip_installs(cmd: str) -> str:
@@ -375,7 +377,7 @@ jobs:
     s = [u['cmd'] for u in select(real, ['tools/scout/flat215-demo/index.html'], ROOT_DEFAULT)]
     check('python tools/scout/tests/test_img_fallback.py' in s, 'настоящий ci.yml: правка страницы демо запускает test_img_fallback (07.11, 6f2395bc)', s)
     s = [u['cmd'] for u in select(real, ['README.md'], ROOT_DEFAULT)]
-    check(s[:1] == list(ALWAYS), 'настоящий ci.yml: реестр конвейера — при любой правке и первым (T-20261112-121)', s[:3])
+    check(s[:len(ALWAYS)] == list(ALWAYS), 'настоящий ci.yml: реестр конвейера и линт особых случаев — при любой правке и первыми (T-20261112-121)', s[:3])
     # обязательная проверка, не успевшая в потолок, — стоп (а обычная — «проверит CI», см. выше)
     buf = io.StringIO()
     slow = dict(select(units, ['tools/scout/slow.py'], root)[0], always=True)
