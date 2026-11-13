@@ -10498,9 +10498,10 @@ function vwPins(){ if(!PINS.raf)PINS.raf=requestAnimationFrame(vwPinsTick); }
 // ЦЕННИК НЕ ЗАКРЫВАЕТ СВОЙ ПРЕДМЕТ (demo-27 В, владелец 23.10: у дальнего обеденного стола цена целиком скрывала столешницу): место — над
 // РАМКОЙ предмета (проекция его габаритной коробки, движок `projectSlot`) с зазором. ЦЕННИК ДЕРЖИТСЯ НАД СВОИМ ТОВАРОМ (T-20261112-111,
 // владелец TG 1276: ценник дивана £1,201 уехал на столик): занято (другой ценник, кнопки, шторка, край, ваза на этом столике) — сперва
-// вдоль верха своей рамки (середина ценника не выходит за её края), затем выше на ценник и на два, и только потом — на видимый верх
-// самого предмета. Сбоку от рамки на середине её высоты больше не ставим: там стоит сосед (столик перед диваном), и ценник
-// читался как его. Рамки нет (угол коробки за камерой) — прежнее место над серединой предмета. → кандидаты [x, y] px холста по порядку
+// вдоль верха своей рамки (середина ценника не выходит за её края), затем вплотную сбоку у её верха, выше на один ценник, и только
+// потом — на самом предмете (ряды по рамке сверху вниз). Выше двух рядов и сбоку на середине высоты не ставим: там сосед
+// (пуф за столиком, столик перед диваном), и ценник читался как его (T-20261112-111/2: £454 столика над вазой у пуфа). Чей ценник —
+// решает `vwPinOwner` в `vwPinsTick`. Рамки нет (угол коробки за камерой) — прежнее место над серединой предмета. → кандидаты [x, y]
 const PIN_GAP=6;
 function pinSpots(p, w, h, fw, pad, fh, onBody){
   const b=p.box;
@@ -10513,15 +10514,30 @@ function pinSpots(p, w, h, fw, pad, fh, onBody){
   // вдоль верха: шаг — полценника, середина ценника в пределах рамки [b0, b2] и кадра
   const xs=[cx], step=Math.max(12,Math.round(w/2)), lo=Math.max(pad,Math.round(b[0]-w/2)), hi=Math.min(fw-w-pad,Math.round(b[2]-w/2));
   for(let d=step; cx-d>=lo||cx+d<=hi; d+=step){if(cx-d>=lo)xs.push(cx-d); if(cx+d<=hi)xs.push(cx+d);}
-  const out=[];
-  // последний ряд — на видимом верху самого предмета (верх за краем кадра — люстра, высокий шкаф: под краем кадра, на предмете)
-  for(const y of [up, up-h-4, up-2*(h+4), Math.round(Math.max(b[1],pad)+PIN_GAP)])xs.forEach(x=>out.push([x,y]));
+  const out=[], row=h+4, side=Math.round(b[1]-h/2);
+  xs.forEach(x=>out.push([x,up]));
+  out.push([Math.round(b[2]+PIN_GAP),side],[Math.round(b[0]-PIN_GAP-w),side]);
+  xs.forEach(x=>out.push([x,up-row]));
+  // на самом предмете: от видимого верха (верх за краем кадра — люстра, высокий шкаф) вниз по рамке — ближе к верху раньше (столик
+  // на телефоне: над ним пуф, на верху ваза — свободно только на столешнице под вазой)
+  const t=Math.round(Math.max(b[1],pad)+PIN_GAP), bot=Math.min(b[3],(fh||b[3])-pad);
+  for(let y=t; y===t||y+h<=bot; y+=row)xs.forEach(x=>out.push([x,y]));
   return out;
 }
 // ПРЕДМЕТ НА ДРУГОМ (ваза на столике, лампа на комоде — декор с моделью, не картина, не люстра, не ткань): его рамку чужой ценник не
 // закрывает (T-20261112-111: ценник столика ложился на вазу) — ценник опоры сдвигается вдоль верха
 function vwOnTop(i){ const it=i>=items.length?vwItemAt(i):null, x=it&&it.dec!==undefined?((allVariants()[cur]||{}).decor||[])[it.dec]:null;
   return !!x&&!isWallArt(x)&&!isCloth3d(x)&&x.strategy!=='ceiling_over'; }
+// ФОН (картина, шторы, тюль, ковёр, люстра): висит на стене, лежит на полу или под потолком — ценник мебели рядом с его рамкой не путают
+// с ним; ценник самого фона стоит по своим правилам (штора — на ткани)
+function vwBackdrop(i){ const it=vwItemAt(i), x=it&&it.dec!==undefined?((allVariants()[cur]||{}).decor||[])[it.dec]:null;
+  return !!x&&(isWallArt(x)||isCloth3d(x)||x.strategy==='ceiling_over'); }
+// ЧЕЙ ЦЕННИК (T-20261112-111/2): ценник читают как цену ближайшего к нему предмета. Расстояние — от прямоугольника ценника до рамки
+// (0 — задевает); оба 0 — того, чья рамка меньше (ваза на столике). Свой — если ближе своей рамки ничего нет и до неё не дальше ряда
+const vwRectGap=(a,b)=>Math.hypot(Math.max(0,b.left-a.right,a.left-b.right),Math.max(0,b.top-a.bottom,a.top-b.bottom));
+const vwArea=r=>(r.right-r.left)*(r.bottom-r.top);
+function vwPinOwner(r, own, frames, maxGap){ const d=vwRectGap(r,own.r); if(d>maxGap)return false;
+  return frames.every(o=>{if(o.i===own.i)return true; const e=vwRectGap(r,o.r); return e>d||(e===d&&d===0&&vwArea(o.r)>vwArea(own.r));}); }
 function vwPinsTick(now){
   PINS.raf=0;
   const shot=document.getElementById('shot'), box=document.getElementById('vpins'); if(!box)return;
@@ -10547,13 +10563,16 @@ function vwPinsTick(now){
   // подсказка «3D: тяните…» видна (5 с) — ценник, который она накрыла бы, ждёт, пока она погаснет (T-05/3: показ по очереди, не внахлёст)
   const hintR=liveHintOn()&&PINS.hint&&PINS.hint.width>0?PINS.hint:null, underHint=r=>!!(hintR&&hit(r,hintR));
   const all=LIVE.scene.pins();
-  const tops=on?all.filter(p=>p.visible&&p.box&&vwOnTop(p.index)).map(p=>({i:p.index, r:{left:fr.left+p.box[0], right:fr.left+p.box[2], top:fr.top+p.box[1], bottom:fr.top+p.box[3]}})):[];
+  const rectOf=p=>({i:p.index, r:{left:fr.left+p.box[0], right:fr.left+p.box[2], top:fr.top+p.box[1], bottom:fr.top+p.box[3]}});
+  const tops=on?all.filter(p=>p.visible&&p.box&&vwOnTop(p.index)).map(rectOf):[];
+  // рамки мебели и предметов на ней — с ними ценник не должен путаться (фон — нет: `vwBackdrop`)
+  const frames=on?all.filter(p=>p.visible&&p.box&&!vwBackdrop(p.index)).map(rectOf):[];
   if(on)all.forEach(p=>{if(!p.visible)return; const it=vwItemAt(p.index), pr=it&&(skuOf(it)||{}).price; if(!pr)return;
     let n=PINS.map.get(p.index); const txt=money(pr);
     if(!n){n=document.createElement('span'); n.className='vpin'; n.dataset.pi=String(p.index); box.appendChild(n); PINS.map.set(p.index,n);}
     if(n.textContent!==txt){n.textContent=txt; n._w=0;}
     if(!n._w){n.hidden=false; n._w=n.offsetWidth; n._h=n.offsetHeight;}
-    seen.add(p.index); cand.push({n,p,pr:+pr,cloth:vwCurtainAt(it),top:tops.some(o=>o.i===p.index)});});
+    seen.add(p.index); cand.push({n,p,pr:+pr,cloth:vwCurtainAt(it),top:tops.some(o=>o.i===p.index),own:frames.find(o=>o.i===p.index)});});
   const kept=[];
   // КАРТОЧКА ВЫБРАННОГО — ПЕРВОЙ (T-05/6): она всегда в кадре, ценники — вокруг неё. Цену выбранного она показывает сама — его ценник,
   // пока карточка открыта, не рисуем (T-37/3: не дублируется и не наезжает)
@@ -10568,10 +10587,18 @@ function vwPinsTick(now){
     // места мимо карточки нет — ценник не рисуем (T-37/3): у пилюли он стоял под ней приглушённым (T-05/6), из-под крупной карточки
     // торчал его край — наезд
     const sp=pinSpots(c.p, w, h, fr.width, pad, fr.height, c.cloth);
-    const at=sp.find(([x,y])=>free(x,y,false))||sp.find(([x,y])=>free(x,y,true));
+    // мебель и предмет на ней: место берём, только если ценник читается как свой (`vwPinOwner`); фон — как раньше
+    const mine=(x,y,soft)=>{const q=free(x,y,soft); return q&&(!c.own||vwPinOwner(q,c.own,frames,h+4+PIN_GAP+1))&&q;};
+    const look=()=>sp.find(([x,y])=>mine(x,y,false))||sp.find(([x,y])=>mine(x,y,true));
+    let at=look();
+    // своего места нет, а на предмете стоит ваза со своим ценником — её ценник уступает (цена вазы — в списке), опора остаётся
+    if(!at&&c.own){const kids=kept.filter(k=>k.top0&&k.i!==c.p.index&&vwRectGap(k.box0,c.own.r)===0);
+      if(kids.length){const show=v=>kids.forEach(k=>{const m=PINS.map.get(k.i); if(m)m.hidden=!v;});
+        kids.forEach(k=>kept.splice(kept.indexOf(k),1)); show(false); at=look();
+        if(!at){kept.push(...kids); show(true);}}}   // и так места нет — ваза не уступает зря
     const r=at&&free(at[0],at[1],true);
     if(r&&underHint(r)){c.n.hidden=true; return;}
-    c.n.hidden=!r; if(!r)return; kept.push(r);
+    c.n.hidden=!r; if(!r)return; r.i=c.p.index; r.top0=c.top; r.box0=c.own?c.own.r:r; kept.push(r);
     c.n.classList.toggle('sel',sel); c.n._x=at[0]; c.n._y=at[1];
     c.n.style.transform=`translate(${at[0]}px,${at[1]}px)${sel?' scale(1.08)':''}`;});
   PINS.map.forEach((n,i)=>{if(!seen.has(i)){n.remove(); PINS.map.delete(i);}});
