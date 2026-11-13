@@ -101,7 +101,8 @@ def main():
     live = os.path.join(srv, 'demo')
 
     def env(**kw):
-        e = {k: v for k, v in os.environ.items() if not k.startswith('PUB_')}
+        # метку ночного прогона (REFRESH_DAILY_RUN) не наследуем: самопроверку может звать сама ночь — случаи задают её явно
+        e = {k: v for k, v in os.environ.items() if not k.startswith('PUB_') and k != 'REFRESH_DAILY_RUN'}
         e.update(PATH=bin_dir + os.pathsep + os.environ['PATH'], PUB_ROOT=srv, PUB_RTMP=rtmp, PUB_CHOWN='',
                  PUB_SRC=src, PUB_KEEP='3', SHIM_LOG=os.path.join(base, 'shim.log'), TMPDIR=base,
                  PUB_TMP=os.path.join(base, 'pubtmp'),
@@ -341,15 +342,38 @@ def main():
     r = run('--rollback')
     ok(r.returncode == 0 and reissued(n) == ['reissue --why откат'], f'откат главной — перевыпуск туров ({reissued(n)})')
     build(17)
+    # PUB_REISSUE=0 — ТОЛЬКО НОЧИ (T-20261112-92/11): живой прогон refresh_daily (его pid в REFRESH_DAILY_RUN; здесь — pid самой
+    # самопроверки, он жив) — без перевыпуска; без метки, с мёртвым pid или мусором — перевыпуск всё равно и WARN (13.11 ручные
+    # выкладки с PUB_REISSUE=0 оставили 18 туров на старой витрине)
     n = shim_len()
-    r = run(PUB_PHOTOS_DONE='1', PUB_REISSUE='0')
-    ok(r.returncode == 0 and not reissued(n), 'PUB_REISSUE=0 — без перевыпуска')
+    r = run(PUB_PHOTOS_DONE='1', PUB_REISSUE='0', REFRESH_DAILY_RUN=str(os.getpid()))
+    ok(r.returncode == 0 and not reissued(n) and 'WARN:publish_demo: PUB_REISSUE=0' not in r.stdout,
+       'PUB_REISSUE=0 от ночного прогона — без перевыпуска')
+    p = subprocess.Popen(['true']); p.wait(); dead_pid = p.pid   # завершённый процесс — его pid больше не жив
+    for why, mark in (('без метки ночи', None), ('pid ночи не жив', str(dead_pid)), ('метка не число', 'ночь')):
+        build(17)
+        n = shim_len()
+        kw = dict(PUB_PHOTOS_DONE='1', PUB_REISSUE='0')
+        if mark is not None:
+            kw['REFRESH_DAILY_RUN'] = mark
+        r = run(**kw)
+        ok(r.returncode == 0 and reissued(n) == ['reissue --why выкладка']
+           and 'WARN:publish_demo: PUB_REISSUE=0 принимается только от ночного прогона' in r.stdout,
+           f'PUB_REISSUE=0 {why} — перевыпуск всё равно, WARN ({reissued(n)})')
+    n = shim_len()
+    r = run('--rollback', PUB_REISSUE='0')
+    ok(r.returncode == 0 and reissued(n) == ['reissue --why откат'] and 'WARN:publish_demo: PUB_REISSUE=0' in r.stdout,
+       f'откат с PUB_REISSUE=0 без ночи — перевыпуск всё равно ({reissued(n)})')
     n = shim_len()
     r = run(PUB_DIR='test/pubsafe-probe')
     ok(r.returncode == 0 and not reissued(n), 'проба под /test/ — без перевыпуска')
     build(18)
     r = run(PUB_PHOTOS_DONE='1', FAKE_REISSUE_RC='3')
     ok(r.returncode == 0 and 'WARN:publish_demo: перевыпуск туров — код 3' in r.stdout, 'сбой перевыпуска — выкладка есть, WARN')
+    # ночь ставит метку прогона ДО своей строки публикации с PUB_REISSUE=0 — иначе ночь перевыпускала бы туры дважды (с WARN)
+    rd = open(os.path.join(HERE, '..', 'refresh_daily.sh'), encoding='utf-8').read()
+    i_mark, i_pub = rd.find('export REFRESH_DAILY_RUN=$$'), rd.find('PUB_REISSUE=0 bash publish_demo.sh')
+    ok(0 <= i_mark < i_pub, 'refresh_daily.sh: метка ночи (export REFRESH_DAILY_RUN=$$) стоит до строки публикации')
 
     # 14. запреты (код 2 из проверок) не печатают ложный «сбой в строке»
     r = run(PUB_DIR='caddy')

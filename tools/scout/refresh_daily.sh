@@ -37,6 +37,9 @@ if ! flock -n 9; then echo "$(date '+%F %T') другой прогон уже и
 # Chromium/Playwright и mktemp без пути тоже писали не в /tmp; строка в лог — чтобы причина «нет места» была видна сразу.
 . ../ops/remlab-tmp.sh
 export TMPDIR="$REMLAB_TMP"
+# МЕТКА НОЧНОГО ПРОГОНА (T-20261112-92/11): `publish_demo.sh` принимает PUB_REISSUE=0 (перевыпуск туров — своим шагом ниже) только
+# при живом прогоне с этим pid; ручная выкладка, списавшая ночную строку публикации, метки не несёт — туры перевыпускаются всё равно
+export REFRESH_DAILY_RUN=$$
 echo "$(date '+%F %T') старт: свободно в /tmp $(remlab_tmp_free /tmp) МБ, в REMLAB_TMP ($REMLAB_TMP) $(remlab_tmp_free "$REMLAB_TMP") МБ" >> "$LOG"
 
 declare -A RES; declare -A WARNS; declare -A WARNN
