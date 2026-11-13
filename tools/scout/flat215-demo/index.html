@@ -9160,10 +9160,18 @@ function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.rol
              w:p.w,d:p.d,h:p.h||null,pack:p.pack||1,...(p.yaw!=null?{yaw:p.yaw}:{}),...(p.tint?{tint:p.tint}:{}),
              ...(p.fam?{fam:p.fam}:{}),   // семья цветов едет с товаром: после выбора цвета кружки остаются (T-20261112-110/2)
              ...(p.img_art?{img_art:p.img_art}:{})};   // картина: полотно без белого поля (`wall_art.annotate_crop`)
+      // ТКАНЬ С МЕСТОМ В 3D ОСТАЁТСЯ В 3D (T-20261113-24, владелец TG 1629 «подушка исчезает», TG 1623 «что в списке — видно в 3D»): цвет
+      // и модель — НОВОГО товара из ленты (`textile_abstract.annotate_feeds`), место строки прежнее; у подушки модель — только проверенная
+      // сборкой (`pillow.msid`), не артикул из ленты. У товара ленты их нет (старые данные) — строка только в списке, как раньше
+      const pil=d.place&&d.place.kind==='pillow'?p.pillow:null;
+      if(soft&&d.strategy==='textile_abstract'&&d.place&&p.look&&(pil||d.place.kind!=='pillow')){
+        d.look={...p.look};
+        if(pil){d.sku.msid=pil.msid||null; d.place={...d.place,w:pil.w,d:pil.d,h:pil.h};}
+      }
       sel=decorSel(s.dec);
       basket(); showSwap(); refreshShotList();
-      // В 3D МЯГКОГО НЕТ — говорим, как увидеть замену (владелец 23.10)
-      if(soft)softSwapToast();
+      // замена видна в 3D — без подсказки; мягкое без места в 3D — говорим, как увидеть замену (владелец 23.10)
+      if(soft&&!in3dDecor(d))softSwapToast();
     }
     return;
   }
@@ -11965,8 +11973,10 @@ const TRY_PLURAL={'стул':'стулья','кресло':'кресла','пу�
     if(s0&&document.getElementById('shot').classList.contains('v2')){
       const n=TRY_LAST.n||1, d=sum()-before;
       const base=baseRole(role), what=n>1?(TRY_PLURAL[base]||base)+' ×'+n:base;
-      // мягкое (demo-24): в 3D замены не видно — сообщение говорит, где она появится (тот же текст, что у `tryOn`)
-      if(s0.dec!==undefined&&isSoft(role))softSwapToast();
+      // мягкое (demo-24): в 3D замены не видно — сообщение говорит, где она появится (тот же текст, что у `tryOn`); ткань с местом
+      // в 3D (T-20261113-24) видна сразу — обычное «Заменено»
+      const dx=s0.dec!==undefined?((allVariants()[cur]||{}).decor||[])[s0.dec]:null;
+      if(dx&&isSoft(role)&&!in3dDecor(dx))softSwapToast();
       // по-русски и в EN: «Заменено: …» переводит словарь EN вместе с ролью («Replaced: sofa»); готовое «Replaced: диван» он не узнавал
       else toast('Заменено: '+what+(d&&!TR_NOGOODS()?` · ${d>0?'+':'−'}${money(Math.abs(d))}`:''));
       // шторка уже свёрнута — сцена с заменой видна; наведение камеры — после обновления сцены (`liveShow`, demo-15 п.2).

@@ -237,6 +237,40 @@ def annotate(decor: list, objs: list, geo: dict, tag: str, ceiling_cm: float | N
     return n
 
 
+def feed_base(key: str) -> str:
+    """Роль ленты без комнаты и номера: `bedroom:плед` → `плед`, `подушка 2` → `подушка`."""
+    return str(key or '').split(':')[-1].split(' ')[0]
+
+
+def annotate_feeds(feeds: dict, model=None) -> str:
+    """ЛЕНТЫ ЗАМЕН ТКАНЕЙ НЕСУТ ЦВЕТ И МОДЕЛЬ (T-20261113-24, владелец TG 1629/1623: «заменяю подушку — исчезает»; что в списке — видно
+    в 3D). Замена на странице (`tryOn`, строка декора) меняла только `sku`, а цвет строки (`look.of`) оставался от прежнего товара —
+    сцена по правилу «чужой цвет не рисуем» снимала вещь из 3D. Теперь каждый товар ленты штор, пледа и подушек несёт свой `look`
+    (тот же `look_of`), подушка — ещё `pillow` {msid, w, d, h}: msid — только проверенная модель (`model`, как у строк вариантов),
+    иначе None (условная подушка цветом товара); размер — по мешу или по карточке (`pillow_size`). Страница переносит их в строку
+    при замене, место строки остаётся. → строка отчёта."""
+    import dependent_decor as DD
+    n = {'look': 0, 'pillow': 0, 'model': 0}
+    for key, lst in (feeds or {}).items():
+        base = feed_base(key)
+        if base not in ROLES:
+            continue
+        for p in lst or []:
+            if not isinstance(p, dict) or not p.get('name'):
+                continue
+            p['look'] = look_of(p)
+            n['look'] += 1
+            if base != PILLOW:
+                continue
+            size = pillow_size(p)
+            msid, ext = model(p) if model else (None, None)
+            dims = DD.mesh_dims(ext, size['w']) if msid else None
+            p['pillow'] = {'msid': msid if dims else None, **(dims or size)}
+            n['pillow'] += 1
+            n['model'] += 1 if msid and dims else 0
+    return f"ленты тканей: цвет у {n['look']} товаров, подушек {n['pillow']} (с моделью {n['model']})"
+
+
 def look_guard(variants: list) -> list:
     """Сторож перед записью данных (T-20261113-02/2): у строки ткани с цветом `look.of` — ключ товара, который в ней стоит
     (`look_key`). Расходится (товар сменил шаг после разметки) — место и цвет снимаем: строка остаётся в списке без 3D, а не

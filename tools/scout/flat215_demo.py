@@ -2771,6 +2771,8 @@ def main() -> None:
     import textile_abstract as _TXG
     for line in _TXG.look_guard(data['variants']):
         print(line, flush=True)
+    # ЛЕНТЫ ТКАНЕЙ — С ЦВЕТОМ И МОДЕЛЬЮ ТОВАРА (T-20261113-24): замена подушки, пледа, штор на странице остаётся в 3D
+    print(_TXG.annotate_feeds(data.get('feeds') or {}, decor_sku_model), flush=True)
     import build_stamp as _BS                       # метка правил сборщика — проверка «демо = туры» (T-20261112-92)
     data['build'] = _BS.stamp()
     _AIO.write_json(os.path.join(OUT, 'demo-data.json'), data, ensure_ascii=False, indent=1)
