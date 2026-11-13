@@ -247,6 +247,51 @@ def test_build_writes_only_trial_dir(tmp_path, monkeypatch):
     assert {'adapter_s', 'solver_s', 'assembly_s', 'total_s'} <= set(s['timings'])
 
 
+def test_tour_drops_soft_without_catalog_role(tmp_path, monkeypatch):
+    """T-20261113-07/2: лягушка «Вигге» (детская линия, `category_map.soft_kids` сняла роль) стоит подушкой в банке — тур её не
+    ставит, тем же правилом, что /demo (`flat215_demo.soft_lost`): из банка уходит только мягкое без роли в каталоге."""
+    import flat215_demo as FD
+    import mesh_queue
+    monkeypatch.setattr(TD, 'TRIAL_ROOT', str(tmp_path))
+    no_hard(monkeypatch)
+    monkeypatch.setattr(FD, 'drop_unavailable', lambda sets: 0)          # наличие — не предмет теста
+    asked = []
+    monkeypatch.setattr(mesh_queue, 'db', lambda q: (asked.append(q), [['112923:vigge']])[1])
+    frog = {'mid': 112923, 'eid': 'vigge', 'name': 'Подушка divan.ru Вигге'}
+    sets = bank()
+    sets[0]['items'].update({'подушка 2': frog, 'подушка': it(31, 45, 45, 'Подушка льняная')})
+    sets[1]['items'].update({'подушка': frog, 'ваза': {'mid': 112923, 'eid': 'vigge', 'name': 'ваза с тем же ключом'}})
+    path = tmp_path / 'sets3.json'
+    path.write_text(json.dumps(sets, ensure_ascii=False), encoding='utf-8')
+    monkeypatch.setenv('TRIAL_SETS', str(path))
+    seen = []
+
+    def pick(s, band):
+        seen.append(json.loads(json.dumps(s)))
+        return [1, 2] if band == '17-20' else []
+    scene = TD.build('frog', plan(), solver=fake_solver(), pick=pick)
+    used = seen[0]
+    assert all(v.get('eid') != 'vigge' for st in used for r, v in st['items'].items() if FD.soft_role(r))
+    assert used[0]['items']['подушка']['name'] == 'Подушка льняная'               # мягкое с ролью остаётся
+    assert used[1]['items']['ваза']['eid'] == 'vigge'                               # не мягкое правилом не снимается
+    assert "'112923:vigge'" in asked[0] and "'31:31'" in asked[0]
+    names = json.dumps(scene, ensure_ascii=False)
+    assert 'Вигге' not in names
+    # нет базы — банк как есть (сбой пробы ≠ вердикт), тур строится
+    monkeypatch.setattr(mesh_queue, 'db', lambda q: (_ for _ in ()).throw(RuntimeError('нет базы')))
+    s2 = bank()
+    s2[0]['items']['подушка'] = frog
+    assert TD.drop_gone(s2) == 0 and s2[0]['items']['подушка'] is frog
+
+
+def test_bedroom_tour_uses_same_bank_gate():
+    """Спальня тура снимает банк тем же рубежом (`trial_bedroom` → `trial_demo.drop_gone`): правило одно на все комнаты тура."""
+    src = open(os.path.join(SCOUT, 'trial_bedroom.py'), encoding='utf-8').read()
+    assert 'TD.drop_gone(bank)' in src
+    gate = open(os.path.join(SCOUT, 'trial_demo.py'), encoding='utf-8').read()
+    assert 'FD.drop_soft_lost(sets)' in gate and 'FD.drop_unavailable(sets)' in gate
+
+
 def _assert_openings_contract(s: dict) -> None:
     """Контракт со стадией героя (`trial_hero.py`, докстрока и `payload_from_trial`): у сцены ok/partial `openings_core` —
     всегда список проёмов ядра в полях `planner.models.Opening`, без служебных `_…`; иначе кадр — отказ `trial_no_openings`."""

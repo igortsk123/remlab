@@ -1071,6 +1071,21 @@ def soft_lost(sets: list) -> set:
         return set()
 
 
+def drop_soft_lost(sets: list) -> int:
+    """Снять из банка мягкое, у которого каталог снял роль (`soft_lost` — то же правило и тот же запрос, что у /demo). → сколько
+    снято. Рубеж тура загруженного плана (`trial_demo.drop_gone`: гостиная и спальня, T-20261113-07/2): /demo меняет такое мягкое
+    из ленты сборки, а у тура ленты мягкого нет — строка снимается, как у /demo, когда заменить нечем. Нет базы — ничего не снимаем."""
+    lost = soft_lost(sets)
+    n = 0
+    for st in sets:
+        items = st.get('items') or {}
+        for role, it in list(items.items()):
+            if it and soft_role(role) and f"{it.get('mid')}:{it.get('eid')}" in lost:
+                items.pop(role)
+                n += 1
+    return n
+
+
 def soft_feed_row(base: str, it: dict | None, style: str | None) -> dict | None:
     """Мягкое (demo-24) → строка ленты замен: места на полу и модели нет, поэтому ни конверта размера, ни меша не требуем —
     только то, без чего строку списка не показать честно: название, живое фото, цена и ссылка в магазин. Роль снята

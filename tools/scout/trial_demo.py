@@ -177,16 +177,25 @@ def sets_path() -> str:
 
 def drop_gone(sets: list) -> int:
     """Снять из банка товары, которых уже нет в продаже, — ТЕМ ЖЕ рубежом, что у сборки /demo (`flat215_demo.drop_unavailable`,
-    владелец 01.09: «диван с карточкой 404»). Прежде тур ставил такой товар (T-20261112-96). Каталог недоступен — банк как есть, WARN."""
+    владелец 01.09: «диван с карточкой 404»). Прежде тур ставил такой товар (T-20261112-96). Каталог недоступен — банк как есть, WARN.
+    Тем же рубежом — мягкое, у которого каталог снял роль (детская линия: лягушка «Вигге» подушкой, `flat215_demo.drop_soft_lost`,
+    одно правило с /demo; T-20261113-07/2): ночное лечение банка его не снимает (предохранитель `heal_policy`)."""
     try:
         import flat215_demo as FD
+    except Exception as e:  # noqa: BLE001
+        print(f'WARN:trial_drop_gone: банк не проверен ({repr(e)[:120]})', flush=True)
+        return 0
+    try:
         n = FD.drop_unavailable(sets)
     except Exception as e:  # noqa: BLE001 — без каталога наличие не проверить: банк как есть, но громко
         print(f'WARN:trial_drop_gone: наличие не проверено ({repr(e)[:120]})', flush=True)
-        return 0
+        n = 0
     if n:
         print(f'банк: снято не в продаже — {n}', flush=True)
-    return n
+    k = FD.drop_soft_lost(sets)          # сама не падает: нет базы — пусто (WARN внутри `soft_lost`)
+    if k:
+        print(f'банк: снято мягкое без роли в каталоге (детские линии) — {k}', flush=True)
+    return n + k
 
 
 def band_for(area_m2: float) -> tuple[str, list]:
