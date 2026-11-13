@@ -144,14 +144,45 @@ def disk_paths(src: str) -> list[tuple[int, str]]:
     return out
 
 
-def resolve(root: str, frm: str, spec: str) -> str | None:
+def target_base(frm: str, spec: str) -> str | None:
+    """Путь импорта от корня репо без расширения (пакет node_modules или выход за корень — None)."""
     if spec.startswith('@/'):
         base = spec[2:]
     elif spec.startswith('.'):
         base = os.path.normpath(os.path.join(os.path.dirname(frm), spec)).replace(os.sep, '/')
     else:
-        return None                      # пакет из node_modules
-    if base.startswith('..'):
+        return None
+    return None if base.startswith('..') else base
+
+
+NEXT_CONFIGS = ('next.config.mjs', 'next.config.js', 'next.config.ts', 'next.config.cjs')
+DIST_DIR = re.compile(r'''\bdistDir\s*:\s*['"]([^'"\n]+)['"]''')
+
+
+def build_outputs(root: str) -> list[str]:
+    """Папки, которые создаёт сама сборка в образе (`next build` → distDir, по умолчанию `.next`): ссылка туда — не нарушение,
+    хоть `.dockerignore` их и выкидывает из контекста (`next-env.d.ts` → `.next/types/routes.d.ts`, 13.11 T-121/4).
+    Есть ли папка на диске у того, кто запускает сторожа, — не важно: в образе её создаёт сборка."""
+    dist = '.next'
+    for name in NEXT_CONFIGS:
+        p = os.path.join(root, name)
+        if os.path.isfile(p):
+            with open(p, encoding='utf-8') as f:
+                m = DIST_DIR.search(_no_comments(f.read()))
+            if m:
+                dist = m.group(1)
+            break
+    dist = os.path.normpath(dist).replace(os.sep, '/').lstrip('/')
+    return [dist + '/'] if dist not in ('', '.') and not dist.startswith('..') else []
+
+
+def under(path: str, dirs: list[str]) -> bool:
+    return any(path == d.rstrip('/') or path.startswith(d) for d in dirs)
+
+
+def resolve(root: str, frm: str, spec: str) -> str | None:
+    base = target_base(frm, spec)
+    if base is None:
         return None
     for ext in RESOLVE_EXT:
         if os.path.isfile(os.path.join(root, base + ext)):
@@ -190,7 +221,8 @@ def scan(root: str, files: list[str] | None = None, dockerignore: str | None = N
             dockerignore = f.read()
     pats = parse(dockerignore)
     files = files if files is not None else git_files(root)
-    queue, seen, bad = roots_of(files, pats), set(), []
+    outs = build_outputs(root)
+    queue, seen, bad = [f for f in roots_of(files, pats) if not under(f, outs)], set(), []
     while queue:
         f = queue.pop()
         if f in seen:
@@ -204,6 +236,9 @@ def scan(root: str, files: list[str] | None = None, dockerignore: str | None = N
         if f.endswith('.json') or NEXT_TEST.search('/' + f):
             continue
         for ln, sp in specs(src):
+            b = target_base(f, sp)
+            if b is None or under(b, outs):      # вывод сборки (`.next/…`) появится в образе сам
+                continue
             t = resolve(root, f, sp)
             if not t:
                 continue
@@ -214,7 +249,7 @@ def scan(root: str, files: list[str] | None = None, dockerignore: str | None = N
                 queue.append(t)
         if f.startswith(APP_DIRS):
             for ln, p in disk_paths(src):
-                if p and os.path.isfile(os.path.join(root, p)) and ignored(p, pats):
+                if p and not under(p, outs) and os.path.isfile(os.path.join(root, p)) and ignored(p, pats):
                     bad.append(f'{f}:{ln} читает с диска {p}, а .dockerignore его выкидывает — в образе файла нет. '
                                f'Вернуть строкой `!{p}` в .dockerignore или положить данные в образ иначе')
     return sorted(set(bad))
@@ -294,6 +329,24 @@ def _selftest() -> int:
         put('tests/unit/helper.ts', "import R from '@/tools/scout/rules/r.json';\n")
         ok(any('tests/unit/helper.ts' in g for g in scan(d, ['tools/scout/rules/r.json', 'tests/unit/helper.ts'], base)),
            'помощник тестов без «.test.» — проверяется next build, красный')
+        # вывод сборки Next (.next/) выкинут из контекста, но в образе его создаёт `next build` (T-121/4: ложный FAIL на main)
+        put('.next/types/routes.d.ts', 'export {};\n')       # у того, кто собирал локально, папка есть на диске
+        put('next-env.d.ts', '/// <reference types="next" />\n/// <reference path="./.next/types/routes.d.ts" />\n')
+        nb = '.next\ntools\n'
+        got = scan(d, ['next-env.d.ts', 'lib/util.ts'], nb)
+        ok(got == [], 'next-env.d.ts → .next/types/… (вывод сборки) — ок', got)
+        put('lib/pick.ts', "import R from '@/tools/scout/rules/r.json';\nexport default R;\n")
+        got = scan(d, ['next-env.d.ts', 'lib/pick.ts', 'tools/scout/rules/r.json'], nb)
+        ok(len(got) == 1 and got[0].startswith('lib/pick.ts:1 импортирует tools/'),
+           'рядом импорт из выкинутого tools/** — по-прежнему красный', got)
+        put('lib/types.ts', "import type { X } from '../.next/types/x';\n")
+        ok(scan(d, ['lib/types.ts'], nb) == [], 'импорт из .next, которого нет на диске, — тоже ок (создаст сборка)')
+        put('next.config.mjs', "export default { /* distDir: 'zzz' */ distDir: 'out-build' };\n")
+        ok(build_outputs(d) == ['out-build/'], 'distDir из next.config — папка вывода сборки', build_outputs(d))
+        put('lib/types.ts', "import type { X } from '../.next/types/x';\n")
+        put('.next/types/x.ts', 'export type X = 1;\n')
+        ok(any('lib/types.ts' in g for g in scan(d, ['lib/types.ts'], nb)), 'при своём distDir .next — обычная выкинутая папка')
+        os.remove(os.path.join(d, 'next.config.mjs'))
         put('tools/ops/script.ts', "import R from '@/tools/scout/rules/r.json';\n")
         ok(scan(d, ['tools/scout/rules/r.json', 'tools/ops/script.ts'], base) == [], 'выкинутый .ts сам в образ не едет — не корень')
     buf = io.StringIO()
