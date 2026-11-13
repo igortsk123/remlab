@@ -14,12 +14,17 @@ try{window.__dataP=fetch('demo-data.json'); window.__dataP.catch(function(){});}
    запуска (+0,2 с на телефоне до запроса фото). Разобранный лежит в `__shotsD` — запуск берёт его готовым (`loadShots`, синхронно) */
 try{window.__shotsP=/^\/try\//.test(location.pathname)?null:fetch('/test/share/shots.json?v='+Date.now(),{cache:'no-store'}); if(window.__shotsP){window.__shotsP.catch(function(){});
   window.__shotsJ=window.__shotsP.then(function(r){return r&&r.ok?r.json():null;}).then(function(d){window.__shotsD=Array.isArray(d)?d:null; return d;},function(){return null;});}}catch(e){window.__shotsP=null; window.__shotsJ=null;}</script>
-<meta charset="utf-8"><!-- ЗУМ РАЗРЕШЁН (аудит 01.09, Б1): запрет масштабирования на странице с планом и мелкими
-     подписями — прямой вред. Жесты на самом плане изолированы `touch-action:none` у #stage,
-     поэтому перетаскивание предметов от зума страницы не страдает. -->
+<meta charset="utf-8"><!-- МАСШТАБ СТРАНИЦЫ ЗАПРЕЩЁН (T-20261113-15, владелец TG 1466–1479; отменяет «зум разрешён» аудита 01.09):
+     на телефоне страницу случайно увеличивали щипком в окне комнаты, и вернуть было нельзя. Правило — `lib/page/no-zoom.ts`,
+     блок ниже — его вывод `noZoomHead("viewport-fit=cover")`, сверка — `tests/unit/no-zoom.test.ts`. Свои жесты (3D, зум фото,
+     план #stage) — pointer-события и `touch-action:none`, им запрет не мешает. -->
 <!-- `viewport-fit=cover` (T-20261107-35/4, владелец TG 435): без него `env(safe-area-inset-*)` на iPhone = 0, и прилепленные снизу
      полосы (опрос, подпись окна, шторка) уходили под полосу «домой». Боковые вырезы (телефон боком) — поле у `body` -->
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- no-zoom:start (lib/page/no-zoom.ts) -->
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<style>html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:100%}@media (pointer:coarse){input,textarea,select{font-size:max(16px,1em)!important}}</style>
+<script>(function(){if(window.__noZoom)return;window.__noZoom=1;var d=document,o={passive:false},s=function(e){e.preventDefault();};['gesturestart','gesturechange','gestureend'].forEach(function(t){d.addEventListener(t,s,o);});d.addEventListener('touchmove',function(e){if(e.touches&&e.touches.length>1||typeof e.scale==='number'&&e.scale!==1)e.preventDefault();},o);})();</script>
+<!-- no-zoom:end -->
 <meta name="robots" content="noindex"><meta http-equiv="cache-control" content="no-store">
 <title>Квартира · гостиная (демо)</title>
 <style>
