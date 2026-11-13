@@ -1,19 +1,29 @@
 import * as THREE from "three";
+import type { Placement } from "@/contracts/apartment";
 import { disposeObject } from "./meshes";
 
 // ЗАМЕНА ТОВАРА БЕЗ ПУСТОТЫ (T-20261112-109, владелец TG 1270: «в какой-то момент пустота, пока он меняется»). Раньше
-// `syncObjects` убирал старую модель сразу, а новая грузилась секунды — на месте предмета было пусто. Теперь старая
-// остаётся «призраком»: полупрозрачная, мягко мерцает, пока грузится новая; новая пришла — призрак гаснет за FADE_MS,
-// новая подрастает за APPEAR_MS. Новая не пришла — старая возвращается целиком, без мерцания. Одно правило на все
-// замены (Заменить, кружок цвета, отмена/повтор; /demo и туры) — всё идёт через `syncObjects`.
+// `syncObjects` убирал старую модель сразу, а новая грузилась секунды — на месте предмета было пусто. Теперь прежний предмет
+// остаётся на месте, пока грузится новый; новая пришла — прежний гаснет за FADE_MS, новая подрастает за APPEAR_MS. Новая не пришла
+// — прежний возвращается целиком. Одно правило на все замены (Заменить, кружок цвета, отмена/повтор, смена стиля/набора; /demo и
+// туры) — всё идёт через `syncObjects`.
+//
+// СВЕТЛЫЙ СИЛУЭТ, А НЕ ПОЛУПРОЗРАЧНЫЙ ПРИЗРАК (T-20261113-19, владелец TG 1566–1567: «5 секунд ждёт, страшно, так черно выглядит»).
+// Полупрозрачный прежний диван показывал сквозь себя стену, тёмный низ модели и запечённую тень на полу — читалось как поломка.
+// Теперь прежний предмет — НЕПРОЗРАЧНЫЙ светлый силуэт своей формы, мягко «дышит» светом (без мигания) — «обновляется, ждём».
+// Тень под ним пересчитывает `viewer` сразу (силуэт тени не даёт); тень новой — вместе с готовой моделью. Вещи, стоящие НА
+// заменяемой (подушки, плед, лампа на комоде — `standsOn`), ждут её и появляются вместе (`follow` → `lead`).
 
 export const GHOST_PERIOD_MS = 1400;
 export const FADE_MS = 250;
 export const APPEAR_MS = 250;
+/** Цвет силуэта — светлый тёплый, в тон стен демо. */
+export const SILHOUETTE_RGB = 0xefebe4;
 
-/** Прозрачность призрака: спокойный пульс 0.35…0.75 (без «колеса»). */
-export function ghostOpacity(ms: number): number {
-  return 0.55 + 0.2 * Math.sin((2 * Math.PI * ms) / GHOST_PERIOD_MS);
+/** Свечение силуэта: спокойное «дыхание» 0.35…0.65 (без вспышек и без прозрачности) — почти плоский светлый силуэт, читается
+ *  заглушкой «здесь обновляется», а не новым белым товаром. */
+export function ghostGlow(ms: number): number {
+  return 0.5 + 0.15 * Math.sin((2 * Math.PI * ms) / GHOST_PERIOD_MS);
 }
 
 /** Масштаб появления новой модели: 0.94 → 1, плавное торможение к концу. */
@@ -22,57 +32,77 @@ export function appearScale(ms: number): number {
   return 0.94 + 0.06 * (1 - (1 - t) ** 3);
 }
 
+/** Запас по высоте, см: вещь, лежащая на верху носителя (лампа на комоде), — его вещь. */
+const ON_TOP_CM = 2;
+
+/** Стоит ли вещь `dep` НА носителе `car`: поднята над полом, не выше его верха и центром над его следом (с поворотом).
+ *  Картина над диваном выше его верха — не его; подушки на сиденье, плед на подлокотнике, лампа на комоде, ТВ на тумбе — его. */
+export function standsOn(dep: Placement, car: Placement): boolean {
+  const lift = dep.elevCm ?? 0;
+  if (lift <= 0 || lift > (car.elevCm ?? 0) + car.hCm + ON_TOP_CM) return false;
+  const a = (-(car.rot ?? 0) * Math.PI) / 180;
+  const dx = dep.x - car.x;
+  const dy = dep.y - car.y;
+  const lx = dx * Math.cos(a) - dy * Math.sin(a);
+  const ly = dx * Math.sin(a) + dy * Math.cos(a);
+  return Math.abs(lx) <= car.wCm / 2 && Math.abs(ly) <= car.dCm / 2;
+}
+
 type Mat = THREE.Material | THREE.Material[];
 interface Ghost<P> {
   prev: P;
   group: THREE.Object3D;
-  /** Исходные материалы — призрак рисуется копиями, иначе прозрачность уехала бы во все копии модели. */
+  /** Исходные материалы — силуэт рисуется своим материалом, общий материал модели не трогаем. */
   orig: Map<THREE.Mesh, Mat>;
+  /** Один материал силуэта на весь предмет. */
+  mat: THREE.MeshStandardMaterial;
   t0: number;
   fadeAt: number | null;
 }
 
-/** Призраки заменяемых предметов по слоту и подрастающие новые модели. Рисует ход в `tick` каждого кадра. */
+/** Силуэты заменяемых предметов по слоту, подрастающие новые модели и вещи, ждущие свой носитель. Ход рисует `tick` каждого кадра. */
 export class SwapGhosts<P extends { group: THREE.Object3D }> {
   private ghosts = new Map<string, Ghost<P>>();
   private growing = new Map<THREE.Object3D, number>();
+  /** Носитель (слот), чья модель грузится, → вещи на нём, спрятанные до её прихода. */
+  private followers = new Map<string, Set<THREE.Object3D>>();
 
   constructor(private scene: THREE.Scene) {}
 
-  /** Слот меняет модель: прежний предмет остаётся призраком. Призрак уже есть (быстрые клики) — промежуточный убираем:
+  /** Слот меняет модель: прежний предмет остаётся светлым силуэтом. Силуэт уже есть (быстрые клики) — промежуточный убираем:
    *  на экране остаётся то, что человек видел последним, и никогда — две модели сразу. */
   hold(slotId: string, prev: P, visible: boolean, now: number): void {
     const had = this.ghosts.get(slotId);
-    if (!visible || (had && had.fadeAt === null)) { this.discard(prev.group); return; }
+    // спрятанная вещь (ждала носитель и сама не показывалась) силуэтом не становится — её никто не видел
+    if (!visible || !prev.group.visible || (had && had.fadeAt === null)) { this.discard(prev.group); return; }
     if (had) this.drop(slotId);
+    const mat = new THREE.MeshStandardMaterial({ color: SILHOUETTE_RGB, emissive: SILHOUETTE_RGB, emissiveIntensity: ghostGlow(0), roughness: 1, metalness: 0 });
     const orig = new Map<THREE.Mesh, Mat>();
     prev.group.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
       orig.set(m, m.material);
-      const copy = (x: THREE.Material): THREE.Material => {
-        const c = x.clone();
-        c.transparent = true;
-        c.depthWrite = false;
-        return c;
-      };
-      m.material = Array.isArray(m.material) ? m.material.map(copy) : copy(m.material);
+      m.material = mat;
     });
-    this.ghosts.set(slotId, { prev, group: prev.group, orig, t0: now, fadeAt: null });
+    this.ghosts.set(slotId, { prev, group: prev.group, orig, mat, t0: now, fadeAt: null });
   }
 
   has(slotId: string): boolean {
     return this.ghosts.has(slotId);
   }
 
-  /** Новая модель на месте: призрак гаснет, новая подрастает. */
+  /** Новая модель на месте: силуэт гаснет, новая подрастает. */
   release(slotId: string, fresh: THREE.Object3D | null, now: number): void {
     const g = this.ghosts.get(slotId);
-    if (g && g.fadeAt === null) g.fadeAt = now;
-    if (fresh && g) { fresh.scale.setScalar(appearScale(0)); this.growing.set(fresh, now); }
+    if (g && g.fadeAt === null) {
+      g.fadeAt = now;
+      g.mat.transparent = true;   // гаснуть — единственный момент, когда силуэт прозрачен (поверх подрастающей новой)
+      g.mat.needsUpdate = true;
+    }
+    if (fresh && g) this.grow(fresh, now);
   }
 
-  /** Новая не пришла: прежний предмет — целиком, со своими материалами, без мерцания. */
+  /** Новая не пришла: прежний предмет — целиком, со своими материалами, без свечения. */
   restore(slotId: string): P | null {
     const g = this.ghosts.get(slotId);
     if (!g) return null;
@@ -81,7 +111,7 @@ export class SwapGhosts<P extends { group: THREE.Object3D }> {
     return g.prev;
   }
 
-  /** Слот исчез из расстановки — призрак не нужен. */
+  /** Слот исчез из расстановки — силуэт не нужен. */
   drop(slotId: string): void {
     const g = this.ghosts.get(slotId);
     if (!g) return;
@@ -90,12 +120,42 @@ export class SwapGhosts<P extends { group: THREE.Object3D }> {
     this.discard(g.group);
   }
 
+  /** Модель носителя `carrier` начала грузиться: вещи на нём (`follow`) ждут её. */
+  expect(carrier: string): void {
+    if (!this.followers.has(carrier)) this.followers.set(carrier, new Set());
+  }
+
+  /** Вещь стоит на грузящемся носителе — прячем до его прихода. Носитель не грузится — ничего не делаем (false). */
+  follow(carrier: string, obj: THREE.Object3D): boolean {
+    const set = this.followers.get(carrier);
+    if (!set) return false;
+    obj.visible = false;
+    set.add(obj);
+    return true;
+  }
+
+  /** Носитель пришёл (`grow` — подрастают вместе с ним) или не пришёл (прежний на месте) — его вещи показываем. */
+  lead(carrier: string, now: number, grow = true): void {
+    const set = this.followers.get(carrier);
+    if (!set) return;
+    this.followers.delete(carrier);
+    for (const obj of set) {
+      obj.visible = true;
+      if (grow) this.grow(obj, now);
+    }
+  }
+
+  /** Носители, чья загрузка больше не идёт (новая расстановка их не грузит), — их вещи показываем сразу, без ожидания. */
+  leadAllExcept(keep: ReadonlySet<string>, now: number): void {
+    for (const carrier of [...this.followers.keys()]) if (!keep.has(carrier)) this.lead(carrier, now, false);
+  }
+
   tick(now: number): void {
     for (const [slotId, g] of this.ghosts) {
       const k = g.fadeAt === null ? 1 : 1 - (now - g.fadeAt) / FADE_MS;
       if (k <= 0) { this.drop(slotId); continue; }
-      const a = ghostOpacity(now - g.t0) * k;
-      for (const m of g.orig.keys()) for (const x of Array.isArray(m.material) ? m.material : [m.material]) x.opacity = a;
+      g.mat.emissiveIntensity = ghostGlow(now - g.t0);
+      if (g.fadeAt !== null) g.mat.opacity = k;
     }
     for (const [obj, t0] of this.growing) {
       obj.scale.setScalar(appearScale(now - t0));
@@ -111,7 +171,7 @@ export class SwapGhosts<P extends { group: THREE.Object3D }> {
     try { return fn(); } finally { obj.scale.setScalar(k); obj.updateMatrixWorld(true); }
   }
 
-  /** Перед сохранённым кадром: гаснущие призраки — сразу прочь, подрастающие модели — в полный размер. */
+  /** Перед сохранённым кадром: гаснущие силуэты — сразу прочь, подрастающие модели — в полный размер. */
   settle(): void {
     for (const [id, g] of [...this.ghosts]) if (g.fadeAt !== null) this.drop(id);
     for (const obj of this.growing.keys()) obj.scale.setScalar(1);
@@ -121,13 +181,18 @@ export class SwapGhosts<P extends { group: THREE.Object3D }> {
   disposeAll(): void {
     for (const id of [...this.ghosts.keys()]) this.drop(id);
     this.growing.clear();
+    for (const set of this.followers.values()) for (const obj of set) obj.visible = true;
+    this.followers.clear();
+  }
+
+  private grow(obj: THREE.Object3D, now: number): void {
+    obj.scale.setScalar(appearScale(0));
+    this.growing.set(obj, now);
   }
 
   private unclone(g: Ghost<P>): void {
-    for (const [m, mat] of g.orig) {
-      for (const x of Array.isArray(m.material) ? m.material : [m.material]) x.dispose();
-      m.material = mat;
-    }
+    for (const [m, mat] of g.orig) m.material = mat;
+    g.mat.dispose();
   }
 
   private discard(obj: THREE.Object3D): void {

@@ -30,7 +30,7 @@ import { buildCurtains, LIGHT, sunPose } from "@/lib/viewer3d/window-light";
 import { MeshLibrary, chaiseSide, disposeObject, placeMesh, stubBox } from "@/lib/viewer3d/meshes";
 import { outlineFrame } from "@/lib/viewer3d/outline";
 import { renderThumbs } from "@/lib/viewer3d/thumbs";
-import { SwapGhosts } from "@/lib/viewer3d/swap-ghost";
+import { SwapGhosts, standsOn } from "@/lib/viewer3d/swap-ghost";
 import { buildRoom, buildSurroundings } from "@/lib/viewer3d/rooms";
 import { boxPoints, livePitchDeg, liveSpot, lookPitchRange, LIVE_EYE_CM, type LiveBand, type LivePoint } from "@/lib/viewer3d/live-eye";
 import { canStand, frameSpot, inRooms, nearestStandable, obstacleDistanceCm, walkArea, walkRoomAt, type WalkArea } from "@/lib/viewer3d/walk";
@@ -105,6 +105,8 @@ export interface ViewerEvents {
   onProgress?: (loaded: number, total: number) => void;
   /** Видеоконтекст потерян (мало памяти GPU, вкладка в фоне на телефоне) — обёртка переходит на запасной путь. */
   onContextLost?: () => void;
+  /** Новая модель при замене не пришла — на месте прежняя (T-20261113-19): страница говорит об этом строкой. */
+  onSwapFailed?: (slotId: string) => void;
 }
 
 export interface ViewerOptions {
@@ -223,8 +225,10 @@ export class FlatViewer {
   private roomGroups = new Map<string, THREE.Group>();
   private floors: THREE.Mesh[] = [];
   private placed = new Map<string, Placed>();
-  /** Заменяемые предметы: прежний мерцает, пока грузится новый (T-20261112-109, `swap-ghost.ts`). */
+  /** Заменяемые предметы: прежний — светлый силуэт, пока грузится новый (T-20261112-109 → T-20261113-19, `swap-ghost.ts`). */
   private ghosts = new SwapGhosts<Placed>(this.scene);
+  /** Вещь → носитель, чья модель сейчас грузится (подушки на диване ждут диван, T-20261113-19). */
+  private waitFor = new Map<string, string>();
   private pendingUrls = new Set<string>();
   private loadedCount = 0;
   private totalCount = 0;
@@ -505,15 +509,18 @@ export class FlatViewer {
     this.loadedCount = specs.filter((sp) => this.placed.get(sp.slotId)?.signature === signatureOf(sp)).length;
     this.events.onProgress?.(Math.min(this.loadedCount, this.totalCount), this.totalCount);
 
-    // замена в загружаемой комнате — прежний предмет остаётся призраком до прихода нового (T-20261112-109); убран совсем
+    // замена в загружаемой комнате — прежний предмет остаётся светлым силуэтом до прихода нового (T-20261112-109, T-20261113-19); убран совсем
     // или комната не грузится — как раньше, сразу
     const loading = new Set(specs.map((s) => s.slotId));
+    let held = false;
     for (const [slotId, p] of [...this.placed]) {
       const next = wanted.get(slotId);
       if (!next || signatureOf(next) !== p.signature) {
         this.placed.delete(slotId);
-        if (next && loading.has(slotId)) this.ghosts.hold(slotId, p, p.status !== "pending", performance.now());
-        else {
+        if (next && loading.has(slotId)) {
+          this.ghosts.hold(slotId, p, p.status !== "pending", performance.now());
+          held = true;
+        } else {
           this.scene.remove(p.group);
           disposeObject(p.group);
           this.ghosts.drop(slotId);
@@ -529,6 +536,9 @@ export class FlatViewer {
 
     const sorted = [...specs].sort((a, b) => order.indexOf(a.roomId) - order.indexOf(b.roomId));
     const queue = sorted.filter((s) => !this.placed.has(s.slotId));
+    this.waitCarriers(specs, queue);
+    // тень прежнего предмета под силуэтом — прочь сразу (её было видно чёрным пятном); тень новой — с готовой моделью, ниже
+    if (held) this.bakeContact();
     // Грузим ПАРАЛЛЕЛЬНО, но не больше четырёх сразу: последовательная загрузка растягивала
     // наполнение комнаты на десяток секунд, а без ограничения телефон захлёбывается на старте.
     const CONCURRENCY = this.quality.name === "lite" ? 2 : 4;
@@ -544,6 +554,32 @@ export class FlatViewer {
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker));
     // тень — по ГОТОВОЙ расстановке (модели пришли, места новые): в простое, первый кадр её не ждёт
     if (!this.disposed) this.bakeContact();
+  }
+
+  /** ВЕЩИ НА ГРУЗЯЩЕМСЯ НОСИТЕЛЕ ЖДУТ ЕГО (T-20261113-19, владелец: подушки стояли на «призраке» дивана): носитель — предмет, чья
+   *  модель сейчас пойдёт качаться; вещи на нём (`standsOn`: подушки, плед, лампа на комоде) — и уже стоящие, и новые (`addObject` →
+   *  `followCarrier`) — спрятаны до его прихода и появляются вместе с ним. Правило по геометрии, без ролей и товаров. */
+  private waitCarriers(specs: ObjectSpec[], queue: ObjectSpec[]): void {
+    // грузящийся = пойдёт в загрузку сейчас ИЛИ ещё грузится с прошлой синхронизации (повторный `update` того же не отпускает вещи раньше)
+    const inQueue = new Set(queue.map((q) => q.slotId));
+    const carriers = specs.filter((c) => c.kind === "mesh" && (inQueue.has(c.slotId) || this.placed.get(c.slotId)?.status === "pending"));
+    const now = performance.now();
+    this.ghosts.leadAllExcept(new Set(carriers.map((c) => c.slotId)), now);
+    this.waitFor.clear();
+    for (const c of carriers) this.ghosts.expect(c.slotId);
+    for (const s of specs) {
+      const c = carriers.find((x) => x.slotId !== s.slotId && standsOn(s.placement, x.placement));
+      if (!c) continue;
+      this.waitFor.set(s.slotId, c.slotId);
+      const p = this.placed.get(s.slotId);
+      if (p) this.ghosts.follow(c.slotId, p.group);
+    }
+  }
+
+  /** Новая вещь на грузящемся носителе — прячется до его прихода. */
+  private followCarrier(slotId: string, group: THREE.Object3D): void {
+    const c = this.waitFor.get(slotId);
+    if (c) this.ghosts.follow(c, group);
   }
 
   /** Порядок загрузки: текущая комната, потом соседние — «сначала то, где человек стоит». */
@@ -589,6 +625,7 @@ export class FlatViewer {
       outer.userData = { slotId: spec.slotId, roomId: spec.roomId, title: spec.titleRu };
       this.scene.add(outer);
       this.placed.set(spec.slotId, { spec, group: outer, signature: signatureOf(spec), status: "pending" });
+      this.followCarrier(spec.slotId, outer);
       this.refreshSelection(spec.slotId);
 
       try {
@@ -608,7 +645,9 @@ export class FlatViewer {
           disposeObject(stub);
           outer.add(real);
           cur.status = "loaded";
-          this.ghosts.release(spec.slotId, outer, performance.now());
+          const now = performance.now();
+          this.ghosts.release(spec.slotId, outer, now);
+          this.ghosts.lead(spec.slotId, now);   // подушки, плед — вместе с несущей
           this.refreshSelection(spec.slotId);
         } else {
           // пока грузилась, предмет заменили или убрали: эта группа больше не нужна — не оставляем её в сцене
@@ -620,11 +659,14 @@ export class FlatViewer {
         stub.visible = true;
         const cur = this.placed.get(spec.slotId);
         const back = cur && cur.group === outer ? this.ghosts.restore(spec.slotId) : null;
+        if (cur && cur.group === outer) this.ghosts.lead(spec.slotId, performance.now(), false);
         if (back) {
           this.scene.remove(outer);
           disposeObject(outer);
           this.placed.set(spec.slotId, back);
           this.refreshSelection(spec.slotId);
+          this.bakeContact();   // прежний на месте — и его тень
+          this.events.onSwapFailed?.(spec.slotId);
         } else if (cur && cur.group === outer) cur.status = "stub";
       } finally {
         clearTimeout(showStub);
@@ -704,6 +746,7 @@ export class FlatViewer {
     this.scene.add(group);
     this.placed.set(spec.slotId, { spec, group, signature: signatureOf(spec), status: "loaded" });
     this.ghosts.release(spec.slotId, group, performance.now());
+    this.followCarrier(spec.slotId, group);
     this.refreshSelection(spec.slotId);
     this.loadedCount += 1;
     this.events.onProgress?.(Math.min(this.loadedCount, this.totalCount), this.totalCount);

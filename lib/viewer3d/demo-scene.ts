@@ -68,7 +68,8 @@ type Mat = Record<string, unknown> & { id: string };
 /** Стены живой сцены: материал всех стен и акцентная — сторону считает расчёт сцены (`accent.ts`). */
 export type DemoWall = { material: Mat; accent?: { material: Mat; anchor: "behind-sofa" } };
 
-export type DemoSceneEvent = "progress" | "contextlost";
+/** `swapfail` — новая модель при замене не пришла, на месте прежняя (T-20261113-19): страница показывает строку. */
+export type DemoSceneEvent = "progress" | "contextlost" | "swapfail";
 
 export interface DemoScene {
   /** Первая расстановка загружена (модели пришли или остались честными коробками). */
@@ -301,6 +302,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
   const viewer = new FlatViewer(canvas, first.apartment, first.catalogue, opts.lite ? LITE_QUALITY : DESKTOP_QUALITY, {
     onProgress: (l, t) => emit("progress", l, t),
     onContextLost: () => emit("contextlost"),
+    onSwapFailed: () => emit("swapfail"),
   }, { curtains: opts.curtains ?? curtainsFromUrl() });
   const resolved = (a: Apartment, c: Catalogue) => resolveScene(a, c, defaultConfiguration(a, c));
   // сторона акцентной стены — из расчёта сцены; меняется, когда переставили диван, — тогда оболочку перестраиваем

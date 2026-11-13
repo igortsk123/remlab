@@ -9784,6 +9784,9 @@ div.vcth{background:var(--wash)}
 /* обновление готовой сцены — крутилка в углу, сцена не «моргает» */
 .vload.corner{inset:auto 12px 12px auto;background:none}.vload.corner div{flex-direction:row;padding:8px 12px}
 .vload.corner i{width:20px;height:20px}
+/* телефон: низ кадра закрыт шторкой — плашка «Обновляем…» сверху по центру, под переключателем «Фото | 3D» (T-20261113-19: в углу её
+   не было видно вовсе, и замена дивана выглядела зависшей) */
+@media(max-width:700px){.vload.corner{inset:62px auto auto 50%;transform:translateX(-50%)}.vload.corner div{padding:7px 12px;font-size:13px;white-space:nowrap}}
 /* подсказка окна — того же вида, что сообщения страницы (`.msg`, demo-19 Б4); нажатия проходят сквозь неё */
 #shot .vtip{z-index:var(--zl-pop);pointer-events:none}
 #shot .vtip .vtip-br{display:block;height:0;overflow:hidden}
@@ -12097,10 +12100,12 @@ function liveEngine(){
       sc=window.RemlabScene.createDemoScene(cv,{room, items:clone(items), decor:liveDecor(), base:location.href,
         runtimeMeshes:rt, lite:isTouchUI(), walk:true, floor:devFloor()||undefined, wall:devWall()||undefined});
       const sc1=sc; sc1.on('contextlost',()=>liveLost(sc1));
-      // крутилка считает модели: «Загружаем модели 3 из 8» при первом открытии, «Загружаем модель…» при замене; при восстановлении —
-      // одна спокойная строка «Восстанавливаем 3D…» без счёта
+      // крутилка считает модели: «Загружаем модели 3 из 8» при первом открытии, «Обновляем…» при замене (то же слово, что до загрузки,
+      // T-20261113-19: на месте вещи — светлый силуэт движка); при восстановлении — одна спокойная строка «Восстанавливаем 3D…» без счёта
       sc.on('progress',(l,t)=>{if(LIVE.state==='warming'&&!LIVE.restoring)vwLoad(true,(LANG==='en'?'Loading models ':'Загружаем модели ')+l+(LANG==='en'?' of ':' из ')+t);
-        else if(LIVE.state==='updating'&&l<t)vwLoad(true,LANG==='en'?'Loading the model…':'Загружаем модель…',true);});
+        else if(LIVE.state==='updating'&&l<t)vwLoad(true,LANG==='en'?'Updating…':'Обновляем…',true);});
+      // новая модель при замене не пришла — в 3D осталась прежняя вещь целиком (движок, `swapfail`): говорим об этом, а не молчим
+      sc.on('swapfail',()=>toastErr(LANG==='en'?'The model didn’t load — 3D shows the previous one':'Модель не загрузилась — в 3D пока прежняя'));
       sc.setSize(896,597);
       await sc.ready;
       if(lost()){sc.dispose(); return null;}       // контекст потерян, пока грузились модели

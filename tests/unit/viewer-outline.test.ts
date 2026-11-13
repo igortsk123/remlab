@@ -59,7 +59,7 @@ describe("рамка выделения ковра", () => {
     const v = Object.create(FlatViewer.prototype) as FlatViewer;
     const scene = new THREE.Scene();
     Object.assign(v, {
-      scene, ghosts: new SwapGhosts(scene), placed: new Map(), pendingUrls: new Set(), loadedCount: 0, totalCount: 0, disposed: false,
+      scene, ghosts: new SwapGhosts(scene), waitFor: new Map(), placed: new Map(), pendingUrls: new Set(), loadedCount: 0, totalCount: 0, disposed: false,
       apartment: r.apartment, catalogue: r.catalogue, quality: { name: "desktop", preloadRooms: 9 }, events: {},
       pos: new THREE.Vector2(200, 200), currentRoom: null, outline: null, selectedSlot: null, _bb: new THREE.Box3(),
       meshes: { load: () => Promise.reject(new Error("нет сети")) },
