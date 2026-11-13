@@ -56,8 +56,10 @@ _TABLETOP_CUTOUT = {'часы'}
 def soft_roles() -> set:
     """МЯГКОЕ БЕЗ МЕСТА В 3D (demo-24, владелец 23.10): подушка, шторы, плед, покрывало (и настенная полка) — стратегия `cutout`,
     кроме настольного декора. Одно правило на экспорт (`flat215_demo.soft_roles` → `rules.soft_roles` страницы), сцену сервера
-    (`draft_render.decor_layout` их не ставит) и «Улучшить фото» (`improve_mode.soft_items` — в запрос словами и фото)."""
-    return roles_with('cutout') - _TABLETOP_CUTOUT
+    (`draft_render.decor_layout` их не ставит) и «Улучшить фото» (`improve_mode.soft_items` — в запрос словами и фото).
+    `soft_until_models` канона — роли, которым меш уже генерируется (hunyuan3d), а показ /demo ещё мягкий, пока его не
+    переведут на модели (подушка, ADR-0402, T-20261113-03): генерация и показ переключаются раздельно."""
+    return (roles_with('cutout') | set(_load().get('soft_until_models') or ())) - _TABLETOP_CUTOUT
 
 
 def non_mesh_roles() -> set:

@@ -36,7 +36,12 @@ check('канон: мягкое = cutout без настольных часов'
 check('экспорт и сцена сервера — то же правило', set(F.soft_roles()) == AS.soft_roles()
       and all(F.soft_role(r) and DR.soft_role(r) for r in ('подушка', 'подушка 2', 'шторы', 'плед')))
 check('ваза, часы, диван — не мягкое', not any(F.soft_role(r) or DR.soft_role(r) for r in ('ваза', 'часы', 'диван', 'кресло 2')))
-check('мягкому меш не положен (канон)', AS.soft_roles() <= AS.non_mesh_roles() and AS.soft_roles() <= F.NOMESH_ROLES | {'полка'})
+_UNTIL = set(AS._load().get('soft_until_models') or ())
+check('мягкому меш не положен (канон), кроме «мягкое до моделей»', AS.soft_roles() - _UNTIL <= AS.non_mesh_roles()
+      and AS.soft_roles() <= F.NOMESH_ROLES | {'полка'})
+check('подушка: меш генерируется (ADR-0402), показ /demo пока мягкий (T-20261113-03)',
+      _UNTIL == {'подушка'} and AS.strategy('подушка') == 'hunyuan3d' and AS.front('подушка') == 'none'
+      and 'подушка' not in AS.non_mesh_roles() and F.soft_role('подушка'))
 
 # 2) экспорт: строка ленты мягкого
 keep = (sys.modules.get('img_alive'), F._basis, F._pack_of)
