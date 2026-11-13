@@ -299,6 +299,15 @@ export const isCeilingDecor = (x: DemoDecor): boolean =>
   !x.list_only && x.strategy === "ceiling_over" && !!x.sku?.msid && !!x.sku.hang?.w && !!x.sku.hang.d && !!x.sku.hang.h
   && Number.isFinite(x.place?.x) && Number.isFinite(x.place?.y) && Number.isFinite(x.place?.bottom_cm);
 
+/**
+ * НАСТОЛЬНЫЙ ДЕКОР (ваза на столике): модель с размерами, не картина, не люстра, не ткань и не декор на носителе — ставится на опору
+ * правилом `resolve.placeTabletop`. Один признак для моста (место `decor:<роль>`) и номера сцены (`demo-scene.sceneSlotIndex`, T-20261112-111:
+ * свой ценник, тап и карточка — как у мебели).
+ */
+export const isTabletopDecor = (x: DemoDecor): boolean =>
+  !x.list_only && !isWallArtDecor(x) && !isCeilingDecor(x) && !isTextileDecor(x) && x.strategy !== CARRIER_STRATEGY
+  && !!x.sku?.msid && !!x.sku.w && !!x.sku.d && !!x.sku.h;
+
 export function wallArtItems(decor: DemoDecor[]): DemoItem[] {
   return decor.filter(isWallArtDecor).map((x) => {
     const sk = x.sku!;
@@ -467,8 +476,7 @@ function roomPart(data: DemoData, at: RoomAt<DemoVariant>, ctx: DemoContext): Ro
   const rugs = (v.items ?? []).filter((it) => isRugRole(it.role) && it.w && it.d);
   // декор на носителе (лампа на комоде, T-20261112-101) — своей группой, не в ряду ваз (`carrier-decor.ts`); строка с той же
   // стратегией, но без модели или нормы — ни туда, ни туда (не вазой на столик)
-  const decor = (v.decor ?? []).filter((x) => !x.list_only && !isWallArtDecor(x) && !isCeilingDecor(x) && !isTextileDecor(x)
-    && x.strategy !== CARRIER_STRATEGY && x.sku?.msid && x.sku.w && x.sku.d && x.sku.h);
+  const decor = (v.decor ?? []).filter(isTabletopDecor);
   const onTop = (v.decor ?? []).filter(isCarrierDecor);
   const lights = (v.decor ?? []).filter(isCeilingDecor);
   const extraOptions: Mat[] = [];

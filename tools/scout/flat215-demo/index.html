@@ -10485,20 +10485,32 @@ function vwPricesToggle(){PRICES_OFF=!PRICES_OFF; try{sessionStorage.setItem('re
   vwPins();}
 function vwPins(){ if(!PINS.raf)PINS.raf=requestAnimationFrame(vwPinsTick); }
 // ЦЕННИК НЕ ЗАКРЫВАЕТ СВОЙ ПРЕДМЕТ (demo-27 В, владелец 23.10: у дальнего обеденного стола цена целиком скрывала столешницу): место — над
-// РАМКОЙ предмета (проекция его габаритной коробки, движок `projectSlot`) с зазором; занято (другой ценник, кнопки, шторка, край) — выше
-// ещё на ценник и на два (разводка по вертикали), затем сбоку от рамки — справа, слева. Рамки нет (угол коробки за камерой) — прежнее
-// место над серединой предмета. → кандидаты [x, y] px холста по порядку предпочтения
+// РАМКОЙ предмета (проекция его габаритной коробки, движок `projectSlot`) с зазором. ЦЕННИК ДЕРЖИТСЯ НАД СВОИМ ТОВАРОМ (T-20261112-111,
+// владелец TG 1276: ценник дивана £1,201 уехал на столик): занято (другой ценник, кнопки, шторка, край, ваза на этом столике) — сперва
+// вдоль верха своей рамки (середина ценника не выходит за её края), затем выше на ценник и на два, и только потом — на видимый верх
+// самого предмета. Сбоку от рамки на середине её высоты больше не ставим: там стоит сосед (столик перед диваном), и ценник
+// читался как его. Рамки нет (угол коробки за камерой) — прежнее место над серединой предмета. → кандидаты [x, y] px холста по порядку
 const PIN_GAP=6;
 function pinSpots(p, w, h, fw, pad, fh, onBody){
   const b=p.box;
   if(!b)return [[Math.round(p.x-w/2), Math.round(p.y-PIN_GAP-h)]];
-  const cx=Math.round(Math.max(pad,Math.min(fw-w-pad,(b[0]+b[2])/2-w/2))), cy=Math.round((b[1]+b[3])/2-h/2), up=Math.round(b[1]-PIN_GAP-h);
+  const cx=Math.round(Math.max(pad,Math.min(fw-w-pad,(b[0]+b[2])/2-w/2))), up=Math.round(b[1]-PIN_GAP-h);
   // ШТОРА (T-74/2): рамка от пола до потолка — «над верхом» ценник уходил под потолок к люстре и торшеру. Ставим на саму штору на высоте
   // глаз (~0.45 видимой высоты сверху: 1.5 м из ~2.7), затем чуть выше/ниже, затем у боков
   if(onBody){const t=Math.max(b[1],pad), bt=Math.min(b[3],(fh||b[3])-pad), eye=Math.round(t+(bt-t)*0.45-h/2), st=h+6;
     return [[cx,eye],[cx,eye-st],[cx,eye+st],[cx,eye-2*st],[cx,eye+2*st],[Math.round(b[2]+PIN_GAP),eye],[Math.round(b[0]-PIN_GAP-w),eye]];}
-  return [[cx,up],[cx,up-h-4],[cx,up-2*(h+4)],[Math.round(b[2]+PIN_GAP),cy],[Math.round(b[0]-PIN_GAP-w),cy]];
+  // вдоль верха: шаг — полценника, середина ценника в пределах рамки [b0, b2] и кадра
+  const xs=[cx], step=Math.max(12,Math.round(w/2)), lo=Math.max(pad,Math.round(b[0]-w/2)), hi=Math.min(fw-w-pad,Math.round(b[2]-w/2));
+  for(let d=step; cx-d>=lo||cx+d<=hi; d+=step){if(cx-d>=lo)xs.push(cx-d); if(cx+d<=hi)xs.push(cx+d);}
+  const out=[];
+  // последний ряд — на видимом верху самого предмета (верх за краем кадра — люстра, высокий шкаф: под краем кадра, на предмете)
+  for(const y of [up, up-h-4, up-2*(h+4), Math.round(Math.max(b[1],pad)+PIN_GAP)])xs.forEach(x=>out.push([x,y]));
+  return out;
 }
+// ПРЕДМЕТ НА ДРУГОМ (ваза на столике, лампа на комоде — декор с моделью, не картина, не люстра, не ткань): его рамку чужой ценник не
+// закрывает (T-20261112-111: ценник столика ложился на вазу) — ценник опоры сдвигается вдоль верха
+function vwOnTop(i){ const it=i>=items.length?vwItemAt(i):null, x=it&&it.dec!==undefined?((allVariants()[cur]||{}).decor||[])[it.dec]:null;
+  return !!x&&!isWallArt(x)&&!isCloth3d(x)&&x.strategy!=='ceiling_over'; }
 function vwPinsTick(now){
   PINS.raf=0;
   const shot=document.getElementById('shot'), box=document.getElementById('vpins'); if(!box)return;
@@ -10524,25 +10536,29 @@ function vwPinsTick(now){
   // подсказка «3D: тяните…» видна (5 с) — ценник, который она накрыла бы, ждёт, пока она погаснет (T-05/3: показ по очереди, не внахлёст)
   const hintR=liveHintOn()&&PINS.hint&&PINS.hint.width>0?PINS.hint:null, underHint=r=>!!(hintR&&hit(r,hintR));
   const all=LIVE.scene.pins();
+  const tops=on?all.filter(p=>p.visible&&p.box&&vwOnTop(p.index)).map(p=>({i:p.index, r:{left:fr.left+p.box[0], right:fr.left+p.box[2], top:fr.top+p.box[1], bottom:fr.top+p.box[3]}})):[];
   if(on)all.forEach(p=>{if(!p.visible)return; const it=vwItemAt(p.index), pr=it&&(skuOf(it)||{}).price; if(!pr)return;
     let n=PINS.map.get(p.index); const txt=money(pr);
     if(!n){n=document.createElement('span'); n.className='vpin'; n.dataset.pi=String(p.index); box.appendChild(n); PINS.map.set(p.index,n);}
     if(n.textContent!==txt){n.textContent=txt; n._w=0;}
     if(!n._w){n.hidden=false; n._w=n.offsetWidth; n._h=n.offsetHeight;}
-    seen.add(p.index); cand.push({n,p,pr:+pr,cloth:vwCurtainAt(it)});});
+    seen.add(p.index); cand.push({n,p,pr:+pr,cloth:vwCurtainAt(it),top:tops.some(o=>o.i===p.index)});});
   const kept=[];
   // КАРТОЧКА ВЫБРАННОГО — ПЕРВОЙ (T-05/6): она всегда в кадре, ценники — вокруг неё. Цену выбранного она показывает сама — его ценник,
   // пока карточка открыта, не рисуем (T-37/3: не дублируется и не наезжает)
   const sc=cand.find(c=>c.p.index===VW.sel), plate=vwRotPlace(box, fr, pad, kept, all, hit, underHint, sc?sc.pr:0);
-  cand.sort((a,b)=>b.pr-a.pr).forEach(c=>{const w=c.n._w, h=c.n._h, sel=c.p.index===VW.sel;
+  // порядок: сперва предметы на других (ваза — маленькая, её ценник встаёт прямо над ней), затем дороже — раньше
+  cand.sort((a,b)=>(b.top-a.top)||(b.pr-a.pr)).forEach(c=>{const w=c.n._w, h=c.n._h, sel=c.p.index===VW.sel;
     if(sel&&plate){c.n.hidden=true; return;}
-    const free=(x,y,skip)=>{const r={left:fr.left+x, right:fr.left+x+w, top:fr.top+y, bottom:fr.top+y+h};
-      return !(r.left<fr.left+pad||r.right>fr.right-pad||r.top<fr.top+pad||r.bottom>fr.bottom-pad||PINS.busy.some(o=>hit(r,o))||kept.some(k=>k!==skip&&hit(r,k)))&&r;};
+    // `soft` — рамку вазы на опоре можно задеть: места мимо неё нет, а ценник опоры нужен (свой ценник у каждого товара)
+    const free=(x,y,soft)=>{const r={left:fr.left+x, right:fr.left+x+w, top:fr.top+y, bottom:fr.top+y+h};
+      return !(r.left<fr.left+pad||r.right>fr.right-pad||r.top<fr.top+pad||r.bottom>fr.bottom-pad||PINS.busy.some(o=>hit(r,o))||kept.some(k=>hit(r,k))
+        ||(!soft&&tops.some(o=>o.i!==c.p.index&&hit(r,o.r))))&&r;};
     // места мимо карточки нет — ценник не рисуем (T-37/3): у пилюли он стоял под ней приглушённым (T-05/6), из-под крупной карточки
     // торчал его край — наезд
     const sp=pinSpots(c.p, w, h, fr.width, pad, fr.height, c.cloth);
-    const at=sp.find(([x,y])=>free(x,y));
-    const r=at&&free(at[0],at[1]);
+    const at=sp.find(([x,y])=>free(x,y,false))||sp.find(([x,y])=>free(x,y,true));
+    const r=at&&free(at[0],at[1],true);
     if(r&&underHint(r)){c.n.hidden=true; return;}
     c.n.hidden=!r; if(!r)return; kept.push(r);
     c.n.classList.toggle('sel',sel); c.n._x=at[0]; c.n._y=at[1];
@@ -12039,8 +12055,12 @@ function liveWire(){
     if(VW.mode==='walk'&&tap){
       const r=cv.getBoundingClientRect(), fx=(e.clientX-r.left)/Math.max(1,r.width);
       if(!VW.free){VW.free=true; vwCamsUi();}   // поворот, шаг, подход к окну — тоже уход с точки ракурса (T-20261112-76/2)
-      // окно у края кадра — подойти к нему, а не поворот (T-20261112-30, TG 1731: «при клике на окно к нему надо подходить»)
-      if(fx<0.2||fx>0.8){if(!(LIVE.scene.windowTap&&LIVE.scene.windowTap(e.clientX,e.clientY)))LIVE.scene.turn(fx<0.2?-30:30); LIVE.scene.start(); return;}
+      // окно у края кадра — подойти к нему, а не поворот (T-20261112-30, TG 1731: «при клике на окно к нему надо подходить»); ПРЕДМЕТ у края —
+      // выбор и карточка, как в середине (T-20261112-111, владелец TG 1335: «тап по самому предмету — у любого товара»; тумба у стены
+      // попадала в крайние 20 % и тап поворачивал взгляд). Поворот — по полу и стене у края, как было
+      if(fx<0.2||fx>0.8){const j=LIVE.scene.itemAt?LIVE.scene.itemAt(e.clientX,e.clientY):-1;
+        if(j>=0){vwHighlight(j); LIVE.scene.start(); return;}
+        if(!(LIVE.scene.windowTap&&LIVE.scene.windowTap(e.clientX,e.clientY)))LIVE.scene.turn(fx<0.2?-30:30); LIVE.scene.start(); return;}
       const i=LIVE.scene.walkTap?LIVE.scene.walkTap(e.clientX,e.clientY):LIVE.scene.pick(e.clientX,e.clientY);
       if(i>=0)vwHighlight(i); else vwSelect(null); LIVE.scene.start();}});
 }

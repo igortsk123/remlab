@@ -11,7 +11,7 @@
 import type { Apartment } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
 import { isCarrierDecor } from "@/lib/configurator/carrier-decor";
-import { fromDemoVariant, isCeilingDecor, isTextileDecor, isWallArtDecor, isWallPlane, stableSlotIds, wallArtItems, type DemoData } from "@/lib/configurator/fromDemo";
+import { fromDemoVariant, isCeilingDecor, isTabletopDecor, isTextileDecor, isWallArtDecor, isWallPlane, stableSlotIds, wallArtItems, type DemoData } from "@/lib/configurator/fromDemo";
 import { type DecorIn } from "@/lib/viewer3d/scene-extras";
 import { meshUrl, RUNTIME_BASE, setRuntimeMeshes, type RuntimeEntry } from "@/lib/configurator/mesh-url";
 import { windowView } from "@/lib/viewer3d/window-views";
@@ -142,6 +142,9 @@ export interface DemoScene {
    *  к нему (`viewer.walkToWindow`) и -1; пол (и ковёр) комнаты или закутка — шаг туда с кольцом в точке, где встанем (`viewer.goTo`,
    *  если `walk` не выключен) и -1; стена — -1. */
   walkTap(clientX: number, clientY: number): number;
+  /** Предмет под пальцем по тому же лучу, что `walkTap` (стена и окно ближе — не он), без шага и подхода: номер или -1. Для краёв
+   *  сцены (T-20261112-111, владелец TG 1335): тап по предмету у края — выбор, а не поворот взгляда. */
+  itemAt(clientX: number, clientY: number): number;
   /** Мышь над сценой «3D» (T-20261112-36): над полом — пульсирующее кольцо там, куда пойдём; иначе кольца нет. Не чаще ~25 раз в
    *  секунду (луч по мебели), последнее положение не теряется. */
   previewWalk(clientX: number, clientY: number): void;
@@ -242,6 +245,10 @@ export function sceneSlotIndex(items: DemoItem[], decor: DemoDecor[], art: boole
   // лампа на комоде (T-20261112-101) — так же: ценник, клик и карточка — строки декора
   const tops = decor.map((x, k) => ({ x, k })).filter(({ x }) => isCarrierDecor(x));
   stableSlotIds(tops.map(({ x }) => ({ role: x.role ?? "лампа" }))).forEach((id, j) => out.set(`carrier:${id}`, items.length + tops[j]!.k));
+  // ваза на столике (T-20261112-111, владелец TG 1276) — так же: место моста `decor:<роль>` (`fromDemo.isTabletopDecor`); без номера у неё не
+  // было ни ценника, ни выбора тапом, а луч по ней закрывал столик за ней
+  const vases = decor.map((x, k) => ({ x, k })).filter(({ x }) => isTabletopDecor(x));
+  stableSlotIds(vases.map(({ x }) => ({ role: x.role ?? "декор" }))).forEach((id, j) => out.set(`decor:${id}`, items.length + vases[j]!.k));
   if (!art) return out;
   const pics = decor.map((x, k) => ({ x, k })).filter(({ x }) => isWallArtDecor(x))
     .map(({ x, k }) => ({ it: wallArtItems([x])[0]!, k })).filter(({ it }) => isWallPlane(it));
@@ -472,6 +479,11 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     },
     turn: (deg) => viewer.look(-deg / 0.22, 0),
     windowTap: (x, y) => viewer.walkToWindow(x, y, canvas.getBoundingClientRect()),
+    itemAt: (x, y) => {
+      const idx = slotIndex();
+      const aim = viewer.walkAim(x, y, canvas.getBoundingClientRect(), (id) => idx.has(id));
+      return aim.kind === "item" ? idx.get(aim.slotId)! : -1;
+    },
     walkTap: (x, y) => {
       const rect = canvas.getBoundingClientRect();
       const idx = slotIndex();

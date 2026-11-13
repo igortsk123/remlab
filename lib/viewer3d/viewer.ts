@@ -1154,7 +1154,9 @@ export class FlatViewer {
       if (!shown(h.object)) continue;
       let o: THREE.Object3D | null = h.object;
       while (o && !o.userData?.slotId) o = o.parent;
-      const id = o?.userData?.slotId ? String(o.userData.slotId) : "";
+      const raw = o?.userData?.slotId ? String(o.userData.slotId) : "";
+      // ТВ над тумбой — тап по тумбе (`supportOf`, T-20261112-111)
+      const sup = raw ? this.supportOf(raw) : "", id = sup && selectable(sup) ? sup : raw;
       const spec = this.placed.get(id)?.spec;
       if (id && selectable(id) && !isExtra(id) && h.object.userData?.seeThrough) { thru ??= { d: h.distance, id }; continue; }
       if (id && selectable(id) && !isExtra(id)) { hits.item = h.distance; slotId = id; break; }
@@ -1400,11 +1402,12 @@ export class FlatViewer {
     this.raycaster.setFromCamera(ndc, this.camera);
     const objects = [...this.placed.values()].map((p) => p.group);
     const hits = this.raycaster.intersectObjects(objects, true);
-    // производное (ТВ над тумбой) не выбирается: своего слота у него нет — клик проходит к тому, что за ним
+    // производное (ТВ над тумбой) своего места не имеет: клик по нему — клик по опоре (`supportOf`); опоры нет — проходит к тому, что за ним
     for (const hit of hits) {
       let o: THREE.Object3D | null = hit.object;
       while (o && !o.userData?.slotId) o = o.parent;
-      if (o?.userData?.slotId && !isExtra(String(o.userData.slotId))) return { slotId: String(o.userData.slotId) };
+      const id = o?.userData?.slotId ? this.supportOf(String(o.userData.slotId)) : "";
+      if (id && !isExtra(id)) return { slotId: id };
     }
     const floorHit = this.raycaster.intersectObjects(this.floors, false)[0];
     if (floorHit) {
@@ -2056,6 +2059,33 @@ export class FlatViewer {
    * Экранная точка предмета «здесь и сейчас» — для проверок и для наведения на предмет.
    * Тот же расчёт, что у карточки, но по запросу.
    */
+  /** Объект сцены `b2` стоит на предмете `own` (или висит над ним): центр на плане внутри его следа, низ не ниже его низа (demo-27 В). */
+  private static onTop(own: THREE.Box3, b2: THREE.Box3): boolean {
+    const cx = (b2.min.x + b2.max.x) / 2, cz = (b2.min.z + b2.max.z) / 2;
+    return cx >= own.min.x && cx <= own.max.x && cz >= own.min.z && cz <= own.max.z && b2.min.y >= own.min.y;
+  }
+
+  /**
+   * ОПОРА ОБЪЕКТА СЦЕНЫ (T-20261112-111, владелец TG 1335: «тап по самому предмету — карточка у любого товара»): телевизор над тумбой —
+   * не товар (`@extra:`), но он в рамке тумбы и закрывает её спереди; тап по нему — тап по тумбе. Правило то же, что у рамки (`onTop`);
+   * из нескольких опор — с наименьшим следом (ближайшая). Не объект сцены или опоры нет — сам id.
+   */
+  private supportOf(slotId: string): string {
+    if (!isExtra(slotId)) return slotId;
+    const p = this.placed.get(slotId);
+    const b2 = p ? new THREE.Box3().setFromObject(p.group) : null;
+    if (!b2 || b2.isEmpty()) return slotId;
+    let best = slotId, area = Infinity;
+    for (const [id, q] of this.placed) {
+      if (isExtra(id)) continue;
+      const own = new THREE.Box3().setFromObject(q.group);
+      if (own.isEmpty() || !FlatViewer.onTop(own, b2)) continue;
+      const a = (own.max.x - own.min.x) * (own.max.z - own.min.z);
+      if (a < area) { area = a; best = id; }
+    }
+    return best;
+  }
+
   /** Габаритная коробка предмета и её центр — из кэша, пока группа та же и не сдвинута (и не старше 1 с: модель могла смениться с коробки). */
   private anchorOf(slotId: string) {
     const placed = this.placed.get(slotId);
@@ -2071,9 +2101,7 @@ export class FlatViewer {
         for (const [id2, p2] of this.placed) {
           if (!isExtra(id2)) continue;
           const b2 = new THREE.Box3().setFromObject(p2.group);
-          if (b2.isEmpty()) continue;
-          const cx = (b2.min.x + b2.max.x) / 2, cz = (b2.min.z + b2.max.z) / 2;
-          if (cx >= own.min.x && cx <= own.max.x && cz >= own.min.z && cz <= own.max.z && b2.min.y >= own.min.y) bb.union(b2);
+          if (!b2.isEmpty() && FlatViewer.onTop(own, b2)) bb.union(b2);
         }
       }
       const top = this.ceilingTopM(slotId);   // люстра: ценник — над видимой частью, не над спрятанным за потолком шнуром (T-66)

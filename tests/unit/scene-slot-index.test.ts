@@ -20,11 +20,12 @@ const bridgeIds = (items: object[], decor: object[]): Set<string> => {
 };
 
 describe("номера мест сцены: мебель и картины декора", () => {
-  it("картина — items.length + номер в декоре; ковёр, зеркало и ваза не выбираются", () => {
+  it("картина и ваза — items.length + номер в декоре; ковёр и зеркало не выбираются", () => {
     const items = [BED, RUG, SOFA, MIRROR];
     const decor = [VASE, art(0), art(1)];
     const m = sceneSlotIndex(items, decor, true);
-    expect([...m]).toEqual([["кровать#0", 0], ["диван#0", 2], ["картина#0", 5], ["картина 2#0", 6]]);
+    // ваза на столике (T-20261112-111, владелец TG 1276): свой ценник, тап и карточка — место моста `decor:ваза#0`
+    expect([...m]).toEqual([["кровать#0", 0], ["диван#0", 2], ["decor:ваза#0", 4], ["картина#0", 5], ["картина 2#0", 6]]);
     // те же id, что у моста — иначе `pick`/`pins`/`select` не найдут место
     const ids = bridgeIds(items, decor);
     for (const id of m.keys()) expect(ids.has(id)).toBe(true);
@@ -32,6 +33,11 @@ describe("номера мест сцены: мебель и картины де�
 
   it("без картин в сцене (?art=0) — только мебель, как прежде", () => {
     expect([...sceneSlotIndex([BED, SOFA], [art(0)], false)]).toEqual([["кровать#0", 0], ["диван#0", 1]]);
+  });
+
+  it("ваза без модели или «только в списке» — не место сцены (в 3D её нет)", () => {
+    const noMesh = { ...VASE, sku: { ...VASE.sku, msid: "" } }, listOnly = { ...VASE, list_only: true };
+    expect([...sceneSlotIndex([BED], [noMesh, listOnly], false)]).toEqual([["кровать#0", 0]]);
   });
 
   it("картина без размеров товара и «только в списке» — не место сцены", () => {
