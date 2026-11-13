@@ -27,6 +27,9 @@ if b.get('refuse'):
 if b.get('crash'):
     print('падаю'); sys.exit(1)
 b['rev'] = 'new'
+if b.get('drop_cams'):                       # шаг ракурсов сборки не уложился (WARN:trial_cams) — пары нет ни у кого
+    for v in b.get('variants') or []:
+        v['cams'] = []
 open(out, 'w').write(json.dumps(b))
 print(json.dumps({'ok': True, 'kept_furniture': ['living'], 'kept_outcome': [], 'no_source': [], 'renamed_rooms': {}}))
 '''
@@ -167,6 +170,24 @@ def test_hold_list_skips_tours_without_touching_them(env, capsys, tmp_path):
     rep = json.loads(sorted((cfg.base / 'reissue').iterdir())[-1].joinpath('report.json').read_text())
     assert {(r['status'], r['why']) for r in rep} == {('skipped', 'hold')}
     assert RS.hold_list(str(tmp_path / 'нет.txt')) == set() and RS.hold_list(None) == set()
+
+
+def test_lost_cams_refused_tour_kept(env, capsys):
+    """БЕЗ РАКУРСОВ НЕ ПЕРЕВЫПУСКАЕМ (T-20261113-17/2): новая сборка потеряла пару ракурсов у комнаты с мебелью — отказ `no_cams`,
+    публикации нет, тур на прежней версии, проход — код 1 и строка оператору. Комната в отказе (мебели нет, пары нет и раньше) —
+    не держит. Та же сборка с парами — публикуется."""
+    p, cfg, cmd = env
+    pair = [{'x': 1, 'y': 2}, {'x': 3, 'y': 4}]
+    vs = [{'id': 'living-scandi', 'cams': pair, 'furniture_state': 'ready'},
+          {'id': 'bedroom-1-scandi', 'cams': [], 'furniture_state': 'refused'}]
+    del p.tours[B], p.tours[C]
+    p.tours[A]['bundle'] = json.dumps({'trial': {'job_id': A}, 'variants': vs, 'drop_cams': True})
+    assert RS.main(['--job', A], cfg=cfg, cmd=cmd) == 1
+    out = capsys.readouterr().out
+    assert p.posts == [] and p.tours[A]['version'] == 3
+    assert f'{A}: отказ сборщика no_cams — тур остался прежним (нет ракурсов у 1: living-scandi' in out
+    p.tours[A]['bundle'] = json.dumps({'trial': {'job_id': A}, 'variants': vs})
+    assert RS.main(['--job', A], cfg=cfg, cmd=cmd) == 0 and [j for j, _ in p.posts] == [A] and p.tours[A]['version'] == 4
 
 
 def test_without_token_or_target(env):

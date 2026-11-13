@@ -13,6 +13,7 @@
   «сбой в строке … tar czf … (код 2)»; места мало (`df` подменён) — отказ до упаковки с цифрами; отказы-проверки строку сбоя не печатают.
 - фото нейросети до выкладки (T-20261107-34): ручная выкладка главной сперва снимает фото новой сборки (подменная команда вместо
   ПЛАТНОГО demo-real.sh), ночь (PUB_PHOTOS_DONE=1) и проба /test/ — без съёмки; съёмка упала / openai.off — публикация есть, WARN.
+- без ракурсов не выкладываем (T-20261113-17/2): у варианта с мебелью нет пары `cams` — код 1 до съёмки, витрина цела, `DIGEST:!`.
 Папка случая: PUB_TEST_DIR (не удаляется) или во временной папке процесса на диске (`remlab_tmp.use`): успех — убирается,
 провал — остаётся (T-20261107-13; раньше — в /tmp навсегда).
     python3 tools/scout/tests/test_publish_demo.py"""
@@ -32,6 +33,7 @@ remlab_tmp.use('test_publish_demo')  # временное теста — на д
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, '..', 'publish_demo.sh')
 BAD = []
+CAMS = '[{"x": 1, "y": 2}, {"x": 3, "y": 4}]'   # пара ракурсов варианта (`cams_gate.py`)
 
 
 def ok(cond, msg):
@@ -124,7 +126,9 @@ def main():
         shutil.rmtree(src, ignore_errors=True)
         put(os.path.join(src, 'index.html'), f'<html>v{ver}</html>')
         # метка правил = правила этой копии: публикатор сверяет её до выкладки (T-20261112-121, шаг 5; случай 15 — отказы)
-        put(os.path.join(src, 'demo-data.json'), '{"v": %d, "build": "test.%s"}' % (ver, build_stamp.rules_hash()))
+        # и пара ракурсов у варианта: без неё публикатор не выкладывает (T-20261113-17/2; случай 16 — отказ)
+        put(os.path.join(src, 'demo-data.json'), '{"v": %d, "build": "test.%s", "variants": [{"id": "s1", "cams": %s}]}'
+            % (ver, build_stamp.rules_hash(), CAMS))
         put(os.path.join(src, 'lib', 'scene.js'), f'// v{ver}')
         put(os.path.join(src, f'only-v{ver}.txt'), str(ver))
         if mock_dir:
@@ -391,6 +395,28 @@ def main():
         out = r.stdout + r.stderr
         ok(r.returncode == 1 and tree(live) == before and not shim_since(n) and 'flat215_demo.py' in out
            and 'сбой в строке' not in out, f'{why}: отказ (код {r.returncode}), витрина цела, без съёмки и scp: {out.strip()[-160:]}')
+
+    # 16. БЕЗ РАКУРСОВ НЕ ВЫКЛАДЫВАЕМ (T-20261113-17/2, П1.59): шаг ракурсов сборки не уложился — у варианта нет пары `cams`, телефон
+    # считал бы её сам с зависанием на десятки секунд. Код 1 до съёмки и упаковки, витрина цела, строка `DIGEST:!` для сводки ночи;
+    # `pending` без пары — можно; та же сборка с парами — выкладывается
+    stamp = build_stamp.rules_hash()
+    for why, vs in (('у варианта нет поля cams', '[{"id": "s1", "cams": %s}, {"id": "s2"}]' % CAMS),
+                    ('пустой список cams', '[{"id": "s1", "cams": []}]'),
+                    ('нет вариантов вовсе', '[]')):
+        build(20)
+        put(os.path.join(src, 'demo-data.json'), '{"v": 20, "build": "test.%s", "variants": %s}' % (stamp, vs))
+        before, n = tree(live), shim_len()
+        r = run()
+        out = r.stdout + r.stderr
+        ok(r.returncode == 1 and tree(live) == before and not shim_since(n) and 'ОТКАЗ:cams_gate' in out
+           and 'DIGEST:!демо не опубликовано' in out and 'сбой в строке' not in out,
+           f'{why}: отказ (код {r.returncode}), витрина цела, без съёмки и scp, строка в сводку: {out.strip()[-160:]}')
+    build(21)
+    put(os.path.join(src, 'demo-data.json'), '{"v": 21, "build": "test.%s", "variants": [{"id": "s1", "cams": %s}, '
+        '{"id": "p1", "pending": true, "cams": []}]}' % (stamp, CAMS))
+    r = run()
+    ok(r.returncode == 0 and '"v": 21' in open(os.path.join(live, 'demo-data.json'), encoding='utf-8').read(),
+       f'пара у всех с мебелью, pending без пары — выложено: {(r.stdout + r.stderr).strip()[-160:]}')
 
     print('итог:', 'OK' if not BAD else f'FAIL ({len(BAD)})')
     if BAD:

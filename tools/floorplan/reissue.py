@@ -50,6 +50,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import worker as wk  # noqa: E402
 from conveyor import BUNDLE_MAX_BYTES, child_failure  # noqa: E402
+sys.path.append(str(HERE.parent / 'scout'))                  # в конец: свои модули папки — первыми
+import cams_gate  # noqa: E402  (ворота «без ракурсов не выкладываем» — одно правило с витриной, T-20261113-17/2)
 
 READ_MAX = 24 * 1024 * 1024                  # ответ «исходник»: результат (≤ 2 МБ) + версия (≤ 8 МБ), экранированная в JSON
 SKIP = ('busy', 'expired', 'not_ready', 'not_found', 'no_bundle')   # пропуски: тур не трогаем, пересборка не сбоила
@@ -105,6 +107,13 @@ def one(api: wk.Api, cfg: wk.Cfg, jid: str, run_dir: Path, dry: bool, cmd: list 
     data = new_p.read_bytes()
     if len(data) > BUNDLE_MAX_BYTES:
         return {'id': jid, 'status': 'failed', 'why': 'bundle_too_large', 'from': base}
+    # БЕЗ РАКУРСОВ НЕ ПЕРЕВЫПУСКАЕМ (T-20261113-17/2, П1.59): шаг ракурсов сборки тура не уложился (WARN:trial_cams) — у вариантов,
+    # где пара была, её нет, и телефон считал бы её сам с зависанием на десятки секунд. Тур остаётся на прежней версии (отказ
+    # `no_cams`, проход — rc 1 и строка оператору); комнаты, у которых пары не было и раньше, тур не держат (`cams_gate.lost`)
+    gone = cams_gate.lost(json.loads(data), json.loads(src['bundle']))
+    if gone:
+        return {'id': jid, 'status': 'refused', 'why': 'no_cams', 'from': base,
+                'detail': f"нет ракурсов у {len(gone)}: {', '.join(gone[:6])} — шаг ракурсов сборки тура не уложился, тур на прежней версии"}
     row = {'id': jid, 'from': base, 'same_bytes': data == src['bundle'].encode('utf-8'), **{k: rep.get(k) for k in ROOMS}}
     if dry:
         return {**row, 'status': 'built'}
