@@ -40,7 +40,7 @@ DEMO_INPUTS = (
     _S + 'catalog-bindings.schema.json', _S + 'catalog-item.schema.json', _S + 'demo-layout.json', _S + 'demo-swap.json',
     _S + 'dev-tmp.json', _S + 'hall-roles.json', _S + 'improve-rooms.json', _S + 'mesh-asset-decisions.json',
     _S + 'mesh-color-guard.json', _S + 'mesh-pinned.json', _S + 'mesh-priority.json', _S + 'mesh-quarantine.json',
-    _S + 'mesh-queue-demo.json', _S + 'openai_prices.json', _S + 'practice_priors.json', _S + 'quiz.json',
+    _S + 'mesh-queue-demo.json', _S + 'openai_prices.json', _S + 'photo-set-roles.json', _S + 'practice_priors.json', _S + 'quiz.json',
     _S + 'room-mesh-want.json', _S + 'room-profile.schema.json', _S + 'style-axes.json', _S + 'style-color-policy.json',
     _S + 'profiles/',
 )
