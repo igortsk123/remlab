@@ -1236,9 +1236,31 @@ def case_manual_cap() -> None:
         with contextlib.redirect_stdout(io.StringIO()):
             B.close_manual_cap()
         assert os.path.exists(B.HALT), 'снят чужой стоп-файл'
+        # T-20261113-55/2: финал конвейера волны автозапуска (MESH_WAVE_LEASE=1) отмечает конец её расхода в разрешении
+        import wave_guard as WG  # noqa: PLC0415
+        keep_lease, keep_env = WG.LEASE, os.environ.get('MESH_WAVE_LEASE')
+        try:
+            WG.LEASE = os.path.join(tmp, 'lease.json')
+            json.dump({'waves': [{'started': 1.0, 'usd_cap': 0.41, 'usd_mark': 0.5}]}, open(WG.LEASE, 'w'))
+            os.environ.pop('MESH_WAVE_LEASE', None)
+            with contextlib.redirect_stdout(io.StringIO()):
+                B.mark_lease_end()
+            assert 'usd_end' not in json.load(open(WG.LEASE))['waves'][-1], 'ручной конвейер отметил чужой лиз'
+            os.environ['MESH_WAVE_LEASE'] = '1'
+            with contextlib.redirect_stdout(io.StringIO()):
+                B.mark_lease_end()
+            w = json.load(open(WG.LEASE))['waves'][-1]
+            assert w.get('usd_end') == round(MG.paid_usd(MG.load()), 4) and w.get('ended') and not w.get('closed'), w
+        finally:
+            WG.LEASE = keep_lease
+            if keep_env is None:
+                os.environ.pop('MESH_WAVE_LEASE', None)
+            else:
+                os.environ['MESH_WAVE_LEASE'] = keep_env
     finally:
         WC.PATH, B.HALT, MG.load, B.SG.usd_rub = keep
-    print('  ✓ ручной старт без потолка — отказ до шагов; finale закрывает ручную волну и снимает только свой запрет')
+    print('  ✓ ручной старт без потолка — отказ до шагов; finale закрывает ручную волну и снимает только свой запрет;'
+          ' конвейер волны автозапуска отмечает её конец в разрешении')
 
 
 def case_done_set() -> None:

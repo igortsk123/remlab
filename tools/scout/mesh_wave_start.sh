@@ -141,7 +141,9 @@ N=$("$PY" -c "import json,sys; print(len(json.load(open(sys.argv[1]))['jobs']))"
 if [ "$N" -lt "${MESH_MIN_JOBS:-1}" ]; then say "в снимке $N заданий — меньше порога ${MESH_MIN_JOBS:-1}, волну не запускаю"; exit 3; fi
 
 # 6. Запуск — с ЯВНЫМ снимком; курсор нового снимка начинается с нуля в своём файле.
-CMD="set -a; . $HOME/scout-scenes/salad.env; set +a; MESH_SAMPLE=$SNAP MESH_HEAL=$HEAL MESH_MAX_JOBS=${MESH_MAX_JOBS:-14000} MESH_POST_EVERY_S=900 nohup $PY -u $HERE/salad/batch_show.py --batch $BATCH >> $LOG 2>&1 &"
+#    MESH_WAVE_LEASE — явно: по нему финал конвейера отмечает конец волны автозапуска в разрешении (T-20261113-55/2).
+WAVE_LEASE=0; [ "${MESH_WAVE_LEASE:-}" = 1 ] && WAVE_LEASE=1
+CMD="set -a; . $HOME/scout-scenes/salad.env; set +a; MESH_SAMPLE=$SNAP MESH_HEAL=$HEAL MESH_WAVE_LEASE=$WAVE_LEASE MESH_MAX_JOBS=${MESH_MAX_JOBS:-14000} MESH_POST_EVERY_S=900 nohup $PY -u $HERE/salad/batch_show.py --batch $BATCH >> $LOG 2>&1 &"
 say "снимок готов: $N заданий; лечение (перегон mesh-reseed.json): $([ "$HEAL" = 1 ] && echo ДА || echo нет — нужен --heal). Команда запуска:"
 echo "  $CMD"
 if [ "$LAUNCH" = 1 ]; then

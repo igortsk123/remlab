@@ -208,6 +208,11 @@ class Slots:
         with self.cv:
             self.moved_at = time.time()
 
+    def pause(self, dt: float) -> None:
+        """Часы «нет движения» стоят `dt` секунд (запрет подъёма пула): отметка движения сдвигается вперёд, не дальше «сейчас»."""
+        with self.cv:
+            self.moved_at = min(self.moved_at + max(dt, 0.0), time.time())
+
 
 def hold_lock(path: str | None = None):
     """Замок конвейера (`~/scout-scenes/.batch_show.lock`) на время прогона по очереди — по нему `heartbeat.sh` ставит
@@ -236,6 +241,42 @@ _LOCK_FH = None
 WARM_MAX_S = float(os.environ.get('MESH_QUEUE_WARM_MAX_S', '2700'))   # running без ready дольше — прогрев мёртв
 # была ready и потеряла дольше — воркер снял готовность сам (машина отрезана от приёмника, `worker.CUT_OFF`)
 LOST_READY_S = float(os.environ.get('MESH_QUEUE_LOST_READY_S', '180'))
+# ФОРА ПОСЛЕ СНЯТИЯ ЗАПРЕТА ПОДЪЁМА (T-20261113-55/2): машины поднимаются заново — закачка образа и прогрев модели. Срок —
+# тот же, что у правила мёртвого прогрева (WARM_MAX_S, 45 мин): машина, не готовая за него, мертва и по `cull_warmups`;
+# раньше снимать ждущие задания — значит снять их ровно тогда, когда машины вот-вот возьмут работу (12.11 так сняли 25).
+HALT_GRACE_S = float(os.environ.get('MESH_QUEUE_HALT_GRACE_S', str(WARM_MAX_S)))
+
+
+def pool_halt() -> str | None:
+    """Запрет подъёма пула (стоп-файл `mesh-group-halt.json`: сторож денег, ручной стоп) → его вид (`budget`/`silence`/
+    `shared_infra`, '' — без вида); None — запрета нет. Читает конвейер тем же путём (`batch_show.halt_reason/halt_kind`);
+    ленивый импорт, как у `ssh_run.cull_slow`. Не прочиталось — None: как у конвейера, битый файл запретом не считается."""
+    try:
+        if HERE not in sys.path:
+            sys.path.insert(0, HERE)
+        import batch_show as B  # noqa: PLC0415
+        return B.halt_kind() if B.halt_reason() else None
+    except Exception as e:  # noqa: BLE001
+        print(f'  [очередь] запрет подъёма не прочитан ({type(e).__name__}) — считаю, что его нет', flush=True)
+        return None
+
+
+def stall_due(idle_s: float, ready: int, halt: str | None, since_halt: float | None, coming: int) -> bool:
+    """Пора ли снимать ждущие задания: готовых машин нет и движения не было STALL_S (`idle_s` — без времени под запретом,
+    его вычитает `watch` через `Slots.pause`).
+    • Запрет подъёма пула стоит (кроме `budget`) — НЕ пора: машины погашены намеренно, их поднимут после снятия. Потолок
+      денег (`budget`) — конец волны: остаток закрываем как раньше, иначе конвейер не выйдет и волна не закроется
+      (`batch_show.run_batch` выходит по `budget` только после итога пачки).
+    • Запрет сняли `since_halt` секунд назад и машины поднимаются (`coming` — инстансы групп есть, готовых нет) — фора
+      HALT_GRACE_S. Не поднимается ничего — прежнее правило: пачка вернёт 75, и группы поднимет конвейер
+      (`batch_show.ensure_group_started`)."""
+    if ready:
+        return False
+    if halt is not None and halt != 'budget':
+        return False
+    if since_halt is not None and coming and since_halt < HALT_GRACE_S:
+        return False
+    return idle_s > STALL_S
 
 
 def instances_of(groups: list[str]) -> dict:
@@ -422,22 +463,38 @@ class Side:
     def watch(self) -> None:
         """Раз в READY_POLL_S: готовые машины (место в очереди), мёртвый прогрев, медленная закачка (`S.cull_slow` —
         `batch_show.cull_slow_pulls`, по API, для всех групп), приёмник. Нет готовых машин и движения STALL_S: ждущие
-        снимаются (`slots.drain`); групп SSH нет — остаток закрыт (конвейер получит 75 и подождёт ёмкость, как при SSH)."""
+        снимаются (`slots.drain`); групп SSH нет — остаток закрыт (конвейер получит 75 и подождёт ёмкость, как при SSH).
+        Время под запретом подъёма пула в STALL_S не идёт, после снятия — фора на подъём машин (`stall_due`)."""
         S, js, slots = self.S, self.js, self.slots
-        last_cull = time.time()
+        last_cull = last_tick = time.time()
+        halt_at = None                         # последний тик, когда стоял запрет подъёма (не `budget`)
+        halted = False
         while not self.stop.wait(READY_POLL_S):
             if js.pending() == 0:
                 return
             self.insts = instances_of(list(self.groups))
             slots.update(self._ready())
             now = time.time()
+            halt = pool_halt()
+            if halt is not None and halt != 'budget':
+                slots.pause(now - last_tick)   # часы «нет машин» стоят, пока пул погашен намеренно
+                if not halted:
+                    print(f'  [очередь] запрет подъёма пула ({halt or "без вида"}) — таймер «нет готовых машин» стоит',
+                          flush=True)
+                halt_at, halted = now, True
+            elif halted:
+                halted = False
+                print(f'  [очередь] запрет снят — фора на подъём машин до {int(HALT_GRACE_S / 60)} мин', flush=True)
+            last_tick = now
             self.cull_warmups(now)
             if self.only:                      # при SSH-группах приёмник и закачку ведёт супервизор `ssh_run`
                 S.sink_poll()
                 if now - last_cull > S.CULL_S:
                     last_cull = now
                     S.cull_slow()
-            if slots.total_ready() == 0 and now - slots.moved_at > STALL_S:
+            coming = sum(1 for ins in self.insts.values() for i in ins or [] if i.get('state') not in ('stopping', 'stopped'))
+            if stall_due(now - slots.moved_at, slots.total_ready(), halt, None if halt_at is None else now - halt_at,
+                         coming):
                 if not slots.drain:
                     slots.drain = True
                     print(f'!! у очереди нет готовых машин {int(STALL_S / 60)} мин — ждущие задания снимаю', flush=True)
@@ -490,6 +547,23 @@ def selftest() -> int:
         ledger_write({'ev': 'end', 'qid': 'a'})
         check(ledger_open() == {('s2', 1): ('q', 'b')}, 'журнал: открыто только незакрытое задание')
     LEDGER = keep
+    # ТАЙМЕР «НЕТ ГОТОВЫХ МАШИН» И ЗАПРЕТ ПОДЪЁМА (T-20261113-55/2)
+    late = STALL_S + 1
+    check(stall_due(late, 0, None, None, 0), 'запрета нет, машин нет STALL_S — снимаем, как раньше')
+    check(not stall_due(late, 1, None, None, 0), 'готовая машина есть — не снимаем')
+    check(not stall_due(late, 0, 'silence', None, 0) and not stall_due(late, 0, '', None, 0),
+          'запрет подъёма стоит (тишина / без вида) — не снимаем')
+    check(stall_due(late, 0, 'budget', None, 0), 'потолок денег (budget) — конец волны: снимаем, как раньше')
+    check(not stall_due(late, 0, None, 60, 3), 'запрет сняли минуту назад, машины поднимаются — фора')
+    check(stall_due(late, 0, None, HALT_GRACE_S + 1, 3), 'фора вышла, готовых так и нет — снимаем')
+    check(stall_due(late, 0, None, 60, 0), 'запрет сняли, но не поднимается ничего — снимаем: группы поднимет конвейер')
+    check(not stall_due(STALL_S - 1, 0, None, 60, 0), 'после снятия STALL_S ещё не набран — не снимаем')
+    sl = Slots({'g': 'q'})
+    sl.moved_at = time.time() - 100
+    sl.pause(40)
+    t1 = sl.moved_at
+    sl.pause(10_000)
+    check(time.time() - t1 > 55 and sl.moved_at <= time.time(), 'пауза двигает отметку движения, не дальше «сейчас»')
     print('queue_run: ВСЁ ЗЕЛЁНОЕ' if not fails else f'queue_run: ПРОВАЛ {len(fails)}')
     return 1 if fails else 0
 

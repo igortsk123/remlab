@@ -1011,6 +1011,7 @@ def finale() -> None:
     # drain'а и жгли деньги за это время. Гасим и при падении — это `finally` в main().
     stop_groups()
     close_manual_cap()
+    mark_lease_end()
     # Фоновый разбор мог ещё идти — два drain'а разом полезли бы в один каталог.
     wait_post()
     # сервер чистим ОДИН раз в конце: в цикле drain --keep, иначе умирает кэш «уже сделано»
@@ -1030,6 +1031,22 @@ def close_manual_cap() -> None:
             print('стоп-файл потолка ручной волны снят — своё отработал', flush=True)
     except Exception as e:  # noqa: BLE001
         print(f'!! ручная волна не закрыта ({type(e).__name__}: {e}) — закрой: salad/wave_cap.py --close', flush=True)
+
+
+def mark_lease_end() -> None:
+    """Волна автозапуска (`MESH_WAVE_LEASE=1` от `wave_guard`) кончается вместе с конвейером: отметка книги и время конца —
+    в её запись разрешения (`wave_guard.mark_end`, T-20261113-55/2). Без неё лиз ждал свободных замков, а их могла занять
+    уже следующая (ручная) волна, и её расход шёл в чужой потолок. Ручную волну закрывает `close_manual_cap`."""
+    if os.environ.get('MESH_WAVE_LEASE') != '1':
+        return
+    try:
+        import money_guard as MG  # noqa: PLC0415 — книга расходов сторожа (один источник)
+        import wave_guard as WG  # noqa: PLC0415
+        w = WG.mark_end(MG.paid_usd(MG.load()))
+        if w:
+            print(f'волна автозапуска: конвейер вышел, отметка книги ${w["usd_end"]} — итог подведёт wave_guard', flush=True)
+    except Exception as e:  # noqa: BLE001 — учёт не мешает финалу; без отметки волну закроет старт следующей или замки
+        print(f'!! конец волны автозапуска не отмечен ({type(e).__name__}: {e})', flush=True)
 
 
 def stop_groups() -> bool:

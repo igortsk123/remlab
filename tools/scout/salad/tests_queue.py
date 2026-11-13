@@ -15,6 +15,8 @@
  10) нет готовых машин — код 75, в очередь ничего не положено;
  11) незакрытое задание прошлого раздатчика доопрашивается, второй раз не кладётся;
  12) машины пропали — остаток закрыт, ждущие сняты (DELETE), код 75;
+ 12b) запрет подъёма пула во время ожидания — таймер стоит, после снятия фора на подъём: ждущие не сняты (T-20261113-55/2);
+ 12c) запрет снят, машины не поднимаются — остаток закрыт, как в 12);
  13) в очереди не больше PER_READY заданий на готовую машину.
 ЭТАП 2 (боевой режим):
  14) посредник `queue_proxy.py`: ответ генерации с тем же кодом + `_salad` (машина из окружения Salad), не-JSON — как есть,
@@ -354,6 +356,7 @@ class FakeSalad:
 
     def __init__(self, ready: int = 2):
         self.ready = ready
+        self.coming = 0                      # инстансы, которые поднимаются (есть в группе, но ещё не ready)
         self.jobs: dict = {}
         self.posts: list = []
         self.deletes: list = []
@@ -368,7 +371,8 @@ class FakeSalad:
     def req(self, method: str, path: str, body=None, timeout=40):
         with self.lock:
             if path.endswith('/instances'):
-                return 200, {'instances': [{'state': 'running', 'ready': True}] * self.ready}
+                return 200, {'instances': [{'state': 'running', 'ready': True}] * self.ready
+                             + [{'state': 'creating', 'ready': False}] * self.coming}
             if method == 'POST' and path.endswith('/jobs'):
                 sku = body['input'].get('sku')
                 n = sum(1 for j in self.jobs.values() if j['sku'] == sku) + 1
@@ -405,6 +409,7 @@ def qsetup(tmp: str, fake: FakeSalad) -> None:
     S.SG.queue_of = lambda g: 'q' if g == 'g' else ''
     os.environ['MESH_LOCK'] = os.path.join(tmp, 'batch_show.lock')   # не живой замок конвейера
     QR.POLL_S, QR.READY_POLL_S, QR.STALL_S = 0.05, 0.1, 1.0
+    QR.pool_halt = lambda: None              # живой стоп-файл пула стенд не читает
     QR.LEDGER = os.path.join(tmp, 'qledger.jsonl')
     if os.path.exists(QR.LEDGER):
         os.remove(QR.LEDGER)
@@ -471,9 +476,60 @@ def collector_cases() -> None:
             check(code == S.EXIT_NO_CAPACITY and f.deletes and all(f.jobs[q]['status'] == 'cancelled' for q in f.deletes),
                   f'машины пропали — остаток закрыт, ждущие сняты ({len(f.deletes)}), код {code}')
             check(f.max_open <= QR.PER_READY, f'в очереди не больше {QR.PER_READY} на готовую машину (было {f.max_open})')
+            halt_cases(tmp)
         finally:
             QR.req, S.SG.queue_of = orig_req, orig_q
             S.TRANSPORT = 'auto'
+
+
+def halt_cases(tmp: str) -> None:
+    """12b–12c) T-20261113-55/2: пока стоит запрет подъёма пула, таймер «нет готовых машин» не идёт; после снятия — фора,
+    пока машины поднимаются. 12.11: запрет 23:27–23:47 + ожидание → машины только пошли, а таймер уже снял 25 заданий."""
+    keep = (QR.HALT_GRACE_S, QR.pool_halt)
+    try:
+        QR.HALT_GRACE_S = 3.0
+        # 12b) запрет дольше STALL_S → снят → машины поднимаются → берут ждущие задания: ни одного снятого
+        f = FakeSalad(ready=1)
+        f.plan = lambda sku, n: ['pending'] * 10_000
+        qsetup(tmp, f)
+        halt = {'kind': None}
+        QR.pool_halt = lambda: halt['kind']
+
+        def stop_pool():                     # сторож погасил пул и записал запрет
+            with f.lock:
+                f.ready, halt['kind'] = 0, 'silence'
+
+        def lift():                          # запрет сняли, группы поднимаются
+            with f.lock:
+                halt['kind'], f.coming = None, 2
+
+        def up():                            # машины прогрелись и берут задания
+            with f.lock:
+                f.ready, f.coming = 1, 0
+                f.plan = lambda sku, n: ['pending', 'running', 'succeeded']
+                for j in f.jobs.values():
+                    if j['status'] == 'pending':
+                        j['steps'] = ['running', 'succeeded']
+        threading.Timer(0.3, stop_pool).start()
+        threading.Timer(0.3 + 1.7, lift).start()             # запрет 1,7 с при STALL_S 1 с
+        threading.Timer(0.3 + 1.7 + 1.5, up).start()         # готовы через 1,5 с после снятия: > STALL_S, < форы 3 с
+        code, st, prog = run_q(TP.jobs(5))
+        check(code == 0 and not f.deletes and st['summary']['unresolved'] == 0
+              and sum(r.get('status') == 'ok' for r in prog) == 5 and 'таймер «нет готовых машин» стоит' in run_q.out,
+              f'запрет подъёма во время ожидания: ждущие не сняты (снято {len(f.deletes)}), после подъёма всё ok (код {code})')
+        # 12c) запрет снят, но не поднимается ничего — остаток закрыт, как раньше (группы поднимет конвейер после 75)
+        f = FakeSalad(ready=1)
+        f.plan = lambda sku, n: ['pending'] * 10_000
+        qsetup(tmp, f)
+        halt['kind'] = None
+        QR.pool_halt = lambda: halt['kind']
+        threading.Timer(0.3, stop_pool).start()
+        threading.Timer(0.3 + 1.2, lambda: halt.update(kind=None)).start()
+        code, st, prog = run_q(TP.jobs(5))
+        check(code == S.EXIT_NO_CAPACITY and f.deletes,
+              f'запрет снят, машины не поднимаются — остаток закрыт, ждущие сняты ({len(f.deletes)}), код {code}')
+    finally:
+        QR.HALT_GRACE_S, QR.pool_halt = keep
 
 
 def stage2_cases() -> None:

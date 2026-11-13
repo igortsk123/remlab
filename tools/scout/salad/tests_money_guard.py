@@ -385,6 +385,36 @@ def case_manual_cap(tmp: str) -> None:
         WC.PATH = keep
 
 
+def case_foreign_wave() -> None:
+    """T-20261113-55/2: расход волны — окно её конвейера. Случай 12.11: автоволна (отметка $13.32, потолок $0.41) вышла,
+    следом ручная T-55 (отметка $13.5945, потолок $2.76); книга дошла до $13.80 — тратила ручная. Раньше лиз автоволны
+    считал «всё с отметки» ($0.48 ≥ $0.41) и сторож гасил пул по чужому потолку."""
+    keep_price = SG.price
+    try:
+        SG.price = lambda g: 1.0                         # $ = нодо-минуты / 60
+        st = {'paid_node_min': {'g': 13.80 * 60}}
+        auto = {'started': 1000.0, 'usd_cap': 0.41, 'usd_mark': 13.32}
+        manual = {'started': 2000.0, 'usd_cap': 2.7621, 'usd_mark': 13.5945}
+        L, M = {'waves': [auto]}, {'waves': [manual]}
+        ok('до правки лиз судился бы по всему с отметки (контроль стенда)', G.budget_breach(st, L) != '')
+        ok('12.11: ручная волна стартовала после автоволны — чужой расход в лиз не идёт, сторож молчит',
+           G.breach_of(st, L, M) == ('', ''))
+        ok('расход автоволны — до старта ручной ($0.27), а не до книги сейчас ($0.48)',
+           abs(G.wave_spent(st, auto, [auto, manual]) - 0.2745) < 1e-9 and G.wave_end(auto, [manual]) == (13.5945, 2000.0))
+        ok('ручная волна судится своим окном: свой потолок выбран — гасим, источник manual',
+           G.breach_of({'paid_node_min': {'g': 16.40 * 60}}, L, M)[1] == 'manual')
+        ok('конвейер автоволны отметил конец (usd_end) — лиз не ограничивает, расход до отметки',
+           G.budget_breach(st, {'waves': [{**auto, 'usd_end': 13.50, 'ended': 1900.0}]}) == ''
+           and abs(G.wave_spent(st, {**auto, 'usd_end': 13.50}) - 0.18) < 1e-9)
+        stale = {'started': 500.0, 'usd_cap': 0.05, 'usd_mark': 13.0}   # ручная брошена без финала (kill -9)
+        ok('брошенная открытая ручная волна не судится расходом автоволны, стартовавшей после неё',
+           G.breach_of(st, L, {'waves': [stale]})[1] != 'manual')
+        ok('волна ещё идёт (позже никто не стартовал) — судится, как раньше',
+           G.breach_of(st, {'waves': [manual]}, None) == ('', '') and G.wave_end(manual, [auto]) == (None, None))
+    finally:
+        SG.price = keep_price
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         G.STATE, G.HALT = os.path.join(tmp, 'guard.json'), os.path.join(tmp, 'halt.json')
@@ -404,6 +434,7 @@ def main() -> int:
         case_planned_stop(tmp)
         case_owner_pause(tmp)
         case_manual_cap(tmp)
+        case_foreign_wave()
     print('сторож денег: ' + ('ВСЁ ЗЕЛЁНОЕ' if not bad else f'ПРОВАЛОВ {bad}'))
     return 1 if bad else 0
 

@@ -9,7 +9,9 @@
 оценке цены модели (`rules/salad-groups.json → wave.usd_per_mesh`). На старте в разрешение пишется волна с потолком
 `usd_cap` и отметкой книги расходов сторожа денег `usd_mark`; сторож денег гасит пул, когда потолок выбран
 (`money_guard.budget_breach`). Конвейер вышел → волна закрывается: факт денег и моделей, итог владельцу в Telegram,
-потраченное копится в `spent_usd`.
+потраченное копится в `spent_usd`. Конец волны — её СОБСТВЕННЫЙ конвейер (T-20261113-55/2): отметка финала `usd_end`
+(`batch_show.finale` → `mark_end`) или старт более поздней (ручной) волны; деньги и модели — за окно её конвейера
+(`money_guard.wave_end`), даже если замки уже держит другая волна. Ни того ни другого — по свободным замкам, как раньше.
 Волна запускается ТЕМ ЖЕ законным путём (`mesh_wave_start.sh --launch`) с `MESH_TAKE_JOBS` = остаток (с профилем — не больше заданий профиля, T-20261106-82/3; верх очереди по приоритету; `MESH_MAX_JOBS` — отдельный предохранитель снимка) и
 `MESH_MIN_JOBS`. Конец очереди, нет денег, предел — гасит сам конвейер (`finale()` с проверкой `stopped`), DEV пропал —
 мёртвая рука на сервере.
@@ -163,7 +165,8 @@ def close_reason(halt: dict | None, no_credits_at: float | None, started: float)
     return 'очередь кончилась или конвейер остановлен'
 
 
-def meshes_since(t: float) -> int:
+def meshes_since(t: float, until: float | None = None) -> int:
+    """Готовых моделей (`ok`) в журнале заданий с `t` по `until` (None — по сейчас): окно конвейера волны."""
     n = 0
     try:
         with open(PROGRESS, encoding='utf-8') as f:
@@ -173,28 +176,62 @@ def meshes_since(t: float) -> int:
                         r = json.loads(ln)
                     except json.JSONDecodeError:
                         continue
-                    n += r.get('status') == 'ok' and r.get('at', 0) >= t
+                    at = r.get('at', 0)
+                    n += r.get('status') == 'ok' and at >= t and (until is None or at <= until)
     except FileNotFoundError:
         pass
     return n
 
 
-def close_wave(lease: dict, dry: bool) -> None:
-    """Конвейер вышел — закрыть волну: факт денег и моделей, итог владельцу, снять запрет «потолок» (он своё
-    отработал; следующую волну ограничит остаток разрешения)."""
+def _save_lease(lease: dict) -> None:
+    tmp = LEASE + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(lease, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, LEASE)
+
+
+def mark_end(paid_usd: float, now: float | None = None) -> dict | None:
+    """Конвейер волны автозапуска вышел (`batch_show.finale` при MESH_WAVE_LEASE=1, T-20261113-55/2): отметка книги
+    `usd_end` и время `ended` — в открытую волну разрешения. С этой минуты её расход кончился, даже если замки тут же займёт
+    другая волна (ручная); закроет волну и подведёт итог `close_wave` на ближайшем тике. Открытой волны нет или отметка уже
+    стоит — None, файл не трогаем."""
+    try:
+        lease = json.load(open(LEASE, encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    w = (lease.get('waves') or [{}])[-1]
+    if w.get('usd_cap') is None or w.get('closed') or w.get('usd_end') is not None:
+        return None
+    w.update({'ended': now or time.time(), 'usd_end': round(paid_usd, 4)})
+    _save_lease(lease)
+    return w
+
+
+def other_waves() -> list:
+    """Записи ручных волн (`wave_cap`, свой файл): старт любой из них — конец расхода открытой волны разрешения."""
+    import wave_cap as WC  # noqa: PLC0415
+    return (WC.read() or {}).get('waves') or []
+
+
+def close_wave(lease: dict, dry: bool, others=()) -> None:
+    """Конвейер волны вышел — закрыть волну: факт денег и моделей ЗА ОКНО ЕЁ КОНВЕЙЕРА (`money_guard.wave_end`: свой
+    `usd_end` или старт следующей волны; чужая ручная волна в её счёт не идёт), итог владельцу, снять запрет «потолок»
+    разрешения (он своё отработал; следующую волну ограничит остаток разрешения)."""
     import money_guard as MG  # noqa: PLC0415 — книга расходов сторожа денег (один источник)
     w = lease['waves'][-1]
-    spent = max(MG.paid_usd(MG.load()) - float(w.get('usd_mark', 0)), 0.0)
+    spent = MG.wave_spent(MG.load(), w, others)
+    until = MG.wave_end(w, others)[1]
     halt = json.load(open(STOPS[0], encoding='utf-8')) if os.path.exists(STOPS[0]) else None
+    own = halt if halt and halt.get('source', 'lease') == 'lease' else None   # потолок ручной волны — не наш итог
     nc = json.load(open(NO_CREDITS)).get('at') if os.path.exists(NO_CREDITS) else None
-    why = close_reason(halt, nc, float(w['started']))
-    meshes = meshes_since(float(w['started']))
+    why = close_reason(own, nc if until is None or (nc or 0) <= until else None, float(w['started']))
+    meshes = meshes_since(float(w['started']), until)
     w.update({'closed': time.time(), 'spent_usd': round(spent, 2), 'meshes': meshes, 'why': why})
     lease['spent_usd'] = round(float(lease.get('spent_usd', 0)) + spent, 2)
     print('волна закрыта:', json.dumps(w, ensure_ascii=False), flush=True)
     if dry:
         return
-    json.dump(lease, open(LEASE, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    _save_lease(lease)
     if halt and halt.get('kind') == 'budget' and halt.get('source', 'lease') == 'lease':   # потолок ручной волны снимает её finale
         os.remove(STOPS[0])
     subprocess.run(['bash', os.path.join(HERE, '..', 'alert.sh'), wave_summary(w, spent, meshes, why, left_usd(lease))],
@@ -207,8 +244,16 @@ def main() -> int:
     busy = any(held(p) for p in LOCKS)
     open_wave = bool(lease and (lease.get('waves') or [{}])[-1].get('usd_cap') is not None
                      and not lease['waves'][-1].get('closed'))
-    if open_wave and not busy and time.time() - float(lease['waves'][-1]['started']) > 20 * 60:
-        close_wave(lease, dry)
+    if open_wave:
+        # ВОЛНА ЗАКРЫВАЕТСЯ ПО СВОЕМУ КОНВЕЙЕРУ, А НЕ ПО СВОБОДНЫМ ЗАМКАМ (T-20261113-55/2): замки может держать уже другая
+        # волна (12.11: автоволна вышла в 22:53, ручная T-55 заняла замки в 22:54 — лиз висел открытым и копил чужой расход).
+        # Конец конвейера известен — `usd_end` из его финала или старт более поздней волны — закрываем сразу; иначе прежнее
+        # правило: замки свободны и с старта прошло 20 мин (конвейер успел взять замок).
+        import money_guard as MG  # noqa: PLC0415
+        others = other_waves()
+        ended = MG.wave_end(lease['waves'][-1], others)[0] is not None
+        if ended or not busy and time.time() - float(lease['waves'][-1]['started']) > 20 * 60:
+            close_wave(lease, dry, others)
     rules = json.load(open(RULES, encoding='utf-8'))
     usd_per_mesh = float((rules.get('wave') or {}).get('usd_per_mesh', 0.013))
     nc_age = (time.time() - json.load(open(NO_CREDITS)).get('at', 0)) / 3600 if os.path.exists(NO_CREDITS) else None
@@ -354,7 +399,92 @@ def _selftest() -> int:
        _heal_word_test())
     ok('нет разрешённой группы: mesh_wave_start не зовётся, волна не открыта, в журнале «no_group» одной строкой за два тика',
        _no_group_test())
+    for name, res in _foreign_lock_tests():
+        ok(name, res)
     return 1 if bad else 0
+
+
+def _foreign_lock_tests() -> list:
+    """T-20261113-55/2 — случай 12.11: автоволна вышла, замки сразу заняла ручная волна T-55. → [(имя, итог)].
+    Пути, замки, книга денег и подпроцессы подменены; замок держит этот же процесс (как чужой конвейер)."""
+    import collections  # noqa: PLC0415
+    import io, contextlib, tempfile  # noqa: E401,PLC0415
+    import money_guard as MG  # noqa: PLC0415
+    import wave_cap as WC  # noqa: PLC0415
+    g = globals()
+    keep = {k: g[k] for k in ('LEASE', 'JOURNAL', 'NOTE', 'NO_CREDITS', 'LOCKS', 'STOPS', 'PROGRESS', 'profile_jobs',
+                              'groups_now')}
+    keep_run, keep_du, keep_mg, keep_wc = subprocess.run, shutil.disk_usage, (MG.load, MG.paid_usd), WC.PATH
+    tmp = tempfile.mkdtemp()
+    out = []
+    lk = None
+    try:
+        g.update(LEASE=os.path.join(tmp, 'lease.json'), JOURNAL=os.path.join(tmp, 'j.jsonl'), NOTE=os.path.join(tmp, 'n.json'),
+                 NO_CREDITS=os.path.join(tmp, 'nc.json'), LOCKS=[os.path.join(tmp, 'l')], STOPS=[os.path.join(tmp, 's')],
+                 PROGRESS=os.path.join(tmp, 'p.jsonl'), profile_jobs=lambda p: 100, groups_now=lambda: [('g', True)])
+        WC.PATH = os.path.join(tmp, 'manual.json')
+        book = {'usd': 13.80}
+        MG.load, MG.paid_usd = (lambda: {}), (lambda st: book['usd'])
+        shutil.disk_usage = lambda p: collections.namedtuple('du', 'total used free')(100, 10, 90 * 2**30)
+        calls = []
+        subprocess.run = lambda a, **k: calls.append(a) or subprocess.CompletedProcess(a, 0, '', '')
+        lk = open(LOCKS[0], 'w')
+        fcntl.flock(lk, fcntl.LOCK_EX)                     # замок держит «ручной конвейер»
+        t_auto = time.time() - 3 * 3600
+        t_man = time.time() - 3600
+        with open(PROGRESS, 'w') as f:                     # 20 моделей автоволны, 7 — ручной
+            for k in range(27):
+                f.write(json.dumps({'status': 'ok', 'at': t_auto + 60 + k * 60 if k < 20 else t_man + 60 + k}) + '\n')
+
+        def lease_with(**w) -> dict:
+            d = {'expires': '2999-01-01', 'max_usd': 16.16, 'spent_usd': 13.32, 'profile': 'demo',
+                 'waves': [{'started': t_auto, 'max_jobs': 21, 'usd_cap': 0.41, 'usd_mark': 13.32, **w}]}
+            json.dump(d, open(LEASE, 'w'))
+            return d
+        # (а)+(б)+(в): ручная волна стартовала после автоволны, замки заняты ею
+        lease_with()
+        json.dump({'waves': [{'started': t_man, 'usd_cap': 2.7621, 'usd_mark': 13.5945}]}, open(WC.PATH, 'w'))
+        json.dump({'kind': 'budget', 'source': 'manual'}, open(STOPS[0], 'w'))
+        with contextlib.redirect_stdout(io.StringIO()):
+            main()
+        w = json.load(open(LEASE))['waves'][-1]
+        sent = ' '.join(str(c[-1]) for c in calls)
+        out.append(('замки держит чужая (ручная) волна — лиз автоволны всё равно закрыт', bool(w.get('closed'))))
+        out.append(('расход лиза — до старта ручной волны ($0.27), не «всё с отметки» ($0.48); остаток разрешения верный',
+                    w.get('spent_usd') == 0.27 and abs(json.load(open(LEASE))['spent_usd'] - 13.59) <= 0.01))
+        out.append(('модели — только своего окна (20, не 27); потолок ручной волны — не причина закрытия лиза',
+                    w.get('meshes') == 20 and w.get('why', '').startswith('очередь') and os.path.exists(STOPS[0])))
+        out.append(('итог владельцу ушёл, новая волна при занятых замках не стартует',
+                    'волна закончилась' in sent and not any(str(a).endswith('mesh_wave_start.sh') for c in calls for a in c)))
+        # (а) по отметке финала: ручной волны нет, замки заняты (например, канарейка), конвейер волны вышел сам
+        os.remove(WC.PATH)
+        os.remove(STOPS[0])
+        lease_with()
+        book['usd'] = 13.50
+        r = mark_end(MG.paid_usd({}), now=t_man)
+        book['usd'] = 13.80
+        again = mark_end(14.0)
+        with contextlib.redirect_stdout(io.StringIO()):
+            main()
+        w = json.load(open(LEASE))['waves'][-1]
+        out.append(('финал конвейера отмечает конец волны один раз (usd_end, ended), повтор — не трогает',
+                    bool(r) and again is None and w.get('usd_end') == 13.5 and w.get('ended') == t_man))
+        out.append(('по отметке финала лиз закрыт при занятых замках, расход до отметки ($0.18)',
+                    bool(w.get('closed')) and w.get('spent_usd') == 0.18 and w.get('meshes') == 20))
+        # контроль: конца не видно (ни отметки, ни следующей волны), замки заняты — волна ещё идёт, не закрываем
+        lease_with()
+        with contextlib.redirect_stdout(io.StringIO()):
+            main()
+        out.append(('конца не видно и замки заняты — волна открыта, как раньше',
+                    not json.load(open(LEASE))['waves'][-1].get('closed')))
+    finally:
+        if lk:
+            lk.close()
+        g.update(keep)
+        subprocess.run, shutil.disk_usage = keep_run, keep_du
+        MG.load, MG.paid_usd = keep_mg
+        WC.PATH = keep_wc
+    return out
 
 
 def _manual_cap_test() -> bool:
