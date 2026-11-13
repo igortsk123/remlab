@@ -89,7 +89,9 @@ test("2.1–2.3 окно кадра: фото, список, числа как �
 test("2.4 режимы в одном окне: «Фото» — только при реалистичном снимке этой расстановки, иначе 3D; ракурсы — подписями (demo-09, demo-15)", async ({ page }) => {
   await openDemo(page, "?live=force");
   await page.locator("button[data-swap]").first().click();
-  const hasPhoto = await page.locator('[data-vm="photo"]').isVisible();
+  // переключатель «Фото | 3D» виден всегда (T-20261113-16): есть ли фото — по кадрам этой расстановки, не по видимости кнопки
+  await expect(page.locator('[data-vm="photo"]')).toBeVisible();
+  const hasPhoto = await page.evaluate("vwPhotoShots().length > 0") as boolean;
   const start = await page.evaluate("VW.mode") as string;
   say("реалистичный снимок этой расстановки:", hasPhoto, "· окно открылось в", start);
   expect(start).toBe(hasPhoto ? "photo" : "walk");
@@ -136,8 +138,12 @@ test("2.24 без реалистичного фото — 3D с ценникам
   await page.evaluate("shots = shots.filter((x) => x.quality !== 'realistic'); openLiveWindow()");
   await page.waitForFunction("LIVE.scene && LIVE.state === 'ready'", null, { timeout: 120_000 });
   expect(await page.evaluate("VW.mode")).toBe("walk");
-  await expect(page.locator('[data-vm="photo"]')).toBeHidden();
   await expect(page.locator("#vCta")).toHaveText(/Сделать фото/);
+  // «Фото» без снимка не прячется (T-20261113-16, владелец TG 1516): внутри — «Фото этой расстановки ещё нет» и «Сделать фото»
+  await page.locator('[data-vm="photo"]').click();
+  await expect(page.locator("#shot .vtrph")).toContainText("Фото этой расстановки ещё нет");
+  await expect(page.locator('#shot .vtrph [data-trph="shot"]')).toHaveText("Сделать фото");
+  await page.locator('[data-vm="walk"]').click();
   await expect.poll(() => page.locator("#vpins .vpin:not([hidden])").count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(3);
   say("ценников в 3D:", await page.locator("#vpins .vpin:not([hidden])").count());
   await page.goto(demoUrl("/demo/?live=0"), { waitUntil: "networkidle" });

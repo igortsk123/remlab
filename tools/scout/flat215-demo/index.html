@@ -9398,7 +9398,7 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
    «Фото» (нет снимка) колонки не занимает */
 .vmodes{position:absolute;top:12px;left:50%;transform:translateX(-50%);display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:2px;padding:4px;border-radius:999px;
  background:var(--veil);z-index:var(--zl-float);box-shadow:var(--e3)}
-.vmodes[hidden]{display:none}   /* «Фото» скрыто — переключателя нет (T-20261108-73/3, `vwModeUi`) */
+.vmodes[hidden]{display:none}   /* переключатель виден всегда (T-20261113-16, `vwModeUi`); правило — на случай скрытия кодом */
 .vmodes button{text-align:center}
 .vmodes button{border:0;background:transparent;color:#fff;font-size:15px;padding:7px 14px;border-radius:999px;cursor:pointer}
 .vmodes button.on{background:var(--surface);color:var(--ink);font-weight:600}
@@ -11160,12 +11160,12 @@ function vwModeUi(){
   // «Фото» — только когда есть реалистичный снимок ЭТОЙ расстановки (demo-09); стрелки — по снимкам в «Фото», по позам в 3D
   // …или пока фото этой расстановки рисуется (demo-20 Б3): вкладка появляется сразу, на ней — ход работы (`vwPhWaitUi`)
   // …или есть хоть одно фото комнаты (T-20261107-66 Б): после правки — последнее фото затемнённым (`vwPhotoShots`, `vwStaleUi`)
-  // ТУР ПРОБЫ (T-20261110-37 В, владелец 10.11 TG 869): переключатель виден всегда, как в /demo — «Фото» без фото не прячется,
-  // а внутри объясняет, как его получить (`vwPhotoShow` → `trPhotoStubUi`, TG 930)
-  const real=vwPhotoShots(), ph=shot.querySelector('[data-vm="photo"]'); if(ph)ph.hidden=!TRIAL()&&!real.length&&!vwJobHere();
-  // ОДИНОКАЯ «3D» (T-20261108-73/3, ведущий): «Фото» скрыто — переключатель из одной кнопки ничего не переключает; не показываем его вовсе,
-  // окно сразу в 3D. Соседи (↶↷, «Скрыть цены», ✕) стоят от краёв сцены, не от него — не съезжают (modes-check, шаг 7)
-  const vm=shot.querySelector('.vmodes'); if(vm)vm.hidden=!!ph&&ph.hidden;
+  // ПЕРЕКЛЮЧАТЕЛЬ «ФОТО | 3D» ВИДЕН ВСЕГДА — и в /demo, и в туре (T-20261113-16, владелец TG 1516/1519; П1.53: «не прятать»): у расстановки
+  // без фото «Фото» не прячется, а внутри предлагает его сделать (`vwPhotoShow` → `trPhotoStubUi`; в туре без права на фото — как его
+  // получить, TG 930). Раньше в /demo «Фото» без снимка пряталось вместе со всем переключателем (T-20261108-73/3) — сменил стиль комнаты
+  // на тот, где фото нет (неоклассика), и кнопок «Фото» и «3D» не стало, пока не появится фото
+  const real=vwPhotoShots(), ph=shot.querySelector('[data-vm="photo"]'), vm=shot.querySelector('.vmodes');
+  if(ph)ph.hidden=false; if(vm)vm.hidden=false;
   shot.classList.toggle('vmany',m==='photo'?real.length>1:vwCamN()>1);
   // область сцены зависит от режима («3D» — на весь экран), шторка остаётся, где была (v4)
   if(VW_PHONE())requestAnimationFrame(()=>vwLayout());
@@ -11189,9 +11189,10 @@ const trPhT=k=>TR_PH_TXT[k][TR_EN()?1:0];
 function trPhotoStubUi(){
   const wrap=document.querySelector('#shot .shotwrap'); if(!wrap)return;
   let el=wrap.querySelector('.vtrph');
-  const want=TRIAL()&&VW.mode==='photo'&&!vwPhotoShots().length&&!vwJobHere();
+  // /demo и тур (T-20261113-16): «Фото» без снимка этой расстановки — карточка; в /demo фото можно всегда — «Сделать фото»
+  const want=VW.mode==='photo'&&!vwPhotoShots().length&&!vwJobHere();
   if(!want){if(el)el.remove(); return;}
-  const ok=trPhotoHere(), key=[LANG,ok,!!trKey()].join('|');
+  const ok=!TRIAL()||trPhotoHere(), key=[LANG,ok,!!trKey()].join('|');
   if(el&&el.dataset.key===key)return;
   if(el)el.remove();
   el=document.createElement('div'); el.className='vtrph'; el.dataset.key=key; el.dataset.ok=String(ok);
@@ -11205,7 +11206,6 @@ function trPhotoStubUi(){
 }
 function vwMode(m){
   if(!['photo','walk','plan'].includes(m))return;
-  if(m==='photo'&&!vwPhotoShots().length&&!vwJobHere()&&!TRIAL())return;
   VW.wantPhoto=0;   // режим выбран (кнопкой, кодом, съёмкой) — по приходу реестра кадров окно не переключаем (`loadShots`, T-66/2)
   if(VJ.job&&!VJ.self)VJ.job.moved=true;   // человек сам ушёл с вкладки — по готовности не переключаем, если он не на «Фото»
   VW.mode=m; vwModeUi();
@@ -11323,8 +11323,7 @@ const vwCamIndex=c=>Math.max(0,(+String(c||'C1').slice(1)||1)-1);
 // «Фото» — снимок выбранной точки (или первый); «3D» — живая сцена
 function vwPhotoShow(){
   if(VW.mode==='photo'){const r=vwPhotoShots(); if(!r.length){if(vwJobHere()){liveHide(); vwPhWaitUi(); return;}
-      if(TRIAL()){liveHide(); trPhotoStubUi(); return;}   // тур: «Фото» открыт и без фото — карточка, как его получить (TG 930)
-      vwMode('walk'); return;}
+      liveHide(); trPhotoStubUi(); return;}   // «Фото» открыт и без фото — карточка: сделать фото (/demo) или как его получить (тур, TG 930)
     const k=r.find(x=>(x.camera||'C1')===vwCam())||r[0]; VW.photo=vwCamIndex(k.camera);
     const i=shots.indexOf(k); if(i!==shotAt){viewShot(i); return;} liveHide(); vwStaleUi(); return;}
   liveShow();
