@@ -20,7 +20,7 @@ review_after: 2026-12-10
 - **Задание:** `app/try/page.tsx` → `POST /api/trial` → `trial_jobs` (`db/init/022-trial-jobs.sql` … 037); лимиты — ADR-0371
   (`lib/trial/upload-limits.ts`, `own-key.ts`), хранение 30 дн (`lib/trial/config.ts:trialFileHours`).
 - **Воркер DEV:** `tools/floorplan/worker.py`, юнит `remlab-trial-worker`, аренда `lib/trial/repo-worker.ts`; не берёт при < 3 ГБ,
-  ≥ 2 тяжёлых, прод не 200; правка — после перезапуска (урок 608).
+  ≥ 2 тяжёлых, прод не 200; правка — после перезапуска (урок 608); память 3G/4G (682). Исходник покупателю — нет (ADR-0418).
 - **Стены:** `tools/floorplan/pipeline.py`, лист `tools/floorplan/bench.py:dev_sheet` (ADR-0374), балкон `outdoor` (ADR-0375),
   регресс `tools/floorplan/regress.py`.
 - **Стадии:** `tools/floorplan/conveyor.py` → гостиная `tools/scout/trial_demo.py` → спальни `tools/scout/trial_bedroom.py`

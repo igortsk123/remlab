@@ -25,20 +25,19 @@ last_verified: 2026-11-12
 - **Банк:** prepare → pending → promote (≤ 25 %/ночь) → `sets-bedroom.json`; флаги `tools/scout/rules/bank-candidate.json:rooms.bedroom`;
   руками не менять (урок 623).
 - **Витрина:** `tools/scout/demo_bedroom.py` поверх `tools/scout/demo_room.py`; пустую роль добирает `demo_room.py:role_spares`.
-- **Модель:** правило `tools/scout/room_bindings.py:usable`; изголовье — `tools/scout/bed_headboard.py`.
+- **Модель:** `tools/scout/room_bindings.py:usable`; изголовье `tools/scout/bed_headboard.py`. ADR-0417: лампа (`demo_bedroom.py:LIST_ROLES`) — на тумбу.
 
 ## Расстановка
 - Угловая кровать — только в угол, не для пары; ковёр по выступу 45–70 см (`tools/scout/compose_bedroom.py:rug_norm`).
-- /try: у окна — низкие рамы (`tools/scout/trial_bedroom.py:window_low_beds`).
 - **Группы (ADR-0392, [[room-templates]]):** паспорт `services/planner-solver/rules/room-templates/bedroom.json`; движок —
   `services/planner-solver/planner/bedroom_checks.py:engine` (`groups`, откат `BEDROOM_ENGINE=items`); P1–P10 (ADR-0384): пара в тесной —
   140, в малой квадратной — без шкафа, без кровати — «кабинет»; гостевой — тумба через compact (ADR-0404).
   Бок без тумбы — к стене или проход 75 (`services/planner-solver/planner/bedroom.py:_free_side_ok`).
 - **Каталог шаблонов (тень, T-120):** 24 шаблона `services/planner-solver/rules/room-templates/bedroom-catalog.json` (движок пока —
   `bedroom.json`); комната 6–7,5 м² — по числу комнат (ADR-0408); условие движка — лампа на каждую тумбу.
-- **Туры:** кровать каталога подменяется витринной; стиль — ≤ 16 вызовов решателя (ADR-0414).
+- **Туры:** у окна — низкие рамы (`tools/scout/trial_bedroom.py:window_low_beds`); кровать — витринная; стиль — ≤ 16 вызовов решателя (ADR-0414).
 
 ## Стили и назначения
-- Шесть стилей; неоклассики нет — нет ядра (`core_skip`). Назначения: couple/single/guest/office/child:*; детская — `kids-room-01`.
+- 6 стилей; неоклассики нет (`core_skip`). Назначения couple/single/guest/office/child:*; детская `kids-room-01`.
 
 **Tier 2:** `../domain/pipeline-order-details.md` § «Банки других комнат», «Спальня 10–12.11» · [[b2b-10-rooms-beyond-living]] · ADR-0330.

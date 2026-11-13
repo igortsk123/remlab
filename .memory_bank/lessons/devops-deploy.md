@@ -466,3 +466,6 @@ systemd — крон-подъём раз в 10 минут (`tools/ops/dev-checks
 - **680 (13.11)** — ссылка-вход `/api/lab/mesh-review/session?key=…` уводила на `https://0.0.0.0:3000/…`: адрес редиректа строился из
   `req.url`, а за прокси Caddy это внутренний хост. Правило: редирект — относительный `Location` из белого списка путей
   (`lib/mesh-review/login-target.ts`, тест с `req.url = https://0.0.0.0:3000`), хост из `req.url` не брать. (T-118/3, algor)
+- **684 (13.11)** — новый python-тест с `import draft_render` (→ `planner.scene`) попал в CI-job `scout-orient` без зависимостей
+  планера → CI красный 08:39–~10:00, прод не катился; локальный prepush зелёный (одно окружение на всё). Тест, импортирующий
+  планер, — только в job с requirements planner-solver; при новом тесте сверять, в какой job он попадает.

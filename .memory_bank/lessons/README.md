@@ -483,4 +483,9 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 679 — проба тапов по ценникам без видеокарты: 2 стабильных кадра, 12 px от кнопок → `lessons/demo-planner.md`
 - 680 — редирект из `req.url` за прокси → `0.0.0.0:3000`; только относительный `Location` → `lessons/devops-deploy.md`
 - 681 — пересборка банка ради одного правила меняла 12–18 товаров набора → `lessons/layout-solver.md`
+- 682 — перечитка 30 мин = MemoryHigh службы trial-worker 1G, не нагрузка; диагностика wchan + memory.events → `lessons/floorplan-trial.md`
+- 683 — «тур потерял стиль» — смотреть выложенный bundle, конвейер держит прежнюю мебель комнаты → `lessons/floorplan-trial.md`
+- 684 — тест с импортом планера в CI-job без его зависимостей → CI красный, prepush зелёный → `lessons/devops-deploy.md`
+- 685 — ручной `demo-realistic --force` без повтора при выкатке потерял оплаченный кадр → `lessons/demo-planner.md`
+- 686 — тормоза 3D на телефоне в headless не видны — мерить с `?live=force` ×4 → `lessons/demo-planner.md`
 - 528, 530 — дополнены 07.11 (gltfpack и `/tmp`; «как в CI» — py3.12, чистый venv, golden `--record`, e2e) без новых номеров
