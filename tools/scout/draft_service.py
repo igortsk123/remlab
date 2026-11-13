@@ -343,8 +343,12 @@ def _dry_info(payload: dict) -> dict:
     try:
         import improve_mode as IM
         # мягкое запроса (demo-24): что уйдёт третьим листом и словами — видно без оплаты
-        soft = IM.soft_list(IM.soft_items(payload), len(DR.decor_split(payload)[1]) + 1, payload.get('items'))
-        pr = IM.prompt_for(payload.get('style') or '', soft=soft)
+        # состав набора (П1.50): тот же расклад листов и те же куски, что у боевой сборки кадров браузера (`build_from_views`)
+        C = IM.compose(payload, payload.get('items') or [], IM.decor_plan(payload))
+        soft = IM.soft_list(C['soft'], C['n3'] + len(C['decor']), payload.get('items'))
+        pr = IM.prompt_for(payload.get('style') or '', C['decor'] if C['groups'] else None, soft=soft, room=IM.room_kind(payload),
+                           groups=C['groups'], kept=C['kept'], n3=C['n3'])
+        info['set_groups'] = C['groups']
         info['prompt'] = {'version': IM.PROMPT_VERSION, 'sha': IM.prompt_sha(pr), 'photo_look': 'PHOTOGRAPHIC LOOK' in pr,
                           'shape_rule': 'never invent detachable cushions, throws or armrests' in pr,
                           'soft_block': 'SOFT TEXTILES FROM IMAGE 3' in pr}

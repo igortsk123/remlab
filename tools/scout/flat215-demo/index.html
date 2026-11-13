@@ -6630,7 +6630,10 @@ function payload(){
   const absImg=u=>u&&!/^(https?:)?\/\//.test(u)?new URL(u,base).href:u;
   // назначение комнаты (ячейка банка: `couple`, `child:7-12`…) — сервер берёт свой промпт фото, если он есть (детская, T-20261107-46/1)
   return {room:roomOf(v), room_id:roomIdOf(v), ...(v.purpose?{purpose:String(v.purpose)}:{}), variant_id:v.id||'', style:v.style||'', variant:v.title||'', developerOptions:clone(DEVOPT),
-    decor:(v.decor||[]).map(d=>d&&d.sku&&d.sku.img?Object.assign({},d,{sku:Object.assign({},d.sku,{img:absImg(d.sku.img)})}):d),
+    // `shown` — предмет нарисован в 3D-сцене (тот же признак `in3dDecor`, по которому сцена его строит; П1.50): сервер кладёт его фото
+    // на лист эталонов с «оставь как есть, второго не добавляй», а не третьим листом «ещё не в кадре» — иначе модель рисовала вторые шторы и люстру
+    decor:(v.decor||[]).map(d=>d?Object.assign({},d,d.sku&&d.sku.img?{sku:Object.assign({},d.sku,{img:absImg(d.sku.img)})}:{},{shown:in3dDecor(d)}):d),
+    decor_known:true,   // состав сообщён (и пустой декор — тоже: «штор нет — дорисовать под стиль»)
     floor:devFloorReq(), walls:devWallReq(),
     // окно превью вида (`crop`, demo-22) уходит вместе с позой: сервер замораживает его в записи кадра (`draft_service._cams_clean`)
     cams:(cams||loadCams()).map(c=>({name:c.name,x:Math.round(c.x),y:Math.round(c.y),

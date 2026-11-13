@@ -85,6 +85,11 @@ SINGLE_SUBS = [
     ('It is the same physical fixture in both views: the same design, materials, colour, scale, ceiling attachment point and '
      'switched-off state, shown only where naturally visible from each existing camera.',
      'It is switched off and shown only where naturally visible from the existing camera.'),
+    # П1.50 — куски задания по составу набора (rules/photo-set-roles.json)
+    (', keep them identical in both views and add no other', ' and add no other'),
+    ('show them identically in both views wherever their place is visible.', 'show them wherever their place is visible.'),
+    ('It is the same physical fixture in both views, shown only where naturally visible from each existing camera.',
+     'It is shown only where naturally visible from the existing camera.'),
     ('Return ONE image with exactly the dimensions and proportions of IMAGE 1 and the same two-view layout.',
      'Return ONE image with exactly the dimensions and proportions of IMAGE 1.'),
 ]
@@ -535,26 +540,31 @@ def build(payload: dict, frame: Image.Image, size: str = SIZE) -> dict:
     import draft_render as DR
     import improve_mode as IM
     items = payload.get('items') or []
-    photos = {it['role']: DR.photo(it.get('img')) for it in items if it.get('img') and it.get('role')}
+    # СОСТАВ (П1.50): кадр — сцена сервера, нарисован настольный декор `decor_split[0]` — карточками на лист эталонов
+    plan = IM.decor_plan(payload, DR.decor_split(payload)[0])
+    C = IM.compose(payload, items, plan)
+    photos = {it['role']: DR.photo(it.get('img')) for it in items + C['extra'] if it.get('img') and it.get('role')}
     for it in items:                                     # «стул 2» — фото базовой роли
         base = re.sub(r'\s+\d+$', '', it.get('role') or '')
         if photos.get(it.get('role')) is None and photos.get(base) is not None:
             photos[it['role']] = photos[base]
     ident = None
     try:
-        ident = DR._identity([{'role': it['role'], 'n': i + 1} for i, it in enumerate(items) if it.get('name')], photos,
-                             {it['role']: it for it in items if it.get('role')})
+        sheet_items = items + C['extra']
+        ident = DR._identity([{'role': it['role'], 'n': i + 1} for i, it in enumerate(sheet_items) if it.get('name')], photos,
+                             {it['role']: it for it in sheet_items if it.get('role')})
     except Exception as e:  # noqa: BLE001 — отказ решают ворота ниже
         print(f'  лист эталонов не собрался: {str(e)[:80]}')
-    decor, soft = DR.decor_split(payload)[1], IM.soft_items(payload)
+    decor, soft = C['decor'], C['soft']
     extra = None
     if decor or soft:
         try:
-            extra = IM.third_sheet(decor, soft)
+            extra = IM.third_sheet(decor, soft, C['n3'])
         except Exception as e:  # noqa: BLE001
             print(f'  третий лист не собрался: {str(e)[:80]}')
     if extra is None:
         decor, soft = [], []
+        C['groups'] = IM.set_groups(payload, items, plan['kept'], [], C['n3'])
     prods = None
     if IM.PROMPT_V4:
         try:
@@ -563,8 +573,8 @@ def build(payload: dict, frame: Image.Image, size: str = SIZE) -> dict:
             print(f'  список товаров не собрался: {str(e)[:80]}')
     fl, wl = payload.get('floor') or {}, payload.get('walls') or {}
     base_prompt = IM.prompt_for(payload.get('style') or '', decor, fl.get('title') or fl.get('id') or None,
-                                wl.get('title') or wl.get('id') or None, None, prods, IM.soft_list(soft, len(decor) + 1, items),
-                                room=IM.room_kind(payload))
+                                wl.get('title') or wl.get('id') or None, None, prods, IM.soft_list(soft, C['n3'] + len(decor), items),
+                                room=IM.room_kind(payload), groups=C['groups'], kept=C['kept'], n3=C['n3'])
     prompt = single_view_prompt(base_prompt)
     named = [it for it in items if it.get('name')]
     return {'frame': fit_frame(frame, size), 'ident': ident, 'dsheet': extra, 'prompt': prompt, 'size': size,

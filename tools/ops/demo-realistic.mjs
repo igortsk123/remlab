@@ -54,7 +54,7 @@ const LOCAL = process.env.DEMO_LOCAL ?? "";
 // `REAL_ROOM=bedroom-1` — снимать только эту комнату (T-32/3: пробы спальни из проверочной сборки, не трогая гостиную; как WARM_ROOM прогрева)
 const ONLY_ROOM = process.env.REAL_ROOM ?? "";
 const ONLY_STYLES = (process.env.REAL_STYLES ?? "").split(",").map((x) => x.trim()).filter(Boolean);
-const EXPECT_PROMPT = process.env.EXPECT_PROMPT ?? "improve-v4.4";   // demo-14: + список товаров (ADR-0305); .1 — радиатор под окном (demo-20 Г3); .2 — люстра стиля (Г4); .3 — мягкое (demo-24); .4 — шторы по окну, окно по кадру, картины на стену (T-113)
+const EXPECT_PROMPT = process.env.EXPECT_PROMPT ?? "improve-v4.5";   // demo-14: + список товаров (ADR-0305); .1 — радиатор под окном (demo-20 Г3); .2 — люстра стиля (Г4); .3 — мягкое (demo-24); .4 — шторы по окну, окно по кадру, картины на стену (T-113); .5 — задание по составу набора (П1.50)
 const RULES = new URL("../scout/rules/demo-realistic.json", import.meta.url);
 const CREDITS_URL = "https://ai-gateway.vercel.sh/v1/credits";
 

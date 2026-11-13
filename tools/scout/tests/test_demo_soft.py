@@ -158,7 +158,8 @@ RSRC = open(os.path.join(HERE, '..', 'draft_render.py'), encoding='utf-8').read(
 check('третий лист уходит в модель (был только в тексте)', "built.get('dsheet') is not None and 'IMAGE 3' in prompt" in RSRC)
 ISRC = open(os.path.join(HERE, '..', 'improve_mode.py'), encoding='utf-8').read()
 check('оба сборщика отдают третий лист и мягкое в промпт',
-      ISRC.count("'dsheet': dsheet") == 2 and ISRC.count('soft_list(soft, len(decor) + 1') == 2)
+      # П1.50: номера IMAGE 3 начинаются с n3 (без состава набора n3 = 1 — как прежнее len(decor) + 1)
+      ISRC.count("'dsheet': dsheet") == 2 and ISRC.count("soft_list(soft, C['n3'] + len(decor)") == 2)
 
 ASRC = open(os.path.join(HERE, '..', 'scene_artifacts.py'), encoding='utf-8').read()
 check('ночная проверка сцены не ищет модель у мягкого', '_AS.soft_roles()' in ASRC)

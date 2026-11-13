@@ -12,7 +12,7 @@ import { demoUrl } from "./demo-url.cjs";
 const BASE = process.env.DEMO_BASE ?? "https://remont-lab.online";
 const GO = process.argv.includes("--go");
 const ONLY = process.argv.slice(2).filter((a) => !a.startsWith("--"));
-const WANT_PROMPT = process.env.EXPECT_PROMPT ?? "improve-v3.4";
+const WANT_PROMPT = process.env.EXPECT_PROMPT ?? "improve-v3.5";
 const OUT = `${homedir()}/scout-scenes/style-trials.json`;
 const STYLES = ["сканди", "современный", "минимализм", "лофт", "джапанди", "неоклассика"];
 

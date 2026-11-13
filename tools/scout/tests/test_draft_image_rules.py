@@ -207,7 +207,7 @@ def main():
             ok(whitelisted(s, allow), f'{s} в Dockerfile.dockerignore')
 
     print('проверка ловит подложенное:')
-    old = docker_text.replace(' \\\n     tools/scout/rules/improve-rooms.json /app/rules/', ' /app/rules/')
+    old = docker_text.replace('tools/scout/rules/improve-rooms.json ', '', 1)   # убрать из COPY только этот файл (за ним — другие)
     ok(old != docker_text, 'подложенный Dockerfile без improve-rooms.json собран')
     ok(any(b == 'improve-rooms.json' for _, b, _ in missing(old, allow)), 'Dockerfile без improve-rooms.json — отказ')
     ok(any(b == 'improve-rooms.json' and 'dockerignore' in c for _, b, c in

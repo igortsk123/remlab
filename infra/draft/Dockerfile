@@ -16,7 +16,7 @@ COPY services/planner-solver/rules/ /app/rules/
 # и в Dockerfile.dockerignore; сверяет `tools/scout/tests/test_draft_image_rules.py` (T-20261107-03)
 COPY tools/scout/rules/asset-strategies.json tools/scout/rules/capabilities.json \
      tools/scout/rules/openai_prices.json tools/scout/rules/practice_priors.json \
-     tools/scout/rules/improve-rooms.json /app/rules/
+     tools/scout/rules/improve-rooms.json tools/scout/rules/photo-set-roles.json /app/rules/
 COPY tools/scout/draft_service.py tools/scout/draft_guard.py tools/scout/draft_jobs.py tools/scout/draft_trial.py tools/scout/draft_render.py \
      tools/scout/asset_strategy.py tools/scout/falmini.py tools/scout/improve_mode.py \
      tools/scout/mesh_render.py tools/scout/scene_mesh.py tools/scout/opening_ir.py tools/scout/styles.json /app/
@@ -24,6 +24,8 @@ COPY tools/scout/draft_service.py tools/scout/draft_guard.py tools/scout/draft_j
 RUN python -c "import draft_service, draft_jobs, draft_trial, draft_render, mesh_render, scene_mesh, opening_ir, improve_mode, asset_strategy; print('imports ok')"
 # правила промпта спальни читаются лениво (при первом фото не-гостиной) — читаем при сборке, чтобы нехватка ловилась здесь
 RUN python -c "import improve_mode as m; r = m.room_rules('bedroom'); assert r.get('name'), r; print('room rules ok')"
+# состав набора для задания фото (П1.50) — тоже лениво; нет файла — сборка падает здесь
+RUN python -c "import improve_mode as m; assert m.set_roles().get('groups'); print('set roles ok')"
 EXPOSE 8099
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8099/health',timeout=3)"

@@ -1,0 +1,74 @@
+{
+  "_about": "ЗАДАНИЕ ФОТО ПО СОСТАВУ НАБОРА (П1.50, T-20261113-06; владелец TG 1406/1415/1418 через директора: «динамический промпт — куски с пометками, условные код выкидывает сам»). Группа = роли товаров одного назначения. Состояние группы считает `improve_mode.set_groups`: `shown` — товар набора уже нарисован в IMAGE 1 (его фото — на листе эталонов IMAGE 2, кусок `keep` и запрет `deny`); `sheet` — товар набора не нарисован (фото — на IMAGE 3, как раньше, + `deny`); `add` — товара нет, группа уместна (`needs_any` — хоть одна роль в мебели, `needs_window` — окно в комнате, `rooms_not` — не эти типы комнат) — кусок «дорисуй под стиль»; `none` — товара нет и не уместна — ничего (у штор — запрет `deny_none`). Строка гайда `guide_line` и разрешение `allow` (`styles.json` → `_decor_policy.allow_now`) остаются только в `add`. Без состава (старый вызов) — промпт побайтно прежний (тест `tests/test_improve_prompt.py`). Тексты английские — подставляются в англоязычный промпт. `{ids}` — номера товара на листе («#9, #10»).",
+  "version": "2026-11-13.1",
+  "groups": {
+    "curtains": {
+      "roles": ["шторы", "тюль"],
+      "needs_window": true,
+      "rooms_not": ["kitchen", "hall", "bathroom"],
+      "guide_line": "WINDOW DRESSING:",
+      "allow": "curtains or blinds",
+      "keep": "* KEEP THE BOUGHT CURTAINS ({ids}, IMAGE 2) at the window exactly as IMAGE 1 shows them: they are the product of this set, so keep their colour, pattern and fabric, keep them identical in both views and add no other curtains, sheers or blinds. They must not cover furniture or change the window opening.",
+      "deny": "any curtains, sheers or blinds other than the bought curtains {ids}",
+      "deny_none": "curtains, sheers or blinds"
+    },
+    "cushions": {
+      "roles": ["подушка"],
+      "needs_any": ["диван", "кровать", "кресло"],
+      "rooms_not": ["kitchen", "hall", "bathroom"],
+      "add": "* two or three decorative cushions {place};",
+      "places": [["диван", "on the sofa seat, leaning against the backrest"], ["кровать", "on the bed, leaning against the headboard"], ["кресло", "on the armchair seat"]],
+      "deny": "any cushions other than the bought cushions {ids}"
+    },
+    "throw": {
+      "roles": ["плед", "покрывало"],
+      "needs_any": ["диван", "кровать", "кресло"],
+      "rooms_not": ["kitchen", "hall", "bathroom"],
+      "add": "* one throw {place};",
+      "places": [["кресло", "draped over the armchair"], ["диван", "folded over the sofa arm"], ["кровать", "folded across the foot of the bed"]],
+      "deny": "any throw, blanket or bedspread other than the bought one {ids}"
+    },
+    "ceiling": {
+      "roles": ["люстра"],
+      "strategies": ["ceiling_over"],
+      "guide_line": "CEILING LIGHT:",
+      "allow": "one style-matched ceiling fixture in place of the white ceiling placeholder, as described by CEILING LIGHT",
+      "deny": "any ceiling light, pendant or chandelier other than the bought ceiling lamp {ids}"
+    },
+    "art": {
+      "roles": ["картина"],
+      "never_add": true,
+      "deny": "any wall art other than the bought pictures {ids}"
+    }
+  },
+  "what": {
+    "подушка": "cushion", "шторы": "curtains", "тюль": "sheer curtains", "плед": "throw", "покрывало": "bedspread",
+    "люстра": "ceiling lamp", "картина": "wall picture", "ваза": "vase", "лампа": "table lamp", "кашпо": "planter",
+    "статуэтка": "figurine", "часы": "wall clock", "зеркало": "mirror", "растение": "plant"
+  },
+  "kept_head": "BOUGHT DECOR ALREADY IN IMAGE 1 — KEEP AS RENDERED (numbers as on IMAGE 2):",
+  "kept_text": "These products of the set are already placed in IMAGE 1 — on the furniture, at the window, on a wall or at the ceiling. Keep each one exactly where and as it is rendered, with the same size and count, and correct only its colour, pattern and material from IMAGE 2. Never add a second one or another item of the same kind. Where a cushion, throw or curtain lies on or touches furniture in IMAGE 1, that is intended.",
+  "add_head": "STYLE TEXTILES — MUST BE ADDED (the set has no product for these):",
+  "add_text": "Choose them in fabrics and colours from the STYLE GUIDE palette, realistic in size, and show them identically in both views wherever their place is visible. They are loose items: they may lie on the furniture, but do not move, resize or reshape any furniture for them.",
+  "task_parts": {
+    "third": "the items of IMAGE 3",
+    "ceiling": "the single ceiling fixture that replaces the white ceiling placeholder (CEILING FIXTURE below)",
+    "curtains": "curtains at the window",
+    "cushions": "the style cushions of STYLE TEXTILES",
+    "throw": "the style throw of STYLE TEXTILES"
+  },
+  "task_none": "Add no new objects.",
+  "exception": "* EXCEPTION: the cushions and throws named in this task (bought ones under KEEP AS RENDERED or SOFT TEXTILES, style ones under STYLE TEXTILES) are separate loose items, not parts of the furniture — they lie on it as described there.",
+  "deny_swap_soft": {
+    "cushions, throws or armrests that the catalogue product does not have": "built-in cushions or armrests that the catalogue product does not have (the loose cushions and throws named in this task are separate items)"
+  },
+  "ceiling_owned": [
+    "CEILING FIXTURE — ONLY THE BOUGHT CEILING LAMP",
+    "",
+    "The ceiling lamp of this set ({ids}) is the single ceiling fixture of the room. If IMAGE 1 already shows it, keep it exactly as rendered — the same design, size, height and position — and correct only its colour and material from the references. If IMAGE 1 still shows the flat white disc at the ceiling centre instead, that disc becomes this lamp. Never add a second ceiling light, pendant or chandelier and never replace the bought lamp with a fixture from the STYLE GUIDE.",
+    "",
+    "It is the same physical fixture in both views, shown only where naturally visible from each existing camera. It emits no glow and must not change the original daylight direction, exposure, white balance or shadows."
+  ],
+  "prefix_ceiling_owned": "The single ceiling fixture is the bought lamp governed by CEILING FIXTURE above.",
+  "optional_tail": " It must not include curtains, blinds, cushions, throws, pictures, lamps or ceiling lights beyond those this task names."
+}
