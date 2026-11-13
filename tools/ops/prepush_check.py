@@ -17,6 +17,8 @@
   (б) исходник этого файла упоминает F: путь от корня, путь от своей папки (`../scout/x.sh`), имя файла (если оно в репо
       одно), а для .py — `import F` / `from F import`.
 Не локально (медленно или нужна установка): pnpm, docker, playwright, pip, `-m pytest` — их проверяет CI.
+ВСЕГДА и первыми — команды `ALWAYS` (реестр конвейера `tools/ops/conveyor_check.py`, T-20261112-121): при любой правке;
+не успела в потолок — стоп, как упавшая.
 Окружение — как у job: его `env:`, CI=true, GITHUB_ACTIONS=true, RUNNER_TEMP; `python` — venv scout, если есть.
 Код выхода: 1 — какая-то проверка упала (пуш остановить); 0 — все прошли или не успели в потолок (это не стоп, их проверит CI)."""
 import os
@@ -32,6 +34,9 @@ ROOT_DEFAULT = os.path.abspath(os.path.join(HERE, '..', '..'))
 SLOW = re.compile(r'^(pnpm|npx|docker|pip|pip3|apt|apt-get|sudo)\b|playwright|-m\s+pytest')
 RUNNERS = ('python', 'python3', 'node', 'bash', 'sh', 'diff')
 ZERO = '0' * 40
+# проверки при ЛЮБОЙ правке, первыми; не успела — стоп, а не «проверит CI» (реестр конвейера, T-20261112-121:
+# ручную правку собранного файла или новый писатель в обход генератора ловим до пуша, какой бы файл ни поменялся)
+ALWAYS = ('python tools/ops/conveyor_check.py',)
 
 
 def _strip_installs(cmd: str) -> str:
@@ -141,9 +146,12 @@ def select(units: list, changed: list, root: str) -> list:
                 cache[p] = ''
         return cache[p]
 
-    direct, indirect = [], []
+    always, direct, indirect = [], [], []
     for u in units:
         if u['slow']:
+            continue
+        if u['cmd'] in ALWAYS:
+            always.append(dict(u, why=['всегда'], always=True))
             continue
         why = [f for f in changed if f in u['paths']]
         if why:
@@ -153,7 +161,7 @@ def select(units: list, changed: list, root: str) -> list:
                if p != f and mentions(p, src(p), f, cnt.get(os.path.basename(f), 0) == 1)]
         if why:
             indirect.append(dict(u, why=sorted(set(why))))
-    return direct + indirect
+    return always + direct + indirect
 
 
 def _python() -> str:
@@ -192,7 +200,12 @@ def run_units(sel: list, root: str, budget: float, runner_temp: str, py: str | N
             fails.append(u)
             print('     ' + '\n     '.join((text or '').strip().splitlines()[-15:]), file=out)
     for u in late:
+        if u.get('always'):
+            fails.append(u)
+            print(f"FAIL не успел в {budget:.0f} с — проверка обязательная: {u['cmd'].splitlines()[0][:110]}", file=out)
+            continue
         print(f"не успел в {budget:.0f} с (проверит CI): {u['cmd'].splitlines()[0][:110]}", file=out)
+    late = [u for u in late if not u.get('always')]
     print(f'prepush: проверок {len(sel)}, упало {len(fails)}, не успел {len(late)}' +
           (' — ПУШ ОСТАНОВЛЕН, почини и повтори (обойти: git push --no-verify)' if fails else ''), file=out)
     return 1 if fails else 0
@@ -361,6 +374,13 @@ jobs:
     check('python tools/scout/bank_run.py --selftest' in s, 'настоящий ci.yml: модуль из цикла scout-selftest — свой селфтест', s[:5])
     s = [u['cmd'] for u in select(real, ['tools/scout/flat215-demo/index.html'], ROOT_DEFAULT)]
     check('python tools/scout/tests/test_img_fallback.py' in s, 'настоящий ci.yml: правка страницы демо запускает test_img_fallback (07.11, 6f2395bc)', s)
+    s = [u['cmd'] for u in select(real, ['README.md'], ROOT_DEFAULT)]
+    check(s[:1] == list(ALWAYS), 'настоящий ci.yml: реестр конвейера — при любой правке и первым (T-20261112-121)', s[:3])
+    # обязательная проверка, не успевшая в потолок, — стоп (а обычная — «проверит CI», см. выше)
+    buf = io.StringIO()
+    slow = dict(select(units, ['tools/scout/slow.py'], root)[0], always=True)
+    rc = run_units([slow], root, 3, rt, py=sys.executable, out=buf)
+    check(rc == 1 and 'обязательная' in buf.getvalue(), 'обязательная проверка не успела — код 1', (rc, buf.getvalue()))
     print(f'prepush_check selftest: ошибок {len(bad)}')
     return 1 if bad else 0
 

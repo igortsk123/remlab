@@ -49,8 +49,9 @@ from material_pipeline import (  # noqa: E402
     normalize_colour,
     roughness_from_height,
 )
+from conveyor_seal import dump_sealed  # noqa: E402 — путь к tools/ops добавил material_pipeline (T-20261112-121)
 
-PSQL = ["docker", "exec", "-i", "remlab-devdb", "psql", "-U", "remlab", "-d", "remlab",
+PSQL =["docker", "exec", "-i", "remlab-devdb", "psql", "-U", "remlab", "-d", "remlab",
         "-q", "-t", "-A", "-F", "\x1f", "-v", "ON_ERROR_STOP=1"]
 UA = {"User-Agent": "Mozilla/5.0 (compatible; remlab-material/1.0)"}
 
@@ -371,9 +372,7 @@ def main() -> int:
     payload["materials"] = [by_id[k] for k in sorted(by_id)]
     payload["_about"] = ("Материалы покрытий. Процедурные — tools/assets/material_pipeline.py, "
                          "фактуры фасадов из фото товаров — tools/assets/material_from_product.py.")
-    with open(man_path, "w", encoding="utf-8") as fh:
-        json.dump(payload, fh, ensure_ascii=False, indent=1)
-        fh.write("\n")
+    dump_sealed(payload, man_path)   # печать: ручная правка ломает её → красный conveyor_check (T-20261112-121)
     print(f"\nготово: {len(entries)}, отказов: {fails}; манифест — {len(by_id)} материалов")
     return 1 if fails and not entries else 0
 

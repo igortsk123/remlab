@@ -30,6 +30,9 @@ import sys
 import numpy as np
 from PIL import Image, ImageFilter
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ops"))
+from conveyor_seal import dump_sealed  # noqa: E402 — печать собранного materials.json (T-20261112-121)
+
 TILE = 1024
 PREVIEW = 256
 
@@ -739,9 +742,7 @@ def main() -> int:
         "baseUrl": "/flat3d/materials/",
         "materials": [existing[k] for k in sorted(existing)],
     }
-    with open(man_path, "w", encoding="utf-8") as fh:
-        json.dump(payload, fh, ensure_ascii=False, indent=1)
-        fh.write("\n")
+    dump_sealed(payload, man_path)   # печать: ручная правка ломает её → красный conveyor_check (T-20261112-121)
     print(f"манифест: {man_path} ({len(existing)} материалов)")
     return 0
 

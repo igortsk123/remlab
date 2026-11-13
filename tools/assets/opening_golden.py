@@ -70,9 +70,15 @@ def main() -> None:
             cases.append({"name": f"{room['name']}{'-open' if open_doors else ''}", "open": open_doors,
                           "room": {k: room[k] for k in ("w", "d", "height_cm", "openings")}, "openings": boxes})
     out = os.path.join(ROOT, "tests", "fixtures", "opening-golden.json")
+    text = json.dumps({"note": "генерируется tools/assets/opening_golden.py — руками не править", "cases": cases},
+                      ensure_ascii=False, indent=1)
+    # --check: файл = пересборка, иначе выход 1 — ручная правка эталона ловится в CI (реестр конвейера, T-20261112-121)
+    if "--check" in sys.argv:
+        same = os.path.exists(out) and open(out, encoding="utf-8").read() == text
+        print(f"эталон проёмов: {'свежий' if same else 'НЕ совпадает с пересборкой — пересоберите: python tools/assets/opening_golden.py'}")
+        sys.exit(0 if same else 1)
     with open(out, "w", encoding="utf-8") as f:
-        json.dump({"note": "генерируется tools/assets/opening_golden.py — руками не править", "cases": cases}, f,
-                  ensure_ascii=False, indent=1)
+        f.write(text)
     print(f"эталон: {out} — {len(cases)} комнат, {sum(len(c['openings']) for c in cases)} проёмов")
 
 

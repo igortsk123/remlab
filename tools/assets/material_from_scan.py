@@ -42,6 +42,7 @@ from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import material_pipeline as MP  # noqa: E402
+from conveyor_seal import dump_sealed  # noqa: E402 — путь к tools/ops добавил material_pipeline (T-20261112-121)
 
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 CONFIG = os.path.join(ROOT, "data", "flat3d", "floor-scans.json")
@@ -278,9 +279,7 @@ def write_manifest(entries: list[dict], path: str = MANIFEST) -> int:
     for e in entries:
         by_id[e["id"]] = e
     payload["materials"] = [by_id[k] for k in sorted(by_id)]
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(payload, fh, ensure_ascii=False, indent=1)
-        fh.write("\n")
+    dump_sealed(payload, path)   # печать: ручная правка ломает её → красный conveyor_check (T-20261112-121)
     return len(by_id)
 
 

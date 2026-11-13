@@ -10,6 +10,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { sealText } from "../ops/conveyor-seal.mjs";
 
 const RUB_PER_GBP = 112; // курс демо (план demo-en-gbp)
 const MESH_BASE = "https://remont-lab.online/test/mesh-pilot10/";
@@ -165,18 +166,20 @@ async function main() {
   }
 
   mkdirSync(dirname(OUT), { recursive: true });
+  // печать: ручная правка файла ломает её → красный tools/ops/conveyor_check.py (T-20261112-121)
   writeFileSync(
     OUT,
-    `${JSON.stringify(
+    sealText(`${JSON.stringify(
       {
         _about: "Мебель конфигуратора из лент /demo/. Собрано tools/flat3d/build-catalogue.mjs — руками не править.",
+        _seal: "",
         generatedAt: new Date().toISOString().slice(0, 10),
         rubPerGbp: RUB_PER_GBP,
         options,
       },
       null,
       1,
-    )}\n`,
+    )}\n`),
   );
   console.log(report.join("\n"));
   console.log(`\nитого опций: ${options.length} → ${OUT}`);

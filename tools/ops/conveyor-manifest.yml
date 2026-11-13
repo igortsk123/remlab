@@ -1,0 +1,70 @@
+# РЕЕСТР КОНВЕЙЕРА (T-20261112-121, план .memory_bank/plans/conveyor-guards-01.md шаг 2; владелец TG 1366/1370/1381:
+# «всё по конвейеру… поставь предохранители, чтобы пресекались любые ручные правки»).
+# Собранный файл → генератор → кто ещё вправе писать (с причиной) → ночной шаг (`step` в tools/scout/refresh_daily.sh) → публикатор.
+# Проверка — tools/ops/conveyor_check.py (CI scout-selftest, prepush — всегда). Новый собранный файл или новый писатель —
+# сюда, иначе красный. Собранный файл руками не правят: правят вход (правило, шаблон, словарь) и пересобирают генератором.
+#
+# tracked — собранные файлы В GIT:
+#   check: seal  — генератор ставит печать `_seal` (tools/ops/conveyor_seal.py / conveyor-seal.mjs); ручная правка ломает её;
+#   check: regen — файл = пересборка; команда `regen` стоит в ci.yml и там гоняется.
+# live — собранные файлы ВНЕ git (данные DEV): ловим код, который их пишет в обход генератора.
+#   match — что искать в коде, если имени файла мало (по умолчанию — имя файла).
+#   writers[].legacy: true — устаревший писатель: не стоп, но WARN каждый прогон, пока не уберут.
+
+tracked:
+  - path: data/flat3d/furniture.json
+    generator: tools/flat3d/build-catalogue.mjs     # вход — живая витрина ~/scout-scenes/flat215-demo/demo-data.json (в CI нет)
+    check: seal
+    writers:
+      - path: tools/flat3d/mesh_front.py
+        why: ручная калибровка фронта (29.09) — разворот теперь считает сам генератор (front-overrides.json, orient); запуск ломает печать
+        legacy: true
+      - path: tools/flat3d/mesh_tint.py
+        why: ручная подкраска по фото (29.09) — tintRgb у 28 предметов в git есть, а генератор его не переносит (полная пересборка сотрёт цвет); перенести во вход генератора; запуск ломает печать
+        legacy: true
+  - path: data/flat3d/materials.json
+    generator: tools/assets/material_pipeline.py    # вход — фото и сканы вне репо (в CI нет)
+    check: seal
+    writers:
+      - path: tools/assets/material_from_product.py
+        why: фактуры фасадов из фото товаров — дописывает свои записи в тот же список материалов
+      - path: tools/assets/material_from_scan.py
+        why: пол из CC0-сканов — дописывает записи scan-* в тот же список материалов
+  - path: data/partners/kitchen-fit/flat215.json
+    generator: tools/scout/kitchen_fit.py
+    match: kitchen-fit/flat215.json                 # имя flat215.json носит и другой файл (tools/scout/flat215.json)
+    check: regen
+    regen: python tools/scout/kitchen_fit.py --check
+  - path: tests/fixtures/opening-golden.json
+    generator: tools/assets/opening_golden.py
+    check: regen
+    regen: python tools/assets/opening_golden.py --check
+
+live:
+  - path: tools/scout/sets3.json                    # живой банк наборов гостиной
+    generator: tools/scout/bank_refresh.py
+    step: bank_refresh
+    writers:
+      - path: tools/scout/sets_incremental.py
+        why: прежние --apply-писатели ночи (sets_heal, sets_pairs, sets_contracts, sets_refresh) — пока запись банка выключена (rules/bank-candidate.json:write_enabled)
+      - path: tools/scout/set_identity.py
+        why: шаг set_ids — проставляет устойчивые id наборам банка
+      - path: tools/scout/judge_apply.py
+        why: ручной пост-процессор вердиктов судьи (08.2026) — в ночи не вызывается, пишет живой банк напрямую; кандидат на удаление
+        legacy: true
+  - path: tools/scout/sets3.next.json               # кандидат банка ночи
+    generator: tools/scout/bank_prepare.py
+    step: bank_prepare
+  - path: tools/scout/sets-bedroom.json             # живой банк спален
+    generator: tools/scout/bank_refresh.py
+    step: bank_refresh_
+  - path: tools/scout/sets-hall.json                # живой банк прихожих
+    generator: tools/scout/bank_refresh.py
+    step: bank_refresh_
+  - path: ~/scout-scenes/flat215-demo/demo-data.json   # данные витрины /demo
+    generator: tools/scout/flat215_demo.py
+    step: flat215_demo
+    publisher: tools/scout/publish_demo.sh
+    writers:
+      - path: lib/trial/tour-bundle.ts
+        why: свой файл тура (<папка тура>/demo-data.json) — пересобирается выпуском тура, не витрина

@@ -104,6 +104,12 @@ jobs:
       - run: pnpm e2e
         env:
           TEST_DATABASE_URL: postgres://remlab:test@localhost:5432/remlab
+      # реестр конвейера (tools/ops/conveyor-manifest.yml): эталон проёмов = пересборка, ручная правка — красный (T-20261112-121).
+      # Здесь, а не в scout-orient: пересборке нужны node_modules (esbuild) и numpy; python ставим последним шагом — прежние шаги gate не меняются
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install numpy && python tools/assets/opening_golden.py --check
 
   db-init:
     # ГАРДА ПРОД-СХЕМЫ (05.09, ADR-0179). `db/init/*.sql` — схема БОЕВОЙ базы, деплой применяет их
@@ -156,6 +162,7 @@ jobs:
           python-version: "3.12"
       - run: pip install -r services/planner-solver/requirements.txt
       - run: python -m pytest services/planner-solver/tests/ -q
+      - run: python tools/scout/kitchen_fit.py --check   # реестр конвейера: посадка кухонь в git = пересборка солвером, ручная правка — красный (T-20261112-121)
       # (здесь, не в scout-orient: «образ как есть» импортирует planner — нужны shapely/pydantic из requirements выше)
       - run: python tools/scout/tests/test_draft_image_rules.py   # образ запасного рендера несёт все rules/*, которые читает его код (improve-rooms.json 07.11), COPY ↔ белый список (T-20261107-03); в раскладке образа код находит приоры практики, planner не ищет файлы вне пакета (T-20261107-07)
       - run: python -m pytest tools/ops/tests/test_disk_clean.py -q -p no:cacheprovider   # уборка диска DEV второго круга: только влитое/чистое/старое, без одобрения не удаляет, запретные пути (T-20261110-30)
@@ -321,6 +328,7 @@ jobs:
           SALAD_API_KEY: x
       - run: python tools/scout/salad/queue_run.py --selftest
       - run: bash tools/ops/cron-pause.sh selftest   # пауза кронов на обслуживание: на паузе тяжёлые кроны выходят строкой в лог, on ждёт работающих (onb-12)
+      - run: pip install pyyaml && python tools/ops/conveyor_check.py && python tools/ops/conveyor_check.py --selftest   # реестр конвейера: собранный файл правят только генератором — печать/пересборка, неизвестный писатель, устаревший реестр → красный; prepush гоняет всегда (T-20261112-121, TG 1366/1381)
       - run: pip install pyyaml && python tools/ops/prepush_check.py --selftest   # перед пушем — проверки CI по изменённым файлам: карта из ci.yml (цикл, &&, pip срезан), «тест читает файл», потолок времени; правка refresh_daily.sh / rules/demo-realistic.json запускает demo-realistic (T-20261107-41)
       - run: python tools/scout/tests_bank_isolation.py   # новый банк рядом: копия не пишет sets3.json и общие файлы, ворота сборщика fail-closed (план conv-13)
       - run: diff -q tools/scout/asset_strategy.py tools/scout/salad/asset_strategy.py
