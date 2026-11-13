@@ -83,8 +83,13 @@ async function shot(pg, errs, name, full = false) {
   const pg2 = await ctx.newPage();
   // черновик браузера не в счёт: проверяем именно сервер (имя проверяющего оставляем, иначе откроется вход)
   await ctx.addInitScript(() => Object.keys(localStorage).filter((k) => k.startsWith("mesh-check-note:")).forEach((k) => localStorage.removeItem(k)));
-  await go(pg2, `${BASE}/lab/mesh-check?s=kreslo`);
-  const got = await pg2.locator("section[data-sku]").nth(0).getByRole("textbox").inputValue();
+  // маяк под нагрузкой доходит за 4+ с (прогон 00:41: запись в БД есть, а перезагрузка через 1,5 с её опередила) — ждём до 20 с
+  let got = "";
+  for (let t = 0; t < 5 && got !== note; t++) {
+    await go(pg2, `${BASE}/lab/mesh-check?s=kreslo`);
+    got = await pg2.locator("section[data-sku]").nth(0).getByRole("textbox").inputValue();
+    if (got !== note) await new Promise((r) => setTimeout(r, 4000));
+  }
   console.log("BEACON", got === note ? "ok" : `ПОТЕРЯ: «${got}»`);
   await ctx.close();
 }
