@@ -114,6 +114,24 @@
       "queue": "mesh-q-color",
       "_why": "ТОЛЬКО ПРОБА T-20261106-85 (план mesh-color-03, О0): опытный образ color03 (перекраска готовой формы + промежуточные шаги покраски), env PIPELINE_VERSION=color03 — комплекты в meshes/hunyuan21/color03, реестр их не видит. Транспорт — своя очередь mesh-q-color (SSH с 24.10 не работает, mesh-low-10 под запретом цены). Создана queue_setup.py --donor mesh-q-low-1 --image <digest> --env PIPELINE_VERSION=color03, 1 реплика, остановленной. В SALAD_GROUP (salad.env) её нет и быть не должно: money_guard её не сторожит — гасит сторож пробы по сроку (45 мин) и «мёртвая рука» сервера. Задания — только queue_run --submit/--follow из worktree t85. После пробы — остановлена."
     },
+    "mesh-q-t49cfg-canary": {
+      "tier": "low",
+      "price_class": "RTX 4060 Ti (16 GB)",
+      "queue": "mesh-q-t49a",
+      "_why": "ТОЛЬКО ОПЫТ 1 круга 2 плана mesh-color-03 (T-20261112-49/3): CFG/seed сети видов покраски (params._paint_cfg/_paint_seed). Образ color49-b2f41049 поверх боевого digest, env PIPELINE_VERSION=color49 — комплекты в meshes/hunyuan21/color49, реестр их не видит. Создана queue_setup.py --donor mesh-q-low-1 --gpu-exact, 1 реплика, остановленной. В SALAD_GROUP её нет: гасят раннер, сторож опыта (потолок 8 ₽) и «мёртвая рука» сервера. После опыта — остановлена."
+    },
+    "mesh-q-t49cal-canary": {
+      "tier": "low",
+      "price_class": "RTX 4060 Ti (16 GB)",
+      "queue": "mesh-q-t49b",
+      "_why": "ТОЛЬКО ОПЫТ 2 круга 2 плана mesh-color-03 (T-20261112-49/3): поправка светлоты видов по участкам до запекания (params._mv_cal, mv_color_cal.py). Образ и порядок — как у mesh-q-t49cfg-canary; потолок сторожа 6 ₽. После опыта — остановлена."
+    },
+    "mesh-q-t49cal3-canary": {
+      "tier": "low",
+      "price_class": "RTX 4060 Ti (16 GB)",
+      "queue": "mesh-q-t49c",
+      "_why": "ТОЛЬКО T-20261112-49/5: CAL со сторожем цветности (образ color49-7c1b1656) на 398240 и контроле 632985. Новая группа: PATCH образа у остановленной mesh-q-t49cal2-canary отвечает 200, но образ не меняет (13.11, дважды; pending_change гаснет без смены версии), а пересоздание держит имя >50 мин; cal2 после этого удалена (слово директора, T-20261112-49/6). Порядок — как у mesh-q-t49cal2-canary; потолок сторожа 2,5 ₽. После опыта — остановлена."
+    },
     "mesh-q-color2-canary": {
       "tier": "low",
       "price_class": "RTX 4060 Ti (16 GB)",
