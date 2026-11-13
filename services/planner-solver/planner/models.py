@@ -124,6 +124,10 @@ class Item(BaseModel):
     # left (−x) | right (+x) при изголовье у стены; any — есть по названию, сторона неизвестна; None — обычная.
     # Такую кровать солвер спальни ставит только в угол спинкой к стене и не даёт паре (`bedroom_checks.side_back`)
     side_back: Literal["left", "right", "any"] | None = None
+    # T-20261113-12: ОПОРА предмета на поверхности (лампа — основание по нижнему срезу модели, `dependent_decor.mesh_base_units`),
+    # в осях предмета; нет — опора = весь габарит (осторожно). Норма `distances_cm.dependents.table_lamp_on_surface`
+    base_w_cm: float | None = Field(default=None, gt=0)
+    base_d_cm: float | None = Field(default=None, gt=0)
 
 
 AnchorKind = Literal["item_surface", "item_edge", "wall_above", "ceiling_over", "opening", "free_floor_region"]

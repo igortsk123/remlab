@@ -46,7 +46,11 @@ def test_place_is_passport_resolver_with_parent_local_and_fit():
     assert p['slot_instance_id'] == 'light.lamp#0' and p['parent_slot_instance_id'] == 'light.dresser#0'
     assert p['anchor'] == {'kind': 'item_surface', 'surface': 'top'} and p['local'] == {'dx': 0.0, 'dy': 0.0}
     assert p['carrier'] == {'role': 'комод', 'ordinal': 0}
-    assert p['fit'] == {k: RT.rule_value(DD.FIT_REF)[k] for k in ('edge_inset_min_cm', 'edge_inset_over_half_base_cm', 'max_share_of_top')}
+    rule = RT.rule_value(DD.FIT_REF)
+    assert DD.FIT_REF == 'distances_cm.dependents.table_lamp_on_surface'
+    # опора без модели — весь габарит лампы (осторожно); сцене — норма лампы и опора
+    assert p['fit'] == {'edge_clear_cm': rule['edge_clear_cm'], 'shade_overhang_front_cm': rule['shade_overhang_front_cm'],
+                        'base_w_cm': 25.0, 'base_d_cm': 25.0}
 
 
 def test_hung_dresser_lifts_lamp_like_scene():
@@ -137,3 +141,48 @@ def test_server_frame_keeps_vases_lamp_goes_to_rest():
 def test_bedroom_lamp_stays_list_only():
     import demo_bedroom as DB
     assert DB.LIST_ROLES == ('лампа',)
+
+
+# ───── T-20261113-12: лампа по размеру комода — основание по модели, лучшая по пропорции ─────
+DRESSER_42 = dict(DRESSER, w=80.0, d=42.0, h=80.0)
+
+
+def test_mesh_base_is_bottom_slice():
+    import numpy as np
+    # лампа: основание 10×10 внизу (y 0..2), абажур 40×40 наверху (y 30..60)
+    g = np.linspace(-5, 5, 10)
+    base = [(x, y, z) for x in g for z in g for y in (0.0, 1.0)]
+    shade = [(x * 4, y, z * 4) for x in g for z in g for y in (30.0, 60.0)]
+    bw, bd = DD.mesh_base_units(base + shade)
+    assert (round(bw, 3), round(bd, 3)) == (10.0, 10.0)
+    assert DD.mesh_base_units(base[:10]) is None                # мало вершин — основанию не верим
+    # масштаб — как у габарита по мешу: max(Ш, Г) карточки = бо́льшая сторона плана меша
+    assert DD.base_cm({'w': 38, 'd': 38}, (40.0, 60.0, 40.0), (10.0, 10.0)) == (9.5, 9.5)
+    assert DD.base_cm({'w': 38, 'd': 38}, True, (10.0, 10.0)) == (None, None)
+
+
+def test_big_shade_small_base_fits_42cm_dresser_without_base_not():
+    """Владелец TG 1406: «лампу по размеру комода». Абажур 38 с основанием по модели 12 встаёт на комод 80×42 (раньше — нет: 20 %
+    площади к габариту всей лампы); без основания по модели — опора = весь габарит, не встаёт."""
+    big = lamp(1, w=38, d=38, h=60)
+    ext = (38.0, 60.0, 38.0)
+    it, pl, why = DD.lamp_pick(sets_with(big), 0, [DRESSER_42], ROOM, lambda x: (ext, None), lambda x: (12.0, 12.0))
+    assert it and pl and pl.item.base_w_cm == 12.0
+    assert DD.lamp_row(pl, [DRESSER_42], {})['place']['fit']['base_w_cm'] == 12.0
+    it, pl, why = DD.lamp_pick(sets_with(big), 0, [DRESSER_42], ROOM, lambda x: (ext, None), lambda x: None)
+    assert it is None and 'FIT_FAIL' in why[0]
+
+
+def test_proportional_lamp_beats_first_in_bank():
+    """Перебираются ВСЕ лампы стиля; лучшая по пропорции к комоду, а не первая годная. Своя лампа набора побеждает при равенстве."""
+    tiny = lamp(1, w=15, d=15, h=30)           # 15/80 < 0,25 ширины, 30/80 < 0,55 высоты
+    good = lamp(2, w=34, d=34, h=56)           # 34/80 = 0,43, 56/80 = 0,70 — в пропорции
+    ext = lambda it: ((float(it['w']), float(it['h']), float(it['d'])), None)  # noqa: E731
+    it, _pl, _why = DD.lamp_pick(sets_with(tiny, good), 0, [DRESSER_42], ROOM, ext, lambda x: (10.0, 10.0))
+    assert it['eid'] == '2'
+    twin = lamp(3, w=34, d=34, h=56)
+    other = [{'style': 'сканди', 'items': {'лампа': twin}}]
+    it, _pl, _why = DD.lamp_pick(sets_with(good) + other, 0, [DRESSER_42], ROOM, ext, lambda x: (10.0, 10.0))
+    assert it['eid'] == '2'                    # равенство — своя набора
+    it, _pl, _why = DD.lamp_pick(other + sets_with(good), 0, [DRESSER_42], ROOM, ext, lambda x: (10.0, 10.0))
+    assert it['eid'] == '3'

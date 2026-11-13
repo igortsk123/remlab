@@ -1635,9 +1635,28 @@ def light_missing(lay, items, decor_roles=None) -> int:
     return 0 if any(_br(p.role) in carriers for p in lay.placements) else 1
 
 
+# ЯДРО ГОСТИНОЙ (владелец 13.11, TG 1406: «комод уступает ТВ и столику»): диван, журнальный столик, носитель ТВ — те же роли, что
+# ядро набора у туров и /demo (`tools/scout/bank_invariants.py:CORE_ROLES`). Носитель ТВ закрыт и камином «ТВ над камином»
+CORE_SEAT, CORE_TABLE, CORE_MEDIA = 'диван', 'столик', ('тв-тумба', 'стенка')
+
+
+def core_missing(lay, items) -> int:
+    """Ярус ключа v1 (T-20261113-12): сколько ролей ядра есть в запросе (`items`), но не встало в план. Шаблонный путь кладёт не
+    вставшее в `skipped_optional`, а не в `unplaced`, поэтому штраф `unplaced` из `lexo_key` сюда не доходит (`plan_key` берёт
+    `lk[1:]`) — ядро считаем по факту: запрошено vs поставлено. Роль, которой нет в запросе, ярус не трогает (нейтрален)."""
+    from .geometry import base_role as _br
+    want = {_br(i.role) for i in (items or [])}
+    ps = list(lay.placements)
+    got = {_br(p.role) for p in ps}
+    tv_over = any(getattr(p, 'tpl_variant', '') == 'tv_over_fireplace' and _br(p.role) == 'камин' for p in ps)
+    n = int(CORE_SEAT in want and CORE_SEAT not in got) + int(CORE_TABLE in want and CORE_TABLE not in got)
+    n += int(bool(want & set(CORE_MEDIA)) and not (got & set(CORE_MEDIA) or tv_over))
+    return n
+
+
 def plan_key(room: Room, lay, needs: dict, seat_rank: int = 0, items=None, decor_roles=None) -> tuple:
     """Ключ сравнения ГОТОВОГО плана (меньше — лучше):
-    (hard, missing_required, route, light_missing, -covered_preferred, …, circulation, functional,
+    (hard, missing_required, core_missing, route, light_missing, -covered_preferred, …, circulation, functional,
     zone_q, aesthetics). Обязательность зон — из scenario_needs/zone_priority.status (данные);
     light_missing — свет паспорта гостиной (торшер или комод под лампу), если носитель есть в банке."""
     from .score import score_layout
@@ -1684,7 +1703,9 @@ def plan_key(room: Room, lay, needs: dict, seat_rank: int = 0, items=None, decor
     # (preferred) всегда вытесняла комод, единственный носитель света в наборах 17+ м². Кухня-гостиная — стол обязателен
     # (room_kind_needs → dining_need=required → missing_req, ВЫШЕ света). TODO при переходе на plan_key_version=v2 (Q7):
     # перенести ярус light_missing и в plan_key_v2 — иначе правка исчезнет (Codex 12.11)
-    return (hard, missing_req, main_route_tier(room, lay), light_missing(lay, items, decor_roles), -covered_pref,
+    # ЯДРО ПРЕЖДЕ СВЕТА И МАРШРУТА (T-20261113-12, владелец TG 1406): план «диван + ТВ + комод с лампой, столик не встал» не должен
+    # выигрывать у «диван + столик + ТВ без комода» — ярус `core_missing` сразу после обязательных зон (как `unplaced` в v2)
+    return (hard, missing_req, core_missing(lay, items), main_route_tier(room, lay), light_missing(lay, items, decor_roles), -covered_pref,
             -seat_rank, axis_cls, _main_path_violations(lay), template_degradation(ps), _orphan) + tuple(lk[1:])
 
 

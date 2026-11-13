@@ -72,3 +72,37 @@ def test_dresser_atom_drop():
     assert BI.dresser_atom_drop(roles, lamp_placed=False) == ['комод', 'комод 2']
     assert BI.dresser_atom_drop(roles, lamp_placed=True) == []
     assert BI.dresser_atom_drop(['диван', 'столик'], lamp_placed=False) == []
+
+
+def test_core_lost_by_fact():
+    """T-20261113-12 (владелец TG 1406: «комод уступает ТВ и столику»): ядро — по факту, набор против вставших предметов.
+    Роль, которой нет в наборе, потерей не считается; носитель ТВ — тумба или стенка; номера ролей («комод 2») не мешают."""
+    full = CORE + ['комод', 'ковёр']
+    assert BI.core_lost(full, ['диван', 'столик', 'тв-тумба']) == []
+    assert BI.core_lost(full, ['диван', 'тв-тумба', 'комод']) == ['столик']
+    assert BI.core_lost(full, ['диван', 'столик', 'комод']) == ['носитель ТВ']
+    assert BI.core_lost(['диван', 'столик', 'стенка'], ['диван', 'столик', 'стенка 2']) == []
+    assert BI.core_lost(['диван', 'тв-тумба', 'комод'], ['диван', 'тв-тумба', 'комод']) == []   # столика в наборе нет — не потеря
+
+
+def test_dresser_yields_to_core():
+    """Комод с лампой стоит только при полном ядре: столик или носитель ТВ не встали — комод снимается (и его лампа — `place`)."""
+    full = CORE + ['комод', 'ковёр']
+    assert BI.dresser_yield_drop(full, ['диван', 'тв-тумба', 'комод', 'ковёр']) == ['комод']
+    assert BI.dresser_yield_drop(full, ['диван', 'столик', 'комод 2']) == ['комод 2']
+    assert BI.dresser_yield_drop(full, ['диван', 'столик', 'тв-тумба', 'комод']) == []
+    assert BI.dresser_yield_drop(full, ['диван', 'тв-тумба']) == []                     # комода нет — снимать нечего
+
+
+def test_tours_use_core_by_fact():
+    """Туры: `place` снимает комод при неполном ядре (по набору стиля ДО среза под геометрию), `retry_next.lost` и `rescue`
+    считают ядро по вставшим предметам; `rescue` не принимает «один диван», пока есть подстановка с полным ядром."""
+    import inspect
+    src = inspect.getsource(TD.build)
+    assert 'BI.dresser_yield_drop(list(((chosen_sets.get(n) or st)' in src
+    assert "{'role': r, 'why': 'core_first'} for r in yld" in src
+    lost = src[src.index('def lost(v):'):src.index('_, draft, _ = assemble')]
+    assert 'BI.core_lost(' in lost and "v.get('absent_roles')" not in lost
+    res = src[src.index('def rescue('):src.index('return got')]
+    assert 'BI.core_lost(' in res and 'spare' in res
+    assert res.index('if not lost:') < res.index('spare = (lost, cur, cn, cst)')

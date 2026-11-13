@@ -12,12 +12,25 @@ import { hungLiftCm } from "@/lib/viewer3d/scene-extras";
 
 export const CARRIER_STRATEGY = "carrier_surface";
 
-/** Норма поверхности (`occupancy.json` → `distances_cm.dependents.surface_decor`): отступ от края и доля столешницы. */
-export interface CarrierFit {
+/** Прежняя норма поверхности (`occupancy.json` → `distances_cm.dependents.surface_decor`; данные до T-20261113-12): отступ от края и
+ *  доля столешницы — к габариту всей лампы. */
+export interface SurfaceFit {
   edge_inset_min_cm: number;
   edge_inset_over_half_base_cm: number;
   max_share_of_top: number;
 }
+
+/** Норма лампы (`occupancy.json` → `distances_cm.dependents.table_lamp_on_surface`, T-20261113-12): опора (основание по модели; нет —
+ *  весь габарит) целиком на верху с отступом `edge_clear_cm`, абажур не шире верха и не свисает к лицу больше `shade_overhang_front_cm`.
+ *  Та же формула — `planner/dependents.py:lamp_on_top`, общие векторы — `services/planner-solver/tests/lamp_fit_vectors.json`. */
+export interface LampFit {
+  edge_clear_cm: number;
+  shade_overhang_front_cm: number;
+  base_w_cm?: number;
+  base_d_cm?: number;
+}
+
+export type CarrierFit = SurfaceFit | LampFit;
 
 /** Место строки декора на носителе (`dependent_decor.lamp_row`). */
 export interface CarrierPlace {
@@ -28,7 +41,7 @@ export interface CarrierPlace {
   parent_slot_instance_id?: string;
   local?: { dx?: number; dy?: number };
   carrier?: { role?: string; ordinal?: number };
-  fit?: Partial<CarrierFit>;
+  fit?: Partial<SurfaceFit & LampFit>;
 }
 
 interface CarrierDecorIn {
@@ -38,9 +51,14 @@ interface CarrierDecorIn {
   sku?: { msid?: string | null; w?: number; d?: number; h?: number };
 }
 
-const fitOf = (f?: Partial<CarrierFit>): CarrierFit | null =>
-  f && [f.edge_inset_min_cm, f.edge_inset_over_half_base_cm, f.max_share_of_top].every((n) => Number.isFinite(n))
-    ? (f as CarrierFit) : null;
+const pos = (n: unknown): boolean => n === undefined || (typeof n === "number" && Number.isFinite(n) && n > 0);
+const isLampFit = (f: Partial<SurfaceFit & LampFit>): boolean =>
+  [f.edge_clear_cm, f.shade_overhang_front_cm].every((n) => Number.isFinite(n)) && pos(f.base_w_cm) && pos(f.base_d_cm);
+const fitOf = (f?: Partial<SurfaceFit & LampFit>): CarrierFit | null =>
+  !f ? null
+    : isLampFit(f) ? (f as LampFit)
+      : [f.edge_inset_min_cm, f.edge_inset_over_half_base_cm, f.max_share_of_top].every((n) => Number.isFinite(n)) ? (f as SurfaceFit)
+        : null;
 
 /** Строка декора — лампа на носителе с моделью, размерами, носителем и нормой (иначе в 3D не идёт). */
 export const isCarrierDecor = (x: CarrierDecorIn): boolean =>
@@ -57,17 +75,29 @@ export function carrierLink(place: CarrierPlace, carrierSlotId: string | undefin
   return { slotId: carrierSlotId ?? "", dx: place.local?.dx ?? 0, dy: place.local?.dy ?? 0, fit };
 }
 
+/** Встаёт ли лампа `wCm×dCm` (абажур) с опорой из `fit` в точке `dx, dy` верха `carW×carD` — норма лампы (`LampFit`). */
+export function lampFits(carW: number, carD: number, wCm: number, dCm: number, dx: number, dy: number, fit: LampFit): boolean {
+  const bw = fit.base_w_cm ?? wCm, bd = fit.base_d_cm ?? dCm, c = fit.edge_clear_cm;
+  return carW / 2 - Math.abs(dx) >= bw / 2 + c && carD / 2 - Math.abs(dy) >= bd / 2 + c && wCm <= carW
+    && Math.abs(dy) + dCm / 2 <= carD / 2 + fit.shade_overhang_front_cm;
+}
+
 /**
  * Куда встанет предмет `wCm×dCm` на верх носителя `car` (поза `dx, dy` в осях носителя — x вдоль ширины, y к лицу, как
- * `dependents._world`) → место или null (не влезает по норме: отступ max(min, половина основания + запас) от краёв, площадь не больше
- * доли столешницы). Подвесной комод — верх с подъёмом (`hungLiftCm`, как поднимет его `build-scene`).
+ * `dependents._world`) → место или null (не влезает по норме). Лампа (`LampFit`) — по опоре, `lampFits`; прежние данные (`SurfaceFit`) —
+ * отступ max(min, половина габарита + запас) от краёв, площадь не больше доли столешницы. Подвесной комод — верх с подъёмом
+ * (`hungLiftCm`, как поднимет его `build-scene`).
  */
 export function onCarrier(car: Placement & { role?: string; name?: string }, wCm: number, dCm: number, dx: number, dy: number,
   fit: CarrierFit): { x: number; y: number; rot: number; elevCm: number } | null {
-  const base = Math.max(wCm, dCm);
-  const m = Math.max(fit.edge_inset_min_cm, base / 2 + fit.edge_inset_over_half_base_cm);
-  if (car.wCm / 2 - Math.abs(dx) < m || car.dCm / 2 - Math.abs(dy) < m || base > car.wCm
-    || wCm * dCm > fit.max_share_of_top * car.wCm * car.dCm) return null;
+  if ("edge_clear_cm" in fit) {
+    if (!lampFits(car.wCm, car.dCm, wCm, dCm, dx, dy, fit)) return null;
+  } else {
+    const base = Math.max(wCm, dCm);
+    const m = Math.max(fit.edge_inset_min_cm, base / 2 + fit.edge_inset_over_half_base_cm);
+    if (car.wCm / 2 - Math.abs(dx) < m || car.dCm / 2 - Math.abs(dy) < m || base > car.wCm
+      || wCm * dCm > fit.max_share_of_top * car.wCm * car.dCm) return null;
+  }
   const a = (car.rot * Math.PI) / 180;
   const lift = car.elevCm || hungLiftCm(car.role, car.name, undefined, car.hCm);
   return { x: car.x + dx * Math.cos(a) + dy * Math.sin(a), y: car.y - dx * Math.sin(a) + dy * Math.cos(a), rot: car.rot,

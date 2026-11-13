@@ -189,6 +189,38 @@ def test_plan_key_full_compare_light_vs_dining():
         Z.main_route_tier = _orig
 
 
+def test_core_beats_dresser_with_lamp():
+    """T-20261113-12 (владелец TG 1406: «комод уступает ТВ и столику»): план «диван + ТВ + комод с лампой, столик не встал»
+    проигрывает плану «диван + столик + ТВ без комода» (ярус `core_missing` в v1 — выше маршрута и света, ниже hard и обязательных
+    зон). Роль ядра, которой нет в запросе, ярус не трогает."""
+    import inspect
+    from planner import zones as Z
+    from planner.models import Layout
+    room, light, _dining, bank = _key_scene()
+    lamp = ['лампа', 'ковёр']
+    pref = Z.scenario_needs(dining_need='preferred')
+    no_table = Layout(room=room, placements=[p for p in light.placements if p.role != 'столик'])
+    core = Layout(room=room, placements=[p for p in light.placements if p.role != 'комод'])
+    assert Z.core_missing(no_table, bank) == 1 and Z.core_missing(core, bank) == 0
+    assert Z.light_missing(core, bank, lamp) == 1, 'предпосылка: без комода нет света — раньше это решало'
+    kc, kn = Z.plan_key(room, core, pref, items=bank, decor_roles=lamp), Z.plan_key(room, no_table, pref, items=bank, decor_roles=lamp)
+    assert kc < kn, (kc, kn)
+    _orig = Z.main_route_tier
+    try:                                                                         # ядро выше маршрута (как unplaced в v2)
+        Z.main_route_tier = lambda r, lay: 1 if lay is core else 0
+        assert Z.plan_key(room, core, pref, items=bank, decor_roles=lamp) < \
+            Z.plan_key(room, no_table, pref, items=bank, decor_roles=lamp)
+    finally:
+        Z.main_route_tier = _orig
+    # нет столика в запросе — ярус нейтрален; ТВ над камином закрывает носитель ТВ
+    assert Z.core_missing(no_table, [i for i in bank if i.role != 'столик']) == 0
+    no_tv = Layout(room=room, placements=[p for p in light.placements if p.role != 'тв-тумба'])
+    assert Z.core_missing(no_tv, bank) == 1
+    ret = inspect.getsource(Z.plan_key)
+    ret = ret[ret.index('return (hard'):]
+    assert ret.index('missing_req') < ret.index('core_missing') < ret.index('main_route_tier') < ret.index('light_missing')
+
+
 def test_kitchen_living_room_kind_needs_dining_required():
     """T-98/2 ①: кухня-гостиная → dining_need=required — одно правило (zones.json scenario_needs.by_room_kind) для всех
     вызовов (тур/«Этажи»/новая загрузка — `trial_demo.run_solver`, /demo — `flat215_demo.solve_layouts`, оба через env

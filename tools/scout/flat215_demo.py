@@ -422,7 +422,7 @@ def lamp_decor(sets: list, idx: int, tag: str, objs: list, room_wd: tuple) -> di
     own = [it for r, it in ((sets[idx] or {}).get('items') or {}).items() if DD.is_lamp(r) and it]
     if not own or not DD.carrier_objs(objs, DD.LAMP_CARRIERS):
         return None
-    it, pl, why = DD.lamp_pick(sets, idx, objs, room_wd, decor_model)
+    it, pl, why = DD.lamp_pick(sets, idx, objs, room_wd, decor_model, decor_base)
     if not it:
         print(f"WARN:lamp: {tag} — лампы на комоде нет ни в цене, ни в 3D: {'; '.join(why) or 'нет кандидатов'}", flush=True)
         return None
@@ -462,6 +462,7 @@ def chandelier_decor(sets: list, idx: int, tag: str, objs: list, room_wd: tuple)
 
 
 _MESH_EXT_CACHE: dict = {}
+_MESH_BASE_CACHE: dict = {}     # sid → основание модели (Ш, Г в единицах меша) или None — `_mesh_base`
 
 
 def _mesh_extents(sid: str | None):
@@ -493,10 +494,24 @@ def _mesh_extents(sid: str | None):
             v3 = np.asarray(m.vertices, np.float32) @ SM.ry(-yaw).T
             e = v3.max(axis=0) - v3.min(axis=0)
             ext = (float(e[0]), float(e[1]), float(e[2]))
+            import dependent_decor as DD
+            _MESH_BASE_CACHE[sid] = DD.mesh_base_units(v3)     # основание по нижнему срезу — для лампы на комоде (T-20261113-12)
         except Exception:  # noqa: BLE001 — битый меш не должен ронять сборку демо
             ext = None
     _MESH_EXT_CACHE[sid] = ext
     return ext
+
+
+def _mesh_base(sid: str | None):
+    """Основание модели (Ш, Г в единицах меша, нижний срез — `dependent_decor.mesh_base_units`) или None; читается вместе с габаритом."""
+    if sid and sid not in _MESH_EXT_CACHE:
+        _mesh_extents(sid)
+    return _MESH_BASE_CACHE.get(sid)
+
+
+def decor_base(it: dict):
+    """Основание модели товара банка (`lamp_pick(base=…)`)."""
+    return _mesh_base(_msid(f"{it['mid']}_{it['eid']}"))
 
 
 def _dim_from_mesh(sid, w, d, h):

@@ -1,6 +1,7 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { isCarrierDecor, onCarrier } from "@/lib/configurator/carrier-decor";
+import { isCarrierDecor, lampFits, onCarrier } from "@/lib/configurator/carrier-decor";
 import { fromDemoVariant } from "@/lib/configurator/fromDemo";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { sceneSlotIndex } from "@/lib/viewer3d/demo-scene";
@@ -91,5 +92,34 @@ describe("лампа на комоде — строка декора `carrier_su
   it("ценник и клик: место сцены лампы → номер строки декора страницы", () => {
     const idx = sceneSlotIndex([SOFA, TABLE, DRESSER] as never, [VASE, LAMP] as never, false);
     expect(idx.get("carrier:лампа#0")).toBe(3 + 1);
+  });
+});
+
+// T-20261113-12: лампа по размеру комода — норма лампы по опоре (основание по модели), те же векторы, что у решателя
+// (`services/planner-solver/tests/test_dependents.py:test_lamp_fit_vectors`)
+describe("лампа на комоде — норма `table_lamp_on_surface`", () => {
+  const occ = JSON.parse(readFileSync("services/planner-solver/rules/occupancy.json", "utf8")) as {
+    distances_cm: { dependents: { table_lamp_on_surface: { edge_clear_cm: number; shade_overhang_front_cm: number } } } };
+  const rule = occ.distances_cm.dependents.table_lamp_on_surface;
+  const vec = JSON.parse(readFileSync("services/planner-solver/tests/lamp_fit_vectors.json", "utf8")) as {
+    vectors: { why: string; top: [number, number]; lamp: [number, number]; base: [number, number] | null; ok: boolean }[] };
+  for (const v of vec.vectors) {
+    it(v.why, () => {
+      const fit = { edge_clear_cm: rule.edge_clear_cm, shade_overhang_front_cm: rule.shade_overhang_front_cm,
+        ...(v.base ? { base_w_cm: v.base[0], base_d_cm: v.base[1] } : {}) };
+      expect(lampFits(v.top[0], v.top[1], v.lamp[0], v.lamp[1], 0, 0, fit)).toBe(v.ok);
+    });
+  }
+
+  it("строка с нормой лампы — лампа сцены; абажур 38 с основанием 12 встаёт на комод 80×42, без основания — нет", () => {
+    const lampFit = { edge_clear_cm: 3, shade_overhang_front_cm: 0, base_w_cm: 12, base_d_cm: 12 };
+    const big = { ...LAMP, place: { ...place, fit: lampFit }, sku: { ...LAMP.sku, w: 38, d: 38, h: 60 } };
+    expect(isCarrierDecor(big)).toBe(true);
+    const d42 = { ...DRESSER, w: 80, d: 42 };
+    expect(scene([SOFA, TABLE, d42], [big]).lamp!.unplaced).toBeUndefined();
+    const bare = { ...big, place: { ...place, fit: { edge_clear_cm: 3, shade_overhang_front_cm: 0 } } };
+    expect(scene([SOFA, TABLE, d42], [bare]).lamp!.unplaced).toBe(true);
+    // испорченная опора — не норма
+    expect(isCarrierDecor({ ...big, place: { ...place, fit: { ...lampFit, base_w_cm: -1 } } })).toBe(false);
   });
 });

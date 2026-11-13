@@ -78,6 +78,31 @@ def dresser_atom_drop(roles, lamp_placed: bool) -> list[str]:
     return [r for r in roles if re.sub(r'\s+\d+$', '', r or '') == 'комод']
 
 
+# КОМОД УСТУПАЕТ ЯДРУ (владелец 13.11, TG 1406: «комод уступает ТВ и столику»; T-20261113-12). Ядро считаем ПО ФАКТУ: роли ядра,
+# что есть в наборе, против предметов, что встали в комнату (не по списку `absent_roles`: роль, срезанную геометрией тура, он не
+# видит). Ядро неполное — комода (с лампой) в варианте нет. Одно правило на туры (`trial_demo.place`, `retry_next`, `rescue`) и
+# /demo (`flat215_demo` после атома); решатель держит то же ярусом `core_missing` ключа `plan_key` v1.
+def _role_base(r: str) -> str:
+    return re.sub(r'\s+\d+$', '', r or '')
+
+
+def core_lost(want_roles, got_roles) -> list[str]:
+    """Роли ядра, которые в наборе есть, а в комнату не встали: «диван», «столик», «носитель ТВ» (тумба или стенка)."""
+    want = {_role_base(r) for r in want_roles or []}
+    got = {_role_base(r) for r in got_roles or []}
+    out = [r for r in ('диван', 'столик') if r in want and r not in got]
+    if want & set(BEARERS) and not got & set(BEARERS):
+        out.append('носитель ТВ')
+    return out
+
+
+def dresser_yield_drop(want_roles, got_roles) -> list[str]:
+    """Роли комода, которые снять, раз ядро потеряно (`core_lost`). Ядро полное — ничего."""
+    if not core_lost(want_roles, got_roles):
+        return []
+    return [r for r in got_roles or [] if _role_base(r) == 'комод']
+
+
 # ПРИЗНАК СТОЛОВОЙ — ОДИН НА ДВА МЕСТА (T-20261112-100): сторож доли столовой ночного экзамена
 # (`services/planner-solver/tests/test_contour_features.py:test_dining_share_watchdog`) и экзамен продвижения ячейки
 # (`bank_promote.exam_verdict`: у живого банка столовая встала, у смешанного — нет → провал). Второе определение не заводить.

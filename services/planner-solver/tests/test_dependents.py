@@ -392,3 +392,38 @@ def test_levels_run_on_scenes(name):
     assert any(r[2] == "OK" for r in rows), rows
     known = {"OK", "WALL_NOT_SOLID", "CARRIER_NOT_AT_WALL", "FIT_FAIL", "CEILING_TOO_LOW", "WALL_EDGE", "CARRIER_MISSING"}
     assert {r[2].split()[0] for r in rows} <= known, rows
+
+
+# ───── T-20261113-12: лампа на комоде — по основанию (норма table_lamp_on_surface), векторы общие со сценой ─────
+_VEC = json.load(open(__import__("os").path.join(__import__("os").path.dirname(__file__), "lamp_fit_vectors.json"), encoding="utf-8"))
+LAMP_RULE = RT.rule_value("distances_cm.dependents.table_lamp_on_surface")
+
+
+@pytest.mark.parametrize("v", _VEC["vectors"], ids=lambda v: v["why"][:40])
+def test_lamp_fit_vectors(v):
+    """Те же векторы проверяет сцена (`tests/unit/configurator-carrier-lamp.test.ts`): одна формула в Python и TS."""
+    (tw, td), (lw, ld), b = v["top"], v["lamp"], v["base"]
+    sku = Item(role="лампа", w_cm=lw, d_cm=ld, h_cm=50, base_w_cm=b[0] if b else None, base_d_cm=b[1] if b else None)
+    assert (D.lamp_on_top(tw, td, sku, LAMP_RULE) is None) is v["ok"], D.lamp_on_top(tw, td, sku, LAMP_RULE)
+
+
+def test_lamp_rule_in_passport_and_vase_keeps_surface_decor():
+    lamp = RT._variant_places(DOC, "light", "dresser_lamp")
+    (lp,) = [p for p in lamp if p["id"] == "light.lamp"]
+    assert lp["fit"]["rule_ref"] == "distances_cm.dependents.table_lamp_on_surface"
+    assert LAMP_RULE["status"] == "hypothesis" and LAMP_RULE["edge_clear_cm"] == 3
+    (vp,) = [p for p in RT._variant_places(DOC, "vase", "vase_on_dresser") if p["role"] == "ваза"]
+    assert vp["fit"]["rule_ref"] == "distances_cm.dependents.surface_decor"
+
+
+def test_big_shade_small_base_on_42cm_dresser():
+    """Раньше: абажур 38 на комоде 80×42 не проходил (20 % площади к габариту всей лампы). Теперь опора — основание."""
+    places = [p for p in RT._variant_places(DOC, "light", "dresser_lamp")]
+    r = room()
+    car = [_pl("light.dresser#0", "комод", 300, 30, 0, size=(80, 42, 80))]
+    big = Item(role="лампа", w_cm=38, d_cm=38, h_cm=60, base_w_cm=12, base_d_cm=12)
+    res = D.resolve(places, car, r, items={"light.lamp": big})
+    assert res.ok, res.reject
+    bare = Item(role="лампа", w_cm=38, d_cm=38, h_cm=60)
+    res2 = D.resolve(places, car, r, items={"light.lamp": bare})
+    assert not res2.ok and res2.reject["code"] == "FIT_FAIL"

@@ -228,25 +228,56 @@ def _surface(group: list[dict], car: Placement, items: dict, out: Result, counts
                                            LocalPose(dx=round(dx, 2), dy=round(dy, 2), dz=elev), "surface", sku))
                 out.limits[_inst(p["id"], i)] = {"w_max": round(cell, 1)}
         return
-    # столешница: n мест → n клеток вдоль ширины
-    rule = _rule((group[0].get("fit") or {}).get("rule_ref"), group[0]["id"])
-    n, gap = len(group), _mid(rule["gap_between_cm"])
+    # столешница: n мест → n клеток вдоль ширины; норма — СВОЯ у каждого места (лампа — `table_lamp_on_surface`, ваза —
+    # `surface_decor`), зазор между клетками — наибольший из норм группы
+    rules = [_rule((p.get("fit") or {}).get("rule_ref"), p["id"]) for p in group]
+    n, gap = len(group), max(_mid(r["gap_between_cm"]) for r in rules)
     cell = (it.w_cm - gap * (n - 1)) / n
-    used = 0.0
-    for i, p in enumerate(group):
+    used, share = 0.0, None
+    for i, (p, rule) in enumerate(zip(group, rules)):
         sku = items.get(p["id"])
-        base = max(sku.w_cm, sku.d_cm) if sku is not None else 0.0
-        m = max(rule["edge_inset_min_cm"], base / 2 + rule["edge_inset_over_half_base_cm"])
-        if cell / 2 < m or it.d_cm / 2 < m or (sku is not None and base > cell):
-            raise Reject("FIT_FAIL", p["id"], f"не влезает на {car.slot_instance_id}: клетка {cell:.1f}×{it.d_cm:g}, отступ {m:g}")
-        used += sku.w_cm * sku.d_cm if sku is not None else 0.0
         dx = -it.w_cm / 2 + cell / 2 + i * (cell + gap)
+        if "edge_clear_cm" in rule:          # лампа: опора целиком на столешнице, абажур в своей клетке и не в проход
+            why = lamp_on_top(cell, it.d_cm, sku, rule)
+            if why:
+                raise Reject("FIT_FAIL", p["id"], f"не влезает на {car.slot_instance_id}: {why}")
+            out.limits[_inst(p["id"], 0)] = {"w_max": round(cell, 1), "d_max": round(it.d_cm + 2 * rule["shade_overhang_front_cm"], 1)}
+        else:
+            base = max(sku.w_cm, sku.d_cm) if sku is not None else 0.0
+            m = max(rule["edge_inset_min_cm"], base / 2 + rule["edge_inset_over_half_base_cm"])
+            if cell / 2 < m or it.d_cm / 2 < m or (sku is not None and base > cell):
+                raise Reject("FIT_FAIL", p["id"], f"не влезает на {car.slot_instance_id}: клетка {cell:.1f}×{it.d_cm:g}, отступ {m:g}")
+            used += sku.w_cm * sku.d_cm if sku is not None else 0.0
+            share = rule["max_share_of_top"] if share is None else min(share, rule["max_share_of_top"])
+            out.limits[_inst(p["id"], 0)] = {"w_max": round(cell - 2 * (m - base / 2), 1), "d_max": round(it.d_cm - 2 * (m - base / 2), 1)}
         out.placements.append(_dep(p, 0, car.slot_instance_id, _world(car, dx, 0.0), car.rot, elev,
                                    Anchor(kind="item_surface", surface=surface),
                                    LocalPose(dx=round(dx, 2), dz=elev), "surface", sku))
-        out.limits[_inst(p["id"], 0)] = {"w_max": round(cell - 2 * (m - base / 2), 1), "d_max": round(it.d_cm - 2 * (m - base / 2), 1)}
-    if used > rule["max_share_of_top"] * it.w_cm * it.d_cm:
-        raise Reject("FIT_FAIL", group[0]["id"], f"декор занимает больше доли {rule['max_share_of_top']} столешницы {car.slot_instance_id}")
+    if share is not None and used > share * it.w_cm * it.d_cm:
+        raise Reject("FIT_FAIL", group[0]["id"], f"декор занимает больше доли {share} столешницы {car.slot_instance_id}")
+
+
+def lamp_base(sku: Item) -> tuple[float, float]:
+    """Опора лампы (Ш, Г): основание по модели (`Item.base_*`), нет — весь габарит лампы (осторожно)."""
+    return float(sku.base_w_cm or sku.w_cm), float(sku.base_d_cm or sku.d_cm)
+
+
+def lamp_on_top(top_w: float, top_d: float, sku: Item | None, rule: dict) -> str | None:
+    """Норма `table_lamp_on_surface` для лампы в центре клетки `top_w × top_d` (Ш вдоль ширины носителя, Г — к лицу): None — встаёт,
+    иначе причина. Опора целиком на столешнице с отступом `edge_clear_cm`; абажур (габарит карточки) не шире клетки и не свисает к
+    лицу больше `shade_overhang_front_cm`. Доля площади и пропорции — мягкие (выбор лампы, `dependent_decor.lamp_score`), не отказ.
+    Та же формула в сцене — `lib/configurator/carrier-decor.ts:onCarrier`; общие векторы — `tests/lamp_fit_vectors.json`."""
+    if sku is None:
+        return None if top_w > 2 * rule["edge_clear_cm"] and top_d > 2 * rule["edge_clear_cm"] else f"клетка {top_w:.1f}×{top_d:g} мала"
+    bw, bd = lamp_base(sku)
+    c = rule["edge_clear_cm"]
+    if bw + 2 * c > top_w or bd + 2 * c > top_d:
+        return f"основание {bw:g}×{bd:g} + отступ {c:g} шире клетки {top_w:.1f}×{top_d:g}"
+    if sku.w_cm > top_w:
+        return f"абажур {sku.w_cm:g} шире клетки {top_w:.1f}"
+    if sku.d_cm / 2 > top_d / 2 + rule["shade_overhang_front_cm"]:
+        return f"абажур {sku.d_cm:g} свисает к лицу комода глубиной {top_d:g}"
+    return None
 
 
 def _clearance_side(room: Room, car: Placement, side: int, others: list[Placement]) -> float:

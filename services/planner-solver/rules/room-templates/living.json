@@ -409,7 +409,7 @@
        },
        "fit": {
         "kind": "surface_fit",
-        "rule_ref": "distances_cm.dependents.surface_decor"
+        "rule_ref": "distances_cm.dependents.table_lamp_on_surface"
        },
        "symmetry": "none",
        "on_failure": "reject_composition"

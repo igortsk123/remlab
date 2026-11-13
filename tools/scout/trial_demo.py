@@ -40,6 +40,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import bank_invariants as BI  # noqa: E402  (ядро гостиной и атом «комод + лампа» — одно правило с /demo)
 import trial_room as TR  # noqa: E402  (кладёт солвер в sys.path)
 
 _RUNNING: set = set()
@@ -57,7 +58,6 @@ BANDS = [('14-16', 14), ('17-20', 17), ('21-25', 21), ('26-30', 26), ('31-40', 3
 STYLES = ['сканди', 'современный', 'минимализм', 'лофт', 'неоклассика', 'джапанди']
 BEARERS = ('стенка', 'тв-тумба')
 RETRY_SETS = 2           # T-20261112-122: сколько следующих наборов стиля пробовать, если обязательное у его набора не встало
-CORE_PLACE = ('диван', 'столик') + BEARERS   # T-20261112-122: обязательное ядро гостиной — есть в наборе, не встало → следующий набор
 GEOMETRY_MIN_STYLES = 3  # роль входит в геометрию, если она есть хотя бы у половины стилей группы (не больше 3; диван и носитель ТВ — всегда)
 
 
@@ -840,7 +840,12 @@ def lamp_rows(st: dict, rows: list, room_wd: tuple, mesh_ok, bank: list | None =
         pool[at] = st                               # свой набор — каким он стоит в варианте (замены ленты), остальное — банк
     else:
         pool, at = [st], 0
-    it, pl, why = DD.lamp_pick(pool, at, objs, room_wd, model)
+    def base(it):                                   # основание по модели — опора лампы на комоде (T-20261113-12; подставной банк — нет)
+        if mesh_ok is None:
+            return None
+        import flat215_demo as FD
+        return FD._mesh_base(FD._msid(_sid(it)))
+    it, pl, why = DD.lamp_pick(pool, at, objs, room_wd, model, base)
     if not it:
         print(f"WARN:lamp: {st.get('style')} — лампы на комоде нет ни в цене, ни в 3D: {'; '.join(why) or 'нет кандидатов'}", flush=True)
         return []
@@ -1367,8 +1372,9 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
             """Сколько обязательного потеряно: сбой/жёсткое/проверка — больше любой потери ядра; иначе — роли ядра вне комнаты."""
             if v.get('failed') or v['hard'] or not v['post_ok']:
                 return 99
-            return sum(1 for r in v.get('absent_roles') or [] if _base(r) in CORE_PLACE) + \
-                (0 if any(_base(r['role']) == 'диван' for r in v['items']) else 1)
+            # ядро по факту (T-20261113-12): набор стиля против вставших предметов — `absent_roles` не видит роль, срезанную геометрией
+            want = list(((chosen_sets.get(v.get('set_index')) or {}).get('items') or {})) or ['диван']
+            return len(BI.core_lost(want + ['диван'], [r['role'] for r in v['items']]))
         _, draft, _ = assemble(ci, cand, best, units)
         was = {v['style']: lost(v) for v in draft}
         fails = [st for st, k in was.items() if k]
@@ -1460,6 +1466,14 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
             ps = [p for p in ps if p.role not in lone]
             rows = [r for r in rows if r['role'] not in lone]
             absent = absent + lone
+        # КОМОД УСТУПАЕТ ЯДРУ (T-20261113-12, владелец TG 1406): роль ядра из НАБОРА стиля (до среза под геометрию) в комнату не
+        # встала — комода с лампой в варианте нет (`bank_invariants.dresser_yield_drop`; ядро по факту, не по `absent_roles`)
+        yld = BI.dresser_yield_drop(list(((chosen_sets.get(n) or st).get('items') or {})), [r['role'] for r in rows])
+        if yld:
+            ps = [p for p in ps if p.role not in yld]
+            rows = [r for r in rows if r['role'] not in yld]
+            absent = absent + yld
+            decor = []
         media[st.get('style')] = {r['role']: (r.get('_it') or {}).get('img') for r in rows}
         ext = overhang(ps, cand['w'], cand['d'])
         spc = TR.post_check(ad, cand, ps)
@@ -1469,7 +1483,8 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
         return {'style': st.get('style'), 'set_index': n, 'set_id': st.get('set_id'), 'geometry': gi,
                 'items': [public_row(r, mesh_ok) for r in rows], 'absent_roles': absent,
                 'decor': decor,                     # лампа на комоде (T-20261112-101)
-                'skipped_optional': [{'role': r, 'why': 'lamp_not_placed'} for r in lone],
+                'skipped_optional': [{'role': r, 'why': 'lamp_not_placed'} for r in lone] +
+                                    [{'role': r, 'why': 'core_first'} for r in yld],
                 'no_mesh_dropped': st.get('no_mesh_dropped') or [], 'pushed': pushes,
                 'dropped_for_norms': dropped, 'partly_at_wall': partly,
                 'hard': shard, 'post_ok': not probs, 'problems': probs, 'placements': _ps_json(ps, x0, y0),
@@ -1493,7 +1508,7 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
             if not v.get('failed') or st is None or not hosts:
                 continue
             why = (v.get('problems') or [{}])[0].get('code')
-            done, tried = None, []
+            done, tried, spare = None, [], None   # spare — лучший запасной (с диваном, но ядро неполное): берём, только если полного нет
             # свой набор, затем следующие наборы того же стиля (T-20261112-122, до `RETRY_SETS`): подстановка без решателя — дёшево,
             # а у соседнего набора стиля может найтись свой товар под место (низкий диван под окном), которого нет в ленте
             queue = [(st, v['set_index'])] + [(usable_set(sets[j - 1], mesh_ok, picker), j) for j in
@@ -1507,10 +1522,17 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
                         fst, swaps = slot_fit(cst, b['ps'], picker, mesh_ok, full, caps, screens)
                         nv = place(gi, b, fst, cn, cand)
                         sofa = any(_base(r['role']) == 'диван' for r in nv['items'])
+                        # ЯДРО ПО ФАКТУ (T-20261113-12): один диван — не успех, пока есть подстановка с полным ядром (диван, столик,
+                        # носитель ТВ из набора); полной нет нигде — лучший запасной с меньшей потерей (комода в нём нет — `place`)
+                        lost = len(BI.core_lost(list((cst.get('items') or {})) + ['диван'], [r['role'] for r in nv['items']]))
                         if nv['post_ok'] and not nv['hard'] and sofa:
-                            done = dict(nv, substituted={'why': why, 'from_geometry': v.get('geometry'), 'swapped': swaps,
-                                                         'mode': 'all' if full else 'misfit'})
-                            break
+                            cur = dict(nv, substituted={'why': why, 'from_geometry': v.get('geometry'), 'swapped': swaps,
+                                                        'mode': 'all' if full else 'misfit'})
+                            if not lost:
+                                done = cur
+                                break
+                            if spare is None or lost < spare[0]:
+                                spare = (lost, cur, cn, cst)
                         # почему не встал — кодом (правило и роль), для разбора и журнала
                         tried.append({'set_index': cn, 'geometry': gi, 'mode': 'all' if full else 'misfit', 'no_sofa': not sofa,
                                       'hard': nv['hard'], 'problems': sorted({p.get('code') for p in nv['problems']}),
@@ -1518,10 +1540,12 @@ def build(trial_id: str, result: dict, sets: list | None = None, solver=run_solv
                     if done:
                         break
                 if done:
-                    if cn != v['set_index']:
-                        chosen_sets[cn] = cst
-                        flags.append(f"style_next_set:{v['style']}")
                     break
+            if done is None and spare is not None:      # полного ядра нет ни в одной подстановке — лучший запасной
+                _, done, cn, cst = spare
+            if done and cn != v['set_index']:
+                chosen_sets[cn] = cst
+                flags.append(f"style_next_set:{v['style']}")
             if done:
                 variants[k] = done
                 flags.append(f"style_substituted:{v['style']}")
