@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type postgresT from "postgres";
 
 import { bundleOf } from "./_trial-bundle-db";
@@ -120,6 +120,31 @@ export function autoPhotoDbTests(c: () => Ctx): void {
       const id = await doneJob();
       await publish(id, tourBundle(id, { rev: 1 }), false);
       expect(await batches(id)).toEqual([]);
+    });
+
+    it("сбой постановки (нет таблицы задач) откатывает только точку сохранения: подтверждение опубликовано, партий 0; дальше — как было", async () => {
+      const id = await doneJob();
+      const before = await version(id);
+      const out = tourBundle(id, { rev: 1 });
+      const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      await c().pg`alter table trial_photo_tasks rename to trial_photo_tasks_off`;
+      let logged: unknown[][];
+      try {
+        await publish(id, out);
+      } finally {
+        await c().pg`alter table trial_photo_tasks_off rename to trial_photo_tasks`;
+        logged = spy.mock.calls.map((a) => [...a]);
+        spy.mockRestore();
+      }
+      expect(await version(id)).toBeGreaterThan(before);                              // новая версия = result_version + 1
+      const [job] = await c().pg`select bundle_hash from trial_jobs where id = ${id}`;
+      expect(job!.bundle_hash).toBe(sha(out));
+      const rb = await c().pg`select status from trial_rebuilds where job_id = ${id}`;
+      expect(rb.map((r) => r.status)).toEqual(["done"]);
+      expect(await batches(id)).toEqual([]);                                          // вставка партии откатилась вместе с точкой
+      expect(logged.some(([m]) => String(m).includes(id) && String(m).includes("42P01"))).toBe(true);
+      await publish(id, tourBundle(id, { rev: 2 }));                                   // таблица вернулась — обычная постановка
+      expect((await batches(id)).map((b) => [b.status, b.tasks])).toEqual([["queued", 3]]);
     });
 
     it("потолок тура (за всё время) и суток на все туры; предупреждение на пороге", async () => {

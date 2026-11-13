@@ -11,7 +11,7 @@ import type {
 import type { TrialReparseMap } from "@/contracts/trial-bundle";
 import { db } from "@/lib/db";
 import { randomToken } from "@/lib/token";
-import { enqueueAutoPhotos } from "@/lib/trial/auto-photos-queue";
+import { enqueueAutoPhotosSafe } from "@/lib/trial/auto-photos-queue";
 import { pruneBundles, readBundle, writeBundle } from "@/lib/trial/bundle";
 import { TRIAL_LEASE_SEC, trialDir, trialRebuildQuota } from "@/lib/trial/config";
 import { KEEP_VERSIONS, pinAfterPublish, type Published } from "@/lib/trial/repo-bundle";
@@ -189,8 +189,9 @@ export async function publishRebuild(
       await tx.execute(sql`update ${t} set built = true where job_id = ${cur.job_id} and not built and confirmed_at is not null
           and (rebuild_id = ${f.id} or confirmed_at < (select created_at from trial_rebuilds where id = ${f.id}))`);
     }
-    // агент подтвердил планировку — автофото тура в очередь той же транзакцией (outbox, T-20261112-115 Ф2); сети здесь нет
-    if (cur.kind === "edit" && cur.confirm) await enqueueAutoPhotos(tx, { jobId: cur.job_id, version: next, rebuildId: f.id, json });
+    // агент подтвердил планировку — автофото тура в очередь той же транзакцией (outbox, T-20261112-115 Ф2); сети здесь нет.
+    // Своей точкой сохранения: сбой постановки не откатывает подтверждение (T-115/3)
+    if (cur.kind === "edit" && cur.confirm) await enqueueAutoPhotosSafe(tx, { jobId: cur.job_id, version: next, rebuildId: f.id, json });
     return { version: next, repeated: same };
   });
   if (out === "lease_lost" || out === "stale" || out === "result_unexpected") return out;

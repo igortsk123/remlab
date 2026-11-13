@@ -54,3 +54,18 @@ export async function enqueueAutoPhotos(tx: Tx, a: { jobId: string; version: num
       warn = ${warn}, status = ${n ? "queued" : "empty"}, finished_at = ${n ? null : sql`now()`} where id = ${batchId}`);
   return { batchId, tasks: n, reservedRub: reserved, refused: out, warn };
 }
+
+/** Постановка внутри публикации, но отдельной точкой сохранения (вложенная транзакция = SAVEPOINT): любой сбой автофото (кривой бандл,
+ *  нет таблиц 036, ошибка отбора, замок) откатывает ТОЛЬКО её — подтверждение агента публикуется всё равно. Партию «сорвалось» не пишем
+ *  (её таблицы может не быть) — только строка `console.error` с туром и кодом. */
+export async function enqueueAutoPhotosSafe(tx: Tx, a: { jobId: string; version: number; rebuildId: string; json: string },
+  rules: AutoRules = AUTO_RULES): Promise<AutoQueued | "failed"> {
+  try {
+    return await tx.transaction((sp) => enqueueAutoPhotos(sp, a, rules));
+  } catch (e) {
+    const err = e as { code?: string; message?: string; cause?: { code?: string; message?: string } };  // drizzle оборачивает ошибку pg в cause
+    const code = err.code ?? err.cause?.code ?? "error", msg = (err.cause?.message ?? err.message ?? String(e)).slice(0, 300);
+    console.error(`[trial-auto-photos] ${a.jobId}: постановка не удалась (${code}: ${msg}), подтверждение опубликовано`);
+    return "failed";
+  }
+}
