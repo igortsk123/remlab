@@ -1555,6 +1555,68 @@ button.tr-acc-st{cursor:pointer}
   box-shadow:0 4px 18px rgba(0,0,0,.16);transform:translate(-50%,calc(-100% - 14px));white-space:nowrap}
 .tr-op-pop .chip{padding:7px 14px;font-size:14px;min-height:36px}
 .tr-op-pop .del{border:0;background:none;color:#A1452B;font:inherit;font-size:14px;font-weight:600;padding:7px 10px;cursor:pointer}
+/* ——— КОМПЬЮТЕР ≥ 1024 px — СВОЙ ВИД (T-20261113-20, владелец TG 1572–1575: «на вебе как мобильный, кнопка во всю ширину — нелогично»;
+   Codex `_intake/codex/2026-11-13-web-layout-answer.md`). Правило одно на /demo и туры (одна страница); телефон и планшет (< 1024) — без
+   изменений. Главная: слева фото комнаты, справа колонка комнат постоянной ширины `--hm-side`; итог «Выбрано / сертификат» и «Отправить
+   выбор риелтору» — карточкой внизу правой колонки (тот же `#hmBot`, узел не переносится: `certStick`, `--hm-bot`, `--hm-kbfix` работают
+   как были). На плане квартиры — полосой под планом: шкала слева, кнопка справа. Опрос — карточка и колонка по центру, кнопка своей
+   ширины. Окно комнаты — шире только на ≥ 1600 ——— */
+@media(min-width:1024px){
+  :root{--hm-gut:24px;--hm-side:320px;--hm-col:20px;--hm-wrap:1184px;--hm-card-gap:24px}
+  .wrap{max-width:var(--hm-wrap);padding-left:var(--hm-gut);padding-right:var(--hm-gut)}
+  /* плитки комнат — своей высоты: строки по содержимому, лишняя высота фото уходит в последнюю гибкую строку (`--hm-rows` — drawHome) */
+  .hm-rooms{grid-template-columns:minmax(0,1fr) var(--hm-side);grid-template-rows:repeat(var(--hm-rows,6),min-content) 1fr;
+    gap:8px var(--hm-col);align-items:start}
+  .hm-rooms .hm-room{grid-column:1;grid-row:1/-1;align-self:start}
+  .hm-rooms .hm-pick,.hm-rooms .hm-stub{grid-column:2;padding:9px 14px}
+  #hmTip1{right:calc(var(--hm-side) + var(--hm-col))}
+  /* ИТОГ — КАРТОЧКА ВНИЗУ ПРАВОЙ КОЛОНКИ: правый край — край содержимого, ширина — колонка */
+  .hm-bot{left:auto;right:max(var(--hm-gut),calc((100% - var(--hm-wrap))/2 + var(--hm-gut)));width:var(--hm-side);
+    bottom:calc(var(--hm-card-gap) - var(--hm-kbfix,0px));padding:0;background:none;box-shadow:none}
+  .hm-bot-in,.hm-bot-in[class]{max-width:none;gap:12px;padding:14px 16px 16px;background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--radius);box-shadow:0 8px 28px rgba(0,0,0,.10)}
+  .hm-send{min-height:48px;height:auto;white-space:normal;line-height:1.25}
+  body.hm-bot-on{padding-bottom:calc(var(--hm-bot) + 2*var(--hm-card-gap))}
+  #hmTip2{left:auto;right:max(var(--hm-gut),calc((100% - var(--hm-wrap))/2 + var(--hm-gut)));width:var(--hm-side);max-width:none;margin:0;
+    bottom:calc(var(--hm-bot) + var(--hm-card-gap) + 8px - var(--hm-kbfix,0px))}
+  /* ПЛАН КВАРТИРЫ: карточка поверх чертежа не ложится — полоса шириной содержимого, кнопка своей ширины справа */
+  body:has(#screen-plan:not([hidden])) .hm-bot{width:auto;left:max(var(--hm-gut),calc((100% - var(--hm-wrap))/2 + var(--hm-gut)))}
+  body:has(#screen-plan:not([hidden])) .hm-bot-in{flex-direction:row;align-items:center;gap:24px;padding:12px 16px}
+  body:has(#screen-plan:not([hidden])) .hm-bot-in .hm-cert{flex:1 1 auto;min-width:0}
+  body:has(#screen-plan:not([hidden])) .hm-send{flex:0 0 auto;width:auto;min-width:300px;padding:0 24px}
+  /* ОПРОС: первый экран — карточка 560 px по центру, «Начать» своей ширины; пары — колонка до 1240 px, кадры 4:3 */
+  #qzBox .qz-card:has([data-qz="skip"]){justify-content:center;padding:24px}
+  #qzBox .qz-card:has([data-qz="skip"]) .qz-body{flex:0 0 auto;max-width:560px;padding:40px 40px 8px;gap:14px;background:var(--surface);
+    border:1px solid var(--line);border-bottom:0;border-radius:var(--radius) var(--radius) 0 0}
+  #qzBox .qz-card:has([data-qz="skip"]) .qz-foot{max-width:560px;align-items:center;gap:10px;padding:16px 40px 32px;background:var(--surface);
+    border:1px solid var(--line);border-top:0;border-radius:0 0 var(--radius) var(--radius);box-shadow:none}
+  #qzBox .qz-card:has([data-qz="skip"]) .qz-foot .qz-next{width:320px;max-width:100%}
+  #qzBox .qz-card:has([data-qz="skip"]) .qz-h{font-size:26px}
+  #qzBox .qz-body>.qz-top,#qzBox .qz-body>.qz-step,#qzBox .qz-body>.qz-h,#qzBox .qz-body>.qz-sub,#qzBox .qz-body>.qz-pair{width:100%;max-width:min(1440px,calc((100dvh - 260px)*8/3 + 24px));
+    margin-left:auto;margin-right:auto}
+  /* шаг, вопрос и пара фото — одной группой по центру высоты, полоса шагов остаётся вверху */
+  #qzBox .qz-body.qz-pairs>.qz-step{margin-top:auto}
+  #qzBox .qz-body>.qz-pair{margin-top:12px;margin-bottom:auto;flex:0 0 auto;gap:24px}
+  .qz-pair .qz-ph,#qzBox .qz-pair .qz-ph{max-width:none}
+  .qz-pair .qz-fr,#qzBox .qz-pair .qz-fr{height:auto;aspect-ratio:4/3;max-height:calc(100dvh - 260px)}
+}
+/* невысокий экран ноутбука (768–860): строки комнат и итог плотнее, чтобы итог не ложился на список у квартиры до ~8 комнат;
+   длиннее список — прокрутка, низ страницы оставлен под итог (padding-bottom выше) */
+@media(min-width:1024px) and (max-height:860px){
+  :root{--hm-card-gap:16px}
+  .hm-rooms{row-gap:6px}
+  .hm-rooms .hm-pick,.hm-rooms .hm-stub{padding:6px 14px}
+  .hm-bot-in,.hm-bot-in[class]{gap:8px;padding:10px 14px 12px}
+  .hm-send{min-height:44px}
+}
+@media(min-width:1280px){:root{--hm-side:352px;--hm-col:24px;--hm-wrap:1280px}}
+@media(min-width:1600px){
+  :root{--hm-gut:32px;--hm-side:400px;--hm-col:32px;--hm-wrap:1520px;--hm-card-gap:32px}
+  .wrap{max-width:var(--hm-wrap)}
+  body #shot.v2 .box{width:min(1440px,97vw)}
+  body .vw{grid-template-columns:minmax(0,1fr) 420px}
+}
+@media(min-width:2200px){:root{--hm-side:416px;--hm-wrap:1600px}.wrap{max-width:var(--hm-wrap)}}
 </style></head><body><div class="wrap">
 <!-- ЗАГОЛОВОК И ЛИД УБРАНЫ (владелец 01.09): они повторяли то, что теперь говорит блок
      сертификата, и отодвигали паспорт квартиры вниз. Первым идёт сама квартира. -->
