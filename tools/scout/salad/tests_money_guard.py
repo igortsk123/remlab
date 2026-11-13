@@ -393,8 +393,8 @@ def case_foreign_wave() -> None:
     try:
         SG.price = lambda g: 1.0                         # $ = нодо-минуты / 60
         st = {'paid_node_min': {'g': 13.80 * 60}}
-        auto = {'started': 1000.0, 'usd_cap': 0.41, 'usd_mark': 13.32}
-        manual = {'started': 2000.0, 'usd_cap': 2.7621, 'usd_mark': 13.5945}
+        auto = {'started': 1000.0, 'usd_cap': 0.41, 'usd_mark': 13.32, 'launched': 1001.0}
+        manual = {'started': 2000.0, 'usd_cap': 2.7621, 'usd_mark': 13.5945, 'launched': 2003.0}
         L, M = {'waves': [auto]}, {'waves': [manual]}
         ok('до правки лиз судился бы по всему с отметки (контроль стенда)', G.budget_breach(st, L) != '')
         ok('12.11: ручная волна стартовала после автоволны — чужой расход в лиз не идёт, сторож молчит',
@@ -403,14 +403,32 @@ def case_foreign_wave() -> None:
            abs(G.wave_spent(st, auto, [auto, manual]) - 0.2745) < 1e-9 and G.wave_end(auto, [manual]) == (13.5945, 2000.0))
         ok('ручная волна судится своим окном: свой потолок выбран — гасим, источник manual',
            G.breach_of({'paid_node_min': {'g': 16.40 * 60}}, L, M)[1] == 'manual')
-        ok('конвейер автоволны отметил конец (usd_end) — лиз не ограничивает, расход до отметки',
+        ok('конвейер автоволны отметил конец (usd_end) — лиз не ограничивает; расход — книга на момент закрытия ($0.48, '
+           'с хвостом гашения), раз позже никто не запускался (T-20261113-55/3)',
            G.budget_breach(st, {'waves': [{**auto, 'usd_end': 13.50, 'ended': 1900.0}]}) == ''
-           and abs(G.wave_spent(st, {**auto, 'usd_end': 13.50}) - 0.18) < 1e-9)
+           and abs(G.wave_spent(st, {**auto, 'usd_end': 13.50}) - 0.48) < 1e-9)
         stale = {'started': 500.0, 'usd_cap': 0.05, 'usd_mark': 13.0}   # ручная брошена без финала (kill -9)
-        ok('брошенная открытая ручная волна не судится расходом автоволны, стартовавшей после неё',
+        ok('брошенная открытая ручная волна не судится расходом автоволны, запущенной после неё',
            G.breach_of(st, L, {'waves': [stale]})[1] != 'manual')
         ok('волна ещё идёт (позже никто не стартовал) — судится, как раньше',
            G.breach_of(st, {'waves': [manual]}, None) == ('', '') and G.wave_end(manual, [auto]) == (None, None))
+        # T-20261113-55/3 (проверка советника): запись БЕЗ подтверждённого запуска конец чужой волны не задаёт
+        hi = {'paid_node_min': {'g': 16.40 * 60}}                       # книга выше потолка ручной волны
+        failed_auto = {'started': 3000.0, 'usd_cap': 0.5, 'usd_mark': 14.0, 'closed': 3100.0, 'spent_usd': 0,
+                       'why': 'старт не удался rc=75'}
+        ok('ручная открыта, после неё запись автоволны «старт не удался» (без launched) — потолок ручной судится',
+           G.breach_of(hi, {'waves': [failed_auto]}, M)[1] == 'manual' and G.wave_end(manual, [failed_auto]) == (None, None))
+        ok('ручная открыта, после неё автоволна ПОДТВЕРЖДЁННО запущена — расход ручной кончился, не судится',
+           G.breach_of(hi, {'waves': [{**failed_auto, 'launched': 3001.0}]}, M) == ('', ''))
+        not_up = {'started': 2000.0, 'usd_cap': 2.7621, 'usd_mark': 13.5945, 'closed': 2004.0, 'why': 'конвейер не поднялся'}
+        ok('лиз открыт, после него ручная «конвейер не поднялся» — потолок лиза судится',
+           G.breach_of(st, L, {'waves': [not_up]})[1] == 'lease')
+        by_hand = {'started': 2000.0, 'usd_cap': 2.7621, 'usd_mark': 13.5945}   # wave_cap.py --open руками, без старта
+        ok('лиз открыт, после него ручная запись `--open` без запуска (и после `--close`) — потолок лиза судится',
+           G.breach_of(st, L, {'waves': [by_hand]})[1] == 'lease'
+           and G.breach_of(st, L, {'waves': [{**by_hand, 'closed': 2100.0, 'why': 'руками'}]})[1] == 'lease')
+        ok('конец — ближайший по времени запуск после волны, не любой',
+           G.next_launch(auto, [{**manual, 'started': 5000.0, 'usd_mark': 15.0}, manual]) == (13.5945, 2000.0))
     finally:
         SG.price = keep_price
 

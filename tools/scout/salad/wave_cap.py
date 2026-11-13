@@ -13,6 +13,7 @@
 (`batch_show.run_batch`) → `finale()` закрывает запись (факт денег) и снимает СВОЙ стоп-файл потолка.
 
     ~/venvs/scout/bin/python salad/wave_cap.py --open 174 [снимок]   # открыть ручную волну с потолком 174 ₽
+    ~/venvs/scout/bin/python salad/wave_cap.py --launched            # конвейер поднялся (зовёт mesh_wave_start после pgrep)
     ~/venvs/scout/bin/python salad/wave_cap.py --close 'причина'     # закрыть последнюю открытую
     ~/venvs/scout/bin/python salad/wave_cap.py --show
 """
@@ -60,6 +61,20 @@ def open_wave(rub_cap: float, usd_rub: float, usd_mark: float, snapshot: str = '
     return w
 
 
+def mark_launched(now: float | None = None) -> dict | None:
+    """Конвейер ручной волны подтверждённо поднялся (`mesh_wave_start.sh` после pgrep) → `launched` в открытую запись.
+    Только такая запись задаёт конец расхода прежней волны (`money_guard.next_launch`, T-20261113-55/3): запись, открытая
+    и закрытая без запуска («конвейер не поднялся», `--open` → `--close` руками), чужой потолок не снимает.
+    Открытой нет или отметка уже стоит — None."""
+    d = read() or {}
+    waves = d.get('waves') or []
+    if not waves or waves[-1].get('closed') or waves[-1].get('launched'):
+        return None
+    waves[-1]['launched'] = now or time.time()
+    _write(d)
+    return waves[-1]
+
+
 def close(why: str, paid_usd: float, usd_rub: float, now: float | None = None) -> dict | None:
     """Закрыть последнюю открытую ручную волну: факт денег по книге сторожа. Открытой нет — None."""
     d = read() or {}
@@ -91,6 +106,10 @@ def main() -> int:
     a = sys.argv[1:]
     if '--show' in a:
         print(json.dumps(read(), ensure_ascii=False, indent=1))
+        return 0
+    if '--launched' in a:
+        w = mark_launched()
+        print('ручная волна: запуск конвейера отмечен' if w else 'открытой ручной волны без отметки запуска нет')
         return 0
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import money_guard as MG  # noqa: PLC0415 — книга расходов сторожа (один источник)

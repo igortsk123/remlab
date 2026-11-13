@@ -540,38 +540,56 @@ def paid_usd(st: dict) -> float:
     return sum(paid[g] / 60 * (SG.price(g) or 0) for g in paid)
 
 
+def next_launch(w: dict, others=()) -> tuple[float | None, float | None]:
+    """Старт более поздней волны, чей конвейер ПОДТВЕРЖДЁННО запущен → (её отметка книги $, время старта); (None, None) — нет.
+
+    Запись волны пишется ДО запуска (сторож видит потолок с первой минуты), поэтому сама запись — не довод, что прежний
+    конвейер вышел. Довод — отметка `launched`: её ставят только после проверки, что процесс конвейера поднялся
+    (`mesh_wave_start.sh` — pgrep; автоволна — `wave_guard` по коду 0 старта, ручная — `wave_cap.py --launched`).
+    Записи, закрытые без запуска («старт не удался rc=…», «конвейер не поднялся», `wave_cap.py --open` → `--close`
+    руками), конец чужой волны НЕ задают (T-20261113-55/3, проверка советника): иначе открытая волна теряла бы потолок,
+    пока её конвейер ещё тратит."""
+    t0 = float(w.get('started') or 0)
+    if not t0:
+        return None, None
+    ends = [(float(o['usd_mark']), float(o['started'])) for o in others
+            if o is not w and o.get('launched') and float(o.get('started') or 0) > t0 and o.get('usd_mark') is not None]
+    return min(ends, key=lambda e: e[1]) if ends else (None, None)
+
+
 def wave_end(w: dict, others=()) -> tuple[float | None, float | None]:
     """Где кончился расход волны → (отметка книги $, время); (None, None) — волна ещё тратит.
 
     РАСХОД ВОЛНЫ — ОКНО ЕЁ КОНВЕЙЕРА, НЕ «ВСЁ С ОТМЕТКИ» (T-20261113-55/2). Книга сторожа — нодо-минуты групп, по заданиям
     деньги не делятся (платим за `running`, а не за задание). Но конвейер в каждый момент один (замок `.batch_show.lock`),
     поэтому окно [отметка старта волны, конец её конвейера] — это ровно её деньги. Конец — что раньше:
-    • `usd_end` — конвейер волны вышел и сам записал отметку (`batch_show.finale` → `wave_guard.mark_end`);
-    • отметка старта ЛЮБОЙ более поздней волны (`others` — записи и разрешения, и ручного файла `wave_cap`): новая волна
-      стартует только при свободном замке, то есть прежний конвейер к этому моменту уже вышел.
+    • `usd_end` — конвейер волны вышел, группы ПОДТВЕРЖДЁННО погашены, и он сам записал отметку (`batch_show.finale` →
+      `wave_guard.mark_end`; не погасил — отметки нет, потолок судится дальше);
+    • старт более поздней волны с подтверждённым запуском конвейера (`next_launch`; `others` — записи и разрешения, и
+      ручного файла `wave_cap`): новая волна стартует только при свободном замке, то есть прежний конвейер уже вышел.
     12.11: автоволна 21:00 вышла в 22:53, ручная T-55 стартовала в 22:54 — её расход шёл в лиз автоволны, и в 23:27 сторож
     поставил запрет по чужому потолку. Без `started` у волны сравнивать не с чем — только `usd_end`."""
     ends = []
     if w.get('usd_end') is not None:
         ends.append((float(w['usd_end']), float(w.get('ended') or 0) or None))
-    t0 = float(w.get('started') or 0)
-    if t0:
-        for o in others:
-            if o is not w and float(o.get('started') or 0) > t0 and o.get('usd_mark') is not None:
-                ends.append((float(o['usd_mark']), float(o['started'])))
+    nxt = next_launch(w, others)
+    if nxt[0] is not None:
+        ends.append(nxt)
     return min(ends, key=lambda e: e[0]) if ends else (None, None)
 
 
 def wave_spent(st: dict, w: dict, others=()) -> float:
-    """Потрачено волной, $: от её отметки до конца её конвейера (`wave_end`), волна ещё идёт — до книги сейчас."""
-    end = wave_end(w, others)[0]
+    """Потрачено волной, $: от её отметки до старта следующей запущенной волны (`next_launch`), а её нет — до книги СЕЙЧАС.
+    Отметка финала `usd_end` расход не обрезает: книга сторожа обновляется раз в 5 мин, и хвост гашения после финала иначе
+    не попал бы ни в чью волну (T-20261113-55/3) — `usd_end` только говорит «конвейер вышел» (`wave_end`, `budget_breach`)."""
+    end = next_launch(w, others)[0]
     return max((paid_usd(st) if end is None else end) - float(w.get('usd_mark', 0)), 0.0)
 
 
 def budget_breach(st: dict, lease: dict | None, others=()) -> str:
     """Потолок волны выбран? '' — нет. Волна открыта, пока у последней записи `waves` нет `closed`; потрачено =
-    книга расходов − отметка на старте (`usd_mark`), но не дальше конца её конвейера (`wave_end`: свой `usd_end` или
-    старт следующей волны из `others`). Конвейер волны вышел — гасить ей нечего, чужой расход в её потолок не идёт.
+    книга расходов − отметка на старте (`usd_mark`), пока конвейер волны не вышел (`wave_end`: свой `usd_end` или
+    подтверждённый запуск следующей волны из `others`). Конвейер вышел — гасить ей нечего, чужой расход в её потолок не идёт.
     Чистая функция (план conv-11 п.4)."""
     waves = (lease or {}).get('waves') or []
     if not waves or waves[-1].get('closed') or 'usd_cap' not in waves[-1]:
@@ -588,7 +606,8 @@ def budget_breach(st: dict, lease: dict | None, others=()) -> str:
 def breach_of(st: dict, lease: dict | None, manual: dict | None) -> tuple[str, str]:
     """Потолок какой волны выбран → (причина, 'lease' | 'manual'); ('', '') — ничей. Ручная волна (`wave_cap.py`,
     T-20261027-02) судится тем же правилом, что волна автозапуска, но живёт в своём файле — разрешение владельца не трогаем.
-    Волны обоих файлов — общий ряд: старт любой из них закрывает расход предыдущей (`wave_end`)."""
+    Волны обоих файлов — общий ряд: подтверждённый запуск любой из них закрывает расход предыдущей (`wave_end`);
+    запись без запуска — нет."""
     every = [w for d in (lease, manual) for w in ((d or {}).get('waves') or [])]
     for src, d in (('lease', lease), ('manual', manual)):
         why = budget_breach(st, d, every)

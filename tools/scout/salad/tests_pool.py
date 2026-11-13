@@ -1226,6 +1226,10 @@ def case_manual_cap() -> None:
         MG.load = lambda: {'paid_node_min': {'g': 600}}
         B.SG.usd_rub = lambda: 87.0
         WC.open_wave(174, 87.0, 0.0, 's.json')
+        # T-20261113-55/3: отметка подтверждённого запуска — один раз, только у открытой записи
+        assert 'launched' not in WC.read()['waves'][-1]
+        assert WC.mark_launched(now=5.0) and WC.read()['waves'][-1]['launched'] == 5.0
+        assert WC.mark_launched(now=6.0) is None and WC.read()['waves'][-1]['launched'] == 5.0
         json.dump({'kind': 'budget', 'source': 'manual'}, open(B.HALT, 'w'))
         with contextlib.redirect_stdout(io.StringIO()):
             B.close_manual_cap()
@@ -1236,6 +1240,7 @@ def case_manual_cap() -> None:
         with contextlib.redirect_stdout(io.StringIO()):
             B.close_manual_cap()
         assert os.path.exists(B.HALT), 'снят чужой стоп-файл'
+        assert WC.mark_launched() is None, 'закрытой записи отметку запуска не ставим'
         # T-20261113-55/2: финал конвейера волны автозапуска (MESH_WAVE_LEASE=1) отмечает конец её расхода в разрешении
         import wave_guard as WG  # noqa: PLC0415
         keep_lease, keep_env = WG.LEASE, os.environ.get('MESH_WAVE_LEASE')
@@ -1244,13 +1249,31 @@ def case_manual_cap() -> None:
             json.dump({'waves': [{'started': 1.0, 'usd_cap': 0.41, 'usd_mark': 0.5}]}, open(WG.LEASE, 'w'))
             os.environ.pop('MESH_WAVE_LEASE', None)
             with contextlib.redirect_stdout(io.StringIO()):
-                B.mark_lease_end()
+                B.mark_lease_end(True)
             assert 'usd_end' not in json.load(open(WG.LEASE))['waves'][-1], 'ручной конвейер отметил чужой лиз'
             os.environ['MESH_WAVE_LEASE'] = '1'
-            with contextlib.redirect_stdout(io.StringIO()):
-                B.mark_lease_end()
+            # T-20261113-55/3: финал целиком — группы НЕ погашены (stop_groups() → False) → конца нет, потолок судится
+            keep_b = {k: getattr(B, k) for k in ('_STARTED', 'DRAINING', 'stop_groups', 'close_manual_cap', 'wait_post', 'sh')}
+            try:
+                B._STARTED, B.DRAINING = True, os.path.join(tmp, 'no-draining')
+                B.close_manual_cap, B.wait_post, B.sh = (lambda: None), (lambda: None), (lambda *a, **k: (0, ''))
+                B.stop_groups = lambda: False
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    B.finale()
+                w = json.load(open(WG.LEASE))['waves'][-1]
+                assert 'usd_end' not in w and 'ended' not in w and 'НЕ отмечаю' in out.getvalue(), w
+                assert MG.budget_breach({}, {'waves': [dict(w, usd_cap=0)]}).startswith('ПОТОЛОК'), \
+                    'без отметки конца потолок волны обязан судиться'
+                B.stop_groups = lambda: True                 # погашены — отметка есть
+                with contextlib.redirect_stdout(io.StringIO()):
+                    B.finale()
+            finally:
+                for k, v in keep_b.items():
+                    setattr(B, k, v)
             w = json.load(open(WG.LEASE))['waves'][-1]
             assert w.get('usd_end') == round(MG.paid_usd(MG.load()), 4) and w.get('ended') and not w.get('closed'), w
+            assert MG.budget_breach({}, {'waves': [dict(w, usd_cap=0)]}) == '', 'конвейер вышел и погасил — потолок не судится'
         finally:
             WG.LEASE = keep_lease
             if keep_env is None:
@@ -1260,7 +1283,7 @@ def case_manual_cap() -> None:
     finally:
         WC.PATH, B.HALT, MG.load, B.SG.usd_rub = keep
     print('  ✓ ручной старт без потолка — отказ до шагов; finale закрывает ручную волну и снимает только свой запрет;'
-          ' конвейер волны автозапуска отмечает её конец в разрешении')
+          ' конвейер волны автозапуска отмечает её конец в разрешении — только если группы погашены')
 
 
 def case_done_set() -> None:

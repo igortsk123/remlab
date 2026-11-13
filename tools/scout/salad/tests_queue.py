@@ -53,6 +53,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 os.environ.setdefault('SALAD_API_KEY', 'test')
 import queue_run as QR    # noqa: E402
+REAL_POOL_HALT = QR.pool_halt   # до подмен qsetup — для случая 12d (настоящее чтение запрета)
 import queue_setup as QS  # noqa: E402
 import ssh_run as S       # noqa: E402
 import tests_pool as TP   # noqa: E402 — те же быстрые таймеры и временные файлы стенда пула
@@ -528,6 +529,33 @@ def halt_cases(tmp: str) -> None:
         code, st, prog = run_q(TP.jobs(5))
         check(code == S.EXIT_NO_CAPACITY and f.deletes,
               f'запрет снят, машины не поднимаются — остаток закрыт, ждущие сняты ({len(f.deletes)}), код {code}')
+        # 12d) T-20261113-55/3: наблюдатель целиком с НАСТОЯЩИМ pool_halt, чтение запрета падает исключением → считается
+        #      «запрета нет»: прежнее правило (остаток закрыт по STALL_S), наблюдатель не падает и не виснет
+        import types  # noqa: PLC0415
+        keep_b = sys.modules.get('batch_show')
+        fake = types.ModuleType('batch_show')
+
+        def boom():
+            raise OSError('битый стоп-файл')
+        fake.halt_reason, fake.halt_kind = boom, (lambda: '')
+        try:
+            sys.modules['batch_show'] = fake
+            f = FakeSalad(ready=1)
+            f.plan = lambda sku, n: ['pending'] * 10_000
+            qsetup(tmp, f)
+            QR.pool_halt = REAL_POOL_HALT                   # настоящий: qsetup подменяет его заглушкой
+            REAL_POOL_HALT.err = False
+            threading.Timer(0.3, lambda: setattr(f, 'ready', 0)).start()
+            code, st, prog = run_q(TP.jobs(5))
+            n_err = run_q.out.count('запрет подъёма не прочитан')
+            check(code == S.EXIT_NO_CAPACITY and f.deletes and n_err == 1,
+                  f'чтение запрета падает — «запрета нет»: остаток закрыт по прежнему правилу ({len(f.deletes)}), код {code};'
+                  f' строк о сбое в логе {n_err} (нужна одна)')
+        finally:
+            if keep_b is None:
+                sys.modules.pop('batch_show', None)
+            else:
+                sys.modules['batch_show'] = keep_b
     finally:
         QR.HALT_GRACE_S, QR.pool_halt = keep
 

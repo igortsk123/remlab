@@ -10,8 +10,11 @@
 `usd_cap` и отметкой книги расходов сторожа денег `usd_mark`; сторож денег гасит пул, когда потолок выбран
 (`money_guard.budget_breach`). Конвейер вышел → волна закрывается: факт денег и моделей, итог владельцу в Telegram,
 потраченное копится в `spent_usd`. Конец волны — её СОБСТВЕННЫЙ конвейер (T-20261113-55/2): отметка финала `usd_end`
-(`batch_show.finale` → `mark_end`) или старт более поздней (ручной) волны; деньги и модели — за окно её конвейера
-(`money_guard.wave_end`), даже если замки уже держит другая волна. Ни того ни другого — по свободным замкам, как раньше.
+(`batch_show.finale` → `mark_end`, только если группы подтверждённо погашены) или подтверждённый запуск более поздней
+волны (`launched`; запись, закрытая без запуска, — не конец, T-20261113-55/3); деньги и модели — за окно её конвейера
+(`money_guard.wave_end`/`wave_spent`), даже если замки уже держит другая волна. Ни того ни другого — по свободным замкам,
+как раньше. Файл разрешения правят три процесса (этот крон, финал конвейера, старт) — каждый под замком `.lock` рядом
+с файлом и по свежему чтению (`lease_locked`), иначе один затирал бы правку другого.
 Волна запускается ТЕМ ЖЕ законным путём (`mesh_wave_start.sh --launch`) с `MESH_TAKE_JOBS` = остаток (с профилем — не больше заданий профиля, T-20261106-82/3; верх очереди по приоритету; `MESH_MAX_JOBS` — отдельный предохранитель снимка) и
 `MESH_MIN_JOBS`. Конец очереди, нет денег, предел — гасит сам конвейер (`finale()` с проверкой `stopped`), DEV пропал —
 мёртвая рука на сервере.
@@ -36,6 +39,7 @@ demo-волны поднимал боевую на 5578 заданий. Зада
   ~/venvs/scout/bin/python salad/wave_guard.py --dry     # только решение
   python3 salad/wave_guard.py --selftest
 """
+import contextlib
 import fcntl
 import json
 import os
@@ -190,48 +194,93 @@ def _save_lease(lease: dict) -> None:
     os.replace(tmp, LEASE)
 
 
-def mark_end(paid_usd: float, now: float | None = None) -> dict | None:
-    """Конвейер волны автозапуска вышел (`batch_show.finale` при MESH_WAVE_LEASE=1, T-20261113-55/2): отметка книги
-    `usd_end` и время `ended` — в открытую волну разрешения. С этой минуты её расход кончился, даже если замки тут же займёт
-    другая волна (ручная); закроет волну и подведёт итог `close_wave` на ближайшем тике. Открытой волны нет или отметка уже
-    стоит — None, файл не трогаем."""
+def _read_lease() -> dict | None:
     try:
-        lease = json.load(open(LEASE, encoding='utf-8'))
+        d = json.load(open(LEASE, encoding='utf-8'))
     except (OSError, ValueError):
         return None
-    w = (lease.get('waves') or [{}])[-1]
-    if w.get('usd_cap') is None or w.get('closed') or w.get('usd_end') is not None:
-        return None
-    w.update({'ended': now or time.time(), 'usd_end': round(paid_usd, 4)})
-    _save_lease(lease)
-    return w
+    return d if isinstance(d, dict) else None
+
+
+@contextlib.contextmanager
+def lease_locked():
+    """Замок правки файла разрешения (`wave-lease.json.lock` рядом с ним). Правят трое: этот крон (`close_wave`, запись и
+    отметка старта), финал конвейера (`mark_end`). Без замка «прочитал — поправил — записал» одного затирал правку
+    другого: финал писал `usd_end` в уже закрытую волну и открывал её снова, или закрытие теряло отметку финала.
+    Держать коротко — только чтение-правку-запись, не подпроцессы."""
+    with open(LEASE + '.lock', 'a') as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lk, fcntl.LOCK_UN)
+
+
+def _edit_wave(started: float, **fields) -> dict | None:
+    """Под замком, по свежему чтению: поля — в запись волны с этим `started` → весь файл разрешения; не нашли — None."""
+    with lease_locked():
+        lease = _read_lease()
+        w = next((x for x in reversed((lease or {}).get('waves') or []) if x.get('started') == started), None)
+        if w is None:
+            return None
+        w.update(fields)
+        _save_lease(lease)
+        return lease
+
+
+def mark_end(paid_usd: float, now: float | None = None) -> dict | None:
+    """Конвейер волны автозапуска вышел и погасил группы (`batch_show.finale` при MESH_WAVE_LEASE=1, T-20261113-55/2):
+    отметка книги `usd_end` и время `ended` — в открытую волну разрешения. С этой минуты конвейер волны больше не тратит
+    (потолок не судится), даже если замки тут же займёт другая волна; закроет волну и подведёт итог `close_wave` на
+    ближайшем тике. Открытой волны нет или отметка уже стоит — None, файл не трогаем. Под замком файла (`lease_locked`)."""
+    with lease_locked():
+        lease = _read_lease()
+        if lease is None:
+            return None
+        w = (lease.get('waves') or [{}])[-1]
+        if w.get('usd_cap') is None or w.get('closed') or w.get('usd_end') is not None:
+            return None
+        w.update({'ended': now or time.time(), 'usd_end': round(paid_usd, 4)})
+        _save_lease(lease)
+        return w
 
 
 def other_waves() -> list:
-    """Записи ручных волн (`wave_cap`, свой файл): старт любой из них — конец расхода открытой волны разрешения."""
+    """Записи ручных волн (`wave_cap`, свой файл): подтверждённый запуск любой из них (`launched`) — конец расхода
+    открытой волны разрешения (`money_guard.next_launch`)."""
     import wave_cap as WC  # noqa: PLC0415
     return (WC.read() or {}).get('waves') or []
 
 
 def close_wave(lease: dict, dry: bool, others=()) -> None:
-    """Конвейер волны вышел — закрыть волну: факт денег и моделей ЗА ОКНО ЕЁ КОНВЕЙЕРА (`money_guard.wave_end`: свой
-    `usd_end` или старт следующей волны; чужая ручная волна в её счёт не идёт), итог владельцу, снять запрет «потолок»
-    разрешения (он своё отработал; следующую волну ограничит остаток разрешения)."""
+    """Конвейер волны вышел — закрыть волну: факт денег и моделей ЗА ОКНО ЕЁ КОНВЕЙЕРА (`money_guard.wave_spent`: до
+    запуска следующей волны, а её нет — книга на момент закрытия, с хвостом гашения; чужая ручная волна в её счёт не
+    идёт), итог владельцу, снять запрет «потолок» разрешения (он своё отработал; следующую волну ограничит остаток).
+    Правка — под замком файла и по СВЕЖЕМУ чтению (`lease_locked`): `lease` вызывающего обновляется на месте."""
     import money_guard as MG  # noqa: PLC0415 — книга расходов сторожа денег (один источник)
-    w = lease['waves'][-1]
-    spent = MG.wave_spent(MG.load(), w, others)
-    until = MG.wave_end(w, others)[1]
     halt = json.load(open(STOPS[0], encoding='utf-8')) if os.path.exists(STOPS[0]) else None
-    own = halt if halt and halt.get('source', 'lease') == 'lease' else None   # потолок ручной волны — не наш итог
-    nc = json.load(open(NO_CREDITS)).get('at') if os.path.exists(NO_CREDITS) else None
-    why = close_reason(own, nc if until is None or (nc or 0) <= until else None, float(w['started']))
-    meshes = meshes_since(float(w['started']), until)
-    w.update({'closed': time.time(), 'spent_usd': round(spent, 2), 'meshes': meshes, 'why': why})
-    lease['spent_usd'] = round(float(lease.get('spent_usd', 0)) + spent, 2)
-    print('волна закрыта:', json.dumps(w, ensure_ascii=False), flush=True)
-    if dry:
-        return
-    _save_lease(lease)
+    with lease_locked() if not dry else contextlib.nullcontext():
+        fresh = None if dry else _read_lease()
+        if fresh is not None:
+            lease.clear()
+            lease.update(fresh)
+        elif not dry:
+            return
+        w = (lease.get('waves') or [{}])[-1]
+        if w.get('usd_cap') is None or w.get('closed'):
+            return                                      # закрыл кто-то раньше (другой тик) — второй итог не шлём
+        spent = MG.wave_spent(MG.load(), w, others)
+        until = MG.wave_end(w, others)[1]
+        own = halt if halt and halt.get('source', 'lease') == 'lease' else None   # потолок ручной волны — не наш итог
+        nc = json.load(open(NO_CREDITS)).get('at') if os.path.exists(NO_CREDITS) else None
+        why = close_reason(own, nc if until is None or (nc or 0) <= until else None, float(w['started']))
+        meshes = meshes_since(float(w['started']), until)
+        w.update({'closed': time.time(), 'spent_usd': round(spent, 2), 'meshes': meshes, 'why': why})
+        lease['spent_usd'] = round(float(lease.get('spent_usd', 0)) + spent, 2)
+        print('волна закрыта:', json.dumps(w, ensure_ascii=False), flush=True)
+        if dry:
+            return
+        _save_lease(lease)
     if halt and halt.get('kind') == 'budget' and halt.get('source', 'lease') == 'lease':   # потолок ручной волны снимает её finale
         os.remove(STOPS[0])
     subprocess.run(['bash', os.path.join(HERE, '..', 'alert.sh'), wave_summary(w, spent, meshes, why, left_usd(lease))],
@@ -247,8 +296,8 @@ def main() -> int:
     if open_wave:
         # ВОЛНА ЗАКРЫВАЕТСЯ ПО СВОЕМУ КОНВЕЙЕРУ, А НЕ ПО СВОБОДНЫМ ЗАМКАМ (T-20261113-55/2): замки может держать уже другая
         # волна (12.11: автоволна вышла в 22:53, ручная T-55 заняла замки в 22:54 — лиз висел открытым и копил чужой расход).
-        # Конец конвейера известен — `usd_end` из его финала или старт более поздней волны — закрываем сразу; иначе прежнее
-        # правило: замки свободны и с старта прошло 20 мин (конвейер успел взять замок).
+        # Конец конвейера известен — `usd_end` из его финала или подтверждённый запуск более поздней волны (`launched`) —
+        # закрываем сразу; иначе прежнее правило: замки свободны и с старта прошло 20 мин (конвейер успел взять замок).
         import money_guard as MG  # noqa: PLC0415
         others = other_waves()
         ended = MG.wave_end(lease['waves'][-1], others)[0] is not None
@@ -283,18 +332,25 @@ def main() -> int:
     cap = round(min(left_usd(lease), int(env['MESH_TAKE_JOBS']) * usd_per_mesh * 1.5), 2)   # запас на прогрев/простой
     cap = min(cap, round(left_usd(lease), 2))
     heal = lease.get('heal') is True
-    lease.setdefault('waves', []).append({'at': today, 'started': time.time(), 'max_jobs': int(env['MESH_TAKE_JOBS']),
-                                          'usd_cap': cap, 'usd_mark': round(MG.paid_usd(MG.load()), 2), 'heal': heal})
-    json.dump(lease, open(LEASE, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)   # ДО старта: сторож видит потолок
+    t_start = time.time()
+    rec = {'at': today, 'started': t_start, 'max_jobs': int(env['MESH_TAKE_JOBS']),
+           'usd_cap': cap, 'usd_mark': round(MG.paid_usd(MG.load()), 2), 'heal': heal}
+    with lease_locked():                                # ДО старта: сторож видит потолок
+        lease = _read_lease() or lease
+        lease.setdefault('waves', []).append(rec)
+        _save_lease(lease)
     # MESH_WAVE_LEASE=1: потолок этой волны — запись выше в разрешении, ручной `--rub-cap` старту не нужен (T-20261027-02)
     r = subprocess.run(['bash', os.path.join(HERE, '..', 'mesh_wave_start.sh'), '--launch'],
                        env={**os.environ, **env, 'MESH_WAVE_LEASE': '1', 'MESH_HEAL': '1' if heal else '0'},
                        capture_output=True, text=True, timeout=4 * 3600)
     print(r.stdout[-1500:], r.stderr[-500:], flush=True)
     if r.returncode != 0:                               # не стартовали — волну не открываем (денег не тратили)
-        lease['waves'][-1].update({'closed': time.time(), 'spent_usd': 0, 'meshes': 0, 'why': f'старт не удался rc={r.returncode}'})
-        json.dump(lease, open(LEASE, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        # без `launched`: запись, закрытая без запуска, конец чужой волны не задаёт (`money_guard.next_launch`)
+        lease = _edit_wave(t_start, closed=time.time(), spent_usd=0, meshes=0,
+                           why=f'старт не удался rc={r.returncode}') or lease
     else:
+        # код 0 у `--launch` = `mesh_wave_start.sh` увидел процесс конвейера (pgrep): запуск подтверждён
+        lease = _edit_wave(t_start, launched=time.time()) or lease
         subprocess.run(['bash', os.path.join(HERE, '..', 'alert.sh'),
                         start_text(len(lease['waves']), left_usd(lease), lease.get('expires'),
                                    int(env['MESH_TAKE_JOBS']), cap)],
@@ -443,7 +499,8 @@ def _foreign_lock_tests() -> list:
             return d
         # (а)+(б)+(в): ручная волна стартовала после автоволны, замки заняты ею
         lease_with()
-        json.dump({'waves': [{'started': t_man, 'usd_cap': 2.7621, 'usd_mark': 13.5945}]}, open(WC.PATH, 'w'))
+        json.dump({'waves': [{'started': t_man, 'usd_cap': 2.7621, 'usd_mark': 13.5945, 'launched': t_man + 3}]},
+                  open(WC.PATH, 'w'))
         json.dump({'kind': 'budget', 'source': 'manual'}, open(STOPS[0], 'w'))
         with contextlib.redirect_stdout(io.StringIO()):
             main()
@@ -469,14 +526,66 @@ def _foreign_lock_tests() -> list:
         w = json.load(open(LEASE))['waves'][-1]
         out.append(('финал конвейера отмечает конец волны один раз (usd_end, ended), повтор — не трогает',
                     bool(r) and again is None and w.get('usd_end') == 13.5 and w.get('ended') == t_man))
-        out.append(('по отметке финала лиз закрыт при занятых замках, расход до отметки ($0.18)',
-                    bool(w.get('closed')) and w.get('spent_usd') == 0.18 and w.get('meshes') == 20))
+        out.append(('по отметке финала лиз закрыт при занятых замках; деньги — книга на момент закрытия ($0.48, с хвостом '
+                    'гашения: позже никто не запускался), модели — до отметки (20)',
+                    bool(w.get('closed')) and w.get('spent_usd') == 0.48 and w.get('meshes') == 20))
         # контроль: конца не видно (ни отметки, ни следующей волны), замки заняты — волна ещё идёт, не закрываем
         lease_with()
         with contextlib.redirect_stdout(io.StringIO()):
             main()
         out.append(('конца не видно и замки заняты — волна открыта, как раньше',
                     not json.load(open(LEASE))['waves'][-1].get('closed')))
+        # T-20261113-55/3: ручная запись после лиза, закрытая БЕЗ запуска («конвейер не поднялся») — не конец лиза
+        lease_with()
+        json.dump({'waves': [{'started': t_man, 'usd_cap': 2.7621, 'usd_mark': 13.5945, 'closed': t_man + 4,
+                              'why': 'конвейер не поднялся'}]}, open(WC.PATH, 'w'))
+        with contextlib.redirect_stdout(io.StringIO()):
+            main()
+        out.append(('ручная запись без запуска после лиза — лиз открыт, его потолок судится (замки заняты)',
+                    not json.load(open(LEASE))['waves'][-1].get('closed')
+                    and MG.breach_of({}, json.load(open(LEASE)), WC.read())[1] == 'lease'))
+        # ОДНОВРЕМЕННАЯ ПРАВКА ФАЙЛА РАЗРЕШЕНИЯ: финал (`mark_end`) и крон (`close_wave`) — без потери правки
+        os.remove(WC.PATH)
+        lease_with()
+        stale = json.load(open(LEASE))                     # крон прочитал файл ДО отметки финала
+        book['usd'] = 13.50
+        mark_end(13.50, now=t_man)
+        book['usd'] = 13.80
+        with contextlib.redirect_stdout(io.StringIO()):
+            close_wave(stale, False, [])
+        w = json.load(open(LEASE))['waves'][-1]
+        out.append(('крон закрывает по старому чтению после отметки финала — отметка финала не потеряна',
+                    bool(w.get('closed')) and w.get('usd_end') == 13.5 and stale['waves'][-1].get('usd_end') == 13.5))
+        import threading  # noqa: PLC0415
+        lease_with()
+        res = {}
+        with lease_locked():                               # крон держит файл: финал ждёт, а не пишет поверх
+            th = threading.Thread(target=lambda: res.update(r=mark_end(13.6)))
+            th.start()
+            time.sleep(0.3)
+            waited = th.is_alive() and 'usd_end' not in json.load(open(LEASE))['waves'][-1]
+            d = json.load(open(LEASE))
+            d['waves'][-1].update(closed=time.time(), why='закрыл крон')
+            _save_lease(d)
+        th.join(5)
+        w = json.load(open(LEASE))['waves'][-1]
+        out.append(('финал и крон одновременно: финал ждёт замок и видит закрытую волну — не открывает её снова',
+                    waited and res.get('r') is None and bool(w.get('closed')) and 'usd_end' not in w))
+        # старт автоволны: код 0 (конвейер поднялся) → `launched`; код 75 → закрыта без `launched`
+        lk.close()
+        lk = None
+        for rc in (0, 75):
+            json.dump({'expires': '2999-01-01', 'max_usd': 16.16, 'spent_usd': 13.32, 'profile': 'demo', 'waves': []},
+                      open(LEASE, 'w'))
+            subprocess.run = (lambda code: lambda a, **k: calls.append(a) or subprocess.CompletedProcess(
+                a, code if str(a[-1]) == '--launch' else 0, '', ''))(rc)
+            with contextlib.redirect_stdout(io.StringIO()):
+                main()
+            w = json.load(open(LEASE))['waves'][-1]
+            out.append((f'старт автоволны с кодом {rc}: ' + ('запуск подтверждён — `launched` в записи' if rc == 0 else
+                        'не поднялся — запись закрыта без `launched` (конец чужой волны не задаёт)'),
+                        bool(w.get('launched')) and not w.get('closed') if rc == 0 else
+                        bool(w.get('closed')) and 'launched' not in w and w.get('why') == 'старт не удался rc=75'))
     finally:
         if lk:
             lk.close()

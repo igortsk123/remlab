@@ -255,9 +255,13 @@ def pool_halt() -> str | None:
         if HERE not in sys.path:
             sys.path.insert(0, HERE)
         import batch_show as B  # noqa: PLC0415
-        return B.halt_kind() if B.halt_reason() else None
+        kind = B.halt_kind() if B.halt_reason() else None
+        pool_halt.err = False
+        return kind
     except Exception as e:  # noqa: BLE001
-        print(f'  [очередь] запрет подъёма не прочитан ({type(e).__name__}) — считаю, что его нет', flush=True)
+        if not getattr(pool_halt, 'err', False):        # строка в лог — одна на полосу сбоев, не каждый тик
+            print(f'  [очередь] запрет подъёма не прочитан ({type(e).__name__}) — считаю, что его нет', flush=True)
+        pool_halt.err = True
         return None
 
 
@@ -564,6 +568,31 @@ def selftest() -> int:
     t1 = sl.moved_at
     sl.pause(10_000)
     check(time.time() - t1 > 55 and sl.moved_at <= time.time(), 'пауза двигает отметку движения, не дальше «сейчас»')
+    # чтение запрета: вид из стоп-файла; исключение при чтении — «запрета нет», а не падение наблюдателя (T-20261113-55/3)
+    import contextlib  # noqa: PLC0415
+    import io  # noqa: PLC0415
+    import types  # noqa: PLC0415
+    keep_b = sys.modules.get('batch_show')
+    fake = types.ModuleType('batch_show')
+    try:
+        sys.modules['batch_show'] = fake
+        fake.halt_reason, fake.halt_kind = (lambda: 'тишина'), (lambda: 'silence')
+        got_kind = pool_halt()
+        fake.halt_reason = lambda: ''
+        got_none = pool_halt()
+
+        def boom():
+            raise OSError('битый стоп-файл')
+        fake.halt_reason = boom
+        with contextlib.redirect_stdout(io.StringIO()) as buf:
+            got_err = pool_halt()
+        check(got_kind == 'silence' and got_none is None and got_err is None and 'не прочитан' in buf.getvalue(),
+              'pool_halt: запрет → его вид, нет запрета → None, ошибка чтения → None со строкой в лог')
+    finally:
+        if keep_b is None:
+            sys.modules.pop('batch_show', None)
+        else:
+            sys.modules['batch_show'] = keep_b
     print('queue_run: ВСЁ ЗЕЛЁНОЕ' if not fails else f'queue_run: ПРОВАЛ {len(fails)}')
     return 1 if fails else 0
 
