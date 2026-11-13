@@ -169,14 +169,92 @@ def demo_rank() -> list[dict]:
         band, bank = bank_pending.combine(band, bank, demo_band.QUEUE_MAX, int(bank_pending.rules().get('reserve') or 0))
     ver = f"demo-v{prof.get('policy_version', 2)}"
     base = demo_pick(pinned, band, prod, ver, bank, own=own)
+    # ПРЕДМЕТ ОПУБЛИКОВАННОГО НАБОРА БЕЗ МЕША (T-20261113-07): ярус 3 — после ленты и банка, до комнат; флаг и смысл —
+    # `rules/mesh-queue-demo.json → set_items`. Потолок — остаток общего `mesh_queue_max` после того, что РЕАЛЬНО встаёт выше
+    sets = []
+    if (prof.get('set_items') or {}).get('enabled'):
+        taken = {r['sku'] for r in base}
+        left = demo_band.QUEUE_MAX - sum(1 for r in base if r['status'] != 'ready')
+        sets = [j for j in set_item_jobs() if j['sku'] not in taken][:max(0, left)]
     if not demo_band.ROOMS:
-        return base
+        return demo_pick(pinned, band, prod, ver, bank, own=own, sets=sets) if sets else base
     # КОМНАТЫ КРОМЕ ГОСТИНОЙ (T-20261106-82/2): квота 30 на (комната × стиль) — `demo_band.room_jobs`; потолок очереди — остаток
-    # после того, что гостиная и кандидат банка РЕАЛЬНО ставят в очередь (строки без готового меша; в списках `band`/`bank`
-    # есть готовые и товары вне `products` — по длине списков комнатам доставалось 10 мест из 150 вместо ~109, сухой прогон
-    # 06.11), деньги — остаток трека комнат. Задание — готовое (`room_mesh_jobs.job_of`): товаров `room_catalog` в `products()` нет
-    rooms = demo_band.room_jobs(sum(1 for r in base if r['status'] != 'ready'))
-    return demo_pick(pinned, band, prod, ver, bank, rooms, own=own) if rooms else base
+    # после того, что гостиная, кандидат банка и предметы наборов РЕАЛЬНО ставят в очередь (строки без готового меша; в списках
+    # `band`/`bank` есть готовые и товары вне `products` — по длине списков комнатам доставалось 10 мест из 150 вместо ~109, сухой
+    # прогон 06.11), деньги — остаток трека комнат. Задание — готовое (`room_mesh_jobs.job_of`): товаров `room_catalog` в `products()` нет
+    rooms = demo_band.room_jobs(sum(1 for r in base if r['status'] != 'ready') + len(sets))
+    return demo_pick(pinned, band, prod, ver, bank, rooms, own=own, sets=sets) if rooms or sets else base
+
+
+def set_item_sources() -> dict:
+    """sku → {'n': в скольких опубликованных наборах стоит, 'slot': роль места} — банк туров `sets3.json` (items) и варианты /demo
+    (`demo_band.DEMO_DATA → variants[].items[].sku.sid`). Роль места нужна: у части подушек каталога `cat_role` пустая."""
+    out: dict = {}
+
+    def add(sku: str, slot: str) -> None:
+        parts = slot.split(' ')
+        base = ' '.join(parts[:-1]) if len(parts) > 1 and parts[-1].isdigit() else slot   # «подушка 2» → «подушка»
+        o = out.setdefault(sku, {'n': 0, 'slot': base})
+        o['n'] += 1
+    if os.path.exists(SETS):
+        for s in json.load(open(SETS, encoding='utf-8')):
+            for slot, it in (s.get('items') or {}).items():
+                add(f"{it['mid']}:{it['eid']}", slot)
+    import demo_band
+    if os.path.exists(demo_band.DEMO_DATA):
+        for v in json.load(open(demo_band.DEMO_DATA, encoding='utf-8')).get('variants') or []:
+            for it in v.get('items') or []:
+                sid = (it.get('sku') or {}).get('sid')
+                if sid:
+                    add(sid.replace('_', ':', 1), it.get('role') or '')
+    return out
+
+
+def set_item_pick(src: dict, cards: dict, has_mesh: set, mesh_role) -> list[dict]:
+    """Чистый отбор яруса 3: предмет набора (`src` — `set_item_sources`) в роли с мешем по канону (`mesh_role(role)`), без
+    своего меша и меша семьи (`has_mesh` — sku и представители с поколением или mesh_status ready), одна модель на семью.
+    `cards[sku]` — (роль каталога, фото, название, w, d, h, dia, представитель). Нужны фото и ширина (или диаметр); высота
+    может быть пустой — у подушек каталога её часто нет, узел без неё молчит (`salad/pipeline.py: flat_shape`).
+    Порядок — чаще стоит в наборах, затем sku. → готовые задания (форма `own_job`)."""
+    jobs, fam = [], set()
+    for sku in sorted(src, key=lambda s: (-src[s]['n'], s)):
+        c = cards.get(sku)
+        if not c:
+            continue
+        role, img, name, w, d, h, dia, rep = c
+        role = role or src[sku]['slot']
+        if not mesh_role(role) or sku in has_mesh or rep in has_mesh or rep in fam:
+            continue
+        dims = {k: float(v or 0) or None for k, v in zip(('w', 'd', 'h', 'dia'), (w, d, h, dia))}
+        if not img or not (dims['w'] or dims['dia']):
+            continue
+        fam.add(rep)
+        mid, eid = sku.split(':', 1)
+        jobs.append({'sku': sku, 'mid': int(mid), 'eid': eid, 'role': role, 'name': name or '', 'image_url': img,
+                     'dims_cm': dims, 'strata': {'set_item': src[sku]['n']}})
+    return jobs
+
+
+def set_item_jobs() -> list[dict]:
+    """Задания яруса 3 по базе: карточки предметов наборов, их представители и у кого меш уже есть."""
+    import asset_strategy as AS
+    src = set_item_sources()
+    if not src:
+        print('WARN:mesh_priority: предметов опубликованных наборов не найдено (sets3.json, demo-data.json) — ярус 3 пуст',
+              flush=True)
+        return []
+    lit = ','.join("'" + s.replace("'", "''") + "'" for s in src)
+    cards = {r[0]: r[1:] for r in db(
+        "select shop_mid||':'||external_id, coalesce(cat_role,''), coalesce(image_url_hd, image_url, ''), coalesce(name,''), "
+        "coalesce(w_cm,0), coalesce(d_cm,0), coalesce(h_cm,0), coalesce(dia_cm,0), "
+        "coalesce(mesh_family_rep, shop_mid||':'||external_id) "
+        f"from products where shop_mid||':'||external_id in ({lit});")}
+    keys = set(cards) | {c[7] for c in cards.values()}
+    klit = ','.join("'" + s.replace("'", "''") + "'" for s in keys)
+    has = {r[0] for r in db(f"select distinct sku from mesh_generations where sku in ({klit});")}
+    has |= {r[0] for r in db("select shop_mid||':'||external_id from products where coalesce(mesh_status,'')='ready' "
+                             f"and shop_mid||':'||external_id in ({klit});")}
+    return set_item_pick(src, cards, has, lambda role: AS.strategy(role) == 'hunyuan3d')
 
 
 def own_job(row: list) -> dict | None:
@@ -212,9 +290,10 @@ def own_jobs(skus: list) -> dict:
 
 
 def demo_pick(pinned: tuple, band: list, prod: dict, ver: str, bank: list | tuple = (), rooms: list | tuple = (),
-              own: dict | None = None) -> list[dict]:
+              own: dict | None = None, sets: list | tuple = ()) -> list[dict]:
     """Чистый отбор: закреплённые (ярус 0), затем недобор ленты (ярус 1) по порядку `demo_band`, затем кандидат банка (ярус 2,
-    `bank_pending`; общий потолок уже посчитан `bank_pending.combine`), затем квота комнат (ярус 3, `demo_band.room_jobs`:
+    `bank_pending`; общий потолок уже посчитан `bank_pending.combine`), затем предметы опубликованных наборов без меша (ярус 3,
+    `set_item_jobs`, T-20261113-07: готовые задания, потолок посчитан в `demo_rank`), затем квота комнат (ярус 4, `demo_band.room_jobs`:
     готовые задания `room_mesh_jobs.job_of` — их товары живут в `room_catalog`, не в `products`; SKU, уже взятый выше, второй
     раз не ставится), без повторов; товар вне
     `products()` (нет пометки «требуется меш» или не представитель семейства) пропускается. Готовые отбрасывает `main()` тем же
@@ -245,12 +324,20 @@ def demo_pick(pinned: tuple, band: list, prod: dict, ver: str, bank: list | tupl
             # Форма ряда — ТА ЖЕ, что у боевого ранжира: `build_queue` читает `key` и `policy_version`
             rows.append({'tier': tier, 'sku': sku, 'role': p['role'], 'status': p['status'],
                          'key': f'{tier:02d}|{len(rows):06d}|{sku}', 'reason': why, 'policy_version': ver})
+    for j in sets:
+        if j['sku'] in seen:
+            continue
+        seen.add(j['sku'])
+        rows.append({'tier': 3, 'sku': j['sku'], 'role': j['role'], 'status': 'none',
+                     'key': f"03|{len(rows):06d}|{j['sku']}", 'policy_version': ver, 'job': j,
+                     'reason': f"демо: предмет опубликованного набора без меша, наборов {(j.get('strata') or {}).get('set_item')} "
+                               '(T-20261113-07)'})
     for j in rooms:
         if j['sku'] in seen:
             continue
         seen.add(j['sku'])
-        rows.append({'tier': 3, 'sku': j['sku'], 'role': j['role'], 'status': 'none', 'room': j.get('room'),
-                     'key': f"03|{len(rows):06d}|{j['sku']}", 'policy_version': ver, 'job': j,
+        rows.append({'tier': 4, 'sku': j['sku'], 'role': j['role'], 'status': 'none', 'room': j.get('room'),
+                     'key': f"04|{len(rows):06d}|{j['sku']}", 'policy_version': ver, 'job': j,
                      'reason': f"демо: квота мешей комнаты {j.get('room')} (30 на комнату × стиль, T-20261106-82)"})
     return rows
 
@@ -404,7 +491,7 @@ def build_queue(path: str, todo: list, prod: dict) -> None:
     suppressed = 0
     jobs, queued, seen = [], [], set()
     for x in todo:
-        if x.get('job'):                 # задание комнаты (ярус 3 профиля demo) — готовое, товара в `products` нет
+        if x.get('job'):                 # готовое задание (свой меш варианту, предмет набора, комната) — товара в `products` нет
             if (x['sku'], 0) in seen:
                 sys.exit(f'дубль (sku, seed) в снимке: {x["sku"]} seed 0 — сборка отменена')
             seen.add((x['sku'], 0))
@@ -514,13 +601,41 @@ def _selftest() -> int:
     rows = demo_pick(('m:8',), ['m:1'], prod, 'test', ['m:1', 'm:2', 'm:8', 'm:4'])
     if [(r['sku'], r['tier']) for r in rows] != [('m:8', 0), ('m:1', 1), ('m:2', 2)] or 'bank_candidate' not in rows[-1]['reason']:
         bad_demo += 1; print(f'  FAIL кандидат банка — ярус 2 после ленты, без повторов: {[(r["sku"], r["tier"]) for r in rows]}')
-    # квота комнат (T-20261106-82/2): ярус 3 после банка, готовое задание, без повтора уже взятого SKU
+    # квота комнат (T-20261106-82/2): ярус 4 (до T-20261113-07 — 3) после банка, готовое задание, без повтора уже взятого SKU
     RJ = [{'sku': 'm:1', 'role': 'кровать', 'room': 'bedroom'}, {'sku': 'r:7', 'role': 'кровать', 'room': 'bedroom'},
           {'sku': 'r:8', 'role': 'шкаф-купе', 'room': 'hall'}, {'sku': 'r:7', 'role': 'кровать', 'room': 'bedroom'}]
     rows = demo_pick(('m:8',), ['m:1'], prod, 'test', ['m:3'], RJ)
     got = [(r['sku'], r['tier']) for r in rows]
-    if got != [('m:8', 0), ('m:1', 1), ('m:3', 2), ('r:7', 3), ('r:8', 3)]:
-        bad_demo += 1; print(f'  FAIL квота комнат — ярус 3 после банка, без повторов и без уже взятого из ленты: {got}')
+    if got != [('m:8', 0), ('m:1', 1), ('m:3', 2), ('r:7', 4), ('r:8', 4)]:
+        bad_demo += 1; print(f'  FAIL квота комнат — ярус 4 после банка, без повторов и без уже взятого из ленты: {got}')
+    # предмет опубликованного набора без меша (T-20261113-07): ярус 3 после банка и до комнат, без повторов
+    SJ = [{'sku': 's:1', 'role': 'подушка', 'strata': {'set_item': 5}}, {'sku': 'm:3', 'role': 'столик'},
+          {'sku': 'r:7', 'role': 'кровать'}]
+    srows = demo_pick(('m:8',), ['m:1'], prod, 'test', ['m:3'], RJ, sets=SJ)
+    got = [(r['sku'], r['tier']) for r in srows]
+    if got != [('m:8', 0), ('m:1', 1), ('m:3', 2), ('s:1', 3), ('r:7', 3), ('r:8', 4)] or srows != sorted(srows, key=lambda r: r['key']):
+        bad_demo += 1; print(f'  FAIL предмет набора — ярус 3 после банка, до комнат, без повторов, ключи по порядку: {got}')
+    r_s = srows[3]
+    if r_s.get('job') is not SJ[0] or r_s['status'] != 'none' or 'наборов 5' not in r_s['reason']:
+        bad_demo += 1; print(f'  FAIL ряд предмета набора — готовое задание, «нет меша», причина с числом наборов: {r_s}')
+    # отбор set_item_pick: роль по канону, свой меш и меш семьи — нет, одна модель на семью, роль места при пустой роли каталога
+    SRC = {'9:1': {'n': 3, 'slot': 'подушка'}, '9:2': {'n': 9, 'slot': 'подушка'}, '9:3': {'n': 5, 'slot': 'люстра'},
+           '9:4': {'n': 4, 'slot': 'ковёр'}, '9:5': {'n': 2, 'slot': 'лампа'}, '9:6': {'n': 2, 'slot': 'лампа'},
+           '9:7': {'n': 1, 'slot': 'подушка'}, '9:8': {'n': 1, 'slot': 'лампа'}, '9:9': {'n': 7, 'slot': 'торшер'}}
+    CARDS = {'9:1': ('', 'u1', 'Подушка', '45', '45', '0', '0', '9:1'),        # роль пустая → роль места; без высоты — можно
+             '9:2': ('подушка', 'u2', '', '45', '45', '12', '0', '9:2'),
+             '9:3': ('люстра', 'u3', '', '0', '0', '30', '60', 'f:3'),         # меш у представителя семьи — нет
+             '9:4': ('ковёр', 'u4', '', '200', '300', '1', '0', '9:4'),        # роль без меша по канону — нет
+             '9:5': ('лампа', 'u5', '', '30', '30', '50', '0', 'f:5'),
+             '9:6': ('лампа', 'u6', '', '30', '30', '50', '0', 'f:5'),         # та же семья, что 9:5 — одна модель
+             '9:7': ('подушка', '', '', '45', '45', '0', '0', '9:7'),          # без фото — нет
+             '9:8': ('лампа', 'u8', '', '0', '0', '40', '0', '9:8'),           # без ширины и диаметра — нет
+             '9:9': ('торшер', 'u9', '', '40', '40', '160', '0', '9:9')}       # свой меш есть — нет
+    got = set_item_pick(SRC, CARDS, {'f:3', '9:9'}, lambda r: r != 'ковёр')
+    if [j['sku'] for j in got] != ['9:2', '9:1', '9:5'] or got[1]['role'] != 'подушка' \
+            or got[1]['dims_cm'] != {'w': 45.0, 'd': 45.0, 'h': None, 'dia': None} or got[0]['strata'] != {'set_item': 9} \
+            or (got[2]['mid'], got[2]['eid'], got[2]['image_url']) != (9, '5', 'u5'):
+        bad_demo += 1; print(f'  FAIL set_item_pick: {[(j["sku"], j["role"], j["dims_cm"]) for j in got]}')
     if not all(r.get('job') is RJ[1] for r in rows if r['sku'] == 'r:7') or rows[-1]['status'] != 'none':
         bad_demo += 1; print('  FAIL ряд комнаты несёт готовое задание и статус «нет меша»')
     # свой меш варианту по сторожу цвета (T-20261107-19): ярус 1 на месте порядка ленты, готовое задание, без повтора
@@ -612,7 +727,7 @@ def _selftest() -> int:
         bad += 1
         print('  FAIL build_queue: переделка без хеша ставится, без переделки подавлена, другой хеш — seed 0',
               got, buf.getvalue()[-120:])
-    print(f'mesh_priority selftest: случаев 6 + профиль демо 10, ошибок {bad + bad_demo}')
+    print(f'mesh_priority selftest: случаев 6 + профиль демо 13, ошибок {bad + bad_demo}')
     return 1 if bad or bad_demo else 0
 
 
