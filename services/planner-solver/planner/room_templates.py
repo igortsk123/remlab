@@ -56,7 +56,13 @@ KINDS = {
                   # прихожая (T-20261112-70): хранение не на стене с дверями; банкетка рядом с обувницей; консоль (с зеркалом)
                   # напротив хранения в холле; зеркало не над вешалкой и не на проёме
                   "storage_on_solid_wall", "seat_beside_shoe", "console_opposite_storage", "mirror_not_over_hanger",
-                  "single_primary_storage", "no_furniture_in_door_approach", "storage_in_l_branch"},
+                  "single_primary_storage", "no_furniture_in_door_approach", "storage_in_l_branch",
+                  # каталог спальни тенью (T-20261112-120, `rules/room-templates/bedroom-catalog.json`; Codex bedroom-templates §1–3):
+                  # изголовье не под окном; хранение сбоку от оси / напротив изножья / одной зоной; гардеробная с внутренним проходом;
+                  # туалетный столик у света; свет на стол сбоку; две кровати параллельно; безопасность кроватки; игровая зона вне путей
+                  "bed_head_not_under_window", "storage_beside_sleep_axis", "storage_opposite_bed_foot", "storage_zone_contiguous",
+                  "walk_in_inner_passage", "dressing_near_window_light", "desk_daylight_side", "twin_beds_parallel", "cot_safety",
+                  "play_zone_clear_of_routes"},
     "invariants": {"sku_dimensions_intact", "door_clear", "required_routes", "required_roles",
                    "required_groups_complete", "dependent_slots_have_carrier", "tv_visible", "no_silent_unplaced",
                    "kitchen_clear", "dining_operational", "storage_required"},
@@ -73,9 +79,14 @@ SYMMETRY = {"none", "balanced", "centered", "pair"}
 ON_FAILURE = {"reject_composition", "leave_empty"}
 # условия комнаты: у уровня, места, модификатора и правила выбора. Числовые — через rule_ref, без чисел в паспорте
 WHEN = {"room_has_window", "room_has_bay", "kitchen", "annex", "area_min", "area_below", "aspect_min", "dining_budget",
-        "shape_l", "has_niche", "has_stairs", "door_dense", "squareish", "micro"}
-# флаги формы комнаты (прихожая, T-20261112-70): факт комнаты true/false, без чисел — `when_ok` читает facts[kind]
-WHEN_FLAGS = {"shape_l", "has_niche", "has_stairs", "door_dense", "squareish", "micro"}
+        "shape_l", "has_niche", "has_stairs", "door_dense", "squareish", "micro", "external_storage", "accessible",
+        "work_needed"}
+# флаги формы комнаты (прихожая, T-20261112-70): факт комнаты true/false, без чисел — `when_ok` читает facts[kind].
+# Каталог спальни тенью (T-20261112-120): external_storage (хранение вне комнаты подтверждено — уровень «без хранения»),
+# accessible (профиль доступности из проекта — M4/МГН), work_needed (нужно рабочее место: назначение office/школьник/
+# подросток или флаг проекта) — факт ставит проект/назначение, не угадываем
+WHEN_FLAGS = {"shape_l", "has_niche", "has_stairs", "door_dense", "squareish", "micro", "external_storage", "accessible",
+              "work_needed"}
 WHEN_NUMERIC = {"area_min", "area_below", "aspect_min"}
 
 # ЗАКРЫТЫЙ реестр geometry_ref: ключ → кто ставит крупную мебель в старом движке гостиной. Произвольный символ Python в

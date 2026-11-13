@@ -1,0 +1,4292 @@
+{
+ "schema_version": "room-composition/1",
+ "unit": "cm",
+ "room_type": "bedroom",
+ "_meta": {
+  "source": "external: Codex 12.11 `_intake/codex/2026-11-12-bedroom-templates-answer.md` §1–4 (нормы — с пометками [Н]/[Р]/[П] там) + решения владельца TG 1219/1364/1833 (план `plans/bedroom-templates-catalog-01.md`, T-20261112-120)",
+  "status": "ТЕНЬ: движок спальни читает `bedroom.json` (4 шаблона); этот каталог (17) — на показ владельцу листами `tools/scout/bedroom_catalog_schemes.py`, движок — после «ок»",
+  "replaces": {
+   "br.pair_axis": [
+    "br.couple_axis_side_storage",
+    "br.guest_double"
+   ],
+   "br.single_corner": [
+    "br.single_corner"
+   ],
+   "br.office_work": [
+    "br.guest_office_flex",
+    "br.single_work_window"
+   ],
+   "br.child_7_12_work_window": [
+    "br.child_7_12_work"
+   ]
+  },
+  "enumeration": "движок (после «ок»): факты комнаты → ВСЕ совместимые шаблоны (purpose + when), по priority → уровни A…(when) → лестница кровати bed_width_ladder → стены × повороты × отражения; проходы сперва по цели, потом compact (кроме accessible); сравнение: жёсткие нарушения → обязательность → уровень → полнота хранения → проходы по цели → свет/симметрия → мягкий счёт. Победитель несёт template_id + level. Ничего не прошло — NO_ROOM_TEMPLATE_FITS (комнату не меблируем) + запись new_template_candidate (сигнатура комнаты, ближайшие шаблоны, причины). Без _GENERIC и поштучного «долечивания»",
+  "facts": "факты комнаты для when: area_m2 (по коробке расстановки), aspect, has_window, has_niche (ниша ≥ глубины шкафа), external_storage, accessible, work_needed (назначение office / child:7-12 / child:teen или флаг проекта). Порядок сравнения шаблонов одного назначения (предложение до движка): без жёстких нарушений → по цели раньше compact → уровень → специфичность (больший порог площади) → priority → мягкий счёт",
+  "sleep_before_mode": "поле `want` — число тумб в терминах движка групп (pair = 2, one_side = 1), не имя варианта каталога",
+  "finish": "у каждого уровня — зависимые места по носителям этого уровня: шторы у окна, общий свет, лампа у каждой тумбы (нет тумбы — бра), ковёр и плед у кровати, картина над изголовьем, декор на комоде/тумбе; не встало необязательное — пусто, вне места шаблона товар не ставим",
+  "assignment": "владелец TG 1364 — назначение маленькой комнаты 6–7,5 м²: есть другие спальни → кабинет (br.guest_office_flex); 2 комнаты (6 и 10) → 10 гостиная, 6 спальня; 3 комнаты → гостиная, спальня, самая маленькая — кабинет. Правило назначения комнат, не шаблон",
+  "new_roles": "роли, которых нет в банке спальни (закупка каталога, отдельно): кроватка, диван-кровать, туалетный столик, пуф, кресло, банкетка, зеркало, стеллаж, гардеробная система, бра, люстра, картина, ваза; стол и стул рабочие. Новые назначения: twin, child:0-3/3-7/teen (модель уже знает возраст), флаги external_storage / accessible",
+  "not_yet": "кандидаты без шаблона (Codex §2): пара + детская кроватка, мансарда/скос, L-контур, два окна, балконная дверь как цель маршрута — признаки комнаты, отдельными шаблонами по мере встреч (NO_ROOM_TEMPLATE_FITS → new_template_candidate)"
+ },
+ "groups": {
+  "sleep": {
+   "roles": [
+    "кровать",
+    "тумба прикроватная",
+    "кроватка",
+    "диван-кровать"
+   ],
+   "variants": {
+    "double_large_pair": {
+     "slots": [
+      {
+       "id": "bed",
+       "role": "кровать",
+       "rule_ref": "distances_cm.bedroom_catalog.bed_width_ladder.couple_large"
+      },
+      {
+       "id": "ns",
+       "role": "тумба прикроватная",
+       "count": 2,
+       "near": "sleep.bed"
+      }
+     ],
+     "label": "двуспальная 180→160→140 + 2 тумбы / double 180→160→140 + 2 bedside tables"
+    },
+    "double_pair": {
+     "slots": [
+      {
+       "id": "bed",
+       "role": "кровать",
+       "rule_ref": "distances_cm.bedroom_catalog.bed_width_ladder.couple"
+      },
+      {
+       "id": "ns",
+       "role": "тумба прикроватная",
+       "count": 2,
+       "near": "sleep.bed"
+      }
+     ],
+     "label": "двуспальная 160→140 + 2 тумбы / double 160→140 + 2 bedside tables"
+    },
+    "guest_one_side": {
+     "slots": [
+      {
+       "id": "bed",
+       "role": "кровать",
+       "rule_ref": "distances_cm.bedroom_catalog.bed_width_ladder.guest"
+      },
+      {
+       "id": "ns",
+       "role": "тумба прикроватная",
+       "near": "sleep.bed"
+      }
+     ],
+     "label": "гостевая 140→135→120 + тумба / guest double + bedside table"
+    },
+    "guest_solo": {
+     "slots": [
+      {
+       "id": "bed",
+       "role": "кровать",
+       "rule_ref": "distances_cm.bedroom_catalog.bed_width_ladder.guest"
+      }
+     ],
+     "label": "гостевая 140→135→120 без тумбы / guest double, no bedside table"
+    },
+    "comfort_pair": {
+     "slots": [
+      {
+       "id": "bed",
+       "role": "кровать",
+       "rule_ref": "distances_cm.bedroom_catalog.bed_width_ladder.single_comfort"
+      },
+      {
+       "id": "ns",
+       "role": "тумба прикроватная",
+       "count": 2,
+       "near": "sleep.bed"
+      }
+     ],
+     "label": "полуторная 140→120 + 2 тумбы / small double + 2 tables"
+    },
+    "comfort_one_side": {
+     "slots": [
+      {
+       "id": "bed",
+       "role": "кровать",
+       "rule_ref": "distances_cm.bedroom_catalog.bed_width_ladder.single_comfort"
+      },
+      {
+       "id": "ns",
+       "role": "тумба прикроватная",
+       "near": "sleep.bed"
+      }
+     ],
+     "label": "полуторная 140→120 + тумба / small double + table"
+    },
+    "single_one_side": {
+     "slots": [
+      {
+       "id": "bed",
+       "role": "кровать",
+       "rule_ref": "distances_cm.bedroom_catalog.bed_width_ladder.single"
+      },
+      {
+       "id": "ns",
+       "role": "тумба прикроватная",
+       "near": "sleep.bed"
+      }
+     ],
+     "label": "односпальная 120→100→90 + тумба / single + bedside table"
+    },
+    "single_solo": {
+     "slots": [
+      {
+       "id": "bed",
+       "role": "кровать",
+       "rule_ref": "distances_cm.bedroom_catalog.bed_width_ladder.single"
+      }
+     ],
+     "label": "односпальная 120→100→90 / single bed"
+    },
+    "twin_two_ns": {
+     "slots": [
+      {
+       "id": "bed",
+       "role": "кровать",
+       "rule_ref": "distances_cm.bedroom_catalog.bed_width_ladder.twin",
+       "count": 2
+      },
+      {
+       "id": "ns",
+       "role": "тумба прикроватная",
+       "count": 2,
+       "near": "sleep.bed"
+      }
+     ],
+     "label": "две по 90 + 2 тумбы / twin 90 + 2 tables"
+    },
+    "twin_shared_ns": {
+     "slots": [
+      {
+       "id": "bed",
+       "role": "кровать",
+       "rule_ref": "distances_cm.bedroom_catalog.bed_width_ladder.twin",
+       "count": 2
+      },
+      {
+       "id": "ns",
+       "role": "тумба прикроватная",
+       "near": "sleep.bed"
+      }
+     ],
+     "label": "две по 90 + общая тумба / twin 90 + shared table"
+    },
+    "cot": {
+     "slots": [
+      {
+       "id": "bed",
+       "role": "кроватка",
+       "rule_ref": "distances_cm.bedroom_catalog.bed_width_ladder.cot"
+      }
+     ],
+     "label": "детская кроватка / cot"
+    },
+    "child_one_side": {
+     "slots": [
+      {
+       "id": "bed",
+       "role": "кровать",
+       "rule_ref": "distances_cm.bedroom_catalog.bed_width_ladder.child_3_7"
+      },
+      {
+       "id": "ns",
+       "role": "тумба прикроватная",
+       "near": "sleep.bed"
+      }
+     ],
+     "label": "детская 80→90 + тумба / child bed + table"
+    },
+    "child_solo": {
+     "slots": [
+      {
+       "id": "bed",
+       "role": "кровать",
+       "rule_ref": "distances_cm.bedroom_catalog.bed_width_ladder.child_3_7"
+      }
+     ],
+     "label": "детская 80→90 / child bed"
+    },
+    "school_one_side": {
+     "slots": [
+      {
+       "id": "bed",
+       "role": "кровать",
+       "rule_ref": "distances_cm.bedroom_catalog.bed_width_ladder.school"
+      },
+      {
+       "id": "ns",
+       "role": "тумба прикроватная",
+       "near": "sleep.bed"
+      }
+     ],
+     "label": "односпальная 90×200 + тумба / single 90×200 + table"
+    },
+    "school_solo": {
+     "slots": [
+      {
+       "id": "bed",
+       "role": "кровать",
+       "rule_ref": "distances_cm.bedroom_catalog.bed_width_ladder.school"
+      }
+     ],
+     "label": "односпальная 90×200 / single 90×200"
+    },
+    "sofa_bed": {
+     "slots": [
+      {
+       "id": "bed",
+       "role": "диван-кровать"
+      }
+     ],
+     "label": "диван-кровать / sofa bed"
+    }
+   },
+   "_why": "спальное место + тумбы. Ширина кровати — лестница `bed_width_ladder` по порядку (уровень кровати перебирает движок внутри уровня состава, по раме товара); id мест одни на все варианты (sleep.bed, sleep.ns) — зависимые места ссылаются на них"
+  },
+  "storage": {
+   "roles": [
+    "шкаф",
+    "комод",
+    "стеллаж",
+    "гардеробная система"
+   ],
+   "variants": {
+    "wardrobe_dresser": {
+     "slots": [
+      {
+       "id": "wardrobe",
+       "role": "шкаф",
+       "rule_ref": "distances_cm.bedroom_catalog.wardrobe_front_cm"
+      },
+      {
+       "id": "dresser",
+       "role": "комод"
+      }
+     ],
+     "label": "шкаф + комод / wardrobe + chest of drawers"
+    },
+    "wardrobe": {
+     "slots": [
+      {
+       "id": "wardrobe",
+       "role": "шкаф",
+       "rule_ref": "distances_cm.bedroom_catalog.wardrobe_front_cm"
+      }
+     ],
+     "label": "шкаф / wardrobe"
+    },
+    "dresser": {
+     "slots": [
+      {
+       "id": "dresser",
+       "role": "комод"
+      }
+     ],
+     "label": "комод / chest of drawers"
+    },
+    "wardrobe_run": {
+     "slots": [
+      {
+       "id": "wardrobe",
+       "role": "шкаф",
+       "rule_ref": "distances_cm.bedroom_catalog.wardrobe_front_cm",
+       "count": 2
+      }
+     ],
+     "label": "шкафы в ряд вдоль стены / fitted wardrobe wall"
+    },
+    "walk_in": {
+     "slots": [
+      {
+       "id": "walkin",
+       "role": "гардеробная система",
+       "rule_ref": "distances_cm.bedroom_catalog.wardrobe_front_cm"
+      }
+     ],
+     "label": "гардеробная в нише / walk-in in a niche"
+    },
+    "wardrobe_shelf": {
+     "slots": [
+      {
+       "id": "wardrobe",
+       "role": "шкаф",
+       "rule_ref": "distances_cm.bedroom_catalog.wardrobe_front_cm"
+      },
+      {
+       "id": "shelf",
+       "role": "стеллаж"
+      }
+     ],
+     "label": "шкаф + стеллаж / wardrobe + shelving"
+    },
+    "dresser_shelf": {
+     "slots": [
+      {
+       "id": "dresser",
+       "role": "комод"
+      },
+      {
+       "id": "shelf",
+       "role": "стеллаж"
+      }
+     ],
+     "label": "комод + стеллаж / drawers + shelving"
+    }
+   },
+   "_why": "фронт шкафа — `wardrobe_front_cm` по назначению (0,8 м/чел. минимум, 1 м цель). Хранение не исчезает без факта комнаты external_storage (Codex §3); hinged→sliding — тип фасада товара (clearances.storage_sliding_front), не уровень"
+  },
+  "work": {
+   "roles": [
+    "стол рабочий",
+    "стул рабочий"
+   ],
+   "variants": {
+    "desk_chair": {
+     "slots": [
+      {
+       "id": "desk",
+       "role": "стол рабочий"
+      },
+      {
+       "id": "chair",
+       "role": "стул рабочий",
+       "near": "work.desk"
+      }
+     ],
+     "label": "стол + стул / desk + chair"
+    }
+   },
+   "_why": "стол ≤ 1 м от окна, свет сбоку (Пособие п. 3.1; Роспотребнадзор — правше слева)"
+  },
+  "dressing": {
+   "roles": [
+    "туалетный столик",
+    "пуф"
+   ],
+   "variants": {
+    "table_seat": {
+     "slots": [
+      {
+       "id": "table",
+       "role": "туалетный столик"
+      },
+      {
+       "id": "seat",
+       "role": "пуф",
+       "near": "dressing.table"
+      }
+     ],
+     "label": "туалетный столик + пуф / dressing table + stool"
+    }
+   }
+  },
+  "seat": {
+   "roles": [
+    "кресло",
+    "банкетка"
+   ],
+   "variants": {
+    "armchair": {
+     "slots": [
+      {
+       "id": "chair",
+       "role": "кресло"
+      }
+     ],
+     "label": "кресло / armchair"
+    },
+    "bench": {
+     "slots": [
+      {
+       "id": "bench",
+       "role": "банкетка",
+       "near": "sleep.bed"
+      }
+     ],
+     "label": "банкетка в ногах / bench at bed foot"
+    }
+   }
+  },
+  "mirror": {
+   "roles": [
+    "зеркало"
+   ],
+   "variants": {
+    "full_height": {
+     "slots": [
+      {
+       "id": "mirror",
+       "role": "зеркало",
+       "required": false
+      }
+     ],
+     "label": "зеркало в полный рост / full-length mirror"
+    }
+   },
+   "_why": "по желанию: допустима зеркальная дверь шкафа (Нойферт, Codex §1)"
+  },
+  "play": {
+   "roles": [
+    "игровая зона"
+   ],
+   "variants": {
+    "zone": {
+     "slots": [
+      {
+       "id": "zone",
+       "role": "игровая зона",
+       "sellable": false,
+       "marker": "play_zone",
+       "rule_ref": "distances_cm.bedroom_catalog.play_zone_min"
+      }
+     ],
+     "label": "свободная игровая зона / free play area"
+    }
+   }
+  },
+  "light": {
+   "roles": [
+    "люстра",
+    "лампа",
+    "бра"
+   ],
+   "variants": {
+    "bedside": {
+     "dependents": [
+      {
+       "id": "ceiling",
+       "role": "люстра",
+       "carrier": {
+        "zone": "sleep"
+       },
+       "anchor": {
+        "kind": "ceiling_over"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "ceiling_mount",
+        "rule_ref": "distances_cm.mounting.chandelier"
+       },
+       "symmetry": "centered",
+       "_why": "общий свет: спальня 150 лк, детская 200 лк (СанПиН 1.2.3685-21 табл. 5.52, external: Codex §1)",
+       "on_failure": "leave_empty"
+      },
+      {
+       "id": "lamp",
+       "role": "лампа",
+       "carrier": {
+        "slot_ref": "sleep.ns"
+       },
+       "anchor": {
+        "kind": "item_surface",
+        "surface": "top"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "fit": {
+        "kind": "surface_fit",
+        "rule_ref": "distances_cm.dependents.surface_decor"
+       },
+       "symmetry": "pair",
+       "_why": "локальный свет у каждого рабочего бока кровати — по лампе на каждую тумбу (Codex §1 «Свет»)",
+       "on_failure": "leave_empty"
+      }
+     ],
+     "label": "общий свет + лампы на тумбах / ceiling + bedside lamps"
+    },
+    "headboard": {
+     "dependents": [
+      {
+       "id": "ceiling",
+       "role": "люстра",
+       "carrier": {
+        "zone": "sleep"
+       },
+       "anchor": {
+        "kind": "ceiling_over"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "ceiling_mount",
+        "rule_ref": "distances_cm.mounting.chandelier"
+       },
+       "symmetry": "centered",
+       "_why": "общий свет: спальня 150 лк, детская 200 лк (СанПиН 1.2.3685-21 табл. 5.52, external: Codex §1)",
+       "on_failure": "leave_empty"
+      },
+      {
+       "id": "sconce",
+       "role": "бра",
+       "carrier": {
+        "slot_ref": "sleep.bed"
+       },
+       "anchor": {
+        "kind": "wall_above",
+        "surface": "wall"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "wall_mount"
+       },
+       "symmetry": "pair",
+       "_why": "тумбы нет — локальный свет бра над изголовьем с открытого бока; высоту крепления сверить до движка (числа нет)",
+       "on_failure": "leave_empty"
+      }
+     ],
+     "label": "общий свет + бра / ceiling + wall light"
+    },
+    "bedside_desk": {
+     "dependents": [
+      {
+       "id": "ceiling",
+       "role": "люстра",
+       "carrier": {
+        "zone": "sleep"
+       },
+       "anchor": {
+        "kind": "ceiling_over"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "ceiling_mount",
+        "rule_ref": "distances_cm.mounting.chandelier"
+       },
+       "symmetry": "centered",
+       "_why": "общий свет: спальня 150 лк, детская 200 лк (СанПиН 1.2.3685-21 табл. 5.52, external: Codex §1)",
+       "on_failure": "leave_empty"
+      },
+      {
+       "id": "lamp",
+       "role": "лампа",
+       "carrier": {
+        "slot_ref": "sleep.ns"
+       },
+       "anchor": {
+        "kind": "item_surface",
+        "surface": "top"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "fit": {
+        "kind": "surface_fit",
+        "rule_ref": "distances_cm.dependents.surface_decor"
+       },
+       "symmetry": "pair",
+       "_why": "локальный свет у каждого рабочего бока кровати — по лампе на каждую тумбу (Codex §1 «Свет»)",
+       "on_failure": "leave_empty"
+      },
+      {
+       "id": "desk_lamp",
+       "role": "лампа",
+       "carrier": {
+        "slot_ref": "work.desk"
+       },
+       "anchor": {
+        "kind": "item_surface",
+        "surface": "top"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "fit": {
+        "kind": "surface_fit",
+        "rule_ref": "distances_cm.dependents.surface_decor"
+       },
+       "_why": "локальный свет стола; правше свет слева (Роспотребнадзор, external: Codex §1)",
+       "on_failure": "leave_empty"
+      }
+     ],
+     "label": "общий + у кровати + на столе / ceiling + bedside + desk"
+    },
+    "headboard_desk": {
+     "dependents": [
+      {
+       "id": "ceiling",
+       "role": "люстра",
+       "carrier": {
+        "zone": "sleep"
+       },
+       "anchor": {
+        "kind": "ceiling_over"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "ceiling_mount",
+        "rule_ref": "distances_cm.mounting.chandelier"
+       },
+       "symmetry": "centered",
+       "_why": "общий свет: спальня 150 лк, детская 200 лк (СанПиН 1.2.3685-21 табл. 5.52, external: Codex §1)",
+       "on_failure": "leave_empty"
+      },
+      {
+       "id": "sconce",
+       "role": "бра",
+       "carrier": {
+        "slot_ref": "sleep.bed"
+       },
+       "anchor": {
+        "kind": "wall_above",
+        "surface": "wall"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "wall_mount"
+       },
+       "symmetry": "pair",
+       "_why": "тумбы нет — локальный свет бра над изголовьем с открытого бока; высоту крепления сверить до движка (числа нет)",
+       "on_failure": "leave_empty"
+      },
+      {
+       "id": "desk_lamp",
+       "role": "лампа",
+       "carrier": {
+        "slot_ref": "work.desk"
+       },
+       "anchor": {
+        "kind": "item_surface",
+        "surface": "top"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "fit": {
+        "kind": "surface_fit",
+        "rule_ref": "distances_cm.dependents.surface_decor"
+       },
+       "_why": "локальный свет стола; правше свет слева (Роспотребнадзор, external: Codex §1)",
+       "on_failure": "leave_empty"
+      }
+     ],
+     "label": "общий + бра + на столе / ceiling + wall + desk"
+    },
+    "desk": {
+     "dependents": [
+      {
+       "id": "ceiling",
+       "role": "люстра",
+       "carrier": {
+        "zone": "work"
+       },
+       "anchor": {
+        "kind": "ceiling_over"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "ceiling_mount",
+        "rule_ref": "distances_cm.mounting.chandelier"
+       },
+       "symmetry": "centered",
+       "_why": "общий свет: спальня 150 лк, детская 200 лк (СанПиН 1.2.3685-21 табл. 5.52, external: Codex §1)",
+       "on_failure": "leave_empty"
+      },
+      {
+       "id": "desk_lamp",
+       "role": "лампа",
+       "carrier": {
+        "slot_ref": "work.desk"
+       },
+       "anchor": {
+        "kind": "item_surface",
+        "surface": "top"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "fit": {
+        "kind": "surface_fit",
+        "rule_ref": "distances_cm.dependents.surface_decor"
+       },
+       "_why": "локальный свет стола; правше свет слева (Роспотребнадзор, external: Codex §1)",
+       "on_failure": "leave_empty"
+      }
+     ],
+     "label": "общий + на столе / ceiling + desk lamp"
+    },
+    "nursery": {
+     "dependents": [
+      {
+       "id": "ceiling",
+       "role": "люстра",
+       "carrier": {
+        "zone": "sleep"
+       },
+       "anchor": {
+        "kind": "ceiling_over"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "ceiling_mount",
+        "rule_ref": "distances_cm.mounting.chandelier"
+       },
+       "symmetry": "centered",
+       "_why": "общий свет: спальня 150 лк, детская 200 лк (СанПиН 1.2.3685-21 табл. 5.52, external: Codex §1)",
+       "on_failure": "leave_empty"
+      },
+      {
+       "id": "night_lamp",
+       "role": "лампа",
+       "carrier": {
+        "slot_ref": "storage.dresser"
+       },
+       "anchor": {
+        "kind": "item_surface",
+        "surface": "top"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "fit": {
+        "kind": "surface_fit",
+        "rule_ref": "distances_cm.dependents.surface_decor"
+       },
+       "_why": "детская 0–3: ночник на комоде, не над кроваткой",
+       "on_failure": "leave_empty"
+      }
+     ],
+     "label": "общий + ночник на комоде / ceiling + night light"
+    }
+   }
+  },
+  "textile": {
+   "roles": [
+    "шторы",
+    "ковёр",
+    "плед"
+   ],
+   "variants": {
+    "bed": {
+     "dependents": [
+      {
+       "id": "curtains",
+       "role": "шторы",
+       "carrier": {
+        "support": "window"
+       },
+       "anchor": {
+        "kind": "opening"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "rod",
+        "rule_ref": "distances_cm.mounting.curtains"
+       },
+       "symmetry": "centered",
+       "when": [
+        {
+         "kind": "room_has_window"
+        }
+       ],
+       "_why": "шторы у каждого окна: full_height | roman/roller — не перекрывать радиатор, створку и балконную дверь (Codex §1)",
+       "on_failure": "reject_composition"
+      },
+      {
+       "id": "rug",
+       "role": "ковёр",
+       "carrier": {
+        "slot_ref": "sleep.bed"
+       },
+       "anchor": {
+        "kind": "free_floor_region"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "under_carrier",
+        "rule_ref": "distances_cm.bed_rug_overhang"
+       },
+       "_why": "ковёр под кроватью — выступ 45–60 с боков и в ногах; по желанию: не встал — пусто, состав не теряется",
+       "on_failure": "leave_empty"
+      },
+      {
+       "id": "throw",
+       "role": "плед",
+       "carrier": {
+        "slot_ref": "sleep.bed"
+       },
+       "anchor": {
+        "kind": "item_surface",
+        "surface": "top"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "drape"
+       },
+       "_why": "плед в изножье на кровати",
+       "on_failure": "leave_empty"
+      }
+     ],
+     "label": "шторы + ковёр + плед / curtains + rug + throw"
+    },
+    "nursery": {
+     "dependents": [
+      {
+       "id": "curtains",
+       "role": "шторы",
+       "carrier": {
+        "support": "window"
+       },
+       "anchor": {
+        "kind": "opening"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "rod",
+        "rule_ref": "distances_cm.mounting.curtains"
+       },
+       "symmetry": "centered",
+       "when": [
+        {
+         "kind": "room_has_window"
+        }
+       ],
+       "_why": "детская: шторы без свисающих шнуров (безопасность, Codex §5); иначе — как у взрослой",
+       "on_failure": "reject_composition"
+      },
+      {
+       "id": "rug",
+       "role": "ковёр",
+       "carrier": {
+        "slot_ref": "sleep.bed"
+       },
+       "anchor": {
+        "kind": "free_floor_region"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "under_carrier",
+        "rule_ref": "distances_cm.bed_rug_overhang"
+       },
+       "_why": "ковёр под кроватью — выступ 45–60 с боков и в ногах; по желанию: не встал — пусто, состав не теряется",
+       "on_failure": "leave_empty"
+      }
+     ],
+     "label": "шторы без шнуров + ковёр / cordless curtains + rug"
+    },
+    "curtains": {
+     "dependents": [
+      {
+       "id": "curtains",
+       "role": "шторы",
+       "carrier": {
+        "support": "window"
+       },
+       "anchor": {
+        "kind": "opening"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "placement": {
+        "kind": "rod",
+        "rule_ref": "distances_cm.mounting.curtains"
+       },
+       "symmetry": "centered",
+       "when": [
+        {
+         "kind": "room_has_window"
+        }
+       ],
+       "_why": "шторы у каждого окна: full_height | roman/roller — не перекрывать радиатор, створку и балконную дверь (Codex §1)",
+       "on_failure": "reject_composition"
+      }
+     ],
+     "label": "шторы / curtains"
+    }
+   }
+  },
+  "art": {
+   "roles": [
+    "картина"
+   ],
+   "variants": {
+    "over_bed": {
+     "dependents": [
+      {
+       "id": "art",
+       "role": "картина",
+       "carrier": {
+        "slot_ref": "sleep.bed"
+       },
+       "anchor": {
+        "kind": "wall_above",
+        "surface": "wall"
+       },
+       "cardinality": {
+        "kind": "by_carrier_width",
+        "rule_ref": "distances_cm.mounting.wall_art"
+       },
+       "placement": {
+        "kind": "wall_mount",
+        "rule_ref": "distances_cm.mounting.wall_art"
+       },
+       "symmetry": "centered",
+       "_why": "картина над изголовьем; глухая стена занята/окно — пусто с причиной",
+       "on_failure": "leave_empty"
+      }
+     ],
+     "label": "картина над изголовьем / art above headboard"
+    },
+    "over_side": {
+     "dependents": [
+      {
+       "id": "art",
+       "role": "картина",
+       "carrier": {
+        "one_of": [
+         "storage.dresser",
+         "work.desk"
+        ]
+       },
+       "anchor": {
+        "kind": "wall_above",
+        "surface": "wall"
+       },
+       "cardinality": {
+        "kind": "by_carrier_width",
+        "rule_ref": "distances_cm.mounting.wall_art"
+       },
+       "placement": {
+        "kind": "wall_mount",
+        "rule_ref": "distances_cm.mounting.wall_art"
+       },
+       "symmetry": "centered",
+       "_why": "над комодом или столом (над кроваткой — нельзя)",
+       "on_failure": "leave_empty"
+      }
+     ],
+     "label": "картина над комодом/столом / art above chest or desk"
+    }
+   }
+  },
+  "decor": {
+   "roles": [
+    "ваза"
+   ],
+   "variants": {
+    "on_dresser": {
+     "dependents": [
+      {
+       "id": "decor",
+       "role": "ваза",
+       "carrier": {
+        "slot_ref": "storage.dresser"
+       },
+       "anchor": {
+        "kind": "item_surface",
+        "surface": "top"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "fit": {
+        "kind": "surface_fit",
+        "rule_ref": "distances_cm.dependents.surface_decor"
+       },
+       "on_failure": "leave_empty"
+      }
+     ],
+     "label": "декор на комоде / decor on chest"
+    },
+    "on_ns": {
+     "dependents": [
+      {
+       "id": "decor",
+       "role": "ваза",
+       "carrier": {
+        "slot_ref": "sleep.ns"
+       },
+       "anchor": {
+        "kind": "item_surface",
+        "surface": "top"
+       },
+       "cardinality": {
+        "kind": "fixed",
+        "count": 1
+       },
+       "fit": {
+        "kind": "surface_fit",
+        "rule_ref": "distances_cm.dependents.surface_decor"
+       },
+       "on_failure": "leave_empty"
+      }
+     ],
+     "label": "декор на тумбе / decor on bedside table"
+    }
+   }
+  }
+ },
+ "order": [
+  "sleep",
+  "work",
+  "play",
+  "storage",
+  "dressing",
+  "seat",
+  "mirror",
+  "light",
+  "textile",
+  "art",
+  "decor"
+ ],
+ "templates": [
+  {
+   "id": "br.couple_axis_side_storage",
+   "label": "Пара: кровать по оси глухой стены, хранение сбоку / Couple: bed on a solid wall axis, storage at the side",
+   "purpose": [
+    "couple"
+   ],
+   "priority": 10,
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.bedroom_catalog.area_min_m2.couple"
+    }
+   ],
+   "anchors": {
+    "sleep": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid",
+      "axis"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "relation": "beside_sleep_not_foot"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "side_access",
+     "sides": 2,
+     "rule_ref": "distances_cm.bed_side_passage"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.bed_foot_swing_max_share"
+    }
+   ],
+   "groups": [
+    {
+     "id": "sleep",
+     "variants": [
+      "double_large_pair",
+      "double_pair"
+     ],
+     "required": true
+    },
+    {
+     "id": "storage",
+     "variants": [
+      "wardrobe_dresser",
+      "wardrobe",
+      "dresser"
+     ],
+     "required": false
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ],
+     "required": false
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "full_height"
+     ],
+     "required": false
+    },
+    {
+     "id": "light",
+     "variants": [
+      "bedside"
+     ],
+     "required": false
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "decor",
+     "variants": [
+      "on_dresser",
+      "on_ns"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "no_storage_in_sleep_side_zone"
+    },
+    {
+     "kind": "storage_front_radiator",
+     "rule_ref": "distances_cm.storage_open_reach"
+    },
+    {
+     "kind": "bed_head_not_under_window",
+     "rule_ref": "distances_cm.clearances.bed_long_side_window_wall"
+    },
+    {
+     "kind": "storage_beside_sleep_axis"
+    },
+    {
+     "kind": "no_wardrobe_small_square",
+     "purpose": [
+      "couple"
+     ],
+     "rule_ref": "distances_cm.bedroom_small_couple_max_m2"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "use": {
+      "sleep": "double_large_pair",
+      "storage": "wardrobe_dresser",
+      "seat": "bench",
+      "mirror": "full_height",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     },
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.bedroom_catalog.area_min_m2.couple_wardrobe_zone"
+      }
+     ]
+    },
+    {
+     "id": "B",
+     "use": {
+      "sleep": "double_pair",
+      "storage": "wardrobe_dresser",
+      "mirror": "full_height",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "C",
+     "use": {
+      "sleep": "double_pair",
+      "storage": "wardrobe",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "D",
+     "use": {
+      "sleep": "double_pair",
+      "storage": "dresser",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "E",
+     "use": {
+      "sleep": "double_pair",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     },
+     "when": [
+      {
+       "kind": "external_storage"
+      }
+     ]
+    }
+   ],
+   "sleep_before_mode": {
+    "purpose": [
+     "couple"
+    ],
+    "want": {
+     "couple": "pair"
+    },
+    "_why": "T-20261112-95 (владелец TG 910/929): паре вторая тумба важнее режима прохода — «две тумбы + compact» лучше «без тумбы по цели»; владелец TG 1364: «пара — обе тумбы, шкаф меньше/комод»"
+   },
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "required_roles",
+    "dependent_slots_have_carrier",
+    "no_silent_unplaced",
+    "storage_required"
+   ],
+   "selection_tags": [
+    "axis_from_door",
+    "solid_head_wall"
+   ],
+   "_why": "наследник br.pair_axis (пара). Две тумбы не снимаются (TG 1364); уступает хранение: шкаф+комод → шкаф → комод; без хранения — только при внешнем хранении"
+  },
+  {
+   "id": "br.couple_axis_foot_storage",
+   "label": "Пара: шкаф напротив изножья / Couple: wardrobe facing the bed foot",
+   "purpose": [
+    "couple"
+   ],
+   "priority": 12,
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.bedroom_catalog.area_min_m2.couple"
+    }
+   ],
+   "anchors": {
+    "sleep": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid",
+      "axis"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "relation": "opposite_sleep_foot"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "side_access",
+     "sides": 2,
+     "rule_ref": "distances_cm.bed_side_passage"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.bed_foot_swing_max_share"
+    },
+    {
+     "kind": "clear_width",
+     "of": "bed_axis",
+     "rule_ref": "distances_cm.bedroom_catalog.foot_storage_axis_depth_min"
+    }
+   ],
+   "groups": [
+    {
+     "id": "sleep",
+     "variants": [
+      "double_pair"
+     ],
+     "required": true
+    },
+    {
+     "id": "storage",
+     "variants": [
+      "wardrobe_dresser",
+      "wardrobe"
+     ],
+     "required": false
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "full_height"
+     ],
+     "required": false
+    },
+    {
+     "id": "light",
+     "variants": [
+      "bedside"
+     ],
+     "required": false
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "decor",
+     "variants": [
+      "on_dresser",
+      "on_ns"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "no_storage_in_sleep_side_zone"
+    },
+    {
+     "kind": "storage_front_radiator",
+     "rule_ref": "distances_cm.storage_open_reach"
+    },
+    {
+     "kind": "bed_head_not_under_window",
+     "rule_ref": "distances_cm.clearances.bed_long_side_window_wall"
+    },
+    {
+     "kind": "storage_opposite_bed_foot",
+     "rule_ref": "distances_cm.clearances.wardrobe_hinged_front"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "use": {
+      "sleep": "double_pair",
+      "storage": "wardrobe_dresser",
+      "mirror": "full_height",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "B",
+     "use": {
+      "sleep": "double_pair",
+      "storage": "wardrobe",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    }
+   ],
+   "sleep_before_mode": {
+    "purpose": [
+     "couple"
+    ],
+    "want": {
+     "couple": "pair"
+    },
+    "_why": "T-20261112-95 (владелец TG 910/929): паре вторая тумба важнее режима прохода — «две тумбы + compact» лучше «без тумбы по цели»; владелец TG 1364: «пара — обе тумбы, шкаф меньше/комод»"
+   },
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "required_roles",
+    "dependent_slots_have_carrier",
+    "no_silent_unplaced",
+    "storage_required"
+   ],
+   "selection_tags": [
+    "wardrobe_at_foot"
+   ],
+   "_why": "глубина по оси кровати ≥ 335 (рама + шкаф 60 + проход 70); распашной→купе — тип фасада товара"
+  },
+  {
+   "id": "br.couple_cross_long",
+   "label": "Пара: кровать поперёк узкой комнаты у длинной стены / Couple: bed across a narrow room on the long wall",
+   "purpose": [
+    "couple"
+   ],
+   "priority": 14,
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.bedroom_catalog.area_min_m2.couple"
+    },
+    {
+     "kind": "aspect_min",
+     "rule_ref": "distances_cm.bedroom_elongated_aspect_min"
+    }
+   ],
+   "anchors": {
+    "sleep": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid",
+      "long"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "relation": "short_wall"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "side_access",
+     "sides": 2,
+     "rule_ref": "distances_cm.bed_side_passage"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.bed_foot_swing_max_share"
+    }
+   ],
+   "groups": [
+    {
+     "id": "sleep",
+     "variants": [
+      "double_pair"
+     ],
+     "required": true
+    },
+    {
+     "id": "storage",
+     "variants": [
+      "wardrobe_dresser",
+      "wardrobe",
+      "dresser"
+     ],
+     "required": false
+    },
+    {
+     "id": "light",
+     "variants": [
+      "bedside"
+     ],
+     "required": false
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "decor",
+     "variants": [
+      "on_dresser",
+      "on_ns"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "no_storage_in_sleep_side_zone"
+    },
+    {
+     "kind": "storage_front_radiator",
+     "rule_ref": "distances_cm.storage_open_reach"
+    },
+    {
+     "kind": "bed_head_not_under_window",
+     "rule_ref": "distances_cm.clearances.bed_long_side_window_wall"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "use": {
+      "sleep": "double_pair",
+      "storage": "wardrobe_dresser",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "B",
+     "use": {
+      "sleep": "double_pair",
+      "storage": "wardrobe",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "C",
+     "use": {
+      "sleep": "double_pair",
+      "storage": "dresser",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    }
+   ],
+   "sleep_before_mode": {
+    "purpose": [
+     "couple"
+    ],
+    "want": {
+     "couple": "pair"
+    },
+    "_why": "T-20261112-95 (владелец TG 910/929): паре вторая тумба важнее режима прохода — «две тумбы + compact» лучше «без тумбы по цели»; владелец TG 1364: «пара — обе тумбы, шкаф меньше/комод»"
+   },
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "required_roles",
+    "dependent_slots_have_carrier",
+    "no_silent_unplaced",
+    "storage_required"
+   ],
+   "selection_tags": [
+    "long_head_wall",
+    "narrow_room"
+   ],
+   "_why": "узкая комната, короткие стены заняты дверью/окном (пример Codex 2,55×4,2): 160→140, иначе отказ"
+  },
+  {
+   "id": "br.couple_dressing",
+   "label": "Пара + туалетный столик / Couple with dressing table",
+   "purpose": [
+    "couple"
+   ],
+   "priority": 16,
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.bedroom_catalog.area_min_m2.couple_dressing"
+    }
+   ],
+   "anchors": {
+    "sleep": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ]
+    },
+    "dressing": {
+     "type": "window",
+     "relation": "side_light"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "side_access",
+     "sides": 2,
+     "rule_ref": "distances_cm.bed_side_passage"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.bed_foot_swing_max_share"
+    }
+   ],
+   "groups": [
+    {
+     "id": "sleep",
+     "variants": [
+      "double_large_pair",
+      "double_pair"
+     ],
+     "required": true
+    },
+    {
+     "id": "storage",
+     "variants": [
+      "wardrobe",
+      "wardrobe_dresser"
+     ],
+     "required": false
+    },
+    {
+     "id": "dressing",
+     "variants": [
+      "table_seat"
+     ],
+     "required": false
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "bench"
+     ],
+     "required": false
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "full_height"
+     ],
+     "required": false
+    },
+    {
+     "id": "light",
+     "variants": [
+      "bedside"
+     ],
+     "required": false
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "decor",
+     "variants": [
+      "on_ns",
+      "on_dresser"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "no_storage_in_sleep_side_zone"
+    },
+    {
+     "kind": "storage_front_radiator",
+     "rule_ref": "distances_cm.storage_open_reach"
+    },
+    {
+     "kind": "bed_head_not_under_window",
+     "rule_ref": "distances_cm.clearances.bed_long_side_window_wall"
+    },
+    {
+     "kind": "dressing_near_window_light"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "use": {
+      "sleep": "double_large_pair",
+      "storage": "wardrobe",
+      "dressing": "table_seat",
+      "seat": "bench",
+      "mirror": "full_height",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     },
+     "when": [
+      {
+       "kind": "area_min",
+       "rule_ref": "distances_cm.bedroom_catalog.area_min_m2.couple_wardrobe_zone"
+      }
+     ]
+    },
+    {
+     "id": "B",
+     "use": {
+      "sleep": "double_pair",
+      "storage": "wardrobe",
+      "dressing": "table_seat",
+      "mirror": "full_height",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "C",
+     "use": {
+      "sleep": "double_pair",
+      "storage": "wardrobe_dresser",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "D",
+     "use": {
+      "sleep": "double_pair",
+      "storage": "wardrobe",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    }
+   ],
+   "sleep_before_mode": {
+    "purpose": [
+     "couple"
+    ],
+    "want": {
+     "couple": "pair"
+    },
+    "_why": "T-20261112-95 (владелец TG 910/929): паре вторая тумба важнее режима прохода — «две тумбы + compact» лучше «без тумбы по цели»; владелец TG 1364: «пара — обе тумбы, шкаф меньше/комод»"
+   },
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "required_roles",
+    "dependent_slots_have_carrier",
+    "no_silent_unplaced",
+    "storage_required"
+   ],
+   "selection_tags": [
+    "dressing_table"
+   ],
+   "_why": "12–16 м²: туалетный столик → комод → без столика"
+  },
+  {
+   "id": "br.couple_wardrobe_zone",
+   "label": "Пара + гардеробная зона / Couple with wardrobe zone",
+   "purpose": [
+    "couple"
+   ],
+   "priority": 18,
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.bedroom_catalog.area_min_m2.couple_wardrobe_zone"
+    }
+   ],
+   "anchors": {
+    "sleep": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ]
+    },
+    "storage": {
+     "type": "niche",
+     "relation": "or_long_free_wall"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "side_access",
+     "sides": 2,
+     "rule_ref": "distances_cm.bed_side_passage"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.bed_foot_swing_max_share"
+    }
+   ],
+   "groups": [
+    {
+     "id": "sleep",
+     "variants": [
+      "double_large_pair",
+      "double_pair"
+     ],
+     "required": true
+    },
+    {
+     "id": "storage",
+     "variants": [
+      "walk_in",
+      "wardrobe_run",
+      "wardrobe_dresser"
+     ],
+     "required": false
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "armchair"
+     ],
+     "required": false
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "full_height"
+     ],
+     "required": false
+    },
+    {
+     "id": "light",
+     "variants": [
+      "bedside"
+     ],
+     "required": false
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "decor",
+     "variants": [
+      "on_ns",
+      "on_dresser"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "no_storage_in_sleep_side_zone"
+    },
+    {
+     "kind": "storage_front_radiator",
+     "rule_ref": "distances_cm.storage_open_reach"
+    },
+    {
+     "kind": "bed_head_not_under_window",
+     "rule_ref": "distances_cm.clearances.bed_long_side_window_wall"
+    },
+    {
+     "kind": "storage_zone_contiguous"
+    },
+    {
+     "kind": "walk_in_inner_passage",
+     "rule_ref": "distances_cm.clearances.wardrobe_hinged_front"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "use": {
+      "sleep": "double_large_pair",
+      "storage": "walk_in",
+      "seat": "armchair",
+      "mirror": "full_height",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     },
+     "when": [
+      {
+       "kind": "has_niche"
+      }
+     ]
+    },
+    {
+     "id": "B",
+     "use": {
+      "sleep": "double_large_pair",
+      "storage": "wardrobe_run",
+      "mirror": "full_height",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "C",
+     "use": {
+      "sleep": "double_pair",
+      "storage": "wardrobe_run",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "D",
+     "use": {
+      "sleep": "double_pair",
+      "storage": "wardrobe_dresser",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    }
+   ],
+   "sleep_before_mode": {
+    "purpose": [
+     "couple"
+    ],
+    "want": {
+     "couple": "pair"
+    },
+    "_why": "T-20261112-95 (владелец TG 910/929): паре вторая тумба важнее режима прохода — «две тумбы + compact» лучше «без тумбы по цели»; владелец TG 1364: «пара — обе тумбы, шкаф меньше/комод»"
+   },
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "required_roles",
+    "dependent_slots_have_carrier",
+    "no_silent_unplaced",
+    "storage_required"
+   ],
+   "selection_tags": [
+    "wardrobe_zone"
+   ],
+   "_why": "15–20+ м²: гардеробная — отдельная зона с внутренним проходом, не «очень большой шкаф»; walk-in → стена шкафов → шкаф+комод"
+  },
+  {
+   "id": "br.couple_office",
+   "label": "Пара + рабочее место / Couple with a desk",
+   "purpose": [
+    "couple"
+   ],
+   "priority": 20,
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.bedroom_catalog.area_min_m2.couple_office"
+    },
+    {
+     "kind": "work_needed"
+    }
+   ],
+   "anchors": {
+    "sleep": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ]
+    },
+    "work": {
+     "type": "window",
+     "qualifiers": [
+      "radiator_checked"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "side_access",
+     "sides": 2,
+     "rule_ref": "distances_cm.bed_side_passage"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.bed_foot_swing_max_share"
+    },
+    {
+     "kind": "route",
+     "from": "door",
+     "to": [
+      "sleep",
+      "work"
+     ]
+    }
+   ],
+   "groups": [
+    {
+     "id": "sleep",
+     "variants": [
+      "double_pair"
+     ],
+     "required": true
+    },
+    {
+     "id": "work",
+     "variants": [
+      "desk_chair"
+     ],
+     "required": true
+    },
+    {
+     "id": "storage",
+     "variants": [
+      "wardrobe_dresser",
+      "wardrobe",
+      "dresser"
+     ],
+     "required": false
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "full_height"
+     ],
+     "required": false
+    },
+    {
+     "id": "light",
+     "variants": [
+      "bedside_desk"
+     ],
+     "required": false
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "decor",
+     "variants": [
+      "on_dresser",
+      "on_ns"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "no_storage_in_sleep_or_work_access"
+    },
+    {
+     "kind": "storage_front_radiator",
+     "rule_ref": "distances_cm.storage_open_reach"
+    },
+    {
+     "kind": "bed_head_not_under_window",
+     "rule_ref": "distances_cm.clearances.bed_long_side_window_wall"
+    },
+    {
+     "kind": "desk_daylight_side",
+     "rule_ref": "distances_cm.desk_window_max"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "use": {
+      "sleep": "double_pair",
+      "storage": "wardrobe_dresser",
+      "work": "desk_chair",
+      "mirror": "full_height",
+      "light": "bedside_desk",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "B",
+     "use": {
+      "sleep": "double_pair",
+      "storage": "wardrobe",
+      "work": "desk_chair",
+      "light": "bedside_desk",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "C",
+     "use": {
+      "sleep": "double_pair",
+      "storage": "dresser",
+      "work": "desk_chair",
+      "light": "bedside_desk",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    }
+   ],
+   "sleep_before_mode": {
+    "purpose": [
+     "couple"
+    ],
+    "want": {
+     "couple": "pair"
+    },
+    "_why": "T-20261112-95 (владелец TG 910/929): паре вторая тумба важнее режима прохода — «две тумбы + compact» лучше «без тумбы по цели»; владелец TG 1364: «пара — обе тумбы, шкаф меньше/комод»"
+   },
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "required_roles",
+    "dependent_slots_have_carrier",
+    "no_silent_unplaced",
+    "storage_required"
+   ],
+   "selection_tags": [
+    "desk_near_window"
+   ],
+   "_why": "13–20+ м², назначение «пара + работа» (флаг проекта): стол не снимается, комод уходит раньше"
+  },
+  {
+   "id": "br.single_double_comfort",
+   "label": "Один взрослый: кровать 140/120 / One adult: small double",
+   "purpose": [
+    "single"
+   ],
+   "priority": 28,
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.bedroom_catalog.area_min_m2.single_comfort"
+    }
+   ],
+   "anchors": {
+    "sleep": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "side_access",
+     "sides": 1,
+     "rule_ref": "distances_cm.bed_side_passage"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.bed_foot_swing_max_share"
+    }
+   ],
+   "groups": [
+    {
+     "id": "sleep",
+     "variants": [
+      "comfort_pair",
+      "comfort_one_side"
+     ],
+     "required": true
+    },
+    {
+     "id": "storage",
+     "variants": [
+      "wardrobe_dresser",
+      "wardrobe",
+      "dresser"
+     ],
+     "required": false
+    },
+    {
+     "id": "light",
+     "variants": [
+      "bedside"
+     ],
+     "required": false
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "decor",
+     "variants": [
+      "on_dresser",
+      "on_ns"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "no_storage_in_sleep_side_zone"
+    },
+    {
+     "kind": "storage_front_radiator",
+     "rule_ref": "distances_cm.storage_open_reach"
+    },
+    {
+     "kind": "bed_head_not_under_window",
+     "rule_ref": "distances_cm.clearances.bed_long_side_window_wall"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "use": {
+      "sleep": "comfort_pair",
+      "storage": "wardrobe_dresser",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "B",
+     "use": {
+      "sleep": "comfort_one_side",
+      "storage": "wardrobe_dresser",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "C",
+     "use": {
+      "sleep": "comfort_one_side",
+      "storage": "wardrobe",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "D",
+     "use": {
+      "sleep": "comfort_one_side",
+      "storage": "dresser",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    }
+   ],
+   "sleep_before_mode": {
+    "purpose": [
+     "single",
+     "single_narrow"
+    ],
+    "want": {
+     "single": "one_side",
+     "single_narrow": "one_side"
+    },
+    "_why": "владелец TG 1219 (исключение из ADR-0394): одна тумба + compact лучше, чем без тумбы по цели"
+   },
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "required_roles",
+    "dependent_slots_have_carrier",
+    "no_silent_unplaced",
+    "storage_required"
+   ],
+   "selection_tags": [
+    "solid_head_wall"
+   ],
+   "_why": "10–15+ м², один взрослый: 140→120, 1–2 подхода"
+  },
+  {
+   "id": "br.single_corner",
+   "label": "Одиночная: кровать в углу / Single: bed in the corner",
+   "purpose": [
+    "single",
+    "single_narrow",
+    "guest"
+   ],
+   "priority": 30,
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.bedroom_catalog.area_min_m2.single"
+    }
+   ],
+   "anchors": {
+    "sleep": {
+     "type": "corner",
+     "relation": "solid_wall"
+    },
+    "storage": {
+     "type": "wall_segment",
+     "relation": "outside_sleep_access"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "side_access",
+     "sides": 1,
+     "rule_ref": "distances_cm.bed_side_passage"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.bed_foot_swing_max_share"
+    }
+   ],
+   "groups": [
+    {
+     "id": "sleep",
+     "variants": [
+      "single_one_side",
+      "single_solo"
+     ],
+     "required": true
+    },
+    {
+     "id": "storage",
+     "variants": [
+      "wardrobe_dresser",
+      "wardrobe",
+      "dresser"
+     ],
+     "required": false
+    },
+    {
+     "id": "light",
+     "variants": [
+      "bedside",
+      "headboard"
+     ],
+     "required": false
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "decor",
+     "variants": [
+      "on_dresser",
+      "on_ns"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "no_storage_in_sleep_side_zone"
+    },
+    {
+     "kind": "storage_front_radiator",
+     "rule_ref": "distances_cm.storage_open_reach"
+    },
+    {
+     "kind": "bed_head_not_under_window",
+     "rule_ref": "distances_cm.clearances.bed_long_side_window_wall"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "use": {
+      "sleep": "single_one_side",
+      "storage": "wardrobe_dresser",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "B",
+     "use": {
+      "sleep": "single_one_side",
+      "storage": "wardrobe",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "C",
+     "use": {
+      "sleep": "single_one_side",
+      "storage": "dresser",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "D",
+     "use": {
+      "sleep": "single_solo",
+      "storage": "wardrobe",
+      "light": "headboard",
+      "textile": "bed",
+      "art": "over_bed"
+     }
+    },
+    {
+     "id": "E",
+     "use": {
+      "sleep": "single_solo",
+      "storage": "dresser",
+      "light": "headboard",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "F",
+     "use": {
+      "sleep": "single_solo",
+      "light": "headboard",
+      "textile": "bed",
+      "art": "over_bed"
+     },
+     "when": [
+      {
+       "kind": "external_storage"
+      }
+     ]
+    }
+   ],
+   "sleep_before_mode": {
+    "purpose": [
+     "single",
+     "single_narrow",
+     "guest"
+    ],
+    "want": {
+     "single": "one_side",
+     "single_narrow": "one_side",
+     "guest": "one_side"
+    },
+    "_why": "владелец TG 1219 (исключение из ADR-0394): одна тумба + compact лучше, чем без тумбы по цели"
+   },
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "required_roles",
+    "dependent_slots_have_carrier",
+    "no_silent_unplaced",
+    "storage_required"
+   ],
+   "selection_tags": [
+    "long_side_on_wall"
+   ],
+   "_why": "наследник br.single_corner: от ~5 м² (UK, TG 1364); 120→100→90; гостевая на одного — сюда же после guest_double"
+  },
+  {
+   "id": "br.single_head_wall",
+   "label": "Одиночная: изголовье к стене, не в углу / Single: headboard to a wall, off the corner",
+   "purpose": [
+    "single",
+    "single_narrow",
+    "guest"
+   ],
+   "priority": 31,
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.bedroom_catalog.area_min_m2.single"
+    }
+   ],
+   "anchors": {
+    "sleep": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ]
+    },
+    "storage": {
+     "type": "wall_segment",
+     "relation": "outside_sleep_access"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "side_access",
+     "sides": 1,
+     "rule_ref": "distances_cm.bed_side_passage"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.bed_foot_swing_max_share"
+    }
+   ],
+   "groups": [
+    {
+     "id": "sleep",
+     "variants": [
+      "single_one_side",
+      "single_solo"
+     ],
+     "required": true
+    },
+    {
+     "id": "storage",
+     "variants": [
+      "wardrobe_dresser",
+      "wardrobe",
+      "dresser"
+     ],
+     "required": false
+    },
+    {
+     "id": "light",
+     "variants": [
+      "bedside",
+      "headboard"
+     ],
+     "required": false
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "decor",
+     "variants": [
+      "on_dresser",
+      "on_ns"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "no_storage_in_sleep_side_zone"
+    },
+    {
+     "kind": "storage_front_radiator",
+     "rule_ref": "distances_cm.storage_open_reach"
+    },
+    {
+     "kind": "bed_head_not_under_window",
+     "rule_ref": "distances_cm.clearances.bed_long_side_window_wall"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "use": {
+      "sleep": "single_one_side",
+      "storage": "wardrobe_dresser",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "B",
+     "use": {
+      "sleep": "single_one_side",
+      "storage": "wardrobe",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "C",
+     "use": {
+      "sleep": "single_one_side",
+      "storage": "dresser",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "D",
+     "use": {
+      "sleep": "single_solo",
+      "storage": "wardrobe",
+      "light": "headboard",
+      "textile": "bed",
+      "art": "over_bed"
+     }
+    },
+    {
+     "id": "E",
+     "use": {
+      "sleep": "single_solo",
+      "storage": "dresser",
+      "light": "headboard",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "F",
+     "use": {
+      "sleep": "single_solo",
+      "light": "headboard",
+      "textile": "bed",
+      "art": "over_bed"
+     },
+     "when": [
+      {
+       "kind": "external_storage"
+      }
+     ]
+    }
+   ],
+   "sleep_before_mode": {
+    "purpose": [
+     "single",
+     "single_narrow",
+     "guest"
+    ],
+    "want": {
+     "single": "one_side",
+     "single_narrow": "one_side",
+     "guest": "one_side"
+    },
+    "_why": "владелец TG 1219 (исключение из ADR-0394): одна тумба + compact лучше, чем без тумбы по цели"
+   },
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "required_roles",
+    "dependent_slots_have_carrier",
+    "no_silent_unplaced",
+    "storage_required"
+   ],
+   "selection_tags": [
+    "solid_head_wall"
+   ],
+   "_why": "КАНДИДАТ ИЗ ПРОГОНА ЛИСТОВ (T-120, 13.11; Codex не смотрел): углы маленькой спальни заняты дверью/проходом/окном (туры iT0X b3/b4, aRQV b3 — 8 м²; демо 597×293) → single_corner отказывает, а живой движок ставит гостевую 120 изголовьем к середине стены с тумбой; правило владельца TG 1352 «не хватает — новый шаблон»"
+  },
+  {
+   "id": "br.single_work_window",
+   "label": "Одиночная + стол у окна / Single with a desk by the window",
+   "purpose": [
+    "single",
+    "single_narrow",
+    "office"
+   ],
+   "priority": 32,
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.bedroom_catalog.area_min_m2.single"
+    },
+    {
+     "kind": "work_needed"
+    }
+   ],
+   "anchors": {
+    "work": {
+     "type": "window",
+     "qualifiers": [
+      "radiator_checked"
+     ]
+    },
+    "sleep": {
+     "type": "corner",
+     "relation": "outside_work_access"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "side_access",
+     "sides": 1,
+     "rule_ref": "distances_cm.bed_side_passage"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.bed_foot_swing_max_share"
+    },
+    {
+     "kind": "route",
+     "from": "door",
+     "to": [
+      "sleep",
+      "work"
+     ]
+    }
+   ],
+   "groups": [
+    {
+     "id": "sleep",
+     "variants": [
+      "single_one_side",
+      "single_solo"
+     ],
+     "required": true
+    },
+    {
+     "id": "work",
+     "variants": [
+      "desk_chair"
+     ],
+     "required": true
+    },
+    {
+     "id": "storage",
+     "variants": [
+      "wardrobe_dresser",
+      "wardrobe",
+      "dresser"
+     ],
+     "required": false
+    },
+    {
+     "id": "light",
+     "variants": [
+      "bedside_desk",
+      "headboard_desk"
+     ],
+     "required": false
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "decor",
+     "variants": [
+      "on_dresser",
+      "on_ns"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "no_storage_in_sleep_or_work_access"
+    },
+    {
+     "kind": "storage_front_radiator",
+     "rule_ref": "distances_cm.storage_open_reach"
+    },
+    {
+     "kind": "bed_head_not_under_window",
+     "rule_ref": "distances_cm.clearances.bed_long_side_window_wall"
+    },
+    {
+     "kind": "desk_daylight_side",
+     "rule_ref": "distances_cm.desk_window_max"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "use": {
+      "sleep": "single_one_side",
+      "storage": "wardrobe_dresser",
+      "work": "desk_chair",
+      "light": "bedside_desk",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "B",
+     "use": {
+      "sleep": "single_one_side",
+      "storage": "wardrobe",
+      "work": "desk_chair",
+      "light": "bedside_desk",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "C",
+     "use": {
+      "sleep": "single_solo",
+      "storage": "wardrobe",
+      "work": "desk_chair",
+      "light": "headboard_desk",
+      "textile": "bed",
+      "art": "over_bed"
+     }
+    },
+    {
+     "id": "D",
+     "use": {
+      "sleep": "single_solo",
+      "storage": "dresser",
+      "work": "desk_chair",
+      "light": "headboard_desk",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    }
+   ],
+   "sleep_before_mode": {
+    "purpose": [
+     "single",
+     "single_narrow"
+    ],
+    "want": {
+     "single": "one_side",
+     "single_narrow": "one_side"
+    },
+    "_why": "владелец TG 1219 (исключение из ADR-0394): одна тумба + compact лучше, чем без тумбы по цели"
+   },
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "required_roles",
+    "dependent_slots_have_carrier",
+    "no_silent_unplaced",
+    "storage_required"
+   ],
+   "selection_tags": [
+    "desk_near_window"
+   ],
+   "_why": "стол взрослому — только по запросу (work_needed: назначение office или флаг проекта; Codex §1 «стол для взрослой — опция»); комод уходит раньше стола"
+  },
+  {
+   "id": "br.guest_double",
+   "label": "Гостевая на двоих / Guest double",
+   "purpose": [
+    "guest"
+   ],
+   "priority": 40,
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.bedroom_catalog.area_min_m2.guest_double"
+    }
+   ],
+   "anchors": {
+    "sleep": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "side_access",
+     "sides": 1,
+     "rule_ref": "distances_cm.bed_side_passage"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.bed_foot_swing_max_share"
+    }
+   ],
+   "groups": [
+    {
+     "id": "sleep",
+     "variants": [
+      "guest_one_side",
+      "guest_solo"
+     ],
+     "required": true
+    },
+    {
+     "id": "storage",
+     "variants": [
+      "wardrobe_dresser",
+      "wardrobe",
+      "dresser"
+     ],
+     "required": false
+    },
+    {
+     "id": "light",
+     "variants": [
+      "bedside",
+      "headboard"
+     ],
+     "required": false
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "decor",
+     "variants": [
+      "on_dresser",
+      "on_ns"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "no_storage_in_sleep_side_zone"
+    },
+    {
+     "kind": "storage_front_radiator",
+     "rule_ref": "distances_cm.storage_open_reach"
+    },
+    {
+     "kind": "bed_head_not_under_window",
+     "rule_ref": "distances_cm.clearances.bed_long_side_window_wall"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "use": {
+      "sleep": "guest_one_side",
+      "storage": "wardrobe_dresser",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "B",
+     "use": {
+      "sleep": "guest_one_side",
+      "storage": "wardrobe",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "C",
+     "use": {
+      "sleep": "guest_solo",
+      "storage": "wardrobe_dresser",
+      "light": "headboard",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "D",
+     "use": {
+      "sleep": "guest_one_side",
+      "storage": "dresser",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "E",
+     "use": {
+      "sleep": "guest_solo",
+      "storage": "dresser",
+      "light": "headboard",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    }
+   ],
+   "sleep_before_mode": {
+    "purpose": [
+     "guest"
+    ],
+    "want": {
+     "guest": "one_side"
+    },
+    "_why": "владелец TG 1219: гостевой — одна тумба + compact"
+   },
+   "storage_count_first": {
+    "purpose": [
+     "guest"
+    ],
+    "_why": "владелец TG 1833: в тесной гостевой — комод, не тумба (T-47/2): «шкаф + комод без тумбы» лучше «тумба + шкаф»"
+   },
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "required_roles",
+    "dependent_slots_have_carrier",
+    "no_silent_unplaced",
+    "storage_required"
+   ],
+   "selection_tags": [
+    "solid_head_wall"
+   ],
+   "_why": "наследник br.pair_axis (гостевая): 135/140, рабочий бок, хранение для вещей и белья; double→single только у гостевой на одного"
+  },
+  {
+   "id": "br.guest_office_flex",
+   "label": "Кабинет-гостевая: стол + диван-кровать / Study-guest: desk + sofa bed",
+   "purpose": [
+    "office"
+   ],
+   "priority": 5,
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.bedroom_catalog.area_min_m2.guest_office"
+    }
+   ],
+   "anchors": {
+    "work": {
+     "type": "window",
+     "qualifiers": [
+      "radiator_checked"
+     ]
+    },
+    "sleep": {
+     "type": "wall_segment",
+     "relation": "outside_work_access"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "route",
+     "from": "door",
+     "to": [
+      "work"
+     ]
+    }
+   ],
+   "groups": [
+    {
+     "id": "sleep",
+     "variants": [
+      "sofa_bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "work",
+     "variants": [
+      "desk_chair"
+     ],
+     "required": true
+    },
+    {
+     "id": "storage",
+     "variants": [
+      "wardrobe",
+      "dresser"
+     ],
+     "required": false
+    },
+    {
+     "id": "light",
+     "variants": [
+      "headboard_desk",
+      "desk"
+     ],
+     "required": false
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "bed",
+      "curtains"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_bed",
+      "over_side"
+     ],
+     "required": false
+    },
+    {
+     "id": "decor",
+     "variants": [
+      "on_dresser"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "no_storage_in_sleep_or_work_access"
+    },
+    {
+     "kind": "storage_front_radiator",
+     "rule_ref": "distances_cm.storage_open_reach"
+    },
+    {
+     "kind": "desk_daylight_side",
+     "rule_ref": "distances_cm.desk_window_max"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "use": {
+      "sleep": "sofa_bed",
+      "work": "desk_chair",
+      "storage": "wardrobe",
+      "light": "headboard_desk",
+      "textile": "bed",
+      "art": "over_bed"
+     }
+    },
+    {
+     "id": "B",
+     "use": {
+      "sleep": "sofa_bed",
+      "work": "desk_chair",
+      "storage": "dresser",
+      "light": "headboard_desk",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "C",
+     "use": {
+      "work": "desk_chair",
+      "storage": "wardrobe",
+      "light": "desk",
+      "textile": "curtains",
+      "art": "over_side"
+     }
+    },
+    {
+     "id": "D",
+     "use": {
+      "work": "desk_chair",
+      "storage": "dresser",
+      "light": "desk",
+      "textile": "curtains",
+      "art": "over_side",
+      "decor": "on_dresser"
+     }
+    }
+   ],
+   "label_without": {
+    "group": "sleep",
+    "label": "office"
+   },
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "required_roles",
+    "dependent_slots_have_carrier",
+    "no_silent_unplaced",
+    "storage_required"
+   ],
+   "selection_tags": [
+    "desk_near_window"
+   ],
+   "_why": "наследник br.office_work: стол не снимается; без спального места — «кабинет» (ADR-0384 поправка 3). Комната 6–7,5 м² при других спальнях — кабинет (TG 1364)"
+  },
+  {
+   "id": "br.twin_parallel",
+   "label": "Две кровати параллельно / Twin beds",
+   "purpose": [
+    "twin"
+   ],
+   "priority": 50,
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.bedroom_catalog.area_min_m2.twin"
+    }
+   ],
+   "anchors": {
+    "sleep": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "side_access",
+     "sides": 1,
+     "rule_ref": "distances_cm.bed_side_passage"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.bed_foot_swing_max_share"
+    }
+   ],
+   "groups": [
+    {
+     "id": "sleep",
+     "variants": [
+      "twin_two_ns",
+      "twin_shared_ns"
+     ],
+     "required": true
+    },
+    {
+     "id": "storage",
+     "variants": [
+      "wardrobe_dresser",
+      "wardrobe",
+      "dresser"
+     ],
+     "required": false
+    },
+    {
+     "id": "light",
+     "variants": [
+      "bedside"
+     ],
+     "required": false
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "decor",
+     "variants": [
+      "on_dresser",
+      "on_ns"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "no_storage_in_sleep_side_zone"
+    },
+    {
+     "kind": "storage_front_radiator",
+     "rule_ref": "distances_cm.storage_open_reach"
+    },
+    {
+     "kind": "bed_head_not_under_window",
+     "rule_ref": "distances_cm.clearances.bed_long_side_window_wall"
+    },
+    {
+     "kind": "twin_beds_parallel",
+     "rule_ref": "distances_cm.bed_side_passage"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "use": {
+      "sleep": "twin_two_ns",
+      "storage": "wardrobe_dresser",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    },
+    {
+     "id": "B",
+     "use": {
+      "sleep": "twin_two_ns",
+      "storage": "wardrobe",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "C",
+     "use": {
+      "sleep": "twin_shared_ns",
+      "storage": "wardrobe",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "D",
+     "use": {
+      "sleep": "twin_shared_ns",
+      "storage": "dresser",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "required_roles",
+    "dependent_slots_have_carrier",
+    "no_silent_unplaced",
+    "storage_required"
+   ],
+   "selection_tags": [
+    "twin"
+   ],
+   "_why": "≥ 11,5 м² (NDSS twin): 2×90, рабочий бок у каждой, хранение на двоих; тумбы → общая; кровати не удалять"
+  },
+  {
+   "id": "br.child_0_3_cot",
+   "label": "Детская 0–3: кроватка + пеленальный комод / Nursery: cot + changing chest",
+   "purpose": [
+    "child:0-3"
+   ],
+   "priority": 5,
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.bedroom_catalog.area_min_m2.child_0_3"
+    }
+   ],
+   "anchors": {
+    "sleep": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid",
+      "away_from_window"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "side_access",
+     "sides": 1,
+     "rule_ref": "distances_cm.bed_side_passage"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.bed_foot_swing_max_share"
+    }
+   ],
+   "groups": [
+    {
+     "id": "sleep",
+     "variants": [
+      "cot"
+     ],
+     "required": true
+    },
+    {
+     "id": "storage",
+     "variants": [
+      "wardrobe_dresser",
+      "dresser"
+     ],
+     "required": false
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "armchair"
+     ],
+     "required": false
+    },
+    {
+     "id": "light",
+     "variants": [
+      "nursery"
+     ],
+     "required": false
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "nursery"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_side"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "storage_front_radiator",
+     "rule_ref": "distances_cm.storage_open_reach"
+    },
+    {
+     "kind": "cot_safety",
+     "rule_ref": "distances_cm.bed_radiator_soft"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "use": {
+      "sleep": "cot",
+      "storage": "wardrobe_dresser",
+      "seat": "armchair",
+      "light": "nursery",
+      "textile": "nursery",
+      "art": "over_side"
+     }
+    },
+    {
+     "id": "B",
+     "use": {
+      "sleep": "cot",
+      "storage": "wardrobe_dresser",
+      "light": "nursery",
+      "textile": "nursery",
+      "art": "over_side"
+     }
+    },
+    {
+     "id": "C",
+     "use": {
+      "sleep": "cot",
+      "storage": "dresser",
+      "light": "nursery",
+      "textile": "nursery",
+      "art": "over_side"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "required_roles",
+    "dependent_slots_have_carrier",
+    "no_silent_unplaced",
+    "storage_required"
+   ],
+   "selection_tags": [
+    "nursery"
+   ],
+   "_why": "кроватка, безопасный подход взрослого, пеленальный комод, хранение; кресло для кормления уходит первым; anti-tip, без шнуров у кроватки"
+  },
+  {
+   "id": "br.child_3_7_play",
+   "label": "Детская 3–7: кровать + игровая зона / Child 3–7: bed + play area",
+   "purpose": [
+    "child:3-7"
+   ],
+   "priority": 5,
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.bedroom_catalog.area_min_m2.child_3_7"
+    }
+   ],
+   "anchors": {
+    "sleep": {
+     "type": "corner",
+     "relation": "solid_wall"
+    },
+    "play": {
+     "type": "free_zone",
+     "relation": "off_routes"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "side_access",
+     "sides": 1,
+     "rule_ref": "distances_cm.bed_side_passage"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.bed_foot_swing_max_share"
+    }
+   ],
+   "groups": [
+    {
+     "id": "sleep",
+     "variants": [
+      "child_one_side",
+      "child_solo"
+     ],
+     "required": true
+    },
+    {
+     "id": "work",
+     "variants": [
+      "desk_chair"
+     ],
+     "required": false
+    },
+    {
+     "id": "play",
+     "variants": [
+      "zone"
+     ],
+     "required": true
+    },
+    {
+     "id": "storage",
+     "variants": [
+      "wardrobe_shelf",
+      "wardrobe",
+      "dresser_shelf"
+     ],
+     "required": false
+    },
+    {
+     "id": "light",
+     "variants": [
+      "bedside_desk",
+      "bedside",
+      "headboard"
+     ],
+     "required": false
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "decor",
+     "variants": [
+      "on_ns",
+      "on_dresser"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "no_storage_in_sleep_side_zone"
+    },
+    {
+     "kind": "storage_front_radiator",
+     "rule_ref": "distances_cm.storage_open_reach"
+    },
+    {
+     "kind": "bed_head_not_under_window",
+     "rule_ref": "distances_cm.clearances.bed_long_side_window_wall"
+    },
+    {
+     "kind": "play_zone_clear_of_routes",
+     "rule_ref": "distances_cm.bedroom_catalog.play_zone_min"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "use": {
+      "sleep": "child_one_side",
+      "storage": "wardrobe_shelf",
+      "play": "zone",
+      "work": "desk_chair",
+      "light": "bedside_desk",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "B",
+     "use": {
+      "sleep": "child_one_side",
+      "storage": "wardrobe_shelf",
+      "play": "zone",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "C",
+     "use": {
+      "sleep": "child_solo",
+      "storage": "wardrobe",
+      "play": "zone",
+      "light": "headboard",
+      "textile": "bed",
+      "art": "over_bed"
+     }
+    },
+    {
+     "id": "D",
+     "use": {
+      "sleep": "child_solo",
+      "storage": "dresser_shelf",
+      "play": "zone",
+      "light": "headboard",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "required_roles",
+    "dependent_slots_have_carrier",
+    "no_silent_unplaced",
+    "storage_required"
+   ],
+   "selection_tags": [
+    "play_zone"
+   ],
+   "_why": "Codex br.child_3_6_play, возраст по модели — «3-7» (planner/models.py child_age): стол по желанию; игровая зона сохраняется"
+  },
+  {
+   "id": "br.child_7_12_work",
+   "label": "Детская 7–12: кровать + стол у окна / Child 7–12: bed + desk by the window",
+   "purpose": [
+    "child:7-12",
+    "child"
+   ],
+   "priority": 5,
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.bedroom_catalog.area_min_m2.child_7_12"
+    }
+   ],
+   "anchors": {
+    "work": {
+     "type": "window",
+     "qualifiers": [
+      "radiator_checked"
+     ]
+    },
+    "sleep": {
+     "type": "corner",
+     "relation": "outside_work_access"
+    },
+    "storage": {
+     "type": "wall_segment",
+     "relation": "remaining_solid"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "side_access",
+     "sides": 1,
+     "rule_ref": "distances_cm.bed_side_passage"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.bed_foot_swing_max_share"
+    },
+    {
+     "kind": "route",
+     "from": "door",
+     "to": [
+      "sleep",
+      "work"
+     ]
+    }
+   ],
+   "groups": [
+    {
+     "id": "sleep",
+     "variants": [
+      "school_one_side",
+      "school_solo"
+     ],
+     "required": true
+    },
+    {
+     "id": "work",
+     "variants": [
+      "desk_chair"
+     ],
+     "required": true
+    },
+    {
+     "id": "storage",
+     "variants": [
+      "wardrobe_shelf",
+      "wardrobe",
+      "dresser_shelf"
+     ],
+     "required": false
+    },
+    {
+     "id": "light",
+     "variants": [
+      "bedside_desk",
+      "headboard_desk"
+     ],
+     "required": false
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "decor",
+     "variants": [
+      "on_ns",
+      "on_dresser"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "no_storage_in_sleep_or_work_access"
+    },
+    {
+     "kind": "storage_front_radiator",
+     "rule_ref": "distances_cm.storage_open_reach"
+    },
+    {
+     "kind": "bed_head_not_under_window",
+     "rule_ref": "distances_cm.clearances.bed_long_side_window_wall"
+    },
+    {
+     "kind": "desk_daylight_side",
+     "rule_ref": "distances_cm.desk_window_max"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "use": {
+      "sleep": "school_one_side",
+      "storage": "wardrobe_shelf",
+      "work": "desk_chair",
+      "light": "bedside_desk",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "B",
+     "use": {
+      "sleep": "school_one_side",
+      "storage": "wardrobe",
+      "work": "desk_chair",
+      "light": "bedside_desk",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "C",
+     "use": {
+      "sleep": "school_solo",
+      "storage": "wardrobe",
+      "work": "desk_chair",
+      "light": "headboard_desk",
+      "textile": "bed",
+      "art": "over_bed"
+     }
+    },
+    {
+     "id": "D",
+     "use": {
+      "sleep": "school_solo",
+      "storage": "dresser_shelf",
+      "work": "desk_chair",
+      "light": "headboard_desk",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "required_roles",
+    "dependent_slots_have_carrier",
+    "no_silent_unplaced",
+    "storage_required"
+   ],
+   "selection_tags": [
+    "desk_near_window"
+   ],
+   "_why": "наследник br.child_7_12_work_window; «child» без возраста — сюда (школьник по умолчанию): стол не снимается"
+  },
+  {
+   "id": "br.teen_work",
+   "label": "Подросток: кровать 90×200 + стол + зеркало / Teen: single + desk + mirror",
+   "purpose": [
+    "child:teen"
+   ],
+   "priority": 5,
+   "when": [
+    {
+     "kind": "area_min",
+     "rule_ref": "distances_cm.bedroom_catalog.area_min_m2.teen"
+    }
+   ],
+   "anchors": {
+    "work": {
+     "type": "window",
+     "qualifiers": [
+      "radiator_checked"
+     ]
+    },
+    "sleep": {
+     "type": "corner",
+     "relation": "outside_work_access"
+    }
+   },
+   "predicates": [
+    {
+     "kind": "side_access",
+     "sides": 1,
+     "rule_ref": "distances_cm.bed_side_passage"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.bed_foot_swing_max_share"
+    },
+    {
+     "kind": "route",
+     "from": "door",
+     "to": [
+      "sleep",
+      "work"
+     ]
+    }
+   ],
+   "groups": [
+    {
+     "id": "sleep",
+     "variants": [
+      "school_one_side",
+      "school_solo"
+     ],
+     "required": true
+    },
+    {
+     "id": "work",
+     "variants": [
+      "desk_chair"
+     ],
+     "required": true
+    },
+    {
+     "id": "storage",
+     "variants": [
+      "wardrobe_shelf",
+      "wardrobe"
+     ],
+     "required": false
+    },
+    {
+     "id": "seat",
+     "variants": [
+      "armchair"
+     ],
+     "required": false
+    },
+    {
+     "id": "mirror",
+     "variants": [
+      "full_height"
+     ],
+     "required": false
+    },
+    {
+     "id": "light",
+     "variants": [
+      "bedside_desk",
+      "headboard_desk"
+     ],
+     "required": false
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "decor",
+     "variants": [
+      "on_ns"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "no_storage_in_sleep_or_work_access"
+    },
+    {
+     "kind": "storage_front_radiator",
+     "rule_ref": "distances_cm.storage_open_reach"
+    },
+    {
+     "kind": "bed_head_not_under_window",
+     "rule_ref": "distances_cm.clearances.bed_long_side_window_wall"
+    },
+    {
+     "kind": "desk_daylight_side",
+     "rule_ref": "distances_cm.desk_window_max"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "use": {
+      "sleep": "school_one_side",
+      "storage": "wardrobe_shelf",
+      "work": "desk_chair",
+      "mirror": "full_height",
+      "seat": "armchair",
+      "light": "bedside_desk",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "B",
+     "use": {
+      "sleep": "school_one_side",
+      "storage": "wardrobe_shelf",
+      "work": "desk_chair",
+      "mirror": "full_height",
+      "light": "bedside_desk",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "C",
+     "use": {
+      "sleep": "school_one_side",
+      "storage": "wardrobe",
+      "work": "desk_chair",
+      "light": "bedside_desk",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "D",
+     "use": {
+      "sleep": "school_solo",
+      "storage": "wardrobe",
+      "work": "desk_chair",
+      "light": "headboard_desk",
+      "textile": "bed",
+      "art": "over_bed"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "required_roles",
+    "dependent_slots_have_carrier",
+    "no_silent_unplaced",
+    "storage_required"
+   ],
+   "selection_tags": [
+    "desk_near_window"
+   ],
+   "_why": "9–15 м²: кресло уходит первым, потом стеллаж; стол не снимается"
+  },
+  {
+   "id": "br.accessible_principal",
+   "label": "Доступная спальня (M4/МГН) — заготовка / Accessible bedroom — stub",
+   "purpose": [
+    "couple"
+   ],
+   "priority": 1,
+   "when": [
+    {
+     "kind": "accessible"
+    }
+   ],
+   "anchors": {
+    "sleep": {
+     "type": "wall_segment",
+     "qualifiers": [
+      "solid"
+     ]
+    }
+   },
+   "predicates": [
+    {
+     "kind": "side_access",
+     "sides": 2,
+     "rule_ref": "distances_cm.clearances._profiles.m4_2.floor"
+    },
+    {
+     "kind": "clear_width",
+     "of": "bed_foot",
+     "rule_ref": "distances_cm.clearances._profiles.m4_2.floor"
+    },
+    {
+     "kind": "door_swing_clear",
+     "rule_ref": "distances_cm.bed_foot_swing_max_share"
+    }
+   ],
+   "groups": [
+    {
+     "id": "sleep",
+     "variants": [
+      "double_pair"
+     ],
+     "required": true
+    },
+    {
+     "id": "storage",
+     "variants": [
+      "wardrobe",
+      "dresser"
+     ],
+     "required": false
+    },
+    {
+     "id": "light",
+     "variants": [
+      "bedside"
+     ],
+     "required": false
+    },
+    {
+     "id": "textile",
+     "variants": [
+      "bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "art",
+     "variants": [
+      "over_bed"
+     ],
+     "required": false
+    },
+    {
+     "id": "decor",
+     "variants": [
+      "on_ns",
+      "on_dresser"
+     ],
+     "required": false
+    }
+   ],
+   "relations": [
+    {
+     "kind": "no_storage_in_sleep_side_zone"
+    },
+    {
+     "kind": "storage_front_radiator",
+     "rule_ref": "distances_cm.storage_open_reach"
+    }
+   ],
+   "levels": [
+    {
+     "id": "A",
+     "use": {
+      "sleep": "double_pair",
+      "storage": "wardrobe",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_ns"
+     }
+    },
+    {
+     "id": "B",
+     "use": {
+      "sleep": "double_pair",
+      "storage": "dresser",
+      "light": "bedside",
+      "textile": "bed",
+      "art": "over_bed",
+      "decor": "on_dresser"
+     }
+    }
+   ],
+   "invariants": [
+    "sku_dimensions_intact",
+    "door_clear",
+    "required_routes",
+    "required_roles",
+    "dependent_slots_have_carrier",
+    "no_silent_unplaced",
+    "storage_required"
+   ],
+   "selection_tags": [
+    "accessible"
+   ],
+   "_why": "ЗАГОТОВКА без включения (план § «не входит»): факт accessible приходит из проекта, сейчас его не ставит никто → шаблон не рассматривается. M4(2) 75 с двух боков и в ногах, M4(3) 100, МГН 90; compact запрещён (профиль allowances: false)"
+  }
+ ]
+}
