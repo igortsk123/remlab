@@ -1827,11 +1827,7 @@ def build() -> dict:
         if lone:
             print(f"  атом комод+лампа set{n}: лампы на комоде нет — {', '.join(lone)} не показываем", flush=True)
             objs[:] = [o for o in objs if o['role'] not in lone]
-        # ШТОРЫ И ПЛЕД — УСЛОВНО, ЦВЕТОМ ТОВАРА (T-20261112-74, владелец TG 953): место — решатель паспорта на носителях варианта,
-        # цвет — по названию (`textile_abstract.look_of`); отказ — строка только в списке, как было. ПОДУШКИ (T-20261113-02) — на
-        # сиденье дивана: годная модель — настоящая (`decor_sku_model`), нет — условная цветом товара
-        import textile_abstract as _TX
-        _TX.annotate(decor, objs, liv, f'set{n}', demo_ceiling(), decor_sku_model)
+        # ШТОРЫ, ПЛЕД, ПОДУШКИ — место и цвет НЕ здесь, а после замены мягкого (ниже, «ТКАНИ — ПО ИТОГОВОМУ ТОВАРУ»)
         variants.append({'id': f'set{n}', 'title': style, 'style': sets[n - 1].get('style'),
                          # ключ главной «стиль → комната → вариант» (demo-16): латинский id стиля для адреса `?style=`
                          # и комната квартиры, которую обставляет вариант (пока все варианты — гостиная)
@@ -2037,6 +2033,7 @@ def build() -> dict:
             soft_used.add(best.get('sid'))
             d['sku'] = {k: best.get(k) for k in ('name', 'price', 'price_at', 'img', 'url', 'shop', 'basis', 'sid', 'msid',
                                                  'pack', 'w', 'd', 'h')}
+            d['sku']['msid'] = None  # мягкое — без модели, как при выгрузке варианта; модель подушки проверит `annotate_pillows`
             soft_fixed.append((v.get('id'), d.get('role'), sk.get('name'), best.get('name'), why))
             keep.append(d)
         v['decor'] = keep
@@ -2046,6 +2043,13 @@ def build() -> dict:
         print(f'  мягкое {vid} {role}: «{old}» ({why}) — замены нет, строка снята', flush=True)
     for vid, role, old, why in soft_kept:
         print(f'  мягкое {vid} {role}: «{old}» ({why}) — замены ярусом лучше нет, оставлено', flush=True)
+    # ТКАНИ — ПО ИТОГОВОМУ ТОВАРУ (T-20261113-02/2): шторы и плед — условно цветом товара (T-20261112-74, владелец TG 953), подушки —
+    # на сиденье дивана: годная модель — настоящая (`decor_sku_model`), нет — условная. Место, размер, цвет и модель считаются ПОСЛЕ
+    # замены мягкого выше: раньше их считали до неё, и у заменённой строки `look.of` оставался от прежнего товара — страница по
+    # правилу «чужой цвет не рисуем» снимала её из 3D (витрина b345e311: вторая подушка вариантов 0, 1, 4)
+    import textile_abstract as _TX
+    for v in variants:
+        _TX.annotate(v['decor'], v['items'], liv, v['id'], demo_ceiling(), decor_sku_model)
     for v in variants:
         for d in (v.get('decor') or []):
             sk = d.get('sku') or {}
@@ -2733,6 +2737,10 @@ def main() -> None:
         print(f'WARN:names_en_error: английские названия не записались: {repr(e)[:160]}', flush=True)
     # АТОМАРНО (T-20261105-59): раньше файл обрезался и писался заново — упавшая посреди записи сборка оставляла
     # обрывок, и публикация увозила его на прод. Теперь временный файл рядом + os.replace (`atomic_io.py`)
+    # ЦВЕТ ТКАНИ — ОТ ТОВАРА, КОТОРЫЙ СТОИТ (T-20261113-02/2): шаг после разметки сменил товар — строка без места, а не чужой цвет
+    import textile_abstract as _TXG
+    for line in _TXG.look_guard(data['variants']):
+        print(line, flush=True)
     import build_stamp as _BS                       # метка правил сборщика — проверка «демо = туры» (T-20261112-92)
     data['build'] = _BS.stamp()
     _AIO.write_json(os.path.join(OUT, 'demo-data.json'), data, ensure_ascii=False, indent=1)

@@ -95,5 +95,26 @@ ok('узкий диван: две из трёх', TX.annotate(many, narrow, geo,
 none = [{'role': 'подушка', 'sku': {'name': 'Подушка'}}]
 ok('без дивана — без места', TX.annotate(none, [objs[1]], geo, 'test', 270) == 0 and 'place' not in none[0])
 
+# 9) ЦВЕТ И МОДЕЛЬ — ОТ ТОВАРА, КОТОРЫЙ СТОИТ (T-20261113-02/2; витрина b345e311: вторая подушка вариантов 0, 1, 4 — look.of
+# прежнего товара, страница её из 3D снимала). Разметка — после замены мягкого; модель из ленты замены не остаётся; сторож снимает
+# место у строки, чей товар сменили после разметки
+import ast  # noqa: E402
+SRC = open(os.path.join(HERE, '..', 'flat215_demo.py'), encoding='utf-8').read()
+FUNCS = {f.name: ast.get_source_segment(SRC, f) for f in ast.parse(SRC).body if isinstance(f, ast.FunctionDef)}
+b = FUNCS['build']
+ok('сборка: разметка тканей — после замены мягкого, один раз', b.count('_TX.annotate(') == 1
+   and b.index('soft_fixed.append(') < b.index('_TX.annotate('))
+ok('сборка: замена мягкого обнуляет модель', "d['sku']['msid'] = None" in b)
+ok('сборка: сторож цвета перед записью данных', FUNCS['main'].index('look_guard(') < FUNCS['main'].index("'demo-data.json'), data"))
+swap = [{'role': 'подушка', 'sku': {'name': 'Подушка Удина Рогожка Серый', 'sid': 'u_1', 'w': 45, 'd': 45, 'h': 11, 'msid': 'feed_m'}}]
+TX.annotate(swap, objs, geo, 'test', 270, lambda sk: (None, 'нет модели на сервере'))
+ok('после замены: look.of — ключ товара, модель ленты снята', swap[0]['look']['of'] == 'u_1' and swap[0]['sku']['msid'] is None
+   and swap[0]['look']['hex'] == '#9a9c9e', swap[0])
+var = [{'id': 'set1', 'decor': [dict(pil[0]), dict(pil[1], sku={'name': 'Подушка Винси бежевая', 'sid': 'v_9'})]}]
+lines = TX.look_guard(var)
+ok('сторож: чужой цвет — место и цвет сняты, строка в списке', len(lines) == 1 and 'set1' in lines[0]
+   and 'place' not in var[0]['decor'][1] and 'look' not in var[0]['decor'][1] and var[0]['decor'][1]['sku']['sid'] == 'v_9', lines)
+ok('сторож: свой цвет — строка не тронута', 'place' in var[0]['decor'][0] and var[0]['decor'][0]['look']['of'] == 'a_1')
+
 print('ИТОГ:', 'всё OK' if not fails else f'{fails} FAIL')
 sys.exit(1 if fails else 0)

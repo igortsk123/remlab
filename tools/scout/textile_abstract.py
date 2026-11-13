@@ -194,11 +194,11 @@ def annotate_pillows(decor: list, objs: list, geo: dict, tag: str, ceiling_cm: f
     n = 0
     for row, place, (msid, note) in zip(rows, places, meshes):
         sk = row['sku']
+        sk['msid'] = msid           # модель — только проверенная для ЭТОГО товара; пришедшая с заменой из ленты не остаётся
         if not place:
             print(f'WARN:textile: {tag} «{sk.get("name")}» — подушке нет места в 3D: {why}', flush=True)
             continue
         if msid:
-            sk['msid'] = msid
             what = f'модель {msid}'
         else:
             what = f'условная ({note})'
@@ -235,3 +235,20 @@ def annotate(decor: list, objs: list, geo: dict, tag: str, ceiling_cm: float | N
         print(f"  ткань {tag}: {role} «{sk.get('name')}» → {lk['hex']} ({lk['from']}{', тюль' if lk['sheer'] else ''}), "
               f"место {place['slot_instance_id']}", flush=True)
     return n
+
+
+def look_guard(variants: list) -> list:
+    """Сторож перед записью данных (T-20261113-02/2): у строки ткани с цветом `look.of` — ключ товара, который в ней стоит
+    (`look_key`). Расходится (товар сменил шаг после разметки) — место и цвет снимаем: строка остаётся в списке без 3D, а не
+    висит «в 3D» с чужим цветом. → строки журнала WARN (пусто — расхождений нет)."""
+    out = []
+    for v in variants or []:
+        for row in v.get('decor') or []:
+            lk = row.get('look')
+            if not isinstance(lk, dict) or lk.get('of') == look_key(row.get('sku') or {}):
+                continue
+            out.append(f"WARN:textile_look: {v.get('id')} {row.get('role')} «{(row.get('sku') or {}).get('name')}» — цвет посчитан "
+                       f"для другого товара ({lk.get('of')}): место и цвет сняты, строка только в списке")
+            for k in ('strategy', 'place', 'look'):
+                row.pop(k, None)
+    return out
