@@ -1,10 +1,13 @@
 # АВТОФОТО ТУРА — ИСПОЛНИТЕЛЬ DEV (план tour-auto-photos-01 Ф3, T-20261112-115/5): один запуск = одна партия из очереди прода
 # (`node tools/ops/tour-auto-photos.mjs --claim`: claim → слот тяжёлых прогонов → 3D-кадры → заказ фото класса auto → итог).
 # Запускает таймер `remlab-tour-photos.timer` (раз в 2 мин; пока прошлый запуск идёт, новый не стартует — партия за раз одна).
-# НЕ ВКЛЮЧЁН. Включает ведущий по слову владельца (деньги: до 50 ₽ на тур, 500 ₽ в сутки — потолки очереди):
+# Включён директором 13.11 05:18 (деньги: до 50 ₽ на тур, 500 ₽ в сутки — потолки очереди). Установка / обновление юнита:
 #   cp tools/ops/systemd/remlab-tour-photos.{service,timer} ~/.config/systemd/user/ && systemctl --user daemon-reload
 #   systemctl --user enable --now remlab-tour-photos.timer
-# Вручную: systemctl --user start remlab-tour-photos · журнал — ~/remlab-logs/tour-photos/worker.log, папки партий — рядом.
+# Вручную: systemctl --user start remlab-tour-photos.
+# Журнал — journald (T-20261112-115/7): `journalctl --user -u remlab-tour-photos -n 100 --no-pager` (`-f` — следить). Файлом через
+# `StandardOutput=append:` нельзя: systemd открывает его ДО ExecStartPre, и без заранее созданной папки запуск падает 209/STDOUT
+# (первый запуск 13.11 05:18). Папки партий (кадры, фото, result.json) съёмщик создаёт сам: ~/remlab-logs/tour-photos/<время>-<партия>/.
 # Токен TRIAL_WORKER_TOKEN — из ~/.config/remlab/env (вне git; не печатать). Без токена — выход 2, партию не берёт.
 [Unit]
 Description=remlab: автофото тура после подтверждения агентом (одна партия)
@@ -18,10 +21,12 @@ EnvironmentFile=-%h/.config/remlab/env
 # (директор 13.11: срочная съёмка — не больше 2 ядер); замер без квоты — отчёт T-115/5
 Environment=TRIAL_API_URL=https://remont-lab.online TOUR_SLOT_CORES=2
 Environment=TMPDIR=%h/remlab-scratch/tmp
-ExecStartPre=/usr/bin/mkdir -p %h/remlab-logs/tour-photos %h/remlab-scratch/tmp
+# папка TMPDIR — до запуска съёмщика (её ждут Chromium и node); вывод юнита от заранее созданных папок не зависит — он в journald
+ExecStartPre=/usr/bin/mkdir -p %h/remlab-scratch/tmp
 ExecStart=/usr/local/bin/node tools/ops/tour-auto-photos.mjs --claim
-StandardOutput=append:%h/remlab-logs/tour-photos/worker.log
-StandardError=append:%h/remlab-logs/tour-photos/worker.log
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=remlab-tour-photos
 # потолок одного запуска: ожидание слота (до 1 ч) + 5 комнат по ~2–5 мин с заказом
 TimeoutStartSec=2h
 Nice=10
