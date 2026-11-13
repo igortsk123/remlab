@@ -17,4 +17,4 @@ FROM ${BASE}
 
 # Тот же список файлов, что и в базовом образе (Dockerfile, COPY ... /app/): расхождение
 # означало бы, что часть кода на ноде осталась старой, а часть новая.
-COPY manifest.py preprocess.py hybrid_mask.py pipeline.py storage.py worker.py fetch_weights.py /app/
+COPY manifest.py preprocess.py hybrid_mask.py pipeline.py mv_color_cal.py storage.py worker.py fetch_weights.py /app/

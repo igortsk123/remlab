@@ -706,9 +706,118 @@ class _Dump:
         return False
 
 
-def _paint_stage(raw_glb: str, paint_image, final_glb: str, dump_dir: str | None = None) -> dict:
+# РУЧКИ ПОКРАСКИ ДЛЯ ОПЫТОВ (план mesh-color-03, круг 2; T-20261112-49/3). Только по полям задания, без них покраска идёт
+# по чистому апстриму (как в бою). Файл апстрима не правим — подмена на время одного вызова, как `_Dump`:
+#   `_paint_cfg`  — guidance_scale сети видов (апстрим зашил 3.0 в `multiview_utils.multiviewDiffusionNet.forward_one`);
+#   `_paint_seed` — генератор шума сети видов (апстрим зашил seed 0; seed формы покраску не трогает);
+#   `_mv_cal`     — поправка светлоты шести видов альбедо по участкам до увеличения и запекания (`mv_color_cal.py`).
+# Журнал — `dbg-knobs.json` рядом с промежуточными (при `_dump`); сбой поправки не валит задание: виды идут как были.
+PAINT_KNOBS = ('_paint_cfg', '_paint_seed', '_mv_cal')
+
+
+class _GuidedPipe:
+    """Обёртка диффузионного пайплайна сети видов: подменяет guidance_scale/генератор в вызове, остальное — как есть."""
+
+    def __init__(self, inner, cfg, seed, log):
+        self._inner, self._cfg, self._seed, self._log = inner, cfg, seed, log
+
+    def __getattr__(self, k):
+        return getattr(self._inner, k)
+
+    def __call__(self, *a, **k):
+        if self._cfg is not None:
+            self._log['seen_cfg'] = [k.get('guidance_scale'), self._cfg]
+            k['guidance_scale'] = self._cfg
+        if self._seed is not None:
+            self._log['seen_seed'] = self._seed
+            k['generator'] = torch.Generator(device=getattr(self._inner, 'device', 'cuda')).manual_seed(self._seed)
+        return self._inner(*a, **k)
+
+
+class _Knobs:
+    """`with _Knobs(pipe, knobs, paint_image, dump_dir):` — ставит ручки на один вызов покраски и снимает их."""
+
+    def __init__(self, pipe, knobs: dict, paint_image, d: str | None):
+        self.pipe, self.k, self.photo, self.d = pipe, knobs, paint_image, d
+        self.log = {'asked': dict(knobs), 'hooks': [], 'errors': []}
+        self.undo = []
+
+    def __enter__(self):
+        models = getattr(self.pipe, 'models', None)
+        mv = models.get('multiview_model') if isinstance(models, dict) else None
+        if mv is None:
+            self.log['errors'].append('нет models.multiview_model — ручки не встали')
+            return self
+        cfg = self.k.get('_paint_cfg')
+        seed = self.k.get('_paint_seed')
+        try:
+            cfg = None if cfg is None else float(cfg)
+            seed = None if seed is None else int(seed)
+            if cfg is not None and not 0.5 <= cfg <= 10:
+                raise ValueError(f'_paint_cfg {cfg} вне 0.5–10')
+        except (TypeError, ValueError) as e:
+            self.log['errors'].append(f'ручки CFG/seed: {e}')
+            cfg = seed = None
+        if (cfg is not None or seed is not None) and hasattr(mv, 'pipeline'):
+            inner = mv.pipeline
+            mv.pipeline = _GuidedPipe(inner, cfg, seed, self.log)
+            self.undo.append(lambda: setattr(mv, 'pipeline', inner))
+            self.log['hooks'] += (['cfg'] if cfg is not None else []) + (['seed'] if seed is not None else [])
+        elif cfg is not None or seed is not None:
+            self.log['errors'].append('у сети видов нет .pipeline — CFG/seed не встали')
+        if self.k.get('_mv_cal'):
+            models['multiview_model'] = self._cal_hook(mv)
+            self.undo.append(lambda: models.__setitem__('multiview_model', mv))
+            self.log['hooks'].append('mv_cal')
+        return self
+
+    def _cal_hook(self, mv):
+        def f(images, conditions, *a, **k):
+            out = mv(images, conditions, *a, **k)
+            try:
+                import mv_color_cal as CAL
+                import numpy as np
+                alb = (out or {}).get('albedo') or []
+                if not alb:
+                    raise ValueError('сеть не отдала albedo')
+                size = alb[0].size[0]
+                half = len(conditions or []) // 2
+                masks = [CAL.mask_from_normal(c, size) for c in (conditions or [])[:half]]
+                prgb, pa = CAL.photo_for_net(self.photo, size)
+                model, info = CAL.fit(prgb, pa, np.asarray(alb[0].convert('RGB')), masks[0])
+                self.log['cal'] = info
+                if model is not None:
+                    if self.d:
+                        for i, im in enumerate(alb):
+                            im.save(os.path.join(self.d, f'dbg-mv-raw-albedo-{i}.png'))
+                    out['albedo'] = CAL.apply_views(model, alb, masks)
+            except Exception as e:  # noqa: BLE001 — поправка опытная: меш важнее
+                self.log['errors'].append(f'mv_cal: {type(e).__name__}: {str(e)[:200]}')
+            return out
+        return f
+
+    def __exit__(self, *exc):
+        for u in reversed(self.undo):
+            try:
+                u()
+            except Exception as e:  # noqa: BLE001
+                self.log['errors'].append(f'undo: {e}')
+        if self.d:
+            import json
+            try:
+                os.makedirs(self.d, exist_ok=True)
+                json.dump(self.log, open(os.path.join(self.d, 'dbg-knobs.json'), 'w', encoding='utf-8'),
+                          ensure_ascii=False, indent=1, default=str)
+            except Exception:  # noqa: BLE001
+                pass
+        return False
+
+
+def _paint_stage(raw_glb: str, paint_image, final_glb: str, dump_dir: str | None = None,
+                 knobs: dict | None = None) -> dict:
     """Стадия покраски: форма с диска → итоговый GLB. Сохранение — здесь же: при `STAGE_PROC` результат покраски
-    (OBJ рядом с картами или объект) не должен пересекать границу процесса. `dump_dir` — промежуточные шаги (`_Dump`)."""
+    (OBJ рядом с картами или объект) не должен пересекать границу процесса. `dump_dir` — промежуточные шаги (`_Dump`),
+    `knobs` — опытные ручки (`_Knobs`), по умолчанию нет."""
     import contextlib
     _ram_mark()
     t = time.time()
@@ -723,7 +832,13 @@ def _paint_stage(raw_glb: str, paint_image, final_glb: str, dump_dir: str | None
             pi.save(os.path.join(dump_dir, 'dbg-paint-input.png'))      # что мы отдали покраске (до её 512)
         except Exception:  # noqa: BLE001
             pass
-    with (_Dump(pipe, dump_dir) if dump_dir else contextlib.nullcontext()):
+    # Ручки — ДО перехвата шагов: `_Dump` оборачивает уже поправленную сеть видов, и в dbg-mv-* лежат виды после поправки
+    # (до — `dbg-mv-raw-albedo-*` от `_Knobs`).
+    with contextlib.ExitStack() as st:
+        if knobs:
+            st.enter_context(_Knobs(pipe, knobs, paint_image, dump_dir))
+        if dump_dir:
+            st.enter_context(_Dump(pipe, dump_dir))
         painted = pipe(mesh_path=raw_glb, image_path=paint_image)
     s, vram = round(time.time() - t, 1), _peak_gb()
     t2 = time.time()
@@ -752,8 +867,9 @@ def _paint_only(image, out_dir: str, shape_glb: str, params: dict | None, paint_
         shutil.copy(shape_glb, raw_glb)
     dump = os.path.join(out_dir, 'dbg') if (params or {}).get('_dump') else None
     t0 = time.time()
-    pt = _in_proc(_paint_stage, raw_glb, paint_image or image, final_glb, dump) if STAGE_PROC else \
-        _paint_stage(raw_glb, paint_image or image, final_glb, dump)
+    knobs = {k: params[k] for k in PAINT_KNOBS if k in (params or {})} or None
+    pt = _in_proc(_paint_stage, raw_glb, paint_image or image, final_glb, dump, knobs) if STAGE_PROC else \
+        _paint_stage(raw_glb, paint_image or image, final_glb, dump, knobs)
     t2 = time.time()
     alien = cut_alien_debris(final_glb)
     timings = {'shape': 0.0, 'paint': pt['s'], 'export': round(pt['save_s'] + time.time() - t2, 1),
@@ -829,8 +945,9 @@ def _generate_full(image, out_dir: str, seed: int = 0, params: dict | None = Non
         _unload('shape')          # ← ради этой строки вся конструкция и затевалась
 
     dump = os.path.join(out_dir, 'dbg') if (params or {}).get('_dump') else None
-    pt = _in_proc(_paint_stage, raw_glb, paint_image or image, final_glb, dump) if STAGE_PROC else \
-        _paint_stage(raw_glb, paint_image or image, final_glb, dump)
+    knobs = {k: params[k] for k in PAINT_KNOBS if k in (params or {})} or None
+    pt = _in_proc(_paint_stage, raw_glb, paint_image or image, final_glb, dump, knobs) if STAGE_PROC else \
+        _paint_stage(raw_glb, paint_image or image, final_glb, dump, knobs)
     timings['paint'] = pt['s']
     peaks['paint_gb'], peaks['ram_paint_gb'] = pt['vram_gb'], pt['ram_gb']
 
