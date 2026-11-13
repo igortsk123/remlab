@@ -22,10 +22,12 @@ T-20261112-121): при любой правке;
 не успела в потолок — стоп, как упавшая.
 Окружение — как у job: его `env:`, CI=true, GITHUB_ACTIONS=true, RUNNER_TEMP; `python` — venv scout, если есть.
 Код выхода: 1 — какая-то проверка упала (пуш остановить); 0 — все прошли или не успели в потолок (это не стоп, их проверит CI)."""
+import io
 import os
 import re
 import shlex
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -213,6 +215,19 @@ def run_units(sel: list, root: str, budget: float, runner_temp: str, py: str | N
     return 1 if fails else 0
 
 
+def hook_stdin(stdin) -> bool:
+    """Читать ли stdin как протокол pre-push: git отдаёт его пайпом; файл (`< f`) и подставной поток селфтеста — тоже.
+    tty, сокет (запуск из Bash агента), /dev/null-устройство — не git: не читать (13.11 T-121/3: `prepush_check.py` из
+    скрипта проверок ждал stdin-сокет 40 мин и держал слот heavy-slot)."""
+    if stdin is None:
+        return False
+    try:
+        mode = os.fstat(stdin.fileno()).st_mode
+    except (AttributeError, OSError, ValueError, io.UnsupportedOperation):
+        return True                       # поток без дескриптора (io.StringIO селфтеста) — читать
+    return stat.S_ISFIFO(mode) or stat.S_ISREG(mode)
+
+
 def changed_files(root: str, argv: list, stdin) -> list:
     if '--files' in argv:
         i = argv.index('--files') + 1
@@ -223,7 +238,7 @@ def changed_files(root: str, argv: list, stdin) -> list:
         return out
     git = lambda *a: subprocess.run(['git', '-C', root, *a], capture_output=True, text=True).stdout.split()
     out = []
-    lines = [] if stdin is None or stdin.isatty() else stdin.read().splitlines()
+    lines = stdin.read().splitlines() if hook_stdin(stdin) else []
     for ln in lines:   # протокол pre-push: <local ref> <local sha> <remote ref> <remote sha>
         p = ln.split()
         if len(p) != 4 or p[1] == ZERO:
@@ -367,6 +382,20 @@ jobs:
         check(got == want, 'pre-push stdin: файлы от удалённого sha до локального', (got, want))
         got = changed_files(ROOT_DEFAULT, [], io.StringIO(f'refs/heads/x {ZERO} refs/heads/main {head[1]}\n'))
         check(got == [], 'pre-push stdin: удаление ветки — проверять нечего', got)
+    # stdin не от git (сокет, как у Bash агента; tty; /dev/null) — не читаем, иначе висим вечно (13.11, 40 мин в слоте)
+    import socket
+    a, b = socket.socketpair()
+    try:
+        with a.makefile('r') as sf:
+            check(not hook_stdin(sf), 'stdin-сокет (запуск из Bash агента) — не протокол git, не читаем')
+    finally:
+        a.close(); b.close()
+    with open(os.devnull) as dn:
+        check(not hook_stdin(dn), 'stdin /dev/null — не читаем')
+    r, w = os.pipe()
+    with os.fdopen(r) as rf, os.fdopen(w, 'w') as wf:
+        check(hook_stdin(rf), 'stdin-пайп (так зовёт git pre-push) — читаем')
+    check(hook_stdin(io.StringIO('x')), 'подставной поток — читаем')
     # настоящий ci.yml: регресс 07.11 ловится
     real = ci_units(os.path.join(ROOT_DEFAULT, '.github', 'workflows', 'ci.yml'), ROOT_DEFAULT)
     for f in ('tools/scout/refresh_daily.sh', 'tools/scout/rules/demo-realistic.json'):
