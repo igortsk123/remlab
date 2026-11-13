@@ -10808,13 +10808,13 @@ document.addEventListener('keydown',e=>{
   if(PAGE_LAYERS.some(([id,c])=>{if(id==='shot')return false; const el=document.getElementById(id); return el&&el.classList.contains(c);})
     ||document.getElementById('favPop'))return;   // сверху открыт другой слой — Esc и клавиши его
   if(e.key==='Escape'){
-    if(VW.mv)vwCarryCancel();
+    if(VW.mv)vwCarryCancel(true);
     else if(VW.sel!=null)vwSelect(null);
     else return;
     e.preventDefault(); return;}
   if(VW.sel==null||e.repeat)return;
   if(e.code==='KeyR'){e.preventDefault(); if(VW.mv)vwCarryRotate(); else vwRotate();}
-  else if(e.code==='KeyM'){if(VW.mv){e.preventDefault(); vwCarryCancel(); return;}   // второе M — отмена
+  else if(e.code==='KeyM'){if(VW.mv){e.preventDefault(); vwCarryCancel(true); return;}   // второе M — отмена
     if(vwCarryStart(true))e.preventDefault();}
 });
 // след предмета на плане — повёрнутый прямоугольник (см), чуть меньше (касание вплотную — не наезд)
@@ -10908,7 +10908,7 @@ function vwCarryStart(viaKey){
   const base=vwCarryBase(i);
   if(!sc.moveBegin(i))return false;
   const org=sc.moveOrigin(); if(!org){sc.moveEnd(false); return false;}
-  VW.mv={i, ox:+it.x, oy:+it.y, orot:+it.rot||0, org, x:+it.x, y:+it.y, rot:+it.rot||0, wx:+it.x, wy:+it.y, ok:true, base, drag:null};
+  VW.mv={i, ox:+it.x, oy:+it.y, orot:+it.rot||0, org, x:+it.x, y:+it.y, rot:+it.rot||0, wx:+it.x, wy:+it.y, ok:true, base, drag:null, sheet0:vwSheetOf()};
   const sh=document.getElementById('shot'); sh.classList.add('vcarrying'); sh.dataset.mv='ok';
   vwCarryBar();
   // клавиша M, курсор уже над сценой — предмет сразу встаёт под него (как в Sims); взяли кнопкой — стоит, пока курсор не сдвинется
@@ -10947,10 +10947,22 @@ function vwCarryEnd(){
   const sh=document.getElementById('shot'); sh.classList.remove('vcarrying'); delete sh.dataset.mv;
   vwCarryBar();
 }
-function vwCarryCancel(){
-  const sc=LIVE.scene; if(!VW.mv)return;
+// «ОТМЕНА» — ВСЁ КАК ДО «✥» (T-20261112-97/2, директор 13.11 по живой проверке): предмет на прежнем месте И шторка телефона там, где была
+// при нажатии «✥». С предметом в руке шторку поднимают не выше средней (`vwSheetApply`) — после «Отмены» она оставалась поднятой и
+// закрывала сцену, хотя человек просто передумал. `back` — только явная отмена человеком («Отмена», Esc, второе «✥»/M); служебные отмены
+// (выбрали другой предмет, закрыли окно, ↶) шторку не трогают — у них своё положение. Правило одно для мебели и картин
+function vwCarryCancel(back){
+  const sc=LIVE.scene, m=VW.mv; if(!m)return;
   if(sc&&sc.moveEnd)sc.moveEnd(false);
   vwCarryEnd();
+  if(back)vwSheetBack(m.sheet0);
+}
+// положение шторки при «✥» → то же сейчас: свёрнутая и полная — по текущим краям (шапка могла сменить высоту), средняя — та же высота
+function vwSheetOf(){ const sd=document.getElementById('vside'); return VW_PHONE()&&sd&&VW.sheetVis!=null?{pos:sd.dataset.pos, vis:VW.sheetVis}:null; }
+function vwSheetBack(s0){
+  if(!s0||!VW_PHONE())return;
+  const e=vwEdges(), vis=s0.pos==='0'?e.min:s0.pos==='3'?e.max:Math.max(e.min,Math.min(e.max,s0.vis));
+  if(Math.abs((VW.sheetVis||0)-vis)>2)vwSheetApply(vis,true);
 }
 // поставить: на зелёном — встал (правка расстановки), на красном — остаётся в руке
 function vwCarryDrop(){
@@ -11004,7 +11016,7 @@ function vwCarryUp(e){
 function vwMoveDown(e){
   if(e.button!=null&&e.button!==0)return;
   e.preventDefault(); e.stopPropagation();
-  if(VW.mv){vwCarryCancel(); return;}            // второе нажатие «Переместить» — отмена
+  if(VW.mv){vwCarryCancel(true); return;}        // второе нажатие «Переместить» — отмена
   if(!vwCarryStart())return;
   const el=e.currentTarget; try{el.setPointerCapture(e.pointerId);}catch(x){}
   vwCarryDown(e,true);
@@ -11023,7 +11035,7 @@ function vwArtStart(viaKey){
   if(VW.mv||j<0||vwEditLock()||!sc||!sc.artSpot||!sc.artDrag||VW.mode!=='walk')return false;
   const spot0=sc.artSpot(i); if(!spot0)return false;   // картина не висит (места не нашлось) — переносить нечего
   if(!sc.moveBegin(i))return false;
-  VW.mv={i, j, art:true, spot0, spot:spot0, why:null, ok:true, drag:null};
+  VW.mv={i, j, art:true, spot0, spot:spot0, why:null, ok:true, drag:null, sheet0:vwSheetOf()};
   const sh=document.getElementById('shot'); sh.classList.add('vcarrying'); sh.dataset.mv='ok';
   vwCarryBar();
   const p=VW.lastPtr; if(viaKey&&p&&p.mouse&&vwInCanvas(p.x,p.y))vwArtAt(p.x,p.y);
@@ -11071,7 +11083,7 @@ function vwCarryBar(){
       `<button type="button" class="vcx">${EN?'Cancel':'Отмена'}</button>`;
     b.addEventListener('pointerdown',e=>e.stopPropagation());
     b.querySelector('.vcrot').addEventListener('click',e=>{e.stopPropagation(); vwCarryRotate();});
-    b.querySelector('.vcx').addEventListener('click',e=>{e.stopPropagation(); vwCarryCancel();});
+    b.querySelector('.vcx').addEventListener('click',e=>{e.stopPropagation(); vwCarryCancel(true);});
     host.appendChild(b);}
   // телефон: над текущим верхом шторки, как переключатель ракурсов (`vwSheetApply` двигает обоих); компьютер — по CSS. Взяли предмет
   // при поднятой шторке — опускаем её до средней (там же предел, пока предмет в руке)
