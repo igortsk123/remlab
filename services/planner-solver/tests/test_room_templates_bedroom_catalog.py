@@ -1,6 +1,7 @@
 """Каталог шаблонов спальни `rules/room-templates/bedroom-catalog.json` (T-20261112-120 — ТЕНЬ: движок `planner/bedroom.py`
 читает `bedroom.json`, этот паспорт — нет; план `plans/bedroom-templates-catalog-01.md`, исследование Codex
-`_intake/codex/2026-11-12-bedroom-templates-answer.md`): схема чиста; 18 шаблонов (17 по Codex + кандидат прогона br.single_head_wall); у каждого назначения есть шаблон; каждый уровень
+`_intake/codex/2026-11-12-bedroom-templates-answer.md`; правки T-120/2 — `_intake/codex/2026-11-13-t120-bedroom-catalog-answer.md`): схема чиста;
+24 шаблона (17 по Codex + head_wall одиночной/детских/подростка, UK single 90, twin врозь); у каждого назначения есть шаблон; каждый уровень
 разворачивается в места; пара — с двумя тумбами, хранение есть везде, кроме «внешнего хранения»; работа обязательна там, где шаблон —
 кабинет/школьник; зависимые (шторы, общий свет, лампа на тумбу) на каждом уровне со сном; числа — только `rule_ref` на ключи
 occupancy.json; живой выбор движка не изменился."""
@@ -17,11 +18,14 @@ from planner import room_templates as RT
 RULES = Path(__file__).resolve().parent.parent / "rules"
 IDS = {"br.couple_axis_side_storage", "br.couple_axis_foot_storage", "br.couple_cross_long", "br.couple_dressing",
        "br.couple_wardrobe_zone", "br.couple_office", "br.single_double_comfort", "br.single_corner", "br.single_head_wall", "br.single_work_window",
-       "br.guest_double", "br.guest_office_flex", "br.twin_parallel", "br.child_0_3_cot", "br.child_3_7_play",
-       "br.child_7_12_work", "br.teen_work", "br.accessible_principal"}
+       "br.narrow_corner", "br.narrow_head_wall", "br.guest_double", "br.guest_office_flex", "br.twin_parallel", "br.twin_apart",
+       "br.child_0_3_cot", "br.child_3_7_play", "br.child_3_7_head_wall", "br.child_7_12_work", "br.child_7_12_head_wall",
+       "br.teen_work", "br.teen_head_wall", "br.accessible_principal"}
+HEAD_WALL = {"br.single_head_wall", "br.narrow_head_wall", "br.child_3_7_head_wall", "br.child_7_12_head_wall", "br.teen_head_wall"}
 PURPOSES = ["couple", "single", "single_narrow", "guest", "office", "twin", "child:0-3", "child:3-7", "child:7-12", "child:teen", "child"]
 STORAGE_ROLES = {"шкаф", "комод", "стеллаж", "гардеробная система"}
-WORK_TEMPLATES = {"br.couple_office", "br.single_work_window", "br.child_7_12_work", "br.teen_work", "br.guest_office_flex"}
+WORK_TEMPLATES = {"br.couple_office", "br.single_work_window", "br.child_7_12_work", "br.teen_work", "br.guest_office_flex",
+                  "br.child_7_12_head_wall", "br.teen_head_wall"}
 NUM_OK = {"priority", "count", "sides", "w", "h"}      # литералы разрешены только тут; остальные числа — rule_ref
 
 
@@ -43,10 +47,77 @@ def test_schema_clean_and_live_untouched():
     assert RT.template_for("bedroom", "couple")["id"] == "br.pair_axis"   # движок по-прежнему видит только живой паспорт
 
 
-def test_exactly_18_templates():
+def test_exactly_24_templates():
     ids = [t["id"] for t in _doc()["templates"]]
-    assert len(ids) == len(set(ids)) == 18
+    assert len(ids) == len(set(ids)) == 24
     assert set(ids) == IDS
+
+
+def test_head_wall_contract_explicit():
+    """Codex 13.11 п.1: «изголовье к стене, не в углу» — явный контракт, не общий one_side: глухой участок + off_corner +
+    оба боковых зазора открыты (rule_ref) + рабочий проход с одного бока."""
+    for t in _doc()["templates"]:
+        if t["id"] not in HEAD_WALL:
+            continue
+        q = set(t["anchors"]["sleep"].get("qualifiers") or [])
+        assert {"solid", "off_corner"} <= q, t["id"]
+        gaps = [r for r in t["relations"] if r["kind"] == "bed_side_gaps_open"]
+        assert gaps and RT.rule_value(gaps[0]["rule_ref"]) > 0, t["id"]
+        assert any(p["kind"] == "side_access" and p["sides"] == 1 for p in t["predicates"]), t["id"]
+
+
+def test_uk_single_only_90():
+    """UK single (узкая) — только кровать 90, не лестница одиночной 120→100→90 (Codex 13.11 п.1)."""
+    doc = _doc()
+    bc = RT._distances()["bedroom_catalog"]
+    tpls = [t for t in doc["templates"] if "single_narrow" in t["purpose"]]
+    assert {t["id"] for t in tpls} == {"br.narrow_corner", "br.narrow_head_wall"}
+    for t in tpls:
+        for lv in t["levels"]:
+            beds = [p for p in _places(doc, t, lv["id"]) if p["role"] == "кровать"]
+            sv = doc["groups"]["sleep"]["variants"][lv["use"]["sleep"]]
+            ref = next(s["rule_ref"] for s in sv["slots"] if s["id"] == "bed")
+            assert beds and RT.rule_value(ref) == bc["bed_width_ladder"]["single_narrow"] == [90], f"{t['id']}.{lv['id']}"
+
+
+def test_no_duplicate_levels_across_templates():
+    """Уровень, который повторяет базовый шаблон того же назначения (тот же состав без сути шаблона), — дубль (Codex 13.11 п.5)."""
+    doc = _doc()
+    for tid, must in (("br.couple_dressing", "dressing"), ("br.couple_wardrobe_zone", None)):
+        t = next(x for x in doc["templates"] if x["id"] == tid)
+        for lv in t["levels"]:
+            if must:
+                assert must in lv["use"], f"{tid}.{lv['id']}: без столика — это базовый шаблон пары"
+            else:
+                assert lv["use"].get("storage") in {"walk_in", "wardrobe_run"}, f"{tid}.{lv['id']}: без зоны — базовый шаблон пары"
+
+
+def test_twin_apart_is_own_geometry():
+    t = next(x for x in _doc()["templates"] if x["id"] == "br.twin_apart")
+    assert any(r["kind"] == "twin_beds_apart" for r in t["relations"])
+    assert t["anchors"]["sleep"].get("relation") == "two_walls_apart"
+
+
+def test_play_zone_is_soft_hypothesis():
+    pz = RT._distances()["bedroom_catalog"]["play_zone"]
+    assert pz["_status"] == "гипотеза"
+    assert pz["target"][0] >= pz["compact"][0] > 0
+
+
+def test_sconce_mirror():
+    """Бра: placement.rule_ref есть и указывает на зеркало heights_cm.sconce (число не дублируем, Codex 13.11 п.5)."""
+    occ = json.loads((RULES / "occupancy.json").read_text(encoding="utf-8"))
+    assert occ["distances_cm"]["mounting"]["sconce"]["center_from_floor"] == occ["heights_cm"]["sconce"]
+    sconces = [d for v in _doc()["groups"]["light"]["variants"].values() for d in v.get("dependents") or [] if d["role"] == "бра"]
+    assert sconces and all(d["placement"]["rule_ref"] == "distances_cm.mounting.sconce" for d in sconces)
+
+
+def test_conditional_sizes_in_rules():
+    """Условные габариты ролей без товара (листы каталога) — в правилах, не литералами в скрипте."""
+    cond = RT._distances()["bedroom_catalog"]["conditional_cm"]
+    for k in ("cot", "child80", "dressing", "pouf", "shelf", "sofabed", "armchair", "bench", "mirror"):
+        assert cond[k]["w"] > 0 and cond[k]["d"] > 0, k
+    assert RT.rule_value("distances_cm.bedroom_catalog.sofabed_open") > 0
 
 
 @pytest.mark.parametrize("purpose", PURPOSES)

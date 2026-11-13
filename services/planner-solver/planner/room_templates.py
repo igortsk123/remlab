@@ -62,7 +62,10 @@ KINDS = {
                   # туалетный столик у света; свет на стол сбоку; две кровати параллельно; безопасность кроватки; игровая зона вне путей
                   "bed_head_not_under_window", "storage_beside_sleep_axis", "storage_opposite_bed_foot", "storage_zone_contiguous",
                   "walk_in_inner_passage", "dressing_near_window_light", "desk_daylight_side", "twin_beds_parallel", "cot_safety",
-                  "play_zone_clear_of_routes"},
+                  "play_zone_clear_of_routes",
+                  # T-20261112-120/2 (Codex 13.11 п.1–2): изголовье к глухой стене не в углу — оба боковых зазора открыты;
+                  # две кровати врозь — у разных стен, у каждой свой рабочий бок
+                  "bed_side_gaps_open", "twin_beds_apart"},
     "invariants": {"sku_dimensions_intact", "door_clear", "required_routes", "required_roles",
                    "required_groups_complete", "dependent_slots_have_carrier", "tv_visible", "no_silent_unplaced",
                    "kitchen_clear", "dining_operational", "storage_required"},

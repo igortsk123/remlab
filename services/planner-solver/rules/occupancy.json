@@ -436,8 +436,19 @@
    },
    "foot_storage_axis_depth_min": 335,
    "_note_foot_storage_axis_depth_min": "шкаф напротив изножья: глубина комнаты по оси кровати ≥ рама 205–215 + шкаф 60 + проход 70 = 335–365 (Codex §1 «Размеры»); меньше — шаблон br.couple_axis_foot_storage не рассматривается",
-   "play_zone_min": [120, 120],
-   "_note_play_zone_min": "детская 3–7: свободная игровая зона на полу, см × см — [П] ГИПОТЕЗА исполнителя (у Codex числа нет), до движка сверить"
+   "play_zone": {"target": [150, 150], "compact": [120, 120],
+    "_status": "гипотеза",
+    "_source": "детская 3–7: свободная игровая зона на полу, см × см — ПРОДУКТОВАЯ ГИПОТЕЗА, не норма и не hard (Codex 13.11 `_intake/codex/2026-11-13-t120-bedroom-catalog-answer.md` п.4: жилищной нормы нет; ближайшая — 2 м²/ребёнка для общественных игровых комнат 3–7 лет, Роспотребнадзор, «неприменимая напрямую»). target 150×150 — цель, compact 120×120 — допуск; не нашлась — мягкий штраф и пометка, комнату не отвергаем"},
+   "head_wall_side_gap_min": 30,
+   "_note_head_wall_side_gap_min": "шаблоны «изголовье к стене, не в углу» (br.*_head_wall): второй (нерабочий) бок кровати — открытый зазор ≥ 30 по всей длине ложа, не щель у стены (≤ 10, bedroom_checks.WALL_GAP_CM) и не занят другим предметом; рабочий бок — проход bed_side_passage (≥ 50 compact, Пособие к СНиП п. 3.1). 30 — [П] ГИПОТЕЗА исполнителя (подойти застелить, место под бра), Codex 13.11 п.1 числа не дал — до движка сверить",
+   "conditional_cm": {
+    "cot": {"w": 66, "d": 126, "h": 95}, "child80": {"w": 86, "d": 166, "h": 80}, "dressing": {"w": 100, "d": 45, "h": 75},
+    "pouf": {"w": 40, "d": 40, "h": 45}, "shelf": {"w": 80, "d": 35, "h": 180}, "sofabed": {"w": 200, "d": 95, "h": 90},
+    "armchair": {"w": 75, "d": 75, "h": 90}, "bench": {"w": 100, "d": 40, "h": 45}, "mirror": {"w": 50, "d": 5, "h": 170},
+    "_status": "условно",
+    "_source": "УСЛОВНЫЕ ГАБАРИТЫ ролей, которых нет в банке спальни (кроватка 60×120 в раме, детская 80×160, туалетный столик, пуф, стеллаж, диван-кровать, кресло, банкетка, зеркало в полный рост на стене), см — только для листов каталога `tools/scout/bedroom_catalog_schemes.py` (пунктир «НЕТ В БАНКЕ»), до закупки роли; движок берёт габарит товара. Codex 13.11 п.5: литералы из скрипта — сюда"},
+   "sofabed_open": 105,
+   "_note_sofabed_open": "диван-кровать разложенный: спальное место ~200 в длину = сиденье 95 + 105 вперёд от сиденья, см — УСЛОВНО до закупки роли (нормы нет); зона раскладки не в дуге/полосе двери и не на других предметах (листы каталога T-120)"
   },
   "clearances": {
    "_source": "ПРОХОДЫ СПАЛЬНИ по норме обычного жилья (ADR-0394; владелец «Да» TG 790 на T-20261112-65; канон .memory_bank/domain/room-templates.md § «Проходы: норма и допуски по площади»; T-20261112-68). У прохода три числа: target — цель (рисуем и стремимся), compact — допуск малой комнаты (покупателю строкой), hard — жёсткий минимум (меньше — уровень не годен). Профиль general — по умолчанию (RU и UK вторичка); m4_2 / m4_3 / mgn — только жильё, которое продают как доступное: допусков нет, все три числа = max(target general, floor профиля), если у прохода не записано своё. Читает planner/passage_norms.py:clearance; движок групп спальни (planner/bedroom.py:_solve_groups) — проход 1 все уровни по target, проход 2 — по compact, дальше отказ. legacy — прежний ключ, его читает поштучный движок спальни (откат, байт в байт). _route_classes.tight_fallback (46–61) для обязательных путей спальни не применяется.",
@@ -580,6 +591,8 @@
     "_source": "виртуальный экран (непродаваемое место): центр — зеркало hung_furniture.tv_center_range_cm (T-20261112-91: та же норма, что живая сцена; крупный экран центром выше не уходит — Codex 12.11); heights_cm.tv_center_ru 120–130 — сырой факт источника «ТВ на стене вообще», не для сидящего на диване; доля ширины тумбы — lib/viewer3d/scene-extras.ts TV_MAX_STAND_FRAC; templates.json zones.media virtual_screen (свод №8 v2 §14)"},
    "curtains": {"rod_above_opening": [10, 15], "beyond_opening_each_side": [8, 15],
     "_source": "external: Bob Vila «hanging curtains», Crate & Barrel «How to Hang Curtains» — штанга 4–6″ над рамой и 3–6″ за край проёма с каждой стороны; поиск 12.11, гипотеза"},
+   "sconce": {"center_from_floor": [130, 150],
+    "_source": "бра у изголовья (каталог спальни тенью T-20261112-120, место br.* light.headboard — когда тумбы нет): зеркало heights_cm.sconce, число не новое; сторож — tests/test_room_templates_bedroom_catalog.py:test_sconce_mirror"},
    "wall_carrier": {"back_gap_max": 30, "wall_edge": 10,
     "_source": "НОСИТЕЛЬ «У СТЕНЫ» и край стены для мест над носителем (T-20261112-67, решатель planner/dependents.py): зеркала data/flat3d/wall-art.json back_gap_cm (опора у стены, если спинка не дальше 30 см) / wall_edge_cm (картина не ближе 10 см к углу); сторож — tests/test_room_templates_living.py:test_mounting_mirrors_equal"}
   }
@@ -1260,6 +1273,6 @@
  },
  "_mirrors": {
   "distances_cm.sofa_to_radiator_wall": "зеркало dynamic.radiator.hard_min_clearance_cm (19.08, Codex: порог радиатора жил в двух ключах). Источник истины — dynamic.radiator (там же provenance и комфортная вилка); значения обязаны совпадать, сторож — tests/test_rules_no_dup.py",
-  "distances_cm.mounting": "зеркала heights_cm.* (art_bottom_above_sofa_back, art_center, art_gap_between_frames, chandelier_bottom_min, chandelier_above_dining_table, pendant_over_sofa), hung_furniture.tv_center_range_cm (tv_screen, обе вилки) и data/flat3d/wall-art.json (share, share_range, max_count, ceiling_gap_cm, opening_clear_cm) — для мест паспорта rules/room-templates/living.json (T-20261112-63/1). Источник истины — исходные ключи; значения обязаны совпадать, сторож — tests/test_room_templates_living.py:test_mounting_mirrors_equal"
+  "distances_cm.mounting": "зеркала heights_cm.* (art_bottom_above_sofa_back, art_center, art_gap_between_frames, chandelier_bottom_min, chandelier_above_dining_table, pendant_over_sofa; sconce → mounting.sconce.center_from_floor — каталог спальни тенью T-120, сторож tests/test_room_templates_bedroom_catalog.py:test_sconce_mirror),hung_furniture.tv_center_range_cm (tv_screen, обе вилки) и data/flat3d/wall-art.json (share, share_range, max_count, ceiling_gap_cm, opening_clear_cm) — для мест паспорта rules/room-templates/living.json (T-20261112-63/1). Источник истины — исходные ключи; значения обязаны совпадать, сторож — tests/test_room_templates_living.py:test_mounting_mirrors_equal"
  }
 }

@@ -6,8 +6,12 @@
 Эскиз, НЕ солвер (движок спальни этот паспорт пока не читает): для каждой комнаты и назначения берёт ВСЕ шаблоны каталога, чьи
 `purpose` и `when` подходят, и перебирает их так, как движок будет после «ок» (Codex §4): шаблон → уровень A…(богатый → минимальный)
 → лестница кровати (`bed_width_ladder`) → стены × сдвиги; проходы сперва по цели, потом в допуске compact (`planner/passage_norms.py`).
-Победитель среди шаблонов — по ключу «без нарушений → по цели раньше compact → уровень → кровать → специфичность (порог площади) →
-priority → мягкий счёт»; ни один не встал — NO_ROOM_TEMPLATE_FITS и кандидат в новый шаблон (сигнатура комнаты + причины).
+Победитель среди шаблонов — по ключу «без нарушений и с обязательными группами → по цели раньше compact → уровень → полнота хранения
+(фронт / target) → кровать → специфичность (порог площади) → priority → мягкий счёт» (Codex 13.11 п.3,
+`_intake/codex/2026-11-13-t120-bedroom-catalog-answer.md`); ни один не встал — NO_ROOM_TEMPLATE_FITS и кандидат в новый шаблон.
+head_wall (`off_corner` + `bed_side_gaps_open`): изголовье на глухом участке, оба боковых зазора открыты; twin_apart — две кровати
+в разных углах у разных стен; игровая зона — гипотеза `play_zone` (150 → 120, мягко); зеркало и пуф ставятся; условные габариты —
+`bedroom_catalog.conditional_cm` в правилах. Итог «встало X из Y» по полному паспорту — в начале matrix.md.
 Геометрия, проверки и рисунок — `bedroom_schemes.py` импортом (масштаб, сетка 50 см, зоны проходов, дуга двери, путь от двери,
 красная штриховка нарушения); поверх — места зависимых по паспорту: шторы, общий свет, лампы/бра, ковёр, плед, картина, декор.
 Товары — реальные рамы банка `sets-bedroom.json`; ролей, которых в банке нет (кроватка, стол, туалетный столик, стеллаж, диван-кровать,
@@ -45,26 +49,25 @@ PURPOSE_RU = {'couple': 'пара', 'single': 'один взрослый', 'sing
               'child:7-12': 'детская 7–12', 'child:teen': 'подросток'}
 WORK_PURPOSES = {'office', 'child:7-12', 'child:teen'}
 BED_SKU = {180: 'bed_couple_wide', 160: 'bed_couple', 140: 'bed_guest', 120: 'bed_single', 90: 'bed_narrow'}
-COND2 = {   # роли, которых в банке спальни нет — условные размеры (пунктир на листе)
-    'cot': {'name': 'Кроватка 60×120 — НЕТ В БАНКЕ (условно 66×126)', 'w': 66.0, 'd': 126.0, 'h': 95.0},
-    'child80': {'name': 'Детская 80×160 — НЕТ В БАНКЕ (условно 86×166)', 'w': 86.0, 'd': 166.0, 'h': 80.0},
-    'dressing': {'name': 'Туалетный столик — НЕТ В БАНКЕ (условно 100×45)', 'w': 100.0, 'd': 45.0, 'h': 75.0},
-    'shelf': {'name': 'Стеллаж — НЕТ В БАНКЕ (условно 80×35)', 'w': 80.0, 'd': 35.0, 'h': 180.0},
-    'sofabed': {'name': 'Диван-кровать — НЕТ В БАНКЕ (условно 200×95)', 'w': 200.0, 'd': 95.0, 'h': 90.0},
-    'armchair': {'name': 'Кресло — НЕТ В БАНКЕ (условно 75×75)', 'w': 75.0, 'd': 75.0, 'h': 90.0},
-    'bench': {'name': 'Банкетка — НЕТ В БАНКЕ (условно 100×40)', 'w': 100.0, 'd': 40.0, 'h': 45.0},
-}
-SOFABED_OPEN = 105.0   # разложенный диван-кровать — спальное место ~200 в длину: 95 сиденье + 105 (условно, нормы нет)
+COND_RU = {'cot': 'Кроватка 60×120', 'child80': 'Детская 80×160', 'dressing': 'Туалетный столик', 'pouf': 'Пуф', 'shelf': 'Стеллаж',
+           'sofabed': 'Диван-кровать', 'armchair': 'Кресло', 'bench': 'Банкетка', 'mirror': 'Зеркало в рост'}
+# роли, которых в банке спальни нет — условные размеры из правил (`bedroom_catalog.conditional_cm`), пунктир на листе
+COND2 = {k: {'name': f"{COND_RU.get(k, k)} — НЕТ В БАНКЕ (условно {v['w']}×{v['d']})", 'w': float(v['w']), 'd': float(v['d']), 'h': float(v['h'])}
+         for k, v in BC['conditional_cm'].items() if not k.startswith('_')}
+SOFABED_OPEN = float(RT.rule_value('distances_cm.bedroom_catalog.sofabed_open'))   # раскладка дивана-кровати вперёд (условно)
+PLAY = BC['play_zone']                                                                # игровая зона — гипотеза, мягко
+GAP_OPEN = float(RT.rule_value('distances_cm.bedroom_catalog.head_wall_side_gap_min'))
 WALKIN_NOTE = 'хранение в нише (шкаф-купе/гардеробная — по глубине ниши)'
 MODE_RU = {'target': 'цель', 'compact': 'compact'}
 # новые виды предметов — цвета и подписи рисунка `bedroom_schemes.render`
 bs.ITEM_COL.update({'shelf': (176, 190, 197), 'dressing': (248, 187, 208), 'sofabed': (197, 225, 165), 'armchair': (255, 205, 210),
-                    'bench': (215, 204, 200), 'walkin': (120, 144, 156)})
+                    'bench': (215, 204, 200), 'walkin': (120, 144, 156), 'pouf': (240, 98, 146), 'mirror': (129, 212, 250)})
 bs.ITEM_RU.update({'shelf': 'Стеллаж', 'dressing': 'Туал. столик', 'sofabed': 'Диван-кровать', 'armchair': 'Кресло',
-                   'bench': 'Банкетка', 'walkin': 'Ниша-хранение'})
-bs.ITEM_SHORT.update({'shelf': 'Сл', 'dressing': 'ТС', 'sofabed': 'ДК', 'armchair': 'Кр', 'bench': 'Б', 'walkin': 'Н'})
+                   'bench': 'Банкетка', 'walkin': 'Ниша-хранение', 'pouf': 'Пуф', 'mirror': 'Зеркало'})
+bs.ITEM_SHORT.update({'shelf': 'Сл', 'dressing': 'ТС', 'sofabed': 'ДК', 'armchair': 'Кр', 'bench': 'Б', 'walkin': 'Н', 'pouf': 'П',
+                      'mirror': 'З'})
 bs.ZONE_COL.update({'SHELF_FRONT': (142, 36, 170, 40), 'SOFABED_OPEN': (124, 179, 66, 50), 'BENCH_FRONT': (67, 160, 71, 45),
-                    'DRESSING_SEAT': (236, 64, 122, 50)})
+                    'DRESSING_SEAT': (236, 64, 122, 50), 'MIRROR_FRONT': (3, 155, 229, 35)})
 
 
 # ---------------------------------------------------------------- нормы проходов по режиму (как движок: target | compact)
@@ -82,7 +85,10 @@ def set_norm(mode):
 
 bs.CODE_RU.update({'ANCHOR_STORAGE': 'хранение не там, где велит шаблон', 'DESK_NOT_AT_WINDOW': 'стол дальше 100 см от окна',
                    'BED_HEAD_WINDOW': 'изголовье под окном', 'COT_UNSAFE': 'кроватка у радиатора/окна',
-                   'PLAY_ZONE': 'нет свободной игровой зоны 120×120', 'SHELF_FRONT': 'нет места перед стеллажом',
+                   'PLAY_ZONE': 'нет свободной игровой зоны (гипотеза)', 'SHELF_FRONT': 'нет места перед стеллажом',
+                   'HEAD_NOT_SOLID': 'изголовье не на глухом участке (окно/проём/ниша)',
+                   'BED_SIDE_GAP_BLOCKED': 'боковой зазор кровати закрыт (head_wall: оба бока открыты)',
+                   'TWIN_APART_CLASH': 'кровати врозь мешают друг другу', 'MIRROR_FRONT': 'нет места перед зеркалом',
                    'SOFABED_OPEN': 'диван-кровать не разложить', 'BENCH_FRONT': 'нет прохода за банкеткой',
                    'DRESSING_SEAT': 'нет места под пуф у столика', 'BED_FOOT_IN_SWING': 'изножье в дуге двери',
                    'NO_BED_SKU': 'в банке нет кровати этой ширины'})
@@ -107,9 +113,10 @@ def tour_rooms(scenes):
                 o.setdefault('hinge', 'left')
             room = bs._room(f"{tag}-{r['room_id']}", f"Тур {tag} · {r['room_id']} · {W:.0f}×{D:.0f}", f'{f} {r["room_id"]}', W, D, ops, [],
                             ['коробка расстановки тура (core); радиаторов на плане нет'])
-            room['niches'] = []
+            room['niches'], room['nonsolid'] = [], []
             for res in core.get('residues') or []:
                 for wall, a, b in res.get('junctions') or []:
+                    room['nonsolid'].append({'wall': wall, 'a': float(a), 'b': float(b), 'kind': res['kind']})   # стык — не глухая стена
                     if res['kind'] == 'recess' and res.get('depth_cm', 0) >= 50 and b - a >= 100:
                         room['niches'].append({'wall': wall, 'a': float(a), 'b': float(b), 'depth': float(res['depth_cm'])})
                     elif res['kind'] in ('passage', 'tail'):
@@ -122,7 +129,7 @@ def tour_rooms(scenes):
 def load_all(scenes=None):
     rooms = [r for r in bs.load_rooms() if r['id'] in REAL_BASE]
     for r in rooms:
-        r['niches'] = []
+        r['niches'], r['nonsolid'] = [], []
     if scenes:
         rooms += tour_rooms(scenes)
     for room in rooms:
@@ -188,6 +195,38 @@ def bed_sku(skus, width, kind):
     return skus[k] if k else None
 
 
+def head_solid(room, b):
+    """Изголовье — глухой участок: на стене изголовья под шириной кровати нет окна, двери, стыка-проёма или ниши."""
+    a0, a1 = b['off'], b['off'] + b['sku']['w']
+    spans = [(o['off'], o['off'] + o['width']) for o in room['wins'] + room['doors'] if o['wall'] == b['wall']]
+    spans += [(n['a'], n['b']) for n in room.get('nonsolid') or [] if n['wall'] == b['wall']]
+    return not any(s0 < a1 - EPS and s1 > a0 + EPS for s0, s1 in spans)
+
+
+def side_gaps_open(room, items, b):
+    """head_wall (Codex 13.11 п.1): оба боковых зазора открыты — полоса GAP_OPEN вдоль всего ложа внутри комнаты, не занята
+    ничем, кроме своей тумбы. Рабочий проход (bed_side_passage) с одного бока проверяет `bed_side_checks`."""
+    out = []
+    L = b['sku']['d']
+    for sd in ('lo', 'hi'):
+        off = b['off'] - GAP_OPEN if sd == 'lo' else b['off'] + b['sku']['w']
+        z = bs.band(room, b['wall'], off, GAP_OPEN, 0, L)
+        if not bs.inside(z, room):
+            out.append(bs.V('BED_SIDE_GAP_BLOCKED', f'бок кровати ({sd}) — щель у стены, не зазор {GAP_OPEN:.0f}', [bs.clip(z, room)]))
+            continue
+        for o in items:
+            if o is b or (o['kind'] == 'ns' and o['group'] == b['group']):
+                continue
+            h = bs.inter(z, o['rect'])
+            if h:
+                out.append(bs.V('BED_SIDE_GAP_BLOCKED', f'бок кровати закрыт «{o["role"]}»', [h]))
+        for rr in room['_geo']['rads']:
+            h = bs.inter(z, rr)
+            if h:
+                out.append(bs.V('BED_SIDE_GAP_BLOCKED', 'бок кровати закрыт радиатором', [h]))
+    return out
+
+
 def bed_ok_anchor(room, b, tpl, facts):
     a = anchors(tpl).get('sleep') or {}
     q = set(a.get('qualifiers') or [])
@@ -198,6 +237,10 @@ def bed_ok_anchor(room, b, tpl, facts):
     if 'axis' in q and facts['aspect'] >= RT.rule_value('distances_cm.bedroom_elongated_aspect_min') and L > min(W, D) + EPS:
         return False
     if a.get('type') == 'corner' and min(b['gap'].values()) > bs.WALL_GAP:
+        return False
+    if 'off_corner' in q and min(b['gap'].values()) <= bs.WALL_GAP:      # head_wall: не в углу — оба бока не у стены
+        return False
+    if ('solid' in q or a.get('relation') == 'solid_wall') and not head_solid(room, b):
         return False
     if 'away_from_window' in q and any(bs.rdist(b['rect'], ws) < bs.RAD_SOFT - EPS for ws in room['_geo']['wins']):
         return False
@@ -231,6 +274,48 @@ def gen_twin(room, sk, two_ns):
     return out
 
 
+def gen_twin_apart(room, sk, with_ns):
+    """br.twin_apart (Codex 13.11 п.2): две кровати в РАЗНЫХ углах, изголовьями к разным стенам (напротив или под углом),
+    длинный бок — к стене, тумба (если есть) — с открытого бока; наложения и «кровать в изножье/проходе другой» отсекаем тут."""
+    ns = sk.get('ns') if with_ns else None
+    B = sk['bed']['w']
+    singles = []
+    for wall in bs.WALLS:
+        L = bs.wall_len(room, wall)
+        for off, side in ((0.0, 'hi'), (L - B, 'lo')):
+            if off < -EPS:
+                continue
+            if ns and (off + B + bs.NS_GAP + ns['w'] > L + EPS if side == 'hi' else off - bs.NS_GAP - ns['w'] < -EPS):
+                continue
+            g = bs.sleep_group(room, dict(sk, ns=ns) if ns else {'bed': sk['bed']}, 'corner', wall, off, side if ns else None)
+            singles.append(g)
+    free = []      # «со смещением»: вторая кровать — изголовьем к другой стене не в углу (шаг 20), тумба с любого бока
+    for wall in bs.WALLS:
+        L = bs.wall_len(room, wall)
+        for off in bs.wall_offsets(room, wall, B, step=20):
+            if min(off, L - off - B) <= bs.WALL_GAP:
+                continue
+            for side in (('lo', 'hi') if ns else (None,)):
+                if ns and (off + B + bs.NS_GAP + ns['w'] > L + EPS if side == 'hi' else off - bs.NS_GAP - ns['w'] < -EPS):
+                    continue
+                free.append(bs.sleep_group(room, dict(sk, ns=ns) if ns else {'bed': sk['bed']}, 'one_side' if ns else 'solo', wall, off, side))
+    pairs = [(singles[i], singles[j]) for i in range(len(singles)) for j in range(i + 1, len(singles))]
+    pairs += [(g1, g2) for g1 in singles for g2 in free]
+    out = []
+    for g1, g2 in pairs:
+        if g1[0]['wall'] == g2[0]['wall']:
+            continue
+        clash = any(bs.inter(x['rect'], y['rect']) for x in g1 for y in g2)
+        for bb, other in ((g1[0], g2), (g2[0], g1)):     # кровать не в изножье и не в боковом проходе другой
+            zones = [bb['foot_zone']] + [bb['side_zone'][s] for s in ('lo', 'hi') if bb['gap'][s] > bs.WALL_GAP]
+            clash = clash or any(bs.inter(z, o['rect']) for z in zones for o in other)
+        if clash:
+            continue
+        c2 = [dict(it, twin=2, role='кровать 2' if it['kind'] == 'bed' else 'тумба 2') for it in g2]
+        out.append([dict(it, twin=1) for it in g1] + c2)
+    return out
+
+
 def wall_item(room, kind, sku, wall, off, zone=None):
     grp = {'walkin': 'wardrobe'}.get(kind, kind)
     return bs.item(room, bs.ITEM_RU[kind].lower(), kind, sku, wall, off, grp, zone)
@@ -257,6 +342,8 @@ def gen_sleep(room, tpl, facts, skus, sp, width, mode):
     sk['bed'] = bed
     if sp['ns']:
         sk['ns'] = skus['ns_compact' if mode == 'compact' else 'ns']
+    if sp['kind'] == 'twin' and sp['variant'].startswith('twin_apart'):
+        return gen_twin_apart(room, sk, sp['ns'] >= 2)
     if sp['kind'] == 'twin':
         return gen_twin(room, sk, sp['ns'] >= 2)
     corner = (anchors(tpl).get('sleep') or {}).get('type') == 'corner'
@@ -294,6 +381,19 @@ def gen_wardrobe_run(room, skus):
                 i2 = bs.storage_item(room, 'wardrobe', s2, wall, off + s1['w'])
                 i2['role'] = 'шкаф 2'
                 out.append([i1, i2])
+    return out
+
+
+def gen_dressing(room):
+    """Туалетный столик + пуф (паспорт dressing.table_seat): пуф — в зоне посадки перед столиком, той же группы."""
+    s, pf = cond_sku('dressing'), cond_sku('pouf')
+    out = []
+    for c in gen_wall(room, 'dressing', [s], lambda _s: ('DRESSING_SEAT', bs.DESKZ, f'{bs.DESKZ:.0f}')):
+        t = c[0]
+        off = t['off'] + (s['w'] - pf['w']) / 2
+        p = {'role': 'пуф', 'kind': 'pouf', 'sku': pf, 'wall': t['wall'], 'off': off, 'group': t['group'], 'zones': [],
+             'rect': bs.band(room, t['wall'], off, pf['w'], s['d'] + 5, s['d'] + 5 + pf['d'])}
+        out.append([t, p])
     return out
 
 
@@ -348,12 +448,25 @@ def play_square(room, geo, items, size):
     return (x * st, y * st, x * st + size, y * st + size)
 
 
+def play_check(room, items):
+    """Игровая зона — ГИПОТЕЗА (Codex 13.11 п.4), не hard: 150×150 цель → 120×120 compact (мягкий штраф) → нет (штраф больше)."""
+    for key, pen in (('target', 0), ('compact', 40)):
+        size = float(PLAY[key][0])
+        sq = play_square(room, room['_geo'], items, size)
+        if sq:
+            return (sq, key), ([] if not pen else [bs.V('PLAY_ZONE_COMPACT', f'игровая зона только {size:.0f}×{size:.0f} (compact)', hard=False, pen=pen)])
+    return (None, None), [bs.V('PLAY_ZONE', f"нет свободной игровой зоны даже {PLAY['compact'][0]}×{PLAY['compact'][1]} (гипотеза, мягко)", hard=False, pen=200)]
+
+
 class Ctx:
     def __init__(self, room, tpl, purpose, plan):
         self.room, self.tpl, self.purpose, self.plan = room, tpl, purpose, plan
         sides2 = any(p['kind'] == 'side_access' and p.get('sides') == 2 for p in tpl.get('predicates') or [])
-        self.bs_purpose = 'couple' if sides2 else ('single_narrow' if purpose == 'single_narrow' else 'single')
         self.rels = rel_kinds(tpl)
+        self.head_gaps = 'bed_side_gaps_open' in self.rels
+        # узкая «боком к стене» — мягкий штраф эскиза; у head_wall бок к стене запрещён контрактом, штраф не нужен
+        self.bs_purpose = 'couple' if sides2 else ('single_narrow' if purpose == 'single_narrow' and not self.head_gaps else 'single')
+        self.mirror = bool(plan['use'].get('mirror'))
         self.store_rel = (anchors(tpl).get('storage') or {}).get('relation')
         self.work_window = (anchors(tpl).get('work') or {}).get('type') == 'window'
         self.cot = bool(plan['sleep']) and plan['sleep']['kind'] == 'cot'
@@ -374,6 +487,11 @@ def evaluate2(ctx, items, cache):
         out.append(v)
     b = beds[0] if beds else None
     W, D = room['W'], room['D']
+    if ctx.head_gaps:
+        for bb in beds:
+            out += side_gaps_open(room, items, bb)
+    if ctx.mirror and not any(i['kind'] == 'mirror' for i in items):
+        out.append(bs.V('MIRROR_NONE', 'зеркало по уровню не встало', hard=False, pen=30))
     for it in items:
         if it['kind'] in ('wardrobe', 'walkin') and b is not None and ctx.store_rel:
             bad = ((ctx.store_rel == 'opposite_sleep_foot' and it['wall'] != bs.OPPOSITE[b['wall']])
@@ -465,9 +583,7 @@ def search2(ctx, stages, beam=30):
             rv, _ = routes(ctx, items)
             vs = vs + rv
         if ctx.plan['play']:
-            sq = play_square(ctx.room, ctx.room['_geo'], items, float(BC['play_zone_min'][0]))
-            if sq is None:
-                vs = vs + [bs.V('PLAY_ZONE', 'нет свободной игровой зоны 120×120 вне проходов', [])]
+            vs = vs + play_check(ctx.room, items)[1]
         sc2 = bs.score(vs)
         if best is None or sc2 < best[1]:
             best = (items, sc2, vs)
@@ -499,13 +615,15 @@ def stages_for(ctx, skus, width, mode, facts):
     for sid in sto:
         st.append((sid, gen_storage(room, sid, skus)))
     if p['dressing']:
-        st.append(('dressing', gen_wall(room, 'dressing', [cond_sku('dressing')], lambda s: ('DRESSING_SEAT', bs.DESKZ, f'{bs.DESKZ:.0f}'))))
+        st.append(('dressing', gen_dressing(room)))
     if p['seat'] == 'armchair':
         st.append(('armchair', gen_wall(room, 'armchair', [cond_sku('armchair')], lambda s: None)))
     if p['seat'] == 'bench':
         st.append(('bench', lambda items: bench_for(room, items)))
     if any(not c for _n, c in st if not callable(c)):
         return []
+    if ctx.mirror:      # зеркало по желанию (required: false): пустой вариант разрешён, но со штрафом MIRROR_NONE
+        st.append(('mirror', gen_wall(room, 'mirror', [cond_sku('mirror')], lambda s: ('MIRROR_FRONT', bs.DRESS, f'{bs.DRESS:.0f}')) + [[]]))
     return st
 
 
@@ -575,16 +693,39 @@ def run_template(room, tpl, purpose, skus):
         _rv, found['paths'] = routes(found['ctx'], found['items'])
         found['fill'] = storage_fill(tpl, purpose, found['items'])
         if found['plan']['play']:
-            found['play_sq'] = play_square(room, room['_geo'], found['items'], float(BC['play_zone_min'][0]))
+            found['play_sq'], found['play_mode'] = play_check(room, found['items'])[0]
+        found['places'] = places_count(found)
     return found, tries
+
+
+def places_count(f):
+    """Полнота по паспорту: мест-товаров уровня (роль × count) и сколько из них стоит на эскизе. Зависимые (свет, шторы, ковёр…)
+    рисуются схемой по носителям и решателем `planner/dependents.py` здесь не проверяются — считаем только места на полу/стене."""
+    use = f['plan']['use']
+    want = 0
+    for g, v in use.items():
+        if g in ('light', 'textile', 'art', 'decor'):
+            continue
+        for s in CAT['groups'][g]['variants'][v].get('slots') or []:
+            want += s.get('count', 1)
+    have = len(f['items']) + (1 if f.get('play_sq') else 0)
+    return min(have, want), want
 
 
 def specificity(tpl):
     return max([RT.rule_value(w['rule_ref']) for w in tpl.get('when') or [] if w['kind'] == 'area_min'] or [0])
 
 
+def fill_ratio(f):
+    front, wf = f['fill']
+    return min(front / wf['target'], 1.0) if wf.get('target') else 0.0
+
+
 def win_key(tpl, f):
-    return (0 if f['mode'] == 'target' else 1, f['li'], f['bi'], -specificity(tpl), tpl['priority'], f['score'][1])
+    """Codex 13.11 п.3: без нарушений (уже) → цель раньше compact → уровень → полнота хранения front/target → ширина кровати
+    (ступень лестницы) → специфичность (порог площади) → priority → мягкий счёт."""
+    miss = 1 if f['plan']['play'] and f.get('play_mode') is None else 0     # обязательная группа без места (игровая — мягко, но ниже)
+    return (miss, 0 if f['mode'] == 'target' else 1, f['li'], -round(fill_ratio(f), 3), f['bi'], -specificity(tpl), tpl['priority'], f['score'][1])
 
 
 def why_not(tpl, facts):
@@ -634,7 +775,7 @@ def finish_overlay(room, f, tpl):
         if use.get('textile') in ('bed', 'nursery'):
             ov = RT.rule_value('distances_cm.bed_rug_overhang')[0]
             for b in beds:
-                L = b['sku']['d'] + (SOFABED_OPEN if b['kind'] == 'sofabed' else 0)
+                L = b['sku']['d'] + (SOFABED_OPEN if b['kind'] == 'sofabed' else 0)   # из правил: bedroom_catalog.sofabed_open
                 r = bs.clip(bs.band(room, b['wall'], b['off'] - ov, b['sku']['w'] + 2 * ov, L * 0.35, L + ov), room)
                 if r:
                     x0, y0, x1, y1 = cv.R(r)
@@ -695,7 +836,7 @@ def finish_overlay(room, f, tpl):
             for k in range(int(y0), int(y1), 10):
                 d.line([(x0, k), (x0, min(k + 5, y1))], fill=(46, 125, 50), width=3)
                 d.line([(x1, k), (x1, min(k + 5, y1))], fill=(46, 125, 50), width=3)
-            bs.text_c(d, ((x0 + x1) / 2, (y0 + y1) / 2), 'игровая\nзона', bs.font(12, True), (46, 125, 50))
+            bs.text_c(d, ((x0 + x1) / 2, (y0 + y1) / 2), f"игровая\n{sq[2] - sq[0]:.0f}×{sq[3] - sq[1]:.0f}", bs.font(12, True), (46, 125, 50))
     return draw
 
 
@@ -713,7 +854,7 @@ def panel(room, purpose, cell, rank, compact, s):
     set_norm(f['mode'])
     bed = f'{f["bed"]}' if f['bed'] else ''
     title = f"{room['title'].replace('Демо · ', 'Демо ')} — {tpl['id'].replace('br.', '')} · {f['level']}"
-    sub = f"{PURPOSE_RU[purpose]}: {label_ru(tpl)}" + (' · НОВЫЙ — кандидат из прогона' if 'КАНДИДАТ' in tpl.get('_why', '') else '')
+    sub = f"{PURPOSE_RU[purpose]}: {label_ru(tpl)}"
     front, wf = f['fill']
     lv = next(x for x in tpl['levels'] if x['id'] == f['level'])
     comp = ' + '.join(CAT['groups'][g]['variants'][v].get('label', v).split(' / ')[0] for g, v in lv['use'].items()
@@ -728,7 +869,15 @@ def panel(room, purpose, cell, rank, compact, s):
         fl.append(f"хранение: шкаф {front:.0f} см (норма {wf['min']}–{wf['target']})" + (' — неполное' if front < wf['min'] else ''))
     elif f['plan']['storage']:
         fl.append(f"хранение: без шкафа — {', '.join(bs.ITEM_RU.get(s, s).lower() for s in f['plan']['storage'])} (норма шкафа {wf['min']}–{wf['target']})")
-    fl.append('✓ встаёт по шаблону: проходы, дверь, путь к кровати и окну')
+    have, want = f['places']
+    extra = []
+    if f['plan']['play']:
+        extra.append({'target': f"игровая {PLAY['target'][0]}×{PLAY['target'][1]}", 'compact': f"игровая только {PLAY['compact'][0]}×{PLAY['compact'][1]}",
+                      None: 'игровой зоны нет'}[f.get('play_mode')] + ' (гипотеза)')
+    if f['ctx'].mirror and not any(i['kind'] == 'mirror' for i in f['items']):
+        extra.append('зеркало не встало')
+    fl.append(f"по паспорту: мест {have} из {want}" + (' · ' + ', '.join(extra) if extra else '')
+              + ' · ✓ проходы, дверь, путь к кровати и окну')
     if rank:
         fl.append('Другие шаблоны: ' + '; '.join(rank)[:110])
     res = {'items': f['items'], 'vs': f['vs']}
@@ -791,6 +940,7 @@ def main(out, scenes=None, jobs=1, only=None):
                                     'found': None if not c.get('found') else {k: c['found'][k] for k in ('level', 'bed', 'mode')},
                                     'tries': c.get('tries')} for c in v['cells']]} for p, v in per.items()}
     (out / 'results.json').write_text(json.dumps(dump, ensure_ascii=False, indent=1), encoding='utf-8')
+    print(totals(rooms, got)[0], flush=True)
     print('done', out, len(panels), 'панелей', sheets)
 
 
@@ -830,13 +980,36 @@ def make_sheets(out, imgs, per=8):
     return names
 
 
+def totals(rooms, got):
+    """Честный счёт по ПОЛНОМУ паспорту: пары «комната × назначение», где шаблоны назначения применимы; встало — есть победитель
+    без жёстких нарушений; места — у победителей, сколько мест-товаров уровня стоит (зеркало по желанию тоже в счёте)."""
+    app = [(r, p) for r in rooms for p in PURPOSES if any(c['applies'] for c in got[r['id']][p]['cells'])]
+    fit = [(r, p) for r, p in app if got[r['id']][p]['ranking']]
+    have = want = full = 0
+    soft = {'зеркало не встало': 0, 'игровая только compact': 0, 'игровой зоны нет': 0}
+    for r, p in fit:
+        c = next(c for c in got[r['id']][p]['cells'] if c['tpl'] == got[r['id']][p]['ranking'][0])
+        h, w = c['found']['places']
+        have, want, full = have + h, want + w, full + (h == w)
+        if c['found']['ctx'].mirror and not any(i['kind'] == 'mirror' for i in c['found']['items']):
+            soft['зеркало не встало'] += 1
+        pm = c['found'].get('play_mode', 'target') if c['found']['plan']['play'] else 'target'
+        if pm != 'target':
+            soft['игровая только compact' if pm == 'compact' else 'игровой зоны нет'] += 1
+    return [f'**Итог по полному паспорту: встало {len(fit)} из {len(app)}** (комната × назначение, где шаблоны применимы); '
+            f'у победителей мест-товаров {have} из {want}, весь состав уровня — {full} из {len(fit)}; '
+            + ', '.join(f'{k}: {v}' for k, v in soft.items()) + '. Зависимые (свет, шторы, ковёр, картина, декор) — схемой по носителям, '
+            'решатель `planner/dependents.py` на эскизе не запускался.', '']
+
+
 def write_matrix(out, rooms, got, skus, nsets, panels, sheets):
     L = ['# Спальня строго по шаблонам — каталог ' + str(len(CAT['templates'])) + ' шаблонов на реальных комнатах (T-20261112-120, эскиз — не солвер)', '',
          'Паспорт тенью: `services/planner-solver/rules/room-templates/bedroom-catalog.json` (движок пока читает `bedroom.json`). '
          f'Товары — рамы банка `sets-bedroom.json` ({nsets} наборов); кроватки, стола, туалетного столика, стеллажа, дивана-кровати, кресла, '
          'банкетки в банке нет — условные размеры. Ячейка: `уровень·кровать·проходы` (цель | compact), `✗` — шаблон подходит, но не встал '
          '(причина первого уровня), `—` — шаблон не рассматривается (почему). Победитель — **жирным**: без нарушений → по цели раньше compact → '
-         'уровень → кровать → специфичность (порог площади) → priority.', '']
+         'уровень → полнота хранения (фронт шкафа / target) → кровать → специфичность (порог площади) → priority (Codex 13.11 п.3).', '']
+    L += totals(rooms, got)
     for room in rooms:
         a = room['W'] * room['D'] / 1e4
         lm = f" (в объявлении {room['listing_m2']} м²)" if room.get('listing_m2') else ''
