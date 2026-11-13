@@ -24,7 +24,7 @@ type Api = {
   camV2Raw: (c: Cam, its: It[], W: number, H: number, ids: number[]) => St[][];
   camV2Set: (its: It[], I: unknown) => { ids: number[]; mains: number[]; tbl?: number; chairs: number[]; need: number[] };
   camEntry: () => { o: Door; warn: string } | null;
-  camZ: () => { intent?: { c2: string[] } };
+  camZ: () => { intent?: { c2: string[]; hero?: { roles: string[]; face: number } } };
   camLiveSpot: (c: Cam, W: number, H: number) => { x: number; y: number };
   camAng: (a: number, b: number) => number;
   CAM_ZONES: Record<string, { intent?: unknown; ends?: unknown; views?: unknown }>;
@@ -89,6 +89,18 @@ const whole = (api: Api, c: Cam, list: It[], W: number, H: number, ids: number[]
 const phoneQ = (api: Api, c: Cam, list: It[], W: number, H: number, ids: number[]) =>
   Math.max(0, ...api.camV2Raw(c, list, W, H, ids).map((r) => (r[api.JPH]!.s ? r[api.JPH]!.q : 0)));
 // крупное (≥ big окна) не срезано ни в одном окне показа (кроме телефона)
+// ЗОНА ОТДЫХА ЛИЦОМ (R1+, T-20261112-111/6): главное зоны (`intent.hero.roles`) целиком в кадре фото и угол между его лицом
+// (локальный +y, повёрнутый на rot: (sin rot, cos rot)) и направлением на камеру ≤ `face`°
+const heroFront = (api: Api, c: Cam, list: It[], W: number, H: number) => {
+  const hero = api.camZ().intent!.hero!, S = api.camV2Set(list, api.camZ().intent), raw = api.camV2Raw(c, list, W, H, S.ids);
+  const photo = 2;   // `CAM_V2_WIN`: ['phone_live','desk_live','photo','phone_photo']
+  return S.ids.some((i, k) => {
+    const it = list[i]!;
+    if (!hero.roles.includes(it.role) || raw[k]![photo]!.s !== 1) return false;
+    const a = (it.rot * Math.PI) / 180, ux = c.x - it.x, uy = c.y - it.y;
+    return (Math.sin(a) * ux + Math.cos(a) * uy) / (Math.hypot(ux, uy) || 1) >= Math.cos((hero.face * Math.PI) / 180) - 1e-9;
+  });
+};
 const bigCuts = (api: Api, c: Cam, list: It[], W: number, H: number) => {
   const S = api.camV2Set(list, api.camZ().intent);
   return api.camV2Raw(c, list, W, H, S.ids).flatMap((r, k) => (r.some((x, j) => j !== api.JPH && x.s === 2 && x.fr >= api.CAM_V2.big) ? [list[S.ids[k]!]!.role] : []));
@@ -102,6 +114,11 @@ describe("правило видов v2: данные и снятое", () => {
     for (const k of ["living", "bedroom", "hall", "kitchen"]) expect(api.CAM_ZONES[k]!.ends, k).toBeUndefined();
     expect(api.CAM_ZONES.bedroom!.views).toBeUndefined();
     expect(api.has("camEndsOk")).toBe(false);
+  });
+  // R1+ (T-20261112-111/6): «зона отдыха лицом» — только у гостиной; спальни, прихожая, кухня подбираются как были
+  it("главное лицом (intent.hero) — только у гостиной: диван, ≤ 60°", () => {
+    expect((api.CAM_ZONES.living!.intent as { hero?: unknown }).hero).toEqual({ roles: ["диван"], face: 60 });
+    for (const k of ["bedroom", "hall", "kitchen"]) expect((api.CAM_ZONES[k]!.intent as { hero?: unknown }).hero, k).toBeUndefined();
   });
   it("вход комнаты: is_entrance; одна дверь — она; несколько без метки — самая широкая с WARN entry_ambiguous", () => {
     expect(apiOf(load(FX.hall).room).camEntry()!.o.wall).toBe("south");
@@ -132,19 +149,33 @@ describe("правило видов v2: гостиная (слепок 07.11, 6 
     // T-20261112-30: вид 2 теперь у противоположной от двери (окно) стены и смотрит обратно — строго (ступень 0) не выходит:
     // ближняя к глазу мебель у окна в кадр целиком не входит (доля целиком < `fullMin`), крупное режется краем; это цена «видов с
     // противоположных стен» — ступень и WARN по виду, крупное без срезов — у вида 1
-    it(`${v.style}: вид 1 у двери, вид 2 — с противоположной стороны к входу, стол и стулья целиком; ступень > 0 — с WARN`, () => {
+    // R1+ (T-20261112-111/6): у всех 6 стилей слепка диван спинкой к стене двери — от двери он сбоку; пара обязана держать его лицом
+    // хотя бы в одном виде (WARN `hero_front_c1|c2` — какой держит), иначе WARN `living_front_missing`. Вид 2 'dining' — пока вид 1
+    // может держать диван (`hero_front_c1`, в полосе у стены двери); иначе вид 2 — зона отдыха ('window')
+    it(`${v.style}: вид 1 у двери, вид 2 — с противоположной стороны к входу, стол и стулья целиком; диван лицом; ступень > 0 — с WARN`, () => {
       const p = pairOf(vi), list = its(v), [c1, c2] = p.cams as [Cam, Cam], S = api.camV2Set(list, api.camZ().intent), ws = p.warns.join(" ");
-      expect(p.intent).toBe("dining");
+      expect(p.intent).toBe(/reason=hero_front_c2/.test(ws) ? "window" : "dining");
       if (p.relax > 0) expect(p.warns.length, `ступень ${p.relax} без WARN (${p.how})`).toBeGreaterThan(0);
-      for (const w of p.warns) expect(w).toMatch(/^view=C[12]( intent=\w+)? relax=\d reason=/);
+      for (const w of p.warns) expect(w).toMatch(/^view=(C[12]|pair)( intent=\w+)? relax=\d reason=/);
+      if (!/living_front_missing/.test(ws)) expect(heroFront(api, c1, list, W, H) || heroFront(api, c2, list, W, H), `${v.style}: диван лицом (${p.how})`).toBe(true);
+      if (/reason=hero_front_c1/.test(ws)) expect(heroFront(api, c1, list, W, H), `${v.style}: вид 1 держит диван лицом`).toBe(true);
       doorCheck(api, fx.room, c1, v.style, /door_wall_band/.test(ws));
       oppCheck(api, fx.room, c1, c2, ws, v.style);
       expect(S.tbl, "стол в наборе").toBeGreaterThanOrEqual(0);
-      expect(whole(api, c2, list, W, H, [S.tbl!]), `стол целиком (${p.how})`).toEqual([true]);
-      expect(whole(api, c2, list, W, H, S.chairs).every(Boolean), "стулья целиком").toBe(true);
+      if (p.intent === "dining") {
+        expect(whole(api, c2, list, W, H, [S.tbl!]), `стол целиком (${p.how})`).toEqual([true]);
+        expect(whole(api, c2, list, W, H, S.chairs).every(Boolean), "стулья целиком").toBe(true);
+      }
       expect(whole(api, c1, list, W, H, S.mains).some(Boolean), "главное в виде 1 целиком").toBe(true);
       notDup(api, c1, c2, W, H, v.style);
-      expect(bigCuts(api, c1, list, W, H), `${v.style} C1`).toEqual([]);
+      // крупное в виде 1 не режется; исключение R1+ — вид 1 держит диван лицом (`hero_front_c1`) и чистой такой точки нет: срез —
+      // только не самого дивана и только названный в WARN вида 1 (`major_cut object=…`)
+      const cut1 = bigCuts(api, c1, list, W, H), heroC1 = /reason=hero_front_c1/.test(ws);
+      if (!heroC1) expect(cut1, `${v.style} C1`).toEqual([]);
+      for (const r of cut1) {
+        expect(r, `${v.style} C1: диван не режется`).not.toBe("диван");
+        expect(ws, `${v.style} C1: срез ${r} назван в WARN`).toMatch(new RegExp(`view=C1 relax=\\d reason=.*major_cut object=${r} `));
+      }
       expect(p.cams.filter((c) => c.poster)).toHaveLength(1);
     }, 120_000);
   }

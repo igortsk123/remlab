@@ -2,8 +2,8 @@
  "_about": "ГОСТИНАЯ — ОПИСАНИЕ того, что есть (room-pipeline-01 Б-2, T-20261105-40). Сборщик гостиной compose2.py этот профиль НЕ читает и не меняется: он на старом пути до доказанного паритета (тень каталога — catalog_items_shadow.py, стенд хешей — волна Б). Числа здесь — ссылки на те правила, что читает compose2 сегодня; роли — его ROLES (линтер сверяет с исходником).",
  "schema_version": 1,
  "profile_id": "living",
- "profile_version": "2026-11-08.2",
- "content_sha": "4ef02d6064d0",
+ "profile_version": "2026-11-13.1",
+ "content_sha": "740de7c99b15",
  "room_type": "living",
  "composer": {
   "plugin": "living_legacy",
@@ -181,7 +181,13 @@
       [
        "стол обеденный"
       ]
-     ]
+     ],
+     "hero": {
+      "roles": [
+       "диван"
+      ],
+      "face": 60
+     }
     }
    }
   },
