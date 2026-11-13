@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import { APPEAR_MS, FADE_MS, SILHOUETTE_RGB, SwapGhosts, appearScale, ghostGlow, standsOn } from "@/lib/viewer3d/swap-ghost";
+import { APPEAR_MS, FADE_MS, GHOST_PERIOD_MS, SILHOUETTE_RGB, SwapGhosts, appearScale, ghostGlow, standsOn, sweepPhase } from "@/lib/viewer3d/swap-ghost";
 
 // T-20261112-109: замена товара в 3D без пустоты — прежний предмет на месте, пока грузится новый.
 // T-20261113-19 (владелец TG 1567: «5 секунд ждёт, страшно, так черно выглядит»): прежний — НЕПРОЗРАЧНЫЙ светлый силуэт, мягко
@@ -14,13 +14,43 @@ const item = (): { group: THREE.Group; mat: THREE.MeshStandardMaterial } => {
 const meshMat = (g: THREE.Object3D): THREE.Material => (g.children[0] as THREE.Mesh).material as THREE.Material;
 
 describe("swap-ghost", () => {
-  it("«дыхание» спокойное: свечение 0.35…0.65, появление 0.94 → 1", () => {
-    const a = Array.from({ length: 50 }, (_, i) => ghostGlow(i * 37));
-    expect(Math.min(...a)).toBeGreaterThanOrEqual(0.35 - 1e-9);
-    expect(Math.max(...a)).toBeLessThanOrEqual(0.65 + 1e-9);
+  it("«дыхание» заметное и плавное: свечение 0.15…0.75 за ~1,2 с, без скачков; появление 0.94 → 1", () => {
+    const a = Array.from({ length: 120 }, (_, i) => ghostGlow(i * 20));
+    expect(Math.min(...a)).toBeGreaterThanOrEqual(0.15 - 1e-9);
+    expect(Math.max(...a)).toBeLessThanOrEqual(0.75 + 1e-9);
+    expect(Math.max(...a) - Math.min(...a)).toBeGreaterThan(0.5);   // светлее↔темнее видно глазом
+    for (let i = 1; i < a.length; i++) expect(Math.abs((a[i] ?? 0) - (a[i - 1] ?? 0))).toBeLessThan(0.04);   // за 20 мс — без вспышек
+    expect(GHOST_PERIOD_MS).toBeGreaterThanOrEqual(1000);
+    expect(GHOST_PERIOD_MS).toBeLessThanOrEqual(1500);
     expect(appearScale(0)).toBeCloseTo(0.94);
     expect(appearScale(APPEAR_MS)).toBe(1);
     expect(appearScale(APPEAR_MS / 2)).toBeGreaterThan(0.97);
+  });
+
+  it("цвет силуэта — не мебельный белый/молочный: заметный оттенок, не серый", () => {
+    const c = new THREE.Color(SILHOUETTE_RGB);
+    const hsl = { h: 0, s: 0, l: 0 };
+    c.getHSL(hsl, THREE.SRGBColorSpace);   // как на экране (sRGB), не в линейном рабочем пространстве
+    expect(hsl.s).toBeGreaterThan(0.2);   // белый/молочный/бежевый (#efebe4 — s≈0.26 при l≈0.92) читался как товар
+    expect(hsl.l).toBeLessThan(0.85);
+    expect(hsl.l).toBeGreaterThan(0.55);   // светлый, не тёмное пятно
+  });
+
+  it("бегущий блик: фаза сверху вниз 0…1 по кругу, в шейдере силуэта", () => {
+    expect(sweepPhase(0)).toBe(0);
+    expect(sweepPhase(GHOST_PERIOD_MS / 2)).toBeCloseTo(0.5);
+    expect(sweepPhase(GHOST_PERIOD_MS * 3 + 1)).toBeLessThan(0.01);
+    const gh = new SwapGhosts(new THREE.Scene());
+    const old = item();
+    gh.hold("кровать#0", old, true, 0);
+    const sil = meshMat(old.group) as THREE.MeshStandardMaterial;
+    const sh = { uniforms: {} as Record<string, { value: number }>, vertexShader: THREE.ShaderLib.standard.vertexShader, fragmentShader: THREE.ShaderLib.standard.fragmentShader };
+    sil.onBeforeCompile(sh as unknown as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer);
+    expect(sh.fragmentShader).toContain("uSweep");
+    expect(sh.vertexShader).toContain("vSwY =");
+    expect(sh.uniforms.uY1?.value).toBeGreaterThan(sh.uniforms.uY0?.value ?? Infinity);   // высота предмета, по которой бежит полоса
+    gh.tick(GHOST_PERIOD_MS / 4);
+    expect(sh.uniforms.uSweep?.value).toBeCloseTo(0.25);
   });
 
   it("силуэт НЕПРОЗРАЧНЫЙ и светлый (сквозь него ничего не видно), дышит светом; гаснет после прихода новой и уходит", () => {
