@@ -10,8 +10,12 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
+PERMITS = tempfile.mkdtemp(prefix='permits-')
+os.environ['CONVEYOR_PERMIT_DIR'] = PERMITS   # разрешения и журнал теста — во временной папке, не в настоящих
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(ROOT, 'tools', 'ops'))
 import guard_conveyor as G  # noqa: E402
+import conveyor_permit as P  # noqa: E402
 
 M = G.load()
 MAIN = '/home/x/remlab'                        # основная копия (живые банки DEV)
@@ -94,9 +98,9 @@ BASH = [   # (команда, cwd, ожидание)
 def main():
     bad = 0
 
-    def ok(cond, name):
+    def ok(cond, name, info=None):
         nonlocal bad
-        print(('OK   ' if cond else 'FAIL ') + name)
+        print(('OK   ' if cond else 'FAIL ') + name + ('' if cond or info is None else f' — {info!r}'))
         bad += 0 if cond else 1
 
     for tool, p, want in EDIT:
@@ -119,6 +123,24 @@ def main():
         ok(not dec(f'ln -sf {live} sets3.json'), 'ссылка worktree → живой банк: ln -sf ссылки — пропуск')
         ok(G.decide({'tool_name': 'Write', 'tool_input': {'file_path': os.path.join(wt, 'sets3.json')}, 'cwd': wt}, M) is not None,
            'ссылка worktree → живой банк: Write в неё — отказ')
+    # шаг 4: разовое разрешение директора — один запуск того инструмента и флагов; журнал
+    bash = lambda c: G.decide({'tool_name': 'Bash', 'tool_input': {'command': c}, 'cwd': W}, M)
+    promo = 'python3 tools/scout/bank_promote.py --force --room bedroom'
+    r = bash(promo)
+    ok(r is not None and 'conveyor_permit.py issue' in r and '--target "bank_promote.py --force"' in r,
+       'без разрешения — отказ с готовой командой выпуска', r)
+    P.issue('T-20261113-05', 1402, 'bank_promote.py --force', hours=1, match='--room bedroom')
+    ok(bash('python3 tools/scout/bank_promote.py --force --room hall') is not None, 'разрешение на спальню — прихожей отказ')
+    ok(bash(f'{promo} && bash tools/scout/refresh_daily.sh --force') is not None, 'два обхода, разрешение на один — отказ')
+    ok(bash(promo) is None, 'с разрешением — пропуск (одноразово)')
+    ok(bash(promo) is not None, 'второй раз — снова отказ')
+    ev = [json.loads(x)['event'] for x in open(P.paths()[1], encoding='utf-8')]
+    ok(ev.count('issue') == 1 and ev.count('use') == 1 and ev.count('deny') >= 4, 'журнал: выпуск, трата, отказы', ev)
+    for p in P.paths():
+        ok(G.decide({'tool_name': 'Write', 'tool_input': {'file_path': p}, 'cwd': W}, M) is not None, f'Write в {os.path.basename(p)} — отказ')
+        ok(bash(f'echo x {GT}{GT} {p}') is not None, f'дописать {os.path.basename(p)} руками — отказ')
+    ok(bash('python3 tools/ops/conveyor_permit.py issue --tid T-20261113-05 --tg 1 --target "bank_promote.py --force"') is None,
+       'выпуск разрешения командой — пропуск')
     # процесс: код выхода и причина
     run = lambda d: subprocess.run([sys.executable, os.path.join(HERE, 'guard_conveyor.py')], input=d, capture_output=True, text=True)
     r = run(json.dumps({'tool_name': 'Edit', 'tool_input': {'file_path': f'{ROOT}/{FUR}'}, 'cwd': ROOT}))

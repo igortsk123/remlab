@@ -7,7 +7,9 @@
   Edit / Write / MultiEdit / NotebookEdit — путь = собранный файл реестра → отказ;
   Bash — запись в собранный файл: `>`/`>>`, tee, cp/mv/install/rsync (цель — последний аргумент), `ln -f`, sed -i/perl -i,
          rm/truncate, dd of=; код `python -c`/`node -e` и тело heredoc у `python3 -`/`node` (`bash -c`, `bash <<EOF` — как Bash);
-       — обход из `force_guard` реестра (`bank_promote.py --force` и т. п.) → отказ.
+       — обход из `force_guard` реестра (`bank_promote.py --force` и т. п.) → отказ, если нет разового разрешения директора
+         (`tools/ops/conveyor_permit.py`, шаг 4): есть — тратим (один запуск) и пускаем, всё — в журнал разрешений.
+  Хранилище и журнал разрешений (`~/.local/state/remlab/conveyor-permits.*`) — руками не пишут, как собранные.
 Что пропускаем (живые проверки на журналах сессий, T-121):
   • команда, в которой запущен генератор/писатель этого файла (`rm -f materials.json && python material_pipeline.py`,
     `node gen.mjs > out.json`) — пишет конвейер;
@@ -334,10 +336,32 @@ def bash_force(cmd, cwd, guards):
     return found
 
 
+def _permit_entries():
+    """Хранилище и журнал разрешений (шаг 4) — как собранные: пишет только tools/ops/conveyor_permit.py."""
+    import conveyor_permit as P
+    return [{'path': p, 'gen': 'tools/ops/conveyor_permit.py', 'match': '', 'kind': 'live',
+             'allowed': ['tools/ops/conveyor_permit.py']} for p in P.paths()]
+
+
+def _force_permitted(fz, cmd):
+    """Обходы команды: на КАЖДЫЙ инструмент — разовое разрешение (conveyor_permit). Все есть — тратим и пускаем; нет — (g, флаги)."""
+    import conveyor_permit as P
+    need = {}
+    for g, f in fz:
+        need.setdefault(os.path.basename(g['path']), (g, set()))[1].add(f)
+    for tool, (g, flags) in need.items():
+        if not P.take(tool, flags, cmd, dry=True):
+            P.journal('deny', dict(tool=tool, flags=sorted(flags)), cmd=cmd[:500])
+            return g, flags
+    for tool, (g, flags) in need.items():
+        P.take(tool, flags, cmd)
+    return None
+
+
 def decide(inp, m):
     """None — пропустить; иначе текст отказа."""
     tool, ti, cwd = inp.get('tool_name', ''), inp.get('tool_input') or {}, inp.get('cwd') or os.getcwd()
-    entries = guarded(m)
+    entries = guarded(m) + _permit_entries()
     if tool in ('Edit', 'Write', 'MultiEdit', 'NotebookEdit'):
         p = ti.get('file_path') or ti.get('notebook_path') or ''
         e = hit(p, cwd, entries) if p else None
@@ -357,11 +381,14 @@ def decide(inp, m):
                     'Правьте вход и пересоберите генератором; копию для снимка кладите в НОВУЮ папку (cp файл $D/). '
                     'Реестр — tools/ops/conveyor-manifest.yml.')
         fz = bash_force(cmd, cwd, m.get('force_guard') or [])
-        if fz:
-            g, f = fz[0]
-            return (f'ОБХОД КОНВЕЙЕРА: {os.path.basename(g["path"])} {f} — {g.get("why", "")}\n'
-                    'Только по слову владельца: директор выпускает разовое разрешение (T-ID, номер сообщения TG, цель, срок). '
-                    'Реестр — tools/ops/conveyor-manifest.yml § force_guard.')
+        miss = _force_permitted(fz, cmd) if fz else None
+        if miss:
+            g, flags = miss
+            t = f'{os.path.basename(g["path"])} {" ".join(sorted(flags))}'
+            return (f'ОБХОД КОНВЕЙЕРА: {t} — {g.get("why", "")}\n'
+                    'Только по слову владельца. Попросите директора; он выпускает разовое разрешение (один запуск, срок ≤ 24 ч):\n'
+                    f'  python3 tools/ops/conveyor_permit.py issue --tid <T-ID> --tg <номер сообщения владельца> --target "{t}" --hours 2\n'
+                    'Реестр обходов — tools/ops/conveyor-manifest.yml § force_guard; журнал — conveyor_permit.py list.')
     return None
 
 

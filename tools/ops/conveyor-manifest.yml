@@ -70,8 +70,9 @@ live:
         why: свой файл тура (<папка тура>/demo-data.json) — пересобирается выпуском тура, не витрина
 
 # force_guard — обходы конвейера: флаг снимает выключатель/экзамен/суточную метку. Агенту — только с разовым разрешением
-# директора по слову владельца в TG (хук tools/hooks/guard_conveyor.py; инцидент 12.11 — спальня продвинута --force при
-# promote_enabled=false, otchety-direktoru.md:160). Проверка реестра сверяет: файл есть, флаг в нём есть.
+# директора по слову владельца в TG (хук tools/hooks/guard_conveyor.py; разрешение и журнал — tools/ops/conveyor_permit.py;
+# инцидент 12.11 — спальня продвинута --force при promote_enabled=false, otchety-direktoru.md:160).
+# Проверка реестра сверяет: файл есть, флаг в нём есть.
 force_guard:
   - path: tools/scout/bank_prepare.py
     flags: [--force]
