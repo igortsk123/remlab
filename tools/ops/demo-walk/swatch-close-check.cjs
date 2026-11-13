@@ -6,6 +6,7 @@
 // (В) кружок цвета, который уже стоит, — шторка свёрнута, цвет тот же. IPHONE=1 — профиль iPhone 13, LOSE=1 — 3D без видеоконтекста.
 // След: кто трогал шторку (`vwSheet`/`vwSheetApply` со стеком) — для разбора провала. Бесплатно, на сервер ничего не пишется.
 //   STAGE-прокси → BASE=http://127.0.0.1:8797/demo/ OUT=<папка/> [V=2] [TAG=after] [LANG_UI=ru|en] node swatch-close-check.cjs [375x667]
+//   самопроверка меры цвета (без браузера): node swatch-close-check.cjs --selftest
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '../../..');
 const NM = fs.realpathSync(path.join(ROOT, 'node_modules'));
@@ -17,6 +18,47 @@ const [W, H] = IPHONE ? [390, 664] : (process.argv[2] || '375x667').split('x').m
 const OUT = (process.env.OUT || require('os').tmpdir() + '/').replace(/\/?$/, '/'); fs.mkdirSync(OUT, { recursive: true });
 const LANG = process.env.LANG_UI || 'ru', TAG = (process.env.TAG ? process.env.TAG + '-' : '') + LANG + '-' + W;
 const R = []; const ok = (n, c, i) => R.push((c ? 'OK  ' : 'FAIL') + ' ' + n + (i === undefined ? '' : ' ' + JSON.stringify(i)));
+// ЦВЕТ В 3D ПО СВЕТЛОТЕ И ОТТЕНКУ (T-20261112-104/4, директор; живой /demo 12.11 23:3x): прежняя мера — доли r:g:b без яркости — путала
+// нейтральные серые разной светлоты: «Молочный» в кадре [172,163,154] выходил ближе к «Графитовому» [74,69,65]. Теперь — ΔE CIE76 в Lab.
+// Свет сцены сжимает светлоту (молочный темнеет, графит светлеет), поэтому соседние нейтральные кружки (молочный/бежевый, ΔE 6–17) в кадре
+// не различить: цвет товара места обязан быть не дальше ближайшего кружка больше чем на COL_TOL, а после замены — ближе к новому, чем к
+// прежнему (дефект TG 1272 — «в 3D прежний цвет»). Грубая ошибка (TG 1383: жёлтый товар, в кадре чёрный) — ΔE десятки, FAIL всегда.
+const COL_TOL = 12;
+const lab = ([r, g, b]) => { const lin = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const [R1, G1, B1] = [r, g, b].map(lin), f = t => t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
+  const x = f((R1 * 0.4124 + G1 * 0.3576 + B1 * 0.1805) / 0.95047), y = f(R1 * 0.2126 + G1 * 0.7152 + B1 * 0.0722), z = f((R1 * 0.0193 + G1 * 0.1192 + B1 * 0.9505) / 1.08883);
+  return [116 * y - 16, 500 * (x - y), 200 * (y - z)]; };
+const deltaE = (a, b) => { const p = lab(a), q = lab(b); return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]); };
+/** Вердикт по среднему цвету предмета в кадре: `sw` — кружки семьи {name, rgb}, `cur` — товар места, `prev` — товар до замены (или null). */
+function judgeColour(mean, sw, cur, prev) {
+  const near = sw.map(f => ({ name: f.name, rgb: f.rgb, dE: Math.round(10 * deltaE(mean, f.rgb)) / 10 })).sort((a, b) => a.dE - b.dE);
+  const c = near.find(f => f.name === cur), pv = prev && prev !== cur ? near.find(f => f.name === prev) : null;
+  if (!c) return { ok: false, why: 'у товара места нет кружка', near };
+  const gap = Math.round(10 * (c.dE - near[0].dE)) / 10;
+  if (gap > COL_TOL) return { ok: false, why: `ΔE до цвета места ${c.dE} — дальше ближайшего (${near[0].name}, ${near[0].dE}) на ${gap} > ${COL_TOL}`, near };
+  if (pv && pv.dE <= c.dE) return { ok: false, why: `в кадре ближе прежний цвет: ΔE прежнего ${pv.dE} ≤ нового ${c.dE}`, near };
+  return { ok: true, why: near[0].name === cur ? 'ближайший — цвет места' : `цвет места в допуске: ΔE ${c.dE}, ближайший ${near[0].dE} (+${gap} ≤ ${COL_TOL})` +
+    (pv ? `, прежний дальше (${pv.dE})` : ''), near };
+}
+if (process.argv.includes('--selftest')) {
+  // заглушки: кружки дивана «Риббл-1» и замеры живого /demo 12.11; серые разной светлоты; жёлтый против чёрного (TG 1383)
+  const RIB = [{ name: 'Графитовый', rgb: [74, 69, 65] }, { name: 'Молочный', rgb: [215, 210, 203] }, { name: 'Бежевый', rgb: [182, 179, 174] }];
+  const YB = [{ name: 'Жёлтый', rgb: [228, 196, 48] }, { name: 'Чёрный', rgb: [28, 28, 30] }];
+  const cases = [
+    ['молочный в кадре [172,163,154], место — Молочный, был Графитовый', [172, 163, 154], RIB, 'Молочный', 'Графитовый', true],
+    ['молочный в кадре — ближе к «Молочному», чем к «Графитовому»', [172, 163, 154], RIB, 'Молочный', null, true],
+    ['графит в кадре [99,94,87], место — Графитовый, был Молочный', [99, 94, 87], RIB, 'Графитовый', 'Молочный', true],
+    ['серые разной светлоты: в кадре светлый, место — Графитовый (замена не дошла)', [172, 163, 154], RIB, 'Графитовый', 'Молочный', false],
+    ['серые разной светлоты: в кадре тёмный, место — Молочный', [99, 94, 87], RIB, 'Молочный', 'Графитовый', false],
+    ['жёлтый против чёрного: место — Жёлтый, в кадре чёрный', [36, 34, 33], YB, 'Жёлтый', 'Чёрный', false],
+    ['жёлтый против чёрного: место — Жёлтый, в кадре жёлтый под светом сцены', [176, 150, 52], YB, 'Жёлтый', 'Чёрный', true],
+  ];
+  let bad = 0;
+  for (const [n, m, sw, cur, prev, want] of cases) { const v = judgeColour(m, sw, cur, prev); const good = v.ok === want; if (!good) bad++;
+    console.log(`${good ? 'OK  ' : 'FAIL'} ${n}: ${v.ok ? 'норма' : 'дефект'} — ${v.why} · ${v.near.map(f => f.name + ' ' + f.dE).join(', ')}`); }
+  console.log(bad ? `САМОПРОВЕРКА: ${bad} FAIL` : `САМОПРОВЕРКА OK (${cases.length})`);
+  process.exit(bad ? 1 : 0);
+}
 /* global VW, PINS, items, skuOf, vwItemAt, vwRowOf, vwSelect, vwSheet, colourFamRow, shotRows */
 // состояние: шторка, карточка над предметом, выбор, след вызовов шторки
 const ST = () => { const sd = document.getElementById('vside'); return { pos: sd && sd.dataset.pos, vis: Math.round(VW.sheetVis || 0), sel: VW.sel,
@@ -66,7 +108,7 @@ const ST = () => { const sd = document.getElementById('vside'); return { pos: sd
     // не ценник), средний цвет пикселей снимка → ближайший по оттенку (доли r:g:b, без яркости — свет сцены её меняет) кружок семьи
     // обязан быть цветом товара места. Кружков-цветов (`swatch`) у семьи нет — INFO, не меряем; без видеоконтекста — тоже
     const sharp = require(pick('sharp'));
-    const col3d = async (lbl, i) => {
+    const col3d = async (lbl, i, prev = null) => {
       if (process.env.LOSE === '1') { R.push(`INFO ${lbl}: 3D без видеоконтекста — цвет в кадре не меряем`); return; }
       await p.waitForTimeout(3000);
       let last = null;
@@ -83,14 +125,20 @@ const ST = () => { const sd = document.getElementById('vside'); return { pos: sd
         const m = [0, 0, 0]; let n = 0;
         for (const [x, y] of g.pts) { const px = Math.round(x * g.dpr), py = Math.round(y * g.dpr); if (px >= info.width || py >= info.height) continue;
           const o = (py * info.width + px) * info.channels; for (let c = 0; c < 3; c++) m[c] += data[o + c]; n++; }
-        const mean = m.map(v => Math.round(v / Math.max(1, n))), ch = c => { const s = c[0] + c[1] + c[2] || 1; return c.map(v => v / s); };
-        const d = g.sw.map(f => ({ name: f.name, rgb: f.rgb, d: Math.round(1000 * Math.hypot(...ch(mean).map((v, k) => v - ch(f.rgb)[k]))) })).sort((a, b) => a.d - b.d);
-        last = { points: n, mean, cur: g.cur, near: d.slice(0, 3) };
-        if (n >= 30 && d[0].name === g.cur) break;
+        const mean = m.map(v => Math.round(v / Math.max(1, n))), v = judgeColour(mean, g.sw, g.cur, prev);
+        last = { points: n, mean, cur: g.cur, prev, ok: v.ok, why: v.why, near: v.near.slice(0, 4) };
+        if (n >= 30 && v.ok) break;
         await p.waitForTimeout(3000);
       }
-      ok(`${lbl}: цвет предмета в 3D (среднее по ${last.points} точкам) ближе всего к кружку товара места`, last.points >= 30 && last.near[0].name === last.cur, last);
+      ok(`${lbl}: цвет предмета в 3D (среднее по ${last.points} точкам, ΔE CIE76) — цвет товара места, не прежний`, last.points >= 30 && last.ok, last);
     };
+    // ШТОРКА — ОПРОСОМ (T-20261112-104/4): было два снимка состояния через 600 и 1800 мс — на медленной машине (программная графика, 4 браузера)
+    // шторка сворачивалась к 700–900 мс, и строка «600 мс» краснела без дефекта. Теперь — опрос каждые 100 мс до SHEET_MS от нажатия;
+    // в строке — фактическое время; FAIL — только если за SHEET_MS не свернулось
+    const SHEET_MS = 2000;
+    const settle = async (t0, i, cond) => { const who = []; for (;;) { const s = await p.evaluate(ST), nm = await nameAt(i); who.push(...s.who);
+      const ms = Date.now() - t0; if (cond(s, nm) || ms >= SHEET_MS) return { s: { ...s, who: who.slice(0, 6) }, nm, ms, hit: cond(s, nm) };
+      await p.waitForTimeout(100); } };
     const tapEl = async sel => { const l = p.locator(sel).first(); await l.evaluate(e => e.scrollIntoView({ block: 'center' })); await p.waitForTimeout(300);
       if (PHONE) await l.tap(); else await l.click(); };
 
@@ -104,10 +152,10 @@ const ST = () => { const sd = document.getElementById('vside'); return { pos: sd
       t = await target();
       const s0 = await mid(q); ok(`А${tg}: шторка до нажатия`, s0.pos === PDATA[q], s0);
       await tapEl(`#shotbody .pinlist .row[data-k="${t.k}"] .sws [data-sw="${t.j}"]`);
+      { const t0 = Date.now(), r = await settle(t0, t.i, (s, nm) => nm !== t.name && s.pos === '0' && !s.card);
+        ok(`А${tg}: кружок в строке — за ${r.ms} мс цвет новый, шторка свёрнута, карточки нет (предел ${SHEET_MS} мс)`, r.hit, { was: t.name, now: r.nm, s: r.s }); }
       await p.screenshot({ path: `${OUT}${TAG}-A-${fn}-tap.png` });
-      for (const ms of [600, 1800]) { await p.waitForTimeout(ms === 600 ? 600 : 1200); const s = await p.evaluate(ST), nm = await nameAt(t.i);
-        ok(`А${tg}: кружок в строке — через ${ms} мс цвет новый, шторка свёрнута, карточки нет`, nm !== t.name && s.pos === '0' && !s.card, { was: t.name, now: nm, s }); }
-      await col3d(`А${tg}`, t.i);
+      await col3d(`А${tg}`, t.i, t.name);
       await p.screenshot({ path: `${OUT}${TAG}-A-${fn}.png` });
       // В. кружок цвета, который уже стоит (снимок владельца TG 1272: терракотовый уже выбран, шторка полная) — шторка всё равно
       // сворачивается, чтобы цвет было видно в 3D; цвет не меняется
@@ -127,10 +175,10 @@ const ST = () => { const sd = document.getElementById('vside'); return { pos: sd
       ok(`Г${tg}: предмет выбран, строка подсвечена, шторка до нажатия`, s4.sel === t.i && s4.pos === PDATA[q], s4);
       await p.screenshot({ path: `${OUT}${TAG}-D-${fn}-before.png` });
       await tapEl(`#shotbody .pinlist .row[data-k="${t.k}"] .sws [data-sw="${t.j}"]`);
-      for (const ms of [600, 1800]) { await p.waitForTimeout(ms === 600 ? 600 : 1200); const s = await p.evaluate(ST), nm = await nameAt(t.i);
-        ok(`Г${tg}: кружок в строке выбранного — через ${ms} мс цвет новый, шторка свёрнута, выбор снят`, nm !== t.name && s.pos === '0' && !s.card && s.sel == null, { was: t.name, now: nm, s }); }
+      { const t0 = Date.now(), r = await settle(t0, t.i, (s, nm) => nm !== t.name && s.pos === '0' && !s.card && s.sel == null);
+        ok(`Г${tg}: кружок в строке выбранного — за ${r.ms} мс цвет новый, шторка свёрнута, выбор снят (предел ${SHEET_MS} мс)`, r.hit, { was: t.name, now: r.nm, s: r.s }); }
       // снимок Г — после ≥3 с и замера цвета (директор T-104/3: прежний снимок шёл через 1,8 с; цвет у него был верный — коричневый)
-      await col3d(`Г${tg}`, t.i);
+      await col3d(`Г${tg}`, t.i, t.name);
       await p.screenshot({ path: `${OUT}${TAG}-D-${fn}.png` });
       // Б. кружок в карточке над выбранным предметом (на полной шторке карточка — над краем шторки, если сцена видна)
       t = await target();
@@ -152,8 +200,8 @@ const ST = () => { const sd = document.getElementById('vside'); return { pos: sd
       ok(`Б${tg}: предмет выбран, карточка над ним, шторка до нажатия`, s1.card && s1.pos === PDATA[q], s1);
       await p.screenshot({ path: `${OUT}${TAG}-B-${fn}-before.png` });
       if (s1.card) { await tapEl('.vcsws [data-sw].sw:not(.on)');
-        for (const ms of [600, 1800]) { await p.waitForTimeout(ms === 600 ? 600 : 1200); const s = await p.evaluate(ST), nm = await nameAt(t.i);
-          ok(`Б${tg}: кружок в карточке — через ${ms} мс цвет новый, шторка свёрнута, карточка закрыта`, nm !== t.name && s.pos === '0' && !s.card, { was: t.name, now: nm, s }); }
+        const t0 = Date.now(), r = await settle(t0, t.i, (s, nm) => nm !== t.name && s.pos === '0' && !s.card);
+        ok(`Б${tg}: кружок в карточке — за ${r.ms} мс цвет новый, шторка свёрнута, карточка закрыта (предел ${SHEET_MS} мс)`, r.hit, { was: t.name, now: r.nm, s: r.s });
         await p.screenshot({ path: `${OUT}${TAG}-B-${fn}.png` }); }
     }
     if (t && !PHONE) ok('проба — только для телефона (ширина ≤ 700)', false, { W });
