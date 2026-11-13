@@ -287,8 +287,9 @@ def _selftest() -> int:
 
 
 def main(argv: list) -> int:
+    import build_inputs as BI  # входы сборки витрины = список метки правил (T-20261112-121/2)
     if '--selftest' in argv:
-        return _selftest()
+        return _selftest() | BI._selftest()
     root = argv[argv.index('--root') + 1] if '--root' in argv else ROOT_DEFAULT
     m = load(root)
     if '--writers' in argv:
@@ -307,7 +308,8 @@ def main(argv: list) -> int:
         print('FAIL ' + f)
     n = sum(len(m.get(k) or []) for k in ('tracked', 'live'))
     print(f'реестр конвейера: записей {n}, нарушений {len(fails)}')
-    return 1 if fails else 0
+    # правило, которое читает сборка витрины, а в списке входов метки его нет, — красный (`build_inputs.py`)
+    return 1 if fails or BI.check(root) else 0
 
 
 if __name__ == '__main__':

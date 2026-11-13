@@ -24,6 +24,11 @@ OUT = os.path.expanduser(os.environ.get('FLAT215_DEMO_OUT') or '~/scout-scenes/f
 # ВХОДНОЙ БАНК — SETS_BANK (план conv-13 п.5): демо по копии банка (sets3.next.json) пишет СВОЙ demo-sets.json в OUT и
 # раскладки со своим суффиксом — общие `demo-sets.json` и `v3set{n}-layout.json` живого демо не трогает
 sys.path.insert(0, HERE)
+# ВХОДЫ СБОРКИ НА ХОДУ (T-20261112-121/2): какие файлы правил открыл этот процесс — до первого импорта (модули читают правила
+# при загрузке); в конце — строка «прочитано K из N входов» и WARN за правило вне `build_stamp.DEMO_INPUTS` (метка его не видит)
+if __name__ == '__main__':
+    import build_stamp as _BSW  # noqa: E402
+    _BSW.watch_rules()
 import bank_paths as _BP  # noqa: E402
 import atomic_io as _AIO  # noqa: E402 — выходные json сборки пишутся подменой, не обрезкой (T-20261105-59)
 import room_bindings as _RB  # noqa: E402 — привязка, индекс прода и правило годности модели (одно с банком, T-20261106-70)
@@ -2733,6 +2738,8 @@ def main() -> None:
     print(f"OK: вариантов {len(data['variants'])}; ленты: "
           + ', '.join(f"{k} {len(v)}" for k, v in sorted(data['feeds'].items()))
           + f"; комплектов {len(data['sets'])}")
+    for line in _BS.watch_report():
+        print(line, flush=True)
     if '--publish' in sys.argv:
         # ПУБЛИКУЕТ ОДИН СКРИПТ (08.09). Здесь раньше стояла своя копия команд, и она сносила
         # каталог целиком (`rm -rf /opt/remlab/demo && mv`) — а он примонтирован в контейнер

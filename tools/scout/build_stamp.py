@@ -3,11 +3,17 @@
 видит, что тур и витрина собраны одними правилами сборщика.
 
   git     — короткий хеш HEAD копии, из которой собрано (справка: коммиты одной памяти его двигают, сравнивать не по нему);
-  правила — sha256 ВСЕХ файлов правил сборщика, с подпапками: `services/planner-solver/rules/**/*.json` (в т.ч. шаблоны комнат
-            `room-templates/`), `tools/scout/rules/**/*.json` (в т.ч. профили `profiles/`) — путь от корня репо + содержимое,
-            в порядке пути. До T-20261112-121 (план conveyor-guards-01 шаг 5) брался только верхний уровень: правка шаблона
-            комнаты метку не двигала, и витрина «на старом шаблоне» выглядела сверенной.
+  правила — sha256 ВХОДОВ СБОРКИ ВИТРИНЫ `DEMO_INPUTS` (ниже): файлы правил, которые читает `flat215_demo.py` и то, что он
+            импортирует и запускает, и папки целиком (`room-templates/`, `profiles/` — все файлы с подпапками) — путь от корня
+            репо + содержимое, в порядке пути.
+  История: до T-20261112-121 (conveyor-guards-01 шаг 5) — только верхний уровень rules/ (правка шаблона комнаты метку не
+  двигала); шаг 5 — вся rules/** (13.11 новый `rules/tour-auto-photos.json`, влитый во время сборки, сорвал выкладку /demo без
+  причины — витрина его не читает); T-121/2 — только входы сборки. Новый файл в rules/** вне списка метку НЕ двигает.
 Сбой git — `nogit`, правил нет — `norules`: метка не валит сборку.
+
+СПИСОК ВХОДОВ — ОДИН, ЗДЕСЬ. Сторож — `tools/ops/build_inputs.py` (CI и prepush через `conveyor_check.py`): обходит код сборки и
+краснеет, если тот называет правило вне списка; на ходу `watch_rules()` (зовёт `flat215_demo.py`) пишет `WARN:build_inputs:`,
+если сборка открыла правило вне списка, и строку «прочитано K из N входов» — по ней лишнее из списка можно убрать с доказательством.
 
 ПУБЛИКАТОР СВЕРЯЕТ (шаг 5): `publish_demo.sh` зовёт `build_stamp.py --check-data <сборка>/demo-data.json` и не выкладывает сборку,
 у которой нет метки или правила метки ≠ правилам копии, из которой публикуют (собрано по другим правилам — пересобрать
@@ -15,7 +21,6 @@
 """
 from __future__ import annotations
 
-import glob
 import hashlib
 import json
 import os
@@ -23,22 +28,41 @@ import subprocess
 import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
-RULE_GLOBS = ('services/planner-solver/rules/**/*.json', 'tools/scout/rules/**/*.json')
+RULE_DIRS = ('services/planner-solver/rules', 'tools/scout/rules')
+_P, _S = 'services/planner-solver/rules/', 'tools/scout/rules/'
+# ВХОДЫ СБОРКИ ВИТРИНЫ (T-121/2): что называет код `flat215_demo.py` и его импортов/запусков (`python tools/ops/build_inputs.py
+# --list` — кто какое). Папка с `/` на конце — все её .json с подпапками. Новое правило, которое сборка читает, — сюда, иначе CI
+# красный; правило, которое сборка не читает (автофото тура, деньги, диск), — не сюда: его правка выкладку не держит.
+DEMO_INPUTS = (
+    _P + 'bedroom.json', _P + 'hall.json', _P + 'occupancy.json', _P + 'templates.json', _P + 'weights.json', _P + 'zones.json',
+    _P + 'room-templates/',
+    _S + 'asset-strategies.json', _S + 'bank-candidate.json', _S + 'bedroom-roles.json', _S + 'catalog-bindings.json',
+    _S + 'catalog-bindings.schema.json', _S + 'catalog-item.schema.json', _S + 'demo-layout.json', _S + 'demo-swap.json',
+    _S + 'dev-tmp.json', _S + 'hall-roles.json', _S + 'improve-rooms.json', _S + 'mesh-asset-decisions.json',
+    _S + 'mesh-color-guard.json', _S + 'mesh-pinned.json', _S + 'mesh-priority.json', _S + 'mesh-quarantine.json',
+    _S + 'mesh-queue-demo.json', _S + 'openai_prices.json', _S + 'practice_priors.json', _S + 'quiz.json',
+    _S + 'room-mesh-want.json', _S + 'room-profile.schema.json', _S + 'style-axes.json', _S + 'style-color-policy.json',
+    _S + 'profiles/',
+)
 
 
-def rule_files(root: str = ROOT) -> list[str]:
-    """→ пути файлов правил от корня, по порядку (одна копия правил — один порядок на любой машине)."""
+def rule_files(root: str = ROOT, inputs=DEMO_INPUTS) -> list[str]:
+    """→ файлы входов от корня, по порядку пути (одна копия правил — один порядок на любой машине); нет файла — пропуск
+    (его ловит `build_inputs.py`)."""
     out = set()
-    for g in RULE_GLOBS:
-        for p in glob.glob(os.path.join(root, g), recursive=True):
-            if os.path.isfile(p):
-                out.add(os.path.relpath(p, root).replace(os.sep, '/'))
+    for i in inputs:
+        p = os.path.join(root, i)
+        if i.endswith('/'):
+            for dp, _dn, fn in os.walk(p):
+                out.update(os.path.relpath(os.path.join(dp, f), root).replace(os.sep, '/') for f in fn if f.endswith('.json'))
+        elif os.path.isfile(p):
+            out.add(i)
     return sorted(out)
 
 
-def rules_hash(root: str = ROOT) -> str:
+def rules_hash(root: str = ROOT, inputs=DEMO_INPUTS) -> str:
     h, n = hashlib.sha256(), 0
-    for rel in rule_files(root):
+    for rel in rule_files(root, inputs):
         with open(os.path.join(root, rel), 'rb') as f:
             h.update(rel.encode('utf-8') + b'\0' + f.read() + b'\0')
         n += 1
@@ -79,6 +103,50 @@ def check_data(path: str, root: str = ROOT) -> str:
     return ''
 
 
+# ------------------------------------------------------------------ на ходу: какие правила сборка открыла (T-121/2)
+_OPENED: set[str] = set()
+_WATCH: list[str] = []
+
+
+def watch_rules(root: str = ROOT) -> None:
+    """Слушать открытия файлов процесса (sys.addaudithook): всё под RULE_DIRS копии `root` — в `_OPENED`. Сбой — молча мимо."""
+    if _WATCH:
+        return
+    base = os.path.abspath(root)
+    dirs = tuple(os.path.join(base, d) + os.sep for d in RULE_DIRS)
+
+    def hook(event, args):
+        if event != 'open' or not args:
+            return
+        try:
+            p = args[0]
+            if isinstance(p, int):
+                return
+            p = os.path.abspath(os.fsdecode(p))
+            if p.startswith(dirs) and p.endswith('.json'):
+                _OPENED.add(os.path.relpath(p, base).replace(os.sep, '/'))
+        except Exception:  # noqa: BLE001 — сторож не валит сборку
+            pass
+
+    sys.addaudithook(hook)
+    _WATCH.append(base)
+
+
+def watch_report(root: str | None = None, inputs=DEMO_INPUTS) -> list[str]:
+    """→ строки для журнала: правила вне входов, которые сборка открыла (WARN), и «прочитано K из N входов»."""
+    if not _WATCH:
+        return []
+    root = root or _WATCH[0]
+    listed = set(rule_files(root, inputs))
+    extra = sorted(_OPENED - listed)
+    out = [f'WARN:build_inputs: сборка прочла правило вне build_stamp.DEMO_INPUTS — {p}: его правка метку не сдвинет; добавить '
+           f'во входы' for p in extra]
+    unread = sorted(listed - _OPENED)
+    out.append(f'build_inputs: прочитано {len(listed & _OPENED)} из {len(listed)} входов; не прочитаны в этом процессе '
+               f'(могли читать запущенные скрипты): {", ".join(p.rsplit("/", 1)[-1] for p in unread) or "—"}')
+    return out
+
+
 def _selftest() -> int:
     import tempfile
     bad = []
@@ -95,22 +163,29 @@ def _selftest() -> int:
             with open(p, 'w', encoding='utf-8') as f:
                 f.write(text)
 
-        ok(rules_hash(d) == 'norules', 'нет правил — norules')
-        put('services/planner-solver/rules/a.json', '{"a": 1}')
-        put('tools/scout/rules/b.json', '{"b": 1}')
-        h0 = rules_hash(d)
-        put('services/planner-solver/rules/room-templates/living.json', '{"w": 1}')
-        h1 = rules_hash(d)
-        ok(h1 != h0, 'новый шаблон комнаты в подпапке двигает метку')
-        put('services/planner-solver/rules/room-templates/living.json', '{"w": 2}')
-        h2 = rules_hash(d)
-        ok(h2 != h1, 'правка шаблона комнаты двигает метку')
-        put('tools/scout/rules/profiles/x/deep.json', '{}')
-        ok(rules_hash(d) != h2, 'файл на любой глубине подпапок — в метке')
-        put('tools/scout/rules/notes.md', 'не правило')
-        h3 = rules_hash(d)
-        ok(rules_hash(d) == h3 and 'tools/scout/rules/notes.md' not in rule_files(d), 'не-json в метку не идёт')
-        ok(rule_files(d) == sorted(rule_files(d)), 'порядок — по пути')
+        inp = (_P + 'occupancy.json', _P + 'room-templates/', _S + 'demo-swap.json', _S + 'profiles/')
+        ok(rules_hash(d, inp) == 'norules', 'нет правил — norules')
+        put(_P + 'occupancy.json', '{"a": 1}')
+        put(_S + 'demo-swap.json', '{"b": 1}')
+        h0 = rules_hash(d, inp)
+        put(_S + 'tour-auto-photos.json', '{"новое": 1}')
+        put(_P + 'severity.json', '{}')
+        ok(rules_hash(d, inp) == h0, 'новый посторонний файл в rules/ (автофото тура, 13.11) — метка та же')
+        put(_S + 'demo-swap.json', '{"b": 2}')
+        h1 = rules_hash(d, inp)
+        ok(h1 != h0, 'правка правила из списка — метка другая')
+        put(_P + 'room-templates/living.json', '{"w": 1}')
+        h2 = rules_hash(d, inp)
+        ok(h2 != h1 and _P + 'room-templates/living.json' in rule_files(d, inp), 'шаблон комнаты из подпапки — входит')
+        put(_P + 'room-templates/living.json', '{"w": 2}')
+        ok(rules_hash(d, inp) != h2, 'правка шаблона комнаты — метка другая')
+        h3 = rules_hash(d, inp)
+        put(_S + 'profiles/x/deep.json', '{}')
+        ok(rules_hash(d, inp) != h3, 'файл на любой глубине папки-входа — в метке')
+        put(_S + 'profiles/notes.md', 'не правило')
+        ok(_S + 'profiles/notes.md' not in rule_files(d, inp), 'не-json в метку не идёт')
+        ok(rule_files(d, inp) == sorted(rule_files(d, inp)), 'порядок — по пути')
+        ok(rules_hash(d, inp + (_S + 'нет-такого.json',)) == rules_hash(d, inp), 'вход без файла — не валит метку (ловит build_inputs)')
         put('out/good.json', json.dumps({'build': f'abc.{rules_hash(d)}'}))
         put('out/stale.json', json.dumps({'build': 'abc.0123456789'}))
         put('out/nostamp.json', json.dumps({'v': 1}))
@@ -120,7 +195,18 @@ def _selftest() -> int:
         ok('нет метки' in check_data(os.path.join(d, 'out/nostamp.json'), d), 'нет метки — отказ')
         ok('не прочитаны' in check_data(os.path.join(d, 'out/broken.json'), d), 'битый файл — отказ')
         ok('не прочитаны' in check_data(os.path.join(d, 'out/none.json'), d), 'нет файла — отказ')
+        # на ходу: открытое правило вне списка — WARN, из списка — «прочитано»
+        watch_rules(d)
+        with open(os.path.join(d, _S + 'demo-swap.json'), encoding='utf-8') as f:
+            f.read()
+        with open(os.path.join(d, _S + 'tour-auto-photos.json'), encoding='utf-8') as f:
+            f.read()
+        rep = watch_report(d, inp)
+        ok(any('WARN:build_inputs' in s and 'tour-auto-photos.json' in s for s in rep), 'сборка открыла правило вне списка — WARN')
+        ok(any(s.startswith('build_inputs: прочитано 1 из') for s in rep) and not any('demo-swap' in s and 'WARN' in s for s in rep),
+           'правило из списка — «прочитано», без WARN')
     ok(any('/room-templates/' in p for p in rule_files()), 'в репо шаблоны комнат входят в метку')
+    ok(not any('tour-auto-photos' in p for p in rule_files()), 'в репо правило автофото тура в метку не входит')
     print('итог:', 'OK' if not bad else f'FAIL ({len(bad)})')
     return 1 if bad else 0
 
