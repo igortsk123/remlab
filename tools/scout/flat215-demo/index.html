@@ -5772,12 +5772,18 @@ function in3dDecor(x){ return !!x&&!x.list_only&&(!isSoft(x.role)||isCloth3d(x))
 function isWallArt(x){ return !!x&&(x.strategy==='procedural_plane'||String(x.role||'').replace(/\s+\d+$/,'')==='картина'); }
 // где висит — ТОТ ЖЕ расчёт, что строит 3D (`demo-scene.ts:wallArtWhere`, T-20261112-26/2): роль картины → опора или null (места нет)
 const ART_OVER={'кровать':'кроватью','диван':'диваном','комод':'комодом'};
-function carrierWhere(){ const M=window.RemlabScene;
-  if(!M||typeof M.carrierWhere!=='function')return null;
-  try{ return M.carrierWhere({room:curRoom(), items:clone(items), decor:liveDecor(), base:location.href}); }catch(e){ return null; } }
-function artWhere(){ const M=window.RemlabScene;
-  if(!M||typeof M.wallArtWhere!=='function')return null;
-  try{ return M.wallArtWhere({room:curRoom(), items:clone(items), decor:liveDecor(), base:location.href}); }catch(e){ return null; } }
+// ответ — из памяти по входу (T-20261113-16, замер смены стиля ×4: 0,23 с): список спрашивает место у каждой строки картины и лампы, а
+// сцена каждый раз заново проверяет и раскладывает всю комнату. Вход — комната, мебель, декор; тот же вход — то же место; последние 16
+const WHERE_MEMO=new Map();
+function sceneWhere(fn){ const M=window.RemlabScene;
+  if(!M||typeof M[fn]!=='function')return null;
+  try{ const room=curRoom(), decor=liveDecor(), k=JSON.stringify([fn,room,items,decor]);
+    if(WHERE_MEMO.has(k))return WHERE_MEMO.get(k);
+    const r=M[fn]({room, items:clone(items), decor, base:location.href});
+    WHERE_MEMO.set(k,r); if(WHERE_MEMO.size>16)WHERE_MEMO.delete(WHERE_MEMO.keys().next().value);
+    return r; }catch(e){ return null; } }
+function carrierWhere(){ return sceneWhere('carrierWhere'); }
+function artWhere(){ return sceneWhere('wallArtWhere'); }
 // настольный декор — то, что сцена ставит на столешницу; мягкое места в 3D не имеет, картина висит на стене
 function tableDecor(){ return decorList().filter(x=>!isSoft(x.role)&&!isWallArt(x)&&x.strategy!=='ceiling_over'&&x.strategy!=='carrier_surface'); }   // лампа — на комоде (T-101, `carrier-decor.ts`)   // люстра — на потолке (T-66, `ceiling.ts`)
 // цена и число товаров варианта считаются С ДЕКОРОМ (владелец 08.09: «добавлять в список товаров
@@ -7419,9 +7425,24 @@ function mixBox(){
   return b;
 }
 // ОДИН ВЫБОР (владелец TG 451): нажал на стиль — окно закрывается, выбор применяется сразу; окно уже закрыто — второй раз не применяем
+// ОКНО ЗАКРЫВАЕТСЯ СРАЗУ, СТИЛЬ МЕНЯЕТСЯ СЛЕДОМ (T-20261113-16, владелец 08:55 голосом: «при переключении стиля он зависает»): смена
+// стиля — секунда работы (новая расстановка, список, главная, окно комнаты), и всё это время окно выбора висело нажатым. Теперь тап
+// закрывает окно, браузер его рисует (кадр), и только потом — смена отдельной задачей: отклик на палец — сразу
 function mixTilePick(t){
   if(!MIX.open||!t||t.disabled)return;
-  const id=t.dataset.mxPh, room=MIX.room; mixClose(); if(room)mixRoomApply(room,id); else mixApply([id]);
+  const id=t.dataset.mxPh, room=MIX.room, t0=performance.now(); mixClose();
+  afterPaint(()=>{ if(room)mixRoomApply(room,id); else mixApply([id]); perfSpan('style-apply',t0); });
+}
+// после ближайшего кадра — отдельной задачей (кадр успевает показать то, что поменяли до вызова); вкладка скрыта — без ожидания кадра
+function afterPaint(fn){ if(document.hidden){setTimeout(fn,0); return;} requestAnimationFrame(()=>setTimeout(fn,0)); }
+// МЕТКИ ВРЕМЕНИ `?perf=1` (T-20261113-16): смена стиля, сборка 3D-сцены, съёмка кадров — `performance.measure` и строка в консоли; на
+// iPhone владельца их видно в плашке замера (блок PERF) и в Safari → Разработка. Без `?perf=1` — ничего
+const PERF_ON=/[?&]perf=1(?:&|$)/.test(location.search), PERF_LOG=[];
+function perfSpan(name,t0){
+  if(!PERF_ON)return;
+  const ms=Math.round(performance.now()-t0); PERF_LOG.push(name+' '+ms+' ms'); if(PERF_LOG.length>6)PERF_LOG.shift();
+  try{performance.measure(name,{start:t0,end:t0+ms});}catch(e){}
+  try{console.info('[perf]',name,ms+' ms');}catch(e){}
 }
 // ВЫБОР ПЛИТКИ ОДНИМ КАСАНИЕМ (T-20261113-16, владелец TG 1527–1530, iPhone: и по фото, и по кружку выбор срабатывал через раз): на iOS
 // click после касания теряется (сдвиг на пару пикселей, инерция прокрутки окна, удержание), поэтому касание решаем сами по touchend —
@@ -7749,16 +7770,18 @@ document.addEventListener('click',e=>{
 // расстановку, а списка нет внизу»; и он пропадал после закрытия модалки). Раньше панель
 // открывалась только кнопкой и жила отдельным состоянием, которое сбрасывалось при любой
 // перерисовке. Состояния больше нет: выбран вариант — виден его список.
+// без повторов (T-20261113-16, замер смены стиля ×4): `load` → `draw` уже нарисовал список (`basket`) и коллекцию (`drawFeed` →
+// `drawColl`) нового варианта — второй раз их не рисуем (было: список дважды, коллекция трижды)
 function pickVariant(i){ if(i===cur){showSwap();syncHash();return;}
-  cur=i; load(); showSwap(); drawColl(); syncHash(); }
+  cur=i; load(); showSwap(true); syncHash(); }
 // ССЫЛОК «ВСЯ КВАРТИРА В 3D» / «ПОСМОТРЕТЬ В 3D» НЕТ (demo-20 Г6, владелец 22.10 TG 869: «устаревший и сложный функционал; пока
 // не удаляй, но ссылки на него убери»): страница `/flat` и её маршрут остаются, со страницы демо на неё не ведёт ничего
-function showSwap(){
+function showSwap(drawn){   // `drawn` — список только что нарисован (`load` → `draw`)
   const box=document.getElementById('swapBox'); if(!box)return;
   const v=allVariants()[cur]||{};
   const head=document.getElementById('basketHead');
   if(head)head.textContent='Мебель варианта «'+(v.style||v.title||'')+'»';
-  basket();
+  if(!drawn)basket();
   const f=document.getElementById('swapFoot');
   if(f)f.hidden=!(baseRev&&items.length&&revision()!==baseRev);
 }
@@ -9280,10 +9303,16 @@ function fnv64(bytes, seed){            // FNV-1a 64 бита по байтам 
   for(const b of bytes){h^=BigInt(b); h=BigInt.asUintN(64, h*0x100000001b3n);}
   return h.toString(16).padStart(16,'0');
 }
+// номер по одной и той же записи — из памяти (T-20261113-16): карточки, коллекция и окно спрашивают номер каждой расстановки на каждый
+// кадр, а FNV на BigInt — самое медленное в смене стиля (замер ×4: 85–100 мс). Запись — та же строка, номер тот же; последние 64
+const STATE_IDS=new Map();
 function stateIdOf(items, decor, room, opts){
-  const canon=stateCanon(items, decor, room, opts), bytes=new TextEncoder().encode(canon);
+  const canon=stateCanon(items, decor, room, opts), hit=STATE_IDS.get(canon); if(hit)return hit;
+  const bytes=new TextEncoder().encode(canon);
   // 128 бит = два FNV-64 с разными началами: номер — ключ кэша и связи «кадр ↔ список», не криптография (Codex 14.10)
-  return (canon.startsWith('["v2"')?'s2-':'s1-')+fnv64(bytes, 0xcbf29ce484222325n)+fnv64(bytes, 0x84222325cbf29ce4n);
+  const id=(canon.startsWith('["v2"')?'s2-':'s1-')+fnv64(bytes, 0xcbf29ce484222325n)+fnv64(bytes, 0x84222325cbf29ce4n);
+  STATE_IDS.set(canon,id); if(STATE_IDS.size>64)STATE_IDS.delete(STATE_IDS.keys().next().value);
+  return id;
 }
 // STATEID END
 function curStateId(){ return stateIdOf(items, variantDecor(allVariants()[cur]||{}), D&&curRoom(), DEVOPT); }
@@ -10211,7 +10240,11 @@ function vwLoad(on, txt, corner, calm){
 // где отпустили (владелец: «сколько тянет человек»), к краям — только флик быстрее 0,5 px/мс или выход за край. Тап по ручке —
 // полностью открыть ↔ свернуть. Список прокручивается только в открытой шторке; жест вниз при `scrollTop = 0` шторка берёт с
 // первого пикселя (сенсорные события — до нативной прокрутки). Плашка денег едет вместе со шторкой, над ней.
-const VW_PHONE=()=>window.innerWidth<=700;
+// ТЕЛЕФОН ЛИ — ОДНО ЧТЕНИЕ НА ЗАДАЧУ (T-20261113-16): `innerWidth` после правки DOM заставляет браузер пересчитать раскладку, а открытие
+// окна комнаты спрашивало его десятки раз вперемешку с правками (замер ×4: 123 мс). Ширина внутри одной задачи не меняется — ответ
+// помним до конца задачи (микрозадача сбрасывает), поворот и смена размера — уже другая задача
+let _vwPhone=null;
+const VW_PHONE=()=>{ if(_vwPhone===null){_vwPhone=window.innerWidth<=700; queueMicrotask(()=>{_vwPhone=null;});} return _vwPhone; };
 const VW_SLOW=()=>{try{return matchMedia('(prefers-reduced-motion: reduce)').matches;}catch(e){return false;}};
 // края в пикселях видимой высоты: свёрнута — только ручка; открыта — ДО ВЕРХА ЭКРАНА (владелец 17.10, шторка v5: прежнее
 // «сцена ≥ 30 %» снято): плашка едет над шторкой и в полной остановке встаёт к верхнему краю (с учётом выреза экрана)
@@ -13735,7 +13768,7 @@ function quizPick(rule, answers, available, styleColours){
       (P.lcpOn?'экран (LCP) ':'экран (FCP) ')+s(P.lcpOn?P.lcp:P.fcp)+' · данные '+s(data&&data.responseEnd),
       'движок 3D '+s(eng&&eng.responseEnd)+' · 3D готово '+(L&&L.readyMs!=null?s(L.readyMs):L&&L.state==='fallback'?'запасной режим':'—'),
       'модели '+glb.length+' шт · '+kb(glb.reduce((a,e)=>a+size(e),0))+' · последняя '+s(glb.length?Math.max(...glb.map(e=>e.responseEnd)):null),
-    ].join('\n');
+    ].concat(typeof PERF_LOG==='object'&&PERF_LOG.length?[PERF_LOG.slice(-3).join(' · ')]:[]).join('\n');
   }
   try{ performance.setResourceTimingBufferSize(1000); }catch(e){}
   setInterval(tick,500);
