@@ -6,6 +6,7 @@
 // (В) кружок цвета, который уже стоит, — шторка свёрнута, цвет тот же. IPHONE=1 — профиль iPhone 13, LOSE=1 — 3D без видеоконтекста.
 // След: кто трогал шторку (`vwSheet`/`vwSheetApply` со стеком) — для разбора провала. Бесплатно, на сервер ничего не пишется.
 //   STAGE-прокси → BASE=http://127.0.0.1:8797/demo/ OUT=<папка/> [V=2] [TAG=after] [LANG_UI=ru|en] node swatch-close-check.cjs [375x667]
+//   V — номер варианта вручную; без него — первый вариант, где у мебели есть кружки других цветов (номера меняет пересборка)
 //   самопроверка меры цвета (без браузера): node swatch-close-check.cjs --selftest
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '../../..');
@@ -80,7 +81,19 @@ const ST = () => { const sd = document.getElementById('vside'); return { pos: sd
     await p.addInitScript(() => { try { localStorage.setItem('remlab-sheet-hint-v1', '1'); } catch (e) {} });
     await p.goto(demoUrl((process.env.BASE || 'http://127.0.0.1:8797/demo/') + '?lang=' + LANG + '&quiz=0&live=force'), { waitUntil: 'load', timeout: 120000 });
     await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT", null, { timeout: 90000 });
-    await p.evaluate(v => vwOpenVariant(v), +(process.env.V || 2));
+    // ВАРИАНТ — ПО СОСТАВУ, НЕ ПО НОМЕРУ (T-20261112-104/4: в сборке 13.11 у варианта №2 — гостиной без кружков — «предмет не нашёлся»;
+    // номера и состав вариантов меняет каждая пересборка): V задан — он; иначе первый вариант, где у строки мебели есть кружки других
+    // цветов (сиденья — диван, кресло, стул — в первую очередь)
+    const hasSw = () => p.evaluate(() => { let any = 0; for (let i = 0; i < items.length; i++) { const it = items[i], r = vwRowOf(it);
+      if (r && r.querySelector('.sws [data-sw].sw:not(.on)')) any = Math.max(any, /диван|кресл|стул/i.test(it.role) ? 2 : 1); } return any; });
+    let VI = process.env.V === undefined || process.env.V === '' ? -1 : +process.env.V;
+    if (VI < 0) { const nv = await p.evaluate(() => allVariants().length); let bs = 0;
+      for (let v = 0; v < nv && bs < 2; v++) { await p.evaluate(v => vwOpenVariant(v), v);
+        try { await p.waitForFunction(() => document.querySelectorAll('#shotbody .pinlist .row').length > 0, null, { timeout: 30000 }); } catch (e) { continue; }
+        await p.waitForTimeout(500); const s = await hasSw(); if (s > bs) { bs = s; VI = v; } }
+      if (VI < 0) VI = 0; }
+    R.push(`INFO вариант ${VI} (${await p.evaluate(v => allVariants()[v].id, VI)})${process.env.V ? ' — задан V' : ' — первый с кружками у мебели'}`);
+    await p.evaluate(v => vwOpenVariant(v), VI);
     await p.evaluate(() => { if (VW.mode !== 'walk') vwMode('walk'); });
     await p.waitForFunction(() => LIVE.scene && LIVE.state === 'ready', null, { timeout: 240000 }); await p.waitForTimeout(2000);
     await p.evaluate(() => { window.__sl = []; for (const n of ['vwSheet', 'vwSheetApply']) { const o = window[n];
