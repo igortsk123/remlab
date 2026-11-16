@@ -65,6 +65,14 @@ def is_group(label: str) -> bool:
     return core in GROUPS
 
 
+def is_outdoor(label: str) -> bool:
+    """Площадь только про балкон/террасу/лоджию («Balconies and terraces 3,5») — в GIA и в «общую» не входит, не площадь этажа.
+    «Total area (excl. balconies)» — не она: упоминание в исключении (`listing.EXCL_RX`) не считается."""
+    import listing
+    rest = listing.EXCL_RX.sub(' ', label or '').lower()
+    return any(w in rest for w in listing.OPEN_AIR)
+
+
 def is_total(label: str) -> bool:
     import listing
     return bool(listing.TOTAL_KEY.search(label or ''))
@@ -107,6 +115,8 @@ def _assoc(row: dict, pans: list) -> tuple[str, dict | None]:
     lab = row['label']
     if is_group(lab):
         return 'group', None
+    if is_outdoor(lab):
+        return 'outdoor', None
     ln = norm(lab)
     uniq = [p for p in pans if p['tn'] and sum(1 for q in pans if q['tn'] == p['tn']) == 1]
     ex = [p for p in uniq if p['tn'] == ln]
@@ -161,13 +171,14 @@ def floor_area_checks(areas, panels, *, models: dict | None = None, k: dict | No
     for r in rows:
         r['how'], r['pan'] = _assoc(r, pans)
     # единственный логический рисунок: единственная нетотальная площадь (или единственная строка вообще, хоть «Total»)
-    nontot = [r for r in rows if r['how'] != 'total']
+    rest = [r for r in rows if r['how'] != 'outdoor']          # балкон — не этаж и не мешает единственному рисунку
+    nontot = [r for r in rest if r['how'] != 'total']
     if len(pans) == 1 and not pieces:
         one = None
         if len(nontot) == 1 and nontot[0]['how'] == 'none':
             one = nontot[0]
-        elif not nontot and len(rows) == 1:
-            one = rows[0]
+        elif not nontot and len(rest) == 1:
+            one = rest[0]
         if one is not None:
             one['how'], one['pan'] = 'single', pans[0]
     out, by_pan = [], {}
@@ -182,7 +193,7 @@ def floor_area_checks(areas, panels, *, models: dict | None = None, k: dict | No
         if r['pan'] is None:
             out.append(dict(base, scope='group' if r['how'] == 'group' else 'sheet', panelIds=[], status='inconclusive',
                             association='group' if r['how'] == 'group' else 'none',
-                            note='group_not_floor' if r['how'] == 'group' else 'no_panel_match'))
+                            note={'group': 'group_not_floor', 'outdoor': 'outdoor_not_floor'}.get(r['how'], 'no_panel_match')))
             continue
         pan, note = r['pan'], None
         same = by_pan[pan['id']]

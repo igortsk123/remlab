@@ -143,6 +143,17 @@ def test_house_and_outbuildings_are_groups_never_a_floor():
     assert r['scope'] == 'group' and r['panelIds'] == []
 
 
+def test_outdoor_only_area_is_not_a_floor():
+    # тень T-60 (лист giraffe): VLM положил в areas «Balconies and terraces 3,5» — к единственному рисунку это не привязывается
+    r = one([{'label': 'Balconies and terraces', 'm2': 3.5}], [pan(0, None, 61.8)])
+    assert len(r) == 1 and r[0]['status'] == 'inconclusive' and r[0]['panelIds'] == [] and r[0]['note'] == 'outdoor_not_floor'
+    # и не мешает «своей» площади единственного рисунка; «excl. balconies» в подписи — пояснение, не балкон
+    r = by_label(one([{'label': 'Balcony', 'm2': 3.5}, {'label': 'Total area (excl. balconies)', 'm2': 60.0}], [pan(0, None, 61.8)]))
+    assert r['Balcony']['status'] == 'inconclusive' and r['Total area (excl. balconies)']['association'] == 'single'
+    assert r['Total area (excl. balconies)']['status'] == 'ok'
+    assert ac.is_outdoor('Лоджия') and not ac.is_outdoor('Approx. area (excluding balconies)')
+
+
 def test_pieces_of_one_drawing_never_checked_alone():
     ps = [pan(0, None, 30.0), pan(1, None, 28.0)]
     r = one([{'label': 'Plan', 'm2': 58.0}], ps, panels_src='pieces')[0]
