@@ -2,10 +2,10 @@
 workstream: agent-trial
 slug: trial-floor-area-check-01
 title: Сверка площади каждого этажа с подписью под ним (/try, многоэтажные листы)
-status: draft
+status: completed
 created: 2026-11-16
 updated: 2026-11-16
-completed:
+completed: 2026-11-16
 ---
 
 ## Цель
@@ -66,11 +66,11 @@ Codex (ephemeral, 16.11): `_intake/codex/2026-11-16-floor-area-check-answer.md`.
 - Масштаб по площади этажа — не делаем вовсе.
 
 ## Файлы к изменению (этап 1)
-- [ ] `tools/floorplan/pipeline.py` — сохранить `areas`, вызов помощника в `to_result`, `areaChecks` в результат
-- [ ] `tools/floorplan/area_checks.py` (новый) — мера, привязка, порог
-- [ ] `tools/floorplan/bench.py` — посекционная сверка стенда через общий помощник
-- [ ] `contracts/trial.ts` (+ сгенерированная схема) — необязательное `areaChecks`
-- [ ] `tests/floorplan/` — тесты выше
+- [x] `tools/floorplan/pipeline.py` — сохранить `areas`, вызов помощника в `to_result`, `areaChecks` в результат
+- [x] `tools/floorplan/area_checks.py` (новый) — мера, привязка, порог
+- [x] `tools/floorplan/bench.py` — посекционная сверка стенда через общий помощник
+- [x] `contracts/trial.ts` (+ сгенерированная схема) — необязательное `areaChecks`
+- [x] `tests/floorplan/` — тесты выше
 
 ## Конвейер, не заплатка
 1. Правило: сверка площади рисунка с его подписью — общее для всех листов RU/UK, без ID в коде.
@@ -79,14 +79,28 @@ Codex (ephemeral, 16.11): `_intake/codex/2026-11-16-floor-area-check-answer.md`.
 4. Особых случаев нет: привязка только по заголовкам и правилу единственного рисунка.
 
 ## Критерии приёмки
-- [ ] Тесты помощника и золото A/B/C зелёные; `regress.py` без новых расхождений на корпусе
-- [ ] Листы без площадей — результат без изменений (кроме отсутствующего поля)
-- [ ] `pnpm -s typecheck` rc=0 (контракт), Python-самотесты зелёные
-- [ ] Отчёт «тени»: сколько ok / mismatch / inconclusive, примеры mismatch глазами
+- [x] Тесты помощника и золото A/B/C зелёные; `regress.py` без новых расхождений на корпусе
+- [x] Листы без площадей — результат без изменений (кроме отсутствующего поля)
+- [x] `pnpm -s typecheck` rc=0 (контракт), Python-самотесты зелёные
+- [x] Отчёт «тени»: сколько ok / mismatch / inconclusive, примеры mismatch глазами
 
 ## Definition of Done — память
-- [ ] `core/agent-trial.md` / доменный док распознавания — строка о сверке этажей; ADR при переходе к этапу 2
-- [ ] «Уроки» заполнены
+- [x] `core/agent-trial.md` / доменный док распознавания — строка о сверке этажей; ADR при переходе к этапу 2
+- [x] «Уроки» заполнены
+
+## Completion summary (16.11, этап 1)
+T-20261116-60/1, рабочий 1 common (Sonnet 5.5), коммиты `8898c029`, `2e453eee` (влиты в main директором common).
+`tools/floorplan/area_checks.py` (мера gia/rooms/unknown, привязка title/title_in_label/single, порог 5 % линейно и 3 м²,
+у «примерно» — 7,5 % и 5 м²; `note` — почему не выше inconclusive), вызов `pipeline.floor_checks` в `to_result`, поле
+`areaChecks` в `contracts/trial.ts` + схема, стенд `bench.py` через помощник, 42 теста `tests/floorplan/test_area_checks.py`.
+Проверки: pytest floorplan 572 passed, vitest 1319 passed, typecheck/lint/build — ок; `regress.py` 19 листов — 0 сломано,
+`result.json` без `areaChecks` байт-в-байт прежний на 18 листах.
+Тень (19 листов, 0 ₽): записи на 10 листах — ok 10, mismatch 0, inconclusive 10; мера — только gia; золото A/B/C — как ожидалось.
+Этап 2 (labels5 + `awaiting_check`) не начат: настоящих mismatch в корпусе нет — сперва расширить корпус листами с реальными
+ошибками разбора, решение — у владельца.
 
 ## Уроки
--
+- VLM кладёт в `areas` и площадь балконов («Balconies and terraces 3,5 м²») — единственный рисунок привязал её к этажу,
+  ложная тревога; правило: площадь только про балкон/террасу к этажу не привязывать (`area_checks.is_outdoor`).
+- VLM иногда кладёт в `areas` площади отдельных комнат (Kitchen, Hallway) — безвредно (inconclusive), фильтр — в этапе 2.
+- Корпус `regress.py` по умолчанию — загрузки проб; на pakardev их уже нет (хранение 30 дн) — корпус собирать по кэшам VLM.
