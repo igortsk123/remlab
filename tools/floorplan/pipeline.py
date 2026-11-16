@@ -587,9 +587,8 @@ AREA_MISSED_MAX = 0.10
 
 
 def _excluded(names, excl) -> bool:
-    import listing
-    s = ' '.join(names or []).lower()
-    return any(r in s for r in tuple(listing.OPEN_AIR) + tuple(excl or ()))
+    import area_checks
+    return area_checks.is_excluded(names, excl)
 
 
 def area_scale(log: dict, models: dict, area: dict) -> dict:
@@ -876,8 +875,25 @@ def sheet_frame(P: dict, k: float = 1.0) -> dict | None:
     return {'x0': x0, 'y0': y0, 'pxPerCm': round(ppm / float(k) / 100, 6)}
 
 
+def floor_checks(log: dict, models: dict, k: dict, scale: dict, flags: list, areas_raw: list | None) -> list:
+    """T-20261116-60: сверка площади этажей с напечатанной (`area_checks.floor_area_checks`) по исходному списку `areas` VLM,
+    до `panel_result` (там напечатанная площадь комнаты уже заменяет контурную). Только запись. Сбой проверки задание не роняет —
+    пишется флагом `area_check_error`, результат без `areaChecks`."""
+    import area_checks
+    if not areas_raw:
+        return []
+    block = list(flags) + (['area_pages_skipped'] if 'pages_skipped' in flags else [])
+    try:
+        return area_checks.floor_area_checks(areas_raw, log['panels'], models=models, k=k, scale_status=scale['status'],
+                                             blockers=block, panels_src=log.get('panels_src'))
+    except Exception as e:  # noqa: BLE001
+        print(f'area_checks: {type(e).__name__}: {e}', file=sys.stderr, flush=True)
+        flags.append('area_check_error')
+        return []
+
+
 def to_result(log: dict, out: Path, plan: str, G: dict, source: dict, cost: float, timings: dict, flags: list,
-              guess: bool, area: dict | None = None) -> dict:
+              guess: bool, area: dict | None = None, areas_raw: list | None = None) -> dict:
     G_by = {g['name']: g for g in G['rooms']}
     models = _models(out, plan)
     flags = list(flags)
@@ -888,6 +904,7 @@ def to_result(log: dict, out: Path, plan: str, G: dict, source: dict, cost: floa
         flags.append('scale_from_wall_thickness')
     flags += afl
     flags += log.get('panel_flags') or []        # T-27/2: делёж листа без опоры (panel_title_guess, panel_titles_merged, vlm_panels_disagree)
+    area_checks_ = floor_checks(log, models, k, scale, flags, areas_raw)   # T-20261116-60: «тень» — только запись, на показ не влияет
     if not G['rooms']:
         flags.append('no_labels')
     gray = _sheet_gray(log)
@@ -918,6 +935,8 @@ def to_result(log: dict, out: Path, plan: str, G: dict, source: dict, cost: floa
         res = {'version': 1, 'units': 'cm', 'source': source, 'scale': scale, 'panels': panels,
                'flags': list(dict.fromkeys(fl))[:30], 'timings': {k: round(float(v), 2) for k, v in timings.items()},
                'costUsd': round(float(cost), 6)}
+        if area_checks_:
+            res['areaChecks'] = area_checks_
         if len(json.dumps(res, separators=(',', ':'))) <= RESULT_MAX_BYTES:
             return res
     raise TrialError('pipeline_error', False, 'result > 2 MB')
@@ -927,7 +946,7 @@ def to_result(log: dict, out: Path, plan: str, G: dict, source: dict, cost: floa
 
 def redraw_stage(res: dict, rmode: str, *, image: Path, vlm_dir: Path, plan: str, G: dict, log: dict, out: Path,
                  workdir: Path, slot: bool, job: str, vlm_usd: float, T: dict, fl: list, area, source: dict,
-                 spent=None, cache_only: bool = False, draw=None) -> dict:
+                 spent=None, cache_only: bool = False, draw=None, areas_raw: list | None = None) -> dict:
     """Разбор оригинала `res` уже готов. Тревожный (`redraw.alarm`; `force` — всегда) → перерисовка листа (`redraw.attempt`,
     свой потолок денег) → стены по ПРОВЕРЕННОМУ чистому листу, подписи — те же `G` с чтения оригинала (VLM чистый лист не
     видит; кэш VLM — по sha оригинала) → `redraw.decide`. Итог: принят — разбор чистого + `redraw_used`; нет —
@@ -958,7 +977,7 @@ def redraw_stage(res: dict, rmode: str, *, image: Path, vlm_dir: Path, plan: str
         try:
             C_c = bench.auto_cfg(cv2.imread(str(clean), cv2.IMREAD_COLOR))
             log_c, meta_c = walls(plan, clean, out_c, G_c, C_c, lambda s: None, slot, job)
-            res_c = to_result(log_c, out_c, plan, G_c, source, total, T, fl, meta_c['guess_ppm'] is not None, area)
+            res_c = to_result(log_c, out_c, plan, G_c, source, total, T, fl, meta_c['guess_ppm'] is not None, area, areas_raw)
             (rdir / 'result-clean.json').write_text(json.dumps(res_c, ensure_ascii=False, separators=(',', ':')))
             d = redraw.decide(res, log, _models(out, plan), res_c, log_c, _models(out_c, plan))
         except TrialError as e:
@@ -1030,7 +1049,8 @@ def run(image_path, listing_text, workdir, *, source: dict | None = None, vlm_di
         raw = vlm.parse((vlm_dir / f'raw-{plan}-{lk}.txt').read_text()) or {}
         fl += truncated_flags(vlm_dir, plan)
         import listing
-        area, afl = listing.pick_area(listing.total_area(listing_text or ''), listing.sheet_area(raw.get('areas')))
+        areas_raw = raw.get('areas')                  # T-20261116-60: исходные площади VLM — до свёртки в одно число (`sheet_area`)
+        area, afl = listing.pick_area(listing.total_area(listing_text or ''), listing.sheet_area(areas_raw))
         fl += afl
         G = bench.blind_gold(plan, image, str(vlm_dir), str(lst) if lst else None)
         C = bench.auto_cfg(cv2.imread(str(image), cv2.IMREAD_COLOR))
@@ -1053,7 +1073,7 @@ def run(image_path, listing_text, workdir, *, source: dict | None = None, vlm_di
     T['walls'] = time.time() - t1 - meta['slot_wait']
     t2 = time.time()
     stage('export')
-    res = to_result(log, out, plan, G, source, v['usd'], T, fl, meta['guess_ppm'] is not None, area)
+    res = to_result(log, out, plan, G, source, v['usd'], T, fl, meta['guess_ppm'] is not None, area, areas_raw)
     res['timings']['export'] = round(time.time() - t2, 2)
     if os.environ.get('FP_REDRAW'):
         import redraw
@@ -1062,7 +1082,7 @@ def run(image_path, listing_text, workdir, *, source: dict | None = None, vlm_di
             with _env(**envkw):
                 res = redraw_stage(res, rmode, image=image, vlm_dir=vlm_dir, plan=plan, G=G, log=log, out=out,
                                    workdir=workdir, slot=slot, job=job, vlm_usd=v['usd'], T=T, fl=fl, area=area,
-                                   source=source, spent=spent, cache_only=cache_only)
+                                   source=source, spent=spent, cache_only=cache_only, areas_raw=areas_raw)
     (workdir / 'gold.json').write_text(json.dumps({k: x for k, x in G.items() if k != '_labels'}, ensure_ascii=False,
                                                   default=float))
     return apply_ceiling(res, listing.ceiling_height(listing_text or ''))

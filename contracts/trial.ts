@@ -252,6 +252,25 @@ const sourcePreview = z.object({
   crops: z.array(z.object({ panel: z.string().min(1).max(40), sheet: pxRect, at: pxRect })).min(1).max(6),
 });
 
+/** Сверка площади этажа с напечатанной на листе (T-20261116-60, «тень»: только запись, на показ и флаги комнат не влияет;
+ *  `tools/floorplan/area_checks.py`). `printedM2` — как напечатано; `reconstructedM2` — в той же мере (`measure`: `gia` — GIA панели,
+ *  `rooms` — сумма геометрических площадей комнат; `unknown` — не сверялось); `scaleDelta` = √(получено / напечатано) − 1;
+ *  `association` — как площадь привязана к рисунку (`title` — точный заголовок, `title_in_label` — заголовок внутри подписи,
+ *  `single` — единственная площадь и единственный рисунок, `group` — «House»/«Outbuildings», `none` — не привязана);
+ *  `note` — почему статус не выше `inconclusive`. */
+const areaCheck = z.object({
+  scope: z.enum(["panel", "group", "sheet"]),
+  panelIds: z.array(z.string().min(1).max(40)).max(6),
+  status: z.enum(["ok", "mismatch", "inconclusive"]),
+  printedM2: num.positive(),
+  reconstructedM2: num.nonnegative().optional(),
+  measure: z.enum(["gia", "rooms", "unknown"]),
+  scaleDelta: num.optional(),
+  label: z.string().max(120),
+  association: z.enum(["title", "title_in_label", "single", "group", "none"]),
+  note: z.string().max(60).optional(),
+});
+
 export const floorplanResult = z.object({
   version: z.literal(1),
   units: z.literal("cm"),
@@ -276,6 +295,8 @@ export const floorplanResult = z.object({
   panels: z.array(panel).min(1).max(6),   // T-27/2: 4 → 6 (Nethercote: дом, постройки, 1-й, 2-й этаж, подвал)
   /** высота потолков из текста объявления, см (T-20261110-38: «Высота потолков 3,1 м»); нет — тур берёт 270 */
   ceilingCm: num.min(220).max(500).optional(),
+  /** сверка площади каждого этажа с напечатанной (T-20261116-60); нет площадей на листе — поля нет */
+  areaChecks: z.array(areaCheck).max(20).optional(),
   flags,
   timings: z.record(z.string().max(40), num.nonnegative()),
   costUsd: num.nonnegative(),

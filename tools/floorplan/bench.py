@@ -2096,14 +2096,26 @@ def run_plan(plan, inputs, outdir, gold=None, cfg=None):
             r['arrows_dark'] = (sub_gray < cfg['mask'][1]).astype(np.uint8)       # тёмное листа — проём под дугой (/4)
         export_panel(outdir, plan, pi, P, r, sub_img, sub_wall, fams, groom, gopen)
     # площади против листа
+    # T-20261116-60: посекционная сверка — общий помощник `area_checks` (мера, порог, привязка — те же, что у прода); у золота
+    # панель названа ключом, поэтому заголовок панели для привязки — подпись её строки золота
+    import area_checks
+    gold_areas = [a for a in gold.get('areas', []) if a['panel'] != '*']
+    ttl = {i: a['label'] for i, p in enumerate(out_panels) for a in gold_areas if a['panel'] == p['panel']}
+    chk = {c['label']: c for c in area_checks.floor_area_checks(
+        [{'label': a['label'], 'm2': a['m2']} for a in gold_areas], out_panels, titles=ttl,
+        blockers=pflags, panels_src=log.get('panels_src'))}
     areas = []
     for a in gold.get('areas', []):
         if a['panel'] == '*':
             got = sum(p['gia_m2'] for p in out_panels)
-        else:
-            ps = [p for p in out_panels if p['panel'] == a['panel']]
-            got = sum(p['gia_m2'] for p in ps) if ps else None
-        areas.append({**a, 'got_m2': got, 'diff_rel': (got / a['m2'] - 1) if got else None})
+            st, _ = area_checks.compare(a['m2'], got)
+            areas.append({**a, 'got_m2': got, 'diff_rel': (got / a['m2'] - 1) if got else None, 'status': st})
+            continue
+        c = chk.get(a['label']) or {}
+        ps = [p for p in out_panels if p['panel'] == a['panel']]
+        got = sum(p['gia_m2'] for p in ps) if ps else None
+        areas.append({**a, 'got_m2': got, 'diff_rel': (got / a['m2'] - 1) if got else None,
+                      'status': c.get('status'), 'scale_delta': c.get('scaleDelta'), 'association': c.get('association')})
     log['areas'] = areas
     log['panels'] = out_panels
     log['sec'] = round(time.time() - t0, 1)
