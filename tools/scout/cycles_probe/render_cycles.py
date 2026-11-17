@@ -38,6 +38,8 @@ ap.add_argument('--hdri-strength', type=float, default=1.0)
 ap.add_argument('--portal', type=int, default=0, help='1: световой портал в проёме окна')
 ap.add_argument('--real', type=int, default=0, help='1: доски пола и штукатурка стен (общие настройки сцены)')
 ap.add_argument('--dof', type=float, default=0.0, help='>0: диафрагма f/N, лёгкая глубина резкости (фокус — середина мебели)')
+ap.add_argument('--smooth-deg', type=float, default=50.0, help='угол сглаживания нормалей мебели, ° (0 — без сглаживания, плоские грани)')
+ap.add_argument('--denoise', type=int, default=1, help='0 — без шумоподавления OIDN (разбор причины артефактов)')
 ap.add_argument('--mr', type=int, default=1, help='1: у мебели своя карта шероховатости/металла меша (как есть), иначе таблица ROUGH')
 a = ap.parse_args(argv)
 
@@ -67,7 +69,7 @@ cy.device = 'CPU'
 cy.samples = a.samples
 cy.use_adaptive_sampling = True
 cy.adaptive_threshold = 0.01
-cy.use_denoising = True
+cy.use_denoising = bool(a.denoise)
 cy.denoiser = 'OPENIMAGEDENOISE'
 cy.max_bounces = 8
 cy.diffuse_bounces = 5
@@ -381,8 +383,8 @@ for o in M['objs']:
         k_ = int(o['file'][1:4])
         vv = vv.mean(axis=0) + (vv - vv.mean(axis=0)) * (1.0 + 0.0006 * (1 + k_ % 4))
     ob = make_obj(o['file'], vv, z['f'], uvs=z['uv'] if 'uv' in z.files else None, mat=mat, smooth=False)
-    if o['tex']:
-        smooth_by_angle(ob, 50)
+    if o['tex'] and a.smooth_deg > 0:
+        smooth_by_angle(ob, a.smooth_deg)
 
 # ковёр: фото сверху с вырезом по цвету фона (как `_paste_rug`)
 for k, r in enumerate(M['rugs']):

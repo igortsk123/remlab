@@ -49,6 +49,23 @@ function nodeInfo(root: THREE.Object3D): Any[] {
   };
 };
 
+// материалы оболочки комнаты (стены, пол, потолок, плинтус, окно) — что реально стоит в сцене /demo: тип, цвет, карты
+(window as Any).shellInfo = () => {
+  const out: Any[] = [];
+  const scene: THREE.Scene = (window as Any).__scene;
+  scene.traverse((o) => {
+    if (!(o as Any).isMesh) return;
+    let chain = "";
+    for (let p: THREE.Object3D | null = o; p; p = p.parent) chain += (p.name || p.type) + "<";
+    if (!/wall:|floor:|ceiling:|fixtures:|joinery:|window-view/.test(chain)) return;
+    const m: Any = Array.isArray((o as Any).material) ? (o as Any).material[0] : (o as Any).material;
+    out.push({ chain: chain.slice(0, 80), type: m.type, color: m.color?.getHexString?.() ?? null, map: !!m.map, normalMap: !!m.normalMap, bumpMap: !!m.bumpMap,
+      roughnessMap: !!m.roughnessMap, rough: m.roughness ?? null, metal: m.metalness ?? null, emissive: m.emissive?.getHexString?.() ?? null,
+      opacity: m.opacity ?? null, transparent: !!m.transparent, side: m.side, userMat: m.name || "" });
+  });
+  return out;
+};
+
 // выгрузка выбранных узлов (по uuid) в GLB — с мировыми матрицами, чтобы Blender получил их на местах
 (window as Any).exportNodes = async (uuids: string[]) => {
   const scene: THREE.Scene = (window as Any).__scene;

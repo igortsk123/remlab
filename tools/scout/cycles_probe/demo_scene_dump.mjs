@@ -56,6 +56,7 @@ const t0 = Date.now();
 const info = await page.evaluate((a) => window.buildDemoScene(a), { room, items: v.items, decor, base: `http://127.0.0.1:${port}/demo/` });
 console.log('сцена собрана за', ((Date.now() - t0) / 1000).toFixed(1), 'с; узлов', info.nodes.length, 'мест', info.slots.length);
 fs.writeFileSync(path.join(outDir, 'scene_info.json'), JSON.stringify({ variant: v.id, room, decorIn: decor.map((d) => ({ role: d.role, strategy: d.strategy, place: d.place })), ...info }, null, 1));
+fs.writeFileSync(path.join(outDir, 'shell_info.json'), JSON.stringify(await page.evaluate(() => window.shellInfo()), null, 1));
 if (extra.export) {
   const keys = extra.export === 'all' ? null : extra.export.split(',');
   // ключ `rod` — карниз: узлы `fixtures:` выше 2 м (плинтус и порожки той же группы не берём)
