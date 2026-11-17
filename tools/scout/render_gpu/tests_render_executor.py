@@ -427,6 +427,84 @@ open(dp, 'w').write('{"v": 2}')
 ex2._dump_cached(dp, bd, os.path.join(TMP, 'dumpC'), os.path.join(TMP, 'dl.log'), pr_, lim_)
 ok('дамп: другие данные — новый запуск и новая запись кэша', len(calls) == 2 and len([e for e in os.listdir(os.environ['RENDER_DUMP_CACHE']) if not e.endswith('.tmp')]) == 2)
 RE.run_step = orig_rs
+# ═══ 13. T-24/4: параллельные прогоны не ломают друг другу сборку, кэши и каталоги (рабочий 1, 17.11: bundle подменили посреди чужого дамп-шага)
+import threading
+ex3 = RE.SaladGpuExecutor({'RENDER_WORK': os.path.join(TMP, 'pwork')}, sink=None)
+ex3.work = os.path.join(TMP, 'pwork')
+os.makedirs(ex3.work, exist_ok=True)
+built = []
+def fake_build(cmd, log, *a, **k):
+    out = cmd[2]
+    built.append(out)
+    os.makedirs(out, exist_ok=True)
+    time.sleep(0.3)                                  # окно гонки
+    open(os.path.join(out, 'entry.js'), 'w').write('x')
+RE.run_step = fake_build
+res3, errs3 = [], []
+def bundle_run():
+    try:
+        res3.append(ex3._bundle(os.path.join(TMP, 'b.log')))
+    except Exception as e:  # noqa: BLE001
+        errs3.append(repr(e))
+ths = [threading.Thread(target=bundle_run) for _ in range(4)]
+[t.start() for t in ths]; [t.join() for t in ths]
+ok('сборка выгрузчика: четыре параллельных прогона — один итоговый каталог, без ошибок, entry.js на месте',
+   not errs3 and len(set(res3)) == 1 and os.path.isfile(os.path.join(res3[0], 'entry.js')) and all('.tmp-' in b for b in built))
+ok('сборка выгрузчика: временные каталоги убраны', not [d for d in os.listdir(ex3.work) if '.tmp-' in d])
+old_b = os.path.join(ex3.work, 'bundle-old000000000'); os.makedirs(old_b)
+ex3._bundle(os.path.join(TMP, 'b.log'))
+ok('сборка: чужой СВЕЖИЙ bundle-* не сносится (мог быть в ходу у соседнего прогона)', os.path.isdir(old_b))
+os.utime(old_b, (1, 1))
+ex3._bundle(os.path.join(TMP, 'b.log'))
+ok('сборка: старый (> 6 ч) bundle-* убирается', not os.path.isdir(old_b))
+RE.run_step = orig_rs
+
+snap_a = {'scene_hash': 'a' * 64}
+d1_, d2_ = ex3._job_dir('gjob-', snap_a), ex3._job_dir('gjob-', snap_a)
+ok('каталог задания: две сцены с одним хешем — разные каталоги', d1_ != d2_ and d1_.startswith(os.path.join(ex3.work, 'gjob-' + 'a' * 16)))
+
+# кэш PNG: восемь потоков кладут одну и ту же картинку
+ES.TEX_CACHE = os.path.join(TMP, 'texcache2')
+arr2 = (np.arange(256 * 256 * 3) % 253).astype(np.uint8).reshape(256, 256, 3)
+dsts = [os.path.join(TMP, f'par{i}.png') for i in range(8)]
+errs4 = []
+def put_run(dst):
+    try:
+        ES.put_png(arr2, dst)
+    except Exception as e:  # noqa: BLE001
+        errs4.append(repr(e))
+ths = [threading.Thread(target=put_run, args=(d,)) for d in dsts]
+[t.start() for t in ths]; [t.join() for t in ths]
+ok('кэш PNG: восемь параллельных записей — без ошибок, все файлы читаются и равны, в кэше один файл',
+   not errs4 and all((np.asarray(Image.open(d).convert('RGB')) == arr2).all() for d in dsts) and len([f for f in os.listdir(ES.TEX_CACHE) if f.endswith('.png')]) == 1)
+cf = os.path.join(ES.TEX_CACHE, [f for f in os.listdir(ES.TEX_CACHE) if f.endswith('.png')][0])
+ok('кэш PNG: после записи только чтение', (os.stat(cf).st_mode & 0o222) == 0)
+ok('кэш PNG: временных файлов не осталось', not [f for f in os.listdir(ES.TEX_CACHE) if f.endswith('.tmp')])
+
+# кэш дампа: два параллельных прогона одного входа
+os.environ['RENDER_DUMP_CACHE'] = os.path.join(TMP, 'dumpcache2')
+dp2 = os.path.join(TMP, 'data2.json'); open(dp2, 'w').write('{"v": 9}')
+n_calls = []
+def fake_step2(cmd, log, *a, **k):
+    n_calls.append(1)
+    dd = cmd[5]
+    os.makedirs(dd, exist_ok=True)
+    time.sleep(0.3)
+    open(os.path.join(dd, 'scene-export.json'), 'w').write('{"y": 2}')
+RE.run_step = fake_step2
+errs5 = []
+def dump_run(i):
+    try:
+        ex2._dump_cached(dp2, bd, os.path.join(TMP, f'pd{i}'), os.path.join(TMP, f'pd{i}.log'), pr_, lim_)
+    except Exception as e:  # noqa: BLE001
+        errs5.append(repr(e))
+ths = [threading.Thread(target=dump_run, args=(i,)) for i in range(3)]
+[t.start() for t in ths]; [t.join() for t in ths]
+ents5 = [e for e in os.listdir(os.environ['RENDER_DUMP_CACHE'])]
+ok('кэш дампа: три параллельных прогона — без ошибок, у каждого своя папка с данными, в кэше одна запись, временных нет',
+   not errs5 and all(open(os.path.join(TMP, f'pd{i}', 'scene-export.json')).read() == '{"y": 2}' for i in range(3)) and len(ents5) == 1 and '.tmp-' not in ents5[0])
+ok('кэш дампа: файлы записи только для чтения', all((os.stat(os.path.join(os.environ['RENDER_DUMP_CACHE'], ents5[0], f)).st_mode & 0o222) == 0 for f in os.listdir(os.path.join(os.environ['RENDER_DUMP_CACHE'], ents5[0])) if f != '.ok'))
+RE.run_step = orig_rs
 shutil.rmtree(TMP, ignore_errors=True)
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')
 sys.exit(1 if BAD else 0)

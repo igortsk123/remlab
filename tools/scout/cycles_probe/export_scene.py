@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import sys
+import uuid
 
 import numpy as np
 from PIL import Image
@@ -40,8 +41,9 @@ def put_png(arr, dst):
     c = os.path.join(TEX_CACHE, hashlib.md5(arr.tobytes() + str(arr.shape).encode()).hexdigest() + f'-{PNG_LEVEL}.png')
     if not os.path.isfile(c):
         os.makedirs(TEX_CACHE, exist_ok=True)
-        tmp = f'{c}.{os.getpid()}.tmp'
+        tmp = f'{c}.{os.getpid()}-{uuid.uuid4().hex[:8]}.tmp'      # атомарно: временный → переименование; после записи — только чтение
         Image.fromarray(arr).save(tmp, 'PNG', compress_level=PNG_LEVEL)
+        os.chmod(tmp, 0o444)
         os.replace(tmp, c)
     try:
         os.link(c, dst)

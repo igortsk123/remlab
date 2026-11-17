@@ -23,6 +23,7 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
@@ -199,6 +200,20 @@ class SceneExecutor:
     def versions(self) -> dict:
         return render_version(self.blender)
 
+    def _job_dir(self, prefix: str, snap: dict) -> str:
+        """Каталог задания — СВОЙ на каждый прогон (хеш сцены + случайный хвост): два прогона одной сцены не сносят друг другу файлы;
+        оставшиеся от сбоев каталоги старше 6 ч убираются при следующем заказе."""
+        os.makedirs(self.work, exist_ok=True)
+        now = time.time()
+        for d in os.listdir(self.work):
+            if d.startswith(('job-', 'gjob-')):
+                try:
+                    if now - os.path.getmtime(os.path.join(self.work, d)) > 6 * 3600:
+                        shutil.rmtree(os.path.join(self.work, d), ignore_errors=True)
+                except OSError:
+                    pass
+        return os.path.join(self.work, f"{prefix}{snap['scene_hash'][:16]}-{uuid.uuid4().hex[:6]}")
+
     # ——— сборка выгрузчика сцены (esbuild) — кэш по исходникам
     def _bundle(self, log: str) -> str:
         srcs = [os.path.join(PROBE, 'demo_scene_entry.ts'), os.path.join(PROBE, 'build_entry.mjs')]
@@ -214,9 +229,30 @@ class SceneExecutor:
                 pass
         out = os.path.join(self.work, 'bundle-' + h.hexdigest()[:12])
         if not os.path.isfile(os.path.join(out, 'entry.js')):
-            run_step([self.node, os.path.join(PROBE, 'build_entry.mjs'), out], log, 300, 4, what='сборка выгрузчика')
-            for old in [d for d in os.listdir(self.work) if d.startswith('bundle-') and os.path.join(self.work, d) != out]:
-                shutil.rmtree(os.path.join(self.work, old), ignore_errors=True)
+            # СБОРКА ВО ВРЕМЕННУЮ ПАПКУ И ПОДМЕНА ЦЕЛИКОМ (рабочий 1, 17.11: «bundle-…» подменили посреди чужого прогона — дамп упал): прежняя версия
+            # писала прямо в итоговый каталог и сносила все «чужие» bundle-* — прогон со старыми исходниками терял каталог из-под рук
+            tmp = f'{out}.tmp-{os.getpid()}-{uuid.uuid4().hex[:8]}'
+            try:
+                run_step([self.node, os.path.join(PROBE, 'build_entry.mjs'), tmp], log, 300, 4, what='сборка выгрузчика')
+                try:
+                    os.replace(tmp, out)         # занято (другой прогон успел раньше) — берём его: содержимое одно и то же по хешу исходников
+                except OSError:
+                    shutil.rmtree(tmp, ignore_errors=True)
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
+        try:
+            os.utime(out)                        # «в ходу» — для уборки по возрасту
+        except OSError:
+            pass
+        now = time.time()
+        for old in os.listdir(self.work):        # уборка — только старого и не текущего: свежие каталоги могут быть в работе у соседних прогонов
+            op = os.path.join(self.work, old)
+            if old.startswith('bundle-') and op != out and '.tmp-' not in old:
+                try:
+                    if now - os.path.getmtime(op) > 6 * 3600:
+                        shutil.rmtree(op, ignore_errors=True)
+                except OSError:
+                    pass
         return out
 
     def _prepare(self, snap: dict, job: str, log: str, pr: dict, progress, timing: dict) -> str:
@@ -294,16 +330,19 @@ class SceneExecutor:
         run_step([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), data_path, '0', bundle, dump, 'export=' + pr['dumpExport']], dlog,
                  lim['dumpSec'], lim['maxRssGb'], what='декор и отделка')
         try:
-            tmp = f'{hit}.{os.getpid()}.tmp'
-            shutil.rmtree(tmp, ignore_errors=True)
+            os.makedirs(root, exist_ok=True)
+            tmp = f'{hit}.tmp-{os.getpid()}-{uuid.uuid4().hex[:8]}'
             os.makedirs(tmp)
             for f in os.listdir(dump):
                 shutil.copyfile(os.path.join(dump, f), os.path.join(tmp, f))
+                os.chmod(os.path.join(tmp, f), 0o444)      # после записи — только чтение (прогоны держат жёсткие ссылки на эти файлы)
             open(os.path.join(tmp, '.ok'), 'w').close()
-            shutil.rmtree(hit, ignore_errors=True)
-            os.replace(tmp, hit)
+            try:
+                os.replace(tmp, hit)             # занято (параллельный прогон записал раньше) — оставляем его, свой убираем
+            except OSError:
+                shutil.rmtree(tmp, ignore_errors=True)
             # держим 60 последних (по `.ok`), остальное — прочь
-            ents = sorted((e for e in os.scandir(root) if e.is_dir() and not e.name.endswith('.tmp')),
+            ents = sorted((e for e in os.scandir(root) if e.is_dir() and '.tmp-' not in e.name),
                           key=lambda e: os.path.getmtime(os.path.join(e.path, '.ok')) if os.path.isfile(os.path.join(e.path, '.ok')) else 0, reverse=True)
             for e in ents[60:]:
                 shutil.rmtree(e.path, ignore_errors=True)
@@ -346,8 +385,7 @@ class LocalCpuExecutor(SceneExecutor):
             raise ExecutorUnavailable('render_unavailable', 'Рендер сейчас недоступен. Попробуйте позже.', 'Rendering is unavailable right now. Try again later.')
         sys.path.insert(0, os.path.join(REPO, 'tools', 'ops'))
         import heavy_slot as HS
-        job = os.path.join(self.work, 'job-' + snap['scene_hash'][:16])
-        shutil.rmtree(job, ignore_errors=True)
+        job = self._job_dir('job-', snap)
         os.makedirs(job)
         log = os.path.join(job, 'run.log')
         t0, timing = time.time(), {}
@@ -502,12 +540,12 @@ class SaladGpuExecutor(SceneExecutor):
         pickup_s, pair_max_s = float(ex.get('pickup_s', 90)), float(ex.get('pair_max_s', 900))
         sink = self.sink()
         m = self.machine()
-        job = os.path.join(self.work, 'gjob-' + snap['scene_hash'][:16])
+        job = self._job_dir('gjob-', snap)
         shutil.rmtree(job, ignore_errors=True)
         os.makedirs(job)
         log = os.path.join(job, 'run.log')
         t0, timing = self.now(), {}
-        jid = f"{snap['scene_hash'][:12]}-{int(t0)}"
+        jid = f"{snap['scene_hash'][:12]}-{int(t0)}-{uuid.uuid4().hex[:4]}"      # хвост: два заказа одной сцены в одну секунду не делят каталог заданий
         m.pulse(busy_s=600)            # ЗАКАЗ = событие: отсчёт простоя с этого момента, и пока задание в работе — машину не гасим
         try:
             with self._slot('photo-render-' + snap['scene_hash'][:8], pr) as hs:
