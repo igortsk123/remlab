@@ -32,12 +32,12 @@ def _manifest():
 
 def test_config_shape():
     plants = CFG['plants']
-    assert 4 <= len(plants) <= 6
+    assert 8 <= len(plants) <= 16
     ids = [p['id'] for p in plants]
     assert len(set(ids)) == len(ids)
     assert CFG['licence'] == 'CC0-1.0'
     for p in plants:
-        assert p['kind'] in CFG['fit'], p['id']
+        assert p['kind'] in CFG['fit'] and set(CFG['fit'][p['kind']]) == {'floor', 'table'}, p['id']
         assert p['styles'], p['id']
     kinds = {p['kind'] for p in plants}
     for role, kind in CFG['hosts'].items():
@@ -49,9 +49,31 @@ def test_sources_cc0_with_registry():
     for asset in sorted({p['asset'] for p in CFG['plants']}):
         with open(os.path.join(ROOT, 'data', 'flat3d', 'plants', asset, 'source.json'), encoding='utf-8') as f:
             s = json.load(f)
-        assert s['licence'] == 'CC0-1.0' and s['site'] == 'Poly Haven', asset
-        assert s['pageUrl'] == f'https://polyhaven.com/a/{asset}', asset
+        assert s['licence'] == 'CC0-1.0', asset
+        if s['site'] == 'Poly Haven':
+            assert s['pageUrl'] == f'https://polyhaven.com/a/{asset}', asset
+        else:                                              # свой букет, собранный кодом: ссылка — на сам генератор в репо
+            assert s['site'] == 'own' and os.path.isfile(os.path.join(ROOT, s['pageUrl'])), asset
         assert s['authors'] and s['sha256'] and all(len(h) == 64 for h in s['sha256'].values()), asset
+
+
+def test_vessels_have_fit_and_mounts():
+    """У каждого носителя есть растения на оба места (пол, стол) — иначе носитель останется пустым."""
+    for role, kind in CFG['hosts'].items():
+        for mount in ('floor', 'table'):
+            assert any(p['kind'] == kind and mount in (p.get('mounts') or [mount]) for p in CFG['plants']), f'{role}: нет растений для «{mount}»'
+    for p in CFG['plants']:
+        assert set(p.get('mounts') or ['floor', 'table']) <= {'floor', 'table'}, p['id']
+        assert p.get('minThroatCm', 0) <= p.get('maxThroatCm', 1e9), p['id']
+
+
+def test_procedural_bouquets_deterministic():
+    """Свои букеты: одна сборка дважды даёт то же самое (зерно — от id), бюджет не превышен."""
+    import plant_procedural as PP
+    for p in [q for q in CFG['plants'] if q.get('builder') == 'procedural']:
+        a, b = PP.MAKERS[p['maker']](__import__('numpy').random.default_rng(1)), PP.MAKERS[p['maker']](__import__('numpy').random.default_rng(1))
+        assert len(a.f) == len(b.f) and len(a.f) <= CFG['limits']['maxTris'], p['id']
+        assert (np.array(a.v) == np.array(b.v)).all(), p['id']
 
 
 def test_light_copies_within_budget_and_listed():
@@ -69,7 +91,7 @@ def test_light_copies_within_budget_and_listed():
         r = rows[p['id']]
         assert r['bytes'] == len(data) and r['sha256'] == hashlib.sha256(data).hexdigest(), p['id']
         assert 0 < r['tris'] <= lim['maxTris'], p['id']
-        assert r['kind'] == p['kind'] and r['asset'] == p['asset'] and r['part'] == p['part'], p['id']
+        assert r['kind'] == p['kind'] and r['asset'] == p['asset'] and r['part'] == (p.get('part') or p.get('maker') or ','.join(p['parts'])), p['id']
 
 
 def test_stand_up_lying_branch():

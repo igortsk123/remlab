@@ -21,7 +21,7 @@ import { buildKitchen } from "@/lib/viewer3d/kits/kitchen";
 import { buildBathroom } from "@/lib/viewer3d/kits/bathroom";
 import { buildBed, buildRug, buildWardrobe } from "@/lib/viewer3d/kits/bedroom";
 import { buildTv } from "@/lib/viewer3d/kits/tv";
-import { fitPlant, pickPlant, placePlant, plantKindOf, PLANTS_IN_PHOTO, plantSize, plantUrl, throatOf, type PlantDef, type PlantKind, type Throat } from "@/lib/viewer3d/kits/plants";
+import { fitPlant, mountOf, pickPlant, placePlant, plantKindOf, PLANTS_IN_PHOTO, plantSize, plantUrl, throatOf, type PlantDef, type PlantKind, type PlantMount, type Throat } from "@/lib/viewer3d/kits/plants";
 import { buildWallPlane } from "@/lib/viewer3d/kits/wall-plane";
 import type { KitCtx } from "@/lib/viewer3d/kits/common";
 import { createMaterialCtx, disposeMaterialCtx, type MaterialCtx } from "@/lib/viewer3d/materials";
@@ -613,18 +613,19 @@ export class FlatViewer {
    */
   private addPlant(spec: Extract<ObjectSpec, { kind: "mesh" }>, outer: THREE.Group, real: THREE.Object3D): void {
     // украшение не должно ломать загрузку носителя: любой сбой расчёта — носитель остаётся как был (тест `viewer-swap-wait` без options)
-    let plan: { kind: PlantKind; throat: Throat; def: PlantDef } | null = null;
+    let plan: { kind: PlantKind; mount: PlantMount; throat: Throat; def: PlantDef } | null = null;
     try {
       if (!(this.options.plants ?? PLANTS_DEFAULT)) return;
       const kind = plantKindOf(spec.role);
       const throat = kind ? throatOf(real, outer) : null;
-      const def = kind && throat ? pickPlant(kind, throat.diameterM * 100, spec.meshId, this.options.plantStyle) : null;
-      if (kind && throat && def) plan = { kind, throat, def };
+      const mount = mountOf(spec.placement.elevCm);
+      const def = kind && throat ? pickPlant(kind, mount, throat.diameterM * 100, spec.meshId, this.options.plantStyle) : null;
+      if (kind && throat && def) plan = { kind, mount, throat, def };
     } catch {
       return;
     }
     if (!plan) return;
-    const { kind, throat, def } = plan;
+    const { kind, mount, throat, def } = plan;
     const task = (async () => {
       try {
         // растение — после мебели: пока идёт загрузка моделей, его файл и разбор не отнимают у них сеть и процессор (первый кадр не ждёт)
@@ -632,7 +633,7 @@ export class FlatViewer {
         const source = await this.meshes.load(plantUrl(def.id));
         const cur = this.placed.get(spec.slotId);
         if (this.disposed || !cur || cur.group !== outer) return;   // пока грузилось, носитель заменили или убрали
-        const fit = fitPlant(kind, plantSize(source), throat, spec.placement.hCm * CM);
+        const fit = fitPlant(kind, mount, plantSize(source), throat, spec.placement.hCm * CM);
         outer.add(placePlant(source, fit, spec.meshId));
         this.anchors.delete(spec.slotId);   // рамка и ценник — с растением
         this.bakeContact();

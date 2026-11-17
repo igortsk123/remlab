@@ -26,6 +26,7 @@ import glob
 import hashlib
 import io
 import json
+import re
 import os
 import subprocess
 import sys
@@ -125,26 +126,52 @@ def stand_up(v: np.ndarray) -> np.ndarray:
 
 
 def build_one(p: dict, limits: dict) -> dict:
-    g, tex, uv = _part(p["asset"], p["part"])
-    v = stand_up(np.asarray(g.vertices, dtype=np.float64))
-    img = tex.resize((TEX, TEX), Image.LANCZOS)
-    mat = trimesh.visual.material.PBRMaterial(baseColorTexture=img, metallicFactor=0.0, roughnessFactor=0.85, doubleSided=True,
-                                              alphaMode="OPAQUE")
-    mesh = trimesh.Trimesh(vertices=v, faces=g.faces, visual=trimesh.visual.TextureVisuals(uv=uv, material=mat), process=False)
+    """Растение = одна геометрия (`part`) или несколько (`parts`: листья + стебли/ствол; у каждой своя цветовая карта).
+    `stand: false` — модель уже стоит прямо (не выпрямлять по главной оси; низ в ноль и основание на ось — всегда);
+    `decimate: R` — оставить долю R треугольников (gltfpack -si, с учётом разверток; листья Poly Haven бывают по 100 тыс.)."""
+    names = p.get("parts") or [p["part"]]
+    loaded = [_part(p["asset"], n) for n in names]
+    allv = np.concatenate([np.asarray(g.vertices, dtype=np.float64) for g, _, _ in loaded])
+    if p.get("stand", True):
+        allv = stand_up(allv)
+    else:
+        allv = allv.copy()
+        allv[:, 1] -= allv[:, 1].min()
+        base = allv[allv[:, 1] <= max(0.08 * float(allv[:, 1].max()), 1e-4)]
+        allv[:, 0] -= float(base[:, 0].mean())
+        allv[:, 2] -= float(base[:, 2].mean())
+    scene = trimesh.Scene()
+    mats: dict[int, trimesh.visual.material.PBRMaterial] = {}
+    at = 0
+    for i, (g, tex, uv) in enumerate(loaded):
+        n = len(g.vertices)
+        if id(tex) not in mats:
+            img = tex.resize((TEX, TEX), Image.LANCZOS)
+            mats[id(tex)] = trimesh.visual.material.PBRMaterial(baseColorTexture=img, metallicFactor=0.0, roughnessFactor=0.85,
+                                                               doubleSided=True, alphaMode="OPAQUE")
+        scene.add_geometry(trimesh.Trimesh(vertices=allv[at:at + n], faces=g.faces,
+                                           visual=trimesh.visual.TextureVisuals(uv=uv, material=mats[id(tex)]), process=False),
+                           geom_name=f"p{i}")
+        at += n
+    v = allv
     tmp = os.path.join(CACHE, f"_build-{p['id']}.glb")
-    mesh.export(tmp, file_type="glb")
+    scene.export(tmp, file_type="glb")
     os.makedirs(OUT, exist_ok=True)
     dst = os.path.join(OUT, f"{p['id']}.glb")
-    res = subprocess.run([GLTFPACK, "-i", tmp, "-o", dst, "-cc"], capture_output=True, text=True, timeout=300)
+    cmd = [GLTFPACK, "-i", tmp, "-o", dst, "-cc", "-v"]
+    if p.get("decimate"):
+        cmd += ["-si", str(p["decimate"]), "-sv", "-se", "0.05"]
+    res = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if res.returncode:
         raise SystemExit(f"{p['id']}: gltfpack: {(res.stderr or res.stdout).strip()[-200:]}")
     os.unlink(tmp)
     size = os.path.getsize(dst)
-    tris = len(g.faces)
+    m = re.search(r"output: \d+ mesh primitives \((\d+) triangles", res.stdout + res.stderr)
+    tris = int(m.group(1)) if m else sum(len(g.faces) for g, _, _ in loaded)
     if tris > limits["maxTris"] or size > limits["maxBytes"]:
         raise SystemExit(f"{p['id']}: бюджет превышен — {tris} треугольников (≤ {limits['maxTris']}), {size} байт (≤ {limits['maxBytes']})")
     ext = (v.max(axis=0) - v.min(axis=0)) * 100
-    return {"id": p["id"], "asset": p["asset"], "part": p["part"], "kind": p["kind"], "tris": tris, "bytes": size,
+    return {"id": p["id"], "asset": p["asset"], "part": p.get("part") or ",".join(names), "kind": p["kind"], "tris": tris, "bytes": size,
             "sha256": hashlib.sha256(open(dst, "rb").read()).hexdigest(), "sizeCm": [round(float(x), 1) for x in ext]}
 
 
@@ -158,10 +185,12 @@ def main() -> int:
     if not plants:
         raise SystemExit(f"нет растения {a.id}")
     if a.cmd == "fetch":
-        for asset in sorted({p["asset"] for p in plants}):
+        for asset in sorted({p["asset"] for p in plants if p.get("builder") != "procedural"}):
             fetch(asset)
         return 0
-    rows = [build_one(p, cfg["limits"]) for p in plants]
+    import plant_procedural as PP                 # букеты, собранные кодом (эвкалипт, олива, пампас, лаванда) — тот же список и бюджет
+
+    rows = [(PP.build_one if p.get("builder") == "procedural" else build_one)(p, cfg["limits"]) for p in plants]
     for r in rows:
         print(f"{r['id']:16s} {r['kind']:5s} {r['tris']:6d} треуг. {r['bytes'] // 1024:5d} КБ  {r['sizeCm']} см")
     if not a.id:

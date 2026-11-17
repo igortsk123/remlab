@@ -74,11 +74,12 @@ const save = (name, url) => writeFileSync(join(OUT, name), Buffer.from(url.split
 
 if (SHEET.length) {
   const browser = await launch();
-  const tab = await browser.newPage({ viewport: { width: 400, height: 500 } });
+  const [CW, CH] = String(arg("--cell", "360x440")).split("x").map(Number);
+  const tab = await browser.newPage({ viewport: { width: CW + 40, height: CH + 60 } });
   tab.on("pageerror", (e) => console.error(`ошибка страницы: ${e.message}`));
   await tab.goto(base);
   await tab.waitForFunction(() => typeof window.plantSheet === "function");
-  const url = await tab.evaluate((u) => window.plantSheet(u, 360, 440), SHEET.map((id) => `/flat3d/plants/${id}.glb`));
+  const url = await tab.evaluate(([u, w, h]) => window.plantSheet(u, w, h), [SHEET.map((id) => `/flat3d/plants/${id}.glb`), CW, CH]);
   save(`sheet.${SHEET.join("+").slice(0, 80)}.jpg`, url);
   await browser.close();
   server.close();
@@ -96,11 +97,11 @@ for (const vid of VARIANTS) {
   // позы ракурсов варианта + «смотрящие» на предметы ролей из --focus, у которых есть место в данных (кашпо; ваза стоит на опоре без своих
   // координат — её видно в ракурсах): 150 см от предмета в сторону центра комнаты, взгляд на него; сдвиг объектива --shift поднимает
   // низкий предмет в кадр (знак проверяется снимком)
-  const SHIFT = Number(arg("--shift", "0"));
+  const SHIFT = Number(arg("--shift", "0")), DIST = Number(arg("--dist", "150"));
   const looks = SHIFT === 0 ? [] : [...(v.items ?? []), ...(v.decor ?? [])]
     .filter((it) => FOCUS.some((r) => String(it.role).startsWith(r)) && it.x != null && Number.isFinite(+it.x)).map((it) => {
       const dx = room.w / 2 - +it.x, dy = room.d / 2 - +it.y, n = Math.hypot(dx, dy) || 1;
-      const px = +it.x + (dx / n) * 150, py = +it.y + (dy / n) * 150;
+      const px = +it.x + (dx / n) * DIST, py = +it.y + (dy / n) * DIST;
       return { x: px, y: py, rot: (Math.atan2(+it.x - px, -(+it.y - py)) * 180) / Math.PI, fov: 80, pose: 3, pshift: SHIFT };
     });
   const poses = [...(v.cams ?? []), ...looks];

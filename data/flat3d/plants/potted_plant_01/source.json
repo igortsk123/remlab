@@ -1,0 +1,27 @@
+{
+ "asset": "potted_plant_01",
+ "title": "Potted Plant 01",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/potted_plant_01",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "Rico Cilliers": "All"
+ },
+ "realMm": [
+  588.9185070991516,
+  636.6117596626282,
+  1350.7787585258484
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "potted_plant_01_1k.gltf": "23b30294407684b02f14800d6685bd8938da5d2111e17753ac8dd3c37d8c88a0",
+  "textures/potted_plant_01_pot_rough_1k.jpg": "1256199fe3a88a0534bcd4c8bf141cfa9a28b68fce3f286193d0713796fd8561",
+  "textures/potted_plant_01_leaves_nor_gl_1k.jpg": "2faa756e0ee2b8341c752b283b93599157bf56f4083a9f61b825cdfa0c7138ff",
+  "textures/potted_plant_01_pot_diff_1k.jpg": "51c9d80e8abe585bd3dbcebe7cba1d3ed1a22b137c7cb66baf0e462c08dca312",
+  "potted_plant_01.bin": "a8dd1f7ce75f50dc25bbedc20809da02ee4193815c155b883a329925fa5548f7",
+  "textures/potted_plant_01_leaves_rough_1k.jpg": "765e3bd1bfdad39dd0d1cd755eafd1f9f1d46cbbb6013988cbfd1197de27a1f9",
+  "textures/potted_plant_01_pot_nor_gl_1k.jpg": "ec02e51751e0822d229d48bea1373b06e2675c3725ff04fd1f87ac516719e620",
+  "textures/potted_plant_01_leaves_diff_1k.jpg": "b73891a0a606e139d0fcdd9e6fe503cd1210be3fc9c55fbd033941288231ccaa"
+ }
+}

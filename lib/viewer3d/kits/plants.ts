@@ -13,6 +13,9 @@ import plantsJson from "@/data/flat3d/plants.json";
 
 export type PlantKind = "green" | "dry";
 
+/** Где стоит носитель: на полу (напольное кашпо, большая ваза) или выше пола (на столе, полке, тумбе). */
+export type PlantMount = "floor" | "table";
+
 export interface PlantDef {
   id: string;
   kind: PlantKind;
@@ -20,6 +23,10 @@ export interface PlantDef {
   styles: string[];
   /** Растение берётся для горла не уже этого размера, см (крупное — в крупное). */
   minThroatCm: number;
+  /** … и не шире этого, см (мелкое — в мелкое). Нет — без верхнего предела. */
+  maxThroatCm?: number;
+  /** Для каких носителей: напольных, настольных. Нет — для любых. */
+  mounts?: PlantMount[];
 }
 
 interface Fit {
@@ -28,6 +35,8 @@ interface Fit {
   maxHeightCm: number;
   /** Во сколько раз выше носителя (только сухоцветы). */
   heightOverCarrier?: number;
+  /** Высота зелени = диаметр горла × это (напольное кашпо: растение «в рост», не рассада), в рамках [min, max]. */
+  heightOverThroat?: number;
   /** Насколько основание уходит ниже края горла: постоянная часть, см. */
   sinkCm: number;
   /** … и доля высоты растения. */
@@ -38,7 +47,9 @@ export interface PlantRules {
   base: string;
   rev: string;
   hosts: Record<string, PlantKind>;
-  fit: Record<PlantKind, Fit>;
+  /** Носитель выше этой отметки от пола, см — настольный, иначе напольный. */
+  floorMaxElevCm: number;
+  fit: Record<PlantKind, Record<PlantMount, Fit>>;
   throat: { topSliceFrac: number; minSliceCm: number; minDiameterCm: number };
   plants: PlantDef[];
 }
@@ -79,6 +90,11 @@ export function plantKindOf(role: string | null | undefined, rules: PlantRules =
   return base ? rules.hosts[base] ?? null : null;
 }
 
+/** Напольный или настольный носитель — по высоте его дна над полом, см (`placement.elevCm`). */
+export function mountOf(elevCm: number | null | undefined, rules: PlantRules = PLANT_RULES): PlantMount {
+  return (elevCm ?? 0) > rules.floorMaxElevCm ? "table" : "floor";
+}
+
 /** Адрес лёгкой копии; `?v=` — версия набора (файлы раздаются с долгим кэшем). */
 export function plantUrl(id: string, rules: PlantRules = PLANT_RULES): string {
   return `${rules.base}${id}.glb?v=${rules.rev}`;
@@ -100,9 +116,10 @@ export function plantYawDeg(seed: string): number {
  * Какое растение ставить: тип — по носителю, затем те, что подходят по стилю и размеру горла; из них — по устойчивому числу от
  * `seed` (модель носителя): один и тот же носитель всегда с одним растением. Стиль не задан — подходят «any»-растения.
  */
-export function pickPlant(kind: PlantKind, throatCm: number, seed: string, style?: string | null, rules: PlantRules = PLANT_RULES): PlantDef | null {
-  const fits = rules.plants.filter((p) => p.kind === kind && throatCm >= p.minThroatCm
-    && (p.styles.includes("any") || (!!style && p.styles.includes(style))));
+export function pickPlant(kind: PlantKind, mount: PlantMount, throatCm: number, seed: string, style?: string | null,
+  rules: PlantRules = PLANT_RULES): PlantDef | null {
+  const fits = rules.plants.filter((p) => p.kind === kind && throatCm >= p.minThroatCm && throatCm <= (p.maxThroatCm ?? Infinity)
+    && (!p.mounts || p.mounts.includes(mount)) && (p.styles.includes("any") || (!!style && p.styles.includes(style))));
   if (!fits.length) return null;
   return fits[hash32(seed) % fits.length]!;
 }
@@ -142,15 +159,18 @@ export function throatOf(root: THREE.Object3D, frame: THREE.Object3D, rules: Pla
  *  • сухоцветы (ваза): высота = носитель × `heightOverCarrier` в [min, max], крона не шире горла × `crownOverThroat`.
  * Основание модели — в нуле на оси; ставим его на край горла, углубив на `sinkCm` + долю высоты (стебли уходят в вазу).
  */
-export function fitPlant(kind: PlantKind, plantM: { w: number; h: number; d: number }, throat: Throat, carrierHeightM: number,
-  rules: PlantRules = PLANT_RULES): PlantFit {
-  const f = rules.fit[kind];
+export function fitPlant(kind: PlantKind, mount: PlantMount, plantM: { w: number; h: number; d: number }, throat: Throat,
+  carrierHeightM: number, rules: PlantRules = PLANT_RULES): PlantFit {
+  const f = rules.fit[kind][mount];
   const crown = Math.max(plantM.w, plantM.d, 1e-4);
   const h = Math.max(plantM.h, 1e-4);
   const lo = f.minHeightCm / 100, hi = f.maxHeightCm / 100;
   let s: number;
   if (kind === "dry") {
     const want = Math.min(hi, Math.max(lo, carrierHeightM * (f.heightOverCarrier ?? 2)));
+    s = Math.min(want / h, (throat.diameterM * f.crownOverThroat) / crown);
+  } else if (f.heightOverThroat) {
+    const want = Math.min(hi, Math.max(lo, throat.diameterM * f.heightOverThroat));
     s = Math.min(want / h, (throat.diameterM * f.crownOverThroat) / crown);
   } else {
     s = (throat.diameterM * f.crownOverThroat) / crown;

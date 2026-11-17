@@ -1,0 +1,15 @@
+{
+ "asset": "procedural-euc",
+ "title": "Букет «euc» — собран кодом",
+ "site": "own",
+ "pageUrl": "tools/assets/plant_procedural.py",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+ "authors": {
+  "remlab": "code"
+ },
+ "generator": "tools/assets/plant_procedural.py:euc",
+ "sha256": {
+  "tools/assets/plant_procedural.py": "13c3a48610e94b1d297f9cde139765376c2cb48281f10b2b469c1a7cd31ecb32"
+ }
+}
