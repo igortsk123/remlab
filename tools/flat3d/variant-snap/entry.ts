@@ -37,6 +37,7 @@ interface Result {
   readyMs: number;
   plantsMs: number;
   lost: boolean;
+  plantLog: unknown[];
 }
 
 declare global {
@@ -92,8 +93,9 @@ window.variantSnap = async (c: Case) => {
       crops.push({ pose: n, role: roleAt(p.index).replace(/\s+/g, ""), url: await toDataUrl(await cv.convertToBlob({ type: "image/jpeg", quality: 0.92 })) });
     }
   }
+  const plantLog = [...scene.plantReport()];
   scene.dispose();
-  return { frames: out, crops, readyMs, plantsMs, lost };
+  return { frames: out, crops, readyMs, plantsMs, lost, plantLog };
 };
 
 /** Лист-превью: каждое растение в своей клетке на светлом фоне, в одном масштабе (метр = высота клетки / 0,7), вид слегка сверху. */

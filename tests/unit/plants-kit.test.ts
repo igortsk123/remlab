@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import plantsJson from "@/data/flat3d/plants.json";
 import {
-  fitPlant, mountOf, pickPlant, placePlant, plantKindOf, plantsFromUrl, plantUrl, plantYawDeg, PLANT_RULES, type PlantRules, throatOf,
+  blockedByName, fitPlant, measureThroat, mountOf, pickPlant, placePlant, plantKindOf, plantsFromUrl, plantUrl, plantYawDeg, PLANT_RULES, type PlantRules, throatOf,
 } from "@/lib/viewer3d/kits/plants";
 
 // РАСТЕНИЯ В КАШПО И ВАЗАХ (T-20261117-07, владелец TG 1307): тип по роли носителя, подбор по размеру горла и стилю, горло — по мешу
@@ -132,6 +132,64 @@ describe("растения кашпо и ваз: горло носителя п�
     const frame = new THREE.Group();
     frame.add(vessel(0.012, 0.2));
     expect(throatOf(frame, frame)).toBeNull();
+  });
+});
+
+describe("растения кашпо и ваз: годится ли носитель (косой срез, форма тела, название)", () => {
+  /** Открытый сосуд, чья верхняя кромка срезана наискосок под углом `deg` (высота края меняется вдоль X). */
+  function slanted(deg: number): THREE.Group {
+    const g = new THREE.CylinderGeometry(0.06, 0.05, 0.24, 24, 6, true);
+    const pos = g.getAttribute("position") as THREE.BufferAttribute;
+    for (let i = 0; i < pos.count; i++) if (pos.getY(i) > 0.119) pos.setY(i, pos.getY(i) + Math.tan((deg * Math.PI) / 180) * pos.getX(i));
+    const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial());
+    m.position.y = 0.12;
+    const f = new THREE.Group();
+    f.add(m);
+    return f;
+  }
+
+  it("кромка горизонтальна → растение можно; срез наискосок (30°) → нет, причина «slanted»", () => {
+    const ok = slanted(0);
+    expect(measureThroat(ok, ok).why).toBeNull();
+    expect(measureThroat(ok, ok).rimSpread).toBeLessThan(0.05);
+    expect(throatOf(ok, ok)).not.toBeNull();
+    const bad = slanted(30);
+    const m = measureThroat(bad, bad);
+    expect(m.why).toBe("slanted");
+    expect(m.rimSpread).toBeGreaterThan(PLANT_RULES.throat.maxRimSpread);
+    expect(throatOf(bad, bad)).toBeNull();
+    const mild = slanted(8);                                                  // лёгкий перекос (≤ 15°) не отсекает: кромка живая, а не срез
+    expect(measureThroat(mild, mild).why).toBeNull();
+  });
+
+  it("порог «горло / тело ≤ 0.8» (если включён): сосуд с шеей проходит, прямая стенка — «wide»; по умолчанию выключен", () => {
+    const g = new THREE.SphereGeometry(0.1, 24, 16, 0, Math.PI * 2, Math.PI * 0.2, Math.PI * 0.8);   // шар с отверстием уже тела: сверху горло, ниже — полный шар
+    const bulb = new THREE.Group();
+    bulb.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial()));
+    bulb.children[0]!.position.y = 0.1;
+    const strict: PlantRules = { ...PLANT_RULES, throat: { ...PLANT_RULES.throat, maxNeckRatio: 0.8 } };
+    const m = measureThroat(bulb, bulb, strict);
+    expect(m.neckRatio).toBeLessThan(0.8);
+    expect(m.why).toBeNull();
+    const straight = new THREE.Group();
+    straight.add(vessel(0.05, 0.2));
+    const s = measureThroat(straight, straight, strict);
+    expect(s.neckRatio).toBeGreaterThan(0.8);
+    expect(s.why).toBe("wide");
+    expect(measureThroat(straight, straight).why).toBeNull();                 // порог из данных по умолчанию (9) не режет
+  });
+  it("слова названия: «косой срез», «шар», «чаша», «флорариум» → без растения; обычная ваза — можно", () => {
+    expect(blockedByName("Ваза-шар Неман 260 мм косой срез")).toBe("косой");
+    expect(blockedByName("Ваза Шар стеклянная")).toBe("шар");
+    expect(blockedByName("Чаша декоративная")).toBe("чаша");
+    expect(blockedByName("Флорариум Terra")).toBe("флорариум");
+    expect(blockedByName("Аквариум-ваза 20 см")).toBe("аквариум");
+    expect(blockedByName("Ваза для цветов Aspire Deco drop 20 см")).toBeNull();
+    expect(blockedByName("Ваза French garden Фьюжн, стекло, бежевая, 30 см")).toBeNull();
+    expect(blockedByName("Горшок из бетона Композит Саванна с поддоном бежевый бутон №7 D30")).toBeNull();
+    expect(blockedByName("Ваза Шарм 30 см")).toBeNull();                     // «Шарм» — не шар: слово целиком, не по началу
+    expect(blockedByName("Ваза с косым срезом")).toBe("косым");
+    expect(blockedByName(null)).toBeNull();
   });
 });
 

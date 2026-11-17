@@ -50,7 +50,15 @@ export interface PlantRules {
   /** Носитель выше этой отметки от пола, см — настольный, иначе напольный. */
   floorMaxElevCm: number;
   fit: Record<PlantKind, Record<PlantMount, Fit>>;
-  throat: { topSliceFrac: number; minSliceCm: number; minDiameterCm: number };
+  throat: {
+    topSliceFrac: number; minSliceCm: number; minDiameterCm: number;
+    /** Разброс высоты верхней кромки по окружности, доля диаметра горла: больше — срез наискосок, растения нет. */
+    maxRimSpread: number;
+    /** Горло / наибольший диаметр тела: больше — растения нет (1 — проверка выключена: прямая стенка тоже годится). */
+    maxNeckRatio: number;
+    /** Начала слов названия носителя, при которых растения нет (косой срез, шар, чаша, флорариум …). */
+    nameStopWords: string[];
+  };
   plants: PlantDef[];
 }
 
@@ -130,6 +138,44 @@ export function pickPlant(kind: PlantKind, mount: PlantMount, throatCm: number, 
  * Горло уже `minDiameterCm` или меш без вершин — null (растение не ставим).
  */
 export function throatOf(root: THREE.Object3D, frame: THREE.Object3D, rules: PlantRules = PLANT_RULES): Throat | null {
+  const m = measureThroat(root, frame, rules);
+  return m.throat && !m.why ? m.throat : null;
+}
+
+/** Строка журнала растений сцены (`FlatViewer.plantReport`): носитель и итог — `planted` или причина, почему растения нет. */
+export interface PlantLogEntry {
+  slotId: string;
+  title: string;
+  role: string;
+  mount: PlantMount;
+  why: "planted" | "name" | "slanted" | "wide" | "none" | "no-plant";
+  word?: string;
+  plant?: string;
+  rimSpread?: number;
+  neckRatio?: number;
+  throatCm?: number;
+  /** Что сказала геометрия горла (даже если растения нет уже по названию): для сверки двух сигналов. */
+  geoWhy?: ThroatMeasure["why"];
+}
+
+/** Результат замера горла: само горло (если нашлось) и причина отказа (если растение ставить нельзя), метрики — для разбора. */
+export interface ThroatMeasure {
+  throat: Throat | null;
+  /** `no-mesh` — нет вершин; `narrow` — горло уже `minDiameterCm`; `slanted` — срез наискосок; `wide` — горло не уже тела (отношение выше порога). Нет — годится. */
+  why: "no-mesh" | "narrow" | "slanted" | "wide" | null;
+  /** Разброс высоты верхней кромки по окружности, доля диаметра горла (0 — кромка горизонтальна). */
+  rimSpread: number;
+  /** Диаметр горла / наибольший диаметр тела (1 — прямая стенка, меньше — шея). */
+  neckRatio: number;
+}
+
+/**
+ * Замер горла с проверкой: кромка должна быть почти горизонтальной (`maxRimSpread`: разброс высоты края по окружности ≤ доли диаметра
+ * горла — косой срез, чаша, «аквариум» не берут букет) и тело не должно быть сильно шире горла (`maxNeckRatio`).
+ * Кромка: вершины верхних 45 % высоты по 12 секторам вокруг центра — в каждом самая высокая; разброс — между секторами, где вершины есть.
+ */
+export function measureThroat(root: THREE.Object3D, frame: THREE.Object3D, rules: PlantRules = PLANT_RULES): ThroatMeasure {
+  const res = (throat: Throat | null, why: ThroatMeasure["why"], rimSpread = 0, neckRatio = 0): ThroatMeasure => ({ throat, why, rimSpread, neckRatio });
   frame.updateMatrixWorld(true);
   root.updateMatrixWorld(true);
   const inv = frame.matrixWorld.clone().invert();
@@ -142,15 +188,51 @@ export function throatOf(root: THREE.Object3D, frame: THREE.Object3D, rules: Pla
     const step = Math.max(1, Math.floor(pos.count / 30000));
     for (let i = 0; i < pos.count; i += step) pts.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(to));
   });
-  if (!pts.length) return null;
+  if (!pts.length) return res(null, "no-mesh");
   let lo = Infinity, hi = -Infinity;
   for (const p of pts) { if (p.y < lo) lo = p.y; if (p.y > hi) hi = p.y; }
   const slice = Math.max(rules.throat.minSliceCm / 100, (hi - lo) * rules.throat.topSliceFrac);
   const top = new THREE.Box3();
   for (const p of pts) if (p.y >= hi - slice) top.expandByPoint(p);
   const diameterM = ((top.max.x - top.min.x) + (top.max.z - top.min.z)) / 2;
-  if (diameterM * 100 < rules.throat.minDiameterCm) return null;
-  return { x: (top.min.x + top.max.x) / 2, z: (top.min.z + top.max.z) / 2, topY: hi, diameterM };
+  const throat: Throat = { x: (top.min.x + top.max.x) / 2, z: (top.min.z + top.max.z) / 2, topY: hi, diameterM };
+  if (diameterM * 100 < rules.throat.minDiameterCm) return res(null, "narrow");
+
+  // наибольший диаметр тела: средняя сторона рамки по 12 горизонтальным срезам
+  const H = Math.max(hi - lo, 1e-6);
+  const slabs = Array.from({ length: 12 }, () => new THREE.Box3());
+  for (const p of pts) slabs[Math.min(11, Math.floor(((p.y - lo) / H) * 12))]!.expandByPoint(p);
+  let body = 0;
+  for (const b of slabs) if (!b.isEmpty()) body = Math.max(body, (b.max.x - b.min.x + (b.max.z - b.min.z)) / 2);
+  const neckRatio = body > 1e-6 ? Math.min(diameterM / body, 9) : 1;
+
+  // кромка: в верхних 45 % высоты — самая высокая вершина каждого из 12 секторов вокруг центра рамки этой части
+  const upper = pts.filter((p) => p.y >= hi - 0.45 * H);
+  const ub = new THREE.Box3().setFromPoints(upper);
+  const cx = (ub.min.x + ub.max.x) / 2, cz = (ub.min.z + ub.max.z) / 2;
+  const SECT = 12;
+  const rim = new Array<number>(SECT).fill(-Infinity);
+  for (const p of upper) {
+    const s = Math.min(SECT - 1, Math.floor(((Math.atan2(p.z - cz, p.x - cx) + Math.PI) / (2 * Math.PI)) * SECT));
+    if (p.y > rim[s]!) rim[s] = p.y;
+  }
+  const have = rim.filter((y) => y > -Infinity);
+  const rimSpread = have.length >= 8 ? (Math.max(...have) - Math.min(...have)) / Math.max(diameterM, 1e-6) : 0;
+  const why = rimSpread > rules.throat.maxRimSpread ? "slanted" : neckRatio > rules.throat.maxNeckRatio ? "wide" : null;
+  return res(throat, why, rimSpread, neckRatio);
+}
+
+/**
+ * Слово названия носителя, по которому растения нет: первое совпадение со списком `throat.nameStopWords` (шаблоны слов целиком,
+ * «Ваза-шар … косой срез» → «шар»; «Шарм» не совпадает); нет — null.
+ */
+export function blockedByName(title: string | null | undefined, rules: PlantRules = PLANT_RULES): string | null {
+  const t = String(title ?? "").toLowerCase();
+  for (const w of rules.throat.nameStopWords) {
+    const m = new RegExp(`(?:^|[^а-яёa-z0-9])(${w})(?![а-яёa-z0-9])`, "iu").exec(t);
+    if (m) return m[1]!;
+  }
+  return null;
 }
 
 /**

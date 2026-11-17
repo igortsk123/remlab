@@ -17,7 +17,7 @@ import { meshUrl, RUNTIME_BASE, setRuntimeMeshes, type RuntimeEntry } from "@/li
 import { windowView } from "@/lib/viewer3d/window-views";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { planObjects } from "@/lib/viewer3d/build-scene";
-import { plantsFromUrl } from "@/lib/viewer3d/kits/plants";
+import { plantsFromUrl, type PlantLogEntry } from "@/lib/viewer3d/kits/plants";
 import { DESKTOP_QUALITY, FlatViewer, LITE_QUALITY, type PhotoPose } from "@/lib/viewer3d/viewer";
 import { WALL_ART_RULES } from "@/lib/configurator/wall-art";
 import { ART_CENTRE_CM, blockersOf, clampSpot, hangAt, placeOn, spotOf, type ArtProblem, type ArtSpot } from "@/lib/configurator/wall-art-spot";
@@ -81,6 +81,8 @@ export interface DemoScene {
   ready: Promise<void>;
   /** Растения кашпо и ваз догрузились (на `ready` не влияет — первый кадр их не ждёт): для снимков и проверок. */
   plantsSettled(): Promise<void>;
+  /** Журнал растений: на каждое кашпо/вазу — поставлено или причина отказа (`FlatViewer.plantReport`). */
+  plantReport(): readonly PlantLogEntry[];
   /** Новая расстановка (и декор — одним состоянием с ней). Последняя побеждает: промежуточные при быстрых правках
    *  пропускаются. Декор не передан — остаётся прежний. */
   update(items: DemoItem[], decor?: DemoDecor[]): Promise<void>;
@@ -398,6 +400,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
   return {
     ready,
     plantsSettled: () => viewer.plantsSettled(),
+    plantReport: () => viewer.plantReport(),
     update,
     setPhotoPose: (pose) => viewer.setPhotoPose(pose),
     setFloor: (f) => { floor = f ?? undefined; return reshell("пол"); },

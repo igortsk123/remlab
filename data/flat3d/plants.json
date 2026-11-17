@@ -17,7 +17,12 @@
    "table": { "crownOverThroat": 5.5, "heightOverCarrier": 2.4, "minHeightCm": 40, "maxHeightCm": 85, "sinkCm": 3, "sinkFracOfHeight": 0.04 }
   }
  },
- "throat": { "topSliceFrac": 0.06, "minSliceCm": 1.2, "minDiameterCm": 3 },
+ "throat": {
+  "topSliceFrac": 0.06, "minSliceCm": 1.2, "minDiameterCm": 3,
+  "maxRimSpread": 0.3,
+  "maxNeckRatio": 9,
+  "nameStopWords": ["кос(?:ой|ым|ая|ое|ые|ых)", "скошен[а-яё]*", "наклонн[а-яё]*", "срез[а-яё]*", "шар(?:а|у|ы|ик[а-яё]*|ообразн[а-яё]*)?", "чаш[а-яё]*", "флорариум[а-яё]*", "террариум[а-яё]*", "аквариум[а-яё]*", "миск[а-яё]*", "блюд[а-яё]*"]
+ },
  "plants": [
   { "id": "floor-a", "asset": "potted_plant_01", "parts": ["Plane.070", "potted_plant_01_base_low"], "stand": false, "decimate": 0.3, "kind": "green", "styles": ["any"], "minThroatCm": 0, "mounts": ["floor"] },
   { "id": "floor-b", "asset": "potted_plant_02", "parts": ["Circle.001"], "stand": false, "kind": "green", "styles": ["any"], "minThroatCm": 0, "mounts": ["floor"] },

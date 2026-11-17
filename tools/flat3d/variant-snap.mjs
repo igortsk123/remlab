@@ -22,7 +22,7 @@ const PROD = "https://remont-lab.online";
 const home = (p) => resolve(p.replace(/^~/, homedir()));
 const OUT = arg("--out") ? home(arg("--out")) : null;
 const SHEET = (arg("--sheet") ?? "").split(",").filter(Boolean);
-const VARIANTS = (arg("--variants") ?? "").split(",").filter(Boolean);
+let VARIANTS = (arg("--variants") ?? "").split(",").filter(Boolean);   // «all» — все варианты файла данных
 const MODES = arg("--plants", "both") === "both" ? [0, 1] : [Number(arg("--plants"))];
 const SIZES = arg("--sizes", "1440x900,375x667").split(",").map((s) => s.split("x").map(Number));
 const FOCUS = arg("--focus", "кашпо,ваза").split(",").filter(Boolean);
@@ -88,6 +88,7 @@ if (SHEET.length) {
 }
 
 const demo = JSON.parse(readFileSync(home(arg("--data")), "utf8"));
+if (VARIANTS[0] === "all") VARIANTS = demo.variants.map((x) => x.id);
 const rt = (await (await fetch(`${PROD}/demo/rt-meshes.json`)).json()).meshes;
 const report = [];
 for (const vid of VARIANTS) {
@@ -120,7 +121,8 @@ for (const vid of VARIANTS) {
       await browser.close();
       got.frames.forEach((url, i) => save(`${vid}.cam${i + 1}.${w}x${h}.plants${plants}.jpg`, url));
       got.crops.forEach((c, i) => save(`${vid}.crop-${c.role}.cam${c.pose + 1}.${w}x${h}.plants${plants}.jpg`, c.url));
-      report.push({ variant: vid, size: `${w}x${h}`, plants, readyMs: got.readyMs, plantsMs: got.plantsMs, bytes, files, lost: got.lost, errs });
+      report.push({ variant: vid, size: `${w}x${h}`, plants, readyMs: got.readyMs, plantsMs: got.plantsMs, bytes, files, lost: got.lost, errs, plantLog: got.plantLog });
+      for (const e of got.plantLog) console.log(`  ${vid} ${e.why.padEnd(8)} ${e.role.padEnd(6)} «${e.title}» ${e.mount} горло ${e.throatCm?.toFixed(1) ?? "-"} см, геом ${e.geoWhy ?? "ок"}, кромка ${e.rimSpread?.toFixed(2) ?? "-"}, шея ${e.neckRatio?.toFixed(2) ?? "-"}${e.word ? " · слово «" + e.word + "»" : ""}${e.plant ? " → " + e.plant : ""}`);
       console.log(`${vid} ${w}x${h} plants=${plants}: ready ${got.readyMs} мс, растения ${got.plantsMs} мс, ${(bytes / 1024).toFixed(0)} КБ в ${files} файлах, обрезок ${got.crops.length}${got.lost ? " · КОНТЕКСТ ПОТЕРЯН" : ""}${errs.length ? " · ошибки: " + errs.join("; ") : ""}`);
     }
   }

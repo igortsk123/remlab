@@ -21,7 +21,7 @@ import { buildKitchen } from "@/lib/viewer3d/kits/kitchen";
 import { buildBathroom } from "@/lib/viewer3d/kits/bathroom";
 import { buildBed, buildRug, buildWardrobe } from "@/lib/viewer3d/kits/bedroom";
 import { buildTv } from "@/lib/viewer3d/kits/tv";
-import { fitPlant, mountOf, pickPlant, placePlant, plantKindOf, PLANTS_IN_PHOTO, plantSize, plantUrl, throatOf, type PlantDef, type PlantKind, type PlantMount, type Throat } from "@/lib/viewer3d/kits/plants";
+import { blockedByName, fitPlant, measureThroat, mountOf, pickPlant, placePlant, plantKindOf, PLANTS_IN_PHOTO, plantSize, plantUrl, type PlantDef, type PlantKind, type PlantLogEntry, type PlantMount, type Throat } from "@/lib/viewer3d/kits/plants";
 import { buildWallPlane } from "@/lib/viewer3d/kits/wall-plane";
 import type { KitCtx } from "@/lib/viewer3d/kits/common";
 import { createMaterialCtx, disposeMaterialCtx, type MaterialCtx } from "@/lib/viewer3d/materials";
@@ -222,6 +222,7 @@ export class FlatViewer {
   private disposed = false;
   /** Загружающиеся растения кашпо и ваз (`addPlant`): не входят в счёт «Загружаем модели N из M» и в `ready` сцены. */
   private plantTasks = new Set<Promise<void>>();
+  private plantLog: PlantLogEntry[] = [];
 
   private apartment: Apartment;
   private catalogue: Catalogue;
@@ -617,10 +618,21 @@ export class FlatViewer {
     try {
       if (!(this.options.plants ?? PLANTS_DEFAULT)) return;
       const kind = plantKindOf(spec.role);
-      const throat = kind ? throatOf(real, outer) : null;
+      if (!kind) return;
       const mount = mountOf(spec.placement.elevCm);
-      const def = kind && throat ? pickPlant(kind, mount, throat.diameterM * 100, spec.meshId, this.options.plantStyle) : null;
-      if (kind && throat && def) plan = { kind, mount, throat, def };
+      const log = (why: PlantLogEntry["why"], extra: Partial<PlantLogEntry> = {}): void => {
+        this.plantLog.push({ slotId: spec.slotId, title: spec.titleRu, role: spec.role ?? "", mount, why, ...extra });
+      };
+      // два независимых сигнала «носитель не годится»: слова названия (косой срез, шар, чаша …) и геометрия горла по мешу
+      const word = blockedByName(spec.titleRu);
+      const m = measureThroat(real, outer);
+      const geo = { rimSpread: m.rimSpread, neckRatio: m.neckRatio, throatCm: m.throat ? m.throat.diameterM * 100 : 0, geoWhy: m.why };
+      if (word) { log("name", { ...geo, word }); return; }
+      if (!m.throat || m.why) { log(m.why === "slanted" ? "slanted" : m.why === "wide" ? "wide" : "none", geo); return; }
+      const def = pickPlant(kind, mount, m.throat.diameterM * 100, spec.meshId, this.options.plantStyle);
+      if (!def) { log("no-plant", geo); return; }
+      log("planted", { ...geo, plant: def.id });
+      plan = { kind, mount, throat: m.throat, def };
     } catch {
       return;
     }
@@ -643,6 +655,14 @@ export class FlatViewer {
     })();
     this.plantTasks.add(task);
     void task.finally(() => this.plantTasks.delete(task));
+  }
+
+  /**
+   * Журнал растений сцены: на каждый носитель «кашпо/ваза» — поставлено или причина отказа: `name` (по названию: слово в `word`),
+   * `slanted` («горло наклонено»), `wide` (тело шире горла), `none` (нет меша/узко), `no-plant` (нет подходящего растения).
+   */
+  plantReport(): readonly PlantLogEntry[] {
+    return this.plantLog;
   }
 
   /** Все начатые растения догрузились (или не пришли): для снимков и проверок, на показ не влияет. */
