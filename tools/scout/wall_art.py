@@ -61,21 +61,32 @@ def headroom(sup: dict, ceiling: float, r: dict) -> float:
     return ceiling - float(r['ceiling_gap_cm']) - top
 
 
-def content_stats(src: str, r: dict | None = None) -> tuple[float, float]:
-    """(σ яркости, средний размах цвета) центра полотна по файлу фото товара — по ним `has_content` решает, есть ли рисунок."""
+def metrics(c) -> dict:
+    """Числа центра полотна (c — массив N×3, каналы 0–255): `ink` — доля площади, цвет которой отличается от «фона» (медианного цвета)
+    не меньше `ink_delta` (евклид по RGB) — то есть сам рисунок, а не лёгкий рельеф; `chroma` — средний размах каналов; `luma` — средняя яркость."""
+    import numpy as np
+    a = np.asarray(c, np.float32).reshape(-1, 3)
+    d = np.sqrt(((a - np.median(a, axis=0)) ** 2).sum(axis=1))
+    return {'ink_d': d, 'chroma': float((a.max(axis=1) - a.min(axis=1)).mean()), 'luma': float((a @ np.array([0.2126, 0.7152, 0.0722], np.float32)).mean())}
+
+
+def content_stats(src: str, r: dict | None = None) -> dict:
+    """Метрики центра полотна по файлу фото товара (см. `metrics`, `has_content`)."""
     import numpy as np
     from PIL import Image
     x0, y0, x1, y1 = (r or rules())['art_content']['center']
     a = np.asarray(Image.open(src).convert('RGB'), np.float32)
     h, w, _ = a.shape
-    c = a[int(h * y0):int(h * y1), int(w * x0):int(w * x1)]
-    return float((c @ np.array([0.2126, 0.7152, 0.0722], np.float32)).std()), float((c.max(axis=2) - c.min(axis=2)).mean())
+    return metrics(a[int(h * y0):int(h * y1), int(w * x0):int(w * x1)])
 
 
-def has_content(stats: tuple[float, float], r: dict | None = None) -> bool:
-    """Картина с рисунком: контрастный центр ИЛИ заметный цвет. Белый рельеф на белом (σ < порога и цвет < порога) — нет."""
+def has_content(m: dict, r: dict | None = None) -> bool:
+    """Картина с рисунком, а не белая / тон-в-тон: рисунок занимает ≥ `min_ink_pct` % площади центра (отличается от фона не меньше
+    `ink_delta`), ИЛИ цвет сильный (размах каналов ≥ `min_chroma`), ИЛИ полотно тёмное (яркость < `dark_luma`; тёмная плоскость — не «белая»).
+    Светлый фон с тонкими линиями того же цвета (белый/кремовый рельеф) — нет."""
     ac = (r or rules())['art_content']
-    return stats[0] >= float(ac['min_sigma']) or stats[1] >= float(ac['min_chroma'])
+    ink = float((m['ink_d'] >= float(ac['ink_delta'])).mean()) * 100.0
+    return ink >= float(ac['min_ink_pct']) or m['chroma'] >= float(ac['min_chroma']) or m['luma'] < float(ac['dark_luma'])
 
 
 def series(name: str | None) -> str:
