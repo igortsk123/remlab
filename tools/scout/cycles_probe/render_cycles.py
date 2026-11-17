@@ -26,6 +26,7 @@ ap.add_argument('--pct', type=int, default=100)
 ap.add_argument('--threads', type=int, default=8)
 ap.add_argument('--sun', type=float, default=4.0)
 ap.add_argument('--sky', type=float, default=1.0)
+ap.add_argument('--sun-angle', type=float, default=1.5, help='угловой размер солнца, ° (мягкость края тени; Codex: 3–5)')
 ap.add_argument('--fill', type=float, default=60.0)
 ap.add_argument('--view', type=float, default=1.2)
 ap.add_argument('--exposure', type=float, default=0.0)
@@ -36,7 +37,16 @@ ap.add_argument('--chandelier', type=float, default=60.0, help='мощность
 ap.add_argument('--hdri', default='', help='HDRI неба (Poly Haven, CC0): свет и портал вместо Nishita')
 ap.add_argument('--hdri-strength', type=float, default=1.0)
 ap.add_argument('--portal', type=int, default=0, help='1: световой портал в проёме окна')
-ap.add_argument('--real', type=int, default=0, help='1: доски пола и штукатурка стен (общие настройки сцены)')
+ap.add_argument('--transform', default='AgX', help='view transform: AgX | Filmic | Standard (сетка настроек, T-20261117-06/1)')
+ap.add_argument('--look', default='AgX - Medium High Contrast', help='look (подбирается по имени; нет такого — без look)')
+ap.add_argument('--cam-h', type=float, default=0.0, help='>0: высота глаза камеры, м (по умолчанию — как у ракурса)')
+ap.add_argument('--cam-auto', type=int, default=0, help='1: ракурс с окном (глаз в дальнем углу, взгляд горизонтальный) вместо C1/C2')
+ap.add_argument('--lens', type=float, default=0.0, help='>0: объектив, мм на полный кадр (28–35); 0 — угол ракурса')
+ap.add_argument('--shift-y', type=float, default=None, help='сдвиг объектива по вертикали (доли ширины кадра); нет — как у ракурса')
+ap.add_argument('--lamp-k', type=float, default=0.0, help='>0: цветовая температура ламп, К (люстра и заполняющий свет); 0 — как было')
+ap.add_argument('--export', default='', help='scene-export.json (lib/viewer3d/scene-export.ts): стены и пол — карты, тайл и тонировка оттуда')
+ap.add_argument('--public', default='', help='папка public/ репо (карты материалов); по умолчанию — public/ этой копии')
+ap.add_argument('--real', type=int, default=0, help='(устарел, не действует: фактура — только из --export)')
 ap.add_argument('--dof', type=float, default=0.0, help='>0: диафрагма f/N, лёгкая глубина резкости (фокус — середина мебели)')
 ap.add_argument('--smooth-deg', type=float, default=50.0, help='угол сглаживания нормалей мебели, ° (0 — без сглаживания, плоские грани)')
 ap.add_argument('--denoise', type=int, default=1, help='0 — без шумоподавления OIDN (разбор причины артефактов)')
@@ -80,13 +90,16 @@ cy.caustics_reflective = False
 cy.caustics_refractive = False
 sc.render.threads_mode = 'FIXED'
 sc.render.threads = a.threads
-sc.view_settings.view_transform = 'AgX'
-for _look in ('AgX - Medium High Contrast', 'Medium High Contrast'):
+sc.view_settings.view_transform = a.transform
+# look: имя точное, затем без префикса «AgX - » / «Filmic - » (в разных версиях Blender пишется по-разному); нет — без look
+_short = a.look.split(' - ', 1)[-1]
+for _look in (a.look, _short, a.transform + ' - ' + _short):
     try:
         sc.view_settings.look = _look
         break
     except TypeError:
         continue
+print('view', sc.view_settings.view_transform, '| look', sc.view_settings.look)
 sc.view_settings.exposure = a.exposure
 sc.render.image_settings.file_format = 'PNG'
 sc.render.image_settings.color_depth = '8'
@@ -158,6 +171,15 @@ def principled(name, rgb=None, tex=None, rough=0.6, spec=0.5, metallic=0.0, tex_
     return m
 
 
+def kelvin_rgb(k):
+    """Цвет чёрного тела 1000–6500 К → линейный RGB лампы (приближение Таннера Хеллмана, sRGB → линейный)."""
+    t = max(1000.0, min(6500.0, k)) / 100.0
+    r = 1.0 if t <= 66 else min(1.0, 1.292936 * (t - 60) ** -0.1332047)
+    g = (0.390082 * math.log(t) - 0.631841) if t <= 66 else 1.129891 * (t - 60) ** -0.0755148
+    bl = 1.0 if t >= 66 else (0.0 if t <= 19 else 0.543207 * math.log(t - 10) - 1.196254)
+    return tuple(srgb2lin([max(0.0, min(1.0, x)) for x in (r, g, bl)]))
+
+
 def camera_only(ob):
     ob.visible_diffuse = ob.visible_glossy = ob.visible_transmission = ob.visible_shadow = ob.visible_volume_scatter = False
 
@@ -167,34 +189,73 @@ ROUGH = {'диван': 0.9, 'кресло': 0.9, 'стул': 0.75, 'кроват
 # ---------------- комната (плиты — свет не протекает) ----------------
 wall_mat = principled('wall', hexrgb(M['finish']['wall']['colorHex']), rough=0.92, spec=0.2)
 ceil_mat = principled('ceiling', hexrgb(M['finish']['ceiling']['colorHex']), rough=0.95, spec=0.1)
-if a.real:
-    # лёгкая фактура штукатурки: мелкий рельеф + едва заметная пятнистость цвета (цвет стены — паспорта, оттенок не меняем)
-    for _m, _k in ((wall_mat, 1.0), (ceil_mat, 0.5)):
-        _nt = _m.node_tree
-        _b = _nt.nodes['Principled BSDF']
-        _tc = _nt.nodes.new('ShaderNodeTexCoord')
-        _n1 = _nt.nodes.new('ShaderNodeTexNoise')
-        _n1.inputs['Scale'].default_value = 350.0
-        _n1.inputs['Detail'].default_value = 6.0
-        _n1.inputs['Roughness'].default_value = 0.7
-        _nt.links.new(_tc.outputs['Object'], _n1.inputs['Vector'])
-        _bp = _nt.nodes.new('ShaderNodeBump')
-        _bp.inputs['Strength'].default_value = 0.12 * _k
-        _bp.inputs['Distance'].default_value = 0.002
-        _nt.links.new(_n1.outputs['Fac'], _bp.inputs['Height'])
-        _nt.links.new(_bp.outputs['Normal'], _b.inputs['Normal'])
-        _n2 = _nt.nodes.new('ShaderNodeTexNoise')
-        _n2.inputs['Scale'].default_value = 1.6
-        _n2.inputs['Detail'].default_value = 2.0
-        _nt.links.new(_tc.outputs['Object'], _n2.inputs['Vector'])
-        _mx = _nt.nodes.new('ShaderNodeMix')
-        _mx.data_type = 'RGBA'
-        _mx.blend_type = 'MULTIPLY'
-        _mx.inputs['Factor'].default_value = 0.06 * _k
-        _mx.inputs['A'].default_value = _b.inputs['Base Color'].default_value
-        _nt.links.new(_n2.outputs['Color'], _mx.inputs['B'])
-        _nt.links.new(_mx.outputs['Result'], _b.inputs['Base Color'])
 
+# СТЕНЫ И ПОЛ — только из описания сцены (`scene-export.json`, render-3d-01 шаг 0): карты, физический размер повтора (`tileCm`) и тонировка
+# посчитаны браузерным кодом (`lib/viewer3d/scene-export.ts`, `finish-passport.ts:tintHex`) — своих правил (доски, штукатурка) здесь нет.
+# Нет описания — ровный цвет паспорта из `scene.json`.
+EXP = json.load(open(a.export, encoding='utf-8')) if a.export else None
+PUB = a.public or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'public')
+_room0 = EXP['rooms'][0] if EXP else None
+
+
+def finish_material(name, surf):
+    """Материал поверхности по записи экспорта: карта цвета × tintHex, нормали (как три: сила 0.7), шероховатость карты × roughness."""
+    m = bpy.data.materials.new(name)
+    m.use_nodes = True
+    nt = m.node_tree
+    bsdf = nt.nodes['Principled BSDF']
+    bsdf.inputs['Roughness'].default_value = surf['roughness']
+    bsdf.inputs['Metallic'].default_value = surf['metalness']
+    try:
+        bsdf.inputs['Specular IOR Level'].default_value = 0.35
+    except KeyError:
+        pass
+    maps = surf['maps']
+    if not maps.get('color'):
+        bsdf.inputs['Base Color'].default_value = (*srgb2lin(hexrgb(surf['colorHex'])), 1.0)
+        return m
+    tc = nt.nodes.new('ShaderNodeTexCoord')
+    mp = nt.nodes.new('ShaderNodeMapping')
+    # метры → повторы: один повтор карты = tileCm сантиметров (то же, что `materials.ts:tiled` в браузере)
+    mp.inputs['Scale'].default_value = (100.0 / surf['tileCm'][0], 100.0 / surf['tileCm'][1], 100.0 / surf['tileCm'][0])
+    nt.links.new(tc.outputs['Object'], mp.inputs['Vector'])
+
+    def tex(key, srgb):
+        n = nt.nodes.new('ShaderNodeTexImage')
+        img = bpy.data.images.load(os.path.join(PUB, maps[key].lstrip('/')), check_existing=True)
+        img.colorspace_settings.name = 'sRGB' if srgb else 'Non-Color'
+        n.image = img
+        n.interpolation = 'Cubic'
+        n.projection = 'BOX'              # пол и стены без развёртки: плоская проекция по оси нормали
+        n.projection_blend = 0.0
+        nt.links.new(mp.outputs['Vector'], n.inputs['Vector'])
+        return n
+    col = tex('color', True)
+    mix = nt.nodes.new('ShaderNodeMix')
+    mix.data_type = 'RGBA'
+    mix.blend_type = 'MULTIPLY'
+    mix.inputs['Factor'].default_value = 1.0
+    nt.links.new(col.outputs['Color'], mix.inputs['A'])
+    mix.inputs['B'].default_value = (*srgb2lin(hexrgb(surf['tintHex'])), 1.0)
+    nt.links.new(mix.outputs['Result'], bsdf.inputs['Base Color'])
+    if maps.get('normal'):
+        nm = nt.nodes.new('ShaderNodeNormalMap')
+        nm.inputs['Strength'].default_value = 0.7
+        nt.links.new(tex('normal', False).outputs['Color'], nm.inputs['Color'])
+        nt.links.new(nm.outputs['Normal'], bsdf.inputs['Normal'])
+    if maps.get('roughness'):
+        sep = nt.nodes.new('ShaderNodeSeparateColor')
+        nt.links.new(tex('roughness', False).outputs['Color'], sep.inputs['Color'])
+        mul = nt.nodes.new('ShaderNodeMath')
+        mul.operation = 'MULTIPLY'
+        mul.inputs[1].default_value = surf['roughness']
+        nt.links.new(sep.outputs['Green'], mul.inputs[0])
+        nt.links.new(mul.outputs['Value'], bsdf.inputs['Roughness'])
+    return m
+
+
+if EXP:
+    wall_mat = finish_material('wall', _room0['wall'])
 
 def slab(name, x0, x1, y0, y1, z0, z1, mat):
     v = [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0), (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)]
@@ -202,86 +263,8 @@ def slab(name, x0, x1, y0, y1, z0, z1, mat):
     return make_obj(name, v, f, mat=mat, smooth=False)
 
 
-# пол — плита вниз; дерево: процедурные доски цвета пола паспорта
-floor_rgb = hexrgb(M['finish']['floor']['colorHex'])
-fm = bpy.data.materials.new('floor')
-fm.use_nodes = True
-nt = fm.node_tree
-bs = nt.nodes['Principled BSDF']
-texcoord = nt.nodes.new('ShaderNodeTexCoord')
-mapping = nt.nodes.new('ShaderNodeMapping')
-nt.links.new(texcoord.outputs['Object'], mapping.inputs['Vector'])
-brick = nt.nodes.new('ShaderNodeTexBrick')
-brick.offset = 0.5
-brick.offset_frequency = 2
-brick.squash = 1.0
-brick.inputs['Scale'].default_value = 1.0
-brick.inputs['Mortar Size'].default_value = 0.004
-brick.inputs['Mortar Smooth'].default_value = 0.1
-brick.inputs['Bias'].default_value = 0.0
-brick.inputs['Brick Width'].default_value = 1.2      # м, вдоль доски
-brick.inputs['Row Height'].default_value = 0.14      # м, ширина доски
-lin = srgb2lin(floor_rgb)
-brick.inputs['Color1'].default_value = (lin[0] * 1.04, lin[1] * 1.03, lin[2] * 1.0, 1)
-brick.inputs['Color2'].default_value = (lin[0] * 0.90, lin[1] * 0.88, lin[2] * 0.84, 1)
-brick.inputs['Mortar'].default_value = (lin[0] * 0.35, lin[1] * 0.33, lin[2] * 0.30, 1)
-nt.links.new(mapping.outputs['Vector'], brick.inputs['Vector'])
-noise = nt.nodes.new('ShaderNodeTexNoise')
-noise.inputs['Scale'].default_value = 40.0
-noise.inputs['Detail'].default_value = 8.0
-noise.inputs['Roughness'].default_value = 0.6
-nt.links.new(mapping.outputs['Vector'], noise.inputs['Vector'])
-mapping.inputs['Scale'].default_value = (1.0, 8.0, 1.0)     # вытянуть «волокно» вдоль досок
-mix = nt.nodes.new('ShaderNodeMix')
-mix.data_type = 'RGBA'
-mix.blend_type = 'MULTIPLY'
-mix.inputs['Factor'].default_value = 0.35
-nt.links.new(brick.outputs['Color'], mix.inputs['A'])
-nt.links.new(noise.outputs['Color'], mix.inputs['B'])
-nt.links.new(mix.outputs['Result'], bs.inputs['Base Color'])
-bump = nt.nodes.new('ShaderNodeBump')
-bump.inputs['Strength'].default_value = 0.08
-nt.links.new(noise.outputs['Fac'], bump.inputs['Height'])
-nt.links.new(bump.outputs['Normal'], bs.inputs['Normal'])
-bs.inputs['Roughness'].default_value = 0.42
-try:
-    bs.inputs['Specular IOR Level'].default_value = 0.45
-except KeyError:
-    pass
-# доски вдоль длинной стороны
-mapping.inputs['Rotation'].default_value = (0, 0, 0 if W >= D else math.pi / 2)
-if a.real:
-    # ПАРКЕТ/ЛАМИНАТ (замечание директора по кадрам decor1: пол читался циновкой). Причина полосок была в том, что общая «растяжка» (1, 8, 1)
-    # сжимала и сами доски. Теперь доски 1,2 × 0,2 м с тонким тёмным швом (канавка в рельефе), своим оттенком у каждой доски, волокно —
-    # отдельной вытянутой вдоль доски текстурой; цвет — паспорта пола, текстуры пола в данных нет.
-    mapping.inputs['Scale'].default_value = (1.0, 1.0, 1.0)
-    brick.inputs['Row Height'].default_value = 0.20
-    brick.inputs['Mortar Size'].default_value = 0.003
-    brick.inputs['Color1'].default_value = (lin[0] * 1.05, lin[1] * 1.04, lin[2] * 1.02, 1)
-    brick.inputs['Color2'].default_value = (lin[0] * 0.93, lin[1] * 0.91, lin[2] * 0.88, 1)
-    brick.inputs['Mortar'].default_value = (lin[0] * 0.25, lin[1] * 0.22, lin[2] * 0.18, 1)
-    grain_map = nt.nodes.new('ShaderNodeMapping')
-    grain_map.inputs['Scale'].default_value = (0.10, 1.0, 1.0)      # вытянуть волокно вдоль доски
-    grain_map.inputs['Rotation'].default_value = mapping.inputs['Rotation'].default_value
-    nt.links.new(texcoord.outputs['Object'], grain_map.inputs['Vector'])
-    nt.links.new(grain_map.outputs['Vector'], noise.inputs['Vector'])
-    noise.inputs['Scale'].default_value = 26.0
-    noise.inputs['Detail'].default_value = 5.0
-    mix.inputs['Factor'].default_value = 0.22
-    # канавка шва в рельефе: коэффициент кирпича (1 — доска, 0 — шов) + волокно
-    comb = nt.nodes.new('ShaderNodeMath')
-    comb.operation = 'MULTIPLY_ADD'
-    nt.links.new(noise.outputs['Fac'], comb.inputs[0])
-    comb.inputs[1].default_value = 0.15
-    nt.links.new(brick.outputs['Fac'], comb.inputs[2])
-    nt.links.new(comb.outputs['Value'], bump.inputs['Height'])
-    bump.inputs['Strength'].default_value = 0.35
-    bump.inputs['Distance'].default_value = 0.01
-    bs.inputs['Roughness'].default_value = 0.32       # лак: мягкое отражение
-    try:
-        bs.inputs['Specular IOR Level'].default_value = 0.55
-    except KeyError:
-        pass
+# пол — плита вниз; материал — из описания сцены (карты, тайл, тонировка), иначе ровный цвет паспорта
+fm = finish_material('floor', _room0['floor']) if EXP else principled('floor', hexrgb(M['finish']['floor']['colorHex']), rough=0.6, spec=0.3)
 slab('floor', -CORNER / 100, (W + CORNER) / 100, -(D + CORNER) / 100, CORNER / 100, -THICK / 100, 0.0, fm)
 slab('ceiling', -CORNER / 100, (W + CORNER) / 100, -(D + CORNER) / 100, CORNER / 100, H / 100, (H + THICK) / 100, ceil_mat)
 
@@ -459,14 +442,30 @@ if a.demo_glb:
         lamp = bpy.data.lights.new('chandelier', 'POINT')
         lamp.energy = a.chandelier
         lamp.shadow_soft_size = 0.12
-        lamp.color = (1.0, 0.86, 0.66)
+        lamp.color = kelvin_rgb(a.lamp_k) if a.lamp_k > 0 else (1.0, 0.86, 0.66)
         lo = bpy.data.objects.new('chandelier', lamp)
         sc.collection.objects.link(lo)
         lo.location = (cx, cy_, zc)
         print('люстра: свет в', lo.location, 'Вт', a.chandelier)
 
 # ---------------- камера ----------------
-cd = next(c for c in M['cams'] if c['name'] == a.cam)
+cd = dict(next(c for c in M['cams'] if c['name'] == a.cam))
+_wins = [o['wall'] for o in M['openings'] if o['kind'] in ('window', 'balcony')]
+if a.cam_auto and _wins[:1] in (['west'], ['east']):
+    # ракурс С ОКНОМ для сравнения с фото (Codex 17.11): глаз в дальнем от окна углу, взгляд горизонтальный (вертикали прямые) в сторону окна и
+    # глубины комнаты; объектив — `--lens` (мм, полный кадр). Только проба сетки настроек: общие позы /demo — отдельная задача (шаг 5 плана).
+    _x_far = W / 100.0 - 0.4 if _wins[0] == 'west' else 0.4
+    _eye = Vector((_x_far, -0.4, a.cam_h or 1.4))
+    _tgt = Vector((W / 100.0 * (0.3 if _wins[0] == 'west' else 0.7), -D / 100.0 * 0.85, _eye.z))
+    _f = (_tgt - _eye)
+    _f.z = 0.0
+    _f.normalize()
+    cd.update({'eye': list(_eye), 'fwd': list(_f), 'up': [0.0, 0.0, 1.0], 'right': [_f.y, -_f.x, 0.0]})
+elif a.cam_h > 0:
+    cd['eye'] = [cd['eye'][0], cd['eye'][1], a.cam_h]
+cd['fov'] = math.degrees(2 * math.atan(18.0 / a.lens)) if a.lens > 0 else cd['fov']
+if a.shift_y is not None:
+    cd['shift_y'] = a.shift_y
 cam = bpy.data.cameras.new('cam')
 cam.sensor_fit = 'HORIZONTAL'
 cam.lens_unit = 'FOV'
@@ -541,7 +540,7 @@ tr = Vector((inward.x * math.cos(el), inward.y * math.cos(el), -math.sin(el)))  
 if a.sun > 0:
     sun = bpy.data.lights.new('sun', 'SUN')
     sun.energy = a.sun
-    sun.angle = math.radians(1.5)
+    sun.angle = math.radians(a.sun_angle)
     sun.color = (1.0, 0.95, 0.86)
     so = bpy.data.objects.new('sun', sun)
     sc.collection.objects.link(so)
@@ -569,7 +568,7 @@ fill = bpy.data.lights.new('fill', 'AREA')
 fill.shape = 'RECTANGLE'
 fill.size, fill.size_y = 1.6, 1.6
 fill.energy = a.fill
-fill.color = (1.0, 0.97, 0.92)
+fill.color = kelvin_rgb(min(a.lamp_k + 1500, 6500)) if a.lamp_k > 0 else (1.0, 0.97, 0.92)    # заполнение светлее ламп: отражённый дневной свет
 fo = bpy.data.objects.new('fill', fill)
 sc.collection.objects.link(fo)
 fo.location = (W / 200.0, -D / 200.0, (H - 6) / 100.0)

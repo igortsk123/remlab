@@ -15,6 +15,7 @@ const [dataFile, idxS, bundleDir, outDir, ...rest] = process.argv.slice(2);
 const extra = Object.fromEntries(rest.map((s) => s.split('=')));
 const REMOTE = 'remont-lab.online';
 const CACHE = path.join(os.homedir(), 'scout-scenes/mesh3d-cache');
+const PUBLIC = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../../public');
 fs.mkdirSync(outDir, { recursive: true });
 
 const D = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
@@ -36,6 +37,9 @@ const srv = http.createServer((req, res) => {
   const cors = { 'access-control-allow-origin': '*' };
   if (u === '/' || u === '/index.html') { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><meta charset=utf-8><script type="module" src="/entry.js"></script>'); return; }
   if (u === '/entry.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); fs.createReadStream(path.join(bundleDir, 'entry.js')).pipe(res); return; }
+  // карты материалов (в том числе новые, ещё не выложенные на прод) — из `public/` этой копии репо
+  const pm = u.match(/^\/flat3d\/materials\/([A-Za-z0-9._-]+)$/);
+  if (pm && fs.existsSync(path.join(PUBLIC, 'flat3d/materials', pm[1]))) { res.writeHead(200, { 'content-type': mime[path.extname(u)] || 'application/octet-stream', ...cors }); fs.createReadStream(path.join(PUBLIC, 'flat3d/materials', pm[1])).pipe(res); return; }
   const m = u.match(/^\/test\/mesh-pilot10\/([^/]+)\/model\.glb$/);
   if (m && fs.existsSync(path.join(CACHE, m[1] + '.glb'))) { res.writeHead(200, { 'content-type': 'model/gltf-binary', ...cors }); fs.createReadStream(path.join(CACHE, m[1] + '.glb')).pipe(res); return; }
   https.get({ host: REMOTE, path: req.url, headers: { 'user-agent': 'cycles-probe' } }, (r) => {
@@ -50,12 +54,19 @@ const browser = await chromium.launch({ headless: true, args: ['--use-gl=angle',
 const page = await browser.newPage({ viewport: { width: 640, height: 480 } });
 page.on('console', (m) => console.log('[page]', m.text().slice(0, 300)));
 page.on('pageerror', (e) => console.log('[pageerror]', String(e).slice(0, 600)));
-await page.goto(`http://127.0.0.1:${port}/`);
+await page.goto(`http://127.0.0.1:${port}/${extra.finish === '0' ? '?finish=0' : ''}`);   // finish=0 — стены и пол плоской краской («до», `finish-textures.ts:finishTexFromUrl`)
 await page.waitForFunction(() => typeof window.buildDemoScene === 'function', null, { timeout: 60000 });
 const t0 = Date.now();
-const info = await page.evaluate((a) => window.buildDemoScene(a), { room, items: v.items, decor, base: `http://127.0.0.1:${port}/demo/` });
+// живая таблица runtime-копий мешей (`/demo/rt-meshes.json`) — ею страница выбирает лёгкую копию; нет — экспорт скажет «лёгких нет»
+let runtime = null;
+try { runtime = JSON.parse(await new Promise((res, rej) => https.get({ host: REMOTE, path: '/demo/rt-meshes.json', headers: { 'user-agent': 'cycles-probe' } },
+  (r) => { let s = ''; r.on('data', (c) => { s += c; }); r.on('end', () => res(s)); }).on('error', rej))).meshes; } catch (e) { console.log('rt-meshes.json не получен:', String(e).slice(0, 100)); }
+const lite = extra.lite === '1';       // телефон: LITE_QUALITY, лёгкие карты
+const sceneArgs = { room, items: v.items, decor, base: `http://127.0.0.1:${port}/demo/`, runtime, lite, cams: v.cams || [] };
+const info = await page.evaluate((a) => window.buildDemoScene(a), sceneArgs);
 console.log('сцена собрана за', ((Date.now() - t0) / 1000).toFixed(1), 'с; узлов', info.nodes.length, 'мест', info.slots.length);
 fs.writeFileSync(path.join(outDir, 'scene_info.json'), JSON.stringify({ variant: v.id, room, decorIn: decor.map((d) => ({ role: d.role, strategy: d.strategy, place: d.place })), ...info }, null, 1));
+fs.writeFileSync(path.join(outDir, 'scene-export.json'), JSON.stringify(await page.evaluate(() => window.__export), null, 1));
 fs.writeFileSync(path.join(outDir, 'shell_info.json'), JSON.stringify(await page.evaluate(() => window.shellInfo()), null, 1));
 if (extra.export) {
   const keys = extra.export === 'all' ? null : extra.export.split(',');
@@ -66,6 +77,28 @@ if (extra.export) {
   const b64 = await page.evaluate((u) => window.exportNodes(u), pick);
   fs.writeFileSync(path.join(outDir, 'demo_nodes.glb'), Buffer.from(b64, 'base64'));
   fs.writeFileSync(path.join(outDir, 'demo_nodes_uuids.json'), JSON.stringify(info.nodes.filter((n) => pick.includes(n.uuid))));
+}
+// байты, которые /demo качает при первом показе: карты оболочки (`sceneAssetUrls().shell`); файлы materials — с диска этой копии репо
+if (extra.assets) {
+  const urls = await page.evaluate((a) => window.assetUrls(a), { room, items: v.items, decor, base: sceneArgs.base, lite });
+  const mats = urls.shell.filter((u) => /\/flat3d\/materials\//.test(u)).map((u) => new URL(u, 'http://x/').pathname);
+  const rows = mats.map((p) => ({ url: p, bytes: fs.existsSync(path.join(PUBLIC, p)) ? fs.statSync(path.join(PUBLIC, p)).size : null }));
+  fs.writeFileSync(path.join(outDir, 'assets.json'), JSON.stringify({ lite, count: rows.length, bytes: rows.reduce((s, r) => s + (r.bytes || 0), 0), rows,
+    meshes: urls.meshes.length }, null, 1));
+  console.log('карты оболочки:', rows.length, 'файлов,', rows.reduce((s, r) => s + (r.bytes || 0), 0), 'байт');
+}
+// снимки по ракурсам квартиры: shots=<ширина>x<высота> (375x667 — телефон)
+if (extra.shots) {
+  const [sw, sh] = extra.shots.split('x').map(Number);
+  const n = (v.cams || []).length;
+  const times = [];
+  for (let i = 0; i < Math.min(n, +(extra.maxcams || 3)); i++) {
+    const r = await page.evaluate(([i_, w, h]) => window.shot(i_, w, h), [i, sw, sh]);
+    fs.writeFileSync(path.join(outDir, `shot-${extra.finish === '0' ? 'before' : 'after'}-${i}.jpg`), Buffer.from(r.b64, 'base64'));
+    times.push(r.ms);
+  }
+  fs.writeFileSync(path.join(outDir, `shot-times-${extra.finish === '0' ? 'before' : 'after'}.json`), JSON.stringify({ lite, w: sw, h: sh, ms: times }));
+  console.log('снимки', times.length, 'за', times.join(', '), 'мс');
 }
 if (miss.length) { fs.writeFileSync(path.join(outDir, 'miss.txt'), miss.join('\n')); console.log('не нашлось:', miss.length); }
 await browser.close();

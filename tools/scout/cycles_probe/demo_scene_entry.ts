@@ -4,9 +4,11 @@
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { liveApartment } from "@/lib/viewer3d/demo-scene";
-import { DESKTOP_QUALITY, FlatViewer } from "@/lib/viewer3d/viewer";
+import { DESKTOP_QUALITY, FlatViewer, LITE_QUALITY } from "@/lib/viewer3d/viewer";
+import { sceneAssetUrls } from "@/lib/viewer3d/demo-scene";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { setRuntimeMeshes } from "@/lib/configurator/mesh-url";
+import { exportScene } from "@/lib/viewer3d/scene-export";
 
 type Any = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -28,14 +30,37 @@ function nodeInfo(root: THREE.Object3D): Any[] {
 }
 
 (window as Any).__scene = null;
-(window as Any).buildDemoScene = async (a: { room: Any; items: Any[]; decor: Any[]; base: string }) => {
-  setRuntimeMeshes({});            // полные исходники галереи, не лёгкие копии
+// что /demo качает при первом показе (модели и оболочка) — для замера байтов «до/после» (`sceneAssetUrls`: тот же расчёт, что у страницы)
+(window as Any).assetUrls = (a: { room: Any; items: Any[]; decor: Any[]; base: string; lite?: boolean }) => sceneAssetUrls({ ...a, runtimeMeshes: undefined } as Any);
+
+// снимок кадра по ракурсу квартиры (как «Ракурс» страницы): JPEG base64, ширина × высота в пикселях; в `ms` — время от сборки сцены до готового кадра
+(window as Any).shot = async (camIndex: number, w: number, h: number) => {
+  const viewer: Any = (window as Any).__viewer;
+  const cams = (window as Any).__cams as Any[];   // ракурсы варианта витрины (`v.cams`), как их ставит страница
+  const c = cams[camIndex];
+  const t0 = performance.now();
+  const blob: Blob = await viewer.capturePhoto({ x: c.x, y: c.y, rot: c.rot, fov: c.fov, pose: c.pose, pshift: c.pshift }, w, h, 0.9, { tilt: h > w });
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let s = "";
+  for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  return { b64: btoa(s), ms: Math.round(performance.now() - t0), cams: cams.length };
+};
+
+(window as Any).buildDemoScene = async (a: { room: Any; items: Any[]; decor: Any[]; base: string; runtime?: Any; lite?: boolean; cams?: Any[] }) => {
+  // 1) описание сцены для рендера (`scene-export.ts`) — с ЖИВОЙ таблицей runtime-копий (`/demo/rt-meshes.json`, a.runtime): хеши и «нет лёгкой копии»
+  setRuntimeMeshes(a.runtime ?? {});
   const first = liveApartment(a.room, a.items, a.base, a.decor);
   if (!first) throw new Error("пустая расстановка");
+  const sc0 = resolveScene(first.apartment, first.catalogue, defaultConfiguration(first.apartment, first.catalogue));
+  (window as Any).__export = exportScene(first.apartment, first.catalogue, sc0, { lite: false });
+  setRuntimeMeshes({});            // 2) для выгрузки узлов — полные исходники галереи, не лёгкие копии
   const cv = document.createElement("canvas");
   cv.width = 640; cv.height = 480;
   document.body.appendChild(cv);
-  const viewer = new FlatViewer(cv, first.apartment, first.catalogue, DESKTOP_QUALITY, {}, { curtains: true });
+  const viewer = new FlatViewer(cv, first.apartment, first.catalogue, a.lite ? LITE_QUALITY : DESKTOP_QUALITY, {}, { curtains: true });
+  (window as Any).__viewer = viewer;
+  (window as Any).__cams = a.cams ?? [];
+  (window as Any).__tBuild = performance.now();
   const sc = resolveScene(first.apartment, first.catalogue, defaultConfiguration(first.apartment, first.catalogue));
   viewer.buildShell(sc);
   await viewer.syncObjects(sc);

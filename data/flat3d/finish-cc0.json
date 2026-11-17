@@ -1,0 +1,12 @@
+{
+ "_about": "Фактура отделки комнаты из CC0-карт ambientCG (render-3d-01 шаг 1, владелец TG 1256–1266): стены и пол паспорта отделки получают рельеф и рисунок, цвет остаётся цветом паспорта (карта нейтральная, красится `tintHex`). Вход генератора tools/assets/material_from_cc0.py: surface → скан data/flat3d/scans/<asset>/ (source.json — источник, лицензия, размер, sha256) → материал finish-<surface> в data/flat3d/materials.json. version — в именах карт (кэш и перевыпуск туров). gray — средняя яркость нейтральной карты (sRGB, 0..1): выше цвета самой светлой отделки, иначе стена выйдет темнее паспорта. Пересборка: material_from_cc0.py build.",
+ "version": 1,
+ "surfaces": {
+  "wall": {"id": "finish-wall", "asset": "Plaster002", "titleRu": "Стены: матовая штукатурка", "titleEn": "Walls: matte plaster",
+           "tileCm": [120, 120], "tileNote": "источник размер не задаёт (0×0): взят 120 см по виду крупного мазка", "roughness": 0.95,
+           "gray": 0.96, "contrast": 0.35, "chroma": 0.0, "flatten": 0.9, "normal": 0.6, "normalSize": 512, "roughSpread": 0.4, "colorHex": "#f2f0ed"},
+  "floor": {"id": "finish-floor", "asset": "WoodFloor051", "titleRu": "Пол: паркетная планка", "titleEn": "Floor: parquet strips",
+            "tileCm": [180, 180], "roughness": 0.55,
+            "gray": 0.9, "contrast": 0.6, "chroma": 0.25, "flatten": 0.85, "normal": 0.8, "roughSpread": 0.6, "colorHex": "#dcc7a6"}
+ }
+}

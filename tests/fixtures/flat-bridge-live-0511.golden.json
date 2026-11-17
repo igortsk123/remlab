@@ -1,8 +1,8 @@
 {
- "_why": "Эталон моста /flat до onb-11 (T-20261105-12): sha256 JSON {apartment, catalogue, totals} по квартире и варианту на flat-bridge-live-0511.json при замороженных contexts (из реестра 05.11); снят кодом main 9a0701bd.",
+ "_why": "Эталон моста /flat до onb-11 (T-20261105-12): sha256 JSON {apartment, catalogue, totals} по квартире и варианту на flat-bridge-live-0511.json при замороженных contexts (из реестра 05.11); снят кодом main 9a0701bd. 17.11 (T-20261117-06/1) sha256 пересняты осознанно: стены и пол паспорта получили фактуру CC0 (материалы finish-wall/finish-floor), слоты, опции и суммы не менялись.",
  "golden": {
   "flat215/set1": {
-   "sha256": "2483ef68d6c86419920104239dd17e74f261ae0128b97408109a799f87db0d87",
+   "sha256": "036d2167e265f7e8e07e1ba5f1cf47a0aa0c0227c6c33b47d0769f79505a45e6",
    "slots": 12,
    "options": 35,
    "total": 9707029,
@@ -11,7 +11,7 @@
    }
   },
   "flat215/set6": {
-   "sha256": "0a29a87108be21472d7fffa29fa3124dacadcd9cefff801cd450e5892896fd99",
+   "sha256": "91f7e3358f2960669d5c2db23d0c65ac510db00d73952daf5e72f8514cbf6649",
    "slots": 11,
    "options": 36,
    "total": 9804821,
@@ -20,7 +20,7 @@
    }
   },
   "flat215/set9": {
-   "sha256": "d38c0c9a0d278d2ba0ccdba8f466432a042c746ced9500b601ce12cdc8fdbe66",
+   "sha256": "e050b88f102cde18f8442a546b4dd0b59af484fe868de087a703a532082fd8d8",
    "slots": 12,
    "options": 34,
    "total": 9806811,
@@ -29,7 +29,7 @@
    }
   },
   "flat215/set10": {
-   "sha256": "be0ddb14c56ef81d598917cc46301c74427099f2aec554c93463b6e3eb91e72e",
+   "sha256": "2d315904aa18d1820f854c8320326e04d945ab6cee5821208b8b9954ed2e0a97",
    "slots": 11,
    "options": 19,
    "total": 9686736,
@@ -38,7 +38,7 @@
    }
   },
   "flat215/set16": {
-   "sha256": "3a215fe15919939c11e4296a0b68aa62948bb300f2ccaf7b568a7422c1d9c93c",
+   "sha256": "d9f865681bed9fe96c41e44e8d9bf178c67133df412f0a37ea204171419df58f",
    "slots": 12,
    "options": 31,
    "total": 9719922,
@@ -47,7 +47,7 @@
    }
   },
   "demo-uk-215/set1": {
-   "sha256": "8a0c998bba8b3cbd30452cecfe673720ead4091213a68188b05704853dd7134a",
+   "sha256": "10d79c5ee5619da5990dc73fedabaf4e7c31aca8fcd25ccc495144cf4ca2321e",
    "slots": 12,
    "options": 35,
    "total": 426719,
@@ -56,7 +56,7 @@
    }
   },
   "demo-uk-215/set6": {
-   "sha256": "8b225713aa766c51b38f4986082cc0da2680c8c606eca25b5bd35b77441c4519",
+   "sha256": "3e3beaf9288083f343ba7051e99d858f01fa0e73a221a62ce04c2bfa385108cd",
    "slots": 11,
    "options": 36,
    "total": 428026,
@@ -65,7 +65,7 @@
    }
   },
   "demo-uk-215/set9": {
-   "sha256": "ce401f249917d09763362386b93a43933a68a3d29dd20e08533a5ff5daf20358",
+   "sha256": "efb566e15e3c2cac9d90119475dd158fcdbb561ac2c9fef56626e478575c8eb6",
    "slots": 12,
    "options": 34,
    "total": 428053,
@@ -74,7 +74,7 @@
    }
   },
   "demo-uk-215/set10": {
-   "sha256": "1613360119572d87d9464aa5e5c5394355182942535ced5a43b815de55137e0f",
+   "sha256": "629629b01f5457ae5043b5fd7c26bd70a81270f8953236b62579beba258818b5",
    "slots": 11,
    "options": 19,
    "total": 426448,
@@ -83,7 +83,7 @@
    }
   },
   "demo-uk-215/set16": {
-   "sha256": "3aa08204ee426e8aaed863562a40f45ca33cb84df132389d17ed63edaf653b3c",
+   "sha256": "cb9888588ce188b7bb5c887a95bdbc0e064468cfef2315fc3262c9b953d54d3e",
    "slots": 12,
    "options": 31,
    "total": 426892,
