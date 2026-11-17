@@ -35,11 +35,15 @@ FROM base AS code
 WORKDIR /app
 # python из Blender собран со своим путём к сертификатам, которого в образе нет → выгрузка по https падала CERTIFICATE_VERIFY_FAILED (замер 3090, 17.11)
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-COPY render_cycles.py ready_probe.py bench.py /app/
+COPY render_cycles.py ready_probe.py bench.py machine_agent.py /app/
 # сторож картин в render_cycles.py читает `<корень>/data/flat3d/wall-art.json` (путь от файла скрипта: /app → /data); без него кадр не строится
 COPY wall-art.json /data/flat3d/wall-art.json
 # bench.py идёт на python из Blender (полная стандартная библиотека; системный python3-minimal без json)
 CMD ["/opt/blender/5.3/python/bin/python3.13", "-u", "/app/bench.py"]
+
+# agent — машина рендера под контроллером (T-24/1): /ready + отметка `rendermachine/ready.json`; боевой воркер (T-24/2) заменит CMD
+FROM code AS agent
+CMD ["/opt/blender/5.3/python/bin/python3.13", "-u", "/app/machine_agent.py"]
 
 FROM code AS bench
 COPY scenes/ /scenes/

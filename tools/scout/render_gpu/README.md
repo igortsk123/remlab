@@ -31,3 +31,31 @@
 Цена: 3090 $0,17/ч, 4090 $0,33/ч (в 1,94× дороже); ускорение 4090 на сопоставимых нодах 1,87× < 2,2× → 4090 не выгоднее.
 Накладные расходы (3090, i7-6700): при 8 выб. кадр 3,2 с, при 64 — 7,0 с → ≈ 2,7 с на кадр не зависит от выборок. `--persistent 1` (render.use_persistent_data): второй кадр пары 7,0 → 5,3 с (−24 %), картинка та же (разница 0,02 из 255). Потоки 16 вместо 8 ничего не дают.
 Кадры GPU и CPU совпадают (средняя разница 0,3 из 255; 4090 и 3090 — 0,02).
+
+## Контроллер машины рендера (T-20261117-24/1)
+Один держатель желаемого состояния — `render_machine.py` на DEV (pakardev). Состояние — `~/remlab-logs/render-machine/state.json` (вне репо), всё под `flock`.
+Параметры и предохранители — данными в `rules/salad-groups.json` → `render_machine` (группа `render-3090`, образ-digest цели `agent`, `idle_stop_min` 20,
+`max_run_min` 240, `day_cap_usd` 2, `warmup_max_min` 15, `degraded_stop_min` 10, `guard_stale_min` 10). Образ сменили → НОВОЕ имя группы (PATCH остановленной не применяется), старую не удалять без владельца.
+
+| Команда (на pakardev; с common/algor — `r '…'`) | Что делает | Что печатает (RU; `--lang en` — пара) |
+|---|---|---|
+| `render_machine.py on --by <кто>` | создаёт группу, если её нет, `/start`; идемпотентно (живую не трогает) | «Включаю машину рендера — прогреется за 2–4 минуты, я напишу.» / «Машина уже включена (running) — второй не запускаю.» / «Не включаю: дневной потолок … исчерпан …» / «…в Salad группа … с другим образом…» |
+| `render_machine.py off --by <кто>` | `/stop` и проверка `stopped` | «Машина рендера выключена (остановка подтверждена). Сегодня потрачено $…» / «…уже выключена…» |
+| `render_machine.py status [--json]` | одна строка | «Машина рендера выключена. Сегодня потрачено $0.00 из $2.00. Включить — /render_on.» / «Машина включается (deploying), уже N мин.» / «Машина прогрелась и работает (N мин), фото считается ~15–30 с. До автостопа M мин простоя…» |
+| `render_machine.py pulse --by <кто>` | «работа идёт» — зовёт воркер/маршрутизатор при старте и конце КАЖДОЙ пары: сбрасывает автостоп | `ok` |
+| `render_machine.py tick` | раз в минуту (крон): прогрелась? деградация? автостоп/потолок/предел/прогрев? отметка для сторожа | одна строка про состояние |
+
+Кнопки ботов (ставит директор): `/render_on` → `r 'python3 /home/pakar/igor/remlab/tools/scout/render_gpu/render_machine.py on --by tg-<машина>'`,
+`/render_off` → `… off …`, `/render_status` → `… status`; ответ бота — напечатанная строка как есть (одна строка, без трассировки: любая ошибка тоже одной строкой).
+Крон DEV (ставит директор), раз в минуту: `* * * * * /home/pakar/venvs/scout/bin/python /home/pakar/igor/remlab/tools/scout/render_gpu/render_machine.py tick >> /home/pakar/remlab-logs/render-machine/tick.log 2>&1`.
+
+«Прогрелась» = группа `running` И `rendermachine/ready.json` на приёмнике свежий (по времени файла на сервере, ≤120 с), позже старта запуска и `ready:true`
+(пишет `machine_agent.py`, цель образа `agent`: GPU + малый настоящий Cycles-проход, потом отметка раз в 30 с; боевой воркер T-24/2 обязан писать тот же файл).
+Владельцу через готовый `tools/scout/alert.sh` (`/home/pakar/igor/remlab/tools/scout/alert.sh`, токены не читаем): «прогрелась» — ОДНО за запуск; деградация — одно на эпизод; стоп по предохранителю — одно.
+Сухо (в журнал вместо Telegram): `RENDER_MACHINE_DRY=1`. Числа на проверку вживую: `RENDER_MACHINE_OVERRIDE='{"idle_stop_min": 3}'`.
+
+Сторож сервера — `infra/server/render-guard.py` (только `render-*`; меш-группы не трогает, тест в `--selftest`): контроллер не отмечался (`controller.json`, пишет `tick`) > 10 мин → `/stop` живых render-групп и сообщение владельцу.
+Выложить: скопировать в `/opt/remlab/scripts/render-guard.py`, `RENDER_GUARD_DRY=1 python3 … ` для сухой проверки, крон `* * * * * root /usr/bin/python3 /opt/remlab/scripts/render-guard.py >> /var/log/render-guard.log 2>&1`.
+Отключить на время ручной работы: файл `/opt/remlab/render-guard-off-until` с временем UNIX.
+
+Тесты: `python3 tools/scout/render_gpu/tests_render_machine.py` (чистая `plan()` + команды на подмене Salad) и `python3 infra/server/render-guard.py --selftest`.
