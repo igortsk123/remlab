@@ -5,7 +5,7 @@
 import { baseSnapshotOf } from "@/lib/configurator/fromDemo";
 import { decorLayout } from "@/lib/viewer3d/scene-extras";
 import type { Apartment, Placement, Slot, SlotCategory, WallSide } from "@/contracts/apartment";
-import { resolveAccentSide } from "@/lib/configurator/accent";
+import { accentCarrier, resolveAccentSide } from "@/lib/configurator/accent";
 import type { Catalogue, Configuration, Material, Option, OptionAsset } from "@/contracts/configurator";
 import { materialById, optionById } from "@/contracts/configurator";
 import { budgetBucket, type BudgetBucket } from "@/lib/configurator/budget";
@@ -253,9 +253,9 @@ export function resolveScene(a: Apartment, c: Catalogue, config: Configuration):
     if (!acc) continue;
     const mat = materialById(c, acc.materialId);
     const room = a.rooms.find((r) => r.id === sf.roomId);
-    const sofa = items.find((i) => i.roomId === sf.roomId && i.kind === "furniture" && /^диван/.test(i.photoRole ?? i.slotId));
+    const sofa = accentCarrier(items, sf.roomId, acc.anchor);
     if (!mat || !room || !sofa) {
-      issues.push({ code: "no_material", slotId: sf.slotId, optionId: sf.optionId, messageRu: "акцентная стена без дивана или материала" });
+      issues.push({ code: "no_material", slotId: sf.slotId, optionId: sf.optionId, messageRu: "акцентная стена без дивана (кровати, ТВ) или материала" });
       continue;
     }
     sf.accent = { material: mat, side: resolveAccentSide(room, sofa.placement) };

@@ -71,7 +71,7 @@ export function curtainsFromUrl(search: string = (globalThis as { location?: { s
 
 type Mat = Record<string, unknown> & { id: string };
 /** Стены живой сцены: материал всех стен и акцентная — сторону считает расчёт сцены (`accent.ts`). */
-export type DemoWall = { material: Mat; accent?: { material: Mat; anchor: "behind-sofa" } };
+export type DemoWall = { material: Mat; accent?: { material: Mat; anchor: "behind-sofa" | "behind-focal" } };
 
 /** `swapfail` — новая модель при замене не пришла, на месте прежняя (T-20261113-19): страница показывает строку. */
 export type DemoSceneEvent = "progress" | "contextlost" | "swapfail";
@@ -188,10 +188,11 @@ const isRug = (it: DemoItem): boolean => String(it.role ?? "").startsWith("ко�
  * ковёр — плита с фото товара, ваза — на столике по правилу серверного кадра; одно место для окна и /flat).
  */
 export function liveApartment(room: DemoRoom, items: DemoItem[], base: string, decor: DemoDecor[] = [],
-  floor?: Record<string, unknown> & { id: string }, wall?: DemoWall): { apartment: Apartment; catalogue: Catalogue } | null {
+  floor?: Record<string, unknown> & { id: string }, wall?: DemoWall, style?: string): { apartment: Apartment; catalogue: Catalogue } | null {
   const live = artFromUrl() ? decor : decor.filter((d) => !isWallArtDecor(d));
   const built = fromDemoVariant({ room, variants: [{ id: "live", items, decor: live }] }, "live",
-    { ...CTX, assetBase: base, ...(floor ? { floorMaterial: floor } : {}), ...(wall ? { wallMaterial: wall } : {}) });
+    { ...CTX, assetBase: base, ...(floor ? { floorMaterial: floor } : {}), ...(wall ? { wallMaterial: wall } : {}),
+      ...(style ? { accentStyle: style } : {}) });
   if (!built) return null;
   const { apartment, catalogue } = built;
   // стены и пол — свои материалы из паспорта отделки: их ставит сам мост (`fromDemoVariant`), одинаково для окна и /flat
@@ -268,7 +269,7 @@ export function sceneSlotIndex(items: DemoItem[], decor: DemoDecor[], art: boole
   return out;
 }
 
-type PrefetchOptions =Pick<DemoSceneOptions, "room" | "items" | "decor" | "base" | "runtimeMeshes" | "lite" | "floor" | "wall">;
+type PrefetchOptions = Pick<DemoSceneOptions, "room" | "items" | "decor" | "base" | "runtimeMeshes" | "lite" | "floor" | "wall" | "style">;
 /** Транскодер KTX2 (`viewer.ts`: `ktx2Path`): лёгкие копии `/rt/` сжаты в KTX2, и сцена тянет его при первой модели (~0,5 МБ). */
 const BASIS = ["/vendor/basis/basis_transcoder.js", "/vendor/basis/basis_transcoder.wasm"];
 /** Панорама за окнами (`rooms.ts:buildSurroundings`, адрес по умолчанию). */
@@ -280,7 +281,7 @@ const PANORAMA = "/flat3d/env/outside.webp";
  */
 export function sceneAssetUrls(opts: PrefetchOptions): { meshes: string[]; shell: string[] } {
   if (opts.runtimeMeshes) setRuntimeMeshes(opts.runtimeMeshes);
-  const built = liveApartment(opts.room, opts.items, opts.base, opts.decor ?? [], opts.floor, opts.wall);
+  const built = liveApartment(opts.room, opts.items, opts.base, opts.decor ?? [], opts.floor, opts.wall, opts.style);
   if (!built) return { meshes: [], shell: [] };
   const { apartment, catalogue } = built;
   const lite = opts.lite === true;
@@ -304,7 +305,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
   let decor: DemoDecor[] = opts.decor ?? [];
   let floor = opts.floor;
   let wall = opts.wall;
-  const first = liveApartment(opts.room, opts.items, opts.base, decor, floor, wall);
+  const first = liveApartment(opts.room, opts.items, opts.base, decor, floor, wall, opts.style);
   if (!first) throw new Error("пустая расстановка");
   const listeners = new Map<DemoSceneEvent, Set<(...a: number[]) => void>>();
   const emit = (ev: DemoSceneEvent, ...a: number[]): void => listeners.get(ev)?.forEach((f) => f(...a));
@@ -366,7 +367,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
         if (!pending) return;
         current = pending.items;
         decor = pending.decor;
-        const next = liveApartment(opts.room, current, opts.base, decor, floor, wall);
+        const next = liveApartment(opts.room, current, opts.base, decor, floor, wall, opts.style);
         pending = null;
         if (!next) return;
         viewer.setApartment(next.apartment, next.catalogue);
@@ -384,7 +385,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
   // оболочка комнаты (пол, стены) по новой отделке: перерисовка коробки, модели мебели не перезагружаются (подписи те же)
   const reshell = (what: string): Promise<void> => {
     running = running.then(async () => {
-      const next = liveApartment(opts.room, current, opts.base, decor, floor, wall);
+      const next = liveApartment(opts.room, current, opts.base, decor, floor, wall, opts.style);
       if (!next) return;
       viewer.setApartment(next.apartment, next.catalogue);
       const sc = resolved(next.apartment, next.catalogue);

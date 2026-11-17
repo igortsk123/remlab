@@ -48,10 +48,10 @@ function nodeInfo(root: THREE.Object3D): Any[] {
   return { b64: btoa(s), ms: Math.round(performance.now() - t0), cams: cams.length };
 };
 
-(window as Any).buildDemoScene = async (a: { room: Any; items: Any[]; decor: Any[]; base: string; runtime?: Any; lite?: boolean; cams?: Any[] }) => {
+(window as Any).buildDemoScene = async (a: { room: Any; items: Any[]; decor: Any[]; base: string; runtime?: Any; lite?: boolean; cams?: Any[]; style?: string }) => {
   // 1) описание сцены для рендера (`scene-export.ts`) — с ЖИВОЙ таблицей runtime-копий (`/demo/rt-meshes.json`, a.runtime): хеши и «нет лёгкой копии»
   setRuntimeMeshes(a.runtime ?? {});
-  const first = liveApartment(a.room, a.items, a.base, a.decor);
+  const first = liveApartment(a.room, a.items, a.base, a.decor, undefined, undefined, a.style);
   if (!first) throw new Error("пустая расстановка");
   const sc0 = resolveScene(first.apartment, first.catalogue, defaultConfiguration(first.apartment, first.catalogue));
   (window as Any).__export = exportScene(first.apartment, first.catalogue, sc0, { lite: false });

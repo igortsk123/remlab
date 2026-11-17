@@ -125,8 +125,11 @@ def build_one(surface: str, rule: dict, ver: int, *, scans_dir: str = SCANS, out
     sdir = os.path.join(scans_dir, rule["asset"])
     src = json.load(open(os.path.join(sdir, "source.json"), encoding="utf-8"))
     diff = MS._load(os.path.join(sdir, "diff.jpg"), FULL)
-    col = neutral(diff, gray=float(rule["gray"]), contrast=float(rule["contrast"]), chroma=float(rule["chroma"]),
-                  flatten=float(rule["flatten"]))
+    # mode "photo" — своя расцветка скана (кирпич: красный кирпич и серый шов — сам рисунок): карта цветная, тонировки паспортом нет
+    # (`tintMean` в записи не пишется → `finish-passport.ts:tintHex` даёт белый), `colorHex` — средний цвет скана для плоского запасного
+    photo = rule.get("mode") == "photo"
+    col = np.asarray(diff, dtype=np.uint8) if photo else neutral(diff, gray=float(rule["gray"]), contrast=float(rule["contrast"]),
+                                                                 chroma=float(rule["chroma"]), flatten=float(rule["flatten"]))
     # нормали шумной штукатурки в 1024 весят ~200 КБ: для стены хватает 512 (≈4 точки на см при тайле 120 см)
     nrm = MS.normal_strength(MS._load(os.path.join(sdir, "nor_gl.jpg"), int(rule.get("normalSize", FULL))), float(rule["normal"]))
     rgh = MS.roughness_map(MS._load(os.path.join(sdir, "rough.jpg"), LITE, "L"), float(rule["roughSpread"]))
@@ -150,12 +153,13 @@ def build_one(surface: str, rule: dict, ver: int, *, scans_dir: str = SCANS, out
         "mapsSha": h.hexdigest()[:16],
         "id": rule["id"], "titleRu": rule["titleRu"], "titleEn": rule["titleEn"], "colorHex": rule["colorHex"],
         "roughness": round(min(1.0, float(rule["roughness"]) / MS.ROUGH_MEAN), 3), "metalness": 0.0,
-        "tileCm": tile, "tintMean": mean_lin, **files, "surfaces": [surface],
+        "tileCm": tile, **({} if photo else {"tintMean": mean_lin}), **files, "surfaces": rule.get("surfacesOut", [surface]),
         "source": {
             "kind": "photo-material", "sourceUrl": src["pageUrl"], "licence": src["licence"],
-            "method": f"cc0:{rule['asset']}@v{ver} neutral gray={rule['gray']} contrast={rule['contrast']}",
+            "method": f"cc0:{rule['asset']}@v{ver} " + ("photo (собственные цвета скана)" if photo else f"neutral gray={rule['gray']} contrast={rule['contrast']}"),
             "note": f"{src['site']}: {src['title']} ({', '.join(src.get('authors', {}))}), выпуск {src.get('released', '')}; "
-                    f"карта нейтральная — цвет даёт паспорта отделки" + (f"; {rule['tileNote']}" if rule.get("tileNote") else ""),
+                    + ("карта цветная — расцветка скана, паспорт её не красит" if photo else "карта нейтральная — цвет даёт паспорта отделки")
+                    + (f"; {rule['tileNote']}" if rule.get("tileNote") else ""),
             "realCm": tile,
         },
     }
@@ -180,7 +184,7 @@ def main() -> int:
             e = build_one(surface, rule, ver)
             built.append(e)
             size = sum(os.path.getsize(os.path.join(OUT, e[k])) for k in files_of(ver, e["id"]))
-            print(f"{e['id']}: {rule['asset']}, тайл {e['tileCm']} см, tintMean {e['tintMean']}, {size // 1024} КБ")
+            print(f"{e['id']}: {rule['asset']}, тайл {e['tileCm']} см, tintMean {e.get('tintMean', '—')}, {size // 1024} КБ")
         except Exception as exc:  # noqa: BLE001 — счётчик отказов обязателен, молча не глотаем
             fails += 1
             print(f"ОШИБКА {surface}: {exc}", file=sys.stderr)

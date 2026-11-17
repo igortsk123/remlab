@@ -58,6 +58,14 @@ ap.add_argument('--aim', default='', help='x,y точки, куда смотри
 ap.add_argument('--level', type=int, default=0, help='1: горизонтальный взгляд ракурса (вертикали прямые), наклон — через --shift-y')
 ap.add_argument('--lens', type=float, default=0.0, help='>0: объектив, мм на полный кадр (28–35); 0 — угол ракурса')
 ap.add_argument('--pitch', type=float, default=None, help='наклон взгляда вниз от горизонта, градусы (поверх --level 1; общий параметр позы)')
+ap.add_argument('--pose-mode', default='b', choices=['b', 'demo'], help="поза /demo: b — вариант «Б» (глаз 1,35, горизонтально, сдвиг вниз); demo — как в витрине")
+ap.add_argument('--pose-shift', type=float, default=0.15, help='«Б»: сдвиг объектива вниз, доли высоты кадра (Codex: ≤ 0,15)')
+ap.add_argument('--floor-min', type=float, default=0.35, help='«Б»: доля пола в кадре, ниже которой глаз опускается до --eye-low')
+ap.add_argument('--eye-low', type=float, default=1.2, help='«Б»: низкий глаз, м')
+ap.add_argument('--floor-keep', type=float, default=0.7, help='«Б»: при подъёме кадра пол не ниже этой доли от --floor-min')
+ap.add_argument('--near', type=float, default=1.5, help='«Б»: предмет ближе этого расстояния от камеры (глаз → точка предмета) — передний план, м; ваза на столике C2 — ~1,4 м')
+ap.add_argument('--occl', type=float, default=0.10, help='«Б»: доля НИЖНЕЙ половины кадра, закрытая передним планом, выше которой камера отодвигается назад')
+ap.add_argument('--back-max', type=float, default=1.5, help='«Б»: на сколько метров камера может уйти назад (и не ближе 0,3 м к стене)')
 ap.add_argument('--shift-y', type=float, default=None, help='сдвиг объектива по вертикали (доли ширины кадра); нет — как у ракурса')
 ap.add_argument('--lamps', type=float, default=0.0, help='>0: мощность точечного света у каждого торшера и настольной лампы, Вт (0 — лампы не светят, как в данных)')
 ap.add_argument('--lamp-k', type=float, default=0.0, help='>0: цветовая температура ламп, К (люстра и заполняющий свет); 0 — как было')
@@ -275,8 +283,14 @@ def finish_material(name, surf):
     return m
 
 
+accent_mat, accent_side = None, None
 if EXP:
     wall_mat = finish_material('wall', _room0['wall'])
+    if _room0.get('accent'):
+        # акцентная стена (T-20261117-16: лофт — кирпич): материал и сторона из описания сцены, свои правила здесь не нужны
+        accent_mat = finish_material('wall_accent', _room0['accent']['surface'])
+        accent_side = _room0['accent']['side']
+        print('акцентная стена:', accent_side, _room0['accent']['surface'].get('id'))
 
 def slab(name, x0, x1, y0, y1, z0, z1, mat):
     v = [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0), (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)]
@@ -325,7 +339,7 @@ for wall, ((ox, oz), (dx, dz), (nx, nz)) in FR.items():
                 pts.append(b(bx + dx * u, v, bz + dz * u))
         f = [(0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1), (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0)]
         # ориентация граней не важна для Cycles (двусторонние), нормали — по сглаживанию отключены
-        make_obj(f'wall_{wall}_{k}', pts, f, mat=wall_mat, smooth=False)
+        make_obj(f'wall_{wall}_{k}', pts, f, mat=accent_mat if (accent_mat is not None and wall == accent_side) else wall_mat, smooth=False)
     # за дверным проёмом — «коридор» (приглушённый светлый), чтобы дыра не читалась небом
     for c in M['cuts'].get(wall, []):
         if c['kind'] in ('window', 'balcony'):
@@ -623,6 +637,7 @@ if a.demo_glb:
 # ---------------- камера ----------------
 cd = dict(next(c for c in M['cams'] if c['name'] == a.cam))
 _wins = [o['wall'] for o in M['openings'] if o['kind'] in ('window', 'balcony')]
+pose_b = False   # правила позы «Б» включаются только для позы витрины (ветка else ниже)
 if a.eye and a.aim:
     # явный ракурс (метры, оси Blender: x вправо, y = −план_y): глаз и точка, куда смотрим; взгляд горизонтальный
     _e = [float(t) for t in a.eye.split(',')]
@@ -642,9 +657,14 @@ elif a.cam_auto and _wins[:1] in (['west'], ['east']):
     _f.normalize()
     cd.update({'eye': list(_eye), 'fwd': list(_f), 'up': [0.0, 0.0, 1.0], 'right': [_f.y, -_f.x, 0.0]})
 else:
-    if a.cam_h > 0:
-        cd['eye'] = [cd['eye'][0], cd['eye'][1], a.cam_h]
-    if a.level:
+    # поза /demo по умолчанию — вариант «Б» (владелец TG 1423; Codex 17.11 п.1): глаз 1,35 м, взгляд горизонтальный (вертикали прямые),
+    # пол добирает сдвиг объектива вниз 0,15 доли высоты; правила долей — ниже (низкий глаз при малом поле пола, чистый передний план).
+    # `--pose-mode demo` — старое поведение (поза витрины как есть).
+    pose_b = a.pose_mode == 'b' and not a.eye
+    _h = a.cam_h if a.cam_h > 0 else (1.35 if pose_b else 0.0)
+    if _h > 0:
+        cd['eye'] = [cd['eye'][0], cd['eye'][1], _h]
+    if a.level or pose_b:
         # взгляд горизонтальный (вертикали стен прямые, Codex): наклон ракурса вниз заменяет сдвиг объектива `--shift-y`
         _f = Vector(cd['fwd'])
         _f.z = 0.0
@@ -662,6 +682,8 @@ if a.pitch is not None:
 cd['fov'] = math.degrees(2 * math.atan(18.0 / a.lens)) if a.lens > 0 else cd['fov']
 if a.shift_y is not None:
     cd['shift_y'] = a.shift_y
+elif pose_b:
+    cd['shift_y'] = -a.pose_shift
 cam = bpy.data.cameras.new('cam')
 cam.sensor_fit = 'HORIZONTAL'
 cam.lens_unit = 'FOV'
@@ -684,6 +706,108 @@ sc.camera = co
 sc.render.resolution_x, sc.render.resolution_y = cd['w'], cd['h']
 sc.render.resolution_percentage = a.pct
 print('det камеры', float(np.linalg.det(rot)))
+
+# ---------------- правила позы «Б» (T-20261117-12/2, владелец TG 1423): доля пола и чистый передний план ----------------
+def frame_probe(eye):
+    """Сетка лучей по кадру из `eye`: доля пола (ковёр — пол) и доля кадра, закрытая предметом ближе `--near` м. Общий расчёт для любой комнаты."""
+    bpy.context.view_layer.update()
+    dg = bpy.context.evaluated_depsgraph_get()
+    T = math.tan(math.radians(cd['fov']) / 2)
+    ratio = cd['h'] / cd['w']
+    nx_, ny_ = 48, 36
+    floor_n = near_n = 0
+    for j in range(ny_):
+        v = (j + 0.5) / ny_
+        for i in range(nx_):
+            u = (i + 0.5) / nx_
+            dc = Vector(((2 * u - 1) * T, (1 - 2 * v) * T * ratio + cam.shift_y * 2 * T, -1.0)).normalized()
+            d = right * dc.x + up * dc.y + fwd * (-dc.z)
+            if d.z < -1e-6:      # зона пола: куда луч упал бы на пол комнаты, если бы мебели не было (стена — выше, потолок — не в счёт)
+                t_ = -eye[2] / d.z
+                px_, py_ = eye[0] + d.x * t_, eye[1] + d.y * t_
+                if 0.0 <= px_ <= W / 100.0 and -D / 100.0 <= py_ <= 0.0:
+                    floor_n += 1
+            hit, loc, nrm, _idx, ob, _m = sc.ray_cast(dg, Vector(eye), d, distance=100.0)
+            if not hit:
+                continue
+            if nrm.z > 0.85 and loc.z < 0.05:
+                continue
+            dims = sorted(ob.dimensions)
+            if dims[2] > 2.0 and dims[0] < 0.3:      # стена, потолок, штора во всю стену — оболочка, не предмет
+                continue
+            if v >= 0.5 and (loc - Vector(eye)).length < a.near:      # нижняя половина кадра закрыта предметом ближе `--near` м
+                near_n += 1
+    return floor_n / (nx_ * ny_), near_n / (nx_ * ny_ / 2)
+
+
+def set_eye(eye):
+    cd['eye'] = list(eye)
+    m_ = co.matrix_world.copy()
+    m_.translation = Vector(eye)
+    co.matrix_world = m_
+
+
+if pose_b:
+    _eye = Vector(cd['eye'])
+    fl, nr = frame_probe(_eye)
+    log = f'поза Б: глаз {_eye.z:.2f} м, пол {fl * 100:.0f} %, передний план (нижняя половина кадра, ближе {a.near} м) {nr * 100:.0f} %'
+    if fl < a.floor_min and _eye.z > a.eye_low + 1e-6:
+        eye_hi, fl_hi, nr_hi = _eye.z, fl, nr
+        _eye.z = a.eye_low
+        set_eye(_eye)
+        fl, nr = frame_probe(_eye)
+        log += f' → глаз {a.eye_low} м: пол {fl * 100:.0f} %, передний план {nr * 100:.0f} %'
+        if nr > a.occl and nr > nr_hi:
+            # низкий глаз закрывает кадр предметом сильнее (спинка кровати, столик), а пол до порога всё равно не дотянул — чистый кадр важнее
+            _eye.z = eye_hi
+            set_eye(_eye)
+            fl, nr = fl_hi, nr_hi
+            log += f' → низкий глаз закрывает кадр сильнее ({nr * 100:.0f} % при {eye_hi} м), оставлен {eye_hi} м'
+    if nr > a.occl:
+        fh = Vector((fwd.x, fwd.y, 0.0)).normalized()
+        back = -fh
+        hit, loc, _n, _i, _o, _m = sc.ray_cast(bpy.context.evaluated_depsgraph_get(), _eye, back, distance=a.back_max + 0.5)
+        tmax = a.back_max if not hit else max(0.0, min(a.back_max, (loc - _eye).length - 0.3))
+        best = (nr, 0.0)
+        t = 0.0
+        while t < tmax - 1e-6:
+            t = min(tmax, t + 0.1)
+            e2 = _eye + back * t
+            fl2, nr2 = frame_probe(e2)
+            if nr2 < best[0]:
+                best = (nr2, t)
+            if nr2 <= a.occl:
+                break
+        if best[1] > 0:
+            set_eye(_eye + back * best[1])
+            fl, nr = frame_probe(Vector(cd['eye']))
+            log += f' → камера назад на {best[1]:.1f} м (предел {tmax:.1f} м): пол {fl * 100:.0f} %, передний план {nr * 100:.0f} %'
+        else:
+            log += f' → отодвинуть некуда (предел {tmax:.1f} м)'
+        if nr > a.occl:
+            # назад некуда или не помогло — поднять кадр (сдвиг объектива вверх шагом 0,05, до горизонта), пока пол не ниже порога долей
+            sh0 = cam.shift_y
+            best_s = (nr, sh0)
+            k_ = 0
+            while cd['shift_y'] + 0.05 * (k_ + 1) <= 1e-9:
+                k_ += 1
+                cam.shift_y = (cd['shift_y'] + 0.05 * k_) * cd['h'] / cd['w']
+                fl2, nr2 = frame_probe(Vector(cd['eye']))
+                log += f' [сдвиг {cd["shift_y"] + 0.05 * k_:.2f}: пол {fl2 * 100:.0f} %, пл. {nr2 * 100:.0f} %]'
+                if fl2 < a.floor_min * a.floor_keep:        # пол не должен пропасть: доля порога долей, параметр
+                    break
+                if nr2 < best_s[0]:
+                    best_s = (nr2, cam.shift_y)
+                if nr2 <= a.occl:
+                    break
+            cam.shift_y = best_s[1]
+            if best_s[1] != sh0:
+                cd['shift_y'] = best_s[1] * cd['w'] / cd['h']
+                fl, nr = frame_probe(Vector(cd['eye']))
+                log += f' → кадр поднят: сдвиг {cd["shift_y"]:.2f}, пол {fl * 100:.0f} %, передний план {nr * 100:.0f} %'
+            else:
+                cam.shift_y = sh0
+    print(log)
 
 # ---------------- свет ----------------
 world = bpy.data.worlds.new('w')
