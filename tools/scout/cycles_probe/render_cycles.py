@@ -14,7 +14,7 @@ import time
 
 import bpy
 import numpy as np
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 ap = argparse.ArgumentParser()
@@ -41,8 +41,23 @@ ap.add_argument('--transform', default='AgX', help='view transform: AgX | Filmic
 ap.add_argument('--look', default='AgX - Medium High Contrast', help='look (подбирается по имени; нет такого — без look)')
 ap.add_argument('--cam-h', type=float, default=0.0, help='>0: высота глаза камеры, м (по умолчанию — как у ракурса)')
 ap.add_argument('--cam-auto', type=int, default=0, help='1: ракурс с окном (глаз в дальнем углу, взгляд горизонтальный) вместо C1/C2')
+ap.add_argument('--orig', action='append', default=[], help='РОЛЬ:путь.glb (можно несколько раз) — заменить runtime-меш этой роли оригиналом (проба обивки)')
+ap.add_argument('--soft-min-z', type=float, default=0.12, help='мягкая мебель: ниже этой высоты от пола (м) — ножки, без ворса/плетения')
+ap.add_argument('--soft-rough', type=float, default=-1.0, help='>=0: шероховатость ткани мягкой мебели (вместо карты меша; ножки остаются по карте)')
+ap.add_argument('--orig-rough', type=float, default=-1.0, help='>=0: шероховатость оригинала (число; иначе — как в файле)')
+ap.add_argument('--sheen', type=float, default=0.0, help='>0: Sheen Weight мягкой мебели и текстиля (ткань, не кожа)')
+ap.add_argument('--sheen-rough', type=float, default=0.5)
+ap.add_argument('--fabric', default='', help='путь к карте нормалей ткани (CC0): мелкий рельеф плетения поверх мягкой мебели (проба)')
+ap.add_argument('--fabric-k', type=float, default=0.6)
+ap.add_argument('--fabric-tile', type=float, default=12.0, help='физический размер одного повтора карты ткани, см')
+ap.add_argument('--sheer', type=float, default=1.0, help='<1: непрозрачность штор (тюль), чтобы окно не закрывалось «молоком»')
+ap.add_argument('--normal-k', type=float, default=0.7, help='сила карты нормалей отделки (у three — 0.7; больше — виден рельеф штукатурки и досок)')
+ap.add_argument('--eye', default='', help='x,y глаза, м (оси Blender: y = −план_y); с --aim задаёт ракурс')
+ap.add_argument('--aim', default='', help='x,y точки, куда смотрит камера, м (оси Blender)')
+ap.add_argument('--level', type=int, default=0, help='1: горизонтальный взгляд ракурса (вертикали прямые), наклон — через --shift-y')
 ap.add_argument('--lens', type=float, default=0.0, help='>0: объектив, мм на полный кадр (28–35); 0 — угол ракурса')
 ap.add_argument('--shift-y', type=float, default=None, help='сдвиг объектива по вертикали (доли ширины кадра); нет — как у ракурса')
+ap.add_argument('--lamps', type=float, default=0.0, help='>0: мощность точечного света у каждого торшера и настольной лампы, Вт (0 — лампы не светят, как в данных)')
 ap.add_argument('--lamp-k', type=float, default=0.0, help='>0: цветовая температура ламп, К (люстра и заполняющий свет); 0 — как было')
 ap.add_argument('--export', default='', help='scene-export.json (lib/viewer3d/scene-export.ts): стены и пол — карты, тайл и тонировка оттуда')
 ap.add_argument('--public', default='', help='папка public/ репо (карты материалов); по умолчанию — public/ этой копии')
@@ -52,6 +67,10 @@ ap.add_argument('--smooth-deg', type=float, default=50.0, help='угол сгл�
 ap.add_argument('--denoise', type=int, default=1, help='0 — без шумоподавления OIDN (разбор причины артефактов)')
 ap.add_argument('--mr', type=int, default=1, help='1: у мебели своя карта шероховатости/металла меша (как есть), иначе таблица ROUGH')
 a = ap.parse_args(argv)
+if a.orig and (a.lamp_k == 2800.0 or a.sheen == 0.4 or (a.fabric and a.fabric_tile == 12.0)):
+    # прежние очереди пробы (круг 1: оранжевый свет; sheen 0,4 и плетение без маски ножек) заменены новым набором — не тратим на них ядра
+    print('пропуск: устаревший вариант пробы обивки')
+    sys.exit(0)
 
 M = json.load(open(os.path.join(a.scene_dir, 'scene.json'), encoding='utf-8'))
 W, D, H = M['W'], M['D'], M['H']
@@ -240,7 +259,7 @@ def finish_material(name, surf):
     nt.links.new(mix.outputs['Result'], bsdf.inputs['Base Color'])
     if maps.get('normal'):
         nm = nt.nodes.new('ShaderNodeNormalMap')
-        nm.inputs['Strength'].default_value = 0.7
+        nm.inputs['Strength'].default_value = a.normal_k
         nt.links.new(tex('normal', False).outputs['Color'], nm.inputs['Color'])
         nt.links.new(nm.outputs['Normal'], bsdf.inputs['Normal'])
     if maps.get('roughness'):
@@ -341,6 +360,109 @@ for k, bdv in enumerate(M.get('backdrops', [])):
     vo = make_obj('view', pts, [(0, 1, 2, 3)], uvs=uvs, mat=vm, smooth=False)
     camera_only(vo)
 
+# ---------------- проба обивки (T-20261117-06/1, владелец TG 1341: «диван как кожа») ----------------
+SOFT = ('диван', 'кресло', 'пуф', 'банкетка', 'кровать')
+
+
+def swap_original(rt_ob, rt_v, path):
+    """Заменяет runtime-меш (лёгкий, без карты шероховатости/металла) оригиналом из каталога (`.glb` с metallicRoughness). Оригинал ставится в ту же
+    рамку: четыре поворота вокруг вертикали (по 90°), выбирается тот, чьё облако вершин ближе к runtime-мешу; масштаб — по ящику габаритов
+    по осям. Форма и цвет товара те же, меняется только то, что в runtime-копии потеряно (чёткость текстуры, карта шероховатости)."""
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=path)
+    new = [o for o in set(bpy.data.objects) - before if o.type == 'MESH']
+    mws = {o: o.matrix_world.copy() for o in new}
+    P = np.concatenate([np.array([tuple(mws[o] @ v.co) for v in o.data.vertices]) for o in new])
+    rc, oc = (rt_v.min(0) + rt_v.max(0)) / 2, (P.min(0) + P.max(0)) / 2
+    rd = rt_v.max(0) - rt_v.min(0)
+    rng = np.random.default_rng(1)
+    A_ = rt_v[rng.choice(len(rt_v), min(1200, len(rt_v)), replace=False)] - rc
+    B_ = P[rng.choice(len(P), min(1200, len(P)), replace=False)] - oc
+    best = None
+    for k in range(4):
+        c_, s_ = math.cos(math.pi / 2 * k), math.sin(math.pi / 2 * k)
+        R = np.array([[c_, -s_, 0.0], [s_, c_, 0.0], [0.0, 0.0, 1.0]])
+        Q = (P - oc) @ R.T
+        qd = Q.max(0) - Q.min(0)
+        S = rd / qd
+        Bq = ((B_ @ R.T) * S)
+        d = np.sqrt(((A_[:, None, :] - Bq[None, :, :]) ** 2).sum(-1))
+        score = float(d.min(1).mean() + d.min(0).mean())
+        if best is None or score < best[0]:
+            best = (score, k, R, S, qd)
+    _, k, R, S, qd = best
+    print(f'оригинал {os.path.basename(path)}: поворот {90 * k}°, масштаб по осям {np.round(S, 3).tolist()}, расстояние облаков {best[0]:.4f} м')
+    T = Matrix.Translation(Vector(rc)) @ Matrix.Diagonal(Vector((*S, 1.0))) @ Matrix(R.tolist()).to_4x4() @ Matrix.Translation(Vector(-oc))
+    for o in new:
+        mw = mws[o]
+        o.parent = None
+        o.data.transform(T @ mw)
+        o.matrix_world = Matrix.Identity(4)
+        o.visible_shadow = True
+    bpy.data.objects.remove(rt_ob, do_unlink=True)
+    return new
+
+
+def soft_tweaks(mat, fabric=None):
+    """Sheen (ворс/ткань: рассеянный блик по краям) и мелкий рельеф плетения поверх материала меша — цвет и форма не меняются."""
+    nt = mat.node_tree
+    bs = next((n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+    if bs is None:
+        return
+    # У меша один материал на всё: деревянные ножки получили бы тот же ворс и плетение. Грубая маска по геометрии — высота от пола
+    # (координата Object = мир, вершины запечены): ниже `soft_min_z` м — ножки (маска 0), выше `soft_min_z + 0.06` — ткань (маска 1).
+    mtc = nt.nodes.new('ShaderNodeTexCoord')
+    msep = nt.nodes.new('ShaderNodeSeparateXYZ')
+    nt.links.new(mtc.outputs['Object'], msep.inputs['Vector'])
+    mrng = nt.nodes.new('ShaderNodeMapRange')
+    mrng.inputs['From Min'].default_value = a.soft_min_z
+    mrng.inputs['From Max'].default_value = a.soft_min_z + 0.06
+    nt.links.new(msep.outputs['Z'], mrng.inputs['Value'])
+    mask = mrng.outputs['Result']
+    if a.sheen > 0:
+        sw = nt.nodes.new('ShaderNodeMath')
+        sw.operation = 'MULTIPLY'
+        sw.inputs[1].default_value = a.sheen
+        nt.links.new(mask, sw.inputs[0])
+        nt.links.new(sw.outputs['Value'], bs.inputs['Sheen Weight'])
+        bs.inputs['Sheen Roughness'].default_value = a.sheen_rough
+        bs.inputs['Sheen Tint'].default_value = (1.0, 1.0, 1.0, 1.0)
+    if a.soft_rough >= 0:
+        # шероховатость ткани — число (стартовое значение Codex), ножки — как в карте меша
+        rl = next((l for l in nt.links if l.to_socket == bs.inputs['Roughness']), None)
+        mx = nt.nodes.new('ShaderNodeMix')
+        mx.data_type = 'FLOAT'
+        mx.inputs[3].default_value = a.soft_rough            # B
+        if rl is not None:
+            nt.links.new(rl.from_socket, mx.inputs[2])      # A — прежнее
+        else:
+            mx.inputs[2].default_value = bs.inputs['Roughness'].default_value
+        nt.links.new(mask, mx.inputs[0])
+        nt.links.new(mx.outputs[1], bs.inputs['Roughness'])
+    if fabric and not bs.inputs['Normal'].is_linked:
+        tc = nt.nodes.new('ShaderNodeTexCoord')
+        mp = nt.nodes.new('ShaderNodeMapping')
+        sc_ = 100.0 / a.fabric_tile
+        mp.inputs['Scale'].default_value = (sc_, sc_, sc_)
+        nt.links.new(tc.outputs['Object'], mp.inputs['Vector'])
+        tn = nt.nodes.new('ShaderNodeTexImage')
+        im = bpy.data.images.load(fabric, check_existing=True)
+        im.colorspace_settings.name = 'Non-Color'
+        tn.image = im
+        tn.interpolation = 'Cubic'
+        tn.projection = 'BOX'
+        tn.projection_blend = 0.2
+        nt.links.new(mp.outputs['Vector'], tn.inputs['Vector'])
+        nm = nt.nodes.new('ShaderNodeNormalMap')
+        km = nt.nodes.new('ShaderNodeMath')
+        km.operation = 'MULTIPLY'
+        km.inputs[1].default_value = a.fabric_k
+        nt.links.new(mask, km.inputs[0])
+        nt.links.new(km.outputs['Value'], nm.inputs['Strength'])
+        nt.links.new(tn.outputs['Color'], nm.inputs['Color'])
+        nt.links.new(nm.outputs['Normal'], bs.inputs['Normal'])
+
+
 # ---------------- предметы (меши с текстурами) ----------------
 mat_cache = {}
 for o in M['objs']:
@@ -368,6 +490,35 @@ for o in M['objs']:
     ob = make_obj(o['file'], vv, z['f'], uvs=z['uv'] if 'uv' in z.files else None, mat=mat, smooth=False)
     if o['tex'] and a.smooth_deg > 0:
         smooth_by_angle(ob, a.smooth_deg)
+    _orig = dict(s.split(':', 1) for s in a.orig)
+    _swapped = bool(role in _orig and o['tex'])
+    if _swapped:
+        _new = swap_original(ob, vv, _orig[role])
+        ob = _new[0]
+        for _o in _new:
+            for _m in _o.data.materials:
+                if _m and _m.use_nodes:
+                    _b = next((n for n in _m.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+                    if _b is not None and a.orig_rough >= 0:
+                        _b.inputs['Roughness'].default_value = a.orig_rough
+    if role in SOFT and (a.sheen > 0 or a.fabric):
+        for _o in (_new if _swapped else [ob]):
+            for _m in _o.data.materials:
+                if _m and _m.use_nodes:
+                    soft_tweaks(_m, a.fabric)
+    if a.lamps > 0 and role in ('торшер', 'лампа'):
+        # «мёртвая лампа» (владелец, TG 1319): у светильника в данных нет источника — ставим точечный свет у плафона; плафон не отбрасывает тень,
+        # иначе замкнутая оболочка закроет свет. Только лампы; сама модель (геометрия, текстура) не меняется.
+        _p = [ob.matrix_world @ Vector(c) for c in ob.bound_box]
+        _zt, _zb = max(p.z for p in _p), min(p.z for p in _p)
+        _lm = bpy.data.lights.new('lamp_' + role, 'POINT')
+        _lm.energy = a.lamps
+        _lm.shadow_soft_size = 0.06
+        _lm.color = kelvin_rgb(a.lamp_k or 2700)
+        _lo = bpy.data.objects.new('lamp_' + role, _lm)
+        sc.collection.objects.link(_lo)
+        _lo.location = (sum(p.x for p in _p) / 8, sum(p.y for p in _p) / 8, _zt - 0.18 * (_zt - _zb) if role == 'торшер' else _zt - 0.25 * (_zt - _zb))
+        ob.visible_shadow = False
 
 # ковёр: фото сверху с вырезом по цвету фона (как `_paste_rug`)
 for k, r in enumerate(M['rugs']):
@@ -430,6 +581,16 @@ if a.demo_glb:
                 bs_ = next((n for n in m.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
                 if bs_ is not None and 'люстр' not in slot:
                     bs_.inputs['Roughness'].default_value = max(bs_.inputs['Roughness'].default_value, 0.8 if 'textile' in slot else 0.5)
+        if a.sheen > 0 and slot.startswith('textile'):
+            for m in ob.data.materials:
+                if m and m.use_nodes:
+                    soft_tweaks(m)
+        if a.sheer < 1.0 and 'штор' in slot:
+            # тюль: в /demo штора — сплошная ткань; на кадре сквозь неё должно быть видно окно (на фото-образце шторы раздвинуты). Только вид кадра, меш не меняется.
+            for m in ob.data.materials:
+                bs2_ = next((n for n in m.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None) if m and m.use_nodes else None
+                if bs2_ is not None and not bs2_.inputs['Alpha'].is_linked:
+                    bs2_.inputs['Alpha'].default_value = a.sheer
         if 'люстр' in slot:
             chand.append(ob)
         if slot.startswith('textile:подушка') or 'люстр' in slot:
@@ -451,7 +612,15 @@ if a.demo_glb:
 # ---------------- камера ----------------
 cd = dict(next(c for c in M['cams'] if c['name'] == a.cam))
 _wins = [o['wall'] for o in M['openings'] if o['kind'] in ('window', 'balcony')]
-if a.cam_auto and _wins[:1] in (['west'], ['east']):
+if a.eye and a.aim:
+    # явный ракурс (метры, оси Blender: x вправо, y = −план_y): глаз и точка, куда смотрим; взгляд горизонтальный
+    _e = [float(t) for t in a.eye.split(',')]
+    _t = [float(t) for t in a.aim.split(",")]
+    _eye = Vector((_e[0], _e[1], a.cam_h or 1.35))
+    _f = Vector((_t[0] - _e[0], _t[1] - _e[1], 0.0))
+    _f.normalize()
+    cd.update({'eye': list(_eye), 'fwd': list(_f), 'up': [0.0, 0.0, 1.0], 'right': [_f.y, -_f.x, 0.0]})
+elif a.cam_auto and _wins[:1] in (['west'], ['east']):
     # ракурс С ОКНОМ для сравнения с фото (Codex 17.11): глаз в дальнем от окна углу, взгляд горизонтальный (вертикали прямые) в сторону окна и
     # глубины комнаты; объектив — `--lens` (мм, полный кадр). Только проба сетки настроек: общие позы /demo — отдельная задача (шаг 5 плана).
     _x_far = W / 100.0 - 0.4 if _wins[0] == 'west' else 0.4
@@ -461,8 +630,15 @@ if a.cam_auto and _wins[:1] in (['west'], ['east']):
     _f.z = 0.0
     _f.normalize()
     cd.update({'eye': list(_eye), 'fwd': list(_f), 'up': [0.0, 0.0, 1.0], 'right': [_f.y, -_f.x, 0.0]})
-elif a.cam_h > 0:
-    cd['eye'] = [cd['eye'][0], cd['eye'][1], a.cam_h]
+else:
+    if a.cam_h > 0:
+        cd['eye'] = [cd['eye'][0], cd['eye'][1], a.cam_h]
+    if a.level:
+        # взгляд горизонтальный (вертикали стен прямые, Codex): наклон ракурса вниз заменяет сдвиг объектива `--shift-y`
+        _f = Vector(cd['fwd'])
+        _f.z = 0.0
+        _f.normalize()
+        cd.update({'fwd': list(_f), 'up': [0.0, 0.0, 1.0], 'right': [_f.y, -_f.x, 0.0]})
 cd['fov'] = math.degrees(2 * math.atan(18.0 / a.lens)) if a.lens > 0 else cd['fov']
 if a.shift_y is not None:
     cd['shift_y'] = a.shift_y
@@ -568,7 +744,7 @@ fill = bpy.data.lights.new('fill', 'AREA')
 fill.shape = 'RECTANGLE'
 fill.size, fill.size_y = 1.6, 1.6
 fill.energy = a.fill
-fill.color = kelvin_rgb(min(a.lamp_k + 1500, 6500)) if a.lamp_k > 0 else (1.0, 0.97, 0.92)    # заполнение светлее ламп: отражённый дневной свет
+fill.color = kelvin_rgb(5500) if a.lamp_k > 0 else (1.0, 0.97, 0.92)    # заполнение — отражённый дневной свет, не тёплая лампа (в сетке 17.11 при 4200 К весь кадр был оранжевым)
 fo = bpy.data.objects.new('fill', fill)
 sc.collection.objects.link(fo)
 fo.location = (W / 200.0, -D / 200.0, (H - 6) / 100.0)
