@@ -26,6 +26,7 @@ ap.add_argument('--pct', type=int, default=100)
 ap.add_argument('--threads', type=int, default=8)
 ap.add_argument('--sun', type=float, default=4.0)
 ap.add_argument('--sky', type=float, default=1.0)
+ap.add_argument('--sky-sat', type=float, default=1.0, help='насыщенность света неба Nishita (1 — как есть; меньше — голубизна белых стен и постели слабее)')
 ap.add_argument('--sun-angle', type=float, default=1.5, help='угловой размер солнца, ° (мягкость края тени; Codex: 3–5)')
 ap.add_argument('--fill', type=float, default=60.0)
 ap.add_argument('--view', type=float, default=1.2)
@@ -176,7 +177,7 @@ def smooth_by_angle(ob, deg=45):
     ob.select_set(False)
 
 
-def principled(name, rgb=None, tex=None, rough=0.6, spec=0.5, metallic=0.0, tex_lite=0, mr=None):
+def principled(name, rgb=None, tex=None, rough=0.6, spec=0.5, metallic=0.0, tex_lite=0, mr=None, tint=None):
     m = bpy.data.materials.new(name)
     m.use_nodes = True
     nt = m.node_tree
@@ -194,7 +195,17 @@ def principled(name, rgb=None, tex=None, rough=0.6, spec=0.5, metallic=0.0, tex_
             img.scale(tex_lite, tex_lite)
         node.image = img
         node.interpolation = 'Cubic'
-        nt.links.new(node.outputs['Color'], bsdf.inputs['Base Color'])
+        if tint:
+            # ПОДКРАСКА ПОД ТОВАР (T-20261117-23): карта × множитель товара в ЛИНЕЙНОМ пространстве — как живая 3D (`meshes.ts:placeMesh`: color × tint)
+            mx = nt.nodes.new('ShaderNodeMix')
+            mx.data_type = 'RGBA'
+            mx.blend_type = 'MULTIPLY'
+            mx.inputs['Factor'].default_value = 1.0
+            mx.inputs['B'].default_value = (*tint, 1.0)
+            nt.links.new(node.outputs['Color'], mx.inputs['A'])
+            nt.links.new(mx.outputs['Result'], bsdf.inputs['Base Color'])
+        else:
+            nt.links.new(node.outputs['Color'], bsdf.inputs['Base Color'])
         if mr:
             # glTF: шероховатость — канал G, металл — B (множитель в файле = 1) — карта самого меша, ничего не придумываем
             n2 = nt.nodes.new('ShaderNodeTexImage')
@@ -206,7 +217,10 @@ def principled(name, rgb=None, tex=None, rough=0.6, spec=0.5, metallic=0.0, tex_
             nt.links.new(sep.outputs['Green'], bsdf.inputs['Roughness'])
             nt.links.new(sep.outputs['Blue'], bsdf.inputs['Metallic'])
     else:
-        bsdf.inputs['Base Color'].default_value = (*srgb2lin(rgb), 1.0)
+        lin = srgb2lin(rgb)
+        if tint:
+            lin = [c * t for c, t in zip(lin, tint)]
+        bsdf.inputs['Base Color'].default_value = (*lin, 1.0)
     return m
 
 
@@ -591,16 +605,18 @@ for o in M['objs']:
     role = o['role'].split(' ')[0]
     if o['tex']:
         mr_ = o.get('mr') if a.mr else None
-        key = ('t', o['tex'], role, mr_)
+        tint_ = tuple(o['tint']) if o.get('tint') else None
+        key = ('t', o['tex'], role, mr_, tint_)
         if key not in mat_cache:
-            mat_cache[key] = principled('m_' + os.path.basename(o['tex']), tex=o['tex'], rough=ROUGH.get(role, 0.55), tex_lite=a.lite_tex, mr=mr_)
+            mat_cache[key] = principled('m_' + os.path.basename(o['tex']), tex=o['tex'], rough=ROUGH.get(role, 0.55), tex_lite=a.lite_tex, mr=mr_, tint=tint_)
         mat = mat_cache[key]
     else:
         rgb = tuple(c / 255.0 for c in o['rgb'])
-        key = ('c', rgb, role)
+        tint_ = tuple(o['tint']) if o.get('tint') else None
+        key = ('c', rgb, role, tint_)
         if key not in mat_cache:
             rough = 0.3 if role == 'тв' else 0.6
-            mat_cache[key] = principled('c_' + o['role'], rgb, rough=rough)
+            mat_cache[key] = principled('c_' + o['role'], rgb, rough=rough, tint=tint_)
         mat = mat_cache[key]
     vv = z['v']
     if o['n_faces'] == 12 and not o['tex']:
@@ -1004,7 +1020,13 @@ else:
     sky.air_density = 1.0
     if hasattr(sky, 'dust_density'):
         sky.dust_density = 1.2
-    wn.links.new(sky.outputs['Color'], bgn.inputs['Color'])
+    if a.sky_sat != 1.0:
+        hs = wn.nodes.new('ShaderNodeHueSaturation')
+        hs.inputs['Saturation'].default_value = a.sky_sat
+        wn.links.new(sky.outputs['Color'], hs.inputs['Color'])
+        wn.links.new(hs.outputs['Color'], bgn.inputs['Color'])
+    else:
+        wn.links.new(sky.outputs['Color'], bgn.inputs['Color'])
     bgn.inputs['Strength'].default_value = a.sky
     el = math.radians(38)
 tr = Vector((inward.x * math.cos(el), inward.y * math.cos(el), -math.sin(el)))   # куда идёт свет
