@@ -69,6 +69,8 @@ ap.add_argument('--brick-patch', type=float, default=0.10, help='медленн�
 ap.add_argument('--brick-bump', type=float, default=0.9, help='рельеф кладки по карте высоты: сила bump (0 — выкл)')
 ap.add_argument('--brick-dist', type=float, default=0.012, help='рельеф кладки: глубина шва, м')
 ap.add_argument('--brick-ao', type=float, default=0.75, help='затенение скана множителем на цвет (0 — выкл)')
+ap.add_argument('--live-cam', default='', help='камера живой 3D: live_cam.json из `demo_scene_dump.mjs livecam=…` (положение, взгляд, угол как на странице); позу «Б» и подгонки не применяет')
+ap.add_argument('--live-scale', type=float, default=2.0, help='--live-cam: во сколько раз кадр больше холста страницы (375×667 → 750×1334)')
 ap.add_argument('--near', type=float, default=1.5, help='«Б»: предмет ближе этого расстояния от камеры (глаз → точка предмета) — передний план, м; ваза на столике C2 — ~1,4 м')
 ap.add_argument('--occl', type=float, default=0.10, help='«Б»: доля НИЖНЕЙ половины кадра, закрытая передним планом, выше которой камера отодвигается назад')
 ap.add_argument('--back-max', type=float, default=1.5, help='«Б»: на сколько метров камера может уйти назад (и не ближе 0,3 м к стене)')
@@ -739,7 +741,19 @@ if a.demo_glb:
 cd = dict(next(c for c in M['cams'] if c['name'] == a.cam))
 _wins = [o['wall'] for o in M['openings'] if o['kind'] in ('window', 'balcony')]
 pose_b = False   # правила позы «Б» включаются только для позы витрины (ветка else ниже)
-if a.eye and a.aim:
+if a.live_cam:
+    # КАМЕРА ЖИВОЙ 3D КАК НА СТРАНИЦЕ (владелец TG 1504/1505): положение, взгляд и угол — из `live_cam.json` (`demo_scene_dump.mjs livecam=…`: тот же
+    # движок и те же вызовы, что у /demo). Оси: три (x, высота, план_y, метры) → Blender (x, −план_y, высота). Без позы «Б» и подгонок.
+    _lc = json.load(open(a.live_cam, encoding='utf-8'))
+    _cv = lambda v: Vector((v[0], -v[2], v[1]))
+    _lf, _lu = _cv(_lc['dir']).normalized(), _cv(_lc['up']).normalized()
+    _lr = _lf.cross(_lu).normalized()
+    _asp = _lc['w'] / _lc['h']
+    cd.update({'eye': list(_cv(_lc['pos'])), 'fwd': list(_lf), 'up': list(_lu), 'right': list(_lr),
+               'fov': math.degrees(2 * math.atan(math.tan(math.radians(_lc['vfov']) / 2) * _asp)), 'shift_y': 0.0,
+               'w': int(round(_lc['w'] * a.live_scale)), 'h': int(round(_lc['h'] * a.live_scale))})
+    print('камера живой 3D:', [round(x, 3) for x in cd['eye']], 'взгляд', [round(x, 3) for x in cd['fwd']], 'угол по горизонтали', round(cd['fov'], 1), 'кадр', cd['w'], 'x', cd['h'])
+elif a.eye and a.aim:
     # явный ракурс (метры, оси Blender: x вправо, y = −план_y): глаз и точка, куда смотрим; взгляд горизонтальный
     _e = [float(t) for t in a.eye.split(',')]
     _t = [float(t) for t in a.aim.split(",")]

@@ -67,6 +67,13 @@ const sceneArgs = { room, items: v.items, decor, base: `http://127.0.0.1:${port}
 const info = await page.evaluate((a) => window.buildDemoScene(a), sceneArgs);
 console.log('сцена собрана за', ((Date.now() - t0) / 1000).toFixed(1), 'с; узлов', info.nodes.length, 'мест', info.slots.length);
 fs.writeFileSync(path.join(outDir, 'scene_info.json'), JSON.stringify({ variant: v.id, room, decorIn: decor.map((d) => ({ role: d.role, strategy: d.strategy, place: d.place })), ...info }, null, 1));
+if (extra.livecam) {
+  // livecam=<ракурс>:<ширина>x<высота>:<верх>,<низ> — камера «3D» как на странице (`liveCamera` входа): полоса холста — доли высоты, свободная от кнопок и шторки
+  const [ci, sz, bd] = extra.livecam.split(':'); const [lw, lh] = sz.split('x').map(Number); const [bt, bb] = bd.split(',').map(Number);
+  const lc = await page.evaluate((x) => window.liveCamera(x.ci, x.w, x.h, { top: x.bt, bottom: x.bb }), { ci: Number(ci), w: lw, h: lh, bt, bb });
+  fs.writeFileSync(path.join(outDir, 'live_cam.json'), JSON.stringify(lc, null, 1));
+  console.log('камера живой 3D:', JSON.stringify(lc.pos.map((v) => +v.toFixed(3))), 'взгляд', JSON.stringify(lc.dir.map((v) => +v.toFixed(3))), 'vfov', lc.vfov.toFixed(1));
+}
 fs.writeFileSync(path.join(outDir, 'scene-export.json'), JSON.stringify(await page.evaluate(() => window.__export), null, 1));
 fs.writeFileSync(path.join(outDir, 'shell_info.json'), JSON.stringify(await page.evaluate(() => window.shellInfo()), null, 1));
 if (extra.export) {

@@ -49,6 +49,28 @@ function nodeInfo(root: THREE.Object3D): Any[] {
   return { b64: btoa(s), ms: Math.round(performance.now() - t0), cams: cams.length };
 };
 
+// КАМЕРА ЖИВОЙ 3D КАК НА СТРАНИЦЕ (владелец TG 1504/1505: «прямо в таком же виде, как на телефоне»): тот же движок и те же вызовы, что `liveFit` страницы —
+// размер холста, «3D глазами стоящего» (глаз 152 см, видимая полоса `band`), поза ракурса `v.cams[camIndex]`, наклон по мебели (`aimLive`); камеру читаем
+// после нескольких кадров цикла. Единицы сцены — метры (`CM = 0.01`): три-оси (x, высота, план_y).
+(window as Any).liveCamera = async (camIndex: number, w: number, h: number, band: { top: number; bottom: number }) => {
+  const viewer: Any = (window as Any).__viewer;
+  const c = ((window as Any).__cams as Any[])[camIndex];
+  viewer.setSize(w, h);
+  viewer.setLiveEye({ eyeCm: 152, band });
+  viewer.setPhotoPose({ x: c.x, y: c.y, rot: c.rot, fov: c.fov, pose: c.pose, pshift: c.pshift });
+  viewer.aimLive();
+  viewer.start();
+  await new Promise((r) => setTimeout(r, 1500));
+  viewer.aimLive();
+  await new Promise((r) => setTimeout(r, 1500));
+  viewer.stop();
+  const cam = viewer.camera;
+  cam.updateMatrixWorld(true);
+  const dir = cam.getWorldDirection(cam.position.clone());
+  const up = cam.up.clone().applyQuaternion(cam.quaternion);
+  return { pos: cam.position.toArray(), dir: dir.toArray(), up: up.toArray(), vfov: cam.fov, aspect: cam.aspect, offsetY: cam.view?.offsetY ?? 0, w, h, band, pose: { x: c.x, y: c.y, rot: c.rot, fov: c.fov } };
+};
+
 (window as Any).buildDemoScene = async (a: { room: Any; items: Any[]; decor: Any[]; base: string; runtime?: Any; lite?: boolean; cams?: Any[]; style?: string }) => {
   // 1) описание сцены для рендера (`scene-export.ts`) — с ЖИВОЙ таблицей runtime-копий (`/demo/rt-meshes.json`, a.runtime): хеши и «нет лёгкой копии»
   setRuntimeMeshes(a.runtime ?? {});
