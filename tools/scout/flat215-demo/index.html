@@ -7262,7 +7262,7 @@ async function trHomeShot(v){
   const decor=clone(((v.decor)||[]).filter(in3dDecor));   // как `liveDecor`
   // пол и стены — отделка застройщика, как в окне (`liveEngine`): снимок на карточке = то, что откроется в 3D, и те же адреса текстур в кэше
   const sc=M.createDemoScene(cv,{room, items:its, decor, base:location.href, runtimeMeshes:rt, lite:isTouchUI(), walk:false,
-    floor:devFloor()||undefined, wall:devWall()||undefined});
+    floor:devFloor()||undefined, wall:devWall()||undefined, style:v.style||undefined});
   try{ sc.setSize(1024,723);
     let tm=0; const late=new Promise((_,no)=>{tm=setTimeout(()=>no(new Error('сцена снимка не собралась за '+TR_HS_MAX_MS/1000+' с')),TR_HS_MAX_MS);});
     try{await Promise.race([sc.ready, late]);}catch(e){return '';}finally{clearTimeout(tm);}
@@ -7304,7 +7304,7 @@ async function homePre3d(v){
   let urls;
   try{ const room=roomOf(v), M=await sceneModule(); if(!room||!M.sceneAssetUrls)return;
     const a=M.sceneAssetUrls({room, items:clone(variantItems(v)), decor:clone((v.decor||[]).filter(in3dDecor)),
-      base:location.href, runtimeMeshes:await rtMeshes(), lite:isTouchUI()||soft, floor:devFloor()||undefined, wall:devWall()||undefined});
+      base:location.href, runtimeMeshes:await rtMeshes(), lite:isTouchUI()||soft, floor:devFloor()||undefined, wall:devWall()||undefined, style:(allVariants()[cur]||{}).style||undefined});
     urls=[...a.shell, ...a.meshes]; }
   catch(e){ return; }
   const q=urls.filter(u=>!PRE.done.has(u)); HPRE.urls=q.length;
@@ -12127,7 +12127,7 @@ async function livePrefetch(){
   // сперва оболочка комнаты (карты пола и стен, вид за окном, транскодер текстур) — без неё сцена не стартует; потом модели
   try{ const M=await sceneModule(); if(!M.sceneAssetUrls)return;
     const a=M.sceneAssetUrls({room:curRoom(), items:clone(items), decor:liveDecor(), base:location.href, runtimeMeshes:await rtMeshes(),
-      lite:isTouchUI()||soft||!!(LIVE.probe&&LIVE.probe.lite), floor:devFloor()||undefined, wall:devWall()||undefined});
+      lite:isTouchUI()||soft||!!(LIVE.probe&&LIVE.probe.lite), floor:devFloor()||undefined, wall:devWall()||undefined, style:(allVariants()[cur]||{}).style||undefined});
     urls=[...a.shell, ...a.meshes]; }
   catch(e){ return; }
   const todo=urls.filter(u=>!PRE.done.has(u)), key=todo.join('|');
@@ -12176,7 +12176,7 @@ function liveEngine(){
       const rt=await rtMeshes();
       const cv=document.createElement('canvas'); cv.className='livecv'; cv.width=896; cv.height=597;
       sc=window.RemlabScene.createDemoScene(cv,{room, items:clone(items), decor:liveDecor(), base:location.href,
-        runtimeMeshes:rt, lite:isTouchUI(), walk:true, floor:devFloor()||undefined, wall:devWall()||undefined});
+        runtimeMeshes:rt, lite:isTouchUI(), walk:true, floor:devFloor()||undefined, wall:devWall()||undefined, style:(allVariants()[cur]||{}).style||undefined});
       const sc1=sc; sc1.on('contextlost',()=>liveLost(sc1));
       // крутилка считает модели: «Загружаем модели 3 из 8» при первом открытии, «Обновляем…» при замене (то же слово, что до загрузки,
       // T-20261113-19: на месте вещи — светлый силуэт движка); при восстановлении — одна спокойная строка «Восстанавливаем 3D…» без счёта
@@ -12202,7 +12202,7 @@ function liveEngine(){
         sc.dispose();
         const cv2=document.createElement('canvas'); cv2.className='livecv'; cv2.width=896; cv2.height=597;
         sc=window.RemlabScene.createDemoScene(cv2,{room, items:clone(items), decor:liveDecor(), base:location.href, runtimeMeshes:rt, lite:true, walk:true,
-          floor:devFloor()||undefined, wall:devWall()||undefined});
+          floor:devFloor()||undefined, wall:devWall()||undefined, style:(allVariants()[cur]||{}).style||undefined});
         const sc2=sc; sc2.on('contextlost',()=>liveLost(sc2));
         sc2.setSize(896,597); await sc2.ready;
         if(lost()){sc2.dispose(); return null;}

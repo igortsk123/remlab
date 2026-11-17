@@ -17,7 +17,7 @@ import { alternatives, feedForStyle, placeOf, roomFeedKey, type FeedItem } from 
 import { planRooms, type RoomAt, type RoomGeo } from "@/lib/configurator/demo-rooms";
 import { maskedName, roleEn, styleEn } from "@/lib/configurator/demo-mask";
 import { finishPassport } from "@/lib/viewer3d/finish-passport";
-import { texturedFinish } from "@/lib/viewer3d/finish-textures";
+import { accentWallFor, texturedFinish } from "@/lib/viewer3d/finish-textures";
 import { DEFAULT_CEILING_CM, apartment as apartmentSchema, type Annex, type Apartment, type CropWindow, type Opening } from "@/contracts/apartment";
 import { catalogue as catalogueSchema, type Catalogue, type Configuration } from "@/contracts/configurator";
 import { isTextileDecor, textilePart, type TextileLook, type TextilePlace } from "@/lib/configurator/textile";
@@ -54,8 +54,10 @@ export type DemoContext = {
    * без магазина и ссылки. Наценка маски уже в `fxRate` (`source.ts:fxOf`).
    */
   mask?: { englishNames: boolean; hideShops: boolean };
+  /** Стиль варианта для акцентной стены живой сцены (лофт — кирпич, `finish-textures.ts:accentWallFor`); нет — стиль варианта данных. */
+  accentStyle?: string;
   /** Стены живой сцены окна (выбранный вариант): материал и акцент. */
-  wallMaterial?: { material: Record<string, unknown> & { id: string }; accent?: { material: Record<string, unknown> & { id: string }; anchor: "behind-sofa" } };
+  wallMaterial?: { material: Record<string, unknown> & { id: string }; accent?: { material: Record<string, unknown> & { id: string }; anchor: "behind-sofa" | "behind-focal" } };
 };
 
 /** Варианты пола застройщика для `/flat`: цена — доплата, куда идёт — `settlement` группы (RF — застройщику). */
@@ -65,7 +67,7 @@ export type DemoFloorChoice = {
   settlement: "allowance" | "developer_surcharge" | "property_price";
   variants: { id: string; titleRu: string; titleEn: string; price: number; material: Record<string, unknown> & { id: string };
     /** Акцентная стена варианта стен (demo-07). */
-    accent?: { material: Record<string, unknown> & { id: string }; anchor: "behind-sofa" } }[];
+    accent?: { material: Record<string, unknown> & { id: string }; anchor: "behind-sofa" | "behind-focal" } }[];
 };
 
 /** Подкраска из данных витрины — только три разумных множителя (чужим данным не доверяем). */
@@ -615,7 +617,7 @@ function roomPart(data: DemoData, at: RoomAt<DemoVariant>, ctx: DemoContext): Ro
   extraMaterials.unshift(wallMat, floorMat);
   const seen = new Set([wallMat.id, floorMat.id]);
   const addMat = (m?: Mat) => { if (m && !seen.has(m.id)) { seen.add(m.id); extraMaterials.push(m); } };
-  const accentOf = (a?: { material: Mat; anchor: "behind-sofa" }) => (a ? (addMat(a.material), { accent: { materialId: a.material.id, anchor: a.anchor } }) : {});
+  const accentOf = (a?: { material: Mat; anchor: "behind-sofa" | "behind-focal" }) => (a ? (addMat(a.material), { accent: { materialId: a.material.id, anchor: a.anchor } }) : {});
   for (const [surface, category, base, choice] of [["floor", "flooring", floorMat, fc], ["wall", "walls", wallMat, wc]] as const) {
     if (choice) {
       for (const v of choice.variants) {
@@ -626,7 +628,7 @@ function roomPart(data: DemoData, at: RoomAt<DemoVariant>, ctx: DemoContext): Ro
           ...(v.material.previewUrl ? { previewUrl: String(v.material.previewUrl) } : {}) });
       }
     } else {
-      const live = mine && surface === "wall" ? accentOf(ctx.wallMaterial?.accent) : {};
+      const live = mine && surface === "wall" ? accentOf(ctx.wallMaterial ? ctx.wallMaterial.accent : accentWallFor(ctx.accentStyle ?? v.style)) : {};   // стены застройщика (devWall) — его выбор, акцент по стилю не добавляем
       extraOptions.push({ id: `opt:${pre}${surface}`, category, titleRu: surface, titleEn: surface, tier: "standard", price: 0,
         availability: "available", roomKinds: kinds, asset: { kind: "material", materialId: base.id, ...live } });
     }

@@ -11,6 +11,8 @@ import { isIsolatedRoom } from "@/contracts/apartment";
 // МОСТ /flat ПО КОМНАТАМ (onb-11, T-20261105-12): места, цены и отделка — по `room_id` варианта витрины, итог — по комнатам и общий.
 // Образец — живая витрина 05.11 (урезаны ленты), эталон — вывод моста ДО onb-11 на нём же (sha256), контексты квартир заморожены:
 // правка реестра застройщиков не должна краснить проверку «гостиная без изменений».
+// Отпечатки set10 (стиль «лофт») обновлены 17.11 (T-20261117-16): у лофта теперь акцентная кирпичная стена (`finish-cc0.json` → accentWalls) —
+// у стен паспорта акцент `behind-focal` и кирпич в каталоге; места, цены и итог те же (проверяются выше), остальные стили без изменений.
 const live = JSON.parse(readFileSync("tests/fixtures/flat-bridge-live-0511.json", "utf8")) as DemoData;
 const gold = JSON.parse(readFileSync("tests/fixtures/flat-bridge-live-0511.golden.json", "utf8")) as {
   golden: Record<string, { sha256: string; slots: number; options: number; total: number; byRoom: Record<string, number> }>;

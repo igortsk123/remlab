@@ -1,0 +1,27 @@
+{
+ "asset": "Bricks085",
+ "title": "Bricks 085",
+ "site": "ambientCG",
+ "pageUrl": "https://ambientcg.com/a/Bricks085",
+ "files": {
+  "diff": "https://ambientcg.com/get?file=Bricks085_1K-JPG.zip (_Color.jpg)",
+  "nor_gl": "https://ambientcg.com/get?file=Bricks085_1K-JPG.zip (_NormalGL.jpg)",
+  "rough": "https://ambientcg.com/get?file=Bricks085_1K-JPG.zip (_Roughness.jpg)"
+ },
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://docs.ambientcg.com/license/",
+ "authors": {
+  "ambientCG": "Processing"
+ },
+ "released": "2023-05-25",
+ "realMm": [
+  2400.0,
+  1200.0
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "diff.jpg": "d0c822cdb5c001e66d087eeced710c652391f69ecada3c19dc9e236c15095a46",
+  "nor_gl.jpg": "96a09057e96518eea5212b090fab7f983278f5bb429fae8fed4dc066d291995e",
+  "rough.jpg": "987c5c169d5880db2820fb649aa6e9d88697cf544fb138c730cb1617845840b6"
+ }
+}

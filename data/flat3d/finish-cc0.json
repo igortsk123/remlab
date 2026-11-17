@@ -7,6 +7,15 @@
            "gray": 0.96, "contrast": 0.35, "chroma": 0.0, "flatten": 0.9, "normal": 0.6, "normalSize": 512, "roughSpread": 0.4, "colorHex": "#f2f0ed"},
   "floor": {"id": "finish-floor", "asset": "WoodFloor051", "titleRu": "Пол: паркетная планка", "titleEn": "Floor: parquet strips",
             "tileCm": [180, 180], "roughness": 0.55,
-            "gray": 0.9, "contrast": 0.6, "chroma": 0.25, "flatten": 0.85, "normal": 0.8, "roughSpread": 0.6, "colorHex": "#dcc7a6"}
+            "gray": 0.9, "contrast": 0.6, "chroma": 0.25, "flatten": 0.85, "normal": 0.8, "roughSpread": 0.6, "colorHex": "#dcc7a6"},
+  "accent-brick": {"id": "finish-accent-brick", "asset": "Bricks085", "mode": "photo", "surfacesOut": [],
+                   "titleRu": "Стена: кирпичная кладка", "titleEn": "Wall: brick masonry",
+                   "tileCm": [240, 120], "tileNote": "размер из источника ambientCG (2400×1200 мм): кирпич ≈ 21×7 см со швом ≈ 1 см",
+                   "roughness": 0.85, "normal": 1.0, "normalSize": 1024, "roughSpread": 0.5, "colorHex": "#957563"}
+ },
+ "accentWalls": {
+  "_about": "Акцентная стена по стилю варианта (T-20261117-16, владелец TG 1438): style → поверхность из `surfaces`. Какая стена — по предмету сцены, не по ID комнаты: первый найденный из `carriers` (роль предмета в комнате) — акцент на стене за ним (`lib/configurator/accent.ts`).",
+  "carriers": ["кровать", "диван", "тв"],
+  "styles": {"лофт": "accent-brick"}
  }
 }

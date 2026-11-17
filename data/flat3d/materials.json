@@ -1,6 +1,6 @@
 {
  "_about": "Материалы покрытий. Собрано tools/assets/material_pipeline.py — руками не править.",
- "_seal": "9d2df829bf0baab0899c173d3e9dac00a78ff42f5b3df447c7f7b1efb9a23d8b",
+ "_seal": "de27c829639b2dc57456d9ef152ba967441b48b7a743b36d9cdf8090d8928e86",
  "baseUrl": "/flat3d/materials/",
  "materials": [
   {
@@ -201,6 +201,36 @@
      "gate": true
     },
     "seamError": 0.37
+   }
+  },
+  {
+   "mapsSha": "c8ed3a7696d7c7da",
+   "id": "finish-accent-brick",
+   "titleRu": "Стена: кирпичная кладка",
+   "titleEn": "Wall: brick masonry",
+   "colorHex": "#957563",
+   "roughness": 1.0,
+   "metalness": 0.0,
+   "tileCm": [
+    240.0,
+    120.0
+   ],
+   "baseColorUrl": "finish-accent-brick-v1.webp",
+   "baseColorLiteUrl": "finish-accent-brick-v1-lite.webp",
+   "normalUrl": "finish-accent-brick-v1-n.webp",
+   "roughnessUrl": "finish-accent-brick-v1-r.webp",
+   "previewUrl": "finish-accent-brick-v1-preview.webp",
+   "surfaces": [],
+   "source": {
+    "kind": "photo-material",
+    "sourceUrl": "https://ambientcg.com/a/Bricks085",
+    "licence": "CC0-1.0",
+    "method": "cc0:Bricks085@v1 photo (собственные цвета скана)",
+    "note": "ambientCG: Bricks 085 (ambientCG), выпуск 2023-05-25; карта цветная — расцветка скана, паспорт её не красит; размер из источника ambientCG (2400×1200 мм): кирпич ≈ 21×7 см со швом ≈ 1 см",
+    "realCm": [
+     240.0,
+     120.0
+    ]
    }
   },
   {
