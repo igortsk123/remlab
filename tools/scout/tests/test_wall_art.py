@@ -139,21 +139,29 @@ def test_server_frame_keeps_vases_on_table():
     assert rest == [art]
 
 
-def _jpg(path, fill=None, ink=None):
-    from PIL import Image
+def _jpg(path, fill=None, ink=None, lines=None):
+    from PIL import Image, ImageDraw
     im = Image.new('RGB', (200, 300), fill or (240, 240, 240))
     if ink:
         im.paste(ink[0], (60, 90, 140, 210))
+    if lines:                                                      # тонкие линии рельефа: цвет чуть отличается от фона
+        dr = ImageDraw.Draw(im)
+        for y in range(80, 220, 14):
+            dr.line((60, y, 140, y), fill=lines, width=1)
     im.save(path)
 
 
-def test_content_rule_white_relief_out_drawing_and_colour_in(tmp_path):
-    """Только картины с рисунком (T-20261117-18): белый рельеф отсеян, цветная плоская и контрастная — проходят."""
-    _jpg(tmp_path / 'white.jpg')                                  # белое поле: σ 0, цвета нет
-    _jpg(tmp_path / 'draw.jpg', ink=[(30, 60, 40)])               # рисунок в центре: σ большой
-    _jpg(tmp_path / 'flat.jpg', fill=(190, 120, 80))              # ровная терракота: σ 0, цвет заметный
-    ok = {n: WA.has_content(WA.content_stats(str(tmp_path / f'{n}.jpg'), R), R) for n in ('white', 'draw', 'flat')}
-    assert ok == {'white': False, 'draw': True, 'flat': True}
+def test_content_rule_drawing_in_white_and_tone_on_tone_out(tmp_path):
+    """Только картины с рисунком (T-20261117-18, /2): белое и тон-в-тон (светлый фон, тонкие линии того же цвета) отсеяны;
+    рисунок, сильный цвет и тёмная плоскость проходят."""
+    _jpg(tmp_path / 'white.jpg')                                                       # белое поле
+    _jpg(tmp_path / 'cream.jpg', fill=(236, 226, 206), lines=(222, 210, 188))          # кремовый рельеф: фон + тонкие линии в тон
+    _jpg(tmp_path / 'draw.jpg', ink=[(30, 60, 40)])                                    # рисунок в центре
+    _jpg(tmp_path / 'flat.jpg', fill=(190, 120, 80))                                   # ровная терракота — сильный цвет
+    _jpg(tmp_path / 'dark.jpg', fill=(70, 72, 74))                                     # тёмная плоскость
+    _jpg(tmp_path / 'pale.jpg', fill=(236, 240, 232), ink=[(206, 220, 200)])           # бледная мята на светлом: рисунок есть, но слабый
+    ok = {n: WA.has_content(WA.content_stats(str(tmp_path / f'{n}.jpg'), R), R) for n in ('white', 'cream', 'draw', 'flat', 'dark', 'pale')}
+    assert ok == {'white': False, 'cream': False, 'draw': True, 'flat': True, 'dark': True, 'pale': False}
 
 
 def test_annotate_skips_blank_pictures_but_feed_keeps_them():
