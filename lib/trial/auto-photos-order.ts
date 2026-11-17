@@ -15,15 +15,15 @@ export function autoTaskOf(inp: TrialPhotoIn): string | null {
   return typeof t === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(t) ? t : null;
 }
 
-/** Задача → ordered под этот заказ; false — нет такой открытой задачи (чужая комната/вариант, уже заказана, аренда закрыта). */
+/** Задача → ordered под этот заказ; вернёт её тариф фото (фиксирован при постановке, `038`); null — нет такой открытой задачи (чужая комната/вариант, уже заказана, аренда закрыта). */
 export async function takeAutoTask(tx: Tx, a: { jobId: string; taskId: string; roomId: string; variantId: string | null; photoId: string;
-  stateId: string | null }): Promise<boolean> {
-  const got = await q<{ id: string }>(tx, sql`update trial_photo_tasks t set status = 'ordered', photo_id = ${a.photoId},
+  stateId: string | null }): Promise<string | null> {
+  const got = await q<{ id: string; photo_tariff: string }>(tx, sql`update trial_photo_tasks t set status = 'ordered', photo_id = ${a.photoId},
       state_id = ${a.stateId}, updated_at = now()
     from trial_photo_batches b where t.id = ${a.taskId} and t.job_id = ${a.jobId} and t.room_id = ${a.roomId}
       and t.variant_id = ${a.variantId ?? ""} and t.status in ('reserved', 'shooting') and b.id = t.batch_id and b.status = 'leased'
-    returning t.id`);
-  return got.length > 0;
+    returning t.id, t.photo_tariff`);
+  return got[0] ? got[0].photo_tariff : null;
 }
 
 /** Сервис кадров заказ не принял — задача failed с его кодом, номер фото снят (резерв не в счёт потолков). */

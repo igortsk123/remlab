@@ -8,6 +8,7 @@
 !tools/scout/rules/practice_priors.json
 !tools/scout/rules/improve-rooms.json
 !tools/scout/rules/photo-set-roles.json
+!tools/scout/rules/photo-tariffs.json
 !tools/scout/draft_service.py
 !tools/scout/draft_guard.py
 !tools/scout/draft_jobs.py
@@ -19,5 +20,6 @@
 !tools/scout/mesh_render.py
 !tools/scout/scene_mesh.py
 !tools/scout/opening_ir.py
+!tools/scout/view_consistency.py
 !tools/scout/styles.json
 **/__pycache__

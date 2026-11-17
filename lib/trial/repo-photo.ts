@@ -39,11 +39,13 @@ export function photoRoomProblem(json: string, roomId: string, room: { w: number
 
 // поля магазина у предметов (сервис кадров для тура берёт фото товара сам, по модели) и служебные поля заказа, которые ставит только сервер
 const SHOP = ["img", "img_hd", "url", "url_direct", "shop", "price", "brand"];
-const SERVICE = ["async", "quality", "dry_run", "no_proxy", "_job", "trial", "no_registry", "cost_label", "auto_task", "trial_class"];
+const SERVICE = ["async", "quality", "dry_run", "no_proxy", "_job", "trial", "no_registry", "cost_label", "auto_task", "trial_class", "photo_tariff", "_tariff"];
 
 /** Заказ страницы → тело для сервиса кадров: реалистичное, в фон, с меткой задания, без записи в общий реестр кадров демо. Класс `auto`
- *  (T-115 Ф2) ставит только сервер для заказа по Bearer воркера — сервис кадров считает его отдельным счётчиком при верном внутреннем ключе. */
-export function draftPayload(id: string, inp: TrialPhotoIn, auto = false): Record<string, unknown> {
+ *  (T-115 Ф2) ставит только сервер для заказа по Bearer воркера — сервис кадров считает его отдельным счётчиком при верном внутреннем ключе.
+ *  Тариф фото (`photo_tariff`, T-20261117-03) — тоже только сервер и только для `auto`: берётся из задачи очереди (фиксирован при постановке), не из заказа страницы;
+ *  у standard поля нет — заказ побайтно прежний. */
+export function draftPayload(id: string, inp: TrialPhotoIn, auto = false, tariff: string | null = null): Record<string, unknown> {
   const out: Record<string, unknown> = { ...inp };
   for (const k of SERVICE) delete out[k];
   out.items = inp.items.map((it) => {
@@ -51,7 +53,8 @@ export function draftPayload(id: string, inp: TrialPhotoIn, auto = false): Recor
     for (const k of SHOP) delete o[k];
     return o;
   });
-  return { ...out, quality: "realistic", async: 1, trial: id, no_registry: 1, ...(auto ? { trial_class: "auto" } : {}) };
+  return { ...out, quality: "realistic", async: 1, trial: id, no_registry: 1, ...(auto ? { trial_class: "auto" } : {}),
+    ...(auto && tariff && tariff !== "standard" ? { photo_tariff: tariff } : {}) };
 }
 
 /** Заказ в сервис кадров (`/render` — тот же вход, что у `/api/render`); адрес человека — для его IP-предела там. Заказ автофото — с
@@ -96,6 +99,7 @@ export async function askPhoto(id: string, inp: TrialPhotoIn, ip: string, send: 
   const m = photoMeta(inp);
   const rid = randomToken();
   const auto = source === "auto";
+  let tariff: string | null = null;                            // тариф задачи очереди (только автофото)
   const task = auto ? autoTaskOf(inp) : null;
   if (auto && !task) return no(403, "auto_task_required");     // автофото — только по своей задаче-резерву (T-115 Ф2)
   const held = await db().transaction(async (tx): Promise<PhotoAsk | null> => {
@@ -104,8 +108,8 @@ export async function askPhoto(id: string, inp: TrialPhotoIn, ip: string, send: 
     if (!job) return no(404, "not_found");
     if (job.status === "expired" || job.past_term) return no(410, "expired");
     if (task) {
-      const ok = await takeAutoTask(tx, { jobId: id, taskId: task, roomId: inp.room_id, variantId: m.variantId, photoId: rid, stateId: m.stateId });
-      if (!ok) return no(409, "auto_task_busy");
+      tariff = await takeAutoTask(tx, { jobId: id, taskId: task, roomId: inp.room_id, variantId: m.variantId, photoId: rid, stateId: m.stateId });
+      if (tariff === null) return no(409, "auto_task_busy");
     } else {
       // квота людей: автофото в неё не входит. Бронь без номера — только пока идёт вызов (≤ 20 с); застрявшая после сбоя приложения
       // перестаёт считаться через 10 минут
@@ -120,7 +124,7 @@ export async function askPhoto(id: string, inp: TrialPhotoIn, ip: string, send: 
     return null;
   });
   if (held) return held;
-  const r = await send(draftPayload(id, inp, auto), ip);
+  const r = await send(draftPayload(id, inp, auto, tariff), ip);
   const jobId = r.body?.job;
   if (r.status === 200 && typeof jobId === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(jobId)) {
     await db().execute(sql`update trial_photos set draft_job = ${jobId} where id = ${rid}`);

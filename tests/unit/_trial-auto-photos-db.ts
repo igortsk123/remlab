@@ -6,6 +6,7 @@ import type postgresT from "postgres";
 
 import { bundleOf } from "./_trial-bundle-db";
 import { sampleResult } from "./_trial-helpers";
+import { AUTO_RULES, tariffOf } from "@/lib/trial/auto-photos-pick";
 
 // Автофото тура на НАСТОЯЩЕЙ Postgres (T-20261112-115 Ф2, план tour-auto-photos-01; `db/init/036-trial-auto-photos.sql`): публикация
 // подтверждённой пересборки той же транзакцией ставит партию с версией и задачи по комнатам (гостиная, спальни по площади, активный стиль,
@@ -83,10 +84,10 @@ export function autoPhotoDbTests(c: () => Ctx): void {
     const batches = (id: string) => c().pg`select id, rebuild_id, bundle_version, status, tasks, reserved_rub::float8 as rub, refused, warn
       from trial_photo_batches where job_id = ${id} order by created_at, id`;
     const tasks = (id: string) => c().pg`select id, room_id, variant_id, style, ord, status, reserve_rub::float8 as rub, photo_id, fail_code,
-      jsonb_array_length(cams) as cams from trial_photo_tasks where job_id = ${id} order by created_at, ord`;
+      jsonb_array_length(cams) as cams, photo_tariff from trial_photo_tasks where job_id = ${id} order by created_at, ord`;
 
-    it("миграции 036 и 037 повторяются без ошибки", async () => {
-      for (const f of ["036-trial-auto-photos.sql", "037-trial-auto-photo-tries.sql"]) {
+    it("миграции 036, 037 и 038 повторяются без ошибки", async () => {
+      for (const f of ["036-trial-auto-photos.sql", "037-trial-auto-photo-tries.sql", "038-trial-photo-tariff.sql"]) {
         const text = await fs.readFile(path.join(process.cwd(), "db/init", f), "utf8");
         await c().pg.unsafe(text);
         await c().pg.unsafe(text);
@@ -291,6 +292,11 @@ export function autoPhotoDbTests(c: () => Ctx): void {
       expect(await askPhoto(id, order("living", t1!.id), "", send(ok), c().dir, env, "auto")).toMatchObject({ ok: false, error: "auto_task_busy" });
       expect(await askPhoto(id, order("living", t0!.id), "", send(ok), c().dir, env, "auto")).toEqual({ ok: true, job: "dj-auto-1" });
       expect(sent.at(-1)).toMatchObject({ trial: id, trial_class: "auto", quality: "realistic" });
+      // тариф фото (T-20261117-03): у задачи он зафиксирован при постановке (из правила), в заказ идёт доверенным полем; страница его выбрать не может
+      expect(b!.tasks).toHaveLength(3);
+      expect((await tasks(id)).map((t) => t.photo_tariff)).toEqual(Array(3).fill(tariffOf(AUTO_RULES)));
+      if (tariffOf(AUTO_RULES) !== "standard") expect(sent.at(-1)).toMatchObject({ photo_tariff: tariffOf(AUTO_RULES) });
+      else expect(sent.at(-1)).not.toHaveProperty("photo_tariff");
       expect(sent.at(-1)).not.toHaveProperty("auto_task");
       expect(await askPhoto(id, order("living", t0!.id), "", send(ok), c().dir, env, "auto")).toMatchObject({ ok: false, error: "auto_task_busy" });
       // квота людей (1 в сутки здесь) не уменьшилась от автофото

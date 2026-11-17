@@ -7,6 +7,8 @@
  "kind_order": ["living", "bedroom"],
  "_kind_order_why": "владелец 12.11 (план, Скоуп п.2): гостиная первой, затем спальни по площади (`trial.panels[].rooms[].areaM2`, больше — раньше); право на фото есть только у гостиной и спальни (`trial_bundle.py:photo_ok`)",
  "quality": "realistic",
+ "photo_tariff": "mass",
+ "_tariff_why": "владелец 17.11 TG 1276 (П1.67): автофото тура — тариф mass из `rules/photo-tariffs.json` (≈3,7 ₽ за лист двух видов вместо 6,5 ₽); значение фиксируется в задаче при постановке (`trial_photo_tasks.photo_tariff`) и в заказе передаётся доверенным полем; кнопка человека и /demo остаются на standard",
  "reserve_rub": 10,
  "_reserve_why": "Codex 12.11 (`_intake/codex/2026-11-12-t115-answer.md` § 3): держим резерв проекта 10 ₽ на заказ (`demo-realistic.json:est_rub_per_job`), не наблюдаемые ≈5 ₽; когда исполнитель сообщил факт (`spent_rub`), в потолке считается факт",
  "tour_cap_rub": 50,

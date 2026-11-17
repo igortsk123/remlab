@@ -421,6 +421,13 @@ def _http_error_body(e) -> dict:
     return {'error': f'рендер не удался: HTTP {getattr(e, "code", "?")}'}
 
 
+def _internal_hdr(body: dict) -> dict:
+    """Внутренний переход (фон → себя, прод → DEV) с доверенным тарифом несёт внутренний ключ процесса (если он есть): принимающий `internal_tariff`
+    сверяет его; без тарифа заголовок не нужен (T-20261117-03)."""
+    key = os.environ.get('INTERNAL_API_TOKEN') or ''
+    return {'x-internal-token': key} if key and isinstance(body, dict) and body.get('_tariff') else {}
+
+
 def _work(jid: str) -> None:
     """ФОН ИДЁТ ТЕМ ЖЕ ПУТЁМ, ЧТО И ОБЫЧНЫЙ ЗАПРОС — через себя же, но без ожидания клиентом. Так задание
     проходит и через прокси на DEV-рендер, и через локальный фолбэк: логика маршрутизации одна."""
@@ -435,7 +442,7 @@ def _work(jid: str) -> None:
     try:
         _port = int(os.environ.get('DRAFT_PORT', 8099))
         req = _u.Request(f'http://127.0.0.1:{_port}/render', data=json.dumps(body).encode(), method='POST',
-                         headers={'Content-Type': 'application/json'})
+                         headers={'Content-Type': 'application/json', **_internal_hdr(body)})
         with _u.urlopen(req, timeout=900) as r:
             out = json.loads(r.read())
         JOBS.finish(jid, out)
@@ -612,6 +619,12 @@ class H(BaseHTTPRequestHandler):
             return self._send(404, {'error': 'нет такого пути'})
         # автофото тура (T-20261112-115 Ф2): класс `auto` — только с внутренним ключом приложения; своя IP-корзина и свой суточный счёт
         auto = isinstance(payload, dict) and DT.auto_class(payload, self.headers.get('x-internal-token'))
+        # ТАРИФ ФОТО (T-20261117-03): доверенный — от приложения вместе с классом auto, либо с внутреннего перехода (фон зовёт себя, прод → DEV);
+        # оба поля снимаются из заказа всегда, тариф из браузера никогда не доходит до рендера
+        if isinstance(payload, dict):
+            _tar = DT.auto_tariff(payload, auto) or DT.internal_tariff(payload, ip, self.headers.get('x-internal-token'))
+            if _tar:
+                payload['_tariff'] = _tar
         if ip and not ip_allowed('auto' if auto else ip, 'render'):
             return self._send(429, {'error': 'слишком много кадров подряд, попробуйте через 10 минут'})
         day = TRIAL_AUTO_DAY if auto else TRIAL_DAY
@@ -662,7 +675,7 @@ class H(BaseHTTPRequestHandler):
                 # внутренний номер задания DEV не знает — без него DEV делает кадр как обычный запрос (b2b-08, verify)
                 _fwd = json.dumps({k: v for k, v in payload.items() if k != '_job'}).encode()
                 req = _u.Request(prx, data=_fwd, method='POST',
-                                 headers={'Content-Type': 'application/json'})
+                                 headers={'Content-Type': 'application/json', **_internal_hdr(payload)})
                 # РЕЖИМ РЕМОНТА ЖДЁТ ДОЛЬШЕ (01.09): сборка листа плюс генерация в 2048 —
                 # это минуты. Прежние 120 с роняли запрос в ФОЛБЭК на локальный рендер
                 # прода, то есть человек получал кадр СТАРОГО пути и не знал об этом.
@@ -756,7 +769,7 @@ class H(BaseHTTPRequestHandler):
                     'backend': 'server',
                     'frames': res.get('frames'), 'diag': res['diag'],
                     # чем нарисовано фото нейросети (demo-11): без этого поля терялись по дороге в прод и реестр
-                    **({k: res[k] for k in ('image_quality', 'prompt_version', 'prompt_sha', 'sheet_orient') if res.get(k)})}
+                    **({k: res[k] for k in ('image_quality', 'prompt_version', 'prompt_sha', 'sheet_orient', 'tariff') if res.get(k)})}
             _registry_add(payload, out2)
             _DURS[quality] = (_DURS[quality] + [out2['sec']])[-20:]   # замер для оценки очереди
             self._send(200, out2)

@@ -1768,14 +1768,14 @@ def photo_cost_wait(timeout: float = 30.0) -> None:
 
 
 def _photo_cost(fn):
-    """Обёртка платного вызова шлюза: запись в `PHOTO_COST_LOG`. Необязательный `cost_label=` — кто звал (demo / hero / …);
+    """Обёртка платного вызова шлюза: запись в `PHOTO_COST_LOG`. Необязательные `cost_label=` — кто звал (demo / hero / …) и `cost_tariff=` — тариф фото (поле `tariff` строки, T-20261117-03);
     без него — `PHOTO_COST_LABEL` из окружения или имя скрипта. Вложенный вызов (gpt_edit → _chat_edit) пишется один раз."""
     import functools
     import inspect
     sig = inspect.signature(fn)
 
     @functools.wraps(fn)
-    def wrap(*a, cost_label=None, **kw):
+    def wrap(*a, cost_label=None, cost_tariff=None, **kw):
         if getattr(_PC_TLS, 'rec', None) is not None:
             return fn(*a, **kw)
         try:
@@ -1789,6 +1789,8 @@ def _photo_cost(fn):
                'fn': fn.__name__, 'model': ar.get('model'), 'size': ar.get('size'), 'quality': ar.get('quality'),
                'n_images': len(ar.get('images') or []), 'mask': ar.get('mask') is not None, 'pid': os.getpid(),
                't_start': round(t0, 3)}
+        if cost_tariff:                               # тариф фото (T-20261117-03): у строки без поля тариф — прежний (standard)
+            rec['tariff'] = str(cost_tariff)
         with _PC_LOCK:
             rec['overlap'] = _PC_STATE['active'] > 0
             _PC_STATE['active'] += 1
@@ -1946,13 +1948,14 @@ def photo_outcome(e: BaseException) -> str:
 def photo_mark(pm: dict, outcome: str, post: float | None = None) -> None:
     """ОДНА СТРОКА С ДАТОЙ НА ЗАДАНИЕ «Сделать реалистичнее» (photo-speed-monitor-01, T-20261107-37). Журнал сервиса —
     `print` без времени, по нему не понять, за какие сутки задание; эту строку читает `tools/ops/photo-speed.py`.
-    Формат: `ГГГГ-ММ-ДД ЧЧ:ММ:СС ФОТО-ЗАМЕР путь=browser|source|server|- подготовка=С модель=С сохранение=С всего=С исход=ok|…`,
+    Формат: `ГГГГ-ММ-ДД ЧЧ:ММ:СС ФОТО-ЗАМЕР путь=browser|source|server|- подготовка=С модель=С сохранение=С всего=С исход=ok|…[ тариф=mass]` (тариф — только не standard, T-20261117-03),
     «-» — не дошли до шага. `всего` — от начала задания до ответа (или до отказа). Сбой самой строки задание не роняет."""
     try:
         def f(v):
             return '-' if v is None else f'{v:.1f}'
         print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} ФОТО-ЗАМЕР путь={pm.get('path') or '-'} подготовка={f(pm.get('ours'))} "
-              f"модель={f(pm.get('model'))} сохранение={f(post)} всего={f(time.time() - pm['t0'])} исход={outcome}",
+              f"модель={f(pm.get('model'))} сохранение={f(post)} всего={f(time.time() - pm['t0'])} исход={outcome}"
+              + (f" тариф={pm['tariff']}" if pm.get('tariff') not in (None, 'standard') else ''),   # у standard строка прежняя
               flush=True)
     except Exception as e:  # noqa: BLE001 — учёт не важнее фото; причина — в журнал
         print(f'ФОТО-ЗАМЕР не записан: {e!r}'[:200], flush=True)
@@ -3803,19 +3806,23 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
         # КЛЮЧ ОТВЕТА (demo-10, Codex 17.10 п.3): при кадрах из браузера — серверный, по содержимому кадров и всему, что уходит в
         # модель; одинаковые запросы ждут первый (одна оплата), второй берёт его ответ из кэша. Иначе — прежний `src_id`
         _bf = len(layout.get('views') or []) >= 2
-        _cid = ('bf-' + IM.frames_key(layout, REALISTIC_MODEL, gq)) if _bf else layout.get('src_id')
+        # ТАРИФ ФОТО (T-20261117-03): ОДИН эффективный тариф (`IM.effective_tariff`: mass — только тур с доверенным полем от сервиса кадров, иначе
+        # standard) определяет качество вызова, сборку входов, ключ ответа и single_flight, проверку готового ответа и запись результата
+        _tr = IM.effective_tariff(layout) if _bf else IM.STANDARD
+        gq = IM.tariff_quality(_tr, gq)
+        _cid = ('bf-' + IM.frames_key(layout, REALISTIC_MODEL, gq, _tr)) if _bf else layout.get('src_id')
         _sf = IM.single_flight(_cid) if _bf else None
         if _sf is not None:
             _sf.acquire(timeout=900)
         # замер задания для строки ФОТО-ЗАМЕР (photo-speed-monitor-01): путь, подготовка, модель — заполняются по ходу
-        _pm = {'t0': time.time(), 'path': None, 'ours': None, 'model': None}
+        _pm = {'t0': time.time(), 'path': None, 'ours': None, 'model': None, 'tariff': _tr}
         try:
             _c = _improve_cache(_cid)
             import improve_mode as IM
             # ГОТОВЫЙ ОТВЕТ — ТОЛЬКО ТОЙ ЖЕ МОДЕЛИ, КАЧЕСТВА И ВЕРСИИ ПРОМПТА (demo-11, Codex 17.10): иначе после смены модели повтор с тем
             # же `src_id` вернул бы фото прежней модели как новое
             if _c and (_c.get('model') != f'improve/{REALISTIC_MODEL}' or _c.get('image_quality') != gq
-                       or _c.get('prompt_version') != IM.PROMPT_VERSION):
+                       or _c.get('prompt_version') != IM.PROMPT_VERSION or (_c.get('tariff') or IM.STANDARD) != _tr):
                 print('улучшение: готовый ответ другой модели/качества/промпта — не переиспользую', flush=True)
                 _c = None
             if _c:
@@ -3833,7 +3840,7 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
             built = None
             if _bf:
                 try:
-                    built = IM.build_from_views(layout, (layout or {}).get('style') or '')
+                    built = IM.build_from_views(layout, (layout or {}).get('style') or '', tariff=_tr)
                 except Exception as e:  # noqa: BLE001 — кадр не скачался/не совпал: честно рисуем сами (запасной путь)
                     # тур пробы (T-20261109-34): серверной сцены для него нет — без кадров из браузера фото нет, не рисуем сами
                     if layout.get('trial'):
@@ -3862,7 +3869,7 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
                 imgs = [sheet, ident if ident is not None else Image.new('RGB', (64, 64), (255, 255, 255)), built['dsheet']]
             _t_gpt = time.time()
             out = gpt_edit(imgs, prompt, size=built.get('size') or IM.SIZE, quality=gq, model=REALISTIC_MODEL,
-                           cost_label='trial' if layout.get('trial') else 'demo')   # лист телефона — 3072×2048; цена — в photo-cost.jsonl
+                           cost_label='trial' if layout.get('trial') else 'demo', cost_tariff=_tr)   # лист телефона — 3072×2048; цена — в photo-cost.jsonl
             _t_gpt = time.time() - _t_gpt
             _pm['model'] = _t_gpt
             _t_post = time.time()
@@ -3892,7 +3899,7 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
                      for c, p_ in zip(want, pieces)]
             # что именно нарисовало фото — в ответ и реестр (demo-11): модель, качество, версия и отпечаток промпта
             res = {'shots': shots, 'url': shots[0]['url'], 'model': f'improve/{REALISTIC_MODEL}', 'image_quality': gq,
-                   'prompt_version': IM.PROMPT_VERSION, 'prompt_sha': IM.prompt_sha(prompt),
+                   'prompt_version': IM.PROMPT_VERSION, 'prompt_sha': IM.prompt_sha(prompt), 'tariff': _tr,
                        'sheet_orient': built.get('orient') or 'landscape',
                    'sources': built['src_url'], 'diag': {'clay': built['clay']},
                        # откуда кадры и сколько заняла наша часть до вызова модели (demo-10: цель ≤ 2 с при кадрах из браузера)

@@ -830,7 +830,119 @@ def sheet_from_views(views: list, orient: str | None = None) -> Image.Image:
     return sheet
 
 
-def frames_key(payload: dict, model: str, quality: str) -> str:
+# ТАРИФЫ ФОТО (план photo-tariff-mass-01, T-20261117-03): правило — `rules/photo-tariffs.json`; standard — нынешнее фото, побайтно прежнее;
+# mass (BFc, П1.67) — low, кадр 832×1248, товары+декор одной картинкой ×0,44, полный промпт под одну справочную картинку, абзац согласованности
+TARIFFS_PATH = os.path.join(HERE, 'rules', 'photo-tariffs.json')
+_TARIFF_CACHE: dict = {'sig': None, 'data': None}
+STANDARD = 'standard'
+
+
+def _load_tariffs() -> dict:
+    """Правило тарифов с проверкой полей; кэш по mtime. Битый файл — исключение (молча на другой тариф платное не уходит)."""
+    st = os.stat(TARIFFS_PATH)
+    sig = (st.st_mtime_ns, st.st_size)
+    if _TARIFF_CACHE['sig'] == sig:
+        return _TARIFF_CACHE['data']
+    raw = open(TARIFFS_PATH, 'rb').read()
+    d = json.loads(raw.decode('utf-8'))
+    ts = d.get('tariffs')
+    if not isinstance(ts, dict) or STANDARD not in ts or not isinstance(d.get('version'), int):
+        raise ValueError(f'{TARIFFS_PATH}: нужны version и tariffs.standard')
+    for name, c in ts.items():
+        if not isinstance(c, dict) or not isinstance(c.get('quality'), str):
+            raise ValueError(f'{TARIFFS_PATH}: {name}.quality')
+        if name == STANDARD:
+            continue
+        if c['quality'] not in ('low', 'medium', 'high') or not isinstance(c.get('frame_w'), int) or not 256 <= c['frame_w'] <= 2048 \
+                or not isinstance(c.get('combine_scale'), (int, float)) or not 0.2 <= c['combine_scale'] <= 1.0:
+            raise ValueError(f'{TARIFFS_PATH}: {name}: quality / frame_w / combine_scale')
+    d['_sha'] = _hl.sha256(raw).hexdigest()[:12]
+    _TARIFF_CACHE.update(sig=sig, data=d)
+    return d
+
+
+def tariff_known(name) -> bool:
+    return isinstance(name, str) and name in _load_tariffs()['tariffs']
+
+
+def effective_tariff(layout: dict | None) -> str:
+    """ЕДИНСТВЕННЫЙ эффективный тариф заказа (Codex п.4): mass бывает только у тура (`trial`) с доверенным полем `_tariff`, которое ставит сервис кадров
+    (`draft_service`: приложение по ключу или внутренний переход), — всё остальное (кнопка человека, /demo, неизвестное имя) — standard."""
+    try:
+        name = (layout or {}).get('_tariff') if (layout or {}).get('trial') else None
+        return name if name and name != STANDARD and tariff_known(name) else STANDARD
+    except (OSError, ValueError) as e:
+        print(f'  тариф: правило не читается ({str(e)[:80]}) — standard', flush=True)
+        return STANDARD
+
+
+def tariff_quality(name: str, default: str) -> str:
+    """Качество вызова модели: у standard — прежнее (`GPT_IMAGE_QUALITY`, передано как `default`), у остальных — из правила."""
+    if name == STANDARD:
+        return default
+    return _load_tariffs()['tariffs'][name]['quality']
+
+
+def tariffs_version(name: str) -> str:
+    """Версия правила тарифа — в ключ ответа: правка `photo-tariffs.json` не отдаёт старое фото из кэша."""
+    d = _load_tariffs()
+    return f"v{d['version']}-{d['_sha']}"
+
+
+def one_reference_prompt(prompt: str) -> str:
+    """Полный промпт эталона под ОДНУ справочную картинку IMAGE 2 (верх — товары, низ — декор): меняются только ссылки на IMAGE 3 и описание входов,
+    содержание правил то же (проба П1.67, `sd_probe/consistency.py:full_combined`)."""
+    out = []
+    for p in prompt.split('\n\n'):
+        if p.startswith('You are given THREE images'):
+            p = p.replace('THREE', 'TWO')
+        elif p.startswith(('* IMAGE 1:', '* IMAGE 2:', '* IMAGE 3:')):
+            ls = []
+            for ln in p.split('\n'):
+                if ln.startswith('* IMAGE 2:'):
+                    ln = ('* IMAGE 2: one reference sheet. Its UPPER part shows catalogue references for all real products already placed in the room; its LOWER '
+                          'part (the DECOR part) shows decor items and soft textiles of this set that are NOT yet in the render. They are bought goods and MUST '
+                          'appear in the result.')
+                elif ln.startswith('* IMAGE 3:'):
+                    continue
+                ls.append(ln)
+            p = '\n'.join(ls)
+        out.append(p)
+    t = '\n\n'.join(out)
+    return t.replace('FROM IMAGE 3', 'FROM THE DECOR PART').replace('from IMAGE 3', 'from the DECOR part').replace('on IMAGE 3', 'on the DECOR part') \
+            .replace('IMAGE 3', 'the DECOR part')
+
+
+def apply_tariff(name: str, payload: dict, sheet, ident, dsheet, prompt: str) -> tuple:
+    """Входы и промпт по тарифу → (лист двух видов, справочная картинка, третий лист, промпт). standard — без изменений (те же объекты)."""
+    if name == STANDARD:
+        return sheet, ident, dsheet, prompt
+    import view_consistency as VC
+    cfg = _load_tariffs()['tariffs'][name]
+    k = cfg['frame_w'] / min(sheet.size)           # 2048×3072 → 832×1248; у листа телефона (3072×2048) тот же масштаб
+    frame = sheet.resize((round(sheet.width * k), round(sheet.height * k)), Image.LANCZOS)
+    ref, third = ident, dsheet
+    if ident is not None:
+        if dsheet is not None:                      # товары и декор — ОДНА картинка; ссылки на IMAGE 3 переписаны
+            w = max(ident.width, dsheet.width)
+            ref = Image.new('RGB', (w, ident.height + dsheet.height + 16), (255, 255, 255))
+            ref.paste(ident, (0, 0))
+            ref.paste(dsheet, (0, ident.height + 16))
+            prompt = one_reference_prompt(prompt)
+            third = None
+        s = cfg['combine_scale']
+        ref = ref.resize((max(1, round(ref.width * s)), max(1, round(ref.height * s))), Image.LANCZOS)
+    if cfg.get('consistency'):
+        reason = VC.skip_reason(payload)
+        text = None if reason else VC.block(payload)
+        if text:
+            prompt = VC.insert(prompt, text)
+        else:
+            print(f'  consistency: skip {reason or "нет данных"}', flush=True)
+    return frame, ref, third, prompt
+
+
+def frames_key(payload: dict, model: str, quality: str, tariff: str | None = None) -> str:
     """СЕРВЕРНЫЙ КЛЮЧ ОТВЕТА (Codex 17.10, п.3): не `stateId` (он без камер) — кадры по содержимому в порядке C1/C2, стиль,
     отделка, набор эталонов, декор, версия промпта, модель и качество. Тот же ключ — тот же ответ, повтор не платит."""
     views = sorted(payload.get('views') or [], key=lambda x: str(x.get('camera')))
@@ -839,12 +951,17 @@ def frames_key(payload: dict, model: str, quality: str) -> str:
     # что страница нарисовала (П1.50) — другой расклад листов и другое задание при том же составе
     if payload.get('decor_known') or any(isinstance(d, dict) and 'shown' in d for d in (payload.get('decor') or [])):
         decor = ['known'] + [[n, bool(d.get('shown'))] for n, d in zip(decor, payload.get('decor') or [])]
+    import view_consistency as _vc
     key = json.dumps([[(v.get('camera'), v.get('id')) for v in views], payload.get('style') or '',
                       (payload.get('floor') or {}).get('id'), (payload.get('walls') or {}).get('id'),
                       ((payload.get('walls') or {}).get('accent') or {}).get('side'), items, decor,
                       PROMPT_VERSION, model, quality, payload.get('sheet') or 'landscape']
                      # своя запись назначения (детская, T-46/1) — свой промпт, свой ключ; у остальных ключ прежний
-                     + ([rk] if ':' in (rk := room_kind(payload) or '') else []), ensure_ascii=False, sort_keys=True)
+                     + ([rk] if ':' in (rk := room_kind(payload) or '') else [])
+                     # тариф mass (T-20261117-03): свой ключ — другой вход и другое задание; абзац согласованности зависит от геометрии комнаты, поз камер
+                     # и предметов, поэтому они тоже в ключе; версия правила — правка параметров не отдаёт старое. У standard ключ прежний
+                     + ([] if tariff in (None, STANDARD) else ['tariff:' + tariff, _vc.geometry_sig(payload),
+                                                               tariffs_version(tariff)]), ensure_ascii=False, sort_keys=True)
     return _hl.sha256(key.encode('utf-8')).hexdigest()[:32]
 
 
@@ -855,8 +972,9 @@ def single_flight(key: str):
     return lk
 
 
-def build_from_views(payload: dict, style: str | None, stamp: str | None = None) -> dict:
-    """Лист из кадров браузера + эталоны + промпт; исходники публикуются В ФОНЕ (не на горячем пути, Codex п.5)."""
+def build_from_views(payload: dict, style: str | None, stamp: str | None = None, tariff: str = STANDARD) -> dict:
+    """Лист из кадров браузера + эталоны + промпт; исходники публикуются В ФОНЕ (не на горячем пути, Codex п.5).
+    `tariff` — эффективный тариф заказа (`effective_tariff`): standard — входы и промпт прежние побайтно; mass — см. `apply_tariff`."""
     import draft_render as DR
     vs = sorted(payload.get('views') or [], key=lambda x: str(x.get('camera')))
     if len(vs) < 2:
@@ -896,9 +1014,11 @@ def build_from_views(payload: dict, style: str | None, stamp: str | None = None)
     prompt = prompt_for(style, decor, fl.get('title') or fl.get('id') or None, wl.get('title') or wl.get('id') or None, orient, prods,
                         soft_list(soft, C['n3'] + len(decor), items), room=room_kind(payload), groups=C['groups'], kept=C['kept'],
                         n3=C['n3'])
+    # ТАРИФ (T-20261117-03): входы и промпт по правилу `photo-tariffs.json`; счёт фото листа (n_items, n_photos) и `paid_gate` — по исходному листу эталонов
+    sheet, ident, dsheet, prompt = apply_tariff(tariff, payload, sheet, ident, dsheet, prompt)
     stamp = f'improve-{stamp}' if stamp else f'improve-{time.strftime("%H%M%S")}'
     clay = [str(x) for x in (payload.get('clay') or []) if x][:20]
-    meta = {'режим': 'улучшить фото — кадры из браузерной сцены (demo-10)', 'стиль': style or '—',
+    meta = {'режим': 'улучшить фото — кадры из браузерной сцены (demo-10)', 'стиль': style or '—', **({'тариф': tariff} if tariff != STANDARD else {}),
             'кадры': ', '.join(f"{v.get('camera')} {str(v.get('id'))[:12]}" for v in vs[:2]), 'размер запроса': size_for(orient),
             'лист': 'вертикальные виды бок о бок' if orient else 'горизонтальные виды друг под другом',
             'лист на входе': f'{sheet.width}×{sheet.height}', 'версия промпта': PROMPT_VERSION,
@@ -910,7 +1030,7 @@ def build_from_views(payload: dict, style: str | None, stamp: str | None = None)
     url = (DR.PUBLIC_BASE + DR.SRC_URL + '/' + stamp + '/') if DR.PUBLIC_BASE else os.path.join(DR.SRC_DIR, stamp)
     return {'src_url': url, 'sheet': sheet, 'ident': ident, 'dsheet': dsheet, 'prompt': prompt, 'clay': clay, 'cams': [v.get('camera') for v in vs[:2]],
             'size': size_for(orient), 'orient': orient or 'landscape', 'prods_failed': PROMPT_V4 and not prods,
-            'n_items': n_items, 'n_photos': n_photos}
+            'n_items': n_items, 'n_photos': n_photos, 'tariff': tariff}
 
 
 def _groups_meta(C: dict) -> dict:

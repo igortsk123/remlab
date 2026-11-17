@@ -9,7 +9,7 @@
 
 import { sql } from "drizzle-orm";
 import { randomToken } from "@/lib/token";
-import { AUTO_RULES, pickAutoRooms, type AutoRefusal, type AutoRules } from "@/lib/trial/auto-photos-pick";
+import { AUTO_RULES, pickAutoRooms, tariffOf, type AutoRefusal, type AutoRules } from "@/lib/trial/auto-photos-pick";
 import { q, type Tx } from "@/lib/trial/repo-rebuild";
 
 /** Сколько денег уже связано задачами: факт, пока нет — резерв; сорвавшиеся до заказа (`photo_id` пуст) — ноль. */
@@ -35,6 +35,7 @@ export async function enqueueAutoPhotos(tx: Tx, a: { jobId: string; version: num
   const [day] = await q<{ rub: number }>(tx, sql`select ${COMMITTED} as rub from trial_photo_tasks t
       where t.created_at > now() - interval '24 hours'`);
   let tourRub = tour?.rub ?? 0, dayRub = day?.rub ?? 0, n = 0, reserved = 0;
+  const tariff = tariffOf(rules);                                // тариф фото — из правила на момент постановки, в задаче фиксируется (038)
   for (const p of picks) {
     const [old] = await q<{ id: string; free: boolean; tries: number }>(tx, sql`select id, tries,
         (status in ('failed', 'skipped') and photo_id is null and spent_rub is null) as free from trial_photo_tasks
@@ -49,11 +50,11 @@ export async function enqueueAutoPhotos(tx: Tx, a: { jobId: string; version: num
     const ins = old
       ? await q<{ id: string }>(tx, sql`update trial_photo_tasks set batch_id = ${batchId}, status = 'reserved', fail_code = null,
           tries = tries + 1, variant_id = ${p.variantId}, style = ${p.style}, ord = ${n}, area_m2 = ${p.areaM2},
-          cams = ${JSON.stringify(p.cams)}::jsonb, reserve_rub = ${rules.reserve_rub}, spent_rub = null, state_id = null,
+          cams = ${JSON.stringify(p.cams)}::jsonb, reserve_rub = ${rules.reserve_rub}, spent_rub = null, state_id = null, photo_tariff = ${tariff},
           created_at = now(), updated_at = now() where id = ${old.id} returning id`)
       : await q<{ id: string }>(tx, sql`insert into trial_photo_tasks (id, batch_id, job_id, room_id, variant_id, style, ord, area_m2,
-          variant_sig, cams, cams_sig, quality, reserve_rub) values (${randomToken()}, ${batchId}, ${a.jobId}, ${p.roomId}, ${p.variantId},
-          ${p.style}, ${n}, ${p.areaM2}, ${p.variantSig}, ${JSON.stringify(p.cams)}::jsonb, ${p.camsSig}, ${rules.quality}, ${rules.reserve_rub})
+          variant_sig, cams, cams_sig, quality, reserve_rub, photo_tariff) values (${randomToken()}, ${batchId}, ${a.jobId}, ${p.roomId}, ${p.variantId},
+          ${p.style}, ${n}, ${p.areaM2}, ${p.variantSig}, ${JSON.stringify(p.cams)}::jsonb, ${p.camsSig}, ${rules.quality}, ${rules.reserve_rub}, ${tariff})
           on conflict (job_id, room_id, variant_sig, cams_sig, quality) do nothing returning id`);
     if (!ins.length) continue;
     n++; reserved += rules.reserve_rub; tourRub += rules.reserve_rub; dayRub += rules.reserve_rub;

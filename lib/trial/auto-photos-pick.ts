@@ -11,8 +11,14 @@ import RULES from "@/tools/scout/rules/tour-auto-photos.json";
 
 export type AutoRules = { max_rooms: number; shots_per_room: number; kind_order: string[]; quality: "realistic" | "draft";
   reserve_rub: number; tour_cap_rub: number; daily_cap_rub: number; daily_warn_rub: number; lease_s: number;
-  retry_s: number; max_releases: number; urgent_window_s: number; max_tries: number };
+  retry_s: number; max_releases: number; urgent_window_s: number; max_tries: number;
+  /** тариф фото (`tools/scout/rules/photo-tariffs.json`), фиксируется в задаче при постановке (T-20261117-03); нет поля — standard */
+  photo_tariff?: string };
 export const AUTO_RULES = RULES as AutoRules;
+
+const TARIFF_RE = /^[a-z][a-z0-9_]{0,20}$/;
+/** Тариф правила для новых задач: кривое или пустое значение — standard (платное по дорогому тарифу безопаснее, чем по неизвестному). */
+export const tariffOf = (rules: AutoRules): string => (typeof rules.photo_tariff === "string" && TARIFF_RE.test(rules.photo_tariff) ? rules.photo_tariff : "standard");
 
 export type AutoPick = { roomId: string; variantId: string; style: string; areaM2: number | null; ord: number; variantSig: string;
   cams: PhotoCam[]; camsSig: string };

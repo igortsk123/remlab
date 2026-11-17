@@ -206,6 +206,19 @@ def test_report_summary():
     assert 400 in [r['t_start'] for r in s_all['clean']]
 
 
+def test_tariff_field_in_cost_record(env):
+    """T-20261117-03: `cost_tariff=` обёртки платного вызова пишет поле `tariff` рядом с `label`; без него поля нет (старые строки — standard)."""
+    env['mp'].setattr(DR, 'gw_credits', Balance(10.0, 9.97, 9.97, 9.94))
+    env['mp'].setattr(urllib.request, 'urlopen', lambda req, timeout=None: Resp(
+        {'created': 1, 'data': [{'b64_json': _png()}], 'usage': {'total_tokens': 5000}}, {'Content-Type': 'application/json'}))
+    DR.gpt_edit([IMG, IMG], 'p', size='2048x3072', quality='low', model='openai/gpt-image-test', cost_label='trial', cost_tariff='mass')
+    DR.photo_cost_wait()
+    DR.gpt_edit([IMG], 'p', size='2048x3072', quality='medium', model='openai/gpt-image-test', cost_label='trial')
+    mass, std = _lines(env['log'])
+    assert mass['tariff'] == 'mass' and mass['label'] == 'trial' and mass['quality'] == 'low' and mass['n_images'] == 2
+    assert 'tariff' not in std
+
+
 def test_report_main(capsys):
     d = tempfile.mkdtemp(prefix='photo-cost-rep-')
     p = os.path.join(d, 'log.jsonl')

@@ -56,6 +56,30 @@ def auto_class(payload: dict, token: str | None, env=os.environ) -> bool:
     return bool(want and key and token and hmac.compare_digest(token.encode(), key.encode()))
 
 
+TARIFF_RE = re.compile(r'^[a-z][a-z0-9_]{0,20}$')
+
+
+def auto_tariff(payload: dict, auto: bool) -> str | None:
+    """ТАРИФ ФОТО ИЗ ПРИЛОЖЕНИЯ (T-20261117-03): поле `photo_tariff` ставит только приложение в заказ автофото (значение из задачи очереди) вместе
+    с классом `auto` и внутренним ключом — верим ему лишь когда `auto` уже подтверждён (`auto_class`); поле снимается из заказа ВСЕГДА, из браузера
+    тариф не выбрать. Неизвестное имя отсекает `improve_mode.effective_tariff` (→ standard)."""
+    want = payload.pop('photo_tariff', None)
+    return want if auto and isinstance(want, str) and TARIFF_RE.match(want) else None
+
+
+def internal_tariff(payload: dict, ip: str, token: str | None, env=os.environ) -> str | None:
+    """ТАРИФ НА ВНУТРЕННИХ ПЕРЕХОДАХ: фоновое задание зовёт себя же, прод пересылает заказ на DEV — доверенный тариф едет во внутреннем поле `_tariff`.
+    Принимается только у вызова БЕЗ адреса человека (`X-Forwarded-For` пуст: все пользовательские запросы идут через Caddy, он его ставит), а если у
+    процесса есть внутренний ключ — только с ним в `x-internal-token`. Поле снимается из заказа всегда."""
+    v = payload.pop('_tariff', None)
+    if ip or not (isinstance(v, str) and TARIFF_RE.match(v)):
+        return None
+    key = env.get('INTERNAL_API_TOKEN') or ''
+    if key and not (token and hmac.compare_digest(token.encode(), key.encode())):
+        return None
+    return v
+
+
 def has_views(payload: dict) -> bool:
     vs = payload.get('views')
     return isinstance(vs, list) and len(vs) >= 2 and all(isinstance(v, dict) and isinstance(v.get('id'), str) for v in vs[:2])

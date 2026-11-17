@@ -8,7 +8,7 @@ import sys
 import threading
 import urllib.error
 import urllib.request
-from http.server import ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
@@ -112,8 +112,9 @@ def svc(tmp_path, monkeypatch):
     monkeypatch.setattr(S, 'TRIAL_AUTO_DAY', DT.TrialDaily(str(tmp_path / 'trial-photos-auto.json'), 3))
     monkeypatch.setattr(S, 'JOBS', S.JobStore(str(tmp_path / 'jobs.json')))
     monkeypatch.setattr(S, '_paid_gate', lambda: None)
+    orig_work = S._work
     monkeypatch.setattr(S, '_work', lambda jid: None)
-    calls = {'render': [], 'registry': []}
+    calls = {'render': [], 'registry': [], 'work': orig_work}
 
     def render(layout=None, **kw):
         calls['render'].append(json.loads(json.dumps(layout)))
@@ -125,6 +126,7 @@ def svc(tmp_path, monkeypatch):
     srv = ThreadingHTTPServer(('127.0.0.1', 0), S.H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     base = f'http://127.0.0.1:{srv.server_address[1]}'
+    calls['base'] = base
 
     def post(body, ip='10.0.0.1', headers=None):
         req = urllib.request.Request(base + '/render', data=json.dumps(body).encode(), method='POST',
@@ -203,6 +205,98 @@ def test_auto_class_only_with_internal_key():
     assert not DT.auto_class({'trial_class': 'auto'}, '', {})                 # ключа у сервиса нет — auto не бывает
     assert not DT.auto_class({}, 'k' * 32, env)
     assert DT.auto_limit({'TRIAL_AUTO_DAILY': '7'}) == 7 and DT.auto_limit({}) == 10
+
+
+# ───────── тариф фото (T-20261117-03): доверенное поле, фон, прокси ─────────
+
+KEY = 'k' * 32
+
+
+def test_auto_tariff_field_rules():
+    p = {'photo_tariff': 'mass', 'x': 1}
+    assert DT.auto_tariff(p, True) == 'mass' and 'photo_tariff' not in p            # поле снимается всегда
+    p = {'photo_tariff': 'mass'}
+    assert DT.auto_tariff(p, False) is None and 'photo_tariff' not in p            # без класса auto (нет верного ключа) — не верим
+    assert DT.auto_tariff({'photo_tariff': 'MASS; drop'}, True) is None and DT.auto_tariff({'photo_tariff': 5}, True) is None
+    assert DT.auto_tariff({}, True) is None
+
+
+def test_internal_tariff_hop_rules():
+    p = {'_tariff': 'mass'}
+    assert DT.internal_tariff(p, '', None, {}) == 'mass' and '_tariff' not in p     # DEV без ключа в окружении: внутренний вызов без адреса человека
+    assert DT.internal_tariff({'_tariff': 'mass'}, '10.0.0.5', KEY, {'INTERNAL_API_TOKEN': KEY}) is None         # у вызова есть адрес человека
+    env = {'INTERNAL_API_TOKEN': KEY}
+    assert DT.internal_tariff({'_tariff': 'mass'}, '', KEY, env) == 'mass'
+    assert DT.internal_tariff({'_tariff': 'mass'}, '', 'x' * 32, env) is None and DT.internal_tariff({'_tariff': 'mass'}, '', None, env) is None
+    assert DT.internal_tariff({'_tariff': 'MASS!'}, '', KEY, env) is None and DT.internal_tariff({}, '', KEY, env) is None
+
+
+def test_service_trusted_tariff_reaches_the_renderer(svc, monkeypatch):
+    S, post, calls, mp = svc
+    monkeypatch.setenv('INTERNAL_API_TOKEN', KEY)
+    mp.setattr(S, '_proxy_url', lambda: '')
+    # приложение: класс auto + внутренний ключ + тариф из задачи очереди → рендер видит доверенное поле, исходного `photo_tariff` в заказе нет
+    st, _ = post(order(trial_class='auto', photo_tariff='mass', **{'async': 0}), headers={'x-internal-token': KEY})
+    sent = calls['render'][-1]
+    assert st == 200 and sent['_tariff'] == 'mass' and 'photo_tariff' not in sent and 'trial_class' not in sent
+    # без тарифа у заказа auto — рендер standard (поля нет)
+    assert post(order(trial_class='auto', trial='B' * 22, **{'async': 0}), headers={'x-internal-token': KEY})[0] == 200
+    assert '_tariff' not in calls['render'][-1]
+
+
+def test_service_foreign_client_cannot_choose_mass(svc, monkeypatch):
+    S, post, calls, mp = svc
+    monkeypatch.setenv('INTERNAL_API_TOKEN', KEY)
+    mp.setattr(S, '_proxy_url', lambda: '')
+    cases = [dict(photo_tariff='mass'), dict(_tariff='mass'), dict(photo_tariff='mass', _tariff='mass', trial_class='auto')]
+    for i, extra in enumerate(cases):
+        st, _ = post(order(trial=chr(66 + i) * 22, **extra, **{'async': 0}))                      # браузер: адрес есть, ключа нет
+        assert st == 200
+        sent = calls['render'][-1]
+        assert '_tariff' not in sent and 'photo_tariff' not in sent, extra
+    # чужой ключ с классом auto — тоже заказ человека
+    st, _ = post(order(trial='F' * 22, trial_class='auto', photo_tariff='mass', **{'async': 0}), headers={'x-internal-token': 'x' * 32})
+    assert st == 200 and '_tariff' not in calls['render'][-1]
+    # внутренний переход с адресом человека (подделка заголовка через Caddy невозможна, но поле всё равно не принимается)
+    st, _ = post(order(trial='G' * 22, _tariff='mass', **{'async': 0}), ip='10.9.9.9', headers={'x-internal-token': KEY})
+    assert st == 200 and '_tariff' not in calls['render'][-1]
+
+
+def test_service_tariff_survives_background_job_and_proxy(svc, monkeypatch):
+    S, post, calls, mp = svc
+    monkeypatch.setenv('INTERNAL_API_TOKEN', KEY)
+    monkeypatch.setattr(S.DT, 'report', lambda *a, **k: None)
+    mp.setattr(S, '_proxy_url', lambda: '')
+    key = {'x-internal-token': KEY}
+    # 1) приложение ставит задание: тариф лежит в теле задания (`jobs.json`), а не только в памяти первого запроса
+    st, body = post(order(trial_class='auto', photo_tariff='mass'), headers=key)
+    assert st == 200 and S.JOBS.body(body['job'])['_tariff'] == 'mass' and 'photo_tariff' not in S.JOBS.body(body['job'])
+    # 2) фон зовёт себя же (внутренний вызов без адреса, с ключом) — рендер получает тот же тариф
+    mp.setenv('DRAFT_PORT', calls['base'].rsplit(':', 1)[1])
+    calls['work'](body['job'])
+    assert calls['render'][-1]['_tariff'] == 'mass'
+    # 3) прод → DEV: тариф едет в теле пересылки, внутренний ключ — заголовком; у заказа человека — ни поля, ни ключа
+    seen = []
+
+    class Dev(BaseHTTPRequestHandler):
+        def do_POST(self):                                           # noqa: N802
+            n = int(self.headers.get('Content-Length') or 0)
+            seen.append((json.loads(self.rfile.read(n)), self.headers.get('x-internal-token')))
+            out = json.dumps({'shots': [], 'url': '/x.jpg', 'model': 'm', 'diag': {}}).encode()
+            self.send_response(200); self.send_header('Content-Length', str(len(out))); self.end_headers(); self.wfile.write(out)
+
+        def log_message(self, *a):
+            pass
+    dev = ThreadingHTTPServer(('127.0.0.1', 0), Dev)
+    threading.Thread(target=dev.serve_forever, daemon=True).start()
+    mp.setattr(S, '_proxy_url', lambda: f'http://127.0.0.1:{dev.server_address[1]}/render')
+    assert post(order(trial='H' * 22, trial_class='auto', photo_tariff='mass', **{'async': 0}), headers=key)[0] == 200
+    assert post(order(trial='I' * 22, **{'async': 0}))[0] == 200
+    dev.shutdown()
+    (auto_body, auto_key), (human_body, human_key) = seen
+    assert auto_body['_tariff'] == 'mass' and auto_key == KEY and 'photo_tariff' not in auto_body
+    assert '_tariff' not in human_body and human_key is None
+    assert S._internal_hdr({'_tariff': 'mass'}) == {'x-internal-token': KEY} and S._internal_hdr({}) == {}
 
 
 def test_service_auto_orders_have_own_daily_counter(svc, monkeypatch):

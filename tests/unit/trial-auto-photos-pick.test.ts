@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { camsSigOf } from "@/contracts/trial-photos";
-import { AUTO_RULES, pickAutoRooms, variantSig } from "@/lib/trial/auto-photos-pick";
-import { photoMeta } from "@/lib/trial/repo-photo";
+import { AUTO_RULES, pickAutoRooms, tariffOf, variantSig } from "@/lib/trial/auto-photos-pick";
+import { draftPayload, photoMeta } from "@/lib/trial/repo-photo";
 import type { TrialPhotoIn } from "@/contracts/trial";
 
 // Отбор комнат автофото (T-20261112-115 Ф2): чистая функция по данным тура — порядок, активный вариант как у тура без выбора человека,
@@ -53,6 +53,21 @@ describe("отбор комнат автофото", () => {
     expect(variantSig(v("b1", "modern", { items: it2(102) }), geo)).not.toBe(base);
     expect(variantSig(v("b1", "modern", { items: [{ ...it2(100)[0], sku: { msid: "1_z" } }, it2(100)[1]] }), geo)).not.toBe(base);
     expect(variantSig(v("b1", "modern"), { w: 410, d: 300 })).not.toBe(base);
+  });
+
+  it("тариф фото: из правила, кривое → standard; в заказ — только у auto, только не standard, из браузера не берётся (T-20261117-03)", () => {
+    expect(tariffOf(AUTO_RULES)).toBe("mass");                                     // правило тура: `photo_tariff: "mass"`
+    expect(tariffOf({ ...AUTO_RULES, photo_tariff: undefined })).toBe("standard");
+    for (const bad of ["", "MASS", "mass; drop", "1x", "a".repeat(40)]) expect(tariffOf({ ...AUTO_RULES, photo_tariff: bad })).toBe("standard");
+    const page = { room_id: "living", views: [], room: { w: 400, d: 300 }, items: [{ role: "диван", img: "x" }] } as unknown as TrialPhotoIn;
+    const hostile = { ...page, photo_tariff: "mass", _tariff: "mass" } as unknown as TrialPhotoIn;
+    expect(draftPayload("T", hostile, false, "mass")).not.toHaveProperty("photo_tariff");     // не auto → поля нет, даже с тарифом задачи
+    expect(draftPayload("T", hostile, false)).not.toHaveProperty("_tariff");
+    expect(draftPayload("T", hostile, true, null)).not.toHaveProperty("photo_tariff");        // auto без тарифа в задаче → как раньше
+    expect(draftPayload("T", hostile, true, "standard")).not.toHaveProperty("photo_tariff");
+    expect(draftPayload("T", hostile, true)).toEqual(draftPayload("T", page, true));          // standard-заказ побайтно прежний
+    expect(draftPayload("T", hostile, true, "mass")).toMatchObject({ trial: "T", trial_class: "auto", photo_tariff: "mass", quality: "realistic" });
+    expect(draftPayload("T", hostile, true, "mass")).not.toHaveProperty("_tariff");
   });
 
   it("подпись поз задачи = подписи заказа страницы с теми же позами", () => {

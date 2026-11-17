@@ -78,7 +78,7 @@ def parse(lines) -> list:
             jobs.append({'ts': datetime.strptime(m.group(1), TS_FMT), 'approx': False,
                          'path': None if path in (None, '-') else path, 'ours': _num(kv.get('подготовка')),
                          'model': _num(kv.get('модель')), 'post': _num(kv.get('сохранение')),
-                         'total': _num(kv.get('всего')), 'outcome': kv.get('исход') or 'другое'})
+                         'total': _num(kv.get('всего')), 'outcome': kv.get('исход') or 'другое', 'tariff': kv.get('тариф') or 'standard'})
             continue
         a = ANCHOR_RE.match(line)
         if a:
@@ -136,15 +136,19 @@ def s(v, nd=0):
 
 
 def summary(jobs: list) -> dict:
-    ok = [j for j in jobs if j['outcome'] == 'ok']
+    """Сводка. Тариф mass (автофото тура, T-20261117-03) — отдельная группа `mass_*`: медиана и пороги покупателя (`buyer_*`, `all_*`, `night_*`)
+    считаются только по standard, иначе быстрый дешёвый тариф исказил бы стандартную медиану и предупреждения. Отказы и счёт заданий — по всем."""
+    ok_all = [j for j in jobs if j['outcome'] == 'ok']
+    ok = [j for j in ok_all if j.get('tariff', 'standard') == 'standard']
+    mass = [j for j in ok_all if j.get('tariff', 'standard') != 'standard']
     buyer = [j for j in ok if j['path'] in BUYER]
     night = [j for j in ok if j['path'] == 'server']
     fails = [j for j in jobs if j['outcome'] != 'ok']
-    out = {'n': len(jobs), 'ok': len(ok), 'fails': len(fails), 'approx': any(j['approx'] for j in jobs),
-           'fail_kinds': {}, 'buyer_n': len(buyer), 'night_n': len(night)}
+    out = {'n': len(jobs), 'ok': len(ok_all), 'fails': len(fails), 'approx': any(j['approx'] for j in jobs),
+           'fail_kinds': {}, 'buyer_n': len(buyer), 'night_n': len(night), 'mass_n': len(mass), 'std_ok': len(ok)}
     for j in fails:
         out['fail_kinds'][j['outcome']] = out['fail_kinds'].get(j['outcome'], 0) + 1
-    for name, grp in (('buyer', buyer), ('night', night), ('all', ok)):
+    for name, grp in (('buyer', buyer), ('night', night), ('all', ok), ('mass', mass)):
         for k in ('ours', 'model', 'post', 'total'):
             out[f'{name}_{k}_med'] = med([j[k] for j in grp])
             out[f'{name}_{k}_p90'] = pct([j[k] for j in grp], 90)
@@ -175,6 +179,8 @@ def digest(jobs: list, rules: dict, now: datetime) -> list:
         parts.append('покупатель 0')
     if S['night_n']:
         parts.append(f"ночь и пробы {S['night_n']}: модель медиана {s(S['night_model_med'])} с")
+    if S['mass_n']:      # дешёвый тариф автофото тура — отдельно, в пороги покупателя не входит
+        parts.append(f"тариф mass {S['mass_n']}: всего медиана {s(S['mass_total_med'])} с (модель {s(S['mass_model_med'])} с)")
     share = S['fails'] / S['n']
     kinds = ', '.join(f'{k} {v}' for k, v in sorted(S['fail_kinds'].items()))
     parts.append(f"отказов {S['fails']}" + (f" ({100 * share:.0f} %: {kinds})" if S['fails'] else ''))
@@ -215,8 +221,9 @@ def table(jobs: list, days: int, now: datetime) -> list:
             + (f" ({', '.join(f'{k} {v}' for k, v in sorted(S['fail_kinds'].items()))})" if S['fails'] else ''),
             '| путь | n | подготовка мед / 90 % | модель мед / 90 % | сохранение мед / 90 % | всего мед / 90 % |',
             '|---|---|---|---|---|---|']
-    for name, label in (('buyer', 'покупатель (браузер + исходник)'), ('night', 'ночь и пробы (пересборка)'), ('all', 'все')):
-        n = S['buyer_n'] if name == 'buyer' else S['night_n'] if name == 'night' else S['ok']
+    for name, label in (('buyer', 'покупатель (браузер + исходник)'), ('night', 'ночь и пробы (пересборка)'), ('all', 'все standard'),
+                        ('mass', 'тариф mass (автофото тура)')):
+        n = S['buyer_n'] if name == 'buyer' else S['night_n'] if name == 'night' else S['mass_n'] if name == 'mass' else S['std_ok']
         out.append(f"| {label} | {n} | " + ' | '.join(f"{s(S[f'{name}_{k}_med'], 1)} / {s(S[f'{name}_{k}_p90'], 1)} с"
                                                      for k in ('ours', 'model', 'post', 'total')) + ' |')
     out.append('«сохранение» (резка, публикация кадров) есть только в строках ФОТО-ЗАМЕР; «показ» (опрос раз в 3 с, загрузка кадров '
@@ -229,7 +236,7 @@ def last_n(jobs: list, n: int) -> list:
     out = [f'Последние {n} готовых заданий по пути (без дат; журнал {LOG})',
            '| путь | n | подготовка мед / 90 % | модель мед / 90 % | всего мед / 90 % | доля подготовки |', '|---|---|---|---|---|---|']
     for p in ('browser', 'source', 'server'):
-        g = [j for j in jobs if j['path'] == p and j['outcome'] == 'ok'][-n:]
+        g = [j for j in jobs if j['path'] == p and j['outcome'] == 'ok' and j.get('tariff', 'standard') == 'standard'][-n:]
         mo, mm, mt = med([j['ours'] for j in g]), med([j['model'] for j in g]), med([j['total'] for j in g])
         share = f'{100 * mo / mt:.0f} %' if mo is not None and mt else '—'
         out.append(f"| {PATH_RU[p]} | {len(g)} | {s(mo, 1)} / {s(pct([j['ours'] for j in g], 90), 1)} с | "
@@ -299,6 +306,18 @@ def selftest() -> int:
     # 7. таблица за 7 дней строится и на пустом
     t = table([], 7, now)
     check(len(t) > 10 and t[3].startswith('| 02.11 | 0 |'), 'таблица на пустом журнале')
+    # 7б. тариф mass (T-20261117-03): отдельная группа; быстрые и медленные mass не двигают медиану и пороги покупателя (standard)
+    mass_fast = [f'2026-11-07 1{i}:30:00 ФОТО-ЗАМЕР путь=browser подготовка=1.5 модель=20.0 сохранение=1.0 всего=22.5 исход=ok тариф=mass\n' for i in range(4)]
+    d = digest(parse(fast + mass_fast), rules, now)
+    check('покупатель 3: ждал медиана 34 с' in d[0] and 'тариф mass 4: всего медиана 22 с' in d[0] and len(d) == 1,
+          f'mass отдельной группой, медиана покупателя прежняя: {d}')
+    mass_slow = [f'2026-11-07 1{i}:40:00 ФОТО-ЗАМЕР путь=browser подготовка=2.0 модель=90.0 сохранение=1.0 всего=93.0 исход=ok тариф=mass\n' for i in range(4)]
+    d = digest(parse(fast + mass_slow), rules, now)
+    check(not any(x.startswith('WARN') for x in d), f'медленный mass не поднимает пороги покупателя: {d}')
+    check(summary(parse(fast + mass_fast))['buyer_n'] == 3 and summary(parse(fast + mass_fast))['mass_n'] == 4, 'счёт покупателя и mass раздельно')
+    check(parse(fast)[0]['tariff'] == 'standard', 'строка без поля тарифа — standard')
+    t = table(parse(fast + mass_fast), 7, now)
+    check(any('тариф mass (автофото тура)' in x for x in t), 'таблица: строка mass')
     # 8. сломанный файл порогов — ошибка, не молчание
     with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False, encoding='utf-8') as f:
         json.dump({'window_h': 24}, f)
