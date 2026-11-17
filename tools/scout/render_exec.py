@@ -380,7 +380,9 @@ class SaladGpuExecutor(SceneExecutor):
             base = self.env.get('RENDER_SINK_URL') or self.env.get('MESH_SINK_URL') or 'https://remont-lab.online/mesh-sink'
             if not tok:
                 try:
+                    import migrate_groups
                     import sink_health
+                    migrate_groups.env_from_file()      # ключ Salad и SALAD_GROUP — из salad.env (вне git), как у сторожей; токен приёмника — из группы-донора
                     tok = sink_health.sink_token()
                 except Exception:  # noqa: BLE001 — нет токена = нет хранилища = запасной путь
                     tok = ''
