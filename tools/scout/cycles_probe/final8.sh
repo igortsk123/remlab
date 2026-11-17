@@ -13,10 +13,10 @@ go() { local c="$1" tag="$2" n="$3" p="$4"; shift 4; TAG="-$tag" DG="$DGN" EXPJ=
 for C in $CAMS; do
   if [ "$MODE" = "preview" ]; then
     for SH in 0.08 0.12 0.15; do go "$C" "prev-b-shift$SH" 12 25 --shift-y "-$SH"; done
-    go "$C" "prev-c-pitch6" 12 25 --pitch 6 --shift-y 0
+    go "$C" "prev-c-pitch6" 12 25 --pitch 6 --shift-y 0 --pose-mode demo
   else
     go "$C" "b-shift$SHIFT" 64 75 --shift-y "-$SHIFT"
-    go "$C" "c-pitch6" 64 75 --pitch 6 --shift-y 0
+    go "$C" "c-pitch6" 64 75 --pitch 6 --shift-y 0 --pose-mode demo
   fi
 done
 echo ALLDONE > "$O/done-$S-$MODE.txt"
