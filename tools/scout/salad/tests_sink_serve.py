@@ -29,10 +29,11 @@ remlab_tmp.use('tests_sink_serve')
 ROOT = tempfile.mkdtemp(prefix='sink-serve-')
 os.environ['MESH_ROOT'] = ROOT
 os.environ['MESH_SINK_TOKEN'] = 'tok-test'
-os.environ['MESH_SERVE_PREFIXES'] = 'renderjobs'
+os.environ['MESH_SERVE_PREFIXES'] = 'renderjobs,linkpre'
 os.environ['MESH_SERVE_MAX_MB'] = '2'
 os.environ['MESH_MAX_FILE_MB'] = '1'
-os.environ['MESH_SERVE_MAX_DIR_GB'] = '0.01'      # 10 МБ — проверить потолок каталога renderjobs
+os.environ['MESH_SERVE_MAX_DIR_GB'] = '0.01'      # 10 МБ — потолок каталога заданий
+os.environ['MESH_MAX_DIR_GB'] = '0.004'            # 4 МБ — потолок мешей: задания (≈10 МБ) его НЕ должны задевать
 os.environ['MESH_MIN_FREE_GB'] = '0'
 import receiver as R  # noqa: E402
 from http.server import ThreadingHTTPServer  # noqa: E402
@@ -165,6 +166,81 @@ def main() -> int:
         call('PUT', f'/staging/renderjobs/fill/{i}.bin', data=big)
     check(call('PUT', '/staging/renderjobs/fill/last.bin', data=big)[0] == 507, 'каталог renderjobs выше своего потолка — 507 (ворота мешей не страдают)')
     check(call('PUT', '/staging/mesh-x/b/model.glb', data=small)[0] == 200, '…а меши при этом принимаются')
+
+    print('правки по проверке безопасности (T-24/2, Codex)')
+    import socket
+    import time
+    # ② счётчики раздельные: задания (≈10 МБ) не входят в счётчик мешей (потолок 4 МБ), меши принимаются, /health мешей не видит байтов заданий
+    h = json.loads(call('GET', '/health', token=None)[1])
+    check(h['dir_gb'] < 0.004 and R._SERVED['bytes'] > 8 * 2 ** 20, f"счётчик мешей {h['dir_gb']*1024:.1f} МБ без заданий ({R._SERVED['bytes']/2**20:.1f} МБ)")
+    check(R._SIZE['bytes'] == R._walk_bytes(ROOT), 'счётчик мешей == обход диска (заданий в обходе нет)')
+    # ③ счётчик заданий сходится с диском; DELETE освобождает; резерв нигде не завис
+    check(R._SERVED['bytes'] == R._walk_bytes(os.path.join(ROOT, 'renderjobs')), 'счётчик заданий == обход диска')
+    check(R._SERVED['reserved'] == 0 and R._SIZE['reserved'] == 0, 'резерв пуст после отказов 413/507')
+    check(call('DELETE', '/prefix/renderjobs/fill')[0] == 204 and R._SERVED['bytes'] == R._walk_bytes(os.path.join(ROOT, 'renderjobs')), 'DELETE задания освобождает счётчик заданий')
+    check(call('PUT', '/staging/renderjobs/fill2/a.bin', data=big)[0] == 200, 'после уборки задания снова принимаются')
+    # оборванное тело: резерв освобождается
+    sk = socket.create_connection(('127.0.0.1', PORT), timeout=5)
+    sk.sendall(b'PUT /staging/renderjobs/cut/x.bin HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer tok-test\r\nContent-Length: 100000\r\n\r\nabc')
+    time.sleep(0.3)
+    sk.close()
+    time.sleep(0.5)
+    check(R._SERVED['reserved'] == 0, 'оборванный PUT освободил резерв')
+    # параллельные PUT проходят потолок не все разом: потолок 10 МБ, файлы по 1,5 МБ
+    call('DELETE', '/prefix/renderjobs/fill2')
+    call('DELETE', '/prefix/renderjobs/cut')
+    call('DELETE', '/prefix/renderjobs/j9')
+    codes: list = []
+
+    def put_one(i):
+        codes.append(call('PUT', f'/staging/renderjobs/par/{i}.bin', data=big)[0])
+    ths = [threading.Thread(target=put_one, args=(i,)) for i in range(12)]
+    [t.start() for t in ths]
+    [t.join() for t in ths]
+    ok_n = codes.count(200)
+    check(ok_n * 1.5 <= 10.0 + 1e-6 and ok_n >= 5 and R._SERVED['reserved'] == 0, f'12 параллельных PUT при потолке 10 МБ: принято {ok_n} (≤6), резерв пуст')
+    call('DELETE', '/prefix/renderjobs/par')
+    # ① сам каталог префикса — симлинк: ни раздача, ни список, ни запись, ни DELETE
+    sec = tempfile.mkdtemp(prefix='sink-sec-')
+    os.makedirs(os.path.join(sec, 'j'))
+    open(os.path.join(sec, 'j', 'f.txt'), 'w').write('SECRET-LINKPRE')
+    os.symlink(sec, os.path.join(ROOT, 'linkpre'))
+    c, b = call('GET', '/files/linkpre/j/f.txt')
+    check(c == 404 and b'SECRET' not in b, 'каталог префикса — симлинк: /files 404')
+    c, b = call('GET', '/ls/linkpre')
+    check(json.loads(b).get('dirs') == [] and b'SECRET' not in b, 'каталог префикса — симлинк: /ls пуст')
+    c, b = call('GET', '/ls/linkpre/j')
+    check(json.loads(b).get('files') == [], 'каталог префикса — симлинк: /ls задания пуст')
+    check(call('PUT', '/staging/linkpre/j/new.bin', data=small)[0] == 400 and not os.path.exists(os.path.join(sec, 'j', '.staging')), 'PUT через симлинк-префикс отвергнут, снаружи ничего не создано')
+    check(call('DELETE', '/prefix/linkpre/j')[0] == 404 and os.path.exists(os.path.join(sec, 'j', 'f.txt')), 'DELETE через симлинк-префикс отвергнут, снаружи цело')
+    # задание — симлинк на каталог снаружи (при настоящем префиксе)
+    os.symlink(sec, os.path.join(ROOT, 'renderjobs', 'jlink'))
+    check(call('PUT', '/staging/renderjobs/jlink/new.bin', data=small)[0] == 400 and not os.path.exists(os.path.join(sec, '.staging')), 'PUT в задание-симлинк отвергнут')
+    # ④ потолок пакета по умолчанию 95 МБ (Caddy режет на 100)
+    import importlib
+    os.environ.pop('MESH_SERVE_MAX_MB')
+    R2 = importlib.reload(R)
+    check(R2.SERVE_MAX_MB == 95, 'потолок пакета по умолчанию 95 МБ (Caddy: 100)')
+    os.environ['MESH_SERVE_MAX_MB'] = '2'
+    importlib.reload(R)
+    # ⑤ длина — из fstat; обрыв клиента не роняет сервер и не оставляет мусора; список без сортировки всего, не больше LS_LIMIT
+    sk = socket.create_connection(('127.0.0.1', PORT), timeout=5)
+    sk.sendall(b'GET /files/renderjobs/job1/bundle.tgz HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer tok-test\r\n\r\n')
+    head = sk.recv(300)
+    check(b'Content-Length: %d' % len(big) in head, 'Content-Length из fstat открытого файла')
+    sk.close()
+    time.sleep(0.3)
+    c, b = call('GET', '/files/renderjobs/job1/bundle.tgz')
+    check(c == 200 and b == big, 'после обрыва клиента сервер жив и отдаёт')
+    R.LS_LIMIT = 4
+    for i in range(10):
+        w(f'renderjobs/many{i}/job.json')
+    c, b = call('GET', '/ls/renderjobs')
+    check(c == 200 and len(json.loads(b)['dirs']) == 4, 'список заданий ограничен LS_LIMIT без полной сортировки')
+    R.LS_LIMIT = 500
+    # ⑥ завершающий слэш: один можно, два — нет
+    check(call('GET', '/ls/renderjobs/')[0] == 200, '/ls/renderjobs/ — один завершающий слэш терпим')
+    check(call('GET', '/ls/renderjobs//')[0] == 404 and call('GET', '/ls/renderjobs/job1//')[0] == 404 and call('GET', '/ls/renderjobs///')[0] == 404, '/ls/renderjobs// и глубже — 404')
 
     srv.shutdown()
     print('итог:', 'чисто' if not FAILS else f'ПРОВАЛЕНО {len(FAILS)}: {FAILS}')
