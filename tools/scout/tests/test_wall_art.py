@@ -137,3 +137,30 @@ def test_server_frame_keeps_vases_on_table():
     placed, rest = DR.decor_layout(pay)
     assert [p['decor']['role'] for p in placed] == ['ваза']
     assert rest == [art]
+
+
+def _jpg(path, fill=None, ink=None):
+    from PIL import Image
+    im = Image.new('RGB', (200, 300), fill or (240, 240, 240))
+    if ink:
+        im.paste(ink[0], (60, 90, 140, 210))
+    im.save(path)
+
+
+def test_content_rule_white_relief_out_drawing_and_colour_in(tmp_path):
+    """Только картины с рисунком (T-20261117-18): белый рельеф отсеян, цветная плоская и контрастная — проходят."""
+    _jpg(tmp_path / 'white.jpg')                                  # белое поле: σ 0, цвета нет
+    _jpg(tmp_path / 'draw.jpg', ink=[(30, 60, 40)])               # рисунок в центре: σ большой
+    _jpg(tmp_path / 'flat.jpg', fill=(190, 120, 80))              # ровная терракота: σ 0, цвет заметный
+    ok = {n: WA.has_content(WA.content_stats(str(tmp_path / f'{n}.jpg'), R), R) for n in ('white', 'draw', 'flat')}
+    assert ok == {'white': False, 'draw': True, 'flat': True}
+
+
+def test_annotate_skips_blank_pictures_but_feed_keeps_them():
+    data = {'room': {'height_cm': 270}, 'variants': [{'id': 'v', 'style': 'сканди', 'items': [dict(BED, x=200, y=100)]}]}
+    pool = [pic('white', 120, 80), pic('draw', 120, 80)]
+    got = WA.annotate(data, pool, R, 270, blank={pool[0]['img']})
+    assert [p for p in got[0][2]] == ['Картина draw']                  # в набор — только с рисунком
+    assert {p['sid'] for p in data['feeds']['картина']} == {'white', 'draw'}   # лента замен — оба
+    data2 = {'room': {'height_cm': 270}, 'variants': [{'id': 'v', 'style': 'сканди', 'items': [dict(BED, x=200, y=100)]}]}
+    assert WA.annotate(data2, pool[:1], R, 270, blank={pool[0]['img']})[0][2] == []   # одни белые — картины нет (честно)
