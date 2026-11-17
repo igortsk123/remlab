@@ -32,6 +32,7 @@ os.environ['MESH_SINK_TOKEN'] = 'tok-test'
 os.environ['MESH_SERVE_PREFIXES'] = 'renderjobs'
 os.environ['MESH_SERVE_MAX_MB'] = '2'
 os.environ['MESH_MAX_FILE_MB'] = '1'
+os.environ['MESH_SERVE_MAX_DIR_GB'] = '0.01'      # 10 МБ — проверить потолок каталога renderjobs
 os.environ['MESH_MIN_FREE_GB'] = '0'
 import receiver as R  # noqa: E402
 from http.server import ThreadingHTTPServer  # noqa: E402
@@ -72,7 +73,10 @@ def call(method: str, path: str, token='tok-test', data=None):
     h = {'Authorization': f'Bearer {token}'} if token else {}
     if data is not None:
         h['Content-Length'] = str(len(data))
-    c.request(method, path, body=data, headers=h)
+    try:
+        c.request(method, path, body=data, headers=h)
+    except (BrokenPipeError, ConnectionResetError):   # отказ до чтения тела — ответ уже ждёт нас
+        pass
     r = c.getresponse()
     body = r.read()
     c.close()
@@ -157,6 +161,10 @@ def main() -> int:
     check(call('PUT', '/staging/mesh-x/a/model.glb', data=small)[0] == 200, 'меш в пределах — 200')
     check(call('GET', '/files/renderjobs/j9/bundle.tgz')[1] == big, 'принятый PUT пакета сразу скачивается')
     check(call('PUT', '/staging/renderjobs/j9/x', data=small, token=None)[0] == 401, 'PUT без токена — 401')
+    for i in range(8):
+        call('PUT', f'/staging/renderjobs/fill/{i}.bin', data=big)
+    check(call('PUT', '/staging/renderjobs/fill/last.bin', data=big)[0] == 507, 'каталог renderjobs выше своего потолка — 507 (ворота мешей не страдают)')
+    check(call('PUT', '/staging/mesh-x/b/model.glb', data=small)[0] == 200, '…а меши при этом принимаются')
 
     srv.shutdown()
     print('итог:', 'чисто' if not FAILS else f'ПРОВАЛЕНО {len(FAILS)}: {FAILS}')

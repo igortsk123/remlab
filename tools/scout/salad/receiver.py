@@ -42,6 +42,8 @@ BIND = os.environ.get('MESH_SINK_BIND', '127.0.0.1')
 # для этих префиксов на PUT — SERVE_MAX_MB (пакет сцены больше обычного 80 МБ-потолка меша).
 SERVE_PREFIXES = tuple(p.strip().strip('/') for p in os.environ.get('MESH_SERVE_PREFIXES', 'renderjobs').split(',') if p.strip())
 SERVE_MAX_MB = float(os.environ.get('MESH_SERVE_MAX_MB', '200'))
+# Каталог раздаваемых префиксов ВХОДИТ в общий счётчик приёмника (ворота мешей судят по нему) — чтобы задания рендера не закрыли ворота мешам, на них свой потолок:
+SERVE_MAX_DIR_GB = float(os.environ.get('MESH_SERVE_MAX_DIR_GB', '2'))
 LS_LIMIT = 500
 
 # RLock: `dir_gb()` пересчитывает под замком и сам зовётся из-под него (гейт PUT в `_would_refuse`)
@@ -259,9 +261,12 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get('Content-Length') or 0)
         if n <= 0:
             return self._send(400, {'detail': 'пустое тело'})
-        cap_mb = SERVE_MAX_MB if prefix.split('/')[0] in SERVE_PREFIXES else MAX_FILE_MB
+        served = prefix.split('/')[0] in SERVE_PREFIXES
+        cap_mb = SERVE_MAX_MB if served else MAX_FILE_MB
         if n > cap_mb * 2 ** 20:
             return self._send(413, {'detail': 'файл слишком большой'})
+        if served and _walk_bytes(safe(prefix.split('/')[0])) + n > SERVE_MAX_DIR_GB * 2 ** 30:
+            return self._send(507, {'detail': f'каталог {prefix.split("/")[0]} выше {SERVE_MAX_DIR_GB:g} ГБ — нужна уборка (мешам место не отдаём)'})
         try:
             d = safe(prefix, '.staging')
         except ValueError:
