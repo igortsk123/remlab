@@ -3,7 +3,7 @@ tier: 2
 topic: lessons-flat3d
 scope: "Уроки: 3D-конфигуратор квартиры — сцена, ассеты, стык с фото-конвейером — читать перед планом по этой теме"
 tier1: ../core/lessons.md
-updated: 2026-11-12
+updated: 2026-11-17
 importance: med
 source: manual
 status: stable
@@ -327,3 +327,7 @@ import.meta.url)`, а в IIFE `import.meta` пуст — «Failed to construct U
   `img/<hash>.jpg`, сцена считает его от адреса страницы; стенд стоит на корне, а не на `/demo/` → 404 → чёрное полотно (так же ковёр),
   пол бежевый — стенд не передаёт отделку варианта. Правило: картины, ковёр и пол оценивать на живом /demo (`?live=force` в headless),
   стенд — только меши; починка стенда — T-09 рабочего 1.
+- **694 (17.11)** — растения влиты и выкатаны, а на живом /demo их нет: движок витрины `/demo/lib/scene.<id>.js` собирает
+  `tools/flat3d/build-scene-bundle.mjs` в ночном `refresh_daily.sh` (10:40), деплой приложения его НЕ везёт. Правки `lib/viewer3d/**`
+  видны на /demo только после пересборки движка; сверка — версия `node tools/flat3d/build-scene-bundle.mjs --print-id` против
+  `/demo/lib/scene.json`.

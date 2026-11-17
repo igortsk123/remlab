@@ -495,4 +495,6 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 691 — Blender Cycles: кадр точен, сцену брать из движка /demo (иначе пустая), как вход для gpt не помогает → `lessons/viz-render.md`
 - 692 — CI красный 4 дня из-за фикстуры, читавшей файлы DEV; прод позади main никто не видел → `lessons/dev-ops.md`
 - 693 — чёрные картины только на стенде variant-snap (относительный img/ от корня) → `lessons/flat3d-configurator.md`
+- 694 — правки lib/viewer3d не на /demo до пересборки движка витрины (деплой его не везёт) → `lessons/flat3d-configurator.md`
+- 695 — правка rules/** уронила CI: сторож «прежние записи не править» в planner-solver тестах → `lessons/dev-ops.md`
 - 528, 530 — дополнены 07.11 (gltfpack и `/tmp`; «как в CI» — py3.12, чистый venv, golden `--record`, e2e) без новых номеров

@@ -2,7 +2,7 @@
 tier: 2
 topic: lessons-dev-ops
 scope: Уроки DEV-машины — память, earlyoom, туннели, systemd
-updated: 2026-11-13
+updated: 2026-11-17
 importance: med
 source: manual
 status: working
@@ -74,3 +74,6 @@ status: working
   габариты мешей с диска DEV (фикстура перезаписана на DEV и тянула его файлы), в CI их нет. Правило: фикстура — самодостаточна
   (меши таблицей в ленте фикстуры); `tools/ops/deploy-need.sh --status` смотреть на каждом обходе директора, «позади» > 15 мин — разбор.
   Починено T-20261117-05 (ea51aed9).
+- **695 (17.11)** — правка `tools/scout/rules/**` уронила CI main (bc734c29): сторож `services/planner-solver/tests/test_bedroom_single_narrow.py`
+  требует, чтобы прежние записи правил не менялись, а добавки шли последними ключами и были описаны в тесте; при приёмке гоняли
+  только `test_lamp_rules.py`. Правило: тронул `rules/**` — до отчёта весь `services/planner-solver/tests/` (2–3 мин, фоном).

@@ -22,10 +22,10 @@ last_verified: 2026-11-13
 - **Набор:** `tools/scout/compose_bedroom.py` (`tools/scout/rules/bedroom-composition.json`) → `sets-bedroom.next.json`; ячейка
   `room_id|purpose|band|style|tier` (`tools/scout/room_identity.py:cell`); стиль без ядра ночью не собирается (`core_skip`).
 - **Банк:** prepare → pending → promote (≤ 25 %/ночь) → `sets-bedroom.json`; флаги `tools/scout/rules/bank-candidate.json:rooms.bedroom`;
-  руками нельзя (урок 623).
+  руками нельзя.
 - **Витрина:** `tools/scout/demo_bedroom.py` поверх `tools/scout/demo_room.py`; пустую роль добирает `demo_room.py:role_spares`.
-- **Модель:** `tools/scout/room_bindings.py:usable`. **3D (ADR-0417/0422):** лампа на тумбе от 33 см, нет стиля — соседний
-  (`tools/scout/dependent_decor.py`); плед — только товаром, шторы — `tools/scout/textile_abstract.py`; сторож `tools/scout/priced_vs_3d.py`.
+- **Модель:** `tools/scout/room_bindings.py:usable`. **3D (ADR-0417/0422/0425):** лампа от 33 см, иначе соседний стиль
+  (`tools/scout/dependent_decor.py`); плед — ярлык, шторы — `tools/scout/textile_abstract.py`; сторож `tools/scout/priced_vs_3d.py`.
 
 ## Расстановка
 - Угловая кровать — в угол; ковёр по выступу 45–70 см (`tools/scout/compose_bedroom.py:rug_norm`).

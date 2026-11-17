@@ -31,5 +31,5 @@ review_after: 2026-12-05
 - **Меши (ADR-0131/0132):** только свой Hunyuan3D 2.1 на Salad — [[mesh-pipeline]]. **А4/А6:** `viz_qa.py` гейтит батчи (exit 3); A/B `viz_ab.py`.
 
 **Фото нейросети:** sunburst medium (ADR-0302, бенч 07.11 подтвердил); досъёмка — `tools/scout/publish_demo.sh`.
-**Растения:** ADR-0423.
+**Растения:** ADR-0423/0426. **Камера рендера:** ADR-0424.
 **Tier 2:** `../domain/viz-fidelity-playbook.md` · `../domain/lr-composition-guide.md` · `../domain/integrations.md`.
