@@ -36,7 +36,8 @@ describe("мост витрина → конфигуратор", () => {
     expect(r!.catalogue.options.filter((o) => o.category === "furniture")).toHaveLength(4);
     // стены и пол — свои материалы из паспорта отделки, ПЕРВЫМИ: оболочка не берёт фото ковра (/flat 15.10)
     expect(r!.apartment.slots.filter((s) => s.kind === "surface").map((s) => s.surface).sort()).toEqual(["floor", "wall"]);
-    expect(r!.catalogue.materials[0]!.titleRu).toBe("Стены");
+    // с фактурой CC0 (render-3d-01) заголовок — «Стены: матовая штукатурка»; без неё (`?finish=0`) — просто «Стены»
+    expect(r!.catalogue.materials[0]!.titleRu).toMatch(/^Стены/);
   });
 
   // demo-05 п.9: ковёр и ваза — в /flat так же, как в окне и в цене
