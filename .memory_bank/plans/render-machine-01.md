@@ -56,3 +56,5 @@ Codex (vercel-sol, ephemeral): `_intake/codex/2026-11-17-render-machine-plan-ans
 
 ## Лог выполнения
 - 17.11 18:30 — план (директор common + Codex), T-22 рабочему 4.
+- 17.11 18:45 — шаг 1: сторож гасит только `mesh-*` (`GUARDED_PREFIXES`, env `MESH_DEADMAN_PREFIXES`), тесты в селфтесте — main 15ce289b.
+  На сервере отметка меш-конвейера старая с 15.11 → без правки рендер-группу погасили бы за ≤10 мин. render-* пока без серверного сторожа.
