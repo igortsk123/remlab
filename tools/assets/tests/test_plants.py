@@ -117,6 +117,34 @@ def test_stand_up_squat_plant_untouched():
     assert abs(np.ptp(out[:, 1]) - 0.4) < 0.01               # высота та же — не переворачивалась и не вытягивалась
 
 
+# ───── T-20261117-15: букет из настоящих листьев скана на стеблях кода (`plant_bouquet.py`) ─────
+def test_bouquet_rules_are_data_and_consistent():
+    """Букеты вазы — записи `builder: bouquet`: источник — скан Poly Haven (CC0 в реестре), листья и стебли заданы данными, списки согласованы."""
+    rows = [p for p in CFG['plants'] if p.get('builder') == 'bouquet']
+    assert len(rows) >= 2 and all(p['kind'] == 'dry' for p in rows)          # вазе есть из чего выбирать, и это букеты, не зелень
+    assert not [p for p in CFG['plants'] if p.get('builder') == 'procedural']   # плоские процедурные букеты сняты (владелец: «нереалистичный эвкалипт»)
+    for p in rows:
+        b = p['bouquet']
+        n = len(b['leaves'])
+        assert 4 <= n <= 8 and len(set(b['leaves'])) == n, p['id']
+        for key in ('stemCm', 'leanDeg', 'scale'):
+            assert b[key] and all(x > 0 for x in b[key]), (p['id'], key)
+        assert all(0 <= a <= 45 for a in b['leanDeg']) and all(15 <= s <= 80 for s in b['stemCm']), p['id']
+
+
+def test_bouquet_rot_to_and_tube_geometry():
+    import plant_bouquet as PB
+    for a, b in [([0, 1, 0], [1, 0, 0]), ([0, 1, 0], [0, 1, 0]), ([0, 1, 0], [0, -1, 0]), ([1, 2, 3], [-3, 1, 2])]:
+        a, b = np.array(a, float), np.array(b, float)
+        R = PB.rot_to(a, b)
+        assert np.allclose(R @ R.T, np.eye(3), atol=1e-9) and np.allclose(R @ (a / np.linalg.norm(a)), b / np.linalg.norm(b), atol=1e-9)
+    path = np.stack([np.zeros(5), np.linspace(0, 0.4, 5), np.zeros(5)], axis=1)
+    v, f = PB.tube(path, np.full(5, 0.004), sides=6)
+    assert len(v) == 30 and len(f) == 4 * 6 * 2 and f.max() < len(v)
+    assert np.allclose(np.hypot(v[:6, 0], v[:6, 2]), 0.004)                  # кольцо — радиуса стебля
+    assert abs(v[:, 1].min()) < 1e-9 and abs(v[:, 1].max() - 0.4) < 1e-9
+
+
 if __name__ == '__main__':
     import pytest
     sys.exit(pytest.main([__file__, '-q', '-p', 'no:cacheprovider']))
