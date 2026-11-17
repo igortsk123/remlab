@@ -35,7 +35,8 @@ for orient, word in ((None, 'stacked vertically'), ('portrait', 'side by side'))
     p = IM.render_polish_prompt(orient)
     check(f'промпт ({orient or "landscape"}): раскладка листа названа', word in p and '{layout}' not in p)
 check('промпт: запрещены добавление, удаление, замена, перекраска; пол, обивка, шторы названы', all(w in IM.render_polish_prompt() for w in (
-    'Do NOT add, remove, replace', 'chandeliers', 'curtains', 'Never turn leather into linen', 'never darken or lighten the floor', 'magenta band')))
+    'Do NOT add, remove, replace', 'chandeliers', 'curtains', 'Never turn leather into linen', 'never darken or lighten the floor', 'magenta band',
+    'colour truth', 'never becomes natural wood', 'never turns into dark walnut', 'when in doubt, change less')))
 check('промпт: разрешены свет, тени, фактура, резкость', all(w in IM.render_polish_prompt() for w in ('lighting realism', 'sharpness', 'micro-detail')))
 check('промпт: нет гайда стиля, листов эталонов/декора и «дорисуй»', not any(w in IM.render_polish_prompt() for w in (
     'STYLE GUIDE', 'IMAGE 2', 'IMAGE 3', 'CEILING LIGHT', 'renovated room', 'draw')))
