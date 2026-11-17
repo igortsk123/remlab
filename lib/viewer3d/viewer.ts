@@ -242,7 +242,7 @@ export class FlatViewer {
   /** Вещь → носитель, чья модель сейчас грузится (подушки на диване ждут диван, T-20261113-19). */
   private waitFor = new Map<string, string>();
   /** Итог последней посадки мягких вещей по слотам (`settleSoft`): посажена, нет опоры, далеко от отметки или сбой — для `supportGaps`. */
-  private settleLog = new Map<string, SettleResult | { why: "error"; error: string }>();
+  private settleLog: Map<string, SettleResult | { why: "error"; error: string }> | undefined = new Map();
   private pendingUrls = new Set<string>();
   private loadedCount = 0;
   private totalCount = 0;
@@ -578,19 +578,30 @@ export class FlatViewer {
    */
   private settleSoft(): void {
     if (this.disposed) return;
+    // журнал — по требованию: вьюер, собранный без конструктора (стенды, тесты), посадку не роняет
+    const log = (this.settleLog ??= new Map());
+    log.clear();
+    try {
+      this.settleSoftNow(log);
+    } catch (e) {
+      // посадка — украшение: никакое состояние сцены не должно ронять `syncObjects`
+      log.set("*", { why: "error", error: String((e as Error)?.message ?? e).slice(0, 120) });
+    }
+  }
+
+  private settleSoftNow(log: Map<string, SettleResult | { why: "error"; error: string }>): void {
     // мировые матрицы обновляет кадр, а посадка идёт сразу после загрузки: без этого луч видит диван там, где он был до `placeGroup`
     this.scene.updateMatrixWorld(true);
-    this.settleLog.clear();
     const soft = (p: Placed): boolean => isSettled(p.spec.kind, p.spec.kind === "mesh" ? p.spec.role : p.spec.kind === "textile" ? p.spec.shape : null);
     const supports: THREE.Object3D[] = [];
     for (const p of this.placed.values()) if (!soft(p) && p.status !== "pending") supports.push(p.group);
     for (const p of this.placed.values()) {
       if (!soft(p) || p.status === "pending") continue;
       try {
-        this.settleLog.set(p.spec.slotId, settleOnSupport(p.group, (p.spec.placement.elevCm ?? 0) * CM, supports));
+        log.set(p.spec.slotId, settleOnSupport(p.group, (p.spec.placement.elevCm ?? 0) * CM, supports));
       } catch (e) {
-        // посадка — украшение: сбой расчёта оставляет вещь на отметке решателя; причина — в журнале посадки (`supportGaps`)
-        this.settleLog.set(p.spec.slotId, { why: "error", error: String((e as Error)?.message ?? e).slice(0, 120) });
+        // сбой расчёта оставляет вещь на отметке решателя; причина — в журнале посадки (`supportGaps`)
+        log.set(p.spec.slotId, { why: "error", error: String((e as Error)?.message ?? e).slice(0, 120) });
       }
     }
   }
@@ -730,7 +741,7 @@ export class FlatViewer {
         slotId, role, title: spec.titleRu, bottomCm: +(box.min.y * 100).toFixed(1), plannedBottomCm: +(spec.placement.elevCm ?? 0).toFixed(1),
         supportCm: hit ? +(hit.point.y * 100).toFixed(1) : null, gapCm: hit ? +((box.min.y - hit.point.y) * 100).toFixed(1) : null,
         support, heightCm: +((box.max.y - box.min.y) * 100).toFixed(1),
-        settle: ((l) => (!l ? "не сажалась" : l.why === "error" ? `сбой: ${l.error}` : l.why === "settled" ? `посажена (сдвиг ${l.deltaCm} см, наклон ${l.leanDeg}°)` : l.why))(this.settleLog.get(slotId)),
+        settle: ((l) => (!l ? "не сажалась" : l.why === "error" ? `сбой: ${l.error}` : l.why === "settled" ? `посажена (сдвиг ${l.deltaCm} см, наклон ${l.leanDeg}°)` : l.why))(this.settleLog?.get(slotId)),
       });
     }
     return out;
