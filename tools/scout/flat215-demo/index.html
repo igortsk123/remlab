@@ -4287,7 +4287,7 @@ function camFit(cx,cy,its,W,H,strict){
 // `keyCut` — главное (диван, ТВ-тумба, столик) срезано боковым краем: доля ширины за кадром (d8 17.10: ТВ сканди, диван джапанди)
 // `keyMiss` — только у вида 2 (d8 17.10): ни диван, ни ТВ-тумба не видны хотя бы на 60 % ширины — вид без смысла для покупателя;
 // `close2` — мебель ближе 1.0 м (жёстче `close`). Пороги d8: срез главного ≤ 0.4, пустая стена ≤ 0.4
-const CAM_GATE=[['floor',0.35],['empty',0.4],['ceil',0.3],['close',0],['close2',0],['pclose',0],['hog',0.28],['fore',0.12],['keyCut',0.4],['keyMiss',0],['nearWall',0.02],['decor',0.12],['decorSelf',0.05],['keyCut15',0.15]];
+const CAM_GATE=[['floor',0.35],['empty',0.4],['ceil',0.3],['close',0],['close2',0],['pclose',0],['hog',0.28],['fore',0.12],['keyCut',0.4],['keyMiss',0],['nearWall',0.02],['decor',0.12],['decorSelf',0.05],['keyCut15',0.10]];
 const CAM_KEY_SHOW=['диван','тв-тумба'], CAM_KEY_SHOW_MIN=0.6;
 function camKeyShow(c,its,st){
   let best=0; (its||[]).forEach((it,i)=>{if(!camZ().show.includes(camRole(it)))return; const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind)return;
@@ -4425,7 +4425,7 @@ function camCandEval(c,its,W,H){
 // ВЕС НАРУШЕНИЯ ПОРОГА (за каждые 0.1 сверх порога; для `close`/`pclose` — за каждые 10 см недостачи; `nearWall` — за 0.01):
 // стена у края и срез главного — почти запрет, лишний пол или потолок — мелочь
 // d8 17.10: потеря дивана/ТВ из вида 2 дороже среза главного до 40 %; пустая стена > 0.4 дороже мелочей; ближе 1.0 м — почти запрет
-const CAM_BAD_W={decorSelf:3, keyCut15:3, decor:2, nearWall:100, keyMiss:15, keyCut:10, close2:10, empty:6, close:4, hog:4, fore:4, pclose:0.5, ceil:1, floor:1}, CAM_BAD_TOL=0.5;
+const CAM_BAD_W={decorSelf:3, keyCut15:5, decor:2, nearWall:100, keyMiss:15, keyCut:10, close2:10, empty:6, close:4, hog:4, fore:4, pclose:0.5, ceil:1, floor:1}, CAM_BAD_TOL=0.5;
 function camBad(st,second){
   let b=0; for(const [k,v] of CAM_GATE){if(k==='keyMiss'&&!second)continue; const over=Math.max(0,(st[k]||0)-v);
     if(over>0)b+=CAM_BAD_W[k]*over/(k==='nearWall'?0.01:0.1);}
