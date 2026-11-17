@@ -45,7 +45,7 @@
 | `stock-and-dims.md` | stock-and-dims | Наличие и честность размеров — состояния, парсер, footprint | `../domain/stock-and-dims.md` | 2026-11-12 |
 | `styles.md` | styles | Стили — паспорта, скоринг, сеты | `../domain/interior-styles.md` | 2026-11-13 |
 | `user-flow.md` | user-flow | Stage 1 UX-flow, аналитика | `../domain/user-flow-details.md` | 2026-11-12 |
-| `bedroom.md` | bedroom | Спальня — каталог, банк наборов, показ на /demo, группы, детская | `../domain/pipeline-order-details.md` | 2026-11-13 |
+| `bedroom.md` | bedroom | Спальня — каталог, банк наборов, показ на /demo, группы, детская | `../domain/pipeline-order-details.md` | 2026-11-17 |
 | `design-figma.md` | design-figma | Дизайн демо в Фигме — книги, страницы, пересборка, ручные правки | `../completed_plans/design-01-figma-export.md` | 2026-11-10 |
 | `lr-checklist.md` | lr-checklist | Состав гостиной — роли и пригодность | `../domain/living-room-checklist.md` | 2026-11-13 |
 | `onboarding-quiz.md` | onboarding-quiz | Опрос-знакомство на /demo — показ, подбор 3 стилей, события, приёмка комнат | `../domain/onboarding-quiz.md` | 2026-11-12 |
