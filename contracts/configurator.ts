@@ -31,6 +31,12 @@ export const material = z.object({
   normalUrl: z.string().optional(),
   roughnessUrl: z.string().optional(),
   aoUrl: z.string().optional(),
+  /**
+   * Тонировка (render-3d-01 шаг 1): карта цвета НЕЙТРАЛЬНАЯ (серая, рисунок без оттенка), `tintMean` — её средняя яркость в
+   * линейном свете (0.2–1); цвет паспорта `colorHex` умножается на неё (`finish-passport.ts:tintHex`, один расчёт на /demo и
+   * Blender). Нет поля — карта уже имеет свой цвет и берётся как есть (все прежние материалы).
+   */
+  tintMean: z.number().min(0.2).max(1).optional(),
   colorHex: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   roughness: z.number().min(0).max(1).default(0.8),
   metalness: z.number().min(0).max(1).default(0),

@@ -1,6 +1,6 @@
 {
  "_about": "Материалы покрытий. Собрано tools/assets/material_pipeline.py — руками не править.",
- "_seal": "159f062715f9d7ca743c20c74387ac37115a25cd147ccfde322d56f937d5b137",
+ "_seal": "9d2df829bf0baab0899c173d3e9dac00a78ff42f5b3df447c7f7b1efb9a23d8b",
  "baseUrl": "/flat3d/materials/",
  "materials": [
   {
@@ -201,6 +201,72 @@
      "gate": true
     },
     "seamError": 0.37
+   }
+  },
+  {
+   "mapsSha": "4a34ff7a1306a6e9",
+   "id": "finish-floor",
+   "titleRu": "Пол: паркетная планка",
+   "titleEn": "Floor: parquet strips",
+   "colorHex": "#dcc7a6",
+   "roughness": 0.647,
+   "metalness": 0.0,
+   "tileCm": [
+    180.0,
+    180.0
+   ],
+   "tintMean": 0.786,
+   "baseColorUrl": "finish-floor-v1.webp",
+   "baseColorLiteUrl": "finish-floor-v1-lite.webp",
+   "normalUrl": "finish-floor-v1-n.webp",
+   "roughnessUrl": "finish-floor-v1-r.webp",
+   "previewUrl": "finish-floor-v1-preview.webp",
+   "surfaces": [
+    "floor"
+   ],
+   "source": {
+    "kind": "photo-material",
+    "sourceUrl": "https://ambientcg.com/a/WoodFloor051",
+    "licence": "CC0-1.0",
+    "method": "cc0:WoodFloor051@v1 neutral gray=0.9 contrast=0.6",
+    "note": "ambientCG: Wood Floor 051 (ambientCG), выпуск 2022-05-01; карта нейтральная — цвет даёт паспорта отделки",
+    "realCm": [
+     180.0,
+     180.0
+    ]
+   }
+  },
+  {
+   "mapsSha": "bc444de01bf793b0",
+   "id": "finish-wall",
+   "titleRu": "Стены: матовая штукатурка",
+   "titleEn": "Walls: matte plaster",
+   "colorHex": "#f2f0ed",
+   "roughness": 1.0,
+   "metalness": 0.0,
+   "tileCm": [
+    120.0,
+    120.0
+   ],
+   "tintMean": 0.907,
+   "baseColorUrl": "finish-wall-v1.webp",
+   "baseColorLiteUrl": "finish-wall-v1-lite.webp",
+   "normalUrl": "finish-wall-v1-n.webp",
+   "roughnessUrl": "finish-wall-v1-r.webp",
+   "previewUrl": "finish-wall-v1-preview.webp",
+   "surfaces": [
+    "wall"
+   ],
+   "source": {
+    "kind": "photo-material",
+    "sourceUrl": "https://ambientcg.com/a/Plaster002",
+    "licence": "CC0-1.0",
+    "method": "cc0:Plaster002@v1 neutral gray=0.96 contrast=0.35",
+    "note": "ambientCG: Plaster 002 (ambientCG), выпуск 2019-07-03; карта нейтральная — цвет даёт паспорта отделки; источник размер не задаёт (0×0): взят 120 см по виду крупного мазка",
+    "realCm": [
+     120.0,
+     120.0
+    ]
    }
   },
   {

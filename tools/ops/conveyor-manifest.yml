@@ -30,6 +30,8 @@ tracked:
         why: фактуры фасадов из фото товаров — дописывает свои записи в тот же список материалов
       - path: tools/assets/material_from_scan.py
         why: пол из CC0-сканов — дописывает записи scan-* в тот же список материалов
+      - path: tools/assets/material_from_cc0.py
+        why: фактура стен и пола паспорта отделки из CC0-карт ambientCG — дописывает записи finish-* в тот же список материалов
   - path: data/partners/kitchen-fit/flat215.json
     generator: tools/scout/kitchen_fit.py
     match: kitchen-fit/flat215.json                 # имя flat215.json носит и другой файл (tools/scout/flat215.json)

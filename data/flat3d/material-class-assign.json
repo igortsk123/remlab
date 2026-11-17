@@ -1,0 +1,6427 @@
+{
+ "_about": "Собрано tools/assets/material_class.py build по data/flat3d/material-classes.json — руками не править.",
+ "meshes": {
+  "112923_1000339805231639017": {
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=цельный массив"
+    }
+   },
+   "reason": "Материал обивки=рогожка",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_10038698885737693094": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_10046668357069746202": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_10073012362241909160": {
+   "class": "velvet",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "ldsp",
+     "reason": "Материал каркаса=ДСП Фанера Массив ДВП"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал обивки=вельвет",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_10108625015160793484": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал корпуса=крашенный МДФ 16 мм",
+   "role": "стеллаж",
+   "stage": "params"
+  },
+  "112923_10111726372869571729": {
+   "class": "boucle",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=Массив"
+    }
+   },
+   "reason": "Материал обивки=букле",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_1013575798949304917": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Ультра Песочный (Sand) велюр",
+   "role": "стул",
+   "stage": "params"
+  },
+  "112923_10153166443740156800": {
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Савана Пепельный (Ash) рогожка",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_10175165970415756486": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_10179754858995837853": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_10183743547941590993": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_10204732259256289856": {
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=Массив березы"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Бентори Олива рогожка",
+   "role": "стул",
+   "stage": "params"
+  },
+  "112923_10242478801803485367": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_10247827794224946959": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Ультра Песочный (Sand) велюр",
+   "role": "стул",
+   "stage": "params"
+  },
+  "112923_10364148020271933378": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "glass",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "wood_solid",
+     "reason": "Материал ручек=Массив"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=Cтекло рамка МДФ",
+   "role": "витрина",
+   "stage": "params"
+  },
+  "112923_10370472891097858155": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_10407063191267289582": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_1040856729758645941": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=МДФ 16 мм в пленке ПВХ",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_10428966767796030175": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_10480983046086288433": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_10495468249395330186": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Ультра Дымчатый (Smoke) велюр",
+   "role": "пуф",
+   "stage": "params"
+  },
+  "112923_10540553294974864923": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "тв-тумба",
+   "stage": "params"
+  },
+  "112923_10549295779177863200": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "wood_veneer",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "mdf_film",
+     "reason": "Материал ножек=МДФ Шпон"
+    }
+   },
+   "reason": "Материал столешницы=Шпон МДФ",
+   "role": "стол обеденный",
+   "stage": "params"
+  },
+  "112923_10553502039134439512": {
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Фрайдей 451 рогожка",
+   "role": "стул",
+   "stage": "params"
+  },
+  "112923_10564647820533351429": {
+   "class": "neutral",
+   "confidence": 0.2,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек=Массив"
+    }
+   },
+   "reason": "стулья каталога — и ткань, и дерево, и пластик: вид не угадать",
+   "role": "стул",
+   "stage": "role"
+  },
+  "112923_10662501780533634758": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_10693265451046762097": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=Массив березы"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Ультра Оливковый (Oliva) велюр",
+   "role": "стул",
+   "stage": "params"
+  },
+  "112923_10757955152692646946": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм в пленке ПВХ",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_10770473648096612945": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_10812708065959899096": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм в пленке ПВХ",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_1081657483657272038": {
+   "class": "velvet",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "ldsp",
+     "reason": "Материал каркаса=ДСП Фанера Массив ДВП мебельный щит"
+    },
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал обивки=вельвет",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_10818612741519335634": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "wood_veneer",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек=Массив"
+    }
+   },
+   "reason": "Материал столешницы=Шпон МДФ",
+   "role": "стол обеденный",
+   "stage": "params"
+  },
+  "112923_10830678091863747785": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "тв-тумба",
+   "stage": "params"
+  },
+  "112923_10869926247520426495": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм в пленке ПВХ",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_10876221130380888105": {
+   "class": "boucle",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «букл»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_10885118672544334143": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_10894495671267406665": {
+   "class": "neutral",
+   "confidence": 0.2,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "mdf_film",
+     "reason": "Материал ножек=МДФ Меламин"
+    }
+   },
+   "reason": "стулья каталога — и ткань, и дерево, и пластик: вид не угадать",
+   "role": "стул",
+   "stage": "role"
+  },
+  "112923_10904141265586361386": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет названия и характеристик в доступных данных",
+   "hasParams": false,
+   "named": false,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_10986019951944609117": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_10999370517401923532": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_11029789053196243047": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_11049867685689155483": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_11052652779447876540": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_11102532262959743722": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_11230353943957833552": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=массив"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Ультра Чернильный (Ink) велюр",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_11236064821994313545": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет названия и характеристик в доступных данных",
+   "hasParams": false,
+   "named": false,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_11239866153546807017": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм в пленке ПВХ",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_11256126123203427138": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_1127167697037418475": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_11311979105717982052": {
+   "class": "velvet",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал обивки=вельвет",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_11320345589351118029": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=МДФ 16 мм в пленке ПВХ",
+   "role": "тв-тумба",
+   "stage": "params"
+  },
+  "112923_11321366674362604619": {
+   "class": "neutral",
+   "confidence": 0.2,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "стулья каталога — и ткань, и дерево, и пластик: вид не угадать",
+   "role": "стул",
+   "stage": "role"
+  },
+  "112923_11449136696381181962": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Велютто 18 велюр",
+   "role": "стул",
+   "stage": "params"
+  },
+  "112923_11548307369446124696": {
+   "class": "faux_fur",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Добби 001 искусственный мех",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_11549586045586483662": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_11557413907763949252": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "ldsp",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм МДФ 10 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_11604172387629299258": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_11672424920201226922": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    }
+   },
+   "reason": "Материал фасада=наборные планки МДФ рамка МДФ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_11706580263167305250": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_11775480664812261188": {
+   "class": "velvet",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал обивки=вельвет",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_11782445784173503451": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=МДФ 16 мм в пленке ПВХ",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_11797479388540303245": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_1195267798134275834": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_11955763054426268812": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм в пленке ПВХ",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_1196471125546361325": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "ldsp",
+     "reason": "Материал каркаса=ДСП Фанера ДВП"
+    },
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_11969304967706518435": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=Массив"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_12047205981451497683": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_12053363069335054078": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "wood_veneer",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек=Металл"
+    }
+   },
+   "reason": "Материал столешницы=Шпон МДФ",
+   "role": "стол обеденный",
+   "stage": "params"
+  },
+  "112923_12101736405987384130": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_12247904135741125946": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_12286616691637180352": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=МДФ 16 мм в пленке ПВХ",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_12301451959743744032": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_12430720797215363499": {
+   "class": "neutral",
+   "confidence": 0.2,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "стулья каталога — и ткань, и дерево, и пластик: вид не угадать",
+   "role": "стул",
+   "stage": "role"
+  },
+  "112923_12454728843222733973": {
+   "class": "chenille",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал обивки=шенилл",
+   "role": "пуф",
+   "stage": "params"
+  },
+  "112923_12456732392318903795": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_12477767194212878389": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_12514941284637095582": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "стеллаж",
+   "stage": "params"
+  },
+  "112923_12568287599298585564": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм в пленке ПВХ",
+   "role": "тв-тумба",
+   "stage": "params"
+  },
+  "112923_12598936118031480461": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал корпуса=ЛДСП 16 мм",
+   "role": "стеллаж",
+   "stage": "params"
+  },
+  "112923_12604452202729239961": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_12652629420221543502": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=МДФ 16 мм в пленке ПВХ",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_12653399619974292166": {
+   "class": "neutral",
+   "confidence": 0.2,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек=Металл"
+    }
+   },
+   "reason": "стулья каталога — и ткань, и дерево, и пластик: вид не угадать",
+   "role": "стул",
+   "stage": "role"
+  },
+  "112923_12656356095568777983": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_12669330396506764300": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал столешницы=Металл",
+   "role": "стол обеденный",
+   "stage": "params"
+  },
+  "112923_12702408080965476786": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_12878626849755463028": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_12971498340765616533": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_13072439625013229911": {
+   "class": "velvet",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал обивки=вельвет",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_13091462365034239315": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_13115797220613727962": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_13137908567573856736": {
+   "class": "faux_fur",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Добби 001 искусственный мех",
+   "role": "пуф",
+   "stage": "params"
+  },
+  "112923_13168649662764400789": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=МДФ 16 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_13176730686507496836": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_13224664101879413845": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "ldsp",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм МДФ 10 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_13247520742249236492": {
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал обивки=рогожка",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_13301763479881553321": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал столешницы=Металл",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_13475458311119554580": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_1361257013891946749": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_13642333346995541091": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_13689588831501307799": {
+   "class": "boucle",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «букл»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_13704284518394980917": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "glass",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=Cтекло МДФ 16 мм в пленке ПВХ",
+   "role": "витрина",
+   "stage": "params"
+  },
+  "112923_13781470264122190327": {
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал обивки=рогожка",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_13921135277994589372": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_13979506397967480953": {
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Аполло Графит рогожка",
+   "role": "стул",
+   "stage": "params"
+  },
+  "112923_14024179072582409237": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_1403000231417918035": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_14082094455019691879": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_14089868683381950524": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "wood_solid",
+     "reason": "Материал ручек=Массив"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "стеллаж",
+   "stage": "params"
+  },
+  "112923_14098299569133934879": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_14287738105754090572": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "wood_veneer",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "mdf_film",
+     "reason": "Материал ножек (опор)=МДФ с деревянным шпоном"
+    }
+   },
+   "reason": "Цвет, материал столешницы: Материал столешницы=МДФ с деревянным шпоном",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_14356165631061381173": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек=Металл"
+    }
+   },
+   "reason": "Материал столешницы=ЛДСП",
+   "role": "стол обеденный",
+   "stage": "params"
+  },
+  "112923_14501486675349100310": {
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал обивки=рогожка",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_14511635517609540515": {
+   "class": "neutral",
+   "confidence": 0.2,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек=Массив"
+    }
+   },
+   "reason": "стулья каталога — и ткань, и дерево, и пластик: вид не угадать",
+   "role": "стул",
+   "stage": "role"
+  },
+  "112923_14522730241385338296": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_14578157554454646801": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "wood_veneer",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал фасада=шпонированный МДФ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_14635974139748270566": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_14637619792969716127": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "ldsp",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм МДФ 10 мм в пленке ПВХ",
+   "role": "тв-тумба",
+   "stage": "params"
+  },
+  "112923_14704966537802486090": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_14740567568780936298": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_14756930394961008222": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_14888777646062372042": {
+   "class": "boucle",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал обивки=букле",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_14898266055458492736": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_15058147193609969823": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек=Массив"
+    }
+   },
+   "reason": "Материал столешницы=МДФ",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_15117321710436434043": {
+   "class": "boucle",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал обивки=букле",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_15149349905342323866": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_15157528304606106161": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_15303173745153294572": {
+   "class": "boucle",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=Массив березы"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Кларинс 792 букле",
+   "role": "стул",
+   "stage": "params"
+  },
+  "112923_15352838187033700045": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_153679507495672620": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_15408723737682870596": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_15599697036491365781": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "ldsp",
+     "reason": "Материал каркаса=ДСП Фанера Массив ДВП"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=Массив"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_15623883561206571817": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_15635201516297000395": {
+   "class": "wood_solid",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек=Массив"
+    }
+   },
+   "reason": "Материал столешницы=Массив",
+   "role": "стол обеденный",
+   "stage": "params"
+  },
+  "112923_15809119303328324635": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_15829026948519335097": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал обивки=велюр",
+   "role": "пуф",
+   "stage": "params"
+  },
+  "112923_15877967256542540694": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "mdf_film",
+     "reason": "Материал ручек=МДФ"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "тв-тумба",
+   "stage": "params"
+  },
+  "112923_15882698789095726578": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал столешницы=МДФ",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_15977595695057728681": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_1600068498526658767": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Гранд 235 велюр",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_16002590215646637518": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "wood_veneer",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек=Массив"
+    }
+   },
+   "reason": "Материал столешницы=Шпон МДФ",
+   "role": "стол обеденный",
+   "stage": "params"
+  },
+  "112923_16057873697690954831": {
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Обивка: Основная=Олива рогожка",
+   "role": "стул",
+   "stage": "params"
+  },
+  "112923_1608581627908703608": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "wood_solid",
+     "reason": "Материал ручек=Массив"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "стеллаж",
+   "stage": "params"
+  },
+  "112923_16108359631057908709": {
+   "class": "neutral",
+   "confidence": 0.2,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "mdf_film",
+     "reason": "Материал ножек=МДФ Шпон"
+    }
+   },
+   "reason": "стулья каталога — и ткань, и дерево, и пластик: вид не угадать",
+   "role": "стул",
+   "stage": "role"
+  },
+  "112923_16114999762169766099": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "mdf_film",
+     "reason": "Материал ручек=МДФ"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_16125083650918720213": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм",
+   "role": "тв-тумба",
+   "stage": "params"
+  },
+  "112923_1622431535315052393": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_16225547700707497222": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_16237503699735402719": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_16297980409380774009": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_16398321771505923656": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=Массив"
+    }
+   },
+   "reason": "Материал столешницы=МДФ",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_16513631465616772954": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "mdf_film",
+     "reason": "Материал ручек=МДФ"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_16598231926295983633": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=МДФ 16 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_1665420581396065176": {
+   "class": "rattan",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «ротанг»",
+   "role": "тумба прикроватная",
+   "stage": "name"
+  },
+  "112923_16666305924109675193": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_16676887744014190852": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_16786625495984216921": {
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал обивки=рогожка",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_16913405829420416446": {
+   "class": "rogozhka",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «рогожк»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_1696589528451519536": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "тв-тумба",
+   "stage": "params"
+  },
+  "112923_1705637857418609384": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_17160230588465518151": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_17179405448297302417": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал столешницы=Металл",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_1719491933495998750": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал корпуса=Металл",
+   "role": "стеллаж",
+   "stage": "params"
+  },
+  "112923_17253183664830393179": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "wood_veneer",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "mdf_film",
+     "reason": "Материал ножек=МДФ Шпон"
+    }
+   },
+   "reason": "Материал столешницы=Шпон МДФ",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_17270402284835709346": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=Массив березы"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Ультра Песочный (Sand) велюр",
+   "role": "стул",
+   "stage": "params"
+  },
+  "112923_17289498082773275580": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_17313840383622559452": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=Массив"
+    }
+   },
+   "reason": "Материал столешницы=МДФ",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_17326469223017176468": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет названия и характеристик в доступных данных",
+   "hasParams": false,
+   "named": false,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_17407751225354767108": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "wood_veneer",
+     "reason": "Материал каркаса=Фанера Массив ДВП"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_17415829664615579684": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_17511413518849295620": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_17539237118450968487": {
+   "alt": [
+    "glass",
+    "mdf_film",
+    "rattan"
+   ],
+   "class": "ldsp",
+   "confidence": 0.4,
+   "conflict": {
+    "name": "rattan",
+    "word": "ротанг"
+   },
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм Cтекло рамка МДФ Натуральный ротанг",
+   "role": "витрина",
+   "stage": "params"
+  },
+  "112923_17547122479018229334": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "wood_solid",
+     "reason": "Материал ручек=Массив"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "стеллаж",
+   "stage": "params"
+  },
+  "112923_17601261927373144366": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм в пленке ПВХ",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_17647161463277612788": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_17679228863086123886": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "wood_veneer",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "mdf_film",
+     "reason": "Материал ножек=МДФ Шпон"
+    }
+   },
+   "reason": "Материал столешницы=Шпон МДФ",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_17713302530978003790": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек=Массив"
+    }
+   },
+   "reason": "Материал столешницы=МДФ",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_17736893906656810861": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "wood_solid",
+     "reason": "Материал ручек=Массив"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_17750614143526542279": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_17776164136232860423": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет названия и характеристик в доступных данных",
+   "hasParams": false,
+   "named": false,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_1784474760234444986": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=МДФ 16 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_17860622298012701765": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Ультра Песочный (Sand) велюр",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_17973969494600935486": {
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Джин 21 рогожка",
+   "role": "стул",
+   "stage": "params"
+  },
+  "112923_18075093872452698244": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_18075381279282230119": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "wood_veneer",
+     "reason": "Материал каркаса=Фанера Массив ДВП"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_18087345950380988674": {
+   "class": "boucle",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «букл»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_18326701575278285804": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=Массив"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Ультра Песочный (Sand) велюр",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_18420443288008131474": {
+   "class": "boucle",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=Массив березы"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Кларинс 100 букле",
+   "role": "стул",
+   "stage": "params"
+  },
+  "112923_186864324404104266": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал корпуса=МДФ",
+   "role": "тв-тумба",
+   "stage": "params"
+  },
+  "112923_1880179351994128375": {
+   "class": "neutral",
+   "confidence": 0.2,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "mdf_film",
+     "reason": "Материал ножек=МДФ Меламин"
+    }
+   },
+   "reason": "стулья каталога — и ткань, и дерево, и пластик: вид не угадать",
+   "role": "стул",
+   "stage": "role"
+  },
+  "112923_1997381545481304343": {
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Савана Желтый (Yellow) рогожка",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_2028348028555717213": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_2058239722176115234": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "тв-тумба",
+   "stage": "params"
+  },
+  "112923_212644341625369693": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "ldsp",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм МДФ 10 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_2260537753636484866": {
+   "class": "plastic",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал столешницы=древесно-полимерный композит (поливуд)",
+   "role": "стол обеденный",
+   "stage": "params"
+  },
+  "112923_2264866569496692745": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Велютто 06 велюр",
+   "role": "пуф",
+   "stage": "params"
+  },
+  "112923_2281508011157666424": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_2292854408267329364": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=МДФ 16 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_2400400165323068702": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_2519339596698131982": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=МДФ 16 мм в пленке ПВХ",
+   "role": "тв-тумба",
+   "stage": "params"
+  },
+  "112923_2542474425222301843": {
+   "class": "boucle",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «букл»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_2622064642885936551": {
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал обивки=рогожка",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_2638962303815042870": {
+   "class": "neutral",
+   "confidence": 0.2,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек=Металл"
+    }
+   },
+   "reason": "стулья каталога — и ткань, и дерево, и пластик: вид не угадать",
+   "role": "стул",
+   "stage": "role"
+  },
+  "112923_2701204908509281439": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_2716677436085326962": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "пуф",
+   "stage": "params"
+  },
+  "112923_2763846743624459070": {
+   "alt": [
+    "glass"
+   ],
+   "class": "ldsp",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал фасада=ЛДСП 16 мм зеркало",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_2901964918129974192": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет названия и характеристик в доступных данных",
+   "hasParams": false,
+   "named": false,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_2908231493438722522": {
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Фрайдей 451 рогожка",
+   "role": "стул",
+   "stage": "params"
+  },
+  "112923_2923873904524448048": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_3036361145966519795": {
+   "class": "neutral",
+   "confidence": 0.2,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "wood_veneer",
+     "reason": "Материал ножек (опор)=Фанера"
+    }
+   },
+   "reason": "стулья каталога — и ткань, и дерево, и пластик: вид не угадать",
+   "role": "стул",
+   "stage": "role"
+  },
+  "112923_3045964066166698953": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=МДФ 16 мм в пленке ПВХ",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_3049255947791129493": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_306045138079777984": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=Массив березы"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Ультра Серый (Grey) велюр",
+   "role": "стул",
+   "stage": "params"
+  },
+  "112923_3185911961608383085": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_321183910010607839": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_3213008624713543411": {
+   "class": "neutral",
+   "confidence": 0.2,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек=Массив"
+    }
+   },
+   "reason": "стулья каталога — и ткань, и дерево, и пластик: вид не угадать",
+   "role": "стул",
+   "stage": "role"
+  },
+  "112923_3245359774430900188": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "metal",
+     "reason": "Материал каркаса=металл"
+    },
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_3299868370155266208": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=МДФ 16 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_3404393462355007531": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=МДФ 16 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_3472929314031771022": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_3600189665849768342": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_3762479248781137772": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_3808483369947965921": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_3872879830515004489": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_387818354491986733": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_390683629641539465": {
+   "class": "rogozhka",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «рогожк»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_390833759592215735": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал корпуса=крашенный МДФ 16 мм",
+   "role": "стеллаж",
+   "stage": "params"
+  },
+  "112923_3922250081307729699": {
+   "alt": [
+    "metal"
+   ],
+   "class": "glass",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=Cтекло Металл",
+   "role": "витрина",
+   "stage": "params"
+  },
+  "112923_3939957136030142386": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=Массив"
+    }
+   },
+   "reason": "Материал столешницы=ЛДСП",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_3989998131928467167": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_4370077163807262347": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_4410784180348288024": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_447047194672492760": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал корпуса=ЛДСП 16 мм",
+   "role": "стеллаж",
+   "stage": "params"
+  },
+  "112923_460097646520310415": {
+   "alt": [
+    "metal"
+   ],
+   "class": "glass",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=Cтекло Металл",
+   "role": "витрина",
+   "stage": "params"
+  },
+  "112923_4636684076232506964": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=Массив"
+    }
+   },
+   "reason": "Материал столешницы=МДФ",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_475373742603059727": {
+   "class": "rogozhka",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Аполло Тил рогожка",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_484523586079629664": {
+   "alt": [
+    "rattan"
+   ],
+   "class": "mdf_film",
+   "confidence": 0.4,
+   "conflict": {
+    "name": "rattan",
+    "word": "ротанг"
+   },
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=рамка МДФ Натуральный ротанг",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_4977764635436857117": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_4980398041955022687": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "mdf_film",
+     "reason": "Материал ручек=МДФ"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_4984362669433022118": {
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал обивки=рогожка",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_5100528108798666161": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "wood_veneer",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "mdf_film",
+     "reason": "Материал ножек=МДФ Шпон"
+    }
+   },
+   "reason": "Материал столешницы=Шпон МДФ",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_5177956365797043847": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_5187259651221110481": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_5247568299459620759": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_531428310664206841": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "пуф",
+   "stage": "params"
+  },
+  "112923_5327925542491228056": {
+   "class": "velvet",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал обивки=вельвет",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_5375209721295775621": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "ldsp",
+     "reason": "Материал каркаса=ДСП Фанера Массив ДВП"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=Массив"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_5379466319529336151": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Велютто 32 велюр",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_5385749915560767571": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Ланза Вишневый велюр",
+   "role": "пуф",
+   "stage": "params"
+  },
+  "112923_5582363877547671766": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=Бамбук"
+    }
+   },
+   "reason": "Материал корпуса=МДФ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_5709897167994040163": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_5771892371225635950": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_5888337742542364245": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_5921817955682495961": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_5923875936345431084": {
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал обивки=рогожка",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_5956354477801356168": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек=Металл"
+    }
+   },
+   "reason": "Материал столешницы=МДФ",
+   "role": "стол обеденный",
+   "stage": "params"
+  },
+  "112923_5969868554069204915": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "wood_solid",
+     "reason": "Материал ручек=Массив"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_601457285259992891": {
+   "class": "neutral",
+   "confidence": 0.2,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "стулья каталога — и ткань, и дерево, и пластик: вид не угадать",
+   "role": "стул",
+   "stage": "role"
+  },
+  "112923_6031416063270639272": {
+   "class": "boucle",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «букл»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_6057194051659154961": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_6065800578703142835": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=Массив"
+    }
+   },
+   "reason": "Материал столешницы=МДФ",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_608853962692507835": {
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Фрайдей 111 рогожка",
+   "role": "стул",
+   "stage": "params"
+  },
+  "112923_6143161311964753369": {
+   "class": "boucle",
+   "confidence": 0.65,
+   "conflict": {
+    "name": "velour",
+    "word": "велюр"
+   },
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал обивки=букле",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_620103063697963928": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_6243202751863390846": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "wood_solid",
+     "reason": "Материал ручек=Массив"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "стеллаж",
+   "stage": "params"
+  },
+  "112923_6318321234121916684": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_6337742477256381339": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет названия и характеристик в доступных данных",
+   "hasParams": false,
+   "named": false,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_6425518460705582439": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал столешницы=МДФ",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_6511082105296040630": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_6561231384688398240": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_6583264601233885482": {
+   "class": "boucle",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал обивки=букле",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_6645060823905749180": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_6674157127079759727": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "диван",
+   "stage": "params"
+  },
+  "112923_6700908129700351368": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_6741019459690505": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "wood_veneer",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек=Массив"
+    }
+   },
+   "reason": "Материал столешницы=Шпон МДФ",
+   "role": "стол обеденный",
+   "stage": "params"
+  },
+  "112923_6771981929083029909": {
+   "class": "boucle",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=Массив березы"
+    }
+   },
+   "reason": "Материал обивки=букле",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_6906640113542255168": {
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Лена 355 рогожка",
+   "role": "стул",
+   "stage": "params"
+  },
+  "112923_6993962986860450884": {
+   "class": "ceramic",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "mdf_film",
+     "reason": "Материал ножек=МДФ Шпон"
+    }
+   },
+   "reason": "Материал столешницы=Керамика",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_7065216738684330927": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_7224348754175139605": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=МДФ 16 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_7322840915668575609": {
+   "alt": [
+    "ldsp"
+   ],
+   "class": "mdf_film",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "mdf_film",
+     "reason": "Материал ножек=МДФ Меламин"
+    }
+   },
+   "reason": "Материал столешницы=МДФ Меламин",
+   "role": "стол обеденный",
+   "stage": "params"
+  },
+  "112923_7417951868446675976": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_7426228947101120295": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал корпуса=ЛДСП 16 мм",
+   "role": "стеллаж",
+   "stage": "params"
+  },
+  "112923_7455526896535697605": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "стеллаж",
+   "stage": "params"
+  },
+  "112923_7493101031613603497": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм в пленке ПВХ",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_7546684772028794150": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "mdf_film",
+     "reason": "Материал ножек (опор)=МДФ"
+    }
+   },
+   "reason": "Материал столешницы=МДФ в пленке ПВХ",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_7592379597105668396": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет названия и характеристик в доступных данных",
+   "hasParams": false,
+   "named": false,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_7621904365756538655": {
+   "class": "boucle",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «букл»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_7646718177458720314": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_7680899717216893337": {
+   "class": "velvet",
+   "confidence": 0.65,
+   "conflict": {
+    "name": "velour",
+    "word": "велюр"
+   },
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал обивки=вельвет",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_781000003406532732": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_7823594413819381794": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_7826936264785739968": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_7848968827637744517": {
+   "class": "chenille",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=Массив березы"
+    }
+   },
+   "reason": "Материал обивки=шенилл",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_7862645653736638533": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_7945540342146322002": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал обивки=велюр",
+   "role": "стул",
+   "stage": "params"
+  },
+  "112923_8088811555583618813": {
+   "class": "neutral",
+   "confidence": 0.2,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек=Массив"
+    }
+   },
+   "reason": "стулья каталога — и ткань, и дерево, и пластик: вид не угадать",
+   "role": "стул",
+   "stage": "role"
+  },
+  "112923_8137064999918124227": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "wood_solid",
+     "reason": "Материал ручек=Массив"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "тв-тумба",
+   "stage": "params"
+  },
+  "112923_8312377888602468327": {
+   "class": "chenille",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_veneer",
+     "reason": "Материал ножек (опор)=фанера с деревянным шпоном"
+    }
+   },
+   "reason": "Материал обивки=шенилл",
+   "role": "пуф",
+   "stage": "params"
+  },
+  "112923_8333856700583988605": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_8340664869539227962": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_8408526607437134893": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал столешницы=Металл",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_84967562694446873": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Ультра Серый (Grey) велюр",
+   "role": "стул",
+   "stage": "params"
+  },
+  "112923_8518979997342234313": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_852603262343176022": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_8554737095566366752": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_8593212703710238120": {
+   "class": "velour",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "пуф",
+   "stage": "params"
+  },
+  "112923_8733270426517425848": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек=Массив"
+    }
+   },
+   "reason": "Материал столешницы=МДФ",
+   "role": "стол обеденный",
+   "stage": "params"
+  },
+  "112923_8742021531920132235": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=МДФ 16 мм в пленке ПВХ",
+   "role": "тв-тумба",
+   "stage": "params"
+  },
+  "112923_8785012898524529560": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек=Металл"
+    }
+   },
+   "reason": "Материал столешницы=МДФ",
+   "role": "стол обеденный",
+   "stage": "params"
+  },
+  "112923_8854957766648804973": {
+   "class": "ceramic",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "mdf_film",
+     "reason": "Материал ножек=МДФ Шпон"
+    }
+   },
+   "reason": "Материал столешницы=Керамика",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_8933691329499414015": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "wood_solid",
+     "reason": "Материал ручек=Массив"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "тв-тумба",
+   "stage": "params"
+  },
+  "112923_8940289656155243206": {
+   "class": "ldsp",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпусная мебель каталога в основном ЛДСП",
+   "role": "тумба прикроватная",
+   "stage": "role"
+  },
+  "112923_8946142545332806640": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "wood_veneer",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "mdf_film",
+     "reason": "Материал ножек=МДФ Шпон"
+    }
+   },
+   "reason": "Материал столешницы=Шпон МДФ",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_8979166047688318548": {
+   "alt": [
+    "glass"
+   ],
+   "class": "ldsp",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм Cтекло",
+   "role": "витрина",
+   "stage": "params"
+  },
+  "112923_9044530246550714802": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал корпуса=МДФ",
+   "role": "стеллаж",
+   "stage": "params"
+  },
+  "112923_905601461425682771": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_9134166643537246405": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал обивки=велюр",
+   "role": "пуф",
+   "stage": "params"
+  },
+  "112923_9287334663021265847": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_9337348504771615560": {
+   "class": "faux_fur",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал обивки=искусственный мех",
+   "role": "кресло",
+   "stage": "params"
+  },
+  "112923_9463680740073283809": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал фасада=ЛДСП 16 мм",
+   "role": "шкаф",
+   "stage": "params"
+  },
+  "112923_9478652027388821758": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал корпуса=ЛДСП 16 мм",
+   "role": "стеллаж",
+   "stage": "params"
+  },
+  "112923_9514056167717256283": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал столешницы=Металл",
+   "role": "столик",
+   "stage": "params"
+  },
+  "112923_956279906307165962": {
+   "class": "boucle",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «букл»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "112923_9636381212670549492": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм",
+   "role": "тв-тумба",
+   "stage": "params"
+  },
+  "112923_9642187105416752545": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "wood_solid",
+     "reason": "Материал ручек=Массив"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал ножек (опор)=деревянные (сращенный массив)"
+    }
+   },
+   "reason": "Материал фасада=МДФ 19 мм",
+   "role": "стеллаж",
+   "stage": "params"
+  },
+  "112923_9660031298301560473": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет характеристик, название материала не называет",
+   "hasParams": false,
+   "named": true,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "112923_970341798977378646": {
+   "class": "boucle",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Материал обивки=букле",
+   "role": "пуф",
+   "stage": "params"
+  },
+  "112923_9725224983973453222": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "handles": {
+     "class": "metal",
+     "reason": "Материал ручек=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "reason": "Материал ножек (опор)=Металл"
+    }
+   },
+   "reason": "Материал фасада=МДФ 16 мм в пленке ПВХ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "112923_9842015463271833687": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "plastic",
+     "reason": "Материал ножек (опор)=Пластик"
+    }
+   },
+   "reason": "Обивка: Ткань 1=Ультра Оливковый (Oliva) велюр",
+   "role": "пуф",
+   "stage": "params"
+  },
+  "114082_10708248646823885702": {
+   "class": "leather",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "metal",
+     "reason": "Материал каркаса=металл"
+    }
+   },
+   "reason": "Материал обивки=Экокожа",
+   "role": "стул",
+   "stage": "params"
+  },
+  "114082_11094295988716481090": {
+   "class": "velvet",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «вельвет»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "114082_18367334699098411925": {
+   "class": "velvet",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «вельвет»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "114082_2701198981924076386": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "metal",
+     "reason": "Материал каркаса=Металлокаркас + ламели"
+    }
+   },
+   "reason": "Ткань=Велюр Монолит",
+   "role": "диван",
+   "stage": "params"
+  },
+  "114082_348889408549192160": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "114082_515596091779094848": {
+   "class": "velvet",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «вельвет»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "114082_6999205956655389244": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "114082_7438931435849571231": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "114082_9906767785624610584": {
+   "class": "chenille",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «шенилл»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "114667_10461735372799839978": {
+   "class": "velvet",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «вельвет»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "114667_11074633107621324978": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "wood_veneer",
+     "reason": "Материал каркаса=фанера, древесные плиты"
+    }
+   },
+   "reason": "Ткань=Велюр Монолит",
+   "role": "диван",
+   "stage": "params"
+  },
+  "114667_1662482267798470098": {
+   "alt": [
+    "fabric"
+   ],
+   "class": "ldsp",
+   "confidence": 0.4,
+   "conflict": {
+    "name": "velour",
+    "word": "велюр"
+   },
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "reason": "Материал корпуса=ЛДСП 16 мм + ткань",
+   "role": "комод",
+   "stage": "params"
+  },
+  "114667_17170128924102421663": {
+   "class": "velvet",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «вельвет»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "114667_17257331247336204339": {
+   "class": "fabric",
+   "confidence": 0.4,
+   "evidenceGap": "нет названия и характеристик в доступных данных",
+   "hasParams": false,
+   "named": false,
+   "needsReview": true,
+   "reason": "кровати каталога чаще с мягким изголовьем в ткани",
+   "role": "кровать",
+   "stage": "role"
+  },
+  "114667_6826889867261327661": {
+   "class": "velour",
+   "confidence": 0.7,
+   "hasParams": false,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «велюр»",
+   "role": "кровать",
+   "stage": "name"
+  },
+  "93965_6958868068929105365": {
+   "class": "ldsp",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=ЛДСП",
+   "role": "комод",
+   "stage": "params"
+  },
+  "99272_10473504040101674133": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Железо",
+   "role": "ваза",
+   "stage": "params"
+  },
+  "99272_10547464643072879957": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "shade": {
+     "class": "metal",
+     "reason": "Материал плафона=Металл"
+    }
+   },
+   "reason": "Материал корпуса=Металл",
+   "role": "лампа",
+   "stage": "params"
+  },
+  "99272_10581598881543221035": {
+   "class": "plastic",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "plastic",
+     "reason": "Материал каркаса=Пластик, Металл"
+    }
+   },
+   "reason": "Основной материал=Пластик",
+   "role": "стул",
+   "stage": "params"
+  },
+  "99272_10609757172797066465": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "metal",
+     "reason": "Материал каркаса=Металл"
+    }
+   },
+   "reason": "Материал обшивки=Велюр",
+   "role": "стул",
+   "stage": "params"
+  },
+  "99272_10741417998972511074": {
+   "class": "stone",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Фибробетон (GRC)",
+   "role": "кашпо",
+   "stage": "params"
+  },
+  "99272_10922670658342395618": {
+   "class": "chrome",
+   "confidence": 0.7,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «хром»",
+   "role": "торшер",
+   "stage": "name"
+  },
+  "99272_10931009152697567469": {
+   "class": "plastic",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Полирезин",
+   "role": "кашпо",
+   "stage": "params"
+  },
+  "99272_11509203550382199886": {
+   "class": "ceramic",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "shade": {
+     "class": "fabric",
+     "reason": "Материал плафона=Ткань"
+    }
+   },
+   "reason": "Материал корпуса=Керамика ",
+   "role": "лампа",
+   "stage": "params"
+  },
+  "99272_11568910714328056581": {
+   "alt": [
+    "metal"
+   ],
+   "class": "glass",
+   "confidence": 0.7,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал каркаса=Металл"
+    }
+   },
+   "reason": "Основной материал=Металл, Стекло",
+   "role": "столик",
+   "stage": "params"
+  },
+  "99272_11655879072774376897": {
+   "class": "faux_fur",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "mdf_film",
+     "reason": "Материал каркаса=МДФ, Металл"
+    }
+   },
+   "reason": "Материал обшивки=Мех",
+   "role": "диван",
+   "stage": "params"
+  },
+  "99272_11735329935886852109": {
+   "class": "metal",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал каркаса=Железо"
+    }
+   },
+   "reason": "Основной материал=Железо",
+   "role": "столик",
+   "stage": "params"
+  },
+  "99272_11845081745449618527": {
+   "class": "plastic",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=ABC-сополимер, Полипропилен",
+   "role": "кашпо",
+   "stage": "params"
+  },
+  "99272_11919257129924697179": {
+   "class": "wood_solid",
+   "confidence": 0.65,
+   "conflict": {
+    "name": "stone",
+    "word": "бетон"
+   },
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "ldsp",
+     "reason": "Материал каркаса=ЛДСП"
+    }
+   },
+   "reason": "Основной материал=Дерево",
+   "role": "столик",
+   "stage": "params"
+  },
+  "99272_1196014290167120854": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Железо",
+   "role": "ваза",
+   "stage": "params"
+  },
+  "99272_1199455070261500993": {
+   "class": "fabric",
+   "confidence": 0.6,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "wood_solid",
+     "reason": "Материал каркаса=Дерево, Полиуретан"
+    }
+   },
+   "reason": "Материал обшивки=Лен",
+   "role": "стул",
+   "stage": "params"
+  },
+  "99272_12132623919330080911": {
+   "alt": [
+    "glass"
+   ],
+   "class": "metal",
+   "confidence": 0.4,
+   "conflict": {
+    "name": "glass",
+    "word": "стеклян"
+   },
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "reason": "Материал каркаса=Металл, стекло",
+   "role": "комод",
+   "stage": "params"
+  },
+  "99272_12229111948604557762": {
+   "alt": [
+    "wood_solid"
+   ],
+   "class": "mdf_film",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал каркаса=МДФ, Дерево",
+   "role": "комод",
+   "stage": "params"
+  },
+  "99272_1226536602687998814": {
+   "alt": [
+    "stone"
+   ],
+   "class": "metal",
+   "confidence": 0.4,
+   "conflict": {
+    "name": "stone",
+    "word": "мрамор"
+   },
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "reason": "Основной материал=Металл, мрамор",
+   "role": "комод",
+   "stage": "params"
+  },
+  "99272_12412225974017369138": {
+   "class": "wood_solid",
+   "confidence": 0.65,
+   "conflict": {
+    "name": "mdf_film",
+    "word": "из мдф"
+   },
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "mdf_film",
+     "reason": "Материал каркаса=МДФ"
+    }
+   },
+   "reason": "Основной материал=Дерево",
+   "role": "столик",
+   "stage": "params"
+  },
+  "99272_12639028962365773158": {
+   "class": "velour",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "metal",
+     "reason": "Материал каркаса=Металл"
+    }
+   },
+   "reason": "Материал обшивки=Велюр",
+   "role": "стул",
+   "stage": "params"
+  },
+  "99272_12767146713576548307": {
+   "class": "ldsp",
+   "confidence": 0.65,
+   "conflict": {
+    "name": "stone",
+    "word": "мрамор"
+   },
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "ldsp",
+     "reason": "Материал каркаса=ЛДСП, Металл, HPL"
+    }
+   },
+   "reason": "Основной материал=ЛДСП",
+   "role": "столик",
+   "stage": "params"
+  },
+  "99272_13016567990832559804": {
+   "class": "ceramic",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "shade": {
+     "class": "fabric",
+     "reason": "Материал плафона=Ткань"
+    }
+   },
+   "reason": "Материал корпуса=Керамика",
+   "role": "лампа",
+   "stage": "params"
+  },
+  "99272_13375459037315144736": {
+   "class": "metal",
+   "confidence": 0.4,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпус светильников чаще металлический",
+   "role": "торшер",
+   "stage": "role"
+  },
+  "99272_13512826478247200239": {
+   "class": "mdf_film",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "metal",
+     "reason": "Материал каркаса=Металл, МДФ"
+    }
+   },
+   "reason": "Основной материал=МДФ",
+   "role": "столик",
+   "stage": "params"
+  },
+  "99272_1380905324458342313": {
+   "class": "neutral",
+   "confidence": 0.2,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "reason": "кашпо — пластик, бетон, керамика: вид не угадать",
+   "role": "кашпо",
+   "stage": "role"
+  },
+  "99272_13817369822060016317": {
+   "class": "ceramic",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Керамика",
+   "role": "ваза",
+   "stage": "params"
+  },
+  "99272_14221201719639999304": {
+   "class": "stone",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал корпуса=Бетон",
+   "role": "торшер",
+   "stage": "params"
+  },
+  "99272_14380012217913081417": {
+   "class": "neutral",
+   "confidence": 0.2,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "reason": "кашпо — пластик, бетон, керамика: вид не угадать",
+   "role": "кашпо",
+   "stage": "role"
+  },
+  "99272_14794529733574939330": {
+   "alt": [
+    "ceramic"
+   ],
+   "class": "metal",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "shade": {
+     "class": "fabric",
+     "reason": "Материал плафона=Ткань"
+    }
+   },
+   "reason": "Материал корпуса=Металл, Фарфор",
+   "role": "лампа",
+   "stage": "params"
+  },
+  "99272_1553377243319210349": {
+   "alt": [
+    "ceramic"
+   ],
+   "class": "metal",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "shade": {
+     "class": "fabric",
+     "reason": "Материал плафона=Ткань"
+    }
+   },
+   "reason": "Материал корпуса=Металл, Керамика",
+   "role": "лампа",
+   "stage": "params"
+  },
+  "99272_1569332936792887139": {
+   "class": "metal",
+   "confidence": 0.4,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпус светильников чаще металлический",
+   "role": "люстра",
+   "stage": "role"
+  },
+  "99272_15883857958290353634": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "shade": {
+     "class": "fabric",
+     "reason": "Материал плафона=Ткань"
+    }
+   },
+   "reason": "Материал корпуса=Металл",
+   "role": "лампа",
+   "stage": "params"
+  },
+  "99272_16007095416750989917": {
+   "class": "glass",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Стекло",
+   "role": "ваза",
+   "stage": "params"
+  },
+  "99272_16052643483305631560": {
+   "class": "plastic",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Полипропилен",
+   "role": "кашпо",
+   "stage": "params"
+  },
+  "99272_16065312156348664945": {
+   "class": "ceramic",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "shade": {
+     "class": "fabric",
+     "reason": "Материал плафона=Ткань"
+    }
+   },
+   "reason": "Материал корпуса=Керамика ",
+   "role": "лампа",
+   "stage": "params"
+  },
+  "99272_16082519621399870883": {
+   "class": "wood_solid",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "wood_solid",
+     "reason": "Материал каркаса=Дерево"
+    }
+   },
+   "reason": "Основной материал=Дерево",
+   "role": "стул",
+   "stage": "params"
+  },
+  "99272_16668529835026829117": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "shade": {
+     "class": "fabric",
+     "reason": "Материал плафона=Текстиль"
+    }
+   },
+   "reason": "Материал корпуса=Металл",
+   "role": "торшер",
+   "stage": "params"
+  },
+  "99272_16892335979063759073": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "shade": {
+     "class": "glass",
+     "reason": "Материал плафона=хрусталь"
+    }
+   },
+   "reason": "Материал корпуса=металл",
+   "role": "торшер",
+   "stage": "params"
+  },
+  "99272_16937939060063444900": {
+   "class": "glass",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Стекло",
+   "role": "ваза",
+   "stage": "params"
+  },
+  "99272_16966002610763070101": {
+   "class": "fabric",
+   "confidence": 0.6,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "mdf_film",
+     "reason": "Материал каркаса=МДФ"
+    }
+   },
+   "reason": "Материал обшивки=Ткань",
+   "role": "диван",
+   "stage": "params"
+  },
+  "99272_17087714635974701391": {
+   "class": "stone",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Бетон",
+   "role": "кашпо",
+   "stage": "params"
+  },
+  "99272_17101535230454148593": {
+   "class": "glass",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Стекло",
+   "role": "ваза",
+   "stage": "params"
+  },
+  "99272_17108812914246817673": {
+   "class": "wood_solid",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал каркаса=Натуральное дерево",
+   "role": "комод",
+   "stage": "params"
+  },
+  "99272_17264083823537649635": {
+   "class": "velour",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "metal",
+     "reason": "Материал каркаса=Металл с порошковым покрытием"
+    }
+   },
+   "reason": "Материал обшивки=Велюр",
+   "role": "стул",
+   "stage": "params"
+  },
+  "99272_17510593292245098483": {
+   "class": "ceramic",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Керамика",
+   "role": "ваза",
+   "stage": "params"
+  },
+  "99272_17586256206196278584": {
+   "class": "glass",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Стекло",
+   "role": "ваза",
+   "stage": "params"
+  },
+  "99272_17598954721654987930": {
+   "class": "glass",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Натрий-кальциевое стекло",
+   "role": "ваза",
+   "stage": "params"
+  },
+  "99272_17894879541595848038": {
+   "class": "fabric",
+   "confidence": 0.6,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "wood_solid",
+     "reason": "Материал каркаса=Дерево"
+    }
+   },
+   "reason": "Материал обшивки=Лен",
+   "role": "стул",
+   "stage": "params"
+  },
+  "99272_17912967339354179958": {
+   "class": "metal",
+   "confidence": 0.4,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпус светильников чаще металлический",
+   "role": "торшер",
+   "stage": "role"
+  },
+  "99272_18028398033109686881": {
+   "class": "glass",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Натрий-кальциевое стекло",
+   "role": "ваза",
+   "stage": "params"
+  },
+  "99272_18294100626523447660": {
+   "class": "chrome",
+   "confidence": 0.7,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "слово названия «хром»",
+   "role": "торшер",
+   "stage": "name"
+  },
+  "99272_18295675822361382528": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал корпуса=Металл",
+   "role": "лампа",
+   "stage": "params"
+  },
+  "99272_18351062335411021998": {
+   "class": "glass",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Стекло",
+   "role": "ваза",
+   "stage": "params"
+  },
+  "99272_2136105481010756455": {
+   "class": "ldsp",
+   "confidence": 0.65,
+   "conflict": {
+    "name": "stone",
+    "word": "мрамор"
+   },
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "parts": {
+    "legs": {
+     "class": "ldsp",
+     "reason": "Материал каркаса=ЛДСП, Металл, HPL"
+    }
+   },
+   "reason": "Основной материал=ЛДСП",
+   "role": "столик",
+   "stage": "params"
+  },
+  "99272_2654629622432191259": {
+   "alt": [
+    "glass"
+   ],
+   "class": "metal",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал каркаса=Железо, Стекло",
+   "role": "комод",
+   "stage": "params"
+  },
+  "99272_2676905060581069193": {
+   "class": "velvet",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "metal",
+     "reason": "Материал каркаса=Металл"
+    }
+   },
+   "reason": "Материал обшивки=Вельвет",
+   "role": "стул",
+   "stage": "params"
+  },
+  "99272_3252240933671227668": {
+   "class": "plastic",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "plastic",
+     "reason": "Материал каркаса=Пластик"
+    }
+   },
+   "reason": "Основной материал=Пластик",
+   "role": "стул",
+   "stage": "params"
+  },
+  "99272_3312711759546768380": {
+   "class": "metal",
+   "confidence": 0.4,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпус светильников чаще металлический",
+   "role": "лампа",
+   "stage": "role"
+  },
+  "99272_3499793652358465336": {
+   "alt": [
+    "glass"
+   ],
+   "class": "metal",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "shade": {
+     "class": "fabric",
+     "reason": "Материал плафона=Текстиль"
+    }
+   },
+   "reason": "Материал корпуса=Металл, Хрусталь",
+   "role": "лампа",
+   "stage": "params"
+  },
+  "99272_3587523561202691251": {
+   "alt": [
+    "wood_solid"
+   ],
+   "class": "metal",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "shade": {
+     "class": "fabric",
+     "reason": "Материал плафона=Ткань"
+    }
+   },
+   "reason": "Материал корпуса=Металл, Дерево",
+   "role": "торшер",
+   "stage": "params"
+  },
+  "99272_3934977655350054394": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "shade": {
+     "class": "fabric",
+     "reason": "Материал плафона=Ткань"
+    }
+   },
+   "reason": "Материал корпуса=Металл",
+   "role": "торшер",
+   "stage": "params"
+  },
+  "99272_424797178789212382": {
+   "class": "ceramic",
+   "confidence": 0.4,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "reason": "вазы чаще керамика и стекло",
+   "role": "ваза",
+   "stage": "role"
+  },
+  "99272_4412154960024108428": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "shade": {
+     "class": "fabric",
+     "reason": "Материал плафона=хлопок"
+    }
+   },
+   "reason": "Материал корпуса=Металл",
+   "role": "лампа",
+   "stage": "params"
+  },
+  "99272_4440676307602507118": {
+   "class": "glass",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Натрий-кальциевое стекло",
+   "role": "ваза",
+   "stage": "params"
+  },
+  "99272_4605871192508099154": {
+   "class": "metal",
+   "confidence": 0.4,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпус светильников чаще металлический",
+   "role": "люстра",
+   "stage": "role"
+  },
+  "99272_477335602656654248": {
+   "class": "plastic",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Пластик",
+   "role": "кашпо",
+   "stage": "params"
+  },
+  "99272_4983412252027465864": {
+   "class": "metal",
+   "confidence": 0.4,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпус светильников чаще металлический",
+   "role": "торшер",
+   "stage": "role"
+  },
+  "99272_5256875288911330299": {
+   "class": "fabric",
+   "confidence": 0.6,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "wood_solid",
+     "reason": "Материал каркаса=Массив гевеи"
+    }
+   },
+   "reason": "Материал обшивки=Ткань",
+   "role": "стул",
+   "stage": "params"
+  },
+  "99272_5264916377944703697": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "wood_solid",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал каркаса=Дерево, МДФ",
+   "role": "комод",
+   "stage": "params"
+  },
+  "99272_5344766265684070004": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "shade": {
+     "class": "glass",
+     "reason": "Материал плафона=Хрусталь"
+    }
+   },
+   "reason": "Материал корпуса=Металл",
+   "role": "люстра",
+   "stage": "params"
+  },
+  "99272_5654964540329990020": {
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "metal",
+     "reason": "Материал каркаса=Металл, Шпон"
+    }
+   },
+   "reason": "Материал обшивки=Рогожка",
+   "role": "стул",
+   "stage": "params"
+  },
+  "99272_5831242993011985711": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "shade": {
+     "class": "plastic",
+     "reason": "Материал плафона=Пластик"
+    }
+   },
+   "reason": "Материал корпуса=Металл",
+   "role": "лампа",
+   "stage": "params"
+  },
+  "99272_5848359900764199987": {
+   "class": "mdf_film",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "mdf_film",
+     "reason": "Материал каркаса=Вяз, МДФ, Шпон"
+    }
+   },
+   "reason": "Основной материал=МДФ",
+   "role": "столик",
+   "stage": "params"
+  },
+  "99272_5866783925654430160": {
+   "class": "plastic",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=ABC-сополимер, Полипропилен",
+   "role": "кашпо",
+   "stage": "params"
+  },
+  "99272_5951062789359080295": {
+   "class": "neutral",
+   "confidence": 0.2,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "reason": "столы — дерево, МДФ, стекло, металл: вид не угадать",
+   "role": "столик",
+   "stage": "role"
+  },
+  "99272_6146555385599546030": {
+   "class": "plastic",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Пластик",
+   "role": "кашпо",
+   "stage": "params"
+  },
+  "99272_6218699376495884286": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал корпуса=Металл",
+   "role": "торшер",
+   "stage": "params"
+  },
+  "99272_6219415747595231599": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "shade": {
+     "class": "fabric",
+     "reason": "Материал плафона=Текстиль"
+    }
+   },
+   "reason": "Материал корпуса=Металл",
+   "role": "лампа",
+   "stage": "params"
+  },
+  "99272_7044955940371172076": {
+   "class": "stone",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Фибробетон (GRC)",
+   "role": "кашпо",
+   "stage": "params"
+  },
+  "99272_724488798771427452": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "wood_solid",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал каркаса=Дерево, МДФ"
+    }
+   },
+   "reason": "Основной материал=Дерево, МДФ",
+   "role": "столик",
+   "stage": "params"
+  },
+  "99272_7568905546627996061": {
+   "class": "metal",
+   "confidence": 0.4,
+   "hasParams": true,
+   "named": true,
+   "needsReview": true,
+   "reason": "корпус светильников чаще металлический",
+   "role": "торшер",
+   "stage": "role"
+  },
+  "99272_766293343880707363": {
+   "class": "ceramic",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Фарфор",
+   "role": "кашпо",
+   "stage": "params"
+  },
+  "99272_7726437750584889058": {
+   "alt": [
+    "mdf_film"
+   ],
+   "class": "wood_solid",
+   "confidence": 0.65,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал каркаса=дерево, мдф",
+   "role": "комод",
+   "stage": "params"
+  },
+  "99272_8346144580030681814": {
+   "class": "glass",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Стекло",
+   "role": "ваза",
+   "stage": "params"
+  },
+  "99272_8484053249211086619": {
+   "class": "ldsp",
+   "confidence": 0.95,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "ldsp",
+     "reason": "Материал каркаса=ЛДСП, Металл, HPL"
+    }
+   },
+   "reason": "Основной материал=ЛДСП",
+   "role": "столик",
+   "stage": "params"
+  },
+  "99272_8825974142927049059": {
+   "class": "metal",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "shade": {
+     "class": "fabric",
+     "reason": "Материал плафона=текстиль"
+    }
+   },
+   "reason": "Материал корпуса=металл",
+   "role": "торшер",
+   "stage": "params"
+  },
+  "99272_9233621696509678408": {
+   "class": "fabric",
+   "confidence": 0.6,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "frame": {
+     "class": "wood_solid",
+     "reason": "Материал каркаса=Дерево, Полиуретан"
+    }
+   },
+   "reason": "Материал обшивки=Лен",
+   "role": "стул",
+   "stage": "params"
+  },
+  "99272_9291635762585897906": {
+   "class": "stone",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "reason": "Материал=Фибробетон (GRC)",
+   "role": "кашпо",
+   "stage": "params"
+  },
+  "99272_9791048974647036683": {
+   "class": "ldsp",
+   "confidence": 0.9,
+   "hasParams": true,
+   "named": true,
+   "needsReview": false,
+   "parts": {
+    "legs": {
+     "class": "wood_solid",
+     "reason": "Материал каркаса=Береза, ЛДСП, ABS пластик"
+    }
+   },
+   "reason": "Основной материал=ЛДСП",
+   "role": "столик",
+   "stage": "params"
+  }
+ },
+ "rulesSha": "5c4c02a3d4feb02d",
+ "version": 1
+}

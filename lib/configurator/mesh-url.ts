@@ -15,6 +15,11 @@ export const RUNTIME_BASE = process.env.NEXT_PUBLIC_FLAT3D_RT_BASE ?? "/rt/";
 export type RuntimeEntry = { size?: number; "size-lite"?: number; src_sha?: string; "src_sha-lite"?: string };
 let runtimeMeshes: Record<string, RuntimeEntry> = (runtimeJson as { meshes?: Record<string, RuntimeEntry> }).meshes ?? {};
 
+/** Запись о runtime-копиях меша (размеры и отпечатки исходника) — для экспорта сцены: хеш неизменённого меша мебели. */
+export function runtimeEntry(meshId: string): RuntimeEntry | undefined {
+  return runtimeMeshes[meshId];
+}
+
 /** Подменить таблицу копий (демо читает свежую с сервера). */
 export function setRuntimeMeshes(meshes: Record<string, RuntimeEntry>): void {
   runtimeMeshes = meshes;

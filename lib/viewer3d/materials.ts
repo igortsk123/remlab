@@ -5,6 +5,7 @@
 import * as THREE from "three";
 
 import type { Material } from "@/contracts/configurator";
+import { tintHex } from "@/lib/viewer3d/finish-passport";
 import { trimTextureToContent } from "@/lib/viewer3d/rug-crop";
 
 type MapSlot = "map" | "normalMap" | "roughnessMap" | "aoMap";
@@ -153,7 +154,8 @@ export function baseMaterial(ctx: MaterialCtx, m: Material): THREE.MeshStandardM
   if (ctx.useMaps && colorUrl) {
     // ковёр — фото карточки товара: белые поля вокруг не тянем на плиту (T-20261111-15, TG 1455)
     mat.map = attachTexture(ctx, mat, "map", colorUrl, true, m.colorHex, m.surfaces.includes("rug"));
-    mat.color.set("#ffffff"); // цвет уже в текстуре, иначе двойное умножение
+    // цвет уже в текстуре, иначе двойное умножение; нейтральная карта (`tintMean`) — наоборот, красится цветом паспорта
+    mat.color.set(tintHex(m));
   }
   if (ctx.useMaps && ctx.extraMaps && m.normalUrl) {
     mat.normalMap = attachTexture(ctx, mat, "normalMap", m.normalUrl, false);

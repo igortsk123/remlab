@@ -1,0 +1,27 @@
+{
+ "asset": "Plaster002",
+ "title": "Plaster 002",
+ "site": "ambientCG",
+ "pageUrl": "https://ambientcg.com/a/Plaster002",
+ "files": {
+  "diff": "https://ambientcg.com/get?file=Plaster002_1K-JPG.zip (_Color.jpg)",
+  "nor_gl": "https://ambientcg.com/get?file=Plaster002_1K-JPG.zip (_NormalGL.jpg)",
+  "rough": "https://ambientcg.com/get?file=Plaster002_1K-JPG.zip (_Roughness.jpg)"
+ },
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://docs.ambientcg.com/license/",
+ "authors": {
+  "ambientCG": "Processing"
+ },
+ "released": "2019-07-03",
+ "realMm": [
+  0.0,
+  0.0
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "diff.jpg": "94348c7b3031644449c5926581144d8a0b84ed15685faf0daa4e7a5807dffaca",
+  "nor_gl.jpg": "585d97ccccdc9d63a541f95d4d9649ea19b4d79485bfd7312cca7ba879468b88",
+  "rough.jpg": "fd9299d7e8ce4a05b55e5e6a9b0b775c2066a9b0aa9d5f4e4c3c08beaa7e5051"
+ }
+}

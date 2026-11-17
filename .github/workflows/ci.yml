@@ -184,6 +184,7 @@ jobs:
       - run: python tools/assets/tests/test_demo_ids.py   # лёгкие копии /rt/: все комнаты витрины, лента по типу комнаты, ковёр по стратегии (T-20261106-77)
       - run: python tools/assets/tests/test_floor_materials.py   # пол: доска ровно заданной ширины, шов ≤ 0,2 см без жил; CC0-сканы — тип → скан → размер → оттенок, лицензия и sha256, ≤ 1,5 МБ, цвет 512 телефону (T-20261111-24/2)
       - run: python tools/assets/tests/test_plants.py   # растения кашпо и ваз: 4–6 моделей CC0 с источником и sha256, лёгкие копии ≤ 1 МБ и ≤ 60 тыс. треугольников, список = файлы, растение стоит вертикально (T-20261117-07)
+      - run: python3 tools/assets/tests/test_material_class.py   # классы материала мебели для рендера: характеристики → название → роль, отрицания, общее «ткань», части; результат собран по этим правилам (T-20261117-14)
       - run: python tools/assets/tests/test_rt_texture_guard.py  # битая текстура лёгкой копии (gltfpack «ERR/» при квоте /tmp) — перепаковка без KTX2 или копию не пишем (T-20261107-15)
       - run: python tools/scout/tests/test_browser_sheet.py   # лист из кадров браузера: размер, полоса, порядок, ключ ответа (demo-10)
       - run: python tools/scout/tests/test_registry_protect.py   # реестр кадров не выкидывает кадры главной из списка прогрева (×3 вариантов, 5 ночей), счётчики shots-trim.json, _registry_add целиком; здесь — draft_service тянет planner+numpy+PIL (T-20261107-17)

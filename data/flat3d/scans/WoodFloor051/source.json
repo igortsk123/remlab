@@ -1,0 +1,27 @@
+{
+ "asset": "WoodFloor051",
+ "title": "Wood Floor 051",
+ "site": "ambientCG",
+ "pageUrl": "https://ambientcg.com/a/WoodFloor051",
+ "files": {
+  "diff": "https://ambientcg.com/get?file=WoodFloor051_1K-JPG.zip (_Color.jpg)",
+  "nor_gl": "https://ambientcg.com/get?file=WoodFloor051_1K-JPG.zip (_NormalGL.jpg)",
+  "rough": "https://ambientcg.com/get?file=WoodFloor051_1K-JPG.zip (_Roughness.jpg)"
+ },
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://docs.ambientcg.com/license/",
+ "authors": {
+  "ambientCG": "Processing"
+ },
+ "released": "2022-05-01",
+ "realMm": [
+  1800.0,
+  1800.0
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "diff.jpg": "ffbe4de8765619f278c5f819cd751e003808fa671eb99603abdf82b94ca85e9a",
+  "nor_gl.jpg": "5b026049b8a2d84c5b135d0880563dcd555c5cdcac71d0101ee47cedc562022e",
+  "rough.jpg": "967f0339ee6762fc0a40b222ed9801a37c626090f236f51b294878845ed38559"
+ }
+}

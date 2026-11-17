@@ -17,6 +17,7 @@ import { alternatives, feedForStyle, placeOf, roomFeedKey, type FeedItem } from 
 import { planRooms, type RoomAt, type RoomGeo } from "@/lib/configurator/demo-rooms";
 import { maskedName, roleEn, styleEn } from "@/lib/configurator/demo-mask";
 import { finishPassport } from "@/lib/viewer3d/finish-passport";
+import { texturedFinish } from "@/lib/viewer3d/finish-textures";
 import { DEFAULT_CEILING_CM, apartment as apartmentSchema, type Annex, type Apartment, type CropWindow, type Opening } from "@/contracts/apartment";
 import { catalogue as catalogueSchema, type Catalogue, type Configuration } from "@/contracts/configurator";
 import { isTextileDecor, textilePart, type TextileLook, type TextilePlace } from "@/lib/configurator/textile";
@@ -604,9 +605,12 @@ function roomPart(data: DemoData, at: RoomAt<DemoVariant>, ctx: DemoContext): Ro
   const defOf = (c?: DemoFloorChoice) => c?.variants.find((x) => x.id === c.defaultVariantId) ?? c?.variants[0];
   const fc = choiceOf(ctx.floorChoice), wc = choiceOf(ctx.wallChoice);
   // материал паспорта соседней комнаты — со своим id: одинаковый id с другим цветом слился бы с гостиной при сборке каталога
+  // нет выбора застройщика — паспортная поверхность с фактурой CC0 (`finish-textures.ts`, цвет паспорта сохраняется), иначе плоская краска
   const floorMat: Mat = defOf(fc)?.material ?? (mine ? ctx.floorMaterial : undefined)
+    ?? texturedFinish("floor", fp.floor, pre + fp.floor.id)
     ?? { id: pre + fp.floor.id, titleRu: "Пол", titleEn: "Floor", colorHex: fp.floor.colorHex, roughness: 0.7 };
   const wallMat: Mat = defOf(wc)?.material ?? (mine ? ctx.wallMaterial?.material : undefined)
+    ?? texturedFinish("wall", fp.wall, pre + fp.wall.id)
     ?? { id: pre + fp.wall.id, titleRu: "Стены", titleEn: "Walls", colorHex: fp.wall.colorHex, roughness: 0.95 };
   extraMaterials.unshift(wallMat, floorMat);
   const seen = new Set([wallMat.id, floorMat.id]);
