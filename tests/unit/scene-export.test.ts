@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { fromDemoVariant, type DemoContext, type DemoData } from "@/lib/configurator/fromDemo";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { SCENE_EXPORT_VERSION, exportScene } from "@/lib/viewer3d/scene-export";
+import { RADIATOR_RULES } from "@/lib/viewer3d/radiator-spots";
 import { tintHex } from "@/lib/viewer3d/finish-passport";
 import { texturedFinish } from "@/lib/viewer3d/finish-textures";
 import { material as materialSchema } from "@/contracts/configurator";
@@ -77,6 +78,20 @@ describe("экспорт сцены", () => {
       expect(e.liteMissing).toEqual(e.meshes.filter((m) => m.liteMissing).map((m) => m.meshId));
     });
   }
+  it("радиаторы под окнами (T-20261117-11): те же места, что у живой 3D, размеры и отступы — из правил", () => {
+    const e = exportOf("flat215", "set16");
+    expect(e.radiators.length).toBeGreaterThan(0);
+    for (const r of e.radiators) {
+      expect(r.widthCm).toBeGreaterThanOrEqual(RADIATOR_RULES.size.minWidthCm);
+      expect(r.widthCm).toBeLessThanOrEqual(RADIATOR_RULES.size.maxWidthCm);
+      expect(r.heightCm).toBe(RADIATOR_RULES.size.heightCm);
+      expect(r.fromWallCm).toBe(RADIATOR_RULES.offset.fromWallCm);
+      expect(r.colorHex).toBe(RADIATOR_RULES.finish.color);
+      expect(Math.abs(r.nx) + Math.abs(r.nz)).toBe(1);
+    }
+    const rooms = e.rooms.map((r) => r.id);
+    expect(e.radiators.every((r) => rooms.includes(r.roomId))).toBe(true);
+  });
   it("экспорт детерминирован: два вызова дают одно и то же", () => {
     expect(JSON.stringify(exportOf("flat215", "set16"))).toBe(JSON.stringify(exportOf("flat215", "set16")));
   });
