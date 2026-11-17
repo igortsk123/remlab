@@ -13,6 +13,7 @@ import { isIsolatedRoom } from "@/contracts/apartment";
 // правка реестра застройщиков не должна краснить проверку «гостиная без изменений».
 // Отпечатки set10 (стиль «лофт») обновлены 17.11 (T-20261117-16): у лофта теперь акцентная кирпичная стена (`finish-cc0.json` → accentWalls) —
 // у стен паспорта акцент `behind-focal` и кирпич в каталоге; места, цены и итог те же (проверяются выше), остальные стили без изменений.
+// Второе обновление 17.11 (T-20261117-16/2): у материала кирпича появились карты рельефа (`heightUrl`, `variationUrl`, `aoUrl`) — только set10.
 const live = JSON.parse(readFileSync("tests/fixtures/flat-bridge-live-0511.json", "utf8")) as DemoData;
 const gold = JSON.parse(readFileSync("tests/fixtures/flat-bridge-live-0511.golden.json", "utf8")) as {
   golden: Record<string, { sha256: string; slots: number; options: number; total: number; byRoom: Record<string, number> }>;
