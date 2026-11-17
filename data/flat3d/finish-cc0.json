@@ -10,8 +10,10 @@
             "gray": 0.9, "contrast": 0.6, "chroma": 0.25, "flatten": 0.85, "normal": 0.8, "roughSpread": 0.6, "colorHex": "#dcc7a6"},
   "accent-brick": {"id": "finish-accent-brick", "asset": "Bricks085", "mode": "photo", "surfacesOut": [],
                    "titleRu": "Стена: кирпичная кладка", "titleEn": "Wall: brick masonry",
-                   "tileCm": [240, 120], "tileNote": "размер из источника ambientCG (2400×1200 мм): кирпич ≈ 21×7 см со швом ≈ 1 см",
-                   "roughness": 0.85, "normal": 1.0, "normalSize": 1024, "roughSpread": 0.5, "colorHex": "#957563"}
+                   "tileCm": [240, 120],
+                   "tileNote": "тайл 240×120 см (2400×1200 мм источника): на скане 14 рядов → ≈ 11,7 рядов на метр, кирпич ≈ 21×7 см со швом ≈ 1 см (проверено по числу рядов; масштаб менять, только если рядов < 11 на метр)",
+                   "relief": true, "fullSize": 2048, "normalSize": 2048, "roughSize": 1024, "idSeed": 7,
+                   "roughness": 0.85, "normal": 1.0, "roughSpread": 0.5, "colorHex": "#957563"}
  },
  "accentWalls": {
   "_about": "Акцентная стена по стилю варианта (T-20261117-16, владелец TG 1438): style → поверхность из `surfaces`. Какая стена — по предмету сцены, не по ID комнаты: первый найденный из `carriers` (роль предмета в комнате) — акцент на стене за ним (`lib/configurator/accent.ts`).",

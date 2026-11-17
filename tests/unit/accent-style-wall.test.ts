@@ -42,6 +42,11 @@ describe("стиль → акцентная стена (данные)", () => {
     expect(loft?.material.tintMean).toBeUndefined();          // карта цветная: паспорт её не красит
     expect(loft?.material.tileCm).toEqual([240, 120]);
     expect(accentWallFor("ЛОФТ")?.material.id).toBe("finish-accent-brick");
+    // рельеф и разнотон для рендера: карты высоты, затенения и «номер кирпича»; масштаб — не меньше 11 рядов на метр (14 рядов на скане)
+    expect(loft?.material.heightUrl).toMatch(/-h\.webp$/);
+    expect(loft?.material.aoUrl).toMatch(/-ao\.webp$/);
+    expect(loft?.material.variationUrl).toMatch(/-id\.webp$/);
+    expect(14 / ((loft?.material.tileCm as number[])[1] / 100)).toBeGreaterThanOrEqual(11);
     for (const s of ["сканди", "современный", "минимализм", "джапанди", "неоклассика", undefined]) expect(accentWallFor(s)).toBeUndefined();
   });
 

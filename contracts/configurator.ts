@@ -31,6 +31,8 @@ export const material = z.object({
   normalUrl: z.string().optional(),
   roughnessUrl: z.string().optional(),
   aoUrl: z.string().optional(),
+  heightUrl: z.string().optional(),      // карта высоты (рельеф кладки): bump в рендере Blender
+  variationUrl: z.string().optional(),   // «номер кирпича» (серый на кирпич, шов 0): разнотон в рендере Blender
   /**
    * Тонировка (render-3d-01 шаг 1): карта цвета НЕЙТРАЛЬНАЯ (серая, рисунок без оттенка), `tintMean` — её средняя яркость в
    * линейном свете (0.2–1); цвет паспорта `colorHex` умножается на неё (`finish-passport.ts:tintHex`, один расчёт на /demo и

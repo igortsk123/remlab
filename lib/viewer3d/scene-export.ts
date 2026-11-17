@@ -24,6 +24,8 @@ export interface ExportMaps {
   normal?: string;
   roughness?: string;
   ao?: string;
+  height?: string;
+  variation?: string;
 }
 
 export interface ExportSurface {
@@ -143,6 +145,8 @@ function surfaceOf(m: Material): ExportSurface {
       ...(m.normalUrl ? { normal: m.normalUrl } : {}),
       ...(m.roughnessUrl ? { roughness: m.roughnessUrl } : {}),
       ...(m.aoUrl ? { ao: m.aoUrl } : {}),
+      ...(m.heightUrl ? { height: m.heightUrl } : {}),
+      ...(m.variationUrl ? { variation: m.variationUrl } : {}),
     },
     tileCm: m.tileCm,
     roughness: m.roughness,

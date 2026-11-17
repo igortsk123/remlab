@@ -13,7 +13,7 @@ export type FinishTextureSurface = "wall" | "floor";
 
 const IDS: Record<FinishTextureSurface, string> = { wall: "finish-wall", floor: "finish-floor" };
 const BASE = (materialsJson as { baseUrl?: string }).baseUrl ?? "/flat3d/materials/";
-const URLS = ["baseColorUrl", "baseColorLiteUrl", "normalUrl", "roughnessUrl", "aoUrl", "previewUrl"] as const;
+const URLS = ["baseColorUrl", "baseColorLiteUrl", "normalUrl", "roughnessUrl", "aoUrl", "heightUrl", "variationUrl", "previewUrl"] as const;
 
 type Rec = Record<string, unknown> & { id: string };
 
