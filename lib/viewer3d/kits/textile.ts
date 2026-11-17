@@ -69,6 +69,23 @@ export function buildPillow(ctx: KitCtx, spec: { widthCm: number; depthCm: numbe
   return g;
 }
 
+/**
+ * МЕСТО ЯРЛЫКА (T-20261117-10, владелец TG 1445): пледа в 3D нет геометрией — на его месте прозрачная коробка габарита места. Она ничего не
+ * рисует и не отбрасывает тени, но даёт сцене рамку (`projectSlot` — на ней страница ставит ярлык с фото и ценой), луч выбора (тап → карточка)
+ * и слот для сторожа «в цене — значит в 3D». Материал невидим (`visible = false`), сам объект остаётся в сцене.
+ */
+export function buildLabelSpot(spec: { widthCm: number; depthCm: number; heightCm: number }): THREE.Group {
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(new THREE.BoxGeometry(spec.widthCm * CM, spec.heightCm * CM, spec.depthCm * CM), new THREE.MeshBasicMaterial());
+  m.material.visible = false;
+  m.position.set(0, (spec.heightCm / 2) * CM, 0);
+  m.castShadow = false;
+  m.receiveShadow = false;
+  m.userData.labelSpot = true;
+  g.add(m);
+  return g;
+}
+
 /** Сложенный плед: брусок со скруглёнными краями на подлокотнике и свисающий край спереди (тоньше, чуть отстоит от подлокотника). */
 export function buildThrow(ctx: KitCtx, spec: { widthCm: number; depthCm: number; heightCm: number; materialId?: string }): THREE.Group {
   const g = new THREE.Group();

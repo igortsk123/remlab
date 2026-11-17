@@ -15,10 +15,16 @@ export const TEXTILE_NOTE_RU = "вид условный";
 export type TextileShape = "curtain" | "throw" | "pillow";
 
 /** Правила условной ткани в 3D (`data/flat3d/textile.json`): `render[форма] === false` — форма в сцене не рисуется, в списке остаётся. */
-export type TextileRules = { render?: Partial<Record<TextileShape, boolean>> };
+export type TextileRules = { render?: Partial<Record<TextileShape, boolean>>; label?: Partial<Record<TextileShape, boolean>> };
 export const TEXTILE_RULES: TextileRules = textileRulesJson;
-/** Рисует ли сцена эту форму ткани; нет записи — рисует (как до флага). */
+/** Рисует ли сцена эту форму ткани геометрией; нет записи — рисует (как до флага). */
 export const textileRenders = (shape: TextileShape, rules: TextileRules = TEXTILE_RULES): boolean => rules.render?.[shape] !== false;
+/** Стоит ли у формы без геометрии МЕСТО-ЯРЛЫК (T-20261117-10): `label[форма] === true` и геометрии нет. Страница рисует на нём фото и цену. */
+export const textileLabelled = (shape: TextileShape, rules: TextileRules = TEXTILE_RULES): boolean =>
+  !textileRenders(shape, rules) && rules.label?.[shape] === true;
+/** Попадает ли форма в сцену вообще: геометрией или местом-ярлыком (сторож «в цене — значит в 3D» считает по этому месту). */
+export const textileInScene = (shape: TextileShape, rules: TextileRules = TEXTILE_RULES): boolean =>
+  textileRenders(shape, rules) || textileLabelled(shape, rules);
 export type TextilePlace = {
   x?: number; y?: number; rot?: number; elev_cm?: number; slot_instance_id?: string; parent?: string | null;
   kind?: string; opening?: number | null; wall?: string | null; edge?: string | null; w?: number; d?: number; h?: number;
@@ -47,8 +53,10 @@ export const lookKey = (sku?: { sid?: string | null; name?: string }): string =>
  * цвета новой у сцены нет, она уходит из 3D; вернул (история) — штора снова там.
  */
 export const isTextileDecor = (x: TextileDecor): boolean =>
-  !x.list_only && x.strategy === TEXTILE_STRATEGY && !!x.sku?.name && !!shapeOf(x.place) && HEX.test(x.look?.hex ?? "")
-  && x.look?.of === lookKey(x.sku)
+  !x.list_only && x.strategy === TEXTILE_STRATEGY && !!x.sku?.name && !!shapeOf(x.place)
+  // цвет товара нужен только форме, что красится им; ярлык пледа берёт фото своего товара — цвет по слову названия не гадаем и после замены товара
+  // ярлык остаётся (`textileLabelled`)
+  && (textileLabelled(shapeOf(x.place)!) || (HEX.test(x.look?.hex ?? "") && x.look?.of === lookKey(x.sku)))
   && Number.isFinite(x.place?.x) && Number.isFinite(x.place?.y) && Number.isFinite(x.place?.elev_cm)
   && (x.place?.kind !== "curtain" || Number.isInteger(x.place?.opening));
 
@@ -97,9 +105,10 @@ export function textilePart(x: TextileDecor, id: string, k: number, at: { id: st
   const mesh = shape === "pillow" && !!sk.msid;
   const dims = (shape === "curtain" && sk.w && sk.h) ? `${Math.round(sk.w)}×${Math.round(sk.h)} см`
     : shape === "pillow" && sk.w && sk.d ? `${Math.round(sk.w)}×${Math.round(sk.d)}${sk.h ? `×${Math.round(sk.h)}` : ""} см` : "";
-  const desc = mesh ? dims : [dims, TEXTILE_NOTE_RU].filter(Boolean).join(" · ");
+  // «вид условный» — про форму из цвета товара; у ярлыка пледа формы нет вовсе (фото и цена — самого товара), пометка была бы ложной
+  const desc = mesh || textileLabelled(shape) ? dims : [dims, TEXTILE_NOTE_RU].filter(Boolean).join(" · ");
   return {
-    material: { id: mat, titleRu, titleEn, colorHex: x.look!.hex!.toLowerCase(), roughness: 0.95, tileCm: [100, 100] },
+    material: { id: mat, titleRu, titleEn, colorHex: (x.look?.hex ?? "#c8c4bc").toLowerCase(), roughness: 0.95, tileCm: [100, 100] },
     option: { id: `opt:${id}`, category: "furniture", titleRu: sk.name, titleEn: opt.titleEn, descRu: desc,
       tier: "standard", price: opt.price, availability: "available", roomKinds: opt.kinds,
       asset: mesh

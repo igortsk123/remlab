@@ -11,6 +11,7 @@ import type { Catalogue, Material, Option } from "@/contracts/configurator";
 import { materialById, optionById } from "@/contracts/configurator";
 import type { ResolvedItem, ResolvedScene, ResolvedSurface } from "@/lib/configurator/resolve";
 import { meshUrl, runtimeEntry } from "@/lib/configurator/mesh-url";
+import { textileRenders, type TextileShape } from "@/lib/configurator/textile";
 import { finishPassport, tintHex } from "@/lib/viewer3d/finish-passport";
 import { windowView } from "@/lib/viewer3d/window-views";
 
@@ -196,6 +197,8 @@ function meshOf(it: ResolvedItem, o: Option | undefined, lite: boolean): ExportM
   };
 }
 
+const TEXTILE_SHAPES: readonly string[] = ["curtain", "throw", "pillow"];
+
 /** Описание сцены для рендера: чистая функция от результата `resolveScene` и каталога. `lite` — какую копию мешей берёт /demo. */
 export function exportScene(apartment: Apartment, catalogue: Catalogue, sc: ResolvedScene, opts: { lite?: boolean } = {}): SceneExport {
   const meshes: ExportMesh[] = [];
@@ -205,6 +208,8 @@ export function exportScene(apartment: Apartment, catalogue: Catalogue, sc: Reso
     const m = meshOf(it, o, opts.lite === true);
     if (m) { meshes.push(m); continue; }
     if (it.asset.kind !== "kit" || it.unplaced) continue;
+    // ткань, чья форма не рисуется геометрией (`data/flat3d/textile.json:render`, плед — ярлык), в рендер не идёт: ни цвета «по слову», ни бруска
+    if (it.asset.kit === "textile" && it.asset.features.some((f) => TEXTILE_SHAPES.includes(f) && !textileRenders(f as TextileShape))) continue;
     // ткань, ковёр и картина: материал каталога по ролям кита (`kit.materials`) — первый, иначе по id опции
     const matId = Object.values(it.asset.materials)[0];
     const mat = (matId && materialById(catalogue, matId)) || undefined;
