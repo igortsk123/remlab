@@ -63,6 +63,12 @@ ap.add_argument('--pose-shift', type=float, default=0.15, help='«Б»: сдви
 ap.add_argument('--floor-min', type=float, default=0.35, help='«Б»: доля пола в кадре, ниже которой глаз опускается до --eye-low')
 ap.add_argument('--eye-low', type=float, default=1.2, help='«Б»: низкий глаз, м')
 ap.add_argument('--floor-keep', type=float, default=0.7, help='«Б»: при подъёме кадра пол не ниже этой доли от --floor-min')
+ap.add_argument('--brick-var', type=float, default=0.16, help='разнотон кирпичей: размах яркости ± (доля), насыщенность — половина')
+ap.add_argument('--brick-hue', type=float, default=0.015, help='разнотон кирпичей: сдвиг оттенка ± (доля круга)')
+ap.add_argument('--brick-patch', type=float, default=0.10, help='медленные пятна яркости по стене ± (доля)')
+ap.add_argument('--brick-bump', type=float, default=0.9, help='рельеф кладки по карте высоты: сила bump (0 — выкл)')
+ap.add_argument('--brick-dist', type=float, default=0.012, help='рельеф кладки: глубина шва, м')
+ap.add_argument('--brick-ao', type=float, default=0.75, help='затенение скана множителем на цвет (0 — выкл)')
 ap.add_argument('--near', type=float, default=1.5, help='«Б»: предмет ближе этого расстояния от камеры (глаз → точка предмета) — передний план, м; ваза на столике C2 — ~1,4 м')
 ap.add_argument('--occl', type=float, default=0.10, help='«Б»: доля НИЖНЕЙ половины кадра, закрытая передним планом, выше которой камера отодвигается назад')
 ap.add_argument('--back-max', type=float, default=1.5, help='«Б»: на сколько метров камера может уйти назад (и не ближе 0,3 м к стене)')
@@ -246,7 +252,11 @@ def finish_material(name, surf):
     tc = nt.nodes.new('ShaderNodeTexCoord')
     mp = nt.nodes.new('ShaderNodeMapping')
     # метры → повторы: один повтор карты = tileCm сантиметров (то же, что `materials.ts:tiled` в браузере)
-    mp.inputs['Scale'].default_value = (100.0 / surf['tileCm'][0], 100.0 / surf['tileCm'][1], 100.0 / surf['tileCm'][0])
+    # стена: вертикаль (Z) — вторая сторона тайла, обе горизонтали — первая (кирпичный тайл 210×105 не квадратный); пол и штукатурка — как были
+    if name.startswith('wall'):
+        mp.inputs['Scale'].default_value = (100.0 / surf['tileCm'][0], 100.0 / surf['tileCm'][0], 100.0 / surf['tileCm'][1])
+    else:
+        mp.inputs['Scale'].default_value = (100.0 / surf['tileCm'][0], 100.0 / surf['tileCm'][1], 100.0 / surf['tileCm'][0])
     nt.links.new(tc.outputs['Object'], mp.inputs['Vector'])
 
     def tex(key, srgb):
@@ -266,12 +276,103 @@ def finish_material(name, surf):
     mix.inputs['Factor'].default_value = 1.0
     nt.links.new(col.outputs['Color'], mix.inputs['A'])
     mix.inputs['B'].default_value = (*srgb2lin(hexrgb(surf['tintHex'])), 1.0)
-    nt.links.new(mix.outputs['Result'], bsdf.inputs['Base Color'])
+    base_out = mix.outputs['Result']
+    if maps.get('ao') and a.brick_ao > 0:
+        # затенение скана (швы глубже, края кирпича светлее) — множителем на цвет
+        am = nt.nodes.new('ShaderNodeMix')
+        am.data_type = 'RGBA'
+        am.blend_type = 'MULTIPLY'
+        am.inputs['Factor'].default_value = a.brick_ao
+        nt.links.new(base_out, am.inputs['A'])
+        nt.links.new(tex('ao', False).outputs['Color'], am.inputs['B'])
+        base_out = am.outputs['Result']
+    if maps.get('variation') and a.brick_var > 0:
+        # РАЗНОТОН ПО КИРПИЧАМ: номер кирпича из карты (0 — шов) + случайное смещение на каждый повтор тайла (без повтора узора по стене) →
+        # случайное число 0..1 на кирпич → сдвиг яркости, насыщенности и оттенка; плюс медленные пятна по стене
+        idn = tex('variation', False)
+        idn.interpolation = 'Closest'
+        idn_v = nt.nodes.new('ShaderNodeSeparateColor')
+        nt.links.new(idn.outputs['Color'], idn_v.inputs['Color'])
+        fl = nt.nodes.new('ShaderNodeVectorMath')
+        fl.operation = 'FLOOR'
+        nt.links.new(mp.outputs['Vector'], fl.inputs[0])
+        wn = nt.nodes.new('ShaderNodeTexWhiteNoise')
+        wn.noise_dimensions = '3D'
+        nt.links.new(fl.outputs['Vector'], wn.inputs['Vector'])
+        add = nt.nodes.new('ShaderNodeMath')
+        add.operation = 'ADD'
+        nt.links.new(idn_v.outputs['Red'], add.inputs[0])
+        nt.links.new(wn.outputs['Value'], add.inputs[1])
+        fr = nt.nodes.new('ShaderNodeMath')
+        fr.operation = 'FRACT'
+        nt.links.new(add.outputs['Value'], fr.inputs[0])
+        isb = nt.nodes.new('ShaderNodeMath')            # 1 на кирпиче, 0 на шве
+        isb.operation = 'GREATER_THAN'
+        isb.inputs[1].default_value = 0.05
+        nt.links.new(idn_v.outputs['Red'], isb.inputs[0])
+        cen = nt.nodes.new('ShaderNodeMath')            # -1..1
+        cen.operation = 'MULTIPLY_ADD'
+        cen.inputs[1].default_value = 2.0
+        cen.inputs[2].default_value = -1.0
+        nt.links.new(fr.outputs['Value'], cen.inputs[0])
+        sgn = nt.nodes.new('ShaderNodeMath')
+        sgn.operation = 'MULTIPLY'
+        nt.links.new(cen.outputs['Value'], sgn.inputs[0])
+        nt.links.new(isb.outputs['Value'], sgn.inputs[1])
+        ntex = nt.nodes.new('ShaderNodeTexNoise')       # медленные пятна: ~1,2 м, без привязки к кирпичу
+        ntex.inputs['Scale'].default_value = 0.9
+        ntex.inputs['Detail'].default_value = 2.0
+        nt.links.new(tc.outputs['Object'], ntex.inputs['Vector'])
+        pat = nt.nodes.new('ShaderNodeMath')
+        pat.operation = 'MULTIPLY_ADD'
+        pat.inputs[1].default_value = 2.0 * a.brick_patch
+        pat.inputs[2].default_value = -a.brick_patch
+        nt.links.new(ntex.outputs['Fac'], pat.inputs[0])
+        hs = nt.nodes.new('ShaderNodeHueSaturation')
+        hs.inputs['Fac'].default_value = 1.0
+        # оттенок: 0.5 ± brick_hue · k; насыщенность: 1 ± 0.5·brick_var · k; яркость: 1 ± brick_var · k + пятна
+        hue = nt.nodes.new('ShaderNodeMath')
+        hue.operation = 'MULTIPLY_ADD'
+        hue.inputs[1].default_value = a.brick_hue
+        hue.inputs[2].default_value = 0.5
+        nt.links.new(sgn.outputs['Value'], hue.inputs[0])
+        nt.links.new(hue.outputs['Value'], hs.inputs['Hue'])
+        sat = nt.nodes.new('ShaderNodeMath')
+        sat.operation = 'MULTIPLY_ADD'
+        sat.inputs[1].default_value = 0.5 * a.brick_var
+        sat.inputs[2].default_value = 1.0
+        nt.links.new(sgn.outputs['Value'], sat.inputs[0])
+        nt.links.new(sat.outputs['Value'], hs.inputs['Saturation'])
+        val = nt.nodes.new('ShaderNodeMath')
+        val.operation = 'MULTIPLY_ADD'
+        val.inputs[1].default_value = a.brick_var
+        val.inputs[2].default_value = 1.0
+        nt.links.new(sgn.outputs['Value'], val.inputs[0])
+        val2 = nt.nodes.new('ShaderNodeMath')
+        val2.operation = 'ADD'
+        nt.links.new(val.outputs['Value'], val2.inputs[0])
+        nt.links.new(pat.outputs['Value'], val2.inputs[1])
+        nt.links.new(val2.outputs['Value'], hs.inputs['Value'])
+        nt.links.new(base_out, hs.inputs['Color'])
+        base_out = hs.outputs['Color']
+    nt.links.new(base_out, bsdf.inputs['Base Color'])
+    nrm_out = None
     if maps.get('normal'):
         nm = nt.nodes.new('ShaderNodeNormalMap')
         nm.inputs['Strength'].default_value = a.normal_k
         nt.links.new(tex('normal', False).outputs['Color'], nm.inputs['Color'])
-        nt.links.new(nm.outputs['Normal'], bsdf.inputs['Normal'])
+        nrm_out = nm.outputs['Normal']
+    if maps.get('height') and a.brick_bump > 0:
+        # рельеф кладки по карте высоты: швы утоплены и ловят свет у окна (bump, без смещения геометрии)
+        bp = nt.nodes.new('ShaderNodeBump')
+        bp.inputs['Strength'].default_value = a.brick_bump
+        bp.inputs['Distance'].default_value = a.brick_dist
+        nt.links.new(tex('height', False).outputs['Color'], bp.inputs['Height'])
+        if nrm_out is not None:
+            nt.links.new(nrm_out, bp.inputs['Normal'])
+        nrm_out = bp.outputs['Normal']
+    if nrm_out is not None:
+        nt.links.new(nrm_out, bsdf.inputs['Normal'])
     if maps.get('roughness'):
         sep = nt.nodes.new('ShaderNodeSeparateColor')
         nt.links.new(tex('roughness', False).outputs['Color'], sep.inputs['Color'])

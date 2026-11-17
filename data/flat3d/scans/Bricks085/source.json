@@ -4,9 +4,11 @@
  "site": "ambientCG",
  "pageUrl": "https://ambientcg.com/a/Bricks085",
  "files": {
-  "diff": "https://ambientcg.com/get?file=Bricks085_1K-JPG.zip (_Color.jpg)",
-  "nor_gl": "https://ambientcg.com/get?file=Bricks085_1K-JPG.zip (_NormalGL.jpg)",
-  "rough": "https://ambientcg.com/get?file=Bricks085_1K-JPG.zip (_Roughness.jpg)"
+  "diff": "https://ambientcg.com/get?file=Bricks085_2K-JPG.zip (_Color.jpg)",
+  "nor_gl": "https://ambientcg.com/get?file=Bricks085_2K-JPG.zip (_NormalGL.jpg)",
+  "rough": "https://ambientcg.com/get?file=Bricks085_2K-JPG.zip (_Roughness.jpg)",
+  "disp": "https://ambientcg.com/get?file=Bricks085_2K-JPG.zip (_Displacement.jpg)",
+  "ao": "https://ambientcg.com/get?file=Bricks085_2K-JPG.zip (_AmbientOcclusion.jpg)"
  },
  "licence": "CC0-1.0",
  "licenceUrl": "https://docs.ambientcg.com/license/",
@@ -20,8 +22,11 @@
  ],
  "downloaded": "2026-11-17",
  "sha256": {
-  "diff.jpg": "d0c822cdb5c001e66d087eeced710c652391f69ecada3c19dc9e236c15095a46",
-  "nor_gl.jpg": "96a09057e96518eea5212b090fab7f983278f5bb429fae8fed4dc066d291995e",
-  "rough.jpg": "987c5c169d5880db2820fb649aa6e9d88697cf544fb138c730cb1617845840b6"
- }
+  "diff.jpg": "b309bab11b16d75e067b532f2fa0b2a46f376f55fbcbd6940689f43d1960cd5e",
+  "nor_gl.jpg": "45ba710ee2a5cc0de9dd5e5a9b1241b77ca790022c15fb3e193ed27416d3e72f",
+  "rough.jpg": "0930068ad9f8a85d790b504e0946498827fc2087957cae70fd1d2b9d4d5d0307",
+  "disp.jpg": "2236c51628100959a011fe44411caac73e9462cf5320080ca71de2810ab60c3b",
+  "ao.jpg": "55ded87a6bae3143fc2b483a7dcfe3cac2adba0e860dc14df60f645d760e6d38"
+ },
+ "resolution": "2K (2048×1024)"
 }

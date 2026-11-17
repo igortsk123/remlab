@@ -72,7 +72,7 @@ function nodeInfo(root: THREE.Object3D): Any[] {
   (window as Any).__scene = viewer.scene;
   (window as Any).__sc = sc;
   return {
-    slots: sc.items.map((i: Any) => ({ slotId: i.slotId, roomId: i.roomId, role: i.photoRole, kind: i.asset?.kind, kit: i.asset?.kit, unplaced: !!i.unplaced,
+    slots: sc.items.map((i: Any) => ({ slotId: i.slotId, roomId: i.roomId, role: i.photoRole, kind: i.asset?.kind, kit: i.asset?.kit, features: i.asset?.features, unplaced: !!i.unplaced,
       hungOver: i.hungOver ?? null, placement: i.placement, title: i.titleRu })),
     nodes: nodeInfo(viewer.scene),
   };

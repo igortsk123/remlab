@@ -115,25 +115,73 @@ def fetch(asset: str, scans_dir: str = SCANS) -> dict:
     return rec
 
 
-def files_of(ver: int, mid: str) -> dict[str, str]:
+def files_of(ver: int, mid: str, relief: bool = False) -> dict[str, str]:
     stem = f"{mid}-v{ver}"
-    return {"baseColorUrl": f"{stem}.webp", "baseColorLiteUrl": f"{stem}-lite.webp", "normalUrl": f"{stem}-n.webp",
-            "roughnessUrl": f"{stem}-r.webp", "previewUrl": f"{stem}-preview.webp"}
+    out = {"baseColorUrl": f"{stem}.webp", "baseColorLiteUrl": f"{stem}-lite.webp", "normalUrl": f"{stem}-n.webp",
+           "roughnessUrl": f"{stem}-r.webp", "previewUrl": f"{stem}-preview.webp"}
+    if relief:   # карта высоты (рельеф швов), затенение и «номер кирпича» (разнотон) — для рендера Blender и полного режима
+        out.update({"heightUrl": f"{stem}-h.webp", "aoUrl": f"{stem}-ao.webp", "variationUrl": f"{stem}-id.webp"})
+    return out
+
+
+def brick_ids(height: np.ndarray, seed: int = 7) -> np.ndarray:
+    """Карта «номер кирпича»: каждый кирпич (связная область высоты выше порога Оцу) — свой случайный серый 40..255, шов — 0.
+    Тайл бесшовный: кирпич, разрезанный краем, получает ОДИН номер с обеих сторон (склейка по краям). Для разнотона в рендере."""
+    from scipy import ndimage as ndi
+    h = height.astype(np.float64)
+    hist, edges = np.histogram(h, bins=256, range=(0, 256))
+    w0 = np.cumsum(hist)
+    m = np.cumsum(hist * (edges[:-1] + 0.5))
+    tot, mt = w0[-1], m[-1]
+    var = (mt * w0 - m * tot) ** 2 / np.maximum(w0 * (tot - w0), 1)
+    thr = float(np.argmax(var))
+    mask = ndi.binary_opening(h > thr, iterations=1)
+    lab, n = ndi.label(mask)
+    parent = list(range(n + 1))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for a_, b_ in ((lab[:, 0], lab[:, -1]), (lab[0, :], lab[-1, :])):
+        for x, y in zip(a_, b_):
+            if x and y and find(x) != find(y):
+                parent[find(x)] = find(y)
+    roots = np.array([find(i) for i in range(n + 1)])
+    rng = np.random.default_rng(seed)
+    gray = np.zeros(n + 1, np.uint8)
+    for r_ in np.unique(roots[1:]):
+        gray[roots == r_] = rng.integers(40, 256)
+    return gray[lab]
 
 
 def build_one(surface: str, rule: dict, ver: int, *, scans_dir: str = SCANS, out_dir: str = OUT) -> dict:
     sdir = os.path.join(scans_dir, rule["asset"])
     src = json.load(open(os.path.join(sdir, "source.json"), encoding="utf-8"))
-    diff = MS._load(os.path.join(sdir, "diff.jpg"), FULL)
+    relief = bool(rule.get("relief"))
+    full = int(rule.get("fullSize", FULL))
+    if relief:
+        # полные карты скана с сохранением пропорции 2:1 (не квадрат): цвет, нормали — как есть (2K), рельеф и затенение — из скана
+        def ld(name, mode="RGB", w=None):
+            im = Image.open(os.path.join(sdir, name)).convert(mode)
+            return np.asarray(im if w is None or im.size[0] == w else im.resize((w, w * im.size[1] // im.size[0]), Image.LANCZOS))
+        diff = ld("diff.jpg", "RGB", full)
+    else:
+        diff = MS._load(os.path.join(sdir, "diff.jpg"), FULL)
     # mode "photo" — своя расцветка скана (кирпич: красный кирпич и серый шов — сам рисунок): карта цветная, тонировки паспортом нет
     # (`tintMean` в записи не пишется → `finish-passport.ts:tintHex` даёт белый), `colorHex` — средний цвет скана для плоского запасного
     photo = rule.get("mode") == "photo"
     col = np.asarray(diff, dtype=np.uint8) if photo else neutral(diff, gray=float(rule["gray"]), contrast=float(rule["contrast"]),
                                                                  chroma=float(rule["chroma"]), flatten=float(rule["flatten"]))
     # нормали шумной штукатурки в 1024 весят ~200 КБ: для стены хватает 512 (≈4 точки на см при тайле 120 см)
-    nrm = MS.normal_strength(MS._load(os.path.join(sdir, "nor_gl.jpg"), int(rule.get("normalSize", FULL))), float(rule["normal"]))
-    rgh = MS.roughness_map(MS._load(os.path.join(sdir, "rough.jpg"), LITE, "L"), float(rule["roughSpread"]))
-    files = files_of(ver, rule["id"])
+    if relief:
+        nrm = MS.normal_strength(ld("nor_gl.jpg", "RGB", int(rule.get("normalSize", full))), float(rule["normal"]))
+        rgh = MS.roughness_map(ld("rough.jpg", "L", int(rule.get("roughSize", full // 2))), float(rule["roughSpread"]))
+    else:
+        nrm = MS.normal_strength(MS._load(os.path.join(sdir, "nor_gl.jpg"), int(rule.get("normalSize", FULL))), float(rule["normal"]))
+        rgh = MS.roughness_map(MS._load(os.path.join(sdir, "rough.jpg"), LITE, "L"), float(rule["roughSpread"]))
+    files = files_of(ver, rule["id"], relief)
     os.makedirs(out_dir, exist_ok=True)
     w = lambda arr, name, q: Image.fromarray(arr).save(os.path.join(out_dir, name), quality=q, method=6)  # noqa: E731
     small = lambda n: np.asarray(Image.fromarray(col).resize((n, n), Image.LANCZOS))  # noqa: E731
@@ -142,6 +190,12 @@ def build_one(surface: str, rule: dict, ver: int, *, scans_dir: str = SCANS, out
     w(nrm, files["normalUrl"], 86)
     w(rgh, files["roughnessUrl"], 80)
     w(small(PREVIEW), files["previewUrl"], 82)
+    if relief:
+        hgt = ld("disp.jpg", "L", full)
+        Image.fromarray(hgt).save(os.path.join(out_dir, files["heightUrl"]), quality=90, method=6)
+        ao_ = ld("ao.jpg", "L", full // 2)
+        Image.fromarray(ao_).save(os.path.join(out_dir, files["aoUrl"]), quality=84, method=6)
+        Image.fromarray(brick_ids(hgt, int(rule.get("idSeed", 7)))).save(os.path.join(out_dir, files["variationUrl"]), lossless=True, method=6)
     mean_lin = tint_mean(col)                           # тонировка одна на полный и лёгкий размер: среднее у них совпадает до тысячных
     tile = [float(x) for x in rule["tileCm"]]
     # отпечаток байтов всех карт: материалы лежат в бандле движка, и смена карты под тем же именем меняет бандл → версию витрины →
