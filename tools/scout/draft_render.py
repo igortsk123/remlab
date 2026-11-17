@@ -2674,6 +2674,16 @@ def _cache_dir() -> str:
 SCENE3D_CACHE = _cache_dir()
 
 
+CACHE_KEEP_SEC = 900      # файл, к которому обращались за последние 15 мин, потолок кэша не трогает
+
+
+def _touch(path: str) -> None:
+    try:
+        os.utime(path, None)
+    except OSError:
+        pass
+
+
 def _cache_trim(cap_mb: float | None = None) -> int:
     """Потолок кэша GLB: старые по времени доступа удаляются, пока кэш не станет меньше потолка. → сколько удалено."""
     if cap_mb is None:
@@ -2688,9 +2698,12 @@ def _cache_trim(cap_mb: float | None = None) -> int:
         return 0
     stats = sorted(((os.stat(f).st_atime, os.path.getsize(f), f) for f in files if os.path.isfile(f)))
     total, cap, n = sum(sz for _, sz, _ in stats), cap_mb * 2 ** 20, 0
-    for _, sz, f in stats:
+    now = time.time()
+    for at, sz, f in stats:
         if total <= cap:
             break
+        if now - at < CACHE_KEEP_SEC:
+            continue      # T-20261117-19/3: на полном кэше каждая докачка стирала меши этого же кадра (диван set4 «пропущен»: string is not a file)
         try:
             os.remove(f)
             total -= sz
@@ -2906,6 +2919,7 @@ def _scene3d_glb(sid: str) -> str | None:
     os.makedirs(SCENE3D_CACHE, exist_ok=True)
     dst = os.path.join(SCENE3D_CACHE, sid + '.glb')
     if os.path.exists(dst) and os.path.getsize(dst) > 1000:
+        _touch(dst)       # «свежий»: потолок кэша стирает самые давние по доступу, а файл нужен ещё до конца сборки кадра
         return dst
     base = os.environ.get('MESH_HTTP', 'https://remont-lab.online/test/mesh-pilot10')
     try:
