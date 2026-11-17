@@ -24,6 +24,7 @@ import os
 import shutil
 import threading
 import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.abspath(os.environ.get('MESH_ROOT', '/opt/remlab/meshes'))
@@ -36,6 +37,12 @@ PORT = int(os.environ.get('MESH_SINK_PORT', '8770'))
 # терминирует TLS для нод), но НЕ поднимается на публичном интерфейсе сервера. Разница
 # существенна: рядом живёт боевая VPN-нода, лишний открытый порт там не нужен.
 BIND = os.environ.get('MESH_SINK_BIND', '127.0.0.1')
+# РАЗДАЧА ФАЙЛОВ (T-20261117-24/2, машина рендера): контейнеру Salad нужно СКАЧАТЬ задание (сцена ≈65 МБ). Раздаём read-only и ТОЛЬКО префиксы
+# из этого списка (данные, по умолчанию один — `renderjobs`); меши и всё прочее по GET /files не отдаются никогда. Потолок размера файла
+# для этих префиксов на PUT — SERVE_MAX_MB (пакет сцены больше обычного 80 МБ-потолка меша).
+SERVE_PREFIXES = tuple(p.strip().strip('/') for p in os.environ.get('MESH_SERVE_PREFIXES', 'renderjobs').split(',') if p.strip())
+SERVE_MAX_MB = float(os.environ.get('MESH_SERVE_MAX_MB', '200'))
+LS_LIMIT = 500
 
 # RLock: `dir_gb()` пересчитывает под замком и сам зовётся из-под него (гейт PUT в `_would_refuse`)
 _lock = threading.RLock()
@@ -98,6 +105,73 @@ def safe(prefix: str, name: str = '') -> str:
     return p
 
 
+def serve_rel(rel: str, depth: tuple) -> list | None:
+    """Разбор пути раздачи (после `/files/` или `/ls/`, уже раскодированного ОДИН раз). Возвращает сегменты или None.
+    Правила: первый сегмент — разрешённый префикс; число сегментов из `depth`; ни пустых, ни `.`/`..`, ни скрытых (`.staging` добавляем сами),
+    ни `\\`, NUL, абсолютного пути. Всё, что не подошло, — None (ответ 404: чужие префиксы не выдают даже факт существования)."""
+    if not rel or '\x00' in rel or '\\' in rel or rel.startswith('/'):
+        return None
+    seg = rel.split('/')
+    if len(seg) not in depth or any(x in ('', '.', '..') or x.startswith('.') for x in seg):
+        return None
+    if seg[0] not in SERVE_PREFIXES:
+        return None
+    return seg
+
+
+def _inside_real(path: str, base: str) -> bool:
+    """Путь реально внутри `base`: без симлинков по пути (ни одного звена-ссылки) и после realpath."""
+    rb = os.path.realpath(base)
+    rp = os.path.realpath(path)
+    if rp != rb and not rp.startswith(rb + os.sep):
+        return False
+    cur = base
+    for part in os.path.relpath(path, base).split(os.sep):
+        cur = os.path.join(cur, part)
+        if os.path.islink(cur):
+            return False
+    return True
+
+
+def serve_file(seg: list) -> str | None:
+    """seg = [префикс, задание, имя]: файл в `.staging` задания или в постоянном каталоге; `.part` не отдаём."""
+    name = seg[-1]
+    if name.endswith('.part'):
+        return None
+    base = os.path.join(ROOT, seg[0])
+    for d in (os.path.join(base, seg[1], '.staging'), os.path.join(base, seg[1])):
+        p = os.path.join(d, name)
+        if os.path.isfile(p) and _inside_real(p, base):
+            return p
+    return None
+
+
+def serve_ls(seg: list) -> dict | None:
+    """seg = [префикс] — задания (каталоги); [префикс, задание] — файлы задания (имя, размер, время). Глубже — нельзя."""
+    base = os.path.join(ROOT, seg[0])
+    out = {'now': time.time()}
+    if len(seg) == 1:
+        if not os.path.isdir(base) or not _inside_real(base, ROOT):
+            return {**out, 'dirs': []}
+        rows = []
+        for n in sorted(os.listdir(base))[:LS_LIMIT]:
+            p = os.path.join(base, n)
+            if not n.startswith('.') and os.path.isdir(p) and not os.path.islink(p):
+                rows.append({'name': n, 'mtime': round(os.path.getmtime(p), 1)})
+        return {**out, 'dirs': rows}
+    files = {}
+    for d in (os.path.join(base, seg[1]), os.path.join(base, seg[1], '.staging')):
+        if not os.path.isdir(d) or not _inside_real(d, base):
+            continue
+        for n in sorted(os.listdir(d))[:LS_LIMIT]:
+            p = os.path.join(d, n)
+            if n.startswith('.') or n.endswith('.part') or not os.path.isfile(p) or os.path.islink(p):
+                continue
+            st = os.stat(p)
+            files[n] = {'name': n, 'size': st.st_size, 'mtime': round(st.st_mtime, 1)}
+    return {**out, 'files': list(files.values())}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = 'remlab-mesh-sink'
 
@@ -146,6 +220,29 @@ class Handler(BaseHTTPRequestHandler):
             if not os.path.exists(p):
                 return self._send(404, {'detail': 'не готово'})
             return self._send(200, json.load(open(p, encoding='utf-8')))
+        if path.startswith('/files/') or path.startswith('/ls/'):
+            is_files = path.startswith('/files/')
+            rel = urllib.parse.unquote(path[len('/files/' if is_files else '/ls/'):])   # раскодируем ОДИН раз: %2e%2e → `..` → отказ
+            rel = rel if is_files else rel.rstrip('/')
+            seg = serve_rel(rel, (3,) if is_files else (1, 2))
+            if seg is None:
+                return self._send(404, {'detail': 'нет такого'})
+            if not is_files:
+                return self._send(200, serve_ls(seg))
+            p = serve_file(seg)
+            if p is None:
+                return self._send(404, {'detail': 'нет такого'})
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/octet-stream')
+            self.send_header('Content-Length', str(os.path.getsize(p)))
+            self.end_headers()
+            with open(p, 'rb') as f:               # потоком: пакет в десятки МБ в память не читаем
+                while True:
+                    chunk = f.read(1 << 20)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+            return
         self._send(404, {'detail': 'нет такого'})
 
     # ---------------------------------------------------------------- PUT
@@ -162,7 +259,8 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get('Content-Length') or 0)
         if n <= 0:
             return self._send(400, {'detail': 'пустое тело'})
-        if n > MAX_FILE_MB * 2 ** 20:
+        cap_mb = SERVE_MAX_MB if prefix.split('/')[0] in SERVE_PREFIXES else MAX_FILE_MB
+        if n > cap_mb * 2 ** 20:
             return self._send(413, {'detail': 'файл слишком большой'})
         try:
             d = safe(prefix, '.staging')
