@@ -3,7 +3,7 @@ tier: 2
 topic: flat3d-configurator-details
 scope: 3D-конфигуратор квартиры — подробности модели, сцены и конвейера ассетов
 tier1: ../core/apartment-configurator.md
-updated: 2026-11-12
+updated: 2026-11-17
 importance: med
 source: manual
 status: working
@@ -349,3 +349,12 @@ runtime-текстура (KTX2) — уйдёт при переходе на пе
   «Сделать фото» — круглый значок у шкалы `#vCta`; подсказка «3D: тяните, чтобы осмотреться» по центру, гаснет за 5 с (T-05/3).
 - **Выпуск:** движок сцены попадает в туры и /demo только перевыпуском демо (`flat215_demo.py` → `tools/flat3d/build-scene-bundle.mjs` →
   `publish_demo.sh`, затем `tools/floorplan/reissue.py --days 14`).
+
+## Мягкое и радиатор в сцене (17.11)
+- **Подушки** садятся на меш опоры (дивана/кровати): луч на поверхность, осадка 1 см, полоса поиска ±8 см, наклон по спинке ≤ 16° —
+  `lib/viewer3d/settle.ts`, числа — `data/flat3d/settle.json`; только живая 3D, в экспорт Blender не идёт. Вызов — `FlatViewer.settleSoft`
+  (защищён try/catch: тесты собирают вьюер через `Object.create`, урок 696).
+- **Плед** — не меш, а ярлык с фото и ценой над пятном (`data/flat3d/textile.json:label`, ADR-0425).
+- **Радиатор** под каждым окном (не товар, процедурная панель тип 22): места — `lib/viewer3d/radiator-spots.ts`, модель —
+  `lib/viewer3d/kits/radiator.ts`, размеры от окна и пропуски (балкон, узкое, высокий подоконник) — `data/flat3d/radiator.json`,
+  выключатель `?radiators=0`; те же места уходят в экспорт сцены для Blender (`radiators[]`).

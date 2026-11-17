@@ -3,7 +3,7 @@ tier: 1
 topic: apartment-configurator
 scope: 3D-конфигуратор квартиры — что это, из чего собран, где детали
 tier2: "../domain/flat3d-configurator.md"
-updated: 2026-11-12
+updated: 2026-11-17
 importance: high
 source: manual
 status: working
