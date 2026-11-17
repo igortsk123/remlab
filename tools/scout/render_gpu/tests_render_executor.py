@@ -238,6 +238,8 @@ os.makedirs(bd)
 open(os.path.join(bd, 'b.tgz'), 'wb').write(sink.hist[bundle])
 names = JP.unpack_bundle(os.path.join(bd, 'b.tgz'), os.path.join(bd, 'x'))
 ok('пакет: сцена, декор, программа рендера, данные, карты', {'scene', 'dump', 'tools', 'data', 'public'} <= set(names))
+ok('пакет: правило картин wall_art.py лежит рядом с render_cycles.py (он его импортирует) — каждый import рендера есть в пакете',
+   os.path.isfile(os.path.join(bd, 'x', 'tools', 'scout', 'wall_art.py')) and os.path.isfile(os.path.join(bd, 'x', 'data', 'flat3d', 'wall-art.json')))
 ok('карты — только существующие в public (чужой путь и отсутствующий файл не попали)',
    os.path.isfile(os.path.join(bd, 'x', 'public', 'flat3d', 'tex', 'a.jpg')) and not os.path.exists(os.path.join(bd, 'x', 'public', 'etc')) and
    not os.path.exists(os.path.join(bd, 'x', 'public', 'flat3d', 'none.jpg')))

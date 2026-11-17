@@ -471,6 +471,7 @@ class SaladGpuExecutor(SceneExecutor):
         dump = os.path.join(job, 'dump')
         files = {'scene': os.path.join(job, 'scene'),
                  'tools/scout/cycles_probe/render_cycles.py': os.path.join(PROBE, 'render_cycles.py'),
+                 'tools/scout/wall_art.py': os.path.join(REPO, 'tools', 'scout', 'wall_art.py'),      # render_cycles.py с 17.11 берёт правило картин оттуда (только stdlib)
                  'data/flat3d/wall-art.json': os.path.join(REPO, 'data', 'flat3d', 'wall-art.json')}
         for n in ('demo_nodes.glb', 'demo_nodes_uuids.json', 'scene-export.json'):
             files['dump/' + n] = os.path.join(dump, n)
