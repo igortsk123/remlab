@@ -69,6 +69,9 @@ ap.add_argument('--brick-patch', type=float, default=0.10, help='медленн�
 ap.add_argument('--brick-bump', type=float, default=0.9, help='рельеф кладки по карте высоты: сила bump (0 — выкл)')
 ap.add_argument('--brick-dist', type=float, default=0.012, help='рельеф кладки: глубина шва, м')
 ap.add_argument('--brick-ao', type=float, default=0.75, help='затенение скана множителем на цвет (0 — выкл)')
+ap.add_argument('--art-guard', type=int, default=1, help='сторож картин: картина без текстуры или белая и почти однотонная (σ яркости центра < --art-sigma) — ошибка кадра с именем товара, кадр не сдаётся')
+ap.add_argument('--art-sigma', type=float, default=8.0, help='сторож картин: порог σ яркости центра картины (0–255); белая — ещё и среднее > 200')
+ap.add_argument('--art-allow-blank', action='store_true', help='сторож картин: не падать, только предупредить (пока белые картины не заменены в данных витрины)')
 ap.add_argument('--live-cam', default='', help='камера живой 3D: live_cam.json из `demo_scene_dump.mjs livecam=…` (положение, взгляд, угол как на странице); позу «Б» и подгонки не применяет')
 ap.add_argument('--live-scale', type=float, default=2.0, help='--live-cam: во сколько раз кадр больше холста страницы (375×667 → 750×1334)')
 ap.add_argument('--near', type=float, default=1.5, help='«Б»: предмет ближе этого расстояния от камеры (глаз → точка предмета) — передний план, м; ваза на столике C2 — ~1,4 м')
@@ -698,7 +701,7 @@ if a.demo_glb:
     before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=a.demo_glb)
     info = {n['uuid']: n for n in json.load(open(a.demo_nodes, encoding='utf-8'))}
-    chand = []
+    chand, art_nodes = [], []
     for ob in set(bpy.data.objects) - before:
         if ob.type != 'MESH':
             continue
@@ -719,10 +722,41 @@ if a.demo_glb:
                 bs2_ = next((n for n in m.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None) if m and m.use_nodes else None
                 if bs2_ is not None and not bs2_.inputs['Alpha'].is_linked:
                     bs2_.inputs['Alpha'].default_value = a.sheer
+        if slot.startswith('картина'):
+            art_nodes.append((slot, ob))
         if 'люстр' in slot:
             chand.append(ob)
         if slot.startswith('textile:подушка') or slot.startswith('textile:плед') or 'люстр' in slot:   # плед — тоже сглаженный (граненый брусок читался как доска)
             smooth_by_angle(ob, 50)
+    if art_nodes and a.art_guard:
+        # СТОРОЖ КАРТИН (T-20261117-16/2, владелец TG 1567/1568: «картины пустые белые»): текстура есть и это не белое поле — иначе кадр не сдаём
+        _titles = {}
+        try:
+            _si = json.load(open(os.path.join(os.path.dirname(os.path.abspath(a.demo_nodes)), 'scene_info.json'), encoding='utf-8'))
+            _titles = {x['slotId']: x.get('title') for x in _si.get('slots', [])}
+        except Exception:
+            pass
+        _bad = []
+        for _slot in sorted(set(x[0] for x in art_nodes)):
+            # у картины несколько мешей (рама, полотно): текстура — у полотна; нет ни одной — ошибка
+            _imgs = [n.image for _s, _ob in art_nodes if _s == _slot for m in _ob.data.materials if m and m.use_nodes
+                     for n in m.node_tree.nodes if n.type == 'TEX_IMAGE' and n.image]
+            if not _imgs:
+                _bad.append((_slot, 'нет текстуры'))
+                continue
+            _img = max(_imgs, key=lambda im: im.size[0] * im.size[1])
+            _w, _h = _img.size
+            _px = np.empty(_w * _h * 4, np.float32)
+            _img.pixels.foreach_get(_px)
+            _px = _px.reshape(_h, _w, 4)[:, :, :3]
+            _c = _px[int(_h * 0.25):int(_h * 0.75), int(_w * 0.35):int(_w * 0.65)]
+            _l = (_c @ np.array([0.2126, 0.7152, 0.0722], np.float32)) * 255.0
+            if _l.std() < a.art_sigma and _l.mean() > 200.0:
+                _bad.append((_slot, f'белое поле, σ яркости центра {_l.std():.1f}, среднее {_l.mean():.0f}'))
+        for _slot, _why in _bad:
+            print('СТОРОЖ КАРТИН:', _slot, '·', _titles.get(_slot) or '?', '·', _why)
+        if _bad and not a.art_allow_blank:
+            raise SystemExit('ошибка кадра: ' + '; '.join(f"{(_titles.get(s_) or s_)} ({w_})" for s_, w_ in _bad))
     if chand and a.chandelier > 0:
         pts = [ob.matrix_world @ Vector(c) for ob in chand for c in ob.bound_box]
         cx = sum(p.x for p in pts) / len(pts)

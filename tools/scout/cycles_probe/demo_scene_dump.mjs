@@ -84,8 +84,11 @@ if (extra.export) {
   const TX = JSON.parse(fs.readFileSync(path.resolve(PUBLIC, '../data/flat3d/textile.json'), 'utf-8')).render || {};
   const noGeom = new Set(info.slots.filter((s) => s.kit === 'textile' && (s.features || []).some((f) => TX[f] === false)).map((s) => s.slotId));
   // радиатор под окном (slot `radiator`, T-20261117-11) идёт в выгрузку ВСЕГДА, кроме явного `-radiator` в списке: иначе фото-рендер и живая 3D расходятся
+  // шторы окон по умолчанию (`curtains: true` движка: группа `curtains`, не слот декора) идут в выгрузку ВСЕГДА, кроме явного `-curtains`: на странице они есть
+  // у каждого окна, а ключи `textile,…` ловят только шторы-СЛОТЫ декора (T-20261117-16/2, владелец: «в спальне нет штор»)
+  const noCur = keys && keys.includes('-curtains');
   const noRad = keys && keys.includes('-radiator');
-  const pick = info.nodes.filter((n) => n.visible && n.type === 'Mesh' && !noGeom.has(n.slot) && ((n.slot === 'radiator' && !noRad) || !keys || keys.some((k) => k === 'rod'
+  const pick = info.nodes.filter((n) => n.visible && n.type === 'Mesh' && !noGeom.has(n.slot) && ((n.slot === 'radiator' && !noRad) || (n.chain.includes('curtains') && !noCur) || !keys || keys.some((k) => k === 'rod'
     ? n.chain.includes('fixtures:') && n.min[1] > 2.0 && n.max[1] < 2.69 : k === 'plant' ? n.plant : (n.slot + '|' + n.chain).includes(k)))).map((n) => n.uuid);
   console.log('выгружаю узлов', pick.length);
   const b64 = await page.evaluate((u) => window.exportNodes(u), pick);
