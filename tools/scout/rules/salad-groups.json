@@ -126,9 +126,9 @@
       "disabled": true,
       "_why": "ТОЛЬКО ЗАМЕР T-20261117-22: то же, что render-bench-3090, карта RTX 4090."
     },
-    "render-3090": {
+    "render-4090": {
       "tier": "high",
-      "price_class": "RTX 3090 (24 GB)",
+      "price_class": "RTX 4090 (24 GB)",
       "disabled": true,
       "_why": "МАШИНА РЕНДЕРА «Сделать фото» (T-20261117-24, план render-machine-01). Вкл/выкл — ТОЛЬКО контроллер tools/scout/render_gpu/render_machine.py (on/off/tick), параметры — блок render_machine ниже; меш-расписание и money_guard её не поднимают (disabled). Сторож сервера render-guard.py гасит её, если контроллер молчит > 10 мин. Смена образа = НОВАЯ группа (PATCH остановленной не применяется): новое имя в render_machine.group."
     },
@@ -233,11 +233,11 @@
   },
   "render_machine": {
     "_about": "Параметры контроллера машины рендера render_machine.py (T-20261117-24). Числа — предохранители, меняются здесь, не в коде. image — digest amd64 образа цели `agent` (build_render.sh agent); сменили образ — НОВОЕ имя group (PATCH остановленной группы Salad не применяется), старую группу не удалять без владельца.",
-    "group": "render-3090",
-    "card": "3090",
-    "price_class": "RTX 3090 (24 GB)",
+    "group": "render-4090",
+    "card": "4090",
+    "price_class": "RTX 4090 (24 GB)",
     "tier": "high",
-    "gpu_class_id": "a5db5c50-cbcb-4596-ae80-6a0c8090d80f",
+    "gpu_class_id": "ed563892-aacd-40f5-80b7-90c9be6c759b",
     "image": "ghcr.io/igortsk123/mesh-hunyuan@sha256:6978c093c631e54daaf30df21b1db04865c20a64a3fc71f3a1becee7c7d949b0",
     "cpu": 8,
     "memory_mb": 16384,
@@ -251,6 +251,8 @@
     "guard_stale_min": 10,
     "restart_max": 2,
     "start_retry_s": 45,
-    "sink_prefix": "rendermachine"
+    "sink_prefix": "rendermachine",
+    "controller_stale_s": 300,
+    "executor": {"pickup_s": 90, "pair_max_s": 900, "poll_s": 3, "busy_s": 90}
   }
 }

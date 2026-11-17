@@ -85,10 +85,12 @@ def tr(key: str, lang: str = 'ru', **kw) -> str:
 
 # ───────────────────────── правила ─────────────────────────
 DEFAULT_RULES = {
-    'group': 'render-3090', 'card': '3090', 'idle_stop_min': 20, 'max_run_min': 240, 'day_cap_usd': 2.0, 'warmup_max_min': 15,
+    'group': 'render-4090', 'card': '4090', 'idle_stop_min': 20, 'max_run_min': 240, 'day_cap_usd': 2.0, 'warmup_max_min': 15,
     'ready_stale_s': 120, 'degraded_stop_min': 10, 'guard_stale_min': 10, 'restart_max': 2, 'start_retry_s': 45, 'sink_prefix': 'rendermachine',
-    'cpu': 8, 'memory_mb': 16384, 'storage_gb': 10, 'price_class': 'RTX 3090 (24 GB)', 'tier': 'high',
-    'gpu_class_id': 'a5db5c50-cbcb-4596-ae80-6a0c8090d80f',
+    'cpu': 8, 'memory_mb': 16384, 'storage_gb': 10, 'price_class': 'RTX 4090 (24 GB)', 'tier': 'high',
+    'gpu_class_id': 'ed563892-aacd-40f5-80b7-90c9be6c759b', 'controller_stale_s': 300,
+    # исполнитель (render_exec.SaladGpuExecutor): ждать взятия задания, потолок пары, опрос результата, «занято» на время ожидания
+    'executor': {'pickup_s': 90, 'pair_max_s': 900, 'poll_s': 3, 'busy_s': 90},
     'alert_sh': '/home/pakar/igor/remlab/tools/scout/alert.sh', 'donor_group': 'mesh-q-low-1',
 }
 
@@ -121,7 +123,7 @@ def london_date(now: float) -> str:
 
 # ───────────────────────── состояние ─────────────────────────
 def new_state() -> dict:
-    return {'desired': 'off', 'gen': 0, 'by': None, 'at': 0, 'on_at': 0, 'running_since': 0, 'last_activity': 0, 'last_tick': 0, 'last_start_try': 0,
+    return {'desired': 'off', 'gen': 0, 'by': None, 'at': 0, 'on_at': 0, 'running_since': 0, 'last_activity': 0, 'busy_until': 0, 'last_tick': 0, 'last_start_try': 0,
             'accrued_ts': 0, 'spent_date': '', 'spent_usd': 0.0, 'warm_gen': 0, 'degraded_since': 0, 'restarts': 0, 'stop_reason': '', 'stop_notified_gen': 0}
 
 
@@ -164,8 +166,10 @@ def plan(state: dict, obs: dict, rules: dict, now: float) -> tuple[dict, list]:
         return _stop(s, acts, 'cap', 'stop_cap', cap=rules['day_cap_usd'], spent=s['spent_usd'])
     if s['running_since'] and (now - s['running_since']) / 60 >= rules['max_run_min']:
         return _stop(s, acts, 'maxrun', 'stop_maxrun', min=rules['max_run_min'])
+    # автостоп — от ПОСЛЕДНЕГО события (заказ в очередь ИЛИ готовая пара: оба зовут pulse), и НИКОГДА, пока есть задание в очереди/в работе:
+    # исполнитель, ждущий пару, продлевает `busy_until` (pulse --busy) каждые ~15 с; умер исполнитель — метка истекает сама, остаются потолки
     idle_ref = max(s['last_activity'], s['on_at'])
-    if is_ready and (now - idle_ref) / 60 >= rules['idle_stop_min']:
+    if is_ready and now >= s.get('busy_until', 0) and (now - idle_ref) / 60 >= rules['idle_stop_min']:
         return _stop(s, acts, 'idle', 'stop_idle', min=rules['idle_stop_min'], spent=s['spent_usd'])
     if s['warm_gen'] != s['gen'] and age_min >= rules['warmup_max_min']:
         return _stop(s, acts, 'warmup', 'stop_warmup', min=rules['warmup_max_min'])
@@ -466,10 +470,18 @@ def cmd_status(a, rules) -> str:
         return tr('st_starting', a.lang, st=obs['status'] or 'создаётся', age=age, spent=spent)
 
 
-def cmd_pulse(a, rules) -> str:
+def pulse(busy_s: float = 0.0, now: float | None = None) -> None:
+    """Событие по заказу: последняя активность = сейчас. busy_s>0 — «задание в работе»: автостоп не сработает, пока не истекут busy_s секунд
+    (ждущий исполнитель обновляет метку); busy_s=0 — задание кончилось, метка сброшена, отсчёт простоя идёт с этого момента."""
+    now = time.time() if now is None else now
     with Box() as b:
-        b.state['last_activity'] = time.time()
+        b.state['last_activity'] = now
+        b.state['busy_until'] = now + busy_s if busy_s > 0 else 0
         b.save()
+
+
+def cmd_pulse(a, rules) -> str:
+    pulse(a.busy)
     return 'ok'
 
 
@@ -500,6 +512,7 @@ def main() -> int:
     ap.add_argument('--by', default='cli')
     ap.add_argument('--lang', default='ru', choices=['ru', 'en'])
     ap.add_argument('--json', action='store_true')
+    ap.add_argument('--busy', type=float, default=0.0, help='pulse: секунд «задание в работе» (автостоп не сработает)')
     a = ap.parse_args()
     rules = load_rules()
     try:

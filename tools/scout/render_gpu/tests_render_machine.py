@@ -95,6 +95,42 @@ _, a = RM.plan(on_state(T0, last_activity=T0 - 30 * 60, on_at=T0 - 30 * 60), obs
 ok('простой считаем только у прогретой — прогревающуюся гасит лимит прогрева, не простой',
    'notify:stop_idle' not in keys(a) and 'notify:stop_warmup' in keys(a))
 
+# автостоп — от ПОСЛЕДНЕГО события: и заказ (pulse при постановке), и готовая пара (pulse в конце) сдвигают отсчёт
+IDLE = R['idle_stop_min'] * 60
+ev = dict(s1, last_activity=T0, on_at=T0 - 3600)
+_, a = RM.plan(ev, obs('running', ready_at(T0 + IDLE - 10)), R, T0 + IDLE - 5)
+ok('19:55 после последнего события — ещё не гасим', a == [])
+_, a = RM.plan(ev, obs('running', ready_at(T0 + IDLE + 10)), R, T0 + IDLE + 5)
+ok('20:05 после последнего события — гасим (автостоп)', 'stop' in keys(a))
+# заказ в очередь в 15-й минуте простоя (pulse) — отсчёт заново
+order = dict(ev, last_activity=T0 + 15 * 60)
+_, a = RM.plan(order, obs('running', ready_at(T0 + IDLE + 10)), R, T0 + IDLE + 5)
+ok('заказ на 15-й минуте простоя сдвинул отсчёт: на 20-й минуте от прошлого события не гасим', a == [])
+_, a = RM.plan(order, obs('running', ready_at(T0 + 15 * 60 + IDLE + 10)), R, T0 + 15 * 60 + IDLE + 5)
+ok('…а через 20 мин от заказа — гасим', 'stop' in keys(a))
+# пока задание в очереди/в работе — не гасим никогда (busy_until, пока исполнитель ждёт пару), только потолки
+long_job = dict(ev, last_activity=T0, busy_until=T0 + 3 * IDLE)
+_, a = RM.plan(long_job, obs('running', ready_at(T0 + 2 * IDLE + 10)), R, T0 + 2 * IDLE)
+ok('задание в работе (busy_until впереди) — простой не гасит даже через 40 мин', a == [])
+_, a = RM.plan(dict(long_job, spent_usd=2.0, spent_date=RM.london_date(T0 + 2 * IDLE), accrued_ts=T0 + 2 * IDLE - 5), obs('running', ready_at(T0 + 2 * IDLE + 10)), R, T0 + 2 * IDLE)
+ok('…но дневной потолок гасит и занятую', keys(a) == ['stop', 'notify:stop_cap'])
+_, a = RM.plan(dict(long_job, running_since=T0 - 241 * 60), obs('running', ready_at(T0 + 2 * IDLE + 10)), R, T0 + 2 * IDLE)
+ok('…и предел 4 ч гасит занятую', keys(a) == ['stop', 'notify:stop_maxrun'])
+_, a = RM.plan(dict(ev, busy_until=T0 + 100), obs('running', ready_at(T0 + IDLE + 10)), R, T0 + IDLE + 5)
+ok('метка занятости истекла (исполнитель умер) — простой снова считается и гасит', 'stop' in keys(a))
+# pulse(): заказ ставит и «занято», конец пары снимает его и обновляет последнее событие
+with RM.Box() as b0:
+    b0.state.update(desired='on', gen=1)
+    b0.save()
+RM.pulse(busy_s=90, now=T0)
+with RM.Box() as b0:
+    ok('pulse --busy: последнее событие и busy_until', b0.state['last_activity'] == T0 and b0.state['busy_until'] == T0 + 90)
+RM.pulse(now=T0 + 40)
+with RM.Box() as b0:
+    ok('pulse (конец пары): busy снят, отсчёт простоя с этого момента', b0.state['last_activity'] == T0 + 40 and b0.state['busy_until'] == 0)
+    b0.state.update(desired='off')
+    b0.save()
+
 # ── прогрев ──
 sw, a = RM.plan(on_state(T0, on_at=T0 - 16 * 60), obs('running', None), R, T0)
 ok('не прогрелась за 15 мин — стоп + сообщение', keys(a) == ['stop', 'notify:stop_warmup'])
@@ -136,7 +172,7 @@ s_, a = RM.plan(dict(sc, stop_notified_gen=1), obs('running', ready_at(T0 + 50))
 ok('о стопе по запуску уже писали — второго нет', 'notify:stop_cap' not in keys(a) and 'stop' in keys(a))
 
 # ── надписи: у каждой пара RU/EN, форматируются ──
-fill = dict(st='running', cap=2.0, spent=0.5, g='render-3090', why='x', age=5, left=3, min=15, n=1, max=2)
+fill = dict(st='running', cap=2.0, spent=0.5, g='render-x1', why='x', age=5, left=3, min=15, n=1, max=2)
 ok('все надписи — пара RU/EN и форматируются', all(len(v) == 2 and RM.tr(k, 'ru', **fill) and RM.tr(k, 'en', **fill) for k, v in RM.T.items()))
 ok('RU-надписи не пустые и без английского вместо русского', all(any('а' <= c.lower() <= 'я' for c in RM.tr(k, 'ru', **fill)) for k in RM.T))
 
@@ -192,7 +228,7 @@ class FakeSalad:
 RM.Salad = FakeSalad
 RM.read_ready = lambda rules: None
 RM.beat_server = lambda rules, now: True
-args = types.SimpleNamespace(by='test', lang='ru', json=False)
+args = types.SimpleNamespace(busy=0.0, by='test', lang='ru', json=False)
 
 out1 = RM.cmd_on(args, R)
 ok('on: группы нет → создаёт и стартует', FakeSalad.calls[:1] == ['create'] and 'Включаю' in out1)

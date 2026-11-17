@@ -129,21 +129,21 @@ def _selftest() -> int:
         if not cond:
             bad.append(name)
     now = 1_000_000.0
-    run = {'render-3090': ('running', 1)}
+    run = {'render-x1': ('running', 1)}
     ok('отметка свежая → не гасим', decide(run, 60, None, now) == ('controller_alive', []))
-    ok('отметка старая → гасим', decide(run, 11 * 60, None, now) == ('stop', ['render-3090']))
-    ok('отметки нет → гасим', decide(run, None, None, now) == ('stop', ['render-3090']))
-    ok('граница 10 мин → гасим', decide(run, 600, None, now) == ('stop', ['render-3090']))
+    ok('отметка старая → гасим', decide(run, 11 * 60, None, now) == ('stop', ['render-x1']))
+    ok('отметки нет → гасим', decide(run, None, None, now) == ('stop', ['render-x1']))
+    ok('граница 10 мин → гасим', decide(run, 600, None, now) == ('stop', ['render-x1']))
     ok('ручное отключение → молчим', decide(run, None, now + 100, now) == ('inhibited', []))
-    ok('отключение истекло → гасим', decide(run, None, now - 1, now) == ('stop', ['render-3090']))
-    ok('группа остановлена → ничего', decide({'render-3090': ('stopped', 0)}, None, None, now) == ('idle', []))
-    ok('pending без машин → не платим', decide({'render-3090': ('pending', 0)}, None, None, now) == ('idle', []))
-    ok('deploying с машиной → платим, гасим', decide({'render-3090': ('deploying', 1)}, None, None, now) == ('stop', ['render-3090']))
+    ok('отключение истекло → гасим', decide(run, None, now - 1, now) == ('stop', ['render-x1']))
+    ok('группа остановлена → ничего', decide({'render-x1': ('stopped', 0)}, None, None, now) == ('idle', []))
+    ok('pending без машин → не платим', decide({'render-x1': ('pending', 0)}, None, None, now) == ('idle', []))
+    ok('deploying с машиной → платим, гасим', decide({'render-x1': ('deploying', 1)}, None, None, now) == ('stop', ['render-x1']))
     # главное: меш-группы сторож не трогает ни при каком раскладе
     mesh = {'mesh-q-low-1': ('running', 3), 'mesh-batch-7': ('deploying', 1)}
     ok('меш-группы живые, отметки нет → НЕ трогаем', decide(mesh, None, None, now) == ('idle', []))
-    ok('смесь: гасим только render-*', decide({**mesh, 'render-3090': ('running', 1)}, None, None, now) == ('stop', ['render-3090']))
-    ok('guarded: префикс', guarded('render-3090') and guarded('render-bench-4090') and not guarded('mesh-render-1') and not guarded('remnanode'))
+    ok('смесь: гасим только render-*', decide({**mesh, 'render-x1': ('running', 1)}, None, None, now) == ('stop', ['render-x1']))
+    ok('guarded: префикс', guarded('render-x1') and guarded('render-bench-4090') and not guarded('mesh-render-1') and not guarded('remnanode'))
     ok('machines: счётчики', machines({'instance_status_counts': {'running_count': 1, 'creating_count': 0}}) == 1 and machines({}) is None)
     print('итог:', 'чисто' if not bad else f'ПРОВАЛЕНО {len(bad)}')
     return 1 if bad else 0
