@@ -32,5 +32,6 @@ pr = json.load(open(os.path.join(HERE, '..', 'cycles_probe', 'render-preset.json
 fl = pr['flags']
 check('пресет: тон Khronos PBR Neutral, как у живой 3D (`viewer.ts`)', fl[fl.index('--transform') + 1] == 'Khronos PBR Neutral')
 check('пресет: экспозиция −0,15 EV (= 0,9 живой сцены), насыщенность неба 0,4', fl[fl.index('--exposure') + 1] == '-0.15' and fl[fl.index('--sky-sat') + 1] == '0.4')
+check('пресет: заполняющий свет белый 6500 К, лампы 1 Вт (стена не теплеет от света сильнее живой)', fl[fl.index('--fill-k') + 1] == '6500' and fl[fl.index('--lamps') + 1] == '1')
 print('итог:', 'чисто' if not fails else f'{len(fails)} провал(ов): {fails}')
 sys.exit(1 if fails else 0)

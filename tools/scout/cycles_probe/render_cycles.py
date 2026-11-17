@@ -21,6 +21,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument('--scene-dir', required=True)
 ap.add_argument('--cam', default='C1')
 ap.add_argument('--out', required=True)
+ap.add_argument('--mask-out', default='', help='после кадра — маска поверхностей тем же ракурсом: пол красный, нейтральная стена зелёная, акцентная синяя, остальное чёрное (замер яркости, T-20261117-23/2)')
 ap.add_argument('--samples', type=int, default=160)
 ap.add_argument('--pct', type=int, default=100)
 ap.add_argument('--threads', type=int, default=8)
@@ -29,6 +30,7 @@ ap.add_argument('--sky', type=float, default=1.0)
 ap.add_argument('--sky-sat', type=float, default=1.0, help='насыщенность света неба Nishita (1 — как есть; меньше — голубизна белых стен и постели слабее)')
 ap.add_argument('--sun-angle', type=float, default=1.5, help='угловой размер солнца, ° (мягкость края тени; Codex: 3–5)')
 ap.add_argument('--fill', type=float, default=60.0)
+ap.add_argument('--fill-k', type=float, default=5500.0, help='цвет заполняющего света, К (6500 — белый, как полусфера живой 3D)')
 ap.add_argument('--view', type=float, default=1.2)
 ap.add_argument('--exposure', type=float, default=0.0)
 ap.add_argument('--lite-tex', type=int, default=0, help='>0: уменьшить текстуры до этой стороны (замер облегчённой версии)')
@@ -1061,7 +1063,7 @@ fill = bpy.data.lights.new('fill', 'AREA')
 fill.shape = 'RECTANGLE'
 fill.size, fill.size_y = 1.6, 1.6
 fill.energy = a.fill
-fill.color = kelvin_rgb(5500) if a.lamp_k > 0 else (1.0, 0.97, 0.92)    # заполнение — отражённый дневной свет, не тёплая лампа (в сетке 17.11 при 4200 К весь кадр был оранжевым)
+fill.color = kelvin_rgb(a.fill_k) if a.lamp_k > 0 else (1.0, 0.97, 0.92)    # заполнение — отражённый дневной свет, не тёплая лампа (в сетке 17.11 при 4200 К весь кадр был оранжевым)
 fo = bpy.data.objects.new('fill', fill)
 sc.collection.objects.link(fo)
 fo.location = (W / 200.0, -D / 200.0, (H - 6) / 100.0)
@@ -1084,3 +1086,43 @@ sc.render.filepath = a.out
 t0 = time.time()
 bpy.ops.render.render(write_still=True)
 print(f'RENDER_SEC {time.time() - t0:.1f} samples {a.samples} pct {a.pct} threads {a.threads}', flush=True)
+
+if a.mask_out:
+    # МАСКА ПОВЕРХНОСТЕЙ: каждая поверхность — плоский эмиссионный цвет по имени материала (`floor`, `wall`, `wall_accent`), остальное чёрное; без света, неба, шума
+    def _flat(name, rgb):
+        m = bpy.data.materials.new(name)
+        m.use_nodes = True
+        nt_ = m.node_tree
+        for n_ in list(nt_.nodes):
+            nt_.nodes.remove(n_)
+        em = nt_.nodes.new('ShaderNodeEmission')
+        em.inputs['Color'].default_value = (*rgb, 1.0)
+        em.inputs['Strength'].default_value = 1.0
+        out_ = nt_.nodes.new('ShaderNodeOutputMaterial')
+        nt_.links.new(em.outputs['Emission'], out_.inputs['Surface'])
+        return m
+    _cat = {'floor': _flat('mk_floor', (1, 0, 0)), 'wall_accent': _flat('mk_accent', (0, 0, 1)), 'wall': _flat('mk_wall', (0, 1, 0))}
+    _black = _flat('mk_black', (0, 0, 0))
+    for ob_ in bpy.data.objects:
+        if ob_.type != 'MESH':
+            continue
+        for i_, m_ in enumerate(list(ob_.data.materials)):
+            nm_ = (m_.name if m_ else '')
+            key_ = 'wall_accent' if nm_.startswith('wall_accent') else 'floor' if nm_.startswith('floor') else 'wall' if nm_.startswith('wall') else None
+            ob_.data.materials[i_] = _cat[key_] if key_ else _black
+    for l_ in list(bpy.data.lights):
+        bpy.data.lights.remove(l_)
+    wn.nodes.clear() if hasattr(wn.nodes, 'clear') else None
+    sc.view_settings.view_transform = 'Standard'
+    try:
+        sc.view_settings.look = 'None'
+    except TypeError:
+        pass
+    sc.view_settings.exposure = 0.0
+    cy.samples = 1
+    cy.use_adaptive_sampling = False
+    cy.use_denoising = False
+    sc.render.filepath = a.mask_out
+    bpy.ops.render.render(write_still=True)
+    print('МАСКА', a.mask_out, flush=True)
+
