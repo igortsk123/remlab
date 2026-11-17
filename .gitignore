@@ -149,3 +149,6 @@ tools/scout/alert-sent.log
 
 # журнал фаз ведущего (учёт токенов, tools/tokeny/faza)
 data/logs/tokeny/
+
+# T-20261117-22: образ рендера Blender и замер карт Salad
+!tools/scout/render_gpu/

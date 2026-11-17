@@ -1,0 +1,45 @@
+# ОБРАЗ РЕНДЕРА BLENDER (Cycles) ДЛЯ ВИДЕОКАРТЫ SALAD (T-20261117-22, план photo-render-first-01 § «Видеокарта»). Без меш-весов, без секретов.
+#
+# Слои — от редко меняющегося к часто меняющемуся: Salad тянет их параллельно, а правка кода не заставляет качать Blender заново
+# (урок меш-образа: 26 ГБ тянулся 29 мин — здесь Blender ≈ 0,6 ГБ в сжатом виде, веса нейросетей не нужны вовсе).
+#   base  — система + Blender (тот же 5.3.0, что `render_cycles.py` на DEV), закреплён по sha256 архива;
+#   code  — render_cycles.py + проверка готовности + бенч (десятки КБ);
+#   bench — ТОЛЬКО для замера T-22: две сцены /demo (гостиная, спальня) запечены в образ, чтобы замер не зависел от хранилища сцен.
+#           Боевой образ = цель `code`: сцену воркер берёт по манифесту с хешами, а не из образа.
+#
+# Сборка: build_render.sh (контекст собирается скриптом: Blender-архив, код, сцены). Цели: --target base|code|bench.
+#
+# Устройство: Blender приносит свои ядра CUDA и OptiX-ядра; от машины нужен только драйвер (libcuda — всегда, libnvoptix — если рантайм
+# отдаёт возможность `graphics`). NVIDIA_DRIVER_CAPABILITIES=all просит и её; дадут ли — решает платформа, проверка — в /ready
+# (`ready_probe.py`: auto = OptiX → CUDA → CPU, фактическое устройство в логе).
+FROM nvidia/cuda:12.4.1-base-ubuntu22.04 AS base
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    NVIDIA_DRIVER_CAPABILITIES=all \
+    BLENDER_DIR=/opt/blender
+# Библиотеки, которые подтягивает Blender даже без окна (-b): OpenGL/EGL, X-клиенты, xkb; python3 — для бенча/воркера.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3-minimal ca-certificates xz-utils \
+      libgl1 libegl1 libxi6 libxrender1 libxxf86vm1 libxfixes3 libxkbcommon0 libsm6 libx11-6 libxext6 libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+ARG BLENDER_SHA256
+COPY blender-5.3.0.tar.xz /tmp/blender.tar.xz
+RUN echo "${BLENDER_SHA256}  /tmp/blender.tar.xz" | sha256sum -c - \
+    && mkdir -p ${BLENDER_DIR} && tar -xJf /tmp/blender.tar.xz -C ${BLENDER_DIR} --strip-components=1 \
+    && rm -f /tmp/blender.tar.xz \
+    && ${BLENDER_DIR}/blender -b --version | head -2 \
+    && ldd ${BLENDER_DIR}/blender | grep 'not found' && exit 1 || true
+
+FROM base AS code
+WORKDIR /app
+# python из Blender собран со своим путём к сертификатам, которого в образе нет → выгрузка по https падала CERTIFICATE_VERIFY_FAILED (замер 3090, 17.11)
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+COPY render_cycles.py ready_probe.py bench.py /app/
+# сторож картин в render_cycles.py читает `<корень>/data/flat3d/wall-art.json` (путь от файла скрипта: /app → /data); без него кадр не строится
+COPY wall-art.json /data/flat3d/wall-art.json
+# bench.py идёт на python из Blender (полная стандартная библиотека; системный python3-minimal без json)
+CMD ["/opt/blender/5.3/python/bin/python3.13", "-u", "/app/bench.py"]
+
+FROM code AS bench
+COPY scenes/ /scenes/

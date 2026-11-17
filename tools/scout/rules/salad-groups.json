@@ -108,6 +108,24 @@
   },
   "usd_rub": 86.89,
   "groups": {
+    "render-bench-3090": {
+      "tier": "high",
+      "price_class": "RTX 3090 (24 GB)",
+      "disabled": true,
+      "_why": "ТОЛЬКО ЗАМЕР T-20261117-22 (рендер Cycles фото, план photo-render-first-01): группа под рендер Blender, НЕ меш. 1 реплика, тариф high, образ замера ghcr.io/igortsk123/render-blender (без меш-весов). Создаёт и гасит `tools/scout/render_gpu/bench_run.py` (потолок $5, стоп при $4); `disabled` — чтобы меш-стартёры её не поднимали. Сторож сервера `salad-deadman.py` рендер-группы (render-*) не трогает."
+    },
+    "render-bench-3090b": {
+      "tier": "high",
+      "price_class": "RTX 3090 (24 GB)",
+      "disabled": true,
+      "_why": "ТОЛЬКО ЗАМЕР T-20261117-22: повтор замера 3090 в НОВОЙ группе (PATCH остановленной группы Salad не применяет: версия «pending»). Как render-bench-3090."
+    },
+    "render-bench-4090": {
+      "tier": "high",
+      "price_class": "RTX 4090 (24 GB)",
+      "disabled": true,
+      "_why": "ТОЛЬКО ЗАМЕР T-20261117-22: то же, что render-bench-3090, карта RTX 4090."
+    },
     "mesh-q-color-canary": {
       "tier": "low",
       "price_class": "RTX 4060 Ti (16 GB)",
