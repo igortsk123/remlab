@@ -44,7 +44,9 @@ def test_decor_gate_and_roles_present():
     """Штраф перекрытия главного — в общем списке порогов кадра с весом; призрачный декор не покрывается и не входит в окна превью."""
     with open(HTML, encoding='utf-8') as f:
         s = f.read()
-    assert "['decor',0.12]" in s and 'CAM_BAD_W={decor:2' in s
+    assert "['decor',0.12]" in s and 'decor:2,' in s and 'CAM_BAD_W={' in s
+    assert "['decorSelf',0.05]" in s and "['keyCut15',0.15]" in s and 'decorSelf:3' in s and 'keyCut15:3' in s
+    assert 's0.decorSelf=camDecorSelf(c,its)' in s and 's0.keyCut15=s0.keyCut' in s
     assert 's0.decor=camDecorOver(c,its)' in s
     assert 'L=L.map(camDecorAdd)' in s
     assert s.count('if(it.decor)return;') >= 1 and 'if(it.decor||!e||' in s
