@@ -107,6 +107,10 @@ def main_export(D, idx, out):
                 rec['tex'] = save_tex(tex)
                 rec['tex_px'] = list(tex.shape[:2])
                 data['uv'] = np.asarray(uvm, np.float32)
+                # собственная карта шероховатости/металла меша (glTF: G — шероховатость, B — металл): «как есть», ничего не придумываем
+                mrt = getattr(getattr(mesh.visual, 'material', None), 'metallicRoughnessTexture', None)
+                if mrt is not None:
+                    rec['mr'] = save_tex(np.asarray(mrt.convert('RGB')))
             else:
                 cols = MR.flat_colors(mesh)
                 rec['rgb'] = [float(x) for x in np.asarray(cols).mean(axis=0)]

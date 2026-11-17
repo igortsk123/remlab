@@ -30,6 +30,15 @@ ap.add_argument('--fill', type=float, default=60.0)
 ap.add_argument('--view', type=float, default=1.2)
 ap.add_argument('--exposure', type=float, default=0.0)
 ap.add_argument('--lite-tex', type=int, default=0, help='>0: уменьшить текстуры до этой стороны (замер облегчённой версии)')
+ap.add_argument('--demo-glb', default='', help='GLB декора из сцены /demo (demo_scene_dump.mjs)')
+ap.add_argument('--demo-nodes', default='', help='demo_nodes_uuids.json рядом с GLB')
+ap.add_argument('--chandelier', type=float, default=60.0, help='мощность света люстры, Вт (0 — без света)')
+ap.add_argument('--hdri', default='', help='HDRI неба (Poly Haven, CC0): свет и портал вместо Nishita')
+ap.add_argument('--hdri-strength', type=float, default=1.0)
+ap.add_argument('--portal', type=int, default=0, help='1: световой портал в проёме окна')
+ap.add_argument('--real', type=int, default=0, help='1: доски пола и штукатурка стен (общие настройки сцены)')
+ap.add_argument('--dof', type=float, default=0.0, help='>0: диафрагма f/N, лёгкая глубина резкости (фокус — середина мебели)')
+ap.add_argument('--mr', type=int, default=1, help='1: у мебели своя карта шероховатости/металла меша (как есть), иначе таблица ROUGH')
 a = ap.parse_args(argv)
 
 M = json.load(open(os.path.join(a.scene_dir, 'scene.json'), encoding='utf-8'))
@@ -70,7 +79,12 @@ cy.caustics_refractive = False
 sc.render.threads_mode = 'FIXED'
 sc.render.threads = a.threads
 sc.view_settings.view_transform = 'AgX'
-sc.view_settings.look = 'AgX - Medium High Contrast'
+for _look in ('AgX - Medium High Contrast', 'Medium High Contrast'):
+    try:
+        sc.view_settings.look = _look
+        break
+    except TypeError:
+        continue
 sc.view_settings.exposure = a.exposure
 sc.render.image_settings.file_format = 'PNG'
 sc.render.image_settings.color_depth = '8'
@@ -108,7 +122,7 @@ def smooth_by_angle(ob, deg=45):
     ob.select_set(False)
 
 
-def principled(name, rgb=None, tex=None, rough=0.6, spec=0.5, metallic=0.0, tex_lite=0):
+def principled(name, rgb=None, tex=None, rough=0.6, spec=0.5, metallic=0.0, tex_lite=0, mr=None):
     m = bpy.data.materials.new(name)
     m.use_nodes = True
     nt = m.node_tree
@@ -127,6 +141,16 @@ def principled(name, rgb=None, tex=None, rough=0.6, spec=0.5, metallic=0.0, tex_
         node.image = img
         node.interpolation = 'Cubic'
         nt.links.new(node.outputs['Color'], bsdf.inputs['Base Color'])
+        if mr:
+            # glTF: шероховатость — канал G, металл — B (множитель в файле = 1) — карта самого меша, ничего не придумываем
+            n2 = nt.nodes.new('ShaderNodeTexImage')
+            im2 = bpy.data.images.load(os.path.join(a.scene_dir, mr), check_existing=True)
+            im2.colorspace_settings.name = 'Non-Color'
+            n2.image = im2
+            sep = nt.nodes.new('ShaderNodeSeparateColor')
+            nt.links.new(n2.outputs['Color'], sep.inputs['Color'])
+            nt.links.new(sep.outputs['Green'], bsdf.inputs['Roughness'])
+            nt.links.new(sep.outputs['Blue'], bsdf.inputs['Metallic'])
     else:
         bsdf.inputs['Base Color'].default_value = (*srgb2lin(rgb), 1.0)
     return m
@@ -141,6 +165,33 @@ ROUGH = {'диван': 0.9, 'кресло': 0.9, 'стул': 0.75, 'кроват
 # ---------------- комната (плиты — свет не протекает) ----------------
 wall_mat = principled('wall', hexrgb(M['finish']['wall']['colorHex']), rough=0.92, spec=0.2)
 ceil_mat = principled('ceiling', hexrgb(M['finish']['ceiling']['colorHex']), rough=0.95, spec=0.1)
+if a.real:
+    # лёгкая фактура штукатурки: мелкий рельеф + едва заметная пятнистость цвета (цвет стены — паспорта, оттенок не меняем)
+    for _m, _k in ((wall_mat, 1.0), (ceil_mat, 0.5)):
+        _nt = _m.node_tree
+        _b = _nt.nodes['Principled BSDF']
+        _tc = _nt.nodes.new('ShaderNodeTexCoord')
+        _n1 = _nt.nodes.new('ShaderNodeTexNoise')
+        _n1.inputs['Scale'].default_value = 350.0
+        _n1.inputs['Detail'].default_value = 6.0
+        _n1.inputs['Roughness'].default_value = 0.7
+        _nt.links.new(_tc.outputs['Object'], _n1.inputs['Vector'])
+        _bp = _nt.nodes.new('ShaderNodeBump')
+        _bp.inputs['Strength'].default_value = 0.12 * _k
+        _bp.inputs['Distance'].default_value = 0.002
+        _nt.links.new(_n1.outputs['Fac'], _bp.inputs['Height'])
+        _nt.links.new(_bp.outputs['Normal'], _b.inputs['Normal'])
+        _n2 = _nt.nodes.new('ShaderNodeTexNoise')
+        _n2.inputs['Scale'].default_value = 1.6
+        _n2.inputs['Detail'].default_value = 2.0
+        _nt.links.new(_tc.outputs['Object'], _n2.inputs['Vector'])
+        _mx = _nt.nodes.new('ShaderNodeMix')
+        _mx.data_type = 'RGBA'
+        _mx.blend_type = 'MULTIPLY'
+        _mx.inputs['Factor'].default_value = 0.06 * _k
+        _mx.inputs['A'].default_value = _b.inputs['Base Color'].default_value
+        _nt.links.new(_n2.outputs['Color'], _mx.inputs['B'])
+        _nt.links.new(_mx.outputs['Result'], _b.inputs['Base Color'])
 
 
 def slab(name, x0, x1, y0, y1, z0, z1, mat):
@@ -197,6 +248,38 @@ except KeyError:
     pass
 # доски вдоль длинной стороны
 mapping.inputs['Rotation'].default_value = (0, 0, 0 if W >= D else math.pi / 2)
+if a.real:
+    # ПАРКЕТ/ЛАМИНАТ (замечание директора по кадрам decor1: пол читался циновкой). Причина полосок была в том, что общая «растяжка» (1, 8, 1)
+    # сжимала и сами доски. Теперь доски 1,2 × 0,2 м с тонким тёмным швом (канавка в рельефе), своим оттенком у каждой доски, волокно —
+    # отдельной вытянутой вдоль доски текстурой; цвет — паспорта пола, текстуры пола в данных нет.
+    mapping.inputs['Scale'].default_value = (1.0, 1.0, 1.0)
+    brick.inputs['Row Height'].default_value = 0.20
+    brick.inputs['Mortar Size'].default_value = 0.003
+    brick.inputs['Color1'].default_value = (lin[0] * 1.05, lin[1] * 1.04, lin[2] * 1.02, 1)
+    brick.inputs['Color2'].default_value = (lin[0] * 0.93, lin[1] * 0.91, lin[2] * 0.88, 1)
+    brick.inputs['Mortar'].default_value = (lin[0] * 0.25, lin[1] * 0.22, lin[2] * 0.18, 1)
+    grain_map = nt.nodes.new('ShaderNodeMapping')
+    grain_map.inputs['Scale'].default_value = (0.10, 1.0, 1.0)      # вытянуть волокно вдоль доски
+    grain_map.inputs['Rotation'].default_value = mapping.inputs['Rotation'].default_value
+    nt.links.new(texcoord.outputs['Object'], grain_map.inputs['Vector'])
+    nt.links.new(grain_map.outputs['Vector'], noise.inputs['Vector'])
+    noise.inputs['Scale'].default_value = 26.0
+    noise.inputs['Detail'].default_value = 5.0
+    mix.inputs['Factor'].default_value = 0.22
+    # канавка шва в рельефе: коэффициент кирпича (1 — доска, 0 — шов) + волокно
+    comb = nt.nodes.new('ShaderNodeMath')
+    comb.operation = 'MULTIPLY_ADD'
+    nt.links.new(noise.outputs['Fac'], comb.inputs[0])
+    comb.inputs[1].default_value = 0.15
+    nt.links.new(brick.outputs['Fac'], comb.inputs[2])
+    nt.links.new(comb.outputs['Value'], bump.inputs['Height'])
+    bump.inputs['Strength'].default_value = 0.35
+    bump.inputs['Distance'].default_value = 0.01
+    bs.inputs['Roughness'].default_value = 0.32       # лак: мягкое отражение
+    try:
+        bs.inputs['Specular IOR Level'].default_value = 0.55
+    except KeyError:
+        pass
 slab('floor', -CORNER / 100, (W + CORNER) / 100, -(D + CORNER) / 100, CORNER / 100, -THICK / 100, 0.0, fm)
 slab('ceiling', -CORNER / 100, (W + CORNER) / 100, -(D + CORNER) / 100, CORNER / 100, H / 100, (H + THICK) / 100, ceil_mat)
 
@@ -279,9 +362,10 @@ for o in M['objs']:
     z = np.load(os.path.join(a.scene_dir, o['file']))
     role = o['role'].split(' ')[0]
     if o['tex']:
-        key = ('t', o['tex'], role)
+        mr_ = o.get('mr') if a.mr else None
+        key = ('t', o['tex'], role, mr_)
         if key not in mat_cache:
-            mat_cache[key] = principled('m_' + os.path.basename(o['tex']), tex=o['tex'], rough=ROUGH.get(role, 0.55), tex_lite=a.lite_tex)
+            mat_cache[key] = principled('m_' + os.path.basename(o['tex']), tex=o['tex'], rough=ROUGH.get(role, 0.55), tex_lite=a.lite_tex, mr=mr_)
         mat = mat_cache[key]
     else:
         rgb = tuple(c / 255.0 for c in o['rgb'])
@@ -343,6 +427,42 @@ for k, r in enumerate(M['rugs']):
     bsdf.inputs['Roughness'].default_value = 0.95
     make_obj(f'rug{k}', corners, [(0, 3, 2, 1)], uvs=uvs, mat=rm, smooth=False)
 
+# ---------------- декор из сцены /demo (шторы, карниз, картины, люстра, подушки) ----------------
+# Файл делает `demo_scene_dump.mjs` тем же движком и тем же расчётом мест, что живая сцена /demo: здесь только вставка в Blender
+# (оси glTF → Blender импортёр переводит так же, как `b()`: (x, y, z) → (x, −z, y)) и свет люстры.
+if a.demo_glb:
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=a.demo_glb)
+    info = {n['uuid']: n for n in json.load(open(a.demo_nodes, encoding='utf-8'))}
+    chand = []
+    for ob in set(bpy.data.objects) - before:
+        if ob.type != 'MESH':
+            continue
+        uu = ob.name.split('__')[-1].split('.')[0]
+        slot = (info.get(uu) or {}).get('slot', '')
+        for m in ob.data.materials:
+            if m and m.use_nodes:
+                bs_ = next((n for n in m.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+                if bs_ is not None and 'люстр' not in slot:
+                    bs_.inputs['Roughness'].default_value = max(bs_.inputs['Roughness'].default_value, 0.8 if 'textile' in slot else 0.5)
+        if 'люстр' in slot:
+            chand.append(ob)
+        if slot.startswith('textile:подушка') or 'люстр' in slot:
+            smooth_by_angle(ob, 50)
+    if chand and a.chandelier > 0:
+        pts = [ob.matrix_world @ Vector(c) for ob in chand for c in ob.bound_box]
+        cx = sum(p.x for p in pts) / len(pts)
+        cy_ = sum(p.y for p in pts) / len(pts)
+        zc = (min(p.z for p in pts) + max(p.z for p in pts)) / 2
+        lamp = bpy.data.lights.new('chandelier', 'POINT')
+        lamp.energy = a.chandelier
+        lamp.shadow_soft_size = 0.12
+        lamp.color = (1.0, 0.86, 0.66)
+        lo = bpy.data.objects.new('chandelier', lamp)
+        sc.collection.objects.link(lo)
+        lo.location = (cx, cy_, zc)
+        print('люстра: свет в', lo.location, 'Вт', a.chandelier)
+
 # ---------------- камера ----------------
 cd = next(c for c in M['cams'] if c['name'] == a.cam)
 cam = bpy.data.cameras.new('cam')
@@ -374,27 +494,74 @@ sc.world = world
 world.use_nodes = True
 wn = world.node_tree
 bgn = wn.nodes['Background']
-sky = wn.nodes.new('ShaderNodeTexSky')
-sky.sky_type = 'NISHITA'
-sky.sun_disc = False
-sky.sun_elevation = math.radians(38)
-sky.air_density = 1.0
-sky.dust_density = 1.2
-wn.links.new(sky.outputs['Color'], bgn.inputs['Color'])
-bgn.inputs['Strength'].default_value = a.sky
-
 win = next((o['wall'] for o in M['openings'] if o['kind'] in ('window', 'balcony')), 'west')
 (_, _), (_, _), (nx, nz) = FR[win]
 inward = Vector((nx, -nz, 0.0))               # внутрь комнаты, мир Blender
-el = math.radians(38)
+if a.hdri:
+    # настоящее небо (HDRI Poly Haven, CC0): солнце HDRI поворачиваем в сторону окна — свет и цвет неба берутся из него, Sun-лампа не нужна
+    himg = bpy.data.images.load(a.hdri)
+    hw_, hh_ = himg.size
+    hpx = np.array(himg.pixels[:], np.float32).reshape(hh_, hw_, 4)
+    lum = hpx[..., 0] * 0.2126 + hpx[..., 1] * 0.7152 + hpx[..., 2] * 0.0722
+    row, col = np.unravel_index(int(np.argmax(lum)), lum.shape)
+    phi = ((col + 0.5) / hw_ - 0.5) * 2 * math.pi                # u → азимут в системе Blender (dir.x = −cos φ, dir.y = sin φ)
+    elev_h = ((row + 0.5) / hh_ - 0.5) * math.pi
+    az_h = math.pi - phi
+    az_t = math.atan2(-inward.y, -inward.x)                       # к солнцу — наружу через окно
+    envn = wn.nodes.new('ShaderNodeTexEnvironment')
+    envn.image = himg
+    mp = wn.nodes.new('ShaderNodeMapping')
+    mp.inputs['Rotation'].default_value = (0, 0, az_h - az_t)
+    tcn = wn.nodes.new('ShaderNodeTexCoord')
+    wn.links.new(tcn.outputs['Generated'], mp.inputs['Vector'])
+    wn.links.new(mp.outputs['Vector'], envn.inputs['Vector'])
+    wn.links.new(envn.outputs['Color'], bgn.inputs['Color'])
+    bgn.inputs['Strength'].default_value = a.hdri_strength
+    print(f'HDRI солнце: высота {math.degrees(elev_h):.1f}°, яркость {lum.max():.0f}, поворот {math.degrees(az_h - az_t):.0f}°')
+    el = elev_h
+else:
+    sky = wn.nodes.new('ShaderNodeTexSky')
+    for _t in ('NISHITA', 'MULTIPLE_SCATTERING'):       # в Blender 5.x тип переименован
+        try:
+            sky.sky_type = _t
+            break
+        except TypeError:
+            continue
+    sky.sun_disc = False
+    sky.sun_elevation = math.radians(38)
+    sky.air_density = 1.0
+    if hasattr(sky, 'dust_density'):
+        sky.dust_density = 1.2
+    wn.links.new(sky.outputs['Color'], bgn.inputs['Color'])
+    bgn.inputs['Strength'].default_value = a.sky
+    el = math.radians(38)
 tr = Vector((inward.x * math.cos(el), inward.y * math.cos(el), -math.sin(el)))   # куда идёт свет
-sun = bpy.data.lights.new('sun', 'SUN')
-sun.energy = a.sun
-sun.angle = math.radians(1.5)
-sun.color = (1.0, 0.95, 0.86)
-so = bpy.data.objects.new('sun', sun)
-sc.collection.objects.link(so)
-so.rotation_euler = tr.to_track_quat('-Z', 'Y').to_euler()
+if a.sun > 0:
+    sun = bpy.data.lights.new('sun', 'SUN')
+    sun.energy = a.sun
+    sun.angle = math.radians(1.5)
+    sun.color = (1.0, 0.95, 0.86)
+    so = bpy.data.objects.new('sun', sun)
+    sc.collection.objects.link(so)
+    so.rotation_euler = tr.to_track_quat('-Z', 'Y').to_euler()
+
+if a.portal:
+    # световой портал в проёме окна: не источник, а подсказка Cycles, откуда небо заходит в комнату (меньше шума при том же времени)
+    wc = next((c for c in M['cuts'].get(win, []) if c['kind'] in ('window', 'balcony')), None)
+    if wc is not None:
+        (ox, oz), (dx, dz), _n = FR[win]
+        uc, vc = (wc['u0'] + wc['u1']) / 2, (wc['bottom'] + wc['top']) / 2
+        pl = bpy.data.lights.new('portal', 'AREA')
+        pl.shape = 'RECTANGLE'
+        pl.size, pl.size_y = (wc['u1'] - wc['u0']) / 100.0, (wc['top'] - wc['bottom']) / 100.0
+        try:
+            pl.cycles.is_portal = True
+        except AttributeError:
+            print('портал: нет свойства is_portal в этой версии')
+        po = bpy.data.objects.new('portal', pl)
+        sc.collection.objects.link(po)
+        po.location = b(ox + dx * uc, vc, oz + dz * uc)
+        po.rotation_euler = inward.to_track_quat('-Z', 'Y').to_euler()
 
 fill = bpy.data.lights.new('fill', 'AREA')
 fill.shape = 'RECTANGLE'
@@ -406,6 +573,17 @@ sc.collection.objects.link(fo)
 fo.location = (W / 200.0, -D / 200.0, (H - 6) / 100.0)
 fo.rotation_euler = (0, 0, 0)
 fo.visible_camera = False
+
+if a.dof > 0:
+    # лёгкая глубина резкости: фокус — середина мебели (предметы с текстурой), диафрагма f/N
+    ps = [ob.matrix_world @ Vector(c) for ob in bpy.data.objects if ob.type == 'MESH' and ob.name.startswith('m') and ob.name.endswith('.npz')
+          and ob.data.materials and ob.data.materials[0] and ob.data.materials[0].name.startswith('m_') for c in ob.bound_box]
+    if ps:
+        ctr = sum(ps, Vector()) / len(ps)
+        cam.dof.use_dof = True
+        cam.dof.focus_distance = (ctr - Vector(cd['eye'])).length
+        cam.dof.aperture_fstop = a.dof
+        print(f'DoF f/{a.dof}, фокус {cam.dof.focus_distance:.2f} м')
 
 os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
 sc.render.filepath = a.out
