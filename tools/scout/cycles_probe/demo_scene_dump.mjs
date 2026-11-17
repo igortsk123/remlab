@@ -67,6 +67,13 @@ const sceneArgs = { room, items: v.items, decor, base: `http://127.0.0.1:${port}
 const info = await page.evaluate((a) => window.buildDemoScene(a), sceneArgs);
 console.log('сцена собрана за', ((Date.now() - t0) / 1000).toFixed(1), 'с; узлов', info.nodes.length, 'мест', info.slots.length);
 fs.writeFileSync(path.join(outDir, 'scene_info.json'), JSON.stringify({ variant: v.id, room, decorIn: decor.map((d) => ({ role: d.role, strategy: d.strategy, place: d.place })), ...info }, null, 1));
+if (extra.livecam) {
+  // livecam=<ракурс>:<ширина>x<высота>:<верх>,<низ> — камера «3D» как на странице (`liveCamera` входа): полоса холста — доли высоты, свободная от кнопок и шторки
+  const [ci, sz, bd] = extra.livecam.split(':'); const [lw, lh] = sz.split('x').map(Number); const [bt, bb] = bd.split(',').map(Number);
+  const lc = await page.evaluate((x) => window.liveCamera(x.ci, x.w, x.h, { top: x.bt, bottom: x.bb }), { ci: Number(ci), w: lw, h: lh, bt, bb });
+  fs.writeFileSync(path.join(outDir, 'live_cam.json'), JSON.stringify(lc, null, 1));
+  console.log('камера живой 3D:', JSON.stringify(lc.pos.map((v) => +v.toFixed(3))), 'взгляд', JSON.stringify(lc.dir.map((v) => +v.toFixed(3))), 'vfov', lc.vfov.toFixed(1));
+}
 fs.writeFileSync(path.join(outDir, 'scene-export.json'), JSON.stringify(await page.evaluate(() => window.__export), null, 1));
 fs.writeFileSync(path.join(outDir, 'shell_info.json'), JSON.stringify(await page.evaluate(() => window.shellInfo()), null, 1));
 if (extra.export) {
@@ -77,8 +84,11 @@ if (extra.export) {
   const TX = JSON.parse(fs.readFileSync(path.resolve(PUBLIC, '../data/flat3d/textile.json'), 'utf-8')).render || {};
   const noGeom = new Set(info.slots.filter((s) => s.kit === 'textile' && (s.features || []).some((f) => TX[f] === false)).map((s) => s.slotId));
   // радиатор под окном (slot `radiator`, T-20261117-11) идёт в выгрузку ВСЕГДА, кроме явного `-radiator` в списке: иначе фото-рендер и живая 3D расходятся
+  // шторы окон по умолчанию (`curtains: true` движка: группа `curtains`, не слот декора) идут в выгрузку ВСЕГДА, кроме явного `-curtains`: на странице они есть
+  // у каждого окна, а ключи `textile,…` ловят только шторы-СЛОТЫ декора (T-20261117-16/2, владелец: «в спальне нет штор»)
+  const noCur = keys && keys.includes('-curtains');
   const noRad = keys && keys.includes('-radiator');
-  const pick = info.nodes.filter((n) => n.visible && n.type === 'Mesh' && !noGeom.has(n.slot) && ((n.slot === 'radiator' && !noRad) || !keys || keys.some((k) => k === 'rod'
+  const pick = info.nodes.filter((n) => n.visible && n.type === 'Mesh' && !noGeom.has(n.slot) && ((n.slot === 'radiator' && !noRad) || (n.chain.includes('curtains') && !noCur) || !keys || keys.some((k) => k === 'rod'
     ? n.chain.includes('fixtures:') && n.min[1] > 2.0 && n.max[1] < 2.69 : k === 'plant' ? n.plant : (n.slot + '|' + n.chain).includes(k)))).map((n) => n.uuid);
   console.log('выгружаю узлов', pick.length);
   const b64 = await page.evaluate((u) => window.exportNodes(u), pick);
