@@ -29,6 +29,7 @@ REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
 PROBE = os.path.join(HERE, 'cycles_probe')
 PRESET_FILE = os.path.join(PROBE, 'render-preset.json')
 CAMS = ('C1', 'C2')
+sys.path.append(os.path.join(HERE, 'render_gpu'))     # jobs_proto (протокол заданий машины рендера); render_machine — через LocalMachine
 
 
 class RenderError(Exception):
@@ -181,10 +182,11 @@ def skipped_meshes(text: str) -> list:
     return sorted({m.group(1).strip() for m in _re.finditer(r'scene3d: (.+?) пропущен \(', text) if not m.group(1).startswith('вид за проёмом')})
 
 
-class LocalCpuExecutor:
-    """Blender Cycles на процессоре DEV под общей очередью тяжёлых прогонов (`heavy_slot`): задание держит слот на ВЕСЬ путь
-    (сцена + оба кадра) — между шагами память и ядра не отдаём, чтобы пара не растянулась из-за чужих прогонов."""
-    name = 'local-cpu'
+class SceneExecutor:
+    """Общая часть исполнителей (T-20261117-24/2): сборка сцены ПО СНИМКУ (меши и камеры, декор и отделка движком страницы) и сохранение результата
+    (JPEG + meta подменой каталога). Одна и та же для процессора DEV и для машины на Salad — правило сборки сцены одно, различается только то,
+    ГДЕ считается Blender (`LocalCpuExecutor`, `SaladGpuExecutor`)."""
+    name = 'base'
 
     def __init__(self, env=os.environ):
         self.blender = env.get('RENDER_BLENDER') or os.path.expanduser('~/opt/blender-5.3.0-linux-x64/blender')
@@ -217,71 +219,44 @@ class LocalCpuExecutor:
                 shutil.rmtree(os.path.join(self.work, old), ignore_errors=True)
         return out
 
-    def render(self, snap: dict, out_dir: str, progress) -> dict:
-        import render_snapshot as RS
-        pr = preset()
+    def _prepare(self, snap: dict, job: str, log: str, pr: dict, progress, timing: dict) -> str:
+        """Шаги 1–2: данные варианта → `export_scene.py` (job/scene) → `demo_scene_dump.mjs` (job/dump). → каталог dump."""
         lim = pr['limits']
-        if not os.path.isfile(self.blender):
-            raise ExecutorUnavailable('render_unavailable', 'Рендер сейчас недоступен. Попробуйте позже.', 'Rendering is unavailable right now. Try again later.')
-        sys.path.insert(0, os.path.join(REPO, 'tools', 'ops'))
-        import heavy_slot as HS
-        job = os.path.join(self.work, 'job-' + snap['scene_hash'][:16])
-        shutil.rmtree(job, ignore_errors=True)
-        os.makedirs(job)
-        log = os.path.join(job, 'run.log')
-        t0, timing = time.time(), {}
-        with HS.heavy_slot('photo-render-' + snap['scene_hash'][:8], min_gb=pr['min_gb'], cores=pr['cores'], prio=1) as hs:
-            timing['slot_wait'] = round(float(hs.get('waited_s', 0)), 1) if isinstance(hs, dict) else 0
-            t1 = time.time()
-            # 1) данные одного варианта → меши и камеры
-            data = {'room': snap['room'], 'rooms_geo': {snap['variant'].get('room_id') or 'living': snap['room']},
-                    'rules': snap.get('rules') or {}, 'apartment_id': snap['brief'].get('apartment'), 'build': snap['brief'].get('build'),
-                    'variants': [snap['variant']]}
-            data_path = os.path.join(job, 'data.json')
-            json.dump(data, open(data_path, 'w', encoding='utf-8'), ensure_ascii=False)
-            progress('scene')
-            env = {'PYTHONPATH': os.pathsep.join([os.path.join(REPO, 'tools', 'scout'), os.path.join(REPO, 'services', 'planner-solver')])}
-            # МЕШ НЕ ПРОПУСКАЕМ МОЛЧА (T-20261117-19/2: в set4 диван выпал из кадра, подушка повисла в воздухе, а рендер «получился»): экспорт при сбое
-            # меша печатает «<роль> пропущен» и идёт дальше. Один повтор (GLB уже докачан в кэш) — и если предмет снова пропущен, отказ ДО Blender'а
-            for attempt in (1, 2):
-                pos = os.path.getsize(log) if os.path.exists(log) else 0
-                run_step([self.python, os.path.join(PROBE, 'export_scene.py'), '--out', job, '--scene', 'scene=0', '--data', data_path], log,
-                         lim['exportSec'], lim['maxRssGb'], env=env, cwd=os.path.join(REPO, 'tools', 'scout'), what='меши и камеры')
-                miss = skipped_meshes(open(log, encoding='utf-8', errors='replace').read()[pos:])
-                if not miss:
-                    break
-                print(f'рендер: меш не взят ({", ".join(miss)}), попытка {attempt}', flush=True)
-            if miss:
-                raise RenderError('mesh_missing', 'Не удалось загрузить модель мебели для фото. Нажмите «Повторить».',
-                                  'A furniture model could not be loaded for the photo. Press "Retry".')
-            timing['export'] = round(time.time() - t1, 1)
-            t1 = time.time()
-            # 2) сцена движком страницы → декор и отделка
-            bundle = self._bundle(log)
-            dump = os.path.join(job, 'dump')
-            run_step([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), data_path, '0', bundle, dump, 'export=' + pr['dumpExport']], log,
-                     lim['dumpSec'], lim['maxRssGb'], what='декор и отделка')
-            timing['dump'] = round(time.time() - t1, 1)
-            # 3) Blender по кадру на ракурс
-            outs = {}
-            for cam in CAMS:
-                progress(cam)
-                t1 = time.time()
-                png = os.path.join(job, f'{cam}.png')
-                cmd = [self.blender, '-b', '-P', os.path.join(PROBE, 'render_cycles.py'), '--', '--scene-dir', os.path.join(job, 'scene'),
-                       '--cam', cam, '--out', png, '--samples', str(pr['samples']), '--pct', str(pr['pct']), '--threads', str(pr['threads']),
-                       '--demo-glb', os.path.join(dump, 'demo_nodes.glb'), '--demo-nodes', os.path.join(dump, 'demo_nodes_uuids.json'),
-                       '--export', os.path.join(dump, 'scene-export.json'), '--public', self.public, *pr['flags']]
-                run_step(cmd, log, lim['blenderSecPerFrame'], lim['maxRssGb'], what=f'кадр {cam}')
-                if not os.path.isfile(png):
-                    raise RenderError('render_failed', 'Рендер не дал кадра. Нажмите «Повторить».', 'The render produced no frame. Press "Retry".')
-                timing[cam] = round(time.time() - t1, 1)
-                outs[cam] = png
-            if _dir_mb(job) > lim['maxJobDiskMb']:
-                raise RenderError('render_failed', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
-        # 4) JPEG и мета — каталогом по ключу (подменой, meta последней)
-        progress('save')
-        from PIL import Image
+        t1 = time.time()
+        # 1) данные одного варианта → меши и камеры
+        data = {'room': snap['room'], 'rooms_geo': {snap['variant'].get('room_id') or 'living': snap['room']},
+                'rules': snap.get('rules') or {}, 'apartment_id': snap['brief'].get('apartment'), 'build': snap['brief'].get('build'),
+                'variants': [snap['variant']]}
+        data_path = os.path.join(job, 'data.json')
+        json.dump(data, open(data_path, 'w', encoding='utf-8'), ensure_ascii=False)
+        progress('scene')
+        env = {'PYTHONPATH': os.pathsep.join([os.path.join(REPO, 'tools', 'scout'), os.path.join(REPO, 'services', 'planner-solver')])}
+        # МЕШ НЕ ПРОПУСКАЕМ МОЛЧА (T-20261117-19/2: в set4 диван выпал из кадра, подушка повисла в воздухе, а рендер «получился»): экспорт при сбое
+        # меша печатает «<роль> пропущен» и идёт дальше. Один повтор (GLB уже докачан в кэш) — и если предмет снова пропущен, отказ ДО Blender'а
+        for attempt in (1, 2):
+            pos = os.path.getsize(log) if os.path.exists(log) else 0
+            run_step([self.python, os.path.join(PROBE, 'export_scene.py'), '--out', job, '--scene', 'scene=0', '--data', data_path], log,
+                     lim['exportSec'], lim['maxRssGb'], env=env, cwd=os.path.join(REPO, 'tools', 'scout'), what='меши и камеры')
+            miss = skipped_meshes(open(log, encoding='utf-8', errors='replace').read()[pos:])
+            if not miss:
+                break
+            print(f'рендер: меш не взят ({", ".join(miss)}), попытка {attempt}', flush=True)
+        if miss:
+            raise RenderError('mesh_missing', 'Не удалось загрузить модель мебели для фото. Нажмите «Повторить».',
+                              'A furniture model could not be loaded for the photo. Press "Retry".')
+        timing['export'] = round(time.time() - t1, 1)
+        t1 = time.time()
+        # 2) сцена движком страницы → декор и отделка
+        bundle = self._bundle(log)
+        dump = os.path.join(job, 'dump')
+        run_step([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), data_path, '0', bundle, dump, 'export=' + pr['dumpExport']], log,
+                 lim['dumpSec'], lim['maxRssGb'], what='декор и отделка')
+        timing['dump'] = round(time.time() - t1, 1)
+        return dump
+
+    def _finish(self, snap: dict, outs: dict, out_dir: str, pr: dict, timing: dict, t0: float, job: str) -> dict:
+        """Шаг 4: JPEG и мета — каталогом по ключу (подменой, meta последней); стадия `save` объявлена вызывающим."""
+        from PIL import Image  # noqa: F811
         tmp = out_dir + '.tmp'
         shutil.rmtree(tmp, ignore_errors=True)
         os.makedirs(tmp)
@@ -302,20 +277,282 @@ class LocalCpuExecutor:
         return {'timing': timing}
 
 
-class SaladGpuExecutor:
-    """Машина рендера на Salad (отдельный план директора): тот же вход и выход. Пока адрес машины не задан (`RENDER_SALAD_URL`) —
-    `ExecutorUnavailable`, и запасной путь (`Fallback`) уходит на процессор DEV без вмешательства очереди."""
-    name = 'salad-gpu'
-
-    def __init__(self, env=os.environ):
-        self.url = (env.get('RENDER_SALAD_URL') or '').rstrip('/')
-
-    def versions(self) -> dict:
-        return {'executor': self.name}
+class LocalCpuExecutor(SceneExecutor):
+    """Blender Cycles на процессоре DEV под общей очередью тяжёлых прогонов (`heavy_slot`): задание держит слот на ВЕСЬ путь
+    (сцена + оба кадра) — между шагами память и ядра не отдаём, чтобы пара не растянулась из-за чужих прогонов."""
+    name = 'local-cpu'
 
     def render(self, snap: dict, out_dir: str, progress) -> dict:
-        raise ExecutorUnavailable('gpu_unavailable', 'Машина рендера занята. Считаем на запасной — будет дольше.',
-                                  'The render machine is busy. Using the backup — it will take longer.')
+        import render_snapshot as RS  # noqa: F401
+        pr = preset()
+        lim = pr['limits']
+        if not os.path.isfile(self.blender):
+            raise ExecutorUnavailable('render_unavailable', 'Рендер сейчас недоступен. Попробуйте позже.', 'Rendering is unavailable right now. Try again later.')
+        sys.path.insert(0, os.path.join(REPO, 'tools', 'ops'))
+        import heavy_slot as HS
+        job = os.path.join(self.work, 'job-' + snap['scene_hash'][:16])
+        shutil.rmtree(job, ignore_errors=True)
+        os.makedirs(job)
+        log = os.path.join(job, 'run.log')
+        t0, timing = time.time(), {}
+        with HS.heavy_slot('photo-render-' + snap['scene_hash'][:8], min_gb=pr['min_gb'], cores=pr['cores'], prio=1) as hs:
+            timing['slot_wait'] = round(float(hs.get('waited_s', 0)), 1) if isinstance(hs, dict) else 0
+            dump = self._prepare(snap, job, log, pr, progress, timing)
+            # 3) Blender по кадру на ракурс
+            outs = {}
+            for cam in CAMS:
+                progress(cam)
+                t1 = time.time()
+                png = os.path.join(job, f'{cam}.png')
+                cmd = [self.blender, '-b', '-P', os.path.join(PROBE, 'render_cycles.py'), '--', '--scene-dir', os.path.join(job, 'scene'),
+                       '--cam', cam, '--out', png, '--samples', str(pr['samples']), '--pct', str(pr['pct']), '--threads', str(pr['threads']),
+                       '--demo-glb', os.path.join(dump, 'demo_nodes.glb'), '--demo-nodes', os.path.join(dump, 'demo_nodes_uuids.json'),
+                       '--export', os.path.join(dump, 'scene-export.json'), '--public', self.public, *pr['flags']]
+                run_step(cmd, log, lim['blenderSecPerFrame'], lim['maxRssGb'], what=f'кадр {cam}')
+                if not os.path.isfile(png):
+                    raise RenderError('render_failed', 'Рендер не дал кадра. Нажмите «Повторить».', 'The render produced no frame. Press "Retry".')
+                timing[cam] = round(time.time() - t1, 1)
+                outs[cam] = png
+            if _dir_mb(job) > lim['maxJobDiskMb']:
+                raise RenderError('render_failed', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
+        progress('save')
+        return self._finish(snap, outs, out_dir, pr, timing, t0, job)
+
+
+class LocalMachine:
+    """Связь исполнителя с контроллером машины рендера (`render_gpu/render_machine.py`): состояние — чтение файла `state.json` (без Salad и без
+    блокировки: запись подменой), событие заказа — `pulse`. Подменяется в тестах."""
+
+    def __init__(self):
+        import render_machine as RM
+        self.RM = RM
+
+    def rules(self) -> dict:
+        return self.RM.load_rules()
+
+    def state(self) -> dict:
+        try:
+            return json.load(open(os.path.join(self.RM.STATE_DIR, 'state.json'), encoding='utf-8'))
+        except (OSError, ValueError):
+            return {}
+
+    def pulse(self, busy_s: float = 0.0) -> None:
+        self.RM.pulse(busy_s)
+
+
+# причина «машина не годна» → (код, RU, EN): текст — владельцу на странице («честное ожидание на запасной», без «ошибки»)
+GATE_TEXT = {
+    'off': ('gpu_off', 'Машина рендера выключена. Считаем на запасной — будет дольше.', 'The render machine is off. Using the backup — it will take longer.'),
+    'warming': ('gpu_warming', 'Машина рендера ещё прогревается. Считаем на запасной — будет дольше.',
+                'The render machine is still warming up. Using the backup — it will take longer.'),
+    'degraded': ('gpu_degraded', 'Машина рендера не отвечает. Считаем на запасной — будет дольше.', 'The render machine is not responding. Using the backup — it will take longer.'),
+    'controller_silent': ('gpu_degraded', 'Машина рендера не отвечает. Считаем на запасной — будет дольше.',
+                          'The render machine is not responding. Using the backup — it will take longer.'),
+}
+GPU_FAILED = ('Машина рендера не справилась. Считаем на запасной — будет дольше.', 'The render machine failed. Using the backup — it will take longer.')
+
+
+class SaladGpuExecutor(SceneExecutor):
+    """Машина рендера на Salad (T-20261117-24/2): сцена собирается на DEV тем же правилом, что у `local-cpu` (`SceneExecutor._prepare`), уходит пакетом
+    в хранилище приёмника (`renderjobs/<задание>/`), воркер на машине (`render_gpu/render_worker.py`) считает ПАРУ ракурсов одним Blender
+    (`--cam C1,C2 --persistent 1`) и кладёт кадры обратно; исполнитель их забирает и сохраняет как `local-cpu` (JPEG + meta). Ход % — те же стадии
+    (`scene`, `C1`, `C2`, `save`): стадии C1/C2 — по `progress.json` воркера.
+    Машина не включена/не прогрелась/не отвечает/не взяла задание/сбой — `ExecutorUnavailable` (решение — ДАННЫМИ из `state.json` контроллера и
+    ответов воркера), запасной путь решает `Fallback`. Автостоп машины от последнего события: заказ и конец пары зовут `pulse`; пока пара в работе,
+    ждущий исполнитель продлевает «занято» (`pulse --busy`)."""
+    name = 'salad-gpu'
+
+    def __init__(self, env=os.environ, sink=None, machine=None, clock=time.time, sleep=time.sleep):
+        super().__init__(env)
+        self.env, self._sink, self._machine, self.now, self.sleep = env, sink, machine, clock, sleep
+
+    # ——— зависимости (лениво: DEV без машины рендера не должен падать при создании исполнителя)
+    def machine(self):
+        if self._machine is None:
+            self._machine = LocalMachine()
+        return self._machine
+
+    def sink(self):
+        if self._sink is None:
+            sys.path.append(os.path.join(HERE, 'salad'))
+            import jobs_proto as JP
+            tok = self.env.get('RENDER_SINK_TOKEN') or self.env.get('MESH_SINK_TOKEN') or ''
+            base = self.env.get('RENDER_SINK_URL') or self.env.get('MESH_SINK_URL') or 'https://remont-lab.online/mesh-sink'
+            if not tok:
+                try:
+                    import migrate_groups
+                    import sink_health
+                    migrate_groups.env_from_file()      # ключ Salad и SALAD_GROUP — из salad.env (вне git), как у сторожей; токен приёмника — из группы-донора
+                    tok = sink_health.sink_token()
+                except Exception:  # noqa: BLE001 — нет токена = нет хранилища = запасной путь
+                    tok = ''
+            if not tok:
+                raise ExecutorUnavailable('gpu_no_sink', *GATE_TEXT['degraded'][1:])
+            self._sink = JP.Sink(base, tok)
+        return self._sink
+
+    def gate(self) -> dict:
+        """Годна ли машина СЕЙЧАС (данные контроллера) → правила; иначе `ExecutorUnavailable` с парой RU/EN."""
+        import jobs_proto as JP
+        m = self.machine()
+        rules = m.rules()
+        ok, why = JP.machine_verdict(m.state(), self.now(), rules)
+        if not ok:
+            raise ExecutorUnavailable(*GATE_TEXT.get(why, GATE_TEXT['degraded']))
+        return rules
+
+    def _slot(self, label: str, pr: dict):
+        """Общая очередь тяжёлых прогонов — только на сборку сцены на DEV (ожидание машины рендера процессор DEV не занимает)."""
+        sys.path.insert(0, os.path.join(REPO, 'tools', 'ops'))
+        import heavy_slot as HS
+        return HS.heavy_slot(label, min_gb=pr['min_gb'], cores=2, prio=1)
+
+    def _gpu_unavailable(self, code: str) -> ExecutorUnavailable:
+        return ExecutorUnavailable(code, *GPU_FAILED)
+
+    def _bundle_files(self, job: str) -> dict:
+        """Состав пакета: сцена, декор/отделка, программа рендера и её данные, карты материалов, на которые ссылается отделка."""
+        dump = os.path.join(job, 'dump')
+        files = {'scene': os.path.join(job, 'scene'),
+                 'tools/scout/cycles_probe/render_cycles.py': os.path.join(PROBE, 'render_cycles.py'),
+                 'data/flat3d/wall-art.json': os.path.join(REPO, 'data', 'flat3d', 'wall-art.json')}
+        for n in ('demo_nodes.glb', 'demo_nodes_uuids.json', 'scene-export.json'):
+            files['dump/' + n] = os.path.join(dump, n)
+        try:
+            exp = json.load(open(os.path.join(dump, 'scene-export.json'), encoding='utf-8'))
+        except (OSError, ValueError):
+            exp = {}
+        seen, stack = set(), [exp]
+        while stack:                                     # карты — любые строки-пути в отделке, которые есть в public/
+            v = stack.pop()
+            if isinstance(v, dict):
+                stack.extend(v.values())
+            elif isinstance(v, list):
+                stack.extend(v)
+            elif isinstance(v, str) and v.startswith('/') and len(v) < 200 and v not in seen:
+                seen.add(v)
+                p = os.path.normpath(os.path.join(self.public, v.lstrip('/')))
+                if p.startswith(self.public + os.sep) and os.path.isfile(p):
+                    files['public/' + v.lstrip('/')] = p
+        return files
+
+    def render(self, snap: dict, out_dir: str, progress) -> dict:
+        import jobs_proto as JP
+        pr = preset()
+        rules = self.gate()
+        ex = rules.get('executor') or {}
+        busy_s, poll_s = float(ex.get('busy_s', 90)), float(ex.get('poll_s', 3))
+        pickup_s, pair_max_s = float(ex.get('pickup_s', 90)), float(ex.get('pair_max_s', 900))
+        sink = self.sink()
+        m = self.machine()
+        job = os.path.join(self.work, 'gjob-' + snap['scene_hash'][:16])
+        shutil.rmtree(job, ignore_errors=True)
+        os.makedirs(job)
+        log = os.path.join(job, 'run.log')
+        t0, timing = self.now(), {}
+        jid = f"{snap['scene_hash'][:12]}-{int(t0)}"
+        m.pulse(busy_s=600)            # ЗАКАЗ = событие: отсчёт простоя с этого момента, и пока задание в работе — машину не гасим
+        try:
+            with self._slot('photo-render-' + snap['scene_hash'][:8], pr) as hs:
+                timing['slot_wait'] = round(float(hs.get('waited_s', 0)), 1) if isinstance(hs, dict) else 0
+                self._prepare(snap, job, log, pr, progress, timing)
+            t1 = self.now()
+            tgz = os.path.join(job, 'bundle.tgz')
+            sha = JP.pack_bundle(self._bundle_files(job), tgz)
+            bundle = f'bundle-{sha}.tgz'
+            timing['pack'] = round(self.now() - t1, 1)
+            cap_mb = float(ex.get('bundle_max_mb', 95))      # приёмник и Caddy не примут больше (Caddy режет тело на 100 МБ): откат на CPU сразу и с понятной причиной
+            if os.path.getsize(tgz) > cap_mb * 2 ** 20:
+                print(f'рендер: пакет сцены {os.path.getsize(tgz) / 2 ** 20:.0f} МБ > {cap_mb:g} МБ — на машину не отдаём', flush=True)
+                raise self._gpu_unavailable('gpu_bundle_big') from None
+            t1 = self.now()
+            try:
+                sink.put_file(f'{JP.PREFIX}/{jid}/{bundle}', tgz)
+                jobj = JP.new_job(jid, bundle, sha, ['--samples', pr['samples'], '--pct', pr['pct'], '--threads', pr['threads'], *pr['flags']],
+                                  {'blenderSec': pr['limits']['blenderSecPerFrame']}, now=self.now())
+                sink.put(f'{JP.PREFIX}/{jid}/job.json', json.dumps(jobj, ensure_ascii=False).encode())       # ПОСЛЕДНИМ
+            except JP.SinkError as e:
+                print(f'рендер: хранилище не приняло пакет: {e}', flush=True)
+                raise self._gpu_unavailable('gpu_upload') from None
+            timing['upload'] = round(self.now() - t1, 1)
+            res = self._wait(sink, m, jid, progress, busy_s, poll_s, pickup_s, pair_max_s)
+            t1 = self.now()
+            outs = {}
+            try:
+                for cam in CAMS:
+                    png = os.path.join(job, f'{cam}.png')
+                    sink.get_to(f'{JP.PREFIX}/{jid}/{cam}.png', png)
+                    outs[cam] = png
+            except JP.SinkError as e:
+                print(f'рендер: кадры не скачались: {e}', flush=True)
+                raise self._gpu_unavailable('gpu_download') from None
+            timing['download'] = round(self.now() - t1, 1)
+            for k, v in (res.get('timing') or {}).items():          # C1, C2, fetch, render — как у local-cpu (кадры), плюс загрузка сцены машиной
+                if isinstance(v, (int, float)):
+                    timing[k] = v
+            print(f"рендер: пара на машине, устройство {res.get('device')}, {timing.get('render')} с Blender", flush=True)
+            return self._finish(snap, outs, out_dir, pr, timing, t0, job)
+        finally:
+            shutil.rmtree(job, ignore_errors=True)
+            try:
+                sink.delete(f'{JP.PREFIX}/{jid}')      # своё задание убираем сразу (место общее с мешами); не вышло — уберёт jobs_purge по сроку
+            except Exception:  # noqa: BLE001
+                pass
+            m.pulse(0)                 # конец пары (или отказ) — тоже событие; «занято» снято, до автостопа 20 мин от этого момента
+
+    def _wait(self, sink, m, jid: str, progress, busy_s: float, poll_s: float, pickup_s: float, pair_max_s: float) -> dict:
+        """Ждать result.json: ход — по progress.json воркера; не взяли за pickup_s / не уложились в pair_max_s / машину выключили — снять задание
+        (`cancel.json`) и `ExecutorUnavailable`. Пока ждём — продлеваем «занято» (автостоп не сработает)."""
+        import jobs_proto as JP
+        t0 = last_beat = self.now()
+        stage = None
+        while True:
+            now = self.now()
+            if now - last_beat >= 15:
+                m.pulse(busy_s=busy_s)
+                last_beat = now
+            try:
+                res = sink.get_json(f'{JP.PREFIX}/{jid}/result.json')
+            except JP.SinkError as e:
+                res = None
+                if e.code not in (0, 404, 500, 502, 503, 504):
+                    raise self._gpu_unavailable('gpu_result') from None
+            if res is not None:
+                if not res.get('ok'):
+                    code = (res.get('error') or {}).get('code') or 'failed'
+                    print(f"рендер: машина не справилась ({code}): {res.get('note') or res.get('tail') or ''}", flush=True)
+                    raise self._gpu_unavailable(code if code.startswith('gpu_') else 'gpu_' + code)
+                if stage != 'save':
+                    progress('save')
+                return res
+            try:
+                pg = sink.get_json(f'{JP.PREFIX}/{jid}/progress.json')
+            except JP.SinkError:
+                pg = None
+            if pg and pg.get('stage') in ('C1', 'C2', 'save') and pg['stage'] != stage:
+                stage = pg['stage']
+                progress(stage)
+            elapsed = now - t0
+            why = ''
+            if pg is None and elapsed > pickup_s:
+                why = 'gpu_no_pickup'
+            elif elapsed > pair_max_s:
+                why = 'gpu_timeout'
+            else:
+                try:
+                    ok, reason = JP.machine_verdict(m.state(), now, m.rules())
+                except Exception:  # noqa: BLE001
+                    ok, reason = True, 'ready'
+                if not ok and reason == 'off':
+                    why = 'gpu_off'
+            if why:
+                print(f'рендер: {why} через {elapsed:.0f} с — снимаю задание, запасной путь', flush=True)
+                try:
+                    sink.put(f'{JP.PREFIX}/{jid}/cancel.json', json.dumps({'why': why, 'ts': now}).encode())
+                except JP.SinkError:
+                    pass
+                raise self._gpu_unavailable(why)
+            self.sleep(poll_s)
 
 
 class Fallback:
