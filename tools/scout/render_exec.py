@@ -142,7 +142,7 @@ def run_step(cmd: list, log_path: str, timeout_s: float, max_rss_gb: float, env:
         t0 = time.time()
         reason = ''
         while proc.poll() is None:
-            time.sleep(1.0)
+            time.sleep(0.2)      # было 1 с: до секунды на каждый шаг (T-24/4)
             if time.time() - t0 > timeout_s:
                 reason = f'время вышло ({int(timeout_s)} с)'
             elif tree_rss_gb(proc.pid) > max_rss_gb:
@@ -231,28 +231,84 @@ class SceneExecutor:
         json.dump(data, open(data_path, 'w', encoding='utf-8'), ensure_ascii=False)
         progress('scene')
         env = {'PYTHONPATH': os.pathsep.join([os.path.join(REPO, 'tools', 'scout'), os.path.join(REPO, 'services', 'planner-solver')])}
-        # МЕШ НЕ ПРОПУСКАЕМ МОЛЧА (T-20261117-19/2: в set4 диван выпал из кадра, подушка повисла в воздухе, а рендер «получился»): экспорт при сбое
-        # меша печатает «<роль> пропущен» и идёт дальше. Один повтор (GLB уже докачан в кэш) — и если предмет снова пропущен, отказ ДО Blender'а
-        for attempt in (1, 2):
-            pos = os.path.getsize(log) if os.path.exists(log) else 0
-            run_step([self.python, os.path.join(PROBE, 'export_scene.py'), '--out', job, '--scene', 'scene=0', '--data', data_path], log,
-                     lim['exportSec'], lim['maxRssGb'], env=env, cwd=os.path.join(REPO, 'tools', 'scout'), what='меши и камеры')
-            miss = skipped_meshes(open(log, encoding='utf-8', errors='replace').read()[pos:])
-            if not miss:
-                break
-            print(f'рендер: меш не взят ({", ".join(miss)}), попытка {attempt}', flush=True)
-        if miss:
-            raise RenderError('mesh_missing', 'Не удалось загрузить модель мебели для фото. Нажмите «Повторить».',
-                              'A furniture model could not be loaded for the photo. Press "Retry".')
-        timing['export'] = round(time.time() - t1, 1)
-        t1 = time.time()
-        # 2) сцена движком страницы → декор и отделка
         bundle = self._bundle(log)
         dump = os.path.join(job, 'dump')
-        run_step([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), data_path, '0', bundle, dump, 'export=' + pr['dumpExport']], log,
-                 lim['dumpSec'], lim['maxRssGb'], what='декор и отделка')
-        timing['dump'] = round(time.time() - t1, 1)
+        dlog = log + '.dump'
+        # ЭКСПОРТ МЕШЕЙ и ДАМП СЦЕНЫ независимы (оба читают только data.json) — идут ПАРАЛЛЕЛЬНО (T-24/4: 22 + 9 с → max). Журналы раздельные:
+        # «пропущен» читается только из журнала экспорта
+        timing_d = {}
+
+        def do_dump():
+            t2 = time.time()
+            self._dump_cached(data_path, bundle, dump, dlog, pr, lim)
+            timing_d['dump'] = round(time.time() - t2, 1)
+
+        def do_export():
+            # МЕШ НЕ ПРОПУСКАЕМ МОЛЧА (T-20261117-19/2: в set4 диван выпал из кадра, подушка повисла в воздухе, а рендер «получился»): экспорт при сбое
+            # меша печатает «<роль> пропущен» и идёт дальше. Один повтор (GLB уже докачан в кэш) — и если предмет снова пропущен, отказ ДО Blender'а
+            miss = []
+            for attempt in (1, 2):
+                pos = os.path.getsize(log) if os.path.exists(log) else 0
+                run_step([self.python, os.path.join(PROBE, 'export_scene.py'), '--out', job, '--scene', 'scene=0', '--data', data_path], log,
+                         lim['exportSec'], lim['maxRssGb'], env=env, cwd=os.path.join(REPO, 'tools', 'scout'), what='меши и камеры')
+                miss = skipped_meshes(open(log, encoding='utf-8', errors='replace').read()[pos:])
+                if not miss:
+                    break
+                print(f'рендер: меш не взят ({", ".join(miss)}), попытка {attempt}', flush=True)
+            if miss:
+                raise RenderError('mesh_missing', 'Не удалось загрузить модель мебели для фото. Нажмите «Повторить».',
+                                  'A furniture model could not be loaded for the photo. Press "Retry".')
+
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            fe, fd = ex.submit(do_export), ex.submit(do_dump)
+            errs = [f.exception() for f in (fe, fd)]
+        for e in errs:
+            if e is not None:
+                raise e
+        timing['export'] = round(time.time() - t1, 1)      # оба шага параллельно: стена времени
+        timing['dump'] = timing_d.get('dump', 0.0)
+        try:
+            with open(log, 'ab') as lf, open(dlog, 'rb') as df:
+                lf.write(df.read())
+            os.remove(dlog)
+        except OSError:
+            pass
         return dump
+
+    def _dump_cached(self, data_path: str, bundle: str, dump: str, dlog: str, pr: dict, lim: dict) -> None:
+        """Дамп сцены (Chromium, ~9 с) — кэш по хешу входа: данные варианта + сборка выгрузчика + режим. Повтор того же варианта — копия файлов (жёсткие ссылки)."""
+        h = hashlib.sha256(open(data_path, 'rb').read() + b'|' + os.path.basename(bundle).encode() + b'|' + str(pr['dumpExport']).encode()).hexdigest()[:24]
+        root = os.environ.get('RENDER_DUMP_CACHE') or os.path.expanduser('~/scout-cache/render-dump')
+        hit = os.path.join(root, h)
+        if os.path.isfile(os.path.join(hit, '.ok')):
+            os.makedirs(dump, exist_ok=True)
+            for f in os.listdir(hit):
+                if f != '.ok':
+                    try:
+                        os.link(os.path.join(hit, f), os.path.join(dump, f))
+                    except OSError:
+                        shutil.copyfile(os.path.join(hit, f), os.path.join(dump, f))
+            os.utime(os.path.join(hit, '.ok'))
+            return
+        run_step([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), data_path, '0', bundle, dump, 'export=' + pr['dumpExport']], dlog,
+                 lim['dumpSec'], lim['maxRssGb'], what='декор и отделка')
+        try:
+            tmp = f'{hit}.{os.getpid()}.tmp'
+            shutil.rmtree(tmp, ignore_errors=True)
+            os.makedirs(tmp)
+            for f in os.listdir(dump):
+                shutil.copyfile(os.path.join(dump, f), os.path.join(tmp, f))
+            open(os.path.join(tmp, '.ok'), 'w').close()
+            shutil.rmtree(hit, ignore_errors=True)
+            os.replace(tmp, hit)
+            # держим 60 последних (по `.ok`), остальное — прочь
+            ents = sorted((e for e in os.scandir(root) if e.is_dir() and not e.name.endswith('.tmp')),
+                          key=lambda e: os.path.getmtime(os.path.join(e.path, '.ok')) if os.path.isfile(os.path.join(e.path, '.ok')) else 0, reverse=True)
+            for e in ents[60:]:
+                shutil.rmtree(e.path, ignore_errors=True)
+        except OSError:
+            pass
 
     def _finish(self, snap: dict, outs: dict, out_dir: str, pr: dict, timing: dict, t0: float, job: str) -> dict:
         """Шаг 4: JPEG и мета — каталогом по ключу (подменой, meta последней); стадия `save` объявлена вызывающим."""

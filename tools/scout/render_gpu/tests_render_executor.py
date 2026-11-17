@@ -387,6 +387,44 @@ left = sorted(os.listdir(cd))
 ok('кэш пакетов ограничен по числу: остаются 3, текущий (самый старый по времени) не тронут', len(left) == 3 and 'bundle-0.tgz' in left and 'bundle-5.tgz' in left and len(gone) == 3)
 gone = RW.trim_cache(cd, 'bundle-5.tgz', max_n=10, max_gb=2500 / 2 ** 30)
 ok('кэш ограничен по размеру', sum(os.path.getsize(os.path.join(cd, f)) for f in os.listdir(cd)) <= 2500 and 'bundle-5.tgz' in os.listdir(cd))
+# ═══ 12. T-24/4 Э1: кэш PNG по содержимому, кэш дампа, ожидание шагов
+import importlib.util
+spec = importlib.util.spec_from_file_location('export_scene_t', os.path.join(HERE, '..', 'cycles_probe', 'export_scene.py'))
+ES = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ES)
+import numpy as np
+from PIL import Image
+ES.TEX_CACHE = os.path.join(TMP, 'texcache')
+arr = (np.arange(64 * 48 * 3) % 251).astype(np.uint8).reshape(48, 64, 3)
+d1, d2 = os.path.join(TMP, 'tx1.png'), os.path.join(TMP, 'tx2.png')
+ES.put_png(arr, d1)
+n_cache = len(os.listdir(ES.TEX_CACHE))
+ES.put_png(arr.copy(), d2)
+ok('PNG: тот же набор пикселей — один файл кэша, второй раз не кодируем', n_cache == 1 and len(os.listdir(ES.TEX_CACHE)) == 1 and os.stat(d1).st_ino == os.stat(d2).st_ino)
+ok('PNG: пиксели без потерь (как кодировал бы Image.save)', (np.asarray(Image.open(d1).convert('RGB')) == arr).all())
+ES.put_png(arr[:, ::-1], os.path.join(TMP, 'tx3.png'))
+ok('PNG: другое содержимое — другой файл кэша', len(os.listdir(ES.TEX_CACHE)) == 2)
+
+ex2 = RE.SaladGpuExecutor({}, sink=None)
+calls = []
+orig_rs = RE.run_step
+def fake_step(cmd, log, *a, **k):
+    calls.append(cmd[1] if len(cmd) > 1 else cmd)
+    dd = cmd[5]
+    os.makedirs(dd, exist_ok=True)
+    open(os.path.join(dd, 'scene-export.json'), 'w').write('{"x": 1}')
+RE.run_step = fake_step
+os.environ['RENDER_DUMP_CACHE'] = os.path.join(TMP, 'dumpcache')
+dp = os.path.join(TMP, 'data.json'); open(dp, 'w').write('{"v": 1}')
+bd = os.path.join(TMP, 'bundle-aaa'); os.makedirs(bd, exist_ok=True)
+pr_ = {'dumpExport': 'all'}; lim_ = {'dumpSec': 5, 'maxRssGb': 1}
+ex2._dump_cached(dp, bd, os.path.join(TMP, 'dumpA'), os.path.join(TMP, 'dl.log'), pr_, lim_)
+ex2._dump_cached(dp, bd, os.path.join(TMP, 'dumpB'), os.path.join(TMP, 'dl.log'), pr_, lim_)
+ok('дамп: повтор того же входа берётся из кэша (Chromium не запускаем)', len(calls) == 1 and open(os.path.join(TMP, 'dumpB', 'scene-export.json')).read() == '{"x": 1}')
+open(dp, 'w').write('{"v": 2}')
+ex2._dump_cached(dp, bd, os.path.join(TMP, 'dumpC'), os.path.join(TMP, 'dl.log'), pr_, lim_)
+ok('дамп: другие данные — новый запуск и новая запись кэша', len(calls) == 2 and len([e for e in os.listdir(os.environ['RENDER_DUMP_CACHE']) if not e.endswith('.tmp')]) == 2)
+RE.run_step = orig_rs
 shutil.rmtree(TMP, ignore_errors=True)
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')
 sys.exit(1 if BAD else 0)

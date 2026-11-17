@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import sys
 
 import numpy as np
@@ -26,6 +27,26 @@ os.environ.setdefault('SCENE3D_QUALITY', 'full')
 
 DEMO = os.path.expanduser('~/scout-scenes/flat215-demo/demo-data.json')
 BASE_URL = 'https://remont-lab.online/demo/'
+
+# КЭШ PNG ПО СОДЕРЖИМОМУ (T-20261117-24/4): кодирование 18 текстур давало 18 из 22 с экспорта. Тот же набор пикселей — тот же файл:
+# кэшируется один раз (compress_level 3: вдвое быстрее и на 15 % крупнее уровня 6 по замеру), в сцену — жёсткая ссылка/копия.
+# Холодный путь (новый товар) кодирует как раньше, только быстрее; повтор — 0 с кодирования. Ключ — md5 пикселей + форма (имя в сцене не меняется).
+TEX_CACHE = os.environ.get('RENDER_TEX_CACHE') or os.path.expanduser('~/scout-cache/render-tex')
+PNG_LEVEL = int(os.environ.get('RENDER_PNG_LEVEL', '3'))
+
+
+def put_png(arr, dst):
+    arr = np.ascontiguousarray(np.asarray(arr, np.uint8))
+    c = os.path.join(TEX_CACHE, hashlib.md5(arr.tobytes() + str(arr.shape).encode()).hexdigest() + f'-{PNG_LEVEL}.png')
+    if not os.path.isfile(c):
+        os.makedirs(TEX_CACHE, exist_ok=True)
+        tmp = f'{c}.{os.getpid()}.tmp'
+        Image.fromarray(arr).save(tmp, 'PNG', compress_level=PNG_LEVEL)
+        os.replace(tmp, c)
+    try:
+        os.link(c, dst)
+    except OSError:
+        shutil.copyfile(c, dst)
 
 
 def to_b(p):
@@ -88,7 +109,7 @@ def main_export(D, idx, out):
         h = hashlib.md5(arr.tobytes()).hexdigest()[:12]
         rel = f'tex/{h}.png'
         if h not in tex_seen:
-            Image.fromarray(np.asarray(arr, np.uint8)).save(os.path.join(out, rel))
+            put_png(arr, os.path.join(out, rel))
             tex_seen[h] = list(arr.shape[:2])
         return rel
 
@@ -122,7 +143,7 @@ def main_export(D, idx, out):
         if ph is None:
             return False
         rel = f'tex/rug{len(rugs)}.png'
-        ph.convert('RGB').save(os.path.join(out, rel))
+        put_png(np.asarray(ph.convert('RGB')), os.path.join(out, rel))
         it = place.item
         rugs.append({'role': place.role, 'x': place.x, 'y': place.y, 'rot': float(place.rot or 0), 'w': float(it.w_cm), 'd': float(it.d_cm), 'tex': rel})
         return True
@@ -133,7 +154,7 @@ def main_export(D, idx, out):
                'inner': to_b(np.array(q['inner'])).tolist(), 'tex': None}
         if not mirror and ph is not None:
             rel = f'tex/plane{len(planes)}.png'
-            ph.convert('RGB').save(os.path.join(out, rel))
+            put_png(np.asarray(ph.convert('RGB')), os.path.join(out, rel))
             rec['tex'] = rel
         planes.append(rec)
         return True
