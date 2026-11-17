@@ -70,7 +70,6 @@ ap.add_argument('--brick-bump', type=float, default=0.9, help='рельеф кл
 ap.add_argument('--brick-dist', type=float, default=0.012, help='рельеф кладки: глубина шва, м')
 ap.add_argument('--brick-ao', type=float, default=0.75, help='затенение скана множителем на цвет (0 — выкл)')
 ap.add_argument('--art-guard', type=int, default=1, help='сторож картин: картина без текстуры или белая и почти однотонная (σ яркости центра < --art-sigma) — ошибка кадра с именем товара, кадр не сдаётся')
-ap.add_argument('--art-sigma', type=float, default=8.0, help='сторож картин: порог σ яркости центра картины (0–255); белая — ещё и среднее > 200')
 ap.add_argument('--art-allow-blank', action='store_true', help='сторож картин: не падать, только предупредить (пока белые картины не заменены в данных витрины)')
 ap.add_argument('--live-cam', default='', help='камера живой 3D: live_cam.json из `demo_scene_dump.mjs livecam=…` (положение, взгляд, угол как на странице); позу «Б» и подгонки не применяет')
 ap.add_argument('--live-scale', type=float, default=2.0, help='--live-cam: во сколько раз кадр больше холста страницы (375×667 → 750×1334)')
@@ -736,6 +735,7 @@ if a.demo_glb:
             _titles = {x['slotId']: x.get('title') for x in _si.get('slots', [])}
         except Exception:
             pass
+        _ac = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'data', 'flat3d', 'wall-art.json'), encoding='utf-8'))['art_content']
         _bad = []
         for _slot in sorted(set(x[0] for x in art_nodes)):
             # у картины несколько мешей (рама, полотно): текстура — у полотна; нет ни одной — ошибка
@@ -751,8 +751,10 @@ if a.demo_glb:
             _px = _px.reshape(_h, _w, 4)[:, :, :3]
             _c = _px[int(_h * 0.25):int(_h * 0.75), int(_w * 0.35):int(_w * 0.65)]
             _l = (_c @ np.array([0.2126, 0.7152, 0.0722], np.float32)) * 255.0
-            if _l.std() < a.art_sigma and _l.mean() > 200.0:
-                _bad.append((_slot, f'белое поле, σ яркости центра {_l.std():.1f}, среднее {_l.mean():.0f}'))
+            _chroma = float((_c.max(axis=2) - _c.min(axis=2)).mean() * 255.0)
+            # то же правило, что при отборе в набор (`wall_art.has_content`, данные — `data/flat3d/wall-art.json:art_content`)
+            if _l.std() < _ac['min_sigma'] and _chroma < _ac['min_chroma']:
+                _bad.append((_slot, f'белое поле, σ яркости центра {_l.std():.1f}, цвет {_chroma:.1f}'))
         for _slot, _why in _bad:
             print('СТОРОЖ КАРТИН:', _slot, '·', _titles.get(_slot) or '?', '·', _why)
         if _bad and not a.art_allow_blank:
