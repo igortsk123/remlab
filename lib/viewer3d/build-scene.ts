@@ -7,7 +7,7 @@ import { findRoom } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
 import type { ResolvedScene, ResolvedSurface } from "@/lib/configurator/resolve";
 import { meshUrl } from "@/lib/configurator/mesh-url";
-import { textileRenders } from "@/lib/configurator/textile";
+import { textileInScene, textileRenders } from "@/lib/configurator/textile";
 import { autoTv, baseRole, hungLiftCm } from "@/lib/viewer3d/scene-extras";
 
 export interface RoomSurfaces {
@@ -89,6 +89,8 @@ export type ObjectSpec =
       shape: "curtain" | "throw" | "pillow";
       opening?: number;
       sheer: boolean;
+      /** Без геометрии: прозрачная коробка в месте формы — место ярлыка (`data/flat3d/textile.json:label`), на ней страница рисует фото и цену. */
+      label?: boolean;
       materialId?: string;
     }
   | {
@@ -202,10 +204,12 @@ export function planObjects(
     if (asset.kit === "textile") {
       const tx = a.slots.find((s) => s.id === item.slotId)?.textile;
       if (!tx || (tx.shape === "curtain" && tx.opening === undefined)) continue;   // штора без окна — только в списке
-      if (!textileRenders(tx.shape)) continue;   // форма выключена правилом `data/flat3d/textile.json` — в списке и сумме остаётся, в 3D нет
+      // форма выключена правилом `data/flat3d/textile.json` — геометрии нет; с `label` на её месте стоит МЕСТО-ЯРЛЫК (T-20261117-10:
+      // страница рисует фото и цену), без него — только список и сумма
+      if (!textileInScene(tx.shape)) continue;
       out.push({ kind: "textile", slotId: item.slotId, roomId: item.roomId, titleRu: item.titleRu, placement: item.placement,
         shape: tx.shape, ...(tx.opening !== undefined ? { opening: tx.opening } : {}), sheer: asset.features.includes("sheer"),
-        materialId: asset.materials.body });
+        ...(textileRenders(tx.shape) ? {} : { label: true }), materialId: asset.materials.body });
       continue;
     }
 

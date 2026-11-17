@@ -5832,9 +5832,15 @@ function isSoft(role){ return (((D&&D.rules)||{}).soft_roles||SOFT_DEF).includes
 // ШТОРЫ И ПЛЕД — УСЛОВНО, ЦВЕТОМ ТОВАРА (T-20261112-74, владелец TG 953): у строки с местом и цветом СВОЕГО товара (`textile_abstract.py`)
 // в 3D простая форма с ценой и карточкой «вид условный»; замена товара в списке — снова только список (цвета новой нет). То же правило —
 // `lib/configurator/textile.ts:isTextileDecor`; расходиться нельзя: по нему же номера мест сцены (`vwItemAt`)
+// ЯРЛЫК ПЛЕДА (T-20261117-10, владелец TG 1445): форма из `CLOTH_LABEL` в 3D — не брусок, а место-ярлык с фото товара и ценой; цвет ей не нужен
+// (по слову названия не гадаем), поэтому после замены товара ярлык остаётся. Зеркало `data/flat3d/textile.json:label` (сверяет тест
+// `tests/unit/textile-label.test.ts`)
+const CLOTH_LABEL=['throw'];
 function isCloth3d(x){ const p=x&&x.place, l=x&&x.look, k=(x&&x.sku)||{};
-  return !!x&&!x.list_only&&x.strategy==='textile_abstract'&&!!k.name&&!!p&&(p.kind==='curtain'||p.kind==='throw'||p.kind==='pillow')&&!!l&&/^#[0-9a-fA-F]{6}$/.test(l.hex||'')
-    &&l.of===String(k.sid||k.name||'')&&[p.x,p.y,p.elev_cm].every(Number.isFinite)&&(p.kind!=='curtain'||Number.isInteger(p.opening)); }
+  return !!x&&!x.list_only&&x.strategy==='textile_abstract'&&!!k.name&&!!p&&(p.kind==='curtain'||p.kind==='throw'||p.kind==='pillow')
+    &&(CLOTH_LABEL.includes(p.kind)||(!!l&&/^#[0-9a-fA-F]{6}$/.test(l.hex||'')&&l.of===String(k.sid||k.name||'')))
+    &&[p.x,p.y,p.elev_cm].every(Number.isFinite)&&(p.kind!=='curtain'||Number.isInteger(p.opening)); }
+function isClothLabel(x){ return isCloth3d(x)&&CLOTH_LABEL.includes(x.place.kind); }
 // ПОДУШКА НА ДИВАНЕ (T-20261113-02): тем же правилом; с годной моделью (`sku.msid` от сборки) — настоящая, иначе — условная цветом товара
 function isClothAbstract(x){ return isCloth3d(x)&&!(x.place.kind==='pillow'&&(x.sku||{}).msid); }
 // в живую сцену: без мягкого (кроме условной ткани) и без «только в списке»
@@ -5938,8 +5944,8 @@ const DW={
   wallNone:['в кадр не ставим: нет кровати, дивана или комода','not shown in 3D: no bed, sofa or chest of drawers'],
   noTop:['в кадр не ставим: не указан размер или не влезает','not shown in 3D: size not given, or it does not fit'],
   curtain:['у окна, вид условный','by the window, illustrative look'],
-  throwArm:['на подлокотнике дивана, вид условный','on the sofa arm, illustrative look'],
-  throwFoot:['в ногах кровати, вид условный','at the foot of the bed, illustrative look'],
+  throwArm:['на подлокотнике дивана','on the sofa arm'],       // ярлык с фото товара (T-20261117-10), формы нет — «вид условный» не пишем
+  throwFoot:['в ногах кровати','at the foot of the bed'],
   pillowSofa:['на диване, вид условный','on the sofa, illustrative look'],
   pillowSofaMesh:['на диване','on the sofa']};
 function dwT(k){ return DW[k][LANG==='en'?1:0]; }
@@ -9775,6 +9781,10 @@ body.trial .vtop:not(:has(.vcta:not([hidden]),#vCtaErr,#vCtaNote)){display:none}
  border-radius:var(--radius-sm);border-top-color:transparent;transition:background .3s}
 #shot.v2 .pinlist .row.hl::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:999px;background:var(--accent)}
 .vpin.sel{background:var(--accent);color:#fff;z-index:2}
+/* ЯРЛЫК ПЛЕДА (T-20261117-10): миниатюра фото товара + цена, высота пальца 44 px; тон страницы — как у `.vpin` (ADR-0299) */
+.vpin.vpin-lab{display:inline-flex;align-items:center;gap:7px;min-height:44px;box-sizing:border-box;padding:4px 14px 4px 4px;border-radius:999px}
+.vpin.vpin-lab img{width:36px;height:36px;border-radius:50%;object-fit:cover;flex:none;background:var(--line)}
+.vpin.vpin-lab:not(:has(img)){padding-left:14px}
 /* ГРУППА У ЦЕНЫ ВЫБРАННОГО В 3D (T-05/5, владелец TG 1530): одна пилюля в тон ценника `.vpin` — «↻ Повернуть | ✥ Переместить | ⤢ размеры»,
    тонкие разделители; ставится как одно целое (`vwRotPlace`); тянуть — за «Переместить» (`touch-action:none`) */
 /* КАРТОЧКА ВЫБРАННОГО (T-20261112-37/3, вариант Б, владелец TG 781 — вместо плашки значками варианта А): ровно над предметом по центру
@@ -10557,6 +10567,18 @@ function vwSelect(idx){
 // номер в `liveDecor()` (`demo-scene.ts:sceneSlotIndex`) → тот же вид, что у ленты декора (`decorSel`): ценник, выделение, строка списка
 // и «Заменить» — тем же кодом, что у мебели. Поворота и переноса у картины нет (`vwCanRot`: глубины у декора нет)
 // условная штора (T-74/2): у декора сцены (`decorSel`) нет места и цвета — смотрим исходный декор варианта
+// ЯРЛЫК ПЛЕДА В 3D (T-20261117-10, владелец TG 1445): на месте пледа в сцене нет формы — ярлык «фото товара + цена», нажатие — карточка, как у штор.
+// Ярлык — тот же ценник `.vpin` (место, очередь и «чей ценник» решает `vwPinsTick`), но с миниатюрой слева и крупнее: палец ≥ 44 px. Фото — своего товара
+// (после замены — нового), без фото — только цена с подписью
+function vwLabelAt(it){ const x=it&&it.dec!==undefined?((allVariants()[cur]||{}).decor||[])[it.dec]:null; return isClothLabel(x); }
+function vwLabelFill(n,sk,txt){
+  const key=txt+'|'+(sk.img||'')+'|'+(sk.name||'')+'|'+LANG;
+  if(n._k===key)return;
+  n._k=key; n._w=0; n.textContent='';
+  if(sk.img){const im=document.createElement('img'); im.alt=''; im.decoding='async'; im.draggable=false; im.src=sk.img; n.appendChild(im);}
+  const t=document.createElement('span'); t.className='vpl'; t.textContent=txt; n.appendChild(t);
+  n.setAttribute('aria-label',(LANG==='en'?'Throw: ':'Плед: ')+(sk.name||'')+', '+txt);
+}
 function vwCurtainAt(it){ const x=it&&it.dec!==undefined?((allVariants()[cur]||{}).decor||[])[it.dec]:null; return isCloth3d(x)&&x.place.kind==='curtain'; }
 function vwItemAt(i){
   if(i==null||i<0)return null;
@@ -10679,7 +10701,10 @@ function vwPinsTick(now){
   const live=shot.classList.contains('on')&&VW.mode==='walk'&&LIVE.scene&&LIVE.canvas&&LIVE.canvas.parentNode;
   const on=live&&!PRICES_OFF&&!TR_NOGOODS();   // проба: ценников нет
   // цены скрыты — ценников нет, а «Повернуть» у выбранного остаётся (`vwRotPlace`)
-  if(!on){PINS.map.forEach(n=>n.remove()); PINS.map.clear(); if(!live||VW.sel==null){vwRotHide(); return;}}
+  // ЯРЛЫК ПЛЕДА — не ценник, а сам плед в 3D (T-20261117-10): «Показать цены» его не прячет (иначе пледа в кадре не было бы вовсе)
+  const labOn=live&&!TR_NOGOODS();
+  if(!on){PINS.map.forEach((n,i)=>{if(!(labOn&&n.classList.contains('vpin-lab'))){n.remove(); PINS.map.delete(i);}});
+    if(!live||(VW.sel==null&&!labOn)){vwRotHide(); return;}}
   if(!PINS.fr||now-PINS.t>80){PINS.t=now; PINS.fr=box.getBoundingClientRect();
     // «×» окна — тоже занятое место: ценник предмета в правом верхнем углу кадра ложился под кнопку белым пятном (T-20261112-111/5)
     PINS.busy=[...document.querySelectorAll('#shot #shotx, #shot .vmodes, #shot .vstyle, #shot .vprice, #shot .vhist, #shot .vzbtn, #vside, #vsum, #shot .vcams, #shot .vslots, #shot .vready, #shot .vstage>.tr-confirm, #vcarry:not([hidden])')]
@@ -10695,10 +10720,12 @@ function vwPinsTick(now){
   const tops=on?all.filter(p=>p.visible&&p.box&&vwOnTop(p.index)).map(rectOf):[];
   // рамки мебели и предметов на ней — с ними ценник не должен путаться (фон — нет: `vwBackdrop`)
   const frames=on?all.filter(p=>p.visible&&p.box&&!vwBackdrop(p.index)).map(rectOf):[];
-  if(on)all.forEach(p=>{if(!p.visible)return; const it=vwItemAt(p.index), pr=it&&(skuOf(it)||{}).price; if(!pr)return;
+  if(on||labOn)all.forEach(p=>{if(!p.visible)return; const it=vwItemAt(p.index), pr=it&&(skuOf(it)||{}).price; if(!pr)return;
+    const lab=vwLabelAt(it); if(!on&&!lab)return;
     let n=PINS.map.get(p.index); const txt=money(pr);
-    if(!n){n=document.createElement('span'); n.className='vpin'; n.dataset.pi=String(p.index); box.appendChild(n); PINS.map.set(p.index,n);}
-    if(n.textContent!==txt){n.textContent=txt; n._w=0;}
+    if(!n){n=document.createElement('span'); n.className='vpin'+(lab?' vpin-lab':''); n.dataset.pi=String(p.index); box.appendChild(n); PINS.map.set(p.index,n);}
+    if(lab)vwLabelFill(n,skuOf(it)||{},txt);
+    else if(n.textContent!==txt){n.textContent=txt; n._w=0;}
     if(!n._w){n.hidden=false; n._w=n.offsetWidth; n._h=n.offsetHeight;}
     seen.add(p.index); cand.push({n,p,pr:+pr,cloth:vwCurtainAt(it),top:tops.some(o=>o.i===p.index),own:frames.find(o=>o.i===p.index)});});
   const kept=[];

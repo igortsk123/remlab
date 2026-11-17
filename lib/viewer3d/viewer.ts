@@ -16,7 +16,7 @@ import { DEFAULT_CEILING_CM, entranceOf, findRoom, isIsolatedRoom, roomAt, roomC
 import { material as materialSchema, type Catalogue, type Material } from "@/contracts/configurator";
 import type { ResolvedScene } from "@/lib/configurator/resolve";
 import { isExtra, isFlatOnSurface, type ObjectSpec, planObjects, productCurtains, surfacesByRoom } from "@/lib/viewer3d/build-scene";
-import { buildPillow, buildProductCurtain, buildThrow } from "@/lib/viewer3d/kits/textile";
+import { buildLabelSpot, buildPillow, buildProductCurtain, buildThrow } from "@/lib/viewer3d/kits/textile";
 import { buildKitchen } from "@/lib/viewer3d/kits/kitchen";
 import { buildBathroom } from "@/lib/viewer3d/kits/bathroom";
 import { buildBed, buildRug, buildWardrobe } from "@/lib/viewer3d/kits/bedroom";
@@ -785,6 +785,9 @@ export class FlatViewer {
         const frame = new THREE.Group();
         placeGroup(frame, p);
         group = buildProductCurtain(this.kitCtx, room, spec.opening, spec.materialId, spec.sheer, frame);
+      } else if (spec.label) {
+        // ярлык вместо геометрии (T-20261117-10): прозрачное место, фото и цену рисует страница
+        group = buildLabelSpot({ widthCm: p.wCm, depthCm: p.dCm, heightCm: p.hCm });
       } else if (spec.shape === "pillow") {
         // подушка без модели (T-20261113-02): мягкий брусок цветом товара на сиденье, лицом как диван
         group = buildPillow(this.kitCtx, { widthCm: p.wCm, depthCm: p.dCm, heightCm: p.hCm, materialId: spec.materialId });
@@ -2462,6 +2465,6 @@ function signatureOf(spec: ObjectSpec): string {
   if (spec.kind === "tv") return `tv|${spec.hung}|${geom}`;
   if (spec.kind === "wall-plane") return `plane|${spec.mirror}|${spec.materialId}|${geom}`;
   // штора собрана в координатах своего окна — сдвиг места тоже пересборка
-  if (spec.kind === "textile") return `textile|${spec.shape}|${spec.opening ?? "-"}|${spec.sheer}|${spec.materialId}|${geom}|${at}`;
+  if (spec.kind === "textile") return `textile|${spec.shape}|${spec.opening ?? "-"}|${spec.sheer}|${spec.label ? "label" : "-"}|${spec.materialId}|${geom}|${at}`;
   return `${spec.kind}|${spec.level}|${spec.features.join(",")}|${spec.materialId}|${geom}|${at}`;
 }
