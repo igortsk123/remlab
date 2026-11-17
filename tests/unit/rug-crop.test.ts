@@ -23,11 +23,11 @@ const BEIGE: Rgb = [190, 160, 130];
 const BROWN: Rgb = [150, 110, 80];
 
 describe("contentBox — поля карточки ковра", () => {
-  it("белые поля срезаются: остаётся прямоугольник ковра (с запасом на кромку в 1–2 px)", () => {
+  it("белые поля срезаются: остаётся прямоугольник ковра (с запасом на светлую кромку фото — 2,5 % стороны, T-20261117-12/5)", () => {
     const box = contentBox(photo(400, 300, WHITE, [30, 25, 370, 275], BEIGE, BROWN), 400, 300);
     expect(box).not.toBeNull();
     const [x0, y0, x1, y1] = box!;
-    for (const [v, want] of [[x0, 30], [y0, 25], [x1, 370], [y1, 275]] as const) expect(Math.abs(v - want)).toBeLessThanOrEqual(3);
+    for (const [v, want] of [[x0, 30], [y0, 25], [x1, 370], [y1, 275]] as const) expect(Math.abs(v - want)).toBeLessThanOrEqual(9);
   });
 
   it("кремовый фон карточки — тоже поле (фон по углам, не «белый» порог)", () => {

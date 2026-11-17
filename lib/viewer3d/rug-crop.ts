@@ -18,6 +18,8 @@ const EDGE_FRAC = 0.03;
 const CORNER_SPREAD = 18;
 /** Срезанное меньше этой доли фото — подозрительно (не ковёр, а узор на ковре): фото не трогаем. */
 const MIN_SHARE = 0.3;
+/** Срез внутрь от найденного края ковра, доля меньшей стороны: светлая кромка фото не попадает на плиту. */
+const EDGE_INSET = 0.025;
 
 type Rgb = [number, number, number];
 
@@ -40,7 +42,8 @@ function cornerMean(px: ArrayLike<number>, w: number, x0: number, y0: number, k:
 
 /**
  * Прямоугольник ковра на фото карточки (RGBA, `w×h`) или `null` — полей нет или фона нет (фото оставить как есть).
- * Края срезаются ещё на ~0,6 % стороны: размытая полупрозрачная кромка JPEG тоже светлая.
+ * Края срезаются ещё на 2,5 % стороны (`EDGE_INSET`): размытая светлая кромка фото (тень, сглаживание, поле карточки) давала по краю
+ * ковра белую полосу (T-20261117-12/5, владелец TG 1379; в Blender тот же срез — `--rug-erode`).
  */
 export function contentBox(px: ArrayLike<number>, w: number, h: number): Box | null {
   if (w < 16 || h < 16) return null;
@@ -67,7 +70,7 @@ export function contentBox(px: ArrayLike<number>, w: number, h: number): Box | n
   while (x0 < w && field(cols, x0, h)) x0++;
   while (x1 > x0 && field(cols, x1 - 1, h)) x1--;
   if (x1 <= x0 || y1 <= y0) return null;
-  const inset = Math.max(1, Math.round(Math.min(x1 - x0, y1 - y0) * 0.006));
+  const inset = Math.max(1, Math.round(Math.min(x1 - x0, y1 - y0) * EDGE_INSET));
   [x0, y0, x1, y1] = [x0 + inset, y0 + inset, x1 - inset, y1 - inset];
   if ((x1 - x0) * (y1 - y0) < MIN_SHARE * w * h) return null;
   // срезать нечего (поле тоньше 1 % стороны) — фото не трогаем

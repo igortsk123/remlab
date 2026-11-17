@@ -39,7 +39,7 @@ function sharedFace(a: THREE.Box3, b: THREE.Box3): number {
   return s;
 }
 
-describe("ковёр — рамка вокруг полотна (T-20261112-33)", () => {
+describe("ковёр — одна коробка без рамки (T-20261112-33 → T-20261117-12/5)", () => {
   const r = fromDemoVariant(data, "v", CTX)!;
   const ctx = { materials: createMaterialCtx(1, false), byId: (id: string) => r.catalogue.materials.find((m) => m.id === id),
     fallback: r.catalogue.materials[0]! };
@@ -55,12 +55,10 @@ describe("ковёр — рамка вокруг полотна (T-20261112-33)"
         expect(all.max.x - all.min.x).toBeCloseTo(w * 0.01, 6);
         expect(all.max.z - all.min.z).toBeCloseTo(d * 0.01, 6);
         expect(all.max.y).toBeCloseTo((pile === "soft" ? 3 : 1.5) * 0.01, 6);
-        // бока ковра — рамка: полотно (первая коробка) не выходит к краю ни с одной стороны
-        const body = bs[0]!;
-        expect(body.min.x).toBeGreaterThan(all.min.x);
-        expect(body.max.x).toBeLessThan(all.max.x);
-        expect(body.min.z).toBeGreaterThan(all.min.z);
-        expect(body.max.z).toBeLessThan(all.max.z);
+        // ковёр — одна коробка с гранями (T-20261117-12/5): рамки-«бортика» по краю нет, общих плоскостей нет
+        expect(bs.length).toBe(1);
+        const mesh = g.children[0] as THREE.Mesh;
+        expect(Array.isArray(mesh.material) && mesh.material.length).toBe(6);
       });
     }
   }
