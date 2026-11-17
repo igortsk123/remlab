@@ -17,6 +17,7 @@ import { material as materialSchema, type Catalogue, type Material } from "@/con
 import type { ResolvedScene } from "@/lib/configurator/resolve";
 import { isExtra, isFlatOnSurface, type ObjectSpec, planObjects, productCurtains, surfacesByRoom } from "@/lib/viewer3d/build-scene";
 import { buildLabelSpot, buildPillow, buildProductCurtain, buildThrow } from "@/lib/viewer3d/kits/textile";
+import { isSettled, settleOnSupport } from "@/lib/viewer3d/settle";
 import { buildKitchen } from "@/lib/viewer3d/kits/kitchen";
 import { buildBathroom } from "@/lib/viewer3d/kits/bathroom";
 import { buildBed, buildRug, buildWardrobe } from "@/lib/viewer3d/kits/bedroom";
@@ -563,8 +564,29 @@ export class FlatViewer {
       }
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker));
+    // мягкие вещи (подушки) — на меш опоры, а не на отметку решателя: до тени, она печётся по уже посаженным (T-20261117-10)
+    this.settleSoft();
     // тень — по ГОТОВОЙ расстановке (модели пришли, места новые): в простое, первый кадр её не ждёт
     if (!this.disposed) this.bakeContact();
+  }
+
+  /**
+   * ПОСАДКА МЯГКИХ ВЕЩЕЙ НА МЕШ ОПОРЫ (T-20261117-10): каждая загруженная подушка (`data/flat3d/settle.json`) — низом на верх сиденья
+   * по мешу, с наклоном к спинке (`settle.ts`). Опора — остальные предметы сцены без мягких вещей; от отметки решателя каждый раз заново.
+   */
+  private settleSoft(): void {
+    if (this.disposed) return;
+    const soft = (p: Placed): boolean => isSettled(p.spec.kind, p.spec.kind === "mesh" ? p.spec.role : p.spec.kind === "textile" ? p.spec.shape : null);
+    const supports: THREE.Object3D[] = [];
+    for (const p of this.placed.values()) if (!soft(p) && p.status !== "pending") supports.push(p.group);
+    for (const p of this.placed.values()) {
+      if (!soft(p) || p.status === "pending") continue;
+      try {
+        settleOnSupport(p.group, (p.spec.placement.elevCm ?? 0) * CM, supports);
+      } catch {
+        // посадка — украшение: сбой расчёта оставляет вещь на отметке решателя
+      }
+    }
   }
 
   /** ВЕЩИ НА ГРУЗЯЩЕМСЯ НОСИТЕЛЕ ЖДУТ ЕГО (T-20261113-19, владелец: подушки стояли на «призраке» дивана): носитель — предмет, чья
@@ -663,6 +685,46 @@ export class FlatViewer {
    */
   plantReport(): readonly PlantLogEntry[] {
     return this.plantLog;
+  }
+
+  /**
+   * ЗАЗОР ДО ОПОРЫ (T-20261117-10, «подушки висят в воздухе»): для каждой вещи сцены с роли/формы из `match` — реальный низ её модели
+   * (по ящику загруженной группы, см) и верх опоры под её центром (луч вниз по остальным предметам сцены, без самой вещи и её детей).
+   * `gapCm` > 0 — вещь парит над опорой, < 0 — утоплена; `support` — слот опоры; нет опоры под центром — `supportCm: null`. Замер для
+   * диагностики и тестов: на показ и загрузку не влияет, ничего не двигает.
+   */
+  supportGaps(match: (spec: ObjectSpec) => boolean): {
+    slotId: string; role: string; title: string; bottomCm: number; plannedBottomCm: number; supportCm: number | null; gapCm: number | null;
+    support: string | null; heightCm: number;
+  }[] {
+    const out: ReturnType<FlatViewer["supportGaps"]> = [];
+    const ray = new THREE.Raycaster();
+    for (const [slotId, p] of this.placed) {
+      if (!match(p.spec) || p.status === "pending") continue;
+      p.group.updateWorldMatrix(true, true);
+      const box = new THREE.Box3().setFromObject(p.group);
+      if (box.isEmpty()) continue;
+      const c = box.getCenter(new THREE.Vector3());
+      const others: THREE.Object3D[] = [];
+      for (const [id, q] of this.placed) if (id !== slotId && q.status !== "pending") others.push(q.group);
+      ray.set(new THREE.Vector3(c.x, box.min.y + 0.6, c.z), new THREE.Vector3(0, -1, 0));
+      // первый удар сверху вниз от точки чуть выше низа вещи: сама вещь исключена (не в `others`), так что это верх опоры под центром
+      const hits = ray.intersectObjects(others, true).filter((h) => (h.object as THREE.Mesh).isMesh && h.object.visible);
+      const hit = hits[0];
+      const spec = p.spec;
+      const role = spec.kind === "mesh" ? (spec.role ?? "") : spec.kind === "textile" ? spec.shape : spec.kind;
+      let support: string | null = null;
+      for (let o: THREE.Object3D | null = hit?.object ?? null; o; o = o.parent) {
+        const sid = (o.userData as { slotId?: string }).slotId;
+        if (sid) { support = sid; break; }
+      }
+      out.push({
+        slotId, role, title: spec.titleRu, bottomCm: +(box.min.y * 100).toFixed(1), plannedBottomCm: +(spec.placement.elevCm ?? 0).toFixed(1),
+        supportCm: hit ? +(hit.point.y * 100).toFixed(1) : null, gapCm: hit ? +((box.min.y - hit.point.y) * 100).toFixed(1) : null,
+        support, heightCm: +((box.max.y - box.min.y) * 100).toFixed(1),
+      });
+    }
+    return out;
   }
 
   /** Все начатые растения догрузились (или не пришли): для снимков и проверок, на показ не влияет. */
