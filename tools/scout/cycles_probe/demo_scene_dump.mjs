@@ -38,8 +38,9 @@ const srv = http.createServer((req, res) => {
   if (u === '/' || u === '/index.html') { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><meta charset=utf-8><script type="module" src="/entry.js"></script>'); return; }
   if (u === '/entry.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); fs.createReadStream(path.join(bundleDir, 'entry.js')).pipe(res); return; }
   // карты материалов (в том числе новые, ещё не выложенные на прод) — из `public/` этой копии репо
-  const pm = u.match(/^\/flat3d\/materials\/([A-Za-z0-9._-]+)$/);
-  if (pm && fs.existsSync(path.join(PUBLIC, 'flat3d/materials', pm[1]))) { res.writeHead(200, { 'content-type': mime[path.extname(u)] || 'application/octet-stream', ...cors }); fs.createReadStream(path.join(PUBLIC, 'flat3d/materials', pm[1])).pipe(res); return; }
+  // (и растения `public/flat3d/plants/*.glb`: в main с 17.11, на проде ещё нет)
+  const pm = u.match(/^\/flat3d\/(materials|plants)\/([A-Za-z0-9._-]+)$/);
+  if (pm && fs.existsSync(path.join(PUBLIC, 'flat3d', pm[1], pm[2]))) { res.writeHead(200, { 'content-type': mime[path.extname(u)] || 'application/octet-stream', ...cors }); fs.createReadStream(path.join(PUBLIC, 'flat3d', pm[1], pm[2])).pipe(res); return; }
   const m = u.match(/^\/test\/mesh-pilot10\/([^/]+)\/model\.glb$/);
   if (m && fs.existsSync(path.join(CACHE, m[1] + '.glb'))) { res.writeHead(200, { 'content-type': 'model/gltf-binary', ...cors }); fs.createReadStream(path.join(CACHE, m[1] + '.glb')).pipe(res); return; }
   https.get({ host: REMOTE, path: req.url, headers: { 'user-agent': 'cycles-probe' } }, (r) => {
@@ -72,7 +73,7 @@ if (extra.export) {
   const keys = extra.export === 'all' ? null : extra.export.split(',');
   // ключ `rod` — карниз: узлы `fixtures:` выше 2 м (плинтус и порожки той же группы не берём)
   const pick = info.nodes.filter((n) => n.visible && n.type === 'Mesh' && (!keys || keys.some((k) => k === 'rod'
-    ? n.chain.includes('fixtures:') && n.min[1] > 2.0 && n.max[1] < 2.69 : (n.slot + '|' + n.chain).includes(k)))).map((n) => n.uuid);
+    ? n.chain.includes('fixtures:') && n.min[1] > 2.0 && n.max[1] < 2.69 : k === 'plant' ? n.plant : (n.slot + '|' + n.chain).includes(k)))).map((n) => n.uuid);
   console.log('выгружаю узлов', pick.length);
   const b64 = await page.evaluate((u) => window.exportNodes(u), pick);
   fs.writeFileSync(path.join(outDir, 'demo_nodes.glb'), Buffer.from(b64, 'base64'));

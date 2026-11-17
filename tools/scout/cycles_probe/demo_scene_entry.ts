@@ -21,8 +21,10 @@ function nodeInfo(root: THREE.Object3D): Any[] {
     const chain: string[] = [];
     let p: THREE.Object3D | null = o;
     let slot = "";
-    while (p) { chain.push(p.name || p.type); if (!slot && p.userData?.slotId) slot = String(p.userData.slotId); p = p.parent; }
-    out.push({ uuid: o.uuid, type: o.type, name: o.name, chain: chain.slice(0, 6).join("<"), slot, visible: o.visible,
+    let plant = false;
+    while (p) { chain.push(p.name || p.type); if (p.userData?.plant) plant = true; if (!slot && p.userData?.slotId) slot = String(p.userData.slotId); p = p.parent; }
+    if (plant) slot = `plant:${slot}`;   // растение кашпо/вазы (`kits/plants.ts`) — ребёнок группы носителя; ключ выгрузки `plant`
+    out.push({ uuid: o.uuid, type: o.type, name: o.name, chain: chain.slice(0, 6).join("<"), slot, plant, visible: o.visible,
       min: box.min.toArray().map((v) => +v.toFixed(2)), max: box.max.toArray().map((v) => +v.toFixed(2)),
       mat: ((o as Any).material?.name) || "", emissive: (o as Any).material?.emissive?.getHexString?.() ?? null });
   });
@@ -64,7 +66,9 @@ function nodeInfo(root: THREE.Object3D): Any[] {
   const sc = resolveScene(first.apartment, first.catalogue, defaultConfiguration(first.apartment, first.catalogue));
   viewer.buildShell(sc);
   await viewer.syncObjects(sc);
+  await viewer.plantsSettled();    // растения догружаются после мебели (`kits/plants.ts`); в экспорт идут журнал и узлы с флагом `plant`
   await new Promise((r) => setTimeout(r, 1500));
+  (window as Any).__export = { ...(window as Any).__export, plants: viewer.plantReport() };
   (window as Any).__scene = viewer.scene;
   (window as Any).__sc = sc;
   return {

@@ -57,6 +57,7 @@ ap.add_argument('--eye', default='', help='x,y глаза, м (оси Blender: y
 ap.add_argument('--aim', default='', help='x,y точки, куда смотрит камера, м (оси Blender)')
 ap.add_argument('--level', type=int, default=0, help='1: горизонтальный взгляд ракурса (вертикали прямые), наклон — через --shift-y')
 ap.add_argument('--lens', type=float, default=0.0, help='>0: объектив, мм на полный кадр (28–35); 0 — угол ракурса')
+ap.add_argument('--pitch', type=float, default=None, help='наклон взгляда вниз от горизонта, градусы (поверх --level 1; общий параметр позы)')
 ap.add_argument('--shift-y', type=float, default=None, help='сдвиг объектива по вертикали (доли ширины кадра); нет — как у ракурса')
 ap.add_argument('--lamps', type=float, default=0.0, help='>0: мощность точечного света у каждого торшера и настольной лампы, Вт (0 — лампы не светят, как в данных)')
 ap.add_argument('--lamp-k', type=float, default=0.0, help='>0: цветовая температура ламп, К (люстра и заполняющий свет); 0 — как было')
@@ -649,6 +650,15 @@ else:
         _f.z = 0.0
         _f.normalize()
         cd.update({'fwd': list(_f), 'up': [0.0, 0.0, 1.0], 'right': [_f.y, -_f.x, 0.0]})
+if a.pitch is not None:
+    # наклон взгляда вниз на `--pitch` градусов от ГОРИЗОНТА (нужен `--level 1`; вертикали при этом сходятся — в отличие от `--shift-y`)
+    _f = Vector(cd['fwd'])
+    _f.z = 0.0
+    _f.normalize()
+    _t = math.radians(a.pitch)
+    _fw = _f * math.cos(_t) + Vector((0.0, 0.0, -math.sin(_t)))
+    _up = Vector((0.0, 0.0, 1.0)) * math.cos(_t) + _f * math.sin(_t)
+    cd.update({'fwd': list(_fw), 'up': list(_up)})
 cd['fov'] = math.degrees(2 * math.atan(18.0 / a.lens)) if a.lens > 0 else cd['fov']
 if a.shift_y is not None:
     cd['shift_y'] = a.shift_y
