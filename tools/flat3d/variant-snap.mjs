@@ -4,7 +4,7 @@
 // с прода через прокси с кэшем на диске (сеть одна и та же в обоих режимах — замер сравним); `/flat3d/plants/*` и карты пола/стен —
 // из `public/` worktree. Режимы: `--plants 0|1|both` (по умолчанию both: кадры «без» и «с» растениями, замер байт и времени).
 //   node tools/flat3d/variant-snap.mjs --data ~/scout-scenes/flat215-demo/demo-data.json --variants set1,set4 --out <НОВАЯ папка>
-//        [--plants both] [--sizes 1440x900,375x667] [--focus кашпо,ваза] [--gaps подушка,pillow] [--cache <папка кэша>]
+//        [--plants both] [--sizes 1440x900,375x667] [--focus кашпо,ваза] [--cache <папка кэша>]
 //   node tools/flat3d/variant-snap.mjs --sheet calathea,fern,... --out <НОВАЯ папка>      лист-превью растений из `public/flat3d/plants/`
 import { build as esbuild } from "esbuild";
 import { createServer } from "node:http";
@@ -26,7 +26,6 @@ let VARIANTS = (arg("--variants") ?? "").split(",").filter(Boolean);   // «all�
 const MODES = arg("--plants", "both") === "both" ? [0, 1] : [Number(arg("--plants"))];
 const SIZES = arg("--sizes", "1440x900,375x667").split(",").map((s) => s.split("x").map(Number));
 const FOCUS = arg("--focus", "кашпо,ваза").split(",").filter(Boolean);
-const GAPS = (arg("--gaps") ?? "").split(",").filter(Boolean);   // роли/формы, у которых мерить зазор до опоры (`supportGaps`): подушка,pillow,throw,лампа…
 const CACHE = home(arg("--cache") ?? join(homedir(), "remlab-logs", "snap-cache"));
 if (!OUT || (!SHEET.length && (!arg("--data") || !VARIANTS.length))) {
   console.error("нужны --out <новая папка> и либо --sheet id,id, либо --data <demo-data.json> --variants a,b");
@@ -134,12 +133,11 @@ for (const vid of VARIANTS) {
       await tab.goto(base);
       await tab.waitForFunction(() => typeof window.variantSnap === "function");
       const got = await tab.evaluate((c) => window.variantSnap(c), { room, items: v.items ?? [], decor: v.decor ?? [], rt, floor: finish.floor, wall: finish.wall, lite: w < 600, plants: !!plants,
-        style: v.style_id, poses, focus: FOCUS, gapRoles: GAPS, width: w, height: h });
+        style: v.style_id, poses, focus: FOCUS, width: w, height: h });
       await browser.close();
       got.frames.forEach((url, i) => save(`${vid}.cam${i + 1}.${w}x${h}.plants${plants}.jpg`, url));
       got.crops.forEach((c, i) => save(`${vid}.crop-${c.role}.cam${c.pose + 1}.${w}x${h}.plants${plants}.jpg`, c.url));
-      report.push({ variant: vid, size: `${w}x${h}`, plants, readyMs: got.readyMs, plantsMs: got.plantsMs, bytes, files, lost: got.lost, errs, plantLog: got.plantLog, gaps: got.gaps });
-      for (const g of got.gaps) console.log(`  ${vid} зазор ${String(g.gapCm ?? "—").padStart(6)} см  ${g.role.padEnd(8)} «${g.title}» низ ${g.bottomCm} (план ${g.plannedBottomCm}), опора ${g.supportCm ?? "—"} ${g.support ?? ""}, высота ${g.heightCm} · ${g.settle}`);
+      report.push({ variant: vid, size: `${w}x${h}`, plants, readyMs: got.readyMs, plantsMs: got.plantsMs, bytes, files, lost: got.lost, errs, plantLog: got.plantLog });
       for (const e of got.plantLog) console.log(`  ${vid} ${e.why.padEnd(8)} ${e.role.padEnd(6)} «${e.title}» ${e.mount} горло ${e.throatCm?.toFixed(1) ?? "-"} см, геом ${e.geoWhy ?? "ок"}, кромка ${e.rimSpread?.toFixed(2) ?? "-"}, шея ${e.neckRatio?.toFixed(2) ?? "-"}${e.word ? " · слово «" + e.word + "»" : ""}${e.plant ? " → " + e.plant : ""}`);
       console.log(`${vid} ${w}x${h} plants=${plants}: ready ${got.readyMs} мс, растения ${got.plantsMs} мс, ${(bytes / 1024).toFixed(0)} КБ в ${files} файлах, обрезок ${got.crops.length}${got.lost ? " · КОНТЕКСТ ПОТЕРЯН" : ""}${errs.length ? " · ошибки: " + errs.join("; ") : ""}`);
     }

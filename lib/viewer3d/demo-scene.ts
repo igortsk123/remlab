@@ -83,8 +83,6 @@ export interface DemoScene {
   plantsSettled(): Promise<void>;
   /** Журнал растений: на каждое кашпо/вазу — поставлено или причина отказа (`FlatViewer.plantReport`). */
   plantReport(): readonly PlantLogEntry[];
-  /** Зазор вещей до опоры (`FlatViewer.supportGaps`): подушки, лампы и прочий декор на носителе — парит (> 0) или утоплен (< 0); `roles` — какие роли/формы, нет — все. */
-  supportGaps(roles?: string[]): ReturnType<FlatViewer["supportGaps"]>;
   /** Новая расстановка (и декор — одним состоянием с ней). Последняя побеждает: промежуточные при быстрых правках
    *  пропускаются. Декор не передан — остаётся прежний. */
   update(items: DemoItem[], decor?: DemoDecor[]): Promise<void>;
@@ -404,8 +402,6 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     ready,
     plantsSettled: () => viewer.plantsSettled(),
     plantReport: () => viewer.plantReport(),
-    supportGaps: (roles) => viewer.supportGaps((s) => !roles || roles.some((r) =>
-      (s.kind === "mesh" ? (s.role ?? "") : s.kind === "textile" ? s.shape : s.kind).toLowerCase().startsWith(r))),
     update,
     setPhotoPose: (pose) => viewer.setPhotoPose(pose),
     setFloor: (f) => { floor = f ?? undefined; return reshell("пол"); },

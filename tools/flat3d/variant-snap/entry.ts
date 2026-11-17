@@ -28,8 +28,6 @@ interface Case {
   poses: PhotoPose[];
   /** Роли предметов, вокруг которых вырезаются обрезки («кашпо», «ваза»). */
   focus: string[];
-  /** Роли/формы, у которых мерить зазор до опоры (`scene.supportGaps`); пусто — не мерить. */
-  gapRoles?: string[];
   width: number;
   height: number;
 }
@@ -43,8 +41,6 @@ interface Result {
   plantsMs: number;
   lost: boolean;
   plantLog: unknown[];
-  /** Зазор вещей до опоры после раскладки (`scene.supportGaps`). */
-  gaps: ReturnType<ReturnType<typeof createDemoScene>["supportGaps"]>;
 }
 
 declare global {
@@ -101,9 +97,8 @@ window.variantSnap = async (c: Case) => {
     }
   }
   const plantLog = [...scene.plantReport()];
-  const gaps = c.gapRoles?.length ? scene.supportGaps(c.gapRoles) : [];
   scene.dispose();
-  return { frames: out, crops, readyMs, plantsMs, lost, plantLog, gaps };
+  return { frames: out, crops, readyMs, plantsMs, lost, plantLog };
 };
 
 /** Лист-превью: каждое растение в своей клетке на светлом фоне, в одном масштабе (метр = высота клетки / 0,7), вид слегка сверху. */
