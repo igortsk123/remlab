@@ -10652,9 +10652,19 @@ function vwPins(){ if(!PINS.raf)PINS.raf=requestAnimationFrame(vwPinsTick); }
 // (пуф за столиком, столик перед диваном), и ценник читался как его (T-20261112-111/2: £454 столика над вазой у пуфа). Чей ценник —
 // решает `vwPinOwner` в `vwPinsTick`. Рамки нет (угол коробки за камерой) — прежнее место над серединой предмета. → кандидаты [x, y]
 const PIN_GAP=6;
-function pinSpots(p, w, h, fw, pad, fh, onBody){
+function pinSpots(p, w, h, fw, pad, fh, onBody, onSpot){
   const b=p.box;
   if(!b)return [[Math.round(p.x-w/2), Math.round(p.y-PIN_GAP-h)]];
+  // ЯРЛЫК-МЕСТО (T-20261117-10, плед): стоит НАД САМИМ МЕСТОМ — центром проекции его рамки с лёгким подъёмом; занято (другой ценник, кнопки, край) —
+  // ближайший свободный сдвиг в пределах той же рамки: вдоль неё в обе стороны, затем на ряд вверх/вниз. Дальше — как у прочих ценников
+  let pre=[];
+  if(onSpot){
+    const LIFT=6, row=h+4, step=Math.max(12,Math.round(w/2)), x0=Math.round((b[0]+b[2])/2-w/2), y0=Math.round((b[1]+b[3])/2-h/2-LIFT);
+    const xmin=Math.round(b[0]-w/2), xmax=Math.round(b[2]-w/2), at=[];
+    const xs=[x0]; for(let d=step; x0-d>=xmin||x0+d<=xmax; d+=step){if(x0-d>=xmin)xs.push(x0-d); if(x0+d<=xmax)xs.push(x0+d);}
+    [0,-row,row].forEach(dy=>{const y=y0+dy; if(y+h>=b[1]-h&&y<=b[3])xs.forEach(x=>at.push([x,y]));});
+    pre=at;   // места в рамке заняты — дальше обычный порядок (над рамкой, сбоку), чтобы ярлык не пропадал
+  }
   const cx=Math.round(Math.max(pad,Math.min(fw-w-pad,(b[0]+b[2])/2-w/2))), up=Math.round(b[1]-PIN_GAP-h);
   // ШТОРА (T-74/2): рамка от пола до потолка — «над верхом» ценник уходил под потолок к люстре и торшеру. Ставим на саму штору на высоте
   // глаз (~0.45 видимой высоты сверху: 1.5 м из ~2.7), затем чуть выше/ниже, затем у боков
@@ -10671,7 +10681,7 @@ function pinSpots(p, w, h, fw, pad, fh, onBody){
   // на телефоне: над ним пуф, на верху ваза — свободно только на столешнице под вазой)
   const t=Math.round(Math.max(b[1],pad)+PIN_GAP), bot=Math.min(b[3],(fh||b[3])-pad);
   for(let y=t; y===t||y+h<=bot; y+=row)xs.forEach(x=>out.push([x,y]));
-  return out;
+  return pre.concat(out);
 }
 // ПРЕДМЕТ НА ДРУГОМ (ваза на столике, лампа на комоде — декор с моделью, не картина, не люстра, не ткань): его рамку чужой ценник не
 // закрывает (T-20261112-111: ценник столика ложился на вазу) — ценник опоры сдвигается вдоль верха
@@ -10727,7 +10737,7 @@ function vwPinsTick(now){
     if(lab)vwLabelFill(n,skuOf(it)||{},txt);
     else if(n.textContent!==txt){n.textContent=txt; n._w=0;}
     if(!n._w){n.hidden=false; n._w=n.offsetWidth; n._h=n.offsetHeight;}
-    seen.add(p.index); cand.push({n,p,pr:+pr,cloth:vwCurtainAt(it),top:tops.some(o=>o.i===p.index),own:frames.find(o=>o.i===p.index)});});
+    seen.add(p.index); cand.push({n,p,pr:+pr,cloth:vwCurtainAt(it),lab,top:tops.some(o=>o.i===p.index),own:frames.find(o=>o.i===p.index)});});
   const kept=[];
   // КАРТОЧКА ВЫБРАННОГО — ПЕРВОЙ (T-05/6): она всегда в кадре, ценники — вокруг неё. Цену выбранного она показывает сама — его ценник,
   // пока карточка открыта, не рисуем (T-37/3: не дублируется и не наезжает)
@@ -10741,7 +10751,7 @@ function vwPinsTick(now){
         ||(!soft&&tops.some(o=>o.i!==c.p.index&&hit(r,o.r))))&&r;};
     // места мимо карточки нет — ценник не рисуем (T-37/3): у пилюли он стоял под ней приглушённым (T-05/6), из-под крупной карточки
     // торчал его край — наезд
-    const sp=pinSpots(c.p, w, h, fr.width, pad, fr.height, c.cloth);
+    const sp=pinSpots(c.p, w, h, fr.width, pad, fr.height, c.cloth, c.lab);
     // мебель и предмет на ней: место берём, только если ценник читается как свой (`vwPinOwner`); фон — как раньше
     const mine=(x,y,soft)=>{const q=free(x,y,soft); return q&&(!c.own||vwPinOwner(q,c.own,frames,h+4+PIN_GAP+1))&&q;};
     const look=()=>sp.find(([x,y])=>mine(x,y,false))||sp.find(([x,y])=>mine(x,y,true));
@@ -10844,8 +10854,10 @@ function vwRotPlace(box, fr, pad0, kept, all, hit, underHint, pr){
       ||(underHint&&underHint(r)))&&r;};
   if(!p||!p.visible){vwRotHide(); return null;}
   // штора и плед (T-74): вместо размеров — пометка «вид условный» (форма не по фото товара)
-  const cloth=it.dec!==undefined&&isClothAbstract(((allVariants()[cur]||{}).decor||[])[it.dec]);   // подушка с моделью — с размерами
-  const b=vwActsNode(box), v=b.firstElementChild, dims=cloth||+it.w>0&&+it.d>0&&+it.h>0, can=vwCanRot(it), mv=can||vwArtJ(i)>=0, cost=pr?money(pr):'';
+  // ярлык пледа (T-20261117-10): формы нет, а габариты места — не размеры товара: ни «вид условный», ни «36×55×5» в карточке не пишем
+  const spot=vwLabelAt(it);
+  const cloth=!spot&&it.dec!==undefined&&isClothAbstract(((allVariants()[cur]||{}).decor||[])[it.dec]);   // подушка с моделью — с размерами
+  const b=vwActsNode(box), v=b.firstElementChild, dims=!spot&&(cloth||+it.w>0&&+it.d>0&&+it.h>0), can=vwCanRot(it), mv=can||vwArtJ(i)>=0, cost=pr?money(pr):'';
   const rep=!!vwRepBtn(it), cls=[!can,!mv,!dims,!cost,!rep].join();
   if(b._cls!==cls){b._cls=cls; b._w=0;
     b.classList.toggle('vnorot',!can); b.classList.toggle('vnomove',!mv); b.classList.toggle('vnodims',!dims); b.classList.toggle('vnocost',!cost); b.classList.toggle('vnorep',!rep);}
