@@ -49,11 +49,21 @@ class FakeSink:
             raise JP.SinkError('PUT: HTTP 507', 507)
         with self.lock:
             self.f[rel] = bytes(data)
+            self.hist = getattr(self, 'hist', {})
+            self.hist[rel] = bytes(data)
             self.mtime[rel] = time.time()
             self.log.append(('put', rel))
 
     def put_file(self, rel, path):
         self.put(rel, open(path, 'rb').read())
+
+    def delete(self, rel):
+        with self.lock:
+            self.log.append(('delete', rel))
+            self.deleted = getattr(self, 'deleted', []) + [rel]
+            for k in [k for k in self.f if k.startswith(rel + '/')]:
+                self.f.pop(k)
+        return 1
 
     def get(self, rel):
         with self.lock:
@@ -208,6 +218,7 @@ ex = Exec(sink, m, PUBLIC)
 out = os.path.join(TMP, 'out3')
 stages, res = render(ex, out)
 stop.set()
+ok('своё задание убрано из хранилища сразу после пары (место общее с мешами)', not any(k.startswith('renderjobs/') for k in sink.f) and len(getattr(sink, 'deleted', [])) == 1)
 ok('результат: C1.jpg, C2.jpg, meta.json', sorted(os.listdir(out)) == ['C1.jpg', 'C2.jpg', 'meta.json'])
 meta = json.load(open(os.path.join(out, 'meta.json')))
 ok('meta: исполнитель salad-gpu, хеши кадров, размер, версии', meta['executor'] == 'salad-gpu' and set(meta['sha']) == {'C1', 'C2'} and meta['size'] == [64, 48] and meta['versions']['preset'])
@@ -218,13 +229,13 @@ order = [r.split('/')[-1] for k, r in sink.log if k == 'put' and r.split('/')[-1
 ok('порядок: пакет → job.json ПОСЛЕДНИМ → result.json от воркера', order[0].endswith('.tgz') and order[1] == 'job.json' and order[-1] == 'result.json')
 ok('cancel.json не писали', not any(r.endswith('cancel.json') for _, r in sink.log))
 ok('pulse: первым — заказ с «занято», вокруг ожидания — продление, последним — снятие', m.calls[0] > 0 and m.calls[-1] == 0)
-job = next(k for k in sink.f if k.endswith('job.json'))
-jj = json.loads(sink.f[job])
+job = next(k for k in sink.hist if k.endswith('job.json'))
+jj = json.loads(sink.hist[job])
 ok('задание: пара C1+C2, флаги из пресета, без зарезервированных', jj['cams'] == ['C1', 'C2'] and JP.validate_job(jj) == '' and '--samples' in jj['args'])
-bundle = next(k for k in sink.f if k.endswith('.tgz'))
+bundle = next(k for k in sink.hist if k.endswith('.tgz'))
 bd = os.path.join(TMP, 'b3')
 os.makedirs(bd)
-open(os.path.join(bd, 'b.tgz'), 'wb').write(sink.f[bundle])
+open(os.path.join(bd, 'b.tgz'), 'wb').write(sink.hist[bundle])
 names = JP.unpack_bundle(os.path.join(bd, 'b.tgz'), os.path.join(bd, 'x'))
 ok('пакет: сцена, декор, программа рендера, данные, карты', {'scene', 'dump', 'tools', 'data', 'public'} <= set(names))
 ok('карты — только существующие в public (чужой путь и отсутствующий файл не попали)',
@@ -241,8 +252,10 @@ try:
     ok('не взяли за pickup_s → отказ', False)
 except RE.ExecutorUnavailable as e:
     ok('не взяли за pickup_s → gpu_no_pickup, cancel.json, pulse(0) последним', e.code == 'gpu_no_pickup' and any(r.endswith('cancel.json') for _, r in sink.log) and m.calls[-1] == 0 and time.time() - t0 < 10)
-w4 = new_worker(sink)
-ok('снятое задание воркер потом не берёт', w4.pick() is None)
+s4 = FakeSink()                      # хранилище с заданием И cancel.json (как если бы уборка не успела) — воркер его не берёт
+for k, v in sink.hist.items():
+    s4.put(k, v)
+ok('снятое задание (cancel.json) воркер не берёт', any(k.endswith('job.json') for k in s4.f) and new_worker(s4).pick() is None)
 
 # ═══ 5. ошибки воркера → откат на CPU (ExecutorUnavailable), а не ошибка сцены
 for mode, code in (('cpu', 'gpu_gpu_failed'), ('fail', 'gpu_render_failed')):

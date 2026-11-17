@@ -488,6 +488,10 @@ class SaladGpuExecutor(SceneExecutor):
             return self._finish(snap, outs, out_dir, pr, timing, t0, job)
         finally:
             shutil.rmtree(job, ignore_errors=True)
+            try:
+                sink.delete(f'{JP.PREFIX}/{jid}')      # своё задание убираем сразу (место общее с мешами); не вышло — уберёт jobs_purge по сроку
+            except Exception:  # noqa: BLE001
+                pass
             m.pulse(0)                 # конец пары (или отказ) — тоже событие; «занято» снято, до автостопа 20 мин от этого момента
 
     def _wait(self, sink, m, jid: str, progress, busy_s: float, poll_s: float, pickup_s: float, pair_max_s: float) -> dict:
