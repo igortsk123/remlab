@@ -9,7 +9,7 @@ completed:
 plan_kind: track_master
 parent_plan: MASTER-cost-first
 assignee: opus-5.5
-review_after: 2026-11-13
+review_after: 2026-11-20
 ---
 
 ## Для кого и как читать (Opus 5.5)
