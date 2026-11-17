@@ -10,7 +10,7 @@ import { ensureJobRelease, pinJobRelease, pinRelease, writeTourData } from "@/li
 import { jobDir, releaseDir } from "@/lib/trial/tour-files";
 import { devCardPaths, injectTour, tourLinks } from "@/lib/trial/tour-page";
 import { tourResponse, tourTarget } from "@/lib/trial/tour";
-import { acceptsBrotli, BROTLI_CACHE_MAX_BYTES, brotliCacheReset, brotliCacheStats, brotliPage } from "@/lib/trial/tour-brotli";
+import { acceptsBrotli, BROTLI_CACHE_MAX_BYTES, brotliCacheReset, brotliCacheSetLimit, brotliCacheStats, brotliPage } from "@/lib/trial/tour-brotli";
 import { tagMatches } from "@/lib/trial/tour-cache";
 import { randomBytes } from "node:crypto";
 import { brotliDecompressSync } from "node:zlib";
@@ -500,12 +500,17 @@ describe("тур пробы: brotli и метки (T-20261110-43)", () => {
   });
   it("память сжатых страниц — не больше предела: старые записи вытесняются", async () => {
     brotliCacheReset();
-    // случайные байты в base64 сжимаются до ~75 %: 12 записей по 4 МБ ≈ 36 МБ сжатого > 32 МБ
-    for (let i = 0; i < 12; i++) await brotliPage(`"t${i}"`, randomBytes(3 * 1024 * 1024).toString("base64"));
+    // предел 32 МБ проверяем на малом: тест на 12×4 МБ делал brotli 5 и фоновый brotli 11 на ~48 МБ случайных байт — под нагрузкой полного
+    // прогона >5 с (таймаут 3 раза за 17.11). Логика вытеснения от размера не зависит, поэтому предел ставим 1 МБ, записи по 256 КБ
+    expect(BROTLI_CACHE_MAX_BYTES).toBe(32 * 1024 * 1024);
+    const limit = 1024 * 1024;
+    brotliCacheSetLimit(limit);
+    // случайные байты в base64 сжимаются до ~75 %: 12 записей по 256 КБ ≈ 2,3 МБ сжатого > 1 МБ
+    for (let i = 0; i < 12; i++) await brotliPage(`"t${i}"`, randomBytes(192 * 1024).toString("base64"));
     const st = brotliCacheStats();
-    expect(st.bytes).toBeLessThanOrEqual(BROTLI_CACHE_MAX_BYTES);
+    expect(st.bytes).toBeLessThanOrEqual(limit);
     expect(st.entries).toBeLessThan(12);
-    expect(st.entries).toBeGreaterThan(5);
+    expect(st.entries).toBeGreaterThan(2);
     brotliCacheReset();
   });
 });

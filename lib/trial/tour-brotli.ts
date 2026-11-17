@@ -18,6 +18,7 @@ const brotli = (raw: Buffer, quality: number): Promise<Buffer> =>
 const cache = new Map<string, Buffer>();
 let total = 0;
 let bestBusy = false;
+let limit = BROTLI_CACHE_MAX_BYTES;
 
 function put(key: string, body: Buffer): void {
   const old = cache.get(key);
@@ -28,7 +29,7 @@ function put(key: string, body: Buffer): void {
   cache.set(key, body);
   total += body.length;
   for (const [k, b] of cache) {
-    if (total <= BROTLI_CACHE_MAX_BYTES) break;
+    if (total <= limit) break;
     cache.delete(k);
     total -= b.length;
   }
@@ -74,4 +75,9 @@ export const brotliCacheStats = (): { entries: number; bytes: number } => ({ ent
 export function brotliCacheReset(): void {
   cache.clear();
   total = 0;
+  limit = BROTLI_CACHE_MAX_BYTES;
+}
+/** Для тестов: предел памяти поменьше (вытеснение проверяется на килобайтах, а не на 36 МБ сжатого с фоновым brotli 11 — под нагрузкой полного прогона это >5 с). Сбрасывается `brotliCacheReset`. */
+export function brotliCacheSetLimit(bytes: number): void {
+  limit = bytes;
 }
