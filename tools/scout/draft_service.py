@@ -255,7 +255,9 @@ def _cy_order(key) -> dict:
 
 def _apply_render_order(payload: dict):
     """«Улучшить» ИЗ РЕНДЕРА: заказ с `render_key` → расстановка, комната, стиль и позы — из СНИМКА рендера (не слова страницы), два кадра
-    — готовые рендеры (кладутся в хранилище кадров под sha256 — тем же путём, что кадры браузера). Рендера нет — (код, ответ) для отказа."""
+    — готовые рендеры (кладутся в хранилище кадров под sha256 — тем же путём, что кадры браузера). Рендера нет — (код, ответ) для отказа.
+    Поле `render` из тела заказа выбрасывается всегда: признак «вход — рендер» (другой промпт, `improve_mode.render_source`) ставит только сервис по `render_key`."""
+    payload.pop('render', None)
     try:
         o = _cy_order(payload.get('render_key'))
     except Exception:  # noqa: BLE001
@@ -886,6 +888,8 @@ class H(BaseHTTPRequestHandler):
         if ip and not ip_allowed('auto' if auto else ip, 'render'):
             return self._send(429, {'error': 'слишком много кадров подряд, попробуйте через 10 минут'})
         day = TRIAL_AUTO_DAY if auto else TRIAL_DAY
+        if payload.get('render_key') is None:
+            payload.pop('render', None)            # «вход — рендер» ставит только сервис по `render_key`, не тело заказа
         if payload.get('render_key') is not None and not _proxy_url():     # DEV: состояние и кадры — из готового рендера (прод шлёт на DEV как есть)
             bad = _apply_render_order(payload)
             if bad:

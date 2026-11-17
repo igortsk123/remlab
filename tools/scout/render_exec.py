@@ -175,6 +175,12 @@ def _dir_mb(path: str) -> float:
     return tot / 1048576.0
 
 
+def skipped_meshes(text: str) -> list:
+    """Роли, чей меш экспорт пропустил (`draft_render` печатает «  scene3d: <роль> пропущен (<причина>)»). «Вид за проёмом пропущен» — не предмет."""
+    import re as _re
+    return sorted({m.group(1).strip() for m in _re.finditer(r'scene3d: (.+?) пропущен \(', text) if not m.group(1).startswith('вид за проёмом')})
+
+
 class LocalCpuExecutor:
     """Blender Cycles на процессоре DEV под общей очередью тяжёлых прогонов (`heavy_slot`): задание держит слот на ВЕСЬ путь
     (сцена + оба кадра) — между шагами память и ядра не отдаём, чтобы пара не растянулась из-за чужих прогонов."""
@@ -235,8 +241,19 @@ class LocalCpuExecutor:
             json.dump(data, open(data_path, 'w', encoding='utf-8'), ensure_ascii=False)
             progress('scene')
             env = {'PYTHONPATH': os.pathsep.join([os.path.join(REPO, 'tools', 'scout'), os.path.join(REPO, 'services', 'planner-solver')])}
-            run_step([self.python, os.path.join(PROBE, 'export_scene.py'), '--out', job, '--scene', 'scene=0', '--data', data_path], log,
-                     lim['exportSec'], lim['maxRssGb'], env=env, cwd=os.path.join(REPO, 'tools', 'scout'), what='меши и камеры')
+            # МЕШ НЕ ПРОПУСКАЕМ МОЛЧА (T-20261117-19/2: в set4 диван выпал из кадра, подушка повисла в воздухе, а рендер «получился»): экспорт при сбое
+            # меша печатает «<роль> пропущен» и идёт дальше. Один повтор (GLB уже докачан в кэш) — и если предмет снова пропущен, отказ ДО Blender'а
+            for attempt in (1, 2):
+                pos = os.path.getsize(log) if os.path.exists(log) else 0
+                run_step([self.python, os.path.join(PROBE, 'export_scene.py'), '--out', job, '--scene', 'scene=0', '--data', data_path], log,
+                         lim['exportSec'], lim['maxRssGb'], env=env, cwd=os.path.join(REPO, 'tools', 'scout'), what='меши и камеры')
+                miss = skipped_meshes(open(log, encoding='utf-8', errors='replace').read()[pos:])
+                if not miss:
+                    break
+                print(f'рендер: меш не взят ({", ".join(miss)}), попытка {attempt}', flush=True)
+            if miss:
+                raise RenderError('mesh_missing', 'Не удалось загрузить модель мебели для фото. Нажмите «Повторить».',
+                                  'A furniture model could not be loaded for the photo. Press "Retry".')
             timing['export'] = round(time.time() - t1, 1)
             t1 = time.time()
             # 2) сцена движком страницы → декор и отделка
@@ -342,6 +359,9 @@ def _selftest() -> int:
     ok(all(v[k] for k in ('preset', 'render_cycles', 'export_scene', 'dump', 'scene_export', 'blender')), 'версии рендера собраны (пресет, программа, выгрузчики, формат, Blender)')
     k1 = cache_key('h', v)
     ok(k1 == cache_key('h', dict(v)) and k1 != cache_key('h2', v) and k1 != cache_key('h', {**v, 'preset': 'other'}), 'ключ кэша: хеш снимка и каждая версия')
+    log = '  scene3d: диван пропущен (string is not a file: x)\n  scene3d: вид за проёмом пропущен (e)\n  scene3d: стул 2 пропущен (boom)\n  объектов 51\n'
+    ok(skipped_meshes(log) == ['диван', 'стул 2'], 'пропущенный меш предмета найден в логе экспорта, «вид за проёмом» — не предмет')
+    ok(skipped_meshes('  объектов 51, ковров 1\n') == [], 'чистый лог — пропусков нет')
     pr = preset()
     ok(pr['samples'] > 0 and pr['flags'] and '--cam-h' not in pr['flags'], 'пресет: поза — умолчание Б (без своих --cam-h/--level)')
     ex = make_executor({'RENDER_EXECUTOR': 'salad-gpu,local-cpu'})

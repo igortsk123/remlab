@@ -3822,7 +3822,7 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
             # ГОТОВЫЙ ОТВЕТ — ТОЛЬКО ТОЙ ЖЕ МОДЕЛИ, КАЧЕСТВА И ВЕРСИИ ПРОМПТА (demo-11, Codex 17.10): иначе после смены модели повтор с тем
             # же `src_id` вернул бы фото прежней модели как новое
             if _c and (_c.get('model') != f'improve/{REALISTIC_MODEL}' or _c.get('image_quality') != gq
-                       or _c.get('prompt_version') != IM.PROMPT_VERSION or (_c.get('tariff') or IM.STANDARD) != _tr):
+                       or _c.get('prompt_version') != IM.prompt_version(layout) or (_c.get('tariff') or IM.STANDARD) != _tr):
                 print('улучшение: готовый ответ другой модели/качества/промпта — не переиспользую', flush=True)
                 _c = None
             if _c:
@@ -3899,7 +3899,7 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
                      for c, p_ in zip(want, pieces)]
             # что именно нарисовало фото — в ответ и реестр (demo-11): модель, качество, версия и отпечаток промпта
             res = {'shots': shots, 'url': shots[0]['url'], 'model': f'improve/{REALISTIC_MODEL}', 'image_quality': gq,
-                   'prompt_version': IM.PROMPT_VERSION, 'prompt_sha': IM.prompt_sha(prompt), 'tariff': _tr,
+                   'prompt_version': IM.prompt_version(layout), 'prompt_sha': IM.prompt_sha(prompt), 'tariff': _tr,
                        'sheet_orient': built.get('orient') or 'landscape',
                    'sources': built['src_url'], 'diag': {'clay': built['clay']},
                        # откуда кадры и сколько заняла наша часть до вызова модели (demo-10: цель ≤ 2 с при кадрах из браузера)

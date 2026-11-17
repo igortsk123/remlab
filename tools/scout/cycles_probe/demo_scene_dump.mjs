@@ -78,7 +78,13 @@ if (extra.export) {
   const noGeom = new Set(info.slots.filter((s) => s.kit === 'textile' && (s.features || []).some((f) => TX[f] === false)).map((s) => s.slotId));
   // радиатор под окном (slot `radiator`, T-20261117-11) идёт в выгрузку ВСЕГДА, кроме явного `-radiator` в списке: иначе фото-рендер и живая 3D расходятся
   const noRad = keys && keys.includes('-radiator');
-  const pick = info.nodes.filter((n) => n.visible && n.type === 'Mesh' && !noGeom.has(n.slot) && ((n.slot === 'radiator' && !noRad) || !keys || keys.some((k) => k === 'rod'
+  // оболочка комнаты строится Blender'ом сама (плиты пола/стен/потолка из export_scene): её плоскость потолка (`ceiling:<комната>` без `Mesh<`, y = высота
+  // потолка) в выгрузку не идёт — иначе накладывается на плиту и даёт серые «треугольники» z-fighting (T-20261117-19/2 п.1, все комнаты).
+  // Люстра/плафон (`ceiling:люстра#…`, `Mesh<ceiling:…:lamp`) — не оболочка, их ключ `ceiling` берёт как раньше
+  const isShellCeiling = (n) => /^ceiling:[^<:]+<room:/.test(n.chain);
+  // штатные шторы оболочки (группа `curtains`, когда в варианте нет штор-декора) — как радиатор: видны в живой 3D, значит идут и в рендер (п.2)
+  const isShellCurtain = (n) => /(^|<)curtains<Scene$/.test(n.chain);
+  const pick = info.nodes.filter((n) => n.visible && n.type === 'Mesh' && !noGeom.has(n.slot) && !isShellCeiling(n) && ((n.slot === 'radiator' && !noRad) || isShellCurtain(n) || !keys || keys.some((k) => k === 'rod'
     ? n.chain.includes('fixtures:') && n.min[1] > 2.0 && n.max[1] < 2.69 : k === 'plant' ? n.plant : (n.slot + '|' + n.chain).includes(k)))).map((n) => n.uuid);
   console.log('выгружаю узлов', pick.length);
   const b64 = await page.evaluate((u) => window.exportNodes(u), pick);
