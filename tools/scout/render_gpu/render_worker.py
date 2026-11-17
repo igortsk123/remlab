@@ -10,7 +10,7 @@
      машины всегда той версии, что у DEV. Флаги рендера (сэмплы, пресет) — из `job.json:args`, пути воркер подставляет сам.
 Один процесс — одно задание за раз (машина одна). Токен нигде не печатается.
 
-Переменные: MESH_SINK_URL, MESH_SINK_TOKEN (из группы), WORK (/work), JOB_POLL_S (3), JOB_MAX_AGE_S (7200), CACHE_N (3), CACHE_GB (1.5)."""
+Переменные: MESH_SINK_URL, MESH_SINK_TOKEN (из группы), WORK (/work), JOB_POLL_S (1), JOB_MAX_AGE_S (7200), CACHE_N (3), CACHE_GB (1.5)."""
 import json
 import os
 import shutil
@@ -25,7 +25,7 @@ import jobs_proto as JP  # noqa: E402
 import machine_agent as MA  # noqa: E402
 
 WORK = os.environ.get('WORK', '/work')
-POLL = float(os.environ.get('JOB_POLL_S', '3'))
+POLL = float(os.environ.get('JOB_POLL_S', '1'))      # было 3 с: ожидание задания в среднем 1,5 с (T-24/4)
 MAX_AGE = float(os.environ.get('JOB_MAX_AGE_S', '7200'))
 CACHE_N = int(os.environ.get('CACHE_N', '3'))
 CACHE_GB = float(os.environ.get('CACHE_GB', '1.5'))
@@ -106,7 +106,11 @@ class Worker:
             n = d['name']
             if n in self.done or now - float(d.get('mtime', 0)) > MAX_AGE:
                 continue
-            names = {f['name'] for f in self.sink.ls(f'{JP.PREFIX}/{n}').get('files', [])}
+            try:
+                names = {f['name'] for f in self.sink.ls(f'{JP.PREFIX}/{n}').get('files', [])}
+            except JP.SinkError as e:      # сетевой сбой/таймаут посреди перечня: не падать (воркер умирал — T-24/4, живая пара 23:34), пропустить до следующего круга
+                log('ls задания', n, e)
+                return None
             if 'result.json' in names or 'cancel.json' in names:
                 self.done.add(n)
                 continue
@@ -203,7 +207,11 @@ class Worker:
             if not MA.STATE.get('ready'):
                 time.sleep(POLL)
                 continue
-            jid = self.pick()
+            try:
+                jid = self.pick()
+            except Exception as e:  # noqa: BLE001 — воркер не должен умирать от сбоя перечня заданий
+                log('pick сбой', type(e).__name__, str(e)[:160])
+                jid = None
             if not jid:
                 time.sleep(POLL)
                 continue

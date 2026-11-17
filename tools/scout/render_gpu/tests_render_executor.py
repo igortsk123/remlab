@@ -238,6 +238,8 @@ os.makedirs(bd)
 open(os.path.join(bd, 'b.tgz'), 'wb').write(sink.hist[bundle])
 names = JP.unpack_bundle(os.path.join(bd, 'b.tgz'), os.path.join(bd, 'x'))
 ok('пакет: сцена, декор, программа рендера, данные, карты', {'scene', 'dump', 'tools', 'data', 'public'} <= set(names))
+ok('пакет: правило картин wall_art.py лежит рядом с render_cycles.py (он его импортирует) — каждый import рендера есть в пакете',
+   os.path.isfile(os.path.join(bd, 'x', 'tools', 'scout', 'wall_art.py')) and os.path.isfile(os.path.join(bd, 'x', 'data', 'flat3d', 'wall-art.json')))
 ok('карты — только существующие в public (чужой путь и отсутствующий файл не попали)',
    os.path.isfile(os.path.join(bd, 'x', 'public', 'flat3d', 'tex', 'a.jpg')) and not os.path.exists(os.path.join(bd, 'x', 'public', 'etc')) and
    not os.path.exists(os.path.join(bd, 'x', 'public', 'flat3d', 'none.jpg')))
@@ -387,6 +389,145 @@ left = sorted(os.listdir(cd))
 ok('кэш пакетов ограничен по числу: остаются 3, текущий (самый старый по времени) не тронут', len(left) == 3 and 'bundle-0.tgz' in left and 'bundle-5.tgz' in left and len(gone) == 3)
 gone = RW.trim_cache(cd, 'bundle-5.tgz', max_n=10, max_gb=2500 / 2 ** 30)
 ok('кэш ограничен по размеру', sum(os.path.getsize(os.path.join(cd, f)) for f in os.listdir(cd)) <= 2500 and 'bundle-5.tgz' in os.listdir(cd))
+# ═══ 12. T-24/4 Э1: кэш PNG по содержимому, кэш дампа, ожидание шагов
+import importlib.util
+spec = importlib.util.spec_from_file_location('export_scene_t', os.path.join(HERE, '..', 'cycles_probe', 'export_scene.py'))
+ES = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ES)
+import numpy as np
+from PIL import Image
+ES.TEX_CACHE = os.path.join(TMP, 'texcache')
+arr = (np.arange(64 * 48 * 3) % 251).astype(np.uint8).reshape(48, 64, 3)
+d1, d2 = os.path.join(TMP, 'tx1.png'), os.path.join(TMP, 'tx2.png')
+ES.put_png(arr, d1)
+n_cache = len(os.listdir(ES.TEX_CACHE))
+ES.put_png(arr.copy(), d2)
+ok('PNG: тот же набор пикселей — один файл кэша, второй раз не кодируем', n_cache == 1 and len(os.listdir(ES.TEX_CACHE)) == 1 and os.stat(d1).st_ino == os.stat(d2).st_ino)
+ok('PNG: пиксели без потерь (как кодировал бы Image.save)', (np.asarray(Image.open(d1).convert('RGB')) == arr).all())
+ES.put_png(arr[:, ::-1], os.path.join(TMP, 'tx3.png'))
+ok('PNG: другое содержимое — другой файл кэша', len(os.listdir(ES.TEX_CACHE)) == 2)
+
+ex2 = RE.SaladGpuExecutor({}, sink=None)
+calls = []
+orig_rs = RE.run_step
+def fake_step(cmd, log, *a, **k):
+    calls.append(cmd[1] if len(cmd) > 1 else cmd)
+    dd = cmd[5]
+    os.makedirs(dd, exist_ok=True)
+    open(os.path.join(dd, 'scene-export.json'), 'w').write('{"x": 1}')
+RE.run_step = fake_step
+os.environ['RENDER_DUMP_CACHE'] = os.path.join(TMP, 'dumpcache')
+dp = os.path.join(TMP, 'data.json'); open(dp, 'w').write('{"v": 1}')
+bd = os.path.join(TMP, 'bundle-aaa'); os.makedirs(bd, exist_ok=True)
+pr_ = {'dumpExport': 'all'}; lim_ = {'dumpSec': 5, 'maxRssGb': 1}
+ex2._dump_cached(dp, bd, os.path.join(TMP, 'dumpA'), os.path.join(TMP, 'dl.log'), pr_, lim_)
+ex2._dump_cached(dp, bd, os.path.join(TMP, 'dumpB'), os.path.join(TMP, 'dl.log'), pr_, lim_)
+ok('дамп: повтор того же входа берётся из кэша (Chromium не запускаем)', len(calls) == 1 and open(os.path.join(TMP, 'dumpB', 'scene-export.json')).read() == '{"x": 1}')
+open(dp, 'w').write('{"v": 2}')
+ex2._dump_cached(dp, bd, os.path.join(TMP, 'dumpC'), os.path.join(TMP, 'dl.log'), pr_, lim_)
+ok('дамп: другие данные — новый запуск и новая запись кэша', len(calls) == 2 and len([e for e in os.listdir(os.environ['RENDER_DUMP_CACHE']) if not e.endswith('.tmp')]) == 2)
+RE.run_step = orig_rs
+# ═══ 13. T-24/4: параллельные прогоны не ломают друг другу сборку, кэши и каталоги (рабочий 1, 17.11: bundle подменили посреди чужого дамп-шага)
+import threading
+ex3 = RE.SaladGpuExecutor({'RENDER_WORK': os.path.join(TMP, 'pwork')}, sink=None)
+ex3.work = os.path.join(TMP, 'pwork')
+os.makedirs(ex3.work, exist_ok=True)
+built = []
+def fake_build(cmd, log, *a, **k):
+    out = cmd[2]
+    built.append(out)
+    os.makedirs(out, exist_ok=True)
+    time.sleep(0.3)                                  # окно гонки
+    open(os.path.join(out, 'entry.js'), 'w').write('x')
+RE.run_step = fake_build
+res3, errs3 = [], []
+def bundle_run():
+    try:
+        res3.append(ex3._bundle(os.path.join(TMP, 'b.log')))
+    except Exception as e:  # noqa: BLE001
+        errs3.append(repr(e))
+ths = [threading.Thread(target=bundle_run) for _ in range(4)]
+[t.start() for t in ths]; [t.join() for t in ths]
+ok('сборка выгрузчика: четыре параллельных прогона — один итоговый каталог, без ошибок, entry.js на месте',
+   not errs3 and len(set(res3)) == 1 and os.path.isfile(os.path.join(res3[0], 'entry.js')) and all('.tmp-' in b for b in built))
+ok('сборка выгрузчика: временные каталоги убраны', not [d for d in os.listdir(ex3.work) if '.tmp-' in d])
+old_b = os.path.join(ex3.work, 'bundle-old000000000'); os.makedirs(old_b)
+ex3._bundle(os.path.join(TMP, 'b.log'))
+ok('сборка: чужой СВЕЖИЙ bundle-* не сносится (мог быть в ходу у соседнего прогона)', os.path.isdir(old_b))
+os.utime(old_b, (1, 1))
+ex3._bundle(os.path.join(TMP, 'b.log'))
+ok('сборка: старый (> 6 ч) bundle-* убирается', not os.path.isdir(old_b))
+RE.run_step = orig_rs
+
+snap_a = {'scene_hash': 'a' * 64}
+d1_, d2_ = ex3._job_dir('gjob-', snap_a), ex3._job_dir('gjob-', snap_a)
+ok('каталог задания: две сцены с одним хешем — разные каталоги', d1_ != d2_ and d1_.startswith(os.path.join(ex3.work, 'gjob-' + 'a' * 16)))
+
+# кэш PNG: восемь потоков кладут одну и ту же картинку
+ES.TEX_CACHE = os.path.join(TMP, 'texcache2')
+arr2 = (np.arange(256 * 256 * 3) % 253).astype(np.uint8).reshape(256, 256, 3)
+dsts = [os.path.join(TMP, f'par{i}.png') for i in range(8)]
+errs4 = []
+def put_run(dst):
+    try:
+        ES.put_png(arr2, dst)
+    except Exception as e:  # noqa: BLE001
+        errs4.append(repr(e))
+ths = [threading.Thread(target=put_run, args=(d,)) for d in dsts]
+[t.start() for t in ths]; [t.join() for t in ths]
+ok('кэш PNG: восемь параллельных записей — без ошибок, все файлы читаются и равны, в кэше один файл',
+   not errs4 and all((np.asarray(Image.open(d).convert('RGB')) == arr2).all() for d in dsts) and len([f for f in os.listdir(ES.TEX_CACHE) if f.endswith('.png')]) == 1)
+cf = os.path.join(ES.TEX_CACHE, [f for f in os.listdir(ES.TEX_CACHE) if f.endswith('.png')][0])
+ok('кэш PNG: после записи только чтение', (os.stat(cf).st_mode & 0o222) == 0)
+ok('кэш PNG: временных файлов не осталось', not [f for f in os.listdir(ES.TEX_CACHE) if f.endswith('.tmp')])
+
+# кэш дампа: два параллельных прогона одного входа
+os.environ['RENDER_DUMP_CACHE'] = os.path.join(TMP, 'dumpcache2')
+dp2 = os.path.join(TMP, 'data2.json'); open(dp2, 'w').write('{"v": 9}')
+n_calls = []
+def fake_step2(cmd, log, *a, **k):
+    n_calls.append(1)
+    dd = cmd[5]
+    os.makedirs(dd, exist_ok=True)
+    time.sleep(0.3)
+    open(os.path.join(dd, 'scene-export.json'), 'w').write('{"y": 2}')
+RE.run_step = fake_step2
+errs5 = []
+def dump_run(i):
+    try:
+        ex2._dump_cached(dp2, bd, os.path.join(TMP, f'pd{i}'), os.path.join(TMP, f'pd{i}.log'), pr_, lim_)
+    except Exception as e:  # noqa: BLE001
+        errs5.append(repr(e))
+ths = [threading.Thread(target=dump_run, args=(i,)) for i in range(3)]
+[t.start() for t in ths]; [t.join() for t in ths]
+ents5 = [e for e in os.listdir(os.environ['RENDER_DUMP_CACHE'])]
+ok('кэш дампа: три параллельных прогона — без ошибок, у каждого своя папка с данными, в кэше одна запись, временных нет',
+   not errs5 and all(open(os.path.join(TMP, f'pd{i}', 'scene-export.json')).read() == '{"y": 2}' for i in range(3)) and len(ents5) == 1 and '.tmp-' not in ents5[0])
+ok('кэш дампа: файлы записи только для чтения', all((os.stat(os.path.join(os.environ['RENDER_DUMP_CACHE'], ents5[0], f)).st_mode & 0o222) == 0 for f in os.listdir(os.path.join(os.environ['RENDER_DUMP_CACHE'], ents5[0])) if f != '.ok'))
+RE.run_step = orig_rs
+# ═══ 14. T-24/4: сбой перечня заданий не убивает воркера (живая пара 23:34: исключение из ls задания вышло из loop → процесс умер → «не взяли»)
+s9 = FakeSink()
+s9.put('renderjobs/j9/job.json', b'{}')
+w9 = new_worker(s9)
+real_ls = s9.ls
+calls9 = []
+def flaky_ls(rel):
+    calls9.append(rel)
+    if rel == 'renderjobs/j9':
+        raise JP.SinkError('LS: timed out', 0)
+    return real_ls(rel)
+s9.ls = flaky_ls
+ok('pick: сбой ls каталога задания → None, исключения нет', w9.pick() is None and 'renderjobs/j9' in calls9)
+s9.ls = real_ls
+ok('pick: после сбоя то же задание берётся на следующем круге', w9.pick() == 'j9')
+def boom_pick():
+    raise RuntimeError('boom')
+w9.pick = boom_pick
+w9.sleep_n = 0
+RW.MA.STATE['ready'] = True
+th9 = threading.Thread(target=w9.loop, daemon=True); th9.start()
+time.sleep(1.6)
+ok('loop: любое исключение pick не завершает поток воркера', th9.is_alive())
 shutil.rmtree(TMP, ignore_errors=True)
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')
 sys.exit(1 if BAD else 0)
