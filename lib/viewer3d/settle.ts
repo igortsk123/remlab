@@ -57,6 +57,9 @@ function localBox(group: THREE.Object3D): THREE.Box3 {
 }
 
 const ray = new THREE.Raycaster();
+/** Грань смотрит вверх (нормаль в мире, y > 0,3): низ и бока опоры сиденьем не считаются. */
+const faceUp = (h: THREE.Intersection): boolean =>
+  !h.face || h.face.normal.clone().transformDirection(h.object.matrixWorld).y > 0.3;
 const solid = (supports: THREE.Object3D[], from: THREE.Vector3, dir: THREE.Vector3): THREE.Intersection | undefined => {
   ray.set(from, dir);
   return ray.intersectObjects(supports, true).find((h) => (h.object as THREE.Mesh).isMesh && h.object.visible);
@@ -80,16 +83,22 @@ export function settleOnSupport(group: THREE.Object3D, plannedY: number, support
   const down = new THREE.Vector3(0, -1, 0);
   const tops: number[] = [];
   let anyHit = false;
+  const band = rules.maxSnapCm * CM;
   for (const dx of [0, -rules.probeFrac * width, rules.probeFrac * width]) {
+    // луч — сверху вниз с запасом выше подлокотника и спинки; сиденье — обращённая вверх грань в полосе вокруг отметки решателя: верх
+    // подлокотника или спинки (выше полосы) луч пропускает, подпушка под подлокотником не цепляет
     const from = group.localToWorld(new THREE.Vector3(cx + dx, lb.min.y, cz));
     from.y = bottom + rules.rayUpCm * CM;
-    const hit = solid(supports, from, down);
-    if (!hit) continue;
-    anyHit = true;
-    if (Math.abs(hit.point.y - bottom) <= rules.maxSnapCm * CM) tops.push(hit.point.y);
+    ray.set(from, down);
+    const hits = ray.intersectObjects(supports, true).filter((h) => (h.object as THREE.Mesh).isMesh && h.object.visible && faceUp(h));
+    if (hits.length) anyHit = true;
+    // в полосе берём САМУЮ НИЗКУЮ грань: выше сиденья в полосе бывают валик спинки и край подлокотника, подушка лежит на сиденье под ними
+    const inBand = hits.filter((h) => Math.abs(h.point.y - bottom) <= band);
+    if (inBand.length) tops.push(Math.min(...inBand.map((h) => h.point.y)));
   }
   if (!tops.length) return result(anyHit ? "too-far" : "no-support", null, 0, 0);
-  const top = Math.max(...tops);
+  tops.sort((a, b) => a - b);
+  const top = tops[Math.floor((tops.length - 1) / 2)]!;                 // середина по трём лучам: один неудачный (шов, пуговица) не двигает вещь
   const want = top - rules.sinkCm * CM;                                 // низ вещи в мире, м
   group.position.y += want - bottom;
 
@@ -112,5 +121,24 @@ export function settleOnSupport(group: THREE.Object3D, plannedY: number, support
     const rear = group.localToWorld(new THREE.Vector3(cx, lb.min.y, lb.min.z));
     group.position.y += want - rear.y;
   }
+  // доводка по самой низкой точке пробовалась (T-20261117-10) и отвергнута: на мягком диване низшая вершина попадает в шов между подушками и
+  // утапливает всю подушку на 2–3 см глубже (замер after5) — три луча по ширине и их середина (выше) ложатся точнее
   return result("settled", top / CM, (group.position.y - plannedY) / CM, lean);
+}
+
+/** Самая низкая точка видимых мешей группы в мире, м (вершины); пусто — null. Для доводки посадки и для замера зазора (`FlatViewer.supportGaps`). */
+export function lowestPoint(group: THREE.Object3D): THREE.Vector3 | null {
+  group.updateWorldMatrix(true, true);
+  const low = new THREE.Vector3(0, Infinity, 0);
+  const v = new THREE.Vector3();
+  group.traverse((o) => {
+    const m = o as THREE.Mesh;
+    const pos = m.isMesh && m.visible ? m.geometry?.getAttribute("position") : undefined;
+    if (!pos) return;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos as THREE.BufferAttribute, i).applyMatrix4(m.matrixWorld);
+      if (v.y < low.y) low.copy(v);
+    }
+  });
+  return Number.isFinite(low.y) ? low : null;
 }

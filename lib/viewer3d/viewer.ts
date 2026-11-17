@@ -17,7 +17,7 @@ import { material as materialSchema, type Catalogue, type Material } from "@/con
 import type { ResolvedScene } from "@/lib/configurator/resolve";
 import { isExtra, isFlatOnSurface, type ObjectSpec, planObjects, productCurtains, surfacesByRoom } from "@/lib/viewer3d/build-scene";
 import { buildLabelSpot, buildPillow, buildProductCurtain, buildThrow } from "@/lib/viewer3d/kits/textile";
-import { isSettled, settleOnSupport } from "@/lib/viewer3d/settle";
+import { isSettled, lowestPoint, settleOnSupport, type SettleResult } from "@/lib/viewer3d/settle";
 import { buildKitchen } from "@/lib/viewer3d/kits/kitchen";
 import { buildBathroom } from "@/lib/viewer3d/kits/bathroom";
 import { buildBed, buildRug, buildWardrobe } from "@/lib/viewer3d/kits/bedroom";
@@ -241,6 +241,8 @@ export class FlatViewer {
   private ghosts = new SwapGhosts<Placed>(this.scene);
   /** Вещь → носитель, чья модель сейчас грузится (подушки на диване ждут диван, T-20261113-19). */
   private waitFor = new Map<string, string>();
+  /** Итог последней посадки мягких вещей по слотам (`settleSoft`): посажена, нет опоры, далеко от отметки или сбой — для `supportGaps`. */
+  private settleLog = new Map<string, SettleResult | { why: "error"; error: string }>();
   private pendingUrls = new Set<string>();
   private loadedCount = 0;
   private totalCount = 0;
@@ -576,15 +578,19 @@ export class FlatViewer {
    */
   private settleSoft(): void {
     if (this.disposed) return;
+    // мировые матрицы обновляет кадр, а посадка идёт сразу после загрузки: без этого луч видит диван там, где он был до `placeGroup`
+    this.scene.updateMatrixWorld(true);
+    this.settleLog.clear();
     const soft = (p: Placed): boolean => isSettled(p.spec.kind, p.spec.kind === "mesh" ? p.spec.role : p.spec.kind === "textile" ? p.spec.shape : null);
     const supports: THREE.Object3D[] = [];
     for (const p of this.placed.values()) if (!soft(p) && p.status !== "pending") supports.push(p.group);
     for (const p of this.placed.values()) {
       if (!soft(p) || p.status === "pending") continue;
       try {
-        settleOnSupport(p.group, (p.spec.placement.elevCm ?? 0) * CM, supports);
-      } catch {
-        // посадка — украшение: сбой расчёта оставляет вещь на отметке решателя
+        this.settleLog.set(p.spec.slotId, settleOnSupport(p.group, (p.spec.placement.elevCm ?? 0) * CM, supports));
+      } catch (e) {
+        // посадка — украшение: сбой расчёта оставляет вещь на отметке решателя; причина — в журнале посадки (`supportGaps`)
+        this.settleLog.set(p.spec.slotId, { why: "error", error: String((e as Error)?.message ?? e).slice(0, 120) });
       }
     }
   }
@@ -695,7 +701,7 @@ export class FlatViewer {
    */
   supportGaps(match: (spec: ObjectSpec) => boolean): {
     slotId: string; role: string; title: string; bottomCm: number; plannedBottomCm: number; supportCm: number | null; gapCm: number | null;
-    support: string | null; heightCm: number;
+    support: string | null; heightCm: number; settle: string;
   }[] {
     const out: ReturnType<FlatViewer["supportGaps"]> = [];
     const ray = new THREE.Raycaster();
@@ -707,7 +713,9 @@ export class FlatViewer {
       const c = box.getCenter(new THREE.Vector3());
       const others: THREE.Object3D[] = [];
       for (const [id, q] of this.placed) if (id !== slotId && q.status !== "pending") others.push(q.group);
-      ray.set(new THREE.Vector3(c.x, box.min.y + 0.6, c.z), new THREE.Vector3(0, -1, 0));
+      // точка замера — САМАЯ НИЗКАЯ точка вещи (у наклонённой подушки это её нижний край, а не центр: под центром сиденье может быть далеко)
+      const low = lowestPoint(p.group) ?? new THREE.Vector3(c.x, box.min.y, c.z);
+      ray.set(new THREE.Vector3(low.x, low.y + 0.05, low.z), new THREE.Vector3(0, -1, 0));   // с запасом 5 см: утопленная вещь даёт отрицательный зазор
       // первый удар сверху вниз от точки чуть выше низа вещи: сама вещь исключена (не в `others`), так что это верх опоры под центром
       const hits = ray.intersectObjects(others, true).filter((h) => (h.object as THREE.Mesh).isMesh && h.object.visible);
       const hit = hits[0];
@@ -722,6 +730,7 @@ export class FlatViewer {
         slotId, role, title: spec.titleRu, bottomCm: +(box.min.y * 100).toFixed(1), plannedBottomCm: +(spec.placement.elevCm ?? 0).toFixed(1),
         supportCm: hit ? +(hit.point.y * 100).toFixed(1) : null, gapCm: hit ? +((box.min.y - hit.point.y) * 100).toFixed(1) : null,
         support, heightCm: +((box.max.y - box.min.y) * 100).toFixed(1),
+        settle: ((l) => (!l ? "не сажалась" : l.why === "error" ? `сбой: ${l.error}` : l.why === "settled" ? `посажена (сдвиг ${l.deltaCm} см, наклон ${l.leanDeg}°)` : l.why))(this.settleLog.get(slotId)),
       });
     }
     return out;
