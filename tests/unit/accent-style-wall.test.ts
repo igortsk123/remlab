@@ -46,7 +46,8 @@ describe("стиль → акцентная стена (данные)", () => {
     expect(loft?.material.heightUrl).toMatch(/-h\.webp$/);
     expect(loft?.material.aoUrl).toMatch(/-ao\.webp$/);
     expect(loft?.material.variationUrl).toMatch(/-id\.webp$/);
-    expect(14 / ((loft?.material.tileCm as number[])[1] / 100)).toBeGreaterThanOrEqual(11);
+    const tileH = (loft?.material.tileCm as number[])[1]!;
+    expect(14 / (tileH / 100)).toBeGreaterThanOrEqual(11);
     for (const s of ["сканди", "современный", "минимализм", "джапанди", "неоклассика", undefined]) expect(accentWallFor(s)).toBeUndefined();
   });
 
