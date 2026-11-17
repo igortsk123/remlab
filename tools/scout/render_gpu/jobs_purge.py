@@ -83,7 +83,9 @@ def main() -> int:
     if a.prefix != JP.PREFIX:
         print('чужой префикс не убираем: только', JP.PREFIX)
         return 2
+    import migrate_groups
     import sink_health
+    migrate_groups.env_from_file()      # ключ Salad и SALAD_GROUP из salad.env (вне git) — тот же путь токена, что у исполнителя и сторожей
     tok = sink_health.sink_token()
     if not tok:
         print('нет токена приёмника — ничего не делаю')
