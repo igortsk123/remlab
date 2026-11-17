@@ -2,6 +2,7 @@
 # Сборка образа рендера Blender (T-20261117-22) с ГЕЙТОМ ПО СЖАТОМУ РАЗМЕРУ — как `salad/build.sh` меш-образа, но без весов нейросетей.
 #   build_render.sh bench   # образ замера: Blender + код + две сцены /demo (по умолчанию)
 #   build_render.sh agent   # образ машины под контроллером (T-24/1): код + агент готовности
+#   build_render.sh worker  # БОЕВАЯ машина (T-24/2): агент готовности + воркер заданий
 #   build_render.sh code    # боевой образ: Blender + код, без сцен (сцену воркер берёт по манифесту)
 # Контекст сборки собирается в ~/remlab-logs/t22-1117/ctx (вне репо): Blender-архив (тот же 5.3.0, что на DEV), код, сцены lv-set10/lv-bed1.
 # Лимит Salad — 35 ГБ сжатого; наш порог для рендера — 3 ГБ (если больше, что-то лишнее попало в образ). Секретов в контексте нет.
@@ -16,7 +17,7 @@ LIMIT_GB=3
 TGZ="$HOME/opt/dl/blender-5.3.0.tar.xz"
 
 mkdir -p "$CTX/scenes/public"
-cp -f "$HERE/Dockerfile.render" "$HERE/ready_probe.py" "$HERE/bench.py" "$HERE/machine_agent.py" "$CYC/render_cycles.py" "$CTX/"
+cp -f "$HERE/Dockerfile.render" "$HERE/ready_probe.py" "$HERE/bench.py" "$HERE/machine_agent.py" "$HERE/render_worker.py" "$HERE/jobs_proto.py" "$CYC/render_cycles.py" "$CTX/"
 cp -f "$HERE/../../../data/flat3d/wall-art.json" "$CTX/wall-art.json"
 [ -f "$CTX/blender-5.3.0.tar.xz" ] || cp "$TGZ" "$CTX/blender-5.3.0.tar.xz"
 SHA="$(sha256sum "$CTX/blender-5.3.0.tar.xz" | cut -d' ' -f1)"

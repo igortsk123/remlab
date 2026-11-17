@@ -59,3 +59,25 @@
 Отключить на время ручной работы: файл `/opt/remlab/render-guard-off-until` с временем UNIX.
 
 Тесты: `python3 tools/scout/render_gpu/tests_render_machine.py` (чистая `plan()` + команды на подмене Salad) и `python3 infra/server/render-guard.py --selftest`.
+
+## Исполнитель `salad-gpu` и воркер машины (T-20261117-24/2)
+**Поток одной пары.** `Fallback(salad-gpu → local-cpu)` (`RENDER_EXECUTOR=salad-gpu,local-cpu`): ① `gate` — `state.json` контроллера: включена, прогрелась в этом
+запуске, нет деградации, контроллер жив (≤5 мин) — иначе сразу `ExecutorUnavailable` (`gpu_off|gpu_warming|gpu_degraded`, пара RU/EN) и пара считается на CPU DEV;
+② `pulse --busy` (заказ = событие, пока пара в работе — «занято»); ③ сцена на DEV тем же `SceneExecutor._prepare`, что у `local-cpu` (меши → `export_scene`,
+декор → `demo_scene_dump`); ④ пакет `bundle-<sha>.tgz` (сцена + декор + `render_cycles.py` + `wall-art.json` + карты из `scene-export.json`; воспроизводимый) →
+`renderjobs/<задание>/`, последним `job.json`; ⑤ воркер в контейнере (`render_worker.py`) берёт задание, ОДИН Blender считает C1,C2 (`--persistent 1`, `--device auto`),
+кладёт `C1.png`, `C2.png`, последним `result.json`; ход — `progress.json` (стадии scene → C1 → C2 → save → те же `progress()`, что у CPU); ⑥ исполнитель качает кадры,
+`_finish` (JPEG + `meta.json`, `executor: salad-gpu`); ⑦ `pulse(0)` — конец пары, автостоп 20 мин с этого момента.
+**Откат на CPU — данными:** не взяли за `pickup_s` (90), не уложились в `pair_max_s` (900), машину выключили в ожидании, GPU не взялся (воркер видит `DEVICE_USED CPU`),
+Blender упал, хранилище не приняло/не отдало — `ExecutorUnavailable` + `cancel.json`; параметры — `rules/salad-groups.json → render_machine.executor`.
+**Автостоп** — от ПОСЛЕДНЕГО события (заказ или готовая пара), и никогда, пока пара в работе (`busy_until` обновляет ждущий исполнитель; умер — метка истекает сама,
+остаются потолки 4 ч и $/сутки). **Хранилище:** только префикс `renderjobs/`; приёмник отдаёт `GET /files/renderjobs/<задание>/<имя>` и `GET /ls/renderjobs[/<задание>]`
+(токен обязателен, потоком, `..`/симлинки/`.part`/скрытые — 404, чужие префиксы — 404; список — `MESH_SERVE_PREFIXES`, потолок PUT пакета — `MESH_SERVE_MAX_MB`, 200).
+**Кэш на машине:** пакеты по sha, ≤3 штук и ≤1,5 ГБ (`CACHE_N`, `CACHE_GB`). **Образ:** цель `worker` (`build_render.sh worker`), digest — в `render_machine.image`.
+**Токен приёмника для исполнителя:** `RENDER_SINK_TOKEN` | `MESH_SINK_TOKEN` | из окружения группы-донора (`sink_health.sink_token()`).
+**Уборка:** `jobs_purge.py --apply` (задания старше 24 ч; через `DELETE /prefix/` приёмника). Крон (ставит директор):
+`17 * * * *  ~/venvs/scout/bin/python <репо>/tools/scout/render_gpu/jobs_purge.py --apply >> ~/remlab-logs/renderjobs-purge.log 2>&1`
+**Приёмник — как выложить и перезапустить:** скопировать `tools/scout/salad/receiver.py` на сервер туда, откуда он запускается (то же место, что сейчас), и перезапустить
+сервис приёмника (счётчик каталога пересчитается при старте); проверка — `curl -H "Authorization: Bearer …" https://remont-lab.online/mesh-sink/ls/renderjobs` (200, `{"dirs": []}`),
+чужой префикс (`/ls/<любой меш>`) → 404. Тесты безопасности — `salad/tests_sink_serve.py` (в CI).
+Тесты: `render_gpu/tests_render_executor.py` (исполнитель ↔ воркер ↔ хранилище в памяти, Blender — `fake_blender.py`), `tests_render_machine.py`, `jobs_purge.py --selftest`.

@@ -232,13 +232,13 @@
     "_why": "владелец 22.10 (TG 905, T-20261022-10): машина, у которой ОЗУ (MemTotal, десятичные ГБ: 32-гигабайтная показывает ≈ 33.6) меньше min_gb, уходит до первого задания — ssh_run.spawn пишет строку kind=node_reject в журнал прогона и пересаживает её. Почему: обрывы ssh/mid_generation 22.10 — 37 % за час на домашних ПК (4070 Ti SUPER, 3090, 4080), тот же класс, что 20.10 (domain/mesh-pool-ops.md: 16 ГБ → обрыв, 24 ГБ → ok, A5000 на серверах 63–108 ГБ — 40/40). 0 — проверка выключена."
   },
   "render_machine": {
-    "_about": "Параметры контроллера машины рендера render_machine.py (T-20261117-24). Числа — предохранители, меняются здесь, не в коде. image — digest amd64 образа цели `agent` (build_render.sh agent); сменили образ — НОВОЕ имя group (PATCH остановленной группы Salad не применяется), старую группу не удалять без владельца.",
+    "_about": "Параметры контроллера машины рендера render_machine.py (T-20261117-24). Числа — предохранители, меняются здесь, не в коде. image — digest amd64 образа цели `worker` (build_render.sh worker; цель agent — только готовность); сменили образ — НОВОЕ имя group (PATCH остановленной группы Salad не применяется), старую группу не удалять без владельца.",
     "group": "render-4090",
     "card": "4090",
     "price_class": "RTX 4090 (24 GB)",
     "tier": "high",
     "gpu_class_id": "ed563892-aacd-40f5-80b7-90c9be6c759b",
-    "image": "ghcr.io/igortsk123/mesh-hunyuan@sha256:6978c093c631e54daaf30df21b1db04865c20a64a3fc71f3a1becee7c7d949b0",
+    "image": "ghcr.io/igortsk123/mesh-hunyuan@sha256:26eb90346f479569e41715078200ac57c0cc5b8a392706b2436c5366c4a21bfb",
     "cpu": 8,
     "memory_mb": 16384,
     "storage_gb": 10,

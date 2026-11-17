@@ -45,5 +45,11 @@ CMD ["/opt/blender/5.3/python/bin/python3.13", "-u", "/app/bench.py"]
 FROM code AS agent
 CMD ["/opt/blender/5.3/python/bin/python3.13", "-u", "/app/machine_agent.py"]
 
+# worker — БОЕВАЯ машина рендера (T-24/2): агент готовности + воркер заданий (`render_worker.py`: берёт пару ракурсов из приёмника, считает одним Blender,
+# кладёт кадры обратно). Программа рендера и данные приходят ПАКЕТОМ сцены с каждым заданием — правка render_cycles.py не требует новой сборки.
+FROM code AS worker
+COPY render_worker.py jobs_proto.py /app/
+CMD ["/opt/blender/5.3/python/bin/python3.13", "-u", "/app/render_worker.py"]
+
 FROM code AS bench
 COPY scenes/ /scenes/
