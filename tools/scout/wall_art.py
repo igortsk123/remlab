@@ -8,6 +8,7 @@
   карточки, глубины у картин нет — толщина подрамника из правил.
 - Выбор: одна картина или пара похожего размера, ширина (пары — с зазором) ближе всего к доле `share` ширины опоры, внутри
   коридора `share_range`; по высоте влезает между верхом опоры (+ подъём) и потолком (− зазор). Нет такой — картины нет (честно).
+- Только картины с рисунком (владелец TG 1567/1568): белый рельеф на белом (`has_content` ложь) в набор по умолчанию не попадает.
 - Белое поле фото товара срезаем (`crop_white`): полотно в 3D — фото без поля (`sku.img_art`).
 - Выключатель: `enabled: false` в правилах или `DEMO_WALL_ART=0` — сборка картин не добавляет.
 """
@@ -58,6 +59,23 @@ def headroom(sup: dict, ceiling: float, r: dict) -> float:
     a = r['above_cm']
     top = float(sup.get('elev') or 0) + float(sup['h']) + float(a.get(base_role(sup.get('role')), a.get('*', 22)))
     return ceiling - float(r['ceiling_gap_cm']) - top
+
+
+def content_stats(src: str, r: dict | None = None) -> tuple[float, float]:
+    """(σ яркости, средний размах цвета) центра полотна по файлу фото товара — по ним `has_content` решает, есть ли рисунок."""
+    import numpy as np
+    from PIL import Image
+    x0, y0, x1, y1 = (r or rules())['art_content']['center']
+    a = np.asarray(Image.open(src).convert('RGB'), np.float32)
+    h, w, _ = a.shape
+    c = a[int(h * y0):int(h * y1), int(w * x0):int(w * x1)]
+    return float((c @ np.array([0.2126, 0.7152, 0.0722], np.float32)).std()), float((c.max(axis=2) - c.min(axis=2)).mean())
+
+
+def has_content(stats: tuple[float, float], r: dict | None = None) -> bool:
+    """Картина с рисунком: контрастный центр ИЛИ заметный цвет. Белый рельеф на белом (σ < порога и цвет < порога) — нет."""
+    ac = (r or rules())['art_content']
+    return stats[0] >= float(ac['min_sigma']) or stats[1] >= float(ac['min_chroma'])
 
 
 def series(name: str | None) -> str:
@@ -117,7 +135,7 @@ def feed_rows(pool: list, r: dict) -> list:
 
 
 def annotate(data: dict, pool: list, r: dict | None = None, ceiling: float | None = None,
-             kinds: tuple = ('living', 'bedroom')) -> list:
+             kinds: tuple = ('living', 'bedroom'), blank: set | None = None) -> list:
     """Картины в декор вариантов гостиной и спальни + ленты замен (`картина`, `bedroom:картина`). → [(вариант, опора, имена)]."""
     r = r or rules()
     if not enabled(r):
@@ -131,7 +149,8 @@ def annotate(data: dict, pool: list, r: dict | None = None, ceiling: float | Non
         if not sup:
             continue
         st = v.get('style')
-        cands = [p for p in pool if p.get('style') == st or st in (p.get('styles') or [])]
+        # `blank` — фото (img) картин без рисунка (`has_content`): в набор по умолчанию не берём, в лентах замен остаются
+        cands = [p for p in pool if (p.get('style') == st or st in (p.get('styles') or [])) and p.get('img') not in (blank or ())]
         got = pick(cands, sup, ceiling_of(data, v, ceiling), r, used)
         if not got:
             out.append((v.get('id'), base_role(sup.get('role')), []))

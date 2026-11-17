@@ -1210,7 +1210,19 @@ def wall_art_step(data: dict) -> None:
             return
         pool: dict = {}
         glue_soft(demo_swap_pool.soft_pool(r['role'], soft_pool_ok), pool, {})
-        got = WA.annotate(data, pool.get(r['role'], []), r, demo_ceiling())
+        # картины без рисунка (белый рельеф на белом) в набор по умолчанию не берём — фото качаем сюда же (`fetch_images`, кэш общий)
+        rows = pool.get(r['role'], [])
+        res = fetch_images({p['img'] for p in rows if p.get('img')})['got']
+        blank = set()
+        for p in rows:
+            loc = res.get(p.get('img'))
+            try:
+                if loc and not WA.has_content(WA.content_stats(os.path.join(OUT, loc), r), r):
+                    blank.add(p['img'])
+            except (OSError, ValueError):
+                pass
+        print(f'картины без рисунка (в набор не берём, в лентах замен остаются): {len(blank)} из {len(rows)}')
+        got = WA.annotate(data, rows, r, demo_ceiling(), blank=blank)
         print(f"картины: пул {len(pool.get(r['role'], []))}, повешены в {sum(1 for g in got if g[2])} из {len(got)} вариантов с опорой")
         for vid, sup, names in got:
             print(f"  картины {vid} над «{sup}»: " + ('; '.join(names) if names else 'нет товара по размеру и стилю'))
