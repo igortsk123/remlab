@@ -187,6 +187,8 @@ def _sku(items: dict, role: str) -> dict | None:
             'pack': _pack_of(it.get('mid'), it.get('eid'), it.get('name')),
             # запасной нейтральный ковёр стиля без своих (`demo_swap_pool.universal_rugs`) — только когда он; иначе ключа нет
             **({'rug_universal': True} if it.get('rug_universal') else {}),
+            # товар взят у соседнего стиля (запас, T-20261117-13): страница и список видят причину, «свои товары стиля» — без него
+            **({'style_from': it['style_from']} if it.get('style_from') else {}),
             # глубина «для сцены» у стульев К2 (`scene_dims`, T-25/9): d — по мешу, d_catalog — каталог для подписи
             **scene_dims(f"{it.get('mid')}_{it.get('eid')}" if it.get('mid') and it.get('eid') else None, _cat_dims(it))}
 
@@ -547,7 +549,9 @@ def room_dependent_decor(room_type: str, v: dict, geo: dict, bank: list, rec: di
     rows = [d for d in v.get('decor') or [] if DD.is_lamp(d.get('role'))]
     if rows:
         sets = [rec] + [b for b in bank if b is not rec]
-        it, pls, why = DD.lamp_pick_all(sets, 0, v['items'], (geo['w'], geo['d']), decor_model, decor_base, room_type, len(rows))
+        import demo_room
+        it, pls, why = DD.lamp_pick_all(sets, 0, v['items'], (geo['w'], geo['d']), decor_model, decor_base, room_type, len(rows),
+                                        neighbours=demo_room.neighbour_styles)
         keep = []
         if it:
             sk = _sku({DD.LAMP_ROLE: it}, DD.LAMP_ROLE)

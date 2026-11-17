@@ -601,9 +601,27 @@ class Composer:
                 slots[role] = {'ideal': dc.get('ideal', {}), 'band': band, 'tolerance': list(self.tol), 'qty': 1, 'mesh': False,
                                'fit': got['place']['fit'], **({'size_relaxed': True} if got['size_relaxed'] else {})}
                 continue
+            nb_from = None
+            if not cands and dc.get('neighbour_spare'):
+                # В СВОЁМ СТИЛЕ ТОВАРА РОЛИ НЕТ → ЗАПАС У СОСЕДНЕГО СТИЛЯ (T-20261117-13, владелец TG 1382; как ковёр `rug_by_norm`): порядок
+                # соседей — `style-axes.json:confusable_pairs`; те же ворота слота (полоса, deny, цена яруса), цвет — preferred/allowed ДЛЯ
+                # СВОЕГО стиля. Товар помечен `style_from` — набор честно показывает, что лампа не из этого стиля.
+                import compose_common as CC
+                import demo_room
+                keep = dict(self.shortage)      # учёт нехватки слота — по своему стилю, соседа не пишем
+                for nb in demo_room.neighbour_styles(style):
+                    c3, _, _ = self.pool(sl, nb, tier, self.decor, _decor_filter(dc, windows, self.R, src))
+                    palette(c3)
+                    c3 = [c for c in c3 if CC.color_eval(c, role, style, ctx=ctx)['tier'] in ('preferred', 'allowed')]
+                    if c3:
+                        cands, nb_from = [dict(c, style_from=nb) for c in c3], nb
+                        break
+                self.shortage = keep
             if not cands:
                 gaps.append(dc.get('gap') or (f'{role}: нет в стиле' + (' по размеру окна' if dc.get('min_w') == 'window' else '')))
                 continue
+            if nb_from:
+                gaps.append(f'{role}: нет в стиле — взята у соседа «{nb_from}» (запас)')
             if dc.get('prefer'):
                 pref = re.compile(dc['prefer'], re.I)
                 for c in cands:

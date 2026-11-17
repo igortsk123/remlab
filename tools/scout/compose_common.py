@@ -112,9 +112,16 @@ def side(it: dict, k: str):
 
 
 def band_of(slot: dict, tol: tuple) -> dict:
-    """Полоса слота: {сторона: [lo, hi]} по `band` и идеалу, допуск tol = (0.8, 1.1)."""
+    """Полоса слота: {сторона: [lo, hi]} по `band` и идеалу, допуск tol = (0.8, 1.1). `band_min` слота — {сторона: см}: нижняя граница
+    ниже, чем идеал × lo (настольная лампа от 33 см при идеале 45 — T-20261117-13); верх не трогает, выше расчётной нижней границы
+    не поднимает."""
     lo, hi = tol
-    return {k: [round(slot['ideal'][k] * lo, 1), round(slot['ideal'][k] * hi, 1)] for k in slot.get('band', [])}
+    mn = slot.get('band_min') or {}
+    out = {k: [round(slot['ideal'][k] * lo, 1), round(slot['ideal'][k] * hi, 1)] for k in slot.get('band', [])}
+    for k, v in mn.items():
+        if k in out and v < out[k][0]:
+            out[k][0] = float(v)
+    return out
 
 
 def slot_sizes(slot: dict) -> list:

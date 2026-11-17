@@ -84,6 +84,31 @@ def candidates(sets: list, idx: int, is_role) -> list:
     return out
 
 
+def neighbour_candidates(sets: list, nb: str, is_role, style: str) -> list:
+    """Товар роли из наборов СОСЕДНЕГО стиля `nb` банка (по порядку банка; артикулы без повторов), цвет — preferred/allowed ДЛЯ СТИЛЯ-ПОЛУЧАТЕЛЯ
+    `style` (как `demo_fill.neighbour_fill`: чужой товар не должен спорить со стилем ещё и цветом); каждый — копия с `style_from` = `nb`.
+    → [(номер набора, роль, товар)]."""
+    import compose_common as CC
+    out, seen = [], set()
+    for j, s in enumerate(sets):
+        if (s or {}).get('style') != nb:
+            continue
+        for role, it in (s.get('items') or {}).items():
+            if not is_role(role) or not it or not it.get('mid') or not it.get('eid'):
+                continue
+            sid = f"{it['mid']}_{it['eid']}"
+            if sid in seen:
+                continue
+            seen.add(sid)
+            try:
+                tier = CC.color_eval(it, LAMP_ROLE, style)['tier']
+            except Exception:  # noqa: BLE001 — нет цвета у товара: не отсекаем по цвету, решает размер и модель
+                tier = 'allowed'
+            if tier in ('preferred', 'allowed'):
+                out.append((j, role, dict(it, style_from=it.get('style_from') or nb)))   # уже чужая в наборе соседа — откуда она на самом деле
+    return out
+
+
 def place_of(pl: Placement, bottom_cm: float | None = None) -> dict:
     """Место решателя → `place` строки декора: точка и низ (оси комнаты, см), экземпляр места и — у зависимого от носителя — носитель,
     точка крепления и поза в осях носителя (штатный IR `planner/models.py:Placement`)."""
@@ -242,7 +267,7 @@ def lamp_pick(sets: list, idx: int, objs: list, room_wd: tuple, model, base=None
 
 
 def lamp_pick_all(sets: list, idx: int, objs: list, room_wd: tuple, model, base=None, room_type: str = 'living',
-                  n: int = 1) -> tuple:
+                  n: int = 1, neighbours=None) -> tuple:
     """→ (товар банка, место решателя `Placement`, журнал отказов). `model(it)` → (габариты меша или иное «да», или None; причина отказа);
     `base(it)` → основание по модели в единицах меша (`mesh_base_units`) или None. ВСЕ лампы стиля (набор, затем банк того же стиля):
     без ширины и глубины, без модели или не влезает на комод (`FIT_FAIL`) — мимо; из годных — лучшая по пропорции к комоду
@@ -252,35 +277,41 @@ def lamp_pick_all(sets: list, idx: int, objs: list, room_wd: tuple, model, base=
     cfg = ROOM_DEPS[room_type]
     pid = cfg['lamp'][2]
     car = dict(carrier_objs(objs, cfg['carriers'])).get(f"{cfg['carriers'][cfg['lamp_carrier']]}#0")
-    for j, role, it in candidates(sets, idx, is_lamp):
-        name = it.get('name') or role
-        if not (it.get('w') and it.get('d')):
-            why.append(f'{name}: размер не указан')
-            continue
-        ext, bad = model(it)
-        if bad:
-            why.append(f'{name}: {bad}')
-            continue
-        if not it.get('h'):
-            h = (mesh_dims(ext, max(float(it['w']), float(it['d']))) or {}).get('h')
-            if not h:
-                why.append(f'{name}: высоты нет ни в карточке, ни у модели')
+    style = (sets[idx] or {}).get('style')
+    # СВОИ ЛАМПЫ СТИЛЯ — ПЕРВЫМИ; ни одна не встала → ЗАПАС У СОСЕДНЕГО СТИЛЯ (T-20261117-13, владелец TG 1382; порядок — `neighbours(style)`,
+    # `style-axes.json:confusable_pairs`, как ковёр и роль ядра): лампа соседа помечена `style_from` — набор честно показывает, что она не из этого стиля
+    for nb in [None] + (list(neighbours(style)) if neighbours and style else []):
+        if nb is not None and ok:
+            break
+        for j, role, it in (candidates(sets, idx, is_lamp) if nb is None else neighbour_candidates(sets, nb, is_lamp, style)):
+            name = it.get('name') or role
+            if not (it.get('w') and it.get('d')):
+                why.append(f'{name}: размер не указан')
                 continue
-            it = {**it, 'h': h}
-        bw, bd = base_cm(it, ext, base(it) if base else None)
-        item = Item(role=LAMP_ROLE, w_cm=float(it['w']), d_cm=float(it['d']), h_cm=float(it['h']), base_w_cm=bw, base_d_cm=bd)
-        res = lamp_solve(objs, room_wd, item, room_type, n)
-        if not res.ok:
-            why.append(f"{name}: решатель {res.reject['code']} — {res.reject['message']}")
-            if res.reject['code'] == FIT_FAIL:
+            ext, bad = model(it)
+            if bad:
+                why.append(f'{name}: {bad}')
                 continue
-            return None, None, why
-        pls = sorted((p for p in res.placements if p.slot_instance_id.startswith(f'{pid}#')),
-                     key=lambda p: int(p.slot_instance_id.split('#')[1]))
-        if not pls:
-            why.append(f'{name}: решатель не дал места')
-            return None, None, why
-        ok.append((lamp_score(item, car), j != idx, f"{it['mid']}_{it['eid']}", it, pls))
+            if not it.get('h'):
+                h = (mesh_dims(ext, max(float(it['w']), float(it['d']))) or {}).get('h')
+                if not h:
+                    why.append(f'{name}: высоты нет ни в карточке, ни у модели')
+                    continue
+                it = {**it, 'h': h}
+            bw, bd = base_cm(it, ext, base(it) if base else None)
+            item = Item(role=LAMP_ROLE, w_cm=float(it['w']), d_cm=float(it['d']), h_cm=float(it['h']), base_w_cm=bw, base_d_cm=bd)
+            res = lamp_solve(objs, room_wd, item, room_type, n)
+            if not res.ok:
+                why.append(f"{name}: решатель {res.reject['code']} — {res.reject['message']}")
+                if res.reject['code'] == FIT_FAIL:
+                    continue
+                return None, None, why
+            pls = sorted((p for p in res.placements if p.slot_instance_id.startswith(f'{pid}#')),
+                         key=lambda p: int(p.slot_instance_id.split('#')[1]))
+            if not pls:
+                why.append(f'{name}: решатель не дал места')
+                return None, None, why
+            ok.append((lamp_score(item, car), j != idx, f"{it['mid']}_{it['eid']}", it, pls))
     if not ok:
         return None, None, why
     best = min(ok, key=lambda t: t[:3])
