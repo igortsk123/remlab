@@ -376,14 +376,14 @@ def load_mesh(path: str):
 
 
 def _fetch(mid: str, cache: str) -> str | None:
-    p = os.path.join(cache, mid + ".glb")
-    if os.path.exists(p) and os.path.getsize(p) > 1000:
-        return p
+    glb = os.path.join(cache, mid + ".glb")
+    if os.path.exists(glb) and os.path.getsize(glb) > 1000:
+        return glb
     try:
         req = urllib.request.Request(PROD.format(id=mid), headers={"user-agent": "material-parts"})
-        with urllib.request.urlopen(req, timeout=60) as r, open(p, "wb") as f:
+        with urllib.request.urlopen(req, timeout=60) as r, open(glb, "wb") as f:
             f.write(r.read())
-        return p
+        return glb
     except Exception as e:  # noqa: BLE001 — сеть: нет меша → запись unsure, прогон идёт дальше
         print(f"  нет меша {mid}: {str(e)[:80]}", file=sys.stderr)
         return None
