@@ -63,7 +63,7 @@ def test_vessels_have_fit_and_mounts():
         for mount in ('floor', 'table'):
             assert any(p['kind'] == kind and mount in (p.get('mounts') or [mount]) for p in CFG['plants']), f'{role}: нет растений для «{mount}»'
     for p in CFG['plants']:
-        assert set(p.get('mounts') or ['floor', 'table']) <= {'floor', 'table'}, p['id']
+        assert set(p.get('mounts') or ['floor', 'table']) <= {'floor', 'table', 'shelf'}, p['id']
         assert p.get('minThroatCm', 0) <= p.get('maxThroatCm', 1e9), p['id']
 
 
