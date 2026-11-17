@@ -180,8 +180,9 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', required=True)
     ap.add_argument('--scene', action='append', required=True)
+    ap.add_argument('--data', default=DEMO, help='данные витрины (demo-data.json); сервер рендера даёт файл с ОДНИМ вариантом снимка (T-20261117-19)')
     a = ap.parse_args()
-    D = json.load(open(DEMO, encoding='utf-8'))
+    D = json.load(open(a.data, encoding='utf-8'))
     for s in a.scene:
         name, idx = s.split('=')
         print(f'сцена {name} (вариант {idx})', flush=True)

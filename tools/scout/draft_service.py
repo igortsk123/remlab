@@ -11,6 +11,7 @@
 Запуск: DRAFT_PORT=8099 ~/venvs/scout/bin/python draft_service.py
 """
 import hashlib
+import hmac
 import html
 import json
 import os
@@ -161,6 +162,125 @@ QUEUE_WAIT_S = int(os.environ.get('DRAFT_QUEUE_WAIT_S', 600))
 
 _REG_LOCK = threading.Lock()
 
+# РЕНДЕР «СДЕЛАТЬ ФОТО» (T-20261117-19/1, план `photo-render-first-01` шаги 1/3/4): бесплатный рендер Blender тех же двух ракурсов, своя
+# очередь и свои пределы (`render_jobs.py`), не слоты нейросети и не `_paid_gate`. Считает ТОЛЬКО DEV (Blender, Chromium, меши): у прода
+# (есть `render-proxy.conf`) эти маршруты — прозрачный проход к DEV, номер задания и кадры живут на DEV. Модули грузятся лениво —
+# образ прода их не несёт. Контракт заказа — `render_snapshot.py` (версия в ответе), исполнитель — `render_exec.py` (`RENDER_EXECUTOR`).
+#   POST /render/cycles              заказ (контракт снимка v1)                → {job, status, scene_hash, v, versions, cached, deduped, queue, eta, eta_range}
+#   GET  /job?id=  или  /render/cycles/job?id=                                   → ход (`kind: "render"`): queued/running/done/error, в done — frames[{camera,url,id,w,h}]
+#   GET  /render/cycles/frame/<ключ>/<C1|C2>.jpg                               → кадр (неизменяемый: ключ = содержимое + версии)
+#   GET  /render/cycles/stats                                                  → очередь, p50/p95, пределы, исполнитель
+#   «Улучшить» — обычный заказ нейросети (`/render`, тур — `/api/trial/<id>/photo`) с `render_key` из `done`: сервис берёт состояние
+#   и кадры из рендера, а не из слов страницы (`_apply_render_order`); не совпало — отказ, тихого перехода на другой вход нет.
+_CY: dict = {}
+_CY_LOCK = threading.Lock()
+_CY_DATA: list = [0.0, None, '']                      # [mtime, данные витрины, источник]
+RENDER_DIR = os.environ.get('RENDER_DIR') or os.path.join(os.path.dirname(DR.FRAMES_DIR), 'render-cycles')
+DEMO_DATA_FILE = os.environ.get('DEMO_DATA_FILE') or os.path.expanduser('~/scout-scenes/flat215-demo/demo-data.json')
+_KEY_RE = re.compile(r'^[0-9a-f]{32}$')
+CY_FRAME_URL = re.compile(r'^/render/cycles/frame/([0-9a-f]{32})/(C[12])\.jpg$')
+CY_UNAVAILABLE = {'error': 'Рендер сейчас недоступен. Попробуйте позже.', 'error_en': 'Rendering is unavailable right now. Try again later.',
+                  'code': 'render_unavailable'}
+
+
+def _cy():
+    """Очередь рендера процесса (DEV): первый вызов поднимает хранилище, читает файл заданий и запускает рабочего."""
+    with _CY_LOCK:
+        if not _CY:
+            import render_exec as RX
+            import render_jobs as RJ
+            ex = RX.make_executor()
+            store = RJ.RenderStore(os.path.join(os.path.dirname(DR.FRAMES_DIR), 'render-jobs.json'), RENDER_DIR)
+            n = store.load()
+            q = RJ.RenderQueue(store, ex, workers=int(os.environ.get('RENDER_WORKERS', 1)))
+            q.start()
+            _CY.update(ex=ex, store=store, q=q, versions=ex.versions() if hasattr(ex, 'versions') else {})
+            print(f'рендер фото: исполнитель {ex.name}, в очереди после перезапуска {n}', flush=True)
+        return _CY
+
+
+def _internal_ok(token) -> bool:
+    key = os.environ.get('INTERNAL_API_TOKEN') or ''
+    return bool(key) and isinstance(token, str) and hmac.compare_digest(token.encode('utf-8', 'replace'), key.encode('utf-8'))   # байтами: не-ASCII в заголовке не роняет сравнение
+
+
+def _demo_data() -> dict:
+    """Данные витрины /demo для проверки снимка: файл DEV (его же публикует `publish_demo.sh`), перечитывается при смене файла."""
+    try:
+        mt = os.path.getmtime(DEMO_DATA_FILE)
+    except OSError:
+        raise FileNotFoundError('нет данных витрины')
+    if _CY_DATA[1] is None or _CY_DATA[0] != mt:
+        _CY_DATA[:] = [mt, json.load(open(DEMO_DATA_FILE, encoding='utf-8')), 'demo']
+    return _CY_DATA[1]
+
+
+def _abs_img(u):
+    u = str(u or '')
+    return u if (not u or '://' in u or u.startswith('/')) else 'https://remont-lab.online/demo/' + u
+
+
+def _legacy_order(snap: dict) -> dict:
+    """Состояние снимка в формате заказа нейросети (то, что страница шлёт в `/render`): по нему «Улучшить» не зависит от слов страницы."""
+    import render_snapshot as RS
+    v = snap['variant']
+    items = RS.legacy_items(snap)
+    for it in items:
+        it['img'] = _abs_img(it.get('img'))
+    decor = json.loads(json.dumps(v.get('decor') or []))
+    for d in decor:
+        if (d.get('sku') or {}).get('img'):
+            d['sku']['img'] = _abs_img(d['sku']['img'])
+    return {'room': snap['room'], 'style': v.get('style'), 'variant': v.get('id'), 'variant_id': v.get('id'), 'room_id': v.get('room_id') or 'living',
+            'decor': decor, 'developerOptions': {}, 'floor': None, 'walls': None, 'cams': v.get('cams'), 'items': items}
+
+
+def _cy_order(key) -> dict:
+    """Состояние и кадры готового рендера по ключу (для «Улучшить»). Нет/протух — `RenderGone`."""
+    class RenderGone(Exception):
+        pass
+    d = os.path.join(RENDER_DIR, str(key))
+    if not _KEY_RE.match(str(key)):
+        raise RenderGone()
+    try:
+        meta = json.load(open(os.path.join(d, 'meta.json'), encoding='utf-8'))
+        order = json.load(open(os.path.join(d, 'order.json'), encoding='utf-8'))
+    except (OSError, ValueError):
+        raise RenderGone()
+    sha = meta.get('sha') or {}
+    if not all(os.path.isfile(os.path.join(d, f'{c}.jpg')) and sha.get(c) for c in ('C1', 'C2')):
+        raise RenderGone()
+    return {'meta': meta, 'order': order, 'dir': d, 'sha': sha}
+
+
+def _apply_render_order(payload: dict):
+    """«Улучшить» ИЗ РЕНДЕРА: заказ с `render_key` → расстановка, комната, стиль и позы — из СНИМКА рендера (не слова страницы), два кадра
+    — готовые рендеры (кладутся в хранилище кадров под sha256 — тем же путём, что кадры браузера). Рендера нет — (код, ответ) для отказа."""
+    try:
+        o = _cy_order(payload.get('render_key'))
+    except Exception:  # noqa: BLE001
+        return (410, {'error': 'Рендер устарел. Сделайте фото заново.', 'error_en': 'The render has expired. Make the photo again.',
+                      'code': 'render_gone'})
+    import improve_mode as IM
+    views = []
+    for cam in ('C1', 'C2'):
+        fid = o['sha'][cam]
+        dst = IM.frame_path(fid)
+        if not os.path.exists(dst):
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            import shutil as _sh
+            _sh.copyfile(os.path.join(o['dir'], f'{cam}.jpg'), dst + '.tmp')
+            os.replace(dst + '.tmp', dst)
+        views.append({'camera': cam, 'id': fid, 'room': DT.room_sig(o['order'].get('room'))})
+    keep = {k: payload[k] for k in ('trial', 'trial_class', 'async', 'quality', 'dry_run', 'no_proxy', 'no_registry', '_job', '_tariff',
+                                    'stateId', 'render_key') if k in payload}
+    payload.clear()
+    payload.update(o['order'])
+    payload.update(keep)
+    payload['views'] = views
+    payload['render'] = {'key': payload.get('render_key'), 'scene_hash': o['meta'].get('scene_hash'), 'versions': o['meta'].get('versions')}
+    return None
+
 
 def _group_items(items: list) -> list:
     """ОДИН ТОВАР — ОДНА СТРОКА (владелец 02.09: «когда стула 2, надо показывать 1 карточку, а в
@@ -250,6 +370,7 @@ def _registry_add(payload: dict, out: dict) -> None:
                # чем нарисовано фото нейросети (demo-11): качество модели, версия и отпечаток промпта
                **({k: out[k] for k in ('image_quality', 'prompt_version', 'prompt_sha', 'sheet_orient') if out.get(k)}),
                'backend': out.get('backend') or '',
+               **({'input': out['input']} if isinstance(out.get('input'), dict) else {}),
                # СОСТОЯНИЕ И КАМЕРЫ КАДРА (demo-02, Codex 14.10): номер состояния присылает страница (сервер его не
                # считает), позы камер — полностью: «C1» без позы ничего не говорит, если камеру потом переставили.
                # id записи — свой, а не время: два кадра в одну миллисекунду стирали друг друга.
@@ -476,7 +597,9 @@ class H(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Content-Length', str(len(body)))
-        if code == 429:
+        if code in (429, 503) and isinstance(obj, dict) and obj.get('retry_after'):
+            self.send_header('Retry-After', str(int(obj['retry_after'])))        # отказ рендера: срок по замеру очереди
+        elif code == 429:
             self.send_header('Retry-After', '600')
         origin = (self.headers.get('Origin') or '').rstrip('/')
         if origin in ALLOWED_ORIGINS:
@@ -532,6 +655,134 @@ class H(BaseHTTPRequestHandler):
             pass
         return self._send(200, {'id': fid, 'bytes': len(raw)})
 
+    def _send_raw(self, code: int, ctype: str, data: bytes, extra: dict | None = None) -> None:
+        self.send_response(code)
+        self.send_header('Content-Type', ctype)
+        self.send_header('Content-Length', str(len(data)))
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _cy_proxy(self, method: str, suffix: str, body: bytes | None = None) -> None:
+        """Прод → DEV: рендер считает и хранит только DEV. Адрес человека и внутренний ключ идут дальше; ответ — как есть (статус, тип,
+        срок повтора, неизменяемый кэш кадров). DEV молчит — честный 503 «недоступно», запасного рендера на проде нет."""
+        import urllib.error as _ue
+        import urllib.request as _u
+        base = _proxy_url().rsplit('/render', 1)[0]
+        hdr = {'Content-Type': self.headers.get('Content-Type') or 'application/json'}
+        if self.client_ip:
+            hdr['X-Forwarded-For'] = self.client_ip
+        if self.headers.get('x-internal-token'):
+            hdr['x-internal-token'] = self.headers['x-internal-token']
+        try:
+            with _u.urlopen(_u.Request(base + '/render/cycles' + suffix, data=body, method=method, headers=hdr), timeout=25) as r:
+                data, code, h = r.read(), r.status, r.headers
+        except _ue.HTTPError as e:
+            data, code, h = e.read(), e.code, e.headers
+        except Exception as e:  # noqa: BLE001
+            print(f'рендер фото: DEV не отвечает ({str(e)[:80]})', flush=True)
+            return self._send(503, CY_UNAVAILABLE)
+        extra = {k: h[k] for k in ('Retry-After', 'Cache-Control') if h.get(k)}
+        return self._send_raw(code, h.get('Content-Type') or 'application/json', data, extra)
+
+    def _cycles_job(self, jid: str):
+        """Ход рендера по номеру — dict или None. Прод спрашивает DEV (молчание DEV — None: вызывающий ответит как «нет задания»)."""
+        if not re.match(r'^[A-Za-z0-9_-]{1,64}$', jid or ''):
+            return None
+        if _proxy_url():
+            import urllib.request as _u
+            try:
+                with _u.urlopen(_proxy_url().rsplit('/render', 1)[0] + '/render/cycles/job?id=' + jid, timeout=10) as r:
+                    return json.loads(r.read())
+            except Exception:  # noqa: BLE001
+                return None
+        try:
+            return _cy()['q'].view(jid)
+        except Exception as e:  # noqa: BLE001
+            print(f'рендер фото: очередь не поднялась ({str(e)[:100]})', flush=True)
+            return None
+
+    def _cycles_get(self) -> None:
+        from urllib.parse import parse_qs, urlparse
+        path = self.route.split('?')[0]
+        if path == '/render/cycles/job':
+            jid = (parse_qs(urlparse(self.path).query).get('id') or [''])[0]
+            if _proxy_url():
+                return self._cy_proxy('GET', '/job?id=' + jid)
+            v = self._cycles_job(jid)
+            return self._send(200, v) if v else self._send(404, {'error': 'задание не найдено. Нажмите «Повторить»', 'code': 'not_found'})
+        m = CY_FRAME_URL.match(path)
+        if m:
+            if _proxy_url():
+                return self._cy_proxy('GET', f'/frame/{m.group(1)}/{m.group(2)}.jpg')
+            try:
+                data = open(os.path.join(RENDER_DIR, m.group(1), m.group(2) + '.jpg'), 'rb').read()
+            except OSError:
+                return self._send(404, {'error': 'кадр не найден', 'code': 'not_found'})
+            return self._send_raw(200, 'image/jpeg', data, {'Cache-Control': 'public, max-age=31536000, immutable'})
+        if path == '/render/cycles/stats':
+            if _proxy_url():
+                return self._cy_proxy('GET', '/stats')
+            try:
+                return self._send(200, _cy()['q'].stats())
+            except Exception:  # noqa: BLE001
+                return self._send(503, CY_UNAVAILABLE)
+        return self._send(404, {'error': 'нет такого пути'})
+
+    def _cycles_post(self, payload: dict, raw: bytes) -> None:
+        """ЗАКАЗ РЕНДЕРА (контракт снимка — `render_snapshot.py`): проверка → хеш → ключ кэша → очередь. Тур — только от приложения
+        (внутренний ключ): данные задания страница не присылает, снимок сверяется с ними. Отказ — код и пара RU/EN, до постановки."""
+        ip = self.client_ip
+        check = payload.get('check') is True            # «проверка»: хеш текущей расстановки и есть ли готовые кадры — без постановки и без счёта заказов
+        if ip and not ip_allowed(ip, 'cycles-check' if check else 'cycles'):
+            return self._send(429, {'error': 'Слишком много заказов фото подряд. Попробуйте через 10 минут.',
+                                    'error_en': 'Too many photo requests in a row. Try again in 10 minutes.', 'code': 'render_rate', 'retry_after': 600})
+        if _proxy_url():
+            return self._cy_proxy('POST', '', raw)
+        try:
+            cy = _cy()
+            import render_exec as RX
+            import render_jobs as RJ
+            import render_snapshot as RS
+        except Exception as e:  # noqa: BLE001
+            print(f'рендер фото: не поднялся ({str(e)[:120]})', flush=True)
+            return self._send(503, CY_UNAVAILABLE)
+        internal = _internal_ok(self.headers.get('x-internal-token'))
+        tid = payload.get('trial')
+        if tid not in (None, ''):
+            if not internal:
+                return self._send(403, {'error': 'нет доступа', 'error_en': 'forbidden', 'code': 'forbidden'})
+            if not (isinstance(tid, str) and DT.TRIAL_RE.match(tid)):
+                return self._send(400, {'error': 'неверный номер тура', 'error_en': 'invalid tour id', 'code': 'bad_trial'})
+            data = payload.get('source_data')
+            if not (isinstance(data, dict) and data.get('variants')):
+                return self._send(422, {'error': 'нет данных тура', 'error_en': 'no tour data', 'code': 'not_ready'})
+            source = 'trial'
+        else:
+            tid = ''
+            try:
+                data, source = _demo_data(), 'demo'
+            except (OSError, ValueError):
+                return self._send(503, CY_UNAVAILABLE)
+        try:
+            snap = RS.canonicalize(data, payload, source)
+        except RS.SnapshotError as e:
+            return self._send(e.status, e.body())
+        key = RX.cache_key(snap['scene_hash'], cy['versions'])
+        if check:
+            return self._send(200, {'kind': 'render', 'check': True, 'v': RS.SNAPSHOT_VERSION, 'scene_hash': snap['scene_hash'], 'key': key,
+                                    'cached': cy['store'].cached(key) is not None, 'versions': cy['versions']})
+        prio = 1 if (internal and payload.get('prio') == 1) else 0
+        try:
+            res = cy['q'].submit(snap, key, ip=ip or 'local', tour=tid, prio=prio, legacy=_legacy_order(snap))
+        except RJ.Refusal as e:
+            return self._send(e.status, e.body())
+        v = cy['q'].view(res['job']) or {}
+        return self._send(200, {'job': res['job'], 'kind': 'render', 'v': RS.SNAPSHOT_VERSION, 'scene_hash': snap['scene_hash'], 'key': key,
+                                'status': res['status'], 'cached': res['cached'], 'deduped': res['deduped'], 'versions': cy['versions'],
+                                **{k: v[k] for k in ('queue', 'eta', 'eta_range') if k in v}})
+
     def do_OPTIONS(self):                                    # noqa: N802
         self._send(204, {})
 
@@ -542,6 +793,8 @@ class H(BaseHTTPRequestHandler):
         return p[4:] if p.startswith('/api/') else p
 
     def do_GET(self):                                        # noqa: N802
+        if self.route.startswith('/render/cycles'):
+            return self._cycles_get()
         if self.route.startswith(('/health', 'draft/health')) or self.route in ('/draft/health',):
             # версия образа (b2b-08): деплой сверяет её, как у приложения
             return self._send(200, {'ok': True, 'version': os.environ.get('DRAFT_VERSION', 'dev'), **_render_info()})
@@ -567,6 +820,9 @@ class H(BaseHTTPRequestHandler):
             jid = (parse_qs(urlparse(self.path).query).get('id') or [''])[0]
             j = JOBS.get(jid)
             if not j:
+                rv = self._cycles_job(jid)             # рендер фото опрашивают тем же `/job` (песочница тура пропускает только его)
+                if rv:
+                    return self._send(200, rv)
                 return self._send(404, {'error': 'задание не найдено. Нажмите «Повторить»', 'code': 'not_found'})
             if j['status'] == 'running':
                 st = {'status': 'running', 'sec': round(time.time() - j['ts'], 1)}
@@ -591,6 +847,8 @@ class H(BaseHTTPRequestHandler):
             payload = json.loads(raw or b'{}')
         except Exception:
             return self._send(400, {'error': 'не JSON'})
+        if self.route.startswith('/render/cycles'):
+            return self._cycles_post(payload, raw)
         if self.route.startswith('/warm'):
             # ПРОГРЕВ ЗОВЁТСЯ, КОГДА ЧЕЛОВЕК НАЧАЛ ДВИГАТЬ МЕБЕЛЬ (владелец 26.08): у модели
             # холодный старт, и без прогрева первый рендер ждал бы минуту. Чаще раза в 4 минуты
@@ -628,6 +886,10 @@ class H(BaseHTTPRequestHandler):
         if ip and not ip_allowed('auto' if auto else ip, 'render'):
             return self._send(429, {'error': 'слишком много кадров подряд, попробуйте через 10 минут'})
         day = TRIAL_AUTO_DAY if auto else TRIAL_DAY
+        if payload.get('render_key') is not None and not _proxy_url():     # DEV: состояние и кадры — из готового рендера (прод шлёт на DEV как есть)
+            bad = _apply_render_order(payload)
+            if bad:
+                return self._send(bad[0], bad[1])
         if not (payload.get('room') and payload.get('items')):
             return self._send(400, {'error': 'нужны room и items'})
         # кадры из 3D другой комнаты (сцена прошлой комнаты, T-20261112-108/2) — платный заказ не уходит никогда, и в демо, и в туре
@@ -713,6 +975,9 @@ class H(BaseHTTPRequestHandler):
                 if tid:                     # тур пробы: запасного рендера нет — фото товаров и кадры есть только у DEV
                     return self._send(503, {'error': 'Фото сейчас недоступно: сервер улучшения не отвечает. Попробуйте позже.',
                                             'code': 'unavailable'})
+                if payload.get('render_key') is not None:      # кадры рендера есть только у DEV — подменять входом браузера нельзя
+                    return self._send(503, {'error': 'Улучшение фото сейчас недоступно: сервер улучшения не отвечает. Попробуйте позже.',
+                                            'error_en': 'Photo enhancement is unavailable right now. Try again later.', 'code': 'unavailable'})
                 print(f'DEV-бэкенд молчит ({str(e)[:80]}) — рендерю локально', flush=True)
         now = time.time()
         _HITS[:] = [t for t in _HITS if now - t < 3600]
@@ -767,6 +1032,8 @@ class H(BaseHTTPRequestHandler):
                     'queued_sec': round(t - (JOBS.get(jid) or {}).get('ts', t), 1) if jid else 0,
                     # КТО СНЯЛ (b2b-08 п.2b): DEV-прокси пишет 'dev', здесь — сервер сам (запасной путь, лёгкие меши)
                     'backend': 'server',
+                    # ВХОД НЕЙРОСЕТИ (ADR-0013, T-20261117-19): рендер Blender (ключ, хеш снимка, версии) или кадр браузерного 3D
+                    'input': ({'source': 'render', **payload['render']} if payload.get('render') else {'source': 'browser'}),
                     'frames': res.get('frames'), 'diag': res['diag'],
                     # чем нарисовано фото нейросети (demo-11): без этого поля терялись по дороге в прод и реестр
                     **({k: res[k] for k in ('image_quality', 'prompt_version', 'prompt_sha', 'sheet_orient', 'tariff') if res.get(k)})}
