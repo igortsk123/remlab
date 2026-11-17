@@ -159,8 +159,9 @@ def test_content_rule_drawing_in_white_and_tone_on_tone_out(tmp_path):
     _jpg(tmp_path / 'draw.jpg', ink=[(30, 60, 40)])                                    # рисунок в центре
     _jpg(tmp_path / 'flat.jpg', fill=(190, 120, 80))                                   # ровная терракота — сильный цвет
     _jpg(tmp_path / 'dark.jpg', fill=(70, 72, 74))                                     # тёмная плоскость
-    ok = {n: WA.has_content(WA.content_stats(str(tmp_path / f'{n}.jpg'), R), R) for n in ('white', 'cream', 'draw', 'flat', 'dark')}
-    assert ok == {'white': False, 'cream': False, 'draw': True, 'flat': True, 'dark': True}
+    _jpg(tmp_path / 'pale.jpg', fill=(236, 240, 232), ink=[(206, 220, 200)])           # бледная мята на светлом: рисунок есть, но слабый
+    ok = {n: WA.has_content(WA.content_stats(str(tmp_path / f'{n}.jpg'), R), R) for n in ('white', 'cream', 'draw', 'flat', 'dark', 'pale')}
+    assert ok == {'white': False, 'cream': False, 'draw': True, 'flat': True, 'dark': True, 'pale': False}
 
 
 def test_annotate_skips_blank_pictures_but_feed_keeps_them():

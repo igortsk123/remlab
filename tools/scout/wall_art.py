@@ -83,10 +83,15 @@ def content_stats(src: str, r: dict | None = None) -> dict:
 def has_content(m: dict, r: dict | None = None) -> bool:
     """Картина с рисунком, а не белая / тон-в-тон: рисунок занимает ≥ `min_ink_pct` % площади центра (отличается от фона не меньше
     `ink_delta`), ИЛИ цвет сильный (размах каналов ≥ `min_chroma`), ИЛИ полотно тёмное (яркость < `dark_luma`; тёмная плоскость — не «белая»).
-    Светлый фон с тонкими линиями того же цвета (белый/кремовый рельеф) — нет."""
+    Светлое полотно (яркость ≥ `light_luma`) — только с КОНТРАСТНЫМ рисунком: ≥ `light_min_ink_pct` % площади с отличием ≥ `light_ink_delta`.
+    Светлый фон с тонкими или бледными линиями (белый/кремовый рельеф, бледная мята) — нет."""
     ac = (r or rules())['art_content']
     ink = float((m['ink_d'] >= float(ac['ink_delta'])).mean()) * 100.0
-    return ink >= float(ac['min_ink_pct']) or m['chroma'] >= float(ac['min_chroma']) or m['luma'] < float(ac['dark_luma'])
+    if m['chroma'] >= float(ac['min_chroma']):
+        return True                                                   # сильный цвет
+    if m['luma'] >= float(ac['light_luma']):                          # светлое полотно: бледный рисунок на светлом — почти белая; нужен контрастный
+        return float((m['ink_d'] >= float(ac['light_ink_delta'])).mean()) * 100.0 >= float(ac['light_min_ink_pct'])
+    return ink >= float(ac['min_ink_pct']) or m['luma'] < float(ac['dark_luma'])
 
 
 def series(name: str | None) -> str:
