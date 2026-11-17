@@ -36,6 +36,11 @@ STATE = os.environ.get('MESH_DEADMAN_STATE', '/opt/remlab/mesh/deadman-state.jso
 TG_ENV = '/opt/remlab/catalog-watchdog/.env'
 STALE_S = int(os.environ.get('MESH_DEADMAN_STALE_MIN', '30')) * 60
 DOWN = ('stopped', 'failed')
+# ЧТО ОХРАНЯЕМ (T-20261117-22, 17.11). Отметка `heartbeat` — жизнь МЕШ-конвейера, поэтому судим и гасим только группы мешей
+# (имя начинается с `mesh-`). Рендер-группы фото (`render-*`) вне сторожа: у них свой контроллер и свой предохранитель, а при
+# старой отметке конвейера мешей этот сторож гасил бы их посреди кадра. Новая группа мешей обязана называться `mesh-…`.
+# Другой набор — переменная MESH_DEADMAN_PREFIXES (через запятую).
+GUARDED_PREFIXES = tuple(p.strip() for p in os.environ.get('MESH_DEADMAN_PREFIXES', 'mesh-').split(',') if p.strip())
 # машины, за которые платим: выделяется, создаётся, работает, останавливается
 PAID = ('allocating', 'creating', 'running', 'stopping')
 
@@ -79,9 +84,16 @@ def _req(path: str, key: str, method: str = 'GET') -> dict:
     return json.loads(body) if body else {}
 
 
+def guarded(name: str) -> bool:
+    """Группа под сторожем? Только по префиксу имени (`GUARDED_PREFIXES`); `render-*` и прочее чужое — нет."""
+    return name.startswith(GUARDED_PREFIXES)
+
+
 def groups(key: str) -> dict:
     out = {}
     for i in _req('', key).get('items', []):
+        if not guarded(i['name']):
+            continue
         st = i.get('current_state') or {}
         out[i['name']] = (st.get('status'), machines(st))
     return out
@@ -165,6 +177,22 @@ def _selftest() -> int:
     ok('просроченная отсрочка не мешает', decide({'a': run1}, None, now - 1, now)[0] == 'stop')
     ok('машины считаются по allocating+creating+running+stopping (ключи с _count)',
        machines({'instance_status_counts': {'allocating_count': 2, 'creating_count': 1, 'running_count': 0, 'stopping_count': 1}}) == 4)
+    ok('меш-группа под сторожем, рендер-группа и чужая — нет',
+       guarded('mesh-q-low-1') and guarded('mesh-batch-7') and not guarded('render-gpu-1') and not guarded('render-3090') and not guarded('other'))
+    # groups() после фильтра: рендер-группа в решение не попадает — ни гасится при старой отметке, ни считается «живой»
+    import unittest.mock as mock
+    items = {'items': [
+        {'name': 'mesh-q-low-1', 'current_state': {'status': 'running', 'instance_status_counts': {'running_count': 3}}},
+        {'name': 'render-gpu-1', 'current_state': {'status': 'running', 'instance_status_counts': {'running_count': 1}}},
+    ]}
+    with mock.patch.object(sys.modules[__name__], '_req', return_value=items):
+        gs = groups('k')
+    ok('groups(): только меш-группа', sorted(gs) == ['mesh-q-low-1'])
+    ok('старая отметка: гасится меш-группа, render-* — нет', decide(gs, 2400, None, now) == ('stop', ['mesh-q-low-1']))
+    only_render = {'items': [items['items'][1]]}
+    with mock.patch.object(sys.modules[__name__], '_req', return_value=only_render):
+        gs2 = groups('k')
+    ok('работает только render-*, отметка старая — сторож молчит (idle)', decide(gs2, 2400, None, now) == ('idle', []))
     ok('ключи без _count тоже понимаем', machines({'instance_status_counts': {'running': 3}}) == 3)
     ok('нет счётчиков — None', machines({'status': 'pending'}) is None and machines({'instance_status_counts': {}}) is None)
     return 1 if bad else 0
