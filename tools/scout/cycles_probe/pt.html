@@ -1,0 +1,92 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>pt-probe</title>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.187.0/examples/jsm/",
+  "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.187.0/examples/jsm/",
+  "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.9.18/build/index.module.js",
+  "three-gpu-pathtracer": "https://cdn.jsdelivr.net/npm/three-gpu-pathtracer@0.0.28/build/index.module.js",
+  "xatlas-web": "https://cdn.jsdelivr.net/npm/xatlas-web@0.1.0/dist/xatlas-web.js"
+} }
+</script>
+<canvas id="c"></canvas>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { WebGLPathTracer, GradientEquirectTexture } from 'three-gpu-pathtracer';
+
+const q = new URLSearchParams(location.search);
+const camName = q.get('cam') || 'C1';
+const W = +q.get('w') || 640, H = +q.get('h') || 465, SAMPLES = +q.get('samples') || 16;
+const sunI = +(q.get('sun') || 6), envI = +(q.get('env') || 1), fillI = +(q.get('fill') || 6), bounces = +(q.get('bounces') || 5);
+window.__log = [];
+const log = (m) => { window.__log.push(m); console.log(m); };
+try {
+  const cams = await (await fetch('cams.json')).json();
+  const cd = cams[camName];
+  const canvas = document.getElementById('c');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(W, H, false);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = +(q.get('exp') || 1);
+  log('gl ' + renderer.getContext().getParameter(renderer.getContext().VERSION));
+
+  const gltf = await new GLTFLoader().loadAsync('scene.glb');
+  const scene = new THREE.Scene(); scene.add(gltf.scene);
+  const viewI = +(q.get('view') || 8);
+  scene.traverse((o) => {
+    if (o.isMesh) {
+      o.material.side = THREE.DoubleSide;
+      if (o.name === 'view') o.material.emissiveIntensity = viewI;       // вид из окна светит комнату вместо неба (плоскость нельзя сделать невидимой для света)
+      if (o.name === 'hall') o.material.emissiveIntensity = 2;
+    }
+  });
+  log('glb loaded');
+
+  const env = new GradientEquirectTexture();
+  env.topColor.set(0x9ec4ee); env.bottomColor.set(0xe8e6e0); env.update();
+  scene.environment = env; scene.background = env; scene.environmentIntensity = envI; scene.backgroundIntensity = envI;
+
+  const r = cams._room, inward = new THREE.Vector3(...cams._sun_dir_inward).normalize();
+  const el = THREE.MathUtils.degToRad(38);
+  const sun = new THREE.DirectionalLight(0xfff2db, sunI);
+  const sunPos = new THREE.Vector3(r.W / 2, r.H / 2, -r.D / 2).addScaledVector(inward, -6).add(new THREE.Vector3(0, 6 * Math.tan(el), 0));
+  sun.position.copy(sunPos); sun.target.position.set(r.W / 2, 0.8, -r.D / 2); scene.add(sun, sun.target);
+  const fill = new THREE.RectAreaLight(0xfff7ea, fillI, 1.6, 1.6);
+  fill.position.set(r.W / 2, r.H - 0.06, -r.D / 2); fill.lookAt(r.W / 2, 0, -r.D / 2); scene.add(fill);
+
+  const vfov = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(cd.fov) / 2) * cd.h / cd.w) * 180 / Math.PI;
+  const camera = new THREE.PerspectiveCamera(vfov, W / H, 0.06, 100);
+  camera.position.set(...cd.eye);
+  camera.up.set(...cd.up);
+  camera.lookAt(new THREE.Vector3(...cd.eye).add(new THREE.Vector3(...cd.fwd).multiplyScalar(2)));
+  camera.setViewOffset(W, H, 0, -cd.shift_y * H, W, H);
+  camera.updateMatrixWorld();
+
+  const pt = new WebGLPathTracer(renderer);
+  pt.bounces = bounces; pt.filterGlossyFactor = 0.5; pt.tiles.set(2, 2); pt.renderScale = 1;
+  pt.textureSize?.set?.(2048, 2048);
+  const t0 = performance.now();
+  pt.setScene(scene, camera);
+  log('bvh ' + ((performance.now() - t0) / 1000).toFixed(1) + ' s');
+  window.__ready = true;
+  const t1 = performance.now();
+  let done = 0;
+  while (pt.samples < SAMPLES) {
+    pt.renderSample();
+    window.__samples = pt.samples;
+    window.__sec = (performance.now() - t1) / 1000;
+    await new Promise((res) => setTimeout(res, 0));
+    if (++done > SAMPLES * 8) break;
+  }
+  log('samples ' + pt.samples + ' in ' + ((performance.now() - t1) / 1000).toFixed(1) + ' s');
+  window.__png = canvas.toDataURL('image/png');
+  window.__done = true;
+} catch (e) {
+  window.__err = String(e && e.stack || e);
+  window.__done = true;
+}
+</script>

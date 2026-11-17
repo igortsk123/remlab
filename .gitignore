@@ -50,6 +50,9 @@ tools/scout/*
 !tools/scout/styles.json
 !tools/scout/pages/
 !tools/scout/pages/**
+# проба T-20261117-02: Cycles/Blender и path-tracer поверх сцены демо — скрипты (код); картинки и логи — ~/remlab-logs/t63-1117
+!tools/scout/cycles_probe/
+!tools/scout/cycles_probe/*
 # Демо-страница интерактивного планировщика — ИСХОДНИК, а не данные: без неё демо
 # невоспроизводимо (26.08, демо квартиры 215)
 !tools/scout/flat215-demo/
