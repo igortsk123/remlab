@@ -1,0 +1,89 @@
+{
+ "rev": "1",
+ "plants": [
+  {
+   "id": "calathea",
+   "asset": "calathea_orbifolia_01",
+   "part": "Plane.014",
+   "kind": "green",
+   "tris": 5904,
+   "bytes": 371316,
+   "sha256": "d31f0fa9cbf8006f839b368095078745dfefef4185f074428d8870692e3e127d",
+   "sizeCm": [
+    60.1,
+    42.4,
+    52.6
+   ]
+  },
+  {
+   "id": "calathea-b",
+   "asset": "calathea_orbifolia_01",
+   "part": "Cylinder.012",
+   "kind": "green",
+   "tris": 3542,
+   "bytes": 359948,
+   "sha256": "920375d5355ff82e54762bba13d54cb6ac883f332ca4c5fc00ac3dbd5f50b781",
+   "sizeCm": [
+    37.5,
+    28.4,
+    38.4
+   ]
+  },
+  {
+   "id": "fern",
+   "asset": "fern_02",
+   "part": "Plane.024",
+   "kind": "green",
+   "tris": 2384,
+   "bytes": 248332,
+   "sha256": "24c7a990e7c165daebd155bee2d16a2fa8082b7b2c5397302e0d69d8699fe37b",
+   "sizeCm": [
+    99.0,
+    42.8,
+    89.4
+   ]
+  },
+  {
+   "id": "anthurium",
+   "asset": "anthurium_botany_01",
+   "part": "Plane.016",
+   "kind": "green",
+   "tris": 15808,
+   "bytes": 392796,
+   "sha256": "482b5d058366d407c3a0dd98e6418c0ac0cb61fa4fd663f0e2481caa1d633aac",
+   "sizeCm": [
+    89.6,
+    50.0,
+    114.2
+   ]
+  },
+  {
+   "id": "branch-dry-a",
+   "asset": "dry_branches_medium_01",
+   "part": "branches_b_dynamesh.002",
+   "kind": "dry",
+   "tris": 5254,
+   "bytes": 515404,
+   "sha256": "35b1638bad84883f100bb95ce8e24e2c7a51129d575d18a30cf0a5b9682eebe5",
+   "sizeCm": [
+    13.0,
+    104.1,
+    14.9
+   ]
+  },
+  {
+   "id": "branch-dry-b",
+   "asset": "dry_branches_medium_01",
+   "part": "branches_b_dynamesh.003",
+   "kind": "dry",
+   "tris": 5933,
+   "bytes": 521216,
+   "sha256": "b326885f6f444f6c70fc7e1740acb0e1ae577f4576e23ae69c1cff3423a8f4a8",
+   "sizeCm": [
+    36.0,
+    130.1,
+    32.2
+   ]
+  }
+ ]
+}

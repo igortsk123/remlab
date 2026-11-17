@@ -1,0 +1,25 @@
+{
+ "asset": "anthurium_botany_01",
+ "title": "Anthurium Botany 01",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/anthurium_botany_01",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "Rob Tuytel": "scanning",
+  "Rico Cilliers": "modeling"
+ },
+ "realMm": [
+  2806.4264059066772,
+  1800.9886145591736,
+  506.7181019112468
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "anthurium_botany_01_1k.gltf": "6b3f6b8eda6cc0edfefd6a58f6758ef6538c35b2ca2a76189383f23b246dd8c6",
+  "textures/anthurium_botany_01_nor_gl_1k.jpg": "f0cf940590733a2a5a9b0db362bd093c39b28405c66b1d084aa203efe6f0d3fc",
+  "textures/anthurium_botany_01_arm_1k.jpg": "88d9ce05e4b301ae9cd5b479459262c4690a3ee2de80a8f5e18a288ff5e96bee",
+  "anthurium_botany_01.bin": "6a23daf128e297ad99e984bec11bdea3c6eab64e52d07cbdc948ace5a05b2e25",
+  "textures/anthurium_botany_01_diff_1k.jpg": "f759421f00e848d7d2915b409d98c6311cc601e4be17d4155e0852429fa4993e"
+ }
+}

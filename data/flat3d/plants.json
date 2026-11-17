@@ -1,0 +1,22 @@
+{
+  "_doc": "Универсальные растения-декор для кашпо и ваз 3D /demo (T-20261117-07, владелец TG 1307): не товар, не в цене, не в списке. Источник — Poly Haven (CC0-1.0, без условий и ссылки; реестр источников — `data/flat3d/plants/<asset>/source.json`). Сборка лёгких копий — `tools/assets/plant_from_scan.py build`; показ — `lib/viewer3d/kits/plants.ts`. Новое растение = строка в `plants` (+ `fetch`/`build`), код не меняется. `part` — имя геометрии в пакете источника (пакеты Poly Haven — «сцены» из нескольких растений). `hosts`: роль носителя → тип (`green` — зелень в кашпо, `dry` — ветки в вазу); `fit`: правила посадки по типу (см. `fitPlant`); `throat`: как меряется горло носителя.",
+  "licence": "CC0-1.0",
+  "licenceUrl": "https://polyhaven.com/license",
+  "rev": "1",
+  "base": "/flat3d/plants/",
+  "limits": { "maxTris": 60000, "maxBytes": 1048576 },
+  "hosts": { "кашпо": "green", "ваза": "dry" },
+  "fit": {
+    "green": { "crownOverThroat": 1.9, "minHeightCm": 26, "maxHeightCm": 60, "sinkCm": 2, "sinkFracOfHeight": 0.12 },
+    "dry": { "crownOverThroat": 3.2, "minHeightCm": 30, "maxHeightCm": 75, "heightOverCarrier": 2.4, "sinkCm": 0, "sinkFracOfHeight": 0.22 }
+  },
+  "throat": { "topSliceFrac": 0.06, "minSliceCm": 1.2, "minDiameterCm": 3 },
+  "plants": [
+    { "id": "calathea", "asset": "calathea_orbifolia_01", "part": "Plane.014", "kind": "green", "styles": ["any"], "minThroatCm": 18 },
+    { "id": "calathea-b", "asset": "calathea_orbifolia_01", "part": "Cylinder.012", "kind": "green", "styles": ["any"], "minThroatCm": 0 },
+    { "id": "fern", "asset": "fern_02", "part": "Plane.024", "kind": "green", "styles": ["any"], "minThroatCm": 20 },
+    { "id": "anthurium", "asset": "anthurium_botany_01", "part": "Plane.016", "kind": "green", "styles": ["any"], "minThroatCm": 0 },
+    { "id": "branch-dry-a", "asset": "dry_branches_medium_01", "part": "branches_b_dynamesh.002", "kind": "dry", "styles": ["any"], "minThroatCm": 0 },
+    { "id": "branch-dry-b", "asset": "dry_branches_medium_01", "part": "branches_b_dynamesh.003", "kind": "dry", "styles": ["any"], "minThroatCm": 0 }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+ "asset": "fern_02",
+ "title": "Fern 02",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/fern_02",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "Rob Tuytel": "scanning",
+  "Rico Cilliers": "modeling"
+ },
+ "realMm": [
+  1972.5302457809448,
+  1724.0281701087952,
+  427.6947118341923
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "fern_02_1k.gltf": "33974295ee19670af4877705fc7d91f33f42d6302f0d44a625e072271223031f",
+  "textures/fern_02_arm_1k.jpg": "ebfb5d76ce9cbdaec20bcd22dce9b755f0b1b8650ef29ca13555e3e6961025d7",
+  "textures/fern_02_diff_1k.jpg": "a828a6e7b4c01c826911e2eac4b3afc7457dab7b3b392a31c681ed88b7d50029",
+  "textures/fern_02_nor_gl_1k.jpg": "45bce132c6e96a0864bc89ab5da51361ab3f4afa83a6669ae499ab5ca811f621",
+  "fern_02.bin": "fe1abb762bcbbc7ad9e86925c8080437a62add257d9280e9142fdc85c226e64c"
+ }
+}
