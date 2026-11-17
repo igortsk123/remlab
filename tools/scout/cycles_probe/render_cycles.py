@@ -593,7 +593,7 @@ if a.demo_glb:
                     bs2_.inputs['Alpha'].default_value = a.sheer
         if 'люстр' in slot:
             chand.append(ob)
-        if slot.startswith('textile:подушка') or 'люстр' in slot:
+        if slot.startswith('textile:подушка') or slot.startswith('textile:плед') or 'люстр' in slot:   # плед — тоже сглаженный (граненый брусок читался как доска)
             smooth_by_angle(ob, 50)
     if chand and a.chandelier > 0:
         pts = [ob.matrix_world @ Vector(c) for ob in chand for c in ob.bound_box]
@@ -717,7 +717,7 @@ if a.sun > 0:
     sun = bpy.data.lights.new('sun', 'SUN')
     sun.energy = a.sun
     sun.angle = math.radians(a.sun_angle)
-    sun.color = (1.0, 0.95, 0.86)
+    sun.color = (1.0, 0.98, 0.95)
     so = bpy.data.objects.new('sun', sun)
     sc.collection.objects.link(so)
     so.rotation_euler = tr.to_track_quat('-Z', 'Y').to_euler()
