@@ -22,6 +22,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TOOL = os.path.join(HERE, '..', 'priced_vs_3d.py')
 sys.path.insert(0, os.path.join(HERE, '..'))
 import priced_vs_3d as PV  # noqa: E402
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_priced_3d_guard')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13; CI gate 13.11 16:41 красный без этой строки)
 
 BAD = []
 

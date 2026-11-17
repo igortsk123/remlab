@@ -70,15 +70,16 @@ class Tape:
     """Запись/проигрыш ответов внешнего мира сборки комнаты. rec — записывать (настоящие функции), иначе — проигрывать."""
 
     def __init__(self, rec: bool, data: dict | None = None):
-        self.rec, self.d = rec, data or {'sku': {}, 'ok': {}, 'note': {}, 'msid': {}, 'mode': {}, 'idx': {}, 'm2': {}}
+        self.rec, self.d = rec, data or {'sku': {}, 'ok': {}, 'note': {}, 'msid': {}, 'mode': {}, 'idx': {}, 'm2': {}, 'mesh': {}}
         self.miss: list = []
+        self.live: set = set()                  # таблицы, которые пишем с настоящих функций, даже когда остальное проигрываем (дозапись)
 
     def get(self, tab: str, key: str, real):
-        if self.rec:
+        if self.rec or tab in self.live:
             v = real()
-            self.d[tab][key] = v
+            self.d.setdefault(tab, {})[key] = v
             return v
-        if key not in self.d[tab]:
+        if key not in self.d.get(tab, {}):
             self.miss.append(f'{tab}:{key}')
             return None
         return self.d[tab][key]
@@ -96,6 +97,19 @@ class Tape:
         F._sku = sku
         F._msid = lambda sid: tape.get('m2', str(sid), lambda: real_msid(sid))
         F._mesh_index = lambda: set(tape.get('idx', 'idx', lambda: sorted(real_idx())) or [])
+        if 'mesh' in self.d or self.rec:
+            # габариты, основание и «верх у лица» меша читаются из `~/scout-scenes/mesh-pilot-gallery/<sid>/model.glb` — на DEV они есть, в CI нет:
+            # высота лампы на тумбе (`place.elev_cm`) тогда другая и тест красный (CI gate 13.11 16:41). Меши — тоже ответы внешнего мира: пишем и проигрываем.
+            real_ext, real_base_u, real_front = F._mesh_extents, F._mesh_base, F._mesh_front
+
+            def mesh(sid):
+                def real():
+                    e, b = real_ext(sid), real_base_u(sid)
+                    return {'ext': list(e) if e else None, 'base': list(b) if b else None, 'front': real_front(sid)}
+                return tape.get('mesh', str(sid), real) or {}
+            F._mesh_extents = lambda sid: (tuple(mesh(sid).get('ext') or ()) or None) if sid else None
+            F._mesh_base = lambda sid: (tuple(mesh(sid).get('base') or ()) or None) if sid else None
+            F._mesh_front = lambda sid: mesh(sid).get('front') if sid else None
 
         def gate(*a, **kw):
             # режим вызова: room_mesh_gate(тип, rows, why, mode); у main — bedroom_mesh_gate() без аргументов
@@ -288,7 +302,7 @@ def _main() -> int:
         return record(sys.argv)
     if '--out' in sys.argv:
         return check_out(sys.argv[sys.argv.index('--out') + 1])
-    saved = {k: getattr(F, k) for k in ('_sku', '_msid', '_mesh_index', 'bedroom_mesh_gate', 'room_mesh_gate', 'OUT',
+    saved = {k: getattr(F, k) for k in ('_sku', '_msid', '_mesh_index', '_mesh_extents', '_mesh_base', '_mesh_front', 'bedroom_mesh_gate', 'room_mesh_gate', 'OUT',
                                         'room_photo_catalog')}
     dead_saved = img_alive.dead_room_photos
 
