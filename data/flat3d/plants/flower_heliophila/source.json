@@ -1,0 +1,24 @@
+{
+ "asset": "flower_heliophila",
+ "title": "Flower Heliophila",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/flower_heliophila",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "Jenelle van Heerden": "All"
+ },
+ "realMm": [
+  2754.0570497512817,
+  1417.3968434333801,
+  399.2791064083576
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "flower_heliophila_1k.gltf": "629274399d44a1a9c8666d7a341bf7c5b2083c3ec292166cb23419ff9eb192b1",
+  "textures/flower_heliophila_nor_gl_1k.jpg": "ab22e05c1f350a2f95914049f832bb52817e951142b259aec751e16a4a75d54a",
+  "textures/flower_heliophila_arm_1k.jpg": "61c7a47fdf8ff0f5251c0f569588efefad7856b3b069d07c1c025d18a1420e22",
+  "textures/flower_heliophila_diff_1k.jpg": "50a3eb8afd206eff0ea95ff73db7dc3ca9188d3e120d93a708d2a72790fa0240",
+  "flower_heliophila.bin": "dd5cba0ea1890ed9dc2e13e109551cefd069fe47bb34f8deb2b302af76b2bab1"
+ }
+}

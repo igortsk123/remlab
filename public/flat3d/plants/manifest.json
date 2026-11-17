@@ -1,34 +1,6 @@
 {
- "rev": "3",
+ "rev": "4",
  "plants": [
-  {
-   "id": "floor-a",
-   "asset": "potted_plant_01",
-   "part": "Plane.070,potted_plant_01_base_low",
-   "kind": "green",
-   "tris": 34127,
-   "bytes": 928916,
-   "sha256": "5458e922647c3d9c145af6e035ce9928397d5e62a523d025dec09442db4641e6",
-   "sizeCm": [
-    58.7,
-    92.5,
-    63.4
-   ]
-  },
-  {
-   "id": "floor-b",
-   "asset": "potted_plant_02",
-   "part": "Circle.001",
-   "kind": "green",
-   "tris": 10692,
-   "bytes": 412100,
-   "sha256": "67dfe7c9c8cb38b9d503e6d02eaeda41b48fd9878bc73da41be46abcf316f928",
-   "sizeCm": [
-    70.1,
-    63.3,
-    64.3
-   ]
-  },
   {
    "id": "pachira-a",
    "asset": "pachira_aquatica_01",
@@ -69,20 +41,6 @@
     74.4,
     130.2,
     64.7
-   ]
-  },
-  {
-   "id": "calathea",
-   "asset": "calathea_orbifolia_01",
-   "part": "Plane.014",
-   "kind": "green",
-   "tris": 5904,
-   "bytes": 371316,
-   "sha256": "d31f0fa9cbf8006f839b368095078745dfefef4185f074428d8870692e3e127d",
-   "sizeCm": [
-    60.1,
-    42.4,
-    52.6
    ]
   },
   {
@@ -153,6 +111,48 @@
     55.4,
     76.9,
     53.3
+   ]
+  },
+  {
+   "id": "periwinkle",
+   "asset": "periwinkle_plant",
+   "part": "tree.048",
+   "kind": "dry",
+   "tris": 11252,
+   "bytes": 296208,
+   "sha256": "7f3daa3a55600ece40e196118f5762c9a467e7b81df9e2f18ca2f90095d9a12a",
+   "sizeCm": [
+    26.1,
+    39.7,
+    32.1
+   ]
+  },
+  {
+   "id": "branches",
+   "asset": "dry_branches_medium_01",
+   "part": "branches_b_dynamesh.003",
+   "kind": "dry",
+   "tris": 4152,
+   "bytes": 513196,
+   "sha256": "901eb10071787cf7e33bac4da5aa35085b694976adb4be1da8b02c56aefbb97f",
+   "sizeCm": [
+    36.0,
+    130.1,
+    32.2
+   ]
+  },
+  {
+   "id": "haworthia",
+   "asset": "potted_plant_04",
+   "part": "Mesh,Plane.116,Plane.118,HaworthiaScan_Model_2.001",
+   "kind": "green",
+   "tris": 8929,
+   "bytes": 456736,
+   "sha256": "95c94e906a0751047caeb15595508c978929d063841c0f54ed930e57d9b91c87",
+   "sizeCm": [
+    16.8,
+    26.7,
+    18.5
    ]
   }
  ]

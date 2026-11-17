@@ -1,0 +1,24 @@
+{
+ "asset": "shrub_sorrel_01",
+ "title": "Shrub Sorrel 01",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/shrub_sorrel_01",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "Rico Cilliers": "All"
+ },
+ "realMm": [
+  352.09934413433075,
+  146.4103851467371,
+  58.00368043128401
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "shrub_sorrel_01_1k.gltf": "97e2c9b564610a1077de9e15de07acbf19f2e66619016aeebb7987e191ad3ce1",
+  "textures/shrub_sorrel_01_nor_gl_1k.jpg": "0bb2e2aba7831a4e642ad6b1985ad82b0a574930ec6982f9a1a66ad8b41a94b3",
+  "shrub_sorrel_01.bin": "725f46bf6d330486bf22d4b897fa1d8ef01cdc77a72f1400a3939f86740b4e5d",
+  "textures/shrub_sorrel_01_arm_1k.jpg": "a1b49322e2b0ea988336fca959145dbb53b483b8f9ff2ec5f23dda20c486bdb8",
+  "textures/shrub_sorrel_01_diff_1k.jpg": "9aa62e57767f5b964b8d52e6406ebadb0205fa469d5a369a946fba13a3bc950f"
+ }
+}

@@ -1,0 +1,25 @@
+{
+ "asset": "wild_rooibos_bush",
+ "title": "Wild Rooibos Bush",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/wild_rooibos_bush",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "James Ray Cock": "modeling",
+  "Jenelle van Heerden": "photography"
+ },
+ "realMm": [
+  2285.276174545288,
+  854.104071855545,
+  543.936595087871
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "wild_rooibos_bush_1k.gltf": "7f3fb17e4606e33d0bc4239c4901c9610b4bd17fe26b6780ba11ab4493f25d29",
+  "textures/wild_rooibos_bush_nor_gl_1k.jpg": "ffd557b4cb732d24988d41741398df150567f3ac9d1433f11b88d60158c953d4",
+  "textures/wild_rooibos_bush_diff_1k.jpg": "d963cdaf769bc39bb57295d518b37cd9456168cf5e3b82fd59f58c98d3faf596",
+  "textures/wild_rooibos_bush_arm_1k.jpg": "e0e512f263b8f1fe1c485e61912ba1ce5d42b397cf9a4e2b1786677e732bb84b",
+  "wild_rooibos_bush.bin": "7a3471b4d110fe9927f4a200191eae86fa3c0a08f8e8e797d22e94a1703322e1"
+ }
+}

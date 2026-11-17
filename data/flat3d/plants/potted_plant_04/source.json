@@ -1,0 +1,24 @@
+{
+ "asset": "potted_plant_04",
+ "title": "Potted Plant 04",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/potted_plant_04",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "James Ray Cock": "All"
+ },
+ "realMm": [
+  170.27407884597778,
+  185.9453096985817,
+  267.5964875961654
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "potted_plant_04_1k.gltf": "b3a3bc3e97da75844999c4da07b7104b6c023f729a7c045979929b9504184339",
+  "potted_plant_04.bin": "158c1d27503d4845eb3573f00c01ae3f4f77f1d6ca8754c67bf1762745946f7f",
+  "textures/potted_plant_04_nor_gl_1k.jpg": "66e4627f6691a2d8104a6c53a39b41daddbd5bad8103e73f372c39166a3dcb07",
+  "textures/potted_plant_04_arm_1k.jpg": "7f3288345570ef700c851ea382ed267490ffc8c901ccc31f2ec5507e4d098e48",
+  "textures/potted_plant_04_diff_1k.jpg": "8693a971557fbafb12a24a2e23c1a04ab6b04ecdc4d26808c5ad3516a4971f24"
+ }
+}

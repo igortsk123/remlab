@@ -96,6 +96,28 @@ describe("растения кашпо и ваз: правила", () => {
   });
 });
 
+describe("состав растений (T-20261117-21: «ненатуральные» убраны правилом по данным)", () => {
+  const seeds = Array.from({ length: 40 }, (_, i) => "m" + i);
+  const ids = (kind: "green" | "dry", mount: "floor" | "table" | "shelf", throat: number, style?: string) =>
+    new Set(seeds.map((s) => pickPlant(kind, mount, throat, s, style)?.id));
+
+  it("напольное кашпо — только растение «в рост» (пачира), без мелких «ненатуральных»", () => {
+    expect([...ids("green", "floor", 30)].every((id) => id!.startsWith("pachira"))).toBe(true);
+  });
+  it("готовое мелкое растение на тумбу — не носитель: кашпо и вазы его не берут", () => {
+    for (const m of ["floor", "table"] as const) for (const k of ["green", "dry"] as const) expect(ids(k, m, 15).has("haworthia")).toBe(false);
+    expect(R.plants.find((p) => p.id === "haworthia")?.mounts).toEqual(["shelf"]);
+  });
+  it("сухая ветка — только сканди и джапанди; барвинок — только в вазу на столике", () => {
+    expect(ids("dry", "floor", 6, "loft").has("branches")).toBe(false);
+    expect(ids("dry", "floor", 6).has("branches")).toBe(false);
+    expect(ids("dry", "floor", 6, "scandi").has("branches")).toBe(true);
+    expect(ids("dry", "floor", 6, "japandi").has("branches")).toBe(true);
+    expect(ids("dry", "table", 6, "loft").has("periwinkle")).toBe(true);
+    expect(ids("dry", "floor", 6, "loft").has("periwinkle")).toBe(false);
+  });
+});
+
 describe("растения кашпо и ваз: горло носителя по мешу", () => {
   it("диаметр и центр — по верхней полосе, верх — высота края; смещение носителя в группе учтено", () => {
     const frame = new THREE.Group();
