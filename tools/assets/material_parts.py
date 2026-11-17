@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import hashlib
 import json
 import os
@@ -185,6 +186,143 @@ def judge(rec: dict, rules: dict, product_has_legs: bool | None) -> dict:
     return rec
 
 
+def _real_longest_cm(rules: dict, role: str | None, mesh_id: str | None, catalog: dict) -> tuple[float, str]:
+    """Реальный размер большей стороны предмета, см: из каталога (`data/flat3d/furniture.json`, если меш там есть), иначе приор по роли из правил.
+    Меш нормирован (большая сторона ≈ 2,0), поэтому порог «тонкого» в см переводится в единицы меша через этот размер."""
+    dims = catalog.get(mesh_id or "")
+    if dims:
+        return float(max(dims)), "catalog"
+    t = rules["thin"]
+    return float(t["longestSideCm"].get(role or "", t["defaultLongestCm"])), "role"
+
+
+def _catalog_dims() -> dict:
+    p = os.path.join(ROOT, "data", "flat3d", "furniture.json")
+    out: dict[str, tuple] = {}
+    try:
+        for o in json.load(open(p, encoding="utf-8")).get("options", []):
+            a = o.get("asset") or {}
+            if a.get("meshId") and a.get("wCm") and a.get("dCm") and a.get("hCm"):
+                out[a["meshId"]] = (a["wCm"], a["dCm"], a["hCm"])
+    except OSError:
+        pass
+    return out
+
+
+def _clean_thin(mesh, mask: np.ndarray, thr: float, t: dict) -> np.ndarray:
+    """Чистка: мажоритарный фильтр по соседним граням (крапинки у кромок пропадают), мелкие пятна — прочь, листовые пятна (сиденье, панель:
+    плоские и сплошные) — не стойки и не рама, их не берём. Остаются стержни (мало в сечении) и решётки/рамы (плоские, но пустые внутри)."""
+    from scipy import sparse
+    from scipy.sparse.csgraph import connected_components
+
+    adj = mesh.face_adjacency
+    nf = len(mesh.faces)
+    a = sparse.coo_matrix((np.ones(len(adj)), (adj[:, 0], adj[:, 1])), shape=(nf, nf))
+    a = (a + a.T).tocsr()
+    deg = np.maximum(1, np.asarray(a.sum(axis=1)).ravel())
+    m = mask.copy()
+    for _ in range(t["smoothIters"]):
+        m = (a @ m.astype(float)) / deg >= t["majority"]
+    area = mesh.area_faces
+    total = float(area.sum())
+    sub = a[m][:, m]
+    n, lab = connected_components(sub, directed=False)
+    idx = np.where(m)[0]
+    keep = np.zeros(nf, dtype=bool)
+    for c in range(n):
+        ids = idx[lab == c]
+        if float(area[ids].sum()) >= t["minPatchAreaFrac"] * total:
+            keep[ids] = True
+    return keep
+
+
+def _bounded_width(pts: np.ndarray, nrm: np.ndarray, tree, mid: np.ndarray, cand: np.ndarray, thr: float, tol: float, t: dict, seed: int) -> np.ndarray:
+    """Отличает стойку/рейку/раму от края сплошной массы: из середины тонкой стенки идём по касательным направлениям в обе стороны;
+    у стержня и узкой планки найдётся направление, где материал заканчивается (встречная стенка) и туда, и сюда в пределах `boundedWidthMul`·порога.
+    У сужающегося края сиденья или подушки в сторону массы материал не кончается — такая «тонкость» отпадает. Считаем по выборке (`boundedSampleCap`)."""
+    from scipy.spatial import cKDTree
+
+    ids = np.where(cand)[0]
+    if len(ids) == 0:
+        return cand
+    rng = np.random.default_rng(seed)
+    pick = ids if len(ids) <= t["boundedSampleCap"] else rng.choice(ids, t["boundedSampleCap"], replace=False)
+    n = nrm[pick]
+    ref = np.where(np.abs(n[:, [1]]) < 0.9, np.array([[0.0, 1.0, 0.0]]), np.array([[1.0, 0.0, 0.0]]))
+    u1 = np.cross(n, ref)
+    u1 /= np.maximum(np.linalg.norm(u1, axis=1, keepdims=True), 1e-9)
+    u2 = np.cross(n, u1)
+    m = mid[pick]
+    reach = thr * t["boundedWidthMul"]
+    steps = t["boundedSteps"]
+    bounded = np.zeros(len(pick), dtype=bool)
+    for ang in np.linspace(0.0, np.pi, t["boundedAngles"], endpoint=False):
+        u = np.cos(ang) * u1 + np.sin(ang) * u2
+        both = []
+        for sgn in (1.0, -1.0):
+            hit = np.zeros(len(pick), dtype=bool)
+            for k in range(1, steps + 1):
+                d, j = tree.query(m + sgn * u * (reach * k / steps), distance_upper_bound=tol)
+                ok = np.isfinite(d)
+                jj = np.where(ok, j, 0)
+                hit |= ok & ((nrm[jj] * (sgn * u)).sum(axis=1) > t["opposingDot"])     # стенка, чья наружная нормаль смотрит ВДОЛЬ луча = выход из материала
+            both.append(hit)
+        bounded |= both[0] & both[1]
+    sel = cKDTree(pts[pick])
+    _, nn = sel.query(pts[ids])
+    out = np.zeros(len(pts), dtype=bool)
+    out[ids] = bounded[nn]
+    return out
+
+
+def thin_face_mask(mesh, rules: dict, longest_cm: float) -> tuple[np.ndarray, dict]:
+    """Грани ТОНКИХ частей (стойка, рейка, рама, стержень толщиной < `thin.thinCm`): по локальной толщине меша, на любой высоте.
+    Толщина точки поверхности — расстояние вглубь (против нормали) до противоположной стенки с обратной нормалью; не найдена в пределах порога —
+    часть объёмная. Поверхность не замкнута, поэтому лучи не бросаем — ищем стенку по облаку точек (KD-дерево)."""
+    from scipy.spatial import cKDTree
+
+    t = rules["thin"]
+    ext = float(mesh.extents.max())
+    thr = t["thinCm"] / float(longest_cm) * ext
+    spacing = thr / t["spacingDiv"]
+    n = int(min(t["maxSamples"], max(20000, mesh.area / (spacing * spacing))))
+    pts, fidx = _sample(mesh, n, rules["grid"]["seed"])
+    nrm = np.asarray(mesh.face_normals)[fidx]
+    tree = cKDTree(pts)
+    tol = max(spacing, thr / t["steps"]) * t["tolMul"]
+
+    def probe_thin(sign: float) -> tuple[np.ndarray, np.ndarray]:
+        out = np.zeros(len(pts), dtype=bool)
+        depth = np.zeros(len(pts))
+        for k in range(1, t["steps"] + 1):
+            d, j = tree.query(pts - sign * nrm * (thr * k / t["steps"]), distance_upper_bound=tol)
+            ok = np.isfinite(d)
+            jj = np.where(ok, j, 0)
+            hit = ok & ((nrm[jj] * nrm).sum(axis=1) < -t["opposingDot"]) & ~out
+            depth[hit] = thr * k / t["steps"]
+            out |= hit
+        return out, depth
+
+    # намотка граней у открытых мешей ненадёжна (знак объёма врёт): «вглубь» — то направление, где тонких точек больше
+    (inward, din), (outward, dout) = probe_thin(1.0), probe_thin(-1.0)
+    if inward.sum() >= outward.sum():
+        thin_pt, depth, sign = inward, din, 1.0
+    else:
+        thin_pt, depth, sign = outward, dout, -1.0
+    mid = pts - sign * nrm * (depth[:, None] / 2.0)
+    if t["boundedAngles"]:
+        thin_pt = _bounded_width(pts, nrm, tree, mid, thin_pt, thr, tol * t["boundedTolMul"], t, rules["grid"]["seed"])
+    # тонкость грани — по её собственным точкам (большая грань: ближайшая точка может лежать на соседней); без точек — по ближайшей
+    cnt = np.bincount(fidx, minlength=len(mesh.faces)).astype(float)
+    hit = np.bincount(fidx, weights=thin_pt.astype(float), minlength=len(mesh.faces))
+    _, near = tree.query(mesh.triangles_center)
+    face_thin = np.where(cnt > 0, hit >= 0.5 * np.maximum(cnt, 1.0), thin_pt[near])
+    mask = _clean_thin(mesh, face_thin, thr, t)
+    area = mesh.area_faces
+    info = {"thinCm": t["thinCm"], "longestCm": round(float(longest_cm)), "thinAreaPct": round(100.0 * float(area[mask].sum()) / float(area.sum()), 1)}
+    return mask, info
+
+
 def _below_cut(mesh, rec: dict) -> np.ndarray:
     lo, hi = mesh.bounds[0][1], mesh.bounds[1][1]
     return mesh.triangles_center[:, 1] <= lo + rec["cutFrac"] * (hi - lo)
@@ -209,21 +347,21 @@ def legs_face_mask(mesh, rec: dict) -> np.ndarray:
     return _below_cut(mesh, rec) & _in_leg_footprint(mesh, rec)
 
 
-def neutral_face_mask(mesh, rec: dict) -> np.ndarray:
-    """Нейтральное — слой не кладём: полоса между ножками и телом (рейки, царги, юбка — дерево или обивка не отличить) и низ панелей,
-    стоящих на полу (изголовье, боковина: ниже разреза, но не над пятном ножки)."""
-    if rec.get("status") != "split":
-        return np.zeros(len(mesh.faces), dtype=bool)
-    lo, hi = mesh.bounds[0][1], mesh.bounds[1][1]
-    y = mesh.triangles_center[:, 1]
-    top = max(rec.get("bandTopFrac", rec["cutFrac"]), rec["cutFrac"])
-    band = (y > lo + rec["cutFrac"] * (hi - lo)) & (y <= lo + top * (hi - lo))
-    return band | (_below_cut(mesh, rec) & ~_in_leg_footprint(mesh, rec))
+def neutral_face_mask(mesh, rec: dict, thin: np.ndarray | None = None) -> np.ndarray:
+    """Нейтральное — слой не кладём: тонкие части на любой высоте (`thin` — из `thin_face_mask`), для split ещё полоса между ножками и телом
+    (рейки, царги, юбка) и низ панелей, стоящих на полу (изголовье, боковина: ниже разреза, но не над пятном ножки). Ножки (красные) не входят."""
+    neu = np.zeros(len(mesh.faces), dtype=bool) if thin is None else np.asarray(thin, dtype=bool).copy()
+    if rec.get("status") == "split":
+        lo, hi = mesh.bounds[0][1], mesh.bounds[1][1]
+        y = mesh.triangles_center[:, 1]
+        top = max(rec.get("bandTopFrac", rec["cutFrac"]), rec["cutFrac"])
+        neu |= ((y > lo + rec["cutFrac"] * (hi - lo)) & (y <= lo + top * (hi - lo))) | (_below_cut(mesh, rec) & ~_in_leg_footprint(mesh, rec))
+    return neu & ~legs_face_mask(mesh, rec)
 
 
-def upholstery_face_mask(mesh, rec: dict) -> np.ndarray:
-    """Грани, на которые кладётся слой обивки: не ножки и не нейтральная полоса (при `apply: false` слой не кладётся совсем)."""
-    return ~(legs_face_mask(mesh, rec) | neutral_face_mask(mesh, rec))
+def upholstery_face_mask(mesh, rec: dict, thin: np.ndarray | None = None) -> np.ndarray:
+    """Грани, на которые кладётся слой обивки: не ножки и не нейтральное (при `apply: false` слой не кладётся совсем)."""
+    return ~(legs_face_mask(mesh, rec) | neutral_face_mask(mesh, rec, thin))
 
 
 def _family_of(cls: str | None, classes: dict) -> str | None:
@@ -256,6 +394,7 @@ def build(mesh_dirs: list[str], fetch: bool, only: set[str] | None, report: str 
     classes = json.load(open(CLASSES_PATH, encoding="utf-8"))
     cls = json.load(open(CLASS_ASSIGN_PATH, encoding="utf-8"))["meshes"]
     out: dict[str, dict] = {}
+    catalog = _catalog_dims()
     for mid in sorted(cls):
         if only and mid not in only:
             continue
@@ -272,10 +411,19 @@ def build(mesh_dirs: list[str], fetch: bool, only: set[str] | None, report: str 
             out[mid] = {"status": "unsure", "reason": "меш не найден в кэше — маска не считалась", "confidence": 0.0, "apply": False,
                         "productHasLegs": None, "role": a.get("role"), "class": a.get("class")}
             continue
-        rec = analyze(load_mesh(path), rules)
+        mesh = load_mesh(path)
+        rec = analyze(mesh, rules)
         rec = judge(rec, rules, True if "legs" in (a.get("parts") or {}) else None)   # нет строки «материал ножек» — данных нет, не «ножек нет»
         rec["role"], rec["class"] = a.get("role"), a.get("class")
+        if rec["status"] in ("split", "whole"):
+            longest, src = _real_longest_cm(rules, a.get("role"), mid, catalog)
+            _, info = thin_face_mask(mesh, rules, longest)
+            info["scaleSource"] = src
+            rec["thin"] = info
+            rec["reason"] += rules["reasons"]["thin"].format(thinCm=info["thinCm"], thinAreaPct=info["thinAreaPct"])
         out[mid] = rec
+        del mesh
+        gc.collect()          # меши и облака точек большие: без явной сборки память растёт от меша к мешу (пик 23 ГБ на 170 мешах)
         print(f"  {mid}  {a.get('role'):10s} {rec['status']:6s} {rec['confidence']:.2f}  {rec['reason'][:90]}")
     doc = {"_about": "Собрано tools/assets/material_parts.py build по data/flat3d/material-part-rules.json — руками не править.",
            "rulesSha": rules_sha(), "meshes": out}

@@ -25,6 +25,24 @@
     "bodyBottomFrac": 0.5,
     "bandMinLayers": 3
   },
+  "thin": {
+    "thinCm": 6.0,
+    "spacingDiv": 6,
+    "steps": 10,
+    "tolMul": 0.8,
+    "opposingDot": 0.5,
+    "smoothIters": 0,
+    "majority": 0.5,
+    "minPatchAreaFrac": 0.0006,
+    "boundedWidthMul": 1.0,
+    "boundedSteps": 12,
+    "boundedTolMul": 1.6,
+    "boundedAngles": 6,
+    "boundedSampleCap": 15000,
+    "maxSamples": 500000,
+    "defaultLongestCm": 100,
+    "longestSideCm": { "диван": 190, "кресло": 95, "кровать": 205, "пуф": 45, "стул": 88 }
+  },
   "confidence": {
     "splitBase": 0.6,
     "splitIslandsTypical": [3, 6],
@@ -40,6 +58,7 @@
     "splitBand": "; выше ножек полоса {bandPct}% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
     "whole": "у пола одно большое пятно ({spanPct}% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
     "wholeProductLegs": "; товар называет материал ножек, но под цоколем они мелкие (не отделить) — слой на всю поверхность",
+    "thin": "; тонкие части (стойки, рейки, рама толщиной < {thinCm} см — по локальной толщине меша) нейтральны на любой высоте: {thinAreaPct}% площади",
     "unsure": "по геометрии не уверены: {why}",
     "skip": "класс {class} не мягкий — маска частей не нужна"
   }

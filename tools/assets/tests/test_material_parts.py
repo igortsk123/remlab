@@ -101,6 +101,35 @@ def test_headboard_panel_on_floor_is_not_a_plinth():
     assert legs[(np.abs(c[:, 0]) > 0.85) & (c[:, 1] < 0.2) & (c[:, 2] > -0.5)].any()
 
 
+def test_thin_posts_are_neutral_at_any_height_but_volume_is_not():
+    """Стойки спинки (сечение ≈ 4 см) выше разреза нейтральны, объёмное сиденье и спинка (≈ 12 см) — обивка: толщина по меш-стенкам, не по высоте."""
+    parts = [_legged(), _box(0.8, 0.12, 0.8, 0, 0.9, 0)]                  # сиденье 12 см толщиной над ножками
+    for sx in (-0.35, 0.35):                                                 # две стойки 4×4 см от сиденья до спинки
+        parts.append(_box(0.04, 0.5, 0.04, sx, 1.21, -0.35))
+    parts.append(_box(0.8, 0.14, 0.1, 0, 1.5, -0.35))                      # спинка-панель 14×10 см
+    mesh = trimesh.util.concatenate(parts)
+    rec = MP.judge(MP.analyze(mesh, RULES), RULES, None)
+    thin, info = MP.thin_face_mask(mesh, RULES, longest_cm=110.0)
+    c = mesh.triangles_center
+    post = (np.abs(np.abs(c[:, 0]) - 0.35) < 0.03) & (c[:, 1] > 1.0) & (c[:, 1] < 1.4) & (np.abs(mesh.face_normals[:, 1]) < 0.5)   # боковые грани стойки
+    seat = (np.abs(c[:, 0]) < 0.3) & (c[:, 1] > 0.8) & (c[:, 1] < 0.98) & (np.abs(c[:, 2]) < 0.3)
+    assert post.any() and thin[post].mean() > 0.8, thin[post].mean()
+    assert seat.any() and thin[seat].mean() < 0.2, thin[seat].mean()
+    neu = MP.neutral_face_mask(mesh, rec, thin)
+    assert neu[post].all() or neu[post].mean() > 0.8
+    assert info["thinCm"] == RULES["thin"]["thinCm"] and info["thinAreaPct"] > 0
+
+
+def test_thin_threshold_scales_with_real_size():
+    """Один и тот же меш: на «большом» предмете сечение в см больше, поэтому не тонкое; на «малом» — тонкое (размер из каталога/роли)."""
+    mesh = trimesh.util.concatenate([_legged(), _box(0.04, 0.5, 0.04, 0.3, 1.0, 0)])
+    small, _ = MP.thin_face_mask(mesh, RULES, longest_cm=60.0)
+    big, _ = MP.thin_face_mask(mesh, RULES, longest_cm=400.0)
+    assert small.sum() >= big.sum()
+    assert MP._real_longest_cm(RULES, "стул", None, {})[1] == "role"
+    assert MP._real_longest_cm(RULES, "стул", "x", {"x": (50, 50, 90)}) == (90.0, "catalog")
+
+
 def test_star_base_is_not_a_plinth():
     """Крестовина у пола с узкой опорой над ней — не цоколь: не «вся поверхность обивка», слой не кладём."""
     parts = [_box(1.0, 0.4, 1.0, 0, 0.75, 0), _box(0.12, 0.5, 0.12, 0, 0.3, 0)]
