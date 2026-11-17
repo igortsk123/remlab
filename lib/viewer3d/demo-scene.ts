@@ -18,6 +18,7 @@ import { windowView } from "@/lib/viewer3d/window-views";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { planObjects } from "@/lib/viewer3d/build-scene";
 import { plantsFromUrl, type PlantLogEntry } from "@/lib/viewer3d/kits/plants";
+import { radiatorsFromUrl } from "@/lib/viewer3d/kits/radiator";
 import { DESKTOP_QUALITY, FlatViewer, LITE_QUALITY, type PhotoPose } from "@/lib/viewer3d/viewer";
 import { WALL_ART_RULES } from "@/lib/configurator/wall-art";
 import { ART_CENTRE_CM, blockersOf, clampSpot, hangAt, placeOn, spotOf, type ArtProblem, type ArtSpot } from "@/lib/configurator/wall-art-spot";
@@ -53,6 +54,8 @@ export interface DemoSceneOptions {
   plants?: boolean;
   /** Стиль варианта: растение подбирается из подходящих по стилю (`data/flat3d/plants.json`); нет — универсальные. */
   style?: string;
+  /** Радиаторы под окнами (T-20261117-11). Нет — адрес страницы (`radiatorsFromUrl`: `?radiators=0` — без них), иначе `enabled` из `data/flat3d/radiator.json`. */
+  radiators?: boolean;
 }
 
 /**
@@ -315,7 +318,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     onProgress: (l, t) => emit("progress", l, t),
     onContextLost: () => emit("contextlost"),
     onSwapFailed: () => emit("swapfail"),
-  }, { curtains: opts.curtains ?? curtainsFromUrl(), plants: opts.plants ?? plantsFromUrl(), plantStyle: opts.style });
+  }, { curtains: opts.curtains ?? curtainsFromUrl(), plants: opts.plants ?? plantsFromUrl(), plantStyle: opts.style, radiators: opts.radiators ?? radiatorsFromUrl() });
   const resolved = (a: Apartment, c: Catalogue) => resolveScene(a, c, defaultConfiguration(a, c));
   // сторона акцентной стены — из расчёта сцены; меняется, когда переставили диван, — тогда оболочку перестраиваем
   const sideOf = (sc: ReturnType<typeof resolved>): string | null => sc.surfaces.find((x) => x.surface === "wall")?.accent?.side ?? null;

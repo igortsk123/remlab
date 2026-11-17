@@ -13,6 +13,7 @@ import type { ResolvedItem, ResolvedScene, ResolvedSurface } from "@/lib/configu
 import { meshUrl, runtimeEntry } from "@/lib/configurator/mesh-url";
 import { textileRenders, type TextileShape } from "@/lib/configurator/textile";
 import { finishPassport, tintHex } from "@/lib/viewer3d/finish-passport";
+import { RADIATOR_RULES, radiatorSpots, type RadiatorSpot } from "@/lib/viewer3d/radiator-spots";
 import { windowView } from "@/lib/viewer3d/window-views";
 
 export const SCENE_EXPORT_VERSION = 1;
@@ -131,6 +132,17 @@ export interface SceneExport {
   cameras: ExportCamera[];
   /** Проверка переносимости: сколько мешей без лёгкой копии (в /demo-телефоне они грузятся исходником). */
   liteMissing: string[];
+  /** Радиаторы под окнами (T-20261117-11): места и правила модели — те же числа, что строят живую 3D (`radiator-spots.ts`); не товар. Выключены — пусто. */
+  radiators: ExportRadiator[];
+}
+
+/** Радиатор под окном в сантиметрах сцены: центр на плоскости стены, нормаль в комнату, ширина панели; размеры, отступы и цвет — из `data/flat3d/radiator.json`. */
+export interface ExportRadiator extends RadiatorSpot {
+  heightCm: number;
+  depthCm: number;
+  fromWallCm: number;
+  fromFloorCm: number;
+  colorHex: string;
 }
 
 function surfaceOf(m: Material): ExportSurface {
@@ -231,5 +243,7 @@ export function exportScene(apartment: Apartment, catalogue: Catalogue, sc: Reso
     cameras: apartment.cameras.map((c) => ({ id: c.id, roomId: c.roomId, xCm: c.x, yCm: c.y, rotDeg: c.rot, fov: c.fov,
       ...(c.pose !== undefined ? { pose: c.pose } : {}), ...(c.pshift !== undefined ? { pshift: c.pshift } : {}) })),
     liteMissing: meshes.filter((m) => m.liteMissing).map((m) => m.meshId),
+    radiators: RADIATOR_RULES.enabled ? radiatorSpots(apartment.rooms).map((s) => ({ ...s, heightCm: RADIATOR_RULES.size.heightCm, depthCm: RADIATOR_RULES.size.depthCm,
+      fromWallCm: RADIATOR_RULES.offset.fromWallCm, fromFloorCm: RADIATOR_RULES.offset.fromFloorCm, colorHex: RADIATOR_RULES.finish.color })) : [],
   };
 }

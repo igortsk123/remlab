@@ -23,6 +23,7 @@ function nodeInfo(root: THREE.Object3D): Any[] {
     let slot = "";
     let plant = false;
     while (p) { chain.push(p.name || p.type); if (p.userData?.plant) plant = true; if (!slot && p.userData?.slotId) slot = String(p.userData.slotId); p = p.parent; }
+    if (!slot && chain.includes("radiators")) slot = "radiator";   // радиатор под окном (`kits/radiator.ts`, T-20261117-11) — группа `radiators` оболочки, предмета-слота нет
     if (plant) slot = `plant:${slot}`;   // растение кашпо/вазы (`kits/plants.ts`) — ребёнок группы носителя; ключ выгрузки `plant`
     out.push({ uuid: o.uuid, type: o.type, name: o.name, chain: chain.slice(0, 6).join("<"), slot, plant, visible: o.visible,
       min: box.min.toArray().map((v) => +v.toFixed(2)), max: box.max.toArray().map((v) => +v.toFixed(2)),

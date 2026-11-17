@@ -76,7 +76,9 @@ if (extra.export) {
   // «оранжевую фигню убери»), в рендер не идёт: её узел в сцене — прозрачное место ярлыка, в GLB он стал бы цветной доской. По флагу, не по названию
   const TX = JSON.parse(fs.readFileSync(path.resolve(PUBLIC, '../data/flat3d/textile.json'), 'utf-8')).render || {};
   const noGeom = new Set(info.slots.filter((s) => s.kit === 'textile' && (s.features || []).some((f) => TX[f] === false)).map((s) => s.slotId));
-  const pick = info.nodes.filter((n) => n.visible && n.type === 'Mesh' && !noGeom.has(n.slot) && (!keys || keys.some((k) => k === 'rod'
+  // радиатор под окном (slot `radiator`, T-20261117-11) идёт в выгрузку ВСЕГДА, кроме явного `-radiator` в списке: иначе фото-рендер и живая 3D расходятся
+  const noRad = keys && keys.includes('-radiator');
+  const pick = info.nodes.filter((n) => n.visible && n.type === 'Mesh' && !noGeom.has(n.slot) && ((n.slot === 'radiator' && !noRad) || !keys || keys.some((k) => k === 'rod'
     ? n.chain.includes('fixtures:') && n.min[1] > 2.0 && n.max[1] < 2.69 : k === 'plant' ? n.plant : (n.slot + '|' + n.chain).includes(k)))).map((n) => n.uuid);
   console.log('выгружаю узлов', pick.length);
   const b64 = await page.evaluate((u) => window.exportNodes(u), pick);

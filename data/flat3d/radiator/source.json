@@ -1,0 +1,14 @@
+{
+ "asset": "radiator-panel-22",
+ "title": "Панельный радиатор «тип 22» (процедурная модель)",
+ "site": "own work",
+ "pageUrl": null,
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+ "authors": { "remlab": "modeling (code)" },
+ "builder": "lib/viewer3d/kits/radiator.ts:buildRadiator",
+ "params": "data/flat3d/radiator.json",
+ "downloaded": null,
+ "searched": "2026-11-17: Poly Haven API `assets?t=models` (522 моделей) — радиатора нет (только barrel_stove, scandinavian_masonry_heater); ambientCG — только материалы",
+ "note": "Файлов-источников нет: модель строится кодом из параметров (`radiator.json`), чужой геометрии и текстур в ней нет — CC0 как собственная работа проекта."
+}
