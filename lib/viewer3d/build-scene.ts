@@ -7,6 +7,7 @@ import { findRoom } from "@/contracts/apartment";
 import type { Catalogue } from "@/contracts/configurator";
 import type { ResolvedScene, ResolvedSurface } from "@/lib/configurator/resolve";
 import { meshUrl } from "@/lib/configurator/mesh-url";
+import { textileRenders } from "@/lib/configurator/textile";
 import { autoTv, baseRole, hungLiftCm } from "@/lib/viewer3d/scene-extras";
 
 export interface RoomSurfaces {
@@ -201,6 +202,7 @@ export function planObjects(
     if (asset.kit === "textile") {
       const tx = a.slots.find((s) => s.id === item.slotId)?.textile;
       if (!tx || (tx.shape === "curtain" && tx.opening === undefined)) continue;   // штора без окна — только в списке
+      if (!textileRenders(tx.shape)) continue;   // форма выключена правилом `data/flat3d/textile.json` — в списке и сумме остаётся, в 3D нет
       out.push({ kind: "textile", slotId: item.slotId, roomId: item.roomId, titleRu: item.titleRu, placement: item.placement,
         shape: tx.shape, ...(tx.opening !== undefined ? { opening: tx.opening } : {}), sheer: asset.features.includes("sheer"),
         materialId: asset.materials.body });

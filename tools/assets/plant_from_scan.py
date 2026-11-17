@@ -188,15 +188,27 @@ def main() -> int:
         for asset in sorted({p["asset"] for p in plants if p.get("builder") != "procedural"}):
             fetch(asset)
         return 0
+    import plant_bouquet as PB                    # букеты из настоящих листьев скана на стеблях кода (T-20261117-15)
     import plant_procedural as PP                 # букеты, собранные кодом (эвкалипт, олива, пампас, лаванда) — тот же список и бюджет
 
-    rows = [(PP.build_one if p.get("builder") == "procedural" else build_one)(p, cfg["limits"]) for p in plants]
+    builders = {"procedural": PP.build_one, "bouquet": PB.build_one}
+    rows = [builders.get(p.get("builder"), build_one)(p, cfg["limits"]) for p in plants]
     for r in rows:
         print(f"{r['id']:16s} {r['kind']:5s} {r['tris']:6d} треуг. {r['bytes'] // 1024:5d} КБ  {r['sizeCm']} см")
-    if not a.id:
-        with open(os.path.join(OUT, "manifest.json"), "w", encoding="utf-8") as f:
-            json.dump({"rev": cfg["rev"], "plants": rows}, f, ensure_ascii=False, indent=1)
-            f.write("\n")
+    # список лёгких копий: целиком при полной сборке; с `--id` — строка этого растения заменяется (или добавляется) в уже лежащем списке,
+    # остальные не трогаются; растений, которых нет в плане, в списке не остаётся (T-20261117-15: сборка одного букета без пересборки всех)
+    path = os.path.join(OUT, "manifest.json")
+    have = {}
+    if a.id and os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            have = {r["id"]: r for r in json.load(f)["plants"]}
+    have.update({r["id"]: r for r in rows})
+    ordered = [have[p["id"]] for p in cfg["plants"] if p["id"] in have]
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"rev": cfg["rev"], "plants": ordered}, f, ensure_ascii=False, indent=1)
+        f.write("\n")
+    if len(ordered) < len(cfg["plants"]):
+        print(f"в списке {len(ordered)} из {len(cfg['plants'])} растений плана — соберите остальные (`build` без --id собирает всё)")
     return 0
 
 

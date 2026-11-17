@@ -1,5 +1,5 @@
 {
- "rev": "2",
+ "rev": "3",
  "plants": [
   {
    "id": "floor-a",
@@ -114,59 +114,45 @@
    ]
   },
   {
-   "id": "euc",
-   "asset": "procedural-euc",
-   "part": "euc",
+   "id": "leaf-1",
+   "asset": "calathea_orbifolia_01",
+   "part": "Plane.014",
    "kind": "dry",
-   "tris": 7360,
-   "bytes": 59624,
-   "sha256": "c4ffc44a2383da58250556ba9511584fd1c92e491be47f459bc96447a5f3b332",
+   "tris": 2452,
+   "bytes": 354404,
+   "sha256": "d06b3d423f75bb472ae8ef493e4cfd62ec6d1ccf4ae0741ce50553dfd396e909",
    "sizeCm": [
-    45.7,
-    76.4,
-    50.8
+    66.1,
+    81.2,
+    59.7
    ]
   },
   {
-   "id": "olive",
-   "asset": "procedural-olive",
-   "part": "olive",
+   "id": "leaf-2",
+   "asset": "calathea_orbifolia_01",
+   "part": "Plane.014",
    "kind": "dry",
-   "tris": 6192,
-   "bytes": 49764,
-   "sha256": "4a9356cbb4eafd1ace467a0b90579b84ab306f352e7c67b01098e47e41d60a97",
+   "tris": 2070,
+   "bytes": 352612,
+   "sha256": "d58e085aea78f8ca4b4e7981b50b300d25eb46ce5d21cb20ce538149b177f8d3",
    "sizeCm": [
-    41.8,
-    80.6,
-    34.1
+    43.8,
+    81.6,
+    58.8
    ]
   },
   {
-   "id": "pampas",
-   "asset": "procedural-pampas",
-   "part": "pampas",
+   "id": "leaf-3",
+   "asset": "calathea_orbifolia_01",
+   "part": "Plane.014",
    "kind": "dry",
-   "tris": 14922,
-   "bytes": 120520,
-   "sha256": "d58f99604b279d9bfb05d52185ebbe7cfd8525c667f3c707af33021ce71091c9",
+   "tris": 2834,
+   "bytes": 356200,
+   "sha256": "2ea42d45d0ff1ad48a7f7cb0bdb28cfdf34666de0005dba0009d4b1dc3715f40",
    "sizeCm": [
-    50.3,
-    90.2,
-    53.8
-   ]
-  },
-  {
-   "id": "lavender",
-   "asset": "procedural-lavender",
-   "part": "lavender",
-   "kind": "dry",
-   "tris": 11808,
-   "bytes": 80828,
-   "sha256": "f9031d308750fedd35e19b8314e0023354740014b385372cee816557a770a144",
-   "sizeCm": [
-    21.3,
-    58.6,
-    20.6
+    55.4,
+    76.9,
+    53.3
    ]
   }
  ]
