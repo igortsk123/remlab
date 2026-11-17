@@ -18,6 +18,7 @@ import type { ResolvedScene } from "@/lib/configurator/resolve";
 import { isExtra, isFlatOnSurface, type ObjectSpec, planObjects, productCurtains, surfacesByRoom } from "@/lib/viewer3d/build-scene";
 import { buildLabelSpot, buildPillow, buildProductCurtain, buildThrow } from "@/lib/viewer3d/kits/textile";
 import { isSettled, lowestPoint, settleOnSupport, type SettleResult } from "@/lib/viewer3d/settle";
+import { buildRadiators, RADIATOR_RULES } from "@/lib/viewer3d/kits/radiator";
 import { buildKitchen } from "@/lib/viewer3d/kits/kitchen";
 import { buildBathroom } from "@/lib/viewer3d/kits/bathroom";
 import { buildBed, buildRug, buildWardrobe } from "@/lib/viewer3d/kits/bedroom";
@@ -118,6 +119,8 @@ export interface ViewerOptions {
   plants?: boolean;
   /** Стиль варианта — растение берётся из подходящих по стилю (`plants.json`); не задан — универсальные. */
   plantStyle?: string;
+  /** Радиаторы под окнами (T-20261117-11). Нет — `enabled` из `data/flat3d/radiator.json`. */
+  radiators?: boolean;
 }
 
 /** Растения в кашпо и вазах по умолчанию ВКЛ (владелец TG 1307). Откат — `false` здесь или `?plants=0` в адресе демо. */
@@ -301,6 +304,7 @@ export class FlatViewer {
   /** Запечённая тень мебели на полу (`contact-shadow.ts`); пересоздаётся с оболочкой. */
   private contact: ContactShadow | null = null;
   private curtains: THREE.Group | null = null;
+  private radiators: THREE.Group | null = null;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -490,6 +494,15 @@ export class FlatViewer {
     if (this.options.curtains ?? CURTAINS_DEFAULT) {
       this.curtains = buildCurtains(this.apartment.rooms, productCurtains(this.apartment));
       this.scene.add(this.curtains);
+    }
+    if (this.radiators) {
+      this.scene.remove(this.radiators);
+      disposeObject(this.radiators);
+      this.radiators = null;
+    }
+    if (this.options.radiators ?? RADIATOR_RULES.enabled) {
+      this.radiators = buildRadiators(this.apartment.rooms);
+      this.scene.add(this.radiators);
     }
     if (this.placed.size) this.bakeContact();   // смена отделки при готовой мебели; первую тень запечёт `syncObjects`
   }
@@ -2489,6 +2502,8 @@ export class FlatViewer {
     this.contact = null;
     if (this.curtains) disposeObject(this.curtains);
     this.curtains = null;
+    if (this.radiators) disposeObject(this.radiators);
+    this.radiators = null;
     this.meshes.dispose();
     disposeMaterialCtx(this.matCtx);
     this.renderer.dispose();

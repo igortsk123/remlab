@@ -1,0 +1,11 @@
+{
+ "_doc": "Радиатор под окном в 3D (T-20261117-11, брифа директора): ОДНА общая модель на каждое окно каждой комнаты (/demo, туры, спальни и гостиные), не товар, не в цене и не в списке. Модель — своя процедурная панель «тип 22» (`lib/viewer3d/kits/radiator.ts`: корпус со скруглёнными кромками, пазы, верхняя решётка, патрубки и термоголовка): на Poly Haven и ambientCG готового радиатора нет (поиск 17.11 по 522 моделям), реестр и лицензия — `data/flat3d/radiator/source.json`. Размер — от окна: ширина = `size.widthOfWindow` × ширина окна, в пределах [`minWidthCm`, `maxWidthCm`]; высота и глубина — `size.heightCm`/`depthCm`. Место — по центру окна на стене: отступ от стены `offset.fromWallCm` (с глубиной — не дальше подоконника, он выступает на 19 см), от пола `offset.fromFloorCm`. Окно, где панель не встаёт под подоконник (низ подоконника < верх панели + `underSillGapCm`), и балконные блоки — без радиатора. `enabled: false` — радиаторов нет (откат без правки кода); в адресе демо — `?radiators=0`. Новое правило = строка здесь, код не меняется.",
+ "enabled": true,
+ "openingKinds": ["window"],
+ "size": { "widthOfWindow": 0.8, "minWidthCm": 40, "maxWidthCm": 160, "heightCm": 55, "depthCm": 9 },
+ "offset": { "fromWallCm": 3, "fromFloorCm": 12 },
+ "underSillGapCm": 4,
+ "finish": { "color": "#f1f1ed", "grille": "#dcdcd6", "pipe": "#e8e8e3", "roughness": 0.42, "metalness": 0.06 },
+ "model": { "edgeRadiusCm": 0.9, "grooveCount": 2, "grooveDepthCm": 0.35, "grooveHeightCm": 0.5, "grilleHeightCm": 1.6, "grilleInsetCm": 1.4,
+            "pipeRadiusCm": 0.9, "pipeInsetCm": 4, "headRadiusCm": 1.9, "headLengthCm": 4.2, "bracketCm": [4, 5, 1.2] }
+}
