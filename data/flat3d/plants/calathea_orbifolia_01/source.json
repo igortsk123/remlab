@@ -1,0 +1,25 @@
+{
+ "asset": "calathea_orbifolia_01",
+ "title": "Calathea Orbifolia 01",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/calathea_orbifolia_01",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "Rob Tuytel": "scanning",
+  "Rico Cilliers": "modeling"
+ },
+ "realMm": [
+  2491.507411003113,
+  1193.592220544815,
+  424.2942640557885
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "calathea_orbifolia_01_1k.gltf": "399130c01bfff6b493f885652112c3c841c3814b024a3d3c87773e0c5ab4f156",
+  "textures/calathea_orbifolia_01_arm_1k.jpg": "df4ea4dfc74a6965476200cffea69886ac26d3c089f356a7b69518149ef585e0",
+  "textures/calathea_orbifolia_01_diff_1k.jpg": "a105a093d74317a3853319a06fdc78cad2a13e353962298d2094195720b9b4a0",
+  "calathea_orbifolia_01.bin": "df1668bcb44914abac046217bbdae9867a3702198f7c374135f2b4456df8b038",
+  "textures/calathea_orbifolia_01_nor_gl_1k.jpg": "52aac88c18bf42c369aad9b2b5e41dbe58b015ca2fac7ff6ed4cb21147cb49c8"
+ }
+}

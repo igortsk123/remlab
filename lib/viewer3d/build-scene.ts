@@ -24,6 +24,8 @@ export type ObjectSpec =
       titleRu: string;
       meshId: string;
       url: string;
+      /** Роль предмета («кашпо», «ваза») — по ней носителю ставится растение (`kits/plants.ts`); неизвестна — null. */
+      role?: string | null;
       yawDeg: number;
       tintRgb?: [number, number, number];
       placement: Placement;
@@ -140,6 +142,7 @@ export function planObjects(
         titleRu: item.titleRu,
         meshId: asset.meshId,
         url: meshUrl(asset.meshId, asset.runtimeUrl, opts.lite === true),
+        role: item.photoRole,
         yawDeg: asset.yawDeg,
         tintRgb: asset.tintRgb,
         placement: item.placement,

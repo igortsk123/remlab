@@ -1,0 +1,40 @@
+{
+ "_doc": "Универсальные растения-декор для кашпо и ваз 3D /demo (T-20261117-07, владелец TG 1307): не товар, не в цене, не в списке. Источники — Poly Haven (CC0-1.0; реестр — `data/flat3d/plants/<asset>/source.json`) и свои букеты, собранные кодом (`tools/assets/plant_procedural.py`, `builder: procedural`, CC0-1.0, автор remlab). Сборка лёгких копий — `tools/assets/plant_from_scan.py build`; показ — `lib/viewer3d/kits/plants.ts`. Новое растение = строка в `plants` (+ `fetch`/`build`), код не меняется. `part`/`parts` — имена геометрий в пакете источника (пакеты Poly Haven — «сцены» из нескольких растений); `stand: false` — модель уже стоит прямо; `decimate` — доля треугольников. `hosts`: роль носителя → тип (`green` — зелень в кашпо, `dry` — букет в вазу). `floorMaxElevCm`: носитель, чьё дно выше этой отметки от пола, — настольный (`table`), иначе напольный (`floor`). `fit[тип][floor|table]`: правила посадки (см. `fitPlant`): напольное кашпо — крупное растение «в рост» (высота = горло × `heightOverThroat`, в рамках min–max), настольное — мелкое по кроне; ваза — букет по высоте носителя, стебли из горла вертикально. У растения: `mounts` — для каких носителей, `minThroatCm`/`maxThroatCm` — для какого горла. `throat`: как меряется горло носителя.",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+ "rev": "2",
+ "base": "/flat3d/plants/",
+ "limits": { "maxTris": 60000, "maxBytes": 1048576 },
+ "hosts": { "кашпо": "green", "ваза": "dry" },
+ "floorMaxElevCm": 8,
+ "fit": {
+  "green": {
+   "floor": { "crownOverThroat": 3.6, "heightOverThroat": 3.6, "minHeightCm": 80, "maxHeightCm": 130, "sinkCm": 3, "sinkFracOfHeight": 0.1 },
+   "table": { "crownOverThroat": 1.9, "minHeightCm": 26, "maxHeightCm": 60, "sinkCm": 2, "sinkFracOfHeight": 0.12 }
+  },
+  "dry": {
+   "floor": { "crownOverThroat": 6, "heightOverCarrier": 1.8, "minHeightCm": 90, "maxHeightCm": 150, "sinkCm": 4, "sinkFracOfHeight": 0.04 },
+   "table": { "crownOverThroat": 5.5, "heightOverCarrier": 2.4, "minHeightCm": 40, "maxHeightCm": 85, "sinkCm": 3, "sinkFracOfHeight": 0.04 }
+  }
+ },
+ "throat": {
+  "topSliceFrac": 0.06, "minSliceCm": 1.2, "minDiameterCm": 3,
+  "maxRimSpread": 0.3,
+  "maxNeckRatio": 9,
+  "nameStopWords": ["кос(?:ой|ым|ая|ое|ые|ых)", "скошен[а-яё]*", "наклонн[а-яё]*", "срез[а-яё]*", "шар(?:а|у|ы|ик[а-яё]*|ообразн[а-яё]*)?", "чаш[а-яё]*", "флорариум[а-яё]*", "террариум[а-яё]*", "аквариум[а-яё]*", "миск[а-яё]*", "блюд[а-яё]*"]
+ },
+ "plants": [
+  { "id": "floor-a", "asset": "potted_plant_01", "parts": ["Plane.070", "potted_plant_01_base_low"], "stand": false, "decimate": 0.3, "kind": "green", "styles": ["any"], "minThroatCm": 0, "mounts": ["floor"] },
+  { "id": "floor-b", "asset": "potted_plant_02", "parts": ["Circle.001"], "stand": false, "kind": "green", "styles": ["any"], "minThroatCm": 0, "mounts": ["floor"] },
+  { "id": "pachira-a", "asset": "pachira_aquatica_01", "parts": ["Cylinder.051", "Circle"], "stand": false, "kind": "green", "styles": ["any"], "minThroatCm": 0, "mounts": ["floor"] },
+  { "id": "pachira-b", "asset": "pachira_aquatica_01", "parts": ["Cylinder.092", "Circle.001"], "stand": false, "kind": "green", "styles": ["any"], "minThroatCm": 0, "mounts": ["floor"] },
+  { "id": "pachira-c", "asset": "pachira_aquatica_01", "parts": ["Cylinder.027", "mesh.001"], "stand": false, "kind": "green", "styles": ["any"], "minThroatCm": 0, "mounts": ["floor"] },
+  { "id": "calathea", "asset": "calathea_orbifolia_01", "part": "Plane.014", "kind": "green", "styles": ["any"], "minThroatCm": 0, "maxThroatCm": 18, "mounts": ["table"] },
+  { "id": "anthurium", "asset": "anthurium_botany_01", "part": "Plane.016", "kind": "green", "styles": ["any"], "minThroatCm": 0, "maxThroatCm": 18, "mounts": ["table"] },
+  { "id": "fern", "asset": "fern_02", "part": "Plane.024", "kind": "green", "styles": ["any"], "minThroatCm": 0, "maxThroatCm": 22, "mounts": ["table"] },
+  { "id": "euc", "asset": "procedural-euc", "builder": "procedural", "maker": "euc", "kind": "dry", "styles": ["any"], "minThroatCm": 0 },
+  { "id": "olive", "asset": "procedural-olive", "builder": "procedural", "maker": "olive", "kind": "dry", "styles": ["any"], "minThroatCm": 0 },
+  { "id": "pampas", "asset": "procedural-pampas", "builder": "procedural", "maker": "pampas", "kind": "dry", "styles": ["any"], "minThroatCm": 0 },
+  { "id": "lavender", "asset": "procedural-lavender", "builder": "procedural", "maker": "lavender", "kind": "dry", "styles": ["any"], "minThroatCm": 0 }
+ ]
+}

@@ -17,6 +17,7 @@ import { meshUrl, RUNTIME_BASE, setRuntimeMeshes, type RuntimeEntry } from "@/li
 import { windowView } from "@/lib/viewer3d/window-views";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { planObjects } from "@/lib/viewer3d/build-scene";
+import { plantsFromUrl, type PlantLogEntry } from "@/lib/viewer3d/kits/plants";
 import { DESKTOP_QUALITY, FlatViewer, LITE_QUALITY, type PhotoPose } from "@/lib/viewer3d/viewer";
 import { WALL_ART_RULES } from "@/lib/configurator/wall-art";
 import { ART_CENTRE_CM, blockersOf, clampSpot, hangAt, placeOn, spotOf, type ArtProblem, type ArtSpot } from "@/lib/configurator/wall-art-spot";
@@ -48,6 +49,10 @@ export interface DemoSceneOptions {
   walk?: boolean;
   /** Декоративные шторы у окон (T-20261111-22, владелец TG 1643). Нет — адрес страницы (`curtainsFromUrl`), иначе по умолчанию вкл. */
   curtains?: boolean;
+  /** Растения в кашпо и вазах (T-20261117-07, владелец TG 1307). Нет — адрес страницы (`plantsFromUrl`: `?plants=0` — без них), иначе по умолчанию вкл. */
+  plants?: boolean;
+  /** Стиль варианта: растение подбирается из подходящих по стилю (`data/flat3d/plants.json`); нет — универсальные. */
+  style?: string;
 }
 
 /**
@@ -74,6 +79,10 @@ export type DemoSceneEvent = "progress" | "contextlost" | "swapfail";
 export interface DemoScene {
   /** Первая расстановка загружена (модели пришли или остались честными коробками). */
   ready: Promise<void>;
+  /** Растения кашпо и ваз догрузились (на `ready` не влияет — первый кадр их не ждёт): для снимков и проверок. */
+  plantsSettled(): Promise<void>;
+  /** Журнал растений: на каждое кашпо/вазу — поставлено или причина отказа (`FlatViewer.plantReport`). */
+  plantReport(): readonly PlantLogEntry[];
   /** Новая расстановка (и декор — одним состоянием с ней). Последняя побеждает: промежуточные при быстрых правках
    *  пропускаются. Декор не передан — остаётся прежний. */
   update(items: DemoItem[], decor?: DemoDecor[]): Promise<void>;
@@ -303,7 +312,7 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
     onProgress: (l, t) => emit("progress", l, t),
     onContextLost: () => emit("contextlost"),
     onSwapFailed: () => emit("swapfail"),
-  }, { curtains: opts.curtains ?? curtainsFromUrl() });
+  }, { curtains: opts.curtains ?? curtainsFromUrl(), plants: opts.plants ?? plantsFromUrl(), plantStyle: opts.style });
   const resolved = (a: Apartment, c: Catalogue) => resolveScene(a, c, defaultConfiguration(a, c));
   // сторона акцентной стены — из расчёта сцены; меняется, когда переставили диван, — тогда оболочку перестраиваем
   const sideOf = (sc: ReturnType<typeof resolved>): string | null => sc.surfaces.find((x) => x.surface === "wall")?.accent?.side ?? null;
@@ -390,6 +399,8 @@ export function createDemoScene(canvas: HTMLCanvasElement, opts: DemoSceneOption
 
   return {
     ready,
+    plantsSettled: () => viewer.plantsSettled(),
+    plantReport: () => viewer.plantReport(),
     update,
     setPhotoPose: (pose) => viewer.setPhotoPose(pose),
     setFloor: (f) => { floor = f ?? undefined; return reshell("пол"); },

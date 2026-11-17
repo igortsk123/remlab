@@ -21,6 +21,7 @@ import { buildKitchen } from "@/lib/viewer3d/kits/kitchen";
 import { buildBathroom } from "@/lib/viewer3d/kits/bathroom";
 import { buildBed, buildRug, buildWardrobe } from "@/lib/viewer3d/kits/bedroom";
 import { buildTv } from "@/lib/viewer3d/kits/tv";
+import { blockedByName, fitPlant, measureThroat, mountOf, pickPlant, placePlant, plantKindOf, PLANTS_IN_PHOTO, plantSize, plantUrl, type PlantDef, type PlantKind, type PlantLogEntry, type PlantMount, type Throat } from "@/lib/viewer3d/kits/plants";
 import { buildWallPlane } from "@/lib/viewer3d/kits/wall-plane";
 import type { KitCtx } from "@/lib/viewer3d/kits/common";
 import { createMaterialCtx, disposeMaterialCtx, type MaterialCtx } from "@/lib/viewer3d/materials";
@@ -112,7 +113,14 @@ export interface ViewerEvents {
 export interface ViewerOptions {
   /** Декоративные шторы у окон (T-20261111-22). Нет — `CURTAINS_DEFAULT`. */
   curtains?: boolean;
+  /** Растения в кашпо и вазах (T-20261117-07). Нет — `PLANTS_DEFAULT`. */
+  plants?: boolean;
+  /** Стиль варианта — растение берётся из подходящих по стилю (`plants.json`); не задан — универсальные. */
+  plantStyle?: string;
 }
+
+/** Растения в кашпо и вазах по умолчанию ВКЛ (владелец TG 1307). Откат — `false` здесь или `?plants=0` в адресе демо. */
+export const PLANTS_DEFAULT = true;
 
 /** Шторы по умолчанию ВКЛ (владелец TG 1643 «Шторы ставь»). Откат — `false` здесь или `?curtains=0` в адресе демо. */
 export const CURTAINS_DEFAULT = true;
@@ -212,6 +220,9 @@ export class FlatViewer {
   private clock = new THREE.Clock();
   private raf = 0;
   private disposed = false;
+  /** Загружающиеся растения кашпо и ваз (`addPlant`): не входят в счёт «Загружаем модели N из M» и в `ready` сцены. */
+  private plantTasks = new Set<Promise<void>>();
+  private plantLog: PlantLogEntry[] = [];
 
   private apartment: Apartment;
   private catalogue: Catalogue;
@@ -595,6 +606,70 @@ export class FlatViewer {
     return [cur, ...rest];
   }
 
+  /**
+   * РАСТЕНИЕ В ГОРЛО НОСИТЕЛЯ (T-20261117-07, владелец TG 1307): после загрузки кашпо или вазы — универсальное растение
+   * (`kits/plants.ts`, правила и модели — `data/flat3d/plants.json`) ребёнком группы носителя: двигается и исчезает вместе с ним.
+   * Не товар: ни ценника, ни номера, ни замены; нет горла, файла или подходящего растения — носитель остаётся как был.
+   * Грузится позже носителя и в счёт загрузки не входит — первый кадр не ждёт.
+   */
+  private addPlant(spec: Extract<ObjectSpec, { kind: "mesh" }>, outer: THREE.Group, real: THREE.Object3D): void {
+    // украшение не должно ломать загрузку носителя: любой сбой расчёта — носитель остаётся как был (тест `viewer-swap-wait` без options)
+    let plan: { kind: PlantKind; mount: PlantMount; throat: Throat; def: PlantDef } | null = null;
+    try {
+      if (!(this.options.plants ?? PLANTS_DEFAULT)) return;
+      const kind = plantKindOf(spec.role);
+      if (!kind) return;
+      const mount = mountOf(spec.placement.elevCm);
+      const log = (why: PlantLogEntry["why"], extra: Partial<PlantLogEntry> = {}): void => {
+        this.plantLog.push({ slotId: spec.slotId, title: spec.titleRu, role: spec.role ?? "", mount, why, ...extra });
+      };
+      // два независимых сигнала «носитель не годится»: слова названия (косой срез, шар, чаша …) и геометрия горла по мешу
+      const word = blockedByName(spec.titleRu);
+      const m = measureThroat(real, outer);
+      const geo = { rimSpread: m.rimSpread, neckRatio: m.neckRatio, throatCm: m.throat ? m.throat.diameterM * 100 : 0, geoWhy: m.why };
+      if (word) { log("name", { ...geo, word }); return; }
+      if (!m.throat || m.why) { log(m.why === "slanted" ? "slanted" : m.why === "wide" ? "wide" : "none", geo); return; }
+      const def = pickPlant(kind, mount, m.throat.diameterM * 100, spec.meshId, this.options.plantStyle);
+      if (!def) { log("no-plant", geo); return; }
+      log("planted", { ...geo, plant: def.id });
+      plan = { kind, mount, throat: m.throat, def };
+    } catch {
+      return;
+    }
+    if (!plan) return;
+    const { kind, mount, throat, def } = plan;
+    const task = (async () => {
+      try {
+        // растение — после мебели: пока идёт загрузка моделей, его файл и разбор не отнимают у них сеть и процессор (первый кадр не ждёт)
+        while (this.pendingUrls.size && !this.disposed) await new Promise((ok) => setTimeout(ok, 50));
+        const source = await this.meshes.load(plantUrl(def.id));
+        const cur = this.placed.get(spec.slotId);
+        if (this.disposed || !cur || cur.group !== outer) return;   // пока грузилось, носитель заменили или убрали
+        const fit = fitPlant(kind, mount, plantSize(source), throat, spec.placement.hCm * CM);
+        outer.add(placePlant(source, fit, spec.meshId));
+        this.anchors.delete(spec.slotId);   // рамка и ценник — с растением
+        this.bakeContact();
+      } catch {
+        // файла нет или сеть — пустой носитель, как до растений
+      }
+    })();
+    this.plantTasks.add(task);
+    void task.finally(() => this.plantTasks.delete(task));
+  }
+
+  /**
+   * Журнал растений сцены: на каждый носитель «кашпо/ваза» — поставлено или причина отказа: `name` (по названию: слово в `word`),
+   * `slanted` («горло наклонено»), `wide` (тело шире горла), `none` (нет меша/узко), `no-plant` (нет подходящего растения).
+   */
+  plantReport(): readonly PlantLogEntry[] {
+    return this.plantLog;
+  }
+
+  /** Все начатые растения догрузились (или не пришли): для снимков и проверок, на показ не влияет. */
+  async plantsSettled(): Promise<void> {
+    while (this.plantTasks.size) await Promise.all([...this.plantTasks]);
+  }
+
   private async addObject(spec: ObjectSpec): Promise<void> {
     const p = spec.placement;
     let group: THREE.Group;
@@ -644,6 +719,7 @@ export class FlatViewer {
           outer.remove(stub);
           disposeObject(stub);
           outer.add(real);
+          this.addPlant(spec, outer, real);
           cur.status = "loaded";
           const now = performance.now();
           this.ghosts.release(spec.slotId, outer, now);
@@ -1978,6 +2054,14 @@ export class FlatViewer {
     cam.position.set(eye[0] * CM, eye[1] * CM, eye[2] * CM);
     cam.lookAt(target[0] * CM, target[1] * CM, target[2] * CM);
     const undo: (() => void)[] = [];
+    // растения кашпо и ваз — показ в 3D (T-20261117-07), не состав: кадр для нейросети остаётся прежним, без них (`PLANTS_IN_PHOTO`)
+    if (!PLANTS_IN_PHOTO) for (const p of this.placed.values()) {
+      p.group.traverse((o) => {
+        if (!o.userData.plant || !o.visible) return;
+        o.visible = false;
+        undo.push(() => { o.visible = true; });
+      });
+    }
     for (const p of this.placed.values()) {
       if (p.status !== "stub") continue;
       p.group.traverse((o) => {

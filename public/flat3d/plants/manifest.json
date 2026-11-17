@@ -1,0 +1,173 @@
+{
+ "rev": "2",
+ "plants": [
+  {
+   "id": "floor-a",
+   "asset": "potted_plant_01",
+   "part": "Plane.070,potted_plant_01_base_low",
+   "kind": "green",
+   "tris": 34127,
+   "bytes": 928916,
+   "sha256": "5458e922647c3d9c145af6e035ce9928397d5e62a523d025dec09442db4641e6",
+   "sizeCm": [
+    58.7,
+    92.5,
+    63.4
+   ]
+  },
+  {
+   "id": "floor-b",
+   "asset": "potted_plant_02",
+   "part": "Circle.001",
+   "kind": "green",
+   "tris": 10692,
+   "bytes": 412100,
+   "sha256": "67dfe7c9c8cb38b9d503e6d02eaeda41b48fd9878bc73da41be46abcf316f928",
+   "sizeCm": [
+    70.1,
+    63.3,
+    64.3
+   ]
+  },
+  {
+   "id": "pachira-a",
+   "asset": "pachira_aquatica_01",
+   "part": "Cylinder.051,Circle",
+   "kind": "green",
+   "tris": 28105,
+   "bytes": 772316,
+   "sha256": "77c8946623cb82a66caf4bfe3a67b6d32e1224c93a73f6d8891d56a8dd1e9b9e",
+   "sizeCm": [
+    105.4,
+    190.2,
+    99.7
+   ]
+  },
+  {
+   "id": "pachira-b",
+   "asset": "pachira_aquatica_01",
+   "part": "Cylinder.092,Circle.001",
+   "kind": "green",
+   "tris": 20551,
+   "bytes": 733444,
+   "sha256": "fe7aaad1c0e26745ba7b4109dcab76834ab2f4e8c7c972b1b82fc1e9a3d63bc0",
+   "sizeCm": [
+    97.5,
+    114.9,
+    92.4
+   ]
+  },
+  {
+   "id": "pachira-c",
+   "asset": "pachira_aquatica_01",
+   "part": "Cylinder.027,mesh.001",
+   "kind": "green",
+   "tris": 23167,
+   "bytes": 736800,
+   "sha256": "4b480b9a6defc64d8e907b04d6db1b9d6b0c5ae8d8e5c3a8a5a95f047eae1bb1",
+   "sizeCm": [
+    74.4,
+    130.2,
+    64.7
+   ]
+  },
+  {
+   "id": "calathea",
+   "asset": "calathea_orbifolia_01",
+   "part": "Plane.014",
+   "kind": "green",
+   "tris": 5904,
+   "bytes": 371316,
+   "sha256": "d31f0fa9cbf8006f839b368095078745dfefef4185f074428d8870692e3e127d",
+   "sizeCm": [
+    60.1,
+    42.4,
+    52.6
+   ]
+  },
+  {
+   "id": "anthurium",
+   "asset": "anthurium_botany_01",
+   "part": "Plane.016",
+   "kind": "green",
+   "tris": 15808,
+   "bytes": 392796,
+   "sha256": "482b5d058366d407c3a0dd98e6418c0ac0cb61fa4fd663f0e2481caa1d633aac",
+   "sizeCm": [
+    89.6,
+    50.0,
+    114.2
+   ]
+  },
+  {
+   "id": "fern",
+   "asset": "fern_02",
+   "part": "Plane.024",
+   "kind": "green",
+   "tris": 2384,
+   "bytes": 248332,
+   "sha256": "24c7a990e7c165daebd155bee2d16a2fa8082b7b2c5397302e0d69d8699fe37b",
+   "sizeCm": [
+    99.0,
+    42.8,
+    89.4
+   ]
+  },
+  {
+   "id": "euc",
+   "asset": "procedural-euc",
+   "part": "euc",
+   "kind": "dry",
+   "tris": 7360,
+   "bytes": 59624,
+   "sha256": "c4ffc44a2383da58250556ba9511584fd1c92e491be47f459bc96447a5f3b332",
+   "sizeCm": [
+    45.7,
+    76.4,
+    50.8
+   ]
+  },
+  {
+   "id": "olive",
+   "asset": "procedural-olive",
+   "part": "olive",
+   "kind": "dry",
+   "tris": 6192,
+   "bytes": 49764,
+   "sha256": "4a9356cbb4eafd1ace467a0b90579b84ab306f352e7c67b01098e47e41d60a97",
+   "sizeCm": [
+    41.8,
+    80.6,
+    34.1
+   ]
+  },
+  {
+   "id": "pampas",
+   "asset": "procedural-pampas",
+   "part": "pampas",
+   "kind": "dry",
+   "tris": 14922,
+   "bytes": 120520,
+   "sha256": "d58f99604b279d9bfb05d52185ebbe7cfd8525c667f3c707af33021ce71091c9",
+   "sizeCm": [
+    50.3,
+    90.2,
+    53.8
+   ]
+  },
+  {
+   "id": "lavender",
+   "asset": "procedural-lavender",
+   "part": "lavender",
+   "kind": "dry",
+   "tris": 11808,
+   "bytes": 80828,
+   "sha256": "f9031d308750fedd35e19b8314e0023354740014b385372cee816557a770a144",
+   "sizeCm": [
+    21.3,
+    58.6,
+    20.6
+   ]
+  }
+ ]
+}
