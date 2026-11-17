@@ -1,0 +1,46 @@
+{
+  "_about": "Правила маски частей мебели для рендера (render-materials-01, шаг 3, T-20261117-14/3): ткань/обивка отдельно от ножек. Правила — ДАННЫЕ, код `tools/assets/material_parts.py` только исполняет; результат по мешам (`material-part-assign.json`) собирается скриптом — руками не править. Меш — один материал на весь предмет (Hunyuan3D), поэтому «ножки» отделяются ГЕОМЕТРИЕЙ, не цветом: пятна касания пола — одно большое (цоколь, сплошное днище) → ножек нет; 2–10 малых → ножки, разрез по высоте там, где вне ножек появляется поверхность тела. Не уверены — слой не кладём (`status: unsure`). Поверхность мешей не замкнута, поэтому срезы не заливаются — считаются только клетки поверхности.",
+  "version": 1,
+  "appliesToFamilies": ["textile", "leather"],
+  "grid": { "cellsAlongLongestSide": 120, "surfacePointsPerCell": 40, "seed": 7 },
+  "legs": {
+    "plateFactor": 4,
+    "plateMaxLayers": 3,
+    "floorLayers": 2,
+    "floorDilate": 1,
+    "plinthSpanFrac": 0.5,
+    "plinthProbeLayer": 6,
+    "plinthProbeSpanFrac": 0.35,
+    "maxLegSpanFrac": 0.3,
+    "panelThinFrac": 0.2,
+    "minIslands": 2,
+    "maxIslands": 20,
+    "maxLegFootprintFrac": 0.15,
+    "legMargin": 3,
+    "bodyStartMinCells": 12,
+    "bodyStartFootprintFrac": 0.01,
+    "minLegLayers": 2,
+    "maxBodyStartFrac": 0.55,
+    "cutMarginLayers": 0.5,
+    "bodyBottomFrac": 0.5,
+    "bandMinLayers": 3
+  },
+  "confidence": {
+    "splitBase": 0.6,
+    "splitIslandsTypical": [3, 6],
+    "splitIslandsBonus": 0.15,
+    "splitProductAgreesBonus": 0.2,
+    "splitProductDisagreesPenalty": 0.3,
+    "wholeBase": 0.75,
+    "wholeProductDisagreesPenalty": 0.05,
+    "apply": 0.7
+  },
+  "reasons": {
+    "split": "у пола {islands} отдельных малых пятен-ножек, тело начинается на {bodyStartPct}% высоты",
+    "splitBand": "; выше ножек полоса {bandPct}% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+    "whole": "у пола одно большое пятно ({spanPct}% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+    "wholeProductLegs": "; товар называет материал ножек, но под цоколем они мелкие (не отделить) — слой на всю поверхность",
+    "unsure": "по геометрии не уверены: {why}",
+    "skip": "класс {class} не мягкий — маска частей не нужна"
+  }
+}

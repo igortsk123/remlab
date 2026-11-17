@@ -1,0 +1,9151 @@
+{
+ "_about": "Собрано tools/assets/material_parts.py build по data/flat3d/material-part-rules.json — руками не править.",
+ "meshes": {
+  "112923_1000339805231639017": {
+   "apply": true,
+   "bandTopFrac": 0.1446,
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "cutFrac": 0.1446,
+   "footprintBoxes": [
+    [
+     0.017,
+     0.075,
+     0.092,
+     0.184
+    ],
+    [
+     0.025,
+     0.075,
+     0.844,
+     0.951
+    ],
+    [
+     0.933,
+     0.992,
+     0.092,
+     0.184
+    ],
+    [
+     0.933,
+     0.983,
+     0.844,
+     0.951
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 15,
+    "islands": 4,
+    "layers": 74,
+    "legFootprintPct": 1.6,
+    "maxIslandSpanPct": 10,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 15% высоты",
+   "role": "диван",
+   "status": "split"
+  },
+  "112923_10038698885737693094": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.7,
+   "metrics": {
+    "layers": 59,
+    "maxIslandSpanPct": 97,
+    "pitchCm": 1.66,
+    "probeSpanPct": 98
+   },
+   "productHasLegs": true,
+   "reason": "у пола одно большое пятно (97% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка; товар называет материал ножек, но под цоколем они мелкие (не отделить) — слой на всю поверхность",
+   "role": "диван",
+   "status": "whole"
+  },
+  "112923_10046668357069746202": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_10073012362241909160": {
+   "apply": true,
+   "bandTopFrac": 0.1272,
+   "class": "velvet",
+   "confidence": 0.8,
+   "cutFrac": 0.1272,
+   "footprintBoxes": [
+    [
+     0.05,
+     0.1,
+     0.071,
+     0.142
+    ],
+    [
+     0.05,
+     0.1,
+     0.522,
+     0.594
+    ],
+    [
+     0.617,
+     0.7,
+     0.059,
+     0.142
+    ],
+    [
+     0.617,
+     0.658,
+     0.522,
+     0.594
+    ],
+    [
+     0.65,
+     0.7,
+     0.902,
+     0.973
+    ],
+    [
+     0.892,
+     0.942,
+     0.902,
+     0.973
+    ],
+    [
+     0.9,
+     0.95,
+     0.071,
+     0.142
+    ]
+   ],
+   "islands": 7,
+   "metrics": {
+    "bodyStartPct": 13,
+    "islands": 7,
+    "layers": 60,
+    "legFootprintPct": 1.9,
+    "maxIslandSpanPct": 8,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 7 отдельных малых пятен-ножек, тело начинается на 13% высоты",
+   "role": "диван",
+   "status": "split"
+  },
+  "112923_10108625015160793484": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "стеллаж",
+   "status": "skip"
+  },
+  "112923_10111726372869571729": {
+   "apply": true,
+   "class": "boucle",
+   "confidence": 0.7,
+   "metrics": {
+    "layers": 52,
+    "maxIslandSpanPct": 76,
+    "pitchCm": 1.66,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": true,
+   "reason": "у пола одно большое пятно (76% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка; товар называет материал ножек, но под цоколем они мелкие (не отделить) — слой на всю поверхность",
+   "role": "диван",
+   "status": "whole"
+  },
+  "112923_1013575798949304917": {
+   "apply": true,
+   "bandTopFrac": 0.5708,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.5375,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.07,
+     0.899,
+     0.98
+    ],
+    [
+     0.035,
+     0.117,
+     0.0,
+     0.069
+    ],
+    [
+     0.887,
+     0.968,
+     0.0,
+     0.069
+    ],
+    [
+     0.933,
+     1.003,
+     0.899,
+     0.98
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 3,
+    "bodyStartPct": 54,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 1.7,
+    "maxIslandSpanPct": 8,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 54% высоты; выше ножек полоса 3% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "112923_10153166443740156800": {
+   "apply": true,
+   "bandTopFrac": 0.1407,
+   "class": "rogozhka",
+   "confidence": 0.8,
+   "cutFrac": 0.1407,
+   "footprintBoxes": [
+    [
+     0.008,
+     0.067,
+     0.0,
+     0.138
+    ],
+    [
+     0.008,
+     0.067,
+     0.865,
+     1.002
+    ],
+    [
+     0.117,
+     0.167,
+     0.0,
+     0.138
+    ],
+    [
+     0.117,
+     0.167,
+     0.865,
+     1.002
+    ],
+    [
+     0.842,
+     0.892,
+     0.0,
+     0.138
+    ],
+    [
+     0.842,
+     0.892,
+     0.865,
+     1.002
+    ],
+    [
+     0.942,
+     0.992,
+     0.0,
+     0.138
+    ],
+    [
+     0.942,
+     0.992,
+     0.865,
+     1.002
+    ]
+   ],
+   "islands": 8,
+   "metrics": {
+    "bodyStartPct": 15,
+    "islands": 8,
+    "layers": 55,
+    "legFootprintPct": 4.5,
+    "maxIslandSpanPct": 13,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 8 отдельных малых пятен-ножек, тело начинается на 15% высоты",
+   "role": "диван",
+   "status": "split"
+  },
+  "112923_10175165970415756486": {
+   "apply": true,
+   "bandTopFrac": 0.0189,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.0189,
+   "footprintBoxes": [
+    [
+     0.025,
+     0.092,
+     0.024,
+     0.118
+    ],
+    [
+     0.025,
+     0.133,
+     0.826,
+     0.956
+    ],
+    [
+     0.092,
+     0.133,
+     0.106,
+     0.189
+    ],
+    [
+     0.867,
+     0.908,
+     0.106,
+     0.177
+    ],
+    [
+     0.867,
+     0.975,
+     0.826,
+     0.956
+    ],
+    [
+     0.908,
+     0.975,
+     0.024,
+     0.118
+    ]
+   ],
+   "islands": 6,
+   "metrics": {
+    "bodyStartPct": 2,
+    "islands": 6,
+    "layers": 81,
+    "legFootprintPct": 3.0,
+    "maxIslandSpanPct": 13,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 6 отдельных малых пятен-ножек, тело начинается на 2% высоты",
+   "role": "диван",
+   "status": "split"
+  },
+  "112923_10179754858995837853": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_10183743547941590993": {
+   "apply": true,
+   "bandTopFrac": 0.2576,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.1741,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.05,
+     0.0,
+     0.042
+    ],
+    [
+     0.0,
+     0.05,
+     0.958,
+     1.008
+    ],
+    [
+     0.468,
+     0.528,
+     0.667,
+     0.725
+    ],
+    [
+     0.946,
+     1.016,
+     0.0,
+     0.042
+    ],
+    [
+     0.956,
+     1.006,
+     0.958,
+     1.008
+    ]
+   ],
+   "islands": 5,
+   "metrics": {
+    "bandPct": 8,
+    "bodyStartPct": 18,
+    "islands": 5,
+    "layers": 73,
+    "legFootprintPct": 1.1,
+    "maxIslandSpanPct": 7,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 5 отдельных малых пятен-ножек, тело начинается на 18% высоты; выше ножек полоса 8% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_10204732259256289856": {
+   "apply": true,
+   "bandTopFrac": 0.5292,
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "cutFrac": 0.4542,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.097,
+     0.822,
+     0.934
+    ],
+    [
+     0.014,
+     0.125,
+     0.037,
+     0.137
+    ],
+    [
+     0.891,
+     1.002,
+     0.037,
+     0.137
+    ],
+    [
+     0.905,
+     1.016,
+     0.822,
+     0.934
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 7,
+    "bodyStartPct": 45,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 3.4,
+    "maxIslandSpanPct": 11,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 45% высоты; выше ножек полоса 7% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "112923_10242478801803485367": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_10247827794224946959": {
+   "apply": true,
+   "bandTopFrac": 0.4792,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.4792,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.068,
+     0.051,
+     0.141
+    ],
+    [
+     0.041,
+     0.122,
+     0.87,
+     0.959
+    ],
+    [
+     0.869,
+     0.964,
+     0.87,
+     0.959
+    ],
+    [
+     0.923,
+     1.018,
+     0.051,
+     0.141
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 48,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 2.3,
+    "maxIslandSpanPct": 9,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 48% высоты",
+   "role": "стул",
+   "status": "split"
+  },
+  "112923_10364148020271933378": {
+   "apply": false,
+   "class": "glass",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс glass не мягкий — маска частей не нужна",
+   "role": "витрина",
+   "status": "skip"
+  },
+  "112923_10370472891097858155": {
+   "apply": true,
+   "bandTopFrac": 0.1289,
+   "class": "velour",
+   "confidence": 0.75,
+   "cutFrac": 0.1289,
+   "footprintBoxes": [
+    [
+     0.022,
+     0.088,
+     0.033,
+     0.092
+    ],
+    [
+     0.022,
+     0.088,
+     0.925,
+     0.975
+    ],
+    [
+     0.901,
+     0.978,
+     0.033,
+     0.092
+    ],
+    [
+     0.901,
+     0.978,
+     0.925,
+     0.975
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 13,
+    "islands": 4,
+    "layers": 60,
+    "legFootprintPct": 1.0,
+    "maxIslandSpanPct": 8,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 13% высоты",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_10407063191267289582": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 53,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "plateLayers": 1,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "кровать",
+   "status": "whole"
+  },
+  "112923_1040856729758645941": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_10428966767796030175": {
+   "apply": false,
+   "bandTopFrac": 0.2112,
+   "class": "velour",
+   "confidence": 0.6,
+   "cutFrac": 0.1092,
+   "footprintBoxes": [
+    [
+     0.032,
+     0.143,
+     0.925,
+     0.983
+    ],
+    [
+     0.858,
+     0.969,
+     0.925,
+     0.983
+    ]
+   ],
+   "islands": 2,
+   "metrics": {
+    "bandPct": 10,
+    "bodyStartPct": 11,
+    "islands": 2,
+    "layers": 70,
+    "legFootprintPct": 0.9,
+    "maxIslandSpanPct": 100,
+    "panels": 1,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 2 отдельных малых пятен-ножек, тело начинается на 11% высоты; выше ножек полоса 10% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_10480983046086288433": {
+   "apply": true,
+   "bandTopFrac": 0.2472,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.1625,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.051,
+     0.0,
+     0.042
+    ],
+    [
+     0.0,
+     0.051,
+     0.958,
+     1.008
+    ],
+    [
+     0.468,
+     0.529,
+     0.667,
+     0.717
+    ],
+    [
+     0.946,
+     1.007,
+     0.0,
+     0.042
+    ],
+    [
+     0.956,
+     1.007,
+     0.967,
+     1.008
+    ]
+   ],
+   "islands": 5,
+   "metrics": {
+    "bandPct": 8,
+    "bodyStartPct": 17,
+    "islands": 5,
+    "layers": 72,
+    "legFootprintPct": 1.1,
+    "maxIslandSpanPct": 6,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 5 отдельных малых пятен-ножек, тело начинается на 17% высоты; выше ножек полоса 8% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_10495468249395330186": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.7,
+   "metrics": {
+    "layers": 121,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "plateLayers": 1,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": true,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка; товар называет материал ножек, но под цоколем они мелкие (не отделить) — слой на всю поверхность",
+   "role": "пуф",
+   "status": "whole"
+  },
+  "112923_10540553294974864923": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тв-тумба",
+   "status": "skip"
+  },
+  "112923_10549295779177863200": {
+   "apply": false,
+   "class": "wood_veneer",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс wood_veneer не мягкий — маска частей не нужна",
+   "role": "стол обеденный",
+   "status": "skip"
+  },
+  "112923_10553502039134439512": {
+   "apply": true,
+   "bandTopFrac": 0.5042,
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "cutFrac": 0.4792,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.067,
+     0.052,
+     0.129
+    ],
+    [
+     0.054,
+     0.134,
+     0.93,
+     1.008
+    ],
+    [
+     0.86,
+     0.954,
+     0.93,
+     1.008
+    ],
+    [
+     0.94,
+     1.021,
+     0.052,
+     0.129
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 2,
+    "bodyStartPct": 48,
+    "islands": 4,
+    "layers": 122,
+    "legFootprintPct": 1.8,
+    "maxIslandSpanPct": 9,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 48% высоты; выше ножек полоса 2% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "112923_10564647820533351429": {
+   "apply": false,
+   "class": "neutral",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс neutral не мягкий — маска частей не нужна",
+   "role": "стул",
+   "status": "skip"
+  },
+  "112923_10662501780533634758": {
+   "apply": false,
+   "bandTopFrac": 0.2297,
+   "class": "velour",
+   "confidence": 0.6,
+   "cutFrac": 0.1111,
+   "footprintBoxes": [
+    [
+     0.061,
+     0.111,
+     0.925,
+     0.967
+    ],
+    [
+     0.887,
+     0.938,
+     0.925,
+     0.967
+    ]
+   ],
+   "islands": 2,
+   "metrics": {
+    "bandPct": 12,
+    "bodyStartPct": 12,
+    "islands": 2,
+    "layers": 69,
+    "legFootprintPct": 0.3,
+    "maxIslandSpanPct": 100,
+    "panels": 1,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 2 отдельных малых пятен-ножек, тело начинается на 12% высоты; выше ножек полоса 12% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_10693265451046762097": {
+   "apply": true,
+   "bandTopFrac": 0.4875,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.3208,
+   "footprintBoxes": [
+    [
+     0.013,
+     0.108,
+     0.894,
+     0.98
+    ],
+    [
+     0.081,
+     0.175,
+     0.184,
+     0.27
+    ],
+    [
+     0.781,
+     0.876,
+     0.184,
+     0.282
+    ],
+    [
+     0.862,
+     0.956,
+     0.882,
+     0.98
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 17,
+    "bodyStartPct": 32,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 2.7,
+    "maxIslandSpanPct": 10,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 32% высоты; выше ножек полоса 17% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "112923_10757955152692646946": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_10770473648096612945": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.7,
+   "metrics": {
+    "layers": 58,
+    "maxIslandSpanPct": 98,
+    "pitchCm": 1.66,
+    "plateLayers": 1,
+    "probeSpanPct": 98
+   },
+   "productHasLegs": true,
+   "reason": "у пола одно большое пятно (98% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка; товар называет материал ножек, но под цоколем они мелкие (не отделить) — слой на всю поверхность",
+   "role": "диван",
+   "status": "whole"
+  },
+  "112923_10812708065959899096": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_1081657483657272038": {
+   "apply": false,
+   "class": "velvet",
+   "confidence": 0.0,
+   "metrics": {
+    "islands": 12,
+    "layers": 55,
+    "maxIslandSpanPct": 88,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "по геометрии не уверены: у пола 12 пятен, среди них средние по размеру — не похоже на ножки",
+   "role": "диван",
+   "status": "unsure"
+  },
+  "112923_10818612741519335634": {
+   "apply": false,
+   "class": "wood_veneer",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс wood_veneer не мягкий — маска частей не нужна",
+   "role": "стол обеденный",
+   "status": "skip"
+  },
+  "112923_10830678091863747785": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тв-тумба",
+   "status": "skip"
+  },
+  "112923_10869926247520426495": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_10876221130380888105": {
+   "apply": true,
+   "class": "boucle",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 61,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "plateLayers": 1,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "кровать",
+   "status": "whole"
+  },
+  "112923_10885118672544334143": {
+   "apply": true,
+   "bandTopFrac": 0.2895,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.1636,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.065,
+     0.0,
+     0.042
+    ],
+    [
+     0.0,
+     0.065,
+     0.958,
+     1.008
+    ],
+    [
+     0.936,
+     1.001,
+     0.0,
+     0.042
+    ],
+    [
+     0.936,
+     1.001,
+     0.958,
+     1.008
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 12,
+    "bodyStartPct": 17,
+    "islands": 4,
+    "layers": 41,
+    "legFootprintPct": 1.0,
+    "maxIslandSpanPct": 79,
+    "panels": 1,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 17% высоты; выше ножек полоса 12% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_10894495671267406665": {
+   "apply": false,
+   "class": "neutral",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс neutral не мягкий — маска частей не нужна",
+   "role": "стул",
+   "status": "skip"
+  },
+  "112923_10904141265586361386": {
+   "apply": true,
+   "bandTopFrac": 0.4895,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.1201,
+   "footprintBoxes": [
+    [
+     0.021,
+     0.097,
+     0.017,
+     0.075
+    ],
+    [
+     0.032,
+     0.097,
+     0.925,
+     0.983
+    ],
+    [
+     0.903,
+     0.978,
+     0.017,
+     0.075
+    ],
+    [
+     0.903,
+     0.978,
+     0.925,
+     0.983
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 36,
+    "bodyStartPct": 12,
+    "islands": 4,
+    "layers": 56,
+    "legFootprintPct": 1.1,
+    "maxIslandSpanPct": 7,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 12% высоты; выше ножек полоса 36% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_10986019951944609117": {
+   "apply": false,
+   "bandTopFrac": 0.1733,
+   "class": "velour",
+   "confidence": 0.6,
+   "cutFrac": 0.113,
+   "footprintBoxes": [
+    [
+     0.053,
+     0.106,
+     0.925,
+     0.975
+    ],
+    [
+     0.901,
+     0.954,
+     0.925,
+     0.975
+    ]
+   ],
+   "islands": 2,
+   "metrics": {
+    "bandPct": 6,
+    "bodyStartPct": 12,
+    "islands": 2,
+    "layers": 68,
+    "legFootprintPct": 0.3,
+    "maxIslandSpanPct": 100,
+    "panels": 1,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 2 отдельных малых пятен-ножек, тело начинается на 12% высоты; выше ножек полоса 6% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_10999370517401923532": {
+   "apply": true,
+   "bandTopFrac": 0.2769,
+   "class": "velour",
+   "confidence": 0.75,
+   "cutFrac": 0.1432,
+   "footprintBoxes": [
+    [
+     0.032,
+     0.128,
+     0.017,
+     0.075
+    ],
+    [
+     0.032,
+     0.128,
+     0.925,
+     0.983
+    ],
+    [
+     0.861,
+     0.973,
+     0.017,
+     0.075
+    ],
+    [
+     0.861,
+     0.973,
+     0.933,
+     0.983
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 13,
+    "bodyStartPct": 15,
+    "islands": 4,
+    "layers": 54,
+    "legFootprintPct": 1.7,
+    "maxIslandSpanPct": 11,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 15% высоты; выше ножек полоса 13% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_11029789053196243047": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_11049867685689155483": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_11052652779447876540": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_11102532262959743722": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_11230353943957833552": {
+   "apply": true,
+   "bandTopFrac": 0.1716,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.1716,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.05,
+     0.116,
+     0.215
+    ],
+    [
+     0.0,
+     0.05,
+     0.878,
+     0.977
+    ],
+    [
+     0.942,
+     0.992,
+     0.133,
+     0.232
+    ],
+    [
+     0.942,
+     0.992,
+     0.878,
+     0.977
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 17,
+    "islands": 4,
+    "layers": 63,
+    "legFootprintPct": 1.4,
+    "maxIslandSpanPct": 10,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 17% высоты",
+   "role": "диван",
+   "status": "split"
+  },
+  "112923_11236064821994313545": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_11239866153546807017": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_11256126123203427138": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_1127167697037418475": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_11311979105717982052": {
+   "apply": true,
+   "class": "velvet",
+   "confidence": 0.7,
+   "metrics": {
+    "layers": 46,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": true,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка; товар называет материал ножек, но под цоколем они мелкие (не отделить) — слой на всю поверхность",
+   "role": "диван",
+   "status": "whole"
+  },
+  "112923_11320345589351118029": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "тв-тумба",
+   "status": "skip"
+  },
+  "112923_11321366674362604619": {
+   "apply": false,
+   "class": "neutral",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс neutral не мягкий — маска частей не нужна",
+   "role": "стул",
+   "status": "skip"
+  },
+  "112923_11449136696381181962": {
+   "apply": true,
+   "bandTopFrac": 0.5625,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.5208,
+   "footprintBoxes": [
+    [
+     0.025,
+     0.114,
+     0.0,
+     0.062
+    ],
+    [
+     0.025,
+     0.102,
+     0.922,
+     1.009
+    ],
+    [
+     0.888,
+     0.965,
+     0.0,
+     0.062
+    ],
+    [
+     0.888,
+     0.965,
+     0.922,
+     1.009
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 4,
+    "bodyStartPct": 52,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 1.7,
+    "maxIslandSpanPct": 9,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 52% высоты; выше ножек полоса 4% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "112923_11548307369446124696": {
+   "apply": true,
+   "bandTopFrac": 0.2042,
+   "class": "faux_fur",
+   "confidence": 0.95,
+   "cutFrac": 0.2042,
+   "footprintBoxes": [
+    [
+     0.213,
+     0.283,
+     0.258,
+     0.348
+    ],
+    [
+     0.213,
+     0.283,
+     0.886,
+     0.976
+    ],
+    [
+     0.726,
+     0.806,
+     0.258,
+     0.348
+    ],
+    [
+     0.735,
+     0.806,
+     0.886,
+     0.976
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 21,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 2.1,
+    "maxIslandSpanPct": 9,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 21% высоты",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_11549586045586483662": {
+   "apply": true,
+   "bandTopFrac": 0.1542,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.1542,
+   "footprintBoxes": [
+    [
+     0.062,
+     0.148,
+     0.888,
+     0.959
+    ],
+    [
+     0.136,
+     0.21,
+     0.083,
+     0.166
+    ],
+    [
+     0.779,
+     0.866,
+     0.083,
+     0.166
+    ],
+    [
+     0.854,
+     0.94,
+     0.888,
+     0.959
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 16,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 2.0,
+    "maxIslandSpanPct": 9,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 16% высоты",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_11557413907763949252": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_11604172387629299258": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 49,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "кровать",
+   "status": "whole"
+  },
+  "112923_11672424920201226922": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_11706580263167305250": {
+   "apply": false,
+   "bandTopFrac": 0.2182,
+   "class": "velour",
+   "confidence": 0.6,
+   "cutFrac": 0.0226,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.162,
+     0.925,
+     1.0
+    ],
+    [
+     0.844,
+     1.007,
+     0.925,
+     1.0
+    ]
+   ],
+   "islands": 2,
+   "metrics": {
+    "bandPct": 19,
+    "bodyStartPct": 3,
+    "islands": 2,
+    "layers": 68,
+    "legFootprintPct": 2.3,
+    "maxIslandSpanPct": 100,
+    "panels": 1,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 2 отдельных малых пятен-ножек, тело начинается на 3% высоты; выше ножек полоса 19% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_11775480664812261188": {
+   "apply": true,
+   "class": "velvet",
+   "confidence": 0.7,
+   "metrics": {
+    "layers": 45,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "plateLayers": 1,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": true,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка; товар называет материал ножек, но под цоколем они мелкие (не отделить) — слой на всю поверхность",
+   "role": "диван",
+   "status": "whole"
+  },
+  "112923_11782445784173503451": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_11797479388540303245": {
+   "apply": true,
+   "bandTopFrac": 0.1203,
+   "class": "velour",
+   "confidence": 0.75,
+   "cutFrac": 0.1203,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.105,
+     0.0,
+     0.05
+    ],
+    [
+     0.0,
+     0.105,
+     0.95,
+     1.008
+    ],
+    [
+     0.894,
+     0.999,
+     0.0,
+     0.05
+    ],
+    [
+     0.894,
+     0.999,
+     0.95,
+     1.008
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 13,
+    "islands": 4,
+    "layers": 47,
+    "legFootprintPct": 1.6,
+    "maxIslandSpanPct": 10,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 13% высоты",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_1195267798134275834": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_11955763054426268812": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_1196471125546361325": {
+   "apply": true,
+   "bandTopFrac": 0.0303,
+   "class": "velour",
+   "confidence": 0.8,
+   "cutFrac": 0.0303,
+   "footprintBoxes": [
+    [
+     0.025,
+     0.092,
+     0.048,
+     0.145
+    ],
+    [
+     0.025,
+     0.092,
+     0.555,
+     0.652
+    ],
+    [
+     0.1,
+     0.167,
+     0.555,
+     0.664
+    ],
+    [
+     0.108,
+     0.167,
+     0.024,
+     0.205
+    ],
+    [
+     0.117,
+     0.175,
+     0.278,
+     0.471
+    ],
+    [
+     0.433,
+     0.483,
+     0.048,
+     0.109
+    ],
+    [
+     0.45,
+     0.508,
+     0.579,
+     0.664
+    ],
+    [
+     0.5,
+     0.567,
+     0.217,
+     0.374
+    ],
+    [
+     0.517,
+     0.567,
+     0.036,
+     0.109
+    ],
+    [
+     0.517,
+     0.567,
+     0.121,
+     0.193
+    ],
+    [
+     0.517,
+     0.567,
+     0.591,
+     0.652
+    ],
+    [
+     0.517,
+     0.567,
+     0.676,
+     0.748
+    ],
+    [
+     0.517,
+     0.567,
+     0.881,
+     0.941
+    ],
+    [
+     0.842,
+     0.892,
+     0.121,
+     0.193
+    ],
+    [
+     0.883,
+     0.933,
+     0.676,
+     0.748
+    ],
+    [
+     0.892,
+     0.942,
+     0.881,
+     0.941
+    ],
+    [
+     0.908,
+     0.975,
+     0.048,
+     0.145
+    ],
+    [
+     0.908,
+     0.975,
+     0.555,
+     0.652
+    ]
+   ],
+   "islands": 18,
+   "metrics": {
+    "bodyStartPct": 4,
+    "islands": 18,
+    "layers": 51,
+    "legFootprintPct": 7.0,
+    "maxIslandSpanPct": 19,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 18 отдельных малых пятен-ножек, тело начинается на 4% высоты",
+   "role": "диван",
+   "status": "split"
+  },
+  "112923_11969304967706518435": {
+   "apply": true,
+   "bandTopFrac": 0.1448,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.1448,
+   "footprintBoxes": [
+    [
+     0.008,
+     0.058,
+     0.127,
+     0.239
+    ],
+    [
+     0.025,
+     0.075,
+     0.829,
+     0.94
+    ],
+    [
+     0.925,
+     0.983,
+     0.829,
+     0.94
+    ],
+    [
+     0.942,
+     0.992,
+     0.08,
+     0.191
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 15,
+    "islands": 4,
+    "layers": 74,
+    "legFootprintPct": 1.7,
+    "maxIslandSpanPct": 11,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 15% высоты",
+   "role": "диван",
+   "status": "split"
+  },
+  "112923_12047205981451497683": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_12053363069335054078": {
+   "apply": false,
+   "class": "wood_veneer",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс wood_veneer не мягкий — маска частей не нужна",
+   "role": "стол обеденный",
+   "status": "skip"
+  },
+  "112923_12101736405987384130": {
+   "apply": true,
+   "bandTopFrac": 0.3493,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.1605,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.065,
+     0.0,
+     0.05
+    ],
+    [
+     0.0,
+     0.065,
+     0.958,
+     1.008
+    ],
+    [
+     0.932,
+     1.008,
+     0.0,
+     0.05
+    ],
+    [
+     0.932,
+     1.008,
+     0.958,
+     1.008
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 19,
+    "bodyStartPct": 17,
+    "islands": 4,
+    "layers": 54,
+    "legFootprintPct": 1.0,
+    "maxIslandSpanPct": 70,
+    "panels": 1,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 17% высоты; выше ножек полоса 19% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_12247904135741125946": {
+   "apply": false,
+   "bandTopFrac": 0.2111,
+   "class": "velour",
+   "confidence": 0.6,
+   "cutFrac": 0.1092,
+   "footprintBoxes": [
+    [
+     0.032,
+     0.144,
+     0.925,
+     0.983
+    ],
+    [
+     0.864,
+     0.976,
+     0.925,
+     0.983
+    ]
+   ],
+   "islands": 2,
+   "metrics": {
+    "bandPct": 10,
+    "bodyStartPct": 11,
+    "islands": 2,
+    "layers": 70,
+    "legFootprintPct": 0.9,
+    "maxIslandSpanPct": 98,
+    "panels": 1,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 2 отдельных малых пятен-ножек, тело начинается на 11% высоты; выше ножек полоса 10% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_12286616691637180352": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_12301451959743744032": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_12430720797215363499": {
+   "apply": false,
+   "class": "neutral",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс neutral не мягкий — маска частей не нужна",
+   "role": "стул",
+   "status": "skip"
+  },
+  "112923_12454728843222733973": {
+   "apply": false,
+   "class": "chenille",
+   "confidence": 0.0,
+   "metrics": {
+    "islands": 1,
+    "layers": 32,
+    "maxIslandSpanPct": 29,
+    "pitchCm": 1.66,
+    "plateLayers": 1
+   },
+   "productHasLegs": null,
+   "reason": "по геометрии не уверены: у пола 1 пятен (ножек ждём 2–20)",
+   "role": "пуф",
+   "status": "unsure"
+  },
+  "112923_12456732392318903795": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_12477767194212878389": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_12514941284637095582": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "стеллаж",
+   "status": "skip"
+  },
+  "112923_12568287599298585564": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "тв-тумба",
+   "status": "skip"
+  },
+  "112923_12598936118031480461": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "стеллаж",
+   "status": "skip"
+  },
+  "112923_12604452202729239961": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_12652629420221543502": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_12653399619974292166": {
+   "apply": false,
+   "class": "neutral",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс neutral не мягкий — маска частей не нужна",
+   "role": "стул",
+   "status": "skip"
+  },
+  "112923_12656356095568777983": {
+   "apply": true,
+   "bandTopFrac": 0.1309,
+   "class": "velour",
+   "confidence": 0.75,
+   "cutFrac": 0.1309,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.05,
+     0.0,
+     0.05
+    ],
+    [
+     0.0,
+     0.05,
+     0.95,
+     1.008
+    ],
+    [
+     0.947,
+     1.018,
+     0.0,
+     0.05
+    ],
+    [
+     0.947,
+     1.018,
+     0.95,
+     1.008
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 14,
+    "islands": 4,
+    "layers": 51,
+    "legFootprintPct": 1.0,
+    "maxIslandSpanPct": 7,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 14% высоты",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_12669330396506764300": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "стол обеденный",
+   "status": "skip"
+  },
+  "112923_12702408080965476786": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_12878626849755463028": {
+   "apply": false,
+   "class": "velour",
+   "confidence": 0.0,
+   "metrics": {
+    "islands": 3,
+    "layers": 57,
+    "maxIslandSpanPct": 100,
+    "panels": 1,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "по геометрии не уверены: у пола 3 пятен, среди них средние по размеру — не похоже на ножки",
+   "role": "кровать",
+   "status": "unsure"
+  },
+  "112923_12971498340765616533": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_13072439625013229911": {
+   "apply": true,
+   "class": "velvet",
+   "confidence": 0.7,
+   "metrics": {
+    "layers": 65,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "plateLayers": 2,
+    "probeSpanPct": 100
+   },
+   "productHasLegs": true,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка; товар называет материал ножек, но под цоколем они мелкие (не отделить) — слой на всю поверхность",
+   "role": "диван",
+   "status": "whole"
+  },
+  "112923_13091462365034239315": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_13115797220613727962": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_13137908567573856736": {
+   "apply": true,
+   "bandTopFrac": 0.2792,
+   "class": "faux_fur",
+   "confidence": 0.95,
+   "cutFrac": 0.2792,
+   "footprintBoxes": [
+    [
+     0.142,
+     0.249,
+     0.125,
+     0.233
+    ],
+    [
+     0.142,
+     0.249,
+     0.76,
+     0.868
+    ],
+    [
+     0.757,
+     0.864,
+     0.125,
+     0.233
+    ],
+    [
+     0.757,
+     0.864,
+     0.76,
+     0.868
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 28,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 3.5,
+    "maxIslandSpanPct": 11,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 28% высоты",
+   "role": "пуф",
+   "status": "split"
+  },
+  "112923_13168649662764400789": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_13176730686507496836": {
+   "apply": false,
+   "bandTopFrac": 0.2127,
+   "class": "velour",
+   "confidence": 0.6,
+   "cutFrac": 0.1181,
+   "footprintBoxes": [
+    [
+     0.022,
+     0.087,
+     0.942,
+     1.0
+    ],
+    [
+     0.912,
+     0.977,
+     0.942,
+     1.0
+    ]
+   ],
+   "islands": 2,
+   "metrics": {
+    "bandPct": 9,
+    "bodyStartPct": 12,
+    "islands": 2,
+    "layers": 65,
+    "legFootprintPct": 0.6,
+    "maxIslandSpanPct": 99,
+    "panels": 1,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 2 отдельных малых пятен-ножек, тело начинается на 12% высоты; выше ножек полоса 9% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_13224664101879413845": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_13247520742249236492": {
+   "apply": true,
+   "bandTopFrac": 0.22,
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "cutFrac": 0.193,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.059,
+     0.0,
+     0.05
+    ],
+    [
+     0.0,
+     0.05,
+     0.95,
+     1.008
+    ],
+    [
+     0.943,
+     1.001,
+     0.0,
+     0.05
+    ],
+    [
+     0.943,
+     1.001,
+     0.95,
+     1.008
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 3,
+    "bodyStartPct": 19,
+    "islands": 4,
+    "layers": 113,
+    "legFootprintPct": 1.0,
+    "maxIslandSpanPct": 6,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 19% высоты; выше ножек полоса 3% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_13301763479881553321": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_13475458311119554580": {
+   "apply": true,
+   "bandTopFrac": 0.1093,
+   "class": "velour",
+   "confidence": 0.75,
+   "cutFrac": 0.1093,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.05,
+     0.0,
+     0.05
+    ],
+    [
+     0.0,
+     0.05,
+     0.925,
+     0.983
+    ],
+    [
+     0.948,
+     1.019,
+     0.0,
+     0.05
+    ],
+    [
+     0.948,
+     1.009,
+     0.95,
+     1.008
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 12,
+    "islands": 4,
+    "layers": 52,
+    "legFootprintPct": 1.0,
+    "maxIslandSpanPct": 7,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 12% высоты",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_1361257013891946749": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_13642333346995541091": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_13689588831501307799": {
+   "apply": true,
+   "class": "boucle",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 54,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "plateLayers": 2,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "кровать",
+   "status": "whole"
+  },
+  "112923_13704284518394980917": {
+   "apply": false,
+   "class": "glass",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс glass не мягкий — маска частей не нужна",
+   "role": "витрина",
+   "status": "skip"
+  },
+  "112923_13781470264122190327": {
+   "apply": true,
+   "bandTopFrac": 0.3042,
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "cutFrac": 0.2375,
+   "footprintBoxes": [
+    [
+     0.14,
+     0.201,
+     0.887,
+     0.957
+    ],
+    [
+     0.181,
+     0.251,
+     0.189,
+     0.259
+    ],
+    [
+     0.742,
+     0.813,
+     0.189,
+     0.259
+    ],
+    [
+     0.793,
+     0.863,
+     0.887,
+     0.957
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 7,
+    "bodyStartPct": 24,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 1.4,
+    "maxIslandSpanPct": 7,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 24% высоты; выше ножек полоса 7% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_13921135277994589372": {
+   "apply": true,
+   "bandTopFrac": 0.3316,
+   "class": "velour",
+   "confidence": 0.75,
+   "cutFrac": 0.1909,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.032,
+     0.0,
+     0.042
+    ],
+    [
+     0.0,
+     0.043,
+     0.925,
+     0.967
+    ],
+    [
+     0.964,
+     1.017,
+     0.0,
+     0.042
+    ],
+    [
+     0.964,
+     1.017,
+     0.925,
+     0.967
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 14,
+    "bodyStartPct": 20,
+    "islands": 4,
+    "layers": 51,
+    "legFootprintPct": 0.6,
+    "maxIslandSpanPct": 5,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 20% высоты; выше ножек полоса 14% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_13979506397967480953": {
+   "apply": true,
+   "bandTopFrac": 0.5875,
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "cutFrac": 0.1958,
+   "footprintBoxes": [
+    [
+     0.016,
+     0.113,
+     0.937,
+     1.02
+    ],
+    [
+     0.032,
+     0.113,
+     0.028,
+     0.11
+    ],
+    [
+     0.887,
+     0.967,
+     0.028,
+     0.11
+    ],
+    [
+     0.887,
+     0.983,
+     0.937,
+     1.02
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 39,
+    "bodyStartPct": 20,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 2.3,
+    "maxIslandSpanPct": 9,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 20% высоты; выше ножек полоса 39% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "112923_14024179072582409237": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_1403000231417918035": {
+   "apply": true,
+   "bandTopFrac": 0.2686,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.1872,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.05,
+     0.0,
+     0.033
+    ],
+    [
+     0.0,
+     0.05,
+     0.967,
+     1.008
+    ],
+    [
+     0.466,
+     0.535,
+     0.242,
+     0.292
+    ],
+    [
+     0.466,
+     0.535,
+     0.708,
+     0.75
+    ],
+    [
+     0.951,
+     1.011,
+     0.0,
+     0.033
+    ],
+    [
+     0.951,
+     1.011,
+     0.967,
+     1.008
+    ]
+   ],
+   "islands": 6,
+   "metrics": {
+    "bandPct": 8,
+    "bodyStartPct": 19,
+    "islands": 6,
+    "layers": 63,
+    "legFootprintPct": 1.3,
+    "maxIslandSpanPct": 7,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 6 отдельных малых пятен-ножек, тело начинается на 19% высоты; выше ножек полоса 8% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_14082094455019691879": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_14089868683381950524": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "стеллаж",
+   "status": "skip"
+  },
+  "112923_14098299569133934879": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_14287738105754090572": {
+   "apply": false,
+   "class": "wood_veneer",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс wood_veneer не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_14356165631061381173": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "стол обеденный",
+   "status": "skip"
+  },
+  "112923_14501486675349100310": {
+   "apply": true,
+   "bandTopFrac": 0.3042,
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "cutFrac": 0.2375,
+   "footprintBoxes": [
+    [
+     0.136,
+     0.209,
+     0.875,
+     0.94
+    ],
+    [
+     0.167,
+     0.241,
+     0.195,
+     0.26
+    ],
+    [
+     0.753,
+     0.826,
+     0.195,
+     0.26
+    ],
+    [
+     0.805,
+     0.878,
+     0.875,
+     0.94
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 7,
+    "bodyStartPct": 24,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 1.4,
+    "maxIslandSpanPct": 7,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 24% высоты; выше ножек полоса 7% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_14511635517609540515": {
+   "apply": false,
+   "class": "neutral",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс neutral не мягкий — маска частей не нужна",
+   "role": "стул",
+   "status": "skip"
+  },
+  "112923_14522730241385338296": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_14578157554454646801": {
+   "apply": false,
+   "class": "wood_veneer",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс wood_veneer не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_14635974139748270566": {
+   "apply": true,
+   "bandTopFrac": 0.2808,
+   "class": "velour",
+   "confidence": 0.75,
+   "cutFrac": 0.1738,
+   "footprintBoxes": [
+    [
+     0.021,
+     0.083,
+     0.008,
+     0.067
+    ],
+    [
+     0.021,
+     0.083,
+     0.925,
+     0.983
+    ],
+    [
+     0.911,
+     0.983,
+     0.008,
+     0.067
+    ],
+    [
+     0.911,
+     0.983,
+     0.925,
+     0.983
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 10,
+    "bodyStartPct": 18,
+    "islands": 4,
+    "layers": 39,
+    "legFootprintPct": 1.1,
+    "maxIslandSpanPct": 7,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 18% высоты; выше ножек полоса 10% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_14637619792969716127": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тв-тумба",
+   "status": "skip"
+  },
+  "112923_14704966537802486090": {
+   "apply": false,
+   "bandTopFrac": 0.2311,
+   "class": "velour",
+   "confidence": 0.6,
+   "cutFrac": 0.119,
+   "footprintBoxes": [
+    [
+     0.032,
+     0.143,
+     0.925,
+     0.983
+    ],
+    [
+     0.858,
+     0.969,
+     0.925,
+     0.983
+    ]
+   ],
+   "islands": 2,
+   "metrics": {
+    "bandPct": 11,
+    "bodyStartPct": 12,
+    "islands": 2,
+    "layers": 73,
+    "legFootprintPct": 0.9,
+    "maxIslandSpanPct": 100,
+    "panels": 1,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 2 отдельных малых пятен-ножек, тело начинается на 12% высоты; выше ножек полоса 11% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_14740567568780936298": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_14756930394961008222": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_14888777646062372042": {
+   "apply": true,
+   "class": "boucle",
+   "confidence": 0.7,
+   "metrics": {
+    "layers": 47,
+    "maxIslandSpanPct": 97,
+    "pitchCm": 1.66,
+    "probeSpanPct": 98
+   },
+   "productHasLegs": true,
+   "reason": "у пола одно большое пятно (97% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка; товар называет материал ножек, но под цоколем они мелкие (не отделить) — слой на всю поверхность",
+   "role": "диван",
+   "status": "whole"
+  },
+  "112923_14898266055458492736": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_15058147193609969823": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_15117321710436434043": {
+   "apply": true,
+   "bandTopFrac": 0.3542,
+   "class": "boucle",
+   "confidence": 0.95,
+   "cutFrac": 0.3208,
+   "footprintBoxes": [
+    [
+     0.017,
+     0.095,
+     0.085,
+     0.152
+    ],
+    [
+     0.043,
+     0.112,
+     0.896,
+     0.964
+    ],
+    [
+     0.877,
+     0.955,
+     0.896,
+     0.964
+    ],
+    [
+     0.903,
+     0.972,
+     0.085,
+     0.152
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 3,
+    "bodyStartPct": 32,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 1.6,
+    "maxIslandSpanPct": 8,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 32% высоты; выше ножек полоса 3% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_15149349905342323866": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_15157528304606106161": {
+   "apply": false,
+   "bandTopFrac": 0.4372,
+   "class": "fabric",
+   "confidence": 0.6,
+   "cutFrac": 0.1652,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.067,
+     0.958,
+     1.008
+    ],
+    [
+     0.933,
+     1.0,
+     0.958,
+     1.008
+    ]
+   ],
+   "islands": 2,
+   "metrics": {
+    "bandPct": 26,
+    "bodyStartPct": 17,
+    "islands": 2,
+    "layers": 53,
+    "legFootprintPct": 0.5,
+    "maxIslandSpanPct": 100,
+    "panels": 1,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 2 отдельных малых пятен-ножек, тело начинается на 17% высоты; выше ножек полоса 26% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_15303173745153294572": {
+   "apply": true,
+   "bandTopFrac": 0.5292,
+   "class": "boucle",
+   "confidence": 0.95,
+   "cutFrac": 0.4542,
+   "footprintBoxes": [
+    [
+     0.027,
+     0.133,
+     0.834,
+     0.934
+    ],
+    [
+     0.04,
+     0.133,
+     0.05,
+     0.149
+    ],
+    [
+     0.868,
+     0.961,
+     0.05,
+     0.149
+    ],
+    [
+     0.868,
+     0.974,
+     0.834,
+     0.934
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 7,
+    "bodyStartPct": 45,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 3.1,
+    "maxIslandSpanPct": 11,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 45% высоты; выше ножек полоса 7% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "112923_15352838187033700045": {
+   "apply": true,
+   "bandTopFrac": 0.2396,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.1711,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.06,
+     0.0,
+     0.042
+    ],
+    [
+     0.0,
+     0.05,
+     0.958,
+     1.008
+    ],
+    [
+     0.466,
+     0.526,
+     0.708,
+     0.758
+    ],
+    [
+     0.943,
+     1.002,
+     0.0,
+     0.042
+    ],
+    [
+     0.953,
+     1.012,
+     0.958,
+     1.008
+    ]
+   ],
+   "islands": 5,
+   "metrics": {
+    "bandPct": 7,
+    "bodyStartPct": 17,
+    "islands": 5,
+    "layers": 75,
+    "legFootprintPct": 1.2,
+    "maxIslandSpanPct": 6,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 5 отдельных малых пятен-ножек, тело начинается на 17% высоты; выше ножек полоса 7% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_153679507495672620": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_15408723737682870596": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_15599697036491365781": {
+   "apply": true,
+   "bandTopFrac": 0.1217,
+   "class": "velour",
+   "confidence": 0.8,
+   "cutFrac": 0.1217,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.05,
+     0.0,
+     0.073
+    ],
+    [
+     0.0,
+     0.05,
+     0.52,
+     0.593
+    ],
+    [
+     0.067,
+     0.117,
+     0.52,
+     0.593
+    ],
+    [
+     0.45,
+     0.5,
+     0.0,
+     0.073
+    ],
+    [
+     0.45,
+     0.5,
+     0.52,
+     0.593
+    ],
+    [
+     0.517,
+     0.567,
+     0.036,
+     0.121
+    ],
+    [
+     0.517,
+     0.567,
+     0.327,
+     0.399
+    ],
+    [
+     0.517,
+     0.567,
+     0.557,
+     0.629
+    ],
+    [
+     0.517,
+     0.567,
+     0.908,
+     0.992
+    ],
+    [
+     0.883,
+     0.942,
+     0.399,
+     0.472
+    ],
+    [
+     0.883,
+     0.942,
+     0.908,
+     0.992
+    ],
+    [
+     0.95,
+     1.0,
+     0.0,
+     0.073
+    ],
+    [
+     0.95,
+     1.0,
+     0.508,
+     0.593
+    ]
+   ],
+   "islands": 13,
+   "metrics": {
+    "bodyStartPct": 13,
+    "islands": 13,
+    "layers": 63,
+    "legFootprintPct": 4.1,
+    "maxIslandSpanPct": 8,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 13 отдельных малых пятен-ножек, тело начинается на 13% высоты",
+   "role": "диван",
+   "status": "split"
+  },
+  "112923_15623883561206571817": {
+   "apply": true,
+   "bandTopFrac": 0.2755,
+   "class": "velour",
+   "confidence": 0.75,
+   "cutFrac": 0.1045,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.137,
+     0.0,
+     0.075
+    ],
+    [
+     0.0,
+     0.137,
+     0.925,
+     1.017
+    ],
+    [
+     0.866,
+     1.018,
+     0.0,
+     0.075
+    ],
+    [
+     0.866,
+     1.018,
+     0.925,
+     1.008
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 17,
+    "bodyStartPct": 11,
+    "islands": 4,
+    "layers": 54,
+    "legFootprintPct": 3.7,
+    "maxIslandSpanPct": 15,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 11% высоты; выше ножек полоса 17% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_15635201516297000395": {
+   "apply": false,
+   "class": "wood_solid",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс wood_solid не мягкий — маска частей не нужна",
+   "role": "стол обеденный",
+   "status": "skip"
+  },
+  "112923_15809119303328324635": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_15829026948519335097": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 40,
+    "maxIslandSpanPct": 88,
+    "pitchCm": 1.66,
+    "plateLayers": 1,
+    "probeSpanPct": 94
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (88% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "пуф",
+   "status": "whole"
+  },
+  "112923_15877967256542540694": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тв-тумба",
+   "status": "skip"
+  },
+  "112923_15882698789095726578": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_15977595695057728681": {
+   "apply": true,
+   "bandTopFrac": 0.3785,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.165,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.058,
+     0.0,
+     0.05
+    ],
+    [
+     0.0,
+     0.058,
+     0.958,
+     1.008
+    ],
+    [
+     0.94,
+     1.008,
+     0.0,
+     0.05
+    ],
+    [
+     0.94,
+     1.008,
+     0.958,
+     1.008
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 21,
+    "bodyStartPct": 17,
+    "islands": 4,
+    "layers": 53,
+    "legFootprintPct": 1.0,
+    "maxIslandSpanPct": 74,
+    "panels": 1,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 17% высоты; выше ножек полоса 21% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_1600068498526658767": {
+   "apply": true,
+   "bandTopFrac": 0.2511,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.1991,
+   "footprintBoxes": [
+    [
+     0.058,
+     0.108,
+     0.134,
+     0.234
+    ],
+    [
+     0.058,
+     0.108,
+     0.871,
+     0.971
+    ],
+    [
+     0.892,
+     0.942,
+     0.134,
+     0.234
+    ],
+    [
+     0.892,
+     0.942,
+     0.871,
+     0.971
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 5,
+    "bodyStartPct": 20,
+    "islands": 4,
+    "layers": 59,
+    "legFootprintPct": 1.5,
+    "maxIslandSpanPct": 10,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 20% высоты; выше ножек полоса 5% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "диван",
+   "status": "split"
+  },
+  "112923_16002590215646637518": {
+   "apply": false,
+   "class": "wood_veneer",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс wood_veneer не мягкий — маска частей не нужна",
+   "role": "стол обеденный",
+   "status": "skip"
+  },
+  "112923_16057873697690954831": {
+   "apply": true,
+   "bandTopFrac": 0.5208,
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "cutFrac": 0.4792,
+   "footprintBoxes": [
+    [
+     0.028,
+     0.114,
+     0.0,
+     0.083
+    ],
+    [
+     0.028,
+     0.114,
+     0.922,
+     0.993
+    ],
+    [
+     0.883,
+     0.968,
+     0.012,
+     0.083
+    ],
+    [
+     0.883,
+     0.968,
+     0.922,
+     0.993
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 4,
+    "bodyStartPct": 48,
+    "islands": 4,
+    "layers": 122,
+    "legFootprintPct": 1.9,
+    "maxIslandSpanPct": 8,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 48% высоты; выше ножек полоса 4% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "112923_1608581627908703608": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "стеллаж",
+   "status": "skip"
+  },
+  "112923_16108359631057908709": {
+   "apply": false,
+   "class": "neutral",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс neutral не мягкий — маска частей не нужна",
+   "role": "стул",
+   "status": "skip"
+  },
+  "112923_16114999762169766099": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_16125083650918720213": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "тв-тумба",
+   "status": "skip"
+  },
+  "112923_1622431535315052393": {
+   "apply": true,
+   "bandTopFrac": 0.3183,
+   "class": "velour",
+   "confidence": 0.75,
+   "cutFrac": 0.1728,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.049,
+     0.0,
+     0.042
+    ],
+    [
+     0.0,
+     0.049,
+     0.958,
+     1.0
+    ],
+    [
+     0.956,
+     1.017,
+     0.0,
+     0.042
+    ]
+   ],
+   "islands": 3,
+   "metrics": {
+    "bandPct": 14,
+    "bodyStartPct": 18,
+    "islands": 3,
+    "layers": 56,
+    "legFootprintPct": 0.5,
+    "maxIslandSpanPct": 6,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 3 отдельных малых пятен-ножек, тело начинается на 18% высоты; выше ножек полоса 14% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_16225547700707497222": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 49,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "кровать",
+   "status": "whole"
+  },
+  "112923_16237503699735402719": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_16297980409380774009": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_16398321771505923656": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_16513631465616772954": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_16598231926295983633": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_1665420581396065176": {
+   "apply": false,
+   "class": "rattan",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс rattan не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_16666305924109675193": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_16676887744014190852": {
+   "apply": true,
+   "bandTopFrac": 0.1182,
+   "class": "velour",
+   "confidence": 0.75,
+   "cutFrac": 0.1182,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.105,
+     0.0,
+     0.058
+    ],
+    [
+     0.0,
+     0.105,
+     0.95,
+     1.0
+    ],
+    [
+     0.89,
+     0.995,
+     0.0,
+     0.058
+    ],
+    [
+     0.89,
+     0.995,
+     0.942,
+     1.0
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 12,
+    "islands": 4,
+    "layers": 48,
+    "legFootprintPct": 1.6,
+    "maxIslandSpanPct": 10,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 12% высоты",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_16786625495984216921": {
+   "apply": true,
+   "bandTopFrac": 0.4125,
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "cutFrac": 0.0375,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.084,
+     0.443,
+     0.536
+    ],
+    [
+     0.403,
+     0.621,
+     0.0,
+     0.085
+    ],
+    [
+     0.436,
+     0.604,
+     0.911,
+     1.013
+    ],
+    [
+     0.923,
+     1.016,
+     0.46,
+     0.536
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 37,
+    "bodyStartPct": 4,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 2.8,
+    "maxIslandSpanPct": 21,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 4% высоты; выше ножек полоса 37% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_16913405829420416446": {
+   "apply": true,
+   "bandTopFrac": 0.2874,
+   "class": "rogozhka",
+   "confidence": 0.75,
+   "cutFrac": 0.1829,
+   "footprintBoxes": [
+    [
+     0.072,
+     0.158,
+     0.0,
+     0.05
+    ],
+    [
+     0.072,
+     0.158,
+     0.958,
+     1.008
+    ],
+    [
+     0.461,
+     0.533,
+     0.192,
+     0.242
+    ],
+    [
+     0.461,
+     0.533,
+     0.733,
+     0.783
+    ],
+    [
+     0.836,
+     0.922,
+     0.0,
+     0.05
+    ],
+    [
+     0.836,
+     0.922,
+     0.958,
+     1.008
+    ]
+   ],
+   "islands": 6,
+   "metrics": {
+    "bandPct": 10,
+    "bodyStartPct": 19,
+    "islands": 6,
+    "layers": 59,
+    "legFootprintPct": 2.0,
+    "maxIslandSpanPct": 8,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 6 отдельных малых пятен-ножек, тело начинается на 19% высоты; выше ножек полоса 10% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_1696589528451519536": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тв-тумба",
+   "status": "skip"
+  },
+  "112923_1705637857418609384": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.7,
+   "metrics": {
+    "layers": 58,
+    "maxIslandSpanPct": 98,
+    "pitchCm": 1.66,
+    "plateLayers": 1,
+    "probeSpanPct": 98
+   },
+   "productHasLegs": true,
+   "reason": "у пола одно большое пятно (98% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка; товар называет материал ножек, но под цоколем они мелкие (не отделить) — слой на всю поверхность",
+   "role": "диван",
+   "status": "whole"
+  },
+  "112923_17160230588465518151": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_17179405448297302417": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_1719491933495998750": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "стеллаж",
+   "status": "skip"
+  },
+  "112923_17253183664830393179": {
+   "apply": false,
+   "class": "wood_veneer",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс wood_veneer не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_17270402284835709346": {
+   "apply": true,
+   "bandTopFrac": 0.5125,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.2708,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.119,
+     0.0,
+     0.101
+    ],
+    [
+     0.0,
+     0.104,
+     0.876,
+     0.991
+    ],
+    [
+     0.821,
+     0.94,
+     0.0,
+     0.101
+    ],
+    [
+     0.851,
+     0.97,
+     0.876,
+     0.991
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 24,
+    "bodyStartPct": 27,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 3.5,
+    "maxIslandSpanPct": 12,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 27% высоты; выше ножек полоса 24% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "112923_17289498082773275580": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_17313840383622559452": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_17326469223017176468": {
+   "apply": true,
+   "class": "fabric",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 53,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "кровать",
+   "status": "whole"
+  },
+  "112923_17407751225354767108": {
+   "apply": true,
+   "bandTopFrac": 0.1506,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.1506,
+   "footprintBoxes": [
+    [
+     0.008,
+     0.067,
+     0.0,
+     0.116
+    ],
+    [
+     0.008,
+     0.067,
+     0.88,
+     0.997
+    ],
+    [
+     0.858,
+     0.917,
+     0.0,
+     0.116
+    ],
+    [
+     0.858,
+     0.917,
+     0.88,
+     0.997
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 16,
+    "islands": 4,
+    "layers": 58,
+    "legFootprintPct": 2.0,
+    "maxIslandSpanPct": 11,
+    "pitchCm": 1.13,
+    "plateLayers": 2
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 16% высоты",
+   "role": "диван",
+   "status": "split"
+  },
+  "112923_17415829664615579684": {
+   "apply": true,
+   "bandTopFrac": 0.2635,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.1073,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.055,
+     0.0,
+     0.05
+    ],
+    [
+     0.0,
+     0.055,
+     0.958,
+     1.008
+    ],
+    [
+     0.474,
+     0.529,
+     0.0,
+     0.025
+    ],
+    [
+     0.937,
+     1.004,
+     0.0,
+     0.05
+    ],
+    [
+     0.948,
+     1.015,
+     0.958,
+     1.008
+    ]
+   ],
+   "islands": 5,
+   "metrics": {
+    "bandPct": 15,
+    "bodyStartPct": 11,
+    "islands": 5,
+    "layers": 53,
+    "legFootprintPct": 1.1,
+    "maxIslandSpanPct": 7,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 5 отдельных малых пятен-ножек, тело начинается на 11% высоты; выше ножек полоса 15% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_17511413518849295620": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_17539237118450968487": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "витрина",
+   "status": "skip"
+  },
+  "112923_17547122479018229334": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "стеллаж",
+   "status": "skip"
+  },
+  "112923_17601261927373144366": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_17647161463277612788": {
+   "apply": true,
+   "class": "fabric",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 52,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "plateLayers": 1,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "кровать",
+   "status": "whole"
+  },
+  "112923_17679228863086123886": {
+   "apply": false,
+   "class": "wood_veneer",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс wood_veneer не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_17713302530978003790": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_17736893906656810861": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_17750614143526542279": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 57,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "кровать",
+   "status": "whole"
+  },
+  "112923_17776164136232860423": {
+   "apply": true,
+   "class": "fabric",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 74,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "plateLayers": 1,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "кровать",
+   "status": "whole"
+  },
+  "112923_1784474760234444986": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_17860622298012701765": {
+   "apply": true,
+   "bandTopFrac": 0.1732,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.1732,
+   "footprintBoxes": [
+    [
+     0.1,
+     0.208,
+     0.121,
+     0.232
+    ],
+    [
+     0.1,
+     0.208,
+     0.771,
+     0.892
+    ],
+    [
+     0.775,
+     0.892,
+     0.781,
+     0.892
+    ],
+    [
+     0.783,
+     0.892,
+     0.121,
+     0.232
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 18,
+    "islands": 4,
+    "layers": 108,
+    "legFootprintPct": 4.0,
+    "maxIslandSpanPct": 12,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 18% высоты",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_17973969494600935486": {
+   "apply": true,
+   "bandTopFrac": 0.5042,
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "cutFrac": 0.5042,
+   "footprintBoxes": [
+    [
+     0.022,
+     0.089,
+     0.932,
+     1.017
+    ],
+    [
+     0.067,
+     0.145,
+     0.061,
+     0.145
+    ],
+    [
+     0.859,
+     0.926,
+     0.061,
+     0.145
+    ],
+    [
+     0.904,
+     0.982,
+     0.932,
+     1.017
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 50,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 1.7,
+    "maxIslandSpanPct": 8,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 50% высоты",
+   "role": "стул",
+   "status": "split"
+  },
+  "112923_18075093872452698244": {
+   "apply": true,
+   "bandTopFrac": 0.1363,
+   "class": "velour",
+   "confidence": 0.75,
+   "cutFrac": 0.1363,
+   "footprintBoxes": [
+    [
+     0.031,
+     0.139,
+     0.025,
+     0.083
+    ],
+    [
+     0.031,
+     0.139,
+     0.925,
+     0.983
+    ],
+    [
+     0.865,
+     0.974,
+     0.025,
+     0.083
+    ],
+    [
+     0.865,
+     0.974,
+     0.925,
+     0.983
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 14,
+    "islands": 4,
+    "layers": 57,
+    "legFootprintPct": 1.8,
+    "maxIslandSpanPct": 11,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 14% высоты",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_18075381279282230119": {
+   "apply": true,
+   "bandTopFrac": 0.1454,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.1454,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.079,
+     0.742,
+     0.783
+    ],
+    [
+     0.0,
+     0.063,
+     0.967,
+     1.008
+    ],
+    [
+     0.362,
+     0.441,
+     0.05,
+     0.092
+    ],
+    [
+     0.819,
+     0.898,
+     0.05,
+     0.092
+    ],
+    [
+     0.835,
+     0.914,
+     0.958,
+     1.0
+    ]
+   ],
+   "islands": 5,
+   "metrics": {
+    "bodyStartPct": 16,
+    "islands": 5,
+    "layers": 32,
+    "legFootprintPct": 1.1,
+    "maxIslandSpanPct": 8,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 5 отдельных малых пятен-ножек, тело начинается на 16% высоты",
+   "role": "диван",
+   "status": "split"
+  },
+  "112923_18087345950380988674": {
+   "apply": true,
+   "bandTopFrac": 0.1211,
+   "class": "boucle",
+   "confidence": 0.75,
+   "cutFrac": 0.1211,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.106,
+     0.0,
+     0.05
+    ],
+    [
+     0.0,
+     0.106,
+     0.95,
+     1.008
+    ],
+    [
+     0.881,
+     1.004,
+     0.0,
+     0.05
+    ],
+    [
+     0.881,
+     1.004,
+     0.95,
+     1.008
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 13,
+    "islands": 4,
+    "layers": 47,
+    "legFootprintPct": 1.6,
+    "maxIslandSpanPct": 12,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 13% высоты",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_18326701575278285804": {
+   "apply": true,
+   "bandTopFrac": 0.1696,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.1696,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.042,
+     0.033,
+     0.131
+    ],
+    [
+     0.0,
+     0.05,
+     0.881,
+     0.979
+    ],
+    [
+     0.942,
+     0.992,
+     0.881,
+     0.979
+    ],
+    [
+     0.958,
+     1.008,
+     0.065,
+     0.147
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 17,
+    "islands": 4,
+    "layers": 63,
+    "legFootprintPct": 1.3,
+    "maxIslandSpanPct": 10,
+    "pitchCm": 1.65
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 17% высоты",
+   "role": "диван",
+   "status": "split"
+  },
+  "112923_18420443288008131474": {
+   "apply": true,
+   "bandTopFrac": 0.4792,
+   "class": "boucle",
+   "confidence": 0.95,
+   "cutFrac": 0.3042,
+   "footprintBoxes": [
+    [
+     0.027,
+     0.134,
+     0.858,
+     0.956
+    ],
+    [
+     0.107,
+     0.215,
+     0.147,
+     0.245
+    ],
+    [
+     0.793,
+     0.9,
+     0.147,
+     0.245
+    ],
+    [
+     0.86,
+     0.967,
+     0.858,
+     0.956
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 17,
+    "bodyStartPct": 31,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 3.1,
+    "maxIslandSpanPct": 11,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 31% высоты; выше ножек полоса 17% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "112923_186864324404104266": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "тв-тумба",
+   "status": "skip"
+  },
+  "112923_1880179351994128375": {
+   "apply": false,
+   "class": "neutral",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс neutral не мягкий — маска частей не нужна",
+   "role": "стул",
+   "status": "skip"
+  },
+  "112923_1997381545481304343": {
+   "apply": true,
+   "class": "rogozhka",
+   "confidence": 0.7,
+   "metrics": {
+    "layers": 54,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": true,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка; товар называет материал ножек, но под цоколем они мелкие (не отделить) — слой на всю поверхность",
+   "role": "диван",
+   "status": "whole"
+  },
+  "112923_2028348028555717213": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_2058239722176115234": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тв-тумба",
+   "status": "skip"
+  },
+  "112923_212644341625369693": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_2260537753636484866": {
+   "apply": false,
+   "class": "plastic",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс plastic не мягкий — маска частей не нужна",
+   "role": "стол обеденный",
+   "status": "skip"
+  },
+  "112923_2264866569496692745": {
+   "apply": true,
+   "bandTopFrac": 0.3752,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.2794,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.117,
+     0.0,
+     0.122
+    ],
+    [
+     0.008,
+     0.117,
+     0.871,
+     1.003
+    ],
+    [
+     0.892,
+     1.008,
+     0.0,
+     0.122
+    ],
+    [
+     0.892,
+     1.008,
+     0.862,
+     0.993
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 9,
+    "bodyStartPct": 28,
+    "islands": 4,
+    "layers": 64,
+    "legFootprintPct": 3.7,
+    "maxIslandSpanPct": 13,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 28% высоты; выше ножек полоса 9% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "пуф",
+   "status": "split"
+  },
+  "112923_2281508011157666424": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 73,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "plateLayers": 1,
+    "probeSpanPct": 100
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "кровать",
+   "status": "whole"
+  },
+  "112923_2292854408267329364": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_2400400165323068702": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_2519339596698131982": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "тв-тумба",
+   "status": "skip"
+  },
+  "112923_2542474425222301843": {
+   "apply": true,
+   "class": "boucle",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 53,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "plateLayers": 1,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "кровать",
+   "status": "whole"
+  },
+  "112923_2622064642885936551": {
+   "apply": true,
+   "bandTopFrac": 0.0708,
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "cutFrac": 0.0708,
+   "footprintBoxes": [
+    [
+     0.011,
+     0.1,
+     0.084,
+     0.149
+    ],
+    [
+     0.045,
+     0.122,
+     0.863,
+     0.928
+    ],
+    [
+     0.88,
+     0.958,
+     0.863,
+     0.928
+    ],
+    [
+     0.902,
+     0.98,
+     0.084,
+     0.149
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 7,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 1.6,
+    "maxIslandSpanPct": 9,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 7% высоты",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_2638962303815042870": {
+   "apply": false,
+   "class": "neutral",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс neutral не мягкий — маска частей не нужна",
+   "role": "стул",
+   "status": "skip"
+  },
+  "112923_2701204908509281439": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_2716677436085326962": {
+   "apply": true,
+   "bandTopFrac": 0.0155,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.0155,
+   "footprintBoxes": [
+    [
+     0.232,
+     0.361,
+     0.7,
+     0.833
+    ],
+    [
+     0.241,
+     0.369,
+     0.275,
+     0.4
+    ],
+    [
+     0.79,
+     0.928,
+     0.717,
+     0.858
+    ],
+    [
+     0.799,
+     0.928,
+     0.275,
+     0.4
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 2,
+    "islands": 4,
+    "layers": 98,
+    "legFootprintPct": 5.1,
+    "maxIslandSpanPct": 70,
+    "panels": 1,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 2% высоты",
+   "role": "пуф",
+   "status": "split"
+  },
+  "112923_2763846743624459070": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_2901964918129974192": {
+   "apply": true,
+   "bandTopFrac": 0.1161,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.1161,
+   "footprintBoxes": [
+    [
+     0.02,
+     0.082,
+     0.017,
+     0.075
+    ],
+    [
+     0.02,
+     0.082,
+     0.925,
+     0.983
+    ],
+    [
+     0.921,
+     0.982,
+     0.017,
+     0.075
+    ],
+    [
+     0.921,
+     0.982,
+     0.925,
+     0.983
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 12,
+    "islands": 4,
+    "layers": 58,
+    "legFootprintPct": 1.1,
+    "maxIslandSpanPct": 6,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 12% высоты",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_2908231493438722522": {
+   "apply": true,
+   "bandTopFrac": 0.5292,
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "cutFrac": 0.4958,
+   "footprintBoxes": [
+    [
+     0.029,
+     0.115,
+     0.833,
+     0.907
+    ],
+    [
+     0.043,
+     0.13,
+     0.0,
+     0.061
+    ],
+    [
+     0.865,
+     0.952,
+     0.0,
+     0.061
+    ],
+    [
+     0.88,
+     0.966,
+     0.833,
+     0.907
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 3,
+    "bodyStartPct": 49,
+    "islands": 4,
+    "layers": 122,
+    "legFootprintPct": 1.9,
+    "maxIslandSpanPct": 8,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 49% высоты; выше ножек полоса 3% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "112923_2923873904524448048": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_3036361145966519795": {
+   "apply": false,
+   "class": "neutral",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс neutral не мягкий — маска частей не нужна",
+   "role": "стул",
+   "status": "skip"
+  },
+  "112923_3045964066166698953": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_3049255947791129493": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_306045138079777984": {
+   "apply": true,
+   "bandTopFrac": 0.4792,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.2958,
+   "footprintBoxes": [
+    [
+     0.014,
+     0.109,
+     0.903,
+     0.989
+    ],
+    [
+     0.081,
+     0.19,
+     0.159,
+     0.256
+    ],
+    [
+     0.774,
+     0.882,
+     0.146,
+     0.244
+    ],
+    [
+     0.842,
+     0.95,
+     0.903,
+     0.989
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 18,
+    "bodyStartPct": 30,
+    "islands": 4,
+    "layers": 122,
+    "legFootprintPct": 2.8,
+    "maxIslandSpanPct": 11,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 30% высоты; выше ножек полоса 18% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "112923_3185911961608383085": {
+   "apply": false,
+   "bandTopFrac": 0.3249,
+   "class": "fabric",
+   "confidence": 0.6,
+   "cutFrac": 0.1083,
+   "footprintBoxes": [
+    [
+     0.048,
+     0.105,
+     0.925,
+     0.975
+    ],
+    [
+     0.896,
+     0.953,
+     0.925,
+     0.983
+    ]
+   ],
+   "islands": 2,
+   "metrics": {
+    "bandPct": 21,
+    "bodyStartPct": 12,
+    "islands": 2,
+    "layers": 52,
+    "legFootprintPct": 0.5,
+    "maxIslandSpanPct": 100,
+    "panels": 1,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 2 отдельных малых пятен-ножек, тело начинается на 12% высоты; выше ножек полоса 21% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_321183910010607839": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_3213008624713543411": {
+   "apply": false,
+   "class": "neutral",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс neutral не мягкий — маска частей не нужна",
+   "role": "стул",
+   "status": "skip"
+  },
+  "112923_3245359774430900188": {
+   "apply": true,
+   "bandTopFrac": 0.2708,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.2708,
+   "footprintBoxes": [
+    [
+     0.114,
+     0.185,
+     0.848,
+     0.908
+    ],
+    [
+     0.141,
+     0.202,
+     0.188,
+     0.248
+    ],
+    [
+     0.792,
+     0.853,
+     0.18,
+     0.248
+    ],
+    [
+     0.818,
+     0.88,
+     0.848,
+     0.908
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 27,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 1.3,
+    "maxIslandSpanPct": 7,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 27% высоты",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_3299868370155266208": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_3404393462355007531": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_3472929314031771022": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_3600189665849768342": {
+   "apply": false,
+   "class": "velour",
+   "confidence": 0.0,
+   "metrics": {
+    "layers": 121,
+    "maxIslandSpanPct": 97,
+    "pitchCm": 1.66,
+    "plateLayers": 1,
+    "probeSpanPct": 22
+   },
+   "productHasLegs": true,
+   "reason": "по геометрии не уверены: у пола широкое пятно, а чуть выше опора уже (22% размера) — крестовина или диск, не цоколь",
+   "role": "кресло",
+   "status": "unsure"
+  },
+  "112923_3762479248781137772": {
+   "apply": true,
+   "bandTopFrac": 0.0324,
+   "class": "velour",
+   "confidence": 0.8,
+   "cutFrac": 0.0324,
+   "footprintBoxes": [
+    [
+     0.077,
+     0.221,
+     0.1,
+     0.208
+    ],
+    [
+     0.077,
+     0.212,
+     0.35,
+     0.475
+    ],
+    [
+     0.077,
+     0.212,
+     0.575,
+     0.692
+    ],
+    [
+     0.404,
+     0.539,
+     0.092,
+     0.2
+    ],
+    [
+     0.404,
+     0.539,
+     0.317,
+     0.425
+    ],
+    [
+     0.404,
+     0.529,
+     0.833,
+     0.942
+    ],
+    [
+     0.761,
+     0.895,
+     0.075,
+     0.192
+    ],
+    [
+     0.761,
+     0.886,
+     0.317,
+     0.425
+    ],
+    [
+     0.761,
+     0.886,
+     0.833,
+     0.942
+    ]
+   ],
+   "islands": 9,
+   "metrics": {
+    "bodyStartPct": 4,
+    "islands": 9,
+    "layers": 110,
+    "legFootprintPct": 10.5,
+    "maxIslandSpanPct": 14,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 9 отдельных малых пятен-ножек, тело начинается на 4% высоты",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_3808483369947965921": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_3872879830515004489": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_387818354491986733": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_390683629641539465": {
+   "apply": true,
+   "bandTopFrac": 0.2856,
+   "class": "rogozhka",
+   "confidence": 0.75,
+   "cutFrac": 0.1817,
+   "footprintBoxes": [
+    [
+     0.072,
+     0.144,
+     0.0,
+     0.05
+    ],
+    [
+     0.072,
+     0.144,
+     0.958,
+     1.008
+    ],
+    [
+     0.461,
+     0.548,
+     0.217,
+     0.267
+    ],
+    [
+     0.461,
+     0.548,
+     0.708,
+     0.758
+    ],
+    [
+     0.85,
+     0.937,
+     0.0,
+     0.05
+    ],
+    [
+     0.85,
+     0.937,
+     0.958,
+     1.008
+    ]
+   ],
+   "islands": 6,
+   "metrics": {
+    "bandPct": 10,
+    "bodyStartPct": 19,
+    "islands": 6,
+    "layers": 59,
+    "legFootprintPct": 2.1,
+    "maxIslandSpanPct": 8,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 6 отдельных малых пятен-ножек, тело начинается на 19% высоты; выше ножек полоса 10% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_390833759592215735": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "стеллаж",
+   "status": "skip"
+  },
+  "112923_3922250081307729699": {
+   "apply": false,
+   "class": "glass",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс glass не мягкий — маска частей не нужна",
+   "role": "витрина",
+   "status": "skip"
+  },
+  "112923_3939957136030142386": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_3989998131928467167": {
+   "apply": false,
+   "bandTopFrac": 0.4372,
+   "class": "fabric",
+   "confidence": 0.6,
+   "cutFrac": 0.1652,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.067,
+     0.958,
+     1.008
+    ],
+    [
+     0.933,
+     1.0,
+     0.958,
+     1.008
+    ]
+   ],
+   "islands": 2,
+   "metrics": {
+    "bandPct": 26,
+    "bodyStartPct": 17,
+    "islands": 2,
+    "layers": 53,
+    "legFootprintPct": 0.5,
+    "maxIslandSpanPct": 100,
+    "panels": 1,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 2 отдельных малых пятен-ножек, тело начинается на 17% высоты; выше ножек полоса 26% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_4370077163807262347": {
+   "apply": true,
+   "bandTopFrac": 0.3264,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.1295,
+   "footprintBoxes": [
+    [
+     0.034,
+     0.115,
+     0.0,
+     0.05
+    ],
+    [
+     0.08,
+     0.149,
+     0.958,
+     1.008
+    ],
+    [
+     0.848,
+     0.928,
+     0.958,
+     1.008
+    ],
+    [
+     0.882,
+     0.963,
+     0.0,
+     0.058
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 19,
+    "bodyStartPct": 13,
+    "islands": 4,
+    "layers": 98,
+    "legFootprintPct": 1.3,
+    "maxIslandSpanPct": 8,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 13% высоты; выше ножек полоса 19% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_4410784180348288024": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_447047194672492760": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "стеллаж",
+   "status": "skip"
+  },
+  "112923_460097646520310415": {
+   "apply": false,
+   "class": "glass",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс glass не мягкий — маска частей не нужна",
+   "role": "витрина",
+   "status": "skip"
+  },
+  "112923_4636684076232506964": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_475373742603059727": {
+   "apply": true,
+   "bandTopFrac": 0.2312,
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "cutFrac": 0.2312,
+   "footprintBoxes": [
+    [
+     0.182,
+     0.263,
+     0.342,
+     0.408
+    ],
+    [
+     0.182,
+     0.253,
+     0.892,
+     0.958
+    ],
+    [
+     0.718,
+     0.789,
+     0.35,
+     0.417
+    ],
+    [
+     0.729,
+     0.799,
+     0.892,
+     0.958
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 23,
+    "islands": 4,
+    "layers": 116,
+    "legFootprintPct": 1.5,
+    "maxIslandSpanPct": 8,
+    "pitchCm": 1.65
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 23% высоты",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_484523586079629664": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_4977764635436857117": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 71,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "кровать",
+   "status": "whole"
+  },
+  "112923_4980398041955022687": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_4984362669433022118": {
+   "apply": true,
+   "bandTopFrac": 0.0875,
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "cutFrac": 0.0625,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.078,
+     0.084,
+     0.149
+    ],
+    [
+     0.045,
+     0.123,
+     0.865,
+     0.93
+    ],
+    [
+     0.873,
+     0.962,
+     0.865,
+     0.93
+    ],
+    [
+     0.918,
+     0.996,
+     0.084,
+     0.149
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 2,
+    "bodyStartPct": 7,
+    "islands": 4,
+    "layers": 122,
+    "legFootprintPct": 1.6,
+    "maxIslandSpanPct": 9,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 7% высоты; выше ножек полоса 2% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_5100528108798666161": {
+   "apply": false,
+   "class": "wood_veneer",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс wood_veneer не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_5177956365797043847": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_5187259651221110481": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_5247568299459620759": {
+   "apply": true,
+   "bandTopFrac": 0.1639,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.1639,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.055,
+     0.0,
+     0.042
+    ],
+    [
+     0.0,
+     0.055,
+     0.958,
+     1.008
+    ],
+    [
+     0.944,
+     1.01,
+     0.0,
+     0.042
+    ],
+    [
+     0.944,
+     1.01,
+     0.958,
+     1.008
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 17,
+    "islands": 4,
+    "layers": 41,
+    "legFootprintPct": 1.0,
+    "maxIslandSpanPct": 6,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 17% высоты",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_531428310664206841": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.7,
+   "metrics": {
+    "layers": 121,
+    "maxIslandSpanPct": 99,
+    "pitchCm": 1.66,
+    "plateLayers": 1,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": true,
+   "reason": "у пола одно большое пятно (99% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка; товар называет материал ножек, но под цоколем они мелкие (не отделить) — слой на всю поверхность",
+   "role": "пуф",
+   "status": "whole"
+  },
+  "112923_5327925542491228056": {
+   "apply": true,
+   "bandTopFrac": 0.2373,
+   "class": "velvet",
+   "confidence": 0.95,
+   "cutFrac": 0.2373,
+   "footprintBoxes": [
+    [
+     0.083,
+     0.142,
+     0.853,
+     0.964
+    ],
+    [
+     0.092,
+     0.142,
+     0.093,
+     0.223
+    ],
+    [
+     0.858,
+     0.908,
+     0.093,
+     0.223
+    ],
+    [
+     0.858,
+     0.908,
+     0.853,
+     0.964
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 24,
+    "islands": 4,
+    "layers": 58,
+    "legFootprintPct": 2.1,
+    "maxIslandSpanPct": 13,
+    "pitchCm": 0.92,
+    "plateLayers": 2
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 24% высоты",
+   "role": "диван",
+   "status": "split"
+  },
+  "112923_5375209721295775621": {
+   "apply": true,
+   "bandTopFrac": 0.1052,
+   "class": "velour",
+   "confidence": 0.8,
+   "cutFrac": 0.1052,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.05,
+     0.0,
+     0.077
+    ],
+    [
+     0.0,
+     0.05,
+     0.507,
+     0.573
+    ],
+    [
+     0.075,
+     0.125,
+     0.518,
+     0.584
+    ],
+    [
+     0.442,
+     0.5,
+     0.0,
+     0.077
+    ],
+    [
+     0.45,
+     0.5,
+     0.507,
+     0.584
+    ],
+    [
+     0.517,
+     0.567,
+     0.0,
+     0.077
+    ],
+    [
+     0.517,
+     0.567,
+     0.529,
+     0.606
+    ],
+    [
+     0.517,
+     0.567,
+     0.926,
+     0.992
+    ],
+    [
+     0.883,
+     0.933,
+     0.926,
+     0.992
+    ],
+    [
+     0.95,
+     1.0,
+     0.0,
+     0.077
+    ],
+    [
+     0.95,
+     1.0,
+     0.507,
+     0.573
+    ]
+   ],
+   "islands": 11,
+   "metrics": {
+    "bodyStartPct": 11,
+    "islands": 11,
+    "layers": 63,
+    "legFootprintPct": 3.1,
+    "maxIslandSpanPct": 8,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 11 отдельных малых пятен-ножек, тело начинается на 11% высоты",
+   "role": "диван",
+   "status": "split"
+  },
+  "112923_5379466319529336151": {
+   "apply": true,
+   "bandTopFrac": 0.1042,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.1042,
+   "footprintBoxes": [
+    [
+     0.022,
+     0.141,
+     0.163,
+     0.262
+    ],
+    [
+     0.022,
+     0.141,
+     0.858,
+     0.958
+    ],
+    [
+     0.856,
+     0.975,
+     0.154,
+     0.253
+    ],
+    [
+     0.867,
+     0.986,
+     0.858,
+     0.958
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 11,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 3.1,
+    "maxIslandSpanPct": 12,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 11% высоты",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_5385749915560767571": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.7,
+   "metrics": {
+    "layers": 102,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": true,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка; товар называет материал ножек, но под цоколем они мелкие (не отделить) — слой на всю поверхность",
+   "role": "пуф",
+   "status": "whole"
+  },
+  "112923_5582363877547671766": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_5709897167994040163": {
+   "apply": true,
+   "bandTopFrac": 0.3094,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.3094,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.055,
+     0.0,
+     0.042
+    ],
+    [
+     0.0,
+     0.055,
+     0.967,
+     1.008
+    ],
+    [
+     0.472,
+     0.527,
+     0.692,
+     0.742
+    ],
+    [
+     0.956,
+     1.022,
+     0.0,
+     0.042
+    ],
+    [
+     0.956,
+     1.022,
+     0.967,
+     1.008
+    ]
+   ],
+   "islands": 5,
+   "metrics": {
+    "bodyStartPct": 31,
+    "islands": 5,
+    "layers": 35,
+    "legFootprintPct": 1.1,
+    "maxIslandSpanPct": 6,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 5 отдельных малых пятен-ножек, тело начинается на 31% высоты",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_5771892371225635950": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_5888337742542364245": {
+   "apply": true,
+   "bandTopFrac": 0.3094,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.3094,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.055,
+     0.0,
+     0.042
+    ],
+    [
+     0.0,
+     0.055,
+     0.967,
+     1.008
+    ],
+    [
+     0.472,
+     0.527,
+     0.692,
+     0.742
+    ],
+    [
+     0.956,
+     1.022,
+     0.0,
+     0.042
+    ],
+    [
+     0.956,
+     1.022,
+     0.967,
+     1.008
+    ]
+   ],
+   "islands": 5,
+   "metrics": {
+    "bodyStartPct": 31,
+    "islands": 5,
+    "layers": 35,
+    "legFootprintPct": 1.1,
+    "maxIslandSpanPct": 6,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 5 отдельных малых пятен-ножек, тело начинается на 31% высоты",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_5921817955682495961": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_5923875936345431084": {
+   "apply": true,
+   "bandTopFrac": 0.0862,
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "cutFrac": 0.0862,
+   "footprintBoxes": [
+    [
+     0.067,
+     0.167,
+     0.058,
+     0.158
+    ],
+    [
+     0.067,
+     0.167,
+     0.833,
+     0.925
+    ],
+    [
+     0.817,
+     0.917,
+     0.058,
+     0.158
+    ],
+    [
+     0.817,
+     0.917,
+     0.833,
+     0.925
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 9,
+    "islands": 4,
+    "layers": 77,
+    "legFootprintPct": 2.8,
+    "maxIslandSpanPct": 10,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 9% высоты",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_5956354477801356168": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "стол обеденный",
+   "status": "skip"
+  },
+  "112923_5969868554069204915": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_601457285259992891": {
+   "apply": false,
+   "class": "neutral",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс neutral не мягкий — маска частей не нужна",
+   "role": "стул",
+   "status": "skip"
+  },
+  "112923_6031416063270639272": {
+   "apply": false,
+   "bandTopFrac": 0.1211,
+   "class": "boucle",
+   "confidence": 0.6,
+   "cutFrac": 0.1211,
+   "footprintBoxes": [
+    [
+     0.032,
+     0.144,
+     0.925,
+     0.975
+    ],
+    [
+     0.863,
+     0.959,
+     0.925,
+     0.983
+    ]
+   ],
+   "islands": 2,
+   "metrics": {
+    "bodyStartPct": 12,
+    "islands": 2,
+    "layers": 72,
+    "legFootprintPct": 0.9,
+    "maxIslandSpanPct": 100,
+    "panels": 1,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 2 отдельных малых пятен-ножек, тело начинается на 12% высоты",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_6057194051659154961": {
+   "apply": true,
+   "bandTopFrac": 0.2383,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.1702,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.059,
+     0.0,
+     0.042
+    ],
+    [
+     0.0,
+     0.049,
+     0.958,
+     1.008
+    ],
+    [
+     0.473,
+     0.532,
+     0.175,
+     0.225
+    ],
+    [
+     0.473,
+     0.532,
+     0.708,
+     0.758
+    ],
+    [
+     0.946,
+     1.005,
+     0.0,
+     0.042
+    ],
+    [
+     0.946,
+     1.005,
+     0.958,
+     1.008
+    ]
+   ],
+   "islands": 6,
+   "metrics": {
+    "bandPct": 7,
+    "bodyStartPct": 17,
+    "islands": 6,
+    "layers": 75,
+    "legFootprintPct": 1.4,
+    "maxIslandSpanPct": 6,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 6 отдельных малых пятен-ножек, тело начинается на 17% высоты; выше ножек полоса 7% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_6065800578703142835": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_608853962692507835": {
+   "apply": true,
+   "bandTopFrac": 0.5125,
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "cutFrac": 0.5125,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.077,
+     0.838,
+     0.921
+    ],
+    [
+     0.165,
+     0.23,
+     0.0,
+     0.059
+    ],
+    [
+     0.768,
+     0.834,
+     0.0,
+     0.059
+    ],
+    [
+     0.921,
+     0.998,
+     0.838,
+     0.921
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 51,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 1.6,
+    "maxIslandSpanPct": 8,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 51% высоты",
+   "role": "стул",
+   "status": "split"
+  },
+  "112923_6143161311964753369": {
+   "apply": true,
+   "class": "boucle",
+   "confidence": 0.7,
+   "metrics": {
+    "layers": 48,
+    "maxIslandSpanPct": 99,
+    "pitchCm": 1.66,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": true,
+   "reason": "у пола одно большое пятно (99% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка; товар называет материал ножек, но под цоколем они мелкие (не отделить) — слой на всю поверхность",
+   "role": "диван",
+   "status": "whole"
+  },
+  "112923_620103063697963928": {
+   "apply": true,
+   "bandTopFrac": 0.3353,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.3353,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.055,
+     0.0,
+     0.042
+    ],
+    [
+     0.0,
+     0.055,
+     0.958,
+     1.008
+    ],
+    [
+     0.469,
+     0.535,
+     0.0,
+     0.042
+    ],
+    [
+     0.469,
+     0.535,
+     0.675,
+     0.733
+    ],
+    [
+     0.949,
+     1.015,
+     0.0,
+     0.042
+    ],
+    [
+     0.949,
+     1.015,
+     0.958,
+     1.008
+    ]
+   ],
+   "islands": 6,
+   "metrics": {
+    "bodyStartPct": 33,
+    "islands": 6,
+    "layers": 36,
+    "legFootprintPct": 1.5,
+    "maxIslandSpanPct": 6,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 6 отдельных малых пятен-ножек, тело начинается на 33% высоты",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_6243202751863390846": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "стеллаж",
+   "status": "skip"
+  },
+  "112923_6318321234121916684": {
+   "apply": true,
+   "bandTopFrac": 0.2696,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.1715,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.049,
+     0.0,
+     0.033
+    ],
+    [
+     0.0,
+     0.049,
+     0.967,
+     1.008
+    ],
+    [
+     0.466,
+     0.534,
+     0.292,
+     0.342
+    ],
+    [
+     0.466,
+     0.534,
+     0.683,
+     0.733
+    ],
+    [
+     0.951,
+     1.01,
+     0.0,
+     0.033
+    ],
+    [
+     0.951,
+     1.01,
+     0.967,
+     1.008
+    ]
+   ],
+   "islands": 6,
+   "metrics": {
+    "bandPct": 10,
+    "bodyStartPct": 17,
+    "islands": 6,
+    "layers": 63,
+    "legFootprintPct": 1.3,
+    "maxIslandSpanPct": 7,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 6 отдельных малых пятен-ножек, тело начинается на 17% высоты; выше ножек полоса 10% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_6337742477256381339": {
+   "apply": true,
+   "class": "fabric",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 56,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "plateLayers": 1,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "кровать",
+   "status": "whole"
+  },
+  "112923_6425518460705582439": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_6511082105296040630": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_6561231384688398240": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_6583264601233885482": {
+   "apply": true,
+   "bandTopFrac": 0.3664,
+   "class": "boucle",
+   "confidence": 0.95,
+   "cutFrac": 0.3327,
+   "footprintBoxes": [
+    [
+     0.042,
+     0.117,
+     0.104,
+     0.181
+    ],
+    [
+     0.042,
+     0.117,
+     0.924,
+     0.993
+    ],
+    [
+     0.883,
+     0.958,
+     0.104,
+     0.181
+    ],
+    [
+     0.883,
+     0.958,
+     0.924,
+     0.993
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 3,
+    "bodyStartPct": 33,
+    "islands": 4,
+    "layers": 120,
+    "legFootprintPct": 1.7,
+    "maxIslandSpanPct": 8,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 33% высоты; выше ножек полоса 3% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_6645060823905749180": {
+   "apply": true,
+   "bandTopFrac": 0.3147,
+   "class": "velour",
+   "confidence": 0.75,
+   "cutFrac": 0.1211,
+   "footprintBoxes": [
+    [
+     0.022,
+     0.086,
+     0.042,
+     0.092
+    ],
+    [
+     0.022,
+     0.086,
+     0.925,
+     0.975
+    ],
+    [
+     0.916,
+     0.981,
+     0.042,
+     0.092
+    ],
+    [
+     0.916,
+     0.981,
+     0.925,
+     0.975
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 19,
+    "bodyStartPct": 13,
+    "islands": 4,
+    "layers": 63,
+    "legFootprintPct": 1.0,
+    "maxIslandSpanPct": 6,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 13% высоты; выше ножек полоса 19% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_6674157127079759727": {
+   "apply": true,
+   "bandTopFrac": 0.0271,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.0271,
+   "footprintBoxes": [
+    [
+     0.033,
+     0.092,
+     0.033,
+     0.163
+    ],
+    [
+     0.033,
+     0.092,
+     0.865,
+     0.995
+    ],
+    [
+     0.9,
+     0.967,
+     0.881,
+     0.995
+    ],
+    [
+     0.917,
+     0.975,
+     0.033,
+     0.163
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 4,
+    "islands": 4,
+    "layers": 57,
+    "legFootprintPct": 2.4,
+    "maxIslandSpanPct": 13,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 4% высоты",
+   "role": "диван",
+   "status": "split"
+  },
+  "112923_6700908129700351368": {
+   "apply": true,
+   "bandTopFrac": 0.291,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.1645,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.075,
+     0.0,
+     0.042
+    ],
+    [
+     0.0,
+     0.075,
+     0.958,
+     1.008
+    ],
+    [
+     0.926,
+     1.001,
+     0.0,
+     0.042
+    ],
+    [
+     0.926,
+     1.001,
+     0.958,
+     1.008
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 12,
+    "bodyStartPct": 17,
+    "islands": 4,
+    "layers": 41,
+    "legFootprintPct": 1.1,
+    "maxIslandSpanPct": 78,
+    "panels": 1,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 17% высоты; выше ножек полоса 12% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_6741019459690505": {
+   "apply": false,
+   "class": "wood_veneer",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс wood_veneer не мягкий — маска частей не нужна",
+   "role": "стол обеденный",
+   "status": "skip"
+  },
+  "112923_6771981929083029909": {
+   "apply": true,
+   "bandTopFrac": 0.2958,
+   "class": "boucle",
+   "confidence": 0.95,
+   "cutFrac": 0.2375,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.072,
+     0.0,
+     0.095
+    ],
+    [
+     0.0,
+     0.063,
+     0.914,
+     1.009
+    ],
+    [
+     0.924,
+     1.006,
+     0.0,
+     0.095
+    ],
+    [
+     0.933,
+     1.015,
+     0.914,
+     1.009
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 6,
+    "bodyStartPct": 24,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 2.5,
+    "maxIslandSpanPct": 9,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 24% высоты; выше ножек полоса 6% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_6906640113542255168": {
+   "apply": true,
+   "bandTopFrac": 0.5125,
+   "class": "rogozhka",
+   "confidence": 0.95,
+   "cutFrac": 0.4625,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.073,
+     0.0,
+     0.062
+    ],
+    [
+     0.0,
+     0.088,
+     0.923,
+     0.998
+    ],
+    [
+     0.922,
+     1.025,
+     0.0,
+     0.062
+    ],
+    [
+     0.922,
+     1.01,
+     0.923,
+     0.998
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 5,
+    "bodyStartPct": 46,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 1.9,
+    "maxIslandSpanPct": 10,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 46% высоты; выше ножек полоса 5% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "112923_6993962986860450884": {
+   "apply": false,
+   "class": "ceramic",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ceramic не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_7065216738684330927": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_7224348754175139605": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_7322840915668575609": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "стол обеденный",
+   "status": "skip"
+  },
+  "112923_7417951868446675976": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_7426228947101120295": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "стеллаж",
+   "status": "skip"
+  },
+  "112923_7455526896535697605": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "стеллаж",
+   "status": "skip"
+  },
+  "112923_7493101031613603497": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_7546684772028794150": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_7592379597105668396": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_7621904365756538655": {
+   "apply": true,
+   "bandTopFrac": 0.1384,
+   "class": "boucle",
+   "confidence": 0.75,
+   "cutFrac": 0.1384,
+   "footprintBoxes": [
+    [
+     0.022,
+     0.098,
+     0.025,
+     0.075
+    ],
+    [
+     0.022,
+     0.098,
+     0.925,
+     0.975
+    ],
+    [
+     0.908,
+     0.974,
+     0.025,
+     0.075
+    ],
+    [
+     0.908,
+     0.974,
+     0.925,
+     0.975
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 15,
+    "islands": 4,
+    "layers": 48,
+    "legFootprintPct": 1.1,
+    "maxIslandSpanPct": 8,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 15% высоты",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_7646718177458720314": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 53,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "кровать",
+   "status": "whole"
+  },
+  "112923_7680899717216893337": {
+   "apply": true,
+   "bandTopFrac": 0.0958,
+   "class": "velvet",
+   "confidence": 0.95,
+   "cutFrac": 0.0958,
+   "footprintBoxes": [
+    [
+     0.142,
+     0.218,
+     0.858,
+     0.924
+    ],
+    [
+     0.207,
+     0.283,
+     0.336,
+     0.401
+    ],
+    [
+     0.708,
+     0.784,
+     0.336,
+     0.401
+    ],
+    [
+     0.784,
+     0.86,
+     0.858,
+     0.924
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 10,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 1.5,
+    "maxIslandSpanPct": 8,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 10% высоты",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_781000003406532732": {
+   "apply": true,
+   "bandTopFrac": 0.2396,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.1711,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.06,
+     0.0,
+     0.042
+    ],
+    [
+     0.0,
+     0.05,
+     0.958,
+     1.008
+    ],
+    [
+     0.466,
+     0.526,
+     0.708,
+     0.758
+    ],
+    [
+     0.943,
+     1.002,
+     0.0,
+     0.042
+    ],
+    [
+     0.953,
+     1.012,
+     0.958,
+     1.008
+    ]
+   ],
+   "islands": 5,
+   "metrics": {
+    "bandPct": 7,
+    "bodyStartPct": 17,
+    "islands": 5,
+    "layers": 75,
+    "legFootprintPct": 1.2,
+    "maxIslandSpanPct": 6,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 5 отдельных малых пятен-ножек, тело начинается на 17% высоты; выше ножек полоса 7% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_7823594413819381794": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_7826936264785739968": {
+   "apply": true,
+   "bandTopFrac": 0.3051,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.3051,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.055,
+     0.0,
+     0.042
+    ],
+    [
+     0.0,
+     0.055,
+     0.958,
+     1.008
+    ],
+    [
+     0.471,
+     0.526,
+     0.7,
+     0.742
+    ],
+    [
+     0.953,
+     1.019,
+     0.0,
+     0.042
+    ],
+    [
+     0.953,
+     1.019,
+     0.958,
+     1.008
+    ]
+   ],
+   "islands": 5,
+   "metrics": {
+    "bodyStartPct": 31,
+    "islands": 5,
+    "layers": 36,
+    "legFootprintPct": 1.1,
+    "maxIslandSpanPct": 6,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 5 отдельных малых пятен-ножек, тело начинается на 31% высоты",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_7848968827637744517": {
+   "apply": true,
+   "bandTopFrac": 0.3208,
+   "class": "chenille",
+   "confidence": 0.95,
+   "cutFrac": 0.2542,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.063,
+     0.0,
+     0.085
+    ],
+    [
+     0.0,
+     0.063,
+     0.879,
+     0.973
+    ],
+    [
+     0.931,
+     1.013,
+     0.0,
+     0.085
+    ],
+    [
+     0.94,
+     1.013,
+     0.879,
+     0.973
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 7,
+    "bodyStartPct": 26,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 2.3,
+    "maxIslandSpanPct": 9,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 26% высоты; выше ножек полоса 7% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кресло",
+   "status": "split"
+  },
+  "112923_7862645653736638533": {
+   "apply": true,
+   "bandTopFrac": 0.2868,
+   "class": "velour",
+   "confidence": 0.75,
+   "cutFrac": 0.1203,
+   "footprintBoxes": [
+    [
+     0.021,
+     0.084,
+     0.017,
+     0.067
+    ],
+    [
+     0.021,
+     0.084,
+     0.933,
+     0.983
+    ],
+    [
+     0.907,
+     0.97,
+     0.008,
+     0.067
+    ],
+    [
+     0.907,
+     0.97,
+     0.925,
+     0.983
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 16,
+    "bodyStartPct": 12,
+    "islands": 4,
+    "layers": 56,
+    "legFootprintPct": 0.9,
+    "maxIslandSpanPct": 6,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 12% высоты; выше ножек полоса 16% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_7945540342146322002": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 86,
+    "maxIslandSpanPct": 93,
+    "pitchCm": 1.66,
+    "plateLayers": 1,
+    "probeSpanPct": 92
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (93% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "стул",
+   "status": "whole"
+  },
+  "112923_8088811555583618813": {
+   "apply": false,
+   "class": "neutral",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс neutral не мягкий — маска частей не нужна",
+   "role": "стул",
+   "status": "skip"
+  },
+  "112923_8137064999918124227": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тв-тумба",
+   "status": "skip"
+  },
+  "112923_8312377888602468327": {
+   "apply": false,
+   "class": "chenille",
+   "confidence": 0.0,
+   "metrics": {
+    "islands": 0,
+    "layers": 42,
+    "maxIslandSpanPct": 96,
+    "panels": 2,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "по геометрии не уверены: у пола 0 пятен (ножек ждём 2–20)",
+   "role": "пуф",
+   "status": "unsure"
+  },
+  "112923_8333856700583988605": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_8340664869539227962": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 53,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "probeSpanPct": 100
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "кровать",
+   "status": "whole"
+  },
+  "112923_8408526607437134893": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_84967562694446873": {
+   "apply": true,
+   "bandTopFrac": 0.4792,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.2542,
+   "footprintBoxes": [
+    [
+     0.026,
+     0.119,
+     0.903,
+     0.975
+    ],
+    [
+     0.053,
+     0.146,
+     0.072,
+     0.157
+    ],
+    [
+     0.847,
+     0.94,
+     0.072,
+     0.145
+    ],
+    [
+     0.887,
+     0.966,
+     0.903,
+     0.975
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 22,
+    "bodyStartPct": 26,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 2.0,
+    "maxIslandSpanPct": 9,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 26% высоты; выше ножек полоса 22% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "112923_8518979997342234313": {
+   "apply": true,
+   "bandTopFrac": 0.1346,
+   "class": "velour",
+   "confidence": 0.75,
+   "cutFrac": 0.1346,
+   "footprintBoxes": [
+    [
+     0.031,
+     0.138,
+     0.017,
+     0.075
+    ],
+    [
+     0.031,
+     0.138,
+     0.925,
+     0.983
+    ],
+    [
+     0.861,
+     0.969,
+     0.017,
+     0.075
+    ],
+    [
+     0.861,
+     0.969,
+     0.925,
+     0.983
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 14,
+    "islands": 4,
+    "layers": 57,
+    "legFootprintPct": 1.8,
+    "maxIslandSpanPct": 10,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 14% высоты",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_852603262343176022": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_8554737095566366752": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_8593212703710238120": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.7,
+   "metrics": {
+    "layers": 122,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "plateLayers": 1,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": true,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка; товар называет материал ножек, но под цоколем они мелкие (не отделить) — слой на всю поверхность",
+   "role": "пуф",
+   "status": "whole"
+  },
+  "112923_8733270426517425848": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "стол обеденный",
+   "status": "skip"
+  },
+  "112923_8742021531920132235": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "тв-тумба",
+   "status": "skip"
+  },
+  "112923_8785012898524529560": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "стол обеденный",
+   "status": "skip"
+  },
+  "112923_8854957766648804973": {
+   "apply": false,
+   "class": "ceramic",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ceramic не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_8933691329499414015": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тв-тумба",
+   "status": "skip"
+  },
+  "112923_8940289656155243206": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "тумба прикроватная",
+   "status": "skip"
+  },
+  "112923_8946142545332806640": {
+   "apply": false,
+   "class": "wood_veneer",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс wood_veneer не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_8979166047688318548": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "витрина",
+   "status": "skip"
+  },
+  "112923_9044530246550714802": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "стеллаж",
+   "status": "skip"
+  },
+  "112923_905601461425682771": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_9134166643537246405": {
+   "apply": true,
+   "bandTopFrac": 0.0125,
+   "class": "velour",
+   "confidence": 0.95,
+   "cutFrac": 0.0125,
+   "footprintBoxes": [
+    [
+     0.127,
+     0.237,
+     0.11,
+     0.229
+    ],
+    [
+     0.127,
+     0.237,
+     0.779,
+     0.898
+    ],
+    [
+     0.761,
+     0.871,
+     0.11,
+     0.229
+    ],
+    [
+     0.761,
+     0.871,
+     0.779,
+     0.898
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 2,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 4.9,
+    "maxIslandSpanPct": 12,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 2% высоты",
+   "role": "пуф",
+   "status": "split"
+  },
+  "112923_9287334663021265847": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_9337348504771615560": {
+   "apply": false,
+   "class": "faux_fur",
+   "confidence": 0.0,
+   "metrics": {
+    "islands": 1,
+    "layers": 102,
+    "maxIslandSpanPct": 89,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": true,
+   "reason": "по геометрии не уверены: у пола 1 пятен, среди них средние по размеру — не похоже на ножки",
+   "role": "кресло",
+   "status": "unsure"
+  },
+  "112923_9463680740073283809": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "шкаф",
+   "status": "skip"
+  },
+  "112923_9478652027388821758": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "стеллаж",
+   "status": "skip"
+  },
+  "112923_9514056167717256283": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "112923_956279906307165962": {
+   "apply": true,
+   "bandTopFrac": 0.1479,
+   "class": "boucle",
+   "confidence": 0.75,
+   "cutFrac": 0.1479,
+   "footprintBoxes": [
+    [
+     0.034,
+     0.136,
+     0.033,
+     0.083
+    ],
+    [
+     0.034,
+     0.136,
+     0.933,
+     0.992
+    ],
+    [
+     0.853,
+     0.972,
+     0.033,
+     0.083
+    ],
+    [
+     0.853,
+     0.972,
+     0.933,
+     0.992
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 15,
+    "islands": 4,
+    "layers": 52,
+    "legFootprintPct": 1.8,
+    "maxIslandSpanPct": 12,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 15% высоты",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_9636381212670549492": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "тв-тумба",
+   "status": "skip"
+  },
+  "112923_9642187105416752545": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "стеллаж",
+   "status": "skip"
+  },
+  "112923_9660031298301560473": {
+   "apply": true,
+   "bandTopFrac": 0.2619,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.1943,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.05,
+     0.0,
+     0.042
+    ],
+    [
+     0.0,
+     0.05,
+     0.958,
+     1.008
+    ],
+    [
+     0.473,
+     0.534,
+     0.7,
+     0.75
+    ],
+    [
+     0.956,
+     1.017,
+     0.0,
+     0.042
+    ],
+    [
+     0.956,
+     1.017,
+     0.958,
+     1.008
+    ]
+   ],
+   "islands": 5,
+   "metrics": {
+    "bandPct": 7,
+    "bodyStartPct": 20,
+    "islands": 5,
+    "layers": 61,
+    "legFootprintPct": 1.1,
+    "maxIslandSpanPct": 6,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 5 отдельных малых пятен-ножек, тело начинается на 20% высоты; выше ножек полоса 7% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "112923_970341798977378646": {
+   "apply": true,
+   "class": "boucle",
+   "confidence": 0.7,
+   "metrics": {
+    "layers": 121,
+    "maxIslandSpanPct": 97,
+    "pitchCm": 1.66,
+    "plateLayers": 1,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": true,
+   "reason": "у пола одно большое пятно (97% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка; товар называет материал ножек, но под цоколем они мелкие (не отделить) — слой на всю поверхность",
+   "role": "пуф",
+   "status": "whole"
+  },
+  "112923_9725224983973453222": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "112923_9842015463271833687": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.7,
+   "metrics": {
+    "layers": 122,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "plateLayers": 1,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": true,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка; товар называет материал ножек, но под цоколем они мелкие (не отделить) — слой на всю поверхность",
+   "role": "пуф",
+   "status": "whole"
+  },
+  "114082_10708248646823885702": {
+   "apply": true,
+   "bandTopFrac": 0.3875,
+   "class": "leather",
+   "confidence": 0.75,
+   "cutFrac": 0.3625,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.117,
+     0.132,
+     0.246
+    ],
+    [
+     0.0,
+     0.097,
+     0.927,
+     1.022
+    ],
+    [
+     0.877,
+     0.994,
+     0.132,
+     0.246
+    ],
+    [
+     0.897,
+     1.033,
+     0.927,
+     1.022
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 2,
+    "bodyStartPct": 36,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 4.1,
+    "maxIslandSpanPct": 13,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 36% высоты; выше ножек полоса 2% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "114082_11094295988716481090": {
+   "apply": true,
+   "bandTopFrac": 0.4626,
+   "class": "velvet",
+   "confidence": 0.75,
+   "cutFrac": 0.0862,
+   "footprintBoxes": [
+    [
+     0.083,
+     0.133,
+     0.466,
+     0.52
+    ],
+    [
+     0.083,
+     0.133,
+     0.914,
+     0.968
+    ],
+    [
+     0.875,
+     0.925,
+     0.466,
+     0.52
+    ],
+    [
+     0.875,
+     0.925,
+     0.914,
+     0.968
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 37,
+    "bodyStartPct": 9,
+    "islands": 4,
+    "layers": 65,
+    "legFootprintPct": 0.9,
+    "maxIslandSpanPct": 90,
+    "panels": 1,
+    "pitchCm": 1.65
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 9% высоты; выше ножек полоса 37% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "114082_18367334699098411925": {
+   "apply": true,
+   "bandTopFrac": 0.4507,
+   "class": "velvet",
+   "confidence": 0.75,
+   "cutFrac": 0.087,
+   "footprintBoxes": [
+    [
+     0.067,
+     0.125,
+     0.932,
+     0.993
+    ],
+    [
+     0.075,
+     0.133,
+     0.453,
+     0.505
+    ],
+    [
+     0.85,
+     0.925,
+     0.453,
+     0.505
+    ],
+    [
+     0.875,
+     0.925,
+     0.932,
+     0.993
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 35,
+    "bodyStartPct": 9,
+    "islands": 4,
+    "layers": 65,
+    "legFootprintPct": 1.2,
+    "maxIslandSpanPct": 91,
+    "panels": 1,
+    "pitchCm": 1.65
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 9% высоты; выше ножек полоса 35% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "114082_2701198981924076386": {
+   "apply": true,
+   "bandTopFrac": 0.0252,
+   "class": "velour",
+   "confidence": 0.75,
+   "cutFrac": 0.0252,
+   "footprintBoxes": [
+    [
+     0.1,
+     0.158,
+     0.106,
+     0.213
+    ],
+    [
+     0.1,
+     0.158,
+     0.699,
+     0.806
+    ],
+    [
+     0.842,
+     0.892,
+     0.106,
+     0.213
+    ],
+    [
+     0.842,
+     0.9,
+     0.699,
+     0.806
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bodyStartPct": 3,
+    "islands": 4,
+    "layers": 61,
+    "legFootprintPct": 1.6,
+    "maxIslandSpanPct": 10,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 3% высоты",
+   "role": "диван",
+   "status": "split"
+  },
+  "114082_348889408549192160": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 63,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.66,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "кровать",
+   "status": "whole"
+  },
+  "114082_515596091779094848": {
+   "apply": true,
+   "bandTopFrac": 0.4683,
+   "class": "velvet",
+   "confidence": 0.75,
+   "cutFrac": 0.0873,
+   "footprintBoxes": [
+    [
+     0.092,
+     0.142,
+     0.46,
+     0.515
+    ],
+    [
+     0.092,
+     0.142,
+     0.93,
+     0.984
+    ],
+    [
+     0.875,
+     0.925,
+     0.46,
+     0.515
+    ],
+    [
+     0.875,
+     0.925,
+     0.93,
+     0.984
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 38,
+    "bodyStartPct": 9,
+    "islands": 4,
+    "layers": 64,
+    "legFootprintPct": 0.9,
+    "maxIslandSpanPct": 89,
+    "panels": 1,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 9% высоты; выше ножек полоса 38% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "114082_6999205956655389244": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 73,
+    "maxIslandSpanPct": 89,
+    "pitchCm": 1.66,
+    "probeSpanPct": 88
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (89% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "кровать",
+   "status": "whole"
+  },
+  "114082_7438931435849571231": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 72,
+    "maxIslandSpanPct": 91,
+    "pitchCm": 1.66,
+    "probeSpanPct": 90
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (91% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "кровать",
+   "status": "whole"
+  },
+  "114082_9906767785624610584": {
+   "apply": true,
+   "bandTopFrac": 0.4663,
+   "class": "chenille",
+   "confidence": 0.75,
+   "cutFrac": 0.0994,
+   "footprintBoxes": [
+    [
+     0.075,
+     0.125,
+     0.467,
+     0.517
+    ],
+    [
+     0.075,
+     0.125,
+     0.934,
+     0.984
+    ],
+    [
+     0.867,
+     0.917,
+     0.467,
+     0.517
+    ],
+    [
+     0.875,
+     0.925,
+     0.934,
+     0.984
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 36,
+    "bodyStartPct": 10,
+    "islands": 4,
+    "layers": 67,
+    "legFootprintPct": 0.9,
+    "maxIslandSpanPct": 94,
+    "panels": 1,
+    "pitchCm": 1.62
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 10% высоты; выше ножек полоса 36% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "114667_10461735372799839978": {
+   "apply": true,
+   "bandTopFrac": 0.4626,
+   "class": "velvet",
+   "confidence": 0.75,
+   "cutFrac": 0.0862,
+   "footprintBoxes": [
+    [
+     0.083,
+     0.133,
+     0.466,
+     0.52
+    ],
+    [
+     0.083,
+     0.133,
+     0.914,
+     0.968
+    ],
+    [
+     0.875,
+     0.925,
+     0.466,
+     0.52
+    ],
+    [
+     0.875,
+     0.925,
+     0.914,
+     0.968
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 37,
+    "bodyStartPct": 9,
+    "islands": 4,
+    "layers": 65,
+    "legFootprintPct": 0.9,
+    "maxIslandSpanPct": 90,
+    "panels": 1,
+    "pitchCm": 1.65
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 9% высоты; выше ножек полоса 37% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "114667_11074633107621324978": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 57,
+    "maxIslandSpanPct": 99,
+    "pitchCm": 1.66,
+    "probeSpanPct": 98
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (99% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "диван",
+   "status": "whole"
+  },
+  "114667_1662482267798470098": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "114667_17170128924102421663": {
+   "apply": true,
+   "bandTopFrac": 0.4507,
+   "class": "velvet",
+   "confidence": 0.75,
+   "cutFrac": 0.087,
+   "footprintBoxes": [
+    [
+     0.067,
+     0.125,
+     0.932,
+     0.993
+    ],
+    [
+     0.075,
+     0.133,
+     0.453,
+     0.505
+    ],
+    [
+     0.85,
+     0.925,
+     0.453,
+     0.505
+    ],
+    [
+     0.875,
+     0.925,
+     0.932,
+     0.993
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 35,
+    "bodyStartPct": 9,
+    "islands": 4,
+    "layers": 65,
+    "legFootprintPct": 1.2,
+    "maxIslandSpanPct": 91,
+    "panels": 1,
+    "pitchCm": 1.65
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 9% высоты; выше ножек полоса 35% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "114667_17257331247336204339": {
+   "apply": true,
+   "bandTopFrac": 0.4607,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.0859,
+   "footprintBoxes": [
+    [
+     0.092,
+     0.142,
+     0.468,
+     0.519
+    ],
+    [
+     0.092,
+     0.142,
+     0.919,
+     0.97
+    ],
+    [
+     0.875,
+     0.925,
+     0.468,
+     0.519
+    ],
+    [
+     0.875,
+     0.925,
+     0.919,
+     0.97
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 36,
+    "bodyStartPct": 9,
+    "islands": 4,
+    "layers": 66,
+    "legFootprintPct": 0.9,
+    "maxIslandSpanPct": 90,
+    "panels": 1,
+    "pitchCm": 1.65
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 9% высоты; выше ножек полоса 36% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "кровать",
+   "status": "split"
+  },
+  "114667_6826889867261327661": {
+   "apply": true,
+   "class": "velour",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 72,
+    "maxIslandSpanPct": 88,
+    "pitchCm": 1.66,
+    "probeSpanPct": 86
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (88% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "кровать",
+   "status": "whole"
+  },
+  "93965_6958868068929105365": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "99272_10473504040101674133": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "ваза",
+   "status": "skip"
+  },
+  "99272_10547464643072879957": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "лампа",
+   "status": "skip"
+  },
+  "99272_10581598881543221035": {
+   "apply": false,
+   "class": "plastic",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс plastic не мягкий — маска частей не нужна",
+   "role": "стул",
+   "status": "skip"
+  },
+  "99272_10609757172797066465": {
+   "apply": true,
+   "bandTopFrac": 0.1208,
+   "class": "velour",
+   "confidence": 0.75,
+   "cutFrac": 0.1208,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.112,
+     0.247,
+     0.37
+    ],
+    [
+     0.087,
+     0.224,
+     0.777,
+     0.912
+    ],
+    [
+     0.485,
+     0.61,
+     0.0,
+     0.111
+    ],
+    [
+     0.697,
+     0.833,
+     0.801,
+     0.937
+    ],
+    [
+     0.883,
+     1.02,
+     0.308,
+     0.432
+    ]
+   ],
+   "islands": 5,
+   "metrics": {
+    "bodyStartPct": 12,
+    "islands": 5,
+    "layers": 121,
+    "legFootprintPct": 5.6,
+    "maxIslandSpanPct": 13,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 5 отдельных малых пятен-ножек, тело начинается на 12% высоты",
+   "role": "стул",
+   "status": "split"
+  },
+  "99272_10741417998972511074": {
+   "apply": false,
+   "class": "stone",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс stone не мягкий — маска частей не нужна",
+   "role": "кашпо",
+   "status": "skip"
+  },
+  "99272_10922670658342395618": {
+   "apply": false,
+   "class": "chrome",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс chrome не мягкий — маска частей не нужна",
+   "role": "торшер",
+   "status": "skip"
+  },
+  "99272_10931009152697567469": {
+   "apply": false,
+   "class": "plastic",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс plastic не мягкий — маска частей не нужна",
+   "role": "кашпо",
+   "status": "skip"
+  },
+  "99272_11509203550382199886": {
+   "apply": false,
+   "class": "ceramic",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ceramic не мягкий — маска частей не нужна",
+   "role": "лампа",
+   "status": "skip"
+  },
+  "99272_11568910714328056581": {
+   "apply": false,
+   "class": "glass",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс glass не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "99272_11655879072774376897": {
+   "apply": true,
+   "class": "faux_fur",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 121,
+    "maxIslandSpanPct": 96,
+    "pitchCm": 1.66,
+    "probeSpanPct": 71
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (96% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "диван",
+   "status": "whole"
+  },
+  "99272_11735329935886852109": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "99272_11845081745449618527": {
+   "apply": false,
+   "class": "plastic",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс plastic не мягкий — маска частей не нужна",
+   "role": "кашпо",
+   "status": "skip"
+  },
+  "99272_11919257129924697179": {
+   "apply": false,
+   "class": "wood_solid",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс wood_solid не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "99272_1196014290167120854": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "ваза",
+   "status": "skip"
+  },
+  "99272_1199455070261500993": {
+   "apply": false,
+   "bandTopFrac": 0.3375,
+   "class": "fabric",
+   "confidence": 0.6,
+   "cutFrac": 0.0375,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.123,
+     0.887,
+     0.993
+    ],
+    [
+     0.878,
+     1.001,
+     0.861,
+     0.98
+    ]
+   ],
+   "islands": 2,
+   "metrics": {
+    "bandPct": 30,
+    "bodyStartPct": 4,
+    "islands": 2,
+    "layers": 121,
+    "legFootprintPct": 2.0,
+    "maxIslandSpanPct": 12,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 2 отдельных малых пятен-ножек, тело начинается на 4% высоты; выше ножек полоса 30% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "99272_12132623919330080911": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "99272_12229111948604557762": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "99272_1226536602687998814": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "99272_12412225974017369138": {
+   "apply": false,
+   "class": "wood_solid",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс wood_solid не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "99272_12639028962365773158": {
+   "apply": true,
+   "bandTopFrac": 0.4708,
+   "class": "velour",
+   "confidence": 0.75,
+   "cutFrac": 0.2125,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.084,
+     0.09,
+     0.18
+    ],
+    [
+     0.017,
+     0.134,
+     0.914,
+     1.019
+    ],
+    [
+     0.871,
+     0.988,
+     0.914,
+     1.019
+    ],
+    [
+     0.921,
+     1.021,
+     0.09,
+     0.18
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 26,
+    "bodyStartPct": 21,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 3.2,
+    "maxIslandSpanPct": 11,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 21% высоты; выше ножек полоса 26% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "99272_12767146713576548307": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "99272_13016567990832559804": {
+   "apply": false,
+   "class": "ceramic",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ceramic не мягкий — маска частей не нужна",
+   "role": "лампа",
+   "status": "skip"
+  },
+  "99272_13375459037315144736": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "торшер",
+   "status": "skip"
+  },
+  "99272_13512826478247200239": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "99272_1380905324458342313": {
+   "apply": false,
+   "class": "neutral",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс neutral не мягкий — маска частей не нужна",
+   "role": "кашпо",
+   "status": "skip"
+  },
+  "99272_13817369822060016317": {
+   "apply": false,
+   "class": "ceramic",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ceramic не мягкий — маска частей не нужна",
+   "role": "ваза",
+   "status": "skip"
+  },
+  "99272_14221201719639999304": {
+   "apply": false,
+   "class": "stone",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс stone не мягкий — маска частей не нужна",
+   "role": "торшер",
+   "status": "skip"
+  },
+  "99272_14380012217913081417": {
+   "apply": false,
+   "class": "neutral",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс neutral не мягкий — маска частей не нужна",
+   "role": "кашпо",
+   "status": "skip"
+  },
+  "99272_14794529733574939330": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "лампа",
+   "status": "skip"
+  },
+  "99272_1553377243319210349": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "лампа",
+   "status": "skip"
+  },
+  "99272_1569332936792887139": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "люстра",
+   "status": "skip"
+  },
+  "99272_15883857958290353634": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "лампа",
+   "status": "skip"
+  },
+  "99272_16007095416750989917": {
+   "apply": false,
+   "class": "glass",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс glass не мягкий — маска частей не нужна",
+   "role": "ваза",
+   "status": "skip"
+  },
+  "99272_16052643483305631560": {
+   "apply": false,
+   "class": "plastic",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс plastic не мягкий — маска частей не нужна",
+   "role": "кашпо",
+   "status": "skip"
+  },
+  "99272_16065312156348664945": {
+   "apply": false,
+   "class": "ceramic",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ceramic не мягкий — маска частей не нужна",
+   "role": "лампа",
+   "status": "skip"
+  },
+  "99272_16082519621399870883": {
+   "apply": false,
+   "class": "wood_solid",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс wood_solid не мягкий — маска частей не нужна",
+   "role": "стул",
+   "status": "skip"
+  },
+  "99272_16668529835026829117": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "торшер",
+   "status": "skip"
+  },
+  "99272_16892335979063759073": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "торшер",
+   "status": "skip"
+  },
+  "99272_16937939060063444900": {
+   "apply": false,
+   "class": "glass",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс glass не мягкий — маска частей не нужна",
+   "role": "ваза",
+   "status": "skip"
+  },
+  "99272_16966002610763070101": {
+   "apply": true,
+   "class": "fabric",
+   "confidence": 0.75,
+   "metrics": {
+    "layers": 122,
+    "maxIslandSpanPct": 100,
+    "pitchCm": 1.65,
+    "probeSpanPct": 99
+   },
+   "productHasLegs": null,
+   "reason": "у пола одно большое пятно (100% размера основания) — цоколь или сплошное днище, отделимых ножек нет: вся поверхность обивка",
+   "role": "диван",
+   "status": "whole"
+  },
+  "99272_17087714635974701391": {
+   "apply": false,
+   "class": "stone",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс stone не мягкий — маска частей не нужна",
+   "role": "кашпо",
+   "status": "skip"
+  },
+  "99272_17101535230454148593": {
+   "apply": false,
+   "class": "glass",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс glass не мягкий — маска частей не нужна",
+   "role": "ваза",
+   "status": "skip"
+  },
+  "99272_17108812914246817673": {
+   "apply": false,
+   "class": "wood_solid",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс wood_solid не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "99272_17264083823537649635": {
+   "apply": true,
+   "bandTopFrac": 0.6792,
+   "class": "velour",
+   "confidence": 0.75,
+   "cutFrac": 0.1875,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.105,
+     0.0,
+     0.091
+    ],
+    [
+     0.0,
+     0.105,
+     0.914,
+     1.023
+    ],
+    [
+     0.901,
+     1.006,
+     0.0,
+     0.091
+    ],
+    [
+     0.901,
+     1.027,
+     0.914,
+     1.023
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 49,
+    "bodyStartPct": 19,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 3.4,
+    "maxIslandSpanPct": 12,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 19% высоты; выше ножек полоса 49% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "99272_17510593292245098483": {
+   "apply": false,
+   "class": "ceramic",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ceramic не мягкий — маска частей не нужна",
+   "role": "ваза",
+   "status": "skip"
+  },
+  "99272_17586256206196278584": {
+   "apply": false,
+   "class": "glass",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс glass не мягкий — маска частей не нужна",
+   "role": "ваза",
+   "status": "skip"
+  },
+  "99272_17598954721654987930": {
+   "apply": false,
+   "class": "glass",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс glass не мягкий — маска частей не нужна",
+   "role": "ваза",
+   "status": "skip"
+  },
+  "99272_17894879541595848038": {
+   "apply": true,
+   "bandTopFrac": 0.4958,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.3792,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.11,
+     0.861,
+     0.981
+    ],
+    [
+     0.141,
+     0.266,
+     0.106,
+     0.226
+    ],
+    [
+     0.72,
+     0.861,
+     0.106,
+     0.226
+    ],
+    [
+     0.893,
+     1.002,
+     0.861,
+     0.981
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 12,
+    "bodyStartPct": 38,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 4.5,
+    "maxIslandSpanPct": 14,
+    "pitchCm": 1.65
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 38% высоты; выше ножек полоса 12% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "99272_17912967339354179958": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "торшер",
+   "status": "skip"
+  },
+  "99272_18028398033109686881": {
+   "apply": false,
+   "class": "glass",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс glass не мягкий — маска частей не нужна",
+   "role": "ваза",
+   "status": "skip"
+  },
+  "99272_18294100626523447660": {
+   "apply": false,
+   "class": "chrome",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс chrome не мягкий — маска частей не нужна",
+   "role": "торшер",
+   "status": "skip"
+  },
+  "99272_18295675822361382528": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "лампа",
+   "status": "skip"
+  },
+  "99272_18351062335411021998": {
+   "apply": false,
+   "class": "glass",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс glass не мягкий — маска частей не нужна",
+   "role": "ваза",
+   "status": "skip"
+  },
+  "99272_2136105481010756455": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "99272_2654629622432191259": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "99272_2676905060581069193": {
+   "apply": true,
+   "bandTopFrac": 0.4958,
+   "class": "velvet",
+   "confidence": 0.75,
+   "cutFrac": 0.2042,
+   "footprintBoxes": [
+    [
+     0.016,
+     0.113,
+     0.158,
+     0.245
+    ],
+    [
+     0.016,
+     0.113,
+     0.935,
+     1.022
+    ],
+    [
+     0.885,
+     0.997,
+     0.158,
+     0.245
+    ],
+    [
+     0.885,
+     0.997,
+     0.935,
+     1.022
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 29,
+    "bodyStartPct": 21,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 2.6,
+    "maxIslandSpanPct": 11,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 21% высоты; выше ножек полоса 29% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "99272_3252240933671227668": {
+   "apply": false,
+   "class": "plastic",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс plastic не мягкий — маска частей не нужна",
+   "role": "стул",
+   "status": "skip"
+  },
+  "99272_3312711759546768380": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "лампа",
+   "status": "skip"
+  },
+  "99272_3499793652358465336": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "лампа",
+   "status": "skip"
+  },
+  "99272_3587523561202691251": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "торшер",
+   "status": "skip"
+  },
+  "99272_3934977655350054394": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "торшер",
+   "status": "skip"
+  },
+  "99272_424797178789212382": {
+   "apply": false,
+   "class": "ceramic",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ceramic не мягкий — маска частей не нужна",
+   "role": "ваза",
+   "status": "skip"
+  },
+  "99272_4412154960024108428": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "лампа",
+   "status": "skip"
+  },
+  "99272_4440676307602507118": {
+   "apply": false,
+   "class": "glass",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс glass не мягкий — маска частей не нужна",
+   "role": "ваза",
+   "status": "skip"
+  },
+  "99272_4605871192508099154": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "люстра",
+   "status": "skip"
+  },
+  "99272_477335602656654248": {
+   "apply": false,
+   "class": "plastic",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс plastic не мягкий — маска частей не нужна",
+   "role": "кашпо",
+   "status": "skip"
+  },
+  "99272_4983412252027465864": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "торшер",
+   "status": "skip"
+  },
+  "99272_5256875288911330299": {
+   "apply": true,
+   "bandTopFrac": 0.4292,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.3792,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.125,
+     0.885,
+     1.007
+    ],
+    [
+     0.072,
+     0.215,
+     0.092,
+     0.229
+    ],
+    [
+     0.788,
+     0.913,
+     0.092,
+     0.229
+    ],
+    [
+     0.877,
+     1.003,
+     0.885,
+     1.007
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 5,
+    "bodyStartPct": 38,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 5.0,
+    "maxIslandSpanPct": 14,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 38% высоты; выше ножек полоса 5% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "99272_5264916377944703697": {
+   "apply": false,
+   "class": "wood_solid",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс wood_solid не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "99272_5344766265684070004": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "люстра",
+   "status": "skip"
+  },
+  "99272_5654964540329990020": {
+   "apply": true,
+   "bandTopFrac": 0.4542,
+   "class": "rogozhka",
+   "confidence": 0.75,
+   "cutFrac": 0.2292,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.09,
+     0.196,
+     0.286
+    ],
+    [
+     0.0,
+     0.09,
+     0.904,
+     1.009
+    ],
+    [
+     0.905,
+     1.013,
+     0.196,
+     0.286
+    ],
+    [
+     0.905,
+     1.031,
+     0.904,
+     1.009
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 22,
+    "bodyStartPct": 23,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 3.2,
+    "maxIslandSpanPct": 12,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 23% высоты; выше ножек полоса 22% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "99272_5831242993011985711": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "лампа",
+   "status": "skip"
+  },
+  "99272_5848359900764199987": {
+   "apply": false,
+   "class": "mdf_film",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс mdf_film не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "99272_5866783925654430160": {
+   "apply": false,
+   "class": "plastic",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс plastic не мягкий — маска частей не нужна",
+   "role": "кашпо",
+   "status": "skip"
+  },
+  "99272_5951062789359080295": {
+   "apply": false,
+   "class": "neutral",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс neutral не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "99272_6146555385599546030": {
+   "apply": false,
+   "class": "plastic",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс plastic не мягкий — маска частей не нужна",
+   "role": "кашпо",
+   "status": "skip"
+  },
+  "99272_6218699376495884286": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "торшер",
+   "status": "skip"
+  },
+  "99272_6219415747595231599": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "лампа",
+   "status": "skip"
+  },
+  "99272_7044955940371172076": {
+   "apply": false,
+   "class": "stone",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс stone не мягкий — маска частей не нужна",
+   "role": "кашпо",
+   "status": "skip"
+  },
+  "99272_724488798771427452": {
+   "apply": false,
+   "class": "wood_solid",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс wood_solid не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "99272_7568905546627996061": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "торшер",
+   "status": "skip"
+  },
+  "99272_766293343880707363": {
+   "apply": false,
+   "class": "ceramic",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ceramic не мягкий — маска частей не нужна",
+   "role": "кашпо",
+   "status": "skip"
+  },
+  "99272_7726437750584889058": {
+   "apply": false,
+   "class": "wood_solid",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс wood_solid не мягкий — маска частей не нужна",
+   "role": "комод",
+   "status": "skip"
+  },
+  "99272_8346144580030681814": {
+   "apply": false,
+   "class": "glass",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс glass не мягкий — маска частей не нужна",
+   "role": "ваза",
+   "status": "skip"
+  },
+  "99272_8484053249211086619": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  },
+  "99272_8825974142927049059": {
+   "apply": false,
+   "class": "metal",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс metal не мягкий — маска частей не нужна",
+   "role": "торшер",
+   "status": "skip"
+  },
+  "99272_9233621696509678408": {
+   "apply": true,
+   "bandTopFrac": 0.3792,
+   "class": "fabric",
+   "confidence": 0.75,
+   "cutFrac": 0.3375,
+   "footprintBoxes": [
+    [
+     0.0,
+     0.14,
+     0.865,
+     0.969
+    ],
+    [
+     0.105,
+     0.244,
+     0.149,
+     0.253
+    ],
+    [
+     0.768,
+     0.891,
+     0.134,
+     0.253
+    ],
+    [
+     0.873,
+     1.013,
+     0.88,
+     0.999
+    ]
+   ],
+   "islands": 4,
+   "metrics": {
+    "bandPct": 4,
+    "bodyStartPct": 34,
+    "islands": 4,
+    "layers": 121,
+    "legFootprintPct": 4.3,
+    "maxIslandSpanPct": 14,
+    "pitchCm": 1.66
+   },
+   "productHasLegs": null,
+   "reason": "у пола 4 отдельных малых пятен-ножек, тело начинается на 34% высоты; выше ножек полоса 4% высоты (рейки, царги или юбка — дерево или обивка не различить): слой на неё не кладём",
+   "role": "стул",
+   "status": "split"
+  },
+  "99272_9291635762585897906": {
+   "apply": false,
+   "class": "stone",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс stone не мягкий — маска частей не нужна",
+   "role": "кашпо",
+   "status": "skip"
+  },
+  "99272_9791048974647036683": {
+   "apply": false,
+   "class": "ldsp",
+   "confidence": 1.0,
+   "productHasLegs": null,
+   "reason": "класс ldsp не мягкий — маска частей не нужна",
+   "role": "столик",
+   "status": "skip"
+  }
+ },
+ "rulesSha": "3e13073de34c5515"
+}
