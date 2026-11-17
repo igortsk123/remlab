@@ -505,6 +505,29 @@ ok('кэш дампа: три параллельных прогона — без
    not errs5 and all(open(os.path.join(TMP, f'pd{i}', 'scene-export.json')).read() == '{"y": 2}' for i in range(3)) and len(ents5) == 1 and '.tmp-' not in ents5[0])
 ok('кэш дампа: файлы записи только для чтения', all((os.stat(os.path.join(os.environ['RENDER_DUMP_CACHE'], ents5[0], f)).st_mode & 0o222) == 0 for f in os.listdir(os.path.join(os.environ['RENDER_DUMP_CACHE'], ents5[0])) if f != '.ok'))
 RE.run_step = orig_rs
+# ═══ 14. T-24/4: сбой перечня заданий не убивает воркера (живая пара 23:34: исключение из ls задания вышло из loop → процесс умер → «не взяли»)
+s9 = FakeSink()
+s9.put('renderjobs/j9/job.json', b'{}')
+w9 = new_worker(s9)
+real_ls = s9.ls
+calls9 = []
+def flaky_ls(rel):
+    calls9.append(rel)
+    if rel == 'renderjobs/j9':
+        raise JP.SinkError('LS: timed out', 0)
+    return real_ls(rel)
+s9.ls = flaky_ls
+ok('pick: сбой ls каталога задания → None, исключения нет', w9.pick() is None and 'renderjobs/j9' in calls9)
+s9.ls = real_ls
+ok('pick: после сбоя то же задание берётся на следующем круге', w9.pick() == 'j9')
+def boom_pick():
+    raise RuntimeError('boom')
+w9.pick = boom_pick
+w9.sleep_n = 0
+RW.MA.STATE['ready'] = True
+th9 = threading.Thread(target=w9.loop, daemon=True); th9.start()
+time.sleep(1.6)
+ok('loop: любое исключение pick не завершает поток воркера', th9.is_alive())
 shutil.rmtree(TMP, ignore_errors=True)
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')
 sys.exit(1 if BAD else 0)

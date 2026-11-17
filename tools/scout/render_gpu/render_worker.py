@@ -106,7 +106,11 @@ class Worker:
             n = d['name']
             if n in self.done or now - float(d.get('mtime', 0)) > MAX_AGE:
                 continue
-            names = {f['name'] for f in self.sink.ls(f'{JP.PREFIX}/{n}').get('files', [])}
+            try:
+                names = {f['name'] for f in self.sink.ls(f'{JP.PREFIX}/{n}').get('files', [])}
+            except JP.SinkError as e:      # сетевой сбой/таймаут посреди перечня: не падать (воркер умирал — T-24/4, живая пара 23:34), пропустить до следующего круга
+                log('ls задания', n, e)
+                return None
             if 'result.json' in names or 'cancel.json' in names:
                 self.done.add(n)
                 continue
@@ -203,7 +207,11 @@ class Worker:
             if not MA.STATE.get('ready'):
                 time.sleep(POLL)
                 continue
-            jid = self.pick()
+            try:
+                jid = self.pick()
+            except Exception as e:  # noqa: BLE001 — воркер не должен умирать от сбоя перечня заданий
+                log('pick сбой', type(e).__name__, str(e)[:160])
+                jid = None
             if not jid:
                 time.sleep(POLL)
                 continue
