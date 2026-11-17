@@ -49,7 +49,7 @@ const LOCAL = /^\/(flat3d)\//;   // свои файлы worktree (растени
 const server = createServer(async (req, res) => {
   const url = decodeURIComponent(req.url ?? "/");
   const path = url.split("?")[0];
-  if (path === "/") { res.writeHead(200, { "content-type": "text/html" }).end(HTML); return; }
+  if (path === "/" || path === "/demo/") { res.writeHead(200, { "content-type": "text/html" }).end(HTML); return; }
   if (path === "/entry.js") { res.writeHead(200, { "content-type": "text/javascript" }).end(ENTRY); return; }
   const type = TYPES[extname(path)] ?? "application/octet-stream";
   if (LOCAL.test(path)) for (const dir of PUBLIC) if (existsSync(join(dir, path))) { res.writeHead(200, { "content-type": type }).end(readFileSync(join(dir, path))); return; }
@@ -68,7 +68,8 @@ const server = createServer(async (req, res) => {
   } catch { res.writeHead(502).end(); }
 });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
-const base = `http://127.0.0.1:${server.address().port}/`;
+// страница стоит на /demo/, как живая: относительные адреса витрины (`img/…` — фото картин и ковра) считаются от неё (было `/` → 404 → чёрные картины, T-20261117-09)
+const base = `http://127.0.0.1:${server.address().port}/demo/`;
 const launch = () => chromium.launch({ ignoreDefaultArgs: ["--disable-dev-shm-usage"], args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const save = (name, url) => writeFileSync(join(OUT, name), Buffer.from(url.split(",")[1], "base64"));
 
@@ -90,6 +91,21 @@ if (SHEET.length) {
 const demo = JSON.parse(readFileSync(home(arg("--data")), "utf8"));
 if (VARIANTS[0] === "all") VARIANTS = demo.variants.map((x) => x.id);
 const rt = (await (await fetch(`${PROD}/demo/rt-meshes.json`)).json()).meshes;
+// пол и стены — отделка по умолчанию из карточки квартиры, как `index.html:devFloor/devWall` (первая группа пола/стен гостиной, вариант по умолчанию)
+const finish = await (async () => {
+  try {
+    const j = await (await fetch(`${PROD}/api/apartments/${encodeURIComponent(demo.apartment_id ?? "flat215")}?lang=ru&demo=1`)).json();
+    const pick = (slot) => {
+      const g = (j.card?.options ?? []).find((x) => (x.slotIds ?? []).includes(slot) && (!x.roomKind || x.roomKind === "living"));
+      return g ? (g.variants.find((x) => x.id === g.defaultVariantId) ?? g.variants[0]) : null;
+    };
+    const f = pick("floor"), w = pick("wall");
+    return {
+      floor: f?.material ?? undefined,
+      wall: w?.material ? { material: w.material, ...(w.accent?.material ? { accent: { material: w.accent.material, anchor: w.accent.anchor } } : {}) } : undefined,
+    };
+  } catch { return {}; }
+})();
 const report = [];
 for (const vid of VARIANTS) {
   const v = demo.variants.find((x) => x.id === vid);
@@ -116,7 +132,7 @@ for (const vid of VARIANTS) {
       tab.on("response", async (r) => { try { const b = await r.body(); bytes += b.length; files += 1; } catch { /* редирект */ } });
       await tab.goto(base);
       await tab.waitForFunction(() => typeof window.variantSnap === "function");
-      const got = await tab.evaluate((c) => window.variantSnap(c), { room, items: v.items ?? [], decor: v.decor ?? [], rt, lite: w < 600, plants: !!plants,
+      const got = await tab.evaluate((c) => window.variantSnap(c), { room, items: v.items ?? [], decor: v.decor ?? [], rt, floor: finish.floor, wall: finish.wall, lite: w < 600, plants: !!plants,
         style: v.style_id, poses, focus: FOCUS, width: w, height: h });
       await browser.close();
       got.frames.forEach((url, i) => save(`${vid}.cam${i + 1}.${w}x${h}.plants${plants}.jpg`, url));

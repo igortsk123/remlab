@@ -19,6 +19,9 @@ interface Case {
   items: DemoSceneOptions["items"];
   decor: DemoSceneOptions["decor"];
   rt: RuntimeMeshes;
+  /** Отделка по умолчанию из карточки квартиры (как на живой странице); нет — стандарт сцены. */
+  floor?: DemoSceneOptions["floor"];
+  wall?: DemoSceneOptions["wall"];
   lite: boolean;
   plants: boolean;
   style?: string;
@@ -61,7 +64,7 @@ window.variantSnap = async (c: Case) => {
   canvas.width = c.width;
   canvas.height = c.height;
   const t0 = performance.now();
-  const scene = createDemoScene(canvas, { room: c.room, items: c.items, decor: c.decor, base: location.href, runtimeMeshes: c.rt, lite: c.lite,
+  const scene = createDemoScene(canvas, { room: c.room, items: c.items, decor: c.decor, base: location.href, runtimeMeshes: c.rt, lite: c.lite, floor: c.floor, wall: c.wall,
     walk: true, plants: c.plants, style: c.style });
   let lost = false;
   scene.on("contextlost", () => { lost = true; });
