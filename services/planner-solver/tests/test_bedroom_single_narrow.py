@@ -66,6 +66,15 @@ ADDED_T95 = {
 }
 
 
+# добавки T-20261117-13 (полоса высоты лампы от 33 см и запас у соседнего стиля) — дописаны последними ключами лампы каждого назначения;
+# пояснения верхнего уровня `_lamp_band_why` / `_lamp_spare_why` на «_» снимаются без проверки порядка
+_LAMP = [("band_min"), ("neighbour_spare")]
+ADDED_T13 = {
+    "tools/scout/rules/bedroom-composition.json": [(("purposes", p, "decor", "лампа"), k) for p in ("couple", "single", "guest", "single_narrow")
+                                                   for k in _LAMP] + [(None, "_lamp_band_why"), (None, "_lamp_spare_why")],
+}
+
+
 def _sec(d: dict, sec):
     if sec is None:
         return d
@@ -76,7 +85,7 @@ def _sec(d: dict, sec):
 
 def _drop_t38(name: str, d: dict, check_order: bool = False) -> dict:
     d = copy.deepcopy(d)
-    for sec, key in reversed(ADDED_T38.get(name, []) + ADDED_T68.get(name, []) + ADDED_T95.get(name, [])):
+    for sec, key in reversed(ADDED_T38.get(name, []) + ADDED_T68.get(name, []) + ADDED_T95.get(name, []) + ADDED_T13.get(name, [])):
         tgt = _sec(d, sec)
         if check_order and not key.startswith("_"):
             assert list(k for k in tgt if not k.startswith("_"))[-1] == key, f"{name}: {key} — не последним ключом"
