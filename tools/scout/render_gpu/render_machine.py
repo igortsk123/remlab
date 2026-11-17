@@ -90,7 +90,7 @@ DEFAULT_RULES = {
     'cpu': 8, 'memory_mb': 16384, 'storage_gb': 10, 'price_class': 'RTX 4090 (24 GB)', 'tier': 'high',
     'gpu_class_id': 'ed563892-aacd-40f5-80b7-90c9be6c759b', 'controller_stale_s': 300,
     # исполнитель (render_exec.SaladGpuExecutor): ждать взятия задания, потолок пары, опрос результата, «занято» на время ожидания
-    'executor': {'pickup_s': 90, 'pair_max_s': 900, 'poll_s': 3, 'busy_s': 90},
+    'executor': {'pickup_s': 90, 'pair_max_s': 900, 'poll_s': 3, 'busy_s': 90, 'bundle_max_mb': 95},
     'alert_sh': '/home/pakar/igor/remlab/tools/scout/alert.sh', 'donor_group': 'mesh-q-low-1',
 }
 

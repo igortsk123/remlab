@@ -316,6 +316,15 @@ try:
 except RE.ExecutorUnavailable as e:
     ok('хранилище не приняло пакет → gpu_upload, job.json не появился', e.code == 'gpu_upload' and not any(r.endswith('job.json') for _, r in sink.log))
 
+# ═══ 8b. пакет больше потолка приёмника (95 МБ) → понятный отказ до отправки, откат на CPU
+sink, m = FakeSink(), FakeMachine()
+m.rules_['executor']['bundle_max_mb'] = 0.001
+try:
+    render(Exec(sink, m, PUBLIC), os.path.join(TMP, 'o8b'))
+    ok('пакет больше потолка → отказ', False)
+except RE.ExecutorUnavailable as e:
+    ok('пакет > bundle_max_mb → gpu_bundle_big, в хранилище ничего не ушло', e.code == 'gpu_bundle_big' and sink.log == [] or not any(k == 'put' for k, _ in sink.log))
+
 # ═══ 9. автостоп: заказ и пара — события, занятость снимается всегда (реальный контроллер, чистая plan)
 sys.path.insert(0, HERE)
 import render_machine as RM  # noqa: E402

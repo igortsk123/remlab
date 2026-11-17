@@ -8,6 +8,7 @@
 # Лимит Salad — 35 ГБ сжатого; наш порог для рендера — 3 ГБ (если больше, что-то лишнее попало в образ). Секретов в контексте нет.
 set -euo pipefail
 TARGET="${1:-bench}"
+BASE="${RENDER_BASE:-base}"            # thin — тонкий образ (T-24/3): тег получает суффикс -thin
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CYC="$HERE/../cycles_probe"
 L="$HOME/remlab-logs/t63-1117"
@@ -45,9 +46,9 @@ else
   rm -rf "$CTX/scenes"; mkdir -p "$CTX/scenes"      # цель code сцен не копирует
 fi
 
-TAG="$REPO:cycles-5.3.0-$TARGET"
+TAG="$REPO:cycles-5.3.0-$TARGET"; [ "$BASE" = "thin" ] && TAG="$TAG-thin"
 echo "== сборка $TAG (Blender sha256 ${SHA:0:12}…)"
-docker build -f "$CTX/Dockerfile.render" --target "$TARGET" --build-arg "BLENDER_SHA256=$SHA" -t "$TAG" "$CTX"
+docker build -f "$CTX/Dockerfile.render" --target "$TARGET" --build-arg "BLENDER_SHA256=$SHA" --build-arg "BASE=$BASE" -t "$TAG" "$CTX"
 echo "== локальный размер: $(docker image inspect "$TAG" --format '{{.Size}}' | python3 -c 'import sys;print(round(int(sys.stdin.read())/2**30,2))') ГБ (распакованный)"
 echo "== публикация $TAG (вход в ghcr уже сделан на DEV для мешей)"
 docker push "$TAG" | tail -3

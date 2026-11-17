@@ -459,6 +459,10 @@ class SaladGpuExecutor(SceneExecutor):
             sha = JP.pack_bundle(self._bundle_files(job), tgz)
             bundle = f'bundle-{sha}.tgz'
             timing['pack'] = round(self.now() - t1, 1)
+            cap_mb = float(ex.get('bundle_max_mb', 95))      # приёмник и Caddy не примут больше (Caddy режет тело на 100 МБ): откат на CPU сразу и с понятной причиной
+            if os.path.getsize(tgz) > cap_mb * 2 ** 20:
+                print(f'рендер: пакет сцены {os.path.getsize(tgz) / 2 ** 20:.0f} МБ > {cap_mb:g} МБ — на машину не отдаём', flush=True)
+                raise self._gpu_unavailable('gpu_bundle_big') from None
             t1 = self.now()
             try:
                 sink.put_file(f'{JP.PREFIX}/{jid}/{bundle}', tgz)
