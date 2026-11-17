@@ -6,6 +6,7 @@ import type { Material } from "@/contracts/configurator";
 import { fromDemoVariant, isTextileDecor } from "@/lib/configurator/fromDemo";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { roomCurtains } from "@/lib/configurator/curtains";
+import { TEXTILE_RULES, textileRenders } from "@/lib/configurator/textile";
 import { planObjects, productCurtains } from "@/lib/viewer3d/build-scene";
 import { sceneSlotIndex } from "@/lib/viewer3d/demo-scene";
 import { buildPillow, buildProductCurtain, buildThrow, SHEER_OPACITY } from "@/lib/viewer3d/kits/textile";
@@ -69,13 +70,18 @@ describe("условная ткань: мост витрины → места с
     expect([...productCurtains(apartment).get(slot.roomId)!]).toEqual([1]);
   });
 
-  it("сцена рисует штору и плед; без условной ткани — как раньше (шторы только в списке)", () => {
+  it("сцена рисует штору; плед выключен правилом `data/flat3d/textile.json` (TG 1440) — слот и строка остаются, в 3D нет", () => {
     const { apartment, catalogue } = build([TULLE, THROW]);
+    expect(apartment.slots.some((s) => s.textile?.shape === "throw")).toBe(true);        // слот пледа есть: список, сумма, карточка
     const sc = resolveScene(apartment, catalogue, defaultConfiguration(apartment, catalogue));
     const specs = planObjects(apartment, catalogue, sc).filter((s) => s.kind === "textile");
-    expect(specs.map((s) => s.kind === "textile" && [s.shape, s.sheer])).toEqual([["curtain", true], ["throw", false]]);
-    const pl = specs[1]!.placement;
-    expect(pl).toMatchObject({ rot: 180, wCm: 36, dCm: 55, hCm: 5, elevCm: 60 });
+    expect(specs.map((s) => s.kind === "textile" && [s.shape, s.sheer])).toEqual([["curtain", true]]);
+    expect(TEXTILE_RULES.render).toEqual({ curtain: true, throw: false, pillow: true });
+    // флаг — данные: нет записи или true — форма рисуется (откат без правки кода)
+    expect(textileRenders("throw", { render: { throw: true } })).toBe(true);
+    expect(textileRenders("throw", {})).toBe(true);
+    expect(textileRenders("throw")).toBe(false);
+    expect(textileRenders("pillow")).toBe(true);
     const plain = build([{ ...TULLE, strategy: undefined }]);
     expect(plain.apartment.slots.some((s) => s.textile)).toBe(false);
     expect(productCurtains(plain.apartment).size).toBe(0);

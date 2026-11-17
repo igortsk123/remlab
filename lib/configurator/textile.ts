@@ -6,12 +6,19 @@
 // условная подушка цветом товара.
 
 import type { Opening } from "@/contracts/apartment";
+import textileRulesJson from "@/data/flat3d/textile.json";
 
 export const TEXTILE_STRATEGY = "textile_abstract";
 /** Пометка в карточке: форма не по фото товара. */
 export const TEXTILE_NOTE_RU = "вид условный";
 
 export type TextileShape = "curtain" | "throw" | "pillow";
+
+/** Правила условной ткани в 3D (`data/flat3d/textile.json`): `render[форма] === false` — форма в сцене не рисуется, в списке остаётся. */
+export type TextileRules = { render?: Partial<Record<TextileShape, boolean>> };
+export const TEXTILE_RULES: TextileRules = textileRulesJson;
+/** Рисует ли сцена эту форму ткани; нет записи — рисует (как до флага). */
+export const textileRenders = (shape: TextileShape, rules: TextileRules = TEXTILE_RULES): boolean => rules.render?.[shape] !== false;
 export type TextilePlace = {
   x?: number; y?: number; rot?: number; elev_cm?: number; slot_instance_id?: string; parent?: string | null;
   kind?: string; opening?: number | null; wall?: string | null; edge?: string | null; w?: number; d?: number; h?: number;
