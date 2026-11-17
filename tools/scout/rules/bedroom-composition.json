@@ -30,7 +30,7 @@
     {"role": "комод", "storage": true, "ideal": {"w": 100, "d": 45, "h": 85}, "band": ["w", "d", "h"],
      "_why": "«шкаф или комод» (п.3): ставим оба, если влезают; не встал ни один — набора нет"}
    ],
-   "decor": {"лампа": {"qty_from": "тумба прикроватная", "ideal": {"h": 45}, "band": ["h"], "band_min": {"h": 33}, "neighbour_spare": true, "deny": "@lamp_task", "deny_model": true, "prefer": "ночник|прикроватн|абажур|декоративн", "gap": "лампа: нет подходящей"},
+   "decor": {"лампа": {"qty_from": "тумба прикроватная", "ideal": {"h": 45}, "band": ["h"], "deny": "@lamp_task", "deny_model": true, "prefer": "ночник|прикроватн|абажур|декоративн", "gap": "лампа: нет подходящей", "band_min": {"h": 33}, "neighbour_spare": true},
              "ковёр": {"ideal": {"long": 300}, "band": ["long"], "_why": "200×300 поперёк кровати: по 60 см с боков"},
              "_шторы_why": "полотно не уже окна, рулонные/римские/кухонные — нет (канарейка 05.11: рулонка 55 см на окно 240)",
              "шторы": {"qty_from": "windows", "min_w": "window", "deny": "рулон|римск|кафе|для кухни"}, "плед": {}},
@@ -50,7 +50,7 @@
     {"role": "шкаф", "storage": true, "ideal": {"w": 150, "d": 60, "h": 220}, "band": ["w", "d", "h"]},
     {"role": "комод", "storage": true, "ideal": {"w": 100, "d": 45, "h": 85}, "band": ["w", "d", "h"]}
    ],
-   "decor": {"лампа": {"qty_from": "тумба прикроватная", "ideal": {"h": 45}, "band": ["h"], "band_min": {"h": 33}, "neighbour_spare": true, "deny": "@lamp_task", "deny_model": true, "prefer": "ночник|прикроватн|абажур|декоративн", "gap": "лампа: нет подходящей"},
+   "decor": {"лампа": {"qty_from": "тумба прикроватная", "ideal": {"h": 45}, "band": ["h"], "deny": "@lamp_task", "deny_model": true, "prefer": "ночник|прикроватн|абажур|декоративн", "gap": "лампа: нет подходящей", "band_min": {"h": 33}, "neighbour_spare": true},
              "ковёр": {"ideal": {"long": 230}, "band": ["long"], "_why": "160×230 у кровати 120"},
              "шторы": {"qty_from": "windows", "min_w": "window", "deny": "рулон|римск|кафе|для кухни"}, "плед": {}}
   },
@@ -62,7 +62,7 @@
     {"role": "комод", "storage": true, "ideal": {"w": 100, "d": 45, "h": 85}, "band": ["w", "d", "h"]},
     {"role": "шкаф", "storage": true, "ideal": {"w": 150, "d": 60, "h": 220}, "band": ["w", "d", "h"]}
    ],
-   "decor": {"лампа": {"qty_from": "тумба прикроватная", "ideal": {"h": 45}, "band": ["h"], "band_min": {"h": 33}, "neighbour_spare": true, "deny": "@lamp_task", "deny_model": true, "prefer": "ночник|прикроватн|абажур|декоративн", "gap": "лампа: нет подходящей"},
+   "decor": {"лампа": {"qty_from": "тумба прикроватная", "ideal": {"h": 45}, "band": ["h"], "deny": "@lamp_task", "deny_model": true, "prefer": "ночник|прикроватн|абажур|декоративн", "gap": "лампа: нет подходящей", "band_min": {"h": 33}, "neighbour_spare": true},
              "ковёр": {"ideal": {"long": 230}, "band": ["long"]},
              "шторы": {"qty_from": "windows", "min_w": "window", "deny": "рулон|римск|кафе|для кухни"}, "плед": {}}
   },
@@ -91,7 +91,7 @@
     {"role": "комод", "storage": true, "ideal": {"w": 80, "d": 45, "h": 85}, "band": ["w", "d", "h"],
      "_why": "«шкаф или комод» — что влезет; не встал ни один — набора нет (как у single)"}
    ],
-   "decor": {"лампа": {"qty_from": "тумба прикроватная", "ideal": {"h": 45}, "band": ["h"], "band_min": {"h": 33}, "neighbour_spare": true, "deny": "@lamp_task", "deny_model": true, "prefer": "ночник|прикроватн|абажур|декоративн", "gap": "лампа: нет подходящей"},
+   "decor": {"лампа": {"qty_from": "тумба прикроватная", "ideal": {"h": 45}, "band": ["h"], "deny": "@lamp_task", "deny_model": true, "prefer": "ночник|прикроватн|абажур|декоративн", "gap": "лампа: нет подходящей", "band_min": {"h": 33}, "neighbour_spare": true},
              "ковёр": {"ideal": {"long": 200}, "band": ["long"], "_why": "120×170/140×200 у бока узкой кровати"},
              "шторы": {"qty_from": "windows", "min_w": "window", "deny": "рулон|римск|кафе|для кухни"}, "плед": {}}
   }
