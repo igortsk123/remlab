@@ -16,6 +16,7 @@ TGZ="$HOME/opt/dl/blender-5.3.0.tar.xz"
 
 mkdir -p "$CTX/scenes/public"
 cp -f "$HERE/Dockerfile.render" "$HERE/ready_probe.py" "$HERE/bench.py" "$CYC/render_cycles.py" "$CTX/"
+cp -f "$HERE/../../../data/flat3d/wall-art.json" "$CTX/wall-art.json"
 [ -f "$CTX/blender-5.3.0.tar.xz" ] || cp "$TGZ" "$CTX/blender-5.3.0.tar.xz"
 SHA="$(sha256sum "$CTX/blender-5.3.0.tar.xz" | cut -d' ' -f1)"
 
@@ -48,9 +49,13 @@ docker build -f "$CTX/Dockerfile.render" --target "$TARGET" --build-arg "BLENDER
 echo "== локальный размер: $(docker image inspect "$TAG" --format '{{.Size}}' | python3 -c 'import sys;print(round(int(sys.stdin.read())/2**30,2))') ГБ (распакованный)"
 echo "== публикация $TAG (вход в ghcr уже сделан на DEV для мешей)"
 docker push "$TAG" | tail -3
-COMPRESSED=$(docker manifest inspect "$TAG" | python3 -c 'import json,sys; m=json.load(sys.stdin); print(sum(l["size"] for l in m.get("layers",[])))')
-DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' "$TAG")
-echo "== сжатый размер в реестре: $(python3 -c "print(round($COMPRESSED/2**30,2))") ГБ; digest: $DIGEST"
+# buildx кладёт рядом с образом аттестацию, и верхний digest — это список манифестов (слоёв в нём нет: `docker manifest inspect` дал бы 0 ГБ).
+# Закрепляем и считаем по манифесту linux/amd64 — одиночному образу.
+INDEX=$(docker inspect --format '{{index .RepoDigests 0}}' "$TAG")
+AMD=$(docker buildx imagetools inspect --raw "$INDEX" | python3 -c 'import json,sys; m=json.load(sys.stdin); print(next(x["digest"] for x in m["manifests"] if x.get("platform",{}).get("architecture")=="amd64" and x["platform"].get("os")=="linux"))')
+DIGEST="${INDEX%@*}@$AMD"
+COMPRESSED=$(docker buildx imagetools inspect --raw "$DIGEST" | python3 -c 'import json,sys; m=json.load(sys.stdin); print(sum(l["size"] for l in m["layers"]))')
+echo "== сжатый размер в реестре: $(python3 -c "print(round($COMPRESSED/2**30,2))") ГБ; digest (amd64): $DIGEST"
 echo "$DIGEST" > "$HOME/remlab-logs/t22-1117/image-$TARGET.digest"
 python3 -c "import sys; sys.exit(1 if $COMPRESSED/2**30 > $LIMIT_GB else 0)" || { echo "!! образ больше ${LIMIT_GB} ГБ — искать лишнее"; exit 1; }
 echo "== ок"

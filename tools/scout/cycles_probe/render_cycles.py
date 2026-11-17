@@ -26,6 +26,7 @@ ap.add_argument('--out', required=True)
 ap.add_argument('--samples', type=int, default=160)
 ap.add_argument('--pct', type=int, default=100)
 ap.add_argument('--threads', type=int, default=8)
+ap.add_argument('--persistent', type=int, default=0, help='1 — render.use_persistent_data: между кадрами одного процесса не пересобирать BVH и текстуры (проба T-22; по умолчанию как раньше)')
 ap.add_argument('--sun', type=float, default=4.0)
 ap.add_argument('--sky', type=float, default=1.0)
 ap.add_argument('--sun-angle', type=float, default=1.5, help='угловой размер солнца, ° (мягкость края тени; Codex: 3–5)')
@@ -170,6 +171,7 @@ cy.caustics_reflective = False
 cy.caustics_refractive = False
 sc.render.threads_mode = 'FIXED'
 sc.render.threads = a.threads
+sc.render.use_persistent_data = bool(a.persistent)
 sc.view_settings.view_transform = a.transform
 # look: имя точное, затем без префикса «AgX - » / «Filmic - » (в разных версиях Blender пишется по-разному); нет — без look
 _short = a.look.split(' - ', 1)[-1]

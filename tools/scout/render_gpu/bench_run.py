@@ -122,10 +122,14 @@ def main():
     ap.add_argument('--spent-before', type=float, default=0.0, help='уже потрачено на прежних карточках замера, $')
     ap.add_argument('--total-cap', type=float, default=4.0, help='стоп при общих начислениях, $')
     ap.add_argument('--max-min', type=int, default=75, help='предел времени работы машины, мин')
+    ap.add_argument('--no-events-s', type=int, default=240, help='стоп, если столько секунд после running нет events.json')
+    ap.add_argument('--suffix', default='', help='суффикс имени группы (b — повтор в новой группе)')
+    ap.add_argument('--start-existing', action='store_true', help='группа уже создана (остановлена) — запустить как есть')
+    ap.add_argument('--reuse', action='store_true', help='группа уже есть и остановлена: обновить образ/RUN_ID (PATCH) и запустить')
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/t22-1117'))
     a = ap.parse_args()
     MG.env_from_file()
-    name = f'render-bench-{a.card}'
+    name = f'render-bench-{a.card}{a.suffix}'
     if a.stop_only:
         sys.exit(0 if stop_and_verify(name) else 1)
     if not a.image:
@@ -135,8 +139,8 @@ def main():
         sys.exit(f'образец {DONOR}: HTTP {code}')
     run_id = f'{a.card}-{time.strftime("%H%M", time.gmtime())}'
     body = build_body(name, a.card, a.image, donor, run_id, a.plan, a.cpu, a.mem_mb)
-    price = SG.price(name)
-    say('группа', name, 'карта', CARDS[a.card]['class_name'], 'тариф', SG.tier(name), 'цена $/ч', price, 'run', run_id)
+    price = SG.price(name) or SG.price(f'render-bench-{a.card}')      # повторы в новых группах (суффикс) — цена той же карты
+    say('группа', name, 'карта', CARDS[a.card]['class_name'], 'тариф', (SG.tier(name) or SG.tier(f'render-bench-{a.card}')), 'цена $/ч', price, 'run', run_id)
     if not a.apply:
         safe_print(body)
         return
@@ -149,13 +153,32 @@ def main():
     if price is None:
         sys.exit('цены группы нет в rules/salad-groups.json — стоп (деньги без цены не считаем)')
     code, g = MG.api(f'/{name}')
-    if code == 200:
-        sys.exit(f'группа {name} уже есть ({(g.get("current_state") or {}).get("status")}) — не пересоздаю молча')
-    code, resp = MG.api('', 'POST', body)
-    say('POST создание', code, str(resp)[:200] if code >= 300 else 'ok')
-    if code >= 300:
-        sys.exit(1)
-    for _ in range(30):
+    if code == 200 and a.start_existing and (g.get('current_state') or {}).get('status') == 'stopped':
+        say('группа уже создана и остановлена — запускаю как есть (образ и env из неё)')
+        run_id = (g['container'].get('environment_variables') or {}).get('RUN_ID', run_id)
+    elif code == 200 and a.reuse and (g.get('current_state') or {}).get('status') == 'stopped':
+        # повторный замер на той же (остановленной) группе: новый образ и RUN_ID — PATCH контейнера, группу не удаляем
+        import urllib.error
+        import urllib.request
+        _rq = urllib.request.Request(f'{MG.API}/{name}', method='PATCH', headers={
+            'Salad-Api-Key': os.environ['SALAD_API_KEY'], 'User-Agent': 'remlab-mesh/1.0', 'Content-Type': 'application/merge-patch+json'},
+            data=json.dumps({'container': {k: body['container'][k] for k in ('image', 'environment_variables', 'registry_authentication')}}).encode())
+        try:
+            with urllib.request.urlopen(_rq, timeout=60) as _r:
+                code, resp = _r.status, {}
+        except urllib.error.HTTPError as _e:
+            code, resp = _e.code, _e.read().decode()[:200]
+        say('PATCH контейнера', code, str(resp)[:200] if code >= 300 else 'ok')
+        if code >= 300:
+            sys.exit(1)
+    elif code == 200:
+        sys.exit(f'группа {name} уже есть ({(g.get("current_state") or {}).get("status")}) — не пересоздаю молча (--reuse: обновить остановленную)')
+    else:
+        code, resp = MG.api('', 'POST', body)
+        say('POST создание', code, str(resp)[:200] if code >= 300 else 'ok')
+        if code >= 300:
+            sys.exit(1)
+    for _ in range(120):                       # создание группы Salad иногда идёт 2–10 мин (pending)
         c, st, cnt = group_state(name)
         if st == 'stopped':
             break
@@ -190,6 +213,10 @@ def main():
             ev = sink_events(run_id) if int(t - t_start) % 30 < 10 else last_ev
             if ev:
                 last_ev = ev
+            if run_since is not None and not last_ev and t - run_since > a.no_events_s:
+                say(f'!! за {a.no_events_s} с после running данных на приёмнике нет — гашу (бенч идёт ~3 мин; причина — в журнале контейнера)')
+                stopped_by = 'no-events'
+                break
             if last_ev and last_ev.get('result'):
                 say('бенч сообщил результат:', last_ev['result'], '— собираю и гашу')
                 stopped_by = 'result'

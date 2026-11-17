@@ -33,6 +33,30 @@ def log(*a):
     print(f'[{time.time() - T0:7.1f}s]', *a, flush=True)
 
 
+def tls_diag():
+    """Один раз при первой ошибке TLS: что видит нода (издатель сертификата, пути CA, часы) — разбор по журналу контейнера."""
+    import socket
+    import ssl
+    host = (os.environ.get('MESH_SINK_URL', '').split('//')[-1].split('/')[0]) or 'remont-lab.online'
+    try:
+        log('TLS_DIAG paths', ssl.get_default_verify_paths(), 'SSL_CERT_FILE', os.environ.get('SSL_CERT_FILE'),
+            'exists', os.path.exists(os.environ.get('SSL_CERT_FILE', '/nonexistent')), 'openssl', ssl.OPENSSL_VERSION,
+            'utc', time.strftime('%F %T', time.gmtime()))
+        cx = ssl.create_default_context()
+        cx.check_hostname = False
+        cx.verify_mode = ssl.CERT_NONE
+        with socket.create_connection((host, 443), timeout=15) as sk, cx.wrap_socket(sk, server_hostname=host) as ss:
+            der = ss.getpeercert(True)
+        open('/tmp/peer.pem', 'w').write(ssl.DER_cert_to_PEM_cert(der))
+        d = ssl._ssl._test_decode_cert('/tmp/peer.pem')
+        log('TLS_DIAG peer', 'issuer', d.get('issuer'), 'subject', d.get('subject'), 'from', d.get('notBefore'), 'to', d.get('notAfter'))
+    except Exception as e:  # noqa: BLE001
+        log('TLS_DIAG ошибка диагностики', type(e).__name__, str(e)[:200])
+
+
+_DIAG_DONE = []
+
+
 def sink(method, name, data=None, ctype='application/octet-stream'):
     base = os.environ.get('MESH_SINK_URL', '').rstrip('/')
     if not base:
@@ -46,6 +70,9 @@ def sink(method, name, data=None, ctype='application/octet-stream'):
         return round(time.time() - t, 2)
     except Exception as e:  # noqa: BLE001 — выгрузка не должна ронять замер, но причина видна в журнале
         log('sink', method, name, 'ОШИБКА', type(e).__name__, str(e)[:100])
+        if not _DIAG_DONE:
+            _DIAG_DONE.append(1)
+            tls_diag()
         return None
 
 
@@ -54,7 +81,10 @@ def push_events():
 
 
 def run(cmd, **kw):
-    return subprocess.run(cmd, capture_output=True, text=True, **kw)
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, **kw)
+    except FileNotFoundError as e:          # например nvidia-smi на машине без драйвера — это тоже данные замера, а не причина упасть
+        return subprocess.CompletedProcess(cmd, 127, '', f'нет команды: {e}')
 
 
 def machine():
@@ -98,12 +128,12 @@ class GpuSampler(threading.Thread):
                 'mem_max_mb': max(r[1] for r in self.rows), 'power_max_w': max(r[2] for r in self.rows)}
 
 
-def blender_pair(scene, device, tag):
+def blender_pair(scene, device, tag, samples=None, persistent=0, threads=None):
     export, dump = SCENES[scene]
     out = f'{OUT}/{tag}-{{cam}}.png'
-    cmd = [BL, '-b', '-P', f'{APP}/render_cycles.py', '--',
+    cmd = [BL, '-b', '--python-exit-code', '1', '-P', f'{APP}/render_cycles.py', '--',
            '--scene-dir', f'/scenes/{scene}/export', '--cam', 'C1,C2', '--out', out,
-           '--samples', str(SAMPLES), '--pct', str(PCT), '--device', device,
+           '--samples', str(samples or SAMPLES), '--persistent', str(persistent), '--threads', str(threads or 8), '--pct', str(PCT), '--device', device,
            '--demo-glb', f'/scenes/{scene}/dump/demo_nodes.glb', '--demo-nodes', f'/scenes/{scene}/dump/demo_nodes_uuids.json',
            '--export', f'/scenes/{scene}/dump/scene-export.json', '--public', '/scenes/public',
            '--view', '2', '--exposure', '-0.15', '--sun-angle', '4', '--fill', '40', '--lamp-k', '3000', '--chandelier', '0', '--lamps', '5',
@@ -127,6 +157,8 @@ def blender_pair(scene, device, tag):
             step['device_used'] = ln[len('DEVICE_USED '):]
         elif ln.startswith(('DEVICE_FAIL', 'DEVICE_LIST')):
             step.setdefault('device_notes', []).append(ln)
+    if p.returncode != 0 or len(step['frames']) != 2:
+        step['error_tail'] = text.strip().splitlines()[-6:]          # упавший прогон виден в events.json, а не молча «готов»
     if 'device_used' not in step:
         step['device_used'] = 'CPU' if '--device' in cmd and device == 'cpu' else '?'
     return step
@@ -150,7 +182,7 @@ def main():
     push_events()
 
     t = time.time()
-    p = run([BL, '-b', '-P', f'{APP}/ready_probe.py', '--', '--device', 'auto', '--require-gpu', '1', '--out', f'{OUT}/ready.png'])
+    p = run([BL, '-b', '-P', f'{APP}/ready_probe.py', '--', '--device', 'auto', '--require-gpu', os.environ.get('BENCH_REQUIRE_GPU', '1'), '--out', f'{OUT}/ready.png'])
     txt = p.stdout + p.stderr
     open(f'{OUT}/ready.log', 'w', encoding='utf-8').write(txt)
     EV['ready'] = {'rc': p.returncode, 'wall_s': round(time.time() - t, 1),
@@ -166,11 +198,12 @@ def main():
         return
 
     for item in PLAN.split(','):
-        scene, device, n = item.split(':')
+        scene, device, n, *opt = item.split(':')                    # необязательно: :выборки:persistent:потоки (проба накладных расходов)
+        o_s, o_p, o_t = (int(x) for x in (opt + ['0', '0', '0'][len(opt):])) if opt else (0, 0, 0)
         for i in range(1, int(n) + 1):
-            tag = f'{scene}-{device}-{i}'
+            tag = f'{scene}-{device}-{i}' + (f'-s{o_s}p{o_p}t{o_t}' if opt else '')
             log('прогон', tag)
-            step = blender_pair(scene, device, tag)
+            step = blender_pair(scene, device, tag, o_s or None, o_p, o_t or None)
             step['t_since_start_s'] = round(time.time() - T0, 1)
             upload_frames(step)
             EV['steps'].append(step)
@@ -190,5 +223,7 @@ if __name__ == '__main__':
         EV['result'] = f'error: {type(e).__name__}: {e}'
         push_events()
         log('ОШИБКА', EV['result'])
+    if os.environ.get('BENCH_EXIT') == '1':       # локальная проверка на DEV: выйти, не ждать оператора
+        sys.exit(0)
     while True:                                   # контейнер живёт, пока группу не погасит оператор (Salad перезапустил бы сам и повторил бы платный замер)
         time.sleep(60)
