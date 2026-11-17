@@ -45,8 +45,9 @@ def test_decor_gate_and_roles_present():
     with open(HTML, encoding='utf-8') as f:
         s = f.read()
     assert "['decor',0.12]" in s and 'decor:2,' in s and 'CAM_BAD_W={' in s
-    assert "['decorSelf',0.05]" in s and "['keyCut15',0.10]" in s and 'decorSelf:3' in s and 'keyCut15:5' in s
-    assert 's0.decorSelf=camDecorSelf(c,its)' in s and 's0.keyCut15=s0.keyCut' in s
+    assert "['decorSelf',0.05]" in s and 'decorSelf:3' in s
+    assert 's0.decorSelf=camDecorSelf(c,its)' in s
+    # срез главного >15 % отдельным штрафом (keyCut15, T-21/2) убран: на лофте 22.10 он уводил второй вид в пустую стену, на /demo выбор не менял
     assert 's0.decor=camDecorOver(c,its)' in s
     assert 'L=L.map(camDecorAdd)' in s
     assert s.count('if(it.decor)return;') >= 1 and 'if(it.decor||!e||' in s

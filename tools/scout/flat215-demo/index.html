@@ -4287,7 +4287,7 @@ function camFit(cx,cy,its,W,H,strict){
 // `keyCut` — главное (диван, ТВ-тумба, столик) срезано боковым краем: доля ширины за кадром (d8 17.10: ТВ сканди, диван джапанди)
 // `keyMiss` — только у вида 2 (d8 17.10): ни диван, ни ТВ-тумба не видны хотя бы на 60 % ширины — вид без смысла для покупателя;
 // `close2` — мебель ближе 1.0 м (жёстче `close`). Пороги d8: срез главного ≤ 0.4, пустая стена ≤ 0.4
-const CAM_GATE=[['floor',0.35],['empty',0.4],['ceil',0.3],['close',0],['close2',0],['pclose',0],['hog',0.28],['fore',0.12],['keyCut',0.4],['keyMiss',0],['nearWall',0.02],['decor',0.12],['decorSelf',0.05],['keyCut15',0.10]];
+const CAM_GATE=[['floor',0.35],['empty',0.4],['ceil',0.3],['close',0],['close2',0],['pclose',0],['hog',0.28],['fore',0.12],['keyCut',0.4],['keyMiss',0],['nearWall',0.02],['decor',0.12],['decorSelf',0.05]];
 const CAM_KEY_SHOW=['диван','тв-тумба'], CAM_KEY_SHOW_MIN=0.6;
 function camKeyShow(c,its,st){
   let best=0; (its||[]).forEach((it,i)=>{if(!camZ().show.includes(camRole(it)))return; const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind)return;
@@ -4425,7 +4425,7 @@ function camCandEval(c,its,W,H){
 // ВЕС НАРУШЕНИЯ ПОРОГА (за каждые 0.1 сверх порога; для `close`/`pclose` — за каждые 10 см недостачи; `nearWall` — за 0.01):
 // стена у края и срез главного — почти запрет, лишний пол или потолок — мелочь
 // d8 17.10: потеря дивана/ТВ из вида 2 дороже среза главного до 40 %; пустая стена > 0.4 дороже мелочей; ближе 1.0 м — почти запрет
-const CAM_BAD_W={decorSelf:3, keyCut15:5, decor:2, nearWall:100, keyMiss:15, keyCut:10, close2:10, empty:6, close:4, hog:4, fore:4, pclose:0.5, ceil:1, floor:1}, CAM_BAD_TOL=0.5;
+const CAM_BAD_W={decorSelf:3, decor:2, nearWall:100, keyMiss:15, keyCut:10, close2:10, empty:6, close:4, hog:4, fore:4, pclose:0.5, ceil:1, floor:1}, CAM_BAD_TOL=0.5;
 function camBad(st,second){
   let b=0; for(const [k,v] of CAM_GATE){if(k==='keyMiss'&&!second)continue; const over=Math.max(0,(st[k]||0)-v);
     if(over>0)b+=CAM_BAD_W[k]*over/(k==='nearWall'?0.01:0.1);}
@@ -4844,7 +4844,7 @@ function camPairAll0(L,W,H,cs,opt){
   const okV=(a,b)=>!vOk?true:(b<0?(vOk[a][0]||vOk[a][1]):(((vOk[a][0]&&vOk[b][1])||(vOk[b][0]&&vOk[a][1]))&&apartOk(all[a],all[b])));
   const NK=camNearK(), st=L.map(()=>new Map()), stat=(c,v)=>{v=v||0; const its=L[v]; if(!st[v].has(c)){const s0=camStats(c,its,W,H); s0.keyVis=camKeyVis(c,its,s0);
     s0.keyCut=camKeyCut(c,its); s0.close=Math.max(0,CAM_NEAR_L*NK-s0.nearest)/100; s0.close2=Math.max(0,100*NK-s0.nearest)/100;
-    s0.keyMiss=Math.max(0,CAM_KEY_SHOW_MIN-camKeyShow(c,its,s0)); s0.decor=camDecorOver(c,its); s0.decorSelf=camDecorSelf(c,its); s0.keyCut15=s0.keyCut;
+    s0.keyMiss=Math.max(0,CAM_KEY_SHOW_MIN-camKeyShow(c,its,s0)); s0.decor=camDecorOver(c,its); s0.decorSelf=camDecorSelf(c,its);
     s0.pNear=camStats(c,its,W,H,{w:48,h:66,sn:CAM_P_SN}).nearest; s0.pclose=Math.max(0,CAM_NEAR_P*NK-s0.pNear)/100;
     s0.bad1=camBad(s0); s0.bad2=camBad(s0,true); st[v].set(c,s0);} return st[v].get(c);};
   const vmax=f=>{let m=-Infinity; for(let v=0;v<V;v++)m=Math.max(m,f(v)); return m;};
@@ -13808,7 +13808,7 @@ function quizPick(rule, answers, available, styleColours){
     'вешалка':'coat rack','зеркало':'mirror'};
   var STYLE={'сканди':'Scandi','современный':'Modern','минимализм':'Minimalist','лофт':'Loft','неоклассика':'Neoclassic','джапанди':'Japandi'};
   var ROOM={'Гостиная':'Living room','Кухня':'Kitchen','Спальня 1':'Bedroom 1','Спальня 2':'Bedroom 2','Спальня':'Bedroom','Холл':'Hall','Санузел':'Bathroom','Прихожая':'Hallway'};
-  var EX={'Отправить выбор риелтору':'Send my selection to the agent','наличие не проверено':'stock not checked','Написать менеджеру':'Message the manager','Закрыть подсказку':'Close the tip',
+  var EX={'растение':'plant','декор у глаза':'decor at the lens','Отправить выбор риелтору':'Send my selection to the agent','наличие не проверено':'stock not checked','Написать менеджеру':'Message the manager','Закрыть подсказку':'Close the tip',
     'Оплата 100%':'Full payment','Ипотека, рассрочка':'Mortgage, instalments','Ипотека':'Mortgage','Подробнее':'Details','Консультация':'Get advice','← К стилям':'← Back to styles',
     'Оплата 100 %: сумма при условии оплаты наличными, без ипотеки и рассрочки':'Full payment: the price when paying in full, without a mortgage or instalments',
     'Подобрали вашу квартиру в разных стилях. Можете менять мебель, отделку и встраиваемое.':'We have furnished your apartment in different styles. You can change the furniture, finishes and fitted items.',
