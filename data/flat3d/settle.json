@@ -5,7 +5,7 @@
   "shapes": ["pillow"],
   "sinkCm": 1.0,
   "maxSnapCm": 8,
-  "rayUpCm": 20,
+  "rayUpCm": 100,
   "probeFrac": 0.3,
   "lean": { "maxDeg": 16, "lowCm": 8, "highCm": 30, "reachCm": 25 }
  }

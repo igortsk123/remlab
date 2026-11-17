@@ -139,7 +139,7 @@ for (const vid of VARIANTS) {
       got.frames.forEach((url, i) => save(`${vid}.cam${i + 1}.${w}x${h}.plants${plants}.jpg`, url));
       got.crops.forEach((c, i) => save(`${vid}.crop-${c.role}.cam${c.pose + 1}.${w}x${h}.plants${plants}.jpg`, c.url));
       report.push({ variant: vid, size: `${w}x${h}`, plants, readyMs: got.readyMs, plantsMs: got.plantsMs, bytes, files, lost: got.lost, errs, plantLog: got.plantLog, gaps: got.gaps });
-      for (const g of got.gaps) console.log(`  ${vid} зазор ${String(g.gapCm ?? "—").padStart(6)} см  ${g.role.padEnd(8)} «${g.title}» низ ${g.bottomCm} (план ${g.plannedBottomCm}), опора ${g.supportCm ?? "—"} ${g.support ?? ""}, высота ${g.heightCm}`);
+      for (const g of got.gaps) console.log(`  ${vid} зазор ${String(g.gapCm ?? "—").padStart(6)} см  ${g.role.padEnd(8)} «${g.title}» низ ${g.bottomCm} (план ${g.plannedBottomCm}), опора ${g.supportCm ?? "—"} ${g.support ?? ""}, высота ${g.heightCm} · ${g.settle}`);
       for (const e of got.plantLog) console.log(`  ${vid} ${e.why.padEnd(8)} ${e.role.padEnd(6)} «${e.title}» ${e.mount} горло ${e.throatCm?.toFixed(1) ?? "-"} см, геом ${e.geoWhy ?? "ок"}, кромка ${e.rimSpread?.toFixed(2) ?? "-"}, шея ${e.neckRatio?.toFixed(2) ?? "-"}${e.word ? " · слово «" + e.word + "»" : ""}${e.plant ? " → " + e.plant : ""}`);
       console.log(`${vid} ${w}x${h} plants=${plants}: ready ${got.readyMs} мс, растения ${got.plantsMs} мс, ${(bytes / 1024).toFixed(0)} КБ в ${files} файлах, обрезок ${got.crops.length}${got.lost ? " · КОНТЕКСТ ПОТЕРЯН" : ""}${errs.length ? " · ошибки: " + errs.join("; ") : ""}`);
     }
