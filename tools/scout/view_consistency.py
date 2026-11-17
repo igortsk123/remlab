@@ -17,7 +17,9 @@ import json
 import math
 
 WALLS = ('north', 'south', 'west', 'east')
-KINDS = ('door', 'window')
+KINDS = ('door', 'window', 'opening')                              # opening — проём без створки (арка, широкий проход): есть в реальных турах
+_LABEL = {'opening': 'doorless opening'}
+_lab = lambda k: _LABEL.get(k, k)
 EN = {'диван': 'sofa', 'кровать': 'bed', 'комод': 'chest of drawers'}
 STEP = 8.0            # см между точками выборки вдоль стены
 PAD = 3.0             # точка съёмки зажимается внутрь комнаты (как `draft_render.cams_from_request`)
@@ -164,17 +166,17 @@ def block(payload: dict) -> str | None:
     for i, v in enumerate(f['views']):
         seen = [o for o in v['openings'] if o['frac'] > 0]
         txt = f"VIEW {i + 1} ({'upper' if i == 0 else 'lower'} picture) faces the {v['facing'].upper()} wall and shows: {_walls_text(v)}. "
-        txt += ('Openings in this view: ' + '; '.join(f"{o['kind']} in the {o['wall'].upper()} wall "
+        txt += ('Openings in this view: ' + '; '.join(f"{_lab(o['kind'])} in the {o['wall'].upper()} wall "
                                                        f"({'whole' if o['frac'] > 0.9 else 'partly'}, {o['pos']})" for o in seen) + '.'
-                if seen else 'NO window and NO door is visible in this view: draw none, every wall here is plain wall.')
+                if seen else 'NO window, door or opening is visible in this view: draw none, every wall here is plain wall.')
         lines.append(txt)
     for o in ops:
         sees = [i + 1 for i, v in enumerate(f['views']) if any(x['wall'] == o['wall'] and x['kind'] == o['kind'] and x['frac'] > 0 for x in v['openings'])]
-        w = f"the {o['kind']} ({o['wall'].upper()} wall, {round(float(o['width_cm']))} cm wide)"
+        w = f"the {_lab(o['kind'])} ({o['wall'].upper()} wall, {round(float(o['width_cm']))} cm wide)"
         lines.append(f"* {w[0].upper() + w[1:]}: " + (f"seen in VIEW {' and VIEW '.join(map(str, sees))} only, exactly as the placeholder in IMAGE 1 shows it."
-                     if sees else 'seen in NEITHER view — do NOT draw it, and do not invent any window or door anywhere else.'))
-    lines.append('Windows and doors exist ONLY where IMAGE 1 shows their placeholder (blue = window, brown = door). A wall without a placeholder in IMAGE 1 stays plain: '
-                 'no window, glass, curtain or door is added to it in either view.')
+                     if sees else 'seen in NEITHER view — do NOT draw it, and do not invent any window, door or opening anywhere else.'))
+    lines.append('Windows, doors and doorless openings exist ONLY where IMAGE 1 shows them (blue = window, brown = door). A wall without one in IMAGE 1 stays plain: '
+                 'no window, glass, curtain, door or opening is added to it in either view.')
     arts = [d for d in payload.get('decor') or [] if isinstance(d, dict) and str(d.get('role') or '').startswith(ART_BASES)]
     if arts and f['art_wall']:
         if all(d.get('shown') for d in arts):                       # картины уже нарисованы в кадре 3D — их место задал кадр

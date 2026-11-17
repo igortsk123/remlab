@@ -56,7 +56,7 @@ def test_camera_with_back_to_the_window_does_not_see_it():
     pl = order(dict(x=200, y=150, rot=90), dict(x=200, y=150, rot=45))
     pl['room'] = room(openings=[{'kind': 'window', 'wall': 'west', 'offset_cm': 60, 'width_cm': 150}])
     text = VC.block(pl)
-    assert 'seen in NEITHER view — do NOT draw it' in text and text.count('NO window and NO door is visible in this view') == 2
+    assert 'seen in NEITHER view — do NOT draw it' in text and text.count('NO window, door or opening is visible in this view') == 2
     assert 'draw none' in text
 
 
@@ -130,3 +130,13 @@ def test_no_scene_ids_in_the_module():
     src = open(os.path.join(HERE, '..', 'view_consistency.py'), encoding='utf-8').read()
     for bad in ('living-', 'bed1-', 'bed2-', 'bedroom-1', 'bedroom-2', 'set1', 'idx'):
         assert bad not in src, bad
+
+
+def test_doorless_opening_is_a_known_kind():
+    # реальные туры (13–17.11): у гостиной есть проём без двери — kind 'opening'; раньше абзац пропадал целиком («проём без стены или размера»)
+    r = room(openings=[{'kind': 'window', 'wall': 'north', 'offset_cm': 100, 'width_cm': 150}, {'kind': 'opening', 'wall': 'south', 'offset_cm': 120, 'width_cm': 170}])
+    pl = order(FACE_WINDOW, FACE_DOOR, room=r)
+    assert VC.skip_reason(pl) is None
+    text = VC.block(pl)
+    assert 'doorless opening in the SOUTH wall' in text and 'The doorless opening (SOUTH wall, 170 cm wide)' in text
+    assert VC.skip_reason(order(FACE_WINDOW, FACE_DOOR, room=room(openings=[{'kind': 'niche', 'wall': 'south', 'offset_cm': 1, 'width_cm': 2}]))) == 'проём без стены или размера'
