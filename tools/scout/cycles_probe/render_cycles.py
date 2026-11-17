@@ -50,6 +50,7 @@ ap.add_argument('--sheen-rough', type=float, default=0.5)
 ap.add_argument('--fabric', default='', help='путь к карте нормалей ткани (CC0): мелкий рельеф плетения поверх мягкой мебели (проба)')
 ap.add_argument('--fabric-k', type=float, default=0.6)
 ap.add_argument('--fabric-tile', type=float, default=12.0, help='физический размер одного повтора карты ткани, см')
+ap.add_argument('--rug-erode', type=float, default=0.0, help='доля ширины ковра: срезать светлую кайму по краю выреза (0 — как раньше)')
 ap.add_argument('--sheer', type=float, default=1.0, help='<1: непрозрачность штор (тюль), чтобы окно не закрывалось «молоком»')
 ap.add_argument('--normal-k', type=float, default=0.7, help='сила карты нормалей отделки (у three — 0.7; больше — виден рельеф штукатурки и досок)')
 ap.add_argument('--eye', default='', help='x,y глаза, м (оси Blender: y = −план_y); с --aim задаёт ракурс')
@@ -532,6 +533,15 @@ for k, r in enumerate(M['rugs']):
     msk = dist > 22
     if msk.mean() < 0.30:
         msk[:] = True
+    # светлая кайма по краю ковра (подложка/полутон фото на границе выреза) — съедаем краевые пиксели маски: `--rug-erode` = доля ширины ковра
+    _ys0, _xs0 = np.where(msk)
+    for _ in range(int(round(a.rug_erode * (_xs0.max() - _xs0.min() + 1)))):
+        _m = msk.copy()
+        _m[1:] &= msk[:-1]
+        _m[:-1] &= msk[1:]
+        _m[:, 1:] &= msk[:, :-1]
+        _m[:, :-1] &= msk[:, 1:]
+        msk = _m
     ys, xs = np.where(msk)
     bx0, bx1, by0, by1 = int(xs.min()), int(xs.max()), int(ys.min()), int(ys.max())
     bw, bh = bx1 - bx0 + 1, by1 - by0 + 1
