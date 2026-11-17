@@ -177,7 +177,9 @@ jobs:
       - run: python tools/scout/tests/test_chandelier.py   # люстра гостиной: размер по мешу, подвес укорачивается до нормы, следующая — только если не влез корпус (T-20261112-66)
       # opencv-python-headless — список товаров промпта v4 меряет тон фото (`improve_mode` → `refs_check`, cv2); без него
       # test_improve_sheet падал «No module named 'cv2'» (T-20261106-95)
-      - run: pip install numpy pillow opencv-python-headless
+      # trimesh — `plant_from_scan.py`/`plant_procedural.py` (растения, T-20261117-07) импортируют его на верхнем уровне;
+      # `test_plants.py` без него падал в CI «No module named 'trimesh'»
+      - run: pip install numpy pillow opencv-python-headless trimesh
       - run: python tools/assets/scene_extras_golden.py --check   # авто-ТВ и декор: сервер = эталон живой сцены (demo-05 п.9)
       - run: python tools/assets/tests/test_demo_ids.py   # лёгкие копии /rt/: все комнаты витрины, лента по типу комнаты, ковёр по стратегии (T-20261106-77)
       - run: python tools/assets/tests/test_floor_materials.py   # пол: доска ровно заданной ширины, шов ≤ 0,2 см без жил; CC0-сканы — тип → скан → размер → оттенок, лицензия и sha256, ≤ 1,5 МБ, цвет 512 телефону (T-20261111-24/2)
