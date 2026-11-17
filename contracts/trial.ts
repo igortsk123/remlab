@@ -75,6 +75,31 @@ export const trialPhotoIn = z.looseObject({
   items: z.array(z.looseObject({ role: z.string().min(1).max(60) })).min(1).max(200),
 });
 export type TrialPhotoIn = z.infer<typeof trialPhotoIn>;
+
+/** Заказ РЕНДЕРА «Сделать фото» из тура (T-20261117-19/1, план `photo-render-first-01`; тот же маршрут `/api/trial/<id>/photo`, поле `mode: "render"`).
+ *  Контракт снимка расстановки — `tools/scout/render_snapshot.py` (версия `v`): страница шлёт номер варианта данных тура, свои правки предметов
+ *  (товар по `sid`, место) и две позы C1/C2; размеры, товары и декор берёт сервер из ДАННЫХ ЗАДАНИЯ (последняя версия, `photo_ok`). Без `items`/`cams`
+ *  — как в варианте. Лишние поля отбрасываются. Рендер бесплатный: ни брони, ни квоты фото нейросети. */
+const renderNum = z.number().finite();
+export const trialRenderIn = z.object({
+  mode: z.literal("render"),
+  v: z.literal(1),
+  /** true — только проверка: сервер считает хеш этой расстановки и отвечает, есть ли уже готовые кадры (`cached`); рендер не ставится.
+   *  Кнопка «Обновить фото» нужна, когда этот хеш ≠ хешу показанного фото (`scene_hash` из его ответа). */
+  check: z.boolean().optional(),
+  variant_id: z.string().regex(/^[0-9A-Za-z_.:-]{1,80}$/),
+  room_id: trialPageRoomId,
+  room: z.object({ w: renderNum.positive(), d: renderNum.positive() }),
+  items: z.array(z.object({
+    role: z.string().min(1).max(40), sid: z.string().regex(/^[0-9A-Za-z_.:-]{1,80}$/), x: renderNum, y: renderNum, rot: renderNum.optional(),
+    corner: z.boolean().optional(), corner_left: z.boolean().optional(), section: z.union([z.number().int(), z.string().max(40)]).nullable().optional(),
+  })).min(1).max(40).optional(),
+  cams: z.array(z.object({
+    name: z.enum(["C1", "C2"]), x: renderNum, y: renderNum, rot: renderNum, fov: renderNum,
+    pose: z.number().int().optional(), pshift: renderNum.optional(),
+  })).length(2).optional(),
+});
+export type TrialRenderIn = z.infer<typeof trialRenderIn>;
 /** Коды сбоя пересборки от воркера (наружу — `trialJobView.rebuildError` / `listingError`); `source_gone` — исходного листа (или
  *  кэша чтения плана) уже нет; `no_match` — текст агента ни к одной комнате плана не подошёл (страница остаётся как была).
  *  Только у «перечитать планировку» (`reparse`, T-20261111-02; наружу не выходят — тур прежний): `cache_miss` — кэша чтения плана нет

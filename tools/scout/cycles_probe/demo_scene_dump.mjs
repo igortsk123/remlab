@@ -88,7 +88,12 @@ if (extra.export) {
   // у каждого окна, а ключи `textile,…` ловят только шторы-СЛОТЫ декора (T-20261117-16/2, владелец: «в спальне нет штор»)
   const noCur = keys && keys.includes('-curtains');
   const noRad = keys && keys.includes('-radiator');
-  const pick = info.nodes.filter((n) => n.visible && n.type === 'Mesh' && !noGeom.has(n.slot) && ((n.slot === 'radiator' && !noRad) || (n.chain.includes('curtains') && !noCur) || !keys || keys.some((k) => k === 'rod'
+  // оболочка комнаты строится Blender'ом сама (плиты пола/стен/потолка из export_scene): её плоскость потолка (`ceiling:<комната>` без `Mesh<`, y = высота
+  // потолка) в выгрузку не идёт — иначе накладывается на плиту и даёт серые «треугольники» z-fighting (T-20261117-19/2 п.1, все комнаты).
+  // Люстра/плафон (`ceiling:люстра#…`, `Mesh<ceiling:…:lamp`) — не оболочка, их ключ `ceiling` берёт как раньше
+  const isShellCeiling = (n) => /^ceiling:[^<:]+<room:/.test(n.chain);
+  // шторы оболочки — правилом выше (`noCur`, T-20261117-16/3); правило T-19/2 `isShellCurtain` при слиянии поглощено им
+  const pick = info.nodes.filter((n) => n.visible && n.type === 'Mesh' && !noGeom.has(n.slot) && !isShellCeiling(n) && ((n.slot === 'radiator' && !noRad) || (n.chain.includes('curtains') && !noCur) || !keys || keys.some((k) => k === 'rod'
     ? n.chain.includes('fixtures:') && n.min[1] > 2.0 && n.max[1] < 2.69 : k === 'plant' ? n.plant : (n.slot + '|' + n.chain).includes(k)))).map((n) => n.uuid);
   console.log('выгружаю узлов', pick.length);
   const b64 = await page.evaluate((u) => window.exportNodes(u), pick);

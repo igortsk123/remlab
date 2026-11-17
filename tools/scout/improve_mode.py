@@ -58,6 +58,58 @@ PROMPT_V4 = os.environ.get('IMPROVE_PROMPT') == 'v4'
 # уже нарисованные в 3D, — карточками на листе эталонов и «оставь как есть, второго не добавляй»; нет в наборе и уместно — «дорисуй под
 # стиль»; строки гайда, `allow_now` и TASK про светильник и шторы — только когда их дорисовывают (`rules/photo-set-roles.json`)
 PROMPT_VERSION = ('improve-v4' if PROMPT_V4 else 'improve-v3') + '.5'
+# «РЕНДЕР НА ВХОДЕ» (T-20261117-19/2, ADR-0419: мебель как есть; владелец TG 1670 — «Улучшить фото» по рендеру Cycles). Вход — кадры Blender,
+# где мебель, обивка, цвет пола и стен, декор и шторы УЖЕ верные (меш по фото товара, состав набора). Прежний промпт (v4: гайд стиля, лист эталонов,
+# «дорисуй люстру, шторы, подушки, плед») для такого входа вреден: на пробе 17.11 модель перекрасила диван, сменила пол спальни и добавила
+# люстру/плед/книги. Для `payload.render` собирается ДРУГОЕ задание — только фотографическая доводка: свет, тени, фактура, резкость; состав и цвет
+# не трогаются; нет ни гайда стиля, ни листа эталонов, ни третьего листа. Живое GPT-фото (кадры браузера) идёт прежним путём без изменений.
+PROMPT_VERSION_RENDER = 'improve-render-v5.1'
+
+
+def render_source(payload: dict | None) -> bool:
+    """Заказ «Улучшить из рендера»: сервис подменил вход на кадры Cycles и положил `payload['render']` (`draft_service._apply_render_order`)."""
+    r = (payload or {}).get('render')
+    return isinstance(r, dict) and bool(r.get('key'))
+
+
+def prompt_version(payload: dict | None = None) -> str:
+    return PROMPT_VERSION_RENDER if render_source(payload) else PROMPT_VERSION
+
+
+RENDER_POLISH_PROMPT = '\n'.join([
+    'ROLE: you are a photographer\'s retoucher, not a designer. IMAGE 1 is a finished, approved interior render. Your only job is to make it look like '
+    'a real photograph of exactly this room.',
+    '',
+    '* IMAGE 1: one sheet containing TWO rendered views of the SAME furnished room, {layout}, separated by a magenta band.',
+    '',
+    'WHAT YOU MAY CHANGE (photographic quality only):',
+    '- lighting realism: soft natural daylight from the windows, believable bounced light, soft contact shadows under furniture, gentle highlights;',
+    '- surface micro-detail that is ALREADY implied: fabric weave, wood grain, brick relief, paint texture, glass and metal reflections, at the SAME colours;',
+    '- sharpness, tonal range, natural camera depth and fine sensor grain, clean edges, no render noise or banding;',
+    '- the view outside the windows: a natural, plausible daylight view in place of the existing one.',
+    '',
+    'HARD RULES — everything in IMAGE 1 stays exactly as it is:',
+    '- Do NOT add, remove, replace, move, resize, rotate or redesign any object. No new furniture, lamps, ceiling lights or chandeliers, curtains, '
+    'blankets, throws, pillows, rugs, books, plants, vases, frames, decorations. If something is absent in IMAGE 1 it stays absent; '
+    'if something is present it stays present, in the same place and the same quantity.',
+    '- Keep every colour: the hue, saturation and lightness of the sofa, bed, cabinets, upholstery, pillows, floor boards, walls, brick, ceiling, '
+    'curtains, window frames, radiators and every other surface must match IMAGE 1. Light may shade a colour, never change it. '
+    'Never turn leather into linen, never darken or lighten the floor, never repaint walls.',
+    '- Keep every pattern and print exactly (pillow, rug, bedding, picture contents).',
+    '- Keep the shape, proportions and construction of every product, the room geometry, windows, doors, radiators, ceiling and curtain rods.',
+    '- Keep both cameras exactly: same framing, crop, perspective, field of view, order of views and the sheet size.',
+    '- The magenta band between the views must remain untouched, pure magenta, the same width and position.',
+    '',
+    'OUTPUT: the same sheet with both views retouched, nothing else changed. Photographic realism, no stylisation, no text, no watermark.',
+])
+
+
+def render_polish_prompt(orient: str | None = None) -> str:
+    """Задание «Улучшить из рендера»: одно для всех комнат, стилей и туров — состав и цвет берутся с входа, а не из данных."""
+    layout = 'side by side (LEFT half is view 1, RIGHT half is view 2)' if orient == 'portrait' else 'stacked vertically (view 1 on top, view 2 below)'
+    return RENDER_POLISH_PROMPT.replace('{layout}', layout)
+
+
 _MATERIALS = [('рогожк', 'woven matting fabric'), ('шенилл', 'chenille'), ('велюр', 'velour'), ('букле', 'bouclé'), ('вельвет', 'corduroy'),
               ('экокож', 'faux leather'), ('кож', 'leather'), ('лён', 'linen'), ('шерст', 'wool'), ('хлоп', 'cotton'), ('дуб', 'oak'),
               ('орех', 'walnut'), ('ясень', 'ash'), ('сосн', 'pine'), ('древесн', 'wood'), ('дерев', 'wood'), ('металл', 'metal'),
@@ -955,7 +1007,7 @@ def frames_key(payload: dict, model: str, quality: str, tariff: str | None = Non
     key = json.dumps([[(v.get('camera'), v.get('id')) for v in views], payload.get('style') or '',
                       (payload.get('floor') or {}).get('id'), (payload.get('walls') or {}).get('id'),
                       ((payload.get('walls') or {}).get('accent') or {}).get('side'), items, decor,
-                      PROMPT_VERSION, model, quality, payload.get('sheet') or 'landscape']
+                      prompt_version(payload), model, quality, payload.get('sheet') or 'landscape']
                      # своя запись назначения (детская, T-46/1) — свой промпт, свой ключ; у остальных ключ прежний
                      + ([rk] if ':' in (rk := room_kind(payload) or '') else [])
                      # тариф mass (T-20261117-03): свой ключ — другой вход и другое задание; абзац согласованности зависит от геометрии комнаты, поз камер
@@ -982,6 +1034,21 @@ def build_from_views(payload: dict, style: str | None, stamp: str | None = None,
     orient = 'portrait' if payload.get('sheet') == 'portrait' else None
     sheet = sheet_from_views([load_frame(v.get('id')) for v in vs[:2]], orient)
     items = payload.get('items', [])
+    if render_source(payload):
+        # ВХОД — РЕНДЕР CYCLES (ADR-0419): только фотографическая доводка, без гайда стиля, листа эталонов и третьего листа (`render_polish_prompt`)
+        prompt = render_polish_prompt(orient)
+        stamp = f'improve-{stamp}' if stamp else f'improve-{time.strftime("%H%M%S")}'
+        meta = {'режим': 'улучшить фото — вход: рендер Cycles (доводка, мебель и цвет как есть)', 'стиль': style or '—',
+                'кадры': ', '.join(f"{v.get('camera')} {str(v.get('id'))[:12]}" for v in vs[:2]), 'размер запроса': size_for(orient),
+                'лист': 'вертикальные виды бок о бок' if orient else 'горизонтальные виды друг под другом',
+                'лист на входе': f'{sheet.width}×{sheet.height}', 'версия промпта': PROMPT_VERSION_RENDER,
+                'рендер': json.dumps({k: (payload.get('render') or {}).get(k) for k in ('key', 'scene_hash')}, ensure_ascii=False)}
+        imgs = {'1-ОТПРАВЛЯЕМ-лист-двух-видов': sheet}
+        _th.Thread(target=lambda: DR._publish_sources(stamp, imgs, prompt, [], meta), daemon=True).start()
+        url = (DR.PUBLIC_BASE + DR.SRC_URL + '/' + stamp + '/') if DR.PUBLIC_BASE else os.path.join(DR.SRC_DIR, stamp)
+        return {'src_url': url, 'sheet': sheet, 'ident': None, 'dsheet': None, 'prompt': prompt, 'clay': [], 'cams': [v.get('camera') for v in vs[:2]],
+                'size': size_for(orient), 'orient': orient or 'landscape', 'prods_failed': False, 'n_items': 0, 'n_photos': 0,
+                'tariff': STANDARD, 'render': True}
     # СОСТАВ (П1.50): что страница нарисовала — флаг `shown` у декора; нарисованное — карточками на лист эталонов, остальное — третьим листом
     plan = decor_plan(payload)
     C = compose(payload, items, plan)
@@ -1193,6 +1260,8 @@ def paid_gate(built: dict) -> None:
     ЛИСТ ИЗ КАРТОЧЕК «ФОТО НЕТ» — тоже отказ (T-20261109-17): каждая сборка отдаёт `n_items` (позиций на листе) и `n_photos` (из них
     с настоящим фото, `sheet_counts`); доля ниже `MIN_PHOTO_SHARE` или счёт неизвестен — не платим."""
     import draft_render as DR
+    if built.get('render'):             # вход — рендер: товары уже в кадре, листа эталонов у задания нет по замыслу (`render_polish_prompt`)
+        return
     if built.get('ident') is None:
         raise DR.NoProductSheet('нет листа товаров (эталоны не собрались) — платный вызов не делаю')
     if built.get('prods_failed'):
