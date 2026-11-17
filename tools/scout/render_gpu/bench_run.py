@@ -140,7 +140,7 @@ def main():
     code, donor = MG.api(f'/{DONOR}')
     if code != 200:
         sys.exit(f'образец {DONOR}: HTTP {code}')
-    run_id = f'{a.card}-{time.strftime("%H%M", time.gmtime())}'
+    run_id = f'{a.card}{a.suffix}-{time.strftime("%H%M%S", time.gmtime())}'      # суффикс группы и секунды: параллельные замеры не делят каталог на приёмнике (T-24/3: коллизия id)
     body = build_body(name, a.card, a.image, donor, run_id, a.plan, a.cpu, a.mem_mb, a.tier, [c for c in a.countries.split(',') if c])
     try:      # цена — по классу карты И тарифу запуска (рычаг priority меняет цену)
         price = json.load(open(SG.RULES_FILE if hasattr(SG, 'RULES_FILE') else os.path.join(HERE, '..', 'rules', 'salad-groups.json'), encoding='utf-8'))['prices_by_class_usd_h'][CARDS[a.card]['class_name']][a.tier]
