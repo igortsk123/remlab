@@ -238,6 +238,14 @@ def main() -> int:
     c, b = call('GET', '/ls/renderjobs')
     check(c == 200 and len(json.loads(b)['dirs']) == 4, 'список заданий ограничен LS_LIMIT без полной сортировки')
     R.LS_LIMIT = 500
+    # DELETE: корень и каталог раздаваемого префикса целиком — 400, цело; задание внутри — можно
+    w('renderjobs/keep1/job.json')
+    for bad in ('/prefix/', '/prefix', '/prefix//', '/prefix/renderjobs', '/prefix/renderjobs/', '/prefix/renderjobs/..', '/prefix/x/..', '/prefix/.', '/prefix/%2e%2e'):
+        c, _ = call('DELETE', bad)
+        check(c in (400, 404), f'DELETE {bad} отвергнут ({c})')
+    check(os.path.isdir(ROOT) and os.path.exists(os.path.join(ROOT, 'renderjobs', 'keep1', 'job.json')) and os.path.exists(os.path.join(ROOT, 'meshes-secret', 'abc', 'model.glb')), 'после попыток корень, renderjobs и меши целы')
+    check(call('DELETE', '/prefix/', )[0] == 400 and call('DELETE', '/prefix/renderjobs')[0] == 400, 'корень и renderjobs целиком — именно 400')
+    check(call('DELETE', '/prefix/renderjobs/keep1')[0] == 204 and not os.path.exists(os.path.join(ROOT, 'renderjobs', 'keep1')), 'задание внутри удаляется (204)')
     # ⑥ завершающий слэш: один можно, два — нет
     check(call('GET', '/ls/renderjobs/')[0] == 200, '/ls/renderjobs/ — один завершающий слэш терпим')
     check(call('GET', '/ls/renderjobs//')[0] == 404 and call('GET', '/ls/renderjobs/job1//')[0] == 404 and call('GET', '/ls/renderjobs///')[0] == 404, '/ls/renderjobs// и глубже — 404')

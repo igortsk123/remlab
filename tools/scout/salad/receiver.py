@@ -435,7 +435,12 @@ class Handler(BaseHTTPRequestHandler):
             p = safe(path[len('/prefix/'):])
         except ValueError:
             return self._send(400, {'detail': 'плохой путь'})
-        if not os.path.isdir(p) or (is_served(path[len('/prefix/'):]) and not _inside_real(p, ROOT)):
+        rel_del = path[len('/prefix/'):]
+        if p == ROOT or not rel_del.strip('/'):                      # пустой/корневой префикс: снёс бы весь каталог приёмника
+            return self._send(400, {'detail': 'нельзя удалить корень'})
+        if rel_del.strip('/') in SERVE_PREFIXES:                      # раздаваемый префикс целиком (renderjobs) — тоже нельзя, только задание внутри
+            return self._send(400, {'detail': 'нельзя удалить каталог префикса целиком — только задание внутри'})
+        if not os.path.isdir(p) or (is_served(rel_del) and not _inside_real(p, ROOT)):
             return self._send(404, {'detail': 'нет такого'})
         freed = _walk_bytes(p)    # та же мера, что у счётчика (без `.part` — те в резерве)
         shutil.rmtree(p, ignore_errors=True)
