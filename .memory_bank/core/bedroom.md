@@ -9,7 +9,7 @@ source: manual
 status: working
 source_of_truth: canonical
 review_after: 2026-12-05
-last_verified: 2026-11-13
+last_verified: 2026-11-17
 ---
 
 # Спальня — Tier 1 сводка
@@ -25,7 +25,7 @@ last_verified: 2026-11-13
   руками нельзя.
 - **Витрина:** `tools/scout/demo_bedroom.py` поверх `tools/scout/demo_room.py`; пустую роль добирает `demo_room.py:role_spares`.
 - **Модель:** `tools/scout/room_bindings.py:usable`. **3D (ADR-0417/0422/0425):** лампа от 33 см, иначе соседний стиль
-  (`tools/scout/dependent_decor.py`); плед — ярлык, шторы — `tools/scout/textile_abstract.py`; сторож `tools/scout/priced_vs_3d.py`.
+  (`tools/scout/dependent_decor.py`); плед скрыт (`data/flat3d/textile.json`), ярлык — в работе, шторы — `tools/scout/textile_abstract.py`; сторож `tools/scout/priced_vs_3d.py`.
 
 ## Расстановка
 - Угловая кровать — в угол; ковёр по выступу 45–70 см (`tools/scout/compose_bedroom.py:rug_norm`).
