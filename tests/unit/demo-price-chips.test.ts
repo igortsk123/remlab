@@ -22,11 +22,12 @@ const gbp = (v: number) => `£${Math.round(v / 100)}`;
 describe("чипы цены: ступени роли из данных", () => {
   it("по-русски: три чипа с диапазоном этой роли, у премиума «от», у эконома «до»", () => {
     const c = page.segChips("шкаф", seg, false, rub);
+    const txt = (i: number) => c[i]?.txt ?? "";
     expect(c.map((x) => x.key)).toEqual(["lo", "mid", "hi"]);
-    expect(c[0].txt).toBe(`Эконом · до ${rub(22999)}`);
-    expect(c[1].txt).toBe(`Комфорт · ${Math.round(22999).toLocaleString("ru-RU")}–${rub(41990)}`);
-    expect(c[2].txt).toBe(`Премиум · от ${rub(41990)}`);
-    expect(c[1].txt.match(/₽/g)?.length).toBe(1);   // единица — один раз, в конце диапазона
+    expect(txt(0)).toBe(`Эконом · до ${rub(22999)}`);
+    expect(txt(1)).toBe(`Комфорт · ${Math.round(22999).toLocaleString("ru-RU")}–${rub(41990)}`);
+    expect(txt(2)).toBe(`Премиум · от ${rub(41990)}`);
+    expect(txt(1).match(/₽/g)?.length).toBe(1);   // единица — один раз, в конце диапазона
   });
 
   it("по-английски: своя пара, цена в валюте страницы (£)", () => {
@@ -36,7 +37,7 @@ describe("чипы цены: ступени роли из данных", () => {
   });
 
   it("границы у каждой роли свои: диван — не шкаф", () => {
-    expect(page.segChips("диван", seg, false, rub)[1].txt).toBe(`Комфорт · ${Math.round(65990).toLocaleString("ru-RU")}–${rub(116400)}`);
+    expect(page.segChips("диван", seg, false, rub)[1]?.txt).toBe(`Комфорт · ${Math.round(65990).toLocaleString("ru-RU")}–${rub(116400)}`);
   });
 
   it("роль без границ или без записи — чипов нет", () => {
