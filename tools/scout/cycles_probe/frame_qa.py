@@ -263,7 +263,9 @@ def preflight(dump_dir: str, export_path: str, scene_dir: str, textile_path: str
             m = exp_meshes[slot]
             if not m.get("url") or not m.get("meshId"):
                 add("error", "MESH_URL", slot, "у меша в выгрузке нет адреса/идентификатора")
-            if not m.get("sha"):
+            # хеш содержимого есть только у моделей каталога (`/rt/…`); пробные модели (`/test/mesh-pilot10/…` — подушка гостиных) его не имеют по устройству
+            # выгрузки — предупреждение по ним шумело на каждом заказе гостиной (T-20261118-03/6), поэтому — только для адресов из `meshHashUrlPrefixes` правил
+            if not m.get("sha") and any(str(m.get("url") or "").startswith(px_) for px_ in rules.get("meshHashUrlPrefixes", ["/rt/"])):
                 add("warn", "MESH_HASH", slot, "у меша в выгрузке нет хеша содержимого (sha)")
             o = obj_by_role.get(slot.split("#")[0].split(":")[-1])
             if o is not None:
@@ -409,6 +411,19 @@ def slot_anomaly(np, frame, mask, room, pal, an: dict) -> dict:
     return {"share": float(bad.mean()), "n": n, "ring": nr, "floor": [round(float(x), 3) for x in floor], "palette": int(len(pal))}
 
 
+def cover_fraction(np, lab, rect, own_codes) -> float:
+    """Доля прямоугольника `rect` (x0, y0, x1, y1 в долях кадра, ось Y — ВВЕРХ, как у `world_to_camera_view`), закрытая ДРУГИМИ предметами.
+    `lab` — карта номеров слотов в порядке строк Blender (`image.pixels`: нижняя строка первая), поэтому строки берём БЕЗ переворота
+    (T-20261118-03/6: прежний код переворачивал и мерил область зеркально — тумба за кроватью давала «закрыто 0 %» и ложный брак)."""
+    h, w = lab.shape
+    xa, xb = int(rect[0] * w), max(int(rect[2] * w), int(rect[0] * w) + 1)
+    ya, yb = int(rect[1] * h), max(int(rect[3] * h), int(rect[1] * h) + 1)
+    sub = lab[ya:yb, xa:xb]
+    if sub.size == 0:
+        return 0.0
+    return float(((sub >= 2) & ~np.isin(sub, own_codes)).mean())
+
+
 def evaluate_frame(expect: dict, present: dict, px: dict, geo: dict, cover, rules: dict, art: dict | None = None, cam: dict | None = None, anom: dict | None = None) -> dict:
     """Разбор одного кадра по маске.
     expect  слот → класс (обязательные в сцене); present — слот → сколько объектов в сцене; px — слот (у картины `слот:canvas`) → пикселей;
@@ -466,7 +481,12 @@ def evaluate_frame(expect: dict, present: dict, px: dict, geo: dict, cover, rule
     if rules.get("mainMustBeVisible"):
         mains = [r for r in res if r["class"] == "main"]
         if mains and not any(r["state"] == "ok" for r in mains):
-            frame.append({"code": "MAIN_NOT_VISIBLE", "level": "brak", "why": "главный предмет (диван/кровать) не виден в кадре — не тот ракурс или он пропал"})
+            lost = any(r["state"] in ("missing", "not_in_scene") for r in mains)
+            if lost:     # по положению в кадре, а пикселей нет / в сцене нет — пропал
+                frame.append({"code": "MAIN_NOT_VISIBLE", "level": "brak", "why": "главный предмет (диван/кровать) должен быть в кадре, но его там нет — он пропал"})
+            else:        # по положению камеры вне кадра: ракурс выбран без него (set13 C2 — обеденный уголок), рендер не сломан; уровень — данными
+                frame.append({"code": "MAIN_NOT_VISIBLE", "level": rules.get("mainOutOfFrameLevel", "warn"),
+                              "why": "главный предмет (диван/кровать) по положению камеры вне кадра — ракурс без него"})
     if cam:
         t = rules["camera"]
         bad = []
@@ -903,15 +923,8 @@ class Guard:
                 geo[s] = {"nearCam": bool(front) and front < 8 * len(obs), "behind": 8 * len(obs) - front, "inFrame": bool(inside), "rect": (cx0, cy0, cx1, cy1) if inside else None, "clipped": ((cx1 - cx0) * (cy1 - cy0) / full) if inside else 0.0}
             slot_codes = {s: [code[n] for n in (s + ":canvas", s + ":frame", s) if n in code] for s in expect}
 
-            def cover(rect, slot, lab=lab, h=h, w=w, slot_codes=slot_codes):
-                xa, xb = int(rect[0] * w), max(int(rect[2] * w), int(rect[0] * w) + 1)
-                ya, yb = int((1.0 - rect[3]) * h), max(int((1.0 - rect[1]) * h), int((1.0 - rect[3]) * h) + 1)
-                sub = lab[ya:yb, xa:xb]
-                if sub.size == 0:
-                    return 0.0
-                own = slot_codes.get(slot, [])
-                other = (sub >= 2) & ~np.isin(sub, own)
-                return float(other.mean())
+            def cover(rect, slot, lab=lab, slot_codes=slot_codes):
+                return cover_fraction(np, lab, rect, slot_codes.get(slot, []))
             posd = math.dist(ex["pos"], ac["pos"])
             dot = max(-1.0, min(1.0, sum(p * q for p, q in zip(ex["fwd"], ac["fwd"]))))
             camrec = {"posErrM": posd, "dirErrDeg": math.degrees(math.acos(dot)), "lensErrFrac": abs(ac["lens"] - ex["lens"]) / max(ex["lens"], 1e-9)}

@@ -106,10 +106,20 @@ def test_small_canvas_is_indeterminate():
 
 def test_main_not_visible_is_frame_brak():
     px = {"диван#0": 0, "картина#0:canvas": 900, "textile:шторы#0": 9000, "стул#0": 2000, "textile:подушка#0": 800}
-    geo = {s: {"inFrame": False, "clipped": 0.0, "rect": None} for s in ["диван#0"]}
-    geo.update({s: {"inFrame": True, "clipped": 1.0, "rect": (0.2, 0.2, 0.4, 0.4)} for s in ["картина#0", "textile:шторы#0", "стул#0", "textile:подушка#0"]})
+    others = {s: {"inFrame": True, "clipped": 1.0, "rect": (0.2, 0.2, 0.4, 0.4)} for s in ["картина#0", "textile:шторы#0", "стул#0", "textile:подушка#0"]}
+    # главный предмет по положению В кадре, а пикселей нет — пропал: брак
+    r = _ev(px=px, geo={"диван#0": {"inFrame": True, "clipped": 1.0, "rect": (0.5, 0.5, 0.9, 0.9)}, **others})
+    assert any(f["code"] == "MAIN_NOT_VISIBLE" and f["level"] == "brak" for f in r["frame"]) and r["verdict"] == "brak"
+    # по положению камеры вне кадра (ракурс без него, set13 C2) — предупреждение по умолчанию, не брак; брак — если так решит правило
+    geo = {"диван#0": {"inFrame": False, "clipped": 0.0, "rect": None}, **others}
     r = _ev(px=px, geo=geo)
-    assert any(f["code"] == "MAIN_NOT_VISIBLE" for f in r["frame"]) and r["verdict"] == "brak"
+    assert any(f["code"] == "MAIN_NOT_VISIBLE" and f["level"] == "warn" for f in r["frame"]) and r["verdict"] == "warn"
+    saved = dict(RULES)
+    try:
+        RULES["mainOutOfFrameLevel"] = "brak"
+        assert _ev(px=px, geo=geo)["verdict"] == "brak"
+    finally:
+        RULES.clear(); RULES.update(saved)
 
 
 def test_camera_mismatch_is_brak():
@@ -205,6 +215,23 @@ def test_preflight_plants_only_where_page_planted_them():
     assert ("PLANT_MISSING", "plant:decor:ваза#0") in run([dict(vase, why="planted", plant="leaf-1")])[0]    # посажено, а узла в GLB нет — потеря
     assert ("PLANT_MISSING", "plant:decor:ваза#0") in run([vase])[0]       # старый формат без `why` — ждём, как раньше
     assert not run([])[1]
+
+
+def test_preflight_mesh_hash_only_for_catalog_urls():
+    """Хеш содержимого есть только у моделей каталога `/rt/…`; пробная модель (`/test/mesh-pilot10/…`) без хеша — не предупреждение (T-20261118-03/6)."""
+    def run(url):
+        d = tempfile.mkdtemp()
+        try:
+            tx = _mk_world(d)
+            ep = os.path.join(d, "dump", "scene-export.json")
+            e = json.load(open(ep))
+            e["meshes"] = [{"slotId": "диван#0", "meshId": "1_2", "url": url}]
+            json.dump(e, open(ep, "w"))
+            return [(f["code"], f["slot"]) for f in _pf(d, tx)["findings"] if f["code"] == "MESH_HASH"]
+        finally:
+            shutil.rmtree(d)
+    assert run("/rt/112_1.glb?v=ab") == [("MESH_HASH", "диван#0")]
+    assert run("/test/mesh-pilot10/112_2/model.glb") == []
 
 
 def test_preflight_throw_missing_when_not_exempt():
@@ -449,6 +476,17 @@ def test_anomaly_state_in_evaluate_frame():
     assert ev(0.30)[0]["level"] == "brak" and ev(0.30)[1] == "brak"
     assert ev(0.02)[0]["state"] == "ok"                # шум ниже порога не тревожит
     assert ev(None)[0]["state"] == "ok"                # не оценить — не «битый»
+
+
+def test_cover_fraction_uses_blender_row_order():
+    """Карта слотов идёт строками Blender (нижняя первая), рамка — осью Y вверх: тумба за кроватью — закрыта, а не «зеркальная область окна»."""
+    lab = np.ones((100, 200), np.int32)                 # комната (1)
+    lab[0:50, 20:120] = 2                               # кровать: НИЖНЯЯ половина кадра (строки с 0), x 10–60 %
+    rect_low = (0.15, 0.1, 0.35, 0.4)                   # габарит слота в нижней части кадра (Y вверх) — целиком под кроватью
+    rect_high = (0.15, 0.6, 0.35, 0.9)                  # такой же — в верхней части: кровати там нет
+    assert Q.cover_fraction(np, lab, rect_low, [3]) > 0.95
+    assert Q.cover_fraction(np, lab, rect_high, [3]) < 0.05
+    assert Q.cover_fraction(np, lab, rect_low, [2]) == 0.0      # собственный номер слота не в счёт
 
 
 if __name__ == "__main__":
