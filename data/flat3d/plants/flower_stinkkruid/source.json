@@ -1,0 +1,25 @@
+{
+ "asset": "flower_stinkkruid",
+ "title": "Flower Stinkkruid",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/flower_stinkkruid",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "Jenelle van Heerden": "Photography",
+  "Rico Cilliers": "modeling"
+ },
+ "realMm": [
+  1705.3872346878052,
+  300.4951626062393,
+  178.21717727929354
+ ],
+ "downloaded": "2026-11-18",
+ "sha256": {
+  "flower_stinkkruid_1k.gltf": "92f1b86573d38d4a71a5ae875f52f2a201f932694a4e5e423f5098892f337ed3",
+  "textures/flower_stinkkruid_arm_1k.jpg": "8ef8a8d290f06e0ee2f3800f4614009fc58c3d32d2429bba72b904a8c6fe74fc",
+  "flower_stinkkruid.bin": "d3b304eb985d1bf7492e8241a4e36af5bc7950d79882ada234093c0ba686e44b",
+  "textures/flower_stinkkruid_nor_gl_1k.jpg": "16bdcc53ddaa7d2f353fa080bb782ed91dd550c0a725c55e8a6ad6de3537a08d",
+  "textures/flower_stinkkruid_diff_1k.jpg": "4f7d3a953179013b3ce654ee9707bcd4ddfcd8ef8cc1e2ad568adfa478b0cd38"
+ }
+}

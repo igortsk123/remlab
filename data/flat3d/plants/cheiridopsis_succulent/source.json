@@ -1,0 +1,25 @@
+{
+ "asset": "cheiridopsis_succulent",
+ "title": "Cheiridopsis Succulent",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/cheiridopsis_succulent",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "James Ray Cock": "modeling",
+  "Jenelle van Heerden": "Photography"
+ },
+ "realMm": [
+  2161.4569425582886,
+  958.6485624313354,
+  270.7609534263611
+ ],
+ "downloaded": "2026-11-18",
+ "sha256": {
+  "cheiridopsis_succulent_1k.gltf": "4db4005db3e8fea6fc7b99cddbd0904fd3f5f5ddceccbabe05b7fa04ede9bcd8",
+  "textures/cheiridopsis_succulent_nor_gl_1k.jpg": "aa2167206898b59410af2d7823c77a8b1f5409a659121ff4c7c82978a7b9f2b4",
+  "textures/cheiridopsis_succulent_diff_1k.jpg": "b58531b626a09af4e74e5c9763f5133cf92bed1ade2801936ebc901b54b4f245",
+  "textures/cheiridopsis_succulent_arm_1k.jpg": "f008b584bec837d7b6472cf682c31e2a3620d180070d61c79f4adb5dbb9a2269",
+  "cheiridopsis_succulent.bin": "9f6dcd10acd9799d0cfe17edbaf3350f10028f2ecde152aafde86bd95513d347"
+ }
+}
