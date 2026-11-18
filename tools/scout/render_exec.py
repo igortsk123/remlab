@@ -475,11 +475,22 @@ def file_sha256(path: str) -> tuple:
     return h, st.st_size
 
 
+ASSET_RULES = 2                # версия правила «что ассет» (`asset_kind`/`asset_min_bytes`): растёт при его смене — кэш сборки витрины (`showcase_assets.py`) её учитывает
+NPZ_ASSET_MIN = 64 * 1024      # мелкие npz (стены, проёмы — десятки байт…КБ) остаются в пакете: на ассет они дороже, чем в архиве
+
+
+def asset_min_bytes(rel: str) -> int:
+    """Меньше этого размера файл вида `asset_kind` в ассеты не идёт (едет в маленьком пакете)."""
+    return NPZ_ASSET_MIN if rel.endswith('.npz') else 1
+
+
 def asset_kind(rel: str) -> str | None:
     """Что из файлов задания — НЕИЗМЕНЯЕМЫЙ ассет (по хешу на приёмнике и машине), а что едет в маленьком пакете. Правило общее, без особых случаев:
-    текстуры сцены (PNG), GLB декора, карты отделки (public/), программа рендера и её данные. Карта сцены, меши npz, отделка и uuid — в пакете."""
+    текстуры сцены (PNG), GLB декора, карты отделки (public/), программа рендера и её данные. Меши предметов сцены (`scene/m*.npz` от 64 КБ, T-24/8) — тоже ассеты. Карта сцены, мелкие npz, отделка и uuid — в пакете."""
     if rel.startswith('scene/tex/'):
         return 'tex'
+    if rel.startswith('scene/') and rel.endswith('.npz'):
+        return 'glb'                 # меш предмета сцены (T-24/8): тот же вид, что GLB декора — «меш»; отдельного вида нет, чтобы не пересобирать образ воркера
     if rel == 'dump/demo_nodes.glb':
         return 'glb'
     if rel.startswith('public/'):
@@ -604,7 +615,7 @@ class SaladGpuExecutor(SceneExecutor):
             kind = asset_kind(rel)
             if kind and len(assets) < JP.ASSET_MAX_N and JP.valid_rel_path(rel):
                 sha, size = file_sha256(p)
-                if 1 <= size <= JP.ASSET_MAX_MB * 2 ** 20:
+                if asset_min_bytes(rel) <= size <= JP.ASSET_MAX_MB * 2 ** 20:
                     assets.append(JP.asset_ref(rel, sha, size, kind))
                     src.setdefault(sha, p)
                     continue

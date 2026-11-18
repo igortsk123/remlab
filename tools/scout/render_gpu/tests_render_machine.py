@@ -255,6 +255,11 @@ out7 = RM.cmd_off(args, R)
 ok('повторный off — «уже выключена», без второго /stop', FakeSalad.calls.count('stop') == 1 and 'уже выключена' in out7)
 out8 = RM.cmd_status(types.SimpleNamespace(by='t', lang='en', json=False), R)
 ok('status по-английски', out8.startswith('Render machine is off'))
+FakeSalad.status = 'running'      # желаемое «выключено», а группа на Salad ещё живёт (запущена мимо контроллера / остановка идёт)
+out8b = RM.cmd_status(args, R)
+ok('status при desired=off и работающей группе — не «не отвечает N мин», а «выключена по команде, ближайший tick погасит»', 'не отвечает' not in out8b and 'tick' in out8b and 'running' in out8b)
+FakeSalad.status = 'stopped'
+ok('status при desired=off и остановленной группе — «выключена»', 'выключена' in RM.cmd_status(args, R))
 FakeSalad.image = 'ghcr.io/other@sha256:bbb'
 FakeSalad.status = 'stopped'
 out9 = RM.cmd_on(args, R)

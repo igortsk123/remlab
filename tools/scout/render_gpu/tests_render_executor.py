@@ -124,6 +124,7 @@ class Exec(RE.SaladGpuExecutor):
         os.makedirs(os.path.join(job, 'scene'))
         os.makedirs(os.path.join(job, 'dump'))
         open(os.path.join(job, 'scene', 'm000.npz'), 'wb').write(b'm' * 5000)
+        open(os.path.join(job, 'scene', 'm001.npz'), 'wb').write(b'M' * 100000)      # крупный меш предмета (≥ 64 КБ) — ассет, мелкий m000 — в пакете
         open(os.path.join(job, 'dump', 'demo_nodes.glb'), 'wb').write(b'g' * 3000)
         open(os.path.join(job, 'dump', 'demo_nodes_uuids.json'), 'w').write('{}')
         json.dump({'wall': {'maps': {'color': '/flat3d/tex/a.jpg', 'secret': '/../../etc/passwd', 'nofile': '/flat3d/none.jpg'}}},
@@ -601,6 +602,7 @@ kinds = {a['path']: a['kind'] for a in j2['assets']}
 ok('fmt 2: в ассетах текстуры сцены, GLB декора, карта отделки, программа рендера и её данные',
    kinds.get('scene/tex/t0.png') == 'tex' and kinds.get('dump/demo_nodes.glb') == 'glb' and kinds.get('public/flat3d/tex/a.jpg') == 'map'
    and kinds.get('tools/scout/cycles_probe/render_cycles.py') == 'code' and kinds.get('tools/scout/wall_art.py') == 'code' and kinds.get('data/flat3d/wall-art.json') == 'data')
+ok('fmt 2 (T-24/8): крупный меш предмета scene/m001.npz — ассет (вид glb), мелкий m000.npz — в пакете', kinds.get('scene/m001.npz') == 'glb' and 'scene/m000.npz' not in kinds)
 ok('fmt 2: sha256 полный (64 знака) и размер у каждого ассета', all(len(a['sha256']) == 64 and a['size'] > 0 for a in j2['assets']) and len(j2['bundle']['sha256']) == 64)
 bk = next(k for k in sink.hist if k.endswith('.tgz'))
 bdir = os.path.join(TMP, 'b15')
@@ -795,8 +797,9 @@ ok('trim_blobs: давние вперёд до потолка, ассет тек
 
 # ——— правило «что ассет»: общее, без особых случаев
 ok('asset_kind: текстуры сцены, GLB, карты, код, данные — ассеты; npz, карта сцены, отделка, uuid — в пакете',
-   [RE.asset_kind(x) for x in ('scene/tex/a.png', 'dump/demo_nodes.glb', 'public/a/b.webp', 'tools/scout/wall_art.py', 'data/flat3d/wall-art.json')] == ['tex', 'glb', 'map', 'code', 'data']
-   and not any(RE.asset_kind(x) for x in ('scene/m000.npz', 'scene/scene.json', 'dump/scene-export.json', 'dump/demo_nodes_uuids.json', 'other/x')))
+   [RE.asset_kind(x) for x in ('scene/tex/a.png', 'dump/demo_nodes.glb', 'public/a/b.webp', 'tools/scout/wall_art.py', 'data/flat3d/wall-art.json', 'scene/m046.npz')] == ['tex', 'glb', 'map', 'code', 'data', 'glb']
+   and RE.asset_min_bytes('scene/m046.npz') == 64 * 1024 and RE.asset_min_bytes('scene/tex/a.png') == 1
+   and not any(RE.asset_kind(x) for x in ('scene/scene.json', 'dump/scene-export.json', 'dump/demo_nodes_uuids.json', 'other/x')))
 
 # ═══ 16. T-24/7: «подогрев» — горячий список витрины, прогрев кэша машины, уборка приёмника
 H1, H2, H3 = os.urandom(3000), os.urandom(4000), os.urandom(5000)
