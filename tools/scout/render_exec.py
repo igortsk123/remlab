@@ -75,6 +75,25 @@ def render_version(blender: str = '') -> dict:
             'scene_export': exp_ver, 'blender': os.path.basename(os.path.dirname(blender)) if blender else ''}
 
 
+def parse_trace(text: str) -> dict:
+    """Строки трассы подготовки сцены (T-20261118-09/1) → {'py': {шаг: сек}, 'node': {...}, 'page': {...}}. `TRACE <кто> <шаг> <значение> [n=<число вызовов>]`;
+    у накопителей (`acc:<функция>`) — [сек, вызовов]. Повтор шага (второй проход экспорта) — побеждает последний. Мусор и чужие строки пропускаются."""
+    out: dict = {}
+    for ln in text.splitlines():
+        if not ln.startswith('TRACE '):
+            continue
+        p = ln.split()
+        if len(p) < 4 or p[1] not in ('py', 'node', 'page'):
+            continue
+        try:
+            v = float(p[3])
+        except ValueError:
+            continue
+        n = next((int(x[2:]) for x in p[4:] if x.startswith('n=') and x[2:].isdigit()), None)
+        out.setdefault(p[1], {})[p[2]] = [v, n] if n is not None else v
+    return out
+
+
 def cache_key(scene_hash: str, versions: dict) -> str:
     """Ключ кэша кадров: хеш снимка + все версии рендера. Сменилось любое — кадры считаются заново."""
     raw = scene_hash + '|' + json.dumps(versions, sort_keys=True)
@@ -412,8 +431,10 @@ class SceneExecutor:
             miss = []
             for attempt in (1, 2):
                 pos = os.path.getsize(log) if os.path.exists(log) else 0
+                t_py = time.time()
                 run_step([self.python, os.path.join(PROBE, 'export_scene.py'), '--out', job, '--scene', 'scene=0', '--data', data_path], log,
                          lim['exportSec'], lim['maxRssGb'], env=env, cwd=os.path.join(REPO, 'tools', 'scout'), what='меши и камеры')
+                timing_d['export_py'] = round(time.time() - t_py, 2)               # стена времени процесса Python (с его запуском и выходом)
                 miss = skipped_meshes(open(log, encoding='utf-8', errors='replace').read()[pos:])
                 if not miss:
                     break
@@ -431,6 +452,15 @@ class SceneExecutor:
                 raise e
         timing['export'] = round(time.time() - t1, 1)      # оба шага параллельно: стена времени
         timing['dump'] = timing_d.get('dump', 0.0)
+        timing['export_py'] = timing_d.get('export_py', 0.0)
+        tr: dict = {}                                      # трасса по шагам (T-20261118-09/1): что внутри Python-экспорта и внутри браузерной выгрузки (дамп из кэша — без `node`)
+        for path, skip in ((log, None), (dlog, 'py')):
+            try:
+                tr.update({k: v for k, v in parse_trace(open(path, encoding='utf-8', errors='replace').read()).items() if k != skip})
+            except OSError:
+                pass
+        if tr:
+            timing['trace'] = tr
         try:
             with open(log, 'ab') as lf, open(dlog, 'rb') as df:
                 lf.write(df.read())

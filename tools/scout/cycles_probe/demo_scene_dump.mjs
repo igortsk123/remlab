@@ -11,6 +11,10 @@ import path from 'path';
 
 const require = createRequire('/home/pakar/igor/remlab/package.json');
 const { chromium } = require('/home/pakar/igor/remlab/node_modules/.pnpm/playwright@1.51.1/node_modules/playwright');
+// ТРАССА (T-20261118-09/1): отметки времени от старта скрипта — `TRACE node <шаг> <секунды>`; исполнитель собирает их в `timing.trace.node` (ничего не меняет в сцене)
+const T_START = Date.now();
+const tr = (name) => console.log(`TRACE node ${name} ${((Date.now() - T_START) / 1000).toFixed(2)}`);
+const REMOTE_STAT = { n: 0, ms: 0, bytes: 0, local: 0 };       // обращения к remont-lab.online (сеть) и отданные с диска файлы за прогон
 const [dataFile, idxS, bundleDir, outDir, ...rest] = process.argv.slice(2);
 const extra = Object.fromEntries(rest.map((s) => s.split('=')));
 const REMOTE = 'remont-lab.online';
@@ -34,6 +38,7 @@ const mime = { '.html': 'text/html', '.js': 'text/javascript', '.glb': 'model/gl
 const miss = [];
 const srv = http.createServer((req, res) => {
   const u = decodeURIComponent(req.url.split('?')[0]);
+  if (u !== '/' && u !== '/index.html' && u !== '/entry.js') { REMOTE_STAT.local++; if (process.env.DUMP_URLS) fs.appendFileSync(process.env.DUMP_URLS, `local ${req.url}\n`); }
   const cors = { 'access-control-allow-origin': '*' };
   if (u === '/' || u === '/index.html') { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><meta charset=utf-8><script type="module" src="/entry.js"></script>'); return; }
   if (u === '/entry.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); fs.createReadStream(path.join(bundleDir, 'entry.js')).pipe(res); return; }
@@ -46,7 +51,11 @@ const srv = http.createServer((req, res) => {
   if (lm && fs.existsSync(path.join(process.env.DEMO_LOCAL_DIR, lm[1]))) { res.writeHead(200, { 'content-type': mime[path.extname(u)] || 'application/octet-stream', ...cors }); fs.createReadStream(path.join(process.env.DEMO_LOCAL_DIR, lm[1])).pipe(res); return; }
   const m = u.match(/^\/test\/mesh-pilot10\/([^/]+)\/model\.glb$/);
   if (m && fs.existsSync(path.join(CACHE, m[1] + '.glb'))) { res.writeHead(200, { 'content-type': 'model/gltf-binary', ...cors }); fs.createReadStream(path.join(CACHE, m[1] + '.glb')).pipe(res); return; }
+  REMOTE_STAT.local--; REMOTE_STAT.n++;
+  if (process.env.DUMP_URLS) fs.appendFileSync(process.env.DUMP_URLS, `remote ${req.url}\n`);        // отладка: какие адреса уходят в сеть (ключи кэша, трасса)
+  const tRem = Date.now();
   https.get({ host: REMOTE, path: req.url, headers: { 'user-agent': 'cycles-probe' } }, (r) => {
+    r.on('data', (c) => { REMOTE_STAT.bytes += c.length; }); r.on('end', () => { REMOTE_STAT.ms += Date.now() - tRem; });
     if (r.statusCode >= 400) miss.push(`${r.statusCode} ${u}`);
     res.writeHead(r.statusCode, { 'content-type': r.headers['content-type'] || mime[path.extname(u)] || 'application/octet-stream', ...cors });
     r.pipe(res);
@@ -54,20 +63,29 @@ const srv = http.createServer((req, res) => {
 });
 await new Promise((r) => srv.listen(0, '127.0.0.1', r));
 const port = srv.address().port;
+tr('server');
 const browser = await chromium.launch({ headless: true, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-webgl', '--disable-gpu-sandbox'] });
+tr('browser_launch');
 const page = await browser.newPage({ viewport: { width: 640, height: 480 } });
+tr('new_page');
 page.on('console', (m) => console.log('[page]', m.text().slice(0, 300)));
 page.on('pageerror', (e) => console.log('[pageerror]', String(e).slice(0, 600)));
 await page.goto(`http://127.0.0.1:${port}/${extra.finish === '0' ? '?finish=0' : ''}`);   // finish=0 — стены и пол плоской краской («до», `finish-textures.ts:finishTexFromUrl`)
+tr('page_goto');
 await page.waitForFunction(() => typeof window.buildDemoScene === 'function', null, { timeout: 60000 });
+tr('bundle_ready');
 const t0 = Date.now();
 // живая таблица runtime-копий мешей (`/demo/rt-meshes.json`) — ею страница выбирает лёгкую копию; нет — экспорт скажет «лёгких нет»
 let runtime = null;
 try { runtime = JSON.parse(await new Promise((res, rej) => https.get({ host: REMOTE, path: '/demo/rt-meshes.json', headers: { 'user-agent': 'cycles-probe' } },
   (r) => { let s = ''; r.on('data', (c) => { s += c; }); r.on('end', () => res(s)); }).on('error', rej))).meshes; } catch (e) { console.log('rt-meshes.json не получен:', String(e).slice(0, 100)); }
+tr('rt_meshes_fetch');
 const lite = extra.lite === '1';       // телефон: LITE_QUALITY, лёгкие карты
 const sceneArgs = { room, items: v.items, decor, base: `http://127.0.0.1:${port}/demo/`, runtime, lite, cams: v.cams || [], style: v.style };
 const info = await page.evaluate((a) => window.buildDemoScene(a), sceneArgs);
+tr('build_scene');
+for (const m of (info.trace || [])) console.log(`TRACE page ${m.name} ${m.s}`);
+delete info.trace;                 // отметки времени — только в журнал: в scene_info.json (едет в пакет задания) их быть не должно (файл не должен меняться от прогона к прогону)
 console.log('сцена собрана за', ((Date.now() - t0) / 1000).toFixed(1), 'с; узлов', info.nodes.length, 'мест', info.slots.length);
 fs.writeFileSync(path.join(outDir, 'scene_info.json'), JSON.stringify({ variant: v.id, room, decorIn: decor.map((d) => ({ role: d.role, strategy: d.strategy, place: d.place })), ...info }, null, 1));
 if (extra.livecam) {
@@ -79,6 +97,7 @@ if (extra.livecam) {
 }
 fs.writeFileSync(path.join(outDir, 'scene-export.json'), JSON.stringify(await page.evaluate(() => window.__export), null, 1));
 fs.writeFileSync(path.join(outDir, 'shell_info.json'), JSON.stringify(await page.evaluate(() => window.shellInfo()), null, 1));
+tr('infos_written');
 if (extra.export) {
   const keys = extra.export === 'all' ? null : extra.export.split(',');
   // ключ `rod` — карниз: узлы `fixtures:` выше 2 м (плинтус и порожки той же группы не берём)
@@ -99,10 +118,13 @@ if (extra.export) {
   const pick = info.nodes.filter((n) => n.visible && n.type === 'Mesh' && !noGeom.has(n.slot) && !isShellCeiling(n) && ((n.slot === 'radiator' && !noRad) || (n.chain.includes('curtains') && !noCur) || !keys || keys.some((k) => k === 'rod'
     ? n.chain.includes('fixtures:') && n.min[1] > 2.0 && n.max[1] < 2.69 : k === 'plant' ? n.plant : (n.slot + '|' + n.chain).includes(k)))).map((n) => n.uuid);
   console.log('выгружаю узлов', pick.length);
+  tr('pick');
   const b64 = await page.evaluate((u) => window.exportNodes(u), pick);
+  tr('export_nodes_glb');
   fs.writeFileSync(path.join(outDir, 'demo_nodes.glb'), Buffer.from(b64, 'base64'));
   fs.writeFileSync(path.join(outDir, 'demo_nodes_uuids.json'), JSON.stringify(info.nodes.filter((n) => pick.includes(n.uuid))));
-  fs.writeFileSync(path.join(outDir, 'dump_keys.json'), JSON.stringify({ export: extra.export }));    // какими ключами брали узлы: сторож кадров (frame_qa.dump_keys) отличает явный минус (`-curtains`) от потери
+  fs.writeFileSync(path.join(outDir, 'dump_keys.json'), JSON.stringify({ export: extra.export }));
+  tr('glb_written');    // какими ключами брали узлы: сторож кадров (frame_qa.dump_keys) отличает явный минус (`-curtains`) от потери
 }
 // байты, которые /demo качает при первом показе: карты оболочки (`sceneAssetUrls().shell`); файлы materials — с диска этой копии репо
 if (extra.assets) {
@@ -127,5 +149,8 @@ if (extra.shots) {
   console.log('снимки', times.length, 'за', times.join(', '), 'мс');
 }
 if (miss.length) { fs.writeFileSync(path.join(outDir, 'miss.txt'), miss.join('\n')); console.log('не нашлось:', miss.length); }
+tr('before_close');
 await browser.close();
 srv.close();
+tr('close');
+console.log(`TRACE node remote_n ${REMOTE_STAT.n}\nTRACE node remote_ms ${(REMOTE_STAT.ms / 1000).toFixed(2)}\nTRACE node remote_mb ${(REMOTE_STAT.bytes / 1048576).toFixed(2)}\nTRACE node local_n ${REMOTE_STAT.local}`);

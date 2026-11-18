@@ -72,29 +72,38 @@ function nodeInfo(root: THREE.Object3D): Any[] {
 };
 
 (window as Any).buildDemoScene = async (a: { room: Any; items: Any[]; decor: Any[]; base: string; runtime?: Any; lite?: boolean; cams?: Any[]; style?: string }) => {
+  const T0 = performance.now(), trace: Any[] = [];      // ТРАССА (T-20261118-09/1): шаги сборки сцены в странице, секунды от начала `buildDemoScene`
+  const mark = (name: string) => trace.push({ name, s: ((performance.now() - T0) / 1000).toFixed(2) });
   // 1) описание сцены для рендера (`scene-export.ts`) — с ЖИВОЙ таблицей runtime-копий (`/demo/rt-meshes.json`, a.runtime): хеши и «нет лёгкой копии»
   setRuntimeMeshes(a.runtime ?? {});
   const first = liveApartment(a.room, a.items, a.base, a.decor, undefined, undefined, a.style);
   if (!first) throw new Error("пустая расстановка");
   const sc0 = resolveScene(first.apartment, first.catalogue, defaultConfiguration(first.apartment, first.catalogue));
   (window as Any).__export = exportScene(first.apartment, first.catalogue, sc0, { lite: false });
+  mark("liveApartment_resolve_exportScene");
   setRuntimeMeshes({});            // 2) для выгрузки узлов — полные исходники галереи, не лёгкие копии
   const cv = document.createElement("canvas");
   cv.width = 640; cv.height = 480;
   document.body.appendChild(cv);
   const viewer = new FlatViewer(cv, first.apartment, first.catalogue, a.lite ? LITE_QUALITY : DESKTOP_QUALITY, {}, { curtains: true });
   (window as Any).__viewer = viewer;
+  mark("FlatViewer_ctor");
   (window as Any).__cams = a.cams ?? [];
   (window as Any).__tBuild = performance.now();
   const sc = resolveScene(first.apartment, first.catalogue, defaultConfiguration(first.apartment, first.catalogue));
   viewer.buildShell(sc);
+  mark("buildShell");
   await viewer.syncObjects(sc);
+  mark("syncObjects_glb");
   await viewer.plantsSettled();    // растения догружаются после мебели (`kits/plants.ts`); в экспорт идут журнал и узлы с флагом `plant`
+  mark("plantsSettled");
   await new Promise((r) => setTimeout(r, 1500));
+  mark("pause_1500");
   (window as Any).__export = { ...(window as Any).__export, plants: viewer.plantReport() };
   (window as Any).__scene = viewer.scene;
   (window as Any).__sc = sc;
   return {
+    trace,
     slots: sc.items.map((i: Any) => ({ slotId: i.slotId, roomId: i.roomId, role: i.photoRole, kind: i.asset?.kind, kit: i.asset?.kit, features: i.asset?.features, unplaced: !!i.unplaced,
       hungOver: i.hungOver ?? null, placement: i.placement, title: i.titleRu })),
     nodes: nodeInfo(viewer.scene),
