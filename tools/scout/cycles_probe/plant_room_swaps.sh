@@ -5,7 +5,7 @@
 O="$1"; SCENE="$2"; CAM="$3"; SLOT="$4"; IDS="$5"; PH="${6:-0}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WT="$(cd "$HERE/../../.." && pwd)"
-G="$HOME/remlab-logs/t21-1117/glb/raw"
+G="${G:-$HOME/remlab-logs/t21-1117/glb/raw}"          # папка с пробными GLB (`plant_candidates.py --out …/glb` → `…/glb/raw`)
 mkdir -p "$O"
 export WT EXPD=export2 BL=blender-5.3.0-linux-x64 DG="${DG:-living-pl}" CORES=4
 EXTRA="${EXTRA:-}"
