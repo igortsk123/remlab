@@ -47,7 +47,7 @@ run() {   # run <случай> [env…] — свежая папка журнал
   env TOUR_REISSUE_CMD="$T/reissue-stub.sh" TOUR_REISSUE_HASH_CMD="$T/hash-stub.sh" TOUR_REISSUE_ALERT="$T/alert-stub.sh" \
     TOUR_REISSUE_ENV="$T/none.env" TOUR_REISSUE_LOGS="$T/logs" TOUR_REISSUE_LOCK="$T/lock" TOUR_REISSUE_NO_SLOT=1 \
     TOUR_REISSUE_DEMO_URL="$T/demo/" TOUR_REISSUE_PY=python3 TOUR_REISSUE_TMP="$T/tmp" TOUR_REISSUE_HOLD="$T/hold.txt" STUB_DEMO="$T/demo/demo-data.json" \
-    STUB_HASH=$H "$@" bash "$HERE/tour-reissue.sh" ${BG_ARG:-} --why "проба $c" > "$T/out-$c.txt" 2>&1
+    STUB_HASH=$H TOUR_REISSUE_WARM=0 "$@" bash "$HERE/tour-reissue.sh" ${BG_ARG:-} --why "проба $c" > "$T/out-$c.txt" 2>&1
   echo $? > "$T/rc-$c.txt"
 }
 has() { grep -qF -- "$2" "$T/out-$1.txt"; }
@@ -96,7 +96,7 @@ rm -rf "$T/logs"; mkdir -p "$T/logs"
 env TOUR_REISSUE_CMD="$T/reissue-stub.sh" TOUR_REISSUE_HASH_CMD="$T/hash-stub.sh" TOUR_REISSUE_ALERT="$T/alert-stub.sh" \
   TOUR_REISSUE_ENV="$T/none.env" TOUR_REISSUE_LOGS="$T/logs" TOUR_REISSUE_LOCK="$T/lock" TOUR_REISSUE_NO_SLOT=1 \
   TOUR_REISSUE_DEMO_URL="$T/demo/" TOUR_REISSUE_PY=python3 TOUR_REISSUE_TMP="$T/tmp" TOUR_REISSUE_HOLD="$T/hold.txt" STUB_DEMO="$T/demo/demo-data.json" \
-  STUB_HASH=$H STUB_ROWS="$R1" STUB_SLEEP=2 bash "$HERE/tour-reissue.sh" --why first > "$T/out-first.txt" 2>&1 &
+  STUB_HASH=$H TOUR_REISSUE_WARM=0 STUB_ROWS="$R1" STUB_SLEEP=2 bash "$HERE/tour-reissue.sh" --why first > "$T/out-first.txt" 2>&1 &
 pid=$!
 for _ in $(seq 1 50); do [ -n "$(ls "$T/logs/reissue" 2>/dev/null)" ] && break; sleep 0.1; done
 KEEP_LOGS=1 run second STUB_ROWS="$R1"
@@ -136,5 +136,18 @@ run holdnight STUB_ROWS="$R1" TOUR_REISSUE_NIGHT=1
 [ ! -e "$T/alerts.txt" ] && grep -q 'на паузе' "$T/logs/reissue.log" && ok "«*» ночью — без тревоги, в сводку" || bad "«*» ночью"
 rm -f "$T/hold.txt"
 
+# 10. подогрев витрины (T-24/7): после прохода зовётся шаг «залить ассеты»; сбой шага код прохода не меняет; выключатель и сухой прогон его не зовут
+printf '#!/bin/sh\necho "showcase_assets: готово — горячих 5"\n: > "%s/warm-called.txt"\n' "$T" > "$T/warm-stub.sh"
+printf '#!/bin/sh\necho "нет приёмника"\nexit 2\n' > "$T/warm-bad.sh"
+chmod +x "$T/warm-stub.sh" "$T/warm-bad.sh"
+rm -f "$T/warm-called.txt"
+run warm STUB_ROWS="$R1" TOUR_REISSUE_WARM=1 TOUR_REISSUE_WARM_CMD="$T/warm-stub.sh"
+[ -e "$T/warm-called.txt" ] && has warm 'tour_reissue: подогрев витрины — showcase_assets: готово — горячих 5' && [ "$(cat "$T/rc-warm.txt")" = 0 ] && grep -q 'повод: проба warm' "$T/logs/showcase-assets.log" \
+  && ok "подогрев: шаг зван после прохода, итог в строку и журнал, код 0" || bad "подогрев: $(cat "$T/out-warm.txt")"
+rm -f "$T/warm-called.txt"
+run warmbad STUB_ROWS="$R1" TOUR_REISSUE_WARM=1 TOUR_REISSUE_WARM_CMD="$T/warm-bad.sh"
+has warmbad 'подогрев витрины не вышел (код 2' && [ "$(cat "$T/rc-warmbad.txt")" = 0 ] && ok "подогрев: сбой шага проход не портит" || bad "подогрев сбой: $(cat "$T/out-warmbad.txt")"
+run warmoff STUB_ROWS="$R1" TOUR_REISSUE_WARM=0 TOUR_REISSUE_WARM_CMD="$T/warm-stub.sh"
+[ ! -e "$T/warm-called.txt" ] && ! has warmoff 'подогрев витрины' && ok "подогрев: TOUR_REISSUE_WARM=0 — шаг не зван" || bad "подогрев выключатель"
 [ "$fail" = 0 ] && echo "tour-reissue selftest: все случаи прошли" || echo "tour-reissue selftest: ЕСТЬ ПРОВАЛЫ"
 exit "$fail"

@@ -1,0 +1,24 @@
+{
+ "asset": "periwinkle_plant",
+ "title": "Periwinkle Plant",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/periwinkle_plant",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "Amal Kumar": "All"
+ },
+ "realMm": [
+  1248.7584352493286,
+  334.93997156620026,
+  410.85796465631574
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "periwinkle_plant_1k.gltf": "df781eea76123fc6eee97e6e8d466743e3a5fb08e1a2c3f5025a57e090d2cc55",
+  "textures/periwinkle_plant_nor_gl_1k.jpg": "36d2464e7500f741500228b955c1fb0f26d954e869bd26f93dd25c0fafc5087d",
+  "textures/periwinkle_plant_diff_1k.jpg": "32d61084e6c07fa3ca8e03b35b347a12717f971efc90e8fe1185931ee2298c56",
+  "textures/periwinkle_plant_arm_1k.jpg": "d964e2e1118c2ca88c137b45590f48d83d3471fef48e913cbd57bf7122bbe4a3",
+  "periwinkle_plant.bin": "f039855d84d59f764838285c2b041a5cf255d103afc856e219a62482826d9655"
+ }
+}

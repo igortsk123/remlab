@@ -23,19 +23,31 @@ ap.add_argument('--scene-dir', required=True)
 ap.add_argument('--cam', default='C1', help='ракурс или список через запятую (C1,C2) — тогда все кадры в ОДНОМ процессе Blender, в --out шаблон {cam}')
 ap.add_argument('--device', default='cpu', choices=['cpu', 'auto', 'optix', 'cuda'], help='cpu (по умолчанию) | auto (OptiX → CUDA → CPU) | optix | cuda; GPU недоступен при optix/cuda — ошибка')
 ap.add_argument('--out', required=True)
+ap.add_argument('--jpeg-quality', type=int, default=0, help='>0 — кадры JPEG этого качества (T-24/11: с машины уходит JPEG, не PNG; имя в --out должно кончаться на .jpg); 0 — PNG как раньше')
+ap.add_argument('--also-png', default='', help='ТОЛЬКО ДЛЯ ПРИЁМКИ: вместе с JPEG положить и PNG из того же результата (шаблон с {cam}) — сравнить ΔE кодировщика; в бою не задаётся')
+ap.add_argument('--mask-out', default='', help='после кадра — маска поверхностей тем же ракурсом: пол красный, нейтральная стена зелёная, акцентная синяя, остальное чёрное (замер яркости, T-20261117-23/2)')
 ap.add_argument('--samples', type=int, default=160)
 ap.add_argument('--pct', type=int, default=100)
 ap.add_argument('--threads', type=int, default=8)
 ap.add_argument('--persistent', type=int, default=0, help='1 — render.use_persistent_data: между кадрами одного процесса не пересобирать BVH и текстуры (проба T-22; по умолчанию как раньше)')
 ap.add_argument('--sun', type=float, default=4.0)
 ap.add_argument('--sky', type=float, default=1.0)
+ap.add_argument('--sky-sat', type=float, default=1.0, help='насыщенность света неба Nishita (1 — как есть; меньше — голубизна белых стен и постели слабее)')
 ap.add_argument('--sun-angle', type=float, default=1.5, help='угловой размер солнца, ° (мягкость края тени; Codex: 3–5)')
 ap.add_argument('--fill', type=float, default=60.0)
+ap.add_argument('--fill-k', type=float, default=5500.0, help='цвет заполняющего света, К (6500 — белый, как полусфера живой 3D)')
 ap.add_argument('--view', type=float, default=1.2)
 ap.add_argument('--exposure', type=float, default=0.0)
 ap.add_argument('--lite-tex', type=int, default=0, help='>0: уменьшить текстуры до этой стороны (замер облегчённой версии)')
 ap.add_argument('--demo-glb', default='', help='GLB декора из сцены /demo (demo_scene_dump.mjs)')
 ap.add_argument('--demo-nodes', default='', help='demo_nodes_uuids.json рядом с GLB')
+ap.add_argument('--plant-wmax', type=float, default=0.5, help='предел ширины растения-кандидата, м (с --plant-swap)')
+ap.add_argument('--plant-swap', default='', help='GLB растения-кандидата (`plant_candidates.py`): ставится вместо растений декора /demo (T-20261117-21)')
+ap.add_argument('--plant-slot', default='plant:', help='подстрока слота заменяемых растений (`plant:кашпо`, `plant:decor:ваза`)')
+ap.add_argument('--plant-on', default='', help='роль предмета (`тв-тумба`): поставить растение-кандидата СВЕРХУ на него, у его края (доля по длинной стороне — `--plant-on-frac`)')
+ap.add_argument('--plant-on-frac', type=float, default=0.22, help='где на верхней плоскости (0 — край, 0.5 — середина)')
+ap.add_argument('--plant-n', type=int, default=1, help='сколько растений (слотов по порядку) заменить')
+ap.add_argument('--plant-h', type=float, default=0.0, help='высота подставляемого растения, см (0 — как у прежнего)')
 ap.add_argument('--chandelier', type=float, default=60.0, help='мощность света люстры, Вт (0 — без света)')
 ap.add_argument('--hdri', default='', help='HDRI неба (Poly Haven, CC0): свет и портал вместо Nishita')
 ap.add_argument('--hdri-strength', type=float, default=1.0)
@@ -185,6 +197,10 @@ print('view', sc.view_settings.view_transform, '| look', sc.view_settings.look)
 sc.view_settings.exposure = a.exposure
 sc.render.image_settings.file_format = 'PNG'
 sc.render.image_settings.color_depth = '8'
+if a.jpeg_quality > 0:
+    sc.render.image_settings.file_format = 'JPEG'          # кодирует сам Blender (в образе машины нет Pillow); тот же вид-трансформ и dither, что у PNG
+    sc.render.image_settings.quality = max(1, min(100, a.jpeg_quality))
+    sc.render.image_settings.color_mode = 'RGB'
 
 
 def make_obj(name, verts, faces, uvs=None, mat=None, smooth=True):
@@ -219,7 +235,7 @@ def smooth_by_angle(ob, deg=45):
     ob.select_set(False)
 
 
-def principled(name, rgb=None, tex=None, rough=0.6, spec=0.5, metallic=0.0, tex_lite=0, mr=None):
+def principled(name, rgb=None, tex=None, rough=0.6, spec=0.5, metallic=0.0, tex_lite=0, mr=None, tint=None):
     m = bpy.data.materials.new(name)
     m.use_nodes = True
     nt = m.node_tree
@@ -237,7 +253,17 @@ def principled(name, rgb=None, tex=None, rough=0.6, spec=0.5, metallic=0.0, tex_
             img.scale(tex_lite, tex_lite)
         node.image = img
         node.interpolation = 'Cubic'
-        nt.links.new(node.outputs['Color'], bsdf.inputs['Base Color'])
+        if tint:
+            # ПОДКРАСКА ПОД ТОВАР (T-20261117-23): карта × множитель товара в ЛИНЕЙНОМ пространстве — как живая 3D (`meshes.ts:placeMesh`: color × tint)
+            mx = nt.nodes.new('ShaderNodeMix')
+            mx.data_type = 'RGBA'
+            mx.blend_type = 'MULTIPLY'
+            mx.inputs['Factor'].default_value = 1.0
+            mx.inputs['B'].default_value = (*tint, 1.0)
+            nt.links.new(node.outputs['Color'], mx.inputs['A'])
+            nt.links.new(mx.outputs['Result'], bsdf.inputs['Base Color'])
+        else:
+            nt.links.new(node.outputs['Color'], bsdf.inputs['Base Color'])
         if mr:
             # glTF: шероховатость — канал G, металл — B (множитель в файле = 1) — карта самого меша, ничего не придумываем
             n2 = nt.nodes.new('ShaderNodeTexImage')
@@ -249,7 +275,10 @@ def principled(name, rgb=None, tex=None, rough=0.6, spec=0.5, metallic=0.0, tex_
             nt.links.new(sep.outputs['Green'], bsdf.inputs['Roughness'])
             nt.links.new(sep.outputs['Blue'], bsdf.inputs['Metallic'])
     else:
-        bsdf.inputs['Base Color'].default_value = (*srgb2lin(rgb), 1.0)
+        lin = srgb2lin(rgb)
+        if tint:
+            lin = [c * t for c, t in zip(lin, tint)]
+        bsdf.inputs['Base Color'].default_value = (*lin, 1.0)
     return m
 
 
@@ -629,21 +658,24 @@ def soft_tweaks(mat, fabric=None):
 
 # ---------------- предметы (меши с текстурами) ----------------
 mat_cache = {}
+ROLE_OBJ = {}
 for o in M['objs']:
     z = np.load(os.path.join(a.scene_dir, o['file']))
     role = o['role'].split(' ')[0]
     if o['tex']:
         mr_ = o.get('mr') if a.mr else None
-        key = ('t', o['tex'], role, mr_)
+        tint_ = tuple(o['tint']) if o.get('tint') else None
+        key = ('t', o['tex'], role, mr_, tint_)
         if key not in mat_cache:
-            mat_cache[key] = principled('m_' + os.path.basename(o['tex']), tex=o['tex'], rough=ROUGH.get(role, 0.55), tex_lite=a.lite_tex, mr=mr_)
+            mat_cache[key] = principled('m_' + os.path.basename(o['tex']), tex=o['tex'], rough=ROUGH.get(role, 0.55), tex_lite=a.lite_tex, mr=mr_, tint=tint_)
         mat = mat_cache[key]
     else:
         rgb = tuple(c / 255.0 for c in o['rgb'])
-        key = ('c', rgb, role)
+        tint_ = tuple(o['tint']) if o.get('tint') else None
+        key = ('c', rgb, role, tint_)
         if key not in mat_cache:
             rough = 0.3 if role == 'тв' else 0.6
-            mat_cache[key] = principled('c_' + o['role'], rgb, rough=rough)
+            mat_cache[key] = principled('c_' + o['role'], rgb, rough=rough, tint=tint_)
         mat = mat_cache[key]
     vv = z['v']
     if o['n_faces'] == 12 and not o['tex']:
@@ -652,6 +684,7 @@ for o in M['objs']:
         k_ = int(o['file'][1:4])
         vv = vv.mean(axis=0) + (vv - vv.mean(axis=0)) * (1.0 + 0.0006 * (1 + k_ % 4))
     ob = make_obj(o['file'], vv, z['f'], uvs=z['uv'] if 'uv' in z.files else None, mat=mat, smooth=False)
+    ROLE_OBJ.setdefault(o['role'], ob)
     if o['tex'] and a.smooth_deg > 0:
         smooth_by_angle(ob, a.smooth_deg)
     _orig = dict(s.split(':', 1) for s in a.orig)
@@ -802,6 +835,65 @@ if a.demo_glb:
             print('СТОРОЖ КАРТИН:', _slot, '·', _titles.get(_slot) or '?', '·', _why)
         if _bad and not a.art_allow_blank:
             raise SystemExit('ошибка кадра: ' + '; '.join(f"{(_titles.get(s_) or s_)} ({w_})" for s_, w_ in _bad))
+    if a.plant_swap:
+        # ЗАМЕНА РАСТЕНИЯ ДЛЯ ПРИМЕРКИ (T-20261117-21): у узлов `plant:<слот>` (в `demo_nodes_uuids.json` — `plant: true`) берём общий габарит,
+        # убираем их и ставим на то же место (центр основания, низ) модель кандидата (`plant_candidates.py`, Y вверх, низ в нуле) той же высоты
+        # (`--plant-h` см — иначе высота прежнего). Меняется ТОЛЬКО растение, комната, свет и ракурс те же — кадры «было / стало» сравнимы.
+        groups = {}
+        for ob in set(bpy.data.objects) - before:
+            if ob.type == 'MESH' and (info.get(ob.name.split('__')[-1].split('.')[0]) or {}).get('plant'):
+                slot_ = info[ob.name.split('__')[-1].split('.')[0]].get('slot', '')
+                if a.plant_slot in slot_:
+                    groups.setdefault(slot_, []).append(ob)
+        if a.plant_on and a.plant_on in ROLE_OBJ:
+            # растение СВЕРХУ на предмете (тумба): точка у края длинной стороны верхней плоскости, низ — на верхней плоскости
+            _bp = [ROLE_OBJ[a.plant_on].matrix_world @ Vector(c) for c in ROLE_OBJ[a.plant_on].bound_box]
+            _bx0, _bx1 = min(p.x for p in _bp), max(p.x for p in _bp)
+            _by0, _by1 = min(p.y for p in _bp), max(p.y for p in _bp)
+            _top = max(p.z for p in _bp)
+            _fr = a.plant_on_frac
+            if (_bx1 - _bx0) >= (_by1 - _by0):
+                _cx, _cy = _bx0 + (_bx1 - _bx0) * _fr, (_by0 + _by1) / 2
+            else:
+                _cx, _cy = (_bx0 + _bx1) / 2, _by0 + (_by1 - _by0) * _fr
+            groups = {'on:' + a.plant_on: []}
+            _on_box = (_cx, _cx, _cy, _cy, _top, _top + max(a.plant_h, 20) / 100.0)
+        for slot_, obs in sorted(groups.items())[:a.plant_n]:
+            if slot_.startswith('on:'):
+                x0, x1, y0, y1, z0, z1 = _on_box
+            else:
+                pts = [ob.matrix_world @ Vector(c) for ob in obs for c in ob.bound_box]
+                x0, x1 = min(p.x for p in pts), max(p.x for p in pts)
+                y0, y1 = min(p.y for p in pts), max(p.y for p in pts)
+                z0, z1 = min(p.z for p in pts), max(p.z for p in pts)
+            for ob in obs:
+                bpy.data.objects.remove(ob, do_unlink=True)
+            pre = set(bpy.data.objects)
+            bpy.ops.import_scene.gltf(filepath=a.plant_swap)
+            new = [o for o in set(bpy.data.objects) - pre]
+            bpy.context.view_layer.update()   # без этого matrix_world новых узлов ещё единичная — размеры считались по сырым осям (Y вверх)
+            meshes = [o for o in new if o.type == 'MESH']
+            npts = [o.matrix_world @ Vector(c) for o in meshes for c in o.bound_box]
+            hh = max(p.z for p in npts) - min(p.z for p in npts)
+            tgt = (a.plant_h / 100.0) if a.plant_h > 0 else (z1 - z0)
+            k = tgt / max(hh, 1e-6)
+            ww = max(max(p.x for p in npts) - min(p.x for p in npts), max(p.y for p in npts) - min(p.y for p in npts), 1e-6)
+            k = min(k, a.plant_wmax / ww)   # розетка (низкая и широкая) не раздувается до высоты прежнего растения
+            for o in new:
+                if o.parent is None:
+                    o.scale = (o.scale.x * k, o.scale.y * k, o.scale.z * k)   # у узла сырого GLB уже есть масштаб квантования (≈2e-5): умножаем, не заменяем
+                    o.location = ((x0 + x1) / 2, (y0 + y1) / 2, z0)
+            bpy.context.view_layer.update()
+            # точная посадка по фактическим границам после масштаба: центр основания на место прежнего, низ — на его низ
+            npts = [o.matrix_world @ Vector(c) for o in meshes for c in o.bound_box]
+            sx = (x0 + x1) / 2 - (min(p.x for p in npts) + max(p.x for p in npts)) / 2
+            sy = (y0 + y1) / 2 - (min(p.y for p in npts) + max(p.y for p in npts)) / 2
+            sz = z0 - min(p.z for p in npts)
+            for o in new:
+                if o.parent is None:
+                    o.location = (o.location.x + sx, o.location.y + sy, o.location.z + sz)
+            bpy.context.view_layer.update()
+            print(f'PLANT_SWAP {slot_}: высота {tgt * 100:.0f} см, место ({(x0 + x1) / 2:.2f}, {(y0 + y1) / 2:.2f}, {z0:.2f}), масштаб {k:.2f}')
     if chand and a.chandelier > 0:
         pts = [ob.matrix_world @ Vector(c) for ob in chand for c in ob.bound_box]
         cx = sum(p.x for p in pts) / len(pts)
@@ -1052,7 +1144,13 @@ else:
     sky.air_density = 1.0
     if hasattr(sky, 'dust_density'):
         sky.dust_density = 1.2
-    wn.links.new(sky.outputs['Color'], bgn.inputs['Color'])
+    if a.sky_sat != 1.0:
+        hs = wn.nodes.new('ShaderNodeHueSaturation')
+        hs.inputs['Saturation'].default_value = a.sky_sat
+        wn.links.new(sky.outputs['Color'], hs.inputs['Color'])
+        wn.links.new(hs.outputs['Color'], bgn.inputs['Color'])
+    else:
+        wn.links.new(sky.outputs['Color'], bgn.inputs['Color'])
     bgn.inputs['Strength'].default_value = a.sky
     el = math.radians(38)
 tr = Vector((inward.x * math.cos(el), inward.y * math.cos(el), -math.sin(el)))   # куда идёт свет
@@ -1087,7 +1185,7 @@ fill = bpy.data.lights.new('fill', 'AREA')
 fill.shape = 'RECTANGLE'
 fill.size, fill.size_y = 1.6, 1.6
 fill.energy = a.fill
-fill.color = kelvin_rgb(5500) if a.lamp_k > 0 else (1.0, 0.97, 0.92)    # заполнение — отражённый дневной свет, не тёплая лампа (в сетке 17.11 при 4200 К весь кадр был оранжевым)
+fill.color = kelvin_rgb(a.fill_k) if a.lamp_k > 0 else (1.0, 0.97, 0.92)    # заполнение — отражённый дневной свет, не тёплая лампа (в сетке 17.11 при 4200 К весь кадр был оранжевым)
 fo = bpy.data.objects.new('fill', fill)
 sc.collection.objects.link(fo)
 fo.location = (W / 200.0, -D / 200.0, (H - 6) / 100.0)
@@ -1119,4 +1217,55 @@ for _i, _cn in enumerate(CAMS):
     sc.render.filepath = _out
     t0 = time.time()
     bpy.ops.render.render(write_still=True)
+    if a.also_png:
+        _ff = sc.render.image_settings.file_format
+        sc.render.image_settings.file_format = 'PNG'
+        bpy.data.images['Render Result'].save_render(a.also_png.replace('{cam}', _cn), scene=sc)
+        sc.render.image_settings.file_format = _ff
     print(f'RENDER_SEC {time.time() - t0:.1f} cam {_cn} frame {_i + 1}/{len(CAMS)} samples {a.samples} pct {a.pct} device {DEVICE_USED} threads {a.threads}', flush=True)
+
+if a.mask_out and len(CAMS) > 1 and '{cam}' not in a.mask_out:
+    raise SystemExit('несколько ракурсов: в --mask-out нужен шаблон {cam}')
+if a.mask_out:
+    # МАСКА ПОВЕРХНОСТЕЙ (после всех обычных кадров, один раз меняем сцену; на каждый ракурс свой файл — шаблон {cam} в --mask-out): каждая поверхность — плоский эмиссионный цвет по имени материала (`floor`, `wall`, `wall_accent`), остальное чёрное; без света, неба, шума
+    def _flat(name, rgb):
+        m = bpy.data.materials.new(name)
+        m.use_nodes = True
+        nt_ = m.node_tree
+        for n_ in list(nt_.nodes):
+            nt_.nodes.remove(n_)
+        em = nt_.nodes.new('ShaderNodeEmission')
+        em.inputs['Color'].default_value = (*rgb, 1.0)
+        em.inputs['Strength'].default_value = 1.0
+        out_ = nt_.nodes.new('ShaderNodeOutputMaterial')
+        nt_.links.new(em.outputs['Emission'], out_.inputs['Surface'])
+        return m
+    _cat = {'floor': _flat('mk_floor', (1, 0, 0)), 'wall_accent': _flat('mk_accent', (0, 0, 1)), 'wall': _flat('mk_wall', (0, 1, 0))}
+    _black = _flat('mk_black', (0, 0, 0))
+    for ob_ in bpy.data.objects:
+        if ob_.type != 'MESH':
+            continue
+        for i_, m_ in enumerate(list(ob_.data.materials)):
+            nm_ = (m_.name if m_ else '')
+            key_ = 'wall_accent' if nm_.startswith('wall_accent') else 'floor' if nm_.startswith('floor') else 'wall' if nm_.startswith('wall') else None
+            ob_.data.materials[i_] = _cat[key_] if key_ else _black
+    for l_ in list(bpy.data.lights):
+        bpy.data.lights.remove(l_)
+    wn.nodes.clear() if hasattr(wn.nodes, 'clear') else None
+    sc.view_settings.view_transform = 'Standard'
+    try:
+        sc.view_settings.look = 'None'
+    except TypeError:
+        pass
+    sc.view_settings.exposure = 0.0
+    cy.samples = 1
+    cy.use_adaptive_sampling = False
+    cy.use_denoising = False
+    for _cn in CAMS:
+        setup_camera(_cn)
+        _mo = a.mask_out.replace('{cam}', _cn)
+        os.makedirs(os.path.dirname(os.path.abspath(_mo)), exist_ok=True)
+        sc.render.filepath = _mo
+        bpy.ops.render.render(write_still=True)
+        print('МАСКА', _cn, _mo, flush=True)
+

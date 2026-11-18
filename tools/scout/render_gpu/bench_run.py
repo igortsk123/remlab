@@ -39,7 +39,7 @@ def say(*a):
     print(time.strftime('%H:%M:%S', time.gmtime()), *a, flush=True)
 
 
-def build_body(name, card, image, donor, run_id, plan, cpu, mem_mb):
+def build_body(name, card, image, donor, run_id, plan, cpu, mem_mb, tier='high', countries=()):
     denv = (donor.get('container') or {}).get('environment_variables') or {}
     env = {'RUN_ID': run_id, 'MESH_SINK_URL': denv['MESH_SINK_URL'], 'MESH_SINK_TOKEN': denv['MESH_SINK_TOKEN'],
            'BENCH_PLAN': plan, 'BENCH_SAMPLES': '64', 'BENCH_PCT': '75', 'IMAGE_NOTE': image.split('@')[-1][:19],
@@ -50,7 +50,7 @@ def build_body(name, card, image, donor, run_id, plan, cpu, mem_mb):
             'image': image,
             'resources': {'cpu': cpu, 'memory': mem_mb, 'gpu_classes': [CARDS[card]['class_id']],
                           'storage_amount': 10 * 2 ** 30, 'shm_size': 256},
-            'priority': 'high',
+            'priority': tier,
             'environment_variables': env,
             'image_caching': True,
             'registry_authentication': MG.ghcr_auth(),
@@ -58,7 +58,8 @@ def build_body(name, card, image, donor, run_id, plan, cpu, mem_mb):
         'autostart_policy': False,
         'restart_policy': 'never',
         'replicas': 1,
-        'priority': 'high',
+        'priority': tier,
+        'country_codes': list(countries),
     }
 
 
@@ -123,6 +124,8 @@ def main():
     ap.add_argument('--total-cap', type=float, default=4.0, help='стоп при общих начислениях, $')
     ap.add_argument('--max-min', type=int, default=75, help='предел времени работы машины, мин')
     ap.add_argument('--no-events-s', type=int, default=240, help='стоп, если столько секунд после running нет events.json')
+    ap.add_argument('--tier', default='high', choices=['batch', 'low', 'medium', 'high'], help='priority группы Salad (рычаг T-24/3; цена — по классу и тарифу)')
+    ap.add_argument('--countries', default='', help='country_codes через запятую (рычаг «место»); пусто — любые')
     ap.add_argument('--suffix', default='', help='суффикс имени группы (b — повтор в новой группе)')
     ap.add_argument('--start-existing', action='store_true', help='группа уже создана (остановлена) — запустить как есть')
     ap.add_argument('--reuse', action='store_true', help='группа уже есть и остановлена: обновить образ/RUN_ID (PATCH) и запустить')
@@ -137,10 +140,13 @@ def main():
     code, donor = MG.api(f'/{DONOR}')
     if code != 200:
         sys.exit(f'образец {DONOR}: HTTP {code}')
-    run_id = f'{a.card}-{time.strftime("%H%M", time.gmtime())}'
-    body = build_body(name, a.card, a.image, donor, run_id, a.plan, a.cpu, a.mem_mb)
-    price = SG.price(name) or SG.price(f'render-bench-{a.card}')      # повторы в новых группах (суффикс) — цена той же карты
-    say('группа', name, 'карта', CARDS[a.card]['class_name'], 'тариф', (SG.tier(name) or SG.tier(f'render-bench-{a.card}')), 'цена $/ч', price, 'run', run_id)
+    run_id = f'{a.card}{a.suffix}-{time.strftime("%H%M%S", time.gmtime())}'      # суффикс группы и секунды: параллельные замеры не делят каталог на приёмнике (T-24/3: коллизия id)
+    body = build_body(name, a.card, a.image, donor, run_id, a.plan, a.cpu, a.mem_mb, a.tier, [c for c in a.countries.split(',') if c])
+    try:      # цена — по классу карты И тарифу запуска (рычаг priority меняет цену)
+        price = json.load(open(SG.RULES_FILE if hasattr(SG, 'RULES_FILE') else os.path.join(HERE, '..', 'rules', 'salad-groups.json'), encoding='utf-8'))['prices_by_class_usd_h'][CARDS[a.card]['class_name']][a.tier]
+    except (OSError, KeyError, ValueError):
+        price = SG.price(name) or SG.price(f'render-bench-{a.card}')      # повторы в новых группах (суффикс) — цена той же карты
+    say('группа', name, 'карта', CARDS[a.card]['class_name'], 'тариф', a.tier, 'цена $/ч', price, 'run', run_id)
     if not a.apply:
         safe_print(body)
         return

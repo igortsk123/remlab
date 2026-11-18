@@ -3,7 +3,7 @@ tier: 2
 topic: viz-fidelity-playbook
 scope: Плейбук схожести товаров в генерациях сцен (сеты/визуализация М5) — правила, модели, цены
 tier1: ../core/furniture.md
-updated: 2026-11-17
+updated: 2026-11-18
 importance: high
 source: external:ресёрч 2026-08-01 (BFL/Google/OpenAI доки + практика) + собственные A/B на Сете 1
 status: working
@@ -388,3 +388,46 @@ medium 0.197, high 0.250. При РАВНОМ образе и равном ра�
 - Предохранители: силуэты фото и вида не совпадают (IoU < `MIN_IOU` 0,6) или цветность расходится больше `AB_MAX` 15 — поправки нет.
 - В боевых группах ВЫКЛЮЧЕНА; включалась только в опытной группе плана mesh-color-03 (`tools/scout/rules/salad-groups.json`,
   потолок сторожа 6 ₽, после опыта остановлена). Решение о включении — по итогам опыта (план mesh-color-03 отложен владельцем).
+
+## Фото по кнопке — устройство подробно (из `core/photo-render.md`, 18.11)
+
+
+**Поток (ADR-0428, ещё не в main — вкладка T-20261117-20/2; на странице пока прежний GPT-поток):** как прежний GPT-поток. 3D: фото этой расстановки есть — кнопки нет; нет или изменили — «Сделать фото» (кнопка шторки
+/ модалка «Вы изменили комнату…») → рендер Cycles 2 ракурсов → % → «Фото» → внизу «Улучшить фото» → нейросеть по кадру рендера →
+улучшенное без кнопок. /demo и туры одинаково. Страница `tools/scout/flat215-demo/index.html`.
+
+**Сервер:**
+- маршруты `POST /api/render/cycles` (демо) и `POST /api/trial/<id>/photo` с `mode:"render"` (тур) — `tools/scout/draft_service.py`,
+  `app/api/trial/[id]/photo/route.ts`, контракт `contracts/trial.ts`; `check:true` возвращает `scene_hash`/`cached` без заказа — признак кнопки;
+- снимок расстановки — `tools/scout/render_snapshot.py`, очередь и пределы (8 в очереди, 2 на адрес/тур, 40 в час) — `tools/scout/render_jobs.py`,
+  исполнитель — `RENDER_EXECUTOR` в юните `tools/scout/systemd/remlab-render.service` = `salad-gpu,local-cpu` (машина прогрета → она, иначе CPU DEV; `render_exec.make_executor`, `Fallback`; без переменной — только CPU, урок 702); ход `GET /api/job?id=` — стадии scene/C1/C2/save, %;
+- выгрузка сцены — `tools/scout/cycles_probe/demo_scene_dump.mjs`,
+  рендер — `tools/scout/cycles_probe/render_cycles.py` (`--device`, несколько ракурсов в одном процессе, сторож картин `wall_art.has_content`; «с рисунком» меряется на полотне как в 3D — `wall_art.art_stats`, тот же вход у подбора `flat215_demo.wall_art_step` и `wall_art_reannotate.py`; годной картины нет → стена пустая), пресет — `tools/scout/cycles_probe/render-preset.json` (1536×1116, 64 выборки + OIDN);
+- «Улучшить» — прежний GPT-маршрут с `render_key`, промпт `improve-render-v5.4` (ADR-0419) + `improve_mode.match_luma` в `tools/scout/draft_render.py`:
+  яркость ответа нейросети = как у входного рендера (одно усиление ×0,85…1,35, без сдвига оттенка, окно/пересвет вне замера); версия
+  `PROMPT_VERSION_RENDER` (`…+luma-1`) — в ключе кэша.
+
+**Машина (ADR-0429 + поправки 17–18.11):** Salad RTX 4090 medium, группа `render-4090m4`, тонкий образ fmt 2; параметры —
+`tools/scout/rules/salad-groups.json` → `render_machine` (`executor.fmt2`, `upload_par`). Контроллер `tools/scout/render_gpu/render_machine.py`
+(автостоп 20 мин, 4 ч, $2/день; крон `tick` на DEV), исполнитель `SaladGpuExecutor` — `tools/scout/render_exec.py`. **fmt 2:** короткое
+задание `job.json` v=2 + неизменяемые ассеты по полному sha256 в приёмнике `renderassets/<ab>/<sha>` (`POST /have/renderassets`, PUT с
+проверкой хеша, свой потолок `MESH_ASSET_MAX_GB`) — `tools/scout/salad/receiver.py`; кэш ассетов на машине `/work/blobs` (LRU ≤4 ГБ) —
+`tools/scout/render_gpu/render_worker.py`; запас fmt 2 → fmt 1 → CPU. Сторож `infra/server/render-guard.py` только `render-*`, меш-сторож
+`infra/server/salad-deadman.py` только `mesh-*`. Что где — `plans/render-machine-01.md`, `tools/scout/render_gpu/README.md`.
+**Время (18.11, живой 8600):** повтор того же снимка 0 с (каталог кадров по `scene_hash`); прогретая машина 20–30 с, новый вариант
+≈30–47 с — остаток: выгрузка недостающих ассетов DEV→приёмник (≈2,4 МБ/с), экспорт на DEV 6–10 с, Blender ≈8 с. CPU DEV ≈8–16 мин.
+
+**Открыто:** подогрев ассетов витрины (T-24/7), срок в ответе сервера по исполнителю (`render_jobs.range_sec` берёт историю CPU);
+вкладка «Фото» T-20/2; солнечные пятна от нейросети в «Улучшить». Уроки 697–702.
+
+**Ночь 17→18.11 (директор common, для справки):**
+- Свет рендера T-23/2 (`f1309f67`): заливка 6500 K, лампы 1 Вт, пресет v3 (`--transform "Khronos PBR Neutral"`, `--fill-k`, `--sky-sat`),
+  `--mask-out` по ракурсам; экспозиция −0,15 оставлена — ошибка яркости против живой 3D разного знака (гостиные темнее, спальни светлее) →
+  это раскладка света, не экспозиция; торшер в живой 3D не светит.
+- Автостоп машины проверен вживую 17.11 (вкл 23:03, погасла сама 23:24, `render-guard` всё время `controller_alive`) и 18.11 на
+  `render-4090m4` (последний заказ 01:07:39 → стоп idle 01:28:04, $0,157 за день); группы m2/m3 удалены, запасная `render-4090` оставлена.
+- fmt 2 (`35c469e7`): `validate_job` пускает значение аргумента с пробелами (флаг — без); пресет поменяли → образ воркера пересобрать;
+  скрипт живой проверки обязан звать `render_machine.py tick` (иначе `gpu_degraded`). Уборка ассетов — `jobs_purge.py` (168 ч / 1,2 ГБ).
+- Картины (`5d218094`): подбор мерил центр сырого фото товара, а 3D рисует после `crop_white` → разные входы у подбора и сторожа; теперь
+  один `wall_art.art_stats`. Витрина пересобрана `wall_art_reannotate.py` (5 вариантов; bedroom-1-loft — без картины, ❓ владельцу: одна
+  картина, если пары нет).

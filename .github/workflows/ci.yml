@@ -194,6 +194,8 @@ jobs:
       - run: python tools/scout/render_exec.py --selftest   # исполнители рендера: ключ кэша по версиям, таймаут шага, запасной путь (T-20261117-19)
       - run: python tools/scout/tests/test_improve_render_source.py   # «Улучшить» из рендера: только доводка света и фактуры — мебель, цвет, состав как есть; нет гайда стиля и листа эталонов; живое фото прежним путём (T-20261117-19/2)
       - run: python tools/scout/tests/test_scene3d_cache_trim.py   # потолок кэша GLB не стирает меши текущего кадра (T-20261117-19/3)
+      - run: python tools/scout/tests/test_render_tint.py   # цвет рендера как в живой 3D: подкраска товара доходит до сцены, пресет — тон Neutral и небо (T-20261117-23)
+      - run: python tools/scout/tests/test_match_luma.py   # нормировка яркости ответа «Улучшить» по входному рендеру (T-20261118-01/3)
       - run: python tools/scout/tests/test_render_cycles_service.py   # HTTP сервиса: заказ → опрос → два кадра, отказы 404/409/422/503+Retry-After, тур только с внутренним ключом, проход прод → DEV, «Улучшить из рендера» (T-20261117-19)
       - run: python tools/scout/tests/test_registry_protect.py   # реестр кадров не выкидывает кадры главной из списка прогрева (×3 вариантов, 5 ночей), счётчики shots-trim.json, _registry_add целиком; здесь — draft_service тянет planner+numpy+PIL (T-20261107-17)
       - run: python -m pytest tools/scout/tests/test_draft_trial.py -q -p no:cacheprovider   # фото тура пробы в сервисе кадров: суточный предел задания, только по кадрам 3D, фото товаров из каталога по модели, без реестра и без запасного рендера (T-20261109-34)

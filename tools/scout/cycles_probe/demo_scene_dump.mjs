@@ -41,6 +41,9 @@ const srv = http.createServer((req, res) => {
   // (и растения `public/flat3d/plants/*.glb`: в main с 17.11, на проде ещё нет)
   const pm = u.match(/^\/flat3d\/(materials|plants)\/([A-Za-z0-9._-]+)$/);
   if (pm && fs.existsSync(path.join(PUBLIC, 'flat3d', pm[1], pm[2]))) { res.writeHead(200, { 'content-type': mime[path.extname(u)] || 'application/octet-stream', ...cors }); fs.createReadStream(path.join(PUBLIC, 'flat3d', pm[1], pm[2])).pipe(res); return; }
+  // фото товаров новой витрины, ещё не выложенной на прод (`-art.jpg` новых картин): DEMO_LOCAL_DIR=<папка витрины> — файл оттуда, нет — с сайта
+  const lm = process.env.DEMO_LOCAL_DIR && u.match(/^\/demo\/(img\/[A-Za-z0-9._-]+)$/);
+  if (lm && fs.existsSync(path.join(process.env.DEMO_LOCAL_DIR, lm[1]))) { res.writeHead(200, { 'content-type': mime[path.extname(u)] || 'application/octet-stream', ...cors }); fs.createReadStream(path.join(process.env.DEMO_LOCAL_DIR, lm[1])).pipe(res); return; }
   const m = u.match(/^\/test\/mesh-pilot10\/([^/]+)\/model\.glb$/);
   if (m && fs.existsSync(path.join(CACHE, m[1] + '.glb'))) { res.writeHead(200, { 'content-type': 'model/gltf-binary', ...cors }); fs.createReadStream(path.join(CACHE, m[1] + '.glb')).pipe(res); return; }
   https.get({ host: REMOTE, path: req.url, headers: { 'user-agent': 'cycles-probe' } }, (r) => {

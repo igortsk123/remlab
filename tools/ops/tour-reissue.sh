@@ -141,4 +141,17 @@ exec 9>&-
 if [ -f "$AGAIN" ] && [ "$PASSES" -lt 3 ]; then
   TOUR_REISSUE_PASSES=$PASSES exec bash "$SELF" --why "$WHY (повтор)" --days "$DAYS" "${DRY[@]}"
 fi
+# ПОДОГРЕВ ВИТРИНЫ (T-20261117-24/7, Э2в): витрина и туры обновлены — досылаем на приёмник машины рендера ассеты ВСЕХ вариантов /demo и свежих туров и пишем «горячий список»
+# (`tools/scout/render_gpu/showcase_assets.py`): машина при прогреве подтянет их в свой кэш, и первый заказ «Сделать фото» нового варианта не ждёт ни выгрузки, ни скачивания.
+# Без рендера и без включения машины; сбой шага проход не портит (код выхода не меняет) — заказ, как раньше, досылает недостающее сам. Ручной запуск —
+# `~/venvs/scout/bin/python tools/scout/render_gpu/showcase_assets.py`; выключить — TOUR_REISSUE_WARM=0; подмена для самопроверки — TOUR_REISSUE_WARM_CMD.
+if [ ${#DRY[@]} = 0 ] && [ "${TOUR_REISSUE_WARM:-1}" = 1 ]; then
+  if [ -n "${TOUR_REISSUE_WARM_CMD:-}" ]; then WARM=("$TOUR_REISSUE_WARM_CMD"); else WARM=("$PY" -u "$ROOT/tools/scout/render_gpu/showcase_assets.py"); fi
+  mkdir -p "$LOGS" 2>/dev/null || true
+  echo "=== $(date '+%F %T') повод: $WHY" >> "$LOGS/showcase-assets.log" 2>/dev/null || true
+  "${WARM[@]}" >> "$LOGS/showcase-assets.log" 2>&1 9>&-
+  wrc=$?
+  if [ "$wrc" -le 1 ]; then echo "tour_reissue: подогрев витрины — $(tail -n1 "$LOGS/showcase-assets.log" 2>/dev/null | cut -c1-300)"
+  else echo "tour_reissue: подогрев витрины не вышел (код $wrc, см. $LOGS/showcase-assets.log) — заказы досылают ассеты сами"; fi
+fi
 exit "$worst"

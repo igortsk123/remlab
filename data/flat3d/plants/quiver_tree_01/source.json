@@ -1,0 +1,29 @@
+{
+ "asset": "quiver_tree_01",
+ "title": "Quiver Tree 01",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/quiver_tree_01",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "James Ray Cock": "Photography",
+  "Dario Barresi": "Photography",
+  "Rico Cilliers": "modeling"
+ },
+ "realMm": [
+  1181.235671043396,
+  968.5054421424866,
+  2715.5103981494904
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "quiver_tree_01_1k.gltf": "aa6885a0fe43b274584851b0947e2209dc64afce1d20a75a1567e790a12d0722",
+  "textures/quiver_tree_01_trunk_arm_1k.jpg": "9271edcab1c7224aa6b9e64f0321ae54ad7c074557290cd366c3392e7c330ab7",
+  "textures/quiver_tree_01_trunk_diff_1k.jpg": "47963e7a274bf26da0a49019d01268f5dad9e8a2e6cd17fcd3ba1d2606517f57",
+  "textures/quiver_tree_01_leaf_nor_gl_1k.jpg": "4480bafa755e1886073546aca1fbd6da377c463849f18588c773460c61b4ed0a",
+  "textures/quiver_tree_01_trunk_nor_gl_1k.jpg": "430ccf8d2545f7fe1119433ef34a02111a81f907dfb4ee50654ffdad4b655438",
+  "textures/quiver_tree_01_leaf_arm_1k.jpg": "c0be7dd1b7dcc61fcbe252b2ca656b1ecf7633d9a1bb52cf7006bc97bf6c560c",
+  "quiver_tree_01.bin": "20efdf4aa14825ffd01abb21535afd485a00022c96ad04c1269bb01c137bbe08",
+  "textures/quiver_tree_01_leaf_diff_1k.jpg": "5622b466a950b74d296c3d066e0d28d85770232fd5624c5ab0f752de825fae18"
+ }
+}

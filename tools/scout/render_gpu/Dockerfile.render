@@ -12,6 +12,7 @@
 # Устройство: Blender приносит свои ядра CUDA и OptiX-ядра; от машины нужен только драйвер (libcuda — всегда, libnvoptix — если рантайм
 # отдаёт возможность `graphics`). NVIDIA_DRIVER_CAPABILITIES=all просит и её; дадут ли — решает платформа, проверка — в /ready
 # (`ready_probe.py`: auto = OptiX → CUDA → CPU, фактическое устройство в логе).
+ARG BASE=base
 FROM nvidia/cuda:12.4.1-base-ubuntu22.04 AS base
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -31,15 +32,56 @@ RUN echo "${BLENDER_SHA256}  /tmp/blender.tar.xz" | sha256sum -c - \
     && ${BLENDER_DIR}/blender -b --version | head -2 \
     && ldd ${BLENDER_DIR}/blender | grep 'not found' && exit 1 || true
 
-FROM base AS code
+# thin — ТОНКИЙ образ (T-20261117-24/3). Тот же Blender 5.3.0, но (1) архив не остаётся слоем: в `base` COPY архива даёт слой ≈ 388 МБ СЖАТЫХ, и RUN rm
+# его не убирает (слои только добавляются) — распаковываем в отдельной стадии и копируем готовый каталог; (2) режем то, что рендеру Cycles не нужно:
+# переводы интерфейса, python-привязки USD (pxr), Cython/pip/setuptools, денойзер-ядра HIP/SYCL (устройств AMD/Intel на Salad нет; libcycles_kernel_oneapi_aot оставлена — на неё слинкован blender), примеры-ассеты.
+# Что трогать нельзя (проверено ldd): libusd_ms, OSL, OpenVDB — на них слинкован сам blender; io_scene_gltf2 нужен для glb; cycles-аддон — сам Cycles.
+FROM ubuntu:22.04 AS blender-cut
+RUN apt-get update && apt-get install -y --no-install-recommends xz-utils ca-certificates && rm -rf /var/lib/apt/lists/*
+ARG BLENDER_SHA256
+COPY blender-5.3.0.tar.xz /tmp/blender.tar.xz
+RUN echo "${BLENDER_SHA256}  /tmp/blender.tar.xz" | sha256sum -c - \
+    && mkdir -p /opt/blender && tar -xJf /tmp/blender.tar.xz -C /opt/blender --strip-components=1 && rm -f /tmp/blender.tar.xz \
+    && cd /opt/blender && rm -rf 5.3/datafiles/locale 5.3/datafiles/assets 5.3/datafiles/studiolights \
+         5.3/python/lib/python3.13/site-packages/pxr 5.3/python/lib/python3.13/site-packages/Cython \
+         5.3/python/lib/python3.13/site-packages/pip 5.3/python/lib/python3.13/site-packages/setuptools \
+         lib/libOpenImageDenoise_device_hip.so* lib/libOpenImageDenoise_device_sycl*.so* \
+         blender.desktop blender-launcher blender-thumbnailer blender.svg blender-symbolic.svg readme.html
+
+FROM nvidia/cuda:12.4.1-base-ubuntu22.04 AS thin
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    NVIDIA_DRIVER_CAPABILITIES=all \
+    BLENDER_DIR=/opt/blender
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3-minimal ca-certificates \
+      libgl1 libegl1 libxi6 libxrender1 libxxf86vm1 libxfixes3 libxkbcommon0 libsm6 libx11-6 libxext6 libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=blender-cut /opt/blender /opt/blender
+RUN ${BLENDER_DIR}/blender -b --version | head -2 \
+    && ldd ${BLENDER_DIR}/blender | grep 'not found' && exit 1 || true
+
+# BASE выбирает основу: base (как было) или thin; цели code/agent/worker/bench общие
+FROM ${BASE} AS code
 WORKDIR /app
 # python из Blender собран со своим путём к сертификатам, которого в образе нет → выгрузка по https падала CERTIFICATE_VERIFY_FAILED (замер 3090, 17.11)
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-COPY render_cycles.py ready_probe.py bench.py /app/
+COPY render_cycles.py ready_probe.py bench.py machine_agent.py /app/
 # сторож картин в render_cycles.py читает `<корень>/data/flat3d/wall-art.json` (путь от файла скрипта: /app → /data); без него кадр не строится
 COPY wall-art.json /data/flat3d/wall-art.json
 # bench.py идёт на python из Blender (полная стандартная библиотека; системный python3-minimal без json)
 CMD ["/opt/blender/5.3/python/bin/python3.13", "-u", "/app/bench.py"]
+
+# agent — машина рендера под контроллером (T-24/1): /ready + отметка `rendermachine/ready.json`; боевой воркер (T-24/2) заменит CMD
+FROM code AS agent
+CMD ["/opt/blender/5.3/python/bin/python3.13", "-u", "/app/machine_agent.py"]
+
+# worker — БОЕВАЯ машина рендера (T-24/2): агент готовности + воркер заданий (`render_worker.py`: берёт пару ракурсов из приёмника, считает одним Blender,
+# кладёт кадры обратно). Программа рендера и данные приходят ПАКЕТОМ сцены с каждым заданием — правка render_cycles.py не требует новой сборки.
+FROM code AS worker
+COPY render_worker.py jobs_proto.py /app/
+CMD ["/opt/blender/5.3/python/bin/python3.13", "-u", "/app/render_worker.py"]
 
 FROM code AS bench
 COPY scenes/ /scenes/

@@ -3907,13 +3907,26 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
                 # увидеть и показать клиент, а не выход из программы (13.10).
                 raise RuntimeError('модель закрасила разделительную полосу — резать нечем, ответ негоден')
             pieces = [_trim_band(x) for x in _split_pair(out)]   # остатки наклонной полосы по краям (demo-11)
+            _luma = []
+            if IM.render_source(layout):
+                # НОРМИРОВКА ЯРКОСТИ (T-20261118-01/3): «Улучшить» темнит пол и стены; цель — «как вход» (рендер, который человек только что видел).
+                # Одно усиление на вид по входному кадру Cycles — `improve_mode.match_luma`; после резки, до публикации. Сбой шага платный ответ не теряет
+                try:
+                    _refs = [_trim_band(x) for x in _split_pair(sheet)]
+                    for _i, (_p, _r) in enumerate(zip(pieces, _refs)):
+                        pieces[_i], _inf = IM.match_luma(_p, _r)
+                        _luma.append(_inf)
+                    print('улучшение: нормировка яркости по входу ' + '; '.join(f"×{x['gain']:.2f} (область {x['region_pct']:.0f} %)" for x in _luma), flush=True)
+                except Exception as e:  # noqa: BLE001
+                    print(f'улучшение: нормировка яркости пропущена ({repr(e)[:100]})', flush=True)
+                    _luma = []
             stamp = time.strftime('%H%M%S')
             shots = [{'camera': c.name, 'url': _publish_frame(p_, f'improve-{stamp}-{c.name}.jpg'),
                       'diag': {}, 'anchors': []}
                      for c, p_ in zip(want, pieces)]
             # что именно нарисовало фото — в ответ и реестр (demo-11): модель, качество, версия и отпечаток промпта
             res = {'shots': shots, 'url': shots[0]['url'], 'model': f'improve/{REALISTIC_MODEL}', 'image_quality': gq,
-                   'prompt_version': IM.prompt_version(layout), 'prompt_sha': IM.prompt_sha(prompt), 'tariff': _tr,
+                   'prompt_version': IM.prompt_version(layout), 'prompt_sha': IM.prompt_sha(prompt), 'tariff': _tr, 'luma': _luma,
                        'sheet_orient': built.get('orient') or 'landscape',
                    'sources': built['src_url'], 'diag': {'clay': built['clay']},
                        # откуда кадры и сколько заняла наша часть до вызова модели (demo-10: цель ≤ 2 с при кадрах из браузера)

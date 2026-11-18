@@ -1,0 +1,25 @@
+{
+ "asset": "othonna_cerarioides",
+ "title": "Othonna Cerarioides",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/othonna_cerarioides",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "James Ray Cock": "modeling",
+  "Jenelle van Heerden": "Photography"
+ },
+ "realMm": [
+  3970.029592514038,
+  1798.905849456787,
+  1969.5868343114853
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "othonna_cerarioides_1k.gltf": "cbbe57f895038c490f2b73d3c068a478f74c6e74d19c8d21ae96cb78567e5a56",
+  "textures/othonna_cerarioides_diff_1k.jpg": "0c120c71434ad4fef576a20ad72f8cc93ba9b903302f1c253f22183ec1a270c4",
+  "textures/othonna_cerarioides_nor_gl_1k.jpg": "228e3ca2422ddbaa9c5685bad13428122b8b99c0de13b61648bba3d222818dcb",
+  "othonna_cerarioides.bin": "7bb550540f0a6733eb30576fd798f57940d4854183013ca3ef29815a7de7aa8a",
+  "textures/othonna_cerarioides_arm_1k.jpg": "089664c80ea5466630757487c0a14e27571775e4337cb28b6feab15a93710011"
+ }
+}

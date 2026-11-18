@@ -3967,6 +3967,65 @@ function camItemH(it){const r=String(it.role||'').replace(/\s+\d+$/,'');
   // НА ТВ-ТУМБУ СЕРВЕР САМ СТАВИТ ТЕЛЕВИЗОР (`draft_render.scene_from_request`, ~70 см экрана): камера должна видеть его
   // как помеху, а не одну низкую тумбу (14.10: в «джапанди» спина телевизора закрывала пол-кадра)
   return r==='тв-тумба'?h+75:h;}
+// ДЕКОР С РАСТЕНИЯМИ В РАСЧЁТЕ РАКУРСА (T-20261117-21, владелец TG 1563/1565/1566: «лист растения у самой камеры закрывает диван», «растение
+// в вазе на столике перед диваном»). Растение — не предмет варианта, а ребёнок носителя (`kits/plants.ts`), и ракурс считал одно кашпо
+// 60 см и вазы не знал вовсе. Теперь `camDecorAdd` добавляет к мебели варианта «призрачные» коробки декора (`decor: true`): крону растения
+// над кашпо и вазу с букетом на столике — тем же правилом посадки, что сцена (`data/flat3d/plants.json` → `fit`; числа ниже сверяет тест
+// `tools/assets/tests/test_cam_decor.py`). Дальше работают прежние правила кадра: у самого глаза (`camBlock`, зазор `camHard`) — отказ точки,
+// передний план (`fore`, `hog`) — нарушение. Перекрытие главного предмета кроной — ШТРАФ в оценке пары (`CAM_GATE.decor`, вес `CAM_BAD_W.decor`),
+// не запрет: в тесной комнате лучший ракурс не теряем (ведущий 17.11). Призрачные коробки не покрываются и не входят в окна превью.
+// `throatOf` — какая доля меньшей стороны носителя — горло; `vase` — вазы нет в данных варианта до сцены: размер по умолчанию, место — столик.
+const CAM_DECOR={
+  nearCm:70, maxShare:0.2,   // крона ближе 70 см к камере или больше 20 % кадра — точка не годится
+  selfNearCm:120,            // сам предмет декора (ваза/чаша на столике) ближе 120 см к камере — штраф `decorSelf`; срез его краем кадра — тоже
+  planter:{role:'кашпо', throatOf:0.8, fit:{crownOverThroat:3.6, heightOverThroat:3.6, minHeightCm:80, maxHeightCm:130, sinkCm:3}},
+  vase:{role:'ваза', on:'столик', vase:{w:23, d:18, h:30}, throatCm:8,
+    fit:{crownOverThroat:5.5, heightOverCarrier:2.4, minHeightCm:40, maxHeightCm:85, sinkCm:3}}};
+const camClamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+function camDecorAdd(its){
+  if(!its||!its.length||its.some(it=>it.decor))return its;
+  const out=its.slice(), P=CAM_DECOR.planter, V=CAM_DECOR.vase;
+  its.forEach(it=>{const r=camRole(it);
+    if(r===P.role){const f=P.fit, thr=P.throatOf*Math.min(+it.w,+it.d), top=(+it.h>0?+it.h:CAM_ROLE_H[P.role])-f.sinkCm, cr=f.crownOverThroat*thr;
+      out.push({role:'растение',decor:true,x:it.x,y:it.y,w:cr,d:cr,rot:0,h:camClamp(f.heightOverThroat*thr,f.minHeightCm,f.maxHeightCm),elev:top});}
+    else if(r===V.on){const f=V.fit, tt=camItemH(it), cr=f.crownOverThroat*V.throatCm;
+      out.push({role:V.role,decor:true,x:it.x,y:it.y,w:V.vase.w,d:V.vase.d,rot:it.rot||0,h:V.vase.h,elev:tt});
+      out.push({role:'растение',decor:true,x:it.x,y:it.y,w:cr,d:cr,rot:0,h:camClamp(f.heightOverCarrier*V.vase.h,f.minHeightCm,f.maxHeightCm),elev:tt+V.vase.h-f.sinkCm});}});
+  return out;
+}
+// Декор «у самого глаза» — ЖЁСТКИЙ отказ точки (директор 17.11): крона ближе `nearCm` к камере или её рамка занимает в кадре больше `maxShare`
+// (всего кадра; кадр — квадрат −1…1, площадь 4). Остальное перекрытие — только штраф `camDecorOver`.
+function camDecorEye(c,its){
+  for(const d of (its||[])){if(!d.decor||d.role!=='растение')continue;
+    // крона ЗА плоскостью камеры (центр позади объектива) в кадр не попадает — рядом с глазом, но не перед ним: не отказ (set4: кашпо у угла за спиной)
+    const ar=(c.rot||0)*Math.PI/180, fwd=(d.x-c.x)*Math.sin(ar)-(d.y-c.y)*Math.cos(ar);
+    if(fwd>=0&&camNear(c,d)<CAM_DECOR.nearCm)return true;
+    const b=camProj(c,d,0,camItemH(d)); if(!b||b.behind)continue;
+    const x0=Math.max(b.x0,-1), x1=Math.min(b.x1,1), y0=Math.max(b.y0,-1), y1=Math.min(b.y1,1);
+    if(x1>x0&&y1>y0&&(x1-x0)*(y1-y0)/4>CAM_DECOR.maxShare)return true;}
+  return false;
+}
+// САМ ПРЕДМЕТ ДЕКОРА у кромки (директор 17.11: на живой кадре ваза/чаша без растения, а правило смотрело только на призрак-крону): ваза на столике ближе
+// `selfNearCm` к камере или срезана краем кадра — штраф `decorSelf` (0…1: доля коробки за кадром либо недостача расстояния к 60 см); целиком вне кадра — не мешает.
+function camDecorSelf(c,its){
+  let worst=0;
+  (its||[]).forEach(d=>{if(!d.decor||d.role!==CAM_DECOR.vase.role)return; const b=camProj(c,d,0,camItemH(d)); if(!b||b.behind)return;
+    const A=(b.x1-b.x0)*(b.y1-b.y0), x0=Math.max(b.x0,-1), x1=Math.min(b.x1,1), y0=Math.max(b.y0,-1), y1=Math.min(b.y1,1), inA=Math.max(0,x1-x0)*Math.max(0,y1-y0);
+    if(A<=0||inA/4<0.0005)return;
+    worst=Math.max(worst,1-inA/A,Math.min(1,Math.max(0,CAM_DECOR.selfNearCm-camNear(c,d))/60));});
+  return worst;
+}
+// Доля коробки главного предмета (в кадре), закрытая коробкой декора, что стоит к камере ближе него: худшая по паре «декор — главное»
+function camDecorOver(c,its){
+  const keys=(its||[]).filter(it=>!it.decor&&camZ().key.includes(camRole(it)));
+  let worst=0;
+  (its||[]).forEach(d=>{if(!d.decor)return; const bd=camProj(c,d,0,camItemH(d)); if(!bd||bd.behind)return;
+    keys.forEach(k=>{if(Math.hypot(k.x-c.x,k.y-c.y)<=Math.hypot(d.x-c.x,d.y-c.y))return;   // растение дальше главного — не закрывает
+      const bk=camProj(c,k,0,camItemH(k)); if(!bk||bk.behind)return;
+      const x0=Math.max(bk.x0,-1), x1=Math.min(bk.x1,1), y0=Math.max(bk.y0,-1), y1=Math.min(bk.y1,1), ka=(x1-x0)*(y1-y0); if(ka<=0)return;
+      worst=Math.max(worst,Math.max(0,Math.min(x1,bd.x1)-Math.max(x0,bd.x0))*Math.max(0,Math.min(y1,bd.y1)-Math.max(y0,bd.y0))/ka);});});
+  return worst;
+}
 // Проекция коробки предмета в кадр позы: прямоугольник на экране в долях −1…1 (x вправо, y вверх) или null (за спиной)
 // ВЫСОТА ПОДВЕСА (`elev`, T-20261107-05/4): настенное (зеркало прихожей на 114–186 см) — коробка от `elev` до `elev + h`, а не от пола:
 // иначе консоль под зеркалом «закрывала» его из любой точки, и вид «зеркало целиком» не находился. Высоты в `camProj` и маске
@@ -4004,7 +4063,7 @@ function camBlock(c,its,yl0){
   (its||[]).forEach(it=>{
     // ковёр — пол; дальнее — содержание кадра; главная вещь — не помеха, кроме зоны с `mainBlock` (T-20261107-05/4, ведущий: «шкаф-купе —
     // помеха для „в упор“»: в коридоре камера у дверцы шкафа-купе, глядя на неё, давала кадр — одна дверца во весь экран)
-    if(camItemH(it)<=2||camNear(c,it)>CAM_NEAR||(camIsMain(it)&&!camZ().mainBlock))return;
+    if(it.decor||camItemH(it)<=2||camNear(c,it)>CAM_NEAR||(camIsMain(it)&&!camZ().mainBlock))return;   // декор — только у самого глаза (`camDecorEye`) и штрафом
     const b=camProj(c,it,0,camItemH(it)); if(!b)return;
     const cov=Math.max(0,Math.min(b.x1,1)-Math.max(b.x0,-1))/2*Math.max(0,Math.min(b.y1,1)-Math.max(b.y0,yl))/2;
     sum+=cov; if(cov>worst){worst=cov;who=it.role;}
@@ -4156,8 +4215,9 @@ function camTallCut(c,its){
   return '';
 }
 function camHard(c,its,strict,minDist){
-  const all=(its||[]).filter(it=>camItemH(it)>2);
+  const all=(its||[]).filter(it=>camItemH(it)>2&&!it.decor);
   if(all.some(it=>camNear(c,it)<(minDist===undefined?CAM_MIN_DIST:minDist)))return 'близко';
+  if(camDecorEye(c,its))return 'декор у глаза';
   const sofa=all.find(it=>camRole(it)==='диван'), tbl=all.find(it=>camRole(it)==='столик');
   // диван — целиком со всех сторон; столик — по ширине и вся СТОЛЕШНИЦА в кадре (ближе 2,3 м низ мебели при камере на 135 см
   // всегда уходит за нижнюю кромку — из точек у стен столик целиком с низом недостижим ни в одном из 5 вариантов, замер 14.10;
@@ -4176,7 +4236,7 @@ function camHard(c,its,strict,minDist){
   if(strict&&((sofa&&!whole(sofa,strict>=3,strict>=2))||(tbl&&(strict>=2?!tableOk(tbl):!whole(tbl,false,false)))))return 'диван/столик срезан';
   if(sofa){const S=camProj(c,sofa,0,camItemH(sofa)), ds=Math.hypot(sofa.x-c.x,sofa.y-c.y);
     if(S&&!S.behind)for(const it of all){
-      const r=camRole(it); if(it===sofa||r==='столик'||camItemH(it)<50)continue;
+      const r=camRole(it); if(it===sofa||r==='столик'||camItemH(it)<50||it.decor||r===CAM_DECOR.planter.role)continue;   // декор — штраф `camDecorOver`, не запрет
       if(Math.hypot(it.x-c.x,it.y-c.y)>=ds)continue;
       const b=camProj(c,it,0,camItemH(it)); if(!b)continue;
       const ov=Math.min(b.x1,S.x1)-Math.max(b.x0,S.x0);
@@ -4227,7 +4287,7 @@ function camFit(cx,cy,its,W,H,strict){
 // `keyCut` — главное (диван, ТВ-тумба, столик) срезано боковым краем: доля ширины за кадром (d8 17.10: ТВ сканди, диван джапанди)
 // `keyMiss` — только у вида 2 (d8 17.10): ни диван, ни ТВ-тумба не видны хотя бы на 60 % ширины — вид без смысла для покупателя;
 // `close2` — мебель ближе 1.0 м (жёстче `close`). Пороги d8: срез главного ≤ 0.4, пустая стена ≤ 0.4
-const CAM_GATE=[['floor',0.35],['empty',0.4],['ceil',0.3],['close',0],['close2',0],['pclose',0],['hog',0.28],['fore',0.12],['keyCut',0.4],['keyMiss',0],['nearWall',0.02]];
+const CAM_GATE=[['floor',0.35],['empty',0.4],['ceil',0.3],['close',0],['close2',0],['pclose',0],['hog',0.28],['fore',0.12],['keyCut',0.4],['keyMiss',0],['nearWall',0.02],['decor',0.12],['decorSelf',0.05]];
 const CAM_KEY_SHOW=['диван','тв-тумба'], CAM_KEY_SHOW_MIN=0.6;
 function camKeyShow(c,its,st){
   let best=0; (its||[]).forEach((it,i)=>{if(!camZ().show.includes(camRole(it)))return; const b=camProj(c,it,0,camItemH(it)); if(!b||b.behind)return;
@@ -4365,7 +4425,7 @@ function camCandEval(c,its,W,H){
 // ВЕС НАРУШЕНИЯ ПОРОГА (за каждые 0.1 сверх порога; для `close`/`pclose` — за каждые 10 см недостачи; `nearWall` — за 0.01):
 // стена у края и срез главного — почти запрет, лишний пол или потолок — мелочь
 // d8 17.10: потеря дивана/ТВ из вида 2 дороже среза главного до 40 %; пустая стена > 0.4 дороже мелочей; ближе 1.0 м — почти запрет
-const CAM_BAD_W={nearWall:100, keyMiss:15, keyCut:10, close2:10, empty:6, close:4, hog:4, fore:4, pclose:0.5, ceil:1, floor:1}, CAM_BAD_TOL=0.5;
+const CAM_BAD_W={decorSelf:3, decor:2, nearWall:100, keyMiss:15, keyCut:10, close2:10, empty:6, close:4, hog:4, fore:4, pclose:0.5, ceil:1, floor:1}, CAM_BAD_TOL=0.5;
 function camBad(st,second){
   let b=0; for(const [k,v] of CAM_GATE){if(k==='keyMiss'&&!second)continue; const over=Math.max(0,(st[k]||0)-v);
     if(over>0)b+=CAM_BAD_W[k]*over/(k==='nearWall'?0.01:0.1);}
@@ -4682,7 +4742,7 @@ function camShownN(its,cv){ let n=0; (its||[]).forEach((it,i)=>{if(camItemH(it)>
 const camId=(it,i)=>it&&it.id!=null?String(it.id):'item-'+i;
 function camUnits(its){
   const u=[], chairs=[], Z=camZ(), any={};
-  (its||[]).forEach((it,i)=>{const r=camRole(it); if(r==='стул'){chairs.push(i);return;}
+  (its||[]).forEach((it,i)=>{const r=camRole(it); if(it.decor)return; if(r==='стул'){chairs.push(i);return;}
     // «хотя бы один» зоны (`anyOf`): тумбы по бокам кровати — одна группа, покрыта, если видна любая (дальнюю закрывает кровать)
     if((Z.anyOf||[]).includes(r)){(any[r]=any[r]||[]).push(i); return;}
     u.push({ids:[i],role:r,must:Z.must.includes(r)});});
@@ -4728,7 +4788,7 @@ function camPair(its,W,H,cs){return camPairAll([its],W,H,cs);}
 // остальных — `demo-cams.mjs`); такой пары нет — null, а не углы.
 // подбор без `cutNear` (`camCutSkip`) живёт только внутри одного подбора пары: снаружи вид зоны проверяется с условием.
 // ПРАВИЛО ВИДОВ v2 (`camPairV2`) — у зоны с `intent` (гостиная, спальни, прихожая); у прочих (кухня) и по `opt.v1` — прежний подбор
-function camPairAll(L,W,H,cs,opt){ camRoomWH=[W,H];
+function camPairAll(L,W,H,cs,opt){ camRoomWH=[W,H]; L=L.map(camDecorAdd);
   try{ return CAM_PAIR_ON&&camZ().intent&&!(opt&&opt.v1)?camPairV2(L,W,H,cs,opt):camPairAll0(L,W,H,cs,opt); } finally { camCutSkip=false; camCutRelax=0; camRoomWH=null; } }
 function camPairAll0(L,W,H,cs,opt){
   if(!CAM_PAIR_ON)return camPairCorner(L[0],W,H,cs);
@@ -4784,7 +4844,7 @@ function camPairAll0(L,W,H,cs,opt){
   const okV=(a,b)=>!vOk?true:(b<0?(vOk[a][0]||vOk[a][1]):(((vOk[a][0]&&vOk[b][1])||(vOk[b][0]&&vOk[a][1]))&&apartOk(all[a],all[b])));
   const NK=camNearK(), st=L.map(()=>new Map()), stat=(c,v)=>{v=v||0; const its=L[v]; if(!st[v].has(c)){const s0=camStats(c,its,W,H); s0.keyVis=camKeyVis(c,its,s0);
     s0.keyCut=camKeyCut(c,its); s0.close=Math.max(0,CAM_NEAR_L*NK-s0.nearest)/100; s0.close2=Math.max(0,100*NK-s0.nearest)/100;
-    s0.keyMiss=Math.max(0,CAM_KEY_SHOW_MIN-camKeyShow(c,its,s0));
+    s0.keyMiss=Math.max(0,CAM_KEY_SHOW_MIN-camKeyShow(c,its,s0)); s0.decor=camDecorOver(c,its); s0.decorSelf=camDecorSelf(c,its);
     s0.pNear=camStats(c,its,W,H,{w:48,h:66,sn:CAM_P_SN}).nearest; s0.pclose=Math.max(0,CAM_NEAR_P*NK-s0.pNear)/100;
     s0.bad1=camBad(s0); s0.bad2=camBad(s0,true); st[v].set(c,s0);} return st[v].get(c);};
   const vmax=f=>{let m=-Infinity; for(let v=0;v<V;v++)m=Math.max(m,f(v)); return m;};
@@ -5355,7 +5415,7 @@ function camCropGroup(c,its,items,horiz){
 }
 function camCrop(st,its,A,cv,mainRoles,c){
   const horiz=A<CAM_ASPECT, L=horiz?A/CAM_ASPECT:CAM_ASPECT/A, items=[];
-  (its||[]).forEach((it,i)=>{const e=st.ext[i], r=camRole(it); if(!e||r==='ковёр'||(st.vis[i]||0)<4)return;
+  (its||[]).forEach((it,i)=>{const e=st.ext[i], r=camRole(it); if(it.decor||!e||r==='ковёр'||(st.vis[i]||0)<4)return;
     items.push({i,vis:st.vis[i],w:Math.max(camZ().must.includes(r)?1:0,camZ().core[r]||0.25),a0:horiz?e.x0:e.y0,a1:horiz?e.x1:e.y1});});
   const G=mainRoles&&mainRoles[0]==='изголовье'?camCropGroup(c,its,items,horiz):null;
   let hd=null, pref;
@@ -5440,7 +5500,7 @@ function camMask(c,its,W,H,o){
   const tx=Math.tan((c.fov||72)/2*Math.PI/180), ty=tx/(o.asp||w/h), ox=c.x, oy=c.y, oz=CAM_EYE;
   // наклон позы (v3 — вниз, `CAM_TGT` ниже глаза): луч = вперёд·cos + вбок + вверх по кадру, повёрнутые на наклон; v2 — 0
   const pt=Math.atan2(CAM_EYE-CAM_TGT,400), cp=Math.cos(pt), sp=Math.sin(pt);
-  const bx=[].concat(...(its||[]).map(camParts)).map(b=>Object.assign(b,{lx:(ox-b.cx)*b.ca+(oy-b.cy)*b.sa, ly:-(ox-b.cx)*b.sa+(oy-b.cy)*b.ca}))
+  const bx=[].concat(...(its||[]).map((it,i)=>it.decor?[]:camParts(it,i))).map(b=>Object.assign(b,{lx:(ox-b.cx)*b.ca+(oy-b.cy)*b.sa, ly:-(ox-b.cx)*b.sa+(oy-b.cy)*b.ca}))
     .filter(b=>!(Math.abs(b.lx)<b.hw&&Math.abs(b.ly)<b.hd&&oz>=b.z0&&oz<=b.z1));   // глаз внутри коробки — её не видно
   const ops=((camRoom()||{}).openings||[]).map(p=>{const win=p.kind==='window', z0=win?(+p.sill_cm||85):0;
     return {wi:CAM_WALLS.indexOf(p.wall), u0:+p.offset_cm||0, u1:(+p.offset_cm||0)+(+p.width_cm||0), z0, z1:z0+(+p.height_cm||(win?140:205)), cl:win?5:6};});
@@ -13899,7 +13959,7 @@ function quizPick(rule, answers, available, styleColours){
     'вешалка':'coat rack','зеркало':'mirror'};
   var STYLE={'сканди':'Scandi','современный':'Modern','минимализм':'Minimalist','лофт':'Loft','неоклассика':'Neoclassic','джапанди':'Japandi'};
   var ROOM={'Гостиная':'Living room','Кухня':'Kitchen','Спальня 1':'Bedroom 1','Спальня 2':'Bedroom 2','Спальня':'Bedroom','Холл':'Hall','Санузел':'Bathroom','Прихожая':'Hallway'};
-  var EX={'Отправить выбор риелтору':'Send my selection to the agent','наличие не проверено':'stock not checked','Написать менеджеру':'Message the manager','Закрыть подсказку':'Close the tip',
+  var EX={'растение':'plant','декор у глаза':'decor at the lens','Отправить выбор риелтору':'Send my selection to the agent','наличие не проверено':'stock not checked','Написать менеджеру':'Message the manager','Закрыть подсказку':'Close the tip',
     'Оплата 100%':'Full payment','Ипотека, рассрочка':'Mortgage, instalments','Ипотека':'Mortgage','Подробнее':'Details','Консультация':'Get advice','← К стилям':'← Back to styles',
     'Оплата 100 %: сумма при условии оплаты наличными, без ипотеки и рассрочки':'Full payment: the price when paying in full, without a mortgage or instalments',
     'Подобрали вашу квартиру в разных стилях. Можете менять мебель, отделку и встраиваемое.':'We have furnished your apartment in different styles. You can change the furniture, finishes and fitted items.',
