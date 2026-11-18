@@ -713,6 +713,26 @@ for o in M['objs']:
         _lo.location = (sum(p.x for p in _p) / 8, sum(p.y for p in _p) / 8, _zt - 0.18 * (_zt - _zb) if role == 'торшер' else _zt - 0.25 * (_zt - _zb))
         ob.visible_shadow = False
 
+def rug_silhouette(msk):
+    """Силуэт ковра (T-20261118-03/3): фон — только то, что СВЯЗАНО с краем кадра фото; светлые блики и пятна ВНУТРИ ковра — это ковёр.
+    Иначе эрозия `--rug-erode` съедала по 10 px вокруг каждой внутренней «дырки» (≈ 3 % площади светлого ковра) и крошила ковёр на клочья
+    (боевой пресет, любой светлый ковёр), а светлые участки рисунка были прозрачными. Только numpy (в Blender нет scipy)."""
+    bgm = ~msk
+    reach = np.zeros_like(bgm)
+    reach[0, :], reach[-1, :], reach[:, 0], reach[:, -1] = bgm[0, :], bgm[-1, :], bgm[:, 0], bgm[:, -1]
+    for _ in range(sum(msk.shape)):                 # рост от края до устойчивости (не больше полупериметра)
+        g = reach.copy()
+        g[1:] |= reach[:-1]
+        g[:-1] |= reach[1:]
+        g[:, 1:] |= reach[:, :-1]
+        g[:, :-1] |= reach[:, 1:]
+        g &= bgm
+        if (g == reach).all():
+            break
+        reach = g
+    return ~reach
+
+
 # ковёр: фото сверху с вырезом по цвету фона (как `_paste_rug`)
 for k, r in enumerate(M['rugs']):
     img = bpy.data.images.load(os.path.join(a.scene_dir, r['tex']))
@@ -725,6 +745,7 @@ for k, r in enumerate(M['rugs']):
     msk = dist > 22
     if msk.mean() < 0.30:
         msk[:] = True
+    msk = rug_silhouette(msk)
     # светлая кайма по краю ковра (подложка/полутон фото на границе выреза) — съедаем краевые пиксели маски: `--rug-erode` = доля ширины ковра
     _ys0, _xs0 = np.where(msk)
     for _ in range(int(round(a.rug_erode * (_xs0.max() - _xs0.min() + 1)))):
