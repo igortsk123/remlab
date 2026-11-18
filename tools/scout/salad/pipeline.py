@@ -23,6 +23,10 @@ STAGED = os.environ.get('STAGED', '1') == '1'
 # следующего задания. Процесс стадии, закончившись, отдаёт системе ВСЁ. Цена — запуск Python и CUDA на стадию
 # (≈10–20 с на задание). По умолчанию выключено: сначала канарейка (`_trim` ниже может оказаться достаточным).
 STAGE_PROC = os.environ.get('STAGE_PROC', '0') == '1'
+# СТОРОЖ ПУСТЫХ ВИДОВ ПОКРАСКИ (план mesh-grey-top-01, T-20261118-04/13): вид, который сеть отдала пустым (серый фон внутри
+# силуэта предмета), не идёт в bake — подробности в `view_guard.py` и `_ViewGuard`. Выключить: `VIEW_GUARD=0` в окружении воркера
+# или `_view_guard: 0` в полях задания (для парного опыта «с сторожем / без»).
+VIEW_GUARD = os.environ.get('VIEW_GUARD', '1') == '1'
 WEIGHTS = os.environ.get('WEIGHTS_DIR', '/opt/weights')
 MODEL_PATH = os.path.join(WEIGHTS, 'hunyuan3d-2.1')
 
@@ -706,6 +710,97 @@ class _Dump:
         return False
 
 
+class _ViewGuard:
+    """`with _ViewGuard(pipe):` — пустой вид сети (серый фон внутри силуэта) не участвует в bake, на время одного вызова.
+
+    Почему здесь, а не в форке сети. В ревизии образа 82920d643c0d `ViewProcessor.bake_from_multiview` считает доверие к
+    пикселю только по геометрии (косинус, видимость, граница) — картинку вида не смотрит; серый вид «виден», маска UV белая,
+    `texture_inpaint` пустой крышки не трогает. Поэтому: (1) после `multiview_model` судим каждый вид по рендеру геометрии
+    (`view_guard.judge`), (2) в `bake_from_multiview` — и для альбедо, и для MR, это два отдельных вызова — вырезаем
+    пустые виды из списков видов/ракурсов/весов: тексели, которые видел только он, остаются невидимыми и дорисуются.
+    Сбой сторожа не валит покраску: виды идут как были, ошибка — в журнале (`errors`).
+    """
+
+    def __init__(self, pipe):
+        self.pipe = pipe
+        self.bad: set[int] = set()
+        self.log = {'on': True, 'views': [], 'bad': [], 'dropped': [], 'bakes': 0, 'errors': []}
+        self.undo = []
+
+    def __enter__(self):
+        models = getattr(self.pipe, 'models', None)
+        vp = getattr(self.pipe, 'view_processor', None)
+        mv = models.get('multiview_model') if isinstance(models, dict) else None
+        if mv is None or vp is None or not hasattr(vp, 'bake_from_multiview'):
+            self.log['on'] = False
+            self.log['errors'].append('нет multiview_model/bake_from_multiview — сторож не встал')
+            return self
+
+        def mv_hook(images, conditions, *a, **k):
+            out = mv(images, conditions, *a, **k)
+            try:
+                import view_guard as VG
+                alb = (out or {}).get('albedo') or []
+                half = len(conditions or []) // 2
+                res = VG.judge_views(alb, list(conditions or [])[:half]) if alb and half == len(alb) else []
+                if not res:
+                    raise ValueError(f'виды {len(alb)} и карты нормалей {half} не сходятся')
+                self.log['views'] = [{k2: v for k2, v in r.items() if k2 in ('view', 'judged', 'frac', 'inside_px', 'reason')}
+                                     for r in res]
+                self.bad = {r['view'] for r in res if r['empty']}
+                self.log['bad'] = sorted(self.bad)
+            except Exception as e:  # noqa: BLE001 — сторож вторичен: покраска важнее
+                self.bad = set()
+                self.log['errors'].append(f'judge: {type(e).__name__}: {str(e)[:160]}')
+            return out
+        models['multiview_model'] = mv_hook
+        self.undo.append(lambda: models.__setitem__('multiview_model', mv))
+
+        orig = vp.bake_from_multiview
+        prev = vp.__dict__.get('bake_from_multiview')
+
+        def bake(views, elevs, azims, weights, *a, **k):
+            self.log['bakes'] += 1
+            try:
+                import view_guard as VG
+                n = len(views)
+                nv, ne, na, nw = VG.keep_lists(self.bad, n, list(views), list(elevs), list(azims), list(weights))
+                if len(nv) != n:
+                    if not self.log['dropped']:
+                        self.log['dropped'] = [{'view': i, 'elev': float(elevs[i]), 'azim': float(azims[i]),
+                                                'weight': float(weights[i])} for i in sorted(self.bad) if i < n]
+                    views, elevs, azims, weights = nv, ne, na, nw
+            except Exception as e:  # noqa: BLE001
+                self.log['errors'].append(f'bake: {type(e).__name__}: {str(e)[:160]}')
+            return orig(views, elevs, azims, weights, *a, **k)
+        vp.bake_from_multiview = bake
+        self.undo.append(lambda: vp.__dict__.__setitem__('bake_from_multiview', prev) if prev is not None
+                         else vp.__dict__.pop('bake_from_multiview', None))
+        return self
+
+    def __exit__(self, *exc):
+        for u in reversed(self.undo):
+            try:
+                u()
+            except Exception as e:  # noqa: BLE001
+                self.log['errors'].append(f'undo: {e}')
+        return False
+
+    def line(self, tag: str) -> str:
+        """Одна строка журнала на меш: какой вид отброшен."""
+        if not self.log['on']:
+            return f'view_guard {tag}: не встал ({"; ".join(self.log["errors"])[:120]})'
+        judged = sum(1 for v in self.log['views'] if v.get('judged'))
+        if self.log['dropped']:
+            d = ', '.join(f"вид {x['view']} (elev {x['elev']:g}, azim {x['azim']:g})" for x in self.log['dropped'])
+            fr = ', '.join(str(next((v['frac'] for v in self.log['views'] if v['view'] == x['view']), '?'))
+                           for x in self.log['dropped'])
+            return f'view_guard {tag}: ОТБРОШЕН пустой {d}, доля «как фон» {fr}; в bake и albedo, и MR — без него'
+        if self.log['bad']:
+            return f'view_guard {tag}: пустой вид {self.log["bad"]} найден, но bake не вызван с ним/не вырезан {self.log["errors"]}'
+        return f'view_guard {tag}: пустых видов нет (судимо {judged} из {len(self.log["views"])})'
+
+
 # РУЧКИ ПОКРАСКИ ДЛЯ ОПЫТОВ (план mesh-color-03, круг 2; T-20261112-49/3). Только по полям задания, без них покраска идёт
 # по чистому апстриму (как в бою). Файл апстрима не правим — подмена на время одного вызова, как `_Dump`:
 #   `_paint_cfg`  — guidance_scale сети видов (апстрим зашил 3.0 в `multiview_utils.multiviewDiffusionNet.forward_one`);
@@ -813,11 +908,20 @@ class _Knobs:
         return False
 
 
+def _guard_on(params: dict | None) -> bool:
+    """Сторож пустых видов: по умолчанию как `VIEW_GUARD` воркера, поле задания `_view_guard` (0/1) его перекрывает."""
+    v = (params or {}).get('_view_guard')
+    if v is None:
+        return VIEW_GUARD
+    return str(v).strip().lower() not in ('0', 'false', 'no', 'off', '')
+
+
 def _paint_stage(raw_glb: str, paint_image, final_glb: str, dump_dir: str | None = None,
-                 knobs: dict | None = None) -> dict:
+                 knobs: dict | None = None, guard: bool = True) -> dict:
     """Стадия покраски: форма с диска → итоговый GLB. Сохранение — здесь же: при `STAGE_PROC` результат покраски
     (OBJ рядом с картами или объект) не должен пересекать границу процесса. `dump_dir` — промежуточные шаги (`_Dump`),
-    `knobs` — опытные ручки (`_Knobs`), по умолчанию нет."""
+    `knobs` — опытные ручки (`_Knobs`), по умолчанию нет; `guard` — сторож пустых видов (`_ViewGuard`), в результате
+    поле `view_guard` (журнал) и одна строка в stdout воркера."""
     import contextlib
     _ram_mark()
     t = time.time()
@@ -839,13 +943,26 @@ def _paint_stage(raw_glb: str, paint_image, final_glb: str, dump_dir: str | None
             st.enter_context(_Knobs(pipe, knobs, paint_image, dump_dir))
         if dump_dir:
             st.enter_context(_Dump(pipe, dump_dir))
+        # сторож — ПОСЛЕДНИМ, снаружи: видит виды как отдала сеть (после ручек и дампа) и режет списки до `_Dump._bake`
+        vg = st.enter_context(_ViewGuard(pipe)) if guard else None
         painted = pipe(mesh_path=raw_glb, image_path=paint_image)
+    vg_log = None
+    if vg is not None:
+        vg_log = vg.log
+        print(vg.line(os.path.basename(os.path.dirname(raw_glb)) or '-'), flush=True)
+        if dump_dir:
+            import json
+            try:
+                json.dump(vg_log, open(os.path.join(dump_dir, 'dbg-viewguard.json'), 'w', encoding='utf-8'),
+                          ensure_ascii=False, indent=1)
+            except Exception:  # noqa: BLE001
+                pass
     s, vram = round(time.time() - t, 1), _peak_gb()
     t2 = time.time()
     _save_painted(painted, final_glb)
     del painted
     return {'s': s, 'vram_gb': vram, 'ram_gb': _ram_peak_gb(), 'save_s': round(time.time() - t2, 1),
-            'gpu': torch.cuda.get_device_name(0)}
+            'gpu': torch.cuda.get_device_name(0), 'view_guard': vg_log}
 
 
 def generate(image, out_dir: str, seed: int = 0, params: dict | None = None,
@@ -868,8 +985,9 @@ def _paint_only(image, out_dir: str, shape_glb: str, params: dict | None, paint_
     dump = os.path.join(out_dir, 'dbg') if (params or {}).get('_dump') else None
     t0 = time.time()
     knobs = {k: params[k] for k in PAINT_KNOBS if k in (params or {})} or None
-    pt = _in_proc(_paint_stage, raw_glb, paint_image or image, final_glb, dump, knobs) if STAGE_PROC else \
-        _paint_stage(raw_glb, paint_image or image, final_glb, dump, knobs)
+    guard = _guard_on(params)
+    pt = _in_proc(_paint_stage, raw_glb, paint_image or image, final_glb, dump, knobs, guard) if STAGE_PROC else \
+        _paint_stage(raw_glb, paint_image or image, final_glb, dump, knobs, guard)
     t2 = time.time()
     alien = cut_alien_debris(final_glb)
     timings = {'shape': 0.0, 'paint': pt['s'], 'export': round(pt['save_s'] + time.time() - t2, 1),
@@ -880,6 +998,7 @@ def _paint_only(image, out_dir: str, shape_glb: str, params: dict | None, paint_
         gc.collect()
         _trim()
     return {'glb': final_glb, 'shape_glb': raw_glb, 'timings': timings, 'mode': 'paint_only', 'dump_dir': dump,
+            'view_guard': pt.get('view_guard'),
             'gpu': {'name': pt['gpu'], 'staged': STAGED, 'stage_proc': STAGE_PROC, 'alien': alien, 'shape_gb': 0.0,
                     'ram_shape_gb': 0.0, 'paint_gb': pt['vram_gb'], 'ram_paint_gb': pt['ram_gb'],
                     'ram_left_gb': _ram_anon_gb()}}
@@ -946,8 +1065,9 @@ def _generate_full(image, out_dir: str, seed: int = 0, params: dict | None = Non
 
     dump = os.path.join(out_dir, 'dbg') if (params or {}).get('_dump') else None
     knobs = {k: params[k] for k in PAINT_KNOBS if k in (params or {})} or None
-    pt = _in_proc(_paint_stage, raw_glb, paint_image or image, final_glb, dump, knobs) if STAGE_PROC else \
-        _paint_stage(raw_glb, paint_image or image, final_glb, dump, knobs)
+    guard = _guard_on(params)
+    pt = _in_proc(_paint_stage, raw_glb, paint_image or image, final_glb, dump, knobs, guard) if STAGE_PROC else \
+        _paint_stage(raw_glb, paint_image or image, final_glb, dump, knobs, guard)
     timings['paint'] = pt['s']
     peaks['paint_gb'], peaks['ram_paint_gb'] = pt['vram_gb'], pt['ram_gb']
 
@@ -966,4 +1086,5 @@ def _generate_full(image, out_dir: str, seed: int = 0, params: dict | None = Non
     peaks['ram_left_gb'] = _ram_anon_gb()
 
     return {'glb': final_glb, 'shape_glb': raw_glb, 'timings': timings, 'mode': 'full', 'dump_dir': dump,
+            'view_guard': pt.get('view_guard'),
             'gpu': {'name': sh['gpu'], 'staged': STAGED, 'stage_proc': STAGE_PROC, 'alien': alien, **peaks}}

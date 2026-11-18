@@ -341,6 +341,7 @@ def generate(job: dict):
         man['mask'] = mask_info      # отчёт вырезки в паспорт: по нему видно, сработал ли
                                      # гибрид и сколько тонких деталей он вернул
         man['mode'] = res.get('mode', 'full')         # full | paint_only (T-20261106-85)
+        man['view_guard'] = res.get('view_guard')     # сторож пустых видов (T-20261118-04/13): какие виды сеть отдала пустыми
         if shape_in:
             man['shape_url'] = job['shape_url']
         mp = os.path.join(work, 'manifest.json')
@@ -352,7 +353,7 @@ def generate(job: dict):
         STATE['done'] += 1
         STATE['gpu_seconds'] += time.time() - t0
         return {'sku': sku, 'status': 'ok', 'job_id': jid, 'prefix': prefix,
-                'timings_s': res['timings'], 'gpu': res['gpu'], 'sizes': sizes}
+                'timings_s': res['timings'], 'gpu': res['gpu'], 'sizes': sizes, 'view_guard': res.get('view_guard')}
     except S.SinkError as e:
         # Отказ ПРИЁМНИКА, не генерации: стадия и HTTP-код едут отправителю — он спросит
         # приёмник и закроет пачку как инфра-сбой, а не будет винить ноду (04.09)
