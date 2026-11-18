@@ -101,7 +101,7 @@ for r in raw:
 cat={role:list(p.values()) for role,p in cat.items()}
 print({k:len(v) for k,v in sorted(cat.items())},flush=True)
 # перцентили цен по роли
-import price_tiers as _PT
+import bank_tiers as _PT
 def tier_band(role,tier):
     """Диапазон цены ступени роли — ОДИН resolver `price_tiers.tier_band` (T-20261118-61/6)."""
     return _PT.tier_band(role,tier,[x['price'] for x in cat.get(role,[])])

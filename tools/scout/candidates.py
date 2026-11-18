@@ -21,7 +21,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import price_tiers as PT  # noqa: E402 — ОДИН resolver ступеней цены (T-20261118-61/6)
+import bank_tiers as PT  # noqa: E402 — ОДИН resolver ступеней цены банка (T-20261118-61/6)
 import pool_gate as PG  # noqa: E402 — граница качества 0.65 включительно (план mesh-14)
 INDEX = os.path.join(HERE, 'candidates-index.json')
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',

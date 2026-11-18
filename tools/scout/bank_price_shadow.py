@@ -14,9 +14,10 @@ from collections import Counter, defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import bank_tiers as BT  # noqa: E402
 import price_tiers as PT  # noqa: E402
 
-TIER_KEY = PT.BANK_TIERS    # эконом/комфорт/премиум → lo/mid/hi
+TIER_KEY = BT.BANK_TIERS    # эконом/комфорт/премиум → lo/mid/hi
 
 
 def cell_key(s: dict, kind: str) -> tuple:
@@ -36,7 +37,7 @@ def sid_of(it: dict) -> str:
 
 
 def base(role: str) -> str:
-    return PT.base_role(role)
+    return BT.base_role(role)
 
 
 def position_tier(role: str, price, rules=None):
@@ -77,6 +78,35 @@ def outside_by_role(bank: list, rules=None) -> dict:
     return out
 
 
+def class_stats(bank: list, rules=None, cfg=None) -> dict:
+    """По классу роли (strict/budgeted/exempt): позиций с границами, вне своей ступени, нарушений правила класса (strict — не своя
+    ступень, budgeted — дальше соседней, exempt — не проверяется). Класс None (роль без класса) — под ключом «без класса»."""
+    out: dict = {}
+    for s in bank:
+        want = TIER_KEY.get(s.get('tier'))
+        for role, it in (s.get('items') or {}).items():
+            if not it or it.get('alt'):
+                continue
+            got = position_tier(role, it.get('price'), rules)
+            if got is None or want is None:
+                continue
+            c = out.setdefault(BT.role_class(role, cfg) or 'без класса', {'позиций': 0, 'вне своей ступени': 0, 'нарушений': 0})
+            c['позиций'] += 1
+            c['вне своей ступени'] += got != want
+            c['нарушений'] += BT.tier_violation(role, s.get('tier'), it.get('price'), rules, cfg) is not None
+    return out
+
+
+def identical(old: list, new: list, kind: str) -> dict:
+    """Золотая проверка выкл-режима: состав наборов совпадает? Ячейка равна, если у каждой роли тот же SKU/sid, количество и цена."""
+    O = {cell_key(s, kind): s for s in old}
+    N = {cell_key(s, kind): s for s in new}
+    sig = lambda s: sorted((r, sid_of(it), int(it.get('qty') or 1), it.get('price')) for r, it in (s.get('items') or {}).items() if it)  # noqa: E731
+    diff = [k for k in sorted(set(O) & set(N), key=str) if sig(O[k]) != sig(N[k])]
+    return {'cells_old': len(O), 'cells_new': len(N), 'gone': sorted(set(O) - set(N), key=str), 'came': sorted(set(N) - set(O), key=str),
+            'different': diff, 'ok': not diff and set(O) == set(N)}
+
+
 def compare(old: list, new: list, kind: str, rules=None) -> dict:
     """Было → стало по ячейкам: изменённые, пропавшие/появившиеся, по ролям, стилям, ступеням; позиции вне ступени; примеры."""
     O = {cell_key(s, kind): s for s in old}
@@ -110,13 +140,14 @@ def compare(old: list, new: list, kind: str, rules=None) -> dict:
     rel = lambda L: sum(1 for s in L if s.get('tier_relaxed'))  # noqa: E731
     on, ob, _ = outside(old, rules)
     nn, nb, _ = outside(new, rules)
-    fb = sorted({base(r) for s in new for r in (s.get('items') or {}) if PT.band_source(base(r), rules) == 'legacy'})
+    fb = sorted({base(r) for s in new for r in (s.get('items') or {}) if BT.band_source(base(r), rules) == 'legacy'})
     return {'cells_old': len(O), 'cells_new': len(N), 'both': len(both), 'changed_cells': len(changed), 'gone': [list(k) for k in gone],
             'came': [list(k) for k in came], 'by_role': dict(by_role.most_common()), 'by_role_kind': {r: dict(c) for r, c in by_role_kind.items()},
             'by_style': dict(by_style.most_common()), 'by_tier': dict(by_tier.most_common()),
             'positions_old': [on, ob], 'positions_new': [nn, nb], 'relaxed_old': rel(old), 'relaxed_new': rel(new),
             'total_old': sum(s.get('total') or 0 for s in old), 'total_new': sum(s.get('total') or 0 for s in new),
-            'fallback_roles': fb, 'lost': dict(lost),
+            'fallback_roles': fb, 'lost': dict(lost), 'classes_old': class_stats(old, rules), 'classes_new': class_stats(new, rules),
+            'unavailable_by_style': dict(Counter(k[-2] for k in gone)), 'unavailable_by_tier': dict(Counter(k[-1] for k in gone)),
             'outside_by_role': {r: [outside_by_role(old, rules).get(r, [0, 0]), outside_by_role(new, rules).get(r, [0, 0])]
                                 for r in sorted(set(outside_by_role(old, rules)) | set(outside_by_role(new, rules)))},
             'examples': {r: [{'cell': list(k), 'was': (a or {}).get('name') and [a.get('name'), a.get('price')], 'now': (b or {}).get('name') and [b.get('name'), b.get('price')]}
@@ -148,6 +179,15 @@ def lines(r: dict, title: str, limit_roles: int = 40) -> list:
     for role, cells in r['lost'].items():
         if len(cells) <= 12 and role in ('диван', 'кровать', 'кресло', 'шкаф', 'комод', 'стеллаж'):
             out.append(f'  роль пропала из набора · {role}: ' + '; '.join(cells))
+    out.append('  по классам ролей (позиций с границами · вне своей ступени · нарушений правила класса), было → стало:')
+    for c in ('strict', 'budgeted', 'exempt', 'без класса'):
+        a1, b1 = r['classes_old'].get(c), r['classes_new'].get(c)
+        if a1 or b1:
+            f = lambda x: f"{x['позиций']} · {x['вне своей ступени']} · {x['нарушений']}" if x else '—'  # noqa: E731
+            out.append(f'    {c}: {f(a1)} → {f(b1)}')
+    if r['gone']:
+        out.append('  недоступных ячеек по стилям: ' + ', '.join(f'{k} {v}' for k, v in sorted(r['unavailable_by_style'].items()))
+                   + '; по ступеням: ' + ', '.join(f'{k} {v}' for k, v in sorted(r['unavailable_by_tier'].items())))
     if r['fallback_roles']:
         out.append('  роли без границ (запасной путь прежними квантилями): ' + ', '.join(r['fallback_roles']))
     return out
@@ -172,7 +212,15 @@ def _selftest() -> int:
     if compare(old, old[:2], 'living', R)['gone'] != [['10', 'сканди', 'премиум']]:
         bad += 1
         print('  FAIL: пропавшая ячейка')
-    print(f'bank_price_shadow selftest: случаев 4, ошибок {bad}')
+    if not identical(old, [dict(s) for s in old], 'living')['ok'] or identical(old, new, 'living')['ok'] or identical(old, old[:2], 'living')['ok']:
+        bad += 1
+        print('  FAIL: золотая проверка: те же наборы — ок, другой SKU или пропавшая ячейка — нет')
+    C = {'bank_role_policy': {'strict': ['диван'], 'budgeted': [], 'exempt': ['ваза']}}
+    cs = class_stats(new, R, C)
+    if cs.get('strict') != {'позиций': 3, 'вне своей ступени': 0, 'нарушений': 0} or class_stats(old, R, C)['strict']['нарушений'] != 2:
+        bad += 1
+        print('  FAIL: статистика по классам', cs)
+    print(f'bank_price_shadow selftest: случаев 6, ошибок {bad}')
     return 1 if bad else 0
 
 
@@ -185,6 +233,11 @@ def main(argv: list) -> int:
         print(__doc__)
         return 2
     O, N = load_bank(old), load_bank(new)
+    if '--identical' in argv:     # золотая проверка выкл-режима: состав наборов совпадает (rc 0) или нет (rc 1, расхождения по ячейкам)
+        g = identical(O, N, kind)
+        print(f"{kind}: ячеек {g['cells_old']} ↔ {g['cells_new']}; {'СОСТАВ ИДЕНТИЧЕН' if g['ok'] else 'РАСХОДИТСЯ'}"
+              + ('' if g['ok'] else f": пропало {len(g['gone'])}, появилось {len(g['came'])}, иной состав {len(g['different'])} {['/'.join(map(str, k)) for k in g['different'][:5]]}"))
+        return 0 if g['ok'] else 1
     r = compare(O, N, kind)
     print('\n'.join(lines(r, kind)))
     if arg('--live'):

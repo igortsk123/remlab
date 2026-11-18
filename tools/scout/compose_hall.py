@@ -35,7 +35,7 @@ SOLVER = os.path.join(HERE, '..', '..', 'services', 'planner-solver')
 FLAT = os.path.join(HERE, 'flat215-hall.json')
 sys.path.insert(0, HERE)
 import room_profile as _RP  # noqa: E402
-import price_tiers as PT  # noqa: E402
+import bank_tiers as PT  # noqa: E402
 from compose_common import band_of, dominated, num, palette, slot_sizes  # noqa: E402,F401
 
 ROOM = 'hall'
@@ -467,6 +467,12 @@ def compose(spec: dict, C: Composer) -> tuple:
                 report['cells'].append(dict(cell, empty=res['empty']))
                 print(f'  {style} {tier}: ПУСТО — {res["empty"]}', flush=True)
                 continue
+            if PT.bank_segments_on():   # ступени из правила: ядро (хранение) без позиции в ступени ячейки — ячейка недоступна (T-61/7)
+                nc = PT.core_missing('hall', res['chosen'])
+                if nc:
+                    report['cells'].append(dict(cell, empty='NO_CORE_IN_TIER', core_missing=nc))
+                    print(f'  {style} {tier}: ПУСТО — NO_CORE_IN_TIER (нет ядра {nc} в ступени)', flush=True)
+                    continue
             rec = record(C, spec, style, tier, res)
             bank.append(rec)
             built.append((style, {r: c['fam'] for r, c in res['chosen'].items() if r in MAJOR}))
@@ -539,6 +545,7 @@ def check_bank(bank: list, R: dict, tol: tuple) -> list:
         hard = [v.code for v in validate(room, pls).violations if v.severity is Severity.HARD]
         if hard:
             bad.append(f'{sid}: жёсткие нарушения раскладки {hard}')
+    bad += PT.tier_problems(bank)   # цена по ступеням (при включённом режиме; общий валидатор `bank_tiers`, T-61/7)
     fam = lambda x: x.get('fam') or x['sid']   # noqa: E731
     for i, a in enumerate(bank):
         ma = {fam(a['items'][r]) for r in MAJOR if r in a['items']}

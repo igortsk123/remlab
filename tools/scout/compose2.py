@@ -12,7 +12,7 @@ from item_function import fits_role, subtype
 import enrich_bridge as EB   # проверенное моделью обогащение каталога (К2): подтип, стиль, качество
 import pool_gate as PG       # граница качества 0.65 включительно — одно место (план mesh-14)
 import compose_gates as _CG  # ворота фото/меша — fail-closed (план conv-13 п.2)
-import price_tiers as _PT   # ОДИН resolver ступеней цены (T-20261118-61/6)
+import bank_tiers as _PT   # ОДИН resolver ступеней цены (T-20261118-61/6)
 import bank_paths as _BP     # SETS_OUTPUT — банк рядом, не в живой sets3.json (план conv-13 п.1)
 import bank_keep as _BK      # удержание ячеек прошлого кандидата, ничья и бонус меша (план conv-14b)
 import compose_common as _CC # ярус цвета по стилю и роли (style-color-01 шаг 2а)
@@ -57,23 +57,23 @@ ASSURED_STYLES={'сканди','современный','минимализм'}
 _TIER_BAND_SQL={'эконом':'p.price_rub<=30000','комфорт':'p.price_rub between 20000 and 90000','премиум':'p.price_rub>=60000'}
 RICH={}   # (role,tier) -> кандидатов ≥100
 _SLOT_MISS={}   # К5 (slots-everywhere): счётчик отбраковок по конверту слота — отчёт «слот не закрыт»
-_TIER_BAND_LIT={'эконом':(0,30000),'комфорт':(20000,90000),'премиум':(60000,10**9)}   # прежние литералы тех же SQL-полос — роль без границ ступеней
 def _load_rich():
     if RICH or not STYLE_MODE: return
     import subprocess as _sp
-    if _PT.bank_segments_on():   # ступени банка — границы роли из правила (`price_tiers.tier_band`), не литералы 30/60 тыс.
+    if _PT.bank_segments_on():   # ступени банка — границы роли из правила (`bank_tiers.tier_band`), не литералы 30/60 тыс.
         q=("select p.cat_role, p.price_rub from products p join product_enrichment e using (shop_mid, external_id)"
            " where p.cat_role is not null and p.status='active' and p.in_stock"
            " and e.payload is not null and " + PG.quality_ok('e.quality') + ";")
         r=_sp.run(PSQL,input=q,capture_output=True,text=True)
-        cnt={}
+        _rp={}
         for line in r.stdout.strip().split('\n'):
             f=line.split('\x1f')
             if len(f)<2 or not f[1]: continue
+            _rp.setdefault(f[0],[]).append(float(f[1]))
+        for role,ps in _rp.items():   # тот же resolver, что у подбора: границы роли; у роли без границ — прежние квантили её цен (не литералы 30/60 тыс.)
             for t in _TIER_BAND_SQL:
-                lo,hi=_PT.tier_band(f[0],t,segments=True) if _PT.band_source(f[0])=='segments' else _TIER_BAND_LIT[t]
-                if lo<=float(f[1])<=hi: cnt[(f[0],t)]=cnt.get((f[0],t),0)+1
-        for k,n in cnt.items(): RICH[k]=n>=100
+                lo,hi=_PT.tier_band(role,t,ps,segments=True)
+                RICH[(role,t)]=sum(1 for x in ps if lo<=x<=hi)>=100
         return
     q=("select p.cat_role, "
        +", ".join(f"count(*) filter (where {c})" for c in _TIER_BAND_SQL.values())
@@ -287,7 +287,7 @@ except Exception as _e:
     print(f'capabilities-index не прочитан ({_e}) — слот «банкетка» пуст')
 print({k:len(v) for k,v in sorted(cat.items())},flush=True)
 def tier_band(role,tier):
-    """Диапазон цены ступени роли — ОДИН resolver `price_tiers.tier_band` (границы роли из rules/price-segments.json при включённом
+    """Диапазон цены ступени роли — ОДИН resolver `bank_tiers.tier_band` (границы роли из rules/price-segments.json при включённом
     флаге банка, иначе прежние квантили цен годных роли; T-20261118-61/6)."""
     return _PT.tier_band(role,tier,[x['price'] for x in cat.get(role,[])])
 
@@ -302,6 +302,7 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3,pr
     """ctx: dict(style, wood, metal, fabrics, temp, sofa_key, sofa_w, sofa_h, used_shops).
     Возвращает список топ-N кандидатов с why."""
     lo,hi=share; plo,phi=tier_band(role,tier)
+    _soft_drops=_PT.soft_may_drop_price(role)   # выкл — как раньше у всех; вкл — у strict и budgeted ступень держится и в «мягком» проходе
     # H0 (корень «в больших комнатах меньше мебели», 08.08): доля роли — от площади ЗОНЫ
     # (кап 30 м² = потолок одной зоны по канону), не всей комнаты: 57 м² требовали стол
     # 1.7–5.8 м² и кресло 2.6–7 м² — таких SKU нет, роли отсеивались «0 кандидатов».
@@ -356,7 +357,7 @@ def pick2(role,m2,share,tier,pair,ctx,soft=False,qty=1,color_goal=None,topn=3,pr
                 if _len and not (_id*_tol[0]<=_len<=_id*_tol[1]):
                     _SLOT_MISS.setdefault(role,0); _SLOT_MISS[role]+=1
                     continue
-            if not (plo<=it['price']<=phi) and not soft: continue
+            if not (plo<=it['price']<=phi) and not (soft and _soft_drops): continue
             # ЖЁСТКИЕ ОГРАНИЧЕНИЯ ДО ЭСТЕТИКИ (sets-feasibility-first, 2026-08-05).
             # 0) карточка должна быть годной: обогащение К2 отбраковывает мусорные размеры и
             #    карточки, где текст сам себе противоречит. Товара без обогащения это не касается.
@@ -572,7 +573,7 @@ def _zone_group(m2,seq,kreslo_max=None):
 import copy as _copy, time as _time, collections as _col
 _KEEP_FROM=os.environ.get('BANK_KEEP_FROM') if STYLE_MODE and _ONLY is None and _KR.get('enabled') else None
 _KNOW=_time.time()
-_KACT={}; _KWHY={}; _KEPT={}; _REFRESH={}; _KPO={}; _KPMETA={}; _prev_by={}
+_KACT={}; _KWHY={}; _KEPT={}; _REFRESH={}; _KPO={}; _KPMETA={}; _prev_by={}; _KMODE=''
 def _cell_key(band_name,style,tier): return '|'.join(str(x) for x in (band_name,style,tier))
 def _built_entry(s):
     return (s.get('style'),{emb_key(it['mid'],it['eid']) for it in s['items'].values()},
@@ -610,6 +611,10 @@ if _KEEP_FROM:
     try:
         _prev_c=json.load(open(_KEEP_FROM,encoding='utf-8')) if os.path.exists(_KEEP_FROM) else []
         _KPMETA=_BK.load_meta(_KEEP_FROM)
+        _KMODE=_PT.mode_stamp()   # режим и границы ступеней: сменились — удержанные ячейки собраны по другому правилу, копировать их нельзя
+        if _prev_c and _BK.load_stamp(_KEEP_FROM)!=_KMODE:
+            print(f"[keep] режим/границы ступеней сменились (было «{_BK.load_stamp(_KEEP_FROM) or 'прежние квантили'}», стало «{_KMODE or 'прежние квантили'}») — все ячейки собираются заново",flush=True)
+            _prev_c=[]; _KPMETA={}
         import bank_pending as _BPd
         _pend=(_BPd.load_state().get('cells') or {})
         _prev_by={_BK.key(s):s for s in _prev_c}
@@ -635,7 +640,7 @@ if _KEEP_FROM:
         print(f'!! [keep] удержание не сработало ({type(_e).__name__}: {str(_e)[:200]}) — собираю все ячейки заново',flush=True)
         _KACT={}; _KWHY={}; _KEPT={}; _REFRESH={}; _KPO={}
         BUILT.clear()
-sets=[]
+sets=[]; _UNAVAIL=[]   # _UNAVAIL — ячейки без ядра в ступени (только при включённых ступенях)
 for bi,band in enumerate(COMP['bands']):
     m2=sum(band['m2'])/2
     style_name=STYLE_OF.get(bi) if STYLE_MODE else None
@@ -1332,6 +1337,12 @@ for bi,band in enumerate(COMP['bands']):
                 gaps.append('coverage_gap: кресло (alt) — нет floor-доли band')
         if _r3_table_gap and 'стол обеденный' not in chosen:
             gaps.append('coverage_gap: стол обеденный — R3: нет стульев в паре (стол⇔стулья), стол снят')
+        if _PT.bank_segments_on():   # ступени из правила: ядро без позиции в ступени ячейки — ячейка недоступна и в выдачу не идёт (T-61/7)
+            _nc=_PT.core_missing('living',chosen)
+            if _nc:
+                _UNAVAIL.append({'cell':_ck,'reason':'NO_CORE_IN_TIER','core_missing':_nc})
+                print(f"{style_name+' ' if style_name else ''}{band['band']} м² {tier}: ПУСТО — NO_CORE_IN_TIER (нет ядра {_nc} в ступени)",flush=True)
+                continue
         sets.append(dict(band=band['band'],m2=m2,tier=tier,pair=list(pair),gaps=gaps,
                          group=zgroup['id'],usable_m2=round(z_usable,1),
                          pod_delta_price=_pod_price,pod_floor_fp=_pod_fp,
@@ -1352,6 +1363,12 @@ for bi,band in enumerate(COMP['bands']):
               f"капсула {ctx['style']}/{ctx['wood']}/{ctx['metal']}/{ctx['temp']}, пол {fill}%"
               +(f", стиль-фит {sfit_agg}" if sfit_agg else "")+f", {total:,} ₽".replace(',',' '),flush=True)
 print(_CG.summary(),flush=True)
+if _UNAVAIL:   # недоступные ячейки: контракт идентичности («пропажа ячейки — фатально») такой банк не принимает — как у спальни и прихожей
+    _stem=_OUT_PATH[:-5] if _OUT_PATH.endswith('.json') else _OUT_PATH
+    json.dump(sets,open(_stem+'.rejected.json','w',encoding='utf-8'),ensure_ascii=False)
+    json.dump(_UNAVAIL,open(_stem+'.unavailable.json','w',encoding='utf-8'),ensure_ascii=False,indent=1)
+    print(f'!! БАНК НЕ ЗАПИСАН ({_OUT_PATH}) — недоступных ячеек {len(_UNAVAIL)} (NO_CORE_IN_TIER); для разбора — {_stem}.rejected.json, {_stem}.unavailable.json',flush=True)
+    sys.exit(3)
 # Стабильный set_id и НОМЕР сета: сцены и отчёты живут на номерах (`setN-*`), демо публикует `setN` — любая перестановка
 # молча переадресует их на соседние комплекты. ИДЕНТИЧНОСТЬ — ЯЧЕЙКА (band, style, tier) (conv-14 шаг 1, Codex 22.10):
 # id и порядок переносятся из прежнего банка (живой sets3.json; для v2 — sets2.json) по ячейке; дубль, пропажа, лишняя
@@ -1385,7 +1402,7 @@ if _KEEP_FROM:
             'roles_same':_roles_same,'roles_prev':_roles_all,
             'why':dict(_col.Counter((w or '').split(':')[-1].split(' (')[0].strip() for k,w in _KWHY.items()
                                     if _KACT.get(k)=='rebuild').most_common(12))}
-    _BK.write_meta(_BK.meta_path(_OUT_PATH),_meta,_KNOW,_stats)
+    _BK.write_meta(_BK.meta_path(_OUT_PATH),_meta,_KNOW,_stats,_PT.mode_stamp())
     print(f"[keep] итог: держу {_stats['kept']}, проверено обновлением {_stats['checked']}, пересобрано {_stats['rebuilt']}, "
           f"новых {_stats['new']}; тот же выбор {_same}/{len(_prev_by)}, роль→SKU {_roles_same}/{_roles_all} "
           f"→ {_BK.meta_path(_OUT_PATH)}",flush=True)

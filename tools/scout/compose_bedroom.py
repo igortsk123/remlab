@@ -62,7 +62,7 @@ def load_json(p: str) -> dict:
 # ---------------------------------------------------------------- чистые функции (селфтест)
 # общие со сборщиком прихожей (`compose_hall.py`, T-20261105-48) — в `compose_common`, тела без изменений; имена остаются
 # и здесь (их берут `asset_coverage.buckets_slots` и селфтест)
-import price_tiers as PT  # noqa: E402
+import bank_tiers as PT  # noqa: E402
 from compose_common import band_of, dominated, num, palette, side  # noqa: E402,F401
 
 
@@ -1019,6 +1019,12 @@ def compose(rooms: list, C: Composer) -> tuple:
                         report['cells'].append(dict(cell, empty=res['empty']))
                         print(f'  {room_id} {purpose} {style} {tier}: ПУСТО — {res["empty"]}', flush=True)
                         continue
+                    if PT.bank_segments_on():   # ступени из правила: ядро без позиции в ступени ячейки — ячейка недоступна (T-61/7)
+                        nc = PT.core_missing('bedroom', res['chosen'], purpose)
+                        if nc:
+                            report['cells'].append(dict(cell, empty='NO_CORE_IN_TIER', core_missing=nc))
+                            print(f'  {room_id} {purpose} {style} {tier}: ПУСТО — NO_CORE_IN_TIER (нет ядра {nc} в ступени)', flush=True)
+                            continue
                     ctx = dict(res['ctx'], used_style=used['style'], used_all=used_all)
                     dec = C.decor_pick(purpose, style, tier, ctx, res['layout'], res['room'], res['chosen'])
                     rec = record(C, room_id, spec, purpose, style, tier, res, dec)
@@ -1099,6 +1105,7 @@ def check_bank(bank: list, R: dict, tol: tuple, spare: str = 'hard') -> list:
         if hard:
             bad.append(f'{sid}: жёсткие нарушения раскладки {hard}')
         by_group.setdefault((s['room_id'], s['purpose']), []).append(s)
+    bad += PT.tier_problems(bank)   # цена по ступеням (при включённом режиме; общий валидатор `bank_tiers`, T-61/7)
     fam = lambda x: x.get('fam') or x['sid']   # noqa: E731
     for g, sets in by_group.items():
         pairs = {}
