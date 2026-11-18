@@ -131,7 +131,7 @@ def london_date(now: float) -> str:
 def new_state() -> dict:
     return {'desired': 'off', 'gen': 0, 'by': None, 'at': 0, 'on_at': 0, 'running_since': 0, 'last_activity': 0, 'busy_until': 0, 'last_tick': 0, 'last_start_try': 0,
             'accrued_ts': 0, 'spent_date': '', 'spent_usd': 0.0, 'warm_gen': 0, 'degraded_since': 0, 'restarts': 0, 'stop_reason': '', 'stop_notified_gen': 0,
-            'ready_since': 0, 'probe_sec': None, 'slow': False, 'frames': ['png']}
+            'ready_since': 0, 'probe_sec': None, 'slow': False, 'frames': ['png'], 'masks': False}
 
 
 def _acc(s: dict, now: float, paying: bool, price: float) -> None:
@@ -150,6 +150,12 @@ def caps_frames(ready: dict) -> list:
     fr = (ready.get('caps') or {}).get('frames') if isinstance(ready.get('caps'), dict) else None
     ok = [f for f in fr if f in ('png', 'jpg')] if isinstance(fr, list) else []
     return ok or ['png']
+
+
+def caps_masks(ready: dict) -> bool:
+    """Воркер умеет маски поверхностей (`caps.masks` в ready.json, T-20261118-05/3); нет поля — старый образ, False."""
+    c = ready.get('caps')
+    return bool(isinstance(c, dict) and c.get('masks') == 1)
 
 
 def probe_sec_of(ready: dict) -> float | None:
@@ -194,6 +200,7 @@ def plan(state: dict, obs: dict, rules: dict, now: float) -> tuple[dict, list]:
         p = probe_sec_of(ready)
         s['probe_sec'] = p
         s['slow'] = p is not None and p > rules['slow_probe_sec']
+        s['masks'] = caps_masks(ready)         # T-20261118-05/3: воркер умеет маски поверхностей
         s['frames'] = caps_frames(ready)       # T-24/11: какие форматы кадров умеет воркер машины (нет поля — старый образ, только png)
         acts.append(('say', f"узел: проба {p} с — " + (f"МЕДЛЕННЫЙ (порог {rules['slow_probe_sec']} с)" if s['slow'] else 'норма')))
     hot_wait = is_ready and hot_pending(ready) and (now - s['ready_since']) / 60 < rules['hot_wait_max_min']

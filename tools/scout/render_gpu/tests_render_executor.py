@@ -1110,7 +1110,7 @@ RW.main()
 caps_ = RW.MA.STATE.get('caps')
 RW.MA.main, RW.Worker.loop, RW.Worker.warm_loop = _main_saved[:3]
 RW.MA.STATE.pop('caps', None)
-ok('T-24/11: воркер заявляет форматы кадров в состоянии (`caps.frames` → ready.json)', caps_ == {'frames': ['png', 'jpg']})
+ok('T-24/11: воркер заявляет форматы кадров в состоянии (`caps.frames` → ready.json)', caps_ == {'frames': ['png', 'jpg'], 'masks': 1})      # masks — T-20261118-05/3
 
 
 # ═══ T-24/12: мерка обращений к приёмнику, фоновая запись хода, ls+job.json одним заходом
@@ -1174,6 +1174,90 @@ ok('T-24/12: у каждого обращения секунды и смещен
 ok('T-24/12: progress.json не появился после result.json (ход закрыт перед результатом)', True)
 hist_keys = list(sink_c.hist.keys())
 ok('T-24/12: у первого результата нет prev_result_put_s (предыдущего результата не было)', 'prev_result_put_s' not in rc_)
+
+# ═══ T-20261118-05/3: маски поверхностей с машины (приглушение солнечных пятен «Улучшить»)
+from PIL import Image as _Im  # noqa: E402
+import numpy as _np  # noqa: E402
+
+_jm = JP.new_job('job1', 'bundle-' + 'a' * 12 + '.tgz', 'a' * 12, ['--samples', '64'], {'blenderSec': 100}, masks=True)
+ok('masks: job v1 с масками годен, поле masks=1; без флага поля нет', JP.validate_job(_jm, expect_id='job1') == '' and _jm['masks'] == 1
+   and 'masks' not in JP.new_job('job1', 'bundle-' + 'a' * 12 + '.tgz', 'a' * 12, [], {'blenderSec': 100}))
+ok('masks: значение не 1 / true / строка — отказ «маски»', all(JP.validate_job({**_jm, 'masks': v}, expect_id='job1') == 'маски' for v in (0, 2, True, 'yes')))
+ok('masks: --mask-out и --mask-scale — флаги воркера, из args задания не принимаются', JP.validate_job({**_jm, 'args': ['--mask-out']}, expect_id='job1') == 'аргумент зарезервирован воркером'
+   and JP.validate_job({**_jm, 'args': ['--mask-scale']}, expect_id='job1') == 'аргумент зарезервирован воркером')
+_cm = RW.build_cmd({**_jm, 'cams': ['C1', 'C2']}, '/w')
+ok('masks: build_cmd — --mask-out <work>/{cam}.mask.png и --mask-scale 0.25; без masks флагов нет',
+   _cm[_cm.index('--mask-out') + 1] == '/w/{cam}.mask.png' and _cm[_cm.index('--mask-scale') + 1] == str(JP.MASK_SCALE))
+_jn = {k: v for k, v in _jm.items() if k != 'masks'}
+ok('masks: build_cmd без поля masks — флагов масок нет', '--mask-out' not in RW.build_cmd({**_jn, 'cams': ['C1', 'C2']}, '/w'))
+import render_machine as RM_  # noqa: E402
+ok('masks: caps.masks из ready.json — True только при 1; нет поля/мусор — False (старый образ)', RM_.caps_masks({'caps': {'masks': 1}}) and not RM_.caps_masks({}) and not RM_.caps_masks({'caps': {'frames': ['png']}})
+   and not RM_.caps_masks({'caps': 'x'}) and not RM_.caps_masks({'caps': {'masks': 0}}))
+
+
+def run_masks(machine, name, fake_masks='ok', env_masks='1'):
+    os.environ['FAKE_MASKS'] = fake_masks
+    if env_masks is None:
+        os.environ.pop('RENDER_MASKS', None)
+    else:
+        os.environ['RENDER_MASKS'] = env_masks
+    try:
+        return e2e(machine, name)
+    finally:
+        os.environ.pop('RENDER_MASKS', None)
+        os.environ.pop('FAKE_MASKS', None)
+
+
+sink_m, res_m, out_m = run_masks(FakeMachine(frames=['png', 'jpg'], masks=True), 'out-masks')
+jm_ = [json.loads(v) for k, v in sink_m.hist.items() if k.endswith('/job.json')]
+ok('masks: RENDER_MASKS=1 и машина заявила masks → в job.json (fmt 2) masks=1', jm_ and jm_[0].get('masks') == 1 and jm_[0]['v'] == 2)
+rm_ = json.loads(next(v for k, v in sink_m.hist.items() if k.endswith('/result.json')))
+ok('masks: result.json — masks по камерам, в timing время прохода (mask) и выгрузки (mask_up)', set(rm_.get('masks') or {}) == {'C1', 'C2'} and 'mask' in rm_['timing'] and 'mask_up' in rm_['timing'])
+ok('masks: каталог рендера — C1/C2.jpg, C1/C2.mask.png, meta.json', sorted(os.listdir(out_m)) == ['C1.jpg', 'C1.mask.png', 'C2.jpg', 'C2.mask.png', 'meta.json'])
+_mk = _Im.open(os.path.join(out_m, 'C1.mask.png'))
+_a = _np.asarray(_mk.convert('RGB'))
+ok('masks: PNG с палитрой, размер 1/4 кадра фейка (16×12), только 4 чистых цвета (края не дали «полупол»)', _mk.mode == 'P' and _mk.size == (16, 12) and {tuple(x) for x in _a.reshape(-1, 3)} <= {(0, 0, 0), (255, 0, 0), (0, 255, 0), (0, 0, 255)})
+ok('masks: пол внизу красный, стена вверху зелёная', tuple(_a[-1, 0]) == (255, 0, 0) and tuple(_a[0, 0]) == (0, 255, 0))
+ok('masks: на приёмнике после пары задание убрано (масок тоже)', not any(k.startswith('renderjobs/') for k in sink_m.f))
+# старый образ воркера (нет caps.masks): флаг есть, маски не просим
+sink_o, res_o, out_o = run_masks(FakeMachine(frames=['png', 'jpg']), 'out-masks-old')
+jo_ = [json.loads(v) for k, v in sink_o.hist.items() if k.endswith('/job.json')]
+ok('masks: машина без caps.masks — masks в задании нет, каталог как раньше (без масок)', jo_ and 'masks' not in jo_[0] and sorted(os.listdir(out_o)) == ['C1.jpg', 'C2.jpg', 'meta.json'])
+# флаг выключен
+sink_f, res_f, out_f = run_masks(FakeMachine(frames=['png', 'jpg'], masks=True), 'out-masks-off', env_masks=None)
+jf_ = [json.loads(v) for k, v in sink_f.hist.items() if k.endswith('/job.json')]
+ok('masks: без RENDER_MASKS поведение прежнее (в задании нет masks, масок нет)', jf_ and 'masks' not in jf_[0] and sorted(os.listdir(out_f)) == ['C1.jpg', 'C2.jpg', 'meta.json'])
+# воркер не нарисовал масок / прислал мусор — кадры идут, задание не падает
+sink_n, res_n, out_n = run_masks(FakeMachine(frames=['png', 'jpg'], masks=True), 'out-masks-none', fake_masks='none')
+ok('masks: воркер масок не дал — пара готова без них', sorted(os.listdir(out_n)) == ['C1.jpg', 'C2.jpg', 'meta.json'])
+sink_b, res_b, out_b = run_masks(FakeMachine(frames=['png', 'jpg'], masks=True), 'out-masks-bad', fake_masks='bad')
+ok('masks: мусор вместо PNG не принят, кадры готовы', sorted(os.listdir(out_b)) == ['C1.jpg', 'C2.jpg', 'meta.json'])
+# fmt 1 (запасной путь) тоже несёт маски
+_mm = FakeMachine(frames=['png', 'jpg'], masks=True)
+_mm.rules_['executor']['fmt2'] = False
+os.environ['FAKE_BLENDER'] = 'ok'
+os.environ['RENDER_MASKS'] = '1'
+_sk1 = FakeSink2()
+_wk1 = new_worker(_sk1)
+_st1 = threading.Event()
+run_worker_thread(_wk1, _st1)
+try:
+    _r1 = Exec(_sk1, _mm, PUBLIC).render(SNAP, os.path.join(TMP, 'out-masks-f1'), lambda s: None)
+finally:
+    _st1.set()
+    os.environ.pop('RENDER_MASKS', None)
+_j1 = [json.loads(v) for k, v in _sk1.hist.items() if k.endswith('/job.json')]
+ok('masks: fmt 1 — job v1 с masks=1, маски дошли до каталога рендера', _j1 and _j1[0]['v'] == 1 and _j1[0].get('masks') == 1 and os.path.isfile(os.path.join(TMP, 'out-masks-f1', 'C1.mask.png')))
+# упаковка палитрой отдельно: размер
+_big = _Im.new('RGB', (384, 279), (0, 0, 0))
+for _y in range(279):
+    for _x in range(0, 384, 1):
+        _big.putpixel((_x, _y), (255, 0, 0) if _y > 170 else (0, 255, 0) if _y < 100 else (250, 5, 3))
+_big.save(os.path.join(TMP, 'big.mask.png'))
+RE.pack_mask(os.path.join(TMP, 'big.mask.png'), os.path.join(TMP, 'big.packed.png'))
+ok('masks: pack_mask — палитра, только чистые цвета (край 250,5,3 → красный)', _Im.open(os.path.join(TMP, 'big.packed.png')).mode == 'P'
+   and {tuple(x) for x in _np.asarray(_Im.open(os.path.join(TMP, 'big.packed.png')).convert('RGB')).reshape(-1, 3)} <= {(0, 0, 0), (255, 0, 0), (0, 255, 0), (0, 0, 255)})
+print(f"      (маска 384×279: RGB {os.path.getsize(os.path.join(TMP, 'big.mask.png'))} Б → палитра {os.path.getsize(os.path.join(TMP, 'big.packed.png'))} Б)")
 
 shutil.rmtree(TMP, ignore_errors=True)
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')

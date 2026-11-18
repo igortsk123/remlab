@@ -496,7 +496,7 @@ class SceneExecutor:
             sha[cam] = hashlib.sha256(open(jp, 'rb').read()).hexdigest()     # имя кадра для «Улучшить» (как у кадров браузера: sha256 JPEG)
             mk = os.path.splitext(png)[0] + '.mask.png'
             if os.path.isfile(mk):
-                shutil.copyfile(mk, os.path.join(tmp, f'{cam}.mask.png'))          # маска поверхностей рядом с кадром (приглушение солнечных пятен «Улучшить»)
+                pack_mask(mk, os.path.join(tmp, f'{cam}.mask.png'))              # маска поверхностей рядом с кадром (приглушение солнечных пятен «Улучшить»), палитрой
         timing['total'] = round(time.time() - t0, 1)
         meta = {'scene_hash': snap['scene_hash'], 'snapshot_version': snap['v'], 'size': size, 'sha': sha, 'versions': self.versions(), 'timing': timing,
                 'executor': self.name, 'ts': int(time.time()), 'source': snap.get('source')}
@@ -511,6 +511,21 @@ def masks_wanted() -> bool:
     """Маски поверхностей (пол/стена) после кадров — для приглушения «солнечных пятен» в «Улучшить» (T-20261118-05). Только по `RENDER_MASKS=1` (не пресет:
     пресет входит в ключ кэша кадров, а маска кадр не меняет). Пока считает только `LocalCpuExecutor`; машина Salad — отдельной задачей."""
     return os.environ.get('RENDER_MASKS') == '1'
+
+
+def pack_mask(src: str, dst: str) -> None:
+    """Маска поверхностей → PNG с палитрой из четырёх цветов (чёрный — прочее, красный — пол, зелёный — стена, синий — акцентная стена): каждый пиксель — к ближайшему
+    (края сглаживания Blender не дают «полупол»); 1/4 кадра ≈ 2 КБ вместо 24 КБ RGB (655 КБ у полного размера). Не читается — оставляем как есть."""
+    from PIL import Image
+    import numpy as np
+    try:
+        a = np.asarray(Image.open(src).convert('RGB'))
+        cls = np.where(a.max(axis=2) < 128, 0, 1 + a.argmax(axis=2)).astype('uint8')       # 0 прочее, 1 R пол, 2 G стена, 3 B акцент
+        im = Image.fromarray(cls, 'P')
+        im.putpalette([0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255] + [0] * (768 - 12))
+        im.save(dst, 'PNG', optimize=True)
+    except Exception:  # noqa: BLE001
+        shutil.copyfile(src, dst)
 
 
 class LocalCpuExecutor(SceneExecutor):
@@ -544,7 +559,8 @@ class LocalCpuExecutor(SceneExecutor):
                        '--demo-glb', os.path.join(dump, 'demo_nodes.glb'), '--demo-nodes', os.path.join(dump, 'demo_nodes_uuids.json'),
                        '--export', os.path.join(dump, 'scene-export.json'), '--public', self.public, *pr['flags']]
                 if masks_wanted():
-                    cmd += ['--mask-out', os.path.join(job, f'{cam}.mask.png')]     # маска пола/стен после кадра (1 выборка, секунды) — для «Улучшить»
+                    import jobs_proto as _JP
+                    cmd += ['--mask-out', os.path.join(job, f'{cam}.mask.png'), '--mask-scale', str(_JP.MASK_SCALE)]     # маска пола/стен 1/4 размера после кадра — для «Улучшить»
                 run_step(cmd, log, lim['blenderSecPerFrame'], lim['maxRssGb'], what=f'кадр {cam}')
                 if not os.path.isfile(png):
                     raise RenderError('render_failed', 'Рендер не дал кадра. Нажмите «Повторить».', 'The render produced no frame. Press "Retry".')
@@ -762,7 +778,7 @@ class SaladGpuExecutor(SceneExecutor):
             small[rel] = p
         return small, assets, src
 
-    def _send_fmt1(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict) -> None:
+    def _send_fmt1(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict, masks: bool = False) -> None:
         """fmt 1: всё одним пакетом (как в T-24/2). Не принял приёмник — `gpu_upload`; пакет больше потолка — `gpu_bundle_big`."""
         import jobs_proto as JP
         t1 = self.now()
@@ -778,14 +794,14 @@ class SaladGpuExecutor(SceneExecutor):
         try:
             sink.put_file(f'{JP.PREFIX}/{jid}/{bundle}', tgz)
             jobj = JP.new_job(jid, bundle, sha, ['--samples', pr['samples'], '--pct', pr['pct'], '--threads', pr['threads'], *pr['flags']],
-                              {'blenderSec': pr['limits']['blenderSecPerFrame']}, now=self.now())
+                              {'blenderSec': pr['limits']['blenderSecPerFrame']}, now=self.now(), masks=masks)
             sink.put(f'{JP.PREFIX}/{jid}/job.json', json.dumps(jobj, ensure_ascii=False).encode())       # ПОСЛЕДНИМ
         except JP.SinkError as e:
             print(f'рендер: хранилище не приняло пакет: {e}', flush=True)
             raise self._gpu_unavailable('gpu_upload') from None
         timing['upload'] = round(self.now() - t1, 1)
 
-    def _send_fmt2(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict, frames: str = 'png') -> None:
+    def _send_fmt2(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict, frames: str = 'png', masks: bool = False) -> None:
         """fmt 2 (T-20261117-24/5): ассеты — по хешу в `renderassets` приёмника (спросили «каких нет» и досылаем недостающее ДО `job.json`), маленький пакет —
         в каталог задания, `job.json` (v=2, манифест) ПОСЛЕДНИМ. Любой сбой до задания — `_Fmt2Skip` (заказ пойдёт по fmt 1), машине ничего не ушло."""
         import jobs_proto as JP
@@ -822,7 +838,7 @@ class SaladGpuExecutor(SceneExecutor):
                     f.result()                                              # недостающие ассеты — ДО задания
             render = hashlib.sha256(json.dumps(self.versions(), sort_keys=True).encode()).hexdigest()[:16]
             jobj = JP.new_job2(jid, bundle, assets, ['--samples', pr['samples'], '--pct', pr['pct'], '--threads', pr['threads'], *pr['flags']],
-                               {'blenderSec': pr['limits']['blenderSecPerFrame']}, render, now=self.now(), frames=frames, jpeg_q=int(pr['jpegQuality']))
+                               {'blenderSec': pr['limits']['blenderSecPerFrame']}, render, now=self.now(), frames=frames, jpeg_q=int(pr['jpegQuality']), masks=masks)
             sink.put(f'{JP.PREFIX}/{jid}/job.json', json.dumps(jobj, ensure_ascii=False).encode())       # ПОСЛЕДНИМ
         except JP.SinkError as e:
             raise _Fmt2Skip(f'выгрузка: {e}') from None
@@ -837,6 +853,11 @@ class SaladGpuExecutor(SceneExecutor):
             return 'png'
         fr = m.state().get('frames')
         return 'jpg' if isinstance(fr, list) and 'jpg' in fr else 'png'
+
+    @staticmethod
+    def _masks_for(m) -> bool:
+        """Маски поверхностей в заказе (T-20261118-05/3): `RENDER_MASKS=1` И машина заявила `caps.masks` (ready.json → `state.masks`); старый образ — без масок."""
+        return masks_wanted() and bool(m.state().get('masks'))
 
     @staticmethod
     def _check_frame(path: str, fmt: str) -> None:
@@ -873,12 +894,12 @@ class SaladGpuExecutor(SceneExecutor):
                 jids.append(jid)
                 if fmt == 2:
                     try:
-                        self._send_fmt2(sink, job, jid, pr, ex, timing, frames=self._frames_for(m, ex))
+                        self._send_fmt2(sink, job, jid, pr, ex, timing, frames=self._frames_for(m, ex), masks=self._masks_for(m))
                     except _Fmt2Skip as e:
                         print(f'рендер: fmt 2 не вышел ({e}) — шлю по fmt 1', flush=True)
                         continue
                 else:
-                    self._send_fmt1(sink, job, jid, pr, ex, timing)
+                    self._send_fmt1(sink, job, jid, pr, ex, timing, masks=self._masks_for(m))
                 try:
                     res = self._wait(sink, m, jid, progress, busy_s, poll_s, pickup_s, pair_max_s)
                 except ExecutorUnavailable as e:
@@ -903,6 +924,21 @@ class SaladGpuExecutor(SceneExecutor):
             except (JP.SinkError, ValueError, OSError) as e:
                 print(f'рендер: кадры не скачались: {e}', flush=True)
                 raise self._gpu_unavailable('gpu_download') from None
+            for cam in (res.get('masks') or {}):
+                # маски необязательны: не скачалась или не картинка — кадр идёт без неё (приглушение пятен просто не сработает)
+                try:
+                    mp = os.path.join(job, JP.mask_name(cam))
+                    sink.get_to(f'{JP.PREFIX}/{jid}/{JP.mask_name(cam)}', mp)
+                    from PIL import Image
+                    with Image.open(mp) as im_:
+                        if im_.format != 'PNG' or im_.width < 8:
+                            raise ValueError('маска не PNG')
+                except Exception as e:  # noqa: BLE001
+                    print(f'рендер: маска {cam} не принята: {repr(e)[:100]}', flush=True)
+                    try:
+                        os.remove(os.path.join(job, JP.mask_name(cam)))
+                    except OSError:
+                        pass
             timing['download'] = round(self.now() - t1, 1)
             for k, v in (res.get('timing') or {}).items():          # C1, C2, fetch, render — как у local-cpu (кадры), плюс загрузка сцены машиной
                 if isinstance(v, (int, float)):
