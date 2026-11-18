@@ -14,9 +14,9 @@ review_after: 2026-12-05
 
 # Каталог — Tier 1 сводка
 
-**Состав (11.10):** 20 552 товара, 7 магазинов (ВсеИнструменты НЕ подключён — ADR-0240); дев-БД `remlab-devdb`.
-**Цикл:** crontab `40 10 * * *` UTC (фиды в 12:35 МСК) + `@reboot`; `refresh_daily.sh` — шаги
-`ok|warn|FAIL|skipped`, статус на прод, дайджест в Telegram (`alert.sh` с повтором), прод-сторож (ADR-0172, [[deployment]]).
+**Состав (18.11):** 17 928 в наличии из 23 742, 7 магазинов (ВсеИнструменты НЕ подключён — ADR-0240); БД `remlab-devdb`.
+**Цикл:** crontab `40 10 * * *` UTC (фиды в 12:35 МСК) + `@reboot`; солвер — свой крон по пн; `refresh_daily.sh` — шаги
+`ok|warn|FAIL|skipped`, статус на прод, дайджест в Telegram (`alert.sh`), прод-сторож (ADR-0172, [[deployment]]).
 
 **Источник истины (ADR-0171, `tools/scout/load3.py`):** ФИД — ключ `(merchant_id, id)`, название, ссылка,
 фото, `original_picture → image_url_hd`, `article`, цена, категория, params, описание (пустое не затирает).
@@ -27,7 +27,7 @@ API (`catalog_api_sync.py`, ежедневно, ADR-0239) — `charge`, пуст
 `in_stock` (`stock_truth.reconcile()`).
 
 **Дельта (`load3.py:HASH_VERSION` = 10; смена правил `dim_resolver` — подъём, сторож `RULES_FINGERPRINT`):** text/geometry/image/attrs → `stale`
-(commercial и image_hd — только счётчики), смена контракта → baseline. Исчез → `missing`, 3 дня → `archived`; не удаляем.
+(commercial и image_hd — только счётчики), смена контракта → baseline. Исчез → `missing`, 3 дня → `archived` (не удаляем).
 Порог «< 70 %» — по магазину против последнего успеха (`catalog_import_runs`).
 Карантин фидов — `feed_guard.py` (30–54 ч `degraded` грузится; `stale/broken/empty` — пропуск, `load3.py:main`). Обогащение `enrich.py --vision` — ежедневно (кроме `openai.off`), ≤200, сперва товары банков (`enrich.py:daily_pick`).
 

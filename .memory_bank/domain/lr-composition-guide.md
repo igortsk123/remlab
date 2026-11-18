@@ -126,7 +126,7 @@ last_verified: 2026-11-18
 
 ## Применение
 - Автосборка сетов: сетка **7 метражей × 6 стилей × 3 тира = 126 сетов** (`compose2.py --style --bands all` →
-  `sets3.json`, `tools/scout/run.sh`; без `--style` — 7 × 3 = 21 в `sets2.json`); из доли считается целевой footprint предмета
+  `sets3.next.json` (в живой `sets3.json` — отдельным шагом банка), `tools/scout/run.sh`; без `--style` — 7 × 3 = 21 в `sets2.json`); из доли считается целевой footprint предмета
   от площади ЗОНЫ, не выше 30 м², при qty>1 — на штуку (`tools/scout/compose2.py:pick2`, `zone_m2=min(m2,30)`):
   диван для 15 м² = 10–14% → 1,5–2,1 м² → подбор по Ш×Г каталога; для 45 м² доля берётся от 30 м².
 - Предел заполнения пола в коде — не 28–38/40 этой справки, а `occupancy.json → dynamic.floor_cap_pct` по метражу

@@ -20,9 +20,9 @@ review_after: 2026-12-10
 - **Задание:** `app/try/page.tsx` → `POST /api/trial` → `trial_jobs` (`db/init/022-trial-jobs.sql` … 038); лимиты — ADR-0371
   (`lib/trial/upload-limits.ts`, `own-key.ts`), хранение 30 дн (`lib/trial/config.ts:trialFileHours`).
 - **Воркер DEV:** `tools/floorplan/worker.py`, юнит `remlab-trial-worker`, аренда `lib/trial/repo-worker.ts`; не берёт при < 3 ГБ,
-  ≥ 2 тяжёлых, прод не 200; правка — после перезапуска (урок 608). Исходник покупателю — нет (ADR-0418).
+  ≥ 2 тяжёлых (`worker.py:heavy_queue`), прод не 200; правка — после перезапуска (урок 608). Исходник покупателю — нет (ADR-0418).
 - **Стены:** `tools/floorplan/pipeline.py`, лист `tools/floorplan/bench.py:dev_sheet` (ADR-0374), балкон `outdoor` (ADR-0375),
-  регресс `tools/floorplan/regress.py`. Площадь этажа ↔ подпись — `tools/floorplan/area_checks.py`.
+  регресс `tools/floorplan/regress.py`. Площадь ↔ подпись — `tools/floorplan/area_checks.py`.
 - **Стадии:** `tools/floorplan/conveyor.py` → гостиная `tools/scout/trial_demo.py` → спальни `tools/scout/trial_bedroom.py`
   (стиль — ≤ 16 вызовов решателя, `STYLE_SOLVES`, ADR-0414); данные `tools/scout/trial_bundle.py`; нет масштаба — `awaiting_check`
   (`trial_bundle.py:size_check`), «Обустроить» — `conveyor.Rebuild`.
@@ -34,8 +34,8 @@ review_after: 2026-12-10
   `trial_bundle.py:uk_money`.
 - **Правка агентом (ADR-0373):** `tools/floorplan/room_edits.py`, `tools/floorplan/opening_edits.py`; черновики
   `lib/trial/repo-draft.ts`, пересчёт `lib/trial/repo-confirm.ts`. **Перечитать (ADR-0377):** `conveyor.py:Reparse`.
-- **Фото:** `trial_bundle.py:photo_ok`; ≤ 10 за 24 ч (`lib/trial/repo-photo.ts`), хранятся у тура (034). **Автофото (ADR-0416):**
+- **Фото:** `trial_bundle.py:photo_ok`; ≤ 10 за 24 ч (`lib/trial/repo-photo.ts`), у тура (034). **Автофото (ADR-0416):**
   подтверждение → партия ≤ 5 комнат × C1/C2 (`lib/trial/auto-photos-queue.ts`, `tools/scout/rules/tour-auto-photos.json`, 036–037),
-  съёмщик DEV `tools/ops/tour-auto-photos.mjs`, таймер `remlab-tour-photos`.
+  съёмщик `tools/ops/tour-auto-photos.mjs` (таймер `remlab-tour-photos`).
 
 Детали — Tier 2 § «Устройство 10–12.11», § «Автофото тура»; уроки — `lessons/floorplan-trial.md`.

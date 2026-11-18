@@ -88,8 +88,8 @@ last_verified: 2026-11-12
 
 ## Публикация демо — копия прежней версии и откат (06.11, T-20261105-59)
 - **Ночью** `flat215_demo` собирает демо, `flat215_publish` везёт его на прод — только если определено состояние банка всех комнат
-  (`bank_refresh --room X state`; иначе оба шага пропускаются, на проде остаётся вчерашнее) и прошли ворота лёгких копий моделей
-  `demo_rt`; между сборкой и выкладкой — `trial_images` и платный `demo_real` (`tools/scout/refresh_daily.sh`, `tools/assets/demo_rt.sh`).
+  (`bank_refresh --room X state`; иначе оба шага пропускаются, на проде остаётся вчерашнее) и прошли три ворота подряд: `demo_rt` (лёгкие копии моделей) → `cams_gate` (у вариантов есть `v.cams`) →
+  `priced_3d` (`priced_vs_3d.py --guard`: в цене значит в 3D); любой отказ — на проде прежняя витрина, `DIGEST:!`; между сборкой и выкладкой — `trial_images` и платный `demo_real` (`tools/scout/refresh_daily.sh`, `tools/assets/demo_rt.sh`).
 - **Сборка пишет выходные json подменой**, не обрезкой: временный файл в той же папке + fsync + `os.replace` (`tools/scout/atomic_io.py:write_json`,
   в `tools/scout/flat215_demo.py` — `_AIO`); в `tools/flat3d/build-scene-bundle.mjs:writeAtomic` и `tools/flat3d/demo-cams.mjs` —
   временный файл рядом + rename (без fsync).
@@ -139,7 +139,7 @@ bedroom (сборщик `compose_bedroom`); по вариантам витрин
 - **Сборщики:** `tools/scout/compose_bedroom.py`, `tools/scout/compose_hall.py` (правила `tools/scout/rules/bedroom-composition.json`,
   `tools/scout/rules/hall-composition.json`), общее (цвет, палитра) — `tools/scout/compose_common.py`; порядок кандидатов
   (`compose_bedroom.rank_key`): модели ещё нет в этом стиле → ярус цвета (preferred → allowed → discouraged) → меш (готов → сгенерирован →
-  нет → брак) → другие стили → балл → цена → SKU; на позиции `has_mesh`/`mesh_defect`; `report.json → shortage, mesh_need`. При
+  нет → брак) → декор, подходящий по названию (`preferred is False`, идёт первым; `compose_bedroom.py:98-114`) → другие стили → балл → цена → SKU; на позиции `has_mesh`/`mesh_defect`; `report.json → shortage, mesh_need`. При
   `bedroom-composition.json:style_requires_core=true` стиль без групп ядра ночью не собирается — WARN и строка сводки
   (`compose_bedroom.py:core_skip`); стиль живого банка так не пропускается — ERROR, код 1, кандидат не пишется. Суд не ослабляется.
 - **Стили комнат:** спальня — 6 (`bedroom-composition.json:styles`, владелец 06.11 «вся квартира во всех стилях», отменяет ADR-0330 п.3),
@@ -241,10 +241,10 @@ bedroom (сборщик `compose_bedroom`); по вариантам витрин
   (`tools/scout/compose_common.py:slot_sizes`, `tools/scout/compose_hall.py:fit_size`); допуск −20…+10 % — внутри типоразмера,
   в запись набора идёт типоразмер товара, суд `check_bank` проверяет по нему же. Квота мешей прихожей от этого 34 → 54.
 - **Прихожая — распашной шкаф** (T-10/2, 07.11): роль «шкаф» в прихожей — габарит `min` w80 d40 h150, `max` w200 d66
-  (`hall-roles.json`, проверка `max` — `tools/scout/room_catalog.py:role_guard`); у спальни `max` нет. Квота «купе + распашной» общая (8 на стиль).
+  (`hall-roles.json`, проверка `max` — `tools/scout/room_catalog.py:role_guard`); у спальни `max` нет. Квота «купе + распашной» + модуль «прихожая» общая (11 на стиль: 8 + 3, `tools/scout/rules/demo-swap.json` → `rooms.hall.roles`).
 - **«В стиле» — одно правило** (T-90): `tools/scout/room_profile.py:in_style` — балл ≥ `in_style_min` (6,6), `universal` не засчитывается;
   им пользуются `style_score.py` и `compose_bedroom.py` (раньше скорер брал 6,5 или `universal`).
-- **Годность модели спальни** (T-51/T-70/T-93, 06.11): одно правило `tools/scout/room_bindings.py:usable` (режимы `strict` | `orient` | `0`),
+- **Годность модели спальни** (T-51/T-70/T-93, 06.11): одно правило `tools/scout/room_bindings.py:usable` (режимы `strict` | `orient`; `BEDROOM_MESH_GATE=0` — выключить сторож — обрабатывает только `flat215_demo.py`),
   его зовут сторож витрины и адаптер банка (банк не импортирует тяжёлый `flat215_demo`). Переключатель `BEDROOM_MESH_GATE`
   (`tools/scout/flat215_demo.py:BEDROOM_MESH_GATE_ENV`, по умолчанию `orient`: привязка `ready` или заблокированная только по `orientation_*`,
   каждая такая — `WARN:bedroom_orient_unresolved`); неизвестное значение — отказ. Для банка режим — `rooms.<комната>.mesh_gate`.

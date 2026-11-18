@@ -23,7 +23,7 @@ last_verified: 2026-11-18
   `room_id|purpose|band|style|tier` (`tools/scout/room_identity.py:cell`); стиль без ядра ночью не собирается (`core_skip`).
 - **Банк:** prepare → pending → promote (≤ 25 %) → `sets-bedroom.json`; флаги `tools/scout/rules/bank-candidate.json:rooms.bedroom`.
 - **Витрина:** `tools/scout/demo_bedroom.py` поверх `tools/scout/demo_room.py`; пустую роль добирает `demo_room.py:role_spares`.
-- **Модель:** `tools/scout/room_bindings.py:usable`. **3D (ADR-0417/0422/0425):** лампа от 33 см, иначе соседний стиль
+- **Модель:** `room_bindings.py:usable`. **3D (ADR-0417/0422/0425):** лампа от 33 см, иначе соседний стиль
   (`tools/scout/dependent_decor.py`); лампа с моделью раньше лампы без модели (ADR-0431, `tools/scout/compose_bedroom.py:decor_pick`); плед — ярлык с фото и ценой (`data/flat3d/textile.json:label`), шторы — `tools/scout/textile_abstract.py`; сторож `tools/scout/priced_vs_3d.py`.
 
 ## Расстановка
@@ -37,6 +37,6 @@ last_verified: 2026-11-18
 - **Туры:** у окна — низкие рамы (`tools/scout/trial_bedroom.py:window_low_beds`); стиль — ≤ 16 вызовов решателя (ADR-0414).
 
 ## Стили и назначения
-- 6 стилей (неоклассика — `core_skip`); назначения couple/single/guest/office/child:*.
+- 6 стилей (неоклассика — `core_skip`); в банке couple/single/guest.
 
 **Tier 2:** `../domain/pipeline-order-details.md` § «Банки других комнат», «Спальня 10–12.11» · [[b2b-10-rooms-beyond-living]] · ADR-0330.

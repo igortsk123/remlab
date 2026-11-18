@@ -169,6 +169,8 @@ export const CostEstimateOutput = z.object({
 
 ## §4. Модель данных / миграции (Drizzle/Postgres)
 
+> ⚠ **Целевая схема v0, НЕ реализовано (сверено с кодом 18.11).** Факт: прод-БД — таблицы из `db/init/002`–`038` (projects, estimates, leads, flat_configs, collections, trial_* и др.), RLS нет (изоляция — фильтр `session_id`), миграции — идемпотентный raw SQL `tools/apply-db-init.sh` без down и без drizzle-kit, pgvector установлен, но не используется (нет `vector(…)`, hnsw/ivfflat). Каталог (`products` и др.) — dev-БД `tools/scout/`. Истина — `.memory_bank/core/data-model.md`; абзацы ниже — исходные гипотезы.
+
 > Денормализация ради чтения workspace; индексы (city, status, paid, embeddings); снапшоты цен. **RLS с первого дня** — регресс-защита от утечки чужих данных.
 
 Основные таблицы: `users, properties, rooms, room_projects, result_versions, style_profiles, uploaded_images, detected_objects, generation_jobs, generated_images, products, product_embeddings (vector(768)), price_snapshots, product_previews, cities, work_types, work_rates, material_categories, material_rates, room_type_coefficients, intervention_level_coefficients, complexity_coefficients, cost_estimates, estimate_lines, payments`.
