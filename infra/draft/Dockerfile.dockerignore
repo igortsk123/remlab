@@ -21,5 +21,6 @@
 !tools/scout/scene_mesh.py
 !tools/scout/opening_ir.py
 !tools/scout/view_consistency.py
+!tools/scout/post_stall.py
 !tools/scout/styles.json
 **/__pycache__
