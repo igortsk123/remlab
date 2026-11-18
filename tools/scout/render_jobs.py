@@ -33,6 +33,10 @@ except ImportError:  # pragma: no cover
 MAX_ATTEMPTS = 2
 CAMS = ('C1', 'C2')
 DEFAULT_SEC = float(os.environ.get('RENDER_DEFAULT_SEC', 600))      # до первых замеров: честная прикидка локального процессора
+MIN_SAMPLES = 5                                                      # замеров исполнителя, с которых диапазон — по ним, а не по прикидке
+# прикидка по исполнителю до замеров: (мин, макс, среднее) секунд; у машины рендера на 4090 — 20…60 с (живые замеры T-24: 30–60 с), остальные — по DEFAULT_SEC
+GUESS = {'salad-gpu': (float(os.environ.get('RENDER_GPU_LO', 20)), float(os.environ.get('RENDER_GPU_HI', 60)), float(os.environ.get('RENDER_GPU_AVG', 40)))}
+LEGACY_EX = 'local-cpu'                                              # замеры до учёта исполнителя были процессорные
 
 
 def _env_i(name: str, default: int) -> int:
@@ -72,13 +76,14 @@ class RenderStore:
         self.lock = threading.RLock()
         self.jobs: dict = {}
         self.durs: list = []            # секунды от начала работы до готовых двух кадров (последние 30)
+        self.dur_ex: list = []          # кто считал — имя исполнителя, по одному на каждый замер (та же длина и порядок, что у durs)
         os.makedirs(results_dir, exist_ok=True)
 
     def save(self) -> bool:
         tmp = self.path + '.tmp'
         try:
             with self.lock:
-                snap = {'v': 1, 'jobs': self.jobs, 'durs': self.durs[-30:]}
+                snap = {'v': 1, 'jobs': self.jobs, 'durs': self.durs[-30:], 'dur_ex': self.dur_ex[-30:]}
                 with open(tmp, 'w', encoding='utf-8') as f:
                     json.dump(snap, f, ensure_ascii=False)
                     f.flush()
@@ -103,6 +108,8 @@ class RenderStore:
                 data = {}
             self.jobs = {k: v for k, v in (data.get('jobs') or {}).items() if isinstance(v, dict)}
             self.durs = [float(x) for x in (data.get('durs') or []) if isinstance(x, (int, float))][-30:]
+            exs = [x if isinstance(x, str) and x else LEGACY_EX for x in (data.get('dur_ex') or [])][-len(self.durs):] if self.durs else []
+            self.dur_ex = [LEGACY_EX] * (len(self.durs) - len(exs)) + exs         # старый файл без исполнителей: замеры были процессорные
             for jid, j in list(self.jobs.items()):
                 if j.get('status') in ('queued', 'running'):
                     if int(j.get('attempts', 0)) >= MAX_ATTEMPTS or not j.get('body'):
@@ -174,16 +181,34 @@ class RenderQueue:
         self.tour_max = _env_i('RENDER_TOUR_MAX', 2)
         self.hour_cap = _env_i('RENDER_HOUR_CAP', 40)
 
-    # ——— оценка времени
-    def avg_sec(self) -> float:
-        d = self.store.durs[-10:]
-        return sum(d) / len(d) if d else DEFAULT_SEC
+    # ——— оценка времени: по тому исполнителю, который возьмёт заказ СЕЙЧАС (машина прогрета — её замеры, нет — запасного)
+    def expected(self) -> str:
+        """Имя исполнителя, который посчитает заказ, поставленный сейчас (у исполнителя без `expected` — его имя)."""
+        f = getattr(self.executor, 'expected', None)
+        try:
+            return str(f()) if callable(f) else str(getattr(self.executor, 'name', '?'))
+        except Exception:  # noqa: BLE001 — не знаем, кто возьмёт: честнее считать запасного
+            return LEGACY_EX
 
-    def range_sec(self) -> tuple:
-        """Диапазон одного задания из замеров: p50…p95 (до пяти замеров — прикидка ×0,8…×1,6)."""
-        d = self.store.durs
-        if len(d) >= 5:
+    def durs_of(self, name: str) -> list:
+        st = self.store
+        return [d for d, e in zip(st.durs, st.dur_ex) if e == name]
+
+    def avg_sec(self, name: str | None = None) -> float:
+        name = name or self.expected()
+        d = self.durs_of(name)[-10:]
+        if d:
+            return sum(d) / len(d)
+        return GUESS[name][2] if name in GUESS else DEFAULT_SEC
+
+    def range_sec(self, name: str | None = None) -> tuple:
+        """Диапазон одного задания из замеров ИСПОЛНИТЕЛЯ: p50…p95; до пяти его замеров — прикидка (машина рендера — 20…60 с, прочие ×0,8…×1,6 от DEFAULT_SEC)."""
+        name = name or self.expected()
+        d = self.durs_of(name)
+        if len(d) >= MIN_SAMPLES:
             return int(_pct(d, 0.5)), int(_pct(d, 0.95))
+        if name in GUESS:
+            return int(GUESS[name][0]), int(GUESS[name][1])
         return int(DEFAULT_SEC * 0.8), int(DEFAULT_SEC * 1.6)
 
     def _order(self) -> list:
@@ -197,8 +222,9 @@ class RenderQueue:
         """{'queue': место с 1 (0 — не ждёт), 'eta': секунды до обоих кадров, 'eta_range': [мин, макс]}."""
         with self.store.lock:
             j = self.store.jobs.get(jid) or {}
-            avg = self.avg_sec()
-            lo, hi = self.range_sec()
+            who = self.expected()
+            avg = self.avg_sec(who)
+            lo, hi = self.range_sec(who)
             running = [x for x in self.store.jobs.values() if x.get('status') == 'running']
             left = 0.0
             for r in running:
@@ -297,7 +323,7 @@ class RenderQueue:
         stage = j.get('stage') or ''
         if j.get('status') != 'running':
             return {'percent': 0, 'frames_done': 0, 'frame': None}
-        per = max(30.0, (self.avg_sec() * 0.92) / 2)
+        per = max(10.0, (self.avg_sec() * 0.92) / 2)
         el = max(0.0, time.time() - (j.get('stage_ts') or time.time()))
         inner = min(0.95, el / per)
         if stage == 'C1':
@@ -312,10 +338,12 @@ class RenderQueue:
 
     def stats(self) -> dict:
         with self.store.lock:
-            d = self.store.durs
-            return {'executor': getattr(self.executor, 'name', '?'), 'queue': self.waiting_n(), 'workers': self.workers,
+            who = self.expected()
+            d = self.durs_of(who)
+            by = {n: {'n': len(x), 'p50': _pct(x, 0.5), 'p95': _pct(x, 0.95)} for n in sorted(set(self.store.dur_ex)) for x in [self.durs_of(n)]}
+            return {'executor': getattr(self.executor, 'name', '?'), 'expected': who, 'by_executor': by, 'queue': self.waiting_n(), 'workers': self.workers,
                     'running': sum(1 for j in self.store.jobs.values() if j.get('status') == 'running'),
-                    'n': len(d), 'p50': _pct(d, 0.5), 'p95': _pct(d, 0.95), 'range': list(self.range_sec()),
+                    'n': len(d), 'p50': _pct(d, 0.5), 'p95': _pct(d, 0.95), 'range': list(self.range_sec(who)),
                     'limits': {'queue': self.max_queue, 'ip': self.ip_max, 'tour': self.tour_max, 'hour': self.hour_cap},
                     'hour_used': len([t for t in self.hits if time.time() - t < 3600])}
 
@@ -359,6 +387,7 @@ class RenderQueue:
                 if jid in st.jobs and st.jobs[jid].get('status') == 'running':
                     st.jobs[jid]['stage'] = stage
                     st.jobs[jid]['stage_ts'] = time.time()
+        who0 = self.expected()
         try:
             out = self.executor.render(body['snap'], st.result_dir(key), progress)
             sec = time.time() - t0
@@ -370,8 +399,10 @@ class RenderQueue:
                     print(f'рендер {jid}: order.json не записан: {e}', flush=True)
             if meta is None:
                 raise RenderError('render_failed', 'Рендер не дал кадров. Нажмите «Повторить».', 'The render produced no frames. Press "Retry".')
+            who = (out.get('executor') if isinstance(out, dict) else None) or who0
             with st.lock:
                 st.durs = (st.durs + [sec])[-30:]
+                st.dur_ex = (st.dur_ex + [who])[-30:]
                 st.jobs[jid] = {'status': 'done', 'ts': st.jobs[jid]['ts'], 'key': key, 'hash': body['snap']['scene_hash'],
                                 'result': self._result(key, meta, sec, False), 'legacy': body.get('legacy') or {}}
                 st.save()
@@ -553,9 +584,48 @@ def _selftest() -> int:
         st5 = RenderStore(os.path.join(d, 'j5.json'), os.path.join(d, 'res5'))
         q5 = RenderQueue(st5, Fake(st5))
         ok(q5.range_sec() == (int(DEFAULT_SEC * 0.8), int(DEFAULT_SEC * 1.6)), 'до замеров — прикидка диапазона')
-        st5.durs = [100, 110, 120, 130, 400]
+        st5.durs, st5.dur_ex = [100, 110, 120, 130, 400], ['fake'] * 5
         lo, hi = q5.range_sec()
         ok(lo == 120 and hi == 400, 'после пяти замеров диапазон — p50…p95')
+        # диапазон — по исполнителю, который возьмёт заказ СЕЙЧАС (T-24/7 доп.)
+        class Sw(Fake):
+            name = 'fb'
+            now = 'local-cpu'
+
+            def expected(self):
+                return self.now
+        sw = Sw(st5)
+        q6 = RenderQueue(st5, sw)
+        st5.durs, st5.dur_ex = [100, 110, 120, 130, 400], ['local-cpu'] * 5
+        ok(q6.range_sec() == (120, 400) and q6.stats()['expected'] == 'local-cpu', 'машина не годна — диапазон по замерам процессора')
+        sw.now = 'salad-gpu'
+        ok(q6.range_sec() == (20, 60) and q6.stats()['range'] == [20, 60] and q6.stats()['expected'] == 'salad-gpu' and q6.stats()['n'] == 0,
+           'машина прогрета, замеров машины мало — прикидка 20…60 с, чужие замеры не берём')
+        ok(abs(q6.avg_sec() - 40) < 1e-9, 'среднее до замеров машины — прикидка, не 600 с')
+        st5.durs += [31, 35, 44, 52, 58]
+        st5.dur_ex += ['salad-gpu'] * 5
+        ok(q6.range_sec() == (44, 58) and q6.stats()['n'] == 5 and q6.stats()['by_executor']['local-cpu']['n'] == 5, 'пять замеров машины — p50…p95 по ним; по исполнителям — раздельно')
+        st5.jobs['e1'] = {'status': 'queued', 'ts': time.time(), 'key': 'ke', 'prio': 0}
+        ok(q6.eta('e1')['eta_range'][1] <= 58, 'срок для страницы: на прогретой машине — секунды, не минуты')
+        sw.now = 'local-cpu'
+        ok(q6.eta('e1')['eta_range'] == [120, 400], 'машину выключили — срок снова по процессору')
+        st5.jobs.pop('e1')
+        # исполнитель запоминается при готовности (из ответа, иначе — кто ожидался)
+        st7 = RenderStore(os.path.join(d, 'j7.json'), os.path.join(d, 'res7'))
+        sw7 = Sw(st7)
+        sw7.now = 'salad-gpu'
+        q7 = RenderQueue(st7, sw7)
+        q7.start()
+        wait(q7, q7.submit(snap('hx'), 'kx')['job'])
+        ok(st7.dur_ex == ['salad-gpu'] and len(st7.durs) == 1, 'замер записан за исполнителем')
+        st7b = RenderStore(os.path.join(d, 'j7.json'), os.path.join(d, 'res7'))
+        st7b.load()
+        ok(st7b.dur_ex == ['salad-gpu'], 'исполнитель замера переживает перезапуск')
+        q7.close()
+        json.dump({'v': 1, 'jobs': {}, 'durs': [10.0, 20.0]}, open(os.path.join(d, 'old.json'), 'w'))
+        st8 = RenderStore(os.path.join(d, 'old.json'), os.path.join(d, 'res8'))
+        st8.load()
+        ok(st8.dur_ex == ['local-cpu', 'local-cpu'], 'старый файл без исполнителей — замеры процессорные')
         # очистка кэша: лишние каталоги уходят, нужные заданию остаются
         st5.keep_results = 1
         for k in ('a', 'b', 'c'):

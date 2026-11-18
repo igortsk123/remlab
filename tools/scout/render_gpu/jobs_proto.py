@@ -29,6 +29,8 @@ import urllib.request
 
 PREFIX = 'renderjobs'
 ASSET_PREFIX = 'renderassets'
+HOT_DIR = '_hot'                       # «горячий список»: каталог рядом с заданиями (не задание: файла job.json в нём нет)
+HOT_REL = f'{PREFIX}/{HOT_DIR}/hot.json'
 PROTO = 1
 PROTO2 = 2
 SUPPORTED = (PROTO, PROTO2)
@@ -261,6 +263,40 @@ def manifest_sha(bundle: dict, assets: list) -> str:
     canon = json.dumps({'bundle': {k: bundle.get(k) for k in ('name', 'sha256', 'size')}, 'assets': sorted(({k: a.get(k) for k in ('path', 'sha256', 'size', 'kind')}
                         for a in assets), key=lambda a: a['path'])}, sort_keys=True, separators=(',', ':'), ensure_ascii=True)
     return hashlib.sha256(canon.encode()).hexdigest()
+
+
+HOT_MAX_N = 2000
+
+
+def new_hot(assets: list, now=None, note: str = '') -> dict:
+    """Горячий список (T-24/7, «подогрев»): какие ассеты нужны витрине (/demo, туры) — DEV пишет его на приёмник после того, как ассеты залиты; машина при прогреве подтягивает их
+    в свой кэш, уборка приёмника их не трогает. `assets` — [{sha256, size}], порядок = важность (вперёд — нужнее). Дубли хешей убираются."""
+    seen, out = set(), []
+    for a in assets:
+        h = a.get('sha256')
+        if h in seen or not isinstance(h, str) or not re.match(r'^[0-9a-f]{64}$', h):
+            continue
+        seen.add(h)
+        out.append({'sha256': h, 'size': int(a.get('size') or 0)})
+    return {'v': 1, 'ts': round(now if now is not None else time.time(), 1), 'n': len(out), 'mb': round(sum(a['size'] for a in out) / 2 ** 20, 1), 'note': str(note)[:200], 'assets': out}
+
+
+def parse_hot(obj) -> list:
+    """Горячий список из присланного JSON → [(sha256, size)] только годных записей (хеш из 64 hex, размер 1…ASSET_MAX_MB МБ), не больше HOT_MAX_N. Чужое/битое — пусто."""
+    if not isinstance(obj, dict) or obj.get('v') != 1 or not isinstance(obj.get('assets'), list):
+        return []
+    out, seen = [], set()
+    for a in obj['assets'][:HOT_MAX_N]:
+        if not isinstance(a, dict):
+            continue
+        h, n = a.get('sha256'), a.get('size')
+        if not (isinstance(h, str) and re.match(r'^[0-9a-f]{64}$', h)) or h in seen:
+            continue
+        if not (isinstance(n, int) and not isinstance(n, bool) and 1 <= n <= ASSET_MAX_MB * 2 ** 20):
+            continue
+        seen.add(h)
+        out.append((h, n))
+    return out
 
 
 def new_job2(job_id: str, bundle: dict, assets: list, args: list, limits: dict, render: str, cams=CAMS, now=None) -> dict:

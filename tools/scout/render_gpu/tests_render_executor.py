@@ -613,6 +613,7 @@ ok('fmt 2: маленький пакет — только карта сцены,
 order = [('a' if k == 'asset' else r.split('/')[-1]) for k, r in sink.log if (k == 'asset' or (k == 'put' and (r.endswith('.tgz') or r.endswith('job.json') or r.endswith('result.json'))))]
 ok('fmt 2: ассеты и пакет — ДО job.json, job.json — до result.json', order.index('job.json') > max(i for i, x in enumerate(order) if x == 'a') and order.index('job.json') < order.index('result.json'))
 ok('fmt 2: timing — hash/have/asset_n/asset_miss/asset_up_mb/upload/bundle_kb', all(k in tm for k in ('hash', 'have', 'asset_n', 'asset_miss', 'asset_up_mb', 'upload', 'bundle_kb')) and tm['asset_miss'] == tm['asset_n'] == len(set(a['sha256'] for a in j2['assets'])))
+ok('fmt 2: timing — сколько ассетов машина докачала (кэш был пуст: все) и сколько МБ', tm.get('asset_dl_n') == tm['asset_n'] and tm.get('asset_dl_mb') is not None)
 ok('машина: ассеты лежат в кэше по полному хешу (только чтение)', all(os.path.isfile(os.path.join(BLOBS, a['sha256'])) and not os.stat(os.path.join(BLOBS, a['sha256'])).st_mode & 0o222 for a in j2['assets']))
 n_put, n_get = len(sink.put_assets), len(sink.get_assets)
 
@@ -797,6 +798,97 @@ ok('asset_kind: текстуры сцены, GLB, карты, код, данны
    [RE.asset_kind(x) for x in ('scene/tex/a.png', 'dump/demo_nodes.glb', 'public/a/b.webp', 'tools/scout/wall_art.py', 'data/flat3d/wall-art.json')] == ['tex', 'glb', 'map', 'code', 'data']
    and not any(RE.asset_kind(x) for x in ('scene/m000.npz', 'scene/scene.json', 'dump/scene-export.json', 'dump/demo_nodes_uuids.json', 'other/x')))
 
+# ═══ 16. T-24/7: «подогрев» — горячий список витрины, прогрев кэша машины, уборка приёмника
+H1, H2, H3 = os.urandom(3000), os.urandom(4000), os.urandom(5000)
+hh = {hashlib.sha256(x).hexdigest(): x for x in (H1, H2, H3)}
+shas = list(hh)
+sink = FakeSink2()
+for k, v in hh.items():
+    sink.assets[k] = v
+sink.put(JP.HOT_REL, json.dumps(JP.new_hot([{'sha256': k, 'size': len(v)} for k, v in hh.items()], now=7)).encode())
+bd16 = os.path.join(RW.WORK, 'blobs')
+shutil.rmtree(bd16, ignore_errors=True)
+os.makedirs(bd16)
+w16 = new_worker(sink)
+st = w16.warm(JP.parse_hot(json.loads(sink.hist[JP.HOT_REL])), busy=lambda: False)
+ok('подогрев: все ассеты списка в кэше машины по полному хешу, все годны (хеш и размер)', st['taken'] == 3 and st['errors'] == 0 and all(RW.blob_ok(os.path.join(bd16, k), k, len(v)) for k, v in hh.items()))
+ok('подогрев: горячие хеши запомнены (из кэша по размеру не выселяются)', w16.hot == set(shas))
+n_get = len(sink.get_assets)
+st = w16.warm(JP.parse_hot(json.loads(sink.hist[JP.HOT_REL])), busy=lambda: False)
+ok('повторный подогрев: скачиваний ноль', len(sink.get_assets) == n_get and st['dl_mb'] == 0 and st['taken'] == 3)
+# выселение: потолок кэша меньше суммы — горячие остаются, чужое уходит
+other = os.path.join(bd16, 'f' * 64)
+open(other, 'wb').write(b'o' * 20000)
+os.utime(other, (1, 1))
+gone = RW.trim_blobs(bd16, w16.hot, max_gb=5000 / 2 ** 30)
+ok('trim_blobs с горячими: чужой старый файл ушёл, горячие целы', gone == ['f' * 64] and all(os.path.exists(os.path.join(bd16, k)) for k in shas))
+# потолок подогрева HOT_GB: берём по порядку списка, что не влезло — не берём
+shutil.rmtree(bd16, ignore_errors=True)
+os.makedirs(bd16)
+old_gb = RW.HOT_GB
+RW.HOT_GB = 7500 / 2 ** 30
+st = w16.warm([(k, len(v)) for k, v in hh.items()], busy=lambda: False)
+RW.HOT_GB = old_gb
+ok('подогрев: потолок HOT_GB — берём по порядку, остальное не берём', st['n'] == 2 and st['cut'] == 1 and os.path.exists(os.path.join(bd16, shas[0])) and not os.path.exists(os.path.join(bd16, shas[2])))
+# битый ассет на приёмнике: ошибка считается, остальные подтянуты, воркер жив
+shutil.rmtree(bd16, ignore_errors=True)
+os.makedirs(bd16)
+sink.wrong = {shas[1]}
+st = w16.warm([(k, len(v)) for k, v in hh.items()], busy=lambda: False)
+sink.wrong = set()
+ok('подогрев: ассет с неверным хешем не принят (не лежит в кэше), остальные есть', st['errors'] == 1 and st['taken'] == 2 and not os.path.exists(os.path.join(bd16, shas[1])) and os.path.exists(os.path.join(bd16, shas[0])))
+# ЗАКАЗ ПРИОРИТЕТНЕЕ: пока воркер занят парой, новые скачивания не стартуют
+shutil.rmtree(bd16, ignore_errors=True)
+os.makedirs(bd16)
+busy = {'v': True}
+n0 = len(sink.get_assets)
+th = threading.Thread(target=lambda: w16.warm([(k, len(v)) for k, v in hh.items()], busy=lambda: busy['v']), daemon=True)
+th.start()
+time.sleep(0.9)
+ok('заказ приоритетнее: пока пара считается, подогрев ничего не качает', len(sink.get_assets) == n0 and th.is_alive())
+busy['v'] = False
+th.join(8)
+ok('…и продолжает, когда пара кончилась', not th.is_alive() and len(sink.get_assets) == n0 + 3)
+# заказу нужен тот же хеш, что подогрев качает: качается один раз
+shutil.rmtree(bd16, ignore_errors=True)
+os.makedirs(bd16)
+sink.slow = 0.4
+n0 = len(sink.get_assets)
+th = threading.Thread(target=lambda: w16.warm([(shas[0], len(H1))], busy=lambda: False), daemon=True)
+th.start()
+time.sleep(0.1)
+got = w16.fetch_asset(shas[0], len(H1))
+th.join(5)
+sink.slow = 0.0
+ok('тот же хеш у заказа и подогрева — одно скачивание', len(sink.get_assets) == n0 + 1 and got[1] in (0, len(H1)))
+# список: битый/чужой — воркер ничего не делает; pick не принимает `_hot` за задание
+w17 = new_worker(FakeSink2())
+w17.sink.put(JP.HOT_REL, b'{"v": 9}')
+ok('битый/чужой список: пусто, подогрев ничего не берёт', JP.parse_hot(json.loads(w17.sink.hist[JP.HOT_REL])) == [])
+sink18 = FakeSink2()
+sink18.put(JP.HOT_REL, b'{"v":1,"assets":[]}')
+sink18.put(f'{JP.PREFIX}/_hot/job.json', b'{}')
+ok('pick: каталог `_hot` — не задание (даже если в нём окажется job.json)', new_worker(sink18).pick() is None)
+# ═══ 17. срок на странице — по тому, кто возьмёт заказ СЕЙЧАС (T-24/7 доп.)
+class Cpu(RE.SceneExecutor):
+    name = 'local-cpu'
+
+
+fb17 = RE.Fallback(Exec(FakeSink(), FakeMachine(), PUBLIC), Cpu({'RENDER_WORK': os.path.join(TMP, 'rwork')}))
+ok('машина годна → ожидается salad-gpu', fb17.expected() == 'salad-gpu')
+fb17b = RE.Fallback(Exec(FakeSink(), FakeMachine(desired='off'), PUBLIC), Cpu({'RENDER_WORK': os.path.join(TMP, 'rwork')}))
+ok('машина выключена → ожидается local-cpu', fb17b.expected() == 'local-cpu')
+fb17c = RE.Fallback(Exec(FakeSink(), FakeMachine(warm_gen=0), PUBLIC), Cpu({'RENDER_WORK': os.path.join(TMP, 'rwork')}))
+ok('машина прогревается → ожидается local-cpu', fb17c.expected() == 'local-cpu')
+ok('одиночный исполнитель ожидает себя', Cpu({'RENDER_WORK': os.path.join(TMP, 'rwork')}).expected() == 'local-cpu')
+import render_jobs as RJ
+st17 = RJ.RenderStore(os.path.join(TMP, 'j17.json'), os.path.join(TMP, 'res17'))
+st17.durs, st17.dur_ex = [480.0] * 6, ['local-cpu'] * 6
+m17 = FakeMachine()
+q17 = RJ.RenderQueue(st17, RE.Fallback(Exec(FakeSink(), m17, PUBLIC), Cpu({'RENDER_WORK': os.path.join(TMP, 'rwork')})))
+ok('stats при прогретой машине: исполнитель, диапазон 20…60 с', q17.stats()['expected'] == 'salad-gpu' and q17.stats()['range'] == [20, 60])
+m17.st['desired'] = 'off'
+ok('stats при выключенной: исполнитель local-cpu, диапазон по его замерам', q17.stats()['expected'] == 'local-cpu' and q17.stats()['range'] == [480, 480])
 shutil.rmtree(TMP, ignore_errors=True)
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')
 sys.exit(1 if BAD else 0)
