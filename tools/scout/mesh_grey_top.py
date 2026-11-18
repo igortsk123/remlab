@@ -84,7 +84,33 @@ def top_faces(V: np.ndarray, F: np.ndarray, R: dict) -> tuple:
 
 
 def analyze_arrays(V, F, UV, albedo, mr=None, R: dict | None = None) -> dict:
-    """Ядро: вершины (n,3), грани (m,3), UV (n,2), albedo (H,W,3) uint8, mr (H,W,3) uint8 | None → вердикт и числа. Чистая функция."""
+    """Вердикт модели: верх (калиброванное ядро `analyze_top_arrays`) + дыры на ВСЕХ поверхностях (`surfaces_arrays`). Общий вердикт — худший из двух;
+    числа верха остаются как были (поля верха), поверхности — списком `surfaces`, где — `where`. Нет верха, но есть видимые поверхности — вердикт по ним
+    (стулья, диваны, кресла: раньше `na`)."""
+    R = R or rules()
+    top = analyze_top_arrays(V, F, UV, albedo, mr, R)
+    sf = surfaces_arrays(V, F, UV, albedo, mr, R)
+    order = {'na': -1, 'ok': 0, 'candidate': 1, 'reject': 2}
+    out = dict(top)
+    out['surfaces'] = sf['surfaces']
+    out['where'] = sf['where']
+    out['top_verdict'] = top['verdict']
+    if order[sf['verdict']] > order[top['verdict']]:
+        out['verdict'] = sf['verdict']
+        out['median_rgb'] = sf['median_rgb']                   # цвет худшей поверхности — для сверки с фото
+        out.pop('why', None)
+    elif top['verdict'] == 'na' and sf['verdict'] == 'ok':
+        out['verdict'] = 'ok'
+        out.pop('why', None)
+    vis = [x for x in sf['surfaces'] if x['role'] != 'низ']
+    tot = sum(x['area_px'] for x in vis)
+    out['bright_share'] = round(sum(x['bright_share'] * x['area_px'] for x in vis) / tot, 3) if tot else None
+    out['bright_flat'] = bool(vis) and any(x['bright_share'] >= R['bright_share_min'] and x['std'] <= R['std_max'] for x in vis)
+    return out
+
+
+def analyze_top_arrays(V, F, UV, albedo, mr=None, R: dict | None = None) -> dict:
+    """Ядро «верха»: вершины (n,3), грани (m,3), UV (n,2), albedo (H,W,3) uint8, mr (H,W,3) uint8 | None → вердикт и числа. Чистая функция."""
     R = R or rules()
     V, F, UV = np.asarray(V, float), np.asarray(F, int), np.asarray(UV, float)
     top, side, top_area, foot = top_faces(V, F, R)
@@ -130,6 +156,121 @@ def analyze_arrays(V, F, UV, albedo, mr=None, R: dict | None = None) -> dict:
            and (mr_share is None or mr_share >= R['mr_share_min']))
     out['verdict'] = 'reject' if rej else 'candidate' if cand else 'ok'
     return out
+
+
+# ---------- дыры покраски на ЛЮБОЙ поверхности (T-04/12 расширение, владелец TG 1856) ----------
+
+def _label_largest(mask: np.ndarray) -> int:
+    """Площадь (текселей) крупнейшей СВЯЗНОЙ (4-соседство) области маски. Без scipy: заливка стеком по уменьшенной копии не нужна — маска уже ≤ work_px."""
+    m = mask.copy()
+    h, w = m.shape
+    best = 0
+    ys, xs = np.nonzero(m)
+    for y0, x0 in zip(ys.tolist(), xs.tolist()):
+        if not m[y0, x0]:
+            continue
+        m[y0, x0] = False
+        st, n = [(y0, x0)], 0
+        while st:
+            y, x = st.pop()
+            n += 1
+            if y > 0 and m[y - 1, x]:
+                m[y - 1, x] = False; st.append((y - 1, x))
+            if y + 1 < h and m[y + 1, x]:
+                m[y + 1, x] = False; st.append((y + 1, x))
+            if x > 0 and m[y, x - 1]:
+                m[y, x - 1] = False; st.append((y, x - 1))
+            if x + 1 < w and m[y, x + 1]:
+                m[y, x + 1] = False; st.append((y, x + 1))
+        best = max(best, n)
+    return best
+
+
+def face_roles(V: np.ndarray, F: np.ndarray, R: dict) -> np.ndarray:
+    """Роль каждой грани по нормали (ось Y glTF — вверх): 'верх' (горизонталь у самой верхней плоскости), 'сиденье' (прочая горизонталь вверх: сиденье, полка),
+    'низ' (горизонталь вниз — не видна), 'вертикаль+x/-x/+z/-z' (|ny| ≤ side_ny: бок/фасад/спинка; по направлению нормали), 'скос' (остальное)."""
+    a, b, c = V[F[:, 0]], V[F[:, 1]], V[F[:, 2]]
+    cr = np.cross(b - a, c - a)
+    n = cr / np.maximum(np.linalg.norm(cr, axis=1, keepdims=True), 1e-12)
+    cy = (a[:, 1] + b[:, 1] + c[:, 1]) / 3
+    height = float(V[:, 1].max() - V[:, 1].min())
+    roles = np.full(len(F), 'скос', dtype=object)
+    up = n[:, 1] >= R['up_cos']
+    if up.any() and height > 0:
+        ytop = cy[up].max()
+        roles[up] = 'сиденье'
+        roles[up & (cy >= ytop - R['band'] * height)] = 'верх'
+    roles[n[:, 1] <= -R['up_cos']] = 'низ'
+    vert = np.abs(n[:, 1]) <= R['side_ny']
+    ax = np.abs(n[:, 0]) >= np.abs(n[:, 2])
+    roles[vert & ax & (n[:, 0] >= 0)] = 'вертикаль+x'
+    roles[vert & ax & (n[:, 0] < 0)] = 'вертикаль-x'
+    roles[vert & ~ax & (n[:, 2] >= 0)] = 'вертикаль+z'
+    roles[vert & ~ax & (n[:, 2] < 0)] = 'вертикаль-z'
+    return roles
+
+
+def surfaces_arrays(V, F, UV, albedo, mr=None, R: dict | None = None) -> dict:
+    """Дыры покраски по ВСЕМ поверхностям: грани делятся на роли (`face_roles`), для каждой роли — её собственные тексели UV (без швов и полей),
+    в них: доля текселей «фона сети» (окно grey_lo–grey_hi по всем каналам), чистого фона (pure), разброс, MR≈0,5/0,5, крупнейшая СВЯЗНАЯ дыра (текселей
+    исходной карты и доля площади роли), контраст с остальной поверхностью, доля «пересвета» (все каналы ≥ bright_min на однотонной области).
+    → {'surfaces': [{role, area_px, grey_share, pure_share, std, mr_share, hole_px, hole_share, edge_contrast, bright_share, median_rgb, verdict}],
+       'verdict', 'where', 'median_rgb'}: общий вердикт = худший по ВИДИМЫМ ролям (без 'низ'); роль мельче min_area_px не судим."""
+    R = R or rules()
+    V, F, UV = np.asarray(V, float), np.asarray(F, int), np.asarray(UV, float)
+    H0, W0 = albedo.shape[:2]
+    sc = min(1.0, R['work_px'] / max(H0, W0))
+    if sc < 1.0:
+        from PIL import Image
+        albedo = np.asarray(Image.fromarray(albedo).resize((max(1, int(W0 * sc)), max(1, int(H0 * sc))), Image.BOX))
+        mr = None if mr is None else np.asarray(Image.fromarray(mr).resize(albedo.shape[1::-1], Image.BOX))
+    H, W = albedo.shape[:2]
+    roles = face_roles(V, F, R)
+    names = sorted(set(roles.tolist()))
+    masks = {r: _raster(UV, F[roles == r], W, H) for r in names}
+    cover = sum(m.astype(np.uint8) for m in masks.values())
+    inner = {r: _erode(m & (cover == 1), R['erode_px']) for r, m in masks.items()}
+    out, worst, order = [], None, {'ok': 0, 'candidate': 1, 'reject': 2}
+    for r in names:
+        mk = inner[r]
+        area_px = int(round(mk.sum() / (sc * sc)))
+        if area_px < R['min_area_px']:
+            continue
+        px = albedo[mk].astype(int)
+        grey = ((px >= R['grey_lo']) & (px <= R['grey_hi'])).all(axis=1)
+        pure = ((px >= R['pure_lo']) & (px <= R['pure_hi'])).all(axis=1)
+        med = np.median(px, axis=0)
+        row = {'role': r, 'area_px': area_px, 'grey_share': round(float(grey.mean()), 3), 'pure_share': round(float(pure.mean()), 3),
+               'std': round(float(px.std(axis=0).mean()), 1), 'median_rgb': [int(x) for x in med],
+               'bright_share': round(float((px >= R['bright_min']).all(axis=1).mean()), 3)}
+        full = np.zeros(mk.shape, bool)
+        full[mk] = grey
+        hole = _label_largest(full) if grey.any() else 0
+        row['hole_px'] = int(round(hole / (sc * sc)))
+        row['hole_share'] = round(hole / max(int(mk.sum()), 1), 3)
+        if mr is not None and mr.shape[:2] == albedo.shape[:2]:
+            q = mr[mk].astype(int)
+            row['mr_share'] = round(float(((q[:, 1] >= R['mr_lo']) & (q[:, 1] <= R['mr_hi']) & (q[:, 2] >= R['mr_lo']) & (q[:, 2] <= R['mr_hi'])).mean()), 3)
+        rest = np.zeros(mk.shape, bool)
+        for r2 in names:
+            if r2 != r and r2 != 'низ':
+                rest |= inner[r2]
+        row['edge_contrast'] = (round(float(np.abs(np.median(albedo[rest].astype(int), axis=0) - med).max()), 1) if rest.sum() >= R['min_edge_px'] else None)
+        mrs = row.get('mr_share')
+        rej = (row['pure_share'] >= R['reject_share'] and row['std'] <= R['std_max'] and row['edge_contrast'] is not None and row['edge_contrast'] >= R['edge_min']
+               and (mrs is None or mrs >= R['mr_share_min']))
+        row['verdict'] = 'reject' if rej else 'candidate' if row['grey_share'] >= R['candidate_share'] else 'ok'
+        if r == 'низ':
+            row['verdict'] = 'ok'                      # дно не видно: считаем, но не судим
+        out.append(row)
+        if row['verdict'] != 'ok' and (worst is None or order[row['verdict']] > order[worst['verdict']]
+                                       or (order[row['verdict']] == order[worst['verdict']] and row['area_px'] > worst['area_px'])):
+            worst = row
+    vis = [x for x in out if x['role'] != 'низ']
+    if not vis:
+        return {'surfaces': out, 'verdict': 'na', 'where': [], 'median_rgb': None}
+    return {'surfaces': out, 'verdict': worst['verdict'] if worst else 'ok', 'where': [x['role'] for x in out if x['verdict'] != 'ok'],
+            'median_rgb': worst['median_rgb'] if worst else None}
 
 
 # ---------- GLB → массивы ----------
@@ -328,6 +469,28 @@ def _selftest() -> int:
     ok('стойка (след крошечный, плита — вся модель) считается как верх; предмет без горизонтали — na',
        analyze_arrays(Vs, F, UV, _atlas((128, 128, 128), (150, 100, 40)), mrg, {**R, 'min_area_px': 10})['verdict'] in VERDICTS
        and analyze_arrays(V * [1, 1, 1], F[:0], UV, _atlas((128, 128, 128), (150, 100, 40)), mrg, R)['verdict'] == 'na')
+    # ---- дыры на любой поверхности (расширение 18.11): верх нормальный, дыра на боку / предмет без верха
+    r = analyze_arrays(V, F, UV, _atlas((196, 150, 90), (128, 128, 128)), mrg, R)
+    ok('верх дубовый, оба бока пустой серый → reject по поверхностям, верх ok, где — вертикали',
+       r['verdict'] == 'reject' and r['top_verdict'] == 'ok' and set(r['where']) >= {'вертикаль+z', 'вертикаль-z'})
+    ok('поверхности: роль, площадь, связная дыра и доля — числами', all(x['hole_share'] >= 0.9 and x['hole_px'] > 1000 for x in r['surfaces'] if x['role'].startswith('вертикаль')))
+    Vr = np.stack([V[:, 0], -V[:, 2], V[:, 1]], axis=1)        # поворот на 90° вокруг X: бывший верх смотрит вперёд (+Z), горизонтали нет
+    r = analyze_arrays(Vr, F, UV, _atlas((128, 128, 128), (150, 100, 40)), mrg, R)
+    ok('предмет без верха (спинка, фасад): дыра на вертикали ловится, раньше было na',
+       r['top_verdict'] != 'reject' and r['verdict'] == 'reject' and 'вертикаль+z' in r['where'])
+    r = analyze_arrays(Vr, F, UV, _atlas((196, 150, 90), (150, 100, 40)), mrg, R)
+    ok('предмет без верха, всё окрашено → ok (не na)', r['verdict'] == 'ok' and r['where'] == [])
+    r = analyze_arrays(Vr, F, UV, _atlas((128, 128, 128), (150, 100, 40)), mro, R)
+    ok('на вертикали серое, но MR настоящий → кандидат, не reject', r['verdict'] == 'candidate')
+    r = analyze_arrays(V, F, UV, _atlas((245, 245, 245), (150, 100, 40)), mrg, R)
+    ok('светлое пятно: однотонный верх ≥ 230 → bright_flat; дубовый — нет', r['bright_flat'] and r['bright_share'] > 0.3
+       and not analyze_arrays(V, F, UV, _atlas((196, 150, 90), (150, 100, 40)), mrg, R)['bright_flat'])
+    m = np.zeros((20, 20), bool)
+    m[1:4, 1:4] = True
+    m[10:19, 10:19] = True
+    m[5, 5] = True
+    ok('_label_largest: крупнейшая связная область 81 (8-соседей не склеивает)', _label_largest(m) == 81)
+    ok('роль граней: верх/сиденье/низ/вертикаль', set(face_roles(V, F, R).tolist()) == {'верх', 'низ', 'вертикаль+z', 'вертикаль-z'})
     # слишком мало текселей
     r = analyze_arrays(V, F, UV, _atlas((128, 128, 128), (150, 100, 40), size=32), mrg[:32, :32], {**R, 'min_area_px': 10 ** 6})
     ok('верх меньше min_area_px → na', r['verdict'] == 'na')
@@ -372,20 +535,17 @@ def own_glbs() -> dict:
     return out
 
 
-def scan(out_tsv: str, workers: int = 3, only: set | None = None) -> int:
-    """Замер собственных мешей → TSV (sku, вердикт, числа); уже замеренные в файле пропускаются (можно продолжать). Калибровка: сверка с `top_scan.tsv` рабочего 4 и видом сверху."""
+def scan(out_jsonl: str, workers: int = 3, only: set | None = None) -> int:
+    """Перепись собственных мешей всех ролей → JSON-строки {sku, res | error}; уже замеренные в файле пропускаются (можно продолжать).
+    Дальше — калибровка и таблица «роль → сколько мешей с дырой и где» (сверка с `top_scan.tsv` рабочего 4 и видом сверху)."""
     done = set()
-    if os.path.exists(out_tsv):
-        done = {ln.split('\t', 1)[0] for ln in open(out_tsv, encoding='utf-8').read().splitlines()[1:]}
+    if os.path.exists(out_jsonl):
+        done = {json.loads(ln)['sku'] for ln in open(out_jsonl, encoding='utf-8') if ln.strip()}
     paths = {k: v for k, v in own_glbs().items() if (not only or k in only) and k not in done}
     inv = {v: k for k, v in paths.items()}
-    with open(out_tsv, 'a', encoding='utf-8') as f:
-        if not done:
-            f.write('sku\tverdict\tgrey_share\tstd\tarea_px\tmr_share\tedge_contrast\tmedian_rgb\tw5\tw8\tw12\n')
+    with open(out_jsonl, 'a', encoding='utf-8') as f:
         for i, (g, res, err) in enumerate(run_batches(list(paths.values()), workers), 1):
-            r = res or {'verdict': 'error', 'why': err}
-            f.write('\t'.join(str(x) for x in (inv[g], r['verdict'], r.get('grey_share', ''), r.get('std', ''), r.get('area_px', ''), r.get('mr_share', ''),
-                                              r.get('edge_contrast', ''), r.get('median_rgb', ''), *[(r.get('wide') or {}).get(k, '') for k in ('w5', 'w8', 'w12')])) + '\n')
+            f.write(json.dumps({'sku': inv[g], 'res': res, 'error': err}, ensure_ascii=False) + '\n')
             if i % 100 == 0:
                 f.flush()
                 print(f'  {i}/{len(paths)}', flush=True)
