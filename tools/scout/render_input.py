@@ -166,6 +166,17 @@ def orient_pins(assets: list) -> tuple:
     return {sid: table.get(sid) for sid in sids}, []
 
 
+DEFAULT_VIEW = 'yard'      # вид из окна по умолчанию = `DEFAULT_WINDOW_VIEW` страницы (`lib/viewer3d/window-views.ts`); тест `test_render_input.py` сверяет их
+
+
+DOOR_KIT_MESH = 'kit-door'   # меш двери для комнат БЕЗ `openings_ir`: Python-выгрузчик берёт его всегда (`draft_render._fixture_openings` → `FIXTURE_MESH['дверь']`); тест сверяет имя
+
+
+def has_window(room: dict) -> bool:
+    """Есть ли у комнаты окно так, как его видит страница (`fromDemo.openings`: `kind: window`, ширина > 0) — только такая комната рисует вид из окна (`scene-export.ts`)."""
+    return any(isinstance(o, dict) and o.get('kind') == 'window' and (o.get('width_cm') or 0) > 0 for o in (room.get('openings') or []))
+
+
 def assets_of(scene: dict) -> list:
     out: list = []
     seen: set = set()
@@ -188,8 +199,12 @@ def assets_of(scene: dict) -> list:
     room, style = scene['room'], scene['style']
     _asset('env', 'env:outside', SI.public_file('flat3d/env/outside.webp'), out)
     view = room.get('window_view')
-    if view and re.fullmatch(r'[A-Za-z0-9._-]+', str(view)):
+    if not (view and re.fullmatch(r'[A-Za-z0-9._-]+', str(view))):
+        view = DEFAULT_VIEW if has_window(room) else None        # у комнаты есть окно, а вида в данных нет (комнаты тура) — страница берёт вид по умолчанию и читает его файл: он во входе (T-20261118-22/5)
+    if view:
         _asset('view', f'view:{view}', SI.public_file(f'scene/views/{view}.webp'), out)
+    if not room.get('openings_ir') and once(('mesh', DOOR_KIT_MESH)) and SI.mesh_file(DOOR_KIT_MESH):      # нет описания проёмов со страницы (комнаты тура) — выгрузчик ставит дверь мешем набора и читает его файл
+        _asset('mesh', f'mesh:{DOOR_KIT_MESH}', SI.mesh_file(DOOR_KIT_MESH), out)
     ft = ((((room.get('finish') or {}).get('floor') or {}).get('tex')) or {}).get('src')       # фактура пола ночной сборки: `draft_render._floor_image` берёт её с диска
     if isinstance(ft, str) and re.fullmatch(r'[a-z0-9-]{2,60}\.(?:webp|jpg|png)', ft) and once(('mat', ft)):
         _asset('material-map', f'material:{ft}', SI.public_file(f'flat3d/materials/{ft}'), out)
