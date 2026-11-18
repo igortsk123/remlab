@@ -210,6 +210,34 @@ def face_roles(V: np.ndarray, F: np.ndarray, R: dict) -> np.ndarray:
     return roles
 
 
+def _extra_top_rules(out: list, R: dict) -> None:
+    """gt-v3: три признака пустого верха, которых не видит «≥80 % окна 117–141» (калибровка T-20261118-04/16, 3 пропуска из 81 известных):
+    1) однотонный низкосатурированный верх светлее остальных поверхностей изделия на ≥ flat_body_dL (графитовая тумба с серой крышкой);
+    2) однотонный верх с MR≈0,5/0,5 и серым медианом 110–141 (чёрная столешница, у которой фон сети чуть темнее 117);
+    3) частичная дыра: ≥ partial_share верха — чистый фон 124–134 (дуб, у которого пол-крышки серое).
+    Только роль «верх»; вердикт — candidate (отказ — по прежнему правилу), причина — поле `why`."""
+    top = next((x for x in out if x['role'] == 'верх' and x['verdict'] == 'ok'), None)
+    if top is None:
+        return
+    import mesh_color_check as MC
+    med = top['median_rgb']
+    lab = MC.lab(med)[0]
+    rest = [x for x in out if x['role'] not in ('верх', 'низ') and x.get('median_rgb')]
+    if rest:
+        tot = sum(x['area_px'] for x in rest)
+        body = sum(float(MC.lab(x['median_rgb'])[0][0]) * x['area_px'] for x in rest) / tot
+        if (top['std'] <= R['flat_std_max'] and float(np.hypot(lab[1], lab[2])) <= R['flat_chroma_max']
+                and R['flat_lo'] <= min(med) and max(med) <= R['flat_hi'] and float(lab[0]) - body >= R['flat_body_dL']):
+            top['verdict'], top['why'] = 'candidate', 'lighter-than-body'
+            return
+    if ((top.get('mr_share') or 0) >= R['mrflat_share'] and top['std'] <= R['mrflat_std_max']
+            and R['mrflat_lo'] <= min(med) and max(med) <= R['mrflat_hi'] and max(med) - min(med) <= R['mrflat_spread']):
+        top['verdict'], top['why'] = 'candidate', 'mr-flat'
+        return
+    if top['pure_share'] >= R['partial_share'] and top['grey_share'] >= R['partial_share']:
+        top['verdict'], top['why'] = 'candidate', 'partial'
+
+
 def surfaces_arrays(V, F, UV, albedo, mr=None, R: dict | None = None) -> dict:
     """Дыры покраски по ВСЕМ поверхностям: грани делятся на роли (`face_roles`), для каждой роли — её собственные тексели UV (без швов и полей),
     в них: доля текселей «фона сети» (окно grey_lo–grey_hi по всем каналам), чистого фона (pure), разброс, MR≈0,5/0,5, крупнейшая СВЯЗНАЯ дыра (текселей
@@ -263,6 +291,8 @@ def surfaces_arrays(V, F, UV, albedo, mr=None, R: dict | None = None) -> dict:
         if r == 'низ':
             row['verdict'] = 'ok'                      # дно не видно: считаем, но не судим
         out.append(row)
+    _extra_top_rules(out, R)
+    for row in out:
         if row['verdict'] != 'ok' and (worst is None or order[row['verdict']] > order[worst['verdict']]
                                        or (order[row['verdict']] == order[worst['verdict']] and row['area_px'] > worst['area_px'])):
             worst = row
@@ -453,7 +483,10 @@ def _selftest() -> int:
     r = analyze_arrays(V, F, UV, _atlas((196, 150, 90), (150, 100, 40)), mrg, R)
     ok('дубовая крышка → ok', r['verdict'] == 'ok' and r['grey_share'] < 0.05)
     r = analyze_arrays(V, F, UV, _atlas((120, 120, 120), (150, 100, 40)), mrg, R)
-    ok('серый 114 (за окном 117–141) → ok: граница окна держится', analyze_arrays(V, F, UV, _atlas((114, 114, 114), (150, 100, 40)), mrg, R)['verdict'] == 'ok')
+    ok('серый 100 (за всеми окнами) → ok: граница держится', analyze_arrays(V, F, UV, _atlas((100, 100, 100), (150, 100, 40)), mrg, R)['verdict'] == 'ok')
+    ok('gt-v3: серый 114 с MR 0,5/0,5 и плоский → candidate (mr-flat), с настоящим MR → ok',
+       analyze_arrays(V, F, UV, _atlas((114, 114, 114), (150, 100, 40)), mrg, R)['verdict'] == 'candidate'
+       and analyze_arrays(V, F, UV, _atlas((114, 114, 114), (150, 100, 40)), mro, R)['verdict'] == 'ok')
     r = analyze_arrays(V, F, UV, _atlas((134, 124, 129), (150, 100, 40)), mrg, R)
     ok('чистый фон 124/134 на краях окна — reject (чистая доля ≥ 95 %)', r['verdict'] == 'reject')
     r = analyze_arrays(V, F, UV, _atlas((122, 136, 129), (150, 100, 40)), mrg, R)
