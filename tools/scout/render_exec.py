@@ -338,7 +338,7 @@ class DevTimeline:
             q['op'] = q['op'].rsplit(' ×', 1)[0] + f" ×{q.pop('n')}"
             out.append(q)
         out.sort(key=lambda x: x['t'])
-        return {'marks': dict(self.marks), 'calls': out}
+        return {'t0': round(self.t0, 2), 'marks': dict(self.marks), 'calls': out}      # t0 — начало заказа по часам DEV (для сверки с `timing.loop.t_job` воркера)
 
 
 class ExportClient:
@@ -1394,6 +1394,8 @@ class SaladGpuExecutor(SceneExecutor):
             tl.mark('frames_done')
             if isinstance(res.get('calls'), list):
                 timing['wcalls'] = res['calls']                   # обращения воркера к приёмнику (его часть линейки: от начала задания на машине)
+            if isinstance(res.get('loop'), dict):
+                timing['loop'] = res['loop']                      # журнал кругов выбора и пауз воркера (T-20261118-09/9)
             timing['dev'] = tl.snapshot()
             return self._finish(snap, outs, out_dir, pr, timing, t0, job)
         finally:

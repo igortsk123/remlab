@@ -22,6 +22,8 @@ FMT 2 (T-20261117-24/5): в задании (v=2) — маленький паке
 
 Переменные: MESH_SINK_URL, MESH_SINK_TOKEN (из группы), WORK (/work), JOB_POLL_S (1), JOB_MAX_AGE_S (7200), CACHE_N (3), CACHE_GB (1.5), BLOB_GB (4), ASSET_PAR (4),
 HOT_GB (2.5), HOT_PAR (2), HOT_REFRESH_S (600)."""
+import collections
+import contextlib
 import json
 import os
 import re
@@ -190,8 +192,8 @@ class FrameUploader:
     """Выгрузка кадров в приёмник ПОКА Blender считает следующий (T-24/11): `start(cam)` — поток на файл(ы) кадра, `join()` — дождаться и вернуть
     {имя файла: размер}; сбой любой выгрузки поднимается из `join()` (воркер вернёт ошибку задания, как при выгрузке после рендера)."""
 
-    def __init__(self, sink, jid: str, work: str, frames: str):
-        self.sink, self.jid, self.work, self.frames = sink, jid, work, frames
+    def __init__(self, sink, jid: str, work: str, frames: str, pool=None):
+        self.sink, self.jid, self.work, self.frames, self.pool = sink, jid, work, frames, pool
         self.threads: list = []
         self.sizes: dict = {}
         self.errors: list = []
@@ -202,6 +204,9 @@ class FrameUploader:
             return
         self.started.add(cam)
         for name in JP.frame_names(self.frames, cam):
+            if self.pool is not None:                       # постоянный поток (тёплое соединение): выгрузка последнего кадра не платит за новое TCP+TLS
+                self.threads.append(self.pool.submit(self._one, name))
+                continue
             t = threading.Thread(target=self._one, args=(name,), daemon=True)
             t.start()
             self.threads.append(t)
@@ -218,7 +223,10 @@ class FrameUploader:
 
     def join(self) -> dict:
         for t in self.threads:
-            t.join()
+            if hasattr(t, 'result'):
+                t.result()
+            else:
+                t.join()
         if self.errors:
             raise self.errors[0]
         return dict(self.sizes)
@@ -359,6 +367,67 @@ class AsyncProgress:
                 self.cond.wait(0.2)
 
 
+class Journal:
+    """ЖУРНАЛ КРУГОВ ВЫБОРА И ПАУЗ МЕЖДУ ЗАДАНИЯМИ (T-20261118-09/9): почему воркер берёт задание через 2–7 с после того, как DEV положил `job.json` (замер 18.11, m12 — при опросе 0,5 с).
+    По кругу выбора (`pick`): когда начался, сколько длился, сколько каталогов в списке, сколько из них проверялось (`ls`+`job.json`), сколько ушло на проверки, нашлось ли задание;
+    по заданию: когда воркер ВПЕРВЫЕ увидел каталог и когда ВПЕРВЫЕ увидел в нём `job.json`; после прошлого задания: когда оно закончилось (после записи `result.json`) и сколько
+    заняли шаги после ожидания (`prev_post`). В `result.json` уходит срез в секундах ОТНОСИТЕЛЬНО начала задания (до начала — отрицательные) плюс абсолютное время начала `t_job`
+    (по часам машины) — по нему и по `timing.dev.t0` (часы DEV) выводится «job.json положен → воркер увидел». Только измерение."""
+
+    def __init__(self, keep: int = 60):
+        self.lock = threading.Lock()
+        self.cycles: collections.deque = collections.deque(maxlen=keep)
+        self.seen_dir: dict = {}
+        self.seen_job: dict = {}
+        self.prev_end = None
+        self.prev_post: dict = {}
+
+    def cycle(self, t: float, dur: float, dirs: int, probed: int, probe_s: float, found: bool) -> None:
+        with self.lock:
+            self.cycles.append((t, dur, dirs, probed, probe_s, found))
+
+    def dir_seen(self, name: str, t: float) -> None:
+        with self.lock:
+            self.seen_dir.setdefault(name, t)
+            if len(self.seen_dir) > 200:
+                self.seen_dir.pop(next(iter(self.seen_dir)))
+
+    def job_seen(self, name: str, t: float) -> None:
+        with self.lock:
+            self.seen_job.setdefault(name, t)
+            if len(self.seen_job) > 200:
+                self.seen_job.pop(next(iter(self.seen_job)))
+
+    def snapshot(self, t_job: float, jid: str, max_cycles: int = 30) -> dict:
+        with self.lock:
+            lo = (self.prev_end - 1.0) if self.prev_end else t_job - 60
+            cyc = [c for c in self.cycles if c[0] >= lo and c[0] <= t_job][-max_cycles:]
+            out = {'t_job': round(t_job, 2),
+                   'prev_end': round(self.prev_end - t_job, 2) if self.prev_end else None,
+                   'seen_dir': round(self.seen_dir[jid] - t_job, 2) if jid in self.seen_dir else None,
+                   'seen_job': round(self.seen_job[jid] - t_job, 2) if jid in self.seen_job else None,
+                   'cycles': [[round(c[0] - t_job, 2), round(c[1], 2), c[2], c[3], round(c[4], 2), int(c[5])] for c in cyc]}
+            if self.prev_post:
+                out['prev_post'] = dict(self.prev_post)
+            return out
+
+
+def trash_dir(path: str) -> float:
+    """Убрать каталог задания НЕ на критическом пути: мгновенное переименование + удаление в фоне (раньше `rmtree` сцены в сотни МБ шёл синхронно перед записью `result.json`).
+    → секунд на переименование. Не вышло переименовать — удаляем на месте, как раньше."""
+    t = time.time()
+    if not os.path.lexists(path):
+        return 0.0
+    dst = f'{path}.del-{uuid.uuid4().hex[:8]}'
+    try:
+        os.replace(path, dst)
+    except OSError:
+        shutil.rmtree(path, ignore_errors=True)
+        return round(time.time() - t, 3)
+    threading.Thread(target=shutil.rmtree, args=(dst,), kwargs={'ignore_errors': True}, daemon=True, name='trash').start()
+    return round(time.time() - t, 3)
+
+
 class Worker:
     def __init__(self, sink: 'JP.Sink'):
         self.calls = CallLog()
@@ -370,6 +439,12 @@ class Worker:
         self.hot: set = set()                         # горячие хеши текущего списка: из кэша по размеру не выселяются
         self.hot_ts = None                            # метка списка, который уже подтянут
         self.warm_stat: dict = {}
+        self.jr = Journal()
+        # ПОСТОЯННЫЕ потоки обращений к приёмнику (T-20261118-09/9): у `jobs_proto.Sink` соединение на ПОТОК; поток на задание/кадр/проверку = новое TCP+TLS на каждое
+        # (≈0,4 с); постоянный пул держит соединения тёплыми между заданиями
+        self.io_assets = ThreadPoolExecutor(max_workers=max(1, ASSET_PAR), thread_name_prefix='asset')
+        self.io_up = ThreadPoolExecutor(max_workers=4, thread_name_prefix='up')
+        self.io_probe = ThreadPoolExecutor(max_workers=2, thread_name_prefix='probe')
         self._locks: dict = {}
         self._locks_guard = threading.Lock()
         os.makedirs(os.path.join(WORK, 'cache'), exist_ok=True)
@@ -392,17 +467,26 @@ class Worker:
                 out['job'] = self.sink.get_json(f'{JP.PREFIX}/{n}/job.json')
             except Exception:  # noqa: BLE001 — нет файла/сбой: run_job прочитает сам
                 out['job'] = None
-        th = threading.Thread(target=read_job, daemon=True)
-        th.start()
+        fut = self.io_probe.submit(read_job)          # постоянный поток (соединение тёплое), параллельно с `ls` в этом потоке
         try:
             out['names'] = {f['name'] for f in self.sink.ls(f'{JP.PREFIX}/{n}').get('files', [])}
         except JP.SinkError as e:
             out['err'] = e
-        th.join()
+        fut.result()
         return out
 
     def pick(self):
-        """Первое готовое к работе задание (старые — вперёд) или None."""
+        """Первое готовое к работе задание (старые — вперёд) или None. Каждый круг — в журнал (`Journal.cycle`)."""
+        tc = time.time()
+        st = {'dirs': 0, 'probed': 0, 'probe_s': 0.0}
+        jid = None
+        try:
+            jid = self._pick(st)
+            return jid
+        finally:
+            self.jr.cycle(tc, time.time() - tc, st['dirs'], st['probed'], st['probe_s'], bool(jid))
+
+    def _pick(self, st: dict):
         now = time.time()
         self.calls.reset()
         try:
@@ -410,13 +494,19 @@ class Worker:
         except JP.SinkError as e:
             log('ls', e)
             return None
+        t_ls = time.time()
+        st['dirs'] = len(dirs)
         for d in sorted(dirs, key=lambda x: x.get('mtime', 0)):
             n = d['name']
             if n == JP.HOT_DIR:                    # горячий список витрины — не задание
                 continue
             if n in self.done or now - float(d.get('mtime', 0)) > MAX_AGE:
                 continue
+            self.jr.dir_seen(n, t_ls)
+            tp = time.time()
             pr = self._probe(n)
+            st['probed'] += 1
+            st['probe_s'] += time.time() - tp
             if 'err' in pr:      # сетевой сбой/таймаут посреди перечня: не падать (воркер умирал — T-24/4, живая пара 23:34), пропустить до следующего круга
                 log('ls задания', n, pr['err'])
                 return None
@@ -428,6 +518,7 @@ class Worker:
                 self.done.add(n)                   # брошенная отправка (T-20261118-09/8): не пере-проверяем на каждом круге
                 continue
             if 'job.json' in names:
+                self.jr.job_seen(n, time.time())
                 if isinstance(pr['job'], dict):
                     self.pre[n] = pr['job']
                 return n
@@ -483,7 +574,7 @@ class Worker:
         for a in job['assets']:
             if by_sha.setdefault(a['sha256'], a['size']) != a['size']:
                 raise AssetError('один хеш — два размера')
-        with ThreadPoolExecutor(max_workers=max(1, ASSET_PAR)) as pool:
+        with contextlib.nullcontext(self.io_assets) as pool:                 # постоянные потоки: соединения с приёмником тёплые между заданиями
             futs = {sha: pool.submit(self.fetch_asset, sha, size) for sha, size in by_sha.items()}      # ассеты качаются, пока берётся маленький пакет
             if os.path.isfile(dst) and not blob_ok(dst, b['sha256'], b['size']):
                 os.remove(dst)
@@ -574,6 +665,7 @@ class Worker:
         finally:
             self.prog.close(jid)
         res['calls'] = self.calls.snapshot(self.t_job)
+        res['loop'] = self.jr.snapshot(self.t_job, jid)       # журнал кругов выбора и пауз (T-20261118-09/9)
         if self.prev_put is not None:
             res['prev_result_put_s'] = self.prev_put
         return res
@@ -613,7 +705,7 @@ class Worker:
                                 env={**os.environ, 'PYTHONUNBUFFERED': '1'})
         tail, device, killed = [], '', ''
         fr = frames_of(job)
-        up = FrameUploader(self.sink, jid, work, fr)       # T-24/11: кадр уходит в приёмник, пока Blender считает следующий
+        up = FrameUploader(self.sink, jid, work, fr, self.io_up)       # T-24/11: кадр уходит в приёмник, пока Blender считает следующий
 
         def watchdog():
             nonlocal killed
@@ -699,7 +791,9 @@ class Worker:
                     log('маска не ушла', c, repr(e)[:100])
             res_extra['masks'] = ms
             timing['mask_up'] = round(time.time() - tm_, 2)
+        tq = time.time()
         qa = qa_reports(work, fr, job['cams'])
+        timing['qa'] = round(time.time() - tq, 2)
         if qa:
             res_extra['qa'] = qa          # урезанные отчёты сторожа по кадрам: исполнитель решает по ним, публиковать ли пару (ворота, T-20261118-03/7)
         timing['total'] = round(time.time() - t0, 1)
@@ -726,7 +820,7 @@ class Worker:
                 res = err('worker', 'Сбой машины рендера.', 'The render machine failed.', note=f'{type(e).__name__}: {str(e)[:160]}')
             finally:
                 MA.STATE['busy'] = None
-                shutil.rmtree(os.path.join(WORK, 'job'), ignore_errors=True)
+                t_trash = trash_dir(os.path.join(WORK, 'job'))      # не rmtree на критическом пути: переименование + фон (T-20261118-09/9)
             if not res.get('cancelled'):
                 res['job_id'], res['boot_id'], res['ts'] = jid, MA.BOOT, round(time.time(), 1)
                 try:
@@ -736,6 +830,8 @@ class Worker:
                 except JP.SinkError as e:
                     log('result PUT ОШИБКА', e)      # исполнитель не дождётся и уйдёт на запасной; второй раз GPU не жжём
             self.done.add(jid)
+            self.jr.prev_end = time.time()
+            self.jr.prev_post = {'trash': t_trash, 'put': self.prev_put}
             log('задание', jid, 'ok' if res.get('ok') else res.get('error', {}).get('code') or 'отменено')
 
 
