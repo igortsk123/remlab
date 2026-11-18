@@ -62,7 +62,7 @@ def revision_current_sql(sku_expr: str, sha_expr: str, pipeline: str | None = No
             f"and coalesce({sha_expr},'') <> '' and {sha_expr} like split_part(r.revision_key,'|',2) || '%'{pv})")
 
 
-def ready_sql(photo_current: bool = False) -> str:
+def ready_sql(photo_current: bool = False, cols: tuple = ('r.sku',)) -> str:
     """SQL готовности: SKU (представитель), у которого есть годная ревизия ТЕКУЩЕГО фото и решённая ориентация ЭТОГО ЖЕ glb.
     `photo_current=False` — прежний текст (хеш фото — `mesh_demand.source_sha`); `True` — хеш фото из `product_photo_current`
     (канон `photo_hash`, им же пользуется `mesh_bind.enforce_ready_invariant`): готовность не зависит от того, есть ли у товара
@@ -74,7 +74,7 @@ def ready_sql(photo_current: bool = False) -> str:
         join_src, sha = "join mesh_demand d on d.sku = r.sku ", "d.source_sha"
         sha_ok = "  and d.source_sha is not null "
     return (
-        "select r.sku from asset_revisions r "
+        f"select {', '.join(cols)} from asset_revisions r "
         + join_src +
         # ОРИЕНТАЦИЯ — ТОГО ЖЕ ФИЗИЧЕСКОГО МЕША (05.09, план mesh-owner-audit). Ключи двух таблиц
         # несравнимы напрямую: средний сегмент у ревизии — хеш ФОТО, у ориентации — хеш МОДЕЛИ.
@@ -101,7 +101,7 @@ def ready_sql(photo_current: bool = False) -> str:
         f"  and {sha} like split_part(r.revision_key, '|', 2) || '%' "
         "  and o.status in ('auto_resolved','human_resolved') "
         "  and coalesce(o.resolution->>'unusable','') <> 'true' "
-        "group by r.sku")
+        f"group by {', '.join(cols)}")
 
 
 FAMILY_SQL = ("select shop_mid||':'||external_id, mesh_family_rep from products "

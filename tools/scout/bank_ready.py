@@ -40,6 +40,7 @@ LEGACY_REDO = 'брак без модели и записи — заново (в
 # худшее определяет статус ячейки: блок важнее ожидания (Codex § 4 — ячейка с блоком всё равно в спросе по остальным)
 SEVERITY = {'blocked_policy': 5, 'legacy_unknown': 4, 'redo': 3, 'wait_catalog': 2, 'wait_asset': 1}
 RUGS = ('ковёр', 'ковер')
+BAN_STATUS = ('rejected', 'quarantine')   # статусы товара (`products.mesh_status`), при которых готовый меш в набор не ставим
 
 
 def base_role(slot: str) -> str:
@@ -111,17 +112,17 @@ def classify(role: str, sku: str, item: dict | None, F: Facts) -> tuple[str, str
     if geo:
         return 'wait_catalog', geo, None
     rp = F.prod.get(rep) or p
-    if sku in F.mesh_ok or rep in F.mesh_ok:
-        # ЗАПРЕТЫ ДО «меш готов» (T-20261118-04/22/2, директор 18.11): готовность меша — «есть годная ревизия и решённая ориентация» —
-        # ничего не знает про решения людей и карантин, а в набор банка такой меш ставить нельзя: владелец велел переделать,
-        # файл в жёстком карантине (кривая по осям — витрина его вычитает из индекса), либо товар помечен rejected/quarantine.
-        # Правило по признакам, одинаково для всех ячеек; ниже запрещённый попадает в свою ветку (redo / rejected / карантин).
-        if not (dec == 'redo' or rp.get('status') in ('rejected', 'quarantine') or rep in F.hard_quar or sku in F.hard_quar):
-            return 'ready', None, None
+    have = sku in F.mesh_ok or rep in F.mesh_ok
+    # ЗАПРЕТЫ ДО «меш готов» (T-20261118-04/22/2, директор 18.11): готовность меша — «есть годная ревизия и решённая ориентация» —
+    # ничего не знает про решения людей и карантин, а в набор банка такой меш ставить нельзя: владелец велел переделать,
+    # файл в жёстком карантине (кривая по осям — витрина его вычитает из индекса), либо товар помечен rejected/quarantine.
+    # Правило по признакам, одинаково для всех ячеек; запрещённый идёт в свою ветку ниже (redo / карантин / rejected).
+    banned = dec == 'redo' or rp.get('status') in BAN_STATUS or rep in F.hard_quar or sku in F.hard_quar
+    if have and not banned:
+        return 'ready', None, None
     if dec == 'redo':
         return 'redo', 'владелец: переделать меш (очередь переделок)', None
-    if (rep in F.hard_quar or sku in F.hard_quar) and rp.get('status') not in ('rejected', 'quarantine') \
-            and (sku in F.mesh_ok or rep in F.mesh_ok):
+    if have and rp.get('status') not in BAN_STATUS:   # меш готов и запрещён, но не redo и не статусом товара — значит жёсткий карантин файла
         return 'wait_asset', 'меш в карантине — ждёт решения', 'review'
     if rp.get('status') == 'rejected':
         if rep in F.with_gen or sku in F.with_gen or rp.get('model'):
@@ -172,6 +173,17 @@ def load_prod() -> dict:
     return prod
 
 
+def hard_quar_sql() -> str:
+    """SKU, чей ТЕКУЩИЙ готовый файл меша в жёстком карантине (`mesh_quarantine` cut/reject без мягких — то же условие, что вычитает
+    модель из индекса витрины, `room_bindings.hard_sql`). «Текущий» — ровно тот файл, что считает готовым `mesh_ready` (ревизия
+    текущего фото + решённая ориентация ЭТОГО ЖЕ glb): старая карантинная версия не банит товар с новой чистой (T-20261118-04/22/3)."""
+    from mesh_ready import photo_current_on, ready_sql
+    from room_bindings import hard_sql
+    return ("select distinct q.sku from (select sku, glb_sha from mesh_quarantine where " + hard_sql() + ") q "
+            "join (" + ready_sql(photo_current_on('bank_ready'), cols=('r.sku', 'r.glb_sha')) + ") x "
+            "on x.sku = q.sku and x.glb_sha = q.glb_sha")
+
+
 def load_facts() -> Facts:
     from mesh_queue import db
     import catalog_media as CM
@@ -181,11 +193,7 @@ def load_facts() -> Facts:
     from mesh_ready import mesh_ready_raw
     failed = {r[0] for r in db("select distinct sku from mesh_jobs where status = 'failed_terminal'") if r and r[0]}
     gens = {r[0] for r in db("select distinct sku from mesh_generations") if r and r[0]}
-    # жёсткий карантин ГОДНОГО файла меша: условие — то же, что вычитает модель из индекса витрины (`room_bindings.hard_sql`)
-    from room_bindings import hard_sql
-    hard = {r[0] for r in db("select distinct q.sku from (select sku, glb_sha from mesh_quarantine where " + hard_sql() + ") q "
-                             "join asset_revisions r on r.sku = q.sku and r.glb_sha = q.glb_sha "
-                             "where r.status in ('accepted','generated') and r.origin <> 'legacy-local'") if r and r[0]}
+    hard = {r[0] for r in db(hard_quar_sql()) if r and r[0]}
     media = lambda sku: CM.media(*sku.split(':', 1))  # noqa: E731
     # `consumer='bank_ready'` — выключатель `rules/mesh-ready.json:photo_current.bank_ready` (T-20261118-04/22): готовность по `product_photo_current`,
     # а не по строке спроса `mesh_demand` (меши очереди demo строки спроса не имеют); выключен — прежний предикат
