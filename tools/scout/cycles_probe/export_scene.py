@@ -67,7 +67,7 @@ def payload_of(D, idx):
                       'h': it.get('h') or sk.get('h'), 'corner': bool(it.get('corner')), 'corner_left': bool(it.get('corner_left')),
                       'section': it.get('section'), 'sid': sk.get('sid'), 'msid': sk.get('msid') or sk.get('sid'),
                       'name': sk.get('name'), 'hung': sk.get('hung'), 'pack': sk.get('pack'),
-                      'img': (BASE_URL + sk['img']) if sk.get('img') else None, 'swatch': sk.get('swatch')})
+                      'img': (BASE_URL + sk['img']) if sk.get('img') else None, 'swatch': sk.get('swatch'), 'tint': sk.get('tint')})
     decor = []
     for d in v.get('decor') or []:
         d = json.loads(json.dumps(d))
@@ -76,6 +76,14 @@ def payload_of(D, idx):
         decor.append(d)
     return {'room': geo, 'style': v['style'], 'variant': v['id'], 'decor': decor, 'developerOptions': {}, 'floor': None, 'walls': None,
             'cams': v['cams'], 'items': items}
+
+
+def tint_of(sk):
+    """Подкраска товара — три множителя 0,2–3 (как `lib/configurator/fromDemo.ts:tintOf`: чужим данным не доверяем); нет — None."""
+    t = (sk or {}).get('tint')
+    if isinstance(t, (list, tuple)) and len(t) == 3 and all(isinstance(x, (int, float)) and not isinstance(x, bool) and 0.2 <= x <= 3 for x in t):
+        return [float(x) for x in t]
+    return None
 
 
 def main_export(D, idx, out):
@@ -104,6 +112,12 @@ def main_export(D, idx, out):
         if d.get('role') and (sk.get('msid') or sk.get('sid')):
             sid_by_role[d['role']] = sk.get('msid') or sk.get('sid')
 
+    # ПОДКРАСКА ПОД ТОВАР — то же правило, что у живой 3D (`lib/configurator/fromDemo.ts:tintOf` → `lib/viewer3d/meshes.ts:placeMesh`): три множителя
+    # 0,2–3, цвет материала меша × множитель, в линейном пространстве, на все материалы меша. Не три числа в этих пределах — подкраски нет
+    tint_by_role = {it['role']: tint_of(it) for it in payload['items'] if it.get('role') and tint_of(it)}
+    for d in DR.decor_split(payload)[0]:
+        if d.get('role') and tint_of(d.get('sku')):
+            tint_by_role[d['role']] = tint_of(d.get('sku'))
     objs, rugs, planes = [], [], []
     tex_seen = {}
 
@@ -125,6 +139,8 @@ def main_export(D, idx, out):
             tex, uvm = MR.texture_of(mesh)
             rec = {'role': place.role, 'file': f'm{len(objs):03d}.npz', 'tex': None, 'rgb': None,
                    'n_faces': int(len(f)), 'elev': float(getattr(place, 'elev_cm', 0) or 0)}
+            if tint_by_role.get(place.role):
+                rec['tint'] = tint_by_role[place.role]
             data = {'v': to_b(wv).astype(np.float32), 'f': f.astype(np.int32)}
             if tex is not None and uvm is not None:
                 rec['tex'] = save_tex(tex)
