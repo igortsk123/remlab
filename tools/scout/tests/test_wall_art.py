@@ -20,6 +20,9 @@ BED = {'role': 'кровать', 'w': 180, 'd': 210, 'h': 110}
 SOFA = {'role': 'диван', 'w': 210, 'd': 95, 'h': 85}
 
 
+from PIL import ImageDraw  # noqa: E402
+
+
 def pic(sid, w, h, style='сканди'):
     return {'sid': sid, 'name': f'Картина {sid}', 'price': 3990, 'img': f'https://x/{sid}.jpg', 'url': 'https://x', 'shop': 'divan.ru',
             'w': w, 'd': None, 'h': h, 'style': style, 'styles': [style], 'soft': True}
@@ -164,6 +167,26 @@ def test_content_rule_drawing_in_white_and_tone_on_tone_out(tmp_path):
     assert ok == {'white': False, 'cream': False, 'draw': True, 'flat': True, 'dark': True, 'pale': False}
 
 
+def test_light_canvas_with_dark_shapes_at_edges_passes_pale_does_not(tmp_path):
+    """T-20261118-03/2: тёмные формы по краям светлого полотна, пустого в центре («Абстракция Черный»: центр 3 %, вся площадь 32 %), — картина
+    с рисунком; бледные формы того же положения и тонкий рельеф — нет. Порог по всей площади (`full_min_ink_pct`) стоит в зазоре замера 52 картин."""
+    from PIL import Image
+    dark = Image.new('RGB', (300, 400), (232, 230, 226))
+    dark.paste((25, 25, 25), (0, 40, 90, 360))                                   # крупные тёмные формы по краям (≈ 30 % ширины с каждой стороны)
+    dark.paste((25, 25, 25), (210, 40, 300, 360))
+    dark.save(str(tmp_path / 'edges.jpg'), quality=95)
+    pale = Image.new('RGB', (300, 400), (236, 234, 230))
+    pale.paste((205, 203, 199), (0, 40, 90, 360))                                # те же формы, но бледные (разница ≈ 30 из 255 — рельеф)
+    pale.paste((205, 203, 199), (210, 40, 300, 360))
+    pale.save(str(tmp_path / 'pale_edges.jpg'), quality=95)
+    thin = Image.new('RGB', (300, 400), (232, 230, 226))
+    for x in range(0, 300, 40):
+        ImageDraw.Draw(thin).line((x, 0, x, 400), fill=(30, 30, 30), width=3)   # тонкие линии: контрастные, но площадь ≈ 7 %
+    thin.save(str(tmp_path / 'thin.jpg'), quality=95)
+    ok = {n: WA.has_content(WA.content_stats(str(tmp_path / f'{n}.jpg'), R), R) for n in ('edges', 'pale_edges', 'thin')}
+    assert ok == {'edges': True, 'pale_edges': False, 'thin': False}
+
+
 def test_annotate_skips_blank_pictures_but_feed_keeps_them():
     data = {'room': {'height_cm': 270}, 'variants': [{'id': 'v', 'style': 'сканди', 'items': [dict(BED, x=200, y=100)]}]}
     pool = [pic('white', 120, 80), pic('draw', 120, 80)]
@@ -181,8 +204,8 @@ def test_art_stats_measures_canvas_as_drawn_in_3d(tmp_path):
     from PIL import Image
     im = Image.new('RGB', (400, 300), (255, 255, 255))                 # белое поле вокруг
     im.paste((236, 236, 242), (140, 60, 260, 240))                     # полотно: бледное поле…
-    im.paste((30, 40, 70), (140, 60, 170, 240))                        # …с тёмными краями слева и справа
-    im.paste((30, 40, 70), (230, 60, 260, 240))
+    im.paste((30, 40, 70), (140, 60, 156, 240))                        # …с узкими тёмными краями слева и справа (13 % ширины)
+    im.paste((30, 40, 70), (244, 60, 260, 240))
     src = str(tmp_path / 'p.jpg')
     im.save(src, quality=95)
     pic_row = {'w': 60, 'h': 90}

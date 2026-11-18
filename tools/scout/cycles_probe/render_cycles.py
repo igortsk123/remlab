@@ -101,6 +101,8 @@ ap.add_argument('--dof', type=float, default=0.0, help='>0: диафрагма f
 ap.add_argument('--smooth-deg', type=float, default=50.0, help='угол сглаживания нормалей мебели, ° (0 — без сглаживания, плоские грани)')
 ap.add_argument('--denoise', type=int, default=1, help='0 — без шумоподавления OIDN (разбор причины артефактов)')
 ap.add_argument('--mr', type=int, default=1, help='1: у мебели своя карта шероховатости/металла меша (как есть), иначе таблица ROUGH')
+ap.add_argument('--qa', type=int, default=1, help='сторож кадров (render-qa-gate-01, frame_qa.py): до рендера — оплачиваемые позиции против выгрузки и сцены; после — маска предметов каждого кадра, отчёт `<кадр>.qa.json`; только отчёт, кадр не блокирует (шаг 5 не включён)')
+ap.add_argument('--qa-inject', default='', help='проверка сторожа: art_nomap[:слот],art_white[:слот],curtain_remove,hide_item:слот,camera (через запятую)')
 a = ap.parse_args(argv)
 if a.orig and (a.lamp_k == 2800.0 or a.sheen == 0.4 or (a.fabric and a.fabric_tile == 12.0)):
     # прежние очереди пробы (круг 1: оранжевый свет; sheen 0,4 и плетение без маски ножек) заменены новым набором — не тратим на них ядра
@@ -717,6 +719,26 @@ for o in M['objs']:
         _lo.location = (sum(p.x for p in _p) / 8, sum(p.y for p in _p) / 8, _zt - 0.18 * (_zt - _zb) if role == 'торшер' else _zt - 0.25 * (_zt - _zb))
         ob.visible_shadow = False
 
+def rug_silhouette(msk):
+    """Силуэт ковра (T-20261118-03/3): фон — только то, что СВЯЗАНО с краем кадра фото; светлые блики и пятна ВНУТРИ ковра — это ковёр.
+    Иначе эрозия `--rug-erode` съедала по 10 px вокруг каждой внутренней «дырки» (≈ 3 % площади светлого ковра) и крошила ковёр на клочья
+    (боевой пресет, любой светлый ковёр), а светлые участки рисунка были прозрачными. Только numpy (в Blender нет scipy)."""
+    bgm = ~msk
+    reach = np.zeros_like(bgm)
+    reach[0, :], reach[-1, :], reach[:, 0], reach[:, -1] = bgm[0, :], bgm[-1, :], bgm[:, 0], bgm[:, -1]
+    for _ in range(sum(msk.shape)):                 # рост от края до устойчивости (не больше полупериметра)
+        g = reach.copy()
+        g[1:] |= reach[:-1]
+        g[:-1] |= reach[1:]
+        g[:, 1:] |= reach[:, :-1]
+        g[:, :-1] |= reach[:, 1:]
+        g &= bgm
+        if (g == reach).all():
+            break
+        reach = g
+    return ~reach
+
+
 # ковёр: фото сверху с вырезом по цвету фона (как `_paste_rug`)
 for k, r in enumerate(M['rugs']):
     img = bpy.data.images.load(os.path.join(a.scene_dir, r['tex']))
@@ -729,6 +751,7 @@ for k, r in enumerate(M['rugs']):
     msk = dist > 22
     if msk.mean() < 0.30:
         msk[:] = True
+    msk = rug_silhouette(msk)
     # светлая кайма по краю ковра (подложка/полутон фото на границе выреза) — съедаем краевые пиксели маски: `--rug-erode` = доля ширины ковра
     _ys0, _xs0 = np.where(msk)
     for _ in range(int(round(a.rug_erode * (_xs0.max() - _xs0.min() + 1)))):
@@ -814,7 +837,6 @@ if a.demo_glb:
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
         import wall_art as _WA                       # то же правило, что при отборе в набор (`wall_art.has_content`, данные — `data/flat3d/wall-art.json:art_content`)
         _R = _WA.rules()
-        _x0, _y0, _x1, _y1 = _R['art_content']['center']
         _bad = []
         for _slot in sorted(set(x[0] for x in art_nodes)):
             # у картины несколько мешей (рама, полотно): текстура — у полотна; нет ни одной — ошибка
@@ -828,7 +850,7 @@ if a.demo_glb:
             _px = np.empty(_w * _h * 4, np.float32)
             _img.pixels.foreach_get(_px)
             _px = _px.reshape(_h, _w, 4)[:, :, :3]
-            _m = _WA.metrics(_px[int(_h * _y0):int(_h * _y1), int(_w * _x0):int(_w * _x1)] * 255.0)
+            _m = _WA.canvas_metrics(_px * 255.0, _R)                 # та же мера, что при отборе (центр + вся площадь, T-20261118-03/2)
             if not _WA.has_content(_m, _R):
                 _bad.append((_slot, f"нет рисунка (белое/тон-в-тон), цвет {_m['chroma']:.0f}, яркость {_m['luma']:.0f}, рисунок {(_m['ink_d'] >= _R['art_content']['ink_delta']).mean() * 100:.1f} % площади"))
         for _slot, _why in _bad:
@@ -1209,19 +1231,25 @@ CAMS = [c.strip() for c in a.cam.split(',') if c.strip()]
 if len(CAMS) > 1 and '{cam}' not in a.out:
     raise SystemExit('несколько ракурсов: в --out нужен шаблон {cam}, например /x/frame-{cam}.png')
 print(f'SCENE_BUILD_SEC {time.time() - T_START:.1f}', flush=True)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import frame_qa
+QA = frame_qa.Guard(a, M, bool(a.qa and a.demo_nodes and a.export))
+QA.scene_ready(bpy, np)
 for _i, _cn in enumerate(CAMS):
     setup_camera(_cn)
+    QA.camera_ready(bpy, co, _cn)
     dof_current()
     _out = a.out.replace('{cam}', _cn)
     os.makedirs(os.path.dirname(os.path.abspath(_out)), exist_ok=True)
     sc.render.filepath = _out
     t0 = time.time()
     bpy.ops.render.render(write_still=True)
-    if a.also_png:
+    if a.also_png:                                   # PNG из «Render Result» (приёмка JPEG); сторож — после, он берёт хеш уже записанного кадра
         _ff = sc.render.image_settings.file_format
         sc.render.image_settings.file_format = 'PNG'
         bpy.data.images['Render Result'].save_render(a.also_png.replace('{cam}', _cn), scene=sc)
         sc.render.image_settings.file_format = _ff
+    QA.frame_done(bpy, co, _cn, _out)
     print(f'RENDER_SEC {time.time() - t0:.1f} cam {_cn} frame {_i + 1}/{len(CAMS)} samples {a.samples} pct {a.pct} device {DEVICE_USED} threads {a.threads}', flush=True)
 
 if a.mask_out and len(CAMS) > 1 and '{cam}' not in a.mask_out:
@@ -1268,4 +1296,4 @@ if a.mask_out:
         sc.render.filepath = _mo
         bpy.ops.render.render(write_still=True)
         print('МАСКА', _cn, _mo, flush=True)
-
+QA.finish(bpy, np)
