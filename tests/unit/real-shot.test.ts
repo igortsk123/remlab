@@ -9,7 +9,7 @@ type Shot = { url?: string; quality?: string; stateId?: string; vid?: string; ca
 const src = readFileSync(SRC, "utf8");
 const block = src.slice(src.indexOf("// REALSHOT START"), src.indexOf("// REALSHOT END"));
 const realPubPick = new Function(`${block};return realPubPick;`)() as (
-  list: Shot[], st: string, vid: string, cam: string, camOk: (x: Shot) => boolean,
+  list: Shot[], st: string, vid: string, cam: string, camOk: (x: Shot) => boolean, noOld?: boolean,
 ) => Shot | null;
 const camOk = (x: Shot) => !x.bad;   // в странице — `shotCamOk(x, v.cams)`: точка кадра совпадает с нынешней
 const pick = (list: Shot[], cam = "C1") => realPubPick(list, "S-now", "set1", cam, camOk)?.url ?? null;
