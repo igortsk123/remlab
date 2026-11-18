@@ -63,7 +63,63 @@ PROMPT_VERSION = ('improve-v4' if PROMPT_V4 else 'improve-v3') + '.5'
 # «дорисуй люстру, шторы, подушки, плед») для такого входа вреден: на пробе 17.11 модель перекрасила диван, сменила пол спальни и добавила
 # люстру/плед/книги. Для `payload.render` собирается ДРУГОЕ задание — только фотографическая доводка: свет, тени, фактура, резкость; состав и цвет
 # не трогаются; нет ни гайда стиля, ни листа эталонов, ни третьего листа. Живое GPT-фото (кадры браузера) идёт прежним путём без изменений.
-PROMPT_VERSION_RENDER = 'improve-render-v5.3'
+# `+luma-1` — версия шага `match_luma` (нормировка яркости ответа нейросети по входному рендеру, T-20261118-01/3): в версии промпта → в ключе кэша
+LUMA_VERSION = 'luma-1'
+PROMPT_VERSION_RENDER = 'improve-render-v5.4+' + LUMA_VERSION
+
+
+LUMA_CAP = (0.85, 1.35)      # потолок усиления: ответ нейросети не «вытягиваем» сильнее, чем на треть вверх / на 15 % вниз
+LUMA_BLOWN = 0.90            # окно и пересвет: пиксели светлее (яркость в sRGB, 0–1) в замер не идут — белое и стекло не подтягиваем
+LUMA_MIN_PCT = 5.0           # меньше этой доли кадра в замере — нечем мерить, кадр не трогаем
+
+
+def match_luma(improved, render, mask=None, cap: tuple = LUMA_CAP, knee: float = 0.86):
+    """НОРМИРОВКА ЯРКОСТИ ОТВЕТА «УЛУЧШИТЬ» ПО ВХОДНОМУ РЕНДЕРУ (T-20261118-01/3; цель — «как вход», рендер, который человек только что видел).
+    Нейросеть «оживляет» кадр, при этом темнит пол и стены на 10–60 % (замер probe-9/10). Одно общее усиление на кадр: отношение средней ЛИНЕЙНОЙ
+    яркости входа и ответа по области замера, зажатое в `cap`; умножаем линейный RGB на одно число — оттенок и насыщенность не меняются. Область:
+    маска (bool/0–255, пол и стены), если она есть, иначе весь кадр; в обоих случаях без окна и пересвета (`LUMA_BLOWN` у входа или ответа) и без
+    глухой тени. Света выше колена `knee` сжимаются плавно по максимуму канала (оттенок сохраняется) — белое не уходит в плоский 255.
+    Вызывать на каждом виде отдельно, ПОСЛЕ резки листа и ДО композита поверх. → (картинка, {gain, region_pct, y_ref, y_before, y_after})."""
+    import numpy as np
+    from PIL import Image
+    imp = np.asarray(improved.convert('RGB'), np.float32) / 255.0
+    ref = np.asarray(render.convert('RGB').resize(improved.size, Image.LANCZOS), np.float32) / 255.0
+
+    def to_lin(a):
+        return np.where(a <= 0.04045, a / 12.92, ((a + 0.055) / 1.055) ** 2.4)
+
+    def to_srgb(a):
+        a = np.clip(a, 0.0, None)
+        return np.where(a <= 0.0031308, a * 12.92, 1.055 * np.power(a, 1 / 2.4) - 0.055)
+    w = np.array([0.2126, 0.7152, 0.0722], np.float32)
+    li, lr = to_lin(imp), to_lin(ref)
+    yi, yr = li @ w, lr @ w
+    srgb_y = lambda a: a @ w                                    # noqa: E731 — яркость по кодированным значениям (порог пересвета)
+    ok = (srgb_y(imp) < LUMA_BLOWN) & (srgb_y(ref) < LUMA_BLOWN) & (yi > 0.01) & (yr > 0.01)
+    if mask is not None:
+        mi = mask.convert('L') if isinstance(mask, Image.Image) else Image.fromarray((np.asarray(mask) > 0).astype(np.uint8) * 255)
+        ok &= np.asarray(mi.resize(improved.size, Image.NEAREST)) > 0
+    pct = float(ok.mean()) * 100.0
+    info = {'gain': 1.0, 'region_pct': round(pct, 1), 'y_ref': None, 'y_before': None, 'y_after': None}
+    if pct < LUMA_MIN_PCT:
+        return improved, info
+    y_ref, y_before = float(yr[ok].mean()), float(yi[ok].mean())
+    g = float(np.clip(y_ref / y_before, cap[0], cap[1]))
+    if abs(g - 1.0) < 0.005:
+        info.update(gain=round(g, 3), y_ref=round(y_ref, 4), y_before=round(y_before, 4), y_after=round(y_before, 4))
+        return improved, info                                     # уже как вход — не трогаем
+    out = to_srgb(li * g)
+    mx = out.max(axis=2)
+    hi = mx > knee
+    if hi.any():
+        k = np.ones_like(mx)
+        k[hi] = (knee + (1 - knee) * np.tanh((mx[hi] - knee) / (1 - knee))) / mx[hi]
+        out = out * k[..., None]
+    out = np.clip(out, 0.0, 1.0)
+    white = imp.max(axis=2) >= 0.97
+    out[white] = imp[white]                                       # чистое белое (окно, блик) остаётся как есть
+    info.update(gain=round(g, 3), y_ref=round(y_ref, 4), y_before=round(y_before, 4), y_after=round(float((to_lin(out) @ w)[ok].mean()), 4))
+    return Image.fromarray((out * 255.0 + 0.5).astype(np.uint8)), info
 
 
 def render_source(payload: dict | None) -> bool:
@@ -100,6 +156,10 @@ RENDER_POLISH_PROMPT = '\n'.join([
     'stone- or sand-coloured top never becomes darker, warmer or more saturated wood; white stays white and grey stays grey; the floor keeps the tone '
     'it has in IMAGE 1. A reflection of the sky or windows on a glossy top is only light, never a new material colour. Compare the average colour of '
     'each large surface with IMAGE 1 before you answer; when in doubt, change less.',
+    '- LIGHTNESS AND HUE OF EVERY LARGE SURFACE AND PRODUCT STAY AS IN IMAGE 1: the floor, the bed base and headboard, the sofa and every upholstery are not '
+    'darker, not greyer, not pinker and not more contrasty than in IMAGE 1. Realism comes from fine texture, soft shadows and natural light, never from '
+    'a darker or duller tone: do not deepen or desaturate colours, do not add a grey or brown cast, do not lower the overall exposure. A light floor stays '
+    'as light and as warm as IMAGE 1; a pale upholstery stays as pale.',
     '- Keep every pattern and print exactly (pillow, rug, bedding, picture contents).',
     '- Keep the shape, proportions and construction of every product, the room geometry, windows, doors, radiators, ceiling and curtain rods.',
     '- Keep both cameras exactly: same framing, crop, perspective, field of view, order of views and the sheet size.',
