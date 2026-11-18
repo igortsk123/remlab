@@ -15,6 +15,8 @@ WorkingDirectory=%h/igor/remlab/tools/scout
 # SCENE3D_QUALITY=full НЕ ставим: он выключает отбраковку задних граней (ADR-0165, кадр быстрее на 20 %);
 # платный путь ставит quality=full сам. Модель «реалистично» — demo-11 (ADR-0302), промпт improve-v4 — demo-14 (ADR-0305).
 Environment=REALISTIC_MODEL=openai/gpt-image-2.5-sunburst GPT_IMAGE_QUALITY=medium IMPROVE_PROMPT=v4
+# Исполнитель «Сделать фото» (T-20261117-24, ADR-0429): машина рендера Salad, если включена и прогрета; иначе — CPU DEV (render_exec.Fallback).
+Environment=RENDER_EXECUTOR=salad-gpu,local-cpu
 Environment=SCENE3D=1 SCENE3D_PROCS=1 DRAFT_HOST=127.0.0.1 DRAFT_PORT=8600 FRAME_INLINE=1
 Environment=SRC_PUSH=root@89.167.127.0:/opt/remlab/test/share/src/ PUBLIC_BASE=https://remont-lab.online
 # агента ключей earlyoom убивает одним из первых — scp/ssh рендера ходят ключом из ~/.ssh, как при запуске из крона
