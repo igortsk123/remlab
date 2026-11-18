@@ -314,7 +314,7 @@ jobs:
       - run: python tools/scout/tests/test_no_hard_tmp.py   # ночной путь демо без жёсткого /tmp: временное в REMLAB_TMP, TMPDIR в refresh_daily, demo_rt убирает свой файл (T-20261107-02)
       - run: python tools/scout/tests/test_tmp_hygiene.py   # временное тестов и селфтестов — через remlab_tmp (REMLAB_TMP → ~/remlab-scratch/tmp, в CI системная) и с уборкой; shell-помощник, heavy_slot TMPDIR, tmp-sweep rt-* (T-20261107-13)
       - run: python tools/scout/tests/test_img_fallback.py   # фото не скачалось → копия опубликованной главной (только 200 + картинка), иначе плашка «нет фото» без запроса …/null (T-20261106-65)
-      - run: python tools/scout/tests/test_improve_prompt.py   # промпт «реалистично» v2: фото-вид, каталожная форма, тёплые гайды (demo-11)
+      - run: pip install numpy pillow shapely pydantic && python tools/scout/tests/test_improve_prompt.py   # (numpy/pillow/shapely/pydantic — product_list → draft_render → planner, T-20261118-20/9) промпт «реалистично» v2: фото-вид, каталожная форма, тёплые гайды (demo-11)
       - run: python tools/scout/tests/test_rug_kids.py   # детские ковры: слова только для текстиля, ответ VLM по форме, роль по кэшу (demo-05)
       - run: python tools/scout/tests/test_kids_textile.py   # словарь детского текстиля — только ковры и текстиль, общий KIDS — все роли (T-20261017-01)
       - run: python tools/scout/tests/test_home_rooms.py   # главная «стиль → комнаты»: комнаты из реестра, id стиля для ?style= (demo-16)
