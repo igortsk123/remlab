@@ -10,9 +10,15 @@
 - проверка ловит подложенное: Dockerfile без improve-rooms.json даёт отказ;
 - ОБРАЗ КАК ЕСТЬ (T-20261107-07): файл в образе есть, но код мог искать его не там (приоры практики искались в
   /tools/scout/rules/ и молча были пустыми). Раскладываем COPY во временную папку и из неё, без репо в sys.path, читаем приоры;
+- ВСЕ ИМПОРТЫ модулей образа, включая ленивые внутри функций и в try/except (T-20261118-20/9; второй раз за день, 18.11 — `post_stall`
+  и `refs_check`): наш модуль (`tools/scout/<имя>.py`) обязан быть в COPY и белом списке, сторонний — в pip-списке Dockerfile; обход
+  рекурсивный по нашим модулям. Лениво подгружаемое, чего образу не нужно по замыслу, — LAZY_OK_OURS / LAZY_OK_THIRD с причиной
+  (сборочная проверка `RUN python -c "import …"` ленивого не видит, а `except Exception` вокруг глотает ошибку: 05.11–18.11 `orient_policy`
+  молча пропускал каждый меш кадра, 18.11 `refs_check` отказывал каждому заказу фото);
 - модули планировщика не ходят за файлами наружу пакета (`'tools', 'scout'`), кроме белого списка с причиной.
 Нужны зависимости планировщика (shapely, pydantic) — запускается в CI-джобе `planner`.
     python3 tools/scout/tests/test_draft_image_rules.py"""
+import ast
 import json
 import os
 import re
@@ -117,6 +123,87 @@ def missing(docker_text, allow):
 
 
 PLANNER = os.path.join(ROOT, 'services', 'planner-solver', 'planner')
+SCOUT = os.path.join(ROOT, 'tools', 'scout')
+# наши модули, которые образ подгружает лениво и которых в нём нет ПО ЗАМЫСЛУ: причина — почему образу это не вредит
+LAZY_OK_OURS = {
+    'render_exec': 'очередь рендера (`draft_service._cy`) поднимается только на DEV; в контейнере заказы уходят прокси `_proxy_url()` на DEV',
+    'render_jobs': 'то же: хранилище и очередь рендера — только DEV (`draft_service._cy`)',
+    'render_snapshot': 'то же: снимок заказа (`/render/cycles`) собирает и читает процесс DEV',
+    'render_prewarm': 'то же: заготовка кадров — поток DEV-процесса (`_render_prewarm_start`, в try)',
+    'scene_build': 'режим «кадр по номеру сета» (`draft_render.render(n=…)`) — офлайн-скрипты DEV; в сервисе кадр идёт по `layout`',
+    'catalog_items': 'добор фото из БД каталога (`draft_trial`, в try/except с запасом): базы в контейнере нет',
+}
+# сторонние пакеты, которые образу не нужны по замыслу (модуль → причина)
+LAZY_OK_THIRD = {}
+# имя пакета в pip → имя в `import`
+PIP_IMPORT = {'pillow': 'PIL', 'opencv_python_headless': 'cv2', 'opencv_python': 'cv2', 'scikit_learn': 'sklearn'}
+
+
+def pip_imports(docker_text):
+    """Имена для `import` из всех `pip install` Dockerfile (строки с `\\` склеены)."""
+    out = set()
+    for line in re.sub(r'\\\n', ' ', docker_text).splitlines():
+        m = re.search(r'pip install (.*)', line)
+        if not m:
+            continue
+        for tok in m.group(1).split():
+            if tok.startswith('-'):
+                continue
+            d = re.split(r'[=<>~!\[]', tok, 1)[0].lower().replace('-', '_')
+            out.add(PIP_IMPORT.get(d, d))
+    return out
+
+
+def py_imports(path):
+    """[(верхнее имя, строка)] всех import в файле — и ленивых внутри функций, и в try/except; относительные пропускаем.
+    Кроме самопроверок: функции `_selftest*`/`selftest*` и блок `if __name__ == '__main__'` в контейнере не исполняются."""
+    with open(path, encoding='utf-8') as f:
+        tree = ast.parse(f.read())
+    skip = set()
+    for n in ast.walk(tree):
+        if (isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name.lstrip('_').startswith('selftest')) or \
+                (isinstance(n, ast.If) and isinstance(n.test, ast.Compare) and isinstance(n.test.left, ast.Name) and n.test.left.id == '__name__'):
+            skip |= {id(x) for x in ast.walk(n)}
+    out = []
+    for n in ast.walk(tree):
+        if id(n) in skip:
+            continue
+        if isinstance(n, ast.Import):
+            out += [(a.name.split('.')[0], n.lineno) for a in n.names]
+        elif isinstance(n, ast.ImportFrom) and n.level == 0 and n.module:
+            out.append((n.module.split('.')[0], n.lineno))
+    return out
+
+
+def import_gaps(docker_text):
+    """Импорты модулей образа, которых образ не обеспечивает: [(модуль:строка, имя, чего нет)]. Рекурсивно по нашим модулям образа."""
+    cps = copies(docker_text)
+    scout_in = {os.path.basename(m)[:-3] for m in app_modules(cps) if m.startswith('tools/scout/')}
+    planner_files = [m for m in app_modules(cps) if m.startswith('services/planner-solver/planner/')]
+    pip = pip_imports(docker_text)
+    planner_names = {os.path.basename(m)[:-3] for m in planner_files}
+    out, seen = [], set()
+    todo = [(os.path.join(SCOUT, n + '.py'), n) for n in sorted(scout_in)] + [(os.path.join(ROOT, m), os.path.basename(m)) for m in planner_files]
+    while todo:
+        path, label = todo.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        for name, line in py_imports(path):
+            where = f'{label}:{line}'
+            if name in scout_in or name in planner_names or name == 'planner' or name == '__future__':
+                continue
+            if name in LAZY_OK_OURS:
+                continue
+            if os.path.exists(os.path.join(SCOUT, name + '.py')):
+                out.append((where, name, 'наш модуль tools/scout/ — нет в COPY → /app/ (и в Dockerfile.dockerignore)'))
+            elif name in sys.stdlib_module_names or name in LAZY_OK_THIRD:
+                continue
+            elif name not in pip:
+                out.append((where, name, 'сторонний — нет в pip install образа'))
+    return out
+
+
 # модули планировщика, которым можно искать файл вне пакета: причина — почему образ от этого не страдает
 OUTSIDE_OK = {
     'llm_planner.py': 'tools/scout/.env с ключом; модуля нет среди импортов образа, ключ — env OPENAI_ENV/OPENAI_API_KEY',
@@ -227,6 +314,16 @@ def main():
     ok('error' not in ip and ip['window'] == 0 and 'приоры практики не найдены' in ip['err'],
        'без practice_priors.json — пусто И громко в stderr (не молча)')
 
+    print('импорты модулей образа (в т.ч. ленивые) есть в образе (T-20261118-20/9):')
+    gaps = import_gaps(docker_text)
+    ok(not gaps, 'все импорты обеспечены образом' + ('' if not gaps else ': ' + '; '.join(f'{a} import {b} — {c}' for a, b, c in sorted(set(gaps)))))
+    for label, planted_text, want in (
+            ('refs_check.py (18.11)', docker_text.replace(' tools/scout/refs_check.py', '', 1), 'refs_check'),
+            ('orient_policy.py (05.11–18.11)', docker_text.replace(' tools/scout/orient_policy.py', '', 1), 'orient_policy'),
+            ('opencv в pip (18.11)', docker_text.replace('opencv-python-headless==', 'opencv-nope==', 1), 'cv2')):
+        ok(planted_text != docker_text, f'подложенный Dockerfile без {label} собран')
+        ok(any(b == want for _, b, _ in import_gaps(planted_text)), f'Dockerfile без {label} — отказ с именем «{want}»')
+    ok('opencv-python-headless' in docker_text and 'cv2' in pip_imports(docker_text), 'pip-список образа даёт cv2 (opencv-python-headless)')
     print('планировщик не ищет файлы вне пакета (кроме белого списка):')
     outs = outside_paths()
     bad = [f'{f}:{n}' for f, n in outs if f not in OUTSIDE_OK]

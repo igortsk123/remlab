@@ -8,6 +8,9 @@ ARG DRAFT_VERSION=dev
 ENV PYTHONUNBUFFERED=1 DRAFT_VERSION=${DRAFT_VERSION}
 RUN pip install --no-cache-dir numpy==2.5.2 scipy==1.18.1 trimesh==4.5.3 shapely==2.1.2 pillow==12.3.0 \
       pydantic==2.13.4 fast_simplification==0.2.0
+# OpenCV — тон товара для списка промпта v4 (`refs_check`, T-20261118-20/9: без него 18.11 каждый заказ фото в контейнере отказывал). Версия — как у DEV-рендера;
+# колесо cp37-abi3 manylinux2014_aarch64 (36 МБ) есть — образ arm64
+RUN pip install --no-cache-dir opencv-python-headless==5.0.0.93
 WORKDIR /app
 COPY services/planner-solver/planner/ /app/planner/
 COPY services/planner-solver/rules/ /app/rules/
@@ -19,15 +22,17 @@ COPY tools/scout/rules/asset-strategies.json tools/scout/rules/capabilities.json
      tools/scout/rules/improve-rooms.json tools/scout/rules/photo-set-roles.json tools/scout/rules/photo-tariffs.json /app/rules/
 COPY tools/scout/draft_service.py tools/scout/draft_guard.py tools/scout/draft_jobs.py tools/scout/draft_trial.py tools/scout/draft_render.py \
      tools/scout/asset_strategy.py tools/scout/falmini.py tools/scout/improve_mode.py \
-     tools/scout/mesh_render.py tools/scout/scene_mesh.py tools/scout/opening_ir.py tools/scout/view_consistency.py tools/scout/post_stall.py tools/scout/styles.json /app/
+     tools/scout/mesh_render.py tools/scout/scene_mesh.py tools/scout/opening_ir.py tools/scout/view_consistency.py tools/scout/post_stall.py tools/scout/refs_check.py tools/scout/env_keys.py tools/scout/orient_policy.py tools/scout/styles.json /app/
 # сборка падает, если HTTP-рендеру чего-то не хватает (а не ночью на первом кадре)
-RUN python -c "import draft_service, draft_jobs, draft_trial, draft_render, mesh_render, scene_mesh, opening_ir, improve_mode, asset_strategy, view_consistency, post_stall; print('imports ok')"
+RUN python -c "import draft_service, draft_jobs, draft_trial, draft_render, mesh_render, scene_mesh, opening_ir, improve_mode, asset_strategy, view_consistency, post_stall, refs_check, env_keys, orient_policy; print('imports ok')"
 # правила промпта спальни читаются лениво (при первом фото не-гостиной) — читаем при сборке, чтобы нехватка ловилась здесь
 RUN python -c "import improve_mode as m; r = m.room_rules('bedroom'); assert r.get('name'), r; print('room rules ok')"
 # состав набора для задания фото (П1.50) — тоже лениво; нет файла — сборка падает здесь
 RUN python -c "import improve_mode as m; assert m.set_roles().get('groups'); print('set roles ok')"
 # тарифы фото (T-20261117-03, `rules/photo-tariffs.json`) — читаются при первом заказе тура; нет файла — сборка падает здесь
 RUN python -c "import improve_mode as m; assert m.tariff_quality('mass', 'medium') == 'low' and m.tariffs_version('mass'); print('tariffs ok')"
+# список товаров промпта v4 — тон меряется OpenCV; нет модуля/OpenCV — сборка падает здесь, а не отказом на первом заказе (T-20261118-20/9)
+RUN python -c "import improve_mode as m; from PIL import Image; r = m.product_list([{'name': 'Диван серый', 'role': 'диван'}], {'диван': Image.new('RGB', (300, 300), (120, 120, 130))}); assert r and r[0]['colour_hex'], r; print('product list ok', r[0]['colour_hex'])"
 EXPOSE 8099
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8099/health',timeout=3)"

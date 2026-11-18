@@ -22,5 +22,8 @@
 !tools/scout/opening_ir.py
 !tools/scout/view_consistency.py
 !tools/scout/post_stall.py
+!tools/scout/refs_check.py
+!tools/scout/env_keys.py
+!tools/scout/orient_policy.py
 !tools/scout/styles.json
 **/__pycache__

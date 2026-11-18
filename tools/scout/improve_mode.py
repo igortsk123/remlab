@@ -441,7 +441,14 @@ def product_list(items: list, photos: dict) -> list:
     """Список товаров для промпта v4: номера — как на листе эталонов (`draft_render._identity`: позиция в составе + 1, одинаковый
     товар — одна строка с несколькими номерами), тон — основной кластер Lab по фото без фона, `confidence` — его доля."""
     import draft_render as DR
-    import refs_check as RC
+    # Тон по фото меряет `refs_check` (OpenCV). Нет модуля/OpenCV — строка списка остаётся БЕЗ тона, не отказ: 18.11 образ запасного
+    # рендера не нёс файла, `import` падал здесь, список не собирался, и `paid_gate` отказывал каждому заказу фото (T-20261118-20/9).
+    # В образе файл и OpenCV теперь есть (`infra/draft/Dockerfile`); эта оговорка — на случай следующей нехватки, и она громкая (строка в лог).
+    try:
+        import refs_check as RC
+    except Exception as e:  # noqa: BLE001 — ImportError и любое падение при загрузке OpenCV
+        RC = None
+        print(f'  тон товаров не меряем: refs_check недоступен ({type(e).__name__}: {str(e)[:60]})')
     out, by = [], {}
     for i, it in enumerate(items or []):
         if not it.get('name') or not it.get('role'):
@@ -455,7 +462,7 @@ def product_list(items: list, photos: dict) -> list:
                'material': next((en for ru, en in _MATERIALS if ru in low), None), 'colour_name': DR._colour_from_name(it['name'])}
         try:
             im = photos.get(it['role'])
-            rc = RC.ref_colour(im) if im is not None else {}
+            rc = RC.ref_colour(im) if (RC is not None and im is not None) else {}
             row['colour_hex'], row['confidence'] = rc.get('hex'), rc.get('confidence')
         except Exception:  # noqa: BLE001 — без тона строка всё равно полезна
             row['colour_hex'], row['confidence'] = None, None

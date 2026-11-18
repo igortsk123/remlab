@@ -165,4 +165,16 @@ _fk = {'views': [{'camera': 'C1', 'id': 'a'}, {'camera': 'C2', 'id': 'b'}], 'sty
 check('ключ кадров: взрослая спальня прежний (и с purpose), детская — свой', IM.frames_key(_fk, 'm', 'medium') == {'improve-v3.5': '25764221537cd1115ae092367bb37215',
                                                                                     'improve-v4.5': 'e067fb7b8acd808d68e35b7ec2eb4b6b'}[_want]
       == IM.frames_key({**_fk, 'purpose': 'couple'}, 'm', 'medium') != IM.frames_key({**_fk, 'purpose': 'child:7-12'}, 'm', 'medium'))
+# T-20261118-20/9: нет `refs_check`/OpenCV (образ запасного рендера 18.11) — строка списка товаров без тона, не отказ платному заказу
+_saved = sys.modules.get('refs_check', 0)
+sys.modules['refs_check'] = None            # `import refs_check` → ImportError, как в образе без файла
+try:
+    _rows = IM.product_list([{'name': 'Диван серый', 'role': 'диван'}, {'name': 'Ковёр', 'role': 'ковёр'}], {})
+finally:
+    if _saved == 0:
+        sys.modules.pop('refs_check', None)
+    else:
+        sys.modules['refs_check'] = _saved
+check('нет refs_check — список товаров собран, тон пуст (не отказ)',
+      len(_rows) == 2 and all(r.get('colour_hex') is None and r.get('confidence') is None for r in _rows) and _rows[0]['role'] == 'диван', _rows)
 sys.exit(1 if fails else 0)
