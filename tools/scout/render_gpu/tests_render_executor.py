@@ -1309,6 +1309,19 @@ try:
 except RE.RenderError as e:
     ok('клиент: процесс упал посреди заказа → RenderError render_failed', e.code == 'render_failed')
 cl.kill()
+cw = RE.ExportClient.of([sys.executable, STUB, 'w'], {}, TMP)
+cw.keep_gb = 1e-9
+rw1 = cw.call({'cmd': 'x'}, 10, 4)
+ok('клиент: процесс тяжелее потолка памяти — гасится после заказа', True)
+for _ in range(40):
+    time.sleep(0.1)
+    if cw._alive():
+        break
+ok('клиент: свежий процесс поднимается фоном, сразу после гашения', cw._alive() and cw.proc.pid != rw1['pid'])
+cw.keep_gb = 0.0
+rw2 = cw.call({'cmd': 'x'}, 10, 4)
+ok('клиент: следующий заказ идёт в уже поднятый процесс', rw2.get('ok'))
+cw.kill()
 cs1 = RE.ExportClient.of([sys.executable, STUB, 'a'], {}, TMP, slot='dump')
 cs1.call({'cmd': 'x'}, 10, 4)
 cs2 = RE.ExportClient.of([sys.executable, STUB, 'b'], {}, TMP, slot='dump')

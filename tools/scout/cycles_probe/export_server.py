@@ -117,6 +117,10 @@ def serve(inp=sys.stdin, out=sys.stdout):
             continue
         if req.get('cmd') == 'stop':
             return 0
+        if req.get('cmd') == 'warm':    # процесс уже прогрет импортами (`preload`) — просто отвечаем
+            out.write(json.dumps({'ok': True, 'rss_mb': round(rss_mb())}) + '\n')
+            out.flush()
+            continue
         t0 = time.time()
         ok, err = True, ''
         try:

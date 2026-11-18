@@ -311,7 +311,21 @@ class ExportClient:
             self.rss_mb = float(res.get('rss_mb') or 0)
             if self.keep_gb and tree_rss_gb(self.proc.pid) > self.keep_gb:
                 self.kill()
+                threading.Thread(target=self._rewarm, daemon=True).start()      # свежий процесс поднимается в простое — следующий заказ не платит за холодный старт
             return res
+
+    def _rewarm(self) -> None:
+        """Фоном: поднять свежий процесс и прогреть (`warm`: браузер/импорты) под тем же замком — заказ, пришедший раньше, подождёт его готовности (не дольше холодного старта)."""
+        with self.lock:
+            try:
+                if not self._alive():
+                    self._spawn(90, 4.0)
+                    self.proc.stdin.write((json.dumps({'cmd': 'warm'}) + '\n').encode())
+                    self.proc.stdin.flush()
+                    if self._read_line(time.time() + 90, 4.0) is None:
+                        self.kill()
+            except Exception:  # noqa: BLE001 — прогрев необязателен: заказ поднимет процесс сам
+                self.kill()
 
 
 def _dir_mb(path: str) -> float:

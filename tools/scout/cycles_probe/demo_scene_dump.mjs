@@ -201,6 +201,10 @@ if (argv[0] === '--serve') {
   const arm = () => { clearTimeout(idle); idle = setTimeout(() => bye(0), IDLE_S * 1000); };
   const handle = async (req) => {
     if (req.cmd === 'stop') await bye(0);
+    if (req.cmd === 'warm') {       // прогрев в простое: браузер и страница с бандлом поднимаются заранее, первый заказ не ждёт холодного старта
+      try { if (!ready) { sink = () => {}; await init(argv[1], {}); ready = true; sink = (s) => process.stdout.write(s + '\n'); } reply({ ok: true }); } catch (e) { reply({ ok: false, error: String(e).slice(0, 200) }); await bye(1); }
+      return;
+    }
     const t0 = Date.now();
     const lf = fs.openSync(req.log, 'a');
     sink = (s) => fs.writeSync(lf, s + '\n');
