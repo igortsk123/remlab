@@ -484,10 +484,15 @@ class SceneExecutor:
         os.makedirs(tmp)
         size, sha = None, {}
         for cam, png in outs.items():
-            im = Image.open(png).convert('RGB')
-            size = [im.width, im.height]
+            im = Image.open(png)
             jp = os.path.join(tmp, f'{cam}.jpg')
-            im.save(jp, 'JPEG', quality=pr['jpegQuality'], optimize=True)
+            if im.format == 'JPEG':
+                size = [im.width, im.height]
+                shutil.copyfile(png, jp)               # T-24/11: JPEG с машины (кодировал Blender) кладём как есть — перекодирование не нужно
+            else:
+                im = im.convert('RGB')
+                size = [im.width, im.height]
+                im.save(jp, 'JPEG', quality=pr['jpegQuality'], optimize=True)
             sha[cam] = hashlib.sha256(open(jp, 'rb').read()).hexdigest()     # имя кадра для «Улучшить» (как у кадров браузера: sha256 JPEG)
         timing['total'] = round(time.time() - t0, 1)
         meta = {'scene_hash': snap['scene_hash'], 'snapshot_version': snap['v'], 'size': size, 'sha': sha, 'versions': self.versions(), 'timing': timing,
@@ -765,7 +770,7 @@ class SaladGpuExecutor(SceneExecutor):
             raise self._gpu_unavailable('gpu_upload') from None
         timing['upload'] = round(self.now() - t1, 1)
 
-    def _send_fmt2(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict) -> None:
+    def _send_fmt2(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict, frames: str = 'png') -> None:
         """fmt 2 (T-20261117-24/5): ассеты — по хешу в `renderassets` приёмника (спросили «каких нет» и досылаем недостающее ДО `job.json`), маленький пакет —
         в каталог задания, `job.json` (v=2, манифест) ПОСЛЕДНИМ. Любой сбой до задания — `_Fmt2Skip` (заказ пойдёт по fmt 1), машине ничего не ушло."""
         import jobs_proto as JP
@@ -802,12 +807,29 @@ class SaladGpuExecutor(SceneExecutor):
                     f.result()                                              # недостающие ассеты — ДО задания
             render = hashlib.sha256(json.dumps(self.versions(), sort_keys=True).encode()).hexdigest()[:16]
             jobj = JP.new_job2(jid, bundle, assets, ['--samples', pr['samples'], '--pct', pr['pct'], '--threads', pr['threads'], *pr['flags']],
-                               {'blenderSec': pr['limits']['blenderSecPerFrame']}, render, now=self.now())
+                               {'blenderSec': pr['limits']['blenderSecPerFrame']}, render, now=self.now(), frames=frames, jpeg_q=int(pr['jpegQuality']))
             sink.put(f'{JP.PREFIX}/{jid}/job.json', json.dumps(jobj, ensure_ascii=False).encode())       # ПОСЛЕДНИМ
         except JP.SinkError as e:
             raise _Fmt2Skip(f'выгрузка: {e}') from None
         timing['upload'] = round(self.now() - t1, 1)
         timing['bundle_kb'] = round(bsize / 1024)
+
+    @staticmethod
+    def _frames_for(m, ex: dict) -> str:
+        """Формат кадров заказа (T-24/11): `jpg`, если машина это заявила (`state.frames` из ready.json → `caps.frames`) и правило `executor.frames` не `png`;
+        старый образ без поля — `png`, как раньше."""
+        if str(ex.get('frames', 'auto')) == 'png':
+            return 'png'
+        fr = m.state().get('frames')
+        return 'jpg' if isinstance(fr, list) and 'jpg' in fr else 'png'
+
+    @staticmethod
+    def _check_frame(path: str, fmt: str) -> None:
+        """Скачанный кадр — действительно тот формат, что в имени (иначе ValueError → gpu_download): PIL открывает, формат совпадает, размер ненулевой."""
+        from PIL import Image
+        with Image.open(path) as im:
+            if im.format != {'jpg': 'JPEG', 'png': 'PNG'}[fmt] or im.width < 16 or im.height < 16:
+                raise ValueError(f'кадр {os.path.basename(path)}: формат {im.format} {im.width}×{im.height}')
 
     def render(self, snap: dict, out_dir: str, progress) -> dict:
         import jobs_proto as JP
@@ -836,7 +858,7 @@ class SaladGpuExecutor(SceneExecutor):
                 jids.append(jid)
                 if fmt == 2:
                     try:
-                        self._send_fmt2(sink, job, jid, pr, ex, timing)
+                        self._send_fmt2(sink, job, jid, pr, ex, timing, frames=self._frames_for(m, ex))
                     except _Fmt2Skip as e:
                         print(f'рендер: fmt 2 не вышел ({e}) — шлю по fmt 1', flush=True)
                         continue
@@ -856,11 +878,14 @@ class SaladGpuExecutor(SceneExecutor):
             t1 = self.now()
             outs = {}
             try:
+                rf = res.get('frames') if res.get('frames') in ('jpg', 'png') else 'png'      # что фактически положила машина (имя = формат)
+                timing['frames'] = rf
                 for cam in CAMS:
-                    png = os.path.join(job, f'{cam}.png')
-                    sink.get_to(f'{JP.PREFIX}/{jid}/{cam}.png', png)
-                    outs[cam] = png
-            except JP.SinkError as e:
+                    fp = os.path.join(job, f'{cam}.{rf}')
+                    sink.get_to(f'{JP.PREFIX}/{jid}/{cam}.{rf}', fp)
+                    self._check_frame(fp, rf)
+                    outs[cam] = fp
+            except (JP.SinkError, ValueError, OSError) as e:
                 print(f'рендер: кадры не скачались: {e}', flush=True)
                 raise self._gpu_unavailable('gpu_download') from None
             timing['download'] = round(self.now() - t1, 1)

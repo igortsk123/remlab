@@ -196,6 +196,13 @@ sf, a = RM.plan(on_state(T0), obs('running', ready_hot(T0 - 10, True, note='PROB
 ok('проба 0,6 с — норма, строка журнала «норма»', sf['slow'] is False and sf['probe_sec'] == 0.6 and any(x[0] == 'say' and 'норма' in x[1] for x in a))
 sn, a = RM.plan(on_state(T0), obs('running', ready_hot(T0 - 10, True, note='без пробы')), R, T0)
 ok('в note нет PROBE_SEC — не медленный и не падаем', sn['slow'] is False and sn['probe_sec'] is None)
+rc_ = ready_hot(T0 - 10, True)
+sj, _ = RM.plan(on_state(T0), obs('running', {**rc_, 'caps': {'frames': ['png', 'jpg']}}), R, T0)
+ok('T-24/11: ready.json caps.frames → state.frames (исполнитель шлёт jpg только такой машине)', sj['frames'] == ['png', 'jpg'])
+sj0, _ = RM.plan(on_state(T0), obs('running', rc_), R, T0)
+ok('T-24/11: нет поля caps (образ до T-24/11) — frames = [png]', sj0['frames'] == ['png'])
+ok('T-24/11: caps_frames: мусор и неизвестные форматы отбрасываются, пустое = [png]', RM.caps_frames({'caps': {'frames': ['gif', 'jpg']}}) == ['jpg'] and RM.caps_frames({'caps': {'frames': 'jpg'}}) == ['png']
+   and RM.caps_frames({'caps': 5}) == ['png'] and RM.caps_frames({'caps': {'frames': []}}) == ['png'])
 ok('probe_sec_of / hot_pending: разбор', RM.probe_sec_of({'note': 'PROBE_SEC 12.5; X'}) == 12.5 and RM.probe_sec_of({}) is None and RM.hot_pending({'hot': {'done': False}}) and not RM.hot_pending({}) and not RM.hot_pending({'hot': {'done': True}}))
 
 # ── сообщение о стопе — одно на запуск ──

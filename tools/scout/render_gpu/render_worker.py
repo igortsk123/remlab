@@ -39,7 +39,7 @@ import jobs_proto as JP  # noqa: E402
 import machine_agent as MA  # noqa: E402
 
 WORK = os.environ.get('WORK', '/work')
-POLL = float(os.environ.get('JOB_POLL_S', '1'))      # было 3 с: ожидание задания в среднем 1,5 с (T-24/4)
+POLL = float(os.environ.get('JOB_POLL_S', '0.5'))    # было 3 с (T-24/4), потом 1 с; T-24/11 — 0,5 с: ожидание задания в среднем 0,25 с
 MAX_AGE = float(os.environ.get('JOB_MAX_AGE_S', '7200'))
 CACHE_N = int(os.environ.get('CACHE_N', '3'))
 CACHE_GB = float(os.environ.get('CACHE_GB', '1.5'))
@@ -131,14 +131,72 @@ def place_asset(blob: str, work: str, rel: str) -> None:
         shutil.copyfile(blob, target)
 
 
+def frames_of(job: dict) -> str:
+    """Формат кадров задания: png (нет поля — как раньше) | jpg (кодирует Blender) | both (jpg и png из одного результата — ТОЛЬКО приёмка ΔE)."""
+    return job.get('frames', 'png')
+
+
 def build_cmd(job: dict, work: str) -> list:
     """Команда Blender: пути — воркера (внутри пакета), флаги рендера — из задания. Чистая функция."""
     scene, dump = os.path.join(work, 'scene'), os.path.join(work, 'dump')
+    fr = frames_of(job)
+    fmt = ['--jpeg-quality', str(job.get('jpeg_q', 92))] if fr in ('jpg', 'both') else []
+    if fr == 'both':
+        fmt += ['--also-png', os.path.join(work, '{cam}.png')]
     return [BL, '-b', '--python-exit-code', '1', '-P', os.path.join(work, 'tools', 'scout', 'cycles_probe', 'render_cycles.py'), '--',
-            '--scene-dir', scene, '--cam', ','.join(job['cams']), '--out', os.path.join(work, '{cam}.png'),
+            '--scene-dir', scene, '--cam', ','.join(job['cams']), '--out', os.path.join(work, '{cam}.png' if fr == 'png' else '{cam}.jpg'),
             '--demo-glb', os.path.join(dump, 'demo_nodes.glb'), '--demo-nodes', os.path.join(dump, 'demo_nodes_uuids.json'),
             '--export', os.path.join(dump, 'scene-export.json'), '--public', os.path.join(work, 'public'),
-            '--device', 'auto', '--persistent', '1', *job['args']]
+            '--device', 'auto', '--persistent', '1', *fmt, *job['args']]
+
+
+def cam_of_line(line: str) -> str | None:
+    """`RENDER_SEC <с> cam C1 …` → 'C1' (кадр записан на диск: Blender печатает строку ПОСЛЕ write_still); иначе None."""
+    if not line.startswith('RENDER_SEC '):
+        return None
+    parts = line.split()
+    try:
+        return parts[parts.index('cam') + 1]
+    except (ValueError, IndexError):
+        return None
+
+
+class FrameUploader:
+    """Выгрузка кадров в приёмник ПОКА Blender считает следующий (T-24/11): `start(cam)` — поток на файл(ы) кадра, `join()` — дождаться и вернуть
+    {имя файла: размер}; сбой любой выгрузки поднимается из `join()` (воркер вернёт ошибку задания, как при выгрузке после рендера)."""
+
+    def __init__(self, sink, jid: str, work: str, frames: str):
+        self.sink, self.jid, self.work, self.frames = sink, jid, work, frames
+        self.threads: list = []
+        self.sizes: dict = {}
+        self.errors: list = []
+        self.started: set = set()
+
+    def start(self, cam: str) -> None:
+        if cam in self.started:
+            return
+        self.started.add(cam)
+        for name in JP.frame_names(self.frames, cam):
+            t = threading.Thread(target=self._one, args=(name,), daemon=True)
+            t.start()
+            self.threads.append(t)
+
+    def _one(self, name: str) -> None:
+        p = os.path.join(self.work, name)
+        try:
+            if not os.path.isfile(p) or os.path.getsize(p) <= 0:
+                raise JP.SinkError(f'кадр {name} не записан')
+            self.sink.put_file(f'{JP.PREFIX}/{self.jid}/{name}', p)
+            self.sizes[name] = os.path.getsize(p)
+        except Exception as e:  # noqa: BLE001
+            self.errors.append(e)
+
+    def join(self) -> dict:
+        for t in self.threads:
+            t.join()
+        if self.errors:
+            raise self.errors[0]
+        return dict(self.sizes)
 
 
 def parse_progress(line: str, cams: list) -> tuple[str | None, dict]:
@@ -371,6 +429,8 @@ class Worker:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace', start_new_session=True,
                                 env={**os.environ, 'PYTHONUNBUFFERED': '1'})
         tail, device, killed = [], '', ''
+        fr = frames_of(job)
+        up = FrameUploader(self.sink, jid, work, fr)       # T-24/11: кадр уходит в приёмник, пока Blender считает следующий
 
         def watchdog():
             nonlocal killed
@@ -395,6 +455,9 @@ class Worker:
                         os.killpg(os.getpgid(proc.pid), 9)
                     except OSError:
                         pass
+            cam_done = cam_of_line(line)
+            if cam_done in job['cams']:
+                up.start(cam_done)
             nxt, add = parse_progress(line, job['cams'])
             if add:
                 timing.update(add)
@@ -406,17 +469,22 @@ class Worker:
             return err('gpu_failed', 'Видеокарта машины не взялась за рендер.', 'The machine GPU did not take the render.', device=device)
         if killed == 'timeout':
             return err('render_timeout', 'Рендер занял слишком много времени.', 'The render took too long.', device=device)
-        frames = {c: os.path.join(work, f'{c}.png') for c in job['cams']}
-        if rc != 0 or not all(os.path.isfile(p) and os.path.getsize(p) > 0 for p in frames.values()):
+        names = [n for c in job['cams'] for n in JP.frame_names(fr, c)]
+        paths = [os.path.join(work, n) for n in names]
+        if rc != 0 or not all(os.path.isfile(p) and os.path.getsize(p) > 0 for p in paths):
             log('blender rc', rc, ' | '.join(tail[-6:]))
             return err('render_failed', 'Рендер не удался.', 'The render failed.', device=device, rc=rc, tail='\n'.join(tail[-8:])[-600:])
         self.progress(jid, 'save')
-        files = {}
-        for c, p in frames.items():
-            self.sink.put_file(f'{JP.PREFIX}/{jid}/{c}.png', p)
-            files[c] = os.path.getsize(p)
+        for c in job['cams']:
+            up.start(c)                  # на случай, если строку RENDER_SEC не разобрали (старый render_cycles): повторно не уйдёт
+        tu = time.time()
+        sizes = up.join()
+        timing['upload_tail'] = round(time.time() - tu, 1)      # сколько выгрузка тянулась ПОСЛЕ конца Blender (0 — всё ушло параллельно)
+        files = {c: sizes[JP.frame_names(fr, c)[0]] for c in job['cams']}
+        if fr == 'both':
+            files.update({n: sizes[n] for n in names if n.endswith('.png')})
         timing['total'] = round(time.time() - t0, 1)
-        return {'ok': True, 'timing': timing, 'device': device, 'files': files, **res_extra}
+        return {'ok': True, 'timing': timing, 'device': device, 'files': files, 'frames': fr, **res_extra}
 
     def loop(self) -> None:
         while True:
@@ -455,6 +523,7 @@ def main() -> int:
     if not base or not tok:
         log('нет MESH_SINK_URL/MESH_SINK_TOKEN — воркер не работает')
         return 2
+    MA.STATE['caps'] = {'frames': list(JP.FRAMES_CAPS)}      # T-24/11: что воркер умеет (уходит в ready.json → state контроллера → исполнитель шлёт jpg только такой машине)
     threading.Thread(target=MA.main, daemon=True, name='agent').start()      # готовность и отметка ready.json — как у агента
     w = Worker(JP.Sink(base, tok))
     threading.Thread(target=w.warm_loop, daemon=True, name='warm').start()      # подогрев кэша ассетов — своим потоком, заказ приоритетнее
