@@ -76,6 +76,12 @@ function nodeInfo(root: THREE.Object3D): Any[] {
 // (разбор + декод текстур ≈ 3 с на гостиную), пока страница жива. Включается флагом заказа `persist`; одноразовый запуск — как раньше. Меши в сцене берутся клонами
 // (`placeMesh`: `source.clone(true)`, материалы свои), общий исходник вьюер не правит; запись держится по последнему использованию, не больше GLTF_CACHE_MAX.
 let GLTF_CACHE_ON = false;
+let REUSE_CANVAS = false;   // постоянная страница (`persist`): холст и контекст WebGL между заказами общие (замер ниже)
+// ПРОФИЛЬ СБОРКИ (отладка, `prof=1` в заказе дампера): события со временем от начала `buildDemoScene` — загрузки мешей (попадание/промах) и методы вьюера
+const PROF: Any[] = [];
+let PROF_ON = false, PROF_T0 = 0;
+const pev = (n: string) => { if (PROF_ON) PROF.push([n, Math.round(performance.now() - PROF_T0)]); };
+const tailOf = (u: string) => String(u).split("/").slice(-2).join("/").slice(0, 40);
 // потолок кэша — по ОЦЕНКЕ размера разобранных мешей, не по числу: меш ≈ 33 МБ (карта 2048² + геометрия), гостиная — 12–14 мешей; при потолке в 6 штук обход одних и тех же 12 мешей по кругу
 // выбивал каждого до повторного обращения (попаданий 0). Память процесса держит клиент (`DUMP_KEEP_GB`): выше — перезапуск.
 const GLTF_CACHE_MB = Number((globalThis as Any).__gltfCacheMb ?? 480);
@@ -103,10 +109,14 @@ const gltfSizeMb = (g: Any): number => {      // оценка размера р�
     // ключ — адрес + подпись файла на диске (размер, время; даёт процесс выгрузки, `__sigOf`): меш пересобрали под тем же адресом — старый разбор не отдаём;
     // подписи нет (файл с сайта, не с диска) — в кэш не кладём вовсе
     const self = this;
+    pev("gltf>" + tailOf(url));
+    const onLoad0 = onLoad;
+    onLoad = (g: Any) => { pev("gltf<" + tailOf(url)); onLoad0(g); };
     const run = (sig: string) => {
-      if (!sig) return orig.call(self, url, onLoad, onProgress, onError);
+      if (!sig) { pev("nosig " + tailOf(url)); return orig.call(self, url, onLoad, onProgress, onError); }
       const key = `${url}|${sig}`;
       const hit = gltfCache.get(key);
+      pev((hit ? "HIT " : "MISS ") + tailOf(url));
       if (hit) {
         gltfCache.delete(key);
         gltfCache.set(key, hit);                             // свежесть — в конец
@@ -170,11 +180,20 @@ const settleScene = async (scene: THREE.Scene, capMs: number): Promise<number> =
 
 (window as Any).buildDemoScene = async (a: { room: Any; items: Any[]; decor: Any[]; base: string; runtime?: Any; lite?: boolean; cams?: Any[]; style?: string; settle?: boolean; persist?: boolean }) => {
   GLTF_CACHE_ON = !!a.persist;
+  REUSE_CANVAS = !!a.persist && !(window as Any).__noReuseCanvas;
   ORDER_N++;
+  PROF.length = 0; PROF_ON = !!(a as Any).prof; PROF_T0 = performance.now();
   if (a.persist) {                                          // постоянная страница: вьюер прошлого заказа — долой (его холст и записи сцены)
+    pev("start");
+    // `FlatViewer.dispose` в конце вызывает `renderer.forceContextLoss()` (живая страница: контексты WebGL не копятся, их ≤16): в Chromium на swiftshader вызов ждёт процесс GPU
+    // и стоит ≈1,1–1,4 с на КАЖДЫЙ заказ (замер T-20261118-10/4). Дампер контекст прошлого заказа не терял бы никак иначе — холст ниже снимается, контекст уйдёт со сборкой мусора
+    // (а свыше 16 браузер гасит самый старый сам); живой вьюер (`lib/viewer3d/viewer.ts`) не меняется — подмена только на объекте рендерера этой страницы.
+    { const rv: Any = (window as Any).__viewer?.renderer; if (rv && !(window as Any).__dumpKeepCtx) rv.forceContextLoss = () => {}; }
     try { (window as Any).__viewer?.dispose?.(); } catch { /* прошлый вьюер мог не успеть собраться */ }
+    pev("disposed");
     (window as Any).__viewer = (window as Any).__scene = (window as Any).__sc = (window as Any).__export = null;
-    for (const c of Array.from(document.querySelectorAll("canvas"))) c.remove();
+    if (!REUSE_CANVAS) for (const c of Array.from(document.querySelectorAll("canvas"))) c.remove();
+    pev("canvasRemoved");
   }
   const T0 = performance.now(), trace: Any[] = [];      // ТРАССА (T-20261118-09/1): шаги сборки сцены в странице, секунды от начала `buildDemoScene`
   const mark = (name: string) => trace.push({ name, s: ((performance.now() - T0) / 1000).toFixed(2) });
@@ -186,12 +205,20 @@ const settleScene = async (scene: THREE.Scene, capMs: number): Promise<number> =
   (window as Any).__export = exportScene(first.apartment, first.catalogue, sc0, { lite: false });
   mark("liveApartment_resolve_exportScene");
   setRuntimeMeshes({});            // 2) для выгрузки узлов — полные исходники галереи, не лёгкие копии
-  const cv = document.createElement("canvas");
-  cv.width = 640; cv.height = 480;
-  document.body.appendChild(cv);
+  let cv: HTMLCanvasElement | undefined = REUSE_CANVAS ? (window as Any).__cv : undefined;
+  if (!cv) {
+    cv = document.createElement("canvas");
+    cv.width = 640; cv.height = 480;
+    document.body.appendChild(cv);
+    if (REUSE_CANVAS) (window as Any).__cv = cv;
+  }
   const viewer = new FlatViewer(cv, first.apartment, first.catalogue, a.lite ? LITE_QUALITY : DESKTOP_QUALITY, {}, { curtains: true });
   (window as Any).__viewer = viewer;
   mark("FlatViewer_ctor");
+  if (PROF_ON) for (const m of ["addObject", "bakeContact", "settleSoft", "waitCarriers", "loadMesh", "placeGroup"]) {
+    const vw: Any = viewer, o = vw[m]; if (typeof o !== "function") continue;
+    vw[m] = function (this: Any, ...x: Any[]) { pev(">" + m); const r = o.apply(this, x); if (r && r.then) return r.then((v: Any) => { pev("<" + m); return v; }); pev("<" + m); return r; };
+  }
   (window as Any).__cams = a.cams ?? [];
   (window as Any).__tBuild = performance.now();
   const sc = resolveScene(first.apartment, first.catalogue, defaultConfiguration(first.apartment, first.catalogue));
@@ -204,12 +231,15 @@ const settleScene = async (scene: THREE.Scene, capMs: number): Promise<number> =
   if (a.settle === false) { await new Promise((r) => setTimeout(r, 1500)); mark("pause_1500"); }
   else { const w = await settleScene(viewer.scene, 1500); mark("settle_" + w.toFixed(2)); }
   // замена товара на странице ведёт анимацию (подрастание 0.94 → 1 за 250 мс, силуэт прежнего): выгрузка — только по конечному состоянию, не по часам
+  pev("syncDone");
   viewer.settleSwaps();
   // порядок журнала растений — по порядку загрузки (гонка): сортируем по слоту, чтобы одна сцена давала один файл
   const plants = [...viewer.plantReport()].sort((x, y) => (x.slotId < y.slotId ? -1 : x.slotId > y.slotId ? 1 : 0));
   (window as Any).__export = { ...(window as Any).__export, plants };
   (window as Any).__scene = viewer.scene;
   (window as Any).__sc = sc;
+  pev("settled");
+  (window as Any).__prof_out = PROF.slice();
   return {
     trace,
     slots: sc.items.map((i: Any) => ({ slotId: i.slotId, roomId: i.roomId, role: i.photoRole, kind: i.asset?.kind, kit: i.asset?.kit, features: i.asset?.features, unplaced: !!i.unplaced,

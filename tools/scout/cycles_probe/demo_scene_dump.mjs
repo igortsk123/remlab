@@ -6,6 +6,7 @@ import { createRequire } from 'module';
 import http from 'http';
 import https from 'https';
 import fs from 'fs';
+import crypto from 'crypto';
 import os from 'os';
 import path from 'path';
 
@@ -61,6 +62,18 @@ const srv = http.createServer((req, res) => {
   }).on('error', () => { miss.push('ERR ' + u); res.writeHead(502); res.end(); });
 });
 let port, browser, page;
+// ПОДПИСЬ ФАЙЛА для кэшей страницы (разобранные меши, закодированные картинки): размер + inode + хеш головы и хвоста (64 КБ). Время изменения в подпись НЕ входит: кэш мешей на DEV
+// отмечает каждое обращение `utime` (`draft_render._touch`), и «размер-время» объявляло файл заменённым в каждом заказе — разбор всех мешей заново (T-20261118-10/4; тот же корень, что в `export_server.file_sig`).
+const SIG_EDGE = 65536;
+function fileSig(f) {
+  const st = fs.statSync(f), fd = fs.openSync(f, 'r');
+  try {
+    const h = crypto.createHash('md5'), b = Buffer.alloc(Math.min(SIG_EDGE, st.size));
+    fs.readSync(fd, b, 0, b.length, 0); h.update(b);
+    if (st.size > SIG_EDGE) { const t = Buffer.alloc(Math.min(SIG_EDGE, st.size - SIG_EDGE)); fs.readSync(fd, t, 0, t.length, st.size - t.length); h.update(t); }
+    return `${st.size}-${st.ino}-${h.digest('hex').slice(0, 16)}`;
+  } finally { fs.closeSync(fd); }
+}
 async function init(bundle, extra) {
   bundleDir = bundle;
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
@@ -81,7 +94,7 @@ async function init(bundle, extra) {
       const im = pu.match(/^\/(flat3d\/materials|flat3d\/env|scene\/views)\/([A-Za-z0-9._-]+)$/), dm = DEMO_IMG_DIR && pu.match(/^\/demo\/(img\/[A-Za-z0-9._-]+)$/);
       if (im) files.push(path.join(PUBLIC, im[1], im[2]));
       else if (dm) files.push(path.join(DEMO_IMG_DIR, dm[1]));
-      for (const f of files) { if (fs.existsSync(f)) { const st = fs.statSync(f); return `${st.size}-${st.mtimeMs}`; } }
+      for (const f of files) { if (fs.existsSync(f)) return fileSig(f); }
     } catch { /* нет подписи — не кэшируем */ }
     return '';
   });
@@ -147,9 +160,24 @@ try { runtime = JSON.parse(await new Promise((res, rej) => https.get({ host: REM
   (r) => { let s = ''; r.on('data', (c) => { s += c; }); r.on('end', () => res(s)); }).on('error', rej))).meshes; } catch (e) { say('rt-meshes.json не получен:', String(e).slice(0, 100)); }
 tr('rt_meshes_fetch');
 const lite = extra.lite === '1';       // телефон: LITE_QUALITY, лёгкие карты
-const sceneArgs = { room, items: v.items, decor, base: `http://127.0.0.1:${port}/demo/`, runtime, lite, cams: v.cams || [], style: v.style, settle: extra.settle !== '0', persist: PERSIST };
+const sceneArgs = { prof: process.env.DUMP_PROF === '1', room, items: v.items, decor, base: `http://127.0.0.1:${port}/demo/`, runtime, lite, cams: v.cams || [], style: v.style, settle: extra.settle !== '0', persist: PERSIST };
+// DUMP_CPUPROF=<папка>: профиль JS страницы за сборку сцены (CDP Profiler, .cpuprofile) — разбор «что внутри `syncObjects`», на заказ не влияет
+let cdp = null;
+if (process.env.DUMP_CPUPROF) {
+  cdp = await page.context().newCDPSession(page);
+  await cdp.send('Profiler.enable');
+  await cdp.send('Profiler.setSamplingInterval', { interval: 200 });
+  await cdp.send('Profiler.start');
+}
 const info = await page.evaluate((a) => window.buildDemoScene(a), sceneArgs);
+if (cdp) {
+  const { profile } = await cdp.send('Profiler.stop');
+  fs.mkdirSync(process.env.DUMP_CPUPROF, { recursive: true });
+  fs.writeFileSync(path.join(process.env.DUMP_CPUPROF, `order-${Date.now()}.cpuprofile`), JSON.stringify(profile));
+  await cdp.detach();
+}
 tr('build_scene');
+if (process.env.DUMP_PROF === '1') say('PROF ' + JSON.stringify(await page.evaluate(() => window.__prof_out || [])));
 for (const m of (info.trace || [])) say(`TRACE page ${m.name} ${m.s}`);
 delete info.trace;                 // отметки времени — только в журнал: в scene_info.json (едет в пакет задания) их быть не должно (файл не должен меняться от прогона к прогону)
 say('сцена собрана за', ((Date.now() - t0) / 1000).toFixed(1), 'с; узлов', info.nodes.length, 'мест', info.slots.length);
