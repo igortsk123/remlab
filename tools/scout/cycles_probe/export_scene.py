@@ -217,7 +217,8 @@ def main_export(D, idx, out):
     SM.raster_mesh, DR._paste_rug, DR._paint_wall_plane = timed('rec_raster', rec_raster), rec_rug, rec_plane
     trace('before_scene3d_frame')
     try:
-        DR.scene3d_frame(room, placements, cams[0], sid_by_role, photos)
+        # PREVIEW=0 (RENDER_PREP_FAST=0 в исполнителе) — прежний путь с рисованием превью; по умолчанию превью не рисуется (результат выгрузки тот же — A/B в плане render-prep-speed-01)
+        DR.scene3d_frame(room, placements, cams[0], sid_by_role, photos, preview=os.environ.get('EXPORT_PREVIEW') == '1')
     finally:
         SM.raster_mesh, DR._paste_rug, DR._paint_wall_plane = o_r, o_p, o_w
     trace('scene3d_frame')

@@ -75,6 +75,11 @@ def render_version(blender: str = '') -> dict:
             'scene_export': exp_ver, 'blender': os.path.basename(os.path.dirname(blender)) if blender else ''}
 
 
+def prep_fast() -> bool:
+    """Быстрая подготовка сцены (T-20261118-09/1): страница не ждёт 1,5 с вслепую, окружение и меши из галереи — с диска. `RENDER_PREP_FAST=0` — прежнее поведение целиком."""
+    return os.environ.get('RENDER_PREP_FAST', '1') != '0'
+
+
 def parse_trace(text: str) -> dict:
     """Строки трассы подготовки сцены (T-20261118-09/1) → {'py': {шаг: сек}, 'node': {...}, 'page': {...}}. `TRACE <кто> <шаг> <значение> [n=<число вызовов>]`;
     у накопителей (`acc:<функция>`) — [сек, вызовов]. Повтор шага (второй проход экспорта) — побеждает последний. Мусор и чужие строки пропускаются."""
@@ -412,7 +417,8 @@ class SceneExecutor:
         data_path = os.path.join(job, 'data.json')
         json.dump(data, open(data_path, 'w', encoding='utf-8'), ensure_ascii=False)
         progress('scene')
-        env = {'PYTHONPATH': os.pathsep.join([os.path.join(REPO, 'tools', 'scout'), os.path.join(REPO, 'services', 'planner-solver')])}
+        env = {'PYTHONPATH': os.pathsep.join([os.path.join(REPO, 'tools', 'scout'), os.path.join(REPO, 'services', 'planner-solver')]),
+               'EXPORT_PREVIEW': '0' if prep_fast() else '1'}      # быстрая подготовка: превью кадра не рисуем (нужны только записи выгрузки); выкл. — прежний путь
         bundle = self._bundle(log)
         dump = os.path.join(job, 'dump')
         dlog = log + '.dump'
@@ -471,7 +477,15 @@ class SceneExecutor:
 
     def _dump_cached(self, data_path: str, bundle: str, dump: str, dlog: str, pr: dict, lim: dict) -> None:
         """Дамп сцены (Chromium, ~9 с) — кэш по хешу входа: данные варианта + сборка выгрузчика + режим. Повтор того же варианта — копия файлов (жёсткие ссылки)."""
-        h = hashlib.sha256(open(data_path, 'rb').read() + b'|' + os.path.basename(bundle).encode() + b'|' + str(pr['dumpExport']).encode()).hexdigest()[:24]
+        # по СОДЕРЖИМОМУ сборки выгрузчика (sha entry.js), не по имени каталога (имя — от пути и времени файлов: пересборка без правок кода кэш не терялась) — решение директора 18.11;
+        # быстрый режим (`RENDER_PREP_FAST`) и содержимое файлов окружения, что страница читает с диска (`scene_inputs.env_sha`), — в хеш: смена режима/картинки — новый дамп
+        try:
+            bsha = _sha(os.path.join(bundle, 'entry.js'))
+        except OSError:
+            bsha = os.path.basename(bundle)
+        import scene_inputs as _SI
+        h = hashlib.sha256(open(data_path, 'rb').read() + b'|' + bsha.encode() + b'|' + str(pr['dumpExport']).encode() + b'|' + b'fast=' + str(int(prep_fast())).encode()
+                           + b'|' + _SI.env_sha().encode()).hexdigest()[:24]
         root = os.environ.get('RENDER_DUMP_CACHE') or os.path.expanduser('~/scout-cache/render-dump')
         hit = os.path.join(root, h)
         if os.path.isfile(os.path.join(hit, '.ok')):
@@ -484,7 +498,8 @@ class SceneExecutor:
                         shutil.copyfile(os.path.join(hit, f), os.path.join(dump, f))
             os.utime(os.path.join(hit, '.ok'))
             return
-        run_step([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), data_path, '0', bundle, dump, 'export=' + pr['dumpExport']], dlog,
+        run_step([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), data_path, '0', bundle, dump, 'export=' + pr['dumpExport'],
+                  *([] if prep_fast() else ['local=0', 'settle=0'])], dlog,
                  lim['dumpSec'], lim['maxRssGb'], what='декор и отделка')
         try:
             os.makedirs(root, exist_ok=True)

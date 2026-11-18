@@ -35,6 +35,9 @@ const in3dDecor = (x) => !!x && !x.list_only && (!isSoft(x.role) || isCloth3d(x)
 const decor = (v.decor || []).filter(in3dDecor);
 
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.glb': 'model/gltf-binary', '.json': 'application/json', '.jpg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
+const LOCAL = extra.local !== '0';                                  // `local=0` — прежнее поведение: всё, кроме мешей из кэша и материалов, с сайта
+const DEMO_IMG_DIR = process.env.DEMO_LOCAL_DIR || (LOCAL ? path.join(os.homedir(), 'scout-scenes/flat215-demo') : '');
+const GALLERY = path.join(os.homedir(), 'scout-scenes/mesh-pilot-gallery');
 const miss = [];
 const srv = http.createServer((req, res) => {
   const u = decodeURIComponent(req.url.split('?')[0]);
@@ -44,13 +47,19 @@ const srv = http.createServer((req, res) => {
   if (u === '/entry.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); fs.createReadStream(path.join(bundleDir, 'entry.js')).pipe(res); return; }
   // карты материалов (в том числе новые, ещё не выложенные на прод) — из `public/` этой копии репо
   // (и растения `public/flat3d/plants/*.glb`: в main с 17.11, на проде ещё нет)
+  // ОКРУЖЕНИЕ С ДИСКА (T-20261118-09/1 шаг 3): небо/вид из окна — из `public/` этой копии, а не с сайта (−2 запроса, ≈0,5 МБ); `local=0` — как раньше (с сайта).
+  // Содержимое этих файлов входит в ключ кадра (`scene_inputs.env_sha`): замена картинки сдвигает ключ.
+  const em = LOCAL && u.match(/^\/(flat3d\/env|scene\/views)\/([A-Za-z0-9._-]+)$/);
+  if (em && fs.existsSync(path.join(PUBLIC, em[1], em[2]))) { res.writeHead(200, { 'content-type': mime[path.extname(u)] || 'application/octet-stream', ...cors }); fs.createReadStream(path.join(PUBLIC, em[1], em[2])).pipe(res); return; }
   const pm = u.match(/^\/flat3d\/(materials|plants)\/([A-Za-z0-9._-]+)$/);
   if (pm && fs.existsSync(path.join(PUBLIC, 'flat3d', pm[1], pm[2]))) { res.writeHead(200, { 'content-type': mime[path.extname(u)] || 'application/octet-stream', ...cors }); fs.createReadStream(path.join(PUBLIC, 'flat3d', pm[1], pm[2])).pipe(res); return; }
   // фото товаров новой витрины, ещё не выложенной на прод (`-art.jpg` новых картин): DEMO_LOCAL_DIR=<папка витрины> — файл оттуда, нет — с сайта
-  const lm = process.env.DEMO_LOCAL_DIR && u.match(/^\/demo\/(img\/[A-Za-z0-9._-]+)$/);
-  if (lm && fs.existsSync(path.join(process.env.DEMO_LOCAL_DIR, lm[1]))) { res.writeHead(200, { 'content-type': mime[path.extname(u)] || 'application/octet-stream', ...cors }); fs.createReadStream(path.join(process.env.DEMO_LOCAL_DIR, lm[1])).pipe(res); return; }
+  const lm = DEMO_IMG_DIR && u.match(/^\/demo\/(img\/[A-Za-z0-9._-]+)$/);
+  if (lm && fs.existsSync(path.join(DEMO_IMG_DIR, lm[1]))) { res.writeHead(200, { 'content-type': mime[path.extname(u)] || 'application/octet-stream', ...cors }); fs.createReadStream(path.join(DEMO_IMG_DIR, lm[1])).pipe(res); return; }
   const m = u.match(/^\/test\/mesh-pilot10\/([^/]+)\/model\.glb$/);
   if (m && fs.existsSync(path.join(CACHE, m[1] + '.glb'))) { res.writeHead(200, { 'content-type': 'model/gltf-binary', ...cors }); fs.createReadStream(path.join(CACHE, m[1] + '.glb')).pipe(res); return; }
+  // меш, которого нет в кэше (кэш держит ~150 свежих), — из галереи на диске (тот же файл, что отдаёт сайт), не по сети (5 МБ на предмет)
+  if (LOCAL && m && fs.existsSync(path.join(GALLERY, m[1], 'model.glb'))) { res.writeHead(200, { 'content-type': 'model/gltf-binary', ...cors }); fs.createReadStream(path.join(GALLERY, m[1], 'model.glb')).pipe(res); return; }
   REMOTE_STAT.local--; REMOTE_STAT.n++;
   if (process.env.DUMP_URLS) fs.appendFileSync(process.env.DUMP_URLS, `remote ${req.url}\n`);        // отладка: какие адреса уходят в сеть (ключи кэша, трасса)
   const tRem = Date.now();
@@ -81,7 +90,7 @@ try { runtime = JSON.parse(await new Promise((res, rej) => https.get({ host: REM
   (r) => { let s = ''; r.on('data', (c) => { s += c; }); r.on('end', () => res(s)); }).on('error', rej))).meshes; } catch (e) { console.log('rt-meshes.json не получен:', String(e).slice(0, 100)); }
 tr('rt_meshes_fetch');
 const lite = extra.lite === '1';       // телефон: LITE_QUALITY, лёгкие карты
-const sceneArgs = { room, items: v.items, decor, base: `http://127.0.0.1:${port}/demo/`, runtime, lite, cams: v.cams || [], style: v.style };
+const sceneArgs = { room, items: v.items, decor, base: `http://127.0.0.1:${port}/demo/`, runtime, lite, cams: v.cams || [], style: v.style, settle: extra.settle !== '0' };
 const info = await page.evaluate((a) => window.buildDemoScene(a), sceneArgs);
 tr('build_scene');
 for (const m of (info.trace || [])) console.log(`TRACE page ${m.name} ${m.s}`);
