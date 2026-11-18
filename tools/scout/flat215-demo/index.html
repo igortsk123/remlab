@@ -6353,6 +6353,8 @@ const CTA_REAL='Сделать фото', CTA_REAL_EN='Take photo';
 // «СДЕЛАТЬ ФОТО» = РЕНДЕР, «УЛУЧШИТЬ ФОТО» = НЕЙРОСЕТЬ ПОВЕРХ РЕНДЕРА (T-20261117-20/2, владелец 17.11 TG 1665–1670): две кнопки, два слова, одно
 // место (кнопка шторки). Слова хода и ошибки — дословно владельца: «Делаю фото · N %» / «Улучшаю · N %»; ошибка — TG 1667, без «бесплатно»
 const CTA_IMPROVE=['Улучшить фото','Enhance photo'];
+// малый телефон: «Улучшить» — значок-искры (А, как есть) или значок + короткое слово (Б). Выбор владельца ещё не сделан (T-20261117-20/4): Б включается ?impw=1, по умолчанию — А
+const CTA_IMPROVE_SHORT=['Улучшить','Enhance'], IMP_WORD=(()=>{try{return /[?&]impw=1\b/.test(location.search);}catch(e){return false;}})();
 const PHOTO_ERR_TXT=['Расстановка сохранена, но что-то пошло не так. Попробуйте ещё раз.','Your layout is saved, but something went wrong. Please try again.'];
 const PHOTO_RETRY=['Повторить','Try again'];
 // ЗАМЕНА МЯГКОГО (владелец 23.10): в 3D подушки нет — обычный затухающий тост «Нажмите «<кнопка>», чтобы увидеть изменения»
@@ -9996,6 +9998,10 @@ div.vcth{background:var(--wash)}
   #shot .vsumrow>.vcta.vico{flex:none;width:40px;height:40px;min-height:40px;margin:0;padding:0;border-radius:50%;border:1px solid var(--line);
    background:rgba(255,255,255,.92);color:var(--ink);box-shadow:var(--e3);display:flex;align-items:center;justify-content:center;overflow:visible}
   #shot .vsumrow>.vcta.vico svg{display:block}
+  /* вариант Б (?impw=1, T-20261117-20/4): «Улучшить» — значок и короткое слово в одной таблетке той же высоты; название справа ужимается многоточием, а не наезжает */
+  #shot .vsumrow>.vcta.vico.vword{flex-direction:row;width:auto;max-width:132px;padding:0 13px 0 10px;border-radius:999px;gap:5px;font-size:13.5px;font-weight:600;white-space:nowrap}
+  #shot .vsumrow>.vcta.vico.vword svg{width:18px;height:18px;flex:none}
+  #shot .vsumrow>.vcta.vico.vword .vico-w{display:inline;line-height:1}
   #shot .vsumrow>.vcta.vico.busy{cursor:default;color:var(--accent);
    background:radial-gradient(closest-side,#fff 80%,transparent 83%),conic-gradient(var(--accent) calc(var(--p,0)*1%),var(--line) 0)}
   #shot .vsumrow>.vcta-err{flex:1 0 calc(100% - 24px);width:auto;margin:4px 10px 2px 14px;box-sizing:border-box;align-items:stretch}
@@ -11865,8 +11871,9 @@ function vwCtaUi(){
   const jp=VJ.job?jobProg(VJ.job):null;
   if(ico){const lab=jp?jp.text:lab0;   // подпись — и ход задания
     // значок: камера — «Сделать фото», искры — «Улучшить фото» и ход улучшения (T-20261117-20/2: на малом телефоне подпись только в `aria-label`)
-    const ik=(jp?VJ.job.kind==='improve':kind==='improve')?'s':'c';
-    cta.classList.toggle('busy',!!jp); if(!cta.querySelector('svg')||cta.dataset.ik!==ik){cta.innerHTML=ik==='s'?VW_SPARK_SVG:VW_CAM_SVG; cta.dataset.ik=ik;}
+    const spark=jp?VJ.job.kind==='improve':kind==='improve', word=spark&&!jp&&IMP_WORD, ik=spark?(word?'w':'s'):'c';
+    cta.classList.toggle('busy',!!jp); cta.classList.toggle('vword',word);
+    if(!cta.querySelector('svg')||cta.dataset.ik!==ik){cta.innerHTML=ik==='c'?VW_CAM_SVG:VW_SPARK_SVG+(word?'<span class="vico-w">'+CTA_IMPROVE_SHORT[EN?1:0]+'</span>':''); cta.dataset.ik=ik;}
     cta.style.setProperty('--p',jp?jp.pct.toFixed(1):'0'); cta.setAttribute('aria-label',lab); cta.title=lab;
     if(jp)cta.dataset.left=jp.left;}
   else if(m==='plan'){cta.classList.remove('busy'); cta.textContent=EN?'Edit the plan':'Изменить план';}
