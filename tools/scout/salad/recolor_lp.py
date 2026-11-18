@@ -62,8 +62,14 @@ NEUTRAL_C = 8.0         # цель с хромой фото ≤ 8 — «нейт
 PROTECT_DE = 15.0       # неправимый участок (ручки, ножки, фурнитура, мелкое), чей цвет дальше этого от всех правимых, — охраняется: поправка в его цвете гасится
 PROTECT_AREA = 0.001    # охраняем участки не меньше этой доли видимого (пыль кластеров не считаем)
 ELIGIBLE = ('правим', 'рисунок')   # статусы `color_o2.zones`, которые правим (рисунок — тоже: деталь сохраняется)
-FONT = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 20)
-FONT_S = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 16)
+def _font(px: int):
+    for p in ('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', '/usr/share/fonts/TTF/DejaVuSans.ttf'):
+        if os.path.exists(p):
+            return ImageFont.truetype(p, px)
+    return ImageFont.load_default()      # в CI шрифта может не быть — тесту подписи не нужны
+
+
+FONT, FONT_S = _font(20), _font(16)
 
 
 # ── цвет ───────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -473,6 +479,24 @@ def render_unlit(glb: str, yaw: float, pitch: float, size: int) -> Image.Image:
             os.environ['UNLIT'] = prev
 
 
+def judge(was: dict, now: dict, hp_corr: float, cover: float, strict_ok: bool, zwhy: list | None = None) -> str:
+    """Вердикт по числам «было/стало» (чистая функция — проверяется тестом без мешей): отказ предфильтра / самопроверка / сомнительно / ok / частично."""
+    if not strict_ok:
+        whys = '; '.join(sorted({z['why'].split(' (')[0].split(':')[0] for z in (zwhy or [])}))
+        return 'отказ предфильтра (%s) — стало посчитано ПРИНУДИТЕЛЬНО для сверки' % (whys or 'правимо <30 %')
+    if now['de_med'] > was['de_med'] + 0.5:
+        return 'отказ: самопроверка — ΔE00 стало хуже (%s → %s), результат не принимать' % (was['de_med'], now['de_med'])
+    if now['reg_dC_med'] > was['reg_dC_med'] + 3.0 and now['reg_dC_med'] > 8.0:
+        return 'отказ: самопроверка — насыщенность ушла дальше от фото (|ΔC*| по областям %s → %s)' % (was['reg_dC_med'], now['reg_dC_med'])
+    if now['de_med'] > 5.0 and now['de_med'] > IMPROVE_OK * was['de_med']:
+        return 'сомнительно: ΔE00 улучшилось слабо (%s → %s, нужно ≤ %.0f %% от было) — глазами до применения' % (was['de_med'], now['de_med'], 100 * IMPROVE_OK)
+    if hp_corr < HP_RENDER_MIN:
+        return 'сомнительно: рисунок на рендере заметно изменился (корреляция деталей %s < %s) — глазами до применения' % (hp_corr, HP_RENDER_MIN)
+    if cover >= COVER_OK:
+        return 'ok'
+    return 'частично (правим %.0f %% видимого)' % (100 * cover)
+
+
 def process(sku: str, gen: str, role: str, out: str, k: int, shift_scale: float = 1.0, force: bool = False) -> dict:
     import mesh_render as MR
     sid = sku.replace(':', '_')
@@ -535,21 +559,7 @@ def process(sku: str, gen: str, role: str, out: str, k: int, shift_scale: float 
     Y = np.array([0.2126, 0.7152, 0.0722], np.float32)
     h0, h1 = _hp(s2l(base) @ Y), _hp(s2l(base1) @ Y)
     r['render_hp_corr'] = round(float(np.corrcoef(h0[both], h1[both])[0, 1]), 4)
-    if not strict_ok:
-        whys = '; '.join(sorted({z['why'].split(' (')[0].split(':')[0] for z in zrep if z.get('why') and z['area'] >= 0.1}))
-        r['status'] = 'отказ предфильтра (%s) — стало посчитано ПРИНУДИТЕЛЬНО для сверки' % (whys or 'правимо <30 %')
-    elif r['now']['de_med'] > r['was']['de_med'] + 0.5:
-        r['status'] = 'отказ: самопроверка — ΔE00 стало хуже (%s → %s), результат не принимать' % (r['was']['de_med'], r['now']['de_med'])
-    elif r['now']['reg_dC_med'] > r['was']['reg_dC_med'] + 3.0 and r['now']['reg_dC_med'] > 8.0:
-        r['status'] = 'отказ: самопроверка — насыщенность ушла дальше от фото (|ΔC*| по областям %s → %s)' % (r['was']['reg_dC_med'], r['now']['reg_dC_med'])
-    elif r['now']['de_med'] > 5.0 and r['now']['de_med'] > IMPROVE_OK * r['was']['de_med']:
-        r['status'] = 'сомнительно: ΔE00 улучшилось слабо (%s → %s, нужно ≤ %.0f %% от было) — глазами до применения' % (r['was']['de_med'], r['now']['de_med'], 100 * IMPROVE_OK)
-    elif r['render_hp_corr'] < HP_RENDER_MIN:
-        r['status'] = 'сомнительно: рисунок на рендере заметно изменился (корреляция деталей %s < %s) — глазами до применения' % (r['render_hp_corr'], HP_RENDER_MIN)
-    elif cover >= COVER_OK:
-        r['status'] = 'ok'
-    else:
-        r['status'] = 'частично (правим %.0f %% видимого)' % (100 * cover)
+    r['status'] = judge(r['was'], r['now'], r['render_hp_corr'], cover, strict_ok, [z for z in zrep if z.get('why') and z['area'] >= 0.1])
     r['secs'] = round(time.time() - t0, 1)
     # кадр «фото | было | стало»
     frame(out, k, sku, role, glb, dst, yaw, pitch, P, r)
