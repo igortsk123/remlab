@@ -50,7 +50,10 @@ BIL_COLOR = 10.0        # σ по цвету (единицы Lab)
 BIL_SPACE = 5.0         # σ по пространству (пиксели рабочей копии)
 RATIO_MIN, RATIO_MAX = 0.2, 5.0
 HP_SIGMA = 3.0          # σ размытия при выделении высокочастотного остатка (пиксели полной текстуры)
-DARK_L = 12.0           # участок темнее (Lab L меша) — отказ: в текстуре нет сигнала, множитель усиливает шум (проба 1: тумба 17 → пятна)
+DOMINANT = 0.7          # участок крупнее этой доли видимого без пары — пара «весь товар на фото» (с проверкой согласия светлот)
+IMPROVE_OK = 0.65      # «ok» только если ΔE00 по пикселям ≤ 5 или упало до ≤ 65 % от «было» (T-52/3/1: комод 46, пуф 12 — «ok» при −11…−23 %, на глаз хуже)
+HP_RENDER_MIN = 0.85    # корреляция высоких частот рендера «было/стало» ниже — рисунок изменился (пуф 12: 0,59 — полосы поплыли)
+DARK_L = 8.0          # участок темнее (Lab L меша) — отказ: в текстуре нет сигнала, множитель усиливает шум (проба 1: тумба 17 → пятна)
 MATE_AREA_MIN = 0.5     # пара кластеров фото должна накрывать ≥ 50 % пикселей участка меша (белое снаружи ≠ серое нутро, тумба 11)
 MATE_L_TOL = 15.0       # пиксели фото под участком: светлота в пределах ±15 от медианы…
 MATE_HOMOG = 0.65       # …у ≥ 65 % пикселей, иначе под участком на фото два разных места — цель неоднозначна
@@ -367,14 +370,18 @@ def build_field(base, ralpha, prgb, pmask, tm, metals, shift_scale: float = 1.0,
 
     for z in info:
         i = z['i']
-        row = {'i': i, 'area': z['area'], 'st': z['st'], 'lab': z['lab'], 'need_stops': z.get('need')}
+        st = z['st']
+        mates = list(z.get('mates') or [])
+        if st == 'нет пары на фото' and z['area'] >= DOMINANT:          # единственный крупный участок без пары: пара — весь товар на фото
+            st, mates = 'правим', list(range(len(PC)))                     # (пуф 34: однотонный, на фото светотень — кластеры не «сошлись» с цветом меша)
+        row = {'i': i, 'area': z['area'], 'st': st, 'lab': z['lab'], 'need_stops': z.get('need')}
         why = None
-        if z['st'] not in ELIGIBLE:
-            why = None if z['st'] == 'мелкий' else z['st']                    # «не тот материал», «нет пары на фото», металл… — не правим
+        if st not in ELIGIBLE:
+            why = None if st == 'мелкий' else st                            # «не тот материал», «нет пары на фото», металл… — не правим
         elif z['lab'][0] < DARK_L:
             why = 'тёмная текстура (L меша %.0f < %.0f): сигнала нет, усилится шум' % (z['lab'][0], DARK_L)
-        reg = both & (cl == i) & np.isin(pcl, z.get('mates') or []) if (z['st'] in ELIGIBLE or z['st'] == 'не тот материал') else None
-        if z['st'] in ELIGIBLE and why is None:
+        reg = both & (cl == i) & np.isin(pcl, mates) if (st in ELIGIBLE or st == 'не тот материал') else None
+        if st in ELIGIBLE and why is None:
             zpx = int((both & (cl == i)).sum())
             if reg.sum() < 50:
                 why = 'нет пары на фото'
@@ -387,7 +394,7 @@ def build_field(base, ralpha, prgb, pmask, tm, metals, shift_scale: float = 1.0,
                     why = 'на фото под участком разные светлоты (согласие %.0f %% < %.0f %%) — пара неоднозначна' % (100 * homog, 100 * MATE_HOMOG)
         if why:
             row['why'] = why
-        if z['st'] in ELIGIBLE and why is None:
+        if st in ELIGIBLE and why is None:
             if True:
                 tp, tm_, s, capped = calc(z, reg)
                 cs.append(np.asarray(C[i], np.float32)); sg.append(z.get('spread') or CO.SIGMA_DE); sh.append(s)
@@ -533,6 +540,12 @@ def process(sku: str, gen: str, role: str, out: str, k: int, shift_scale: float 
         r['status'] = 'отказ предфильтра (%s) — стало посчитано ПРИНУДИТЕЛЬНО для сверки' % (whys or 'правимо <30 %')
     elif r['now']['de_med'] > r['was']['de_med'] + 0.5:
         r['status'] = 'отказ: самопроверка — ΔE00 стало хуже (%s → %s), результат не принимать' % (r['was']['de_med'], r['now']['de_med'])
+    elif r['now']['reg_dC_med'] > r['was']['reg_dC_med'] + 3.0 and r['now']['reg_dC_med'] > 8.0:
+        r['status'] = 'отказ: самопроверка — насыщенность ушла дальше от фото (|ΔC*| по областям %s → %s)' % (r['was']['reg_dC_med'], r['now']['reg_dC_med'])
+    elif r['now']['de_med'] > 5.0 and r['now']['de_med'] > IMPROVE_OK * r['was']['de_med']:
+        r['status'] = 'сомнительно: ΔE00 улучшилось слабо (%s → %s, нужно ≤ %.0f %% от было) — глазами до применения' % (r['was']['de_med'], r['now']['de_med'], 100 * IMPROVE_OK)
+    elif r['render_hp_corr'] < HP_RENDER_MIN:
+        r['status'] = 'сомнительно: рисунок на рендере заметно изменился (корреляция деталей %s < %s) — глазами до применения' % (r['render_hp_corr'], HP_RENDER_MIN)
     elif cover >= COVER_OK:
         r['status'] = 'ok'
     else:
