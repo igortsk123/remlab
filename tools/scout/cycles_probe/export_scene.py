@@ -28,6 +28,19 @@ _T0 = time.time()
 _ACC: dict = {}
 
 
+# ОТДЕЛКА ПО УМОЛЧАНИЮ (T-20261118-03/9): у комнаты тура паспорта отделки нет (он из карточки квартиры застройщика, у /demo есть) — Blender падал на
+# `M['finish']['wall']` до первого кадра. Набор тот же, что у страницы: `lib/viewer3d/finish-passport.ts:DEFAULT_FINISH` (сверка — `tests/test_export_finish_default.py`).
+DEFAULT_FINISH = {'wall': {'id': 'paint-white', 'colorHex': '#f2f0ed'}, 'floor': {'id': 'demo-floor', 'colorHex': '#dcc7a6'},
+                  'ceiling': {'id': 'ceiling-white', 'colorHex': '#f6f5f2'}, 'skirting': {'id': 'skirting-white', 'colorHex': '#f4f2ee'}}
+
+
+def with_default_finish(fin) -> dict:
+    """Паспорт комнаты, где каждой поверхности без своего цвета ставится цвет по умолчанию; свои поверхности (и `floor.tex`) не трогаем."""
+    fin = fin if isinstance(fin, dict) else {}
+    return {k: (fin[k] if isinstance(fin.get(k), dict) and fin[k].get('colorHex') else {**d, **({'tex': fin[k]['tex']} if isinstance(fin.get(k), dict) and fin[k].get('tex') else {})})
+            for k, d in DEFAULT_FINISH.items()}
+
+
 def trace(name):
     print(f'TRACE py {name} {time.time() - _T0:.2f}', flush=True)
 
@@ -305,7 +318,7 @@ def main_export(D, idx, out):
         SM.raster_mesh, DR._paste_rug, DR._paint_wall_plane = o_r, o_p, o_w
     trace('scene3d_frame')
 
-    fin = getattr(room, 'finish', None) or {}
+    fin = with_default_finish(getattr(room, 'finish', None))
     floor_tex = ((fin.get('floor') or {}).get('tex'))
     floor_rel = None
     if floor_tex:
