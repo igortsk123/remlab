@@ -131,7 +131,7 @@ def london_date(now: float) -> str:
 def new_state() -> dict:
     return {'desired': 'off', 'gen': 0, 'by': None, 'at': 0, 'on_at': 0, 'running_since': 0, 'last_activity': 0, 'busy_until': 0, 'last_tick': 0, 'last_start_try': 0,
             'accrued_ts': 0, 'spent_date': '', 'spent_usd': 0.0, 'warm_gen': 0, 'degraded_since': 0, 'restarts': 0, 'stop_reason': '', 'stop_notified_gen': 0,
-            'ready_since': 0, 'probe_sec': None, 'slow': False}
+            'ready_since': 0, 'probe_sec': None, 'slow': False, 'frames': ['png']}
 
 
 def _acc(s: dict, now: float, paying: bool, price: float) -> None:
@@ -143,6 +143,13 @@ def _acc(s: dict, now: float, paying: bool, price: float) -> None:
     if paying and s['accrued_ts'] and now > s['accrued_ts']:
         s['spent_usd'] = round(s['spent_usd'] + (min(now, s['accrued_ts'] + 600) - s['accrued_ts']) / 3600 * price, 5)
     s['accrued_ts'] = now if paying else 0
+
+
+def caps_frames(ready: dict) -> list:
+    """Форматы кадров, которые воркер заявил в ready.json (`caps.frames`); нет поля или мусор — ['png'] (образ до T-24/11)."""
+    fr = (ready.get('caps') or {}).get('frames') if isinstance(ready.get('caps'), dict) else None
+    ok = [f for f in fr if f in ('png', 'jpg')] if isinstance(fr, list) else []
+    return ok or ['png']
 
 
 def probe_sec_of(ready: dict) -> float | None:
@@ -187,6 +194,7 @@ def plan(state: dict, obs: dict, rules: dict, now: float) -> tuple[dict, list]:
         p = probe_sec_of(ready)
         s['probe_sec'] = p
         s['slow'] = p is not None and p > rules['slow_probe_sec']
+        s['frames'] = caps_frames(ready)       # T-24/11: какие форматы кадров умеет воркер машины (нет поля — старый образ, только png)
         acts.append(('say', f"узел: проба {p} с — " + (f"МЕДЛЕННЫЙ (порог {rules['slow_probe_sec']} с)" if s['slow'] else 'норма')))
     hot_wait = is_ready and hot_pending(ready) and (now - s['ready_since']) / 60 < rules['hot_wait_max_min']
 
@@ -440,7 +448,7 @@ def cmd_on(a, rules) -> str:
             b.save()
             return tr('on_already', a.lang, st=obs['status'])
         if obs['status'] in LIVE:                         # жива мимо контроллера — берём под управление без перезапуска
-            s.update(desired='on', gen=s['gen'] + 1, by=a.by, at=now, on_at=now, last_activity=now, running_since=0, warm_gen=0, ready_since=0, probe_sec=None, slow=False,
+            s.update(desired='on', gen=s['gen'] + 1, by=a.by, at=now, on_at=now, last_activity=now, running_since=0, warm_gen=0, ready_since=0, probe_sec=None, slow=False, frames=['png'],
                      degraded_since=0, restarts=0, stop_reason='')
             b.save()
             return tr('on_already', a.lang, st=obs['status'])
@@ -450,7 +458,7 @@ def cmd_on(a, rules) -> str:
             return tr('on_error', a.lang, why=f'{type(e).__name__}: {str(e)[:120]}')
         if why == 'image':
             return tr('on_refused_image', a.lang, g=rules['group'])
-        s.update(desired='on', gen=s['gen'] + 1, by=a.by, at=now, on_at=now, last_activity=now, running_since=0, warm_gen=0, ready_since=0, probe_sec=None, slow=False, degraded_since=0,
+        s.update(desired='on', gen=s['gen'] + 1, by=a.by, at=now, on_at=now, last_activity=now, running_since=0, warm_gen=0, ready_since=0, probe_sec=None, slow=False, frames=['png'], degraded_since=0,
                  restarts=0, stop_reason='', last_start_try=now, accrued_ts=now)
         b.save()
         beat_server(rules, now)

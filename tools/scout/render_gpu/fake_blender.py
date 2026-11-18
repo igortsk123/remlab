@@ -16,5 +16,11 @@ if mode == 'fail':
 from PIL import Image  # noqa: E402  (в тестах PIL есть; воркер на машине эту подмену не запускает)
 for i, c in enumerate(cams):
     time.sleep(float(os.environ.get('FAKE_FRAME_S', '0.3')) if mode != 'slow' else 60)
-    Image.new('RGB', (64, 48), (40 + i * 60, 90, 140)).save(out.replace('{cam}', c))
+    im = Image.new('RGB', (64, 48), (40 + i * 60, 90, 140))
+    if '--jpeg-quality' in a:            # T-24/11: как render_cycles.py — JPEG нужного качества; --also-png — ещё и PNG из того же результата
+        im.save(out.replace('{cam}', c), 'JPEG', quality=int(a[a.index('--jpeg-quality') + 1]))
+        if '--also-png' in a:
+            im.save(a[a.index('--also-png') + 1].replace('{cam}', c), 'PNG')
+    else:
+        im.save(out.replace('{cam}', c))
     print(f'RENDER_SEC {1.5 + i:.1f} cam {c} frame {i + 1}/{len(cams)} samples 64 pct 75 device CUDA threads 4', flush=True)

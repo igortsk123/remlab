@@ -35,6 +35,8 @@ PROTO = 1
 PROTO2 = 2
 SUPPORTED = (PROTO, PROTO2)
 CAMS = ('C1', 'C2')
+FRAMES = ('png', 'jpg', 'both')     # формат кадров с машины (T-24/11): png — как раньше; jpg — кодирует Blender; both — jpg и png из одного результата (ТОЛЬКО приёмка ΔE)
+FRAMES_CAPS = ('png', 'jpg')       # что умеет воркер (машина заявляет в ready.json: caps.frames); `both` — отладочный, в заявку не входит
 UA = 'remlab-render/1.0'
 
 
@@ -243,7 +245,7 @@ def _arg_ok(a) -> bool:
 _BUNDLE1 = re.compile(r'^bundle-[0-9a-f]{12}\.tgz$')
 _BUNDLE2 = re.compile(r'^bundle-[0-9a-f]{16}\.tgz$')
 # флаги, которые воркер ставит сам — задание не может подменить пути и сцену своими
-OWN_FLAGS = {'--scene-dir', '--out', '--cam', '--demo-glb', '--demo-nodes', '--export', '--public', '--device', '--persistent'}
+OWN_FLAGS = {'--scene-dir', '--out', '--cam', '--demo-glb', '--demo-nodes', '--export', '--public', '--device', '--persistent', '--jpeg-quality', '--also-png'}
 
 
 def valid_rel_path(p) -> bool:
@@ -299,11 +301,19 @@ def parse_hot(obj) -> list:
     return out
 
 
-def new_job2(job_id: str, bundle: dict, assets: list, args: list, limits: dict, render: str, cams=CAMS, now=None) -> dict:
+def new_job2(job_id: str, bundle: dict, assets: list, args: list, limits: dict, render: str, cams=CAMS, now=None, frames: str = 'png', jpeg_q: int = 92) -> dict:
     """fmt 2: `bundle` = {name, sha256, size} маленького пакета; `assets` — список `asset_ref`; `render` — хеш версий рендера (диагностика и сверка)."""
-    return {'v': PROTO2, 'job_id': job_id, 'schema': PROTO2, 'render': str(render)[:32], 'manifest_sha': manifest_sha(bundle, assets),
-            'bundle': {k: bundle[k] for k in ('name', 'sha256', 'size')}, 'assets': [dict(a) for a in assets], 'cams': list(cams),
-            'args': [str(a) for a in args], 'limits': dict(limits), 'created': round(now if now is not None else time.time(), 1)}
+    job = {'v': PROTO2, 'job_id': job_id, 'schema': PROTO2, 'render': str(render)[:32], 'manifest_sha': manifest_sha(bundle, assets),
+           'bundle': {k: bundle[k] for k in ('name', 'sha256', 'size')}, 'assets': [dict(a) for a in assets], 'cams': list(cams),
+           'args': [str(a) for a in args], 'limits': dict(limits), 'created': round(now if now is not None else time.time(), 1)}
+    if frames != 'png':
+        job['frames'], job['jpeg_q'] = frames, int(jpeg_q)            # нет поля = png (старые воркеры его не знают: шлём только машине, заявившей caps.frames)
+    return job
+
+
+def frame_names(frames: str, cam: str) -> list:
+    """Имена файлов кадра в каталоге задания по формату: имя = формат (`C1.jpg` — JPEG, `C1.png` — PNG)."""
+    return {'png': [f'{cam}.png'], 'jpg': [f'{cam}.jpg'], 'both': [f'{cam}.jpg', f'{cam}.png']}[frames]
 
 
 def _num(x, lo, hi) -> bool:
@@ -343,8 +353,12 @@ def validate_job(job: dict, expect_id: str | None = None) -> str:
             return 'имя пакета'
         return _common_check(job)
     # v = 2
-    if set(job) - {'v', 'job_id', 'schema', 'render', 'manifest_sha', 'bundle', 'assets', 'cams', 'args', 'limits', 'created'}:
+    if set(job) - {'v', 'job_id', 'schema', 'render', 'manifest_sha', 'bundle', 'assets', 'cams', 'args', 'limits', 'created', 'frames', 'jpeg_q'}:
         return 'лишние поля'
+    if 'frames' in job and job['frames'] not in FRAMES:
+        return 'формат кадров'
+    if 'jpeg_q' in job and ('frames' not in job or not isinstance(job['jpeg_q'], int) or isinstance(job['jpeg_q'], bool) or not 50 <= job['jpeg_q'] <= 100):
+        return 'качество JPEG'
     if job.get('schema') != PROTO2:
         return 'версия схемы'
     b = job.get('bundle')
