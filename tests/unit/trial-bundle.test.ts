@@ -79,6 +79,12 @@ describe("форма и связи", () => {
     const goods = { name: "Диван Викс", name_en: "Viks sofa", msid: "m", price: 25990, img: "img/833aa090526a8096.jpg",
       url: "https://xf.gdeslon.ru/cm/d96529b09e/?mid=112923&goto=https%3A%2F%2Fwww.divan.ru%2Fp&erid=2SDn", shop: "divan.ru" };
     expect(problem({ variants: [withSku(goods)], apartment_rooms: ready, feeds: { диван: [goods] } })).toBeNull();
+    // публичный ключ товара `pid` (T-20261118-03/9): на месте товара и вида `p1:` + 24 hex; у самого предмета, чужого вида или с `sid` — нет
+    const pid = "p1:" + "0123456789abcdef01234567";
+    expect(problem({ variants: [withSku({ name: "Ковёр", msid: null, pid })], apartment_rooms: ready, feeds: { ковёр: [{ name: "Ковёр", pid }] } })).toBeNull();
+    for (const bad of ["1_2", "p1:XYZ", "P1:" + "0123456789abcdef01234567", 7])
+      expect(problem({ variants: [withSku({ name: "Ковёр", pid: bad })], apartment_rooms: ready })).toBe("shop_field");
+    expect(problem({ variants: [{ ...v, pending: false, furniture_state: "ready", items: [{ role: "ковёр", x: 1, y: 2, pid }] }], apartment_rooms: ready })).toBe("shop_field");
     expect(problem({ variants: [withSku({ name: "Диван", url: "http://x.example/a" })], apartment_rooms: ready })).toBe("shop_field");
     expect(problem({ variants: [withSku({ name: "Диван", url: "javascript:alert(1)" })], apartment_rooms: ready })).toBe("shop_field");
     expect(problem({ variants: [withSku({ name: "Диван", price: "1" })], apartment_rooms: ready })).toBe("shop_field");

@@ -65,19 +65,6 @@ def save_state(state: dict, path: str | None = None) -> None:
     os.replace(tmp, path)
 
 
-def adapt_tour(o):
-    """Публичный бандл тура НЕ несёт `sid` товара (правило `trial_bundle.py:NEVER_KEYS`), только `msid` (файл меша) — снимок заказа его не принимает (`bad_item`, открытая задача «контракт по msid»,
-    T-20261118-20/3). Для сторожа достаточно того, что сцену собирают по `msid`, поэтому здесь, в копии данных, `sid := msid`. Когда заказ из тура научится принимать бандл как есть — убрать."""
-    if isinstance(o, dict):
-        d = {k: adapt_tour(v) for k, v in o.items()}
-        if d.get('msid') and not d.get('sid'):
-            d['sid'] = d['msid']
-        return d
-    if isinstance(o, list):
-        return [adapt_tour(v) for v in o]
-    return o
-
-
 def snaps(data: dict, source: str, label: str) -> tuple:
     """Снимки ВСЕХ вариантов данных (как заказ без своей расстановки) → ([(источник, метка, снимок)], [(источник, метка, код отказа)]). Отказ снимка — не «чисто»: комнату заказать нельзя
     или нельзя проверить — своя строка в журнале."""
@@ -106,7 +93,7 @@ def build_scenes(tours: int, demo_only: bool, log=print) -> tuple:
     if not demo_only:
         for label, path in SA.tour_sources(SA.REISSUE_ROOT, tours or None):
             try:
-                o, b = snaps(adapt_tour(json.load(open(path, encoding='utf-8'))), 'tour', label)
+                o, b = snaps(json.load(open(path, encoding='utf-8')), 'tour', label)
                 ok, bad = ok + o, bad + b
             except (OSError, ValueError) as e:
                 log(f'  {label}: данные не читаются ({e})')

@@ -31,6 +31,6 @@ last_verified: 2026-11-17
 **Сторож кадров:** `tools/scout/cycles_probe/frame_qa.py` — ворота в заказе (`render_exec.RenderBrak`, выкл `RENDER_QA_GATE=0`), ночной
 шаг `tools/scout/render_gpu/qa_night.py` (03:10). План `plans/render-qa-gate-01.md`.
 
-**Открыто:** заказ из ТУРА — `bad_item`: снимок ищет по `sid`, бандл тура его не несёт (`tools/scout/trial_bundle.py` `NEVER_KEYS`), у ковров
-нет и `msid` → публичный ключ товара `sku.pid` (решение по Codex 18.11 — playbook § «День 18.11», T-20261118-03/9); перевод боевой на
-образ с `qa_reports` (m11). Подробно — `domain/viz-fidelity-playbook.md` § «Фото по кнопке». Уроки 697–706.
+**Заказ из тура:** публичный ключ товара `sku.pid` (`tools/scout/trial_bundle.py:pid_of`), снимок ищет по `sid` или `pid`
+(`tools/scout/render_snapshot.py:pid_index`), ковёр/картина/зеркало без меша — по `ref`; отделка по умолчанию (`export_scene.with_default_finish`).
+Живые туры получат `pid` перевыпуском с `--carry-pids-by-img`. Подробно — `domain/viz-fidelity-playbook.md`. Уроки 697–706.

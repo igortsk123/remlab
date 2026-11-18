@@ -16,7 +16,8 @@
 Комната-цель, которой в прежней версии нет (новый код признал её гостиной/спальней), а подбор для неё не делался, — честный отказ
 `reissue_no_source` (пустая комната с текстом), а не вечное «подбирается».
 
-  ~/venvs/scout/bin/python trial_reissue.py <job_id> <result.json> <bundle-прежний.json> --out <bundle-новый.json>
+  ~/venvs/scout/bin/python trial_reissue.py <job_id> <result.json> <bundle-прежний.json> --out <bundle-новый.json> [--carry-pids-by-img]
+  `--carry-pids-by-img`: `sku.pid` у перенесённых предметов по плитке фото (только при одном `sid` на фото; `TB.carried_pids`), без флага — как раньше
 Код выхода: 0 — собрано (отчёт JSON-строкой в stdout: что пересобрано, что осталось прежним), 2 — отказ (причина JSON-строкой).
 """
 from __future__ import annotations
@@ -167,6 +168,10 @@ def reissue(job_id: str, result: dict, old: dict, ctx: dict | None = None) -> tu
     # переключатель — тот же, что у живых полей сцены сборки (`scene_live`)
     if ctx.get('scene_live'):
         report['carried_fams'] = TB.carried_fams(variants, demo, ctx.get('fam_rep'))
+    # публичный ключ товара `pid` у перенесённых предметов (тур собран до T-20261118-03/9; без него заказ фото не назовёт ковёр/картину) —
+    # ТОЛЬКО по флагу `--carry-pids-by-img` (решение директора: по умолчанию догадок по картинке/названию нет): `TB.carried_pids`
+    if ctx.get('carry_pids_by_img'):
+        report['carried_pids'] = TB.carried_pids(variants, demo, (ctx.get('catalog_tiles') or TB.catalog_tiles)())
     # ленты — как у сборщика: /demo под слот комнаты (T-37), `feeds_short` — в отчёт перевыпуска; места перенесённых предметов —
     # свободное место в коробке комнаты, полоса «по размеру» страницы — от места (T-40)
     bands: dict = {}
@@ -194,6 +199,9 @@ def reissue(job_id: str, result: dict, old: dict, ctx: dict | None = None) -> tu
 def main() -> int:
     args = sys.argv[1:]
     out = TB._arg(args, '--out')
+    by_img = '--carry-pids-by-img' in args
+    if by_img:
+        args.remove('--carry-pids-by-img')
     if len(args) != 3 or not out:
         print(__doc__)
         return 0
@@ -201,7 +209,9 @@ def main() -> int:
     result = json.load(open(result_path, encoding='utf-8'))
     old = json.load(open(old_path, encoding='utf-8'))
     try:
-        data, report = reissue(job_id, result, old)
+        ctx = TB.default_ctx()
+        ctx['carry_pids_by_img'] = by_img
+        data, report = reissue(job_id, result, old, ctx)
     except TB.BundleRefused as e:
         print(json.dumps({'refusal': e.code, 'detail': e.detail}, ensure_ascii=False))
         return 2

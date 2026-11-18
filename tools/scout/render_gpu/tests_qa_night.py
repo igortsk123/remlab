@@ -1,5 +1,5 @@
 """Тесты НОЧНОГО ШАГА сторожа без рендера (`qa_night.py`, T-20261118-03/8): порядок и вердикты, брак по классам и слотам, дубль сцены, сбой сборки не роняет ночь, «снимок не принят» — своя строка,
-потолок времени («не дошли»), память результатов (та же сцена и сторож — заново не собираем; сменился сторож — собираем), журнал пишется сразу, сводка и last.json, `sid := msid` у тура.
+потолок времени («не дошли»), память результатов (та же сцена и сторож — заново не собираем; сменился сторож — собираем), журнал пишется сразу, сводка и last.json, снимок тура по `pid`.
 Без сети, Node и Chromium: сборка сцены — подмена, которая кладёт готовый мини-мир из `test_frame_qa._mk_world`.
 
 Запуск: python tools/scout/render_gpu/tests_qa_night.py   (код 0 — чисто)"""
@@ -179,11 +179,22 @@ with contextlib.redirect_stdout(io.StringIO()):
     ok('нет комнат — код 2', N.main(['--out', out7], ex=FakeEx(), scenes_fn=lambda: ([], []), qa=QS) == 2)
     ok('--list ничего не собирает', N.main(['--list'], ex=FakeEx(), scenes_fn=lambda: (SC[:2], REJ), qa=QS) == 0)
 
-# ——— 5. публичный бандл тура: sid := msid, исходные данные не портим
-src = {'variants': [{'items': [{'role': 'диван', 'sku': {'name': 'Д', 'msid': 'm1'}}, {'role': 'ковёр', 'sku': {'name': 'К', 'sid': 's2', 'msid': 'm2'}}]}]}
-ad = N.adapt_tour(src)
-sk = ad['variants'][0]['items']
-ok('адаптер тура: sid := msid, если sid нет; свой sid не трогает; исходник цел', sk[0]['sku']['sid'] == 'm1' and sk[1]['sku']['sid'] == 's2' and 'sid' not in src['variants'][0]['items'][0]['sku'])
+# ——— 5. публичный бандл тура: заказ называет товар ключом `pid` (T-20261118-03/9), без подмен данных
+import render_snapshot as RS  # noqa: E402
+pa = 'p1:' + 'a' * 24
+tour = {'apartment_id': 't', 'build': 'b', 'room': {'w': 400, 'd': 300}, 'rules': {}, 'rooms_geo': {}, 'variants': [{'id': 'tv', 'room_id': 'living', 'style': 'x', 'cams': [
+    {'name': 'C1', 'x': 50, 'y': 40, 'rot': 105, 'fov': 90}, {'name': 'C2', 'x': 300, 'y': 200, 'rot': -69, 'fov': 90}], 'decor': [],
+    'items': [{'role': 'ковёр', 'x': 200, 'y': 150, 'rot': 0, 'w': 230, 'd': 160, 'h': 1, 'sku': {'name': 'К', 'msid': None, 'pid': pa, 'w': 230, 'd': 160, 'h': 1}}]}]}
+okk, badd = N.snaps(tour, 'tour', 'T')
+ok('тур с `pid` (ковёр без msid и sid) — снимок принят как есть, без подмены `sid`', len(okk) == 1 and not badd)
+old_tour = json.loads(json.dumps(tour))
+del old_tour['variants'][0]['items'][0]['sku']['pid']
+okk, badd = N.snaps(old_tour, 'tour', 'T')
+ok('тур до `pid`: ковёр без ключа — снимок принят по `ref` (плоский предмет: данные из бандла)', okk and not badd)
+sofa_tour = json.loads(json.dumps(tour))
+sofa_tour['variants'][0]['items'] = [{'role': 'диван', 'x': 200, 'y': 150, 'rot': 0, 'w': 200, 'd': 90, 'h': 80, 'sku': {'name': 'Д', 'msid': 'm1', 'w': 200, 'd': 90, 'h': 80}}]
+okk, badd = N.snaps(sofa_tour, 'tour', 'T')
+ok('тур до `pid`: мебель с меш-ключом, но без `pid` — «не принят» (bad_item): живой дефект виден ночью, а не прячется', not okk and badd and badd[0][2] == 'bad_item')
 
 shutil.rmtree(TMP, ignore_errors=True)
 print('\nВСЕГО провалов:', len(BAD))
