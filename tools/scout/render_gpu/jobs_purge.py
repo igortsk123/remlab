@@ -34,7 +34,7 @@ _HEX64 = re.compile(r'^[0-9a-f]{64}$')
 def old_jobs(listing: dict, now: float, keep_h: float) -> list:
     """Имена каталогов старше keep_h (по mtime каталога; свежие — в работе — не трогаем). Чистая функция."""
     return sorted(d['name'] for d in listing.get('dirs', []) if d.get('name') and not d['name'].startswith('.') and '/' not in d['name']
-                  and now - float(d.get('mtime', now)) > keep_h * 3600)
+                  and d['name'] != JP.HOT_DIR and now - float(d.get('mtime', now)) > keep_h * 3600)      # `_hot` — горячий список витрины, не задание
 
 
 def run(sink, now: float, keep_h: float, apply: bool) -> int:
@@ -68,9 +68,13 @@ def live_refs(sink, listing: dict) -> set:
     """Ассеты, на которые ссылаются лежащие сейчас задания fmt 2 (читаем их `job.json`; нет файла/не fmt 2/сбой чтения — задание считается без ссылок,
     а ассеты моложе ASSET_MIN_AGE_S всё равно защищены)."""
     refs: set = set()
+    try:                                                # ГОРЯЧИЙ СПИСОК витрины (T-24/7): ассеты /demo и туров уборка не трогает, пока они в списке
+        refs |= {h for h, _ in JP.parse_hot(sink.get_json(JP.HOT_REL))}
+    except (JP.SinkError, ValueError):
+        pass
     for d in listing.get('dirs', []):
         n = d.get('name', '')
-        if not n or n.startswith('.') or '/' in n:
+        if not n or n.startswith('.') or '/' in n or n == JP.HOT_DIR:
             continue
         try:
             job = sink.get_json(f'{JP.PREFIX}/{n}/job.json')
@@ -159,12 +163,18 @@ def _selftest() -> int:
         def get_json(self, rel):
             if rel == 'renderjobs/j1/job.json':
                 return {'v': 2, 'assets': [{'sha256': h('b')}]}
+            if rel == JP.HOT_REL and getattr(self, 'hot', None):
+                return JP.new_hot([{'sha256': x, 'size': 5} for x in self.hot])
             raise JP.SinkError('x', 404)
 
         def delete(self, rel):
             self.deleted.append(rel)
     a = A()
     ok('run_assets --apply: удалён только незащищённый ассет с именем-хешем', run_assets(a, {'dirs': [{'name': 'j1'}, {'name': 'j2'}]}, now, True) == 1 and a.deleted == [f'renderassets/aa/{h("a")}'])
+    a = A()
+    a.hot = [h('a')]
+    ok('горячий список защищает ассет витрины: удаляется только то, что не в списке и не в задании', run_assets(a, {'dirs': [{'name': 'j1'}, {'name': '_hot'}]}, now, True) == 0 and a.deleted == [])
+    ok('каталог `_hot` — не задание: по возрасту не удаляется', old_jobs({'dirs': [{'name': '_hot', 'mtime': 0}, {'name': 'x', 'mtime': 0}]}, now, 24) == ['x'])
     a = A()
     ok('run_assets без --apply ничего не удаляет', run_assets(a, {'dirs': []}, now, False) == 0 and a.deleted == [])
     print('итог:', 'чисто' if not bad else f'ПРОВАЛЕНО {len(bad)}')

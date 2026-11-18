@@ -190,6 +190,14 @@ class SceneExecutor:
     ГДЕ считается Blender (`LocalCpuExecutor`, `SaladGpuExecutor`)."""
     name = 'base'
 
+    def available(self) -> bool:
+        """Возьмёт ли исполнитель заказ СЕЙЧАС (для честного срока на странице); обычный — всегда."""
+        return True
+
+    def expected(self) -> str:
+        """Имя того, кто посчитает заказ, поставленный сейчас."""
+        return self.name
+
     def __init__(self, env=os.environ):
         self.blender = env.get('RENDER_BLENDER') or os.path.expanduser('~/opt/blender-5.3.0-linux-x64/blender')
         self.node = env.get('RENDER_NODE') or shutil.which('node') or '/usr/local/bin/node'
@@ -370,7 +378,7 @@ class SceneExecutor:
         shutil.rmtree(out_dir, ignore_errors=True)
         os.replace(tmp, out_dir)
         shutil.rmtree(job, ignore_errors=True)
-        return {'timing': timing}
+        return {'timing': timing, 'executor': self.name}
 
 
 class LocalCpuExecutor(SceneExecutor):
@@ -533,11 +541,20 @@ class SaladGpuExecutor(SceneExecutor):
             raise ExecutorUnavailable(*GATE_TEXT.get(why, GATE_TEXT['degraded']))
         return rules
 
-    def _slot(self, label: str, pr: dict):
-        """Общая очередь тяжёлых прогонов — только на сборку сцены на DEV (ожидание машины рендера процессор DEV не занимает)."""
+    def available(self) -> bool:
+        """Машина годна сейчас по данным контроллера (то же решение, что `gate`, без исключения). Сбой чтения — «нет»: срок честнее длинный."""
+        try:
+            self.gate()
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _slot(self, label: str, pr: dict, prio: int = 1):
+        """Общая очередь тяжёлых прогонов — только на сборку сцены на DEV (ожидание машины рендера процессор DEV не занимает). `prio` 1 — заказ человека;
+        фоновые шаги (подогрев витрины, `render_gpu/showcase_assets.py`) берут 0 и уступают заказам."""
         sys.path.insert(0, os.path.join(REPO, 'tools', 'ops'))
         import heavy_slot as HS
-        return HS.heavy_slot(label, min_gb=pr['min_gb'], cores=2, prio=1)
+        return HS.heavy_slot(label, min_gb=pr['min_gb'], cores=2, prio=prio)
 
     def _gpu_unavailable(self, code: str) -> ExecutorUnavailable:
         return ExecutorUnavailable(code, *GPU_FAILED)
@@ -719,6 +736,8 @@ class SaladGpuExecutor(SceneExecutor):
             for k, v in (res.get('timing') or {}).items():          # C1, C2, fetch, render — как у local-cpu (кадры), плюс загрузка сцены машиной
                 if isinstance(v, (int, float)):
                     timing[k] = v
+            if isinstance(res.get('assets'), dict):                  # fmt 2: сколько ассетов машине пришлось докачать (0 — кэш/подогрев сработал) — для замера «подогрева»
+                timing['asset_dl_n'], timing['asset_dl_mb'] = res['assets'].get('downloaded'), res['assets'].get('dl_mb')
             print(f"рендер: пара на машине, устройство {res.get('device')}, {timing.get('render')} с Blender", flush=True)
             return self._finish(snap, outs, out_dir, pr, timing, t0, job)
         finally:
@@ -794,6 +813,14 @@ class Fallback:
 
     def versions(self) -> dict:
         return self.primary.versions() if hasattr(self.primary, 'versions') else {}
+
+    def expected(self) -> str:
+        """Кто возьмёт заказ СЕЙЧАС: основной, если он годен, иначе запасной."""
+        try:
+            ok = self.primary.available()
+        except Exception:  # noqa: BLE001
+            ok = False
+        return self.primary.name if ok else self.backup.name
 
     def render(self, snap: dict, out_dir: str, progress) -> dict:
         try:

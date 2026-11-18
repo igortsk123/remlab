@@ -15,7 +15,13 @@ FMT 2 (T-20261117-24/5): в задании (v=2) — маленький паке
 один поток на один хеш), проверяет хеш после скачивания и собирает рабочий каталог жёсткими ссылками из кэша. Любая беда с ассетом — `result.json` с кодом `asset`
 (исполнитель повторит заказ по fmt 1), частичного кадра не бывает. Кэш ассетов ограничен по размеру (BLOB_GB), давние убираются, ассеты текущего задания — нет.
 
-Переменные: MESH_SINK_URL, MESH_SINK_TOKEN (из группы), WORK (/work), JOB_POLL_S (1), JOB_MAX_AGE_S (7200), CACHE_N (3), CACHE_GB (1.5), BLOB_GB (4), ASSET_PAR (4)."""
+ПОДОГРЕВ (T-20261117-24/7): после готовности (и потом раз в HOT_REFRESH_S, если список обновился) воркер читает «горячий список» витрины `renderjobs/_hot/hot.json`
+(его пишет DEV, `showcase_assets.py`: ассеты /demo и туров, уже лежащие на приёмнике) и подтягивает недостающее в `/work/blobs` — до HOT_GB (по порядку списка), HOT_PAR потоков,
+каждый ассет проверяется как обычно (хеш+размер). ЗАКАЗ ПРИОРИТЕТНЕЕ: пока пара считается (`STATE['busy']`), новые скачивания подогрева не начинаются; тот же хеш, что нужен
+заказу, качается один раз (замок на хеш). Горячие ассеты не выселяются из кэша по размеру (`trim_blobs` keep). Список битый/пустой/нет — ничего не делаем.
+
+Переменные: MESH_SINK_URL, MESH_SINK_TOKEN (из группы), WORK (/work), JOB_POLL_S (1), JOB_MAX_AGE_S (7200), CACHE_N (3), CACHE_GB (1.5), BLOB_GB (4), ASSET_PAR (4),
+HOT_GB (2.5), HOT_PAR (2), HOT_REFRESH_S (600)."""
 import json
 import os
 import re
@@ -39,6 +45,9 @@ CACHE_N = int(os.environ.get('CACHE_N', '3'))
 CACHE_GB = float(os.environ.get('CACHE_GB', '1.5'))
 BLOB_GB = float(os.environ.get('BLOB_GB', '4'))
 ASSET_PAR = int(os.environ.get('ASSET_PAR', '4'))
+HOT_GB = float(os.environ.get('HOT_GB', '2.5'))               # подогрев: не больше этого объёма (кэш ассетов BLOB_GB = 4 — запас под задание)
+HOT_PAR = int(os.environ.get('HOT_PAR', '2'))
+HOT_REFRESH_S = float(os.environ.get('HOT_REFRESH_S', '600'))
 BL = MA.BL
 log = MA.log
 
@@ -150,6 +159,9 @@ class Worker:
     def __init__(self, sink: 'JP.Sink'):
         self.sink = sink
         self.done: set = set()
+        self.hot: set = set()                         # горячие хеши текущего списка: из кэша по размеру не выселяются
+        self.hot_ts = None                            # метка списка, который уже подтянут
+        self.warm_stat: dict = {}
         self._locks: dict = {}
         self._locks_guard = threading.Lock()
         os.makedirs(os.path.join(WORK, 'cache'), exist_ok=True)
@@ -176,6 +188,8 @@ class Worker:
             return None
         for d in sorted(dirs, key=lambda x: x.get('mtime', 0)):
             n = d['name']
+            if n == JP.HOT_DIR:                    # горячий список витрины — не задание
+                continue
             if n in self.done or now - float(d.get('mtime', 0)) > MAX_AGE:
                 continue
             try:
@@ -262,8 +276,61 @@ class Worker:
         for a in job['assets']:
             place_asset(got[a['sha256']][0], work, a['path'])
         dl = [v[1] for v in got.values() if v[1]]
-        trim_blobs(os.path.join(WORK, 'blobs'), set(by_sha))
+        trim_blobs(os.path.join(WORK, 'blobs'), set(by_sha) | self.hot)
         return {'assets': len(job['assets']), 'downloaded': len(dl), 'dl_mb': round(sum(dl) / 2 ** 20, 1)}
+
+    def warm(self, items: list, busy=lambda: bool(MA.STATE.get('busy')), sleep=time.sleep) -> dict:
+        """Подтянуть в кэш ассеты горячего списка [(sha, size)] (по порядку, до HOT_GB, HOT_PAR потоков). Пока идёт пара (`busy()`), новый ассет не начинаем: заказ приоритетнее.
+        Ошибка одного ассета (не скачался/не сошёлся хеш) — считаем и идём дальше. → {n, taken, dl_mb, errors, s}."""
+        todo, total = [], 0
+        for sha, size in items:
+            if total + size > HOT_GB * 2 ** 30:
+                break
+            total += size
+            todo.append((sha, size))
+        self.hot = {h for h, _ in todo}
+        t0 = time.time()
+        st = {'n': len(todo), 'taken': 0, 'dl_mb': 0.0, 'errors': 0, 'cut': len(items) - len(todo)}
+
+        def one(item):
+            sha, size = item
+            while busy():
+                sleep(0.5)
+            return self.fetch_asset(sha, size)
+        with ThreadPoolExecutor(max_workers=max(1, HOT_PAR)) as pool:
+            futs = [pool.submit(one, it) for it in todo]
+            for f in futs:
+                try:
+                    _, got = f.result()
+                except Exception as e:  # noqa: BLE001 — подогрев не должен ронять воркер: ошибка ассета не страшна, заказ докачает сам
+                    st['errors'] += 1
+                    log('подогрев: ассет не взят', type(e).__name__, str(e)[:120])
+                    continue
+                st['taken'] += 1
+                st['dl_mb'] += got / 2 ** 20
+        st['dl_mb'], st['s'] = round(st['dl_mb'], 1), round(time.time() - t0, 1)
+        trim_blobs(os.path.join(WORK, 'blobs'), self.hot)
+        return st
+
+    def warm_loop(self) -> None:
+        """Фоновый поток: после готовности — прогрев по горячему списку; потом раз в HOT_REFRESH_S смотрим, не обновился ли он."""
+        while True:
+            if not MA.STATE.get('ready'):
+                time.sleep(POLL)
+                continue
+            try:
+                hot = self.sink.get_json(JP.HOT_REL)
+                items = JP.parse_hot(hot)
+                if items and hot.get('ts') != self.hot_ts:
+                    self.warm_stat = self.warm(items)
+                    if not self.warm_stat['errors']:
+                        self.hot_ts = hot.get('ts')              # были ошибки — в следующий круг пробуем снова
+                    log('подогрев: список', hot.get('n'), 'шт.', self.warm_stat)
+            except (JP.SinkError, ValueError):
+                pass                                 # списка нет/приёмник не отвечает — ничего не делаем, заказы идут как обычно
+            except Exception as e:  # noqa: BLE001
+                log('подогрев сбой', type(e).__name__, str(e)[:160])
+            time.sleep(HOT_REFRESH_S)
 
     def run_job(self, jid: str) -> dict:
         job = self.sink.get_json(f'{JP.PREFIX}/{jid}/job.json')
@@ -384,7 +451,9 @@ def main() -> int:
         log('нет MESH_SINK_URL/MESH_SINK_TOKEN — воркер не работает')
         return 2
     threading.Thread(target=MA.main, daemon=True, name='agent').start()      # готовность и отметка ready.json — как у агента
-    Worker(JP.Sink(base, tok)).loop()
+    w = Worker(JP.Sink(base, tok))
+    threading.Thread(target=w.warm_loop, daemon=True, name='warm').start()      # подогрев кэша ассетов — своим потоком, заказ приоритетнее
+    w.loop()
     return 0
 
 
