@@ -14,8 +14,10 @@
 старый) — сирот не ищем. Опытная группа, которую ведёт другой экземпляр контроллера (свой каталог состояния), отмечается так же и сиротой не считается; вручную включённую
 `render-*` на опыты — отключить сторожа файлом `RENDER_GUARD_OFF`.
 Стоп-запрос — POST `/stop`, итог проверяется повторным чтением списка на следующей минуте (крон) — тут только одна попытка и громкий журнал."""
+import argparse
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.parse
@@ -230,9 +232,29 @@ def _selftest() -> int:
     ok('ручное отключение — молчим', decide_orphans(gs2, own, 30, {'render-4090m7': now - 999}, now + 100, now) == ([], {}))
     ok('остановленная и pending без машин — не сирота', decide_orphans({'render-4090m7': ('stopped', 0), 'render-x': ('pending', 0)}, own, 30, {}, None, now) == ([], {}))
     ok('меш-группы сиротой не считаются', decide_orphans({'mesh-q-low-1': ('running', 3)}, own, 30, {}, None, now) == ([], {}))
+    # разбор аргументов: --help и --selftest не трогают ключ и сеть
+    ok('аргументы: без них — не selftest; --selftest — selftest', parse_args([]).selftest is False and parse_args(['--selftest']).selftest is True)
+    for argv, code in ((['--help'], 0), (['--нет-такого'], 2)):
+        try:
+            parse_args(argv)
+            rc = None
+        except SystemExit as e:
+            rc = e.code
+        ok(f'аргументы: {argv[0]} → выход {code}', rc == code)
+    env = {k: v for k, v in os.environ.items() if k != 'SALAD_KEY_FILE'} | {'SALAD_KEY_FILE': '/нет/такого/ключа'}
+    r = subprocess.run([sys.executable, os.path.abspath(__file__), '--help'], capture_output=True, text=True, env=env, timeout=30)
+    ok('процесс: --help → код 0, справка, без traceback, ключ не читается', r.returncode == 0 and 'usage:' in r.stdout and 'Traceback' not in r.stderr)
     print('итог:', 'чисто' if not bad else f'ПРОВАЛЕНО {len(bad)}')
     return 1 if bad else 0
 
 
+def parse_args(argv: list) -> 'argparse.Namespace':
+    """Разбор аргументов (T-20261118-10/9: `--help` раньше шёл в main() и падал на чтении ключа). Крон зовёт без аргументов — поведение прежнее."""
+    ap = argparse.ArgumentParser(prog='render-guard.py', description=(__doc__ or '').split('\n')[0],
+                                 epilog='Сухо: RENDER_GUARD_DRY=1; отключить сторожа: файл RENDER_GUARD_OFF (время UNIX). Без аргументов — один проход (как из крона).')
+    ap.add_argument('--selftest', action='store_true', help='проверки без сети и без ключа')
+    return ap.parse_args(argv)
+
+
 if __name__ == '__main__':
-    sys.exit(_selftest() if '--selftest' in sys.argv else main())
+    sys.exit(_selftest() if parse_args(sys.argv[1:]).selftest else main())

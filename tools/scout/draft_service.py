@@ -40,6 +40,9 @@ from draft_guard import (ALLOWED_ORIGINS, PUB_FILE, TRIM_STATS_FILE, ip_allowed,
                          queue_eta, registry_room_fields, registry_trim, safe_url, save_share_request, trim_stats_update)
 from draft_jobs import JobStore, public_view  # noqa: E402
 import draft_trial as DT  # noqa: E402
+from post_stall import StallWatch  # noqa: E402
+
+_STALL = StallWatch(float(os.environ.get('POST_STALL_DUMP_S', '3')))
 # фото тура пробы (T-20261109-34): суточный счёт по заданию — файлом рядом с реестром кадров (на проде — том share, переживает выкладку)
 TRIAL_DAY = DT.TrialDaily(os.path.join(os.path.dirname(DR.FRAMES_DIR), 'trial-photos.json'), DT.daily_limit())
 # автофото тура (T-20261112-115 Ф2) — отдельный счёт: квота людей от него не уменьшается
@@ -738,16 +741,13 @@ class H(BaseHTTPRequestHandler):
         return self._send(404, {'error': 'нет такого пути'})
 
     def _cycles_post(self, payload: dict, raw: bytes) -> None:
-        """Обёртка: если заказ обрабатывается дольше POST_STALL_DUMP_S (3 с) — в журнал уходят стеки ВСЕХ потоков (что держит ответ; T-20261118-10/8: разовые POST 5–9 с на живом сервисе)."""
-        import faulthandler
-        lim = float(os.environ.get('POST_STALL_DUMP_S', '3'))
-        if lim > 0:
-            faulthandler.dump_traceback_later(lim, repeat=False, file=sys.stderr)
+        """Обёртка: заказ дольше POST_STALL_DUMP_S (3 с) — в журнал один раз уходят стеки ВСЕХ потоков (что держит ответ; T-20261118-10/8: разовые POST 5–9 с).
+        Сторож один на процесс и смотрит словарь «заказ → время входа» (`post_stall.py`), параллельные заказы друг другу не мешают (T-20261118-10/9)."""
+        tok = _STALL.enter('POST')
         try:
             return self._cycles_post_inner(payload, raw)
         finally:
-            if lim > 0:
-                faulthandler.cancel_dump_traceback_later()
+            _STALL.leave(tok)
 
     def _cycles_post_inner(self, payload: dict, raw: bytes) -> None:
         """ЗАКАЗ РЕНДЕРА (контракт снимка — `render_snapshot.py`): проверка → хеш → ключ кэша → очередь. Тур — только от приложения
