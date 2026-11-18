@@ -15,6 +15,7 @@ source: manual
 | Что делаем сейчас, кто, % (бот `/plan`) | `plan-zadach.md` (корень банка); закрытое — `changelog/plan-zadach-done-2026-11.md` |
 | Как должно быть после всех правок (книга для владельца) | `guides/product-book.md` (+ карта `product-book-map.json`, план `product-book-plan.md`) |
 | Директор/менеджеры/рабочие, токены, рукопожатие, учёт | `guides/orchestration.md` |
+| Приёмка работника и кода — порядок, шаблон вердикта | `guides/review-checklist.md` |
 | Как исполнитель ведёт подплан коммерческого плана | `guides/execution-playbook.md` |
 | Полный протокол план → «деплой» | `guides/agent-workflow.md` |
 | Стандарты кода; чеклист ревью | `guides/code-standards.md` · `guides/review-rules.md` |
