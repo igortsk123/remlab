@@ -259,6 +259,33 @@ st, h, d = jcall(prod_port, 'POST', '/api/render/cycles', REQ)
 ok(st == 503 and d['code'] == 'render_unavailable' and d['error_en'], 'DEV молчит — честный 503 «недоступно», запасного рендера нет')
 st, h, d = jcall(prod_port, 'GET', '/api/render/cycles/stats')
 ok(st == 503 and d['code'] == 'render_unavailable', 'DEV молчит — статистика 503')
+# СТОРОЖ ЗАВИСШИХ ЗАКАЗОВ (T-20261118-10/9): два одновременных POST — медленный попадает в журнал стеков один раз, быстрый его не снимает и сам не печатается
+from post_stall import StallWatch  # noqa: E402
+stall_out, orig_inner, orig_watch, n_in = [], DS.H._cycles_post_inner, DS._STALL, [0]
+DS._STALL = StallWatch(0.3, dump=stall_out.append, poll=0.05)
+lk = threading.Lock()
+
+
+def inner_slow_fast(self, payload, raw):
+    with lk:
+        n_in[0] += 1
+        me = n_in[0]
+    time.sleep(1.0 if me == 1 else 0.05)               # первый вошедший висит, второй — быстрый
+    return self._send(200, {'n': me})
+
+
+DS.H._cycles_post_inner = inner_slow_fast
+res = []
+th = [threading.Thread(target=lambda: res.append(jcall(dev_port, 'POST', '/render/cycles', REQ)[0])) for _ in range(2)]
+th[0].start()
+time.sleep(0.15)
+th[1].start()
+[t_.join() for t_ in th]
+time.sleep(0.2)
+ok(res == [200, 200], 'два одновременных POST ответили оба')
+ok(len(stall_out) == 1 and DS._STALL._orders == {}, f'стеки напечатаны один раз (за медленный), заказы сняты со слежения ({len(stall_out)})')
+DS.H._cycles_post_inner, DS._STALL = orig_inner, orig_watch
+
 q.close()
 dev.shutdown()
 prod.shutdown()
