@@ -98,12 +98,12 @@ def apply(path: str, got: dict, shared: list) -> tuple[int, int, list]:
         r = got.get(str(v.get('id')))
         if r:
             v.update({k: r[k] for k in ('cams', 'cam_level', 'cam_cover') if k in r})
-    D['cams_shared'] = any(shared)
+    D['cams_shared'] = any(shared) or bool(D.get('cams_shared'))     # перенесённая из прежней версии общая пара (`trial_bundle.reuse_cams`) не стирается
     tmp = f'{path}.cams-par-{os.getpid()}.tmp'
     with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(D, f, ensure_ascii=False, separators=(',', ':'))
     os.replace(tmp, path)
-    miss = [str(v.get('id')) for v in vs if str(v.get('id')) not in got]
+    miss = [str(v.get('id')) for v in vs if str(v.get('id')) not in got and not v.get('cams')]      # перенесённые из прежней версии — не «без пары»
     return len(vs) - len(miss), len(vs), miss
 
 

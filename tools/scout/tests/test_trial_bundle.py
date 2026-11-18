@@ -1346,6 +1346,39 @@ def _counting_node(seen):
     return run
 
 
+def test_conveyor_v3_takes_living_cams_from_v2_file_only_bedrooms_computed(tmp_path, monkeypatch):
+    """R1 tour-speed-01: `--old` = файл версии 2 (гостиная с парами) → версия 3 (те же гостиные + спальни, `rooms_geo` шире) считает ракурсы ТОЛЬКО спален."""
+    monkeypatch.setattr(TB, 'camfit_sig', lambda root=None: 'fit1')
+    v2 = {'rooms_geo': {'living': GEO['living']}, 'variants': _vars(('set1', 'living', 10), ('set2', 'living', 30))}
+    v2 = _old_with_cams(v2)
+    f2 = tmp_path / 'bundle-3-v2-living.json'
+    TB.write_atomic(str(f2), v2)
+    v3 = {'rooms_geo': GEO, 'variants': _vars(('set1', 'living', 10), ('set2', 'living', 30), ('b1', 'bedroom-1', 20), ('b2', 'bedroom-1', 40))}
+    p = tmp_path / 'bundle-4-v3.json'
+    TB.write_atomic(str(p), v3)
+    seen = []
+    line = TB.add_cams(str(p), [], runner=_counting_node(seen), old=TB.load_old(str(f2)))
+    assert seen == ['b1', 'b2'] and 'перенесено из прежней версии 2' in line
+    assert [v['cams'] for v in json.load(open(p))['variants']] == [PAIR] * 4
+
+
+def test_load_old_tolerates_missing_broken_and_foreign(tmp_path):
+    """`--old` — ускорение, не условие: нет пути / файла, не JSON, не данные тура → None (ракурсы считаются все, как раньше)."""
+    assert TB.load_old(None) is None and TB.load_old('') is None and TB.load_old(str(tmp_path / 'нет.json')) is None
+    bad = tmp_path / 'bad.json'
+    bad.write_text('{oops')
+    assert TB.load_old(str(bad)) is None
+    foreign = tmp_path / 'foreign.json'
+    foreign.write_text('[1, 2]')
+    assert TB.load_old(str(foreign)) is None
+    nov = tmp_path / 'nov.json'
+    nov.write_text('{"variants": "x"}')
+    assert TB.load_old(str(nov)) is None
+    ok = tmp_path / 'ok.json'
+    ok.write_text('{"variants": []}')
+    assert TB.load_old(str(ok)) == {'variants': []}
+
+
 def test_reuse_cams_same_inputs_carried_changed_recomputed(tmp_path, monkeypatch):
     monkeypatch.setattr(TB, 'camfit_sig', lambda root=None: 'fit1')
     data = {'rooms_geo': GEO, 'variants': _vars(('set1', 'living', 10), ('set2', 'bedroom-1', 20))}
@@ -1462,13 +1495,30 @@ def test_cams_jobs_respects_outer_slot(monkeypatch):
 def test_main_out_prints_json_last(tmp_path, monkeypatch, capsys):
     """Конвейер и перевыпуск читают ПОСЛЕДНЮЮ строку вывода: строка ракурсов — до неё."""
     monkeypatch.setattr(TB, 'build', lambda *a, **k: {'rooms_geo': {'living': {}}, 'variants': []})
-    monkeypatch.setattr(TB, 'add_cams', lambda path, tokens: 'ракурсы окна в данных: вариантов 0')
+    got_old = []
+    monkeypatch.setattr(TB, 'add_cams', lambda path, tokens, old=None: got_old.append(old) or 'ракурсы окна в данных: вариантов 0')
     res = tmp_path / 'r.json'
     res.write_text('{}')
     monkeypatch.setattr(sys, 'argv', ['trial_bundle.py', JOB, str(res), '--out', str(tmp_path / 'b.json')])
     assert TB.main() == 0
     lines = capsys.readouterr().out.strip().splitlines()
     assert lines[0].startswith('ракурсы окна') and json.loads(lines[-1])['ok'] is True
+    assert got_old == [None]                                        # без `--old` — всё считается, как раньше
+
+
+def test_main_old_flag_passes_previous_version_to_add_cams(tmp_path, monkeypatch, capsys):
+    """R1: `--old <файл>` читается и уходит в `add_cams(old=…)`; сломанный файл — None (не валит сборку); с `--no-cams` не читается."""
+    monkeypatch.setattr(TB, 'build', lambda *a, **k: {'rooms_geo': {'living': {}}, 'variants': []})
+    got_old = []
+    monkeypatch.setattr(TB, 'add_cams', lambda path, tokens, old=None: got_old.append(old) or 'ракурсы окна в данных: вариантов 0')
+    res = tmp_path / 'r.json'
+    res.write_text('{}')
+    prev = tmp_path / 'prev.json'
+    prev.write_text('{"variants": [{"id": "set1"}]}')
+    for extra in (['--old', str(prev)], ['--old', str(tmp_path / 'нет.json')], ['--old', str(prev), '--no-cams']):
+        monkeypatch.setattr(sys, 'argv', ['trial_bundle.py', JOB, str(res), '--out', str(tmp_path / 'b.json')] + extra)
+        assert TB.main() == 0
+    assert got_old == [{'variants': [{'id': 'set1'}]}, None]
 
 
 def test_door_between_two_neighbours_does_not_refuse_core():

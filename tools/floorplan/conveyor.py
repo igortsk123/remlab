@@ -113,6 +113,7 @@ class Conveyor:
         self.n = 0                                   # номер сборки в этой попытке (имена файлов)
         self.last = None                             # последняя ПРИНЯТАЯ сервером версия (dict) — по ней решается `done`
         self.cur = None                              # последняя СОБРАННАЯ версия — по ней решается, какие стадии нужны
+        self.prev_bundle: Path | None = None         # файл последней СОБРАННОЙ версии: следующая сборка берёт из него пары ракурсов (`trial_bundle --old`, R1 tour-speed-01)
         self.cur_bytes: bytes | None = None          # её точные байты (итоговая публикация «только последней» — `final_only`)
         self.final_only = False                      # пересборка: промежуточные версии не публикуются, только итог
         self.release: list = []
@@ -159,6 +160,8 @@ class Conveyor:
             cmd += ['--release', ','.join(self.release)]
         if not cams:
             cmd += ['--no-cams']
+        elif self.prev_bundle is not None:           # v2 берёт пары у v1, v3 — у v2 (гостиная та же): ракурсы 208 с на версию не считаются заново
+            cmd += ['--old', str(self.prev_bundle)]
         cmd += ['--out', str(out)]
         rc, why = self._stage(f'bundle-{self.n}-{tag}', cmd, self.cfg.bundle_timeout_s)
         if why:
@@ -175,6 +178,7 @@ class Conveyor:
         data = out.read_bytes()
         if len(data) > self.cfg.bundle_max_bytes:
             return None, 'bundle_too_large'
+        self.prev_bundle = out
         if cams:
             self.priced_note(out)
         return data, None
