@@ -1347,18 +1347,16 @@ class SaladGpuExecutor(SceneExecutor):
             tl.mark('result_seen')
             t1 = self.now()
             outs = {}
-            try:
-                rf = res.get('frames') if res.get('frames') in ('jpg', 'png') else 'png'      # что фактически положила машина (имя = формат)
-                timing['frames'] = rf
-                for cam in CAMS:
-                    fp = os.path.join(job, f'{cam}.{rf}')
-                    sink.get_to(f'{JP.PREFIX}/{jid}/{cam}.{rf}', fp)
-                    self._check_frame(fp, rf)
-                    outs[cam] = fp
-            except (JP.SinkError, ValueError, OSError) as e:
-                print(f'рендер: кадры не скачались: {e}', flush=True)
-                raise self._gpu_unavailable('gpu_download') from None
-            for cam in (res.get('masks') or {}):
+            rf = res.get('frames') if res.get('frames') in ('jpg', 'png') else 'png'      # что фактически положила машина (имя = формат)
+            timing['frames'] = rf
+
+            def get_frame(cam):
+                fp = os.path.join(job, f'{cam}.{rf}')
+                sink.get_to(f'{JP.PREFIX}/{jid}/{cam}.{rf}', fp)
+                self._check_frame(fp, rf)
+                return cam, fp
+
+            def get_mask(cam):
                 # маски необязательны: не скачалась или не картинка — кадр идёт без неё (приглушение пятен просто не сработает)
                 try:
                     mp = os.path.join(job, JP.mask_name(cam))
@@ -1373,6 +1371,19 @@ class SaladGpuExecutor(SceneExecutor):
                         os.remove(os.path.join(job, JP.mask_name(cam)))
                     except OSError:
                         pass
+            tl.mark('frames_start')
+            try:
+                with ThreadPoolExecutor(max_workers=max(2, len(CAMS) * 2)) as dl:          # кадры и маски — параллельно (каждый вызов ≈ один заход на приёмник)
+                    ff = [dl.submit(get_frame, cam) for cam in CAMS]
+                    mf = [dl.submit(get_mask, cam) for cam in (res.get('masks') or {})]
+                    for f in ff:
+                        cam, fp = f.result()
+                        outs[cam] = fp
+                    for f in mf:
+                        f.result()
+            except (JP.SinkError, ValueError, OSError) as e:
+                print(f'рендер: кадры не скачались: {e}', flush=True)
+                raise self._gpu_unavailable('gpu_download') from None
             timing['download'] = round(self.now() - t1, 1)
             for k, v in (res.get('timing') or {}).items():          # C1, C2, fetch, render — как у local-cpu (кадры), плюс загрузка сцены машиной
                 if isinstance(v, (int, float)):
@@ -1387,12 +1398,25 @@ class SaladGpuExecutor(SceneExecutor):
             return self._finish(snap, outs, out_dir, pr, timing, t0, job)
         finally:
             shutil.rmtree(job, ignore_errors=True)
-            for j in jids:
-                try:
-                    sink.delete(f'{JP.PREFIX}/{j}')      # своё задание убираем сразу (место общее с мешами); не вышло — уберёт jobs_purge по сроку
-                except Exception:  # noqa: BLE001
-                    pass
+
+            def cleanup():
+                for j in jids:
+                    try:
+                        sink.delete(f'{JP.PREFIX}/{j}')      # своё задание убираем сразу (место общее с мешами); не вышло — уберёт jobs_purge по сроку
+                    except Exception:  # noqa: BLE001
+                        pass
+            if jids and os.environ.get('RENDER_DELETE_ASYNC', '1') != '0':
+                th = threading.Thread(target=cleanup, name='render-cleanup', daemon=True)      # результат заказа не ждёт ответа приёмника на уборку (≈0,2 с)
+                th.start()
+                self._bg = [t for t in getattr(self, '_bg', []) if t.is_alive()] + [th]
+            else:
+                cleanup()
             m.pulse(0)                 # конец пары (или отказ) — тоже событие; «занято» снято, до автостопа 20 мин от этого момента
+
+    def drain_bg(self, timeout: float = 30) -> None:
+        """Дождаться фоновой уборки заданий на приёмнике (тесты, остановка сервиса)."""
+        for t in list(getattr(self, '_bg', [])):
+            t.join(timeout)
 
     def _wait(self, sink, m, jid: str, progress, busy_s: float, poll_s: float, pickup_s: float, pair_max_s: float, tl=None) -> dict:
         """Ждать result.json: ход — по progress.json воркера; не взяли за pickup_s / не уложились в pair_max_s / машину выключили — снять задание
@@ -1448,7 +1472,7 @@ class SaladGpuExecutor(SceneExecutor):
                 except JP.SinkError:
                     pass
                 raise self._gpu_unavailable(why)
-            self.sleep(poll_s)
+            self.sleep(min(poll_s, 0.15) if stage == 'save' else min(poll_s, 0.3) if stage == 'C2' else poll_s)       # результат вот-вот: чаще (запросы на готовом соединении дешёвые)
 
 
 class Fallback:

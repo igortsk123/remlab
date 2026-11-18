@@ -22,7 +22,7 @@ with open(os.path.join(TMP, 'bl', 'blender'), 'w') as f:
 os.chmod(os.path.join(TMP, 'bl', 'blender'), 0o755)
 os.environ.update(BLENDER_DIR=os.path.join(TMP, 'bl'), WORK=os.path.join(TMP, 'work'), MESH_SINK_URL='http://x', MESH_SINK_TOKEN='t',
                   RENDER_WORK=os.path.join(TMP, 'rwork'), RENDER_MACHINE_DIR=os.path.join(TMP, 'rm'), AGENT_BEAT_S='3600',
-                  RENDER_QA_GATE='0')      # тут сборка сцены подменена пустышками — проверяем транспорт; ворота сторожа — `tests_render_gate.py`
+                  RENDER_QA_GATE='0', RENDER_DELETE_ASYNC='0')      # (уборка задания — синхронно: проверки ниже читают хранилище сразу после пары; фоновый режим — отдельный тест) тут сборка сцены подменена пустышками — проверяем транспорт; ворота сторожа — `tests_render_gate.py`
 sys.path.insert(0, HERE)
 sys.path.insert(0, SCOUT)
 import jobs_proto as JP  # noqa: E402
@@ -223,6 +223,10 @@ stages, res = render(ex, out)
 stop.set()
 ok('своё задание убрано из хранилища сразу после пары (место общее с мешами)', not any(k.startswith('renderjobs/') for k in sink.f) and len(getattr(sink, 'deleted', [])) == 1)
 ok('результат: C1.jpg, C2.jpg, meta.json', sorted(os.listdir(out)) == ['C1.jpg', 'C2.jpg', 'meta.json'])
+meta_dev = json.load(open(os.path.join(out, 'meta.json')))['timing']
+ok('линейка заказа в meta: timing.dev с метками (prep_end, send_start, job_sent, result_seen, frames_done) и обращениями; у воркера — wcalls',
+   all(k in meta_dev.get('dev', {}).get('marks', {}) for k in ('prep_end', 'send_start', 'job_sent', 'result_seen', 'frames_done'))
+   and any(c['op'].startswith('опрос result') for c in meta_dev['dev']['calls']) and any(c['op'] == 'PUT job.json' for c in meta_dev['dev']['calls']) and isinstance(meta_dev.get('wcalls'), list))
 meta = json.load(open(os.path.join(out, 'meta.json')))
 ok('meta: исполнитель salad-gpu, хеши кадров, размер, версии', meta['executor'] == 'salad-gpu' and set(meta['sha']) == {'C1', 'C2'} and meta['size'] == [64, 48] and meta['versions']['preset'])
 ok('стадии как у LocalCpuExecutor: scene → C1 → C2 → save (без повторов и пропусков)', stages == ['scene', 'C1', 'C2', 'save'])
@@ -247,6 +251,28 @@ ok('карты — только существующие в public (чужой �
    os.path.isfile(os.path.join(bd, 'x', 'public', 'flat3d', 'tex', 'a.jpg')) and not os.path.exists(os.path.join(bd, 'x', 'public', 'etc')) and
    not os.path.exists(os.path.join(bd, 'x', 'public', 'flat3d', 'none.jpg')))
 ok('рабочая папка исполнителя убрана', not [d for d in os.listdir(os.path.join(TMP, 'rwork')) if d.startswith('gjob-')])
+
+# ═══ 3b. уборка задания в фоне (T-20261118-09/5 ❸): заказ не ждёт ответа приёмника на DELETE
+class SlowDelSink(FakeSink):
+    def delete(self, rel):
+        time.sleep(1.2)
+        return super().delete(rel)
+
+
+os.environ['RENDER_DELETE_ASYNC'] = '1'
+sinkD, mD = SlowDelSink(), FakeMachine()
+wD = new_worker(sinkD)
+stopD = threading.Event()
+run_worker_thread(wD, stopD)
+exD = Exec(sinkD, mD, PUBLIC)
+t_ = time.time()
+render(exD, os.path.join(TMP, 'out3b'))
+dt_ = time.time() - t_
+early = not getattr(sinkD, 'deleted', [])
+exD.drain_bg()
+stopD.set()
+os.environ['RENDER_DELETE_ASYNC'] = '0'
+ok('уборка в фоне: заказ вернулся, не дожидаясь медленного DELETE (1,2 с), задание убрано после drain_bg, pulse(0) вызван', early and len(getattr(sinkD, 'deleted', [])) == 1 and mD.calls and mD.calls[-1] in (0, 0.0))
 
 # ═══ 4. воркер не взял задание → cancel.json, ExecutorUnavailable, pulse(0)
 sink, m = FakeSink(), FakeMachine()
