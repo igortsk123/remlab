@@ -248,9 +248,12 @@ describe("peekShotRecs — кадры заготовки из ответа check
     expect(peekShotRecs(null, o)).toEqual([]);
     expect(peekShotRecs({ cached: true }, o)).toEqual([]);
   });
-  it("страница: спрашивает только нетронутый вариант без фото, не в туре, после прихода реестра; вызов при открытии окна и по приходу реестра", () => {
+  it("страница: спрашивает только нетронутый вариант без фото, после прихода реестра; тур — через ручку тура и только комната с доверием к размерам; вызов при открытии окна и по приходу реестра", () => {
     const fn = src.slice(src.indexOf("async function vwPeekCached("), src.indexOf("// «Улучшить фото»: рендер ЭТОЙ расстановки"));
-    expect(fn).toContain("TRIAL()");
+    expect(fn).toContain("if(TRIAL()&&!trPhotoHere())return;");
+    expect(fn).not.toContain("if(TRIAL()||");
+    expect(fn).toContain("'/api/trial/'+trJobId()+'/photo'+(trKey()?'?k='+trKey():'')");
+    expect(fn).toContain("'/api/render/cycles'");
     expect(fn).toContain("!SHOTS_LOADED");
     expect(fn).toContain("v.mine||v.cid");
     expect(fn).toContain("st!==pubStateOf(v)||vwRealShots().length");
@@ -258,6 +261,24 @@ describe("peekShotRecs — кадры заготовки из ответа check
     expect(fn).toContain("curVid()!==vid||curStateId()!==st");
     expect(src).toContain("setTimeout(vwPeekCached,0)");
     expect(src).toContain("vwModeUi(); vwPeekCached();");
+  });
+
+  // ЧЕСТНАЯ СТРОКА ПРО МАШИНУ (T-20261118-20/13/2): кадра нет — сервер в `check` отдаёт состояние машины; прогревается / запасной путь — текст сервера (RU/EN) под «Сделать фото», готова — строки нет
+  const peekMachineNote = new Function("LANG", `${src.slice(src.indexOf("function peekMachineNote("), src.indexOf("async function vwPeekCached("))};return peekMachineNote;`) as (l: string) => (m: unknown) => string;
+  it("peekMachineNote: warming/fallback — текст сервера на языке страницы; ready, пусто, чужое — ''", () => {
+    const m = { state: "fallback", text: "Машина рендера выключена. Считаем на запасной — будет дольше.", text_en: "The render machine is off. Using the backup — it will take longer.", eta_s: 0 };
+    expect(peekMachineNote("ru")(m)).toBe(m.text);
+    expect(peekMachineNote("en")(m)).toBe(m.text_en);
+    expect(peekMachineNote("ru")({ state: "warming", text: "Машина рендера прогревается, ≈3 мин.", text_en: "x" })).toBe("Машина рендера прогревается, ≈3 мин.");
+    expect(peekMachineNote("ru")({ state: "ready", text: "", text_en: "" })).toBe("");
+    expect(peekMachineNote("ru")(null)).toBe("");
+    expect(peekMachineNote("ru")({ state: "fallback", text: 5 })).toBe("");
+  });
+  it("строка у кнопки: только 3D-окно, кнопка «Сделать фото», без задания и ошибки; кадр взят — строка уходит", () => {
+    const ui = src.slice(src.indexOf("// ЧЕСТНАЯ СТРОКА (T-20261118-20/13/2)"), src.indexOf("// ОШИБКА ФОТО (владелец 17.11"));
+    expect(ui).toContain("!VJ.job&&!VJ.err&&kind==='make'&&m==='walk'");
+    expect(ui).toContain("PEEKM[curVid()+'|'+curStateId()]");
+    expect(src).toContain("PEEK[k]=Infinity; delete PEEKM[k];");
   });
 
   // 16 вариантов живой витрины: кэш заготовки есть у части — у них «Фото» = кадры рендера текущего состояния, у остальных фото нет (3D)

@@ -9868,6 +9868,7 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
 .vcta-bar{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(255,255,255,.22);transition:width 1s linear;pointer-events:none}
 .vcta-t,.vcta.busy small{position:relative}
 .vcta-err{font-size:13px;color:#B3261E;margin:6px 2px 0;line-height:1.4}
+.vcta-note{font-size:12.5px;color:#6B6B6B;margin:6px 2px 0;line-height:1.4;text-align:center}
 /* ошибка фото на месте кнопки шторки: текст и «Повторить» (T-20261117-20/2, владелец TG 1667) */
 .vcta-err{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;margin:0 2px}
 .vcta-err .vcta-et{display:block;text-align:center}
@@ -11922,6 +11923,9 @@ function vwCtaUi(){
   // T-20261109-34). Нажатие тогда не заказывает фото, а открывает «Фото» с карточкой «Чтобы сделать фото, подтвердите планировку» (`trPhotoStubUi`)
   if(TRIAL()&&m==='plan')cta.hidden=true;
   const tn=document.getElementById('vCtaNote'); if(tn)tn.remove();
+  // ЧЕСТНАЯ СТРОКА (T-20261118-20/13/2): кадра заготовки нет, машина прогревается или выключена/упёрлась в предел дня — текст сервера (RU/EN) под кнопкой «Сделать фото», пока нажатия нет
+  const pn=(!VJ.job&&!VJ.err&&kind==='make'&&m==='walk')?(PEEKM[curVid()+'|'+curStateId()]||''):'';
+  if(pn){const np=document.createElement('p'); np.id='vCtaNote'; np.className='vcta-note'; np.textContent=pn; cta.after(np);}
   // ОШИБКА ФОТО (владелец 17.11 TG 1667): «Расстановка сохранена, но что-то пошло не так. Попробуйте ещё раз.» и «Повторить» — на месте кнопки
   let er=document.getElementById('vCtaErr');
   if(VJ.err&&m!=='plan'){
@@ -12114,8 +12118,16 @@ function peekShotRecs(j, o){
 }
 // PEEKSHOT END
 const PEEK={};   // `<вариант>|<состояние>` → когда спрашивали (мс; повтор не чаще раза в минуту — заготовка могла дойти, пока окно открыто) или Infinity — кадры взяты
+const PEEKM={};   // `<вариант>|<состояние>` → состояние машины рендера из ответа `check`, когда кадра нет (прогревается / запасной путь, тексты RU/EN — от сервера): честная строка у кнопки «Сделать фото»
+// ТУР (T-20261118-20/13/2): рендеры всех комнат и стилей тура ставятся сразу после сборки (`render_tour.py`) — окно варианта тура спрашивает готовое так же, как /demo, но через ручку тура
+// (`/api/trial/<id>/photo`, `mode: render`, `check`): приложение само режет вариант из ПОСЛЕДНЕЙ версии данных, ключ считает сервер; комната без доверия к размерам (`photo_ok`) — не спрашиваем
+function peekMachineNote(m){
+  if(!m||typeof m!=='object'||(m.state!=='warming'&&m.state!=='fallback'))return '';
+  const t=LANG==='en'?m.text_en:m.text; return typeof t==='string'?t.slice(0,200):'';
+}
 async function vwPeekCached(){
-  if(TRIAL()||VJ.job||!D||!SHOTS_LOADED)return;
+  if(VJ.job||!D||!SHOTS_LOADED)return;
+  if(TRIAL()&&!trPhotoHere())return;
   const v=allVariants()[cur]; if(!v||!v.id||v.mine||v.cid)return;
   const st=curStateId(); if(st!==pubStateOf(v)||vwRealShots().length)return;
   const vid=curVid(), k=vid+'|'+st, now=Date.now();
@@ -12123,11 +12135,13 @@ async function vwPeekCached(){
   let body; try{body=vwRenderReq();}catch(e){return;}
   PEEK[k]=now;
   let j=null;
-  try{ const r=await fetch('/api/render/cycles',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(Object.assign({},body,{check:true}))}); j=r.ok?await r.json():null; }catch(e){ return; }
+  const url=TRIAL()?'/api/trial/'+trJobId()+'/photo'+(trKey()?'?k='+trKey():''):'/api/render/cycles';
+  try{ const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(Object.assign({},body,{check:true}))}); j=r.ok?await r.json():null; }catch(e){ return; }
   if(curVid()!==vid||curStateId()!==st)return;          // ушли в другой вариант или начали править — кадры не этой расстановки
   const recs=peekShotRecs(j,{vid, stateId:st, cams:body.cams, products:productsOf(items), variant:v.title||'', style:v.style||'', rev:revision(), ts:Date.now()});
-  if(!recs.length||shots.some(x=>x.renderKey&&x.renderKey===recs[0].renderKey&&x.stateId===st))return;
-  PEEK[k]=Infinity;
+  if(!recs.length){ const nt=peekMachineNote(j&&j.machine); if((PEEKM[k]||'')!==nt){PEEKM[k]=nt; vwCtaUi();} return; }     // кадра нет — как было (3D и «Сделать фото»), плюс честная строка про машину
+  if(shots.some(x=>x.renderKey&&x.renderKey===recs[0].renderKey&&x.stateId===st))return;
+  PEEK[k]=Infinity; delete PEEKM[k];
   recs.forEach(addShot);
   const sh=document.getElementById('shot');
   if(sh&&sh.classList.contains('on')&&sh.classList.contains('v2')){

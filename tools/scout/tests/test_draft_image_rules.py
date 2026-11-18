@@ -130,6 +130,7 @@ LAZY_OK_OURS = {
     'render_jobs': 'то же: хранилище и очередь рендера — только DEV (`draft_service._cy`)',
     'render_snapshot': 'то же: снимок заказа (`/render/cycles`) собирает и читает процесс DEV',
     'render_prewarm': 'то же: заготовка кадров — поток DEV-процесса (`_render_prewarm_start`, в try)',
+    'render_tour': 'то же: фото тура — поток DEV-процесса рядом с заготовкой (`_render_prewarm_start`, в try); воркер тура подгружает его сам (`tools/floorplan/worker.py`, DEV)',
     'scene_build': 'режим «кадр по номеру сета» (`draft_render.render(n=…)`) — офлайн-скрипты DEV; в сервисе кадр идёт по `layout`',
     'catalog_items': 'добор фото из БД каталога (`draft_trial`, в try/except с запасом): базы в контейнере нет',
 }

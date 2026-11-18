@@ -424,6 +424,45 @@ class Worker:
         except ProcessLookupError:
             pass
 
+    # ── фото тура (T-20261118-20/13/2): крючки воркера для `tools/scout/render_tour.py` — машина фото включается, как только задание взято, рендеры комнат ставятся по принятым версиям.
+    # Любой сбой — строка в журнал: разбор и сборка тура от фото не зависят. Выключить крючки: `TRIAL_TOUR_WARM=0`; правила и срок жизни — `render_machine.tour` (salad-groups.json)
+    def _tour_mod(self):
+        if os.environ.get('TRIAL_TOUR_WARM', '1') == '0':
+            return None
+        try:
+            sc = str(HERE.parent / 'scout')
+            if sc not in sys.path:
+                sys.path.append(sc)
+            import render_tour
+            return render_tour
+        except Exception as e:  # noqa: BLE001
+            log(f'фото тура: модуль не загружен ({e!r}) — крючки выключены')
+            return None
+
+    def tour_begin(self, jid: str) -> None:
+        try:
+            rt = self._tour_mod()
+            if rt is not None:
+                rt.begin(jid, self.cfg.python, log=log)
+        except Exception as e:  # noqa: BLE001 — крючок не роняет разбор
+            log(f'{jid}: фото тура — «фото получено» не сработало ({e!r})')
+
+    def tour_publish(self, jid: str, data: bytes, tag: str) -> None:
+        try:
+            rt = self._tour_mod()
+            if rt is not None:
+                rt.publish(jid, data, tag, log=log)
+        except Exception as e:  # noqa: BLE001
+            log(f'{jid}: фото тура — «версия принята» не сработало ({e!r})')
+
+    def tour_end(self, jid: str) -> None:
+        try:
+            rt = self._tour_mod()
+            if rt is not None:
+                rt.finish(jid)
+        except Exception as e:  # noqa: BLE001
+            log(f'{jid}: фото тура — снятие метки не сработало ({e!r})')
+
     def process(self, job: dict) -> None:
         jid = str(job.get('id', ''))
         lease = {'id': jid, 'attempt': int(job.get('attempt', 0)), 'leaseToken': str(job.get('leaseToken', ''))}
@@ -435,6 +474,7 @@ class Worker:
         wd = self.cfg.base / jid / f'a{lease["attempt"]}-{time.strftime("%H%M%S")}'
         wd.mkdir(parents=True, exist_ok=True)
         log(f'{jid}: взял (попытка {lease["attempt"]}, {mime}, {job.get("inputBytes")} Б)')
+        self.tour_begin(jid)                          # ① фото планировки получено: машина фото — на прогрев, пока идут разбор и расстановка
         hb = Heartbeat(self, lease, wd)
         hb.start()
         t0 = time.time()
@@ -443,6 +483,7 @@ class Worker:
         finally:
             hb.stop_ev.set()
             hb.join(5)
+            self.tour_end(jid)
             log(f'{jid}: {time.time() - t0:.1f} с')
 
     def _process(self, job: dict, lease: dict, mime: str, wd: Path, hb: Heartbeat) -> None:
@@ -553,6 +594,7 @@ class Worker:
             f'версия страницы {rb.get("baseVersion")})')
         hb = Heartbeat(self, lease, wd, path='/api/trial/worker/rebuild/heartbeat', with_stage=False)
         hb.start()
+        self.tour_begin(jid)                          # ① «Обустроить» / правка / текст агента: те же рендеры по новой версии — машину греем так же
         t0 = time.time()
         cv = None
         try:
@@ -577,6 +619,7 @@ class Worker:
         finally:
             hb.stop_ev.set()
             hb.join(5)
+            self.tour_end(jid)
         log(f'{jid}: пересборка {rid} → {end}, {time.time() - t0:.1f} с')
         if end == 'published':
             self.streak = 0

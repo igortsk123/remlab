@@ -34,6 +34,20 @@ DEFAULTS = {'day_share': 0.6, 'interval_s': 300, 'start_delay_s': 90, 'batch': 4
 WARMUP_COST_MIN = 5.0          # прогрев машины — платный: закладываем в расчёт, когда она выключена
 
 
+def human_recent(q, now: float, window_s: float) -> bool:
+    """Был ли заказ людей, которому нужна машина: в очереди/в работе, или поставлен за `window_s` секунд и считался (не из кэша). Заготовки (`warm`) и отказы не в счёт.
+    Общая для заготовки витрины и тура (`render_tour.py`, T-20261118-20/13)."""
+    with q.store.lock:
+        for j in q.store.jobs.values():
+            if j.get('warm') or j.get('status') in ('error',):
+                continue
+            if j.get('status') in ('queued', 'running'):
+                return True
+            if now - float(j.get('ts') or 0) <= window_s and not (j.get('result') or {}).get('cached'):
+                return True
+    return False
+
+
 class Prewarmer:
     """Один проход — `once()`; поток — `run_forever()`. Всё внешнее (очередь, исполнитель, машина, источник сцен) — параметры, чтобы проверять без сети и платного."""
 
@@ -59,13 +73,24 @@ class Prewarmer:
     def default_scenes(self, pw: dict) -> list:
         import showcase_assets as SA
         tours = int(pw.get('tours_max') or 0)
-        return SA.build_scenes(DEMO_DATA, SA.REISSUE_ROOT, tours or None, demo_only=tours <= 0, log=self.log)
+        scenes = SA.build_scenes(DEMO_DATA, SA.REISSUE_ROOT, tours or None, demo_only=tours <= 0, log=self.log)
+        if tours > 0:                                          # запасной путь тура (T-20261118-20/13): последние версии заданий воркера в его папках — рендеры комнат, где фото можно
+            import render_tour as RT
+            for label, path in RT.recent_job_bundles(max_jobs=tours):
+                try:
+                    scenes += RT.eligible_snaps(json.load(open(path, encoding='utf-8')), label, self.log)
+                except (OSError, ValueError) as e:
+                    self.log(f'  {label}: данные не читаются ({e})')
+        return scenes
 
     def missing(self, scenes: list, pw: dict) -> list:
         import render_exec as RX
         out = []
         for label, snap in scenes:
-            key = RX.cache_key(snap['scene_hash'], self.versions)
+            try:
+                key = RX.frame_key_of(snap, self.versions)
+            except RX.RenderError:                                 # v2: сцене не хватает файла — комнату не считаем (заказ покажет причину)
+                continue
             if self.q.store.cached(key) is None and self.failed.get(key, 0) < int(pw['fail_max']) and self.q.store.brak_of(key) is None:
                 out.append((label, snap, key))
         return out
@@ -76,7 +101,10 @@ class Prewarmer:
         import render_exec as RX
         out = []
         for label, snap in scenes:
-            key = RX.cache_key(snap['scene_hash'], self.versions)
+            try:
+                key = RX.frame_key_of(snap, self.versions)
+            except RX.RenderError:
+                continue
             mk = self.q.store.brak_of(key) if self.q.store.cached(key) is None else None
             if mk:
                 out.append((label, key, mk.get('brak') or []))
@@ -144,17 +172,7 @@ class Prewarmer:
             return False
 
     def human_recent(self, window_s: float) -> bool:
-        """Был ли заказ людей, которому нужна машина: в очереди/в работе, или поставлен за `window_s` секунд и считался (не из кэша). Заготовки (`warm`) и отказы не в счёт."""
-        now = self.now()
-        with self.q.store.lock:
-            for j in self.q.store.jobs.values():
-                if j.get('warm') or j.get('status') in ('error',):
-                    continue
-                if j.get('status') in ('queued', 'running'):
-                    return True
-                if now - float(j.get('ts') or 0) <= window_s and not (j.get('result') or {}).get('cached'):
-                    return True
-        return False
+        return human_recent(self.q, self.now(), window_s)
 
     def maybe_off(self, pw: dict) -> str:
         """Правило 4б. → '' (не выключали) или строка про выключение."""

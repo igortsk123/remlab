@@ -257,11 +257,12 @@ class RenderQueue:
 
     def _order(self) -> list:
         """Очередь: сперва интерактивные, внутри — по приходу; ждущий дольше 30 мин идёт как интерактивный (прогрев не голодает).
-        Заготовка кадров (`warm`, T-20261118-07) всегда после заказов людей и не «стареет» в интерактивный: ей нельзя занять процессор DEV."""
+        Заготовка кадров (`warm`, T-20261118-07) всегда после заказов людей и не «стареет» в интерактивный: ей нельзя занять процессор DEV. Среди заготовок — сперва тура
+        (`wprio` 1, T-20261118-20/13: человек ждёт свой тур), потом витрины; внутри класса — по приходу."""
         now = time.time()
         q = [(jid, j) for jid, j in self.store.jobs.items() if j.get('status') == 'queued']
         return [jid for jid, j in sorted(q, key=lambda t: (0 if (not t[1].get('warm') and (t[1].get('prio', 0) == 0 or now - t[1].get('ts', now) > 1800))
-                                                          else 1, t[1].get('ts', 0)))]
+                                                          else 1, -int(t[1].get('wprio', 0)), t[1].get('ts', 0)))]
 
     def warm_ok(self) -> bool:
         """Можно ли сейчас брать заготовку кадров: только если её посчитает машина рендера (исполнитель сам говорит — `warm_ok`); без неё заготовки ждут."""
@@ -298,6 +299,21 @@ class RenderQueue:
         with self.store.lock:
             return sum(1 for j in self.store.jobs.values() if j.get('status') == 'queued' and not j.get('warm'))
 
+    def expire_warm(self, now: float | None = None) -> int:
+        """Срок жизни заготовки тура вышел (`expires`, `ttl_s` при постановке) и она всё ещё ждёт — не дождалась машины (потолок дня, не включилась): снимаем с журналом, чтобы не висела вечно
+        (страница видит «нет кадра» — 3D и «Сделать фото»). Считающиеся и готовые не трогаем. → сколько снято."""
+        now = time.time() if now is None else now
+        n = 0
+        with self.store.lock:
+            for jid, j in list(self.store.jobs.items()):
+                if j.get('warm') and j.get('status') == 'queued' and j.get('expires') and now > float(j['expires']):
+                    del self.store.jobs[jid]
+                    n += 1
+                    print(f'заготовка {jid} ({j.get("tour") or "?"}): срок в очереди вышел — машина не подошла, снимаю', flush=True)
+            if n:
+                self.store.save()
+        return n
+
     def warm_counts(self) -> dict:
         """Заготовки кадров по состояниям (для статуса)."""
         with self.store.lock:
@@ -330,8 +346,9 @@ class RenderQueue:
             raise Refusal(503, 'render_busy', 'Очередь фото заполнена. Попробуйте через несколько минут.',
                           'The photo queue is full. Try again in a few minutes.', avg * 2)
 
-    def submit(self, snap: dict, key: str, ip: str = '', tour: str = '', prio: int = 0, legacy: dict | None = None, warm: bool = False) -> dict:
+    def submit(self, snap: dict, key: str, ip: str = '', tour: str = '', prio: int = 0, legacy: dict | None = None, warm: bool = False, wprio: int = 0, ttl_s: float = 0) -> dict:
         """Поставить заказ. → {'job', 'status', 'deduped', 'cached'}; отказ — `Refusal`.
+        `wprio`/`ttl_s` — только у заготовки: класс среди заготовок (тур — 1, витрина — 0) и срок жизни в очереди, секунд (0 — без срока; вышел — `expire_warm` снимает с журналом).
         `warm` — заготовка кадров программой (T-20261118-07): пределы покупателя (`admit`) её не касаются и не считают, в очереди она всегда после заказов людей
         и считается только на машине рендера (`warm_ok`); место в очереди для людей и срок ожидания она не занимает."""
         st = self.store
@@ -360,6 +377,10 @@ class RenderQueue:
                             'body': {'snap': snap, 'legacy': legacy or {}}}
             if warm:
                 st.jobs[jid]['warm'] = True
+                if wprio:
+                    st.jobs[jid]['wprio'] = int(wprio)
+                if ttl_s and ttl_s > 0:
+                    st.jobs[jid]['expires'] = time.time() + float(ttl_s)
             else:
                 self.hits.append(time.time())
                 self._wake_for_order()

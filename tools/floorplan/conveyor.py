@@ -179,6 +179,15 @@ class Conveyor:
             self.priced_note(out)
         return data, None
 
+    def _tour(self, tag: str, data: bytes) -> None:
+        """Крючок ② (T-20261118-20/13/2): принятая версия данных → в очередь рендеров тура (`render_tour.publish`; гостиная — после v2, остальное — после v3). Нет крючка у воркера (проверки) — пропуск."""
+        f = getattr(self.w, 'tour_publish', None)
+        if callable(f):
+            try:
+                f(self.jid, data, tag)
+            except Exception as e:  # noqa: BLE001 — рендеры тура не должны ронять сборку
+                self.log(f'{tag}: фото тура — крючок не сработал ({e!r})')
+
     def priced_note(self, out: Path) -> None:
         """«В цене — значит в 3D» и ядро гостиной (T-20261113-23) у версии, что уйдёт на страницу, — СТРОКОЙ В ЖУРНАЛ, не отказом: код
         отказа сборщика здесь делает комнату пустой («мебель не подобрана») — хуже строки без места. Перевыпуск и витрина — отказом
@@ -212,6 +221,7 @@ class Conveyor:
             self.journal.write_text(json.dumps(done + [sha]))
             self.log(f'{tag}: версия {(resp or {}).get("version")} принята{" (повтор)" if (resp or {}).get("repeated") else ""}, '
                      f'{len(data)} Б, complete={body["trial"]["complete"]}')
+            self._tour(tag, data)
             return True
         if st == 409:
             self.stopped = 'lost'
@@ -435,6 +445,7 @@ class Rebuild(Conveyor):
             self.last, self.outcome = body, 'published'
             self.log(f'{tag}: пересборка → версия {(resp or {}).get("version")}{" (повтор)" if (resp or {}).get("repeated") else ""}, '
                      f'{len(data)} Б{" · " + str((resp or {}).get("warning")) if (resp or {}).get("warning") else ""}')
+            self._tour(tag, data)
             return True
         if st == 409 and err == 'stale':
             self.outcome = 'stale'
