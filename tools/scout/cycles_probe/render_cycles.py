@@ -99,6 +99,8 @@ ap.add_argument('--dof', type=float, default=0.0, help='>0: диафрагма f
 ap.add_argument('--smooth-deg', type=float, default=50.0, help='угол сглаживания нормалей мебели, ° (0 — без сглаживания, плоские грани)')
 ap.add_argument('--denoise', type=int, default=1, help='0 — без шумоподавления OIDN (разбор причины артефактов)')
 ap.add_argument('--mr', type=int, default=1, help='1: у мебели своя карта шероховатости/металла меша (как есть), иначе таблица ROUGH')
+ap.add_argument('--qa', type=int, default=1, help='сторож кадров (render-qa-gate-01, frame_qa.py): до рендера — оплачиваемые позиции против выгрузки и сцены; после — маска предметов каждого кадра, отчёт `<кадр>.qa.json`; только отчёт, кадр не блокирует (шаг 5 не включён)')
+ap.add_argument('--qa-inject', default='', help='проверка сторожа: art_nomap[:слот],art_white[:слот],curtain_remove,hide_item:слот,camera (через запятую)')
 a = ap.parse_args(argv)
 if a.orig and (a.lamp_k == 2800.0 or a.sheen == 0.4 or (a.fabric and a.fabric_tile == 12.0)):
     # прежние очереди пробы (круг 1: оранжевый свет; sheen 0,4 и плетение без маски ножек) заменены новым набором — не тратим на них ядра
@@ -1203,14 +1205,20 @@ CAMS = [c.strip() for c in a.cam.split(',') if c.strip()]
 if len(CAMS) > 1 and '{cam}' not in a.out:
     raise SystemExit('несколько ракурсов: в --out нужен шаблон {cam}, например /x/frame-{cam}.png')
 print(f'SCENE_BUILD_SEC {time.time() - T_START:.1f}', flush=True)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import frame_qa
+QA = frame_qa.Guard(a, M, bool(a.qa and a.demo_nodes and a.export))
+QA.scene_ready(bpy, np)
 for _i, _cn in enumerate(CAMS):
     setup_camera(_cn)
+    QA.camera_ready(bpy, co, _cn)
     dof_current()
     _out = a.out.replace('{cam}', _cn)
     os.makedirs(os.path.dirname(os.path.abspath(_out)), exist_ok=True)
     sc.render.filepath = _out
     t0 = time.time()
     bpy.ops.render.render(write_still=True)
+    QA.frame_done(bpy, co, _cn, _out)
     print(f'RENDER_SEC {time.time() - t0:.1f} cam {_cn} frame {_i + 1}/{len(CAMS)} samples {a.samples} pct {a.pct} device {DEVICE_USED} threads {a.threads}', flush=True)
 
 if a.mask_out and len(CAMS) > 1 and '{cam}' not in a.mask_out:
@@ -1257,4 +1265,4 @@ if a.mask_out:
         sc.render.filepath = _mo
         bpy.ops.render.render(write_still=True)
         print('МАСКА', _cn, _mo, flush=True)
-
+QA.finish(bpy, np)

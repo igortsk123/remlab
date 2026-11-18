@@ -1,0 +1,43 @@
+{
+  "_about": "Правила сторожа кадров (render-qa-gate-01, шаги 1–2, T-20261118-03/1): пороги и классы предметов — ДАННЫЕ, код `tools/scout/cycles_probe/frame_qa.py` только исполняет. Ворота в публикацию НЕ включены (шаг 5): сторож пишет отчёт `<кадр>.qa.json` и предупреждение в журнал, кадр не блокирует, пока не замерены ложные блокировки.",
+  "version": 1,
+  "slotClasses": {
+    "_doc": "Класс слота по его id (`роль#N`, префиксы `textile:`, `ceiling:`, `plant:`, `decor:`, `carrier:`). Порядок — сверху вниз, первый подошедший. `role` — роль без номера и префикса; `prefix` — начало id слота.",
+    "rules": [
+      { "class": "art", "prefix": "картина" },
+      { "class": "curtain", "prefix": "textile:шторы" },
+      { "class": "pillow", "prefix": "textile:подушка" },
+      { "class": "throw", "prefix": "textile:плед" },
+      { "class": "chandelier", "prefix": "ceiling:" },
+      { "class": "plant", "prefix": "plant:" },
+      { "class": "rug", "prefix": "ковёр" },
+      { "class": "decor", "prefix": "decor:" },
+      { "class": "lamp", "prefix": "carrier:" },
+      { "class": "main", "roles": ["диван", "кровать"] },
+      { "class": "furniture", "prefix": "" }
+    ]
+  },
+  "minPx": {
+    "_doc": "Сколько пикселей слота в кадре — «видно»; меньше — «неопределимо» (мало пикселей, закрыт или у края), не «чисто». Считаются в размере самого кадра. Полотно картины — ≥ 400 пикселей (план: «маска полотна без рамы»).",
+    "main": 3000,
+    "furniture": 400,
+    "art": 400,
+    "curtain": 1500,
+    "pillow": 150,
+    "throw": 150,
+    "chandelier": 100,
+    "plant": 150,
+    "rug": 1500,
+    "decor": 100,
+    "lamp": 100
+  },
+  "required": {
+    "_doc": "Классы, чьё отсутствие в кадре (предмет по положению в кадре, но пикселей нет, и он не закрыт другими) — брак. Прочие классы при нуле пикселей — только предупреждение.",
+    "brak": ["main", "furniture", "art", "curtain", "rug"],
+    "warn": ["pillow", "throw", "chandelier", "plant", "decor", "lamp"]
+  },
+  "occludedShare": 0.6,
+  "frameMargin": 0.0,
+  "camera": { "posTolM": 0.02, "dirTolDeg": 0.5, "lensTolFrac": 0.01 },
+  "mainMustBeVisible": true
+}
