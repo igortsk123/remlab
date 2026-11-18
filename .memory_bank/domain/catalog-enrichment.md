@@ -3,7 +3,7 @@ tier: 2
 topic: catalog-enrichment
 scope: Обогащение каталога — реестр моделей и цен, каскад, дельта, статусы
 tier1: "../core/catalog.md"
-updated: 2026-11-12
+updated: 2026-11-18
 importance: high
 source: manual
 status: working
@@ -141,7 +141,7 @@ style_strength, флаги). Шкалы ДИСКРЕТНЫЕ (`нет/низка
 `gpt-5-nano` дешевле по прайсу вчетверо, но выдала 342 тыс. токенов выхода против 53 тыс. —
 разрыв схлопнулся до 1.6× — и развалила подтип (43%) и стиль (3%).
 
-Отчёт владельцу — `golden_report.py` → `~/scout-scenes/golden/golden.html` (`golden_report.py:OUT`; на проде —
+Отчёт владельцу — `golden_report.py` → `~/scout-scenes/golden/golden.html` (`golden_report.py:OUT` — папка `~/scout-scenes/golden`; на проде —
 https://remont-lab.online/test/golden/golden.html, выкладка вне скрипта)
 (там же 5 позиций, где все кандидаты разошлись с эталоном одинаково: почти наверняка ошибается
 сам эталон, ждём решения владельца).
@@ -183,7 +183,7 @@ https://remont-lab.online/test/golden/golden.html, выкладка вне ск�
   `parent_id` — читаем оба, иначе дерево схлопывается в один уровень.
 - `category_map.py` — решение принимается один раз НА КАТЕГОРИЮ (`build`: ручные `OVERRIDES` сильнее всего, иначе
   `classify`: точечные `ALLOW_FIRST` (кашпо из садовой ветки, кроме рассады/уличного) → запреты `DENY` → разрешения
-  `ALLOW` сперва по листу, потом по пути; смешанные ветки `MIXED` — роль по названию товара `role_by_name` в `load3.py`)
+  `ALLOW` сперва по листу, потом по пути; смешанные ветки `MIXED` — роль по названию товара `role_by_name` (`tools/scout/category_map.py:261`, вызывается из `load3.py:244`))
   и пишется в `products.cat_role` (`category_map.py:apply`, upsert `load3.py`).
 
 Что нашлось в дереве и было потеряно регексом:

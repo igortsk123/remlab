@@ -3,12 +3,12 @@ tier: 2
 topic: pricing-works-ru
 scope: Нормативы стоимости ремонтных работ РФ — медианы Москвы + региональные коэффициенты (для входа Б)
 tier1: ../core/estimate.md
-updated: 2026-08-06
+updated: 2026-11-18
 importance: med
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-08-06
+last_verified: 2026-11-18
 review_after: "2026-12-15"
 ---
 
@@ -54,7 +54,7 @@ banki.ru daytheme 11020655 · cian.ru stati-344652 · realty.yandex journal · 1
 ## Что дальше (Фаза 2, не сделано)
 Точечная сверка 3–5 регионов реальными прайсами → корректировка k · GeoIP по IP (заголовки
 Caddy/Cloudflare или MaxMind GeoLite2) · расширение видов работ (электрика/сантехника точка,
-потолки) для детальной сметы · маппинг ключевик→сопутка расширить (сейчас — `lib/estimate/companions.ts`).
+потолки) для детальной сметы · сопутка — статичный список «вид расчёта → позиции» (`lib/estimate/companions.ts`), маппинг по ключевым словам не делали.
 
 **Tier 1:** `../core/marketing-acquisition.md` (реклама ведёт на вход Б).
 

@@ -3,12 +3,12 @@ tier: 1
 topic: estimate
 scope: Смета — калькуляторы, /go/ реф
 tier2: "../domain/pricing-works-ru.md"
-updated: 2026-10-17
+updated: 2026-11-18
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-06
+last_verified: 2026-11-18
 review_after: 2026-12-05
 ---
 
@@ -40,7 +40,7 @@ localStorage). UX: в комнате размеры → ссылка → лид 
 
 ## Чтение ссылок (ADR-0031/0032)
 Только сервер: direct → прокси `PARSE_PROXY_URLS`; `parse-product.ts`: regex+OG → JSON-LD →
-ИИ дочитывает; неудача → ручной ввод. ⚠️ Ozon/WB — нужен анблокер; Леруа/Петрович читаются.
+ИИ дочитывает; неудача → ручной ввод. ⚠️ Ozon/WB — нужен анблокер; Леруа/Петрович — по свидетельству владельца читаются, в тестах кода не подтверждено.
 
 ## Дальше (после М5)
 М4 реклама; pricing Фаза 2 (GeoIP); ИИ-обогащение (М1 v1.1); реф-маршруты (М0).

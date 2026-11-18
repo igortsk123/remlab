@@ -71,14 +71,13 @@ last_verified: 2026-11-12
 - **Ключ:** `POSTHOG_KEY` (+ `POSTHOG_HOST`, дефолт `https://eu.i.posthog.com`) в env. Без ключа — no-op.
 - ⚠️ Одним ключом на проде НЕ включить: compose передаёт в app явный `environment:`-список без
   `POSTHOG_*` — нужна правка compose.
-- **События (сверено 18.10):** 17 объявлено в `lib/analytics.ts` (`EventName`), 13 эмитится (estimate_*, lab_tab,
-  lead_*, quiz_completed, viz_started и др.); `brief_completed`/`style_selected`/`paywall_viewed`/`cost_fake_door_viewed`
-  объявлены, но НЕ эмитятся.
+- **События (сверено 18.10):** 17 объявлено в `lib/analytics.ts` (`EventName`), 12 эмитится (11 `track(...)` и `app_error`; сверено 18.11); `brief_completed`/`style_selected`/`paywall_viewed`/`cost_fake_door_viewed`
+  и `estimate_saved` объявлены, но в PostHog НЕ уходят (`estimate_saved` идёт в Метрику через `trackGoal`, `components/calc/ResultView.tsx:63`).
 - Бесплатный тариф PostHog: 1M событий/мес. Sentry не заводим (покрыто PostHog).
 
 ## Affiliate-сеть и фиды (М0/v0.4 — КЛЮЧЕВАЯ; доступ есть, в приложении кода нет, фиды — `tools/scout/`)
 - **Статус 2026-08-01 (ADR-0042):** аккаунт Гдеслон есть, **доступ одобрен к 14 магазинам**.
-  Merchant ID (mid = `_id` в shops.json): divan.ru 112923, sanok.ru 109882, petrovich.ru 94804,
+  Merchant ID (mid = `_id` магазина в фиде Гдеслона; файла `shops.json` в репо нет): divan.ru 112923, sanok.ru 109882, petrovich.ru 94804,
   ormatek.com 93965, nonton.ru 116933, askona.ru 111950, tvoydom.ru 99272, lemanapro.ru 95644,
   mnogomebeli.com 114667, maxidom.ru 117043, lazurit.com 102708, gipfel.ru 112098,
   divanboss.ru 114082, h-f-l.ru 110353. План интеграции — `archive/plans/gdeslon-catalog.md`.
@@ -416,10 +415,10 @@ base 2833 против 85 у `gpt-4o`, то есть в долларах как 
 
 ## env_keys — откуда скрипты scout берут ключи (T-52, 05.11)
 Резолвер `tools/scout/env_keys.py`: окружение → своё дерево → основная копия (из worktree, через git common-dir) → mltest последним с WARN; `--where` — откуда возьмётся (только путь), `--ping` — бесплатная проверка; журнал трат `openai-spend.jsonl` — всегда основной копии (`openai_budget.SPEND_LOG`). 12 старых скриптов (fixone.py, judge.py, pipeline.py, pipeline2.py, viz5/7/8/9/10/11.py, viz_frame.py, viz_plan.py; у pipeline2 и viz_frame сперва свой `.env`) ещё берут OpenAI-ключ из `v0-health-card/backend/.env` — вопрос владельцу.
-- GHCR (02.10): в CI вход на сервере — `GHCR_TOKEN` = `secrets.GITHUB_TOKEN` (`.github/workflows/deploy.yml:141`, `docker login ghcr.io` — :147); ручной вход — `GHCR_TOKEN` из `_secrets/`, не `gh auth token`: токену под пакеты `gh` требует ещё `read:org` (ADR-0232).
+- GHCR (02.10): в CI вход на сервере — `GHCR_TOKEN` = `secrets.GITHUB_TOKEN` (`.github/workflows/deploy.yml:142`, `docker login ghcr.io` — :148); ручной вход — `GHCR_TOKEN` из `_secrets/`, не `gh auth token`: токену под пакеты `gh` требует ещё `read:org` (ADR-0232).
 
 ## Вырезка фона: BiRefNet local и fal (свод недели 06–12.11 по журналам, T-20261112-85)
 - Веса и код BiRefNet закреплены ревизией (`tools/scout/cutout_sync.py:BIREFNET_REVISION`, T-46/3): модель грузится с
   `trust_remote_code=True`, без ревизии transformers сам скачивал новый `birefnet.py`. На ноде Salad (`tools/scout/salad/preprocess.py`) ревизия НЕ закреплена.
-- `CUTOUT_BACKEND=local` — CPU, 18–23 с на фото, порциями по 100 под `tools/ops/heavy-slot.sh` (`--min-gb 4`); fal ≈ $0,0005–0,0008
+- `CUTOUT_BACKEND=local` — CPU, 18–23 с на фото, порциями по 100 (вызова `heavy-slot` в коде вырезки нет — не подтверждено 18.11); fal ≈ $0,0005–0,0008
   за фото (4 потока: 372 фото за 624 с).

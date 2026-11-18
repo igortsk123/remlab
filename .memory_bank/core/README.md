@@ -12,22 +12,22 @@
 
 | Файл | topic | Когда читать (scope) | Tier 2 | updated |
 |------|-------|----------------------|--------|---------|
-| `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — ключи, клиенты | `../domain/integrations.md` | 2026-11-12 |
-| `agent-trial.md` | agent-trial | Проба агента недвижимости (UK) — план, воркер, стадии, тур /try | `../plans/MASTER-agent-trial.md` | 2026-11-16 |
-| `apartment-configurator.md` | apartment-configurator | 3D-конфигуратор квартиры — что это, из чего собран, где детали | `../domain/flat3d-configurator.md` | 2026-11-17 |
-| `architecture.md` | architecture | Стек, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-11-12 |
-| `catalog.md` | catalog | Каталог — загрузка из фидов/API, свежесть, сторожа | `../domain/catalog-enrichment.md` | 2026-11-12 |
-| `data-model.md` | data-model | Схема БД, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-11-12 |
+| `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — ключи, клиенты | `../domain/integrations.md` | 2026-11-18 |
+| `agent-trial.md` | agent-trial | Проба агента недвижимости (UK) — план, воркер, стадии, тур /try | `../plans/MASTER-agent-trial.md` | 2026-11-18 |
+| `apartment-configurator.md` | apartment-configurator | 3D-конфигуратор квартиры — что это, из чего собран, где детали | `../domain/flat3d-configurator.md` | 2026-11-18 |
+| `architecture.md` | architecture | Стек, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-11-18 |
+| `catalog.md` | catalog | Каталог — загрузка из фидов/API, свежесть, сторожа | `../domain/catalog-enrichment.md` | 2026-11-18 |
+| `data-model.md` | data-model | Схема БД, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-11-18 |
 | `demo-planner.md` | demo-planner | Демо-планировщик для партнёра — расстановка и кадр | `../domain/demo-planner-ui.md` | 2026-11-13 |
 | `demo-scenarios.md` | demo-scenarios | Сценарии /demo — карта кнопок «ожидание → факт», живые проверки, дефекты | `../domain/demo-scenario-map.md` | 2026-11-13 |
-| `estimate.md` | estimate | Смета — калькуляторы, /go/ реф | `../domain/pricing-works-ru.md` | 2026-10-17 |
+| `estimate.md` | estimate | Смета — калькуляторы, /go/ реф | `../domain/pricing-works-ru.md` | 2026-11-18 |
 | `furniture.md` | furniture | Мебель — сеты, визуализация | `../domain/viz-fidelity-playbook.md` | 2026-11-18 |
-| `goals.md` | goals | Цели v0.4 — сценарий, монетизация, порядок ступеней | `../plans/MASTER-cost-first.md` | 2026-10-19 |
+| `goals.md` | goals | Цели v0.4 — сценарий, монетизация, порядок ступеней | `../plans/MASTER-cost-first.md` | 2026-11-18 |
 | `knowledge-db.md` | knowledge-db | Source-KB из книг — спека, KB0–KB9 | `../../remlab_knowledge_db_v1/spec/SPEC_source_kb_v1.md` | 2026-11-06 |
-| `layout.md` | layout | Расстановка: правила, зоны, прод-ядро | `../domain/occupancy-rules.md` | 2026-11-13 |
+| `layout.md` | layout | Расстановка: правила, зоны, прод-ядро | `../domain/occupancy-rules.md` | 2026-11-18 |
 | `leads.md` | leads | Лид-канал — заявка, TG-бот | — | 2026-10-18 |
 | `lessons.md` | lessons | Уроки перед планированием — что НЕ сработало | `../lessons/README.md` | 2026-11-18 |
-| `lr-composition.md` | lr-composition | Композиция гостиной — доли | `../domain/lr-composition-guide.md` | 2026-11-12 |
+| `lr-composition.md` | lr-composition | Композиция гостиной — доли | `../domain/lr-composition-guide.md` | 2026-11-18 |
 | `manager-links.md` | manager-links | Ссылка от менеджера застройщика покупателю, сигналы менеджеру, его страница и бот | `../domain/manager-links.md` | 2026-11-12 |
 | `market.md` | market | Рынок RU/UK — спрос, монетизация | `../domain/market-research.md` | 2026-11-12 |
 | `marketing-acquisition.md` | marketing-acquisition | Реклама — Яндекс, семантика | `../domain/wordstat-semantics.md` | 2026-11-09 |
@@ -39,7 +39,7 @@
 | `observability-tracing.md` | observability-tracing | Трейсинг AI-пайплайна — лог, разбор | `../domain/observability.md` | 2026-11-12 |
 | `partners.md` | partners | Застройщик, ЖК, квартира, цена и сертификат — данные; реестр и карточка квартиры | `../completed_plans/b2b-06-apartment-as-data.md` | 2026-11-10 |
 | `photo-render.md` | photo-render | Фото по кнопке — рендер, «Улучшить», машина Salad | `../domain/viz-fidelity-playbook.md` | 2026-11-18 |
-| `pipeline-order.md` | pipeline-order | Порядок конвейера — от фида до расстановки | `../domain/pipeline-order-details.md` | 2026-11-13 |
+| `pipeline-order.md` | pipeline-order | Порядок конвейера — от фида до расстановки | `../domain/pipeline-order-details.md` | 2026-11-18 |
 | `regression-net.md` | regression-net | Регресс-защита — тесты, CI, гардрейлы | `../../docs/tech-spec-ts-stack.md` | 2026-11-13 |
 | `room-measurement.md` | room-measurement | Замер комнаты по фото | `../domain/room-measurement.md` | 2026-11-12 |
 | `room-templates.md` | room-templates | Шаблоны комнат — порядок создания, паспорт, листы в масштабе | `../domain/room-templates.md` | 2026-11-13 |

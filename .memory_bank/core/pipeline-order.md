@@ -3,7 +3,7 @@ tier: 1
 topic: pipeline-order
 scope: Порядок конвейера — от фида до расстановки
 tier2: "../domain/pipeline-order-details.md"
-updated: 2026-11-13
+updated: 2026-11-18
 importance: high
 source: manual
 status: working

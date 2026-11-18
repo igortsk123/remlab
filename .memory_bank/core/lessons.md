@@ -9,7 +9,7 @@ source: manual
 review_after: 2026-12-05
 status: working
 source_of_truth: supporting
-last_verified: 2026-09-05
+last_verified: 2026-11-18
 ---
 
 # Lessons — маршрутизатор
@@ -28,7 +28,7 @@ last_verified: 2026-09-05
   longtask, ракурсы на сервере (607); после вливания — перезапуск `remlab-trial-worker` (608).
 
 ## Критичные сейчас
-- Пул: `autostart_policy` поднимает при создании (481); «нет денег» — лишь `no_credits_available` (519); в отчёте — ограничитель (568).
+- Пул: `autostart_policy` поднимает при создании (400); «нет денег» — лишь `no_credits_available` (404; 519 — про маркер `no_credits` в `stop_clues`); в отчёте — ограничитель (568).
 - Деплой: приёмка — по `version` в `/api/health` (513).
 - DEV: код кронов — в worktree (516); worktree без игнорируемых входов врёт, «сухой» — проверить (525, 527); тяжёлое — heavy-slot (573) с реальным `--min-gb`; ядра
   очередь выводит из команды сама (617), снимки 3D — 6–7 ядер (663); вливать до проверенного хеша (612); /demo — только из основной копии (662);

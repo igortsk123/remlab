@@ -279,3 +279,33 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-17	deployment.md	drift	37	0	0	
 2026-11-17	core/bedroom.md	code	36	1	1	
 2026-11-17	core/photo-render.md	code	37	3	3	
+2026-11-18	core/design-figma.md	rotation	13	0	0	
+2026-11-18	core/estimate.md	rotation	24	1	1	
+2026-11-18	domain/pricing-works-ru.md	rotation	19	1	1	
+2026-11-18	core/goals.md	rotation	6	1	1	
+2026-11-18	core/knowledge-db.md	rotation	22	0	0	
+2026-11-18	core/furniture.md	drift	20	1	1	
+2026-11-18	domain/viz-fidelity-playbook.md	drift	80	15	15	частичная сверка, last_verified не двигал
+2026-11-18	core/access-and-integrations.md	rotation	14	0	0	
+2026-11-18	core/agent-trial.md	drift	25	1	1	
+2026-11-18	core/apartment-configurator.md	drift	20	0	0	
+2026-11-18	core/architecture.md	drift	25	1	1	
+2026-11-18	domain/integrations.md	drift	115	4	4	частичная, last_verified не двигал
+2026-11-18	domain/flat3d-configurator.md	drift	110	1	1	частичная, last_verified не двигал
+2026-11-18	core/bedroom.md	drift	25	0	0	
+2026-11-18	core/demo-planner.md	drift	20	0	0	
+2026-11-18	core/demo-scenarios.md	drift	25	0	0	
+2026-11-18	core/catalog.md	drift	45	0	0	крон и живые счётчики не сверены, дату не двигал
+2026-11-18	core/data-model.md	drift	20	2	2	tech-spec §4 не сверен, дату не двигал
+2026-11-18	domain/catalog-enrichment.md	drift	90	2	2	частичная
+2026-11-18	domain/pipeline-order-details.md	drift	70	1	1	частичная
+2026-11-18	domain/demo-planner-ui.md	drift	190	0	0	по символам сверено, числа выборочно
+2026-11-18	domain/demo-scenario-map.md	drift	110	0	0	колонка факт — живые прогоны, не сверена
+2026-11-18	core/layout.md	drift	21	0	0	
+2026-11-18	core/leads.md	drift	26	0	0	
+2026-11-18	core/lr-checklist.md	drift	19	0	0	
+2026-11-18	domain/living-room-checklist.md	drift	17	0	0	
+2026-11-18	domain/occupancy-rules.md	drift	46	1	1	
+2026-11-18	core/lessons.md	drift	120	2	2	
+2026-11-18	core/lr-composition.md	drift	11	1	1	
+2026-11-18	domain/lr-composition-guide.md	drift	19	2	2	

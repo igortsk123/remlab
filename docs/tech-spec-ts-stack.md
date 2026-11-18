@@ -79,7 +79,7 @@ CLAUDE.md
 | Группа | Файлы | В git |
 |---|---|---|
 | Скрипты проекта | `tools/migrate.mjs` (идемпотентный раннер миграций поверх `db/init/*.sql`), `tools/trace-show.mjs` (за `pnpm trace`), `tools/update-cities.mjs`, `tools/smoke-providers.mjs` | да |
-| Пайплайн подбора/расстановки (Python) | `tools/scout/*.py` — `pipeline2.py`, `load3.py`, `judge.py`, `viz*.py`, `compose*.py`; крон `tools/scout/refresh_daily.sh` (09:40), `tools/scout/bootstrap.sql` | да |
+| Пайплайн подбора/расстановки (Python) | `tools/scout/*.py` — `pipeline2.py`, `load3.py`, `judge.py`, `viz*.py`, `compose*.py`; крон `tools/scout/refresh_daily.sh` (10:40 UTC, `infra/dev/crontab:3`), `tools/scout/bootstrap.sql` | да |
 | Memory Bank (kit-owned) | `tools/memory-audit.mjs`, `session-reminder.mjs` (Stop-гейт), `precompact-guard.mjs`, `session-freshness.mjs`, `read-logger.mjs`, `metrics-append.sh`, `merge-settings.{py,ps1}` | да |
 | Данные scout | `tools/scout/{feeds2,thumbs,xlsx,big}/`, `*.png/jpg/json/npz/xlsx` (≈338 МБ: фиды, тумбы, рендеры, эмбеддинги, `sets*.json`) | **нет** |
 

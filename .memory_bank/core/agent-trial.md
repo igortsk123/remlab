@@ -3,12 +3,12 @@ tier: 1
 topic: agent-trial
 scope: Проба агента недвижимости (UK) — план, воркер, стадии, тур /try
 tier2: "../plans/MASTER-agent-trial.md"
-updated: 2026-11-16
+updated: 2026-11-18
 importance: high
 source: _intake/session-scratch.md
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-12
+last_verified: 2026-11-18
 review_after: 2026-12-10
 ---
 
@@ -17,7 +17,7 @@ review_after: 2026-12-10
 План (+ объявление) → стены → комнаты → гостиная и спальни → фото; итог — `/demo` под план (ADR-0372).
 
 ## По коду
-- **Задание:** `app/try/page.tsx` → `POST /api/trial` → `trial_jobs` (`db/init/022-trial-jobs.sql` … 037); лимиты — ADR-0371
+- **Задание:** `app/try/page.tsx` → `POST /api/trial` → `trial_jobs` (`db/init/022-trial-jobs.sql` … 038); лимиты — ADR-0371
   (`lib/trial/upload-limits.ts`, `own-key.ts`), хранение 30 дн (`lib/trial/config.ts:trialFileHours`).
 - **Воркер DEV:** `tools/floorplan/worker.py`, юнит `remlab-trial-worker`, аренда `lib/trial/repo-worker.ts`; не берёт при < 3 ГБ,
   ≥ 2 тяжёлых, прод не 200; правка — после перезапуска (урок 608). Исходник покупателю — нет (ADR-0418).

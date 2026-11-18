@@ -3,12 +3,12 @@ tier: 1
 topic: access-and-integrations
 scope: Интеграции/доступы — ключи, клиенты
 tier2: "../domain/integrations.md"
-updated: 2026-11-12
+updated: 2026-11-18
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-09
+last_verified: 2026-11-18
 review_after: 2026-12-05
 ---
 

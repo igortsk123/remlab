@@ -3,7 +3,7 @@ tier: 2
 topic: pipeline-order-details
 scope: Порядок конвейера — обоснования этапов и незакрытые места
 tier1: "../core/pipeline-order.md"
-updated: 2026-11-13
+updated: 2026-11-18
 importance: med
 source: manual
 last_verified: 2026-11-12
@@ -177,7 +177,7 @@ bedroom (сборщик `compose_bedroom`); по вариантам витрин
   (бюджет поднимать бесполезно). Починено: (1) стык ядра с нишей/проходом (дверь без полотна) — не дверь: полоса 76 только у двери с
   полотном, у стыка — узкая `JUNCTION_STRIP_CM` 20 см, спинкой в воздух нельзя (`services/planner-solver/planner/bedroom.py:_Statics`);
   (2) память отказа кровати на ядре — «не встала» вместо `budget`, решатель второй раз не зовётся (`tools/scout/trial_bedroom.py:bed_nofit_known`,
-  `note_bed_nofit`); (3) тумба гостевой/одиночной — через `compact` (ADR-0404, `bedroom.json:sleep_before_mode`). Туры main→ветка: iT0X 18→24,
+  `note_bed_nofit`); (3) тумба гостевой/одиночной — через `compact` (ADR-0404, `services/planner-solver/rules/room-templates/bedroom.json:53,73` (`sleep_before_mode`)). Туры main→ветка: iT0X 18→24,
   sVE0 0→5, aRQV 17→16 (граница бюджета 30 с на загруженной машине).
 - **Открыто → T-96/3 (12.11):** в туре ЛЮБАЯ кровать каталога спальни подменяется витринной — `tools/scout/trial_bundle.py:catalog_goods` ищет
   товар через `catalog_media.media` в таблице `products`, а каталог спальни — `room_catalog` (1376 из 1376 кроватей нет); углубление (recess)

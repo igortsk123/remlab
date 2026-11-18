@@ -4,7 +4,7 @@ topic: living-room-checklist
 scope: Чек-лист гостиной — обязательные роли по метражу
 tier1: ../core/lr-checklist.md
 updated: 2026-11-12
-last_verified: 2026-11-12
+last_verified: 2026-11-18
 importance: med
 source: external:web (Ангстрем, Mr.Doors, Петрович.Знает, Society6, Parachute, Millennial Homeowner)
 status: working

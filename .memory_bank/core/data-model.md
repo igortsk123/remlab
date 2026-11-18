@@ -3,12 +3,12 @@ tier: 1
 topic: data-model
 scope: Схема БД, миграции, pgvector
 tier2: "../../docs/tech-spec-ts-stack.md"
-updated: 2026-11-12
+updated: 2026-11-18
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-11-12
+last_verified: 2026-11-18
 review_after: 2026-12-05
 ---
 
@@ -23,11 +23,11 @@ review_after: 2026-12-05
 - **leads / lead_messages** (К6, TG-бот) — лиды «найти дешевле» + переписка (in|out,
   `admin_tg_message_id`); согласие с версией (`consent_version`), срок — `LEADS_RETENTION_DAYS` (`modules/retention/run.ts`).
 - **style_results** (ADR-0038) — итог квиза: `session_id` PK → `style`, upsert; «Мой стиль» в `/lab`.
-- **mesh_review_* / mesh_audit_*** (`007`, `010`, `021`) — ручная проверка мешей (`/lab/mesh-review`, `/lab/mesh-audit`).
+- **mesh_review_* / mesh_audit_*** (`007`, `010`, `021`, `035`) — ручная проверка мешей (`/lab/mesh-*`).
 - **rate_limits / share_requests** (`013`, ADR-0256); **managers / sends / send_events / signal_outbox /
   dedup_marks / tg_updates** (`014`, ADR-0257); **flat_configs** (`011` создаёт; `012` placements; `015` base_variant,
   base_snapshot; `020` hidden, collection_id); **collections** (`016`); **page_counters / partner_keys** (`017`); **retention_runs** (`018`); **owner_reviews** (`019`).
-- **Проба агента** ([[agent-trial]], `022`–`032`): **trial_jobs / workers / rebuilds / photos / room_edits / opening_edits**;
+- **Проба агента** ([[agent-trial]], `022`–`038`): **trial_jobs / workers / rebuilds / photos / room_edits / opening_edits / photo_***;
   в `db/schema.ts` — jobs/workers/rebuilds, остальные — raw SQL `lib/trial/repo-*.ts`.
 
 ## Изоляция и доступ

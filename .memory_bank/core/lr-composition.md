@@ -3,12 +3,12 @@ tier: 1
 topic: lr-composition
 scope: Композиция гостиной — доли
 tier2: "../domain/lr-composition-guide.md"
-updated: 2026-11-12
+updated: 2026-11-18
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-12
+last_verified: 2026-11-18
 review_after: 2026-12-05
 ---
 
@@ -19,7 +19,7 @@ review_after: 2026-12-05
 зеркала/полки/часы/шторы — % стены; люстра — диаметр по метражу; декор — % поверхностей-носителей.
 **Кап занятости пола — ДВА РАЗНЫХ, не путать (сверка 11.10):**
 - справка владельца 28–38 %, максимум 40 % (`composition.json: global_floor_cap`) — это ФОЛБЭК
-  (в файле помечено «legacy», но `compose2.py:748` берёт его, когда нет `occupancy.json` или полосы);
+  (в файле помечено «legacy», но `compose2.py:750-751` берёт его, когда нет `occupancy.json` или полосы);
 - БОЕВОЙ кап — динамический по метражу: `services/planner-solver/rules/occupancy.json`
   (`dynamic.floor_cap_pct`: 14–16 м² → 40–50 %, … 50+ м² → 26–34 %), его читают `validate.py` и
   `score.py`, и `compose2.py` берёт оттуда же (`OCC['floor_cap_pct']`), а литерал 0,40 остался
@@ -32,4 +32,4 @@ review_after: 2026-12-05
 
 Применение: автосборка сетов — 7 полос метража × 6 стилей × 3 тира = **126 комплектов**
 (`sets3.json`). Полные таблицы — Tier 2; машиночитаемо — `tools/scout/composition.json` (в git).
-У полосы 14–16 м² роли «комод» нет — наборы 14–16 без комода (факт 12.11, T-102; решения нет — Tier 2 § Применение).
+У полосы 14–16 м² роль «комод» в `tools/scout/composition.json:28` есть (`[2, 3.5]`, коммит `1d34e6f5`, 12.11, T-102), но банки наборов не пересобраны — в `sets3.json` 0 из 18 наборов 14–16 с комодом (сверено 18.11; Tier 2 § Применение).
