@@ -37,7 +37,7 @@ DEMO_INPUTS = (
     _P + 'bedroom.json', _P + 'hall.json', _P + 'occupancy.json', _P + 'templates.json', _P + 'weights.json', _P + 'zones.json',
     _P + 'room-templates/',
     _S + 'asset-strategies.json', _S + 'bank-candidate.json', _S + 'bedroom-roles.json', _S + 'catalog-bindings.json',
-    _S + 'catalog-bindings.schema.json', _S + 'catalog-item.schema.json', _S + 'demo-layout.json', _S + 'demo-swap.json',
+    _S + 'catalog-bindings.schema.json', _S + 'catalog-item.schema.json', _S + 'demo-layout.json', _S + 'demo-photo-pick.json', _S + 'demo-swap.json',
     _S + 'dev-tmp.json', _S + 'hall-roles.json', _S + 'improve-rooms.json', _S + 'mesh-asset-decisions.json',
     _S + 'mesh-color-guard.json', _S + 'mesh-pinned.json', _S + 'mesh-priority.json', _S + 'mesh-quarantine.json',
     _S + 'mesh-queue-demo.json', _S + 'openai_prices.json', _S + 'photo-set-roles.json', _S + 'photo-tariffs.json', _S + 'practice_priors.json', _S + 'quiz.json',
