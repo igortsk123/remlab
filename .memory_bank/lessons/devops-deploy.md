@@ -512,3 +512,20 @@ Codex на проверке безопасности. Отдельно: стор
 коммитов не было, деплой не шёл (~205 коммитов); `gh` 401, а `deploy-need.sh --status` говорил только «позади» — днём это норма, тревоги не было.
 Правило: «позади» дольше обычного цикла → сразу `docker manifest inspect ghcr.io/igortsk123/remlab-app:<sha>` на сервере и `tools/ops/ci-status.sh`;
 красный CI чинить до новых вливаний (`domain/deployment-details.md` § «CI красный 17–18.11»). Родня уроков 673, 692.
+
+**715. Новый тест/селфтест с `tempfile` уронил CI дважды за день (18.11, директор common)** — 15:37 (`mesh_grey_top`/`mesh_quarantine` `_selftest`)
+и 16:02 (`tools/scout/tests/test_render_input.py`) — `tools/scout/tests/test_tmp_hygiene.py` красный: нет `remlab_tmp.use(...)`. Prepush его не
+гонял (карта проверок привязана к файлам, а сторож гигиены — общий). Правило: при вливании чужой ветки с новым тестом/селфтестом, где есть
+`tempfile`, — сразу `python tools/scout/tests/test_tmp_hygiene.py` в merge-worktree до push; в брифе работнику — «временное через
+`remlab_tmp.use`». Родня 673.
+
+**716. Новый файл правил, который читает сборка демо, — в `build_stamp.DEMO_INPUTS` (18.11, директор common)** — дважды prepush
+`conveyor_check FAIL:build_inputs`: `tools/scout/rules/demo-photo-pick.json` (ac494f2b), `tools/scout/rules/mesh-grey-top.json` (d9a03ea7). Правило: новый `rules/*.json`,
+читаемый `flat215_demo.py`/модулями сборки, — строкой в `tools/scout/build_stamp.py:DEMO_INPUTS` в той же ветке; ловит prepush, но работник
+должен добавлять сам (бриф). Родня 672.
+
+**717. Сеть пропала на 2 ч — все сессии и платные прогоны оборвались молча (18.11 ~16:30–18:45, common + pakardev)** — DNS/API (EAI_AGAIN) у
+Claude на common, DNS на pakardev (`money_guard` «слепой тик» 26 раз — «платим ли, не знаю»), ssh к exit-fi «Network unreachable»; publish_demo
+упал на scp (`publish_demo.sh:282`). Нод Salad в этот момент не было. Перед этим sshfs `remlab-mount` на common отдавал EPERM на open (ls/stat
+работали) — PreToolUse-хук `guard_conveyor.py` блокировал ВСЕ Bash; лечится `systemctl --user restart remlab-mount`. Правило: после
+обрыва — первым `money_guard.log` (работают ли ноды), потом толчок всем работникам «продолжи с места», потом повтор оборванной публикации.
