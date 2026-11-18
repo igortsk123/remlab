@@ -25,7 +25,9 @@ def load_parts(path: str) -> list:
     if hasattr(scene, 'geometry'):
         parts = []
         for name, geom in scene.geometry.items():
-            g = geom.copy()
+            # без `geom.copy()` (T-20261118-10/3): сцена `trimesh.load` одноразовая и дальше не используется, каждая геометрия берётся один раз — копия (глубокая, вместе с декодом и копией
+            # текстуры) стоила ≈0,15–0,3 с на меш и только удваивала память; текстура остаётся «ленивой» и декодируется там, где её читают
+            g = geom
             try:
                 g.apply_transform(scene.graph.get(name)[0])
             except Exception:  # noqa: BLE001 — часть без трансформа берём как есть

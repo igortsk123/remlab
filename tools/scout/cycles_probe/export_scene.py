@@ -100,8 +100,9 @@ def png_key(arr):
     return hashlib.md5(arr.tobytes() + str(arr.shape).encode()).hexdigest() + f'-{PNG_LEVEL}.png'
 
 
-def put_png(arr, dst, key=None):   # (обёрнут в timed ниже)
-    """Положить PNG в `dst` из общего кэша (жёсткая ссылка). `key` — готовое имя из `png_key` (хеш уже считали); `arr` может быть функцией — пиксели нужны, только если файла в кэше нет."""
+def ensure_png(arr, key=None):
+    """PNG в общем кэше по содержимому (создаётся, если нет) → путь файла кэша. `key` — готовое имя из `png_key`; `arr` может быть функцией — пиксели нужны, только если файла нет.
+    Отдельно от `put_png`, чтобы заготовка (`render_texwarm.py`) наполняла кэш заранее, не раскладывая файлы по заданиям."""
     if key is None:
         arr = np.ascontiguousarray(np.asarray(arr, np.uint8))
         key = png_key(arr)
@@ -115,6 +116,12 @@ def put_png(arr, dst, key=None):   # (обёрнут в timed ниже)
         Image.fromarray(arr).save(tmp, 'PNG', compress_level=PNG_LEVEL)
         os.chmod(tmp, 0o444)
         os.replace(tmp, c)
+    return c
+
+
+def put_png(arr, dst, key=None):   # (обёрнут в timed ниже)
+    """Положить PNG в `dst` из общего кэша (жёсткая ссылка). `key` — готовое имя из `png_key` (хеш уже считали); `arr` может быть функцией — пиксели нужны, только если файла в кэше нет."""
+    c = ensure_png(arr, key)
     try:
         os.link(c, dst)
     except OSError:
