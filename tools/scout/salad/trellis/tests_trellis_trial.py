@@ -320,5 +320,46 @@ if have:
             out = ''
         ok('журнал воркера: «[child] … HF_TOKEN: …» без значения токена и строки [watch]', '[child]' in out and 'HF_TOKEN: есть' in out and '[watch]' in out and 'SECRETVALUE' not in out, out[:200])
 
+print('[6] страница сверки (make_page): кадры → webp ≤1600, миниатюры, страницы товаров, подписи моделей')
+try:
+    from PIL import Image as PI
+    have_pil = True
+except ImportError:
+    have_pil = False
+    print('  · SKIP: нет PIL')
+if have_pil:
+    import make_page as MP
+    tp = tempfile.mkdtemp(prefix='mp-')
+    fr, inp, out = os.path.join(tp, 'frames'), os.path.join(tp, 'inputs'), os.path.join(tp, 'site')
+    os.makedirs(inp)
+    for sku in ('a:1', 'b:2'):
+        PI.new('RGBA', (60, 40), (200, 100, 50, 255)).save(os.path.join(inp, sku.replace(':', '_') + '.cut-preview.png'))
+    json.dump({'a:1': {'image_url': ''}, 'b:2': {}}, open(os.path.join(inp, 'inputs.json'), 'w'))
+    sf = os.path.join(tp, 'set.json')
+    json.dump([{'sku': 'a:1', 'name': 'Диван <тест>', 'role': 'диван', 'dims_cm': [200.0, 90.0, 80.0], 'hard': ['ткань']},
+               {'sku': 'b:2', 'name': 'Стул', 'role': 'стул', 'dims_cm': [40.0, 40.0, 90.0], 'hard': []}], open(sf, 'w'))
+    d1 = os.path.join(fr, 'trellis2', 'a_1')
+    os.makedirs(d1)
+    for k in range(3):
+        PI.new('RGB', (2400 if k == 0 else 800, 1200), (k * 50, 90, 90)).save(os.path.join(d1, f'v{k:02d}_tex.png'))
+    os.makedirs(os.path.join(fr, 'hunyuan21'))
+    json.dump({'b:2': {'status': 'no_mesh', 'reason': 'нет меша: вход не подошёл'}}, open(os.path.join(fr, 'hunyuan21', 'results.json'), 'w'))
+    json.dump({'a:1': {'total_s': 91.5, 'triangles': 480000, 'size_mb': 12.3}}, open(os.path.join(fr, 'trellis2', 'results.json'), 'w'))
+    r = MP.build(fr, sf, inp, out, 50, fetch=lambda u, d: False)
+    ix = open(os.path.join(out, 'index.html'), encoding='utf-8').read()
+    pg = open(os.path.join(out, 'p', 'a_1.html'), encoding='utf-8').read()
+    ok('страница: 2 товара, 3 кадра, модели подписаны открыто', r['products'] == 2 and r['frames'] == 3 and 'TRELLIS.2' in ix and 'Hunyuan3D-2.1' in ix)
+    big = PI.open(os.path.join(out, 'img', 'trellis2', 'a_1', '00.webp'))
+    th = PI.open(os.path.join(out, 'img', 'trellis2', 'a_1', '00.t.webp'))
+    ok('кадр ≤1600 по большей стороне, миниатюра ≤480', max(big.size) == 1600 and max(th.size) == 480, f'{big.size} {th.size}')
+    ok('страница товара: миниатюра ведёт на полный кадр, подпись кадра и замеры есть, HTML экранирован',
+       'href="../img/trellis2/a_1/00.webp"' in pg and 'v00_tex' in pg and '480 000' in pg and '&lt;тест&gt;' in pg and '<тест>' not in pg)
+    ok('нет меша — причина открыто в таблице', 'нет меша: вход не подошёл' in ix)
+    try:
+        MP.build(fr, sf, inp, out, 0.0001, fetch=lambda u, d: False)
+        ok('предел веса картинок срабатывает', False)
+    except SystemExit:
+        ok('предел веса картинок срабатывает', True)
+
 print('ИТОГО: ' + ('всё в норме' if not bad else f'провалов {bad}'))
 sys.exit(1 if bad else 0)
