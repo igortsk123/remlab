@@ -205,3 +205,10 @@ PATCH ресурсов живой группы (новая версия прих
   наследуются от представителя семьи; если `mesh_required` и нет своего поколения (`demo_band.own_gen_ok`) — кандидат в tier 1 очереди
   (`tools/scout/mesh_priority.py:own_jobs`); лента сыта (≥ `mesh_target`) — не берётся.
 - **Карантин = не готова везде** — полоса, ядро неполного стиля, выкладка (`tools/scout/demo_band.py:ready_free`); урок 653.
+
+## Нехватка мешей по правилу и готовность для банка (18.11, ADR-0437/0438)
+- Не хватает мешей по действующему правилу → директор сам продлевает `~/scout-scenes/wave-lease.json` (`expires`, `max_usd`; бэкап рядом) и
+  запускает волну; 18.11 — до 25.11, $19,2. Писатель банка `tools/scout/rules/bank-candidate.json` `write_enabled` — после экзамена и глаз.
+- Готовность меша для банка — по фото текущего товара (`tools/scout/mesh_ready.py`, выключатель `tools/scout/rules/mesh-ready.json`: сейчас
+  только `bank_ready`); `mesh_scheduler._queue` — по `revision_current_sql`; запреты банка (redo/жёсткий карантин/rejected) — до `mesh_ok`.
+- Волна стоит, если на проде свободно < 7 ГБ (money_guard «приёмник красный») — 18.11 с 19:50 (5,6–6,3 ГБ), ждёт уборки диска прода.

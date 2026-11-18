@@ -30,10 +30,9 @@ last_verified: 2026-11-18
 **Какое фото в окне (ADR-0434):** только снимок текущего состава — `index.html:realPubPick` + `tools/scout/rules/demo-photo-pick.json`; готовый
 рендер нетронутого варианта — `check` сервиса. Ключ кадра по комнате — `tools/scout/render_input.py` (за `RENDER_KEY_V2`, план `render-key-01`).
 
-**Подготовка:** кэш `render_exec._prep_key`, ключ `tools/scout/scene_inputs.py` — подробно в Tier 2 (урок 707).
-
-**Сторож кадров:** `tools/scout/cycles_probe/frame_qa.py` — ворота в заказе (`render_exec.RenderBrak`, выкл `RENDER_QA_GATE=0`), ночной
-шаг `tools/scout/render_gpu/qa_night.py` (03:10). План `plans/render-qa-gate-01.md`.
+**Подготовка:** кэш `render_exec._prep_key` (урок 707). **Сторож кадров:** `tools/scout/cycles_probe/frame_qa.py` (выкл
+`RENDER_QA_GATE=0`), ночью `tools/scout/render_gpu/qa_night.py`.
 
 **Заказ из тура:** ключ товара `sku.pid` (`tools/scout/trial_bundle.py:pid_of`), снимок ищет по `sid` или `pid` — подробно в Tier 2.
-Открыто: ADR-0419 на пересмотре (TG 1811). Подробно — `domain/viz-fidelity-playbook.md`. Уроки 697–717.
+**Ожидание (ADR-0439):** заказ живёт вне окна — `index.html:ordersResume`. Ключ тура = страницы — ADR-0442 (в работе).
+Открыто: ADR-0419 на пересмотре (TG 1811). Подробно — `domain/viz-fidelity-playbook.md`. Уроки 697–720.

@@ -517,7 +517,7 @@ Codex на проверке безопасности. Отдельно: стор
 и 16:02 (`tools/scout/tests/test_render_input.py`) — `tools/scout/tests/test_tmp_hygiene.py` красный: нет `remlab_tmp.use(...)`. Prepush его не
 гонял (карта проверок привязана к файлам, а сторож гигиены — общий). Правило: при вливании чужой ветки с новым тестом/селфтестом, где есть
 `tempfile`, — сразу `python tools/scout/tests/test_tmp_hygiene.py` в merge-worktree до push; в брифе работнику — «временное через
-`remlab_tmp.use`». Родня 673.
+`remlab_tmp.use`». Родня 673. Третий раз — 18.11 20:27 (algor T-56/3 `solver_weekly_status`): директор влил, не прогнав `test_tmp_hygiene` на слитом дереве (п.7 `.claude/rules/review-checklist.md`) — CI красный 28 мин; при любом новом тесте/селфтесте гигиену гоняет и принимающий.
 
 **716. Новый файл правил, который читает сборка демо, — в `build_stamp.DEMO_INPUTS` (18.11, директор common)** — дважды prepush
 `conveyor_check FAIL:build_inputs`: `tools/scout/rules/demo-photo-pick.json` (ac494f2b), `tools/scout/rules/mesh-grey-top.json` (d9a03ea7). Правило: новый `rules/*.json`,
@@ -528,4 +528,4 @@ Codex на проверке безопасности. Отдельно: стор
 Claude на common, DNS на pakardev (`money_guard` «слепой тик» 26 раз — «платим ли, не знаю»), ssh к exit-fi «Network unreachable»; publish_demo
 упал на scp (`publish_demo.sh:282`). Нод Salad в этот момент не было. Перед этим sshfs `remlab-mount` на common отдавал EPERM на open (ls/stat
 работали) — PreToolUse-хук `guard_conveyor.py` блокировал ВСЕ Bash; лечится `systemctl --user restart remlab-mount`. Правило: после
-обрыва — первым `money_guard.log` (работают ли ноды), потом толчок всем работникам «продолжи с места», потом повтор оборванной публикации.
+обрыва — первым `money_guard.log` (работают ли ноды), потом толчок всем работникам «продолжи с места», потом повтор оборванной публикации. Дополнение 18.11 19:00: EPERM прошёл сам за ≤3 мин без перезапуска (перегрузка — 8 субагентов у одного работника) — сперва подождать 2–3 мин; субагентов у работника ≤ 2.

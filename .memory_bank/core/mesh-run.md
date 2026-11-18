@@ -27,7 +27,7 @@ review_after: 2026-12-05
 
 ## Три команды
 - **Старт** (единственный законный): `tools/scout/mesh_wave_start.sh --launch --rub-cap N` (₽ обязателен вручную);
-  автоволны — крон `tools/scout/salad/wave_guard.py` (15 мин) тем же скриптом по `wave-lease.json`.
+  автоволны — крон `tools/scout/salad/wave_guard.py` (15 мин) по `wave-lease.json` (нехватка — продлевать самим, ADR-0437/0438).
 - **Наблюдение:** лог `$MESH_BATCH_LOG`; цена — `tools/scout/salad/mesh_price.py`.
 - **Остановка:** `touch ~/scout-scenes/mesh-batch.PAUSE` — выход на границе пачки; конец работы гасит группы сразу
   (`batch_show.py:wave_tail`); `mesh-draining` групп НЕ гасит; срочно — стоп группы через API. Лечение — только `--heal`.
@@ -37,10 +37,10 @@ review_after: 2026-12-05
 ## Запреты (каждый уже стоил денег или часов)
 - **НЕ собирать снимок очереди руками** и не обнулять курсор: он позиционный, новый снимок
   переставит сделанные меши (`tools/scout/mesh_wave_start.sh`).
-- **НЕ `kill -9` / `pkill -f`** по конвейеру: сироты `ppid=1`, `pkill -f` убьёт сессию.
-- **НЕ менять образ, ресурсы, GPU у живой группы** — только новой (`tools/scout/salad/recreate_group.py`,
-  Tier 2 § 4; ADR-0154). **НЕ удалять с приёмника мимо API** (ADR-0178). **НЕ лечить цвет перегоном
+- **НЕ `kill -9` / `pkill -f`** по конвейеру (сироты, убьёт сессию).
+- **НЕ менять образ/ресурсы/GPU у живой группы** — только новой (`tools/scout/salad/recreate_group.py`; ADR-0154). **НЕ удалять с приёмника мимо API** (ADR-0178). **НЕ лечить цвет перегоном
   по seed** — он уходит только в форму (ADR-0145).
+
 
 **Tier 2:** `../domain/mesh-run-playbook.md` (чек-лист, остановка, тупики с ценой) ·
 [[mesh-pipeline]] · [[mesh-pool]] · [[mesh-owner-audit]] · [[pipeline-order]].
