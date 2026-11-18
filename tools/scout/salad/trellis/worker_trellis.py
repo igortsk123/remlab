@@ -2,18 +2,26 @@
 """ВОРКЕР ПРОБЫ ГЕНЕРАТОРА НА SALAD (T-20261118-91): одна нода, один генератор, результат отдаётся по HTTP через шлюз группы.
 
 ЗАЧЕМ ОТДЕЛЬНО ОТ БОЕВОГО `worker.py`. Боевой воркер живёт за очередью заданий и кладёт меш в наш приёмник на проде (`/mesh-sink`). Для пробы
-приёмник не нужен (диск прода красный, а проба — 3–6 GLB): воркер сам хранит результат и отдаёт его запросом, драйвер `trellis_trial.py`
+приёмник не нужен (диск прода красный, а проба — несколько десятков GLB): воркер сам хранит результат и отдаёт его запросом, драйвер `trellis_trial.py`
 забирает файл, замеряет и ГАСИТ группу. Только стандартная библиотека — образ тот же, что у модели.
 
+ДВА ПРОЦЕССА (урок первого запуска 18.11, шаг 0): прогон 1 — воркер был одним процессом (HTTP-сервер + загрузка модели в потоке), после загрузки DINOv3 вывод
+оборвался, 20 минут стартовая проба `/health` не проходила, Salad перезапустил машину («Instance Interrupted (Startup Probe Failure)»); причину по журналу
+установить нельзя (ни трассировки, ни `Exited`): либо убит по памяти, либо поток загрузки держал GIL. Теперь:
+  • ГЛАВНЫЙ процесс — только лёгкий HTTP-сервер (без torch): `/health` отвечает ВСЕГДА, показывает фазу ребёнка, его память (RSS), память группы (cgroup),
+    код выхода ребёнка (−9 = убит по памяти) и пишет строку состояния в журнал раз в 30 с;
+  • ДОЧЕРНИЙ процесс — загрузка модели и генерация; раз в 5 с пишет состояние в файл; `faulthandler` печатает стеки всех потоков раз в 4 минуты (в журнал) — видно,
+    где завис. Связь — файлами в `/tmp/trial_jobs` (запрос/результат), без общей памяти.
+
 Протокол (шлюз Salad с `Salad-Api-Key`; запросы короткие, генерация — асинхронно):
-  GET  /health        живой ли процесс (всегда 200, в теле — фаза прогрева и тайминги) — стартовая проба группы
-  GET  /ready         200 только когда модель на видеокарте и прогрета; 503 до того — проба готовности
-  GET  /info          видеокарта (nvidia-smi), версии, тайминги холодного старта (контейнер → веса → видеокарта)
-  POST /generate      {"job_id","image_b64","pipeline_type","seed","decimation_target","texture_size"} → 202; задания идут по одному (один GPU)
+  GET  /health        всегда 200: фаза, ошибка, тайминги, progress (ГБ в кэше Hugging Face), child{alive, returncode, rss_gb, state_age_s}, cgroup_gb
+  GET  /ready         200 только когда модель на видеокарте, прогрета и ребёнок жив; иначе 503
+  GET  /info          видеокарта (nvidia-smi), версии, тайминги холодного старта
+  POST /generate      {"job_id","image_b64","pipeline_type","seed","decimation_target","texture_size","role","dims_cm"} → 202; задания идут по одному (один GPU)
   GET  /job/<id>      состояние: queued|running|done|failed + замеры (секунды по стадиям, пик VRAM, треугольники, карты, МБ) или трассировка
   GET  /glb/<id>      байты `model.glb`
 
-Бэкенд модели подключается по `MODEL` (`trellis2`); `MODEL=fake` — для теста без видеокарты (`tests_trellis_trial.py`). Токена Hugging Face в логи не пишем.
+Бэкенд модели — по `MODEL` (`trellis2` | `hunyuan21`); `MODEL=fake` — для теста без видеокарты (`tests_trellis_trial.py`). Токена Hugging Face в логи не пишем.
 """
 from __future__ import annotations
 
@@ -32,10 +40,11 @@ T_CONTAINER = time.time()
 OUT = os.environ.get('OUT_DIR', '/tmp/trial-out')
 PORT = int(os.environ.get('PORT', '8000'))
 MAX_BODY = 40 * 2 ** 20
-STATE = {'phase': 'starting', 'warm': False, 'error': None, 'timings': {'container_start_epoch': T_CONTAINER}}
-JOBS: dict[str, dict] = {}
-LOCK = threading.Lock()          # один GPU — задания по одному
-JOBLOCK = threading.Lock()
+STATE_PATH = os.environ.get('TRIAL_STATE', '/tmp/trial_state.json')
+JOBS_DIR = os.environ.get('TRIAL_JOBS', '/tmp/trial_jobs')
+STATE = {'phase': 'starting', 'warm': False, 'error': None, 'timings': {'container_start_epoch': T_CONTAINER}}      # состояние РЕБЁНКА (пишется в файл)
+CHILD = None                                                                                                      # Popen ребёнка (в главном процессе)
+CHILD_RC_LOGGED = False
 
 
 def nvidia_smi() -> dict:
@@ -95,8 +104,12 @@ class Trellis2Backend:
         os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
         os.environ.setdefault('OPENCV_IO_ENABLE_OPENEXR', '1')
         sys.path.insert(0, os.environ.get('TRELLIS_DIR', '/opt/TRELLIS.2'))
+        STATE['phase'] = 'importing'
+        t_imp = time.time()
         import torch
         from trellis2.pipelines import Trellis2ImageTo3DPipeline, rembg
+        STATE['timings']['import_s'] = round(time.time() - t_imp, 1)
+        STATE['phase'] = 'weights'                       # докачка весов Hugging Face (размер — в progress.hf_gb)
 
         class NoRembg:                      # RMBG-2.0 не нужен и не разрешён (лицензия): с альфой на входе до него не доходит
             def __init__(self, **_kw):
@@ -114,6 +127,7 @@ class Trellis2Backend:
         t = time.time()
         self.pipe = Trellis2ImageTo3DPipeline.from_pretrained(os.environ.get('TRELLIS_MODEL', 'microsoft/TRELLIS.2-4B'))
         t_weights = time.time() - t
+        STATE['phase'] = 'to_gpu'
         t = time.time()
         self.pipe.cuda()
         torch.cuda.synchronize()
@@ -154,9 +168,11 @@ class Hunyuan21Backend:
         import fetch_weights
         import pipeline as P
         from PIL import Image, ImageDraw
+        STATE['phase'] = 'weights'
         t = time.time()
         fw = fetch_weights.ensure()                  # веса вшиты в образ — пусто; иначе докачка (холодный старт)
         t_w = time.time() - t
+        STATE['phase'] = 'warmup_gen'
         t = time.time()
         img = Image.new('RGBA', (512, 512), (0, 0, 0, 0))                    # прогрев как у боевого воркера: ядра и веса — не в замер первого задания
         ImageDraw.Draw(img).ellipse((128, 128, 384, 384), fill=(200, 180, 160, 255))
@@ -188,11 +204,73 @@ def backend():
     return {'trellis2': Trellis2Backend, 'hunyuan21': Hunyuan21Backend, 'fake': FakeBackend}[os.environ.get('MODEL', 'trellis2')]()
 
 
-BACKEND = None
+def versions() -> dict:
+    out = {}
+    for mod in ('torch', 'trimesh', 'transformers', 'flash_attn', 'o_voxel', 'nvdiffrast'):
+        try:
+            m = __import__(mod)
+            out[mod] = getattr(m, '__version__', 'ok')
+        except Exception:  # noqa: BLE001
+            out[mod] = None
+    try:
+        import torch
+        out['cuda'] = torch.version.cuda
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def atomic_write(path: str, data: bytes) -> None:
+    os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+    tmp = f'{path}.tmp{os.getpid()}'
+    with open(tmp, 'wb') as f:
+        f.write(data)
+    os.replace(tmp, path)
+
+
+def dir_gb(path: str) -> float:
+    n = 0
+    for root, _d, files in os.walk(path):
+        for f in files:
+            try:
+                n += os.path.getsize(os.path.join(root, f))
+            except OSError:
+                pass
+    return round(n / 2 ** 30, 2)
+
+
+def rss_gb(pid: int) -> float | None:
+    """Резидентная память процесса (VmRSS) — читает ГЛАВНЫЙ процесс у ребёнка, ребёнок для этого не нужен."""
+    try:
+        for ln in open(f'/proc/{pid}/status'):
+            if ln.startswith('VmRSS:'):
+                return round(int(ln.split()[1]) / 2 ** 20, 2)
+    except OSError:
+        pass
+    return None
+
+
+def cgroup_gb() -> dict:
+    """Память группы контейнера: `current/max`, ГБ (cgroup v2, затем v1). Приближение к «убит по памяти»: current подошёл к max."""
+    for cur, mx in (('/sys/fs/cgroup/memory.current', '/sys/fs/cgroup/memory.max'),
+                    ('/sys/fs/cgroup/memory/memory.usage_in_bytes', '/sys/fs/cgroup/memory/memory.limit_in_bytes')):
+        try:
+            c = int(open(cur).read().strip())
+            m = open(mx).read().strip()
+            return {'current': round(c / 2 ** 30, 2), 'max': None if m == 'max' or int(m) > 2 ** 50 else round(int(m) / 2 ** 30, 1)}
+        except (OSError, ValueError):
+            continue
+    return {}
+
+
+# ——— ДОЧЕРНИЙ ПРОЦЕСС: загрузка модели и генерация ———
+def save_state() -> None:
+    STATE['at'] = time.time()
+    atomic_write(STATE_PATH, json.dumps(STATE, ensure_ascii=False).encode())
 
 
 def warm() -> None:
-    """Прогрев: загрузка весов (Hugging Face) и перенос на видеокарту. Тело обёрнуто целиком, `warm` — в finally (урок боевого воркера 29.08)."""
+    """Прогрев: загрузка весов (Hugging Face) и перенос на видеокарту. Всё тело обёрнуто, исключение — в STATE['error'] (урок боевого воркера 29.08)."""
     global BACKEND
     try:
         STATE['phase'] = 'loading'
@@ -201,6 +279,7 @@ def warm() -> None:
         STATE['timings'].update(BACKEND.load())
         STATE['timings']['warm_total_s'] = round(time.time() - t, 1)
         STATE['timings']['container_to_ready_s'] = round(time.time() - T_CONTAINER, 1)
+        STATE['versions'] = versions()
         STATE['phase'] = 'ready'
         STATE['warm'] = True
     except Exception as e:  # noqa: BLE001
@@ -209,32 +288,127 @@ def warm() -> None:
         print('ПРОГРЕВ УПАЛ:\n' + traceback.format_exc()[-2500:], flush=True)
 
 
-def run_job(job_id: str, body: dict) -> None:
+BACKEND = None
+
+
+def run_job(jid: str) -> None:
+    """Одно задание из каталога заданий: png + req.json → res.json (+ glb в OUT). Исключение не роняет ребёнка — уходит в res.json."""
     from PIL import Image
-    job = JOBS[job_id]
-    with LOCK:
-        job['status'] = 'running'
-        job['started'] = time.time()
+    base = os.path.join(JOBS_DIR, jid)
+    body = json.load(open(base + '.req.json', encoding='utf-8'))
+    res = {'job_id': jid, 'status': 'running', 'params': body, 'started': time.time()}
+    atomic_write(base + '.running', b'1')
+    try:
+        img = Image.open(base + '.png')
+        img.load()
+        res['input'] = {'mode': img.mode, 'size': list(img.size)}
+        path = os.path.join(OUT, f'{jid}.glb')
+        os.makedirs(OUT, exist_ok=True)
+        t = time.time()
+        m = BACKEND.generate(img, body, path)
+        m['total_s'] = round(time.time() - t, 2)
+        m['gpu_after'] = nvidia_smi()
+        m['glb'] = glb_stats(path)
+        res['metrics'] = m
+        res['status'] = 'done'
+    except Exception as e:  # noqa: BLE001
+        res['status'] = 'failed'
+        res['error'] = f'{type(e).__name__}: {str(e)[:400]}'
+        res['trace'] = traceback.format_exc()[-2500:]
+        print(f'ЗАДАНИЕ {jid} УПАЛО:\n' + res['trace'], flush=True)
+    res['finished'] = time.time()
+    atomic_write(base + '.res.json', json.dumps(res, ensure_ascii=False).encode())
+
+
+def child_main() -> None:
+    import faulthandler
+    faulthandler.dump_traceback_later(int(os.environ.get('STACK_DUMP_S', '240')), repeat=True, file=sys.stderr)      # C-поток без GIL: покажет, где завис
+    os.makedirs(JOBS_DIR, exist_ok=True)
+    os.makedirs(OUT, exist_ok=True)
+    hf = os.environ.get('HF_HOME', '/data/hf')
+    print(f'[child] pid {os.getpid()}, модель {os.environ.get("MODEL")}, HF_TOKEN: {"есть" if os.environ.get("HF_TOKEN") else "НЕТ"} (значение не печатается), HF_HOME {hf}', flush=True)
+
+    ppid = os.getppid()
+
+    def ticker() -> None:
+        last = None
+        while True:
+            if os.getppid() != ppid:                  # главный процесс исчез — сироту не держим (память и видеокарта)
+                os._exit(0)
+            STATE['progress'] = {'hf_gb': dir_gb(hf), 'at': time.time()}
+            save_state()
+            if STATE['phase'] != last:
+                last = STATE['phase']
+                print(f'[child] фаза: {last}', flush=True)
+            time.sleep(5)
+    threading.Thread(target=ticker, daemon=True).start()
+    warm()
+    save_state()
+    while True:
         try:
-            img = Image.open(io.BytesIO(base64.b64decode(body['image_b64'])))
-            img.load()
-            job['input'] = {'mode': img.mode, 'size': list(img.size)}
-            path = os.path.join(OUT, f'{job_id}.glb')
-            os.makedirs(OUT, exist_ok=True)
-            t = time.time()
-            m = BACKEND.generate(img, body, path)
-            m['total_s'] = round(time.time() - t, 2)
-            m['gpu_after'] = nvidia_smi()
-            m['glb'] = glb_stats(path)
-            job['metrics'] = m
-            job['status'] = 'done'
-        except Exception as e:  # noqa: BLE001
-            job['status'] = 'failed'
-            job['error'] = f'{type(e).__name__}: {str(e)[:400]}'
-            job['trace'] = traceback.format_exc()[-2500:]
-            print(f'ЗАДАНИЕ {job_id} УПАЛО:\n' + job['trace'], flush=True)
-        finally:
-            job['finished'] = time.time()
+            names = sorted(n for n in os.listdir(JOBS_DIR) if n.endswith('.req.json'))
+        except OSError:
+            names = []
+        for n in names:
+            jid = n[:-len('.req.json')]
+            if not os.path.exists(os.path.join(JOBS_DIR, jid + '.res.json')):
+                run_job(jid)
+        time.sleep(1)
+
+
+# ——— ГЛАВНЫЙ ПРОЦЕСС: лёгкий HTTP-сервер и надзор за ребёнком ———
+def child_script() -> str:
+    """Путь к файлу кода ребёнка. Код, поданный через `python -c` (без `__file__`), — распаковываем из TRIAL_WORKER_Z в /tmp."""
+    f = globals().get('__file__')
+    if f and os.path.exists(f):
+        return f
+    import zlib
+    p = '/tmp/trial_worker.py'
+    atomic_write(p, zlib.decompress(base64.b64decode(os.environ['TRIAL_WORKER_Z'])))
+    return p
+
+
+def start_child() -> None:
+    global CHILD
+    env = dict(os.environ, TRIAL_CHILD='1')
+    CHILD = subprocess.Popen([sys.executable, '-u', child_script()], env=env)       # вывод ребёнка — тот же журнал контейнера
+
+
+def read_state() -> dict:
+    try:
+        return json.load(open(STATE_PATH, encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+
+
+def child_info() -> dict:
+    if CHILD is None:
+        return {'started': False}
+    rc = CHILD.poll()
+    st = read_state()
+    return {'started': True, 'alive': rc is None, 'returncode': rc, 'rss_gb': rss_gb(CHILD.pid) if rc is None else None,
+            'state_age_s': round(time.time() - st['at'], 1) if st.get('at') else None}
+
+
+def health() -> dict:
+    st = read_state()
+    ci = child_info()
+    phase, err = st.get('phase') or 'starting', st.get('error')
+    if ci.get('started') and not ci.get('alive'):
+        phase = 'child_dead'
+        err = f'дочерний процесс завершился, код {ci.get("returncode")} (−9 = убит ядром, почти наверняка нехватка памяти)'
+    return {'ok': True, 'phase': phase, 'warm': bool(st.get('warm')) and bool(ci.get('alive')), 'error': err, 'timings': st.get('timings'),
+            'progress': st.get('progress'), 'child': ci, 'cgroup_gb': cgroup_gb(), 'uptime_s': round(time.time() - T_CONTAINER, 1)}
+
+
+def watch_loop() -> None:
+    """Раз в 30 с — строка состояния в журнал контейнера (видна через log-entries, даже когда шлюз отвечает 503)."""
+    global CHILD_RC_LOGGED
+    while True:
+        h = health()
+        print(f'[watch] фаза={h["phase"]} warm={h["warm"]} hf_gb={(h.get("progress") or {}).get("hf_gb")} child={h["child"]} cgroup_gb={h["cgroup_gb"]}'
+              + (f' ОШИБКА={h["error"]}' if h['error'] else ''), flush=True)
+        time.sleep(30)
 
 
 class H(BaseHTTPRequestHandler):
@@ -252,20 +426,29 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         p = self.path.split('?')[0]
         if p == '/health':
-            return self._json(200, {'ok': True, 'phase': STATE['phase'], 'warm': STATE['warm'], 'error': STATE['error'], 'timings': STATE['timings'],
-                                    'uptime_s': round(time.time() - T_CONTAINER, 1)})
+            return self._json(200, health())
         if p == '/ready':
-            return self._json(200 if STATE['warm'] else 503, {'ready': STATE['warm'], 'phase': STATE['phase'], 'error': STATE['error']})
+            h = health()
+            return self._json(200 if h['warm'] else 503, {'ready': h['warm'], 'phase': h['phase'], 'error': h['error']})
         if p == '/info':
+            st = read_state()
             return self._json(200, {'gpu': nvidia_smi(), 'python': sys.version.split()[0], 'model': os.environ.get('MODEL', 'trellis2'),
-                                    'image_note': os.environ.get('IMAGE_NOTE', ''), 'timings': STATE['timings'], 'versions': versions()})
+                                    'image_note': os.environ.get('IMAGE_NOTE', ''), 'timings': st.get('timings'), 'versions': st.get('versions')})
         if p.startswith('/job/'):
-            j = JOBS.get(p[5:])
-            return self._json(200 if j else 404, j or {'error': 'нет такого задания'})
+            jid = p[5:]
+            base = os.path.join(JOBS_DIR, os.path.basename(jid))
+            if os.path.exists(base + '.res.json'):
+                return self._json(200, json.load(open(base + '.res.json', encoding='utf-8')))
+            if os.path.exists(base + '.running'):
+                return self._json(200, {'job_id': jid, 'status': 'running'})
+            if os.path.exists(base + '.req.json'):
+                return self._json(200, {'job_id': jid, 'status': 'queued'})
+            return self._json(404, {'error': 'нет такого задания'})
         if p.startswith('/glb/'):
-            j = JOBS.get(p[5:])
-            fp = os.path.join(OUT, f'{p[5:]}.glb')
-            if not j or j.get('status') != 'done' or not os.path.exists(fp):
+            jid = os.path.basename(p[5:])
+            rp = os.path.join(JOBS_DIR, jid + '.res.json')
+            fp = os.path.join(OUT, f'{jid}.glb')
+            if not os.path.exists(rp) or json.load(open(rp, encoding='utf-8')).get('status') != 'done' or not os.path.exists(fp):
                 return self._json(404, {'error': 'GLB нет (задание не готово или упало)'})
             data = open(fp, 'rb').read()
             self.send_response(200)
@@ -284,42 +467,35 @@ class H(BaseHTTPRequestHandler):
             return self._json(413, {'error': 'тело пустое или больше 40 МБ'})
         try:
             body = json.loads(self.rfile.read(n))
-            jid = str(body['job_id'])
-            body['image_b64']
+            jid = os.path.basename(str(body['job_id']))
+            png = base64.b64decode(body.pop('image_b64'))
         except (ValueError, KeyError):
             return self._json(400, {'error': 'нужны job_id и image_b64'})
-        if not STATE['warm']:
-            return self._json(503, {'error': 'модель ещё не готова', 'phase': STATE['phase']})
-        with JOBLOCK:
-            if jid in JOBS:
-                return self._json(409, {'error': 'такой job_id уже есть', 'status': JOBS[jid].get('status')})     # повтор не жжёт GPU второй раз
-            JOBS[jid] = {'job_id': jid, 'status': 'queued', 'queued': time.time(), 'params': {k: v for k, v in body.items() if k != 'image_b64'}}
-        threading.Thread(target=run_job, args=(jid, body), daemon=True).start()
+        h = health()
+        if not h['warm']:
+            return self._json(503, {'error': 'модель ещё не готова', 'phase': h['phase']})
+        base = os.path.join(JOBS_DIR, jid)
+        if os.path.exists(base + '.req.json'):
+            return self._json(409, {'error': 'такой job_id уже есть'})           # повтор не жжёт GPU второй раз
+        atomic_write(base + '.png', png)
+        atomic_write(base + '.req.json', json.dumps(body, ensure_ascii=False).encode())
         self._json(202, {'job_id': jid, 'status': 'queued'})
 
 
-def versions() -> dict:
-    out = {}
-    for mod in ('torch', 'trimesh', 'transformers', 'flash_attn', 'o_voxel', 'nvdiffrast'):
-        try:
-            m = __import__(mod)
-            out[mod] = getattr(m, '__version__', 'ok')
-        except Exception:  # noqa: BLE001
-            out[mod] = None
-    try:
-        import torch
-        out['cuda'] = torch.version.cuda
-    except Exception:  # noqa: BLE001
-        pass
-    return out
+def make_server(port: int) -> ThreadingHTTPServer:
+    return ThreadingHTTPServer(('0.0.0.0', port), H)
 
 
 def main() -> None:
-    os.makedirs(OUT, exist_ok=True)
-    threading.Thread(target=warm, daemon=True).start()
-    print(f'воркер пробы: порт {PORT}, модель {os.environ.get("MODEL", "trellis2")}', flush=True)
-    ThreadingHTTPServer(('0.0.0.0', PORT), H).serve_forever()
+    os.makedirs(JOBS_DIR, exist_ok=True)
+    start_child()
+    threading.Thread(target=watch_loop, daemon=True).start()
+    print(f'воркер пробы: порт {PORT}, модель {os.environ.get("MODEL", "trellis2")}, ребёнок pid {CHILD.pid}', flush=True)
+    make_server(PORT).serve_forever()
 
 
 if __name__ == '__main__':
-    main()
+    if os.environ.get('TRIAL_CHILD') == '1':
+        child_main()
+    else:
+        main()

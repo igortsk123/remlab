@@ -60,8 +60,8 @@ body = T.build_body('trial-trellis2-x', 'ghcr.io/x/y:t', 'high', 'trellis2', 'hf
 env = body['container']['environment_variables']
 ok('карта — только RTX 4090', body['container']['resources']['gpu_classes'] == [T.CARD['class_id']])
 ok('приёмника на проде нет (ни MESH_SINK_URL, ни токена приёмника)', not any(k.startswith('MESH_SINK') for k in env))
-ok('шлюз с ключом Salad, порт 8000, проба готовности /ready, перезапуска нет', body['networking']['auth'] is True and body['networking']['port'] == 8000
-   and body['readiness_probe']['http']['path'] == '/ready' and body['restart_policy'] == 'never' and body['replicas'] == 1 and body['autostart_policy'] is False)
+ok('шлюз с ключом Salad, порт 8000, проба готовности /health (не /ready: до её прохождения шлюз 503 на любой путь), перезапуска нет', body['networking']['auth'] is True and body['networking']['port'] == 8000
+   and body['readiness_probe']['http']['path'] == '/health' and body['restart_policy'] == 'never' and body['replicas'] == 1 and body['autostart_policy'] is False)
 ok('пороги проб в пределах API Salad (failure_threshold ≤ 20 — иначе 400 при создании, поймано 18.11)', body['startup_probe']['failure_threshold'] <= 20 and body['readiness_probe']['failure_threshold'] <= 20)
 donor = {'container': {'image': 'ghcr.io/igortsk123/mesh-hunyuan@sha256:' + 'a' * 64, 'resources': {'cpu': 4, 'memory': 24576, 'storage_amount': 64424509440, 'shm_size': 64, 'gpu_classes': ['x', 'y']},
                        'environment_variables': {'STAGED': '1', 'PIPELINE_VERSION': 'v2', 'MESH_SINK_URL': 'https://sink', 'MESH_SINK_TOKEN': 'SINKSECRET',
@@ -73,6 +73,8 @@ ok('контроль: боевые ручки образца (STAGED, PIPELINE_V
    and hb['container']['resources']['gpu_classes'] == [T.CARD['class_id']] and hb['container']['resources']['memory'] == 24576)
 ok('контроль: код воркера едет в command + env TRIAL_WORKER_Z и распаковывается обратно в тот же файл',
    hb['container']['command'][:3] == ['python', '-u', '-c'] and __import__('zlib').decompress(__import__('base64').b64decode(henv['TRIAL_WORKER_Z'])) == open(os.path.join(HERE, 'worker_trellis.py'), 'rb').read())
+ok('TRELLIS.2: актуальный воркер тоже едет через command (python3) без пересборки образа',
+   body['container']['command'][:3] == ['python3', '-u', '-c'] and __import__('zlib').decompress(__import__('base64').b64decode(env['TRIAL_WORKER_Z'])) == open(os.path.join(HERE, 'worker_trellis.py'), 'rb').read())
 buf = io.StringIO()
 real = sys.stdout
 sys.stdout = buf
@@ -123,7 +125,7 @@ class FakeBR:
 
 class FakeGW:
     """Шлюз ноды: прогрет сразу; задания — по сценарию `fail_jobs` (сколько первых упадут)."""
-    script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None}
+    script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, 'phase': None, 'no_health': False, 'hf_gb': None}
 
     def __init__(self, base, key):
         self.jobs, self.k = {}, 0
@@ -133,7 +135,10 @@ class FakeGW:
         if s['raise_on'] and path.startswith(s['raise_on']):
             raise RuntimeError('сбой посреди замера')
         if path == '/health':
-            return 200, {'warm': s['warm'], 'phase': 'ready' if s['warm'] else 'loading', 'error': s['health_error'], 'timings': {'weights_s': 5}}
+            if s['no_health']:
+                return 503, {}
+            return 200, {'warm': s['warm'], 'phase': s['phase'] or ('ready' if s['warm'] else 'loading'), 'error': s['health_error'], 'timings': {'weights_s': 5},
+                         'progress': {'hf_gb': s['hf_gb']} if s['hf_gb'] is not None else None, 'child': {'alive': True}, 'cgroup_gb': {'current': 1.0, 'max': 24.0}}
         if path == '/info':
             return 200, {'gpu': {'name': 'RTX 4090'}}
         if path == '/generate':
@@ -151,7 +156,7 @@ class FakeGW:
 
 def args(tmp, **kw):
     d = dict(donor='mesh-q-low-1', set=None, fail_streak=2, model='trellis2', image='ghcr.io/x/y:t', inputs=tmp, skus=['a:1'], plan='1024:1', seed=42, decimation=500000, texture=2048, tier='high', cpu=8,
-             mem_mb=32768, cap=3.0, max_min=90, ready_min=40, job_timeout=15, suffix='t1', out=os.path.join(tmp, 'out'), apply=True, stop_only=False)
+             mem_mb=32768, cap=3.0, max_min=90, ready_min=40, health_min=20, stall_min=10, job_timeout=15, suffix='t1', out=os.path.join(tmp, 'out'), apply=True, stop_only=False)
     d.update(kw)
     return types.SimpleNamespace(**d)
 
@@ -165,7 +170,7 @@ def make_inputs(tmp, skus=('a:1',)):
 
 
 def go(tmp, mg=None, br=None, hf=200, script=None, **kw):
-    FakeGW.script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, **(script or {})}
+    FakeGW.script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, 'phase': None, 'no_health': False, 'hf_gb': None, **(script or {})}
     clock = [0.0]
 
     def sleep(s):
@@ -210,6 +215,12 @@ rc, mg, br, s = go(d, suffix='t2', script={'warm': False, 'health_error': 'OSErr
 ok('прогрев упал (например, закрытые веса) → гашу сразу, причина в сводке', s['stopped_by'] == 'warm_failed' and br.stops == ['trial-trellis2-t2'])
 rc, mg, br, s = go(d, suffix='t3', script={'warm': False}, ready_min=1)
 ok('нода не прогрелась за ready_min → гашу', s['stopped_by'] == 'not_ready' and br.stops == ['trial-trellis2-t3'])
+rc, mg, br, s = go(d, suffix='t7', script={'no_health': True}, health_min=2)
+ok('воркер не ответил на /health ни разу за health_min → гашу (мёртвый процесс не жжёт деньги до 75 мин)', s['stopped_by'] == 'no_health' and br.stops == ['trial-trellis2-t7'])
+rc, mg, br, s = go(d, suffix='t8', script={'warm': False, 'phase': 'weights', 'hf_gb': 3.5}, stall_min=1, ready_min=30)
+ok('докачка весов не растёт stall_min → гашу (причина — download_stalled)', s['stopped_by'] == 'download_stalled' and br.stops == ['trial-trellis2-t8'])
+rc, mg, br, s = go(d, suffix='t9', script={'warm': False, 'phase': 'child_dead', 'health_error': 'дочерний процесс завершился, код -9'})
+ok('ребёнок убит (−9) → гашу сразу, причина в сводке', s['stopped_by'] == 'warm_failed' and br.stops == ['trial-trellis2-t9'] and '-9' in str(s['health']['error']))
 d2 = tempfile.mkdtemp(prefix='tt-')
 make_inputs(d2, ('a:1', 'b:2', 'c:3'))
 rc, mg, br, s = go(d2, skus=['a:1', 'b:2', 'c:3'], plan='1024:1', script={'fail_jobs': 5})
@@ -232,47 +243,72 @@ except ImportError:
     have = False
     print('  · SKIP: нет trimesh/PIL в этом окружении (проверяется на pakardev)')
 if have:
-    import worker_trellis as W
-    W.OUT = os.environ['OUT_DIR']
-    from http.server import ThreadingHTTPServer
-    srv = ThreadingHTTPServer(('127.0.0.1', 0), W.H)
-    port = srv.server_address[1]
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    import base64
+    import socket
+    import subprocess
+    sk = socket.socket()
+    sk.bind(('127.0.0.1', 0))
+    port = sk.getsockname()[1]
+    sk.close()
+    tmp = tempfile.mkdtemp(prefix='wk2-')
+    env = dict(os.environ, MODEL='fake', PORT=str(port), OUT_DIR=os.path.join(tmp, 'out'), TRIAL_STATE=os.path.join(tmp, 'state.json'),
+               TRIAL_JOBS=os.path.join(tmp, 'jobs'), HF_HOME=os.path.join(tmp, 'hf'), HF_TOKEN='hf_SECRETVALUE0123456789')
+    env.pop('TRIAL_CHILD', None)
+    proc = subprocess.Popen([sys.executable, '-u', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'worker_trellis.py')], env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
     def call(method, path, body=None):
         req = urllib.request.Request(f'http://127.0.0.1:{port}{path}', method=method, data=json.dumps(body).encode() if body is not None else None,
                                      headers={'Content-Type': 'application/json'})
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
-                b = r.read()
-                return r.status, b
+                return r.status, r.read()
         except urllib.error.HTTPError as e:
             return e.code, e.read()
-    from PIL import Image
-    png = io.BytesIO()
-    Image.new('RGBA', (8, 8), (255, 0, 0, 255)).save(png, 'PNG')
-    import base64
-    payload = {'job_id': 'j1', 'image_b64': base64.b64encode(png.getvalue()).decode(), 'pipeline_type': '1024_cascade'}
-    ok('до прогрева /ready — 503, /generate — 503', call('GET', '/ready')[0] == 503 and call('POST', '/generate', payload)[0] == 503)
-    W.warm()
-    ok('после прогрева /ready — 200, в /health тайминги', call('GET', '/ready')[0] == 200 and 'container_to_ready_s' in json.loads(call('GET', '/health')[1])['timings'])
-    ok('кривой запрос — 400, нет такого пути — 404', call('POST', '/generate', {'x': 1})[0] == 400 and call('GET', '/net')[0] == 404)
-    c, r = call('POST', '/generate', payload)
-    ok('/generate → 202', c == 202 and json.loads(r)['status'] == 'queued')
-    c2, r2 = call('POST', '/generate', payload)
-    ok('повтор job_id — 409 (второй раз GPU не жжём)', c2 == 409)
-    j = {}
-    for _ in range(100):
-        j = json.loads(call('GET', '/job/j1')[1])
-        if j.get('status') in ('done', 'failed'):
-            break
-        time.sleep(0.1)
-    ok('задание done, замеры: стадии, пик VRAM, треугольники куба, размер файла', j.get('status') == 'done' and j['metrics']['glb']['triangles'] == 12
-       and 'stage_s' in j['metrics'] and j['metrics']['glb']['size_mb'] >= 0, str(j)[:200])
-    cg, rg = call('GET', '/glb/j1')
-    ok('GLB отдаётся байтами (заголовок glTF)', cg == 200 and rg[:4] == b'glTF')
-    ok('чужой job — 404', call('GET', '/job/net')[0] == 404 and call('GET', '/glb/net')[0] == 404)
-    srv.shutdown()
+        except OSError:
+            return 0, b''
+    try:
+        for _ in range(100):                      # главный процесс поднялся и отвечает на /health
+            if call('GET', '/health')[0] == 200:
+                break
+            time.sleep(0.1)
+        h0 = json.loads(call('GET', '/health')[1])
+        ok('/health отвечает сразу (двухпроцессный воркер), в ответе ребёнок и память группы', h0['ok'] is True and h0['child']['started'] is True and 'cgroup_gb' in h0, str(h0)[:200])
+        from PIL import Image
+        png = io.BytesIO()
+        Image.new('RGBA', (8, 8), (255, 0, 0, 255)).save(png, 'PNG')
+        payload = {'job_id': 'j1', 'image_b64': base64.b64encode(png.getvalue()).decode(), 'pipeline_type': '1024_cascade'}
+        for _ in range(150):                      # ждём прогрева ребёнка (fake — мгновенно)
+            if call('GET', '/ready')[0] == 200:
+                break
+            time.sleep(0.1)
+        ok('после прогрева /ready — 200, в /health тайминги и размер кэша HF', call('GET', '/ready')[0] == 200
+           and 'container_to_ready_s' in json.loads(call('GET', '/health')[1])['timings'] and json.loads(call('GET', '/health')[1])['progress'] is not None)
+        ok('кривой запрос — 400, нет такого пути — 404', call('POST', '/generate', {'x': 1})[0] == 400 and call('GET', '/net')[0] == 404)
+        c, r = call('POST', '/generate', payload)
+        ok('/generate → 202', c == 202 and json.loads(r)['status'] == 'queued')
+        c2, _r2 = call('POST', '/generate', payload)
+        ok('повтор job_id — 409 (второй раз GPU не жжём)', c2 == 409)
+        j = {}
+        for _ in range(150):
+            j = json.loads(call('GET', '/job/j1')[1])
+            if j.get('status') in ('done', 'failed'):
+                break
+            time.sleep(0.1)
+        ok('задание done, замеры: стадии, пик VRAM, треугольники куба, размер файла', j.get('status') == 'done' and j['metrics']['glb']['triangles'] == 12
+           and 'stage_s' in j['metrics'] and j['metrics']['glb']['size_mb'] >= 0, str(j)[:200])
+        cg, rg = call('GET', '/glb/j1')
+        ok('GLB отдаётся байтами (заголовок glTF)', cg == 200 and rg[:4] == b'glTF')
+        ok('чужой job — 404', call('GET', '/job/net')[0] == 404 and call('GET', '/glb/net')[0] == 404)
+        ok('путь с ../ не выходит из каталога заданий', call('GET', '/job/..%2f..%2fetc%2fpasswd')[0] == 404)
+    finally:
+        proc.terminate()
+        try:
+            out = proc.communicate(timeout=15)[0].decode('utf-8', 'replace')
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            out = ''
+        ok('журнал воркера: «[child] … HF_TOKEN: …» без значения токена и строки [watch]', '[child]' in out and 'HF_TOKEN: есть' in out and '[watch]' in out and 'SECRETVALUE' not in out, out[:200])
 
 print('ИТОГО: ' + ('всё в норме' if not bad else f'провалов {bad}'))
 sys.exit(1 if bad else 0)

@@ -37,7 +37,7 @@ sys.path.insert(0, HERE)
 CARD = {'class_name': 'RTX 4090 (24 GB)', 'class_id': 'ed563892-aacd-40f5-80b7-90c9be6c759b'}
 HF_GATED = {'trellis2': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json'}      # закрытые веса, без которых модель не поднимется
 PORT = 8000
-READINESS = {'http': {'path': '/ready', 'port': PORT, 'scheme': 'http', 'headers': []},
+READINESS = {'http': {'path': '/health', 'port': PORT, 'scheme': 'http', 'headers': []},      # НЕ /ready: пока проба не пройдена, шлюз отдаёт 503 на любой путь и прогрев не виден (урок шага 0, 18.11)
              'initial_delay_seconds': 30, 'period_seconds': 10, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 3}
 STARTUP = {'http': {'path': '/health', 'port': PORT, 'scheme': 'http', 'headers': []},
            'initial_delay_seconds': 10, 'period_seconds': 60, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 20}   # API Salad: failure_threshold ≤ 20 (400 от 18.11) → 20 мин на докачку весов
@@ -89,13 +89,13 @@ def cost_usd(running_s: float, price: float, reserve_s: float = 60.0) -> float:
     return max(0.0, running_s + (reserve_s if running_s > 0 else 0.0)) / 3600.0 * price
 
 
-def worker_command(path: str | None = None) -> tuple[list[str], str]:
+def worker_command(path: str | None = None, python: str = 'python') -> tuple[list[str], str]:
     """Код воркера → (command, сжатый код) для боевого образа: `python -u -c "exec(zlib+base64 из env TRIAL_WORKER_Z)"` — как боевые группы
     несут свой код в `command`; образ не пересобирается. Код едет переменной окружения (≈ 3 КБ после сжатия), а не в аргументе."""
     import zlib
     src = open(path or os.path.join(HERE, 'worker_trellis.py'), 'rb').read()
     z = base64.b64encode(zlib.compress(src, 9)).decode()
-    return ['python', '-u', '-c', "import base64,os,zlib;exec(zlib.decompress(base64.b64decode(os.environ['TRIAL_WORKER_Z'])).decode())"], z
+    return [python, '-u', '-c', "import base64,os,zlib;exec(zlib.decompress(base64.b64decode(os.environ['TRIAL_WORKER_Z'])).decode())"], z
 
 
 def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu: int, mem_mb: int, run_note: str, auth: dict, donor: dict | None = None) -> dict:
@@ -105,6 +105,8 @@ def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu:
            'NVIDIA_DRIVER_CAPABILITIES': 'all', 'DEPLOYMENT_EPOCH': f'20261118-{name}'}
     res = {'cpu': cpu, 'memory': mem_mb, 'gpu_classes': [CARD['class_id']], 'storage_amount': 60 * 2 ** 30, 'shm_size': 1024}
     command = None
+    if donor is None:        # TRELLIS.2: образ уже содержит воркер, но актуальный код едет через command — без пересборки образа (python3 в образе, `python` нет)
+        command, env['TRIAL_WORKER_Z'] = worker_command(python='python3')
     if donor is not None:
         denv = (donor.get('container') or {}).get('environment_variables') or {}
         env = {k: v for k, v in denv.items() if not k.startswith(('MESH_SINK', 'QUEUE')) and k not in ('STORAGE_BACKEND', 'DEPLOYMENT_EPOCH')}
@@ -238,6 +240,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         code, _ = MG.api(f'/{name}/start', 'POST')
         say('start HTTP', code)
         gw, ready_at, fail_streak = None, None, 0
+        ever_ok, last_gb, last_gb_t, last_say = False, None, None, 0.0           # видимость воркера: был ли хоть один ответ /health, рост докачки весов
         pending = list(jobs)
         inflight = None
         while True:
@@ -272,10 +275,21 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
             if gw is not None and ready_at is None:
                 c, h = gw.call('GET', '/health', timeout=20)
                 if c == 200:
+                    ever_ok = True
                     summary['health'] = h
-                    if h.get('error') or h.get('phase') == 'failed':
-                        say('!! прогрев упал:', h.get('error'), '— гашу')
+                    if h.get('error') or h.get('phase') in ('failed', 'child_dead'):
+                        say('!! прогрев упал:', h.get('error'), f'(фаза {h.get("phase")}, ребёнок {h.get("child")}, память группы {h.get("cgroup_gb")}) — гашу')
                         summary['stopped_by'] = 'warm_failed'
+                        break
+                    gb = (h.get('progress') or {}).get('hf_gb')
+                    if gb is not None and gb != last_gb:
+                        last_gb, last_gb_t = gb, t
+                    if t - last_say >= 120 and not h.get('warm'):
+                        last_say = t
+                        say(f'прогрев: фаза {h.get("phase")}, в кэше HF {gb} ГБ, ребёнок {h.get("child")}, память группы {h.get("cgroup_gb")}')
+                    if h.get('phase') == 'weights' and last_gb_t is not None and t - last_gb_t > a.stall_min * 60:
+                        say(f'!! докачка весов стоит {a.stall_min} мин (в кэше {gb} ГБ) — гашу')
+                        summary['stopped_by'] = 'download_stalled'
                         break
                     if h.get('warm'):
                         ready_at = t
@@ -284,6 +298,10 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                         c2, info = gw.call('GET', '/info', timeout=30)
                         summary['info'] = info if c2 == 200 else None
                         say(f'нода готова: t+{t - t_start:.0f} с от /start', (summary.get('info') or {}).get('gpu'))
+                if run_since is not None and not ever_ok and running_s > a.health_min * 60:
+                    say(f'!! {a.health_min} мин после running воркер не отвечает на /health — гашу (процесс мёртв или недоступен)')
+                    summary['stopped_by'] = 'no_health'
+                    break
                 if run_since is not None and ready_at is None and running_s > a.ready_min * 60:
                     say(f'!! {a.ready_min} мин после running модель не прогрелась — гашу')
                     summary['stopped_by'] = 'not_ready'
@@ -358,7 +376,9 @@ def main() -> int:
     ap.add_argument('--mem-mb', type=int, default=32768)
     ap.add_argument('--cap', type=float, default=2.0, help='потолок денег на ОДИН запуск (одну модель), $ — владелец TG 2064: $2 на модель, $10 на всю пробу')
     ap.add_argument('--max-min', type=int, default=180)
-    ap.add_argument('--ready-min', type=int, default=40, help='сколько минут после running ждать прогрева модели')
+    ap.add_argument('--ready-min', type=int, default=75, help='сколько минут после running ждать прогрева модели (холодный старт с докачкой весов — часть результата пробы)')
+    ap.add_argument('--health-min', type=int, default=20, help='сколько минут после running ждать ПЕРВОГО ответа /health, иначе стоп (воркер мёртв)')
+    ap.add_argument('--stall-min', type=int, default=10, help='сколько минут докачка весов может не расти, иначе стоп')
     ap.add_argument('--job-timeout', type=int, default=15)
     ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/mesh-models-1118/trellis'))
