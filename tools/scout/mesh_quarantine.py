@@ -47,12 +47,37 @@ def reasons(m: dict, thr: float) -> list:
         out.append('proportion')
     if m.get('dark') is not None:
         out.append('dark')          # модель намного темнее товара (`mesh_dark.py`, demo-05 15.10)
+    if m.get('grey_top') in ('candidate', 'reject'):
+        out.append('grey_top')      # верх — пустой серый фон сети paint (`mesh_grey_top.py`, T-20261118-04/12): лента и наборы берут похожий товар с годным мешем
     return out
 
 
 def pick(measures: list[dict], thr: float, decided: set) -> list[dict]:
     """Кого вывести в карантин: есть хоть один признак, модель не решена владельцем. Чистая функция."""
     return [m for m in measures if reasons(m, thr) and (m['sku'], m['glb_sha']) not in decided]
+
+
+GREY_SOURCE = 'серая крышка (mesh_grey_top, карантин)'
+
+
+def grey_redo(flagged: dict, cur_gen: dict, decisions: dict, has_shape) -> list:
+    """ЗАЩИТА БОЛВАНОК СЕРЫХ МЕШЕЙ ОТ ПРОПОЛКИ (T-20261118-04/12): меш с серой крышкой, у которого ещё лежит `shape.glb`, получает решение «переделать» в журнале
+    `mesh_decisions` — то самое «действующее решение redo», которое условие 7 `salad/prune_shapes.py` уже считает очередью перекраски (болванку держим). Решение
+    привязано к ТЕКУЩЕМУ поколению (`generation_key`): новая модель — решение теряет силу само. Уже есть любое решение по SKU — не дописываем (владелец главнее).
+    Чистая функция: → [(sku, generation_key)] к записи. `flagged` — {(sku, glb_sha): замер с причиной grey_top}; `has_shape(sku)` — лежит ли болванка."""
+    out, seen = [], set()
+    for (sku, _sha), m in sorted(flagged.items()):
+        if m.get('grey_top') not in ('candidate', 'reject') or sku in seen or sku in decisions or not cur_gen.get(sku) or not has_shape(sku):
+            continue
+        seen.add(sku)
+        out.append((sku, cur_gen[sku]))
+    return out
+
+
+def has_shape(sku: str) -> bool:
+    import glob
+    src = os.path.expanduser(os.environ.get('PRUNE_SRC', '~/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2'))
+    return bool(glob.glob(os.path.join(src, sku.replace(':', '_'), '*', 'shape.glb')))
 
 
 def apply(limit: int = 0) -> int:
@@ -95,6 +120,12 @@ def apply(limit: int = 0) -> int:
             print(f'  dark: {it["sku"]} не замерена ({str(e)[:60]})', flush=True)
             return dkey(it), None
 
+    # СЕРАЯ КРЫШКА (T-20261118-04/12): свой ключ кэша (версия правил детектора), считаем по одной модели (память, как тёмные)
+    import mesh_grey_top as GT
+    gkey = lambda it: f'grey:{GT.rules()["version"]}:' + it['glb_sha'][:16]  # noqa: E731
+    gtodo = [it for it in items if it['glb_sha'] and gkey(it) not in cache][: limit or None]
+
+
     done = 0
     with ThreadPoolExecutor(3) as ex:
         for k, dev in ex.map(one, todo):
@@ -111,11 +142,29 @@ def apply(limit: int = 0) -> int:
         if n % 50 == 0:                        # кэш по ходу: обрыв не теряет замеренное
             json.dump(cache, open(CACHE, 'w'))
             print(f'  тёмные: замерено {n}/{len(dtodo)}', flush=True)
+    print(f'замерить серую крышку {len(gtodo)}', flush=True)
+    path_of = {}
+    for it in gtodo:
+        glb = MD.find_glb(it['sku'], it['glb_sha'])
+        if glb:
+            path_of.setdefault(glb, []).append(it)
+        else:
+            cache[gkey(it)] = None
+    for n, (g, res, err) in enumerate(GT.run_batches(list(path_of), 3), 1):      # пачками новыми процессами (память), по 3 параллельно
+        for it in path_of[g]:
+            cache[gkey(it)] = ({'verdict': res['verdict'], 'grey_share': res.get('grey_share'), 'median_rgb': res.get('median_rgb')} if res else None)
+            if not res:
+                print(f'  grey_top: {it["sku"]} не замерена ({err})', flush=True)
+        if n % 50 == 0:        # кэш по ходу: обрыв не теряет замеренное
+            json.dump(cache, open(CACHE, 'w'))
+            print(f'  серая крышка: замерено {n}/{len(path_of)}', flush=True)
     os.makedirs(os.path.dirname(CACHE), exist_ok=True)
     json.dump(cache, open(CACHE, 'w'))
     decided = {(r[0], r[1]) for r in db("select sku, glb_sha from mesh_quarantine where decision is not null") if len(r) == 2}
+    photos = GT.photo_table()          # серый верх у серого по фото товара — не дефект (`mesh_grey_top.effective`)
     measures = [{'sku': it['sku'], 'glb_sha': it['glb_sha'][:16], **cache.get(key(it), {}),
-                 **({'dark': cache[dkey(it)]} if cache.get(dkey(it)) is not None else {})} for it in items]
+                 **({'dark': cache[dkey(it)]} if cache.get(dkey(it)) is not None else {}),
+                 **({'grey_top': GT.effective(cache[gkey(it)], photos.get(it['sku']))} if cache.get(gkey(it)) else {})} for it in items]
     flagged = {(m['sku'], m['glb_sha']): m for m in pick(measures, thr, decided)}
     # НЕРЕШЁННЫЕ ПО v1, КОТОРЫХ v2 НЕ ДЕРЖИТ, — вернуть в работу (ложная тревога замера v1)
     released = 0
@@ -140,6 +189,14 @@ on conflict (sku, glb_sha) do update set reasons = excluded.reasons, metric_vers
 update asset_revisions set status = 'quarantine', updated = now()
  where sku = {q(sku)} and glb_sha = {q(sha)} and status in ('accepted','generated');
 commit;""")
+    # болванки серых — под защиту от прополки (решение redo текущего поколения; сам карантин выше от этого не зависит)
+    import mesh_decisions as MDC
+    recs, cur = MDC._db_records()
+    n_prot = 0
+    for sku, gk in grey_redo(flagged, cur, MDC.load(), has_shape):
+        MDC.record(sku, 'redo', GREY_SOURCE, gk, 'верх — серый фон генерации; болванку формы держим для перекраски')
+        n_prot += 1
+    print(f'серая крышка: болванок взято под защиту (redo) {n_prot}', flush=True)
     total = db("select count(*) from mesh_quarantine where decision is null or decision = 'cut'")
     print(f'v2: в карантине {len(flagged)} (без решения владельца), возвращено из v1 {released}; ждут решения {total[0][0] if total else "?"}', flush=True)
     return 0
@@ -166,7 +223,8 @@ commit;""")
 
 
 REASON_TEXT = {'mask': 'фото товара — коллаж (надписи, вставки): проверьте, не попали ли они в модель', 'slab': 'под предметом «подложка» — кусок фона на полу',
-               'proportion': 'сильно искажены пропорции (после растяжки под паспорт будет заметно)'}
+               'proportion': 'сильно искажены пропорции (после растяжки под паспорт будет заметно)',
+               'grey_top': 'верх (столешница) — пустой серый фон генерации, а не цвет товара: на странице и в кадре стол выходит с серой крышкой'}
 IMGDIR = os.path.expanduser('~/scout-scenes/mesh-quarantine-img')
 
 
@@ -279,6 +337,31 @@ def _selftest() -> int:
        reasons({'mask': 'коллаж', 'slab': 'merged', 'max_dev': 0.1}, 0.6) == ['mask', 'slab'])
     ok('v2: умеренное расхождение без признаков — не карантин', reasons({'max_dev': 0.4}, 0.6) == [])
     ok('тёмная модель светлого товара — карантин «dark»', reasons({'dark': 11.0}, 0.6) == ['dark'])
+    ok('серая крышка: candidate и reject — карантин «grey_top», ok/na — нет; независимо от пропорций',
+       reasons({'grey_top': 'reject'}, 0.6) == ['grey_top'] and reasons({'grey_top': 'candidate', 'max_dev': 0.1}, 0.6) == ['grey_top']
+       and reasons({'grey_top': 'ok'}, 0.6) == [] and reasons({'grey_top': 'na'}, 0.6) == [])
+    ok('серая крышка: решённое владельцем («принять») повторно в карантин не возвращается',
+       pick([{'sku': 's', 'glb_sha': 'g', 'grey_top': 'reject'}], 0.6, {('s', 'g')}) == [])
+    ok('серая крышка: у причины есть текст для страницы', 'grey_top' in REASON_TEXT)
+    fl = {('a:1', 'g'): {'grey_top': 'reject'}, ('b:2', 'g'): {'grey_top': 'candidate'}, ('c:3', 'g'): {'grey_top': 'ok'}, ('d:4', 'g'): {'grey_top': 'reject'},
+          ('e:5', 'g'): {'grey_top': 'reject'}, ('f:6', 'g'): {'dark': 5.0}}
+    cur = {'a:1': 'G1', 'b:2': 'G2', 'c:3': 'G3', 'd:4': 'G4', 'f:6': 'G6'}
+    got = grey_redo(fl, cur, {'d:4': {'decision': 'reject'}}, lambda s: s in ('a:1', 'b:2', 'c:3', 'd:4', 'e:5', 'f:6'))
+    ok('защита болванок: redo текущего поколения — только серые крышки с болванкой; есть решение владельца (d), нет поколения (e), не серая (c, f) — пропуск',
+       got == [('a:1', 'G1'), ('b:2', 'G2')])
+    ok('защита болванок: нет болванки — нечего защищать', grey_redo(fl, cur, {}, lambda s: False) == [])
+    import tempfile
+    _td = tempfile.mkdtemp()
+    os.makedirs(os.path.join(_td, 'a_1', 'job1'))
+    open(os.path.join(_td, 'a_1', 'job1', 'shape.glb'), 'wb').write(b'x')
+    os.environ['PRUNE_SRC'] = _td
+    ok('has_shape: ищет shape.glb в каталоге SKU так же, как прополка', has_shape('a:1') and not has_shape('b:2'))
+    # то же условие, что у прополки: «redo» из журнала решений делает SKU «в очереди» (`prune_shapes.requeue_dirs`)
+    import mesh_decisions as _MDC
+    _lat = _MDC.latest([{'sku': 'a:1', 'decision': 'redo', 'source': GREY_SOURCE, 'generation_key': 'G1', 'at': '2026-11-18T10:00:00'}], {'a:1': 'G1'})
+    ok('решение redo серой крышки действует, пока поколение текущее, и снимается новым поколением',
+       _lat.get('a:1', {}).get('decision') == 'redo' and _MDC.latest([{'sku': 'a:1', 'decision': 'redo', 'source': GREY_SOURCE, 'generation_key': 'G1',
+                                                                        'at': '2026-11-18T10:00:00'}], {'a:1': 'G2'}) == {})
     return 1 if bad else 0
 
 
