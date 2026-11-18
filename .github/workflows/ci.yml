@@ -375,6 +375,7 @@ jobs:
       - run: python tools/scout/salad/tests_sink_gate.py   # ворота приёмника и чистка — одна мера с зазором, счётчик = диск (mesh-12)
       - run: python tools/scout/salad/tests_topview_step.py   # шаг топ-вью: проход под таймаутом, дедлайн в /bin/sh, таймаут = сбой (T-20261020-15)
       - run: python tools/scout/salad/salad_groups.py --selftest && python tools/scout/salad/tests_batch_window.py   # группы Salad: удалённая (deleted) не отдаётся расписанию и не поднимается, сверка правила ↔ Salad без сети; расписание: 404 на стопе — «гасить нечего», 404 на старте — тревога (T-20261106-86)
+      - run: python tools/scout/salad/trellis/tests_trellis_trial.py   # замер генератора мешей на Salad (проба TRELLIS.2): закрытые веса недоступны — группа не создаётся; потолок денег, провал прогрева, два упавших задания подряд, исключение — стоп с проверкой stopped; тело группы: только 4090, без приёмника на проде; воркер по HTTP (раздел воркера пропускается без trimesh/PIL) (T-20261118-91)
       - run: python tools/scout/salad/tests_money_guard.py   # сторож денег: смена SALAD_GROUP посреди цикла, слепота, причина остановки — по фактам (T-20261020-24); потолок цены меша — гасит одну дорогую группу (mesh-15)
       - run: python tools/scout/salad/tests_pool.py   # пул нод без Salad; курсор при 75 и `<снимок>.done` — без повторов (план mesh-13)
         env:

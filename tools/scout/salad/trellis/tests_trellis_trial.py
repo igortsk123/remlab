@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+"""Тесты драйвера замера (`trellis_trial.py`) и воркера пробы (`worker_trellis.py`) — на подмене Salad, без сети, ключей и видеокарты (T-20261118-91).
+
+Главное, что проверяется: (1) закрытые веса недоступны → группа НЕ создаётся, денег 0; (2) потолок денег, провал прогрева, два упавших задания подряд, исключение
+посреди замера — во всех случаях группа гасится С ПРОВЕРКОЙ `stopped` ровно один раз; (3) тело группы: только 4090, без приёмника на проде, токен в печати скрыт;
+(4) воркер по HTTP: 503 до прогрева, задание → GLB, повтор job_id не запускает второй раз.
+
+  python3 tools/scout/salad/trellis/tests_trellis_trial.py
+"""
+from __future__ import annotations
+
+import io
+import json
+import os
+import sys
+import tempfile
+import threading
+import time
+import types
+import urllib.request
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.normpath(os.path.join(HERE, '..', '..')))
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('tests_trellis_trial')
+import trellis_trial as T  # noqa: E402
+
+bad = 0
+
+
+def ok(name, cond, extra=''):
+    global bad
+    print(('  ✓ ' if cond else '  ✗ ') + name + (f' — {extra}' if extra and not cond else ''))
+    bad += 0 if cond else 1
+
+
+# ——— чистые функции ———
+print('[1] план, задания, деньги')
+ok('план 1024:1,1536:2 разбирается', T.parse_plan('1024:1,1536:2') == [{'res': 1024, 'n': 1}, {'res': 1536, 'n': 2}])
+try:
+    T.parse_plan('2048:1')
+    ok('разрешение 2048 — отказ', False)
+except ValueError:
+    ok('разрешение 2048 — отказ', True)
+ok('типы цепочки TRELLIS.2', [T.pipeline_type(r) for r in (512, 1024, 1536)] == ['512', '1024_cascade', '1536_cascade'])
+INP = {'a:1': {'input_png_sha256': 'x'}, 'b:2': {'input_png_sha256': 'y'}}
+js = T.build_jobs(['a:1', 'b:2'], T.parse_plan('1024:1,1536:1'), INP, 7)
+ok('4 задания, id без «:», seed в id', len(js) == 4 and js[0]['job_id'] == 'a_1-1024-7-0' and all(':' not in j['job_id'] for j in js))
+try:
+    T.build_jobs(['zz:9'], T.parse_plan('1024:1'), INP)
+    ok('товар без вырезки — отказ', False)
+except ValueError:
+    ok('товар без вырезки — отказ', True)
+ok('цена 4090 есть по тарифам', all((T.price_usd_h(t) or 0) > 0 for t in ('batch', 'low', 'medium', 'high')))
+ok('деньги: 0 с running — 0; 1 ч по $0,33 = $0,33 + запас 60 с', T.cost_usd(0, 0.33) == 0 and abs(T.cost_usd(3600, 0.33) - 0.33 * 3660 / 3600) < 1e-9)
+
+print('[2] тело группы')
+body = T.build_body('trial-trellis2-x', 'ghcr.io/x/y:t', 'high', 'trellis2', 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}})
+env = body['container']['environment_variables']
+ok('карта — только RTX 4090', body['container']['resources']['gpu_classes'] == [T.CARD['class_id']])
+ok('приёмника на проде нет (ни MESH_SINK_URL, ни токена приёмника)', not any(k.startswith('MESH_SINK') for k in env))
+ok('шлюз с ключом Salad, порт 8000, проба готовности /ready, перезапуска нет', body['networking']['auth'] is True and body['networking']['port'] == 8000
+   and body['readiness_probe']['http']['path'] == '/ready' and body['restart_policy'] == 'never' and body['replicas'] == 1 and body['autostart_policy'] is False)
+buf = io.StringIO()
+real = sys.stdout
+sys.stdout = buf
+T.safe_print(body)
+sys.stdout = real
+ok('печать скрывает HF_TOKEN и пароль реестра', 'hf_SECRET' not in buf.getvalue() and 'PW' not in buf.getvalue() and '<скрыто>' in buf.getvalue())
+
+
+# ——— подмены Salad ———
+class FakeMG:
+    def __init__(self, groups=None, create_code=200):
+        self.calls, self.groups, self.create_code = [], groups or [], create_code
+
+    def env_from_file(self):
+        os.environ.setdefault('SALAD_API_KEY', 'k')
+        os.environ.setdefault('HF_TOKEN', 'hf_x')
+
+    def ghcr_auth(self):
+        return {'basic': {'username': 'u', 'password': 'p'}}
+
+    def api(self, path, method='GET', body=None):
+        self.calls.append((method, path))
+        if path == '' and method == 'GET':
+            return 200, {'items': self.groups}
+        if method == 'GET' and path.startswith('/trial-'):
+            return (404, {}) if not any(c == ('POST', '') for c in self.calls) else (200, {'networking': {'dns': 'trial.example'}})
+        if method == 'POST' and path == '':
+            return self.create_code, {}
+        return 200, {}
+
+
+class FakeBR:
+    def __init__(self, running_after=1):
+        self.stops, self.n = [], 0
+        self.running_after = running_after
+
+    def group_state(self, name):
+        return 200, 'stopped', {}
+
+    def instances(self, name):
+        self.n += 1
+        return 200, ([{'state': 'running'}] if self.n >= self.running_after else [])
+
+    def stop_and_verify(self, name, timeout_s=300):
+        self.stops.append(name)
+        return True
+
+
+class FakeGW:
+    """Шлюз ноды: прогрет сразу; задания — по сценарию `fail_jobs` (сколько первых упадут)."""
+    script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None}
+
+    def __init__(self, base, key):
+        self.jobs, self.k = {}, 0
+
+    def call(self, method, path, body=None, timeout=60, raw=False):
+        s = FakeGW.script
+        if s['raise_on'] and path.startswith(s['raise_on']):
+            raise RuntimeError('сбой посреди замера')
+        if path == '/health':
+            return 200, {'warm': s['warm'], 'phase': 'ready' if s['warm'] else 'loading', 'error': s['health_error'], 'timings': {'weights_s': 5}}
+        if path == '/info':
+            return 200, {'gpu': {'name': 'RTX 4090'}}
+        if path == '/generate':
+            self.k += 1
+            self.jobs[body['job_id']] = 'failed' if self.k <= s['fail_jobs'] else 'done'
+            return 202, {'status': 'queued'}
+        if path.startswith('/job/'):
+            st = self.jobs[path[5:]]
+            return 200, ({'status': 'done', 'metrics': {'peak_vram_gb': 19.0, 'glb': {'triangles': 10}}} if st == 'done'
+                         else {'status': 'failed', 'error': 'OOM', 'trace': 't'})
+        if path.startswith('/glb/'):
+            return 200, b'GLBDATA'
+        return 404, {}
+
+
+def args(tmp, **kw):
+    d = dict(model='trellis2', image='ghcr.io/x/y:t', inputs=tmp, skus=['a:1'], plan='1024:1', seed=42, decimation=500000, texture=2048, tier='high', cpu=8,
+             mem_mb=32768, cap=3.0, max_min=90, ready_min=40, job_timeout=15, suffix='t1', out=os.path.join(tmp, 'out'), apply=True, stop_only=False)
+    d.update(kw)
+    return types.SimpleNamespace(**d)
+
+
+def make_inputs(tmp, skus=('a:1',)):
+    inp = {}
+    for s in skus:
+        open(os.path.join(tmp, s.replace(':', '_') + '.rgba.png'), 'wb').write(b'\x89PNG')
+        inp[s] = {'input_png_sha256': 'x'}
+    json.dump(inp, open(os.path.join(tmp, 'inputs.json'), 'w'))
+
+
+def go(tmp, mg=None, br=None, hf=200, script=None, **kw):
+    FakeGW.script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, **(script or {})}
+    clock = [0.0]
+
+    def sleep(s):
+        clock[0] += s
+    mg, br = mg or FakeMG(), br or FakeBR()
+    try:
+        rc = T.run(args(tmp, **kw), mg, br, gw_factory=FakeGW, sleep=sleep, clock=lambda: clock[0], hf_head=lambda p, t: hf)
+    except RuntimeError as e:
+        rc = f'exc:{e}'
+    summ = None
+    sp = os.path.join(tmp, 'out', f'summary-trial-trellis2-{kw.get("suffix", "t1")}.json')      # сводка именно этого прогона
+    if os.path.exists(sp):
+        summ = json.load(open(sp))
+    return rc, mg, br, summ
+
+
+print('[3] драйвер: закрытые веса, чужие группы, повтор')
+d = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d)
+rc, mg, br, _ = go(d, apply=False)
+ok('без --apply — ничего не создаёт и не запускает', rc == 0 and not [c for c in mg.calls if c[0] in ('POST', 'PATCH')] and br.stops == [])
+rc, mg, br, _ = go(d, hf=403)
+ok('DINOv3 отдаёт 403 → группа НЕ создаётся, остановка не нужна, код 3', rc == 3 and ('POST', '') not in mg.calls and br.stops == [])
+rc, mg, br, _ = go(d, mg=FakeMG(groups=[{'name': 'other-live', 'current_state': {'status': 'running'}}]))
+ok('чужая живая группа → отказ, группа не создаётся', rc == 2 and ('POST', '') not in mg.calls)
+rc, mg, br, _ = go(d, mg=FakeMG(groups=[{'name': 'mesh-q-low-1', 'current_state': {'status': 'running'}}]))
+ok('боевая mesh-группа живая — не помеха (её не трогаем)', rc == 0 and all('mesh-q-low-1' not in c[1] for c in mg.calls))
+
+print('[4] драйвер: нормальный ход и предохранители (стоп с проверкой — всегда)')
+d = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d, ('a:1', 'b:2'))
+rc, mg, br, s = go(d, skus=['a:1', 'b:2'], plan='1024:1,1536:1')
+ok('успех: 4 задания, GLB скачаны, stopped_by=done, стоп подтверждён один раз', rc == 0 and s and len(s['jobs']) == 4 and s['stopped_by'] == 'done'
+   and s['stop_verified'] and br.stops == ['trial-trellis2-t1'])
+ok('GLB лежат файлами, метрики и тайминги в сводке', all(os.path.exists(j['glb_path']) and j['glb_bytes'] == 7 for j in s['jobs']) and s['timings'] == {'weights_s': 5} and s['info']['gpu']['name'] == 'RTX 4090')
+ok('деньги посчитаны и не больше потолка', 0 < s['cost_usd_est'] < 3.0 and s['to_first_running_s'] is not None)
+d = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d)
+rc, mg, br, s = go(d, cap=0.001)
+ok('потолок денег → stopped_by=money, стоп подтверждён', rc == 1 and s['stopped_by'] == 'money' and br.stops == ['trial-trellis2-t1'])
+rc, mg, br, s = go(d, suffix='t2', script={'warm': False, 'health_error': 'OSError: 403 gated'})
+ok('прогрев упал (например, закрытые веса) → гашу сразу, причина в сводке', s['stopped_by'] == 'warm_failed' and br.stops == ['trial-trellis2-t2'])
+rc, mg, br, s = go(d, suffix='t3', script={'warm': False}, ready_min=1)
+ok('нода не прогрелась за ready_min → гашу', s['stopped_by'] == 'not_ready' and br.stops == ['trial-trellis2-t3'])
+d2 = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d2, ('a:1', 'b:2', 'c:3'))
+rc, mg, br, s = go(d2, skus=['a:1', 'b:2', 'c:3'], plan='1024:1', script={'fail_jobs': 5})
+ok('два упавших задания подряд → гашу, счётчик отказов в сводке', s['stopped_by'] == 'failures' and s['failed'] == 2 and br.stops == ['trial-trellis2-t1'])
+rc, mg, br, s = go(d, suffix='t4', script={'raise_on': '/generate'})
+ok('исключение посреди замера → стоп с проверкой всё равно сделан', isinstance(rc, str) and rc.startswith('exc:') and br.stops == ['trial-trellis2-t4'])
+rc, mg, br, s = go(d, suffix='t5', br=FakeBR(running_after=10 ** 6))
+ok('нода не вышла в running за час → стоп (платили 0)', s['stopped_by'] == 'no_machine' and s['cost_usd_est'] == 0.0)
+rc, mg, br, s = go(d, suffix='t6', mg=FakeMG(create_code=400))
+ok('создание группы отвергнуто → код 1, гасить нечего', rc == 1 and br.stops == [])
+
+print('[5] воркер по HTTP (бэкенд fake)')
+os.environ['MODEL'] = 'fake'
+os.environ['OUT_DIR'] = tempfile.mkdtemp(prefix='wk-')
+try:
+    import trimesh  # noqa: F401
+    import PIL  # noqa: F401
+    have = True
+except ImportError:
+    have = False
+    print('  · SKIP: нет trimesh/PIL в этом окружении (проверяется на pakardev)')
+if have:
+    import worker_trellis as W
+    W.OUT = os.environ['OUT_DIR']
+    from http.server import ThreadingHTTPServer
+    srv = ThreadingHTTPServer(('127.0.0.1', 0), W.H)
+    port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    def call(method, path, body=None):
+        req = urllib.request.Request(f'http://127.0.0.1:{port}{path}', method=method, data=json.dumps(body).encode() if body is not None else None,
+                                     headers={'Content-Type': 'application/json'})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                b = r.read()
+                return r.status, b
+        except urllib.error.HTTPError as e:
+            return e.code, e.read()
+    from PIL import Image
+    png = io.BytesIO()
+    Image.new('RGBA', (8, 8), (255, 0, 0, 255)).save(png, 'PNG')
+    import base64
+    payload = {'job_id': 'j1', 'image_b64': base64.b64encode(png.getvalue()).decode(), 'pipeline_type': '1024_cascade'}
+    ok('до прогрева /ready — 503, /generate — 503', call('GET', '/ready')[0] == 503 and call('POST', '/generate', payload)[0] == 503)
+    W.warm()
+    ok('после прогрева /ready — 200, в /health тайминги', call('GET', '/ready')[0] == 200 and 'container_to_ready_s' in json.loads(call('GET', '/health')[1])['timings'])
+    ok('кривой запрос — 400, нет такого пути — 404', call('POST', '/generate', {'x': 1})[0] == 400 and call('GET', '/net')[0] == 404)
+    c, r = call('POST', '/generate', payload)
+    ok('/generate → 202', c == 202 and json.loads(r)['status'] == 'queued')
+    c2, r2 = call('POST', '/generate', payload)
+    ok('повтор job_id — 409 (второй раз GPU не жжём)', c2 == 409)
+    j = {}
+    for _ in range(100):
+        j = json.loads(call('GET', '/job/j1')[1])
+        if j.get('status') in ('done', 'failed'):
+            break
+        time.sleep(0.1)
+    ok('задание done, замеры: стадии, пик VRAM, треугольники куба, размер файла', j.get('status') == 'done' and j['metrics']['glb']['triangles'] == 12
+       and 'stage_s' in j['metrics'] and j['metrics']['glb']['size_mb'] >= 0, str(j)[:200])
+    cg, rg = call('GET', '/glb/j1')
+    ok('GLB отдаётся байтами (заголовок glTF)', cg == 200 and rg[:4] == b'glTF')
+    ok('чужой job — 404', call('GET', '/job/net')[0] == 404 and call('GET', '/glb/net')[0] == 404)
+    srv.shutdown()
+
+print('ИТОГО: ' + ('всё в норме' if not bad else f'провалов {bad}'))
+sys.exit(1 if bad else 0)
