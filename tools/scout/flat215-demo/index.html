@@ -9194,6 +9194,17 @@ function pickerCancel(){
   vwSelect(null); vwSheet(a.pos);
   const sc=document.getElementById('vscroll'); if(sc)sc.scrollTop=a.top;
 }
+// PRICESEG START
+// СТУПЕНИ ЦЕНЫ РОЛИ (T-20261118-61/5): [B1, B2] — первая цена «комфорта» и «премиума» (`rules/price-segments.json`, ступени не пересекаются);
+// товар — в ступени СВОЕГО СЕМЕЙСТВА (`price_segment`, ставит сборка), нет метки — по цене карточки. Границ у роли нет — ступеней нет.
+function segBounds(base,seg){const r=((seg||{}).roles||{})[base], b=r&&r.boundaries_rub; return b&&b.length===2&&b[0]>0&&b[1]>b[0]?b:null;}
+function segOf(base,p,seg){const b=segBounds(base,seg); if(!b)return null; if(p.price_segment)return p.price_segment;
+  const x=+p.price||0; return !x?null:x<b[0]?'lo':x<b[1]?'mid':'hi';}
+function segChips(base,seg,EN,fmt){const b=segBounds(base,seg); if(!b)return [];
+  const lab=(seg.labels||{})[EN?'en':'ru']||{}, cap=t=>String(t).charAt(0).toUpperCase()+String(t).slice(1);
+  const rng={lo:(EN?'under ':'до ')+fmt(b[0]), mid:fmt(b[0]).replace(/\s*₽$/,'')+'–'+fmt(b[1]), hi:(EN?'from ':'от ')+fmt(b[1])};
+  return ['lo','mid','hi'].map(k=>({key:k, txt:cap(lab[k]||k)+' · '+rng[k]}));}
+// PRICESEG END
 function filters(){
   const f=document.getElementById('filters');f.innerHTML='';
   const add=(txt,on,fn)=>{const b=document.createElement('button');b.className='chip'+(on?' on':'');
@@ -9204,12 +9215,16 @@ function filters(){
   const st=plainStyle((allVariants()[cur]||{}).style), fi={};
   if(st&&!TR_NOGOODS())feedFor(sel?sel.role.replace(/\s+\d+$/,''):'диван',fi);   // своего стиля для роли нет — чип не притворяется (T-20261111-01)
   if(st&&!TR_NOGOODS()&&!fi.noStyle)add('Только стиль '+st,!F.anyStyle,()=>F.anyStyle=!F.anyStyle);   // проба старой сборки: стиль ленту не режет (`feedFor`)
-  // пороги — рубли витрины; подписи — в валюте карточки (британский двойник: £)
-  const fx=fxRate(), EN=LANG==='en';
+  // ЧИПЫ ЦЕНЫ — СТУПЕНИ РОЛИ (T-20261118-61/5, план price-segments-01 шаг 2): границы и подписи — из `demo-data.json → price_segments`
+  // (одно правило с лентой и сборкой), подпись — диапазон этой роли в валюте карточки (британский двойник: £). У роли без границ чипов нет.
+  // Данных нет вовсе (старая сборка, пробы туров) — прежние пороги 30/60 тыс.
+  const fx=fxRate(), EN=LANG==='en', base=sel?sel.role.replace(/\s+\d+$/,''):'диван';
   if(!TR_NOGOODS()){   // проба: цен нет — и отбора по цене нет
+  if(D&&D.price_segments)segChips(base,D.price_segments,EN,money).forEach(c=>add(c.txt,F.price===c.key,()=>F.price=F.price===c.key?null:c.key));
+  else{
   add(fx?(EN?'under ':'до ')+money(30000):'до 30 тыс',F.price==='lo',()=>F.price=F.price==='lo'?null:'lo');
   add(fx?money(30000)+'–'+money(60000):'30–60 тыс',F.price==='mid',()=>F.price=F.price==='mid'?null:'mid');
-  add(fx?money(60000)+'+':'60+ тыс',F.price==='hi',()=>F.price=F.price==='hi'?null:'hi');
+  add(fx?money(60000)+'+':'60+ тыс',F.price==='hi',()=>F.price=F.price==='hi'?null:'hi');}
   add('дешевле сначала',F.sort==='price',()=>F.sort=F.sort==='price'?'fit':'price');}
 }
 function grid(){
@@ -9228,9 +9243,11 @@ function grid(){
   const isCur=p=>!!(sel&&sel.sku&&sel.sku.name===p.name);
   list=list.filter(p=>{
     const pr=p.price||0;
+    if(F.price&&D&&D.price_segments){if(segOf(base,p,D.price_segments)!==F.price)return false;}
+    else{
     if(F.price==='lo'&&pr>=30000)return false;
     if(F.price==='mid'&&(pr<30000||pr>60000))return false;
-    if(F.price==='hi'&&pr<60000)return false;
+    if(F.price==='hi'&&pr<60000)return false;}
     // текущий товар места виден всегда — от него и меняем
     if(F.fitOnly&&!isCur(p)&&(!inBand(base,p)||fitBadge(sel,p).cls==='b-no'))return false;
     return true;});
