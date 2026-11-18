@@ -6,6 +6,7 @@ import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { liveApartment } from "@/lib/viewer3d/demo-scene";
 import { DESKTOP_QUALITY, FlatViewer, LITE_QUALITY } from "@/lib/viewer3d/viewer";
+import { MeshLibrary } from "@/lib/viewer3d/meshes";
 import { sceneAssetUrls } from "@/lib/viewer3d/demo-scene";
 import { defaultConfiguration, resolveScene } from "@/lib/configurator/resolve";
 import { setRuntimeMeshes } from "@/lib/configurator/mesh-url";
@@ -86,6 +87,11 @@ const tailOf = (u: string) => String(u).split("/").slice(-2).join("/").slice(0, 
 // выбивал каждого до повторного обращения (попаданий 0). Память процесса держит клиент (`DUMP_KEEP_GB`): выше — перезапуск.
 const GLTF_CACHE_MB = Number((globalThis as Any).__gltfCacheMb ?? 480);
 const GLTF_CACHE_MAX = 64;
+// ПРОГРЕВ (T-20261118-10/5): в простое между заказами клиент просит разобрать меши горячего списка заранее (`hotMesh`). Такая запись метится `HOT_STAMP`; заказ, взявший её, перепишет метку
+// на свой номер (обычные правила). Свой бюджет по оценке размера — не отнимает места у мешей заказов; память процесса при этом держит клиент (потолок Chromium при прогреве).
+const HOT_STAMP = -7;
+const HOT_CACHE_MB = Number((globalThis as Any).__hotCacheMb ?? 320);
+const HOT_EST_MB = 40;
 const gltfCache = new Map<string, Any>();
 const gltfMb = new Map<string, number>();
 const gltfStamp = new Map<string, number>();       // номер заказа, где запись использована последний раз; записи ТЕКУЩЕГО заказа не вытесняем (их картинки в сцене)
@@ -129,9 +135,9 @@ const gltfSizeMb = (g: Any): number => {      // оценка размера р�
         gltfMb.set(key, gltfSizeMb(gltf));
         gltfStamp.set(key, ORDER_N);
         for (;;) {
-          let tot = 0; for (const k of gltfCache.keys()) tot += gltfMb.get(k) ?? 0;
+          let tot = 0; for (const k of gltfCache.keys()) if (gltfStamp.get(k) !== HOT_STAMP) tot += gltfMb.get(k) ?? 0;      // прогретые заранее (не взятые заказом) — своим бюджетом `HOT_CACHE_MB`
           if (gltfCache.size <= 1 || (tot <= GLTF_CACHE_MB && gltfCache.size <= GLTF_CACHE_MAX)) break;
-          const old = [...gltfCache.keys()].find((k) => (gltfStamp.get(k) ?? -1) < ORDER_N);      // самая давняя запись прошлых заказов
+          const old = [...gltfCache.keys()].find((k) => (gltfStamp.get(k) ?? -1) < ORDER_N && gltfStamp.get(k) !== HOT_STAMP);      // самая давняя запись прошлых заказов
           if (!old) break;                                   // всё нужно текущему заказу — потолок временно выше
           closeGltf(gltfCache.get(old)); gltfCache.delete(old); gltfMb.delete(old); gltfStamp.delete(old);
         }
@@ -176,6 +182,23 @@ const settleScene = async (scene: THREE.Scene, capMs: number): Promise<number> =
     quiet = LOADING === 0 && texturesPending(scene) === 0 ? quiet + 1 : 0;
   }
   return (performance.now() - t0) / 1000;
+};
+
+// Прогрев одного меша: тот же загрузчик, что у вьюера (`MeshLibrary`), через тот же кэш разборов (адрес и подпись файла). → 'warmed' | 'have' | 'none' (файла нет на диске) | 'ceiling' (бюджет прогрева)
+const hotLib = new MeshLibrary();
+(window as Any).hotMesh = async (url: string): Promise<string> => {
+  const sigOf = (window as Any).__sigOf as ((u: string) => Promise<string>) | undefined;
+  const sig = sigOf ? await sigOf(url) : "";
+  if (!sig) return "none";                                         // файла нет на диске — прогревать нечего (сеть не трогаем)
+  const key = `${url}|${sig}`;
+  if (gltfCache.has(key)) return "have";
+  let hot = 0; for (const k of gltfCache.keys()) if (gltfStamp.get(k) === HOT_STAMP) hot += gltfMb.get(k) ?? 0;
+  if (hot + HOT_EST_MB > HOT_CACHE_MB) return "ceiling";
+  GLTF_CACHE_ON = true;
+  await hotLib.load(url);                                          // попадает в `gltfCache` через подмену `GLTFLoader.load`
+  if (!gltfCache.has(key)) return "none";
+  gltfStamp.set(key, HOT_STAMP);
+  return "warmed";
 };
 
 (window as Any).buildDemoScene = async (a: { room: Any; items: Any[]; decor: Any[]; base: string; runtime?: Any; lite?: boolean; cams?: Any[]; style?: string; settle?: boolean; persist?: boolean }) => {

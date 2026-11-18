@@ -150,6 +150,11 @@ def prep_fast() -> bool:
 
 EXPORT_KEEP_GB = float(os.environ.get('RENDER_EXPORT_KEEP_GB', '1.5'))      # потолок памяти постоянной выгрузки (Python) после заказа
 DUMP_KEEP_GB = float(os.environ.get('RENDER_DUMP_KEEP_GB', '2.4'))          # то же для Node + Chromium (сам Chromium со сценой ≈1,2 ГБ)
+# ПРОГРЕВ МЕШЕЙ В ПРОСТОЕ (T-20261118-10/5, `render_hotwarm.py`): постоянные процессы заранее разбирают меши горячего списка. Потолок прогрева = потолок после заказа минус запас на сам заказ
+# (иначе первый же заказ поднимал бы память выше потолка и процесс гасился бы после него); при прогреве выше потолка — стоп. `RENDER_HOT_WARM=0` — без прогрева.
+HOT_WARM = os.environ.get('RENDER_HOT_WARM', '1') != '0'
+HOT_HEADROOM_GB = float(os.environ.get('RENDER_HOT_HEADROOM_GB', '0.4'))
+HOT_IDLE_S = float(os.environ.get('RENDER_HOT_IDLE_S', '1.5'))              # прогрев начинается, когда после заказа прошло столько тишины
 
 
 def ximg_on() -> bool:
@@ -353,7 +358,7 @@ class ExportClient:
         return cls.of([python, os.path.join(PROBE, 'export_server.py')], env, cwd)
 
     @classmethod
-    def of(cls, cmd: list, env: dict, cwd: str, slot: str | None = None, keep_gb: float = 0.0):
+    def of(cls, cmd: list, env: dict, cwd: str, slot: str | None = None, keep_gb: float = 0.0, hot_gb: float = 0.0):
         """Клиент по (команда, окружение, папка). `slot` — «место»: новый клиент того же места (другая сборка выгрузчика) гасит прежний, иначе старый процесс
         с памятью жил бы до простоя рядом с новым."""
         key = (tuple(cmd), tuple(sorted(env.items())), cwd)
@@ -366,6 +371,7 @@ class ExportClient:
                             del cls._inst[k]
                 cls._inst[key] = cls(cmd, env, cwd)
                 cls._inst[key].slot, cls._inst[key].keep_gb = slot, keep_gb
+            cls._inst[key].hot_gb = hot_gb if HOT_WARM else 0.0
             return cls._inst[key]
 
     def __init__(self, cmd: list, env: dict, cwd: str):
@@ -375,6 +381,12 @@ class ExportClient:
         self.lock = threading.Lock()
         self.proc = None
         self.rss_mb = 0.0
+        self.hot_gb = 0.0           # >0 — прогревать меши горячего списка в простое, пока дерево процесса ниже этого потолка
+        self.waiting = 0            # заказов, ждущих замок: прогрев при них не стартует (заказ важнее)
+        self._wlock = threading.Lock()
+        self.last_end = time.time()
+        self.hot_done: set = set()  # меши, о которых этот процесс уже ответил (прогрет/был/нет файла); новый процесс — список заново
+        self._hot_thr = None
 
     def _alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
@@ -408,51 +420,110 @@ class ExportClient:
             raise RenderError('render_failed', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
 
     def kill(self) -> None:
-        if self.proc is not None:
-            if self.proc.poll() is None:
-                kill_tree(self.proc)
-            for f in (self.proc.stdin, self.proc.stdout):
+        proc, self.proc = self.proc, None                      # локально: kill зовут из заказа, прогрева и из `_rewarm` — друг другу не мешают
+        if proc is not None:
+            if proc.poll() is None:
+                kill_tree(proc)
+            for f in (proc.stdin, proc.stdout):
                 try:
                     f.close()
-                except OSError:
+                except (OSError, AttributeError):
                     pass
-        self.proc = None
+        self.hot_done = set()
 
     def export(self, data_path: str, job: str, log: str, timeout_s: float, max_rss_gb: float) -> dict:
         return self.call({'cmd': 'export', 'data': data_path, 'idx': 0, 'out': job, 'log': log}, timeout_s, max_rss_gb)
 
     def call(self, request: dict, timeout_s: float, max_rss_gb: float) -> dict:
-        with self.lock:
-            if not self._alive():
-                self._spawn(timeout_s, max_rss_gb)
-            req = json.dumps(request) + '\n'
-            try:
-                self.proc.stdin.write(req.encode())
-                self.proc.stdin.flush()
-            except (OSError, ValueError):
-                self.kill()                                       # процесс вышел по простою между заказами — поднимаем новый и повторяем один раз
-                self._spawn(timeout_s, max_rss_gb)
-                self.proc.stdin.write(req.encode())
-                self.proc.stdin.flush()
-            line = self._read_line(time.time() + timeout_s, max_rss_gb)
-            if line is None:
-                self.kill()
-                print(f'рендер: постоянный процесс остановлен — время ({int(timeout_s)} с) или память выше {max_rss_gb:g} ГБ', flush=True)
-                raise RenderError('render_timeout', 'Рендер занял слишком много времени или памяти. Нажмите «Повторить».',
-                                  'The render took too long or too much memory. Press "Retry".')
-            try:
-                res = json.loads(line) if line else {}
-            except ValueError:
-                res = {}
-            if not res.get('ok'):
-                self.kill()
-                print(f'рендер: постоянный процесс, сбой: {res.get("error") or "процесс упал"}', flush=True)
-                raise RenderError('render_failed', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
-            self.rss_mb = float(res.get('rss_mb') or 0)
-            if self.keep_gb and tree_rss_gb(self.proc.pid) > self.keep_gb:
-                self.kill()
-                threading.Thread(target=self._rewarm, daemon=True).start()      # свежий процесс поднимается в простое — следующий заказ не платит за холодный старт
-            return res
+        with self._wlock:
+            self.waiting += 1
+        self.lock.acquire()
+        with self._wlock:
+            self.waiting -= 1
+        try:
+            return self._call_locked(request, timeout_s, max_rss_gb)
+        finally:
+            self.last_end = time.time()
+            self.lock.release()
+            self._hot_start()
+
+    def _call_locked(self, request: dict, timeout_s: float, max_rss_gb: float) -> dict:
+        if not self._alive():
+            self._spawn(timeout_s, max_rss_gb)
+        req = json.dumps(request) + '\n'
+        try:
+            self.proc.stdin.write(req.encode())
+            self.proc.stdin.flush()
+        except (OSError, ValueError):
+            self.kill()                                       # процесс вышел по простою между заказами — поднимаем новый и повторяем один раз
+            self._spawn(timeout_s, max_rss_gb)
+            self.proc.stdin.write(req.encode())
+            self.proc.stdin.flush()
+        line = self._read_line(time.time() + timeout_s, max_rss_gb)
+        if line is None:
+            self.kill()
+            print(f'рендер: постоянный процесс остановлен — время ({int(timeout_s)} с) или память выше {max_rss_gb:g} ГБ', flush=True)
+            raise RenderError('render_timeout', 'Рендер занял слишком много времени или памяти. Нажмите «Повторить».',
+                              'The render took too long or too much memory. Press "Retry".')
+        try:
+            res = json.loads(line) if line else {}
+        except ValueError:
+            res = {}
+        if not res.get('ok'):
+            self.kill()
+            print(f'рендер: постоянный процесс, сбой: {res.get("error") or "процесс упал"}', flush=True)
+            raise RenderError('render_failed', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
+        self.rss_mb = float(res.get('rss_mb') or 0)
+        if self.keep_gb and tree_rss_gb(self.proc.pid) > self.keep_gb:
+            self.kill()
+            threading.Thread(target=self._rewarm, daemon=True).start()      # свежий процесс поднимается в простое — следующий заказ не платит за холодный старт
+        return res
+
+    def _hot_start(self) -> None:
+        """Фоновый прогрев (один поток на клиента): после заказа и после подъёма процесса. Список — `render_hotwarm.hot_sids`; уступает заказу: ни одного прогрева при ждущем заказе."""
+        if self.hot_gb <= 0 or self._hot_thr is not None or not self._alive():
+            return
+        t = threading.Thread(target=self._hot_loop, daemon=True)
+        self._hot_thr = t
+        t.start()
+
+    def _hot_loop(self) -> None:
+        try:
+            import render_hotwarm as HW
+            for sid in HW.hot_sids():
+                if sid in self.hot_done:
+                    continue
+                while True:                                     # тишина после заказа; пришёл заказ — прогрев на паузу (до следующего заказа поток заведут заново)
+                    if self.waiting or not self._alive():
+                        return
+                    if time.time() - self.last_end >= HOT_IDLE_S:
+                        break
+                    time.sleep(0.2)
+                with self.lock:
+                    if self.waiting or not self._alive() or tree_rss_gb(self.proc.pid) >= self.hot_gb:
+                        return
+                    req = {'cmd': 'hot', 'sid': sid, 'max_rss_mb': self.hot_gb * 1024.0}
+                    try:
+                        self.proc.stdin.write((json.dumps(req) + '\n').encode())
+                        self.proc.stdin.flush()
+                    except (OSError, ValueError):
+                        self.kill()
+                        return
+                    line = self._read_line(time.time() + 30, self.hot_gb + 1.0)
+                    if not line:                                 # завис/умер/память: процесс убираем, заказ поднимет свежий
+                        self.kill()
+                        return
+                    try:
+                        state = json.loads(line).get('state')
+                    except ValueError:
+                        state = 'error'
+                    if state in ('ceiling', 'cold'):
+                        return
+                    self.hot_done.add(sid)
+        except Exception:  # noqa: BLE001 — прогрев необязателен
+            pass
+        finally:
+            self._hot_thr = None
 
     def _rewarm(self) -> None:
         """Фоном: поднять свежий процесс и прогреть (`warm`: браузер/импорты) под тем же замком — заказ, пришедший раньше, подождёт его готовности (не дольше холодного старта)."""
@@ -466,6 +537,8 @@ class ExportClient:
                         self.kill()
             except Exception:  # noqa: BLE001 — прогрев необязателен: заказ поднимет процесс сам
                 self.kill()
+        self.last_end = time.time()
+        self._hot_start()
 
 
 def _dir_mb(path: str) -> float:
@@ -721,7 +794,7 @@ class SceneExecutor:
                                             lim['exportSec'], lim['maxRssGb'], env=env, cwd=os.path.join(REPO, 'tools', 'scout'), what='меши и камеры')
                 if prep_fast() and persistent_on():                # постоянный процесс: без импортов и разбора уже виденных мешей; сбой (не время) — один раз отдельным процессом, как раньше
                     try:
-                        ExportClient.of([self.python, os.path.join(PROBE, 'export_server.py')], env, os.path.join(REPO, 'tools', 'scout'), keep_gb=EXPORT_KEEP_GB).export(data_path, job, log, lim['exportSec'], lim['maxRssGb'])
+                        ExportClient.of([self.python, os.path.join(PROBE, 'export_server.py')], env, os.path.join(REPO, 'tools', 'scout'), keep_gb=EXPORT_KEEP_GB, hot_gb=EXPORT_KEEP_GB - HOT_HEADROOM_GB).export(data_path, job, log, lim['exportSec'], lim['maxRssGb'])
                     except RenderError as e:
                         if e.code == 'render_timeout':
                             raise
@@ -796,7 +869,7 @@ class SceneExecutor:
                                     lim['dumpSec'], lim['maxRssGb'], what='декор и отделка')
         if prep_fast() and persistent_on():                        # постоянный Chromium со страницей: без запуска и без повторного разбора мешей; сбой (не время) — отдельным процессом, как раньше
             try:
-                ExportClient.of([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), '--serve', bundle], {}, os.path.join(REPO, 'tools', 'scout'), slot='dump', keep_gb=DUMP_KEEP_GB).call(
+                ExportClient.of([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), '--serve', bundle], {}, os.path.join(REPO, 'tools', 'scout'), slot='dump', keep_gb=DUMP_KEEP_GB, hot_gb=DUMP_KEEP_GB - HOT_HEADROOM_GB).call(
                     {'cmd': 'dump', 'data': data_path, 'idx': 0, 'out': os.path.dirname(dump), 'log': dlog, 'extra': extra}, lim['dumpSec'], lim['maxRssGb'])
             except RenderError as e:
                 if e.code == 'render_timeout':

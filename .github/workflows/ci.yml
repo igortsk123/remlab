@@ -204,6 +204,8 @@ jobs:
       - run: python tools/scout/tests/test_export_server_cache.py   # постоянный процесс выгрузки: кэш мешей держит используемое, убирает неиспользуемое и собирает мусор (T-20261118-10/2)
       - run: python tools/scout/tests/test_load_parts_nocopy.py   # разбор GLB без глубокой копии: те же вершины/грани/UV/пиксели (T-20261118-10/3)
       - run: python tools/scout/tests/test_render_texwarm.py   # заготовка текстур мешей: те же файлы кэша, что у заказа, повтор без кодирования (T-20261118-10/3)
+      - run: node tools/scout/cycles_probe/test_file_sig.mjs   # подпись файла меша дампера: utime не меняет, замена файла меняет (T-20261118-10/5)
+      - run: python tools/scout/tests/test_render_hotwarm.py   # прогрев мешей в простое: список горячих, уступка заказу, потолок памяти (T-20261118-10/5)
       - run: python tools/scout/tests/test_render_cycles_service.py   # HTTP сервиса: заказ → опрос → два кадра, отказы 404/409/422/503+Retry-After, тур только с внутренним ключом, проход прод → DEV, «Улучшить из рендера» (T-20261117-19)
       - run: python tools/scout/cycles_probe/test_frame_qa.py   # сторож кадров Cycles: классы слотов, оценка кадра, предпроверка (в т.ч. шторы/карниз/радиаторы оболочки), осколки внутри маски ковра (T-20261118-03/1–4)
       - run: pip install pillow -q && python tools/scout/render_gpu/tests_render_gate.py   # ворота сторожа кадров: брак предпроверки — заказ не рендерится, кадровый брак — не публикуется и не в кэш, MAIN_NOT_VISIBLE/«вплотную» не блокируют, RENDER_QA_GATE=0 — прежнее, повтор того же ключа без рендера, заготовка не зацикливается (T-20261118-03/7)
