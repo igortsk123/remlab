@@ -108,6 +108,9 @@ src = open(os.path.join(HERE, '..', 'render_exec.py'), encoding='utf-8').read()
 check('исполнитель CPU: --mask-out по условию, маска ложится рядом с кадром (<cam>.mask.png)', "'--mask-out'" in src and "'.mask.png'" in src)
 dr = open(os.path.join(HERE, '..', 'draft_render.py'), encoding='utf-8').read()
 check('draft_render: шаг после нормировки яркости и до публикации кадров', 0 < dr.index('IM.match_luma(_p, _r)') < dr.index('IM.tame_new_light(_p, _r, _sf2)') < dr.index("shots = [{'camera': c.name, 'url': _publish_frame"))
+rc = open(os.path.join(HERE, '..', 'cycles_probe', 'render_cycles.py'), encoding='utf-8').read()
+_mp = rc[rc.index('_t_mask = time.time()'):]
+check('render_cycles: масштаб маски (--mask-scale) ставится ПОСЛЕ setup_camera (он сам возвращает resolution_percentage = --pct)', _mp.index('setup_camera(_cn)') < _mp.index('a.mask_scale'))
 
 print('итог:', 'чисто' if not fails else f'{len(fails)} падений')
 sys.exit(1 if fails else 0)

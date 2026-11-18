@@ -1291,10 +1291,10 @@ if a.mask_out:
     cy.samples = 1
     cy.use_adaptive_sampling = False
     cy.use_denoising = False
-    if a.mask_scale != 1.0:
-        sc.render.resolution_percentage = max(1, int(round(a.pct * a.mask_scale)))
     for _cn in CAMS:
-        setup_camera(_cn)
+        setup_camera(_cn)                                  # он же ставит resolution_percentage = --pct, поэтому масштаб маски — после него
+        if a.mask_scale != 1.0:
+            sc.render.resolution_percentage = max(1, int(round(a.pct * a.mask_scale)))
         _mo = a.mask_out.replace('{cam}', _cn)
         os.makedirs(os.path.dirname(os.path.abspath(_mo)), exist_ok=True)
         sc.render.filepath = _mo
