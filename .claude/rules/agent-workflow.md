@@ -62,7 +62,7 @@ description: Двухэтапный workflow агента — план пере�
 Любое завершённое изменение кода ВСЕГДА доводится до прода — не оставляем в ветке/локально:
 1. `pnpm typecheck && pnpm lint && pnpm test && pnpm build` — зелёные (иначе не катим, чинить).
 2. Закоммитить; смерджить в `main` (ff), `git push origin main` (GitHub — CI-гейт).
-3. Выкатка — сама после зелёного CI по push в `main` (`.github/workflows/deploy.yml` → `deploy.sh`: smoke + авто-откат на `:prev`;
+3. Выкатка — сама после зелёного CI по push в `main` (`.github/workflows/deploy.yml`: образ → сервер → `infra/server/deploy-remote.sh`, smoke + авто-откат на `:prev`; `./deploy.sh` — ручной путь;
    с DEV-VM `./deploy.sh` руками не запускать). Копии БД перед выкладкой нет — только ночной `infra/server/db-backup.sh` (7 дней):
    миграция → сперва ручной `pg_dump`. VPN-нода `remnanode` изолирована — не трогать. Прод не оставлять позади `main` (проверка — `tools/ops/deploy-need.sh --status`: правки только памяти/доков прод не перевыкатывают).
 - Владелец дал **постоянное разрешение на push + deploy И на правки сервера** (Caddy/compose/статик-роуты)
