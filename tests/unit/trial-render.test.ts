@@ -42,6 +42,9 @@ describe("рендер из тура: контракт тела", () => {
     expect(it({ sid: "s1" })).toBe(true);
     expect(it({})).toBe(false);
     expect(it({ sid: "s1", pid })).toBe(false);
+    expect(it({ ref: 1 })).toBe(true);                                       // плоский предмет без меша — по номеру в варианте
+    for (const bad of [-1, 40, 1.5, "1"]) expect(it({ ref: bad })).toBe(false);
+    expect(it({ ref: 1, pid })).toBe(false);
     for (const bad of ["s1", "p1:XYZ", pid.toUpperCase(), pid + "0", ""]) expect(it({ pid: bad })).toBe(false);
   });
   it("заказ фото нейросети (без mode) не принимается как рендер и по-прежнему разбирается своей схемой", () => {

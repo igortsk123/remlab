@@ -11,8 +11,9 @@
   {"v": 1,
    "variant_id": "<id варианта данных>",                      обязательно
    "room_id": "<комната>", "room": {"w": см, "d": см},       необязательно: сверка («снято в другой комнате» → 409 stale)
-   "items": [{"role", "sid" | "pid", "x", "y", "rot", "corner"?, "corner_left"?, "section"?}, …]   нет — предметы варианта как есть
-      (`sid` — ключ товара данных витрины; `pid` — публичный ключ товара тура `p1:…`, у публичных данных тура `sid` нет, T-20261118-03/9)
+   "items": [{"role", "sid" | "pid" | "ref", "x", "y", "rot", "corner"?, "corner_left"?, "section"?}, …]   нет — предметы варианта как есть
+      (`sid` — ключ товара данных витрины; `pid` — публичный ключ товара тура `p1:…`, у публичных данных тура `sid` нет, T-20261118-03/9;
+      `ref` — номер предмета в `variant.items` для ПЛОСКОГО предмета без меша (`strategy: procedural_plane`: ковёр, картина, зеркало) — его данные берутся из варианта)
    "cams":  [{"name": "C1"|"C2", "x", "y", "rot", "fov", "pose"?, "pshift"?}, …]            нет — позы варианта}
 
 Что проверяется: предметов ≤ MAX_ITEMS; `sid` (или `pid`) есть в данных (индекс товаров по всем местам данных) и у товара есть размеры;
@@ -104,6 +105,28 @@ def pid_index(data: dict) -> dict:
     return idx
 
 
+def flat_base_card(base_items: list, ref, role: str):
+    """РЕШЕНИЕ БЕЗ КАРТОЧКИ (T-20261118-03/9, директор): процедурный плоский предмет (`strategy: procedural_plane` — ковёр, картина, зеркало; меша у него нет)
+    рисуется по ДАННЫМ САМОГО ПРЕДМЕТА варианта (`sku`: фото, размеры, цвет) — ключ товара для кадра не нужен. `ref` — номер предмета в `variant.items`;
+    роль должна совпасть, предмет — плоский. Иначе None (заказ откажется `bad_item`). Данные берём из варианта на сервере, не от страницы."""
+    if not isinstance(ref, int) or isinstance(ref, bool) or not (0 <= ref < len(base_items)):
+        return None
+    b = base_items[ref]
+    if not isinstance(b, dict) or b.get('role') != role or b.get('strategy') != 'procedural_plane' or not isinstance(b.get('sku'), dict):
+        return None
+    return b['sku']
+
+
+def _key_of(item: dict, n: int) -> dict:
+    """Как назвать предмет варианта в заказе «как есть»: `sid` витрины, иначе `pid` тура, иначе (плоский предмет без ключа) — номер `ref`."""
+    sku = item.get('sku') or {}
+    if sku.get('sid'):
+        return {'sid': sku['sid']}
+    if sku.get('pid'):
+        return {'pid': sku['pid']}
+    return {'ref': n} if item.get('strategy') == 'procedural_plane' else {}
+
+
 def product_key(sku: dict):
     """Ключ товара карточки для сравнения «тот же предмет»: `sid` (витрина), иначе `pid` (тур); нет ни того ни другого — None (не равен никому)."""
     sku = sku or {}
@@ -174,8 +197,10 @@ def _item(raw, base_items: list, roles: set, skus: dict, room: dict, pids: dict 
     if not isinstance(role, str) or not (1 <= len(role) <= 40) or role not in roles:
         raise SnapshotError(422, 'bad_item', 'Расстановка не принята: неизвестный вид предмета.',
                             'The layout was not accepted: unknown item type.')
-    sid, pid = str(raw.get('sid') or ''), raw.get('pid')
-    if sid:                                      # ключ витрины (демо; так же — тур со `sid` в данных)
+    sid, pid, ref = str(raw.get('sid') or ''), raw.get('pid'), raw.get('ref')
+    if ref is not None:                          # плоский предмет без меша (ковёр, картина, зеркало): данные — предмета варианта, карточку не ищем
+        card = flat_base_card(base_items, ref, role) if not sid and pid is None else None
+    elif sid:                                      # ключ витрины (демо; так же — тур со `sid` в данных)
         card = skus.get(sid) if SID_RE.match(sid) else None
         if card is not None and pid is not None and card.get('pid') not in (None, pid):
             card = None                          # оба ключа названы и указывают на разные товары — не угадываем
@@ -190,7 +215,10 @@ def _item(raw, base_items: list, roles: set, skus: dict, room: dict, pids: dict 
     rot = _num(raw.get('rot', 0), -720, 720, 'rot')
     # тот же предмет варианта (роль и товар совпали) — его размеры (`dims_src` каталога/расчёта); иначе — размеры товара
     key = product_key(sku)
-    same = next((b for b in base_items if key is not None and b.get('role') == role and product_key(b.get('sku')) == key), None)
+    if ref is not None:
+        same = base_items[ref]
+    else:
+            same = next((b for b in base_items if key is not None and b.get('role') == role and product_key(b.get('sku')) == key), None)
     if same is not None:
         w, d, h = same.get('w'), same.get('d'), same.get('h')
         extra = {k: same[k] for k in ('dims_src', 'd_catalog', 'strategy') if k in same}
@@ -250,9 +278,7 @@ def canonicalize(data: dict, req: dict, source: str = 'demo') -> dict:
     raw_items = req.get('items')
     base_items = base.get('items') or []
     if raw_items is None:
-        raw_items = [{'role': i['role'], **({'sid': (i.get('sku') or {}).get('sid')} if (i.get('sku') or {}).get('sid') else
-                                            {'pid': (i.get('sku') or {}).get('pid')}), 'x': i['x'], 'y': i['y'], 'rot': i.get('rot') or 0}
-                     for i in base_items]
+        raw_items = [{'role': i['role'], **_key_of(i, n), 'x': i['x'], 'y': i['y'], 'rot': i.get('rot') or 0} for n, i in enumerate(base_items)]
     if not isinstance(raw_items, list) or not (1 <= len(raw_items) <= MAX_ITEMS):
         raise SnapshotError(422, 'bad_snapshot', 'Расстановка не принята: число предметов вне допустимого.',
                             'The layout was not accepted: the number of items is out of range.')
@@ -473,6 +499,28 @@ def _selftest() -> int:
     ok(canonicalize(dp, {'v': 1, 'variant_id': 'v1'})['scene_hash'] == canonicalize(data, {'v': 1, 'variant_id': 'v1'})['scene_hash'], 'демо: `pid` рядом с `sid` хеш не меняет (готовые кадры целы)')
     both = {'v': 1, 'variant_id': 'v1', 'items': [{'role': 'диван', 'sid': 's1', 'pid': pb, 'x': 220, 'y': 270, 'rot': 180}]}
     ok(tbad(both, dp) == 'bad_item', 'и `sid`, и `pid` названы, а карточка с другим `pid` — bad_item')
+    # ——— плоский предмет без меша и без ключа (ковёр вне витрины): данные — из варианта, карточку не ищем (директор, T-20261118-03/9)
+    flat = copy.deepcopy(tour)
+    rug = flat['variants'][0]['items'][1]
+    rug.update(strategy='procedural_plane')
+    del rug['sku']['pid']
+    fs = canonicalize(flat, {'v': 1, 'variant_id': 'tv1'})
+    ok(fs['variant']['items'][1]['sku']['img'] == 'img/bbbbbbbbbbbbbbbb.jpg' and fs['variant']['items'][1]['w'] == 230 and 'pid' not in fs['variant']['items'][1]['sku'],
+       'плоский ковёр без ключа: снимок «как есть» по данным предмета варианта')
+    own = {'v': 1, 'variant_id': 'tv1', 'items': [{'role': 'ковёр', 'ref': 1, 'x': 200, 'y': 160, 'rot': 0},
+                                                  {'role': 'диван', 'pid': pa, 'x': 220, 'y': 270, 'rot': 180}]}
+    ok(canonicalize(flat, own)['variant']['items'][0]['sku']['img'] == 'img/bbbbbbbbbbbbbbbb.jpg', 'ковёр по `ref`: его же данные; двигать можно, размеры — предмета варианта')
+    moved = canonicalize(flat, {**own, 'items': [{**own['items'][0], 'x': 210}, own['items'][1]]})
+    ok(moved['scene_hash'] != canonicalize(flat, own)['scene_hash'] and moved['variant']['items'][0]['w'] == 230, 'сдвиг ковра — другой хеш, размеры те же')
+    flat2 = copy.deepcopy(flat)
+    flat2['variants'][0]['items'][1]['sku']['img'] = 'img/cccccccccccccccc.jpg'
+    ok(canonicalize(flat2, own)['scene_hash'] != canonicalize(flat, own)['scene_hash'], 'другая картинка ковра — другой хеш (фото в хеше)')
+    bad_ref = [{'role': 'ковёр', 'ref': 0}, {'role': 'диван', 'ref': 1}, {'role': 'ковёр', 'ref': 5}, {'role': 'ковёр', 'ref': -1}, {'role': 'ковёр', 'ref': True},
+               {'role': 'ковёр', 'ref': '1'}, {'role': 'ковёр', 'ref': 1, 'pid': pb}, {'role': 'ковёр', 'ref': 1, 'sid': 's1'}]
+    ok(all(tbad({'v': 1, 'variant_id': 'tv1', 'items': [{**x, 'x': 200, 'y': 160, 'rot': 0}]}, flat) == 'bad_item' for x in bad_ref),
+       '`ref` на предмет другой роли, не плоский, вне списка, не число или вместе с ключом — bad_item')
+    ok(tbad({'v': 1, 'variant_id': 'tv1'}, tour) is None and tbad({'v': 1, 'variant_id': 'v1', 'items': [{'role': 'диван', 'ref': 0, 'x': 1, 'y': 1, 'rot': 0}]}, data) == 'bad_item',
+       'мебель по `ref` не берётся (только плоские); у /demo `ref` не работает, их хеши не затронуты')
     print('итог:', 'чисто' if not bad else f'{bad} провал(ов)')
     return 1 if bad else 0
 
