@@ -28,6 +28,8 @@ import math
 import re
 import sys
 
+import scene_inputs as SI
+
 SNAPSHOT_VERSION = 1
 MAX_ITEMS = 40
 SLACK_CM = 5.0               # предмет может касаться стены в пределах округления
@@ -99,6 +101,33 @@ def _dims_of(sku: dict) -> tuple:
     d = sku.get('d') or sku.get('dia')
     h = sku.get('h')
     return w, d, h
+
+
+def _rules_of_build(build) -> str:
+    """Метка сборки данных `<git>.<правила>` (`build_stamp.py`) → в хеш только `<правила>` (решение директора 18.11): коммит кода сам по себе кадры не меняет —
+    правка решателя меняет снимок (расстановку), а она уже в хеше; git-часть сдвигала бы ключ всех комнат на каждый коммит (и перерисовку за деньги).
+    Метка без точки (тест, чужой формат) — как есть. Само поле `build` в данных и у других потребителей не меняется."""
+    b = str(build or '')
+    return b.rsplit('.', 1)[1] if '.' in b else b
+
+
+def _sku_inputs(sku: dict, mesh: bool) -> dict:
+    """Что в товаре меняет кадр, но не было в хеше: подкраска, образец ткани, фото-текстура (ковёр, картина — файл в `img/`) и, у предмета
+    мебели, файл меша (`msid` или `sid`: перегенерация меша — новые кадры только тех комнат, где он стоит). Пустое не пишем — ключ тех, у кого
+    этих полей нет, зависит только от них самих."""
+    out: dict = {}
+    for k in ('tint', 'swatch', 'img'):
+        if sku.get(k) not in (None, '', []):
+            out[k] = sku[k]
+    if sku.get('img'):
+        sha = SI.img_sha(sku['img'])
+        if sha:
+            out['img_sha'] = sha
+    if mesh:
+        sha = SI.mesh_sha(sku.get('msid') or sku.get('sid'))
+        if sha:
+            out['mesh_sha'] = sha
+    return out
 
 
 def _item(raw, base_items: list, roles: set, skus: dict, room: dict) -> dict:
@@ -196,15 +225,16 @@ def canonicalize(data: dict, req: dict, source: str = 'demo') -> dict:
                             'The layout was not accepted: two views, C1 and C2, are required.')
     decor = copy.deepcopy(base.get('decor') or [])
     # состав хеша: всё, что меняет картинку; данные декора — по составу (товар и места), сборка данных — отдельным полем
-    brief = {'v': SNAPSHOT_VERSION, 'source': source, 'apartment': data.get('apartment_id') or '', 'build': data.get('build') or '',
+    brief = {'v': SNAPSHOT_VERSION, 'source': source, 'apartment': data.get('apartment_id') or '', 'build': _rules_of_build(data.get('build')),
              'variant': base.get('id'), 'room': {'w': room.get('w'), 'd': room.get('d')}, 'style': base.get('style') or '',
              'items': sorted(({'role': i['role'], 'sid': i['sku'].get('sid'), 'msid': i['sku'].get('msid'), 'x': i['x'], 'y': i['y'],
                                'rot': i['rot'], 'w': i['w'], 'd': i['d'], 'h': i['h'], 'corner': i['corner'], 'corner_left': i['corner_left'],
-                               'section': i['section']} for i in items), key=lambda r: (r['role'], str(r['sid']), r['x'], r['y'], r['rot'])),
+                               'section': i['section'], **_sku_inputs(i['sku'], mesh=True)} for i in items),
+                            key=lambda r: (r['role'], str(r['sid']), r['x'], r['y'], r['rot'])),
              'decor': sorted(({'role': d.get('role'), 'sid': (d.get('sku') or {}).get('sid'), 'strategy': d.get('strategy'),
-                               'place': d.get('place'), 'look': d.get('look')} for d in decor),
+                               'place': d.get('place'), 'look': d.get('look'), **_sku_inputs(d.get('sku') or {}, mesh=False)} for d in decor),
                              key=lambda r: json.dumps(r, sort_keys=True, ensure_ascii=False)),
-             'cams': cams}
+             'cams': cams, 'env': SI.env_sha()}
     scene_hash = hashlib.sha256(json.dumps(brief, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
     variant = {k: copy.deepcopy(v) for k, v in base.items() if k not in ('items', 'decor', 'cams')}
     variant.update(items=items, decor=decor, cams=cams)
@@ -304,6 +334,50 @@ def _selftest() -> int:
     # новая сборка данных → другой хеш (кэш не отдаёт кадр старых данных)
     d3 = copy.deepcopy(data); d3['build'] = 'b2'
     ok(canonicalize(d3, {'v': 1, 'variant_id': 'v1'})['scene_hash'] != s['scene_hash'], 'новая сборка данных — другой хеш')
+    # ВХОДЫ-ФАЙЛЫ И МЕТКА СБОРКИ (T-20261118-09/1): диски — во временных папках, чтобы тест не зависел от машины
+    import os as _os
+    import tempfile as _tf
+    tmp = _tf.mkdtemp(prefix='snap-inputs-')
+    for k, sub in (('SCENE_INPUTS_PUBLIC', 'public'), ('SCENE3D_CACHE', 'mcache'), ('SCENE_INPUTS_GALLERY', 'gallery'), ('SCENE_INPUTS_INDEX', 'idx/i.json'), ('DEMO_LOCAL_DIR', 'demo')):
+        _os.environ[k] = _os.path.join(tmp, sub)
+    for sub in ('public/flat3d/env', 'public/scene/views', 'mcache', 'demo/img'):
+        _os.makedirs(_os.path.join(tmp, sub), exist_ok=True)
+    SI._ENV_MEMO.clear()
+    SI.ENV_TTL_S = 0
+    h = lambda dd: canonicalize(dd, {'v': 1, 'variant_id': 'v1'})['scene_hash']  # noqa: E731
+    h0 = h(data)
+    dg = copy.deepcopy(data); dg['build'] = 'abc1234567.' + str(data.get('build') or 'x').rsplit('.', 1)[-1]
+    dg2 = copy.deepcopy(data); dg2['build'] = 'fff9999999.' + str(data.get('build') or 'x').rsplit('.', 1)[-1]
+    ok(h(dg) == h(dg2), 'метка сборки: смена git-части хеш не меняет (коммит кадры не сбрасывает)')
+    dr = copy.deepcopy(data); dr['build'] = 'abc1234567.otherrules'
+    ok(h(dr) != h(dg), 'метка сборки: смена правил — другой хеш')
+    dt = copy.deepcopy(data); dt['variants'][0]['items'][0]['sku']['tint'] = [1.2, 1.0, 0.8]
+    ok(h(dt) != h0, 'подкраска товара (tint) — другой хеш')
+    dw = copy.deepcopy(data); dw['variants'][0]['items'][0]['sku']['swatch'] = '#aabbcc'
+    ok(h(dw) != h0, 'образец ткани (swatch) — другой хеш')
+    sid0 = data['variants'][0]['items'][0]['sku']['sid']
+    open(_os.path.join(tmp, 'mcache', sid0 + '.glb'), 'wb').write(b'a' * 2000)
+    hm1 = h(data)
+    ok(hm1 != h0, 'меш товара появился на диске — хеш с ним')
+    open(_os.path.join(tmp, 'mcache', sid0 + '.glb'), 'wb').write(b'b' * 2100)
+    ok(h(data) != hm1, 'меш перегенерирован (тот же sid, другой файл) — другой хеш')
+    open(_os.path.join(tmp, 'mcache', sid0 + '.glb'), 'wb').write(b'a' * 2000)
+    ok(h(data) == hm1, 'тот же файл меша — тот же хеш')
+    _os.remove(_os.path.join(tmp, 'mcache', sid0 + '.glb'))
+    ok(h(data) == hm1, 'кэш мешей вытеснил файл — хеш из индекса прежний (комнату не перерисовываем)')
+    he1 = h(data)
+    open(_os.path.join(tmp, 'public/flat3d/env/outside.webp'), 'wb').write(b'x' * 50)
+    ok(h(data) != he1, 'картинка окружения заменена — другой хеш')
+    he2 = h(data)
+    open(_os.path.join(tmp, 'public/scene/views/yard.webp'), 'wb').write(b'y' * 60)
+    ok(h(data) != he2, 'вид из окна заменён — другой хеш')
+    di = copy.deepcopy(data); di['variants'][0]['items'][0]['sku']['img'] = 'img/rug.jpg'
+    hi1 = h(di)
+    open(_os.path.join(tmp, 'demo/img/rug.jpg'), 'wb').write(b'1' * 70)
+    hi2 = h(di)
+    ok(hi2 != hi1, 'фото-текстура товара появилась на диске — другой хеш')
+    open(_os.path.join(tmp, 'demo/img/rug.jpg'), 'wb').write(b'2' * 70)
+    ok(h(di) != hi2, 'фото-текстура товара заменена — другой хеш')
     syn = synthetic_data(data, s)
     ok(len(syn['variants']) == 1 and syn['rooms_geo']['living']['w'] == 439, 'данные из одного варианта для выгрузчиков')
     d4 = copy.deepcopy(data)

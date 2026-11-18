@@ -1264,6 +1264,11 @@ ok('masks: pack_mask — палитра, только чистые цвета (�
    and {tuple(x) for x in _np.asarray(_Im.open(os.path.join(TMP, 'big.packed.png')).convert('RGB')).reshape(-1, 3)} <= {(0, 0, 0), (255, 0, 0), (0, 255, 0), (0, 0, 255)})
 print(f"      (маска 384×279: RGB {os.path.getsize(os.path.join(TMP, 'big.mask.png'))} Б → палитра {os.path.getsize(os.path.join(TMP, 'big.packed.png'))} Б)")
 
+# ТРАССА подготовки сцены (T-20261118-09/1): строки `TRACE <кто> <шаг> <значение> [n=…]` → {кто: {шаг: значение | [сек, вызовов]}}; чужое и мусор пропускается
+_tr = RE.parse_trace('шум\nTRACE py scene3d_frame 7.86\nTRACE py acc:load_parts 1.26 n=8\nTRACE node build_scene 6.32\nTRACE page pause_1500 5.41\nTRACE zzz x 1\nTRACE py bad abc\nTRACE py short\n')
+ok('trace: шаги и накопители разобраны, чужое/мусор пропущено', _tr == {'py': {'scene3d_frame': 7.86, 'acc:load_parts': [1.26, 8]}, 'node': {'build_scene': 6.32}, 'page': {'pause_1500': 5.41}})
+ok('trace: повтор шага — побеждает последний', RE.parse_trace('TRACE py a 1.0\nTRACE py a 2.5\n') == {'py': {'a': 2.5}})
+
 shutil.rmtree(TMP, ignore_errors=True)
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')
 sys.exit(1 if BAD else 0)

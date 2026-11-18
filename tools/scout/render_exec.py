@@ -75,6 +75,30 @@ def render_version(blender: str = '') -> dict:
             'scene_export': exp_ver, 'blender': os.path.basename(os.path.dirname(blender)) if blender else ''}
 
 
+def prep_fast() -> bool:
+    """Быстрая подготовка сцены (T-20261118-09/1): страница не ждёт 1,5 с вслепую, окружение и меши из галереи — с диска. `RENDER_PREP_FAST=0` — прежнее поведение целиком."""
+    return os.environ.get('RENDER_PREP_FAST', '1') != '0'
+
+
+def parse_trace(text: str) -> dict:
+    """Строки трассы подготовки сцены (T-20261118-09/1) → {'py': {шаг: сек}, 'node': {...}, 'page': {...}}. `TRACE <кто> <шаг> <значение> [n=<число вызовов>]`;
+    у накопителей (`acc:<функция>`) — [сек, вызовов]. Повтор шага (второй проход экспорта) — побеждает последний. Мусор и чужие строки пропускаются."""
+    out: dict = {}
+    for ln in text.splitlines():
+        if not ln.startswith('TRACE '):
+            continue
+        p = ln.split()
+        if len(p) < 4 or p[1] not in ('py', 'node', 'page'):
+            continue
+        try:
+            v = float(p[3])
+        except ValueError:
+            continue
+        n = next((int(x[2:]) for x in p[4:] if x.startswith('n=') and x[2:].isdigit()), None)
+        out.setdefault(p[1], {})[p[2]] = [v, n] if n is not None else v
+    return out
+
+
 def cache_key(scene_hash: str, versions: dict) -> str:
     """Ключ кэша кадров: хеш снимка + все версии рендера. Сменилось любое — кадры считаются заново."""
     raw = scene_hash + '|' + json.dumps(versions, sort_keys=True)
@@ -393,7 +417,8 @@ class SceneExecutor:
         data_path = os.path.join(job, 'data.json')
         json.dump(data, open(data_path, 'w', encoding='utf-8'), ensure_ascii=False)
         progress('scene')
-        env = {'PYTHONPATH': os.pathsep.join([os.path.join(REPO, 'tools', 'scout'), os.path.join(REPO, 'services', 'planner-solver')])}
+        env = {'PYTHONPATH': os.pathsep.join([os.path.join(REPO, 'tools', 'scout'), os.path.join(REPO, 'services', 'planner-solver')]),
+               'EXPORT_PREVIEW': '0' if prep_fast() else '1'}      # быстрая подготовка: превью кадра не рисуем (нужны только записи выгрузки); выкл. — прежний путь
         bundle = self._bundle(log)
         dump = os.path.join(job, 'dump')
         dlog = log + '.dump'
@@ -412,8 +437,10 @@ class SceneExecutor:
             miss = []
             for attempt in (1, 2):
                 pos = os.path.getsize(log) if os.path.exists(log) else 0
+                t_py = time.time()
                 run_step([self.python, os.path.join(PROBE, 'export_scene.py'), '--out', job, '--scene', 'scene=0', '--data', data_path], log,
                          lim['exportSec'], lim['maxRssGb'], env=env, cwd=os.path.join(REPO, 'tools', 'scout'), what='меши и камеры')
+                timing_d['export_py'] = round(time.time() - t_py, 2)               # стена времени процесса Python (с его запуском и выходом)
                 miss = skipped_meshes(open(log, encoding='utf-8', errors='replace').read()[pos:])
                 if not miss:
                     break
@@ -431,6 +458,15 @@ class SceneExecutor:
                 raise e
         timing['export'] = round(time.time() - t1, 1)      # оба шага параллельно: стена времени
         timing['dump'] = timing_d.get('dump', 0.0)
+        timing['export_py'] = timing_d.get('export_py', 0.0)
+        tr: dict = {}                                      # трасса по шагам (T-20261118-09/1): что внутри Python-экспорта и внутри браузерной выгрузки (дамп из кэша — без `node`)
+        for path, skip in ((log, None), (dlog, 'py')):
+            try:
+                tr.update({k: v for k, v in parse_trace(open(path, encoding='utf-8', errors='replace').read()).items() if k != skip})
+            except OSError:
+                pass
+        if tr:
+            timing['trace'] = tr
         try:
             with open(log, 'ab') as lf, open(dlog, 'rb') as df:
                 lf.write(df.read())
@@ -441,7 +477,15 @@ class SceneExecutor:
 
     def _dump_cached(self, data_path: str, bundle: str, dump: str, dlog: str, pr: dict, lim: dict) -> None:
         """Дамп сцены (Chromium, ~9 с) — кэш по хешу входа: данные варианта + сборка выгрузчика + режим. Повтор того же варианта — копия файлов (жёсткие ссылки)."""
-        h = hashlib.sha256(open(data_path, 'rb').read() + b'|' + os.path.basename(bundle).encode() + b'|' + str(pr['dumpExport']).encode()).hexdigest()[:24]
+        # по СОДЕРЖИМОМУ сборки выгрузчика (sha entry.js), не по имени каталога (имя — от пути и времени файлов: пересборка без правок кода кэш не терялась) — решение директора 18.11;
+        # быстрый режим (`RENDER_PREP_FAST`) и содержимое файлов окружения, что страница читает с диска (`scene_inputs.env_sha`), — в хеш: смена режима/картинки — новый дамп
+        try:
+            bsha = _sha(os.path.join(bundle, 'entry.js'))
+        except OSError:
+            bsha = os.path.basename(bundle)
+        import scene_inputs as _SI
+        h = hashlib.sha256(open(data_path, 'rb').read() + b'|' + bsha.encode() + b'|' + str(pr['dumpExport']).encode() + b'|' + b'fast=' + str(int(prep_fast())).encode()
+                           + b'|' + _SI.env_sha().encode()).hexdigest()[:24]
         root = os.environ.get('RENDER_DUMP_CACHE') or os.path.expanduser('~/scout-cache/render-dump')
         hit = os.path.join(root, h)
         if os.path.isfile(os.path.join(hit, '.ok')):
@@ -454,7 +498,8 @@ class SceneExecutor:
                         shutil.copyfile(os.path.join(hit, f), os.path.join(dump, f))
             os.utime(os.path.join(hit, '.ok'))
             return
-        run_step([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), data_path, '0', bundle, dump, 'export=' + pr['dumpExport']], dlog,
+        run_step([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), data_path, '0', bundle, dump, 'export=' + pr['dumpExport'],
+                  *([] if prep_fast() else ['local=0', 'settle=0'])], dlog,
                  lim['dumpSec'], lim['maxRssGb'], what='декор и отделка')
         try:
             os.makedirs(root, exist_ok=True)

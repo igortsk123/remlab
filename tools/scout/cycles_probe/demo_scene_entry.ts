@@ -71,30 +71,73 @@ function nodeInfo(root: THREE.Object3D): Any[] {
   return { pos: cam.position.toArray(), dir: dir.toArray(), up: up.toArray(), vfov: cam.fov, aspect: cam.aspect, offsetY: cam.view?.offsetY ?? 0, w, h, band, pose: { x: c.x, y: c.y, rot: c.rot, fov: c.fov } };
 };
 
-(window as Any).buildDemoScene = async (a: { room: Any; items: Any[]; decor: Any[]; base: string; runtime?: Any; lite?: boolean; cams?: Any[]; style?: string }) => {
+// ГОТОВНОСТЬ ВМЕСТО ПАУЗЫ (T-20261118-09/1 шаг 3): раньше после `plantsSettled` стояла безусловная пауза 1,5 с «пусть догрузятся картинки».
+// Теперь — пока (а) идут загрузки через менеджер three (`DefaultLoadingManager`: текстуры, картинки), (б) у какой-нибудь карты материала сцены
+// картинка ещё не загружена. Нужна тишина ТРИ шага подряд (≈150 мс), потолок — прежние 1,5 с (хуже прежнего быть не может). `settle: false` — прежняя пауза.
+let LOADING = 0;
+{
+  const dm = THREE.DefaultLoadingManager as Any, s0 = dm.itemStart.bind(dm), e0 = dm.itemEnd.bind(dm);
+  dm.itemStart = (u: string) => { LOADING++; s0(u); };
+  dm.itemEnd = (u: string) => { LOADING = Math.max(0, LOADING - 1); e0(u); };
+}
+const texturesPending = (scene: THREE.Scene): number => {
+  let n = 0;
+  scene.traverse((o) => {
+    const mm: Any = (o as Any).material;
+    if (!mm) return;
+    for (const m of Array.isArray(mm) ? mm : [mm]) for (const k in m) {
+      const t = m[k];
+      if (!t || !t.isTexture) continue;
+      const im = t.image;
+      if (!im) n++;
+      else if (typeof HTMLImageElement !== "undefined" && im instanceof HTMLImageElement && !(im.complete && im.naturalWidth > 0)) n++;
+    }
+  });
+  return n;
+};
+const settleScene = async (scene: THREE.Scene, capMs: number): Promise<number> => {
+  const t0 = performance.now();
+  let quiet = 0;
+  while (performance.now() - t0 < capMs && quiet < 3) {
+    await new Promise((r) => setTimeout(r, 50));
+    quiet = LOADING === 0 && texturesPending(scene) === 0 ? quiet + 1 : 0;
+  }
+  return (performance.now() - t0) / 1000;
+};
+
+(window as Any).buildDemoScene = async (a: { room: Any; items: Any[]; decor: Any[]; base: string; runtime?: Any; lite?: boolean; cams?: Any[]; style?: string; settle?: boolean }) => {
+  const T0 = performance.now(), trace: Any[] = [];      // ТРАССА (T-20261118-09/1): шаги сборки сцены в странице, секунды от начала `buildDemoScene`
+  const mark = (name: string) => trace.push({ name, s: ((performance.now() - T0) / 1000).toFixed(2) });
   // 1) описание сцены для рендера (`scene-export.ts`) — с ЖИВОЙ таблицей runtime-копий (`/demo/rt-meshes.json`, a.runtime): хеши и «нет лёгкой копии»
   setRuntimeMeshes(a.runtime ?? {});
   const first = liveApartment(a.room, a.items, a.base, a.decor, undefined, undefined, a.style);
   if (!first) throw new Error("пустая расстановка");
   const sc0 = resolveScene(first.apartment, first.catalogue, defaultConfiguration(first.apartment, first.catalogue));
   (window as Any).__export = exportScene(first.apartment, first.catalogue, sc0, { lite: false });
+  mark("liveApartment_resolve_exportScene");
   setRuntimeMeshes({});            // 2) для выгрузки узлов — полные исходники галереи, не лёгкие копии
   const cv = document.createElement("canvas");
   cv.width = 640; cv.height = 480;
   document.body.appendChild(cv);
   const viewer = new FlatViewer(cv, first.apartment, first.catalogue, a.lite ? LITE_QUALITY : DESKTOP_QUALITY, {}, { curtains: true });
   (window as Any).__viewer = viewer;
+  mark("FlatViewer_ctor");
   (window as Any).__cams = a.cams ?? [];
   (window as Any).__tBuild = performance.now();
   const sc = resolveScene(first.apartment, first.catalogue, defaultConfiguration(first.apartment, first.catalogue));
   viewer.buildShell(sc);
+  mark("buildShell");
   await viewer.syncObjects(sc);
+  mark("syncObjects_glb");
   await viewer.plantsSettled();    // растения догружаются после мебели (`kits/plants.ts`); в экспорт идут журнал и узлы с флагом `plant`
-  await new Promise((r) => setTimeout(r, 1500));
+  mark("plantsSettled");
+  if (a.settle === false) { await new Promise((r) => setTimeout(r, 1500)); mark("pause_1500"); }
+  else { const w = await settleScene(viewer.scene, 1500); mark("settle_" + w.toFixed(2)); }
   (window as Any).__export = { ...(window as Any).__export, plants: viewer.plantReport() };
   (window as Any).__scene = viewer.scene;
   (window as Any).__sc = sc;
   return {
+    trace,
     slots: sc.items.map((i: Any) => ({ slotId: i.slotId, roomId: i.roomId, role: i.photoRole, kind: i.asset?.kind, kit: i.asset?.kit, features: i.asset?.features, unplaced: !!i.unplaced,
       hungOver: i.hungOver ?? null, placement: i.placement, title: i.titleRu })),
     nodes: nodeInfo(viewer.scene),
