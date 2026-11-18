@@ -611,7 +611,9 @@ export class FlatViewer {
     for (const p of this.placed.values()) {
       if (!soft(p) || p.status === "pending") continue;
       try {
-        log.set(p.spec.slotId, settleOnSupport(p.group, (p.spec.placement.elevCm ?? 0) * CM, supports));
+        // посадка — по ПОЛНОМУ размеру: подрастающая новая модель (`swap-ghost`, 0.94 → 1 за 250 мс) на момент посадки масштаба разного — от времени
+        // загрузки; низ вещи считался бы по 0.94 и после роста подушка висела/тонула на сантиметр (и в кадрах дампа — по-разному от запуска к запуску)
+        log.set(p.spec.slotId, this.ghosts.atFullSize(p.group, () => settleOnSupport(p.group, (p.spec.placement.elevCm ?? 0) * CM, supports)));
       } catch (e) {
         // сбой расчёта оставляет вещь на отметке решателя; причина — в журнале посадки (`supportGaps`)
         log.set(p.spec.slotId, { why: "error", error: String((e as Error)?.message ?? e).slice(0, 120) });
@@ -758,6 +760,13 @@ export class FlatViewer {
       });
     }
     return out;
+  }
+
+  /** Анимации замены (силуэт прежнего предмета, подрастание новой модели 0.94 → 1) — сразу в конечное состояние: для выгрузки сцены и
+   *  снимков, чтобы результат не зависел от того, сколько миллисекунд прошло после загрузки (T-20261118-10/2). На показ не влияет. */
+  settleSwaps(): void {
+    this.ghosts.settle();
+    this.scene.updateMatrixWorld(true);
   }
 
   /** Все начатые растения догрузились (или не пришли): для снимков и проверок, на показ не влияет. */
