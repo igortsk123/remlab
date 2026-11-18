@@ -20,10 +20,10 @@ import traceback
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-IDLE_S = float(os.environ.get('EXPORT_SERVER_IDLE_S', '600'))
+IDLE_S = float(os.environ.get('EXPORT_SERVER_IDLE_S', '120'))
 RSS_MAX_MB = float(os.environ.get('EXPORT_SERVER_RSS_MB', '1400'))
-MAX_PARTS = int(os.environ.get('EXPORT_SERVER_MAX_PARTS', '24'))
-KEEP_REQUESTS = int(os.environ.get('EXPORT_SERVER_KEEP_REQUESTS', '4'))
+MAX_PARTS = int(os.environ.get('EXPORT_SERVER_MAX_PARTS', '8'))
+KEEP_REQUESTS = int(os.environ.get('EXPORT_SERVER_KEEP_REQUESTS', '3'))
 
 
 def rss_mb() -> float:

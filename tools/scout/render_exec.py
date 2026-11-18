@@ -81,6 +81,10 @@ def prep_fast() -> bool:
     return os.environ.get('RENDER_PREP_FAST', '1') != '0'
 
 
+EXPORT_KEEP_GB = float(os.environ.get('RENDER_EXPORT_KEEP_GB', '0.9'))      # потолок памяти постоянной выгрузки (Python) после заказа
+DUMP_KEEP_GB = float(os.environ.get('RENDER_DUMP_KEEP_GB', '1.8'))          # то же для Node + Chromium (сам Chromium со сценой ≈1,2 ГБ)
+
+
 def persistent_on() -> bool:
     """Постоянные процессы выгрузки и дампа (T-20261118-09/1 шаг 6). `RENDER_EXPORT_SERVER=0` — только отдельные процессы на заказ."""
     return os.environ.get('RENDER_EXPORT_SERVER', '1') != '0'
@@ -209,15 +213,25 @@ class ExportClient:
         return cls.of([python, os.path.join(PROBE, 'export_server.py')], env, cwd)
 
     @classmethod
-    def of(cls, cmd: list, env: dict, cwd: str):
+    def of(cls, cmd: list, env: dict, cwd: str, slot: str | None = None, keep_gb: float = 0.0):
+        """Клиент по (команда, окружение, папка). `slot` — «место»: новый клиент того же места (другая сборка выгрузчика) гасит прежний, иначе старый процесс
+        с памятью жил бы до простоя рядом с новым."""
         key = (tuple(cmd), tuple(sorted(env.items())), cwd)
         with cls._glock:
             if key not in cls._inst:
+                if slot:
+                    for k, old in list(cls._inst.items()):
+                        if old.slot == slot:
+                            old.kill()
+                            del cls._inst[k]
                 cls._inst[key] = cls(cmd, env, cwd)
+                cls._inst[key].slot, cls._inst[key].keep_gb = slot, keep_gb
             return cls._inst[key]
 
     def __init__(self, cmd: list, env: dict, cwd: str):
         self.cmd, self.env, self.cwd = list(cmd), env, cwd
+        self.slot = None
+        self.keep_gb = 0.0          # после заказа дерево процесса тяжелее — гасим (следующий заказ поднимет свежий): память постоянных процессов под потолком
         self.lock = threading.Lock()
         self.proc = None
         self.rss_mb = 0.0
@@ -295,6 +309,8 @@ class ExportClient:
                 print(f'рендер: постоянный процесс, сбой: {res.get("error") or "процесс упал"}', flush=True)
                 raise RenderError('render_failed', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
             self.rss_mb = float(res.get('rss_mb') or 0)
+            if self.keep_gb and tree_rss_gb(self.proc.pid) > self.keep_gb:
+                self.kill()
             return res
 
 
@@ -549,7 +565,7 @@ class SceneExecutor:
                                             lim['exportSec'], lim['maxRssGb'], env=env, cwd=os.path.join(REPO, 'tools', 'scout'), what='меши и камеры')
                 if prep_fast() and persistent_on():                # постоянный процесс: без импортов и разбора уже виденных мешей; сбой (не время) — один раз отдельным процессом, как раньше
                     try:
-                        ExportClient.get(self.python, env, os.path.join(REPO, 'tools', 'scout')).export(data_path, job, log, lim['exportSec'], lim['maxRssGb'])
+                        ExportClient.of([self.python, os.path.join(PROBE, 'export_server.py')], env, os.path.join(REPO, 'tools', 'scout'), keep_gb=EXPORT_KEEP_GB).export(data_path, job, log, lim['exportSec'], lim['maxRssGb'])
                     except RenderError as e:
                         if e.code == 'render_timeout':
                             raise
@@ -619,7 +635,7 @@ class SceneExecutor:
                                     lim['dumpSec'], lim['maxRssGb'], what='декор и отделка')
         if prep_fast() and persistent_on():                        # постоянный Chromium со страницей: без запуска и без повторного разбора мешей; сбой (не время) — отдельным процессом, как раньше
             try:
-                ExportClient.of([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), '--serve', bundle], {}, os.path.join(REPO, 'tools', 'scout')).call(
+                ExportClient.of([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), '--serve', bundle], {}, os.path.join(REPO, 'tools', 'scout'), slot='dump', keep_gb=DUMP_KEEP_GB).call(
                     {'cmd': 'dump', 'data': data_path, 'idx': 0, 'out': os.path.dirname(dump), 'log': dlog, 'extra': extra}, lim['dumpSec'], lim['maxRssGb'])
             except RenderError as e:
                 if e.code == 'render_timeout':

@@ -1269,6 +1269,56 @@ _tr = RE.parse_trace('шум\nTRACE py scene3d_frame 7.86\nTRACE py acc:load_par
 ok('trace: шаги и накопители разобраны, чужое/мусор пропущено', _tr == {'py': {'scene3d_frame': 7.86, 'acc:load_parts': [1.26, 8]}, 'node': {'build_scene': 6.32}, 'page': {'pause_1500': 5.41}})
 ok('trace: повтор шага — побеждает последний', RE.parse_trace('TRACE py a 1.0\nTRACE py a 2.5\n') == {'py': {'a': 2.5}})
 
+# ПОСТОЯННЫЕ ПРОЦЕССЫ (T-20261118-09/1 шаг 6): клиент `ExportClient` на заглушке процесса — построчный JSON; успех, отказ, время, выход процесса между заказами
+STUB = os.path.join(TMP, 'stub_server.py')
+open(STUB, 'w').write(
+    "import json, sys, time, os\n"
+    "print(json.dumps({'ready': True}), flush=True)\n"
+    "for ln in sys.stdin:\n"
+    "    r = json.loads(ln)\n"
+    "    if r.get('cmd') == 'stop': break\n"
+    "    m = r.get('mode')\n"
+    "    if m == 'sleep': time.sleep(30)\n"
+    "    if m == 'die': os._exit(3)\n"
+    "    print(json.dumps({'ok': m != 'fail', 'error': 'заглушка', 'rss_mb': 10, 'pid': os.getpid()}), flush=True)\n"
+    "    if m == 'exit_after': break\n")
+cl = RE.ExportClient.of([sys.executable, STUB], {}, TMP)
+r1 = cl.call({'cmd': 'x'}, 10, 4)
+ok('клиент: заказ выполнен, процесс поднят один раз', r1.get('ok') and cl._alive())
+r2 = cl.call({'cmd': 'x'}, 10, 4)
+ok('клиент: второй заказ — тот же процесс (не поднимается заново)', r2['pid'] == r1['pid'])
+try:
+    cl.call({'cmd': 'x', 'mode': 'fail'}, 10, 4)
+    ok('клиент: отказ процесса → RenderError render_failed', False)
+except RE.RenderError as e:
+    ok('клиент: отказ процесса → RenderError render_failed, процесс убран', e.code == 'render_failed' and not cl._alive())
+r3 = cl.call({'cmd': 'x'}, 10, 4)
+ok('клиент: после отказа следующий заказ поднимает новый процесс', r3.get('ok') and r3['pid'] != r1['pid'])
+try:
+    cl.call({'cmd': 'x', 'mode': 'sleep'}, 1.5, 4)
+    ok('клиент: время вышло → RenderError render_timeout', False)
+except RE.RenderError as e:
+    ok('клиент: время вышло → RenderError render_timeout, процесс убит', e.code == 'render_timeout' and not cl._alive())
+cl.call({'cmd': 'x', 'mode': 'exit_after'}, 10, 4)
+time.sleep(0.5)
+r4 = cl.call({'cmd': 'x'}, 10, 4)
+ok('клиент: процесс вышел сам между заказами (простой) — новый заказ поднимает свежий', r4.get('ok'))
+try:
+    cl.call({'cmd': 'x', 'mode': 'die'}, 10, 4)
+    ok('клиент: процесс упал посреди заказа → RenderError render_failed', False)
+except RE.RenderError as e:
+    ok('клиент: процесс упал посреди заказа → RenderError render_failed', e.code == 'render_failed')
+cl.kill()
+cs1 = RE.ExportClient.of([sys.executable, STUB, 'a'], {}, TMP, slot='dump')
+cs1.call({'cmd': 'x'}, 10, 4)
+cs2 = RE.ExportClient.of([sys.executable, STUB, 'b'], {}, TMP, slot='dump')
+ok('клиент: новая сборка того же места гасит прежний процесс (память не копится)', not cs1._alive() and cs2 is not cs1)
+cs2.kill()
+ok('быстрая подготовка и постоянные процессы включены по умолчанию, =0 выключает',
+   RE.prep_fast() and RE.persistent_on() and not (os.environ.update(RENDER_PREP_FAST='0') or RE.prep_fast()) and not (os.environ.update(RENDER_EXPORT_SERVER='0') or RE.persistent_on()))
+os.environ.pop('RENDER_PREP_FAST', None)
+os.environ.pop('RENDER_EXPORT_SERVER', None)
+
 shutil.rmtree(TMP, ignore_errors=True)
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')
 sys.exit(1 if BAD else 0)

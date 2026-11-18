@@ -76,7 +76,7 @@ function nodeInfo(root: THREE.Object3D): Any[] {
 // (разбор + декод текстур ≈ 3 с на гостиную), пока страница жива. Включается флагом заказа `persist`; одноразовый запуск — как раньше. Меши в сцене берутся клонами
 // (`placeMesh`: `source.clone(true)`, материалы свои), общий исходник вьюер не правит; запись держится по последнему использованию, не больше GLTF_CACHE_MAX.
 let GLTF_CACHE_ON = false;
-const GLTF_CACHE_MAX = Number((globalThis as Any).__gltfCacheMax ?? 14);
+const GLTF_CACHE_MAX = Number((globalThis as Any).__gltfCacheMax ?? 6);
 const gltfCache = new Map<string, Any>();
 {
   const proto = GLTFLoader.prototype as Any, orig = proto.load;
@@ -204,7 +204,29 @@ const settleScene = async (scene: THREE.Scene, capMs: number): Promise<number> =
 };
 
 // выгрузка выбранных узлов (по uuid) в GLB — с мировыми матрицами, чтобы Blender получил их на местах
+// ТРАССА выгрузки узлов: время в кодировании картинок холстом (`toBlob`/`convertToBlob` — PNG/JPEG внутри GLB), в самом экспортёре и в base64 — в журнал (`TRACE page export_*`)
+const EXPORT_MARKS: Any[] = [];
+let ENCODE_MS = 0, ENCODE_N = 0;
+{
+  const tb = HTMLCanvasElement.prototype.toBlob;
+  HTMLCanvasElement.prototype.toBlob = function (cb: Any, ...rest: Any[]) {
+    const t = performance.now();
+    return tb.call(this, (b: Any) => { ENCODE_MS += performance.now() - t; ENCODE_N++; cb(b); }, ...rest);
+  };
+  const OC = (globalThis as Any).OffscreenCanvas;
+  if (OC?.prototype?.convertToBlob) {
+    const cv = OC.prototype.convertToBlob;
+    OC.prototype.convertToBlob = function (...a: Any[]) {
+      const t = performance.now();
+      return cv.apply(this, a).then((b: Any) => { ENCODE_MS += performance.now() - t; ENCODE_N++; return b; });
+    };
+  }
+}
+(window as Any).exportMarks = () => EXPORT_MARKS;
 (window as Any).exportNodes = async (uuids: string[]) => {
+  const tE0 = performance.now();
+  ENCODE_MS = 0; ENCODE_N = 0;
+  EXPORT_MARKS.length = 0;
   const scene: THREE.Scene = (window as Any).__scene;
   scene.updateMatrixWorld(true);
   const root = new THREE.Group();
@@ -219,9 +241,19 @@ const settleScene = async (scene: THREE.Scene, capMs: number): Promise<number> =
     c.name = `${o.name || o.type}__${o.uuid}`;
     root.add(c);
   });
+  const tE1 = performance.now();
   const buf: ArrayBuffer = await new GLTFExporter().parseAsync(root, { binary: true, onlyVisible: false, maxTextureSize: 2048 }) as ArrayBuffer;
-  let s = "";
-  const u = new Uint8Array(buf);
-  for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000));
-  return btoa(s);
+  const tE2 = performance.now();
+  // base64 средствами браузера (`FileReader.readAsDataURL`): тот же текст, что давал цикл `btoa(String.fromCharCode…)`, но без миллионов строк (≈0,7 с → десятки мс)
+  const out: string = await new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(String(fr.result).slice(String(fr.result).indexOf(",") + 1));
+    fr.onerror = () => rej(fr.error);
+    fr.readAsDataURL(new Blob([buf]));
+  });
+  const tE3 = performance.now();
+  EXPORT_MARKS.push({ name: "export_clone", s: ((tE1 - tE0) / 1000).toFixed(2) }, { name: "export_parse", s: ((tE2 - tE1) / 1000).toFixed(2) },
+    { name: "export_encode_in_parse", s: (ENCODE_MS / 1000).toFixed(2) }, { name: "export_encode_n", s: String(ENCODE_N) },
+    { name: "export_b64", s: ((tE3 - tE2) / 1000).toFixed(2) }, { name: "export_mb", s: (buf.byteLength / 1048576).toFixed(2) });
+  return out;
 };

@@ -152,6 +152,7 @@ if (extra.export) {
   tr('pick');
   const b64 = await page.evaluate((u) => window.exportNodes(u), pick);
   tr('export_nodes_glb');
+  for (const m of await page.evaluate(() => window.exportMarks())) say(`TRACE page ${m.name} ${m.s}`);
   fs.writeFileSync(path.join(outDir, 'demo_nodes.glb'), Buffer.from(b64, 'base64'));
   fs.writeFileSync(path.join(outDir, 'demo_nodes_uuids.json'), JSON.stringify(info.nodes.filter((n) => pick.includes(n.uuid))));
   fs.writeFileSync(path.join(outDir, 'dump_keys.json'), JSON.stringify({ export: extra.export }));
@@ -191,7 +192,7 @@ if (argv[0] === '--serve') {
   //   → {"cmd":"dump","data":…,"idx":0,"out":<папка задания>,"log":…,"extra":["export=…","local=1"]}   ← {"ok":true,"sec":…} | {"ok":false,"error":"…"}   → {"cmd":"stop"}
   // Браузер и страница живут между заказами; страница держит разобранные меши (`persist`), сборка сцены каждого заказа — заново (свой вьюер).
   // Любая ошибка заказа — процесс выходит (клиент поднимет новый): страница после сбоя непредсказуема. Выход сам — после простоя и по числу заказов.
-  const IDLE_S = +(process.env.DUMP_SERVER_IDLE_S || 600), MAX_ORDERS = +(process.env.DUMP_SERVER_MAX_ORDERS || 40);
+  const IDLE_S = +(process.env.DUMP_SERVER_IDLE_S || 120), MAX_ORDERS = +(process.env.DUMP_SERVER_MAX_ORDERS || 40);
   PERSIST = true;
   const reply = (o) => process.stdout.write(JSON.stringify(o) + '\n');
   const bye = async (code) => { try { await browser?.close(); } catch { /* уже закрыт */ } process.exit(code); };
