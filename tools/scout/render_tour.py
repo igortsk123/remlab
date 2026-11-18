@@ -161,6 +161,20 @@ def eligible_snaps(data: dict, label: str, log=print, limit: int = 80) -> list:
     return out
 
 
+def by_rounds(snaps: list) -> list:
+    """ПОРЯДОК ПОСТАНОВКИ ПО КРУГАМ КОМНАТ (T-20261118-22/3, R6 tour-speed-01): первый вариант КАЖДОЙ комнаты, потом второй каждой и так далее (комнаты — в порядке данных, варианты
+    комнаты — тоже). Очередь заготовок берёт по приходу, и раньше четыре спальни шли одна за другой: у последней первое фото было после 18 чужих кадров (≈4 мин), теперь — после 4.
+    Набор кадров и их число те же (деньги и порядок оплаты не меняются), меняется только очерёдность; комната без варианта кадр не отнимает. → [(метка, снимок)]."""
+    rooms: dict = {}
+    for item in snaps:
+        rooms.setdefault(str((item[1].get('variant') or {}).get('room_id') or 'living'), []).append(item)
+    out, i = [], 0
+    while any(i < len(v) for v in rooms.values()):
+        out += [v[i] for v in rooms.values() if i < len(v)]
+        i += 1
+    return out
+
+
 def recent_job_bundles(root: str = TRIAL_ROOT, max_age_s: float = 86400.0, max_jobs: int = 5) -> list:
     """ЗАПАСНОЙ ПУТЬ (`prewarm.tours_max`): свежие задания в папках воркера — последняя версия данных каждого (`bundle-<n>-<тег>.json` с наибольшим n в самой свежей попытке).
     → [(метка, путь)], свежие сперва. Нет папки / нечего читать — пусто."""
@@ -205,7 +219,7 @@ class TourWarmer:
         except (OSError, ValueError) as e:
             self.log(f'тур {jid}: данные версии не читаются ({e!r})')
             return {'jid': jid, 'state': 'no_data', 'variants': 0, 'have': 0, 'queued': 0, 'skipped': 0}
-        snaps = eligible_snaps(data, f'tour:{jid}', self.log, limit)
+        snaps = by_rounds(eligible_snaps(data, f'tour:{jid}', self.log, limit))
         res = {'jid': jid, 'state': 'ok', 'variants': len(snaps), 'have': 0, 'queued': 0, 'skipped': 0}
         if snaps and self.cap_reached():
             res['state'] = 'cap'
