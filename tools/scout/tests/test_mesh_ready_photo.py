@@ -45,6 +45,9 @@ print('[1] прежний путь — байт-в-байт')
 ok('ready_sql(False) == прежний текст', MR.ready_sql(False) == OLD_SQL)
 ok('ready_sql() по умолчанию — прежний', MR.ready_sql() == OLD_SQL)
 ok('запрос семейств не менялся', MR.FAMILY_SQL == OLD_FAMILY)
+ok('cols=(sku, glb_sha): тот же запрос, колонки и группировка шире (для карантина банка)',
+   MR.ready_sql(True, cols=('r.sku', 'r.glb_sha')).startswith('select r.sku, r.glb_sha from asset_revisions r ')
+   and MR.ready_sql(True, cols=('r.sku', 'r.glb_sha')).endswith('group by r.sku, r.glb_sha'))
 
 print('[2] новый путь: product_photo_current вместо mesh_demand, все прежние проверки на месте')
 new = MR.ready_sql(True)

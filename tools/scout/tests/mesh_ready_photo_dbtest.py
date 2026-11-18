@@ -38,13 +38,15 @@ def vals(rows):
     return ', '.join('(' + ', '.join('NULL::text' if v is None else q(v) for v in r) + ')' for r in rows)
 
 
-def run(sql_tail: str, ar, pc=(), ori=(), md=()):
+def run(sql_tail: str, ar, pc=(), ori=(), md=(), mq=()):
     """Выполнить `sql_tail` (текст, начинающийся с `select …`) поверх выдуманных таблиц; → список строк."""
     pre = ('with asset_revisions(sku, status, origin, revision_key, glb_sha) as (values %s), '
            'product_photo_current(sku, image_url, source_sha) as (values %s), '
            'orientation_state(revision_key, status, resolution) as (select k, s, r::jsonb from (values %s) v(k, s, r)), '
-           'mesh_demand(sku, status, source_sha) as (values %s) ' % (
-               vals(ar or [('-', '-', '-', '-', '-')]), vals(pc or [('-', '-', '-')]), vals(ori or [('-', '-', '{}')]), vals(md or [('-', '-', '-')])))
+           'mesh_demand(sku, status, source_sha) as (values %s), '
+           'mesh_quarantine(sku, glb_sha, decision, reasons) as (values %s) ' % (
+               vals(ar or [('-', '-', '-', '-', '-')]), vals(pc or [('-', '-', '-')]), vals(ori or [('-', '-', '{}')]), vals(md or [('-', '-', '-')]),
+               vals(mq or [('-', '-', '-', '-')])))
     return [r[0] for r in db(pre + sql_tail) if r]
 
 
@@ -109,6 +111,35 @@ try:
     ok('mesh_scheduler._queue() исполняется на боевой базе (только чтение)', isinstance(qs, dict), str(type(qs)))
 except Exception as e:  # noqa: BLE001
     ok('mesh_scheduler._queue() исполняется на боевой базе', False, f'{type(e).__name__}: {str(e)[:120]}')
+
+print('[2b] жёсткий карантин банка — только ТЕКУЩИЙ готовый файл (bank_ready.hard_quar_sql), не любая старая версия')
+import bank_ready as BRD  # noqa: E402
+OLDG, NEWG = 'aaaa000011112222', 'bbbb000011112222'            # glb_sha: старая и текущая ревизии одного товара
+OLDSHA = OTHER[:16]                                              # хеш СТАРОГО фото в ключе старой ревизии
+H = {   # имя → (в жёстком карантине банка?, параметры)
+    'текущий_файл_в_карантине_slab':    (True,  dict(q=[('current', None, 'slab')])),
+    'решение_cut':                      (True,  dict(q=[('current', 'cut', 'grey_top')])),
+    'решение_reject':                   (True,  dict(q=[('current', 'reject', 'slab')])),
+    'старая_версия_в_карантине_новая_чистая': (False, dict(old=True, q=[('old', None, 'slab')])),
+    'старый_файл_той_же_фото_иная_ревизия': (False, dict(q=[('other', None, 'slab')])),
+    'мягкий_grey_top_без_решения':      (False, dict(q=[('current', None, 'grey_top')])),
+    'карантин_есть_но_ориентация_ждёт': (False, dict(q=[('current', None, 'slab')], ori='review_pending')),
+    'карантина_нет':                    (False, dict(q=[])),
+}
+ar3, pc3, ori3, mq3 = [], [], [], []
+for i, (name, (_exp, o)) in enumerate(H.items()):
+    sku = f'h:{i}'
+    ar3.append((sku, 'generated', 'salad-pilot', f'{sku}|{SHA[:16]}|v1', NEWG))
+    if o.get('old'):
+        ar3.append((sku, 'generated', 'salad-pilot', f'{sku}|{OLDSHA}|v1', OLDG))      # старая ревизия по СТАРОМУ фото
+    pc3.append((sku, 'u', SHA))
+    ori3.append((f'{sku}|{NEWG}|orient-v1', o.get('ori', 'auto_resolved'), '{"glb_sha": "%s", "unusable": ""}' % (NEWG + '0' * 48)))
+    for which, dec, rs in o['q']:
+        mq3.append((sku, {'current': NEWG, 'old': OLDG, 'other': 'cccc000011112222'}[which], dec, rs))
+MR.RULES, MR._RULES = os.path.join(SCOUT, 'rules', 'mesh-ready.json'), None      # боевой выключатель: bank_ready=true → product_photo_current
+got3 = set(run(BRD.hard_quar_sql(), ar3, pc3, ori3, mq=mq3))
+for i, (name, (exp, _o)) in enumerate(H.items()):
+    ok(f'{name}: жёсткий карантин банка={exp}', (f'h:{i}' in got3) == exp)
 
 print('[3] живой инвариант: тень — пропавших нет (все старые готовые остаются готовыми)')
 MR._CACHE[False] = MR._CACHE[True] = None
