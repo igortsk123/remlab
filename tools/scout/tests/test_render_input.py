@@ -245,6 +245,79 @@ check('общее окружение (outside.webp) — все комнаты', 
 check('вид за окном — только комнаты с этим видом', all(consumers(f'view:{v}') == {x for x in VIDS if (DATA['rooms_geo'].get(ROOM_OF[x]) or DATA['room']).get('window_view') == v}
                                                   for v in {(DATA['rooms_geo'].get(r) or {}).get('window_view') for r in rooms} if v))
 
+# вид по умолчанию (T-20261118-22/5): окно есть, `window_view` нет (комнаты тура) — страница читает `yard`; файл вида — во входе, правка его файла — ключ ровно этих комнат
+if not LIVE:
+    def no_view(d):
+        g = d['rooms_geo'][R0]
+        g.pop('window_view', None)
+        g['openings'] = [{'kind': 'window', 'wall': 'west', 'offset_cm': 10, 'width_cm': 120}]
+    Kw = keys(mut(no_view))
+    Sw = {v: RS.canonicalize(mut(no_view), {'v': 1, 'variant_id': v}) for v in VIDS}
+    ru = users(R0)
+    check('комната с окном без window_view: вид по умолчанию (yard) во входе', all(any(a['logical'] == f'view:{RI.DEFAULT_VIEW}' for a in Sw[v]['frame_inputs']['assets']) for v in ru))
+    ch0 = diff(K0, Kw)
+    check('…её ключи отличаются от прежних (вид теперь в ключе), чужие комнаты — те же', ch0 == ru)
+    with open(SI.public_file(f'scene/views/{RI.DEFAULT_VIEW}.webp'), 'ab') as _f:
+        _f.write(b'-edit')
+    SI._FULL_MEMO.clear()
+    try:
+        Ke = keys(mut(no_view))
+    finally:
+        with open(SI.public_file(f'scene/views/{RI.DEFAULT_VIEW}.webp'), 'rb') as _f:
+            _b = _f.read()
+        with open(SI.public_file(f'scene/views/{RI.DEFAULT_VIEW}.webp'), 'wb') as _f:
+            _f.write(_b[:-5])
+        SI._FULL_MEMO.clear()
+    explicit_yard = {v for v in VIDS if ROOM_OF[v] != R0 and (DATA['rooms_geo'].get(ROOM_OF[v]) or {}).get('window_view') == RI.DEFAULT_VIEW}      # комнаты, где этот вид задан явно, читают тот же файл
+    check('правка файла вида по умолчанию меняет ключи ровно комнат с окном без вида и комнат с этим видом явно', diff(Kw, Ke) == ru | explicit_yard)
+
+    def no_window(d):
+        g = d['rooms_geo'][R0]
+        g.pop('window_view', None)
+        g['openings'] = [{'kind': 'door', 'wall': 'west', 'offset_cm': 10, 'width_cm': 90}, {'kind': 'window', 'wall': 'north', 'offset_cm': 5, 'width_cm': 0}]
+    Sn = RS.canonicalize(mut(no_window), {'v': 1, 'variant_id': sorted(ru)[0]})
+    check('без окна (дверь, окно нулевой ширины) и без window_view — вида во входе нет', not any(a['logical'].startswith('view:') for a in Sn['frame_inputs']['assets']))
+    # сторож: страница читает yard у комнаты с окном без вида — чисто; у комнаты без окна это чтение по-прежнему «вне входа»
+    inp_w = Sw[sorted(ru)[0]]['frame_inputs']
+    ysha = [a['sha256'] for a in inp_w['assets'] if a['logical'] == 'view:yard'][0]
+    rd_y = {'v': 1, 'reads': [{'url': '/scene/views/yard.webp', 'sha256': ysha, 'kind': 'local'}]}
+    check('сторож: чтение yard комнатой с окном без вида — чисто', RI.check_reads(inp_w, rd_y) == [])
+    check('сторож: то же чтение у комнаты без окна — по-прежнему «вне входа: view:yard»', RI.check_reads(Sn['frame_inputs'], rd_y) == ['вне входа: view:yard'])
+    # общее правило с страницей: вид по умолчанию и набор видов — те же, что в `lib/viewer3d/window-views.ts`
+    import re as _re
+    _ts = open(os.path.join(HERE, '..', '..', '..', 'lib', 'viewer3d', 'window-views.ts'), encoding='utf-8').read()
+    _def = _re.search(r'DEFAULT_WINDOW_VIEW\s*=\s*"([a-z0-9-]+)"', _ts)
+    check('вид по умолчанию в Python = DEFAULT_WINDOW_VIEW страницы', bool(_def) and _def.group(1) == RI.DEFAULT_VIEW)
+
+# меш двери набора (T-20261118-22/5): у комнаты БЕЗ `openings_ir` Python-выгрузчик берёт `kit-door` — файл во входе; у комнаты с описанием проёмов — нет
+if not LIVE:
+    _kit = os.path.join(MC, RI.DOOR_KIT_MESH + '.glb')
+    w(_kit, b'GLB' * 500)
+    SI._FULL_MEMO.clear()
+    try:
+        K1 = keys(DATA)
+
+        def with_ir(d):
+            d['rooms_geo'][R0]['openings_ir'] = [{'k': 1}]
+        Kir = keys(mut(with_ir))
+        Sk = RS.canonicalize(DATA, {'v': 1, 'variant_id': sorted(users(R0))[0]})
+        has_kit = lambda s: any(a['logical'] == f'mesh:{RI.DOOR_KIT_MESH}' for a in s['frame_inputs']['assets'])  # noqa: E731
+        Sir = RS.canonicalize(mut(with_ir), {'v': 1, 'variant_id': sorted(users(R0))[0]})
+        check('комната без openings_ir: меш двери набора во входе', has_kit(Sk) and not has_kit(Sir))
+        check('…файл меша двери есть → ключи комнат без openings_ir изменились; с описанием проёмов — нет', diff(K0, K1) >= users(R0) and not (diff(K1, Kir) - users(R0)))
+        ch_k = diff(K1, poke(_kit, 'kit'))
+        check('правка файла меша двери меняет ключи ровно комнат без openings_ir', ch_k and all(not (DATA['rooms_geo'].get(ROOM_OF[v]) or {}).get('openings_ir') for v in ch_k))
+        inp_k = Sk['frame_inputs']
+        sha_k = [a['sha256'] for a in inp_k['assets'] if a['logical'] == f'mesh:{RI.DOOR_KIT_MESH}'][0]
+        rd_k = {'v': 1, 'hermetic': True, 'violations': [], 'reads': [{'path': _kit, 'sha256': sha_k, 'kind': 'file'}]}
+        check('сторож Python-выгрузчика: чтение kit-door комнатой без openings_ir — чисто', RI.check_reads_py(inp_k, rd_k) == [])
+        check('…комнатой с openings_ir — «вне входа: mesh:kit-door»', any('вне входа: mesh:kit-door' in b for b in RI.check_reads_py(Sir['frame_inputs'], rd_k)))
+        _src = open(os.path.join(HERE, '..', 'draft_render.py'), encoding='utf-8').read()
+        check('имя меша двери в Python = FIXTURE_MESH["дверь"] выгрузчика', f"'дверь': ('{RI.DOOR_KIT_MESH}'," in _src)
+    finally:
+        os.remove(_kit)
+        SI._FULL_MEMO.clear()
+
 # лишние файлы: ни одного ключа
 if not LIVE:
     w(os.path.join(MC, 'unused-sid.glb'), b'GLB' * 500)
