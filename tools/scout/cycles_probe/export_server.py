@@ -22,7 +22,7 @@ sys.path.insert(0, HERE)
 
 IDLE_S = float(os.environ.get('EXPORT_SERVER_IDLE_S', '120'))
 RSS_MAX_MB = float(os.environ.get('EXPORT_SERVER_RSS_MB', '1400'))
-MAX_PARTS = int(os.environ.get('EXPORT_SERVER_MAX_PARTS', '8'))
+MAX_PARTS = int(os.environ.get('EXPORT_SERVER_MAX_PARTS', '16'))
 KEEP_REQUESTS = int(os.environ.get('EXPORT_SERVER_KEEP_REQUESTS', '3'))
 
 

@@ -26,6 +26,7 @@ let LOCAL = true;                                                   // `local=0`
 let DEMO_IMG_DIR = '';                                               // папка фото товаров витрины (`DEMO_LOCAL_DIR` или по умолчанию при local≠0); ставится на каждый заказ
 const GALLERY = path.join(os.homedir(), 'scout-scenes/mesh-pilot-gallery');
 const miss = [];
+const RT_AGENT = new https.Agent({ keepAlive: true, maxSockets: 2 });      // таблица runtime-копий мешей — живая (каждый заказ читает заново), но по уже открытому соединению: без TLS-рукопожатия на заказ (T-20261118-10/1)
 let bundleDir = '';
 let PERSIST = false;                                                // постоянный процесс: страница держит разобранные меши между заказами
 const srv = http.createServer((req, res) => {
@@ -76,6 +77,10 @@ async function init(bundle, extra) {
       const mm = pu.match(/^\/test\/mesh-pilot10\/([^/]+)\/model\.glb$/);
       const files = mm ? [path.join(CACHE, mm[1] + '.glb'), ...(LOCAL ? [path.join(GALLERY, mm[1], 'model.glb')] : [])]
         : (pu.match(/^\/flat3d\/plants\/([A-Za-z0-9._-]+)$/) ? [path.join(PUBLIC, pu)] : []);
+      // картинки, что страница отдаёт с диска (карты материалов, окружение, виды, фото товаров витрины) — подпись для кэша закодированных картинок GLB (`encodeImage`)
+      const im = pu.match(/^\/(flat3d\/materials|flat3d\/env|scene\/views)\/([A-Za-z0-9._-]+)$/), dm = DEMO_IMG_DIR && pu.match(/^\/demo\/(img\/[A-Za-z0-9._-]+)$/);
+      if (im) files.push(path.join(PUBLIC, im[1], im[2]));
+      else if (dm) files.push(path.join(DEMO_IMG_DIR, dm[1]));
       for (const f of files) { if (fs.existsSync(f)) { const st = fs.statSync(f); return `${st.size}-${st.mtimeMs}`; } }
     } catch { /* нет подписи — не кэшируем */ }
     return '';
@@ -108,7 +113,7 @@ const decor = (v.decor || []).filter(in3dDecor);
 const t0 = Date.now();
 // живая таблица runtime-копий мешей (`/demo/rt-meshes.json`) — ею страница выбирает лёгкую копию; нет — экспорт скажет «лёгких нет»
 let runtime = null;
-try { runtime = JSON.parse(await new Promise((res, rej) => https.get({ host: REMOTE, path: '/demo/rt-meshes.json', headers: { 'user-agent': 'cycles-probe' } },
+try { runtime = JSON.parse(await new Promise((res, rej) => https.get({ host: REMOTE, path: '/demo/rt-meshes.json', headers: { 'user-agent': 'cycles-probe' }, agent: RT_AGENT },
   (r) => { let s = ''; r.on('data', (c) => { s += c; }); r.on('end', () => res(s)); }).on('error', rej))).meshes; } catch (e) { say('rt-meshes.json не получен:', String(e).slice(0, 100)); }
 tr('rt_meshes_fetch');
 const lite = extra.lite === '1';       // телефон: LITE_QUALITY, лёгкие карты

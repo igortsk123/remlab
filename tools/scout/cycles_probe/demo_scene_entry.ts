@@ -76,8 +76,26 @@ function nodeInfo(root: THREE.Object3D): Any[] {
 // (разбор + декод текстур ≈ 3 с на гостиную), пока страница жива. Включается флагом заказа `persist`; одноразовый запуск — как раньше. Меши в сцене берутся клонами
 // (`placeMesh`: `source.clone(true)`, материалы свои), общий исходник вьюер не правит; запись держится по последнему использованию, не больше GLTF_CACHE_MAX.
 let GLTF_CACHE_ON = false;
-const GLTF_CACHE_MAX = Number((globalThis as Any).__gltfCacheMax ?? 6);
+// потолок кэша — по ОЦЕНКЕ размера разобранных мешей, не по числу: меш ≈ 33 МБ (карта 2048² + геометрия), гостиная — 12–14 мешей; при потолке в 6 штук обход одних и тех же 12 мешей по кругу
+// выбивал каждого до повторного обращения (попаданий 0). Память процесса держит клиент (`DUMP_KEEP_GB`): выше — перезапуск.
+const GLTF_CACHE_MB = Number((globalThis as Any).__gltfCacheMb ?? 480);
+const GLTF_CACHE_MAX = 64;
 const gltfCache = new Map<string, Any>();
+const gltfMb = new Map<string, number>();
+const gltfStamp = new Map<string, number>();       // номер заказа, где запись использована последний раз; записи ТЕКУЩЕГО заказа не вытесняем (их картинки в сцене)
+let ORDER_N = 0;
+const closeGltf = (g: Any) => {      // картинки вытесненного разбора освобождаем сразу (ImageBitmap держит память вне кучи JS)
+  try { g.scene.traverse((o: Any) => { const mm = o.material; if (!mm) return; for (const m of Array.isArray(mm) ? mm : [mm]) for (const k in m) { const t = m[k]; if (t && t.isTexture) { t.image?.close?.(); } } }); } catch { /* не критично */ }
+};
+const gltfSizeMb = (g: Any): number => {      // оценка размера разобранного glTF: картинки (ширина×высота×4, каждая один раз) + буферы геометрии
+  const seen = new Set<Any>(); let b = 0;
+  g.scene.traverse((o: Any) => {
+    const geo = o.geometry; if (geo) { for (const k in geo.attributes) b += geo.attributes[k].array.byteLength; if (geo.index) b += geo.index.array.byteLength; }
+    const mm = o.material; if (!mm) return;
+    for (const m of Array.isArray(mm) ? mm : [mm]) for (const k in m) { const t = m[k]; if (t && t.isTexture && t.image && !seen.has(t.image)) { seen.add(t.image); b += (t.image.width || 0) * (t.image.height || 0) * 4; } }
+  });
+  return b / 2 ** 20;
+};
 {
   const proto = GLTFLoader.prototype as Any, orig = proto.load;
   proto.load = function (url: string, onLoad: Any, onProgress: Any, onError: Any) {
@@ -92,12 +110,21 @@ const gltfCache = new Map<string, Any>();
       if (hit) {
         gltfCache.delete(key);
         gltfCache.set(key, hit);                             // свежесть — в конец
+        gltfStamp.set(key, ORDER_N);
         setTimeout(() => onLoad(hit), 0);
         return;
       }
       return orig.call(self, url, (gltf: Any) => {
         gltfCache.set(key, gltf);
-        while (gltfCache.size > GLTF_CACHE_MAX) gltfCache.delete(gltfCache.keys().next().value as string);
+        gltfMb.set(key, gltfSizeMb(gltf));
+        gltfStamp.set(key, ORDER_N);
+        for (;;) {
+          let tot = 0; for (const k of gltfCache.keys()) tot += gltfMb.get(k) ?? 0;
+          if (gltfCache.size <= 1 || (tot <= GLTF_CACHE_MB && gltfCache.size <= GLTF_CACHE_MAX)) break;
+          const old = [...gltfCache.keys()].find((k) => (gltfStamp.get(k) ?? -1) < ORDER_N);      // самая давняя запись прошлых заказов
+          if (!old) break;                                   // всё нужно текущему заказу — потолок временно выше
+          closeGltf(gltfCache.get(old)); gltfCache.delete(old); gltfMb.delete(old); gltfStamp.delete(old);
+        }
         onLoad(gltf);
       }, onProgress, onError);
     };
@@ -143,6 +170,7 @@ const settleScene = async (scene: THREE.Scene, capMs: number): Promise<number> =
 
 (window as Any).buildDemoScene = async (a: { room: Any; items: Any[]; decor: Any[]; base: string; runtime?: Any; lite?: boolean; cams?: Any[]; style?: string; settle?: boolean; persist?: boolean }) => {
   GLTF_CACHE_ON = !!a.persist;
+  ORDER_N++;
   if (a.persist) {                                          // постоянная страница: вьюер прошлого заказа — долой (его холст и записи сцены)
     try { (window as Any).__viewer?.dispose?.(); } catch { /* прошлый вьюер мог не успеть собраться */ }
     (window as Any).__viewer = (window as Any).__scene = (window as Any).__sc = (window as Any).__export = null;
@@ -223,9 +251,81 @@ let ENCODE_MS = 0, ENCODE_N = 0;
   }
 }
 (window as Any).exportMarks = () => EXPORT_MARKS;
+
+// КЭШ КОДИРОВАННЫХ КАРТИНОК GLB (T-20261118-10/1 (а)): экспортёр three каждую текстуру рисует на холсте и кодирует PNG/JPEG заново (7–9 штук, ≈1 с на гостиную), хотя картинки
+// у заказов те же. Здесь результат — тот самый Blob холста — запоминается и отдаётся без рисования и кодирования; байты картинок в GLB те же, что без кэша.
+// Ключ: (объект картинки | адрес + подпись файла) × тип × переворот × размер. Объект картинки — `ImageBitmap` из разобранного меша (живёт, пока жив кэш разборов `gltfCache`);
+// адрес — `HTMLImageElement` карт материалов оболочки (каждый заказ грузит заново), подпись (размер-время) даёт процесс выгрузки (`__sigOf`; нет подписи — без кэша).
+// `DataTexture`, холсты (тонированные «на лету») и всё прочее — прежним путём. Включается вместе с `persist`; одноразовый запуск — без кэша.
+let ENC_HIT = 0, ENC_MISS = 0, ENC_SKIP = 0;
+const ENC_BY_OBJ = new WeakMap<object, Map<string, Blob>>();
+const ENC_BY_URL = new Map<string, Blob>();
+const ENC_URL_MAX = Number((globalThis as Any).__encUrlMax ?? 40);
+const encodeImage = async (image: Any, flipY: boolean, mimeType: string, maxSize: number, sigOf?: (u: string) => Promise<string>): Promise<{ blob: Blob; how: string } | null> => {
+  const w = Math.min(image.width, maxSize), h = Math.min(image.height, maxSize);
+  const sub = `${mimeType}:${flipY}:${w}x${h}`;
+  let byObj: Map<string, Blob> | null = null, urlKey = "";
+  if (typeof ImageBitmap !== "undefined" && image instanceof ImageBitmap) {
+    byObj = ENC_BY_OBJ.get(image) ?? null;
+    const hit = byObj?.get(sub);
+    if (hit) return { blob: hit, how: "hit" };
+  } else if (typeof HTMLImageElement !== "undefined" && image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0 && sigOf) {
+    const sig = await sigOf(image.src).catch(() => "");
+    if (!sig) return null;
+    urlKey = `${image.src}|${sig}|${sub}`;
+    const hit = ENC_BY_URL.get(urlKey);
+    if (hit) { ENC_BY_URL.delete(urlKey); ENC_BY_URL.set(urlKey, hit); return { blob: hit, how: "hit" }; }
+  } else return null;
+  // рисуем и кодируем РОВНО как `GLTFExporter.processImage` (тот же холст, тот же переворот, тот же `toBlob`): байты те же
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true }) as CanvasRenderingContext2D;
+  if (flipY) { ctx.translate(0, canvas.height); ctx.scale(1, -1); }
+  ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+  const blob: Blob = await new Promise((res) => canvas.toBlob((b) => res(b as Blob), mimeType));
+  canvas.width = canvas.height = 0;       // память холста (2048² ≈ 16 МБ на картинку) отдаём сразу, а не сборщику: у постоянной страницы она копилась (≈300 МБ на заказ)
+  if (urlKey) { ENC_BY_URL.set(urlKey, blob); while (ENC_BY_URL.size > ENC_URL_MAX) ENC_BY_URL.delete(ENC_BY_URL.keys().next().value as string); }
+  else { if (!byObj) { byObj = new Map(); ENC_BY_OBJ.set(image, byObj); } byObj.set(sub, blob); }
+  return { blob, how: "miss" };
+};
+const encodeCachePlugin = (opts: { maxTextureSize: number }) => (writer: Any) => {
+  const orig = writer.processImage.bind(writer);
+  writer.processImage = (image: Any, format: number, flipY: boolean, mimeType = "image/png") => {
+    const cacheable = GLTF_CACHE_ON && image && image.data === undefined && !(image instanceof HTMLCanvasElement) && !(typeof OffscreenCanvas !== "undefined" && image instanceof OffscreenCanvas);
+    if (!cacheable) { ENC_SKIP++; return orig(image, format, flipY, mimeType); }
+    const cache = writer.cache, json = writer.json;
+    if (!cache.images.has(image)) cache.images.set(image, {});
+    const cached = cache.images.get(image);
+    const key = mimeType + ":flipY/" + flipY.toString();
+    if (cached[key] !== undefined) return cached[key];
+    if (!json.images) json.images = [];
+    const imageDef: Any = { mimeType };
+    writer.pending.push(
+      encodeImage(image, flipY, mimeType, opts.maxTextureSize, (window as Any).__sigOf).then(async (r) => {
+        if (!r) {            // не наш случай (нет подписи и т.п.) — тот же путь, что в экспортёре, без кэша
+          const c = document.createElement("canvas");
+          c.width = Math.min(image.width, opts.maxTextureSize); c.height = Math.min(image.height, opts.maxTextureSize);
+          const cx = c.getContext("2d", { willReadFrequently: true }) as CanvasRenderingContext2D;
+          if (flipY) { cx.translate(0, c.height); cx.scale(1, -1); }
+          cx.drawImage(image, 0, 0, c.width, c.height);
+          ENC_SKIP++;
+          const bl = await new Promise<Blob>((res) => c.toBlob((b) => res(b as Blob), mimeType));
+          c.width = c.height = 0;
+          return bl;
+        }
+        if (r.how === "hit") ENC_HIT++; else ENC_MISS++;
+        return r.blob;
+      }).then((blob: Blob) => writer.processBufferViewImage(blob)).then((bv: number) => { imageDef.bufferView = bv; }),
+    );
+    const index = json.images.push(imageDef) - 1;
+    cached[key] = index;
+    return index;
+  };
+  return {};
+};
 (window as Any).exportNodes = async (uuids: string[]) => {
   const tE0 = performance.now();
-  ENCODE_MS = 0; ENCODE_N = 0;
+  ENCODE_MS = 0; ENCODE_N = 0; ENC_HIT = 0; ENC_MISS = 0; ENC_SKIP = 0;
   EXPORT_MARKS.length = 0;
   const scene: THREE.Scene = (window as Any).__scene;
   scene.updateMatrixWorld(true);
@@ -242,7 +342,9 @@ let ENCODE_MS = 0, ENCODE_N = 0;
     root.add(c);
   });
   const tE1 = performance.now();
-  const buf: ArrayBuffer = await new GLTFExporter().parseAsync(root, { binary: true, onlyVisible: false, maxTextureSize: 2048 }) as ArrayBuffer;
+  const ex = new GLTFExporter();
+  ex.register(encodeCachePlugin({ maxTextureSize: 2048 }));
+  const buf: ArrayBuffer = await ex.parseAsync(root, { binary: true, onlyVisible: false, maxTextureSize: 2048 }) as ArrayBuffer;
   const tE2 = performance.now();
   // base64 средствами браузера (`FileReader.readAsDataURL`): тот же текст, что давал цикл `btoa(String.fromCharCode…)`, но без миллионов строк (≈0,7 с → десятки мс)
   const out: string = await new Promise((res, rej) => {
@@ -253,7 +355,7 @@ let ENCODE_MS = 0, ENCODE_N = 0;
   });
   const tE3 = performance.now();
   EXPORT_MARKS.push({ name: "export_clone", s: ((tE1 - tE0) / 1000).toFixed(2) }, { name: "export_parse", s: ((tE2 - tE1) / 1000).toFixed(2) },
-    { name: "export_encode_in_parse", s: (ENCODE_MS / 1000).toFixed(2) }, { name: "export_encode_n", s: String(ENCODE_N) },
+    { name: "export_encode_in_parse", s: (ENCODE_MS / 1000).toFixed(2) }, { name: "export_encode_n", s: String(ENCODE_N) }, { name: "export_enc_hit", s: String(ENC_HIT) }, { name: "export_enc_miss", s: String(ENC_MISS) }, { name: "export_enc_skip", s: String(ENC_SKIP) },
     { name: "export_b64", s: ((tE3 - tE2) / 1000).toFixed(2) }, { name: "export_mb", s: (buf.byteLength / 1048576).toFixed(2) });
   return out;
 };
