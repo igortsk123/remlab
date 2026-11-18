@@ -271,6 +271,6 @@
     "start_retry_s": 45,
     "sink_prefix": "rendermachine",
     "controller_stale_s": 300,
-    "executor": {"pickup_s": 90, "pair_max_s": 900, "poll_s": 0.5, "busy_s": 90, "bundle_max_mb": 95, "fmt2": false, "upload_par": 4}
+    "executor": {"pickup_s": 90, "pair_max_s": 900, "poll_s": 0.5, "busy_s": 90, "bundle_max_mb": 95, "fmt2": true, "upload_par": 4}
   }
 }
