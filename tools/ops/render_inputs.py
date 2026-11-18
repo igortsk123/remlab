@@ -6,6 +6,8 @@
   • каждая дорога по адресу (`u.match(/…/)`) — из списка известных; новая дорога без правила в `render_input._URL_RULES` — красный;
   • известные адреса дампера разбираются `render_input.logical_of` (и с запросом `?v=`);
   • в сетевой ветке есть герметичный отказ (`HERMETIC`), пишется `reads.json`, таблица runtime-мешей — зафиксированная (`pinned`) в герметичном режиме.
+Python-выгрузчик (T-20261118-04/17/1): `export_scene.main_export` включает `cycles_probe/read_guard.py` (хук аудита: чтения пишутся в `reads-py.json`, сеть запрещена), а каждое место, где
+`draft_render.py` тянет файл (фото товара, фактура пола, меш, разворот), имеет герметичную ветку `HERMETIC`; исполнитель зовёт `check_export_reads`. Здесь это проверяется по исходникам.
     python3 tools/ops/render_inputs.py            # проверка
     python3 tools/ops/render_inputs.py --selftest
 """
@@ -51,6 +53,28 @@ def check_source(src: str, logical_of=None) -> list:
     return fails
 
 
+PY_NET_FUNCS = ('photo', '_scene3d_orient', '_scene3d_glb', '_floor_image')       # функции `draft_render.py`, что тянут файл с диска-кэша или из сети: у каждой герметичная ветка
+
+
+def check_python_source(guard: str, export: str, draft: str, execs: str) -> list:
+    fails = []
+    for need, why in (('addaudithook', 'нет хука аудита'), ('socket.connect', 'не ловится сеть (connect)'), ('socket.getaddrinfo', 'не ловится сеть (getaddrinfo)'),
+                      ('urllib.Request', 'не ловится urllib'), ('reads-py.json', 'не пишется reads-py.json'), ('def begin', 'нет begin'), ('def end', 'нет end')):
+        if need not in guard:
+            fails.append(f'read_guard.py: {why}')
+    if not (re.search(r'RG\.begin\(', export) and re.search(r'RG\.end\(', export) and 'hermetic' in export):
+        fails.append('export_scene.py: main_export не включает сторож чтений (read_guard.begin/end по data[hermetic])')
+    for fn in PY_NET_FUNCS:
+        m = re.search(r'^def %s\(.*?(?=^def |^class |^[A-Z_]+ *=|\Z)' % fn, draft, re.S | re.M)
+        if not m:
+            fails.append(f'draft_render.py: нет функции {fn} (сверь PY_NET_FUNCS в tools/ops/render_inputs.py)')
+        elif 'HERMETIC' not in m.group(0):
+            fails.append(f'draft_render.py: у {fn} нет герметичной ветки HERMETIC — в v2 она читала бы кэш/сеть мимо входа комнаты')
+    if 'check_export_reads(job' not in execs or 'def check_export_reads' not in execs:
+        fails.append('render_exec.py: исполнитель не сверяет reads-py.json (check_export_reads)')
+    return fails
+
+
 def check(root: str = ROOT_DEFAULT) -> list:
     p = os.path.join(root, DUMPER)
     try:
@@ -63,7 +87,14 @@ def check(root: str = ROOT_DEFAULT) -> list:
         lo = RI.logical_of
     except Exception as e:  # noqa: BLE001
         return [f'render_input не импортируется: {e!r}']
-    return check_source(src, lo)
+    fails = check_source(src, lo)
+    try:
+        rd = lambda rel: open(os.path.join(root, rel), encoding='utf-8').read()  # noqa: E731
+        fails += check_python_source(rd('tools/scout/cycles_probe/read_guard.py'), rd('tools/scout/cycles_probe/export_scene.py'), rd('tools/scout/draft_render.py'),
+                                     rd('tools/scout/render_exec.py'))
+    except OSError as e:
+        fails.append(f'сторож выгрузчика: не прочитан {e.filename}')
+    return fails
 
 
 def _selftest() -> int:
@@ -83,6 +114,15 @@ def _selftest() -> int:
     ok(any('reads.json' in f for f in check_source(good.replace('reads.json', 'r.json'))), 'не пишется reads.json — красный')
     ok(any('пропала' in f for f in check_source(good.replace(KNOWN_ROUTES[0], '/x/'))), 'известная дорога пропала — красный')
     ok(any('не разбирает' in f for f in check_source(good, lambda u: None)), 'адрес не разбирается правилами входа — красный')
+    g = "addaudithook socket.connect socket.getaddrinfo urllib.Request reads-py.json def begin def end"
+    ex = "import read_guard as RG\non = RG.begin(out, D)  # hermetic\nRG.end(out)\n"
+    dr = ''.join(f"def {f}(x):\n    if HERMETIC['on']:\n        return 1\n\n\n" for f in PY_NET_FUNCS)
+    xe = "def check_export_reads(job, i):\n    pass\ncheck_export_reads(job, fi)\n"
+    ok(check_python_source(g, ex, dr, xe) == [], 'Python-выгрузчик по образцу — чисто')
+    ok(any('герметичной' in f for f in check_python_source(g, ex, dr.replace("HERMETIC['on']", "True", 1), xe)), 'нет герметичной ветки у функции чтения — красный')
+    ok(any('сторож чтений' in f for f in check_python_source(g, "x = 1", dr, xe)), 'main_export без сторожа — красный')
+    ok(any('хука' in f for f in check_python_source(g.replace('addaudithook', ''), ex, dr, xe)), 'нет хука аудита — красный')
+    ok(any('check_export_reads' in f for f in check_python_source(g, ex, dr, 'x = 1')), 'исполнитель не сверяет reads-py.json — красный')
     real = check(ROOT_DEFAULT)
     for f in real:
         print('   ', f)

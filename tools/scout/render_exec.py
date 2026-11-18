@@ -972,6 +972,8 @@ class SceneExecutor:
         data = {'room': snap['room'], 'rooms_geo': {snap['variant'].get('room_id') or 'living': snap['room']},
                 'rules': snap.get('rules') or {}, 'apartment_id': snap['brief'].get('apartment'), 'build': snap['brief'].get('build'),
                 'variants': [snap['variant']]}
+        if v2:       # ключ v2: Python-выгрузчик герметичен — файлы только из входа комнаты, разворот мешей — закреплённые записи (`draft_render.HERMETIC`, `cycles_probe/read_guard.py`)
+            data.update(hermetic=1, orient=(fi.get('scene') or {}).get('orient') or {})
         data_path = os.path.join(job, 'data.json')
         json.dump(data, open(data_path, 'w', encoding='utf-8'), ensure_ascii=False)
         progress('scene')
@@ -1025,6 +1027,7 @@ class SceneExecutor:
         check_ximg(dump)                                   # манифест картинок декора сходится с файлами (ximg), иначе отказ до отправки
         if v2:
             check_dump_reads(dump, fi)                     # сторож чтений: страница читала только то, что в ключе кадра (T-20261118-04/16/1)
+            check_export_reads(job, fi)                    # то же для Python-выгрузчика: файлы — из входа, сеть не трогал (T-20261118-04/17/1)
         timing['export'] = round(time.time() - t1, 1)      # оба шага параллельно: стена времени
         timing['dump'] = timing_d.get('dump', 0.0)
         timing['export_py'] = timing_d.get('export_py', 0.0)
@@ -1297,6 +1300,21 @@ PREP_CACHE_VERSION = 1          # формат записи кэша подго�
 ASSET_RULES = 3                # версия правила «что ассет» (`asset_kind`/`asset_min_bytes`): растёт при его смене — кэш сборки витрины (`showcase_assets.py`) её учитывает
 NPZ_ASSET_MIN = 64 * 1024      # мелкие npz (стены, проёмы — десятки байт…КБ) остаются в пакете: на ассет они дороже, чем в архиве
 IMG_ASSET_MIN = 16 * 1024      # картинки декора `dump/img/` (ximg): мелкие едут в пакете, от 16 КБ — ассеты по хешу
+
+
+def check_export_reads(job: str, inputs: dict) -> None:
+    """Сторож чтений Python-выгрузчика (ключ кадра v2): `<job>/reads-py.json` (`cycles_probe/read_guard.py`) сверяется с входом комнаты (`render_input.check_reads_py`).
+    Нет файла или нарушение (чтение вне входа, другой sha256, попытка сети) — отказ ДО рендера, как у дампера."""
+    import render_input as RI
+    try:
+        with open(os.path.join(job, 'reads-py.json'), encoding='utf-8') as f:
+            reads = json.load(f)
+    except (OSError, ValueError):
+        raise RenderError('reads_missing', 'Сцену для фото не удалось проверить. Нажмите «Повторить».', 'The photo scene could not be verified. Press "Retry".')
+    bad = RI.check_reads_py(inputs, reads)
+    if bad:
+        print('рендер: сторож чтений выгрузчика — ' + '; '.join(bad[:6]), flush=True)
+        raise RenderError('inputs_undeclared', 'Сцену для фото не удалось проверить. Нажмите «Повторить».', 'The photo scene could not be verified. Press "Retry".')
 
 
 def check_dump_reads(dump: str, inputs: dict) -> None:

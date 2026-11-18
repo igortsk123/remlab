@@ -96,10 +96,37 @@ def build_prompt(diag: dict) -> str:
     return p
 
 
+# ГЕРМЕТИЧНЫЙ РЕЖИМ ВЫГРУЗКИ (ключ кадра v2, T-20261118-04/17/1): включает `export_scene.main_export` по `data['hermetic']`. Файлы — только те, что во входе комнаты (`render_input.py`),
+# сеть запрещена: фото товара — из файла витрины, фактура пола — из `public/`, меш — из кэша/галереи, разворот — закреплённые записи (`data['orient']`).
+HERMETIC: dict = {'on': False, 'orient': {}, 'demo_base': '', 'violate': None, 'mesh_file': None, 'img_file': None, 'public_file': None}   # функции файлов даёт `export_scene` (образ кадров `scene_inputs` не везёт)
+
+
+def _hermetic_violation(msg: str) -> None:
+    f = HERMETIC.get('violate')
+    if f:
+        f(msg)
+
+
+def _photo_local(url: str) -> 'Image.Image | None':
+    """Фото товара в герметичном режиме: файл `img/…` витрины (тот же, что читает страница и что в ключе комнаты), уменьшение — как у скачанного фото. Нет файла — None (как «не скачалось»)."""
+    base = HERMETIC.get('demo_base') or ''
+    if not (base and url.startswith(base)):
+        _hermetic_violation(f'фото не из витрины: {url[:80]}')
+        return None
+    p = HERMETIC['img_file'](url[len(base):])
+    if not p:
+        return None
+    img = Image.open(p).convert('RGB')
+    img.thumbnail((640, 640))
+    return img
+
+
 def photo(url: str) -> Image.Image | None:
     """Фото товара с диска (кэш) или из сети — один раз на товар."""
     if not url:
         return None
+    if HERMETIC['on']:
+        return _photo_local(url)
     os.makedirs(CACHE, exist_ok=True)
     import hashlib
     p = os.path.join(CACHE, hashlib.md5(url.encode()).hexdigest()[:16] + '.png')
@@ -2717,6 +2744,8 @@ def _scene3d_orient() -> dict:
     """Карта sid → канонический yaw (фронт), собранная пилотом (orient.json галереи)."""
     import urllib.request
     global _S3_ORIENT
+    if HERMETIC['on']:                    # закреплённые записи комнаты: живой файл сайта не читаем
+        return {k: v for k, v in (HERMETIC.get('orient') or {}).items() if v}
     try:
         return _S3_ORIENT
     except NameError:
@@ -2916,6 +2945,8 @@ def _fixture_openings(room, orient: dict):
 def _scene3d_glb(sid: str) -> str | None:
     """GLB меша по sid: скачивается с нашей галереи в кэш (контейнер draft без томов мешей)."""
     import urllib.request
+    if HERMETIC['on']:                    # тот же файл, что хеширует вход комнаты: кэш мешей, затем галерея; докачки с сайта нет
+        return HERMETIC['mesh_file'](sid)
     os.makedirs(SCENE3D_CACHE, exist_ok=True)
     dst = os.path.join(SCENE3D_CACHE, sid + '.glb')
     if os.path.exists(dst) and os.path.getsize(dst) > 1000:
@@ -3552,6 +3583,12 @@ def _floor_image(src: str):
     import urllib.request
     from PIL import Image as _Im
     img = None
+    if HERMETIC['on']:                    # файл `public/flat3d/materials/<src>` этой копии репо (он же в ключе комнаты); с сайта не качаем
+        p = HERMETIC['public_file']('flat3d/materials/' + src)
+        if p:
+            img = np.asarray(_Im.open(p).convert('RGB').resize((512, 512), _Im.BILINEAR), np.float32)
+        _FLOOR_IMG[src] = img
+        return img
     try:
         os.makedirs(SCENE3D_CACHE, exist_ok=True)
         dst = os.path.join(SCENE3D_CACHE, 'floor-' + src)
