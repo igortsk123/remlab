@@ -801,7 +801,9 @@ class H(BaseHTTPRequestHandler):
             # КАДРЫ ГОТОВОГО (T-20261118-20/12): страница показывает кадр заготовки в «Фото» без заказа — два адреса и sha256 (для «Улучшить из рендера»), как у готового задания
             return self._send(200, {'kind': 'render', 'check': True, 'v': RS.SNAPSHOT_VERSION, 'scene_hash': snap['scene_hash'], 'key': key,
                                     'cached': meta is not None, 'versions': cy['versions'],
-                                    **({'frames': cy['q']._result(key, meta, 0.0, True)['frames']} if meta is not None else {})})
+                                    **({'frames': cy['q']._result(key, meta, 0.0, True)['frames']} if meta is not None else {}),
+                                    # кадра нет — честное состояние машины (RU/EN от сервера: прогревается / запасной путь / потолок дня): страница тура пишет это рядом с «Сделать фото», а не молчит (T-20261118-20/13)
+                                    **({'machine': mi} if meta is None and (mi := cy['q'].machine_of()) else {})})
         prio = 1 if (internal and payload.get('prio') == 1) else 0
         marks.append(('ключ', time.time()))
         try:
@@ -1193,6 +1195,10 @@ def _render_prewarm_start() -> None:
         pw = RPW.Prewarmer(cy['q'], cy['ex'], cy['versions'], machine, _legacy_order)
         cy['q'].prewarm = pw
         pw.start()
+        import render_tour as RT                              # фото всех комнат и стилей тура + выключение машины, включённой туром (T-20261118-20/13): запросы воркера — файлами в `RT.SPOOL`
+        tw = RT.TourWarmer(cy['q'], cy['ex'], cy['versions'], machine, _legacy_order)
+        cy['q'].tourwarm = tw
+        tw.start()
     except Exception as e:  # noqa: BLE001
         print(f'заготовка кадров не запущена: {e!r}', flush=True)
 

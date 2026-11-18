@@ -328,6 +328,7 @@ def prod():
 
 @pytest.fixture
 def mk(prod, tmp_path, monkeypatch):
+    monkeypatch.setenv('TRIAL_TOUR_WARM', '0')      # крючки фото тура (`render_tour`, T-20261118-20/13) в проверках выключены: иначе воркер включал бы настоящую машину рендера (платно)
     child = tmp_path / 'fake_pipeline.py'
     child.write_text(FAKE_CHILD)
     mem = tmp_path / 'meminfo'
@@ -662,6 +663,60 @@ def test_conveyor_versions_in_order_then_done(prod, mk):
     assert all(hashlib.sha256(s['bundle'].encode()).hexdigest() == s['sha256'] for s in sent)
     # стадии живут, пока идёт heartbeat: аренда продлевается и во время мебели
     assert prod.by('/api/trial/worker/fail') == []
+
+
+class _TourSpy:
+    """Подмена `render_tour`: что воркер вызвал и в каком порядке."""
+    def __init__(self, boom=False):
+        self.calls, self.boom = [], boom
+
+    def begin(self, jid, python, log=print, **kw):
+        self.calls.append(('begin', jid))
+        if self.boom:
+            raise RuntimeError('begin broke')
+
+    def publish(self, jid, data, tag, log=print, **kw):
+        self.calls.append(('publish', jid, tag, len(data)))
+        if self.boom:
+            raise RuntimeError('publish broke')
+
+    def finish(self, jid, spool=None):
+        self.calls.append(('finish', jid))
+
+
+def test_tour_hooks_begin_on_claim_publish_each_version_finish_last(prod, mk, monkeypatch):
+    """Фото тура (T-20261118-20/13/2): крючок ① — сразу после «взял» (до разбора), ② — после КАЖДОЙ принятой версии (v1, v2, v3), ③ — когда воркер закончил."""
+    spy = _TourSpy()
+    monkeypatch.setitem(sys.modules, 'render_tour', spy)
+    monkeypatch.setenv('TRIAL_TOUR_WARM', '1')
+    prod.add_job()
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert w.done == [(JID, 'done')]
+    kinds = [c[0] for c in spy.calls]
+    assert kinds == ['begin', 'publish', 'publish', 'publish', 'finish'], spy.calls
+    assert [c[2] for c in spy.calls if c[0] == 'publish'] == ['v1-walls', 'v2-living', 'v3-bedrooms']
+    assert {c[1] for c in spy.calls} == {JID}
+
+
+def test_tour_hooks_failure_never_breaks_the_tour(prod, mk, monkeypatch):
+    """Крючок сломался — тур собирается как обычно (строка в журнал, результат принят)."""
+    monkeypatch.setitem(sys.modules, 'render_tour', _TourSpy(boom=True))
+    monkeypatch.setenv('TRIAL_TOUR_WARM', '1')
+    prod.add_job()
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert w.done == [(JID, 'done')]
+    assert len(prod.by('/api/trial/worker/bundle')) == 3
+
+
+def test_tour_hooks_off_by_env_by_default_in_checks(prod, mk, monkeypatch):
+    spy = _TourSpy()
+    monkeypatch.setitem(sys.modules, 'render_tour', spy)
+    prod.add_job()
+    w = mk(furnish=True)
+    w.loop(max_iter=1)
+    assert spy.calls == []                           # `TRIAL_TOUR_WARM=0` (фикстура mk): ни включения машины, ни постановки
 
 
 def test_conveyor_living_failure_is_room_refusal_and_job_done(prod, mk, monkeypatch):
