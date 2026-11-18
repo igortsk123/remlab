@@ -141,10 +141,18 @@ for nm, f in (('сдвиг вершины', moved), ('другие индекс�
 m5 = Mem({})
 r5 = C.carry(SKU, orig, recol, db=m5.db, q=m5.q, res_dir=RES_DIR, apply=True)
 check('у старого файла нет строки ориентации — не выдумываем', r5['action'] == 'skip' and not any(s.startswith('insert') for s in m5.log), r5['why'])
-for src in ('headboard_flip', 'symmetric_by_role'):
+for src in ('headboard_flip', 'headboard_sideways'):
     m6 = Mem({old_rk: ('auto_resolved', {**OLD_RES, 'source': src})})
     r6 = C.carry(SKU, orig, recol, db=m6.db, q=m6.q, res_dir=RES_DIR, apply=True)
     check(f'источник «{src}» не копируется', r6['action'] == 'skip' and not any(s.startswith('insert') for s in m6.log), r6['why'])
+# симметрия по роли: копия сохраняет source и role_policy (устаревание по ролям продолжает работать)
+SYM = {**OLD_RES, 'source': 'symmetric_by_role', 'role_policy': 'roles-28dac485', 'role': 'пуф'}
+m8 = Mem({old_rk: ('auto_resolved', SYM)})
+r8 = C.carry(SKU, orig, recol, db=m8.db, q=m8.q, res_dir=RES_DIR, apply=True)
+check('symmetric_by_role: копия с СОХРАНЁННЫМ source и role_policy, carried_* добавлены',
+      r8['action'] == 'copy' and r8['resolution']['source'] == 'symmetric_by_role' and r8['resolution']['role_policy'] == 'roles-28dac485'
+      and r8['resolution']['carried_source'] == 'symmetric_by_role' and r8['resolution']['carried_from'] == old_rk
+      and new_rk in m8.rows, str(r8.get('why')))
 r7 = C.carry(SKU, orig, orig, db=m.db, q=m.q, res_dir=RES_DIR, apply=True)
 check('тот же файл (sha совпал) — переносить нечего', r7['action'] == 'skip')
 

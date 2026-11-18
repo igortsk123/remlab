@@ -14,8 +14,9 @@
     `glb_sha` нового файла, `source = recolor_copy`, `carried_from` (старый ключ), `carried_source`, `carried_geometry_sha`;
     файл решения рядом (как у `orient_worker.store`); старая строка остаётся;
   • не совпал → НИЧЕГО не копируем, печатаем «геометрия изменилась → orient_worker»;
-  • не копируем и решения, которым копия повредит: `headboard_sideways/headboard_flip` (блок кровати) и `symmetric_by_role`
-    (их устаревание по ролям ловится по этому источнику) — для них «→ orient_worker»;
+  • не копируем решения, которым копия повредит: `headboard_sideways/headboard_flip` (блок кровати) — «→ orient_worker»;
+  • `symmetric_by_role` копируем с СОХРАНЁННЫМ `source` (только `carried_from`/`carried_geometry_sha`/`carried_source` добавляются):
+    устаревание по ролям (`orient_worker`: источник symmetric_by_role + отпечаток `role_policy`) продолжает ловить такую копию;
   • уже есть строка нового ключа — не трогаем (`already`).
 
   ~/venvs/scout/bin/python recolor_carry_orientation.py <sku> <старый.glb> <новый.glb> [--apply]   # без --apply — только печать
@@ -32,7 +33,8 @@ import numpy as np
 
 CONTRACT = 'orient-v1'
 SOURCE = 'recolor_copy'
-NO_COPY_SOURCES = ('headboard_sideways', 'headboard_flip', 'symmetric_by_role')
+NO_COPY_SOURCES = ('headboard_sideways', 'headboard_flip')
+KEEP_SOURCES = ('symmetric_by_role',)          # копия с СОХРАНЁННЫМ source: устаревание по ролям (`orient_worker`, role_policy) продолжает работать
 RES_DIR = os.path.join(os.environ.get('SCENE_DIR', os.path.expanduser('~/scout-scenes')), 'orientation', 'v1')
 _DT = {5120: np.int8, 5121: np.uint8, 5122: np.int16, 5123: np.uint16, 5125: np.uint32, 5126: np.float32}
 _NC = {'SCALAR': 1, 'VEC2': 2, 'VEC3': 3, 'VEC4': 4}
@@ -124,7 +126,7 @@ def carry(sku: str, old_glb: str, new_glb: str, db=None, q=None, res_dir: str = 
     res = json.loads(txt)
     if res.get('source') in NO_COPY_SOURCES:
         return {**out, 'action': 'skip', 'why': f"источник «{res.get('source')}» копировать нельзя → orient_worker"}
-    new_res = {**res, 'glb_sha': new_full, 'source': SOURCE, 'carried_from': old_rk, 'carried_source': res.get('source'),
+    new_res = {**res, 'glb_sha': new_full, 'source': res.get('source') if res.get('source') in KEEP_SOURCES else SOURCE, 'carried_from': old_rk, 'carried_source': res.get('source'),
                'carried_geometry_sha': g_old[:16], 'task': 'T-20261118-52/5'}
     out.update(action='copy', why='геометрия совпала — копия строки старого файла', status=status, resolution=new_res)
     if apply:
