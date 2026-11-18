@@ -21,7 +21,8 @@ with open(os.path.join(TMP, 'bl', 'blender'), 'w') as f:
     f.write(f'#!/bin/sh\nexec {sys.executable} {os.path.join(HERE, "fake_blender.py")} "$@"\n')
 os.chmod(os.path.join(TMP, 'bl', 'blender'), 0o755)
 os.environ.update(BLENDER_DIR=os.path.join(TMP, 'bl'), WORK=os.path.join(TMP, 'work'), MESH_SINK_URL='http://x', MESH_SINK_TOKEN='t',
-                  RENDER_WORK=os.path.join(TMP, 'rwork'), RENDER_MACHINE_DIR=os.path.join(TMP, 'rm'), AGENT_BEAT_S='3600')
+                  RENDER_WORK=os.path.join(TMP, 'rwork'), RENDER_MACHINE_DIR=os.path.join(TMP, 'rm'), AGENT_BEAT_S='3600',
+                  RENDER_QA_GATE='0')      # тут сборка сцены подменена пустышками — проверяем транспорт; ворота сторожа — `tests_render_gate.py`
 sys.path.insert(0, HERE)
 sys.path.insert(0, SCOUT)
 import jobs_proto as JP  # noqa: E402

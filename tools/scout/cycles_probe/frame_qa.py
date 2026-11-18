@@ -503,6 +503,34 @@ def evaluate_frame(expect: dict, present: dict, px: dict, geo: dict, cover, rule
     return {"verdict": verdict, "slots": res, "frame": frame}
 
 
+def blocking(rep: dict, rules: dict | None = None) -> list[dict]:
+    """Что в отчёте сторожа (`<кадр>.qa.json` или его урезанная копия от машины рендера) ЗАПРЕЩАЕТ публикацию кадра — ворота шага 5 (T-20261118-03/7).
+    Блокирует: ошибка предпроверки (`preflight.findings[level=error]`), слот с уровнем «брак», кадровая находка с уровнем «брак». НЕ блокирует: предупреждения,
+    «неопределимо» (в т.ч. вплотную к камере) и кадровые коды из `gate.noBlockFrameCodes` правил (MAIN_NOT_VISIBLE — выбор ракурса, не поломка рендера).
+    → [{where: 'preflight'|'slot'|'frame', code, slot, why}] (пусто — публиковать можно)."""
+    rules = rules or load_rules()
+    skip = set((rules.get("gate") or {}).get("noBlockFrameCodes") or [])
+    out: list[dict] = []
+    for f in (rep.get("preflight") or {}).get("findings") or []:
+        if f.get("level") == "error":
+            out.append({"where": "preflight", "code": f.get("code", ""), "slot": f.get("slot", ""), "why": f.get("why", "")})
+    for r in rep.get("slots") or []:
+        if r.get("level") == "brak":
+            out.append({"where": "slot", "code": str(r.get("state", "")).upper(), "slot": r.get("slot", ""), "why": r.get("why", "")})
+    for f in rep.get("frame") or []:
+        if f.get("level") == "brak" and f.get("code") not in skip:
+            out.append({"where": "frame", "code": f.get("code", ""), "slot": "", "why": f.get("why", "")})
+    return out
+
+
+def brief_report(rep: dict) -> dict:
+    """Урезанный отчёт для передачи с машины рендера в `result.json`: только то, что нужно `blocking` (без таблицы «ok»-слотов)."""
+    return {"verdict": rep.get("verdict"),
+            "preflight": {"findings": [f for f in (rep.get("preflight") or {}).get("findings") or [] if f.get("level") == "error"]},
+            "slots": [{k: r.get(k) for k in ("slot", "class", "state", "level", "why")} for r in rep.get("slots") or [] if r.get("level") == "brak"],
+            "frame": [{k: f.get(k) for k in ("code", "level", "why")} for f in rep.get("frame") or [] if f.get("level") == "brak"]}
+
+
 def sha256_file(path: str) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -945,7 +973,7 @@ class Guard:
             "file": os.path.basename(out),
             "sha256": sha256_file(out) if os.path.exists(out) else None,
             "frameSize": size,
-            "gate": "off (шаг 5 не включён): отчёт и предупреждение, кадр не блокируется",
+            "gate": "отчёт сторожа; решение «не публиковать» принимает исполнитель рендера (`render_exec`, выключатель RENDER_QA_GATE) по `frame_qa.blocking`",
             "injected": self.inject,
             "preflight": {"ok": self.pre.get("ok"), "paid": self.pre.get("paid"), "exempt": self.pre.get("exempt"), "findings": self.pre.get("findings")},
             "qaSec": round(self.t_qa + (time.time() - getattr(self, "_t_fin0", time.time())), 1),

@@ -70,6 +70,10 @@
   "occludedShare": 0.6,
   "frameMargin": 0.0,
   "camera": { "posTolM": 0.02, "dirTolDeg": 0.5, "lensTolFrac": 0.01 },
+  "gate": {
+    "_doc": "Ворота публикации (шаг 5, T-20261118-03/7; выключатель — env RENDER_QA_GATE=0). Блокирует `frame_qa.blocking`: ошибка предпроверки, слот «брак», кадровый «брак». Не блокируют: предупреждения, «неопределимо» (в т.ч. «вплотную к камере») и кадровые коды из `noBlockFrameCodes` (MAIN_NOT_VISIBLE — ракурс выбран без главного предмета: вопрос плана камер, рендер не сломан).",
+    "noBlockFrameCodes": ["MAIN_NOT_VISIBLE"]
+  },
   "meshHashUrlPrefixes": ["/rt/"],
   "mainMustBeVisible": true,
   "mainOutOfFrameLevel": "warn"
