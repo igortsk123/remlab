@@ -892,6 +892,104 @@ q17 = RJ.RenderQueue(st17, RE.Fallback(Exec(FakeSink(), m17, PUBLIC), Cpu({'REND
 ok('stats при прогретой машине: исполнитель, диапазон 20…60 с', q17.stats()['expected'] == 'salad-gpu' and q17.stats()['range'] == [20, 60])
 m17.st['desired'] = 'off'
 ok('stats при выключенной: исполнитель local-cpu, диапазон по его замерам', q17.stats()['expected'] == 'local-cpu' and q17.stats()['range'] == [480, 480])
+
+# ——— кэш подготовленной сцены (T-24/10): первый заказ собирает и кладёт, следующие берут ссылками; ключ — снимок + версии + код; уборка по пределу МБ
+os.environ['RENDER_PREP_CACHE'] = os.path.join(TMP, 'prep')
+
+
+class PrepEx(RE.SceneExecutor):
+    fresh = 0
+    ver = 'e1'
+
+    def _bundle(self, log):
+        return os.path.join(TMP, 'bundle-abc')
+
+    def versions(self):
+        return {'export_scene': self.ver, 'dump': 'd1', 'scene_export': '1'}
+
+    def _prepare_fresh(self, snap, job, log, pr, progress, timing):
+        PrepEx.fresh += 1
+        os.makedirs(os.path.join(job, 'scene', 'tex'))
+        os.makedirs(os.path.join(job, 'dump'))
+        open(os.path.join(job, 'scene', 'm000.npz'), 'wb').write(snap['scene_hash'].encode() * 3000)
+        open(os.path.join(job, 'scene', 'tex', 't.png'), 'wb').write(b'T' * 1000)
+        open(os.path.join(job, 'dump', 'demo_nodes.glb'), 'wb').write(b'G' * 500)
+        timing['export'], timing['dump'] = 7.5, 0.0
+        return os.path.join(job, 'dump')
+
+
+px = PrepEx({'RENDER_WORK': os.path.join(TMP, 'rwork')})
+pr18 = RE.preset()
+sn_a, sn_b = {'scene_hash': 'a' * 64}, {'scene_hash': 'b' * 64}
+
+
+def prep_job(snap, name):
+    j = os.path.join(TMP, 'pj-' + name)
+    os.makedirs(j)
+    tm = {}
+    d = px._prepare(snap, j, os.path.join(j, 'run.log'), pr18, lambda st: None, tm)
+    return j, d, tm
+
+
+j1, d1, t1_ = prep_job(sn_a, '1')
+ok('кэш сцен: первый заказ — сборка и запись (fresh 1, prep_hit 0)', PrepEx.fresh == 1 and t1_['prep_hit'] == 0 and px.prep_has(sn_a))
+j2, d2, t2_ = prep_job(sn_a, '2')
+same = all(open(os.path.join(j1, f), 'rb').read() == open(os.path.join(j2, f), 'rb').read() for f in ('scene/m000.npz', 'scene/tex/t.png', 'dump/demo_nodes.glb'))
+ok('кэш сцен: второй заказ того же снимка — без сборки, байты те же, каталог dump тот же вид', PrepEx.fresh == 1 and t2_['prep_hit'] == 1 and t2_['export'] < 1 and same and d2 == os.path.join(j2, 'dump'))
+ok('кэш сцен: файлы — ссылки (одна копия на диске)', os.stat(os.path.join(j1, 'scene', 'm000.npz')).st_ino == os.stat(os.path.join(j2, 'scene', 'm000.npz')).st_ino)
+shutil.rmtree(j1)
+j3, _, t3_ = prep_job(sn_a, '3')
+ok('кэш сцен: после удаления каталога задания кэш цел', t3_['prep_hit'] == 1 and open(os.path.join(j3, 'scene', 'm000.npz'), 'rb').read() == ('a' * 64).encode() * 3000)
+prep_job(sn_b, '4')
+ok('кэш сцен: другой снимок — своя сборка', PrepEx.fresh == 2 and not px.prep_has({'scene_hash': 'c' * 64}))
+PrepEx.ver = 'e2'
+_, _, t5_ = prep_job(sn_a, '5')
+ok('кэш сцен: сменилась версия экспорта — старая запись не берётся', PrepEx.fresh == 3 and t5_['prep_hit'] == 0)
+PrepEx.ver = 'e1'
+os.remove(os.path.join(os.environ['RENDER_PREP_CACHE'], os.listdir(os.environ['RENDER_PREP_CACHE'])[0], '.ok'))
+n_before = PrepEx.fresh
+ents18 = sorted(os.listdir(os.environ['RENDER_PREP_CACHE']))
+ok('кэш сцен: запись без `.ok` (недописанная) не считается и не берётся', len(ents18) >= 3 and all(not e.startswith('.') for e in ents18))
+os.environ['RENDER_PREP_CACHE_MB'] = '0.01'
+prep_job({'scene_hash': 'd' * 64}, '6')
+left = [e for e in os.listdir(os.environ['RENDER_PREP_CACHE']) if os.path.isfile(os.path.join(os.environ['RENDER_PREP_CACHE'], e, '.ok'))]
+ok('кэш сцен: уборка по пределу МБ — остаётся самая свежая запись', len(left) == 1 and px.prep_has({'scene_hash': 'd' * 64}))
+os.environ.pop('RENDER_PREP_CACHE_MB')
+
+# ——— воркер: поле `hot` в состоянии машины (уходит в ready.json) — контроллер объявляет «прогрелась» после первого прохода по горячему списку (T-24/10)
+class HotSink:
+    def __init__(self, hot):
+        self.hot = hot
+
+    def get_json(self, rel):
+        if self.hot is None:
+            raise JP.SinkError('GET: HTTP 404', 404)
+        return self.hot
+
+
+def hot_probe(hot, warm_ret):
+    saved = (RW.HOT_REFRESH_S, dict(RW.MA.STATE))
+    RW.HOT_REFRESH_S = 3600
+    RW.MA.STATE.pop('hot', None)
+    RW.MA.STATE['ready'] = True
+    w = RW.Worker(HotSink(hot))
+    w.warm = lambda items: (setattr(w, 'warm_stat', warm_ret) or warm_ret)
+    th = threading.Thread(target=w.warm_loop, daemon=True)
+    th.start()
+    t_end = time.time() + 5
+    while time.time() < t_end and not (RW.MA.STATE.get('hot') or {}).get('done'):
+        time.sleep(0.02)
+    got = dict(RW.MA.STATE.get('hot') or {})
+    RW.HOT_REFRESH_S = saved[0]
+    RW.MA.STATE.pop('hot', None)
+    RW.MA.STATE['ready'] = saved[1].get('ready', False)
+    return got
+
+
+h1 = hot_probe(JP.new_hot([{'sha256': 'a' * 64, 'size': 5}], now=time.time()), {'n': 1, 'taken': 1, 'errors': 0, 's': 2.5, 'dl_mb': 0.0})
+ok('воркер: список пройден — hot.done и итог (n, taken, errors, s) в состоянии машины', h1.get('done') is True and h1.get('n') == 1 and h1.get('taken') == 1 and h1.get('errors') == 0)
+h2 = hot_probe(None, {})
+ok('воркер: списка на приёмнике нет — hot.done сразу (контроллер не ждёт зря)', h2.get('done') is True and h2.get('n') == 0)
 shutil.rmtree(TMP, ignore_errors=True)
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')
 sys.exit(1 if BAD else 0)

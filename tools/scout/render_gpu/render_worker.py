@@ -318,6 +318,8 @@ class Worker:
             if not MA.STATE.get('ready'):
                 time.sleep(POLL)
                 continue
+            if 'hot' not in MA.STATE:
+                MA.STATE['hot'] = {'done': False}       # T-24/10: контроллер объявляет «прогрелась» после первого прохода по горячему списку (поле уходит в ready.json)
             try:
                 hot = self.sink.get_json(JP.HOT_REL)
                 items = JP.parse_hot(hot)
@@ -330,6 +332,9 @@ class Worker:
                 pass                                 # списка нет/приёмник не отвечает — ничего не делаем, заказы идут как обычно
             except Exception as e:  # noqa: BLE001
                 log('подогрев сбой', type(e).__name__, str(e)[:160])
+            if not MA.STATE['hot'].get('done'):
+                ws = self.warm_stat or {}
+                MA.STATE['hot'] = {'done': True, 'n': ws.get('n', 0), 'taken': ws.get('taken', 0), 'errors': ws.get('errors', 0), 's': ws.get('s', 0)}
             time.sleep(HOT_REFRESH_S)
 
     def run_job(self, jid: str) -> dict:
