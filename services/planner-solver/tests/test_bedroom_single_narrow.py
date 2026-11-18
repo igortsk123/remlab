@@ -68,7 +68,7 @@ ADDED_T95 = {
 
 # добавки T-20261117-13 (полоса высоты лампы от 33 см и запас у соседнего стиля) — дописаны последними ключами лампы каждого назначения;
 # пояснения верхнего уровня `_lamp_band_why` / `_lamp_spare_why` на «_» снимаются без проверки порядка
-_LAMP = [("band_min"), ("neighbour_spare")]
+_LAMP = ["band_min", "neighbour_spare", "mesh_first"]   # T-13 + T-20261118-04/4: ключи в порядке добавления, mesh_first — последним
 ADDED_T13 = {
     "tools/scout/rules/bedroom-composition.json": [(("purposes", p, "decor", "лампа"), k) for p in ("couple", "single", "guest", "single_narrow")
                                                    for k in _LAMP] + [(None, "_lamp_band_why"), (None, "_lamp_spare_why")],
