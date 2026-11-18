@@ -65,6 +65,7 @@ PROMPT_VERSION = ('improve-v4' if PROMPT_V4 else 'improve-v3') + '.5'
 # не трогаются; нет ни гайда стиля, ни листа эталонов, ни третьего листа. Живое GPT-фото (кадры браузера) идёт прежним путём без изменений.
 # `+luma-1` — версия шага `match_luma` (нормировка яркости ответа нейросети по входному рендеру, T-20261118-01/3): в версии промпта → в ключе кэша
 LUMA_VERSION = 'luma-1'
+TAME_VERSION = 'tame-1'          # версия шага `tame_new_light` (приглушение солнечных пятен, T-20261118-05); идёт в версию ответа только при включении
 PROMPT_VERSION_RENDER = 'improve-render-v5.5+' + LUMA_VERSION
 
 
@@ -196,8 +197,29 @@ def render_source(payload: dict | None) -> bool:
     return isinstance(r, dict) and bool(r.get('key'))
 
 
+def tame_on(payload: dict | None = None) -> bool:
+    """Приглушение «солнечных пятен» включено: только по явному `IMPROVE_TAME=1` и только когда у рендера есть маски поверхностей (`render.mask_dir`,
+    их кладёт исполнитель при `RENDER_MASKS=1`). Нет масок — шаг не работает и версия ответа прежняя (кэш не трогаем)."""
+    r = (payload or {}).get('render')
+    return os.environ.get('IMPROVE_TAME') == '1' and isinstance(r, dict) and bool(r.get('mask_dir'))
+
+
+def surface_masks(mask_dir: str, cam: str) -> list | None:
+    """Маски поверхностей ракурса из каталога рендера: `<cam>.mask.png` (`render_cycles.py --mask-out`: пол красный, нейтральная стена зелёная,
+    акцентная синяя) → три маски L (пол, стена, акцентная стена); файла нет или он не читается — None."""
+    try:
+        from PIL import Image
+        import numpy as np
+        m = np.asarray(Image.open(os.path.join(mask_dir, f'{cam}.mask.png')).convert('RGB'))
+    except Exception:  # noqa: BLE001
+        return None
+    return [Image.fromarray(((m[..., c] > 200) & (m.sum(axis=2) < 300)).astype('uint8') * 255) for c in range(3)]
+
+
 def prompt_version(payload: dict | None = None) -> str:
-    return PROMPT_VERSION_RENDER if render_source(payload) else PROMPT_VERSION
+    if render_source(payload):
+        return PROMPT_VERSION_RENDER + ('+' + TAME_VERSION if tame_on(payload) else '')
+    return PROMPT_VERSION
 
 
 RENDER_POLISH_PROMPT = '\n'.join([

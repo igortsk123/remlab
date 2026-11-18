@@ -1227,6 +1227,7 @@ for _i, _cn in enumerate(CAMS):
 if a.mask_out and len(CAMS) > 1 and '{cam}' not in a.mask_out:
     raise SystemExit('несколько ракурсов: в --mask-out нужен шаблон {cam}')
 if a.mask_out:
+    _t_mask = time.time()
     # МАСКА ПОВЕРХНОСТЕЙ (после всех обычных кадров, один раз меняем сцену; на каждый ракурс свой файл — шаблон {cam} в --mask-out): каждая поверхность — плоский эмиссионный цвет по имени материала (`floor`, `wall`, `wall_accent`), остальное чёрное; без света, неба, шума
     def _flat(name, rgb):
         m = bpy.data.materials.new(name)
@@ -1268,4 +1269,5 @@ if a.mask_out:
         sc.render.filepath = _mo
         bpy.ops.render.render(write_still=True)
         print('МАСКА', _cn, _mo, flush=True)
+    print(f'MASK_SEC {time.time() - _t_mask:.1f} cams {len(CAMS)}', flush=True)       # цена маски: смена материалов + 1 выборка на ракурс
 

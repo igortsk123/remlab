@@ -75,5 +75,39 @@ check('кадр 768 px: пятно тоже найдено', i4['patch_pct'] > 0
 o5, i5 = IM.tame_new_light(improved, render)
 check('без масок: пятно приглушено', i5['patch_pct'] > 0 and y_of(o5, (64, 84, 76, 96)) < 0.8 * y_of(improved, (64, 84, 76, 96)))
 
+# --- подключение к «Улучшить»: включение, маски, версия ответа, исполнитель ---
+import tempfile  # noqa: E402
+
+REND = {'key': 'k' * 32, 'scene_hash': 'h' * 64}
+with tempfile.TemporaryDirectory() as d:
+    mk = np.zeros((SIZE[1], SIZE[0], 3), np.uint8)
+    mk[SIZE[1] // 2:, :, 0] = 255                       # пол — красный
+    mk[:SIZE[1] // 2, :, 1] = 255                       # стена — зелёная
+    Image.fromarray(mk).save(os.path.join(d, 'C1.mask.png'))
+    sf = IM.surface_masks(d, 'C1')
+    check('маски ракурса читаются: три поверхности, пол внизу, стена вверху', sf is not None and len(sf) == 3 and np.asarray(sf[0])[-1, 0] == 255
+          and np.asarray(sf[0])[0, 0] == 0 and np.asarray(sf[1])[0, 0] == 255)
+    check('нет файла маски — None', IM.surface_masks(d, 'C2') is None)
+    pl = {'render': dict(REND, mask_dir=d)}
+    os.environ.pop('IMPROVE_TAME', None)
+    check('без IMPROVE_TAME шаг выключен, версия ответа прежняя', not IM.tame_on(pl) and IM.prompt_version(pl) == IM.PROMPT_VERSION_RENDER)
+    os.environ['IMPROVE_TAME'] = '1'
+    check('IMPROVE_TAME=1 и маски есть: включён, версия получает tame-1', IM.tame_on(pl) and IM.prompt_version(pl) == IM.PROMPT_VERSION_RENDER + '+' + IM.TAME_VERSION)
+    check('IMPROVE_TAME=1, масок нет: выключен, версия прежняя', not IM.tame_on({'render': REND}) and IM.prompt_version({'render': REND}) == IM.PROMPT_VERSION_RENDER)
+    os.environ.pop('IMPROVE_TAME', None)
+    out2, inf2 = IM.tame_new_light(improved, render, IM.surface_masks(d, 'C1'))
+    check('по маскам кадра (пол внизу) пятно найдено и приглушено', inf2['patch_pct'] > 0 and y_of(out2, (64, 84, 76, 96)) < 0.7 * y_of(improved, (64, 84, 76, 96)))
+
+import render_exec as RX  # noqa: E402
+os.environ.pop('RENDER_MASKS', None)
+check('маски рендера: по умолчанию не считаются (пресет и ключ кэша не меняются)', not RX.masks_wanted())
+os.environ['RENDER_MASKS'] = '1'
+check('RENDER_MASKS=1 включает маски', RX.masks_wanted())
+os.environ.pop('RENDER_MASKS', None)
+src = open(os.path.join(HERE, '..', 'render_exec.py'), encoding='utf-8').read()
+check('исполнитель CPU: --mask-out по условию, маска ложится рядом с кадром (<cam>.mask.png)', "'--mask-out'" in src and "'.mask.png'" in src)
+dr = open(os.path.join(HERE, '..', 'draft_render.py'), encoding='utf-8').read()
+check('draft_render: шаг после нормировки яркости и до публикации кадров', 0 < dr.index('IM.match_luma(_p, _r)') < dr.index('IM.tame_new_light(_p, _r, _sf2)') < dr.index("shots = [{'camera': c.name, 'url': _publish_frame"))
+
 print('итог:', 'чисто' if not fails else f'{len(fails)} падений')
 sys.exit(1 if fails else 0)

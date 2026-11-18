@@ -281,6 +281,8 @@ def _apply_render_order(payload: dict):
     payload.update(keep)
     payload['views'] = views
     payload['render'] = {'key': payload.get('render_key'), 'scene_hash': o['meta'].get('scene_hash'), 'versions': o['meta'].get('versions')}
+    if all(os.path.isfile(os.path.join(o['dir'], f'{c}.mask.png')) for c in ('C1', 'C2')):
+        payload['render']['mask_dir'] = o['dir']      # маски пола/стен рядом с кадрами (RENDER_MASKS=1) — для приглушения солнечных пятен
     return None
 
 
