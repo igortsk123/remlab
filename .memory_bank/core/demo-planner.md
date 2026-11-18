@@ -22,14 +22,13 @@ review_after: 2026-12-05
   (`contracts/partner.ts:apartmentRoom`); «Выбрано» — сумма комнат (`index.html:homeChosen`), избранное скрыто.
 - **Окно варианта:** «Фото» — снимок расстановки, иначе 3D (`index.html:vwRealShots`, ADR-0300); после правки — `vwStalePick`.
 - **Состав:** банкетка «уголком» — `tools/scout/flat215_demo.py:drop_lonely_nook`; обеденный стол — `tools/scout/unfit.py:unfit`.
-- **EN-демо** = двойник `demo-uk-215` (£ через `toCard()`, ADR-0298) + временная маска товаров `demoMask` (`data/partners/demo-uk.json`, ADR-0328).
+- **EN-демо** = двойник `demo-uk-215` (£ через `toCard()`, ADR-0298) + маска `demoMask` (`data/partners/demo-uk.json`, ADR-0328); данные не переводим.
 - **Замена мебели (ADR-0203/0245/0271/0277):** пул `tools/scout/demo_swap_pool.py`, правила `tools/scout/rules/demo-swap.json`;
-  проверка `tests_chain.py:live_swap_feeds`; ступени цены — ADR-0440.
+  проверка `tests_chain.py:live_swap_feeds`; ступени — ADR-0440, банк — ADR-0443.
 - **Ключ модели — `msid`** (ADR-0204, GLB по представителю семейства); вариант — `/demo/#v=<id>` (ADR-0205).
 - **Коллекции (ADR-0264/0306):** ♡ → снимок (`app/api/collections/route.ts`), `/demo/#c=<id>`; раздела «по ссылке» нет (П1.57).
 - **Масштаб страницы на телефоне запрещён** — `lib/page/no-zoom.ts` (ADR-0409).
 - **Декор, управление, наличие** (ADR-0206/0140/0144), подвесное, картины — [[demo-planner-render]]; шапка — [[partners]].
-- **Русский = протокол:** данные не переводим.
 
 **Вариант = стиль (ADR-0244):** `choose_banks`/`fill_banks` (ADR-0259) — по набору на стиль (самый собираемый);
 встраивание — `/embed/<партнёр>/<квартира>` (ADR-0283).

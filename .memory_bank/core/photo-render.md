@@ -34,5 +34,5 @@ last_verified: 2026-11-18
 `RENDER_QA_GATE=0`), ночью `tools/scout/render_gpu/qa_night.py`.
 
 **Заказ из тура:** ключ товара `sku.pid` (`tools/scout/trial_bundle.py:pid_of`), снимок ищет по `sid` или `pid` — подробно в Tier 2.
-**Ожидание (ADR-0439):** заказ живёт вне окна — `index.html:ordersResume`. Ключ тура = страницы — ADR-0442 (в работе).
+**Ожидание (ADR-0439):** заказ живёт вне окна — `index.html:ordersResume`. Ключ тура = страницы — ADR-0442, урок 726; скорость — ADR-0444.
 Открыто: ADR-0419 на пересмотре (TG 1811). Подробно — `domain/viz-fidelity-playbook.md`. Уроки 697–720.
