@@ -63,7 +63,7 @@ PROMPT_VERSION = ('improve-v4' if PROMPT_V4 else 'improve-v3') + '.5'
 # «дорисуй люстру, шторы, подушки, плед») для такого входа вреден: на пробе 17.11 модель перекрасила диван, сменила пол спальни и добавила
 # люстру/плед/книги. Для `payload.render` собирается ДРУГОЕ задание — только фотографическая доводка: свет, тени, фактура, резкость; состав и цвет
 # не трогаются; нет ни гайда стиля, ни листа эталонов, ни третьего листа. Живое GPT-фото (кадры браузера) идёт прежним путём без изменений.
-PROMPT_VERSION_RENDER = 'improve-render-v5.3'
+PROMPT_VERSION_RENDER = 'improve-render-v5.4'
 
 
 def render_source(payload: dict | None) -> bool:
@@ -100,6 +100,10 @@ RENDER_POLISH_PROMPT = '\n'.join([
     'stone- or sand-coloured top never becomes darker, warmer or more saturated wood; white stays white and grey stays grey; the floor keeps the tone '
     'it has in IMAGE 1. A reflection of the sky or windows on a glossy top is only light, never a new material colour. Compare the average colour of '
     'each large surface with IMAGE 1 before you answer; when in doubt, change less.',
+    '- LIGHTNESS AND HUE OF EVERY LARGE SURFACE AND PRODUCT STAY AS IN IMAGE 1: the floor, the bed base and headboard, the sofa and every upholstery are not '
+    'darker, not greyer, not pinker and not more contrasty than in IMAGE 1. Realism comes from fine texture, soft shadows and natural light, never from '
+    'a darker or duller tone: do not deepen or desaturate colours, do not add a grey or brown cast, do not lower the overall exposure. A light floor stays '
+    'as light and as warm as IMAGE 1; a pale upholstery stays as pale.',
     '- Keep every pattern and print exactly (pillow, rug, bedding, picture contents).',
     '- Keep the shape, proportions and construction of every product, the room geometry, windows, doors, radiators, ceiling and curtain rods.',
     '- Keep both cameras exactly: same framing, crop, perspective, field of view, order of views and the sheet size.',
