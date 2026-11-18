@@ -70,7 +70,8 @@ def _pct(xs: list, p: float):
 class RenderStore:
     """Задания и замеры — одним файлом (tmp + fsync + rename, под замком), кадры — каталогами по ключу кэша."""
 
-    def __init__(self, path: str, results_dir: str, max_jobs: int = 300, ttl_s: int = 86400, keep_results: int = 200):
+    def __init__(self, path: str, results_dir: str, max_jobs: int = 300, ttl_s: int = 86400, keep_results: int = 0):
+        keep_results = keep_results or _env_i('RENDER_KEEP_RESULTS', 800)     # «заранее посчитанные» кадры всех комнат (T-20261118-07) не должны вытесняться уборкой
         self.path, self.results_dir = path, results_dir
         self.max_jobs, self.ttl_s, self.keep_results = max_jobs, ttl_s, keep_results
         self.lock = threading.RLock()
@@ -212,11 +213,20 @@ class RenderQueue:
         return int(DEFAULT_SEC * 0.8), int(DEFAULT_SEC * 1.6)
 
     def _order(self) -> list:
-        """Очередь: сперва интерактивные, внутри — по приходу; ждущий дольше 30 мин идёт как интерактивный (прогрев не голодает)."""
+        """Очередь: сперва интерактивные, внутри — по приходу; ждущий дольше 30 мин идёт как интерактивный (прогрев не голодает).
+        Заготовка кадров (`warm`, T-20261118-07) всегда после заказов людей и не «стареет» в интерактивный: ей нельзя занять процессор DEV."""
         now = time.time()
         q = [(jid, j) for jid, j in self.store.jobs.items() if j.get('status') == 'queued']
-        return [jid for jid, j in sorted(q, key=lambda t: (0 if (t[1].get('prio', 0) == 0 or now - t[1].get('ts', now) > 1800) else 1,
-                                                          t[1].get('ts', 0)))]
+        return [jid for jid, j in sorted(q, key=lambda t: (0 if (not t[1].get('warm') and (t[1].get('prio', 0) == 0 or now - t[1].get('ts', now) > 1800))
+                                                          else 1, t[1].get('ts', 0)))]
+
+    def warm_ok(self) -> bool:
+        """Можно ли сейчас брать заготовку кадров: только если её посчитает машина рендера (исполнитель сам говорит — `warm_ok`); без неё заготовки ждут."""
+        f = getattr(self.executor, 'warm_ok', None)
+        try:
+            return bool(f()) if callable(f) else False
+        except Exception:  # noqa: BLE001
+            return False
 
     def eta(self, jid: str) -> dict:
         """{'queue': место с 1 (0 — не ждёт), 'eta': секунды до обоих кадров, 'eta_range': [мин, макс]}."""
@@ -242,7 +252,16 @@ class RenderQueue:
     # ——— приём
     def waiting_n(self) -> int:
         with self.store.lock:
-            return sum(1 for j in self.store.jobs.values() if j.get('status') == 'queued')
+            return sum(1 for j in self.store.jobs.values() if j.get('status') == 'queued' and not j.get('warm'))
+
+    def warm_counts(self) -> dict:
+        """Заготовки кадров по состояниям (для статуса)."""
+        with self.store.lock:
+            c = {'queued': 0, 'running': 0}
+            for j in self.store.jobs.values():
+                if j.get('warm') and j.get('status') in c:
+                    c[j['status']] += 1
+            return c
 
     def _active(self, field: str, value) -> int:
         if not value:
@@ -267,8 +286,10 @@ class RenderQueue:
             raise Refusal(503, 'render_busy', 'Очередь фото заполнена. Попробуйте через несколько минут.',
                           'The photo queue is full. Try again in a few minutes.', avg * 2)
 
-    def submit(self, snap: dict, key: str, ip: str = '', tour: str = '', prio: int = 0, legacy: dict | None = None) -> dict:
-        """Поставить заказ. → {'job', 'status', 'deduped', 'cached'}; отказ — `Refusal`."""
+    def submit(self, snap: dict, key: str, ip: str = '', tour: str = '', prio: int = 0, legacy: dict | None = None, warm: bool = False) -> dict:
+        """Поставить заказ. → {'job', 'status', 'deduped', 'cached'}; отказ — `Refusal`.
+        `warm` — заготовка кадров программой (T-20261118-07): пределы покупателя (`admit`) её не касаются и не считают, в очереди она всегда после заказов людей
+        и считается только на машине рендера (`warm_ok`); место в очереди для людей и срок ожидания она не занимает."""
         st = self.store
         with st.lock:
             for jid, j in st.jobs.items():                   # одинаковый ключ — одно задание
@@ -284,12 +305,16 @@ class RenderQueue:
                 st._trim()
                 st.save()
                 return {'job': jid, 'status': 'done', 'deduped': True, 'cached': True}
-            self.admit(ip, tour)
+            if not warm:
+                self.admit(ip, tour)
             jid = uuid.uuid4().hex[:12]
-            st.jobs[jid] = {'status': 'queued', 'ts': time.time(), 'key': key, 'hash': snap['scene_hash'], 'prio': 1 if prio else 0,
+            st.jobs[jid] = {'status': 'queued', 'ts': time.time(), 'key': key, 'hash': snap['scene_hash'], 'prio': 1 if (prio or warm) else 0,
                             'ip': ip, 'tour': tour, 'attempts': 0, 'stage': '', 'started': None,
                             'body': {'snap': snap, 'legacy': legacy or {}}}
-            self.hits.append(time.time())
+            if warm:
+                st.jobs[jid]['warm'] = True
+            else:
+                self.hits.append(time.time())
             st._trim()
             st.save()
             self.cond.notify_all()
@@ -345,7 +370,7 @@ class RenderQueue:
                     'running': sum(1 for j in self.store.jobs.values() if j.get('status') == 'running'),
                     'n': len(d), 'p50': _pct(d, 0.5), 'p95': _pct(d, 0.95), 'range': list(self.range_sec(who)),
                     'limits': {'queue': self.max_queue, 'ip': self.ip_max, 'tour': self.tour_max, 'hour': self.hour_cap},
-                    'hour_used': len([t for t in self.hits if time.time() - t < 3600])}
+                    'hour_used': len([t for t in self.hits if time.time() - t < 3600]), 'warm': {**self.warm_counts(), 'status': {k: v for k, v in (getattr(getattr(self, 'prewarm', None), 'status', None) or {}).items() if k in ('state', 'total', 'missing')}}}   # без денег: статистика публична
 
     # ——— рабочий
     def start(self) -> None:
@@ -358,6 +383,8 @@ class RenderQueue:
         with self.cond:
             while not self.stop:
                 order = self._order()
+                if order and self.store.jobs[order[0]].get('warm') and not self.warm_ok():
+                    order = [x for x in order if not self.store.jobs[x].get('warm')]     # заготовки ждут машину; людям она не мешает
                 if order:
                     jid = order[0]
                     j = self.store.jobs[jid]
@@ -380,7 +407,7 @@ class RenderQueue:
             j = st.jobs.get(jid)
             if not j or j.get('status') != 'running':
                 return
-            body, key, t0 = j['body'], j['key'], j['started']
+            body, key, t0, warm = j['body'], j['key'], j['started'], bool(j.get('warm'))
 
         def progress(stage: str) -> None:
             with st.lock:
@@ -389,7 +416,8 @@ class RenderQueue:
                     st.jobs[jid]['stage_ts'] = time.time()
         who0 = self.expected()
         try:
-            out = self.executor.render(body['snap'], st.result_dir(key), progress)
+            ex = getattr(self.executor, 'primary', self.executor) if warm else self.executor        # заготовка — только на машине рендера, запасного (процессор DEV) у неё нет
+            out = ex.render(body['snap'], st.result_dir(key), progress)
             sec = time.time() - t0
             meta = st.cached(key)
             if meta is not None and body.get('legacy'):       # заказ «Улучшить»: по нему сервис берёт состояние снимка, не слова страницы
@@ -409,6 +437,14 @@ class RenderQueue:
             st.trim_results()
             print(f'рендер {jid}: готов за {sec:.0f} с ({out.get("timing") if isinstance(out, dict) else ""})', flush=True)
         except (RenderError, ExecutorUnavailable) as e:
+            if warm and isinstance(e, ExecutorUnavailable):
+                with st.lock:                                  # машину вытеснили/погасили посреди заготовки — не ошибка: ждёт в очереди следующего включения
+                    jj = st.jobs.get(jid)
+                    if jj and jj.get('status') == 'running' and int(jj.get('attempts', 0)) < MAX_ATTEMPTS + 2:
+                        jj.update(status='queued', stage='', started=None)
+                        st.save()
+                        print(f'заготовка {jid}: машина недоступна ({e.code}) — ждёт в очереди', flush=True)
+                        return
             self._fail(jid, e.code, e.ru, e.en)
         except BaseException as e:  # noqa: BLE001 — любой сбой обязан стать статусом (урок 13.10: поток умирал молча)
             print(f'рендер {jid}: сбой {e!r}', flush=True)
