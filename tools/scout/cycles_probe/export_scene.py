@@ -15,10 +15,33 @@ import os
 import re
 import shutil
 import sys
+import time
 import uuid
 
 import numpy as np
 from PIL import Image
+
+# ТРАССА (T-20261118-09/1): `TRACE py <шаг> <секунды от старта скрипта>`; `acc:<функция>` — накопленное время и число вызовов (шаги внутри `scene3d_frame`).
+# Исполнитель собирает строки в `timing.trace.py`; на результат не влияет.
+_T0 = time.time()
+_ACC: dict = {}
+
+
+def trace(name):
+    print(f'TRACE py {name} {time.time() - _T0:.2f}', flush=True)
+
+
+def timed(name, fn):
+    def w(*a, **k):
+        t = time.time()
+        try:
+            return fn(*a, **k)
+        finally:
+            c = _ACC.setdefault(name, [0.0, 0])
+            c[0] += time.time() - t
+            c[1] += 1
+    return w
+
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCOUT = os.path.dirname(HERE)
@@ -36,7 +59,7 @@ TEX_CACHE = os.environ.get('RENDER_TEX_CACHE') or os.path.expanduser('~/scout-ca
 PNG_LEVEL = int(os.environ.get('RENDER_PNG_LEVEL', '3'))
 
 
-def put_png(arr, dst):
+def put_png(arr, dst):   # (обёрнут в timed ниже)
     arr = np.ascontiguousarray(np.asarray(arr, np.uint8))
     c = os.path.join(TEX_CACHE, hashlib.md5(arr.tobytes() + str(arr.shape).encode()).hexdigest() + f'-{PNG_LEVEL}.png')
     if not os.path.isfile(c):
@@ -49,6 +72,9 @@ def put_png(arr, dst):
         os.link(c, dst)
     except OSError:
         shutil.copyfile(c, dst)
+
+
+put_png = timed('put_png', put_png)
 
 
 def to_b(p):
@@ -87,15 +113,23 @@ def tint_of(sk):
 
 
 def main_export(D, idx, out):
+    trace('imports_base')
     import draft_render as DR
     import scene_mesh as SM
     import mesh_render as MR
+    import opening_ir as _OIR
     from planner.scene import Camera as Cam
     import improve_mode as IM
+    trace('imports_scene')
     DR.S3_LITE[0] = False                      # ПОЛНЫЕ меши — как у платного кадра
+    MR.load_parts = timed('load_parts', MR.load_parts)
+    DR._push_from_supports = timed('push_from_supports', DR._push_from_supports)
+    DR.compile_scene = timed('compile_scene', DR.compile_scene)
+    _OIR.paint_beyond = timed('paint_beyond', _OIR.paint_beyond)
     payload = payload_of(D, idx)
     os.makedirs(os.path.join(out, 'tex'), exist_ok=True)
     room, placements, photos = DR.scene_from_request(payload)
+    trace('plan_scene_from_request')
     cams = DR.cams_from_request(room, placements, payload)[:2]
     rw, rh_total = (int(x) for x in IM.SIZE.split('x'))
     per = (rh_total - DR.BAND_PX) // 2
@@ -153,7 +187,9 @@ def main_export(D, idx, out):
             else:
                 cols = MR.flat_colors(mesh)
                 rec['rgb'] = [float(x) for x in np.asarray(cols).mean(axis=0)]
+            _t_sz = time.time()
             np.savez_compressed(os.path.join(out, rec['file']), **data)
+            _ACC.setdefault('savez', [0.0, 0]); _ACC['savez'][0] += time.time() - _t_sz; _ACC['savez'][1] += 1
             objs.append(rec)
         return {}
 
@@ -178,11 +214,14 @@ def main_export(D, idx, out):
         return True
 
     o_r, o_p, o_w = SM.raster_mesh, DR._paste_rug, DR._paint_wall_plane
-    SM.raster_mesh, DR._paste_rug, DR._paint_wall_plane = rec_raster, rec_rug, rec_plane
+    SM.raster_mesh, DR._paste_rug, DR._paint_wall_plane = timed('rec_raster', rec_raster), rec_rug, rec_plane
+    trace('before_scene3d_frame')
     try:
-        DR.scene3d_frame(room, placements, cams[0], sid_by_role, photos)
+        # PREVIEW=0 (RENDER_PREP_FAST=0 в исполнителе) — прежний путь с рисованием превью; по умолчанию превью не рисуется (результат выгрузки тот же — A/B в плане render-prep-speed-01)
+        DR.scene3d_frame(room, placements, cams[0], sid_by_role, photos, preview=os.environ.get('EXPORT_PREVIEW') == '1')
     finally:
         SM.raster_mesh, DR._paste_rug, DR._paint_wall_plane = o_r, o_p, o_w
+    trace('scene3d_frame')
 
     fin = getattr(room, 'finish', None) or {}
     floor_tex = ((fin.get('floor') or {}).get('tex'))
@@ -210,7 +249,11 @@ def main_export(D, idx, out):
             'floor_tile': (floor_tex or {}).get('tile'), 'cuts': cuts,
             'openings': [{'wall': e.get('wall'), 'kind': (e.get('ir') or {}).get('kind')} for e in (room.openings_ir or [])],
             'backdrops': backdrops, 'cams': cam_out, 'objs': objs, 'rugs': rugs, 'planes': planes, 'tex_px': tex_seen}
+    trace('post_floor_cuts_backdrops')
     json.dump(meta, open(os.path.join(out, 'scene.json'), 'w'), ensure_ascii=False, indent=1)
+    trace('scene_json_written')
+    for k, (sec, n) in sorted(_ACC.items()):
+        print(f'TRACE py acc:{k} {sec:.2f} n={n}', flush=True)
     big = sorted(tex_seen.items(), key=lambda kv: -kv[1][0] * kv[1][1])[:5]
     print(f'  объектов {len(objs)}, ковров {len(rugs)}, плоскостей {len(planes)}, текстур {len(tex_seen)}, крупнейшие {big}', flush=True)
 

@@ -75,6 +75,30 @@ def render_version(blender: str = '') -> dict:
             'scene_export': exp_ver, 'blender': os.path.basename(os.path.dirname(blender)) if blender else ''}
 
 
+def prep_fast() -> bool:
+    """Быстрая подготовка сцены (T-20261118-09/1): страница не ждёт 1,5 с вслепую, окружение и меши из галереи — с диска. `RENDER_PREP_FAST=0` — прежнее поведение целиком."""
+    return os.environ.get('RENDER_PREP_FAST', '1') != '0'
+
+
+def parse_trace(text: str) -> dict:
+    """Строки трассы подготовки сцены (T-20261118-09/1) → {'py': {шаг: сек}, 'node': {...}, 'page': {...}}. `TRACE <кто> <шаг> <значение> [n=<число вызовов>]`;
+    у накопителей (`acc:<функция>`) — [сек, вызовов]. Повтор шага (второй проход экспорта) — побеждает последний. Мусор и чужие строки пропускаются."""
+    out: dict = {}
+    for ln in text.splitlines():
+        if not ln.startswith('TRACE '):
+            continue
+        p = ln.split()
+        if len(p) < 4 or p[1] not in ('py', 'node', 'page'):
+            continue
+        try:
+            v = float(p[3])
+        except ValueError:
+            continue
+        n = next((int(x[2:]) for x in p[4:] if x.startswith('n=') and x[2:].isdigit()), None)
+        out.setdefault(p[1], {})[p[2]] = [v, n] if n is not None else v
+    return out
+
+
 def cache_key(scene_hash: str, versions: dict) -> str:
     """Ключ кэша кадров: хеш снимка + все версии рендера. Сменилось любое — кадры считаются заново."""
     raw = scene_hash + '|' + json.dumps(versions, sort_keys=True)
@@ -393,7 +417,8 @@ class SceneExecutor:
         data_path = os.path.join(job, 'data.json')
         json.dump(data, open(data_path, 'w', encoding='utf-8'), ensure_ascii=False)
         progress('scene')
-        env = {'PYTHONPATH': os.pathsep.join([os.path.join(REPO, 'tools', 'scout'), os.path.join(REPO, 'services', 'planner-solver')])}
+        env = {'PYTHONPATH': os.pathsep.join([os.path.join(REPO, 'tools', 'scout'), os.path.join(REPO, 'services', 'planner-solver')]),
+               'EXPORT_PREVIEW': '0' if prep_fast() else '1'}      # быстрая подготовка: превью кадра не рисуем (нужны только записи выгрузки); выкл. — прежний путь
         bundle = self._bundle(log)
         dump = os.path.join(job, 'dump')
         dlog = log + '.dump'
@@ -412,8 +437,10 @@ class SceneExecutor:
             miss = []
             for attempt in (1, 2):
                 pos = os.path.getsize(log) if os.path.exists(log) else 0
+                t_py = time.time()
                 run_step([self.python, os.path.join(PROBE, 'export_scene.py'), '--out', job, '--scene', 'scene=0', '--data', data_path], log,
                          lim['exportSec'], lim['maxRssGb'], env=env, cwd=os.path.join(REPO, 'tools', 'scout'), what='меши и камеры')
+                timing_d['export_py'] = round(time.time() - t_py, 2)               # стена времени процесса Python (с его запуском и выходом)
                 miss = skipped_meshes(open(log, encoding='utf-8', errors='replace').read()[pos:])
                 if not miss:
                     break
@@ -431,6 +458,15 @@ class SceneExecutor:
                 raise e
         timing['export'] = round(time.time() - t1, 1)      # оба шага параллельно: стена времени
         timing['dump'] = timing_d.get('dump', 0.0)
+        timing['export_py'] = timing_d.get('export_py', 0.0)
+        tr: dict = {}                                      # трасса по шагам (T-20261118-09/1): что внутри Python-экспорта и внутри браузерной выгрузки (дамп из кэша — без `node`)
+        for path, skip in ((log, None), (dlog, 'py')):
+            try:
+                tr.update({k: v for k, v in parse_trace(open(path, encoding='utf-8', errors='replace').read()).items() if k != skip})
+            except OSError:
+                pass
+        if tr:
+            timing['trace'] = tr
         try:
             with open(log, 'ab') as lf, open(dlog, 'rb') as df:
                 lf.write(df.read())
@@ -441,7 +477,15 @@ class SceneExecutor:
 
     def _dump_cached(self, data_path: str, bundle: str, dump: str, dlog: str, pr: dict, lim: dict) -> None:
         """Дамп сцены (Chromium, ~9 с) — кэш по хешу входа: данные варианта + сборка выгрузчика + режим. Повтор того же варианта — копия файлов (жёсткие ссылки)."""
-        h = hashlib.sha256(open(data_path, 'rb').read() + b'|' + os.path.basename(bundle).encode() + b'|' + str(pr['dumpExport']).encode()).hexdigest()[:24]
+        # по СОДЕРЖИМОМУ сборки выгрузчика (sha entry.js), не по имени каталога (имя — от пути и времени файлов: пересборка без правок кода кэш не терялась) — решение директора 18.11;
+        # быстрый режим (`RENDER_PREP_FAST`) и содержимое файлов окружения, что страница читает с диска (`scene_inputs.env_sha`), — в хеш: смена режима/картинки — новый дамп
+        try:
+            bsha = _sha(os.path.join(bundle, 'entry.js'))
+        except OSError:
+            bsha = os.path.basename(bundle)
+        import scene_inputs as _SI
+        h = hashlib.sha256(open(data_path, 'rb').read() + b'|' + bsha.encode() + b'|' + str(pr['dumpExport']).encode() + b'|' + b'fast=' + str(int(prep_fast())).encode()
+                           + b'|' + _SI.env_sha().encode()).hexdigest()[:24]
         root = os.environ.get('RENDER_DUMP_CACHE') or os.path.expanduser('~/scout-cache/render-dump')
         hit = os.path.join(root, h)
         if os.path.isfile(os.path.join(hit, '.ok')):
@@ -454,7 +498,8 @@ class SceneExecutor:
                         shutil.copyfile(os.path.join(hit, f), os.path.join(dump, f))
             os.utime(os.path.join(hit, '.ok'))
             return
-        run_step([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), data_path, '0', bundle, dump, 'export=' + pr['dumpExport']], dlog,
+        run_step([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), data_path, '0', bundle, dump, 'export=' + pr['dumpExport'],
+                  *([] if prep_fast() else ['local=0', 'settle=0'])], dlog,
                  lim['dumpSec'], lim['maxRssGb'], what='декор и отделка')
         try:
             os.makedirs(root, exist_ok=True)
@@ -496,7 +541,7 @@ class SceneExecutor:
             sha[cam] = hashlib.sha256(open(jp, 'rb').read()).hexdigest()     # имя кадра для «Улучшить» (как у кадров браузера: sha256 JPEG)
             mk = os.path.splitext(png)[0] + '.mask.png'
             if os.path.isfile(mk):
-                shutil.copyfile(mk, os.path.join(tmp, f'{cam}.mask.png'))          # маска поверхностей рядом с кадром (приглушение солнечных пятен «Улучшить»)
+                pack_mask(mk, os.path.join(tmp, f'{cam}.mask.png'))              # маска поверхностей рядом с кадром (приглушение солнечных пятен «Улучшить»), палитрой
         timing['total'] = round(time.time() - t0, 1)
         meta = {'scene_hash': snap['scene_hash'], 'snapshot_version': snap['v'], 'size': size, 'sha': sha, 'versions': self.versions(), 'timing': timing,
                 'executor': self.name, 'ts': int(time.time()), 'source': snap.get('source')}
@@ -511,6 +556,21 @@ def masks_wanted() -> bool:
     """Маски поверхностей (пол/стена) после кадров — для приглушения «солнечных пятен» в «Улучшить» (T-20261118-05). Только по `RENDER_MASKS=1` (не пресет:
     пресет входит в ключ кэша кадров, а маска кадр не меняет). Пока считает только `LocalCpuExecutor`; машина Salad — отдельной задачей."""
     return os.environ.get('RENDER_MASKS') == '1'
+
+
+def pack_mask(src: str, dst: str) -> None:
+    """Маска поверхностей → PNG с палитрой из четырёх цветов (чёрный — прочее, красный — пол, зелёный — стена, синий — акцентная стена): каждый пиксель — к ближайшему
+    (края сглаживания Blender не дают «полупол»); 1/4 кадра ≈ 2 КБ вместо 24 КБ RGB (655 КБ у полного размера). Не читается — оставляем как есть."""
+    from PIL import Image
+    import numpy as np
+    try:
+        a = np.asarray(Image.open(src).convert('RGB'))
+        cls = np.where(a.max(axis=2) < 128, 0, 1 + a.argmax(axis=2)).astype('uint8')       # 0 прочее, 1 R пол, 2 G стена, 3 B акцент
+        im = Image.fromarray(cls, 'P')
+        im.putpalette([0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255] + [0] * (768 - 12))
+        im.save(dst, 'PNG', optimize=True)
+    except Exception:  # noqa: BLE001
+        shutil.copyfile(src, dst)
 
 
 class LocalCpuExecutor(SceneExecutor):
@@ -544,7 +604,8 @@ class LocalCpuExecutor(SceneExecutor):
                        '--demo-glb', os.path.join(dump, 'demo_nodes.glb'), '--demo-nodes', os.path.join(dump, 'demo_nodes_uuids.json'),
                        '--export', os.path.join(dump, 'scene-export.json'), '--public', self.public, *pr['flags']]
                 if masks_wanted():
-                    cmd += ['--mask-out', os.path.join(job, f'{cam}.mask.png')]     # маска пола/стен после кадра (1 выборка, секунды) — для «Улучшить»
+                    import jobs_proto as _JP
+                    cmd += ['--mask-out', os.path.join(job, f'{cam}.mask.png'), '--mask-scale', str(_JP.MASK_SCALE)]     # маска пола/стен 1/4 размера после кадра — для «Улучшить»
                 run_step(cmd, log, lim['blenderSecPerFrame'], lim['maxRssGb'], what=f'кадр {cam}')
                 if not os.path.isfile(png):
                     raise RenderError('render_failed', 'Рендер не дал кадра. Нажмите «Повторить».', 'The render produced no frame. Press "Retry".')
@@ -575,6 +636,21 @@ class LocalMachine:
 
     def pulse(self, busy_s: float = 0.0) -> None:
         self.RM.pulse(busy_s)
+
+    def turn_on(self, by: str) -> str:
+        """Включить машину тем же путём, что кнопка бота (`render_machine.py on`): предел дня и замок — в контроллере. → строка ответа."""
+        import subprocess
+        r = subprocess.run([sys.executable, os.path.join(HERE, 'render_gpu', 'render_machine.py'), 'on', '--by', by], capture_output=True, text=True, timeout=180)
+        return (r.stdout or r.stderr or '').strip()[:300]
+
+    def turn_off(self, by: str) -> str:
+        """Выключить машину (`render_machine.py off`, остановка подтверждается контроллером). → строка ответа."""
+        import subprocess
+        r = subprocess.run([sys.executable, os.path.join(HERE, 'render_gpu', 'render_machine.py'), 'off', '--by', by], capture_output=True, text=True, timeout=300)
+        return (r.stdout or r.stderr or '').strip()[:300]
+
+    def set_note(self, text: str) -> None:
+        self.RM.set_note(text)
 
 
 # причина «машина не годна» → (код, RU, EN): текст — владельцу на странице («честное ожидание на запасной», без «ошибки»)
@@ -696,6 +772,10 @@ class SaladGpuExecutor(SceneExecutor):
         except Exception:  # noqa: BLE001
             return False
 
+    def warm_ok(self) -> bool:
+        """Заготовка кадров (T-20261118-07) берётся, только пока машина годна (прогрета); выключена — заготовка ждёт, процессор DEV не занимает."""
+        return self.available()
+
     def _slot(self, label: str, pr: dict, prio: int = 1):
         """Общая очередь тяжёлых прогонов — только на сборку сцены на DEV (ожидание машины рендера процессор DEV не занимает). `prio` 1 — заказ человека;
         фоновые шаги (подогрев витрины, `render_gpu/showcase_assets.py`) берут 0 и уступают заказам."""
@@ -762,7 +842,7 @@ class SaladGpuExecutor(SceneExecutor):
             small[rel] = p
         return small, assets, src
 
-    def _send_fmt1(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict) -> None:
+    def _send_fmt1(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict, masks: bool = False) -> None:
         """fmt 1: всё одним пакетом (как в T-24/2). Не принял приёмник — `gpu_upload`; пакет больше потолка — `gpu_bundle_big`."""
         import jobs_proto as JP
         t1 = self.now()
@@ -778,14 +858,14 @@ class SaladGpuExecutor(SceneExecutor):
         try:
             sink.put_file(f'{JP.PREFIX}/{jid}/{bundle}', tgz)
             jobj = JP.new_job(jid, bundle, sha, ['--samples', pr['samples'], '--pct', pr['pct'], '--threads', pr['threads'], *pr['flags']],
-                              {'blenderSec': pr['limits']['blenderSecPerFrame']}, now=self.now())
+                              {'blenderSec': pr['limits']['blenderSecPerFrame']}, now=self.now(), masks=masks)
             sink.put(f'{JP.PREFIX}/{jid}/job.json', json.dumps(jobj, ensure_ascii=False).encode())       # ПОСЛЕДНИМ
         except JP.SinkError as e:
             print(f'рендер: хранилище не приняло пакет: {e}', flush=True)
             raise self._gpu_unavailable('gpu_upload') from None
         timing['upload'] = round(self.now() - t1, 1)
 
-    def _send_fmt2(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict, frames: str = 'png') -> None:
+    def _send_fmt2(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict, frames: str = 'png', masks: bool = False) -> None:
         """fmt 2 (T-20261117-24/5): ассеты — по хешу в `renderassets` приёмника (спросили «каких нет» и досылаем недостающее ДО `job.json`), маленький пакет —
         в каталог задания, `job.json` (v=2, манифест) ПОСЛЕДНИМ. Любой сбой до задания — `_Fmt2Skip` (заказ пойдёт по fmt 1), машине ничего не ушло."""
         import jobs_proto as JP
@@ -822,7 +902,7 @@ class SaladGpuExecutor(SceneExecutor):
                     f.result()                                              # недостающие ассеты — ДО задания
             render = hashlib.sha256(json.dumps(self.versions(), sort_keys=True).encode()).hexdigest()[:16]
             jobj = JP.new_job2(jid, bundle, assets, ['--samples', pr['samples'], '--pct', pr['pct'], '--threads', pr['threads'], *pr['flags']],
-                               {'blenderSec': pr['limits']['blenderSecPerFrame']}, render, now=self.now(), frames=frames, jpeg_q=int(pr['jpegQuality']))
+                               {'blenderSec': pr['limits']['blenderSecPerFrame']}, render, now=self.now(), frames=frames, jpeg_q=int(pr['jpegQuality']), masks=masks)
             sink.put(f'{JP.PREFIX}/{jid}/job.json', json.dumps(jobj, ensure_ascii=False).encode())       # ПОСЛЕДНИМ
         except JP.SinkError as e:
             raise _Fmt2Skip(f'выгрузка: {e}') from None
@@ -837,6 +917,11 @@ class SaladGpuExecutor(SceneExecutor):
             return 'png'
         fr = m.state().get('frames')
         return 'jpg' if isinstance(fr, list) and 'jpg' in fr else 'png'
+
+    @staticmethod
+    def _masks_for(m) -> bool:
+        """Маски поверхностей в заказе (T-20261118-05/3): `RENDER_MASKS=1` И машина заявила `caps.masks` (ready.json → `state.masks`); старый образ — без масок."""
+        return masks_wanted() and bool(m.state().get('masks'))
 
     @staticmethod
     def _check_frame(path: str, fmt: str) -> None:
@@ -873,12 +958,12 @@ class SaladGpuExecutor(SceneExecutor):
                 jids.append(jid)
                 if fmt == 2:
                     try:
-                        self._send_fmt2(sink, job, jid, pr, ex, timing, frames=self._frames_for(m, ex))
+                        self._send_fmt2(sink, job, jid, pr, ex, timing, frames=self._frames_for(m, ex), masks=self._masks_for(m))
                     except _Fmt2Skip as e:
                         print(f'рендер: fmt 2 не вышел ({e}) — шлю по fmt 1', flush=True)
                         continue
                 else:
-                    self._send_fmt1(sink, job, jid, pr, ex, timing)
+                    self._send_fmt1(sink, job, jid, pr, ex, timing, masks=self._masks_for(m))
                 try:
                     res = self._wait(sink, m, jid, progress, busy_s, poll_s, pickup_s, pair_max_s)
                 except ExecutorUnavailable as e:
@@ -903,6 +988,21 @@ class SaladGpuExecutor(SceneExecutor):
             except (JP.SinkError, ValueError, OSError) as e:
                 print(f'рендер: кадры не скачались: {e}', flush=True)
                 raise self._gpu_unavailable('gpu_download') from None
+            for cam in (res.get('masks') or {}):
+                # маски необязательны: не скачалась или не картинка — кадр идёт без неё (приглушение пятен просто не сработает)
+                try:
+                    mp = os.path.join(job, JP.mask_name(cam))
+                    sink.get_to(f'{JP.PREFIX}/{jid}/{JP.mask_name(cam)}', mp)
+                    from PIL import Image
+                    with Image.open(mp) as im_:
+                        if im_.format != 'PNG' or im_.width < 8:
+                            raise ValueError('маска не PNG')
+                except Exception as e:  # noqa: BLE001
+                    print(f'рендер: маска {cam} не принята: {repr(e)[:100]}', flush=True)
+                    try:
+                        os.remove(os.path.join(job, JP.mask_name(cam)))
+                    except OSError:
+                        pass
             timing['download'] = round(self.now() - t1, 1)
             for k, v in (res.get('timing') or {}).items():          # C1, C2, fetch, render — как у local-cpu (кадры), плюс загрузка сцены машиной
                 if isinstance(v, (int, float)):
@@ -992,6 +1092,10 @@ class Fallback:
         except Exception:  # noqa: BLE001
             ok = False
         return self.primary.name if ok else self.backup.name
+
+    def warm_ok(self) -> bool:
+        f = getattr(self.primary, 'warm_ok', None)
+        return bool(f()) if callable(f) else False
 
     def render(self, snap: dict, out_dir: str, progress) -> dict:
         try:

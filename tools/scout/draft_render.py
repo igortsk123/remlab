@@ -3638,10 +3638,14 @@ def _paint_accent(canvas, sc, room, cam) -> bool:
     return True
 
 
-def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict | None = None) -> tuple[Image.Image, dict]:
+def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict | None = None, preview: bool = True) -> tuple[Image.Image | None, dict]:
     """КАДР СЦЕНЫ ИЗ МЕШЕЙ (владелец 31.08: «по кнопке — фотография собранной 3D-сцены,
     в GPT пока не отправляем»): clay-комната + реальные меши в перспективе, общий z-буфер
-    (правильные перекрытия). Нет меша — предмет остаётся clay-формой."""
+    (правильные перекрытия). Нет меша — предмет остаётся clay-формой.
+
+    `preview=False` (T-20261118-09/1, выгрузка сцены для Blender `cycles_probe/export_scene.py`): картинка кадра не нужна — нужны только действия по ходу
+    (отбор мешей, разведение коллизий `_push_from_supports`, вызовы растеризатора/ковров/плоскостей, которые выгрузка подменяет записью). Рисование превью
+    (clay-сцена, пол, акцентная стена, вид за проёмом, латание дырок) пропускается; возвращается (None, diag). По умолчанию — как всегда."""
     import mesh_render as MR
     import scene_mesh as SM
     # предмет либо МОДЕЛЬЮ, либо clay-формой — не оба (владелец 31.08: «если ставишь
@@ -3693,16 +3697,20 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict
         (mesh_places if glb else clay_places).append((place, sid, glb))
     coll_notes = _push_from_supports(mesh_places, clay_places, room)
     coll_notes += _push_from_supports(mesh_places, mesh_places, room)
-    sc = compile_scene(room_clay, [p for p, _, _ in clay_places], cam)
-    depth = sc['depth']
-    H, W = depth.shape
-    canvas = np.asarray(clay_render(sc)).astype(np.float32).copy()
-    _paint_floor(canvas, sc, room, cam)          # фактура пола застройщика — до ковров и мебели (demo-06)
-    _paint_accent(canvas, sc, room, cam)         # акцентная стена «за диваном» (demo-07)
-    zbuf = depth.astype(np.float32).copy()
-    zbuf[~np.isfinite(zbuf)] = 1e9
+    if preview:
+        sc = compile_scene(room_clay, [p for p, _, _ in clay_places], cam)
+        depth = sc['depth']
+        H, W = depth.shape
+        canvas = np.asarray(clay_render(sc)).astype(np.float32).copy()
+        _paint_floor(canvas, sc, room, cam)          # фактура пола застройщика — до ковров и мебели (demo-06)
+        _paint_accent(canvas, sc, room, cam)         # акцентная стена «за диваном» (demo-07)
+        zbuf = depth.astype(np.float32).copy()
+        zbuf[~np.isfinite(zbuf)] = 1e9
+    else:                                            # без превью: размеры кадра — камеры, буферы-пустышки (подменённые записчики их не читают)
+        H, W = int(cam.height), int(cam.width)
+        canvas, zbuf = np.zeros((1, 1, 3), np.float32), np.full((1, 1), 1e9, np.float32)
     irs = getattr(room, 'openings_ir', None)
-    if irs:
+    if irs and preview:
         import opening_ir as OIR
         try:   # сквозь вырезанный проём (demo-04 п.3): окно — небо, дверь — коридор, вместо clay-плашек
             OIR.paint_beyond(canvas, zbuf, irs, cam, float(room.width_cm), float(room.depth_cm))
@@ -3761,8 +3769,11 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict
     # детализацию ради этого дорого; дешевле закрасить: пиксель, который НЕ рисовал ни один меш,
     # но окружён со всех сторон пикселями мешей, заполняем средним из соседей. Работает по
     # z-буферу, то есть по факту «здесь предмет», а не по цвету, и стоит миллисекунды.
-    canvas = _fill_pinholes(canvas, inst)
-    img = Image.fromarray(np.clip(canvas, 0, 255).astype(np.uint8), 'RGB')
+    if preview:
+        canvas = _fill_pinholes(canvas, inst)
+        img = Image.fromarray(np.clip(canvas, 0, 255).astype(np.uint8), 'RGB')
+    else:
+        img = None
     diag = {'мешей': used, 'clay': missing}
     if coll_notes:
         diag['развод коллизий'] = coll_notes

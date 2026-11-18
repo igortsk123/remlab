@@ -232,6 +232,7 @@ jobs:
       - run: pip install scipy && python tools/scout/tests/test_demo_swatch.py   # кружок цвета — тон ткани без фона и теней, светлое не серит (demo-28)
       - run: python tools/scout/tests/test_style_fallback.py   # комната без выбранного стиля — молча похожий вариант: карта замен (соседи → палитра → вкладки), неоклассика только в гостиной (style-fallback-01, T-20261107-23)
       - run: pip install trimesh && python tools/scout/tests/test_wall_plane.py   # (trimesh — scene_mesh → mesh_render; в planner его нет) (нужен planner: draft_render) зеркало прихожей на серверном кадре — плоскость на стене по стене/развороту/высоте солвера, не clay и не меш, закрывается мебелью (T-20261106-73)
+      - run: pip install trimesh && python tools/scout/tests/test_scene3d_nopreview.py   # выгрузка сцены без рисования превью (T-20261118-09/1): отбор, коллизии, записчики те же (нужен planner: draft_render; trimesh — scene_mesh)
 
   draft-image:
     # Образ сервиса кадров собирается ИЗ РЕПОЗИТОРИЯ (b2b-08, ADR-0267): сборка проверяет импорты HTTP-рендера —
