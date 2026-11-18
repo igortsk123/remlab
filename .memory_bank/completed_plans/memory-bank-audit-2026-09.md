@@ -404,7 +404,7 @@ Stop-хук: `--tier0-max-kb 10`; CI/аудит — 8 (кит). Tier 0 = 7.997 �
 
 ### Фаза 7 — Tier 2, frontmatter, правила, блокнот, авто-память
 - Оглавление сверху в доках >15 КБ (6 domain + 2 guides из D10).
-- По контракту каталогов: `guides/living-room-inventory-by-area.md`, `living-room-zoning-verified.md`
+- По контракту каталогов: `archive/2026/11/living-room-inventory-by-area.md`, `living-room-zoning-verified.md` (в архиве с 18.11)
   → `domain/` (+ пары Tier 1 уже есть: `lr-checklist`, `layout`); `layout-*` остаются в `guides/`.
 - `changelog/project-history.md`: заголовки «дата — тема»; `memory-log.md`: записи сверху, лог
   фаз этой уборки.

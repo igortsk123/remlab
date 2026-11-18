@@ -21,6 +21,16 @@ Approval: <кто подтвердил / «dry-run, без применения�
 
 ---
 
+## 2026-11-18 — уборка по списку `_intake/cleanup-2026-11-18.md` (T-20261118-60/3), директор common утвердил п. ①②③④
+Команда: /memory-cleanup (применение по слову директора)
+Approval: директор common, 18.11 (сообщение T-20261118-60/3)
+
+- ARCHIVE  guides/process-now-and-after.md → archive/2026/11/process-now-and-after.md — причина: снимок 13.10, 9 из ~70 утверждений устарели; ссылки поправлены в product-book-plan, project-history, adr-0251-0300
+- ARCHIVE  guides/living-room-inventory-by-area.md, guides/living-room-zoning-verified.md → archive/2026/11/ — причина: вошли в rules/zones.json и чек-лист гостиной; ссылка поправлена в memory-bank-audit-2026-09
+- MOVE     plan-zadach.md § «Готово сегодня» (Г2…Г59, 29 блоков + скрытый блок «принято») → changelog/plan-zadach-done-2026-11.md дословно (потеряно строк: 0); в плане осталась Г60 (18.11)
+- SPLIT    domain/demo-planner-ui.md (877 строк, 124 КБ) → domain/demo-planner-ui.md (страница, правила, витрина, избранное, русский) + guides/demo-planner-window.md (окно варианта, 3D) + guides/demo-planner-camera.md (камеры) + guides/demo-planner-render.md (кадр на сервере, замены, декор, подвесное) — причина: чтение 124 КБ на каждый вопрос; непустых строк 756 → 756 (мультимножества равны, потерь 0); новые три — в guides/, т.к. у Tier 1 один tier2 (NO-TIER1), а Tier 0 уже на пределе; ссылки поправлены в core/demo-planner, onboarding-quiz, lessons/demo-planner, adr-0301-0350
+- FIX      INDEX.md — строка «Гайды и что сейчас» + guides/README.md (реестр); сжаты scope у 10 core-сводок (Tier 0 ≤ 10 КБ)
+
 ## 2026-11-05 — апгрейд кита v1.9.0 → v1.11.0
 Команда: upgrade.sh
 

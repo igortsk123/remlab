@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: manager-links
-scope: Ссылка от менеджера застройщика покупателю, сигналы менеджеру, его страница и бот
+scope: Ссылка менеджера покупателю, сигналы, его страница и бот
 tier2: "../domain/manager-links.md"
 updated: 2026-11-18
 importance: high

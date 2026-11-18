@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: onboarding-quiz
-scope: Опрос-знакомство на /demo — показ, подбор 3 стилей, события, приёмка комнат
+scope: Опрос-знакомство на /demo — показ, 3 стиля, события, приёмка
 tier2: "../domain/onboarding-quiz.md"
 updated: 2026-11-18
 importance: med

@@ -3,7 +3,7 @@ tier: 1
 topic: demo-planner
 scope: Демо-планировщик для партнёра — расстановка и кадр
 tier2: "../domain/demo-planner-ui.md"
-updated: 2026-11-13
+updated: 2026-11-18
 importance: high
 source: manual
 status: working
@@ -28,13 +28,13 @@ review_after: 2026-12-05
 - **Ключ модели — `msid`** (ADR-0204, GLB по представителю семейства); вариант — `/demo/#v=<id>` (ADR-0205).
 - **Коллекции (ADR-0264/0306):** ♡ → снимок (`app/api/collections/route.ts`), `/demo/#c=<id>`; раздела «по ссылке» нет (П1.57).
 - **Масштаб страницы на телефоне запрещён** — `lib/page/no-zoom.ts` (ADR-0409).
-- **Декор, управление, наличие** (ADR-0206/0140/0144), подвесное, картины — Tier 2; шапка — [[partners]].
+- **Декор, управление, наличие** (ADR-0206/0140/0144), подвесное, картины — [[demo-planner-render]]; шапка — [[partners]].
 - **Русский = протокол:** данные не переводим.
 
 **Вариант = стиль (ADR-0244):** `choose_banks`/`fill_banks` (ADR-0259) — по набору на стиль (самый собираемый);
 встраивание — `/embed/<партнёр>/<квартира>` (ADR-0283).
 - **Кадры (ADR-0280/0291/0304/0320/0329/0332):** прогрев `tools/ops/demo-warm.mjs`; одна расстановка и пара точек — `index.html:camPairAll`.
-  Обложка `camPosterBad`; пара на все стили, `cams_own` — на стиль (`tools/flat3d/demo-cams.mjs`); `camPairV2` — Tier 2 § «Ракурсы v3».
+  Обложка `camPosterBad`; пара на все стили, `cams_own` — на стиль (`tools/flat3d/demo-cams.mjs`); `camPairV2` — [[demo-planner-camera]].
 - **22–24.10 (ADR-0319…0326) и 12.11:** мягкое — без 3D; цвета образцами; карточка выбранного (12.11 — вариант Б,
-  `index.html:vwCardInfo`); свайп у края фото = ракурс — Tier 2 § «Демо 22–24.10».
+  `index.html:vwCardInfo`); свайп у края фото = ракурс — [[demo-planner-window]].
 - **Сценарии, дефекты, живые проверки** — [[demo-scenarios]].

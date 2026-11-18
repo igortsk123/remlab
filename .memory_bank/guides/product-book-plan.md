@@ -29,7 +29,7 @@ last_verified: 2026-11-18
 
 ## Источники (перечитать перед главой)
 Память: `product_brief.md`, `core/goals.md`, `core/market.md`, `plans/MASTER-developer-product.md`
-(ответы владельца В1–В19), `plans/MASTER-conveyor-gaps.md`, `guides/process-now-and-after.md`
+(ответы владельца В1–В19), `plans/MASTER-conveyor-gaps.md`, `archive/2026/11/process-now-and-after.md`
 (подробные «сейчас / будет» по 25 процессам), ADR-0245…0251. Код: для главы 2 — `tools/scout/
 refresh_daily.sh`, `load3.py`, `dim_resolver.py`, `stock_truth.py`; главы 3 — `enrich.py`,
 `golden_label.py`, `style_attrs.py`, `style_score.py`; главы 4 — `tools/scout/salad/*`, `mesh_bind.py`,

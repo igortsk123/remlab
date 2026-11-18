@@ -6,7 +6,14 @@ tier1: ""
 updated: 2026-11-18
 importance: high
 source: manual
-status: working
+memory_type: archive_note
+status: archived
+source_of_truth: historical
+original_path: .memory_bank/guides/process-now-and-after.md
+archived_at: 2026-11-18
+archived_by: memory-cleanup
+archive_reason: obsolete: снимок обследования 13.10; сверка с кодом 18.11 — 9 из ~70 проверяемых утверждений устарели, «как будет» реализовано/расходится; живая версия — guides/product-book.md
+superseded_by: guides/product-book.md
 ---
 
 > **Снимок 13.10 — сверка с кодом 18.11:** «Не так» ниже частично закрыты планами `conv-*`/`b2b-*`; уже НЕ так: `MAXV=6` (не 4), `/api/health` проверяет базу и витрину (503, `app/api/health/route.ts`), рендер в compose (сервис `draft`), карантин мешей есть (`tools/scout/mesh_quarantine.py`), `?lang=en` работает, вебхук ЮKassa проверяет IP и статус, CORS — конкретный origin, пороги обеденного стола сведены (`zones.json:710`), unit-тестов ≈162 файла. Не найдено в коде: «448 px», «110 px», «подложка > 1,15».

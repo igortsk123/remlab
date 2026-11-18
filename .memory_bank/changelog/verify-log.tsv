@@ -355,3 +355,4 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-18	.memory_bank/guides/review-rules.md	rotation	2	0	0	Б G2 18.11
 2026-11-18	.memory_bank/guides/agent-workflow.md	rotation	12	1	1	Б G2 18.11
 2026-11-18	.memory_bank/guides/code-standards.md	rotation	6	0	0	Б G2 18.11
+2026-11-18	.memory_bank/domain/demo-planner-ui.md	drift	756	0	0	разрезан на 4 дока 18.11 (T-60/3): 756 непустых строк до = 756 после, мультимножества равны
