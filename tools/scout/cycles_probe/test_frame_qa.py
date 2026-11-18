@@ -216,6 +216,16 @@ def test_preflight_catches_missing_art_map_and_geometry_and_export():
         shutil.rmtree(d)
 
 
+def test_preset_exports_every_paid_page_kind_server_scene_does_not_place():
+    """T-20261118-03/2 ❷: серверная сцена (`draft_render.decor_layout`) не ставит `carrier_surface` (лампа на комоде/тумбе) — место их даёт
+    только страница, поэтому выгрузка декора обязана их брать (`carrier`), иначе оплачиваемая лампа «не в сцене» (3 спальни, лампы пропадали
+    из кадра). Классы слотов сторожа и ключи выгрузки пресета — из одних данных: каждый класс «слот страницы» (`carrier:`, `plant:`, `ceiling:`,
+    `textile:`) есть в ключах пресета."""
+    keys = json.load(open(os.path.join(HERE, "render-preset.json"), encoding="utf-8"))["dumpExport"].split(",")
+    for need in ("carrier", "plant", "ceiling", "textile", "картин"):
+        assert need in keys, need
+
+
 if __name__ == "__main__":
     n = 0
     for k, v in sorted(globals().items()):

@@ -445,7 +445,6 @@ class Guard:
             sys.path.insert(0, os.path.join(HERE, ".."))
             import wall_art as WA
             R = WA.rules()
-            x0, y0, x1, y1 = R["art_content"]["center"]
         except Exception:  # noqa: BLE001
             WA = None
         for s, c in expect.items():
@@ -459,7 +458,7 @@ class Guard:
                 pxs = np.empty(w * h * 4, np.float32)
                 im.pixels.foreach_get(pxs)
                 pxs = pxs.reshape(h, w, 4)[:, :, :3]
-                m = WA.metrics(pxs[int(h * y0):int(h * y1), int(w * x0):int(w * x1)] * 255.0)
+                m = WA.canvas_metrics(pxs * 255.0, R)
                 rec["content"] = bool(WA.has_content(m, R))
                 rec["detail"] = f"цвет {m['chroma']:.0f}, яркость {m['luma']:.0f}, рисунок {(m['ink_d'] >= R['art_content']['ink_delta']).mean() * 100:.1f} % площади"
             art[s] = rec

@@ -810,7 +810,6 @@ if a.demo_glb:
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
         import wall_art as _WA                       # то же правило, что при отборе в набор (`wall_art.has_content`, данные — `data/flat3d/wall-art.json:art_content`)
         _R = _WA.rules()
-        _x0, _y0, _x1, _y1 = _R['art_content']['center']
         _bad = []
         for _slot in sorted(set(x[0] for x in art_nodes)):
             # у картины несколько мешей (рама, полотно): текстура — у полотна; нет ни одной — ошибка
@@ -824,7 +823,7 @@ if a.demo_glb:
             _px = np.empty(_w * _h * 4, np.float32)
             _img.pixels.foreach_get(_px)
             _px = _px.reshape(_h, _w, 4)[:, :, :3]
-            _m = _WA.metrics(_px[int(_h * _y0):int(_h * _y1), int(_w * _x0):int(_w * _x1)] * 255.0)
+            _m = _WA.canvas_metrics(_px * 255.0, _R)                 # та же мера, что при отборе (центр + вся площадь, T-20261118-03/2)
             if not _WA.has_content(_m, _R):
                 _bad.append((_slot, f"нет рисунка (белое/тон-в-тон), цвет {_m['chroma']:.0f}, яркость {_m['luma']:.0f}, рисунок {(_m['ink_d'] >= _R['art_content']['ink_delta']).mean() * 100:.1f} % площади"))
         for _slot, _why in _bad:

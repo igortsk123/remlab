@@ -6,7 +6,7 @@
   "threads": 4,
   "cores": 4,
   "min_gb": 8,
-  "dumpExport": "rod,textile,ceiling,картин,plant",
+  "dumpExport": "rod,textile,ceiling,картин,plant,carrier",
   "flags": ["--view", "2", "--exposure", "-0.15", "--sun-angle", "4", "--fill", "40", "--lamp-k", "3000", "--chandelier", "0", "--lamps", "1", "--sheer", "0.5", "--normal-k", "3.5", "--rug-erode", "0.025", "--transform", "Khronos PBR Neutral", "--sky-sat", "0.4", "--fill-k", "6500"],
   "limits": { "exportSec": 300, "dumpSec": 420, "blenderSecPerFrame": 1500, "maxRssGb": 12, "maxJobDiskMb": 3000 },
   "jpegQuality": 92
