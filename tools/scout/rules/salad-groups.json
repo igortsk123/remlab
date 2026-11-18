@@ -174,6 +174,18 @@
       "queue": "mesh-q-t49c",
       "_why": "ТОЛЬКО T-20261112-49/5: CAL со сторожем цветности (образ color49-7c1b1656) на 398240 и контроле 632985. Новая группа: PATCH образа у остановленной mesh-q-t49cal2-canary отвечает 200, но образ не меняет (13.11, дважды; pending_change гаснет без смены версии), а пересоздание держит имя >50 мин; cal2 после этого удалена (слово директора, T-20261112-49/6). Порядок — как у mesh-q-t49cal2-canary; потолок сторожа 2,5 ₽. После опыта — остановлена."
     },
+    "mesh-q-greytop-canary": {
+      "tier": "low",
+      "price_class": "RTX 4060 Ti (16 GB)",
+      "queue": "mesh-q-greytop",
+      "_why": "ТОЛЬКО ПРОБА T-20261118-04/13 (П1.85): сторож пустых видов покраски (tools/scout/salad/view_guard.py) на 5 серых мешах с болванкой shape.glb. Образ paint-guard-b8694f71 (digest в ~/remlab-logs/t0413-1118/image-digest.txt) поверх боевого digest, env PIPELINE_VERSION=greytop — комплекты в meshes/hunyuan21/greytop, реестр их не видит. Новая группа: образ у существующей не меняется (PATCH — 200 без эффекта). Создана queue_setup.py --donor mesh-q-low-1 --gpu-exact, 1 реплика, остановленной; в SALAD_GROUP её нет. Потолок 8 ₽ (владелец одобрил до $0,30). После опыта — остановлена."
+    },
+    "mesh-q-greytop2-canary": {
+      "tier": "low",
+      "price_class": "RTX 4060 Ti (16 GB)",
+      "queue": "mesh-q-greytop2",
+      "_why": "ТОЛЬКО ВТОРАЯ ПРОБА T-20261118-04/13 (П1.85): детектор пустых видов с эталоном 128 и судом по MR (образ paint-guard-4a0d128a, digest ...c457bd57). Новая группа: образ у mesh-q-greytop-canary не меняется. Env PIPELINE_VERSION=greytop2 — комплекты в meshes/hunyuan21/greytop2, реестр их не видит. 1 реплика, создана остановленной; в SALAD_GROUP её нет. Потолок 8 ₽. После опыта — остановлена."
+    },
     "mesh-q-color2-canary": {
       "tier": "low",
       "price_class": "RTX 4060 Ti (16 GB)",
