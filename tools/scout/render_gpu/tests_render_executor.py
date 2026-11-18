@@ -1333,6 +1333,57 @@ ok('быстрая подготовка и постоянные процессы
 os.environ.pop('RENDER_PREP_FAST', None)
 os.environ.pop('RENDER_EXPORT_SERVER', None)
 
+# КАРТИНКИ ДЕКОРА ОТДЕЛЬНЫМИ ФАЙЛАМИ (T-20261118-10, ximg): правило ассетов, манифест, пакет, кэш дампа с подкаталогом img/, обход очереди
+import hashlib as _hl
+XD = os.path.join(TMP, 'xdump')
+os.makedirs(os.path.join(XD, 'img'))
+
+
+def _put_img(data: bytes, ext='png'):
+    h = _hl.sha256(data).hexdigest()
+    open(os.path.join(XD, 'img', f'{h[:32]}.{ext}'), 'wb').write(data)
+    return {'file': f'img/{h[:32]}.{ext}', 'sha256': h, 'bytes': len(data)}
+
+
+big, small = _put_img(os.urandom(40000)), _put_img(os.urandom(500), 'jpg')
+json.dump({'v': 1, 'images': [big, small]}, open(os.path.join(XD, 'demo_images.json'), 'w'))
+for n in ('demo_nodes.glb', 'demo_nodes_uuids.json', 'scene-export.json', 'scene_info.json', 'dump_keys.json'):
+    open(os.path.join(XD, n), 'w').write('{}')
+ok('ximg: имена dump/img — ассет вида tex, порог 16 КБ; манифест — не ассет', RE.asset_kind('dump/img/' + big['file'][4:]) == 'tex' and RE.asset_min_bytes('dump/img/x.png') == 16 * 1024
+   and RE.asset_kind('dump/demo_images.json') is None)
+RE.check_ximg(XD)
+ok('ximg: манифест сходится с файлами — проверка проходит; без манифеста проверять нечего', True)
+RE.check_ximg(os.path.join(TMP, 'нет-такого'))
+bads = {}
+for name, mut in (('содержимое', lambda: open(os.path.join(XD, big['file']), 'ab').write(b'x')),
+                  ('лишний файл', lambda: open(os.path.join(XD, 'img', 'a' * 32 + '.png'), 'wb').write(b'zz'))):
+    mut()
+    try:
+        RE.check_ximg(XD)
+        bads[name] = False
+    except RE.RenderError as e:
+        bads[name] = e.code == 'render_failed'
+    if name == 'содержимое':
+        _d = open(os.path.join(XD, big['file']), 'rb').read()[:-1]
+        open(os.path.join(XD, big['file']), 'wb').write(_d)
+    else:
+        os.remove(os.path.join(XD, 'img', 'a' * 32 + '.png'))
+ok('ximg: изменённый файл и лишний файл в dump/img — отказ подготовки (render_failed), не молчаливый пропуск', all(bads.values()) and len(bads) == 2)
+exg = RE.SaladGpuExecutor(env=dict(os.environ))
+jobx = os.path.join(TMP, 'jobx')
+os.makedirs(os.path.join(jobx, 'scene'), exist_ok=True)
+shutil.copytree(XD, os.path.join(jobx, 'dump'))
+small_b, assets_b, src_b = exg._split_assets(exg._bundle_files(jobx))
+ap = {a['path']: a for a in assets_b}
+ok('ximg: пакет — большая картинка ассетом (tex), мелкая и манифест в маленьком пакете', ('dump/' + big['file']) in ap and ap['dump/' + big['file']]['kind'] == 'tex'
+   and ('dump/' + small['file']) in small_b and 'dump/demo_images.json' in small_b)
+ok('ximg: флаг по умолчанию включён, RENDER_XIMG=0 выключает', RE.ximg_on() and not (os.environ.update(RENDER_XIMG='0') or RE.ximg_on()))
+os.environ.pop('RENDER_XIMG', None)
+os.environ['RENDER_SLOT'] = '0'
+with exg._slot('t', {'min_gb': 1}) as hs_:
+    ok('«мимо очереди» (RENDER_SLOT=0): слот не ждёт и не занимает очередь, пометка no_slot', isinstance(hs_, dict) and hs_.get('no_slot') is True and float(hs_.get('waited_s', 0)) == 0.0)
+os.environ.pop('RENDER_SLOT', None)
+
 shutil.rmtree(TMP, ignore_errors=True)
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')
 sys.exit(1 if BAD else 0)
