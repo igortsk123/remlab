@@ -172,3 +172,30 @@ def test_annotate_skips_blank_pictures_but_feed_keeps_them():
     assert {p['sid'] for p in data['feeds']['картина']} == {'white', 'draw'}   # лента замен — оба
     data2 = {'room': {'height_cm': 270}, 'variants': [{'id': 'v', 'style': 'сканди', 'items': [dict(BED, x=200, y=100)]}]}
     assert WA.annotate(data2, pool[:1], R, 270, blank={pool[0]['img']})[0][2] == []   # одни белые — картины нет (честно)
+
+
+def test_art_stats_measures_canvas_as_drawn_in_3d(tmp_path):
+    """T-20261118-01/1: критерий «с рисунком» меряется по полотну, КАК ОНО В 3D (срез белого поля), а не по сырому фото товара: у картины,
+    занимающей часть кадра, центр фото и центр полотна — разные куски. Тёмные края и бледная середина: по сырому фото рисунок в центре кадра
+    есть, на полотне 3D (без поля) центр — бледное поле, и сторож кадра его бракует. Подбор в набор обязан браковать то же."""
+    from PIL import Image
+    im = Image.new('RGB', (400, 300), (255, 255, 255))                 # белое поле вокруг
+    im.paste((236, 236, 242), (140, 60, 260, 240))                     # полотно: бледное поле…
+    im.paste((30, 40, 70), (140, 60, 170, 240))                        # …с тёмными краями слева и справа
+    im.paste((30, 40, 70), (230, 60, 260, 240))
+    src = str(tmp_path / 'p.jpg')
+    im.save(src, quality=95)
+    pic_row = {'w': 60, 'h': 90}
+    assert WA.has_content(WA.content_stats(src, R), R)                       # по сырому фото — «с рисунком» (так было до правки)
+    assert not WA.has_content(WA.art_stats(src, pic_row, R), R)              # по полотну 3D — бледное, без рисунка в центре
+    # то же значение, что получит сторож из файла `-art.jpg`, который режет `annotate_crop`
+    os.makedirs(tmp_path / 'img', exist_ok=True)
+    im.save(str(tmp_path / 'img' / 'p.jpg'), quality=95)
+    data = {'variants': [{'id': 'v', 'decor': [{'role': 'картина', 'strategy': 'procedural_plane', 'sku': dict(pic_row, img='img/p.jpg')}]}], 'feeds': {}}
+    WA.annotate_crop(data, str(tmp_path), R)
+    art = os.path.join(str(tmp_path), data['variants'][0]['decor'][0]['sku']['img_art'])
+    assert not WA.has_content(WA.content_stats(art, R), R)
+    # фото без белого поля: art_stats = content_stats
+    full = str(tmp_path / 'f.jpg')
+    Image.new('RGB', (400, 300), (40, 90, 120)).save(full)
+    assert abs(WA.art_stats(full, pic_row, R)['luma'] - WA.content_stats(full, R)['luma']) < 1e-6

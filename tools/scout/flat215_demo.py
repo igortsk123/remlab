@@ -1217,7 +1217,7 @@ def wall_art_step(data: dict) -> None:
         for p in rows:
             loc = res.get(p.get('img'))
             try:
-                if loc and not WA.has_content(WA.content_stats(os.path.join(OUT, loc), r), r):
+                if loc and not WA.has_content(WA.art_stats(os.path.join(OUT, loc), p, r), r):    # метрики полотна как в 3D (срез белого поля), тот же критерий, что у сторожа кадра
                     blank.add(p['img'])
             except (OSError, ValueError):
                 pass
