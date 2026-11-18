@@ -921,7 +921,7 @@ st17 = RJ.RenderStore(os.path.join(TMP, 'j17.json'), os.path.join(TMP, 'res17'))
 st17.durs, st17.dur_ex = [480.0] * 6, ['local-cpu'] * 6
 m17 = FakeMachine()
 q17 = RJ.RenderQueue(st17, RE.Fallback(Exec(FakeSink(), m17, PUBLIC), Cpu({'RENDER_WORK': os.path.join(TMP, 'rwork')})))
-ok('stats при прогретой машине: исполнитель, диапазон 20…60 с', q17.stats()['expected'] == 'salad-gpu' and q17.stats()['range'] == [20, 60])
+ok('stats при прогретой машине: исполнитель, диапазон 20…45 с (замеры 18.11)', q17.stats()['expected'] == 'salad-gpu' and q17.stats()['range'] == [20, 45])
 m17.st['desired'] = 'off'
 ok('stats при выключенной: исполнитель local-cpu, диапазон по его замерам', q17.stats()['expected'] == 'local-cpu' and q17.stats()['range'] == [480, 480])
 
@@ -1614,6 +1614,118 @@ sinkAb2 = FakeSink()
 sinkAb2.put('renderjobs/fresh/bundle-x.tgz', b'x')
 ok('pick: свежая отправка без job.json (идёт загрузка) не помечается брошенной', new_worker(sinkAb2).pick() is None and 'fresh' not in new_worker(sinkAb2).done)
 ok('worker: константы — HOT_PAR 4, ABORT_S 120 с', RW.HOT_PAR == 4 and RW.ABORT_S == 120)
+
+
+# ═══ ВКЛЮЧЕНИЕ МАШИНЫ ПО ЗАКАЗУ ЧЕЛОВЕКА (T-20261118-10/7): выключена → заказ включает (`on --by order`), ждёт прогрева, считает на машине; запасной — только при отказе/потолке
+class WakeMachine(FakeMachine):
+    """Машина с `turn_on`: включение ставит desired=on и gen+1, прогрев (warm_gen = gen) наступает через `warm_after` секунд; `refuse` — контроллер отказывает (предел дня и т.п.)."""
+
+    def __init__(self, warm_after=0.4, refuse=False, wake=True, **st):
+        super().__init__(**{'desired': 'off', 'gen': 1, 'warm_gen': 0, **st})
+        self.rules_['executor'].update(wake_on_order=wake, wake_max_s=3, wake_typical_s=180)
+        self.rules_['day_cap_usd'] = 2.0
+        self.warm_after, self.refuse, self.ons, self.t_on, self.pulses = warm_after, refuse, [], 0, []
+
+    def turn_on(self, by):
+        time.sleep(0.05)
+        self.ons.append(by)
+        if self.refuse:
+            return 'Сегодня потрачено $2.00 из $2.00 — включить нельзя'
+        self.st.update(desired='on', gen=self.st['gen'] + 1, on_at=time.time(), warm_gen=0)
+        self.t_on = time.time()
+        return 'Включаю машину'
+
+    def state(self):
+        if self.t_on and self.st.get('warm_gen') != self.st['gen'] and time.time() - self.t_on >= self.warm_after and self.st.get('desired') == 'on':
+            self.st['warm_gen'] = self.st['gen']
+        return super().state()
+
+    def pulse(self, busy_s=0.0):
+        self.pulses.append(busy_s)
+        super().pulse(busy_s)
+
+
+def phase_of(**st):
+    return Exec(FakeSink(), WakeMachine(**st), PUBLIC).wake_phase()
+
+
+ok('фазы машины: годна → ready; включена, не прогрелась → warming; выключена → off_wakeable',
+   phase_of(desired='on', warm_gen=2, gen=2) == 'ready' and phase_of(desired='on', gen=2, warm_gen=0, t_on=0) == 'warming' and phase_of() == 'off_wakeable')
+ok('фазы: предел дня исчерпан → cap; включение по заказу выключено правилом → disabled; деградация → degraded',
+   phase_of(spent_usd=2.0) == 'cap' and phase_of(wake=False) == 'disabled' and phase_of(desired='on', gen=2, warm_gen=2, degraded_since=5) == 'degraded')
+mi = Exec(FakeSink(), WakeMachine(), PUBLIC).machine_info()
+ok('machine_info при выключенной (заказ включит): warming, текст RU/EN с «≈N мин», eta_s>0', mi['state'] == 'warming' and mi['text'].startswith('Машина рендера прогревается') and mi['text_en'] and mi['eta_s'] > 0)
+mi2 = Exec(FakeSink(), WakeMachine(spent_usd=2.0), PUBLIC).machine_info()
+ok('machine_info при пределе дня: fallback, тексты RU/EN, eta_s 0', mi2['state'] == 'fallback' and 'лимит' in mi2['text'] and mi2['text_en'] and mi2['eta_s'] == 0)
+mi3 = Exec(FakeSink(), WakeMachine(desired='on', gen=2, warm_gen=2), PUBLIC).machine_info()
+ok('machine_info прогретой: ready, пустые тексты', mi3 == {'state': 'ready', 'text': '', 'text_en': '', 'eta_s': 0})
+
+# одно включение на несколько одновременных заказов; повторный не включает уже включённую
+mW = WakeMachine(warm_after=5)
+exW = Exec(FakeSink(), mW, PUBLIC)
+ths = [threading.Thread(target=exW.wake_for_order) for _ in range(4)]
+[t.start() for t in ths]
+[t.join() for t in ths]
+ok('4 заказа подряд — одно включение (`on --by order`)', mW.ons == ['order'])
+
+# сквозной: выключена → заказ включил, подготовка шла параллельно, дождались, посчитали на машине, стадии с «machine», в timing — ожидание
+sinkW, mW = FakeSink(), WakeMachine(warm_after=0.6)
+wW = new_worker(sinkW)
+stopW = threading.Event()
+run_worker_thread(wW, stopW)
+exW = Exec(sinkW, mW, PUBLIC)
+stagesW, resW = render(exW, os.path.join(TMP, 'outW'))
+stopW.set()
+ok('заказ при выключенной машине: включение by=order, стадии scene → machine → C1 → C2 → save', mW.ons == ['order'] and stagesW == ['scene', 'machine', 'C1', 'C2', 'save'])
+ok('timing: woke=1, machine_wait>0 (ждали прогрев после подготовки), результат — кадры C1/C2', resW['timing'].get('woke') == 1 and resW['timing'].get('machine_wait', 0) > 0
+   and sorted(os.listdir(os.path.join(TMP, 'outW'))) == ['C1.jpg', 'C2.jpg', 'meta.json'])
+ok('ожидание прогрева продлевает «занято» (автостоп не погасит машину до задания)', len([x for x in mW.pulses if x > 0]) >= 2 and mW.pulses[-1] == 0)
+
+# машина уже прогревается (включил другой заказ/заготовка) — второй заказ её не включает, а ждёт
+sinkW2, mW2 = FakeSink(), WakeMachine(warm_after=0.5, desired='on', gen=2, warm_gen=0)
+mW2.t_on = time.time()
+wW2 = new_worker(sinkW2)
+stopW2 = threading.Event()
+run_worker_thread(wW2, stopW2)
+stagesW2, resW2 = render(Exec(sinkW2, mW2, PUBLIC), os.path.join(TMP, 'outW2'))
+stopW2.set()
+ok('машина уже прогревается — повторного включения нет, заказ ждёт и считает', mW2.ons == [] and 'machine' in stagesW2 and stagesW2[-1] == 'save')
+
+# отказ: предел дня / контроллер не включил / потолок прогрева / погасили при ожидании → ExecutorUnavailable с честным текстом (запасной)
+for name, mach, code in (('предел дня (state)', WakeMachine(spent_usd=2.0), 'gpu_day_cap'), ('контроллер отказал включить', WakeMachine(refuse=True), 'gpu_wake_failed'),
+                         ('прогрев дольше потолка 3 с', WakeMachine(warm_after=99), 'gpu_warm_timeout')):
+    try:
+        render(Exec(FakeSink(), mach, PUBLIC), os.path.join(TMP, 'oF'))
+        ok(f'{name}: отказ', False)
+    except RE.ExecutorUnavailable as e:
+        ok(f'{name} → {code}, пара RU/EN «Считаем на запасной», хранилище не тронуто', e.code == code and 'запасной' in e.ru and 'backup' in e.en)
+mOff = WakeMachine(warm_after=99)
+exOff = Exec(FakeSink(), mOff, PUBLIC)
+threading.Timer(0.8, lambda: mOff.st.update(desired='off')).start()
+try:
+    render(exOff, os.path.join(TMP, 'oF'))
+    ok('погасили при ожидании: отказ', False)
+except RE.ExecutorUnavailable as e:
+    ok('машину погасили во время ожидания → запасной (gpu_off), не вечное ожидание', e.code == 'gpu_off')
+
+# выключатель правилом: wake_on_order=false — как раньше (запасной сразу, машина не включается)
+mD = WakeMachine(wake=False)
+try:
+    render(Exec(FakeSink(), mD, PUBLIC), os.path.join(TMP, 'oF'))
+    ok('wake_on_order=false: отказ', False)
+except RE.ExecutorUnavailable as e:
+    ok('wake_on_order=false → gpu_off без включения', e.code == 'gpu_off' and mD.ons == [])
+
+# Fallback: причина для страницы (`progress.note`) и «кто возьмёт» (будет считать машина, если заказ её включит)
+bW = Backup()
+fbW = RE.Fallback(Exec(FakeSink(), WakeMachine(refuse=True), PUBLIC), bW)
+notes = []
+pr_ = lambda s: None
+pr_.note = notes.append
+fbW.render(SNAP, os.path.join(TMP, 'oF'), pr_)
+ok('отказ включить → запасной, странице уходит note: fallback с текстами RU/EN', bW.n == 1 and notes and notes[0]['state'] == 'fallback' and notes[0]['text'] and notes[0]['text_en'])
+ok('Fallback.expected: выключена, но заказ включит → salad-gpu; предел дня → local-cpu',
+   RE.Fallback(Exec(FakeSink(), WakeMachine(), PUBLIC), Backup()).expected() == 'salad-gpu' and RE.Fallback(Exec(FakeSink(), WakeMachine(spent_usd=2.0), PUBLIC), Backup()).expected() == 'local-cpu')
 
 shutil.rmtree(TMP, ignore_errors=True)
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')

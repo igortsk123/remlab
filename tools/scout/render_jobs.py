@@ -34,8 +34,10 @@ MAX_ATTEMPTS = 2
 CAMS = ('C1', 'C2')
 DEFAULT_SEC = float(os.environ.get('RENDER_DEFAULT_SEC', 600))      # до первых замеров: честная прикидка локального процессора
 MIN_SAMPLES = 5                                                      # замеров исполнителя, с которых диапазон — по ним, а не по прикидке
-# прикидка по исполнителю до замеров: (мин, макс, среднее) секунд; у машины рендера на 4090 — 20…60 с (живые замеры T-24: 30–60 с), остальные — по DEFAULT_SEC
-GUESS = {'salad-gpu': (float(os.environ.get('RENDER_GPU_LO', 20)), float(os.environ.get('RENDER_GPU_HI', 60)), float(os.environ.get('RENDER_GPU_AVG', 40)))}
+# прикидка по исполнителю до замеров: (мин, макс, среднее) секунд; у машины рендера на 4090 — 20…45 с (живые замеры заказов человека на прогретой машине 18.11, T-10/6:
+# 22–36 с, p50 26 с, первый после включения 45 с), остальные — по DEFAULT_SEC. Заготовка кадров считается быстрее (подготовка сцены из кэша) и в эти замеры не входит (`:warm`)
+GUESS = {'salad-gpu': (float(os.environ.get('RENDER_GPU_LO', 20)), float(os.environ.get('RENDER_GPU_HI', 45)), float(os.environ.get('RENDER_GPU_AVG', 26)))}
+WARM_SUFFIX = ':warm'                                                # замер заготовки кадров: исполнитель + суффикс — на срок заказа человека не влияет
 LEGACY_EX = 'local-cpu'                                              # замеры до учёта исполнителя были процессорные
 
 
@@ -119,7 +121,7 @@ class RenderStore:
                         self.jobs[jid] = self._failed(j, 'lost', 'Рендер прервался: сервер перезапускался. Нажмите «Повторить».',
                                                       'The render was interrupted by a server restart. Press "Retry".')
                     else:
-                        j.update(status='queued', stage='', started=None)
+                        j.update(status='queued', stage='', started=None, machine=None)
             self._trim()
             self.save()
             return sum(1 for j in self.jobs.values() if j.get('status') == 'queued')
@@ -213,6 +215,25 @@ class RenderQueue:
         except Exception:  # noqa: BLE001 — не знаем, кто возьмёт: честнее считать запасного
             return LEGACY_EX
 
+    def wake_wait(self) -> tuple:
+        """(ожидаемо, мин, макс) секунд до готовности машины рендера, если заказ человека включил её и она прогревается (исполнитель знает — `wake_wait`); иначе нули."""
+        f = getattr(self.executor, 'wake_wait', None)
+        try:
+            return tuple(f()) if callable(f) else (0, 0, 0)
+        except Exception:  # noqa: BLE001
+            return (0, 0, 0)
+
+    def machine_of(self, j: dict | None = None) -> dict | None:
+        """Состояние машины рендера для страницы `{state: warming|ready|off|fallback, text, text_en, eta_s}` (тексты RU/EN — от сервера, T-20261118-10/7). У задания, что ушло на запасной,
+        — отметка причины (`j['machine']`, пока считается там), иначе — живое состояние исполнителя. Исполнитель без машины — None (поле не отдаём)."""
+        if j and j.get('machine'):
+            return j['machine']
+        f = getattr(self.executor, 'machine_info', None)
+        try:
+            return f() if callable(f) else None
+        except Exception:  # noqa: BLE001 — состояние машины не знаем: поле не отдаём, заказ от этого не страдает
+            return None
+
     def durs_of(self, name: str) -> list:
         st = self.store
         return [d for d, e in zip(st.durs, st.dur_ex) if e == name]
@@ -258,6 +279,7 @@ class RenderQueue:
             avg = self.avg_sec(who)
             lo, hi = self.range_sec(who)
             running = [x for x in self.store.jobs.values() if x.get('status') == 'running']
+            w_eta, w_lo, w_hi = self.wake_wait()                 # машина прогревается (заказ человека её включил): к сроку добавляется остаток прогрева; прогрета — нули
             left = 0.0
             for r in running:
                 left = max(left, max(0.0, avg - (time.time() - (r.get('started') or time.time()))))
@@ -265,10 +287,10 @@ class RenderQueue:
                 pos = self._order().index(jid) + 1
                 rounds = (pos - 1) // self.workers + 1
                 base = left if len(running) >= self.workers else 0.0
-                return {'queue': pos, 'eta': int(base + avg * rounds), 'eta_range': [int(base + lo * rounds), int(base + hi * rounds)]}
+                return {'queue': pos, 'eta': int(base + avg * rounds + w_eta), 'eta_range': [int(base + lo * rounds + w_lo), int(base + hi * rounds + w_hi)]}
             if j.get('status') == 'running':
                 el = time.time() - (j.get('started') or time.time())
-                return {'queue': 0, 'eta': int(max(0.0, avg - el)), 'eta_range': [int(max(0.0, lo - el)), int(max(0.0, hi - el))]}
+                return {'queue': 0, 'eta': int(max(0.0, avg - el) + w_eta), 'eta_range': [int(max(0.0, lo - el) + w_lo), int(max(0.0, hi - el) + w_hi)]}
         return {}
 
     # ——— приём
@@ -337,10 +359,18 @@ class RenderQueue:
                 st.jobs[jid]['warm'] = True
             else:
                 self.hits.append(time.time())
+                self._wake_for_order()
             st._trim()
             st.save()
             self.cond.notify_all()
             return {'job': jid, 'status': 'queued', 'deduped': False, 'cached': False}
+
+    def _wake_for_order(self) -> None:
+        """Заказ человека, которому нужна машина рендера: выключена — включаем (`render_machine.py on --by order`, предел дня и замок — в контроллере), в фоне, чтобы ответ заказа не ждал.
+        Несколько заказов — одно включение (исполнитель идемпотентен). Сбой — не отказ: заказ ждёт и сам разберётся (запасной с честной надписью)."""
+        f = getattr(self.executor, 'wake_for_order', None)
+        if callable(f):
+            threading.Thread(target=f, name='render-wake', daemon=True).start()
 
     # ——— вид для страницы
     def _result(self, key: str, meta: dict, sec: float, cached: bool) -> dict:
@@ -361,6 +391,11 @@ class RenderQueue:
                 return {'kind': 'render', **{k: v for k, v in j.items() if k in ('status', 'error', 'error_en', 'code', 'retry')}}
             out = {'status': j['status'], 'kind': 'render', 'stage': j.get('stage') or '', 'sec': round(time.time() - j['ts'], 1),
                    **self.progress_of(j), **self.eta(jid)}
+            mi = self.machine_of(j)
+            if mi:
+                out['machine'] = mi
+                if mi.get('state') == 'warming':             # машина прогревается: процента у ожидания нет — честно 0 (страница рисует неопределённую полосу)
+                    out.update(percent=0, frames_done=0, frame=None)
             return out
 
     def progress_of(self, j: dict) -> dict:
@@ -436,6 +471,11 @@ class RenderQueue:
                 if jid in st.jobs and st.jobs[jid].get('status') == 'running':
                     st.jobs[jid]['stage'] = stage
                     st.jobs[jid]['stage_ts'] = time.time()
+        def note(info: dict) -> None:                          # исполнитель сообщает странице состояние машины (например «ушли на запасной, вот почему»)
+            with st.lock:
+                if jid in st.jobs and st.jobs[jid].get('status') == 'running':
+                    st.jobs[jid]['machine'] = info
+        progress.note = note
         who0 = self.expected()
         try:
             ex = getattr(self.executor, 'primary', self.executor) if warm else self.executor        # заготовка — только на машине рендера, запасного (процессор DEV) у неё нет
@@ -453,9 +493,10 @@ class RenderQueue:
             if meta is None:
                 raise RenderError('render_failed', 'Рендер не дал кадров. Нажмите «Повторить».', 'The render produced no frames. Press "Retry".')
             who = (out.get('executor') if isinstance(out, dict) else None) or who0
+            mw = float(((out.get('timing') if isinstance(out, dict) else None) or {}).get('machine_wait') or 0)      # ждали прогрев машины — это не срок заказа на прогретой
             with st.lock:
-                st.durs = (st.durs + [sec])[-30:]
-                st.dur_ex = (st.dur_ex + [who])[-30:]
+                st.durs = (st.durs + [max(1.0, sec - mw)])[-30:]
+                st.dur_ex = (st.dur_ex + [who + WARM_SUFFIX if warm else who])[-30:]
                 st.jobs[jid] = {'status': 'done', 'ts': st.jobs[jid]['ts'], 'key': key, 'hash': body['snap']['scene_hash'],
                                 'result': self._result(key, meta, sec, False), 'legacy': body.get('legacy') or {}, **({'warm': True} if warm else {})}
                 st.save()
@@ -466,7 +507,7 @@ class RenderQueue:
                 with st.lock:                                  # машину вытеснили/погасили посреди заготовки — не ошибка: ждёт в очереди следующего включения
                     jj = st.jobs.get(jid)
                     if jj and jj.get('status') == 'running' and int(jj.get('attempts', 0)) < MAX_ATTEMPTS + 2:
-                        jj.update(status='queued', stage='', started=None)
+                        jj.update(status='queued', stage='', started=None, machine=None)
                         st.save()
                         print(f'заготовка {jid}: машина недоступна ({e.code}) — ждёт в очереди', flush=True)
                         return
@@ -668,9 +709,9 @@ def _selftest() -> int:
         st5.durs, st5.dur_ex = [100, 110, 120, 130, 400], ['local-cpu'] * 5
         ok(q6.range_sec() == (120, 400) and q6.stats()['expected'] == 'local-cpu', 'машина не годна — диапазон по замерам процессора')
         sw.now = 'salad-gpu'
-        ok(q6.range_sec() == (20, 60) and q6.stats()['range'] == [20, 60] and q6.stats()['expected'] == 'salad-gpu' and q6.stats()['n'] == 0,
-           'машина прогрета, замеров машины мало — прикидка 20…60 с, чужие замеры не берём')
-        ok(abs(q6.avg_sec() - 40) < 1e-9, 'среднее до замеров машины — прикидка, не 600 с')
+        ok(q6.range_sec() == (20, 45) and q6.stats()['range'] == [20, 45] and q6.stats()['expected'] == 'salad-gpu' and q6.stats()['n'] == 0,
+           'машина прогрета, замеров машины мало — прикидка 20…45 с (замеры 18.11), чужие замеры не берём')
+        ok(abs(q6.avg_sec() - 26) < 1e-9, 'среднее до замеров машины — прикидка, не 600 с')
         st5.durs += [31, 35, 44, 52, 58]
         st5.dur_ex += ['salad-gpu'] * 5
         ok(q6.range_sec() == (44, 58) and q6.stats()['n'] == 5 and q6.stats()['by_executor']['local-cpu']['n'] == 5, 'пять замеров машины — p50…p95 по ним; по исполнителям — раздельно')
@@ -695,6 +736,66 @@ def _selftest() -> int:
         st8 = RenderStore(os.path.join(d, 'old.json'), os.path.join(d, 'res8'))
         st8.load()
         ok(st8.dur_ex == ['local-cpu', 'local-cpu'], 'старый файл без исполнителей — замеры процессорные')
+        # T-20261118-10/7: заказ человека включает машину — срок с остатком прогрева, поле machine, замеры заготовки отдельно, ожидание прогрева не входит в срок
+        class Wk(Fake):
+            name = 'fb'
+            woke = 0
+            info = {'state': 'warming', 'text': 'Машина рендера прогревается, ≈3 мин.', 'text_en': 'The render machine is warming up, about 3 min.', 'eta_s': 150}
+            ww = (150, 100, 300)
+
+            def expected(self):
+                return 'salad-gpu'
+
+            def wake_for_order(self):
+                Wk.woke += 1
+
+            def wake_wait(self):
+                return self.ww
+
+            def machine_info(self):
+                return self.info
+        st9 = RenderStore(os.path.join(d, 'j9.json'), os.path.join(d, 'res9'))
+        q9 = RenderQueue(st9, Wk(st9))
+        j9 = q9.submit(snap('w9'), 'kw9', ip='9.0.0.1')
+        for _ in range(50):
+            if Wk.woke:
+                break
+            time.sleep(0.02)
+        ok(Wk.woke == 1, 'заказ человека зовёт включение машины (в фоне, ответ не ждёт)')
+        v9 = q9.view(j9['job'])
+        ok(v9['machine']['state'] == 'warming' and v9['machine']['text'] and v9['machine']['text_en'] and v9['machine']['eta_s'] == 150 and v9['percent'] == 0,
+           'в ответе очереди — machine {state, text, text_en, eta_s}, пока прогрев процента нет')
+        ok(v9['eta'] == 26 + 150 and v9['eta_range'] == [20 + 100, 45 + 300], 'срок = остаток прогрева + заказ на прогретой (20…45 с, ср. 26 с)')
+        wj = q9.submit(snap('w9b'), 'kw9b', ip='9.0.0.2', warm=True)
+        ok(Wk.woke == 1, 'заготовка кадров машину по заказу не включает (у неё свой путь)')
+        st9.jobs.pop(wj['job'])
+        Wk.ww = (0, 0, 0)
+        Wk.info = {'state': 'ready', 'text': '', 'text_en': '', 'eta_s': 0}
+        ok(q9.view(j9['job'])['eta'] == 26 and q9.view(j9['job'])['machine']['state'] == 'ready', 'машина прогрета — срок без прогрева, state ready')
+        st9.jobs[j9['job']]['machine'] = {'state': 'fallback', 'text': 'Считаем на запасной — будет дольше.', 'text_en': 'Using the backup — it will take longer.', 'eta_s': 0}
+        ok(q9.view(j9['job'])['machine']['state'] == 'fallback', 'у задания, что ушло на запасной, — причина (RU/EN) вместо живого состояния')
+        # замер: заготовка — отдельно; ожидание прогрева — не в срок заказа
+        class Wd(Fake):
+            name = 'fb'
+
+            def expected(self):
+                return 'salad-gpu'
+
+            def warm_ok(self):
+                return True
+
+            def render(self, snap_, out_dir, progress):
+                super().render(snap_, out_dir, progress)
+                time.sleep(1.6)
+                return {'timing': {'machine_wait': 1.5}, 'executor': 'salad-gpu'}
+        st10 = RenderStore(os.path.join(d, 'j10.json'), os.path.join(d, 'res10'))
+        q10 = RenderQueue(st10, Wd(st10))
+        q10.start()
+        wait(q10, q10.submit(snap('d1'), 'kd1', ip='9.1.0.1')['job'])
+        wait(q10, q10.submit(snap('d2'), 'kd2', ip='9.1.0.2', warm=True)['job'])
+        ok(st10.dur_ex == ['salad-gpu', 'salad-gpu:warm'], 'замер заготовки кадров — под своим именем, на срок заказа человека не влияет')
+        ok(st10.durs[0] < 1.2, 'ожидание прогрева машины (timing.machine_wait) вычтено из замера заказа')
+        q10.close()
         # очистка кэша: лишние каталоги уходят, нужные заданию остаются
         st5.keep_results = 1
         for k in ('a', 'b', 'c'):
