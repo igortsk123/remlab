@@ -107,6 +107,11 @@ ROOM_AFTER = {'load3': ['room_catalog', 'hall_catalog'], 'pool_photos': ['rooms_
               'style_score': ['style_bedroom', 'style_hall'], 'cutout': ['rooms_cutout']}
 
 
+# Намеренная замена шага (T-20261112-56/3): понедельничный solver_full ушёл из сборки в крон `solver_weekly.sh`, на его месте — шаг сводки.
+# Сравнение «как в ветке/коммите» (--against) считает их одним местом в порядке; в остальном порядок и аргументы обязаны совпасть.
+RENAMED = {'solver_full :: env CHECK_TAG=weekly $PY solver_check.py': 'solver_weekly_last :: $PY solver_weekly_status.py --digest'}
+
+
 def against(ref: str) -> int:
     old = subprocess.run(['git', '-C', HERE, 'show', f'{ref}:tools/scout/refresh_daily.sh'], capture_output=True, text=True)
     if old.returncode:
@@ -115,7 +120,7 @@ def against(ref: str) -> int:
     new = open(SCRIPT, encoding='utf-8').read()
     bad = 0
     for wd, lock in COMBOS:
-        a = [x for x in night(old.stdout, 0, wd, lock, start=HEAD) if x.split(' :: ', 1)[0] not in ROOM_ALL]
+        a = [RENAMED.get(x, x) for x in night(old.stdout, 0, wd, lock, start=HEAD) if x.split(' :: ', 1)[0] not in ROOM_ALL]
         b = [x for x in night(new, 0, wd, lock, start=HEAD) if x.split(' :: ', 1)[0] not in ROOM_ALL]
         same = a == b
         bad += 0 if same else 1
@@ -127,7 +132,7 @@ def against(ref: str) -> int:
     a1 = night(new, 1, 1, False)
     print(f'  write_enabled=true, понедельник: шагов {len(a1)}; ' + ' → '.join(n for n in names(a1)
           if n in ('bank_media', 'bank_photos', 'bank_media2', 'bank_prepare', 'bank_promote', 'bank_refresh', 'sets_reindex',
-                   'set_ids', 'resolve_affected', 'changes_page', 'reserve_cov', 'layout_page', 'demo_band', 'solver_full', 'sets_reindex_w')))
+                   'set_ids', 'resolve_affected', 'changes_page', 'reserve_cov', 'layout_page', 'demo_band', 'solver_weekly_last', 'sets_reindex_w')))
     print(f'tests_refresh_order --against {ref}: расхождений {bad}')
     return 1 if bad else 0
 
@@ -176,6 +181,15 @@ def _selftest() -> int:
            fn[fn.index('mesh_family_early'):fn.index('bank_promote') + 1])
         if wd == 1 and not lock:
             ok('[пн] false: недельные sets_refresh и sets_pairs_w идут', 'sets_refresh' in fn and 'sets_pairs_w' in fn)
+        # solver_full — вне сборки (отдельный крон solver_weekly.sh); в понедельник на его месте только итог для сводки, в другие дни — ничего
+        ok(f'[{tag}] solver_full в сборке не идёт; итог недельной проверки — шагом solver_weekly_last только в понедельник, после book_check, до sets_refresh',
+           'solver_full' not in fn and 'solver_full' not in tn
+           and (('solver_weekly_last' in fn and fn.index('book_check') < fn.index('solver_weekly_last') < fn.index('sets_reindex_w'))
+                if wd == 1 else ('solver_weekly_last' not in fn and 'solver_weekly_last' not in tn)), fn[-14:])
+        if wd == 1:
+            ok(f'[{tag}] solver_weekly_last читает статус (--digest), solver_check из сборки не зовётся',
+               any(x == 'solver_weekly_last :: $PY solver_weekly_status.py --digest' for x in f)
+               and not any('solver_check.py' in x for x in f + t))
     BANK = ('bank_prepare', 'bank_pending', 'bank_promote', 'bank_refresh')
     for write in (0, 1):
         full, log = night_log(text, write)
