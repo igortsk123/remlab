@@ -9,7 +9,7 @@
   1. Список комнат — сцены витрины /demo (`demo-data.json`, тот же файл, что читает сервис) и, если `prewarm.tours_max` > 0, свежие туры (`showcase_assets.build_scenes`);
      снимок каждой — «как заказ без своей расстановки» (предметы и ракурсы варианта).
   2. «Чего нет под текущим ключом» — `store.cached(cache_key(scene_hash, versions)) is None` (и комната не падала `prewarm.fail_max` раз подряд).
-  3. Деньги: заготовке — `prewarm.day_share` дневного потолка машины (`day_cap_usd`), остальное — покупателям; число комнат, которое влезает, считается по цене часа машины и
+  3. Деньги: заготовке — `prewarm.day_share` дневного потолка машины (`day_cap_usd`) по её СОБСТВЕННОМУ расходу (`spent_by.prewarm` контроллера, T-20261118-20/12), общий предел дня — главный; число комнат, которое влезает, считается по цене часа машины и
      среднему замеру GPU. Не влезает всё — делаем сколько влезло и пишем строку в статус машины (`render_machine.py status`: «Заготовка кадров: …»).
   4. Машина выключена — включаем её тем же путём, что кнопка бота (`render_machine.py on --by prewarm`, предел дня и замок — в контроллере), ждём прогрева; выключит автостоп по простою.
   4б. Выключение: машину включила заготовка (`state.by == 'prewarm'`), недостающего нет, очередь пуста и `off_idle_s` (2 мин) не было заказа людей, который считали бы на машине —
@@ -88,9 +88,20 @@ class Prewarmer:
 
     # ——— деньги
     def spent_today(self) -> float:
+        """Общий расход машины за день по Лондону (все, кто её включал); общий предел дня держит контроллер (`day_cap_usd`)."""
         s = self.m.state() or {}
         import render_machine as RM
         return float(s.get('spent_usd') or 0) if s.get('spent_date') == RM.london_date(self.now()) else 0.0
+
+    def spent_prewarm(self) -> float:
+        """СОБСТВЕННЫЙ расход заготовки за день (`spent_by.prewarm`, T-20261118-20/12): потолок `day_share × day_cap_usd` сравнивается с ним, а не с общим расходом
+        (заказы людей, пробы рабочих и хвосты простоя заготовку не гасят — 18.11 она встала на $1,20 общих при ≈ $0,4 своих). Поля нет (состояние до этого правила) — 0."""
+        s = self.m.state() or {}
+        import render_machine as RM
+        if s.get('spent_date') != RM.london_date(self.now()):
+            return 0.0
+        sb = s.get('spent_by')
+        return float((sb or {}).get('prewarm') or 0) if isinstance(sb, dict) else 0.0
 
     def per_room_usd(self, rules: dict) -> float:
         import render_machine as RM
@@ -99,9 +110,9 @@ class Prewarmer:
     def affordable(self, rules: dict, pw: dict, n: int, machine_up: bool) -> tuple:
         """→ (сколько комнат влезает, потрачено сегодня, потолок заготовки, цена одной)."""
         cap = float(rules['day_cap_usd']) * float(pw['day_share'])
-        spent = self.spent_today()
+        spent = self.spent_prewarm()
         per = self.per_room_usd(rules)
-        left = cap - spent - (0 if machine_up else self._warmup_usd(rules))
+        left = min(cap - spent, float(rules['day_cap_usd']) - self.spent_today()) - (0 if machine_up else self._warmup_usd(rules))   # свой потолок и общий предел дня — меньшее
         return (min(n, int(left / per)) if left > 0 and per > 0 else 0), spent, cap, per
 
     def _warmup_usd(self, rules: dict) -> float:
@@ -191,7 +202,7 @@ class Prewarmer:
         up = self.machine_up()
         n_ok, spent, cap, per = self.affordable(rules, pw, len(miss), up)
         if n_ok <= 0:
-            return self.put('cap', f'Заготовка кадров остановлена: лимит денег на неё ${cap:.2f} из дня (потрачено ${spent:.2f}); без кадров {len(miss)} из {total} комнат.',
+            return self.put('cap', f'Заготовка кадров остановлена: лимит денег на неё ${cap:.2f} из дня (она потратила ${spent:.2f}, всего за день ${self.spent_today():.2f}); без кадров {len(miss)} из {total} комнат.',
                             total=total, missing=len(miss), spent_usd=round(spent, 3), cap_usd=round(cap, 3))
         if not up:
             day = time.strftime('%Y-%m-%d', time.gmtime(self.now()))
@@ -217,7 +228,7 @@ class Prewarmer:
                 self.sleep(2)
             if self.stop or not self.machine_up():
                 break
-            if self.spent_today() >= float(rules['day_cap_usd']) * float(pw['day_share']):
+            if self.spent_prewarm() >= float(rules['day_cap_usd']) * float(pw['day_share']) or self.spent_today() >= float(rules['day_cap_usd']):
                 break
             try:
                 self.q.submit(snap, key, tour=label, legacy=self.legacy_fn(snap), warm=True)

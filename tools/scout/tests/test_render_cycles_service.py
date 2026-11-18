@@ -188,10 +188,13 @@ n_jobs = len(store.jobs)
 st, h, r = jcall(dev_port, 'POST', '/render/cycles', {**REQ, 'check': True})
 ok(st == 200 and r['check'] is True and r['scene_hash'] == v['scene_hash'] and r['cached'] is True and 'job' not in r and len(store.jobs) == n_jobs,
    'проверка: хеш текущей расстановки и «кадры готовы» — без задания (страница сравнивает с хешем показанного фото)')
+ok(isinstance(r.get('frames'), list) and [f['camera'] for f in r['frames']] == ['C1', 'C2'] and all(f['url'] == f"/api/render/cycles/frame/{r['key']}/{f['camera']}.jpg" for f in r['frames'])
+   and all(len(f.get('id') or '') == 64 for f in r['frames']),
+   'проверка готового: в ответе два кадра — адрес и sha256 (страница ставит кадр заготовки в «Фото» без заказа, T-20261118-20/12)')
 st, h, r = jcall(dev_port, 'POST', '/render/cycles', {**REQ, 'variant_id': 'v2', 'check': True})
 ok(st == 200 and r['scene_hash'] != v['scene_hash'] and len(store.jobs) == n_jobs, 'проверка: другая расстановка — другой хеш, ничего не поставлено')
 st, h, r = jcall(dev_port, 'POST', '/render/cycles', {**REQ, 'items': [{'role': 'диван', 'sid': 's1', 'x': 21, 'y': 27, 'rot': 180}], 'check': True})
-ok(st == 200 and r['cached'] is False and len(store.jobs) == n_jobs, 'проверка: новой расстановки ещё нет в кэше (cached=false)')
+ok(st == 200 and r['cached'] is False and len(store.jobs) == n_jobs and 'frames' not in r, 'проверка: новой расстановки ещё нет в кэше (cached=false, кадров нет)')
 
 print('отказы до постановки')
 for body, code, status in (({**REQ, 'variant_id': 'v-none'}, 'unknown_variant', 404), ({**REQ, 'room_id': 'bedroom-1'}, 'stale', 409),

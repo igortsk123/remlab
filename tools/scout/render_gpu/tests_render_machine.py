@@ -445,6 +445,66 @@ MultiSalad.log = []
 RM.cmd_off(args, R11)
 ok('off при смене группы: гасит и прежнюю, и текущую', ('stop', 'render-4090m7') in MultiSalad.log and ('stop', 'render-4090m11') in MultiSalad.log)
 
+# РАСХОД ПО ТЕМ, КТО ВКЛЮЧИЛ (T-20261118-20/12): `spent_by`, чтобы заготовка видела свои траты, а не общие
+ok('by_class: prewarm/order/tour — как есть; tg-… и bot — бот; рабочие, cli, пусто — probe',
+   [RM.by_class(x) for x in ('prewarm', 'order', 'tour', 'tour-1', 'tg-common', 'rabochiy-1', 'cli', '', None)] == ['prewarm', 'order', 'tour', 'tour', 'bot', 'probe', 'probe', 'probe', 'probe'])
+sa = RM.new_state()
+sa.update(by='prewarm', accrued_ts=1000.0, spent_date=RM.london_date(1000.0))
+RM._acc(sa, 1000.0 + 360, True, 0.273)
+ok('_acc: прирост идёт и в общий, и в spent_by[prewarm]', abs(sa['spent_usd'] - 0.0273) < 1e-4 and abs(sa['spent_by']['prewarm'] - 0.0273) < 1e-4 and list(sa['spent_by']) == ['prewarm'])
+sa['by'] = 'order'
+RM._acc(sa, 1000.0 + 720, True, 0.273)
+ok('_acc: сменилась метка — прирост другого класса отдельно, сумма = общему', set(sa['spent_by']) == {'prewarm', 'order'} and abs(sum(sa['spent_by'].values()) - sa['spent_usd']) < 1e-4)
+RM._acc(sa, 1000.0 + 730, False, 0.273)
+ok('_acc: машина не платная — ничего не прибавилось', abs(sum(sa['spent_by'].values()) - sa['spent_usd']) < 1e-4 and sa['accrued_ts'] == 0)
+so = RM.new_state()
+del so['spent_by']                                    # состояние от прежней версии контроллера (поля нет)
+so.update(by='probe', accrued_ts=2000.0, spent_date=RM.london_date(2000.0), spent_usd=1.0)
+RM._acc(so, 2000.0 + 60, True, 0.273)
+ok('_acc: у старого состояния без spent_by поле создаётся, общий счёт не теряется', so['spent_by'] == {'probe': so['spent_by']['probe']} and so['spent_usd'] > 1.0)
+sn = RM.new_state()
+sn.update(by='prewarm', accrued_ts=3000.0, spent_date='2000-01-01', spent_usd=1.5, spent_by={'prewarm': 0.5})
+RM._acc(sn, 3000.0, True, 0.273)
+ok('_acc: новые сутки по Лондону — и общий, и spent_by с нуля', sn['spent_usd'] == 0.0 and sn['spent_by'] == {})
+# метка в путях включения: заготовка включила, нужна заказу/туру — расход дальше на них; фон не перехватывает чужое
+RM.Salad = MultiSalad
+with RM.Box() as b:
+    b.state.update(group='render-4090m11', desired='on', by='prewarm', gen=3, on_at=T0, spent_date=RM.london_date(T0), spent_usd=0.0, spent_by={})
+    b.save()
+MultiSalad.groups = {'render-4090m11': 'running'}
+RM.time.time = lambda: T0 + 30
+RM.cmd_on(types.SimpleNamespace(busy=0.0, by='order', lang='ru', json=False), R11)
+with RM.Box() as b:
+    ok('on при уже включённой заготовкой: метка переходит к заказу', b.state['by'] == 'order' and b.state['desired'] == 'on')
+RM.cmd_on(types.SimpleNamespace(busy=0.0, by='prewarm', lang='ru', json=False), R11)
+with RM.Box() as b:
+    ok('заготовка не забирает метку у заказа', b.state['by'] == 'order')
+RM.cmd_on(types.SimpleNamespace(busy=0.0, by='tour', lang='ru', json=False), R11)
+with RM.Box() as b:
+    ok('чужая метка (не заготовка) не перехватывается тем, кто пришёл позже', b.state['by'] == 'order')
+with RM.Box() as b:
+    b.state.update(desired='off', by='prewarm')
+    b.save()
+MultiSalad.groups = {'render-4090m11': 'stopped'}
+RM.cmd_on(types.SimpleNamespace(busy=0.0, by='tour', lang='ru', json=False), R11)
+with RM.Box() as b:
+    ok('свежий запуск: метка = того, кто включил (tour)', b.state['by'] == 'tour' and b.state['desired'] == 'on')
+# --by везде: все места, зовущие `render_machine.py on|off`, передают метку (иначе расход уйдёт в probe/cli)
+import re as _re
+_scout = os.path.abspath(os.path.join(HERE, '..'))
+_bad = []
+for _f in ('render_exec.py', 'render_prewarm.py', 'render_jobs.py', 'draft_service.py'):
+    _src = open(os.path.join(_scout, _f), encoding='utf-8').read()
+    for _m in _re.finditer(r"'render_machine\.py'\)?,\s*'(on|off)'[^\n]*", _src):
+        if "'--by'" not in _m.group(0):
+            _bad.append(f'{_f}: {_m.group(0)[:60]}')
+ok('все вызовы render_machine.py on/off в коде сервиса несут --by', _bad == [])
+_calls = []
+for _f in ('render_exec.py', 'render_prewarm.py', 'render_jobs.py'):
+    _src = open(os.path.join(_scout, _f), encoding='utf-8').read()
+    _calls += [(_f, _m.group(1)) for _m in _re.finditer(r"\.turn_on\(([^)]*)\)", _src)] + [(_f, _m.group(1)) for _m in _re.finditer(r"\.wake\(([^)]*)\)", _src)]
+ok('turn_on/wake зовут с меткой («prewarm», «order», by) — без пустых вызовов', _calls and all(a.strip() for _, a in _calls))
+
 RM.time.time, RM.time.sleep = _real_time, _real_sleep
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')
 sys.exit(1 if BAD else 0)

@@ -138,18 +138,42 @@ def london_date(now: float) -> str:
 # ───────────────────────── состояние ─────────────────────────
 def new_state() -> dict:
     return {'desired': 'off', 'gen': 0, 'by': None, 'at': 0, 'on_at': 0, 'running_since': 0, 'last_activity': 0, 'busy_until': 0, 'last_tick': 0, 'last_start_try': 0,
-            'accrued_ts': 0, 'spent_date': '', 'spent_usd': 0.0, 'warm_gen': 0, 'degraded_since': 0, 'restarts': 0, 'stop_reason': '', 'stop_notified_gen': 0,
+            'accrued_ts': 0, 'spent_date': '', 'spent_usd': 0.0, 'spent_by': {}, 'warm_gen': 0, 'degraded_since': 0, 'restarts': 0, 'stop_reason': '', 'stop_notified_gen': 0,
             'ready_since': 0, 'probe_sec': None, 'slow': False, 'frames': ['png'], 'masks': False, 'group': ''}
+
+
+BY_CLASSES = ('prewarm', 'order', 'tour', 'bot', 'probe')
+
+
+def by_class(by) -> str:
+    """Кто тратит → класс расхода дня (`spent_by`): `prewarm` (заготовка кадров), `order` (заказ человека разбудил машину), `tour` (прогрев под создание тура),
+    `bot` (кнопка бота `tg-…`), всё прочее (рабочие, пробы, `cli`, пусто) — `probe`. Метка `--by` — одна во всех путях включения (T-20261118-20/12)."""
+    b = str(by or '').strip().lower()
+    if b in ('prewarm', 'order', 'tour'):
+        return b
+    if b.startswith('tour'):
+        return 'tour'
+    if b.startswith('tg-') or b.startswith('bot'):
+        return 'bot'
+    return 'probe'
 
 
 def _acc(s: dict, now: float, paying: bool, price: float) -> None:
     """Расход: время между отметками, пока машина оплачивается (deploying/running/stopping — Salad берёт деньги за running, но
-    выделение считаем с запасом: потолок честнее), × цена класса. Сутки — по Лондону; новые сутки — счёт с нуля."""
+    выделение считаем с запасом: потолок честнее), × цена класса. Сутки — по Лондону; новые сутки — счёт с нуля.
+    Тот же прирост пишется в `spent_by[класс]` того, кто держит машину (`s['by']`, см. `by_class`) — заготовка сверяет с потолком только СВОЙ расход
+    (`render_prewarm.spent_prewarm`); сумма `spent_by` = `spent_usd` с даты появления поля (до неё — только общий)."""
     d = london_date(now)
     if s['spent_date'] != d:
-        s['spent_date'], s['spent_usd'] = d, 0.0
+        s['spent_date'], s['spent_usd'], s['spent_by'] = d, 0.0, {}
     if paying and s['accrued_ts'] and now > s['accrued_ts']:
-        s['spent_usd'] = round(s['spent_usd'] + (min(now, s['accrued_ts'] + 600) - s['accrued_ts']) / 3600 * price, 5)
+        inc = (min(now, s['accrued_ts'] + 600) - s['accrued_ts']) / 3600 * price
+        s['spent_usd'] = round(s['spent_usd'] + inc, 5)
+        sb = s.get('spent_by')
+        if not isinstance(sb, dict):
+            sb = s['spent_by'] = {}
+        k = by_class(s.get('by'))
+        sb[k] = round(float(sb.get(k) or 0) + inc, 5)
     s['accrued_ts'] = now if paying else 0
 
 
@@ -519,6 +543,8 @@ def cmd_on(a, rules) -> str:
             b.save()
             return tr('on_refused_cap', a.lang, cap=rules['day_cap_usd'], spent=s['spent_usd'])
         if s['desired'] == 'on' and obs['status'] in PAID:
+            if by_class(s.get('by')) == 'prewarm' and by_class(a.by) != 'prewarm':
+                s['by'] = a.by                              # машину включила заготовка, а нужна уже заказу/туру/пробе: дальнейший расход — на того, кому нужна (заготовка по `by` сама не выключит)
             b.save()
             return tr('on_already', a.lang, st=obs['status'])
         if obs['status'] in LIVE:                         # жива мимо контроллера — берём под управление без перезапуска
@@ -571,7 +597,7 @@ def _cmd_status(a, rules) -> str:
         d = london_date(now)
         spent = s['spent_usd'] if s['spent_date'] == d else 0.0
         if a.json:
-            return json.dumps({'desired': s['desired'], 'gen': s['gen'], 'status': obs['status'], 'spent_usd': spent, 'by': s['by'], 'probe_sec': s.get('probe_sec'), 'slow': bool(s.get('slow'))}, ensure_ascii=False)
+            return json.dumps({'desired': s['desired'], 'gen': s['gen'], 'status': obs['status'], 'spent_usd': spent, 'spent_by': (s.get('spent_by') or {}) if s['spent_date'] == d else {}, 'by': s['by'], 'probe_sec': s.get('probe_sec'), 'slow': bool(s.get('slow'))}, ensure_ascii=False)
         if s['desired'] != 'on':
             # желаемое «выключено»: пока Salad её не остановил (или её запустил кто-то мимо контроллера) — это не «не отвечает»: возраст `on_at` тут ни при чём
             if obs['status'] not in PAID:
@@ -667,6 +693,7 @@ def main() -> int:
     ap.add_argument('--json', action='store_true')
     ap.add_argument('--busy', type=float, default=0.0, help='pulse: секунд «задание в работе» (автостоп не сработает)')
     a = ap.parse_args()
+    a.by = (a.by or '').strip() or 'cli'                     # метка обязательна во всех путях: пустая = `cli` (класс `probe`), в журнале видно
     rules = load_rules()
     try:
         print({'on': cmd_on, 'off': cmd_off, 'status': cmd_status, 'pulse': cmd_pulse, 'tick': cmd_tick}[a.cmd](a, rules))

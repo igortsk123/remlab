@@ -224,3 +224,71 @@ ${cut("// SHOTCAM START", "// SHOTCAM END")};${block};${fnSrc};return vwPubShotA
     }
   });
 });
+
+// ГОТОВЫЙ КАДР ЗАГОТОВКИ В «ФОТО» БЕЗ ЗАКАЗА (T-20261118-20/12): окно нетронутого варианта спрашивает у сервиса `check` (ключ точный, ничего не ставится) и берёт кадры
+// как после «Сделать фото» — качество `render`, номер состояния и точки окна. Нет в кэше — как было: фото нет → 3D и кнопка
+describe("peekShotRecs — кадры заготовки из ответа check", () => {
+  const a = src.indexOf("// PEEKSHOT START"), b = src.indexOf("// PEEKSHOT END");
+  const peekShotRecs = new Function(`${src.slice(a, b)};return peekShotRecs;`)() as (j: unknown, o: unknown) => (Shot & { url: string; fid: string; renderKey: string; cached: boolean })[];
+  const frames = ["C1", "C2"].map((c, i) => ({ camera: c, url: `/api/render/cycles/frame/${"a".repeat(32)}/${c}.jpg`, id: String(i).repeat(64) }));
+  const ok = { cached: true, key: "a".repeat(32), scene_hash: "h", frames };
+  const o = { vid: "set1", stateId: "S-now", cams: [{ name: "C1" }], products: [], ts: 5 };
+  it("готово → две записи рендера: состояние, точки, ключ и sha256 для «Улучшить»", () => {
+    const r = peekShotRecs(ok, o);
+    expect(r).toHaveLength(2);
+    expect(r.map((x) => [x.camera, x.quality, x.stateId, x.vid, x.cached])).toEqual([["C1", "render", "S-now", "set1", true], ["C2", "render", "S-now", "set1", true]]);
+    expect(r[0]?.renderKey).toBe("a".repeat(32));
+    expect(r[1]?.fid).toHaveLength(64);
+  });
+  it("не готово, один кадр, чужие имена, нет состояния — пусто (окно остаётся 3D с кнопкой)", () => {
+    expect(peekShotRecs({ ...ok, cached: false }, o)).toEqual([]);
+    expect(peekShotRecs({ ...ok, frames: [frames[0]] }, o)).toEqual([]);
+    expect(peekShotRecs({ ...ok, frames: [{ ...frames[0], camera: "C3" }, frames[1]] }, o)).toEqual([]);
+    expect(peekShotRecs(ok, { ...o, stateId: "" })).toEqual([]);
+    expect(peekShotRecs(null, o)).toEqual([]);
+    expect(peekShotRecs({ cached: true }, o)).toEqual([]);
+  });
+  it("страница: спрашивает только нетронутый вариант без фото, не в туре, после прихода реестра; вызов при открытии окна и по приходу реестра", () => {
+    const fn = src.slice(src.indexOf("async function vwPeekCached("), src.indexOf("// «Улучшить фото»: рендер ЭТОЙ расстановки"));
+    expect(fn).toContain("TRIAL()");
+    expect(fn).toContain("!SHOTS_LOADED");
+    expect(fn).toContain("v.mine||v.cid");
+    expect(fn).toContain("st!==pubStateOf(v)||vwRealShots().length");
+    expect(fn).toContain("check:true");
+    expect(fn).toContain("curVid()!==vid||curStateId()!==st");
+    expect(src).toContain("setTimeout(vwPeekCached,0)");
+    expect(src).toContain("vwModeUi(); vwPeekCached();");
+  });
+
+  // 16 вариантов живой витрины: кэш заготовки есть у части — у них «Фото» = кадры рендера текущего состояния, у остальных фото нет (3D)
+  type Cam = { name: string; x: number; y: number; rot: number; fov: number; pose: number };
+  const fx = JSON.parse(readFileSync("tests/fixtures/photo-pick-live-1118.json", "utf8")) as {
+    poseVer: number; variants: { id: string; st: string; cams: Cam[] }[]; shots: (Shot & { url: string; cams: Cam[] })[];
+  };
+  const cut = (x: string, y: string) => src.slice(src.indexOf(x), src.indexOf(y));
+  const at = src.indexOf("function vwPubShotAt("), fnSrc = src.slice(at, src.indexOf("\n}", at) + 2);
+  const vwPubShotAt = new Function("POSE_VER", `${src.slice(src.indexOf("const camAng="), src.indexOf("\n", src.indexOf("const camAng=")))};
+${cut("// SHOTCAM START", "// SHOTCAM END")};${block};${fnSrc};return vwPubShotAt;`)(fx.poseVer) as
+    (list: unknown[], st: string, vid: string, cs: Cam[], k: number, noOld?: boolean) => (Shot & { url: string; quality: string; renderKey?: string }) | null;
+  it("16 вариантов: у кого кэш заготовки есть — «Фото» = кадры рендера текущего состояния своих точек; у кого нет — фото нет (3D)", () => {
+    const cached = new Set(["set4", "set7", "set13", "bedroom-2-modern", "bedroom-1-minimal"]);       // как будто заготовка досчитала эти пять
+    const list: unknown[] = [...fx.shots];
+    for (const v of fx.variants.filter((x) => cached.has(x.id))) {
+      const recs = peekShotRecs({ cached: true, key: v.id.padEnd(32, "0"), frames }, { vid: v.id, stateId: v.st, cams: v.cams, products: [], ts: 9 });
+      expect(recs).toHaveLength(2);
+      list.push(...recs);
+    }
+    const got = (v: { id: string; st: string; cams: Cam[] }) => v.cams.map((_, k) => vwPubShotAt(list, v.st, v.id, v.cams, k, true));
+    for (const v of fx.variants) {
+      const r = got(v);
+      if (cached.has(v.id)) {
+        expect(r.every((x) => x && x.quality === "render" && x.stateId === v.st), v.id).toBe(true);
+      } else {
+        // нет кэша: либо фото текущего состояния из реестра (set1, set10…), либо нет вовсе — но не рендер и не чужое состояние
+        expect(r.every((x) => !x || (x.stateId === v.st && x.quality !== "render")), v.id).toBe(true);
+      }
+    }
+    const none = fx.variants.filter((v) => !cached.has(v.id) && got(v).every((x) => x === null)).map((v) => v.id);
+    expect(none).toContain("set16");
+  });
+});

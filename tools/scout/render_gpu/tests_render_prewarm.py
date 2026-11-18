@@ -55,8 +55,9 @@ class FakeEx:
 
 
 class FakeMachine:
-    def __init__(self, ex, spent=0.0, cap=2.0, share=0.6, batch=2, off_idle_s=120):
+    def __init__(self, ex, spent=0.0, cap=2.0, share=0.6, batch=2, off_idle_s=120, total=None, by_field=True):
         self.ex, self.spent, self.cap, self.share, self.batch, self.off_idle_s = ex, spent, cap, share, batch, off_idle_s
+        self.total, self.by_field = total, by_field          # total — общий расход дня (по умолчанию = собственный расход заготовки); by_field=False — состояние до `spent_by`
         self.notes, self.on_calls, self.off_calls, self.desired, self.by = [], 0, 0, 'off', None
 
     def rules(self):
@@ -64,7 +65,10 @@ class FakeMachine:
                 'prewarm': {'day_share': self.share, 'batch': self.batch, 'interval_s': 1, 'start_delay_s': 0, 'tours_max': 0, 'fail_max': 2, 'off_idle_s': self.off_idle_s}}
 
     def state(self):
-        return {'spent_usd': self.spent, 'spent_date': RM.london_date(time.time()), 'desired': self.desired, 'by': self.by}
+        st = {'spent_usd': self.spent if self.total is None else self.total, 'spent_date': RM.london_date(time.time()), 'desired': self.desired, 'by': self.by}
+        if self.by_field:
+            st['spent_by'] = {'prewarm': self.spent}
+        return st
 
     def turn_on(self, by):
         self.on_calls += 1
@@ -267,6 +271,27 @@ try:
     m.spent = 1.2 - per * 2.5
     r = p.once()
     ok(r['state'] == 'partial' and len(ex.calls) == 2, f"денег хватает на 2 комнаты из 4 — считает две и говорит остаток ({r['state']}, {len(ex.calls)})")
+    q.close()
+
+    # ПОТОЛОК — ПО СОБСТВЕННЫМ ТРАТАМ (T-20261118-20/12): общий расход (заказы, пробы, хвосты простоя) заготовку не гасит
+    st, ex, q, m = build(spent=0.1, total=1.5)          # 18.11: общий $1,38 > $1,20, свои ≈ $0,4 — заготовка вставала зря
+    p = prewarmer(q, ex, m, scenes[:2])
+    r = p.once()
+    ok(r['state'] in ('done', 'partial') and m.on_calls == 1 and len(ex.calls) == 2, f"общий расход 1,5 при своём 0,1 и пределе дня 2,0 — считает ({r['state']}, {len(ex.calls)})")
+    q.close()
+    st, ex, q, m = build(spent=0.1, total=2.0)          # общий предел дня исчерпан — главный: заготовка не включает машину
+    p = prewarmer(q, ex, m, scenes)
+    r = p.once()
+    ok(r['state'] == 'cap' and m.on_calls == 0 and ex.calls == [], 'общий предел дня исчерпан — заготовка стоит, хотя свой расход мал')
+    q.close()
+    st, ex, q, m = build(spent=1.19, total=1.3)         # свой потолок 0,6 × 2 = 1,2 — исчерпан своими тратами
+    p = prewarmer(q, ex, m, scenes)
+    r = p.once()
+    ok(r['state'] == 'cap' and m.on_calls == 0 and any('она потратила $1.19' in n and 'всего за день $1.30' in n for n in m.notes), 'свой расход у потолка — стоит; в строке и свои, и общие траты')
+    q.close()
+    st, ex, q, m = build(spent=1.7, total=1.7, by_field=False)      # состояние от контроллера без `spent_by` — свой расход 0, общий предел дня ещё не достигнут
+    p = prewarmer(q, ex, m, scenes[:1])
+    ok(p.spent_prewarm() == 0.0 and p.once()['state'] in ('done', 'partial'), 'нет поля spent_by (старое состояние) — свой расход 0')
     q.close()
 
     # ——— сбойная комната не крутится вечно

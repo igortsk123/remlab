@@ -6918,7 +6918,7 @@ function loadShots(){
       // перерисуют (спальня 1 × сканди при первом открытии) — пересчитываем вкладки открытого окна по пришедшим кадрам
       const sh=document.getElementById('shot'); if(sh&&sh.classList.contains('on')&&sh.classList.contains('v2')&&typeof vwModeUi==='function'){
         // …и окно, открытое в 3D только потому, что кадров ещё не было, встаёт на «Фото» (T-20261107-66 А: так окно ждало в 3D с 2 фото)
-        if(VW.wantPhoto&&VW.mode==='walk'&&!VJ.job&&vwPhotoShots().length){VW.wantPhoto=0; vwMode('photo');} else vwModeUi();}
+        if(VW.wantPhoto&&VW.mode==='walk'&&!VJ.job&&vwPhotoShots().length){VW.wantPhoto=0; vwMode('photo');} else {vwModeUi(); vwPeekCached();}}
       drawColl(true); showSwap(); drawFeed(); drawPhotos&&drawPhotos();
       try{drawHome();}catch(e){}   // карточки главной — по кадрам опубликованного состояния (demo-20 Б2)
       openWantedShot();   // пришли по ссылке на вариант — показываем его фотографию
@@ -10247,6 +10247,7 @@ function openLiveWindow(){
   VW.wantPhoto=0;
   if(real.length){const k=real[0]; VW.mode='photo'; VW.photo=vwCamIndex(k.camera); viewShot(shots.indexOf(k)); return;}
   VW.mode='walk'; VW.wantPhoto=1;   // реестр кадров ещё не пришёл — по приходу встанем на «Фото», если человек сам не выбрал режим (`loadShots`)
+  setTimeout(vwPeekCached,0);       // …а готовый кадр заготовки (кэш рендера) — спрашиваем у сервиса сразу (T-20261118-20/12)
   let i=shots.findIndex(x=>x.vid===vid&&x.live);
   if(i<0){shots.push({url:'',camera:'C1',quality:'live',vid:vid,revision:'',ts:Date.now(),live:true,svc:true}); i=shots.length-1;}
   viewShot(i);
@@ -12098,6 +12099,40 @@ function vwRenderReq(){
     return Object.assign({name:c.name||'C'+(k+1), x:Math.round(c.x), y:Math.round(c.y), rot:Math.round(c.rot||0), fov:c.fov||72, pose:POSE_VER},
       typeof p.pshift==='number'&&isFinite(p.pshift)?{pshift:p.pshift}:{});});
   return {mode:'render', v:1, variant_id:vid, room_id:roomIdOf(v), room:{w:+R.w, d:+R.d}, items:its, cams:cs};
+}
+// ГОТОВЫЙ КАДР ЗАГОТОВКИ — В «ФОТО» БЕЗ ЗАКАЗА (T-20261118-20/12, владелец TG 1867: «нет фото — рендер всегда»). Заготовка (`render_prewarm.py`) кладёт кадры в кэш рендера по ключу,
+// а страница читает реестр фото — связи не было. Окно НЕТРОНУТОГО варианта без фото своей расстановки спрашивает у сервиса «готово ли» (`check` — ключ считает сервер по тому же запросу,
+// что у заказа: ключ точный, ничего не ставится и не стоит) и, если кадры есть, берёт их как после обычного «Сделать фото» (качество `render`, «Улучшить» доступно). Нет — как было (3D и кнопка)
+// PEEKSHOT START
+function peekShotRecs(j, o){
+  if(!j||j.cached!==true||!Array.isArray(j.frames))return [];
+  const fr=j.frames.filter(f=>f&&f.url&&/^C[12]$/.test(f.camera||''));
+  if(fr.length<2||!o||!o.stateId)return [];
+  const batch='b'+o.ts;
+  return fr.map(f=>({url:f.url, camera:f.camera, quality:'render', batch, anchors:[], products:o.products||[], variant:o.variant||'', style:o.style||'', vid:o.vid,
+    revision:o.rev||'', ts:o.ts, stateId:o.stateId, cams:o.cams, engine:'cycles', model:'', sources:'', timing:null, renderKey:j.key||'', sceneHash:j.scene_hash||'', fid:f.id||'', cached:true}));
+}
+// PEEKSHOT END
+const PEEK={};   // `<вариант>|<состояние>` → когда спрашивали (мс; повтор не чаще раза в минуту — заготовка могла дойти, пока окно открыто) или Infinity — кадры взяты
+async function vwPeekCached(){
+  if(TRIAL()||VJ.job||!D||!SHOTS_LOADED)return;
+  const v=allVariants()[cur]; if(!v||!v.id||v.mine||v.cid)return;
+  const st=curStateId(); if(st!==pubStateOf(v)||vwRealShots().length)return;
+  const vid=curVid(), k=vid+'|'+st, now=Date.now();
+  if(PEEK[k]&&now-PEEK[k]<60000)return;
+  let body; try{body=vwRenderReq();}catch(e){return;}
+  PEEK[k]=now;
+  let j=null;
+  try{ const r=await fetch('/api/render/cycles',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(Object.assign({},body,{check:true}))}); j=r.ok?await r.json():null; }catch(e){ return; }
+  if(curVid()!==vid||curStateId()!==st)return;          // ушли в другой вариант или начали править — кадры не этой расстановки
+  const recs=peekShotRecs(j,{vid, stateId:st, cams:body.cams, products:productsOf(items), variant:v.title||'', style:v.style||'', rev:revision(), ts:Date.now()});
+  if(!recs.length||shots.some(x=>x.renderKey&&x.renderKey===recs[0].renderKey&&x.stateId===st))return;
+  PEEK[k]=Infinity;
+  recs.forEach(addShot);
+  const sh=document.getElementById('shot');
+  if(sh&&sh.classList.contains('on')&&sh.classList.contains('v2')){
+    if(VW.wantPhoto&&VW.mode==='walk'&&!VJ.job&&vwPhotoShots().length){VW.wantPhoto=0; vwMode('photo');} else vwModeUi(); }
+  try{drawHome();}catch(e){}
 }
 // «Улучшить фото»: рендер ЭТОЙ расстановки, из которого сделаны показанные кадры (ключ и два кадра рендера); нет рендера — улучшать нечего
 function vwImproveSrc(){
