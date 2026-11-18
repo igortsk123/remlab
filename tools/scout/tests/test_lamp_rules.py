@@ -179,7 +179,7 @@ def test_rules_have_mesh_first_and_dep_gate_in_bank_rules():
     doc = json.load(open(RULES, encoding='utf-8'))
     assert all(p['decor']['лампа']['mesh_first'] is True for p in doc['purposes'].values() if (p.get('decor') or {}).get('лампа'))
     bank = json.load(open(os.path.join(HERE, '..', 'rules', 'bank-candidate.json'), encoding='utf-8'))
-    assert bank['rooms']['bedroom']['dep_gate'] == ['лампа'] and bank['rooms']['bedroom']['dep_gate_demand'] is False
+    assert bank['rooms']['bedroom']['dep_gate'] == ['лампа'] and bank['rooms']['bedroom']['dep_gate_demand'] is True        # директор 18.11: спрос мешей штатно
 
 
 def _facts(demand=False):
@@ -197,3 +197,25 @@ def test_cell_with_usable_lamp_is_ready_cell_with_lamp_without_model_waits_witho
     assert t == 'wait_asset' and why and need is None                 # ждёт, но платный меш в спрос не встаёт
     assert RR.classify('лампа', '9:z', None, _facts(True))[2] == 'mesh'
     assert RR.classify('лампа', '9:z', None, RR.Facts({}, '', set(), {}))[0] == 'ready'     # без dep_gate — как было
+
+
+def test_lamp_without_model_goes_to_mesh_demand_once_per_product(monkeypatch):
+    """Директор 18.11: dep_gate_demand=true — лампа без модели у ячейки → need=mesh, в спросе ровно один раз на товар (на семейство),
+    лампа с моделью и прочее готовое в спрос не идёт."""
+    import bank_pending as BP
+    import room_bank_spec as RBS
+    monkeypatch.setattr(BP, 'SPEC', RBS.for_room('bedroom'))
+    F = _facts(True)
+
+    def cell(i, lamp_eid, style='сканди', tier='комфорт'):
+        it = {'mid': 1, 'eid': 'a', 'url': 'u/1:a'}
+        return {'room_id': f'bedroom-{i}', 'purpose': 'couple', 'band': '13.2', 'style': style, 'tier': tier, 'set_id': f'bed-{i}',
+                'items': {'кровать': dict(it), 'лампа': {'mid': 9, 'eid': lamp_eid, 'url': f'u/9:{lamp_eid}'},
+                          'лампа 2': {'mid': 9, 'eid': lamp_eid, 'url': f'u/9:{lamp_eid}'}}}
+    cand = [cell(1, 'z'), cell(2, 'z'), cell(3, 'y', 'лофт', 'премиум')]
+    # у кровати 1:a модель годна; лампы 9:z и 9:y в привязке нет
+    state, _ = BP.update({}, cand, F, now=1000)
+    assert all(c['status'] == 'wait_asset' and c['mesh_missing'] == 1 for c in state['cells'].values())
+    dem = BP.demand(state, set(), set())
+    assert sorted(d['sku'] for d in dem) == ['9:y', '9:z']                      # по одному разу на товар: две ячейки с 9:z и «лампа 2» — один заказ
+    assert BP.update({}, [cell(1, 'z')], _facts(False), now=1000)[0]['cells'].popitem()[1]['mesh_missing'] == 0   # флаг выключен — спроса нет
