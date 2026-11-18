@@ -6,7 +6,7 @@ import { createRequire } from 'module';
 import http from 'http';
 import https from 'https';
 import fs from 'fs';
-import crypto from 'crypto';
+import { fileSig } from './file_sig.mjs';
 import os from 'os';
 import path from 'path';
 
@@ -62,18 +62,6 @@ const srv = http.createServer((req, res) => {
   }).on('error', () => { miss.push('ERR ' + u); res.writeHead(502); res.end(); });
 });
 let port, browser, page;
-// ПОДПИСЬ ФАЙЛА для кэшей страницы (разобранные меши, закодированные картинки): размер + inode + хеш головы и хвоста (64 КБ). Время изменения в подпись НЕ входит: кэш мешей на DEV
-// отмечает каждое обращение `utime` (`draft_render._touch`), и «размер-время» объявляло файл заменённым в каждом заказе — разбор всех мешей заново (T-20261118-10/4; тот же корень, что в `export_server.file_sig`).
-const SIG_EDGE = 65536;
-function fileSig(f) {
-  const st = fs.statSync(f), fd = fs.openSync(f, 'r');
-  try {
-    const h = crypto.createHash('md5'), b = Buffer.alloc(Math.min(SIG_EDGE, st.size));
-    fs.readSync(fd, b, 0, b.length, 0); h.update(b);
-    if (st.size > SIG_EDGE) { const t = Buffer.alloc(Math.min(SIG_EDGE, st.size - SIG_EDGE)); fs.readSync(fd, t, 0, t.length, st.size - t.length); h.update(t); }
-    return `${st.size}-${st.ino}-${h.digest('hex').slice(0, 16)}`;
-  } finally { fs.closeSync(fd); }
-}
 async function init(bundle, extra) {
   bundleDir = bundle;
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
@@ -268,6 +256,14 @@ if (argv[0] === '--serve') {
     if (req.cmd === 'stop') await bye(0);
     if (req.cmd === 'warm') {       // прогрев в простое: браузер и страница с бандлом поднимаются заранее, первый заказ не ждёт холодного старта
       try { if (!ready) { sink = () => {}; await init(argv[1], {}); ready = true; sink = (s) => process.stdout.write(s + '\n'); } reply({ ok: true }); } catch (e) { reply({ ok: false, error: String(e).slice(0, 200) }); await bye(1); }
+      return;
+    }
+    if (req.cmd === 'hot') {        // прогрев одного меша в простое (T-20261118-10/5): страница разбирает GLB заранее; без заказа — журнала нет
+      let state = 'cold';
+      try {
+        if (ready && /^[A-Za-z0-9_.-]+$/.test(String(req.sid || ''))) state = await page.evaluate((u) => window.hotMesh(u), `/test/mesh-pilot10/${req.sid}/model.glb`);
+      } catch (e) { state = 'error'; }
+      reply({ ok: true, state });
       return;
     }
     const t0 = Date.now();

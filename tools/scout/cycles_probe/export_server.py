@@ -2,6 +2,7 @@
 """ПОСТОЯННЫЙ ПРОЦЕСС ВЫГРУЗКИ МЕШЕЙ И КАМЕР (T-20261118-09/1, шаг 6a): тот же `export_scene.main_export`, но без запуска интерпретатора и импортов на каждый заказ
 (≈0,8 с + выход ≈0,6 с) и с кэшем РАЗОБРАННЫХ мешей между заказами (разбор GLB ≈1,5 с на гостиную; `draft_render._S3_PARTS` — тот же кэш, что у сервиса кадров).
 Запускает исполнитель (`render_exec.ExportClient`); построчный протокол JSON по stdin/stdout:
+  → {"cmd":"hot","sid":<id меша>,"max_rss_mb":N}   ← {"ok":true,"state":"warmed|have|none|ceiling","rss_mb":..,"hot":N}  (прогрев в простое: разобрать меш заранее, T-20261118-10/5)
   → {"cmd":"export","data":<data.json>,"idx":0,"out":<папка задания>,"log":<файл журнала>}   ← {"ok":true,"sec":..,"rss_mb":..,"parts":N} | {"ok":false,"error":"…"}
   → {"cmd":"stop"}
 Вывод экспорта (в т.ч. строки TRACE и «пропущен») — в журнал заказа, как у отдельного процесса. Заказы идут по одному (клиент держит замок).
@@ -24,6 +25,7 @@ IDLE_S = float(os.environ.get('EXPORT_SERVER_IDLE_S', '120'))
 RSS_MAX_MB = float(os.environ.get('EXPORT_SERVER_RSS_MB', '1800'))
 MAX_PARTS = int(os.environ.get('EXPORT_SERVER_MAX_PARTS', '16'))
 KEEP_REQUESTS = int(os.environ.get('EXPORT_SERVER_KEEP_REQUESTS', '2'))
+MAX_HOT = int(os.environ.get('EXPORT_SERVER_MAX_HOT', '12'))        # прогретых заранее мешей, ещё не использованных заказом, — не больше
 
 
 SIG_EDGE = 65536
@@ -72,12 +74,29 @@ class PartsCache:
         self.sig: dict = {}            # ключ → (размер, mtime_ns) файла на момент разбора
         self.used_at: dict = {}        # ключ → номер заказа, где использовался последний раз
         self.n = 0
-        orig = DR._scene3d_parts
+        self.hot: set = set()          # пути мешей, разобранных заранее (прогрев) и ещё не взятых заказом: живут, пока хватает памяти, но не «использованные» (потолок MAX_PARTS их не считает)
+        orig = self.orig = DR._scene3d_parts
 
         def wrapped(glb):
             self.used_at[glb] = self.n
+            self.hot.discard(glb)      # меш взят заказом — дальше обычные правила (последние KEEP_REQUESTS заказов)
             return orig(glb)
         DR._scene3d_parts = wrapped
+
+    def warm(self, glb: str, prepare=None) -> str:
+        """Разобрать меш заранее (в простое между заказами). → 'have' (уже в кэше) | 'warmed'. Файл не читаем из сети: GLB должен лежать в кэше GLB (проверяет вызывающий)."""
+        key = (glb, bool(self.DR.S3_LITE[0]))
+        if key in self.DR._S3_PARTS:
+            return 'have'
+        parts = self.orig(glb)         # не `wrapped`: прогрев не отмечает меш «использованным заказом»
+        if prepare:
+            prepare(parts)             # картинки: декод + хеши + PNG в кэше (иначе они ленивые, и заказ платит за них сам)
+        try:
+            self.sig[key] = file_sig(glb)
+        except OSError:
+            pass
+        self.hot.add(glb)
+        return 'warmed'
 
     @staticmethod
     def _path(key):
@@ -110,8 +129,9 @@ class PartsCache:
                 except OSError:
                     pass
         # время использования записано по ПУТИ файла (`wrapped(glb)`), а ключ кэша — пара (путь, режим): ищем по пути, иначе со 2-го заказа всё «старое» и кэш пуст
-        fresh = [k for k in P if self._path(k) and self.n - self.used_at.get(self._path(k), 0) < KEEP_REQUESTS]
-        old = [k for k in P if self._path(k) and k not in fresh]
+        hot = [k for k in P if self._path(k) in self.hot]
+        fresh = [k for k in P if self._path(k) and k not in hot and self.n - self.used_at.get(self._path(k), 0) < KEEP_REQUESTS]
+        old = [k for k in P if self._path(k) and k not in fresh and k not in hot]
         for k in old:
             P.pop(k, None)
             self.sig.pop(k, None)
@@ -119,6 +139,7 @@ class PartsCache:
             for k in sorted(fresh, key=lambda k: self.used_at.get(self._path(k), 0))[:len(fresh) - MAX_PARTS]:
                 P.pop(k, None)
                 self.sig.pop(k, None)
+        self.hot = {self._path(k) for k in P if self._path(k) in self.hot}          # убранные из кэша (файл заменили) из прогретых уходят
         if old or len(fresh) > MAX_PARTS:
             collect_garbage()
 
@@ -148,6 +169,25 @@ def serve(inp=sys.stdin, out=sys.stdout):
             return 0
         if req.get('cmd') == 'warm':    # процесс уже прогрет импортами (`preload`) — просто отвечаем
             out.write(json.dumps({'ok': True, 'rss_mb': round(rss_mb())}) + '\n')
+            out.flush()
+            continue
+        if req.get('cmd') == 'hot':     # прогрев одного меша в простое (T-20261118-10/5): без заказа — номер заказа и подписи не трогаем
+            state = 'none'
+            try:
+                sid = str(req.get('sid') or '')
+                glb = os.path.join(DR.SCENE3D_CACHE, sid + '.glb')
+                if not sid or os.path.sep in sid or not (os.path.isfile(glb) and os.path.getsize(glb) > 1000):
+                    state = 'none'                                           # нет GLB в кэше — не качаем (сеть и кэш GLB прогревом не трогаем)
+                elif rss_mb() > float(req.get('max_rss_mb') or 0) or len(cache.hot) >= MAX_HOT:
+                    state = 'ceiling'
+                else:
+                    state = cache.warm(glb, ES.prewarm_parts)
+            except Exception as e:  # noqa: BLE001 — прогрев необязателен
+                state = 'error'
+                print(f'hot {req.get("sid")}: {type(e).__name__}: {str(e)[:120]}', file=sys.stderr)
+            if state == 'warmed':
+                collect_garbage()
+            out.write(json.dumps({'ok': True, 'state': state, 'rss_mb': round(rss_mb()), 'hot': len(cache.hot)}) + '\n')
             out.flush()
             continue
         t0 = time.time()

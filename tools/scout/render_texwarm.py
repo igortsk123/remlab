@@ -51,23 +51,9 @@ def showcase_sids(data: dict) -> list:
 
 def warm_mesh(glb: str) -> dict:
     """Все текстуры меша (цвет и шероховатость/металл) → PNG в общий кэш. → {'tex': сколько, 'new': сколько закодировано сейчас}."""
-    import numpy as np
     import export_scene as ES
     import mesh_render as MR
-    n = new = 0
-    for m in MR.load_parts(glb):
-        mat = getattr(getattr(m, 'visual', None), 'material', None)
-        img, _uv = ES._tex_image(m)
-        if img is None:
-            continue
-        for im in (img, getattr(mat, 'metallicRoughnessTexture', None)):
-            if im is None:
-                continue
-            _h, key, _shape = ES._tex_memo(im)[1:4]
-            had = os.path.isfile(os.path.join(ES.TEX_CACHE, key))
-            ES.ensure_png(lambda im=im: np.asarray(im.convert('RGB')), key=key)
-            n += 1
-            new += 0 if had else 1
+    n, new = ES.prewarm_parts(MR.load_parts(glb))
     return {'tex': n, 'new': new}
 
 

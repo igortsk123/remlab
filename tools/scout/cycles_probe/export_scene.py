@@ -142,6 +142,27 @@ def ensure_png(arr, key=None):
     return c
 
 
+def prewarm_parts(parts) -> tuple:
+    """ЗАРАНЕЕ то, что заказ делает с картинками мешей при первой выгрузке: декод пикселей, память хешей (`_tex_memo`, по самим объектам картинок — они в кэше разобранных мешей) и PNG в общем
+    кэше по содержимому (`ensure_png`). Цвет и карта шероховатости/металла. → (сколько картинок, сколько PNG закодировано сейчас). Для прогрева в простое (`export_server` `hot`, `render_texwarm`)."""
+    import numpy as np
+    n = new = 0
+    for m in parts:
+        mat = getattr(getattr(m, 'visual', None), 'material', None)
+        img, _uv = _tex_image(m)
+        if img is None:
+            continue
+        for im in (img, getattr(mat, 'metallicRoughnessTexture', None)):
+            if im is None:
+                continue
+            key = _tex_memo(im)[2]
+            had = os.path.isfile(os.path.join(TEX_CACHE, key))
+            ensure_png(lambda im=im: np.asarray(im.convert('RGB')), key=key)
+            n += 1
+            new += 0 if had else 1
+    return n, new
+
+
 def put_png(arr, dst, key=None):   # (обёрнут в timed ниже)
     """Положить PNG в `dst` из общего кэша (жёсткая ссылка). `key` — готовое имя из `png_key` (хеш уже считали); `arr` может быть функцией — пиксели нужны, только если файла в кэше нет."""
     c = ensure_png(arr, key)

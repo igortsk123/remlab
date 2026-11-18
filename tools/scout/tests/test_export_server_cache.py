@@ -38,7 +38,7 @@ def parse(glb):
     return DR._S3_PARTS[key]
 
 
-DR = types.SimpleNamespace(_S3_PARTS={}, _scene3d_parts=parse)
+DR = types.SimpleNamespace(_S3_PARTS={}, _scene3d_parts=parse, S3_LITE=[False])
 cache = ESV.PartsCache(DR)
 
 
@@ -106,6 +106,32 @@ open(files['a'], 'w').write('aaaa')
 n0 = len(loads)
 order('a')
 check('файл меша изменился — разбор заново', len(loads) == n0 + 1)
+
+# ПРОГРЕВ (T-20261118-10/5): меш, разобранный заранее, живёт вне правил «последние заказы» и вне потолка MAX_PARTS, пока его не возьмёт заказ; взятый — как обычный
+DR._S3_PARTS.clear()
+cache.sig.clear(); cache.used_at.clear(); cache.hot.clear(); loads.clear()
+for _ in range(3):
+    order('ab')
+n0 = len(loads)
+check('прогрев: новый меш разбирается один раз → warmed, повтор → have', cache.warm(files['f']) == 'warmed' and cache.warm(files['f']) == 'have' and len(loads) == n0 + 1)
+for _ in range(4):
+    order('ab')                                  # прогретый f не использован уже 4 заказа подряд, но прогретый — не «старый»
+check('прогретый меш не вытесняется правилом «последние KEEP_REQUESTS заказов»', (files['f'], False) in DR._S3_PARTS and files['f'] in cache.hot)
+ESV.MAX_PARTS = 2
+order('ab')
+check('прогретые не считаются в потолок MAX_PARTS (использованные a,b на месте, f тоже)', cache.count() == 3)
+ESV.MAX_PARTS = 16
+n0 = len(loads)
+order('abf')                                     # заказ берёт прогретый f: разбора нет, меш больше не «прогретый»
+check('заказ с прогретым мешем: разбора нет, меш перешёл в обычные', len(loads) == n0 and files['f'] not in cache.hot)
+order('ab'); order('ab')
+check('взятый заказом и забытый — убирается по обычному правилу', (files['f'], False) not in DR._S3_PARTS)
+cache.warm(files['g'])
+open(files['g'], 'w').write('GGGG')               # файл прогретого меша заменили до заказа
+cache.begin()
+check('файл прогретого меша заменили — запись долой (заказ разберёт заново)', (files['g'], False) not in DR._S3_PARTS)
+cache.end()
+check('после заказа прогретых в списке нет (замена учтена)', files['g'] not in cache.hot)
 
 print('итог:', 'чисто' if not fails else f'{len(fails)} падений')
 sys.exit(1 if fails else 0)
