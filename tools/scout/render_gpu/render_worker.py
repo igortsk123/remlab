@@ -41,12 +41,13 @@ import machine_agent as MA  # noqa: E402
 WORK = os.environ.get('WORK', '/work')
 POLL = float(os.environ.get('JOB_POLL_S', '0.5'))    # было 3 с (T-24/4), потом 1 с; T-24/11 — 0,5 с: ожидание задания в среднем 0,25 с
 MAX_AGE = float(os.environ.get('JOB_MAX_AGE_S', '7200'))
+ABORT_S = float(os.environ.get('JOB_ABORT_S', '120'))           # каталог без job.json старше этого — отправка брошена (job.json пишется последним): навсегда пропускаем, не пере-проверяем (≈0,6 с на каталог на каждом круге)
 CACHE_N = int(os.environ.get('CACHE_N', '3'))
 CACHE_GB = float(os.environ.get('CACHE_GB', '1.5'))
 BLOB_GB = float(os.environ.get('BLOB_GB', '4'))
 ASSET_PAR = int(os.environ.get('ASSET_PAR', '4'))
 HOT_GB = float(os.environ.get('HOT_GB', '2.5'))               # подогрев: не больше этого объёма (кэш ассетов BLOB_GB = 4 — запас под задание)
-HOT_PAR = int(os.environ.get('HOT_PAR', '2'))
+HOT_PAR = int(os.environ.get('HOT_PAR', '4'))
 HOT_REFRESH_S = float(os.environ.get('HOT_REFRESH_S', '600'))
 BL = MA.BL
 log = MA.log
@@ -423,6 +424,9 @@ class Worker:
             if 'result.json' in names or 'cancel.json' in names:
                 self.done.add(n)
                 continue
+            if 'job.json' not in names and now - float(d.get('mtime', 0)) > ABORT_S:
+                self.done.add(n)                   # брошенная отправка (T-20261118-09/8): не пере-проверяем на каждом круге
+                continue
             if 'job.json' in names:
                 if isinstance(pr['job'], dict):
                     self.pre[n] = pr['job']
@@ -740,6 +744,7 @@ def main() -> int:
     if not base or not tok:
         log('нет MESH_SINK_URL/MESH_SINK_TOKEN — воркер не работает')
         return 2
+    MA.STATE['hot'] = {'done': False}          # T-20261118-09/8: «подогрев не закончен» — с САМОЙ первой отметки готовности (раньше поле появлялось позже, и контроллер мог объявить «прогрелась» до подогрева)
     MA.STATE['caps'] = {'frames': list(JP.FRAMES_CAPS), 'masks': 1}      # T-24/11: что воркер умеет (уходит в ready.json → state контроллера → исполнитель шлёт jpg только такой машине)
     threading.Thread(target=MA.main, daemon=True, name='agent').start()      # готовность и отметка ready.json — как у агента
     w = Worker(JP.Sink(base, tok))

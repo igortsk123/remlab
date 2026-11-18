@@ -277,6 +277,24 @@ try:
     RM.set_note('Заготовка кадров: проба')
     ok(json.load(open(os.path.join(RM.STATE_DIR, 'state.json')))['note'] == 'Заготовка кадров: проба', 'render_machine.set_note пишет строку в состояние')
     ok(RM.load_rules()['prewarm']['day_share'] == 0.6 and RM.load_rules()['prewarm']['tours_max'] == 0, 'правила: доля дня 0,6, туры 0 — по умолчанию')
+    # ГОРЯЧИЙ СПИСОК (T-20261118-09/8): обновляется при смене версий/данных, один раз на ключ, сбой не закрепляется
+    st, ex, q, m = build()
+    p = prewarmer(q, ex, m, scenes[:1], versions={'preset': 3})
+    calls = []
+    p.hot_fn = lambda e: calls.append(1) or 0
+    pwr = p.rules()['pw']
+    ok(p.refresh_hot(pwr) == 'ok' and len(calls) == 1, 'горячий список: первый раз — записан')
+    ok(p.refresh_hot(pwr) == '' and len(calls) == 1, 'тот же ключ (версии и данные) — второй раз не пишем')
+    p.versions = {'preset': 4}
+    ok(p.refresh_hot(pwr) == 'ok' and len(calls) == 2, 'версии рендера сменились — список переписан')
+    p.versions = {'preset': 5}
+    p.hot_fn = lambda e: 2
+    ok(p.refresh_hot(pwr) == 'fail' and p.hot_key != json.dumps({'preset': 5}, sort_keys=True) + '|0', 'сбой (код 2) — ключ не закреплён, повтор на следующем проходе')
+    p.hot_fn = lambda e: (_ for _ in ()).throw(RuntimeError('нет приёмника'))
+    ok(p.refresh_hot(pwr) == 'fail', 'исключение не пробрасывается')
+    p.hot_fn = lambda e: calls.append(1) or 0
+    ok(p.refresh_hot(dict(pwr, hot_refresh=0)) == 'skip', 'prewarm.hot_refresh = 0 — не трогаем')
+    q.close()
 finally:
     shutil.rmtree(TMP, ignore_errors=True)
 
