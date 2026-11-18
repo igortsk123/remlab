@@ -148,7 +148,7 @@ def prep_fast() -> bool:
     return os.environ.get('RENDER_PREP_FAST', '1') != '0'
 
 
-EXPORT_KEEP_GB = float(os.environ.get('RENDER_EXPORT_KEEP_GB', '0.9'))      # потолок памяти постоянной выгрузки (Python) после заказа
+EXPORT_KEEP_GB = float(os.environ.get('RENDER_EXPORT_KEEP_GB', '1.5'))      # потолок памяти постоянной выгрузки (Python) после заказа
 DUMP_KEEP_GB = float(os.environ.get('RENDER_DUMP_KEEP_GB', '2.4'))          # то же для Node + Chromium (сам Chromium со сценой ≈1,2 ГБ)
 
 

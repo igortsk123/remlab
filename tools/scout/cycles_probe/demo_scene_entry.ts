@@ -203,7 +203,11 @@ const settleScene = async (scene: THREE.Scene, capMs: number): Promise<number> =
   mark("plantsSettled");
   if (a.settle === false) { await new Promise((r) => setTimeout(r, 1500)); mark("pause_1500"); }
   else { const w = await settleScene(viewer.scene, 1500); mark("settle_" + w.toFixed(2)); }
-  (window as Any).__export = { ...(window as Any).__export, plants: viewer.plantReport() };
+  // замена товара на странице ведёт анимацию (подрастание 0.94 → 1 за 250 мс, силуэт прежнего): выгрузка — только по конечному состоянию, не по часам
+  viewer.settleSwaps();
+  // порядок журнала растений — по порядку загрузки (гонка): сортируем по слоту, чтобы одна сцена давала один файл
+  const plants = [...viewer.plantReport()].sort((x, y) => (x.slotId < y.slotId ? -1 : x.slotId > y.slotId ? 1 : 0));
+  (window as Any).__export = { ...(window as Any).__export, plants };
   (window as Any).__scene = viewer.scene;
   (window as Any).__sc = sc;
   return {
