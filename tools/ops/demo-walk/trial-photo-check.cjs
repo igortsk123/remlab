@@ -108,7 +108,7 @@ async function open(b, d) {
       if (id === 'probe34r') {
         const n = ++p.rpolls;
         if (process.env.WARM === '1' && n < 3) return json({ status: 'queued', kind: 'render', stage: '', percent: 0, eta: 120, eta_range: [100, 180], queue: 1,
-          machine: { state: 'warming', text: 'Машина рендера прогревается, ≈2 мин', text_en: 'The render machine is warming up, ≈2 min', eta_s: 120 } });   // T-10/7: статус машины от сервера
+          machine: { state: 'warming', text: 'Первое создание снимка займёт ≈2 мин, далее ≈25 сек. Подождите, пожалуйста.', text_en: 'The first photo will take about 2 min, then about 25 sec. Please wait.', eta_s: 120 } });   // T-10/7: статус машины от сервера
         if (n < 3) return json({ status: 'running', kind: 'render', stage: 'C1', percent: n * 20, eta: 50 - n * 10, eta_range: [40, 60], queue: 0 });
         return json({ status: 'done', kind: 'render', key: RKEY, scene_hash: 'a'.repeat(64), cached: false, percent: 100, timing: {},
           frames: ['C1', 'C2'].map((c, k) => ({ camera: c, url: `/probe34/r${k + 1}.jpg`, id: RFR[k].id, w: 1600, h: 1000 })) });
@@ -177,7 +177,7 @@ async function trusted(b, name, room) {
     improve: o2, improved, orders: p.orders.length, renders: p.renders, frames: p.frames.length, realisticShots: got, sandboxRender: await sandbox(p),
     console: p.log.filter(l => /error|Error|рендер/.test(l)).slice(-6) };
   // WARM=1 (T-10/7): сервер сказал «машина прогревается» — видно его текст и очередь, процентов нет; иначе — «Делаю фото · N %»
-  const wantProg = process.env.WARM === '1' ? (LANG === 'en' ? /^The render machine is warming up, ≈2 min/ : /^Машина рендера прогревается, ≈2 мин/) : LANG === 'en' ? /^Rendering · \d+ %/ : /^Делаю фото · \d+ %/;
+  const wantProg = process.env.WARM === '1' ? (LANG === 'en' ? /^The first photo will take about 2 min/ : /^Первое создание снимка займёт ≈2 мин/) : LANG === 'en' ? /^Rendering · \d+ %/ : /^Делаю фото · \d+ %/;
   const rOk = o && o.kind === 'render' && o.mode === 'render' && o.v === 1 && o.variant_id && !o.views && o.items > 0 && o.sids && o.cams.join() === 'C1,C2' && o.room_id === room;
   const iOk = o2 && o2.kind === 'improve' && o2.render_key === RKEY && o2.quality === 'realistic' && Array.isArray(o2.views) && o2.views.length === 2
     && o2.views.every((v, k) => v.id === RFR[k].id);

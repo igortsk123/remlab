@@ -54,10 +54,10 @@ describe("смена варианта без повторной работы", (
   const block = cut("function pickVariant(", "// ЛЮБОЙ ПОЛНОЭКРАННЫЙ СЛОЙ");
   it("список рисуется один раз (его рисует `load` → `draw`), коллекция — не повторно", () => {
     const n = { basket: 0, coll: 0 };
-    const pick = new Function("cur", "load", "basket", "drawColl", "syncHash", "document", "allVariants", "baseRev", "items", "revision",
+    const pick = new Function("cur", "load", "basket", "drawColl", "syncHash", "document", "allVariants", "baseRev", "items", "revision", "editShelf",
       `${block};return pickVariant;`)(
       0, () => { n.basket++; n.coll++; }, () => { n.basket++; }, () => { n.coll++; }, () => {},
-      { getElementById: () => ({ hidden: false, textContent: "" }) }, () => [{}, { style: "лофт" }], "", [], () => "",
+      { getElementById: () => ({ hidden: false, textContent: "" }) }, () => [{}, { style: "лофт" }], "", [], () => "", () => false,
     ) as (i: number) => void;
     pick(1);
     expect(n).toEqual({ basket: 1, coll: 1 });

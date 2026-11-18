@@ -1654,9 +1654,9 @@ ok('фазы машины: годна → ready; включена, не прог
 ok('фазы: предел дня исчерпан → cap; включение по заказу выключено правилом → disabled; деградация → degraded',
    phase_of(spent_usd=2.0) == 'cap' and phase_of(wake=False) == 'disabled' and phase_of(desired='on', gen=2, warm_gen=2, degraded_since=5) == 'degraded')
 mi = Exec(FakeSink(), WakeMachine(), PUBLIC).machine_info()
-ok('machine_info при выключенной (заказ включит): warming, текст RU/EN с «≈N мин», eta_s>0', mi['state'] == 'warming' and mi['text'].startswith('Машина рендера прогревается') and mi['text_en'] and mi['eta_s'] > 0)
+ok('machine_info при выключенной (заказ включит): warming, текст про снимок RU/EN «Первое создание снимка займёт ≈N мин, далее ≈25 сек», без слов про машину, eta_s>0', mi['state'] == 'warming' and mi['text'].startswith('Первое создание снимка займёт ≈') and 'далее ≈25 сек' in mi['text'] and not any(w in mi['text'].lower() for w in ('машин', 'рендер', 'запасн')) and mi['text_en'].startswith('The first photo will take') and mi['eta_s'] > 0)
 mi2 = Exec(FakeSink(), WakeMachine(spent_usd=2.0), PUBLIC).machine_info()
-ok('machine_info при пределе дня: fallback, тексты RU/EN, eta_s 0', mi2['state'] == 'fallback' and 'лимит' in mi2['text'] and mi2['text_en'] and mi2['eta_s'] == 0)
+ok('machine_info при пределе дня: fallback, текст подставит очередь (`_fill`: «Снимок будет готов через ≈N …»), у исполнителя пусто, eta_s 0', mi2['state'] == 'fallback' and mi2['text'] == '' and mi2['text_en'] == '' and mi2['eta_s'] == 0)
 mi3 = Exec(FakeSink(), WakeMachine(desired='on', gen=2, warm_gen=2), PUBLIC).machine_info()
 ok('machine_info прогретой: ready, пустые тексты', mi3 == {'state': 'ready', 'text': '', 'text_en': '', 'eta_s': 0})
 
@@ -1698,7 +1698,7 @@ for name, mach, code in (('предел дня (state)', WakeMachine(spent_usd=2
         render(Exec(FakeSink(), mach, PUBLIC), os.path.join(TMP, 'oF'))
         ok(f'{name}: отказ', False)
     except RE.ExecutorUnavailable as e:
-        ok(f'{name} → {code}, пара RU/EN «Считаем на запасной», хранилище не тронуто', e.code == code and 'запасной' in e.ru and 'backup' in e.en)
+        ok(f'{name} → {code}, пара RU/EN про снимок (без «машина/рендер/запасной»), хранилище не тронуто', e.code == code and e.ru.startswith('Снимок сейчас') and e.en.startswith('The photo') and not any(w in e.ru.lower() for w in ('машин', 'рендер', 'запасн')))
 mOff = WakeMachine(warm_after=99)
 exOff = Exec(FakeSink(), mOff, PUBLIC)
 threading.Timer(0.8, lambda: mOff.st.update(desired='off')).start()

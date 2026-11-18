@@ -102,8 +102,8 @@ export async function askRender(id: string, inp: TrialRenderIn, ip: string, send
   if (r.status === 200 && b && typeof b.job === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(b.job)) return { ok: true, status: 200, body: b };
   if (inp.check && r.status === 200 && b && typeof b.scene_hash === "string" && /^[0-9a-f]{64}$/.test(b.scene_hash)) return { ok: true, status: 200, body: b };   // проверка хеша: задания нет
   const code = typeof b?.code === "string" ? b.code : "render_unavailable";
-  const msg = typeof b?.error === "string" ? b.error.slice(0, 300) : "Рендер сейчас недоступен. Попробуйте позже.";
-  const en = typeof b?.error_en === "string" ? b.error_en.slice(0, 300) : "Rendering is unavailable right now. Try again later.";
+  const msg = typeof b?.error === "string" ? b.error.slice(0, 300) : "Снимок сейчас недоступен. Попробуйте позже.";
+  const en = typeof b?.error_en === "string" ? b.error_en.slice(0, 300) : "The photo is unavailable right now. Try again later.";
   return { ok: false, status: r.status >= 400 && r.status < 600 ? r.status : 503, error: code, message: msg, messageEn: en,
     ...(r.retryAfter ? { retryAfter: r.retryAfter } : typeof b?.retry_after === "number" ? { retryAfter: b.retry_after } : {}) };
 }

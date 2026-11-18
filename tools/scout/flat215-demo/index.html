@@ -383,7 +383,9 @@ body.hm-bot-on{padding-bottom:var(--hm-bot)}
    между фото и строкой цены (T-20261108-78, владелец 08.11 TG 643: «показывать под фотографией, чтобы человек случайно не нажал;
    высоту карточки увеличивать, изображение затемнять»; прежде — поверх фото внизу, T-77). Фото целиком открывает комнату, кнопки —
    только в своей полосе; без пометки карточка прежней высоты */
-.hm-room .hm-ph.stale::after{content:'';position:absolute;inset:0;background:rgba(38,30,24,.34);pointer-events:none}
+/* ФОТО «ИЗМЕНЕНО» — ЗАМЕТНО УСТАРЕВШЕЕ (владелец 18.11, TG 1914/1940: «а то кажется, будто всё ок, просто чуть темнее» → вариант Б): затемнение .45 + обесцвечивание фото */
+.hm-room .hm-ph.stale::after{content:'';position:absolute;inset:0;background:rgba(38,30,24,.45);pointer-events:none}
+.hm-room .hm-ph.stale img{filter:grayscale(.75) saturate(.6)}
 .hm-room .hm-ph.stale .ttl{z-index:1}
 .hm-room .hm-stale{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:10px 12px 2px;color:var(--ink);text-align:left;cursor:default}
 .hm-room .hm-stale b{max-width:100%;font-size:13px;line-height:1.25;font-weight:600;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -392,8 +394,15 @@ body.hm-bot-on{padding-bottom:var(--hm-bot)}
 .hm-room .hm-stb .btn{flex:0 0 auto;min-height:30px;padding:0 12px;font-size:13px;line-height:1;font-weight:500;white-space:nowrap;border-radius:999px}
 @media(max-width:340px){.hm-room .hm-stale{padding:10px 10px 0}.hm-room .hm-stb{gap:5px}.hm-room .hm-stb .btn{padding:0 9px;font-size:12px}}
 /* компьютер: надпись слева, кнопки справа — одной строкой */
-@media(min-width:1000px){.hm-room .hm-stale{flex-direction:row;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px 0}
+/* надпись — отдельной строкой СВЕРХУ, кнопки под ней на всех ширинах (владелец 18.11, TG 1908: «надпись сделай вверху») — ряда на компьютере больше нет */
+@media(min-width:1000px){.hm-room .hm-stale{padding:12px 16px 0}
   .hm-room .hm-stale b{font-size:14px}.hm-room .hm-stb .btn{min-height:34px;padding:0 14px;font-size:14px}}
+/* пока идёт снимок или улучшение: вместо «Вы изменили комнату» — ТОТ ЖЕ статус, что внутри окна (`jobProg`: текст и ход), кнопки заблокированы с прежними надписями (TG 1898, 1916–1918) */
+.hm-room .hm-stale.wait b{white-space:normal;overflow:visible;text-overflow:clip}
+.hm-room .hm-stale small{font-size:13px;line-height:1.3;color:var(--muted)}
+.hm-room .hm-stale .hm-bar{align-self:stretch;height:4px;border-radius:999px;background:var(--line,#e8ded6);overflow:hidden}
+.hm-room .hm-stale .hm-bar i{display:block;height:100%;width:0;border-radius:999px;background:var(--accent,#b06a4a);transition:width 1s linear}
+.hm-room .hm-stale .btn[disabled]{opacity:.5;cursor:default;pointer-events:none}
 .hm-room .rb{display:flex;align-items:center;gap:8px;padding:12px}
 .hm-room .rb .sum{flex:1;min-width:0;font-size:16px;white-space:nowrap}
 .hm-room .rb .sum small{display:block;color:var(--muted);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
@@ -3169,6 +3178,7 @@ function init(){
       if(c&&c.rv.index!==cur){cur=c.rv.index; load();}}}
   applyHash();
   HOME.ready=true; drawHome(true);
+  setTimeout(()=>{try{ordersResume();}catch(e){}},0);   // заказы фото с прошлого открытия страницы (T-20261118-20/14/1)
 }
 // ВЫБОР КВАРТИРЫ ИЗ АДРЕСА (home-mix-01; было demo-16 `?style=`): смесь `mix=` → старая `?style=loft` (этот стиль во всех комнатах).
 // Ссылка на комнату `#v=` без них — квартира в стиле этой комнаты (как раньше вкладка шла за открытым вариантом); `#c=` — по умолчанию.
@@ -3198,7 +3208,7 @@ function homePreload(){
     SHOTS_LOADED=true;
     const u=homeUrlPick(), L=homeLayout(homeModel(), u.sel), c=L.find(x=>x.rv&&x.r.id===u.room)||L.find(x=>x.rv), v=c&&allVariants()[c.rv.index];
     if(!v||varPending(v)||varRefused(v))return;
-    const pc=posterCam(v), bs=bestShot(v,pc), sh=bs&&bs.quality==='realistic'?bs:realisticPublishedShot(v,pc);
+    const pc=posterCam(v), bs=bestShot(v,pc), sh=isPhotoShot(bs)?bs:realisticPublishedShot(v,pc);
     // карточка и на компьютере начинает с миниатюры (`hmHq`, вариант А T-20261111-01) — её и грузим; полный кадр — после неё
     const img=sh?thumbOf(sh):''; if(!img)return;
     const l=document.createElement('link'); l.rel='preload'; l.as='image'; l.setAttribute('fetchpriority','high'); l.dataset.hmPreload='1';
@@ -7062,12 +7072,17 @@ function shotFits(s, v){
 }
 // ОБЛОЖКА КОМНАТЫ НА ГЛАВНОЙ (T-32/3): точка с пометкой `poster` (подбор пары по правилу зоны `poster`), иначе точка 1
 function posterCam(v){ return ((v&&v.cams||[]).find(c=>c.poster)||{}).name||'C1'; }
+// «ЭТО ФОТО КОМНАТЫ» — ОДНО МЕСТО (T-20261118-20/14/1, живой дефект владельца TG 1964): фото — и улучшенное нейросетью (`realistic`), и рендер «Сделать фото» (`render`, с 17.11).
+// Карточки, окно, избранное и подбор решают «есть ли своё фото» только через неё; раньше шесть мест сверяли `quality==='realistic'` — готовый рендер правленой
+// комнаты карточка не признавала, и «Вы изменили комнату» не уходило. Улучшенное перекрывает рендер той же расстановки (`photoPool`)
+function isPhotoShot(x){ return !!x&&(x.quality==='realistic'||x.quality==='render'); }
+function photoPool(fit){ const real=fit.filter(x=>x.quality==='realistic'); if(real.length)return real; const rd=fit.filter(x=>x.quality==='render'); return rd.length?rd:fit; }
 function bestShot(v,cam){
   const vid=v.id||('v'+allVariants().indexOf(v));
   // ФОТО НЕЙРОСЕТИ ВАЖНЕЕ ЧЕРНОВИКА, но только среди кадров ЭТОЙ расстановки; из них — точка `cam` (по умолчанию 1), последний снятый
   const fit=shots.filter(x=>x.vid===vid&&x.url&&!x.orphan&&(DBG||!x.svc)&&shotFits(x,v));
   if(!fit.length)return null;
-  const real=fit.filter(x=>x.quality==='realistic'), pool=real.length?real:fit;
+  const pool=photoPool(fit);
   const c1=pool.filter(x=>(x.camera||'C1')===(cam||'C1')), P=c1.length?c1:pool;
   return P[P.length-1]||null;
 }
@@ -7552,7 +7567,7 @@ function homeVarList(){
   const m=homeModel(), liv=m.rooms.filter(r=>r.kind==='living');
   const L=m.styles.map(s=>{let sh=null;
     liv.some(r=>{const rv=m.roomVariants.find(x=>x.styleId===s.id&&x.roomId===r.id); if(!rv)return false;
-      const p=realisticPublishedShot(allVariants()[rv.index],'C1'); if(p&&p.quality==='realistic'&&(p.thumb||p.url)){sh=p; return true;} return false;});
+      const p=realisticPublishedShot(allVariants()[rv.index],'C1'); if(isPhotoShot(p)&&(p.thumb||p.url)){sh=p; return true;} return false;});
     return {id:s.id, title:s.title, img:sh?(sh.thumb||sh.url):''};});
   const ph=L.filter(x=>x.img); return ph.length?ph:L;
 }
@@ -7667,7 +7682,7 @@ function mixRoomList(room){
   for(const x of m.roomVariants){
     if(x.roomId!==room||out.some(o=>o.id===x.styleId))continue;
     const v=allVariants()[x.index], p=realisticPublishedShot(v,posterCam(v)), no=VL.findIndex(s=>s.id===x.styleId);
-    const img=p&&p.quality==='realistic'?(p.thumb||p.url):'';
+    const img=isPhotoShot(p)?(p.thumb||p.url):'';
     out.push({id:x.styleId, no:no<0?99:no, title:homeStyleTitle(m,x.styleId), img, pv:TRIAL()&&!img&&v?trialPlanSvg(v):''});
   }
   return out.sort((a,b)=>a.no-b.no);
@@ -7703,6 +7718,12 @@ function mixApply(ids){
 }
 window.__mixOpen=mixOpen; window.__mixApply=mixApply;   // итог опроса «Все варианты» и проверки (demo-walk)
 function homeM2(a){ return a?String(a).replace('.',LANG==='en'?'.':',')+(LANG==='en'?' m²':' м²'):''; }
+function homeWaitPaint(){
+  if(!VJ.job)return; const w=jobCardProg(VJ.job);
+  document.querySelectorAll('#hmRooms .hm-stale.wait').forEach(el=>{const b=el.querySelector('b'); if(b&&b.textContent!==w.text)b.textContent=w.text;
+    const s=el.querySelector('small'); if(s&&s.textContent!==(w.note||''))s.textContent=w.note||'';
+    const bi=el.querySelector('.hm-bar i'); if(bi)bi.style.width=w.pct.toFixed(1)+'%';});
+}
 function drawHome(force){
   const box=document.getElementById('hmRooms'); if(!box||!D)return;
   const m=homeModel(), EN=LANG==='en';
@@ -7718,7 +7739,7 @@ function drawHome(force){
     // ТОЛЬКО ФОТО НЕЙРОСЕТИ (TG 341, часть 0 T-35): фото нынешней расстановки (правленый вариант, если его сняли; правки комнаты
     // живут в `editRestore`/`variantItems`, photo-sharp-keep-01), иначе `realisticPublishedShot`. Кадр 3D (`liveShot`) и черновик
     // `pubShot` на карточку не идут
-    const pc=posterCam(v), bs=bestShot(v,pc), own=!!bs&&bs.quality==='realistic', sh=own?bs:realisticPublishedShot(v,pc);
+    const pc=posterCam(v), bs=bestShot(v,pc), own=isPhotoShot(bs), sh=own?bs:realisticPublishedShot(v,pc);
     // ФОТО НЕ ЭТОЙ РАССТАНОВКИ — ПОМЕТКА «ИЗМЕНЕНО» (T-20261108-71 Б, владелец TG 563): комнату правили (номер состояния ≠ опубликованному),
     // а своего фото у правки нет — на карточке прежнее фото, затемнённое, как в окне (`.vstale`); сумма — новая. Снимается, когда
     // расстановка снова совпала с фото («Вернуть как было», ↶ до исходного) или сняли её фото (`bestShot`)
@@ -7730,11 +7751,13 @@ function drawHome(force){
     let img=sh?thumbOf(sh):'', full=sh?sh.url:'', ld=false, card=false;
     // готовый снимок с сервера (`trCardOf`) — сразу, браузер не снимает; нет — снимок браузера, пока его нет — схема (как было)
     if(!sh&&TRIAL()){const c=trCardOf(v), u=c||trHomeShotOf(v); if(u)img=full=u; card=!!c; if(!c)TR_HS.want.push(v);}
-    return {r, i:rv.index, v, want, img, full, ld, card, n:variantCount(v), sum:variantPrice(v), stale, back};
+    // идёт снимок или улучшение ЭТОЙ расстановки — на карточке ход «Создание фото…» + срок + полоса (`jobCardProg`), вместо «Вы изменили комнату»; кнопки заблокированы (владелец 18.11, TG 1898, 1916–1918)
+    const wj=VJ.job&&!VJ.job.auto&&VJ.job.stateId===variantStateOf(v)?jobCardProg(VJ.job):null;
+    return {r, i:rv.index, v, want, img, full, ld, card, n:variantCount(v), sum:variantPrice(v), stale, back, wait:wj};
   });
   if(TRIAL()&&TR_HS.want.length)trHomeShotsSoon();
   // картинки не моргают (как `drawColl`): пересобираем, только если изменилось то, из чего экран состоит
-  const sig=JSON.stringify([LANG, FLAT?[FLAT.id,FLAT.currency,fxRate()]:0, HOME.room, mixEncode(mixEff(HOME.sel,m.styles.map(s=>s.id))), m.styles.map(s=>s.id), cards.map(c=>c.stub?[c.r.id]:[c.r.id,c.i,c.want,c.img,c.ld,c.n,c.sum,c.stale,c.back]), m.rooms.map(r=>[r.title,r.areaM2])]);
+  const sig=JSON.stringify([LANG, FLAT?[FLAT.id,FLAT.currency,fxRate()]:0, HOME.room, mixEncode(mixEff(HOME.sel,m.styles.map(s=>s.id))), m.styles.map(s=>s.id), cards.map(c=>c.stub?[c.r.id]:[c.r.id,c.i,c.want,c.img,c.ld,c.n,c.sum,c.stale,c.back,!!c.wait]), m.rooms.map(r=>[r.title,r.areaM2])]);
   homeFavUi(); homeCertDraw(); homeTips();
   if(!force&&sig===HOME.sig)return; HOME.sig=sig;
   const plural=n=>EN?(n===1?'item':'items'):(n%10===1&&n%100!==11?'товар':(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?'товара':'товаров'));
@@ -7785,9 +7808,10 @@ function drawHome(force){
       // макет 07.11: сердечка и «Поделиться» на карточке нет; чипа «✓ Просмотрено» нет (владелец 08.11 TG 592, T-20261108-72)
       `${approxTag(c.r.id)}<div class="ttl">${t}</div></div>`+
       // пометка «Вы изменили комнату» — полосой ПОД фото, не поверх (T-20261108-78, владелец TG 643: «чтобы человек случайно не нажал»)
-      (c.stale?`<div class="hm-stale"><b>${EN?'You changed the room':'Вы изменили комнату'}</b><div class="hm-stb">`+
-        `<button class="btn primary" type="button" data-hst="real">${EN?CTA_REAL_EN:CTA_REAL}</button>`+
-        (c.back?`<button class="btn" type="button" data-hst="back">${EN?'Restore':'Вернуть как было'}</button>`:'')+`</div></div>`:'')+
+      (c.stale||c.wait?`<div class="hm-stale${c.wait?' wait':''}"><b>${c.wait?escHtml(c.wait.text):(EN?'You changed the room':'Вы изменили комнату')}</b>`+
+        (c.wait?`<small>${escHtml(c.wait.note||'')}</small><div class="hm-bar"><i style="width:${c.wait.pct.toFixed(1)}%"></i></div>`:'')+`<div class="hm-stb">`+
+        `<button class="btn primary" type="button" data-hst="real"${c.wait?' disabled':''}>${EN?CTA_REAL_EN:CTA_REAL}</button>`+
+        (c.back?`<button class="btn" type="button" data-hst="back"${c.wait?' disabled':''}>${EN?'Restore':'Вернуть как было'}</button>`:'')+`</div></div>`:'')+
       `<div class="rb"><div class="sum">${TR_NOGOODS()?`<b>${c.n} ${plural(c.n)}</b>`:`<b>${money(c.sum)}</b><small>${c.n} ${plural(c.n)}</small>`}</div>`+
       `<button class="hm-go" type="button" data-swap="${c.i}" aria-label="${EN?'Open the room':'Открыть комнату'}">›</button></div></article>`;
   }).join('')+
@@ -7938,6 +7962,12 @@ document.addEventListener('click',e=>{
 // без повторов (T-20261113-16, замер смены стиля ×4): `load` → `draw` уже нарисовал список (`basket`) и коллекцию (`drawFeed` →
 // `drawColl`) нового варианта — второй раз их не рисуем (было: список дважды, коллекция трижды)
 function pickVariant(i){ if(i===cur){showSwap();syncHash();return;}
+  // ОТДЕЛКА — СВОЯ У КАЖДОГО ВАРИАНТА ВИТРИНЫ (T-20261118-20/14/1, исследование ложного «Вы изменили комнату»): `DEVOPT` общий на страницу и раньше
+  // переезжал из комнаты в комнату — пол, выбранный в одной, делал «изменённой» другую, которую человек не трогал (номер состояния ≠ опубликованному).
+  // Открывая другой вариант витрины, берём его отделку: из последнего шага его истории, иначе заводскую `v.dev` (как `histPubPush`)
+  const nv=allVariants()[i];
+  if(nv&&editShelf(nv)){ const h=HIST[editVid(nv)], st=h&&h.at>=0?h.stack[h.at]:null, d=devCanon(clone((st?st.dev:nv.dev)||{}));
+    if(JSON.stringify(d)!==JSON.stringify(DEVOPT)){DEVOPT=d; devApply(); devDraw();} }
   cur=i; load(); showSwap(true); syncHash(); }
 // ССЫЛОК «ВСЯ КВАРТИРА В 3D» / «ПОСМОТРЕТЬ В 3D» НЕТ (demo-20 Г6, владелец 22.10 TG 869: «устаревший и сложный функционал; пока
 // не удаляй, но ссылки на него убери»): страница `/flat` и её маршрут остаются, со страницы демо на неё не ведёт ничего
@@ -8076,6 +8106,11 @@ function photoWait(t0){
 // для кнопки окна (`vwCtaUi`) и карточки избранного
 // ХОД — В ПРОЦЕНТАХ (владелец 17.11 TG 1668: «Улучшаю · N %»): процент — доля прошедшего от ожидаемого (`photoWait`)
 const photoWaitText=w=>(LANG==='en'?'Enhancing · ':'Улучшаю · ')+Math.floor(w.pct)+' %';
+// ХОД НА КАРТОЧКЕ КОМНАТЫ БЕЗ ПРОЦЕНТОВ (владелец 18.11, TG 1938/1941; ход ПО ЦЕНТРУ ОКНА — прежний, TG 1960: `jobProg` не менялся): подпись «Создание фото…» / «Улучшение фото…», под ней убывающий срок «≈18 с» (от оценки сервиса/правил; за оценкой —
+// «Ещё немного…», в минус не уходит) и тонкая плавная полоса. Только карточка комнаты (`jobCardProg`) комнаты
+function waitLeftText(left){ const EN=LANG==='en';
+  if(left<=0)return EN?'Almost there…':'Ещё немного…';
+  return left>=90?'≈'+Math.ceil(left/60)+(EN?' min':' мин'):'≈'+Math.max(1,Math.ceil(left))+(EN?' s':' с'); }
 // ХОД ЗАДАНИЯ ФОТО — ОДНО МЕСТО (T-20261117-20/2): рендер («Сделать фото», `job.kind==='render'`) — проценты и срок из ответа сервера
 // (`percent`, `eta`, `eta_range`; не `PHOTO_EST_S`), «Улучшить фото» — прежний отсчёт нейросети. → {pct, left, text, note}: подпись хода,
 // строка под ней (срок, очередь, «можно закрыть страницу» — только у долгого рендера)
@@ -8100,6 +8135,32 @@ function jobProg(job){
   }
   const w=photoWait(job?job.t0:Date.now());
   return {pct:w.pct, left:w.left, text:photoWaitText(w), note:''};
+}
+function jobCardProg(job){
+  const EN=LANG==='en';
+  if(job&&job.kind==='render'){
+    // МАШИНА ПРОГРЕВАЕТСЯ (сервер, T-20261118-10/7): заказ человека включил выключенную машину — честно говорим, что идёт прогрев, а не рисуем проценты и «около минуты»:
+    // текст RU/EN и срок (`machine.eta_s`) — из ответа сервера; полоса — на нуле, процент не показываем (его ещё нет)
+    const mc=job.mach, now=Date.now();
+    if(mc&&mc.state==='warming'){const t=EN?(mc.text_en||mc.text):(mc.text||mc.text_en);
+      if(t){ const left=Math.max(0,(+mc.eta_s||0)-(now-(job.machAt||now))/1000); job.warmTot=Math.max(job.warmTot||0,left);
+        const pw=job.warmTot>0?Math.min(97,100*(1-left/job.warmTot)):0; job.pmax=Math.max(job.pmax||0,pw);
+        return {pct:job.pmax, left, text:t, note:job.queue>0?(EN?'In the queue: ':'В очереди: ')+job.queue:'', warm:true};}}
+    // срок и полоса — по времени, плавно: остаток = eta сервера минус прошедшее с его ответа; нет eta — оценка (первый eta прогретой / срок заказа / 25 с) минус прошедшее с заказа
+    const el0=(now-(job.t0||now))/1000, tot=Math.max(job.tot||0,job.eta0||job.est||25), left=job.eta>0?Math.max(0,job.eta-(now-(job.etaAt||now))/1000):Math.max(0,tot-el0);
+    job.tot=Math.max(tot,el0+left);
+    const pct0=left>0?Math.min(97,100*(1-left/job.tot)):Math.min(99,97+Math.min(2,(el0-job.tot)/30)); job.pmax=Math.max(job.pmax||0,pct0);
+    const pct=job.pmax, e=job.est||0;
+    // долгий заказ (≥5 мин) — с «можно закрыть страницу»; запасной путь — срок и текст сервера «Снимок будет готов через ≈N мин…» вместо отсчёта
+    const long=e>=300;
+    let note=waitLeftText(left);
+    if(job.mach&&job.mach.state==='fallback'){const ft=EN?(job.mach.text_en||job.mach.text):(job.mach.text||job.mach.text_en); if(ft)note=ft;}
+    if(job.queue>0)note=(EN?'In the queue: ':'В очереди: ')+job.queue+' · '+note.charAt(0).toLowerCase()+note.slice(1);
+    if(long)note+=EN?'. You can close the page — the photo will be saved':'. Можно закрыть страницу — фото сохранится';
+    return {pct, left, text:EN?'Creating photo…':'Создание фото…', note};
+  }
+  const w=photoWait(job?job.t0:Date.now());
+  return {pct:w.pct, left:w.left, text:LANG==='en'?'Enhancing photo…':'Улучшение фото…', note:waitLeftText(w.left)};
 }
 function photoWaitHtml(t0){const w=photoWait(t0);
   return `<div class="pwait" data-pwait="${t0}" data-left="${w.left}"><i style="width:${w.pct.toFixed(1)}%"></i><span>${escHtml(photoWaitText(w))}</span></div>`;}
@@ -9865,6 +9926,8 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
  box-shadow:var(--e3);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #shot.nolive.vwalk .vcams{display:none!important}
 .vcta.busy{cursor:default;position:relative;overflow:hidden}
+/* идёт снимок/улучшение: кнопка заблокирована и приглушена, НАДПИСЬ НЕ МЕНЯЕТСЯ (владелец 18.11, TG 1893/1895); ход — по центру окна и на карточке комнаты; рядом с кнопкой строки нет (TG 1938) */
+.vcta.vwait,.vcta[disabled]{opacity:.5;cursor:default;pointer-events:none}
 .vcta-bar{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(255,255,255,.22);transition:width 1s linear;pointer-events:none}
 .vcta-t,.vcta.busy small{position:relative}
 .vcta-err{font-size:13px;color:#B3261E;margin:6px 2px 0;line-height:1.4}
@@ -9875,7 +9938,7 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
 .vcta-err{box-sizing:border-box}
 .vcta-retry{width:100%;min-height:40px;border-radius:999px;font-weight:600}
 /* тур пробы (T-20261109-34): комнате без доверия к размерам вместо кнопки фото — тихая строка; пустой блок кнопки в туре не показываем */
-.vcta-note{margin:0;padding:4px 0 2px;font-size:13.5px;line-height:1.35;color:var(--muted);text-align:center}
+.vcta-note{margin:0;padding:4px 0 2px;font-size:13.5px;line-height:1.35;color:var(--muted);text-align:center;white-space:pre-line}
 body.trial .vtop:not(:has(.vcta:not([hidden]),#vCtaErr,#vCtaNote)){display:none}
 .vplanbox{display:none;position:absolute;inset:60px 12px 12px;z-index:var(--zl-scene);background:var(--wash-2)}
 .vplanbox svg{width:100%;height:100%}
@@ -10028,6 +10091,7 @@ div.vcth{background:var(--wash)}
   #shot .vsumrow>.vcta.vico.busy{cursor:default;color:var(--accent);
    background:radial-gradient(closest-side,#fff 80%,transparent 83%),conic-gradient(var(--accent) calc(var(--p,0)*1%),var(--line) 0)}
   #shot .vsumrow>.vcta-err{flex:1 0 calc(100% - 24px);width:auto;margin:4px 10px 2px 14px;box-sizing:border-box;align-items:stretch}
+
   /* «Фото»: кнопки нет (снимок уже есть) — пустой блок не добавляет высоты свёрнутой шторке */
   .vtop:not(:has(.vcta:not([hidden]),#vCtaErr,#vCtaNote)){display:none}
   .vlist{padding:0 14px}
@@ -11526,7 +11590,7 @@ function vwMode(m){
 // Только «realistic» с номером состояния = текущему; по точке съёмки — последний снимок. Номер состояния и есть расстановка: вариант
 // не сверяем (demo-20 Б3, владелец 22.10: у избранного id `c:<id>`, а фото, снятое до сохранения, записано на вариант витрины —
 // «Фото» в окне избранного не появлялось). Старые снимки без номера — как раньше, по варианту и списку товаров
-const vwIsPhoto=x=>!!x&&(x.quality==='realistic'||x.quality==='render');   // «фото» окна: рендер Blender или улучшенное нейросетью
+function vwIsPhoto(x){ return isPhotoShot(x); }   // «фото» окна: рендер Blender или улучшенное нейросетью
 // ЧТО ПОКАЗАНО В «ФОТО» ЭТОЙ РАССТАНОВКИ: 'render' — только рендер (предлагаем «Улучшить фото»), 'improved' — есть улучшенное (кнопок нет), '' — фото нет
 function vwPhotoKind(){
   const r=vwRealShots(); if(!r.length)return '';
@@ -11897,9 +11961,12 @@ function vwCtaUi(){
   if(!ico){cta.removeAttribute('aria-label'); cta.removeAttribute('title'); cta.style.removeProperty('--p');}
   // ждём второй ракурс (окошки «3D», T-20261112-76/2) — «Запомнить ракурс 2» вместо «Сделать фото»
   // окошки открыты (T-20261112-108) — следующее нажатие снимает: «Снять эти ракурсы»
-  const lab0=kind==='improve'?CTA_IMPROVE[EN?1:0]
+  const lab0=kind==='improve'||(VJ.job&&VJ.job.kind==='improve')?CTA_IMPROVE[EN?1:0]
     :m==='walk'&&vwPickOn()?(EN?'Save view 2':'Запомнить ракурс 2'):m==='walk'&&vwSlotsOpen()?(EN?'Shoot these views':'Снять эти ракурсы'):(EN?CTA_REAL_EN:CTA_REAL);
-  const jp=VJ.job?jobProg(VJ.job):null;
+  // ПОКА СЧИТАЕТСЯ СНИМОК ИЛИ УЛУЧШЕНИЕ (владелец 18.11, TG 1893/1895): кнопка заблокирована и приглушена, НАДПИСЬ НЕ МЕНЯЕТСЯ (ни %, ни полосы, ни «прогревается»);
+  // строки хода рядом с кнопкой нет (TG 1938); ход — по центру окна (прежний `jobProg`) и на карточке комнаты (`jobCardProg`)
+  const jp0=VJ.job?jobProg(VJ.job):null, rj=!!jp0, jp=null;
+  cta.disabled=rj; cta.classList.toggle('vwait',rj);
   if(ico){const lab=jp?jp.text:lab0;   // подпись — и ход задания
     // значок: камера — «Сделать фото», искры — «Улучшить фото» и ход улучшения (T-20261117-20/2: на малом телефоне подпись только в `aria-label`)
     const spark=jp?VJ.job.kind==='improve':kind==='improve', word=spark&&!jp&&IMP_WORD, ik=spark?(word?'w':'s'):'c';
@@ -11924,7 +11991,8 @@ function vwCtaUi(){
   if(TRIAL()&&m==='plan')cta.hidden=true;
   const tn=document.getElementById('vCtaNote'); if(tn)tn.remove();
   // ЧЕСТНАЯ СТРОКА (T-20261118-20/13/2): кадра заготовки нет, машина прогревается или выключена/упёрлась в предел дня — текст сервера (RU/EN) под кнопкой «Сделать фото», пока нажатия нет
-  const pn=(!VJ.job&&!VJ.err&&kind==='make'&&m==='walk')?(PEEKM[curVid()+'|'+curStateId()]||''):'';
+  // пока идёт снимок/улучшение — рядом с кнопкой в нижней панели строки хода НЕТ (владелец 18.11, TG 1938); ход — по центру окна и на карточке комнаты
+  const pn=rj?'':(!VJ.job&&!VJ.err&&kind==='make'&&m==='walk')?(PEEKM[curVid()+'|'+curStateId()]||''):'';
   if(pn){const np=document.createElement('p'); np.id='vCtaNote'; np.className='vcta-note'; np.textContent=pn; cta.after(np);}
   // ОШИБКА ФОТО (владелец 17.11 TG 1667): «Расстановка сохранена, но что-то пошло не так. Попробуйте ещё раз.» и «Повторить» — на месте кнопки
   let er=document.getElementById('vCtaErr');
@@ -12117,6 +12185,38 @@ function peekShotRecs(j, o){
     revision:o.rev||'', ts:o.ts, stateId:o.stateId, cams:o.cams, engine:'cycles', model:'', sources:'', timing:null, renderKey:j.key||'', sceneHash:j.scene_hash||'', fid:f.id||'', cached:true}));
 }
 // PEEKSHOT END
+// ЗАКАЗЫ ФОТО ПЕРЕЖИВАЮТ ЗАКРЫТИЕ ОКНА И ПЕРЕЗАГРУЗКУ (T-20261118-20/14/1, владелец TG 1964: «согласился на рендер, закрыл окно, открываю через 5 мин — снова „изменили комнату“»):
+// кадры `render` живут только в памяти страницы (в реестр `shots.json` идёт лишь путь нейросети), номер задания нигде не помнился — готовый на сервере рендер
+// терялся. Теперь заказ записан в браузер сразу после принятия сервером: номер задания + номер состояния (тот же, что у кадров и `check`) + вариант + время;
+// стирается по готовности и ошибке; при запуске страницы незавершённые подхватываются (`ordersResume`): готовый — кадры встают сами, идущий — снова ход
+const ORDER_KEY='flat215-orders', ORDER_KEEP_S=6*3600;
+function ordersAll(){ try{const o=JSON.parse(localStorage.getItem(ORDER_KEY)||'{}'); return o&&typeof o==='object'&&!Array.isArray(o)?o:{};}catch(e){return {};} }
+function ordersSave(o){ try{localStorage.setItem(ORDER_KEY,JSON.stringify(o));}catch(e){} }
+function orderKeep(job){ if(!job||!job.jobId)return; const o=ordersAll(), now=Date.now();
+  Object.keys(o).forEach(k=>{if(!o[k]||now-(+o[k].t0||0)>ORDER_KEEP_S*1000)delete o[k];});
+  o[job.jobId]={job:job.jobId, vid:job.vid, stateId:job.stateId, t0:job.t0, tour:TRIAL()?trJobId():''}; ordersSave(o); }
+function orderDrop(id){ if(!id)return; const o=ordersAll(); if(o[id]){delete o[id]; ordersSave(o);} }
+async function ordersResume(){
+  for(let k=0;k<60&&!(D&&SHOTS_LOADED&&HOME.ready);k++)await new Promise(ok=>setTimeout(ok,250));
+  const now=Date.now(), tour=TRIAL()?trJobId():'';
+  const list=Object.values(ordersAll()).filter(o=>o&&o.job&&now-(+o.t0||0)<ORDER_KEEP_S*1000&&(o.tour||'')===tour).sort((a,b)=>b.t0-a.t0);
+  for(const o of list){
+    if(shots.some(x=>x.vid===o.vid&&x.stateId===o.stateId&&isPhotoShot(x))){orderDrop(o.job); continue;}      // кадры этого состояния уже есть (check/реестр)
+    const v=allVariants().find(x=>x.id===o.vid); if(!v){orderDrop(o.job); continue;}
+    while(VJ.job)await new Promise(ok=>setTimeout(ok,1000));
+    const job={vid:o.vid, stateId:o.stateId, cam:0, t0:+o.t0||now, jobId:o.job, note:'', auto:false, kind:'render', pct:0, est:0, queue:0, eta:0, resumed:true};
+    VJ.job=job; VJ.err=''; vwCtaUi(); clearInterval(VJ.tick); VJ.tick=setInterval(()=>{vwCtaUi(); photoWaitPaint(); vwPhWaitUi(); homeWaitPaint();},1000); try{drawHome();}catch(e){}
+    const finish=()=>{clearInterval(VJ.tick); if(VJ.job===job)VJ.job=null; vwCtaUi(); try{drawHome();}catch(e){} vwModeUi();};
+    await new Promise(ok=>vwRenderRun(job,{
+      done:n0=>{ finish();
+        try{document.dispatchEvent(new CustomEvent('remlab:photo',{detail:{stateId:job.stateId, shots:shots.slice(n0)}}));}catch(e){}
+        const sh=document.getElementById('shot'), openW=sh&&sh.classList.contains('on')&&sh.classList.contains('v2');
+        if(openW&&job.stateId===curStateId()){VJ.self=1; vwMode('photo'); VJ.self=0;}
+        else{const i=allVariants().findIndex(x=>x.id===job.vid); if(i>=0)vwPhotoReady(()=>vwOpenVariant(i));}
+        ok();},
+      fail:()=>{finish(); ok();}}, o.job));
+  }
+}
 const PEEK={};   // `<вариант>|<состояние>` → когда спрашивали (мс; повтор не чаще раза в минуту — заготовка могла дойти, пока окно открыто) или Infinity — кадры взяты
 const PEEKM={};   // `<вариант>|<состояние>` → состояние машины рендера из ответа `check`, когда кадра нет (прогревается / запасной путь, тексты RU/EN — от сервера): честная строка у кнопки «Сделать фото»
 // ТУР (T-20261118-20/13/2): рендеры всех комнат и стилей тура ставятся сразу после сборки (`render_tour.py`) — окно варианта тура спрашивает готовое так же, как /demo, но через ручку тура
@@ -12129,7 +12229,7 @@ async function vwPeekCached(){
   if(VJ.job||!D||!SHOTS_LOADED)return;
   if(TRIAL()&&!trPhotoHere())return;
   const v=allVariants()[cur]; if(!v||!v.id||v.mine||v.cid)return;
-  const st=curStateId(); if(st!==pubStateOf(v)||vwRealShots().length)return;
+  const st=curStateId(); if(vwRealShots().length)return;   // и для ПРАВЛЕНОЙ расстановки: `check` бесплатный и заказа не ставит (T-20261118-20/14/1, TG 1964)
   const vid=curVid(), k=vid+'|'+st, now=Date.now();
   if(PEEK[k]&&now-PEEK[k]<60000)return;
   let body; try{body=vwRenderReq();}catch(e){return;}
@@ -12160,10 +12260,11 @@ function vwPhotoErrText(code){ const EN=LANG==='en';
 const vwSleep=ms=>new Promise(ok=>setTimeout(ok,ms));
 // Ход рендера: заказ → опрос `/api/job?id=` каждые 2 с (проценты, место в очереди, срок — из ответа сервера) → два кадра. Обрыв связи — ждём тот же
 // номер (задание хранится на сервере и досчитается), не заказываем заново. Срок ожидания — 45 мин (запасной путь на процессоре — 15–18 мин и очередь)
-async function vwRenderRun(job, cb){
-  const reqV=allVariants()[cur]||{}, reqProducts=productsOf(items), rev=revision(), t0=Date.now();
+async function vwRenderRun(job, cb, resumeId){
+  // `resumeId` — заказ с прошлого открытия страницы (`ordersResume`): не заказываем заново, ждём тот же номер и берём кадры по сохранённому варианту/состоянию
+  const reqV=(resumeId&&allVariants().find(x=>x.id===job.vid))||allVariants()[cur]||{}, reqProducts=resumeId?productsOf(variantItems(reqV)):productsOf(items), rev=revision(), t0=Date.now();
   try{
-    const body=vwRenderReq();
+    const body=resumeId?{cams:null}:vwRenderReq();   // подхваченный заказ: точек съёмки с тех пор не помним (после перезагрузки их заново считает страница) — кадр без подписи точек (`shotCamOk` пропускает), как и должно быть: состояние совпало
     const url=TRIAL()?'/api/trial/'+trJobId()+'/photo'+(trKey()?'?k='+trKey():''):'/api/render/cycles';
     const take=v=>{ if(!v)return;
       // машина прогрелась (вышли из «warming»): срок прогрева (верх диапазона ≈ 2–7 мин) в «Обычно около N мин» не тащим — считаем срок заново с этого ответа (на прогретой ≈ 20–30 с)
@@ -12171,13 +12272,15 @@ async function vwRenderRun(job, cb){
       if(mc0&&mc0.state==='warming')job.wasWarm=true; else if(job.wasWarm){job.wasWarm=false; job.est=0; job.estRun=false; job.eta0=0;}
       const e=(v.eta_range&&+v.eta_range[1])||+v.eta||0, run=v.status==='running'||(v.queue===0&&v.status!=='queued');
       if(e&&(run?!job.estRun:e>(job.est||0))){job.est=e; if(run)job.estRun=true;}
-      job.queue=+v.queue||0; job.eta=+v.eta||0; if(v.percent!=null)job.pct=Math.max(job.pct||0,+v.percent||0);
-      job.mach=(v.machine&&typeof v.machine==='object')?v.machine:null;
+      job.queue=+v.queue||0; if((+v.eta||0)!==job.eta)job.etaAt=Date.now(); job.eta=+v.eta||0; if(v.percent!=null)job.pct=Math.max(job.pct||0,+v.percent||0);
+      job.mach=(v.machine&&typeof v.machine==='object')?v.machine:null; if(job.mach&&(!job.machAt||job.mach.eta_s!==job.machEta)){job.machAt=Date.now(); job.machEta=job.mach.eta_s;}
       if(!job.eta0&&(+v.eta||0)>0&&!(job.mach&&(job.mach.state==='warming'||job.mach.state==='fallback')))job.eta0=+v.eta;      // срок ПРОГРЕТОЙ машины — первый eta сервера вне прогрева/запасного (на ней ≈25 с, а не «около минуты»)
  };       // статус машины рендера — от сервера (T-20261118-10/7): «прогревается», «запасной путь»
     let r, j;
-    try{ r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}); j=await r.json(); }catch(e){ j=null; }
+    if(resumeId)j={job:resumeId, status:'queued'};
+    else{try{ r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}); j=await r.json(); }catch(e){ j=null; }}
     if(!j||!j.job){const e=new Error('order'); e.code=(j&&j.code)||'lost'; throw e;}
+    job.jobId=j.job; if(!resumeId)orderKeep(job);                    // заказ принят сервером — запоминаем (переживает закрытие окна и перезагрузку)
     take(j); vwCtaUi(); vwPhWaitUi();
     let res=null, miss=0, first=true; const deadline=Date.now()+45*60000;
     for(;;){
@@ -12196,8 +12299,10 @@ async function vwRenderRun(job, cb){
     res.frames.forEach(f=>addShot({url:f.url, camera:f.camera||'C1', quality:'render', batch, anchors:[], products:reqProducts,
       variant:reqV.title||'', style:reqV.style||'', vid:job.vid, revision:rev, stateId:job.stateId, cams:body.cams, engine:'cycles',
       ts:Date.now(), model:'', sources:'', timing:res.timing||null, renderKey:res.key||'', sceneHash:res.scene_hash||'', fid:f.id||'', cached:!!res.cached}));
+    orderDrop(job.jobId);
     cb.done(n0);
   }catch(err){
+    orderDrop(job.jobId);
     try{console.info('рендер фото не вышел',err&&err.code,err&&err.message);}catch(_){}
     cb.fail(vwPhotoErrText(err&&err.code), err&&err.code);
   }
@@ -12212,7 +12317,7 @@ async function vwRealistic(o){
   const src=o.improve?vwImproveSrc():null; if(o.improve&&!src)return false;
   const c=VW.photo, job={vid:curVid(), stateId:curStateId(), cam:c, t0:Date.now(), note:'', auto:!!o.auto, kind:(o.auto||o.improve)?'improve':'render', pct:0, est:0, queue:0, eta:0};
   const favDraw=()=>{try{if(window.__fav)window.__fav.draw();}catch(e){}};
-  VJ.job=job; VJ.err=''; VJ.errState=''; vwCtaUi(); vwStaleUi(); clearInterval(VJ.tick); VJ.tick=setInterval(()=>{vwCtaUi(); photoWaitPaint(); vwPhWaitUi();},1000); favDraw();
+  VJ.job=job; VJ.err=''; VJ.errState=''; vwCtaUi(); vwStaleUi(); clearInterval(VJ.tick); VJ.tick=setInterval(()=>{vwCtaUi(); photoWaitPaint(); vwPhWaitUi(); homeWaitPaint();},1000); favDraw(); try{drawHome();}catch(e){}
   // в «Фото» кадров заранее нет (T-20261113-16) — съёмка по нажатию: ход на экране сразу и успевает нарисоваться до неё
   if(VW.mode==='photo'&&!o.auto){vwPhWaitUi(); await new Promise(ok=>afterPaint(ok));}
   // ОКНО ЭТОЙ РАССТАНОВКИ ОТКРЫТО — СРАЗУ «ФОТО» С ХОДОМ РАБОТЫ (demo-20 Б3, владелец 22.10 TG 791/795): и по кнопке «Сделать фото»,
@@ -12226,7 +12331,7 @@ async function vwRealistic(o){
     if(!o.improve){if(!pre)await vwPhGrab(job); else if(pre.blobs&&pre.blobs.length)job.bg=URL.createObjectURL(pre.blobs[job.cam]||pre.blobs[0]); else vwPhDraft(job);}
     if(here()){VJ.self=1; vwMode('photo'); VJ.self=0;}}
   job.tm.grab=Date.now()-job.t0;
-  const end=()=>{clearInterval(VJ.tick); if(VJ.job===job)VJ.job=null; vwCtaUi();
+  const end=()=>{clearInterval(VJ.tick); if(VJ.job===job)VJ.job=null; vwCtaUi(); try{drawHome();}catch(e){}
     if(job.bg&&job.bg.startsWith('blob:'))setTimeout(()=>URL.revokeObjectURL(job.bg),3000);
     // не вышло — вкладка «Фото» без снимка исчезает, человек возвращается в 3D
     if(here()&&VW.mode==='photo'&&!vwRealShots().length){VJ.self=1; vwMode('walk'); VJ.self=0;} else vwModeUi();};
@@ -12983,7 +13088,7 @@ function quizPick(rule, answers, available, styleColours){
     return m.styles.map(function(s){
       var rv=m.roomVariants.filter(function(x){return x.styleId===s.id&&x.roomId==='living';})[0]||m.roomVariants.filter(function(x){return x.styleId===s.id;})[0];
       var v=rv?allVariants()[rv.index]:null, sh=v?photoOf(v):null;
-      return {id:s.id, title:s.title, v:v, img:sh?(sh.thumb||sh.url):'', real:!!(sh&&sh.quality==='realistic')};
+      return {id:s.id, title:s.title, v:v, img:sh?(sh.thumb||sh.url):'', real:isPhotoShot(sh)};
     });
   }
   // ШАГ 1 — ТОЛЬКО ФОТО НЕЙРОСЕТИ (владелец TG 341–342, T-20261107-28): серый черновой 3D-кадр в опросе не показываем — вариант
@@ -12998,7 +13103,7 @@ function quizPick(rule, answers, available, styleColours){
     return m.styles.map(function(s){
       var got=null;
       rooms.some(function(r){var rv=m.roomVariants.filter(function(x){return x.styleId===s.id&&x.roomId===r.id;})[0]; if(!rv)return false;
-        var v=allVariants()[rv.index], sh=photoOf(v,st==='living'?'C1':posterCam(v)), ok=!!(sh&&sh.quality==='realistic'&&(sh.thumb||sh.url));
+        var v=allVariants()[rv.index], sh=photoOf(v,st==='living'?'C1':posterCam(v)), ok=isPhotoShot(sh)&&!!(sh.thumb||sh.url);
         if(!got||ok)got={v:v, sh:sh, ok:ok}; return ok;});
       return got?{id:s.id, title:s.title, v:got.v, img:got.sh?(got.sh.thumb||got.sh.url):'', real:got.ok}:null;
     }).filter(Boolean);
@@ -13148,7 +13253,7 @@ function quizPick(rule, answers, available, styleColours){
       var bi=beds.indexOf(r); if(r.contentState!=='ready'||(r.kind==='living'?liv:bi<0||bi>1))return;
       var x=mixShown(m.roomVariants,fb,sel,r); if(!x.rv)return;
       var v=allVariants()[x.rv.index], sh=photoOf(v,r.kind==='living'?'C1':posterCam(v));
-      if(!(sh&&sh.quality==='realistic'&&(sh.thumb||sh.url)))return;   // черновой 3D-кадр в стопку не кладём
+      if(!(isPhotoShot(sh)&&(sh.thumb||sh.url)))return;   // черновой 3D-кадр в стопку не кладём
       if(r.kind==='living')liv=true;
       var lb=r.kind==='living'?(EN()?'Living room':'Гостиная'):bi===0?(EN()?'Bedroom':'Спальня'):kid?(EN()?'Kids’ room':'Детская'):(EN()?'Bedroom 2':'Спальня 2');
       out.push({role:r.kind==='living'?'liv':(bi===0?'b1':'b2'), img:sh.thumb||sh.url, label:lb});
@@ -13970,7 +14075,7 @@ function quizPick(rule, answers, available, styleColours){
       // ТОЛЬКО ФОТО НЕЙРОСЕТИ (T-20261107-34, TG 341): своё фото избранного или снятое на этом устройстве для этой расстановки;
       // 3D-миниатюра и серверный черновик (`COLL_SHOTS` старых коллекций) не показываются — до фото заглушка «Фото готовится»
       var img=f.shot?location.origin+f.shot:'';
-      if(!img&&v){var bs=bestShot(v); if(bs&&bs.quality==='realistic')img=thumbOf(bs);}
+      if(!img&&v){var bs=bestShot(v); if(isPhotoShot(bs))img=thumbOf(bs);}
       var d=new Date(f.createdAt||Date.now()), date=('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'+d.getFullYear();
       var known=f.quote.lines.filter(function(x){return x.settlement==='allowance';}), full=f.quote.status==='fresh'&&known.every(function(x){return x.priceStatus==='known';});
       var sum=known.reduce(function(s,x){return s+(x.amount||0);},0), on=inc[f.roomId]===f.favoriteId;
