@@ -265,6 +265,8 @@
     "day_cap_usd": 2.0,
     "warmup_max_min": 15,
     "ready_stale_s": 120,
+ "slow_probe_sec": 1.2,
+ "hot_wait_max_min": 6,
     "degraded_stop_min": 10,
     "guard_stale_min": 10,
     "restart_max": 2,

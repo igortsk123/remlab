@@ -264,7 +264,125 @@ class SceneExecutor:
                     pass
         return out
 
+    # ——— кэш подготовленной сцены (T-20261117-24/10): каталоги `scene/` и `dump/` по ключу снимка. Экспорт (6–9 с на DEV) для уже виденного варианта — ссылки на файлы
+    # вместо пересчёта; кладёт первый, кто собрал сцену (заказ или подогрев витрины `render_gpu/showcase_assets.py`), берёт любой заказ. Файлы кэша только читаются.
+    def _prep_root(self) -> str:
+        return os.environ.get('RENDER_PREP_CACHE') or os.path.expanduser('~/scout-cache/render-prepared')
+
+    def _code_sha(self) -> str:
+        """Хеш кода, из которого собирается сцена (экспорт, расстановка, меши, проёмы): сменился код — старые подготовленные сцены не годятся. Читается заново каждый заказ (8 МБ, ~15 мс)."""
+        h = hashlib.sha256()
+        for d in (os.path.join(REPO, 'tools', 'scout'), os.path.join(REPO, 'services', 'planner-solver', 'planner'), PROBE):
+            try:
+                names = sorted(n for n in os.listdir(d) if n.endswith('.py'))
+            except OSError:
+                names = []
+            for n in names:
+                try:
+                    h.update(n.encode() + b'\0' + open(os.path.join(d, n), 'rb').read() + b'\0')
+                except OSError:
+                    h.update(n.encode() + b'?')
+        return h.hexdigest()[:12]
+
+    def _prep_key(self, snap: dict, bundle: str, pr: dict) -> str:
+        v = self.versions()
+        part = {k: v.get(k) for k in ('export_scene', 'dump', 'scene_export')}
+        try:
+            bsha = _sha(os.path.join(bundle, 'entry.js'))          # по СОДЕРЖИМОМУ сборки выгрузчика, не по имени каталога (имя зависит от пути и времени файлов: рабочая копия ≠ основная)
+        except OSError:
+            bsha = os.path.basename(bundle)
+        part.update(code=self._code_sha(), bundle=bsha, dump_export=pr['dumpExport'], prep=PREP_CACHE_VERSION)
+        return cache_key(snap['scene_hash'], part)
+
+    @staticmethod
+    def _link_tree(src: str, dst: str) -> None:
+        """Каталог ссылками на файлы (жёсткие; нельзя — копия). Дерево каталогов — своё."""
+        for dp, _, fs in os.walk(src):
+            out = os.path.join(dst, os.path.relpath(dp, src))
+            os.makedirs(out, exist_ok=True)
+            for f in fs:
+                try:
+                    os.link(os.path.join(dp, f), os.path.join(out, f))
+                except OSError:
+                    shutil.copyfile(os.path.join(dp, f), os.path.join(out, f))
+
+    def _prep_load(self, hit: str, job: str) -> bool:
+        try:
+            for d in ('scene', 'dump'):
+                self._link_tree(os.path.join(hit, d), os.path.join(job, d))
+            os.utime(os.path.join(hit, '.ok'))
+            return True
+        except OSError:
+            for d in ('scene', 'dump'):
+                shutil.rmtree(os.path.join(job, d), ignore_errors=True)
+            return False
+
+    def _prep_store(self, root: str, key: str, job: str) -> None:
+        tmp = os.path.join(root, f'{key}.tmp-{os.getpid()}-{uuid.uuid4().hex[:8]}')
+        try:
+            os.makedirs(tmp)
+            for d in ('scene', 'dump'):
+                self._link_tree(os.path.join(job, d), os.path.join(tmp, d))
+            open(os.path.join(tmp, '.ok'), 'w').close()
+            try:
+                os.replace(tmp, os.path.join(root, key))         # занято (параллельный прогон записал раньше) — оставляем его, свой убираем
+            except OSError:
+                pass
+        except OSError:
+            pass
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        self._prep_prune(root)
+
+    def _prep_prune(self, root: str) -> None:
+        """Общее правило уборки: свежие по `.ok` остаются, пока сумма размеров (по видимому размеру файлов, ссылки считаются каждая) не выше предела, МБ
+        (`RENDER_PREP_CACHE_MB`, по умолчанию `PREP_CACHE_MB`); остальные удаляются."""
+        try:
+            cap = float(os.environ.get('RENDER_PREP_CACHE_MB') or PREP_CACHE_MB) * 2 ** 20
+            ents = []
+            for e in os.scandir(root):
+                ok = os.path.join(e.path, '.ok')
+                if e.is_dir() and '.tmp-' not in e.name and os.path.isfile(ok):
+                    ents.append((os.path.getmtime(ok), e.path))
+            total = 0
+            for i, (_, path) in enumerate(sorted(ents, reverse=True)):
+                size = sum(os.path.getsize(os.path.join(dp, f)) for dp, _, fs in os.walk(path) for f in fs)
+                total += size
+                if total > cap and i > 0:             # самая свежая запись остаётся всегда
+                    shutil.rmtree(path, ignore_errors=True)
+        except OSError:
+            pass
+
+    def prep_has(self, snap: dict) -> bool:
+        """Есть ли подготовленная сцена этого снимка в кэше (для подогрева витрины: сборка из кэша ассетов её не кладёт — собрать заново, если нет)."""
+        try:
+            pr = preset()
+            key = self._prep_key(snap, self._bundle(os.path.join(self.work, 'prep-has.log')), pr)
+            return os.path.isfile(os.path.join(self._prep_root(), key, '.ok'))
+        except OSError:
+            return False
+
     def _prepare(self, snap: dict, job: str, log: str, pr: dict, progress, timing: dict) -> str:
+        """Шаги 1–2 с кэшем подготовленной сцены: есть по ключу — ссылки на файлы (`export` ≈ 0 с, `prep_hit` 1), нет — `_prepare_fresh` и в кэш. → каталог dump."""
+        t1 = time.time()
+        root = key = None
+        try:
+            root = self._prep_root()
+            key = self._prep_key(snap, self._bundle(log), pr)
+            hit = os.path.join(root, key)
+            if os.path.isfile(os.path.join(hit, '.ok')) and self._prep_load(hit, job):
+                progress('scene')
+                timing['export'], timing['dump'], timing['prep_hit'] = round(time.time() - t1, 1), 0.0, 1
+                return os.path.join(job, 'dump')
+        except OSError:
+            root = None
+        dump = self._prepare_fresh(snap, job, log, pr, progress, timing)
+        timing['prep_hit'] = 0
+        if root and key:
+            self._prep_store(root, key, job)
+        return dump
+
+    def _prepare_fresh(self, snap: dict, job: str, log: str, pr: dict, progress, timing: dict) -> str:
         """Шаги 1–2: данные варианта → `export_scene.py` (job/scene) → `demo_scene_dump.mjs` (job/dump). → каталог dump."""
         lim = pr['limits']
         t1 = time.time()
@@ -475,6 +593,8 @@ def file_sha256(path: str) -> tuple:
     return h, st.st_size
 
 
+PREP_CACHE_MB = 3000            # предел кэша подготовленных сцен (видимый размер, ссылки считаются каждая; на диске ≈ в 6 раз меньше: текстуры — ссылки на общие файлы)
+PREP_CACHE_VERSION = 1          # формат записи кэша подготовленных сцен: сменился состав каталога — вверх
 ASSET_RULES = 2                # версия правила «что ассет» (`asset_kind`/`asset_min_bytes`): растёт при его смене — кэш сборки витрины (`showcase_assets.py`) её учитывает
 NPZ_ASSET_MIN = 64 * 1024      # мелкие npz (стены, проёмы — десятки байт…КБ) остаются в пакете: на ассет они дороже, чем в архиве
 

@@ -129,11 +129,14 @@ class Showcase:
         if hit and hit.get('refs'):
             refs = hit['refs']
             miss = self.push.missing(refs)
-            if not miss:
+            if not miss and hasattr(self.ex, 'prep_has') and not self.ex.prep_has(snap):
+                self.log(f'  {label}: ассеты в кэше сборки, но подготовленной сцены нет — собираю (T-24/10)')
+            elif not miss:
                 hit['t'] = self.now()
                 self.stat['cached'] += 1
                 return refs
-            self.log(f'  {label}: в кэше сборки, но на приёмнике нет {len(miss)} — собираю заново')
+            if miss:
+                self.log(f'  {label}: в кэше сборки, но на приёмнике нет {len(miss)} — собираю заново')
         import render_exec as RX
         pr = RX.preset()
         job = self.ex._job_dir('gjob-h-', snap)
