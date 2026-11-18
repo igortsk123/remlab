@@ -136,6 +136,29 @@ def frames_of(job: dict) -> str:
     return job.get('frames', 'png')
 
 
+def qa_reports(work: str, fr: str, cams: list) -> dict:
+    """Отчёты сторожа кадров (`<кадр>.qa.json`, их пишет `render_cycles.py`) → `{камера: урезанный отчёт}` для `result.json`. Нет отчёта/модуля — камеры в словаре нет
+    (исполнитель такой кадр не блокирует): старая версия пакета или сторож выключен. Модуль берём из пакета задания — той же версии, что рендерила."""
+    out: dict = {}
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('frame_qa_pkg', os.path.join(work, 'tools', 'scout', 'cycles_probe', 'frame_qa.py'))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except Exception as e:  # noqa: BLE001
+        log('сторож: модуль пакета не загружен', repr(e)[:100])
+        return out
+    for c in cams:
+        try:
+            with open(os.path.join(work, JP.frame_names(fr, c)[0]) + '.qa.json', encoding='utf-8') as f:
+                out[c] = mod.brief_report(json.load(f))
+        except (OSError, ValueError):
+            continue
+        except Exception as e:  # noqa: BLE001
+            log('сторож: отчёт кадра не разобран', c, repr(e)[:100])
+    return out
+
+
 def build_cmd(job: dict, work: str) -> list:
     """Команда Blender: пути — воркера (внутри пакета), флаги рендера — из задания. Чистая функция."""
     scene, dump = os.path.join(work, 'scene'), os.path.join(work, 'dump')
@@ -672,6 +695,9 @@ class Worker:
                     log('маска не ушла', c, repr(e)[:100])
             res_extra['masks'] = ms
             timing['mask_up'] = round(time.time() - tm_, 2)
+        qa = qa_reports(work, fr, job['cams'])
+        if qa:
+            res_extra['qa'] = qa          # урезанные отчёты сторожа по кадрам: исполнитель решает по ним, публиковать ли пару (ворота, T-20261118-03/7)
         timing['total'] = round(time.time() - t0, 1)
         return {'ok': True, 'timing': timing, 'device': device, 'files': files, 'frames': fr, **res_extra}
 

@@ -43,6 +43,7 @@ class Prewarmer:
         self.now, self.sleep, self.log = now, sleep, log
         self.stop = False
         self.failed: dict = {}                 # ключ → сколько раз заготовка не дала кадров
+        self.noted: set = set()                # ключи, брак которых уже записан в журнал (строка — один раз на ключ и версию сторожа)
         self.on_tries: dict = {}               # дата по Лондону → сколько раз включали машину
         self.status: dict = {'state': 'start', 'ts': 0}
 
@@ -63,8 +64,24 @@ class Prewarmer:
         out = []
         for label, snap in scenes:
             key = RX.cache_key(snap['scene_hash'], self.versions)
-            if self.q.store.cached(key) is None and self.failed.get(key, 0) < int(pw['fail_max']):
+            if self.q.store.cached(key) is None and self.failed.get(key, 0) < int(pw['fail_max']) and self.q.store.brak_of(key) is None:
                 out.append((label, snap, key))
+        return out
+
+    def braked(self, scenes: list) -> list:
+        """Комнаты, чей текущий ключ дал БРАК сторожа (ворота шага 5, T-20261118-03/7): метка в хранилище заданий, она переживает перезапуск и действует, пока не сменится ключ кадров
+        или версия сторожа. Такие комнаты заготовка НЕ считает — ни по кругу, ни после перезапуска; строка в журнал — один раз. → [(метка, ключ, находки)]."""
+        import render_exec as RX
+        out = []
+        for label, snap in scenes:
+            key = RX.cache_key(snap['scene_hash'], self.versions)
+            mk = self.q.store.brak_of(key) if self.q.store.cached(key) is None else None
+            if mk:
+                out.append((label, key, mk.get('brak') or []))
+                if key not in self.noted:
+                    self.noted.add(key)
+                    self.log(f'заготовка {label}: комната в браке сторожа ({mk.get("where")}): ' + '; '.join(f"{b.get('code')} {b.get('slot') or ''}".strip() for b in (mk.get('brak') or [])[:6])
+                             + ' — не пересчитываю, пока не сменится ключ кадров или сторож')
         return out
 
     # ——— деньги
@@ -162,8 +179,12 @@ class Prewarmer:
         scenes = self.scenes_fn(pw)
         miss = self.missing(scenes, pw)
         total = len(scenes)
+        bad = self.braked(scenes)
+        bad_note = f' В браке сторожа {len(bad)} (не считаем): ' + ', '.join(str(b[0]) for b in bad[:5]) + '.' if bad else ''
         if not miss:
             off = self.maybe_off(pw)
+            if bad:
+                return self.put('idle', f'Заготовка кадров: {total - len(bad)} из {total} комнат есть в кэше под текущим ключом.' + bad_note + off, total=total, missing=0, brak=len(bad))
             return self.put('idle', f'Заготовка кадров: все {total} комнат есть в кэше под текущим ключом.' + off, total=total, missing=0)
         up = self.machine_up()
         n_ok, spent, cap, per = self.affordable(rules, pw, len(miss), up)
@@ -208,16 +229,18 @@ class Prewarmer:
             self.sleep(3)
         drained = self.q.warm_counts()['queued'] + self.q.warm_counts()['running'] == 0
         got = sum(1 for _, k in sent if self.q.store.cached(k) is not None)
-        if drained:                               # очередь заготовок пуста, а кадров нет — это сбой комнаты: после `fail_max` подряд её не берём
+        if drained:                               # очередь заготовок пуста, а кадров нет — это сбой комнаты: после `fail_max` подряд её не берём (брак сторожа — не сбой: у него своя метка)
             for _, k in sent:
-                if self.q.store.cached(k) is None:
+                if self.q.store.cached(k) is None and self.q.store.brak_of(k) is None:
                     self.failed[k] = self.failed.get(k, 0) + 1
         remain = len(self.missing(scenes, pw))
+        bad = self.braked(scenes)
+        bad_note = f' В браке сторожа {len(bad)} (не считаем): ' + ', '.join(str(b[0]) for b in bad[:5]) + '.' if bad else ''
         off = self.maybe_off(pw) if remain == 0 else ''
         spent2 = self.spent_today()
         return self.put('done' if remain == 0 else 'partial',
-                        f'Заготовка кадров: готово {got} из {len(sent)} за {round(self.now() - t0)} с, без кадров осталось {remain} из {total}, расход дня ${spent2:.2f}.' + off,
-                        total=total, missing=remain, got=got, sec=round(self.now() - t0), spent_usd=round(spent2, 3))
+                        f'Заготовка кадров: готово {got} из {len(sent)} за {round(self.now() - t0)} с, без кадров осталось {remain} из {total}, расход дня ${spent2:.2f}.' + bad_note + off,
+                        total=total, missing=remain, got=got, brak=len(bad), sec=round(self.now() - t0), spent_usd=round(spent2, 3))
 
     def run_forever(self) -> None:
         rr = self.rules()

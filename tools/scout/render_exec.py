@@ -43,6 +43,73 @@ class RenderError(Exception):
         self.code, self.ru, self.en = code, ru, en
 
 
+class RenderBrak(RenderError):
+    """Сторож кадров (render-qa-gate-01, шаг 5, T-20261118-03/7) нашёл БРАК: заказ не считаем / кадр не публикуем и не кладём в кэш. Для покупателя — тот же экран, что у обычной
+    ошибки рендера (те же тексты RU/EN); код `render_brak` и список находок `brak` ([{where: preflight|slot|frame, code, slot, why, cam?}]) — только журналу и статусу задания."""
+
+    def __init__(self, brak: list, where: str):
+        super().__init__('render_brak', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
+        self.brak, self.where = brak, where
+
+    def line(self) -> str:
+        return f'брак сторожа ({self.where}): ' + '; '.join(f"{b.get('code')} {b.get('slot') or ''}".strip() for b in self.brak[:6])
+
+
+def qa_gate_on() -> bool:
+    """Ворота сторожа кадров включены (по умолчанию); `RENDER_QA_GATE=0` — прежнее поведение: отчёт пишется, заказ и кадр не блокируются."""
+    return os.environ.get('RENDER_QA_GATE', '1') != '0'
+
+
+_QA = None
+
+
+def frame_qa_mod():
+    """Модуль `cycles_probe/frame_qa.py` по пути файла (только стандартная библиотека; Blender для предпроверки и разбора отчёта не нужен)."""
+    global _QA
+    if _QA is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('frame_qa', os.path.join(PROBE, 'frame_qa.py'))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _QA = mod
+    return _QA
+
+
+def qa_signature() -> str:
+    """Версия сторожа (код + правила): метка брака, поставленная другой версией, не действует — починили сторож, комнату считаем заново."""
+    return _sha(os.path.join(PROBE, 'frame_qa.py'), os.path.join(REPO, 'data', 'flat3d', 'frame-qa-rules.json'))
+
+
+def qa_preflight_brak(dump: str, scene_dir: str) -> list:
+    """Предпроверка сторожа до рендера (секунды, без Blender): ошибки → список находок; сломалась сама проверка — не блокируем (молча терять заказы из-за сторожа нельзя), пишем в журнал."""
+    try:
+        Q = frame_qa_mod()
+        r = Q.preflight(dump, os.path.join(dump, 'scene-export.json'), scene_dir)
+        return [{'where': 'preflight', 'code': f['code'], 'slot': f.get('slot', ''), 'why': f.get('why', '')} for f in r['findings'] if f['level'] == 'error']
+    except Exception as e:  # noqa: BLE001
+        print(f'сторож: предпроверка не выполнена ({e!r}) — заказ идёт без неё', flush=True)
+        return []
+
+
+def qa_frame_brak(report: dict | None, cam: str) -> list:
+    """Находки отчёта сторожа по кадру, запрещающие публикацию (`frame_qa.blocking`); нет отчёта — не блокируем (старая машина/версия)."""
+    if not isinstance(report, dict):
+        return []
+    try:
+        return [{**b, 'cam': cam} for b in frame_qa_mod().blocking(report)]
+    except Exception as e:  # noqa: BLE001
+        print(f'сторож: отчёт кадра {cam} не разобран ({e!r}) — кадр не блокируем', flush=True)
+        return []
+
+
+def qa_read_report(png: str) -> dict | None:
+    try:
+        with open(png + '.qa.json', encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
 class ExecutorUnavailable(RenderError):
     """Исполнитель сейчас не может (машина рендера занята/вытеснена/не настроена) — не сбой сцены; запасной путь решает `Fallback`."""
 
@@ -749,6 +816,10 @@ class LocalCpuExecutor(SceneExecutor):
         with HS.heavy_slot('photo-render-' + snap['scene_hash'][:8], min_gb=pr['min_gb'], cores=pr['cores'], prio=1) as hs:
             timing['slot_wait'] = round(float(hs.get('waited_s', 0)), 1) if isinstance(hs, dict) else 0
             dump = self._prepare(snap, job, log, pr, progress, timing)
+            if qa_gate_on():          # ворота (шаг 5): ошибка предпроверки — Blender не запускаем
+                brak = qa_preflight_brak(dump, os.path.join(job, 'scene'))
+                if brak:
+                    raise RenderBrak(brak, 'до рендера')
             # 3) Blender по кадру на ракурс
             outs = {}
             for cam in CAMS:
@@ -767,6 +838,10 @@ class LocalCpuExecutor(SceneExecutor):
                     raise RenderError('render_failed', 'Рендер не дал кадра. Нажмите «Повторить».', 'The render produced no frame. Press "Retry".')
                 timing[cam] = round(time.time() - t1, 1)
                 outs[cam] = png
+                if qa_gate_on():      # кадровый брак: второй кадр не считаем, пара не публикуется и в кэш не ложится (`_finish` не вызывается)
+                    brak = qa_frame_brak(qa_read_report(png), cam)
+                    if brak:
+                        raise RenderBrak(brak, f'кадр {cam}')
             if _dir_mb(job) > lim['maxJobDiskMb']:
                 raise RenderError('render_failed', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
         progress('save')
@@ -1107,6 +1182,10 @@ class SaladGpuExecutor(SceneExecutor):
             with self._slot('photo-render-' + snap['scene_hash'][:8], pr) as hs:
                 timing['slot_wait'] = round(float(hs.get('waited_s', 0)), 1) if isinstance(hs, dict) else 0
                 self._prepare(snap, job, log, pr, progress, timing)
+            if qa_gate_on():          # ворота (шаг 5): ошибка предпроверки — на машину не шлём (ни GPU, ни запасной процессор: деньги не тратим)
+                brak = qa_preflight_brak(os.path.join(job, 'dump'), os.path.join(job, 'scene'))
+                if brak:
+                    raise RenderBrak(brak, 'до рендера')
             use2 = bool(ex.get('fmt2')) and self.now() >= self._fmt2_dead_until
             res = None
             for fmt in ((2, 1) if use2 else (1,)):
@@ -1131,6 +1210,10 @@ class SaladGpuExecutor(SceneExecutor):
                 break
             if res is None:
                 raise self._gpu_unavailable('gpu_upload')
+            if qa_gate_on():          # кадровый брак по отчёту машины (`result.json:qa` — урезанный `.qa.json` каждого кадра): кадры не скачиваем и не публикуем
+                brak = [b for cam in CAMS for b in qa_frame_brak((res.get('qa') or {}).get(cam), cam)]
+                if brak:
+                    raise RenderBrak(brak, 'кадр машины рендера')
             t1 = self.now()
             outs = {}
             try:
