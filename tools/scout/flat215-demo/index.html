@@ -12096,6 +12096,9 @@ async function vwRenderRun(job, cb){
     const body=vwRenderReq();
     const url=TRIAL()?'/api/trial/'+trJobId()+'/photo'+(trKey()?'?k='+trKey():''):'/api/render/cycles';
     const take=v=>{ if(!v)return;
+      // машина прогрелась (вышли из «warming»): срок прогрева (верх диапазона ≈ 2–7 мин) в «Обычно около N мин» не тащим — считаем срок заново с этого ответа (на прогретой ≈ 20–30 с)
+      const mc0=(v.machine&&typeof v.machine==='object')?v.machine:null;
+      if(mc0&&mc0.state==='warming')job.wasWarm=true; else if(job.wasWarm){job.wasWarm=false; job.est=0; job.estRun=false; job.eta0=0;}
       const e=(v.eta_range&&+v.eta_range[1])||+v.eta||0, run=v.status==='running'||(v.queue===0&&v.status!=='queued');
       if(e&&(run?!job.estRun:e>(job.est||0))){job.est=e; if(run)job.estRun=true;}
       job.queue=+v.queue||0; job.eta=+v.eta||0; if(v.percent!=null)job.pct=Math.max(job.pct||0,+v.percent||0);
