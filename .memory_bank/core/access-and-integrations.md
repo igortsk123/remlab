@@ -36,7 +36,7 @@ review_after: 2026-12-05
   (Bearer конвейера) — Tier 2.
 - **SaladCloud + GHCR (31.08):** GPU под меши вместо fal; орг `prodstore`/`dmodel`, ключи в
   `_secrets/`, образ только digest'ом. События машин — `log-entries` (бесплатно, [[mesh-pool]] Tier 2 § 6). Грабли API — ADR-0137.
-  GHCR — единственная копия образа (ADR-0232), вход `GHCR_TOKEN` (Tier 2).
+  GHCR — единственная копия образа (ADR-0232), вход `GHCR_TOKEN` (Tier 2). `HF_TOKEN` (DINOv3, 18.11) — Tier 2 § env_keys.
 - **Гдеслон (03.09):** фиды первичны (`original_picture`, `article`, описание), API — комиссия;
   id округлён (связь по `article`), `available` бесполезен — ADR-0171.
 - **Telegram `@remlabservice_bot` (03.09):** токен и chat_id в `tools/scout/.env.alert` и `/opt/remlab/catalog-watchdog/.env`. С 14.10 — и клиентский бот; UptimeRobot — Tier 2.

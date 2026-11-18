@@ -3,7 +3,7 @@ tier: 2
 topic: integrations-details
 scope: Детали внешних интеграций — эндпоинты, форматы запросов/ответов, env-переменные, конфиги, цены
 tier1: ../core/access-and-integrations.md
-updated: 2026-11-12
+updated: 2026-11-18
 importance: high
 source: manual
 status: working
@@ -416,6 +416,9 @@ base 2833 против 85 у `gpt-4o`, то есть в долларах как 
 ## env_keys — откуда скрипты scout берут ключи (T-52, 05.11)
 Резолвер `tools/scout/env_keys.py`: окружение → своё дерево → основная копия (из worktree, через git common-dir) → mltest последним с WARN; `--where` — откуда возьмётся (только путь), `--ping` — бесплатная проверка; журнал трат `openai-spend.jsonl` — всегда основной копии (`openai_budget.SPEND_LOG`). 12 старых скриптов (fixone.py, judge.py, pipeline.py, pipeline2.py, viz5/7/8/9/10/11.py, viz_frame.py, viz_plan.py; у pipeline2 и viz_frame сперва свой `.env`) ещё берут OpenAI-ключ из `v0-health-card/backend/.env` — вопрос владельцу.
 - GHCR (02.10): в CI вход на сервере — `GHCR_TOKEN` = `secrets.GITHUB_TOKEN` (`.github/workflows/deploy.yml:142`, `docker login ghcr.io` — :148); ручной вход — `GHCR_TOKEN` из `_secrets/`, не `gh auth token`: токену под пакеты `gh` требует ещё `read:org` (ADR-0232).
+- Hugging Face (18.11, аккаунт владельца): `HF_TOKEN` в `~/scout-scenes/salad.env` на DEV (chmod 600, только там: не в git, не в банке).
+  Нужен для закрытых весов DINOv3 (`facebook/dinov3-vitl16-pretrain-lvd1689m`, доступ выдаёт Meta по заявке), которые требуют
+  TRELLIS.2 и Pixal3D (план `plans/mesh-models-trial-01.md`). Доступ проверять HEAD-запросом до любой платной сборки: 403 значит «заявку ещё не одобрили».
 
 ## Вырезка фона: BiRefNet local и fal (свод недели 06–12.11 по журналам, T-20261112-85)
 - Веса и код BiRefNet закреплены ревизией (`tools/scout/cutout_sync.py:BIREFNET_REVISION`, T-46/3): модель грузится с
