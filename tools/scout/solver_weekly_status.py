@@ -58,6 +58,8 @@ def digest(path: str, now: datetime.datetime | None = None, max_age_days: float 
 
 
 def _selftest() -> int:
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp (T-20261107-13)
+    remlab_tmp.use('solver_weekly_status-selftest')
     import tempfile
     bad = 0
 
