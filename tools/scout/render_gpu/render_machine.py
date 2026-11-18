@@ -52,6 +52,10 @@ T = {
                        'Not starting: the daily ${cap:.2f} cap is used up (spent ${spent:.2f}).'),
     'on_refused_image': ('Не включаю: в Salad группа «{g}» с другим образом, чем в правилах. Для нового образа — новая группа (имя в правилах).',
                          'Not starting: Salad group "{g}" has a different image than the rules. A new image needs a new group name.'),
+    'group_switched': ('Группа машины рендера в правилах сменилась: прежняя «{old}» была включена — погасил (остановка подтверждена). Дальше веду «{new}».',
+                       'The render machine group in the rules changed: the previous "{old}" was on — stopped (confirmed). Now managing "{new}".'),
+    'group_switch_unconfirmed': ('❗ Группа в правилах сменилась, прежнюю «{old}» гашу, но Salad остановку пока не подтвердил — повторю на ближайшей отметке; новую не включаю, пока не остановится.',
+                                 '❗ The rules group changed; stopping the previous "{old}" but Salad has not confirmed yet — will retry; not starting the new one until it stops.'),
     'on_error': ('Не получилось включить: {why}.', 'Could not start: {why}.'),
     'off_done': ('Машина рендера выключена (остановка подтверждена). Сегодня потрачено ${spent:.2f}.', 'Render machine is off (stop confirmed). Spent today ${spent:.2f}.'),
     'off_already': ('Машина рендера уже выключена. Сегодня потрачено ${spent:.2f}.', 'Render machine is already off. Spent today ${spent:.2f}.'),
@@ -135,7 +139,7 @@ def london_date(now: float) -> str:
 def new_state() -> dict:
     return {'desired': 'off', 'gen': 0, 'by': None, 'at': 0, 'on_at': 0, 'running_since': 0, 'last_activity': 0, 'busy_until': 0, 'last_tick': 0, 'last_start_try': 0,
             'accrued_ts': 0, 'spent_date': '', 'spent_usd': 0.0, 'warm_gen': 0, 'degraded_since': 0, 'restarts': 0, 'stop_reason': '', 'stop_notified_gen': 0,
-            'ready_since': 0, 'probe_sec': None, 'slow': False, 'frames': ['png'], 'masks': False}
+            'ready_since': 0, 'probe_sec': None, 'slow': False, 'frames': ['png'], 'masks': False, 'group': ''}
 
 
 def _acc(s: dict, now: float, paying: bool, price: float) -> None:
@@ -362,7 +366,10 @@ def beat_server(rules: dict, now: float) -> bool:
     """Отметка для сторожа на сервере: файл `controller.json` (время — по mtime)."""
     d = f"{SINK_ROOT}/{rules['sink_prefix']}/.staging"
     try:
-        r = subprocess.run(SERVER + [f"mkdir -p {d} && echo '{{\"ts\": {now:.0f}}}' > {d}/controller.json"], capture_output=True, text=True, timeout=40)
+        g = rules['group']
+        body = f'{{\"ts\": {now:.0f}, \"group\": \"{g}\"}}'
+        # controller.json — общая отметка «контроллер жив» (как раньше); controller-<группа>.json — «эту группу веду я»: по ней сторож отличает группу без хозяина (T-09/6)
+        r = subprocess.run(SERVER + [f"mkdir -p {d} && echo '{body}' > {d}/controller.json && echo '{body}' > {d}/controller-{g}.json"], capture_output=True, text=True, timeout=40)
         return r.returncode == 0
     except subprocess.SubprocessError:
         return False
@@ -392,6 +399,41 @@ def stop_and_verify(sal: Salad, timeout_s: int = 240) -> bool:
             return True
         time.sleep(8)
     return False
+
+
+def retire_previous(rules: dict, s: dict, now: float, price: float, lang: str = 'ru') -> bool:
+    """СМЕНА ГРУППЫ В ПРАВИЛАХ (T-20261118-09/6): контроллер помнит в состоянии, какую группу он вёл (`s['group']`). Правила теперь называют другую, а прежняя жива —
+    сначала гасим её (остановка проверяется), и только потом ведём новую: иначе прежняя остаётся работать без хозяина (18.11: m7 при переходе на m11).
+    Расход прежней до остановки идёт в тот же дневной счёт. Если машина вёлась как «включена» — новая группа начинает заново (новый запуск, счётчики прогрева с нуля).
+    Состояние без поля (старое) = группа не менялась: берём текущую. → True, если можно продолжать с новой группой; False — остановка прежней не подтверждена (повтор на следующей отметке)."""
+    prev = s.get('group') or ''
+    if not prev:
+        s['group'] = rules['group']
+        return True
+    if prev == rules['group']:
+        return True
+    psal = Salad(dict(rules, group=prev))
+    try:
+        g, st, cnt = psal.group()
+    except RuntimeError as e:
+        say('смена группы: прежняя', prev, 'не прочиталась:', e)
+        return False
+    n = psal.running_count(cnt) if g else 0
+    if g is not None and (st in PAID or n > 0):
+        _acc(s, now, True, price)
+        ok = stop_and_verify(psal)
+        _acc(s, time.time(), False, price)
+        if not ok:
+            alert(rules, tr('group_switch_unconfirmed', lang, old=prev))
+            say('смена группы: остановка', prev, 'НЕ подтверждена')
+            return False
+        alert(rules, tr('group_switched', lang, old=prev, new=rules['group']))
+        say('смена группы:', prev, 'погашена; веду', rules['group'])
+    s['group'] = rules['group']
+    if s['desired'] == 'on':
+        s.update(gen=s['gen'] + 1, on_at=now, last_activity=now, running_since=0, busy_until=0, warm_gen=0, ready_since=0, probe_sec=None, slow=False, frames=['png'], masks=False,
+                 degraded_since=0, restarts=0, last_start_try=0, stop_reason='')
+    return True
 
 
 def observe(sal: Salad, rules: dict, with_ready: bool = True) -> dict:
@@ -451,6 +493,9 @@ def cmd_on(a, rules) -> str:
         s = b.state
         now = time.time()
         obs = observe(sal, rules, with_ready=False)
+        if not retire_previous(rules, s, now, obs['price'], a.lang):
+            b.save()
+            return tr('on_error', a.lang, why='прежняя группа ещё не остановилась')
         _acc(s, now, obs['status'] in PAID, obs['price'])
         if s['spent_usd'] >= rules['day_cap_usd']:
             b.save()
@@ -470,7 +515,7 @@ def cmd_on(a, rules) -> str:
         if why == 'image':
             return tr('on_refused_image', a.lang, g=rules['group'])
         s.update(desired='on', gen=s['gen'] + 1, by=a.by, at=now, on_at=now, last_activity=now, running_since=0, warm_gen=0, ready_since=0, probe_sec=None, slow=False, frames=['png'], degraded_since=0,
-                 restarts=0, stop_reason='', last_start_try=now, accrued_ts=now)
+                 restarts=0, stop_reason='', last_start_try=now, accrued_ts=now, group=rules['group'])
         b.save()
         beat_server(rules, now)
         return tr('on_started', a.lang)
@@ -482,6 +527,7 @@ def cmd_off(a, rules) -> str:
         s = b.state
         now = time.time()
         obs = observe(sal, rules, with_ready=False)
+        retire_previous(rules, s, now, obs['price'], a.lang)            # выключаем всё, что вели: и прежнюю группу, если правила успели сменить
         _acc(s, now, obs['status'] in PAID, obs['price'])
         was_live = obs['status'] in PAID
         s.update(desired='off', by=a.by, at=now, running_since=0)
@@ -578,6 +624,9 @@ def cmd_tick(a, rules) -> str:
             obs = observe(sal, rules)
         except Exception as e:  # noqa: BLE001
             return f'tick: Salad недоступен ({type(e).__name__}) — состояние не менял'
+        if not retire_previous(rules, b.state, now, obs['price']):
+            b.save()
+            return 'tick: смена группы — прежняя ещё не остановилась, новую не веду; повтор на следующей отметке'
         s, acts = plan(b.state, obs, rules, now)
         b.state = s
         b.save()
