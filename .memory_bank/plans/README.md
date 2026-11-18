@@ -48,6 +48,7 @@ draft → in_progress → completed → перенос в completed_plans/
 | slug | Название | status | created | updated |
 |------|----------|--------|---------|---------|
 | trial-buyer-gate-01 | Ссылка покупателя на тур — только после подтверждения планировки агентом (T-40, ADR-0386) | in_progress | — | 2026-11-12 |
+| price-segments-01 | — | in_progress | — | 2026-11-18 |
 | floorplan-advisor-trials-01 | Пробы по совету советника — этажи, OCR размеров, внешняя сверка | in_progress | — | 2026-11-10 |
 | tour-render-01 | Тур — фото всех комнат и стилей с прогревом машины с первой секунды | in_progress | 2026-11-18 | 2026-11-18 |
 | render-prep-speed-01 | — | in_progress | 2026-11-18 | 2026-11-18 |
