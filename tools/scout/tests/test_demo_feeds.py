@@ -172,6 +172,9 @@ def test_goods_from_feeds_same_bank_slot_and_wall_edge():
     assert (rug['w'], rug['d']) == (230, 160) and rug['sku']['url'].endswith('R1') and 'msid' not in rug['sku']
     # стул: товар снят → товар витрины по месту со своей моделью; стоял в углу — остался в углу
     assert stool['sku']['msid'] == 'C2' and (stool['w'], stool['d']) == (44, 44) and (stool['x'], stool['y']) == (378.0, 22.0)
+    # публичный ключ товара (T-20261118-03/9) — ТОГО товара, что стал предметом (не прежнего): витрина по модели, банк по ключу модели, витрина по месту
+    assert [it['sku'].get('pid') for it in (sofa, chair, rug, stool)] == [TB.pid_of(x) for x in ('S', 'K', 'R1', 'C2')]
+    assert all('sid' not in it['sku'] and it['sku']['pid'] != it['sku'].get('msid') for it in (sofa, chair, rug, stool))
     # без витрины и без резолвера — ничего не трогаем
     v2 = {'room_id': 'living', 'style': 'лофт', 'items': [_it('стул', 100, 100, 45, 45, msid='GONE')]}
     assert TB.goods_from_feeds([v2], None, None) == {'same': 0, 'bank': 0, 'slot': 0, 'model_only': 0, 'none': 0, 'own': 0}

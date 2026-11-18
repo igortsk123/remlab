@@ -78,7 +78,7 @@ export type TrialPhotoIn = z.infer<typeof trialPhotoIn>;
 
 /** Заказ РЕНДЕРА «Сделать фото» из тура (T-20261117-19/1, план `photo-render-first-01`; тот же маршрут `/api/trial/<id>/photo`, поле `mode: "render"`).
  *  Контракт снимка расстановки — `tools/scout/render_snapshot.py` (версия `v`): страница шлёт номер варианта данных тура, свои правки предметов
- *  (товар по `sid`, место) и две позы C1/C2; размеры, товары и декор берёт сервер из ДАННЫХ ЗАДАНИЯ (последняя версия, `photo_ok`). Без `items`/`cams`
+ *  (товар по `sid` или `pid`, место) и две позы C1/C2; размеры, товары и декор берёт сервер из ДАННЫХ ЗАДАНИЯ (последняя версия, `photo_ok`). Без `items`/`cams`
  *  — как в варианте. Лишние поля отбрасываются. Рендер бесплатный: ни брони, ни квоты фото нейросети. */
 const renderNum = z.number().finite();
 export const trialRenderIn = z.object({
@@ -90,10 +90,13 @@ export const trialRenderIn = z.object({
   variant_id: z.string().regex(/^[0-9A-Za-z_.:-]{1,80}$/),
   room_id: trialPageRoomId,
   room: z.object({ w: renderNum.positive(), d: renderNum.positive() }),
+  // товар предмета — ключ витрины `sid` ИЛИ публичный ключ тура `pid` (`p1:` + 24 hex; у публичных данных тура `sid` нет, T-20261118-03/9); оба — нельзя:
+  // сервер всё равно берёт карточку из данных задания, а не из запроса
   items: z.array(z.object({
-    role: z.string().min(1).max(40), sid: z.string().regex(/^[0-9A-Za-z_.:-]{1,80}$/), x: renderNum, y: renderNum, rot: renderNum.optional(),
+    role: z.string().min(1).max(40), sid: z.string().regex(/^[0-9A-Za-z_.:-]{1,80}$/).optional(), pid: z.string().regex(/^p1:[0-9a-f]{24}$/).optional(),
+    x: renderNum, y: renderNum, rot: renderNum.optional(),
     corner: z.boolean().optional(), corner_left: z.boolean().optional(), section: z.union([z.number().int(), z.string().max(40)]).nullable().optional(),
-  })).min(1).max(40).optional(),
+  }).refine((i) => (i.sid === undefined) !== (i.pid === undefined), { message: "sid_or_pid" })).min(1).max(40).optional(),
   cams: z.array(z.object({
     name: z.enum(["C1", "C2"]), x: renderNum, y: renderNum, rot: renderNum, fov: renderNum,
     pose: z.number().int().optional(), pshift: renderNum.optional(),

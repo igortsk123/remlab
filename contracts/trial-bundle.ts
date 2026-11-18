@@ -76,12 +76,14 @@ const CYRILLIC = /[Ѐ-ԯ]/;
 // предмета (`items[].sku`) и строки ленты — цена, фото-плитка витрины, ссылка https и магазин, только проверенного вида; ключей
 // поставщика (`sid`, `mid`, `eid`), служебной прямой ссылки, бренда и прочих `*_url` — нигде; у самого предмета полей товара нет
 const NEVER_FIELDS = new Set(["sid", "mid", "eid", "probe_url", "url_direct", "img_hd", "brand"]);
-const GOODS_FIELDS = new Set(["url", "shop", "img", "price"]);
+const GOODS_FIELDS = new Set(["url", "shop", "img", "price", "pid"]);
 const GOODS_OK: Record<string, (v: unknown) => boolean> = {
   price: (v) => typeof v === "number" && Number.isFinite(v) && v >= 0,
   img: (v) => typeof v === "string" && /^img\/[0-9a-f]{16}\.jpg$/.test(v),
   url: (v) => typeof v === "string" && /^https:\/\/[^\s"'<>`\\]{4,2000}$/.test(v),
   shop: (v) => typeof v === "string" && v.length > 0 && v.length <= 80 && !/[<>"`\\]/.test(v),
+  // публичный ключ товара (T-20261118-03/9): `p1:` + 24 hex, на месте товара; ключа поставщика в нём нет (`trial_bundle.pid_of`)
+  pid: (v) => typeof v === "string" && /^p1:[0-9a-f]{24}$/.test(v),
 };
 const keysOf = (o: unknown): [string, unknown][] => (o && typeof o === "object" ? Object.entries(o) : []);
 const never = (k: string): boolean => NEVER_FIELDS.has(k) || k.endsWith("_url");

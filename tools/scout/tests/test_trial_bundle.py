@@ -570,7 +570,7 @@ def test_no_shop_names_links_or_prices_anywhere():
     assert not set(_walk_keys(d)) & TB.BANNED_KEYS
     for v in d['variants']:
         for it in v['items']:
-            assert set(it) <= TB.ITEM_KEYS and set(it['sku']) <= TB.SKU_KEYS
+            assert set(it) <= TB.ITEM_KEYS and set(it['sku']) <= TB.SKU_KEYS | {TB.PID_KEY}
     for rows in d['feeds'].values():
         assert all(set(r) <= TB.FEED_KEYS for r in rows)
 
@@ -1107,7 +1107,7 @@ def test_stage_keys_carry_sid_but_page_never():
     assert TB.public_item(it)['sku'] == {'name': 'Кровать', 'price': 1, 'url': 'https://x'}
     sk = TB._part_item(it)['sku']
     # ключ товара на время сборки — `_sid` (подкраске нужен товар, T-20261112-96); в данные страницы его не пускает `scene_fields`
-    assert sk.pop('_sid') == '7_bed' and sk.keys() <= TB.SKU_KEYS
+    assert sk.pop('_sid') == '7_bed' and sk.keys() <= TB.SKU_KEYS | {TB.PID_KEY} and sk['pid'] == TB.pid_of('7_bed')
 
 
 def test_catalog_goods_like_demo_sku_bank_first_price_from_catalog(monkeypatch, tmp_path):
@@ -1502,6 +1502,62 @@ def test_swatch_on_plan_goods_only_hex():
     for bad in ('red', '#AABBCC', '#aabbcc"', 7):
         with pytest.raises(TB.BundleRefused):
             TB.assert_public({'variants': [{'items': [{'sku': {'swatch': bad}}]}]}, [], goods=True)
+
+
+def test_pid_public_product_key_shape_stability_and_boundaries():
+    """T-20261118-03/9: `pid` — `p1:` + 24 hex от нормализованного `sid`; один товар — один ключ между сборками и источниками (`a:b` = `a_b`),
+    разные товары — разные; пусто — нет ключа; в `sid`/`msid` он не попадает; на месте товара (предмет, лента) допустим только такого вида."""
+    p = TB.pid_of('112923_10843920060343119175')
+    assert re.fullmatch(r'p1:[0-9a-f]{24}', p) and p == TB.pid_of('112923_10843920060343119175') == TB.PID_NS + p[3:]
+    assert TB.pid_of('1:2') == TB.pid_of('1_2') != TB.pid_of('1_3') and TB.pid_of(None) is None and TB.pid_of('') is None
+    assert '112923' not in p                                               # ключ поставщика в нём не виден
+    sk = {'name': 'К', 'pid': 'p1:' + '0' * 24}
+    assert TB.put_pid(sk, None) is sk and 'pid' not in sk                  # товар сменился на безымянный — прежний ключ не остаётся
+    ok = {'variants': [{'items': [{'sku': {'pid': p}}]}], 'feeds': {'ковёр': [{'pid': p}]}, 'sofa_feed': [{'pid': p}]}
+    TB.assert_public(ok, [], goods=True)
+    for bad in ('1_2', 'p1:XYZ', p.upper(), p + '0', 5, None):
+        with pytest.raises(TB.BundleRefused, match='shop_leak'):
+            TB.assert_public({'variants': [{'items': [{'sku': {'pid': bad}}]}]}, [], goods=True)
+
+
+def test_pid_is_the_only_difference_prices_and_geometry_do_not_depend_on_it(monkeypatch):
+    """Сборка с `pid` и без него (ключ отключён) отличается ТОЛЬКО самим полем: цены, названия, размеры, места, ленты, `msid` — те же;
+    у каждого предмета с товаром `sid` из строки сцены есть `pid`, `sid` в данных нет (`NEVER_KEYS`), `pid` ни разу не равен `msid`."""
+    flat = flat_with_bedrooms()
+    with_pid = TB.build(JOB, flat, scene_for(flat), ctx=GCTX, parts=[goods_bedroom_part()])
+    monkeypatch.setattr(TB, 'pid_of', lambda sid: None)
+    without = TB.build(JOB, flat, scene_for(flat), ctx=GCTX, parts=[goods_bedroom_part()])
+
+    def strip(o):
+        if isinstance(o, dict):
+            return {k: strip(v) for k, v in o.items() if k != 'pid'}
+        return [strip(x) for x in o] if isinstance(o, list) else o
+    assert strip(with_pid) == strip(without)
+    assert not any('pid' in sk for v in without['variants'] for it in v['items'] for sk in [it['sku']])
+    items = [it for v in with_pid['variants'] for it in v['items']]
+    sofa = next(it for it in items if it['role'] == 'диван')['sku']
+    assert sofa['pid'] == (TB.PID_NS + hashlib.sha256((TB.PID_NS + '1_2').encode()).hexdigest()[:24])
+    bed = next(it for v in with_pid['variants'] if v['room_id'] == 'bedroom-1' for it in v['items'])['sku']
+    assert bed['pid'].startswith('p1:') and bed['pid'] != sofa['pid']
+    assert all(it['sku'].get('pid') != it['sku'].get('msid') and 'sid' not in it['sku'] and '_sid' not in it['sku'] for it in items)
+
+
+def test_carried_pids_only_by_unique_photo_tile_never_by_name():
+    """T-20261118-03/9: перенесённый предмет без ключа (тур до `pid`) получает его только по плитке фото из строки витрины и только если у
+    всех строк с этой плиткой один `sid`; по названию и размеру — никогда; чужие `pid` не трогаем."""
+    demo = {'living': {'ковёр': [{'sid': 'R:1', 'name': 'Ковёр A', 'img': 'img/aaaaaaaaaaaaaaaa.jpg', 'w': 230, 'd': 160},
+                                 {'sid': 'R_2', 'name': 'Ковёр B', 'img': 'img/bbbbbbbbbbbbbbbb.jpg', 'w': 230, 'd': 160},
+                                 {'sid': 'R_3', 'name': 'Ковёр C', 'img': 'img/bbbbbbbbbbbbbbbb.jpg', 'w': 230, 'd': 160}]},
+            'bedroom': {'ковёр': [{'sid': 'R_1', 'name': 'Ковёр A', 'img': 'img/aaaaaaaaaaaaaaaa.jpg', 'w': 230, 'd': 160}]}}
+    a = {'name': 'Ковёр A', 'img': 'img/aaaaaaaaaaaaaaaa.jpg', 'w': 230, 'd': 160}
+    b = {'name': 'Ковёр B', 'img': 'img/bbbbbbbbbbbbbbbb.jpg', 'w': 230, 'd': 160}            # одна плитка у двух товаров — неоднозначно
+    same_name = {'name': 'Ковёр A', 'img': 'img/cccccccccccccccc.jpg', 'w': 230, 'd': 160}   # то же имя и размер, плитки в витрине нет
+    own = {'name': 'Ковёр A', 'img': 'img/aaaaaaaaaaaaaaaa.jpg', 'pid': 'p1:' + 'f' * 24}
+    vs = [{'items': [{'sku': a}, {'sku': b}, {'sku': same_name}, {'sku': own}, {'sku': None}], 'decor': [{'sku': dict(a)}]}]
+    assert TB.carried_pids(vs, demo) == {'set': 2, 'none': 1, 'ambiguous': 1}
+    assert a['pid'] == TB.pid_of('R_1') and vs[0]['decor'][0]['sku']['pid'] == TB.pid_of('R_1')    # `R:1` и `R_1` — один товар
+    assert 'pid' not in b and 'pid' not in same_name and own['pid'] == 'p1:' + 'f' * 24
+    assert TB.carried_pids([{'items': [{'sku': {'img': 'img/aaaaaaaaaaaaaaaa.jpg'}}]}], None) == {'set': 0, 'none': 1, 'ambiguous': 0}
 
 
 def test_carried_items_get_colour_family_by_sku_scene():

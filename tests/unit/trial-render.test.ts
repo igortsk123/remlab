@@ -35,6 +35,15 @@ describe("рендер из тура: контракт тела", () => {
     expect(trialRenderIn.safeParse({ ...REQ, cams: [{ name: "C1", x: 1, y: 2, rot: 3, fov: 90 }] }).success).toBe(false);
     expect(trialRenderIn.safeParse({ ...REQ, items: Array.from({ length: 41 }, () => ({ role: "а", sid: "s1", x: 1, y: 1 })) }).success).toBe(false);
   });
+  it("товар предмета — `sid` ИЛИ публичный `pid` (T-20261118-03/9): ни того ни другого, оба, `pid` чужого вида — отказ", () => {
+    const pid = "p1:" + "0123456789abcdef01234567";
+    const it = (o: Record<string, unknown>) => trialRenderIn.safeParse({ ...REQ, items: [{ role: "ковёр", x: 1, y: 2, ...o }] }).success;
+    expect(it({ pid })).toBe(true);
+    expect(it({ sid: "s1" })).toBe(true);
+    expect(it({})).toBe(false);
+    expect(it({ sid: "s1", pid })).toBe(false);
+    for (const bad of ["s1", "p1:XYZ", pid.toUpperCase(), pid + "0", ""]) expect(it({ pid: bad })).toBe(false);
+  });
   it("заказ фото нейросети (без mode) не принимается как рендер и по-прежнему разбирается своей схемой", () => {
     const old = { room_id: "living", views: [{ camera: "C1", id: "a".repeat(64) }, { camera: "C2", id: "b".repeat(64) }], room: { w: 400, d: 300 },
       items: [{ role: "диван" }], render_key: "e".repeat(32) };
@@ -54,6 +63,17 @@ describe("рендер из тура: данные для сервиса кад�
     expect(src.rooms_geo).toEqual({ living: { w: 400, d: 300 } });
     expect(variants[1]).toEqual({ id: "v2", room_id: "living", items: [{ role: "стул" }] });          // роли чужих вариантов — для проверки роли, без товаров
     expect(JSON.stringify(src).length).toBeLessThan(json.length);
+  });
+  it("публичные данные тура без `sid`: товар заказа по `pid` — ВСЕ его карточки из версии данных, чужие не берутся (T-20261118-03/9)", () => {
+    const pa = "p1:" + "a".repeat(24), pb = "p1:" + "b".repeat(24), pc = "p1:" + "c".repeat(24);
+    const card = (pid: string, name: string, img: string) => ({ pid, name, msid: null, w: 230, d: 160, h: 1, img });
+    const tour = { ...bundle, variants: [{ id: "v1", room_id: "living", items: [{ role: "ковёр", x: 1, y: 1, w: 230, d: 160, sku: card(pa, "Ковёр А", "img/a.jpg") }] }],
+      feeds: { ковёр: [card(pb, "Ковёр Б", "img/b.jpg"), card(pb, "Ковёр Б", "img/b.jpg"), card(pc, "Ковёр В", "img/c.jpg")] }, sets: [] };
+    const src = reduceSource(JSON.stringify(tour), { variant_id: "v1", room_id: "living", items: [{ role: "ковёр", pid: pb, x: 1, y: 1 }] })!;
+    const names = (src._skus as { name: string }[]).map((x) => x.name);
+    expect(names).toEqual(["Ковёр Б", "Ковёр Б"]);                         // чужой «В» не взят; обе карточки одного ключа — сервис сверит, что товар один
+    const none = reduceSource(JSON.stringify(tour), { variant_id: "v1", room_id: "living", items: [{ role: "ковёр", pid: "p1:" + "d".repeat(24), x: 1, y: 1 }] })!;
+    expect(none._skus).toEqual([]);                                         // неизвестный ключ — пусто, сервис откажет `bad_item`
   });
   it("нет варианта — null; битые данные — null", () => {
     expect(reduceSource(json, { variant_id: "нет", room_id: "living" })).toBeNull();

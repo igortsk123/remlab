@@ -27,6 +27,15 @@ function collectSkus(v: unknown, into: Map<string, Dict>): void {
   for (const x of Object.values(v)) collectSkus(x, into);
 }
 
+/** ВСЕ карточки товара с публичным ключом `pid` (`trial_bundle.pid_of`, T-20261118-03/9; у публичных данных тура `sid` нет) — не первая: решает
+ *  сервис (`render_snapshot.pid_index`): один ключ у двух разных товаров — отказ `bad_item`, а не «первая карточка». */
+function collectPid(v: unknown, pid: string, into: Dict[]): void {
+  if (Array.isArray(v)) { for (const x of v) collectPid(x, pid, into); return; }
+  if (!isDict(v)) return;
+  if (v.pid === pid && typeof v.name === "string") into.push(v);
+  for (const x of Object.values(v)) collectPid(x, pid, into);
+}
+
 /** Данные для сервиса кадров: ОДИН вариант задания, его комната, правила мягкого и только те товары, на которые ссылается заказ (или сам вариант).
  *  Нет такого варианта — null (наружу 404 `unknown_variant`). Размер — единицы КБ, а не вся версия данных. */
 export function reduceSource(json: string, inp: Pick<TrialRenderIn, "variant_id" | "room_id" | "items">): Dict | null {
@@ -39,13 +48,17 @@ export function reduceSource(json: string, inp: Pick<TrialRenderIn, "variant_id"
   collectSkus(b, all);
   const wanted = new Map<string, Dict>();
   collectSkus(variant, wanted);
-  for (const it of inp.items ?? []) { const s = all.get(it.sid); if (s) wanted.set(it.sid, s); }
+  const byPid: Dict[] = [];
+  for (const it of inp.items ?? []) {
+    if (it.sid !== undefined) { const s = all.get(it.sid); if (s) wanted.set(it.sid, s); }
+    if (it.pid !== undefined) collectPid(b, it.pid, byPid);
+  }
   const rid = String(variant.room_id ?? inp.room_id);
   const geo = isDict(b.rooms_geo) && isDict((b.rooms_geo as Dict)[rid]) ? (b.rooms_geo as Dict)[rid] : b.room;
   const rules = isDict(b.rules) && Array.isArray(b.rules.soft_roles) ? { soft_roles: b.rules.soft_roles } : {};
   // роли для проверки заказа — по всем вариантам: лёгкие копии вариантов без предметов (роль и товар), сами предметы чужих вариантов не нужны
   const roleStubs = variants.filter((v) => v !== variant).map((v) => ({ id: v.id, room_id: v.room_id, items: (Array.isArray(v.items) ? v.items : []).filter(isDict).map((i) => ({ role: i.role })) }));
-  return { apartment_id: b.apartment_id, build: b.build, room: b.room, rooms_geo: { [rid]: geo }, rules, variants: [variant, ...roleStubs], _skus: [...wanted.values()] };
+  return { apartment_id: b.apartment_id, build: b.build, room: b.room, rooms_geo: { [rid]: geo }, rules, variants: [variant, ...roleStubs], _skus: [...wanted.values(), ...byPid] };
 }
 
 /** Тело заказа сервису кадров: контракт снимка + номер тура + срезанные данные (только с внутренним ключом сервис им верит). */

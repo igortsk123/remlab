@@ -11,10 +11,11 @@
   {"v": 1,
    "variant_id": "<id варианта данных>",                      обязательно
    "room_id": "<комната>", "room": {"w": см, "d": см},       необязательно: сверка («снято в другой комнате» → 409 stale)
-   "items": [{"role", "sid", "x", "y", "rot", "corner"?, "corner_left"?, "section"?}, …]   нет — предметы варианта как есть
+   "items": [{"role", "sid" | "pid", "x", "y", "rot", "corner"?, "corner_left"?, "section"?}, …]   нет — предметы варианта как есть
+      (`sid` — ключ товара данных витрины; `pid` — публичный ключ товара тура `p1:…`, у публичных данных тура `sid` нет, T-20261118-03/9)
    "cams":  [{"name": "C1"|"C2", "x", "y", "rot", "fov", "pose"?, "pshift"?}, …]            нет — позы варианта}
 
-Что проверяется: предметов ≤ MAX_ITEMS; `sid` есть в данных (индекс товаров по всем местам данных) и у товара есть размеры;
+Что проверяется: предметов ≤ MAX_ITEMS; `sid` (или `pid`) есть в данных (индекс товаров по всем местам данных) и у товара есть размеры;
 роль — из ролей данных; место — внутри комнаты (допуск 5 см); камеры — ровно C1 и C2, внутри комнаты, углы и обзор в разумных
 пределах. Размеры предмета — из данных (тот же предмет варианта — его размеры, иначе — размеры товара), не от страницы.
 Числа округляются (0,1 см / 0,1°), потом хеш: одна расстановка → один `scene_hash`.
@@ -36,6 +37,7 @@ SLACK_CM = 5.0               # предмет может касаться сте
 CAM_SLACK_CM = 100.0         # камера у самой стены или в проёме
 SID_RE = re.compile(r'^[0-9A-Za-z_.:\-]{1,80}$')
 ID_RE = re.compile(r'^[0-9A-Za-z_.:\-]{1,80}$')
+PID_RE = re.compile(r'^p1:[0-9a-f]{24}$')     # публичный ключ товара тура (`trial_bundle.pid_of`); в `sid`/`msid` он не попадает никогда
 CAM_NAMES = ('C1', 'C2')
 
 
@@ -80,6 +82,34 @@ def sku_index(data: dict) -> dict:
     return idx
 
 
+def pid_index(data: dict) -> dict:
+    """pid → карточка товара по ВСЕМ местам данных (то же, что `sku_index`, но по публичному ключу тура). Карточки с одним `pid`, но разным
+    товаром (название или плитка фото) — неоднозначно: ключ в индексе помечается `None`, заказ с ним отказывается (`bad_item`), а не берёт первую."""
+    idx: dict = {}
+
+    def walk(o):
+        if isinstance(o, dict):
+            p = o.get('pid')
+            if isinstance(p, str) and PID_RE.match(p) and isinstance(o.get('name'), str):
+                if p not in idx:
+                    idx[p] = o
+                elif idx[p] is not None and (idx[p].get('name'), idx[p].get('img')) != (o.get('name'), o.get('img')):
+                    idx[p] = None
+            for v in o.values():
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+    walk(data)
+    return idx
+
+
+def product_key(sku: dict):
+    """Ключ товара карточки для сравнения «тот же предмет»: `sid` (витрина), иначе `pid` (тур); нет ни того ни другого — None (не равен никому)."""
+    sku = sku or {}
+    return ('sid', str(sku['sid'])) if sku.get('sid') not in (None, '') else (('pid', sku['pid']) if sku.get('pid') else None)
+
+
 def room_of(data: dict, variant: dict) -> dict:
     rid = variant.get('room_id') or 'living'
     return (data.get('rooms_geo') or {}).get(rid) or data.get('room') or {}
@@ -111,6 +141,12 @@ def _rules_of_build(build) -> str:
     return b.rsplit('.', 1)[1] if '.' in b else b
 
 
+def _pid_in_hash(sku: dict) -> dict:
+    """Личность товара в хеше — только там, где у карточки нет `sid` (тур): два разных ковра одного размера и плитки не должны делить кадр.
+    У /demo (`sid` есть) и у карточек без `pid` ключа нет вовсе — их хеши и готовые кадры не меняются (тест `_selftest`)."""
+    return {'pid': sku['pid']} if not sku.get('sid') and sku.get('pid') else {}
+
+
 def _sku_inputs(sku: dict, mesh: bool) -> dict:
     """Что в товаре меняет кадр, но не было в хеше: подкраска, образец ткани, фото-текстура (ковёр, картина — файл в `img/`) и, у предмета
     мебели, файл меша (`msid` или `sid`: перегенерация меша — новые кадры только тех комнат, где он стоит). Пустое не пишем — ключ тех, у кого
@@ -130,7 +166,7 @@ def _sku_inputs(sku: dict, mesh: bool) -> dict:
     return out
 
 
-def _item(raw, base_items: list, roles: set, skus: dict, room: dict) -> dict:
+def _item(raw, base_items: list, roles: set, skus: dict, room: dict, pids: dict | None = None) -> dict:
     if not isinstance(raw, dict):
         raise SnapshotError(422, 'bad_snapshot', 'Расстановка не принята: предмет записан неверно.',
                             'The layout was not accepted: an item is malformed.')
@@ -138,16 +174,23 @@ def _item(raw, base_items: list, roles: set, skus: dict, room: dict) -> dict:
     if not isinstance(role, str) or not (1 <= len(role) <= 40) or role not in roles:
         raise SnapshotError(422, 'bad_item', 'Расстановка не принята: неизвестный вид предмета.',
                             'The layout was not accepted: unknown item type.')
-    sid = str(raw.get('sid') or '')
-    if not SID_RE.match(sid) or sid not in skus:
+    sid, pid = str(raw.get('sid') or ''), raw.get('pid')
+    if sid:                                      # ключ витрины (демо; так же — тур со `sid` в данных)
+        card = skus.get(sid) if SID_RE.match(sid) else None
+        if card is not None and pid is not None and card.get('pid') not in (None, pid):
+            card = None                          # оба ключа названы и указывают на разные товары — не угадываем
+    else:                                        # публичный ключ тура: карточку берём из ДАННЫХ, не от страницы; неоднозначный ключ — отказ
+        card = (pids or {}).get(pid) if isinstance(pid, str) and PID_RE.match(pid) else None
+    if card is None:
         raise SnapshotError(422, 'bad_item', 'Расстановка не принята: товара нет в данных. Обновите страницу.',
                             'The layout was not accepted: the product is not in the data. Reload the page.')
-    sku = skus[sid]
+    sku = card
     x = _num(raw.get('x'), -SLACK_CM, float(room.get('w') or 0) + SLACK_CM, 'x')
     y = _num(raw.get('y'), -SLACK_CM, float(room.get('d') or 0) + SLACK_CM, 'y')
     rot = _num(raw.get('rot', 0), -720, 720, 'rot')
     # тот же предмет варианта (роль и товар совпали) — его размеры (`dims_src` каталога/расчёта); иначе — размеры товара
-    same = next((b for b in base_items if b.get('role') == role and (b.get('sku') or {}).get('sid') == sku.get('sid')), None)
+    key = product_key(sku)
+    same = next((b for b in base_items if key is not None and b.get('role') == role and product_key(b.get('sku')) == key), None)
     if same is not None:
         w, d, h = same.get('w'), same.get('d'), same.get('h')
         extra = {k: same[k] for k in ('dims_src', 'd_catalog', 'strategy') if k in same}
@@ -202,17 +245,18 @@ def canonicalize(data: dict, req: dict, source: str = 'demo') -> dict:
             if rr.get(k) is not None and abs(float(rr[k]) - float(room[k])) > 1:
                 raise SnapshotError(409, 'stale', 'Размеры комнаты изменились. Обновите страницу.',
                                     'The room size has changed. Reload the page.')
-    skus = sku_index(data)
+    skus, pids = sku_index(data), pid_index(data)
     roles = {str(i.get('role')) for v in data.get('variants') or [] for i in (v.get('items') or []) if i.get('role')}
     raw_items = req.get('items')
     base_items = base.get('items') or []
     if raw_items is None:
-        raw_items = [{'role': i['role'], 'sid': (i.get('sku') or {}).get('sid'), 'x': i['x'], 'y': i['y'], 'rot': i.get('rot') or 0}
+        raw_items = [{'role': i['role'], **({'sid': (i.get('sku') or {}).get('sid')} if (i.get('sku') or {}).get('sid') else
+                                            {'pid': (i.get('sku') or {}).get('pid')}), 'x': i['x'], 'y': i['y'], 'rot': i.get('rot') or 0}
                      for i in base_items]
     if not isinstance(raw_items, list) or not (1 <= len(raw_items) <= MAX_ITEMS):
         raise SnapshotError(422, 'bad_snapshot', 'Расстановка не принята: число предметов вне допустимого.',
                             'The layout was not accepted: the number of items is out of range.')
-    items = [_item(r, base_items, roles, skus, room) for r in raw_items]
+    items = [_item(r, base_items, roles, skus, room, pids) for r in raw_items]
     raw_cams = req.get('cams')
     if raw_cams is None:
         raw_cams = [c for c in base.get('cams') or [] if c.get('name') in CAM_NAMES]
@@ -229,10 +273,10 @@ def canonicalize(data: dict, req: dict, source: str = 'demo') -> dict:
              'variant': base.get('id'), 'room': {'w': room.get('w'), 'd': room.get('d')}, 'style': base.get('style') or '',
              'items': sorted(({'role': i['role'], 'sid': i['sku'].get('sid'), 'msid': i['sku'].get('msid'), 'x': i['x'], 'y': i['y'],
                                'rot': i['rot'], 'w': i['w'], 'd': i['d'], 'h': i['h'], 'corner': i['corner'], 'corner_left': i['corner_left'],
-                               'section': i['section'], **_sku_inputs(i['sku'], mesh=True)} for i in items),
-                            key=lambda r: (r['role'], str(r['sid']), r['x'], r['y'], r['rot'])),
+                               'section': i['section'], **_pid_in_hash(i['sku']), **_sku_inputs(i['sku'], mesh=True)} for i in items),
+                            key=lambda r: (r['role'], str(r['sid']), str(r.get('pid')), r['x'], r['y'], r['rot'])),
              'decor': sorted(({'role': d.get('role'), 'sid': (d.get('sku') or {}).get('sid'), 'strategy': d.get('strategy'),
-                               'place': d.get('place'), 'look': d.get('look'), **_sku_inputs(d.get('sku') or {}, mesh=False)} for d in decor),
+                               'place': d.get('place'), 'look': d.get('look'), **_pid_in_hash(d.get('sku') or {}), **_sku_inputs(d.get('sku') or {}, mesh=False)} for d in decor),
                              key=lambda r: json.dumps(r, sort_keys=True, ensure_ascii=False)),
              'cams': cams, 'env': SI.env_sha()}
     scene_hash = hashlib.sha256(json.dumps(brief, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
@@ -386,6 +430,49 @@ def _selftest() -> int:
     ok(canonicalize(d4, {'v': 1, 'variant_id': 'v1'})['variant']['items'][0]['h'] is None, 'плоский предмет без высоты (ковёр) принимается как есть')
     li = legacy_items(s)
     ok(li[0]['sid'] == 's1' and li[0]['msid'] == 's1' and li[0]['img'] == 'img/s1.jpg', 'предметы в формате заказа нейросети')
+    # ——— публичные данные тура (T-20261118-03/9): у карточек нет `sid`, есть `pid` (и `msid` или null у ковра)
+    pa, pb, pc = 'p1:' + 'a' * 24, 'p1:' + 'b' * 24, 'p1:' + 'c' * 24
+
+    def tsk(pid, name, **kw):
+        return {'pid': pid, 'name': name, 'w': 100, 'd': 50, 'h': 80, **kw}
+    tour = {'apartment_id': 't1', 'build': 'b1', 'room': {'w': 439, 'd': 325}, 'rules': {}, 'rooms_geo': {},
+            'variants': [{'id': 'tv1', 'room_id': 'living', 'style': 'сканди', 'cams': cams, 'decor': [], 'items': [
+                {'role': 'диван', 'x': 220, 'y': 270, 'rot': 180, 'w': 200, 'd': 90, 'h': 85, 'sku': tsk(pa, 'Диван', msid='m1', w=200, d=90, h=85)},
+                {'role': 'ковёр', 'x': 220, 'y': 160, 'rot': 0, 'w': 230, 'd': 160, 'h': 1,
+                 'sku': tsk(pb, 'Ковёр Б', msid=None, img='img/bbbbbbbbbbbbbbbb.jpg', w=230, d=160, h=1)}]}],
+            'feeds': {'ковёр': [tsk(pc, 'Ковёр В', msid=None, img='img/cccccccccccccccc.jpg', w=230, d=160, h=1)]}}
+
+    def tbad(req, dat=tour):
+        try:
+            canonicalize(dat, req)
+        except SnapshotError as e:
+            return e.code
+        return None
+    ts = canonicalize(tour, {'v': 1, 'variant_id': 'tv1'})
+    ok(len(ts['variant']['items']) == 2 and ts['variant']['items'][1]['sku']['pid'] == pb and ts['variant']['items'][1]['w'] == 230,
+       'тур: снимок варианта без `sid` принимается (ковёр без msid), размеры — предмета варианта')
+    swap = {'v': 1, 'variant_id': 'tv1', 'items': [{'role': 'ковёр', 'pid': pc, 'x': 220, 'y': 160, 'rot': 0},
+                                                   {'role': 'диван', 'pid': pa, 'x': 220, 'y': 270, 'rot': 180}]}
+    tw = canonicalize(tour, swap)
+    ok(tw['variant']['items'][0]['sku']['name'] == 'Ковёр В' and tw['scene_hash'] != ts['scene_hash'], 'тур: замена ковра товаром ленты по `pid` — карточка из данных, другой хеш')
+    same_geo = copy.deepcopy(tour)
+    same_geo['variants'][0]['items'][1]['sku'].update(pid=pc, name='Ковёр В', img='img/bbbbbbbbbbbbbbbb.jpg')
+    same_geo['feeds'] = {}
+    ok(canonicalize(same_geo, {'v': 1, 'variant_id': 'tv1'})['scene_hash'] != ts['scene_hash'], 'тур: другой товар при том же размере и фото — другой хеш (личность `pid` в хеше)')
+    ok(all(tbad({**swap, 'items': [{'role': 'ковёр', 'pid': x, 'x': 220, 'y': 160, 'rot': 0}]}) == 'bad_item'
+           for x in ('p1:' + 'd' * 24, 'p1:XYZ', pa.upper(), pa + '0', '1_2', 5)), 'тур: неизвестный или кривой `pid` — bad_item')
+    ok(tbad({**swap, 'items': [{'role': 'ковёр', 'sid': pb, 'x': 220, 'y': 160, 'rot': 0}]}) == 'bad_item', '`pid` в поле `sid` товаром не считается — bad_item')
+    amb = copy.deepcopy(tour)
+    amb['feeds']['ковёр'][0].update(pid=pb)                                           # один ключ — два разных товара: не первая карточка, а отказ
+    ok(tbad({**swap, 'items': [{'role': 'ковёр', 'pid': pb, 'x': 220, 'y': 160, 'rot': 0}]}, amb) == 'bad_item', 'тур: один `pid` у двух разных товаров — bad_item, не первая карточка')
+    # /demo и готовые кадры: `pid` рядом с `sid` в хеш НЕ идёт; карточка без `pid` — прежний хеш
+    dp = copy.deepcopy(data)
+    for v in dp['variants']:
+        for it in v['items']:
+            it['sku']['pid'] = pa
+    ok(canonicalize(dp, {'v': 1, 'variant_id': 'v1'})['scene_hash'] == canonicalize(data, {'v': 1, 'variant_id': 'v1'})['scene_hash'], 'демо: `pid` рядом с `sid` хеш не меняет (готовые кадры целы)')
+    both = {'v': 1, 'variant_id': 'v1', 'items': [{'role': 'диван', 'sid': 's1', 'pid': pb, 'x': 220, 'y': 270, 'rot': 180}]}
+    ok(tbad(both, dp) == 'bad_item', 'и `sid`, и `pid` названы, а карточка с другим `pid` — bad_item')
     print('итог:', 'чисто' if not bad else f'{bad} провал(ов)')
     return 1 if bad else 0
 
