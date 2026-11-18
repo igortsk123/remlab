@@ -794,8 +794,11 @@ class H(BaseHTTPRequestHandler):
         marks.append(('снимок', time.time()))
         key = RX.cache_key(snap['scene_hash'], cy['versions'])
         if check:
+            meta = cy['store'].cached(key)
+            # КАДРЫ ГОТОВОГО (T-20261118-20/12): страница показывает кадр заготовки в «Фото» без заказа — два адреса и sha256 (для «Улучшить из рендера»), как у готового задания
             return self._send(200, {'kind': 'render', 'check': True, 'v': RS.SNAPSHOT_VERSION, 'scene_hash': snap['scene_hash'], 'key': key,
-                                    'cached': cy['store'].cached(key) is not None, 'versions': cy['versions']})
+                                    'cached': meta is not None, 'versions': cy['versions'],
+                                    **({'frames': cy['q']._result(key, meta, 0.0, True)['frames']} if meta is not None else {})})
         prio = 1 if (internal and payload.get('prio') == 1) else 0
         marks.append(('ключ', time.time()))
         try:
