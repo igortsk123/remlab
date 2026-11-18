@@ -195,7 +195,7 @@ def _cy():
             ex = RX.make_executor()
             store = RJ.RenderStore(os.path.join(os.path.dirname(DR.FRAMES_DIR), 'render-jobs.json'), RENDER_DIR)
             n = store.load()
-            q = RJ.RenderQueue(store, ex, workers=int(os.environ.get('RENDER_WORKERS', 1)))
+            q = RJ.RenderQueue(store, ex, workers=int(os.environ.get('RENDER_WORKERS', 1)), warm_workers=int(os.environ.get('RENDER_WARM_WORKERS', 0)))
             q.start()
             wp = getattr(ex, 'warm_prep', None)
             if callable(wp):

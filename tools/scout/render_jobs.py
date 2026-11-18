@@ -216,8 +216,11 @@ class RenderStore:
 
 
 class RenderQueue:
-    def __init__(self, store: RenderStore, executor, workers: int = 1):
+    def __init__(self, store: RenderStore, executor, workers: int = 1, warm_workers: int = 0):
         self.store, self.executor, self.workers = store, executor, max(1, workers)
+        # R8 (T-20261118-22/4, tour-speed-01): ДОПОЛНИТЕЛЬНЫЕ потоки берут ТОЛЬКО заготовки (warm) — пока машина считает один кадр, DEV уже готовит и шлёт следующий (подготовка 2,7 с + отправка +
+        # скачивание ≈15 с из 15,2 — вне машины). Машина по-прежнему берёт по одному заданию; заказы человека и порядок очереди не меняются; число кадров и их ключи те же.
+        self.warm_workers = max(0, warm_workers)
         self.cond = threading.Condition(store.lock)
         self.hits: list = []             # метки времени принятых заданий (предел в час)
         self.threads: list = []
@@ -485,15 +488,17 @@ class RenderQueue:
 
     # ——— рабочий
     def start(self) -> None:
-        for i in range(self.workers):
-            t = threading.Thread(target=self._loop, name=f'render-{i}', daemon=True)
+        for i in range(self.workers + self.warm_workers):
+            t = threading.Thread(target=self._loop, args=(i >= self.workers,), name=f'render-{i}', daemon=True)
             t.start()
             self.threads.append(t)
 
-    def _take(self):
+    def _take(self, warm_only: bool = False):
         with self.cond:
             while not self.stop:
                 order = self._order()
+                if warm_only:
+                    order = [x for x in order if self.store.jobs[x].get('warm')]          # дополнительный поток: только заготовки, человека не берёт
                 if order and self.store.jobs[order[0]].get('warm') and not self.warm_ok():
                     order = [x for x in order if not self.store.jobs[x].get('warm')]     # заготовки ждут машину; людям она не мешает
                 if order:
@@ -505,9 +510,9 @@ class RenderQueue:
                 self.cond.wait(timeout=5)
         return None
 
-    def _loop(self) -> None:
+    def _loop(self, warm_only: bool = False) -> None:
         while not self.stop:
-            jid = self._take()
+            jid = self._take(warm_only)
             if jid is None:
                 return
             self.run_one(jid)
