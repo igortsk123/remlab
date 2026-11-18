@@ -144,6 +144,13 @@ def glb_nodes(path: str) -> dict:
                 bv = j["bufferViews"][im["bufferView"]]
                 o = binoff + bv.get("byteOffset", 0)
                 dims = image_dims(b[o:o + min(bv["byteLength"], 65536)])
+            elif im is not None and isinstance(im.get("uri"), str) and not im["uri"].startswith("data:"):
+                # внешняя картинка (дамп с `ximg=1`, T-20261118-10/1): размеры — из файла рядом с GLB; нет файла — как «размеров нет»
+                try:
+                    with open(os.path.join(os.path.dirname(path), im["uri"]), "rb") as f:
+                        dims = image_dims(f.read(65536))
+                except OSError:
+                    dims = None
             imgs.append(dims)
         out[uu] = {"images": imgs, "materials": mats, "hasTexSlot": tex_slots, "mesh": n["mesh"]}
     return out

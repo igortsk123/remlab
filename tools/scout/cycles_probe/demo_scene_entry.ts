@@ -251,6 +251,13 @@ let ENCODE_MS = 0, ENCODE_N = 0;
   }
 }
 (window as Any).exportMarks = () => EXPORT_MARKS;
+(window as Any).exportImages = () => Array.from(XIMG_ORDER.values()).map(({ name, sha, bytes }) => ({ name, sha256: sha, bytes }));
+(window as Any).imageBytes = async (name: string) => {
+  const m = XIMG_ORDER.get(name);
+  if (!m) return "";
+  const fr = new FileReader();
+  return await new Promise<string>((res, rej) => { fr.onload = () => res(String(fr.result).slice(String(fr.result).indexOf(",") + 1)); fr.onerror = () => rej(fr.error); fr.readAsDataURL(m.blob); });
+};
 
 // КЭШ КОДИРОВАННЫХ КАРТИНОК GLB (T-20261118-10/1 (а)): экспортёр three каждую текстуру рисует на холсте и кодирует PNG/JPEG заново (7–9 штук, ≈1 с на гостиную), хотя картинки
 // у заказов те же. Здесь результат — тот самый Blob холста — запоминается и отдаётся без рисования и кодирования; байты картинок в GLB те же, что без кэша.
@@ -288,10 +295,26 @@ const encodeImage = async (image: Any, flipY: boolean, mimeType: string, maxSize
   else { if (!byObj) { byObj = new Map(); ENC_BY_OBJ.set(image, byObj); } byObj.set(sub, blob); }
   return { blob, how: "miss" };
 };
-const encodeCachePlugin = (opts: { maxTextureSize: number }) => (writer: Any) => {
+// ВНЕШНИЕ КАРТИНКИ GLB (T-20261118-10/1, `ximg=1`): вместо вшивания в GLB (bufferView) картинка получает `uri = img/<sha256[:32]>.<png|jpg>` (рядом с GLB), её байты — те же, что вшивались.
+// Имя = хеш содержимого: одна и та же картинка у разных заказов — один и тот же файл (его не пересылают и не пишут снова). Список (имя, полный sha256, размер) — `exportImages()`,
+// байты по имени — `imageBytes(name)` (процесс выгрузки забирает только те, которых нет в его общем кэше).
+const XIMG_META = new WeakMap<Blob, { name: string; sha: string; bytes: number }>();
+const XIMG_ORDER = new Map<string, { name: string; sha: string; bytes: number; blob: Blob }>();
+const EXT_OF: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
+const ximgMeta = async (blob: Blob, mime: string) => {
+  let m = XIMG_META.get(blob);
+  if (m) return m;
+  const buf = await blob.arrayBuffer();
+  const dig = new Uint8Array(await crypto.subtle.digest("SHA-256", buf));
+  const sha = Array.from(dig, (b) => b.toString(16).padStart(2, "0")).join("");
+  m = { name: `${sha.slice(0, 32)}.${EXT_OF[mime] ?? "bin"}`, sha, bytes: buf.byteLength };
+  XIMG_META.set(blob, m);
+  return m;
+};
+const encodeCachePlugin = (opts: { maxTextureSize: number; ximg?: boolean }) => (writer: Any) => {
   const orig = writer.processImage.bind(writer);
   writer.processImage = (image: Any, format: number, flipY: boolean, mimeType = "image/png") => {
-    const cacheable = GLTF_CACHE_ON && image && image.data === undefined && !(image instanceof HTMLCanvasElement) && !(typeof OffscreenCanvas !== "undefined" && image instanceof OffscreenCanvas);
+    const cacheable = (GLTF_CACHE_ON || !!opts.ximg) && image && image.data === undefined && !(image instanceof HTMLCanvasElement) && !(typeof OffscreenCanvas !== "undefined" && image instanceof OffscreenCanvas);
     if (!cacheable) { ENC_SKIP++; return orig(image, format, flipY, mimeType); }
     const cache = writer.cache, json = writer.json;
     if (!cache.images.has(image)) cache.images.set(image, {});
@@ -315,7 +338,12 @@ const encodeCachePlugin = (opts: { maxTextureSize: number }) => (writer: Any) =>
         }
         if (r.how === "hit") ENC_HIT++; else ENC_MISS++;
         return r.blob;
-      }).then((blob: Blob) => writer.processBufferViewImage(blob)).then((bv: number) => { imageDef.bufferView = bv; }),
+      }).then(async (blob: Blob) => {
+        if (!opts.ximg) { imageDef.bufferView = await writer.processBufferViewImage(blob); return; }
+        const m = await ximgMeta(blob, mimeType);
+        XIMG_ORDER.set(m.name, { ...m, blob });
+        imageDef.uri = `img/${m.name}`;
+      }),
     );
     const index = json.images.push(imageDef) - 1;
     cached[key] = index;
@@ -323,7 +351,8 @@ const encodeCachePlugin = (opts: { maxTextureSize: number }) => (writer: Any) =>
   };
   return {};
 };
-(window as Any).exportNodes = async (uuids: string[]) => {
+(window as Any).exportNodes = async (uuids: string[], opts?: { ximg?: boolean }) => {
+  XIMG_ORDER.clear();
   const tE0 = performance.now();
   ENCODE_MS = 0; ENCODE_N = 0; ENC_HIT = 0; ENC_MISS = 0; ENC_SKIP = 0;
   EXPORT_MARKS.length = 0;
@@ -343,7 +372,7 @@ const encodeCachePlugin = (opts: { maxTextureSize: number }) => (writer: Any) =>
   });
   const tE1 = performance.now();
   const ex = new GLTFExporter();
-  ex.register(encodeCachePlugin({ maxTextureSize: 2048 }));
+  ex.register(encodeCachePlugin({ maxTextureSize: 2048, ximg: !!opts?.ximg }));
   const buf: ArrayBuffer = await ex.parseAsync(root, { binary: true, onlyVisible: false, maxTextureSize: 2048 }) as ArrayBuffer;
   const tE2 = performance.now();
   // base64 средствами браузера (`FileReader.readAsDataURL`): тот же текст, что давал цикл `btoa(String.fromCharCode…)`, но без миллионов строк (≈0,7 с → десятки мс)
