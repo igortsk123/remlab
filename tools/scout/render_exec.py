@@ -1028,6 +1028,7 @@ class SceneExecutor:
         if v2:
             check_dump_reads(dump, fi)                     # сторож чтений: страница читала только то, что в ключе кадра (T-20261118-04/16/1)
             check_export_reads(job, fi)                    # то же для Python-выгрузчика: файлы — из входа, сеть не трогал (T-20261118-04/17/1)
+            check_blender_inputs(dump, fi)                 # карты материалов, что возьмёт Blender (`maps` в scene-export.json), — активы комнаты (T-20261118-04/18/1)
         timing['export'] = round(time.time() - t1, 1)      # оба шага параллельно: стена времени
         timing['dump'] = timing_d.get('dump', 0.0)
         timing['export_py'] = timing_d.get('export_py', 0.0)
@@ -1300,6 +1301,20 @@ PREP_CACHE_VERSION = 1          # формат записи кэша подго�
 ASSET_RULES = 3                # версия правила «что ассет» (`asset_kind`/`asset_min_bytes`): растёт при его смене — кэш сборки витрины (`showcase_assets.py`) её учитывает
 NPZ_ASSET_MIN = 64 * 1024      # мелкие npz (стены, проёмы — десятки байт…КБ) остаются в пакете: на ассет они дороже, чем в архиве
 IMG_ASSET_MIN = 16 * 1024      # картинки декора `dump/img/` (ximg): мелкие едут в пакете, от 16 КБ — ассеты по хешу
+
+
+def check_blender_inputs(dump: str, inputs: dict) -> None:
+    """Карты, что Blender возьмёт из `public/` по `dump/scene-export.json`, должны быть во входе комнаты (`render_input.check_blender_maps`); иначе отказ ДО Blender."""
+    import render_input as RI
+    try:
+        with open(os.path.join(dump, 'scene-export.json'), encoding='utf-8') as f:
+            exp = json.load(f)
+    except (OSError, ValueError):
+        raise RenderError('reads_missing', 'Сцену для фото не удалось проверить. Нажмите «Повторить».', 'The photo scene could not be verified. Press "Retry".')
+    bad = RI.check_blender_maps(inputs, exp)
+    if bad:
+        print('рендер: сторож входа Blender — ' + '; '.join(bad[:6]), flush=True)
+        raise RenderError('inputs_undeclared', 'Сцену для фото не удалось проверить. Нажмите «Повторить».', 'The photo scene could not be verified. Press "Retry".')
 
 
 def check_export_reads(job: str, inputs: dict) -> None:

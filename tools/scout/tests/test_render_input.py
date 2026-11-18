@@ -591,6 +591,54 @@ except RX.RenderError:
     ok_ = False
 check('исполнитель: чтения выгрузчика внутри входа — проходит', ok_)
 
+# ——— 6в) Blender-этап: карты из public/, которые он возьмёт по scene-export.json, — активы комнаты (T-20261118-04/18/1)
+def surf(files):
+    return {'rooms': [{'wall': {'maps': {'color': '/flat3d/materials/' + files[0]}, 'tileCm': [50, 50]},
+                       'floor': {'maps': {'color': '/flat3d/materials/' + files[1], 'normal': None}}}], 'other': '/flat3d/materials/nikto.webp'}
+
+
+declared_mats = sorted(a['logical'][9:] for a in inp['assets'] if a['kind'] == 'material-map')
+if len(declared_mats) >= 2:
+    exp_ok = surf(declared_mats[:2])
+    check('Blender: карты отделки комнаты (maps в scene-export) — все во входе, тот же sha256', RI.check_blender_maps(inp, exp_ok) == [])
+    other = next((f for f in sorted(os.listdir(os.path.join(SI._public(), 'flat3d/materials'))) if f not in declared_mats), None)
+    if other:
+        bad = RI.check_blender_maps(inp, surf([declared_mats[0], other]))
+        check('Blender: карта вне входа комнаты — КРАСНЫЙ (правка такого файла отдала бы старый кадр)', len(bad) == 1 and 'вне входа' in bad[0])
+    check('Blender: строки-пути вне `maps` (не читаются) — не нарушение', RI.check_blender_maps(inp, {'x': '/flat3d/materials/nikto.webp'}) == [])
+    if not LIVE:
+        p0 = SI.public_file('flat3d/materials/' + declared_mats[0])
+        with open(p0, 'ab') as f:
+            f.write(b'-late')
+        SI._FULL_MEMO.clear()
+        bad = RI.check_blender_maps(inp, exp_ok)
+        check('Blender: карта изменилась между ключом и рендером — красный', len(bad) == 1 and 'другая' in bad[0])
+        with open(p0, 'rb') as f:
+            b = f.read()
+        with open(p0, 'wb') as f:
+            f.write(b[:-5])
+        SI._FULL_MEMO.clear()
+    dd = tempfile.mkdtemp(dir=TMP)
+    try:
+        RX.check_blender_inputs(dd, inp)
+        _raises = False
+    except RX.RenderError as e:
+        _raises = e.code == 'reads_missing'
+    check('исполнитель: нет scene-export.json — отказ reads_missing до Blender', _raises)
+    wj(os.path.join(dd, 'scene-export.json'), surf([declared_mats[0], other or declared_mats[1]]) if other else exp_ok)
+    try:
+        RX.check_blender_inputs(dd, inp)
+        ok_ = not other
+    except RX.RenderError as e:
+        ok_ = bool(other) and e.code == 'inputs_undeclared'
+    check('исполнитель: карта вне входа — отказ inputs_undeclared до Blender', ok_)
+# программа Blender-этапа в digest (настоящий репозиторий — на живых данных): render_cycles.py, frame_qa.py, wall_art.py и их данные
+if LIVE:
+    pf = RI.program_files('b')
+    check('Blender: render_cycles.py, frame_qa.py, wall_art.py и data/flat3d/{wall-art,frame-qa-rules,textile}.json — в renderer_digest', all(x in set(pf['py']) | set(pf['js']) for x in (
+        'tools/scout/cycles_probe/render_cycles.py', 'tools/scout/cycles_probe/frame_qa.py', 'tools/scout/wall_art.py', 'data/flat3d/wall-art.json',
+        'data/flat3d/frame-qa-rules.json', 'data/flat3d/textile.json')))
+
 # ——— 7) живые дампы (на pakardev): reads.json всех вариантов внутри входа
 if LIVE:
     rdir = next((a for a in sys.argv[1:] if not a.startswith('--')), os.path.expanduser('~/remlab-logs/t04-1118/rk'))
