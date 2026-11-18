@@ -173,7 +173,9 @@ def load_facts() -> Facts:
     failed = {r[0] for r in db("select distinct sku from mesh_jobs where status = 'failed_terminal'") if r and r[0]}
     gens = {r[0] for r in db("select distinct sku from mesh_generations") if r and r[0]}
     media = lambda sku: CM.media(*sku.split(':', 1))  # noqa: E731
-    return Facts(load_prod(), failed, RS.strategy, media=media, alive=IA.alive_now, mesh_ok=mesh_ready_raw(),
+    # `consumer='bank_ready'` — выключатель `rules/mesh-ready.json:photo_current.bank_ready` (T-20261118-04/22): готовность по `product_photo_current`,
+    # а не по строке спроса `mesh_demand` (меши очереди demo строки спроса не имеют); выключен — прежний предикат
+    return Facts(load_prod(), failed, RS.strategy, media=media, alive=IA.alive_now, mesh_ok=mesh_ready_raw('bank_ready'),
                  decisions=MD.load(), with_gen=gens, square=RS.square_roles())
 
 

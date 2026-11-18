@@ -31,6 +31,7 @@ sys.path.insert(0, HERE)
 
 from mesh_queue import PIPELINE_VERSION, db, q  # noqa: E402
 from render_strategy import asset_ready, base_role, strategy  # noqa: E402
+from mesh_ready import revision_current_sql  # noqa: E402
 
 SETS = os.path.join(HERE, 'sets3.json')
 DAILY = int(os.environ.get('MESH_DAILY_BATCH', '10'))
@@ -44,15 +45,17 @@ def _needs_mesh(sku: str, role: str) -> bool:
 
 
 def _queue() -> dict[str, str]:
-    """SKU → роль: спрос с посчитанным хешом фото, ещё без принятого меша."""
-    # Сверка по ТОЧНОМУ ключу (sku|sha|pipeline), не по SKU (Codex P1-6): иначе меш от
-    # старого фото навсегда закрывает дорогу новому — сменилась картинка, а SKU «уже готов».
+    """SKU → роль: спрос с посчитанным хешом фото, ещё без годной ревизии ТЕКУЩЕГО фото."""
+    # Сверка по ХЕШУ ТЕКУЩЕГО ФОТО и версии конвейера, не по SKU (Codex P1-6): иначе меш от старого фото навсегда
+    # закрывает дорогу новому — сменилась картинка, а SKU «уже готов». Условие — то же, что у готовности меша
+    # (`mesh_ready.revision_current_sql`, T-20261118-04/22, Codex 18.11): accepted ИЛИ generated, не legacy, хеш фото в ключе ревизии (16 знаков)
+    # — префикс полного `source_sha` спроса. Прежняя проверка сравнивала ключ с ПОЛНЫМ хешом и только `accepted`: ревизия 16-значного ключа
+    # его не находила никогда, и меш, уже сделанный по текущему фото (ждёт ориентации), ставился в генерацию повторно.
+    # Есть такая ревизия — генерацию не ставим: следующее действие — ориентация (`orient_worker`), не новый меш.
     rows = db(
         "select d.sku, d.role from mesh_demand d "
         " where d.status='wanted' and d.source_sha is not null "
-        "   and not exists (select 1 from asset_revisions r "
-        "        where r.revision_key = d.sku||'|'||d.source_sha||'|'||" + q(PIPELINE_VERSION) + " "
-        "          and r.status='accepted') "
+        "   and not " + revision_current_sql('d.sku', 'd.source_sha', PIPELINE_VERSION) + " "
         "   and not exists (select 1 from mesh_jobs j "
         "        where j.job_key = d.sku||'|'||d.source_sha||'|'||" + q(PIPELINE_VERSION) + " "
         "          and j.status in ('queued','submitted','running'))")

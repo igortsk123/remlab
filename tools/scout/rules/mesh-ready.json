@@ -1,0 +1,9 @@
+{
+ "_": "ГОТОВНОСТЬ МЕША: откуда брать хеш ТЕКУЩЕГО фото (T-20261118-04/22, Codex 18.11 `_intake/codex/2026-11-18-bank-demand-answer.md`). Читает tools/scout/mesh_ready.py (`photo_current_on`, `ready_sql`). Прежний путь — хеш из `mesh_demand.source_sha`: меш, сделанный очередью demo/комнат, строки спроса не имеет и «не готов» навсегда. Новый — из `product_photo_current.source_sha` (канон photo_hash; им пользуется mesh_bind.enforce_ready_invariant). Все прочие проверки те же: ревизия accepted|generated и не legacy-local, хеш фото в ключе ревизии — префикс текущего, ориентация решена для ТОГО ЖЕ glb и не unusable, распространение на варианты семейства. Тень: `mesh_ready.py --shadow` (пропало должно быть 0).",
+ "photo_current": {
+  "bank_ready": true,
+  "_bank_ready_why": "ВКЛЮЧЕНО 18.11 (директор, T-04/22/1): банк — цель правки (ночной bank_pending/bank_promote читают `mesh_ready_raw('bank_ready')`); писатель живого банка выключен (`bank-candidate.json:write_enabled=false`), поэтому на /demo без экзамена и проверки директора ничего не попадает. Тень 18.11: пропало 0, добавилось 1629 SKU (1113 представителей); из спроса банка — 51 (14–16: 12). Выключить — false: банк вернётся к прежнему предикату.",
+  "others": false,
+  "_others_why": "ВЫКЛЮЧЕНО (по умолчанию): остальные потребители mesh_ready (render_strategy → mesh_scheduler/reserve/slot_contract/pipeline_metrics, compose_gates, catalog_items) читают прежний предикат — число «готовых» там не прыгает (+47 % по тени), счётчики стыков не поднимают тревогу. Включать отдельным шагом после проверки /demo директором."
+ }
+}
