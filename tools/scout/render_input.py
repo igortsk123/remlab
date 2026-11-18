@@ -327,6 +327,15 @@ def renderer_parts(blender: str = '') -> dict:
     return parts
 
 
+def program_files(blender: str = '') -> dict:
+    """Какие файлы программы входят в renderer_digest (без хешей): {'py': [путь от корня репо], 'js': [...], 'rules': [...]}. Для сверки «читаемое Blender-этапом покрыто программой» (`tools/ops/render_inputs.py`)."""
+    r = repo()
+    roots = [os.path.join(r, 'tools', 'scout', 'cycles_probe'), os.path.join(r, 'tools', 'scout'), os.path.join(r, 'services', 'planner-solver')]
+    starts = [os.path.join(roots[0], n) for n in ('export_scene.py', 'render_cycles.py', 'export_server.py')]
+    js = [os.path.relpath(p, r) for p in _js_files() if not (os.path.basename(p) == 'runtime-meshes.json' and os.path.dirname(os.path.relpath(p, r)) == os.path.join('data', 'flat3d'))]
+    return {'py': sorted(rel for rel, _ in _py_closure(starts, roots)), 'js': sorted(js), 'rules': list(PROGRAM_DATA)}
+
+
 def _read(p: str) -> str:
     try:
         return open(p, encoding='utf-8').read()
@@ -436,4 +445,39 @@ def check_reads_py(inp: dict, reads: dict) -> list:
             bad.append(f'выгрузчик: вне входа: {lg}')
         elif declared[lg]['sha256'] != r.get('sha256'):
             bad.append(f'выгрузчик: другой файл: {lg} (в ключе {str(declared[lg]["sha256"])[:10]}, прочитан {str(r.get("sha256"))[:10]})')
+    return bad
+
+
+# ——— Blender-этап: карты материалов, которые он берёт из public/ по scene-export.json (`render_cycles.py:finish_material` → `PUB/<maps[key]>`)
+def check_blender_maps(inp: dict, exp: dict) -> list:
+    """Каждая карта в `maps` поверхностей `scene-export.json` — файл `public/…`, который прочитает Blender, — должна быть активом комнаты (`material:<файл>`) с тем же sha256: иначе правка карты
+    отдала бы старый кадр под прежним ключом. Остальное Blender читает из каталога сцены и дампа (их собрали выгрузчик и дампер под сторожами) и из программы (renderer_digest)."""
+    declared = {a['logical']: a for a in inp['assets']}
+    bad, seen = [], set()
+
+    def note(v: str) -> None:
+        lg = 'material:' + os.path.basename(v)
+        if lg in seen:
+            return
+        seen.add(lg)
+        a = declared.get(lg)
+        f = SI.public_file(v.lstrip('/'))
+        if a is None:
+            bad.append(f'Blender: карта вне входа: {lg}')
+        elif f and SI.full_sha(f) != a['sha256']:
+            bad.append(f'Blender: карта другая, чем в ключе: {lg}')
+
+    def walk(o) -> None:
+        if isinstance(o, dict):
+            m = o.get('maps')
+            if isinstance(m, dict):
+                for v in m.values():
+                    if isinstance(v, str) and v.startswith('/'):
+                        note(v)
+            for v in o.values():
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+    walk(exp)
     return bad
