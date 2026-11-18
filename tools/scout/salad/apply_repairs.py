@@ -185,10 +185,25 @@ def accept(d: str, man: dict) -> str:
             pass
     st = PBR.status(glb, role=role, geometry_ok=geo_ok and prof_ok)
     accept.last_pbr = (st.get('pbr') or {}).get('problems') or []      # для отчёта «отделка» (geometry_valid)
+    # СЕРАЯ КРЫШКА (T-20261118-04/12): отдельное поле вердикта, статус не меняет (правило общего цвета не подменяем) — карантин и сводка читают его
+    accept.last_grey_top = grey_top_field(glb)
     return st['status']
 
 
 accept.last_pbr = []
+accept.last_grey_top = None
+
+
+def grey_top_field(glb: str) -> dict | None:
+    """Вердикт `mesh_grey_top` для verdict.json: только при `candidate`/`reject` (с числами), иначе {'verdict': 'ok'|'na'}; сбой замера — None (приёмка идёт)."""
+    try:
+        import mesh_grey_top as GT
+        r = GT.analyze(glb)
+    except Exception as e:  # noqa: BLE001 — замер не должен ронять приёмку
+        print(f'  серая крышка: не замерена ({type(e).__name__}: {str(e)[:80]})', flush=True)
+        return None
+    keep = ('verdict', 'grey_share', 'std', 'area_px', 'mr_share', 'edge_contrast')
+    return {k: r[k] for k in keep if k in r} if r.get('verdict') in GT.BAD else {'verdict': r.get('verdict')}
 
 
 def main() -> None:
@@ -298,7 +313,8 @@ def main() -> None:
             finish[man['sku']] = {'seed': seed, 'problems': pbr_problems, 'gate_version': GATE_VERSION}
         json.dump({'status': status, 'slab_excess': excess, 'color_mismatch': cmis,
                    'manual_repair_candidate': manual_repair(status, seed),
-                   'pbr_problems': pbr_problems, 'gate_version': GATE_VERSION},
+                   'pbr_problems': pbr_problems, 'gate_version': GATE_VERSION,
+                   'grey_top': getattr(accept, 'last_grey_top', None)},
                   open(os.path.join(d, 'verdict.json'), 'w'))
         # Codex q27: один reseed; повторилась та же сигнатура — вручную/замена, второй
         # перегон жжёт GPU без шансов (seed-стабильные дефекты: пара на фото, плита у цоколя).

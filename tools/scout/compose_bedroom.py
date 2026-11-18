@@ -1155,7 +1155,8 @@ def mesh_quarantine() -> set:
     или базы — пусто (сборка идёт как раньше, остаток поймает готовность ячейки)."""
     try:
         from mesh_queue import db
-        return {r[0] for r in db("select sku from mesh_quarantine where coalesce(decision,'cut') in ('cut','reject')") if r and r[0]}
+        import room_bindings as RB
+        return {r[0] for r in db(f"select sku from mesh_quarantine where {RB.hard_sql()}") if r and r[0]}   # мягкий (серая дыра) — не карантин
     except Exception as e:  # noqa: BLE001
         print('карантин моделей не прочитан:', e, flush=True)
         return set()

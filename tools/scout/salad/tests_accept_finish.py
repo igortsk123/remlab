@@ -126,6 +126,7 @@ with tempfile.TemporaryDirectory(prefix='accept-main-') as td:
     def fake_accept(d, man):
         calls.append(man['sku'])
         fake_accept.last_pbr = ['нет карты metallicRoughness'] if man['sku'] == 'e:1' else []
+        fake_accept.last_grey_top = {'verdict': 'reject', 'grey_share': 0.97} if man['sku'] == 'e:1' else {'verdict': 'ok'}
         return {'e:1': 'geometry_valid', 'a:1': 'web_ready'}.get(man['sku'], 'generated')
     fake_accept.last_pbr = []
     AR.accept, AR.slab_excess, AR.color_mismatch = fake_accept, lambda *a: None, lambda *a: None
@@ -137,6 +138,8 @@ with tempfile.TemporaryDirectory(prefix='accept-main-') as td:
     check('6) лимит 1: первым — новый меш без вердикта, старые правила ждут', calls == ['e:1'], f'{calls}')
     check('6) вердикт с версией правил и проблемами PBR', vE.get('gate_version') == AR.GATE_VERSION
           and vE.get('pbr_problems') == ['нет карты metallicRoughness'], f'{vE}')
+    check('6) вердикт несёт отдельное поле grey_top (серая крышка), статус от него не зависит',
+          vE.get('grey_top') == {'verdict': 'reject', 'grey_share': 0.97} and vE.get('status') == 'geometry_valid', f'{vE}')
     check('6) очередь: брак формы b и неизвестный z остались, a (geometry_valid) ушёл, c без модели добавлен, d — нет',
           rs == {('b:1', 1), ('z:9', 1), ('c:1', 1)}, f'{sorted(rs)}')
     check('6) отделка — отчётом, не очередью: e и a (geometry_valid)', set(fin) == {'e:1', 'a:1'}
@@ -149,6 +152,20 @@ with tempfile.TemporaryDirectory(prefix='accept-main-') as td:
           calls == ['a:1'] and vA.get('status') == 'web_ready' and vA.get('gate_version') == AR.GATE_VERSION,
           f'{calls} {vA}')
     check('6) третий проход — всё из кэша', (calls.clear(), AR.main(), calls)[2] == [], f'{calls}')
+
+# grey_top_field: candidate/reject — с числами, ok/na — только вердикт, сбой замера — None (приёмка не падает)
+import mesh_grey_top as GT  # noqa: E402
+_an = GT.analyze
+GT.analyze = lambda g, R=None: {'verdict': 'candidate', 'grey_share': 0.85, 'std': 3.0, 'area_px': 50000, 'mr_share': 1.0, 'edge_contrast': 40.0, 'median_rgb': [128, 128, 128]}
+r1 = AR.grey_top_field('x.glb')
+GT.analyze = lambda g, R=None: {'verdict': 'ok', 'grey_share': 0.0}
+r2 = AR.grey_top_field('x.glb')
+GT.analyze = lambda g, R=None: (_ for _ in ()).throw(OSError('нет файла'))
+r3 = AR.grey_top_field('x.glb')
+GT.analyze = _an
+check('grey_top_field: candidate с числами (без median_rgb), ok — только вердикт, сбой — None',
+      r1 == {'verdict': 'candidate', 'grey_share': 0.85, 'std': 3.0, 'area_px': 50000, 'mr_share': 1.0, 'edge_contrast': 40.0}
+      and r2 == {'verdict': 'ok'} and r3 is None, f'{r1} {r2} {r3}')
 
 print('tests_accept_finish:', 'FAIL' if fails else 'OK')
 sys.exit(1 if fails else 0)

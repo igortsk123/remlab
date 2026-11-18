@@ -48,6 +48,7 @@ RULES = os.path.join(HERE, 'rules', 'mesh-color-guard.json')
 TABLE_DIR = os.path.expanduser(os.environ.get('MESH_COLOR_DIR') or '~/scout-scenes/catalog-assets/mesh-color')
 TABLE = 'current.json'
 OWN_TSV = 'own-mismatch.tsv'
+GREY_TSV = 'grey-top.tsv'
 REASON = 'mesh_color_mismatch'
 BG_DE = 12.0        # пиксель фото карточки — товар, если дальше от цвета фона (медиана рамки) больше чем на ΔE
 MIN_PX = 80         # меньше пикселей товара — цвета фото нет
@@ -680,10 +681,11 @@ def guard(out_dir: str = TABLE_DIR, snap_path: str = BINDINGS, workers: int = 3,
     rows = judge(pairs, mesh_of, thumbs.get, R)
     fam, own = flagged(rows, True), flagged(rows, False)
     shown = demo_sids()
+    grey = grey_top_pass(rows, pairs, out_dir, workers, shown)        # серая крышка (T-20261118-04/12): ОТДЕЛЬНОЕ поле строки, вердикт цвета выше не трогает
     counts = {'pairs': len(rows), 'unknown': sum(1 for r in rows.values() if r['verdict'] == 'unknown'),
               'family_mismatch': len(fam), 'own_mismatch': len(own), 'family_mismatch_shown': len(set(fam) & shown),
               'tint_anchor': sum(1 for r in rows.values() if r.get('tint_anchor')),
-              'tint_hurts_part': sum(1 for r in rows.values() if r.get('tint_hurts_part'))}
+              'tint_hurts_part': sum(1 for r in rows.values() if r.get('tint_hurts_part')), **grey}
     table = {'version': R['version'], 'thresholds': {k: R['thresholds'][k] for k in ('dL', 'dab')},
              'family_thresholds': {k: (R.get('family_thresholds') or R['thresholds'])[k] for k in ('dL', 'dab')},
              'bindings_sha': snap.get('content_sha'), 'built_at': datetime.datetime.now().isoformat(timespec='seconds'),
@@ -694,6 +696,36 @@ def guard(out_dir: str = TABLE_DIR, snap_path: str = BINDINGS, workers: int = 3,
     write_own(os.path.join(out_dir, OWN_TSV), rows, own)
     print(digest_line(counts), flush=True)
     return table
+
+
+def grey_top_pass(rows: dict, pairs: list, out_dir: str, workers: int, shown: set) -> dict:
+    """«Серая крышка»: вердикт `mesh_grey_top` по моделям пар → поле `grey_top` в строке таблицы (только `candidate`/`reject`) и `grey-top.tsv` рядом.
+    Кэш вердиктов — свой (`grey-top-cache.json`, ключ «путь:mtime:версия правил»), замер цвета не пересчитывается. Сбой не роняет сторож цвета (fail-open)."""
+    import mesh_grey_top as GT
+    cache_p = os.path.join(out_dir, 'grey-top-cache.json')
+    try:
+        cache = json.load(open(cache_p, encoding='utf-8'))
+    except (OSError, ValueError):
+        cache = {}
+    try:
+        GT.measure_glbs([p['glb'] for p in pairs], cache, workers, save=lambda: _atomic_json(cache_p, cache))
+    except Exception as e:  # noqa: BLE001
+        print(f'WARN:серая крышка: замер не вышел ({type(e).__name__}: {str(e)[:100]}) — поле grey_top не обновлено', flush=True)
+        return {}
+    lines, n = [], {'reject': 0, 'candidate': 0}
+    for p in pairs:
+        r = cache.get(GT._gkey(p['glb']) or '') or {}
+        v = GT.effective(r, (rows.get(p['sku']) or {}).get('photo_rgb'))      # серый верх у товара, который и на фото серый, — не дефект
+        if v in GT.BAD and p['sku'] in rows:
+            rows[p['sku']]['grey_top'] = {k: r.get(k) for k in ('verdict', 'grey_share', 'std', 'area_px', 'mr_share', 'edge_contrast')}
+            n[v] += 1
+            lines.append(f"{p['sku']}\t{r['verdict']}\t{r.get('grey_share')}\t{r.get('edge_contrast')}\t{'лента/набор' if p['sku'] in shown else ''}")
+    tmp = os.path.join(out_dir, GREY_TSV + f'.tmp{os.getpid()}')
+    with open(tmp, 'w', encoding='utf-8') as f:
+        f.write('sku\tverdict\tgrey_share\tedge_contrast\tshown\n' + '\n'.join(sorted(lines)) + ('\n' if lines else ''))
+    os.replace(tmp, os.path.join(out_dir, GREY_TSV))
+    return {'grey_top_reject': n['reject'], 'grey_top_candidate': n['candidate'],
+            'grey_top_shown': sum(1 for p in pairs if p['sku'] in shown and (rows.get(p['sku']) or {}).get('grey_top'))}
 
 
 def write_own(path: str, rows: dict, own: list) -> None:
@@ -716,7 +748,13 @@ def digest_line(counts: dict) -> str:
     return (f'DIGEST:сторож цвета мешей: отмечено {counts["family_mismatch"]}, из них в ленте было '
             f'{counts["family_mismatch_shown"]}; свои меши с расхождением: {counts["own_mismatch"]} (список — {OWN_TSV}); '
             f'подкраска снята по опорной части: {counts.get("tint_anchor", 0)}, подкраска портит часть модели: '
-            f'{counts.get("tint_hurts_part", 0)} (поле tint_hurts_part в таблице)')
+            f'{counts.get("tint_hurts_part", 0)} (поле tint_hurts_part в таблице)'
+            + ('; ' + _gt_digest(counts) if 'grey_top_reject' in counts else ''))
+
+
+def _gt_digest(counts: dict) -> str:
+    import mesh_grey_top as GT
+    return GT.digest_part(counts) + f' (список — {GREY_TSV})'
 
 
 # ---------- самопроверка ----------
@@ -893,6 +931,28 @@ def _selftest() -> int:
     line2 = digest_line({'family_mismatch': 2, 'family_mismatch_shown': 1, 'own_mismatch': 1, 'tint_anchor': 22, 'tint_hurts_part': 3})
     ok('DIGEST: добавлены числа «снята по опорной части» и «портит часть», без WARN',
        'подкраска снята по опорной части: 22' in line2 and 'портит часть модели: 3' in line2 and 'WARN' not in line2)
+    # СЕРАЯ КРЫШКА (T-20261118-04/12): отдельное поле строки, вердикт цвета не меняется; кэш и список рядом; сбой замера — fail-open
+    import mesh_grey_top as GT
+    with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as gd:
+        glbs = {k: os.path.join(gd, f'{k}.glb') for k in ('grey', 'fine', 'bad')}
+        for g in glbs.values():
+            open(g, 'wb').write(b'x')
+        gcache = {GT._gkey(glbs['grey']): {'verdict': 'reject', 'grey_share': 0.97, 'edge_contrast': 60.0, 'median_rgb': [130, 130, 130]},
+                  GT._gkey(glbs['fine']): {'verdict': 'ok'}}
+        json.dump(gcache, open(os.path.join(gd, 'grey-top-cache.json'), 'w'))
+        # glb 'bad' не в кэше → замер зовёт настоящий детектор; подмена: пустой файл не GLB → запись об ошибке, но не падение
+        grows = {'1:grey': {'verdict': 'ok'}, '2:fine': {'verdict': 'mismatch'}, '3:bad': {'verdict': 'ok'}}
+        gpairs = [{'sku': '1:grey', 'glb': glbs['grey']}, {'sku': '2:fine', 'glb': glbs['fine']}, {'sku': '3:bad', 'glb': glbs['bad']}]
+        c = grey_top_pass(grows, gpairs, gd, 1, {'1:grey'})
+        ok('серая крышка: поле только у reject/candidate, вердикт цвета не тронут',
+           grows['1:grey']['grey_top']['verdict'] == 'reject' and 'grey_top' not in grows['2:fine'] and grows['2:fine']['verdict'] == 'mismatch'
+           and grows['1:grey']['verdict'] == 'ok')
+        ok('серая крышка: числа и «в ленте» в счётчиках, битый GLB не роняет', c == {'grey_top_reject': 1, 'grey_top_candidate': 0, 'grey_top_shown': 1})
+        tl = open(os.path.join(gd, GREY_TSV), encoding='utf-8').read().splitlines()
+        ok('серая крышка: список grey-top.tsv — шапка и одна строка с пометкой «лента/набор»', len(tl) == 2 and tl[1].startswith('1:grey\treject\t0.97\t60.0\tлента'))
+    ok('DIGEST: серая крышка отдельной частью, без WARN', 'серая крышка' in digest_line({'family_mismatch': 0, 'family_mismatch_shown': 0, 'own_mismatch': 0, 'grey_top_reject': 3,
+                                                                                     'grey_top_candidate': 4, 'grey_top_shown': 2}) and 'отказ 3' in digest_line(
+        {'family_mismatch': 0, 'family_mismatch_shown': 0, 'own_mismatch': 0, 'grey_top_reject': 3, 'grey_top_candidate': 4, 'grey_top_shown': 2}))
     print(f'mesh_color_check: ошибок {bad}')
     return 1 if bad else 0
 

@@ -265,6 +265,28 @@ def _demo_msids(path: str) -> set:
     return _RB.demo_msids(path)
 
 
+_MESH_STRICT = None
+
+
+def _mesh_strict() -> frozenset:
+    """Индекс для ВЫБОРА (замены в вариантах, ленты, кандидаты): без моделей МЯГКОГО карантина (серая дыра покраски, `room_bindings.soft_policy`). Предмет, который уже
+    стоит в варианте, судит `_mesh_index()` (мягкая модель там есть — вариант не пустеет); новым выбором её не ставим."""
+    global _MESH_STRICT
+    if _MESH_STRICT is None:
+        idx = _mesh_index()
+        _MESH_STRICT = frozenset(set(idx) - set(getattr(idx, 'soft', ())))
+    return _MESH_STRICT
+
+
+def _soft_msid(msid: str | None) -> bool:
+    return bool(msid) and msid in getattr(_mesh_index(), 'soft', ())
+
+
+def _repl_colour_ok(sid: str | None) -> bool:
+    """Товар годен ЗАМЕНОЙ серой дыры по цвету меша (`room_bindings.colour_close`)."""
+    return _RB.colour_close(sid)
+
+
 _MESH_REP: dict | None = None
 
 
@@ -944,7 +966,7 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
     from unfit import unfit as _unfit
     gate = lambda role, c, s_, others: (_gate0(role, c, s_, others)  # noqa: E731
                                         and not _unfit(DF.base_role(role), c.get('name'), None, c.get('h'), d=c.get('d'))
-                                        and (DF.base_role(role) in NOMESH_ROLES or has_mesh(c)))
+                                        and (DF.base_role(role) in NOMESH_ROLES or (has_mesh(c) and not _soft_msid(_msid(f"{c.get('mid')}_{c.get('eid')}")))))
     pool = DF.load_pool()
     print(f'пул дозаполнения: {len(pool)} товаров', flush=True)
     # «есть ли чем заменить банкетку» — по ленте замен стиля (demo-19 Г2); пул недоступен — считаем по наборам, громко
@@ -976,7 +998,9 @@ def fill_banks(sets: list, band: str = '14-16', per_style: int = 5) -> tuple[lis
 
         def filled(i: int, own: bool, colour: bool = True) -> tuple:
             s = copy.deepcopy(sets[i - 1])
-            j = DF.fill_set(s, pool, gate, _card, _media, has_mesh, DEMO_ENV, taken, own=own, colour_swap=colour)
+            j = DF.fill_set(s, pool, gate, _card, _media, has_mesh, DEMO_ENV, taken, own=own, colour_swap=colour,
+                            soft=lambda it: _soft_msid(_msid(f"{it.get('mid')}_{it.get('eid')}")),
+                            repl_ok=lambda c: _repl_colour_ok(f"{c.get('mid')}_{c.get('eid')}"))
             nook = drop_lonely_nook(s, benches)
             if nook:
                 j.append(nook)
@@ -1016,7 +1040,7 @@ def swap_ok(p: dict) -> bool:
     from img_alive import alive_now
     from unfit import unfit
     m = _msid(p.get('sid')) if p.get('sid') else p.get('msid')
-    return (bool(m) and m in _mesh_index() and not unfit(p.get('role'), p.get('name'), None, p.get('h'), d=p.get('d'))
+    return (bool(m) and m in _mesh_strict() and not unfit(p.get('role'), p.get('name'), None, p.get('h'), d=p.get('d'))
             and color_ok(m, p.get('name')) and alive_now(p.get('img')))
 
 
@@ -1107,7 +1131,7 @@ def set_feed_row(base: str, it: dict | None, style: str | None) -> dict | None:
     # человеку значит обещать то, чего не будет в кадре. `sid` кладём рядом: страница по нему берёт модель.
     _sid = f"{it.get('mid')}_{it.get('eid')}" if it.get('mid') and it.get('eid') else None
     _msd = _msid(_sid)
-    if base not in NOMESH_ROLES and (not _msd or _msd not in _mesh_index() or not color_ok(_msd, it.get('name'))
+    if base not in NOMESH_ROLES and (not _msd or _msd not in _mesh_strict() or not color_ok(_msd, it.get('name'))
                                      or colour_flagged(_sid)):
         return None          # нет модели или модель семейства другого цвета (demo-05: бежевый товар — чёрный меш; замер T-14)
     from unfit import unfit as _unfit
@@ -1273,7 +1297,7 @@ def pool_feed_check(p: dict) -> str:
         return 'role'
     if not p.get('img') or not (p.get('w') and p.get('d')):
         return 'dims'
-    if base not in NOMESH_ROLES and (not p.get('msid') or p['msid'] not in _mesh_index() or not color_ok(p['msid'], p.get('name'))):
+    if base not in NOMESH_ROLES and (not p.get('msid') or p['msid'] not in _mesh_strict() or not color_ok(p['msid'], p.get('name'))):
         return 'mesh'        # модели на сервере нет (серая коробка) или она другого цвета, чем товар; ковёр — плита с фото
     if base not in NOMESH_ROLES and colour_flagged(p.get('sid')):
         return 'mesh_colour'  # видимый цвет модели семьи далеко от фото товара (сторож T-20261107-14) — кандидат на свой меш
@@ -1453,7 +1477,8 @@ def choose_banks(flat: dict, sets: list, ranked: dict) -> tuple[list, dict, list
                 why = why or {'style': style, 'missing': ['замена по цвету не встала в расстановку']}
                 continue
             print(f'  вариант стиля «{style}»: набор {i}, ядро полное, без модели {key[1]}, '
-                  f'замен {sum(1 for x in j if x["to"])}, снято без замены {sum(1 for x in j if not x["to"])}', flush=True)
+                  f'замен {sum(1 for x in j if x["to"])}, снято без замены {sum(1 for x in j if not x["to"] and not x.get("kept"))}'
+                  + (f', осталось с серой дырой (заменить нечем) {sum(1 for x in j if x.get("kept"))}' if any(x.get('kept') for x in j) else ''), flush=True)
             banks.append(i)
             journal[f'set{i}'] = j
             why = None
@@ -1480,7 +1505,8 @@ def fill_report(journal: dict, gone: int) -> dict:
     полный на вид вариант не доказывает полноты банка. Строка в журнал всегда; у копии банка — ещё и файл в OUT.
     Для нового банка ожидание — 0 замен и 0 снятых."""
     rows = [dict(x, set=k) for k, j in journal.items() for x in j]
-    rep = {'replaced': sum(1 for x in rows if x.get('to')), 'dropped': sum(1 for x in rows if not x.get('to')),
+    rep = {'replaced': sum(1 for x in rows if x.get('to')), 'dropped': sum(1 for x in rows if not x.get('to') and not x.get('kept')),
+           'kept_soft': sum(1 for x in rows if x.get('kept')),
            'gone_outside_variants': gone, 'rows': rows}
     print(f"дозаполнено демо: замен {rep['replaced']}, снято без замены {rep['dropped']}, "
           f"не в продаже вне вариантов {gone}", flush=True)
@@ -1666,6 +1692,11 @@ def room_mesh_gate(room_type: str, rows=None, why: str = '', mode: str | None = 
         return _RB.usable(bound(s), s.get('msid'), idx, mode)[0] if s.get('sid') else 'нет артикула'
     ok.note = lambda s: _RB.orient_note(bound(s), mode)
     ok.mode = mode
+    # МЯГКИЙ КАРАНТИН (серая дыра покраски): модель годна (`usable` её пускает) — но `gate_items` ищет замену с годным мешем и цветом, близким к фото;
+    # нет замены — предмет остаётся, строка в `ok.kept` (сборка печатает WARN)
+    ok.soft = lambda s: bool(s and _soft_msid(s.get('msid')))
+    ok.repl_ok = lambda s: bool(s) and _repl_colour_ok(s.get('sid'))
+    ok.kept = []
     # МОДЕЛЬ СЦЕНЫ СПАЛЬНИ = МОДЕЛЬ ПРИВЯЗКИ (T-20261106-77/4, вариант А): `msid` предметов и ленты спальни — `mesh_id` той же
     # строки привязки, которую проверяет сторож; представитель семьи — только если записи нет (`room_bindings.scene_msid`)
     ok.msid = lambda sid: _RB.scene_msid((rows or {}).get(str(sid).replace('_', ':', 1)), sid, _mesh_rep()) if sid else None
@@ -1793,6 +1824,11 @@ def room_variants(room_type: str, apt: dict, flags: dict, variants: list, feeds:
         for e in (v or {}).get('mesh_swaps') or []:
             print(f"{room_type}_mesh_gate: {rec['room_id']} «{rec.get('style')}» {e['role']}: {e['was'][1]} ({e['why']}) → "
                   f"{e['now'][1]}" + (f" (соседний стиль «{e['style']}»)" if e.get('style') else ''), flush=True)
+        for e in list(getattr(gate, 'kept', None) or []):      # мягкий карантин: заменить нечем — предмет остался (вариант цел)
+            print(f"WARN:grey_top_kept: {e['rec']} «{e['style']}» {e['role']} {e['sid']} «{e['name']}» — серая дыра покраски{' (' + e['via'] + ')' if e.get('via') else ', замены с годным мешем нет'} "
+                  f"(кандидатов {e['tried']}) — предмет остаётся", flush=True)
+        if getattr(gate, 'kept', None) is not None:
+            gate.kept.clear()
         for e in ((v or {}).get('missing_item') or []) + ((why or {}).get('mesh') or []):
             print(f"WARN:{room_type}_mesh_gate: {rec['room_id']} «{rec.get('style')}» {e['role']} пустая — {e['why']}", flush=True)
         for e in (v or {}).pop('orient_unresolved', None) or []:
@@ -1820,9 +1856,14 @@ def room_variants(room_type: str, apt: dict, flags: dict, variants: list, feeds:
     # ЛЕНТА — ТЕМ ЖЕ СТОРОЖЕМ, ЧТО ВАРИАНТ (T-20261106-77 Д1): замена на товар без годной модели ставила на место кровати коробку
     # (/test/t32f). Сторож выключен (`<ТИП>_MESH_GATE=0`) — прежняя проверка индекса прода
     feed_gate = ((lambda s: '' if s.get('msid') else 'нет модели') if any_mesh
-                 else gate or (lambda s: '' if s.get('msid') in _mesh_index() else 'нет в индексе прода'))
+                 else gate or (lambda s: '' if s.get('msid') in _mesh_strict() else 'нет в индексе прода'))
     # фото живое — поле базы (`room_catalog.photo_alive` / `products.photo_alive`, писатель `img_alive.py`), не «живо по
     # умолчанию»: мёртвая ссылка CDN давала пустую карточку в ленте замен (T-20261106-84)
+    if gate and not any_mesh and getattr(gate, 'soft', None):
+        # МЯГКИЙ КАРАНТИН (серая дыра): в ленту замен модель не берём — кроме той, что уже стоит в варианте (страница показывает выбранный предмет и в ленте)
+        _keep = {(it.get('sku') or {}).get('sid') for v in variants for it in v.get('items') or [] if it.get('sku') and gate.soft(it['sku'])}
+        _g0 = gate
+        feed_gate = lambda s: _g0(s) or ('серая дыра покраски (мягкий карантин)' if _g0.soft(s) and s.get('sid') not in _keep else '')  # noqa: E731
     from img_alive import dead_room_photos
     dead = dead_room_photos()
     bf = R.feeds(spec, bank, cat, bed_msid, feed_gate, alive=lambda u: u not in dead)
@@ -2176,7 +2217,7 @@ def build() -> dict:
             st = v.get('style') or ''
             cand = [p for p in dec_feeds.get(base, [])
                     if p.get('w') and p.get('d') and p.get('h')
-                    and p.get('msid') in _mesh_index()
+                    and p.get('msid') in _mesh_strict()
                     and (not st or p.get('style') == st or st in (p.get('styles') or []))]
             if not cand:
                 dec_left += 1

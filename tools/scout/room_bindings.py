@@ -823,8 +823,10 @@ QUARANTINED = 'карантин модели'
 
 
 class ProdIndex(set):
-    """Индекс прода без карантина; `quarantined` — что вычтено (через `_`): `usable` называет такую модель карантином."""
+    """Индекс прода без ЖЁСТКОГО карантина; `quarantined` — что вычтено (через `_`): `usable` называет такую модель карантином.
+    `soft` — модели МЯГКОГО карантина (серая дыра покраски): в индексе остаются, `usable` их пускает, а замену им ищут сборщики."""
     quarantined: frozenset = frozenset()
+    soft: frozenset = frozenset()
 
 
 def usable(a: dict, msid: str | None, idx, mode: str = 'orient') -> tuple[str, str]:
@@ -872,7 +874,7 @@ def prod_index(fallback=lambda: set(), quarantine=None) -> set:
         if quarantine is None:
             from mesh_queue import db as _db
             quarantine = lambda: {r[0].replace(':', '_', 1) for r in _db(  # noqa: E731
-                "select sku from mesh_quarantine where coalesce(decision,'cut') in ('cut','reject')") if r and r[0]}
+                f"select sku from mesh_quarantine where {hard_sql()}") if r and r[0]}
         quar = quarantine()
         if quar & idx:
             print(f'карантин: моделей убрано из демо {len(quar & idx)}')
@@ -880,8 +882,18 @@ def prod_index(fallback=lambda: set(), quarantine=None) -> set:
     except Exception as e:  # noqa: BLE001 — нет таблицы: карантина нет
         print('карантин не прочитан:', e)
         quar = set()
+    soft = set()
+    if soft_sql() != 'false':
+        try:
+            from mesh_queue import db as _db
+            soft = {r[0].replace(':', '_', 1) for r in _db(f"select sku from mesh_quarantine where {soft_sql()}") if r and r[0]} & idx
+            if soft:
+                print(f'мягкий карантин (серая дыра покраски): моделей в индексе, но им ищут замену {len(soft)}')
+        except Exception as e:  # noqa: BLE001 — нет таблицы: мягких нет
+            print('мягкий карантин не прочитан:', e)
     out = ProdIndex(idx)
     out.quarantined = frozenset(quar)
+    out.soft = frozenset(soft)
     return out
 
 
@@ -1033,8 +1045,53 @@ def prod_sizes(src: str, ssh: bool) -> tuple:
         return None, f'прод не прочитан: {str(e)[:120]}'
 
 
+def soft_policy() -> dict:
+    """Политика мягкого карантина (`rules/mesh-grey-top.json:quarantine`, T-20261118-04/12/2): причины из `soft_reasons` не вычитают модель из индекса и не
+    блокируют привязку — предмет варианта остаётся, пока нет замены с годным мешем (`replace_dL/replace_dab` — какой замене верим по цвету). Нет файла — {}."""
+    try:
+        return json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rules', 'mesh-grey-top.json'), encoding='utf-8')).get('quarantine') or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def soft_sql() -> str:
+    """SQL-условие «строка карантина МЯГКАЯ»: решения человека нет и все причины — из `soft_reasons`; пустая политика — `false`."""
+    rs = [x for x in soft_policy().get('soft_reasons') or [] if x.replace('_', '').isalnum()]
+    return "(decision is null and coalesce(reasons,'') in (" + ','.join(f"'{x}'" for x in rs) + '))' if rs else 'false'
+
+
+def hard_sql() -> str:
+    """SQL-условие «строка карантина ЖЁСТКАЯ» (вычитается из индекса, блокирует привязку): cut/reject без мягких."""
+    return f"coalesce(decision,'cut') in ('cut','reject') and not {soft_sql()}"
+
+
+_COLOUR_CLOSE: dict | None = None
+
+
+def colour_close_table() -> dict:
+    """{sku через `:`: (ΔL, Δab)} — как видимый цвет меша (с подкраской сцены) расходится с фото товара: `seen_vs_sku` таблицы сторожа цвета
+    (`mesh-color/current.json`). Нет файла — {} (замену по цвету тогда не проверяем)."""
+    global _COLOUR_CLOSE
+    if _COLOUR_CLOSE is None:
+        try:
+            T = json.load(open(os.path.join(os.path.expanduser(os.environ.get('MESH_COLOR_DIR') or '~/scout-scenes/catalog-assets/mesh-color'), 'current.json'), encoding='utf-8'))
+            _COLOUR_CLOSE = {k: (abs(r['seen_vs_sku']['dL']), abs(r['seen_vs_sku']['dab'])) for k, r in T['rows'].items() if r.get('seen_vs_sku')}
+        except (OSError, ValueError, KeyError, TypeError):
+            _COLOUR_CLOSE = {}
+    return _COLOUR_CLOSE
+
+
+def colour_close(sku: str | None, table: dict | None = None, pol: dict | None = None) -> bool:
+    """Меш товара по цвету близок к его фото (ΔL ≤ `replace_dL`, Δab ≤ `replace_dab` политики мягкого карантина) — такому товару можно ВЕРИТЬ как замене
+    серой дыры. Замера нет — True (не блокируем то, чего не мерили). Общий сторож цвета для своих мешей ловит только ΔL ≥ 44 — замене порог строже."""
+    t = colour_close_table() if table is None else table
+    p = soft_policy() if pol is None else pol
+    d = t.get(str(sku or '').replace('_', ':', 1))
+    return True if d is None else d[0] <= p.get('replace_dL', 15) and d[1] <= p.get('replace_dab', 10)
+
+
 QUARANTINE_SQL = ("select sku, glb_sha, coalesce(decision,'cut') from mesh_quarantine "
-                  "where coalesce(decision,'cut') in ('cut','reject')")
+                  f"where {hard_sql()}")
 
 
 def load_quarantine(rows) -> dict:

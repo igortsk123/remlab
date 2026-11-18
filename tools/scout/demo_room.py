@@ -363,6 +363,9 @@ def gate_items(spec: Showcase, rec: dict, art: dict | None, sku, dims_of, mesh_o
     alts = rec.get('alternates') or {}
     own = rec.get('style') or ''
     note = getattr(mesh_ok, 'note', None)
+    soft = getattr(mesh_ok, 'soft', None)          # модель в МЯГКОМ карантине (серая дыра покраски): годна, но ищем замену с годным мешем
+    repl_ok = getattr(mesh_ok, 'repl_ok', None)    # замена мягкой — только товар, чей меш по цвету близок к фото
+    kept = getattr(mesh_ok, 'kept', None)          # сюда — «заменить нечем, предмет остался»
 
     def noted(role, x):
         n = note(x) if note and x else ''
@@ -371,16 +374,23 @@ def gate_items(spec: Showcase, rec: dict, art: dict | None, sku, dims_of, mesh_o
     for role in [r for r in list(items) if base_role(r) == r and r in spec.solver_roles and needs_mesh(r)]:
         s = sku(items, role)
         why = mesh_ok(s) if s else 'нет товара'
+        softmode = False
         if not why:
-            noted(role, s)
-            continue
+            if not (soft and s and soft(s)):
+                noted(role, s)
+                continue
+            why, softmode = 'серая дыра покраски (мягкий карантин модели)', True
         tried = []
         own_sids = {_key(a) for a in alts.get(role) or []} | {_key(items.get(role))}
         pool = [(own, a, False) for a in alts.get(role) or []] + [
             (st, a, True) for st, a in (spares or {}).get(role) or [] if _key(a) not in own_sids]
+        if soft:                  # замена жёстко негодной модели тоже сперва из годных: мягкие кандидаты — в конец очереди (но лучше они, чем пустая роль)
+            pool.sort(key=lambda x: bool((t0 := sku({role: x[1]}, role)) and soft(t0)))
         for st, alt, far in pool:
             t = sku({role: alt}, role)
             w = mesh_ok(t) if t else 'нет товара'
+            if not w and softmode and ((soft and soft(t)) or (repl_ok and not repl_ok(t))):
+                w = 'мягкий карантин или цвет меша не как на фото'      # замена серой дыры — только годным мешем
             if not w:
                 dm = dims_of({}, t, role)
                 if dm.get('dims_unknown'):
@@ -395,11 +405,20 @@ def gate_items(spec: Showcase, rec: dict, art: dict | None, sku, dims_of, mesh_o
                               'why': why, **({'style': st} if st != own else {})})
                 art = a2
                 noted(role, t)
+                if not softmode and soft and kept is not None and soft(t):    # взяли МЯГКУЮ (серая дыра) вместо жёстко негодной: лучше, чем пустая роль, но пометить
+                    kept.append({'role': role, 'msid': t.get('msid'), 'sid': t.get('sid'), 'name': t.get('name'), 'tried': len(tried),
+                                 'rec': rec.get('room_id'), 'style': rec.get('style'), 'via': 'замена жёстко негодной'})
                 for k in [k for k in items if base_role(k) == role]:   # и пронумерованные строки банка («… 2») — тот же товар
                     items[k] = alt
                 break
             tried.append(w)
         else:
+            if softmode:          # карантин не опустошает вариант: заменить нечем — предмет остаётся, пометка в журнал сборки
+                if kept is not None:
+                    kept.append({'role': role, 'msid': s.get('msid'), 'sid': s.get('sid'), 'name': s.get('name'), 'tried': len(tried),
+                                 'rec': rec.get('room_id'), 'style': rec.get('style')})
+                noted(role, s)
+                continue
             empty.append({'role': role, 'why': f'модель не готова ({why}); кандидатов {len(tried)}'
                                               + (f": {'; '.join(dict.fromkeys(tried))}" if tried else '')})
             for k in [k for k in items if base_role(k) == role]:
