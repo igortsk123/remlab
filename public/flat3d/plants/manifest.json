@@ -1,5 +1,5 @@
 {
- "rev": "4",
+ "rev": "5",
  "plants": [
   {
    "id": "pachira-a",
@@ -69,48 +69,6 @@
     99.0,
     42.8,
     89.4
-   ]
-  },
-  {
-   "id": "leaf-1",
-   "asset": "calathea_orbifolia_01",
-   "part": "Plane.014",
-   "kind": "dry",
-   "tris": 2452,
-   "bytes": 354404,
-   "sha256": "d06b3d423f75bb472ae8ef493e4cfd62ec6d1ccf4ae0741ce50553dfd396e909",
-   "sizeCm": [
-    66.1,
-    81.2,
-    59.7
-   ]
-  },
-  {
-   "id": "leaf-2",
-   "asset": "calathea_orbifolia_01",
-   "part": "Plane.014",
-   "kind": "dry",
-   "tris": 2070,
-   "bytes": 352612,
-   "sha256": "d58e085aea78f8ca4b4e7981b50b300d25eb46ce5d21cb20ce538149b177f8d3",
-   "sizeCm": [
-    43.8,
-    81.6,
-    58.8
-   ]
-  },
-  {
-   "id": "leaf-3",
-   "asset": "calathea_orbifolia_01",
-   "part": "Plane.014",
-   "kind": "dry",
-   "tris": 2834,
-   "bytes": 356200,
-   "sha256": "2ea42d45d0ff1ad48a7f7cb0bdb28cfdf34666de0005dba0009d4b1dc3715f40",
-   "sizeCm": [
-    55.4,
-    76.9,
-    53.3
    ]
   },
   {

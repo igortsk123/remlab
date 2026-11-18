@@ -78,9 +78,10 @@ describe("растения кашпо и ваз: правила", () => {
     expect(mountOf(72)).toBe("table");
   });
 
-  it("букеты для ваз — свои, собраны кодом: источник и лицензия записаны", () => {
+  it("растения для ваз: ваза столика всегда есть из чего выбрать (барвинок, сухая ветка — T-21, листья каллатеи убраны)", () => {
     const own = R.plants.filter((p) => p.kind === "dry");
-    expect(own.length).toBeGreaterThanOrEqual(3);
+    expect(own.length).toBeGreaterThanOrEqual(2);
+    expect(own.some((p) => p.styles.includes("any") && (!p.mounts || p.mounts.includes("table")))).toBe(true);   // для любого стиля
     expect(own.every((p) => !p.mounts || p.mounts.includes("table"))).toBe(true);
   });
 

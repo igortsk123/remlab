@@ -121,7 +121,8 @@ def test_stand_up_squat_plant_untouched():
 def test_bouquet_rules_are_data_and_consistent():
     """Букеты вазы — записи `builder: bouquet`: источник — скан Poly Haven (CC0 в реестре), листья и стебли заданы данными, списки согласованы."""
     rows = [p for p in CFG['plants'] if p.get('builder') == 'bouquet']
-    assert len(rows) >= 2 and all(p['kind'] == 'dry' for p in rows)          # вазе есть из чего выбирать, и это букеты, не зелень
+    assert all(p['kind'] == 'dry' for p in rows)          # букеты — только в вазы, не зелень (с 18.11 строк `leaf-*` нет: директор убрал «огромные листья у окна», T-21)
+    assert [p for p in CFG['plants'] if p['kind'] == 'dry' and 'table' in (p.get('mounts') or ['table'])]   # вазе столика есть из чего выбирать
     assert not [p for p in CFG['plants'] if p.get('builder') == 'procedural']   # плоские процедурные букеты сняты (владелец: «нереалистичный эвкалипт»)
     for p in rows:
         b = p['bouquet']
