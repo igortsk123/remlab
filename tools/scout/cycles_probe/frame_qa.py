@@ -19,7 +19,7 @@ Cryptomatte/object index: «пиксель → предмет»), и тем же
 Ворота в публикацию (шаг 5) НЕ включены: сторож пишет отчёт и строку «СТОРОЖ КАДРА» в журнал, кадр не блокирует. `verify` сверяет хеш
 отчёта с файлом (замена кадра после проверки).
 
-ИНЪЕКЦИИ (проверка самого сторожа, `--qa-inject`): art_nomap[:слот] · art_white[:слот] · curtain_remove · hide_item:слот · camera.
+ИНЪЕКЦИИ (проверка самого сторожа, `--qa-inject`): art_nomap[:слот] · art_white[:слот] · curtain_remove · hide_item:слот · camera · rug_shards[:слот].
 
 Запуск предпроверки отдельно:  python3 frame_qa.py preflight --dump <папка demo_dump/…> --export scene-export.json --scene-dir <export2/…>
 Сверка файла с отчётом:        python3 frame_qa.py verify <кадр.png>
@@ -152,6 +152,48 @@ def glb_nodes(path: str) -> dict:
 # ---------------------------------------------------------------- шаг 1: до рендера
 
 
+def dump_keys(rules: dict, dump_dir: str = "") -> list[str] | None:
+    """Ключи, которыми взяты узлы страницы: `dump_keys.json` рядом с дампом (пишет `demo_scene_dump.mjs`, едет в пакет задания) → иначе пресет
+    (`render-preset.json:dumpExport`, только на DEV). None — `all` или источника нет."""
+    sh = rules.get("shell") or {}
+    v = None
+    for p, key in ((os.path.join(dump_dir, "dump_keys.json") if dump_dir else "", "export"), (os.path.join(ROOT, sh.get("presetFile", "")), sh.get("presetKey", "dumpExport"))):
+        try:
+            with open(p, encoding="utf-8") as f:
+                v = json.load(f).get(key)
+            break
+        except (OSError, ValueError):
+            continue
+    if not v or v == "all":
+        return None
+    return [k.strip() for k in str(v).split(",") if k.strip()]
+
+
+def shell_wanted(kind: dict, keys: list[str] | None) -> bool:
+    """Должен ли этот вид узлов оболочки быть в выгрузке при таком списке ключей (зеркало правил `demo_scene_dump.mjs`)."""
+    if kind.get("excludeKey") and keys and kind["excludeKey"] in keys:
+        return False
+    if kind.get("needKey") and keys and kind["needKey"] not in keys:
+        return False
+    return True
+
+
+def shell_nodes(info_nodes: list[dict], kind: dict) -> list[dict]:
+    """Видимые сетки страницы этого вида оболочки (`scene_info.json:nodes`)."""
+    out = []
+    for n in info_nodes:
+        if not n.get("visible") or n.get("type") != "Mesh":
+            continue
+        if kind.get("slot") and n.get("slot") != kind["slot"]:
+            continue
+        if kind.get("chainHas") and kind["chainHas"] not in (n.get("chain") or ""):
+            continue
+        if "yMin" in kind and not ((n.get("min") or [0, 0])[1] > kind["yMin"] and (n.get("max") or [0, 9])[1] < kind.get("yMax", 99)):
+            continue
+        out.append(n)
+    return out
+
+
 def preflight(dump_dir: str, export_path: str, scene_dir: str, textile_path: str = TEXTILE_PATH, rules: dict | None = None) -> dict:
     """Оплачиваемые слоты против выгрузки и собранной сцены. Возвращает {ok, findings, expect, paid, exempt}; `expect` — слот → класс (обязательны в сцене)."""
     rules = rules or load_rules()
@@ -274,17 +316,100 @@ def preflight(dump_dir: str, export_path: str, scene_dir: str, textile_path: str
             add("warn" if False else "error", "PLANT_MISSING", gs, "растение есть в выгрузке, а узла в demo_nodes.glb нет")
         elif not any(n["visible"] for n in nodes):
             add("error", "NODE_HIDDEN", gs, "узел растения скрыт")
+    # оболочка комнаты (шторы окон, радиатор, карниз): страница ставит их сама, выгрузка берёт отдельными правилами — потерю ловим здесь
+    if gnodes:
+        shell = rules.get("shell") or {}
+        keys = dump_keys(rules, dump_dir)
+        for kind in shell.get("kinds", []):
+            if not shell_wanted(kind, keys):
+                continue
+            want = shell_nodes(si.get("nodes", []), kind)
+            lost = [n for n in want if n["uuid"] not in gnodes]
+            if lost:
+                add("error", "SHELL_LOST", f"shell:{kind['id']}", f"{kind['label']}: на странице {len(want)} узл., в demo_nodes.glb нет {len(lost)} — дамп собран старым кодом или правило выгрузки потеряло их; кадр выйдет без них")
+        rf = shell.get("radiatorsField")
+        if rf and any(k["id"] == "radiator" and shell_wanted(k, keys) for k in shell.get("kinds", [])):
+            win = sum(1 for o in (scene or {}).get("openings", []) if o.get("kind") == "window")
+            rads = exp.get(rf)
+            if rads is None and win:
+                add("error", "SHELL_NO_FIELD", "shell:radiator", f"в выгрузке сцены нет поля «{rf}» при окнах ({win}): выгрузка собрана до радиаторов, на кадре их не будет")
+            elif rads:
+                have = sum(1 for g in gnodes for n in [uuinfo.get(g) or {}] if n.get("slot") == "radiator")
+                if have < len(rads):
+                    add("error", "SHELL_LOST", "shell:radiator", f"радиаторов в выгрузке {len(rads)}, в demo_nodes.glb узлов {have}")
     return {"ok": not any(f["level"] == "error" for f in findings), "findings": findings, "expect": expect, "paid": len(paid), "exempt": exempt}
 
 
 # ---------------------------------------------------------------- шаг 2: оценка кадра (чистая функция, без Blender)
 
 
-def evaluate_frame(expect: dict, present: dict, px: dict, geo: dict, cover, rules: dict, art: dict | None = None, cam: dict | None = None) -> dict:
+def _luma(a):
+    return a[..., 0] * 0.2126 + a[..., 1] * 0.7152 + a[..., 2] * 0.0722
+
+
+def texture_palette(np, rgb, mask, an: dict):
+    """Палитра карты материала: цвета (кодирование как у кадра, 0..1), занимающие ≥ `paletteMinShare` площади под маской (прозрачное не считаем)."""
+    nb = int(an["paletteBits"])
+    px = rgb[mask]
+    if len(px) == 0:
+        return np.zeros((0, 3), np.float32)
+    q = (px * (2 ** nb - 1) + 0.5).astype(np.int64)
+    key = (q[:, 0] << (2 * nb)) | (q[:, 1] << nb) | q[:, 2]
+    u, c = np.unique(key, return_counts=True)
+    u = u[c >= an["paletteMinShare"] * len(key)]
+    top = 2 ** nb - 1
+    return (np.stack([(u >> (2 * nb)) & top, (u >> nb) & top, u & top], 1) / top).astype(np.float32)
+
+
+def _dilate(np, m, k):
+    for _ in range(k):
+        g = m.copy()
+        g[1:] |= m[:-1]
+        g[:-1] |= m[1:]
+        g[:, 1:] |= m[:, :-1]
+        g[:, :-1] |= m[:, 1:]
+        m = g
+    return m
+
+
+def slot_anomaly(np, frame, mask, room, pal, an: dict) -> dict:
+    """Осколки/дыры внутри маски слота. frame — кадр (H,W,3, 0..1, как записан); mask — пиксели слота; room — пиксели «комната» (метка 1: пол, стены);
+    pal — палитра карты слота. Аномальный пиксель = цвет ПОЛА вокруг слота (цветность в `floorChroma`, яркость `floorLumaLo…floorLumaHi` от яркости пола) и ни одного цвета самого материала (по цветности, с допуском на тень).
+    Возвращает {share, n, ring, floor, palette} или {share: None, why} — оценить нечем (нет кольца вокруг, нет палитры)."""
+    n = int(mask.sum())
+    if n == 0 or len(pal) == 0:
+        return {"share": None, "n": n, "why": "нет пикселей слота или палитры его карты"}
+    ring = _dilate(np, mask, int(an["ringPx"])) & room
+    nr = int(ring.sum())
+    if nr < an["minRingPx"]:
+        return {"share": None, "n": n, "ring": nr, "why": f"вокруг слота мало пола для сравнения ({nr} < {an['minRingPx']} px)"}
+    floor = np.median(frame[ring], axis=0)
+    p = frame[mask]
+    pL = _luma(p)
+    cf = floor / max(float(floor.sum()), 1e-3)
+    lr = pL / max(float(_luma(floor)), 1e-3)
+    near_floor = (np.abs(p / np.maximum(p.sum(1, keepdims=True), 1e-3) - cf).sum(1) < an["floorChroma"]) & (lr > an["floorLumaLo"]) & (lr < an["floorLumaHi"])
+    palL = _luma(pal)
+    gain = float(np.median(pL)) / max(float(np.median(palL)), 1e-3)
+    cs = p / np.maximum(p.sum(1, keepdims=True), 1e-3)
+    cp = pal / np.maximum(pal.sum(1, keepdims=True), 1e-3)
+    best = np.full(len(p), 9.0, np.float32)
+    for i in range(len(pal)):
+        if palL[i] < an["darkLuma"]:
+            d = np.where(pL < 0.35 * gain + 0.1, 0.0, 9.0)
+        else:
+            r = pL / (gain * palL[i])
+            d = np.where((r > an["shadeLo"]) & (r < an["shadeHi"]), np.abs(cs - cp[i]).sum(1), 9.0)
+        best = np.minimum(best, d)
+    bad = near_floor & (best > an["chromaTol"])
+    return {"share": float(bad.mean()), "n": n, "ring": nr, "floor": [round(float(x), 3) for x in floor], "palette": int(len(pal))}
+
+
+def evaluate_frame(expect: dict, present: dict, px: dict, geo: dict, cover, rules: dict, art: dict | None = None, cam: dict | None = None, anom: dict | None = None) -> dict:
     """Разбор одного кадра по маске.
     expect  слот → класс (обязательные в сцене); present — слот → сколько объектов в сцене; px — слот (у картины `слот:canvas`) → пикселей;
     geo     слот → {inFrame, clipped (доля прямоугольника, что внутри кадра), rect (x0,y0,x1,y1 в долях)}; cover(rect, слот) → доля прямоугольника, закрытая ДРУГИМИ предметами;
-    art     слот → {hasMap, content}; cam — {posErrM, dirErrDeg, lensErrFrac} относительно поставленной камеры."""
+    art     слот → {hasMap, content}; cam — {posErrM, dirErrDeg, lensErrFrac} относительно поставленной камеры; anom — слот → результат `slot_anomaly` (осколки внутри маски)."""
     brak_cls, warn_cls = set(rules["required"]["brak"]), set(rules["required"]["warn"])
     res: list[dict] = []
     for slot, cls in expect.items():
@@ -300,7 +425,11 @@ def evaluate_frame(expect: dict, present: dict, px: dict, geo: dict, cover, rule
         elif cls == "art" and art is not None and not (art.get(slot) or {}).get("content", True):
             r.update(state="art_blank", why="карта картины без рисунка: " + str((art.get(slot) or {}).get("detail", "белое/тон-в-тон")))
         elif n >= minpx:
-            continue_ok = True  # noqa: F841 — явная ветка «видно»
+            an_r = (anom or {}).get(slot)
+            if an_r is not None:
+                r["anomaly"] = an_r
+                if an_r.get("share") is not None and an_r["share"] >= rules["anomaly"]["warnShare"]:
+                    r.update(state="shards", why=f"внутри предмета {an_r['share']:.0%} пикселей цвета пола, которых нет в его материале — осколки/дыры (кадр {an_r['n']} px)")
         else:
             g = geo.get(slot) or {}
             if not g.get("inFrame"):
@@ -325,6 +454,8 @@ def evaluate_frame(expect: dict, present: dict, px: dict, geo: dict, cover, rule
             r["level"] = "brak"
         elif r["state"] == "art_blank":
             r["level"] = "warn"
+        elif r["state"] == "shards":
+            r["level"] = "brak" if r["anomaly"]["share"] >= rules["anomaly"]["brakShare"] else "warn"
         elif r["state"] == "indeterminate":
             r["level"] = "indeterminate"
     frame: list[dict] = []
@@ -437,6 +568,64 @@ class Guard:
         return reg, labels
 
     # ---- инъекции (проверка самого сторожа)
+    def _slot_palettes(self, bpy, np, reg):
+        """Слот → палитра цветов его карты (только классы из `anomaly.classes`): картинка в «Base Color», пиксели под прозрачным вырезом (картинка в «Alpha») не берём.
+        Читаем копию картинки в Non-Color и уменьшаем до `paletteSide` — те же значения, что кадр (без повторного гамма-пересчёта)."""
+        an = self.rules["anomaly"]
+        out = {}
+        for slot, obs in reg.items():
+            if slot_class(slot, self.rules) not in an["classes"]:
+                continue
+            pals = []
+            for ob in obs:
+                for m in ob.data.materials:
+                    if not (m and m.use_nodes):
+                        continue
+                    bsdf = next((n for n in m.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+                    if bsdf is None:
+                        continue
+
+                    def src(name, bsdf=bsdf):
+                        ls = bsdf.inputs[name].links
+                        return ls[0].from_node.image if ls and ls[0].from_node.type == "TEX_IMAGE" and ls[0].from_node.image else None
+
+                    def read(img, f=None):
+                        """Пиксели картинки (0..1, как записаны) → (массив, шаг уменьшения). Файловую копируем в Non-Color и уменьшаем (`image.scale`); сгенерированную
+                        (маска ковра `rugmask`, создана `bpy.data.images.new`) `copy()` отдаёт пустой — её читаем как есть и берём каждый f-й пиксель."""
+                        w, h = img.size
+                        f = f or max(1, max(w, h) // int(an["paletteSide"]))
+                        if img.source == "GENERATED" or not img.filepath:
+                            buf = np.empty(w * h * 4, np.float32)
+                            img.pixels.foreach_get(buf)
+                            return buf.reshape(h, w, 4)[::f, ::f, :3], f
+                        c = img.copy()
+                        c.colorspace_settings.name = "Non-Color"
+                        if f > 1:
+                            c.scale(max(1, w // f), max(1, h // f))
+                        w2, h2 = c.size
+                        buf = np.empty(w2 * h2 * 4, np.float32)
+                        c.pixels.foreach_get(buf)
+                        bpy.data.images.remove(c)
+                        return buf.reshape(h2, w2, 4)[:, :, :3], f
+                    ci, ai = src("Base Color"), src("Alpha")
+                    if ci is not None:
+                        rgb, f = read(ci)
+                        msk = np.ones(rgb.shape[:2], bool)
+                        if ai is not None and tuple(ai.size) == tuple(ci.size):
+                            am, _ = read(ai, f)
+                            am = am[:, :, 0] > 0.99
+                            if am.shape != msk.shape:                      # шаг и scale округляют по-разному — берём общий угол
+                                hh, ww = min(am.shape[0], msk.shape[0]), min(am.shape[1], msk.shape[1])
+                                rgb, msk = rgb[:hh, :ww], am[:hh, :ww]
+                            else:
+                                msk = am
+                        pal = texture_palette(np, rgb, msk, an)
+                        print(f"СТОРОЖ палитра {slot}: {len(pal)} цветов, непрозрачных пикселей карты {int(msk.sum())} из {msk.size}", flush=True)
+                        pals.append(pal)
+            if pals:
+                out[slot] = np.concatenate(pals)
+        return out
+
     def _art_state(self, bpy, np, reg):
         """Слот картины → {hasMap, content, detail}: есть ли в материале полотна карта с картинкой и есть ли в ней рисунок (опора — `wall_art.has_content`/`metrics`, правила `data/flat3d/wall-art.json`)."""
         expect = self.pre.get("expect", {})
@@ -497,6 +686,28 @@ class Guard:
                                         n.image.pixels.foreach_set(np.ones(w * h * 4, np.float32))
                                         n.image.update()
                     print(f"СТОРОЖ ИНЪЕКЦИЯ {kind}: {slot}", flush=True)
+                elif kind == "rug_shards":
+                    n_done = 0
+                    for slot in [target] if target else [s for s, c in self.pre["expect"].items() if c == "rug"]:
+                        for ob in reg.get(slot, []):
+                            for m in ob.data.materials:
+                                bsdf = next((n for n in m.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None) if m and m.use_nodes else None
+                                ls = bsdf.inputs["Alpha"].links if bsdf else []
+                                if not ls or ls[0].from_node.type != "TEX_IMAGE" or not ls[0].from_node.image:
+                                    continue
+                                im = ls[0].from_node.image
+                                w, h = im.size
+                                buf = np.empty(w * h * 4, np.float32)
+                                im.pixels.foreach_get(buf)
+                                a4 = buf.reshape(h, w, 4)
+                                yy, xx = np.mgrid[0:h, 0:w]
+                                cell = max(8, w // 28)
+                                holes = (((xx // cell) * 73856093) ^ ((yy // cell) * 19349663)) % 100 < 45
+                                a4[holes, :3] = 0.0
+                                im.pixels.foreach_set(a4.ravel())
+                                im.update()
+                                n_done += 1
+                    print(f"СТОРОЖ ИНЪЕКЦИЯ rug_shards: дыр-клеток в маске ковра ({n_done} карт)", flush=True)
                 elif kind == "curtain_remove":
                     for slot in [s for s, c in self.pre["expect"].items() if c == "curtain"]:
                         for ob in reg.get(slot, []):
@@ -569,6 +780,7 @@ class Guard:
             names += [s + ":canvas", s + ":frame"] if expect[s] == "art" else [s]
         code = {n: 2 + i for i, n in enumerate(names) if 2 + i < 64}
         art = self.art
+        pals = self._slot_palettes(bpy, np, reg) if self.rules.get("anomaly") else {}
         # --- перекраска в плоские цвета слотов
         mats = {}
 
@@ -650,6 +862,21 @@ class Guard:
             bpy.data.images.remove(img)
             counts = np.bincount(lab.ravel(), minlength=64)
             px = {n: int(counts[c]) for n, c in code.items()}
+            anom = {}
+            if pals and os.path.exists(fr["out"]):
+                try:
+                    fi = bpy.data.images.load(fr["out"], check_existing=False)
+                    fi.colorspace_settings.name = "Non-Color"
+                    if tuple(fi.size) == (w, h):
+                        fb = np.empty(w * h * 4, np.float32)
+                        fi.pixels.foreach_get(fb)
+                        frame_rgb = fb.reshape(h, w, 4)[:, :, :3]
+                        for s_, pal_ in pals.items():
+                            if s_ in code and px.get(s_, 0) >= self.rules["minPx"].get(expect.get(s_, ""), 100):
+                                anom[s_] = slot_anomaly(np, frame_rgb, lab == code[s_], lab == 1, pal_, self.rules["anomaly"])
+                    bpy.data.images.remove(fi)
+                except Exception as e:  # noqa: BLE001
+                    print("СТОРОЖ осколки: сбой", repr(e), flush=True)
             # геометрия: проекция габаритов слота в кадр
             geo = {}
             for s, obs in reg.items():
@@ -685,7 +912,7 @@ class Guard:
             dot = max(-1.0, min(1.0, sum(p * q for p, q in zip(ex["fwd"], ac["fwd"]))))
             camrec = {"posErrM": posd, "dirErrDeg": math.degrees(math.acos(dot)), "lensErrFrac": abs(ac["lens"] - ex["lens"]) / max(ex["lens"], 1e-9)}
             present = {s: len(obs) for s, obs in reg.items()}
-            ev = evaluate_frame(expect, present, px, geo, cover, self.rules, art, camrec)
+            ev = evaluate_frame(expect, present, px, geo, cover, self.rules, art, camrec, anom)
             ev["camera"] = {**camrec, "expected": {"pos": ex["pos"], "lens": ex["lens"]}, "actual": {"pos": ac["pos"], "lens": ac["lens"]}}
             ev["maskFile"] = os.path.basename(mp)
             ev["geo"] = {k: {"nearCam": v.get("nearCam", False), "inFrame": v["inFrame"], "clipped": round(v["clipped"], 3), "rect": [round(x, 3) for x in v["rect"]] if v["rect"] else None, "behind": v.get("behind", 0)} for k, v in geo.items()}

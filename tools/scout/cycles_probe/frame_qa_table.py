@@ -17,6 +17,7 @@ EXPECT = {
     "curtain_remove": lambda d, spec: any(s["class"] == "curtain" and s["state"] in ("missing", "not_in_scene") for s in d["slots"]),
     "hide_item": lambda d, spec: any(s["slot"] == spec.split(":", 1)[1] and s["state"] == "missing" for s in d["slots"]),
     "camera": lambda d, spec: any(f["code"] == "CAMERA_MISMATCH" for f in d["frame"]),
+    "rug_shards": lambda d, spec: any(s["class"] == "rug" and s["state"] == "shards" for s in d["slots"]),
 }
 print("| прогон | вердикт | брак | предупр. | неопределимо |")
 print("|---|---|---|---|---|")
@@ -43,3 +44,16 @@ for name, d in rows:
 print()
 for k, c in by.items():
     print(k, dict(c))
+
+# осколки/дыры внутри маски слота (T-20261118-03/4): доля «пола в предмете» по каждому ковру кадра
+print()
+print("| кадр | ковёр | px | доля осколков | пол вокруг (px) | состояние |")
+print("|---|---|---|---|---|---|")
+for name, d in rows:
+    for s_ in d["slots"]:
+        a = s_.get("anomaly")
+        if s_["class"] == "rug" and a is not None:
+            sh = "—" if a.get("share") is None else f"{a['share']:.1%}"
+            print(f"| {name} | {s_['slot']} | {s_['px']} | {sh} | {a.get('ring', '-')} | {s_['state']} ({s_['level']}){' · ' + a['why'] if a.get('why') else ''} |")
+        elif s_["class"] == "rug":
+            print(f"| {name} | {s_['slot']} | {s_['px']} | не оценивали | - | {s_['state']} ({s_['level']}) |")

@@ -226,6 +226,208 @@ def test_preset_exports_every_paid_page_kind_server_scene_does_not_place():
         assert need in keys, need
 
 
+# ---- T-20261118-03/4 ①: оболочка комнаты (шторы окон, радиатор, карниз) — потеря узла страницы в GLB ловится предпроверкой
+
+
+def _shell_world(d, nodes, radiators="absent", windows=0, glb_has=()):
+    """Мир с узлами страницы (`scene_info.json:nodes`); в GLB лежит только `u1` (картина) и uuid из `glb_has` (их тоже кладём в GLB-узлы)."""
+    tx = _mk_world(d)
+    ip = os.path.join(d, "dump", "scene_info.json")
+    si = json.load(open(ip))
+    si["nodes"] = nodes
+    json.dump(si, open(ip, "w"))
+    ep = os.path.join(d, "dump", "scene-export.json")
+    ex = json.load(open(ep))
+    if radiators != "absent":
+        ex["radiators"] = radiators
+    json.dump(ex, open(ep, "w"))
+    sp = os.path.join(d, "scene", "scene.json")
+    sc = json.load(open(sp))
+    sc["openings"] = [{"wall": "north", "kind": "window"}] * windows
+    json.dump(sc, open(sp, "w"))
+    if glb_has:
+        uu = json.load(open(os.path.join(d, "dump", "demo_nodes_uuids.json")))
+        # GLB тестового мира один (узел `m__u1`); чтобы «лежало в GLB», подменяем его имя: узел u1 получает slot оболочки
+        for n in nodes:
+            if n["uuid"] in glb_has:
+                uu.append({"uuid": n["uuid"], "slot": n.get("slot", ""), "visible": True})
+        json.dump(uu, open(os.path.join(d, "dump", "demo_nodes_uuids.json"), "w"))
+    return tx
+
+
+def _node(uu, chain, slot="", y=(0.0, 1.0), visible=True):
+    return {"uuid": uu, "type": "Mesh", "chain": chain, "slot": slot, "visible": visible, "min": [0, y[0], 0], "max": [1, y[1], 1]}
+
+
+def test_shell_curtains_lost_is_brak_and_present_is_clean():
+    d = tempfile.mkdtemp()
+    try:
+        r = _pf(d, _shell_world(d, [_node("c1", "Mesh<curtains<Scene")]))
+        assert ("SHELL_LOST", "shell:curtains") in _codes(r) and not r["ok"], r
+    finally:
+        shutil.rmtree(d)
+    d = tempfile.mkdtemp()
+    try:
+        # узел оболочки со штатным uuid `u1` (он есть в GLB) — потери нет
+        r = _pf(d, _shell_world(d, [_node("u1", "Mesh<curtains<Scene")]))
+        assert not [c for c in _codes(r) if c[0].startswith("SHELL")], r
+    finally:
+        shutil.rmtree(d)
+
+
+def test_shell_rod_lost_but_baseboard_and_hidden_are_not():
+    d = tempfile.mkdtemp()
+    try:
+        nodes = [_node("r1", "Mesh<fixtures:living:north<room:living<Scene", y=(2.1, 2.3)),          # карниз: выше 2 м
+                 _node("p1", "Mesh<fixtures:living:north<room:living<Scene", y=(0.0, 0.1)),          # плинтус — не оболочка-карниз
+                 _node("h1", "Mesh<curtains<Scene", visible=False)]                                  # скрытый — не требуем
+        r = _pf(d, _shell_world(d, nodes))
+        sh = [(c, sl) for c, sl in _codes(r) if c.startswith("SHELL")]
+        assert sh == [("SHELL_LOST", "shell:rod")], sh
+    finally:
+        shutil.rmtree(d)
+
+
+def test_shell_explicit_exclude_in_preset_keys_is_not_loss():
+    d = tempfile.mkdtemp()
+    keep = Q.dump_keys
+    try:
+        Q.dump_keys = lambda rules, dd="": ["textile", "-curtains"]      # владелец/заказ явно убрал шторы оболочки из выгрузки
+        r = _pf(d, _shell_world(d, [_node("c1", "Mesh<curtains<Scene")]))
+        assert not [c for c in _codes(r) if c[0].startswith("SHELL")], r
+    finally:
+        Q.dump_keys = keep
+        shutil.rmtree(d)
+    d = tempfile.mkdtemp()
+    try:
+        Q.dump_keys = lambda rules, dd="": ["textile"]                    # ключа `rod` нет — карниз не требуем
+        r = _pf(d, _shell_world(d, [_node("r1", "Mesh<fixtures:living:north<room:living<Scene", y=(2.1, 2.3))]))
+        assert not [c for c in _codes(r) if c[0].startswith("SHELL")], r
+    finally:
+        Q.dump_keys = keep
+        shutil.rmtree(d)
+
+
+def test_shell_radiators_field_missing_or_lost():
+    d = tempfile.mkdtemp()
+    try:   # окна есть, а в выгрузке нет поля radiators — выгрузка до радиаторов (старый дамп)
+        r = _pf(d, _shell_world(d, [], windows=2))
+        assert ("SHELL_NO_FIELD", "shell:radiator") in _codes(r), r
+    finally:
+        shutil.rmtree(d)
+    d = tempfile.mkdtemp()
+    try:   # поле есть, радиаторов 2, а узлов в GLB нет
+        r = _pf(d, _shell_world(d, [], radiators=[{"opening": 1}, {"opening": 2}], windows=2))
+        assert ("SHELL_LOST", "shell:radiator") in _codes(r), r
+    finally:
+        shutil.rmtree(d)
+    d = tempfile.mkdtemp()
+    try:   # окон нет — поля может не быть (комната без окон)
+        r = _pf(d, _shell_world(d, [], windows=0))
+        assert not [c for c in _codes(r) if c[0].startswith("SHELL")], r
+    finally:
+        shutil.rmtree(d)
+
+
+def test_shell_kinds_follow_real_preset():
+    keys = Q.dump_keys(RULES)
+    assert keys and "rod" in keys and "-curtains" not in keys and "-radiator" not in keys, keys
+
+
+def test_dump_keys_prefer_the_dump_own_record_over_preset():
+    d = tempfile.mkdtemp()
+    try:
+        assert Q.dump_keys(RULES, d) == Q.dump_keys(RULES)                     # файла в дампе нет — пресет
+        json.dump({"export": "textile,-curtains,rod"}, open(os.path.join(d, "dump_keys.json"), "w"))
+        assert Q.dump_keys(RULES, d) == ["textile", "-curtains", "rod"]        # дамп помнит, чем его брали
+        json.dump({"export": "all"}, open(os.path.join(d, "dump_keys.json"), "w"))
+        assert Q.dump_keys(RULES, d) is None
+    finally:
+        shutil.rmtree(d)
+
+
+# ---- T-20261118-03/4 ②: осколки/дыры внутри маски слота (ковёр с вырезом по маске)
+
+try:
+    import numpy as np
+except ImportError:      # без numpy детектор не запустить (в образе Blender он есть)
+    np = None
+
+AN = RULES["anomaly"]
+
+
+def _scene(holes=0.0, shade=1.0, grain=0.0, rug_col=((0.92, 0.92, 0.9), (0.1, 0.1, 0.1)), size=240, ring_free=True):
+    """Кадр 240×240: пол (тёплое дерево), посередине ковёр 120×120 в клетку (светлый/тёмный), `holes` — доля клеток, где ковёр «вырезан» и виден пол."""
+    fl = np.array([0.85, 0.72, 0.52], np.float32)
+    fr = np.tile(fl, (size, size, 1))
+    lab = np.ones((size, size), np.int32)
+    a, b = (60, 180) if ring_free else (0, size)
+    cell = 10
+    yy, xx = np.mgrid[a:b, a:b]
+    chk = ((xx // cell + yy // cell) % 2).astype(bool)
+    rug = np.where(chk[..., None], np.array(rug_col[1], np.float32), np.array(rug_col[0], np.float32)) * shade
+    rng = np.random.RandomState(3)
+    nc = (b - a) // cell
+    cut = rng.rand(nc, nc) < holes
+    cutm = np.kron(cut, np.ones((cell, cell), bool))
+    hole_px = fl * (1.0 + grain * (rng.rand(b - a, b - a, 1).astype(np.float32) - 0.5) * 2)     # зерно и тень на виднеющемся полу
+    fr[a:b, a:b] = np.where(cutm[..., None], hole_px, rug)
+    lab[a:b, a:b] = 2
+    return fr, lab, rug_col
+
+
+def _anom(**kw):
+    fr, lab, rc = _scene(**kw)
+    mask = lab == 2
+    pal = Q.texture_palette(np, np.array([[rc[0], rc[1]]] * 4, np.float32).reshape(4, 2, 3), np.ones((4, 2), bool), AN)
+    return Q.slot_anomaly(np, fr, mask, lab == 1, pal, AN)
+
+
+def test_anomaly_clean_rug_is_zero_and_crumbled_rug_is_caught():
+    if np is None:
+        return
+    assert _anom(holes=0.0)["share"] < 0.01
+    assert _anom(holes=0.35)["share"] > 0.20          # клочья: дыры показывают пол
+    assert _anom(holes=0.35, grain=0.25)["share"] > 0.20   # …и на зернистом полу в тени (яркость ±25 %): мера по цветности, не по яркости
+    assert _anom(holes=0.15)["share"] >= AN["warnShare"]   # редкие дыры (≈1 клетка из 7) — уже предупреждение
+
+
+def test_anomaly_shadow_and_light_rug_are_not_flagged():
+    if np is None:
+        return
+    assert _anom(shade=0.6)["share"] < 0.01           # ковёр в тени кровати: темнее, но цветность та же
+    # светлый ковёр цвета пола (дерево тон-в-тон): цвет пола ЕСТЬ в палитре материала — не «чужой»
+    assert _anom(rug_col=((0.86, 0.73, 0.53), (0.80, 0.68, 0.50)))["share"] < 0.01
+
+
+def test_anomaly_not_assessable_without_floor_ring_or_palette():
+    if np is None:
+        return
+    r = _anom(ring_free=False)                        # ковёр на весь кадр — пола вокруг нет, оценить нечем
+    assert r["share"] is None and "мало пола" in r["why"], r
+    fr, lab, rc = _scene()
+    r = Q.slot_anomaly(np, fr, lab == 2, lab == 1, np.zeros((0, 3), np.float32), AN)
+    assert r["share"] is None, r
+
+
+def test_anomaly_state_in_evaluate_frame():
+    if np is None:
+        return
+    expect = {"диван#0": "main", "ковёр#0": "rug"}
+    px = {"диван#0": 20000, "ковёр#0": 40000}
+    geo = {s: {"inFrame": True, "clipped": 1.0, "rect": (0.2, 0.2, 0.4, 0.4)} for s in expect}
+
+    def ev(share):
+        an = {"ковёр#0": {"share": share, "n": 40000}} if share is not None else {"ковёр#0": {"share": None, "n": 40000, "why": "x"}}
+        r = Q.evaluate_frame(expect, {s: 1 for s in expect}, px, geo, lambda r_, s: 0.0, RULES, None, None, an)
+        return next(x for x in r["slots"] if x["slot"] == "ковёр#0"), r["verdict"]
+    assert ev(0.0)[0]["state"] == "ok" and ev(0.0)[1] == "ok"
+    assert ev(0.08)[0]["state"] == "shards" and ev(0.08)[0]["level"] == "warn" and ev(0.08)[1] == "warn"
+    assert ev(0.30)[0]["level"] == "brak" and ev(0.30)[1] == "brak"
+    assert ev(0.02)[0]["state"] == "ok"                # шум ниже порога не тревожит
+    assert ev(None)[0]["state"] == "ok"                # не оценить — не «битый»
+
+
 if __name__ == "__main__":
     n = 0
     for k, v in sorted(globals().items()):
