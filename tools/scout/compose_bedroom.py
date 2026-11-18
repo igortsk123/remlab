@@ -276,15 +276,20 @@ def mark_side_back(cat: list, mesh: dict, name_re: str | None) -> dict:
 # ---------------------------------------------------------------- сборка
 class Composer:
     def __init__(self, cat: list, decor: list, ready: set, gen: set, rules: dict, tol: tuple, thr: float,
-                 rejected: set = frozenset()):
+                 rejected: set = frozenset(), quarantined: set = frozenset()):
         self.R, self.tol, self.thr = rules, tol, thr
         md = (rules.get('mesh_defect') or {}).get('names')
         defect = re.compile(md, re.I) if md else None
+        # КАРАНТИН МОДЕЛИ ДЕКОРА С `mesh_first` (T-20261118-04/4): модель в карантине сцена не грузит (`room_bindings.usable`), витрина лампу снимает —
+        # для выбора такой товар «без модели» (мебель не трогаем: её судит готовность ячейки, как раньше)
+        mf = {r for p in (rules.get('purposes') or {}).values() for r, dc in (p.get('decor') or {}).items()
+              if isinstance(dc, dict) and dc.get('mesh_first')}
         for it in cat + decor:
             sku = f"{it['mid']}:{it['eid']}"
             it['sid'] = sku
             it['mesh'] = 'ready' if sku in ready else ('generated' if sku in gen else None)
-            if it['mesh'] and (sku in rejected or (defect and defect.search(it.get('name') or ''))):
+            if it['mesh'] and (sku in rejected or (defect and defect.search(it.get('name') or ''))
+                               or (sku in quarantined and it.get('role') in mf)):
                 it['mesh'], it['mesh_defect'] = None, True     # брак меша — как будто меша нет: в «нужен меш»
         self.cat, self.decor = cat, decor
         self.need_mesh: dict = {}
@@ -602,21 +607,29 @@ class Composer:
                                'fit': got['place']['fit'], **({'size_relaxed': True} if got['size_relaxed'] else {})}
                 continue
             nb_from = None
-            if not cands and dc.get('neighbour_spare'):
-                # В СВОЁМ СТИЛЕ ТОВАРА РОЛИ НЕТ → ЗАПАС У СОСЕДНЕГО СТИЛЯ (T-20261117-13, владелец TG 1382; как ковёр `rug_by_norm`): порядок
-                # соседей — `style-axes.json:confusable_pairs`; те же ворота слота (полоса, deny, цена яруса), цвет — preferred/allowed ДЛЯ
-                # СВОЕГО стиля. Товар помечен `style_from` — набор честно показывает, что лампа не из этого стиля.
+
+            def nb_pool(need_mesh: bool = False) -> tuple:
+                # ЗАПАС У СОСЕДНЕГО СТИЛЯ (T-20261117-13, владелец TG 1382; как ковёр `rug_by_norm`): порядок соседей — `style-axes.json:
+                # confusable_pairs`; те же ворота слота (полоса, deny, цена яруса), цвет — preferred/allowed ДЛЯ СВОЕГО стиля. Товар помечен
+                # `style_from` — набор честно показывает, что лампа не из этого стиля. need_mesh — только с моделью (`mesh_first`)
                 import compose_common as CC
                 import demo_room
                 keep = dict(self.shortage)      # учёт нехватки слота — по своему стилю, соседа не пишем
+                found = ([], None)
                 for nb in demo_room.neighbour_styles(style):
                     c3, _, _ = self.pool(sl, nb, tier, self.decor, _decor_filter(dc, windows, self.R, src))
                     palette(c3)
-                    c3 = [c for c in c3 if CC.color_eval(c, role, style, ctx=ctx)['tier'] in ('preferred', 'allowed')]
+                    c3 = [c for c in c3 if CC.color_eval(c, role, style, ctx=ctx)['tier'] in ('preferred', 'allowed')
+                          and (not need_mesh or c.get('mesh'))]
                     if c3:
-                        cands, nb_from = [dict(c, style_from=nb) for c in c3], nb
+                        found = ([dict(c, style_from=nb) for c in c3], nb)
                         break
                 self.shortage = keep
+                return found
+            if not cands and dc.get('neighbour_spare'):
+                cands, nb_from = nb_pool(bool(dc.get('mesh_first')))      # mesh_first: сперва сосед с моделью, нет — любой сосед
+                if not cands and dc.get('mesh_first'):
+                    cands, nb_from = nb_pool()
             if not cands:
                 gaps.append(dc.get('gap') or (f'{role}: нет в стиле' + (' по размеру окна' if dc.get('min_w') == 'window' else '')))
                 continue
@@ -630,6 +643,20 @@ class Composer:
                 relaxed.append(role)
             palette(cands)
             rk = self.ranked(cands, style, ctx)
+            if dc.get('mesh_first') and dc.get('neighbour_spare') and not nb_from and rk and not any(c.get('mesh') for c in rk):
+                # ЛАМПА С МОДЕЛЬЮ РАНЬШЕ ЛАМПЫ БЕЗ МОДЕЛИ (T-20261118-04/4, владелец П1.70): витрина лампу без модели снимает («ничего в цене
+                # без 3D», ADR-0402), и тумбы остаются пустыми. Своих ламп с моделью в стиле нет → лампа с моделью у соседнего стиля (запас, `style_from`);
+                # и у соседей нет — остаётся своя без модели (ячейка ждёт модель: `room_ready.classify`, `rooms.bedroom.dep_gate`)
+                c4, nb4 = nb_pool(need_mesh=True)
+                if c4:
+                    if dc.get('prefer'):
+                        for c in c4:
+                            c['preferred'] = bool(pref.search(c.get('name') or '')) or bool(c.get('desc_bed'))
+                    palette(c4)
+                    rk4 = self.ranked(c4, style, ctx)
+                    if rk4:
+                        rk, nb_from = rk4, nb4
+                        gaps.append(f'{role}: в стиле нет с моделью — взята у соседа «{nb4}» (запас, есть модель)')
             if not rk:                       # все кандидаты роли — цвет forbidden стиля (style-color-01)
                 gaps.append(f'{role}: нет в стиле по цвету')
                 continue
@@ -1123,6 +1150,17 @@ def core_skip(C: 'Composer', R: dict) -> tuple[dict, int]:
     return gaps, 0
 
 
+def mesh_quarantine() -> set:
+    """SKU (через `:`) моделей в карантине (`mesh_quarantine`: cut/reject) — как вычитает индекс прода (`room_bindings.prod_index`). Нет таблицы
+    или базы — пусто (сборка идёт как раньше, остаток поймает готовность ячейки)."""
+    try:
+        from mesh_queue import db
+        return {r[0] for r in db("select sku from mesh_quarantine where coalesce(decision,'cut') in ('cut','reject')") if r and r[0]}
+    except Exception as e:  # noqa: BLE001
+        print('карантин моделей не прочитан:', e, flush=True)
+        return set()
+
+
 def main(argv: list) -> int:
     sys.path.insert(0, SOLVER)
     sys.path.insert(0, HERE)
@@ -1142,12 +1180,13 @@ def main(argv: list) -> int:
     import catalog_items as CI
     cat, decor = load_items(R)
     ready, gen, rejected = CI.mesh_state()
+    quarantined = mesh_quarantine()
     if side_back_switch():          # боковая спинка кровати (T-20261112-31): меш → семья → название
         import bed_headboard as HB
         import room_catalog as RCat
         sb = mark_side_back(cat, HB.load_side_backs(), (RCat.rules().get('bed_side_back') or {}).get('name_re'))
         print(f'боковая спинка у кроватей: {sb or "нет"}', flush=True)
-    C = Composer(cat, decor, ready, gen, R, tol, thr, rejected)
+    C = Composer(cat, decor, ready, gen, R, tol, thr, rejected, quarantined)
     import room_identity as RI
     C.prov = RI.provenance('bedroom')
     print(f'мебели {len(cat)}, декора {len(decor)}, мешей готово {len(ready)} / сгенерировано {len(gen)}', flush=True)
