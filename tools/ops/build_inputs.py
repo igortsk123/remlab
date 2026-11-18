@@ -29,7 +29,9 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT_DEFAULT = os.path.abspath(os.path.join(HERE, '..', '..'))
 START = 'tools/scout/flat215_demo.py'
-SKIP = ('tools/scout/build_stamp.py',)            # сам держит список — его строки не чтение
+# сам держит список — его строки не чтение; `bank_tiers.py` — настройки ступеней БАНКА (`rules/bank-price-tiers.json`): их читают сборщики
+# банка (compose*, bank_invariants), а витрина лишь импортирует эти модули ради помощников и банк не собирает (T-20261118-61/7)
+SKIP = ('tools/scout/build_stamp.py', 'tools/scout/bank_tiers.py')
 PY_DIRS = ('tools/scout', 'services/planner-solver', 'tools/assets', 'tools/flat3d', 'tools/ops')
 RUNNERS = {'run', 'Popen', 'check_output', 'check_call', 'call'}
 SCRIPT = re.compile(r'[\w./-]*?([\w-]+\.(?:py|mjs|cjs|js))(?![\w.])')

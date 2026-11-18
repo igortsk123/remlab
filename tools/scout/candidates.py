@@ -21,6 +21,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import bank_tiers as PT  # noqa: E402 — ОДИН resolver ступеней цены банка (T-20261118-61/6)
 import pool_gate as PG  # noqa: E402 — граница качества 0.65 включительно (план mesh-14)
 INDEX = os.path.join(HERE, 'candidates-index.json')
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
@@ -101,20 +102,11 @@ def build() -> dict:
                           styles=json.loads(r[15]) if r[15] else {},
                           strength=r[16], mass=r[17], warmth=r[18], quality=float(r[19]))
         idx.setdefault(key, []).append(pid)
-    # ценовые ступени считаем ВНУТРИ роли: «комфортный» торшер и «комфортный» диван — разные деньги
     if dead_photo:
         print(f'выброшено из пула по мёртвому фото: {dead_photo}')
-    tiers: dict[str, dict] = {}
-    for role in {it['role'] for it in items.values()}:
-        ps = sorted(it['price'] for it in items.values() if it['role'] == role)
-        if not ps:
-            continue
-
-        def pc(p, ps=ps):
-            return ps[max(0, min(len(ps) - 1, int(p * len(ps))))]
-        tiers[role] = {'эконом': [pc(0.05), pc(0.45)], 'комфорт': [pc(0.35), pc(0.80)],
-                       'премиум': [pc(0.70), pc(0.97)]}
-    out = {'items': items, 'index': idx, 'tiers': tiers, 'min_quality': MIN_QUALITY}
+    # ценовые ступени — ВНУТРИ роли («комфортный» торшер и «комфортный» диван — разные деньги): диапазон отдаёт `price_tiers.tier_band`
+    # при выборе (`candidates`), в индексе его не храним — иначе правило границ читалось бы устаревшей копией
+    out = {'items': items, 'index': idx, 'min_quality': MIN_QUALITY}
     json.dump(out, open(INDEX, 'w'), ensure_ascii=False)
     print(f'товаров в индексе: {len(items)}; ключей: {len(idx)}')
     print(f'самые населённые ключи:')
@@ -138,8 +130,8 @@ def candidates(role: str, tier: str | None = None, bands: list[str] | None = Non
             and (not subtypes or k.split('|')[1] in subtypes)
             and (not bands or k.split('|')[2] in bands)]
     out = [idx['items'][pid] for k in keys for pid in idx['index'][k]]
-    if tier and role in idx['tiers']:
-        lo, hi = idx['tiers'][role][tier]
+    if tier:
+        lo, hi = PT.tier_band(role, tier, [it['price'] for it in idx['items'].values() if it['role'] == role])
         out = [it for it in out if lo <= it['price'] <= hi]
     if colours:
         out = [it for it in out if it['colour'] in colours]
