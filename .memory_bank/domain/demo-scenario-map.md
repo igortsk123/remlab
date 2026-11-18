@@ -7,7 +7,7 @@ updated: 2026-11-13
 importance: high
 source: manual
 status: working
-last_verified: 2026-11-06
+last_verified: 2026-11-18
 ---
 
 # Карта сценариев демо (`/demo`)
