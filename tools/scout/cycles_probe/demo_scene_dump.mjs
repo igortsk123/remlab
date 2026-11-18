@@ -26,6 +26,7 @@ let LOCAL = true;                                                   // `local=0`
 let DEMO_IMG_DIR = '';                                               // папка фото товаров витрины (`DEMO_LOCAL_DIR` или по умолчанию при local≠0); ставится на каждый заказ
 const GALLERY = path.join(os.homedir(), 'scout-scenes/mesh-pilot-gallery');
 const miss = [];
+const RT_AGENT = new https.Agent({ keepAlive: true, maxSockets: 2 });      // таблица runtime-копий мешей — живая (каждый заказ читает заново), но по уже открытому соединению: без TLS-рукопожатия на заказ (T-20261118-10/1)
 let bundleDir = '';
 let PERSIST = false;                                                // постоянный процесс: страница держит разобранные меши между заказами
 const srv = http.createServer((req, res) => {
@@ -76,6 +77,10 @@ async function init(bundle, extra) {
       const mm = pu.match(/^\/test\/mesh-pilot10\/([^/]+)\/model\.glb$/);
       const files = mm ? [path.join(CACHE, mm[1] + '.glb'), ...(LOCAL ? [path.join(GALLERY, mm[1], 'model.glb')] : [])]
         : (pu.match(/^\/flat3d\/plants\/([A-Za-z0-9._-]+)$/) ? [path.join(PUBLIC, pu)] : []);
+      // картинки, что страница отдаёт с диска (карты материалов, окружение, виды, фото товаров витрины) — подпись для кэша закодированных картинок GLB (`encodeImage`)
+      const im = pu.match(/^\/(flat3d\/materials|flat3d\/env|scene\/views)\/([A-Za-z0-9._-]+)$/), dm = DEMO_IMG_DIR && pu.match(/^\/demo\/(img\/[A-Za-z0-9._-]+)$/);
+      if (im) files.push(path.join(PUBLIC, im[1], im[2]));
+      else if (dm) files.push(path.join(DEMO_IMG_DIR, dm[1]));
       for (const f of files) { if (fs.existsSync(f)) { const st = fs.statSync(f); return `${st.size}-${st.mtimeMs}`; } }
     } catch { /* нет подписи — не кэшируем */ }
     return '';
@@ -86,6 +91,36 @@ async function init(bundle, extra) {
   tr('page_goto');
   await page.waitForFunction(() => typeof window.buildDemoScene === 'function', null, { timeout: 60000 });
   tr('bundle_ready');
+}
+
+// ОБЩИЙ КАТАЛОГ ВНЕШНИХ КАРТИНОК GLB: `<имя>` = sha256 содержимого (первые 32 hex) + расширение; файл пишется один раз, в папку заказа — жёсткая ссылка (как `tex/` у `export_scene.py`).
+const GLBIMG = process.env.RENDER_GLBIMG_CACHE || path.join(os.homedir(), 'scout-cache/render-glbimg');
+const GLBIMG_MAX = Number(process.env.RENDER_GLBIMG_CACHE_MB || 2048) * 1048576;
+function pruneGlbImg() {              // потолок каталога: старейшие по времени доступа уходят первыми (ссылки в уже собранных заказах живут своей жизнью)
+  try {
+    const fs_ = fs.readdirSync(GLBIMG).map((n) => { const st = fs.statSync(path.join(GLBIMG, n)); return { n, size: st.size, t: st.atimeMs }; }).filter((x) => !x.n.includes('.tmp'));
+    let tot = fs_.reduce((a, x) => a + x.size, 0);
+    for (const x of fs_.sort((a, b) => a.t - b.t)) { if (tot <= GLBIMG_MAX) break; try { fs.unlinkSync(path.join(GLBIMG, x.n)); tot -= x.size; } catch { /* занят — пропуск */ } }
+  } catch { /* каталога ещё нет */ }
+}
+async function writeExternalImages(outDir) {
+  const list = await page.evaluate(() => window.exportImages());
+  fs.mkdirSync(GLBIMG, { recursive: true });
+  fs.mkdirSync(path.join(outDir, 'img'), { recursive: true });
+  for (const im of list) {
+    const c = path.join(GLBIMG, im.name);
+    if (!fs.existsSync(c)) {
+      const b = Buffer.from(await page.evaluate((n) => window.imageBytes(n), im.name), 'base64');
+      const tmp = `${c}.${process.pid}-${Date.now()}.tmp`;
+      fs.writeFileSync(tmp, b); fs.chmodSync(tmp, 0o444); fs.renameSync(tmp, c);
+    } else { try { const now = new Date(); fs.utimesSync(c, now, fs.statSync(c).mtime); } catch { /* права: время доступа не обновилось — не страшно */ } }
+    const dst = path.join(outDir, 'img', im.name);
+    try { fs.unlinkSync(dst); } catch { /* не было */ }
+    try { fs.linkSync(c, dst); } catch { fs.copyFileSync(c, dst); }
+  }
+  fs.writeFileSync(path.join(outDir, 'demo_images.json'), JSON.stringify({ v: 1, images: list.map((x) => ({ file: `img/${x.name}`, sha256: x.sha256, bytes: x.bytes })).sort((a, b) => a.file < b.file ? -1 : 1) }, null, 1));
+  say(`TRACE node ximg_n ${list.length}`);
+  pruneGlbImg();
 }
 
 async function runOrder(dataFile, idxS, outDir, extra) {
@@ -108,7 +143,7 @@ const decor = (v.decor || []).filter(in3dDecor);
 const t0 = Date.now();
 // живая таблица runtime-копий мешей (`/demo/rt-meshes.json`) — ею страница выбирает лёгкую копию; нет — экспорт скажет «лёгких нет»
 let runtime = null;
-try { runtime = JSON.parse(await new Promise((res, rej) => https.get({ host: REMOTE, path: '/demo/rt-meshes.json', headers: { 'user-agent': 'cycles-probe' } },
+try { runtime = JSON.parse(await new Promise((res, rej) => https.get({ host: REMOTE, path: '/demo/rt-meshes.json', headers: { 'user-agent': 'cycles-probe' }, agent: RT_AGENT },
   (r) => { let s = ''; r.on('data', (c) => { s += c; }); r.on('end', () => res(s)); }).on('error', rej))).meshes; } catch (e) { say('rt-meshes.json не получен:', String(e).slice(0, 100)); }
 tr('rt_meshes_fetch');
 const lite = extra.lite === '1';       // телефон: LITE_QUALITY, лёгкие карты
@@ -150,8 +185,10 @@ if (extra.export) {
     ? n.chain.includes('fixtures:') && n.min[1] > 2.0 && n.max[1] < 2.69 : k === 'plant' ? n.plant : (n.slot + '|' + n.chain).includes(k)))).map((n) => n.uuid);
   say('выгружаю узлов', pick.length);
   tr('pick');
-  const b64 = await page.evaluate((u) => window.exportNodes(u), pick);
+  const ximg = extra.ximg === '1';        // картинки декора — отдельными файлами `dump/img/<sha>.<ext>`, в GLB — внешние uri (контракт с исполнителем пакета)
+  const b64 = await page.evaluate(([u, x]) => window.exportNodes(u, { ximg: x }), [pick, ximg]);
   tr('export_nodes_glb');
+  if (ximg) await writeExternalImages(outDir);
   for (const m of await page.evaluate(() => window.exportMarks())) say(`TRACE page ${m.name} ${m.s}`);
   fs.writeFileSync(path.join(outDir, 'demo_nodes.glb'), Buffer.from(b64, 'base64'));
   fs.writeFileSync(path.join(outDir, 'demo_nodes_uuids.json'), JSON.stringify(info.nodes.filter((n) => pick.includes(n.uuid))));

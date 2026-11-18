@@ -17,6 +17,7 @@ import shutil
 import sys
 import time
 import uuid
+import weakref
 
 import numpy as np
 from PIL import Image
@@ -50,6 +51,8 @@ def _wrap_once(MR, DR, OIR):
     DR._push_from_supports = timed('push_from_supports', DR._push_from_supports)
     DR.compile_scene = timed('compile_scene', DR.compile_scene)
     OIR.paint_beyond = timed('paint_beyond', OIR.paint_beyond)
+    import scene_mesh as _SM
+    _SM.world_vertices = timed('world_vertices', _SM.world_vertices)
 
 
 def preload():
@@ -91,10 +94,21 @@ TEX_CACHE = os.environ.get('RENDER_TEX_CACHE') or os.path.expanduser('~/scout-ca
 PNG_LEVEL = int(os.environ.get('RENDER_PNG_LEVEL', '3'))
 
 
-def put_png(arr, dst):   # (обёрнут в timed ниже)
-    arr = np.ascontiguousarray(np.asarray(arr, np.uint8))
-    c = os.path.join(TEX_CACHE, hashlib.md5(arr.tobytes() + str(arr.shape).encode()).hexdigest() + f'-{PNG_LEVEL}.png')
+def png_key(arr):
+    """Имя файла в общем кэше PNG по содержимому (md5 пикселей + форма + уровень сжатия)."""
+    return hashlib.md5(arr.tobytes() + str(arr.shape).encode()).hexdigest() + f'-{PNG_LEVEL}.png'
+
+
+def put_png(arr, dst, key=None):   # (обёрнут в timed ниже)
+    """Положить PNG в `dst` из общего кэша (жёсткая ссылка). `key` — готовое имя из `png_key` (хеш уже считали); `arr` может быть функцией — пиксели нужны, только если файла в кэше нет."""
+    if key is None:
+        arr = np.ascontiguousarray(np.asarray(arr, np.uint8))
+        key = png_key(arr)
+    c = os.path.join(TEX_CACHE, key)
     if not os.path.isfile(c):
+        if callable(arr):
+            arr = arr()
+        arr = np.ascontiguousarray(np.asarray(arr, np.uint8))
         os.makedirs(TEX_CACHE, exist_ok=True)
         tmp = f'{c}.{os.getpid()}-{uuid.uuid4().hex[:8]}.tmp'      # атомарно: временный → переименование; после записи — только чтение
         Image.fromarray(arr).save(tmp, 'PNG', compress_level=PNG_LEVEL)
@@ -107,6 +121,35 @@ def put_png(arr, dst):   # (обёрнут в timed ниже)
 
 
 put_png = timed('put_png', put_png)
+
+
+# ПАМЯТКА ПО КАРТИНКАМ МЕШЕЙ (T-20261118-10/1 (в)): текстура меша — одна и та же картинка PIL, пока жив кэш разобранных мешей постоянного процесса (`export_server.PartsCache`);
+# её пересчёт в массив и два md5 по 12 МБ на каждый заказ (≈1 с на гостиную) не нужны. Ключ — сама картинка (слабая ссылка: исчезла из кэша — исчезла и запись; `id` не переиспользуется
+# под чужую картинку, это проверяется `ref() is img`). Результат тот же: имя `tex/<md5[:12]>.png`, файл — из общего кэша PNG по содержимому.
+_TEXMEMO: dict = {}
+
+
+def _tex_image(mesh):
+    """Картинка текстуры меша и UV — как `mesh_render.texture_of`, но картинку в массив не переводит (это делает `save_tex_img` и только при промахе памятки)."""
+    vis = getattr(mesh, 'visual', None)
+    uv = getattr(vis, 'uv', None)
+    mat = getattr(vis, 'material', None)
+    img = getattr(mat, 'baseColorTexture', None) if mat is not None else None
+    if img is None and mat is not None:
+        img = getattr(mat, 'image', None)
+    if uv is None or img is None:
+        return None, None
+    return img, np.asarray(uv, np.float32)
+
+
+def _tex_memo(img):
+    m = _TEXMEMO.get(id(img))
+    if m is not None and m[0]() is img:
+        return m
+    arr = np.ascontiguousarray(np.asarray(img.convert('RGB')))
+    m = (weakref.ref(img, lambda _r, k=id(img): _TEXMEMO.pop(k, None)), hashlib.md5(arr.tobytes()).hexdigest()[:12], png_key(arr), tuple(arr.shape[:2]))
+    _TEXMEMO[id(img)] = m
+    return m
 
 
 def to_b(p):
@@ -192,6 +235,16 @@ def main_export(D, idx, out):
             tex_seen[h] = list(arr.shape[:2])
         return rel
 
+    def save_tex_img(img):
+        h, key, shape = _tex_memo(img)[1:4]
+        rel = f'tex/{h}.png'
+        if h not in tex_seen:
+            put_png(lambda: np.asarray(img.convert('RGB')), os.path.join(out, rel), key=key)
+            tex_seen[h] = list(shape)
+        return rel, shape
+
+    save_tex_img = timed('save_tex', save_tex_img)
+
     def rec_raster(img, zbuf, parts, place, cam, W, Hpx, front_yaw, name2h=None, inst_buf=None, inst_id=0, mirror=False):
         worlds, Ra, R, h_src, aniso, scale = SM.world_vertices(parts, place, front_yaw, name2h, mirror)
         flip = float(np.prod(np.sign(scale))) < 0
@@ -199,20 +252,20 @@ def main_export(D, idx, out):
             f = np.asarray(mesh.faces, np.int32)
             if flip:
                 f = f[:, ::-1]
-            tex, uvm = MR.texture_of(mesh)
+            tex, uvm = _tex_image(mesh)
             rec = {'role': place.role, 'file': f'm{len(objs):03d}.npz', 'tex': None, 'rgb': None,
                    'n_faces': int(len(f)), 'elev': float(getattr(place, 'elev_cm', 0) or 0)}
             if tint_by_role.get(place.role):
                 rec['tint'] = tint_by_role[place.role]
             data = {'v': to_b(wv).astype(np.float32), 'f': f.astype(np.int32)}
             if tex is not None and uvm is not None:
-                rec['tex'] = save_tex(tex)
-                rec['tex_px'] = list(tex.shape[:2])
+                rec['tex'], _shape = save_tex_img(tex)
+                rec['tex_px'] = list(_shape)
                 data['uv'] = np.asarray(uvm, np.float32)
                 # собственная карта шероховатости/металла меша (glTF: G — шероховатость, B — металл): «как есть», ничего не придумываем
                 mrt = getattr(getattr(mesh.visual, 'material', None), 'metallicRoughnessTexture', None)
                 if mrt is not None:
-                    rec['mr'] = save_tex(np.asarray(mrt.convert('RGB')))
+                    rec['mr'] = save_tex_img(mrt)[0]
             else:
                 cols = MR.flat_colors(mesh)
                 rec['rgb'] = [float(x) for x in np.asarray(cols).mean(axis=0)]
