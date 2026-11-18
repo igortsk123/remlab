@@ -196,6 +196,7 @@ jobs:
       - run: python tools/scout/tests/test_scene3d_cache_trim.py   # потолок кэша GLB не стирает меши текущего кадра (T-20261117-19/3)
       - run: python tools/scout/tests/test_render_tint.py   # цвет рендера как в живой 3D: подкраска товара доходит до сцены, пресет — тон Neutral и небо (T-20261117-23)
       - run: python tools/scout/tests/test_match_luma.py   # нормировка яркости ответа «Улучшить» по входному рендеру (T-20261118-01/3)
+      - run: python tools/scout/tests/test_tame_new_light.py   # приглушение «солнечных пятен» ответа «Улучшить» (T-20261118-05)
       - run: python tools/scout/tests/test_render_cycles_service.py   # HTTP сервиса: заказ → опрос → два кадра, отказы 404/409/422/503+Retry-After, тур только с внутренним ключом, проход прод → DEV, «Улучшить из рендера» (T-20261117-19)
       - run: python tools/scout/cycles_probe/test_frame_qa.py   # сторож кадров Cycles: классы слотов, оценка кадра, предпроверка (в т.ч. шторы/карниз/радиаторы оболочки), осколки внутри маски ковра (T-20261118-03/1–4)
       - run: python tools/scout/cycles_probe/test_rug_silhouette.py   # маска ковра: внутренние дыры — ковёр, эрозия только по внешнему контуру (светлый ковёр не крошится на осколки, T-20261118-03/3)
