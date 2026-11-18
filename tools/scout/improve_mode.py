@@ -122,6 +122,74 @@ def match_luma(improved, render, mask=None, cap: tuple = LUMA_CAP, knee: float =
     return Image.fromarray((out * 255.0 + 0.5).astype(np.uint8)), info
 
 
+SUN_SIGMA = 12.0             # масштаб пятна, px кадра шириной 1536 (на другой ширине пересчитывается)
+SUN_START = 1.20             # ответ ярче входа на поверхности более чем на 20 % сверх её общего сдвига яркости — пятно; меньше — обычный свет «Улучшить»
+SUN_FLOOR = 0.40             # приглушение не сильнее ×0,4 — иначе на месте пятна выйдет тёмная дыра
+SUN_MIN_PCT = 3.0            # меньше этой доли кадра в замере — нечем мерить, кадр не трогаем
+
+
+def tame_new_light(improved, render, surfaces=None, start: float = SUN_START, floor: float = SUN_FLOOR):
+    """ПРИГЛУШЕНИЕ «СОЛНЕЧНЫХ ПЯТЕН» (T-20261118-05): нейросеть дорисовывает на полу и стенах пятна солнца и полосы света, которых нет во входном рендере.
+    Свет — линейная яркость Y, нормированная свёртка σ12 по области замера (без окна/пересвета/глухой тени; дыры — мебель, окно — не тянут среднее).
+    На каждой ПОВЕРХНОСТИ (пол, стены — маски кадра `surfaces`; без масок вся область замера — одна) общий сдвиг яркости ответа g = медиана Y_ответ/Y_вход
+    (его выравнивает `match_luma`); пятно = rel = (Y_ответ/Y_вход)/g ≥ `start`. В пятне свет делим на rel/start, не ниже `floor`, поле усиления размыто (края
+    мягкие), умножаем линейный RGB на одно число — оттенок не меняется; чистое белое остаётся. Широкие полосы солнца мерой «против окружения» не ловились
+    (проба 18.11) — поэтому против общего сдвига поверхности. Вызывать на каждом виде отдельно, после `match_luma`.
+    → (картинка, {patch_pct (rel ≥ start), rel_max, gain_min, region_pct}); нечем мерить — кадр как есть."""
+    import numpy as np
+    from PIL import Image
+    from scipy import ndimage as ndi
+    imp = np.asarray(improved.convert('RGB'), np.float32) / 255.0
+    ref = np.asarray(render.convert('RGB').resize(improved.size, Image.LANCZOS), np.float32) / 255.0
+
+    def to_lin(a):
+        return np.where(a <= 0.04045, a / 12.92, ((a + 0.055) / 1.055) ** 2.4)
+
+    def to_srgb(a):
+        a = np.clip(a, 0.0, None)
+        return np.where(a <= 0.0031308, a * 12.92, 1.055 * np.power(a, 1 / 2.4) - 0.055)
+    w = np.array([0.2126, 0.7152, 0.0722], np.float32)
+    li, lr = to_lin(imp), to_lin(ref)
+    yi, yr = li @ w, lr @ w
+    k = improved.size[0] / 1536.0
+    sg = SUN_SIGMA * k
+    ok = ((ref @ w) < LUMA_BLOWN) & ((imp @ w) < LUMA_BLOWN) & (yr > 0.004) & (yi > 0.004)
+    ok &= ~ndi.binary_dilation((ref @ w) >= LUMA_BLOWN - 0.04, iterations=max(1, int(round(14 * k))))     # у окна и пересвета — не меряем
+    masks = []
+    for m in (surfaces or []):
+        mi = m.convert('L') if isinstance(m, Image.Image) else Image.fromarray((np.asarray(m) > 0).astype(np.uint8) * 255)
+        masks.append(np.asarray(mi.resize(improved.size, Image.NEAREST)) > 0)
+    if masks:
+        ok &= np.logical_or.reduce(masks)
+    else:
+        masks = [np.ones(ok.shape, bool)]
+    pct = float(ok.mean()) * 100.0
+    info = {'patch_pct': 0.0, 'rel_max': 1.0, 'gain_min': 1.0, 'region_pct': round(pct, 1)}
+    if pct < SUN_MIN_PCT:
+        return improved, info
+    okf = ok.astype(np.float32)
+    den = np.maximum(ndi.gaussian_filter(okf, sg), 1e-4)
+    rs = (ndi.gaussian_filter(yi * okf, sg) / den) / np.maximum(ndi.gaussian_filter(yr * okf, sg) / den, 1e-6)
+    rel = np.ones_like(rs)
+    for m in masks:
+        mm = m & ok
+        if mm.sum() < 0.02 * mm.size:
+            continue
+        rel[m] = rs[m] / float(np.median(rs[mm]))
+    rel = np.where(ok, rel, 1.0)
+    hot = ndi.binary_opening(rel >= start, iterations=2)
+    info.update(patch_pct=round(float(hot.mean()) * 100.0, 2), rel_max=round(float(rel.max()), 2))
+    if not hot.any():
+        return improved, info
+    gain = np.clip(start / np.maximum(rel, start), floor, 1.0)
+    gain = np.minimum(ndi.gaussian_filter(gain, 0.4 * sg), 1.0)
+    info['gain_min'] = round(float(gain.min()), 3)
+    out = np.clip(to_srgb(li * gain[..., None]), 0.0, 1.0)
+    white = imp.max(axis=2) >= 0.97
+    out[white] = imp[white]
+    return Image.fromarray((out * 255.0 + 0.5).astype(np.uint8)), info
+
+
 def render_source(payload: dict | None) -> bool:
     """Заказ «Улучшить из рендера»: сервис подменил вход на кадры Cycles и положил `payload['render']` (`draft_service._apply_render_order`)."""
     r = (payload or {}).get('render')
