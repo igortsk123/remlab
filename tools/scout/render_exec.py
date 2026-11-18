@@ -24,6 +24,7 @@ import subprocess
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
@@ -446,6 +447,42 @@ GATE_TEXT = {
 GPU_FAILED = ('Машина рендера не справилась. Считаем на запасной — будет дольше.', 'The render machine failed. Using the backup — it will take longer.')
 
 
+class _Fmt2Skip(Exception):
+    """fmt 2 сейчас недоступен (приёмник без ассетов, сбой выгрузки): заказ уходит по fmt 1 — до задания машине дело не дошло."""
+
+
+_SHA_MEMO: dict = {}          # (путь, размер, mtime_ns, inode) → sha256: файлы кэша PNG/дампа неизменны (read-only, жёсткие ссылки), повторный заказ хеша не считает
+
+
+def file_sha256(path: str) -> tuple:
+    """(sha256, размер) файла; хеш помнится по (путь, размер, mtime, inode)."""
+    import jobs_proto as JP
+    st = os.stat(path)
+    key = (path, st.st_size, st.st_mtime_ns, st.st_ino)
+    h = _SHA_MEMO.get(key)
+    if h is None:
+        if len(_SHA_MEMO) > 4000:
+            _SHA_MEMO.clear()
+        h = _SHA_MEMO[key] = JP.sha256_file(path)
+    return h, st.st_size
+
+
+def asset_kind(rel: str) -> str | None:
+    """Что из файлов задания — НЕИЗМЕНЯЕМЫЙ ассет (по хешу на приёмнике и машине), а что едет в маленьком пакете. Правило общее, без особых случаев:
+    текстуры сцены (PNG), GLB декора, карты отделки (public/), программа рендера и её данные. Карта сцены, меши npz, отделка и uuid — в пакете."""
+    if rel.startswith('scene/tex/'):
+        return 'tex'
+    if rel == 'dump/demo_nodes.glb':
+        return 'glb'
+    if rel.startswith('public/'):
+        return 'map'
+    if rel.startswith('tools/scout/') and rel.endswith('.py'):
+        return 'code'
+    if rel.startswith('data/flat3d/') and rel.endswith('.json'):
+        return 'data'
+    return None
+
+
 class SaladGpuExecutor(SceneExecutor):
     """Машина рендера на Salad (T-20261117-24/2): сцена собирается на DEV тем же правилом, что у `local-cpu` (`SceneExecutor._prepare`), уходит пакетом
     в хранилище приёмника (`renderjobs/<задание>/`), воркер на машине (`render_gpu/render_worker.py`) считает ПАРУ ракурсов одним Blender
@@ -459,6 +496,7 @@ class SaladGpuExecutor(SceneExecutor):
     def __init__(self, env=os.environ, sink=None, machine=None, clock=time.time, sleep=time.sleep):
         super().__init__(env)
         self.env, self._sink, self._machine, self.now, self.sleep = env, sink, machine, clock, sleep
+        self._fmt2_dead_until = 0.0      # приёмник без ассетов (404 на /have): до этого момента fmt 2 не пробуем
 
     # ——— зависимости (лениво: DEV без машины рендера не должен падать при создании исполнителя)
     def machine(self):
@@ -531,6 +569,98 @@ class SaladGpuExecutor(SceneExecutor):
                     files['public/' + v.lstrip('/')] = p
         return files
 
+    def _split_assets(self, files: dict) -> tuple:
+        """`_bundle_files` → (маленький пакет {путь в архиве: файл}, ассеты [ссылки {path, sha256, size, kind}], {sha256: файл на DEV}).
+        Ассетом файл становится, только если путь годится как плоское имя (`valid_rel_path`), размер в пределах и число ассетов не больше потолка; иначе едет в пакете."""
+        import jobs_proto as JP
+        small, assets, src = {}, [], {}
+        items = []
+        for arc, p in files.items():
+            if os.path.isdir(p):
+                for dp, dn, fs in os.walk(p):
+                    dn.sort()
+                    items += [(os.path.join(arc, os.path.relpath(os.path.join(dp, f), p)).replace(os.sep, '/'), os.path.join(dp, f)) for f in sorted(fs)
+                              if not os.path.islink(os.path.join(dp, f))]
+            elif os.path.isfile(p):
+                items.append((arc, p))
+        for rel, p in sorted(items):
+            kind = asset_kind(rel)
+            if kind and len(assets) < JP.ASSET_MAX_N and JP.valid_rel_path(rel):
+                sha, size = file_sha256(p)
+                if 1 <= size <= JP.ASSET_MAX_MB * 2 ** 20:
+                    assets.append(JP.asset_ref(rel, sha, size, kind))
+                    src.setdefault(sha, p)
+                    continue
+            small[rel] = p
+        return small, assets, src
+
+    def _send_fmt1(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict) -> None:
+        """fmt 1: всё одним пакетом (как в T-24/2). Не принял приёмник — `gpu_upload`; пакет больше потолка — `gpu_bundle_big`."""
+        import jobs_proto as JP
+        t1 = self.now()
+        tgz = os.path.join(job, 'bundle.tgz')
+        sha = JP.pack_bundle(self._bundle_files(job), tgz)
+        bundle = f'bundle-{sha}.tgz'
+        timing['pack'] = round(self.now() - t1, 1)
+        cap_mb = float(ex.get('bundle_max_mb', 95))      # приёмник и Caddy не примут больше (Caddy режет тело на 100 МБ): откат на CPU сразу и с понятной причиной
+        if os.path.getsize(tgz) > cap_mb * 2 ** 20:
+            print(f'рендер: пакет сцены {os.path.getsize(tgz) / 2 ** 20:.0f} МБ > {cap_mb:g} МБ — на машину не отдаём', flush=True)
+            raise self._gpu_unavailable('gpu_bundle_big') from None
+        t1 = self.now()
+        try:
+            sink.put_file(f'{JP.PREFIX}/{jid}/{bundle}', tgz)
+            jobj = JP.new_job(jid, bundle, sha, ['--samples', pr['samples'], '--pct', pr['pct'], '--threads', pr['threads'], *pr['flags']],
+                              {'blenderSec': pr['limits']['blenderSecPerFrame']}, now=self.now())
+            sink.put(f'{JP.PREFIX}/{jid}/job.json', json.dumps(jobj, ensure_ascii=False).encode())       # ПОСЛЕДНИМ
+        except JP.SinkError as e:
+            print(f'рендер: хранилище не приняло пакет: {e}', flush=True)
+            raise self._gpu_unavailable('gpu_upload') from None
+        timing['upload'] = round(self.now() - t1, 1)
+
+    def _send_fmt2(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict) -> None:
+        """fmt 2 (T-20261117-24/5): ассеты — по хешу в `renderassets` приёмника (спросили «каких нет» и досылаем недостающее ДО `job.json`), маленький пакет —
+        в каталог задания, `job.json` (v=2, манифест) ПОСЛЕДНИМ. Любой сбой до задания — `_Fmt2Skip` (заказ пойдёт по fmt 1), машине ничего не ушло."""
+        import jobs_proto as JP
+        t1 = self.now()
+        small, assets, src = self._split_assets(self._bundle_files(job))
+        timing['hash'] = round(self.now() - t1, 1)
+        t1 = self.now()
+        uniq = [{'sha256': h, 'size': next(a['size'] for a in assets if a['sha256'] == h)} for h in src]
+        try:
+            missing = list(sink.have_assets(uniq))
+        except JP.SinkError as e:
+            if e.code in (404, 405):                      # приёмник без ассетов (старый): не спрашиваем снова 5 минут
+                self._fmt2_dead_until = self.now() + 300
+            raise _Fmt2Skip(f'have: {e}') from None
+        timing['have'] = round(self.now() - t1, 1)
+        timing['asset_n'], timing['asset_miss'] = len(uniq), len(missing)
+        timing['asset_up_mb'] = round(sum(u['size'] for u in uniq if u['sha256'] in set(missing)) / 2 ** 20, 1)
+        t1 = self.now()
+        par = max(1, int(ex.get('upload_par', 4)))
+        try:
+            with ThreadPoolExecutor(max_workers=par) as pool:
+                futs = [pool.submit(sink.put_asset, h, src[h]) for h in missing]
+                tp = self.now()
+                tgz = os.path.join(job, 'bundle2.tgz')
+                JP.pack_bundle(small, tgz)                                  # пока ассеты уходят, пакет собирается
+                bsha = JP.sha256_file(tgz)
+                bsize = os.path.getsize(tgz)
+                timing['pack'] = round(self.now() - tp, 1)
+                if bsize > float(ex.get('bundle_max_mb', 95)) * 2 ** 20:
+                    raise _Fmt2Skip(f'маленький пакет {bsize / 2 ** 20:.0f} МБ — слишком велик')
+                bundle = {'name': f'bundle-{bsha[:16]}.tgz', 'sha256': bsha, 'size': bsize}
+                sink.put_file(f'{JP.PREFIX}/{jid}/{bundle["name"]}', tgz)
+                for f in futs:
+                    f.result()                                              # недостающие ассеты — ДО задания
+            render = hashlib.sha256(json.dumps(self.versions(), sort_keys=True).encode()).hexdigest()[:16]
+            jobj = JP.new_job2(jid, bundle, assets, ['--samples', pr['samples'], '--pct', pr['pct'], '--threads', pr['threads'], *pr['flags']],
+                               {'blenderSec': pr['limits']['blenderSecPerFrame']}, render, now=self.now())
+            sink.put(f'{JP.PREFIX}/{jid}/job.json', json.dumps(jobj, ensure_ascii=False).encode())       # ПОСЛЕДНИМ
+        except JP.SinkError as e:
+            raise _Fmt2Skip(f'выгрузка: {e}') from None
+        timing['upload'] = round(self.now() - t1, 1)
+        timing['bundle_kb'] = round(bsize / 1024)
+
     def render(self, snap: dict, out_dir: str, progress) -> dict:
         import jobs_proto as JP
         pr = preset()
@@ -545,32 +675,36 @@ class SaladGpuExecutor(SceneExecutor):
         os.makedirs(job)
         log = os.path.join(job, 'run.log')
         t0, timing = self.now(), {}
-        jid = f"{snap['scene_hash'][:12]}-{int(t0)}-{uuid.uuid4().hex[:4]}"      # хвост: два заказа одной сцены в одну секунду не делят каталог заданий
+        jids: list = []
         m.pulse(busy_s=600)            # ЗАКАЗ = событие: отсчёт простоя с этого момента, и пока задание в работе — машину не гасим
         try:
             with self._slot('photo-render-' + snap['scene_hash'][:8], pr) as hs:
                 timing['slot_wait'] = round(float(hs.get('waited_s', 0)), 1) if isinstance(hs, dict) else 0
                 self._prepare(snap, job, log, pr, progress, timing)
-            t1 = self.now()
-            tgz = os.path.join(job, 'bundle.tgz')
-            sha = JP.pack_bundle(self._bundle_files(job), tgz)
-            bundle = f'bundle-{sha}.tgz'
-            timing['pack'] = round(self.now() - t1, 1)
-            cap_mb = float(ex.get('bundle_max_mb', 95))      # приёмник и Caddy не примут больше (Caddy режет тело на 100 МБ): откат на CPU сразу и с понятной причиной
-            if os.path.getsize(tgz) > cap_mb * 2 ** 20:
-                print(f'рендер: пакет сцены {os.path.getsize(tgz) / 2 ** 20:.0f} МБ > {cap_mb:g} МБ — на машину не отдаём', flush=True)
-                raise self._gpu_unavailable('gpu_bundle_big') from None
-            t1 = self.now()
-            try:
-                sink.put_file(f'{JP.PREFIX}/{jid}/{bundle}', tgz)
-                jobj = JP.new_job(jid, bundle, sha, ['--samples', pr['samples'], '--pct', pr['pct'], '--threads', pr['threads'], *pr['flags']],
-                                  {'blenderSec': pr['limits']['blenderSecPerFrame']}, now=self.now())
-                sink.put(f'{JP.PREFIX}/{jid}/job.json', json.dumps(jobj, ensure_ascii=False).encode())       # ПОСЛЕДНИМ
-            except JP.SinkError as e:
-                print(f'рендер: хранилище не приняло пакет: {e}', flush=True)
-                raise self._gpu_unavailable('gpu_upload') from None
-            timing['upload'] = round(self.now() - t1, 1)
-            res = self._wait(sink, m, jid, progress, busy_s, poll_s, pickup_s, pair_max_s)
+            use2 = bool(ex.get('fmt2')) and self.now() >= self._fmt2_dead_until
+            res = None
+            for fmt in ((2, 1) if use2 else (1,)):
+                jid = f"{snap['scene_hash'][:12]}-{int(self.now())}-{uuid.uuid4().hex[:4]}"      # хвост: два заказа одной сцены в одну секунду не делят каталог заданий
+                jids.append(jid)
+                if fmt == 2:
+                    try:
+                        self._send_fmt2(sink, job, jid, pr, ex, timing)
+                    except _Fmt2Skip as e:
+                        print(f'рендер: fmt 2 не вышел ({e}) — шлю по fmt 1', flush=True)
+                        continue
+                else:
+                    self._send_fmt1(sink, job, jid, pr, ex, timing)
+                try:
+                    res = self._wait(sink, m, jid, progress, busy_s, poll_s, pickup_s, pair_max_s)
+                except ExecutorUnavailable as e:
+                    if fmt == 2 and e.code in ('gpu_asset', 'gpu_bad_job'):      # машина не приняла ассеты/версию — тот же заказ по fmt 1, не сразу на процессор
+                        print(f'рендер: машина не приняла fmt 2 ({e.code}) — шлю по fmt 1', flush=True)
+                        continue
+                    raise
+                timing['fmt'] = fmt
+                break
+            if res is None:
+                raise self._gpu_unavailable('gpu_upload')
             t1 = self.now()
             outs = {}
             try:
@@ -589,10 +723,11 @@ class SaladGpuExecutor(SceneExecutor):
             return self._finish(snap, outs, out_dir, pr, timing, t0, job)
         finally:
             shutil.rmtree(job, ignore_errors=True)
-            try:
-                sink.delete(f'{JP.PREFIX}/{jid}')      # своё задание убираем сразу (место общее с мешами); не вышло — уберёт jobs_purge по сроку
-            except Exception:  # noqa: BLE001
-                pass
+            for j in jids:
+                try:
+                    sink.delete(f'{JP.PREFIX}/{j}')      # своё задание убираем сразу (место общее с мешами); не вышло — уберёт jobs_purge по сроку
+                except Exception:  # noqa: BLE001
+                    pass
             m.pulse(0)                 # конец пары (или отказ) — тоже событие; «занято» снято, до автостопа 20 мин от этого момента
 
     def _wait(self, sink, m, jid: str, progress, busy_s: float, poll_s: float, pickup_s: float, pair_max_s: float) -> dict:
