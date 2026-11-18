@@ -41,8 +41,9 @@ describe("realisticPublishedShot — порядок и запреты", () => {
     // кадр этой расстановки с несовпадающей точкой на шаге 1 не берётся, но это фото того же варианта — на шаге 2 годится; совпадающее
     // фото прежней расстановки той же точки его опережает
     expect(pick([sh("now-bad", { stateId: "S-now", bad: true })])).toBe("now-bad");
-    expect(pick([sh("now-bad", { stateId: "S-now", bad: true, ts: 9 }), sh("old-ok", { stateId: "S-old", ts: 2 })])).toBe("old-ok");
-    expect(pick([sh("now-bad", { stateId: "S-now", bad: true, ts: 2 }), sh("old-bad", { stateId: "S-old", bad: true, ts: 5 })])).toBe("old-bad");
+    // T-20261118-20/10: фото ТОГО ЖЕ состава с другой точки главнее фото прежнего состава с нужной (раньше выигрывало более свежее прежнее)
+    expect(pick([sh("now-bad", { stateId: "S-now", bad: true, ts: 9 }), sh("old-ok", { stateId: "S-old", ts: 2 })])).toBe("now-bad");
+    expect(pick([sh("now-bad", { stateId: "S-now", bad: true, ts: 2 }), sh("old-bad", { stateId: "S-old", bad: true, ts: 5 })])).toBe("now-bad");
     expect(pick([sh("old-c1-bad", { stateId: "S-a", ts: 9, bad: true }), sh("old-c2", { stateId: "S-a", camera: "C2", ts: 5 })])).toBe("old-c1-bad");
   });
   it("шаг 2 — порядок: та же точка и совпадает → та же точка → любая совпадающая → любая; внутри — свежее", () => {
@@ -78,7 +79,8 @@ ${cut("// SHOTCAM START", "// SHOTCAM END")};${block};${fnSrc};return vwPubShotA
   const shot = (url: string, camera: string, c2: typeof win, o: Partial<Shot> = {}) =>
     ({ ...sh(url, { stateId: "S-now", camera, ...o }), cams: [{ name: "C1", ...door }, { name: "C2", ...c2 }] }) as Shot;
   it("кадр C2 снят с прежней точки (у двери) — у вида «От окна» фото нет; та же точка — есть", () => {
-    expect(vwPubShotAt([shot("c2-old", "C2", oldC2)], "S-now", "set1", now, 1)).toBeNull();
+    // T-20261118-20/10: кадр ТОГО ЖЕ состава с прежней точки — не «нет фото», а то, что человек купит (ключ главнее ракурса)
+    expect(vwPubShotAt([shot("c2-old", "C2", oldC2)], "S-now", "set1", now, 1)?.url).toBe("c2-old");
     expect(vwPubShotAt([shot("c2-now", "C2", win)], "S-now", "set1", now, 1)?.url).toBe("c2-now");
     // точка C1 у этих кадров та же — C1 годен, хотя у C2 в той же сборке точка сменилась
     expect(vwPubShotAt([shot("c1", "C1", oldC2)], "S-now", "set1", now, 0)?.url).toBe("c1");
@@ -90,12 +92,13 @@ ${cut("// SHOTCAM START", "// SHOTCAM END")};${block};${fnSrc};return vwPubShotA
   });
   // ПЕРЕСЪЁМКА (T-20261108-73/3, владелец TG 666): ночь (`tools/ops/demo-realistic.mjs`) снимает пару, если хоть у одного вида нет фото
   // своей точки (`vwRealMissing`). Прежде — только если фото нет ни у одного: C1 на месте, C2 сдвинут — пару не снимали никогда
-  const fm = src.indexOf("function vwRealMissing("), vwRealMissing = new Function(`${src.slice(fm, src.indexOf("\n}", fm) + 2)};return vwRealMissing;`)() as
+  const fm = src.indexOf("function vwRealMissing("), vwRealMissing = new Function(`${src.slice(src.indexOf("const camAng="), src.indexOf("\n", src.indexOf("const camAng=")))};
+${cut("// SHOTCAM START", "// SHOTCAM END")};${src.slice(fm, src.indexOf("\n}", fm) + 2)};return vwRealMissing;`)() as
     (have: Shot[], cs: { name?: string }[]) => string[];
   const have = (list: Shot[]) => now.map((_, k) => vwPubShotAt(list, "S-now", "set1", now, k)).filter((x): x is Shot => !!x);
   it("пересъёмка: C1 своей точки, C2 снят с прежней — нужно фото вида C2 (пара в очереди), хотя одно фото у пары есть", () => {
     const part = have([shot("c1", "C1", oldC2), shot("c2-old", "C2", oldC2)]);
-    expect(part.map((x) => x.url)).toEqual(["c1"]);
+    expect(part.map((x) => x.url)).toEqual(["c1", "c2-old"]);   // фото C2 того же состава с прежней точки показывается, но своей точки не закрывает
     expect(vwRealMissing(part, now)).toEqual(["C2"]);
     expect(vwRealMissing(have([shot("c1", "C1", win), shot("c2", "C2", win)]), now)).toEqual([]);
     expect(vwRealMissing([], now)).toEqual(["C1", "C2"]);
@@ -122,5 +125,102 @@ describe("страница: главная, вкладки и опрос бер�
     const draw = fn("drawHome");
     expect(draw).toContain("realisticPublishedShot(");
     expect(draw).not.toMatch(/pubShot\(|liveShot\(/);
+  });
+});
+
+// ЕДИНЫЙ ВЫБОР ФОТО ПО КЛЮЧУ СОСТАВА (T-20261118-20/10; владелец TG 1851: «покупатель видит не то, что купит»). Ключ состава главнее ракурса:
+// фото (нейросеть, затем кадр Cycles) этого состава со своей точки → того же состава с другой точки → фото ЧУЖОГО состава только если
+// настройка `rules/demo-photo-pick.json` разрешает (окно: `hide` — не показываем, `dim` — затемнённым; главная: `keep` — как было, `hide`)
+describe("realPubPick — ключ состава главнее точки; чужой состав — по настройке", () => {
+  const pickN = (list: Shot[], noOld: boolean, cam = "C1") => realPubPick(list, "S-now", "set1", cam, camOk, noOld)?.url ?? null;
+  it("того же состава с другой точки лучше прежнего состава с нужной точкой", () => {
+    const list = [sh("old-ok", { stateId: "S-old", ts: 9 }), sh("now-bad", { stateId: "S-now", bad: true, ts: 1 })];
+    expect(pickN(list, false)).toBe("now-bad");
+    expect(pickN(list, true)).toBe("now-bad");
+  });
+  it("кадр Cycles (render) годится наравне с фото нейросети того же состава, нейросеть — первой; render прежнего состава — никогда", () => {
+    expect(pickN([sh("cy", { stateId: "S-now", quality: "render" })], true)).toBe("cy");
+    expect(pickN([sh("cy", { stateId: "S-now", quality: "render", ts: 9 }), sh("nn", { stateId: "S-now", ts: 1 })], true)).toBe("nn");
+    expect(pickN([sh("cy-old", { stateId: "S-old", quality: "render" })], false)).toBeNull();
+  });
+  it("noOld: фото только чужого состава — null (окно скрывает «Фото»); без noOld — прежнее, как было", () => {
+    const list = [sh("old", { stateId: "S-old" })];
+    expect(pickN(list, true)).toBeNull();
+    expect(pickN(list, false)).toBe("old");
+    expect(pickN([sh("draft", { stateId: "S-now", quality: "draft" })], true)).toBeNull();
+  });
+});
+
+describe("photoRule — выбор А/Б одной настройкой в правилах", () => {
+  const at = src.indexOf("function photoRule("), fnSrc = src.slice(at, src.indexOf("\n}", at) + 2);
+  const photoRule = new Function("D", `${fnSrc};return photoRule;`) as (D: unknown) => (w: string) => string;
+  it("по умолчанию: окно hide (А), главная keep; dim и hide — из rules.photo_pick; неизвестное — по умолчанию", () => {
+    expect(photoRule(null)("window")).toBe("hide");
+    expect(photoRule({ rules: {} })("home")).toBe("keep");
+    expect(photoRule({ rules: { photo_pick: { window_old_key_photo: "dim", home_old_key_photo: "hide" } } })("window")).toBe("dim");
+    expect(photoRule({ rules: { photo_pick: { window_old_key_photo: "dim", home_old_key_photo: "hide" } } })("home")).toBe("hide");
+    expect(photoRule({ rules: { photo_pick: { window_old_key_photo: "x", home_old_key_photo: "y" } } })("window")).toBe("hide");
+  });
+  it("файл правил: значения из набора и оба ключа на месте; страница и сборка читают его", () => {
+    const r = JSON.parse(readFileSync("tools/scout/rules/demo-photo-pick.json", "utf8"));
+    expect(["hide", "dim"]).toContain(r.window_old_key_photo);
+    expect(["keep", "hide"]).toContain(r.home_old_key_photo);
+    expect(readFileSync("tools/scout/flat215_demo.py", "utf8")).toContain("'photo_pick': _photo_pick()");
+  });
+  it("страница: окно не считает фото чужого состава фото комнаты; карточка главной — по настройке; Б — своя подпись RU/EN", () => {
+    const real = src.slice(src.indexOf("function vwRealShots("), src.indexOf("\n}", src.indexOf("function vwRealShots(")));
+    expect(real).toContain("vwPubShotAt(L, st, v.id, cams, k, true)");
+    expect(src).toContain("photoRule('home')==='hide'");
+    const stale = src.slice(src.indexOf("function vwStalePick("), src.indexOf("\nfunction vwPhotoShots"));
+    expect(stale).toContain("untouched&&photoRule('window')==='hide'");
+    expect(src).toContain("Мебель в комнате обновилась — это фото прежнего набора");
+    expect(src).toContain("The furniture in this room was updated — this is a photo of the previous set");
+  });
+});
+
+// 16 ВАРИАНТОВ ЖИВЫХ ДАННЫХ (снимок реестра и витрины 18.11, прод a63595a9): выбранное окном фото — только текущего состава, иначе фото нет
+describe("16 вариантов живой витрины 18.11 — фото в окне только текущего состава", () => {
+  type Cam = { name: string; x: number; y: number; rot: number; fov: number; pose: number };
+  const fx = JSON.parse(readFileSync("tests/fixtures/photo-pick-live-1118.json", "utf8")) as {
+    poseVer: number; variants: { id: string; style: string; room: string; st: string; cams: Cam[] }[];
+    shots: (Shot & { url: string; cams: Cam[] })[];
+  };
+  const cut = (a: string, b: string) => src.slice(src.indexOf(a), src.indexOf(b));
+  const at = src.indexOf("function vwPubShotAt("), fnSrc = src.slice(at, src.indexOf("\n}", at) + 2);
+  const make = (poseVer: number) => new Function("POSE_VER", `${src.slice(src.indexOf("const camAng="), src.indexOf("\n", src.indexOf("const camAng=")))};
+${cut("// SHOTCAM START", "// SHOTCAM END")};${block};${fnSrc};return vwPubShotAt;`)(poseVer) as
+    (list: unknown[], st: string, vid: string, cs: Cam[], k: number, noOld?: boolean) => (Shot & { url: string }) | null;
+  const vwPubShotAt = make(fx.poseVer);
+  const list = fx.shots;
+  it("снимок целый: 16 вариантов, реестр непустой", () => {
+    expect(fx.variants).toHaveLength(16);
+    expect(list.length).toBeGreaterThan(100);
+  });
+  it("окно (hide): у каждого вида фото — либо текущего состава, либо нет; чужое состава ни у одной комнаты", () => {
+    const bad: string[] = [];
+    for (const v of fx.variants) for (const k of v.cams.keys()) {
+      const x = vwPubShotAt(list, v.st, v.id, v.cams, k, true);
+      if (x && x.stateId !== v.st) bad.push(`${v.id}/C${k + 1}: ${x.stateId}`);
+    }
+    expect(bad).toEqual([]);
+  });
+  it("до правки (как было): минимум 10 из 16 комнат показывали фото ЧУЖОГО состава — тест различает старое и новое", () => {
+    const olds = fx.variants.filter((v) => v.cams.some((_, k) => { const x = vwPubShotAt(list, v.st, v.id, v.cams, k, false); return x && x.stateId !== v.st; }));
+    expect(olds.length).toBeGreaterThanOrEqual(10);
+  });
+  it("set1 (сканди гостиная): вместо фото старого дивана — фото ТЕКУЩЕГО состава с прежней точки; у кого фото текущего состава нет — null", () => {
+    const v = fx.variants.find((x) => x.id === "set1")!;
+    const x = vwPubShotAt(list, v.st, v.id, v.cams, 0, true);
+    expect(x?.stateId).toBe(v.st);
+    expect(x?.quality).toBe("realistic");
+    const none = fx.variants.filter((w) => w.cams.every((_, k) => vwPubShotAt(list, w.st, w.id, w.cams, k, true) === null)).map((w) => w.id);
+    expect(none).toContain("set4");
+    expect(none).toContain("bedroom-2-modern");
+  });
+  it("главная (keep): ни у одной комнаты фото не пропало — карточка не станет пустой", () => {
+    for (const v of fx.variants) {
+      const x = realPubPick(list as Shot[], v.st, v.id, "C1", () => true, false);
+      expect(x, v.id).not.toBeNull();
+    }
   });
 });

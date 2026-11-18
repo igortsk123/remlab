@@ -100,6 +100,17 @@ SHOW_ROLES = ('диван', 'диван 2', 'кресло', 'кресло 2', '�
               'стол обеденный', 'стул', 'стул 2', 'приставной')
 
 
+def _photo_pick() -> dict:
+    """Настройка «фото чужого состава» для страницы (`rules/demo-photo-pick.json` → `rules.photo_pick`): окно — `hide|dim`, главная — `keep|hide`.
+    Неизвестное значение — безопасный по умолчанию (окно `hide`, главная `keep`), а не падение выкладки (T-20261118-20/10)."""
+    try:
+        r = json.load(open(os.path.join(HERE, 'rules', 'demo-photo-pick.json'), encoding='utf-8'))
+    except (OSError, ValueError):
+        r = {}
+    w, h = r.get('window_old_key_photo'), r.get('home_old_key_photo')
+    return {'window_old_key_photo': w if w in ('hide', 'dim') else 'hide', 'home_old_key_photo': h if h in ('keep', 'hide') else 'keep'}
+
+
 def _rules() -> dict:
     occ = json.load(open(os.path.join(RULES, 'occupancy.json'), encoding='utf-8'))
     zn = json.load(open(os.path.join(RULES, 'zones.json'), encoding='utf-8'))
@@ -2220,7 +2231,7 @@ def build() -> dict:
             # ПОЛОСА «ПОДХОДЯЩИХ ПО РАЗМЕРУ» ленты замен (решение владельца 22.10, demo-20 А4; частично отменяет ADR-0271): ширина
             # 0.8–1.1 идеала слота этой комнаты — одно правило со сборкой комплектов (`slot_rules.slot_band`); лента в данных
             # остаётся широкой (`DEMO_ENV`), страница фильтрует по полосе, пока включён чип «Подходящие по размеру»
-            'rules': {**_rules(), 'slot_band_cm': {**_slot_band(liv), **rules_extra}, 'soft_roles': soft_roles()},
+            'rules': {**_rules(), 'slot_band_cm': {**_slot_band(liv), **rules_extra}, 'soft_roles': soft_roles(), 'photo_pick': _photo_pick()},
             **cats,
             # ОПРОС-ЗНАКОМСТВО (onb-03 Т1, ADR-0330): правило и тексты вопросов — `rules/quiz.json` целиком (страница: `D.quiz`, подбор —
             # блок QUIZPICK). Показ решает флаг квартиры в карточке `/api/apartments` (`quiz.enabled`) или `?quiz=1`, не наличие правила
