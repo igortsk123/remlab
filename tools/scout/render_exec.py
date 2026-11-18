@@ -152,6 +152,12 @@ EXPORT_KEEP_GB = float(os.environ.get('RENDER_EXPORT_KEEP_GB', '0.9'))      # п
 DUMP_KEEP_GB = float(os.environ.get('RENDER_DUMP_KEEP_GB', '2.4'))          # то же для Node + Chromium (сам Chromium со сценой ≈1,2 ГБ)
 
 
+def ximg_on() -> bool:
+    """Картинки декора — отдельными файлами `dump/img/<хеш>.<png|jpg>` (T-20261118-10, контракт с дампером): GLB остаётся малым и одинаковым у сцен с тем же декором,
+    а картинки — ассеты по хешу (горячий список машины). `RENDER_XIMG=0` — прежнее поведение (картинки внутри `demo_nodes.glb`); дампер без поддержки флаг игнорирует."""
+    return os.environ.get('RENDER_XIMG', '1') != '0'
+
+
 def persistent_on() -> bool:
     """Постоянные процессы выгрузки и дампа (T-20261118-09/1 шаг 6). `RENDER_EXPORT_SERVER=0` — только отдельные процессы на заказ."""
     return os.environ.get('RENDER_EXPORT_SERVER', '1') != '0'
@@ -520,6 +526,8 @@ class SceneExecutor:
         except OSError:
             bsha = os.path.basename(bundle)
         part.update(code=self._code_sha(), bundle=bsha, dump_export=pr['dumpExport'], prep=PREP_CACHE_VERSION)
+        if ximg_on():
+            part['ximg'] = 1                    # другой состав dump/ (картинки отдельно) — другая запись; выкл. — ключ прежний
         return cache_key(snap['scene_hash'], part)
 
     @staticmethod
@@ -669,6 +677,7 @@ class SceneExecutor:
         for e in errs:
             if e is not None:
                 raise e
+        check_ximg(dump)                                   # манифест картинок декора сходится с файлами (ximg), иначе отказ до отправки
         timing['export'] = round(time.time() - t1, 1)      # оба шага параллельно: стена времени
         timing['dump'] = timing_d.get('dump', 0.0)
         timing['export_py'] = timing_d.get('export_py', 0.0)
@@ -698,20 +707,24 @@ class SceneExecutor:
             bsha = os.path.basename(bundle)
         import scene_inputs as _SI
         h = hashlib.sha256(open(data_path, 'rb').read() + b'|' + bsha.encode() + b'|' + str(pr['dumpExport']).encode() + b'|' + b'fast=' + str(int(prep_fast())).encode()
-                           + b'|' + _SI.env_sha().encode()).hexdigest()[:24]
+                           + b'|' + _SI.env_sha().encode() + (b'|ximg=1' if ximg_on() else b'')).hexdigest()[:24]
         root = os.environ.get('RENDER_DUMP_CACHE') or os.path.expanduser('~/scout-cache/render-dump')
         hit = os.path.join(root, h)
         if os.path.isfile(os.path.join(hit, '.ok')):
             os.makedirs(dump, exist_ok=True)
             for f in os.listdir(hit):
-                if f != '.ok':
-                    try:
-                        os.link(os.path.join(hit, f), os.path.join(dump, f))
-                    except OSError:
-                        shutil.copyfile(os.path.join(hit, f), os.path.join(dump, f))
+                if f == '.ok':
+                    continue
+                if os.path.isdir(os.path.join(hit, f)):                  # dump/img/ — картинки декора (ximg): дерево ссылок
+                    self._link_tree(os.path.join(hit, f), os.path.join(dump, f))
+                    continue
+                try:
+                    os.link(os.path.join(hit, f), os.path.join(dump, f))
+                except OSError:
+                    shutil.copyfile(os.path.join(hit, f), os.path.join(dump, f))
             os.utime(os.path.join(hit, '.ok'))
             return
-        extra = ['export=' + pr['dumpExport'], *([] if prep_fast() else ['local=0', 'settle=0'])]
+        extra = ['export=' + pr['dumpExport'], *([] if prep_fast() else ['local=0', 'settle=0']), *(['ximg=1'] if ximg_on() else [])]
         one_shot = lambda: run_step([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), data_path, '0', bundle, dump, *extra], dlog,  # noqa: E731
                                     lim['dumpSec'], lim['maxRssGb'], what='декор и отделка')
         if prep_fast() and persistent_on():                        # постоянный Chromium со страницей: без запуска и без повторного разбора мешей; сбой (не время) — отдельным процессом, как раньше
@@ -728,9 +741,12 @@ class SceneExecutor:
             os.makedirs(root, exist_ok=True)
             tmp = f'{hit}.tmp-{os.getpid()}-{uuid.uuid4().hex[:8]}'
             os.makedirs(tmp)
-            for f in os.listdir(dump):
-                shutil.copyfile(os.path.join(dump, f), os.path.join(tmp, f))
-                os.chmod(os.path.join(tmp, f), 0o444)      # после записи — только чтение (прогоны держат жёсткие ссылки на эти файлы)
+            for dp, _dn, fs in os.walk(dump):                  # с подкаталогом img/ (ximg)
+                out = os.path.join(tmp, os.path.relpath(dp, dump))
+                os.makedirs(out, exist_ok=True)
+                for f in fs:
+                    shutil.copyfile(os.path.join(dp, f), os.path.join(out, f))
+                    os.chmod(os.path.join(out, f), 0o444)      # после записи — только чтение (прогоны держат жёсткие ссылки на эти файлы)
             open(os.path.join(tmp, '.ok'), 'w').close()
             try:
                 os.replace(tmp, hit)             # занято (параллельный прогон записал раньше) — оставляем его, свой убираем
@@ -918,12 +934,48 @@ def file_sha256(path: str) -> tuple:
 
 PREP_CACHE_MB = 3000            # предел кэша подготовленных сцен (видимый размер, ссылки считаются каждая; на диске ≈ в 6 раз меньше: текстуры — ссылки на общие файлы)
 PREP_CACHE_VERSION = 1          # формат записи кэша подготовленных сцен: сменился состав каталога — вверх
-ASSET_RULES = 2                # версия правила «что ассет» (`asset_kind`/`asset_min_bytes`): растёт при его смене — кэш сборки витрины (`showcase_assets.py`) её учитывает
+ASSET_RULES = 3                # версия правила «что ассет» (`asset_kind`/`asset_min_bytes`): растёт при его смене — кэш сборки витрины (`showcase_assets.py`) её учитывает
 NPZ_ASSET_MIN = 64 * 1024      # мелкие npz (стены, проёмы — десятки байт…КБ) остаются в пакете: на ассет они дороже, чем в архиве
+IMG_ASSET_MIN = 16 * 1024      # картинки декора `dump/img/` (ximg): мелкие едут в пакете, от 16 КБ — ассеты по хешу
+
+
+def check_ximg(dump: str) -> None:
+    """Контракт с дампером (T-20261118-10): `dump/demo_images.json` = {v:1, images:[{file:'img/<32 hex>.<png|jpg>', sha256, bytes}]}; каждая запись — файл в dump/img с тем же размером,
+    хеш содержимого совпадает, имя = первые 32 hex хеша; лишних файлов в dump/img нет. Манифеста нет — картинки внутри GLB (как раньше), проверять нечего. Расхождение — отказ подготовки
+    (молча пропустить нельзя: машина получила бы GLB с битыми ссылками)."""
+    mp = os.path.join(dump, 'demo_images.json')
+    if not os.path.isfile(mp):
+        return
+    bad = None
+    try:
+        man = json.load(open(mp, encoding='utf-8'))
+        listed = set()
+        for it in man.get('images') or []:
+            f, sha, n = it['file'], it['sha256'], int(it['bytes'])
+            if not (f.startswith('img/') and '/' not in f[4:] and f[4:].split('.')[0] == sha[:32] and f.rsplit('.', 1)[-1] in ('png', 'jpg')):
+                bad = f'имя {f}'
+                break
+            p = os.path.join(dump, f)
+            h, size = file_sha256(p)
+            if size != n or h != sha:
+                bad = f'содержимое {f}'
+                break
+            listed.add(f[4:])
+        if bad is None:
+            extra = set(os.listdir(os.path.join(dump, 'img'))) - listed if os.path.isdir(os.path.join(dump, 'img')) else set()
+            if extra:
+                bad = f'лишние файлы {sorted(extra)[:3]}'
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        bad = f'{type(e).__name__}: {str(e)[:80]}'
+    if bad:
+        print(f'рендер: картинки декора — манифест не сходится ({bad})', flush=True)
+        raise RenderError('render_failed', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
 
 
 def asset_min_bytes(rel: str) -> int:
     """Меньше этого размера файл вида `asset_kind` в ассеты не идёт (едет в маленьком пакете)."""
+    if rel.startswith('dump/img/'):
+        return IMG_ASSET_MIN
     return NPZ_ASSET_MIN if rel.endswith('.npz') else 1
 
 
@@ -936,6 +988,8 @@ def asset_kind(rel: str) -> str | None:
         return 'glb'                 # меш предмета сцены (T-24/8): тот же вид, что GLB декора — «меш»; отдельного вида нет, чтобы не пересобирать образ воркера
     if rel == 'dump/demo_nodes.glb':
         return 'glb'
+    if rel.startswith('dump/img/'):
+        return 'tex'                 # картинки декора отдельными файлами (ximg, T-20261118-10): имя = хеш содержимого, лежат рядом с GLB, машина держит горячими
     if rel.startswith('public/'):
         return 'map'
     if rel.startswith('tools/scout/') and rel.endswith('.py'):
@@ -1012,7 +1066,7 @@ class SaladGpuExecutor(SceneExecutor):
         фоновые шаги (подогрев витрины, `render_gpu/showcase_assets.py`) берут 0 и уступают заказам."""
         sys.path.insert(0, os.path.join(REPO, 'tools', 'ops'))
         import heavy_slot as HS
-        return HS.heavy_slot(label, min_gb=pr['min_gb'], cores=2, prio=prio)
+        return HS.heavy_slot(label, min_gb=pr['min_gb'], cores=2, prio=prio, no_slot=os.environ.get('RENDER_SLOT') == '0')   # `RENDER_SLOT=0` — только платные пробы на машине: очередь чужих прогонов её не держит
 
     def _gpu_unavailable(self, code: str) -> ExecutorUnavailable:
         return ExecutorUnavailable(code, *GPU_FAILED)
@@ -1030,6 +1084,10 @@ class SaladGpuExecutor(SceneExecutor):
                  'data/flat3d/textile.json': os.path.join(REPO, 'data', 'flat3d', 'textile.json')}
         for n in ('demo_nodes.glb', 'demo_nodes_uuids.json', 'scene-export.json', 'scene_info.json', 'dump_keys.json'):   # последние два — для сторожа кадров: снимок оплачиваемых позиций и ключи выгрузки (без них предпроверка на машине слепа)
             files['dump/' + n] = os.path.join(dump, n)
+        if os.path.isfile(os.path.join(dump, 'demo_images.json')):        # ximg: манифест и картинки декора (рядом с GLB, uri `img/<имя>`)
+            files['dump/demo_images.json'] = os.path.join(dump, 'demo_images.json')
+        if os.path.isdir(os.path.join(dump, 'img')):
+            files['dump/img'] = os.path.join(dump, 'img')
         try:
             exp = json.load(open(os.path.join(dump, 'scene-export.json'), encoding='utf-8'))
         except (OSError, ValueError):
