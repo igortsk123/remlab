@@ -190,7 +190,11 @@ ok('тур с `pid` (ковёр без msid и sid) — снимок приня�
 old_tour = json.loads(json.dumps(tour))
 del old_tour['variants'][0]['items'][0]['sku']['pid']
 okk, badd = N.snaps(old_tour, 'tour', 'T')
-ok('тур до `pid` (ковёр без ключа) — «не принят» (bad_item): живой дефект виден ночью, а не прячется', not okk and badd and badd[0][2] == 'bad_item')
+ok('тур до `pid`: ковёр без ключа — снимок принят по `ref` (плоский предмет: данные из бандла)', okk and not badd)
+sofa_tour = json.loads(json.dumps(tour))
+sofa_tour['variants'][0]['items'] = [{'role': 'диван', 'x': 200, 'y': 150, 'rot': 0, 'w': 200, 'd': 90, 'h': 80, 'sku': {'name': 'Д', 'msid': 'm1', 'w': 200, 'd': 90, 'h': 80}}]
+okk, badd = N.snaps(sofa_tour, 'tour', 'T')
+ok('тур до `pid`: мебель с меш-ключом, но без `pid` — «не принят» (bad_item): живой дефект виден ночью, а не прячется', not okk and badd and badd[0][2] == 'bad_item')
 
 shutil.rmtree(TMP, ignore_errors=True)
 print('\nВСЕГО провалов:', len(BAD))
