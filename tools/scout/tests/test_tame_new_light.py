@@ -111,6 +111,7 @@ check('draft_render: шаг после нормировки яркости и д
 rc = open(os.path.join(HERE, '..', 'cycles_probe', 'render_cycles.py'), encoding='utf-8').read()
 _mp = rc[rc.index('_t_mask = time.time()'):]
 check('render_cycles: масштаб маски (--mask-scale) ставится ПОСЛЕ setup_camera (он сам возвращает resolution_percentage = --pct)', _mp.index('setup_camera(_cn)') < _mp.index('a.mask_scale'))
+check('render_cycles: проход масок ставит формат PNG (при кадрах JPEG иначе имя получает .jpg и маски нет)', "file_format = 'PNG'" in _mp[:_mp.index('setup_camera(_cn)')])
 
 print('итог:', 'чисто' if not fails else f'{len(fails)} падений')
 sys.exit(1 if fails else 0)

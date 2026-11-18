@@ -1291,6 +1291,8 @@ if a.mask_out:
     cy.samples = 1
     cy.use_adaptive_sampling = False
     cy.use_denoising = False
+    sc.render.image_settings.file_format = 'PNG'          # маска — всегда PNG: при кадрах JPEG (--jpeg-quality, GPU-машина) Blender дописал бы к имени .jpg, и файл <cam>.mask.png не появился бы (проба m8 18.11)
+    sc.render.image_settings.color_mode = 'RGB'
     for _cn in CAMS:
         setup_camera(_cn)                                  # он же ставит resolution_percentage = --pct, поэтому масштаб маски — после него
         if a.mask_scale != 1.0:
