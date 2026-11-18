@@ -39,6 +39,13 @@ ap.add_argument('--exposure', type=float, default=0.0)
 ap.add_argument('--lite-tex', type=int, default=0, help='>0: уменьшить текстуры до этой стороны (замер облегчённой версии)')
 ap.add_argument('--demo-glb', default='', help='GLB декора из сцены /demo (demo_scene_dump.mjs)')
 ap.add_argument('--demo-nodes', default='', help='demo_nodes_uuids.json рядом с GLB')
+ap.add_argument('--plant-wmax', type=float, default=0.5, help='предел ширины растения-кандидата, м (с --plant-swap)')
+ap.add_argument('--plant-swap', default='', help='GLB растения-кандидата (`plant_candidates.py`): ставится вместо растений декора /demo (T-20261117-21)')
+ap.add_argument('--plant-slot', default='plant:', help='подстрока слота заменяемых растений (`plant:кашпо`, `plant:decor:ваза`)')
+ap.add_argument('--plant-on', default='', help='роль предмета (`тв-тумба`): поставить растение-кандидата СВЕРХУ на него, у его края (доля по длинной стороне — `--plant-on-frac`)')
+ap.add_argument('--plant-on-frac', type=float, default=0.22, help='где на верхней плоскости (0 — край, 0.5 — середина)')
+ap.add_argument('--plant-n', type=int, default=1, help='сколько растений (слотов по порядку) заменить')
+ap.add_argument('--plant-h', type=float, default=0.0, help='высота подставляемого растения, см (0 — как у прежнего)')
 ap.add_argument('--chandelier', type=float, default=60.0, help='мощность света люстры, Вт (0 — без света)')
 ap.add_argument('--hdri', default='', help='HDRI неба (Poly Haven, CC0): свет и портал вместо Nishita')
 ap.add_argument('--hdri-strength', type=float, default=1.0)
@@ -645,6 +652,7 @@ def soft_tweaks(mat, fabric=None):
 
 # ---------------- предметы (меши с текстурами) ----------------
 mat_cache = {}
+ROLE_OBJ = {}
 for o in M['objs']:
     z = np.load(os.path.join(a.scene_dir, o['file']))
     role = o['role'].split(' ')[0]
@@ -670,6 +678,7 @@ for o in M['objs']:
         k_ = int(o['file'][1:4])
         vv = vv.mean(axis=0) + (vv - vv.mean(axis=0)) * (1.0 + 0.0006 * (1 + k_ % 4))
     ob = make_obj(o['file'], vv, z['f'], uvs=z['uv'] if 'uv' in z.files else None, mat=mat, smooth=False)
+    ROLE_OBJ.setdefault(o['role'], ob)
     if o['tex'] and a.smooth_deg > 0:
         smooth_by_angle(ob, a.smooth_deg)
     _orig = dict(s.split(':', 1) for s in a.orig)
@@ -820,6 +829,65 @@ if a.demo_glb:
             print('СТОРОЖ КАРТИН:', _slot, '·', _titles.get(_slot) or '?', '·', _why)
         if _bad and not a.art_allow_blank:
             raise SystemExit('ошибка кадра: ' + '; '.join(f"{(_titles.get(s_) or s_)} ({w_})" for s_, w_ in _bad))
+    if a.plant_swap:
+        # ЗАМЕНА РАСТЕНИЯ ДЛЯ ПРИМЕРКИ (T-20261117-21): у узлов `plant:<слот>` (в `demo_nodes_uuids.json` — `plant: true`) берём общий габарит,
+        # убираем их и ставим на то же место (центр основания, низ) модель кандидата (`plant_candidates.py`, Y вверх, низ в нуле) той же высоты
+        # (`--plant-h` см — иначе высота прежнего). Меняется ТОЛЬКО растение, комната, свет и ракурс те же — кадры «было / стало» сравнимы.
+        groups = {}
+        for ob in set(bpy.data.objects) - before:
+            if ob.type == 'MESH' and (info.get(ob.name.split('__')[-1].split('.')[0]) or {}).get('plant'):
+                slot_ = info[ob.name.split('__')[-1].split('.')[0]].get('slot', '')
+                if a.plant_slot in slot_:
+                    groups.setdefault(slot_, []).append(ob)
+        if a.plant_on and a.plant_on in ROLE_OBJ:
+            # растение СВЕРХУ на предмете (тумба): точка у края длинной стороны верхней плоскости, низ — на верхней плоскости
+            _bp = [ROLE_OBJ[a.plant_on].matrix_world @ Vector(c) for c in ROLE_OBJ[a.plant_on].bound_box]
+            _bx0, _bx1 = min(p.x for p in _bp), max(p.x for p in _bp)
+            _by0, _by1 = min(p.y for p in _bp), max(p.y for p in _bp)
+            _top = max(p.z for p in _bp)
+            _fr = a.plant_on_frac
+            if (_bx1 - _bx0) >= (_by1 - _by0):
+                _cx, _cy = _bx0 + (_bx1 - _bx0) * _fr, (_by0 + _by1) / 2
+            else:
+                _cx, _cy = (_bx0 + _bx1) / 2, _by0 + (_by1 - _by0) * _fr
+            groups = {'on:' + a.plant_on: []}
+            _on_box = (_cx, _cx, _cy, _cy, _top, _top + max(a.plant_h, 20) / 100.0)
+        for slot_, obs in sorted(groups.items())[:a.plant_n]:
+            if slot_.startswith('on:'):
+                x0, x1, y0, y1, z0, z1 = _on_box
+            else:
+                pts = [ob.matrix_world @ Vector(c) for ob in obs for c in ob.bound_box]
+                x0, x1 = min(p.x for p in pts), max(p.x for p in pts)
+                y0, y1 = min(p.y for p in pts), max(p.y for p in pts)
+                z0, z1 = min(p.z for p in pts), max(p.z for p in pts)
+            for ob in obs:
+                bpy.data.objects.remove(ob, do_unlink=True)
+            pre = set(bpy.data.objects)
+            bpy.ops.import_scene.gltf(filepath=a.plant_swap)
+            new = [o for o in set(bpy.data.objects) - pre]
+            bpy.context.view_layer.update()   # без этого matrix_world новых узлов ещё единичная — размеры считались по сырым осям (Y вверх)
+            meshes = [o for o in new if o.type == 'MESH']
+            npts = [o.matrix_world @ Vector(c) for o in meshes for c in o.bound_box]
+            hh = max(p.z for p in npts) - min(p.z for p in npts)
+            tgt = (a.plant_h / 100.0) if a.plant_h > 0 else (z1 - z0)
+            k = tgt / max(hh, 1e-6)
+            ww = max(max(p.x for p in npts) - min(p.x for p in npts), max(p.y for p in npts) - min(p.y for p in npts), 1e-6)
+            k = min(k, a.plant_wmax / ww)   # розетка (низкая и широкая) не раздувается до высоты прежнего растения
+            for o in new:
+                if o.parent is None:
+                    o.scale = (o.scale.x * k, o.scale.y * k, o.scale.z * k)   # у узла сырого GLB уже есть масштаб квантования (≈2e-5): умножаем, не заменяем
+                    o.location = ((x0 + x1) / 2, (y0 + y1) / 2, z0)
+            bpy.context.view_layer.update()
+            # точная посадка по фактическим границам после масштаба: центр основания на место прежнего, низ — на его низ
+            npts = [o.matrix_world @ Vector(c) for o in meshes for c in o.bound_box]
+            sx = (x0 + x1) / 2 - (min(p.x for p in npts) + max(p.x for p in npts)) / 2
+            sy = (y0 + y1) / 2 - (min(p.y for p in npts) + max(p.y for p in npts)) / 2
+            sz = z0 - min(p.z for p in npts)
+            for o in new:
+                if o.parent is None:
+                    o.location = (o.location.x + sx, o.location.y + sy, o.location.z + sz)
+            bpy.context.view_layer.update()
+            print(f'PLANT_SWAP {slot_}: высота {tgt * 100:.0f} см, место ({(x0 + x1) / 2:.2f}, {(y0 + y1) / 2:.2f}, {z0:.2f}), масштаб {k:.2f}')
     if chand and a.chandelier > 0:
         pts = [ob.matrix_world @ Vector(c) for ob in chand for c in ob.bound_box]
         cx = sum(p.x for p in pts) / len(pts)

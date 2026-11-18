@@ -1,0 +1,25 @@
+{
+ "asset": "quiver_tree_02",
+ "title": "Quiver Tree 02",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/quiver_tree_02",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "Dario Barresi": "photography",
+  "Rico Cilliers": "modeling"
+ },
+ "realMm": [
+  872.0614314079285,
+  880.8198273181915,
+  1468.88018399477
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "quiver_tree_02_1k.gltf": "c92ea2f60defaa9c134f43ac606bb7564ade348f92b546ba91c87bc6365d1a56",
+  "quiver_tree_02.bin": "fd3598b4aea34bc6864452d2dbb37a04e4bfa7ad1ab6062a3b97c485fae258f3",
+  "textures/quiver_tree_02_arm_1k.jpg": "5d12b154c534503b68766dca96f6486fa0faeb22734b300c58ede695deb2915e",
+  "textures/quiver_tree_02_nor_gl_1k.jpg": "5073a1d9563331d8a7bc57a36cae9f1d1d69470395be0c460a12c57026b5f1f0",
+  "textures/quiver_tree_02_diff_1k.jpg": "546a745ad765529d3c310178321e145909f4817b06679788ad24d29ec7eae7b7"
+ }
+}

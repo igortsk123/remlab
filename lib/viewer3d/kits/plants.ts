@@ -13,8 +13,9 @@ import plantsJson from "@/data/flat3d/plants.json";
 
 export type PlantKind = "green" | "dry";
 
-/** Где стоит носитель: на полу (напольное кашпо, большая ваза) или выше пола (на столе, полке, тумбе). */
-export type PlantMount = "floor" | "table";
+/** Где стоит носитель: на полу (напольное кашпо, большая ваза) или выше пола (на столе, полке, тумбе). `shelf` — готовое мелкое
+ * растение в горшке на верх тумбы/комода (своего носителя нет; слот под него — отдельный шаг, T-20261117-21). */
+export type PlantMount = "floor" | "table" | "shelf";
 
 export interface PlantDef {
   id: string;
@@ -49,7 +50,7 @@ export interface PlantRules {
   hosts: Record<string, PlantKind>;
   /** Носитель выше этой отметки от пола, см — настольный, иначе напольный. */
   floorMaxElevCm: number;
-  fit: Record<PlantKind, Record<PlantMount, Fit>>;
+  fit: Record<PlantKind, Record<"floor" | "table", Fit>>;
   throat: {
     topSliceFrac: number; minSliceCm: number; minDiameterCm: number;
     /** Разброс высоты верхней кромки по окружности, доля диаметра горла: больше — срез наискосок, растения нет. */
@@ -243,7 +244,7 @@ export function blockedByName(title: string | null | undefined, rules: PlantRule
  */
 export function fitPlant(kind: PlantKind, mount: PlantMount, plantM: { w: number; h: number; d: number }, throat: Throat,
   carrierHeightM: number, rules: PlantRules = PLANT_RULES): PlantFit {
-  const f = rules.fit[kind][mount];
+  const f = rules.fit[kind][mount === "floor" ? "floor" : "table"];   // `shelf` (готовое растение) носителя не подгоняет — сюда не попадает
   const crown = Math.max(plantM.w, plantM.d, 1e-4);
   const h = Math.max(plantM.h, 1e-4);
   const lo = f.minHeightCm / 100, hi = f.maxHeightCm / 100;

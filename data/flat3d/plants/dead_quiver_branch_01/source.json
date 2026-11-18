@@ -1,0 +1,25 @@
+{
+ "asset": "dead_quiver_branch_01",
+ "title": "Dead Quiver Branch 01",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/dead_quiver_branch_01",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "Greg Zaal": "Photography",
+  "Jenelle van Heerden": "modeling"
+ },
+ "realMm": [
+  254.90505248308182,
+  226.9682064652443,
+  438.69500752771273
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "dead_quiver_branch_01_1k.gltf": "120a9bae2f367b414852fce40d28935db0559e66634827d2e7dc045764fd4b47",
+  "textures/dead_quiver_branch_01_nor_gl_1k.jpg": "1d6603df36d0dd711d73e0ae2f067cd96f63d5e3ab0681d4a85bcb8df2049388",
+  "textures/dead_quiver_branch_01_diff_1k.jpg": "2da1b4bdd5ea430d7ad1ba2fb547bf4f18d9def6f711781be89972e004757d2a",
+  "dead_quiver_branch_01.bin": "d1a9890a4f83d7ac2ff62b98e46380ac48b72dd3290218daccf3cfa6d64ae4c8",
+  "textures/dead_quiver_branch_01_arm_1k.jpg": "9fc47d37b740a409fea889edc7f2d7bedac3d970a3a506092e18cfca10d2ed82"
+ }
+}

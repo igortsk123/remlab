@@ -1,0 +1,25 @@
+{
+ "asset": "searsia_lucida",
+ "title": "Searsia Lucida",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/searsia_lucida",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "James Ray Cock": "modeling",
+  "Jenelle van Heerden": "Photography"
+ },
+ "realMm": [
+  4782.970905303955,
+  2844.3095684051514,
+  2339.1980212181807
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "searsia_lucida_1k.gltf": "ebdc8d776c058b9a6f9a04c57ca0540368531febd3bfa007d2e2d8af8d368f67",
+  "searsia_lucida.bin": "e0be13cac215725de1f8438d96e1010049d655512a0608c36eabe2ba5abff851",
+  "textures/searsia_lucida_nor_gl_1k.jpg": "d28556973d1cbf96c5327341be7a71da66ac63ed97b31f22162376a9f95b0041",
+  "textures/searsia_lucida_diff_1k.jpg": "5d99ed106c6629d91cf5d29f067c1fd10ff4894df40634abb6c4694c59d3c764",
+  "textures/searsia_lucida_arm_1k.jpg": "f7bf2359e932d3633ac99a5f9e6a507eda439b64937eb6774585da3d0fb6d3d7"
+ }
+}

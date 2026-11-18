@@ -1,0 +1,153 @@
+{
+ "_doc": "Кандидаты в растения-декор (T-20261117-21, владелец TG 1563/1565/1566: «растения другие ищи»). Все — Poly Haven CC0-1.0 (реестр источника — `data/flat3d/plants/<asset>/source.json`). Сборка лёгких копий в ПРОБНУЮ папку (не в `public/`) — `tools/assets/plant_candidates.py`; показ глазами — `tools/scout/cycles_probe/plant_cards.py`. Принятое владельцем переносится в `plants.json` строкой `plants`. Поля как в `plants.json` (`part`/`parts` — имена геометрий пакета, `stand` — выпрямлять по главной оси, `decimate` — доля треугольников); `use` — для чего пробуем (`floor` напольное в кашпо, `table` на тумбу/полку, `vase` ветка/цветы в вазу).",
+ "limits": {
+  "maxTris": 60000,
+  "maxBytes": 1048576
+ },
+ "candidates": [
+  {
+   "id": "c-haworthia",
+   "asset": "potted_plant_04",
+   "parts": [
+    "Mesh",
+    "Plane.116",
+    "Plane.118",
+    "HaworthiaScan_Model_2.001"
+   ],
+   "stand": false,
+   "kind": "green",
+   "use": "table"
+  },
+  {
+   "id": "c-shrub3-a",
+   "asset": "shrub_03",
+   "part": "Plane.054",
+   "stand": false,
+   "kind": "green",
+   "use": "table"
+  },
+  {
+   "id": "c-shrub3-b",
+   "asset": "shrub_03",
+   "part": "Plane.002",
+   "stand": false,
+   "kind": "green",
+   "use": "table"
+  },
+  {
+   "id": "c-shrub4",
+   "asset": "shrub_04",
+   "part": "Plane.063",
+   "stand": false,
+   "kind": "green",
+   "use": "table"
+  },
+  {
+   "id": "c-periwinkle-a",
+   "asset": "periwinkle_plant",
+   "part": "tree.048",
+   "stand": false,
+   "kind": "green",
+   "use": "table"
+  },
+  {
+   "id": "c-periwinkle-b",
+   "asset": "periwinkle_plant",
+   "part": "tree.003",
+   "stand": false,
+   "kind": "green",
+   "use": "table"
+  },
+  {
+   "id": "c-celandine",
+   "asset": "celandine_01",
+   "part": "Plane.008",
+   "stand": false,
+   "kind": "green",
+   "use": "table"
+  },
+  {
+   "id": "c-gazania",
+   "asset": "flower_gazania",
+   "part": "Plane.164",
+   "stand": false,
+   "kind": "dry",
+   "use": "vase"
+  },
+  {
+   "id": "c-heliophila",
+   "asset": "flower_heliophila",
+   "part": "Plane.2197",
+   "stand": false,
+   "kind": "dry",
+   "use": "vase"
+  },
+  {
+   "id": "c-branches-a",
+   "asset": "dry_branches_medium_01",
+   "part": "branches_b_dynamesh.003",
+   "stand": true,
+   "decimate": 0.7,
+   "kind": "dry",
+   "use": "vase"
+  },
+  {
+   "id": "c-branches-b",
+   "asset": "dry_branches_medium_01",
+   "part": "branches_b_dynamesh.002",
+   "stand": true,
+   "kind": "dry",
+   "use": "vase"
+  },
+  {
+   "id": "c-quiver-branch",
+   "asset": "dead_quiver_branch_01",
+   "part": "realCap_Model_2",
+   "stand": true,
+   "kind": "dry",
+   "use": "vase"
+  },
+  {
+   "id": "c-quiver2",
+   "asset": "quiver_tree_02",
+   "part": "tree_small_25m",
+   "stand": true,
+   "decimate": 0.7,
+   "kind": "green",
+   "use": "floor"
+  },
+  {
+   "id": "c-othonna",
+   "asset": "othonna_cerarioides",
+   "parts": [
+    "Plane.058",
+    "Plane.058_1"
+   ],
+   "stand": false,
+   "kind": "green",
+   "use": "floor"
+  },
+  {
+   "id": "c-searsia",
+   "asset": "searsia_lucida",
+   "parts": [
+    "Cube.069",
+    "Cube.069_1"
+   ],
+   "stand": false,
+   "kind": "dry",
+   "use": "floor"
+  },
+  {
+   "id": "c-pachira-b",
+   "asset": "pachira_aquatica_01",
+   "parts": [
+    "Cylinder.092",
+    "Circle.001"
+   ],
+   "stand": false,
+   "kind": "green",
+   "use": "floor"
+  }
+ ]
+}

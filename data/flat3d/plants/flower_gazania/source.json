@@ -1,0 +1,25 @@
+{
+ "asset": "flower_gazania",
+ "title": "Flower Gazania",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/flower_gazania",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "James Ray Cock": "modeling",
+  "Jenelle van Heerden": "Photography"
+ },
+ "realMm": [
+  1578.87464761734,
+  810.1679384708405,
+  400.5459398031235
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "flower_gazania_1k.gltf": "73c7f4094f2ad78ddfbe6373f8372ddb736a5d9fc6485db08ae32301edc95a24",
+  "flower_gazania.bin": "a3864c51fce2dacb01629a0c364730e5988ac5a7a937acc0e2635c946d786797",
+  "textures/flower_gazania_nor_gl_1k.jpg": "802d0f9234ccd778c537b3b5ea3714f219d73a80ab794ea77271ab47dbbc9789",
+  "textures/flower_gazania_diff_1k.jpg": "9d3022ebe7bfe0493a3e46aad87ea4746ea51df8c8b3e19294f1bb718a3147bb",
+  "textures/flower_gazania_arm_1k.jpg": "80800dca73ad66b8c51b089db771b7a15c9e57dfd959e0da5cde434b3d8151b4"
+ }
+}

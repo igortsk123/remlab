@@ -1,0 +1,24 @@
+{
+ "asset": "shrub_01",
+ "title": "Shrub 01",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/shrub_01",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "Rico Cilliers": "All"
+ },
+ "realMm": [
+  2586.938261985779,
+  218.97432953119278,
+  395.9742886945605
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "shrub_01_1k.gltf": "c3bb3340687d46c684b9dab82f5b2f92b7b0fe761842423d3c9e19f59a839393",
+  "textures/shrub_01_nor_gl_1k.jpg": "076870a39a4e21a364cf94566e6dd1852a29045fdf1f23393637235b19d1c2e8",
+  "shrub_01.bin": "a8646f51386c84b12a6be8324dd0c2357c393c9108aac911847a203cf490b426",
+  "textures/shrub_01_arm_1k.jpg": "8faecdc28d8f03ba0ac139be16e617e8bfd0778780ec1d7850812230378b89be",
+  "textures/shrub_01_diff_1k.jpg": "fe60e639d694e1807c0a3ae97dd1d5a7e7b3f84e5fc32d0610b868ce48f36331"
+ }
+}

@@ -1,0 +1,25 @@
+{
+ "asset": "celandine_01",
+ "title": "Celandine 01",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/celandine_01",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "Rob Tuytel": "Photography",
+  "Rico Cilliers": "modeling"
+ },
+ "realMm": [
+  3492.500424385071,
+  933.4844052791595,
+  934.6956610679626
+ ],
+ "downloaded": "2026-11-17",
+ "sha256": {
+  "celandine_01_1k.gltf": "ae54536f79b426e69c33449b75a89b86fb127f91342445c26cc4142c5f4220d5",
+  "textures/celandine_01_nor_gl_1k.jpg": "060fc4533ce82b9f9c9e86362920ba1a1934ba5a670bdd77aa803622ceec34ff",
+  "textures/celandine_01_diff_1k.jpg": "d21558d8d101fd6601d620018f9efd2878b559666099aac3ab05df17da833b5f",
+  "textures/celandine_01_arm_1k.jpg": "c04ac3ed56abfbb5193d59016c5b680ca3e53130518084e69c805f2edc1ad6e7",
+  "celandine_01.bin": "7d2c6d2cc44da3a0c08e0fea725af42becdcbb06635d968f42892a1a3dfae7d6"
+ }
+}
