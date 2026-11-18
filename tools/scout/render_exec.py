@@ -717,7 +717,7 @@ class SaladGpuExecutor(SceneExecutor):
                  'tools/scout/cycles_probe/frame_qa.py': os.path.join(PROBE, 'frame_qa.py'),
                  'data/flat3d/frame-qa-rules.json': os.path.join(REPO, 'data', 'flat3d', 'frame-qa-rules.json'),
                  'data/flat3d/textile.json': os.path.join(REPO, 'data', 'flat3d', 'textile.json')}
-        for n in ('demo_nodes.glb', 'demo_nodes_uuids.json', 'scene-export.json'):
+        for n in ('demo_nodes.glb', 'demo_nodes_uuids.json', 'scene-export.json', 'scene_info.json', 'dump_keys.json'):   # последние два — для сторожа кадров: снимок оплачиваемых позиций и ключи выгрузки (без них предпроверка на машине слепа)
             files['dump/' + n] = os.path.join(dump, n)
         try:
             exp = json.load(open(os.path.join(dump, 'scene-export.json'), encoding='utf-8'))

@@ -102,6 +102,7 @@ if (extra.export) {
   const b64 = await page.evaluate((u) => window.exportNodes(u), pick);
   fs.writeFileSync(path.join(outDir, 'demo_nodes.glb'), Buffer.from(b64, 'base64'));
   fs.writeFileSync(path.join(outDir, 'demo_nodes_uuids.json'), JSON.stringify(info.nodes.filter((n) => pick.includes(n.uuid))));
+  fs.writeFileSync(path.join(outDir, 'dump_keys.json'), JSON.stringify({ export: extra.export }));    // какими ключами брали узлы: сторож кадров (frame_qa.dump_keys) отличает явный минус (`-curtains`) от потери
 }
 // байты, которые /demo качает при первом показе: карты оболочки (`sceneAssetUrls().shell`); файлы materials — с диска этой копии репо
 if (extra.assets) {
