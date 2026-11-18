@@ -12,6 +12,7 @@ from item_function import fits_role, subtype
 import enrich_bridge as EB   # проверенное моделью обогащение каталога (К2): подтип, стиль, качество
 import pool_gate as PG       # граница качества 0.65 включительно — одно место (план mesh-14)
 import compose_gates as _CG  # ворота фото/меша — fail-closed (план conv-13 п.2)
+import price_tiers as _PT   # ОДИН resolver ступеней цены (T-20261118-61/6)
 import bank_paths as _BP     # SETS_OUTPUT — банк рядом, не в живой sets3.json (план conv-13 п.1)
 import bank_keep as _BK      # удержание ячеек прошлого кандидата, ничья и бонус меша (план conv-14b)
 import compose_common as _CC # ярус цвета по стилю и роли (style-color-01 шаг 2а)
@@ -56,9 +57,24 @@ ASSURED_STYLES={'сканди','современный','минимализм'}
 _TIER_BAND_SQL={'эконом':'p.price_rub<=30000','комфорт':'p.price_rub between 20000 and 90000','премиум':'p.price_rub>=60000'}
 RICH={}   # (role,tier) -> кандидатов ≥100
 _SLOT_MISS={}   # К5 (slots-everywhere): счётчик отбраковок по конверту слота — отчёт «слот не закрыт»
+_TIER_BAND_LIT={'эконом':(0,30000),'комфорт':(20000,90000),'премиум':(60000,10**9)}   # прежние литералы тех же SQL-полос — роль без границ ступеней
 def _load_rich():
     if RICH or not STYLE_MODE: return
     import subprocess as _sp
+    if _PT.bank_segments_on():   # ступени банка — границы роли из правила (`price_tiers.tier_band`), не литералы 30/60 тыс.
+        q=("select p.cat_role, p.price_rub from products p join product_enrichment e using (shop_mid, external_id)"
+           " where p.cat_role is not null and p.status='active' and p.in_stock"
+           " and e.payload is not null and " + PG.quality_ok('e.quality') + ";")
+        r=_sp.run(PSQL,input=q,capture_output=True,text=True)
+        cnt={}
+        for line in r.stdout.strip().split('\n'):
+            f=line.split('\x1f')
+            if len(f)<2 or not f[1]: continue
+            for t in _TIER_BAND_SQL:
+                lo,hi=_PT.tier_band(f[0],t,segments=True) if _PT.band_source(f[0])=='segments' else _TIER_BAND_LIT[t]
+                if lo<=float(f[1])<=hi: cnt[(f[0],t)]=cnt.get((f[0],t),0)+1
+        for k,n in cnt.items(): RICH[k]=n>=100
+        return
     q=("select p.cat_role, "
        +", ".join(f"count(*) filter (where {c})" for c in _TIER_BAND_SQL.values())
        +" from products p join product_enrichment e using (shop_mid, external_id)"
@@ -270,12 +286,10 @@ try:
 except Exception as _e:
     print(f'capabilities-index не прочитан ({_e}) — слот «банкетка» пуст')
 print({k:len(v) for k,v in sorted(cat.items())},flush=True)
-import bisect
 def tier_band(role,tier):
-    ps=sorted(x['price'] for x in cat.get(role,[]))
-    if not ps: return (0,10**9)
-    def pc(p): return ps[max(0,min(len(ps)-1,int(p*len(ps))))]
-    return {'эконом':(pc(.05),pc(.45)),'комфорт':(pc(.35),pc(.80)),'премиум':(pc(.70),pc(.97))}[tier]
+    """Диапазон цены ступени роли — ОДИН resolver `price_tiers.tier_band` (границы роли из rules/price-segments.json при включённом
+    флаге банка, иначе прежние квантили цен годных роли; T-20261118-61/6)."""
+    return _PT.tier_band(role,tier,[x['price'] for x in cat.get(role,[])])
 
 # ---------- Ф1+Ф2+Ф3+Ф4+Ф5: скоринг ----------
 # ИДЕАЛ СЛОТА — ОДНО МЕСТО (conv-08, ADR-0270): `slot_rules.py` читает zones.json → template_slot_envelopes; тем же

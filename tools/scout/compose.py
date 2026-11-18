@@ -101,12 +101,10 @@ for r in raw:
 cat={role:list(p.values()) for role,p in cat.items()}
 print({k:len(v) for k,v in sorted(cat.items())},flush=True)
 # перцентили цен по роли
-import bisect
+import price_tiers as _PT
 def tier_band(role,tier):
-    ps=sorted(x['price'] for x in cat.get(role,[]))
-    if not ps: return (0,10**9)
-    def pc(p): return ps[max(0,min(len(ps)-1,int(p*len(ps))))]
-    return {'эконом':(pc(.05),pc(.45)),'комфорт':(pc(.35),pc(.80)),'премиум':(pc(.70),pc(.97))}[tier]
+    """Диапазон цены ступени роли — ОДИН resolver `price_tiers.tier_band` (T-20261118-61/6)."""
+    return _PT.tier_band(role,tier,[x['price'] for x in cat.get(role,[])])
 
 def pick(role,m2,share,tier,accent,used_shops,soft=False,qty=1):
     """Кандидат роли: footprint в диапазоне доли, цена в тире, цвет гармоничен."""

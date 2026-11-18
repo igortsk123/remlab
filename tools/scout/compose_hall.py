@@ -35,7 +35,8 @@ SOLVER = os.path.join(HERE, '..', '..', 'services', 'planner-solver')
 FLAT = os.path.join(HERE, 'flat215-hall.json')
 sys.path.insert(0, HERE)
 import room_profile as _RP  # noqa: E402
-from compose_common import band_of, dominated, num, palette, slot_sizes, tier_range  # noqa: E402,F401
+import price_tiers as PT  # noqa: E402
+from compose_common import band_of, dominated, num, palette, slot_sizes  # noqa: E402,F401
 
 ROOM = 'hall'
 PROFILE = _RP.load(ROOM)
@@ -247,7 +248,7 @@ class Composer:
                 it['size'] = sz['size']
                 fit.append(it)
         q = self.R['tiers'][tier]
-        lo, hi = tier_range([it['price'] for it in fit], q)
+        lo, hi = PT.tier_band(slot['role'], tier, [it['price'] for it in fit], q)   # ОДИН resolver ступени (T-61/6)
         styled = [it for it in fit if _RP.in_style(it.get('styles'), style, self.thr)]
         unknown = False
         if not styled and slot['role'] in self.unknown_roles:
@@ -263,9 +264,9 @@ class Composer:
                             'по типоразмерам': {sz: sum(1 for it in fit if it.get('size') == sz)
                                                 for sz in [x['size'] for x in slot_sizes(slot)]}}
         out = [it for it in styled if lo <= it['price'] <= hi]
-        if out or not styled:
+        if out or not styled or PT.bank_segments_on():     # ступени из правила общие для ролей и стилей: внутристилевого пересчёта нет
             return out, band, False, unknown
-        lo, hi = tier_range([it['price'] for it in styled], q)
+        lo, hi = PT.quantile_band([it['price'] for it in styled], q)   # ПРЕЖНИЙ режим (флаг bank_use_segments выкл): убрать вместе с ним
         return [it for it in styled if lo <= it['price'] <= hi], band, True, unknown
 
     def score(self, it: dict, style: str, ctx: dict, col: dict | None = None) -> tuple:

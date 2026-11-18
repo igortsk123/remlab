@@ -135,17 +135,6 @@ def slot_sizes(slot: dict) -> list:
     return out
 
 
-def tier_range(prices: list, q: tuple) -> tuple:
-    """Квантили цены тира (как `compose2.tier_band`): q = (низ, верх) доли."""
-    ps = sorted(prices)
-    if not ps:
-        return (0, 10 ** 9)
-
-    def pc(p):
-        return ps[max(0, min(len(ps) - 1, int(p * len(ps))))]
-    return (pc(q[0]), pc(q[1]))
-
-
 def dominated(it: dict, cands: list) -> set:
     """Не встал предмет Ш×Г — не встанут и все, что не меньше по обеим сторонам (спальня 2, 13,2 м²: 12 попыток подряд
     на кроватях 220–230 в глубину, ячейка пустела, хотя 213 встаёт). Отсекаем их разом, а не по одной."""

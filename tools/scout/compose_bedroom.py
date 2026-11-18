@@ -62,7 +62,8 @@ def load_json(p: str) -> dict:
 # ---------------------------------------------------------------- чистые функции (селфтест)
 # общие со сборщиком прихожей (`compose_hall.py`, T-20261105-48) — в `compose_common`, тела без изменений; имена остаются
 # и здесь (их берут `asset_coverage.buckets_slots` и селфтест)
-from compose_common import band_of, dominated, num, palette, side, tier_range  # noqa: E402,F401
+import price_tiers as PT  # noqa: E402
+from compose_common import band_of, dominated, num, palette, side  # noqa: E402,F401
 
 
 def sleep_ladder_only(lay) -> bool:
@@ -304,14 +305,14 @@ class Composer:
         deny = slot['role'] in BED_ROLES and self.purpose.split(':')[0] in (side_back_switch().get('deny_purposes') or ())
         fit = [it for it in source if it['role'] == slot['role'] and gate(it, slot, band) is None
                and (extra is None or extra(it)) and not (deny and it.get('side_back'))]   # паре угловую не берём (T-31)
-        lo, hi = tier_range([it['price'] for it in fit], self.R['tiers'][tier])
+        lo, hi = PT.tier_band(slot['role'], tier, [it['price'] for it in fit], self.R['tiers'][tier])   # ОДИН resolver ступени (T-61/6)
         styled = [it for it in fit if _RP.in_style(it.get('styles'), style, self.thr)]
         k = (slot['role'] + (f" {slot['step']}" if slot.get('step') else ''), style, self.purpose)    # у назначений и ступени 140 разный идеал — раздельно
         self.shortage[k] = (len(styled), sum(1 for it in styled if it['mesh']))
         out = [it for it in styled if lo <= it['price'] <= hi]
-        if out or not styled:
+        if out or not styled or PT.bank_segments_on():     # ступени из правила общие для ролей и стилей: внутристилевого пересчёта нет
             return out, band, False
-        lo, hi = tier_range([it['price'] for it in styled], self.R['tiers'][tier])
+        lo, hi = PT.quantile_band([it['price'] for it in styled], self.R['tiers'][tier])   # ПРЕЖНИЙ режим (флаг bank_use_segments выкл): убрать вместе с ним
         return [it for it in styled if lo <= it['price'] <= hi], band, True
 
     def score(self, it: dict, style: str, ctx: dict, col: dict | None = None) -> tuple:
@@ -1282,7 +1283,7 @@ def _selftest() -> int:
     ok('ковёр меряется длинной стороной', gate({'role': 'ковёр', 'w': 200, 'd': 300}, rug, band_of(rug, tol)) is None
        and gate({'role': 'ковёр', 'w': 160, 'd': 230}, rug, band_of(rug, tol)) is not None)
     ok('шторы без полосы — размеры не нужны', gate({'role': 'шторы'}, {'role': 'шторы'}, {}) is None)
-    ok('тир: квантили цены', tier_range(list(range(100)), (0.05, 0.45)) == (5, 45))
+    ok('тир: квантили цены (запасной путь resolver)', PT.quantile_band(list(range(100)), (0.05, 0.45)) == (5, 45))
     a = {'mid': 1, 'eid': 'a', 'score': 5.0, 'price': 10, 'mesh': None}
     m = {'mid': 2, 'eid': 'b', 'score': 3.0, 'price': 20, 'mesh': 'generated'}
     r_ = {'mid': 3, 'eid': 'c', 'score': 1.0, 'price': 30, 'mesh': 'ready'}

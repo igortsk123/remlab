@@ -102,5 +102,35 @@ finally:
     PT._CACHE.update(_old_c)
     PT.family_prices_cached = _old_fp
 
+# 5) банк наборов (T-20261118-61/6): ОДИН resolver ступени; 4 дубля перцентилей и пересчёт внутри стиля — убраны; флаг по умолчанию выкл
+import re  # noqa: E402
+SCOUT = os.path.join(HERE, '..')
+src = {n: open(os.path.join(SCOUT, n), encoding='utf-8').read() for n in ('candidates.py', 'compose.py', 'compose2.py', 'compose_common.py', 'compose_bedroom.py', 'compose_hall.py')}
+check('банк: перцентили p05–45/35–80/70–97 — только в price_tiers (resolver), в потребителях их нет',
+      not any(re.search(r'\.35\s*,\s*\.80|0\.35,\s*0\.80|pc\(\s*0?\.97', t) for t in src.values()) and 'LEGACY_Q' in open(PT.__file__, encoding='utf-8').read())
+check('банк: все потребители зовут price_tiers.tier_band, `tier_range` из compose_common убран',
+      all('tier_band(' in src[n] for n in ('candidates.py', 'compose.py', 'compose2.py', 'compose_bedroom.py', 'compose_hall.py')) and 'def tier_range' not in src['compose_common.py']
+      and not any('tier_range' in t for t in src.values()))
+check('банк: пересчёт квантилей внутри стиля — только в прежнем режиме (за bank_segments_on)',
+      all(re.search(r'if out or not styled or PT\.bank_segments_on\(\)', src[n]) for n in ('compose_bedroom.py', 'compose_hall.py')))
+check('банк: флаг bank_use_segments в конфиге, по умолчанию выкл (включает директор по отчёту тени)', CFG.get('bank_use_segments') is False and CFG.get('_bank_use_segments_why'))
+_env = os.environ.pop('BANK_PRICE_SEGMENTS', None)
+try:
+    check('банк: без env флаг читается из конфига (выкл) — прежний режим', PT.bank_segments_on() is False)
+    os.environ['BANK_PRICE_SEGMENTS'] = '1'
+    check('банк: env BANK_PRICE_SEGMENTS=1 включает ступени из правила', PT.bank_segments_on() is True)
+    FR = {'version': 't', 'roles': {'диван': {'boundaries_rub': [50000, 90000], 'families': 100, 'method': 'local'}}}
+    bands = {t: PT.tier_band('диван', t, [1, 2, 3], rules=FR) for t in PT.BANK_TIERS}
+    check('банк: ступени из правила не пересекаются и закрывают ось цен',
+          bands['эконом'][1] < bands['комфорт'][0] and bands['комфорт'][1] < bands['премиум'][0] and bands['премиум'][1] >= 10 ** 9
+          and all(sum(lo <= x <= hi for lo, hi in bands.values()) == 1 for x in (1, 49999, 50000, 89999, 90000, 10 ** 6)))
+    os.environ['BANK_PRICE_SEGMENTS'] = '0'
+    check('банк: env=0 — прежние квантили (перекрываются: комфорт 35–80 % и премиум 70–97 % по ценам роли)',
+          PT.tier_band('диван', 'комфорт', list(range(100)), rules=FR) == (35, 80) and PT.tier_band('диван', 'премиум', list(range(100)), rules=FR) == (70, 97))
+finally:
+    os.environ.pop('BANK_PRICE_SEGMENTS', None)
+    if _env is not None:
+        os.environ['BANK_PRICE_SEGMENTS'] = _env
+
 print(f'test_price_segments: ошибок {fails}')
 sys.exit(1 if fails else 0)

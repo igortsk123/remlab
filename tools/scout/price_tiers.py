@@ -8,10 +8,19 @@
 комнат (`flat215_demo._catalog_pick`), `demo-data.json` (поле `price_segment` и диапазоны роли для чипов страницы).
 Этот модуль — только чтение правила + ключ семейства + популяция каталога; DB и PIL не нужны до вызова `family_prices`.
 
+БАНК НАБОРОВ (T-20261118-61/6, план шаг 3): `tier_band(роль, ступень, цены, квантили)` — ЕДИНСТВЕННЫЙ источник диапазона цены ступени для
+`candidates`/`compose`/`compose2`/`compose_bedroom`/`compose_hall`/`bank_keep` (раньше у каждого свой перекрывающийся перцентиль
+p05–45/35–80/70–97 и у спальни пересчёт внутри стиля). Режим — `bank_segments_on()`: env `BANK_PRICE_SEGMENTS=1|0`, иначе поле
+`bank_use_segments` в `rules/price-segments-config.json` (по умолчанию ВЫКЛ — ночная сборка кандидата как раньше, пока директор
+не включит по отчёту тени). Выкл — прежние квантили (`quantile_band`, одна копия); вкл — границы роли из правила, ступени не
+пересекаются; у роли без границ — запасной путь прежними квантилями (отчёт тени их называет).
+
   python3 price_tiers.py --selftest
 """
 import json
+import math
 import os
+import re
 import statistics
 import sys
 
@@ -60,6 +69,53 @@ def ranges(rules: dict | None = None) -> dict:
     return {'version': R.get('version'), 'labels': LABELS,
             'roles': {k: {'boundaries_rub': v.get('boundaries_rub'), 'families': v.get('families'), 'method': v.get('method')}
                       for k, v in (R.get('roles') or {}).items()}}
+
+
+# ---------- банк наборов: один resolver диапазона ступени ----------
+BANK_TIERS = {'эконом': 'lo', 'комфорт': 'mid', 'премиум': 'hi'}                          # имена ступеней банка → ключи правила
+LEGACY_Q = {'эконом': (0.05, 0.45), 'комфорт': (0.35, 0.80), 'премиум': (0.70, 0.97)}    # прежние перцентили (перекрывались) — только запасной путь
+_CONFIG = os.path.join(HERE, 'rules', 'price-segments-config.json')
+
+
+def bank_segments_on() -> bool:
+    """Банк берёт ступени из правила границ? env `BANK_PRICE_SEGMENTS` (1/0) главнее файла; без него — `bank_use_segments` конфига."""
+    e = os.environ.get('BANK_PRICE_SEGMENTS')
+    if e in ('0', '1'):
+        return e == '1'
+    return bool(load(_CONFIG).get('bank_use_segments', False))
+
+
+def base_role(role: str) -> str:
+    """«кресло 2» → «кресло» (второе место той же роли — те же границы; как на странице)."""
+    return re.sub(r'\s+\d+$', '', role or '')
+
+
+def quantile_band(prices, q) -> tuple:
+    """Прежние квантили цены (запасной путь): q = (низ, верх) доли; пусто — без ограничения."""
+    ps = sorted(prices)
+    if not ps:
+        return (0, 10 ** 9)
+
+    def pc(p):
+        return ps[max(0, min(len(ps) - 1, int(p * len(ps))))]
+    return (pc(q[0]), pc(q[1]))
+
+
+def tier_band(role: str, tier: str, prices=(), q=None, rules: dict | None = None, segments: bool | None = None) -> tuple:
+    """(низ, верх) цены ступени `tier` (эконом/комфорт/премиум) роли, обе границы ВКЛЮЧИТЕЛЬНО. Режим «ступени из правила»: эконом —
+    ниже B1, комфорт — от B1 до B2 (не включая), премиум — от B2 и выше; ступени не пересекаются. Иначе или у роли без границ —
+    прежние квантили `q` (по умолчанию `LEGACY_Q[tier]`) по `prices` (цены годных роли). `segments` — принудительный режим (тест)."""
+    on = bank_segments_on() if segments is None else segments
+    b = bounds_of(base_role(role), rules) if on else None
+    k = BANK_TIERS.get(tier)
+    if b and k:
+        return {'lo': (0, math.nextafter(b[0], 0.0)), 'mid': (b[0], math.nextafter(b[1], 0.0)), 'hi': (b[1], 10 ** 9)}[k]
+    return quantile_band(prices, q or LEGACY_Q[tier])
+
+
+def band_source(role: str, rules: dict | None = None) -> str:
+    """Откуда диапазон роли при включённом режиме: `segments` (границы правила) или `legacy` (запасные квантили) — для отчёта тени."""
+    return 'segments' if bounds_of(base_role(role), rules) else 'legacy'
 
 
 # ---------- семейство ----------
@@ -188,7 +244,23 @@ def _selftest() -> int:
     if segment_of('диван', 'f1', 10, {'диван': {'f1': 60000}}, R) != 'mid' or segment_of('диван', 'zz', 95000, {'диван': {}}, R) != 'hi':
         bad += 1
         print('  FAIL: ступень товара — по цене семейства, нет семейства — по своей цене')
-    print(f'price_tiers selftest: случаев 10, ошибок {bad}')
+    # банк: один resolver диапазона ступени
+    if quantile_band(list(range(100)), (0.05, 0.45)) != (5, 45) or quantile_band([], (0.1, 0.9)) != (0, 10 ** 9):
+        bad += 1
+        print('  FAIL: прежние квантили (запасной путь) — как compose2.tier_band')
+    on = {t: tier_band('диван', t, [1, 2, 3], rules=R, segments=True) for t in BANK_TIERS}
+    pr = [49999, 50000, 89999, 90000]
+    hit = [[t for t, (lo, hi) in on.items() if lo <= x <= hi] for x in pr]
+    if hit != [['эконом'], ['комфорт'], ['комфорт'], ['премиум']] or tier_band('диван 2', 'эконом', rules=R, segments=True) != on['эконом']:
+        bad += 1
+        print('  FAIL: ступени банка не пересекаются: одна цена — одна ступень, «диван 2» — границы «дивана»', hit)
+    if tier_band('мало', 'комфорт', [10, 20, 30, 40], rules=R, segments=True) != quantile_band([10, 20, 30, 40], LEGACY_Q['комфорт']) or band_source('мало', R) != 'legacy':
+        bad += 1
+        print('  FAIL: роль без границ — запасной путь прежними квантилями')
+    if tier_band('диван', 'комфорт', [1, 2, 3], rules=R, segments=False) != quantile_band([1, 2, 3], LEGACY_Q['комфорт']):
+        bad += 1
+        print('  FAIL: режим выключен — прежние квантили')
+    print(f'price_tiers selftest: случаев 15, ошибок {bad}')
     return 1 if bad else 0
 
 
