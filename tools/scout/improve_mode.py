@@ -65,7 +65,7 @@ PROMPT_VERSION = ('improve-v4' if PROMPT_V4 else 'improve-v3') + '.5'
 # не трогаются; нет ни гайда стиля, ни листа эталонов, ни третьего листа. Живое GPT-фото (кадры браузера) идёт прежним путём без изменений.
 # `+luma-1` — версия шага `match_luma` (нормировка яркости ответа нейросети по входному рендеру, T-20261118-01/3): в версии промпта → в ключе кэша
 LUMA_VERSION = 'luma-1'
-PROMPT_VERSION_RENDER = 'improve-render-v5.4+' + LUMA_VERSION
+PROMPT_VERSION_RENDER = 'improve-render-v5.5+' + LUMA_VERSION
 
 
 LUMA_CAP = (0.85, 1.35)      # потолок усиления: ответ нейросети не «вытягиваем» сильнее, чем на треть вверх / на 15 % вниз
@@ -207,7 +207,7 @@ RENDER_POLISH_PROMPT = '\n'.join([
     '* IMAGE 1: one sheet containing TWO rendered views of the SAME furnished room, {layout}, separated by a magenta band.',
     '',
     'WHAT YOU MAY CHANGE (photographic quality only):',
-    '- lighting realism: soft natural daylight from the windows, believable bounced light, soft contact shadows under furniture, gentle highlights;',
+    '- lighting realism: soft contact shadows under furniture, soft shading and gentle highlights on the surfaces, a natural photographic tonal range; the daylight stays the soft, even light that IMAGE 1 already has;',
     '- surface micro-detail that is ALREADY implied: fabric weave, wood grain, brick relief, paint texture, glass and metal reflections, at the SAME colours;',
     '- sharpness, tonal range, natural camera depth and fine sensor grain, clean edges, no render noise or banding;',
     '- the view outside the windows: a natural, plausible daylight view in place of the existing one.',
@@ -228,6 +228,9 @@ RENDER_POLISH_PROMPT = '\n'.join([
     'darker, not greyer, not pinker and not more contrasty than in IMAGE 1. Realism comes from fine texture, soft shadows and natural light, never from '
     'a darker or duller tone: do not deepen or desaturate colours, do not add a grey or brown cast, do not lower the overall exposure. A light floor stays '
     'as light and as warm as IMAGE 1; a pale upholstery stays as pale.',
+    '- LIGHT STAYS AS IN IMAGE 1: do NOT add sunbeams, sun patches, bright light spots, light shafts, window-light spill, dappled or leaf-shadow light, '
+    'or new cast shadows of the window frame on the floor, walls, furniture or bed. The floor and walls keep the even soft lighting they have in IMAGE 1; '
+    'a bright area or a shadow that is not in IMAGE 1 stays absent.',
     '- Keep every pattern and print exactly (pillow, rug, bedding, picture contents).',
     '- Keep the shape, proportions and construction of every product, the room geometry, windows, doors, radiators, ceiling and curtain rods.',
     '- Keep both cameras exactly: same framing, crop, perspective, field of view, order of views and the sheet size.',
