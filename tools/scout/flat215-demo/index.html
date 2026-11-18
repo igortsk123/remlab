@@ -7174,10 +7174,16 @@ function pubShot(v,cam){
 // как `shotFits`; точка `cam`, нет её — другая точка того же состояния) → 2) нет — последнее фото нейросети того же варианта (`vid`)
 // и той же точки из прежних расстановок → 3) нет и его — null (вариант не показываем). Черновик (scene3d) — никогда.
 // REALSHOT START — чистая функция выбора; тест `tests/unit/real-shot.test.ts`
-function realPubPick(list, st, vid, cam, camOk){
+function realPubPick(list, st, vid, cam, camOk, noOld){
   const real=x=>!!(x&&x.url&&x.quality==='realistic'), c0=cam||'C1', atCam=x=>(x.camera||'C1')===c0;
-  const now=list.filter(x=>real(x)&&!!x.stateId&&x.stateId===st&&camOk(x));
-  if(now.length){const c=now.filter(atCam), P=c.length?c:now; return P[P.length-1];}
+  // КЛЮЧ СОСТАВА ГЛАВНЕЕ РАКУРСА (T-20261118-20/10, владелец TG 1851: «покупатель видит не то, что купит»): фото того же состава с другой точки
+  // лучше фото другого состава с нужной. Годны фото нейросети и кадр Cycles (`render`) — нейросеть первой; черновик 3D — никогда
+  const photo=x=>!!(x&&x.url&&(x.quality==='realistic'||x.quality==='render')), last=L=>{const r=L.filter(real), P=r.length?r:L, c=P.filter(atCam), Q=c.length?c:P; return Q[Q.length-1];};
+  const same=list.filter(x=>photo(x)&&!!x.stateId&&x.stateId===st);
+  const now=same.filter(camOk);
+  if(now.length)return last(now);          // 1) ключ = текущему и своя точка
+  if(same.length)return last(same);        // 2) тот же ключ, другая точка (сборка видов сдвинула точку после съёмки)
+  if(noOld)return null;                    // 3) фото ЧУЖОГО состава не показываем (правило `rules.photo_pick`: окно — `hide`)
   // прежние расстановки — картинка, не ракурс окна (владелец TG 378: «оставлять прежнее» = фото; T-35/2: сборка 15:19 сдвинула точку 1,
   // и все гостиные пропали): та же точка и совпадает с нынешней → та же точка → любая совпадающая → любая; внутри — свежее
   const old=list.filter(x=>real(x)&&!!vid&&x.vid===vid).sort((a,b)=>(+a.ts||0)-(+b.ts||0));
@@ -7187,7 +7193,15 @@ function realPubPick(list, st, vid, cam, camOk){
 // REALSHOT END
 function realisticPublishedShot(v,cam){
   if(!v||!D)return null;
-  return realPubPick(shots.filter(x=>!x.orphan&&(DBG||!x.svc)), pubStateOf(v), v.id||'', cam||posterCam(v), x=>shotCamOk(x,v.cams));
+  return realPubPick(shots.filter(x=>!x.orphan&&(DBG||!x.svc)), pubStateOf(v), v.id||'', cam||posterCam(v), x=>shotCamOk(x,v.cams), photoRule('home')==='hide');
+}
+// ФОТО ЧУЖОГО СОСТАВА — НАСТРОЙКА В ПРАВИЛАХ, НЕ В КОДЕ (T-20261118-20/10): `tools/scout/rules/demo-photo-pick.json` → `D.rules.photo_pick`.
+// окно «Фото» нетронутой комнаты, у которой нет фото текущего состава: `hide` (по умолчанию, вариант А) — «Фото» нет, 3D и «Сделать фото»;
+// `dim` (вариант Б) — прежнее фото затемнено с подписью «Мебель обновилась — это прежний набор». Главная/опрос/туры: `keep` (прежнее фото,
+// как было) | `hide` (комната без фото состава на главную не выводится)
+function photoRule(where){
+  const r=((D&&D.rules)||{}).photo_pick||{}, v=where==='home'?r.home_old_key_photo:r.window_old_key_photo;
+  return where==='home'?(v==='hide'?'hide':'keep'):(v==='dim'?'dim':'hide');
 }
 // КАРТОЧКА ПРАВЛЕНОГО ВАРИАНТА — КАДР 3D ЕГО НЫНЕШНЕЙ РАССТАНОВКИ (demo-20 Г5, сценарий владельца 22.10): своего кадра у правленой
 // расстановки нет, а `pubShot` — фото ОПУБЛИКОВАННОЙ, не то, что человек видел в окне. Живая сцена снимает точку 1 после правки
@@ -11530,7 +11544,7 @@ function vwRealShots(){
   // или своя отделка меняют номер — прежнее фото не подставляем. Ночная досъёмка снимает новую расстановку (photo-before-publish-01)
   if(!by.size&&v&&v.id&&!v.mine&&!v.cid&&st===pubStateOf(v)){
     const L=shots.filter(x=>!x.orphan&&!x.svc);
-    (cams||[]).forEach((_,k)=>{const x=vwPubShotAt(L, st, v.id, cams, k); if(x)by.set(x.camera||'C1',x);});
+    (cams||[]).forEach((_,k)=>{const x=vwPubShotAt(L, st, v.id, cams, k, true); if(x)by.set(x.camera||'C1',x);});   // noOld: фото чужого состава — не «фото комнаты» (T-20261118-20/10)
   }
   return [...by.values()].sort((a,b)=>String(a.camera||'C1').localeCompare(String(b.camera||'C1')));
 }
@@ -11539,15 +11553,16 @@ function vwRealShots(){
 // Ночная съёмка (`tools/ops/demo-realistic.mjs`) брала пару, только когда фото нет ни у одного вида: C1 на месте, C2 сдвинут — пару не
 // снимали, и у второго вида фото не было бы никогда. Задание снимает оба вида разом
 function vwRealMissing(have, cs){
-  const got=new Set((have||[]).map(x=>x.camera||'C1'));
+  const got=new Set((have||[]).filter(x=>shotCamOk(x,cs)).map(x=>x.camera||'C1'));   // фото того же состава с ДРУГОЙ точки (T-20261118-20/10) вид без фото своей точки не закрывает: ночь снимет новую пару
   return (cs||[]).map((c,k)=>(c&&c.name)||'C'+(k+1)).filter(n=>!got.has(n));
 }
 // ФОТО ВИДА В ОКНЕ — ТОЛЬКО СО СВОЕЙ ТОЧКИ (T-20261108-73, ведущий: подпись кнопки не должна врать — «Со стороны окна» над фото,
 // снятым от двери). Карточке главной `realPubPick` отдаёт и фото прежних точек («оставлять прежнее» — картинка, TG 378), а у кнопки
 // вида в окне есть имя места: здесь годен только кадр этой точки (имя `C<k+1>` и сама точка, `shotCamOk`). Нет такого — у вида фото
 // нет, как у любого вида без фото: в «Фото» кнопка его не открывает, без фото у всех видов — 3D; ночная досъёмка снимет новую точку
-function vwPubShotAt(list, st, vid, cs, k){
-  const n='C'+(k+1), x=realPubPick(list.filter(y=>(y.camera||'C1')===n&&shotCamOk(y,cs)), st, vid, n, ()=>true);
+function vwPubShotAt(list, st, vid, cs, k, noOld){
+  // того же состава — кадр этого вида и с другой точки (ключ главнее ракурса, T-20261118-20/10); прежних составов — только со своей точки (T-73)
+  const n='C'+(k+1), L=list.filter(y=>(y.camera||'C1')===n&&(y.stateId===st||shotCamOk(y,cs))), x=realPubPick(L, st, vid, n, y=>shotCamOk(y,cs), !!noOld);
   return x&&x.url?x:null;
 }
 // ПОСЛЕ ПРАВКИ «ФОТО» НЕ ПРЯЧЕМ (T-20261107-66 Б, владелец): у новой расстановки фото нет — показываем последнее фото этой комнаты
@@ -11563,6 +11578,10 @@ function vwStalePick(v0){
   if(!D||(live&&!items)||!shots.length)return none;
   const v=live?(allVariants()[cur]||{}):v0, h=live?histOf():(HIST[editVid(v)]||{stack:[],at:-1}), vid=live?curVid():editVid(v);
   const cs=live?(cams||loadCams()):camsOfVariant(v);
+  // НЕТРОНУТАЯ КОМНАТА, ФОТО ТЕКУЩЕГО СОСТАВА НЕТ (T-20261118-20/10): человек ничего не менял — фото ЧУЖОГО состава не «прежнее после правки», а чужое.
+  // `hide` (А, по умолчанию) — ничего: окно в 3D, кнопка «Сделать фото»; `dim` (Б) — прежнее фото затемнено с подписью `upd` («мебель обновилась»)
+  const untouched=live&&!!v.id&&!v.mine&&!v.cid&&curStateId()===pubStateOf(v);
+  if(untouched&&photoRule('window')==='hide')return none;
   const ok=x=>vwIsPhoto(x)&&x.url&&!x.svc&&!x.orphan&&shotCamOk(x,cs);   // прежнее фото — и рендер, и улучшенное (T-20261117-20/2)
   const byCam=L=>{const by=new Map(); L.slice().sort((a,b)=>(+a.ts||0)-(+b.ts||0)).forEach(x=>by.set(x.camera||'C1',x)); return by;};
   const out=(by,to)=>({list:[...by.values()].sort((a,b)=>String(a.camera||'C1').localeCompare(String(b.camera||'C1'))), to});
@@ -11570,14 +11589,15 @@ function vwStalePick(v0){
   h.stack.forEach((s,k)=>{ if(k===h.at||!s.stateId)return;
     const L=shots.filter(x=>ok(x)&&x.stateId===s.stateId); if(!L.length)return;
     const ts=Math.max(...L.map(x=>+x.ts||0)); if(!best||ts>=best.ts)best={L,k,ts}; });
-  if(best)return out(byCam(best.L), best.k);
+  if(best&&!untouched)return out(byCam(best.L), best.k);
+  const upd=r=>untouched?Object.assign(r,{upd:true}):r;
   if(v.id&&!v.mine&&!v.cid){
     const pub=pubStateOf(v), L=shots.filter(x=>!x.orphan&&!x.svc), by=new Map();
     (cs||[]).forEach((_,k)=>{const x=vwPubShotAt(L, pub, v.id, cs, k); if(x)by.set(x.camera||'C1',x);});
-    if(by.size){const k=h.stack.findIndex(s=>s.stateId===pub); return out(by, k>=0?k:(v.items||[]).length?-2:-1);}
+    if(by.size){const k=h.stack.findIndex(s=>s.stateId===pub); return upd(out(by, untouched?-1:k>=0?k:(v.items||[]).length?-2:-1));}
   }
   const L=shots.filter(x=>ok(x)&&x.vid===vid);
-  return L.length?out(byCam(L), -1):none;
+  return L.length?upd(out(byCam(L), -1)):none;
 }
 // снимки для «Фото»: этой расстановки; их нет и фото не рисуется — последнее фото комнаты (затемнённое)
 // ИДЁТ УЛУЧШЕНИЕ — ТОЖЕ ПРЕЖНЕЕ ФОТО (T-20261108-74, владелец 08.11 TG 604: «перехожу на „Фото“ в момент улучшения — показывать старое
@@ -11591,11 +11611,12 @@ function vwStaleUi(){
   const pk=VW.mode==='photo'&&!vwJobHere()&&!vwRealShots().length?vwStalePick():null;
   if(!pk||!pk.list.length){if(el)el.remove(); return;}
   const EN=LANG==='en', back=pk.to>=0||pk.to===-2;
-  if(!el||el.dataset.lang!==LANG||el.dataset.back!==String(back)){
+  if(!el||el.dataset.lang!==LANG||el.dataset.back!==String(back)||el.dataset.upd!==String(!!pk.upd)){
     if(el)el.remove();
-    el=document.createElement('div'); el.className='vstale'; el.dataset.lang=LANG; el.dataset.back=String(back);
+    el=document.createElement('div'); el.className='vstale'; el.dataset.lang=LANG; el.dataset.back=String(back); el.dataset.upd=String(!!pk.upd);
     // основная кнопка подписана, как везде, «Сделать реалистичнее» (CTA_REAL; владелец 08.11: «у нас называется так», T-20261108-77)
-    el.innerHTML=`<div class="vstcard"><b>${EN?'You changed the room':'Вы изменили комнату'}</b><div class="vstb">`+
+    // `upd` — комнату не меняли, а набор мебели в ней обновили (фото прежнего набора, правило `photo_pick.window_old_key_photo: dim`)
+    el.innerHTML=`<div class="vstcard"><b>${pk.upd?(EN?'The furniture in this room was updated — this is a photo of the previous set':'Мебель в комнате обновилась — это фото прежнего набора'):(EN?'You changed the room':'Вы изменили комнату')}</b><div class="vstb">`+
       `<button class="btn primary" type="button" data-st="show">${EN?CTA_REAL_EN:CTA_REAL}</button>`+
       (back?`<button class="btn" type="button" data-st="back">${EN?'Restore':'Вернуть как было'}</button>`:'')+`</div></div>`;
     el.querySelector('[data-st="show"]').onclick=()=>vwRealistic();   // та же съёмка, что «Сделать реалистичнее» (ожидание, очередь, отказ)
