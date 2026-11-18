@@ -110,7 +110,7 @@ class Showcase:
     def _key(self, snap: dict) -> str:
         import render_exec as RX
         v = self.ex.versions()
-        part = {k: v.get(k) for k in ('export_scene', 'dump', 'scene_export')}
+        part = {**{k: v.get(k) for k in ('export_scene', 'dump', 'scene_export')}, 'asset_rules': RX.ASSET_RULES}      # правило «что ассет» сменилось — прежние списки ассетов не годятся
         return RX.cache_key(snap['scene_hash'], part)
 
     def fixed_refs(self) -> list:

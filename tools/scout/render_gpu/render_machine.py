@@ -61,6 +61,8 @@ T = {
     'st_starting': ('Машина включается ({st}), уже {age} мин. Потрачено сегодня ${spent:.2f}.', 'Machine is starting ({st}), {age} min so far. Spent today ${spent:.2f}.'),
     'st_ready': ('Машина прогрелась и работает ({age} мин), фото считается ~15–30 с. До автостопа {left} мин простоя. Сегодня ${spent:.2f} из ${cap:.2f}. Выключить — /render_off.',
                  'Machine is ready ({age} min), a photo takes ~15–30 s. {left} min of idle left before auto-stop. Today ${spent:.2f} of ${cap:.2f}. Turn off: /render_off.'),
+    'st_stray': ('Машина по команде выключена, но на Salad она ещё «{st}» (не наша команда на этой группе или остановка идёт). Ближайший tick её погасит. Сегодня ${spent:.2f}.',
+                 'The machine is switched off by command, but Salad still shows it as "{st}" (not started by this controller, or stopping). The next tick will stop it. Spent today ${spent:.2f}.'),
     'st_degraded': ('❗ Машина включена, но не отвечает ({age} мин). Сегодня ${spent:.2f}.', '❗ Machine is on but not responding ({age} min). Spent today ${spent:.2f}.'),
     'warm': ('✅ Машина рендера готова, фото считается ~15–30 с (запуск занял {min} мин). Выключить — /render_off.',
              '✅ Render machine is ready, a photo takes ~15–30 s (started in {min} min). Turn off: /render_off.'),
@@ -457,8 +459,11 @@ def cmd_status(a, rules) -> str:
         spent = s['spent_usd'] if s['spent_date'] == d else 0.0
         if a.json:
             return json.dumps({'desired': s['desired'], 'gen': s['gen'], 'status': obs['status'], 'spent_usd': spent, 'by': s['by']}, ensure_ascii=False)
-        if s['desired'] != 'on' and obs['status'] not in PAID:
-            return tr('st_off', a.lang, spent=spent, cap=rules['day_cap_usd'])
+        if s['desired'] != 'on':
+            # желаемое «выключено»: пока Salad её не остановил (или её запустил кто-то мимо контроллера) — это не «не отвечает»: возраст `on_at` тут ни при чём
+            if obs['status'] not in PAID:
+                return tr('st_off', a.lang, spent=spent, cap=rules['day_cap_usd'])
+            return tr('st_stray', a.lang, st=obs['status'], spent=spent)
         age = round((now - s['on_at']) / 60)
         ready = obs.get('ready') or {}
         fresh = bool(ready) and now - float(ready.get('ts', 0)) <= rules['ready_stale_s']
