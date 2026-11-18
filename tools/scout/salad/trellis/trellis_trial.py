@@ -282,13 +282,15 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                         summary['stopped_by'] = 'warm_failed'
                         break
                     gb = (h.get('progress') or {}).get('hf_gb')
-                    if gb is not None and gb != last_gb:
-                        last_gb, last_gb_t = gb, t
+                    cpu = (h.get('child') or {}).get('cpu_s')
+                    mark = (gb, None if cpu is None else int(cpu // 20))       # «живой» ход: растёт кэш весов ИЛИ ребёнок жжёт процессор (строит модель)
+                    if gb is not None and mark != last_gb:
+                        last_gb, last_gb_t = mark, t
                     if t - last_say >= 120 and not h.get('warm'):
                         last_say = t
                         say(f'прогрев: фаза {h.get("phase")}, в кэше HF {gb} ГБ, ребёнок {h.get("child")}, память группы {h.get("cgroup_gb")}')
                     if h.get('phase') == 'weights' and last_gb_t is not None and t - last_gb_t > a.stall_min * 60:
-                        say(f'!! докачка весов стоит {a.stall_min} мин (в кэше {gb} ГБ) — гашу')
+                        say(f'!! загрузка стоит {a.stall_min} мин (кэш {gb} ГБ не растёт, процессор ребёнка {cpu} с не растёт) — гашу')
                         summary['stopped_by'] = 'download_stalled'
                         break
                     if h.get('warm'):

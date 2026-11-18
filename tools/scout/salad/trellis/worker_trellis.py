@@ -29,6 +29,7 @@ import base64
 import io
 import json
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -250,6 +251,16 @@ def rss_gb(pid: int) -> float | None:
     return None
 
 
+def proc_cpu(pid: int) -> dict:
+    """Состояние процесса (R работает / S ждёт / D диск) и сколько секунд процессорного времени съел (utime+stime): стоит ли ребёнок или считает."""
+    try:
+        parts = open(f'/proc/{pid}/stat').read().rsplit(')', 1)[1].split()
+        tck = os.sysconf('SC_CLK_TCK')
+        return {'state': parts[0], 'cpu_s': round((int(parts[11]) + int(parts[12])) / tck, 1), 'threads': int(parts[17])}
+    except (OSError, ValueError, IndexError):
+        return {}
+
+
 def cgroup_gb() -> dict:
     """Память группы контейнера: `current/max`, ГБ (cgroup v2, затем v1). Приближение к «убит по памяти»: current подошёл к max."""
     for cur, mx in (('/sys/fs/cgroup/memory.current', '/sys/fs/cgroup/memory.max'),
@@ -386,7 +397,7 @@ def child_info() -> dict:
         return {'started': False}
     rc = CHILD.poll()
     st = read_state()
-    return {'started': True, 'alive': rc is None, 'returncode': rc, 'rss_gb': rss_gb(CHILD.pid) if rc is None else None,
+    return {'started': True, 'alive': rc is None, 'returncode': rc, 'rss_gb': rss_gb(CHILD.pid) if rc is None else None, **(proc_cpu(CHILD.pid) if rc is None else {}),
             'state_age_s': round(time.time() - st['at'], 1) if st.get('at') else None}
 
 
@@ -412,8 +423,12 @@ def watch_loop() -> None:
 
 
 class H(BaseHTTPRequestHandler):
-    def log_message(self, *_a):          # в журнал контейнера — только своё
-        pass
+    SEEN = [0]
+
+    def log_message(self, fmt, *a):      # в журнал — только первые обращения (видно, дошла ли проба/шлюз: адрес клиента и путь); остальное тихо
+        if self.SEEN[0] < 12:
+            self.SEEN[0] += 1
+            print(f'[http] {self.client_address[0]} {fmt % a}', flush=True)
 
     def _json(self, code: int, obj) -> None:
         raw = json.dumps(obj, ensure_ascii=False).encode()
@@ -482,8 +497,23 @@ class H(BaseHTTPRequestHandler):
         self._json(202, {'job_id': jid, 'status': 'queued'})
 
 
+class DualStackServer(ThreadingHTTPServer):
+    """Слушает и IPv6, и IPv4 одним сокетом (`::`, IPV6_V6ONLY=0). Контейнеры и шлюз Salad ходят по IPv6 (docs.salad.com → gateway → enabling-ipv6):
+    сервер только на `0.0.0.0` (шаги 0 и 0b–0c, 18.11) не отвечал шлюзу и пробам НИ РАЗУ — при живом процессе и без единой ошибки в журнале."""
+    address_family = socket.AF_INET6
+    daemon_threads = True
+
+    def server_bind(self):
+        self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        super().server_bind()
+
+
 def make_server(port: int) -> ThreadingHTTPServer:
-    return ThreadingHTTPServer(('0.0.0.0', port), H)
+    try:
+        return DualStackServer(('::', port), H)
+    except OSError as e:                         # в окружении нет IPv6 (CI, часть хостов) — обычный IPv4
+        print(f'[http] IPv6 недоступен ({e}) — слушаю только IPv4', flush=True)
+        return ThreadingHTTPServer(('0.0.0.0', port), H)
 
 
 def main() -> None:

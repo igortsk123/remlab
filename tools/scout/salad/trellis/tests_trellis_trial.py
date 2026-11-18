@@ -300,6 +300,16 @@ if have:
         cg, rg = call('GET', '/glb/j1')
         ok('GLB отдаётся байтами (заголовок glTF)', cg == 200 and rg[:4] == b'glTF')
         ok('чужой job — 404', call('GET', '/job/net')[0] == 404 and call('GET', '/glb/net')[0] == 404)
+        if socket.has_ipv6:                       # шлюз Salad ходит по IPv6: сервер обязан слушать `::` (поймано 18.11: на 0.0.0.0 /health не отвечал ни разу)
+            try:
+                s6 = socket.create_connection(('::1', port), timeout=5)
+                s6.sendall(b'GET /health HTTP/1.0\r\n\r\n')
+                ok('сервер отвечает и по IPv6 (::1), и по IPv4', s6.recv(20).startswith(b'HTTP/1.0 200') and call('GET', '/health')[0] == 200)
+                s6.close()
+            except OSError as e:
+                print('  · SKIP IPv6: в окружении теста нет ::1', e)
+        h1 = json.loads(call('GET', '/health')[1])['child']
+        ok('в /health у ребёнка есть состояние процесса и CPU-секунды (стоит или считает)', 'cpu_s' in h1 and h1.get('state') in ('R', 'S', 'D'), str(h1))
         ok('путь с ../ не выходит из каталога заданий', call('GET', '/job/..%2f..%2fetc%2fpasswd')[0] == 404)
     finally:
         proc.terminate()
