@@ -40,7 +40,7 @@ PORT = 8000
 READINESS = {'http': {'path': '/ready', 'port': PORT, 'scheme': 'http', 'headers': []},
              'initial_delay_seconds': 30, 'period_seconds': 10, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 3}
 STARTUP = {'http': {'path': '/health', 'port': PORT, 'scheme': 'http', 'headers': []},
-           'initial_delay_seconds': 10, 'period_seconds': 10, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 180}   # 30 мин на докачку весов
+           'initial_delay_seconds': 10, 'period_seconds': 60, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 20}   # API Salad: failure_threshold ≤ 20 (400 от 18.11) → 20 мин на докачку весов
 NO_FAIL_STREAK = 2
 
 
@@ -89,15 +89,35 @@ def cost_usd(running_s: float, price: float, reserve_s: float = 60.0) -> float:
     return max(0.0, running_s + (reserve_s if running_s > 0 else 0.0)) / 3600.0 * price
 
 
-def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu: int, mem_mb: int, run_note: str, auth: dict) -> dict:
-    """Тело группы Salad. `auth` — доступ к приватному реестру (`migrate_groups.ghcr_auth()`); приёмника на проде (`MESH_SINK_*`) в окружении НЕТ."""
+def worker_command(path: str | None = None) -> tuple[list[str], str]:
+    """Код воркера → (command, сжатый код) для боевого образа: `python -u -c "exec(zlib+base64 из env TRIAL_WORKER_Z)"` — как боевые группы
+    несут свой код в `command`; образ не пересобирается. Код едет переменной окружения (≈ 3 КБ после сжатия), а не в аргументе."""
+    import zlib
+    src = open(path or os.path.join(HERE, 'worker_trellis.py'), 'rb').read()
+    z = base64.b64encode(zlib.compress(src, 9)).decode()
+    return ['python', '-u', '-c', "import base64,os,zlib;exec(zlib.decompress(base64.b64decode(os.environ['TRIAL_WORKER_Z'])).decode())"], z
+
+
+def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu: int, mem_mb: int, run_note: str, auth: dict, donor: dict | None = None) -> dict:
+    """Тело группы Salad. `auth` — доступ к приватному реестру (`migrate_groups.ghcr_auth()`); приёмника на проде (`MESH_SINK_*`) в окружении НЕТ.
+    `donor` (только hunyuan21) — боевая группа-образец: берём её переменные окружения (STAGED, PIPELINE_VERSION, …) БЕЗ секретов приёмника и очереди."""
     env = {'MODEL': model, 'IMAGE_NOTE': run_note, 'HF_TOKEN': hf_token, 'HF_HOME': '/data/hf', 'OUT_DIR': '/data/out',
            'NVIDIA_DRIVER_CAPABILITIES': 'all', 'DEPLOYMENT_EPOCH': f'20261118-{name}'}
-    return {
+    res = {'cpu': cpu, 'memory': mem_mb, 'gpu_classes': [CARD['class_id']], 'storage_amount': 60 * 2 ** 30, 'shm_size': 1024}
+    command = None
+    if donor is not None:
+        denv = (donor.get('container') or {}).get('environment_variables') or {}
+        env = {k: v for k, v in denv.items() if not k.startswith(('MESH_SINK', 'QUEUE')) and k not in ('STORAGE_BACKEND', 'DEPLOYMENT_EPOCH')}
+        env.update({'MODEL': model, 'IMAGE_NOTE': run_note, 'OUT_DIR': '/tmp/trial-out', 'DEPLOYMENT_EPOCH': f'20261118-{name}'})
+        command, env['TRIAL_WORKER_Z'] = worker_command()
+        dres = donor['container']['resources']
+        res = {'cpu': dres.get('cpu', cpu), 'memory': dres.get('memory', mem_mb), 'gpu_classes': [CARD['class_id']],
+               'storage_amount': dres.get('storage_amount', 60 * 2 ** 30), 'shm_size': dres.get('shm_size', 1024)}
+    body = {
         'name': name, 'display_name': name,
         'container': {
             'image': image,
-            'resources': {'cpu': cpu, 'memory': mem_mb, 'gpu_classes': [CARD['class_id']], 'storage_amount': 60 * 2 ** 30, 'shm_size': 1024},
+            'resources': res,
             'priority': tier, 'environment_variables': env, 'image_caching': True, 'registry_authentication': auth,
         },
         'autostart_policy': False, 'restart_policy': 'never', 'replicas': 1, 'priority': tier, 'country_codes': [],
@@ -105,6 +125,9 @@ def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu:
                        'client_request_timeout': 100000, 'server_response_timeout': 100000},
         'readiness_probe': READINESS, 'startup_probe': STARTUP,
     }
+    if command:
+        body['container']['command'] = command
+    return body
 
 
 def safe_print(body: dict) -> None:
@@ -113,6 +136,8 @@ def safe_print(body: dict) -> None:
     for k in list(b['container']['environment_variables']):
         if any(s in k for s in ('TOKEN', 'KEY', 'SECRET', 'PASS')):
             b['container']['environment_variables'][k] = '<скрыто>'
+        elif k == 'TRIAL_WORKER_Z':
+            b['container']['environment_variables'][k] = f'<код воркера, {len(b["container"]["environment_variables"][k])} знаков>'
     print(json.dumps(b, ensure_ascii=False, indent=1))
 
 
@@ -149,7 +174,22 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     price = price_usd_h(a.tier)
     MG.env_from_file()
     hf = os.environ.get('HF_TOKEN', '')
-    body = build_body(name, a.image, a.tier, a.model, hf, a.cpu, a.mem_mb, a.image.split('@')[-1][:19], MG.ghcr_auth())
+    donor = None
+    if a.model == 'hunyuan21':                            # контроль: боевой образ и ресурсы берём у боевой группы-образца (в ней нет нашего кода — он едет в command)
+        code, donor = MG.api(f'/{a.donor}')
+        if code != 200 or 'container' not in donor:
+            say(f'группа-образец {a.donor} не прочитана: HTTP {code} — стоп')
+            return 2
+        a.image = a.image or donor['container']['image']
+        hf = ''                                           # веса вшиты в образ, токен Hugging Face контролю не нужен
+    meta = {}
+    sp = a.set or os.path.join(os.path.dirname(os.path.abspath(a.inputs)), 'set30.json')
+    if os.path.exists(sp):
+        meta = {c['sku']: c for c in json.load(open(sp, encoding='utf-8'))}                       # роль и габариты (нужны контролю Hunyuan)
+    for j in jobs:
+        j['role'] = (inputs.get(j['sku']) or {}).get('role') or meta.get(j['sku'], {}).get('role')
+        j['dims_cm'] = meta.get(j['sku'], {}).get('dims_cm')
+    body = build_body(name, a.image, a.tier, a.model, hf, a.cpu, a.mem_mb, a.image.split('@')[-1][:19], MG.ghcr_auth(), donor)
     say('группа', name, CARD['class_name'], 'тариф', a.tier, 'цена $/ч', price, 'заданий', len(jobs), 'потолок $', a.cap)
     if not a.apply:
         safe_print(body)
@@ -253,7 +293,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     j = pending.pop(0)
                     png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.rgba.png'), 'rb').read()
                     pl = {'job_id': j['job_id'], 'image_b64': base64.b64encode(png).decode(), 'pipeline_type': pipeline_type(j['res']), 'seed': j['seed'],
-                          'decimation_target': a.decimation, 'texture_size': a.texture}
+                          'decimation_target': a.decimation, 'texture_size': a.texture, 'role': j.get('role'), 'dims_cm': j.get('dims_cm')}
                     c, r = gw.call('POST', '/generate', pl, timeout=90)
                     inflight = {**j, 'submitted': t, 'http': c}
                     say('задание', j['job_id'], '→ HTTP', c)
@@ -282,8 +322,8 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                         summary['failed'] += inflight['status'] == 'failed'
                         say('задание', inflight['job_id'], inflight['status'], inflight.get('error') or '', f'{inflight["seconds"]} с')
                         inflight = None
-                        if fail_streak >= NO_FAIL_STREAK:
-                            say(f'!! {NO_FAIL_STREAK} задания подряд упали — гашу (чинить в коде, не жечь деньги)')
+                        if fail_streak >= a.fail_streak:
+                            say(f'!! {a.fail_streak} задания подряд упали — гашу (чинить в коде, не жечь деньги)')
                             summary['stopped_by'] = 'failures'
                             break
                 if inflight is None and not pending:
@@ -302,7 +342,10 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--model', default='trellis2', choices=['trellis2'])
+    ap.add_argument('--model', default='trellis2', choices=['trellis2', 'hunyuan21'])
+    ap.add_argument('--donor', default='mesh-q-low-1', help='hunyuan21: боевая группа-образец (образ, ресурсы, env без секретов приёмника)')
+    ap.add_argument('--set', default=None, help='JSON набора (роль, габариты); по умолчанию set30.json рядом с папкой inputs')
+    ap.add_argument('--fail-streak', type=int, default=NO_FAIL_STREAK, help='сколько упавших заданий подряд гасят замер (контролю Hunyuan — больше: боевые ворота брака)')
     ap.add_argument('--image', help='образ группы: тег или digest в ghcr.io/igortsk123/mesh-hunyuan')
     ap.add_argument('--inputs', default=os.path.expanduser('~/remlab-logs/mesh-models-1118/trellis/inputs30'))
     ap.add_argument('--skus', nargs='*', default=[])
@@ -327,9 +370,9 @@ def main() -> int:
     if a.stop_only:
         MG.env_from_file()
         return 0 if BR.stop_and_verify(f'trial-{a.model}-{a.suffix}') else 1
-    if not a.image:
+    if not a.image and a.model != 'hunyuan21':            # контролю образ берётся у боевой группы-образца
         sys.exit('нужен --image')
-    if '@' not in a.image and ':' not in a.image:
+    if a.image and '@' not in a.image and ':' not in a.image:
         sys.exit('--image: тег или digest с именем репозитория')
     return run(a, MG, BR)
 

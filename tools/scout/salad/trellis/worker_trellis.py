@@ -144,8 +144,48 @@ class Trellis2Backend:
                 'peak_reserved_gb': round(torch.cuda.max_memory_reserved() / 2 ** 30, 2)}
 
 
+class Hunyuan21Backend:
+    """КОНТРОЛЬ: боевой Hunyuan3D-2.1 из боевого образа (`pipeline.generate`, ровно как `/generate` боевого воркера, но без очереди и приёмника): вход — наша
+    RGBA-вырезка (то же `shape_img`, что у боевого пути), для покраски — `preprocess._paint_crop(shape_img)`, роль и габариты — из задания. Код воркера
+    передаётся в боевой образ через `command` (как у боевых групп), образ не пересобирается. Модули `pipeline`/`preprocess`/`fetch_weights` — из /app образа."""
+    name = 'hunyuan21'
+
+    def load(self) -> dict:
+        import fetch_weights
+        import pipeline as P
+        from PIL import Image, ImageDraw
+        t = time.time()
+        fw = fetch_weights.ensure()                  # веса вшиты в образ — пусто; иначе докачка (холодный старт)
+        t_w = time.time() - t
+        t = time.time()
+        img = Image.new('RGBA', (512, 512), (0, 0, 0, 0))                    # прогрев как у боевого воркера: ядра и веса — не в замер первого задания
+        ImageDraw.Draw(img).ellipse((128, 128, 384, 384), fill=(200, 180, 160, 255))
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            P.generate(img, d, seed=0, params={'num_inference_steps': 5, 'octree_resolution': 128})
+        return {'weights_s': round(t_w, 1), 'weights_fetch': fw, 'warmup_gen_s': round(time.time() - t, 1)}
+
+    def generate(self, image, params: dict, path: str) -> dict:
+        import shutil
+        import tempfile
+        import pipeline as P
+        import preprocess as PRE
+        shape_img = image.convert('RGBA')
+        dims = params.get('dims_cm') or []
+        pp = {'_dims': {'w': dims[0], 'd': dims[1], 'h': dims[2], 'dia': None} if len(dims) == 3 else {},
+              '_square_role': params.get('role') in ('кашпо', 'ваза', 'торшер', 'лампа', 'пуф')}
+        work = tempfile.mkdtemp(prefix='mesh-')
+        try:
+            res = P.generate(shape_img, work, seed=int(params.get('seed', 0)), params=pp, paint_image=PRE._paint_crop(shape_img), role=params.get('role'))
+            shutil.copy(res['glb'], path)
+            g = res.get('gpu') or {}
+            return {'stage_s': res['timings'], 'peak_vram_gb': max(g.get('shape_gb') or 0, g.get('paint_gb') or 0), 'gpu_pipeline': g, 'mode': res.get('mode', 'full')}
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+
 def backend():
-    return {'trellis2': Trellis2Backend, 'fake': FakeBackend}[os.environ.get('MODEL', 'trellis2')]()
+    return {'trellis2': Trellis2Backend, 'hunyuan21': Hunyuan21Backend, 'fake': FakeBackend}[os.environ.get('MODEL', 'trellis2')]()
 
 
 BACKEND = None

@@ -62,6 +62,17 @@ ok('карта — только RTX 4090', body['container']['resources']['gpu_c
 ok('приёмника на проде нет (ни MESH_SINK_URL, ни токена приёмника)', not any(k.startswith('MESH_SINK') for k in env))
 ok('шлюз с ключом Salad, порт 8000, проба готовности /ready, перезапуска нет', body['networking']['auth'] is True and body['networking']['port'] == 8000
    and body['readiness_probe']['http']['path'] == '/ready' and body['restart_policy'] == 'never' and body['replicas'] == 1 and body['autostart_policy'] is False)
+ok('пороги проб в пределах API Salad (failure_threshold ≤ 20 — иначе 400 при создании, поймано 18.11)', body['startup_probe']['failure_threshold'] <= 20 and body['readiness_probe']['failure_threshold'] <= 20)
+donor = {'container': {'image': 'ghcr.io/igortsk123/mesh-hunyuan@sha256:' + 'a' * 64, 'resources': {'cpu': 4, 'memory': 24576, 'storage_amount': 64424509440, 'shm_size': 64, 'gpu_classes': ['x', 'y']},
+                       'environment_variables': {'STAGED': '1', 'PIPELINE_VERSION': 'v2', 'MESH_SINK_URL': 'https://sink', 'MESH_SINK_TOKEN': 'SINKSECRET',
+                                                 'STORAGE_BACKEND': 'http', 'TQDM_DISABLE': '1'}}}
+hb = T.build_body('trial-hunyuan21-x', donor['container']['image'], 'high', 'hunyuan21', '', 8, 32768, 'note', {'basic': {}}, donor)
+henv = hb['container']['environment_variables']
+ok('контроль: приёмник и очередь боевой группы НЕ попадают в пробную (ни URL, ни токен)', not any(k.startswith('MESH_SINK') for k in henv) and 'SINKSECRET' not in json.dumps(hb))
+ok('контроль: боевые ручки образца (STAGED, PIPELINE_VERSION) сохранены, GPU — только 4090, ресурсы образца', henv.get('STAGED') == '1' and henv.get('PIPELINE_VERSION') == 'v2'
+   and hb['container']['resources']['gpu_classes'] == [T.CARD['class_id']] and hb['container']['resources']['memory'] == 24576)
+ok('контроль: код воркера едет в command + env TRIAL_WORKER_Z и распаковывается обратно в тот же файл',
+   hb['container']['command'][:3] == ['python', '-u', '-c'] and __import__('zlib').decompress(__import__('base64').b64decode(henv['TRIAL_WORKER_Z'])) == open(os.path.join(HERE, 'worker_trellis.py'), 'rb').read())
 buf = io.StringIO()
 real = sys.stdout
 sys.stdout = buf
@@ -139,7 +150,7 @@ class FakeGW:
 
 
 def args(tmp, **kw):
-    d = dict(model='trellis2', image='ghcr.io/x/y:t', inputs=tmp, skus=['a:1'], plan='1024:1', seed=42, decimation=500000, texture=2048, tier='high', cpu=8,
+    d = dict(donor='mesh-q-low-1', set=None, fail_streak=2, model='trellis2', image='ghcr.io/x/y:t', inputs=tmp, skus=['a:1'], plan='1024:1', seed=42, decimation=500000, texture=2048, tier='high', cpu=8,
              mem_mb=32768, cap=3.0, max_min=90, ready_min=40, job_timeout=15, suffix='t1', out=os.path.join(tmp, 'out'), apply=True, stop_only=False)
     d.update(kw)
     return types.SimpleNamespace(**d)
