@@ -30,7 +30,7 @@ sys.path[:0] = [HERE, os.path.join(HERE, 'render_gpu'), os.path.join(HERE, 'sala
 
 STATUS_FILE = os.environ.get('RENDER_PREWARM_STATUS') or os.path.expanduser('~/scout-cache/render-prewarm.json')
 DEMO_DATA = os.environ.get('DEMO_DATA_FILE') or os.path.expanduser('~/scout-scenes/flat215-demo/demo-data.json')
-DEFAULTS = {'day_share': 0.6, 'interval_s': 300, 'start_delay_s': 90, 'batch': 4, 'tours_max': 0, 'fail_max': 2, 'off_idle_s': 120}
+DEFAULTS = {'day_share': 0.6, 'interval_s': 300, 'start_delay_s': 90, 'batch': 4, 'tours_max': 0, 'fail_max': 2, 'off_idle_s': 120, 'hot_refresh': 1}
 WARMUP_COST_MIN = 5.0          # прогрев машины — платный: закладываем в расчёт, когда она выключена
 
 
@@ -46,6 +46,8 @@ class Prewarmer:
         self.noted: set = set()                # ключи, брак которых уже записан в журнал (строка — один раз на ключ и версию сторожа)
         self.on_tries: dict = {}               # дата по Лондону → сколько раз включали машину
         self.status: dict = {'state': 'start', 'ts': 0}
+        self.hot_key = None                    # под какими версиями рендера и данными витрины горячий список приёмника записан в последний раз (T-20261118-09/8)
+        self.hot_fn = None                     # подмена для проверок: (исполнитель) → код выхода showcase_assets
 
     # ——— что считать
     def rules(self) -> dict:
@@ -242,6 +244,37 @@ class Prewarmer:
                         f'Заготовка кадров: готово {got} из {len(sent)} за {round(self.now() - t0)} с, без кадров осталось {remain} из {total}, расход дня ${spent2:.2f}.' + bad_note + off,
                         total=total, missing=remain, got=got, brak=len(bad), sec=round(self.now() - t0), spent_usd=round(spent2, 3))
 
+    def refresh_hot(self, pw: dict) -> str:
+        """ГОРЯЧИЙ СПИСОК (T-20261118-09/8): ассеты витрины для подогрева кэша машины — `showcase_assets.py --demo-only` — перезаписывается, когда сменились версии рендера или данные
+        витрины (раньше — только при перевыпуске туров; после выкладки кода/ximg 18.11 список остался от 03:46Z, и первый заказ на только что включённой машине докачивал 17–31 ассет
+        сам: программа рендера, данные, текстуры). Один раз на ключ (версии + время `demo-data.json`), в фоне между проходами; сцены берутся из кэша подготовки — дёшево.
+        Сбой (код 2: приёмник/нечего писать) ключ не закрепляет — повтор на следующем проходе. Выключить: `prewarm.hot_refresh: 0`. → '' | 'ok' | 'fail' | 'skip'."""
+        if not int(pw.get('hot_refresh', 1)):
+            return 'skip'
+        try:
+            dm = os.path.getmtime(DEMO_DATA)
+        except OSError:
+            dm = 0
+        key = json.dumps(self.versions, sort_keys=True, default=str) + f'|{dm:.0f}'
+        if key == self.hot_key:
+            return ''
+        ex = getattr(self.ex, 'primary', self.ex)
+        try:
+            if self.hot_fn is not None:
+                rc = self.hot_fn(ex)
+            else:
+                import showcase_assets as SA
+                rc = SA.main(['--demo-only'], ex=ex)
+        except BaseException as e:  # noqa: BLE001 — сбой списка не роняет заготовку кадров
+            self.log(f'заготовка: горячий список не записан ({e!r})')
+            return 'fail'
+        if rc in (0, 1):
+            self.hot_key = key
+            self.log(f'заготовка: горячий список витрины обновлён (код {rc})')
+            return 'ok'
+        self.log(f'заготовка: горячий список не записан (код {rc}) — повтор на следующем проходе')
+        return 'fail'
+
     def run_forever(self) -> None:
         rr = self.rules()
         self.sleep(float(rr['pw']['start_delay_s']))
@@ -254,6 +287,10 @@ class Prewarmer:
                     self.put('error', f'Заготовка кадров: сбой прохода ({type(e).__name__}).')
                 except Exception:  # noqa: BLE001
                     pass
+            try:
+                self.refresh_hot(self.rules()['pw'])
+            except Exception as e:  # noqa: BLE001
+                self.log(f'заготовка: обновление горячего списка — сбой {e!r}')
             self.sleep(float(self.rules()['pw']['interval_s']))
 
     def start(self) -> threading.Thread:

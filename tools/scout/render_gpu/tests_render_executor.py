@@ -1554,6 +1554,22 @@ ok('линейка: опросы result/progress схлопнуты (×3, сум
    abs(ops_['опрос result ×3']['s'] - 0.6) < 0.01 and 'опрос progress ×3' in ops_ and abs(ops_['PUT job.json']['s'] - 0.5) < 0.01
    and abs(ops_['DELETE']['t'] - 1.7) < 0.01 and abs(sn_['marks']['result_seen'] - 1.7) < 0.01)
 
+# БРОШЕННАЯ ОТПРАВКА (T-20261118-09/8): каталог без job.json старше ABORT_S воркер пропускает навсегда (один раз проверил), следующее задание берётся
+sinkAb = FakeSink()
+sinkAb.put('renderjobs/old1/bundle-x.tgz', b'x')
+sinkAb.mtime['renderjobs/old1/bundle-x.tgz'] = time.time() - 600
+sinkAb.put('renderjobs/new1/bundle-x.tgz', b'x')                       # свежая отправка (job.json ещё не пришёл) — не брошена
+sinkAb.put('renderjobs/new1/job.json', b'{"v": 1}')
+wAb = new_worker(sinkAb)
+got1 = wAb.pick()
+lsn = sum(1 for e in sinkAb.log if e[0] == 'ls')
+got2 = wAb.pick()
+ok('pick: брошенный каталог (без job.json, старше 2 мин) пропущен и запомнен; свежее задание берётся', got1 == 'new1' and 'old1' in wAb.done and got2 == 'new1')
+sinkAb2 = FakeSink()
+sinkAb2.put('renderjobs/fresh/bundle-x.tgz', b'x')
+ok('pick: свежая отправка без job.json (идёт загрузка) не помечается брошенной', new_worker(sinkAb2).pick() is None and 'fresh' not in new_worker(sinkAb2).done)
+ok('worker: константы — HOT_PAR 4, ABORT_S 120 с', RW.HOT_PAR == 4 and RW.ABORT_S == 120)
+
 shutil.rmtree(TMP, ignore_errors=True)
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')
 sys.exit(1 if BAD else 0)
