@@ -792,7 +792,10 @@ class H(BaseHTTPRequestHandler):
         except RS.SnapshotError as e:
             return self._send(e.status, e.body())
         marks.append(('снимок', time.time()))
-        key = RX.cache_key(snap['scene_hash'], cy['versions'])
+        try:
+            key = RX.frame_key_of(snap, cy['versions'])
+        except RX.RenderError as e:       # ключ v2: сцене не хватает файла — отказ с понятным кодом, не пустой ключ
+            return self._send(409, {'error': e.ru, 'error_en': e.en, 'code': e.code})
         if check:
             meta = cy['store'].cached(key)
             # КАДРЫ ГОТОВОГО (T-20261118-20/12): страница показывает кадр заготовки в «Фото» без заказа — два адреса и sha256 (для «Улучшить из рендера»), как у готового задания

@@ -1,0 +1,373 @@
+#!/usr/bin/env python3
+"""ВХОД РЕНДЕРА КОМНАТЫ V2 И КЛЮЧ КАДРА ПО КОМНАТЕ (T-20261118-04/16/1, план `render-key-01`, этап 1; Codex `_intake/codex/2026-11-18-render-key-answer.md`).
+
+Три разные вещи (раньше слитые в один `scene_hash`):
+  метка выкладки (`data['build']`, git, правила экрана) — происхождение; в ключ кадра НЕ входит;
+  scene_digest — отпечаток СЦЕНЫ ОДНОЙ комнаты: её полная проекция, выбранные предметы и декор, камеры + sha256 файлов, которые сцена реально читает;
+  frame_key — scene_digest + программа рендера (renderer_digest) + пресет (preset_digest). Пространство кэша `room-frame/v2`; старый кэш v2 не считается.
+
+  RenderInputV2 = {'schema', 'scene', 'assets'}:
+    scene   — комната (всё, кроме названия), стиль, предметы и декор (всё, кроме цен, ссылок магазина, английских подписей), позы C1/C2, `soft_roles`.
+              Порядок предметов НЕ сортируется (рендерер получает его как есть; сортировать можно только после устойчивых slot_id — этап 2).
+    assets  — отсортированный список {kind, logical, sha256}: меш каждого предмета и декора, фото-текстуры (`img`, `img_art`), окружение (`outside.webp`),
+              вид за окном (только выбранный), карты материалов отделки стен и пола (`finish-wall`, `finish-floor`, акцентная стена по стилю — запись и файлы),
+              растения-кандидаты носителей комнаты (запись и GLB). Нет файла — `sha256: None` и строка в `missing` (ключ в строгом режиме откажет).
+  Растение выбирает страница по геометрии горла носителя (`lib/viewer3d/kits/plants.ts:pickPlant`), поэтому до сборки сцены точный выбор неизвестен:
+  объявляем ВСЕХ кандидатов подходящего типа и стиля (надмножество). Точный выбор и сверка фактического пакета — этап 2.
+  renderer_digest — код программы рендера БЕЗ каталогов-данных: JS (`lib/viewer3d`, `lib/configurator`, выгрузчик, `data/flat3d/*.json`, где из `plants.json` убраны
+              записи растений, а из `materials.json` — записи отделки: они едут активами комнат) + замыкание Python-импортов выгрузчика и Blender-скрипта + контракт + Blender.
+  preset_digest — эффективный пресет (без `_doc`, `limits`, `min_gb`).
+
+Сторож чтений (`check_reads`): дампер пишет `dump/reads.json` — {url, sha256, kind} каждого файла, что страница взяла; чтение вне `assets` комнаты, с другим sha256 или из сети — нарушение.
+Самопроверка (без Blender и браузера): `python tools/scout/render_input.py --selftest`; на живых 16 вариантах: `--live`.
+"""
+import ast
+import hashlib
+import json
+import os
+import re
+import threading
+import time
+
+import scene_inputs as SI
+
+SPACE = 'room-frame/v2'
+INPUT_VERSION = 2
+SCENE_PREFIX = 'room-scene/v2\0'
+HERE = os.path.dirname(os.path.abspath(__file__))
+PROBE = os.path.join(HERE, 'cycles_probe')
+
+# коммерческие и справочные поля карточки: цена, ссылка, магазин, английские подписи — картинку не меняют
+SKU_DROP = frozenset({'price', 'price_at', 'price_basis', 'url', 'shop', 'basis', 'name_en', 'colour_en', 'fam', 'dims_by', 'style_from'})
+ROOM_DROP = frozenset({'title'})
+FINISH_IDS = ('finish-wall', 'finish-floor')           # `lib/viewer3d/finish-textures.ts:IDS`
+MATERIAL_URL_KEYS = ('baseColorUrl', 'baseColorLiteUrl', 'normalUrl', 'roughnessUrl', 'aoUrl', 'heightUrl', 'variationUrl', 'previewUrl')
+_LOCK = threading.Lock()
+_MEMO: dict = {}
+TTL_S = 20.0
+
+
+class MissingInput(Exception):
+    """В строгом режиме: у сцены нет файла, который она читает — ключ не считаем (кадр под неверным ключом хуже отсутствующего)."""
+
+    def __init__(self, missing: list):
+        super().__init__('нет файлов входа рендера: ' + ', '.join(missing[:8]))
+        self.missing = missing
+
+
+def repo() -> str:
+    return os.environ.get('RENDER_INPUT_REPO') or os.path.abspath(os.path.join(HERE, '..', '..'))
+
+
+def canon(o) -> str:
+    return json.dumps(o, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+
+
+def sha(x) -> str:
+    return hashlib.sha256(x if isinstance(x, bytes) else x.encode()).hexdigest()
+
+
+def v2_on() -> bool:
+    """Переключатель кэша кадров на v2 (включает директор после приёмки): `RENDER_KEY_V2=1`."""
+    return os.environ.get('RENDER_KEY_V2', '0') == '1'
+
+
+# ——— данные-каталоги (читаются как данные, не как код)
+def _data_json(name: str) -> dict:
+    try:
+        with open(os.path.join(repo(), 'data', 'flat3d', name), encoding='utf-8') as f:
+            d = json.load(f)
+            return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def accent_id(style) -> str | None:
+    """Акцентная стена по стилю (`finish-textures.ts:ACCENT_BY_STYLE`): стиль → поверхность → id материала."""
+    cfg = _data_json('finish-cc0.json')
+    surface = ((cfg.get('accentWalls') or {}).get('styles') or {}).get(str(style or '').lower())
+    return ((cfg.get('surfaces') or {}).get(surface) or {}).get('id') if surface else None
+
+
+def _material_ids() -> set:
+    cfg = _data_json('finish-cc0.json')
+    ids = {(s or {}).get('id') for s in (cfg.get('surfaces') or {}).values()}
+    ids |= {(cfg.get('surfaces') or {}).get(s, {}).get('id') for s in ((cfg.get('accentWalls') or {}).get('styles') or {}).values()}
+    return {i for i in ids if i} | set(FINISH_IDS)
+
+
+# ——— сцена
+def _sku(sku: dict) -> dict:
+    return {k: v for k, v in (sku or {}).items() if k not in SKU_DROP}
+
+
+def _entry(o: dict) -> dict:
+    out = {k: v for k, v in o.items() if k != 'sku'}
+    if isinstance(o.get('sku'), dict):
+        out['sku'] = _sku(o['sku'])
+    return out
+
+
+def scene_of(room: dict, variant: dict, cams: list, rules: dict | None = None) -> dict:
+    sr = (rules or {}).get('soft_roles')
+    return {'room': {k: v for k, v in (room or {}).items() if k not in ROOM_DROP}, 'style': variant.get('style') or '',
+            'items': [_entry(i) for i in variant.get('items') or []], 'decor': [_entry(d) for d in variant.get('decor') or []],
+            'cams': cams, 'soft_roles': sr if isinstance(sr, list) else None}
+
+
+# ——— файлы, которые сцена читает
+def _asset(kind: str, logical: str, path: str | None, out: list, extra: dict | None = None) -> None:
+    s = SI.full_sha(path) if path else ''
+    out.append({'kind': kind, 'logical': logical, 'sha256': s or None, **(extra or {})})
+
+
+def _rec_asset(kind: str, logical: str, rec: dict | None, out: list) -> None:
+    out.append({'kind': kind, 'logical': logical, 'sha256': sha(canon(rec)) if rec else None})
+
+
+NO_MESH = frozenset({'procedural_plane', 'textile_abstract'})       # ковёр/картина/зеркало и ткань рисуются процедурно: файла меша у них часто нет, хоть `msid` в данных и есть
+
+
+def _mesh_sid(row: dict, decor: bool) -> tuple:
+    """→ (sid меша | None, обязателен ли файл). У процедурных (ковёр, ткань) файл не обязателен, но если он лежит на диске, страница его может взять (подушка) — тогда он в ключе."""
+    import asset_strategy as AS
+    sku = row.get('sku') or {}
+    optional = (row.get('strategy') or AS.strategy(row.get('role'))) in NO_MESH
+    sid = sku.get('msid') or (None if decor else sku.get('sid'))
+    return (str(sid), not optional) if sid else (None, False)
+
+
+def assets_of(scene: dict) -> list:
+    out: list = []
+    seen: set = set()
+
+    def once(key) -> bool:
+        if key in seen:
+            return False
+        seen.add(key)
+        return True
+    for decor, rows in ((False, scene['items']), (True, scene['decor'])):
+        for r in rows:
+            sku = r.get('sku') or {}
+            sid, need = _mesh_sid(r, decor)
+            if sid and once(('mesh', sid)) and (need or SI.mesh_file(sid)):
+                _asset('mesh', f'mesh:{sid}', SI.mesh_file(sid), out)
+            for k in ('img', 'img_art'):
+                rel = sku.get(k)
+                if rel and once(('img', rel)):
+                    _asset('img', f'img:{rel}', SI.img_file(rel), out)
+    room, style = scene['room'], scene['style']
+    _asset('env', 'env:outside', SI.public_file('flat3d/env/outside.webp'), out)
+    view = room.get('window_view')
+    if view and re.fullmatch(r'[A-Za-z0-9._-]+', str(view)):
+        _asset('view', f'view:{view}', SI.public_file(f'scene/views/{view}.webp'), out)
+    # материалы отделки: записи finish-wall / finish-floor и акцентной стены стиля + их карты
+    mats = {m.get('id'): m for m in (_data_json('materials.json').get('materials') or []) if isinstance(m, dict)}
+    base = str(_data_json('materials.json').get('baseUrl') or '/flat3d/materials/')
+    want = list(FINISH_IDS) + ([accent_id(style)] if accent_id(style) else [])
+    for mid in want:
+        rec = mats.get(mid)
+        _rec_asset('material-record', f'material-record:{mid}', rec, out)
+        for k in MATERIAL_URL_KEYS:
+            v = (rec or {}).get(k)
+            if isinstance(v, str) and once(('mat', v)):
+                rel = v.lstrip('/') if re.match(r'^https?:|^/', v) and not v.startswith('http') else (base.strip('/') + '/' + v)
+                _asset('material-map', f'material:{os.path.basename(v)}', SI.public_file(rel), out)
+    # растения: кандидаты носителей комнаты (тип — по роли носителя, стиль — any или стиль варианта)
+    pl = _data_json('plants.json')
+    hosts = pl.get('hosts') or {}
+    base_role = lambda r: re.sub(r'\s+\d+$', '', str(r or '').strip())  # noqa: E731
+    kinds = {hosts[base_role(r.get('role'))] for r in list(scene['items']) + list(scene['decor']) if base_role(r.get('role')) in hosts}
+    styles = {str(style).lower()} | {str(x).lower() for x in (scene.get('style_id'),) if x}
+    for p in pl.get('plants') or []:
+        if p.get('kind') not in kinds:
+            continue
+        if 'any' not in (p.get('styles') or []) and not styles & {str(s).lower() for s in p.get('styles') or []}:
+            continue
+        _rec_asset('plant-record', f"plant-record:{p['id']}", p, out)
+        if once(('plant', p['id'])):
+            _asset('plant', f"plant:{p['id']}", SI.public_file(f"flat3d/plants/{p['id']}.glb"), out)
+    out.sort(key=lambda a: (a['kind'], a['logical']))
+    return out
+
+
+def build(room: dict, variant: dict, cams: list, rules: dict | None = None) -> dict:
+    """RenderInputV2 комнаты → {'schema', 'scene', 'assets', 'missing', 'digest'} (digest — scene_digest, 64 hex)."""
+    scene = scene_of(room, variant, cams, rules)
+    scene_for_assets = dict(scene, style_id=variant.get('style_id'))
+    assets = assets_of(scene_for_assets)
+    missing = [a['logical'] for a in assets if not a['sha256']]
+    body = {'schema': SPACE, 'scene': scene, 'assets': assets}
+    return {**body, 'missing': missing, 'digest': sha(SCENE_PREFIX + canon(body))}
+
+
+# ——— программа рендера и пресет
+def _py_closure(starts: list, roots: list) -> list:
+    """Файлы репозитория, до которых доходят импорты `starts` (статический разбор, без запуска): [(относительный путь, путь)]."""
+    seen: dict = {}
+    todo = [p for p in starts if os.path.isfile(p)]
+
+    def find(mod: str, base_dir: str | None, level: int) -> list:
+        parts = mod.split('.') if mod else []
+        bases = [base_dir] if level else roots
+        if level:
+            for _ in range(level - 1):
+                bases = [os.path.dirname(bases[0])]
+        res = []
+        for b in bases:
+            if not b:
+                continue
+            for cand in (os.path.join(b, *parts) + '.py', os.path.join(b, *parts, '__init__.py')):
+                if parts and os.path.isfile(cand):
+                    res.append(cand)
+            for i in range(1, len(parts)):                      # пакеты по пути
+                init = os.path.join(b, *parts[:i], '__init__.py')
+                if os.path.isfile(init):
+                    res.append(init)
+        return res
+    while todo:
+        p = todo.pop()
+        if p in seen:
+            continue
+        seen[p] = True
+        try:
+            tree = ast.parse(open(p, encoding='utf-8').read())
+        except (OSError, SyntaxError, ValueError):
+            continue
+        for n in ast.walk(tree):
+            mods: list = []
+            if isinstance(n, ast.Import):
+                mods = [(a.name, 0) for a in n.names]
+            elif isinstance(n, ast.ImportFrom):
+                mods = [(n.module or '', n.level)] + [((n.module + '.' if n.module else '') + a.name, n.level) for a in n.names]
+            for m, lv in mods:
+                for f in find(m, os.path.dirname(p), lv):
+                    if f not in seen:
+                        todo.append(f)
+    r = repo()
+    return sorted((os.path.relpath(p, r), p) for p in seen)
+
+
+def _js_files() -> list:
+    r = repo()
+    out = []
+    for sub in ('lib/viewer3d', 'lib/configurator'):
+        for dp, dn, fs in os.walk(os.path.join(r, sub)):
+            dn.sort()
+            out += [os.path.join(dp, f) for f in sorted(fs) if f.endswith(('.ts', '.tsx', '.json'))]
+    for f in ('demo_scene_entry.ts', 'build_entry.mjs', 'demo_scene_dump.mjs', 'file_sig.mjs'):
+        out.append(os.path.join(r, 'tools', 'scout', 'cycles_probe', f))
+    d = os.path.join(r, 'data', 'flat3d')
+    for dp, dn, fs in os.walk(d):
+        dn[:] = sorted(x for x in dn if x != 'plants')            # каталоги исходников растений — не код программы (растения едут активами комнат)
+        out += [os.path.join(dp, f) for f in sorted(fs) if f.endswith('.json')]
+    return out
+
+
+def _program_json(path: str) -> str:
+    """Каталоги-данные в коде программы: без записей, что едут активами комнат (растения, материалы отделки); `runtime-meshes.json` — метаданные, картинку не меняет."""
+    name = os.path.basename(path)
+    if name == 'runtime-meshes.json':
+        return 'skip'
+    try:
+        d = json.load(open(path, encoding='utf-8'))
+    except (OSError, ValueError):
+        return SI.full_sha(path)
+    if name == 'plants.json' and isinstance(d, dict):
+        d = {k: v for k, v in d.items() if k not in ('plants', 'rev')}
+    elif name == 'materials.json' and isinstance(d, dict):
+        ids = _material_ids()
+        d = {k: v for k, v in d.items() if k not in ('materials', '_seal')}
+        d['materials_other'] = sorted(canon(m) for m in _data_json('materials.json').get('materials') or [] if isinstance(m, dict) and m.get('id') not in ids)
+    return sha(canon(d))
+
+
+def renderer_parts(blender: str = '') -> dict:
+    key = ('parts', repo(), blender)
+    with _LOCK:
+        hit = _MEMO.get(key)
+    if hit and time.time() - hit[0] < TTL_S:
+        return hit[1]
+    r = repo()
+    js = []
+    for p in _js_files():
+        rel = os.path.relpath(p, r)
+        s = _program_json(p) if os.path.dirname(rel) == os.path.join('data', 'flat3d') and os.path.basename(p) in ('plants.json', 'materials.json', 'runtime-meshes.json') else SI.full_sha(p)
+        if s != 'skip':
+            js.append(f'{rel}:{s}')
+    roots = [os.path.join(r, 'tools', 'scout', 'cycles_probe'), os.path.join(r, 'tools', 'scout'), os.path.join(r, 'services', 'planner-solver')]
+    starts = [os.path.join(roots[0], n) for n in ('export_scene.py', 'render_cycles.py', 'export_server.py')]
+    py = [f'{rel}:{SI.full_sha(p)}' for rel, p in _py_closure(starts, roots)]
+    m = re.search(r'SCENE_EXPORT_VERSION\s*=\s*(\d+)', _read(os.path.join(r, 'lib', 'viewer3d', 'scene-export.ts')))
+    parts = {'js': sha('\n'.join(js)), 'py': sha('\n'.join(py)), 'scene_export': m.group(1) if m else '', 'input': INPUT_VERSION, 'blender': blender,
+             'n_js': len(js), 'n_py': len(py)}
+    with _LOCK:
+        _MEMO[key] = (time.time(), parts)
+    return parts
+
+
+def _read(p: str) -> str:
+    try:
+        return open(p, encoding='utf-8').read()
+    except OSError:
+        return ''
+
+
+def renderer_digest(blender: str = '') -> str:
+    p = renderer_parts(blender)
+    return sha(canon({k: v for k, v in p.items() if not k.startswith('n_')}))
+
+
+def preset_digest(preset: dict) -> str:
+    return sha(canon({k: v for k, v in preset.items() if k not in ('_doc', 'limits', 'min_gb')}))
+
+
+def clear_memo() -> None:
+    with _LOCK:
+        _MEMO.clear()
+
+
+def frame_key(scene_digest: str, renderer: str, preset: str) -> str:
+    """Ключ кадров комнаты: 32 hex (как раньше — адреса кадров `/render/cycles/frame/<32 hex>/C1.jpg`), из полного SHA-256 по `room-frame/v2`."""
+    return sha(f'{SPACE}\0{scene_digest}\0{renderer}\0{preset}')[:32]
+
+
+# ——— сторож чтений дампера
+_URL_RULES = (
+    (re.compile(r'^/test/mesh-pilot10/([^/]+)/model\.glb$'), lambda m: f'mesh:{m.group(1)}'),
+    (re.compile(r'^/demo/(img/[A-Za-z0-9._-]+)$'), lambda m: f'img:{m.group(1)}'),
+    (re.compile(r'^/flat3d/materials/([A-Za-z0-9._-]+)$'), lambda m: f'material:{m.group(1)}'),
+    (re.compile(r'^/flat3d/plants/([A-Za-z0-9._-]+)\.glb$'), lambda m: f'plant:{m.group(1)}'),
+    (re.compile(r'^/flat3d/env/outside\.webp$'), lambda m: 'env:outside'),
+    (re.compile(r'^/scene/views/([A-Za-z0-9._-]+)\.webp$'), lambda m: f'view:{m.group(1)}'),
+)
+
+
+def logical_of(url: str) -> str | None:
+    u = url.split('?')[0]
+    for rx, f in _URL_RULES:
+        m = rx.match(u)
+        if m:
+            return f(m)
+    return None
+
+
+def check_reads(inp: dict, reads: dict) -> list:
+    """Чтения дампера против входа комнаты → список нарушений (пусто — чисто). `reads` — содержимое `dump/reads.json`."""
+    declared = {a['logical']: a for a in inp['assets']}
+    bad = []
+    for r in (reads or {}).get('reads') or []:
+        url = str(r.get('url') or '')
+        if r.get('kind') == 'remote':
+            bad.append(f'сеть: {url}')
+            continue
+        if r.get('kind') == 'pinned':                       # зафиксированная таблица runtime-мешей (метаданные, не картинка)
+            continue
+        lg = logical_of(url)
+        if lg is None:
+            bad.append(f'неизвестный адрес: {url}')
+        elif lg not in declared:
+            bad.append(f'вне входа: {lg}')
+        elif declared[lg]['sha256'] != r.get('sha256'):
+            bad.append(f'другой файл: {lg} (в ключе {str(declared[lg]["sha256"])[:10]}, прочитан {str(r.get("sha256"))[:10]})')
+    return bad

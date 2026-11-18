@@ -313,8 +313,13 @@ def canonicalize(data: dict, req: dict, source: str = 'demo') -> dict:
     variant = {k: copy.deepcopy(v) for k, v in base.items() if k not in ('items', 'decor', 'cams')}
     variant.update(items=items, decor=decor, cams=cams)
     sr = (data.get('rules') or {}).get('soft_roles')
-    return {'v': SNAPSHOT_VERSION, 'source': source, 'scene_hash': scene_hash, 'variant': variant, 'room': dict(room), 'brief': brief,
-            'rules': {'soft_roles': sr} if isinstance(sr, list) else {}}
+    rules = {'soft_roles': sr} if isinstance(sr, list) else {}
+    # КЛЮЧ ПО КОМНАТЕ (T-20261118-04/16/1): вход рендера v2 — отпечаток сцены этой комнаты без метки выкладки и правил экрана (`render_input.py`).
+    # Включён `RENDER_KEY_V2` — `scene_hash` и есть этот отпечаток (его видят задания, кэш подготовки, meta); выключен — прежний `scene_hash`, v2 лежит рядом (`scene_digest`).
+    import render_input as RI
+    fi = RI.build(room, variant, cams, rules)
+    return {'v': SNAPSHOT_VERSION, 'source': source, 'scene_hash': fi['digest'] if RI.v2_on() else scene_hash, 'legacy_hash': scene_hash, 'scene_digest': fi['digest'],
+            'frame_inputs': {k: fi[k] for k in ('schema', 'scene', 'assets', 'missing')}, 'variant': variant, 'room': dict(room), 'brief': brief, 'rules': rules}
 
 
 def synthetic_data(data: dict, snap: dict) -> dict:

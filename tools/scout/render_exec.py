@@ -138,10 +138,19 @@ def render_version(blender: str = '') -> dict:
         exp_ver = m.group(1) if m else ''
     except OSError:
         pass
-    return {'preset': _sha(PRESET_FILE), 'render_cycles': _sha(os.path.join(PROBE, 'render_cycles.py')),
-            'export_scene': _sha(os.path.join(PROBE, 'export_scene.py')), 'dump': _sha(os.path.join(PROBE, 'demo_scene_dump.mjs'),
-                                                                                    os.path.join(PROBE, 'demo_scene_entry.ts')),
-            'scene_export': exp_ver, 'blender': os.path.basename(os.path.dirname(blender)) if blender else ''}
+    out = {'preset': _sha(PRESET_FILE), 'render_cycles': _sha(os.path.join(PROBE, 'render_cycles.py')),
+           'export_scene': _sha(os.path.join(PROBE, 'export_scene.py')), 'dump': _sha(os.path.join(PROBE, 'demo_scene_dump.mjs'),
+                                                                                   os.path.join(PROBE, 'demo_scene_entry.ts')),
+           'scene_export': exp_ver, 'blender': os.path.basename(os.path.dirname(blender)) if blender else ''}
+    if key_v2_on():       # КЛЮЧ КАДРА ПО КОМНАТЕ (T-20261118-04/16/1): программа без каталогов-данных + эффективный пресет; прежние поля остаются для показа и ключа подготовки сцены
+        import render_input as RI
+        out.update(space=RI.SPACE, renderer_digest=RI.renderer_digest(out['blender']), preset_digest=RI.preset_digest(preset()))
+    return out
+
+
+def key_v2_on() -> bool:
+    """Ключ кадров v2 (`room-frame/v2`, `render_input.py`): `RENDER_KEY_V2=1`. Выключен — всё как раньше (`scene_hash` с меткой выкладки). Включает директор после приёмки."""
+    return os.environ.get('RENDER_KEY_V2', '0') == '1'
 
 
 def prep_fast() -> bool:
@@ -190,9 +199,23 @@ def parse_trace(text: str) -> dict:
 
 
 def cache_key(scene_hash: str, versions: dict) -> str:
-    """Ключ кэша кадров: хеш снимка + все версии рендера. Сменилось любое — кадры считаются заново."""
+    """Ключ кэша кадров: хеш снимка + все версии рендера. Сменилось любое — кадры считаются заново.
+    `versions` с `space = room-frame/v2` (включён `RENDER_KEY_V2`): `scene_hash` — это scene_digest комнаты; ключ = digest + программа + пресет (`render_input.frame_key`)."""
+    if versions.get('space') == 'room-frame/v2':
+        import render_input as RI
+        return RI.frame_key(scene_hash, versions['renderer_digest'], versions['preset_digest'])
     raw = scene_hash + '|' + json.dumps(versions, sort_keys=True)
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
+
+
+def frame_key_of(snap: dict, versions: dict) -> str:
+    """Ключ кадров комнаты по снимку заказа (одна точка для страницы, заказа и заготовки). v2: нет файла, который сцена читает, — отказ (`inputs_missing`), не пустой хеш."""
+    if versions.get('space') == 'room-frame/v2':
+        miss = (snap.get('frame_inputs') or {}).get('missing')
+        if miss:
+            raise RenderError('inputs_missing', 'Для фото не хватает файлов сцены. Попробуйте позже.', 'Some scene files are missing for the photo. Try again later.')
+        return cache_key(snap['scene_digest'], versions)
+    return cache_key(snap['scene_hash'], versions)
 
 
 # ——— процессы: таймаут, память, остановка дерева
@@ -940,6 +963,11 @@ class SceneExecutor:
         """Шаги 1–2: данные варианта → `export_scene.py` (job/scene) → `demo_scene_dump.mjs` (job/dump). → каталог dump."""
         lim = pr['limits']
         t1 = time.time()
+        fi = snap.get('frame_inputs') or {}
+        v2 = key_v2_on() and bool(fi)
+        if v2 and fi.get('missing'):       # ключ v2: нет файла, который сцена читает — отказ ДО подготовки (иначе кадр лёг бы под ключом без этого файла)
+            raise RenderError('inputs_missing', 'Для фото не хватает файлов сцены. Попробуйте позже.', 'Some scene files are missing for the photo. Try again later.')
+        key_in = hashlib.sha256(json.dumps(fi.get('assets'), sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:24] if v2 else ''
         # 1) данные одного варианта → меши и камеры
         data = {'room': snap['room'], 'rooms_geo': {snap['variant'].get('room_id') or 'living': snap['room']},
                 'rules': snap.get('rules') or {}, 'apartment_id': snap['brief'].get('apartment'), 'build': snap['brief'].get('build'),
@@ -957,7 +985,7 @@ class SceneExecutor:
 
         def do_dump():
             t2 = time.time()
-            self._dump_cached(data_path, bundle, dump, dlog, pr, lim)
+            self._dump_cached(data_path, bundle, dump, dlog, pr, lim, key_in)
             timing_d['dump'] = round(time.time() - t2, 1)
 
         def do_export():
@@ -995,6 +1023,8 @@ class SceneExecutor:
             if e is not None:
                 raise e
         check_ximg(dump)                                   # манифест картинок декора сходится с файлами (ximg), иначе отказ до отправки
+        if v2:
+            check_dump_reads(dump, fi)                     # сторож чтений: страница читала только то, что в ключе кадра (T-20261118-04/16/1)
         timing['export'] = round(time.time() - t1, 1)      # оба шага параллельно: стена времени
         timing['dump'] = timing_d.get('dump', 0.0)
         timing['export_py'] = timing_d.get('export_py', 0.0)
@@ -1014,7 +1044,7 @@ class SceneExecutor:
             pass
         return dump
 
-    def _dump_cached(self, data_path: str, bundle: str, dump: str, dlog: str, pr: dict, lim: dict) -> None:
+    def _dump_cached(self, data_path: str, bundle: str, dump: str, dlog: str, pr: dict, lim: dict, key_in: str = '') -> None:
         """Дамп сцены (Chromium, ~9 с) — кэш по хешу входа: данные варианта + сборка выгрузчика + режим. Повтор того же варианта — копия файлов (жёсткие ссылки)."""
         # по СОДЕРЖИМОМУ сборки выгрузчика (sha entry.js), не по имени каталога (имя — от пути и времени файлов: пересборка без правок кода кэш не терялась) — решение директора 18.11;
         # быстрый режим (`RENDER_PREP_FAST`) и содержимое файлов окружения, что страница читает с диска (`scene_inputs.env_sha`), — в хеш: смена режима/картинки — новый дамп
@@ -1024,7 +1054,7 @@ class SceneExecutor:
             bsha = os.path.basename(bundle)
         import scene_inputs as _SI
         h = hashlib.sha256(open(data_path, 'rb').read() + b'|' + bsha.encode() + b'|' + str(pr['dumpExport']).encode() + b'|' + b'fast=' + str(int(prep_fast())).encode()
-                           + b'|' + _SI.env_sha().encode() + (b'|ximg=1' if ximg_on() else b'')).hexdigest()[:24]
+                           + b'|' + _SI.env_sha().encode() + (b'|ximg=1' if ximg_on() else b'') + (b'|v2=' + key_in.encode() if key_in else b'')).hexdigest()[:24]
         root = os.environ.get('RENDER_DUMP_CACHE') or os.path.expanduser('~/scout-cache/render-dump')
         hit = os.path.join(root, h)
         if os.path.isfile(os.path.join(hit, '.ok')):
@@ -1041,7 +1071,7 @@ class SceneExecutor:
                     shutil.copyfile(os.path.join(hit, f), os.path.join(dump, f))
             os.utime(os.path.join(hit, '.ok'))
             return
-        extra = ['export=' + pr['dumpExport'], *([] if prep_fast() else ['local=0', 'settle=0']), *(['ximg=1'] if ximg_on() else [])]
+        extra = ['export=' + pr['dumpExport'], *([] if prep_fast() else ['local=0', 'settle=0']), *(['ximg=1'] if ximg_on() else []), *(['hermetic=1'] if key_in else [])]
         one_shot = lambda: run_step([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), data_path, '0', bundle, dump, *extra], dlog,  # noqa: E731
                                     lim['dumpSec'], lim['maxRssGb'], what='декор и отделка')
         if prep_fast() and persistent_on():                        # постоянный Chromium со страницей: без запуска и без повторного разбора мешей; сбой (не время) — отдельным процессом, как раньше
@@ -1101,6 +1131,8 @@ class SceneExecutor:
         timing['total'] = round(time.time() - t0, 1)
         meta = {'scene_hash': snap['scene_hash'], 'snapshot_version': snap['v'], 'size': size, 'sha': sha, 'versions': self.versions(), 'timing': timing,
                 'executor': self.name, 'ts': int(time.time()), 'source': snap.get('source')}
+        if snap.get('scene_digest') and self.versions().get('space'):       # ключ v2: что лежит под ключом — отпечаток сцены и версии программы (сверка принятого кадра — этап 2)
+            meta.update(space=self.versions()['space'], scene_digest=snap['scene_digest'])
         json.dump(meta, open(os.path.join(tmp, 'meta.json'), 'w', encoding='utf-8'), ensure_ascii=False)
         shutil.rmtree(out_dir, ignore_errors=True)
         os.replace(tmp, out_dir)
@@ -1265,6 +1297,21 @@ PREP_CACHE_VERSION = 1          # формат записи кэша подго�
 ASSET_RULES = 3                # версия правила «что ассет» (`asset_kind`/`asset_min_bytes`): растёт при его смене — кэш сборки витрины (`showcase_assets.py`) её учитывает
 NPZ_ASSET_MIN = 64 * 1024      # мелкие npz (стены, проёмы — десятки байт…КБ) остаются в пакете: на ассет они дороже, чем в архиве
 IMG_ASSET_MIN = 16 * 1024      # картинки декора `dump/img/` (ximg): мелкие едут в пакете, от 16 КБ — ассеты по хешу
+
+
+def check_dump_reads(dump: str, inputs: dict) -> None:
+    """Сторож чтений дампера (ключ кадра v2): `dump/reads.json` сверяется с активами комнаты (`render_input.check_reads`). Нет файла или нарушение — отказ ДО рендера:
+    кадр под ключом, который не видит прочитанный файл, хуже отсутствующего."""
+    import render_input as RI
+    try:
+        with open(os.path.join(dump, 'reads.json'), encoding='utf-8') as f:
+            reads = json.load(f)
+    except (OSError, ValueError):
+        raise RenderError('reads_missing', 'Сцену для фото не удалось проверить. Нажмите «Повторить».', 'The photo scene could not be verified. Press "Retry".')
+    bad = RI.check_reads(inputs, reads)
+    if bad:
+        print('рендер: сторож чтений дампера — ' + '; '.join(bad[:6]), flush=True)
+        raise RenderError('inputs_undeclared', 'Сцену для фото не удалось проверить. Нажмите «Повторить».', 'The photo scene could not be verified. Press "Retry".')
 
 
 def check_ximg(dump: str) -> None:
