@@ -592,6 +592,21 @@ class LocalMachine:
     def pulse(self, busy_s: float = 0.0) -> None:
         self.RM.pulse(busy_s)
 
+    def turn_on(self, by: str) -> str:
+        """Включить машину тем же путём, что кнопка бота (`render_machine.py on`): предел дня и замок — в контроллере. → строка ответа."""
+        import subprocess
+        r = subprocess.run([sys.executable, os.path.join(HERE, 'render_gpu', 'render_machine.py'), 'on', '--by', by], capture_output=True, text=True, timeout=180)
+        return (r.stdout or r.stderr or '').strip()[:300]
+
+    def turn_off(self, by: str) -> str:
+        """Выключить машину (`render_machine.py off`, остановка подтверждается контроллером). → строка ответа."""
+        import subprocess
+        r = subprocess.run([sys.executable, os.path.join(HERE, 'render_gpu', 'render_machine.py'), 'off', '--by', by], capture_output=True, text=True, timeout=300)
+        return (r.stdout or r.stderr or '').strip()[:300]
+
+    def set_note(self, text: str) -> None:
+        self.RM.set_note(text)
+
 
 # причина «машина не годна» → (код, RU, EN): текст — владельцу на странице («честное ожидание на запасной», без «ошибки»)
 GATE_TEXT = {
@@ -711,6 +726,10 @@ class SaladGpuExecutor(SceneExecutor):
             return True
         except Exception:  # noqa: BLE001
             return False
+
+    def warm_ok(self) -> bool:
+        """Заготовка кадров (T-20261118-07) берётся, только пока машина годна (прогрета); выключена — заготовка ждёт, процессор DEV не занимает."""
+        return self.available()
 
     def _slot(self, label: str, pr: dict, prio: int = 1):
         """Общая очередь тяжёлых прогонов — только на сборку сцены на DEV (ожидание машины рендера процессор DEV не занимает). `prio` 1 — заказ человека;
@@ -1028,6 +1047,10 @@ class Fallback:
         except Exception:  # noqa: BLE001
             ok = False
         return self.primary.name if ok else self.backup.name
+
+    def warm_ok(self) -> bool:
+        f = getattr(self.primary, 'warm_ok', None)
+        return bool(f()) if callable(f) else False
 
     def render(self, snap: dict, out_dir: str, progress) -> dict:
         try:

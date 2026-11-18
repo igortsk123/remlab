@@ -98,6 +98,10 @@ DEFAULT_RULES = {
     # исполнитель (render_exec.SaladGpuExecutor): ждать взятия задания, потолок пары, опрос результата, «занято» на время ожидания
     'executor': {'pickup_s': 90, 'pair_max_s': 900, 'poll_s': 3, 'busy_s': 90, 'bundle_max_mb': 95},
     'alert_sh': '/home/pakar/igor/remlab/tools/scout/alert.sh', 'donor_group': 'mesh-q-low-1',
+    # заготовка кадров всех комнат (render_prewarm.py, T-20261118-07): доля дневного потолка на заготовку (остальное — покупателям), проверка раз в interval_s,
+    # старт через start_delay_s после перезапуска сервиса, не больше batch заготовок в очереди, туры — не больше tours_max за проход (0 — только витрина /demo),
+    # off_idle_s — если машину включила заготовка и людей не было столько секунд после конца прохода, выключить сразу (0 — только автостоп)
+    'prewarm': {'day_share': 0.6, 'interval_s': 300, 'start_delay_s': 90, 'batch': 4, 'tours_max': 0, 'fail_max': 2, 'off_idle_s': 120},
 }
 
 
@@ -493,7 +497,7 @@ def cmd_off(a, rules) -> str:
         return tr('off_done' if ok else 'off_unconfirmed', a.lang, spent=s['spent_usd'])
 
 
-def cmd_status(a, rules) -> str:
+def _cmd_status(a, rules) -> str:
     sal = Salad(rules)
     with Box() as b:
         s = b.state
@@ -529,6 +533,34 @@ def pulse(busy_s: float = 0.0, now: float | None = None) -> None:
     with Box() as b:
         b.state['last_activity'] = now
         b.state['busy_until'] = now + busy_s if busy_s > 0 else 0
+        b.save()
+
+
+def cmd_status(a, rules) -> str:
+    """Статус машины + строка заготовки кадров (`set_note`), если она свежая (≤ 6 ч)."""
+    out = _cmd_status(a, rules)
+    try:
+        st = json.load(open(os.path.join(STATE_DIR, 'state.json'), encoding='utf-8'))
+    except (OSError, ValueError):
+        return out
+    note = st.get('note') if time.time() - float(st.get('note_at') or 0) <= 6 * 3600 else ''
+    if not note:
+        return out
+    if a.json:
+        try:
+            d = json.loads(out)
+            d['note'] = note
+            return json.dumps(d, ensure_ascii=False)
+        except ValueError:
+            return out
+    return out + '\n' + note
+
+
+def set_note(text: str) -> None:
+    """Строка статуса заготовки кадров (пишет `render_prewarm.py`): видна в `status`, ничего в работе машины не меняет."""
+    with Box() as b:
+        b.state['note'] = str(text)[:300]
+        b.state['note_at'] = time.time()
         b.save()
 
 
