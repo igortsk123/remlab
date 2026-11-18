@@ -58,8 +58,8 @@ def card(name, rgb):
 rows = M.judge([{'sku': LATTE, 'owner': OLIVE, 'via': True, 'glb': '/m/olive.glb', 'asset_id': 'sha256:olive'}],
                {'/m/olive.glb': M.summary(np.array([[99, 102, 68]] * 4))}.get, {LATTE: card('latte', [190, 180, 170])}.get, R)
 row = rows[LATTE]
-check('сторож: правила mcg-v2, строгий порог варианта семьи отдельно от порога своих мешей',
-      R['version'] == 'mcg-v2' and R['family_thresholds']['dL'] < R['thresholds']['dL']
+check('сторож: правила mcg-v3, строгий порог варианта семьи отдельно от порога своих мешей',
+      R['version'] == 'mcg-v3' and R['family_thresholds']['dL'] < R['thresholds']['dL']
       and R['family_thresholds']['dab'] < R['thresholds']['dab'])
 check('сторож: «Латте» подкрашена от модели (видно ≈ фото по светлоте), но оттенок мимо — mismatch',
       row['verdict'] == 'mismatch' and abs(row['seen_vs_sku']['dL']) < 5 and row['seen_vs_sku']['dab'] > R['family_thresholds']['dab'],

@@ -92,6 +92,120 @@ def summary(rgb: np.ndarray, w: np.ndarray | None = None) -> dict:
             'y': round(wmedian(luminance(rgb), w), 5), 'n': int(len(rgb))}
 
 
+def _to_srgb(lin: np.ndarray) -> np.ndarray:
+    """Линейный свет 0…1 → sRGB 0…255 (обратное `_lin`)."""
+    li = np.clip(np.asarray(lin, np.float64), 0, 1)
+    return np.where(li <= 0.0031308, li * 12.92, 1.055 * li ** (1 / 2.4) - 0.055) * 255
+
+
+def is_wood(rgb, P: dict) -> bool:
+    """Цвет похож на дерево: оттенок Lab в `wood_hue`, насыщенность не ниже `wood_chroma`, светлота в `wood_L`. Серое/латте/белое — нет."""
+    L, a, b = lab(rgb)[0]
+    h = math.degrees(math.atan2(b, a)) % 360
+    return P['wood_hue'][0] <= h <= P['wood_hue'][1] and math.hypot(a, b) >= P['wood_chroma'] and P['wood_L'][0] <= L <= P['wood_L'][1]
+
+
+def part_colours(C: np.ndarray, W: np.ndarray, R: dict | None = None) -> list:
+    """ЧАСТИ МОДЕЛИ (mcg-v3): цветовые кластеры текстуры (k-means в линейном свете, вес — площадь грани, фиксированное зерно →
+    повтор даёт то же). → [{'share', 'rgb', 'wood'}] по убыванию доли. Одна медиана (`summary`) на модели из дерева и фасадов
+    показывает дерево и «не видит» фасады — отсюда подкраска, ломавшая фасады."""
+    P = (R or rules())['tint']['parts']
+    lin = _lin(C)
+    w = np.asarray(W, np.float64)
+    rng = np.random.default_rng(1)
+    if len(lin) > 20000:                                   # выборка: хватает для долей и цветов, k-means на 40 тыс. граней лишний
+        ix = rng.choice(len(lin), 20000, replace=False)
+        lin, w = lin[ix], w[ix]
+    k = min(P['k'], len(lin))
+    cent = lin[rng.choice(len(lin), k, replace=False)]
+    lab_ = np.zeros(len(lin), int)
+    for _ in range(40):
+        lab_ = np.argmin(((lin[:, None, :] - cent[None]) ** 2).sum(2), 1)
+        for j in range(k):
+            m = lab_ == j
+            if m.any():
+                cent[j] = np.average(lin[m], 0, w[m])
+    tot = max(float(w.sum()), 1e-9)
+    out = []
+    for j in range(k):
+        m = lab_ == j
+        if m.any():
+            rgb = [int(round(v)) for v in _to_srgb(cent[j])]
+            out.append({'share': round(float(w[m].sum()) / tot, 3), 'rgb': rgb, 'wood': bool(is_wood(rgb, P))})
+    return sorted(out, key=lambda x: -x['share'])
+
+
+def _de(a, b) -> float:
+    la, lb = lab(a)[0], lab(b)[0]
+    return float(np.sqrt(((la - lb) ** 2).sum()))
+
+
+def merge_parts(parts: list | None, R: dict | None = None) -> list:
+    """Слить части одного цвета (ΔE ≤ `merge_dE`, одинаковая «деревянность»): k-средние дробят один сплошной цвет на несколько
+    кластеров (тёмные фасады 31 % + 20 % + 2 %), и «самой крупной» становилась меньшая, но цельная светлая часть (кадр 18.11).
+    Идемпотентна — кэш замеров со старыми `parts` сливается при чтении."""
+    P = (R or rules())['tint']['parts']
+    out = []
+    for p in sorted(parts or [], key=lambda p: -p['share']):
+        for q in out:
+            if bool(q.get('wood')) == bool(p.get('wood')) and _de(q['rgb'], p['rgb']) <= P['merge_dE']:
+                w = q['share'] + p['share']
+                q['rgb'] = [int(round((a * q['share'] + b * p['share']) / w)) for a, b in zip(q['rgb'], p['rgb'])]
+                q['share'] = round(w, 3)
+                break
+        else:
+            out.append(dict(p))
+    return sorted(out, key=lambda p: -p['share'])
+
+
+def anchor_part(photo_rgb, parts: list | None, R: dict | None = None):
+    """ОПОРНАЯ ЧАСТЬ (mcg-v3): самая крупная из НЕ-деревянных частей модели, если она не меньше `min_share` площади и уже в
+    пределах `match_dE` от цвета варианта и проходит порог семьи (ΔL/Δab) — тогда модель этого цвета «верная» там, где глаз её видит (фасады). Снимает ли это
+    подкраску — решает `judge` (только если подкраска уводит эту часть на ΔE ≥ `broken_dE` или негодна). → часть | None (подкраска как раньше: нет частей/фото, мелкая или не самая крупная часть,
+    дерево совпало с цветом варианта)."""
+    if not photo_rgb or not parts:
+        return None
+    P = (R or rules())['tint']['parts']
+    pool = [p for p in merge_parts(parts, R) if not p.get('wood')]
+    if not pool:
+        return None
+    pool.sort(key=lambda p: -p['share'])
+    big = pool[0]
+    if big['share'] < P['min_share'] or _de(big['rgb'], photo_rgb) > P['match_dE']:
+        return None
+    # заметно крупнее остальных не-деревянных: иначе другая почти такая же часть (тёмные фасады при светлой внутренней полке) решит,
+    # что модель «не того цвета», а подкраска её не лечит — оставляем подкраску как была (по умолчанию, ❶ директора)
+    if len(pool) > 1 and big['share'] < P['lead_ratio'] * pool[1]['share']:
+        return None
+    # и проходит строгий порог варианта семьи (ΔL/Δab): иначе снятие подкраски выбросило бы вариант из ленты (mismatch)
+    d = diff(summary(np.array([big['rgb']])), summary(np.array([photo_rgb])))
+    return big if verdict(d, R or rules(), True) == 'ok' else None
+
+
+def tint_shift(part_rgb, tint, photo_rgb) -> float:
+    """ΔE цвета части модели ПОСЛЕ подкраски (линейный цвет × tint) от цвета варианта."""
+    after = [int(round(v)) for v in _to_srgb(np.clip(_lin(part_rgb) * np.asarray(tint, np.float64), 0, 1))]
+    return _de(after, photo_rgb)
+
+
+def tint_hurts(photo_rgb, parts: list | None, tint, R: dict | None = None):
+    """СЛЕПОТА «медиана × tint = фото»: часть модели заметной площади (`watch_share`), что ДО подкраски совпадала с цветом
+    варианта (ΔE ≤ `match_dE`), а ПОСЛЕ ушла на ΔE ≥ `broken_dE`. → худшая часть {'share', 'before', 'after', 'dE'} | None.
+    Правило опорной части такие случаи снимает; здесь остаются те, где подкраску оставили из осторожности (мелкая часть)."""
+    if not photo_rgb or not parts or not tint:
+        return None
+    P = (R or rules())['tint']['parts']
+    worst = None
+    for p in merge_parts(parts, R):
+        if p['share'] < P['watch_share']:
+            continue
+        after = [int(round(v)) for v in _to_srgb(np.clip(_lin(p['rgb']) * np.asarray(tint, np.float64), 0, 1))]
+        d0, d1 = _de(p['rgb'], photo_rgb), tint_shift(p['rgb'], tint, photo_rgb)
+        if d0 <= P['match_dE'] and d1 >= P['broken_dE'] and (worst is None or d1 > worst['dE']):
+            worst = {'share': p['share'], 'before': p['rgb'], 'after': after, 'dE': round(d1, 1)}
+    return worst
+
+
 def tinted(mesh: dict | None, tint) -> dict | None:
     """Цвет, который видит покупатель, когда сцена подкрашивает модель семьи (`sku.tint` демо — множитель цвета материала
     THREE, `flat215_demo.annotate_tint`): линейный цвет модели × tint. Без подкраски — цвет модели."""
@@ -253,6 +367,7 @@ def surface_colour(glb: str) -> dict | None:
     C, W = np.concatenate(cols), np.concatenate(ws)
     out = summary(C, W)
     out['textured'] = round(tex_area / max(float(W.sum()), 1e-9), 3)
+    out['parts'] = part_colours(C, W)               # mcg-v3: из каких цветов состоит модель, не одна медиана
     return out
 
 
@@ -420,7 +535,9 @@ def census(out_dir: str, rooms: set, workers: int = 3) -> list:
 def measure_glbs(glbs, cache: dict, workers: int = 3, save=None) -> None:
     """Цвет поверхности моделей, которых нет в кэше (ключ «путь:mtime»); ошибка открытия — {'error': …} в кэш."""
     import concurrent.futures as cf
-    todo = sorted({g for g in glbs if _gkey(g) and _gkey(g) not in cache})
+    # замер старого кэша (mcg-v2) без `parts` — перемеряем один раз; запись-ошибка остаётся (не повторяем каждую ночь)
+    todo = sorted({g for g in glbs if _gkey(g) and (_gkey(g) not in cache
+                                                    or ('lab' in cache[_gkey(g)] and 'parts' not in cache[_gkey(g)]))})
     if not todo:
         return
     print(f'моделей к замеру {len(todo)}', flush=True)
@@ -470,22 +587,37 @@ def judge(pairs: list, mesh_of, photo_of, R: dict) -> dict:
         return cols[sku]
     for p in pairs:
         mesh = mesh_of(p['glb'])
-        t, spread = None, False
+        photo = (pc(p['sku']) or {}).get('rgb')
+        anchor0 = None
         if p['via']:
-            # подкраска от МОДЕЛИ (T-20261112-89); нет замера модели или цвета фото — прежняя, от фото представителя
-            t = tint_from_mesh((pc(p['sku']) or {}).get('rgb'), (mesh or {}).get('rgb'), R)
-            spread = t == SPREAD
-            if spread:
-                t = None
-            elif t is None and not (mesh and pc(p['sku'])):
-                t = tint_of(tn(p['sku']), tn(p['owner']), R)
-        seen = tinted(mesh, t)
-        d = diff(seen, pc(p['sku']))
-        v = 'mismatch' if spread and d else verdict(d, R, p['via'])
+            # mcg-v3 (T-20261118-03/10): опорная часть модели уже цвета варианта (фасады), а множитель, подобранный под медиану,
+            # уводит её на ΔE ≥ broken_dE (или негоден — каналы разошлись): подкраски нет, глаз видит опорную часть
+            cand = tint_from_mesh(photo, (mesh or {}).get('rgb'), R)
+            anchor0 = anchor_part(photo, (mesh or {}).get('parts'), R)
+            if anchor0 and not (cand == SPREAD or (cand and tint_shift(anchor0['rgb'], cand, photo) >= R['tint']['parts']['broken_dE'])):
+                anchor0 = None
+        for use_anchor in ((True, False) if anchor0 else (False,)):
+            t, spread, anchor = None, False, (anchor0 if use_anchor else None)
+            if p['via'] and not anchor:
+                # подкраска от МОДЕЛИ (T-20261112-89); нет замера модели или цвета фото — прежняя, от фото представителя
+                t = tint_from_mesh(photo, (mesh or {}).get('rgb'), R)
+                spread = t == SPREAD
+                if spread:
+                    t = None
+                elif t is None and not (mesh and pc(p['sku'])):
+                    t = tint_of(tn(p['sku']), tn(p['owner']), R)
+            seen = summary(np.array([anchor['rgb']])) if anchor else tinted(mesh, t)
+            d = diff(seen, pc(p['sku']))
+            v = 'mismatch' if spread and d else verdict(d, R, p['via'])
+            if not anchor or v == 'ok':       # снятие подкраски не должно выбросить вариант из ленты — иначе прежнее поведение
+                break
+        hurt = tint_hurts(photo, (mesh or {}).get('parts'), t, R) if p['via'] else None
         rows[p['sku']] = {'asset_id': p['asset_id'], 'owner': p['owner'], 'via_family': p['via'], 'tint': t,
                           'mesh_rgb': (mesh or {}).get('rgb'), 'seen_rgb': (seen or {}).get('rgb'),
-                          'photo_rgb': (pc(p['sku']) or {}).get('rgb'), 'seen_vs_sku': d, 'verdict': v,
-                          **({'tint_spread': True} if spread else {})}
+                          'photo_rgb': photo, 'seen_vs_sku': d, 'verdict': v,
+                          **({'tint_spread': True} if spread else {}),
+                          **({'tint_anchor': {'share': anchor['share'], 'rgb': anchor['rgb']}} if anchor else {}),
+                          **({'tint_hurts_part': hurt} if hurt else {})}
     return rows
 
 
@@ -549,7 +681,9 @@ def guard(out_dir: str = TABLE_DIR, snap_path: str = BINDINGS, workers: int = 3,
     fam, own = flagged(rows, True), flagged(rows, False)
     shown = demo_sids()
     counts = {'pairs': len(rows), 'unknown': sum(1 for r in rows.values() if r['verdict'] == 'unknown'),
-              'family_mismatch': len(fam), 'own_mismatch': len(own), 'family_mismatch_shown': len(set(fam) & shown)}
+              'family_mismatch': len(fam), 'own_mismatch': len(own), 'family_mismatch_shown': len(set(fam) & shown),
+              'tint_anchor': sum(1 for r in rows.values() if r.get('tint_anchor')),
+              'tint_hurts_part': sum(1 for r in rows.values() if r.get('tint_hurts_part'))}
     table = {'version': R['version'], 'thresholds': {k: R['thresholds'][k] for k in ('dL', 'dab')},
              'family_thresholds': {k: (R.get('family_thresholds') or R['thresholds'])[k] for k in ('dL', 'dab')},
              'bindings_sha': snap.get('content_sha'), 'built_at': datetime.datetime.now().isoformat(timespec='seconds'),
@@ -580,7 +714,9 @@ def digest_line(counts: dict) -> str:
     """Одна строка в утреннюю сводку. Свои меши — только число, не WARN (ведущий 07.11, T-14/3): это К8, отложен; вечный warn
     шага — шум, за ним не видно настоящего сбоя. warn/FAIL шага — только сбой самого сторожа (rc) или нет таблицы (room_bindings)."""
     return (f'DIGEST:сторож цвета мешей: отмечено {counts["family_mismatch"]}, из них в ленте было '
-            f'{counts["family_mismatch_shown"]}; свои меши с расхождением: {counts["own_mismatch"]} (список — {OWN_TSV})')
+            f'{counts["family_mismatch_shown"]}; свои меши с расхождением: {counts["own_mismatch"]} (список — {OWN_TSV}); '
+            f'подкраска снята по опорной части: {counts.get("tint_anchor", 0)}, подкраска портит часть модели: '
+            f'{counts.get("tint_hurts_part", 0)} (поле tint_hurts_part в таблице)')
 
 
 # ---------- самопроверка ----------
@@ -690,6 +826,73 @@ def _selftest() -> int:
         ok('свои меши — TSV рядом с таблицей и число в DIGEST, без WARN (статус шага ok)',
            len(lines) == 2 and lines[1].startswith('1:orange\tD\t') and line.startswith('DIGEST:')
            and 'отмечено 2, из них в ленте было 1; свои меши с расхождением: 1' in line and 'WARN' not in line)
+    # ---- части модели (mcg-v3, T-20261118-03/10: фасады «Теджонс Ромб Латте» голубые)
+    Pp = R['tint']['parts']
+    wood, latte, wood2 = [195, 154, 112], [181, 167, 156], [179, 130, 86]
+    ok('правила mcg-v3: версия, доли 15 %/8 %, ΔE 12/20',
+       R['version'] == 'mcg-v3' and Pp['min_share'] == 0.15 and Pp['watch_share'] == 0.08 and Pp['match_dE'] == 12.0 and Pp['broken_dE'] == 20.0)
+    ok('дерево по цвету: тёплое коричневое — да; латте, серый, белый, тёмный графит — нет',
+       is_wood(wood, Pp) and is_wood(wood2, Pp) and not is_wood(latte, Pp) and not is_wood([150, 150, 150], Pp)
+       and not is_wood([240, 240, 236], Pp) and not is_wood([60, 60, 62], Pp))
+    C = np.array([wood] * 63 + [latte] * 19 + [wood2] * 18, np.float64)
+    cp = part_colours(C, np.ones(len(C)), R)
+    ok('части: 3 цвета, доли 63/19/18 %, у латте wood=False, повтор даёт то же',
+       [round(x['share'], 2) for x in cp] == [0.63, 0.19, 0.18] and [x['wood'] for x in cp] == [True, False, True]
+       and abs(cp[1]['rgb'][0] - 181) <= 1 and cp == part_colours(C, np.ones(len(C)), R))
+    tej = [{'share': .63, 'rgb': wood, 'wood': True}, {'share': .19, 'rgb': latte, 'wood': False}, {'share': .17, 'rgb': wood2, 'wood': True}]
+    photo = [181, 169, 159]
+    ok('опорная часть: «Теджонс» — латте-фасады (19 %, ΔE ~0) — да', (anchor_part(photo, tej, R) or {}).get('rgb') == latte)
+    ok('опорной нет: совпала мелкая часть (12 %, < 15 %)',
+       anchor_part(photo, [tej[0], {'share': .12, 'rgb': latte, 'wood': False}, {'share': .25, 'rgb': [20, 20, 20], 'wood': False}], R) is None)
+    ok('опорной нет: совпавшая — не самая крупная из не-деревянных (графит 30 % крупнее)',
+       anchor_part(photo, tej + [{'share': .30, 'rgb': [60, 60, 62], 'wood': False}], R) is None)
+    ok('опорной нет: цвет варианта далеко от фасадов; частей нет; фото нет; совпало дерево (не опора)',
+       anchor_part([60, 60, 200], tej, R) is None and anchor_part(photo, None, R) is None and anchor_part(None, tej, R) is None
+       and anchor_part(wood, tej[:1] + tej[2:], R) is None)
+    th = tint_hurts(photo, tej, [0.866, 1.228, 2.1], R)
+    ok('слепота «медиана × tint»: подкраска Теджонса ломает фасады (ΔE после ≥ 20), без подкраски и на мелкой части — нет',
+       th and th['dE'] >= Pp['broken_dE'] and th['before'] == latte and tint_hurts(photo, tej, None, R) is None
+       and tint_hurts(photo, [{'share': .05, 'rgb': latte, 'wood': False}], [0.866, 1.228, 2.1], R) is None)
+    mesh_t = summary(np.array([wood] * 63 + [latte] * 19 + [wood2] * 18, np.float64))
+    mesh_t['parts'] = tej
+    with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as td2:
+        a = np.full((80, 110, 3), 255, np.uint8)
+        a[15:65, 20:90] = photo
+        pth = os.path.join(td2, 'romb.png')
+        Image.fromarray(a).save(pth)
+        PJ = [{'sku': '9:romb', 'owner': '9:deco', 'via': True, 'glb': '/m/t.glb', 'asset_id': 'T'}]
+        new = judge(PJ, {'/m/t.glb': mesh_t}.get, {'9:romb': pth}.get, R)['9:romb']
+        old = judge(PJ, {'/m/t.glb': {k: v for k, v in mesh_t.items() if k != 'parts'}}.get, {'9:romb': pth}.get, R)['9:romb']
+        ok('сторож на «Теджонсе»: с частями — подкраски нет, видна опорная часть, вердикт ok; без частей (старый замер) — прежняя подкраска',
+           new['tint'] is None and new['tint_anchor']['rgb'] == latte and new['verdict'] == 'ok' and 'tint_hurts_part' not in new
+           and old['tint'] and 'tint_anchor' not in old) or print(new, old)
+        # мелкая совпавшая часть (12 %): подкраска остаётся, но сторож её видит (поле tint_hurts_part) — список для разбора
+        small = dict(mesh_t, parts=[tej[0], {'share': .12, 'rgb': latte, 'wood': False}, {'share': .25, 'rgb': [20, 20, 20], 'wood': False}])
+        sm = judge(PJ, {'/m/t.glb': small}.get, {'9:romb': pth}.get, R)['9:romb']
+        ok('мелкая совпавшая часть (12 %): подкраска остаётся (осторожно), сторож метит tint_hurts_part',
+           sm['tint'] and 'tint_anchor' not in sm and sm.get('tint_hurts_part', {}).get('dE', 0) >= Pp['broken_dE']) or print(sm)
+        # дробление одного цвета k-средними: тёмные фасады 31+20+2 % и светлая цельная столешница 39 % — опорной не должно стать столешницей
+        frag = [{'share': .39, 'rgb': [96, 98, 100], 'wood': False}, {'share': .31, 'rgb': [19, 19, 18], 'wood': False},
+                {'share': .20, 'rgb': [22, 22, 21], 'wood': False}, {'share': .02, 'rgb': [13, 12, 13], 'wood': False}]
+        mg = merge_parts(frag, R)
+        ok('слияние кластеров одного цвета: тёмные 53 % крупнее светлых 39 %; повторное слияние не меняет',
+           len(mg) == 2 and mg[0]['rgb'][0] < 25 and abs(mg[0]['share'] - .53) < .01 and merge_parts(mg, R) == mg) or print(mg)
+        ok('опорной части нет, когда цельная светлая часть меньше слитых тёмных',
+           anchor_part([83, 82, 80], frag, R) is None)
+        # тёмно-зелёные фасады 18 % и светлая полка 19 % (кадр 18.11): опорная не «заметно крупнее» остальных — подкраска остаётся
+        close = [{'share': .193, 'rgb': [185, 186, 180], 'wood': False}, {'share': .182, 'rgb': [25, 35, 20], 'wood': False}]
+        ok('опорной части нет, если вторая не-деревянная часть почти такого же размера (лидерство < 1,5×)',
+           anchor_part([193, 192, 188], close, R) is None
+           and anchor_part([193, 192, 188], [close[0], dict(close[1], share=.08)], R) is not None)
+        # подкраска слабая (опорная часть уходит на ΔE < 20) — остаётся как раньше: правило не трогает то, что почти верно
+        mild = dict(summary(np.array([[165, 152, 142]] * 100, np.float64)),
+                    parts=[{'share': .7, 'rgb': [165, 152, 142], 'wood': False}, {'share': .3, 'rgb': wood, 'wood': True}])
+        mrow = judge(PJ, {'/m/t.glb': mild}.get, {'9:romb': pth}.get, R)['9:romb']
+        ok('слабая подкраска (часть уходит на ΔE < 20): остаётся, опорной нет',
+           mrow['tint'] and 'tint_anchor' not in mrow) or print(mrow)
+    line2 = digest_line({'family_mismatch': 2, 'family_mismatch_shown': 1, 'own_mismatch': 1, 'tint_anchor': 22, 'tint_hurts_part': 3})
+    ok('DIGEST: добавлены числа «снята по опорной части» и «портит часть», без WARN',
+       'подкраска снята по опорной части: 22' in line2 and 'портит часть модели: 3' in line2 and 'WARN' not in line2)
     print(f'mesh_color_check: ошибок {bad}')
     return 1 if bad else 0
 
