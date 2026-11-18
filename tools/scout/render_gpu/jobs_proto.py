@@ -17,11 +17,13 @@ FMT 2 (T-20261117-24/5, Э2а): неизменяемые тяжёлые файл
 v=1 (всё в одном пакете) работает как раньше; нет `have` у приёмника, ошибка ассета, несовместимая версия — исполнитель идёт на fmt 1, затем на CPU.
 Токен приёмника нигде не печатается."""
 import hashlib
+import http.client
 import io
 import json
 import os
 import re
 import tarfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -36,6 +38,7 @@ PROTO2 = 2
 SUPPORTED = (PROTO, PROTO2)
 CAMS = ('C1', 'C2')
 FRAMES = ('png', 'jpg', 'both')     # формат кадров с машины (T-24/11): png — как раньше; jpg — кодирует Blender; both — jpg и png из одного результата (ТОЛЬКО приёмка ΔE)
+MASK_SCALE = 0.25                  # маски поверхностей (пол/стена) для приглушения солнечных пятен «Улучшить» (T-20261118-05/3): 1/4 размера кадра — достаточно для окна σ12
 FRAMES_CAPS = ('png', 'jpg')       # что умеет воркер (машина заявляет в ready.json: caps.frames); `both` — отладочный, в заявку не входит
 UA = 'remlab-render/1.0'
 
@@ -47,14 +50,78 @@ class SinkError(Exception):
 
 
 class Sink:
-    """Клиент приёмника: PUT в `/staging/…`, чтение `GET /files/…` и `/ls/…`. Повторы — на сетевых сбоях и 5xx."""
+    """Клиент приёмника: PUT в `/staging/…`, чтение `GET /files/…` и `/ls/…`. Повторы — на сетевых сбоях и 5xx.
+    ПОСТОЯННОЕ СОЕДИНЕНИЕ (T-20261118-09/5 ❸): на каждый поток — свой `http.client` с keep-alive; новое TCP+TLS на каждый вызов (urllib) стоило ≈0,19 с с DEV и ≈0,45 с с машины,
+    на готовом соединении — ≈0,05 с (замер 18.11). Оборвалось соединение (сервер закрыл простаивающее) — один раз заново на свежем. Протокол и ответы те же."""
 
     def __init__(self, base: str, token: str, retries: int = 3, timeout: float = 120):
         self.base, self.token, self.retries, self.timeout = base.rstrip('/'), token, retries, timeout
+        self._u = urllib.parse.urlparse(self.base)
+        self._tl = threading.local()
 
-    def _req(self, method: str, path: str, data=None, headers=None):
+    def _conn(self, timeout: float):
+        c = getattr(self._tl, 'c', None)
+        if c is None:
+            cls = http.client.HTTPSConnection if self._u.scheme == 'https' else http.client.HTTPConnection
+            c = self._tl.c = cls(self._u.hostname, self._u.port, timeout=timeout)
+        c.timeout = timeout
+        if c.sock is not None:
+            c.sock.settimeout(timeout)
+        return c
+
+    def _drop(self) -> None:
+        c = getattr(self._tl, 'c', None)
+        self._tl.c = None
+        if c is not None:
+            try:
+                c.close()
+            except OSError:
+                pass
+
+    def _call(self, method: str, path: str, data=None, headers=None, timeout=None, to_file=None):
+        """Один запрос по постоянному соединению → (статус, тело | размер, записанный в to_file). Ответ вычитывается ПОЛНОСТЬЮ (иначе соединение не переиспользовать).
+        Статус ≥ 400 — `urllib.error.HTTPError`, как раньше (дальше `_do`). Сбой связи на ПЕРЕИСПОЛЬЗУЕМОМ соединении — один повтор на новом."""
         h = {'Authorization': f'Bearer {self.token}', 'User-Agent': UA, **(headers or {})}
-        return urllib.request.Request(f'{self.base}{path}', data=data, method=method, headers=h)
+        full = (self._u.path.rstrip('/') or '') + path
+        timeout = timeout or self.timeout
+        for attempt in (1, 2):
+            fresh = getattr(self._tl, 'c', None) is None
+            try:
+                c = self._conn(timeout)
+                if hasattr(data, 'seek'):
+                    data.seek(0)
+                c.request(method, full, body=data, headers=h)
+                r = c.getresponse()
+                if r.status >= 400:
+                    r.read()
+                    if r.will_close:
+                        self._drop()
+                    raise urllib.error.HTTPError(f'{self.base}{path}', r.status, r.reason, r.headers, None)
+                if to_file is None:
+                    body = r.read()
+                    if r.will_close:
+                        self._drop()
+                    return r.status, body
+                n = 0
+                while True:
+                    chunk = r.read(1 << 20)
+                    if not chunk:
+                        break
+                    to_file.write(chunk)
+                    n += len(chunk)
+                if r.will_close:
+                    self._drop()
+                return r.status, n
+            except (http.client.HTTPException, OSError) as e:
+                if isinstance(e, urllib.error.HTTPError):
+                    raise
+                self._drop()
+                if attempt == 1 and not fresh and not isinstance(e, TimeoutError):
+                    if to_file is not None:
+                        to_file.seek(0)
+                        to_file.truncate()
+                    continue                      # соединение было «старое» — закрыто сервером в простое: один раз на новом (таймаут не повторяем: ждали бы дважды)
+                raise
 
     def _do(self, make, what: str):
         last = None
@@ -65,18 +132,14 @@ class Sink:
                 if e.code < 500:
                     raise SinkError(f'{what}: HTTP {e.code}', e.code) from None
                 last = SinkError(f'{what}: HTTP {e.code}', e.code)
-            except (urllib.error.URLError, OSError, TimeoutError) as e:
+            except (urllib.error.URLError, http.client.HTTPException, OSError, TimeoutError) as e:
                 last = SinkError(f'{what}: {type(e).__name__}')
             time.sleep(min(2 ** i, 8))
         raise last
 
     def put(self, rel: str, data: bytes) -> None:
         """rel — `<prefix>/<job>/<name>`; PUT идёт в `/staging/…` (так принимает приёмник)."""
-        def go():
-            with urllib.request.urlopen(self._req('PUT', f'/staging/{urllib.parse.quote(rel)}', data, {'Content-Type': 'application/octet-stream'}),
-                                        timeout=self.timeout) as r:
-                r.read()
-        self._do(go, f'PUT {rel}')
+        self._do(lambda: self._call('PUT', f'/staging/{urllib.parse.quote(rel)}', data, {'Content-Type': 'application/octet-stream'}), f'PUT {rel}')
 
     def put_file(self, rel: str, path: str) -> None:
         """Файл (пакет в десятки МБ) — потоком, не читая в память: приёмнику нужен Content-Length."""
@@ -84,18 +147,13 @@ class Sink:
 
         def go():
             with open(path, 'rb') as f:
-                req = self._req('PUT', f'/staging/{urllib.parse.quote(rel)}', f, {'Content-Type': 'application/octet-stream', 'Content-Length': str(size)})
-                with urllib.request.urlopen(req, timeout=max(self.timeout, 600)) as r:
-                    r.read()
+                return self._call('PUT', f'/staging/{urllib.parse.quote(rel)}', f, {'Content-Type': 'application/octet-stream', 'Content-Length': str(size)},
+                                  timeout=max(self.timeout, 600))
         self._do(go, f'PUT {rel}')
 
     def post_json(self, path: str, obj) -> dict:
         body = json.dumps(obj, ensure_ascii=False).encode()
-
-        def go():
-            with urllib.request.urlopen(self._req('POST', path, body, {'Content-Type': 'application/json'}), timeout=self.timeout) as r:
-                return json.loads(r.read())
-        return self._do(go, f'POST {path}')
+        return self._do(lambda: json.loads(self._call('POST', path, body, {'Content-Type': 'application/json'})[1]), f'POST {path}')
 
     def have_assets(self, items: list) -> list:
         """Какие из {sha256, size} на приёмнике ОТСУТСТВУЮТ (список sha). 404/405 = приёмник старый (без fmt 2) — `SinkError` с кодом."""
@@ -111,23 +169,14 @@ class Sink:
         return self.get_to(f'{ASSET_PREFIX}/{sha[:2]}/{sha}', dest)
 
     def get(self, rel: str) -> bytes:
-        def go():
-            with urllib.request.urlopen(self._req('GET', f'/files/{urllib.parse.quote(rel)}'), timeout=self.timeout) as r:
-                return r.read()
-        return self._do(go, f'GET {rel}')
+        return self._do(lambda: self._call('GET', f'/files/{urllib.parse.quote(rel)}')[1], f'GET {rel}')
 
     def get_to(self, rel: str, dest: str) -> int:
         """Скачать файл потоком в `dest` (через `.part`, потом подмена); → размер."""
         def go():
             tmp = dest + '.part'
-            n = 0
-            with urllib.request.urlopen(self._req('GET', f'/files/{urllib.parse.quote(rel)}'), timeout=max(self.timeout, 600)) as r, open(tmp, 'wb') as f:
-                while True:
-                    chunk = r.read(1 << 20)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    n += len(chunk)
+            with open(tmp, 'wb') as f:
+                _, n = self._call('GET', f'/files/{urllib.parse.quote(rel)}', timeout=max(self.timeout, 600), to_file=f)
             os.replace(tmp, dest)
             return n
         return self._do(go, f'GET {rel}')
@@ -138,8 +187,7 @@ class Sink:
     def ls(self, rel: str) -> dict:
         """`<prefix>` → {'dirs': [{name, mtime}]}, `<prefix>/<job>` → {'files': [{name, size, mtime}]}; 404 → пусто."""
         def go():
-            with urllib.request.urlopen(self._req('GET', f'/ls/{urllib.parse.quote(rel)}'), timeout=self.timeout) as r:
-                return json.loads(r.read())
+            return json.loads(self._call('GET', f'/ls/{urllib.parse.quote(rel)}')[1])
         try:
             return self._do(go, f'LS {rel}')
         except SinkError as e:
@@ -150,7 +198,7 @@ class Sink:
     def delete(self, rel: str) -> int:
         """DELETE /prefix/… (счётчик приёмника сходится только так); 404 — уже нет."""
         try:
-            self._do(lambda: urllib.request.urlopen(self._req('DELETE', f'/prefix/{urllib.parse.quote(rel)}'), timeout=60).read(), f'DELETE {rel}')
+            self._do(lambda: self._call('DELETE', f'/prefix/{urllib.parse.quote(rel)}', timeout=60), f'DELETE {rel}')
             return 1
         except SinkError as e:
             if e.code == 404:
@@ -219,9 +267,12 @@ def file_sha12(path: str) -> str:
 
 
 # ——— задание
-def new_job(job_id: str, bundle: str, sha: str, args: list, limits: dict, cams=CAMS, now=None) -> dict:
-    return {'v': PROTO, 'job_id': job_id, 'bundle': bundle, 'sha': sha, 'cams': list(cams), 'args': [str(a) for a in args],
-            'limits': dict(limits), 'created': round(now if now is not None else time.time(), 1)}
+def new_job(job_id: str, bundle: str, sha: str, args: list, limits: dict, cams=CAMS, now=None, masks: bool = False) -> dict:
+    job = {'v': PROTO, 'job_id': job_id, 'bundle': bundle, 'sha': sha, 'cams': list(cams), 'args': [str(a) for a in args],
+           'limits': dict(limits), 'created': round(now if now is not None else time.time(), 1)}
+    if masks:
+        job['masks'] = 1                  # маски поверхностей после кадров — только машине, заявившей caps.masks (старый воркер отвергнет лишнее поле)
+    return job
 
 
 ASSET_KINDS = ('tex', 'glb', 'map', 'code', 'data')
@@ -245,7 +296,7 @@ def _arg_ok(a) -> bool:
 _BUNDLE1 = re.compile(r'^bundle-[0-9a-f]{12}\.tgz$')
 _BUNDLE2 = re.compile(r'^bundle-[0-9a-f]{16}\.tgz$')
 # флаги, которые воркер ставит сам — задание не может подменить пути и сцену своими
-OWN_FLAGS = {'--scene-dir', '--out', '--cam', '--demo-glb', '--demo-nodes', '--export', '--public', '--device', '--persistent', '--jpeg-quality', '--also-png'}
+OWN_FLAGS = {'--scene-dir', '--out', '--cam', '--demo-glb', '--demo-nodes', '--export', '--public', '--device', '--persistent', '--jpeg-quality', '--also-png', '--mask-out', '--mask-scale'}
 
 
 def valid_rel_path(p) -> bool:
@@ -301,14 +352,21 @@ def parse_hot(obj) -> list:
     return out
 
 
-def new_job2(job_id: str, bundle: dict, assets: list, args: list, limits: dict, render: str, cams=CAMS, now=None, frames: str = 'png', jpeg_q: int = 92) -> dict:
+def new_job2(job_id: str, bundle: dict, assets: list, args: list, limits: dict, render: str, cams=CAMS, now=None, frames: str = 'png', jpeg_q: int = 92, masks: bool = False) -> dict:
     """fmt 2: `bundle` = {name, sha256, size} маленького пакета; `assets` — список `asset_ref`; `render` — хеш версий рендера (диагностика и сверка)."""
     job = {'v': PROTO2, 'job_id': job_id, 'schema': PROTO2, 'render': str(render)[:32], 'manifest_sha': manifest_sha(bundle, assets),
            'bundle': {k: bundle[k] for k in ('name', 'sha256', 'size')}, 'assets': [dict(a) for a in assets], 'cams': list(cams),
            'args': [str(a) for a in args], 'limits': dict(limits), 'created': round(now if now is not None else time.time(), 1)}
     if frames != 'png':
         job['frames'], job['jpeg_q'] = frames, int(jpeg_q)            # нет поля = png (старые воркеры его не знают: шлём только машине, заявившей caps.frames)
+    if masks:
+        job['masks'] = 1
     return job
+
+
+def mask_name(cam: str) -> str:
+    """Имя файла маски поверхностей ракурса в каталоге задания (и в каталоге рендера рядом с кадром)."""
+    return f'{cam}.mask.png'
 
 
 def frame_names(frames: str, cam: str) -> list:
@@ -343,17 +401,19 @@ def validate_job(job: dict, expect_id: str | None = None) -> str:
     ему равняться (задание не может выдать себя за чужое). Схема строгая: лишние ключи, чужие типы, неизвестные флаги и лимиты — отказ."""
     if not isinstance(job, dict) or job.get('v') not in SUPPORTED:
         return 'версия протокола'
+    if 'masks' in job and (job['masks'] != 1 or isinstance(job['masks'], bool)):
+        return 'маски'
     jid = job.get('job_id')
     if not isinstance(jid, str) or not _JOB_ID.match(jid) or (expect_id is not None and jid != expect_id):
         return 'имя задания'
     if job['v'] == PROTO:
-        if set(job) - {'v', 'job_id', 'bundle', 'sha', 'cams', 'args', 'limits', 'created'}:
+        if set(job) - {'v', 'job_id', 'bundle', 'sha', 'cams', 'args', 'limits', 'created', 'masks'}:
             return 'лишние поля'
         if not isinstance(job.get('bundle'), str) or not _BUNDLE1.match(job['bundle']) or not isinstance(job.get('sha'), str) or not re.match(r'^[0-9a-f]{12}$', job['sha']):
             return 'имя пакета'
         return _common_check(job)
     # v = 2
-    if set(job) - {'v', 'job_id', 'schema', 'render', 'manifest_sha', 'bundle', 'assets', 'cams', 'args', 'limits', 'created', 'frames', 'jpeg_q'}:
+    if set(job) - {'v', 'job_id', 'schema', 'render', 'manifest_sha', 'bundle', 'assets', 'cams', 'args', 'limits', 'created', 'frames', 'jpeg_q', 'masks'}:
         return 'лишние поля'
     if 'frames' in job and job['frames'] not in FRAMES:
         return 'формат кадров'

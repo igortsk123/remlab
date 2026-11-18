@@ -607,7 +607,7 @@ def verdict(room: str, cand_path: str | None = None, live_path: str | None = Non
         print(f'WARN:room_guards: мёртвые фото не читаются ({type(e).__name__}) — проверка «фото мёртвое» пропущена', flush=True)
         dead = set()
     cat = load_catalog(room)
-    F = RR.load_facts(mode=spec.rules().get('mesh_gate') or 'orient', demo_data=spec.demo_data)
+    F = RR.load_facts(mode=spec.rules().get('mesh_gate') or 'orient', demo_data=spec.demo_data, rules=spec.rules())
     F_strict = RR.Facts(F.rows, F.why, F.idx, F.rep_map, 'strict')
     R = M.rules()
     share = float(os.environ.get('BANK_MAX_PROMOTE_SHARE')

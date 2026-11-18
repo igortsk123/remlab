@@ -65,7 +65,8 @@ PROMPT_VERSION = ('improve-v4' if PROMPT_V4 else 'improve-v3') + '.5'
 # не трогаются; нет ни гайда стиля, ни листа эталонов, ни третьего листа. Живое GPT-фото (кадры браузера) идёт прежним путём без изменений.
 # `+luma-1` — версия шага `match_luma` (нормировка яркости ответа нейросети по входному рендеру, T-20261118-01/3): в версии промпта → в ключе кэша
 LUMA_VERSION = 'luma-1'
-PROMPT_VERSION_RENDER = 'improve-render-v5.4+' + LUMA_VERSION
+TAME_VERSION = 'tame-1'          # версия шага `tame_new_light` (приглушение солнечных пятен, T-20261118-05); идёт в версию ответа только при включении
+PROMPT_VERSION_RENDER = 'improve-render-v5.5+' + LUMA_VERSION
 
 
 LUMA_CAP = (0.85, 1.35)      # потолок усиления: ответ нейросети не «вытягиваем» сильнее, чем на треть вверх / на 15 % вниз
@@ -122,14 +123,103 @@ def match_luma(improved, render, mask=None, cap: tuple = LUMA_CAP, knee: float =
     return Image.fromarray((out * 255.0 + 0.5).astype(np.uint8)), info
 
 
+SUN_SIGMA = 12.0             # масштаб пятна, px кадра шириной 1536 (на другой ширине пересчитывается)
+SUN_START = 1.20             # ответ ярче входа на поверхности более чем на 20 % сверх её общего сдвига яркости — пятно; меньше — обычный свет «Улучшить»
+SUN_FLOOR = 0.40             # приглушение не сильнее ×0,4 — иначе на месте пятна выйдет тёмная дыра
+SUN_MIN_PCT = 3.0            # меньше этой доли кадра в замере — нечем мерить, кадр не трогаем
+
+
+def tame_new_light(improved, render, surfaces=None, start: float = SUN_START, floor: float = SUN_FLOOR):
+    """ПРИГЛУШЕНИЕ «СОЛНЕЧНЫХ ПЯТЕН» (T-20261118-05): нейросеть дорисовывает на полу и стенах пятна солнца и полосы света, которых нет во входном рендере.
+    Свет — линейная яркость Y, нормированная свёртка σ12 по области замера (без окна/пересвета/глухой тени; дыры — мебель, окно — не тянут среднее).
+    На каждой ПОВЕРХНОСТИ (пол, стены — маски кадра `surfaces`; без масок вся область замера — одна) общий сдвиг яркости ответа g = медиана Y_ответ/Y_вход
+    (его выравнивает `match_luma`); пятно = rel = (Y_ответ/Y_вход)/g ≥ `start`. В пятне свет делим на rel/start, не ниже `floor`, поле усиления размыто (края
+    мягкие), умножаем линейный RGB на одно число — оттенок не меняется; чистое белое остаётся. Широкие полосы солнца мерой «против окружения» не ловились
+    (проба 18.11) — поэтому против общего сдвига поверхности. Вызывать на каждом виде отдельно, после `match_luma`.
+    → (картинка, {patch_pct (rel ≥ start), rel_max, gain_min, region_pct}); нечем мерить — кадр как есть."""
+    import numpy as np
+    from PIL import Image
+    from scipy import ndimage as ndi
+    imp = np.asarray(improved.convert('RGB'), np.float32) / 255.0
+    ref = np.asarray(render.convert('RGB').resize(improved.size, Image.LANCZOS), np.float32) / 255.0
+
+    def to_lin(a):
+        return np.where(a <= 0.04045, a / 12.92, ((a + 0.055) / 1.055) ** 2.4)
+
+    def to_srgb(a):
+        a = np.clip(a, 0.0, None)
+        return np.where(a <= 0.0031308, a * 12.92, 1.055 * np.power(a, 1 / 2.4) - 0.055)
+    w = np.array([0.2126, 0.7152, 0.0722], np.float32)
+    li, lr = to_lin(imp), to_lin(ref)
+    yi, yr = li @ w, lr @ w
+    k = improved.size[0] / 1536.0
+    sg = SUN_SIGMA * k
+    ok = ((ref @ w) < LUMA_BLOWN) & ((imp @ w) < LUMA_BLOWN) & (yr > 0.004) & (yi > 0.004)
+    ok &= ~ndi.binary_dilation((ref @ w) >= LUMA_BLOWN - 0.04, iterations=max(1, int(round(14 * k))))     # у окна и пересвета — не меряем
+    masks = []
+    for m in (surfaces or []):
+        mi = m.convert('L') if isinstance(m, Image.Image) else Image.fromarray((np.asarray(m) > 0).astype(np.uint8) * 255)
+        masks.append(np.asarray(mi.resize(improved.size, Image.NEAREST)) > 0)
+    if masks:
+        ok &= np.logical_or.reduce(masks)
+    else:
+        masks = [np.ones(ok.shape, bool)]
+    pct = float(ok.mean()) * 100.0
+    info = {'patch_pct': 0.0, 'rel_max': 1.0, 'gain_min': 1.0, 'region_pct': round(pct, 1)}
+    if pct < SUN_MIN_PCT:
+        return improved, info
+    okf = ok.astype(np.float32)
+    den = np.maximum(ndi.gaussian_filter(okf, sg), 1e-4)
+    rs = (ndi.gaussian_filter(yi * okf, sg) / den) / np.maximum(ndi.gaussian_filter(yr * okf, sg) / den, 1e-6)
+    rel = np.ones_like(rs)
+    for m in masks:
+        mm = m & ok
+        if mm.sum() < 0.02 * mm.size:
+            continue
+        rel[m] = rs[m] / float(np.median(rs[mm]))
+    rel = np.where(ok, rel, 1.0)
+    hot = ndi.binary_opening(rel >= start, iterations=2)
+    info.update(patch_pct=round(float(hot.mean()) * 100.0, 2), rel_max=round(float(rel.max()), 2))
+    if not hot.any():
+        return improved, info
+    gain = np.clip(start / np.maximum(rel, start), floor, 1.0)
+    gain = np.minimum(ndi.gaussian_filter(gain, 0.4 * sg), 1.0)
+    info['gain_min'] = round(float(gain.min()), 3)
+    out = np.clip(to_srgb(li * gain[..., None]), 0.0, 1.0)
+    white = imp.max(axis=2) >= 0.97
+    out[white] = imp[white]
+    return Image.fromarray((out * 255.0 + 0.5).astype(np.uint8)), info
+
+
 def render_source(payload: dict | None) -> bool:
     """Заказ «Улучшить из рендера»: сервис подменил вход на кадры Cycles и положил `payload['render']` (`draft_service._apply_render_order`)."""
     r = (payload or {}).get('render')
     return isinstance(r, dict) and bool(r.get('key'))
 
 
+def tame_on(payload: dict | None = None) -> bool:
+    """Приглушение «солнечных пятен» включено: только по явному `IMPROVE_TAME=1` и только когда у рендера есть маски поверхностей (`render.mask_dir`,
+    их кладёт исполнитель при `RENDER_MASKS=1`). Нет масок — шаг не работает и версия ответа прежняя (кэш не трогаем)."""
+    r = (payload or {}).get('render')
+    return os.environ.get('IMPROVE_TAME') == '1' and isinstance(r, dict) and bool(r.get('mask_dir'))
+
+
+def surface_masks(mask_dir: str, cam: str) -> list | None:
+    """Маски поверхностей ракурса из каталога рендера: `<cam>.mask.png` (`render_cycles.py --mask-out`: пол красный, нейтральная стена зелёная,
+    акцентная синяя) → три маски L (пол, стена, акцентная стена); файла нет или он не читается — None."""
+    try:
+        from PIL import Image
+        import numpy as np
+        m = np.asarray(Image.open(os.path.join(mask_dir, f'{cam}.mask.png')).convert('RGB'))
+    except Exception:  # noqa: BLE001
+        return None
+    return [Image.fromarray(((m[..., c] > 200) & (m.sum(axis=2) < 300)).astype('uint8') * 255) for c in range(3)]
+
+
 def prompt_version(payload: dict | None = None) -> str:
-    return PROMPT_VERSION_RENDER if render_source(payload) else PROMPT_VERSION
+    if render_source(payload):
+        return PROMPT_VERSION_RENDER + ('+' + TAME_VERSION if tame_on(payload) else '')
+    return PROMPT_VERSION
 
 
 RENDER_POLISH_PROMPT = '\n'.join([
@@ -139,7 +229,7 @@ RENDER_POLISH_PROMPT = '\n'.join([
     '* IMAGE 1: one sheet containing TWO rendered views of the SAME furnished room, {layout}, separated by a magenta band.',
     '',
     'WHAT YOU MAY CHANGE (photographic quality only):',
-    '- lighting realism: soft natural daylight from the windows, believable bounced light, soft contact shadows under furniture, gentle highlights;',
+    '- lighting realism: soft contact shadows under furniture, soft shading and gentle highlights on the surfaces, a natural photographic tonal range; the daylight stays the soft, even light that IMAGE 1 already has;',
     '- surface micro-detail that is ALREADY implied: fabric weave, wood grain, brick relief, paint texture, glass and metal reflections, at the SAME colours;',
     '- sharpness, tonal range, natural camera depth and fine sensor grain, clean edges, no render noise or banding;',
     '- the view outside the windows: a natural, plausible daylight view in place of the existing one.',
@@ -160,6 +250,9 @@ RENDER_POLISH_PROMPT = '\n'.join([
     'darker, not greyer, not pinker and not more contrasty than in IMAGE 1. Realism comes from fine texture, soft shadows and natural light, never from '
     'a darker or duller tone: do not deepen or desaturate colours, do not add a grey or brown cast, do not lower the overall exposure. A light floor stays '
     'as light and as warm as IMAGE 1; a pale upholstery stays as pale.',
+    '- LIGHT STAYS AS IN IMAGE 1: do NOT add sunbeams, sun patches, bright light spots, light shafts, window-light spill, dappled or leaf-shadow light, '
+    'or new cast shadows of the window frame on the floor, walls, furniture or bed. The floor and walls keep the even soft lighting they have in IMAGE 1; '
+    'a bright area or a shadow that is not in IMAGE 1 stays absent.',
     '- Keep every pattern and print exactly (pillow, rug, bedding, picture contents).',
     '- Keep the shape, proportions and construction of every product, the room geometry, windows, doors, radiators, ceiling and curtain rods.',
     '- Keep both cameras exactly: same framing, crop, perspective, field of view, order of views and the sheet size.',

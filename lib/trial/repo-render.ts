@@ -19,23 +19,21 @@ export type RenderSend = (payload: Record<string, unknown>, ip: string) => Promi
 type Dict = Record<string, unknown>;
 const isDict = (v: unknown): v is Dict => typeof v === "object" && v !== null && !Array.isArray(v);
 
-/** Карточка товара — словарь с `name` и ключом: `sid` (/demo) или `msid` (тур: `sid` в публичных данных нет). Как `render_snapshot.sku_index` / `msid_index`. */
-const hasSid = (v: Dict) => v.sid !== undefined && v.sid !== null;
-const isCard = (v: Dict) => typeof v.name === "string" && (hasSid(v) || "msid" in v);   // `msid: null` — заглушка без модели (ковёр, обеденный стол): ключ один `name`
-/** Ключ карточки: `s:<sid>` или `m:<msid>\u0000<name>` — пара (msid, name) (тур) ни с каким sid не смешивается. */
-const cardKey = (v: Dict) => (hasSid(v) ? `s:${String(v.sid)}` : `m:${String(v.msid ?? "")}\u0000${String(v.name)}`);
-
-/** Все карточки товаров внутри значения. Карточки без `sid` с одной парой (msid, name), но РАЗНЫМ содержимым не склеиваются (сервер должен увидеть
- *  двусмысленность и отказать); одинаковые — один раз. Карточки с `sid` — первое вхождение побеждает, как на сервере. */
-function collectSkus(v: unknown, into: Map<string, Dict[]>): void {
+/** Все карточки товаров (словари с `sid` и `name`) внутри значения — как `render_snapshot.sku_index` на стороне сервиса. */
+function collectSkus(v: unknown, into: Map<string, Dict>): void {
   if (Array.isArray(v)) { for (const x of v) collectSkus(x, into); return; }
   if (!isDict(v)) return;
-  if (isCard(v)) {
-    const k = cardKey(v), cur = into.get(k);
-    if (!cur) into.set(k, [v]);
-    else if (!hasSid(v) && !cur.some((c) => JSON.stringify(c) === JSON.stringify(v))) cur.push(v);
-  }
+  if (v.sid !== undefined && v.sid !== null && typeof v.name === "string" && !into.has(String(v.sid))) into.set(String(v.sid), v);
   for (const x of Object.values(v)) collectSkus(x, into);
+}
+
+/** ВСЕ карточки товара с публичным ключом `pid` (`trial_bundle.pid_of`, T-20261118-03/9; у публичных данных тура `sid` нет) — не первая: решает
+ *  сервис (`render_snapshot.pid_index`): один ключ у двух разных товаров — отказ `bad_item`, а не «первая карточка». */
+function collectPid(v: unknown, pid: string, into: Dict[]): void {
+  if (Array.isArray(v)) { for (const x of v) collectPid(x, pid, into); return; }
+  if (!isDict(v)) return;
+  if (v.pid === pid && typeof v.name === "string") into.push(v);
+  for (const x of Object.values(v)) collectPid(x, pid, into);
 }
 
 /** Данные для сервиса кадров: ОДИН вариант задания, его комната, правила мягкого и только те товары, на которые ссылается заказ (или сам вариант).
@@ -46,21 +44,21 @@ export function reduceSource(json: string, inp: Pick<TrialRenderIn, "variant_id"
   const variants = Array.isArray(b.variants) ? b.variants.filter(isDict) : [];
   const variant = variants.find((v) => v.id === inp.variant_id);
   if (!variant) return null;
-  const all = new Map<string, Dict[]>();
+  const all = new Map<string, Dict>();
   collectSkus(b, all);
-  const wanted = new Map<string, Dict[]>();
+  const wanted = new Map<string, Dict>();
   collectSkus(variant, wanted);
+  const byPid: Dict[] = [];
   for (const it of inp.items ?? []) {
-    const k = it.sid !== undefined ? `s:${it.sid}` : `m:${it.msid ?? ""}\u0000${it.name}`;
-    const cards = all.get(k);
-    if (cards) wanted.set(k, cards);
+    if (it.sid !== undefined) { const s = all.get(it.sid); if (s) wanted.set(it.sid, s); }
+    if (it.pid !== undefined) collectPid(b, it.pid, byPid);
   }
   const rid = String(variant.room_id ?? inp.room_id);
   const geo = isDict(b.rooms_geo) && isDict((b.rooms_geo as Dict)[rid]) ? (b.rooms_geo as Dict)[rid] : b.room;
   const rules = isDict(b.rules) && Array.isArray(b.rules.soft_roles) ? { soft_roles: b.rules.soft_roles } : {};
   // роли для проверки заказа — по всем вариантам: лёгкие копии вариантов без предметов (роль и товар), сами предметы чужих вариантов не нужны
   const roleStubs = variants.filter((v) => v !== variant).map((v) => ({ id: v.id, room_id: v.room_id, items: (Array.isArray(v.items) ? v.items : []).filter(isDict).map((i) => ({ role: i.role })) }));
-  return { apartment_id: b.apartment_id, build: b.build, room: b.room, rooms_geo: { [rid]: geo }, rules, variants: [variant, ...roleStubs], _skus: [...wanted.values()].flat() };
+  return { apartment_id: b.apartment_id, build: b.build, room: b.room, rooms_geo: { [rid]: geo }, rules, variants: [variant, ...roleStubs], _skus: [...wanted.values(), ...byPid] };
 }
 
 /** Тело заказа сервису кадров: контракт снимка + номер тура + срезанные данные (только с внутренним ключом сервис им верит). */

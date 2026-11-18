@@ -1,0 +1,28 @@
+# НОЧНОЙ ШАГ СТОРОЖА КАДРОВ БЕЗ РЕНДЕРА (render-qa-gate-01, T-20261118-03/8): предпроверка `frame_qa.preflight` по всем комнатам /demo и опубликованных туров.
+# 0 ₽: машину рендера не включает, Blender не запускает — только сборка сцены на процессоре DEV (кэш подготовки переиспользуется) под общей очередью тяжёлых прогонов, класс «фон».
+# Потолок времени — ДАННЫЕ: data/flat3d/frame-qa-rules.json:night.maxMinutes (40 мин) и night.toursMax. Журнал: ~/remlab-logs/qa-night/<дата по Лондону>.tsv, итог — last.json там же,
+# сводка — в journald (`journalctl --user -u remlab-qa-night -n 60 --no-pager`). Памятка прогонов — ~/scout-cache/qa-night-state.json (что проверено той же сценой и сторожем — не пересобирается).
+# НЕ ВКЛЮЧЁН — включает директор после проверки. Установка / обновление юнита:
+#   cp tools/ops/systemd/remlab-qa-night.{service,timer} ~/.config/systemd/user/ && systemctl --user daemon-reload
+#   systemctl --user enable --now remlab-qa-night.timer
+# Вручную: systemctl --user start remlab-qa-night. Проверка без действий: `python tools/scout/render_gpu/qa_night.py --list`.
+[Unit]
+Description=remlab: ночной шаг сторожа кадров (предпроверка всех комнат /demo и туров, без рендера)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/igor/remlab
+Environment=TMPDIR=%h/remlab-scratch/tmp
+ExecStartPre=/usr/bin/mkdir -p %h/remlab-scratch/tmp %h/remlab-logs/qa-night
+ExecStart=%h/venvs/scout/bin/python tools/scout/render_gpu/qa_night.py
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=remlab-qa-night
+# потолок прогона 40 мин по данным + ожидание очереди тяжёлых и последняя комната; дальше — стоп systemd
+TimeoutStartSec=90min
+Nice=10
+CPUQuota=200%
+MemoryHigh=3G
+MemoryMax=4500M
+MemorySwapMax=0
+OOMScoreAdjust=500

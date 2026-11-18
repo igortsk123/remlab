@@ -22,6 +22,8 @@ FMT 2 (T-20261117-24/5): в задании (v=2) — маленький паке
 
 Переменные: MESH_SINK_URL, MESH_SINK_TOKEN (из группы), WORK (/work), JOB_POLL_S (1), JOB_MAX_AGE_S (7200), CACHE_N (3), CACHE_GB (1.5), BLOB_GB (4), ASSET_PAR (4),
 HOT_GB (2.5), HOT_PAR (2), HOT_REFRESH_S (600)."""
+import collections
+import contextlib
 import json
 import os
 import re
@@ -41,12 +43,13 @@ import machine_agent as MA  # noqa: E402
 WORK = os.environ.get('WORK', '/work')
 POLL = float(os.environ.get('JOB_POLL_S', '0.5'))    # было 3 с (T-24/4), потом 1 с; T-24/11 — 0,5 с: ожидание задания в среднем 0,25 с
 MAX_AGE = float(os.environ.get('JOB_MAX_AGE_S', '7200'))
+ABORT_S = float(os.environ.get('JOB_ABORT_S', '120'))           # каталог без job.json старше этого — отправка брошена (job.json пишется последним): навсегда пропускаем, не пере-проверяем (≈0,6 с на каталог на каждом круге)
 CACHE_N = int(os.environ.get('CACHE_N', '3'))
 CACHE_GB = float(os.environ.get('CACHE_GB', '1.5'))
 BLOB_GB = float(os.environ.get('BLOB_GB', '4'))
 ASSET_PAR = int(os.environ.get('ASSET_PAR', '4'))
 HOT_GB = float(os.environ.get('HOT_GB', '2.5'))               # подогрев: не больше этого объёма (кэш ассетов BLOB_GB = 4 — запас под задание)
-HOT_PAR = int(os.environ.get('HOT_PAR', '2'))
+HOT_PAR = int(os.environ.get('HOT_PAR', '4'))
 HOT_REFRESH_S = float(os.environ.get('HOT_REFRESH_S', '600'))
 BL = MA.BL
 log = MA.log
@@ -136,6 +139,29 @@ def frames_of(job: dict) -> str:
     return job.get('frames', 'png')
 
 
+def qa_reports(work: str, fr: str, cams: list) -> dict:
+    """Отчёты сторожа кадров (`<кадр>.qa.json`, их пишет `render_cycles.py`) → `{камера: урезанный отчёт}` для `result.json`. Нет отчёта/модуля — камеры в словаре нет
+    (исполнитель такой кадр не блокирует): старая версия пакета или сторож выключен. Модуль берём из пакета задания — той же версии, что рендерила."""
+    out: dict = {}
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('frame_qa_pkg', os.path.join(work, 'tools', 'scout', 'cycles_probe', 'frame_qa.py'))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except Exception as e:  # noqa: BLE001
+        log('сторож: модуль пакета не загружен', repr(e)[:100])
+        return out
+    for c in cams:
+        try:
+            with open(os.path.join(work, JP.frame_names(fr, c)[0]) + '.qa.json', encoding='utf-8') as f:
+                out[c] = mod.brief_report(json.load(f))
+        except (OSError, ValueError):
+            continue
+        except Exception as e:  # noqa: BLE001
+            log('сторож: отчёт кадра не разобран', c, repr(e)[:100])
+    return out
+
+
 def build_cmd(job: dict, work: str) -> list:
     """Команда Blender: пути — воркера (внутри пакета), флаги рендера — из задания. Чистая функция."""
     scene, dump = os.path.join(work, 'scene'), os.path.join(work, 'dump')
@@ -143,11 +169,12 @@ def build_cmd(job: dict, work: str) -> list:
     fmt = ['--jpeg-quality', str(job.get('jpeg_q', 92))] if fr in ('jpg', 'both') else []
     if fr == 'both':
         fmt += ['--also-png', os.path.join(work, '{cam}.png')]
+    mk = ['--mask-out', os.path.join(work, JP.mask_name('{cam}')), '--mask-scale', str(JP.MASK_SCALE)] if job.get('masks') else []
     return [BL, '-b', '--python-exit-code', '1', '-P', os.path.join(work, 'tools', 'scout', 'cycles_probe', 'render_cycles.py'), '--',
             '--scene-dir', scene, '--cam', ','.join(job['cams']), '--out', os.path.join(work, '{cam}.png' if fr == 'png' else '{cam}.jpg'),
             '--demo-glb', os.path.join(dump, 'demo_nodes.glb'), '--demo-nodes', os.path.join(dump, 'demo_nodes_uuids.json'),
             '--export', os.path.join(dump, 'scene-export.json'), '--public', os.path.join(work, 'public'),
-            '--device', 'auto', '--persistent', '1', *fmt, *job['args']]
+            '--device', 'auto', '--persistent', '1', *fmt, *mk, *job['args']]
 
 
 def cam_of_line(line: str) -> str | None:
@@ -165,8 +192,8 @@ class FrameUploader:
     """Выгрузка кадров в приёмник ПОКА Blender считает следующий (T-24/11): `start(cam)` — поток на файл(ы) кадра, `join()` — дождаться и вернуть
     {имя файла: размер}; сбой любой выгрузки поднимается из `join()` (воркер вернёт ошибку задания, как при выгрузке после рендера)."""
 
-    def __init__(self, sink, jid: str, work: str, frames: str):
-        self.sink, self.jid, self.work, self.frames = sink, jid, work, frames
+    def __init__(self, sink, jid: str, work: str, frames: str, pool=None):
+        self.sink, self.jid, self.work, self.frames, self.pool = sink, jid, work, frames, pool
         self.threads: list = []
         self.sizes: dict = {}
         self.errors: list = []
@@ -177,6 +204,9 @@ class FrameUploader:
             return
         self.started.add(cam)
         for name in JP.frame_names(self.frames, cam):
+            if self.pool is not None:                       # постоянный поток (тёплое соединение): выгрузка последнего кадра не платит за новое TCP+TLS
+                self.threads.append(self.pool.submit(self._one, name))
+                continue
             t = threading.Thread(target=self._one, args=(name,), daemon=True)
             t.start()
             self.threads.append(t)
@@ -193,7 +223,10 @@ class FrameUploader:
 
     def join(self) -> dict:
         for t in self.threads:
-            t.join()
+            if hasattr(t, 'result'):
+                t.result()
+            else:
+                t.join()
         if self.errors:
             raise self.errors[0]
         return dict(self.sizes)
@@ -213,13 +246,205 @@ def parse_progress(line: str, cams: list) -> tuple[str | None, dict]:
     return None, {}
 
 
+class CallLog:
+    """Журнал обращений воркера к приёмнику (T-24/12, МЕРКА): (что, смещение от начала задания с, длительность с). Пишет `TimedSink`; `reset()` — в начале каждого круга
+    выбора задания, поэтому к заданию попадают обращения последнего (успешного) выбора; обращения потока подогрева (`hot`, ассеты вне задания) не учитываются."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.items: list = []
+
+    def reset(self) -> None:
+        with self.lock:
+            self.items = []
+
+    def add(self, op: str, t_start: float, dur: float) -> None:
+        with self.lock:
+            self.items.append((op, t_start, dur))
+
+    def snapshot(self, t0: float) -> list:
+        """→ [[что, смещение от t0 (до задания — отрицательное), с]] по времени; ассеты схлопнуты в одну строку «ассеты ×N» (сумма, максимум в `max`)."""
+        with self.lock:
+            it = sorted(self.items, key=lambda x: x[1])
+        out, assets, shown = [], [x for x in it if x[0] == 'ассет'], False
+        for op, ts, d in it:
+            if op == 'hot':
+                continue
+            if op == 'ассет':
+                if not shown:
+                    shown = True
+                    out.append({'op': f'ассеты ×{len(assets)}', 't': round(ts - t0, 2), 's': round(sum(x[2] for x in assets), 2), 'max': round(max(x[2] for x in assets), 2)})
+                continue
+            out.append({'op': op, 't': round(ts - t0, 2), 's': round(d, 2)})
+        return out
+
+
+def call_label(method: str, rel: str, data=None) -> str:
+    """Короткое имя обращения: ls корня / ls задания / job.json / progress.json:<стадия> / result.json / выгрузка C1.jpg / пакет / ассет / hot."""
+    if method == 'ls':
+        return 'ls корня' if rel == JP.PREFIX else 'ls задания'
+    if method in ('get_asset_to', 'put_asset'):
+        return 'ассет'
+    base = rel.rsplit('/', 1)[-1]
+    if rel == JP.HOT_REL:
+        return 'hot'
+    if base == 'progress.json':
+        try:
+            return 'progress.json:' + str(json.loads(data).get('stage'))
+        except (TypeError, ValueError, AttributeError):
+            return 'progress.json'
+    if base.startswith('bundle-'):
+        return 'пакет'
+    if method == 'put_file' and base[:1] == 'C':
+        return 'выгрузка ' + base
+    return base
+
+
+class TimedSink:
+    """Обёртка над `Sink`: каждое обращение (get/get_json/get_to/put/put_file/ls/ассеты) меряется и пишется в `CallLog`; всё остальное — как у `Sink`."""
+    TIMED = ('get', 'get_json', 'get_to', 'put', 'put_file', 'ls', 'get_asset_to', 'put_asset')
+
+    def __init__(self, sink, log: 'CallLog'):
+        self._sink, self.calls = sink, log
+
+    def __getattr__(self, name):
+        attr = getattr(self._sink, name)
+        if name not in self.TIMED:
+            return attr
+
+        def timed(*a, **kw):
+            t = time.time()
+            try:
+                return attr(*a, **kw)
+            finally:
+                rel = a[0] if a and isinstance(a[0], str) else ''
+                self.calls.add(call_label(name, rel, a[1] if name == 'put' and len(a) > 1 else None), t, time.time() - t)
+        return timed
+
+
+class AsyncProgress:
+    """Запись `progress.json` вне критического пути (T-24/12): `set` не ждёт сети, поток пишет ПОСЛЕДНЕЕ значение (промежуточные могут пропасть — важна текущая стадия);
+    `close(jid)` — сбросить непосланное и дождаться уже идущей записи, чтобы `progress.json` не появился после `result.json`."""
+
+    def __init__(self, sink):
+        self.sink = sink
+        self.cond = threading.Condition()
+        self.pending = None
+        self.busy = False
+        self.thread = None
+
+    def set(self, jid: str, stage: str) -> None:
+        with self.cond:
+            self.pending = (jid, stage, round(time.time(), 1))
+            if self.thread is None:
+                self.thread = threading.Thread(target=self._run, daemon=True, name='progress')
+                self.thread.start()
+            self.cond.notify_all()
+
+    def _run(self) -> None:
+        while True:
+            with self.cond:
+                while self.pending is None:
+                    self.cond.wait()
+                jid, stage, ts = self.pending
+                self.pending = None
+                self.busy = True
+            try:
+                self.sink.put(f'{JP.PREFIX}/{jid}/progress.json', json.dumps({'stage': stage, 'ts': ts}).encode())
+            except Exception as e:  # noqa: BLE001
+                log('progress PUT', stage, 'ОШИБКА', e)
+            finally:
+                with self.cond:
+                    self.busy = False
+                    self.cond.notify_all()
+
+    def close(self, jid: str, timeout: float = 15.0) -> None:
+        end = time.time() + timeout
+        with self.cond:
+            if self.pending and self.pending[0] == jid:
+                self.pending = None
+            while self.busy and time.time() < end:
+                self.cond.wait(0.2)
+
+
+class Journal:
+    """ЖУРНАЛ КРУГОВ ВЫБОРА И ПАУЗ МЕЖДУ ЗАДАНИЯМИ (T-20261118-09/9): почему воркер берёт задание через 2–7 с после того, как DEV положил `job.json` (замер 18.11, m12 — при опросе 0,5 с).
+    По кругу выбора (`pick`): когда начался, сколько длился, сколько каталогов в списке, сколько из них проверялось (`ls`+`job.json`), сколько ушло на проверки, нашлось ли задание;
+    по заданию: когда воркер ВПЕРВЫЕ увидел каталог и когда ВПЕРВЫЕ увидел в нём `job.json`; после прошлого задания: когда оно закончилось (после записи `result.json`) и сколько
+    заняли шаги после ожидания (`prev_post`). В `result.json` уходит срез в секундах ОТНОСИТЕЛЬНО начала задания (до начала — отрицательные) плюс абсолютное время начала `t_job`
+    (по часам машины) — по нему и по `timing.dev.t0` (часы DEV) выводится «job.json положен → воркер увидел». Только измерение."""
+
+    def __init__(self, keep: int = 60):
+        self.lock = threading.Lock()
+        self.cycles: collections.deque = collections.deque(maxlen=keep)
+        self.seen_dir: dict = {}
+        self.seen_job: dict = {}
+        self.prev_end = None
+        self.prev_post: dict = {}
+
+    def cycle(self, t: float, dur: float, dirs: int, probed: int, probe_s: float, found: bool) -> None:
+        with self.lock:
+            self.cycles.append((t, dur, dirs, probed, probe_s, found))
+
+    def dir_seen(self, name: str, t: float) -> None:
+        with self.lock:
+            self.seen_dir.setdefault(name, t)
+            if len(self.seen_dir) > 200:
+                self.seen_dir.pop(next(iter(self.seen_dir)))
+
+    def job_seen(self, name: str, t: float) -> None:
+        with self.lock:
+            self.seen_job.setdefault(name, t)
+            if len(self.seen_job) > 200:
+                self.seen_job.pop(next(iter(self.seen_job)))
+
+    def snapshot(self, t_job: float, jid: str, max_cycles: int = 30) -> dict:
+        with self.lock:
+            lo = (self.prev_end - 1.0) if self.prev_end else t_job - 60
+            cyc = [c for c in self.cycles if c[0] >= lo and c[0] <= t_job][-max_cycles:]
+            out = {'t_job': round(t_job, 2),
+                   'prev_end': round(self.prev_end - t_job, 2) if self.prev_end else None,
+                   'seen_dir': round(self.seen_dir[jid] - t_job, 2) if jid in self.seen_dir else None,
+                   'seen_job': round(self.seen_job[jid] - t_job, 2) if jid in self.seen_job else None,
+                   'cycles': [[round(c[0] - t_job, 2), round(c[1], 2), c[2], c[3], round(c[4], 2), int(c[5])] for c in cyc]}
+            if self.prev_post:
+                out['prev_post'] = dict(self.prev_post)
+            return out
+
+
+def trash_dir(path: str) -> float:
+    """Убрать каталог задания НЕ на критическом пути: мгновенное переименование + удаление в фоне (раньше `rmtree` сцены в сотни МБ шёл синхронно перед записью `result.json`).
+    → секунд на переименование. Не вышло переименовать — удаляем на месте, как раньше."""
+    t = time.time()
+    if not os.path.lexists(path):
+        return 0.0
+    dst = f'{path}.del-{uuid.uuid4().hex[:8]}'
+    try:
+        os.replace(path, dst)
+    except OSError:
+        shutil.rmtree(path, ignore_errors=True)
+        return round(time.time() - t, 3)
+    threading.Thread(target=shutil.rmtree, args=(dst,), kwargs={'ignore_errors': True}, daemon=True, name='trash').start()
+    return round(time.time() - t, 3)
+
+
 class Worker:
     def __init__(self, sink: 'JP.Sink'):
-        self.sink = sink
+        self.calls = CallLog()
+        self.sink = TimedSink(sink, self.calls)
+        self.prog = AsyncProgress(self.sink)
+        self.pre: dict = {}                           # job.json, уже прочитанный при выборе (одним заходом вместе с ls): имя → задание
+        self.prev_put = None                          # длительность предыдущей записи result.json (в этом результате её ещё нет)
         self.done: set = set()
         self.hot: set = set()                         # горячие хеши текущего списка: из кэша по размеру не выселяются
         self.hot_ts = None                            # метка списка, который уже подтянут
         self.warm_stat: dict = {}
+        self.jr = Journal()
+        # ПОСТОЯННЫЕ потоки обращений к приёмнику (T-20261118-09/9): у `jobs_proto.Sink` соединение на ПОТОК; поток на задание/кадр/проверку = новое TCP+TLS на каждое
+        # (≈0,4 с); постоянный пул держит соединения тёплыми между заданиями
+        self.io_assets = ThreadPoolExecutor(max_workers=max(1, ASSET_PAR), thread_name_prefix='asset')
+        self.io_up = ThreadPoolExecutor(max_workers=4, thread_name_prefix='up')
+        self.io_probe = ThreadPoolExecutor(max_workers=2, thread_name_prefix='probe')
         self._locks: dict = {}
         self._locks_guard = threading.Lock()
         os.makedirs(os.path.join(WORK, 'cache'), exist_ok=True)
@@ -231,34 +456,71 @@ class Worker:
             return self._locks.setdefault(key, threading.Lock())
 
     def progress(self, jid: str, stage: str) -> None:
+        self.prog.set(jid, stage)
+
+    def _probe(self, n: str) -> dict:
+        """Каталог-кандидат: `ls` и чтение `job.json` — ОДНИМ заходом (два обращения параллельно, T-24/12). → {names | err, job}."""
+        out: dict = {'job': None}
+
+        def read_job():
+            try:
+                out['job'] = self.sink.get_json(f'{JP.PREFIX}/{n}/job.json')
+            except Exception:  # noqa: BLE001 — нет файла/сбой: run_job прочитает сам
+                out['job'] = None
+        fut = self.io_probe.submit(read_job)          # постоянный поток (соединение тёплое), параллельно с `ls` в этом потоке
         try:
-            self.sink.put(f'{JP.PREFIX}/{jid}/progress.json', json.dumps({'stage': stage, 'ts': round(time.time(), 1)}).encode())
+            out['names'] = {f['name'] for f in self.sink.ls(f'{JP.PREFIX}/{n}').get('files', [])}
         except JP.SinkError as e:
-            log('progress PUT', stage, 'ОШИБКА', e)
+            out['err'] = e
+        fut.result()
+        return out
 
     def pick(self):
-        """Первое готовое к работе задание (старые — вперёд) или None."""
+        """Первое готовое к работе задание (старые — вперёд) или None. Каждый круг — в журнал (`Journal.cycle`)."""
+        tc = time.time()
+        st = {'dirs': 0, 'probed': 0, 'probe_s': 0.0}
+        jid = None
+        try:
+            jid = self._pick(st)
+            return jid
+        finally:
+            self.jr.cycle(tc, time.time() - tc, st['dirs'], st['probed'], st['probe_s'], bool(jid))
+
+    def _pick(self, st: dict):
         now = time.time()
+        self.calls.reset()
         try:
             dirs = self.sink.ls(JP.PREFIX).get('dirs', [])
         except JP.SinkError as e:
             log('ls', e)
             return None
+        t_ls = time.time()
+        st['dirs'] = len(dirs)
         for d in sorted(dirs, key=lambda x: x.get('mtime', 0)):
             n = d['name']
             if n == JP.HOT_DIR:                    # горячий список витрины — не задание
                 continue
             if n in self.done or now - float(d.get('mtime', 0)) > MAX_AGE:
                 continue
-            try:
-                names = {f['name'] for f in self.sink.ls(f'{JP.PREFIX}/{n}').get('files', [])}
-            except JP.SinkError as e:      # сетевой сбой/таймаут посреди перечня: не падать (воркер умирал — T-24/4, живая пара 23:34), пропустить до следующего круга
-                log('ls задания', n, e)
+            self.jr.dir_seen(n, t_ls)
+            tp = time.time()
+            pr = self._probe(n)
+            st['probed'] += 1
+            st['probe_s'] += time.time() - tp
+            if 'err' in pr:      # сетевой сбой/таймаут посреди перечня: не падать (воркер умирал — T-24/4, живая пара 23:34), пропустить до следующего круга
+                log('ls задания', n, pr['err'])
                 return None
+            names = pr['names']
             if 'result.json' in names or 'cancel.json' in names:
                 self.done.add(n)
                 continue
+            if 'job.json' not in names and now - float(d.get('mtime', 0)) > ABORT_S:
+                self.done.add(n)                   # брошенная отправка (T-20261118-09/8): не пере-проверяем на каждом круге
+                continue
             if 'job.json' in names:
+                self.jr.job_seen(n, time.time())
+                if isinstance(pr['job'], dict):
+                    self.pre[n] = pr['job']
                 return n
         return None
 
@@ -312,7 +574,7 @@ class Worker:
         for a in job['assets']:
             if by_sha.setdefault(a['sha256'], a['size']) != a['size']:
                 raise AssetError('один хеш — два размера')
-        with ThreadPoolExecutor(max_workers=max(1, ASSET_PAR)) as pool:
+        with contextlib.nullcontext(self.io_assets) as pool:                 # постоянные потоки: соединения с приёмником тёплые между заданиями
             futs = {sha: pool.submit(self.fetch_asset, sha, size) for sha, size in by_sha.items()}      # ассеты качаются, пока берётся маленький пакет
             if os.path.isfile(dst) and not blob_ok(dst, b['sha256'], b['size']):
                 os.remove(dst)
@@ -396,7 +658,20 @@ class Worker:
             time.sleep(HOT_REFRESH_S)
 
     def run_job(self, jid: str) -> dict:
-        job = self.sink.get_json(f'{JP.PREFIX}/{jid}/job.json')
+        """Задание целиком; в ответ добавлены `calls` (журнал обращений к приёмнику, T-24/12) и `prev_result_put_s`. Запись хода — вне критического пути, перед возвратом закрыта."""
+        self.t_job = time.time()
+        try:
+            res = self._run_job(jid)
+        finally:
+            self.prog.close(jid)
+        res['calls'] = self.calls.snapshot(self.t_job)
+        res['loop'] = self.jr.snapshot(self.t_job, jid)       # журнал кругов выбора и пауз (T-20261118-09/9)
+        if self.prev_put is not None:
+            res['prev_result_put_s'] = self.prev_put
+        return res
+
+    def _run_job(self, jid: str) -> dict:
+        job = self.pre.pop(jid, None) or self.sink.get_json(f'{JP.PREFIX}/{jid}/job.json')
         why = JP.validate_job(job, expect_id=jid)
         if why:
             return err('bad_job', 'Задание рендера не принято машиной.', 'The render job was rejected by the machine.', note=why)
@@ -430,7 +705,7 @@ class Worker:
                                 env={**os.environ, 'PYTHONUNBUFFERED': '1'})
         tail, device, killed = [], '', ''
         fr = frames_of(job)
-        up = FrameUploader(self.sink, jid, work, fr)       # T-24/11: кадр уходит в приёмник, пока Blender считает следующий
+        up = FrameUploader(self.sink, jid, work, fr, self.io_up)       # T-24/11: кадр уходит в приёмник, пока Blender считает следующий
 
         def watchdog():
             nonlocal killed
@@ -447,6 +722,19 @@ class Worker:
         for line in proc.stdout:
             line = line.rstrip()
             tail = (tail + [line])[-25:]
+            _tt = round(time.time() - t1, 2)
+            if 'bl_first_line' not in timing:
+                timing['bl_first_line'] = _tt                    # T-20261118-09/3: куда уходят секунды Blender — запуск процесса до первой строки
+            if line.startswith('SCENE_BUILD_SEC '):
+                timing['bl_scene_ready'] = _tt                   # сборка сцены в Blender закончена (от запуска процесса)
+                try:
+                    timing['bl_scene_py'] = round(float(line.split()[1]), 2)      # то же по часам самой программы (от её начала)
+                except (ValueError, IndexError):
+                    pass
+            if line.startswith('DEVICE_USED'):
+                timing['bl_device_ready'] = _tt
+            if line.startswith('RENDER_SEC '):
+                timing[f'bl_end_{cam_of_line(line) or "x"}'] = _tt      # кадр готов (от запуска процесса)
             if line.startswith('DEVICE_USED'):
                 device = line.split(' ', 1)[1]
                 if device.startswith('CPU'):       # GPU не поднялся: считать на CPU машины ×30 медленнее — не нужно, пусть исполнитель решит
@@ -458,6 +746,11 @@ class Worker:
             cam_done = cam_of_line(line)
             if cam_done in job['cams']:
                 up.start(cam_done)
+            if line.startswith('MASK_SEC '):
+                try:
+                    timing['mask'] = round(float(line.split()[1]), 2)      # цена прохода масок (смена материалов + 1 выборка на ракурс)
+                except (ValueError, IndexError):
+                    pass
             nxt, add = parse_progress(line, job['cams'])
             if add:
                 timing.update(add)
@@ -465,6 +758,7 @@ class Worker:
                 self.progress(jid, nxt)
         rc = proc.wait()
         timing['render'] = round(time.time() - t1, 1)
+        timing['bl_exit'] = round(time.time() - t1, 2)
         if killed == 'cpu':
             return err('gpu_failed', 'Видеокарта машины не взялась за рендер.', 'The machine GPU did not take the render.', device=device)
         if killed == 'timeout':
@@ -483,6 +777,25 @@ class Worker:
         files = {c: sizes[JP.frame_names(fr, c)[0]] for c in job['cams']}
         if fr == 'both':
             files.update({n: sizes[n] for n in names if n.endswith('.png')})
+        if job.get('masks'):
+            # маски поверхностей — НЕОБЯЗАТЕЛЬНЫ: нет файла или выгрузка не вышла — кадры уйдут без них (приглушение пятен просто не сработает), задание не падает
+            tm_ = time.time()
+            ms = {}
+            for c in job['cams']:
+                mp = os.path.join(work, JP.mask_name(c))
+                try:
+                    if os.path.isfile(mp) and os.path.getsize(mp) > 0:
+                        self.sink.put_file(f'{JP.PREFIX}/{jid}/{JP.mask_name(c)}', mp)
+                        ms[c] = os.path.getsize(mp)
+                except Exception as e:  # noqa: BLE001
+                    log('маска не ушла', c, repr(e)[:100])
+            res_extra['masks'] = ms
+            timing['mask_up'] = round(time.time() - tm_, 2)
+        tq = time.time()
+        qa = qa_reports(work, fr, job['cams'])
+        timing['qa'] = round(time.time() - tq, 2)
+        if qa:
+            res_extra['qa'] = qa          # урезанные отчёты сторожа по кадрам: исполнитель решает по ним, публиковать ли пару (ворота, T-20261118-03/7)
         timing['total'] = round(time.time() - t0, 1)
         return {'ok': True, 'timing': timing, 'device': device, 'files': files, 'frames': fr, **res_extra}
 
@@ -507,14 +820,18 @@ class Worker:
                 res = err('worker', 'Сбой машины рендера.', 'The render machine failed.', note=f'{type(e).__name__}: {str(e)[:160]}')
             finally:
                 MA.STATE['busy'] = None
-                shutil.rmtree(os.path.join(WORK, 'job'), ignore_errors=True)
+                t_trash = trash_dir(os.path.join(WORK, 'job'))      # не rmtree на критическом пути: переименование + фон (T-20261118-09/9)
             if not res.get('cancelled'):
                 res['job_id'], res['boot_id'], res['ts'] = jid, MA.BOOT, round(time.time(), 1)
                 try:
+                    tp = time.time()
                     self.sink.put(f'{JP.PREFIX}/{jid}/result.json', json.dumps(res, ensure_ascii=False).encode())   # ПОСЛЕДНИМ
+                    self.prev_put = round(time.time() - tp, 2)
                 except JP.SinkError as e:
                     log('result PUT ОШИБКА', e)      # исполнитель не дождётся и уйдёт на запасной; второй раз GPU не жжём
             self.done.add(jid)
+            self.jr.prev_end = time.time()
+            self.jr.prev_post = {'trash': t_trash, 'put': self.prev_put}
             log('задание', jid, 'ok' if res.get('ok') else res.get('error', {}).get('code') or 'отменено')
 
 
@@ -523,7 +840,8 @@ def main() -> int:
     if not base or not tok:
         log('нет MESH_SINK_URL/MESH_SINK_TOKEN — воркер не работает')
         return 2
-    MA.STATE['caps'] = {'frames': list(JP.FRAMES_CAPS)}      # T-24/11: что воркер умеет (уходит в ready.json → state контроллера → исполнитель шлёт jpg только такой машине)
+    MA.STATE['hot'] = {'done': False}          # T-20261118-09/8: «подогрев не закончен» — с САМОЙ первой отметки готовности (раньше поле появлялось позже, и контроллер мог объявить «прогрелась» до подогрева)
+    MA.STATE['caps'] = {'frames': list(JP.FRAMES_CAPS), 'masks': 1}      # T-24/11: что воркер умеет (уходит в ready.json → state контроллера → исполнитель шлёт jpg только такой машине)
     threading.Thread(target=MA.main, daemon=True, name='agent').start()      # готовность и отметка ready.json — как у агента
     w = Worker(JP.Sink(base, tok))
     threading.Thread(target=w.warm_loop, daemon=True, name='warm').start()      # подогрев кэша ассетов — своим потоком, заказ приоритетнее

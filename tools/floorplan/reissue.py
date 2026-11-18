@@ -410,6 +410,8 @@ def main(argv=None, api: wk.Api | None = None, cfg: wk.Cfg | None = None, cmd: l
     ap.add_argument('--out', help='папка прогона (по умолчанию <TRIAL_WORK_DIR>/reparse|reissue/<время>)')
     ap.add_argument('--hold', help='файл «держать»: id туров построчно или «*» — такие не пересобираются (skipped/hold)')
     ap.add_argument('--sources', action='store_true', help='только список: у каких туров жив исходный файл (превью чертежа)')
+    ap.add_argument('--carry-pids-by-img', action='store_true',
+                    help='публичный ключ товара `pid` у перенесённых предметов — по плитке фото (только при одном `sid` на фото; T-20261118-03/9)')
     a = ap.parse_args(argv)
     cfg = cfg or wk.Cfg.from_env()
     if not cfg.token:
@@ -418,6 +420,8 @@ def main(argv=None, api: wk.Api | None = None, cfg: wk.Cfg | None = None, cmd: l
     if not a.job and not a.days:
         ap.error('нужен --job или --days')
     api = api or wk.Api(cfg)
+    if a.carry_pids_by_img and cmd is None:
+        cmd = [cfg.python, str(HERE.parent / 'scout' / 'trial_reissue.py'), '--carry-pids-by-img']
     ids = list(dict.fromkeys(x for x in a.job if wk.TOKEN_RE.match(x)))
     if a.days:
         st, got = api.call('GET', f'/api/trial/worker/reissue?days={int(a.days)}')

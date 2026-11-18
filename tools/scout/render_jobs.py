@@ -25,10 +25,10 @@ import time
 import uuid
 
 try:                                    # рядом с модулем; при импорте как скрипт путь уже верный
-    from render_exec import RenderError, ExecutorUnavailable
+    from render_exec import RenderError, ExecutorUnavailable, RenderBrak, qa_gate_on, qa_signature
 except ImportError:  # pragma: no cover
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from render_exec import RenderError, ExecutorUnavailable
+    from render_exec import RenderError, ExecutorUnavailable, RenderBrak, qa_gate_on, qa_signature
 
 MAX_ATTEMPTS = 2
 CAMS = ('C1', 'C2')
@@ -70,20 +70,22 @@ def _pct(xs: list, p: float):
 class RenderStore:
     """Задания и замеры — одним файлом (tmp + fsync + rename, под замком), кадры — каталогами по ключу кэша."""
 
-    def __init__(self, path: str, results_dir: str, max_jobs: int = 300, ttl_s: int = 86400, keep_results: int = 200):
+    def __init__(self, path: str, results_dir: str, max_jobs: int = 300, ttl_s: int = 86400, keep_results: int = 0):
+        keep_results = keep_results or _env_i('RENDER_KEEP_RESULTS', 800)     # «заранее посчитанные» кадры всех комнат (T-20261118-07) не должны вытесняться уборкой
         self.path, self.results_dir = path, results_dir
         self.max_jobs, self.ttl_s, self.keep_results = max_jobs, ttl_s, keep_results
         self.lock = threading.RLock()
         self.jobs: dict = {}
         self.durs: list = []            # секунды от начала работы до готовых двух кадров (последние 30)
         self.dur_ex: list = []          # кто считал — имя исполнителя, по одному на каждый замер (та же длина и порядок, что у durs)
+        self.brak: dict = {}            # ворота сторожа (T-20261118-03/7): ключ кэша → {'sig', 'where', 'brak': [находки], 'ts'}; повтор того же ключа тем же сторожем — отказ без рендера
         os.makedirs(results_dir, exist_ok=True)
 
     def save(self) -> bool:
         tmp = self.path + '.tmp'
         try:
             with self.lock:
-                snap = {'v': 1, 'jobs': self.jobs, 'durs': self.durs[-30:], 'dur_ex': self.dur_ex[-30:]}
+                snap = {'v': 1, 'jobs': self.jobs, 'durs': self.durs[-30:], 'dur_ex': self.dur_ex[-30:], 'brak': self.brak}
                 with open(tmp, 'w', encoding='utf-8') as f:
                     json.dump(snap, f, ensure_ascii=False)
                     f.flush()
@@ -107,6 +109,7 @@ class RenderStore:
                 print(f'файл заданий рендера не прочитан ({str(e)[:80]}) — пустой старт', flush=True)
                 data = {}
             self.jobs = {k: v for k, v in (data.get('jobs') or {}).items() if isinstance(v, dict)}
+            self.brak = {k: v for k, v in (data.get('brak') or {}).items() if isinstance(v, dict)}
             self.durs = [float(x) for x in (data.get('durs') or []) if isinstance(x, (int, float))][-30:]
             exs = [x if isinstance(x, str) and x else LEGACY_EX for x in (data.get('dur_ex') or [])][-len(self.durs):] if self.durs else []
             self.dur_ex = [LEGACY_EX] * (len(self.durs) - len(exs)) + exs         # старый файл без исполнителей: замеры были процессорные
@@ -122,9 +125,29 @@ class RenderStore:
             return sum(1 for j in self.jobs.values() if j.get('status') == 'queued')
 
     @staticmethod
-    def _failed(j: dict, code: str, ru: str, en: str) -> dict:
+    def _failed(j: dict, code: str, ru: str, en: str, brak: list | None = None) -> dict:
         return {'status': 'error', 'ts': j.get('ts', time.time()), 'key': j.get('key'), 'hash': j.get('hash'), 'code': code,
-                'error': ru, 'error_en': en, 'retry': True}
+                'error': ru, 'error_en': en, 'retry': True, **({'brak': brak} if brak else {})}
+
+    # ——— метки брака сторожа (ворота шага 5)
+    def mark_brak(self, key: str, where: str, brak: list) -> None:
+        """Ключ дал брак: запомнить (с версией сторожа), чтобы повтор (кнопка «Повторить», заготовка) не жёг рендер на то же самое. Файл заданий уже переживает перезапуск."""
+        with self.lock:
+            self.brak[key] = {'sig': qa_signature(), 'where': where, 'brak': brak[:12], 'ts': int(time.time())}
+            for k in sorted(self.brak, key=lambda k: self.brak[k].get('ts', 0))[:max(0, len(self.brak) - 300)]:
+                self.brak.pop(k, None)
+            self.save()
+
+    def brak_of(self, key: str) -> dict | None:
+        """Метка брака по ключу, если она поставлена ТЕКУЩЕЙ версией сторожа (починили сторож/правила — метка не действует); иначе None."""
+        with self.lock:
+            m = self.brak.get(key)
+        if not m:
+            return None
+        try:
+            return m if m.get('sig') == qa_signature() else None
+        except Exception:  # noqa: BLE001
+            return None
 
     def _trim(self) -> None:
         now = time.time()
@@ -212,11 +235,20 @@ class RenderQueue:
         return int(DEFAULT_SEC * 0.8), int(DEFAULT_SEC * 1.6)
 
     def _order(self) -> list:
-        """Очередь: сперва интерактивные, внутри — по приходу; ждущий дольше 30 мин идёт как интерактивный (прогрев не голодает)."""
+        """Очередь: сперва интерактивные, внутри — по приходу; ждущий дольше 30 мин идёт как интерактивный (прогрев не голодает).
+        Заготовка кадров (`warm`, T-20261118-07) всегда после заказов людей и не «стареет» в интерактивный: ей нельзя занять процессор DEV."""
         now = time.time()
         q = [(jid, j) for jid, j in self.store.jobs.items() if j.get('status') == 'queued']
-        return [jid for jid, j in sorted(q, key=lambda t: (0 if (t[1].get('prio', 0) == 0 or now - t[1].get('ts', now) > 1800) else 1,
-                                                          t[1].get('ts', 0)))]
+        return [jid for jid, j in sorted(q, key=lambda t: (0 if (not t[1].get('warm') and (t[1].get('prio', 0) == 0 or now - t[1].get('ts', now) > 1800))
+                                                          else 1, t[1].get('ts', 0)))]
+
+    def warm_ok(self) -> bool:
+        """Можно ли сейчас брать заготовку кадров: только если её посчитает машина рендера (исполнитель сам говорит — `warm_ok`); без неё заготовки ждут."""
+        f = getattr(self.executor, 'warm_ok', None)
+        try:
+            return bool(f()) if callable(f) else False
+        except Exception:  # noqa: BLE001
+            return False
 
     def eta(self, jid: str) -> dict:
         """{'queue': место с 1 (0 — не ждёт), 'eta': секунды до обоих кадров, 'eta_range': [мин, макс]}."""
@@ -242,7 +274,16 @@ class RenderQueue:
     # ——— приём
     def waiting_n(self) -> int:
         with self.store.lock:
-            return sum(1 for j in self.store.jobs.values() if j.get('status') == 'queued')
+            return sum(1 for j in self.store.jobs.values() if j.get('status') == 'queued' and not j.get('warm'))
+
+    def warm_counts(self) -> dict:
+        """Заготовки кадров по состояниям (для статуса)."""
+        with self.store.lock:
+            c = {'queued': 0, 'running': 0}
+            for j in self.store.jobs.values():
+                if j.get('warm') and j.get('status') in c:
+                    c[j['status']] += 1
+            return c
 
     def _active(self, field: str, value) -> int:
         if not value:
@@ -267,8 +308,10 @@ class RenderQueue:
             raise Refusal(503, 'render_busy', 'Очередь фото заполнена. Попробуйте через несколько минут.',
                           'The photo queue is full. Try again in a few minutes.', avg * 2)
 
-    def submit(self, snap: dict, key: str, ip: str = '', tour: str = '', prio: int = 0, legacy: dict | None = None) -> dict:
-        """Поставить заказ. → {'job', 'status', 'deduped', 'cached'}; отказ — `Refusal`."""
+    def submit(self, snap: dict, key: str, ip: str = '', tour: str = '', prio: int = 0, legacy: dict | None = None, warm: bool = False) -> dict:
+        """Поставить заказ. → {'job', 'status', 'deduped', 'cached'}; отказ — `Refusal`.
+        `warm` — заготовка кадров программой (T-20261118-07): пределы покупателя (`admit`) её не касаются и не считают, в очереди она всегда после заказов людей
+        и считается только на машине рендера (`warm_ok`); место в очереди для людей и срок ожидания она не занимает."""
         st = self.store
         with st.lock:
             for jid, j in st.jobs.items():                   # одинаковый ключ — одно задание
@@ -284,12 +327,16 @@ class RenderQueue:
                 st._trim()
                 st.save()
                 return {'job': jid, 'status': 'done', 'deduped': True, 'cached': True}
-            self.admit(ip, tour)
+            if not warm:
+                self.admit(ip, tour)
             jid = uuid.uuid4().hex[:12]
-            st.jobs[jid] = {'status': 'queued', 'ts': time.time(), 'key': key, 'hash': snap['scene_hash'], 'prio': 1 if prio else 0,
+            st.jobs[jid] = {'status': 'queued', 'ts': time.time(), 'key': key, 'hash': snap['scene_hash'], 'prio': 1 if (prio or warm) else 0,
                             'ip': ip, 'tour': tour, 'attempts': 0, 'stage': '', 'started': None,
                             'body': {'snap': snap, 'legacy': legacy or {}}}
-            self.hits.append(time.time())
+            if warm:
+                st.jobs[jid]['warm'] = True
+            else:
+                self.hits.append(time.time())
             st._trim()
             st.save()
             self.cond.notify_all()
@@ -345,7 +392,7 @@ class RenderQueue:
                     'running': sum(1 for j in self.store.jobs.values() if j.get('status') == 'running'),
                     'n': len(d), 'p50': _pct(d, 0.5), 'p95': _pct(d, 0.95), 'range': list(self.range_sec(who)),
                     'limits': {'queue': self.max_queue, 'ip': self.ip_max, 'tour': self.tour_max, 'hour': self.hour_cap},
-                    'hour_used': len([t for t in self.hits if time.time() - t < 3600])}
+                    'hour_used': len([t for t in self.hits if time.time() - t < 3600]), 'warm': {**self.warm_counts(), 'status': {k: v for k, v in (getattr(getattr(self, 'prewarm', None), 'status', None) or {}).items() if k in ('state', 'total', 'missing')}}}   # без денег: статистика публична
 
     # ——— рабочий
     def start(self) -> None:
@@ -358,6 +405,8 @@ class RenderQueue:
         with self.cond:
             while not self.stop:
                 order = self._order()
+                if order and self.store.jobs[order[0]].get('warm') and not self.warm_ok():
+                    order = [x for x in order if not self.store.jobs[x].get('warm')]     # заготовки ждут машину; людям она не мешает
                 if order:
                     jid = order[0]
                     j = self.store.jobs[jid]
@@ -380,7 +429,7 @@ class RenderQueue:
             j = st.jobs.get(jid)
             if not j or j.get('status') != 'running':
                 return
-            body, key, t0 = j['body'], j['key'], j['started']
+            body, key, t0, warm = j['body'], j['key'], j['started'], bool(j.get('warm'))
 
         def progress(stage: str) -> None:
             with st.lock:
@@ -389,7 +438,11 @@ class RenderQueue:
                     st.jobs[jid]['stage_ts'] = time.time()
         who0 = self.expected()
         try:
-            out = self.executor.render(body['snap'], st.result_dir(key), progress)
+            ex = getattr(self.executor, 'primary', self.executor) if warm else self.executor        # заготовка — только на машине рендера, запасного (процессор DEV) у неё нет
+            mk = st.brak_of(key) if qa_gate_on() else None
+            if mk:                                             # этот ключ уже дал брак тем же сторожем — повтор даст то же: отказ без подготовки и рендера
+                raise RenderBrak(mk.get('brak') or [], 'повтор: ' + str(mk.get('where') or ''))
+            out = ex.render(body['snap'], st.result_dir(key), progress)
             sec = time.time() - t0
             meta = st.cached(key)
             if meta is not None and body.get('legacy'):       # заказ «Улучшить»: по нему сервис берёт состояние снимка, не слова страницы
@@ -404,21 +457,37 @@ class RenderQueue:
                 st.durs = (st.durs + [sec])[-30:]
                 st.dur_ex = (st.dur_ex + [who])[-30:]
                 st.jobs[jid] = {'status': 'done', 'ts': st.jobs[jid]['ts'], 'key': key, 'hash': body['snap']['scene_hash'],
-                                'result': self._result(key, meta, sec, False), 'legacy': body.get('legacy') or {}}
+                                'result': self._result(key, meta, sec, False), 'legacy': body.get('legacy') or {}, **({'warm': True} if warm else {})}
                 st.save()
             st.trim_results()
             print(f'рендер {jid}: готов за {sec:.0f} с ({out.get("timing") if isinstance(out, dict) else ""})', flush=True)
         except (RenderError, ExecutorUnavailable) as e:
-            self._fail(jid, e.code, e.ru, e.en)
+            if warm and isinstance(e, ExecutorUnavailable):
+                with st.lock:                                  # машину вытеснили/погасили посреди заготовки — не ошибка: ждёт в очереди следующего включения
+                    jj = st.jobs.get(jid)
+                    if jj and jj.get('status') == 'running' and int(jj.get('attempts', 0)) < MAX_ATTEMPTS + 2:
+                        jj.update(status='queued', stage='', started=None)
+                        st.save()
+                        print(f'заготовка {jid}: машина недоступна ({e.code}) — ждёт в очереди', flush=True)
+                        return
+            if isinstance(e, RenderBrak):                      # ворота сторожа: метка ключа + строка в журнал с классом и слотом; покупателю — обычный экран ошибки
+                if not str(e.where).startswith('повтор'):
+                    st.mark_brak(key, e.where, e.brak)
+                print(f'рендер {jid}: {e.line()}', flush=True)
+                self._fail(jid, e.code, e.ru, e.en, e.brak)
+            else:
+                self._fail(jid, e.code, e.ru, e.en)
         except BaseException as e:  # noqa: BLE001 — любой сбой обязан стать статусом (урок 13.10: поток умирал молча)
             print(f'рендер {jid}: сбой {e!r}', flush=True)
             self._fail(jid, 'render_failed', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
 
-    def _fail(self, jid: str, code: str, ru: str, en: str) -> None:
+    def _fail(self, jid: str, code: str, ru: str, en: str, brak: list | None = None) -> None:
         with self.store.lock:
             j = self.store.jobs.get(jid)
             if j:
-                self.store.jobs[jid] = self.store._failed(j, code, ru, en)
+                self.store.jobs[jid] = self.store._failed(j, code, ru, en, brak)
+                if j.get('warm'):
+                    self.store.jobs[jid]['warm'] = True
                 self.store.save()
         print(f'рендер {jid}: отказ {code}', flush=True)
 

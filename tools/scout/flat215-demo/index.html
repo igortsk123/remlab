@@ -12053,15 +12053,21 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeou
 function vwRenderReq(){
   const v=allVariants()[cur]||{}, R=roomOf(v);
   if(!R||!items||!items.length)throw new Error('no_layout');
-  // товар: /demo — `sid`; тур — `sid` в публичных данных нет (NEVER_KEYS), шлём `msid`+`name`: сервер ищет пару только в данных этого тура (T-20261117-20/3)
-  const pk=it=>{const k=skuOf(it)||{}; return k.sid!=null&&k.sid!==''?{sid:String(k.sid)}:(k.name?Object.assign({name:String(k.name)},k.msid!=null&&k.msid!==''?{msid:String(k.msid)}:{}):null);};   // заглушка без модели (ковёр, стол) — `msid` нет, ключ имя
-  const its=items.map(it=>Object.assign({role:it.role}, pk(it)||{}, {x:Math.round(+it.x||0), y:Math.round(+it.y||0),
+  // товар предмета — ровно один ключ (контракт `contracts/trial.ts`): /demo — `sid`; тур — `sid` в публичных данных нет, есть `pid` (`p1:…`, T-20261118-03/9);
+  // у плоского предмета без ключа (ковёр, картина, зеркало без модели) — `ref`: номер предмета в варианте (его данные сервер берёт из варианта, а не от страницы)
+  const vid=String((v.mine&&v.baseVariant)||v.id||''), bv=allVariants().find(x=>String(x.id)===vid)||v;      // `ref` — номер в варианте НА СЕРВЕРЕ (у «моего» — исходный)
+  const baseItems=Array.isArray(bv.items)?bv.items:[];
+  const refOf=it=>{const k=skuOf(it)||{}; let i=baseItems.findIndex(b=>b&&b.role===it.role&&b.sku&&k.name&&b.sku.name===k.name);
+    if(i<0)i=baseItems.findIndex(b=>b&&b.role===it.role&&b.sku); return i>=0&&i<40?i:-1;};
+  const keyOf=it=>{const k=skuOf(it)||{}; if(k.sid!=null&&k.sid!=='')return {sid:String(k.sid)};
+    if(typeof k.pid==='string'&&k.pid)return {pid:k.pid}; const r=refOf(it); return r>=0?{ref:r}:null;};
+  const its=items.map(it=>Object.assign({role:it.role}, keyOf(it)||{}, {x:Math.round(+it.x||0), y:Math.round(+it.y||0),
     rot:((Math.round(+it.rot||0)%360)+360)%360, corner:!!it.corner, corner_left:!!it.corner_left, section:it.section==null?null:it.section}));
-  if(items.some(it=>!pk(it)))throw new Error('no_sid');
+  if(items.some(it=>!keyOf(it)))throw new Error('no_sid');
   const cs=(cams||loadCams()).slice(0,2).map((c,k)=>{const p=camPoseOf(c);
     return Object.assign({name:c.name||'C'+(k+1), x:Math.round(c.x), y:Math.round(c.y), rot:Math.round(c.rot||0), fov:c.fov||72, pose:POSE_VER},
       typeof p.pshift==='number'&&isFinite(p.pshift)?{pshift:p.pshift}:{});});
-  return {mode:'render', v:1, variant_id:String((v.mine&&v.baseVariant)||v.id||''), room_id:roomIdOf(v), room:{w:+R.w, d:+R.d}, items:its, cams:cs};
+  return {mode:'render', v:1, variant_id:vid, room_id:roomIdOf(v), room:{w:+R.w, d:+R.d}, items:its, cams:cs};
 }
 // «Улучшить фото»: рендер ЭТОЙ расстановки, из которого сделаны показанные кадры (ключ и два кадра рендера); нет рендера — улучшать нечего
 function vwImproveSrc(){

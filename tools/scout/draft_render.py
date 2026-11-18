@@ -3638,10 +3638,14 @@ def _paint_accent(canvas, sc, room, cam) -> bool:
     return True
 
 
-def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict | None = None) -> tuple[Image.Image, dict]:
+def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict | None = None, preview: bool = True) -> tuple[Image.Image | None, dict]:
     """КАДР СЦЕНЫ ИЗ МЕШЕЙ (владелец 31.08: «по кнопке — фотография собранной 3D-сцены,
     в GPT пока не отправляем»): clay-комната + реальные меши в перспективе, общий z-буфер
-    (правильные перекрытия). Нет меша — предмет остаётся clay-формой."""
+    (правильные перекрытия). Нет меша — предмет остаётся clay-формой.
+
+    `preview=False` (T-20261118-09/1, выгрузка сцены для Blender `cycles_probe/export_scene.py`): картинка кадра не нужна — нужны только действия по ходу
+    (отбор мешей, разведение коллизий `_push_from_supports`, вызовы растеризатора/ковров/плоскостей, которые выгрузка подменяет записью). Рисование превью
+    (clay-сцена, пол, акцентная стена, вид за проёмом, латание дырок) пропускается; возвращается (None, diag). По умолчанию — как всегда."""
     import mesh_render as MR
     import scene_mesh as SM
     # предмет либо МОДЕЛЬЮ, либо clay-формой — не оба (владелец 31.08: «если ставишь
@@ -3693,16 +3697,20 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict
         (mesh_places if glb else clay_places).append((place, sid, glb))
     coll_notes = _push_from_supports(mesh_places, clay_places, room)
     coll_notes += _push_from_supports(mesh_places, mesh_places, room)
-    sc = compile_scene(room_clay, [p for p, _, _ in clay_places], cam)
-    depth = sc['depth']
-    H, W = depth.shape
-    canvas = np.asarray(clay_render(sc)).astype(np.float32).copy()
-    _paint_floor(canvas, sc, room, cam)          # фактура пола застройщика — до ковров и мебели (demo-06)
-    _paint_accent(canvas, sc, room, cam)         # акцентная стена «за диваном» (demo-07)
-    zbuf = depth.astype(np.float32).copy()
-    zbuf[~np.isfinite(zbuf)] = 1e9
+    if preview:
+        sc = compile_scene(room_clay, [p for p, _, _ in clay_places], cam)
+        depth = sc['depth']
+        H, W = depth.shape
+        canvas = np.asarray(clay_render(sc)).astype(np.float32).copy()
+        _paint_floor(canvas, sc, room, cam)          # фактура пола застройщика — до ковров и мебели (demo-06)
+        _paint_accent(canvas, sc, room, cam)         # акцентная стена «за диваном» (demo-07)
+        zbuf = depth.astype(np.float32).copy()
+        zbuf[~np.isfinite(zbuf)] = 1e9
+    else:                                            # без превью: размеры кадра — камеры, буферы-пустышки (подменённые записчики их не читают)
+        H, W = int(cam.height), int(cam.width)
+        canvas, zbuf = np.zeros((1, 1, 3), np.float32), np.full((1, 1), 1e9, np.float32)
     irs = getattr(room, 'openings_ir', None)
-    if irs:
+    if irs and preview:
         import opening_ir as OIR
         try:   # сквозь вырезанный проём (demo-04 п.3): окно — небо, дверь — коридор, вместо clay-плашек
             OIR.paint_beyond(canvas, zbuf, irs, cam, float(room.width_cm), float(room.depth_cm))
@@ -3761,8 +3769,11 @@ def scene3d_frame(room, placements, cam, sid_by_role: dict, photos_by_role: dict
     # детализацию ради этого дорого; дешевле закрасить: пиксель, который НЕ рисовал ни один меш,
     # но окружён со всех сторон пикселями мешей, заполняем средним из соседей. Работает по
     # z-буферу, то есть по факту «здесь предмет», а не по цвету, и стоит миллисекунды.
-    canvas = _fill_pinholes(canvas, inst)
-    img = Image.fromarray(np.clip(canvas, 0, 255).astype(np.uint8), 'RGB')
+    if preview:
+        canvas = _fill_pinholes(canvas, inst)
+        img = Image.fromarray(np.clip(canvas, 0, 255).astype(np.uint8), 'RGB')
+    else:
+        img = None
     diag = {'мешей': used, 'clay': missing}
     if coll_notes:
         diag['развод коллизий'] = coll_notes
@@ -3920,13 +3931,29 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
                 except Exception as e:  # noqa: BLE001
                     print(f'улучшение: нормировка яркости пропущена ({repr(e)[:100]})', flush=True)
                     _luma = []
+            _tame = []
+            if IM.render_source(layout) and IM.tame_on(layout):
+                # ПРИГЛУШЕНИЕ СОЛНЕЧНЫХ ПЯТЕН (T-20261118-05): нейросеть дорисовывает пятна солнца на полу и стенах — `improve_mode.tame_new_light` по маскам
+                # поверхностей рендера, после нормировки яркости. Нет маски ракурса или сбой шага — кадр остаётся как есть (платный ответ не теряем)
+                try:
+                    _refs2 = [_trim_band(x) for x in _split_pair(sheet)]
+                    for _i, (_p, _r, _c) in enumerate(zip(pieces, _refs2, want)):
+                        _sf2 = IM.surface_masks(layout['render']['mask_dir'], _c.name)
+                        if _sf2 is None:
+                            _tame.append({'camera': _c.name, 'skipped': 'no_mask'})
+                            continue
+                        pieces[_i], _tinf = IM.tame_new_light(_p, _r, _sf2)
+                        _tame.append({'camera': _c.name, **_tinf})
+                    print('улучшение: приглушение пятен света ' + '; '.join(f"{x.get('camera')} {x.get('patch_pct', 'нет маски')} %" for x in _tame), flush=True)
+                except Exception as e:  # noqa: BLE001
+                    print(f'улучшение: приглушение пятен света пропущено ({repr(e)[:100]})', flush=True)
             stamp = time.strftime('%H%M%S')
             shots = [{'camera': c.name, 'url': _publish_frame(p_, f'improve-{stamp}-{c.name}.jpg'),
                       'diag': {}, 'anchors': []}
                      for c, p_ in zip(want, pieces)]
             # что именно нарисовало фото — в ответ и реестр (demo-11): модель, качество, версия и отпечаток промпта
             res = {'shots': shots, 'url': shots[0]['url'], 'model': f'improve/{REALISTIC_MODEL}', 'image_quality': gq,
-                   'prompt_version': IM.prompt_version(layout), 'prompt_sha': IM.prompt_sha(prompt), 'tariff': _tr, 'luma': _luma,
+                   'prompt_version': IM.prompt_version(layout), 'prompt_sha': IM.prompt_sha(prompt), 'tariff': _tr, 'luma': _luma, 'tame': _tame,
                        'sheet_orient': built.get('orient') or 'landscape',
                    'sources': built['src_url'], 'diag': {'clay': built['clay']},
                        # откуда кадры и сколько заняла наша часть до вызова модели (demo-10: цель ≤ 2 с при кадрах из браузера)

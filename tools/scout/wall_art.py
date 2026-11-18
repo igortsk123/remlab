@@ -70,27 +70,43 @@ def metrics(c) -> dict:
     return {'ink_d': d, 'chroma': float((a.max(axis=1) - a.min(axis=1)).mean()), 'luma': float((a @ np.array([0.2126, 0.7152, 0.0722], np.float32)).mean())}
 
 
+def canvas_metrics(a, r: dict | None = None) -> dict:
+    """ЕДИНАЯ мера полотна для подбора в набор, пересборки витрины и сторожей кадра (T-20261118-03/2): `a` — картинка H×W×3 (каналы 0–255).
+    Центр (`art_content.center`) — как раньше (`metrics`); плюс `full_d` — отличие от медианного цвета по ВСЕЙ площади внутри полей
+    `art_content.full_margin`: тёмный рисунок на светлом фоне, лежащий по краям, а не в центре («Абстракция Черный»), иначе читался «пустым»."""
+    import numpy as np
+    ac = (r or rules())['art_content']
+    a = np.asarray(a, np.float32)
+    h, w = a.shape[:2]
+    x0, y0, x1, y1 = ac['center']
+    m = metrics(a[int(h * y0):int(h * y1), int(w * x0):int(w * x1)])
+    k = float(ac.get('full_margin', 0.08))
+    m['full_d'] = metrics(a[int(h * k):int(h * (1 - k)), int(w * k):int(w * (1 - k))])['ink_d']
+    return m
+
+
 def content_stats(src: str, r: dict | None = None) -> dict:
-    """Метрики центра полотна по файлу фото товара (см. `metrics`, `has_content`)."""
+    """Метрики полотна по файлу фото товара (см. `canvas_metrics`, `has_content`)."""
     import numpy as np
     from PIL import Image
-    x0, y0, x1, y1 = (r or rules())['art_content']['center']
-    a = np.asarray(Image.open(src).convert('RGB'), np.float32)
-    h, w, _ = a.shape
-    return metrics(a[int(h * y0):int(h * y1), int(w * x0):int(w * x1)])
+    return canvas_metrics(np.asarray(Image.open(src).convert('RGB'), np.float32), r)
 
 
 def has_content(m: dict, r: dict | None = None) -> bool:
     """Картина с рисунком, а не белая / тон-в-тон: рисунок занимает ≥ `min_ink_pct` % площади центра (отличается от фона не меньше
     `ink_delta`), ИЛИ цвет сильный (размах каналов ≥ `min_chroma`), ИЛИ полотно тёмное (яркость < `dark_luma`; тёмная плоскость — не «белая»).
     Светлое полотно (яркость ≥ `light_luma`) — только с КОНТРАСТНЫМ рисунком: ≥ `light_min_ink_pct` % площади с отличием ≥ `light_ink_delta`.
-    Светлый фон с тонкими или бледными линиями (белый/кремовый рельеф, бледная мята) — нет."""
+    Светлый фон с тонкими или бледными линиями (белый/кремовый рельеф, бледная мята) — нет; контрастный рисунок может лежать и по всей площади
+    полотна (≥ `full_min_ink_pct` % с отличием ≥ `light_ink_delta` внутри полей `full_margin`; `m['full_d']` из `canvas_metrics`)."""
     ac = (r or rules())['art_content']
     ink = float((m['ink_d'] >= float(ac['ink_delta'])).mean()) * 100.0
     if m['chroma'] >= float(ac['min_chroma']):
         return True                                                   # сильный цвет
     if m['luma'] >= float(ac['light_luma']):                          # светлое полотно: бледный рисунок на светлом — почти белая; нужен контрастный
-        return float((m['ink_d'] >= float(ac['light_ink_delta'])).mean()) * 100.0 >= float(ac['light_min_ink_pct'])
+        if float((m['ink_d'] >= float(ac['light_ink_delta'])).mean()) * 100.0 >= float(ac['light_min_ink_pct']):
+            return True                                               # контрастный рисунок в центре
+        full = m.get('full_d')                                        # или по всей площади (T-03/2): тёмные формы по краям светлого полотна
+        return full is not None and float((full >= float(ac['light_ink_delta'])).mean()) * 100.0 >= float(ac['full_min_ink_pct'])
     return ink >= float(ac['min_ink_pct']) or m['luma'] < float(ac['dark_luma'])
 
 
@@ -252,10 +268,7 @@ def art_stats(src: str, p: dict | None = None, r: dict | None = None) -> dict:
     buf = io.BytesIO()
     im.save(buf, 'JPEG', quality=ART_JPEG_Q)
     buf.seek(0)
-    x0, y0, x1, y1 = r['art_content']['center']
-    a = np.asarray(Image.open(buf).convert('RGB'), np.float32)
-    h, w, _ = a.shape
-    return metrics(a[int(h * y0):int(h * y1), int(w * x0):int(w * x1)])
+    return canvas_metrics(np.asarray(Image.open(buf).convert('RGB'), np.float32), r)
 
 
 def annotate_crop(data: dict, out_dir: str, r: dict | None = None) -> tuple[int, int]:

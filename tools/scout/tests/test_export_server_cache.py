@@ -1,0 +1,111 @@
+"""КЭШ РАЗОБРАННЫХ МЕШЕЙ ПОСТОЯННОГО ПРОЦЕССА ВЫГРУЗКИ (T-20261118-10/2 (б)): `export_server.PartsCache` держит меши, которыми пользуются, и убирает неиспользуемые.
+Прежняя ошибка: время использования писали по пути файла, а ключ кэша — пара (путь, режим) → со 2-го заказа ВСЁ считалось «старым» и кэш выбрасывался целиком (каждый заказ — холодная
+разборка мешей). Без Blender и мешей: файлы-заглушки и словарь вместо `draft_render._S3_PARTS`. python tools/scout/tests/test_export_server_cache.py"""
+import gc
+import os
+import sys
+import tempfile
+import types
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', 'cycles_probe')]
+import export_server as ESV  # noqa: E402
+
+fails = []
+
+
+def check(name, cond):
+    print(('OK   ' if cond else 'FAIL ') + name)
+    if not cond:
+        fails.append(name)
+
+
+tmp = tempfile.mkdtemp(prefix='partscache-')
+files = {}
+for n in 'abcdefg':
+    p = os.path.join(tmp, f'{n}.glb')
+    open(p, 'w').write(n)
+    files[n] = p
+loads = []
+
+
+def parse(glb):
+    """Как `draft_render._scene3d_parts`: ключ кэша — ПАРА (путь, режим), «сырой» путь в кэше не лежит."""
+    key = (glb, False)
+    if key not in DR._S3_PARTS:
+        loads.append(os.path.basename(glb))
+        DR._S3_PARTS[key] = [object()]
+    return DR._S3_PARTS[key]
+
+
+DR = types.SimpleNamespace(_S3_PARTS={}, _scene3d_parts=parse)
+cache = ESV.PartsCache(DR)
+
+
+def order(names):
+    cache.begin()
+    for n in names:
+        DR._scene3d_parts(files[n])
+    cache.end()
+
+
+ESV.KEEP_REQUESTS, ESV.MAX_PARTS = 2, 16
+for _ in range(5):
+    order('abc')
+check('те же меши из заказа в заказ — разбор один раз, кэш не пуст на 5-м заказе', sorted(loads) == ['a.glb', 'b.glb', 'c.glb'] and cache.count() == 3)
+
+order('abcd')                                    # новый диван d
+order('abc')                                     # d не использован 1 заказ — ещё держим (быстрый «отмена/повтор»)
+check('меш, не использованный один заказ, ещё в кэше; общие — тоже', cache.count() == 4)
+order('abc')                                     # d не использован 2 заказа подряд — долой
+check('не использованный KEEP_REQUESTS заказов убран', cache.count() == 3 and (files['d'], False) not in DR._S3_PARTS)
+n0 = len(loads)
+order('abcd')
+check('вернулся убранный — разбирается заново (один раз)', len(loads) == n0 + 1)
+
+# потолок по числу: самые давно использованные — долой, свежие остаются
+ESV.MAX_PARTS = 3
+order('abcde')
+check('потолок MAX_PARTS: остаётся не больше, самые свежие — на месте', cache.count() == 3 and (files['e'], False) in DR._S3_PARTS)
+
+# после выброса меши собирает сборщик мусора (иначе память растёт до потолка процесса)
+calls = []
+orig = gc.collect
+gc.collect = lambda *a, **k: (calls.append(1), orig(*a, **k))[1]
+try:
+    order('a')
+    order('a')
+    order('a')                                   # b, c, e не используются — выброшены
+finally:
+    gc.collect = orig
+check('выброс мешей из кэша → явная сборка мусора', len(calls) >= 1)
+calls.clear()
+gc.collect = lambda *a, **k: (calls.append(1), orig(*a, **k))[1]
+try:
+    order('a')
+finally:
+    gc.collect = orig
+check('ничего не выброшено — сборки нет (лишних секунд на заказе нет)', calls == [])
+
+# кэш GLB отмечает каждое обращение `os.utime` (`draft_render._touch`): время изменения не признак «заменили» — иначе каждый заказ разбирал бы все меши заново
+order('b')
+n0 = len(loads)
+for n in 'bc':
+    os.utime(files[n], (1_700_000_000, 1_700_000_000))
+order('b')
+check('отметка обращения (utime) — не замена файла: меши не разбираются заново', len(loads) == n0)
+# файл заменили на диске (новый файл, тот же размер, другое содержимое) — тоже сбрасывается
+os.replace(files['b'], files['b'] + '.old')
+open(files['b'], 'w').write('B')
+n0 = len(loads)
+order('b')
+check('файл заменили другим того же размера — разбор заново', len(loads) == n0 + 1)
+
+# файл заменили на диске — запись сбрасывается и разбирается заново
+open(files['a'], 'w').write('aaaa')
+n0 = len(loads)
+order('a')
+check('файл меша изменился — разбор заново', len(loads) == n0 + 1)
+
+print('итог:', 'чисто' if not fails else f'{len(fails)} падений')
+sys.exit(1 if fails else 0)

@@ -35,15 +35,17 @@ describe("рендер из тура: контракт тела", () => {
     expect(trialRenderIn.safeParse({ ...REQ, cams: [{ name: "C1", x: 1, y: 2, rot: 3, fov: 90 }] }).success).toBe(false);
     expect(trialRenderIn.safeParse({ ...REQ, items: Array.from({ length: 41 }, () => ({ role: "а", sid: "s1", x: 1, y: 1 })) }).success).toBe(false);
   });
-  it("товар — `sid` (/demo) или пара `msid`+`name` (тур); оба сразу, ни одного, `msid` без имени — отказ (T-20261117-20/3)", () => {
-    const it = (o: object) => trialRenderIn.safeParse({ ...REQ, items: [{ role: "диван", x: 1, y: 2, ...o }] }).success;
+  it("товар предмета — `sid` ИЛИ публичный `pid` (T-20261118-03/9): ни того ни другого, оба, `pid` чужого вида — отказ", () => {
+    const pid = "p1:" + "0123456789abcdef01234567";
+    const it = (o: Record<string, unknown>) => trialRenderIn.safeParse({ ...REQ, items: [{ role: "ковёр", x: 1, y: 2, ...o }] }).success;
+    expect(it({ pid })).toBe(true);
     expect(it({ sid: "s1" })).toBe(true);
-    expect(it({ msid: "m1", name: "Диван" })).toBe(true);
-    expect(it({ sid: "s1", msid: "m1", name: "Диван" })).toBe(false);
     expect(it({})).toBe(false);
-    expect(it({ msid: "m1" })).toBe(false);
-    expect(it({ name: "Ковёр" })).toBe(true);                      // заглушка без модели: `msid` нет — ключ имя
-    expect(it({ msid: "m1", name: "" })).toBe(false);
+    expect(it({ sid: "s1", pid })).toBe(false);
+    expect(it({ ref: 1 })).toBe(true);                                       // плоский предмет без меша — по номеру в варианте
+    for (const bad of [-1, 40, 1.5, "1"]) expect(it({ ref: bad })).toBe(false);
+    expect(it({ ref: 1, pid })).toBe(false);
+    for (const bad of ["s1", "p1:XYZ", pid.toUpperCase(), pid + "0", ""]) expect(it({ pid: bad })).toBe(false);
   });
   it("заказ фото нейросети (без mode) не принимается как рендер и по-прежнему разбирается своей схемой", () => {
     const old = { room_id: "living", views: [{ camera: "C1", id: "a".repeat(64) }, { camera: "C2", id: "b".repeat(64) }], room: { w: 400, d: 300 },
@@ -65,21 +67,16 @@ describe("рендер из тура: данные для сервиса кад�
     expect(variants[1]).toEqual({ id: "v2", room_id: "living", items: [{ role: "стул" }] });          // роли чужих вариантов — для проверки роли, без товаров
     expect(JSON.stringify(src).length).toBeLessThan(json.length);
   });
-  it("тур: карточки без sid — по паре (msid, name); разные карточки одной пары попадают в срез обе (сервер откажет), одинаковые — один раз", () => {
-    const mk = (msid: string, name: string, extra: object = {}) => ({ msid, name, w: 100, d: 50, h: 80, price: 1, ...extra });
-    const tour = { apartment_id: "a1", build: "b1", room: { w: 400, d: 300 }, rules: {}, rooms_geo: { living: { w: 400, d: 300 } },
-      variants: [{ id: "v1", room_id: "living", items: [{ role: "диван", x: 1, y: 1, sku: mk("m1", "Диван А", { colour: "серый" }) }], decor: [{ role: "шторы", sku: mk("m3", "Шторы") }] },
-                 { id: "v2", room_id: "living", items: [{ role: "диван", x: 1, y: 1, sku: mk("m1", "Диван А", { colour: "красный" }) }] }],
-      feeds: { диван: [mk("m1", "Диван А", { colour: "серый" }), mk("m9", "Диван Б")] } };
-    const src = reduceSource(JSON.stringify(tour), { variant_id: "v1", room_id: "living", items: [{ role: "диван", msid: "m9", name: "Диван Б", x: 1, y: 1 }] })!;
-    const skus = src._skus as { msid: string; name: string; colour?: string }[];
-    expect(skus.filter((s) => s.msid === "m9")).toHaveLength(1);                         // товар замены — из ленты тура
-    expect(skus.filter((s) => s.msid === "m3")).toHaveLength(1);                         // декор варианта
-    const sofa = skus.filter((s) => s.msid === "m1" && s.name === "Диван А");
-    expect(sofa).toHaveLength(1);                                                         // v1 и лента: одна и та же карточка — один раз
-    const amb = reduceSource(JSON.stringify(tour), { variant_id: "v1", room_id: "living", items: [{ role: "диван", msid: "m1", name: "Диван А", x: 1, y: 1 }] })!;
-    expect((amb._skus as { msid: string }[]).filter((s) => s.msid === "m1")).toHaveLength(2);   // заказ называет пару с двумя разными карточками — в срез обе: сервис увидит и откажет `bad_item`
-    expect(JSON.stringify(src)).not.toContain('"sid"');                                   // sid наружу не выходит: его в данных тура нет
+  it("публичные данные тура без `sid`: товар заказа по `pid` — ВСЕ его карточки из версии данных, чужие не берутся (T-20261118-03/9)", () => {
+    const pa = "p1:" + "a".repeat(24), pb = "p1:" + "b".repeat(24), pc = "p1:" + "c".repeat(24);
+    const card = (pid: string, name: string, img: string) => ({ pid, name, msid: null, w: 230, d: 160, h: 1, img });
+    const tour = { ...bundle, variants: [{ id: "v1", room_id: "living", items: [{ role: "ковёр", x: 1, y: 1, w: 230, d: 160, sku: card(pa, "Ковёр А", "img/a.jpg") }] }],
+      feeds: { ковёр: [card(pb, "Ковёр Б", "img/b.jpg"), card(pb, "Ковёр Б", "img/b.jpg"), card(pc, "Ковёр В", "img/c.jpg")] }, sets: [] };
+    const src = reduceSource(JSON.stringify(tour), { variant_id: "v1", room_id: "living", items: [{ role: "ковёр", pid: pb, x: 1, y: 1 }] })!;
+    const names = (src._skus as { name: string }[]).map((x) => x.name);
+    expect(names).toEqual(["Ковёр Б", "Ковёр Б"]);                         // чужой «В» не взят; обе карточки одного ключа — сервис сверит, что товар один
+    const none = reduceSource(JSON.stringify(tour), { variant_id: "v1", room_id: "living", items: [{ role: "ковёр", pid: "p1:" + "d".repeat(24), x: 1, y: 1 }] })!;
+    expect(none._skus).toEqual([]);                                         // неизвестный ключ — пусто, сервис откажет `bad_item`
   });
   it("нет варианта — null; битые данные — null", () => {
     expect(reduceSource(json, { variant_id: "нет", room_id: "living" })).toBeNull();

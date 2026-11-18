@@ -115,7 +115,7 @@ class RoomBankSpec:
             import bank_ready as BR
             return BR.load_facts()
         import room_ready as RR       # этап В (T-20261106-70): правило одно с витриной — `room_bindings.usable`
-        return RR.load_facts(mode=self.rules().get('mesh_gate') or 'orient', demo_data=self.demo_data)
+        return RR.load_facts(mode=self.rules().get('mesh_gate') or 'orient', demo_data=self.demo_data, rules=self.rules())
 
     def classify(self, role: str, sku: str, item, F) -> tuple:
         """Готов ли показываемый товар → (тип, причина, need). Гостиная — `bank_ready.classify`; спальня — `room_ready.classify`."""

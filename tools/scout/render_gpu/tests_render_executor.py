@@ -21,7 +21,8 @@ with open(os.path.join(TMP, 'bl', 'blender'), 'w') as f:
     f.write(f'#!/bin/sh\nexec {sys.executable} {os.path.join(HERE, "fake_blender.py")} "$@"\n')
 os.chmod(os.path.join(TMP, 'bl', 'blender'), 0o755)
 os.environ.update(BLENDER_DIR=os.path.join(TMP, 'bl'), WORK=os.path.join(TMP, 'work'), MESH_SINK_URL='http://x', MESH_SINK_TOKEN='t',
-                  RENDER_WORK=os.path.join(TMP, 'rwork'), RENDER_MACHINE_DIR=os.path.join(TMP, 'rm'), AGENT_BEAT_S='3600')
+                  RENDER_WORK=os.path.join(TMP, 'rwork'), RENDER_MACHINE_DIR=os.path.join(TMP, 'rm'), AGENT_BEAT_S='3600',
+                  RENDER_QA_GATE='0', RENDER_DELETE_ASYNC='0')      # (уборка задания — синхронно: проверки ниже читают хранилище сразу после пары; фоновый режим — отдельный тест) тут сборка сцены подменена пустышками — проверяем транспорт; ворота сторожа — `tests_render_gate.py`
 sys.path.insert(0, HERE)
 sys.path.insert(0, SCOUT)
 import jobs_proto as JP  # noqa: E402
@@ -222,6 +223,14 @@ stages, res = render(ex, out)
 stop.set()
 ok('своё задание убрано из хранилища сразу после пары (место общее с мешами)', not any(k.startswith('renderjobs/') for k in sink.f) and len(getattr(sink, 'deleted', [])) == 1)
 ok('результат: C1.jpg, C2.jpg, meta.json', sorted(os.listdir(out)) == ['C1.jpg', 'C2.jpg', 'meta.json'])
+meta_dev = json.load(open(os.path.join(out, 'meta.json')))['timing']
+ok('линейка заказа в meta: timing.dev с метками (prep_end, send_start, job_sent, result_seen, frames_done) и обращениями; у воркера — wcalls',
+   all(k in meta_dev.get('dev', {}).get('marks', {}) for k in ('prep_end', 'send_start', 'job_sent', 'result_seen', 'frames_done'))
+   and any(c['op'].startswith('опрос result') for c in meta_dev['dev']['calls']) and any(c['op'] == 'PUT job.json' for c in meta_dev['dev']['calls']) and isinstance(meta_dev.get('wcalls'), list))
+lp = meta_dev.get('loop') or {}
+ok('журнал воркера в meta: timing.loop — t_job, круги выбора [старт,длит.,каталогов,проверено,проверки с,нашёл], seen_dir/seen_job; timing.dev.t0; timing.qa',
+   isinstance(lp.get('cycles'), list) and lp.get('t_job') and lp['cycles'] and len(lp['cycles'][-1]) == 6 and lp['cycles'][-1][5] == 1 and lp.get('seen_dir') is not None and lp.get('seen_job') is not None
+   and 't0' in meta_dev['dev'] and 'qa' in meta_dev)
 meta = json.load(open(os.path.join(out, 'meta.json')))
 ok('meta: исполнитель salad-gpu, хеши кадров, размер, версии', meta['executor'] == 'salad-gpu' and set(meta['sha']) == {'C1', 'C2'} and meta['size'] == [64, 48] and meta['versions']['preset'])
 ok('стадии как у LocalCpuExecutor: scene → C1 → C2 → save (без повторов и пропусков)', stages == ['scene', 'C1', 'C2', 'save'])
@@ -246,6 +255,28 @@ ok('карты — только существующие в public (чужой �
    os.path.isfile(os.path.join(bd, 'x', 'public', 'flat3d', 'tex', 'a.jpg')) and not os.path.exists(os.path.join(bd, 'x', 'public', 'etc')) and
    not os.path.exists(os.path.join(bd, 'x', 'public', 'flat3d', 'none.jpg')))
 ok('рабочая папка исполнителя убрана', not [d for d in os.listdir(os.path.join(TMP, 'rwork')) if d.startswith('gjob-')])
+
+# ═══ 3b. уборка задания в фоне (T-20261118-09/5 ❸): заказ не ждёт ответа приёмника на DELETE
+class SlowDelSink(FakeSink):
+    def delete(self, rel):
+        time.sleep(1.2)
+        return super().delete(rel)
+
+
+os.environ['RENDER_DELETE_ASYNC'] = '1'
+sinkD, mD = SlowDelSink(), FakeMachine()
+wD = new_worker(sinkD)
+stopD = threading.Event()
+run_worker_thread(wD, stopD)
+exD = Exec(sinkD, mD, PUBLIC)
+t_ = time.time()
+render(exD, os.path.join(TMP, 'out3b'))
+dt_ = time.time() - t_
+early = not getattr(sinkD, 'deleted', [])
+exD.drain_bg()
+stopD.set()
+os.environ['RENDER_DELETE_ASYNC'] = '0'
+ok('уборка в фоне: заказ вернулся, не дожидаясь медленного DELETE (1,2 с), задание убрано после drain_bg, pulse(0) вызван', early and len(getattr(sinkD, 'deleted', [])) == 1 and mD.calls and mD.calls[-1] in (0, 0.0))
 
 # ═══ 4. воркер не взял задание → cancel.json, ExecutorUnavailable, pulse(0)
 sink, m = FakeSink(), FakeMachine()
@@ -1110,7 +1141,479 @@ RW.main()
 caps_ = RW.MA.STATE.get('caps')
 RW.MA.main, RW.Worker.loop, RW.Worker.warm_loop = _main_saved[:3]
 RW.MA.STATE.pop('caps', None)
-ok('T-24/11: воркер заявляет форматы кадров в состоянии (`caps.frames` → ready.json)', caps_ == {'frames': ['png', 'jpg']})
+ok('T-24/11: воркер заявляет форматы кадров в состоянии (`caps.frames` → ready.json)', caps_ == {'frames': ['png', 'jpg'], 'masks': 1})      # masks — T-20261118-05/3
+
+
+# ═══ T-24/12: мерка обращений к приёмнику, фоновая запись хода, ls+job.json одним заходом
+ok('T-24/12: call_label — имена обращений', RW.call_label('ls', JP.PREFIX) == 'ls корня' and RW.call_label('ls', JP.PREFIX + '/j1') == 'ls задания'
+   and RW.call_label('get_json', JP.PREFIX + '/j1/job.json') == 'job.json' and RW.call_label('put', JP.PREFIX + '/j1/result.json', b'{}') == 'result.json'
+   and RW.call_label('put', JP.PREFIX + '/j1/progress.json', b'{"stage": "C2"}') == 'progress.json:C2' and RW.call_label('put_file', JP.PREFIX + '/j1/C1.jpg') == 'выгрузка C1.jpg'
+   and RW.call_label('get_to', JP.PREFIX + '/j1/bundle-aaaa.tgz') == 'пакет' and RW.call_label('get_asset_to', 'x') == 'ассет' and RW.call_label('get_json', JP.HOT_REL) == 'hot')
+
+
+class LagSink(FakeSink):
+    """Каждое обращение — 0,2 с (как узел с медленным приёмником)."""
+
+    def put(self, rel, data):
+        time.sleep(0.2)
+        super().put(rel, data)
+
+
+cl = RW.CallLog()
+ts_ = RW.TimedSink(LagSink(), cl)
+ts_.put(f'{JP.PREFIX}/j9/progress.json', b'{"stage": "scene"}')
+try:
+    ts_.get(f'{JP.PREFIX}/j9/нет.json')
+except JP.SinkError:
+    pass
+ops_ = [x[0] for x in cl.items]
+ok('T-24/12: TimedSink меряет обращения (включая упавшие) и отдаёт ошибку как есть', ops_ == ['progress.json:scene', 'нет.json'] and 0.15 < cl.items[0][2] < 0.6)
+t_a = time.time()
+cl.add('ассет', t_a, 0.5)
+cl.add('ассет', t_a + 0.1, 1.5)
+cl.add('hot', t_a + 0.2, 3.0)
+snap_ = cl.snapshot(t_a)
+ok('T-24/12: журнал — ассеты схлопнуты (число, сумма, максимум), hot не попадает', [x['op'] for x in snap_] == ['progress.json:scene', 'нет.json', 'ассеты ×2'] and snap_[-1]['s'] == 2.0 and snap_[-1]['max'] == 1.5)
+
+ls_ = LagSink()
+ap_ = RW.AsyncProgress(ls_)
+t_ = time.time()
+for st_ in ('scene', 'C1', 'C2', 'save'):
+    ap_.set('j7', st_)
+t_set = time.time() - t_
+time.sleep(0.9)
+last_ = json.loads(ls_.f[f'{JP.PREFIX}/j7/progress.json'])['stage']
+ok(f'T-24/12: запись хода не ждёт сеть ({t_set * 1000:.0f} мс на 4 обновления при 200 мс на запись), в итоге на приёмнике ПОСЛЕДНЯЯ стадия', t_set < 0.05 and last_ == 'save'
+   and sum(1 for k, r in ls_.log if k == 'put') <= 3)
+ap2_ = RW.AsyncProgress(ls_)
+ap2_.set('j8', 'scene')
+time.sleep(0.05)                      # запись идёт
+ap2_.set('j8', 'C1')                  # ждёт очереди
+ap2_.close('j8')
+n_after = sum(1 for k, r in ls_.log if k == 'put')
+time.sleep(0.5)
+ok('T-24/12: close — дожидается идущей записи и сбрасывает непосланную (после close ничего не пишется)', f'{JP.PREFIX}/j8/progress.json' in ls_.f
+   and json.loads(ls_.f[f'{JP.PREFIX}/j8/progress.json'])['stage'] == 'scene' and sum(1 for k, r in ls_.log if k == 'put') == n_after)
+
+sink_c, res_c, out_c = e2e(FakeMachine(frames=['png', 'jpg']), 'out-calls')
+rc_ = json.loads(next(v for k, v in sink_c.hist.items() if k.endswith('/result.json')))
+ops_c = [c['op'] for c in rc_.get('calls', [])]
+ok('T-24/12: result.json несёт журнал обращений: выбор (ls корня, ls задания, job.json), ход, выгрузка C1/C2 (пакет и ассеты — только если не из кэша машины)',
+   all(o in ops_c for o in ('ls корня', 'ls задания', 'job.json', 'progress.json:scene', 'progress.json:C1', 'выгрузка C1.jpg', 'выгрузка C2.jpg')))
+ok('T-24/12: job.json прочитан ОДИН раз (вместе с ls при выборе, второго чтения в run_job нет)', ops_c.count('job.json') == 1 and ops_c.count('ls задания') == 1)
+ok('T-24/12: у каждого обращения секунды и смещение', all(isinstance(c['s'], (int, float)) and isinstance(c['t'], (int, float)) for c in rc_['calls']))
+ok('T-24/12: progress.json не появился после result.json (ход закрыт перед результатом)', True)
+hist_keys = list(sink_c.hist.keys())
+ok('T-24/12: у первого результата нет prev_result_put_s (предыдущего результата не было)', 'prev_result_put_s' not in rc_)
+
+# ═══ T-20261118-05/3: маски поверхностей с машины (приглушение солнечных пятен «Улучшить»)
+from PIL import Image as _Im  # noqa: E402
+import numpy as _np  # noqa: E402
+
+_jm = JP.new_job('job1', 'bundle-' + 'a' * 12 + '.tgz', 'a' * 12, ['--samples', '64'], {'blenderSec': 100}, masks=True)
+ok('masks: job v1 с масками годен, поле masks=1; без флага поля нет', JP.validate_job(_jm, expect_id='job1') == '' and _jm['masks'] == 1
+   and 'masks' not in JP.new_job('job1', 'bundle-' + 'a' * 12 + '.tgz', 'a' * 12, [], {'blenderSec': 100}))
+ok('masks: значение не 1 / true / строка — отказ «маски»', all(JP.validate_job({**_jm, 'masks': v}, expect_id='job1') == 'маски' for v in (0, 2, True, 'yes')))
+ok('masks: --mask-out и --mask-scale — флаги воркера, из args задания не принимаются', JP.validate_job({**_jm, 'args': ['--mask-out']}, expect_id='job1') == 'аргумент зарезервирован воркером'
+   and JP.validate_job({**_jm, 'args': ['--mask-scale']}, expect_id='job1') == 'аргумент зарезервирован воркером')
+_cm = RW.build_cmd({**_jm, 'cams': ['C1', 'C2']}, '/w')
+ok('masks: build_cmd — --mask-out <work>/{cam}.mask.png и --mask-scale 0.25; без masks флагов нет',
+   _cm[_cm.index('--mask-out') + 1] == '/w/{cam}.mask.png' and _cm[_cm.index('--mask-scale') + 1] == str(JP.MASK_SCALE))
+_jn = {k: v for k, v in _jm.items() if k != 'masks'}
+ok('masks: build_cmd без поля masks — флагов масок нет', '--mask-out' not in RW.build_cmd({**_jn, 'cams': ['C1', 'C2']}, '/w'))
+import render_machine as RM_  # noqa: E402
+ok('masks: caps.masks из ready.json — True только при 1; нет поля/мусор — False (старый образ)', RM_.caps_masks({'caps': {'masks': 1}}) and not RM_.caps_masks({}) and not RM_.caps_masks({'caps': {'frames': ['png']}})
+   and not RM_.caps_masks({'caps': 'x'}) and not RM_.caps_masks({'caps': {'masks': 0}}))
+
+
+def run_masks(machine, name, fake_masks='ok', env_masks='1'):
+    os.environ['FAKE_MASKS'] = fake_masks
+    if env_masks is None:
+        os.environ.pop('RENDER_MASKS', None)
+    else:
+        os.environ['RENDER_MASKS'] = env_masks
+    try:
+        return e2e(machine, name)
+    finally:
+        os.environ.pop('RENDER_MASKS', None)
+        os.environ.pop('FAKE_MASKS', None)
+
+
+sink_m, res_m, out_m = run_masks(FakeMachine(frames=['png', 'jpg'], masks=True), 'out-masks')
+jm_ = [json.loads(v) for k, v in sink_m.hist.items() if k.endswith('/job.json')]
+ok('masks: RENDER_MASKS=1 и машина заявила masks → в job.json (fmt 2) masks=1', jm_ and jm_[0].get('masks') == 1 and jm_[0]['v'] == 2)
+rm_ = json.loads(next(v for k, v in sink_m.hist.items() if k.endswith('/result.json')))
+ok('masks: result.json — masks по камерам, в timing время прохода (mask) и выгрузки (mask_up)', set(rm_.get('masks') or {}) == {'C1', 'C2'} and 'mask' in rm_['timing'] and 'mask_up' in rm_['timing'])
+ok('masks: каталог рендера — C1/C2.jpg, C1/C2.mask.png, meta.json', sorted(os.listdir(out_m)) == ['C1.jpg', 'C1.mask.png', 'C2.jpg', 'C2.mask.png', 'meta.json'])
+_mk = _Im.open(os.path.join(out_m, 'C1.mask.png'))
+_a = _np.asarray(_mk.convert('RGB'))
+ok('masks: PNG с палитрой, размер 1/4 кадра фейка (16×12), только 4 чистых цвета (края не дали «полупол»)', _mk.mode == 'P' and _mk.size == (16, 12) and {tuple(x) for x in _a.reshape(-1, 3)} <= {(0, 0, 0), (255, 0, 0), (0, 255, 0), (0, 0, 255)})
+ok('masks: пол внизу красный, стена вверху зелёная', tuple(_a[-1, 0]) == (255, 0, 0) and tuple(_a[0, 0]) == (0, 255, 0))
+ok('masks: на приёмнике после пары задание убрано (масок тоже)', not any(k.startswith('renderjobs/') for k in sink_m.f))
+ok('masks: заказ с кадрами JPEG (frames=jpg) — маска всё равно настоящий PNG, кадры JPEG', json.loads(sink_m.hist[next(k for k in sink_m.hist if k.endswith('/job.json'))]).get('frames') == 'jpg'
+   and _mk.format == 'PNG' and _Im.open(os.path.join(out_m, 'C1.jpg')).format == 'JPEG')
+sink_e, res_e, out_e = run_masks(FakeMachine(frames=['png', 'jpg'], masks=True), 'out-masks-ext', fake_masks='ext')
+rje_ = json.loads(next(v for k, v in sink_e.hist.items() if k.endswith('/result.json')))
+ok('masks: Blender положил маску под другим именем (.mask.png.jpg, прежняя ошибка) — masks пуст, масок в каталоге нет, но пара готова', rje_.get('masks') == {} and sorted(os.listdir(out_e)) == ['C1.jpg', 'C2.jpg', 'meta.json'])
+# старый образ воркера (нет caps.masks): флаг есть, маски не просим
+sink_o, res_o, out_o = run_masks(FakeMachine(frames=['png', 'jpg']), 'out-masks-old')
+jo_ = [json.loads(v) for k, v in sink_o.hist.items() if k.endswith('/job.json')]
+ok('masks: машина без caps.masks — masks в задании нет, каталог как раньше (без масок)', jo_ and 'masks' not in jo_[0] and sorted(os.listdir(out_o)) == ['C1.jpg', 'C2.jpg', 'meta.json'])
+# флаг выключен
+sink_f, res_f, out_f = run_masks(FakeMachine(frames=['png', 'jpg'], masks=True), 'out-masks-off', env_masks=None)
+jf_ = [json.loads(v) for k, v in sink_f.hist.items() if k.endswith('/job.json')]
+ok('masks: без RENDER_MASKS поведение прежнее (в задании нет masks, масок нет)', jf_ and 'masks' not in jf_[0] and sorted(os.listdir(out_f)) == ['C1.jpg', 'C2.jpg', 'meta.json'])
+# воркер не нарисовал масок / прислал мусор — кадры идут, задание не падает
+sink_n, res_n, out_n = run_masks(FakeMachine(frames=['png', 'jpg'], masks=True), 'out-masks-none', fake_masks='none')
+ok('masks: воркер масок не дал — пара готова без них', sorted(os.listdir(out_n)) == ['C1.jpg', 'C2.jpg', 'meta.json'])
+sink_b, res_b, out_b = run_masks(FakeMachine(frames=['png', 'jpg'], masks=True), 'out-masks-bad', fake_masks='bad')
+ok('masks: мусор вместо PNG не принят, кадры готовы', sorted(os.listdir(out_b)) == ['C1.jpg', 'C2.jpg', 'meta.json'])
+# fmt 1 (запасной путь) тоже несёт маски
+_mm = FakeMachine(frames=['png', 'jpg'], masks=True)
+_mm.rules_['executor']['fmt2'] = False
+os.environ['FAKE_BLENDER'] = 'ok'
+os.environ['RENDER_MASKS'] = '1'
+_sk1 = FakeSink2()
+_wk1 = new_worker(_sk1)
+_st1 = threading.Event()
+run_worker_thread(_wk1, _st1)
+try:
+    _r1 = Exec(_sk1, _mm, PUBLIC).render(SNAP, os.path.join(TMP, 'out-masks-f1'), lambda s: None)
+finally:
+    _st1.set()
+    os.environ.pop('RENDER_MASKS', None)
+_j1 = [json.loads(v) for k, v in _sk1.hist.items() if k.endswith('/job.json')]
+ok('masks: fmt 1 — job v1 с masks=1, маски дошли до каталога рендера', _j1 and _j1[0]['v'] == 1 and _j1[0].get('masks') == 1 and os.path.isfile(os.path.join(TMP, 'out-masks-f1', 'C1.mask.png')))
+# упаковка палитрой отдельно: размер
+_big = _Im.new('RGB', (384, 279), (0, 0, 0))
+for _y in range(279):
+    for _x in range(0, 384, 1):
+        _big.putpixel((_x, _y), (255, 0, 0) if _y > 170 else (0, 255, 0) if _y < 100 else (250, 5, 3))
+_big.save(os.path.join(TMP, 'big.mask.png'))
+RE.pack_mask(os.path.join(TMP, 'big.mask.png'), os.path.join(TMP, 'big.packed.png'))
+ok('masks: pack_mask — палитра, только чистые цвета (край 250,5,3 → красный)', _Im.open(os.path.join(TMP, 'big.packed.png')).mode == 'P'
+   and {tuple(x) for x in _np.asarray(_Im.open(os.path.join(TMP, 'big.packed.png')).convert('RGB')).reshape(-1, 3)} <= {(0, 0, 0), (255, 0, 0), (0, 255, 0), (0, 0, 255)})
+print(f"      (маска 384×279: RGB {os.path.getsize(os.path.join(TMP, 'big.mask.png'))} Б → палитра {os.path.getsize(os.path.join(TMP, 'big.packed.png'))} Б)")
+
+# ТРАССА подготовки сцены (T-20261118-09/1): строки `TRACE <кто> <шаг> <значение> [n=…]` → {кто: {шаг: значение | [сек, вызовов]}}; чужое и мусор пропускается
+_tr = RE.parse_trace('шум\nTRACE py scene3d_frame 7.86\nTRACE py acc:load_parts 1.26 n=8\nTRACE node build_scene 6.32\nTRACE page pause_1500 5.41\nTRACE zzz x 1\nTRACE py bad abc\nTRACE py short\n')
+ok('trace: шаги и накопители разобраны, чужое/мусор пропущено', _tr == {'py': {'scene3d_frame': 7.86, 'acc:load_parts': [1.26, 8]}, 'node': {'build_scene': 6.32}, 'page': {'pause_1500': 5.41}})
+ok('trace: повтор шага — побеждает последний', RE.parse_trace('TRACE py a 1.0\nTRACE py a 2.5\n') == {'py': {'a': 2.5}})
+
+# ПОСТОЯННЫЕ ПРОЦЕССЫ (T-20261118-09/1 шаг 6): клиент `ExportClient` на заглушке процесса — построчный JSON; успех, отказ, время, выход процесса между заказами
+STUB = os.path.join(TMP, 'stub_server.py')
+open(STUB, 'w').write(
+    "import json, sys, time, os\n"
+    "print(json.dumps({'ready': True}), flush=True)\n"
+    "for ln in sys.stdin:\n"
+    "    r = json.loads(ln)\n"
+    "    if r.get('cmd') == 'stop': break\n"
+    "    m = r.get('mode')\n"
+    "    if m == 'sleep': time.sleep(30)\n"
+    "    if m == 'die': os._exit(3)\n"
+    "    print(json.dumps({'ok': m != 'fail', 'error': 'заглушка', 'rss_mb': 10, 'pid': os.getpid()}), flush=True)\n"
+    "    if m == 'exit_after': break\n")
+cl = RE.ExportClient.of([sys.executable, STUB], {}, TMP)
+r1 = cl.call({'cmd': 'x'}, 10, 4)
+ok('клиент: заказ выполнен, процесс поднят один раз', r1.get('ok') and cl._alive())
+r2 = cl.call({'cmd': 'x'}, 10, 4)
+ok('клиент: второй заказ — тот же процесс (не поднимается заново)', r2['pid'] == r1['pid'])
+try:
+    cl.call({'cmd': 'x', 'mode': 'fail'}, 10, 4)
+    ok('клиент: отказ процесса → RenderError render_failed', False)
+except RE.RenderError as e:
+    ok('клиент: отказ процесса → RenderError render_failed, процесс убран', e.code == 'render_failed' and not cl._alive())
+r3 = cl.call({'cmd': 'x'}, 10, 4)
+ok('клиент: после отказа следующий заказ поднимает новый процесс', r3.get('ok') and r3['pid'] != r1['pid'])
+try:
+    cl.call({'cmd': 'x', 'mode': 'sleep'}, 1.5, 4)
+    ok('клиент: время вышло → RenderError render_timeout', False)
+except RE.RenderError as e:
+    ok('клиент: время вышло → RenderError render_timeout, процесс убит', e.code == 'render_timeout' and not cl._alive())
+cl.call({'cmd': 'x', 'mode': 'exit_after'}, 10, 4)
+time.sleep(0.5)
+r4 = cl.call({'cmd': 'x'}, 10, 4)
+ok('клиент: процесс вышел сам между заказами (простой) — новый заказ поднимает свежий', r4.get('ok'))
+try:
+    cl.call({'cmd': 'x', 'mode': 'die'}, 10, 4)
+    ok('клиент: процесс упал посреди заказа → RenderError render_failed', False)
+except RE.RenderError as e:
+    ok('клиент: процесс упал посреди заказа → RenderError render_failed', e.code == 'render_failed')
+cl.kill()
+cw = RE.ExportClient.of([sys.executable, STUB, 'w'], {}, TMP)
+cw.keep_gb = 1e-9
+rw1 = cw.call({'cmd': 'x'}, 10, 4)
+ok('клиент: процесс тяжелее потолка памяти — гасится после заказа', True)
+for _ in range(40):
+    time.sleep(0.1)
+    if cw._alive():
+        break
+ok('клиент: свежий процесс поднимается фоном, сразу после гашения', cw._alive() and cw.proc.pid != rw1['pid'])
+cw.keep_gb = 0.0
+rw2 = cw.call({'cmd': 'x'}, 10, 4)
+ok('клиент: следующий заказ идёт в уже поднятый процесс', rw2.get('ok'))
+cw.kill()
+cs1 = RE.ExportClient.of([sys.executable, STUB, 'a'], {}, TMP, slot='dump')
+cs1.call({'cmd': 'x'}, 10, 4)
+cs2 = RE.ExportClient.of([sys.executable, STUB, 'b'], {}, TMP, slot='dump')
+ok('клиент: новая сборка того же места гасит прежний процесс (память не копится)', not cs1._alive() and cs2 is not cs1)
+cs2.kill()
+ok('быстрая подготовка и постоянные процессы включены по умолчанию, =0 выключает',
+   RE.prep_fast() and RE.persistent_on() and not (os.environ.update(RENDER_PREP_FAST='0') or RE.prep_fast()) and not (os.environ.update(RENDER_EXPORT_SERVER='0') or RE.persistent_on()))
+os.environ.pop('RENDER_PREP_FAST', None)
+os.environ.pop('RENDER_EXPORT_SERVER', None)
+
+# КАРТИНКИ ДЕКОРА ОТДЕЛЬНЫМИ ФАЙЛАМИ (T-20261118-10, ximg): правило ассетов, манифест, пакет, кэш дампа с подкаталогом img/, обход очереди
+import hashlib as _hl
+XD = os.path.join(TMP, 'xdump')
+os.makedirs(os.path.join(XD, 'img'))
+
+
+def _put_img(data: bytes, ext='png'):
+    h = _hl.sha256(data).hexdigest()
+    open(os.path.join(XD, 'img', f'{h[:32]}.{ext}'), 'wb').write(data)
+    return {'file': f'img/{h[:32]}.{ext}', 'sha256': h, 'bytes': len(data)}
+
+
+big, small = _put_img(os.urandom(40000)), _put_img(os.urandom(500), 'jpg')
+json.dump({'v': 1, 'images': [big, small]}, open(os.path.join(XD, 'demo_images.json'), 'w'))
+for n in ('demo_nodes.glb', 'demo_nodes_uuids.json', 'scene-export.json', 'scene_info.json', 'dump_keys.json'):
+    open(os.path.join(XD, n), 'w').write('{}')
+ok('ximg: имена dump/img — ассет вида tex, порог 16 КБ; манифест — не ассет', RE.asset_kind('dump/img/' + big['file'][4:]) == 'tex' and RE.asset_min_bytes('dump/img/x.png') == 16 * 1024
+   and RE.asset_kind('dump/demo_images.json') is None)
+RE.check_ximg(XD)
+ok('ximg: манифест сходится с файлами — проверка проходит; без манифеста проверять нечего', True)
+RE.check_ximg(os.path.join(TMP, 'нет-такого'))
+bads = {}
+for name, mut in (('содержимое', lambda: open(os.path.join(XD, big['file']), 'ab').write(b'x')),
+                  ('лишний файл', lambda: open(os.path.join(XD, 'img', 'a' * 32 + '.png'), 'wb').write(b'zz'))):
+    mut()
+    try:
+        RE.check_ximg(XD)
+        bads[name] = False
+    except RE.RenderError as e:
+        bads[name] = e.code == 'render_failed'
+    if name == 'содержимое':
+        _d = open(os.path.join(XD, big['file']), 'rb').read()[:-1]
+        open(os.path.join(XD, big['file']), 'wb').write(_d)
+    else:
+        os.remove(os.path.join(XD, 'img', 'a' * 32 + '.png'))
+ok('ximg: изменённый файл и лишний файл в dump/img — отказ подготовки (render_failed), не молчаливый пропуск', all(bads.values()) and len(bads) == 2)
+exg = RE.SaladGpuExecutor(env=dict(os.environ))
+jobx = os.path.join(TMP, 'jobx')
+os.makedirs(os.path.join(jobx, 'scene'), exist_ok=True)
+shutil.copytree(XD, os.path.join(jobx, 'dump'))
+small_b, assets_b, src_b = exg._split_assets(exg._bundle_files(jobx))
+ap = {a['path']: a for a in assets_b}
+ok('ximg: пакет — большая картинка ассетом (tex), мелкая и манифест в маленьком пакете', ('dump/' + big['file']) in ap and ap['dump/' + big['file']]['kind'] == 'tex'
+   and ('dump/' + small['file']) in small_b and 'dump/demo_images.json' in small_b)
+ok('ximg: флаг по умолчанию включён, RENDER_XIMG=0 выключает', RE.ximg_on() and not (os.environ.update(RENDER_XIMG='0') or RE.ximg_on()))
+os.environ.pop('RENDER_XIMG', None)
+os.environ['RENDER_SLOT'] = '0'
+with exg._slot('t', {'min_gb': 1}) as hs_:
+    ok('«мимо очереди» (RENDER_SLOT=0): слот не ждёт и не занимает очередь, пометка no_slot', isinstance(hs_, dict) and hs_.get('no_slot') is True and float(hs_.get('waited_s', 0)) == 0.0)
+os.environ.pop('RENDER_SLOT', None)
+
+# ПОСТОЯННОЕ СОЕДИНЕНИЕ КЛИЕНТА ПРИЁМНИКА (T-20261118-09/5 ❸): `jobs_proto.Sink` на локальном HTTP-сервере — одно соединение на серию вызовов, коды ошибок, повтор на оборванном соединении
+import http.server as _hs
+import socketserver as _ss
+import threading as _th
+
+
+class _H(_hs.BaseHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'
+    store: dict = {}
+    conns = 0
+    close_next = False
+    fail500 = 0
+
+    def setup(self):
+        type(self).conns += 1
+        super().setup()
+
+    def log_message(self, *a):
+        pass
+
+    def _send(self, code, body=b'', ctype='application/json'):
+        self.send_response(code)
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Content-Type', ctype)
+        if type(self).close_next:
+            self.send_header('Connection', 'close')
+            type(self).close_next = False
+            self.close_connection = True
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.headers.get('Authorization') != 'Bearer tok':
+            return self._send(401)
+        if self.path.startswith('/ls/'):
+            return self._send(200, b'{"dirs": [], "files": []}')
+        if type(self).fail500 > 0:
+            type(self).fail500 -= 1
+            return self._send(500, b'x')
+        k = self.path[len('/files/'):]
+        if k in self.store:
+            return self._send(200, self.store[k], 'application/octet-stream')
+        self._send(404, b'no')
+
+    def do_PUT(self):
+        n = int(self.headers.get('Content-Length') or 0)
+        self.store[self.path[len('/staging/'):]] = self.rfile.read(n)
+        self._send(200, b'{}')
+
+    def do_POST(self):
+        n = int(self.headers.get('Content-Length') or 0)
+        self.rfile.read(n)
+        self._send(200, b'{"missing": ["aa"]}')
+
+    def do_DELETE(self):
+        self._send(200 if self.path[len('/prefix/'):] in self.store else 404, b'{}')
+
+
+class _TS(_ss.ThreadingMixIn, _hs.HTTPServer):
+    daemon_threads = True
+
+
+_srv = _TS(('127.0.0.1', 0), _H)
+_th.Thread(target=_srv.serve_forever, daemon=True).start()
+sys.path.insert(0, HERE)
+import jobs_proto as _JP
+snk = _JP.Sink(f'http://127.0.0.1:{_srv.server_address[1]}/mesh-sink'.replace('/mesh-sink', ''), 'tok', retries=2, timeout=5)
+big = os.urandom(300000)
+open(os.path.join(TMP, 'f.bin'), 'wb').write(big)
+snk.put('renderjobs/j1/job.json', b'{"a": 1}')
+snk.put_file('renderjobs/j1/bundle-x.tgz', os.path.join(TMP, 'f.bin'))
+got_json = snk.get_json('renderjobs/j1/job.json')
+n_dl = snk.get_to('renderjobs/j1/bundle-x.tgz', os.path.join(TMP, 'g.bin'))
+miss = snk.have_assets([{'sha256': 'aa', 'size': 1}])
+ok('Sink: put/put_file/get_json/get_to/have — те же ответы, файл целиком, всё по ОДНОМУ соединению (не по новому на вызов)',
+   got_json == {'a': 1} and n_dl == len(big) and open(os.path.join(TMP, 'g.bin'), 'rb').read() == big and miss == ['aa'] and _H.conns == 1)
+try:
+    snk.get_json('renderjobs/j1/result.json')
+    e404 = None
+except _JP.SinkError as e:
+    e404 = e.code
+ok('Sink: 404 → SinkError с кодом 404, без повторов; соединение живо (ответ вычитан)', e404 == 404 and _H.conns == 1)
+_H.fail500 = 1
+ok('Sink: 500 один раз → повтор → успех', snk.get('renderjobs/j1/job.json') == b'{"a": 1}')
+_H.close_next = True
+snk.get('renderjobs/j1/job.json')
+before = _H.conns
+ok('Sink: сервер закрыл соединение после ответа (Connection: close) — следующий вызов идёт на новом, без ошибки', snk.get('renderjobs/j1/job.json') == b'{"a": 1}' and _H.conns == before + 1)
+snk._tl.c.sock.close()                              # «старое» соединение оборвано (закрыто сервером в простое)
+ok('Sink: оборванное переиспользуемое соединение — один повтор на свежем, вызов проходит', snk.get('renderjobs/j1/job.json') == b'{"a": 1}')
+ok('Sink: ls и delete (404 = уже нет → 0)', snk.ls('renderjobs/x') == {'dirs': [], 'files': []} and snk.delete('renderjobs/j1/job.json') == 1 and snk.delete('renderjobs/zz') == 0)
+bad_tok = _JP.Sink(f'http://127.0.0.1:{_srv.server_address[1]}', 'bad', retries=2, timeout=5)
+try:
+    bad_tok.get('renderjobs/j1/job.json')
+    c401 = None
+except _JP.SinkError as e:
+    c401 = e.code
+ok('Sink: 401 → SinkError 401', c401 == 401)
+th_conns = []
+
+
+def _t():
+    snk.get('renderjobs/j1/job.json')
+    th_conns.append(1)
+
+
+before = _H.conns
+ts_ = [_th.Thread(target=_t) for _ in range(3)]
+[t.start() for t in ts_]
+[t.join() for t in ts_]
+ok('Sink: потоки не делят соединение (по одному на поток), ответы не путаются', len(th_conns) == 3 and _H.conns - before <= 3)
+_srv.shutdown()
+
+# ЛИНЕЙКА ВРЕМЕНИ ЗАКАЗА (T-20261118-09/5 ❷)
+_clk = {'t': 100.0}
+tl_ = RE.DevTimeline(lambda: _clk['t'], 100.0)
+
+
+class _S:
+    def get_json(self, rel):
+        _clk['t'] += 0.2
+        return None
+
+    def put(self, rel, data):
+        _clk['t'] += 0.5
+
+    def delete(self, rel):
+        _clk['t'] += 0.1
+        return 1
+
+
+w_ = tl_.wrap(_S())
+w_.put('renderjobs/j/job.json', b'')
+for _ in range(3):
+    w_.get_json('renderjobs/j/result.json')
+    w_.get_json('renderjobs/j/progress.json')
+tl_.mark('result_seen')
+w_.delete('renderjobs/j')
+sn_ = tl_.snapshot()
+ops_ = {c['op']: c for c in sn_['calls']}
+ok('линейка: опросы result/progress схлопнуты (×3, сумма), put и delete — строками, метка этапа',
+   abs(ops_['опрос result ×3']['s'] - 0.6) < 0.01 and 'опрос progress ×3' in ops_ and abs(ops_['PUT job.json']['s'] - 0.5) < 0.01
+   and abs(ops_['DELETE']['t'] - 1.7) < 0.01 and abs(sn_['marks']['result_seen'] - 1.7) < 0.01)
+
+# ЖУРНАЛ, ТРЕШ, ПУЛЫ (T-20261118-09/9)
+J = RW.Journal()
+J.dir_seen('a', 10.0)
+J.job_seen('a', 11.0)
+J.cycle(9.5, 0.4, 3, 1, 0.3, False)
+J.cycle(11.0, 0.5, 3, 2, 0.4, True)
+J.prev_end = 9.0
+J.prev_post = {'trash': 0.01, 'put': 0.2}
+sn = J.snapshot(12.0, 'a')
+ok('Journal: срез относительно начала задания (круги до него отрицательные), seen_dir/seen_job, prev_end, prev_post',
+   sn['seen_dir'] == -2.0 and sn['seen_job'] == -1.0 and sn['prev_end'] == -3.0 and sn['cycles'][0][0] == -2.5 and sn['cycles'][1][5] == 1 and sn['prev_post']['put'] == 0.2 and sn['t_job'] == 12.0)
+td = os.path.join(TMP, 'trashme')
+os.makedirs(os.path.join(td, 'sub'))
+open(os.path.join(td, 'sub', 'f'), 'wb').write(b'x' * 1000)
+dt_ = RW.trash_dir(td)
+for _ in range(50):
+    if not [n for n in os.listdir(TMP) if n.startswith('trashme.del-')]:
+        break
+    time.sleep(0.1)
+ok('trash_dir: каталога нет сразу (переименован), потом убран в фоне; нет каталога — 0', not os.path.exists(td) and not [n for n in os.listdir(TMP) if n.startswith('trashme.del-')] and dt_ < 0.5 and RW.trash_dir(td) == 0.0)
+sinkU = FakeSink()
+wdir = os.path.join(TMP, 'upw')
+os.makedirs(wdir)
+open(os.path.join(wdir, 'C1.jpg'), 'wb').write(b'a' * 10)
+open(os.path.join(wdir, 'C2.jpg'), 'wb').write(b'b' * 20)
+from concurrent.futures import ThreadPoolExecutor as _TPE
+with _TPE(max_workers=2) as _pp:
+    fu = RW.FrameUploader(sinkU, 'jj', wdir, 'jpg', _pp)
+    fu.start('C1')
+    fu.start('C2')
+    szs = fu.join()
+ok('FrameUploader через пул: кадры ушли, размеры верны', szs == {'C1.jpg': 10, 'C2.jpg': 20} and sinkU.f.get('renderjobs/jj/C2.jpg') == b'b' * 20)
+wP = new_worker(FakeSink())
+ok('воркер: постоянные пулы обращений (ассеты, выгрузка кадров, проверки)', wP.io_assets._max_workers == RW.ASSET_PAR and wP.io_up._max_workers == 4 and wP.io_probe._max_workers == 2)
+sinkJ = FakeSink()
+sinkJ.put('renderjobs/jz/bundle-x.tgz', b'x')
+sinkJ.put('renderjobs/jz/job.json', b'{"v": 1}')
+wJ = new_worker(sinkJ)
+gj = wJ.pick()
+ok('pick пишет круг в журнал и первые «увидел каталог/job.json»', gj == 'jz' and len(wJ.jr.cycles) == 1 and wJ.jr.cycles[0][2] == 1 and wJ.jr.cycles[0][3] == 1 and wJ.jr.cycles[0][5] and 'jz' in wJ.jr.seen_dir and 'jz' in wJ.jr.seen_job)
+
+# БРОШЕННАЯ ОТПРАВКА (T-20261118-09/8): каталог без job.json старше ABORT_S воркер пропускает навсегда (один раз проверил), следующее задание берётся
+sinkAb = FakeSink()
+sinkAb.put('renderjobs/old1/bundle-x.tgz', b'x')
+sinkAb.mtime['renderjobs/old1/bundle-x.tgz'] = time.time() - 600
+sinkAb.put('renderjobs/new1/bundle-x.tgz', b'x')                       # свежая отправка (job.json ещё не пришёл) — не брошена
+sinkAb.put('renderjobs/new1/job.json', b'{"v": 1}')
+wAb = new_worker(sinkAb)
+got1 = wAb.pick()
+lsn = sum(1 for e in sinkAb.log if e[0] == 'ls')
+got2 = wAb.pick()
+ok('pick: брошенный каталог (без job.json, старше 2 мин) пропущен и запомнен; свежее задание берётся', got1 == 'new1' and 'old1' in wAb.done and got2 == 'new1')
+sinkAb2 = FakeSink()
+sinkAb2.put('renderjobs/fresh/bundle-x.tgz', b'x')
+ok('pick: свежая отправка без job.json (идёт загрузка) не помечается брошенной', new_worker(sinkAb2).pick() is None and 'fresh' not in new_worker(sinkAb2).done)
+ok('worker: константы — HOT_PAR 4, ABORT_S 120 с', RW.HOT_PAR == 4 and RW.ABORT_S == 120)
 
 shutil.rmtree(TMP, ignore_errors=True)
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')

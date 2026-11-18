@@ -236,7 +236,13 @@ PRODUCT_KEYS = {'price', 'img', 'url', 'shop', 'swatch'}       # swatch — цв
 GOODS_ONLY = {'name', 'name_en', 'colour_en', 'colour_ru', 'price', 'img', 'url', 'shop'}
 # поля 3D-сцены — тем же кодом, что у /demo (`sku_scene`, T-20261112-96): подкраска цвета, разворот модели, «подвесная»
 SCENE_SKU_KEYS = {'tint', 'yaw', 'hung', 'fam'}            # fam — семья цветов («Цвета этой модели», `sku_scene.family`)
-PUBLIC_SKU_KEYS = SKU_KEYS | PRODUCT_KEYS | SCENE_SKU_KEYS
+# ПУБЛИЧНЫЙ КЛЮЧ ТОВАРА `pid` (T-20261118-03/9): у ковра, картины, пледа… модели нет (`msid` = null), `sid` в данные страницы не идёт
+# (`NEVER_KEYS`) — а заказ «Сделать фото» из тура должен назвать товар каждого предмета. `pid` — односторонний хеш `sid` с пространством имён (по нему
+# ключ поставщика не восстановить; 96 бит), одинаковый между перевыпусками; цена, корзина и подбор от него не зависят (поле только для ссылки заказа)
+PID_KEY = 'pid'
+PID_NS = 'p1:'                               # пространство имён и версия ключа: сменится схема — `p2:`, старые не спутаются
+PID_RE = re.compile(r'p1:[0-9a-f]{24}')
+PUBLIC_SKU_KEYS = SKU_KEYS | PRODUCT_KEYS | SCENE_SKU_KEYS | {PID_KEY}
 # куски стадий (внутренние файлы DEV, в выход не идут): плюс ключ товара `sid` — по нему сборщик берёт товар из каталога — и его
 # источник `offer_origin` (T-20261112-96/3: одинаковые mid/eid есть в `products` и в `room_catalog` спальни и прихожей)
 STAGE_SKU_KEYS = SKU_KEYS | {'sid', 'offer_origin'}
@@ -650,6 +656,24 @@ class _Goods:
 
     def __call__(self, sid, role, origin=None):
         return self.offer(sid, role, origin)[1]
+
+
+def pid_of(sid) -> str | None:
+    """Публичный ключ товара по `sid` (`PID_KEY`): `p1:` + 24 hex от пространства имён и нормализованного `sid` (двоеточие источника — как у
+    `_sid`: `a:b` и `a_b` — один товар). НИКОГДА не кладётся в `sid`/`msid`: меш и экспорт сцены читают `msid or sid` как файл модели."""
+    if not sid:
+        return None
+    return PID_NS + hashlib.sha256((PID_NS + str(sid).replace(':', '_', 1)).encode()).hexdigest()[:24]
+
+
+def put_pid(sku: dict, sid) -> dict:
+    """`sku.pid` по ключу товара `sid` (на месте). Товар предмета сменился — ключ прежнего товара не остаётся: без `sid` поля нет."""
+    if isinstance(sku, dict):
+        sku.pop(PID_KEY, None)
+        p = pid_of(sid)
+        if p:
+            sku[PID_KEY] = p
+    return sku
 
 
 def attach_goods(sku: dict, sid, role: str, goods, origin=None) -> dict:
@@ -1171,6 +1195,10 @@ def assert_public(obj, tokens: list, goods: bool = False) -> None:
                     continue
                 if at and k == 'name' and isinstance(x, str):
                     continue                         # название товара на месте товара — как у /demo
+                if at and k == PID_KEY:
+                    if not (isinstance(x, str) and PID_RE.fullmatch(x)):
+                        raise BundleRefused('shop_leak', f'поле {path}.{k} не публичный ключ товара')
+                    continue
                 if k in BANNED_KEYS or (isinstance(k, str) and (k.endswith('_url') or k == 'href')):
                     raise BundleRefused('shop_leak', f'запрещённое поле {path}.{k}')
                 walk(x, f'{path}.{k}')
@@ -1258,6 +1286,7 @@ def _keep_sid(it: dict, sid: str | None) -> dict:
     `scene_fields` до `assert_public`."""
     if sid and isinstance(it.get('sku'), dict):
         it['sku']['_sid'] = str(sid).replace(':', '_', 1)
+        put_pid(it['sku'], sid)
     return it
 
 
@@ -1324,6 +1353,61 @@ def carried_fams(variants: list, demo: dict | None, rep: dict | None = None) -> 
     finally:
         for sk in skus:
             sk.pop('_sid', None)
+
+
+def catalog_tiles() -> dict:
+    """Плитка фото → {нормализованные `sid`} по ВСЕМУ каталогу (`products.image_url`, плитка = `img/<md5 адреса>.jpg`, как `demo_img`); нет БД — {} и WARN
+    (тогда остаются только строки витрины). Только чтение."""
+    import subprocess
+    import catalog_media as CM
+    q = "select shop_mid||':'||external_id||E'\\t'||coalesce(image_url,'') from products where coalesce(image_url,'')<>''"
+    try:
+        r = subprocess.run(CM.PSQL + [q], capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f'WARN:carry_pids: каталог не прочитан ({repr(e)[:100]}) — pid только по строкам витрины', flush=True)
+        return {}
+    if r.returncode != 0:
+        print(f'WARN:carry_pids: каталог не прочитан ({r.stderr[:100]}) — pid только по строкам витрины', flush=True)
+        return {}
+    out: dict = {}
+    for ln in r.stdout.split('\n'):
+        if '\t' in ln:
+            sid, url = ln.split('\t', 1)
+            out.setdefault('img/' + hashlib.md5(url.encode()).hexdigest()[:16] + '.jpg', set()).add(sid.replace(':', '_', 1))
+    return out
+
+
+def carried_pids(variants: list, demo: dict | None, tiles: dict | None = None) -> dict:
+    """ПУБЛИЧНЫЙ КЛЮЧ ТОВАРА У ПЕРЕНЕСЁННЫХ ПРЕДМЕТОВ (T-20261118-03/9; ТОЛЬКО по явному включению — `trial_reissue --carry-pids-by-img`).
+    Тур, собранный до `pid`, не несёт ни `sid`, ни `pid`, а у ковра, картины и пледа нет и `msid`: заказ фото из такой комнаты не называет товар.
+    Входов подбора (там был `sid`) у перевыпуска нет. Единственный ДЕТЕРМИНИРОВАННЫЙ след товара в старой версии — плитка фото `img/<md5>.jpg`
+    (md5 адреса картинки товара, как у /demo): `sid` берём из строки витрины с ТЕМ ЖЕ фото, и только если у всех строк с этим фото он один;
+    по названию и размеру не ищем никогда. Источники плитки: строки витрины и (`tiles`, `catalog_tiles()`) весь каталог — объединением `sid`;
+    нет строки или `sid` разные — предмет остаётся без `pid` (честно, в счёте). Трогаем только `sku` без `pid`.
+    → {'set': n, 'none': n, 'ambiguous': n}."""
+    by_img: dict = {}
+    for rows in (demo or {}).values():
+        if not isinstance(rows, dict):
+            continue
+        for lst in rows.values():
+            for r in lst or []:
+                if isinstance(r, dict) and r.get('sid') and r.get('img'):
+                    by_img.setdefault(r['img'], set()).add(str(r['sid']).replace(':', '_', 1))
+    for img, sids in (tiles or {}).items():
+        by_img.setdefault(img, set()).update(sids)
+    st = {'set': 0, 'none': 0, 'ambiguous': 0}
+    for v in variants:
+        for it in (v.get('items') or []) + (v.get('decor') or []):
+            sk = it.get('sku') if isinstance(it, dict) else None
+            if not isinstance(sk, dict) or sk.get(PID_KEY):
+                continue
+            sids = by_img.get(sk.get('img')) or set()
+            if len(sids) == 1:
+                put_pid(sk, next(iter(sids)))
+                st['set'] += 1
+            else:
+                st['ambiguous' if sids else 'none'] += 1
+    return st
 
 
 DECOR_PLACE_KEYS = {'x', 'y', 'bottom_cm', 'slot_instance_id', 'parent_slot_instance_id', 'anchor', 'local', 'carrier', 'fit'}
@@ -1499,6 +1583,7 @@ def goods_from_feeds(variants: list, demo: dict | None, goods=None, geo: dict | 
             if r is not None:
                 sku.update({k: r[k] for k in DF.GOODS_FIELDS if r.get(k) not in (None, '')})
                 sku.pop('_sid', None)                  # товар витрины без подкраски (фото = цвет модели): `scene_fields` не красит
+                put_pid(sku, r.get('sid'))
                 st['same'] += 1
                 continue
             if sku.get('msid') and base not in DF.NOMESH:
@@ -1506,6 +1591,7 @@ def goods_from_feeds(variants: list, demo: dict | None, goods=None, geo: dict | 
                 if g and DF.has_goods(g):
                     sku.update({k: x for k, x in g.items() if x not in (None, '')})
                     sku.pop('_sid', None)              # товар, с которого снята модель, — без подкраски
+                    put_pid(sku, sku.get('msid'))     # ключ модели = ключ товара (`goods`)
                     st['bank'] += 1
                     continue
             if not demo:
@@ -1531,6 +1617,7 @@ def goods_from_feeds(variants: list, demo: dict | None, goods=None, geo: dict | 
                 new['msid'] = r['msid']
             sku.clear()
             sku.update(new)
+            put_pid(sku, r.get('sid'))
             st['slot'] += 1
     return st
 
@@ -1570,6 +1657,7 @@ def feeds_for(variants: list, demo: dict | None = None, room_keys: bool = True, 
         out = []
         for r in rows:
             row = {k: x for k, x in r.items() if k in keep}
+            put_pid(row, r.get('sid'))                 # лента замен: поставленный из неё товар должен нести тот же публичный ключ
             if base in DF.NOMESH:
                 row.pop('msid', None)                  # плита с фото: модели нет (у витрины `msid` ковра = ключ товара)
             out.append(row)

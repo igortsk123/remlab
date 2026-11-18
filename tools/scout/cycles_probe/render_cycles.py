@@ -28,6 +28,7 @@ ap.add_argument('--also-png', default='', help='ТОЛЬКО ДЛЯ ПРИЁМК
 ap.add_argument('--mask-out', default='', help='после кадра — маска поверхностей тем же ракурсом: пол красный, нейтральная стена зелёная, акцентная синяя, остальное чёрное (замер яркости, T-20261117-23/2)')
 ap.add_argument('--samples', type=int, default=160)
 ap.add_argument('--pct', type=int, default=100)
+ap.add_argument('--mask-scale', type=float, default=1.0, help='маска поверхностей (--mask-out) в долях размера кадра: 0.25 — четверть (быстрее и в десятки раз меньше файл); 1 — как кадр')
 ap.add_argument('--threads', type=int, default=8)
 ap.add_argument('--persistent', type=int, default=0, help='1 — render.use_persistent_data: между кадрами одного процесса не пересобирать BVH и текстуры (проба T-22; по умолчанию как раньше)')
 ap.add_argument('--sun', type=float, default=4.0)
@@ -52,6 +53,7 @@ ap.add_argument('--chandelier', type=float, default=60.0, help='мощность
 ap.add_argument('--hdri', default='', help='HDRI неба (Poly Haven, CC0): свет и портал вместо Nishita')
 ap.add_argument('--hdri-strength', type=float, default=1.0)
 ap.add_argument('--portal', type=int, default=0, help='1: световой портал в проёме окна')
+ap.add_argument('--shoulder', default='', help='плечо светов в сцен-линейном свете ДО view transform: "колено,потолок" (напр. 0.85,1.35): ниже колена кадр не меняется, пик канала выше колена плавно сжимается к потолку, оттенок сохраняется (без «выбито» белого). Пусто — выкл.')
 ap.add_argument('--transform', default='AgX', help='view transform: AgX | Filmic | Standard (сетка настроек, T-20261117-06/1)')
 ap.add_argument('--look', default='AgX - Medium High Contrast', help='look (подбирается по имени; нет такого — без look)')
 ap.add_argument('--cam-h', type=float, default=0.0, help='>0: высота глаза камеры, м (по умолчанию — как у ракурса)')
@@ -101,6 +103,8 @@ ap.add_argument('--dof', type=float, default=0.0, help='>0: диафрагма f
 ap.add_argument('--smooth-deg', type=float, default=50.0, help='угол сглаживания нормалей мебели, ° (0 — без сглаживания, плоские грани)')
 ap.add_argument('--denoise', type=int, default=1, help='0 — без шумоподавления OIDN (разбор причины артефактов)')
 ap.add_argument('--mr', type=int, default=1, help='1: у мебели своя карта шероховатости/металла меша (как есть), иначе таблица ROUGH')
+ap.add_argument('--qa', type=int, default=1, help='сторож кадров (render-qa-gate-01, frame_qa.py): до рендера — оплачиваемые позиции против выгрузки и сцены; после — маска предметов каждого кадра, отчёт `<кадр>.qa.json`; только отчёт, кадр не блокирует (шаг 5 не включён)')
+ap.add_argument('--qa-inject', default='', help='проверка сторожа: art_nomap[:слот],art_white[:слот],curtain_remove,hide_item:слот,camera,rug_shards[:слот] (через запятую)')
 a = ap.parse_args(argv)
 if a.orig and (a.lamp_k == 2800.0 or a.sheen == 0.4 or (a.fabric and a.fabric_tile == 12.0)):
     # прежние очереди пробы (круг 1: оранжевый свет; sheen 0,4 и плетение без маски ножек) заменены новым набором — не тратим на них ядра
@@ -195,6 +199,46 @@ for _look in (a.look, _short, a.transform + ' - ' + _short):
         continue
 print('view', sc.view_settings.view_transform, '| look', sc.view_settings.look)
 sc.view_settings.exposure = a.exposure
+
+
+def shoulder_fn(peak, knee: float, ceil: float):
+    """Плечо светов по ПИКУ канала (numpy-массив или число): до колена — как есть; выше колена k + (P−k)·(1−exp(−(x−k)/(P−k))) — наклон 1 в колене, потолок P.
+    Чистая функция (проверяется тестом без Blender)."""
+    k, P = float(knee), float(ceil)
+    if not (0.2 < k < P):
+        raise ValueError(f'плечо: нужно 0.2 < колено < потолок, получено {k}, {P}')
+    x = np.asarray(peak, np.float32)
+    return np.where(x > k, k + (P - k) * (1.0 - np.exp(-(np.maximum(x, k) - k) / (P - k))), x)
+
+
+def apply_shoulder(spec: str, out_path: str) -> None:
+    """`--shoulder колено,потолок` (сцен-линейный свет, до view transform): после кадра читаем «Render Result» (линейный), у каждого пикселя сжимаем ПИК канала
+    функцией `shoulder_fn`, все три канала масштабируем одинаково (оттенок и насыщенность неба и стен не меняются — не как кривая по каналам, она белила небо),
+    кладём в float-картинку и сохраняем тем же `save_render` (экспозиция, view transform, dither, формат и качество — сцены): кадр перезаписывается."""
+    k, P = (float(v) for v in spec.split(','))
+    # «Render Result» в фоновом режиме без пикселей (size 0×0): линейный свет берём через временный EXR (32 бит, без view transform), потом возвращаем формат кадра
+    ims = sc.render.image_settings
+    keep = (ims.file_format, ims.color_mode, ims.color_depth)
+    exr = out_path + '.lin.exr'
+    ims.file_format, ims.color_mode, ims.color_depth = 'OPEN_EXR', 'RGB', '32'
+    bpy.data.images['Render Result'].save_render(exr, scene=sc)
+    ims.file_format, ims.color_mode, ims.color_depth = keep
+    src = bpy.data.images.load(exr)
+    w, h = src.size
+    buf = np.empty(w * h * 4, np.float32)
+    src.pixels.foreach_get(buf)
+    px = buf.reshape(h, w, 4)
+    peak = px[..., :3].max(axis=2)
+    px[..., :3] *= (shoulder_fn(peak, k, P) / np.maximum(peak, 1e-6))[..., None]
+    px[..., 3] = 1.0
+    tmp = bpy.data.images.new('shoulder_tmp', w, h, alpha=False, float_buffer=True)
+    tmp.pixels.foreach_set(px.ravel())
+    tmp.update()
+    tmp.save_render(out_path, scene=sc)
+    bpy.data.images.remove(tmp)
+    bpy.data.images.remove(src)
+    os.remove(exr)
+    print('SHOULDER', k, P, out_path, flush=True)
 sc.render.image_settings.file_format = 'PNG'
 sc.render.image_settings.color_depth = '8'
 if a.jpeg_quality > 0:
@@ -717,6 +761,26 @@ for o in M['objs']:
         _lo.location = (sum(p.x for p in _p) / 8, sum(p.y for p in _p) / 8, _zt - 0.18 * (_zt - _zb) if role == 'торшер' else _zt - 0.25 * (_zt - _zb))
         ob.visible_shadow = False
 
+def rug_silhouette(msk):
+    """Силуэт ковра (T-20261118-03/3): фон — только то, что СВЯЗАНО с краем кадра фото; светлые блики и пятна ВНУТРИ ковра — это ковёр.
+    Иначе эрозия `--rug-erode` съедала по 10 px вокруг каждой внутренней «дырки» (≈ 3 % площади светлого ковра) и крошила ковёр на клочья
+    (боевой пресет, любой светлый ковёр), а светлые участки рисунка были прозрачными. Только numpy (в Blender нет scipy)."""
+    bgm = ~msk
+    reach = np.zeros_like(bgm)
+    reach[0, :], reach[-1, :], reach[:, 0], reach[:, -1] = bgm[0, :], bgm[-1, :], bgm[:, 0], bgm[:, -1]
+    for _ in range(sum(msk.shape)):                 # рост от края до устойчивости (не больше полупериметра)
+        g = reach.copy()
+        g[1:] |= reach[:-1]
+        g[:-1] |= reach[1:]
+        g[:, 1:] |= reach[:, :-1]
+        g[:, :-1] |= reach[:, 1:]
+        g &= bgm
+        if (g == reach).all():
+            break
+        reach = g
+    return ~reach
+
+
 # ковёр: фото сверху с вырезом по цвету фона (как `_paste_rug`)
 for k, r in enumerate(M['rugs']):
     img = bpy.data.images.load(os.path.join(a.scene_dir, r['tex']))
@@ -729,6 +793,7 @@ for k, r in enumerate(M['rugs']):
     msk = dist > 22
     if msk.mean() < 0.30:
         msk[:] = True
+    msk = rug_silhouette(msk)
     # светлая кайма по краю ковра (подложка/полутон фото на границе выреза) — съедаем краевые пиксели маски: `--rug-erode` = доля ширины ковра
     _ys0, _xs0 = np.where(msk)
     for _ in range(int(round(a.rug_erode * (_xs0.max() - _xs0.min() + 1)))):
@@ -814,7 +879,6 @@ if a.demo_glb:
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
         import wall_art as _WA                       # то же правило, что при отборе в набор (`wall_art.has_content`, данные — `data/flat3d/wall-art.json:art_content`)
         _R = _WA.rules()
-        _x0, _y0, _x1, _y1 = _R['art_content']['center']
         _bad = []
         for _slot in sorted(set(x[0] for x in art_nodes)):
             # у картины несколько мешей (рама, полотно): текстура — у полотна; нет ни одной — ошибка
@@ -828,7 +892,7 @@ if a.demo_glb:
             _px = np.empty(_w * _h * 4, np.float32)
             _img.pixels.foreach_get(_px)
             _px = _px.reshape(_h, _w, 4)[:, :, :3]
-            _m = _WA.metrics(_px[int(_h * _y0):int(_h * _y1), int(_w * _x0):int(_w * _x1)] * 255.0)
+            _m = _WA.canvas_metrics(_px * 255.0, _R)                 # та же мера, что при отборе (центр + вся площадь, T-20261118-03/2)
             if not _WA.has_content(_m, _R):
                 _bad.append((_slot, f"нет рисунка (белое/тон-в-тон), цвет {_m['chroma']:.0f}, яркость {_m['luma']:.0f}, рисунок {(_m['ink_d'] >= _R['art_content']['ink_delta']).mean() * 100:.1f} % площади"))
         for _slot, _why in _bad:
@@ -1209,24 +1273,33 @@ CAMS = [c.strip() for c in a.cam.split(',') if c.strip()]
 if len(CAMS) > 1 and '{cam}' not in a.out:
     raise SystemExit('несколько ракурсов: в --out нужен шаблон {cam}, например /x/frame-{cam}.png')
 print(f'SCENE_BUILD_SEC {time.time() - T_START:.1f}', flush=True)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import frame_qa
+QA = frame_qa.Guard(a, M, bool(a.qa and a.demo_nodes and a.export))
+QA.scene_ready(bpy, np)
 for _i, _cn in enumerate(CAMS):
     setup_camera(_cn)
+    QA.camera_ready(bpy, co, _cn)
     dof_current()
     _out = a.out.replace('{cam}', _cn)
     os.makedirs(os.path.dirname(os.path.abspath(_out)), exist_ok=True)
     sc.render.filepath = _out
     t0 = time.time()
     bpy.ops.render.render(write_still=True)
-    if a.also_png:
+    if a.shoulder:
+        apply_shoulder(a.shoulder, _out)
+    if a.also_png:                                   # PNG из «Render Result» (приёмка JPEG); сторож — после, он берёт хеш уже записанного кадра
         _ff = sc.render.image_settings.file_format
         sc.render.image_settings.file_format = 'PNG'
         bpy.data.images['Render Result'].save_render(a.also_png.replace('{cam}', _cn), scene=sc)
         sc.render.image_settings.file_format = _ff
+    QA.frame_done(bpy, co, _cn, _out)
     print(f'RENDER_SEC {time.time() - t0:.1f} cam {_cn} frame {_i + 1}/{len(CAMS)} samples {a.samples} pct {a.pct} device {DEVICE_USED} threads {a.threads}', flush=True)
 
 if a.mask_out and len(CAMS) > 1 and '{cam}' not in a.mask_out:
     raise SystemExit('несколько ракурсов: в --mask-out нужен шаблон {cam}')
 if a.mask_out:
+    _t_mask = time.time()
     # МАСКА ПОВЕРХНОСТЕЙ (после всех обычных кадров, один раз меняем сцену; на каждый ракурс свой файл — шаблон {cam} в --mask-out): каждая поверхность — плоский эмиссионный цвет по имени материала (`floor`, `wall`, `wall_accent`), остальное чёрное; без света, неба, шума
     def _flat(name, rgb):
         m = bpy.data.materials.new(name)
@@ -1261,11 +1334,17 @@ if a.mask_out:
     cy.samples = 1
     cy.use_adaptive_sampling = False
     cy.use_denoising = False
+    sc.render.image_settings.file_format = 'PNG'          # маска — всегда PNG: при кадрах JPEG (--jpeg-quality, GPU-машина) Blender дописал бы к имени .jpg, и файл <cam>.mask.png не появился бы (проба m8 18.11)
+    sc.render.image_settings.color_mode = 'RGB'
     for _cn in CAMS:
-        setup_camera(_cn)
+        setup_camera(_cn)                                  # он же ставит resolution_percentage = --pct, поэтому масштаб маски — после него
+        if a.mask_scale != 1.0:
+            sc.render.resolution_percentage = max(1, int(round(a.pct * a.mask_scale)))
         _mo = a.mask_out.replace('{cam}', _cn)
         os.makedirs(os.path.dirname(os.path.abspath(_mo)), exist_ok=True)
         sc.render.filepath = _mo
         bpy.ops.render.render(write_still=True)
         print('МАСКА', _cn, _mo, flush=True)
+    print(f'MASK_SEC {time.time() - _t_mask:.1f} cams {len(CAMS)}', flush=True)       # цена маски: смена материалов + 1 выборка на ракурс
 
+QA.finish(bpy, np)

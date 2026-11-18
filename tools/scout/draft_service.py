@@ -281,6 +281,8 @@ def _apply_render_order(payload: dict):
     payload.update(keep)
     payload['views'] = views
     payload['render'] = {'key': payload.get('render_key'), 'scene_hash': o['meta'].get('scene_hash'), 'versions': o['meta'].get('versions')}
+    if all(os.path.isfile(os.path.join(o['dir'], f'{c}.mask.png')) for c in ('C1', 'C2')):
+        payload['render']['mask_dir'] = o['dir']      # маски пола/стен рядом с кадрами (RENDER_MASKS=1) — для приглушения солнечных пятен
     return None
 
 
@@ -1146,11 +1148,30 @@ def _prewarm_demo() -> None:
         print(f'прогрев демо не удался: {str(e)[:90]}', flush=True)
 
 
+def _render_prewarm_start() -> None:
+    """Поток заготовки кадров (`render_prewarm.py`). Без исполнителя «машина рендера» он сам пишет «no_gpu» в статус и ничего не считает."""
+    try:
+        import render_prewarm as RPW
+        cy = _cy()
+        m = getattr(cy['ex'], 'primary', cy['ex'])
+        machine = m.machine() if hasattr(m, 'machine') else None
+        if machine is None:
+            print('заготовка кадров: исполнитель без машины рендера — не запускаю', flush=True)
+            return
+        pw = RPW.Prewarmer(cy['q'], cy['ex'], cy['versions'], machine, _legacy_order)
+        cy['q'].prewarm = pw
+        pw.start()
+    except Exception as e:  # noqa: BLE001
+        print(f'заготовка кадров не запущена: {e!r}', flush=True)
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('DRAFT_PORT', 8099))
     print(f'черновой рендер слушает :{port}', flush=True)
     if os.environ.get('PREWARM', '1') == '1':
         threading.Thread(target=_prewarm_demo, daemon=True).start()
+    if os.environ.get('RENDER_PREWARM', '1') == '1':      # заготовка кадров всех комнат под текущим ключом (T-20261118-07): поднимает очередь рендера сразу, не по первому заказу
+        threading.Thread(target=_render_prewarm_start, daemon=True).start()
     resume = JOBS.load()                    # до первого запроса: страницы спросят про свои номера сразу после старта
     srv = ThreadingHTTPServer((os.environ.get('DRAFT_HOST', '0.0.0.0'), port), H)
     if resume:                              # порт уже открыт — запрос к себе дождётся serve_forever

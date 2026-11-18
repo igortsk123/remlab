@@ -22,6 +22,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -40,6 +41,73 @@ class RenderError(Exception):
     def __init__(self, code: str, ru: str, en: str):
         super().__init__(ru)
         self.code, self.ru, self.en = code, ru, en
+
+
+class RenderBrak(RenderError):
+    """Сторож кадров (render-qa-gate-01, шаг 5, T-20261118-03/7) нашёл БРАК: заказ не считаем / кадр не публикуем и не кладём в кэш. Для покупателя — тот же экран, что у обычной
+    ошибки рендера (те же тексты RU/EN); код `render_brak` и список находок `brak` ([{where: preflight|slot|frame, code, slot, why, cam?}]) — только журналу и статусу задания."""
+
+    def __init__(self, brak: list, where: str):
+        super().__init__('render_brak', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
+        self.brak, self.where = brak, where
+
+    def line(self) -> str:
+        return f'брак сторожа ({self.where}): ' + '; '.join(f"{b.get('code')} {b.get('slot') or ''}".strip() for b in self.brak[:6])
+
+
+def qa_gate_on() -> bool:
+    """Ворота сторожа кадров включены (по умолчанию); `RENDER_QA_GATE=0` — прежнее поведение: отчёт пишется, заказ и кадр не блокируются."""
+    return os.environ.get('RENDER_QA_GATE', '1') != '0'
+
+
+_QA = None
+
+
+def frame_qa_mod():
+    """Модуль `cycles_probe/frame_qa.py` по пути файла (только стандартная библиотека; Blender для предпроверки и разбора отчёта не нужен)."""
+    global _QA
+    if _QA is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('frame_qa', os.path.join(PROBE, 'frame_qa.py'))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _QA = mod
+    return _QA
+
+
+def qa_signature() -> str:
+    """Версия сторожа (код + правила): метка брака, поставленная другой версией, не действует — починили сторож, комнату считаем заново."""
+    return _sha(os.path.join(PROBE, 'frame_qa.py'), os.path.join(REPO, 'data', 'flat3d', 'frame-qa-rules.json'))
+
+
+def qa_preflight_brak(dump: str, scene_dir: str) -> list:
+    """Предпроверка сторожа до рендера (секунды, без Blender): ошибки → список находок; сломалась сама проверка — не блокируем (молча терять заказы из-за сторожа нельзя), пишем в журнал."""
+    try:
+        Q = frame_qa_mod()
+        r = Q.preflight(dump, os.path.join(dump, 'scene-export.json'), scene_dir)
+        return [{'where': 'preflight', 'code': f['code'], 'slot': f.get('slot', ''), 'why': f.get('why', '')} for f in r['findings'] if f['level'] == 'error']
+    except Exception as e:  # noqa: BLE001
+        print(f'сторож: предпроверка не выполнена ({e!r}) — заказ идёт без неё', flush=True)
+        return []
+
+
+def qa_frame_brak(report: dict | None, cam: str) -> list:
+    """Находки отчёта сторожа по кадру, запрещающие публикацию (`frame_qa.blocking`); нет отчёта — не блокируем (старая машина/версия)."""
+    if not isinstance(report, dict):
+        return []
+    try:
+        return [{**b, 'cam': cam} for b in frame_qa_mod().blocking(report)]
+    except Exception as e:  # noqa: BLE001
+        print(f'сторож: отчёт кадра {cam} не разобран ({e!r}) — кадр не блокируем', flush=True)
+        return []
+
+
+def qa_read_report(png: str) -> dict | None:
+    try:
+        with open(png + '.qa.json', encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
 
 
 class ExecutorUnavailable(RenderError):
@@ -73,6 +141,45 @@ def render_version(blender: str = '') -> dict:
             'export_scene': _sha(os.path.join(PROBE, 'export_scene.py')), 'dump': _sha(os.path.join(PROBE, 'demo_scene_dump.mjs'),
                                                                                     os.path.join(PROBE, 'demo_scene_entry.ts')),
             'scene_export': exp_ver, 'blender': os.path.basename(os.path.dirname(blender)) if blender else ''}
+
+
+def prep_fast() -> bool:
+    """Быстрая подготовка сцены (T-20261118-09/1): страница не ждёт 1,5 с вслепую, окружение и меши из галереи — с диска. `RENDER_PREP_FAST=0` — прежнее поведение целиком."""
+    return os.environ.get('RENDER_PREP_FAST', '1') != '0'
+
+
+EXPORT_KEEP_GB = float(os.environ.get('RENDER_EXPORT_KEEP_GB', '1.5'))      # потолок памяти постоянной выгрузки (Python) после заказа
+DUMP_KEEP_GB = float(os.environ.get('RENDER_DUMP_KEEP_GB', '2.4'))          # то же для Node + Chromium (сам Chromium со сценой ≈1,2 ГБ)
+
+
+def ximg_on() -> bool:
+    """Картинки декора — отдельными файлами `dump/img/<хеш>.<png|jpg>` (T-20261118-10, контракт с дампером): GLB остаётся малым и одинаковым у сцен с тем же декором,
+    а картинки — ассеты по хешу (горячий список машины). `RENDER_XIMG=0` — прежнее поведение (картинки внутри `demo_nodes.glb`); дампер без поддержки флаг игнорирует."""
+    return os.environ.get('RENDER_XIMG', '1') != '0'
+
+
+def persistent_on() -> bool:
+    """Постоянные процессы выгрузки и дампа (T-20261118-09/1 шаг 6). `RENDER_EXPORT_SERVER=0` — только отдельные процессы на заказ."""
+    return os.environ.get('RENDER_EXPORT_SERVER', '1') != '0'
+
+
+def parse_trace(text: str) -> dict:
+    """Строки трассы подготовки сцены (T-20261118-09/1) → {'py': {шаг: сек}, 'node': {...}, 'page': {...}}. `TRACE <кто> <шаг> <значение> [n=<число вызовов>]`;
+    у накопителей (`acc:<функция>`) — [сек, вызовов]. Повтор шага (второй проход экспорта) — побеждает последний. Мусор и чужие строки пропускаются."""
+    out: dict = {}
+    for ln in text.splitlines():
+        if not ln.startswith('TRACE '):
+            continue
+        p = ln.split()
+        if len(p) < 4 or p[1] not in ('py', 'node', 'page'):
+            continue
+        try:
+            v = float(p[3])
+        except ValueError:
+            continue
+        n = next((int(x[2:]) for x in p[4:] if x.startswith('n=') and x[2:].isdigit()), None)
+        out.setdefault(p[1], {})[p[2]] = [v, n] if n is not None else v
+    return out
 
 
 def cache_key(scene_hash: str, versions: dict) -> str:
@@ -165,6 +272,200 @@ def run_step(cmd: list, log_path: str, timeout_s: float, max_rss_gb: float, env:
             pass
         print(f'рендер: {what} rc={rc}: {tail}', flush=True)
         raise RenderError('render_failed', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
+
+
+class DevTimeline:
+    """Линейка времени заказа на стороне DEV (T-20261118-09/5 ❷): метки этапов (`mark`) и каждое обращение к приёмнику (`wrap` оборачивает клиент: что, когда от начала заказа, сколько) —
+    чтобы «остальное» между известными частями заказа (подготовка, выгрузка, Blender, кадры) стало видно по секундам. В `timing['dev']`: `marks` {этап: с от начала} и `calls`
+    [{op, t, s}] — опросы `result.json`/`progress.json` схлопнуты в одну строку «опрос ×N» (число, сумма секунд, первый и последний момент). Только измерение, заказ не меняется."""
+    LABEL = {'result.json': 'result', 'progress.json': 'progress', 'job.json': 'job.json', 'cancel.json': 'cancel'}
+
+    def __init__(self, now, t0: float):
+        self.now, self.t0 = now, t0
+        self.lock = threading.Lock()
+        self.items: list = []
+        self.marks: dict = {}
+
+    def mark(self, name: str) -> None:
+        with self.lock:
+            self.marks.setdefault(name, round(self.now() - self.t0, 2))
+
+    def _op(self, meth: str, args: tuple) -> str:
+        rel = str(args[0]) if args and isinstance(args[0], str) else ''
+        base = rel.rsplit('/', 1)[-1]
+        if meth == 'have_assets':
+            return 'have'
+        if meth == 'put_asset':
+            return 'PUT ассет'
+        if meth in ('get_json', 'get', 'get_to'):
+            return ('GET ' + self.LABEL.get(base, base))[:40]
+        if meth in ('put', 'put_file'):
+            return ('PUT ' + ('пакет' if base.startswith('bundle') else self.LABEL.get(base, base)))[:40]
+        return meth.upper() if meth in ('delete', 'ls') else meth
+
+    def wrap(self, sink):
+        tl = self
+
+        class Timed:
+            def __getattr__(self, name):
+                f = getattr(sink, name)
+                if not callable(f):
+                    return f
+
+                def run(*a, **k):
+                    t = tl.now()
+                    try:
+                        return f(*a, **k)
+                    finally:
+                        with tl.lock:
+                            tl.items.append((tl._op(name, a), t - tl.t0, tl.now() - t))
+                return run
+        return Timed()
+
+    def snapshot(self) -> dict:
+        with self.lock:
+            it = sorted(self.items, key=lambda x: x[1])
+        out, polls = [], {}
+        for op, ts, d in it:
+            if op in ('GET result', 'GET progress'):
+                q = polls.setdefault(op, {'op': f'опрос {op[4:]} ×0', 'n': 0, 't': round(ts, 2), 's': 0.0, 'last': 0.0})
+                q['n'] += 1
+                q['s'] = round(q['s'] + d, 2)
+                q['last'] = round(ts, 2)
+                continue
+            out.append({'op': op, 't': round(ts, 2), 's': round(d, 2)})
+        for q in polls.values():
+            q['op'] = q['op'].rsplit(' ×', 1)[0] + f" ×{q.pop('n')}"
+            out.append(q)
+        out.sort(key=lambda x: x['t'])
+        return {'t0': round(self.t0, 2), 'marks': dict(self.marks), 'calls': out}      # t0 — начало заказа по часам DEV (для сверки с `timing.loop.t_job` воркера)
+
+
+class ExportClient:
+    """Клиент постоянного процесса (T-20261118-09/1 шаг 6): выгрузка мешей `cycles_probe/export_server.py` (Python) и дамп сцены `demo_scene_dump.mjs --serve` (Node + Chromium).
+    Один на (команда, окружение) в процессе сервиса. Заказы идут по одному (замок). Поднимается при первом заказе, выходит сам после простоя. Ошибки — те же `RenderError`,
+    что у `run_step`: время вышло / память выше потолка — процесс убит (следующий заказ поднимет новый), сбой — `render_failed`. `RENDER_EXPORT_SERVER=0` — не использовать."""
+    _inst: dict = {}
+    _glock = threading.Lock()
+
+    @classmethod
+    def get(cls, python: str, env: dict, cwd: str):
+        return cls.of([python, os.path.join(PROBE, 'export_server.py')], env, cwd)
+
+    @classmethod
+    def of(cls, cmd: list, env: dict, cwd: str, slot: str | None = None, keep_gb: float = 0.0):
+        """Клиент по (команда, окружение, папка). `slot` — «место»: новый клиент того же места (другая сборка выгрузчика) гасит прежний, иначе старый процесс
+        с памятью жил бы до простоя рядом с новым."""
+        key = (tuple(cmd), tuple(sorted(env.items())), cwd)
+        with cls._glock:
+            if key not in cls._inst:
+                if slot:
+                    for k, old in list(cls._inst.items()):
+                        if old.slot == slot:
+                            old.kill()
+                            del cls._inst[k]
+                cls._inst[key] = cls(cmd, env, cwd)
+                cls._inst[key].slot, cls._inst[key].keep_gb = slot, keep_gb
+            return cls._inst[key]
+
+    def __init__(self, cmd: list, env: dict, cwd: str):
+        self.cmd, self.env, self.cwd = list(cmd), env, cwd
+        self.slot = None
+        self.keep_gb = 0.0          # после заказа дерево процесса тяжелее — гасим (следующий заказ поднимет свежий): память постоянных процессов под потолком
+        self.lock = threading.Lock()
+        self.proc = None
+        self.rss_mb = 0.0
+
+    def _alive(self) -> bool:
+        return self.proc is not None and self.proc.poll() is None
+
+    def _read_line(self, deadline: float, max_rss_gb: float) -> str | None:
+        """Строка ответа или None при выходе времени/памяти (процесс убит)."""
+        import select
+        buf = b''
+        fd = self.proc.stdout.fileno()
+        while time.time() < deadline:
+            r, _, _ = select.select([fd], [], [], 0.2)
+            if r:
+                ch = os.read(fd, 65536)
+                if not ch:
+                    return ''                                   # процесс закрыл вывод (упал)
+                buf += ch
+                if b'\n' in buf:
+                    return buf.split(b'\n', 1)[0].decode('utf-8', 'replace')
+            elif self.proc.poll() is not None:
+                return ''
+            elif tree_rss_gb(self.proc.pid) > max_rss_gb:
+                return None
+        return None
+
+    def _spawn(self, timeout_s: float, max_rss_gb: float) -> None:
+        self.proc = subprocess.Popen(self.cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, cwd=self.cwd,
+                                     env={**os.environ, **self.env}, start_new_session=True)
+        line = self._read_line(time.time() + timeout_s, max_rss_gb)
+        if not line:
+            self.kill()
+            raise RenderError('render_failed', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
+
+    def kill(self) -> None:
+        if self.proc is not None:
+            if self.proc.poll() is None:
+                kill_tree(self.proc)
+            for f in (self.proc.stdin, self.proc.stdout):
+                try:
+                    f.close()
+                except OSError:
+                    pass
+        self.proc = None
+
+    def export(self, data_path: str, job: str, log: str, timeout_s: float, max_rss_gb: float) -> dict:
+        return self.call({'cmd': 'export', 'data': data_path, 'idx': 0, 'out': job, 'log': log}, timeout_s, max_rss_gb)
+
+    def call(self, request: dict, timeout_s: float, max_rss_gb: float) -> dict:
+        with self.lock:
+            if not self._alive():
+                self._spawn(timeout_s, max_rss_gb)
+            req = json.dumps(request) + '\n'
+            try:
+                self.proc.stdin.write(req.encode())
+                self.proc.stdin.flush()
+            except (OSError, ValueError):
+                self.kill()                                       # процесс вышел по простою между заказами — поднимаем новый и повторяем один раз
+                self._spawn(timeout_s, max_rss_gb)
+                self.proc.stdin.write(req.encode())
+                self.proc.stdin.flush()
+            line = self._read_line(time.time() + timeout_s, max_rss_gb)
+            if line is None:
+                self.kill()
+                print(f'рендер: постоянный процесс остановлен — время ({int(timeout_s)} с) или память выше {max_rss_gb:g} ГБ', flush=True)
+                raise RenderError('render_timeout', 'Рендер занял слишком много времени или памяти. Нажмите «Повторить».',
+                                  'The render took too long or too much memory. Press "Retry".')
+            try:
+                res = json.loads(line) if line else {}
+            except ValueError:
+                res = {}
+            if not res.get('ok'):
+                self.kill()
+                print(f'рендер: постоянный процесс, сбой: {res.get("error") or "процесс упал"}', flush=True)
+                raise RenderError('render_failed', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
+            self.rss_mb = float(res.get('rss_mb') or 0)
+            if self.keep_gb and tree_rss_gb(self.proc.pid) > self.keep_gb:
+                self.kill()
+                threading.Thread(target=self._rewarm, daemon=True).start()      # свежий процесс поднимается в простое — следующий заказ не платит за холодный старт
+            return res
+
+    def _rewarm(self) -> None:
+        """Фоном: поднять свежий процесс и прогреть (`warm`: браузер/импорты) под тем же замком — заказ, пришедший раньше, подождёт его готовности (не дольше холодного старта)."""
+        with self.lock:
+            try:
+                if not self._alive():
+                    self._spawn(90, 4.0)
+                    self.proc.stdin.write((json.dumps({'cmd': 'warm'}) + '\n').encode())
+                    self.proc.stdin.flush()
+                    if self._read_line(time.time() + 90, 4.0) is None:
+                        self.kill()
+            except Exception:  # noqa: BLE001 — прогрев необязателен: заказ поднимет процесс сам
+                self.kill()
 
 
 def _dir_mb(path: str) -> float:
@@ -292,6 +593,8 @@ class SceneExecutor:
         except OSError:
             bsha = os.path.basename(bundle)
         part.update(code=self._code_sha(), bundle=bsha, dump_export=pr['dumpExport'], prep=PREP_CACHE_VERSION)
+        if ximg_on():
+            part['ximg'] = 1                    # другой состав dump/ (картинки отдельно) — другая запись; выкл. — ключ прежний
         return cache_key(snap['scene_hash'], part)
 
     @staticmethod
@@ -393,7 +696,8 @@ class SceneExecutor:
         data_path = os.path.join(job, 'data.json')
         json.dump(data, open(data_path, 'w', encoding='utf-8'), ensure_ascii=False)
         progress('scene')
-        env = {'PYTHONPATH': os.pathsep.join([os.path.join(REPO, 'tools', 'scout'), os.path.join(REPO, 'services', 'planner-solver')])}
+        env = {'PYTHONPATH': os.pathsep.join([os.path.join(REPO, 'tools', 'scout'), os.path.join(REPO, 'services', 'planner-solver')]),
+               'EXPORT_PREVIEW': '0' if prep_fast() else '1'}      # быстрая подготовка: превью кадра не рисуем (нужны только записи выгрузки); выкл. — прежний путь
         bundle = self._bundle(log)
         dump = os.path.join(job, 'dump')
         dlog = log + '.dump'
@@ -412,8 +716,19 @@ class SceneExecutor:
             miss = []
             for attempt in (1, 2):
                 pos = os.path.getsize(log) if os.path.exists(log) else 0
-                run_step([self.python, os.path.join(PROBE, 'export_scene.py'), '--out', job, '--scene', 'scene=0', '--data', data_path], log,
-                         lim['exportSec'], lim['maxRssGb'], env=env, cwd=os.path.join(REPO, 'tools', 'scout'), what='меши и камеры')
+                t_py = time.time()
+                one_shot = lambda: run_step([self.python, os.path.join(PROBE, 'export_scene.py'), '--out', job, '--scene', 'scene=0', '--data', data_path], log,  # noqa: E731
+                                            lim['exportSec'], lim['maxRssGb'], env=env, cwd=os.path.join(REPO, 'tools', 'scout'), what='меши и камеры')
+                if prep_fast() and persistent_on():                # постоянный процесс: без импортов и разбора уже виденных мешей; сбой (не время) — один раз отдельным процессом, как раньше
+                    try:
+                        ExportClient.of([self.python, os.path.join(PROBE, 'export_server.py')], env, os.path.join(REPO, 'tools', 'scout'), keep_gb=EXPORT_KEEP_GB).export(data_path, job, log, lim['exportSec'], lim['maxRssGb'])
+                    except RenderError as e:
+                        if e.code == 'render_timeout':
+                            raise
+                        one_shot()
+                else:
+                    one_shot()
+                timing_d['export_py'] = round(time.time() - t_py, 2)               # стена времени процесса Python (с его запуском и выходом)
                 miss = skipped_meshes(open(log, encoding='utf-8', errors='replace').read()[pos:])
                 if not miss:
                     break
@@ -429,8 +744,18 @@ class SceneExecutor:
         for e in errs:
             if e is not None:
                 raise e
+        check_ximg(dump)                                   # манифест картинок декора сходится с файлами (ximg), иначе отказ до отправки
         timing['export'] = round(time.time() - t1, 1)      # оба шага параллельно: стена времени
         timing['dump'] = timing_d.get('dump', 0.0)
+        timing['export_py'] = timing_d.get('export_py', 0.0)
+        tr: dict = {}                                      # трасса по шагам (T-20261118-09/1): что внутри Python-экспорта и внутри браузерной выгрузки (дамп из кэша — без `node`)
+        for path, skip in ((log, None), (dlog, 'py')):
+            try:
+                tr.update({k: v for k, v in parse_trace(open(path, encoding='utf-8', errors='replace').read()).items() if k != skip})
+            except OSError:
+                pass
+        if tr:
+            timing['trace'] = tr
         try:
             with open(log, 'ab') as lf, open(dlog, 'rb') as df:
                 lf.write(df.read())
@@ -441,28 +766,54 @@ class SceneExecutor:
 
     def _dump_cached(self, data_path: str, bundle: str, dump: str, dlog: str, pr: dict, lim: dict) -> None:
         """Дамп сцены (Chromium, ~9 с) — кэш по хешу входа: данные варианта + сборка выгрузчика + режим. Повтор того же варианта — копия файлов (жёсткие ссылки)."""
-        h = hashlib.sha256(open(data_path, 'rb').read() + b'|' + os.path.basename(bundle).encode() + b'|' + str(pr['dumpExport']).encode()).hexdigest()[:24]
+        # по СОДЕРЖИМОМУ сборки выгрузчика (sha entry.js), не по имени каталога (имя — от пути и времени файлов: пересборка без правок кода кэш не терялась) — решение директора 18.11;
+        # быстрый режим (`RENDER_PREP_FAST`) и содержимое файлов окружения, что страница читает с диска (`scene_inputs.env_sha`), — в хеш: смена режима/картинки — новый дамп
+        try:
+            bsha = _sha(os.path.join(bundle, 'entry.js'))
+        except OSError:
+            bsha = os.path.basename(bundle)
+        import scene_inputs as _SI
+        h = hashlib.sha256(open(data_path, 'rb').read() + b'|' + bsha.encode() + b'|' + str(pr['dumpExport']).encode() + b'|' + b'fast=' + str(int(prep_fast())).encode()
+                           + b'|' + _SI.env_sha().encode() + (b'|ximg=1' if ximg_on() else b'')).hexdigest()[:24]
         root = os.environ.get('RENDER_DUMP_CACHE') or os.path.expanduser('~/scout-cache/render-dump')
         hit = os.path.join(root, h)
         if os.path.isfile(os.path.join(hit, '.ok')):
             os.makedirs(dump, exist_ok=True)
             for f in os.listdir(hit):
-                if f != '.ok':
-                    try:
-                        os.link(os.path.join(hit, f), os.path.join(dump, f))
-                    except OSError:
-                        shutil.copyfile(os.path.join(hit, f), os.path.join(dump, f))
+                if f == '.ok':
+                    continue
+                if os.path.isdir(os.path.join(hit, f)):                  # dump/img/ — картинки декора (ximg): дерево ссылок
+                    self._link_tree(os.path.join(hit, f), os.path.join(dump, f))
+                    continue
+                try:
+                    os.link(os.path.join(hit, f), os.path.join(dump, f))
+                except OSError:
+                    shutil.copyfile(os.path.join(hit, f), os.path.join(dump, f))
             os.utime(os.path.join(hit, '.ok'))
             return
-        run_step([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), data_path, '0', bundle, dump, 'export=' + pr['dumpExport']], dlog,
-                 lim['dumpSec'], lim['maxRssGb'], what='декор и отделка')
+        extra = ['export=' + pr['dumpExport'], *([] if prep_fast() else ['local=0', 'settle=0']), *(['ximg=1'] if ximg_on() else [])]
+        one_shot = lambda: run_step([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), data_path, '0', bundle, dump, *extra], dlog,  # noqa: E731
+                                    lim['dumpSec'], lim['maxRssGb'], what='декор и отделка')
+        if prep_fast() and persistent_on():                        # постоянный Chromium со страницей: без запуска и без повторного разбора мешей; сбой (не время) — отдельным процессом, как раньше
+            try:
+                ExportClient.of([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), '--serve', bundle], {}, os.path.join(REPO, 'tools', 'scout'), slot='dump', keep_gb=DUMP_KEEP_GB).call(
+                    {'cmd': 'dump', 'data': data_path, 'idx': 0, 'out': os.path.dirname(dump), 'log': dlog, 'extra': extra}, lim['dumpSec'], lim['maxRssGb'])
+            except RenderError as e:
+                if e.code == 'render_timeout':
+                    raise
+                one_shot()
+        else:
+            one_shot()
         try:
             os.makedirs(root, exist_ok=True)
             tmp = f'{hit}.tmp-{os.getpid()}-{uuid.uuid4().hex[:8]}'
             os.makedirs(tmp)
-            for f in os.listdir(dump):
-                shutil.copyfile(os.path.join(dump, f), os.path.join(tmp, f))
-                os.chmod(os.path.join(tmp, f), 0o444)      # после записи — только чтение (прогоны держат жёсткие ссылки на эти файлы)
+            for dp, _dn, fs in os.walk(dump):                  # с подкаталогом img/ (ximg)
+                out = os.path.join(tmp, os.path.relpath(dp, dump))
+                os.makedirs(out, exist_ok=True)
+                for f in fs:
+                    shutil.copyfile(os.path.join(dp, f), os.path.join(out, f))
+                    os.chmod(os.path.join(out, f), 0o444)      # после записи — только чтение (прогоны держат жёсткие ссылки на эти файлы)
             open(os.path.join(tmp, '.ok'), 'w').close()
             try:
                 os.replace(tmp, hit)             # занято (параллельный прогон записал раньше) — оставляем его, свой убираем
@@ -494,6 +845,9 @@ class SceneExecutor:
                 size = [im.width, im.height]
                 im.save(jp, 'JPEG', quality=pr['jpegQuality'], optimize=True)
             sha[cam] = hashlib.sha256(open(jp, 'rb').read()).hexdigest()     # имя кадра для «Улучшить» (как у кадров браузера: sha256 JPEG)
+            mk = os.path.splitext(png)[0] + '.mask.png'
+            if os.path.isfile(mk):
+                pack_mask(mk, os.path.join(tmp, f'{cam}.mask.png'))              # маска поверхностей рядом с кадром (приглушение солнечных пятен «Улучшить»), палитрой
         timing['total'] = round(time.time() - t0, 1)
         meta = {'scene_hash': snap['scene_hash'], 'snapshot_version': snap['v'], 'size': size, 'sha': sha, 'versions': self.versions(), 'timing': timing,
                 'executor': self.name, 'ts': int(time.time()), 'source': snap.get('source')}
@@ -502,6 +856,27 @@ class SceneExecutor:
         os.replace(tmp, out_dir)
         shutil.rmtree(job, ignore_errors=True)
         return {'timing': timing, 'executor': self.name}
+
+
+def masks_wanted() -> bool:
+    """Маски поверхностей (пол/стена) после кадров — для приглушения «солнечных пятен» в «Улучшить» (T-20261118-05). Только по `RENDER_MASKS=1` (не пресет:
+    пресет входит в ключ кэша кадров, а маска кадр не меняет). Пока считает только `LocalCpuExecutor`; машина Salad — отдельной задачей."""
+    return os.environ.get('RENDER_MASKS') == '1'
+
+
+def pack_mask(src: str, dst: str) -> None:
+    """Маска поверхностей → PNG с палитрой из четырёх цветов (чёрный — прочее, красный — пол, зелёный — стена, синий — акцентная стена): каждый пиксель — к ближайшему
+    (края сглаживания Blender не дают «полупол»); 1/4 кадра ≈ 2 КБ вместо 24 КБ RGB (655 КБ у полного размера). Не читается — оставляем как есть."""
+    from PIL import Image
+    import numpy as np
+    try:
+        a = np.asarray(Image.open(src).convert('RGB'))
+        cls = np.where(a.max(axis=2) < 128, 0, 1 + a.argmax(axis=2)).astype('uint8')       # 0 прочее, 1 R пол, 2 G стена, 3 B акцент
+        im = Image.fromarray(cls, 'P')
+        im.putpalette([0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255] + [0] * (768 - 12))
+        im.save(dst, 'PNG', optimize=True)
+    except Exception:  # noqa: BLE001
+        shutil.copyfile(src, dst)
 
 
 class LocalCpuExecutor(SceneExecutor):
@@ -524,6 +899,10 @@ class LocalCpuExecutor(SceneExecutor):
         with HS.heavy_slot('photo-render-' + snap['scene_hash'][:8], min_gb=pr['min_gb'], cores=pr['cores'], prio=1) as hs:
             timing['slot_wait'] = round(float(hs.get('waited_s', 0)), 1) if isinstance(hs, dict) else 0
             dump = self._prepare(snap, job, log, pr, progress, timing)
+            if qa_gate_on():          # ворота (шаг 5): ошибка предпроверки — Blender не запускаем
+                brak = qa_preflight_brak(dump, os.path.join(job, 'scene'))
+                if brak:
+                    raise RenderBrak(brak, 'до рендера')
             # 3) Blender по кадру на ракурс
             outs = {}
             for cam in CAMS:
@@ -534,11 +913,18 @@ class LocalCpuExecutor(SceneExecutor):
                        '--cam', cam, '--out', png, '--samples', str(pr['samples']), '--pct', str(pr['pct']), '--threads', str(pr['threads']),
                        '--demo-glb', os.path.join(dump, 'demo_nodes.glb'), '--demo-nodes', os.path.join(dump, 'demo_nodes_uuids.json'),
                        '--export', os.path.join(dump, 'scene-export.json'), '--public', self.public, *pr['flags']]
+                if masks_wanted():
+                    import jobs_proto as _JP
+                    cmd += ['--mask-out', os.path.join(job, f'{cam}.mask.png'), '--mask-scale', str(_JP.MASK_SCALE)]     # маска пола/стен 1/4 размера после кадра — для «Улучшить»
                 run_step(cmd, log, lim['blenderSecPerFrame'], lim['maxRssGb'], what=f'кадр {cam}')
                 if not os.path.isfile(png):
                     raise RenderError('render_failed', 'Рендер не дал кадра. Нажмите «Повторить».', 'The render produced no frame. Press "Retry".')
                 timing[cam] = round(time.time() - t1, 1)
                 outs[cam] = png
+                if qa_gate_on():      # кадровый брак: второй кадр не считаем, пара не публикуется и в кэш не ложится (`_finish` не вызывается)
+                    brak = qa_frame_brak(qa_read_report(png), cam)
+                    if brak:
+                        raise RenderBrak(brak, f'кадр {cam}')
             if _dir_mb(job) > lim['maxJobDiskMb']:
                 raise RenderError('render_failed', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
         progress('save')
@@ -564,6 +950,21 @@ class LocalMachine:
 
     def pulse(self, busy_s: float = 0.0) -> None:
         self.RM.pulse(busy_s)
+
+    def turn_on(self, by: str) -> str:
+        """Включить машину тем же путём, что кнопка бота (`render_machine.py on`): предел дня и замок — в контроллере. → строка ответа."""
+        import subprocess
+        r = subprocess.run([sys.executable, os.path.join(HERE, 'render_gpu', 'render_machine.py'), 'on', '--by', by], capture_output=True, text=True, timeout=180)
+        return (r.stdout or r.stderr or '').strip()[:300]
+
+    def turn_off(self, by: str) -> str:
+        """Выключить машину (`render_machine.py off`, остановка подтверждается контроллером). → строка ответа."""
+        import subprocess
+        r = subprocess.run([sys.executable, os.path.join(HERE, 'render_gpu', 'render_machine.py'), 'off', '--by', by], capture_output=True, text=True, timeout=300)
+        return (r.stdout or r.stderr or '').strip()[:300]
+
+    def set_note(self, text: str) -> None:
+        self.RM.set_note(text)
 
 
 # причина «машина не годна» → (код, RU, EN): текст — владельцу на странице («честное ожидание на запасной», без «ошибки»)
@@ -600,12 +1001,48 @@ def file_sha256(path: str) -> tuple:
 
 PREP_CACHE_MB = 3000            # предел кэша подготовленных сцен (видимый размер, ссылки считаются каждая; на диске ≈ в 6 раз меньше: текстуры — ссылки на общие файлы)
 PREP_CACHE_VERSION = 1          # формат записи кэша подготовленных сцен: сменился состав каталога — вверх
-ASSET_RULES = 2                # версия правила «что ассет» (`asset_kind`/`asset_min_bytes`): растёт при его смене — кэш сборки витрины (`showcase_assets.py`) её учитывает
+ASSET_RULES = 3                # версия правила «что ассет» (`asset_kind`/`asset_min_bytes`): растёт при его смене — кэш сборки витрины (`showcase_assets.py`) её учитывает
 NPZ_ASSET_MIN = 64 * 1024      # мелкие npz (стены, проёмы — десятки байт…КБ) остаются в пакете: на ассет они дороже, чем в архиве
+IMG_ASSET_MIN = 16 * 1024      # картинки декора `dump/img/` (ximg): мелкие едут в пакете, от 16 КБ — ассеты по хешу
+
+
+def check_ximg(dump: str) -> None:
+    """Контракт с дампером (T-20261118-10): `dump/demo_images.json` = {v:1, images:[{file:'img/<32 hex>.<png|jpg>', sha256, bytes}]}; каждая запись — файл в dump/img с тем же размером,
+    хеш содержимого совпадает, имя = первые 32 hex хеша; лишних файлов в dump/img нет. Манифеста нет — картинки внутри GLB (как раньше), проверять нечего. Расхождение — отказ подготовки
+    (молча пропустить нельзя: машина получила бы GLB с битыми ссылками)."""
+    mp = os.path.join(dump, 'demo_images.json')
+    if not os.path.isfile(mp):
+        return
+    bad = None
+    try:
+        man = json.load(open(mp, encoding='utf-8'))
+        listed = set()
+        for it in man.get('images') or []:
+            f, sha, n = it['file'], it['sha256'], int(it['bytes'])
+            if not (f.startswith('img/') and '/' not in f[4:] and f[4:].split('.')[0] == sha[:32] and f.rsplit('.', 1)[-1] in ('png', 'jpg')):
+                bad = f'имя {f}'
+                break
+            p = os.path.join(dump, f)
+            h, size = file_sha256(p)
+            if size != n or h != sha:
+                bad = f'содержимое {f}'
+                break
+            listed.add(f[4:])
+        if bad is None:
+            extra = set(os.listdir(os.path.join(dump, 'img'))) - listed if os.path.isdir(os.path.join(dump, 'img')) else set()
+            if extra:
+                bad = f'лишние файлы {sorted(extra)[:3]}'
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        bad = f'{type(e).__name__}: {str(e)[:80]}'
+    if bad:
+        print(f'рендер: картинки декора — манифест не сходится ({bad})', flush=True)
+        raise RenderError('render_failed', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
 
 
 def asset_min_bytes(rel: str) -> int:
     """Меньше этого размера файл вида `asset_kind` в ассеты не идёт (едет в маленьком пакете)."""
+    if rel.startswith('dump/img/'):
+        return IMG_ASSET_MIN
     return NPZ_ASSET_MIN if rel.endswith('.npz') else 1
 
 
@@ -618,6 +1055,8 @@ def asset_kind(rel: str) -> str | None:
         return 'glb'                 # меш предмета сцены (T-24/8): тот же вид, что GLB декора — «меш»; отдельного вида нет, чтобы не пересобирать образ воркера
     if rel == 'dump/demo_nodes.glb':
         return 'glb'
+    if rel.startswith('dump/img/'):
+        return 'tex'                 # картинки декора отдельными файлами (ximg, T-20261118-10): имя = хеш содержимого, лежат рядом с GLB, машина держит горячими
     if rel.startswith('public/'):
         return 'map'
     if rel.startswith('tools/scout/') and rel.endswith('.py'):
@@ -685,12 +1124,16 @@ class SaladGpuExecutor(SceneExecutor):
         except Exception:  # noqa: BLE001
             return False
 
+    def warm_ok(self) -> bool:
+        """Заготовка кадров (T-20261118-07) берётся, только пока машина годна (прогрета); выключена — заготовка ждёт, процессор DEV не занимает."""
+        return self.available()
+
     def _slot(self, label: str, pr: dict, prio: int = 1):
         """Общая очередь тяжёлых прогонов — только на сборку сцены на DEV (ожидание машины рендера процессор DEV не занимает). `prio` 1 — заказ человека;
         фоновые шаги (подогрев витрины, `render_gpu/showcase_assets.py`) берут 0 и уступают заказам."""
         sys.path.insert(0, os.path.join(REPO, 'tools', 'ops'))
         import heavy_slot as HS
-        return HS.heavy_slot(label, min_gb=pr['min_gb'], cores=2, prio=prio)
+        return HS.heavy_slot(label, min_gb=pr['min_gb'], cores=2, prio=prio, no_slot=os.environ.get('RENDER_SLOT') == '0')   # `RENDER_SLOT=0` — только платные пробы на машине: очередь чужих прогонов её не держит
 
     def _gpu_unavailable(self, code: str) -> ExecutorUnavailable:
         return ExecutorUnavailable(code, *GPU_FAILED)
@@ -701,9 +1144,17 @@ class SaladGpuExecutor(SceneExecutor):
         files = {'scene': os.path.join(job, 'scene'),
                  'tools/scout/cycles_probe/render_cycles.py': os.path.join(PROBE, 'render_cycles.py'),
                  'tools/scout/wall_art.py': os.path.join(REPO, 'tools', 'scout', 'wall_art.py'),      # render_cycles.py с 17.11 берёт правило картин оттуда (только stdlib)
-                 'data/flat3d/wall-art.json': os.path.join(REPO, 'data', 'flat3d', 'wall-art.json')}
-        for n in ('demo_nodes.glb', 'demo_nodes_uuids.json', 'scene-export.json'):
+                 'data/flat3d/wall-art.json': os.path.join(REPO, 'data', 'flat3d', 'wall-art.json'),
+                 # сторож кадров (render-qa-gate-01, 18.11): render_cycles.py импортирует frame_qa всегда; правила и классы штор — данными
+                 'tools/scout/cycles_probe/frame_qa.py': os.path.join(PROBE, 'frame_qa.py'),
+                 'data/flat3d/frame-qa-rules.json': os.path.join(REPO, 'data', 'flat3d', 'frame-qa-rules.json'),
+                 'data/flat3d/textile.json': os.path.join(REPO, 'data', 'flat3d', 'textile.json')}
+        for n in ('demo_nodes.glb', 'demo_nodes_uuids.json', 'scene-export.json', 'scene_info.json', 'dump_keys.json'):   # последние два — для сторожа кадров: снимок оплачиваемых позиций и ключи выгрузки (без них предпроверка на машине слепа)
             files['dump/' + n] = os.path.join(dump, n)
+        if os.path.isfile(os.path.join(dump, 'demo_images.json')):        # ximg: манифест и картинки декора (рядом с GLB, uri `img/<имя>`)
+            files['dump/demo_images.json'] = os.path.join(dump, 'demo_images.json')
+        if os.path.isdir(os.path.join(dump, 'img')):
+            files['dump/img'] = os.path.join(dump, 'img')
         try:
             exp = json.load(open(os.path.join(dump, 'scene-export.json'), encoding='utf-8'))
         except (OSError, ValueError):
@@ -747,7 +1198,7 @@ class SaladGpuExecutor(SceneExecutor):
             small[rel] = p
         return small, assets, src
 
-    def _send_fmt1(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict) -> None:
+    def _send_fmt1(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict, masks: bool = False) -> None:
         """fmt 1: всё одним пакетом (как в T-24/2). Не принял приёмник — `gpu_upload`; пакет больше потолка — `gpu_bundle_big`."""
         import jobs_proto as JP
         t1 = self.now()
@@ -763,14 +1214,14 @@ class SaladGpuExecutor(SceneExecutor):
         try:
             sink.put_file(f'{JP.PREFIX}/{jid}/{bundle}', tgz)
             jobj = JP.new_job(jid, bundle, sha, ['--samples', pr['samples'], '--pct', pr['pct'], '--threads', pr['threads'], *pr['flags']],
-                              {'blenderSec': pr['limits']['blenderSecPerFrame']}, now=self.now())
+                              {'blenderSec': pr['limits']['blenderSecPerFrame']}, now=self.now(), masks=masks)
             sink.put(f'{JP.PREFIX}/{jid}/job.json', json.dumps(jobj, ensure_ascii=False).encode())       # ПОСЛЕДНИМ
         except JP.SinkError as e:
             print(f'рендер: хранилище не приняло пакет: {e}', flush=True)
             raise self._gpu_unavailable('gpu_upload') from None
         timing['upload'] = round(self.now() - t1, 1)
 
-    def _send_fmt2(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict, frames: str = 'png') -> None:
+    def _send_fmt2(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict, frames: str = 'png', masks: bool = False) -> None:
         """fmt 2 (T-20261117-24/5): ассеты — по хешу в `renderassets` приёмника (спросили «каких нет» и досылаем недостающее ДО `job.json`), маленький пакет —
         в каталог задания, `job.json` (v=2, манифест) ПОСЛЕДНИМ. Любой сбой до задания — `_Fmt2Skip` (заказ пойдёт по fmt 1), машине ничего не ушло."""
         import jobs_proto as JP
@@ -807,7 +1258,7 @@ class SaladGpuExecutor(SceneExecutor):
                     f.result()                                              # недостающие ассеты — ДО задания
             render = hashlib.sha256(json.dumps(self.versions(), sort_keys=True).encode()).hexdigest()[:16]
             jobj = JP.new_job2(jid, bundle, assets, ['--samples', pr['samples'], '--pct', pr['pct'], '--threads', pr['threads'], *pr['flags']],
-                               {'blenderSec': pr['limits']['blenderSecPerFrame']}, render, now=self.now(), frames=frames, jpeg_q=int(pr['jpegQuality']))
+                               {'blenderSec': pr['limits']['blenderSecPerFrame']}, render, now=self.now(), frames=frames, jpeg_q=int(pr['jpegQuality']), masks=masks)
             sink.put(f'{JP.PREFIX}/{jid}/job.json', json.dumps(jobj, ensure_ascii=False).encode())       # ПОСЛЕДНИМ
         except JP.SinkError as e:
             raise _Fmt2Skip(f'выгрузка: {e}') from None
@@ -822,6 +1273,11 @@ class SaladGpuExecutor(SceneExecutor):
             return 'png'
         fr = m.state().get('frames')
         return 'jpg' if isinstance(fr, list) and 'jpg' in fr else 'png'
+
+    @staticmethod
+    def _masks_for(m) -> bool:
+        """Маски поверхностей в заказе (T-20261118-05/3): `RENDER_MASKS=1` И машина заявила `caps.masks` (ready.json → `state.masks`); старый образ — без масок."""
+        return masks_wanted() and bool(m.state().get('masks'))
 
     @staticmethod
     def _check_frame(path: str, fmt: str) -> None:
@@ -845,27 +1301,36 @@ class SaladGpuExecutor(SceneExecutor):
         os.makedirs(job)
         log = os.path.join(job, 'run.log')
         t0, timing = self.now(), {}
+        tl = DevTimeline(self.now, t0)
+        sink = tl.wrap(sink)           # линейка обращений к приёмнику (timing['dev']); сам клиент и порядок вызовов те же
         jids: list = []
         m.pulse(busy_s=600)            # ЗАКАЗ = событие: отсчёт простоя с этого момента, и пока задание в работе — машину не гасим
         try:
             with self._slot('photo-render-' + snap['scene_hash'][:8], pr) as hs:
                 timing['slot_wait'] = round(float(hs.get('waited_s', 0)), 1) if isinstance(hs, dict) else 0
                 self._prepare(snap, job, log, pr, progress, timing)
+            tl.mark('prep_end')
+            if qa_gate_on():          # ворота (шаг 5): ошибка предпроверки — на машину не шлём (ни GPU, ни запасной процессор: деньги не тратим)
+                brak = qa_preflight_brak(os.path.join(job, 'dump'), os.path.join(job, 'scene'))
+                if brak:
+                    raise RenderBrak(brak, 'до рендера')
             use2 = bool(ex.get('fmt2')) and self.now() >= self._fmt2_dead_until
             res = None
             for fmt in ((2, 1) if use2 else (1,)):
                 jid = f"{snap['scene_hash'][:12]}-{int(self.now())}-{uuid.uuid4().hex[:4]}"      # хвост: два заказа одной сцены в одну секунду не делят каталог заданий
                 jids.append(jid)
+                tl.mark('send_start')
                 if fmt == 2:
                     try:
-                        self._send_fmt2(sink, job, jid, pr, ex, timing, frames=self._frames_for(m, ex))
+                        self._send_fmt2(sink, job, jid, pr, ex, timing, frames=self._frames_for(m, ex), masks=self._masks_for(m))
                     except _Fmt2Skip as e:
                         print(f'рендер: fmt 2 не вышел ({e}) — шлю по fmt 1', flush=True)
                         continue
                 else:
-                    self._send_fmt1(sink, job, jid, pr, ex, timing)
+                    self._send_fmt1(sink, job, jid, pr, ex, timing, masks=self._masks_for(m))
+                tl.mark('job_sent')
                 try:
-                    res = self._wait(sink, m, jid, progress, busy_s, poll_s, pickup_s, pair_max_s)
+                    res = self._wait(sink, m, jid, progress, busy_s, poll_s, pickup_s, pair_max_s, tl=tl)
                 except ExecutorUnavailable as e:
                     if fmt == 2 and e.code in ('gpu_asset', 'gpu_bad_job'):      # машина не приняла ассеты/версию — тот же заказ по fmt 1, не сразу на процессор
                         print(f'рендер: машина не приняла fmt 2 ({e.code}) — шлю по fmt 1', flush=True)
@@ -875,16 +1340,47 @@ class SaladGpuExecutor(SceneExecutor):
                 break
             if res is None:
                 raise self._gpu_unavailable('gpu_upload')
+            if qa_gate_on():          # кадровый брак по отчёту машины (`result.json:qa` — урезанный `.qa.json` каждого кадра): кадры не скачиваем и не публикуем
+                brak = [b for cam in CAMS for b in qa_frame_brak((res.get('qa') or {}).get(cam), cam)]
+                if brak:
+                    raise RenderBrak(brak, 'кадр машины рендера')
+            tl.mark('result_seen')
             t1 = self.now()
             outs = {}
+            rf = res.get('frames') if res.get('frames') in ('jpg', 'png') else 'png'      # что фактически положила машина (имя = формат)
+            timing['frames'] = rf
+
+            def get_frame(cam):
+                fp = os.path.join(job, f'{cam}.{rf}')
+                sink.get_to(f'{JP.PREFIX}/{jid}/{cam}.{rf}', fp)
+                self._check_frame(fp, rf)
+                return cam, fp
+
+            def get_mask(cam):
+                # маски необязательны: не скачалась или не картинка — кадр идёт без неё (приглушение пятен просто не сработает)
+                try:
+                    mp = os.path.join(job, JP.mask_name(cam))
+                    sink.get_to(f'{JP.PREFIX}/{jid}/{JP.mask_name(cam)}', mp)
+                    from PIL import Image
+                    with Image.open(mp) as im_:
+                        if im_.format != 'PNG' or im_.width < 8:
+                            raise ValueError('маска не PNG')
+                except Exception as e:  # noqa: BLE001
+                    print(f'рендер: маска {cam} не принята: {repr(e)[:100]}', flush=True)
+                    try:
+                        os.remove(os.path.join(job, JP.mask_name(cam)))
+                    except OSError:
+                        pass
+            tl.mark('frames_start')
             try:
-                rf = res.get('frames') if res.get('frames') in ('jpg', 'png') else 'png'      # что фактически положила машина (имя = формат)
-                timing['frames'] = rf
-                for cam in CAMS:
-                    fp = os.path.join(job, f'{cam}.{rf}')
-                    sink.get_to(f'{JP.PREFIX}/{jid}/{cam}.{rf}', fp)
-                    self._check_frame(fp, rf)
-                    outs[cam] = fp
+                with ThreadPoolExecutor(max_workers=max(2, len(CAMS) * 2)) as dl:          # кадры и маски — параллельно (каждый вызов ≈ один заход на приёмник)
+                    ff = [dl.submit(get_frame, cam) for cam in CAMS]
+                    mf = [dl.submit(get_mask, cam) for cam in (res.get('masks') or {})]
+                    for f in ff:
+                        cam, fp = f.result()
+                        outs[cam] = fp
+                    for f in mf:
+                        f.result()
             except (JP.SinkError, ValueError, OSError) as e:
                 print(f'рендер: кадры не скачались: {e}', flush=True)
                 raise self._gpu_unavailable('gpu_download') from None
@@ -895,17 +1391,36 @@ class SaladGpuExecutor(SceneExecutor):
             if isinstance(res.get('assets'), dict):                  # fmt 2: сколько ассетов машине пришлось докачать (0 — кэш/подогрев сработал) — для замера «подогрева»
                 timing['asset_dl_n'], timing['asset_dl_mb'] = res['assets'].get('downloaded'), res['assets'].get('dl_mb')
             print(f"рендер: пара на машине, устройство {res.get('device')}, {timing.get('render')} с Blender", flush=True)
+            tl.mark('frames_done')
+            if isinstance(res.get('calls'), list):
+                timing['wcalls'] = res['calls']                   # обращения воркера к приёмнику (его часть линейки: от начала задания на машине)
+            if isinstance(res.get('loop'), dict):
+                timing['loop'] = res['loop']                      # журнал кругов выбора и пауз воркера (T-20261118-09/9)
+            timing['dev'] = tl.snapshot()
             return self._finish(snap, outs, out_dir, pr, timing, t0, job)
         finally:
             shutil.rmtree(job, ignore_errors=True)
-            for j in jids:
-                try:
-                    sink.delete(f'{JP.PREFIX}/{j}')      # своё задание убираем сразу (место общее с мешами); не вышло — уберёт jobs_purge по сроку
-                except Exception:  # noqa: BLE001
-                    pass
+
+            def cleanup():
+                for j in jids:
+                    try:
+                        sink.delete(f'{JP.PREFIX}/{j}')      # своё задание убираем сразу (место общее с мешами); не вышло — уберёт jobs_purge по сроку
+                    except Exception:  # noqa: BLE001
+                        pass
+            if jids and os.environ.get('RENDER_DELETE_ASYNC', '1') != '0':
+                th = threading.Thread(target=cleanup, name='render-cleanup', daemon=True)      # результат заказа не ждёт ответа приёмника на уборку (≈0,2 с)
+                th.start()
+                self._bg = [t for t in getattr(self, '_bg', []) if t.is_alive()] + [th]
+            else:
+                cleanup()
             m.pulse(0)                 # конец пары (или отказ) — тоже событие; «занято» снято, до автостопа 20 мин от этого момента
 
-    def _wait(self, sink, m, jid: str, progress, busy_s: float, poll_s: float, pickup_s: float, pair_max_s: float) -> dict:
+    def drain_bg(self, timeout: float = 30) -> None:
+        """Дождаться фоновой уборки заданий на приёмнике (тесты, остановка сервиса)."""
+        for t in list(getattr(self, '_bg', [])):
+            t.join(timeout)
+
+    def _wait(self, sink, m, jid: str, progress, busy_s: float, poll_s: float, pickup_s: float, pair_max_s: float, tl=None) -> dict:
         """Ждать result.json: ход — по progress.json воркера; не взяли за pickup_s / не уложились в pair_max_s / машину выключили — снять задание
         (`cancel.json`) и `ExecutorUnavailable`. Пока ждём — продлеваем «занято» (автостоп не сработает)."""
         import jobs_proto as JP
@@ -936,6 +1451,8 @@ class SaladGpuExecutor(SceneExecutor):
                 pg = None
             if pg and pg.get('stage') in ('C1', 'C2', 'save') and pg['stage'] != stage:
                 stage = pg['stage']
+                if tl is not None:
+                    tl.mark('stage_' + stage)
                 progress(stage)
             elapsed = now - t0
             why = ''
@@ -957,7 +1474,7 @@ class SaladGpuExecutor(SceneExecutor):
                 except JP.SinkError:
                     pass
                 raise self._gpu_unavailable(why)
-            self.sleep(poll_s)
+            self.sleep(min(poll_s, 0.15) if stage == 'save' else min(poll_s, 0.3) if stage == 'C2' else poll_s)       # результат вот-вот: чаще (запросы на готовом соединении дешёвые)
 
 
 class Fallback:
@@ -977,6 +1494,10 @@ class Fallback:
         except Exception:  # noqa: BLE001
             ok = False
         return self.primary.name if ok else self.backup.name
+
+    def warm_ok(self) -> bool:
+        f = getattr(self.primary, 'warm_ok', None)
+        return bool(f()) if callable(f) else False
 
     def render(self, snap: dict, out_dir: str, progress) -> dict:
         try:
