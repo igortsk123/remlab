@@ -6,7 +6,7 @@ tier1: "../deployment.md"
 updated: 2026-11-18
 importance: med
 source: manual
-last_verified: 2026-11-06
+last_verified: 2026-11-18
 ---
 
 # Деплой — подробности
@@ -27,8 +27,8 @@ last_verified: 2026-11-06
    выкатанной версии (CI кончились не по порядку, T-20261110-01) → тоже пропуск, проверяется ДО здоровья: старый
    коммит сам не выкатывается никогда (`deploy-need.sh:older_than_prod`). Прочее сомнение (версия не 40-hex, `ok≠true`,
    draft ≠ сайт, коммит не найден, шаг упал) → выкладка; история глубже `HIST_DEPTH` (`order=2`) — только «старой не признана»
-   + хвост «порядок не доказан», дальше обычные проверки: разница лишь в доках → `skip` (`deploy-need.sh:70-84`; комментарии
-   `deploy-need.sh:11-12` и `deploy.yml:47` здесь неточны); `workflow_dispatch` — всегда.
+   + хвост «порядок не доказан», дальше обычные проверки: разница лишь в доках → `skip` (`deploy-need.sh:70-85`, комментарии
+   `deploy-need.sh:11-13`, `deploy.yml:46-48`); `workflow_dispatch` — всегда.
    «Прод не позади main» — `bash tools/ops/deploy-need.sh --status` (rc 0 — разница только документы), не `version == HEAD`.
    Caddy (`caddy/Caddyfile` сниппет `retry_restart`): app и draft — повтор до 15 с при пересоздании контейнера;
    `request_buffers 1MB` обязателен — без него повтор POST падает «invalid Read on closed Body» (проба 06.11).
@@ -106,7 +106,7 @@ sshd, iptables-туннель DEV-рендера, `remlab-draft` через dock
 
 ## Секреты
 `.env` в `/opt/remlab` (вне git): `POSTGRES_PASSWORD` / `GEMINI_API_KEY` / `TRACE_ADMIN_TOKEN` и др. (полный список —
-`environment:` app в `docker-compose.yml`; без `MESH_SINK_TOKEN` compose не стартует). Кадры — `/opt/remlab/draft/.env`.
+`environment:` app в `docker-compose.yml`; без `MESH_SINK_TOKEN` не стартует сервис `mesh-receiver`, `docker-compose.yml:183`). Кадры — `/opt/remlab/draft/.env`.
 Compose передаёт app ЯВНЫЙ `environment:`-список — новый ключ = правка compose.
 
 ## Caddy, статик и контейнеры — детали (вынесено из сводки 2026-09-05, сверено с кодом)
@@ -168,7 +168,7 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
   фото в production; токен трейса — только заголовком `x-trace-token`.
 - Заголовки на весь сайт: `frame-ancestors 'self'` (Caddy ставит его, только если приложение не поставило свой CSP — страница
   встраивания `/embed/…` ставит `frame-ancestors` с доменами партнёра, ADR-0283), `nosniff`, `Referrer-Policy` (`caddy/Caddyfile`).
-- Ежечасный `infra/server/disk-watchdog.sh`: чистит просроченные `share_requests`/старые `rate_limits`, будит
+- Ежечасный `infra/server/disk-watchdog.sh`: чистит просроченные `share_requests`/старые `rate_limits` (и `dedup_marks`, `tg_updates`, `collections`, `page_counters` — `disk-watchdog.sh:71`), будит
   владельца при файлах `_queue` под веб-корнем и при расхождении `Caddyfile` со снимком `Caddyfile.deployed`.
 - После деплоя — шаг `tools/security-smoke.sh` (13 проверок снаружи, без отката).
 - `remlab-draft` с 14.10 — сервис compose (ADR-0278): образ `ghcr.io/…/remlab-draft:<sha>` собирает CI, деплой ждёт
@@ -341,7 +341,7 @@ DEV `GET /credits` через туннель (снаружи `/api/draft/credits
 (`{available, code}`). Порог — env `REALISTIC_MIN_BALANCE` (0,30 $) и `REALISTIC_COST_USD` (0,25 $ на идущее платное).
 **DEV-рендер (14.10, урок 485; с 18.10 — юниты systemd, см. выше):** крон DEV раз в 10 минут — `tools/scout/dev_render_backend.sh`
 — теперь сторож: ставит юниты, убивает процессы вне юнита, делает `systemctl --user restart remlab-render`, если `/health`
-молчит; дайджест — `tools/ops/dev-checks.sh` `WARN:dev_render_down|tunnel|fallback|restart`. Перезапуск руками —
+молчит; дайджест — `tools/ops/dev-checks.sh` `WARN:dev_render_down|dev_render_tunnel|dev_render_fallback|dev_render_restart`. Перезапуск руками —
 `systemctl --user restart remlab-render` (юнит `Restart=always`: убитый PID поднимется сам). [История до 18.10: убить PID
 с порта 8600, затем `bash tools/scout/dev_render_backend.sh`.] Память: фоновый лист для
 «Улучшить» не собирается без денег на шлюзе, сборщику — потолок `SRC_MEM_EXTRA_MB` (+1,5 ГБ), урок 485.
