@@ -227,6 +227,10 @@ meta_dev = json.load(open(os.path.join(out, 'meta.json')))['timing']
 ok('линейка заказа в meta: timing.dev с метками (prep_end, send_start, job_sent, result_seen, frames_done) и обращениями; у воркера — wcalls',
    all(k in meta_dev.get('dev', {}).get('marks', {}) for k in ('prep_end', 'send_start', 'job_sent', 'result_seen', 'frames_done'))
    and any(c['op'].startswith('опрос result') for c in meta_dev['dev']['calls']) and any(c['op'] == 'PUT job.json' for c in meta_dev['dev']['calls']) and isinstance(meta_dev.get('wcalls'), list))
+lp = meta_dev.get('loop') or {}
+ok('журнал воркера в meta: timing.loop — t_job, круги выбора [старт,длит.,каталогов,проверено,проверки с,нашёл], seen_dir/seen_job; timing.dev.t0; timing.qa',
+   isinstance(lp.get('cycles'), list) and lp.get('t_job') and lp['cycles'] and len(lp['cycles'][-1]) == 6 and lp['cycles'][-1][5] == 1 and lp.get('seen_dir') is not None and lp.get('seen_job') is not None
+   and 't0' in meta_dev['dev'] and 'qa' in meta_dev)
 meta = json.load(open(os.path.join(out, 'meta.json')))
 ok('meta: исполнитель salad-gpu, хеши кадров, размер, версии', meta['executor'] == 'salad-gpu' and set(meta['sha']) == {'C1', 'C2'} and meta['size'] == [64, 48] and meta['versions']['preset'])
 ok('стадии как у LocalCpuExecutor: scene → C1 → C2 → save (без повторов и пропусков)', stages == ['scene', 'C1', 'C2', 'save'])
@@ -1553,6 +1557,47 @@ ops_ = {c['op']: c for c in sn_['calls']}
 ok('линейка: опросы result/progress схлопнуты (×3, сумма), put и delete — строками, метка этапа',
    abs(ops_['опрос result ×3']['s'] - 0.6) < 0.01 and 'опрос progress ×3' in ops_ and abs(ops_['PUT job.json']['s'] - 0.5) < 0.01
    and abs(ops_['DELETE']['t'] - 1.7) < 0.01 and abs(sn_['marks']['result_seen'] - 1.7) < 0.01)
+
+# ЖУРНАЛ, ТРЕШ, ПУЛЫ (T-20261118-09/9)
+J = RW.Journal()
+J.dir_seen('a', 10.0)
+J.job_seen('a', 11.0)
+J.cycle(9.5, 0.4, 3, 1, 0.3, False)
+J.cycle(11.0, 0.5, 3, 2, 0.4, True)
+J.prev_end = 9.0
+J.prev_post = {'trash': 0.01, 'put': 0.2}
+sn = J.snapshot(12.0, 'a')
+ok('Journal: срез относительно начала задания (круги до него отрицательные), seen_dir/seen_job, prev_end, prev_post',
+   sn['seen_dir'] == -2.0 and sn['seen_job'] == -1.0 and sn['prev_end'] == -3.0 and sn['cycles'][0][0] == -2.5 and sn['cycles'][1][5] == 1 and sn['prev_post']['put'] == 0.2 and sn['t_job'] == 12.0)
+td = os.path.join(TMP, 'trashme')
+os.makedirs(os.path.join(td, 'sub'))
+open(os.path.join(td, 'sub', 'f'), 'wb').write(b'x' * 1000)
+dt_ = RW.trash_dir(td)
+for _ in range(50):
+    if not [n for n in os.listdir(TMP) if n.startswith('trashme.del-')]:
+        break
+    time.sleep(0.1)
+ok('trash_dir: каталога нет сразу (переименован), потом убран в фоне; нет каталога — 0', not os.path.exists(td) and not [n for n in os.listdir(TMP) if n.startswith('trashme.del-')] and dt_ < 0.5 and RW.trash_dir(td) == 0.0)
+sinkU = FakeSink()
+wdir = os.path.join(TMP, 'upw')
+os.makedirs(wdir)
+open(os.path.join(wdir, 'C1.jpg'), 'wb').write(b'a' * 10)
+open(os.path.join(wdir, 'C2.jpg'), 'wb').write(b'b' * 20)
+from concurrent.futures import ThreadPoolExecutor as _TPE
+with _TPE(max_workers=2) as _pp:
+    fu = RW.FrameUploader(sinkU, 'jj', wdir, 'jpg', _pp)
+    fu.start('C1')
+    fu.start('C2')
+    szs = fu.join()
+ok('FrameUploader через пул: кадры ушли, размеры верны', szs == {'C1.jpg': 10, 'C2.jpg': 20} and sinkU.f.get('renderjobs/jj/C2.jpg') == b'b' * 20)
+wP = new_worker(FakeSink())
+ok('воркер: постоянные пулы обращений (ассеты, выгрузка кадров, проверки)', wP.io_assets._max_workers == RW.ASSET_PAR and wP.io_up._max_workers == 4 and wP.io_probe._max_workers == 2)
+sinkJ = FakeSink()
+sinkJ.put('renderjobs/jz/bundle-x.tgz', b'x')
+sinkJ.put('renderjobs/jz/job.json', b'{"v": 1}')
+wJ = new_worker(sinkJ)
+gj = wJ.pick()
+ok('pick пишет круг в журнал и первые «увидел каталог/job.json»', gj == 'jz' and len(wJ.jr.cycles) == 1 and wJ.jr.cycles[0][2] == 1 and wJ.jr.cycles[0][3] == 1 and wJ.jr.cycles[0][5] and 'jz' in wJ.jr.seen_dir and 'jz' in wJ.jr.seen_job)
 
 # БРОШЕННАЯ ОТПРАВКА (T-20261118-09/8): каталог без job.json старше ABORT_S воркер пропускает навсегда (один раз проверил), следующее задание берётся
 sinkAb = FakeSink()
