@@ -3,7 +3,7 @@ tier: 2
 topic: onboarding-quiz-details
 scope: Опрос-знакомство на /demo — матрица входов, аудит цветов 5 стилей, события и сигнал менеджеру, правило подбора 3 стилей, 5↔6 стилей, живые проверки
 tier1: ../core/onboarding-quiz.md
-updated: 2026-11-12
+updated: 2026-11-18
 importance: med
 source: manual
 ---
@@ -28,8 +28,8 @@ source: manual
 3. **`?quiz=0` даёт прежнюю главную целиком.** Лента `#styleTabs` раскрыта, строки «Стиль · Выбрать другой» нет, подписи
    комнат прежние. Свёрнутая лента и новая строка появляются, только если стиль выбран в опросе в этой вкладке. Иначе упадут
    проверки 1.2–1.5, 2.1–2.3, 2.27, 2.34, 2.35 (раздел «Живые проверки» ниже).
-4. **`?style=` — обход: стиль уже выбран ссылкой.** Следствие для `onb-03`: пока опрос открыт, `syncStyleParam`
-   (`index.html:3861`) не пишет `?style=` в адрес. Иначе перезагрузка посреди опроса молча его пропустит.
+4. **`?style=` — обход: стиль уже выбран ссылкой.** Следствие для `onb-03`: пока опрос открыт, `syncHomeParam`
+   (`index.html:7524`, ранее `syncStyleParam`) не пишет `?style=` в адрес. Иначе перезагрузка посреди опроса молча его пропустит.
 5. **Имя `#n=` читается и стирается всегда, с `?s=` и без.** Стирает его первый скрипт страницы (`history.replaceState`) — до
    `__collHash` (`index.html:3`), до первого `syncHash` (`index.html:1468`) и до Метрики. Иначе имя уходит в WhatsApp-текст
    (`index.html:contactSheet`, там весь `location.href`) и в строку адреса на JPG (`index.html:listJpg`). Ссылка «поделиться» имени не
@@ -38,8 +38,7 @@ source: manual
    («до 3 / 3–12 / подросток»), но кровать спальни (ступень 2) у 3–7 и 7–12 разная. ⚑ вопрос ведущему — экран Ф2 с 4 кнопками.
 
 ## Т1. Матрица входов — где опрос показываем, где обходим
-**Статус — ЗАПЛАНИРОВАНО (`plans/onb-03-quiz-home.md`, Т3 `quizShouldOpen()`):** на странице демо опроса и этих правил ещё нет —
-`tools/scout/flat215-demo/index.html` не содержит `quizShouldOpen`. Уже в коде: флаг `contracts/partner.ts:apartmentQuiz` (по умолчанию
+**Статус — РЕАЛИЗОВАНО (проверено 18.11: `tools/scout/flat215-demo/index.html:shouldOpen` `:12952`, `decide` `:13269`, `__quizCan` `:13288`; ниже — исходное задание Т3, `quizShouldOpen` = `shouldOpen`). Приветствие по имени (`#n=`, `nameFromHash`) на странице НЕ сделано — блок только в `tools/ops/quiz-name.mjs`.** Было в коде к моменту задания: флаг `contracts/partner.ts:apartmentQuiz` (по умолчанию
 выключен) и его передача в карточку `lib/partners/registry.ts` (`quiz: { enabled }`); `?quiz=0` во всех живых проверках — `e2e/live/browser.ts:demoUrl`.
 
 Порядок проверки (первое совпадение решает):
@@ -141,7 +140,7 @@ source: manual
 |---|---|---|
 | `picked` | `z.array(styleId).max(2)` | `scandi · modern · minimal · loft · neoclassic · japandi` (`index.html:STYLE_IDS`) |
 | `household` | `z.array(z.enum([...])).max(5)` | `single · couple · child · pet · guest` (`quiz.json` вопрос `household`) |
-| `kids` | `z.enum([...]).optional()` | `1 · 2 · 3plus` — «Сколько детей» при «С детьми» (владелец 06.11 TG 280; `quiz.json` child.kids, `contracts/quiz.ts:quizKids`; счётчики застройщику `quiz_kids:*`, всего видов 38; T-94) |
+| `kids` | `z.enum([...]).optional()` | `1 · 2 · 3plus` — «Сколько детей» при «С детьми» (владелец 06.11 TG 280; `quiz.json` child.kids, `contracts/quiz.ts:quizKids`; счётчики застройщику `quiz_kids:*`, всего видов 44; T-94) |
 | `childAge` | `z.array(z.enum([...])).max(4)` | `0-3 · 3-7 · 7-12 · teen` (ADR-0330 п.3) |
 | `colours` | `z.array(z.enum([...])).max(2)` | `light · warm · cool · accent` |
 | `result` | `z.array(styleId).max(3)` | три стиля итога |
@@ -172,7 +171,7 @@ source: manual
 - `quiz_household:<id>`, `quiz_child:<age>`;
 - `quiz_colour:<fam>`.
 
-Всего 35 видов. Список собирается из словарей и проверяется тестом (`contracts/analytics.ts:pageCounterKind` — действия
+Всего 44 вида (`tests/unit/quiz-events.test.ts`). Список собирается из словарей и проверяется тестом (`contracts/analytics.ts:pageCounterKind` — действия
 `quiz_open`…`style_change` и ответы по словарям `contracts/quiz.ts`; тело запроса — `pageEventIn`; `tests/unit/quiz-events.test.ts`).
 
 **Отчёт (сделано, onb-12)** — `modules/partner-report/report.ts:buildReport`:
@@ -186,8 +185,7 @@ source: manual
 счётчиках, ни в тексте сигнала (проверка 5.17 ниже).
 
 ## Т4. Правило подбора и эталоны
-Правило — `tools/scout/rules/quiz.json` (версия `quiz-v1-draft`). Функция — `quizPick`, блок `QUIZPICK START/END` в
-`tools/ops/quiz-colour-audit.mjs`; `onb-03` переносит блок дословно в `index.html`.
+Правило — `tools/scout/rules/quiz.json` (версия `quiz-v1-draft`). Функция — `quizPick`, блок `QUIZPICK START/END` теперь в `index.html:12851-12925`; `tools/ops/quiz-colour-audit.mjs` режет его из страницы (перенос выполнен).
 
 **Как считается балл стиля**
 

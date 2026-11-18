@@ -90,7 +90,7 @@ completed: 2026-09-05
 `mesh_jobs`; автозамена товара при «нужна замена» (только список).
 
 ## Файлы к изменению
-П0 — учёт: `tools/scout/007-mesh-owner-audit.sql`, `tools/scout/salad/ingest_registry.py`,
+П0 — учёт: `tools/scout/008-mesh-owner-audit.sql`, `tools/scout/salad/ingest_registry.py`,
 `tools/scout/mesh_bind.py`, `tools/scout/mesh_ready.py`, `tools/scout/mesh_queue.py`
 (имя БД из env для dbtest), `tools/scout/tests/mesh_owner_audit_dbtest.py`.
 П1 — переделки: `tools/scout/mesh_priority.py`, `tools/scout/salad/batch_show.py` (курсор),

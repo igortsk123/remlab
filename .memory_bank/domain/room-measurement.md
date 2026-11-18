@@ -3,7 +3,7 @@ tier: 2
 topic: room-measurement-details
 scope: Замер комнаты по фото — конвейер, что надёжно и что хрупко, fit-check, подбор товаров, визуализация замены
 tier1: ../core/room-measurement.md
-updated: 2026-08-04
+updated: 2026-11-18
 importance: high
 source: manual (перенос из /home/pakar/mltest, эксперименты 2026-07-05…07)
 status: working
@@ -59,7 +59,7 @@ status: working
 - `fit_check.py` решает ту же задачу, что hard-проверки прод-ядра (`services/planner-solver`),
   но со стороны «влезет ли товар в замеренную зону» — переиспользовать, а не писать заново.
 - Схема `run_viz.py` (стереть → вставить в вычисленном масштабе) — прямой прототип того, что
-  нужно генерации кадров по плану (`plans/llm-layout-planner.md`).
+  нужно генерации кадров по плану (`archive/plans/llm-layout-planner.md`).
 - Справочник габаритов пересекается с `tools/scout/typical-dims.json` — свести в один источник.
 
 **Tier 1:** ../core/room-measurement.md

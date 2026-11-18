@@ -3,12 +3,12 @@ tier: 2
 topic: market-research
 scope: Рынок RU/UK — детальные цифры спроса, источники, юнит-экономика монетизации, разбор конкурентов, контекст основателя (локация/платежи)
 tier1: ../core/market.md
-updated: 2026-11-12
+updated: 2026-11-18
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-07-09
+last_verified: 2026-11-18
 review_after: 2026-12-10
 ---
 

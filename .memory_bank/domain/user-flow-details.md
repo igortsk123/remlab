@@ -3,12 +3,12 @@ tier: 2
 topic: user-flow-details
 scope: Детальные сценарии и экраны Stage 1 — 7-экранный flow, free/paid варианты, сегменты, аналитика
 tier1: ../core/user-flow.md
-updated: 2026-11-12
+updated: 2026-11-18
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-11-12
+last_verified: 2026-11-18
 ---
 
 > ⚠️ ADR-0016: **v0.4 «Смета-first»** — `plans/MASTER-cost-first.md`; ниже — v0.3-контекст.
@@ -74,7 +74,7 @@ last_verified: 2026-11-12
   + выбирает **стиль** + **одно поле-пожелание** (`wish`, свободный текст).
 - «Сгенерировать» → `saveSelection` (`app/actions.ts`, выбор+стиль+пожелание) → `/p/[id]/preview`, там
   `components/GenerateOnMount.tsx` → `POST /api/p/[id]/generate` → `runGenerate`: restyle с выбором пользователя в промпте + ideas, обёрнут в
-  `runWithTrace` — это и есть «генерация» с номером. Проверяемо в `/trace`: промпт restyle содержит
+  `runWithTrace` — это и есть «генерация» с номером. Проверяемо скиллом `/trace` (`GET /api/trace/<N>`): промпт restyle содержит
   «Поменять/Оставить/Убрать: …» + пожелание.
 - Кнопки «что оставить» в брифе убраны (заменены пообъектным выбором); новое фото сбрасывает
   analysis+objectChoices (`app/actions.ts`).

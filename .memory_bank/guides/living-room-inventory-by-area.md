@@ -3,7 +3,7 @@ tier: 2
 topic: living-room-inventory
 scope: Состав гостиной по площади — вероятностный prior, футпринты групп, usable area
 tier1: ../core/lr-checklist.md
-updated: 2026-08-07
+updated: 2026-11-18
 importance: high
 source: external:владелец 2026-08-07 (IKEA, The Spruce, Dimensions.com, H&G, AD, BH&G, House Beautiful)
 status: working

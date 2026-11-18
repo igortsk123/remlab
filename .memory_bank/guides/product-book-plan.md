@@ -3,11 +3,11 @@ tier: 2
 topic: product-book-plan
 scope: План и промпт для книги о продукте remlab «как должно быть после всех правок» — сквозной счастливый путь простым языком для владельца; главы, источники, правила стиля
 tier1: ""
-updated: 2026-11-09
+updated: 2026-11-18
 importance: high
 source: manual
 status: working
-last_verified: 2026-11-12
+last_verified: 2026-11-18
 ---
 
 # Книга о продукте — план и промпт для продолжения

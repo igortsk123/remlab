@@ -3,12 +3,12 @@ tier: 2
 topic: mesh-run-playbook
 scope: Регламент прогона мешей — предусловия, старт, наблюдение, остановка, тупики с ценой
 tier1: ../core/mesh-run.md
-updated: 2026-11-12
+updated: 2026-11-18
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-12
+last_verified: 2026-11-18
 review_after: 2027-01-09
 ---
 
@@ -62,7 +62,7 @@ tools/scout/mesh_priority.py --build-queue <снимок>                  # б�
 правилам ленты (стиль, фото, наличие, габариты); недостающие годные без меша идут в очередь (`tools/scout/demo_band.py`).
 Одна модель, годная в несколько мест, считается один раз и берётся жадно — та, что закрывает больше недобора (`cover[msid]`).
 Числа — `tools/scout/rules/demo-swap.json`: `mesh_target` 10, `mesh_queue_max` 150 незавершённых за раз. Профиль
-`tools/scout/rules/mesh-queue-demo.json` хранит только `policy_version: 2` и `rule: demo_band`. Прежний v1 (11.10) —
+`tools/scout/rules/mesh-queue-demo.json` хранит `policy_version: 3`, `rule: demo_band` и блок `set_items` (ярус 3; сейчас `enabled: false`). Прежний v1 (11.10) —
 «топ-30 по баллу стиля на тип в каждом стиле» — снят владельцем 22.10: не смотрел на размер и на то, что уже есть в ленте.
 
 **Порядок снимка** (`tools/scout/mesh_priority.py:demo_rank` → `demo_pick`), без повторов:
@@ -70,9 +70,10 @@ tools/scout/mesh_priority.py --build-queue <снимок>                  # б�
 - ярус 1 — недобор ленты (`demo_band.queue_skus`);
 - ярус 2 — кандидат банка (`bank_pending.queue_skus`, за флагом `tools/scout/rules/bank-candidate.json` `enabled`;
   потолок общий с лентой — `bank_pending.combine`);
-- ярус 3 — квота комнат кроме гостиной (`demo_band.room_jobs`, готовые задания `room_mesh_jobs`).
+- ярус 3 — предметы опубликованных наборов без меша (`mesh_priority.py:172-186`, за флагом `mesh-queue-demo.json:set_items.enabled`, выключен);
+- ярус 4 — квота комнат кроме гостиной (`demo_band.room_jobs`, готовые задания `room_mesh_jobs`; `mesh_priority.py:351`).
 Товар вне `products()` (нет пометки «требуется меш» или не представитель семейства) пропускается — кроме готовых заданий:
-комнаты (ярус 3) и вариант семьи со своим мешем по сторожу цвета (ярус 1, `mesh_priority.py:own_jobs`). Готовые меши
+комнаты (ярус 4) и вариант семьи со своим мешем по сторожу цвета (ярус 1, `mesh_priority.py:own_jobs`). Готовые меши
 отбрасывает тот же фильтр, что у боевой очереди (`status != 'ready'`, `mesh_priority.py:main`).
 
 **Что закреплено селфтестом** (`mesh_priority.py --selftest`, «профиль демо»): закреплённые — первыми с ярусом 0; недобор —
@@ -174,7 +175,7 @@ PATCH ресурсов живой группы (новая версия прих
 - **Комнаты кроме гостиной:** спрос — `tools/scout/room_mesh_demand.py` (ячейка стиль × роль × слот; кандидат = то, что взял бы сборщик:
   полоса −20…+10 % идеала слота; счёт по семействам мешей) → снимок `MESH_QUEUE_FILE` формата `room_mesh_jobs.py`; квота «30 на
   (комната × стиль)» с долями ролей и единицей счёта — `tools/scout/rules/demo-swap.json` (`room_count_unit`, доли — там же), считает
-  `demo_band.rooms_compute` → профиль `demo`, ярус 3. Общий потолок денег комнат 1000 ₽ на все запуски (владелец 12.11 TG 1163; было 500; `room_mesh_demand.py:BUDGET_RUB`;
+  `demo_band.rooms_compute` → профиль `demo`, ярус 4. Общий потолок денег комнат 1000 ₽ на все запуски (владелец 12.11 TG 1163; было 500; `room_mesh_demand.py:BUDGET_RUB`;
   резерв снимков — `~/scout-scenes/room-mesh-reserve.jsonl`). Предупреждение на 80 % (TG 1167): `room_mesh_demand.py:budget_warn` —
   факт + удержание открытых волн ≥ 800 ₽ → `WARN:room_mesh_budget` в сводку (шаг `room_mesh_budget` в `refresh_daily.sh`) и тревога
   `alert.sh` раз в сутки (метка `~/scout-scenes/room-mesh-budget-warn.json`). Цена комнат: проба 10 = 13,8 ₽, волна 45 = 48,5 ₽ (≈1,1–1,4 ₽/меш).

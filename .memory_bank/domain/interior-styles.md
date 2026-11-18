@@ -3,11 +3,11 @@ tier: 2
 topic: interior-styles
 scope: Паспорта 6 типовых стилей интерьера — признаки с весами, скоринг товаров, промпт-блоки генерации
 tier1: ../core/styles.md
-updated: 2026-11-13
+updated: 2026-11-18
 importance: med
 source: external:web (t-j.ru, netology.ru, domovita.by, ivd.ru, vc.ru, vm.ru; гайды для фото 17.10 — см. § «Гайды для фото») + гипотеза владельца
 status: working
-last_verified: 2026-11-12
+last_verified: 2026-11-18
 ---
 
 # Стили интерьера — канон проекта (sets-style-v3)
@@ -40,7 +40,7 @@ EN prompt-блок ремонта). Здесь — суть для людей.
 ## Применение
 - **Сборка** (compose2 --style → sets3.json, при `SETS_OUTPUT` — рядом, `bank_paths.compose_output`): в балле товара
   стиль-фит = (балл−5)·0.9·`role_weight` роли (styles.json), нейтрал +0.3, чужак < 3.5 на роли с весом ≥ 0.5 — −3
-  (`compose2.py:438-446`); стиль-фит сета = среднее с весом роль × площадь товара, нейтрал = 5.5 (`compose2.py:1175-1181`);
+  (`compose2.py:438-446`); стиль-фит сета = среднее с весом роль × площадь товара, нейтрал = 5.5 (`compose2.py:1187-1194`);
   судья оценивает style_grade отдельно (`judge_apply.py`).
 - **Генерация** (pipeline2): prompt-блок паспорта = полный РЕМОНТ комнаты под стиль
   (стены/пол/потолок/шторы/свет/декор — разрешение владельца), товары неизменны.
@@ -56,7 +56,7 @@ Sources: [Т—Ж 10 стилей](https://t-j.ru/list/interior-styles/) ·
 ## Чтение оценок стиля — механика (сверено 11.10)
 **Два источника, порядок важен.** `enrich_bridge.style_scores(mid,eid)` считает вектор по
 признакам товара из базы; `tools/scout/style-scores.json` — фолбэк. Именно так их берёт сборщик:
-`EB.style_scores(...) or SS.get(emb_key(...))` (`tools/scout/compose2.py:439`, `:1178`). Любой новый
+`EB.style_scores(...) or SS.get(emb_key(...))` (`tools/scout/compose2.py:439`, `:1190`). Любой новый
 потребитель обязан повторять этот порядок, иначе разойдётся со сборкой сетов.
 
 **Ключ JSON — модель, а не товар.** `style_score.py:50-54` (группа — магазин + `model_key`, `:131`) схлопывает цветовые варианты по первым
@@ -115,7 +115,7 @@ v3 (план `style-vote-v3`): прежнее `no` показывается ка
 для лофта/минимализма/неоклассики нужно ещё ~10–15 на стиль.
 **Другие комнаты:** оценки стиля спальни и прихожей — свои файлы `style-scores-bedroom.json` / `style-scores-hall.json`
 (`style_score.py --source room_catalog|hall`); в `product_style_scores` — только с `--db` и без перезаписи чужих строк
-(`style_score.py:383-389`): ночью прихожая идёт с `--db`, спальня — только в файл (`refresh_daily.sh:309-310`). Стили комнат —
+(`style_score.py:398-406`): ночью прихожая идёт с `--db`, спальня — только в файл (`refresh_daily.sh:352-353`). Стили комнат —
 `tools/scout/rules/bedroom-composition.json:styles` (6), `tools/scout/rules/hall-composition.json:styles` (5, без неоклассики).
 
 ## Калибровка балла по разметке (T-20261112-119, 12.11, ADR-0412)

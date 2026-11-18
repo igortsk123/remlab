@@ -3,8 +3,8 @@ tier: 2
 topic: memory-automation
 scope: Как история проекта попадает в Memory Bank — слои, мост, хуки-напоминания, гейты
 tier1: ""
-last_verified: 2026-11-12
-updated: 2026-11-12
+last_verified: 2026-11-18
+updated: 2026-11-18
 importance: high
 source: manual
 ---
@@ -62,7 +62,7 @@ source: manual
 - В remlab хуки — в `.claude/settings.json` (в репозитории, ADR-0208): SessionStart = `tools/session-freshness.mjs` +
   `memory-project-audit.mjs --brief`; Stop = `session-reminder.mjs --block --scratch-fresh-days 2` (аудит встроен, без
   CODE-DRIFT); PreCompact = `tools/precompact-guard.mjs`; PostToolUse = `tools/read-logger.mjs` (Read) и
-  `tools/code-touch-hint.mjs` (Edit|Write); PreToolUse(Bash) = `tools/hooks/guard-bash.mjs`. Мягкий шаблон для чужих
+  `tools/code-touch-hint.mjs` (Edit|Write); PreToolUse(Bash) = `tools/hooks/guard-bash.mjs`; PreToolUse(Edit|Write|MultiEdit|NotebookEdit|Bash) = `tools/hooks/guard_conveyor.py` (защита конвейера; при сбое монтирования падает на каждом вызове). Мягкий шаблон для чужих
   проектов — `tools/stop-hook.example.json`. Без Node, но с `r` — хуки идут через `r node tools/…`
   на pakardev (кроме `guard-bash`: он только при локальном Node); без Node и без `r` — только shell-напоминание у Stop.
 
@@ -77,7 +77,7 @@ Memory Bank самодостаточен: новая сессия читает `
 (обновление kit-owned файлов — `upgrade.sh` из кита).
 
 ## Подробности дисциплины памяти (перенесено из `.claude/rules/memory-discipline.md` 2026-09-05)
-Правило ужато (05.09 — 55 строк, на 18.10 — 61; норма `guides/how-to-write-rules.md` ≤~60); сюда — обоснования и примеры.
+Правило ужато (05.09 — 55 строк, на 18.10 — 61, на 18.11 — 64 (норма превышена); норма `guides/how-to-write-rules.md` ≤~60); сюда — обоснования и примеры.
 - **Захват на ходу.** Захват в точке максимальной salience дешевле и надёжнее, чем раскопки диалога
   в конце сессии; блокнот лечит «согласованное замерзание» (работал → не записал). Формат строки:
   `- ГГГГ-ММ-ДД — <что> — <куда в память>`, ≤2 строки; цифры и хроника — сразу в

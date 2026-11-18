@@ -3,8 +3,8 @@ tier: 2
 topic: stock-and-dims-details
 scope: Контроль наличия и честность размеров — модель, состояния, парсер, правило footprint
 tier1: ../core/stock-and-dims.md
-updated: 2026-11-12
-last_verified: 2026-11-12
+updated: 2026-11-18
+last_verified: 2026-11-18
 importance: high
 source: manual
 ---

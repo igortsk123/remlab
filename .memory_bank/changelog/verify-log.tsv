@@ -309,3 +309,49 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-18	core/lessons.md	drift	120	2	2	
 2026-11-18	core/lr-composition.md	drift	11	1	1	
 2026-11-18	domain/lr-composition-guide.md	drift	19	2	2	
+2026-11-18	.memory_bank/core/manager-links.md	rotation	26	0	0	
+2026-11-18	.memory_bank/domain/manager-links.md	rotation	28	0	0	
+2026-11-18	.memory_bank/core/market.md	rotation	6	0	0	
+2026-11-18	.memory_bank/domain/market-research.md	rotation	5	0	0	
+2026-11-18	.memory_bank/core/marketing-acquisition.md	rotation	12	0	0	
+2026-11-18	.memory_bank/domain/wordstat-semantics.md	rotation	10	5	5	
+2026-11-18	.memory_bank/core/mesh-color.md	rotation	24	2	2	Б: сверено; в mesh-pipeline не найдено в коде «Образ — GHCR» (убрано)
+2026-11-18	.memory_bank/core/mesh-owner-audit.md	rotation	39	2	2	Б: сверено; в mesh-pipeline не найдено в коде «Образ — GHCR» (убрано)
+2026-11-18	.memory_bank/core/mesh-pipeline.md	rotation	28	1	1	Б: сверено; в mesh-pipeline не найдено в коде «Образ — GHCR» (убрано)
+2026-11-18	.memory_bank/core/mesh-pool.md	rotation	22	1	1	Б 18.11 (не сверено: ~/scout-scenes, живой Salad, замеры)
+2026-11-18	.memory_bank/domain/mesh-pool-ops.md	rotation	62	0	0	Б 18.11 (не сверено: ~/scout-scenes, живой Salad, замеры)
+2026-11-18	.memory_bank/core/mesh-run.md	rotation	16	0	0	Б 18.11 (не сверено: ~/scout-scenes, живой Salad, замеры)
+2026-11-18	.memory_bank/domain/mesh-run-playbook.md	rotation	78	2	2	Б 18.11 (не сверено: ~/scout-scenes, живой Salad, замеры)
+2026-11-18	.memory_bank/core/observability-tracing.md	rotation	24	0	0	Б 18.11 (не сверено: ~/scout-scenes, живой Salad, замеры)
+2026-11-18	.memory_bank/domain/observability.md	rotation	47	1	1	Б 18.11 (не сверено: ~/scout-scenes, живой Salad, замеры)
+2026-11-18	.memory_bank/core/room-measurement.md	rotation	12	0	0	Б 18.11 (не про код: замеры, решения)
+2026-11-18	.memory_bank/domain/room-measurement.md	rotation	15	1	1	Б 18.11 (не про код: замеры, решения)
+2026-11-18	.memory_bank/core/room-templates.md	rotation	20	1	1	Б 18.11 (не про код: замеры, решения)
+2026-11-18	.memory_bank/domain/room-templates.md	rotation	52	1	1	Б 18.11 (не про код: замеры, решения)
+2026-11-18	.memory_bank/core/stock-and-dims.md	rotation	21	0	0	Б 18.11 (не про код: замеры, решения)
+2026-11-18	.memory_bank/domain/stock-and-dims.md	rotation	53	0	0	Б 18.11 (не про код: замеры, решения)
+2026-11-18	.memory_bank/core/styles.md	rotation	13	0	0	Б 18.11 (не про код: замеры, решения)
+2026-11-18	.memory_bank/domain/interior-styles.md	rotation	36	3	3	Б 18.11 (не про код: замеры, решения)
+2026-11-18	.memory_bank/core/user-flow.md	rotation	29	0	0	Б 18.11 (не про код: замеры, решения)
+2026-11-18	.memory_bank/domain/user-flow-details.md	rotation	36	0	0	Б 18.11 (не про код: замеры, решения)
+2026-11-18	.memory_bank/core/onboarding-quiz.md	rotation	18	1	1	Б 18.11
+2026-11-18	.memory_bank/domain/onboarding-quiz.md	rotation	95	9	6	Б 18.11
+2026-11-18	.memory_bank/core/partners.md	rotation	14	0	0	Б 18.11
+2026-11-18	.memory_bank/core/photo-render.md	rotation	19	1	1	Б 18.11
+2026-11-18	.memory_bank/core/pipeline-order.md	rotation	17	0	0	Б 18.11
+2026-11-18	.memory_bank/core/regression-net.md	rotation	19	0	0	Б 18.11
+2026-11-18	.memory_bank/domain/demo-planner-ui.md	drift	160	2	2	2-й проход Б 18.11: числа и жесты/камера/шторка/рендер сверены; не сверены hex-счётчики, данные сканди/джапанди, замеры → дату не двигал
+2026-11-18	.memory_bank/guides/execution-playbook.md	rotation	24	1	1	Б G1 18.11
+2026-11-18	.memory_bank/guides/how-to-write-rules.md	rotation	9	1	1	Б G1 18.11
+2026-11-18	.memory_bank/guides/layout-engine-spec.md	rotation	78	0	0	Б G1 18.11
+2026-11-18	.memory_bank/guides/layout-mined-rules.md	rotation	17	4	4	Б G1 18.11
+2026-11-18	.memory_bank/guides/living-room-inventory-by-area.md	rotation	1	0	0	Б G1 18.11
+2026-11-18	.memory_bank/guides/living-room-zoning-verified.md	rotation	4	0	0	Б G1 18.11
+2026-11-18	.memory_bank/guides/memory-automation.md	rotation	39	2	2	Б G1 18.11
+2026-11-18	.memory_bank/guides/orchestration.md	rotation	45	1	1	Б G2 18.11
+2026-11-18	.memory_bank/guides/process-now-and-after.md	rotation	70	9	9	Б G2 18.11
+2026-11-18	.memory_bank/guides/product-book-plan.md	rotation	10	0	0	Б G2 18.11
+2026-11-18	.memory_bank/guides/product-book.md	rotation	110	1	1	Б G2 18.11
+2026-11-18	.memory_bank/guides/review-rules.md	rotation	2	0	0	Б G2 18.11
+2026-11-18	.memory_bank/guides/agent-workflow.md	rotation	12	1	1	Б G2 18.11
+2026-11-18	.memory_bank/guides/code-standards.md	rotation	6	0	0	Б G2 18.11

@@ -3,12 +3,12 @@ tier: 1
 topic: mesh-pool
 scope: Пул нод Salad — группы, тарифы, деньги, стопоры
 tier2: "../domain/mesh-pool-ops.md"
-updated: 2026-11-13
+updated: 2026-11-18
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-11-12
+last_verified: 2026-11-18
 review_after: 2026-12-05
 ---
 
@@ -33,7 +33,7 @@ review_after: 2026-12-05
 
 **Стопоры — один свод (ADR-0175).** Стоп-файл `mesh-group-halt.json` сильнее автостарта (ADR-0169/0174); приёмник проверяется ДО
 раздачи; кредиты кончились — только по `no_credits_available` (урок 404); ручной старт — с `--rub-cap` (ADR-0317); открытая автоволна
-держит потолок lease и гасит пробу (`money_guard.py:budget_breach`); конец волны — `launched` следующей (`wave_guard.py`, Tier 2 § 9). **ADR-0198:** `/start` — только лежащим группам
+держит потолок lease и гасит пробу (`money_guard.py:budget_breach`); конец волны — `launched` следующей (`wave_guard.py`, Tier 2 § 9). **ADR-0198:** `/start` — `stopped/failed` и «незнакомым» группам
 
 **Чистка приёмника** — только через API `DELETE /prefix/...` (ADR-0178), сторож `sink_keeper.sh`, порог — `sink_health.tight` (предел−2 ГБ; ADR-0199).
 

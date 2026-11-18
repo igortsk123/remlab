@@ -3,7 +3,7 @@ tier: 2
 topic: room-templates-rules
 scope: Шаблоны комнат — порядок создания для любой комнаты, паспорт room-composition/1, как шаблон ложится на комнату, требования к листам
 tier1: "../core/room-templates.md"
-updated: 2026-11-13
+updated: 2026-11-18
 importance: high
 source: "external:СП 54.13330.2022, Пособие к СНиП 2.08.01-89, Approved Document M, NDSS (раздел «Проходы»); остальное — _intake/session-scratch.md"
 status: working
@@ -107,7 +107,7 @@ last_verified: 2026-11-12
 вместо 60 — допустимо для обычной квартиры, окно и радиатор доступны. Без комода будет 76 см». «Соответствует нормам» не писать, если взят
 допуск.
 
-**Как записать в правилах (предложение, до «ок» владельца пороги и движок НЕ меняются):** у прохода в
+**Как записано в правилах (внедрено, ADR-0394: `clearances.*` + `_profiles` в `occupancy.json`, `passage_norms.py`; ниже — исходное предложение):** у прохода в
 `services/planner-solver/rules/occupancy.json` (`distances_cm.*`) — `target` / `compact` / `hard` + `profile` (general | m4_2 | m4_3 | mgn) +
 условие допуска; `_route_classes.tight_fallback` (46–61) — не для обязательных путей. Расхождения с текущими числами:
 `bed_side_passage` 75 — это M4(2), для общего профиля цель 60, допуск 50; `wardrobe_hinged_front_min` 90 — комфорт, жёстко 70;

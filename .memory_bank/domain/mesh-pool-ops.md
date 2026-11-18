@@ -3,7 +3,7 @@ tier: 2
 topic: mesh-pool-ops
 scope: Эксплуатация пула Salad — регламент подъёма/остановки, замеры темпа и цены, разбор остановок 04–05.09
 tier1: ../core/mesh-pool.md
-updated: 2026-11-13
+updated: 2026-11-18
 importance: med
 source: manual
 status: working
@@ -41,7 +41,7 @@ last_verified: 2026-11-12
   тишина без мешей, обвал связи (≥ `MESH_GUARD_BURST_N`=25 отказов одной ошибкой за `MESH_GUARD_BURST_MIN`=15 мин) или
   выбраны деньги волны; он сильнее `autostart_policy`. Снимать руками
   только после разбора причины (`kind`: `budget`, `shared_infra`, `silence`).
-- **Живые логи**: `batch-hardened.log` (конвейер, `tools/scout/mesh_wave_start.sh:LOG`) пока пишется в
+- **Живые логи**: `batch-hardened.log` (конвейер, `tools/scout/mesh_wave_start.sh:LOG`; на 18.11 файла в банке нет, строки § 8 не проверяемы) пишется в
   `.memory_bank/_intake/` — при следующей остановке конвейера перенаправить в `~/scout-logs/`.
 
 ## 2. Замеры темпа и цены

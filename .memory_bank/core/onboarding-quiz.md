@@ -3,12 +3,12 @@ tier: 1
 topic: onboarding-quiz
 scope: Опрос-знакомство на /demo — показ, подбор 3 стилей, события, приёмка комнат
 tier2: "../domain/onboarding-quiz.md"
-updated: 2026-11-12
+updated: 2026-11-18
 importance: med
 source: manual
 status: draft
 source_of_truth: canonical
-last_verified: 2026-11-12
+last_verified: 2026-11-18
 review_after: 2026-12-05
 ---
 
@@ -36,5 +36,5 @@ review_after: 2026-12-05
 - Менеджеру по `?s=` — `quiz_done` (повтор ≥30 мин) и `style_change` (в сводку); без имени (`modules/sends/service.ts`).
 - Застройщику (заход без `?s=`, не webdriver) — счётчики `quiz_*` (`contracts/analytics.ts`). Миграции нет.
 
-**Приёмка комнат** — `domain/onboarding-quiz.md` § «Матрица приёмки всех комнат». Готова (`contentState: ready`) только гостиная; кухня — лишь опциями застройщика у `demo-uk-1`. Прихожая —
+**Приёмка комнат** — `domain/onboarding-quiz.md` § «Матрица приёмки всех комнат». Готова (`contentState: ready`) только гостиная; кухня — опциями застройщика (`flat215`, `demo-uk-215`, `demo-uk-1`). Прихожая —
 `onb-13`, по образцу спальни после её приёмки; санузлы — «скоро».

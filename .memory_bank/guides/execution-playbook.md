@@ -2,17 +2,17 @@
 tier: 2
 topic: execution-playbook
 scope: Как исполнитель (opus-worker, Opus 5.5) ведёт работу по подпланам коммерческого мастер-плана — правила, чекпоинты владельца, эскалация
-updated: 2026-11-12
+updated: 2026-11-18
 importance: high
 source: manual
 status: working
 source_of_truth: supporting
-last_verified: 2026-11-12
+last_verified: 2026-11-18
 ---
 
 # Execution Playbook — правила движения по подпланам
 
-> Для исполнителя (рабочий, Claude Opus 5.5; основной путь с 20.10 — вкладка рабочего, следующая задача — в ту же
+> Для исполнителя (рабочий, Claude Sonnet 5.5 `--effort high` с 16.11, до того Opus 5.5; основной путь с 20.10 — вкладка рабочего, следующая задача — в ту же
 > вкладку без очистки; фоновая сессия — запасной путь; `.claude/rules/orchestration.md`),
 > ведущего fable-lead и владельца. Мастер-план — `plans/MASTER-cost-first.md` (прежний конвейер — архив);
 > техядро — MASTER-roadmap (архив). Базовый workflow — `.claude/rules/agent-workflow.md`

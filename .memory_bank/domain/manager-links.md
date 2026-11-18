@@ -3,7 +3,8 @@ tier: 2
 topic: manager-links-details
 scope: Детали ссылки от менеджера — таблицы, ручки, бот, активация, проверка
 tier1: ../core/manager-links.md
-updated: 2026-10-13
+updated: 2026-11-18
+last_verified: 2026-11-18
 importance: med
 source: manual
 ---

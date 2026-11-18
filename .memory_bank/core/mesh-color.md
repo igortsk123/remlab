@@ -8,7 +8,7 @@ importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-12
+last_verified: 2026-11-18
 review_after: 2026-12-05
 ---
 
@@ -18,7 +18,7 @@ review_after: 2026-12-05
 
 **Чем НЕЛЬЗЯ** (ADR-0145): промптом; чисткой фото (`tools/scout/salad/photo_color.py`); обратным делением альбедо; перегоном с другим seed.
 
-Seed и CFG покраски захардкожены апстримом (`hy3dpaint/utils/multiview_utils.py`), наш seed — только в форму (ADR-0143).
+Seed и CFG покраски захардкожены апстримом (`hy3dpaint/utils/multiview_utils.py`), свой seed/CFG — только опытными полями задания `_paint_seed`/`_paint_cfg` (`tools/scout/salad/pipeline.py`; без них — апстрим; ADR-0145).
 
 **Мерка.** Рендер БЕЗ света (`UNLIT=1`, `tools/scout/mesh_render.py`) против фото, разница в стопах + гейт на коллапс;
 знак совпал с 43 слепыми отметками в 89% (`archive/evidence/owner-marks-mesh-color-0109.txt`).
@@ -37,5 +37,5 @@ Seed и CFG покраски захардкожены апстримом (`hy3dp
 **«Серая крышка» (ADR-0436):** пустой вид сверху покраски → серая заплатка; детектор `tools/scout/mesh_grey_top.py` + мягкий карантин;
 лечение и перекраска по фото — Tier 2 § «серая крышка». Урок 711.
 
-**Tier 2:** `../domain/viz-fidelity-playbook.md` · [[mesh-pipeline]] · ADR-0143/0144 ·
+**Tier 2:** `../domain/viz-fidelity-playbook.md` · [[mesh-pipeline]] · ADR-0145 ·
 разбор Codex — `archive/evidence/codex-color-answer.md`.

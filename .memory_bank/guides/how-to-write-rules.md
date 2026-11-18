@@ -3,8 +3,8 @@ tier: 2
 topic: how-to-write-rules
 scope: Как писать path-scoped правила .claude/rules/ — формат frontmatter, принципы
 tier1: ""
-last_verified: 2026-11-09
-updated: 2026-10-18
+last_verified: 2026-11-18
+updated: 2026-11-18
 importance: low
 source: manual
 ---
@@ -53,5 +53,5 @@ paths:                       # опусти блок целиком, если п
 ## Типовые правила, которые стоит завести по мере роста
 - `api-contracts.md` (`services/`, `types/`) — DTO, форматы ошибок, polling.
 - `<домен>-tone.md` — формулировки/тон, если продукт чувствителен к словам.
-- `guardrails.md` — protected-paths (образец — `_optional/rules/guardrails.md` в ките; в репо `_optional/` нет).
+- `guardrails.md` — protected-paths (образец — `_optional/rules/guardrails.md` в ките; `_optional/` лежит на диске в корне репо, но игнорируется git — `.gitignore:29`).
 - `agent-orchestration.md` — когда параллелить агентов (образец — `_optional/rules/` в ките).

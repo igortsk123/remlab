@@ -3,12 +3,12 @@ tier: 1
 topic: mesh-owner-audit
 scope: Приёмка мешей владельцем — /lab/mesh-audit
 tier2: "../completed_plans/mesh-owner-audit.md"
-updated: 2026-11-13
+updated: 2026-11-18
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-12
+last_verified: 2026-11-18
 review_after: 2026-12-05
 ---
 
@@ -38,7 +38,7 @@ append-only лишь `mesh_audit_cancellations`; `mesh_audit_batches`): клик
 **Приёмка освобождает диск (ADR-0233):** принято = просмотрено и не забраковано
 (`rules.ts:isAccepted`; `seen_at` сбрасывает новое поколение) → `?scope=accepted` → прополка
 болванок `tools/scout/salad/prune_shapes.py:classify`; старше 14 сут (`tools/scout/rules/dev-disk.json:shape_max_age_d`)
-уходит и без приёмки, кроме очереди перегона.
+уходит и без приёмки (при `model.glb`, не на приёмнике, ≥48 ч), кроме очереди перегона.
 
 **Проверка мешей `/lab/mesh-check` (13.11, T-118):** «ок»/«брак» + комментарий к модели; журнал навсегда
 (`db/init/035-mesh-audit-marks.sql`, `lib/mesh-audit/marks.ts`), снимок 1024 — `mesh_audit_posters.py --hd`.

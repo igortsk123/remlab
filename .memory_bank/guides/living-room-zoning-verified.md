@@ -3,7 +3,7 @@ tier: 2
 topic: living-room-zoning
 scope: Верифицированные правила функционального зонирования гостиной (focal point, циркуляция, seating group)
 tier1: ../core/layout.md
-updated: 2026-08-07
+updated: 2026-11-18
 importance: high
 source: external:владелец 2026-08-07 (H&G, Architectural Digest, RTINGS, West Elm, The Spruce)
 status: working

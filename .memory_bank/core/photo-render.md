@@ -9,7 +9,7 @@ source: manual
 status: working
 source_of_truth: canonical
 review_after: 2026-12-01
-last_verified: 2026-11-17
+last_verified: 2026-11-18
 ---
 
 # Фото по кнопке — рендер и улучшение

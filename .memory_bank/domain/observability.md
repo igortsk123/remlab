@@ -3,12 +3,12 @@ tier: 2
 topic: observability-details
 scope: Детали трейсинга AI-пайплайна — БД, env, роуты, подписанные URL, imagor, ретеншн, гочи прода
 tier1: ../core/observability-tracing.md
-updated: 2026-11-12
+updated: 2026-11-18
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-12
+last_verified: 2026-11-18
 ---
 
 # Observability — детали (Tier 2 к [[observability-tracing]])
@@ -64,7 +64,7 @@ imagor читает файл из `FILE_LOADER_BASE_DIR` (= том TRACE_DIR) п
 |---|---|
 | `TRACE_DIR` | путь к тому трейсов; локально `./.data/traces` (в .gitignore) |
 | `TRACE_ADMIN_TOKEN` | admin-гард trace-роутов + ключ HMAC подписи ассетов |
-| `TRACE_PUBLIC_BASE_URL` | база абсолютных подписанных URL в ответе `[seq]`-роута; пусто → origin запроса (`lib/trace/admin.ts:signedAssetUrl`) |
+| `TRACE_PUBLIC_BASE_URL` | база абсолютных подписанных URL в ответе `[seq]`-роута; пусто → `APP_URL`, затем host запроса только для `remont-lab.online`, иначе `SITE_ORIGIN` (`lib/http/origin.ts:publicOrigin`, вызов `lib/trace/admin.ts:signedAssetUrl`) |
 | `TRACE_ASSET_TTL_MS` | TTL подписи ассета (дефолт 7 дней) |
 | `TRACE_RETENTION_DAYS` | ретеншн прогонов (дефолт 90) |
 | `IMAGOR_BASE_URL` | адрес imagor; пусто → без сжатия (исходник) |

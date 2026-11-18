@@ -8,7 +8,7 @@ importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-12
+last_verified: 2026-11-18
 review_after: 2026-12-05
 ---
 
@@ -21,7 +21,7 @@ review_after: 2026-12-05
 (ремонт ОТМЕНЁН, ADR-0143) → привязка → чистка приёмника → прополка болванок `prune_shapes.py`
 → ориентация (ADR-0129), топ-вью; семейства — при старте волны. Цвет — [[mesh-color]].
 
-**`shape.glb`** (продукт — `model.glb`) полется у принятых (ADR-0233) или старше 14 сут (`tools/scout/rules/dev-disk.json`), кроме стоящих в перегон/перекраску. Образ — GHCR.
+**`shape.glb`** (продукт — `model.glb`) полется у принятых (ADR-0233) или старше 14 сут (`dev-disk.json`; условия — `prune_shapes.py:classify`), кроме стоящих в перегон/перекраску.
 **Ориентация:** на прод — только решённые (`tools/scout/orient_policy.py`; Tier 2 § «Ориентация мешей»).
 
 **Учёт поколений (ADR-0188…0191).** Физический меш = строка `mesh_generations`; ревизия держит

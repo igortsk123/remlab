@@ -3,7 +3,7 @@ tier: 1
 topic: user-flow
 scope: Stage 1 UX-flow, аналитика
 tier2: ../domain/user-flow-details.md
-updated: 2026-11-12
+updated: 2026-11-18
 importance: high
 source: manual
 status: working
@@ -29,7 +29,7 @@ review_after: 2026-12-05
 `/p/[id]/{brief→select→preview→paywall}`, `/rooms`, `/soon` (fake-door, событие не эмитится). Выбор
 управляет генерацией: `/select` — `runAnalyze` + keep/change/remove (`objectChoices`) + стиль + `wish`;
 «Сгенерировать» → `runGenerate` (restyle+ideas). Превью бесплатно, полный план 490 ₽
-(`app/p/[id]/paywall/page.tsx:PRICE`) — кнопкой на `/preview`. ⚠️ Код-долг: товары seed (`modules/ideas:buildCatalog`),
+(`app/p/[id]/paywall/page.tsx:PRICE`) — «Открыть полный план» на `/preview` ведёт на `/paywall`. ⚠️ Код-долг: товары seed (`modules/ideas:buildCatalog`),
 «Освежить» и вар.2/3 нет, оплата — заглушка (`unlockPack`; YooKassa — лишь у виз., `app/viz-actions.ts`).
 
 **Избранное (18.10, ADR-0306/0307):** ♡ → коллекция «<Комната> #N» с секретом (`modules/collections/repository.ts`; v3 `roomId/styleId` — `contracts/collection.ts`);

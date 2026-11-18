@@ -3,11 +3,11 @@ tier: 1
 topic: room-measurement
 scope: Замер комнаты по фото
 tier2: ../domain/room-measurement.md
-updated: 2026-11-12
+updated: 2026-11-18
 importance: high
 source: manual
 status: working
-last_verified: 2026-11-12
+last_verified: 2026-11-18
 review_after: 2026-12-05
 ---
 

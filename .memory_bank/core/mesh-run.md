@@ -3,12 +3,12 @@ tier: 1
 topic: mesh-run
 scope: Прогон мешей — РАБОЧИЙ вариант, старт, остановка
 tier2: "../domain/mesh-run-playbook.md"
-updated: 2026-11-12
+updated: 2026-11-18
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-12
+last_verified: 2026-11-18
 review_after: 2026-12-05
 ---
 
