@@ -2263,6 +2263,18 @@ def rt_watch(path: str, table: str | None = None, queue: str | None = None) -> s
             f'{" ".join(miss[:8])} — {where}')
 
 
+def load_old(path: str | None) -> dict | None:
+    """Прежняя версия для переноса ракурсов (`--old`): нет пути / нет файла / не читается / не данные тура → None (считаем всё, как раньше). Перенос — ускорение, не условие."""
+    if not path:
+        return None
+    try:
+        with open(path, encoding='utf-8') as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return d if isinstance(d, dict) and isinstance(d.get('variants'), list) else None
+
+
 def feeds_line(stats: dict) -> str:
     """Строка журнала сборки: товаров в лентах по позициям и `feeds_short` (позиция → стиль → n, где меньше 20)."""
     return 'feeds ' + json.dumps(stats.get('feeds') or {}, ensure_ascii=False) + ' feeds_short ' + \
@@ -2285,6 +2297,7 @@ def main() -> int:
         return 0
     scene_path, parts_path, out = _arg(args, '--scene'), _arg(args, '--parts'), _arg(args, '--out')
     release = [x for x in (_arg(args, '--release') or '').split(',') if x]
+    old_path = _arg(args, '--old')                 # прежняя СОБРАННАЯ версия этого же задания (конвейер тура): её пары ракурсов с тем же ключом входов переносятся (R1, tour-speed-01)
     cams = '--no-cams' not in args                 # версия не для страницы (проверка / промежуточная пересборки) — без ракурсов
     if not cams:
         args.remove('--no-cams')
@@ -2306,7 +2319,7 @@ def main() -> int:
         data['build'] = BS.stamp()
         write_atomic(out, data)
         if cams:
-            print(add_cams(out, shop_tokens(scene)), flush=True)   # до итоговой строки: конвейер читает последнюю
+            print(add_cams(out, shop_tokens(scene), old=load_old(old_path)), flush=True)   # до итоговой строки: конвейер читает последнюю
             print(rt_watch(out), flush=True)                       # версия для страницы — её модели без копии в очередь ночи
         print(feeds_line(stats), flush=True)
         print(json.dumps({'ok': True, 'rooms': list(data['rooms_geo']), 'variants': len(data['variants'])}, ensure_ascii=False))
