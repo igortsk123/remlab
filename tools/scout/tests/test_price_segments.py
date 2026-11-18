@@ -38,6 +38,27 @@ check('правило читает сборка витрины (входы build
 check('те же границы — ровно одна ступень на цену, хвосты в крайних ступенях',
       all(PT.tier_of(r, 1, R) == 'lo' and PT.tier_of(r, 10 ** 9, R) == 'hi' for r, e in roles.items() if e['boundaries_rub']))
 
+# 1б) аудит выбросов (T-61/4): правила — в конфиге, с причиной; комплектующие не входят в границы, дорогое по цене не режется
+import price_outliers as PO  # noqa: E402
+import price_segments_build as PB  # noqa: E402
+OC = CFG.get('outliers') or {}
+check('конфиг аудита: термины названий, статистика и магазины с причиной',
+      bool(OC.get('terms')) and OC.get('mad_k') == 5 and OC.get('variant_ratio') == 3 and all(isinstance(v, str) and len(v) > 20 for v in (OC.get('exclude_shops') or {}).values()))
+rows = [('шкаф', '1', str(i), '', f'Шкаф Модель{i} 100x50', 100.0, 20000.0 + i * 1000) for i in range(40)]
+junk = [('шкаф', '1', f'j{i}', '', f'INTEGRO Направляющая верхняя {i}', 100.0, 20.0 + i) for i in range(30)] + \
+       [('шкаф', '7', f'k{i}', '', f'Крепёж {i}', 100.0, 40.0 + i) for i in range(5)]
+cfg_t = dict(CFG, outliers=dict(OC, exclude_shops={'7': 'тест: магазин комплектующих'}))
+kept_t, rep_t = PO.audit(rows + junk, cfg_t)
+check('аудит: комплектующие (по названию и по магазину) исключены, мебель на месте', len(kept_t) == 40 and rep_t['n_in'] - rep_t['n_kept'] == 35, str(rep_t['n_kept']))
+check('аудит: у каждого исключения есть причина', all(w.startswith(('component_name:', 'component_shop:')) for d in rep_t['excluded'].values() for w in d))
+b_all = PB.build(PT.families_from(rows + junk), CFG)['roles']['шкаф']['boundaries_rub']
+b_kept = PB.build(PT.families_from(kept_t), CFG)['roles']['шкаф']['boundaries_rub']
+check('границы без комплектующих — терцили мебели (13 цен ниже B1, 27 ниже B2), с ними — сдвинуты', b_kept == [33000, 47000] and b_all != b_kept, f'{b_all} → {b_kept}')
+check('сравнение было→стало показывает изменённую роль', any(l.startswith('шкаф') for l in PB.compare({'roles': {'шкаф': {'families': 75, 'boundaries_rub': b_all, 'method': 'local'}}},
+                                                                                                    {'roles': {'шкаф': {'families': 40, 'boundaries_rub': b_kept, 'method': 'local'}}})))
+dear = rows + [('шкаф', '1', 'd', '', 'Шкаф Дизайнерский 300', 100.0, 3_000_000.0)]
+check('дорогое по цене не исключается (только флаг)', len(PO.audit(dear, cfg_t)[0]) == 41)
+
 # 2) выборка фото-каталога: по ступеням, без перекрытий, годные с моделью первыми; границы и цены семейств — подменены
 FAKE = {'roles': {'кровать': {'boundaries_rub': [30000, 60000], 'families': 90, 'method': 'local'},
                   'без-границ': {'boundaries_rub': None, 'families': 3, 'method': 'none'}}, 'version': 'test'}

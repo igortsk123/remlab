@@ -118,10 +118,16 @@ def families_from(rows) -> dict:
     return {role: {f: median_price(ps) for f, ps in fm.items()} for role, fm in by.items()}
 
 
-def family_prices(roles=None, rooms: bool = False) -> dict:
-    """{роль: {семейство: цена семейства}} по живой БД (`mesh_queue.db`)."""
+def population_rows(roles=None, rooms: bool = False) -> list:
+    """Строки популяции по живой БД (`mesh_queue.db`): роль, shop_mid, external_id, rep, имя, ширина, цена — до аудита выбросов."""
     from mesh_queue import db
-    return families_from([(r[0], r[1], r[2], r[3], r[4], r[5] or 0, r[6]) for r in db(population_sql(roles, rooms))])
+    return [(r[0], r[1], r[2], r[3], r[4], float(r[5] or 0), float(r[6])) for r in db(population_sql(roles, rooms))]
+
+
+def family_prices(roles=None, rooms: bool = False) -> dict:
+    """{роль: {семейство: цена семейства}} по живой БД. Всё популяция, без исключений аудита: ступень товара в ленте считается по
+    границам роли, а в границы (`price_segments_build`) комплектующие не входят — для них аудит `price_outliers`."""
+    return families_from(population_rows(roles, rooms))
 
 
 _FP: dict = {}
