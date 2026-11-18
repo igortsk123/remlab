@@ -3,6 +3,7 @@
 // Сборка: esbuild (см. demo_scene_build.sh); запуск — demo_scene_dump.mjs. Ничего из прода не правится, свои правила здесь не добавлены.
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { liveApartment } from "@/lib/viewer3d/demo-scene";
 import { DESKTOP_QUALITY, FlatViewer, LITE_QUALITY } from "@/lib/viewer3d/viewer";
 import { sceneAssetUrls } from "@/lib/viewer3d/demo-scene";
@@ -71,6 +72,41 @@ function nodeInfo(root: THREE.Object3D): Any[] {
   return { pos: cam.position.toArray(), dir: dir.toArray(), up: up.toArray(), vfov: cam.fov, aspect: cam.aspect, offsetY: cam.view?.offsetY ?? 0, w, h, band, pose: { x: c.x, y: c.y, rot: c.rot, fov: c.fov } };
 };
 
+// РАЗОБРАННЫЕ МЕШИ МЕЖДУ ЗАКАЗАМИ (T-20261118-09/1 шаг 6b, постоянный процесс `demo_scene_dump.mjs --serve`): `GLTFLoader.load` по адресу отдаёт уже разобранный glTF
+// (разбор + декод текстур ≈ 3 с на гостиную), пока страница жива. Включается флагом заказа `persist`; одноразовый запуск — как раньше. Меши в сцене берутся клонами
+// (`placeMesh`: `source.clone(true)`, материалы свои), общий исходник вьюер не правит; запись держится по последнему использованию, не больше GLTF_CACHE_MAX.
+let GLTF_CACHE_ON = false;
+const GLTF_CACHE_MAX = Number((globalThis as Any).__gltfCacheMax ?? 14);
+const gltfCache = new Map<string, Any>();
+{
+  const proto = GLTFLoader.prototype as Any, orig = proto.load;
+  proto.load = function (url: string, onLoad: Any, onProgress: Any, onError: Any) {
+    if (!GLTF_CACHE_ON || typeof url !== "string" || !/\.glb(\?|$)/.test(url)) return orig.call(this, url, onLoad, onProgress, onError);
+    // ключ — адрес + подпись файла на диске (размер, время; даёт процесс выгрузки, `__sigOf`): меш пересобрали под тем же адресом — старый разбор не отдаём;
+    // подписи нет (файл с сайта, не с диска) — в кэш не кладём вовсе
+    const self = this;
+    const run = (sig: string) => {
+      if (!sig) return orig.call(self, url, onLoad, onProgress, onError);
+      const key = `${url}|${sig}`;
+      const hit = gltfCache.get(key);
+      if (hit) {
+        gltfCache.delete(key);
+        gltfCache.set(key, hit);                             // свежесть — в конец
+        setTimeout(() => onLoad(hit), 0);
+        return;
+      }
+      return orig.call(self, url, (gltf: Any) => {
+        gltfCache.set(key, gltf);
+        while (gltfCache.size > GLTF_CACHE_MAX) gltfCache.delete(gltfCache.keys().next().value as string);
+        onLoad(gltf);
+      }, onProgress, onError);
+    };
+    const sigOf = (window as Any).__sigOf as ((u: string) => Promise<string>) | undefined;
+    if (!sigOf) return run("");
+    sigOf(url).then(run, () => run(""));
+  };
+}
+
 // ГОТОВНОСТЬ ВМЕСТО ПАУЗЫ (T-20261118-09/1 шаг 3): раньше после `plantsSettled` стояла безусловная пауза 1,5 с «пусть догрузятся картинки».
 // Теперь — пока (а) идут загрузки через менеджер three (`DefaultLoadingManager`: текстуры, картинки), (б) у какой-нибудь карты материала сцены
 // картинка ещё не загружена. Нужна тишина ТРИ шага подряд (≈150 мс), потолок — прежние 1,5 с (хуже прежнего быть не может). `settle: false` — прежняя пауза.
@@ -105,7 +141,13 @@ const settleScene = async (scene: THREE.Scene, capMs: number): Promise<number> =
   return (performance.now() - t0) / 1000;
 };
 
-(window as Any).buildDemoScene = async (a: { room: Any; items: Any[]; decor: Any[]; base: string; runtime?: Any; lite?: boolean; cams?: Any[]; style?: string; settle?: boolean }) => {
+(window as Any).buildDemoScene = async (a: { room: Any; items: Any[]; decor: Any[]; base: string; runtime?: Any; lite?: boolean; cams?: Any[]; style?: string; settle?: boolean; persist?: boolean }) => {
+  GLTF_CACHE_ON = !!a.persist;
+  if (a.persist) {                                          // постоянная страница: вьюер прошлого заказа — долой (его холст и записи сцены)
+    try { (window as Any).__viewer?.dispose?.(); } catch { /* прошлый вьюер мог не успеть собраться */ }
+    (window as Any).__viewer = (window as Any).__scene = (window as Any).__sc = (window as Any).__export = null;
+    for (const c of Array.from(document.querySelectorAll("canvas"))) c.remove();
+  }
   const T0 = performance.now(), trace: Any[] = [];      // ТРАССА (T-20261118-09/1): шаги сборки сцены в странице, секунды от начала `buildDemoScene`
   const mark = (name: string) => trace.push({ name, s: ((performance.now() - T0) / 1000).toFixed(2) });
   // 1) описание сцены для рендера (`scene-export.ts`) — с ЖИВОЙ таблицей runtime-копий (`/demo/rt-meshes.json`, a.runtime): хеши и «нет лёгкой копии»

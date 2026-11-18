@@ -12,33 +12,22 @@ import path from 'path';
 const require = createRequire('/home/pakar/igor/remlab/package.json');
 const { chromium } = require('/home/pakar/igor/remlab/node_modules/.pnpm/playwright@1.51.1/node_modules/playwright');
 // ТРАССА (T-20261118-09/1): отметки времени от старта скрипта — `TRACE node <шаг> <секунды>`; исполнитель собирает их в `timing.trace.node` (ничего не меняет в сцене)
-const T_START = Date.now();
-const tr = (name) => console.log(`TRACE node ${name} ${((Date.now() - T_START) / 1000).toFixed(2)}`);
+let T_START = Date.now();
+// вывод — в stdout (одноразовый запуск) или в журнал заказа (постоянный процесс `--serve`: stdout занят протоколом)
+let sink = (s) => process.stdout.write(s + '\n');
+const say = (...a) => sink(a.map((x) => (typeof x === 'string' ? x : String(x))).join(' '));
+const tr = (name) => say(`TRACE node ${name} ${((Date.now() - T_START) / 1000).toFixed(2)}`);
 const REMOTE_STAT = { n: 0, ms: 0, bytes: 0, local: 0 };       // обращения к remont-lab.online (сеть) и отданные с диска файлы за прогон
-const [dataFile, idxS, bundleDir, outDir, ...rest] = process.argv.slice(2);
-const extra = Object.fromEntries(rest.map((s) => s.split('=')));
 const REMOTE = 'remont-lab.online';
 const CACHE = path.join(os.homedir(), 'scout-scenes/mesh3d-cache');
 const PUBLIC = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../../public');
-fs.mkdirSync(outDir, { recursive: true });
-
-const D = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
-const v = D.variants[+idxS];
-const room = (D.rooms_geo && D.rooms_geo[v.room_id || 'living']) || D.room;
-const SOFT = (D.rules && D.rules.soft_roles) || ['плед', 'подушка', 'покрывало', 'полка', 'шторы'];
-const isSoft = (role) => SOFT.includes(String(role || '').replace(/\s+\d+$/, ''));
-const isCloth3d = (x) => { const p = x && x.place, l = x && x.look, k = (x && x.sku) || {};
-  return !!x && !x.list_only && x.strategy === 'textile_abstract' && !!k.name && !!p && ['curtain', 'throw', 'pillow'].includes(p.kind) && !!l
-    && /^#[0-9a-fA-F]{6}$/.test(l.hex || '') && l.of === String(k.sid || k.name || '') && [p.x, p.y, p.elev_cm].every(Number.isFinite)
-    && (p.kind !== 'curtain' || Number.isInteger(p.opening)); };
-const in3dDecor = (x) => !!x && !x.list_only && (!isSoft(x.role) || isCloth3d(x));      // тот же признак, что `liveDecor` страницы
-const decor = (v.decor || []).filter(in3dDecor);
-
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.glb': 'model/gltf-binary', '.json': 'application/json', '.jpg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
-const LOCAL = extra.local !== '0';                                  // `local=0` — прежнее поведение: всё, кроме мешей из кэша и материалов, с сайта
-const DEMO_IMG_DIR = process.env.DEMO_LOCAL_DIR || (LOCAL ? path.join(os.homedir(), 'scout-scenes/flat215-demo') : '');
+let LOCAL = true;                                                   // `local=0` — прежнее поведение: всё, кроме мешей из кэша и материалов, с сайта; ставится на каждый заказ                                  // `local=0` — прежнее поведение: всё, кроме мешей из кэша и материалов, с сайта
+let DEMO_IMG_DIR = '';                                               // папка фото товаров витрины (`DEMO_LOCAL_DIR` или по умолчанию при local≠0); ставится на каждый заказ
 const GALLERY = path.join(os.homedir(), 'scout-scenes/mesh-pilot-gallery');
 const miss = [];
+let bundleDir = '';
+let PERSIST = false;                                                // постоянный процесс: страница держит разобранные меши между заказами
 const srv = http.createServer((req, res) => {
   const u = decodeURIComponent(req.url.split('?')[0]);
   if (u !== '/' && u !== '/index.html' && u !== '/entry.js') { REMOTE_STAT.local++; if (process.env.DUMP_URLS) fs.appendFileSync(process.env.DUMP_URLS, `local ${req.url}\n`); }
@@ -70,39 +59,72 @@ const srv = http.createServer((req, res) => {
     r.pipe(res);
   }).on('error', () => { miss.push('ERR ' + u); res.writeHead(502); res.end(); });
 });
-await new Promise((r) => srv.listen(0, '127.0.0.1', r));
-const port = srv.address().port;
-tr('server');
-const browser = await chromium.launch({ headless: true, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-webgl', '--disable-gpu-sandbox'] });
-tr('browser_launch');
-const page = await browser.newPage({ viewport: { width: 640, height: 480 } });
-tr('new_page');
-page.on('console', (m) => console.log('[page]', m.text().slice(0, 300)));
-page.on('pageerror', (e) => console.log('[pageerror]', String(e).slice(0, 600)));
-await page.goto(`http://127.0.0.1:${port}/${extra.finish === '0' ? '?finish=0' : ''}`);   // finish=0 — стены и пол плоской краской («до», `finish-textures.ts:finishTexFromUrl`)
-tr('page_goto');
-await page.waitForFunction(() => typeof window.buildDemoScene === 'function', null, { timeout: 60000 });
-tr('bundle_ready');
+let port, browser, page;
+async function init(bundle, extra) {
+  bundleDir = bundle;
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  port = srv.address().port;
+  tr('server');
+  browser = await chromium.launch({ headless: true, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-webgl', '--disable-gpu-sandbox'] });
+  tr('browser_launch');
+  page = await browser.newPage({ viewport: { width: 640, height: 480 } });
+  tr('new_page');
+  // подпись файла меша/растения на диске (размер-время) — ключ кэша разобранных мешей страницы (`demo_scene_entry.ts`, `persist`); файла на диске нет — '' (не кэшируем)
+  await page.exposeFunction('__sigOf', (u) => {
+    try {
+      const pu = decodeURIComponent(String(u).split('?')[0]).replace(/^https?:\/\/[^/]+/, '');
+      const mm = pu.match(/^\/test\/mesh-pilot10\/([^/]+)\/model\.glb$/);
+      const files = mm ? [path.join(CACHE, mm[1] + '.glb'), ...(LOCAL ? [path.join(GALLERY, mm[1], 'model.glb')] : [])]
+        : (pu.match(/^\/flat3d\/plants\/([A-Za-z0-9._-]+)$/) ? [path.join(PUBLIC, pu)] : []);
+      for (const f of files) { if (fs.existsSync(f)) { const st = fs.statSync(f); return `${st.size}-${st.mtimeMs}`; } }
+    } catch { /* нет подписи — не кэшируем */ }
+    return '';
+  });
+  page.on('console', (m) => say('[page]', m.text().slice(0, 300)));
+  page.on('pageerror', (e) => say('[pageerror]', String(e).slice(0, 600)));
+  await page.goto(`http://127.0.0.1:${port}/${extra.finish === '0' ? '?finish=0' : ''}`);   // finish=0 — стены и пол плоской краской («до», `finish-textures.ts:finishTexFromUrl`)
+  tr('page_goto');
+  await page.waitForFunction(() => typeof window.buildDemoScene === 'function', null, { timeout: 60000 });
+  tr('bundle_ready');
+}
+
+async function runOrder(dataFile, idxS, outDir, extra) {
+LOCAL = extra.local !== '0';
+DEMO_IMG_DIR = process.env.DEMO_LOCAL_DIR || (LOCAL ? path.join(os.homedir(), 'scout-scenes/flat215-demo') : '');
+miss.length = 0;
+REMOTE_STAT.n = REMOTE_STAT.ms = REMOTE_STAT.bytes = REMOTE_STAT.local = 0;
+fs.mkdirSync(outDir, { recursive: true });
+const D = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
+const v = D.variants[+idxS];
+const room = (D.rooms_geo && D.rooms_geo[v.room_id || 'living']) || D.room;
+const SOFT = (D.rules && D.rules.soft_roles) || ['плед', 'подушка', 'покрывало', 'полка', 'шторы'];
+const isSoft = (role) => SOFT.includes(String(role || '').replace(/\s+\d+$/, ''));
+const isCloth3d = (x) => { const p = x && x.place, l = x && x.look, k = (x && x.sku) || {};
+  return !!x && !x.list_only && x.strategy === 'textile_abstract' && !!k.name && !!p && ['curtain', 'throw', 'pillow'].includes(p.kind) && !!l
+    && /^#[0-9a-fA-F]{6}$/.test(l.hex || '') && l.of === String(k.sid || k.name || '') && [p.x, p.y, p.elev_cm].every(Number.isFinite)
+    && (p.kind !== 'curtain' || Number.isInteger(p.opening)); };
+const in3dDecor = (x) => !!x && !x.list_only && (!isSoft(x.role) || isCloth3d(x));      // тот же признак, что `liveDecor` страницы
+const decor = (v.decor || []).filter(in3dDecor);
 const t0 = Date.now();
 // живая таблица runtime-копий мешей (`/demo/rt-meshes.json`) — ею страница выбирает лёгкую копию; нет — экспорт скажет «лёгких нет»
 let runtime = null;
 try { runtime = JSON.parse(await new Promise((res, rej) => https.get({ host: REMOTE, path: '/demo/rt-meshes.json', headers: { 'user-agent': 'cycles-probe' } },
-  (r) => { let s = ''; r.on('data', (c) => { s += c; }); r.on('end', () => res(s)); }).on('error', rej))).meshes; } catch (e) { console.log('rt-meshes.json не получен:', String(e).slice(0, 100)); }
+  (r) => { let s = ''; r.on('data', (c) => { s += c; }); r.on('end', () => res(s)); }).on('error', rej))).meshes; } catch (e) { say('rt-meshes.json не получен:', String(e).slice(0, 100)); }
 tr('rt_meshes_fetch');
 const lite = extra.lite === '1';       // телефон: LITE_QUALITY, лёгкие карты
-const sceneArgs = { room, items: v.items, decor, base: `http://127.0.0.1:${port}/demo/`, runtime, lite, cams: v.cams || [], style: v.style, settle: extra.settle !== '0' };
+const sceneArgs = { room, items: v.items, decor, base: `http://127.0.0.1:${port}/demo/`, runtime, lite, cams: v.cams || [], style: v.style, settle: extra.settle !== '0', persist: PERSIST };
 const info = await page.evaluate((a) => window.buildDemoScene(a), sceneArgs);
 tr('build_scene');
-for (const m of (info.trace || [])) console.log(`TRACE page ${m.name} ${m.s}`);
+for (const m of (info.trace || [])) say(`TRACE page ${m.name} ${m.s}`);
 delete info.trace;                 // отметки времени — только в журнал: в scene_info.json (едет в пакет задания) их быть не должно (файл не должен меняться от прогона к прогону)
-console.log('сцена собрана за', ((Date.now() - t0) / 1000).toFixed(1), 'с; узлов', info.nodes.length, 'мест', info.slots.length);
+say('сцена собрана за', ((Date.now() - t0) / 1000).toFixed(1), 'с; узлов', info.nodes.length, 'мест', info.slots.length);
 fs.writeFileSync(path.join(outDir, 'scene_info.json'), JSON.stringify({ variant: v.id, room, decorIn: decor.map((d) => ({ role: d.role, strategy: d.strategy, place: d.place })), ...info }, null, 1));
 if (extra.livecam) {
   // livecam=<ракурс>:<ширина>x<высота>:<верх>,<низ> — камера «3D» как на странице (`liveCamera` входа): полоса холста — доли высоты, свободная от кнопок и шторки
   const [ci, sz, bd] = extra.livecam.split(':'); const [lw, lh] = sz.split('x').map(Number); const [bt, bb] = bd.split(',').map(Number);
   const lc = await page.evaluate((x) => window.liveCamera(x.ci, x.w, x.h, { top: x.bt, bottom: x.bb }), { ci: Number(ci), w: lw, h: lh, bt, bb });
   fs.writeFileSync(path.join(outDir, 'live_cam.json'), JSON.stringify(lc, null, 1));
-  console.log('камера живой 3D:', JSON.stringify(lc.pos.map((v) => +v.toFixed(3))), 'взгляд', JSON.stringify(lc.dir.map((v) => +v.toFixed(3))), 'vfov', lc.vfov.toFixed(1));
+  say('камера живой 3D:', JSON.stringify(lc.pos.map((v) => +v.toFixed(3))), 'взгляд', JSON.stringify(lc.dir.map((v) => +v.toFixed(3))), 'vfov', lc.vfov.toFixed(1));
 }
 fs.writeFileSync(path.join(outDir, 'scene-export.json'), JSON.stringify(await page.evaluate(() => window.__export), null, 1));
 fs.writeFileSync(path.join(outDir, 'shell_info.json'), JSON.stringify(await page.evaluate(() => window.shellInfo()), null, 1));
@@ -126,7 +148,7 @@ if (extra.export) {
   // шторы оболочки — правилом выше (`noCur`, T-20261117-16/3); правило T-19/2 `isShellCurtain` при слиянии поглощено им
   const pick = info.nodes.filter((n) => n.visible && n.type === 'Mesh' && !noGeom.has(n.slot) && !isShellCeiling(n) && ((n.slot === 'radiator' && !noRad) || (n.chain.includes('curtains') && !noCur) || !keys || keys.some((k) => k === 'rod'
     ? n.chain.includes('fixtures:') && n.min[1] > 2.0 && n.max[1] < 2.69 : k === 'plant' ? n.plant : (n.slot + '|' + n.chain).includes(k)))).map((n) => n.uuid);
-  console.log('выгружаю узлов', pick.length);
+  say('выгружаю узлов', pick.length);
   tr('pick');
   const b64 = await page.evaluate((u) => window.exportNodes(u), pick);
   tr('export_nodes_glb');
@@ -142,7 +164,7 @@ if (extra.assets) {
   const rows = mats.map((p) => ({ url: p, bytes: fs.existsSync(path.join(PUBLIC, p)) ? fs.statSync(path.join(PUBLIC, p)).size : null }));
   fs.writeFileSync(path.join(outDir, 'assets.json'), JSON.stringify({ lite, count: rows.length, bytes: rows.reduce((s, r) => s + (r.bytes || 0), 0), rows,
     meshes: urls.meshes.length }, null, 1));
-  console.log('карты оболочки:', rows.length, 'файлов,', rows.reduce((s, r) => s + (r.bytes || 0), 0), 'байт');
+  say('карты оболочки:', rows.length, 'файлов,', rows.reduce((s, r) => s + (r.bytes || 0), 0), 'байт');
 }
 // снимки по ракурсам квартиры: shots=<ширина>x<высота> (375x667 — телефон)
 if (extra.shots) {
@@ -155,11 +177,70 @@ if (extra.shots) {
     times.push(r.ms);
   }
   fs.writeFileSync(path.join(outDir, `shot-times-${extra.finish === '0' ? 'before' : 'after'}.json`), JSON.stringify({ lite, w: sw, h: sh, ms: times }));
-  console.log('снимки', times.length, 'за', times.join(', '), 'мс');
+  say('снимки', times.length, 'за', times.join(', '), 'мс');
 }
-if (miss.length) { fs.writeFileSync(path.join(outDir, 'miss.txt'), miss.join('\n')); console.log('не нашлось:', miss.length); }
+if (miss.length) { fs.writeFileSync(path.join(outDir, 'miss.txt'), miss.join('\n')); say('не нашлось:', miss.length); }
 tr('before_close');
-await browser.close();
-srv.close();
-tr('close');
-console.log(`TRACE node remote_n ${REMOTE_STAT.n}\nTRACE node remote_ms ${(REMOTE_STAT.ms / 1000).toFixed(2)}\nTRACE node remote_mb ${(REMOTE_STAT.bytes / 1048576).toFixed(2)}\nTRACE node local_n ${REMOTE_STAT.local}`);
+}
+
+// ---- запуск ---------------------------------------------------------------------------------------------------------------------------------
+const argv = process.argv.slice(2);
+const kv = (rest) => Object.fromEntries(rest.map((s) => s.split('=')));
+if (argv[0] === '--serve') {
+  // ПОСТОЯННЫЙ ПРОЦЕСС (T-20261118-09/1 шаг 6b): `node demo_scene_dump.mjs --serve <папка бандла>`; построчный протокол JSON по stdin/stdout, как у `export_server.py`:
+  //   → {"cmd":"dump","data":…,"idx":0,"out":<папка задания>,"log":…,"extra":["export=…","local=1"]}   ← {"ok":true,"sec":…} | {"ok":false,"error":"…"}   → {"cmd":"stop"}
+  // Браузер и страница живут между заказами; страница держит разобранные меши (`persist`), сборка сцены каждого заказа — заново (свой вьюер).
+  // Любая ошибка заказа — процесс выходит (клиент поднимет новый): страница после сбоя непредсказуема. Выход сам — после простоя и по числу заказов.
+  const IDLE_S = +(process.env.DUMP_SERVER_IDLE_S || 600), MAX_ORDERS = +(process.env.DUMP_SERVER_MAX_ORDERS || 40);
+  PERSIST = true;
+  const reply = (o) => process.stdout.write(JSON.stringify(o) + '\n');
+  const bye = async (code) => { try { await browser?.close(); } catch { /* уже закрыт */ } process.exit(code); };
+  let ready = false, orders = 0, idle = null, busy = false;
+  const queue = [];
+  const arm = () => { clearTimeout(idle); idle = setTimeout(() => bye(0), IDLE_S * 1000); };
+  const handle = async (req) => {
+    if (req.cmd === 'stop') await bye(0);
+    const t0 = Date.now();
+    const lf = fs.openSync(req.log, 'a');
+    sink = (s) => fs.writeSync(lf, s + '\n');
+    T_START = Date.now();
+    try {
+      if (!ready) { await init(argv[1], {}); ready = true; }
+      await runOrder(req.data, String(req.idx || 0), path.join(req.out, 'dump'), kv(req.extra || []));
+      orders++;
+      say(`TRACE node remote_n ${REMOTE_STAT.n}\nTRACE node remote_ms ${(REMOTE_STAT.ms / 1000).toFixed(2)}\nTRACE node remote_mb ${(REMOTE_STAT.bytes / 1048576).toFixed(2)}\nTRACE node local_n ${REMOTE_STAT.local}`);
+      fs.closeSync(lf);
+      sink = (s) => process.stdout.write(s + '\n');
+      reply({ ok: true, sec: +((Date.now() - t0) / 1000).toFixed(2), orders });
+    } catch (e) {
+      sink(`[serve error] ${String((e && e.stack) || e).slice(0, 800)}`);
+      try { fs.closeSync(lf); } catch { /* журнал уже закрыт */ }
+      reply({ ok: false, error: String(e).slice(0, 200) });
+      await bye(1);
+    }
+    if (orders >= MAX_ORDERS) await bye(0);
+  };
+  const pump = async () => { if (busy) return; busy = true; while (queue.length) { clearTimeout(idle); await handle(queue.shift()); } busy = false; arm(); };
+  let buf = '';
+  process.stdin.on('data', (c) => {
+    buf += c;
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const ln = buf.slice(0, i); buf = buf.slice(i + 1);
+      if (ln.trim()) { try { queue.push(JSON.parse(ln)); } catch { /* мусор в канале — пропуск */ } }
+    }
+    pump();
+  });
+  process.stdin.on('end', () => bye(0));
+  reply({ ready: true });
+  arm();
+} else {
+  const [dataFile, idxS, bundle, outDir, ...rest] = argv;
+  const extra = kv(rest);
+  await init(bundle, extra);
+  await runOrder(dataFile, idxS, outDir, extra);
+  await browser.close();
+  srv.close();
+  tr('close');
+  say(`TRACE node remote_n ${REMOTE_STAT.n}\nTRACE node remote_ms ${(REMOTE_STAT.ms / 1000).toFixed(2)}\nTRACE node remote_mb ${(REMOTE_STAT.bytes / 1048576).toFixed(2)}\nTRACE node local_n ${REMOTE_STAT.local}`);
+}

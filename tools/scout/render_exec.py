@@ -22,6 +22,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -78,6 +79,11 @@ def render_version(blender: str = '') -> dict:
 def prep_fast() -> bool:
     """Быстрая подготовка сцены (T-20261118-09/1): страница не ждёт 1,5 с вслепую, окружение и меши из галереи — с диска. `RENDER_PREP_FAST=0` — прежнее поведение целиком."""
     return os.environ.get('RENDER_PREP_FAST', '1') != '0'
+
+
+def persistent_on() -> bool:
+    """Постоянные процессы выгрузки и дампа (T-20261118-09/1 шаг 6). `RENDER_EXPORT_SERVER=0` — только отдельные процессы на заказ."""
+    return os.environ.get('RENDER_EXPORT_SERVER', '1') != '0'
 
 
 def parse_trace(text: str) -> dict:
@@ -189,6 +195,107 @@ def run_step(cmd: list, log_path: str, timeout_s: float, max_rss_gb: float, env:
             pass
         print(f'рендер: {what} rc={rc}: {tail}', flush=True)
         raise RenderError('render_failed', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
+
+
+class ExportClient:
+    """Клиент постоянного процесса (T-20261118-09/1 шаг 6): выгрузка мешей `cycles_probe/export_server.py` (Python) и дамп сцены `demo_scene_dump.mjs --serve` (Node + Chromium).
+    Один на (команда, окружение) в процессе сервиса. Заказы идут по одному (замок). Поднимается при первом заказе, выходит сам после простоя. Ошибки — те же `RenderError`,
+    что у `run_step`: время вышло / память выше потолка — процесс убит (следующий заказ поднимет новый), сбой — `render_failed`. `RENDER_EXPORT_SERVER=0` — не использовать."""
+    _inst: dict = {}
+    _glock = threading.Lock()
+
+    @classmethod
+    def get(cls, python: str, env: dict, cwd: str):
+        return cls.of([python, os.path.join(PROBE, 'export_server.py')], env, cwd)
+
+    @classmethod
+    def of(cls, cmd: list, env: dict, cwd: str):
+        key = (tuple(cmd), tuple(sorted(env.items())), cwd)
+        with cls._glock:
+            if key not in cls._inst:
+                cls._inst[key] = cls(cmd, env, cwd)
+            return cls._inst[key]
+
+    def __init__(self, cmd: list, env: dict, cwd: str):
+        self.cmd, self.env, self.cwd = list(cmd), env, cwd
+        self.lock = threading.Lock()
+        self.proc = None
+        self.rss_mb = 0.0
+
+    def _alive(self) -> bool:
+        return self.proc is not None and self.proc.poll() is None
+
+    def _read_line(self, deadline: float, max_rss_gb: float) -> str | None:
+        """Строка ответа или None при выходе времени/памяти (процесс убит)."""
+        import select
+        buf = b''
+        fd = self.proc.stdout.fileno()
+        while time.time() < deadline:
+            r, _, _ = select.select([fd], [], [], 0.2)
+            if r:
+                ch = os.read(fd, 65536)
+                if not ch:
+                    return ''                                   # процесс закрыл вывод (упал)
+                buf += ch
+                if b'\n' in buf:
+                    return buf.split(b'\n', 1)[0].decode('utf-8', 'replace')
+            elif self.proc.poll() is not None:
+                return ''
+            elif tree_rss_gb(self.proc.pid) > max_rss_gb:
+                return None
+        return None
+
+    def _spawn(self, timeout_s: float, max_rss_gb: float) -> None:
+        self.proc = subprocess.Popen(self.cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, cwd=self.cwd,
+                                     env={**os.environ, **self.env}, start_new_session=True)
+        line = self._read_line(time.time() + timeout_s, max_rss_gb)
+        if not line:
+            self.kill()
+            raise RenderError('render_failed', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
+
+    def kill(self) -> None:
+        if self.proc is not None:
+            if self.proc.poll() is None:
+                kill_tree(self.proc)
+            for f in (self.proc.stdin, self.proc.stdout):
+                try:
+                    f.close()
+                except OSError:
+                    pass
+        self.proc = None
+
+    def export(self, data_path: str, job: str, log: str, timeout_s: float, max_rss_gb: float) -> dict:
+        return self.call({'cmd': 'export', 'data': data_path, 'idx': 0, 'out': job, 'log': log}, timeout_s, max_rss_gb)
+
+    def call(self, request: dict, timeout_s: float, max_rss_gb: float) -> dict:
+        with self.lock:
+            if not self._alive():
+                self._spawn(timeout_s, max_rss_gb)
+            req = json.dumps(request) + '\n'
+            try:
+                self.proc.stdin.write(req.encode())
+                self.proc.stdin.flush()
+            except (OSError, ValueError):
+                self.kill()                                       # процесс вышел по простою между заказами — поднимаем новый и повторяем один раз
+                self._spawn(timeout_s, max_rss_gb)
+                self.proc.stdin.write(req.encode())
+                self.proc.stdin.flush()
+            line = self._read_line(time.time() + timeout_s, max_rss_gb)
+            if line is None:
+                self.kill()
+                print(f'рендер: постоянный процесс остановлен — время ({int(timeout_s)} с) или память выше {max_rss_gb:g} ГБ', flush=True)
+                raise RenderError('render_timeout', 'Рендер занял слишком много времени или памяти. Нажмите «Повторить».',
+                                  'The render took too long or too much memory. Press "Retry".')
+            try:
+                res = json.loads(line) if line else {}
+            except ValueError:
+                res = {}
+            if not res.get('ok'):
+                self.kill()
+                print(f'рендер: постоянный процесс, сбой: {res.get("error") or "процесс упал"}', flush=True)
+                raise RenderError('render_failed', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
+            self.rss_mb = float(res.get('rss_mb') or 0)
+            return res
 
 
 def _dir_mb(path: str) -> float:
@@ -438,8 +545,17 @@ class SceneExecutor:
             for attempt in (1, 2):
                 pos = os.path.getsize(log) if os.path.exists(log) else 0
                 t_py = time.time()
-                run_step([self.python, os.path.join(PROBE, 'export_scene.py'), '--out', job, '--scene', 'scene=0', '--data', data_path], log,
-                         lim['exportSec'], lim['maxRssGb'], env=env, cwd=os.path.join(REPO, 'tools', 'scout'), what='меши и камеры')
+                one_shot = lambda: run_step([self.python, os.path.join(PROBE, 'export_scene.py'), '--out', job, '--scene', 'scene=0', '--data', data_path], log,  # noqa: E731
+                                            lim['exportSec'], lim['maxRssGb'], env=env, cwd=os.path.join(REPO, 'tools', 'scout'), what='меши и камеры')
+                if prep_fast() and persistent_on():                # постоянный процесс: без импортов и разбора уже виденных мешей; сбой (не время) — один раз отдельным процессом, как раньше
+                    try:
+                        ExportClient.get(self.python, env, os.path.join(REPO, 'tools', 'scout')).export(data_path, job, log, lim['exportSec'], lim['maxRssGb'])
+                    except RenderError as e:
+                        if e.code == 'render_timeout':
+                            raise
+                        one_shot()
+                else:
+                    one_shot()
                 timing_d['export_py'] = round(time.time() - t_py, 2)               # стена времени процесса Python (с его запуском и выходом)
                 miss = skipped_meshes(open(log, encoding='utf-8', errors='replace').read()[pos:])
                 if not miss:
@@ -498,9 +614,19 @@ class SceneExecutor:
                         shutil.copyfile(os.path.join(hit, f), os.path.join(dump, f))
             os.utime(os.path.join(hit, '.ok'))
             return
-        run_step([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), data_path, '0', bundle, dump, 'export=' + pr['dumpExport'],
-                  *([] if prep_fast() else ['local=0', 'settle=0'])], dlog,
-                 lim['dumpSec'], lim['maxRssGb'], what='декор и отделка')
+        extra = ['export=' + pr['dumpExport'], *([] if prep_fast() else ['local=0', 'settle=0'])]
+        one_shot = lambda: run_step([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), data_path, '0', bundle, dump, *extra], dlog,  # noqa: E731
+                                    lim['dumpSec'], lim['maxRssGb'], what='декор и отделка')
+        if prep_fast() and persistent_on():                        # постоянный Chromium со страницей: без запуска и без повторного разбора мешей; сбой (не время) — отдельным процессом, как раньше
+            try:
+                ExportClient.of([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), '--serve', bundle], {}, os.path.join(REPO, 'tools', 'scout')).call(
+                    {'cmd': 'dump', 'data': data_path, 'idx': 0, 'out': os.path.dirname(dump), 'log': dlog, 'extra': extra}, lim['dumpSec'], lim['maxRssGb'])
+            except RenderError as e:
+                if e.code == 'render_timeout':
+                    raise
+                one_shot()
+        else:
+            one_shot()
         try:
             os.makedirs(root, exist_ok=True)
             tmp = f'{hit}.tmp-{os.getpid()}-{uuid.uuid4().hex[:8]}'

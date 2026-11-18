@@ -31,6 +31,38 @@ def trace(name):
     print(f'TRACE py {name} {time.time() - _T0:.2f}', flush=True)
 
 
+def reset_trace():
+    """Постоянный процесс (`export_server.py`): трасса каждого заказа — от его начала."""
+    global _T0
+    _T0 = time.time()
+    _ACC.clear()
+
+
+_WRAPPED = [False]
+
+
+def _wrap_once(MR, DR, OIR):
+    """Замеры накопителей вешаются ОДИН раз на процесс (иначе в постоянном процессе обёртки копились бы стопкой)."""
+    if _WRAPPED[0]:
+        return
+    _WRAPPED[0] = True
+    MR.load_parts = timed('load_parts', MR.load_parts)
+    DR._push_from_supports = timed('push_from_supports', DR._push_from_supports)
+    DR.compile_scene = timed('compile_scene', DR.compile_scene)
+    OIR.paint_beyond = timed('paint_beyond', OIR.paint_beyond)
+
+
+def preload():
+    """Тяжёлые импорты выгрузки — заранее (постоянный процесс делает это один раз, не на каждый заказ)."""
+    import draft_render as DR  # noqa: F401
+    import scene_mesh as SM  # noqa: F401
+    import mesh_render as MR
+    import opening_ir as OIR
+    from planner.scene import Camera  # noqa: F401
+    import improve_mode  # noqa: F401
+    _wrap_once(MR, DR, OIR)
+
+
 def timed(name, fn):
     def w(*a, **k):
         t = time.time()
@@ -122,10 +154,7 @@ def main_export(D, idx, out):
     import improve_mode as IM
     trace('imports_scene')
     DR.S3_LITE[0] = False                      # ПОЛНЫЕ меши — как у платного кадра
-    MR.load_parts = timed('load_parts', MR.load_parts)
-    DR._push_from_supports = timed('push_from_supports', DR._push_from_supports)
-    DR.compile_scene = timed('compile_scene', DR.compile_scene)
-    _OIR.paint_beyond = timed('paint_beyond', _OIR.paint_beyond)
+    _wrap_once(MR, DR, _OIR)
     payload = payload_of(D, idx)
     os.makedirs(os.path.join(out, 'tex'), exist_ok=True)
     room, placements, photos = DR.scene_from_request(payload)
