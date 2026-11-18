@@ -639,6 +639,42 @@ if LIVE:
         'tools/scout/cycles_probe/render_cycles.py', 'tools/scout/cycles_probe/frame_qa.py', 'tools/scout/wall_art.py', 'data/flat3d/wall-art.json',
         'data/flat3d/frame-qa-rules.json', 'data/flat3d/textile.json')))
 
+# ——— ЦЕЛОЕ ЧИСЛО — ОДИН КЛЮЧ (T-20261118-21/1): воркер пишет `86.0`, приложение после JSON отдаёт `86`; ключ обязан быть один (28 из 28 расхождений на живом туре до правки)
+def js_like(o):
+    """Как `JSON.parse(JSON.stringify(...))` в приложении (`lib/trial/repo-render.ts:reduceSource`): целое вещественное → целое. Своя копия, не `RI.canon_num` — тест не сверяет правило с самим собой."""
+    if isinstance(o, dict):
+        return {k: js_like(x) for k, x in o.items()}
+    if isinstance(o, list):
+        return [js_like(x) for x in o]
+    return int(o) if isinstance(o, float) and o == int(o) else o
+
+
+def floaty(o):
+    """Данные «как у воркера»: каждое целое (не bool) записано вещественным."""
+    if isinstance(o, dict):
+        return {k: floaty(x) for k, x in o.items()}
+    if isinstance(o, list):
+        return [floaty(x) for x in o]
+    return float(o) if isinstance(o, int) and not isinstance(o, bool) else o
+
+
+D_APP, D_WORKER = js_like(DATA), floaty(DATA)
+dg_app, dg_worker = digests(D_APP), digests(D_WORKER)
+check(f'целое число: данные воркера (86.0) и срез приложения (86) — один ключ у {len(VIDS)} из {len(VIDS)} вариантов', dg_app == dg_worker)
+check('  и прежний (legacy) хеш тоже совпадает', {v: s['legacy_hash'] for v, s in snaps(D_APP).items()} == {v: s['legacy_hash'] for v, s in snaps(D_WORKER).items()})
+check('  данные /demo как есть и срез приложения — один ключ (ключи /demo при правке неизменны)', digests(DATA) == dg_app)
+check('  разные числа — разные ключи (86.5 ≠ 86)', digests(mut(lambda d: d['variants'][0]['items'][0].update(x=d['variants'][0]['items'][0]['x'] + 0.5))) != dg_app)
+check('  canon_num: bool остаётся bool, None/строка/нецелое — как есть, целое вещественное → int',
+      RI.canon_num({'a': True, 'b': None, 'c': 'x', 'd': 1.5, 'e': 86.0, 'f': [2.0, 3]}) == {'a': True, 'b': None, 'c': 'x', 'd': 1.5, 'e': 86, 'f': [2, 3]}
+      and RI.canon_num(True) is True and RI.canon_num(float('nan')) != RI.canon_num(float('nan')))
+check('  True ≠ 1 в ключе (bool не склеивается с числом)', RI.canon({'k': True}) != RI.canon({'k': 1}))
+sec95 = mut(lambda d: d['variants'][0]['items'][0].update(section=95))
+check('  секция 95.0 воркера = 95 приложения и НЕ теряется в None (`_item` раньше сбрасывал вещественное)',
+      digests(floaty(sec95)) == digests(js_like(sec95)) and digests(sec95)['v1'] != dg_app['v1'] and RS.canonicalize(floaty(sec95), {'v': 1, 'variant_id': 'v1'})['variant']['items'][0]['section'] == 95)
+check('  выход снимка не тронут: округлённые снимком числа остаются вещественными (ключи, посчитанные из данных приложения, не сдвигаются)',
+      isinstance(RS.canonicalize(D_APP, {'v': 1, 'variant_id': 'v1'})['brief']['items'][0]['x'], float) and DATA is not D_APP and 'section' in DATA['variants'][0]['items'][0])
+check('  входные данные снимок не меняет (копия)', json.dumps(D_WORKER, sort_keys=True) == json.dumps(floaty(DATA), sort_keys=True))
+
 # ——— 7) живые дампы (на pakardev): reads.json всех вариантов внутри входа
 if LIVE:
     rdir = next((a for a in sys.argv[1:] if not a.startswith('--')), os.path.expanduser('~/remlab-logs/t04-1118/rk'))

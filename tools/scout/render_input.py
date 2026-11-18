@@ -64,6 +64,20 @@ def repo() -> str:
     return os.environ.get('RENDER_INPUT_REPO') or os.path.abspath(os.path.join(HERE, '..', '..'))
 
 
+def canon_num(o):
+    """ЕДИНЫЙ КАНОН ЧИСЕЛ НА ВХОДЕ КЛЮЧА (T-20261118-21/1): целое, записанное вещественным (`86.0`), — то же число, что `86`. Воркер (Python) пишет данные с `86.0`/`95.0`,
+    приложение режет их через `JSON.parse/stringify` и отдаёт `86`/`95`; без этого один и тот же заказ получал два ключа (28 из 28 на свежем туре), а `section: 95.0`
+    молча становился None. Применяется к ВХОДУ `render_snapshot.canonicalize` (данные и запрос), не к хешу: числа, которые снимок сам округляет (`_num` → float), остаются
+    как были — ключи, посчитанные из целых данных приложения (туры), не сдвигаются. Нецелые, строки, bool, None — как есть."""
+    if isinstance(o, dict):
+        return {k: canon_num(x) for k, x in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [canon_num(x) for x in o]
+    if isinstance(o, float) and o == o and abs(o) < 2 ** 53 and o == int(o):
+        return int(o)
+    return o
+
+
 def canon(o) -> str:
     return json.dumps(o, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
 
