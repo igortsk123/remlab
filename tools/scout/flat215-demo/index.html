@@ -8077,6 +8077,8 @@ function jobProg(job){
     // срок — из ответа сервера: до ~1,5 мин «около минуты», дальше «около N минут» (до 5 мин — по минутам, дольше — по 5); долгий — с «можно закрыть страницу»
     const long=e>=300, mins=e<300?Math.max(2,Math.round(e/60)):Math.round(e/300)*5;
     let note=e<90?(EN?'Usually about a minute':'Обычно около минуты'):(EN?`Usually about ${mins} min`:`Обычно около ${mins} мин`);
+    // ЗАКАЗ УШЁЛ НА ЗАПАСНОЙ ПУТЬ (сервер: `machine.state==='fallback'`): причина — текстом сервера вместо «Обычно около N мин»; проценты и срок — как у запасного
+    if(job.mach&&job.mach.state==='fallback'){const ft=EN?(job.mach.text_en||job.mach.text):(job.mach.text||job.mach.text_en); if(ft)note=ft;}
     if(job.queue>0)note=(EN?'In the queue: ':'В очереди: ')+job.queue+' · '+note.charAt(0).toLowerCase()+note.slice(1);
     if(long)note+=EN?'. You can close the page — the photo will be saved':'. Можно закрыть страницу — фото сохранится';
     return {pct, left:Math.max(0,job.eta||0), text:(EN?'Rendering · ':'Делаю фото · ')+Math.floor(pct)+' %', note};

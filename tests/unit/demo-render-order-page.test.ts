@@ -23,5 +23,6 @@ describe("заказ рендера со страницы (vwRenderReq)", () => 
   it("статус машины от сервера читается из ответа (machine.state = warming)", () => {
     expect(html).toMatch(/job\.mach=\(v\.machine&&typeof v\.machine==='object'\)\?v\.machine:null/);
     expect(html).toMatch(/mc&&mc\.state==='warming'/);
+    expect(html).toMatch(/job\.mach&&job\.mach\.state==='fallback'/);
   });
 });
