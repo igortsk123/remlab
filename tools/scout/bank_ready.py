@@ -53,8 +53,9 @@ class Facts:
     `decisions` — {sku: {'decision', …}} журнала; `with_gen` — SKU с поколением на DEV; `strategy(role)`; `square` — роли d = w."""
 
     def __init__(self, prod, failed, strategy, media=None, alive=None, mesh_ok=(), decisions=None, with_gen=(), square=(),
-                 ready=None):
+                 ready=None, hard_quar=()):
         self.prod, self.failed, self.strategy = prod, set(failed), strategy
+        self.hard_quar = set(hard_quar)              # SKU, чей ГОДНЫЙ файл меша в жёстком карантине (`mesh_quarantine` cut/reject без мягких)
         self.media = media or (lambda sku: None)
         self.alive = alive or (lambda url: bool(url))
         self.mesh_ok, self.decisions, self.with_gen, self.square = set(mesh_ok), decisions or {}, set(with_gen), set(square)
@@ -109,11 +110,19 @@ def classify(role: str, sku: str, item: dict | None, F: Facts) -> tuple[str, str
     geo = geometry(b, p, F.square)
     if geo:
         return 'wait_catalog', geo, None
+    rp = F.prod.get(rep) or p
     if sku in F.mesh_ok or rep in F.mesh_ok:
-        return 'ready', None, None
+        # ЗАПРЕТЫ ДО «меш готов» (T-20261118-04/22/2, директор 18.11): готовность меша — «есть годная ревизия и решённая ориентация» —
+        # ничего не знает про решения людей и карантин, а в набор банка такой меш ставить нельзя: владелец велел переделать,
+        # файл в жёстком карантине (кривая по осям — витрина его вычитает из индекса), либо товар помечен rejected/quarantine.
+        # Правило по признакам, одинаково для всех ячеек; ниже запрещённый попадает в свою ветку (redo / rejected / карантин).
+        if not (dec == 'redo' or rp.get('status') in ('rejected', 'quarantine') or rep in F.hard_quar or sku in F.hard_quar):
+            return 'ready', None, None
     if dec == 'redo':
         return 'redo', 'владелец: переделать меш (очередь переделок)', None
-    rp = F.prod.get(rep) or p
+    if (rep in F.hard_quar or sku in F.hard_quar) and rp.get('status') not in ('rejected', 'quarantine') \
+            and (sku in F.mesh_ok or rep in F.mesh_ok):
+        return 'wait_asset', 'меш в карантине — ждёт решения', 'review'
     if rp.get('status') == 'rejected':
         if rep in F.with_gen or sku in F.with_gen or rp.get('model'):
             return 'legacy_unknown', 'меш rejected без решения в журнале — в триаж', None
@@ -172,11 +181,16 @@ def load_facts() -> Facts:
     from mesh_ready import mesh_ready_raw
     failed = {r[0] for r in db("select distinct sku from mesh_jobs where status = 'failed_terminal'") if r and r[0]}
     gens = {r[0] for r in db("select distinct sku from mesh_generations") if r and r[0]}
+    # жёсткий карантин ГОДНОГО файла меша: условие — то же, что вычитает модель из индекса витрины (`room_bindings.hard_sql`)
+    from room_bindings import hard_sql
+    hard = {r[0] for r in db("select distinct q.sku from (select sku, glb_sha from mesh_quarantine where " + hard_sql() + ") q "
+                             "join asset_revisions r on r.sku = q.sku and r.glb_sha = q.glb_sha "
+                             "where r.status in ('accepted','generated') and r.origin <> 'legacy-local'") if r and r[0]}
     media = lambda sku: CM.media(*sku.split(':', 1))  # noqa: E731
     # `consumer='bank_ready'` — выключатель `rules/mesh-ready.json:photo_current.bank_ready` (T-20261118-04/22): готовность по `product_photo_current`,
     # а не по строке спроса `mesh_demand` (меши очереди demo строки спроса не имеют); выключен — прежний предикат
     return Facts(load_prod(), failed, RS.strategy, media=media, alive=IA.alive_now, mesh_ok=mesh_ready_raw('bank_ready'),
-                 decisions=MD.load(), with_gen=gens, square=RS.square_roles())
+                 decisions=MD.load(), with_gen=gens, square=RS.square_roles(), hard_quar=hard)
 
 
 def _selftest() -> int:
