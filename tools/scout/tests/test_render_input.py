@@ -33,6 +33,9 @@ def wj(path, obj):
 
 
 # ——— временный мир: «репозиторий» с кодом и каталогами, диски мешей/картинок/окружения
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+import remlab_tmp  # noqa: E402 — временное теста на диске, не в /tmp (T-20261107-13)
+remlab_tmp.use('test_render_input')
 TMP = tempfile.mkdtemp(prefix='rkey-')
 REPO, PUB, MC, GAL, DEMO = (os.path.join(TMP, n) for n in ('repo', 'public', 'mcache', 'gallery', 'demo'))
 if not LIVE:
