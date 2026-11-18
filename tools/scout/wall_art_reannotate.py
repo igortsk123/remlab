@@ -21,7 +21,7 @@ def main(src: str, dst: str, imgroot: str | None = None) -> int:
     blank = set()
     for p in pool:
         try:
-            if p.get("img") and not WA.has_content(WA.content_stats(os.path.join(imgroot, p["img"]), r), r):
+            if p.get("img") and not WA.has_content(WA.art_stats(os.path.join(imgroot, p["img"]), p, r), r):
                 blank.add(p['img'])
         except OSError:
             pass
