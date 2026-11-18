@@ -11,6 +11,9 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [os.path.join(HERE, '..')]
+sys.path.append(os.path.join(HERE, '..'))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_render_hotwarm')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 import render_exec as RX  # noqa: E402
 import render_hotwarm as HW  # noqa: E402
 

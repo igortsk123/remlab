@@ -10,6 +10,9 @@ from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', 'cycles_probe')]
+sys.path.append(os.path.join(HERE, '..'))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_render_texwarm')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 import export_scene as ES  # noqa: E402
 import mesh_render as MR  # noqa: E402
 import render_texwarm as W  # noqa: E402
