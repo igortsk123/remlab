@@ -184,6 +184,29 @@ def test_preflight_clean_and_textile_exempt():
         shutil.rmtree(d)
 
 
+def test_preflight_plants_only_where_page_planted_them():
+    """`plants` в выгрузке — журнал всех носителей: «растения нет по названию» (set7: «Ваза-шар … косой срез») — не потеря (T-20261118-03/5)."""
+    def run(entries):
+        d = tempfile.mkdtemp()
+        try:
+            tx = _mk_world(d)
+            ep = os.path.join(d, "dump", "scene-export.json")
+            e = json.load(open(ep))
+            e["plants"] = entries
+            json.dump(e, open(ep, "w"))
+            r = _pf(d, tx)
+            return _codes(r), [f for f in r["findings"] if f["code"] == "PLANT_MISSING"]
+        finally:
+            shutil.rmtree(d)
+    vase = {"slotId": "decor:ваза#0", "title": "Ваза-шар Неман 260 мм косой срез", "role": "ваза", "mount": "table"}
+    assert ("PLANT_MISSING", "plant:decor:ваза#0") not in run([dict(vase, why="name", word="косой")])[0]
+    for why in ("name", "slanted", "wide", "none", "no-plant"):
+        assert not run([dict(vase, why=why)])[1], why                       # причина отказа страницы — узла не ждём
+    assert ("PLANT_MISSING", "plant:decor:ваза#0") in run([dict(vase, why="planted", plant="leaf-1")])[0]    # посажено, а узла в GLB нет — потеря
+    assert ("PLANT_MISSING", "plant:decor:ваза#0") in run([vase])[0]       # старый формат без `why` — ждём, как раньше
+    assert not run([])[1]
+
+
 def test_preflight_throw_missing_when_not_exempt():
     d = tempfile.mkdtemp()
     try:

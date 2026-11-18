@@ -309,6 +309,10 @@ def preflight(dump_dir: str, export_path: str, scene_dir: str, textile_path: str
         if cls in ("pillow", "chandelier") and slot in exp_meshes and not nodes and obj_by_role.get(slot.split("#")[0].split(":")[-1]) is None:
             add("error", "NOT_IN_SCENE", slot, "в сцене нет узла GLB этого слота")
     for p in exp.get("plants", []):
+        # `plants` — журнал ВСЕХ носителей «кашпо/ваза» (`viewer.ts:plantReport`), а не список посаженных: `why` ≠ planted (name — слово названия «косой срез/шар/чаша»,
+        # slanted, wide, none, no-plant) значит «растения тут нет по правилам страницы» — узла не ждём (T-20261118-03/5: ложный PLANT_MISSING на вазе set7). Нет `why` (старый формат) — ждём.
+        if p.get("why", "planted") != "planted":
+            continue
         gs = "plant:" + p["slotId"]
         expect[gs] = "plant"
         nodes = by_slot.get(gs, [])
