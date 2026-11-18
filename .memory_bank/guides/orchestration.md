@@ -2,7 +2,7 @@
 tier: 2
 topic: orchestration
 scope: Регламент двух сессий fable-lead ↔ opus-worker — роли, рукопожатие, цикл задачи, формат задания и отчёта, лимиты циклов, что выбрано и почему
-updated: 2026-11-12
+updated: 2026-11-18
 source: manual
 importance: med
 status: working
@@ -207,3 +207,8 @@ anti-rediscovery из `memory-discipline.md` относится и к брифа
 - **Меню ботов Telegram:** кнопки (/plan, сводка, /limit) ставятся `setMyCommands` в трёх scope — по умолчанию, `all_private_chats` и чат
   владельца (chat-scope главнее: без него кнопка не видна); патчи плагина — `~/.local/bin/tg-patch-limit`, `~/.local/bin/tg-patch-knopki`;
   после патча — `/mcp reconnect plugin:telegram:telegram`.
+
+## Цена задачи: Sonnet 5.5 против Opus 5.5 (замер 18.11, директор common, ответ владельцу TG 1752)
+Выгрузки `data/logs/tokeny/*` + живая common; задача = база T-ID (все циклы), отсев < $0,5, $ по прайсу API. Opus (12–13.11) n=51:
+среднее $10,6 / медиана $8,5 (весь 04–13.11 n=233: $10,4 / $7,8); Sonnet (17.11, окно 293k) n=24: $8,2 / $7,4 → дешевле в 1,1–1,3 раза,
+не в разы: Sonnet тратит больше вызовов на задачу. Оговорки: один день Sonnet, задачи разные по размеру. Перемер — после недели Sonnet.
