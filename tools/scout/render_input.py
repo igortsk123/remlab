@@ -45,6 +45,11 @@ MATERIAL_URL_KEYS = ('baseColorUrl', 'baseColorLiteUrl', 'normalUrl', 'roughness
 _LOCK = threading.Lock()
 _MEMO: dict = {}
 TTL_S = 20.0
+# файлы-данные ПРОГРАММЫ, что читает Python-выгрузчик (не репозиторные картинки): входят в renderer_digest; новое чтение файла из репо вне списка — нарушение сторожа
+PROGRAM_DATA = ('tools/scout/rules/asset-strategies.json', 'services/planner-solver/rules/occupancy.json')
+# служебное, на картинку не влияет: пути каталогов (dev-tmp.json), индекс хешей, кэш собственных текстур выгрузчика (по содержимому)
+NEUTRAL_NAMES = frozenset({'dev-tmp.json', 'scene-inputs-sha.json'})
+NEUTRAL_DIRS = ('/render-tex/',)
 
 
 class MissingInput(Exception):
@@ -137,6 +142,16 @@ def _mesh_sid(row: dict, decor: bool) -> tuple:
     return (str(sid), not optional) if sid else (None, False)
 
 
+def orient_pins(assets: list) -> tuple:
+    """Записи разворота (`orient.json` прода) для мешей, которые комната реально читает (актив `mesh:` объявлен) → ({sid: запись | None}, [нет таблицы]). Python-выгрузчик читает ТОЛЬКО их
+    (герметично): правка записи другого меша комнату не трогает, правка своей — меняет ключ. Нет таблицы вообще — комната не заказывается (раньше молча «разворотов нет»)."""
+    sids = sorted(a['logical'][5:] for a in assets if a['kind'] == 'mesh')
+    table = SI.orient_table()
+    if table is None:
+        return None, ['orient:table']
+    return {sid: table.get(sid) for sid in sids}, []
+
+
 def assets_of(scene: dict) -> list:
     out: list = []
     seen: set = set()
@@ -161,6 +176,9 @@ def assets_of(scene: dict) -> list:
     view = room.get('window_view')
     if view and re.fullmatch(r'[A-Za-z0-9._-]+', str(view)):
         _asset('view', f'view:{view}', SI.public_file(f'scene/views/{view}.webp'), out)
+    ft = ((((room.get('finish') or {}).get('floor') or {}).get('tex')) or {}).get('src')       # фактура пола ночной сборки: `draft_render._floor_image` берёт её с диска
+    if isinstance(ft, str) and re.fullmatch(r'[a-z0-9-]{2,60}\.(?:webp|jpg|png)', ft) and once(('mat', ft)):
+        _asset('material-map', f'material:{ft}', SI.public_file(f'flat3d/materials/{ft}'), out)
     # материалы отделки: записи finish-wall / finish-floor и акцентной стены стиля + их карты
     mats = {m.get('id'): m for m in (_data_json('materials.json').get('materials') or []) if isinstance(m, dict)}
     base = str(_data_json('materials.json').get('baseUrl') or '/flat3d/materials/')
@@ -170,7 +188,7 @@ def assets_of(scene: dict) -> list:
         _rec_asset('material-record', f'material-record:{mid}', rec, out)
         for k in MATERIAL_URL_KEYS:
             v = (rec or {}).get(k)
-            if isinstance(v, str) and once(('mat', v)):
+            if isinstance(v, str) and once(('mat', os.path.basename(v))):
                 rel = v.lstrip('/') if re.match(r'^https?:|^/', v) and not v.startswith('http') else (base.strip('/') + '/' + v)
                 _asset('material-map', f'material:{os.path.basename(v)}', SI.public_file(rel), out)
     # растения: кандидаты носителей комнаты (тип — по роли носителя, стиль — any или стиль варианта)
@@ -196,7 +214,9 @@ def build(room: dict, variant: dict, cams: list, rules: dict | None = None) -> d
     scene = scene_of(room, variant, cams, rules)
     scene_for_assets = dict(scene, style_id=variant.get('style_id'))
     assets = assets_of(scene_for_assets)
-    missing = [a['logical'] for a in assets if not a['sha256']]
+    pins, no_orient = orient_pins(assets)
+    scene['orient'] = pins
+    missing = no_orient + [a['logical'] for a in assets if not a['sha256']]
     body = {'schema': SPACE, 'scene': scene, 'assets': assets}
     return {**body, 'missing': missing, 'digest': sha(SCENE_PREFIX + canon(body))}
 
@@ -298,8 +318,9 @@ def renderer_parts(blender: str = '') -> dict:
     roots = [os.path.join(r, 'tools', 'scout', 'cycles_probe'), os.path.join(r, 'tools', 'scout'), os.path.join(r, 'services', 'planner-solver')]
     starts = [os.path.join(roots[0], n) for n in ('export_scene.py', 'render_cycles.py', 'export_server.py')]
     py = [f'{rel}:{SI.full_sha(p)}' for rel, p in _py_closure(starts, roots)]
+    rules = [f'{rel}:{SI.full_sha(os.path.join(r, rel))}' for rel in PROGRAM_DATA]
     m = re.search(r'SCENE_EXPORT_VERSION\s*=\s*(\d+)', _read(os.path.join(r, 'lib', 'viewer3d', 'scene-export.ts')))
-    parts = {'js': sha('\n'.join(js)), 'py': sha('\n'.join(py)), 'scene_export': m.group(1) if m else '', 'input': INPUT_VERSION, 'blender': blender,
+    parts = {'js': sha('\n'.join(js)), 'py': sha('\n'.join(py)), 'rules': sha('\n'.join(rules)), 'scene_export': m.group(1) if m else '', 'input': INPUT_VERSION, 'blender': blender,
              'n_js': len(js), 'n_py': len(py)}
     with _LOCK:
         _MEMO[key] = (time.time(), parts)
@@ -370,4 +391,49 @@ def check_reads(inp: dict, reads: dict) -> list:
             bad.append(f'вне входа: {lg}')
         elif declared[lg]['sha256'] != r.get('sha256'):
             bad.append(f'другой файл: {lg} (в ключе {str(declared[lg]["sha256"])[:10]}, прочитан {str(r.get("sha256"))[:10]})')
+    return bad
+
+
+# ——— сторож чтений Python-выгрузчика (`cycles_probe/read_guard.py` пишет `reads-py.json` рядом с каталогом сцены)
+def logical_of_path(path: str) -> str | None:
+    """Путь прочитанного файла → логический id входа (меш, картинка витрины, файл public) или `program:<путь>` для данных программы."""
+    p = os.path.normpath(path)
+    pairs = ((os.path.normpath(SI._mesh_cache_dir()), 'mesh-cache'), (os.path.normpath(SI._gallery_dir()), 'gallery'), (os.path.normpath(SI.demo_dir()), 'demo'),
+             (os.path.normpath(SI._public()), 'public'))
+    for base, kind in pairs:
+        if p.startswith(base + os.sep):
+            rel = p[len(base) + 1:]
+            if kind == 'mesh-cache' and '/' not in rel and rel.endswith('.glb'):
+                return f'mesh:{rel[:-4]}'
+            if kind == 'gallery' and rel.endswith('/model.glb') and rel.count('/') == 1:
+                return f'mesh:{rel.split("/")[0]}'
+            if kind == 'demo' and rel.startswith('img/'):
+                return f'img:{rel}'
+            if kind == 'public':
+                return logical_of('/' + rel)
+    rr = os.path.normpath(repo())
+    if p.startswith(rr + os.sep) and p[len(rr) + 1:] in PROGRAM_DATA:
+        return f'program:{p[len(rr) + 1:]}'
+    return None
+
+
+def check_reads_py(inp: dict, reads: dict) -> list:
+    """Чтения Python-выгрузчика (`reads-py.json` = {v, hermetic, violations, reads:[{path, sha256, kind}]}) против входа комнаты → нарушения. Меш, картинка, материал — как у дампера
+    (логический id в `assets`, тот же sha256); данные программы — тот же файл, что в renderer_digest; сеть и всё остальное в репо/на диске — нарушение."""
+    declared = {a['logical']: a for a in inp['assets']}
+    bad = [f'выгрузчик: {v}' for v in (reads or {}).get('violations') or []]
+    for r in (reads or {}).get('reads') or []:
+        path = str(r.get('path') or '')
+        if os.path.basename(path) in NEUTRAL_NAMES or any(d in path for d in NEUTRAL_DIRS):
+            continue
+        lg = logical_of_path(path)
+        if lg is None:
+            bad.append(f'выгрузчик читал неизвестный файл: {path}')
+        elif lg.startswith('program:'):
+            if SI.full_sha(path) != r.get('sha256'):
+                bad.append(f'другой файл данных программы: {lg}')
+        elif lg not in declared:
+            bad.append(f'выгрузчик: вне входа: {lg}')
+        elif declared[lg]['sha256'] != r.get('sha256'):
+            bad.append(f'выгрузчик: другой файл: {lg} (в ключе {str(declared[lg]["sha256"])[:10]}, прочитан {str(r.get("sha256"))[:10]})')
     return bad

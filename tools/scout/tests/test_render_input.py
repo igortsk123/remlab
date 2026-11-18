@@ -37,7 +37,7 @@ TMP = tempfile.mkdtemp(prefix='rkey-')
 REPO, PUB, MC, GAL, DEMO = (os.path.join(TMP, n) for n in ('repo', 'public', 'mcache', 'gallery', 'demo'))
 if not LIVE:
     os.environ.update(RENDER_INPUT_REPO=REPO, SCENE_INPUTS_PUBLIC=PUB, SCENE3D_CACHE=MC, SCENE_INPUTS_GALLERY=GAL, DEMO_LOCAL_DIR=DEMO,
-                      SCENE_INPUTS_INDEX=os.path.join(TMP, 'idx', 'i.json'))
+                      SCENE_INPUTS_INDEX=os.path.join(TMP, 'idx', 'i.json'), SCENE_INPUTS_ORIENT=os.path.join(TMP, 'orient.json'), RENDER_ORIENT_FETCH='0')
 import render_exec as RX  # noqa: E402
 import render_input as RI  # noqa: E402
 import render_snapshot as RS  # noqa: E402
@@ -50,6 +50,8 @@ if not LIVE:
     MATS = {'baseUrl': '/flat3d/materials/', '_seal': 'x', 'materials': [
         {'id': 'finish-wall', 'baseColorUrl': 'fw.webp', 'baseColorLiteUrl': 'fw-lite.webp'}, {'id': 'finish-floor', 'baseColorUrl': 'ff.webp'},
         {'id': 'finish-accent-brick', 'baseColorUrl': 'fb.webp'}, {'id': 'carpet-grey', 'baseColorUrl': 'cg.webp'}]}
+    ORIENT = {sid: {'yaw': 90.0, 'status': 'auto_resolved', 'png': sid + '.png'} for sid in ('s1', 's2', 'b1', 'b2', 'vase1', 'lamp9', 'cand', 'other-sid')}
+    wj(os.path.join(TMP, 'orient.json'), ORIENT)
     wj(os.path.join(REPO, 'data/flat3d/plants.json'), PLANTS)
     wj(os.path.join(REPO, 'data/flat3d/materials.json'), MATS)
     wj(os.path.join(REPO, 'data/flat3d/finish-cc0.json'), {'surfaces': {'wall': {'id': 'finish-wall'}, 'floor': {'id': 'finish-floor'}, 'accent-brick': {'id': 'finish-accent-brick'}},
@@ -290,6 +292,81 @@ if not LIVE:
         check('v2: нет файла сцены — ключ не считаем (RenderError inputs_missing)', e.code == 'inputs_missing')
     os.rename(os.path.join(MC, 's1.glb.off'), os.path.join(MC, 's1.glb'))
 
+# ——— 4б) Python-выгрузчик: разворот мешей закреплён в сцене, фактура пола — актив комнаты (T-20261118-04/17/1)
+def set_orient(fn):
+    """подменить таблицу разворота: синтетика — файл таблицы, живые данные — подмена `SI.orient_table`"""
+    if LIVE:
+        base_t = SI.orient_table()
+        t = copy.deepcopy(base_t)
+        fn(t)
+        orig = SI.orient_table
+        SI.orient_table = lambda fetch=True: t
+        return orig
+    t = json.load(open(os.path.join(TMP, 'orient.json')))
+    fn(t)
+    wj(os.path.join(TMP, 'orient.json'), t)
+    SI._ORIENT.update(t=0.0, data=None)
+    return None
+
+
+def restore_orient(orig):
+    if LIVE:
+        SI.orient_table = orig
+    else:
+        wj(os.path.join(TMP, 'orient.json'), ORIENT)
+        SI._ORIENT.update(t=0.0, data=None)
+
+
+def mesh_consumers_of(sid):
+    return {vid for vid, sn in BASE.items() if any(a['logical'] == f'mesh:{sid}' for a in sn['frame_inputs']['assets'])}
+
+
+sids_all = sorted({a['logical'][5:] for sn in BASE.values() for a in sn['frame_inputs']['assets'] if a['kind'] == 'mesh'})
+bad_rows = []
+for sid in sids_all:
+    o = set_orient(lambda t, sid=sid: t.__setitem__(sid, dict(t.get(sid) or {}, yaw=(float((t.get(sid) or {}).get('yaw') or 0) + 45.0))))
+    try:
+        ch = diff(K0, keys(DATA))
+    finally:
+        restore_orient(o)
+    if ch != mesh_consumers_of(sid):
+        bad_rows.append(f'{sid}: изменились {sorted(ch)}, потребители меша {sorted(mesh_consumers_of(sid))}')
+check(f'правка записи разворота (orient.json) каждого из {len(sids_all)} мешей меняет ключи ровно комнат с этим мешем', not bad_rows and bool(sids_all))
+for r in bad_rows[:6]:
+    print('   ', r)
+o = set_orient(lambda t: t.__setitem__('sid-ne-iz-komnat', {'yaw': 1.0}))
+try:
+    check('запись разворота меша, которого нет ни в одной комнате, — НИ ОДНОГО ключа', not diff(K0, keys(DATA)))
+finally:
+    restore_orient(o)
+check('закреплённые записи лежат в сцене: по одной на меш комнаты', all(set((sn['frame_inputs']['scene'].get('orient') or {})) == {a['logical'][5:] for a in sn['frame_inputs']['assets'] if a['kind'] == 'mesh'}
+                                                                  for sn in BASE.values()))
+if not LIVE:
+    os.rename(os.path.join(TMP, 'orient.json'), os.path.join(TMP, 'orient.json.off'))
+    SI._ORIENT.update(t=0.0, data=None)
+    sn = RS.canonicalize(DATA, {'v': 1, 'variant_id': 'v1'})
+    check('нет таблицы разворота вообще — `orient:table` в `missing` (раньше молча «разворотов нет»)', 'orient:table' in sn['frame_inputs']['missing'])
+    os.rename(os.path.join(TMP, 'orient.json.off'), os.path.join(TMP, 'orient.json'))
+    SI._ORIENT.update(t=0.0, data=None)
+    # фактура пола ночной сборки (room.finish.floor.tex.src) — актив комнаты
+    w(os.path.join(PUB, 'flat3d/materials/ff2.webp'), 'floor-two')
+    fl = mut(lambda d: d['rooms_geo']['living']['finish'].__setitem__('floor', {'id': 'f2', 'tex': {'src': 'ff2.webp', 'tile': [60, 60]}}))
+    SI._FULL_MEMO.clear()
+    sf = RS.canonicalize(fl, {'v': 1, 'variant_id': 'v1'})
+    check('фактура пола комнаты (`finish.floor.tex.src`) — актив `material:ff2.webp`', any(a['logical'] == 'material:ff2.webp' and a['sha256'] for a in sf['frame_inputs']['assets']))
+    k_a = keys(fl)
+    with open(os.path.join(PUB, 'flat3d/materials/ff2.webp'), 'ab') as f:
+        f.write(b'-edit')
+    SI._FULL_MEMO.clear()
+    k_b = keys(fl)
+    check('правка файла фактуры пола — только комнаты с этой фактурой (гостиная: v1, v2)', diff(k_a, k_b) == {'v1', 'v2'})
+    os.remove(os.path.join(PUB, 'flat3d/materials/ff2.webp'))
+    SI._FULL_MEMO.clear()
+    sf = RS.canonicalize(fl, {'v': 1, 'variant_id': 'v1'})
+    check('нет файла фактуры пола — в `missing`', 'material:ff2.webp' in sf['frame_inputs']['missing'])
+    check('невалидное имя фактуры (путь наружу) — не актив и не чтение', 'material:..' not in {a['logical'] for a in RS.canonicalize(
+        mut(lambda d: d['rooms_geo']['living']['finish'].__setitem__('floor', {'tex': {'src': '../x.webp'}})), {'v': 1, 'variant_id': 'v1'})['frame_inputs']['assets']})
+
 # ——— 5) программа и пресет — все ключи; код вне замыкания — никого
 v2 = {'space': RI.SPACE, 'renderer_digest': RD, 'preset_digest': PD}
 sn0 = BASE[VIDS[0]]
@@ -329,6 +406,9 @@ if not LIVE:
     check('программа: правка постороннего модуля (unrelated.py) — НЕ меняет', not renderer_changes(os.path.join(S, 'unrelated.py'), 'u = 2', 'u'))
     check('программа: правка JS движка (lib/viewer3d/a.ts) — меняет', renderer_changes(os.path.join(REPO, 'lib/viewer3d/a.ts'), 'export const a = 2', 'a'))
     check('программа: правка общих правил (data/flat3d/light-rules.json) — меняет', renderer_changes(os.path.join(REPO, 'data/flat3d/light-rules.json'), '{"k": 2}', 'l'))
+    check('программа: правка данных, что читает Python-выгрузчик (rules/asset-strategies.json, occupancy.json), — меняет у всех',
+          renderer_changes(os.path.join(REPO, RI.PROGRAM_DATA[0]), '{"k": 5}', 'a') and renderer_changes(os.path.join(REPO, RI.PROGRAM_DATA[1]), '{"k": 6}', 'o'))
+    check('программа: правило экрана рядом (rules/photo-pick.json — выгрузчик его не читает) — НЕ меняет', not renderer_changes(os.path.join(S, 'rules/photo-pick.json'), '{"k": 7}', 'p'))
     check('программа: runtime-meshes.json (метаданные) — НЕ меняет', not renderer_changes(os.path.join(REPO, 'data/flat3d/runtime-meshes.json'), '{"meshes": {"a": 1}}', 'r'))
     pl2 = {**PLANTS, 'plants': PLANTS['plants'] + [{'id': 'pZ', 'kind': 'dry', 'styles': ['any']}], 'rev': '7'}
     check('программа: новая запись растения и rev (каталог-данные) — НЕ меняет', not renderer_changes(os.path.join(REPO, 'data/flat3d/plants.json'), json.dumps(pl2), 'p'))
@@ -446,6 +526,68 @@ except RX.RenderError:
     ok_ = False
 check('исполнитель: чтения внутри входа — проходит', ok_)
 
+# ——— 6б) сторож чтений Python-выгрузчика (`reads-py.json`)
+def py_reads(inp_):
+    rows = []
+    for a in inp_['assets']:
+        if a['kind'] in ('mesh', 'img', 'env', 'view', 'material-map', 'plant'):
+            kk, name = a['logical'].split(':', 1)
+            p = path_of(name and (a['logical'] if a['kind'] != 'material-map' else a['logical']))
+            if p:
+                rows.append({'path': p, 'sha256': a['sha256'], 'kind': 'local'})
+    return {'v': 1, 'hermetic': True, 'violations': [], 'reads': rows}
+
+
+pr = py_reads(inp)
+check(f'сторож Python: чтения, равные входу ({len(pr["reads"])}), — чисто', RI.check_reads_py(inp, pr) == [])
+check('сторож Python: часть входа не прочитана — чисто', RI.check_reads_py(inp, {**pr, 'reads': pr['reads'][:2]}) == [])
+rules_rel = RI.PROGRAM_DATA[0]
+prog_path = os.path.join(RI.repo(), rules_rel)
+if not LIVE:
+    wj(prog_path, {'k': 1})
+    wj(os.path.join(REPO, RI.PROGRAM_DATA[1]), {'k': 2})
+    SI._FULL_MEMO.clear()
+check('сторож Python: данные программы (asset-strategies, occupancy) — свой файл, чисто',
+      RI.check_reads_py(inp, {'reads': [{'path': prog_path, 'sha256': SI.full_sha(prog_path), 'kind': 'local'}]}) == [])
+check('сторож Python: данные программы другим содержимым — красный', len(RI.check_reads_py(inp, {'reads': [{'path': prog_path, 'sha256': 'f' * 64, 'kind': 'local'}]})) == 1)
+check('сторож Python: служебное (dev-tmp.json, индекс хешей, кэш текстур выгрузчика) — не вход',
+      RI.check_reads_py(inp, {'reads': [{'path': os.path.join(RI.repo(), 'tools/scout/rules/dev-tmp.json'), 'sha256': 'a', 'kind': 'local'},
+                                         {'path': '/home/x/scout-cache/scene-inputs-sha.json', 'sha256': 'a', 'kind': 'local'},
+                                         {'path': '/home/x/scout-cache/render-tex/ab-3.png', 'sha256': 'a', 'kind': 'local'}]}) == [])
+extra_p = SI.public_file('flat3d/materials/' + sorted(os.listdir(os.path.join(SI._public(), 'flat3d/materials')))[-1])
+declared_logicals = {a['logical'] for a in inp['assets']}
+other = next((f for f in sorted(os.listdir(os.path.join(SI._public(), 'flat3d/materials'))) if f'material:{f}' not in declared_logicals), None)
+if other:
+    bad = RI.check_reads_py(inp, {'reads': [{'path': os.path.join(SI._public(), 'flat3d/materials', other), 'sha256': 'a' * 64, 'kind': 'local'}]})
+    check('сторож Python: нарочно добавленное чтение материала вне входа — КРАСНЫЙ', len(bad) == 1 and 'вне входа' in bad[0])
+bad = RI.check_reads_py(inp, {'reads': [{'path': '/home/x/scout-scenes/draft-photos/abc.png', 'sha256': 'a' * 64, 'kind': 'local'}]})
+check('сторож Python: чтение нигде не объявленного файла (кэш «фото из сети») — красный', len(bad) == 1 and 'неизвестный' in bad[0])
+check('сторож Python: попытка сети из `violations` — красный', RI.check_reads_py(inp, {'violations': ['сеть: getaddrinfo remont-lab.online'], 'reads': []}) != [])
+chg = copy.deepcopy(pr)
+chg['reads'][0]['sha256'] = '0' * 64
+check('сторож Python: прочитан файл с другим sha256 — красный', len(RI.check_reads_py(inp, chg)) == 1)
+jd = tempfile.mkdtemp(dir=TMP)
+try:
+    RX.check_export_reads(jd, inp)
+    _raises = False
+except RX.RenderError as e:
+    _raises = e.code == 'reads_missing'
+check('исполнитель: нет `reads-py.json` — отказ reads_missing до рендера', _raises)
+wj(os.path.join(jd, 'reads-py.json'), {**pr, 'violations': ['сеть: getaddrinfo remont-lab.online']})
+try:
+    RX.check_export_reads(jd, inp)
+    _raises = False
+except RX.RenderError as e:
+    _raises = e.code == 'inputs_undeclared'
+check('исполнитель: выгрузчик полез в сеть — отказ inputs_undeclared до рендера', _raises)
+wj(os.path.join(jd, 'reads-py.json'), pr)
+try:
+    RX.check_export_reads(jd, inp)
+    ok_ = True
+except RX.RenderError:
+    ok_ = False
+check('исполнитель: чтения выгрузчика внутри входа — проходит', ok_)
+
 # ——— 7) живые дампы (на pakardev): reads.json всех вариантов внутри входа
 if LIVE:
     rdir = next((a for a in sys.argv[1:] if not a.startswith('--')), os.path.expanduser('~/remlab-logs/t04-1118/rk'))
@@ -460,6 +602,18 @@ if LIVE:
         if bad:
             print('   ', vid, bad[:4])
     check(f'ЖИВЫЕ дампы: чтения {n_all} из {len(VIDS)} вариантов — внутри входа, 0 нарушений', n_all == len(VIDS) and n_ok == n_all)
+    pdir = next((a for a in sys.argv[1:] if a.startswith('--py=')), '--py=' + os.path.expanduser('~/remlab-logs/t04-1118/rk/py-1'))[5:]
+    n_ok = n_all = 0
+    for vid in VIDS:
+        f = os.path.join(pdir, vid + '.json')
+        if not os.path.isfile(f):
+            continue
+        n_all += 1
+        bad = RI.check_reads_py(BASE[vid]['frame_inputs'], json.load(open(f, encoding='utf-8')))
+        n_ok += not bad
+        if bad:
+            print('   ', vid, bad[:4])
+    check(f'ЖИВЫЕ чтения Python-выгрузчика: {n_all} из {len(VIDS)} вариантов — внутри входа, 0 нарушений, 0 попыток сети', n_all == len(VIDS) and n_ok == n_all)
 else:
     shutil.rmtree(TMP, ignore_errors=True)
 print('итог:', 'чисто' if not fails else f'{len(fails)} падений')

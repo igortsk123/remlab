@@ -212,3 +212,48 @@ def img_sha(rel) -> str:
     if not rel or '..' in rel.split('/'):
         return ''
     return file_sha(os.path.join(demo_dir(), rel))
+
+
+# ——— разворот мешей (`orient.json` прода): живой файл сайта → закреплённая копия на диске → в входе комнаты (T-20261118-04/17/1)
+ORIENT_URL = os.environ.get('RENDER_ORIENT_URL') or 'https://remont-lab.online/test/mesh-pilot10/orient.json'
+ORIENT_TTL_S = float(os.environ.get('RENDER_ORIENT_TTL_S', '300'))
+_ORIENT: dict = {'t': 0.0, 'data': None}
+
+
+def orient_path() -> str:
+    return os.environ.get('SCENE_INPUTS_ORIENT') or os.path.expanduser('~/scout-cache/orient-prod.json')
+
+
+def orient_table(fetch: bool = True) -> dict | None:
+    """Таблица `sid → запись разворота` прода. Вход комнаты закрепляет из неё записи своих мешей (`render_input.build`), Python-выгрузчик читает ТОЛЬКО закреплённое:
+    живой файл сайта в герметичном режиме не читается. Копия на диске освежается не чаще `ORIENT_TTL_S` (сеть не доступна — берётся последняя копия); нет ни того, ни другого — None
+    (комната не заказывается: раньше выгрузчик молча считал «разворотов нет» и рисовал мебель не тем боком)."""
+    with _LOCK:
+        if _ORIENT['data'] is not None and time.time() - _ORIENT['t'] < ORIENT_TTL_S:
+            return _ORIENT['data']
+    path = orient_path()
+    data = None
+    if fetch and os.environ.get('RENDER_ORIENT_FETCH', '1') != '0':
+        try:
+            import urllib.request
+            raw = urllib.request.urlopen(ORIENT_URL, timeout=10).read()
+            data = json.loads(raw)
+            if isinstance(data, dict) and data:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                tmp = f'{path}.{os.getpid()}.tmp'
+                with open(tmp, 'wb') as f:
+                    f.write(raw)
+                os.replace(tmp, path)
+            else:
+                data = None
+        except Exception:  # noqa: BLE001 — сайт недоступен: берём последнюю копию
+            data = None
+    if data is None:
+        try:
+            data = json.load(open(path, encoding='utf-8'))
+            data = data if isinstance(data, dict) and data else None
+        except (OSError, ValueError):
+            data = None
+    with _LOCK:
+        _ORIENT.update(t=time.time(), data=data)
+    return data

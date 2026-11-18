@@ -302,6 +302,20 @@ def tint_of(sk):
 
 
 def main_export(D, idx, out):
+    """Выгрузка одной сцены. `D['hermetic']` (ключ кадра v2): сторож чтений (`read_guard`) пишет `<job>/reads-py.json`, сеть запрещена, фото/пол/меш/разворот — только из входа комнаты (`draft_render.HERMETIC`)."""
+    import read_guard as RG
+    on = RG.begin(out, D)
+    try:
+        return _main_export(D, idx, out, on)
+    finally:
+        if on:
+            DR = sys.modules.get('draft_render')
+            if DR is not None:
+                DR.HERMETIC.update(on=False, orient={}, demo_base='', violate=None, mesh_file=None, img_file=None, public_file=None)
+            RG.end(out)
+
+
+def _main_export(D, idx, out, hermetic=False):
     trace('imports_base')
     import draft_render as DR
     import scene_mesh as SM
@@ -311,6 +325,10 @@ def main_export(D, idx, out):
     import improve_mode as IM
     trace('imports_scene')
     DR.S3_LITE[0] = False                      # ПОЛНЫЕ меши — как у платного кадра
+    if hermetic:
+        import read_guard as RG
+        import scene_inputs as SI
+        DR.HERMETIC.update(on=True, orient=dict(D.get('orient') or {}), demo_base=BASE_URL, violate=RG.violation, mesh_file=SI.mesh_file, img_file=SI.img_file, public_file=SI.public_file)
     _wrap_once(MR, DR, _OIR)
     payload = payload_of(D, idx)
     os.makedirs(os.path.join(out, 'tex'), exist_ok=True)
