@@ -91,6 +91,7 @@ HOST_PAUSE = (2.0, 5.0)        # пауза между запросами к о�
 BLOCK_STREAK = 5               # подряд «нас не пустили» → домен заморожен до следующего прогона
 DEFAULT_LIMIT = 3500
 DEFAULT_MAX_MINUTES = 150      # потолок времени обхода; остаток уезжает в следующий прогон
+HISTORY_BATCH = 1000           # ключей на один запрос истории в `apply_run` (память базы, T-20261112-56/5)
 SHARE_CONFIRM = 0.15           # доля бюджета под подтверждения; товары сетов идут без доли
 
 # Как часто перепроверять — по состоянию. TTL сам по себе НИЧЕГО не снимает: он только решает,
@@ -518,6 +519,51 @@ def history_shares(run_id: str) -> dict:
     return {int(r[0]): float(r[1]) for r in rows if r[0]}
 
 
+def unique_keys(keys) -> list:
+    """Ключи (shop_mid, external_id) без повторов, порядок первого появления сохраняется."""
+    return list(dict.fromkeys((int(m), str(e)) for m, e in keys))
+
+
+def history_sql(keys: list) -> str:
+    """Запрос истории наблюдений по ключам: соединение со списком `VALUES`, а не `in ((m,'e'), …)`.
+
+    Было `(shop_mid, external_id) in (~3500 пар)`: планировщик раскладывал список в `BitmapOr` из 3500
+    отдельных чтений индекса, исполнитель держал ≈39 КБ на пару в каждом процессе (≈135 МБ на 3500, и
+    столько же в каждом параллельном воркере) — при лимите 512 МБ контейнера базы ядро убивало postgres
+    ежедневно (план `stock-check-fix-01`, T-20261112-56/4). Соединение читает индекс по одному ключу за раз.
+    Ключи обязаны быть без повторов (`unique_keys`): повтор дал бы повтор строк истории. Порядок —
+    стабильный: при равном `observed_at` решает `o.id`, иначе `fold()` на равных временах видел бы разный порядок.
+    """
+    vals = ','.join(f"({int(m)}, {q(e)})" for m, e in keys)
+    return f"""
+        select o.shop_mid, o.external_id, o.verdict, o.url_hash,
+               to_char(o.observed_at, 'YYYY-MM-DD HH24:MI:SS'), coalesce(o.reason, '')
+          from (values {vals}) as k(mid, eid)
+          join product_page_observation o on o.shop_mid = k.mid and o.external_id = k.eid
+         where o.observed_at > now() - interval '90 days'
+           and coalesce(o.disposition, 'accepted') = 'accepted'
+           and (o.probe_version = {PROBE_VERSION} or o.evidence_kind = 'http_gone')
+         order by o.shop_mid, o.external_id, o.observed_at, o.id;"""
+
+
+def group_history(rows) -> dict:
+    """Строки истории (в порядке запроса) → {(mid, eid): [(verdict, url_hash, observed_at, reason), …]}."""
+    by_sku = {}
+    for mid, eid, verdict, uhash, at, reason in rows:
+        by_sku.setdefault((int(mid), eid), []).append(
+            (verdict, uhash, dt.datetime.strptime(at, '%Y-%m-%d %H:%M:%S'), reason))
+    return by_sku
+
+
+def history_by_sku(touched, batch: int = HISTORY_BATCH) -> dict:
+    """История по ключам прогона пачками по `batch` ключей: память запроса не растёт с размером прогона."""
+    keys = unique_keys(touched)
+    by_sku = {}
+    for i in range(0, len(keys), batch):
+        by_sku.update(group_history(db(history_sql(keys[i:i + batch]))))
+    return by_sku
+
+
 def apply_run(obs: list, run_id: str, dry: bool = False) -> dict:
     """Гейты → свёртка истории → статусы → reconcile. Возвращает отчёт."""
     # Гейт судит ТОЛЬКО по разведочной части выборки. Проход подтверждений — это целевая
@@ -556,20 +602,7 @@ def apply_run(obs: list, run_id: str, dry: bool = False) -> dict:
                if o['mid'] not in quarantine and (o.get('disposition') or 'accepted') == 'accepted']
     changes = {'gone': 0, 'oos': 0, 'alive': 0, 'unknown': 0}
     if touched and not dry:
-        keys = ','.join(f"({m}, {q(e)})" for m, e in touched)
-        rows = db(f"""
-        select o.shop_mid, o.external_id, o.verdict, o.url_hash,
-               to_char(o.observed_at, 'YYYY-MM-DD HH24:MI:SS'), coalesce(o.reason, '')
-          from product_page_observation o
-         where (o.shop_mid, o.external_id) in ({keys})
-           and o.observed_at > now() - interval '90 days'
-           and coalesce(o.disposition, 'accepted') = 'accepted'
-           and (o.probe_version = {PROBE_VERSION} or o.evidence_kind = 'http_gone')
-         order by o.shop_mid, o.external_id, o.observed_at;""")
-        by_sku = {}
-        for mid, eid, verdict, uhash, at, reason in rows:
-            by_sku.setdefault((int(mid), eid), []).append(
-                (verdict, uhash, dt.datetime.strptime(at, '%Y-%m-%d %H:%M:%S'), reason))
+        by_sku = history_by_sku(touched)
         ups = []
         for (mid, eid), history in by_sku.items():
             state, negs, reason = fold(history)
@@ -780,7 +813,54 @@ def _selftest() -> int:
     for info, want in d_cases:
         if domain_unavailable(info, now) != want:
             bad += 1; print(f'  FAIL domain_unavailable {info}: ожидалось {want}')
-    print(f'stock_check selftest: случаев {1 + len(cases) + len(d_cases)}, ошибок {bad}')
+    # запрос истории apply_run (T-20261112-56/5): соединение со VALUES, а не `in (пары)`; ключи без повторов; стабильный порядок
+    n_h = 0
+    ks = unique_keys([(1, 'a'), (1, 'a'), (2, "o'x"), (1, 'b'), (2, "o'x")])
+    n_h += 1
+    if ks != [(1, 'a'), (2, "o'x"), (1, 'b')]:
+        bad += 1; print(f'  FAIL unique_keys: {ks}')
+    sql = history_sql(ks)
+    for must, why in (("(values (1, 'a'),(2, 'o''x'),(1, 'b'))", 'список ключей, апостроф удвоен'), ('join product_page_observation o', 'соединение'),
+                      ('order by o.shop_mid, o.external_id, o.observed_at, o.id;', 'стабильный порядок по id'),
+                      (f'o.probe_version = {PROBE_VERSION} or o.evidence_kind', 'версия пробника и http_gone'),
+                      ("coalesce(o.disposition, 'accepted') = 'accepted'", 'только принятые'), ("interval '90 days'", '90 дней')):
+        n_h += 1
+        if must not in sql:
+            bad += 1; print(f'  FAIL history_sql: нет «{why}»')
+    n_h += 1
+    if ' in (' in sql.replace('(values', ''):
+        bad += 1; print('  FAIL history_sql: остался `in (список пар)`')
+    rows = [['1', 'a', 'gone', 'h', '2026-11-01 10:00:00', 'r1'], ['1', 'a', 'oos', 'h', '2026-11-01 10:30:00', 'r2'], ['2', 'z', 'alive', 'h2', '2026-11-02 09:00:00', '']]
+    g = group_history(rows)
+    n_h += 1
+    if list(g) != [(1, 'a'), (2, 'z')] or [x[0] for x in g[(1, 'a')]] != ['gone', 'oos'] or g[(2, 'z')][0][2] != dt.datetime(2026, 11, 2, 9, 0):
+        bad += 1; print(f'  FAIL group_history: {g}')
+    # пачки: все ключи ровно по разу, пачка не больше batch, результат — объединение
+    global db
+    saved_db, sent = db, []
+    try:
+        db = lambda sql_: (sent.append(sql_), [])[1]   # noqa: E731
+        history_by_sku([(i, str(i)) for i in range(2500)] + [(0, '0')], batch=1000)
+    finally:
+        db = saved_db
+    n_h += 1
+    cnt = [x.count('(') for x in sent]
+    if len(sent) != 3 or any(f"({i}, '{i}')" not in sent[i // 1000] for i in (0, 999, 1000, 2499)):
+        bad += 1; print(f'  FAIL history_by_sku: запросов {len(sent)}, скобок {cnt}')
+    # fold на цепочках (то, что читает apply_run). gone → oos: оба голоса отрицательные, на наличие это не влияет (in_stock false);
+    # обратный проход перезаписывает last_verdict, поэтому в state остаётся ДАВНИЙ из подряд идущих отрицательных ('gone') — поведение
+    # прежнее и закреплено здесь, чтобы смена порядка/запроса его не сдвинула (Codex 18.11: «state/reason могут удивить», не ошибка)
+    t0 = dt.datetime(2026, 11, 1, 10, 0)
+    fold_cases = [([('gone', 'h', t0, 'r1'), ('oos', 'h', t0 + dt.timedelta(hours=2), 'r2')], 'gone'),
+                  ([('oos', 'h', t0, 'r1'), ('alive', 'h', t0 + dt.timedelta(hours=2), '')], 'alive'),
+                  ([('gone', 'h', t0, 'r1'), ('gone', 'h', t0 + dt.timedelta(minutes=1), 'r1')], 'gone'),
+                  ([('alive', 'h', t0, ''), ('unknown', 'h', t0 + dt.timedelta(hours=1), 'timeout')], 'alive')]
+    for hist, want in fold_cases:
+        n_h += 1
+        got = fold(hist)[0]
+        if got != want:
+            bad += 1; print(f'  FAIL fold {[h[0] for h in hist]}: {got}, ожидалось {want}')
+    print(f'stock_check selftest: случаев {1 + len(cases) + len(d_cases) + n_h}, ошибок {bad}')
     return 1 if bad else 0
 
 

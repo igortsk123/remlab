@@ -63,12 +63,33 @@ STEP_TMP="$(mktemp -p "$HOME/.cache/remlab-refresh" remlab-step.XXXXXX)"
 # cpu — user+sys всех дочерних процессов шага, которых он дождался (cutime+cstime из /proc/$$/stat; работа базы в контейнере и
 # фоновые хвосты сюда не входят; нет /proc — «-»). Без внешних программ: время — встроенными EPOCHSECONDS и printf, процессор —
 # чтением /proc, поэтому замер не попадает в сам себя. Таблицу «шаг → минуты по дням» считает `refresh_step_times.py`.
+# ЖДАТЬ БАЗУ ПЕРЕД ШАГОМ (T-20261112-56/5, план stock-check-fix-01): `STEP_DB_WAIT=<секунд> step <имя> …` — перед командой шага
+# ждём, пока база примет запрос (`select 1` тем же путём, каким ходят скрипты: docker exec psql). Зачем: после обвала postgres
+# (нехватка памяти контейнера) база поднимается несколько секунд, и следующий шаг падал за компанию строкой «FATAL: the database system
+# is not yet accepting connections» (price_truth 13, 17, 18.11). Не дождались — шаг НЕ запускается, в его выводе понятная причина.
+db_ping() { docker exec -i remlab-devdb psql -U remlab -d remlab -tAc 'select 1' >/dev/null 2>&1; }
+db_wait() {                    # db_wait <секунд> <шаг> → 0 база отвечает (если ждали — строка WARN), 1 не дождались (причина — в вывод)
+  local lim="${1:-60}" name="${2:-?}" poll="${DB_WAIT_POLL:-2}" t0=${EPOCHSECONDS:-0} now waited=0
+  db_ping && return 0
+  while :; do
+    sleep "$poll"; waited=$(( waited + poll )); now=${EPOCHSECONDS:-0}
+    [ $(( now - t0 )) -gt "$waited" ] && waited=$(( now - t0 ))     # часы точнее счётчика (сам опрос тоже время); нет EPOCHSECONDS — считает счётчик
+    if db_ping; then echo "WARN:db_wait: база не отвечала ~$waited с перед шагом $name (перезапуск postgres? см. docker logs remlab-devdb); дождались"; return 0; fi
+    [ "$waited" -ge "$lim" ] && break
+  done
+  echo "$name: база remlab-devdb не приняла запрос за $lim с (идёт восстановление после обрыва postgres или контейнер недоступен; см. docker logs remlab-devdb) — шаг не запускался"
+  return 1
+}
 step() {                       # step <имя> <команда...>
   local name="$1"; shift
-  local t0=${EPOCHSECONDS:-0} t1 c0=- c1=- st f
+  local t0=${EPOCHSECONDS:-0} t1 c0=- c1=- st f rc
   { read -r st < "/proc/$$/stat"; } 2>/dev/null && { st="${st##*) }"; read -r -a f <<< "$st"; c0=$(( ${f[13]:-0} + ${f[14]:-0} )); }
   : > "$STEP_TMP"
-  "$@" > "$STEP_TMP" 2>&1; local rc=$?
+  if [ -n "${STEP_DB_WAIT:-}" ] && ! db_wait "$STEP_DB_WAIT" "$name" > "$STEP_TMP" 2>&1; then
+    rc=75                      # EX_TEMPFAIL: база не поднялась — шаг не запускали, причина уже в выводе
+  else
+    "$@" >> "$STEP_TMP" 2>&1; rc=$?
+  fi
   t1=${EPOCHSECONDS:-0}
   { read -r st < "/proc/$$/stat"; } 2>/dev/null && { st="${st##*) }"; read -r -a f <<< "$st"; c1=$(( ${f[13]:-0} + ${f[14]:-0} )); }
   if [ "$rc" -eq 0 ]; then
@@ -319,11 +340,11 @@ step dim_audit "$PY" dim_audit.py --warn
 # Внутри: обход по бюджету → наблюдения → гейты магазинов → подтверждение → reconcile наличия.
 step stock_check "$PY" stock_check.py --limit "${STOCK_CHECK_LIMIT:-3500}"
 # ПРАВДИВАЯ ЦЕНА (conv-10): после свежих наблюдений страниц — что показывать, фид или страницу, по правилу магазина
-step price_truth "$PY" price_truth.py
+STEP_DB_WAIT=60 step price_truth "$PY" price_truth.py
 # ФОТО ВСЕГО ПУЛА — обход по кругу с бюджетом времени (владелец 26.08: «чтоб всегда были актуальные
 # ссылки и фотки»). ДО оценки стиля, обогащения и очереди моделей (conv-05): они читают
 # `products.photo_alive`, который пишет этот шаг (`--sync-db` в конце обхода). 16 потоков ≈ 14 ссылок/с.
-step pool_photos "$PY" img_alive.py --pool --minutes "${PHOTO_SWEEP_MIN:-25}"
+STEP_DB_WAIT=60 step pool_photos "$PY" img_alive.py --pool --minutes "${PHOTO_SWEEP_MIN:-25}"
 # фото товаров комнат — то же правило и кэш, писатель `room_catalog.photo_alive` (T-20261106-84); показ комнат его читает
 step rooms_alive "$PY" img_alive.py --rooms --minutes "${ROOMS_ALIVE_MIN:-10}"
 

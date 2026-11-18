@@ -2,7 +2,7 @@
 workstream: ops
 slug: stock-check-fix-01
 title: Проверка наличия падает каждый день — память базы, тяжёлый запрос, догонка (П1.28, T-20261112-56/4)
-status: draft
+status: in_progress
 created: 2026-11-18
 updated: 2026-11-18
 completed:
@@ -136,11 +136,11 @@ completed:
 - [ ] `.memory_bank/core/stock-and-dims.md` (+`domain/stock-and-dims.md`) — как работает применение, урок про список пар и лимит памяти базы; ADR (том `decisions/`) о лимите и запросе.
 
 ## Задачи
-- [ ] ① Менеджер/директор: `docker update --memory 1g --memory-swap 2g remlab-devdb` (обратимо; перед этим убедиться, что `free` на pakardev ≥ 4 ГБ свободно; запись в лог).
-- [ ] ② Заменить запрос `apply_run` на `JOIN (VALUES …)` (или временную таблицу): уникальные ключи, те же фильтры, `order by shop_mid, external_id, observed_at, id`.
-- [ ] ③ Сверка: на 500 и 3500 ключей множество строк нового запроса == старого (старый — на 500 ключей, где он безопасен); `EXPLAIN` нового — без `BitmapOr` из тысяч ветвей; память одного процесса (`pg_backend_memory_contexts` в курсоре) на 3500 ключей < 30 МБ.
-- [ ] ④ Ожидание готовности базы перед `price_truth` (D); общий тест: оболочка `step` на «not yet accepting» повторяет до 60 с.
-- [ ] ⑤ Селфтест `fold`: цепочка `gone → oos`, дубликаты, равное время; прогон `pytest`/`selftest` своих файлов, `python -m py_compile`.
+- [x] ① (сделано менеджером 18.11 ~20:25, `Memory=1073741824 MemorySwap=2147483648`) Менеджер/директор: `docker update --memory 1g --memory-swap 2g remlab-devdb` (обратимо; перед этим убедиться, что `free` на pakardev ≥ 4 ГБ свободно; запись в лог).
+- [x] ② (в ветке `worktree-stock-apply-1118`) Заменить запрос `apply_run` на `JOIN (VALUES …)` (или временную таблицу): уникальные ключи, те же фильтры, `order by shop_mid, external_id, observed_at, id`.
+- [x] ③ (в ветке; цифры ниже) Сверка: на 500 и 3500 ключей множество строк нового запроса == старого (старый — на 500 ключей, где он безопасен); `EXPLAIN` нового — без `BitmapOr` из тысяч ветвей; память одного процесса (`pg_backend_memory_contexts` в курсоре) на 3500 ключей < 30 МБ.
+- [x] ④ (в ветке) Ожидание готовности базы перед `price_truth` (D); общий тест: оболочка `step` на «not yet accepting» повторяет до 60 с.
+- [x] ⑤ (в ветке) Селфтест `fold`: цепочка `gone → oos`, дубликаты, равное время; прогон `pytest`/`selftest` своих файлов, `python -m py_compile`.
 - [ ] ⑥ **Догонка (после ①–③ и слова менеджера):** см. «Безопасная догонка».
 - [ ] ⑦ Контроль следующей ночи: `STEPTIME name=stock_check rc=0`, `OK: stock-report.json`, `price_truth res=ok`, строка «к проверке: …» меняется день ото дня (не те же 583 карточки витрины).
 - [ ] ⑧ Память: ADR, `core/stock-and-dims.md`, урок («список пар в `in` + лимит памяти базы = тихий ежедневный обвал»), правка сноски в `plans/refresh-split-01.md`, `/memory-check`.
@@ -183,8 +183,51 @@ completed:
   `stock_check` остаётся самым длинным сетевым шагом утра (150 мин, потолок по замыслу) — делить его не нужно, нужно отделить «применение».
 - Не менять вход соседей (каталог → наличие → меши → туры): догонка один раз пересчитает `in_stock` у ≈200 карточек — после неё очередь мешей/сеты увидят свежую картину; запускать догонку ДО вечернего окна мешей (не посреди волны).
 
+## Сделано (T-20261112-56/5, ветка `worktree-stock-apply-1118`, 18.11 вечером; вариант А + D; не влито, база не менялась)
+
+**Запрос `apply_run`** (`tools/scout/stock_check.py`: `history_sql`, `unique_keys`, `group_history`, `history_by_sku`, `HISTORY_BATCH = 1000`).
+`where (shop_mid, external_id) in (≈3500 пар)` заменён на `from (values …) k(mid, eid) join product_page_observation o on …`: ключи без повторов, порядок
+`shop_mid, external_id, observed_at, o.id` (стабильный при равных временах), те же фильтры (90 дней, `accepted`, версия пробника или `http_gone`).
+Запрос идёт пачками по 1000 ключей: память не растёт с размером прогона. План: `Nested Loop` из `Values Scan` и `Index Scan using idx_ppo_sku`, `BitmapOr` нет.
+`fold()` не менялся: на смешанной цепочке `gone → oos` обратный проход оставляет в `state` ДАВНИЙ из подряд идущих отрицательных (`gone`), на `in_stock` не влияет;
+закреплено селфтестом, чтобы смена запроса/порядка это не сдвинула.
+
+**Замер памяти процесса базы** (курсор, `pg_backend_memory_contexts`, сумма `used_bytes`; ключи прогона 20261118-115052, 3428 уникальных; `~/remlab-logs/t56-5-1118/2035/dbtest-1.txt`):
+
+| ключей | старый `in (пары)` | новый `join (values)` |
+|---|---|---|
+| 500 | 20,8 МБ | 3,1 МБ |
+| 1500 | 59,3 МБ | 5,6 МБ |
+| 3428 (весь прогон) | **129,8 МБ** (выделено 157,5) | **6,4 МБ** (выделено 7,4) |
+
+Пачками по 1000 — потолок ≈6 МБ на процесс при любом размере прогона (в боевом режиме добавляется то же на параллельный воркер: ×3 процесса — ≈20 МБ против ≈390 МБ).
+Цель плана «< 30 МБ на 3500 ключей» выполнена с запасом ≈5 раз.
+
+**Сверка со старым запросом** (`tools/scout/tests/stock_apply_query_dbtest.py`, только чтение; старый — пачками по 500, эталон заморожен в тесте): на четырёх реальных прогонах
+(20261118-115052 — 3428 ключей / 61 711 строк истории; 20261113-114159 — 3411 / 64 702; 20261108-200945 — 3178 / 61 519; 20261106-113159 — 3397 / 61 656) множество строк
+новый == старый, `fold()` по каждому ключу и счётчики статусов (`gone/oos/alive/unknown`) совпали, порядок строк стабилен между запусками; 0 расхождений. Равных `observed_at` в выборках нет
+(0 ключей) — стабильность при равных временах закреплена `order by … o.id` и селфтестом.
+
+**D — ожидание базы** (`tools/scout/refresh_daily.sh`: `db_ping`, `db_wait`, `step`): `STEP_DB_WAIT=60 step price_truth …` и то же у `pool_photos` (шаг сразу за ним). Перед командой —
+`select 1` тем же путём (docker exec psql); ответила сразу — без следов; поднялась позже — строка `WARN:db_wait: база не отвечала ~N с перед шагом …` (шаг идёт, итог warn, видно в сводке);
+не дождались за 60 с — шаг не запускается, в выводе понятная причина «база remlab-devdb не приняла запрос за 60 с … шаг не запускался», `rc=75`, итог FAIL, строка STEPTIME. У `stock_check` ожидания нет.
+
+**Тесты:** `stock_check.py --selftest` (27 случаев, в CI уже есть: ключи, вид запроса, пачки, `fold`-цепочки); новый `tests/test_refresh_db_wait.py` (в CI `scout-selftest`, 11 проверок на заглушке `db_ping`);
+`tests_refresh_order.py --selftest` и `--against main` (4 сочетания: шагов 83/75/77/71, расхождений 0); `test_refresh_steptime.py`, `test_refresh_digest.py`, `bash -n`, `prepush-check.sh` (32 проверки, 0 упало).
+`stock_apply_query_dbtest.py` в CI не идёт (нужна база): `r /home/pakar/venvs/scout/bin/python tools/scout/tests/stock_apply_query_dbtest.py [run_id] [--memory]`.
+
+**Не сделано здесь (следующие шаги):** догонка накопленного (`--reapply`, п. ⑥), правка `infra/dev/docker-compose.yml`/README под фактический лимит (в файле уже `mem_limit: 1g`, команда `docker update` выполнена менеджером),
+ADR/`core/stock-and-dims.md`/урок — после влития и догонки (п. ⑧).
+
+**Как проверить в ближайшую ночь** (после влития и дневной сборки 19–20.11):
+- `grep 'STEPTIME name=stock_check' tools/scout/refresh.log | tail -1` → `rc=0 res=ok`, в выводе шага «OK: stock-report.json», в отчёте `audit_mismatch=0`;
+- `docker logs remlab-devdb --since 24h 2>&1 | grep -c 'signal 9'` → 0; `docker inspect remlab-devdb --format '{{.State.OOMKilled}}'` не стал «true» заново после прошлой ночи;
+- `select max(checked_at), max(applied_at) from product_page_status;` — `applied_at` сегодняшний (последнее принятое применение до влития — 5.11 13:48); в строке «к проверке: …» не те же 583 карточки витрины;
+- `STEPTIME name=price_truth … res=ok`; если базе было плохо — `WARN:db_wait` в сводке вместо `FATAL`.
+
 ## Лог выполнения
 - 2026-11-18 — план создан (draft): диагноз чтением, Codex, замеры; код и боевая база не менялись.
+- 2026-11-18 вечер — менеджер: `docker update --memory 1g --memory-swap 2g remlab-devdb` (п. ①). T-56/5: запрос на `join (values)` пачками, ожидание базы перед `price_truth`/`pool_photos`, тесты, правка причины в `refresh-split-01` (ветка `worktree-stock-apply-1118`, не влито).
 
 ## Completion summary
 [Заполняется при переводе в completed]
