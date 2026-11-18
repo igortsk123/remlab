@@ -50,6 +50,11 @@ BIL_COLOR = 10.0        # σ по цвету (единицы Lab)
 BIL_SPACE = 5.0         # σ по пространству (пиксели рабочей копии)
 RATIO_MIN, RATIO_MAX = 0.2, 5.0
 HP_SIGMA = 3.0          # σ размытия при выделении высокочастотного остатка (пиксели полной текстуры)
+DARK_L = 12.0           # участок темнее (Lab L меша) — отказ: в текстуре нет сигнала, множитель усиливает шум (проба 1: тумба 17 → пятна)
+MATE_AREA_MIN = 0.5     # пара кластеров фото должна накрывать ≥ 50 % пикселей участка меша (белое снаружи ≠ серое нутро, тумба 11)
+MATE_L_TOL = 15.0       # пиксели фото под участком: светлота в пределах ±15 от медианы…
+MATE_HOMOG = 0.65       # …у ≥ 65 % пикселей, иначе под участком на фото два разных места — цель неоднозначна
+COVER_OK, COVER_MIN = 0.80, 0.30   # покрыто участками: ≥0,8 — «ok», 0,3–0,8 — «частично», <0,3 — «отказ»
 ELIGIBLE = ('правим', 'рисунок')   # статусы `color_o2.zones`, которые правим (рисунок — тоже: деталь сохраняется)
 FONT = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 20)
 FONT_S = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 16)
@@ -319,12 +324,31 @@ def build_field(base, ralpha, prgb, pmask, tm, metals, shift_scale: float = 1.0)
     both = CO.erode(ralpha) & CO.erode(pmask)
     R_lab = lab_f(base)
     cs, sg, sh, rep = [], [], [], []
+    cover = 0.0
     for z in info:
         i = z['i']
         row = {'i': i, 'area': z['area'], 'st': z['st'], 'lab': z['lab'], 'need_stops': z.get('need')}
-        if z['st'] in ELIGIBLE:
+        why = None
+        if z['st'] not in ELIGIBLE:
+            why = None if z['st'] == 'мелкий' else z['st']                    # «не тот материал», «нет пары на фото», металл… — не правим
+        elif z['lab'][0] < DARK_L:
+            why = 'тёмная текстура (L меша %.0f < %.0f): сигнала нет, усилится шум' % (z['lab'][0], DARK_L)
+        if z['st'] in ELIGIBLE and why is None:
             reg = both & (cl == i) & np.isin(pcl, z.get('mates') or [])
-            if reg.sum() >= 50:
+            zpx = int((both & (cl == i)).sum())
+            if reg.sum() < 50:
+                why = 'нет пары на фото'
+            elif reg.sum() < MATE_AREA_MIN * zpx:
+                why = 'пара покрывает %.0f %% участка (< %.0f %%)' % (100 * reg.sum() / max(zpx, 1), 100 * MATE_AREA_MIN)
+            else:
+                Lp = P_lab[reg][:, 0]
+                homog = float(np.mean(np.abs(Lp - np.median(Lp)) <= MATE_L_TOL))
+                if homog < MATE_HOMOG:
+                    why = 'на фото под участком разные светлоты (согласие %.0f %% < %.0f %%) — пара неоднозначна' % (100 * homog, 100 * MATE_HOMOG)
+        if why:
+            row['why'] = why
+        if z['st'] in ELIGIBLE and why is None:
+            if True:
                 tp, tm_ = tmed(P_lab[reg]), tmed(R_lab[reg])
                 d = tp - tm_
                 dl = float(np.clip(d[0], -MAX_DL, MAX_DL))
@@ -337,12 +361,13 @@ def build_field(base, ralpha, prgb, pmask, tm, metals, shift_scale: float = 1.0)
                 fade = float(np.clip((tp[0] - 15.0) / 25.0, 0.0, 1.0)) * (1.0 if z['area'] >= 0.12 else 0.4)
                 s = np.array([dl, dab[0] * fade, dab[1] * fade], np.float32) * shift_scale
                 cs.append(np.asarray(C[i], np.float32)); sg.append(z.get('spread') or CO.SIGMA_DE); sh.append(s)
+                cover += float(z['area'])
                 row.update(target=[round(float(v), 1) for v in tp], mesh=[round(float(v), 1) for v in tm_],
                            shift=[round(float(v), 1) for v in s], capped=bool(abs(d[0]) > MAX_DL or n > MAX_DAB))
         rep.append(row)
     if not cs:
-        return None, rep, 'нет участков для поправки'
-    return Field(np.array(cs), np.array(sg), np.array(sh)), rep, None
+        return None, rep, 'нет участков для поправки', 0.0
+    return Field(np.array(cs), np.array(sg), np.array(sh)), rep, None, cover
 
 
 def region_metrics(rgb: np.ndarray, ralpha: np.ndarray, prgb: np.ndarray, pmask: np.ndarray) -> dict:
@@ -408,11 +433,14 @@ def process(sku: str, gen: str, role: str, out: str, k: int, shift_scale: float 
     if al['iou'] < IOU_MIN:
         r.update(status='отказ: силуэт фото не совпал с рендером (IoU %.2f < %.2f) — камере не верим' % (al['iou'], IOU_MIN))
         return r
-    fld, zrep, why = build_field(base, ralpha, prgb, pmask, tm, metals, shift_scale)
+    fld, zrep, why, cover = build_field(base, ralpha, prgb, pmask, tm, metals, shift_scale)
     r['zones'] = zrep
+    r['cover'] = round(cover, 3)
     r['was'] = region_metrics(base, ralpha, prgb, pmask)
-    if fld is None:
-        r.update(status='отказ: ' + why)
+    if fld is None or cover < COVER_MIN:
+        whys = '; '.join(sorted({z['why'].split(' (')[0].split(':')[0] for z in zrep if z.get('why') and z['area'] >= 0.1}))
+        r.update(status='отказ: правимых участков %.0f %% < %.0f %% (%s)' % (100 * cover, 100 * COVER_MIN, whys or 'нет'))
+        frame(out, k, sku, role, glb, None, yaw, pitch, P, r)
         return r
     dst = f'{out}/glb/{k:02d}_{sid}.glb'
     details = []
@@ -434,10 +462,17 @@ def process(sku: str, gen: str, role: str, out: str, k: int, shift_scale: float 
     Y = np.array([0.2126, 0.7152, 0.0722], np.float32)
     h0, h1 = _hp(s2l(base) @ Y), _hp(s2l(base1) @ Y)
     r['render_hp_corr'] = round(float(np.corrcoef(h0[both], h1[both])[0, 1]), 4)
-    r['status'] = 'ok'
+    if r['now']['de_med'] > r['was']['de_med'] + 0.5:
+        r['status'] = 'отказ: самопроверка — ΔE00 стало хуже (%s → %s), результат не принимать' % (r['was']['de_med'], r['now']['de_med'])
+    elif cover >= COVER_OK:
+        r['status'] = 'ok'
+    else:
+        r['status'] = 'частично (правим %.0f %% видимого)' % (100 * cover)
     r['secs'] = round(time.time() - t0, 1)
     # кадр «фото | было | стало»
     frame(out, k, sku, role, glb, dst, yaw, pitch, P, r)
+    if k in LIT_ROWS:
+        lit_frame(out, k, sku, role, glb, dst, yaw, pitch)
     return r
 
 
@@ -445,7 +480,8 @@ def process(sku: str, gen: str, role: str, out: str, k: int, shift_scale: float 
 
 def frame(out: str, k: int, sku: str, role: str, was: str, now: str, yaw: float, pitch: float, P: np.ndarray, r: dict) -> None:
     S = 720
-    imw, imn = render_unlit(was, yaw, pitch, S), render_unlit(now, yaw, pitch, S)
+    imw = render_unlit(was, yaw, pitch, S)
+    imn = render_unlit(now, yaw, pitch, S) if now else None
     ralpha = np.asarray(imw)[..., 3] > 128
     prgb, pmask = CO.align_photo(P, ralpha)
     al = r['align']
@@ -465,39 +501,84 @@ def frame(out: str, k: int, sku: str, role: str, was: str, now: str, yaw: float,
     def rn(im):
         a = np.asarray(im)
         return onbg(a[..., :3], a[..., 3] > 128)
-    ph, pw_, pn = onbg(prgb, pmask), rn(imw), rn(imn)
-    W, H = 3 * S + 4 * 16, S + 150
+    pn = rn(imn) if imn is not None else Image.new('RGB', (S, S), (236, 236, 236))
+    ph, pw_ = onbg(prgb, pmask), rn(imw)
+    W, H = 3 * S + 4 * 16, S + 176
     sh = Image.new('RGB', (W, H), (255, 255, 255))
     dr = ImageDraw.Draw(sh)
-    dr.text((16, 8), f'{sku} · {role} · поза yaw {yaw}° pitch {pitch}° · IoU силуэта {al["iou"]}', font=FONT, fill=(0, 0, 0))
-    for i, (im, name) in enumerate(((ph, 'фото (вырезка)'), (pw_, 'было (живой меш, без света)'), (pn, 'стало (перекраска низких частот)'))):
+    dr.text((16, 8), f'{sku} · {role} · поза yaw {yaw}° pitch {pitch}° · IoU силуэта {al["iou"]} · {r["status"]}', font=FONT, fill=(0, 0, 0))
+    third = 'стало (перекраска низких частот)' if imn is not None else 'стало — НЕ ВЫПОЛНЕНО (отказ)'
+    for i, (im, name) in enumerate(((ph, 'фото (вырезка)'), (pw_, 'было (живой меш, без света)'), (pn, third))):
         sh.paste(im, (16 + i * (S + 16), 40)); dr.text((16 + i * (S + 16), 40 + S + 4), name, font=FONT, fill=(0, 0, 0))
-    wsm, nsm = r['was'], r['now']
+    wsm, nsm = r['was'], r.get('now')
     dt = r['detail'][0] if r.get('detail') else {}
-    t1 = (f'ΔE00 по пикселям: медиана {wsm["de_med"]}→{nsm["de_med"]}, p90 {wsm["de_p90"]}→{nsm["de_p90"]} · по областям: {wsm["reg_de_med"]}→{nsm["reg_de_med"]}, '
-          f'|ΔL| {wsm["reg_dL_med"]}→{nsm["reg_dL_med"]}, |ΔC*| {wsm["reg_dC_med"]}→{nsm["reg_dC_med"]}')
-    t2 = (f'деталь (остаток высоких частот): корреляция {dt.get("hp_corr")}, SSIM {dt.get("hp_ssim")}, энергия ×{dt.get("hp_energy")}, обрезано {dt.get("clipped")}, '
-          f'изменено текселей {dt.get("changed")}; на рендере корреляция {r.get("render_hp_corr")}')
+    if nsm:
+        t1 = (f'ΔE00 по пикселям: медиана {wsm["de_med"]}→{nsm["de_med"]}, p90 {wsm["de_p90"]}→{nsm["de_p90"]} · по областям: {wsm["reg_de_med"]}→{nsm["reg_de_med"]}, '
+              f'|ΔL| {wsm["reg_dL_med"]}→{nsm["reg_dL_med"]}, |ΔC*| {wsm["reg_dC_med"]}→{nsm["reg_dC_med"]}')
+        t2 = (f'деталь (остаток высоких частот): корреляция {dt.get("hp_corr")}, SSIM {dt.get("hp_ssim")}, энергия ×{dt.get("hp_energy")}, обрезано {dt.get("clipped")}, '
+              f'изменено текселей {dt.get("changed")}; на рендере корреляция {r.get("render_hp_corr")}')
+    else:
+        t1 = f'ΔE00 «было»: по пикселям медиана {wsm["de_med"]}, p90 {wsm["de_p90"]}; по областям {wsm["reg_de_med"]}, |ΔL| {wsm["reg_dL_med"]}, |ΔC*| {wsm["reg_dC_med"]}'
+        t2 = 'причины отказа по участкам: ' + ('; '.join(f'{z["lab"]} ({z["area"]:.0%}): {z["why"]}' for z in r['zones'] if z.get('why') and z['area'] >= 0.1) or '—')
     dr.text((16, 40 + S + 34), t1, font=FONT_S, fill=(0, 0, 0))
-    dr.text((16, 40 + S + 60), t2, font=FONT_S, fill=(0, 0, 0))
+    dr.text((16, 40 + S + 60), t2[:260], font=FONT_S, fill=(0, 0, 0))
     zs = '; '.join(f'{z["lab"]}→сдвиг {z["shift"]}' for z in r['zones'] if z.get('shift'))
     dr.text((16, 40 + S + 86), 'сдвиги участков (L,a,b): ' + (zs or '—'), font=FONT_S, fill=(60, 60, 60))
+    ref = '; '.join(f'{z["lab"][0]:.0f}/{z["area"]:.0%}: {z["why"][:70]}' for z in r['zones'] if z.get('why') and nsm and z['area'] >= 0.1)
+    if ref:
+        dr.text((16, 40 + S + 112), 'не правили: ' + ref[:240], font=FONT_S, fill=(120, 0, 0))
     os.makedirs(f'{out}/frames', exist_ok=True)
     sh.save(f'{out}/frames/{k:02d}_{sku.replace(":", "_")}.png')
+
+
+LIT_ROWS: set = set()    # номера моделей (по порядку таблицы), для которых делается кадр в свету с других ракурсов (--lit 1,6,13)
+
+
+def lit_frame(out: str, k: int, sku: str, role: str, was: str, now: str, yaw: float, pitch: float) -> None:
+    """Рендер С освещением (обычный `mesh_render.render`, без UNLIT), три ракурса: поза фото, +45°, −45°; верх — «было», низ — «стало»."""
+    import mesh_render as MR
+    S = 600
+    pt = max(float(pitch), 10.0)
+    prev = os.environ.pop('UNLIT', None)
+    try:
+        angs = [(yaw, pitch, 'поза фото'), (yaw + 45, pt, '+45°'), (yaw - 45, pt, '−45°')]
+        rows_im = []
+        for glb in (was, now):
+            parts = MR.load_parts(glb)
+            rows_im.append([MR.render(parts, yaw_deg=a, pitch_deg=p, size=(S, S)) for a, p, _ in angs])
+    finally:
+        if prev is not None:
+            os.environ['UNLIT'] = prev
+    W, H = 3 * S + 4 * 16, 2 * S + 40 + 2 * 36
+    sh = Image.new('RGB', (W, H), (255, 255, 255))
+    dr = ImageDraw.Draw(sh)
+    dr.text((16, 8), f'{sku} · {role} · В СВЕТУ (обычный рендер), ракурсы: поза фото, +45°, −45° · верх — было, низ — стало', font=FONT, fill=(0, 0, 0))
+    for ri, (name, ims) in enumerate((('было', rows_im[0]), ('стало', rows_im[1]))):
+        y0 = 40 + ri * (S + 36)
+        for ci, im in enumerate(ims):
+            bg = Image.new('RGB', (S, S), (236, 236, 236))
+            a = im if im.mode == 'RGBA' else im.convert('RGBA')
+            bg.paste(a, (0, 0), a)
+            sh.paste(bg, (16 + ci * (S + 16), y0))
+            dr.text((16 + ci * (S + 16), y0 + S + 4), f'{name} · {angs[ci][2]}', font=FONT, fill=(0, 0, 0))
+    os.makedirs(f'{out}/lit', exist_ok=True)
+    sh.save(f'{out}/lit/{k:02d}_{sku.replace(":", "_")}_lit.png')
 
 
 # ── запуск ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 def table(rows: list[dict]) -> str:
-    L = ['| № | sku | роль | IoU | ΔE00 мед. пикс. было→стало | p90 | по областям | \\|ΔL\\| обл. | \\|ΔC*\\| обл. | деталь corr / SSIM / энергия | обрезано | итог |',
-         '|---|---|---|---|---|---|---|---|---|---|---|---|']
+    L = ['| № | sku | роль | IoU | покрыто | ΔE00 мед. пикс. было→стало | p90 | по областям | \\|ΔL\\| обл. | \\|ΔC*\\| обл. | деталь corr / SSIM / энергия | обрезано | статус |',
+         '|---|---|---|---|---|---|---|---|---|---|---|---|---|']
     for i, r in enumerate(rows, 1):
-        if r.get('status') != 'ok':
-            L.append(f'| {i} | {r["sku"]} | {r["role"]} | {r.get("align", {}).get("iou", "—")} | — | — | — | — | — | — | — | {r.get("status")} |')
+        w, n = r.get('was'), r.get('now')
+        if not n:
+            wtxt = f'{w["de_med"]} → —' if w else '—'
+            L.append(f'| {i} | {r["sku"]} | {r["role"]} | {r.get("align", {}).get("iou", "—")} | {r.get("cover", "—")} | {wtxt} | — | — | — | — | — | — | {r.get("status")} |')
             continue
-        w, n, d = r['was'], r['now'], (r['detail'] or [{}])[0]
-        L.append(f'| {i} | {r["sku"]} | {r["role"]} | {r["align"]["iou"]} | {w["de_med"]} → {n["de_med"]} | {w["de_p90"]} → {n["de_p90"]} | {w["reg_de_med"]} → {n["reg_de_med"]} '
-                 f'| {w["reg_dL_med"]} → {n["reg_dL_med"]} | {w["reg_dC_med"]} → {n["reg_dC_med"]} | {d.get("hp_corr")} / {d.get("hp_ssim")} / ×{d.get("hp_energy")} | {d.get("clipped")} | ok |')
+        d = (r['detail'] or [{}])[0]
+        L.append(f'| {i} | {r["sku"]} | {r["role"]} | {r["align"]["iou"]} | {r.get("cover")} | {w["de_med"]} → {n["de_med"]} | {w["de_p90"]} → {n["de_p90"]} | {w["reg_de_med"]} → {n["reg_de_med"]} '
+                 f'| {w["reg_dL_med"]} → {n["reg_dL_med"]} | {w["reg_dC_med"]} → {n["reg_dC_med"]} | {d.get("hp_corr")} / {d.get("hp_ssim")} / ×{d.get("hp_energy")} | {d.get("clipped")} | {r.get("status")} |')
     return '\n'.join(L)
 
 
@@ -537,6 +618,8 @@ def main() -> int:
     out = sys.argv[3]
     only = sys.argv[sys.argv.index('--only') + 1] if '--only' in sys.argv else None
     ss = float(sys.argv[sys.argv.index('--shift-scale') + 1]) if '--shift-scale' in sys.argv else 1.0
+    if '--lit' in sys.argv:
+        LIT_ROWS.update(int(x) for x in sys.argv[sys.argv.index('--lit') + 1].split(','))
     seen, rows = set(), []
     os.makedirs(out, exist_ok=True)
     for j in jobs:
