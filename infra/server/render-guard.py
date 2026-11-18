@@ -8,6 +8,11 @@
 Крон (строку ставит директор): `* * * * *  root  /usr/bin/python3 /opt/remlab/scripts/render-guard.py >> /var/log/render-guard.log 2>&1`
 Сухо: `RENDER_GUARD_DRY=1 python3 render-guard.py` (ничего не гасит и не шлёт). Отключить на время ручной работы: файл `RENDER_GUARD_OFF` с временем UNIX,
 до которого сторож молчит. Селфтест без сети: `python3 render-guard.py --selftest`.
+ГРУППА БЕЗ ХОЗЯИНА (T-20261118-09/6, 18.11: после смены группы в правилах прежняя m7 осталась работать, пока контроллер вёл m11 и сам был жив): контроллер на каждой отметке
+кладёт ещё `controller-<группа>.json` — «эту группу веду я». Живая `render-*` группа, у которой такой отметки нет свежее `RENDER_GUARD_OWNER_MIN` (3) минут, пока ОБЩАЯ отметка жива, —
+«сирота»; сирота подряд дольше `RENDER_GUARD_ORPHAN_MIN` (3) минут гасится (время первого наблюдения — файл `RENDER_GUARD_ORPHANS`). Отметок по группам нет вовсе (контроллер
+старый) — сирот не ищем. Опытная группа, которую ведёт другой экземпляр контроллера (свой каталог состояния), отмечается так же и сиротой не считается; вручную включённую
+`render-*` на опыты — отключить сторожа файлом `RENDER_GUARD_OFF`.
 Стоп-запрос — POST `/stop`, итог проверяется повторным чтением списка на следующей минуте (крон) — тут только одна попытка и громкий журнал."""
 import json
 import os
@@ -20,6 +25,10 @@ API = 'https://api.salad.com/api/public/organizations/prodstore/projects/dmodel/
 KEY_FILE = os.environ.get('SALAD_KEY_FILE', '/etc/remlab/salad.key')
 BEAT = os.environ.get('RENDER_CONTROLLER_BEAT', '/opt/remlab/meshes/rendermachine/.staging/controller.json')
 OFF = os.environ.get('RENDER_GUARD_OFF', '/opt/remlab/render-guard-off-until')
+BEAT_DIR = os.path.dirname(BEAT)
+ORPHANS = os.environ.get('RENDER_GUARD_ORPHANS', '/opt/remlab/render-guard-orphans.json')
+OWNER_S = int(os.environ.get('RENDER_GUARD_OWNER_MIN', '3')) * 60
+ORPHAN_S = int(os.environ.get('RENDER_GUARD_ORPHAN_MIN', '3')) * 60
 TG_ENV = '/opt/remlab/catalog-watchdog/.env'
 STALE_S = int(os.environ.get('RENDER_GUARD_STALE_MIN', '10')) * 60
 PREFIXES = tuple(p.strip() for p in os.environ.get('RENDER_GUARD_PREFIXES', 'render-').split(',') if p.strip())
@@ -57,6 +66,35 @@ def decide(groups: dict, beat_age_s, off_until, now: float):
     if beat_age_s is not None and beat_age_s < STALE_S:
         return 'controller_alive', []
     return 'stop', live
+
+
+def decide_orphans(groups: dict, owner_age: dict, beat_age_s, first_seen: dict, off_until, now: float):
+    """Группы без хозяина. groups — {имя: (статус, машин|None)}; owner_age — {группа: возраст отметки «веду я», с} (пусто — отметок по группам нет вовсе);
+    first_seen — {группа: время, когда впервые увидели сиротой}. → (к остановке, новые first_seen). Чистая функция.
+    Сирота: живая guarded-группа без свежей своей отметки, при ЖИВОЙ общей отметке контроллера (мёртвый контроллер — дело `decide`) и при непустом owner_age."""
+    live = sorted(g for g, (st, n) in groups.items() if guarded(g) and is_live(st, n))
+    if not owner_age or beat_age_s is None or beat_age_s >= STALE_S or (off_until and off_until > now):
+        return [], {}
+    orphans = [g for g in live if owner_age.get(g) is None or owner_age[g] >= OWNER_S]
+    seen = {g: first_seen.get(g, now) for g in orphans}            # не сирота (больше) — выпадает из списка
+    return [g for g in orphans if now - seen[g] >= ORPHAN_S], seen
+
+
+def owner_ages() -> dict:
+    """{группа: возраст отметки controller-<группа>.json, с} (по mtime)."""
+    out = {}
+    try:
+        names = os.listdir(BEAT_DIR)
+    except OSError:
+        return out
+    now = time.time()
+    for n in names:
+        if n.startswith('controller-') and n.endswith('.json'):
+            try:
+                out[n[len('controller-'):-len('.json')]] = now - os.path.getmtime(os.path.join(BEAT_DIR, n))
+            except OSError:
+                pass
+    return out
 
 
 def _req(path: str, key: str, method: str = 'GET') -> dict:
@@ -104,7 +142,7 @@ def main() -> int:
     txt = ', '.join(f"{g} {st}/{'?' if n is None else n}" for g, (st, n) in sorted(gs.items())) or 'нет'
     print(f"{stamp} render-группы: {txt}; отметка контроллера: {'нет файла' if age is None else f'{age / 60:.1f} мин назад'}; решение: {verdict}", flush=True)
     if verdict != 'stop':
-        return 0
+        return orphan_pass(gs, age, off, now, key, dry, stamp)
     if dry:
         print('СУХО: погасил бы', to_stop, flush=True)
         return 0
@@ -118,6 +156,38 @@ def main() -> int:
             print(f'{stamp} НЕ УДАЛОСЬ погасить {g}: {type(e).__name__} {str(e)[:100]}', flush=True)
     tg(f"❗ Сторож рендер-машины: контроллер не отмечался больше {STALE_S // 60} мин — погасил {', '.join(done) or 'ничего (не вышло)'}. "
        f"Если машина нужна — /render_on (контроллер проверить: render_machine.py tick на DEV).")
+    return 0 if len(done) == len(to_stop) else 1
+
+
+def orphan_pass(gs: dict, age, off, now: float, key: str, dry: bool, stamp: str) -> int:
+    try:
+        seen0 = json.load(open(ORPHANS, encoding='utf-8'))
+    except (OSError, ValueError):
+        seen0 = {}
+    oa = owner_ages()
+    to_stop, seen = decide_orphans(gs, oa, age, seen0 if isinstance(seen0, dict) else {}, off, now)
+    if not dry:
+        try:
+            json.dump(seen, open(ORPHANS, 'w', encoding='utf-8'))
+        except OSError as e:
+            print(f'{stamp} не записал {ORPHANS}: {e}', flush=True)
+    if seen:
+        print(f"{stamp} без хозяина: {', '.join(f'{g} {int(now - t)} с' for g, t in sorted(seen.items()))}; хозяева: {', '.join(f'{g} {int(a)} с' for g, a in sorted(oa.items())) or 'нет'}", flush=True)
+    if not to_stop:
+        return 0
+    if dry:
+        print('СУХО: погасил бы группы без хозяина', to_stop, flush=True)
+        return 0
+    done = []
+    for g in to_stop:
+        try:
+            _req(f'/{urllib.parse.quote(g)}/stop', key, 'POST')
+            done.append(g)
+            print(f'{stamp} STOP (без хозяина) {g}', flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f'{stamp} НЕ УДАЛОСЬ погасить {g}: {type(e).__name__} {str(e)[:100]}', flush=True)
+    tg(f"❗ Сторож рендер-машины: группа без хозяина (контроллер её не ведёт, платная) — погасил {', '.join(done) or 'ничего (не вышло)'}. "
+       f"Если это опыты вручную — файл отключения сторожа; смену группы в правилах контроллер гасит сам.")
     return 0 if len(done) == len(to_stop) else 1
 
 
@@ -145,6 +215,21 @@ def _selftest() -> int:
     ok('смесь: гасим только render-*', decide({**mesh, 'render-x1': ('running', 1)}, None, None, now) == ('stop', ['render-x1']))
     ok('guarded: префикс', guarded('render-x1') and guarded('render-bench-4090') and not guarded('mesh-render-1') and not guarded('remnanode'))
     ok('machines: счётчики', machines({'instance_status_counts': {'running_count': 1, 'creating_count': 0}}) == 1 and machines({}) is None)
+    # группа без хозяина (T-20261118-09/6)
+    m7, m11 = ('running', 1), ('running', 1)
+    gs2 = {'render-4090m7': m7, 'render-4090m11': m11}
+    own = {'render-4090m11': 30.0, 'render-4090m7': 4000.0}
+    st1, seen1 = decide_orphans(gs2, own, 30, {}, None, now)
+    ok('сирота (m7 без свежей отметки, контроллер жив) замечена, сразу не гасим (срок 3 мин)', st1 == [] and list(seen1) == ['render-4090m7'] and seen1['render-4090m7'] == now)
+    st2, seen2 = decide_orphans(gs2, own, 30, seen1, None, now + 200)
+    ok('сирота подряд дольше 3 мин → гасим только её, хозяйскую m11 не трогаем', st2 == ['render-4090m7'])
+    st3, seen3 = decide_orphans(gs2, {'render-4090m11': 30.0, 'render-4090m7': 20.0}, 30, seen1, None, now + 200)
+    ok('у m7 снова свежая отметка (её ведёт другой экземпляр контроллера) — не сирота, счётчик сброшен', st3 == [] and seen3 == {})
+    ok('отметок по группам нет вовсе (старый контроллер) — сирот не ищем', decide_orphans(gs2, {}, 30, {}, None, now) == ([], {}))
+    ok('общая отметка старая — это дело decide (мёртвый контроллер), сирот не считаем', decide_orphans(gs2, own, 11 * 60, {}, None, now) == ([], {}))
+    ok('ручное отключение — молчим', decide_orphans(gs2, own, 30, {'render-4090m7': now - 999}, now + 100, now) == ([], {}))
+    ok('остановленная и pending без машин — не сирота', decide_orphans({'render-4090m7': ('stopped', 0), 'render-x': ('pending', 0)}, own, 30, {}, None, now) == ([], {}))
+    ok('меш-группы сиротой не считаются', decide_orphans({'mesh-q-low-1': ('running', 3)}, own, 30, {}, None, now) == ([], {}))
     print('итог:', 'чисто' if not bad else f'ПРОВАЛЕНО {len(bad)}')
     return 1 if bad else 0
 

@@ -210,7 +210,7 @@ s_, a = RM.plan(dict(sc, stop_notified_gen=1), obs('running', ready_at(T0 + 50))
 ok('о стопе по запуску уже писали — второго нет', 'notify:stop_cap' not in keys(a) and 'stop' in keys(a))
 
 # ── надписи: у каждой пара RU/EN, форматируются ──
-fill = dict(st='running', cap=2.0, spent=0.5, g='render-x1', why='x', age=5, left=3, min=15, n=1, max=2, p=1.9, thr=1.2)
+fill = dict(st='running', cap=2.0, spent=0.5, g='render-x1', why='x', age=5, left=3, min=15, n=1, max=2, p=1.9, thr=1.2, old='render-x0', new='render-x1')
 ok('все надписи — пара RU/EN и форматируются', all(len(v) == 2 and RM.tr(k, 'ru', **fill) and RM.tr(k, 'en', **fill) for k, v in RM.T.items()))
 ok('RU-надписи не пустые и без английского вместо русского', all(any('а' <= c.lower() <= 'я' for c in RM.tr(k, 'ru', **fill)) for k in RM.T))
 
@@ -324,5 +324,124 @@ ok('status: прогрелась на медленном узле — преду
 import json as _j
 ok('status --json: probe_sec и slow', _j.loads(RM.cmd_status(types.SimpleNamespace(by='t', lang='ru', json=True), R)).get('slow') is True)
 
+# ── СМЕНА ГРУППЫ В ПРАВИЛАХ (T-20261118-09/6): прежняя группа гасится, потом ведётся новая ──
+class MultiSalad:
+    groups = {}              # имя → статус
+    log = []
+
+    def __init__(self, rules):
+        self.r = rules
+
+    def group(self):
+        n = self.r['group']
+        st_ = MultiSalad.groups.get(n)
+        if st_ is None:
+            return None, None, {}
+        return {'container': {'image': self.r['image']}}, st_, {'running_count': 1 if st_ == 'running' else 0}
+
+    def running_count(self, cnt):
+        return int(cnt.get('running_count', 0))
+
+    def create(self, image):
+        MultiSalad.log.append(('create', self.r['group']))
+        MultiSalad.groups[self.r['group']] = 'stopped'
+
+    def start(self):
+        MultiSalad.log.append(('start', self.r['group']))
+        MultiSalad.groups[self.r['group']] = 'deploying'
+        return 202
+
+    def stop(self):
+        MultiSalad.log.append(('stop', self.r['group']))
+        MultiSalad.groups[self.r['group']] = 'stopped'
+        return 202
+
+
+RM.Salad = MultiSalad
+RM.time.sleep = lambda x: None
+RM.read_ready = lambda rules: None
+R7 = dict(R, group='render-4090m7')
+R11 = dict(R, group='render-4090m11')
+_real_time, _real_sleep = RM.time.time, RM.time.sleep
+with RM.Box() as b:
+    b.state = RM.new_state()
+    b.state.update(desired='on', gen=4, on_at=T0 - 3000, group='render-4090m7', running_since=T0 - 2900, warm_gen=4, restarts=1)
+    b.save()
+MultiSalad.groups = {'render-4090m7': 'running', 'render-4090m11': 'stopped'}
+MultiSalad.log = []
+RM.time.time = lambda: T0
+out_t = RM.cmd_tick(args, R11)
+ok('смена группы: m7 running + правило m11 → СНАЧАЛА stop m7', MultiSalad.log[:1] == [('stop', 'render-4090m7')] and MultiSalad.groups['render-4090m7'] == 'stopped')
+with RM.Box() as b:
+    sw = dict(b.state)
+ok('…состояние ведёт m11, новый запуск: gen+1, on_at сейчас, прогрев с нуля, restarts 0', sw['group'] == 'render-4090m11' and sw['gen'] == 5 and sw['on_at'] == T0 and sw['warm_gen'] == 0 and sw['restarts'] == 0 and sw['desired'] == 'on')
+RM.time.time = lambda: T0 + 60
+RM.cmd_tick(args, R11)
+ok('…потом (через ≥20 с) start m11, m7 больше не трогали', ('start', 'render-4090m11') in MultiSalad.log and MultiSalad.log.index(('stop', 'render-4090m7')) < MultiSalad.log.index(('start', 'render-4090m11'))
+   and MultiSalad.log.count(('stop', 'render-4090m7')) == 1)
+# тот же тик без смены — ничего лишнего
+n_log = len(MultiSalad.log)
+MultiSalad.groups['render-4090m11'] = 'running'
+RM.time.time = lambda: T0 + 120
+RM.cmd_tick(args, R11)
+ok('без смены правил — прежняя группа не трогается', not [x for x in MultiSalad.log[n_log:] if x[0] == 'stop'])
+# прежняя уже остановлена — просто переходим без стопа
+with RM.Box() as b:
+    b.state.update(group='render-4090m7', desired='off')
+    b.save()
+MultiSalad.groups = {'render-4090m7': 'stopped', 'render-4090m11': 'stopped'}
+MultiSalad.log = []
+RM.cmd_tick(args, R11)
+with RM.Box() as b:
+    ok('прежняя уже остановлена — стопа нет, группа записана; выключенное остаётся выключенным', MultiSalad.log == [] and b.state['group'] == 'render-4090m11' and b.state['desired'] == 'off')
+# состояние без группы (старое) — берём текущую, ничего не гасим
+with RM.Box() as b:
+    b.state['group'] = ''
+    b.save()
+MultiSalad.groups = {'render-4090m7': 'running', 'render-4090m11': 'stopped'}
+MultiSalad.log = []
+RM.cmd_tick(args, R11)
+with RM.Box() as b:
+    ok('старое состояние без группы — берём текущую из правил, чужое не гасим (не знаем)', MultiSalad.log == [] and b.state['group'] == 'render-4090m11')
+# остановка не подтверждается — новую не ведём, повтор
+class StuckSalad(MultiSalad):
+    def stop(self):
+        MultiSalad.log.append(('stop', self.r['group']))
+        return 202
+
+
+RM.Salad = StuckSalad
+with RM.Box() as b:
+    b.state.update(group='render-4090m7', desired='on', gen=7, on_at=T0 - 100)
+    b.save()
+MultiSalad.groups = {'render-4090m7': 'running', 'render-4090m11': 'stopped'}
+MultiSalad.log = []
+RM.time.time = lambda: T0 + 1000
+_clock = [T0 + 1000]
+RM.time.time = lambda: (_clock.__setitem__(0, _clock[0] + 100) or _clock[0])      # время идёт: стоп-проверка не бесконечна
+out_s = RM.cmd_tick(args, R11)
+with RM.Box() as b:
+    ok('остановка прежней не подтвердилась — новую не включаем, группа в состоянии прежняя, повтор на следующей отметке',
+       'повтор' in out_s and b.state['group'] == 'render-4090m7' and ('start', 'render-4090m11') not in MultiSalad.log)
+RM.Salad = MultiSalad
+# on при смене: гасит прежнюю, затем стартует новую
+with RM.Box() as b:
+    b.state.update(group='render-4090m7', desired='on', gen=9)
+    b.save()
+MultiSalad.groups = {'render-4090m7': 'running', 'render-4090m11': 'stopped'}
+MultiSalad.log = []
+RM.time.time = lambda: T0 + 5000
+o_on = RM.cmd_on(args, R11)
+ok('on при смене группы: stop m7 → start m11', MultiSalad.log[:2] == [('stop', 'render-4090m7'), ('start', 'render-4090m11')] and 'Включаю' in o_on)
+# off гасит и прежнюю
+with RM.Box() as b:
+    b.state.update(group='render-4090m7')
+    b.save()
+MultiSalad.groups = {'render-4090m7': 'running', 'render-4090m11': 'deploying'}
+MultiSalad.log = []
+RM.cmd_off(args, R11)
+ok('off при смене группы: гасит и прежнюю, и текущую', ('stop', 'render-4090m7') in MultiSalad.log and ('stop', 'render-4090m11') in MultiSalad.log)
+
+RM.time.time, RM.time.sleep = _real_time, _real_sleep
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')
 sys.exit(1 if BAD else 0)
