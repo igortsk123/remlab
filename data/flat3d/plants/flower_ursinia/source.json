@@ -1,0 +1,25 @@
+{
+ "asset": "flower_ursinia",
+ "title": "Flower Ursinia",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/flower_ursinia",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "Jenelle van Heerden": "photography",
+  "Rico Cilliers": "modeling"
+ },
+ "realMm": [
+  2193.754494190216,
+  343.3113098144531,
+  171.80400155484676
+ ],
+ "downloaded": "2026-11-18",
+ "sha256": {
+  "flower_ursinia_1k.gltf": "aaa44302d04f39f03773db09deb561113213ef97155cec7d3744a079bc07b580",
+  "flower_ursinia.bin": "40ff08d800264713ef4895c01fbb1cdf1979d8d27a80e392e8669623da2c2ab8",
+  "textures/flower_ursinia_arm_1k.jpg": "c6bedaefafe74b376b3b351e468c130b643aee017566c38d6fbbd55bc1551633",
+  "textures/flower_ursinia_nor_gl_1k.jpg": "02eca0abe669bb6a161920d761254b814c27dabd43b366ebf2d500630ac51d6e",
+  "textures/flower_ursinia_diff_1k.jpg": "469ecb556fc52bdc140905cfa31694743971866ddd647fffb2b65b8336cbea66"
+ }
+}

@@ -1,5 +1,5 @@
 {
- "rev": "5",
+ "rev": "6",
  "plants": [
   {
    "id": "pachira-a",
@@ -72,17 +72,17 @@
    ]
   },
   {
-   "id": "periwinkle",
-   "asset": "periwinkle_plant",
-   "part": "tree.048",
+   "id": "shrub2",
+   "asset": "shrub_02",
+   "part": "Plane.024",
    "kind": "dry",
-   "tris": 11252,
-   "bytes": 296208,
-   "sha256": "7f3daa3a55600ece40e196118f5762c9a467e7b81df9e2f18ca2f90095d9a12a",
+   "tris": 7590,
+   "bytes": 314112,
+   "sha256": "9e5ed5ba3ed16d4b0796844c699d72526a82177494544874f23ee60644e83336",
    "sizeCm": [
-    26.1,
-    39.7,
-    32.1
+    131.2,
+    168.9,
+    164.1
    ]
   },
   {

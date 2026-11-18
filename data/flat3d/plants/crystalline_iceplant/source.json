@@ -1,0 +1,25 @@
+{
+ "asset": "crystalline_iceplant",
+ "title": "Crystalline Iceplant",
+ "site": "Poly Haven",
+ "pageUrl": "https://polyhaven.com/a/crystalline_iceplant",
+ "licence": "CC0-1.0",
+ "licenceUrl": "https://polyhaven.com/license",
+ "authors": {
+  "James Ray Cock": "modeling",
+  "Jenelle van Heerden": "Photography"
+ },
+ "realMm": [
+  1693.7321424484253,
+  738.1078898906708,
+  82.77220348827541
+ ],
+ "downloaded": "2026-11-18",
+ "sha256": {
+  "crystalline_iceplant_1k.gltf": "46983341146dfacc96116e7468562b9e3b0a5be15d15940a98d9bab045c39910",
+  "textures/crystalline_iceplant_nor_gl_1k.jpg": "860252c828abd312600ab0daff531dfa4573b1a3ee6293bdbc5b53093f082cec",
+  "textures/crystalline_iceplant_arm_1k.jpg": "313d08a7ab102b2e57181c136d17fa64fe91fc2a3fdc0355516c0fdc15712852",
+  "textures/crystalline_iceplant_diff_1k.jpg": "bf191d9f2f903961c45b16d9bee0efa4cf8a64dc66f98159d91ba9699f61db8f",
+  "crystalline_iceplant.bin": "f51b43e9235e1765eb44495edf4f68e53c693a4ea1bab93830ac2e9f8e0d183a"
+ }
+}

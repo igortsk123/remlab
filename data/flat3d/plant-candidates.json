@@ -148,6 +148,14 @@
    "stand": false,
    "kind": "green",
    "use": "floor"
-  }
+  },
+  {"id": "c-shrub2-a", "asset": "shrub_02", "part": "Plane.041", "stand": false, "kind": "green", "use": "floor"},
+  {"id": "c-shrub2-b", "asset": "shrub_02", "part": "Plane.024", "stand": false, "kind": "green", "use": "floor"},
+  {"id": "c-rooibos", "asset": "wild_rooibos_bush", "parts": ["Plane.012_1", "Plane.012_2", "Plane.012"], "stand": false, "kind": "green", "use": "table"},
+  {"id": "c-cheiridopsis", "asset": "cheiridopsis_succulent", "parts": ["Icosphere.014", "Icosphere.014_1"], "stand": false, "kind": "green", "use": "shelf"},
+  {"id": "c-iceplant", "asset": "crystalline_iceplant", "part": "Plane.092", "stand": false, "kind": "green", "use": "shelf"},
+  {"id": "c-ursinia", "asset": "flower_ursinia", "part": "Plane.102", "stand": false, "kind": "dry", "use": "vase"},
+  {"id": "c-stinkkruid", "asset": "flower_stinkkruid", "part": "Plane.063", "stand": false, "kind": "dry", "use": "vase"},
+  {"id": "c-empodium", "asset": "flower_empodium", "part": "Plane.072", "stand": false, "kind": "dry", "use": "vase"}
  ]
 }

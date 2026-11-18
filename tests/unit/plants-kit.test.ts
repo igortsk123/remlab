@@ -78,11 +78,11 @@ describe("растения кашпо и ваз: правила", () => {
     expect(mountOf(72)).toBe("table");
   });
 
-  it("растения для ваз: ваза столика всегда есть из чего выбрать (барвинок, сухая ветка — T-21, листья каллатеи убраны)", () => {
+  it("растения для ваз: ваза столика всегда есть из чего выбрать (веточка shrub2 — TG 1842, листья каллатеи убраны)", () => {
     const own = R.plants.filter((p) => p.kind === "dry");
     expect(own.length).toBeGreaterThanOrEqual(2);
     expect(own.some((p) => p.styles.includes("any") && (!p.mounts || p.mounts.includes("table")))).toBe(true);   // для любого стиля
-    expect(own.every((p) => !p.mounts || p.mounts.includes("table"))).toBe(true);
+    expect(own.filter((p) => p.mounts && !p.mounts.includes("table")).every((p) => p.mounts!.includes("floor") && !p.styles.includes("any"))).toBe(true);   // только напольное — не «для всех стилей»
   });
 
   it("стиль: у растения с «any» — подходит всем; со своим стилем — только ему; без стиля «чужие» не берутся", () => {
@@ -109,13 +109,15 @@ describe("состав растений (T-20261117-21: «ненатуральн
     for (const m of ["floor", "table"] as const) for (const k of ["green", "dry"] as const) expect(ids(k, m, 15).has("haworthia")).toBe(false);
     expect(R.plants.find((p) => p.id === "haworthia")?.mounts).toEqual(["shelf"]);
   });
-  it("сухая ветка — только сканди и джапанди; барвинок — только в вазу на столике", () => {
+  it("сухая ветка — только напольная ваза, сканди и джапанди; веточка shrub2 — только в вазу на столике, любой стиль (владелец TG 1842)", () => {
     expect(ids("dry", "floor", 6, "loft").has("branches")).toBe(false);
     expect(ids("dry", "floor", 6).has("branches")).toBe(false);
     expect(ids("dry", "floor", 6, "scandi").has("branches")).toBe(true);
     expect(ids("dry", "floor", 6, "japandi").has("branches")).toBe(true);
-    expect(ids("dry", "table", 6, "loft").has("periwinkle")).toBe(true);
-    expect(ids("dry", "floor", 6, "loft").has("periwinkle")).toBe(false);
+    expect(ids("dry", "table", 6, "scandi").has("branches")).toBe(false);
+    for (const st of ["loft", "scandi", "japandi", "modern", undefined]) expect([...ids("dry", "table", 6, st)]).toEqual(["shrub2"]);
+    expect(ids("dry", "floor", 6, "loft").has("shrub2")).toBe(false);
+    expect(R.plants.some((p) => p.id === "periwinkle")).toBe(false);
   });
 });
 
