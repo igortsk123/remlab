@@ -429,6 +429,8 @@ def _atlas(top_rgb, side_rgb, noise=0.0, size=256, seed=1):
 
 
 def _selftest() -> int:
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp (T-20261107-13)
+    remlab_tmp.use('mesh_grey_top-selftest')
     bad = []
 
     def ok(name, cond):

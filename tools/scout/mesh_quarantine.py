@@ -321,6 +321,8 @@ def page(publish: bool) -> int:
 
 
 def _selftest() -> int:
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp (T-20261107-13)
+    remlab_tmp.use('mesh_quarantine-selftest')
     bad = 0
 
     def ok(name: str, cond: bool) -> None:
