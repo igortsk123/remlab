@@ -9,12 +9,15 @@ v1 заморожено до явного пересчёта; автоперес
   shrink   15 ≤ N < 30 — смесь своих терцилей и «приора» в log-пространстве, вес своих (N−15)/15;
   prior    7 ≤ N < 15 — только приор: медиана роли × типичное отношение «терциль/медиана» зрелых ролей (родитель, иначе общий);
   previous N < 7 или < 3 разных цен — прежние опубликованные границы, иначе `manual` из конфига, иначе границ нет (`none`).
+ПЕРЕД границами — аудит выбросов (`price_outliers.py`, T-61/4): из популяции границ выпадают комплектующие/запчасти (по названию и
+по правилу магазина из конфига, с причиной); цена-выбросы только в отчёте, дорогое по цене не режется.
 Приор считается по зрелым ролям (`local`) явной родительской группы конфига (≥3 роли и ≥100 семейств), иначе по всем зрелым
 (≥5 ролей и ≥500 семейств).
 
   python3 price_segments_build.py --selftest
   ~/venvs/scout/bin/python price_segments_build.py              # сухо: таблица границ и отличие от текущего файла
   ~/venvs/scout/bin/python price_segments_build.py --write      # записать rules/price-segments.json (после проверки таблицы)
+  ~/venvs/scout/bin/python price_segments_build.py --audit-out F.tsv   # + полный список исключённых и флагов выбросов в файл
 """
 import datetime
 import json
@@ -25,6 +28,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import price_outliers as PO  # noqa: E402
 import price_tiers as PT  # noqa: E402
 
 CONFIG_PATH = os.path.join(HERE, 'rules', 'price-segments-config.json')
@@ -209,13 +213,41 @@ def _selftest() -> int:
     return 1 if bad else 0
 
 
+def compare(before: dict, after: dict) -> list:
+    """Было → стало по ролям, у которых аудит что-то изменил: семейств, границы, метод."""
+    out = ['роль\tсемейств было→стало\tB1 было→стало\tB2 было→стало\tметод было→стало']
+    for r in sorted(after['roles'], key=lambda x: -before['roles'][x]['families']):
+        a, b = before['roles'][r], after['roles'][r]
+        if a['families'] == b['families'] and a['boundaries_rub'] == b['boundaries_rub']:
+            continue
+        ba, bb = a['boundaries_rub'] or ['—', '—'], b['boundaries_rub'] or ['—', '—']
+        out.append(f"{r}\t{a['families']}→{b['families']}\t{ba[0]}→{bb[0]}\t{ba[1]}→{bb[1]}\t{a['method']}→{b['method']}")
+    return out
+
+
+def write_audit(path: str, rep: dict) -> None:
+    """Полный список для проверки человеком: исключённые (причина, роль, цена, магазин, артикул, имя) и флаги статистики."""
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write('вид\tпричина\tроль\tцена\tмагазин\tартикул\tимя\n')
+        for role, d in sorted(rep['excluded'].items()):
+            for why, rs in d.items():
+                for r in sorted(rs, key=lambda x: x[6]):
+                    f.write(f'исключено\t{why}\t{role}\t{round(r[6])}\t{r[1]}\t{r[2]}\t{r[4]}\n')
+        for k, v in rep['flags'].items():
+            for role, fk, p, name, det in sorted(v, key=lambda x: (x[0], x[2])):
+                f.write(f'флаг\t{k}\t{role}\t{round(p)}\t\t{fk}\t{name} · {det}\n')
+
+
 def main(argv: list) -> int:
     if '--selftest' in argv:
         return _selftest()
     cfg = json.load(open(CONFIG_PATH, encoding='utf-8'))
     prev = PT.load()
-    fam = PT.family_prices(rooms=True)
+    rows = PT.population_rows(rooms=True)
+    kept, rep = PO.audit(rows, cfg)
+    fam_all, fam = PT.families_from(rows), PT.families_from(kept)
     res = build(fam, cfg, prev)
+    before = build(fam_all, cfg, prev)                  # те же правила без аудита — для «было → стало»
     today = datetime.date.today().isoformat()
     ver = f"{today}.1"
     if prev.get('version', '').startswith(today):
@@ -225,13 +257,20 @@ def main(argv: list) -> int:
              'algorithm': {'cuts': cfg['cuts'], 'family_price': 'median', 'boundary': 'на разрыве цен; B1/B2 — первая цена комфорта/премиума',
                            'min_local_families': cfg['min_local_families']},
              'population': 'по всем стилям: активен, в наличии, цена > 0, живое фото (+ каталог спальни/прихожей: свежий фид, живое фото); '
-                           'не влияют меш, габариты, стиль, конверт',
+                           'не влияют меш, габариты, стиль, конверт; без комплектующих (аудит выбросов `outliers`)',
+             'outliers': PO.summary_for_rules(rep),
              'config': 'rules/price-segments-config.json', **res}
-    print('\n'.join(table(rules, fam)))
+    print('\n'.join(PO.lines(rep)))
+    print('\n' + '\n'.join(compare(before, res)))
+    print('\n' + '\n'.join(table(rules, fam)))
     if prev.get('roles'):
         ch = [(r, (prev['roles'].get(r) or {}).get('boundaries_rub'), e['boundaries_rub']) for r, e in rules['roles'].items()
               if (prev['roles'].get(r) or {}).get('boundaries_rub') != e['boundaries_rub']]
         print(f"\nотличие от версии {prev.get('version')}: {len(ch)} ролей" + ''.join(f"\n  {r}: {a} → {b}" for r, a, b in ch[:40]))
+    if '--audit-out' in argv:
+        path = argv[argv.index('--audit-out') + 1]
+        write_audit(path, rep)
+        print(f'список аудита: {path}')
     if '--write' in argv:
         json.dump(rules, open(PT.RULES_PATH, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         open(PT.RULES_PATH, 'a').write('\n')
