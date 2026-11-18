@@ -1720,3 +1720,14 @@ def test_img_queue_merges_caps_and_night_cache_takes_it(tmp_path, monkeypatch):
         return {'got': {}, 'fail': {}}
     st = TB.cache_bank_images({}, media=lambda m, e: None, fetch=fetch, imgdir=d, log=lambda s: None, queue=qp)
     assert st['sources']['queue'] == 2 and st['tiled_after'] == 1 and TB.read_img_queue(qp) == {'2_b': ['//b']} and st['queue_left'] == 1
+
+
+def test_carried_pids_catalog_tiles_union_and_refusal():
+    """T-20261118-03/9: плитки всего каталога (`catalog_tiles`) дополняют строки витрины; одна плитка у двух товаров из любого источника — неоднозначно."""
+    a = {'name': 'Ковёр Д', 'img': 'img/dddddddddddddddd.jpg'}
+    b = {'name': 'Ковёр Е', 'img': 'img/eeeeeeeeeeeeeeee.jpg'}
+    c = {'name': 'Ковёр Ж', 'img': 'img/ffffffffffffffff.jpg'}
+    demo = {'living': {'ковёр': [{'sid': 'R_9', 'img': 'img/eeeeeeeeeeeeeeee.jpg'}]}}
+    tiles = {'img/dddddddddddddddd.jpg': {'R_4'}, 'img/eeeeeeeeeeeeeeee.jpg': {'R_8'}}
+    assert TB.carried_pids([{'items': [{'sku': a}, {'sku': b}, {'sku': c}]}], demo, tiles) == {'set': 1, 'none': 1, 'ambiguous': 1}
+    assert a['pid'] == TB.pid_of('R_4') and 'pid' not in b and 'pid' not in c

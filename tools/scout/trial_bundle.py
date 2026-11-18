@@ -1355,12 +1355,35 @@ def carried_fams(variants: list, demo: dict | None, rep: dict | None = None) -> 
             sk.pop('_sid', None)
 
 
-def carried_pids(variants: list, demo: dict | None) -> dict:
+def catalog_tiles() -> dict:
+    """Плитка фото → {нормализованные `sid`} по ВСЕМУ каталогу (`products.image_url`, плитка = `img/<md5 адреса>.jpg`, как `demo_img`); нет БД — {} и WARN
+    (тогда остаются только строки витрины). Только чтение."""
+    import subprocess
+    import catalog_media as CM
+    q = "select shop_mid||':'||external_id||E'\\t'||coalesce(image_url,'') from products where coalesce(image_url,'')<>''"
+    try:
+        r = subprocess.run(CM.PSQL + [q], capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f'WARN:carry_pids: каталог не прочитан ({repr(e)[:100]}) — pid только по строкам витрины', flush=True)
+        return {}
+    if r.returncode != 0:
+        print(f'WARN:carry_pids: каталог не прочитан ({r.stderr[:100]}) — pid только по строкам витрины', flush=True)
+        return {}
+    out: dict = {}
+    for ln in r.stdout.split('\n'):
+        if '\t' in ln:
+            sid, url = ln.split('\t', 1)
+            out.setdefault('img/' + hashlib.md5(url.encode()).hexdigest()[:16] + '.jpg', set()).add(sid.replace(':', '_', 1))
+    return out
+
+
+def carried_pids(variants: list, demo: dict | None, tiles: dict | None = None) -> dict:
     """ПУБЛИЧНЫЙ КЛЮЧ ТОВАРА У ПЕРЕНЕСЁННЫХ ПРЕДМЕТОВ (T-20261118-03/9; ТОЛЬКО по явному включению — `trial_reissue --carry-pids-by-img`).
     Тур, собранный до `pid`, не несёт ни `sid`, ни `pid`, а у ковра, картины и пледа нет и `msid`: заказ фото из такой комнаты не называет товар.
     Входов подбора (там был `sid`) у перевыпуска нет. Единственный ДЕТЕРМИНИРОВАННЫЙ след товара в старой версии — плитка фото `img/<md5>.jpg`
     (md5 адреса картинки товара, как у /demo): `sid` берём из строки витрины с ТЕМ ЖЕ фото, и только если у всех строк с этим фото он один;
-    по названию и размеру не ищем никогда. Нет строки или `sid` разные — предмет остаётся без `pid` (честно, в счёте). Трогаем только `sku` без `pid`.
+    по названию и размеру не ищем никогда. Источники плитки: строки витрины и (`tiles`, `catalog_tiles()`) весь каталог — объединением `sid`;
+    нет строки или `sid` разные — предмет остаётся без `pid` (честно, в счёте). Трогаем только `sku` без `pid`.
     → {'set': n, 'none': n, 'ambiguous': n}."""
     by_img: dict = {}
     for rows in (demo or {}).values():
@@ -1370,6 +1393,8 @@ def carried_pids(variants: list, demo: dict | None) -> dict:
             for r in lst or []:
                 if isinstance(r, dict) and r.get('sid') and r.get('img'):
                     by_img.setdefault(r['img'], set()).add(str(r['sid']).replace(':', '_', 1))
+    for img, sids in (tiles or {}).items():
+        by_img.setdefault(img, set()).update(sids)
     st = {'set': 0, 'none': 0, 'ambiguous': 0}
     for v in variants:
         for it in (v.get('items') or []) + (v.get('decor') or []):

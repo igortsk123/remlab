@@ -30,6 +30,7 @@ import math
 import re
 import sys
 
+import asset_strategy as AS
 import scene_inputs as SI
 
 SNAPSHOT_VERSION = 1
@@ -94,7 +95,7 @@ def pid_index(data: dict) -> dict:
             if isinstance(p, str) and PID_RE.match(p) and isinstance(o.get('name'), str):
                 if p not in idx:
                     idx[p] = o
-                elif idx[p] is not None and (idx[p].get('name'), idx[p].get('img')) != (o.get('name'), o.get('img')):
+                elif idx[p] is not None and idx[p].get('name') != o.get('name'):
                     idx[p] = None
             for v in o.values():
                 walk(v)
@@ -108,11 +109,12 @@ def pid_index(data: dict) -> dict:
 def flat_base_card(base_items: list, ref, role: str):
     """РЕШЕНИЕ БЕЗ КАРТОЧКИ (T-20261118-03/9, директор): процедурный плоский предмет (`strategy: procedural_plane` — ковёр, картина, зеркало; меша у него нет)
     рисуется по ДАННЫМ САМОГО ПРЕДМЕТА варианта (`sku`: фото, размеры, цвет) — ключ товара для кадра не нужен. `ref` — номер предмета в `variant.items`;
-    роль должна совпасть, предмет — плоский. Иначе None (заказ откажется `bad_item`). Данные берём из варианта на сервере, не от страницы."""
+    роль должна совпасть, а плоский ли предмет — решает КАНОН ролей (`asset_strategy.strategy(role)`, как в `draft_render`), а не поле `strategy` данных
+    (у части перенесённых предметов тура его нет). Иначе None (заказ откажется `bad_item`). Данные берём из варианта на сервере, не от страницы."""
     if not isinstance(ref, int) or isinstance(ref, bool) or not (0 <= ref < len(base_items)):
         return None
     b = base_items[ref]
-    if not isinstance(b, dict) or b.get('role') != role or b.get('strategy') != 'procedural_plane' or not isinstance(b.get('sku'), dict):
+    if not isinstance(b, dict) or b.get('role') != role or AS.strategy(role) != 'procedural_plane' or not isinstance(b.get('sku'), dict):
         return None
     return b['sku']
 
@@ -124,7 +126,7 @@ def _key_of(item: dict, n: int) -> dict:
         return {'sid': sku['sid']}
     if sku.get('pid'):
         return {'pid': sku['pid']}
-    return {'ref': n} if item.get('strategy') == 'procedural_plane' else {}
+    return {'ref': n} if AS.strategy(item.get('role')) == 'procedural_plane' else {}
 
 
 def product_key(sku: dict):
@@ -206,6 +208,8 @@ def _item(raw, base_items: list, roles: set, skus: dict, room: dict, pids: dict 
             card = None                          # оба ключа названы и указывают на разные товары — не угадываем
     else:                                        # публичный ключ тура: карточку берём из ДАННЫХ, не от страницы; неоднозначный ключ — отказ
         card = (pids or {}).get(pid) if isinstance(pid, str) and PID_RE.match(pid) else None
+        if card is not None:                     # предмет этой комнаты с тем же ключом — его карточка (фото и цвет те же, что на странице)
+            card = next((b['sku'] for b in base_items if isinstance(b.get('sku'), dict) and b['sku'].get('pid') == pid), card)
     if card is None:
         raise SnapshotError(422, 'bad_item', 'Расстановка не принята: товара нет в данных. Обновите страницу.',
                             'The layout was not accepted: the product is not in the data. Reload the page.')
@@ -499,10 +503,16 @@ def _selftest() -> int:
     ok(canonicalize(dp, {'v': 1, 'variant_id': 'v1'})['scene_hash'] == canonicalize(data, {'v': 1, 'variant_id': 'v1'})['scene_hash'], 'демо: `pid` рядом с `sid` хеш не меняет (готовые кадры целы)')
     both = {'v': 1, 'variant_id': 'v1', 'items': [{'role': 'диван', 'sid': 's1', 'pid': pb, 'x': 220, 'y': 270, 'rot': 180}]}
     ok(tbad(both, dp) == 'bad_item', 'и `sid`, и `pid` названы, а карточка с другим `pid` — bad_item')
+    # ——— тот же товар с другой плиткой фото в ленте — не коллизия; карточка комнаты — предмета варианта
+    ph = copy.deepcopy(tour)
+    own_name = tour['variants'][0]['items'][0]['sku']['name']
+    ph['feeds']['ковёр'][0].update(pid=pa, name=own_name, img='img/9999999999999999.jpg')
+    ph_snap = canonicalize(ph, {'v': 1, 'variant_id': 'tv1', 'items': [{'role': 'диван', 'pid': pa, 'x': 220, 'y': 270, 'rot': 180}]})
+    ok(ph_snap['variant']['items'][0]['sku'].get('img') != 'img/9999999999999999.jpg' and ph_snap['variant']['items'][0]['sku'].get('img') == tour['variants'][0]['items'][0]['sku'].get('img'), 'тот же товар, другая плитка в ленте: не отказ, берётся карточка предмета комнаты')
     # ——— плоский предмет без меша и без ключа (ковёр вне витрины): данные — из варианта, карточку не ищем (директор, T-20261118-03/9)
     flat = copy.deepcopy(tour)
     rug = flat['variants'][0]['items'][1]
-    rug.update(strategy='procedural_plane')
+    rug.pop('strategy', None)                     # поля `strategy` в данных нет — решает канон ролей
     del rug['sku']['pid']
     fs = canonicalize(flat, {'v': 1, 'variant_id': 'tv1'})
     ok(fs['variant']['items'][1]['sku']['img'] == 'img/bbbbbbbbbbbbbbbb.jpg' and fs['variant']['items'][1]['w'] == 230 and 'pid' not in fs['variant']['items'][1]['sku'],

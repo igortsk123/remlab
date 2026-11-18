@@ -171,7 +171,7 @@ def reissue(job_id: str, result: dict, old: dict, ctx: dict | None = None) -> tu
     # публичный ключ товара `pid` у перенесённых предметов (тур собран до T-20261118-03/9; без него заказ фото не назовёт ковёр/картину) —
     # ТОЛЬКО по флагу `--carry-pids-by-img` (решение директора: по умолчанию догадок по картинке/названию нет): `TB.carried_pids`
     if ctx.get('carry_pids_by_img'):
-        report['carried_pids'] = TB.carried_pids(variants, demo)
+        report['carried_pids'] = TB.carried_pids(variants, demo, (ctx.get('catalog_tiles') or TB.catalog_tiles)())
     # ленты — как у сборщика: /demo под слот комнаты (T-37), `feeds_short` — в отчёт перевыпуска; места перенесённых предметов —
     # свободное место в коробке комнаты, полоса «по размеру» страницы — от места (T-40)
     bands: dict = {}
