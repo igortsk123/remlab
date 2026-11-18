@@ -143,11 +143,12 @@ def build_cmd(job: dict, work: str) -> list:
     fmt = ['--jpeg-quality', str(job.get('jpeg_q', 92))] if fr in ('jpg', 'both') else []
     if fr == 'both':
         fmt += ['--also-png', os.path.join(work, '{cam}.png')]
+    mk = ['--mask-out', os.path.join(work, JP.mask_name('{cam}')), '--mask-scale', str(JP.MASK_SCALE)] if job.get('masks') else []
     return [BL, '-b', '--python-exit-code', '1', '-P', os.path.join(work, 'tools', 'scout', 'cycles_probe', 'render_cycles.py'), '--',
             '--scene-dir', scene, '--cam', ','.join(job['cams']), '--out', os.path.join(work, '{cam}.png' if fr == 'png' else '{cam}.jpg'),
             '--demo-glb', os.path.join(dump, 'demo_nodes.glb'), '--demo-nodes', os.path.join(dump, 'demo_nodes_uuids.json'),
             '--export', os.path.join(dump, 'scene-export.json'), '--public', os.path.join(work, 'public'),
-            '--device', 'auto', '--persistent', '1', *fmt, *job['args']]
+            '--device', 'auto', '--persistent', '1', *fmt, *mk, *job['args']]
 
 
 def cam_of_line(line: str) -> str | None:
@@ -613,6 +614,11 @@ class Worker:
             cam_done = cam_of_line(line)
             if cam_done in job['cams']:
                 up.start(cam_done)
+            if line.startswith('MASK_SEC '):
+                try:
+                    timing['mask'] = round(float(line.split()[1]), 2)      # цена прохода масок (смена материалов + 1 выборка на ракурс)
+                except (ValueError, IndexError):
+                    pass
             nxt, add = parse_progress(line, job['cams'])
             if add:
                 timing.update(add)
@@ -638,6 +644,20 @@ class Worker:
         files = {c: sizes[JP.frame_names(fr, c)[0]] for c in job['cams']}
         if fr == 'both':
             files.update({n: sizes[n] for n in names if n.endswith('.png')})
+        if job.get('masks'):
+            # маски поверхностей — НЕОБЯЗАТЕЛЬНЫ: нет файла или выгрузка не вышла — кадры уйдут без них (приглушение пятен просто не сработает), задание не падает
+            tm_ = time.time()
+            ms = {}
+            for c in job['cams']:
+                mp = os.path.join(work, JP.mask_name(c))
+                try:
+                    if os.path.isfile(mp) and os.path.getsize(mp) > 0:
+                        self.sink.put_file(f'{JP.PREFIX}/{jid}/{JP.mask_name(c)}', mp)
+                        ms[c] = os.path.getsize(mp)
+                except Exception as e:  # noqa: BLE001
+                    log('маска не ушла', c, repr(e)[:100])
+            res_extra['masks'] = ms
+            timing['mask_up'] = round(time.time() - tm_, 2)
         timing['total'] = round(time.time() - t0, 1)
         return {'ok': True, 'timing': timing, 'device': device, 'files': files, 'frames': fr, **res_extra}
 
@@ -680,7 +700,7 @@ def main() -> int:
     if not base or not tok:
         log('нет MESH_SINK_URL/MESH_SINK_TOKEN — воркер не работает')
         return 2
-    MA.STATE['caps'] = {'frames': list(JP.FRAMES_CAPS)}      # T-24/11: что воркер умеет (уходит в ready.json → state контроллера → исполнитель шлёт jpg только такой машине)
+    MA.STATE['caps'] = {'frames': list(JP.FRAMES_CAPS), 'masks': 1}      # T-24/11: что воркер умеет (уходит в ready.json → state контроллера → исполнитель шлёт jpg только такой машине)
     threading.Thread(target=MA.main, daemon=True, name='agent').start()      # готовность и отметка ready.json — как у агента
     w = Worker(JP.Sink(base, tok))
     threading.Thread(target=w.warm_loop, daemon=True, name='warm').start()      # подогрев кэша ассетов — своим потоком, заказ приоритетнее
