@@ -31,6 +31,7 @@ import re
 import sys
 
 import asset_strategy as AS
+import render_input as RI
 import scene_inputs as SI
 
 SNAPSHOT_VERSION = 1
@@ -264,6 +265,7 @@ def canonicalize(data: dict, req: dict, source: str = 'demo') -> dict:
     if not isinstance(req, dict) or req.get('v') != SNAPSHOT_VERSION:
         raise SnapshotError(422, 'bad_version', 'Страница устарела. Обновите её и повторите.',
                             'The page is out of date. Reload it and try again.')
+    data, req = RI.canon_num(data), RI.canon_num(req)      # целое = целое: `86.0` воркера и `86` приложения — один ключ (T-20261118-21/1); исходные данные не меняются
     base = _find_variant(data, req.get('variant_id'))
     room = room_of(data, base)
     if not (room.get('w') and room.get('d')):
@@ -316,7 +318,6 @@ def canonicalize(data: dict, req: dict, source: str = 'demo') -> dict:
     rules = {'soft_roles': sr} if isinstance(sr, list) else {}
     # КЛЮЧ ПО КОМНАТЕ (T-20261118-04/16/1): вход рендера v2 — отпечаток сцены этой комнаты без метки выкладки и правил экрана (`render_input.py`).
     # Включён `RENDER_KEY_V2` — `scene_hash` и есть этот отпечаток (его видят задания, кэш подготовки, meta); выключен — прежний `scene_hash`, v2 лежит рядом (`scene_digest`).
-    import render_input as RI
     fi = RI.build(room, variant, cams, rules)
     return {'v': SNAPSHOT_VERSION, 'source': source, 'scene_hash': fi['digest'] if RI.v2_on() else scene_hash, 'legacy_hash': scene_hash, 'scene_digest': fi['digest'],
             'frame_inputs': {k: fi[k] for k in ('schema', 'scene', 'assets', 'missing')}, 'variant': variant, 'room': dict(room), 'brief': brief, 'rules': rules}
