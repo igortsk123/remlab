@@ -288,6 +288,7 @@ class Worker:
         except Exception as e:  # noqa: BLE001
             return err('bundle', 'Машина рендера не получила сцену.', 'The render machine could not get the scene.', note=f'{type(e).__name__}: {e}'[:200])
         timing['fetch'] = round(time.time() - t0, 1)
+        log('сцена готова: fmt', job['v'], f"{timing['fetch']} с", stats or '')
         cmd = build_cmd(job, work)
         if not os.path.isfile(cmd[cmd.index('-P') + 1]):
             return err('bundle', 'В пакете сцены нет программы рендера.', 'The scene bundle has no renderer.')
