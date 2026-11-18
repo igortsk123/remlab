@@ -432,7 +432,7 @@ class RenderQueue:
                 st.durs = (st.durs + [sec])[-30:]
                 st.dur_ex = (st.dur_ex + [who])[-30:]
                 st.jobs[jid] = {'status': 'done', 'ts': st.jobs[jid]['ts'], 'key': key, 'hash': body['snap']['scene_hash'],
-                                'result': self._result(key, meta, sec, False), 'legacy': body.get('legacy') or {}}
+                                'result': self._result(key, meta, sec, False), 'legacy': body.get('legacy') or {}, **({'warm': True} if warm else {})}
                 st.save()
             st.trim_results()
             print(f'рендер {jid}: готов за {sec:.0f} с ({out.get("timing") if isinstance(out, dict) else ""})', flush=True)
@@ -455,6 +455,8 @@ class RenderQueue:
             j = self.store.jobs.get(jid)
             if j:
                 self.store.jobs[jid] = self.store._failed(j, code, ru, en)
+                if j.get('warm'):
+                    self.store.jobs[jid]['warm'] = True
                 self.store.save()
         print(f'рендер {jid}: отказ {code}', flush=True)
 

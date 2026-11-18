@@ -582,6 +582,12 @@ class LocalMachine:
         r = subprocess.run([sys.executable, os.path.join(HERE, 'render_gpu', 'render_machine.py'), 'on', '--by', by], capture_output=True, text=True, timeout=180)
         return (r.stdout or r.stderr or '').strip()[:300]
 
+    def turn_off(self, by: str) -> str:
+        """Выключить машину (`render_machine.py off`, остановка подтверждается контроллером). → строка ответа."""
+        import subprocess
+        r = subprocess.run([sys.executable, os.path.join(HERE, 'render_gpu', 'render_machine.py'), 'off', '--by', by], capture_output=True, text=True, timeout=300)
+        return (r.stdout or r.stderr or '').strip()[:300]
+
     def set_note(self, text: str) -> None:
         self.RM.set_note(text)
 

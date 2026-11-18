@@ -55,22 +55,28 @@ class FakeEx:
 
 
 class FakeMachine:
-    def __init__(self, ex, spent=0.0, cap=2.0, share=0.6, batch=2):
-        self.ex, self.spent, self.cap, self.share, self.batch = ex, spent, cap, share, batch
-        self.notes, self.on_calls, self.desired = [], 0, 'off'
+    def __init__(self, ex, spent=0.0, cap=2.0, share=0.6, batch=2, off_idle_s=120):
+        self.ex, self.spent, self.cap, self.share, self.batch, self.off_idle_s = ex, spent, cap, share, batch, off_idle_s
+        self.notes, self.on_calls, self.off_calls, self.desired, self.by = [], 0, 0, 'off', None
 
     def rules(self):
         return {'day_cap_usd': self.cap, 'price_class': 'RTX 4090 (24 GB)', 'tier': 'medium', 'warmup_max_min': 1,
-                'prewarm': {'day_share': self.share, 'batch': self.batch, 'interval_s': 1, 'start_delay_s': 0, 'tours_max': 0, 'fail_max': 2}}
+                'prewarm': {'day_share': self.share, 'batch': self.batch, 'interval_s': 1, 'start_delay_s': 0, 'tours_max': 0, 'fail_max': 2, 'off_idle_s': self.off_idle_s}}
 
     def state(self):
-        return {'spent_usd': self.spent, 'spent_date': RM.london_date(time.time()), 'desired': self.desired}
+        return {'spent_usd': self.spent, 'spent_date': RM.london_date(time.time()), 'desired': self.desired, 'by': self.by}
 
     def turn_on(self, by):
         self.on_calls += 1
-        self.desired = 'on'
+        self.desired, self.by = 'on', by
         self.ex.up = True
         return 'ok'
+
+    def turn_off(self, by):
+        self.off_calls += 1
+        self.desired = 'off'
+        self.ex.up = False
+        return 'off ok'
 
     def set_note(self, t):
         self.notes.append(t)
@@ -158,16 +164,78 @@ try:
     r = p.once()
     keys = [RX.cache_key(s['scene_hash'], {'preset': 3}) for _, s in scenes]
     ok(m.on_calls == 1 and r['state'] == 'done' and all(st.cached(k) for k in keys), f"машина выключена — включена один раз, все 4 комнаты в кэше ({r['state']})")
+    ok(m.off_calls == 1 and m.desired == 'off' and 'выключена сразу' in r['note'], 'включила заготовка, людей не было — выключена сразу после прохода (не ждём автостоп)')
     ok(any('Заготовка кадров' in n for n in m.notes), 'строка статуса машины записана')
     ok(all(os.path.isfile(os.path.join(st.result_dir(k), 'order.json')) for k in keys), 'рядом с кадрами order.json — «Улучшить» из рендера работает с заготовкой')
     calls = len(ex.calls)
     r2 = p.once()
-    ok(r2['state'] == 'idle' and len(ex.calls) == calls and m.on_calls == 1, 'второй проход: всё в кэше — ничего не считается, машина не трогается')
+    ok(r2['state'] == 'idle' and len(ex.calls) == calls and m.on_calls == 1 and m.off_calls == 1, 'второй проход: всё в кэше — ничего не считается, машину не включает и второй раз не выключает')
     ok(q.submit(snap('s1'), keys[1], ip='9.9.9.9')['cached'] is True, 'заказ покупателя после заготовки — мгновенно из кэша')
     # сменился ключ (новая версия рендера) — все комнаты считаются заново
     p2 = prewarmer(q, ex, m, scenes, versions={'preset': 4})
     r3 = p2.once()
     ok(r3['state'] == 'done' and len(ex.calls) == calls + 4, 'версия рендера сменилась — заготовка пересчитала все комнаты под новый ключ')
+    q.close()
+
+    # ——— выключение сразу: оба случая + границы
+    def human(q, ex, tag):
+        ex.up = True
+        h = q.submit(snap(tag), 'k' + tag, ip='8.8.8.' + str(len(tag)))
+        wait_for(lambda: (q.view(h['job']) or {}).get('status') == 'done', 5)
+
+    st, ex, q, m = build(delay=0.3, batch=2)
+    p = prewarmer(q, ex, m, scenes[:2])
+    orig_on = m.turn_on
+
+    def on_then_human(by):                       # пока шла заготовка, пришёл заказ человека (его считает машина)
+        r_ = orig_on(by)
+        threading.Thread(target=lambda: (time.sleep(0.05), human(q, ex, 'hum1')), daemon=True).start()
+        return r_
+    m.turn_on = on_then_human
+    r = p.once()
+    time.sleep(0.3)
+    ok(r['state'] == 'done' and m.off_calls == 0 and m.desired == 'on' and 'выключена сразу' not in r['note'], 'за время прохода был заказ людей — не выключаем, остаётся обычный автостоп 20 мин')
+    q.close()
+
+    st, ex, q, m = build()
+    human(q, ex, 'old')
+    for j in st.jobs.values():
+        j['ts'] -= 600                           # заказ людей был 10 минут назад — окно 2 мин он не держит
+    ex.up, m.desired, m.by = True, 'on', 'prewarm'
+    p = prewarmer(q, ex, m, scenes[:1])
+    r = p.once()
+    ok(m.off_calls == 1, 'заказ людей был давно (вне окна) — выключаем сразу')
+    q.close()
+
+    st, ex, q, m = build()
+    p = prewarmer(q, ex, m, scenes[:2])
+    p.once()
+    k0 = RX.cache_key('s0', {'preset': 3})
+    h2 = q.submit(snap('s0'), k0, ip='7.7.7.7')            # человек заказал уже готовое — из кэша, машине не нужен
+    ex.up, m.desired, m.by = True, 'on', 'prewarm'
+    r = p.once()
+    ok(h2['cached'] and m.off_calls == 2, 'заказ из кэша машине не нужен — не мешает выключению')
+    q.close()
+
+    st, ex, q, m = build()
+    ex.up, m.desired, m.by = True, 'on', 'cli'             # машину включил человек (кнопка бота), не заготовка
+    p = prewarmer(q, ex, m, scenes[:2])
+    r = p.once()
+    ok(r['state'] == 'done' and m.off_calls == 0 and m.on_calls == 0, 'машину включил не заготовка — заготовка её не выключает')
+    q.close()
+
+    st, ex, q, m = build(off_idle_s=0)
+    p = prewarmer(q, ex, m, scenes[:2])
+    p.once()
+    ok(m.off_calls == 0 and m.desired == 'on', 'off_idle_s = 0 — только автостоп, как раньше')
+    q.close()
+
+    st, ex, q, m = build()
+    p = prewarmer(q, ex, m, scenes[:2])
+    p.once()
+    m.desired, m.by, ex.up = 'on', 'prewarm', True          # сервис перезапустился, машина включена нами, всё уже в кэше
+    r = p.once()
+    ok(r['state'] == 'idle' and m.off_calls == 2, 'после перезапуска: всё в кэше, машина наша и простаивает — выключаем')
     q.close()
 
     # ——— деньги

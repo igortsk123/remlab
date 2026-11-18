@@ -99,8 +99,9 @@ DEFAULT_RULES = {
     'executor': {'pickup_s': 90, 'pair_max_s': 900, 'poll_s': 3, 'busy_s': 90, 'bundle_max_mb': 95},
     'alert_sh': '/home/pakar/igor/remlab/tools/scout/alert.sh', 'donor_group': 'mesh-q-low-1',
     # заготовка кадров всех комнат (render_prewarm.py, T-20261118-07): доля дневного потолка на заготовку (остальное — покупателям), проверка раз в interval_s,
-    # старт через start_delay_s после перезапуска сервиса, не больше batch заготовок в очереди, туры — не больше tours_max за проход (0 — только витрина /demo)
-    'prewarm': {'day_share': 0.6, 'interval_s': 300, 'start_delay_s': 90, 'batch': 4, 'tours_max': 0, 'fail_max': 2},
+    # старт через start_delay_s после перезапуска сервиса, не больше batch заготовок в очереди, туры — не больше tours_max за проход (0 — только витрина /demo),
+    # off_idle_s — если машину включила заготовка и людей не было столько секунд после конца прохода, выключить сразу (0 — только автостоп)
+    'prewarm': {'day_share': 0.6, 'interval_s': 300, 'start_delay_s': 90, 'batch': 4, 'tours_max': 0, 'fail_max': 2, 'off_idle_s': 120},
 }
 
 

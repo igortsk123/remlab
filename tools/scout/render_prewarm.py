@@ -12,6 +12,8 @@
   3. Деньги: заготовке — `prewarm.day_share` дневного потолка машины (`day_cap_usd`), остальное — покупателям; число комнат, которое влезает, считается по цене часа машины и
      среднему замеру GPU. Не влезает всё — делаем сколько влезло и пишем строку в статус машины (`render_machine.py status`: «Заготовка кадров: …»).
   4. Машина выключена — включаем её тем же путём, что кнопка бота (`render_machine.py on --by prewarm`, предел дня и замок — в контроллере), ждём прогрева; выключит автостоп по простою.
+  4б. Выключение: машину включила заготовка (`state.by == 'prewarm'`), недостающего нет, очередь пуста и `off_idle_s` (2 мин) не было заказа людей, который считали бы на машине —
+     выключаем сразу (`render_machine.py off`), не ждём автостопа 20 мин (он дороже самого прохода). Заказ людей был — оставляем обычный автостоп. 0 в правилах — не выключать.
   5. Заготовки ставятся в очередь пачками (`prewarm.batch`) с признаком `warm`: после заказов людей, без пределов покупателя и мест в их очереди, считаются ТОЛЬКО на машине
      рендера (`RenderQueue.warm_ok`) — запасного исполнителя (процессор DEV) у них нет; машину погасили посреди прохода — заготовка ждёт в очереди, а не падает.
 Никаких особых случаев под комнату или тур: один и тот же путь для всех. Текстов для покупателя нет — только строка статуса машины.
@@ -28,7 +30,7 @@ sys.path[:0] = [HERE, os.path.join(HERE, 'render_gpu'), os.path.join(HERE, 'sala
 
 STATUS_FILE = os.environ.get('RENDER_PREWARM_STATUS') or os.path.expanduser('~/scout-cache/render-prewarm.json')
 DEMO_DATA = os.environ.get('DEMO_DATA_FILE') or os.path.expanduser('~/scout-scenes/flat215-demo/demo-data.json')
-DEFAULTS = {'day_share': 0.6, 'interval_s': 300, 'start_delay_s': 90, 'batch': 4, 'tours_max': 0, 'fail_max': 2}
+DEFAULTS = {'day_share': 0.6, 'interval_s': 300, 'start_delay_s': 90, 'batch': 4, 'tours_max': 0, 'fail_max': 2, 'off_idle_s': 120}
 WARMUP_COST_MIN = 5.0          # прогрев машины — платный: закладываем в расчёт, когда она выключена
 
 
@@ -111,6 +113,38 @@ class Prewarmer:
         except Exception:  # noqa: BLE001
             return False
 
+    def human_recent(self, window_s: float) -> bool:
+        """Был ли заказ людей, которому нужна машина: в очереди/в работе, или поставлен за `window_s` секунд и считался (не из кэша). Заготовки (`warm`) и отказы не в счёт."""
+        now = self.now()
+        with self.q.store.lock:
+            for j in self.q.store.jobs.values():
+                if j.get('warm') or j.get('status') in ('error',):
+                    continue
+                if j.get('status') in ('queued', 'running'):
+                    return True
+                if now - float(j.get('ts') or 0) <= window_s and not (j.get('result') or {}).get('cached'):
+                    return True
+        return False
+
+    def maybe_off(self, pw: dict) -> str:
+        """Правило 4б. → '' (не выключали) или строка про выключение."""
+        win = float(pw.get('off_idle_s') or 0)
+        if win <= 0:
+            return ''
+        st = self.m.state() or {}
+        if st.get('by') != 'prewarm' or st.get('desired') != 'on':
+            return ''                                      # включила не заготовка (или уже выключена) — не наша машина
+        c = self.q.warm_counts()
+        if c['queued'] + c['running'] or self.human_recent(win):
+            return ''                                      # людям нужна — обычный автостоп
+        try:
+            txt = self.m.turn_off('prewarm')
+        except Exception as e:  # noqa: BLE001
+            self.log(f'заготовка: выключение машины не вышло ({e!r}) — останется автостоп')
+            return ''
+        self.log(f'заготовка: машину включала заготовка, дело сделано, людей нет {int(win)} с — выключаю сразу → {txt}')
+        return ' Машину включала заготовка — выключена сразу, автостоп не ждём.'
+
     def wait_machine(self, rules: dict, total_min: float) -> bool:
         t_end = self.now() + total_min * 60
         while self.now() < t_end and not self.stop:
@@ -129,7 +163,8 @@ class Prewarmer:
         miss = self.missing(scenes, pw)
         total = len(scenes)
         if not miss:
-            return self.put('idle', f'Заготовка кадров: все {total} комнат есть в кэше под текущим ключом.', total=total, missing=0)
+            off = self.maybe_off(pw)
+            return self.put('idle', f'Заготовка кадров: все {total} комнат есть в кэше под текущим ключом.' + off, total=total, missing=0)
         up = self.machine_up()
         n_ok, spent, cap, per = self.affordable(rules, pw, len(miss), up)
         if n_ok <= 0:
@@ -178,9 +213,10 @@ class Prewarmer:
                 if self.q.store.cached(k) is None:
                     self.failed[k] = self.failed.get(k, 0) + 1
         remain = len(self.missing(scenes, pw))
+        off = self.maybe_off(pw) if remain == 0 else ''
         spent2 = self.spent_today()
         return self.put('done' if remain == 0 else 'partial',
-                        f'Заготовка кадров: готово {got} из {len(sent)} за {round(self.now() - t0)} с, без кадров осталось {remain} из {total}, расход дня ${spent2:.2f}.',
+                        f'Заготовка кадров: готово {got} из {len(sent)} за {round(self.now() - t0)} с, без кадров осталось {remain} из {total}, расход дня ${spent2:.2f}.' + off,
                         total=total, missing=remain, got=got, sec=round(self.now() - t0), spent_usd=round(spent2, 3))
 
     def run_forever(self) -> None:
