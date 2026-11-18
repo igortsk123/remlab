@@ -8068,6 +8068,11 @@ const photoWaitText=w=>(LANG==='en'?'Enhancing · ':'Улучшаю · ')+Math.f
 function jobProg(job){
   const EN=LANG==='en';
   if(job&&job.kind==='render'){
+    // МАШИНА ПРОГРЕВАЕТСЯ (сервер, T-20261118-10/7): заказ человека включил выключенную машину — честно говорим, что идёт прогрев, а не рисуем проценты и «около минуты»:
+    // текст RU/EN и срок (`machine.eta_s`) — из ответа сервера; полоса — на нуле, процент не показываем (его ещё нет)
+    const mc=job.mach;
+    if(mc&&mc.state==='warming'){const t=EN?(mc.text_en||mc.text):(mc.text||mc.text_en);
+      if(t)return {pct:0, left:Math.max(0,+mc.eta_s||0), text:t, note:job.queue>0?(EN?'In the queue: ':'В очереди: ')+job.queue:'', warm:true};}
     const pct=Math.max(0,Math.min(99,job.pct||0)), e=job.est||0;
     // срок — из ответа сервера: до ~1,5 мин «около минуты», дальше «около N минут» (до 5 мин — по минутам, дольше — по 5); долгий — с «можно закрыть страницу»
     const long=e>=300, mins=e<300?Math.max(2,Math.round(e/60)):Math.round(e/300)*5;
@@ -12057,11 +12062,12 @@ function vwRenderReq(){
   // у плоского предмета без ключа (ковёр, картина, зеркало без модели) — `ref`: номер предмета в варианте (его данные сервер берёт из варианта, а не от страницы)
   const vid=String((v.mine&&v.baseVariant)||v.id||''), bv=allVariants().find(x=>String(x.id)===vid)||v;      // `ref` — номер в варианте НА СЕРВЕРЕ (у «моего» — исходный)
   const baseItems=Array.isArray(bv.items)?bv.items:[];
+  const r1=n=>Math.round((+n||0)*10)/10;      // до десятых, как у снимка на сервере: целые сантиметры сдвигали место и хеш — комната без правок не находила готовых кадров заготовки
   const refOf=it=>{const k=skuOf(it)||{}; let i=baseItems.findIndex(b=>b&&b.role===it.role&&b.sku&&k.name&&b.sku.name===k.name);
     if(i<0)i=baseItems.findIndex(b=>b&&b.role===it.role&&b.sku); return i>=0&&i<40?i:-1;};
   const keyOf=it=>{const k=skuOf(it)||{}; if(k.sid!=null&&k.sid!=='')return {sid:String(k.sid)};
     if(typeof k.pid==='string'&&k.pid)return {pid:k.pid}; const r=refOf(it); return r>=0?{ref:r}:null;};
-  const its=items.map(it=>Object.assign({role:it.role}, keyOf(it)||{}, {x:Math.round(+it.x||0), y:Math.round(+it.y||0),
+  const its=items.map(it=>Object.assign({role:it.role}, keyOf(it)||{}, {x:r1(it.x), y:r1(it.y),
     rot:((Math.round(+it.rot||0)%360)+360)%360, corner:!!it.corner, corner_left:!!it.corner_left, section:it.section==null?null:it.section}));
   if(items.some(it=>!keyOf(it)))throw new Error('no_sid');
   const cs=(cams||loadCams()).slice(0,2).map((c,k)=>{const p=camPoseOf(c);
@@ -12089,7 +12095,8 @@ async function vwRenderRun(job, cb){
     const take=v=>{ if(!v)return;
       const e=(v.eta_range&&+v.eta_range[1])||+v.eta||0, run=v.status==='running'||(v.queue===0&&v.status!=='queued');
       if(e&&(run?!job.estRun:e>(job.est||0))){job.est=e; if(run)job.estRun=true;}
-      job.queue=+v.queue||0; job.eta=+v.eta||0; if(v.percent!=null)job.pct=Math.max(job.pct||0,+v.percent||0); };
+      job.queue=+v.queue||0; job.eta=+v.eta||0; if(v.percent!=null)job.pct=Math.max(job.pct||0,+v.percent||0);
+      job.mach=(v.machine&&typeof v.machine==='object')?v.machine:null; };       // статус машины рендера — от сервера (T-20261118-10/7): «прогревается», «запасной путь»
     let r, j;
     try{ r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}); j=await r.json(); }catch(e){ j=null; }
     if(!j||!j.job){const e=new Error('order'); e.code=(j&&j.code)||'lost'; throw e;}

@@ -274,6 +274,23 @@ def say(*a):
     print(time.strftime('%H:%M:%S', time.gmtime()), *a, file=sys.stderr, flush=True)
 
 
+def journal(what: str, by: str, where: str) -> None:
+    """Строка в `tick.log` контроллера: КТО и ГДЕ включил/выключил машину (T-20261118-20/5: 18.11 в 10:10 машину погасил неизвестный — поле `by` в `state.json`
+    перезаписывается последним вызовом). `where` — место в коде; в строке ещё родительский процесс вызова (кто запустил `render_machine.py`: драйвер, заготовка,
+    бот, cron) и номер процесса. Сбой записи не мешает команде."""
+    try:
+        try:
+            with open(f'/proc/{os.getppid()}/cmdline', 'rb') as f:
+                parent = f.read().replace(b'\0', b' ').decode('utf-8', 'replace').strip()[:90]
+        except OSError:
+            parent = '?'
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(os.path.join(STATE_DIR, 'tick.log'), 'a', encoding='utf-8') as f:
+            f.write(f"{time.strftime('%H:%M:%S', time.gmtime())} {what} by={by} where={where} pid={os.getpid()} parent=[{parent}]\n")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 class Box:
     """Блокировка + чтение/запись состояния. Всё под одним flock: два нажатия кнопки идут по очереди."""
 
@@ -488,6 +505,7 @@ def execute(sal: Salad, rules: dict, acts: list, lang: str, spent: float) -> lis
 
 # ───────────────────────── команды ─────────────────────────
 def cmd_on(a, rules) -> str:
+    journal('on', a.by, 'cmd_on')
     sal = Salad(rules)
     with Box() as b:
         s = b.state
@@ -522,6 +540,7 @@ def cmd_on(a, rules) -> str:
 
 
 def cmd_off(a, rules) -> str:
+    journal('off', a.by, 'cmd_off')
     sal = Salad(rules)
     with Box() as b:
         s = b.state
@@ -632,6 +651,7 @@ def cmd_tick(a, rules) -> str:
         b.save()
         execute(sal, rules, acts, 'ru', s['spent_usd'])
         if any(x[0] == 'stop' for x in acts):
+            journal('stop', 'tick', 'cmd_tick reason=' + ','.join(str(x[1]) for x in acts if x[0] == 'stop' and len(x) > 1))      # автостоп контроллера (простой, прогрев, потеря…)
             _, st, _ = sal.group()
             if st in ('stopped', None):                   # подтверждённый стоп закрывает расход
                 _acc(b.state, time.time(), False, obs['price'])
