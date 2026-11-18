@@ -291,6 +291,11 @@ def tier_band(role,tier):
     флаге банка, иначе прежние квантили цен годных роли; T-20261118-61/6)."""
     return _PT.tier_band(role,tier,[x['price'] for x in cat.get(role,[])])
 
+def _price_ok(role,tier,price):
+    """Цена позиции в ступени ячейки по правилу класса роли (strict — своя, budgeted — своя ±1, exempt — любая). Режим выкл — всегда да
+    (прежний банк: путей без фильтра цены — ковёр, люстра — не трогаем). Для путей вне `pick2` (ковёр, люстра), T-20261118-61/7."""
+    return (not _PT.bank_segments_on()) or _PT.tier_violation(role,tier,price) is None
+
 # ---------- Ф1+Ф2+Ф3+Ф4+Ф5: скоринг ----------
 # ИДЕАЛ СЛОТА — ОДНО МЕСТО (conv-08, ADR-0270): `slot_rules.py` читает zones.json → template_slot_envelopes; тем же
 # модулем пользуется отчёт покрытия. Имена `slot_ideal` и `_SLOT_ENV` оставлены здесь для прежних импортов.
@@ -901,6 +906,7 @@ for bi,band in enumerate(COMP['bands']):
             for it in cat['ковёр']:
                 if not it['fp'] or re.search(r'ассортимент|мехов|ванн|придверн|подложк',it['name'].lower()): continue
                 if not overlap_ok(emb_key(it['mid'],it['eid']),style_name,chosen,role='ковёр',tier=tier): continue
+                if not _price_ok('ковёр',tier,it['price']): continue
                 rw=max(it.get('w') or 0, it.get('d') or 0) or None  # длинная сторона ковра
                 _too_big = bool(_rug_cap and rw and rw>_rug_cap)
                 _msr=((OCC or {}).get('rug_rules',{}) or {}).get('main_seating_rug_min',{}) \
@@ -950,6 +956,7 @@ for bi,band in enumerate(COMP['bands']):
                         # и ровно из-за неё 40 пар комплектов повторяли друг друга сверх нормы
                         # (4 общих товара при лимите 3, 2026-08-05)
                         if not overlap_ok(emb_key(it2['mid'],it2['eid']),style_name,chosen,role='ковёр',tier=tier): continue
+                        if not _price_ok('ковёр',tier,it2['price']): continue
                         l2=max(it2.get('w') or 0, it2.get('d') or 0)
                         if _tl and _rlo<=l2/_tl<=_rhi: _cands.append((l2,it2))
                     # АУДИТ ВЛАДЕЛЬЦА 21.08 + Codex: схема table_only НЕ исполняется солвером
@@ -979,9 +986,9 @@ for bi,band in enumerate(COMP['bands']):
         lu=[it for it in lu if overlap_ok(emb_key(it['mid'],it['eid']),style_name,chosen,role='люстра',tier=tier)]  # строго: лимит важнее люстры
         if lu:
             plo,phi=tier_band('люстра',tier)
-            lu2=[it for it in lu if plo<=it['price']<=phi] or lu
+            lu2=[it for it in lu if plo<=it['price']<=phi] or ([it for it in lu if _price_ok('люстра',tier,it['price'])] if _PT.bank_segments_on() else lu)
             lu3=[it for it in lu2 if not it.get('metal') or not ctx['metal'] or it['metal']==ctx['metal']] or lu2
-            chosen['люстра']=dict(lu3[len(lu3)//2],qty=1)
+            if lu3: chosen['люстра']=dict(lu3[len(lu3)//2],qty=1)   # при ВКЛ нет люстры в ступени — набор без неё (дыра, не цена вне ступени)
         # E1 (вердикт владельца set55): media-состав ОБЯЗАН иметь носитель ТВ — нет ни
         # стенки, ни тумбы → добираем тумбу в мягком режиме (любой тир, пометка дефицита)
         if 'стенка' not in chosen and 'тв-тумба' not in chosen:

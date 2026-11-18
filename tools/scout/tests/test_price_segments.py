@@ -141,6 +141,8 @@ finally:
 c2 = src['compose2.py']
 check('банк/7: compose2 — `soft` снимает цену только через `soft_may_drop_price` (strict/budgeted при ВКЛ держат ступень)',
       'soft_may_drop_price(role)' in c2 and re.search(r"not \(soft and _soft_drops\)", c2) and 'and not soft: continue' not in c2)
+check('банк/7: ковёр и люстра (пути вне pick2) при ВКЛ держат ступень по классу роли — `_price_ok`, при ВЫКЛ путь прежний',
+      c2.count("_price_ok('ковёр',tier,") == 2 and "_price_ok('люстра',tier," in c2 and '(not _PT.bank_segments_on()) or' in c2)
 check('банк/7: RICH при ВКЛ — тем же resolver, литералов 30/60 тыс. для ролей без границ нет', '_TIER_BAND_LIT' not in c2 and 'tier_band(role,t,ps,segments=True)' in c2)
 check('банк/7: ячейка без ядра при ВКЛ — NO_CORE_IN_TIER в гостиной, спальне и прихожей',
       all('NO_CORE_IN_TIER' in open(os.path.join(SCOUT, n), encoding='utf-8').read() and 'core_missing(' in open(os.path.join(SCOUT, n), encoding='utf-8').read()
