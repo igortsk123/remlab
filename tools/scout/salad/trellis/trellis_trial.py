@@ -143,7 +143,8 @@ class Gateway:
 def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_head=None) -> int:
     """Весь замер. `MG` — `migrate_groups` (API Salad), `BR` — `bench_run` (состояние группы, остановка с проверкой). Подмена обоих + `gw_factory`/`sleep`/`clock`/`hf_head` — тесты."""
     inputs = json.load(open(os.path.join(a.inputs, 'inputs.json'), encoding='utf-8'))
-    jobs = build_jobs(a.skus, parse_plan(a.plan), inputs, a.seed)
+    skus = a.skus or [k for k, v in inputs.items() if isinstance(v, dict) and v.get('input_png_sha256')]      # без --skus — весь набор из inputs.json (30 товаров)
+    jobs = build_jobs(skus, parse_plan(a.plan), inputs, a.seed)
     name = f'trial-{a.model}-{a.suffix}'
     price = price_usd_h(a.tier)
     MG.env_from_file()
@@ -303,7 +304,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--model', default='trellis2', choices=['trellis2'])
     ap.add_argument('--image', help='образ группы: тег или digest в ghcr.io/igortsk123/mesh-hunyuan')
-    ap.add_argument('--inputs', default=os.path.expanduser('~/remlab-logs/mesh-models-1118/trellis/inputs'))
+    ap.add_argument('--inputs', default=os.path.expanduser('~/remlab-logs/mesh-models-1118/trellis/inputs30'))
     ap.add_argument('--skus', nargs='*', default=[])
     ap.add_argument('--plan', default='1024:1', help='разрешения × повторов: 1024:1,1536:1')
     ap.add_argument('--seed', type=int, default=42)
@@ -312,8 +313,8 @@ def main() -> int:
     ap.add_argument('--tier', default='high', choices=['batch', 'low', 'medium', 'high'])
     ap.add_argument('--cpu', type=int, default=8)
     ap.add_argument('--mem-mb', type=int, default=32768)
-    ap.add_argument('--cap', type=float, default=3.0, help='потолок денег на ВЕСЬ замер, $')
-    ap.add_argument('--max-min', type=int, default=90)
+    ap.add_argument('--cap', type=float, default=2.0, help='потолок денег на ОДИН запуск (одну модель), $ — владелец TG 2064: $2 на модель, $10 на всю пробу')
+    ap.add_argument('--max-min', type=int, default=180)
     ap.add_argument('--ready-min', type=int, default=40, help='сколько минут после running ждать прогрева модели')
     ap.add_argument('--job-timeout', type=int, default=15)
     ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))
@@ -326,8 +327,8 @@ def main() -> int:
     if a.stop_only:
         MG.env_from_file()
         return 0 if BR.stop_and_verify(f'trial-{a.model}-{a.suffix}') else 1
-    if not a.image or not a.skus:
-        sys.exit('нужны --image и --skus')
+    if not a.image:
+        sys.exit('нужен --image')
     if '@' not in a.image and ':' not in a.image:
         sys.exit('--image: тег или digest с именем репозитория')
     return run(a, MG, BR)
