@@ -694,6 +694,7 @@ b_ = {'name': 'bundle-' + 'a' * 16 + '.tgz', 'sha256': 'a' * 64, 'size': 50}
 A_ = [JP.asset_ref('scene/tex/x.png', 'b' * 64, 100, 'tex'), JP.asset_ref('public/flat3d/m.webp', 'c' * 64, 7, 'map')]
 J_ = JP.new_job2('job1', b_, A_, ['--samples', '64', '--exposure', '-0.15'], {'blenderSec': 1500}, 'r1')
 ok('validate_job v=2: годное', JP.validate_job(J_, expect_id='job1') == '')
+ok('validate_job: значение с пробелами из пресета v3 («Khronos PBR Neutral») годится', JP.validate_job(JP.new_job2('job1', b_, A_, ['--transform', 'Khronos PBR Neutral', '--fill-k', '6500'], {}, 'r1'), expect_id='job1') == '')
 ok('validate_job: job_id обязан равняться имени каталога', JP.validate_job(J_, expect_id='job2') != '' and JP.validate_job(JP.new_job('job1', 'bundle-0123456789ab.tgz', '0123456789ab', [], {}), expect_id='x') != '')
 
 
@@ -708,7 +709,7 @@ def with_assets(assets, **kw):
 bads = {
     'лишнее поле': mut(extra=1), 'схема 3': mut(schema=3), 'v=3': mut(v=3), 'манифест подменён': mut(manifest_sha='0' * 64),
     'ассет подменён после подписи': mut(assets=[{**A_[0], 'size': 101}, A_[1]]),
-    'флаг воркера в args': mut(args=['--scene-dir']), '--out': mut(args=['--out']), 'пробел в аргументе': mut(args=['--a b']), 'не строка': mut(args=[5]),
+    'флаг воркера в args': mut(args=['--scene-dir']), '--out': mut(args=['--out']), 'пробел во флаге': mut(args=['--a b']), 'пробел по краю': mut(args=[' x']), 'двойной пробел': mut(args=['a  b']), 'кавычка': mut(args=['a"b']), 'точка с запятой': mut(args=['a;b']), 'не строка': mut(args=[5]),
     'args слишком много': mut(args=['-a'] * 65), 'лимиты: чужой ключ': mut(limits={'x': 1}), 'лимиты: строка': mut(limits={'blenderSec': '9'}), 'лимиты: 0': mut(limits={'blenderSec': 0}),
     'лимиты: bool': mut(limits={'blenderSec': True}), 'ракурсы': mut(cams=['C3']), 'ракурс дважды': mut(cams=['C1', 'C1']), 'created не число': mut(created='x'),
     'пакет: имя не из хеша': mut(bundle={**b_, 'name': 'bundle-' + 'b' * 16 + '.tgz'}), 'пакет: sha короткий': mut(bundle={**b_, 'sha256': 'a' * 12}),
@@ -729,6 +730,10 @@ ok('validate_job: больше 600 ассетов', JP.validate_job(with_assets(
 ok('validate_job: общий объём ассетов больше потолка', JP.validate_job(with_assets([JP.asset_ref(f'a/{i}.png', f'{i:064x}', 90 * 2 ** 20, 'tex') for i in range(20)]), expect_id='job1') != '')
 ok('manifest_sha: порядок ссылок не важен, любое изменение — другой хеш',
    JP.manifest_sha(b_, A_) == JP.manifest_sha(b_, A_[::-1]) and JP.manifest_sha(b_, A_) != JP.manifest_sha(b_, [A_[0]]) and JP.manifest_sha(b_, A_) != JP.manifest_sha({**b_, 'size': 51}, A_))
+
+# флаги ЖИВОГО пресета обязаны проходить строгую проверку задания (пресет v3 принёс «Khronos PBR Neutral» с пробелами — на живой машине это было бы bad_job)
+PRESET_FLAGS = json.load(open(os.path.join(HERE, '..', 'cycles_probe', 'render-preset.json'), encoding='utf-8'))['flags']
+ok('живой пресет: все флаги проходят validate_job (v=1 и v=2)', JP.validate_job(JP.new_job2('job1', b_, A_, PRESET_FLAGS, {}, 'r1'), expect_id='job1') == '' and JP.validate_job(JP.new_job('job1', 'bundle-0123456789ab.tgz', '0123456789ab', PRESET_FLAGS, {}), expect_id='job1') == '')
 
 # ——— размещение ассетов и распаковка пакета: границы
 wd = os.path.join(TMP, 'pl')

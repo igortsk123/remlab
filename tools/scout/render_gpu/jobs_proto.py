@@ -227,7 +227,17 @@ ASSET_TOTAL_MB = 1500                  # сумма по заданию
 _COMP = re.compile(r'^[A-Za-z0-9_][A-Za-z0-9_.\-]{0,127}$')      # один сегмент пути: не `.`/`..`, не скрытый, без пробелов и слэшей
 _HEX64 = re.compile(r'^[0-9a-f]{64}$')
 _JOB_ID = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.\-]{0,95}$')
-_ARG = re.compile(r'^[A-Za-z0-9_.,:=+\-]{1,100}$')
+_ARG = re.compile(r'^[A-Za-z0-9_.,:=+\- ]{1,100}$')      # значение может быть с пробелами («Khronos PBR Neutral», пресет v3): воркер запускает Blender списком, без оболочки
+
+
+def _arg_ok(a) -> bool:
+    """Аргумент: строка из безопасных знаков; флаг (`-…`) — без пробелов; значение — без пробелов по краям и двойных."""
+    if not isinstance(a, str) or not _ARG.match(a):
+        return False
+    if a.startswith('-'):
+        return ' ' not in a
+    return a == a.strip() and '  ' not in a
+
 _BUNDLE1 = re.compile(r'^bundle-[0-9a-f]{12}\.tgz$')
 _BUNDLE2 = re.compile(r'^bundle-[0-9a-f]{16}\.tgz$')
 # флаги, которые воркер ставит сам — задание не может подменить пути и сцену своими
@@ -269,7 +279,7 @@ def _common_check(job: dict) -> str:
     if not isinstance(cams, list) or not cams or len(cams) > len(CAMS) or len(set(cams)) != len(cams) or any(c not in CAMS for c in cams):
         return 'ракурсы'
     args = job.get('args')
-    if not isinstance(args, list) or len(args) > 64 or any((not isinstance(a, str)) or not _ARG.match(a) for a in args):
+    if not isinstance(args, list) or len(args) > 64 or not all(_arg_ok(a) for a in args):
         return 'аргументы'
     # пути и сцену задаёт воркер сам — задание не может подменить их своими флагами
     if any(a in OWN_FLAGS for a in args):
