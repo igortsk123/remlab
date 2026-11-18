@@ -194,6 +194,9 @@ def _cy():
             n = store.load()
             q = RJ.RenderQueue(store, ex, workers=int(os.environ.get('RENDER_WORKERS', 1)))
             q.start()
+            wp = getattr(ex, 'warm_prep', None)
+            if callable(wp):
+                wp()                                           # процессы подготовки (Python/Chromium) поднимаются сразу при старте сервиса, не по первому заказу
             _CY.update(ex=ex, store=store, q=q, versions=ex.versions() if hasattr(ex, 'versions') else {})
             print(f'рендер фото: исполнитель {ex.name}, в очереди после перезапуска {n}', flush=True)
         return _CY
@@ -735,8 +738,22 @@ class H(BaseHTTPRequestHandler):
         return self._send(404, {'error': 'нет такого пути'})
 
     def _cycles_post(self, payload: dict, raw: bytes) -> None:
+        """Обёртка: если заказ обрабатывается дольше POST_STALL_DUMP_S (3 с) — в журнал уходят стеки ВСЕХ потоков (что держит ответ; T-20261118-10/8: разовые POST 5–9 с на живом сервисе)."""
+        import faulthandler
+        lim = float(os.environ.get('POST_STALL_DUMP_S', '3'))
+        if lim > 0:
+            faulthandler.dump_traceback_later(lim, repeat=False, file=sys.stderr)
+        try:
+            return self._cycles_post_inner(payload, raw)
+        finally:
+            if lim > 0:
+                faulthandler.cancel_dump_traceback_later()
+
+    def _cycles_post_inner(self, payload: dict, raw: bytes) -> None:
         """ЗАКАЗ РЕНДЕРА (контракт снимка — `render_snapshot.py`): проверка → хеш → ключ кэша → очередь. Тур — только от приложения
         (внутренний ключ): данные задания страница не присылает, снимок сверяется с ними. Отказ — код и пара RU/EN, до постановки."""
+        t_in = time.time()
+        marks = [('вход', t_in)]                          # линейка заказа на POST: где ушло время (строка в журнал, если дольше 1 с — T-20261118-10/8)
         ip = self.client_ip
         check = payload.get('check') is True            # «проверка»: хеш текущей расстановки и есть ли готовые кадры — без постановки и без счёта заказов
         if ip and not ip_allowed(ip, 'cycles-check' if check else 'cycles'):
@@ -752,6 +769,7 @@ class H(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             print(f'рендер фото: не поднялся ({str(e)[:120]})', flush=True)
             return self._send(503, CY_UNAVAILABLE)
+        marks.append(('очередь поднята', time.time()))
         internal = _internal_ok(self.headers.get('x-internal-token'))
         tid = payload.get('trial')
         if tid not in (None, ''):
@@ -773,16 +791,24 @@ class H(BaseHTTPRequestHandler):
             snap = RS.canonicalize(data, payload, source)
         except RS.SnapshotError as e:
             return self._send(e.status, e.body())
+        marks.append(('снимок', time.time()))
         key = RX.cache_key(snap['scene_hash'], cy['versions'])
         if check:
             return self._send(200, {'kind': 'render', 'check': True, 'v': RS.SNAPSHOT_VERSION, 'scene_hash': snap['scene_hash'], 'key': key,
                                     'cached': cy['store'].cached(key) is not None, 'versions': cy['versions']})
         prio = 1 if (internal and payload.get('prio') == 1) else 0
+        marks.append(('ключ', time.time()))
         try:
-            res = cy['q'].submit(snap, key, ip=ip or 'local', tour=tid, prio=prio, legacy=_legacy_order(snap))
+            leg = _legacy_order(snap)
+            marks.append(('legacy', time.time()))
+            res = cy['q'].submit(snap, key, ip=ip or 'local', tour=tid, prio=prio, legacy=leg)
         except RJ.Refusal as e:
             return self._send(e.status, e.body())
+        marks.append(('постановка', time.time()))
         v = cy['q'].view(res['job']) or {}
+        marks.append(('вид', time.time()))
+        if marks[-1][1] - t_in > 1.0:
+            print('рендер фото: POST дольше 1 с — ' + ', '.join(f'{n} +{b - a:.2f}' for (_, a), (n, b) in zip(marks, marks[1:])), flush=True)
         return self._send(200, {'job': res['job'], 'kind': 'render', 'v': RS.SNAPSHOT_VERSION, 'scene_hash': snap['scene_hash'], 'key': key,
                                 'status': res['status'], 'cached': res['cached'], 'deduped': res['deduped'], 'versions': cy['versions'],
                                 **{k: v[k] for k in ('queue', 'eta', 'eta_range', 'machine') if k in v}})

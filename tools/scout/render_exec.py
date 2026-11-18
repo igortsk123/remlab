@@ -15,6 +15,7 @@
   3. `render_cycles.py` в Blender — по кадру на ракурс C1, C2, настройки — `cycles_probe/render-preset.json` (в ключе кэша).
 Блендер и выгрузчик запускаются отдельными процессами в своей группе: по таймауту, памяти (RSS дерева) — убивается всё дерево.
 """
+import contextlib
 import hashlib
 import json
 import os
@@ -154,6 +155,7 @@ DUMP_KEEP_GB = float(os.environ.get('RENDER_DUMP_KEEP_GB', '2.4'))          # т
 # (иначе первый же заказ поднимал бы память выше потолка и процесс гасился бы после него); при прогреве выше потолка — стоп. `RENDER_HOT_WARM=0` — без прогрева.
 HOT_WARM = os.environ.get('RENDER_HOT_WARM', '1') != '0'
 HOT_HEADROOM_GB = float(os.environ.get('RENDER_HOT_HEADROOM_GB', '0.4'))
+PREP_IDLE_S = float(os.environ.get('RENDER_PREP_IDLE_S', '1200'))             # постоянные процессы подготовки живут столько тишины (раньше 120 с: заказ через >2 мин после прошлого платил холодный старт +10…14 с, замер T-10/6)
 HOT_IDLE_S = float(os.environ.get('RENDER_HOT_IDLE_S', '1.5'))              # прогрев начинается, когда после заказа прошло столько тишины
 
 
@@ -525,6 +527,11 @@ class ExportClient:
         finally:
             self._hot_thr = None
 
+    def ensure(self) -> None:
+        """Поднять и прогреть процесс, если он не жив (фоном, до заказа): заказ, пришедший раньше, подождёт замок — не дольше холодного старта. Живой — ничего."""
+        if not self._alive():
+            self._rewarm()
+
     def _rewarm(self) -> None:
         """Фоном: поднять свежий процесс и прогреть (`warm`: браузер/импорты) под тем же замком — заказ, пришедший раньше, подождёт его готовности (не дольше холодного старта)."""
         with self.lock:
@@ -600,6 +607,7 @@ class SceneExecutor:
     def wake_for_order(self) -> None:
         """Зовёт очередь при заказе человека (в фоне): машина выключена и включение по заказу разрешено — включаем; сбой в журнал (заказ дальше разберётся сам)."""
         try:
+            self.warm_prep()                                  # процессы подготовки — к заказу готовы (сцена готовится параллельно прогреву машины)
             if self.wake_phase() == 'off_wakeable':
                 self.wake('order')
         except Exception as e:  # noqa: BLE001
@@ -881,6 +889,53 @@ class SceneExecutor:
             self._prep_store(root, key, job)
         return dump
 
+    def _prep_env(self) -> dict:
+        return {'PYTHONPATH': os.pathsep.join([os.path.join(REPO, 'tools', 'scout'), os.path.join(REPO, 'services', 'planner-solver')]),
+                'EXPORT_PREVIEW': '0' if prep_fast() else '1', 'EXPORT_SERVER_IDLE_S': f'{PREP_IDLE_S:g}'}      # быстрая подготовка: превью кадра не рисуем; простой постоянного процесса — PREP_IDLE_S
+
+    def _export_client(self, env: dict | None = None):
+        return ExportClient.of([self.python, os.path.join(PROBE, 'export_server.py')], env or self._prep_env(), os.path.join(REPO, 'tools', 'scout'), keep_gb=EXPORT_KEEP_GB, hot_gb=EXPORT_KEEP_GB - HOT_HEADROOM_GB)
+
+    def _dump_client(self, bundle: str):
+        return ExportClient.of([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), '--serve', bundle], {'DUMP_SERVER_IDLE_S': f'{PREP_IDLE_S:g}'}, os.path.join(REPO, 'tools', 'scout'), slot='dump', keep_gb=DUMP_KEEP_GB, hot_gb=DUMP_KEEP_GB - HOT_HEADROOM_GB)
+
+    def warm_prep(self) -> None:
+        """Поднять и прогреть постоянные процессы подготовки (Python-выгрузка, Node+Chromium) ДО заказа — при старте сервиса и когда заказ включает машину; фоном, сбой не страшен
+        (заказ поднимет сам). Раньше первый заказ после тишины платил холодный старт (экспорт 16 с вместо 2–3; замер T-20261118-10/6)."""
+        if not (prep_fast() and persistent_on()):
+            return
+
+        def go():
+            try:
+                bundle = self._bundle(os.path.join(self.work, 'warm-prep.log'))
+                for c in (self._export_client(), self._dump_client(bundle)):
+                    c.ensure()
+                self._warm_scene()
+            except Exception as e:  # noqa: BLE001 — прогрев необязателен
+                print(f'рендер: прогрев процессов подготовки не вышел: {type(e).__name__}: {str(e)[:100]}', flush=True)
+        threading.Thread(target=go, name='render-warm-prep', daemon=True).start()
+
+    def _warm_scene(self) -> None:
+        """Один настоящий прогон подготовки (первый вариант витрины, результат выбрасываем): страница Chromium строит первую сцену (шейдеры, текстуры) и Python разбирает первые меши ДО заказа —
+        иначе первый заказ платит +3 с (дамп 5 с против 2,5 на втором; замер T-20261118-10/8). Низкий приоритет в очереди тяжёлых прогонов; нет данных витрины — молча пропускаем."""
+        try:
+            import showcase_assets as SA
+            scenes = SA.build_scenes(SA.DEMO_DATA, SA.REISSUE_ROOT, None, True, lambda *a: None)
+        except Exception:  # noqa: BLE001
+            return
+        if not scenes:
+            return
+        snap = scenes[0][1]
+        pr = preset()
+        job = self._job_dir('gjob-w-', snap)
+        shutil.rmtree(job, ignore_errors=True)
+        os.makedirs(job)
+        try:
+            with (self._slot('warm-prep', pr, 0) if hasattr(self, '_slot') else contextlib.nullcontext()):
+                self._prepare(snap, job, os.path.join(job, 'run.log'), pr, lambda s: None, {})
+        finally:
+            shutil.rmtree(job, ignore_errors=True)
+
     def _prepare_fresh(self, snap: dict, job: str, log: str, pr: dict, progress, timing: dict) -> str:
         """Шаги 1–2: данные варианта → `export_scene.py` (job/scene) → `demo_scene_dump.mjs` (job/dump). → каталог dump."""
         lim = pr['limits']
@@ -892,8 +947,7 @@ class SceneExecutor:
         data_path = os.path.join(job, 'data.json')
         json.dump(data, open(data_path, 'w', encoding='utf-8'), ensure_ascii=False)
         progress('scene')
-        env = {'PYTHONPATH': os.pathsep.join([os.path.join(REPO, 'tools', 'scout'), os.path.join(REPO, 'services', 'planner-solver')]),
-               'EXPORT_PREVIEW': '0' if prep_fast() else '1'}      # быстрая подготовка: превью кадра не рисуем (нужны только записи выгрузки); выкл. — прежний путь
+        env = self._prep_env()
         bundle = self._bundle(log)
         dump = os.path.join(job, 'dump')
         dlog = log + '.dump'
@@ -917,7 +971,7 @@ class SceneExecutor:
                                             lim['exportSec'], lim['maxRssGb'], env=env, cwd=os.path.join(REPO, 'tools', 'scout'), what='меши и камеры')
                 if prep_fast() and persistent_on():                # постоянный процесс: без импортов и разбора уже виденных мешей; сбой (не время) — один раз отдельным процессом, как раньше
                     try:
-                        ExportClient.of([self.python, os.path.join(PROBE, 'export_server.py')], env, os.path.join(REPO, 'tools', 'scout'), keep_gb=EXPORT_KEEP_GB, hot_gb=EXPORT_KEEP_GB - HOT_HEADROOM_GB).export(data_path, job, log, lim['exportSec'], lim['maxRssGb'])
+                        self._export_client(env).export(data_path, job, log, lim['exportSec'], lim['maxRssGb'])
                     except RenderError as e:
                         if e.code == 'render_timeout':
                             raise
@@ -992,7 +1046,7 @@ class SceneExecutor:
                                     lim['dumpSec'], lim['maxRssGb'], what='декор и отделка')
         if prep_fast() and persistent_on():                        # постоянный Chromium со страницей: без запуска и без повторного разбора мешей; сбой (не время) — отдельным процессом, как раньше
             try:
-                ExportClient.of([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), '--serve', bundle], {}, os.path.join(REPO, 'tools', 'scout'), slot='dump', keep_gb=DUMP_KEEP_GB, hot_gb=DUMP_KEEP_GB - HOT_HEADROOM_GB).call(
+                self._dump_client(bundle).call(
                     {'cmd': 'dump', 'data': data_path, 'idx': 0, 'out': os.path.dirname(dump), 'log': dlog, 'extra': extra}, lim['dumpSec'], lim['maxRssGb'])
             except RenderError as e:
                 if e.code == 'render_timeout':
@@ -1729,6 +1783,11 @@ class Fallback:
 
     def wake_for_order(self) -> None:
         f = getattr(self.primary, 'wake_for_order', None)
+        if callable(f):
+            f()
+
+    def warm_prep(self) -> None:
+        f = getattr(self.primary, 'warm_prep', None)
         if callable(f):
             f()
 

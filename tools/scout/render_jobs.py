@@ -335,7 +335,10 @@ class RenderQueue:
         `warm` — заготовка кадров программой (T-20261118-07): пределы покупателя (`admit`) её не касаются и не считают, в очереди она всегда после заказов людей
         и считается только на машине рендера (`warm_ok`); место в очереди для людей и срок ожидания она не занимает."""
         st = self.store
+        t_lock = time.time()
         with st.lock:
+            if time.time() - t_lock > 1.0:                   # замок хранилища держали дольше секунды (запись файла заданий и т. п.) — в журнал: заказ ждал
+                print(f'рендер: заказ ждал замок хранилища {time.time() - t_lock:.1f} с', flush=True)
             for jid, j in st.jobs.items():                   # одинаковый ключ — одно задание
                 if j.get('key') == key and j.get('status') in ('queued', 'running'):
                     return {'job': jid, 'status': j['status'], 'deduped': True, 'cached': False}
