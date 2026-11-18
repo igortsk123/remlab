@@ -6350,6 +6350,13 @@ function reportAct(kind){
 // та же строка слоя EN («Make it realistic»), подсказка переводится шаблоном с ней же — надписи не разойдутся
 // «СДЕЛАТЬ ФОТО» (T-20261110-40, владелец 10.11 TG 932): было «Сделать реалистичнее» — в туре и в /demo одно слово
 const CTA_REAL='Сделать фото', CTA_REAL_EN='Take photo';
+// «СДЕЛАТЬ ФОТО» = РЕНДЕР, «УЛУЧШИТЬ ФОТО» = НЕЙРОСЕТЬ ПОВЕРХ РЕНДЕРА (T-20261117-20/2, владелец 17.11 TG 1665–1670): две кнопки, два слова, одно
+// место (кнопка шторки). Слова хода и ошибки — дословно владельца: «Делаю фото · N %» / «Улучшаю · N %»; ошибка — TG 1667, без «бесплатно»
+const CTA_IMPROVE=['Улучшить фото','Enhance photo'];
+// малый телефон: «Улучшить» — значок-искры (А, как есть) или значок + короткое слово (Б). Выбор владельца ещё не сделан (T-20261117-20/4): Б включается ?impw=1, по умолчанию — А
+const CTA_IMPROVE_SHORT=['Улучшить','Enhance'], IMP_WORD=(()=>{try{return /[?&]impw=1\b/.test(location.search);}catch(e){return false;}})();
+const PHOTO_ERR_TXT=['Расстановка сохранена, но что-то пошло не так. Попробуйте ещё раз.','Your layout is saved, but something went wrong. Please try again.'];
+const PHOTO_RETRY=['Повторить','Try again'];
 // ЗАМЕНА МЯГКОГО (владелец 23.10): в 3D подушки нет — обычный затухающий тост «Нажмите «<кнопка>», чтобы увидеть изменения»
 function softSwapToast(){toast(`Нажмите «${CTA_REAL}», чтобы увидеть изменения`);}
 // СКОЛЬКО ВИДНО (T-20261112-117, владелец TG 1357: «исчезать в течение двух секунд»): сопровождение — 2 с вместе с угасанием 0,25 с;
@@ -7008,12 +7015,12 @@ function shareMask(){return {currency:FLAT.currency, lang:LANG, mask:true};}
 function shareLabel(s){
   if(!MASK())return shotLabel(s);
   const st=String((window.__trText&&window.__trText(String(styleOf(s)).toLowerCase()))||''), t=new Date(s.ts||Date.now());
-  const q={draft:'sketch',realistic:'photorealistic',preset:'ready-made'}[s.quality]||'';
+  const q={draft:'sketch',realistic:'photorealistic',render:'photo',preset:'ready-made'}[s.quality]||'';
   return [/[А-Яа-яЁё]/.test(st)?'':st, q, t.getHours()+':'+String(t.getMinutes()).padStart(2,'0')].filter(Boolean).join(' · ');}
 function shotLabel(s){
   // СЛОВА ПОКУПАТЕЛЯ, А НЕ НАШИ (аудит 01.09, Г1): «черновое/улучшенное» — внутренние термины
   // конвейера; человеку важно, эскиз перед ним или фотография.
-  const q={draft:'эскиз',realistic:'фотореалистично',preset:'готовое'}[s.quality]||s.quality;
+  const q={draft:'эскиз',realistic:'фотореалистично',render:'фотореалистично',preset:'готовое'}[s.quality]||s.quality;
   const cam='';           // ракурс не пишем: виды листаются внутри просмотра (27.08)
   const t=new Date(s.ts||Date.now());
   return `${styleOf(s)} · ${q}${cam?' · '+cam:''} · ${t.getHours()}:${String(t.getMinutes()).padStart(2,'0')}`;
@@ -8053,7 +8060,32 @@ function photoWait(t0){
 // перерисовывает его секундный тик задания (`vwRealistic`)
 // «УЛУЧШАЮ», А НЕ «РИСУЕМ ФОТО» (владелец 22.10, demo-20 А6): фото не рисуется заново — расстановку улучшает нейросеть; одна подпись
 // для кнопки окна (`vwCtaUi`) и карточки избранного
-const photoWaitText=w=>(LANG==='en'?'Enhancing · ':'Улучшаю · ')+w.text;
+// ХОД — В ПРОЦЕНТАХ (владелец 17.11 TG 1668: «Улучшаю · N %»): процент — доля прошедшего от ожидаемого (`photoWait`)
+const photoWaitText=w=>(LANG==='en'?'Enhancing · ':'Улучшаю · ')+Math.floor(w.pct)+' %';
+// ХОД ЗАДАНИЯ ФОТО — ОДНО МЕСТО (T-20261117-20/2): рендер («Сделать фото», `job.kind==='render'`) — проценты и срок из ответа сервера
+// (`percent`, `eta`, `eta_range`; не `PHOTO_EST_S`), «Улучшить фото» — прежний отсчёт нейросети. → {pct, left, text, note}: подпись хода,
+// строка под ней (срок, очередь, «можно закрыть страницу» — только у долгого рендера)
+function jobProg(job){
+  const EN=LANG==='en';
+  if(job&&job.kind==='render'){
+    // МАШИНА ПРОГРЕВАЕТСЯ (сервер, T-20261118-10/7): заказ человека включил выключенную машину — честно говорим, что идёт прогрев, а не рисуем проценты и «около минуты»:
+    // текст RU/EN и срок (`machine.eta_s`) — из ответа сервера; полоса — на нуле, процент не показываем (его ещё нет)
+    const mc=job.mach;
+    if(mc&&mc.state==='warming'){const t=EN?(mc.text_en||mc.text):(mc.text||mc.text_en);
+      if(t)return {pct:0, left:Math.max(0,+mc.eta_s||0), text:t, note:job.queue>0?(EN?'In the queue: ':'В очереди: ')+job.queue:'', warm:true};}
+    const pct=Math.max(0,Math.min(99,job.pct||0)), e=job.est||0;
+    // срок — из ответа сервера: до ~1,5 мин «около минуты», дальше «около N минут» (до 5 мин — по минутам, дольше — по 5); долгий — с «можно закрыть страницу»
+    const long=e>=300, mins=e<300?Math.max(2,Math.round(e/60)):Math.round(e/300)*5;
+    let note=e<90?(EN?'Usually about a minute':'Обычно около минуты'):(EN?`Usually about ${mins} min`:`Обычно около ${mins} мин`);
+    // ЗАКАЗ УШЁЛ НА ЗАПАСНОЙ ПУТЬ (сервер: `machine.state==='fallback'`): причина — текстом сервера вместо «Обычно около N мин»; проценты и срок — как у запасного
+    if(job.mach&&job.mach.state==='fallback'){const ft=EN?(job.mach.text_en||job.mach.text):(job.mach.text||job.mach.text_en); if(ft)note=ft;}
+    if(job.queue>0)note=(EN?'In the queue: ':'В очереди: ')+job.queue+' · '+note.charAt(0).toLowerCase()+note.slice(1);
+    if(long)note+=EN?'. You can close the page — the photo will be saved':'. Можно закрыть страницу — фото сохранится';
+    return {pct, left:Math.max(0,job.eta||0), text:(EN?'Rendering · ':'Делаю фото · ')+Math.floor(pct)+' %', note};
+  }
+  const w=photoWait(job?job.t0:Date.now());
+  return {pct:w.pct, left:w.left, text:photoWaitText(w), note:''};
+}
 function photoWaitHtml(t0){const w=photoWait(t0);
   return `<div class="pwait" data-pwait="${t0}" data-left="${w.left}"><i style="width:${w.pct.toFixed(1)}%"></i><span>${escHtml(photoWaitText(w))}</span></div>`;}
 function photoWaitPaint(){
@@ -9821,6 +9853,11 @@ function editKeep(){ const v=allVariants()[cur]; if(!editShelf(v)||!items||!item
 .vcta-bar{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(255,255,255,.22);transition:width 1s linear;pointer-events:none}
 .vcta-t,.vcta.busy small{position:relative}
 .vcta-err{font-size:13px;color:#B3261E;margin:6px 2px 0;line-height:1.4}
+/* ошибка фото на месте кнопки шторки: текст и «Повторить» (T-20261117-20/2, владелец TG 1667) */
+.vcta-err{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;margin:0 2px}
+.vcta-err .vcta-et{display:block;text-align:center}
+.vcta-err{box-sizing:border-box}
+.vcta-retry{width:100%;min-height:40px;border-radius:999px;font-weight:600}
 /* тур пробы (T-20261109-34): комнате без доверия к размерам вместо кнопки фото — тихая строка; пустой блок кнопки в туре не показываем */
 .vcta-note{margin:0;padding:4px 0 2px;font-size:13.5px;line-height:1.35;color:var(--muted);text-align:center}
 body.trial .vtop:not(:has(.vcta:not([hidden]),#vCtaErr,#vCtaNote)){display:none}
@@ -9968,9 +10005,13 @@ div.vcth{background:var(--wash)}
   #shot .vsumrow>.vcta.vico{flex:none;width:40px;height:40px;min-height:40px;margin:0;padding:0;border-radius:50%;border:1px solid var(--line);
    background:rgba(255,255,255,.92);color:var(--ink);box-shadow:var(--e3);display:flex;align-items:center;justify-content:center;overflow:visible}
   #shot .vsumrow>.vcta.vico svg{display:block}
+  /* вариант Б (?impw=1, T-20261117-20/4): «Улучшить» — значок и короткое слово в одной таблетке той же высоты; название справа ужимается многоточием, а не наезжает */
+  #shot .vsumrow>.vcta.vico.vword{flex-direction:row;width:auto;max-width:132px;padding:0 13px 0 10px;border-radius:999px;gap:5px;font-size:13.5px;font-weight:600;white-space:nowrap}
+  #shot .vsumrow>.vcta.vico.vword svg{width:18px;height:18px;flex:none}
+  #shot .vsumrow>.vcta.vico.vword .vico-w{display:inline;line-height:1}
   #shot .vsumrow>.vcta.vico.busy{cursor:default;color:var(--accent);
    background:radial-gradient(closest-side,#fff 80%,transparent 83%),conic-gradient(var(--accent) calc(var(--p,0)*1%),var(--line) 0)}
-  #shot .vsumrow>.vcta-err{flex:1 0 100%;margin:4px 0 2px 14px}
+  #shot .vsumrow>.vcta-err{flex:1 0 calc(100% - 24px);width:auto;margin:4px 10px 2px 14px;box-sizing:border-box;align-items:stretch}
   /* «Фото»: кнопки нет (снимок уже есть) — пустой блок не добавляет высоты свёрнутой шторке */
   .vtop:not(:has(.vcta:not([hidden]),#vCtaErr,#vCtaNote)){display:none}
   .vlist{padding:0 14px}
@@ -11345,6 +11386,7 @@ function vwMount(s){
   // «Сделать реалистичнее» — в 3D (demo-09): фоновое задание, окно не трогаем; «План» — «Изменить план»
   if(cta)cta.onclick=()=>{
     if(VW.mode==='plan'){if(vwEditLock())return; const ed=document.getElementById('shEdit'); if(ed&&ed.onclick)ed.onclick(); return;}
+    if(VW.mode==='photo'){if(vwCtaKind()==='improve')vwImprove(); return;}   // «Фото»: «Улучшить фото» — нейросеть по этому рендеру (T-20261117-20/2)
     if(TRIAL()&&!trPhotoHere()){vwMode('photo'); return;}   // тур, фото нельзя: «Фото» с карточкой, как его получить (T-20261111-05 п.2)
     if(vwPickCta())return;   // «3D»: первое нажатие — окошки (T-108); ушли с точки — текущий вид в ракурс 1, ждём второй (T-76/2)
     if(VW.mode==='walk'&&VSL.open){VSL.open=null; vwCamsUi(); vwCtaUi();}   // заказ ушёл с позами окошек — окошки прячем, снова переключатель видов
@@ -11467,11 +11509,20 @@ function vwMode(m){
 // Только «realistic» с номером состояния = текущему; по точке съёмки — последний снимок. Номер состояния и есть расстановка: вариант
 // не сверяем (demo-20 Б3, владелец 22.10: у избранного id `c:<id>`, а фото, снятое до сохранения, записано на вариант витрины —
 // «Фото» в окне избранного не появлялось). Старые снимки без номера — как раньше, по варианту и списку товаров
+const vwIsPhoto=x=>!!x&&(x.quality==='realistic'||x.quality==='render');   // «фото» окна: рендер Blender или улучшенное нейросетью
+// ЧТО ПОКАЗАНО В «ФОТО» ЭТОЙ РАССТАНОВКИ: 'render' — только рендер (предлагаем «Улучшить фото»), 'improved' — есть улучшенное (кнопок нет), '' — фото нет
+function vwPhotoKind(){
+  const r=vwRealShots(); if(!r.length)return '';
+  return r.some(x=>x.quality==='realistic')?'improved':'render';
+}
 function vwRealShots(){
   if(!D||!items)return [];
   const vid=curVid(), st=curStateId(), by=new Map();
   const v=allVariants()[cur];
-  shots.forEach(x=>{if(x.quality==='realistic'&&x.url&&!x.svc&&!x.orphan&&shotCamOk(x,cams)&&(x.stateId?x.stateId===st:x.vid===vid&&shotFits(x,v)))by.set(x.camera||'C1',x);});
+  // КАДР «ФОТО» — РЕНДЕР ИЛИ УЛУЧШЕННОЕ (T-20261117-20/2): у точки улучшенное фото (`realistic`) перекрывает рендер той же расстановки;
+  // рендера нет — показан улучшенный, и наоборот. «Улучшить фото» предлагается, пока у точки только рендер (`vwPhotoKind`)
+  shots.forEach(x=>{if(vwIsPhoto(x)&&x.url&&!x.svc&&!x.orphan&&shotCamOk(x,cams)&&(x.stateId?x.stateId===st:x.vid===vid&&shotFits(x,v))){
+    const cur0=by.get(x.camera||'C1'); if(cur0&&cur0.quality==='realistic'&&x.quality==='render')return; by.set(x.camera||'C1',x);}});
   // НЕТРОНУТЫЙ ВАРИАНТ ВИТРИНЫ БЕЗ ФОТО СВОЕЙ РАССТАНОВКИ — ФОТО, КАК НА ГЛАВНОЙ (T-20261107-42, владелец TG 451 «режим фото пропал»):
   // пересборка данных днём сменила номер состояния, а карточка главной берёт прежнее фото того же варианта (`realPubPick`, T-35/2) —
   // окно открывалось в 3D без «Фото». Окно = опубликованная расстановка (номер = `pubStateOf`) → та же выборка по каждой точке; правка
@@ -11511,7 +11562,7 @@ function vwStalePick(v0){
   if(!D||(live&&!items)||!shots.length)return none;
   const v=live?(allVariants()[cur]||{}):v0, h=live?histOf():(HIST[editVid(v)]||{stack:[],at:-1}), vid=live?curVid():editVid(v);
   const cs=live?(cams||loadCams()):camsOfVariant(v);
-  const ok=x=>x.quality==='realistic'&&x.url&&!x.svc&&!x.orphan&&shotCamOk(x,cs);
+  const ok=x=>vwIsPhoto(x)&&x.url&&!x.svc&&!x.orphan&&shotCamOk(x,cs);   // прежнее фото — и рендер, и улучшенное (T-20261117-20/2)
   const byCam=L=>{const by=new Map(); L.slice().sort((a,b)=>(+a.ts||0)-(+b.ts||0)).forEach(x=>by.set(x.camera||'C1',x)); return by;};
   const out=(by,to)=>({list:[...by.values()].sort((a,b)=>String(a.camera||'C1').localeCompare(String(b.camera||'C1'))), to});
   let best=null;
@@ -11744,7 +11795,10 @@ function vwJobHere(){ try{return !!(VJ.job&&VJ.job.stateId===curStateId());}catc
 // смотреть 3D/план и вращать взгляд можно. Правка — `if(vwEditLock())return;` в начале каждой точки входа
 function vwEditLock(){
   if(!vwJobHere())return false;
-  toastErr(LANG==='en'?'You can change things once the enhancement is finished':'Менять можно, когда улучшение закончится');
+  // рендер («Сделать фото») — слова владельца 17.11 (TG 1668); улучшение — прежние
+  const rd=VJ.job&&VJ.job.kind==='render', EN=LANG==='en';
+  toastErr(rd?(EN?'You can change things once the photo is ready':'Менять можно, когда фото будет готово')
+    :(EN?'You can change things once the enhancement is finished':'Менять можно, когда улучшение закончится'));
   return true;
 }
 // КАДР ПОД «УЛУЧШАЮ…» (fable-lead 22.10: ход — поверх расстановки, не на пустом фоне): вид 3D, каким его видел человек; живой
@@ -11757,7 +11811,7 @@ async function vwPhGrab(job){
       if(b){job.bg=URL.createObjectURL(b); return;}}}catch(e){}
   vwPhDraft(job);
 }
-function vwPhDraft(job){const d=shots.filter(x=>x.stateId===job.stateId&&x.url&&!x.orphan&&x.quality!=='realistic').pop(); if(d)job.bg=d.url;}
+function vwPhDraft(job){const d=shots.filter(x=>x.stateId===job.stateId&&x.url&&!x.orphan&&!vwIsPhoto(x)).pop(); if(d)job.bg=d.url;}
 function vwPhWaitUi(){
   const wrap=document.querySelector('#shot .shotwrap'); if(!wrap)return;
   trPhotoStubUi();   // тур: фото пошло рисоваться (или готово) — карточка «как получить фото» уходит
@@ -11770,7 +11824,8 @@ function vwPhWaitUi(){
   el.classList.toggle('v3d',w3);
   if(!VJ.job.bg)vwPhDraft(VJ.job);   // окно открыли посреди задания (автофото избранного) — хотя бы черновик
   // под ходом — прежнее фото комнаты (`vwPhotoShots`, T-20261108-74): кадр 3D не кладём, фото затемнено, как у `.vstale`
-  const old=!w3&&!vwRealShots().length&&vwPhotoShots().length>0;
+  // «Улучшаю» — под ходом тот же рендер, что улучшают (затемнён), а не кадр 3D (T-20261117-20/2)
+  const old=!w3&&(VJ.job.kind==='improve'?vwRealShots().length>0:(!vwRealShots().length&&vwPhotoShots().length>0));
   const bg=old||w3?'':(VJ.job.bg||''); if(el.dataset.bg!==bg){el.dataset.bg=bg; el.style.backgroundImage=bg?'url("'+bg+'")':''; el.classList.toggle('vbg',!!bg);}
   el.classList.toggle('vprev',old);   // не `.vold` — так называется плашка «Фото нейросети…»
   // шторка поднята так, что карточке тесно между верхними кнопками и шторкой (короткий телефон, шторка на середине): сперва карточка
@@ -11778,17 +11833,30 @@ function vwPhWaitUi(){
   el.classList.remove('vcompact','vtight');
   if(VW_PHONE()){const cs=getComputedStyle(el), room=el.clientHeight-parseFloat(cs.paddingTop)-parseFloat(cs.paddingBottom), c=el.firstChild;
     if(c&&room<c.offsetHeight){el.classList.add('vcompact'); if(room<c.offsetHeight)el.classList.add('vtight');}}
-  const w=photoWait(VJ.job.t0), EN=LANG==='en', nt=/^осталось/.test(VJ.job.note||'')?'':(VJ.job.note||'');
-  el.querySelector('b').textContent=(EN?'Enhancing… ':'Улучшаю… ')+Math.floor(w.pct)+' %';
+  // ход — «Делаю фото · N %» (рендер, проценты и срок от сервера) или «Улучшаю · N %» (T-20261117-20/2)
+  const w=jobProg(VJ.job), nt=/^осталось/.test(VJ.job.note||'')?'':(VJ.job.note||'');
+  el.querySelector('b').textContent=w.text;
   el.querySelector('s').style.width=w.pct.toFixed(1)+'%';
-  el.querySelector('small').textContent=nt||w.text;
+  el.querySelector('small').textContent=VJ.job.kind==='render'?(w.note||nt):(nt||photoWait(VJ.job.t0).text);
 }
 // МАЛЫЙ ТЕЛЕФОН (владелец 12.11 TG 1724): iPhone SE и подобные — видимая высота до ~620 px или экран до 700 px; 390×844 и шире — как прежде
 const VW_SMALL_MQ='(max-width:700px) and (max-height:620px), (max-width:700px) and (max-device-height:700px)';
 const vwSmall=()=>{try{return matchMedia(VW_SMALL_MQ).matches;}catch(e){return false;}};
 const VW_CAM_SVG='<svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+
   '<path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.3l1.4-2h5.6l1.4 2h2.3A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="13" r="3.6"/></svg>';
+const VW_SPARK_SVG='<svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true" fill="currentColor"><path d="M11 3.5l1.7 4.9 4.9 1.7-4.9 1.7L11 16.7l-1.7-4.9L4.4 10.1l4.9-1.7z"/><path d="M18 14.5l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9z"/></svg>';
 try{matchMedia(VW_SMALL_MQ).addEventListener('change',()=>{if(document.getElementById('vCta'))vwCtaUi();});}catch(e){}
+// ЧТО СЕЙЧАС ДЕЛАЕТ ГЛАВНАЯ КНОПКА ШТОРКИ (T-20261117-20/2, владелец 17.11 TG 1665–1670 — «строго по аналогии с нынешним GPT»):
+//   'plan' — «Изменить план»; 'busy' — идёт задание (рендер или улучшение), ход на кнопке; 'make' — «Сделать фото» (рендер), только в «3D»
+//   и только пока фото ЭТОЙ расстановки нет (или человек выбирает ракурсы); 'improve' — «Улучшить фото» (нейросеть по рендеру), только в
+//   «Фото» и только пока показан рендер без улучшения; '' — кнопки нет (фото есть и улучшено, или фото есть и мы в 3D)
+function vwCtaKind(){
+  const m=VW.mode; if(m==='plan')return 'plan';
+  if(VJ.job)return 'busy';
+  if(m==='photo')return vwPhotoKind()==='render'&&(!TRIAL()||trPhotoHere())?'improve':'';
+  if(vwSlotsOpen())return 'make';                     // выбор ракурсов уже начат — кнопка нужна и при готовом фото
+  return vwRealShots().length?'':'make';
+}
 function vwCtaUi(){
   const cta=document.getElementById('vCta'); if(!cta)return; const m=VW.mode, EN=LANG==='en';
   const vt=document.querySelector('#vside .vtop'), h0=vt?vt.offsetHeight:0;
@@ -11797,33 +11865,48 @@ function vwCtaUi(){
   if(shot)shot.classList.toggle('vsmall',ico);
   if(ico&&cta.parentElement!==row)row.append(cta); else if(!ico&&vt&&cta.parentElement!==vt)vt.prepend(cta);
   if(cta.classList.contains('vico')!==ico){cta.classList.toggle('vico',ico); cta.textContent='';}
-  cta.hidden=m==='photo';
+  // ошибка прежней расстановки не висит над новой (T-20261117-20/2): сменили расстановку — текст и «Повторить» уходят
+  if(VJ.err&&VJ.errState&&VJ.errState!==curStateId())VJ.err='';
+  const kind=vwCtaKind();
+  // ошибка — на месте кнопки: текст и «Повторить» (кнопка шторки на это время скрыта), как просил владелец (TG 1667)
+  cta.hidden=!kind||(!!VJ.err&&kind!=='plan'&&kind!=='busy');
   if(!ico){cta.removeAttribute('aria-label'); cta.removeAttribute('title'); cta.style.removeProperty('--p');}
   // ждём второй ракурс (окошки «3D», T-20261112-76/2) — «Запомнить ракурс 2» вместо «Сделать фото»
   // окошки открыты (T-20261112-108) — следующее нажатие снимает: «Снять эти ракурсы»
-  const lab0=m==='walk'&&vwPickOn()?(EN?'Save view 2':'Запомнить ракурс 2'):m==='walk'&&vwSlotsOpen()?(EN?'Shoot these views':'Снять эти ракурсы'):(EN?CTA_REAL_EN:CTA_REAL);
-  if(ico){const w=VJ.job?photoWait(VJ.job.t0):null, lab=w?photoWaitText(w):lab0;   // подпись — и отсчёт съёмки
-    cta.classList.toggle('busy',!!w); if(!cta.querySelector('svg'))cta.innerHTML=VW_CAM_SVG;
-    cta.style.setProperty('--p',w?w.pct.toFixed(1):'0'); cta.setAttribute('aria-label',lab); cta.title=lab;
-    if(w)cta.dataset.left=w.left;}
+  const lab0=kind==='improve'?CTA_IMPROVE[EN?1:0]
+    :m==='walk'&&vwPickOn()?(EN?'Save view 2':'Запомнить ракурс 2'):m==='walk'&&vwSlotsOpen()?(EN?'Shoot these views':'Снять эти ракурсы'):(EN?CTA_REAL_EN:CTA_REAL);
+  const jp=VJ.job?jobProg(VJ.job):null;
+  if(ico){const lab=jp?jp.text:lab0;   // подпись — и ход задания
+    // значок: камера — «Сделать фото», искры — «Улучшить фото» и ход улучшения (T-20261117-20/2: на малом телефоне подпись только в `aria-label`)
+    const spark=jp?VJ.job.kind==='improve':kind==='improve', word=spark&&!jp&&IMP_WORD, ik=spark?(word?'w':'s'):'c';
+    cta.classList.toggle('busy',!!jp); cta.classList.toggle('vword',word);
+    if(!cta.querySelector('svg')||cta.dataset.ik!==ik){cta.innerHTML=ik==='c'?VW_CAM_SVG:VW_SPARK_SVG+(word?'<span class="vico-w">'+CTA_IMPROVE_SHORT[EN?1:0]+'</span>':''); cta.dataset.ik=ik;}
+    cta.style.setProperty('--p',jp?jp.pct.toFixed(1):'0'); cta.setAttribute('aria-label',lab); cta.title=lab;
+    if(jp)cta.dataset.left=jp.left;}
   else if(m==='plan'){cta.classList.remove('busy'); cta.textContent=EN?'Edit the plan':'Изменить план';}
-  else if(VJ.job){cta.classList.add('busy'); const w=photoWait(VJ.job.t0);
-    // на самой кнопке ползёт полоса и убывают секунды (demo-19 В1); узлы живут всё задание — полоса едет плавно, а не прыгает.
-    // Подпись сервера — только очередь и обрыв связи: его «осталось примерно» заменяет один отсчёт
-    const nt=/^осталось/.test(VJ.job.note||'')?'':(VJ.job.note||'');
+  else if(jp){cta.classList.add('busy');
+    // на самой кнопке ползёт полоса и растут проценты (demo-19 В1); узлы живут всё задание — полоса едет плавно, а не прыгает.
+    // Подпись сервера — только очередь и обрыв связи: его «осталось примерно» заменяет один ход
+    const nt=jp.note||(/^осталось/.test(VJ.job.note||'')?'':(VJ.job.note||''));
     if(!cta.querySelector('.vcta-bar'))cta.innerHTML='<span class="vcta-bar"></span><span class="vcta-t"></span><small></small>';
-    cta.querySelector('.vcta-bar').style.width=w.pct.toFixed(1)+'%';
-    cta.querySelector('.vcta-t').textContent=photoWaitText(w);
-    const sm=cta.querySelector('small'); sm.textContent=nt; sm.hidden=!nt; cta.dataset.left=w.left;}
-  else{cta.classList.remove('busy'); cta.textContent=lab0;}
+    cta.querySelector('.vcta-bar').style.width=jp.pct.toFixed(1)+'%';
+    cta.querySelector('.vcta-t').textContent=jp.text;
+    const sm=cta.querySelector('small'); sm.textContent=nt; sm.hidden=!nt; cta.dataset.left=jp.left;}
+  else{cta.classList.remove('busy'); if(cta.textContent!==lab0||cta.querySelector('.vcta-bar'))cta.textContent=lab0;}
   if(!VJ.job||m==='plan')delete cta.dataset.left;
   // ТУР ПРОБЫ: «Изменить план» в туре нет. «СДЕЛАТЬ ФОТО» В 3D — КАК В /demo (T-20261111-05 п.2, владелец TG 991): та же кнопка на том же
   // месте и тем же словом, и когда фото сделать нельзя (размерам не верим, планировка не подтверждена; было — тихая строка вместо кнопки,
   // T-20261109-34). Нажатие тогда не заказывает фото, а открывает «Фото» с карточкой «Чтобы сделать фото, подтвердите планировку» (`trPhotoStubUi`)
   if(TRIAL()&&m==='plan')cta.hidden=true;
   const tn=document.getElementById('vCtaNote'); if(tn)tn.remove();
+  // ОШИБКА ФОТО (владелец 17.11 TG 1667): «Расстановка сохранена, но что-то пошло не так. Попробуйте ещё раз.» и «Повторить» — на месте кнопки
   let er=document.getElementById('vCtaErr');
-  if(VJ.err&&m!=='photo'){if(!er){er=document.createElement('p'); er.id='vCtaErr'; er.className='vcta-err'; cta.after(er);} er.textContent=VJ.err;}
+  if(VJ.err&&m!=='plan'){
+    if(!er){er=document.createElement('p'); er.id='vCtaErr'; er.className='vcta-err'; er.innerHTML='<span class="vcta-et"></span><button type="button" class="btn vcta-retry"></button>'; cta.after(er);}
+    else if(er.previousElementSibling!==cta)cta.after(er);
+    er.querySelector('.vcta-et').textContent=VJ.err;
+    const rb=er.querySelector('.vcta-retry'); rb.textContent=PHOTO_RETRY[EN?1:0];
+    rb.onclick=()=>{VJ.err=''; vwCtaUi(); if(vwCtaKind()==='improve')vwImprove(); else vwRealistic();};}
   else if(er)er.remove();
   // кнопка — в шапке шторки (v5.2): шапка сменила высоту — края шторки заново, свёрнутая остаётся свёрнутой с кнопкой целиком
   if(VW_PHONE()&&vt&&vt.offsetHeight!==h0)vwLayout();
@@ -11942,7 +12025,9 @@ function vwViewsRun(key,press){
   run.p=VPF.q.then(async()=>{
     if(!press&&(!vwPreOk()||vwPreKey()!==key))return null;               // устарела, пока ждала очереди
     if(!press&&vwPreTouched()){vwPreSoon(); return null;}               // человек трогает страницу — съёмку откладываем
-    const k0=press?vwPreKey():key, up=press||vwPreUpOk(2);
+    // кадры заранее больше не грузим на сервер (T-20261117-20/2: «Сделать фото» — рендер по расстановке, кадры из 3D нужны только окошкам ракурсов
+    // и автофото избранного — оно грузит их по нажатию, `vwViewsNow`)
+    const k0=press?vwPreKey():key, up=press;
     const c=await vwCaptureViews({stale:press?null:()=>vwPreKey()!==key||!vwPreOk(), touched:press?null:vwPreTouched, noUpload:!up});
     if(!c)return null;
     // `capture` заново запускает цикл кадров — вне «3D» (окно закрыто, «План», «Фото») он не нужен, как у `liveShotTake`
@@ -11970,28 +12055,129 @@ document.addEventListener('remlab:hist',vwPreSoon);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(VPF.t); else vwPreSoon();});
 // АВТОФОТО ИЗБРАННОГО (demo-19 В3): тот же путь, `o.auto` — отказ без текста на экране (остаётся 3D-снимок), `o.fail` — сообщить
 // избранному. Готовое фото любого задания (и ручного) — событие `remlab:photo`: избранное этого состояния берёт его картинкой
+// ЗАКАЗ РЕНДЕРА «СДЕЛАТЬ ФОТО» (T-20261117-20/2; сервер — `draft_service.py` `/render/cycles`, контракт — `render_snapshot.py`, `contracts/trial.ts`):
+// страница шлёт СВОЮ расстановку — номер варианта данных, предметы (`sid`, место) и две позы C1/C2; размеры, товары и декор сервер берёт сам
+function vwRenderReq(){
+  const v=allVariants()[cur]||{}, R=roomOf(v);
+  if(!R||!items||!items.length)throw new Error('no_layout');
+  // товар предмета — ровно один ключ (контракт `contracts/trial.ts`): /demo — `sid`; тур — `sid` в публичных данных нет, есть `pid` (`p1:…`, T-20261118-03/9);
+  // у плоского предмета без ключа (ковёр, картина, зеркало без модели) — `ref`: номер предмета в варианте (его данные сервер берёт из варианта, а не от страницы)
+  const vid=String((v.mine&&v.baseVariant)||v.id||''), bv=allVariants().find(x=>String(x.id)===vid)||v;      // `ref` — номер в варианте НА СЕРВЕРЕ (у «моего» — исходный)
+  const baseItems=Array.isArray(bv.items)?bv.items:[];
+  const r1=n=>Math.round((+n||0)*10)/10;      // до десятых, как у снимка на сервере: целые сантиметры сдвигали место и хеш — комната без правок не находила готовых кадров заготовки
+  const refOf=it=>{const k=skuOf(it)||{}; let i=baseItems.findIndex(b=>b&&b.role===it.role&&b.sku&&k.name&&b.sku.name===k.name);
+    if(i<0)i=baseItems.findIndex(b=>b&&b.role===it.role&&b.sku); return i>=0&&i<40?i:-1;};
+  const keyOf=it=>{const k=skuOf(it)||{}; if(k.sid!=null&&k.sid!=='')return {sid:String(k.sid)};
+    if(typeof k.pid==='string'&&k.pid)return {pid:k.pid}; const r=refOf(it); return r>=0?{ref:r}:null;};
+  const its=items.map(it=>Object.assign({role:it.role}, keyOf(it)||{}, {x:r1(it.x), y:r1(it.y),
+    rot:((Math.round(+it.rot||0)%360)+360)%360, corner:!!it.corner, corner_left:!!it.corner_left, section:it.section==null?null:it.section}));
+  if(items.some(it=>!keyOf(it)))throw new Error('no_sid');
+  const cs=(cams||loadCams()).slice(0,2).map((c,k)=>{const p=camPoseOf(c);
+    return Object.assign({name:c.name||'C'+(k+1), x:Math.round(c.x), y:Math.round(c.y), rot:Math.round(c.rot||0), fov:c.fov||72, pose:POSE_VER},
+      typeof p.pshift==='number'&&isFinite(p.pshift)?{pshift:p.pshift}:{});});
+  return {mode:'render', v:1, variant_id:vid, room_id:roomIdOf(v), room:{w:+R.w, d:+R.d}, items:its, cams:cs};
+}
+// «Улучшить фото»: рендер ЭТОЙ расстановки, из которого сделаны показанные кадры (ключ и два кадра рендера); нет рендера — улучшать нечего
+function vwImproveSrc(){
+  const r=vwRealShots().filter(x=>x.quality==='render'&&x.renderKey&&/^[0-9a-f]{64}$/.test(x.fid||''));
+  const key=r.length?r[0].renderKey:''; const rr=r.filter(x=>x.renderKey===key);
+  return rr.length>=2?{key, views:rr.slice(0,2).map(x=>({camera:x.camera||'C1', id:x.fid}))}:null;
+}
+// отказ → текст: свой у кодов тура, где «попробуйте ещё раз» неверно (тур обновился, срок вышел, суточный предел, нет доверия к размерам); все остальные — слова владельца (TG 1667)
+function vwPhotoErrText(code){ const EN=LANG==='en';
+  return (/^(stale|expired|photo_limit|photo_not_allowed)$/.test(code||'')&&trPhotoErr(code))||PHOTO_ERR_TXT[EN?1:0]; }
+const vwSleep=ms=>new Promise(ok=>setTimeout(ok,ms));
+// Ход рендера: заказ → опрос `/api/job?id=` каждые 2 с (проценты, место в очереди, срок — из ответа сервера) → два кадра. Обрыв связи — ждём тот же
+// номер (задание хранится на сервере и досчитается), не заказываем заново. Срок ожидания — 45 мин (запасной путь на процессоре — 15–18 мин и очередь)
+async function vwRenderRun(job, cb){
+  const reqV=allVariants()[cur]||{}, reqProducts=productsOf(items), rev=revision(), t0=Date.now();
+  try{
+    const body=vwRenderReq();
+    const url=TRIAL()?'/api/trial/'+trJobId()+'/photo'+(trKey()?'?k='+trKey():''):'/api/render/cycles';
+    const take=v=>{ if(!v)return;
+      const e=(v.eta_range&&+v.eta_range[1])||+v.eta||0, run=v.status==='running'||(v.queue===0&&v.status!=='queued');
+      if(e&&(run?!job.estRun:e>(job.est||0))){job.est=e; if(run)job.estRun=true;}
+      job.queue=+v.queue||0; job.eta=+v.eta||0; if(v.percent!=null)job.pct=Math.max(job.pct||0,+v.percent||0);
+      job.mach=(v.machine&&typeof v.machine==='object')?v.machine:null; };       // статус машины рендера — от сервера (T-20261118-10/7): «прогревается», «запасной путь»
+    let r, j;
+    try{ r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}); j=await r.json(); }catch(e){ j=null; }
+    if(!j||!j.job){const e=new Error('order'); e.code=(j&&j.code)||'lost'; throw e;}
+    take(j); vwCtaUi(); vwPhWaitUi();
+    let res=null, miss=0, first=true; const deadline=Date.now()+45*60000;
+    for(;;){
+      if(!(first&&j.status==='done'))await vwSleep(first?600:2000); first=false;
+      if(Date.now()>deadline){const e=new Error('timeout'); e.code='timeout'; throw e;}
+      let jj=null;
+      try{ const rr=await fetch('/api/job?id='+encodeURIComponent(j.job),{cache:'no-store'}); jj=await rr.json(); }catch(e){ ++miss; continue; }
+      miss=0;
+      if(jj&&jj.status==='done'&&jj.frames&&jj.frames.length){res=jj; break;}
+      if(!jj||jj.status==='error'||(jj.code&&!jj.status)){const e=new Error('job'); e.code=(jj&&jj.code)||'failed'; throw e;}
+      take(jj); vwCtaUi(); photoWaitPaint(); vwPhWaitUi();
+      if(miss>=3){job.note=LANG==='en'?'No connection to the server. Waiting, the photo is not lost':'Нет связи с сервером. Ждём, фото не потеряно';}
+    }
+    // всё, что нужно кадру, кладём сразу: привязку к варианту (`vid`) и номеру состояния — иначе кадр «пропадёт» до перезагрузки (27.08)
+    const batch='b'+Date.now(), n0=shots.length;
+    res.frames.forEach(f=>addShot({url:f.url, camera:f.camera||'C1', quality:'render', batch, anchors:[], products:reqProducts,
+      variant:reqV.title||'', style:reqV.style||'', vid:job.vid, revision:rev, stateId:job.stateId, cams:body.cams, engine:'cycles',
+      ts:Date.now(), model:'', sources:'', timing:res.timing||null, renderKey:res.key||'', sceneHash:res.scene_hash||'', fid:f.id||'', cached:!!res.cached}));
+    cb.done(n0);
+  }catch(err){
+    try{console.info('рендер фото не вышел',err&&err.code,err&&err.message);}catch(_){}
+    cb.fail(vwPhotoErrText(err&&err.code), err&&err.code);
+  }
+}
+// АВТОФОТО ИЗБРАННОГО (demo-19 В3): прежний путь «кадры 3D → нейросеть» (`o.auto`) — отказ без текста на экране (остаётся 3D-снимок), `o.fail` —
+// сообщить избранному. «Сделать фото» (T-20261117-20/2) — РЕНДЕР; «Улучшить фото» (`o.improve`) — нейросеть по рендеру. Готовое фото любого
+// задания — событие `remlab:photo`: избранное этого состояния берёт его картинкой
 async function vwRealistic(o){
   if(TRIAL()&&(!trPhotoHere()||(o&&o.auto)))return false;   // тур: только своя кнопка комнаты с доверием к размерам (T-20261109-34)
-  o=(o&&o.auto)?o:{};
+  o=(o&&(o.auto||o.improve))?o:{};
   if(VJ.job)return false;
-  const c=VW.photo, job={vid:curVid(), stateId:curStateId(), cam:c, t0:Date.now(), note:'', auto:!!o.auto};
+  const src=o.improve?vwImproveSrc():null; if(o.improve&&!src)return false;
+  const c=VW.photo, job={vid:curVid(), stateId:curStateId(), cam:c, t0:Date.now(), note:'', auto:!!o.auto, kind:(o.auto||o.improve)?'improve':'render', pct:0, est:0, queue:0, eta:0};
   const favDraw=()=>{try{if(window.__fav)window.__fav.draw();}catch(e){}};
-  VJ.job=job; VJ.err=''; vwCtaUi(); clearInterval(VJ.tick); VJ.tick=setInterval(()=>{vwCtaUi(); photoWaitPaint(); vwPhWaitUi();},1000); favDraw();
-  // в «Фото» кадров заранее нет (T-20261113-16) — съёмка по нажатию: ход «Улучшаю…» на экране сразу и успевает нарисоваться до неё
+  VJ.job=job; VJ.err=''; VJ.errState=''; vwCtaUi(); vwStaleUi(); clearInterval(VJ.tick); VJ.tick=setInterval(()=>{vwCtaUi(); photoWaitPaint(); vwPhWaitUi();},1000); favDraw();
+  // в «Фото» кадров заранее нет (T-20261113-16) — съёмка по нажатию: ход на экране сразу и успевает нарисоваться до неё
   if(VW.mode==='photo'&&!o.auto){vwPhWaitUi(); await new Promise(ok=>afterPaint(ok));}
-  // ОКНО ЭТОЙ РАССТАНОВКИ ОТКРЫТО — СРАЗУ «ФОТО» С ХОДОМ РАБОТЫ (demo-20 Б3, владелец 22.10 TG 791/795): и по кнопке «Сделать реалистичнее»,
+  // ОКНО ЭТОЙ РАССТАНОВКИ ОТКРЫТО — СРАЗУ «ФОТО» С ХОДОМ РАБОТЫ (demo-20 Б3, владелец 22.10 TG 791/795): и по кнопке «Сделать фото»,
   // и при добавлении в избранное (автофото) — одинаково; готовое фото встанет туда само
   const shotEl=document.getElementById('shot'), here=()=>shotEl.classList.contains('on')&&shotEl.classList.contains('v2')&&job.stateId===curStateId();
   job.tm={};
-  // кадры сняты заранее — заглушка из кадра той же камеры, что будет на фото; снимаются — встанет из них ниже (T-20261109-32)
+  // кадры сняты заранее — заглушка из кадра той же камеры, что будет на фото; снимаются — встанет из них ниже (T-20261109-32). Рендеру и
+  // улучшению кадры 3D не нужны — только заглушка под ходом (улучшение — сам рендер, он уже на экране)
   const pre=vwPreReady();
-  if(here()){if(!pre)await vwPhGrab(job); else if(pre.blobs&&pre.blobs.length)job.bg=URL.createObjectURL(pre.blobs[job.cam]||pre.blobs[0]); else vwPhDraft(job);
+  if(here()){
+    if(!o.improve){if(!pre)await vwPhGrab(job); else if(pre.blobs&&pre.blobs.length)job.bg=URL.createObjectURL(pre.blobs[job.cam]||pre.blobs[0]); else vwPhDraft(job);}
     if(here()){VJ.self=1; vwMode('photo'); VJ.self=0;}}
   job.tm.grab=Date.now()-job.t0;
   const end=()=>{clearInterval(VJ.tick); if(VJ.job===job)VJ.job=null; vwCtaUi();
     if(job.bg&&job.bg.startsWith('blob:'))setTimeout(()=>URL.revokeObjectURL(job.bg),3000);
     // не вышло — вкладка «Фото» без снимка исчезает, человек возвращается в 3D
     if(here()&&VW.mode==='photo'&&!vwRealShots().length){VJ.self=1; vwMode('walk'); VJ.self=0;} else vwModeUi();};
+  const fail=(msg)=>{end(); if(job.auto){if(o.fail)o.fail(msg); favDraw(); return;} VJ.err=String(msg||'').slice(0,220); VJ.errState=job.stateId; vwCtaUi(); favDraw();};
+  const done=(n0)=>{end();
+      try{document.dispatchEvent(new CustomEvent('remlab:photo',{detail:{stateId:job.stateId, shots:shots.slice(n0)}}));}catch(e){}
+      const shot=document.getElementById('shot'), open=shot.classList.contains('on')&&shot.classList.contains('v2');
+      // ГОТОВО → «ФОТО» САМО, если расстановка с нажатия не менялась; иначе — снимок в истории и подсказка (владелец 37.2). Сверка —
+      // по номеру состояния, не по id варианта: сохранение в избранное посреди задания делает окно коллекцией `c:<id>` с той же
+      // расстановкой (demo-20 Б3, владелец 22.10: «фото не обновилось, кнопки «Фото» нет»); автофото избранного — так же
+      const same=job.stateId===curStateId();
+      // на «Фото» или не уходил с неё — показываем готовое; ушёл сам в 3D/план — вкладка «Фото» просто есть
+      // ушёл в 3D/план или закрыл окно — заметное «Фото готово · Смотреть» (demo-20 Г5): иначе о готовом фото не узнать
+      const toPhoto=()=>{VJ.self=1; vwMode('photo'); VJ.self=0;};
+      if(open&&same){VW.photo=job.cam; if(VW.mode==='photo'||!job.moved)toPhoto(); else{vwModeUi(); vwPhotoReady(toPhoto);} return;}
+      if(open){const mine=shots.slice(n0).find(x=>(x.camera||'C1')==='C'+(job.cam+1))||shots[n0]; if(mine)vwReady(mine.url); return;}
+      // окно закрыто: «Смотреть» открывает расстановку, для которой фото (окно само встанет на «Фото», `openLiveWindow`)
+      if(!job.auto){const i=allVariants().findIndex(v=>variantStateOf(v)===job.stateId); if(i>=0)vwPhotoReady(()=>vwOpenVariant(i));}};
+  // «СДЕЛАТЬ ФОТО» — РЕНДЕР: кадры из 3D браузера не снимаем, сервер строит сцену из данных варианта (бесплатно, без брони нейросети)
+  if(!o.auto&&!o.improve){vwRenderRun(job,{done,fail}); return true;}
+  // «УЛУЧШИТЬ ФОТО» — нейросеть по готовому рендеру: заказ несёт `render_key` и два кадра рендера, расстановку, комнату и позы сервер берёт из снимка
+  // рендера, а не из слов страницы (`draft_service._apply_render_order`); тур — тот же заказ через ручку тура (`views` — те же два кадра)
+  if(o.improve){
+    makePhoto('realistic','','',{bg:true, extra:{render_key:src.key, views:src.views},
+      progress:t=>{job.note=t; vwCtaUi();}, fail:(msg,code)=>fail(vwPhotoErrText(code)), done});
+    return true;
+  }
   // кадры этой расстановки сняты заранее (T-20261109-32) — сразу; снимаются — ждём ту же съёмку; иначе снимаем сейчас
   let cap=await vwViewsNow();
   // расстановку поменяли, пока снимались кадры: заказ (`makePhoto` берёт товары и номер состояния сейчас) и кадры должны быть об
@@ -12006,24 +12192,11 @@ async function vwRealistic(o){
   // тур пробы: без кадров из 3D фото нет — серверной сцены для него не строим (T-20261109-34, владелец TG 567)
   if(TRIAL()&&!(cap&&cap.views)){end(); VJ.err=trPhotoErr('no_views'); vwCtaUi(); return true;}
   makePhoto('realistic','','',{bg:true, extra:cap?{views:cap.views, clay:cap.clay, sheet:cap.sheet}:{},
-    progress:t=>{job.note=t; vwCtaUi();},
-    fail:(msg)=>{end(); if(job.auto){if(o.fail)o.fail(msg); favDraw(); return;} VJ.err=String(msg||'').slice(0,220); vwCtaUi(); favDraw();},
-    done:(n0)=>{end();
-      try{document.dispatchEvent(new CustomEvent('remlab:photo',{detail:{stateId:job.stateId, shots:shots.slice(n0)}}));}catch(e){}
-      const shot=document.getElementById('shot'), open=shot.classList.contains('on')&&shot.classList.contains('v2');
-      // ГОТОВО → «ФОТО» САМО, если расстановка с нажатия не менялась; иначе — снимок в истории и подсказка (владелец 37.2). Сверка —
-      // по номеру состояния, не по id варианта: сохранение в избранное посреди задания делает окно коллекцией `c:<id>` с той же
-      // расстановкой (demo-20 Б3, владелец 22.10: «фото не обновилось, кнопки «Фото» нет»); автофото избранного — так же
-      const same=job.stateId===curStateId();
-      // на «Фото» или не уходил с неё — показываем готовое; ушёл сам в 3D/план — вкладка «Фото» просто есть
-      // ушёл в 3D/план или закрыл окно — заметное «Фото готово · Смотреть» (demo-20 Г5): иначе о готовом фото не узнать
-      const toPhoto=()=>{VJ.self=1; vwMode('photo'); VJ.self=0;};
-      if(open&&same){VW.photo=job.cam; if(VW.mode==='photo'||!job.moved)toPhoto(); else{vwModeUi(); vwPhotoReady(toPhoto);} return;}
-      if(open){const mine=shots.slice(n0).find(x=>(x.camera||'C1')==='C'+(job.cam+1))||shots[n0]; if(mine)vwReady(mine.url); return;}
-      // окно закрыто: «Смотреть» открывает расстановку, для которой фото (окно само встанет на «Фото», `openLiveWindow`)
-      if(!job.auto){const i=allVariants().findIndex(v=>variantStateOf(v)===job.stateId); if(i>=0)vwPhotoReady(()=>vwOpenVariant(i));}}});
+    progress:t=>{job.note=t; vwCtaUi();}, fail, done});
   return true;
 }
+// «Улучшить фото» — кнопка «Фото» (T-20261117-20/2)
+function vwImprove(){ return vwRealistic({improve:true}); }
 function vwPhotoReady(fn){
   const EN=LANG==='en'; toast(EN?'Photo ready':'Фото готово',{label:EN?'View':'Смотреть', fn});
 }
@@ -12121,7 +12294,7 @@ const LIVE={ok:/[?&]live=0(?:&|$)/.test(location.search)?false:null, force:/[?&]
 // ПОЗА КАДРА: эскиз, снятый прежней позой камеры, устарел, даже если расстановка та же (номер состояния камеры не включает,
 // Codex 14.10). Фото нейросети не трогаем — оно и так подписано «расстановка могла отличаться».
 function poseStale(s){
-  if(!s||!s.url||s.quality==='realistic')return false;
+  if(!s||!s.url||vwIsPhoto(s))return false;
   const c=(s.cams||[])[0]; return !c||(+c.pose||1)!==POSE_VER;
 }
 function liveStale(s){

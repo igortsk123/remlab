@@ -37,6 +37,8 @@ const ST = () => { const vis = el => !!el && getComputedStyle(el).display !== 'n
     await p.waitForFunction(() => LIVE.scene && LIVE.state === 'ready', null, { timeout: 240000 }); await p.waitForTimeout(2500);
     // заказ фото — подмена: пишем позы, что ушли бы в фото; на сервер ничего не уходит
     await p.evaluate(() => { window.__orders = []; window.vwRealistic = function () { window.__orders.push((cams || loadCams()).slice(0, 2).map(c => ({ x: c.x, y: c.y, rot: c.rot, user: !!c.user }))); }; });
+    // T-20261117-20/2: у расстановки с готовым фото кнопки «Сделать фото» нет — правим расстановку (фото этой расстановки нет → кнопка 📷 в 3D)
+    await p.evaluate(() => { const k = items.findIndex(i => i.role && !/ковер|ковёр/.test(i.role)); items[k].x += 23; draw(); histPush(); }); await p.waitForTimeout(2500);
     const st = () => p.evaluate(ST);
     // программная 3D грузит процессор — кнопка «стабильной» для Playwright бывает не сразу: обычное нажатие, не вышло за 15 с — без ожидания
     const tap = async sel => { const l = p.locator(sel).first();

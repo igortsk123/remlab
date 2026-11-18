@@ -14,6 +14,7 @@ function jpegSize(b){for(let i=2;i<b.length-9;){if(b[i]!==0xFF){i++;continue;} c
   if(m===0xC0||m===0xC2)return [b.readUInt16BE(i+7),b.readUInt16BE(i+5)]; i+=2+L;} return null;}
 async function page(b,q,lang){
   const ctx=await b.newContext({viewport:{width:W,height:H},deviceScaleFactor:2,isMobile:W<=700,hasTouch:W<=700,locale:lang==='en'?'en-GB':'ru-RU'});
+  ctx.setDefaultTimeout(120000);   // снимок экрана на 1440 под программной графикой идёт десятки секунд (среда проверки, не страница)
   const p=await ctx.newPage(); p.errs=[]; p.on('pageerror',e=>p.errs.push(String(e)));
   if(!prod){const F=JSON.parse(fs.readFileSync(SP+'/floorlib/scene.json','utf8')).file;
     await p.route(/\/demo\/lib\/scene\.json/,r=>r.fulfill({status:200,contentType:'application/json',body:fs.readFileSync(SP+'/floorlib/scene.json','utf8')}));
@@ -22,16 +23,23 @@ async function page(b,q,lang){
     await p.route(/\/demo\/lib\/basket\.[0-9a-f]+\.js/,r=>r.fulfill({status:200,contentType:'text/javascript',body:fs.readFileSync(SP+'/floorlib/'+r.request().url().split('/').pop().split('?')[0],'utf8')}));
     await p.route(/\/demo\/(\?.*)?$/,r=>r.fulfill({status:200,contentType:'text/html; charset=utf-8',body:fs.readFileSync('tools/scout/flat215-demo/index.html','utf8')}));}
   await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
-  // подмена съёмки: задание отвечает «готово» по флагу страницы `__fakeReady` (сценарий 3 успевает изменить расстановку)
-  await p.route(/\/api\/render/,r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({job:'fake-'+Date.now()})}));
+  // подмена съёмки (T-20261117-20/2): «Сделать фото» — заказ РЕНДЕРА `/api/render/cycles` (ход с процентами, готово → два кадра), «Улучшить фото» —
+  // заказ нейросети `/api/render` с `render_key` и двумя кадрами рендера; задание отвечает «готово» по флагу страницы `__fakeReady`
+  // (сценарий 3 успевает изменить расстановку). Картинка кадров — картинка товара; id кадра — sha256 её адреса (64 hex, как у сервера)
+  await p.route(/\/api\/render(\/cycles)?(\?|$)/,r=>{const cyc=/cycles/.test(r.request().url());
+    r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(cyc?{ok:true,job:'fake-r-'+Date.now(),kind:'render',status:'running',eta:50,eta_range:[40,60],queue:0,key:'b'.repeat(32),scene_hash:'a'.repeat(64)}:{job:'fake-i-'+Date.now()})});});
   await p.route(/\/api\/job\?/,async r=>{const ready=await p.evaluate(()=>!!window.__fakeReady).catch(()=>false);
+    const id=new URL(r.request().url()).searchParams.get('id')||'';
     const img=await p.evaluate(()=>{const it=(allVariants()[cur]||{}).items||[]; const x=it.find(i=>i.sku&&i.sku.img); return x?new URL(x.sku.img,location.href).href:'';}).catch(()=>'');
+    const hid=require('crypto').createHash('sha256').update(img).digest('hex');
+    if(/^fake-r-/.test(id))return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(ready?{status:'done',kind:'render',key:'b'.repeat(32),scene_hash:'a'.repeat(64),cached:false,percent:100,timing:{},
+      frames:[{camera:'C1',url:img,id:hid,w:1600,h:1000},{camera:'C2',url:img,id:hid.split('').reverse().join(''),w:1600,h:1000}]}:{status:'running',kind:'render',percent:30,eta:30,eta_range:[20,40],queue:0})});
     r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(ready?{shots:[{camera:'C1',url:img},{camera:'C2',url:img}],backend:'fake'}:{status:'running',eta:30})});});
   // кадры из браузера (demo-10): загрузка перехвачена — имя = sha256 тела, кадр сохраняется для глаза; тело задания запоминается
   p.frames=[]; p.renderBodies=[];
   await p.route(/\/api\/render\/frame/,r=>{const buf=r.request().postDataBuffer()||Buffer.alloc(0); const id=require('crypto').createHash('sha256').update(buf).digest('hex');
     fs.writeFileSync(OUT+'frame-'+id.slice(0,8)+'.jpg',buf); p.frames.push({id,bytes:buf.length,w:buf.readUInt16BE?jpegSize(buf):null}); r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id,bytes:buf.length})});});
-  p.on('request',rq=>{if(rq.method()==='POST'&&/\/api\/render(\?|$)/.test(rq.url())){try{p.renderBodies.push(JSON.parse(rq.postData()||'{}'));}catch(e){}}});
+  p.on('request',rq=>{if(rq.method()==='POST'&&/\/api\/render(\/cycles)?(\?|$)/.test(rq.url())){try{const j=JSON.parse(rq.postData()||'{}'); j.__url=rq.url().replace(/^https?:\/\/[^/]+/,''); p.renderBodies.push(j);}catch(e){}}});
   await p.goto(demoUrl(BASE+q),{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000});
   // РЕЕСТР КАДРОВ — ДО ЧИСТКИ `shots` (T-20261107-66/2): пришедший позже реестр заменяет весь список (реалистичные снова в нём), а окно,
@@ -70,7 +78,8 @@ try{
 let p=await page(b,'?live=force&lang=ru','ru');
 await p.evaluate(()=>{shots=shots.filter(x=>x.quality!=='realistic'); openLiveWindow();});
 await p.waitForFunction(()=>LIVE.scene&&LIVE.state==='ready',null,{timeout:150000}).catch(()=>{}); await p.waitForTimeout(2500);
-let s=await st(p); ok('1 без фото — открыто 3D, вкладки «Фото» нет',s.mode==='walk'&&!s.photoTab,JSON.stringify({mode:s.mode,tab:s.photoTab}));
+let s=await st(p); // с T-20261113-16 (владелец TG 1516/1519) переключатель «Фото | 3D» виден всегда — внутри пустого «Фото» предлагается сделать фото
+ok('1 без фото — открыто 3D, переключатель «Фото | 3D» на месте (виден всегда, T-20261113-16)',s.mode==='walk'&&s.photoTab,JSON.stringify({mode:s.mode,tab:s.photoTab}));
 ok('1 ценники над мебелью в 3D (≥ 3)',s.pins>=3,'видно '+s.pins);
 ok('1 «Сделать фото» видна в 3D',!!s.cta&&/Сделать фото/.test(s.cta),s.cta);
 const dz=await p.evaluate(()=>{const d=document.getElementById('vCams').getBoundingClientRect(), t=document.getElementById('vside').getBoundingClientRect(); return {dots:Math.round(d.bottom), sheet:Math.round(t.top)};});
@@ -83,7 +92,7 @@ const topGeo=pg=>pg.evaluate(()=>{const R=s=>{const e=document.querySelector(s);
   const h=document.querySelector('#shot .vhist'), was=h&&h.hidden; if(h)h.hidden=false;
   const out={modes:R('#shot .vmodes'), hist:R('#shot .vhist'), price:R('#vPriceTop'), x:R('#shotx')}; if(h)h.hidden=was; return out;});
 const g1=await topGeo(p);
-ok('1г без «Фото» — переключателя «Фото | 3D» нет, окно в 3D; ↶↷, «Скрыть цены», ✕ видны',!g1.modes&&s.mode==='walk'&&!!g1.hist&&!!g1.price&&!!g1.x,JSON.stringify(g1));
+ok('1г без фото — переключатель «Фото | 3D» есть (T-20261113-16), окно в 3D; ↶↷, «Скрыть цены», ✕ видны',!!g1.modes&&s.mode==='walk'&&!!g1.hist&&!!g1.price&&!!g1.x,JSON.stringify(g1));
 await p.screenshot({path:OUT+`m09-${W}-walk-top.png`,clip:{x:0,y:0,width:W,height:Math.min(H,140)}});
 // 1в. «СКРЫТЬ ЦЕНЫ» (T-20261108-75, владелец TG 606): в 3D вверху «Скрыть цены» (на месте «Сменить стиль») → ценников 0 → «Показать цены» →
 // ценники вернулись; в «Фото» — «Сменить стиль» (шаг 2)
@@ -107,26 +116,33 @@ if(W<=700){await p.evaluate(()=>vwSheet(3)); await p.waitForFunction(()=>documen
     scrolled:[...document.querySelectorAll('#shot, #shot *')].filter(e=>e.scrollTop>0&&!/vscroll|sheetscroll/.test(e.id)).map(e=>(e.id||e.className)+':'+e.scrollTop)};});
   ok('1б замена через ленту → шторка свёрнута на деле',sw.pos==='0'&&sw.top>=sw.want-2&&!sw.scrolled.length,JSON.stringify(sw));
   await p.evaluate(()=>closePicker()); await p.waitForTimeout(500);}
-// 2. «Сделать фото» → сразу вкладка «Фото» и на ней «Улучшаю… N %» во весь кадр (demo-20 Б3, владелец 22.10 TG 791/795) → готово → снимок сам
+// 2. «Сделать фото» = РЕНДЕР (T-20261117-20/2, владелец TG 1665–1670): в 3D первое нажатие открывает окошки ракурсов, второе — заказ рендера
+// (`/api/render/cycles`, `mode:'render'`, без кадров из 3D) → вкладка «Фото» с ходом «Делаю фото · N %» → рендер готов → «Фото» сама, на ней
+// «Улучшить фото» → заказ нейросети с `render_key` и двумя кадрами рендера → «Улучшаю · N %» → улучшенное фото, кнопок нет
 await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(800);
-// «сразу» = после снимка кадра (`vwPhGrab`): под нагрузкой на программной графике он дольше 1,5 с — ждём условие до 6 с, не время (T-20261108-75/2)
 await p.click('#vCta');
-await p.waitForFunction(()=>{const o=document.querySelector('#shot .vphwait b'); return VW.mode==='photo'&&!!o&&/^(Улучшаю…|Enhancing…) \d+ %$/.test(o.textContent);},null,{timeout:6000}).catch(()=>{});
+for(let t=0;t<8&&!p.renderBodies.length;t++)await p.waitForTimeout(500);
+if(!p.renderBodies.length)await p.click('#vCta');
+const rWait=/^(Делаю фото|Rendering) · \d+ %$/;
+await p.waitForFunction(()=>VW.mode==='photo'&&!!document.querySelector('#shot .vphwait'),null,{timeout:20000}).catch(()=>{});
 s=await st(p);
-const pw2=await p.evaluate(()=>{const o=document.querySelector('#shot .vphwait'); return o?o.querySelector('b').textContent:'';});
-ok('2 после нажатия — сразу «Фото» с ходом работы',s.mode==='photo'&&s.photoTab&&/^(Улучшаю…|Enhancing…) \d+ %$/.test(pw2),JSON.stringify({mode:s.mode,tab:s.photoTab,wait:pw2}));
-// заказ уходит после съёмки кадров — на 1440 под программной графикой это дольше 1,5 с: ждём сам заказ, не время
-for(let t=0;t<40&&!p.renderBodies.some(x=>x.quality==='realistic');t++)await p.waitForTimeout(500);
-const rb=p.renderBodies.filter(x=>x.quality==='realistic').pop()||{};
-ok('2 кадры из браузера: оба вида загружены и в задании только их имена',(rb.views||[]).length===2&&rb.views.every(v=>/^[0-9a-f]{64}$/.test(v.id))&&rb.views.every(v=>p.frames.some(f=>f.id===v.id)),
-  JSON.stringify({views:rb.views, frames:p.frames.map(f=>[f.id.slice(0,8),f.bytes,f.w]), cap:await p.evaluate('JSON.stringify(VW.lastCapture)')}));
-// ВСЕГДА ШИРОКИЕ виды под лист 2048×3072 на любом устройстве (demo-20 Г1, владелец 22.10: «не обрезай под телефон»; обрезка — только при показе)
-const okSize=f=>f.w&&((f.w[0]===2048&&f.w[1]===1489)||(f.w[0]===1536&&f.w[1]===1117));
-ok('2 размер кадра — широкий на любом устройстве',p.frames.length>=2&&p.frames.slice(-2).every(okSize),JSON.stringify(p.frames.slice(-2).map(f=>f.w)));
-ok('2 ориентация листа в задании — широкая',rb.sheet==='landscape',String(rb.sheet));
-// окно уже на «Фото» с самого нажатия — ждём конец задания, а не режим (иначе шаг 4 правил бы под замком «Улучшаю…», demo-20 Г5)
-await p.evaluate(()=>{window.__fakeReady=1;}); await p.waitForFunction(()=>!VJ.job&&VW.mode==='photo',null,{timeout:20000}).catch(()=>{}); s=await st(p);
-ok('2 готово для этой расстановки → «Фото» открылось само, кнопки нет',s.mode==='photo'&&s.photoTab&&s.cta===null,JSON.stringify({mode:s.mode,tab:s.photoTab,cta:s.cta}));
+const pw2=await p.evaluate(()=>{const o=document.querySelector('#shot .vphwait'); return o?o.innerText.split('\n')[0].trim():'';});
+ok('2 после нажатия — «Фото» с ходом рендера «Делаю фото · N %»',s.mode==='photo'&&s.photoTab&&rWait.test(pw2),JSON.stringify({mode:s.mode,tab:s.photoTab,wait:pw2}));
+for(let t=0;t<40&&!p.renderBodies.some(x=>/cycles/.test(x.__url));t++)await p.waitForTimeout(500);
+const rb=p.renderBodies.find(x=>/cycles/.test(x.__url))||{};
+ok('2 заказ рендера: mode render, v 1, расстановка с sid и два ракурса, кадров из 3D нет',rb.mode==='render'&&rb.v===1&&(rb.items||[]).length>0&&rb.items.every(i=>i.sid)&&(rb.cams||[]).length===2&&!rb.views&&!p.frames.length,
+  JSON.stringify({mode:rb.mode,v:rb.v,items:(rb.items||[]).length,cams:(rb.cams||[]).map(c=>c.name),views:rb.views||null,frames:p.frames.length}));
+await p.evaluate(()=>{window.__fakeReady=1;}); await p.waitForFunction(()=>!VJ.job&&VW.mode==='photo',null,{timeout:30000}).catch(()=>{}); s=await st(p);
+ok('2 рендер готов → «Фото» открылось само, внизу «Улучшить фото»',s.mode==='photo'&&s.photoTab&&/^(Улучшить фото|Enhance photo)$/.test(s.cta||''),JSON.stringify({mode:s.mode,tab:s.photoTab,cta:s.cta}));
+await p.screenshot({path:OUT+`m09-${W}-render.png`});
+await p.evaluate(()=>{window.__fakeReady=0;}); await p.click('#vCta');
+for(let t=0;t<40&&!p.renderBodies.some(x=>!/cycles/.test(x.__url));t++)await p.waitForTimeout(500);
+const ib=p.renderBodies.find(x=>!/cycles/.test(x.__url))||{};
+ok('2 «Улучшить фото»: заказ нейросети с render_key и двумя кадрами рендера',ib.render_key==='b'.repeat(32)&&(ib.views||[]).length===2&&ib.views.every(v=>/^[0-9a-f]{64}$/.test(v.id)),JSON.stringify({key:ib.render_key,views:(ib.views||[]).length,q:ib.quality}));
+await p.waitForTimeout(800); const iw=await p.evaluate(()=>{const o=document.querySelector('#shot .vphwait'); return o?o.innerText.split('\n')[0].trim():'';});
+ok('2 ход улучшения «Улучшаю · N %»',/^(Улучшаю|Enhancing) · \d+ %$/.test(iw),iw);
+await p.evaluate(()=>{window.__fakeReady=1;}); await p.waitForFunction(()=>!VJ.job&&VW.mode==='photo',null,{timeout:30000}).catch(()=>{}); s=await st(p);
+ok('2 улучшенное готово → «Фото», кнопок нет',s.mode==='photo'&&s.photoTab&&s.cta===null,JSON.stringify({mode:s.mode,tab:s.photoTab,cta:s.cta}));
 await p.screenshot({path:OUT+`m09-${W}-photo.png`});
 // 4. изменение → 3D и шторка вниз (телефон)
 // до правки — суммы окна, чип, список шторки, главная, состав и кадр 3D с точки 1: «Вернуть как было» (4в) должно вернуть всё
@@ -230,7 +246,7 @@ await p.click(CARD+' [data-hst="real"]'); await p.waitForTimeout(1500); s=await 
 const jw=await p.evaluate(()=>({on:document.getElementById('shot').classList.contains('on'), job:VJ.job?{vid:VJ.job.vid,sid:VJ.job.stateId}:null, vid:curVid(),
   wait:(()=>{const o=document.querySelector('#shot .vphwait'); return o?o.querySelector('b').textContent:'';})()}));
 ok('4д «Сделать фото» с карточки → окно комнаты на «Фото» с ходом работы, задание — этой правки',
-  jw.on&&s.mode==='photo'&&/^(Улучшаю…|Enhancing…) \d+ %$/.test(jw.wait)&&!!jw.job&&jw.job.vid===jw.vid&&jw.job.sid===s1e.sid,JSON.stringify({...jw,mode:s.mode}));
+  jw.on&&s.mode==='photo'&&/^(Делаю фото|Rendering|Улучшаю|Enhancing)(…| ·) ?\d+ %$/.test(jw.wait)&&!!jw.job&&jw.job.vid===jw.vid&&jw.job.sid===s1e.sid,JSON.stringify({...jw,mode:s.mode}));
 // 4д. ВО ВРЕМЯ УЛУЧШЕНИЯ НА «ФОТО» — ПРЕЖНЕЕ ФОТО (T-20261108-74, владелец 08.11 TG 604): у правки есть прежнее фото → оно затемнено,
 // поверх «Улучшаю… N %», плашки «Вы изменили комнату» нет; карточка не под верхними кнопками, на телефоне — по центру кадра между ними и шторкой
 const ow=await p.evaluate(()=>{const R=e=>{if(typeof e==='string')e=document.querySelector(e); if(!e)return null; const cs=getComputedStyle(e);
@@ -258,7 +274,7 @@ const m3=()=>p.evaluate(()=>{const R=e=>{if(typeof e==='string')e=document.query
     mid:c?Math.round((c.t+c.b)/2-(tB+bT)/2):null};});
 const w3=await m3();
 ok('4е во время улучшения в «3D» — карточка «Улучшаю… N %» по центру видимого кадра'+(W<=700?' (±16 px)':'')+', не под кнопками, полупрозрачная, 3D видно и крутится',
-  w3.mode==='walk'&&w3.job&&w3.v3d&&w3.card&&/^(Улучшаю…|Enhancing…) \d+ %$/.test(w3.txt)&&w3.bg==='none|rgba(0, 0, 0, 0)'&&w3.pe==='none'&&w3.alpha<0.9&&!w3.over&&
+  w3.mode==='walk'&&w3.job&&w3.v3d&&w3.card&&/^(Делаю фото|Rendering|Улучшаю|Enhancing)(…| ·) ?\d+ %$/.test(w3.txt)&&w3.bg==='none|rgba(0, 0, 0, 0)'&&w3.pe==='none'&&w3.alpha<0.9&&!w3.over&&
   (W>700||Math.abs(w3.mid)<=16),JSON.stringify(w3));   // компьютер: ↶↷ внизу слева сцены — «середину» меряет проба по сцене
 await p.screenshot({path:OUT+`m78-${W}-job-3d.png`});
 // шторка на середине (так она стоит после «Сделать фото» из 3D) — карточка по центру нового видимого кадра, не на ракурсах; и на «Фото» тоже
@@ -271,10 +287,11 @@ if(W<=700){
   await p.evaluate(()=>vwSheet(0)); await p.waitForTimeout(800);
 }
 await p.evaluate(()=>{VJ.self=1; vwMode('photo'); VJ.self=0;}); await p.waitForTimeout(800);
-for(let t=0;t<40&&!p.renderBodies.slice(nb).some(x=>x.quality==='realistic');t++)await p.waitForTimeout(500);
-const rc=p.renderBodies.slice(nb).filter(x=>x.quality==='realistic').pop()||{}, keys=o=>Object.keys(o).sort().join(',');
-ok('4д заказ тот же, что по кнопке окна: те же поля, оба вида, тот же лист (платное подменено)',keys(rc)===keys(rb)&&(rc.views||[]).length===2&&rc.sheet===rb.sheet,
-  JSON.stringify({card:keys(rc),win:keys(rb),sheet:[rc.sheet,rb.sheet]}));
+for(let t=0;t<40&&!p.renderBodies.slice(nb).some(x=>/cycles/.test(x.__url));t++)await p.waitForTimeout(500);
+const rc=p.renderBodies.slice(nb).filter(x=>/cycles/.test(x.__url)).pop()||{}, keys=o=>Object.keys(o).sort().join(',');
+// T-20261117-20/2: заказ с карточки — тот же РЕНДЕР, что по кнопке окна: те же поля, два ракурса, расстановка из того же числа предметов
+ok('4д заказ тот же, что по кнопке окна: те же поля, два ракурса (рендер, платного нет)',keys(rc)===keys(rb)&&rc.mode==='render'&&(rc.cams||[]).length===2&&(rc.items||[]).length===(rb.items||[]).length,
+  JSON.stringify({card:keys(rc),win:keys(rb),items:[(rc.items||[]).length,(rb.items||[]).length]}));
 await p.evaluate(()=>{window.__fakeReady=1;}); await p.waitForFunction(()=>!VJ.job,null,{timeout:20000}).catch(()=>{}); await p.waitForTimeout(600);
 const nw=await p.evaluate(()=>({mode:VW.mode, wait:!!document.querySelector('#shot .vphwait'), plate:!!document.querySelector('#shot .vstale'), real:vwRealShots().length,
   img:(()=>{const i=document.querySelector('#shot .shotwrap img.vmain'); return !!i&&getComputedStyle(i).display!=='none'&&i.getBoundingClientRect().height>0;})()}));
@@ -286,11 +303,12 @@ await p.evaluate(()=>vwMode('walk')); await p.waitForTimeout(600);
 await p.evaluate(()=>{window.__fakeReady=0; const g=devGroups().find(x=>x.kind==='flooring'); devSet(g.id,g.variants[2].id);}); await p.waitForTimeout(900);
 await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(800);   // после изменения шторка свёрнута — кнопку сперва видно, как у человека
 await p.evaluate(()=>{window.__cap0=VW.lastCapture;});
-await p.click('#vCta'); await p.waitForTimeout(1200);
-await p.waitForFunction(()=>VW.lastCapture!==window.__cap0,null,{timeout:20000}).catch(()=>{});
+await p.click('#vCta'); await p.waitForTimeout(1200);   // в 3D первое нажатие — окошки ракурсов, второе — заказ рендера
+if(!(await p.evaluate(()=>!!VJ.job)))await p.click('#vCta');
+await p.waitForFunction(()=>!!VJ.job,null,{timeout:20000}).catch(()=>{});
 const lk=await p.evaluate(()=>{vwMode('walk'); const s0=curStateId(), g=devGroups().find(x=>x.kind==='flooring'); devSet(g.id,g.variants[3].id);
   const t=document.getElementById('toast'); return {same:curStateId()===s0, hint:t&&!t.hidden?t.textContent:''};});
-ok('3 правка во время «Улучшаю…» не применяется, подсказка',lk.same&&/Менять можно, когда улучшение закончится|You can change things once the enhancement is finished/.test(lk.hint),JSON.stringify(lk));
+ok('3 правка во время «Улучшаю…» не применяется, подсказка',lk.same&&/Менять можно, когда (улучшение закончится|фото будет готово)|You can change things once the (enhancement is finished|photo is ready)/.test(lk.hint),JSON.stringify(lk));
 await p.evaluate(()=>{window.__fakeReady=1;});
 await p.waitForFunction(()=>!VJ.job,null,{timeout:20000}).catch(()=>{}); await p.waitForTimeout(500); s=await st(p);
 const rd=await p.evaluate(()=>{const t=document.getElementById('toast'); return t&&!t.hidden?t.textContent:'';});
