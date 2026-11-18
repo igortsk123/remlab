@@ -47,8 +47,8 @@ function data(ok) {
   const d = JSON.parse(JSON.stringify(FIX));
   d.trial = Object.assign({}, d.trial, { job_id: ID, scale: ok.scale || 'verified' });
   for (const r of d.apartment_rooms) r.photo_ok = !!ok[r.id];
-  // фикстура — упрощённая: у настоящих данных тура у товара есть `sid` (по нему сервер ищет товар), здесь он = `msid`
-  for (const v of d.variants) for (const it of [...(v.items || []), ...(v.decor || [])]) if (it.sku && it.sku.sid == null) it.sku.sid = it.sku.msid || ('probe-' + (it.role || 'x'));
+  // как в настоящих данных тура (T-20261117-20/3): у карточки товара `sid` нет (`trial_bundle.NEVER_KEYS`), ключ — `msid` + `name`; нет `msid` — выдумываем, имя уже есть
+  for (const v of d.variants) for (const it of [...(v.items || []), ...(v.decor || [])]) if (it.sku) { delete it.sku.sid; if (it.sku.msid == null) it.sku.msid = 'probe-' + (it.role || 'x'); if (!it.sku.name) it.sku.name = 'Товар ' + (it.role || 'x'); }
   return d;
 }
 
@@ -93,7 +93,7 @@ async function open(b, d) {
       fs.writeFileSync(OUT + `/order-${render ? 'render' : 'improve'}-${j.room_id}-${LANG}-${W}.json`, r.request().postData() || '');   // тело заказа — как есть
       p.orders.push({ t: Date.now(), kind: render ? 'render' : 'improve', room_id: j.room_id, views: j.views || null, quality: j.quality, mode: j.mode || null, v: j.v || null,
         variant_id: j.variant_id || null, render_key: j.render_key || null, room: j.room && { w: j.room.w, d: j.room.d }, cams: (j.cams || []).map(c => c.name),
-        items: (j.items || []).length, sids: (j.items || []).every(i => i.sid), keys: Object.keys(j).sort() });
+        items: (j.items || []).length, sids: (j.items || []).every(i => i.msid && i.name && i.sid === undefined), keys: Object.keys(j).sort() });
       if (p.refuse) return json({ ok: false, code: p.refuse, error: 'фото товаров на листе 3 из 5 — платный вызов не делаю', error_en: 'x' }, 422);
       if (render) return json({ ok: true, job: 'probe34r', kind: 'render', eta: 50, eta_range: [40, 70], queue: 0, scene_hash: 'a'.repeat(64), key: RKEY, cached: false });
       return json({ ok: true, job: 'probe34' });

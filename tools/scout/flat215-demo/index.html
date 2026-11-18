@@ -11986,9 +11986,11 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeou
 function vwRenderReq(){
   const v=allVariants()[cur]||{}, R=roomOf(v);
   if(!R||!items||!items.length)throw new Error('no_layout');
-  const its=items.map(it=>({role:it.role, sid:String((skuOf(it)||{}).sid||''), x:Math.round(+it.x||0), y:Math.round(+it.y||0),
+  // товар: /demo — `sid`; тур — `sid` в публичных данных нет (NEVER_KEYS), шлём `msid`+`name`: сервер ищет пару только в данных этого тура (T-20261117-20/3)
+  const pk=it=>{const k=skuOf(it)||{}; return k.sid!=null&&k.sid!==''?{sid:String(k.sid)}:(k.name?Object.assign({name:String(k.name)},k.msid!=null&&k.msid!==''?{msid:String(k.msid)}:{}):null);};   // заглушка без модели (ковёр, стол) — `msid` нет, ключ имя
+  const its=items.map(it=>Object.assign({role:it.role}, pk(it)||{}, {x:Math.round(+it.x||0), y:Math.round(+it.y||0),
     rot:((Math.round(+it.rot||0)%360)+360)%360, corner:!!it.corner, corner_left:!!it.corner_left, section:it.section==null?null:it.section}));
-  if(its.some(i=>!i.sid))throw new Error('no_sid');
+  if(items.some(it=>!pk(it)))throw new Error('no_sid');
   const cs=(cams||loadCams()).slice(0,2).map((c,k)=>{const p=camPoseOf(c);
     return Object.assign({name:c.name||'C'+(k+1), x:Math.round(c.x), y:Math.round(c.y), rot:Math.round(c.rot||0), fov:c.fov||72, pose:POSE_VER},
       typeof p.pshift==='number'&&isFinite(p.pshift)?{pshift:p.pshift}:{});});
