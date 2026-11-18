@@ -17,11 +17,13 @@ FMT 2 (T-20261117-24/5, Э2а): неизменяемые тяжёлые файл
 v=1 (всё в одном пакете) работает как раньше; нет `have` у приёмника, ошибка ассета, несовместимая версия — исполнитель идёт на fmt 1, затем на CPU.
 Токен приёмника нигде не печатается."""
 import hashlib
+import http.client
 import io
 import json
 import os
 import re
 import tarfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -48,14 +50,78 @@ class SinkError(Exception):
 
 
 class Sink:
-    """Клиент приёмника: PUT в `/staging/…`, чтение `GET /files/…` и `/ls/…`. Повторы — на сетевых сбоях и 5xx."""
+    """Клиент приёмника: PUT в `/staging/…`, чтение `GET /files/…` и `/ls/…`. Повторы — на сетевых сбоях и 5xx.
+    ПОСТОЯННОЕ СОЕДИНЕНИЕ (T-20261118-09/5 ❸): на каждый поток — свой `http.client` с keep-alive; новое TCP+TLS на каждый вызов (urllib) стоило ≈0,19 с с DEV и ≈0,45 с с машины,
+    на готовом соединении — ≈0,05 с (замер 18.11). Оборвалось соединение (сервер закрыл простаивающее) — один раз заново на свежем. Протокол и ответы те же."""
 
     def __init__(self, base: str, token: str, retries: int = 3, timeout: float = 120):
         self.base, self.token, self.retries, self.timeout = base.rstrip('/'), token, retries, timeout
+        self._u = urllib.parse.urlparse(self.base)
+        self._tl = threading.local()
 
-    def _req(self, method: str, path: str, data=None, headers=None):
+    def _conn(self, timeout: float):
+        c = getattr(self._tl, 'c', None)
+        if c is None:
+            cls = http.client.HTTPSConnection if self._u.scheme == 'https' else http.client.HTTPConnection
+            c = self._tl.c = cls(self._u.hostname, self._u.port, timeout=timeout)
+        c.timeout = timeout
+        if c.sock is not None:
+            c.sock.settimeout(timeout)
+        return c
+
+    def _drop(self) -> None:
+        c = getattr(self._tl, 'c', None)
+        self._tl.c = None
+        if c is not None:
+            try:
+                c.close()
+            except OSError:
+                pass
+
+    def _call(self, method: str, path: str, data=None, headers=None, timeout=None, to_file=None):
+        """Один запрос по постоянному соединению → (статус, тело | размер, записанный в to_file). Ответ вычитывается ПОЛНОСТЬЮ (иначе соединение не переиспользовать).
+        Статус ≥ 400 — `urllib.error.HTTPError`, как раньше (дальше `_do`). Сбой связи на ПЕРЕИСПОЛЬЗУЕМОМ соединении — один повтор на новом."""
         h = {'Authorization': f'Bearer {self.token}', 'User-Agent': UA, **(headers or {})}
-        return urllib.request.Request(f'{self.base}{path}', data=data, method=method, headers=h)
+        full = (self._u.path.rstrip('/') or '') + path
+        timeout = timeout or self.timeout
+        for attempt in (1, 2):
+            fresh = getattr(self._tl, 'c', None) is None
+            try:
+                c = self._conn(timeout)
+                if hasattr(data, 'seek'):
+                    data.seek(0)
+                c.request(method, full, body=data, headers=h)
+                r = c.getresponse()
+                if r.status >= 400:
+                    r.read()
+                    if r.will_close:
+                        self._drop()
+                    raise urllib.error.HTTPError(f'{self.base}{path}', r.status, r.reason, r.headers, None)
+                if to_file is None:
+                    body = r.read()
+                    if r.will_close:
+                        self._drop()
+                    return r.status, body
+                n = 0
+                while True:
+                    chunk = r.read(1 << 20)
+                    if not chunk:
+                        break
+                    to_file.write(chunk)
+                    n += len(chunk)
+                if r.will_close:
+                    self._drop()
+                return r.status, n
+            except (http.client.HTTPException, OSError) as e:
+                if isinstance(e, urllib.error.HTTPError):
+                    raise
+                self._drop()
+                if attempt == 1 and not fresh and not isinstance(e, TimeoutError):
+                    if to_file is not None:
+                        to_file.seek(0)
+                        to_file.truncate()
+                    continue                      # соединение было «старое» — закрыто сервером в простое: один раз на новом (таймаут не повторяем: ждали бы дважды)
+                raise
 
     def _do(self, make, what: str):
         last = None
@@ -66,18 +132,14 @@ class Sink:
                 if e.code < 500:
                     raise SinkError(f'{what}: HTTP {e.code}', e.code) from None
                 last = SinkError(f'{what}: HTTP {e.code}', e.code)
-            except (urllib.error.URLError, OSError, TimeoutError) as e:
+            except (urllib.error.URLError, http.client.HTTPException, OSError, TimeoutError) as e:
                 last = SinkError(f'{what}: {type(e).__name__}')
             time.sleep(min(2 ** i, 8))
         raise last
 
     def put(self, rel: str, data: bytes) -> None:
         """rel — `<prefix>/<job>/<name>`; PUT идёт в `/staging/…` (так принимает приёмник)."""
-        def go():
-            with urllib.request.urlopen(self._req('PUT', f'/staging/{urllib.parse.quote(rel)}', data, {'Content-Type': 'application/octet-stream'}),
-                                        timeout=self.timeout) as r:
-                r.read()
-        self._do(go, f'PUT {rel}')
+        self._do(lambda: self._call('PUT', f'/staging/{urllib.parse.quote(rel)}', data, {'Content-Type': 'application/octet-stream'}), f'PUT {rel}')
 
     def put_file(self, rel: str, path: str) -> None:
         """Файл (пакет в десятки МБ) — потоком, не читая в память: приёмнику нужен Content-Length."""
@@ -85,18 +147,13 @@ class Sink:
 
         def go():
             with open(path, 'rb') as f:
-                req = self._req('PUT', f'/staging/{urllib.parse.quote(rel)}', f, {'Content-Type': 'application/octet-stream', 'Content-Length': str(size)})
-                with urllib.request.urlopen(req, timeout=max(self.timeout, 600)) as r:
-                    r.read()
+                return self._call('PUT', f'/staging/{urllib.parse.quote(rel)}', f, {'Content-Type': 'application/octet-stream', 'Content-Length': str(size)},
+                                  timeout=max(self.timeout, 600))
         self._do(go, f'PUT {rel}')
 
     def post_json(self, path: str, obj) -> dict:
         body = json.dumps(obj, ensure_ascii=False).encode()
-
-        def go():
-            with urllib.request.urlopen(self._req('POST', path, body, {'Content-Type': 'application/json'}), timeout=self.timeout) as r:
-                return json.loads(r.read())
-        return self._do(go, f'POST {path}')
+        return self._do(lambda: json.loads(self._call('POST', path, body, {'Content-Type': 'application/json'})[1]), f'POST {path}')
 
     def have_assets(self, items: list) -> list:
         """Какие из {sha256, size} на приёмнике ОТСУТСТВУЮТ (список sha). 404/405 = приёмник старый (без fmt 2) — `SinkError` с кодом."""
@@ -112,23 +169,14 @@ class Sink:
         return self.get_to(f'{ASSET_PREFIX}/{sha[:2]}/{sha}', dest)
 
     def get(self, rel: str) -> bytes:
-        def go():
-            with urllib.request.urlopen(self._req('GET', f'/files/{urllib.parse.quote(rel)}'), timeout=self.timeout) as r:
-                return r.read()
-        return self._do(go, f'GET {rel}')
+        return self._do(lambda: self._call('GET', f'/files/{urllib.parse.quote(rel)}')[1], f'GET {rel}')
 
     def get_to(self, rel: str, dest: str) -> int:
         """Скачать файл потоком в `dest` (через `.part`, потом подмена); → размер."""
         def go():
             tmp = dest + '.part'
-            n = 0
-            with urllib.request.urlopen(self._req('GET', f'/files/{urllib.parse.quote(rel)}'), timeout=max(self.timeout, 600)) as r, open(tmp, 'wb') as f:
-                while True:
-                    chunk = r.read(1 << 20)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    n += len(chunk)
+            with open(tmp, 'wb') as f:
+                _, n = self._call('GET', f'/files/{urllib.parse.quote(rel)}', timeout=max(self.timeout, 600), to_file=f)
             os.replace(tmp, dest)
             return n
         return self._do(go, f'GET {rel}')
@@ -139,8 +187,7 @@ class Sink:
     def ls(self, rel: str) -> dict:
         """`<prefix>` → {'dirs': [{name, mtime}]}, `<prefix>/<job>` → {'files': [{name, size, mtime}]}; 404 → пусто."""
         def go():
-            with urllib.request.urlopen(self._req('GET', f'/ls/{urllib.parse.quote(rel)}'), timeout=self.timeout) as r:
-                return json.loads(r.read())
+            return json.loads(self._call('GET', f'/ls/{urllib.parse.quote(rel)}')[1])
         try:
             return self._do(go, f'LS {rel}')
         except SinkError as e:
@@ -151,7 +198,7 @@ class Sink:
     def delete(self, rel: str) -> int:
         """DELETE /prefix/… (счётчик приёмника сходится только так); 404 — уже нет."""
         try:
-            self._do(lambda: urllib.request.urlopen(self._req('DELETE', f'/prefix/{urllib.parse.quote(rel)}'), timeout=60).read(), f'DELETE {rel}')
+            self._do(lambda: self._call('DELETE', f'/prefix/{urllib.parse.quote(rel)}', timeout=60), f'DELETE {rel}')
             return 1
         except SinkError as e:
             if e.code == 404:

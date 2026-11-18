@@ -274,6 +274,73 @@ def run_step(cmd: list, log_path: str, timeout_s: float, max_rss_gb: float, env:
         raise RenderError('render_failed', 'Рендер не удался. Нажмите «Повторить».', 'The render failed. Press "Retry".')
 
 
+class DevTimeline:
+    """Линейка времени заказа на стороне DEV (T-20261118-09/5 ❷): метки этапов (`mark`) и каждое обращение к приёмнику (`wrap` оборачивает клиент: что, когда от начала заказа, сколько) —
+    чтобы «остальное» между известными частями заказа (подготовка, выгрузка, Blender, кадры) стало видно по секундам. В `timing['dev']`: `marks` {этап: с от начала} и `calls`
+    [{op, t, s}] — опросы `result.json`/`progress.json` схлопнуты в одну строку «опрос ×N» (число, сумма секунд, первый и последний момент). Только измерение, заказ не меняется."""
+    LABEL = {'result.json': 'result', 'progress.json': 'progress', 'job.json': 'job.json', 'cancel.json': 'cancel'}
+
+    def __init__(self, now, t0: float):
+        self.now, self.t0 = now, t0
+        self.lock = threading.Lock()
+        self.items: list = []
+        self.marks: dict = {}
+
+    def mark(self, name: str) -> None:
+        with self.lock:
+            self.marks.setdefault(name, round(self.now() - self.t0, 2))
+
+    def _op(self, meth: str, args: tuple) -> str:
+        rel = str(args[0]) if args and isinstance(args[0], str) else ''
+        base = rel.rsplit('/', 1)[-1]
+        if meth == 'have_assets':
+            return 'have'
+        if meth == 'put_asset':
+            return 'PUT ассет'
+        if meth in ('get_json', 'get', 'get_to'):
+            return ('GET ' + self.LABEL.get(base, base))[:40]
+        if meth in ('put', 'put_file'):
+            return ('PUT ' + ('пакет' if base.startswith('bundle') else self.LABEL.get(base, base)))[:40]
+        return meth.upper() if meth in ('delete', 'ls') else meth
+
+    def wrap(self, sink):
+        tl = self
+
+        class Timed:
+            def __getattr__(self, name):
+                f = getattr(sink, name)
+                if not callable(f):
+                    return f
+
+                def run(*a, **k):
+                    t = tl.now()
+                    try:
+                        return f(*a, **k)
+                    finally:
+                        with tl.lock:
+                            tl.items.append((tl._op(name, a), t - tl.t0, tl.now() - t))
+                return run
+        return Timed()
+
+    def snapshot(self) -> dict:
+        with self.lock:
+            it = sorted(self.items, key=lambda x: x[1])
+        out, polls = [], {}
+        for op, ts, d in it:
+            if op in ('GET result', 'GET progress'):
+                q = polls.setdefault(op, {'op': f'опрос {op[4:]} ×0', 'n': 0, 't': round(ts, 2), 's': 0.0, 'last': 0.0})
+                q['n'] += 1
+                q['s'] = round(q['s'] + d, 2)
+                q['last'] = round(ts, 2)
+                continue
+            out.append({'op': op, 't': round(ts, 2), 's': round(d, 2)})
+        for q in polls.values():
+            q['op'] = q['op'].rsplit(' ×', 1)[0] + f" ×{q.pop('n')}"
+            out.append(q)
+        out.sort(key=lambda x: x['t'])
+        return {'marks': dict(self.marks), 'calls': out}
+
+
 class ExportClient:
     """Клиент постоянного процесса (T-20261118-09/1 шаг 6): выгрузка мешей `cycles_probe/export_server.py` (Python) и дамп сцены `demo_scene_dump.mjs --serve` (Node + Chromium).
     Один на (команда, окружение) в процессе сервиса. Заказы идут по одному (замок). Поднимается при первом заказе, выходит сам после простоя. Ошибки — те же `RenderError`,
@@ -1234,12 +1301,15 @@ class SaladGpuExecutor(SceneExecutor):
         os.makedirs(job)
         log = os.path.join(job, 'run.log')
         t0, timing = self.now(), {}
+        tl = DevTimeline(self.now, t0)
+        sink = tl.wrap(sink)           # линейка обращений к приёмнику (timing['dev']); сам клиент и порядок вызовов те же
         jids: list = []
         m.pulse(busy_s=600)            # ЗАКАЗ = событие: отсчёт простоя с этого момента, и пока задание в работе — машину не гасим
         try:
             with self._slot('photo-render-' + snap['scene_hash'][:8], pr) as hs:
                 timing['slot_wait'] = round(float(hs.get('waited_s', 0)), 1) if isinstance(hs, dict) else 0
                 self._prepare(snap, job, log, pr, progress, timing)
+            tl.mark('prep_end')
             if qa_gate_on():          # ворота (шаг 5): ошибка предпроверки — на машину не шлём (ни GPU, ни запасной процессор: деньги не тратим)
                 brak = qa_preflight_brak(os.path.join(job, 'dump'), os.path.join(job, 'scene'))
                 if brak:
@@ -1249,6 +1319,7 @@ class SaladGpuExecutor(SceneExecutor):
             for fmt in ((2, 1) if use2 else (1,)):
                 jid = f"{snap['scene_hash'][:12]}-{int(self.now())}-{uuid.uuid4().hex[:4]}"      # хвост: два заказа одной сцены в одну секунду не делят каталог заданий
                 jids.append(jid)
+                tl.mark('send_start')
                 if fmt == 2:
                     try:
                         self._send_fmt2(sink, job, jid, pr, ex, timing, frames=self._frames_for(m, ex), masks=self._masks_for(m))
@@ -1257,8 +1328,9 @@ class SaladGpuExecutor(SceneExecutor):
                         continue
                 else:
                     self._send_fmt1(sink, job, jid, pr, ex, timing, masks=self._masks_for(m))
+                tl.mark('job_sent')
                 try:
-                    res = self._wait(sink, m, jid, progress, busy_s, poll_s, pickup_s, pair_max_s)
+                    res = self._wait(sink, m, jid, progress, busy_s, poll_s, pickup_s, pair_max_s, tl=tl)
                 except ExecutorUnavailable as e:
                     if fmt == 2 and e.code in ('gpu_asset', 'gpu_bad_job'):      # машина не приняла ассеты/версию — тот же заказ по fmt 1, не сразу на процессор
                         print(f'рендер: машина не приняла fmt 2 ({e.code}) — шлю по fmt 1', flush=True)
@@ -1272,20 +1344,19 @@ class SaladGpuExecutor(SceneExecutor):
                 brak = [b for cam in CAMS for b in qa_frame_brak((res.get('qa') or {}).get(cam), cam)]
                 if brak:
                     raise RenderBrak(brak, 'кадр машины рендера')
+            tl.mark('result_seen')
             t1 = self.now()
             outs = {}
-            try:
-                rf = res.get('frames') if res.get('frames') in ('jpg', 'png') else 'png'      # что фактически положила машина (имя = формат)
-                timing['frames'] = rf
-                for cam in CAMS:
-                    fp = os.path.join(job, f'{cam}.{rf}')
-                    sink.get_to(f'{JP.PREFIX}/{jid}/{cam}.{rf}', fp)
-                    self._check_frame(fp, rf)
-                    outs[cam] = fp
-            except (JP.SinkError, ValueError, OSError) as e:
-                print(f'рендер: кадры не скачались: {e}', flush=True)
-                raise self._gpu_unavailable('gpu_download') from None
-            for cam in (res.get('masks') or {}):
+            rf = res.get('frames') if res.get('frames') in ('jpg', 'png') else 'png'      # что фактически положила машина (имя = формат)
+            timing['frames'] = rf
+
+            def get_frame(cam):
+                fp = os.path.join(job, f'{cam}.{rf}')
+                sink.get_to(f'{JP.PREFIX}/{jid}/{cam}.{rf}', fp)
+                self._check_frame(fp, rf)
+                return cam, fp
+
+            def get_mask(cam):
                 # маски необязательны: не скачалась или не картинка — кадр идёт без неё (приглушение пятен просто не сработает)
                 try:
                     mp = os.path.join(job, JP.mask_name(cam))
@@ -1300,6 +1371,19 @@ class SaladGpuExecutor(SceneExecutor):
                         os.remove(os.path.join(job, JP.mask_name(cam)))
                     except OSError:
                         pass
+            tl.mark('frames_start')
+            try:
+                with ThreadPoolExecutor(max_workers=max(2, len(CAMS) * 2)) as dl:          # кадры и маски — параллельно (каждый вызов ≈ один заход на приёмник)
+                    ff = [dl.submit(get_frame, cam) for cam in CAMS]
+                    mf = [dl.submit(get_mask, cam) for cam in (res.get('masks') or {})]
+                    for f in ff:
+                        cam, fp = f.result()
+                        outs[cam] = fp
+                    for f in mf:
+                        f.result()
+            except (JP.SinkError, ValueError, OSError) as e:
+                print(f'рендер: кадры не скачались: {e}', flush=True)
+                raise self._gpu_unavailable('gpu_download') from None
             timing['download'] = round(self.now() - t1, 1)
             for k, v in (res.get('timing') or {}).items():          # C1, C2, fetch, render — как у local-cpu (кадры), плюс загрузка сцены машиной
                 if isinstance(v, (int, float)):
@@ -1307,17 +1391,34 @@ class SaladGpuExecutor(SceneExecutor):
             if isinstance(res.get('assets'), dict):                  # fmt 2: сколько ассетов машине пришлось докачать (0 — кэш/подогрев сработал) — для замера «подогрева»
                 timing['asset_dl_n'], timing['asset_dl_mb'] = res['assets'].get('downloaded'), res['assets'].get('dl_mb')
             print(f"рендер: пара на машине, устройство {res.get('device')}, {timing.get('render')} с Blender", flush=True)
+            tl.mark('frames_done')
+            if isinstance(res.get('calls'), list):
+                timing['wcalls'] = res['calls']                   # обращения воркера к приёмнику (его часть линейки: от начала задания на машине)
+            timing['dev'] = tl.snapshot()
             return self._finish(snap, outs, out_dir, pr, timing, t0, job)
         finally:
             shutil.rmtree(job, ignore_errors=True)
-            for j in jids:
-                try:
-                    sink.delete(f'{JP.PREFIX}/{j}')      # своё задание убираем сразу (место общее с мешами); не вышло — уберёт jobs_purge по сроку
-                except Exception:  # noqa: BLE001
-                    pass
+
+            def cleanup():
+                for j in jids:
+                    try:
+                        sink.delete(f'{JP.PREFIX}/{j}')      # своё задание убираем сразу (место общее с мешами); не вышло — уберёт jobs_purge по сроку
+                    except Exception:  # noqa: BLE001
+                        pass
+            if jids and os.environ.get('RENDER_DELETE_ASYNC', '1') != '0':
+                th = threading.Thread(target=cleanup, name='render-cleanup', daemon=True)      # результат заказа не ждёт ответа приёмника на уборку (≈0,2 с)
+                th.start()
+                self._bg = [t for t in getattr(self, '_bg', []) if t.is_alive()] + [th]
+            else:
+                cleanup()
             m.pulse(0)                 # конец пары (или отказ) — тоже событие; «занято» снято, до автостопа 20 мин от этого момента
 
-    def _wait(self, sink, m, jid: str, progress, busy_s: float, poll_s: float, pickup_s: float, pair_max_s: float) -> dict:
+    def drain_bg(self, timeout: float = 30) -> None:
+        """Дождаться фоновой уборки заданий на приёмнике (тесты, остановка сервиса)."""
+        for t in list(getattr(self, '_bg', [])):
+            t.join(timeout)
+
+    def _wait(self, sink, m, jid: str, progress, busy_s: float, poll_s: float, pickup_s: float, pair_max_s: float, tl=None) -> dict:
         """Ждать result.json: ход — по progress.json воркера; не взяли за pickup_s / не уложились в pair_max_s / машину выключили — снять задание
         (`cancel.json`) и `ExecutorUnavailable`. Пока ждём — продлеваем «занято» (автостоп не сработает)."""
         import jobs_proto as JP
@@ -1348,6 +1449,8 @@ class SaladGpuExecutor(SceneExecutor):
                 pg = None
             if pg and pg.get('stage') in ('C1', 'C2', 'save') and pg['stage'] != stage:
                 stage = pg['stage']
+                if tl is not None:
+                    tl.mark('stage_' + stage)
                 progress(stage)
             elapsed = now - t0
             why = ''
@@ -1369,7 +1472,7 @@ class SaladGpuExecutor(SceneExecutor):
                 except JP.SinkError:
                     pass
                 raise self._gpu_unavailable(why)
-            self.sleep(poll_s)
+            self.sleep(min(poll_s, 0.15) if stage == 'save' else min(poll_s, 0.3) if stage == 'C2' else poll_s)       # результат вот-вот: чаще (запросы на готовом соединении дешёвые)
 
 
 class Fallback:
