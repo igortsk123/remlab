@@ -35,10 +35,20 @@ DEFAULT_FINISH = {'wall': {'id': 'paint-white', 'colorHex': '#f2f0ed'}, 'floor':
 
 
 def with_default_finish(fin) -> dict:
-    """Паспорт комнаты, где каждой поверхности без своего цвета ставится цвет по умолчанию; свои поверхности (и `floor.tex`) не трогаем."""
+    """Паспорт комнаты как у страницы (`finish-passport.ts:finishPassport`): поверхность с верным цветом `#rrggbb` — своя (цвет в нижнем регистре, `id` верный
+    или по умолчанию), иначе — по умолчанию; `floor.tex` (фактура пола ночной сборки) не теряется."""
     fin = fin if isinstance(fin, dict) else {}
-    return {k: (fin[k] if isinstance(fin.get(k), dict) and fin[k].get('colorHex') else {**d, **({'tex': fin[k]['tex']} if isinstance(fin.get(k), dict) and fin[k].get('tex') else {})})
-            for k, d in DEFAULT_FINISH.items()}
+    out = {}
+    for k, d in DEFAULT_FINISH.items():
+        v = fin.get(k) if isinstance(fin.get(k), dict) else {}
+        ok = isinstance(v.get('colorHex'), str) and re.fullmatch(r'#[0-9a-fA-F]{6}', v['colorHex'])
+        s_ = {**v} if ok else {}                 # прочие поля поверхности (фактура, выбор застройщика) едут как были — /demo не меняется
+        s_ |= {'id': v['id'] if ok and isinstance(v.get('id'), str) and re.fullmatch(r'[a-z0-9-]{1,40}', v['id']) else d['id'],
+              'colorHex': v['colorHex'].lower() if ok else d['colorHex']}
+        if not ok and v.get('tex'):
+            s_['tex'] = v['tex']
+        out[k] = s_
+    return out
 
 
 def trace(name):

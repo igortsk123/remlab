@@ -26,8 +26,13 @@ for empty in (None, {}, 'x', []):
     check(f'паспорта нет ({empty!r}) — все четыре поверхности по умолчанию', ES.with_default_finish(empty) == ES.DEFAULT_FINISH)
 own = {'wall': {'id': 'paint-x', 'colorHex': '#112233'}, 'floor': {'colorHex': '#445566', 'tex': {'src': 'a.jpg'}}}
 got = ES.with_default_finish(own)
-check('свои поверхности не трогаем, недостающие — по умолчанию', got['wall'] == own['wall'] and got['floor'] == own['floor'] and got['ceiling'] == ES.DEFAULT_FINISH['ceiling'] and got['skirting'] == ES.DEFAULT_FINISH['skirting'])
+check('свои поверхности не трогаем, недостающие — по умолчанию', got['wall'] == own['wall'] and got['floor'] == {'id': 'demo-floor', 'colorHex': '#445566', 'tex': {'src': 'a.jpg'}} and got['ceiling'] == ES.DEFAULT_FINISH['ceiling'] and got['skirting'] == ES.DEFAULT_FINISH['skirting'])
 check('фактура пола без цвета не теряется: цвет по умолчанию + `tex`', ES.with_default_finish({'floor': {'tex': {'src': 'b.jpg'}}})['floor'] == {**ES.DEFAULT_FINISH['floor'], 'tex': {'src': 'b.jpg'}})
+bad = ES.with_default_finish({'wall': {'id': 'Bad Id!', 'colorHex': '#ABCDEF'}, 'floor': {'colorHex': 'red'}, 'ceiling': {'id': 'c-1', 'colorHex': '#112233'}})
+check('как у страницы: неверный цвет — по умолчанию, неверный id — id по умолчанию, цвет в нижнем регистре',
+      bad['wall'] == {'id': 'paint-white', 'colorHex': '#abcdef'} and bad['floor'] == ES.DEFAULT_FINISH['floor'] and bad['ceiling'] == {'id': 'c-1', 'colorHex': '#112233'})
+ex = {'wall': {'id': 'paint-x', 'colorHex': '#112233', 'opt': 'o1', 'tex': {'src': 'w.jpg'}}}
+check('у верной поверхности все её поля едут как были (/demo не меняется)', ES.with_default_finish(ex)['wall'] == ex['wall'])
 check('вход не меняется', own['wall'] == {'id': 'paint-x', 'colorHex': '#112233'} and 'ceiling' not in own)
 print('\nВСЕГО провалов:', len(fails))
 sys.exit(1 if fails else 0)
