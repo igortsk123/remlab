@@ -45,10 +45,14 @@ def base_role(role: str) -> str:
 class Facts:
     """Факты готовности комнаты: строки привязки, причина «не читается», индекс прода, карта представителей, режим."""
 
-    def __init__(self, rows: dict | None, why: str, idx: set, rep: dict, mode: str = 'orient'):
+    def __init__(self, rows: dict | None, why: str, idx: set, rep: dict, mode: str = 'orient', dep_gate: tuple = (),
+                 dep_demand: bool = False):
         if mode not in RB.MESH_GATE_MODES:
             raise ValueError(f'rooms.<комната>.mesh_gate={mode!r}? можно {", ".join(RB.MESH_GATE_MODES)}')
         self.rows, self.why, self.idx, self.rep_map, self.mode = rows or {}, why, idx, rep, mode
+        # ЗАВИСИМЫЙ ДЕКОР С ВОРОТАМИ (T-20261118-04/4, `rooms.<комната>.dep_gate`): роли, которых витрина без модели не показывает (лампа на тумбе) —
+        # годны по тому же правилу, что предметы солвера; `dep_demand` — встаёт ли их недостающая модель в спрос мешей (платная генерация)
+        self.dep_gate, self.dep_demand = tuple(dep_gate or ()), bool(dep_demand)
 
     def rep(self, sku: str) -> str:
         """Представитель семейства (для журнала ожидания, как `bank_ready.Facts.rep`)."""
@@ -73,7 +77,7 @@ class Facts:
 
 
 def load_facts(mode: str | None = None, fetch=None, idx: set | None = None, rep: dict | None = None,
-               demo_data: str | None = None) -> Facts:
+               demo_data: str | None = None, rules: dict | None = None) -> Facts:
     """Привязка — одним запросом (`room_bindings.load_db`), индекс прода и представители — те же функции, что у витрины.
     Прод не ответил — модели вчерашнего демо (`demo_data`), как у витрины."""
     import catalog_items as CI
@@ -82,17 +86,22 @@ def load_facts(mode: str | None = None, fetch=None, idx: set | None = None, rep:
         print(f'WARN:room_ready: привязка не читается ({why}) — у предметов комнаты моделей нет', flush=True)
     if idx is None:
         idx = RB.prod_index(lambda: RB.demo_msids(demo_data) if demo_data else set())
-    return Facts(rows, why, idx, RB.mesh_rep() if rep is None else rep, mode or 'orient')
+    rules = rules or {}
+    return Facts(rows, why, idx, RB.mesh_rep() if rep is None else rep, mode or 'orient', tuple(rules.get('dep_gate') or ()),
+                 bool(rules.get('dep_gate_demand')))
 
 
 def classify(role: str, sku: str, item: dict | None, F: Facts) -> tuple[str, str | None, str | None]:
     """→ (тип, причина, need) — как `bank_ready.classify`: 'ready' или тип ожидания (`wait_asset`)."""
-    if base_role(role) not in gated_roles():
+    dep = base_role(role) in getattr(F, 'dep_gate', ())
+    if base_role(role) not in gated_roles() and not dep:
         return 'ready', None, None
     a = F.asset(sku)
     why, _note = RB.usable(a, F.msid(sku), F.idx, F.mode)
     if not why:
         return 'ready', None, None
+    if dep and not F.dep_demand:                  # лампа без модели: ячейка ждёт, но платный меш в спрос не ставим (решает директор)
+        return 'wait_asset', why, ('review' if why == RB.QUARANTINED or a['mesh_status'] == 'blocked' else None)
     if why == RB.QUARANTINED:                 # карантин модели — на разбор (переделка/решение), не выкладка (T-20261107-05/3)
         return 'wait_asset', why, 'review'
     if a['mesh_status'] == 'none':
@@ -163,6 +172,14 @@ def _selftest() -> int:
        and classify('кровать', '1:a', None, Facts({'1:a': _row('ready', None, True)}, '', idx, {'1_a': '9_9'}))[1]
        .startswith('модели сцены нет'))
     ok('лампа, ковёр, шторы — моделью не проверяются (как у витрины)', all(c('0:z', r)[0] == 'ready' for r in ('лампа', 'ковёр', 'шторы')))
+    D = Facts(rows, '', idx, {'7_g': '5_r'}, 'orient', ('лампа',))
+    DD = Facts(rows, '', idx, {'7_g': '5_r'}, 'orient', ('лампа',), True)
+    ok('dep_gate: лампа с годной моделью — готова; без модели — ждёт, платный меш в спрос НЕ ставим; с dep_demand — need=mesh (T-20261118-04/4)',
+       classify('лампа', '1:a', None, D)[0] == 'ready' and classify('лампа 2', '1:a', None, D)[0] == 'ready'
+       and classify('лампа', '0:z', None, D) == ('wait_asset', c('0:z')[1], None) and classify('лампа', '0:z', None, DD)[2] == 'mesh'
+       and classify('лампа', '0:z', None, F)[0] == 'ready')
+    ok('dep_gate: лампа в карантине/блоке — review (разбор), не молчаливый ready',
+       classify('лампа', '2:b', None, Facts(rows, '', idx, {}, 'strict', ('лампа',)))[2] == 'review')
     ok('пронумерованный экземпляр «тумба прикроватная 2» — проверяется как тумба', c('0:z', 'тумба прикроватная 2')[0] == 'wait_asset')
     U = Facts(None, 'binding_missing', idx, {})
     ok('привязка не читается — предметы солвера ждут (unbound), не «готовы»', classify('шкаф', '1:a', None, U)[1]
