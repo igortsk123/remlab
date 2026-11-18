@@ -50,6 +50,39 @@ def run(sink, now: float, keep_h: float, apply: bool) -> int:
     return done
 
 
+ABORTED_MIN_AGE_S = 900
+
+
+def aborted_jobs(sink, listing: dict, now: float, min_age_s: float = ABORTED_MIN_AGE_S) -> list:
+    """Брошенные отправки (T-20261118-09/5): каталог задания БЕЗ `job.json`, `result.json` и `cancel.json` — отправку оборвали (перезапуск сервиса, убитая проба) до записи `job.json`.
+    Воркер на машине обходит такие каталоги на КАЖДОМ круге выбора задания (≈0,6 с на каталог — ls + чтение job.json, до 2 ч) — до 2–4 с на заказ (замер 18.11: 3 брошенных).
+    Моложе `min_age_s` не трогаем (отправка может идти: `job.json` пишется последним). Чистая функция над данными приёмника: список имён."""
+    out = []
+    for d in listing.get('dirs', []):
+        n = d.get('name', '')
+        if not n or n.startswith('.') or '/' in n or n == JP.HOT_DIR or now - float(d.get('mtime', now)) <= min_age_s:
+            continue
+        try:
+            names = {f.get('name') for f in sink.ls(f'{JP.PREFIX}/{n}').get('files', [])}
+        except JP.SinkError:
+            continue
+        if not names & {'job.json', 'result.json', 'cancel.json'}:
+            out.append(n)
+    return sorted(out)
+
+
+def run_aborted(sink, listing: dict, now: float, apply: bool) -> int:
+    ab = aborted_jobs(sink, listing, now)
+    print(f'renderjobs: брошенных отправок (нет job.json/result.json) старше {ABORTED_MIN_AGE_S // 60} мин: {len(ab)}')
+    done = 0
+    for n in ab:
+        if apply:
+            sink.delete(f'{JP.PREFIX}/{n}')
+            done += 1
+        print(('удалено ' if apply else 'удалил бы ') + f'{JP.PREFIX}/{n} (брошена)')
+    return done
+
+
 def list_assets(sink) -> list:
     """Все ассеты приёмника: [(shard, sha, size, mtime)]. Имена не из хеша и не из своего шарда пропускаем (чужое не удаляем)."""
     out = []
@@ -177,6 +210,24 @@ def _selftest() -> int:
     ok('каталог `_hot` — не задание: по возрасту не удаляется', old_jobs({'dirs': [{'name': '_hot', 'mtime': 0}, {'name': 'x', 'mtime': 0}]}, now, 24) == ['x'])
     a = A()
     ok('run_assets без --apply ничего не удаляет', run_assets(a, {'dirs': []}, now, False) == 0 and a.deleted == [])
+    # брошенные отправки
+    class J:
+        files = {'ab1': [{'name': 'bundle-x.tgz'}], 'ok1': [{'name': 'bundle-x.tgz'}, {'name': 'job.json'}], 'done1': [{'name': 'result.json'}, {'name': 'C1.jpg'}],
+                 'cx': [{'name': 'cancel.json'}], 'new1': [{'name': 'bundle-x.tgz'}], 'ab2': []}
+
+        def __init__(self):
+            self.deleted = []
+
+        def ls(self, rel):
+            return {'files': J.files[rel.split('/')[-1]]}
+
+        def delete(self, rel):
+            self.deleted.append(rel)
+    lsj = {'dirs': [{'name': n, 'mtime': now - (60 if n == 'new1' else 3000)} for n in ('ab1', 'ok1', 'done1', 'cx', 'new1', 'ab2')] + [{'name': '_hot', 'mtime': 0}, {'name': '.s', 'mtime': 0}]}
+    j = J()
+    ok('брошенные: без job/result/cancel и старше 15 мин — ab1, ab2; с job.json, с результатом, отменённая, свежая, _hot — нет', aborted_jobs(j, lsj, now) == ['ab1', 'ab2'])
+    ok('run_aborted: без --apply не удаляет, с --apply удаляет только брошенные', run_aborted(j, lsj, now, False) == 0 and j.deleted == [] and run_aborted(j, lsj, now, True) == 2
+       and j.deleted == ['renderjobs/ab1', 'renderjobs/ab2'])
     print('итог:', 'чисто' if not bad else f'ПРОВАЛЕНО {len(bad)}')
     return 1 if bad else 0
 
@@ -186,6 +237,7 @@ def main() -> int:
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--hours', type=float, default=KEEP_H)
     ap.add_argument('--selftest', action='store_true')
+    ap.add_argument('--aborted-only', action='store_true', help='только брошенные отправки (дёшево, годится для частого крона)')
     ap.add_argument('--prefix', default=JP.PREFIX)
     a = ap.parse_args()
     if a.selftest:
@@ -203,6 +255,9 @@ def main() -> int:
     sink = JP.Sink(sink_health.SINK_URL, tok)
     now = time.time()
     listing = sink.ls(JP.PREFIX)
+    run_aborted(sink, listing, now, a.apply)
+    if a.aborted_only:
+        return 0
     run(sink, now, a.hours, a.apply)
     run_assets(sink, listing, now, a.apply)
     return 0
