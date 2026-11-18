@@ -36,6 +36,8 @@ sys.path.insert(0, HERE)
 RULES = json.load(open(os.path.join(HERE, 'rules', 'demo-swap.json'), encoding='utf-8'))   # conv-03: правила ленты
 PER_GROUP = int(os.environ.get('DEMO_SWAP_PER_GROUP', RULES['per_group']))
 IN_STYLE_MIN = float(RULES['in_style_min'])
+import price_tiers as PT                                              # ценовые ступени роли — одно место правила границ
+SEGMENTS_ON = os.environ.get('DEMO_SWAP_SEGMENTS', '1') != '0'        # 0 — откат на группу «подкатегория × стиль» (потолок на все цены)
 STYLES = ('лофт', 'сканди', 'джапанди', 'минимализм', 'неоклассика', 'современный')
 # роли, которые демо расставляет объёмными моделями (ковры и прочее плоское — вклейкой)
 ROLES = ('диван', 'кресло', 'столик', 'тв-тумба', 'стеллаж', 'комод', 'торшер', 'пуф',
@@ -164,7 +166,8 @@ def rug_pool(ok=None, band: dict | None = None) -> list[dict]:
     запасной нейтральный (`universal_rugs`)."""
     from mesh_queue import db
     rows = [p for p in map(_row, db(rug_sql())) if p]
-    return pick(rows + universal_rugs({p['style'] for p in rows}), ok, band=band)
+    return pick(rows + universal_rugs({p['style'] for p in rows}), ok, band=band,
+                fam_price=_fam_prices())
 
 
 # Подушки (T-20261107-25/4): в ленту шли только подушки наборов — у неоклассики ни одной; из каталога тем же отбором, что шторы
@@ -221,23 +224,28 @@ def model_key(name: str) -> str:
 
 
 def soft_pool(role: str, ok=None, per_group: int = PER_GROUP) -> list[dict]:
-    """Мягкое ленты замен из каталога: по стилю — до `per_group` прошедших (шторы — `curtain_fits`; `ok(p)` — живое фото и цвет
-    стиля, проверки сборки `flat215_demo.soft_pool_ok`), один размер на модель и цвет (`model_key`), порядок запроса. Модели
-    нет: `msid` пуст."""
+    """Мягкое ленты замен из каталога: до `per_group` СЕМЕЙСТВ на «роль × ценовая ступень», стили по кругу (`pick`; шторы —
+    `curtain_fits`; `ok(p)` — живое фото и цвет стиля, проверки сборки `flat215_demo.soft_pool_ok`), один размер на модель и
+    цвет (`model_key`), порядок запроса. Модели нет: `msid` пуст. `DEMO_SWAP_SEGMENTS=0` — прежнее: до `per_group` на стиль."""
     from mesh_queue import db
-    out, per, seen = [], {}, set()
+    cands, seen = [], set()
     for p in map(_row, db(soft_sql(role))):
-        if not p or per.get(p['style'], 0) >= per_group:
+        if not p:
             continue
         p['msid'] = None
         if role == 'шторы' and not curtain_fits(p):
             continue
         k = (p['style'], model_key(p['name']))
-        if k in seen or (ok is not None and not ok(p)):
-            continue
-        seen.add(k)
-        per[p['style']] = per.get(p['style'], 0) + 1
-        out.append(p)
+        if k not in seen:
+            seen.add(k)
+            cands.append(p)
+    if SEGMENTS_ON:
+        return pick(cands, ok, per_group, gate=lambda p: True, fam_price=_fam_prices())
+    out, per = [], {}
+    for p in cands:
+        if per.get(p['style'], 0) < per_group and (ok is None or ok(p)):
+            per[p['style']] = per.get(p['style'], 0) + 1
+            out.append(p)
     return out
 
 
@@ -264,41 +272,136 @@ def fits(p: dict, ceiling_cm: float | None = None) -> bool:
     return bool(p.get('img') and p.get('w') and p.get('d')) and lo <= p['w'] <= hi
 
 
-def pick(rows: list[dict], ok=None, per_group: int = PER_GROUP, band: dict | None = None,
-         ceiling_cm: float | None = None) -> list[dict]:
-    """Группа «подкатегория × стиль» в порядке запроса → до `per_group` прошедших проверки: сперва по одному товару на модель
-    (`msid`), потом цвета тех же моделей. `ok(p)` — проверки сборки (модель на сервере, цвет, `unfit`); зовётся лениво, пока
-    группа не набрана, и один раз на товар (товар повторяется в каждом своём стиле).
+COLOURS = int(RULES.get('colours_per_family', 3))     # цвета взятой модели, кроме представителя: квоты не расходуют (карточка модели)
 
-    СПЕРВА — В ПОЛОСЕ РАЗМЕРА (`band` — `slot_rules.slot_band` комнаты демо; план demo-20 часть В, владелец 22.10 TG 793): лента
-    по умолчанию показывает только подходящих по размеру, а 30 мест группы раньше занимали лучшие по качеству любого размера —
-    тв-тумб «современный» в полосе с моделью на сервере 103, а в ленту доходило 19. Внутри «в полосе» и «вне» порядок прежний."""
+
+def _fam_prices() -> dict | None:
+    """Цены семейств по ролям (`price_tiers.family_prices_cached`) для ступени товара; нет БД — громко и ступень по цене самого
+    товара (лента не пустеет, но семейство с цветами разных цен может раздвоиться между ступенями). Откат — `None`."""
+    if not SEGMENTS_ON:
+        return None
+    try:
+        return PT.family_prices_cached()
+    except Exception as e:  # noqa: BLE001
+        print(f'WARN:price_segments: цены семейств не прочитаны ({repr(e)[:100]}), ступень товара — по его цене')
+        return {}
+
+
+def fam_of(p: dict) -> str:
+    """Семейство строки пула — ключ того же правила, что у границ ступеней (`price_tiers.family_key`)."""
+    return PT.family_key(p['sid'].split('_', 1)[0], p.get('name'), p.get('w'), p.get('msid') or '')
+
+
+def _interleave(lists: list) -> list:
+    """Круговой обход: по одному из каждого списка по очереди; порядок внутри списка сохранён."""
+    lists = [list(x) for x in lists if x]
+    out = []
+    while lists:
+        nxt = []
+        for lst in lists:
+            out.append(lst.pop(0))
+            if lst:
+                nxt.append(lst)
+        lists = nxt
+    return out
+
+
+def _order(fams: dict, band_of=None) -> list:
+    """Порядок обхода семейств группы «роль × ступень»: стили по кругу, внутри стиля подкатегории по кругу, внутри — порядок запроса
+    (качество обогащения), в полосе размера — вперёд (стиль — не граница квоты, а охват: каждому стилю достаётся доля мест)."""
+    lanes: dict = {}
+    for fam, rws in fams.items():
+        for r in rws:
+            lane = lanes.setdefault(r['style'], {}).setdefault(r['sub'], {})
+            lane.setdefault(fam, r)
+    per_style = []
+    for style in sorted(lanes, key=lambda x: (STYLES.index(x) if x in STYLES else 99, x)):
+        subs = []
+        for sub in sorted(lanes[style]):
+            items = list(lanes[style][sub].items())
+            if band_of:
+                items.sort(key=lambda kv: not band_of(kv[1]))          # устойчивая: порядок внутри сохраняется
+            subs.append([fam for fam, _ in items])
+        per_style.append(_interleave(subs))
+    seen, out = set(), []
+    for fam in _interleave(per_style):
+        if fam not in seen:
+            seen.add(fam)
+            out.append(fam)
+    return out
+
+
+def pick(rows: list[dict], ok=None, per_group: int = PER_GROUP, band: dict | None = None,
+         ceiling_cm: float | None = None, bounds: dict | None = None, fam_price: dict | None = None, gate=None) -> list[dict]:
+    """ЛЕНТА ЗАМЕН — ДО `per_group` СЕМЕЙСТВ НА «РОЛЬ × ЦЕНОВАЯ СТУПЕНЬ» (T-20261118-61/3, владелец TG 1921–1975, план
+    `plans/price-segments-01.md`): ступени не пересекаются (`price_tiers`, границы — `rules/price-segments.json`, ступень товара — по
+    цене его СЕМЕЙСТВА `fam_price` {роль: {семейство: цена}}, нет — по своей цене), стиль — НЕ граница квоты, а фильтр поверх:
+    семейства берутся по кругу по стилям и подкатегориям (охват), у взятого — строки во всех его стилях. Цвета взятой модели
+    (до `COLOURS`) квоту не расходуют. Роль без границ — одна ступень (`price_segment` пусто). Строки получают `price_segment`.
+    `DEMO_SWAP_SEGMENTS=0` — прежняя группа «подкатегория × стиль» (потолок на все цены разом).
+
+    В порядке запроса → до `per_group` прошедших проверки; `ok(p)` — проверки сборки (модель на сервере, цвет, `unfit`); зовётся
+    лениво, пока группа не набрана, и один раз на товар. `gate(p)` — ворота товара до `ok` (нет — `fits`: фото, габариты, конверт роли).
+    СПЕРВА — В ПОЛОСЕ РАЗМЕРА (`band` — `slot_rules.slot_band` комнаты демо; план demo-20 часть В, владелец 22.10 TG 793): лучшие по
+    качеству любого размера занимали места, а подходящих по размеру в ленту доходило меньше."""
     seen: dict = {}
+    gate = gate or (lambda p: fits(p, ceiling_cm))
 
     def good(p: dict) -> bool:
         if p['sid'] not in seen:
-            seen[p['sid']] = fits(p, ceiling_cm) and (ok is None or bool(ok(p)))
+            seen[p['sid']] = gate(p) and (ok is None or bool(ok(p)))
         return seen[p['sid']]
 
     from slot_rules import in_band
+    if not SEGMENTS_ON:
+        return _pick_legacy(rows, good, per_group, band, in_band)
+    tier_of: dict = {}
+    groups: dict = {}
+    for p in rows:
+        fam = fam_of(p)
+        k = (p['role'], fam)
+        if k not in tier_of:
+            tier_of[k] = PT.segment_of(p['role'], fam, p.get('price'), fam_price, bounds=bounds)
+        groups.setdefault((p['role'], tier_of[k]), {}).setdefault(fam, []).append(p)
+    out = []
+    for (role, tier), fams in groups.items():
+        bo = (lambda r, _b=(band or {}).get(role): in_band(r, _b)) if band else None
+        took = 0
+        for fam in _order(fams, bo):
+            if took >= per_group:
+                break
+            sids: dict = {}                                   # артикулы семейства в порядке запроса → его строки (по стилю)
+            for r in fams[fam]:
+                sids.setdefault(r['sid'], []).append(r)
+            rep = next((s for s in sids if good(sids[s][0])), None)
+            if rep is None:
+                continue
+            took += 1
+            mine = [rep] + [s for s in sids if s != rep and good(sids[s][0])][:COLOURS]
+            out += [dict(r, price_segment=tier) for s in mine for r in sids[s]]
+    return out
+
+
+def _pick_legacy(rows: list, good, per_group: int, band, in_band) -> list:
+    """Откат `DEMO_SWAP_SEGMENTS=0`: группа «подкатегория × стиль», сперва разные модели, потом цвета."""
     groups: dict = {}
     for p in rows:
         groups.setdefault((p['sub'], p['style']), []).append(p)
     out = []
     for grp in groups.values():
         if band:
-            grp = sorted(grp, key=lambda p: not in_band(p, band.get(p['role'])))   # устойчивая: порядок внутри сохраняется
+            grp = sorted(grp, key=lambda p: not in_band(p, band.get(p['role'])))
         took, models = [], set()
-        for p in grp:                                   # сперва разные модели: лучший прошедший товар каждой
+        for p in grp:
             if len(took) < per_group and p['msid'] not in models and good(p):
                 took.append(p)
                 models.add(p['msid'])
         taken = {p['sid'] for p in took}
-        for p in grp:                                   # потом цвета уже взятых моделей
+        for p in grp:
             if len(took) < per_group and p['sid'] not in taken and p['msid'] in models and good(p):
                 took.append(p)
                 taken.add(p['sid'])
-        out.extend(took)
+        out += took
     return out
 
 
@@ -308,7 +411,7 @@ def pool(ok=None, roles: tuple | None = None, band: dict | None = None, ceiling_
     потолок квартиры (`flat215_demo.demo_ceiling`; нет — базовый) для гейта подвеса."""
     from mesh_queue import db
     return pick([p for p in map(_row, db(pool_sql())) if p and (roles is None or p['role'] in roles)], ok, band=band,
-                ceiling_cm=ceiling_cm)
+                ceiling_cm=ceiling_cm, fam_price=_fam_prices())
 
 
 def pool_top() -> list[dict]:
@@ -359,23 +462,31 @@ def _selftest() -> int:
     if ENVELOPE.get('диван') != tuple(RULES['room_fit_envelope_cm']['диван']) or 'ваза' not in ENVELOPE:
         bad += 1
         print('  FAIL: конверт не из rules/demo-swap.json')
-    # отбор: модель A — три цвета подряд (лучшие), B и C — по одному; C без модели на сервере; D шире комнаты
+    # отбор: модель A — три цвета подряд (лучшие), B и C — по одному; C без модели на сервере; D шире комнаты. Без цен и границ
+    # роли ступени нет — одна группа «роль»; квота — на СЕМЕЙСТВА, цвета взятой модели (до COLOURS) её не расходуют
     row = lambda sid, msid, w=170: {'sid': sid, 'msid': msid, 'sub': 'диван', 'style': 'сканди', 'role': 'диван',  # noqa: E731
                                     'img': 'i', 'w': w, 'd': 90, 'h': 80, 'name': sid}
     rows = [row('a1', 'A'), row('a2', 'A'), row('a3', 'A'), row('c1', 'C'), row('d1', 'D', 260), row('b1', 'B')]
     calls: list = []
     ok = lambda p: calls.append(p['sid']) or p['msid'] != 'C'  # noqa: E731
-    got = [p['sid'] for p in pick(rows + [dict(r, style='лофт') for r in rows], ok, per_group=3)]
-    if got[:3] != ['a1', 'b1', 'a2']:
+    both = rows + [dict(r, style='лофт') for r in rows]
+    got = pick(both, ok, per_group=2)
+    if SEGMENTS_ON:
+        fams_got = {p['msid'] for p in got}
+        if fams_got != {'A', 'B'} or {p['sid'] for p in got} != {'a1', 'a2', 'a3', 'b1'} or len(got) != 8:
+            bad += 1
+            print('  FAIL: до 2 семейств на группу, цвета модели в карточке, мимо непрошедших; строка на каждый стиль товара:',
+                  [(p['sid'], p['style']) for p in got])
+        if got[0]['sid'] != 'a1' or [p['sid'] for p in got if p['style'] == 'сканди'][:2] != ['a1', 'a2']:
+            bad += 1
+            print('  FAIL: представитель семьи — лучший по порядку запроса:', [p['sid'] for p in got])
+    if len(calls) != len(set(calls)):
         bad += 1
-        print('  FAIL: сперва разные модели, потом цвета, мимо непрошедших:', got[:3])
-    if len(got) != 6 or len(calls) != len(set(calls)):
-        bad += 1
-        print('  FAIL: группа на стиль своя, проверка — один раз на товар:', got, calls)
+        print('  FAIL: проверка — один раз на товар:', calls)
     if 'd1' in calls:
         bad += 1
         print('  FAIL: шире конверта — отсев до дорогих проверок')
-    if [p['sid'] for p in pick(rows, ok, per_group=30)] != ['a1', 'b1', 'a2', 'a3']:
+    if {p['sid'] for p in pick(rows, ok, per_group=30)} != {'a1', 'b1', 'a2', 'a3'}:
         bad += 1
         print('  FAIL: добор до лимита — все прошедшие')
     if 'where rn <= 30 order by cat_role, style, sku' not in pool_sql(top=30):
@@ -442,11 +553,58 @@ def _selftest() -> int:
     if [p['sid'] for p in pick(rows_b, per_group=3)] != ['w1', 'n1', 'w2']:
         bad += 1
         print('  FAIL: без полосы порядок прежний')
+    # ЦЕНОВЫЕ СТУПЕНИ РОЛИ (T-61/3): до per_group СЕМЕЙСТВ на «роль × ступень», ступени не пересекаются (границы [B1, B2] роли)
+    BND = {'диван': [30000, 80000]}
+    rows_s = [dict(row(f'{k}{i}', f'{k}{i}'), price=pr) for k, pr in (('l', 10000), ('m', 40000), ('h', 90000)) for i in range(4)]
+    got_s = pick(rows_s, per_group=2, bounds=BND)
+    if SEGMENTS_ON and [p['sid'] for p in got_s] != ['l0', 'l1', 'm0', 'm1', 'h0', 'h1']:
+        bad += 1
+        print('  FAIL: по 2 на каждую ступень, а не 2 на все цены:', [p['sid'] for p in got_s])
+    if SEGMENTS_ON and [p['price_segment'] for p in got_s] != ['lo', 'lo', 'mid', 'mid', 'hi', 'hi']:
+        bad += 1
+        print('  FAIL: строка несёт price_segment')
+    two = pick(rows_s + [dict(r, style='лофт') for r in rows_s], per_group=2, bounds=BND)
+    if SEGMENTS_ON and (len(two) != 12 or len({p['sid'] for p in two}) != 6):
+        bad += 1
+        print('  FAIL: стиль — не граница квоты: те же 6 семейств, строка на каждый стиль:', len(two))
+    if SEGMENTS_ON and [p['sid'] for p in pick(rows_s[:6] + rows_s[8:], per_group=2, bounds=BND, ok=lambda p: p['sid'] != 'h0')] != \
+            ['l0', 'l1', 'm0', 'm1', 'h1', 'h2']:
+        bad += 1
+        print('  FAIL: непрошедший товар ступени заменяет следующий той же ступени, чужая ступень не занимает место')
+    # охват стилей: квота общая на ступень, но места делятся по кругу между стилями (m0, m1 — лофт; m2, m3 — сканди)
+    cov = [dict(r, style='лофт' if r['sid'] in ('m0', 'm1') else 'сканди') for r in rows_s[4:8]]
+    if SEGMENTS_ON and sorted(p['sid'] for p in pick(cov, per_group=2, bounds=BND)) != ['m0', 'm2']:
+        bad += 1
+        print('  FAIL: охват стилей — по кругу, а не два лучших лофта:', [p['sid'] for p in pick(cov, per_group=2, bounds=BND)])
+    # цвета семейства: ступень — по цене СЕМЕЙСТВА (не цвета), квоту цвета не расходуют (до COLOURS), остальные — мимо
+    fam_rows = [dict(row(f'x{i}', 'F'), price=10000 if i == 1 else 90000) for i in range(1, COLOURS + 3)] + [dict(row('y1', 'G'), price=40000)]
+    fp = {'диван': {'m:F': 40000, 'm:G': 40000}}
+    got_f = pick(fam_rows, per_group=1, bounds=BND, fam_price=fp)
+    if SEGMENTS_ON and ([p['sid'] for p in got_f] != [f'x{i}' for i in range(1, COLOURS + 2)]
+                        or {p['price_segment'] for p in got_f} != {'mid'}):
+        bad += 1
+        print('  FAIL: семейство в ступени по своей цене, цвета — до COLOURS и без расхода квоты:', [(p['sid'], p['price_segment']) for p in got_f])
+    # роль без границ — одна группа, price_segment пуст; без цены у товара — тоже
+    nb = [dict(row(f'n{i}', f'n{i}'), role='нет-такой', price=1000 * (i + 1)) for i in range(3)]
+    got_n = pick(nb, per_group=2, gate=lambda p: True)
+    if SEGMENTS_ON and ([p['sid'] for p in got_n] != ['n0', 'n1'] or {p['price_segment'] for p in got_n} != {None}):
+        bad += 1
+        print('  FAIL: роль без границ — одна ступень, price_segment пуст:', [(p['sid'], p['price_segment']) for p in got_n])
+    # откат DEMO_SWAP_SEGMENTS=0 — прежняя группа «подкатегория × стиль» (потолок на все цены разом)
+    _on = globals()['SEGMENTS_ON']
+    globals()['SEGMENTS_ON'] = False
+    try:
+        old = pick(rows_s + [dict(r, style='лофт') for r in rows_s], per_group=2, bounds=BND)
+        if [p['sid'] for p in old if p['style'] == 'сканди'] != ['l0', 'l1'] or len(old) != 4:
+            bad += 1
+            print('  FAIL: откат — по 2 на «подкатегория × стиль» без ступеней:', [(p['sid'], p['style']) for p in old])
+    finally:
+        globals()['SEGMENTS_ON'] = _on
     q2 = pool_sql(any_mesh=True)
     if 'mesh_status' in q2 or 'photo_alive' not in q2 or f'>= {IN_STYLE_MIN}' not in q2:
         bad += 1
         print('  FAIL: запрос «и без меша» — те же ворота, кроме готовности меша')
-    print(f'demo_swap_pool selftest: случаев 20, ошибок {bad}')
+    print(f'demo_swap_pool selftest: случаев 26, ошибок {bad}')
     return 1 if bad else 0
 
 

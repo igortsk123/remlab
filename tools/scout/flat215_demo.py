@@ -1546,11 +1546,79 @@ def bedroom_catalog() -> dict:
     return room_photo_catalog('bedroom')
 
 
+def _price_segment_ranges() -> dict:
+    """Границы ступеней по ролям и подписи RU/EN — в `demo-data.json` (`price_segments`); правила нет — пусто."""
+    import price_tiers as _PT
+    return _PT.ranges()
+
+
+def stamp_price_segments(feeds: dict) -> dict:
+    """`price_segment` (lo/mid/hi) каждой карточке лент — по цене её СЕМЕЙСТВА (`price_tiers.segment_of`), для комнат не только
+    гостиной (ключ ленты `<комната>:<роль>` — роль после двоеточия). Карточка без ступени (у роли нет границ) — поле не пишем.
+    Сломанная БД — цена самой карточки. → {ключ ленты: {ступень: сколько}} для отчёта сборки."""
+    import price_tiers as _PT
+    if not _PT.load():
+        return {}
+    try:
+        fp = _PT.family_prices_cached()
+    except Exception as e:  # noqa: BLE001 — нет БД: ступень по цене карточки
+        print(f'WARN:price_segments: цены семейств не прочитаны ({repr(e)[:100]}), ступень — по цене карточки')
+        fp = {}
+    rep: dict = {}
+    for key, lst in feeds.items():
+        role = key.rpartition(':')[2].split(' ')[0]
+        for p in lst:
+            if not isinstance(p, dict):
+                continue
+            sid = str(p.get('sid') or '')
+            seg = _PT.segment_of(role, _PT.family_key(sid.split('_', 1)[0].split(':', 1)[0], p.get('name'), p.get('w'), p.get('msid') or ''),
+                                 p.get('price'), fp)
+            if seg:
+                p['price_segment'] = seg
+            else:
+                p.pop('price_segment', None)
+            rep.setdefault(key, {}).setdefault(seg or '—', 0)
+            rep[key][seg or '—'] += 1
+    return rep
+
+
+def _catalog_pick(role: str, reps: list, cap=None) -> list:
+    """Выборка роли для фото-каталога комнаты: по `cap` (нет — `per_group` правил ленты, `rules/demo-swap.json`) семейств на КАЖДУЮ
+    ценовую ступень роли (`price_tiers`, границы — `rules/price-segments.json`, ступень по цене семейства; T-61/3, владелец TG
+    1921–1975: «по 30 на сегмент») — равными шагами по цене внутри ступени, сперва с годной моделью (`meshy`), остальные добирают
+    до квоты. Ступени не пересекаются; строка несёт `price_segment`; роль без границ — одна ступень без метки.
+    `DEMO_SWAP_SEGMENTS=0` — прежний отбор: `cap` (нет — 8) на всю роль равными шагами по цене."""
+    import demo_swap_pool as _DSP
+    import price_tiers as _PT
+
+    def spread(xs, k):
+        return xs if len(xs) <= k else [xs[round(i * (len(xs) - 1) / (k - 1))] for i in range(k)] if k > 1 else xs[:1]
+    if not _DSP.SEGMENTS_ON:
+        return spread(reps, cap or 8)
+    k = cap or _DSP.PER_GROUP
+    try:
+        fp = _PT.family_prices_cached()
+    except Exception:  # noqa: BLE001 — нет БД: ступень по цене представителя
+        fp = {}
+    by: dict = {}
+    for x in reps:
+        t = _PT.segment_of(role, _PT.family_key(str(x['sid']).split(':', 1)[0], x.get('name'), x.get('w'), ''), x['price'], fp)
+        by.setdefault(t, []).append(dict(x, **({'price_segment': t} if t else {})))
+    got = []
+    for tier in (*_PT.KEYS, None):
+        mine = by.get(tier) or []
+        take = spread([x for x in mine if x.get('meshy')], k)
+        if len(take) < k:                                    # годных мало — остальные добирают до квоты (сторож ленты их отсеет)
+            take = take + spread([x for x in mine if not x.get('meshy')], k - len(take))
+        got += take
+    return [{k_: v for k_, v in x.items() if k_ != 'meshy'} for x in sorted(got, key=lambda x: x['price'])]   # в данные витрины — без служебного поля
+
+
 def room_photo_catalog(room_type: str) -> dict:
     """Фото-каталог комнаты (спальня — b2b-10 этап 2, ADR-0279; прихожая — hall-demo-01 этап 4) из `room_catalog`.
 
     Выборка на роль — по одной модели из семейства (без десяти цветов одной кровати) и ровно по цене: от дешёвых
-    к дорогим через равные шаги, чтобы видно было весь диапазон (сколько на роль — `CATALOG_SHOW` адаптера). Показываем только с
+    к дорогим через равные шаги, чтобы видно было весь диапазон (сколько — `_catalog_pick`: на каждую ценовую ступень роли, не на всю роль). Показываем только с
     ценой, фото и из свежего фида (`shown_where` модуля каталога комнаты, `catalog_items._rc`). Кровати — с честным габаритом
     впереди. Нет таблицы/базы — пусто, вкладка «скоро»."""
     A = showcase(room_type)
@@ -1562,7 +1630,12 @@ def room_photo_catalog(room_type: str) -> dict:
         R = M.rules()
         rows = _db("select role, shop_mid||':'||external_id, name, shop, url, coalesce(image_url_hd, image_url), price_rub, "
                    "w_cm, d_cm, h_cm, sleep_w_cm, sleep_l_cm, coalesce(footprint_ok,false), "
-                   "to_char(max(last_seen) over (), 'YYYY-MM-DD') from room_catalog where " + M.shown_where(R) +
+                   "to_char(max(last_seen) over (), 'YYYY-MM-DD'), "
+                   # модель привязки годна для сцены (готова или не решён только разворот — режим сторожа orient): таких берём в
+                   # выборку первыми — остальных сторож ленты всё равно отсеет, и квота ступени пустела бы на них
+                   "coalesce((select (b.status = 'ready' or (b.status = 'blocked' and b.orientation->>'status' = 'review_pending'))::int "
+                   "from offer_asset_binding b where b.shop_mid = room_catalog.shop_mid and b.external_id = room_catalog.external_id), 0) "
+                   "from room_catalog where " + M.shown_where(R) +
                    # только включённые роли (флаг `roles_enabled`, onb-04 / ADR-0330): новые роли лежат в таблице,
                    # но демо их не берёт, пока ведущий не включит — выключено → данные байт в байт прежние
                    ' and ' + RC.enabled_sql(R) + RC.kids_where(R))
@@ -1575,24 +1648,23 @@ def room_photo_catalog(room_type: str) -> dict:
     by: dict = {}
     updated = ''
     for r in rows:
-        role, sid, name, shop, url, img, price, w, d, h, sw, sl, ok, upd = r
+        role, sid, name, shop, url, img, price, w, d, h, sw, sl, ok, upd, meshy = r
         updated = upd or updated
         # семейство = название до первого слова с цифрой и без скобок цвета/материала: «Кейт 160 Букле Серый»,
         # «Торвалль 2-68x87», «Castello (Экокожа Слива) 140x190» → одна модель
         fam = re.sub(r'\s\S*\d.*$', '', re.sub(r'\s*\(.*$', '', name)).strip().lower()
         by.setdefault(role, {}).setdefault(fam, []).append({
             'sid': sid, 'name': re.sub(r'\s+', ' ', name).strip(), 'shop': shop, 'url': url, 'img': img, 'price': int(price),
-            'w': w, 'd': d, 'h': h, 'sleep': [sw, sl] if sw and sl else None, 'fits': ok in (True, 't')})
+            'w': w, 'd': d, 'h': h, 'sleep': [sw, sl] if sw and sl else None, 'fits': ok in (True, 't'), 'meshy': int(meshy or 0)})
     out = {}
     for role, fams in by.items():
         reps = []
-        for items in fams.values():                      # представитель семейства: честный габарит, потом дешевле
-            items.sort(key=lambda x: (not x['fits'], x['price']))
+        for items in fams.values():                      # представитель семейства: честный габарит, потом с годной моделью, потом дешевле
+            # (модель — до цены: иначе представитель без модели, сторож ленты отсеет его, и вся модель пропадёт, хотя другой цвет готов)
+            items.sort(key=lambda x: (not x['fits'], not x['meshy'], x['price']))
             reps.append(items[0])
         reps.sort(key=lambda x: x['price'])
-        k = A.CATALOG_SHOW.get(role, 8)
-        pick = reps if len(reps) <= k else [reps[round(i * (len(reps) - 1) / (k - 1))] for i in range(k)]
-        out[role] = pick
+        out[role] = _catalog_pick(role, reps, A.CATALOG_SHOW.get(role))
     print(f'каталог {A.TITLE_OF}: ' + ', '.join(f'{r} {len(v)} (моделей {len(by[r])})' for r, v in out.items()))
     return {'roles': out, 'updated': updated}
 
@@ -2258,6 +2330,14 @@ def build() -> dict:
             **({'height_cm': demo_ceiling()} if demo_ceiling() else {})}
     flags = rooms_on(apt)
     extra_geo, rules_extra, cats = room_showcases(apt, flags, variants, feeds, incomplete, room)
+    seg_report = stamp_price_segments(feeds)
+    if seg_report:
+        tot: dict = {}
+        for _k, _c in seg_report.items():
+            for _t, _n in _c.items():
+                tot[_t] = tot.get(_t, 0) + _n
+        print(f"ступени цены в лентах (версия {_price_segment_ranges().get('version')}): карточек по ступеням {tot}; "
+              f"без ступени — роли без границ: {sorted(k for k, c in seg_report.items() if set(c) == {'—'})}")
     return {'room': room,
             # ГЕОМЕТРИЯ КАЖДОЙ КОМНАТЫ ВИТРИНЫ (onb-07 основа, ADR-0330 п.3): вариант обставляет `rooms_geo[v.room_id]`; `room` —
             # псевдоним гостиной для старых читателей (тот же объект: проёмы кадра и отделка ниже дописываются один раз)
@@ -2269,6 +2349,9 @@ def build() -> dict:
             # ФЛАГИ НОВЫХ КОМНАТ И ОПРОСА (ADR-0330 п.5): всё выключено — полей нет вовсе (данные гостиной прежние)
             **flags,
             'variants': variants, 'sets': product_sets, 'sofa_feed': feed, 'feeds': feeds,
+            # ЦЕНОВЫЕ СТУПЕНИ РОЛИ (T-61/3, план price-segments-01): `price_segment` у каждой карточки лент (lo/mid/hi — по цене её семейства),
+            # а здесь — границы и подписи по ролям для чипов страницы «Комфорт · 56 000–95 999 ₽» (премиум — «от …»); правила нет — полей нет
+            **({'price_segments': _price_segment_ranges()} if _price_segment_ranges() else {}),
             # ПОЛОСА «ПОДХОДЯЩИХ ПО РАЗМЕРУ» ленты замен (решение владельца 22.10, demo-20 А4; частично отменяет ADR-0271): ширина
             # 0.8–1.1 идеала слота этой комнаты — одно правило со сборкой комплектов (`slot_rules.slot_band`); лента в данных
             # остаётся широкой (`DEMO_ENV`), страница фильтрует по полосе, пока включён чип «Подходящие по размеру»
