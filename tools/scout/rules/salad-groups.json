@@ -262,7 +262,7 @@
     "storage_gb": 10,
     "idle_stop_min": 20,
     "max_run_min": 240,
-    "day_cap_usd": 2.0,
+    "day_cap_usd": 3.0,
     "warmup_max_min": 15,
     "ready_stale_s": 120,
  "slow_probe_sec": 1.2,
