@@ -32,6 +32,9 @@ if '--mask-out' in a:                                    # T-20261118-05/3: пр
         if mm == 'none':
             break
         p = a[a.index('--mask-out') + 1].replace('{cam}', c)
+        if mm == 'ext':                                  # прежняя ошибка render_cycles: при кадрах JPEG Blender дописывал .jpg к имени маски (проба m8 18.11)
+            Image.new('RGB', (w_, h_), (255, 0, 0)).save(p + '.jpg', 'JPEG')
+            continue
         if mm == 'bad':
             open(p, 'wb').write(b'not a png')
             continue

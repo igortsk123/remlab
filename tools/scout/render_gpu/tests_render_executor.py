@@ -1219,6 +1219,11 @@ _a = _np.asarray(_mk.convert('RGB'))
 ok('masks: PNG с палитрой, размер 1/4 кадра фейка (16×12), только 4 чистых цвета (края не дали «полупол»)', _mk.mode == 'P' and _mk.size == (16, 12) and {tuple(x) for x in _a.reshape(-1, 3)} <= {(0, 0, 0), (255, 0, 0), (0, 255, 0), (0, 0, 255)})
 ok('masks: пол внизу красный, стена вверху зелёная', tuple(_a[-1, 0]) == (255, 0, 0) and tuple(_a[0, 0]) == (0, 255, 0))
 ok('masks: на приёмнике после пары задание убрано (масок тоже)', not any(k.startswith('renderjobs/') for k in sink_m.f))
+ok('masks: заказ с кадрами JPEG (frames=jpg) — маска всё равно настоящий PNG, кадры JPEG', json.loads(sink_m.hist[next(k for k in sink_m.hist if k.endswith('/job.json'))]).get('frames') == 'jpg'
+   and _mk.format == 'PNG' and _Im.open(os.path.join(out_m, 'C1.jpg')).format == 'JPEG')
+sink_e, res_e, out_e = run_masks(FakeMachine(frames=['png', 'jpg'], masks=True), 'out-masks-ext', fake_masks='ext')
+rje_ = json.loads(next(v for k, v in sink_e.hist.items() if k.endswith('/result.json')))
+ok('masks: Blender положил маску под другим именем (.mask.png.jpg, прежняя ошибка) — masks пуст, масок в каталоге нет, но пара готова', rje_.get('masks') == {} and sorted(os.listdir(out_e)) == ['C1.jpg', 'C2.jpg', 'meta.json'])
 # старый образ воркера (нет caps.masks): флаг есть, маски не просим
 sink_o, res_o, out_o = run_masks(FakeMachine(frames=['png', 'jpg']), 'out-masks-old')
 jo_ = [json.loads(v) for k, v in sink_o.hist.items() if k.endswith('/job.json')]
