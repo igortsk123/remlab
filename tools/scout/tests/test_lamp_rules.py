@@ -96,9 +96,10 @@ def test_neighbour_without_model_too_means_no_lamp_and_honest_journal():
     assert it is None and pls is None and len([w for w in why if 'нет модели' in w]) == 2
 
 
-def test_neighbour_style_from_survives_in_sku():
+def test_neighbour_style_from_survives_in_sku(monkeypatch):
     """`flat215_demo._sku` кладёт `style_from` в товар строки декора (причина видна в данных набора)."""
     import flat215_demo as FD
+    monkeypatch.setattr(FD, '_basis', lambda mid, eid: 'feed')     # основание цены — из каталога (psql в docker БД): в CI БД нет, тест её не читает (T-20261118-20/7)
     sk = FD._sku({'лампа': dict(lamp(2), style_from='сканди')}, 'лампа')
     assert sk['style_from'] == 'сканди'
     assert 'style_from' not in FD._sku({'лампа': lamp(2)}, 'лампа')
