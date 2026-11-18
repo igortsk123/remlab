@@ -1,0 +1,455 @@
+{
+ "schema_version": 1,
+ "version": "2026-11-18.1",
+ "built_at": "2026-11-18",
+ "price_field": "coalesce(price_shown_rub, price_rub)",
+ "family_algorithm": "mesh_family_rep, иначе магазин + модель по названию (без цвета/ткани/размера) + ширина до 10 см",
+ "algorithm": {
+  "cuts": [
+   0.333333,
+   0.666667
+  ],
+  "family_price": "median",
+  "boundary": "на разрыве цен; B1/B2 — первая цена комфорта/премиума",
+  "min_local_families": 30
+ },
+ "population": "по всем стилям: активен, в наличии, цена > 0, живое фото (+ каталог спальни/прихожей: свежий фид, живое фото); не влияют меш, габариты, стиль, конверт",
+ "config": "rules/price-segments-config.json",
+ "roles": {
+  "банкетка": {
+   "families": 39,
+   "distinct_prices": 30,
+   "median_rub": 14990,
+   "method": "local",
+   "boundaries_rub": [
+    13490,
+    17260
+   ]
+  },
+  "бра": {
+   "families": 1105,
+   "distinct_prices": 185,
+   "median_rub": 5099,
+   "method": "local",
+   "boundaries_rub": [
+    3599,
+    7399
+   ]
+  },
+  "ваза": {
+   "families": 567,
+   "distinct_prices": 234,
+   "median_rub": 7199,
+   "method": "local",
+   "boundaries_rub": [
+    4699,
+    11999
+   ]
+  },
+  "вешалка": {
+   "families": 50,
+   "distinct_prices": 37,
+   "median_rub": 1924,
+   "method": "local",
+   "boundaries_rub": [
+    1419,
+    3159
+   ]
+  },
+  "витрина": {
+   "families": 15,
+   "distinct_prices": 10,
+   "median_rub": 32990,
+   "method": "shrink",
+   "prior": "parent:корпусная мебель",
+   "weight_local": 0.0,
+   "boundaries_rub": [
+    22850,
+    42580
+   ]
+  },
+  "диван": {
+   "families": 490,
+   "distinct_prices": 273,
+   "median_rub": 80490,
+   "method": "local",
+   "boundaries_rub": [
+    64990,
+    116400
+   ]
+  },
+  "зеркало": {
+   "families": 83,
+   "distinct_prices": 59,
+   "median_rub": 15190,
+   "method": "local",
+   "boundaries_rub": [
+    12999,
+    21499
+   ]
+  },
+  "камин": {
+   "families": 98,
+   "distinct_prices": 72,
+   "median_rub": 42450,
+   "method": "local",
+   "boundaries_rub": [
+    38999,
+    50090
+   ]
+  },
+  "картина": {
+   "families": 43,
+   "distinct_prices": 20,
+   "median_rub": 3990,
+   "method": "local",
+   "boundaries_rub": [
+    2240,
+    5490
+   ]
+  },
+  "кашпо": {
+   "families": 380,
+   "distinct_prices": 181,
+   "median_rub": 2599,
+   "method": "local",
+   "boundaries_rub": [
+    1399,
+    4499
+   ]
+  },
+  "ковёр": {
+   "families": 223,
+   "distinct_prices": 110,
+   "median_rub": 9490,
+   "method": "local",
+   "boundaries_rub": [
+    7490,
+    12490
+   ]
+  },
+  "комод": {
+   "families": 170,
+   "distinct_prices": 82,
+   "median_rub": 27990,
+   "method": "local",
+   "boundaries_rub": [
+    22999,
+    37990
+   ]
+  },
+  "консоль": {
+   "families": 26,
+   "distinct_prices": 18,
+   "median_rub": 28490,
+   "method": "shrink",
+   "prior": "parent:корпусная мебель",
+   "weight_local": 0.73,
+   "boundaries_rub": [
+    21610,
+    31670
+   ]
+  },
+  "кресло": {
+   "families": 137,
+   "distinct_prices": 89,
+   "median_rub": 26990,
+   "method": "local",
+   "boundaries_rub": [
+    22990,
+    34990
+   ]
+  },
+  "кроватка": {
+   "families": 2,
+   "distinct_prices": 2,
+   "median_rub": 9694,
+   "method": "none",
+   "boundaries_rub": null
+  },
+  "кровать": {
+   "families": 300,
+   "distinct_prices": 133,
+   "median_rub": 41990,
+   "method": "local",
+   "boundaries_rub": [
+    33990,
+    46990
+   ]
+  },
+  "кровать детская": {
+   "families": 24,
+   "distinct_prices": 20,
+   "median_rub": 34490,
+   "method": "shrink",
+   "prior": "global:all",
+   "weight_local": 0.6,
+   "boundaries_rub": [
+    28110,
+    40360
+   ]
+  },
+  "лампа": {
+   "families": 382,
+   "distinct_prices": 143,
+   "median_rub": 6399,
+   "method": "local",
+   "boundaries_rub": [
+    4699,
+    10999
+   ]
+  },
+  "люстра": {
+   "families": 3929,
+   "distinct_prices": 392,
+   "median_rub": 12999,
+   "method": "local",
+   "boundaries_rub": [
+    7599,
+    22999
+   ]
+  },
+  "обувница": {
+   "families": 28,
+   "distinct_prices": 23,
+   "median_rub": 8490,
+   "method": "shrink",
+   "prior": "parent:корпусная мебель",
+   "weight_local": 0.87,
+   "boundaries_rub": [
+    2330,
+    11850
+   ]
+  },
+  "плед": {
+   "families": 254,
+   "distinct_prices": 155,
+   "median_rub": 9299,
+   "method": "local",
+   "boundaries_rub": [
+    6999,
+    15199
+   ]
+  },
+  "подушка": {
+   "families": 156,
+   "distinct_prices": 80,
+   "median_rub": 3399,
+   "method": "local",
+   "boundaries_rub": [
+    2499,
+    4299
+   ]
+  },
+  "полка": {
+   "families": 33,
+   "distinct_prices": 22,
+   "median_rub": 2690,
+   "method": "local",
+   "boundaries_rub": [
+    1590,
+    3590
+   ]
+  },
+  "прихожая": {
+   "families": 5,
+   "distinct_prices": 5,
+   "median_rub": 31980,
+   "method": "none",
+   "boundaries_rub": null
+  },
+  "пуф": {
+   "families": 165,
+   "distinct_prices": 89,
+   "median_rub": 10999,
+   "method": "local",
+   "boundaries_rub": [
+    8999,
+    14990
+   ]
+  },
+  "растение": {
+   "families": 310,
+   "distinct_prices": 122,
+   "median_rub": 714,
+   "method": "local",
+   "boundaries_rub": [
+    579,
+    1199
+   ]
+  },
+  "статуэтка": {
+   "families": 233,
+   "distinct_prices": 149,
+   "median_rub": 3999,
+   "method": "local",
+   "boundaries_rub": [
+    2099,
+    6290
+   ]
+  },
+  "стеллаж": {
+   "families": 127,
+   "distinct_prices": 83,
+   "median_rub": 10990,
+   "method": "local",
+   "boundaries_rub": [
+    5072,
+    18990
+   ]
+  },
+  "стенка": {
+   "families": 18,
+   "distinct_prices": 14,
+   "median_rub": 27240,
+   "method": "shrink",
+   "prior": "parent:корпусная мебель",
+   "weight_local": 0.2,
+   "boundaries_rub": [
+    16510,
+    39120
+   ]
+  },
+  "стол детский": {
+   "families": 23,
+   "distinct_prices": 16,
+   "median_rub": 18990,
+   "method": "shrink",
+   "prior": "parent:столы",
+   "weight_local": 0.53,
+   "boundaries_rub": [
+    15840,
+    22520
+   ]
+  },
+  "стол обеденный": {
+   "families": 74,
+   "distinct_prices": 59,
+   "median_rub": 26740,
+   "method": "local",
+   "boundaries_rub": [
+    15990,
+    43992
+   ]
+  },
+  "стол рабочий": {
+   "families": 60,
+   "distinct_prices": 34,
+   "median_rub": 21990,
+   "method": "local",
+   "boundaries_rub": [
+    18490,
+    25490
+   ]
+  },
+  "столик": {
+   "families": 137,
+   "distinct_prices": 66,
+   "median_rub": 15590,
+   "method": "local",
+   "boundaries_rub": [
+    11999,
+    18999
+   ]
+  },
+  "стул": {
+   "families": 216,
+   "distinct_prices": 95,
+   "median_rub": 11990,
+   "method": "local",
+   "boundaries_rub": [
+    8990,
+    15192
+   ]
+  },
+  "стул детский": {
+   "families": 5,
+   "distinct_prices": 5,
+   "median_rub": 2990,
+   "method": "none",
+   "boundaries_rub": null
+  },
+  "стул рабочий": {
+   "families": 60,
+   "distinct_prices": 44,
+   "median_rub": 15340,
+   "method": "local",
+   "boundaries_rub": [
+    13209,
+    17990
+   ]
+  },
+  "тв-тумба": {
+   "families": 112,
+   "distinct_prices": 50,
+   "median_rub": 21990,
+   "method": "local",
+   "boundaries_rub": [
+    18990,
+    27990
+   ]
+  },
+  "торшер": {
+   "families": 185,
+   "distinct_prices": 68,
+   "median_rub": 16999,
+   "method": "local",
+   "boundaries_rub": [
+    13499,
+    21999
+   ]
+  },
+  "тумба прикроватная": {
+   "families": 52,
+   "distinct_prices": 27,
+   "median_rub": 8990,
+   "method": "local",
+   "boundaries_rub": [
+    7294,
+    11990
+   ]
+  },
+  "часы": {
+   "families": 43,
+   "distinct_prices": 34,
+   "median_rub": 2690,
+   "method": "local",
+   "boundaries_rub": [
+    1999,
+    3990
+   ]
+  },
+  "шкаф": {
+   "families": 669,
+   "distinct_prices": 434,
+   "median_rub": 12749,
+   "method": "local",
+   "boundaries_rub": [
+    4007,
+    24990
+   ]
+  },
+  "шкаф-купе": {
+   "families": 28,
+   "distinct_prices": 23,
+   "median_rub": 57990,
+   "method": "shrink",
+   "prior": "global:all",
+   "weight_local": 0.87,
+   "boundaries_rub": [
+    48340,
+    82500
+   ]
+  },
+  "шторы": {
+   "families": 202,
+   "distinct_prices": 121,
+   "median_rub": 2572,
+   "method": "local",
+   "boundaries_rub": [
+    1989,
+    3379
+   ]
+  }
+ }
+}

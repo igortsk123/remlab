@@ -1546,10 +1546,47 @@ def bedroom_catalog() -> dict:
     return room_photo_catalog('bedroom')
 
 
-def _catalog_pick(reps: list, cap=None) -> list:
-    """Выборка роли для фото-каталога комнаты: по `cap` (нет — `per_group` правил ленты, `rules/demo-swap.json`) на КАЖДУЮ ценовую
-    ступень роли (`price_tiers`, границы по ценам роли; T-61/2, владелец TG 1921–1975: «по 30 на сегмент») — равными шагами по цене
-    внутри ступени, сперва с годной моделью (`meshy`), остальные добирают до квоты. Ступени перекрываются — товар один раз.
+def _price_segment_ranges() -> dict:
+    """Границы ступеней по ролям и подписи RU/EN — в `demo-data.json` (`price_segments`); правила нет — пусто."""
+    import price_tiers as _PT
+    return _PT.ranges()
+
+
+def stamp_price_segments(feeds: dict) -> dict:
+    """`price_segment` (lo/mid/hi) каждой карточке лент — по цене её СЕМЕЙСТВА (`price_tiers.segment_of`), для комнат не только
+    гостиной (ключ ленты `<комната>:<роль>` — роль после двоеточия). Карточка без ступени (у роли нет границ) — поле не пишем.
+    Сломанная БД — цена самой карточки. → {ключ ленты: {ступень: сколько}} для отчёта сборки."""
+    import price_tiers as _PT
+    if not _PT.load():
+        return {}
+    try:
+        fp = _PT.family_prices_cached()
+    except Exception as e:  # noqa: BLE001 — нет БД: ступень по цене карточки
+        print(f'WARN:price_segments: цены семейств не прочитаны ({repr(e)[:100]}), ступень — по цене карточки')
+        fp = {}
+    rep: dict = {}
+    for key, lst in feeds.items():
+        role = key.rpartition(':')[2].split(' ')[0]
+        for p in lst:
+            if not isinstance(p, dict):
+                continue
+            sid = str(p.get('sid') or '')
+            seg = _PT.segment_of(role, _PT.family_key(sid.split('_', 1)[0].split(':', 1)[0], p.get('name'), p.get('w'), p.get('msid') or ''),
+                                 p.get('price'), fp)
+            if seg:
+                p['price_segment'] = seg
+            else:
+                p.pop('price_segment', None)
+            rep.setdefault(key, {}).setdefault(seg or '—', 0)
+            rep[key][seg or '—'] += 1
+    return rep
+
+
+def _catalog_pick(role: str, reps: list, cap=None) -> list:
+    """Выборка роли для фото-каталога комнаты: по `cap` (нет — `per_group` правил ленты, `rules/demo-swap.json`) семейств на КАЖДУЮ
+    ценовую ступень роли (`price_tiers`, границы — `rules/price-segments.json`, ступень по цене семейства; T-61/3, владелец TG
+    1921–1975: «по 30 на сегмент») — равными шагами по цене внутри ступени, сперва с годной моделью (`meshy`), остальные добирают
+    до квоты. Ступени не пересекаются; строка несёт `price_segment`; роль без границ — одна ступень без метки.
     `DEMO_SWAP_SEGMENTS=0` — прежний отбор: `cap` (нет — 8) на всю роль равными шагами по цене."""
     import demo_swap_pool as _DSP
     import price_tiers as _PT
@@ -1559,18 +1596,21 @@ def _catalog_pick(reps: list, cap=None) -> list:
     if not _DSP.SEGMENTS_ON:
         return spread(reps, cap or 8)
     k = cap or _DSP.PER_GROUP
-    bnd = _PT.bounds(x['price'] for x in reps)
-    got, seen = [], set()
-    for tier in _PT.KEYS:
-        mine = [x for x in reps if tier in _PT.tiers_of(x['price'], bnd)]
+    try:
+        fp = _PT.family_prices_cached()
+    except Exception:  # noqa: BLE001 — нет БД: ступень по цене представителя
+        fp = {}
+    by: dict = {}
+    for x in reps:
+        t = _PT.segment_of(role, _PT.family_key(str(x['sid']).split(':', 1)[0], x.get('name'), x.get('w'), ''), x['price'], fp)
+        by.setdefault(t, []).append(dict(x, **({'price_segment': t} if t else {})))
+    got = []
+    for tier in (*_PT.KEYS, None):
+        mine = by.get(tier) or []
         take = spread([x for x in mine if x.get('meshy')], k)
         if len(take) < k:                                    # годных мало — остальные добирают до квоты (сторож ленты их отсеет)
-            rest = [x for x in mine if not x.get('meshy')]
-            take = take + spread(rest, k - len(take))
-        for x in take:
-            if x['sid'] not in seen:
-                seen.add(x['sid'])
-                got.append(x)
+            take = take + spread([x for x in mine if not x.get('meshy')], k - len(take))
+        got += take
     return [{k_: v for k_, v in x.items() if k_ != 'meshy'} for x in sorted(got, key=lambda x: x['price'])]   # в данные витрины — без служебного поля
 
 
@@ -1624,7 +1664,7 @@ def room_photo_catalog(room_type: str) -> dict:
             items.sort(key=lambda x: (not x['fits'], not x['meshy'], x['price']))
             reps.append(items[0])
         reps.sort(key=lambda x: x['price'])
-        out[role] = _catalog_pick(reps, A.CATALOG_SHOW.get(role))
+        out[role] = _catalog_pick(role, reps, A.CATALOG_SHOW.get(role))
     print(f'каталог {A.TITLE_OF}: ' + ', '.join(f'{r} {len(v)} (моделей {len(by[r])})' for r, v in out.items()))
     return {'roles': out, 'updated': updated}
 
@@ -2290,6 +2330,14 @@ def build() -> dict:
             **({'height_cm': demo_ceiling()} if demo_ceiling() else {})}
     flags = rooms_on(apt)
     extra_geo, rules_extra, cats = room_showcases(apt, flags, variants, feeds, incomplete, room)
+    seg_report = stamp_price_segments(feeds)
+    if seg_report:
+        tot: dict = {}
+        for _k, _c in seg_report.items():
+            for _t, _n in _c.items():
+                tot[_t] = tot.get(_t, 0) + _n
+        print(f"ступени цены в лентах (версия {_price_segment_ranges().get('version')}): карточек по ступеням {tot}; "
+              f"без ступени — роли без границ: {sorted(k for k, c in seg_report.items() if set(c) == {'—'})}")
     return {'room': room,
             # ГЕОМЕТРИЯ КАЖДОЙ КОМНАТЫ ВИТРИНЫ (onb-07 основа, ADR-0330 п.3): вариант обставляет `rooms_geo[v.room_id]`; `room` —
             # псевдоним гостиной для старых читателей (тот же объект: проёмы кадра и отделка ниже дописываются один раз)
@@ -2301,6 +2349,9 @@ def build() -> dict:
             # ФЛАГИ НОВЫХ КОМНАТ И ОПРОСА (ADR-0330 п.5): всё выключено — полей нет вовсе (данные гостиной прежние)
             **flags,
             'variants': variants, 'sets': product_sets, 'sofa_feed': feed, 'feeds': feeds,
+            # ЦЕНОВЫЕ СТУПЕНИ РОЛИ (T-61/3, план price-segments-01): `price_segment` у каждой карточки лент (lo/mid/hi — по цене её семейства),
+            # а здесь — границы и подписи по ролям для чипов страницы «Комфорт · 56 000–95 999 ₽» (премиум — «от …»); правила нет — полей нет
+            **({'price_segments': _price_segment_ranges()} if _price_segment_ranges() else {}),
             # ПОЛОСА «ПОДХОДЯЩИХ ПО РАЗМЕРУ» ленты замен (решение владельца 22.10, demo-20 А4; частично отменяет ADR-0271): ширина
             # 0.8–1.1 идеала слота этой комнаты — одно правило со сборкой комплектов (`slot_rules.slot_band`); лента в данных
             # остаётся широкой (`DEMO_ENV`), страница фильтрует по полосе, пока включён чип «Подходящие по размеру»
