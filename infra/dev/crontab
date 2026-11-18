@@ -2,6 +2,8 @@
 # меняешь там — поменяй здесь (проверка: tools/scout/tests_chain.py live_guards_scheduled читает crontab хоста).
 40 10 * * * /home/pakar/igor/remlab/tools/scout/refresh_daily.sh
 0 3 * * * /home/pakar/igor/remlab/tools/scout/nightly_exam.sh
+# недельная проверка расстановки solver_full (было шагом дневной сборки по понедельникам; T-20261112-56/3): ночью, до срока 10:10 — дневная сборка в 10:40 берёт тот же замок
+30 5 * * 1 /home/pakar/igor/remlab/tools/scout/solver_weekly.sh
 */10 * * * * /home/pakar/igor/remlab/tools/scout/salad/idle_guard.sh
 0 9 * * * /home/pakar/igor/remlab/tools/scout/salad/batch_window.sh up
 0 15 * * * /home/pakar/igor/remlab/tools/scout/salad/batch_window.sh down

@@ -679,10 +679,12 @@ step demo_live bash ../ops/demo-live.sh
 
 # 8. ЕЖЕНЕДЕЛЬНО (понедельник): полный перегон размещаемости всех сетов — решение владельца
 # 2026-08-07 («прогон по остаткам раз в неделю достаточно»). Отчёт: solver-check-report.json.
+# С 18.11 (T-20261112-56/3, refresh-split-01 вариант А, директор) сам `solver_full` (57 мин, 64 CPU-мин) здесь НЕ идёт: его запускает отдельный
+# крон `solver_weekly.sh` ночью в понедельник (30 5 * * 1; свои замки, срок до 10:10, под heavy-slot). Тут — только итог в сводку дня.
 if [ "$(date +%u)" = "1" ]; then
   # сверка книги о продукте с кодом советником (book-memory-sync п.4), отчёт в _intake/codex/
   step book_check bash ../book-check.sh
-  step solver_full env CHECK_TAG=weekly "$PY" solver_check.py
+  step solver_weekly_last "$PY" solver_weekly_status.py --digest
   # В3 (владелец 07.08): точечное освежение сетов новинками — лучшая ступень стиля, ≤2 замен/сет
   # при включённом писателе (write_enabled) новинки приходят кандидатом банка — прямая запись не идёт (conv-14 шаг 5)
   [ -f exam.lock ] || [ "$BANK_WRITE" = 1 ] || step sets_refresh "$PY" sets_incremental.py --refresh --apply

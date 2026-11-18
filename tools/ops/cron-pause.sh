@@ -15,7 +15,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=maintenance.sh
 . "$ROOT/tools/ops/maintenance.sh"
 # ТЯЖЁЛЫЕ КРОНЫ, КОТОРЫЕ СЛУШАЮТ ПАУЗУ (строки `infra/dev/crontab`): пишут в БД DEV и/или публикуют демо и галерею
-GATED=(tools/scout/refresh_daily.sh tools/scout/nightly_exam.sh tools/scout/salad/sink_keeper.sh)
+GATED=(tools/scout/refresh_daily.sh tools/scout/nightly_exam.sh tools/scout/salad/sink_keeper.sh tools/scout/solver_weekly.sh)   # + недельная проверка расстановки (T-20261112-56/3)
 
 holders() {   # кто держит замок: pid, время работы, команда
   [ -f "$MAINT_LOCK" ] || return 0
@@ -114,6 +114,7 @@ cmd_selftest() {
   ok "на паузе: refresh_daily пишет владельцу" "$(grep -q '\[сухо\] ⏸ remlab: «refresh_daily» пропущен' "$T/repo/tools/scout/refresh.log"; echo $?)"
   ok "на паузе: строка в логе nightly_exam" "$(grep -q 'nightly_exam: пауза обслуживания' "$T/repo/tools/scout/nightly.log"; echo $?)"
   ok "на паузе: строка в логе sink_keeper" "$(grep -q 'sink_keeper: пауза обслуживания' "$MESH_KEEPER_LOG"; echo $?)"
+  ok "на паузе: строка в логе solver_weekly (и владельцу)" "$(grep -q 'solver_weekly: пауза обслуживания' "$T/repo/tools/scout/solver-weekly.log" && grep -q '\[сухо\] ⏸ remlab: «solver_weekly» пропущен' "$T/repo/tools/scout/solver-weekly.log"; echo $?)"
   out=$(cmd_status); rc=$?; ok "status на паузе — код 10 ($rc)" "$([ "$rc" = 10 ] && echo 0 || echo 1)"
   cmd_off >/dev/null
   # 3. задача работает → on ждёт её и честно говорит «ещё идут» (код 3), status — 11.
