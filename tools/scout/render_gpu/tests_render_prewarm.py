@@ -224,6 +224,22 @@ try:
     ok(r['state'] == 'done' and m.off_calls == 0 and m.on_calls == 0, 'машину включил не заготовка — заготовка её не выключает')
     q.close()
 
+    # T-20261118-10/7: машину включил заказ человека (`by=order`) — заготовка её не гасит ни после своего прохода, ни при заказе в очереди/в работе
+    st, ex, q, m = build()
+    ex.up, m.desired, m.by = True, 'on', 'order'
+    p = prewarmer(q, ex, m, scenes[:2])
+    r = p.once()
+    ok(r['state'] == 'done' and m.off_calls == 0 and m.on_calls == 0 and 'выключена сразу' not in r['note'], 'машину включил заказ человека (by=order) — заготовка её не выключает и не включает второй раз')
+    ok(p.maybe_off({'off_idle_s': 120}) == '' and m.off_calls == 0, 'by=order: maybe_off напрямую — ничего не делает')
+    q.close()
+
+    st, ex, q, m = build()
+    ex.up, m.desired, m.by = True, 'on', 'prewarm'
+    p = prewarmer(q, ex, m, scenes[:2])
+    st.jobs['hq'] = {'status': 'queued', 'ts': time.time(), 'key': 'khq', 'prio': 0}       # заказ человека ждёт в очереди (машину включила заготовка)
+    ok(p.maybe_off({'off_idle_s': 120}) == '' and m.off_calls == 0, 'by=prewarm, но заказ человека в очереди — не выключаем')
+    q.close()
+
     st, ex, q, m = build(off_idle_s=0)
     p = prewarmer(q, ex, m, scenes[:2])
     p.once()

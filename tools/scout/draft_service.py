@@ -785,7 +785,7 @@ class H(BaseHTTPRequestHandler):
         v = cy['q'].view(res['job']) or {}
         return self._send(200, {'job': res['job'], 'kind': 'render', 'v': RS.SNAPSHOT_VERSION, 'scene_hash': snap['scene_hash'], 'key': key,
                                 'status': res['status'], 'cached': res['cached'], 'deduped': res['deduped'], 'versions': cy['versions'],
-                                **{k: v[k] for k in ('queue', 'eta', 'eta_range') if k in v}})
+                                **{k: v[k] for k in ('queue', 'eta', 'eta_range', 'machine') if k in v}})
 
     def do_OPTIONS(self):                                    # noqa: N802
         self._send(204, {})

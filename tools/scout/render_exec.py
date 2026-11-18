@@ -564,6 +564,129 @@ class SceneExecutor:
     ГДЕ считается Blender (`LocalCpuExecutor`, `SaladGpuExecutor`)."""
     name = 'base'
 
+    # ——— включение машины по заказу человека (T-20261118-10/7)
+    def wake_cfg(self, rules: dict | None = None) -> tuple:
+        """(включать ли по заказу, потолок ожидания прогрева с, типичный прогрев с) — из правил `executor`; нет ключа `wake_on_order` — не включаем (как раньше: запасной сразу)."""
+        ex = ((rules if rules is not None else self.machine().rules()).get('executor')) or {}
+        return bool(ex.get('wake_on_order')), float(ex.get('wake_max_s', WAKE_MAX_S)), float(ex.get('wake_typical_s', WAKE_TYPICAL_S))
+
+    def wake_phase(self) -> str:
+        """Что с машиной сейчас, по данным контроллера: `ready` (годна), `warming` (включена, прогревается), `off_wakeable` (выключена — заказ её включит), `cap` (выключена, дневной предел
+        исчерпан), `disabled` (выключена, включение по заказу выключено правилом), `degraded` (не отвечает / деградация — запасной). Чистое чтение, Salad не трогает."""
+        import jobs_proto as JP
+        m = self.machine()
+        rules, st = m.rules(), m.state() or {}
+        ok, why = JP.machine_verdict(st, self.now(), rules)
+        if ok:
+            return 'ready'
+        if why not in ('off', 'warming'):
+            return 'degraded'
+        if not self.wake_cfg(rules)[0]:
+            return 'disabled'                            # включение по заказу выключено правилом: решение прежнее (запасной сразу, с причиной «выключена/прогревается»)
+        if why == 'warming':
+            return 'warming'
+        return 'cap' if float(st.get('spent_usd') or 0) >= float(rules.get('day_cap_usd', 1e9)) else 'off_wakeable'
+
+    def wake(self, by: str = 'order') -> str:
+        """Включить машину (`render_machine.py on --by <кто>`), идемпотентно под замком: уже включена — ничего. → `ok` | `already` | `refused` (контроллер отказал: предел дня, замок, ошибка)."""
+        with self._wake_lock:
+            m = self.machine()
+            if (m.state() or {}).get('desired') == 'on':
+                return 'already'
+            txt = m.turn_on(by)
+            print(f'рендер: заказ включает машину ({by}) → {txt[:120]}', flush=True)
+            return 'ok' if (m.state() or {}).get('desired') == 'on' else 'refused'
+
+    def wake_for_order(self) -> None:
+        """Зовёт очередь при заказе человека (в фоне): машина выключена и включение по заказу разрешено — включаем; сбой в журнал (заказ дальше разберётся сам)."""
+        try:
+            if self.wake_phase() == 'off_wakeable':
+                self.wake('order')
+        except Exception as e:  # noqa: BLE001
+            print(f'рендер: включение по заказу не вышло: {e!r}', flush=True)
+
+    def will_use(self) -> bool:
+        """Возьмёт ли заказ машина (годна, прогревается или заказ её включит) — тогда срок считается по ней, плюс остаток прогрева; иначе — запасной."""
+        try:
+            return self.wake_phase() in ('ready', 'warming', 'off_wakeable')
+        except Exception:  # noqa: BLE001
+            return False
+
+    def wake_wait(self) -> tuple:
+        """(ожидаемо, мин, макс) секунд до готовности машины: прогревается или заказ её включит. Опора — типичный прогрев и потолок из правил, но не меньше 20 с."""
+        try:
+            m = self.machine()
+            rules, st = m.rules(), m.state() or {}
+            phase = self.wake_phase()
+            if phase not in ('warming', 'off_wakeable'):
+                return (0, 0, 0)
+            _, ceil_s, typ_s = self.wake_cfg(rules)
+            el = max(0.0, self.now() - float(st.get('on_at') or self.now())) if phase == 'warming' else 0.0
+            eta = typ_s - el if el < typ_s else min(120.0, ceil_s - el)
+            return (int(max(20.0, eta)), int(max(20.0, typ_s * 0.6 - el)), int(max(30.0, ceil_s - el)))
+        except Exception:  # noqa: BLE001
+            return (0, 0, 0)
+
+    def machine_info(self) -> dict | None:
+        """Для страницы (`machine` в ответах заказа и опроса): {state: warming|ready|fallback, text, text_en, eta_s}; тексты — от сервера."""
+        try:
+            phase = self.wake_phase()
+        except Exception:  # noqa: BLE001
+            return None
+        if phase == 'ready':
+            return {'state': 'ready', 'text': '', 'text_en': '', 'eta_s': 0}
+        if phase in ('warming', 'off_wakeable'):
+            eta = self.wake_wait()[0]
+            n = max(1, -(-int(eta) // 60))
+            if eta <= 30:
+                return {'state': 'warming', 'text': 'Машина рендера почти прогрелась.', 'text_en': 'The render machine is almost warmed up.', 'eta_s': int(eta)}
+            return {'state': 'warming', 'text': f'Машина рендера прогревается, ≈{n} мин.', 'text_en': f'The render machine is warming up, about {n} min.', 'eta_s': int(eta)}
+        if phase == 'disabled':
+            _, why = JP_verdict(self)
+            code, ru, en = GATE_TEXT.get(why, GATE_TEXT['degraded'])
+        else:
+            code, ru, en = WAKE_TEXT['cap'] if phase == 'cap' else GATE_TEXT['degraded']
+        return {'state': 'fallback', 'text': ru, 'text_en': en, 'eta_s': 0}
+
+    def _gate_or_wake(self) -> tuple:
+        """→ (правила, готова ли машина сейчас). Не годна, но заказ может её дождаться — включаем (выключена) и ждём прогрева после подготовки сцены; иначе `ExecutorUnavailable`."""
+        try:
+            return self.gate(), True
+        except ExecutorUnavailable:
+            phase = self.wake_phase()
+            if phase == 'warming':
+                return self.machine().rules(), False
+            if phase == 'off_wakeable':
+                if self.wake('order') in ('ok', 'already'):
+                    return self.machine().rules(), False
+                raise ExecutorUnavailable(*(WAKE_TEXT['cap'] if self.wake_phase() == 'cap' else WAKE_TEXT['wake_failed'])) from None
+            if phase == 'cap':
+                raise ExecutorUnavailable(*WAKE_TEXT['cap']) from None
+            raise
+
+    def _await_ready(self, rules: dict, t_order: float, progress, busy_s: float) -> dict:
+        """Ждать, пока машина прогреется, не дольше потолка от начала заказа (`wake_max_s`). Погасили/сбой/потолок — `ExecutorUnavailable` с честным текстом (запасной). → правила."""
+        _, ceil_s, _ = self.wake_cfg(rules)
+        poll = max(0.5, float((rules.get('executor') or {}).get('poll_s', 3)))
+        note = getattr(progress, 'note', None)
+        announced = False
+        while True:
+            try:
+                return self.gate()
+            except ExecutorUnavailable:
+                phase = self.wake_phase()
+                if phase == 'ready':
+                    continue
+                if phase != 'warming':
+                    raise ExecutorUnavailable(*GATE_TEXT['off' if phase in ('off_wakeable', 'disabled') else 'degraded']) from None
+            if self.now() - t_order >= ceil_s:
+                raise ExecutorUnavailable(*WAKE_TEXT['warm_timeout'])
+            if not announced:
+                progress('machine')                          # стадия «ждём машину»: процента у неё нет (очередь отдаёт `machine.state = warming`)
+                announced = True
+            self.machine().pulse(busy_s=busy_s)             # ждём — машину не гасим
+            self.sleep(poll)
+
     def available(self) -> bool:
         """Возьмёт ли исполнитель заказ СЕЙЧАС (для честного срока на странице); обычный — всегда."""
         return True
@@ -1049,6 +1172,17 @@ GATE_TEXT = {
     'controller_silent': ('gpu_degraded', 'Машина рендера не отвечает. Считаем на запасной — будет дольше.',
                           'The render machine is not responding. Using the backup — it will take longer.'),
 }
+# отказ включить/дождаться машину по заказу человека → (код, RU, EN): честная надпись «считаем на запасной» (T-20261118-10/7)
+WAKE_TEXT = {
+    'cap': ('gpu_day_cap', 'Дневной лимит машины рендера исчерпан. Считаем на запасной — будет дольше.',
+            'The render machine daily limit is used up. Using the backup — it will take longer.'),
+    'wake_failed': ('gpu_wake_failed', 'Машина рендера не включилась. Считаем на запасной — будет дольше.',
+                    'The render machine did not start. Using the backup — it will take longer.'),
+    'warm_timeout': ('gpu_warm_timeout', 'Машина рендера прогревается слишком долго. Считаем на запасной — будет дольше.',
+                     'The render machine is taking too long to warm up. Using the backup — it will take longer.'),
+}
+WAKE_MAX_S, WAKE_TYPICAL_S = 360.0, 180.0      # потолок ожидания прогрева заказом и типичный прогрев (замеры 18.11: 2,1 и 6,4 мин); настройка — `render_machine.executor.wake_max_s/wake_typical_s`
+
 GPU_FAILED = ('Машина рендера не справилась. Считаем на запасной — будет дольше.', 'The render machine failed. Using the backup — it will take longer.')
 
 
@@ -1139,6 +1273,13 @@ def asset_kind(rel: str) -> str | None:
     return None
 
 
+def JP_verdict(ex) -> tuple:
+    """(годна ли, причина) по данным контроллера — для текстов страницы."""
+    import jobs_proto as JP
+    m = ex.machine()
+    return JP.machine_verdict(m.state() or {}, ex.now(), m.rules())
+
+
 class SaladGpuExecutor(SceneExecutor):
     """Машина рендера на Salad (T-20261117-24/2): сцена собирается на DEV тем же правилом, что у `local-cpu` (`SceneExecutor._prepare`), уходит пакетом
     в хранилище приёмника (`renderjobs/<задание>/`), воркер на машине (`render_gpu/render_worker.py`) считает ПАРУ ракурсов одним Blender
@@ -1153,6 +1294,7 @@ class SaladGpuExecutor(SceneExecutor):
         super().__init__(env)
         self.env, self._sink, self._machine, self.now, self.sleep = env, sink, machine, clock, sleep
         self._fmt2_dead_until = 0.0      # приёмник без ассетов (404 на /have): до этого момента fmt 2 не пробуем
+        self._wake_lock = threading.Lock()   # включение машины по заказу: одно на все ждущие заказы
 
     # ——— зависимости (лениво: DEV без машины рендера не должен падать при создании исполнителя)
     def machine(self):
@@ -1363,7 +1505,8 @@ class SaladGpuExecutor(SceneExecutor):
     def render(self, snap: dict, out_dir: str, progress) -> dict:
         import jobs_proto as JP
         pr = preset()
-        rules = self.gate()
+        t_order = self.now()
+        rules, ready = self._gate_or_wake()          # машина выключена/прогревается — заказ её включает/ждёт (T-20261118-10/7), подготовка сцены идёт параллельно прогреву
         ex = rules.get('executor') or {}
         busy_s, poll_s = float(ex.get('busy_s', 90)), float(ex.get('poll_s', 3))
         pickup_s, pair_max_s = float(ex.get('pickup_s', 90)), float(ex.get('pair_max_s', 900))
@@ -1383,6 +1526,13 @@ class SaladGpuExecutor(SceneExecutor):
                 timing['slot_wait'] = round(float(hs.get('waited_s', 0)), 1) if isinstance(hs, dict) else 0
                 self._prepare(snap, job, log, pr, progress, timing)
             tl.mark('prep_end')
+            if not ready:
+                t_w = self.now()
+                rules = self._await_ready(rules, t_order, progress, busy_s)
+                ex = rules.get('executor') or {}
+                timing['machine_wait'] = round(self.now() - t_w, 1)       # сколько после подготовки ждали прогрев (в срок заказа на прогретой не входит)
+                timing['woke'] = 1
+                tl.mark('machine_ready')
             if qa_gate_on():          # ворота (шаг 5): ошибка предпроверки — на машину не шлём (ни GPU, ни запасной процессор: деньги не тратим)
                 brak = qa_preflight_brak(os.path.join(job, 'dump'), os.path.join(job, 'scene'))
                 if brak:
@@ -1563,10 +1713,24 @@ class Fallback:
     def expected(self) -> str:
         """Кто возьмёт заказ СЕЙЧАС: основной, если он годен, иначе запасной."""
         try:
-            ok = self.primary.available()
+            f = getattr(self.primary, 'will_use', None)          # машина годна, прогревается или заказ её включит — считать по ней
+            ok = bool(f()) if callable(f) else self.primary.available()
         except Exception:  # noqa: BLE001
             ok = False
         return self.primary.name if ok else self.backup.name
+
+    def machine_info(self):
+        f = getattr(self.primary, 'machine_info', None)
+        return f() if callable(f) else None
+
+    def wake_wait(self) -> tuple:
+        f = getattr(self.primary, 'wake_wait', None)
+        return tuple(f()) if callable(f) else (0, 0, 0)
+
+    def wake_for_order(self) -> None:
+        f = getattr(self.primary, 'wake_for_order', None)
+        if callable(f):
+            f()
 
     def warm_ok(self) -> bool:
         f = getattr(self.primary, 'warm_ok', None)
@@ -1577,6 +1741,9 @@ class Fallback:
             return self.primary.render(snap, out_dir, progress)
         except ExecutorUnavailable as e:
             print(f'рендер: {self.primary.name} недоступен ({e.code}) — запасной {self.backup.name}', flush=True)
+            note = getattr(progress, 'note', None)
+            if callable(note):                         # странице — честная причина (RU/EN от сервера), пока заказ считается на запасном
+                note({'state': 'fallback', 'text': e.ru, 'text_en': e.en, 'eta_s': 0})
             return self.backup.render(snap, out_dir, progress)
 
 
