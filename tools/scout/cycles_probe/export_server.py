@@ -6,7 +6,7 @@
   → {"cmd":"stop"}
 Вывод экспорта (в т.ч. строки TRACE и «пропущен») — в журнал заказа, как у отдельного процесса. Заказы идут по одному (клиент держит замок).
 Память: после заказа кэш разобранных мешей сжимается до использованных в последних `KEEP_REQUESTS` заказах и не более `MAX_PARTS` штук; процесс выходит сам, если
-RSS выше `RSS_MAX_MB` (клиент поднимет новый при следующем заказе) или простаивает `IDLE_S` секунд. Файл меша изменился (размер/время) — запись кэша сбрасывается.
+RSS выше `RSS_MAX_MB` (клиент поднимет новый при следующем заказе) или простаивает `IDLE_S` секунд. Файл меша изменился (размер/inode/голова и хвост) — запись кэша сбрасывается.
 Без Blender и без сети (меши — из кэша GLB сервиса, докачка как у `draft_render._scene3d_glb`)."""
 import contextlib
 import json
@@ -24,6 +24,22 @@ IDLE_S = float(os.environ.get('EXPORT_SERVER_IDLE_S', '120'))
 RSS_MAX_MB = float(os.environ.get('EXPORT_SERVER_RSS_MB', '1800'))
 MAX_PARTS = int(os.environ.get('EXPORT_SERVER_MAX_PARTS', '16'))
 KEEP_REQUESTS = int(os.environ.get('EXPORT_SERVER_KEEP_REQUESTS', '2'))
+
+
+SIG_EDGE = 65536
+
+
+def file_sig(path: str):
+    """Подпись файла меша для «файл заменили — разобрать заново»: размер, inode и хеш головы/хвоста. Время изменения НЕ берём: кэш GLB отмечает каждое обращение `draft_render._touch`
+    (`os.utime`) — по mtime каждый заказ видел «файл заменили» и заново разбирал ВСЕ меши комнаты (≈1 с разбора + ≈1,5 с памятки текстур на заказ; замер T-20261118-10/3)."""
+    import hashlib
+    st = os.stat(path)
+    with open(path, 'rb') as f:
+        head = f.read(SIG_EDGE)
+        if st.st_size > 2 * SIG_EDGE:
+            f.seek(-SIG_EDGE, os.SEEK_END)
+        tail = f.read(SIG_EDGE) if st.st_size > SIG_EDGE else b''
+    return (st.st_size, st.st_ino, hashlib.md5(head + tail).hexdigest())
 
 
 def collect_garbage() -> None:
@@ -76,8 +92,7 @@ class PartsCache:
             if not path:
                 continue                # служебные формы (окно, тв) строятся кодом — файла нет
             try:
-                st = os.stat(path)
-                cur = (st.st_size, st.st_mtime_ns)
+                cur = file_sig(path)
             except OSError:
                 P.pop(key, None)
                 continue
@@ -91,8 +106,7 @@ class PartsCache:
             path = self._path(key)
             if path and key not in self.sig:
                 try:
-                    st = os.stat(path)
-                    self.sig[key] = (st.st_size, st.st_mtime_ns)
+                    self.sig[key] = file_sig(path)
                 except OSError:
                     pass
         # время использования записано по ПУТИ файла (`wrapped(glb)`), а ключ кэша — пара (путь, режим): ищем по пути, иначе со 2-го заказа всё «старое» и кэш пуст
