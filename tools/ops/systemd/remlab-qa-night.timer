@@ -1,0 +1,12 @@
+# Таймер ночного шага сторожа кадров (см. remlab-qa-night.service). НЕ ВКЛЮЧЁН — включает директор после проверки.
+# 03:10 по Лондону: между сводом памяти (01:30) и выгрузкой токенов (07:10), когда заказов людей почти нет. Пропущенную ночь не догоняем днём (Persistent выключен: сборка сцен тяжёлая).
+[Unit]
+Description=remlab: ночной шаг сторожа кадров в 03:10 по Лондону
+
+[Timer]
+OnCalendar=*-*-* 03:10:00 Europe/London
+RandomizedDelaySec=5min
+Persistent=false
+
+[Install]
+WantedBy=timers.target
