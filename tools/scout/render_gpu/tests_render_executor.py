@@ -1384,6 +1384,150 @@ with exg._slot('t', {'min_gb': 1}) as hs_:
     ok('«мимо очереди» (RENDER_SLOT=0): слот не ждёт и не занимает очередь, пометка no_slot', isinstance(hs_, dict) and hs_.get('no_slot') is True and float(hs_.get('waited_s', 0)) == 0.0)
 os.environ.pop('RENDER_SLOT', None)
 
+# ПОСТОЯННОЕ СОЕДИНЕНИЕ КЛИЕНТА ПРИЁМНИКА (T-20261118-09/5 ❸): `jobs_proto.Sink` на локальном HTTP-сервере — одно соединение на серию вызовов, коды ошибок, повтор на оборванном соединении
+import http.server as _hs
+import socketserver as _ss
+import threading as _th
+
+
+class _H(_hs.BaseHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'
+    store: dict = {}
+    conns = 0
+    close_next = False
+    fail500 = 0
+
+    def setup(self):
+        type(self).conns += 1
+        super().setup()
+
+    def log_message(self, *a):
+        pass
+
+    def _send(self, code, body=b'', ctype='application/json'):
+        self.send_response(code)
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Content-Type', ctype)
+        if type(self).close_next:
+            self.send_header('Connection', 'close')
+            type(self).close_next = False
+            self.close_connection = True
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.headers.get('Authorization') != 'Bearer tok':
+            return self._send(401)
+        if self.path.startswith('/ls/'):
+            return self._send(200, b'{"dirs": [], "files": []}')
+        if type(self).fail500 > 0:
+            type(self).fail500 -= 1
+            return self._send(500, b'x')
+        k = self.path[len('/files/'):]
+        if k in self.store:
+            return self._send(200, self.store[k], 'application/octet-stream')
+        self._send(404, b'no')
+
+    def do_PUT(self):
+        n = int(self.headers.get('Content-Length') or 0)
+        self.store[self.path[len('/staging/'):]] = self.rfile.read(n)
+        self._send(200, b'{}')
+
+    def do_POST(self):
+        n = int(self.headers.get('Content-Length') or 0)
+        self.rfile.read(n)
+        self._send(200, b'{"missing": ["aa"]}')
+
+    def do_DELETE(self):
+        self._send(200 if self.path[len('/prefix/'):] in self.store else 404, b'{}')
+
+
+class _TS(_ss.ThreadingMixIn, _hs.HTTPServer):
+    daemon_threads = True
+
+
+_srv = _TS(('127.0.0.1', 0), _H)
+_th.Thread(target=_srv.serve_forever, daemon=True).start()
+sys.path.insert(0, HERE)
+import jobs_proto as _JP
+snk = _JP.Sink(f'http://127.0.0.1:{_srv.server_address[1]}/mesh-sink'.replace('/mesh-sink', ''), 'tok', retries=2, timeout=5)
+big = os.urandom(300000)
+open(os.path.join(TMP, 'f.bin'), 'wb').write(big)
+snk.put('renderjobs/j1/job.json', b'{"a": 1}')
+snk.put_file('renderjobs/j1/bundle-x.tgz', os.path.join(TMP, 'f.bin'))
+got_json = snk.get_json('renderjobs/j1/job.json')
+n_dl = snk.get_to('renderjobs/j1/bundle-x.tgz', os.path.join(TMP, 'g.bin'))
+miss = snk.have_assets([{'sha256': 'aa', 'size': 1}])
+ok('Sink: put/put_file/get_json/get_to/have — те же ответы, файл целиком, всё по ОДНОМУ соединению (не по новому на вызов)',
+   got_json == {'a': 1} and n_dl == len(big) and open(os.path.join(TMP, 'g.bin'), 'rb').read() == big and miss == ['aa'] and _H.conns == 1)
+try:
+    snk.get_json('renderjobs/j1/result.json')
+    e404 = None
+except _JP.SinkError as e:
+    e404 = e.code
+ok('Sink: 404 → SinkError с кодом 404, без повторов; соединение живо (ответ вычитан)', e404 == 404 and _H.conns == 1)
+_H.fail500 = 1
+ok('Sink: 500 один раз → повтор → успех', snk.get('renderjobs/j1/job.json') == b'{"a": 1}')
+_H.close_next = True
+snk.get('renderjobs/j1/job.json')
+before = _H.conns
+ok('Sink: сервер закрыл соединение после ответа (Connection: close) — следующий вызов идёт на новом, без ошибки', snk.get('renderjobs/j1/job.json') == b'{"a": 1}' and _H.conns == before + 1)
+snk._tl.c.sock.close()                              # «старое» соединение оборвано (закрыто сервером в простое)
+ok('Sink: оборванное переиспользуемое соединение — один повтор на свежем, вызов проходит', snk.get('renderjobs/j1/job.json') == b'{"a": 1}')
+ok('Sink: ls и delete (404 = уже нет → 0)', snk.ls('renderjobs/x') == {'dirs': [], 'files': []} and snk.delete('renderjobs/j1/job.json') == 1 and snk.delete('renderjobs/zz') == 0)
+bad_tok = _JP.Sink(f'http://127.0.0.1:{_srv.server_address[1]}', 'bad', retries=2, timeout=5)
+try:
+    bad_tok.get('renderjobs/j1/job.json')
+    c401 = None
+except _JP.SinkError as e:
+    c401 = e.code
+ok('Sink: 401 → SinkError 401', c401 == 401)
+th_conns = []
+
+
+def _t():
+    snk.get('renderjobs/j1/job.json')
+    th_conns.append(1)
+
+
+before = _H.conns
+ts_ = [_th.Thread(target=_t) for _ in range(3)]
+[t.start() for t in ts_]
+[t.join() for t in ts_]
+ok('Sink: потоки не делят соединение (по одному на поток), ответы не путаются', len(th_conns) == 3 and _H.conns - before <= 3)
+_srv.shutdown()
+
+# ЛИНЕЙКА ВРЕМЕНИ ЗАКАЗА (T-20261118-09/5 ❷)
+_clk = {'t': 100.0}
+tl_ = RE.DevTimeline(lambda: _clk['t'], 100.0)
+
+
+class _S:
+    def get_json(self, rel):
+        _clk['t'] += 0.2
+        return None
+
+    def put(self, rel, data):
+        _clk['t'] += 0.5
+
+    def delete(self, rel):
+        _clk['t'] += 0.1
+        return 1
+
+
+w_ = tl_.wrap(_S())
+w_.put('renderjobs/j/job.json', b'')
+for _ in range(3):
+    w_.get_json('renderjobs/j/result.json')
+    w_.get_json('renderjobs/j/progress.json')
+tl_.mark('result_seen')
+w_.delete('renderjobs/j')
+sn_ = tl_.snapshot()
+ops_ = {c['op']: c for c in sn_['calls']}
+ok('линейка: опросы result/progress схлопнуты (×3, сумма), put и delete — строками, метка этапа',
+   abs(ops_['опрос result ×3']['s'] - 0.6) < 0.01 and 'опрос progress ×3' in ops_ and abs(ops_['PUT job.json']['s'] - 0.5) < 0.01
+   and abs(ops_['DELETE']['t'] - 1.7) < 0.01 and abs(sn_['marks']['result_seen'] - 1.7) < 0.01)
+
 shutil.rmtree(TMP, ignore_errors=True)
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')
 sys.exit(1 if BAD else 0)
