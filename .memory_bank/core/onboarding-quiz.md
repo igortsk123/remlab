@@ -36,5 +36,5 @@ review_after: 2026-12-05
 - Менеджеру по `?s=` — `quiz_done` (повтор ≥30 мин) и `style_change` (в сводку); без имени (`modules/sends/service.ts`).
 - Застройщику (заход без `?s=`, не webdriver) — счётчики `quiz_*` (`contracts/analytics.ts`). Миграции нет.
 
-**Приёмка комнат** — `domain/onboarding-quiz.md` § «Матрица приёмки всех комнат». Готова (`contentState: ready`) только гостиная; кухня — опциями застройщика (`flat215`, `demo-uk-215`, `demo-uk-1`). Прихожая —
-`onb-13`, по образцу спальни после её приёмки; санузлы — «скоро».
+**Приёмка комнат** — `domain/onboarding-quiz.md` § «Матрица приёмки всех комнат». Готова гостиная; спальни — по `enabled` и `rooms_enabled` (`tools/scout/flat215-demo/index.html:7128`); кухня — опциями застройщика (`demo-uk-1`). Прихожая —
+`onb-13`; санузлы — «скоро».

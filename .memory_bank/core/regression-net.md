@@ -27,8 +27,8 @@ review_after: 2026-12-05
 - **Стенд паритета комнат:** `tools/scout/parity_living.py --room living|bedroom|hall` — до/после правки общего конвейера
   на замороженных данных (`parity_guard.py`, `tools/scout/rules/parity-living.json`); код 3 — эталон старше данных.
 - **CI (`ci.yml`):** gate (postgres; memory-project-audit → селфтесты → typecheck → lint → test → build → e2e), db-init, planner, draft-image,
-  scout-orient, scout-selftest (python 3.12); `memory-audit.yml`; аудиты — `warn` (`_kit/gate-mode.txt`). Статус main —
-  `tools/ops/ci-status.sh` (ночь → DIGEST); перед пушем — хук `tools/ops/prepush-check.sh`; пачка веток — сборщик
+  scout-orient, scout-selftest (py 3.12); `memory-audit.yml`; аудиты — `warn` (`_kit/gate-mode.txt`). Статус main —
+  `tools/ops/ci-status.sh` (ночь → DIGEST); перед пушем — хук `tools/ops/prepush-check.sh`; пачка веток —
   `tools/ops/merge-queue.sh` (ADR-0406); Tier 2 — `domain/deployment-details.md` § CI.
 - **Observability:** трейс LLM (`lib/trace/`); health (`lib/health.ts:dbCheck`) + `health-watch.sh` (ADR-0266).
 - **Конвейер и надписи (ADR-0407):** реестр `tools/ops/conveyor-manifest.yml` + `tools/ops/conveyor_check.py`, хук
@@ -40,5 +40,5 @@ review_after: 2026-12-05
 
 ## Цель (спека §12) — НЕ реализовано
 - Ставки работ (`lib/pricing/works.ts`) без confidence; нет product-matching, гардрейлов стоимости генерации;
-  YooKassa — только визуализация (`app/viz-actions.ts`); `/eval` нет; golden-формулы смет — цель мастера.
+  YooKassa — только визуализация (`app/viz-actions.ts`); `/eval` нет; golden смет есть (`tests/unit/estimate-calc.test.ts`), на фото — цель.
 **Tier 2:** `../../docs/tech-spec-ts-stack.md` §12 (регресс), §8 (самопроверка).

@@ -93,6 +93,6 @@ fal.ai, Replicate, OpenAI, Anthropic, GPU-воркеры) оплачиваютс
 **Tier 1:** `../core/market.md` — сводка (позиционирование, 5 слоёв, выводы для remlab).
 
 ## Ограничение UK: лицензия генератора мешей (12.11, `source: external:github.com/Tencent-Hunyuan/Hunyuan3D-2.1/LICENSE`)
-Меши делает Hunyuan3D 2.1 (ADR-0131, код пула Salad). Его лицензия (Tencent Hunyuan Community License) задаёт Territory без UK, ЕС
+Меши делает Hunyuan3D 2.1 (ADR-0131, `tools/scout/salad/pipeline.py`, `tools/scout/salad/asset-strategies.json:4`). Его лицензия (Tencent Hunyuan Community License) задаёт Territory без UK, ЕС
 и Южной Кореи и запрещает использовать и показывать Outputs вне Territory (найдено Codex, вопрос q24, 12.11). Для РФ ограничения нет;
 UK на 12.11 — только тесты, запуск сначала в России (владелец TG 1037). Решение по UK владелец ведёт сам — не напоминать (TG 1038).

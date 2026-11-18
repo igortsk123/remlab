@@ -19,13 +19,13 @@ last_verified: 2026-11-18
 **Где код:** маршруты `tools/scout/draft_service.py` (`POST /api/render/cycles`), `app/api/trial/[id]/photo/route.ts`; снимок
 `tools/scout/render_snapshot.py`; очередь `tools/scout/render_jobs.py`; исполнитель `tools/scout/render_exec.py` по `RENDER_EXECUTOR` из юнита
 `tools/scout/systemd/remlab-render.service` (урок 702); рендер `tools/scout/cycles_probe/render_cycles.py` (пресет v4, плечо светов
-`data/flat3d/light-rules.json`); «Улучшить» — `improve-render-v5.5` + `improve_mode.match_luma` (`tools/scout/draft_render.py`).
+`data/flat3d/light-rules.json`); «Улучшить» — `improve-render-v5.5` + `improve_mode.match_luma` (`tools/scout/improve_mode.py:69,77`).
 
 **Машина (ADR-0429/0430/0432):** Salad 4090, группа — `tools/scout/rules/salad-groups.json` (18.11 `render-4090m13`), контроллер
 `tools/scout/render_gpu/render_machine.py` (автостоп 20 мин, $3/день; расход по меткам `--by` — `state.spent_by`; смена группы гасит прежнюю, сироты — `infra/server/render-guard.py`).
 **Заказ человека включает машину** (`on --by order`, ≤360 с, поле `machine`; CPU — только при сбое). Заготовка /demo — `tools/scout/render_prewarm.py`
 (`render_jobs.WARM_SUFFIX`; потолок — по своим тратам, ADR-0434). Тур греет машину с получения фото, рендеры по версиям —
-`tools/scout/render_tour.py` (ADR-0435, выкл `TRIAL_TOUR_WARM=0`). Холодный старт ≈2 мин, ≈$0,0025 за рендер.
+`tools/scout/render_tour.py` (ADR-0435, выкл `TRIAL_TOUR_WARM=0` — читает `tools/floorplan/worker.py:430`). Холодный старт ≈2 мин, ≈$0,0025 за рендер.
 
 **Какое фото в окне (ADR-0434):** только снимок текущего состава — `index.html:realPubPick` + `tools/scout/rules/demo-photo-pick.json`; готовый
 рендер нетронутого варианта — `check` сервиса. Ключ кадра по комнате — `tools/scout/render_input.py` (за `RENDER_KEY_V2`, план `render-key-01`).

@@ -35,7 +35,7 @@ review_after: 2026-12-05
 **Банк (ADR-0318):** `bank_prepare && bank_pending && bank_promote` с одним `BANK_RUN_ID`, писатель
 `bank_refresh.py` — только при целой цепочке (`tools/scout/refresh_daily.sh:bank_chain_ok`; `write_enabled` выключен) — Tier 2.
 **Демо:** `flat215_demo` → `tools/scout/publish_demo.sh` (копия прежней, `--rollback`); перевыпуск туров — после, мебель
-подтверждённого тура держит; придержать — файл-стоп (Tier 2).
+тура сохраняется; придержать — файл-стоп (Tier 2).
 
 **Комнаты:** шаги — `tools/scout/room_profile.py:CAPABILITIES`; до привязки — сторож изголовья (`orient_bed_guard`); банки, квота — Tier 2.
 

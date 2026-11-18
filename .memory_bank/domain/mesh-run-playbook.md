@@ -71,9 +71,9 @@ tools/scout/mesh_priority.py --build-queue <снимок>                  # б�
 - ярус 2 — кандидат банка (`bank_pending.queue_skus`, за флагом `tools/scout/rules/bank-candidate.json` `enabled`;
   потолок общий с лентой — `bank_pending.combine`);
 - ярус 3 — предметы опубликованных наборов без меша (`mesh_priority.py:172-186`, за флагом `mesh-queue-demo.json:set_items.enabled`, выключен);
-- ярус 4 — квота комнат кроме гостиной (`demo_band.room_jobs`, готовые задания `room_mesh_jobs`; `mesh_priority.py:351`).
+- ярус 4 — квота комнат кроме гостиной (`demo_band.room_jobs`, готовые задания `room_mesh_jobs`; `mesh_priority.py:352`).
 Товар вне `products()` (нет пометки «требуется меш» или не представитель семейства) пропускается — кроме готовых заданий:
-комнаты (ярус 4) и вариант семьи со своим мешем по сторожу цвета (ярус 1, `mesh_priority.py:own_jobs`). Готовые меши
+комнаты (ярус 4) и вариант семьи со своим мешем по сторожу цвета (ярус 1, `mesh_priority.py:own_jobs`) и предметы наборов (ярус 3, `mesh_priority.py:339-346`, выключен `set_items.enabled: false`). Готовые меши
 отбрасывает тот же фильтр, что у боевой очереди (`status != 'ready'`, `mesh_priority.py:main`).
 
 **Что закреплено селфтестом** (`mesh_priority.py --selftest`, «профиль демо»): закреплённые — первыми с ярусом 0; недобор —
