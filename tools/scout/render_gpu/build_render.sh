@@ -47,6 +47,7 @@ else
 fi
 
 TAG="$REPO:cycles-5.3.0-$TARGET"; [ "$BASE" = "thin" ] && TAG="$TAG-thin"
+TAG="$TAG${RENDER_TAG_SUFFIX:-}"      # суффикс тега (T-24/5: -fmt2) — новый образ не перекрывает тег прежнего, которого держит работающая группа
 echo "== сборка $TAG (Blender sha256 ${SHA:0:12}…)"
 docker build -f "$CTX/Dockerfile.render" --target "$TARGET" --build-arg "BLENDER_SHA256=$SHA" --build-arg "BASE=$BASE" -t "$TAG" "$CTX"
 echo "== локальный размер: $(docker image inspect "$TAG" --format '{{.Size}}' | python3 -c 'import sys;print(round(int(sys.stdin.read())/2**30,2))') ГБ (распакованный)"

@@ -13,7 +13,9 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import sys
+import uuid
 
 import numpy as np
 from PIL import Image
@@ -26,6 +28,27 @@ os.environ.setdefault('SCENE3D_QUALITY', 'full')
 
 DEMO = os.path.expanduser('~/scout-scenes/flat215-demo/demo-data.json')
 BASE_URL = 'https://remont-lab.online/demo/'
+
+# КЭШ PNG ПО СОДЕРЖИМОМУ (T-20261117-24/4): кодирование 18 текстур давало 18 из 22 с экспорта. Тот же набор пикселей — тот же файл:
+# кэшируется один раз (compress_level 3: вдвое быстрее и на 15 % крупнее уровня 6 по замеру), в сцену — жёсткая ссылка/копия.
+# Холодный путь (новый товар) кодирует как раньше, только быстрее; повтор — 0 с кодирования. Ключ — md5 пикселей + форма (имя в сцене не меняется).
+TEX_CACHE = os.environ.get('RENDER_TEX_CACHE') or os.path.expanduser('~/scout-cache/render-tex')
+PNG_LEVEL = int(os.environ.get('RENDER_PNG_LEVEL', '3'))
+
+
+def put_png(arr, dst):
+    arr = np.ascontiguousarray(np.asarray(arr, np.uint8))
+    c = os.path.join(TEX_CACHE, hashlib.md5(arr.tobytes() + str(arr.shape).encode()).hexdigest() + f'-{PNG_LEVEL}.png')
+    if not os.path.isfile(c):
+        os.makedirs(TEX_CACHE, exist_ok=True)
+        tmp = f'{c}.{os.getpid()}-{uuid.uuid4().hex[:8]}.tmp'      # атомарно: временный → переименование; после записи — только чтение
+        Image.fromarray(arr).save(tmp, 'PNG', compress_level=PNG_LEVEL)
+        os.chmod(tmp, 0o444)
+        os.replace(tmp, c)
+    try:
+        os.link(c, dst)
+    except OSError:
+        shutil.copyfile(c, dst)
 
 
 def to_b(p):
@@ -44,7 +67,7 @@ def payload_of(D, idx):
                       'h': it.get('h') or sk.get('h'), 'corner': bool(it.get('corner')), 'corner_left': bool(it.get('corner_left')),
                       'section': it.get('section'), 'sid': sk.get('sid'), 'msid': sk.get('msid') or sk.get('sid'),
                       'name': sk.get('name'), 'hung': sk.get('hung'), 'pack': sk.get('pack'),
-                      'img': (BASE_URL + sk['img']) if sk.get('img') else None, 'swatch': sk.get('swatch')})
+                      'img': (BASE_URL + sk['img']) if sk.get('img') else None, 'swatch': sk.get('swatch'), 'tint': sk.get('tint')})
     decor = []
     for d in v.get('decor') or []:
         d = json.loads(json.dumps(d))
@@ -53,6 +76,14 @@ def payload_of(D, idx):
         decor.append(d)
     return {'room': geo, 'style': v['style'], 'variant': v['id'], 'decor': decor, 'developerOptions': {}, 'floor': None, 'walls': None,
             'cams': v['cams'], 'items': items}
+
+
+def tint_of(sk):
+    """Подкраска товара — три множителя 0,2–3 (как `lib/configurator/fromDemo.ts:tintOf`: чужим данным не доверяем); нет — None."""
+    t = (sk or {}).get('tint')
+    if isinstance(t, (list, tuple)) and len(t) == 3 and all(isinstance(x, (int, float)) and not isinstance(x, bool) and 0.2 <= x <= 3 for x in t):
+        return [float(x) for x in t]
+    return None
 
 
 def main_export(D, idx, out):
@@ -81,6 +112,12 @@ def main_export(D, idx, out):
         if d.get('role') and (sk.get('msid') or sk.get('sid')):
             sid_by_role[d['role']] = sk.get('msid') or sk.get('sid')
 
+    # ПОДКРАСКА ПОД ТОВАР — то же правило, что у живой 3D (`lib/configurator/fromDemo.ts:tintOf` → `lib/viewer3d/meshes.ts:placeMesh`): три множителя
+    # 0,2–3, цвет материала меша × множитель, в линейном пространстве, на все материалы меша. Не три числа в этих пределах — подкраски нет
+    tint_by_role = {it['role']: tint_of(it) for it in payload['items'] if it.get('role') and tint_of(it)}
+    for d in DR.decor_split(payload)[0]:
+        if d.get('role') and tint_of(d.get('sku')):
+            tint_by_role[d['role']] = tint_of(d.get('sku'))
     objs, rugs, planes = [], [], []
     tex_seen = {}
 
@@ -88,7 +125,7 @@ def main_export(D, idx, out):
         h = hashlib.md5(arr.tobytes()).hexdigest()[:12]
         rel = f'tex/{h}.png'
         if h not in tex_seen:
-            Image.fromarray(np.asarray(arr, np.uint8)).save(os.path.join(out, rel))
+            put_png(arr, os.path.join(out, rel))
             tex_seen[h] = list(arr.shape[:2])
         return rel
 
@@ -102,6 +139,8 @@ def main_export(D, idx, out):
             tex, uvm = MR.texture_of(mesh)
             rec = {'role': place.role, 'file': f'm{len(objs):03d}.npz', 'tex': None, 'rgb': None,
                    'n_faces': int(len(f)), 'elev': float(getattr(place, 'elev_cm', 0) or 0)}
+            if tint_by_role.get(place.role):
+                rec['tint'] = tint_by_role[place.role]
             data = {'v': to_b(wv).astype(np.float32), 'f': f.astype(np.int32)}
             if tex is not None and uvm is not None:
                 rec['tex'] = save_tex(tex)
@@ -122,7 +161,7 @@ def main_export(D, idx, out):
         if ph is None:
             return False
         rel = f'tex/rug{len(rugs)}.png'
-        ph.convert('RGB').save(os.path.join(out, rel))
+        put_png(np.asarray(ph.convert('RGB')), os.path.join(out, rel))
         it = place.item
         rugs.append({'role': place.role, 'x': place.x, 'y': place.y, 'rot': float(place.rot or 0), 'w': float(it.w_cm), 'd': float(it.d_cm), 'tex': rel})
         return True
@@ -133,7 +172,7 @@ def main_export(D, idx, out):
                'inner': to_b(np.array(q['inner'])).tolist(), 'tex': None}
         if not mirror and ph is not None:
             rel = f'tex/plane{len(planes)}.png'
-            ph.convert('RGB').save(os.path.join(out, rel))
+            put_png(np.asarray(ph.convert('RGB')), os.path.join(out, rel))
             rec['tex'] = rel
         planes.append(rec)
         return True

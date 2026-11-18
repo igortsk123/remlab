@@ -182,8 +182,20 @@ def annotate(data: dict, pool: list, r: dict | None = None, ceiling: float | Non
 
 
 def crop_white(src: str, dst: str, r: dict | None = None, max_px: int = 900, aspect: float | None = None) -> bool:
-    """Срезать белое поле фото товара: строки и столбцы, где «не белых» (любой канал < thr) пикселей меньше 0,5 %, — поле.
-    Поле меньше `min_margin_pct` стороны со всех сторон — не трогаем (→ False). Итог — JPEG до `max_px` по длинной стороне.
+    """Срезать белое поле фото товара (`cropped_image`) и записать JPEG. Нечего срезать — файл не пишем (→ False)."""
+    out = cropped_image(src, r, max_px, aspect)
+    if out is None:
+        return False
+    out.save(dst, 'JPEG', quality=ART_JPEG_Q)
+    return True
+
+
+ART_JPEG_Q = 88
+
+
+def cropped_image(src: str, r: dict | None = None, max_px: int = 900, aspect: float | None = None):
+    """Фото товара без белого поля — то, что рисует 3D (`sku.img_art`): строки и столбцы, где «не белых» (любой канал < thr) пикселей меньше
+    0,5 %, — поле. Поле меньше `min_margin_pct` стороны со всех сторон — не трогаем (→ None). Итог — картинка до `max_px` по длинной стороне.
     `aspect` — Ш/В товара: срез вышел шире или выше больше чем на 12 % (светло-серый фон снимка у белой картины) — лишнее
     по длинной стороне снимаем поровну с краёв, полотно не растягивается."""
     import numpy as np
@@ -195,12 +207,12 @@ def crop_white(src: str, dst: str, r: dict | None = None, max_px: int = 900, asp
     rows = np.where(ink.mean(axis=1) > 0.005)[0]
     cols = np.where(ink.mean(axis=0) > 0.005)[0]
     if not len(rows) or not len(cols):
-        return False
+        return None
     h, w = ink.shape
     box = (int(cols[0]), int(rows[0]), int(cols[-1]) + 1, int(rows[-1]) + 1)
     m = float(wc['min_margin_pct']) / 100
     if box[0] < w * m and box[1] < h * m and w - box[2] < w * m and h - box[3] < h * m:
-        return False
+        return None
     bw, bh = box[2] - box[0], box[3] - box[1]
     if aspect and abs(bw / bh / aspect - 1) > 0.12:
         if bw / bh > aspect:
@@ -211,8 +223,39 @@ def crop_white(src: str, dst: str, r: dict | None = None, max_px: int = 900, asp
             box = (box[0], box[1] + cut, box[2], box[3] - cut)
     out = im.crop(box)
     out.thumbnail((max_px, max_px))
-    out.save(dst, 'JPEG', quality=88)
-    return True
+    return out
+
+
+def art_source(src: str) -> str:
+    """Файл, из которого `annotate_crop` режет полотно для 3D: крупная копия `-l.jpg`, нет — плитка."""
+    big = src[:-4] + '-l.jpg'
+    return big if os.path.exists(big) else src
+
+
+def art_stats(src: str, p: dict | None = None, r: dict | None = None) -> dict:
+    """Метрики центра полотна КАК ОНО НАРИСОВАНО В 3D: то же фото, тот же срез белого поля и тот же JPEG (`ART_JPEG_Q`), что у `img_art`
+    (`annotate_crop`), — а не сырое фото товара с белым полем: у картины, занимающей часть кадра, центр сырого фото и центр полотна в 3D —
+    разные куски (T-20261118-01/1: «Абстракция Черный» проходила по фото и браковалась сторожем по текстуре сцены). Один критерий
+    (`has_content` + `metrics`) для подбора в набор, пересборки готовой витрины и сторожа кадра (`cycles_probe/render_cycles.py`)."""
+    import io
+
+    import numpy as np
+    from PIL import Image
+    r = r or rules()
+    asp = float(p['w']) / float(p['h']) if p and p.get('w') and p.get('h') else None
+    try:
+        im = cropped_image(art_source(src), r, aspect=asp)
+    except (OSError, ValueError):
+        im = None
+    if im is None:
+        return content_stats(src, r)
+    buf = io.BytesIO()
+    im.save(buf, 'JPEG', quality=ART_JPEG_Q)
+    buf.seek(0)
+    x0, y0, x1, y1 = r['art_content']['center']
+    a = np.asarray(Image.open(buf).convert('RGB'), np.float32)
+    h, w, _ = a.shape
+    return metrics(a[int(h * y0):int(h * y1), int(w * x0):int(w * x1)])
 
 
 def annotate_crop(data: dict, out_dir: str, r: dict | None = None) -> tuple[int, int]:
@@ -228,11 +271,10 @@ def annotate_crop(data: dict, out_dir: str, r: dict | None = None) -> tuple[int,
             return
         if img not in seen:
             src = os.path.join(out_dir, img)
-            big = src[:-4] + '-l.jpg'
             name = 'img/' + os.path.basename(img)[:-4] + '-art.jpg'
             asp = float(p['w']) / float(p['h']) if p.get('w') and p.get('h') else None
             try:
-                seen[img] = name if crop_white(big if os.path.exists(big) else src, os.path.join(out_dir, name), r, aspect=asp) else None
+                seen[img] = name if crop_white(art_source(src), os.path.join(out_dir, name), r, aspect=asp) else None
             except (OSError, ValueError):
                 seen[img] = None
         if seen[img]:

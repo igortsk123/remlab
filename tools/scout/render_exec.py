@@ -23,6 +23,8 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
@@ -142,7 +144,7 @@ def run_step(cmd: list, log_path: str, timeout_s: float, max_rss_gb: float, env:
         t0 = time.time()
         reason = ''
         while proc.poll() is None:
-            time.sleep(1.0)
+            time.sleep(0.2)      # было 1 с: до секунды на каждый шаг (T-24/4)
             if time.time() - t0 > timeout_s:
                 reason = f'время вышло ({int(timeout_s)} с)'
             elif tree_rss_gb(proc.pid) > max_rss_gb:
@@ -199,6 +201,20 @@ class SceneExecutor:
     def versions(self) -> dict:
         return render_version(self.blender)
 
+    def _job_dir(self, prefix: str, snap: dict) -> str:
+        """Каталог задания — СВОЙ на каждый прогон (хеш сцены + случайный хвост): два прогона одной сцены не сносят друг другу файлы;
+        оставшиеся от сбоев каталоги старше 6 ч убираются при следующем заказе."""
+        os.makedirs(self.work, exist_ok=True)
+        now = time.time()
+        for d in os.listdir(self.work):
+            if d.startswith(('job-', 'gjob-')):
+                try:
+                    if now - os.path.getmtime(os.path.join(self.work, d)) > 6 * 3600:
+                        shutil.rmtree(os.path.join(self.work, d), ignore_errors=True)
+                except OSError:
+                    pass
+        return os.path.join(self.work, f"{prefix}{snap['scene_hash'][:16]}-{uuid.uuid4().hex[:6]}")
+
     # ——— сборка выгрузчика сцены (esbuild) — кэш по исходникам
     def _bundle(self, log: str) -> str:
         srcs = [os.path.join(PROBE, 'demo_scene_entry.ts'), os.path.join(PROBE, 'build_entry.mjs')]
@@ -214,9 +230,30 @@ class SceneExecutor:
                 pass
         out = os.path.join(self.work, 'bundle-' + h.hexdigest()[:12])
         if not os.path.isfile(os.path.join(out, 'entry.js')):
-            run_step([self.node, os.path.join(PROBE, 'build_entry.mjs'), out], log, 300, 4, what='сборка выгрузчика')
-            for old in [d for d in os.listdir(self.work) if d.startswith('bundle-') and os.path.join(self.work, d) != out]:
-                shutil.rmtree(os.path.join(self.work, old), ignore_errors=True)
+            # СБОРКА ВО ВРЕМЕННУЮ ПАПКУ И ПОДМЕНА ЦЕЛИКОМ (рабочий 1, 17.11: «bundle-…» подменили посреди чужого прогона — дамп упал): прежняя версия
+            # писала прямо в итоговый каталог и сносила все «чужие» bundle-* — прогон со старыми исходниками терял каталог из-под рук
+            tmp = f'{out}.tmp-{os.getpid()}-{uuid.uuid4().hex[:8]}'
+            try:
+                run_step([self.node, os.path.join(PROBE, 'build_entry.mjs'), tmp], log, 300, 4, what='сборка выгрузчика')
+                try:
+                    os.replace(tmp, out)         # занято (другой прогон успел раньше) — берём его: содержимое одно и то же по хешу исходников
+                except OSError:
+                    shutil.rmtree(tmp, ignore_errors=True)
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
+        try:
+            os.utime(out)                        # «в ходу» — для уборки по возрасту
+        except OSError:
+            pass
+        now = time.time()
+        for old in os.listdir(self.work):        # уборка — только старого и не текущего: свежие каталоги могут быть в работе у соседних прогонов
+            op = os.path.join(self.work, old)
+            if old.startswith('bundle-') and op != out and '.tmp-' not in old:
+                try:
+                    if now - os.path.getmtime(op) > 6 * 3600:
+                        shutil.rmtree(op, ignore_errors=True)
+                except OSError:
+                    pass
         return out
 
     def _prepare(self, snap: dict, job: str, log: str, pr: dict, progress, timing: dict) -> str:
@@ -231,28 +268,87 @@ class SceneExecutor:
         json.dump(data, open(data_path, 'w', encoding='utf-8'), ensure_ascii=False)
         progress('scene')
         env = {'PYTHONPATH': os.pathsep.join([os.path.join(REPO, 'tools', 'scout'), os.path.join(REPO, 'services', 'planner-solver')])}
-        # МЕШ НЕ ПРОПУСКАЕМ МОЛЧА (T-20261117-19/2: в set4 диван выпал из кадра, подушка повисла в воздухе, а рендер «получился»): экспорт при сбое
-        # меша печатает «<роль> пропущен» и идёт дальше. Один повтор (GLB уже докачан в кэш) — и если предмет снова пропущен, отказ ДО Blender'а
-        for attempt in (1, 2):
-            pos = os.path.getsize(log) if os.path.exists(log) else 0
-            run_step([self.python, os.path.join(PROBE, 'export_scene.py'), '--out', job, '--scene', 'scene=0', '--data', data_path], log,
-                     lim['exportSec'], lim['maxRssGb'], env=env, cwd=os.path.join(REPO, 'tools', 'scout'), what='меши и камеры')
-            miss = skipped_meshes(open(log, encoding='utf-8', errors='replace').read()[pos:])
-            if not miss:
-                break
-            print(f'рендер: меш не взят ({", ".join(miss)}), попытка {attempt}', flush=True)
-        if miss:
-            raise RenderError('mesh_missing', 'Не удалось загрузить модель мебели для фото. Нажмите «Повторить».',
-                              'A furniture model could not be loaded for the photo. Press "Retry".')
-        timing['export'] = round(time.time() - t1, 1)
-        t1 = time.time()
-        # 2) сцена движком страницы → декор и отделка
         bundle = self._bundle(log)
         dump = os.path.join(job, 'dump')
-        run_step([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), data_path, '0', bundle, dump, 'export=' + pr['dumpExport']], log,
-                 lim['dumpSec'], lim['maxRssGb'], what='декор и отделка')
-        timing['dump'] = round(time.time() - t1, 1)
+        dlog = log + '.dump'
+        # ЭКСПОРТ МЕШЕЙ и ДАМП СЦЕНЫ независимы (оба читают только data.json) — идут ПАРАЛЛЕЛЬНО (T-24/4: 22 + 9 с → max). Журналы раздельные:
+        # «пропущен» читается только из журнала экспорта
+        timing_d = {}
+
+        def do_dump():
+            t2 = time.time()
+            self._dump_cached(data_path, bundle, dump, dlog, pr, lim)
+            timing_d['dump'] = round(time.time() - t2, 1)
+
+        def do_export():
+            # МЕШ НЕ ПРОПУСКАЕМ МОЛЧА (T-20261117-19/2: в set4 диван выпал из кадра, подушка повисла в воздухе, а рендер «получился»): экспорт при сбое
+            # меша печатает «<роль> пропущен» и идёт дальше. Один повтор (GLB уже докачан в кэш) — и если предмет снова пропущен, отказ ДО Blender'а
+            miss = []
+            for attempt in (1, 2):
+                pos = os.path.getsize(log) if os.path.exists(log) else 0
+                run_step([self.python, os.path.join(PROBE, 'export_scene.py'), '--out', job, '--scene', 'scene=0', '--data', data_path], log,
+                         lim['exportSec'], lim['maxRssGb'], env=env, cwd=os.path.join(REPO, 'tools', 'scout'), what='меши и камеры')
+                miss = skipped_meshes(open(log, encoding='utf-8', errors='replace').read()[pos:])
+                if not miss:
+                    break
+                print(f'рендер: меш не взят ({", ".join(miss)}), попытка {attempt}', flush=True)
+            if miss:
+                raise RenderError('mesh_missing', 'Не удалось загрузить модель мебели для фото. Нажмите «Повторить».',
+                                  'A furniture model could not be loaded for the photo. Press "Retry".')
+
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            fe, fd = ex.submit(do_export), ex.submit(do_dump)
+            errs = [f.exception() for f in (fe, fd)]
+        for e in errs:
+            if e is not None:
+                raise e
+        timing['export'] = round(time.time() - t1, 1)      # оба шага параллельно: стена времени
+        timing['dump'] = timing_d.get('dump', 0.0)
+        try:
+            with open(log, 'ab') as lf, open(dlog, 'rb') as df:
+                lf.write(df.read())
+            os.remove(dlog)
+        except OSError:
+            pass
         return dump
+
+    def _dump_cached(self, data_path: str, bundle: str, dump: str, dlog: str, pr: dict, lim: dict) -> None:
+        """Дамп сцены (Chromium, ~9 с) — кэш по хешу входа: данные варианта + сборка выгрузчика + режим. Повтор того же варианта — копия файлов (жёсткие ссылки)."""
+        h = hashlib.sha256(open(data_path, 'rb').read() + b'|' + os.path.basename(bundle).encode() + b'|' + str(pr['dumpExport']).encode()).hexdigest()[:24]
+        root = os.environ.get('RENDER_DUMP_CACHE') or os.path.expanduser('~/scout-cache/render-dump')
+        hit = os.path.join(root, h)
+        if os.path.isfile(os.path.join(hit, '.ok')):
+            os.makedirs(dump, exist_ok=True)
+            for f in os.listdir(hit):
+                if f != '.ok':
+                    try:
+                        os.link(os.path.join(hit, f), os.path.join(dump, f))
+                    except OSError:
+                        shutil.copyfile(os.path.join(hit, f), os.path.join(dump, f))
+            os.utime(os.path.join(hit, '.ok'))
+            return
+        run_step([self.node, os.path.join(PROBE, 'demo_scene_dump.mjs'), data_path, '0', bundle, dump, 'export=' + pr['dumpExport']], dlog,
+                 lim['dumpSec'], lim['maxRssGb'], what='декор и отделка')
+        try:
+            os.makedirs(root, exist_ok=True)
+            tmp = f'{hit}.tmp-{os.getpid()}-{uuid.uuid4().hex[:8]}'
+            os.makedirs(tmp)
+            for f in os.listdir(dump):
+                shutil.copyfile(os.path.join(dump, f), os.path.join(tmp, f))
+                os.chmod(os.path.join(tmp, f), 0o444)      # после записи — только чтение (прогоны держат жёсткие ссылки на эти файлы)
+            open(os.path.join(tmp, '.ok'), 'w').close()
+            try:
+                os.replace(tmp, hit)             # занято (параллельный прогон записал раньше) — оставляем его, свой убираем
+            except OSError:
+                shutil.rmtree(tmp, ignore_errors=True)
+            # держим 60 последних (по `.ok`), остальное — прочь
+            ents = sorted((e for e in os.scandir(root) if e.is_dir() and '.tmp-' not in e.name),
+                          key=lambda e: os.path.getmtime(os.path.join(e.path, '.ok')) if os.path.isfile(os.path.join(e.path, '.ok')) else 0, reverse=True)
+            for e in ents[60:]:
+                shutil.rmtree(e.path, ignore_errors=True)
+        except OSError:
+            pass
 
     def _finish(self, snap: dict, outs: dict, out_dir: str, pr: dict, timing: dict, t0: float, job: str) -> dict:
         """Шаг 4: JPEG и мета — каталогом по ключу (подменой, meta последней); стадия `save` объявлена вызывающим."""
@@ -290,8 +386,7 @@ class LocalCpuExecutor(SceneExecutor):
             raise ExecutorUnavailable('render_unavailable', 'Рендер сейчас недоступен. Попробуйте позже.', 'Rendering is unavailable right now. Try again later.')
         sys.path.insert(0, os.path.join(REPO, 'tools', 'ops'))
         import heavy_slot as HS
-        job = os.path.join(self.work, 'job-' + snap['scene_hash'][:16])
-        shutil.rmtree(job, ignore_errors=True)
+        job = self._job_dir('job-', snap)
         os.makedirs(job)
         log = os.path.join(job, 'run.log')
         t0, timing = time.time(), {}
@@ -352,6 +447,42 @@ GATE_TEXT = {
 GPU_FAILED = ('Машина рендера не справилась. Считаем на запасной — будет дольше.', 'The render machine failed. Using the backup — it will take longer.')
 
 
+class _Fmt2Skip(Exception):
+    """fmt 2 сейчас недоступен (приёмник без ассетов, сбой выгрузки): заказ уходит по fmt 1 — до задания машине дело не дошло."""
+
+
+_SHA_MEMO: dict = {}          # (путь, размер, mtime_ns, inode) → sha256: файлы кэша PNG/дампа неизменны (read-only, жёсткие ссылки), повторный заказ хеша не считает
+
+
+def file_sha256(path: str) -> tuple:
+    """(sha256, размер) файла; хеш помнится по (путь, размер, mtime, inode)."""
+    import jobs_proto as JP
+    st = os.stat(path)
+    key = (path, st.st_size, st.st_mtime_ns, st.st_ino)
+    h = _SHA_MEMO.get(key)
+    if h is None:
+        if len(_SHA_MEMO) > 4000:
+            _SHA_MEMO.clear()
+        h = _SHA_MEMO[key] = JP.sha256_file(path)
+    return h, st.st_size
+
+
+def asset_kind(rel: str) -> str | None:
+    """Что из файлов задания — НЕИЗМЕНЯЕМЫЙ ассет (по хешу на приёмнике и машине), а что едет в маленьком пакете. Правило общее, без особых случаев:
+    текстуры сцены (PNG), GLB декора, карты отделки (public/), программа рендера и её данные. Карта сцены, меши npz, отделка и uuid — в пакете."""
+    if rel.startswith('scene/tex/'):
+        return 'tex'
+    if rel == 'dump/demo_nodes.glb':
+        return 'glb'
+    if rel.startswith('public/'):
+        return 'map'
+    if rel.startswith('tools/scout/') and rel.endswith('.py'):
+        return 'code'
+    if rel.startswith('data/flat3d/') and rel.endswith('.json'):
+        return 'data'
+    return None
+
+
 class SaladGpuExecutor(SceneExecutor):
     """Машина рендера на Salad (T-20261117-24/2): сцена собирается на DEV тем же правилом, что у `local-cpu` (`SceneExecutor._prepare`), уходит пакетом
     в хранилище приёмника (`renderjobs/<задание>/`), воркер на машине (`render_gpu/render_worker.py`) считает ПАРУ ракурсов одним Blender
@@ -365,6 +496,7 @@ class SaladGpuExecutor(SceneExecutor):
     def __init__(self, env=os.environ, sink=None, machine=None, clock=time.time, sleep=time.sleep):
         super().__init__(env)
         self.env, self._sink, self._machine, self.now, self.sleep = env, sink, machine, clock, sleep
+        self._fmt2_dead_until = 0.0      # приёмник без ассетов (404 на /have): до этого момента fmt 2 не пробуем
 
     # ——— зависимости (лениво: DEV без машины рендера не должен падать при создании исполнителя)
     def machine(self):
@@ -415,6 +547,7 @@ class SaladGpuExecutor(SceneExecutor):
         dump = os.path.join(job, 'dump')
         files = {'scene': os.path.join(job, 'scene'),
                  'tools/scout/cycles_probe/render_cycles.py': os.path.join(PROBE, 'render_cycles.py'),
+                 'tools/scout/wall_art.py': os.path.join(REPO, 'tools', 'scout', 'wall_art.py'),      # render_cycles.py с 17.11 берёт правило картин оттуда (только stdlib)
                  'data/flat3d/wall-art.json': os.path.join(REPO, 'data', 'flat3d', 'wall-art.json')}
         for n in ('demo_nodes.glb', 'demo_nodes_uuids.json', 'scene-export.json'):
             files['dump/' + n] = os.path.join(dump, n)
@@ -436,6 +569,98 @@ class SaladGpuExecutor(SceneExecutor):
                     files['public/' + v.lstrip('/')] = p
         return files
 
+    def _split_assets(self, files: dict) -> tuple:
+        """`_bundle_files` → (маленький пакет {путь в архиве: файл}, ассеты [ссылки {path, sha256, size, kind}], {sha256: файл на DEV}).
+        Ассетом файл становится, только если путь годится как плоское имя (`valid_rel_path`), размер в пределах и число ассетов не больше потолка; иначе едет в пакете."""
+        import jobs_proto as JP
+        small, assets, src = {}, [], {}
+        items = []
+        for arc, p in files.items():
+            if os.path.isdir(p):
+                for dp, dn, fs in os.walk(p):
+                    dn.sort()
+                    items += [(os.path.join(arc, os.path.relpath(os.path.join(dp, f), p)).replace(os.sep, '/'), os.path.join(dp, f)) for f in sorted(fs)
+                              if not os.path.islink(os.path.join(dp, f))]
+            elif os.path.isfile(p):
+                items.append((arc, p))
+        for rel, p in sorted(items):
+            kind = asset_kind(rel)
+            if kind and len(assets) < JP.ASSET_MAX_N and JP.valid_rel_path(rel):
+                sha, size = file_sha256(p)
+                if 1 <= size <= JP.ASSET_MAX_MB * 2 ** 20:
+                    assets.append(JP.asset_ref(rel, sha, size, kind))
+                    src.setdefault(sha, p)
+                    continue
+            small[rel] = p
+        return small, assets, src
+
+    def _send_fmt1(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict) -> None:
+        """fmt 1: всё одним пакетом (как в T-24/2). Не принял приёмник — `gpu_upload`; пакет больше потолка — `gpu_bundle_big`."""
+        import jobs_proto as JP
+        t1 = self.now()
+        tgz = os.path.join(job, 'bundle.tgz')
+        sha = JP.pack_bundle(self._bundle_files(job), tgz)
+        bundle = f'bundle-{sha}.tgz'
+        timing['pack'] = round(self.now() - t1, 1)
+        cap_mb = float(ex.get('bundle_max_mb', 95))      # приёмник и Caddy не примут больше (Caddy режет тело на 100 МБ): откат на CPU сразу и с понятной причиной
+        if os.path.getsize(tgz) > cap_mb * 2 ** 20:
+            print(f'рендер: пакет сцены {os.path.getsize(tgz) / 2 ** 20:.0f} МБ > {cap_mb:g} МБ — на машину не отдаём', flush=True)
+            raise self._gpu_unavailable('gpu_bundle_big') from None
+        t1 = self.now()
+        try:
+            sink.put_file(f'{JP.PREFIX}/{jid}/{bundle}', tgz)
+            jobj = JP.new_job(jid, bundle, sha, ['--samples', pr['samples'], '--pct', pr['pct'], '--threads', pr['threads'], *pr['flags']],
+                              {'blenderSec': pr['limits']['blenderSecPerFrame']}, now=self.now())
+            sink.put(f'{JP.PREFIX}/{jid}/job.json', json.dumps(jobj, ensure_ascii=False).encode())       # ПОСЛЕДНИМ
+        except JP.SinkError as e:
+            print(f'рендер: хранилище не приняло пакет: {e}', flush=True)
+            raise self._gpu_unavailable('gpu_upload') from None
+        timing['upload'] = round(self.now() - t1, 1)
+
+    def _send_fmt2(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict) -> None:
+        """fmt 2 (T-20261117-24/5): ассеты — по хешу в `renderassets` приёмника (спросили «каких нет» и досылаем недостающее ДО `job.json`), маленький пакет —
+        в каталог задания, `job.json` (v=2, манифест) ПОСЛЕДНИМ. Любой сбой до задания — `_Fmt2Skip` (заказ пойдёт по fmt 1), машине ничего не ушло."""
+        import jobs_proto as JP
+        t1 = self.now()
+        small, assets, src = self._split_assets(self._bundle_files(job))
+        timing['hash'] = round(self.now() - t1, 1)
+        t1 = self.now()
+        uniq = [{'sha256': h, 'size': next(a['size'] for a in assets if a['sha256'] == h)} for h in src]
+        try:
+            missing = list(sink.have_assets(uniq))
+        except JP.SinkError as e:
+            if e.code in (404, 405):                      # приёмник без ассетов (старый): не спрашиваем снова 5 минут
+                self._fmt2_dead_until = self.now() + 300
+            raise _Fmt2Skip(f'have: {e}') from None
+        timing['have'] = round(self.now() - t1, 1)
+        timing['asset_n'], timing['asset_miss'] = len(uniq), len(missing)
+        timing['asset_up_mb'] = round(sum(u['size'] for u in uniq if u['sha256'] in set(missing)) / 2 ** 20, 1)
+        t1 = self.now()
+        par = max(1, int(ex.get('upload_par', 4)))
+        try:
+            with ThreadPoolExecutor(max_workers=par) as pool:
+                futs = [pool.submit(sink.put_asset, h, src[h]) for h in missing]
+                tp = self.now()
+                tgz = os.path.join(job, 'bundle2.tgz')
+                JP.pack_bundle(small, tgz)                                  # пока ассеты уходят, пакет собирается
+                bsha = JP.sha256_file(tgz)
+                bsize = os.path.getsize(tgz)
+                timing['pack'] = round(self.now() - tp, 1)
+                if bsize > float(ex.get('bundle_max_mb', 95)) * 2 ** 20:
+                    raise _Fmt2Skip(f'маленький пакет {bsize / 2 ** 20:.0f} МБ — слишком велик')
+                bundle = {'name': f'bundle-{bsha[:16]}.tgz', 'sha256': bsha, 'size': bsize}
+                sink.put_file(f'{JP.PREFIX}/{jid}/{bundle["name"]}', tgz)
+                for f in futs:
+                    f.result()                                              # недостающие ассеты — ДО задания
+            render = hashlib.sha256(json.dumps(self.versions(), sort_keys=True).encode()).hexdigest()[:16]
+            jobj = JP.new_job2(jid, bundle, assets, ['--samples', pr['samples'], '--pct', pr['pct'], '--threads', pr['threads'], *pr['flags']],
+                               {'blenderSec': pr['limits']['blenderSecPerFrame']}, render, now=self.now())
+            sink.put(f'{JP.PREFIX}/{jid}/job.json', json.dumps(jobj, ensure_ascii=False).encode())       # ПОСЛЕДНИМ
+        except JP.SinkError as e:
+            raise _Fmt2Skip(f'выгрузка: {e}') from None
+        timing['upload'] = round(self.now() - t1, 1)
+        timing['bundle_kb'] = round(bsize / 1024)
+
     def render(self, snap: dict, out_dir: str, progress) -> dict:
         import jobs_proto as JP
         pr = preset()
@@ -445,37 +670,41 @@ class SaladGpuExecutor(SceneExecutor):
         pickup_s, pair_max_s = float(ex.get('pickup_s', 90)), float(ex.get('pair_max_s', 900))
         sink = self.sink()
         m = self.machine()
-        job = os.path.join(self.work, 'gjob-' + snap['scene_hash'][:16])
+        job = self._job_dir('gjob-', snap)
         shutil.rmtree(job, ignore_errors=True)
         os.makedirs(job)
         log = os.path.join(job, 'run.log')
         t0, timing = self.now(), {}
-        jid = f"{snap['scene_hash'][:12]}-{int(t0)}"
+        jids: list = []
         m.pulse(busy_s=600)            # ЗАКАЗ = событие: отсчёт простоя с этого момента, и пока задание в работе — машину не гасим
         try:
             with self._slot('photo-render-' + snap['scene_hash'][:8], pr) as hs:
                 timing['slot_wait'] = round(float(hs.get('waited_s', 0)), 1) if isinstance(hs, dict) else 0
                 self._prepare(snap, job, log, pr, progress, timing)
-            t1 = self.now()
-            tgz = os.path.join(job, 'bundle.tgz')
-            sha = JP.pack_bundle(self._bundle_files(job), tgz)
-            bundle = f'bundle-{sha}.tgz'
-            timing['pack'] = round(self.now() - t1, 1)
-            cap_mb = float(ex.get('bundle_max_mb', 95))      # приёмник и Caddy не примут больше (Caddy режет тело на 100 МБ): откат на CPU сразу и с понятной причиной
-            if os.path.getsize(tgz) > cap_mb * 2 ** 20:
-                print(f'рендер: пакет сцены {os.path.getsize(tgz) / 2 ** 20:.0f} МБ > {cap_mb:g} МБ — на машину не отдаём', flush=True)
-                raise self._gpu_unavailable('gpu_bundle_big') from None
-            t1 = self.now()
-            try:
-                sink.put_file(f'{JP.PREFIX}/{jid}/{bundle}', tgz)
-                jobj = JP.new_job(jid, bundle, sha, ['--samples', pr['samples'], '--pct', pr['pct'], '--threads', pr['threads'], *pr['flags']],
-                                  {'blenderSec': pr['limits']['blenderSecPerFrame']}, now=self.now())
-                sink.put(f'{JP.PREFIX}/{jid}/job.json', json.dumps(jobj, ensure_ascii=False).encode())       # ПОСЛЕДНИМ
-            except JP.SinkError as e:
-                print(f'рендер: хранилище не приняло пакет: {e}', flush=True)
-                raise self._gpu_unavailable('gpu_upload') from None
-            timing['upload'] = round(self.now() - t1, 1)
-            res = self._wait(sink, m, jid, progress, busy_s, poll_s, pickup_s, pair_max_s)
+            use2 = bool(ex.get('fmt2')) and self.now() >= self._fmt2_dead_until
+            res = None
+            for fmt in ((2, 1) if use2 else (1,)):
+                jid = f"{snap['scene_hash'][:12]}-{int(self.now())}-{uuid.uuid4().hex[:4]}"      # хвост: два заказа одной сцены в одну секунду не делят каталог заданий
+                jids.append(jid)
+                if fmt == 2:
+                    try:
+                        self._send_fmt2(sink, job, jid, pr, ex, timing)
+                    except _Fmt2Skip as e:
+                        print(f'рендер: fmt 2 не вышел ({e}) — шлю по fmt 1', flush=True)
+                        continue
+                else:
+                    self._send_fmt1(sink, job, jid, pr, ex, timing)
+                try:
+                    res = self._wait(sink, m, jid, progress, busy_s, poll_s, pickup_s, pair_max_s)
+                except ExecutorUnavailable as e:
+                    if fmt == 2 and e.code in ('gpu_asset', 'gpu_bad_job'):      # машина не приняла ассеты/версию — тот же заказ по fmt 1, не сразу на процессор
+                        print(f'рендер: машина не приняла fmt 2 ({e.code}) — шлю по fmt 1', flush=True)
+                        continue
+                    raise
+                timing['fmt'] = fmt
+                break
+            if res is None:
+                raise self._gpu_unavailable('gpu_upload')
             t1 = self.now()
             outs = {}
             try:
@@ -494,10 +723,11 @@ class SaladGpuExecutor(SceneExecutor):
             return self._finish(snap, outs, out_dir, pr, timing, t0, job)
         finally:
             shutil.rmtree(job, ignore_errors=True)
-            try:
-                sink.delete(f'{JP.PREFIX}/{jid}')      # своё задание убираем сразу (место общее с мешами); не вышло — уберёт jobs_purge по сроку
-            except Exception:  # noqa: BLE001
-                pass
+            for j in jids:
+                try:
+                    sink.delete(f'{JP.PREFIX}/{j}')      # своё задание убираем сразу (место общее с мешами); не вышло — уберёт jobs_purge по сроку
+                except Exception:  # noqa: BLE001
+                    pass
             m.pulse(0)                 # конец пары (или отказ) — тоже событие; «занято» снято, до автостопа 20 мин от этого момента
 
     def _wait(self, sink, m, jid: str, progress, busy_s: float, poll_s: float, pickup_s: float, pair_max_s: float) -> dict:

@@ -64,3 +64,13 @@ Codex (vercel-sol, ephemeral): `_intake/codex/2026-11-17-render-machine-plan-ans
   Таблица — `tools/scout/render_gpu/README.md`. Владельцу TG 1681 + ❓ предохранители 20 мин / 4 ч / $2.
 - 17.11 20:45 — шаг 3: T-20261117-24/1 рабочему 4 (контроллер вкл/выкл, «прогрелась», предохранители, сторож render-*), бриф
   `_intake/brief-T-20261117-24.md`; исполнитель `salad-gpu` — T-24/2.
+- 17.11 22:30 — приёмник с GET `renderjobs/` выложен на exit-fi (после проверки Codex vercel-sol, 6 правок + DELETE корня → 400); бэкап
+  `/opt/remlab/mesh-receiver.py.bak-20261117-2229`.
+- 17.11 22:50 — живая пара на 4090 (T-24/2): прогрев 71 с (первый 238 с), пара 63–68 с, Blender 8 с; ≈$0,02; меш-группы 9/9 целы.
+- 17.11 22:55 — влито в main ab5e10c1 (полный прогон чист). Запущено: DEV крон pakardev `render_machine.py tick` раз в минуту (лог
+  `~/remlab-logs/render-machine/tick.log`) и `jobs_purge.py --apply` в :17; сервер — systemd `remlab-render-guard.timer` раз в минуту
+  (`/opt/remlab/scripts/render-guard.py`, лог `/var/log/render-guard.log`, отключить — `/opt/remlab/render-guard-off-until`).
+- 17.11 23:05 — кнопки бота `/render_on|off|status`: `~/.local/bin/render-mashina` + патч `tg-patch-limit` + меню `tg-menu-model`
+  (только tg-remlab); поставлено на common, pakardev/algor — при подъёме их вкладок. Проба автостопа владельцу — 23:03 вкл, проверка 23:38.
+- 17.11 23:15 — T-24/3 (README 228244f2): тариф/ядра не ускоряют, medium + 8/16 + тонкий образ (поправка ADR-0429). T-24/4 — подготовка
+  за секунды (TG 1711): Э0 тонкий образ/medium, Э1 кэш текстур и дампа, Э2 blob-протокол (после Codex), Э3 замер.

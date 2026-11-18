@@ -63,7 +63,7 @@ PROMPT_VERSION = ('improve-v4' if PROMPT_V4 else 'improve-v3') + '.5'
 # «дорисуй люстру, шторы, подушки, плед») для такого входа вреден: на пробе 17.11 модель перекрасила диван, сменила пол спальни и добавила
 # люстру/плед/книги. Для `payload.render` собирается ДРУГОЕ задание — только фотографическая доводка: свет, тени, фактура, резкость; состав и цвет
 # не трогаются; нет ни гайда стиля, ни листа эталонов, ни третьего листа. Живое GPT-фото (кадры браузера) идёт прежним путём без изменений.
-PROMPT_VERSION_RENDER = 'improve-render-v5.2'
+PROMPT_VERSION_RENDER = 'improve-render-v5.3'
 
 
 def render_source(payload: dict | None) -> bool:
@@ -95,11 +95,11 @@ RENDER_POLISH_PROMPT = '\n'.join([
     '- Keep every colour: the hue, saturation and lightness of the sofa, bed, cabinets, upholstery, pillows, floor boards, walls, brick, ceiling, '
     'curtains, window frames, radiators and every other surface must match IMAGE 1. Light may shade a colour, never change it. '
     'Never turn leather into linen, never darken or lighten the floor, never repaint walls.',
-    '- IMAGE 1 is the colour truth, even where it looks too pale, too grey or too flat to you: do not "correct" it. A pale, slightly grey floor stays '
-    'pale and grey, never warm honey or golden; a painted greige/taupe cabinet or wardrobe stays plain taupe, never becomes natural wood with grain; '
-    'a sand- or stone-coloured table top stays sand-coloured, never turns into dark walnut; white stays white. A reflection of the sky or windows on a '
-    'glossy top is only light, never a new material colour. Compare the average colour of each large surface with IMAGE 1 before you answer; '
-    'when in doubt, change less.',
+    '- IMAGE 1 is the colour truth, even where it looks too pale, too grey, too saturated or too flat to you: do not "correct" it. Every surface keeps '
+    'the hue, saturation and lightness it has in IMAGE 1: a plain-coloured painted piece stays plain and never becomes natural wood with grain; a '
+    'stone- or sand-coloured top never becomes darker, warmer or more saturated wood; white stays white and grey stays grey; the floor keeps the tone '
+    'it has in IMAGE 1. A reflection of the sky or windows on a glossy top is only light, never a new material colour. Compare the average colour of '
+    'each large surface with IMAGE 1 before you answer; when in doubt, change less.',
     '- Keep every pattern and print exactly (pillow, rug, bedding, picture contents).',
     '- Keep the shape, proportions and construction of every product, the room geometry, windows, doors, radiators, ceiling and curtain rods.',
     '- Keep both cameras exactly: same framing, crop, perspective, field of view, order of views and the sheet size.',
