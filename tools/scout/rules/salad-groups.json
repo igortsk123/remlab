@@ -180,6 +180,12 @@
       "queue": "mesh-q-greytop",
       "_why": "ТОЛЬКО ПРОБА T-20261118-04/13 (П1.85): сторож пустых видов покраски (tools/scout/salad/view_guard.py) на 5 серых мешах с болванкой shape.glb. Образ paint-guard-b8694f71 (digest в ~/remlab-logs/t0413-1118/image-digest.txt) поверх боевого digest, env PIPELINE_VERSION=greytop — комплекты в meshes/hunyuan21/greytop, реестр их не видит. Новая группа: образ у существующей не меняется (PATCH — 200 без эффекта). Создана queue_setup.py --donor mesh-q-low-1 --gpu-exact, 1 реплика, остановленной; в SALAD_GROUP её нет. Потолок 8 ₽ (владелец одобрил до $0,30). После опыта — остановлена."
     },
+    "mesh-q-greytop2-canary": {
+      "tier": "low",
+      "price_class": "RTX 4060 Ti (16 GB)",
+      "queue": "mesh-q-greytop2",
+      "_why": "ТОЛЬКО ВТОРАЯ ПРОБА T-20261118-04/13 (П1.85): детектор пустых видов с эталоном 128 и судом по MR (образ paint-guard-4a0d128a, digest ...c457bd57). Новая группа: образ у mesh-q-greytop-canary не меняется. Env PIPELINE_VERSION=greytop2 — комплекты в meshes/hunyuan21/greytop2, реестр их не видит. 1 реплика, создана остановленной; в SALAD_GROUP её нет. Потолок 8 ₽. После опыта — остановлена."
+    },
     "mesh-q-color2-canary": {
       "tier": "low",
       "price_class": "RTX 4060 Ti (16 GB)",
