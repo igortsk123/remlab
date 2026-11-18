@@ -24,5 +24,6 @@ describe("заказ рендера со страницы (vwRenderReq)", () => 
     expect(html).toMatch(/job\.mach=\(v\.machine&&typeof v\.machine==='object'\)\?v\.machine:null/);
     expect(html).toMatch(/mc&&mc\.state==='warming'/);
     expect(html).toMatch(/job\.mach&&job\.mach\.state==='fallback'/);
+    expect(html).toMatch(/job\.eta0>0&&job\.eta0<=45/);      // срок прогретой машины — секундами из eta сервера
   });
 });

@@ -8076,7 +8076,8 @@ function jobProg(job){
     const pct=Math.max(0,Math.min(99,job.pct||0)), e=job.est||0;
     // срок — из ответа сервера: до ~1,5 мин «около минуты», дальше «около N минут» (до 5 мин — по минутам, дольше — по 5); долгий — с «можно закрыть страницу»
     const long=e>=300, mins=e<300?Math.max(2,Math.round(e/60)):Math.round(e/300)*5;
-    let note=e<90?(EN?'Usually about a minute':'Обычно около минуты'):(EN?`Usually about ${mins} min`:`Обычно около ${mins} мин`);
+    const sec=job.eta0>0&&job.eta0<=45&&!(job.mach&&job.mach.state==='fallback')?Math.max(10,Math.round(job.eta0/5)*5):0;      // прогретая машина: срок секундами из eta сервера
+    let note=e<90?(sec?(EN?`Usually about ${sec} s`:`Обычно около ${sec} с`):EN?'Usually about a minute':'Обычно около минуты'):(EN?`Usually about ${mins} min`:`Обычно около ${mins} мин`);
     // ЗАКАЗ УШЁЛ НА ЗАПАСНОЙ ПУТЬ (сервер: `machine.state==='fallback'`): причина — текстом сервера вместо «Обычно около N мин»; проценты и срок — как у запасного
     if(job.mach&&job.mach.state==='fallback'){const ft=EN?(job.mach.text_en||job.mach.text):(job.mach.text||job.mach.text_en); if(ft)note=ft;}
     if(job.queue>0)note=(EN?'In the queue: ':'В очереди: ')+job.queue+' · '+note.charAt(0).toLowerCase()+note.slice(1);
@@ -12098,7 +12099,9 @@ async function vwRenderRun(job, cb){
       const e=(v.eta_range&&+v.eta_range[1])||+v.eta||0, run=v.status==='running'||(v.queue===0&&v.status!=='queued');
       if(e&&(run?!job.estRun:e>(job.est||0))){job.est=e; if(run)job.estRun=true;}
       job.queue=+v.queue||0; job.eta=+v.eta||0; if(v.percent!=null)job.pct=Math.max(job.pct||0,+v.percent||0);
-      job.mach=(v.machine&&typeof v.machine==='object')?v.machine:null; };       // статус машины рендера — от сервера (T-20261118-10/7): «прогревается», «запасной путь»
+      job.mach=(v.machine&&typeof v.machine==='object')?v.machine:null;
+      if(!job.eta0&&(+v.eta||0)>0&&!(job.mach&&(job.mach.state==='warming'||job.mach.state==='fallback')))job.eta0=+v.eta;      // срок ПРОГРЕТОЙ машины — первый eta сервера вне прогрева/запасного (на ней ≈25 с, а не «около минуты»)
+ };       // статус машины рендера — от сервера (T-20261118-10/7): «прогревается», «запасной путь»
     let r, j;
     try{ r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}); j=await r.json(); }catch(e){ j=null; }
     if(!j||!j.job){const e=new Error('order'); e.code=(j&&j.code)||'lost'; throw e;}
