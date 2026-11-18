@@ -19,12 +19,15 @@
 
   Запуск: MESH_SINK_TOKEN=... MESH_ROOT=/opt/remlab/meshes python3 receiver.py
 """
+import hashlib
 import json
+import re
 import os
 import shutil
 import stat
 import threading
 import time
+import uuid
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -41,7 +44,15 @@ BIND = os.environ.get('MESH_SINK_BIND', '127.0.0.1')
 # РАЗДАЧА ФАЙЛОВ (T-20261117-24/2, машина рендера): контейнеру Salad нужно СКАЧАТЬ задание (сцена ≈65 МБ). Раздаём read-only и ТОЛЬКО префиксы
 # из этого списка (данные, по умолчанию один — `renderjobs`); меши и всё прочее по GET /files не отдаются никогда. Потолок размера файла
 # для этих префиксов на PUT — SERVE_MAX_MB (пакет сцены больше обычного 80 МБ-потолка меша).
-SERVE_PREFIXES = tuple(p.strip().strip('/') for p in os.environ.get('MESH_SERVE_PREFIXES', 'renderjobs').split(',') if p.strip())
+SERVE_PREFIXES = tuple(p.strip().strip('/') for p in os.environ.get('MESH_SERVE_PREFIXES', 'renderjobs,renderassets').split(',') if p.strip())
+# НЕИЗМЕНЯЕМЫЕ АССЕТЫ ЗАДАНИЙ (T-20261117-24/5, fmt 2): `renderassets/<2 hex>/<sha256 полный>` — имя файла = хеш содержимого, ключ и проверка целостности в одном.
+# Свой счётчик и свой потолок (`MESH_ASSET_MAX_GB`), не счётчик заданий и не мешей; свободное место на диске — общее. PUT проверяет хеш, пишет во временный файл
+# с уникальным именем и подменяет атомарно; «уже есть» — успех. Уборка по сроку/размеру — `render_gpu/jobs_purge.py` (DELETE файла ассета).
+ASSET_PREFIX = 'renderassets'
+ASSET_MAX_GB = float(os.environ.get('MESH_ASSET_MAX_GB', '1.5'))
+HEX64 = re.compile(r'^[0-9a-f]{64}$')
+HEX2 = re.compile(r'^[0-9a-f]{2}$')
+HAVE_MAX = 1000
 # Caddy режет тело запроса на 100 МБ (`caddy/Caddyfile`), поэтому потолок пакета — 95 МБ: больший PUT всё равно не дошёл бы, пусть отказ будет понятным и нашим.
 SERVE_MAX_MB = float(os.environ.get('MESH_SERVE_MAX_MB', '95'))
 # Раздаваемые префиксы НЕ входят в счётчик мешей (`MAX_DIR_GB`): ворота мешей их байтов не видят. У них свой счётчик и свой потолок; свободное место на диске — общее:
@@ -64,6 +75,7 @@ _lock = threading.RLock()
 # обход не входят: их байты уже стоят в резерве своего PUT.
 _SIZE = {'bytes': 0, 'reserved': 0, 'inited': False, 'at': 0.0}
 _SERVED = {'bytes': 0, 'reserved': 0, 'inited': False, 'at': 0.0}      # раздаваемые префиксы (renderjobs): свой счётчик, свой потолок
+_ASSETS = {'bytes': 0, 'reserved': 0, 'inited': False, 'at': 0.0}      # ассеты заданий (renderassets): свой счётчик, свой потолок
 RECOUNT_S = float(os.environ.get('MESH_SIZE_RECOUNT_S', '600'))
 
 
@@ -72,8 +84,12 @@ def is_served(prefix: str) -> bool:
     return prefix.strip('/').split('/')[0] in SERVE_PREFIXES
 
 
+def is_asset(prefix: str) -> bool:
+    return ASSET_PREFIX in SERVE_PREFIXES and prefix.strip('/').split('/')[0] == ASSET_PREFIX
+
+
 def _acct(prefix: str) -> dict:
-    return _SERVED if is_served(prefix) else _SIZE
+    return _ASSETS if is_asset(prefix) else _SERVED if is_served(prefix) else _SIZE
 
 
 def _walk_bytes(top: str = ROOT) -> int:
@@ -100,19 +116,35 @@ def dir_gb() -> float:
     return (_SIZE['bytes'] + _SIZE['reserved']) / 2 ** 30
 
 
+def _prefix_walk(prefixes) -> int:
+    return sum(_walk_bytes(os.path.join(ROOT, p)) for p in prefixes if os.path.isdir(os.path.join(ROOT, p)) and not os.path.islink(os.path.join(ROOT, p)))
+
+
 def served_gb() -> float:
-    """Размер раздаваемых префиксов — инкрементально, как `dir_gb()`; пересчёт обходом раз в RECOUNT_S (не на каждый PUT)."""
+    """Размер каталога заданий (раздаваемые префиксы КРОМЕ ассетов) — инкрементально, как `dir_gb()`; пересчёт обходом раз в RECOUNT_S (не на каждый PUT)."""
     if not _SERVED['inited'] or time.time() - _SERVED['at'] > RECOUNT_S:
-        walked = sum(_walk_bytes(os.path.join(ROOT, p)) for p in SERVE_PREFIXES if os.path.isdir(os.path.join(ROOT, p)) and not os.path.islink(os.path.join(ROOT, p)))
+        walked = _prefix_walk(p for p in SERVE_PREFIXES if p != ASSET_PREFIX)
         with _lock:
             _SERVED.update(bytes=walked, inited=True, at=time.time())
     return (_SERVED['bytes'] + _SERVED['reserved']) / 2 ** 30
 
 
-def _would_refuse(extra_bytes: int = 0, served: bool = False) -> str:
+def assets_gb() -> float:
+    """Размер ассетов заданий (`renderassets`) — свой счётчик, пересчёт обходом раз в RECOUNT_S."""
+    if not _ASSETS['inited'] or time.time() - _ASSETS['at'] > RECOUNT_S:
+        walked = _prefix_walk([ASSET_PREFIX] if ASSET_PREFIX in SERVE_PREFIXES else [])
+        with _lock:
+            _ASSETS.update(bytes=walked, inited=True, at=time.time())
+    return (_ASSETS['bytes'] + _ASSETS['reserved']) / 2 ** 30
+
+
+def _would_refuse(extra_bytes: int = 0, served: bool = False, asset: bool = False) -> str:
     """Почему PUT на `extra_bytes` получит 507 — или пусто, если место есть. Раздаваемый префикс — свой потолок (`SERVE_MAX_DIR_GB`),
     мешам — `MAX_DIR_GB`; свободное место на диске проверяется общее."""
-    if served:
+    if asset:
+        if assets_gb() + extra_bytes / 2 ** 30 > ASSET_MAX_GB:
+            return f'ассеты {assets_gb():.2f} ГБ (предел {ASSET_MAX_GB:g}) — нужна уборка'
+    elif served:
         if served_gb() + extra_bytes / 2 ** 30 > SERVE_MAX_DIR_GB:
             return f'каталог заданий {served_gb():.2f} ГБ (предел {SERVE_MAX_DIR_GB:g}) — нужна уборка'
     elif dir_gb() + extra_bytes / 2 ** 30 > MAX_DIR_GB:
@@ -257,7 +289,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split('?')[0]
         if path == '/health':
-            return self._send(200, {'ok': True, 'dir_gb': round(dir_gb(), 2),
+            return self._send(200, {'ok': True, 'dir_gb': round(dir_gb(), 2), 'assets_gb': round(assets_gb(), 2),
                                     'free_gb': round(free_gb(), 2), 'max_dir_gb': MAX_DIR_GB,
                                     'ready': not _would_refuse()})
         if path == '/ready':
@@ -327,6 +359,8 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get('Content-Length') or 0)
         if n <= 0:
             return self._send(400, {'detail': 'пустое тело'})
+        if is_asset(prefix):
+            return self._put_asset(prefix, name, n)
         served = is_served(prefix)
         acct = _acct(prefix)
         cap_mb = SERVE_MAX_MB if served else MAX_FILE_MB
@@ -375,11 +409,109 @@ class Handler(BaseHTTPRequestHandler):
                 acct['reserved'] = max(0, acct['reserved'] - n)     # освобождаем на ВСЕХ выходах (успех, обрыв, исключение)
         self._send(200, {'ok': True, 'bytes': got})
 
+
+    # ---------------------------------------------------------------- ассеты заданий (fmt 2)
+    def _put_asset(self, prefix: str, name: str, n: int):
+        """PUT /staging/renderassets/<ab>/<sha256>: имя = хеш содержимого. Тело пишется во ВРЕМЕННЫЙ файл с уникальным именем (два одновременных PUT одного
+        ассета не пишут в один файл), хеш и длина сверяются, затем атомарная подмена; «уже есть» (тот же размер) — успех, файл не трогаем. Место — своё
+        (`ASSET_MAX_GB`) + общее свободное на диске; резерв под замком, как у заданий."""
+        seg = prefix.strip('/').split('/')
+        if len(seg) != 2 or not HEX2.match(seg[1]) or not HEX64.match(name) or name[:2] != seg[1]:
+            return self._send(400, {'detail': 'плохое имя ассета (нужно <ab>/<sha256 полный>)'})
+        if n > SERVE_MAX_MB * 2 ** 20:
+            return self._send(413, {'detail': 'файл слишком большой'})
+        d = os.path.join(ROOT, ASSET_PREFIX, seg[1])
+        if not _inside_real(d, ROOT):                       # каталог ассетов или шарда — ссылка: не пишем
+            return self._send(400, {'detail': 'плохой путь'})
+        with _lock:
+            why = _would_refuse(n, asset=True)
+            if why:
+                return self._send(507, {'detail': f'нет места: {why}'})
+            _ASSETS['reserved'] += n
+        tmp = os.path.join(d, f'.{name}.{uuid.uuid4().hex}.part')
+        final = os.path.join(d, name)
+        got = 0
+        h = hashlib.sha256()
+        try:
+            os.makedirs(d, exist_ok=True)
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+            with os.fdopen(fd, 'wb') as f:
+                while got < n:
+                    chunk = self.rfile.read(min(1 << 20, n - got))
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    h.update(chunk)
+                    got += len(chunk)
+            if got != n:
+                os.remove(tmp)
+                return self._send(400, {'detail': f'тело оборвано: {got} из {n}'})
+            if h.hexdigest() != name:
+                os.remove(tmp)
+                return self._send(400, {'detail': 'хеш содержимого не сходится с именем'})
+            with _lock:
+                prev = os.path.getsize(final) if os.path.isfile(final) and not os.path.islink(final) else 0
+                existed = prev == got
+                if existed:
+                    os.remove(tmp)                               # тот же ассет уже лежит (хеш = имя): успех, не перезаписываем
+                    os.utime(final)                              # «использован сейчас» — для уборки по давности
+                else:
+                    os.chmod(tmp, 0o444)
+                    os.replace(tmp, final)
+                    _ASSETS['bytes'] += got - prev
+        except OSError as e:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            return self._send(500, {'detail': f'не записано: {type(e).__name__}'})
+        finally:
+            with _lock:
+                _ASSETS['reserved'] = max(0, _ASSETS['reserved'] - n)
+        return self._send(200, {'ok': True, 'bytes': got, 'existed': existed})
+
+    def _have(self):
+        """POST /have/renderassets {"items":[{"sha256","size"}…]} → {"missing":[sha…],"have":N}. «Есть» = обычный файл (не ссылка) того же размера;
+        найденное помечаем использованным сейчас (уборка по давности не снесёт ассеты заказа, который вот-вот выйдет)."""
+        n = int(self.headers.get('Content-Length') or 0)
+        if n <= 0 or n > 262144:
+            return self._send(400, {'detail': 'плохой размер запроса'})
+        try:
+            items = (json.loads(self.rfile.read(n)) or {}).get('items')
+        except (ValueError, AttributeError):
+            return self._send(400, {'detail': 'плохой запрос'})
+        if not isinstance(items, list) or len(items) > HAVE_MAX:
+            return self._send(400, {'detail': f'нужен список до {HAVE_MAX}'})
+        if ASSET_PREFIX not in SERVE_PREFIXES or not _inside_real(os.path.join(ROOT, ASSET_PREFIX), ROOT):
+            return self._send(404, {'detail': 'ассеты не раздаются'})
+        missing, have = [], 0
+        for it in items:
+            sha, size = (it.get('sha256'), it.get('size')) if isinstance(it, dict) else (None, None)
+            if not isinstance(sha, str) or not HEX64.match(sha) or not isinstance(size, int) or isinstance(size, bool) or size < 0:
+                return self._send(400, {'detail': 'элемент: нужны sha256 (64 hex) и size'})
+            p = os.path.join(ROOT, ASSET_PREFIX, sha[:2], sha)
+            try:
+                st = os.lstat(p)
+            except OSError:
+                missing.append(sha)
+                continue
+            if not stat.S_ISREG(st.st_mode) or st.st_size != size:
+                missing.append(sha)
+                continue
+            have += 1
+            try:
+                os.utime(p)
+            except OSError:
+                pass
+        return self._send(200, {'missing': missing, 'have': have})
+
     # ---------------------------------------------------------------- POST / DELETE
     def do_POST(self):
         if not self._auth():
             return
         path = self.path.split('?')[0]
+        if path == '/have/' + ASSET_PREFIX:
+            return self._have()
         if not path.startswith('/complete/'):
             return self._send(404, {'detail': 'нет такого'})
         n = int(self.headers.get('Content-Length') or 0)
@@ -440,6 +572,22 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400, {'detail': 'нельзя удалить корень'})
         if rel_del.strip('/') in SERVE_PREFIXES:                      # раздаваемый префикс целиком (renderjobs) — тоже нельзя, только задание внутри
             return self._send(400, {'detail': 'нельзя удалить каталог префикса целиком — только задание внутри'})
+        if is_asset(rel_del):                                         # ассет — файл `renderassets/<ab>/<sha256>`; шард/весь префикс — нельзя
+            seg = rel_del.strip('/').split('/')
+            if len(seg) != 3 or not HEX2.match(seg[1]) or not HEX64.match(seg[2]) or seg[2][:2] != seg[1]:
+                return self._send(400, {'detail': 'ассет удаляется по <ab>/<sha256>'})
+            if not _inside_real(p, ROOT):
+                return self._send(404, {'detail': 'нет такого'})
+            try:
+                st = os.lstat(p)
+                if not stat.S_ISREG(st.st_mode):
+                    return self._send(404, {'detail': 'нет такого'})
+                with _lock:
+                    os.remove(p)
+                    _ASSETS['bytes'] = max(0, _ASSETS['bytes'] - st.st_size)
+            except OSError:
+                return self._send(404, {'detail': 'нет такого'})
+            return self._send(204)
         if not os.path.isdir(p) or (is_served(rel_del) and not _inside_real(p, ROOT)):
             return self._send(404, {'detail': 'нет такого'})
         freed = _walk_bytes(p)    # та же мера, что у счётчика (без `.part` — те в резерве)

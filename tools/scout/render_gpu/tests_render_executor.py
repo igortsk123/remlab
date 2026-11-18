@@ -358,7 +358,7 @@ try:
     ok('архив с «../» не распаковался', False)
 except Exception:  # noqa: BLE001
     ok('архив с «../» не распаковался (фильтр data)', not os.path.exists(os.path.join(d, 'evil.txt')))
-good = JP.new_job('j1', 'bundle-aaa.tgz', 'aaa', ['--samples', 64], {'blenderSec': 100})
+good = JP.new_job('j1', 'bundle-0123456789ab.tgz', '0123456789ab', ['--samples', 64], {'blenderSec': 100})
 ok('validate_job: годное', JP.validate_job(good) == '')
 for name, mut in (('версия', {'v': 9}), ('имя с /', {'job_id': 'a/b'}), ('ракурс', {'cams': ['C3']}), ('путь сцены в args', {'args': ['--scene-dir', '/x']}),
                   ('--out в args', {'args': ['--out', '/x']}), ('--device в args', {'args': ['--device', 'cpu']}), ('не строка', {'args': [1]}), ('пакет с /', {'bundle': '../x'})):
@@ -528,6 +528,275 @@ RW.MA.STATE['ready'] = True
 th9 = threading.Thread(target=w9.loop, daemon=True); th9.start()
 time.sleep(1.6)
 ok('loop: любое исключение pick не завершает поток воркера', th9.is_alive())
+# ═══ 15. T-24/5: fmt 2 — ассеты по хешу, короткое задание, кэш машины, откаты
+import hashlib  # noqa: E402
+
+
+class FakeSink2(FakeSink):
+    """Хранилище с ассетами (как `Sink.have_assets/put_asset/get_asset_to`). Крючки: have_err — приёмник «старый» (404 на /have); lose — ассет пропал с приёмника;
+    wrong — приёмник отдаёт не те байты; slow — задержка скачивания (проверка «один поток на хеш»)."""
+
+    def __init__(self):
+        super().__init__()
+        self.assets, self.have_calls, self.put_assets, self.get_assets = {}, 0, [], []
+        self.have_err, self.lose, self.wrong, self.slow = False, set(), set(), 0.0
+
+    def have_assets(self, items):
+        self.have_calls += 1
+        if self.have_err:
+            raise JP.SinkError('POST /have/renderassets: HTTP 404', 404)
+        return [i['sha256'] for i in items if i['sha256'] not in self.assets or len(self.assets[i['sha256']]) != i['size']]
+
+    def put_asset(self, sha, path):
+        data = open(path, 'rb').read()
+        assert hashlib.sha256(data).hexdigest() == sha, 'исполнитель шлёт ассет не под своим хешем'
+        with self.lock:
+            self.assets[sha] = data
+            self.put_assets.append(sha)
+            self.log.append(('asset', sha))
+
+    def get_asset_to(self, sha, dest):
+        time.sleep(self.slow)
+        with self.lock:
+            self.get_assets.append(sha)
+            data = None if (sha in self.lose or sha not in self.assets) else self.assets[sha]
+        if data is None:
+            raise JP.SinkError(f'GET {sha[:8]}: HTTP 404', 404)
+        if sha in self.wrong:
+            data = data[::-1]
+        open(dest, 'wb').write(data)
+        return len(data)
+
+
+class Exec2(Exec):
+    """К подмене сборки сцены добавляем текстуры сцены (`scene/tex/*.png`): они уходят ассетами."""
+
+    def __init__(self, sink, machine, public, tex=()):
+        super().__init__(sink, machine, public)
+        self.tex = tex
+
+    def _prepare(self, snap, job, log, pr, progress, timing):
+        d = super()._prepare(snap, job, log, pr, progress, timing)
+        os.makedirs(os.path.join(job, 'scene', 'tex'))
+        for i, b in enumerate(self.tex):
+            open(os.path.join(job, 'scene', 'tex', f't{i}.png'), 'wb').write(b)
+        return d
+
+
+T1, T2 = b'A' * 20000 + os.urandom(2000), b'B' * 30000 + os.urandom(2000)
+BLOBS = os.path.join(RW.WORK, 'blobs')
+sink, m = FakeSink2(), FakeMachine()
+m.rules_['executor']['fmt2'] = True
+stop = threading.Event()
+w = new_worker(sink)
+run_worker_thread(w, stop)
+ex = Exec2(sink, m, PUBLIC, tex=(T1, T2))
+stages, res = render(ex, os.path.join(TMP, 'o15'))
+tm = res['timing']
+ok('fmt 2: сквозной прогон — пара готова, формат 2, стадии как всегда', tm.get('fmt') == 2 and stages == ['scene', 'C1', 'C2', 'save'] and sorted(os.listdir(os.path.join(TMP, 'o15'))) == ['C1.jpg', 'C2.jpg', 'meta.json'])
+jk = next(k for k in sink.hist if k.endswith('job.json'))
+j2 = json.loads(sink.hist[jk])
+ok('fmt 2: job.json v=2, полная схема, годен для воркера (job_id = имя каталога)', j2['v'] == 2 and JP.validate_job(j2, expect_id=jk.split('/')[1]) == '' and j2['manifest_sha'] == JP.manifest_sha(j2['bundle'], j2['assets']))
+kinds = {a['path']: a['kind'] for a in j2['assets']}
+ok('fmt 2: в ассетах текстуры сцены, GLB декора, карта отделки, программа рендера и её данные',
+   kinds.get('scene/tex/t0.png') == 'tex' and kinds.get('dump/demo_nodes.glb') == 'glb' and kinds.get('public/flat3d/tex/a.jpg') == 'map'
+   and kinds.get('tools/scout/cycles_probe/render_cycles.py') == 'code' and kinds.get('tools/scout/wall_art.py') == 'code' and kinds.get('data/flat3d/wall-art.json') == 'data')
+ok('fmt 2: sha256 полный (64 знака) и размер у каждого ассета', all(len(a['sha256']) == 64 and a['size'] > 0 for a in j2['assets']) and len(j2['bundle']['sha256']) == 64)
+bk = next(k for k in sink.hist if k.endswith('.tgz'))
+bdir = os.path.join(TMP, 'b15')
+os.makedirs(bdir)
+open(os.path.join(bdir, 'b.tgz'), 'wb').write(sink.hist[bk])
+JP.unpack_bundle(os.path.join(bdir, 'b.tgz'), os.path.join(bdir, 'x'))
+inb = {os.path.relpath(os.path.join(dp, f), os.path.join(bdir, 'x')) for dp, _, fs in os.walk(os.path.join(bdir, 'x')) for f in fs}
+ok('fmt 2: маленький пакет — только карта сцены, npz, отделка и uuid (текстур, GLB, карт и кода в нём нет)',
+   inb == {'scene/m000.npz', 'dump/demo_nodes_uuids.json', 'dump/scene-export.json'} and len(sink.hist[bk]) < 4000)
+order = [('a' if k == 'asset' else r.split('/')[-1]) for k, r in sink.log if (k == 'asset' or (k == 'put' and (r.endswith('.tgz') or r.endswith('job.json') or r.endswith('result.json'))))]
+ok('fmt 2: ассеты и пакет — ДО job.json, job.json — до result.json', order.index('job.json') > max(i for i, x in enumerate(order) if x == 'a') and order.index('job.json') < order.index('result.json'))
+ok('fmt 2: timing — hash/have/asset_n/asset_miss/asset_up_mb/upload/bundle_kb', all(k in tm for k in ('hash', 'have', 'asset_n', 'asset_miss', 'asset_up_mb', 'upload', 'bundle_kb')) and tm['asset_miss'] == tm['asset_n'] == len(set(a['sha256'] for a in j2['assets'])))
+ok('машина: ассеты лежат в кэше по полному хешу (только чтение)', all(os.path.isfile(os.path.join(BLOBS, a['sha256'])) and not os.stat(os.path.join(BLOBS, a['sha256'])).st_mode & 0o222 for a in j2['assets']))
+n_put, n_get = len(sink.put_assets), len(sink.get_assets)
+
+# повтор той же сцены: ничего не досылаем, машина ничего не качает
+stages, res = render(ex, os.path.join(TMP, 'o15b'))
+tm = res['timing']
+ok('повтор: fmt 2, «каких нет» — ни одного, выгрузка ассетов 0 МБ, на приёмник ушёл только маленький пакет', tm['fmt'] == 2 and tm['asset_miss'] == 0 and tm['asset_up_mb'] == 0 and len(sink.put_assets) == n_put and sink.have_calls == 2)
+ok('повтор: машина берёт ассеты из своего кэша (скачиваний ноль)', len(sink.get_assets) == n_get)
+
+# испорченный файл в кэше машины перепроверяется и перекачивается
+victim = os.path.join(BLOBS, next(a['sha256'] for a in j2['assets'] if a['path'] == 'scene/tex/t0.png'))
+os.chmod(victim, 0o644)
+open(victim, 'wb').write(b'X' * os.path.getsize(victim))
+stages, res = render(ex, os.path.join(TMP, 'o15c'))
+ok('кэш машины: испорченный файл (размер тот же, хеш другой) не принят — скачан заново, кадр готов', res['timing']['fmt'] == 2 and len(sink.get_assets) == n_get + 1 and JP.sha256_file(victim) == os.path.basename(victim))
+os.remove(victim)
+open(victim, 'wb').write(b'short')
+render(ex, os.path.join(TMP, 'o15d'))
+ok('кэш машины: файл другого размера тоже перекачан', JP.sha256_file(victim) == os.path.basename(victim) and len(sink.get_assets) == n_get + 2)
+
+# ассет пропал с приёмника после «есть» → машина отвечает asset → исполнитель повторяет заказ по fmt 1 (не сразу на процессор)
+sink.lose = {os.path.basename(victim)}
+os.remove(victim)
+n_del = len(getattr(sink, 'deleted', []))
+stages, res = render(ex, os.path.join(TMP, 'o15e'))
+ok('ассет пропал на приёмнике → тот же заказ по fmt 1, кадры готовы, оба задания убраны', res['timing']['fmt'] == 1 and sorted(os.listdir(os.path.join(TMP, 'o15e'))) == ['C1.jpg', 'C2.jpg', 'meta.json'] and len(sink.deleted) - n_del == 2)
+sink.lose = set()
+
+# приёмник отдаёт не те байты — хеш после скачивания не сходится: мусор в кэше не остаётся, заказ уходит по fmt 1
+if os.path.exists(victim):
+    os.remove(victim)
+sink.wrong = {os.path.basename(victim)}
+stages, res = render(ex, os.path.join(TMP, 'o15f'))
+ok('чужие байты под нашим хешем: не приняты, в кэше нет файла-мусора, fmt 1', res['timing']['fmt'] == 1 and not os.path.exists(victim) and not [f for f in os.listdir(BLOBS) if f.startswith('.dl-')])
+sink.wrong = set()
+
+# приёмник старый (нет /have): fmt 1, и пять минут не спрашиваем снова
+sink.have_err = True
+stages, res = render(ex, os.path.join(TMP, 'o15g'))
+calls_h = sink.have_calls
+ok('приёмник без ассетов (404 на /have) → fmt 1, пара готова', res['timing']['fmt'] == 1 and ex._fmt2_dead_until > time.time())
+render(ex, os.path.join(TMP, 'o15h'))
+ok('после отказа приёмника fmt 2 не пробуем (нет лишних запросов)', sink.have_calls == calls_h)
+sink.have_err = False
+ex._fmt2_dead_until = 0
+
+# старый воркер (знает только v=1): bad_job → заказ по fmt 1
+old_sup = JP.SUPPORTED
+JP.SUPPORTED = (1,)
+stages, res = render(ex, os.path.join(TMP, 'o15i'))
+JP.SUPPORTED = old_sup
+ok('машина со старой версией воркера (v=1) отвергла v=2 → fmt 1, кадры готовы', res['timing']['fmt'] == 1)
+
+# флаг выключен в правилах → fmt 1 без обращений к ассетам
+m.rules_['executor']['fmt2'] = False
+hc = sink.have_calls
+stages, res = render(ex, os.path.join(TMP, 'o15j'))
+ok('fmt2=false в правилах → fmt 1, приёмник про ассеты не спрашиваем', res['timing']['fmt'] == 1 and sink.have_calls == hc)
+m.rules_['executor']['fmt2'] = True
+stop.set()
+
+# ——— один поток на хеш
+sink = FakeSink2()
+sink.slow = 0.3
+data = os.urandom(5000)
+hh = hashlib.sha256(data).hexdigest()
+sink.assets[hh] = data
+w15 = new_worker(sink)
+shutil.rmtree(BLOBS, ignore_errors=True)
+os.makedirs(BLOBS)
+outs = []
+ths = [threading.Thread(target=lambda: outs.append(w15.fetch_asset(hh, len(data)))) for _ in range(6)]
+[t.start() for t in ths]
+[t.join() for t in ths]
+ok('шесть одновременных запросов одного ассета — скачивание одно, у всех готовый файл', sink.get_assets.count(hh) == 1 and len(outs) == 6 and all(o[0] == os.path.join(BLOBS, hh) for o in outs) and sum(1 for o in outs if o[1]) == 1)
+
+# ——— validate_job v=2: строгая схема
+b_ = {'name': 'bundle-' + 'a' * 16 + '.tgz', 'sha256': 'a' * 64, 'size': 50}
+A_ = [JP.asset_ref('scene/tex/x.png', 'b' * 64, 100, 'tex'), JP.asset_ref('public/flat3d/m.webp', 'c' * 64, 7, 'map')]
+J_ = JP.new_job2('job1', b_, A_, ['--samples', '64', '--exposure', '-0.15'], {'blenderSec': 1500}, 'r1')
+ok('validate_job v=2: годное', JP.validate_job(J_, expect_id='job1') == '')
+ok('validate_job: значение с пробелами из пресета v3 («Khronos PBR Neutral») годится', JP.validate_job(JP.new_job2('job1', b_, A_, ['--transform', 'Khronos PBR Neutral', '--fill-k', '6500'], {}, 'r1'), expect_id='job1') == '')
+ok('validate_job: job_id обязан равняться имени каталога', JP.validate_job(J_, expect_id='job2') != '' and JP.validate_job(JP.new_job('job1', 'bundle-0123456789ab.tgz', '0123456789ab', [], {}), expect_id='x') != '')
+
+
+def mut(**kw):
+    return {**J_, **kw}
+
+
+def with_assets(assets, **kw):
+    return {**JP.new_job2('job1', b_, assets, [], {}, 'r1'), **kw}
+
+
+bads = {
+    'лишнее поле': mut(extra=1), 'схема 3': mut(schema=3), 'v=3': mut(v=3), 'манифест подменён': mut(manifest_sha='0' * 64),
+    'ассет подменён после подписи': mut(assets=[{**A_[0], 'size': 101}, A_[1]]),
+    'флаг воркера в args': mut(args=['--scene-dir']), '--out': mut(args=['--out']), 'пробел во флаге': mut(args=['--a b']), 'пробел по краю': mut(args=[' x']), 'двойной пробел': mut(args=['a  b']), 'кавычка': mut(args=['a"b']), 'точка с запятой': mut(args=['a;b']), 'не строка': mut(args=[5]),
+    'args слишком много': mut(args=['-a'] * 65), 'лимиты: чужой ключ': mut(limits={'x': 1}), 'лимиты: строка': mut(limits={'blenderSec': '9'}), 'лимиты: 0': mut(limits={'blenderSec': 0}),
+    'лимиты: bool': mut(limits={'blenderSec': True}), 'ракурсы': mut(cams=['C3']), 'ракурс дважды': mut(cams=['C1', 'C1']), 'created не число': mut(created='x'),
+    'пакет: имя не из хеша': mut(bundle={**b_, 'name': 'bundle-' + 'b' * 16 + '.tgz'}), 'пакет: sha короткий': mut(bundle={**b_, 'sha256': 'a' * 12}),
+    'пакет: size 0': mut(bundle={**b_, 'size': 0}),
+}
+for name, mu in bads.items():
+    if name in ('манифест подменён', 'ассет подменён после подписи') or name.startswith('пакет'):
+        pass
+    ok(f'validate_job v=2 отвергает: {name}', JP.validate_job(mu, expect_id='job1') != '')
+for name, p in (('../x', '../x.png'), ('середина ..', 'a/../b.png'), ('абсолютный', '/etc/passwd'), ('пустой сегмент', 'a//b.png'), ('скрытый', 'scene/.x.png'), ('обратная косая', 'a\\b.png'),
+                ('NUL', 'a\x00b.png'), ('глубже 6', 'a/b/c/d/e/f/g.png'), ('пробел', 'a b.png'), ('точка', '.'), ('пусто', ''), ('кириллица', 'сцена/т.png')):
+    ok(f'validate_job: путь ассета «{name}» отвергнут', JP.validate_job(with_assets([JP.asset_ref(p, 'b' * 64, 5, 'tex')]), expect_id='job1') != '')
+ok('validate_job: два ассета на один путь', JP.validate_job(with_assets([A_[0], {**A_[0], 'sha256': 'd' * 64}]), expect_id='job1') != '')
+ok('validate_job: чужой kind / sha не hex / size 0 / bool / слишком велик',
+   all(JP.validate_job(with_assets([x]), expect_id='job1') != '' for x in (JP.asset_ref('a.png', 'b' * 64, 5, 'exe'), JP.asset_ref('a.png', 'B' * 64, 5, 'tex'), JP.asset_ref('a.png', 'b' * 64, 0, 'tex'),
+                                                                            {'path': 'a.png', 'sha256': 'b' * 64, 'size': True, 'kind': 'tex'}, JP.asset_ref('a.png', 'b' * 64, 96 * 2 ** 20, 'tex'))))
+ok('validate_job: больше 600 ассетов', JP.validate_job(with_assets([JP.asset_ref(f'a/{i}.png', f'{i:064x}', 5, 'tex') for i in range(601)]), expect_id='job1') != '')
+ok('validate_job: общий объём ассетов больше потолка', JP.validate_job(with_assets([JP.asset_ref(f'a/{i}.png', f'{i:064x}', 90 * 2 ** 20, 'tex') for i in range(20)]), expect_id='job1') != '')
+ok('manifest_sha: порядок ссылок не важен, любое изменение — другой хеш',
+   JP.manifest_sha(b_, A_) == JP.manifest_sha(b_, A_[::-1]) and JP.manifest_sha(b_, A_) != JP.manifest_sha(b_, [A_[0]]) and JP.manifest_sha(b_, A_) != JP.manifest_sha({**b_, 'size': 51}, A_))
+
+# флаги ЖИВОГО пресета обязаны проходить строгую проверку задания (пресет v3 принёс «Khronos PBR Neutral» с пробелами — на живой машине это было бы bad_job)
+PRESET_FLAGS = json.load(open(os.path.join(HERE, '..', 'cycles_probe', 'render-preset.json'), encoding='utf-8'))['flags']
+ok('живой пресет: все флаги проходят validate_job (v=1 и v=2)', JP.validate_job(JP.new_job2('job1', b_, A_, PRESET_FLAGS, {}, 'r1'), expect_id='job1') == '' and JP.validate_job(JP.new_job('job1', 'bundle-0123456789ab.tgz', '0123456789ab', PRESET_FLAGS, {}), expect_id='job1') == '')
+
+# ——— размещение ассетов и распаковка пакета: границы
+wd = os.path.join(TMP, 'pl')
+os.makedirs(os.path.join(wd, 'job'))
+blob = os.path.join(wd, 'blob')
+open(blob, 'wb').write(b'blob')
+RW.place_asset(blob, os.path.join(wd, 'job'), 'scene/tex/a.png')
+ok('place_asset: жёсткая ссылка на файл кэша (места не занимает)', os.stat(os.path.join(wd, 'job', 'scene/tex/a.png')).st_ino == os.stat(blob).st_ino)
+for what, args in (('занятый путь', 'scene/tex/a.png'), ):
+    try:
+        RW.place_asset(blob, os.path.join(wd, 'job'), args)
+        ok(f'place_asset: {what} отвергнут', False)
+    except RW.AssetError:
+        ok(f'place_asset: {what} отвергнут (ассет не затирает файл пакета)', True)
+outside = os.path.join(wd, 'outside')
+os.makedirs(outside)
+os.symlink(outside, os.path.join(wd, 'job', 'lnk'))
+try:
+    RW.place_asset(blob, os.path.join(wd, 'job'), 'lnk/x.png')
+    ok('place_asset: каталог-ссылка наружу отвергнут', False)
+except RW.AssetError:
+    ok('place_asset: каталог-ссылка наружу отвергнут, снаружи ничего не создано', not os.listdir(outside))
+import tarfile  # noqa: E402
+import io  # noqa: E402
+many = os.path.join(wd, 'many.tgz')
+with tarfile.open(many, 'w:gz') as tf:
+    for i in range(30):
+        ti = tarfile.TarInfo(f'f{i}.txt')
+        ti.size = 3
+        tf.addfile(ti, io.BytesIO(b'abc'))
+for kw, why in (({'max_files': 10}, 'число файлов'), ({'max_mb': 0.00001}, 'распакованный объём')):
+    try:
+        JP.unpack_bundle(many, os.path.join(wd, 'un'), **kw)
+        ok(f'unpack_bundle: превышен лимит «{why}» → отказ', False)
+    except ValueError:
+        ok(f'unpack_bundle: превышен лимит «{why}» → отказ до записи на диск', not os.path.exists(os.path.join(wd, 'un', 'f0.txt')))
+lnk_tar = os.path.join(wd, 'lnk.tgz')
+with tarfile.open(lnk_tar, 'w:gz') as tf:
+    ti = tarfile.TarInfo('evil')
+    ti.type, ti.linkname = tarfile.SYMTYPE, '/etc/passwd'
+    tf.addfile(ti)
+try:
+    JP.unpack_bundle(lnk_tar, os.path.join(wd, 'un2'))
+    ok('unpack_bundle: ссылка в архиве отвергнута', False)
+except ValueError:
+    ok('unpack_bundle: ссылка в архиве отвергнута', True)
+
+# ——— кэш ассетов машины: LRU, ассеты текущего задания не трогаем
+bd2 = os.path.join(TMP, 'blobs2')
+os.makedirs(bd2)
+names = [f'{i:064x}' for i in range(1, 6)]
+for i, n_ in enumerate(names):
+    open(os.path.join(bd2, n_), 'wb').write(b'z' * 1000)
+    os.utime(os.path.join(bd2, n_), (1000 + i, 1000 + i))
+open(os.path.join(bd2, '.dl-tmp'), 'wb').write(b'q' * 5000)
+gone = RW.trim_blobs(bd2, {names[0]}, max_gb=2500 / 2 ** 30)
+ok('trim_blobs: давние вперёд до потолка, ассет текущего задания и временный файл целы', gone == names[1:4] and os.path.exists(os.path.join(bd2, names[0])) and os.path.exists(os.path.join(bd2, '.dl-tmp')) and os.path.exists(os.path.join(bd2, names[4])))
+
+# ——— правило «что ассет»: общее, без особых случаев
+ok('asset_kind: текстуры сцены, GLB, карты, код, данные — ассеты; npz, карта сцены, отделка, uuid — в пакете',
+   [RE.asset_kind(x) for x in ('scene/tex/a.png', 'dump/demo_nodes.glb', 'public/a/b.webp', 'tools/scout/wall_art.py', 'data/flat3d/wall-art.json')] == ['tex', 'glb', 'map', 'code', 'data']
+   and not any(RE.asset_kind(x) for x in ('scene/m000.npz', 'scene/scene.json', 'dump/scene-export.json', 'dump/demo_nodes_uuids.json', 'other/x')))
+
 shutil.rmtree(TMP, ignore_errors=True)
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')
 sys.exit(1 if BAD else 0)

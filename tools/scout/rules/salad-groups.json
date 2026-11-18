@@ -126,6 +126,18 @@
       "disabled": true,
       "_why": "ТОЛЬКО ЗАМЕР T-20261117-22: то же, что render-bench-3090, карта RTX 4090."
     },
+    "render-4090m4": {
+      "tier": "medium",
+      "price_class": "RTX 4090 (24 GB)",
+      "disabled": true,
+      "_why": "МАШИНА РЕНДЕРА (T-24/5 Э2а, после влива T-23/2): образ worker-thin-fmt2b (digest 992d3181…, validate_job пускает значения аргументов с пробелами — пресет v3). Новый образ = НОВАЯ группа; render-4090m3 (образ facbe67d, строгая проверка без пробелов) — не использовать."
+    },
+    "render-4090m3": {
+      "tier": "medium",
+      "price_class": "RTX 4090 (24 GB)",
+      "disabled": true,
+      "_why": "МАШИНА РЕНДЕРА (T-20261117-24/5 Э2а): тонкий worker-образ с fmt 2 (ассеты по хешу; тег cycles-5.3.0-worker-thin-fmt2, digest facbe67d…). Новый образ = НОВАЯ группа; render-4090m2 (воркер только v=1) — запас, пока fmt 2 не принят. Управляется только контроллером."
+    },
     "render-4090m2": {
       "tier": "medium",
       "price_class": "RTX 4090 (24 GB)",
@@ -239,12 +251,12 @@
   },
   "render_machine": {
     "_about": "Параметры контроллера машины рендера render_machine.py (T-20261117-24). Числа — предохранители, меняются здесь, не в коде. image — digest amd64 образа цели `worker` (build_render.sh worker; цель agent — только готовность); сменили образ — НОВОЕ имя group (PATCH остановленной группы Salad не применяется), старую группу не удалять без владельца.",
-    "group": "render-4090m2",
+    "group": "render-4090m4",
     "card": "4090",
     "price_class": "RTX 4090 (24 GB)",
     "tier": "medium",
     "gpu_class_id": "ed563892-aacd-40f5-80b7-90c9be6c759b",
-    "image": "ghcr.io/igortsk123/mesh-hunyuan@sha256:e14b111cf935a2e046d66a213ea8a57c7c0eed93d5a4b763f410992e535661bc",
+    "image": "ghcr.io/igortsk123/mesh-hunyuan@sha256:992d3181bf9bedf9f4a1d678de9277959c6b418d07af70440a3dd0bf7c9cf1cd",
     "cpu": 8,
     "memory_mb": 16384,
     "storage_gb": 10,
@@ -259,6 +271,6 @@
     "start_retry_s": 45,
     "sink_prefix": "rendermachine",
     "controller_stale_s": 300,
-    "executor": {"pickup_s": 90, "pair_max_s": 900, "poll_s": 0.5, "busy_s": 90, "bundle_max_mb": 95}
+    "executor": {"pickup_s": 90, "pair_max_s": 900, "poll_s": 0.5, "busy_s": 90, "bundle_max_mb": 95, "fmt2": true, "upload_par": 4}
   }
 }
