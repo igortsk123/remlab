@@ -6,6 +6,7 @@ import { createRequire } from 'module';
 import http from 'http';
 import https from 'https';
 import fs from 'fs';
+import crypto from 'crypto';
 import { fileSig } from './file_sig.mjs';
 import os from 'os';
 import path from 'path';
@@ -30,32 +31,50 @@ const miss = [];
 const RT_AGENT = new https.Agent({ keepAlive: true, maxSockets: 2 });      // таблица runtime-копий мешей — живая (каждый заказ читает заново), но по уже открытому соединению: без TLS-рукопожатия на заказ (T-20261118-10/1)
 let bundleDir = '';
 let PERSIST = false;                                                // постоянный процесс: страница держит разобранные меши между заказами
+// СТОРОЖ ЧТЕНИЙ (T-20261118-04/16/1, `render_input.check_reads`): каждый файл, что страница взяла с диска или из сети, — в `dump/reads.json` {url, sha256, kind}.
+// kind: local (файл на диске), remote (сеть: в герметичном режиме `hermetic=1` — нарушение, заказ падает), pinned (зафиксированная таблица runtime-мешей из репозитория).
+const READS = new Map();
+const VIOLATIONS = [];
+let HERMETIC = false;
+const SHA_MEMO = new Map();
+const shaOfFile = (f) => {
+  const st = fs.statSync(f), k = `${f}:${st.size}:${st.mtimeMs}`;
+  if (!SHA_MEMO.has(k)) SHA_MEMO.set(k, crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex'));
+  return SHA_MEMO.get(k);
+};
+const noteRead = (url, kind, sha) => { READS.set(url, { url, sha256: sha, kind }); };
 const srv = http.createServer((req, res) => {
   const u = decodeURIComponent(req.url.split('?')[0]);
   if (u !== '/' && u !== '/index.html' && u !== '/entry.js') { REMOTE_STAT.local++; if (process.env.DUMP_URLS) fs.appendFileSync(process.env.DUMP_URLS, `local ${req.url}\n`); }
   const cors = { 'access-control-allow-origin': '*' };
+  const sendLocal = (file, ctype) => { noteRead(req.url, 'local', shaOfFile(file)); res.writeHead(200, { 'content-type': ctype, ...cors }); fs.createReadStream(file).pipe(res); };
   if (u === '/' || u === '/index.html') { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><meta charset=utf-8><script type="module" src="/entry.js"></script>'); return; }
   if (u === '/entry.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); fs.createReadStream(path.join(bundleDir, 'entry.js')).pipe(res); return; }
   // карты материалов (в том числе новые, ещё не выложенные на прод) — из `public/` этой копии репо
   // (и растения `public/flat3d/plants/*.glb`: в main с 17.11, на проде ещё нет)
   // ОКРУЖЕНИЕ С ДИСКА (T-20261118-09/1 шаг 3): небо/вид из окна — из `public/` этой копии, а не с сайта (−2 запроса, ≈0,5 МБ); `local=0` — как раньше (с сайта).
-  // Содержимое этих файлов входит в ключ кадра (`scene_inputs.env_sha`): замена картинки сдвигает ключ.
+  // Содержимое этих файлов входит в ключ кадра (`render_input.py`: активы комнаты): замена картинки сдвигает ключ.
   const em = LOCAL && u.match(/^\/(flat3d\/env|scene\/views)\/([A-Za-z0-9._-]+)$/);
-  if (em && fs.existsSync(path.join(PUBLIC, em[1], em[2]))) { res.writeHead(200, { 'content-type': mime[path.extname(u)] || 'application/octet-stream', ...cors }); fs.createReadStream(path.join(PUBLIC, em[1], em[2])).pipe(res); return; }
+  if (em && fs.existsSync(path.join(PUBLIC, em[1], em[2]))) { sendLocal(path.join(PUBLIC, em[1], em[2]), mime[path.extname(u)] || 'application/octet-stream'); return; }
   const pm = u.match(/^\/flat3d\/(materials|plants)\/([A-Za-z0-9._-]+)$/);
-  if (pm && fs.existsSync(path.join(PUBLIC, 'flat3d', pm[1], pm[2]))) { res.writeHead(200, { 'content-type': mime[path.extname(u)] || 'application/octet-stream', ...cors }); fs.createReadStream(path.join(PUBLIC, 'flat3d', pm[1], pm[2])).pipe(res); return; }
+  if (pm && fs.existsSync(path.join(PUBLIC, 'flat3d', pm[1], pm[2]))) { sendLocal(path.join(PUBLIC, 'flat3d', pm[1], pm[2]), mime[path.extname(u)] || 'application/octet-stream'); return; }
   // фото товаров новой витрины, ещё не выложенной на прод (`-art.jpg` новых картин): DEMO_LOCAL_DIR=<папка витрины> — файл оттуда, нет — с сайта
   const lm = DEMO_IMG_DIR && u.match(/^\/demo\/(img\/[A-Za-z0-9._-]+)$/);
-  if (lm && fs.existsSync(path.join(DEMO_IMG_DIR, lm[1]))) { res.writeHead(200, { 'content-type': mime[path.extname(u)] || 'application/octet-stream', ...cors }); fs.createReadStream(path.join(DEMO_IMG_DIR, lm[1])).pipe(res); return; }
+  if (lm && fs.existsSync(path.join(DEMO_IMG_DIR, lm[1]))) { sendLocal(path.join(DEMO_IMG_DIR, lm[1]), mime[path.extname(u)] || 'application/octet-stream'); return; }
   const m = u.match(/^\/test\/mesh-pilot10\/([^/]+)\/model\.glb$/);
-  if (m && fs.existsSync(path.join(CACHE, m[1] + '.glb'))) { res.writeHead(200, { 'content-type': 'model/gltf-binary', ...cors }); fs.createReadStream(path.join(CACHE, m[1] + '.glb')).pipe(res); return; }
+  if (m && fs.existsSync(path.join(CACHE, m[1] + '.glb'))) { sendLocal(path.join(CACHE, m[1] + '.glb'), 'model/gltf-binary'); return; }
   // меш, которого нет в кэше (кэш держит ~150 свежих), — из галереи на диске (тот же файл, что отдаёт сайт), не по сети (5 МБ на предмет)
-  if (LOCAL && m && fs.existsSync(path.join(GALLERY, m[1], 'model.glb'))) { res.writeHead(200, { 'content-type': 'model/gltf-binary', ...cors }); fs.createReadStream(path.join(GALLERY, m[1], 'model.glb')).pipe(res); return; }
+  if (LOCAL && m && fs.existsSync(path.join(GALLERY, m[1], 'model.glb'))) { sendLocal(path.join(GALLERY, m[1], 'model.glb'), 'model/gltf-binary'); return; }
   REMOTE_STAT.local--; REMOTE_STAT.n++;
   if (process.env.DUMP_URLS) fs.appendFileSync(process.env.DUMP_URLS, `remote ${req.url}\n`);        // отладка: какие адреса уходят в сеть (ключи кэша, трасса)
+  if (HERMETIC) {                  // герметичный режим: сети нет, нет файла — ошибка заказа (не пустой хеш, не «последнее известное»)
+    VIOLATIONS.push(`нет файла на диске: ${req.url}`); noteRead(req.url, 'remote', null); miss.push('HERMETIC ' + u);
+    res.writeHead(404, cors); res.end(); return;
+  }
   const tRem = Date.now();
   https.get({ host: REMOTE, path: req.url, headers: { 'user-agent': 'cycles-probe' } }, (r) => {
-    r.on('data', (c) => { REMOTE_STAT.bytes += c.length; }); r.on('end', () => { REMOTE_STAT.ms += Date.now() - tRem; });
+    const h = crypto.createHash('sha256');
+    r.on('data', (c) => { REMOTE_STAT.bytes += c.length; h.update(c); }); r.on('end', () => { REMOTE_STAT.ms += Date.now() - tRem; noteRead(req.url, 'remote', h.digest('hex')); });
     if (r.statusCode >= 400) miss.push(`${r.statusCode} ${u}`);
     res.writeHead(r.statusCode, { 'content-type': r.headers['content-type'] || mime[path.extname(u)] || 'application/octet-stream', ...cors });
     r.pipe(res);
@@ -128,6 +147,8 @@ async function runOrder(dataFile, idxS, outDir, extra) {
 LOCAL = extra.local !== '0';
 DEMO_IMG_DIR = process.env.DEMO_LOCAL_DIR || (LOCAL ? path.join(os.homedir(), 'scout-scenes/flat215-demo') : '');
 miss.length = 0;
+READS.clear(); VIOLATIONS.length = 0;
+HERMETIC = extra.hermetic === '1';
 REMOTE_STAT.n = REMOTE_STAT.ms = REMOTE_STAT.bytes = REMOTE_STAT.local = 0;
 fs.mkdirSync(outDir, { recursive: true });
 const D = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
@@ -142,10 +163,17 @@ const isCloth3d = (x) => { const p = x && x.place, l = x && x.look, k = (x && x.
 const in3dDecor = (x) => !!x && !x.list_only && (!isSoft(x.role) || isCloth3d(x));      // тот же признак, что `liveDecor` страницы
 const decor = (v.decor || []).filter(in3dDecor);
 const t0 = Date.now();
-// живая таблица runtime-копий мешей (`/demo/rt-meshes.json`) — ею страница выбирает лёгкую копию; нет — экспорт скажет «лёгких нет»
+// таблица runtime-копий мешей (`/demo/rt-meshes.json`) — метаданные экспорта (хеши, «нет лёгкой копии»), картинку не меняет. Герметичный режим (`hermetic=1`, ключ кадра v2):
+// не живая с сайта, а ЗАФИКСИРОВАННАЯ копия из репозитория (`data/flat3d/runtime-meshes.json`) — без сети; её sha256 — в `reads.json` (kind pinned). Иначе — живая, как раньше.
 let runtime = null;
-try { runtime = JSON.parse(await new Promise((res, rej) => https.get({ host: REMOTE, path: '/demo/rt-meshes.json', headers: { 'user-agent': 'cycles-probe' }, agent: RT_AGENT },
-  (r) => { let s = ''; r.on('data', (c) => { s += c; }); r.on('end', () => res(s)); }).on('error', rej))).meshes; } catch (e) { say('rt-meshes.json не получен:', String(e).slice(0, 100)); }
+if (HERMETIC) {
+  const rf = path.resolve(PUBLIC, '../data/flat3d/runtime-meshes.json');
+  runtime = JSON.parse(fs.readFileSync(rf, 'utf-8')).meshes; noteRead('pinned:data/flat3d/runtime-meshes.json', 'pinned', shaOfFile(rf));
+} else {
+try { const body = await new Promise((res, rej) => https.get({ host: REMOTE, path: '/demo/rt-meshes.json', headers: { 'user-agent': 'cycles-probe' }, agent: RT_AGENT },
+  (r) => { let s = ''; r.on('data', (c) => { s += c; }); r.on('end', () => res(s)); }).on('error', rej));
+  runtime = JSON.parse(body).meshes; noteRead('/demo/rt-meshes.json', 'remote', crypto.createHash('sha256').update(body).digest('hex')); } catch (e) { say('rt-meshes.json не получен:', String(e).slice(0, 100)); }
+}
 tr('rt_meshes_fetch');
 const lite = extra.lite === '1';       // телефон: LITE_QUALITY, лёгкие карты
 const sceneArgs = { prof: process.env.DUMP_PROF === '1', room, items: v.items, decor, base: `http://127.0.0.1:${port}/demo/`, runtime, lite, cams: v.cams || [], style: v.style, settle: extra.settle !== '0', persist: PERSIST };
@@ -234,6 +262,8 @@ if (extra.shots) {
   say('снимки', times.length, 'за', times.join(', '), 'мс');
 }
 if (miss.length) { fs.writeFileSync(path.join(outDir, 'miss.txt'), miss.join('\n')); say('не нашлось:', miss.length); }
+fs.writeFileSync(path.join(outDir, 'reads.json'), JSON.stringify({ v: 1, hermetic: HERMETIC, reads: [...READS.values()].sort((a, b) => (a.url < b.url ? -1 : 1)) }, null, 1));
+if (VIOLATIONS.length) throw new Error('герметичность дампа нарушена: ' + VIOLATIONS.slice(0, 5).join('; '));
 tr('before_close');
 }
 

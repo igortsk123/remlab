@@ -289,8 +289,9 @@ def _selftest() -> int:
 def main(argv: list) -> int:
     import build_inputs as BI  # входы сборки витрины = список метки правил (T-20261112-121/2)
     import docker_context as DC  # код образа прода не импортирует выкинутое .dockerignore (T-20261112-121/3)
+    import render_inputs as RIN  # чтения дампера рендера внутри входа ключа кадра (T-20261118-04/16/1)
     if '--selftest' in argv:
-        return _selftest() | BI._selftest() | DC._selftest()
+        return _selftest() | BI._selftest() | DC._selftest() | RIN._selftest()
     root = argv[argv.index('--root') + 1] if '--root' in argv else ROOT_DEFAULT
     m = load(root)
     if '--writers' in argv:
@@ -312,7 +313,11 @@ def main(argv: list) -> int:
     # правило, которое читает сборка витрины, а в списке входов метки его нет, — красный (`build_inputs.py`)
     # импорт/чтение из папки, которую .dockerignore выкидывает, без `!путь` — образ прода не соберётся (`docker_context.py`)
     bi, dc = BI.check(root), DC.check(root)
-    return 1 if fails or bi or dc else 0
+    # дампер рендера читает только то, что есть в ключе кадра комнаты: новая дорога чтения без правила — красный (`render_inputs.py`)
+    rin = RIN.check(root)
+    for f in rin:
+        print('FAIL ' + f)
+    return 1 if fails or bi or dc or rin else 0
 
 
 if __name__ == '__main__':

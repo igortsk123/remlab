@@ -24,6 +24,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
 _LOCK = threading.Lock()
 _MEMO: dict = {}          # путь → ((размер, mtime_ns), sha)
+_FULL_MEMO: dict = {}     # то же, полный sha256
 _INDEX: dict | None = None
 _ENV_MEMO: dict = {}
 
@@ -80,6 +81,58 @@ def file_sha(path: str) -> str:
     with _LOCK:
         _MEMO[path] = (sig, sha)
     return sha
+
+
+def full_sha(path: str) -> str:
+    """Полный sha256 файла (64 hex); нет файла — ''. Память по (размер, время изменения) — отдельная от `file_sha` (тот отдаёт 16 знаков). Для ключа кадра v2 (`render_input.py`)."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return ''
+    sig = (st.st_size, st.st_mtime_ns)
+    with _LOCK:
+        hit = _FULL_MEMO.get(path)
+        if hit and hit[0] == sig:
+            return hit[1]
+    h = hashlib.sha256()
+    try:
+        with open(path, 'rb') as f:
+            for chunk in iter(lambda: f.read(1 << 20), b''):
+                h.update(chunk)
+    except OSError:
+        return ''
+    sha = h.hexdigest()
+    with _LOCK:
+        _FULL_MEMO[path] = (sig, sha)
+    return sha
+
+
+def mesh_file(sid) -> str | None:
+    """Путь GLB меша — как его берёт дампер (`demo_scene_dump.mjs`): кэш мешей, затем галерея. Без «последнего известного» хеша из индекса: нет файла — None."""
+    sid = str(sid or '')
+    if not sid or '/' in sid or sid.startswith('.'):
+        return None
+    for p in (os.path.join(_mesh_cache_dir(), sid + '.glb'), os.path.join(_gallery_dir(), sid, 'model.glb')):
+        if os.path.isfile(p) and os.path.getsize(p) > 1000:
+            return p
+    return None
+
+
+def img_file(rel) -> str | None:
+    rel = str(rel or '').lstrip('/')
+    if not rel or '..' in rel.split('/'):
+        return None
+    p = os.path.join(demo_dir(), rel)
+    return p if os.path.isfile(p) else None
+
+
+def public_file(rel) -> str | None:
+    """Файл `public/<rel>` (материалы, окружение, виды, растения)."""
+    rel = str(rel or '').lstrip('/')
+    if not rel or '..' in rel.split('/'):
+        return None
+    p = os.path.join(_public(), rel)
+    return p if os.path.isfile(p) else None
 
 
 def _load_index() -> dict:

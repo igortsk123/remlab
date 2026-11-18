@@ -792,7 +792,10 @@ class H(BaseHTTPRequestHandler):
         except RS.SnapshotError as e:
             return self._send(e.status, e.body())
         marks.append(('снимок', time.time()))
-        key = RX.cache_key(snap['scene_hash'], cy['versions'])
+        try:
+            key = RX.frame_key_of(snap, cy['versions'])
+        except RX.RenderError as e:       # ключ v2: сцене не хватает файла — отказ с понятным кодом, не пустой ключ
+            return self._send(409, {'error': e.ru, 'error_en': e.en, 'code': e.code})
         if check:
             return self._send(200, {'kind': 'render', 'check': True, 'v': RS.SNAPSHOT_VERSION, 'scene_hash': snap['scene_hash'], 'key': key,
                                     'cached': cy['store'].cached(key) is not None, 'versions': cy['versions']})
