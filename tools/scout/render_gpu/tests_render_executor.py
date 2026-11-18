@@ -1727,6 +1727,12 @@ ok('отказ включить → запасной, странице уход�
 ok('Fallback.expected: выключена, но заказ включит → salad-gpu; предел дня → local-cpu',
    RE.Fallback(Exec(FakeSink(), WakeMachine(), PUBLIC), Backup()).expected() == 'salad-gpu' and RE.Fallback(Exec(FakeSink(), WakeMachine(spent_usd=2.0), PUBLIC), Backup()).expected() == 'local-cpu')
 
+# T-20261118-10/8: постоянные процессы подготовки живут долго (не 120 с) и греются заранее
+exW = Exec(FakeSink(), WakeMachine(), PUBLIC)
+ok('простой постоянных процессов подготовки — PREP_IDLE_S (≥10 мин), а не 120 с: и у Python-выгрузки, и у Node-дампа',
+   RE.PREP_IDLE_S >= 600 and exW._prep_env()['EXPORT_SERVER_IDLE_S'] == f'{RE.PREP_IDLE_S:g}' and exW._dump_client('b.json').env['DUMP_SERVER_IDLE_S'] == f'{RE.PREP_IDLE_S:g}')
+ok('Fallback.warm_prep пробрасывается основному, у основного без метода — молча', callable(getattr(RE.Fallback, 'warm_prep', None)) and RE.Fallback(type('P', (), {'name': 'p'})(), Backup()).warm_prep() is None)
+
 shutil.rmtree(TMP, ignore_errors=True)
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')
 sys.exit(1 if BAD else 0)

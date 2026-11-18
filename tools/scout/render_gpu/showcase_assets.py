@@ -96,6 +96,46 @@ class Pusher:
         self.sent_s += time.time() - t
 
 
+_SHA_MEMO: dict = {}
+
+
+def product_refs(sid: str) -> list:
+    """Картинки (цвет и карта шероховатости/металла) ОДНОГО товара в том виде, как они попадают в пакет заказа: PNG из общего кэша выгрузки `scene/tex/<хеш>.png` — файл зависит только от
+    товара, не от места в комнате (в отличие от `scene/m*.npz` с мировыми вершинами). → [(sha256, размер, файл на DEV)]; нет GLB в кэше или нет текстур — []. Меш разбирается в этом процессе
+    и сразу забывается (память не копится)."""
+    sys.path[:0] = [p for p in (os.path.join(HERE, '..', 'cycles_probe'), os.path.join(HERE, '..', '..', '..', 'services', 'planner-solver')) if p not in sys.path]
+    import draft_render as DR
+    import export_scene as ES
+    import render_hotwarm as HW
+    if not HW.have_glb(sid):
+        return []
+    DR.S3_LITE[0] = True                                          # те же упрощённые меши, что в выгрузке заказа
+    glb = os.path.join(HW.mesh_dir(), sid + '.glb')
+    parts = DR._scene3d_parts(glb)
+    try:
+        ES.prewarm_parts(parts)                                   # PNG в кэше выгрузки (`ensure_png`) — тот же файл, что заказ положит в пакет
+        out, seen = [], set()
+        for m in parts:
+            mat = getattr(getattr(m, 'visual', None), 'material', None)
+            img, _uv = ES._tex_image(m)
+            for im in (img, getattr(mat, 'metallicRoughnessTexture', None)):
+                if im is None:
+                    continue
+                key = ES._tex_memo(im)[2]
+                f = os.path.join(ES.TEX_CACHE, key)
+                if key not in seen and os.path.isfile(f):
+                    seen.add(key)
+                    st = os.stat(f)
+                    mk = (f, st.st_size, st.st_mtime_ns)
+                    if mk not in _SHA_MEMO:                       # файлы кэша неизменны: хеш считаем один раз за процесс
+                        _SHA_MEMO[mk] = JP.sha256_file(f)
+                    out.append((_SHA_MEMO[mk], st.st_size, f))
+        return out
+    finally:
+        for k in [k for k in DR._S3_PARTS if isinstance(k, tuple) and k and k[0] == glb]:
+            DR._S3_PARTS.pop(k, None)
+
+
 class Showcase:
     def __init__(self, ex, sink, log=print, par: int = 4, cache: dict | None = None, use_cache: bool = True, dry: bool = False, now=time.time, prio: int = 0):
         self.ex, self.sink, self.log, self.now, self.prio = ex, sink, log, now, prio
@@ -160,7 +200,7 @@ class Showcase:
         self.cache[key] = {'t': self.now(), 'refs': refs, 'label': label}
         return refs
 
-    def run(self, scenes, max_mb: float = DEFAULT_MAX_MB) -> dict:
+    def run(self, scenes, max_mb: float = DEFAULT_MAX_MB, product_sids=None, product_mb: float = 0.0, refs_fn=None) -> dict:
         """`scenes` — [(метка, снимок)] в порядке важности. → отчёт и горячий список (в `hot`), без записи на приёмник."""
         hot: list = []
         seen: set = set()
@@ -198,8 +238,42 @@ class Showcase:
                 seen.add(r['sha256'])
                 hot.append({'sha256': r['sha256'], 'size': r['size']})
             total += add
+        if product_sids and product_mb > 0:                       # лента замен — после сцен, в оставшемся месте под потолок
+            room = max(0, min(int(product_mb * 2 ** 20), int(max_mb * 2 ** 20) - total))
+            ph, padd, ptaken = self.products(list(product_sids), seen, total, room, refs_fn)
+            hot += ph
+            total += padd
+            self.stat['products'], self.stat['products_mb'] = ptaken, round(padd / 2 ** 20, 1)
         return {'hot': hot, 'mb': round(total / 2 ** 20, 1), 'cut': cut, **self.stat,
                 'sent_mb': round(self.push.sent_mb, 1), 'sent_n': self.push.sent_n, 'sent_s': round(self.push.sent_s, 1)}
+
+    def products(self, sids: list, seen: set, total: int, max_bytes: int, refs_fn=None) -> tuple:
+        """ЛЕНТА ЗАМЕН (T-20261118-10/8): картинки товаров, на которые покупатель меняет предмет, — заранее на приёмнике и в горячем списке (после сцен, в пределах `max_bytes`).
+        Смена товара привозила 2–4 новых картинки по 2–4 МБ (≈60–70 % выгрузки заказа, 1–3 с); с подогревом заказ их не шлёт, машина берёт из своего кэша. Файлы не зависят от места в комнате.
+        → (горячие записи [{sha256, size}], сколько байт добавили, сколько товаров взяли)."""
+        refs_fn = refs_fn or product_refs
+        hot, added, taken = [], 0, 0
+        for sid in sids:
+            if added >= max_bytes:
+                break
+            try:
+                refs = refs_fn(sid)
+            except Exception as e:  # noqa: BLE001 — один товар не роняет проход
+                self.log(f'  товар {sid}: картинки не взяты — {type(e).__name__}: {str(e)[:100]}')
+                continue
+            new = [r for r in refs if r[0] not in seen]
+            add = sum(r[1] for r in new)
+            if not new or added + add > max_bytes:
+                continue
+            miss = self.push.missing([{'sha256': r[0], 'size': r[1]} for r in new])
+            if miss and not self.dry:
+                self.push.push(miss, {r[0]: r[2] for r in new}, {r[0]: r[1] for r in new})
+            for r in new:
+                seen.add(r[0])
+                hot.append({'sha256': r[0], 'size': r[1]})
+            added += add
+            taken += 1
+        return hot, added, taken
 
     def write_hot(self, hot: list, note: str = '') -> dict:
         obj = JP.new_hot(hot, now=self.now(), note=note)
@@ -270,7 +344,14 @@ def main(argv=None, ex=None, sink=None) -> int:
     print(f'showcase_assets: сцен {len(scenes)}, потолок {max_mb:g} МБ' + (' (проба: ничего не шлём)' if a.dry else ''), flush=True)
     cache = load_cache()
     sc = Showcase(ex, sink, print, par, cache, not a.no_cache, a.dry, prio=a.prio)
-    rep = sc.run(scenes, max_mb)
+    sids, pmb = [], float(exr.get('hot_product_mb', 250))
+    if pmb > 0:
+        try:
+            import render_hotwarm as HW
+            sids = HW.hot_sids(max_n=HW.HOT_MAX_N)               # те же товары, что греют постоянные процессы: только с GLB в кэше
+        except Exception as e:  # noqa: BLE001 — лента замен необязательна
+            print(f'showcase_assets: список товаров ленты замен не взят ({e})')
+    rep = sc.run(scenes, max_mb, sids, pmb)
     if not a.dry:
         save_cache(cache)
     hot = rep.pop('hot')
@@ -281,7 +362,7 @@ def main(argv=None, ex=None, sink=None) -> int:
     obj = sc.write_hot(hot, note=f"demo+tours {time.strftime('%Y-%m-%d %H:%M', time.gmtime())}Z")
     print(f"showcase_assets: готово за {time.time() - t0:.0f} с — горячих ассетов {obj['n']} ({obj['mb']} МБ); сцен {rep['scenes']}: из кэша {rep['cached']}, собрано "
           f"{rep['built']} (сборка {rep['export_s']:.0f} с), не вышло {rep['failed']}, не влезло в потолок {rep['skipped']}; на приёмник отправлено {rep['sent_n']} шт., "
-          f"{rep['sent_mb']} МБ за {rep['sent_s']} с" + (' [проба]' if a.dry else ''), flush=True)
+          f"{rep['sent_mb']} МБ за {rep['sent_s']} с; лента замен: {rep.get('products', 0)} товаров, {rep.get('products_mb', 0)} МБ" + (' [проба]' if a.dry else ''), flush=True)
     return 1 if rep['failed'] else 0
 
 
@@ -417,6 +498,27 @@ def _selftest() -> int:
                                          {'sha256': h('c'), 'size': True}, 'x', {'sha256': h('d'), 'size': 7}]}) == [(h('a'), 5), (h('d'), 7)])
     ok('parse_hot: чужая версия/не словарь — пусто', JP.parse_hot({'v': 2, 'assets': []}) == [] and JP.parse_hot([]) == [] and JP.parse_hot(None) == [])
     ok('new_hot: порядок и размер', JP.new_hot([{'sha256': h('a'), 'size': 2 ** 20}, {'sha256': h('a'), 'size': 1}], now=5)['mb'] == 1.0)
+    # ЛЕНТА ЗАМЕН (T-20261118-10/8): картинки товаров — на приёмник и в горячий список после сцен, в пределах бюджета, без повторов
+    import contextlib as _cl
+    prod = {'p1': [(h('1'), 3 * 2 ** 20, '/f/1'), (h('2'), 2 * 2 ** 20, '/f/2')], 'p2': [(h('2'), 2 * 2 ** 20, '/f/2'), (h('3'), 4 * 2 ** 20, '/f/3')],
+            'p3': [(h('4'), 6 * 2 ** 20, '/f/4')], 'bad': None}
+    calls = []
+
+    def rf(sid):
+        calls.append(sid)
+        if sid == 'boom':
+            raise RuntimeError('нет меша')
+        return prod.get(sid) or []
+    snk = Sink(have=[h('1')])
+    scp = Showcase(Ex({}, []), snk, lambda *a: None, 2)
+    hot_p, added, taken = scp.products(['boom', 'p1', 'p2', 'p3'], {h('2')}, 0, 10 * 2 ** 20, rf)
+    ok('лента замен: общий хеш (уже в списке) не повторяется, сбой товара пропущен, бюджет 10 МБ держится (p3 на 6 МБ не влез после p1+p2)',
+       [x['sha256'] for x in hot_p] == [h('1'), h('3')] and added == 7 * 2 ** 20 and taken == 2 and calls == ['boom', 'p1', 'p2', 'p3'])
+    ok('лента замен: на приёмник шлём только недостающее (h1 там уже есть)', [p[0] for p in snk.puts] == [h('3')])
+    dry = Sink()
+    sd = Showcase(Ex({}, []), dry, lambda *a: None, 2, dry=True)
+    sd.products(['p1'], set(), 0, 10 * 2 ** 20, rf)
+    ok('лента замен: проба (--dry) ничего не шлёт', dry.puts == [])
     print('ИТОГ:', 'ок' if not bad else f'{len(bad)} не прошло')
     return 1 if bad else 0
 
