@@ -15,6 +15,9 @@ SCOUT = os.path.abspath(os.path.join(HERE, '..'))
 PROBE = os.path.join(SCOUT, 'cycles_probe')
 REPO = os.path.abspath(os.path.join(SCOUT, '..', '..'))
 sys.path.insert(0, SCOUT)
+sys.path.append(os.path.join(HERE, '..'))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_render_bundle_guard')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 import render_exec as RE  # noqa: E402
 
 ENTRY = os.path.join(PROBE, 'render_cycles.py')

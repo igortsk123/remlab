@@ -8,6 +8,9 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', 'cycles_probe')]
+sys.path.append(os.path.join(HERE, '..'))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_export_npz_cache')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 import export_scene as ES  # noqa: E402
 
 fails = []

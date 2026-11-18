@@ -10,6 +10,9 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..'))
 sys.path.insert(0, os.path.join(HERE, '..', '..', '..', 'services', 'planner-solver'))
+sys.path.append(os.path.join(HERE, '..'))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_improve_render_source')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 from PIL import Image  # noqa: E402
 
 import draft_render as DR  # noqa: E402

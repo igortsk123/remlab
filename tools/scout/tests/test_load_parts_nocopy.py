@@ -11,6 +11,9 @@ from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..'))
+sys.path.append(os.path.join(HERE, '..'))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_load_parts_nocopy')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 import mesh_render as MR  # noqa: E402
 
 fails = []
