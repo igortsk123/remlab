@@ -63,6 +63,10 @@ T = {
                  'Machine is ready ({age} min), a photo takes ~15–30 s. {left} min of idle left before auto-stop. Today ${spent:.2f} of ${cap:.2f}. Turn off: /render_off.'),
     'st_stray': ('Машина по команде выключена, но на Salad она ещё «{st}» (не наша команда на этой группе или остановка идёт). Ближайший tick её погасит. Сегодня ${spent:.2f}.',
                  'The machine is switched off by command, but Salad still shows it as "{st}" (not started by this controller, or stopping). The next tick will stop it. Spent today ${spent:.2f}.'),
+    'st_hot': ('Машина включена, подтягивает ассеты витрины ({age} мин) — пока фото считает запасной CPU. Потрачено сегодня ${spent:.2f}.',
+               'Machine is on, pulling the showcase assets ({age} min) — photos still go to the fallback CPU. Spent today ${spent:.2f}.'),
+    'slow_note': (' ⚠ Узел медленный: проба {p} с (норма до {thr} с) — фото на нём в 2–4 раза дольше.',
+                  ' ⚠ Slow node: probe {p} s (normal up to {thr} s) — photos take 2–4× longer here.'),
     'st_degraded': ('❗ Машина включена, но не отвечает ({age} мин). Сегодня ${spent:.2f}.', '❗ Machine is on but not responding ({age} min). Spent today ${spent:.2f}.'),
     'warm': ('✅ Машина рендера готова, фото считается ~15–30 с (запуск занял {min} мин). Выключить — /render_off.',
              '✅ Render machine is ready, a photo takes ~15–30 s (started in {min} min). Turn off: /render_off.'),
@@ -88,7 +92,7 @@ def tr(key: str, lang: str = 'ru', **kw) -> str:
 # ───────────────────────── правила ─────────────────────────
 DEFAULT_RULES = {
     'group': 'render-4090', 'card': '4090', 'idle_stop_min': 20, 'max_run_min': 240, 'day_cap_usd': 2.0, 'warmup_max_min': 15,
-    'ready_stale_s': 120, 'degraded_stop_min': 10, 'guard_stale_min': 10, 'restart_max': 2, 'start_retry_s': 45, 'sink_prefix': 'rendermachine',
+    'ready_stale_s': 120, 'slow_probe_sec': 1.2, 'hot_wait_max_min': 6, 'degraded_stop_min': 10, 'guard_stale_min': 10, 'restart_max': 2, 'start_retry_s': 45, 'sink_prefix': 'rendermachine',
     'cpu': 8, 'memory_mb': 16384, 'storage_gb': 10, 'price_class': 'RTX 4090 (24 GB)', 'tier': 'high',
     'gpu_class_id': 'ed563892-aacd-40f5-80b7-90c9be6c759b', 'controller_stale_s': 300,
     # исполнитель (render_exec.SaladGpuExecutor): ждать взятия задания, потолок пары, опрос результата, «занято» на время ожидания
@@ -126,7 +130,8 @@ def london_date(now: float) -> str:
 # ───────────────────────── состояние ─────────────────────────
 def new_state() -> dict:
     return {'desired': 'off', 'gen': 0, 'by': None, 'at': 0, 'on_at': 0, 'running_since': 0, 'last_activity': 0, 'busy_until': 0, 'last_tick': 0, 'last_start_try': 0,
-            'accrued_ts': 0, 'spent_date': '', 'spent_usd': 0.0, 'warm_gen': 0, 'degraded_since': 0, 'restarts': 0, 'stop_reason': '', 'stop_notified_gen': 0}
+            'accrued_ts': 0, 'spent_date': '', 'spent_usd': 0.0, 'warm_gen': 0, 'degraded_since': 0, 'restarts': 0, 'stop_reason': '', 'stop_notified_gen': 0,
+            'ready_since': 0, 'probe_sec': None, 'slow': False, 'frames': ['png']}
 
 
 def _acc(s: dict, now: float, paying: bool, price: float) -> None:
@@ -138,6 +143,26 @@ def _acc(s: dict, now: float, paying: bool, price: float) -> None:
     if paying and s['accrued_ts'] and now > s['accrued_ts']:
         s['spent_usd'] = round(s['spent_usd'] + (min(now, s['accrued_ts'] + 600) - s['accrued_ts']) / 3600 * price, 5)
     s['accrued_ts'] = now if paying else 0
+
+
+def caps_frames(ready: dict) -> list:
+    """Форматы кадров, которые воркер заявил в ready.json (`caps.frames`); нет поля или мусор — ['png'] (образ до T-24/11)."""
+    fr = (ready.get('caps') or {}).get('frames') if isinstance(ready.get('caps'), dict) else None
+    ok = [f for f in fr if f in ('png', 'jpg')] if isinstance(fr, list) else []
+    return ok or ['png']
+
+
+def probe_sec_of(ready: dict) -> float | None:
+    """Время малого прохода Cycles на узле (проба готовности) — из строки `PROBE_SEC x` в `ready.json: note`; нет — None."""
+    import re
+    m = re.search(r'PROBE_SEC\s+([0-9]+(?:\.[0-9]+)?)', str(ready.get('note') or ''))
+    return float(m.group(1)) if m else None
+
+
+def hot_pending(ready: dict) -> bool:
+    """Воркер сообщил, что горячий список ещё не пройден (`hot.done` ложно). Нет поля (образ без T-24/10) — не ждём."""
+    h = ready.get('hot')
+    return isinstance(h, dict) and not h.get('done')
 
 
 def plan(state: dict, obs: dict, rules: dict, now: float) -> tuple[dict, list]:
@@ -162,6 +187,16 @@ def plan(state: dict, obs: dict, rules: dict, now: float) -> tuple[dict, list]:
     ready = obs.get('ready') or {}
     fresh = bool(ready) and now - float(ready.get('ts', 0)) <= rules['ready_stale_s'] and float(ready.get('ts', 0)) >= s['on_at'] - 5
     is_ready = st == 'running' and fresh and bool(ready.get('ready'))
+    # T-24/10: машина «прогрелась» для заказов только после первого прохода по горячему списку (поле `hot` в ready.json — с образа, где воркер его ставит;
+    # нет поля — как раньше), но не дольше hot_wait_max_min с первой готовности; узел с медленной пробой помечаем (строка статуса и журнала)
+    if is_ready and not s.get('ready_since'):
+        s['ready_since'] = now
+        p = probe_sec_of(ready)
+        s['probe_sec'] = p
+        s['slow'] = p is not None and p > rules['slow_probe_sec']
+        s['frames'] = caps_frames(ready)       # T-24/11: какие форматы кадров умеет воркер машины (нет поля — старый образ, только png)
+        acts.append(('say', f"узел: проба {p} с — " + (f"МЕДЛЕННЫЙ (порог {rules['slow_probe_sec']} с)" if s['slow'] else 'норма')))
+    hot_wait = is_ready and hot_pending(ready) and (now - s['ready_since']) / 60 < rules['hot_wait_max_min']
 
     # предохранители — по порядку важности
     if s['spent_usd'] >= rules['day_cap_usd']:
@@ -173,7 +208,7 @@ def plan(state: dict, obs: dict, rules: dict, now: float) -> tuple[dict, list]:
     idle_ref = max(s['last_activity'], s['on_at'])
     if is_ready and now >= s.get('busy_until', 0) and (now - idle_ref) / 60 >= rules['idle_stop_min']:
         return _stop(s, acts, 'idle', 'stop_idle', min=rules['idle_stop_min'], spent=s['spent_usd'])
-    if s['warm_gen'] != s['gen'] and age_min >= rules['warmup_max_min']:
+    if s['warm_gen'] != s['gen'] and age_min >= rules['warmup_max_min'] and not is_ready:      # готова, но ждёт подогрев — срок у него свой (hot_wait_max_min)
         return _stop(s, acts, 'warmup', 'stop_warmup', min=rules['warmup_max_min'])
 
     # потеря машины: группа остановлена/упала, а мы хотим «включено»
@@ -195,7 +230,7 @@ def plan(state: dict, obs: dict, rules: dict, now: float) -> tuple[dict, list]:
     # прогрелась / деградация
     if is_ready:
         s['degraded_since'] = 0
-        if s['warm_gen'] != s['gen']:
+        if s['warm_gen'] != s['gen'] and not hot_wait:
             s['warm_gen'] = s['gen']
             acts.append(('notify', 'warm', {'min': max(1, round(age_min))}))
     elif s['warm_gen'] == s['gen'] and st == 'running':  # была готова, теперь нет свежего ready.json или он ready:false
@@ -385,6 +420,8 @@ def execute(sal: Salad, rules: dict, acts: list, lang: str, spent: float) -> lis
             txt = tr(a[1], lang, **{'spent': spent, 'cap': rules['day_cap_usd'], **a[2]})
             alert(rules, txt)
             out.append(txt)
+        elif a[0] == 'say':
+            say(a[1])
         elif a[0] == 'stop':
             ok = stop_and_verify(sal)
             say('остановка', a[1], 'подтверждена' if ok else 'НЕ подтверждена')
@@ -411,7 +448,7 @@ def cmd_on(a, rules) -> str:
             b.save()
             return tr('on_already', a.lang, st=obs['status'])
         if obs['status'] in LIVE:                         # жива мимо контроллера — берём под управление без перезапуска
-            s.update(desired='on', gen=s['gen'] + 1, by=a.by, at=now, on_at=now, last_activity=now, running_since=0, warm_gen=0,
+            s.update(desired='on', gen=s['gen'] + 1, by=a.by, at=now, on_at=now, last_activity=now, running_since=0, warm_gen=0, ready_since=0, probe_sec=None, slow=False, frames=['png'],
                      degraded_since=0, restarts=0, stop_reason='')
             b.save()
             return tr('on_already', a.lang, st=obs['status'])
@@ -421,7 +458,7 @@ def cmd_on(a, rules) -> str:
             return tr('on_error', a.lang, why=f'{type(e).__name__}: {str(e)[:120]}')
         if why == 'image':
             return tr('on_refused_image', a.lang, g=rules['group'])
-        s.update(desired='on', gen=s['gen'] + 1, by=a.by, at=now, on_at=now, last_activity=now, running_since=0, warm_gen=0, degraded_since=0,
+        s.update(desired='on', gen=s['gen'] + 1, by=a.by, at=now, on_at=now, last_activity=now, running_since=0, warm_gen=0, ready_since=0, probe_sec=None, slow=False, frames=['png'], degraded_since=0,
                  restarts=0, stop_reason='', last_start_try=now, accrued_ts=now)
         b.save()
         beat_server(rules, now)
@@ -458,20 +495,23 @@ def cmd_status(a, rules) -> str:
         d = london_date(now)
         spent = s['spent_usd'] if s['spent_date'] == d else 0.0
         if a.json:
-            return json.dumps({'desired': s['desired'], 'gen': s['gen'], 'status': obs['status'], 'spent_usd': spent, 'by': s['by']}, ensure_ascii=False)
+            return json.dumps({'desired': s['desired'], 'gen': s['gen'], 'status': obs['status'], 'spent_usd': spent, 'by': s['by'], 'probe_sec': s.get('probe_sec'), 'slow': bool(s.get('slow'))}, ensure_ascii=False)
         if s['desired'] != 'on':
             # желаемое «выключено»: пока Salad её не остановил (или её запустил кто-то мимо контроллера) — это не «не отвечает»: возраст `on_at` тут ни при чём
             if obs['status'] not in PAID:
                 return tr('st_off', a.lang, spent=spent, cap=rules['day_cap_usd'])
             return tr('st_stray', a.lang, st=obs['status'], spent=spent)
         age = round((now - s['on_at']) / 60)
+        slow = tr('slow_note', a.lang, p=s.get('probe_sec'), thr=rules['slow_probe_sec']) if s.get('slow') else ''
         ready = obs.get('ready') or {}
         fresh = bool(ready) and now - float(ready.get('ts', 0)) <= rules['ready_stale_s']
         if s['warm_gen'] == s['gen'] and obs['status'] == 'running' and fresh and ready.get('ready'):
             left = max(0, round(rules['idle_stop_min'] - (now - max(s['last_activity'], s['on_at'])) / 60))
-            return tr('st_ready', a.lang, age=age, left=left, spent=spent, cap=rules['day_cap_usd'])
+            return tr('st_ready', a.lang, age=age, left=left, spent=spent, cap=rules['day_cap_usd']) + slow
         if s['warm_gen'] == s['gen']:
-            return tr('st_degraded', a.lang, age=age, spent=spent)
+            return tr('st_degraded', a.lang, age=age, spent=spent) + slow
+        if obs['status'] == 'running' and fresh and ready.get('ready') and hot_pending(ready):
+            return tr('st_hot', a.lang, age=age, spent=spent) + slow
         return tr('st_starting', a.lang, st=obs['status'] or 'создаётся', age=age, spent=spent)
 
 

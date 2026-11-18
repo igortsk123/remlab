@@ -264,7 +264,125 @@ class SceneExecutor:
                     pass
         return out
 
+    # ——— кэш подготовленной сцены (T-20261117-24/10): каталоги `scene/` и `dump/` по ключу снимка. Экспорт (6–9 с на DEV) для уже виденного варианта — ссылки на файлы
+    # вместо пересчёта; кладёт первый, кто собрал сцену (заказ или подогрев витрины `render_gpu/showcase_assets.py`), берёт любой заказ. Файлы кэша только читаются.
+    def _prep_root(self) -> str:
+        return os.environ.get('RENDER_PREP_CACHE') or os.path.expanduser('~/scout-cache/render-prepared')
+
+    def _code_sha(self) -> str:
+        """Хеш кода, из которого собирается сцена (экспорт, расстановка, меши, проёмы): сменился код — старые подготовленные сцены не годятся. Читается заново каждый заказ (8 МБ, ~15 мс)."""
+        h = hashlib.sha256()
+        for d in (os.path.join(REPO, 'tools', 'scout'), os.path.join(REPO, 'services', 'planner-solver', 'planner'), PROBE):
+            try:
+                names = sorted(n for n in os.listdir(d) if n.endswith('.py'))
+            except OSError:
+                names = []
+            for n in names:
+                try:
+                    h.update(n.encode() + b'\0' + open(os.path.join(d, n), 'rb').read() + b'\0')
+                except OSError:
+                    h.update(n.encode() + b'?')
+        return h.hexdigest()[:12]
+
+    def _prep_key(self, snap: dict, bundle: str, pr: dict) -> str:
+        v = self.versions()
+        part = {k: v.get(k) for k in ('export_scene', 'dump', 'scene_export')}
+        try:
+            bsha = _sha(os.path.join(bundle, 'entry.js'))          # по СОДЕРЖИМОМУ сборки выгрузчика, не по имени каталога (имя зависит от пути и времени файлов: рабочая копия ≠ основная)
+        except OSError:
+            bsha = os.path.basename(bundle)
+        part.update(code=self._code_sha(), bundle=bsha, dump_export=pr['dumpExport'], prep=PREP_CACHE_VERSION)
+        return cache_key(snap['scene_hash'], part)
+
+    @staticmethod
+    def _link_tree(src: str, dst: str) -> None:
+        """Каталог ссылками на файлы (жёсткие; нельзя — копия). Дерево каталогов — своё."""
+        for dp, _, fs in os.walk(src):
+            out = os.path.join(dst, os.path.relpath(dp, src))
+            os.makedirs(out, exist_ok=True)
+            for f in fs:
+                try:
+                    os.link(os.path.join(dp, f), os.path.join(out, f))
+                except OSError:
+                    shutil.copyfile(os.path.join(dp, f), os.path.join(out, f))
+
+    def _prep_load(self, hit: str, job: str) -> bool:
+        try:
+            for d in ('scene', 'dump'):
+                self._link_tree(os.path.join(hit, d), os.path.join(job, d))
+            os.utime(os.path.join(hit, '.ok'))
+            return True
+        except OSError:
+            for d in ('scene', 'dump'):
+                shutil.rmtree(os.path.join(job, d), ignore_errors=True)
+            return False
+
+    def _prep_store(self, root: str, key: str, job: str) -> None:
+        tmp = os.path.join(root, f'{key}.tmp-{os.getpid()}-{uuid.uuid4().hex[:8]}')
+        try:
+            os.makedirs(tmp)
+            for d in ('scene', 'dump'):
+                self._link_tree(os.path.join(job, d), os.path.join(tmp, d))
+            open(os.path.join(tmp, '.ok'), 'w').close()
+            try:
+                os.replace(tmp, os.path.join(root, key))         # занято (параллельный прогон записал раньше) — оставляем его, свой убираем
+            except OSError:
+                pass
+        except OSError:
+            pass
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        self._prep_prune(root)
+
+    def _prep_prune(self, root: str) -> None:
+        """Общее правило уборки: свежие по `.ok` остаются, пока сумма размеров (по видимому размеру файлов, ссылки считаются каждая) не выше предела, МБ
+        (`RENDER_PREP_CACHE_MB`, по умолчанию `PREP_CACHE_MB`); остальные удаляются."""
+        try:
+            cap = float(os.environ.get('RENDER_PREP_CACHE_MB') or PREP_CACHE_MB) * 2 ** 20
+            ents = []
+            for e in os.scandir(root):
+                ok = os.path.join(e.path, '.ok')
+                if e.is_dir() and '.tmp-' not in e.name and os.path.isfile(ok):
+                    ents.append((os.path.getmtime(ok), e.path))
+            total = 0
+            for i, (_, path) in enumerate(sorted(ents, reverse=True)):
+                size = sum(os.path.getsize(os.path.join(dp, f)) for dp, _, fs in os.walk(path) for f in fs)
+                total += size
+                if total > cap and i > 0:             # самая свежая запись остаётся всегда
+                    shutil.rmtree(path, ignore_errors=True)
+        except OSError:
+            pass
+
+    def prep_has(self, snap: dict) -> bool:
+        """Есть ли подготовленная сцена этого снимка в кэше (для подогрева витрины: сборка из кэша ассетов её не кладёт — собрать заново, если нет)."""
+        try:
+            pr = preset()
+            key = self._prep_key(snap, self._bundle(os.path.join(self.work, 'prep-has.log')), pr)
+            return os.path.isfile(os.path.join(self._prep_root(), key, '.ok'))
+        except OSError:
+            return False
+
     def _prepare(self, snap: dict, job: str, log: str, pr: dict, progress, timing: dict) -> str:
+        """Шаги 1–2 с кэшем подготовленной сцены: есть по ключу — ссылки на файлы (`export` ≈ 0 с, `prep_hit` 1), нет — `_prepare_fresh` и в кэш. → каталог dump."""
+        t1 = time.time()
+        root = key = None
+        try:
+            root = self._prep_root()
+            key = self._prep_key(snap, self._bundle(log), pr)
+            hit = os.path.join(root, key)
+            if os.path.isfile(os.path.join(hit, '.ok')) and self._prep_load(hit, job):
+                progress('scene')
+                timing['export'], timing['dump'], timing['prep_hit'] = round(time.time() - t1, 1), 0.0, 1
+                return os.path.join(job, 'dump')
+        except OSError:
+            root = None
+        dump = self._prepare_fresh(snap, job, log, pr, progress, timing)
+        timing['prep_hit'] = 0
+        if root and key:
+            self._prep_store(root, key, job)
+        return dump
+
+    def _prepare_fresh(self, snap: dict, job: str, log: str, pr: dict, progress, timing: dict) -> str:
         """Шаги 1–2: данные варианта → `export_scene.py` (job/scene) → `demo_scene_dump.mjs` (job/dump). → каталог dump."""
         lim = pr['limits']
         t1 = time.time()
@@ -366,10 +484,15 @@ class SceneExecutor:
         os.makedirs(tmp)
         size, sha = None, {}
         for cam, png in outs.items():
-            im = Image.open(png).convert('RGB')
-            size = [im.width, im.height]
+            im = Image.open(png)
             jp = os.path.join(tmp, f'{cam}.jpg')
-            im.save(jp, 'JPEG', quality=pr['jpegQuality'], optimize=True)
+            if im.format == 'JPEG':
+                size = [im.width, im.height]
+                shutil.copyfile(png, jp)               # T-24/11: JPEG с машины (кодировал Blender) кладём как есть — перекодирование не нужно
+            else:
+                im = im.convert('RGB')
+                size = [im.width, im.height]
+                im.save(jp, 'JPEG', quality=pr['jpegQuality'], optimize=True)
             sha[cam] = hashlib.sha256(open(jp, 'rb').read()).hexdigest()     # имя кадра для «Улучшить» (как у кадров браузера: sha256 JPEG)
         timing['total'] = round(time.time() - t0, 1)
         meta = {'scene_hash': snap['scene_hash'], 'snapshot_version': snap['v'], 'size': size, 'sha': sha, 'versions': self.versions(), 'timing': timing,
@@ -475,6 +598,8 @@ def file_sha256(path: str) -> tuple:
     return h, st.st_size
 
 
+PREP_CACHE_MB = 3000            # предел кэша подготовленных сцен (видимый размер, ссылки считаются каждая; на диске ≈ в 6 раз меньше: текстуры — ссылки на общие файлы)
+PREP_CACHE_VERSION = 1          # формат записи кэша подготовленных сцен: сменился состав каталога — вверх
 ASSET_RULES = 2                # версия правила «что ассет» (`asset_kind`/`asset_min_bytes`): растёт при его смене — кэш сборки витрины (`showcase_assets.py`) её учитывает
 NPZ_ASSET_MIN = 64 * 1024      # мелкие npz (стены, проёмы — десятки байт…КБ) остаются в пакете: на ассет они дороже, чем в архиве
 
@@ -645,7 +770,7 @@ class SaladGpuExecutor(SceneExecutor):
             raise self._gpu_unavailable('gpu_upload') from None
         timing['upload'] = round(self.now() - t1, 1)
 
-    def _send_fmt2(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict) -> None:
+    def _send_fmt2(self, sink, job: str, jid: str, pr: dict, ex: dict, timing: dict, frames: str = 'png') -> None:
         """fmt 2 (T-20261117-24/5): ассеты — по хешу в `renderassets` приёмника (спросили «каких нет» и досылаем недостающее ДО `job.json`), маленький пакет —
         в каталог задания, `job.json` (v=2, манифест) ПОСЛЕДНИМ. Любой сбой до задания — `_Fmt2Skip` (заказ пойдёт по fmt 1), машине ничего не ушло."""
         import jobs_proto as JP
@@ -682,12 +807,29 @@ class SaladGpuExecutor(SceneExecutor):
                     f.result()                                              # недостающие ассеты — ДО задания
             render = hashlib.sha256(json.dumps(self.versions(), sort_keys=True).encode()).hexdigest()[:16]
             jobj = JP.new_job2(jid, bundle, assets, ['--samples', pr['samples'], '--pct', pr['pct'], '--threads', pr['threads'], *pr['flags']],
-                               {'blenderSec': pr['limits']['blenderSecPerFrame']}, render, now=self.now())
+                               {'blenderSec': pr['limits']['blenderSecPerFrame']}, render, now=self.now(), frames=frames, jpeg_q=int(pr['jpegQuality']))
             sink.put(f'{JP.PREFIX}/{jid}/job.json', json.dumps(jobj, ensure_ascii=False).encode())       # ПОСЛЕДНИМ
         except JP.SinkError as e:
             raise _Fmt2Skip(f'выгрузка: {e}') from None
         timing['upload'] = round(self.now() - t1, 1)
         timing['bundle_kb'] = round(bsize / 1024)
+
+    @staticmethod
+    def _frames_for(m, ex: dict) -> str:
+        """Формат кадров заказа (T-24/11): `jpg`, если машина это заявила (`state.frames` из ready.json → `caps.frames`) и правило `executor.frames` не `png`;
+        старый образ без поля — `png`, как раньше."""
+        if str(ex.get('frames', 'auto')) == 'png':
+            return 'png'
+        fr = m.state().get('frames')
+        return 'jpg' if isinstance(fr, list) and 'jpg' in fr else 'png'
+
+    @staticmethod
+    def _check_frame(path: str, fmt: str) -> None:
+        """Скачанный кадр — действительно тот формат, что в имени (иначе ValueError → gpu_download): PIL открывает, формат совпадает, размер ненулевой."""
+        from PIL import Image
+        with Image.open(path) as im:
+            if im.format != {'jpg': 'JPEG', 'png': 'PNG'}[fmt] or im.width < 16 or im.height < 16:
+                raise ValueError(f'кадр {os.path.basename(path)}: формат {im.format} {im.width}×{im.height}')
 
     def render(self, snap: dict, out_dir: str, progress) -> dict:
         import jobs_proto as JP
@@ -716,7 +858,7 @@ class SaladGpuExecutor(SceneExecutor):
                 jids.append(jid)
                 if fmt == 2:
                     try:
-                        self._send_fmt2(sink, job, jid, pr, ex, timing)
+                        self._send_fmt2(sink, job, jid, pr, ex, timing, frames=self._frames_for(m, ex))
                     except _Fmt2Skip as e:
                         print(f'рендер: fmt 2 не вышел ({e}) — шлю по fmt 1', flush=True)
                         continue
@@ -736,11 +878,14 @@ class SaladGpuExecutor(SceneExecutor):
             t1 = self.now()
             outs = {}
             try:
+                rf = res.get('frames') if res.get('frames') in ('jpg', 'png') else 'png'      # что фактически положила машина (имя = формат)
+                timing['frames'] = rf
                 for cam in CAMS:
-                    png = os.path.join(job, f'{cam}.png')
-                    sink.get_to(f'{JP.PREFIX}/{jid}/{cam}.png', png)
-                    outs[cam] = png
-            except JP.SinkError as e:
+                    fp = os.path.join(job, f'{cam}.{rf}')
+                    sink.get_to(f'{JP.PREFIX}/{jid}/{cam}.{rf}', fp)
+                    self._check_frame(fp, rf)
+                    outs[cam] = fp
+            except (JP.SinkError, ValueError, OSError) as e:
                 print(f'рендер: кадры не скачались: {e}', flush=True)
                 raise self._gpu_unavailable('gpu_download') from None
             timing['download'] = round(self.now() - t1, 1)

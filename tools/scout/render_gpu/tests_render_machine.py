@@ -46,7 +46,7 @@ def on_state(now, **kw):
 
 
 def keys(acts):
-    return [a[0] if a[0] != 'notify' else 'notify:' + a[1] for a in acts]
+    return [a[0] if a[0] != 'notify' else 'notify:' + a[1] for a in acts if a[0] != 'say']      # строки журнала ('say') в проверках действий не считаем
 
 
 # ── желаемое «выключено» ──
@@ -167,12 +167,50 @@ ok('повтор /start не чаще start_retry_s', a == [])
 _, a = RM.plan(on_state(T0, last_start_try=T0 - 100), obs(None), R, T0)
 ok('группы ещё нет — create/start от исполнителя', keys(a) == ['start'])
 
+
+# ── T-24/10: «прогрелась» — после горячего списка; проба узла: медленный узел ──
+def ready_hot(ts, done, note='PROBE_SEC 0.6; PROBE_OK CUDA', extra=None):
+    d = {'ts': ts, 'ready': True, 'device': 'CUDA', 'note': note}
+    if done is not None:
+        d['hot'] = {'done': done}
+    if extra:
+        d.update(extra)
+    return d
+
+
+sh1, a = RM.plan(on_state(T0), obs('running', ready_hot(T0 - 10, False)), R, T0)
+ok('подогрев не пройден — «прогрелась» не объявлена, заказы на запасном пути (warm_gen 0, ready_since записан)', keys(a) == [] and sh1['warm_gen'] == 0 and sh1['ready_since'] == T0)
+sh2, a = RM.plan(sh1, obs('running', ready_hot(T0 + 20, True)), R, T0 + 30)
+ok('подогрев пройден — «прогрелась»', keys(a) == ['notify:warm'] and sh2['warm_gen'] == 1)
+sh3, a = RM.plan(sh1, obs('running', ready_hot(T0 + R['hot_wait_max_min'] * 60, False)), R, T0 + R['hot_wait_max_min'] * 60 + 5)
+ok('подогрев не кончился за hot_wait_max_min — «прогрелась» всё равно (заказы не ждут вечно)', keys(a) == ['notify:warm'] and sh3['warm_gen'] == 1)
+sh4, a = RM.plan(on_state(T0), obs('running', ready_hot(T0 - 10, None)), R, T0)
+ok('в ready.json нет поля hot (образ без T-24/10) — как раньше, сразу «прогрелась»', keys(a) == ['notify:warm'] and sh4['warm_gen'] == 1)
+sh5, a = RM.plan(on_state(T0, on_at=T0 - R['warmup_max_min'] * 60 - 30), obs('running', ready_hot(T0 - 10, False)), R, T0)
+ok('машина готова, ждёт подогрев, а с включения >warmup_max_min — не гасим по «прогрев не вышел»', 'stop' not in keys(a))
+_, a = RM.plan(on_state(T0, on_at=T0 - R['warmup_max_min'] * 60 - 30), obs('running', None), R, T0)
+ok('машина не готова за warmup_max_min — гасим как раньше', 'stop' in keys(a))
+ss, a = RM.plan(on_state(T0), obs('running', ready_hot(T0 - 10, True, note='PROBE_SEC 1.9; PROBE_OK CUDA')), R, T0)
+ok('проба 1,9 с (порог 1,2) — узел медленный: в состоянии и в журнале', ss['slow'] is True and ss['probe_sec'] == 1.9 and any(x[0] == 'say' and 'МЕДЛЕННЫЙ' in x[1] for x in a))
+sf, a = RM.plan(on_state(T0), obs('running', ready_hot(T0 - 10, True, note='PROBE_SEC 0.6; PROBE_OK CUDA')), R, T0)
+ok('проба 0,6 с — норма, строка журнала «норма»', sf['slow'] is False and sf['probe_sec'] == 0.6 and any(x[0] == 'say' and 'норма' in x[1] for x in a))
+sn, a = RM.plan(on_state(T0), obs('running', ready_hot(T0 - 10, True, note='без пробы')), R, T0)
+ok('в note нет PROBE_SEC — не медленный и не падаем', sn['slow'] is False and sn['probe_sec'] is None)
+rc_ = ready_hot(T0 - 10, True)
+sj, _ = RM.plan(on_state(T0), obs('running', {**rc_, 'caps': {'frames': ['png', 'jpg']}}), R, T0)
+ok('T-24/11: ready.json caps.frames → state.frames (исполнитель шлёт jpg только такой машине)', sj['frames'] == ['png', 'jpg'])
+sj0, _ = RM.plan(on_state(T0), obs('running', rc_), R, T0)
+ok('T-24/11: нет поля caps (образ до T-24/11) — frames = [png]', sj0['frames'] == ['png'])
+ok('T-24/11: caps_frames: мусор и неизвестные форматы отбрасываются, пустое = [png]', RM.caps_frames({'caps': {'frames': ['gif', 'jpg']}}) == ['jpg'] and RM.caps_frames({'caps': {'frames': 'jpg'}}) == ['png']
+   and RM.caps_frames({'caps': 5}) == ['png'] and RM.caps_frames({'caps': {'frames': []}}) == ['png'])
+ok('probe_sec_of / hot_pending: разбор', RM.probe_sec_of({'note': 'PROBE_SEC 12.5; X'}) == 12.5 and RM.probe_sec_of({}) is None and RM.hot_pending({'hot': {'done': False}}) and not RM.hot_pending({}) and not RM.hot_pending({'hot': {'done': True}}))
+
 # ── сообщение о стопе — одно на запуск ──
 s_, a = RM.plan(dict(sc, stop_notified_gen=1), obs('running', ready_at(T0 + 50)), R, T0 + 60)
 ok('о стопе по запуску уже писали — второго нет', 'notify:stop_cap' not in keys(a) and 'stop' in keys(a))
 
 # ── надписи: у каждой пара RU/EN, форматируются ──
-fill = dict(st='running', cap=2.0, spent=0.5, g='render-x1', why='x', age=5, left=3, min=15, n=1, max=2)
+fill = dict(st='running', cap=2.0, spent=0.5, g='render-x1', why='x', age=5, left=3, min=15, n=1, max=2, p=1.9, thr=1.2)
 ok('все надписи — пара RU/EN и форматируются', all(len(v) == 2 and RM.tr(k, 'ru', **fill) and RM.tr(k, 'en', **fill) for k, v in RM.T.items()))
 ok('RU-надписи не пустые и без английского вместо русского', all(any('а' <= c.lower() <= 'я' for c in RM.tr(k, 'ru', **fill)) for k in RM.T))
 
@@ -269,5 +307,22 @@ with RM.Box() as b:
     b.save()
 ok('on при исчерпанном потолке — отказ', 'потолок' in RM.cmd_on(args, R))
 ok('pulse отвечает ok', RM.cmd_pulse(args, R) == 'ok')
+# status: подогрев и медленный узел
+FakeSalad.status = 'running'
+RM.read_ready = lambda rules: ready_hot(RM.time.time() + 1, False)
+with RM.Box() as b:
+    b.state.update(desired='on', gen=9, on_at=RM.time.time() - 600, warm_gen=0, slow=True, probe_sec=1.9)
+    b.save()
+out_h = RM.cmd_status(args, R)
+ok('status: готова, но подогрев идёт — строка про ассеты витрины и запасной CPU; медленный узел — предупреждение', 'подтягивает ассеты' in out_h and 'Узел медленный' in out_h and '1.9' in out_h)
+with RM.Box() as b:
+    b.state.update(warm_gen=9)
+    b.save()
+RM.read_ready = lambda rules: ready_hot(RM.time.time() + 1, True)
+out_r = RM.cmd_status(args, R)
+ok('status: прогрелась на медленном узле — предупреждение тоже', 'прогрелась' in out_r and 'Узел медленный' in out_r)
+import json as _j
+ok('status --json: probe_sec и slow', _j.loads(RM.cmd_status(types.SimpleNamespace(by='t', lang='ru', json=True), R)).get('slow') is True)
+
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')
 sys.exit(1 if BAD else 0)

@@ -23,6 +23,8 @@ ap.add_argument('--scene-dir', required=True)
 ap.add_argument('--cam', default='C1', help='ракурс или список через запятую (C1,C2) — тогда все кадры в ОДНОМ процессе Blender, в --out шаблон {cam}')
 ap.add_argument('--device', default='cpu', choices=['cpu', 'auto', 'optix', 'cuda'], help='cpu (по умолчанию) | auto (OptiX → CUDA → CPU) | optix | cuda; GPU недоступен при optix/cuda — ошибка')
 ap.add_argument('--out', required=True)
+ap.add_argument('--jpeg-quality', type=int, default=0, help='>0 — кадры JPEG этого качества (T-24/11: с машины уходит JPEG, не PNG; имя в --out должно кончаться на .jpg); 0 — PNG как раньше')
+ap.add_argument('--also-png', default='', help='ТОЛЬКО ДЛЯ ПРИЁМКИ: вместе с JPEG положить и PNG из того же результата (шаблон с {cam}) — сравнить ΔE кодировщика; в бою не задаётся')
 ap.add_argument('--mask-out', default='', help='после кадра — маска поверхностей тем же ракурсом: пол красный, нейтральная стена зелёная, акцентная синяя, остальное чёрное (замер яркости, T-20261117-23/2)')
 ap.add_argument('--samples', type=int, default=160)
 ap.add_argument('--pct', type=int, default=100)
@@ -197,6 +199,10 @@ print('view', sc.view_settings.view_transform, '| look', sc.view_settings.look)
 sc.view_settings.exposure = a.exposure
 sc.render.image_settings.file_format = 'PNG'
 sc.render.image_settings.color_depth = '8'
+if a.jpeg_quality > 0:
+    sc.render.image_settings.file_format = 'JPEG'          # кодирует сам Blender (в образе машины нет Pillow); тот же вид-трансформ и dither, что у PNG
+    sc.render.image_settings.quality = max(1, min(100, a.jpeg_quality))
+    sc.render.image_settings.color_mode = 'RGB'
 
 
 def make_obj(name, verts, faces, uvs=None, mat=None, smooth=True):
@@ -1238,6 +1244,11 @@ for _i, _cn in enumerate(CAMS):
     sc.render.filepath = _out
     t0 = time.time()
     bpy.ops.render.render(write_still=True)
+    if a.also_png:                                   # PNG из «Render Result» (приёмка JPEG); сторож — после, он берёт хеш уже записанного кадра
+        _ff = sc.render.image_settings.file_format
+        sc.render.image_settings.file_format = 'PNG'
+        bpy.data.images['Render Result'].save_render(a.also_png.replace('{cam}', _cn), scene=sc)
+        sc.render.image_settings.file_format = _ff
     QA.frame_done(bpy, co, _cn, _out)
     print(f'RENDER_SEC {time.time() - t0:.1f} cam {_cn} frame {_i + 1}/{len(CAMS)} samples {a.samples} pct {a.pct} device {DEVICE_USED} threads {a.threads}', flush=True)
 

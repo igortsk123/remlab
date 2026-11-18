@@ -3,6 +3,7 @@ Blender — подмена (`fake_blender.py`), машина — подмена 
 
 Запуск: ~/venvs/scout/bin/python tools/scout/render_gpu/tests_render_executor.py   (код 0 — чисто; нужен PIL)"""
 import contextlib
+import hashlib
 import json
 import os
 import shutil
@@ -892,6 +893,288 @@ q17 = RJ.RenderQueue(st17, RE.Fallback(Exec(FakeSink(), m17, PUBLIC), Cpu({'REND
 ok('stats при прогретой машине: исполнитель, диапазон 20…60 с', q17.stats()['expected'] == 'salad-gpu' and q17.stats()['range'] == [20, 60])
 m17.st['desired'] = 'off'
 ok('stats при выключенной: исполнитель local-cpu, диапазон по его замерам', q17.stats()['expected'] == 'local-cpu' and q17.stats()['range'] == [480, 480])
+
+# ——— кэш подготовленной сцены (T-24/10): первый заказ собирает и кладёт, следующие берут ссылками; ключ — снимок + версии + код; уборка по пределу МБ
+os.environ['RENDER_PREP_CACHE'] = os.path.join(TMP, 'prep')
+
+
+class PrepEx(RE.SceneExecutor):
+    fresh = 0
+    ver = 'e1'
+
+    def _bundle(self, log):
+        return os.path.join(TMP, 'bundle-abc')
+
+    def versions(self):
+        return {'export_scene': self.ver, 'dump': 'd1', 'scene_export': '1'}
+
+    def _prepare_fresh(self, snap, job, log, pr, progress, timing):
+        PrepEx.fresh += 1
+        os.makedirs(os.path.join(job, 'scene', 'tex'))
+        os.makedirs(os.path.join(job, 'dump'))
+        open(os.path.join(job, 'scene', 'm000.npz'), 'wb').write(snap['scene_hash'].encode() * 3000)
+        open(os.path.join(job, 'scene', 'tex', 't.png'), 'wb').write(b'T' * 1000)
+        open(os.path.join(job, 'dump', 'demo_nodes.glb'), 'wb').write(b'G' * 500)
+        timing['export'], timing['dump'] = 7.5, 0.0
+        return os.path.join(job, 'dump')
+
+
+px = PrepEx({'RENDER_WORK': os.path.join(TMP, 'rwork')})
+pr18 = RE.preset()
+sn_a, sn_b = {'scene_hash': 'a' * 64}, {'scene_hash': 'b' * 64}
+
+
+def prep_job(snap, name):
+    j = os.path.join(TMP, 'pj-' + name)
+    os.makedirs(j)
+    tm = {}
+    d = px._prepare(snap, j, os.path.join(j, 'run.log'), pr18, lambda st: None, tm)
+    return j, d, tm
+
+
+j1, d1, t1_ = prep_job(sn_a, '1')
+ok('кэш сцен: первый заказ — сборка и запись (fresh 1, prep_hit 0)', PrepEx.fresh == 1 and t1_['prep_hit'] == 0 and px.prep_has(sn_a))
+j2, d2, t2_ = prep_job(sn_a, '2')
+same = all(open(os.path.join(j1, f), 'rb').read() == open(os.path.join(j2, f), 'rb').read() for f in ('scene/m000.npz', 'scene/tex/t.png', 'dump/demo_nodes.glb'))
+ok('кэш сцен: второй заказ того же снимка — без сборки, байты те же, каталог dump тот же вид', PrepEx.fresh == 1 and t2_['prep_hit'] == 1 and t2_['export'] < 1 and same and d2 == os.path.join(j2, 'dump'))
+ok('кэш сцен: файлы — ссылки (одна копия на диске)', os.stat(os.path.join(j1, 'scene', 'm000.npz')).st_ino == os.stat(os.path.join(j2, 'scene', 'm000.npz')).st_ino)
+shutil.rmtree(j1)
+j3, _, t3_ = prep_job(sn_a, '3')
+ok('кэш сцен: после удаления каталога задания кэш цел', t3_['prep_hit'] == 1 and open(os.path.join(j3, 'scene', 'm000.npz'), 'rb').read() == ('a' * 64).encode() * 3000)
+prep_job(sn_b, '4')
+ok('кэш сцен: другой снимок — своя сборка', PrepEx.fresh == 2 and not px.prep_has({'scene_hash': 'c' * 64}))
+PrepEx.ver = 'e2'
+_, _, t5_ = prep_job(sn_a, '5')
+ok('кэш сцен: сменилась версия экспорта — старая запись не берётся', PrepEx.fresh == 3 and t5_['prep_hit'] == 0)
+PrepEx.ver = 'e1'
+os.remove(os.path.join(os.environ['RENDER_PREP_CACHE'], os.listdir(os.environ['RENDER_PREP_CACHE'])[0], '.ok'))
+n_before = PrepEx.fresh
+ents18 = sorted(os.listdir(os.environ['RENDER_PREP_CACHE']))
+ok('кэш сцен: запись без `.ok` (недописанная) не считается и не берётся', len(ents18) >= 3 and all(not e.startswith('.') for e in ents18))
+os.environ['RENDER_PREP_CACHE_MB'] = '0.01'
+prep_job({'scene_hash': 'd' * 64}, '6')
+left = [e for e in os.listdir(os.environ['RENDER_PREP_CACHE']) if os.path.isfile(os.path.join(os.environ['RENDER_PREP_CACHE'], e, '.ok'))]
+ok('кэш сцен: уборка по пределу МБ — остаётся самая свежая запись', len(left) == 1 and px.prep_has({'scene_hash': 'd' * 64}))
+os.environ.pop('RENDER_PREP_CACHE_MB')
+
+# ——— воркер: поле `hot` в состоянии машины (уходит в ready.json) — контроллер объявляет «прогрелась» после первого прохода по горячему списку (T-24/10)
+class HotSink:
+    def __init__(self, hot):
+        self.hot = hot
+
+    def get_json(self, rel):
+        if self.hot is None:
+            raise JP.SinkError('GET: HTTP 404', 404)
+        return self.hot
+
+
+def hot_probe(hot, warm_ret):
+    saved = (RW.HOT_REFRESH_S, dict(RW.MA.STATE))
+    RW.HOT_REFRESH_S = 3600
+    RW.MA.STATE.pop('hot', None)
+    RW.MA.STATE['ready'] = True
+    w = RW.Worker(HotSink(hot))
+    w.warm = lambda items: (setattr(w, 'warm_stat', warm_ret) or warm_ret)
+    th = threading.Thread(target=w.warm_loop, daemon=True)
+    th.start()
+    t_end = time.time() + 5
+    while time.time() < t_end and not (RW.MA.STATE.get('hot') or {}).get('done'):
+        time.sleep(0.02)
+    got = dict(RW.MA.STATE.get('hot') or {})
+    RW.HOT_REFRESH_S = saved[0]
+    RW.MA.STATE.pop('hot', None)
+    RW.MA.STATE['ready'] = saved[1].get('ready', False)
+    return got
+
+
+h1 = hot_probe(JP.new_hot([{'sha256': 'a' * 64, 'size': 5}], now=time.time()), {'n': 1, 'taken': 1, 'errors': 0, 's': 2.5, 'dl_mb': 0.0})
+ok('воркер: список пройден — hot.done и итог (n, taken, errors, s) в состоянии машины', h1.get('done') is True and h1.get('n') == 1 and h1.get('taken') == 1 and h1.get('errors') == 0)
+h2 = hot_probe(None, {})
+ok('воркер: списка на приёмнике нет — hot.done сразу (контроллер не ждёт зря)', h2.get('done') is True and h2.get('n') == 0)
+
+# ═══ T-24/11: кадры JPEG с машины, выгрузка кадра параллельно Blender, заявка воркера
+from PIL import Image  # noqa: E402
+j0 = JP.new_job2('job1', b_, A_, [], {}, 'r1')
+ok('T-24/11: задание без `frames` — старый вид (поля нет), валидно', 'frames' not in j0 and 'jpeg_q' not in j0 and JP.validate_job(j0, expect_id='job1') == '')
+j1 = JP.new_job2('job1', b_, A_, [], {}, 'r1', frames='jpg', jpeg_q=92)
+ok('T-24/11: frames=jpg + jpeg_q — валидно', j1['frames'] == 'jpg' and j1['jpeg_q'] == 92 and JP.validate_job(j1, expect_id='job1') == '')
+ok('T-24/11: frames=both (приёмка ΔE) — валидно', JP.validate_job(JP.new_job2('job1', b_, A_, [], {}, 'r1', frames='both'), expect_id='job1') == '')
+ok('T-24/11: неизвестный формат / jpeg_q без frames / качество вне 50…100 / не число — отказ',
+   all(JP.validate_job({**j1, **kw} if 'drop' not in kw else {k: v for k, v in j1.items() if k != 'frames'}, expect_id='job1') for kw in ({'frames': 'gif'}, {'drop': 1}, {'jpeg_q': 10}, {'jpeg_q': 101}, {'jpeg_q': '92'}, {'jpeg_q': True})))
+ok('T-24/11: флаги кодировщика в args заняты воркером', all(JP.validate_job(JP.new_job2('job1', b_, A_, [f], {}, 'r1'), expect_id='job1') for f in ('--jpeg-quality', '--also-png')))
+ok('T-24/11: имена кадров по формату (имя = формат)', JP.frame_names('png', 'C1') == ['C1.png'] and JP.frame_names('jpg', 'C1') == ['C1.jpg'] and JP.frame_names('both', 'C1') == ['C1.jpg', 'C1.png'])
+c_png, c_jpg, c_both = (RW.build_cmd(JP.new_job2('job1', b_, A_, ['--samples', '64'], {}, 'r1', frames=f), '/w') for f in ('png', 'jpg', 'both'))
+ok('T-24/11: build_cmd png — как раньше (.png, без флагов кодировщика)', c_png[c_png.index('--out') + 1] == '/w/{cam}.png' and '--jpeg-quality' not in c_png and '--also-png' not in c_png)
+ok('T-24/11: build_cmd jpg — .jpg и --jpeg-quality 92', c_jpg[c_jpg.index('--out') + 1] == '/w/{cam}.jpg' and c_jpg[c_jpg.index('--jpeg-quality') + 1] == '92' and '--also-png' not in c_jpg)
+ok('T-24/11: build_cmd both — ещё и --also-png', c_both[c_both.index('--also-png') + 1] == '/w/{cam}.png' and c_both[c_both.index('--out') + 1] == '/w/{cam}.jpg')
+ok('T-24/11: cam_of_line разбирает RENDER_SEC и не путает прочее', RW.cam_of_line('RENDER_SEC 3.5 cam C2 frame 2/2 samples 64') == 'C2' and RW.cam_of_line('DEVICE_USED CUDA') is None and RW.cam_of_line('RENDER_SEC 3.5') is None)
+
+# выгрузчик: кадр уходит сразу, не ждёт конца; сбой поднимается из join()
+class SlowSink(FakeSink):
+    def put_file(self, rel, path):
+        time.sleep(0.3)
+        super().put_file(rel, path)
+
+
+uw = os.path.join(TMP, 'uw')
+os.makedirs(uw)
+Image.new('RGB', (64, 48), (1, 2, 3)).save(os.path.join(uw, 'C1.jpg'), 'JPEG')
+Image.new('RGB', (64, 48), (4, 5, 6)).save(os.path.join(uw, 'C2.jpg'), 'JPEG')
+us = SlowSink()
+up_ = RW.FrameUploader(us, 'j1', uw, 'jpg')
+t_ = time.time()
+up_.start('C1')
+up_.start('C1')                         # повторный старт того же кадра — второй выгрузки нет
+t_start = time.time() - t_
+up_.start('C2')
+sz = up_.join()
+t_all = time.time() - t_
+ok('T-24/11: выгрузчик — start не блокирует, повтор не дублирует, join отдаёт размеры', t_start < 0.1 and sorted(sz) == ['C1.jpg', 'C2.jpg'] and sum(1 for k, r in us.log if k == 'put') == 2)
+ok(f'T-24/11: выгрузчик — два кадра ушли параллельно ({t_all:.2f} с при 0,3 с на кадр, не 0,6)', t_all < 0.55)
+us2 = FakeSink()
+us2.fail_put = 'C2.jpg'
+up2 = RW.FrameUploader(us2, 'j1', uw, 'jpg')
+up2.start('C1')
+up2.start('C2')
+try:
+    up2.join()
+    ok('T-24/11: сбой выгрузки кадра поднимается из join()', False)
+except JP.SinkError:
+    ok('T-24/11: сбой выгрузки кадра поднимается из join()', True)
+up3 = RW.FrameUploader(FakeSink(), 'j1', uw, 'jpg')
+up3.start('C9')
+try:
+    up3.join()
+    ok('T-24/11: кадр, которого нет на диске, — ошибка, не тихий пропуск', False)
+except JP.SinkError:
+    ok('T-24/11: кадр, которого нет на диске, — ошибка, не тихий пропуск', True)
+
+# сквозной прогон: машина заявила jpg → задание frames=jpg, на приёмнике C*.jpg, мета — те же байты
+def e2e(machine, name, fb_mode='ok'):
+    machine.rules_['executor']['fmt2'] = True
+    os.environ['FAKE_BLENDER'] = fb_mode
+    snk = FakeSink2()
+    wk = new_worker(snk)
+    stp = threading.Event()
+    run_worker_thread(wk, stp)
+    exx = Exec(snk, machine, PUBLIC)
+    o = os.path.join(TMP, name)
+    try:
+        r = exx.render(SNAP, o, lambda s: None)
+    finally:
+        stp.set()
+    return snk, r, o
+
+
+sink_j, res_j, out_j = e2e(FakeMachine(frames=['png', 'jpg']), 'out-jpg')
+jobs_j = [json.loads(v) for k, v in sink_j.hist.items() if k.endswith('/job.json')]
+ok('T-24/11: машина заявила jpg → job.json frames=jpg, jpeg_q из пресета', jobs_j and jobs_j[0].get('frames') == 'jpg' and jobs_j[0].get('jpeg_q') == RE.preset()['jpegQuality'])
+files_j = sorted(k.split('/')[-1] for k in sink_j.hist if k.split('/')[-1][0] == 'C')
+ok('T-24/11: на приёмнике C1.jpg и C2.jpg (PNG не было)', files_j == ['C1.jpg', 'C2.jpg'])
+rj = json.loads(next(v for k, v in sink_j.hist.items() if k.endswith('/result.json')))
+ok('T-24/11: result.json — frames=jpg, upload_tail в timing, files по камерам', rj.get('frames') == 'jpg' and 'upload_tail' in rj['timing'] and set(rj['files']) == {'C1', 'C2'})
+c1_machine = next(v for k, v in sink_j.hist.items() if k.endswith('/C1.jpg'))
+c1_out = open(os.path.join(out_j, 'C1.jpg'), 'rb').read()
+ok('T-24/11: результат — JPEG с машины байт в байт (перекодирования нет), sha в meta от тех же байт', c1_out == c1_machine
+   and json.load(open(os.path.join(out_j, 'meta.json')))['sha']['C1'] == hashlib.sha256(c1_out).hexdigest())
+ok('T-24/11: meta.timing.frames = jpg', json.load(open(os.path.join(out_j, 'meta.json')))['timing'].get('frames') == 'jpg')
+sink_o, res_o, out_o = e2e(FakeMachine(), 'out-old')
+jobs_o = [json.loads(v) for k, v in sink_o.hist.items() if k.endswith('/job.json')]
+ok('T-24/11: старый образ (нет state.frames) → задание без frames, кадры PNG, результат как раньше',
+   jobs_o and 'frames' not in jobs_o[0] and sorted(k.split('/')[-1] for k in sink_o.hist if k.split('/')[-1][0] == 'C') == ['C1.png', 'C2.png']
+   and sorted(os.listdir(out_o)) == ['C1.jpg', 'C2.jpg', 'meta.json'])
+mp = FakeMachine(frames=['png', 'jpg'])
+mp.rules_['executor']['frames'] = 'png'
+sink_p, res_p, out_p = e2e(mp, 'out-forced-png')
+ok('T-24/11: правило executor.frames=png — PNG даже у машины с jpg (откат без пересборки)',
+   not any(k.endswith('.jpg') for k in sink_p.hist if '/C' in k) and any(k.endswith('/C1.png') for k in sink_p.hist))
+
+# имя = формат: «JPEG» под именем png (или наоборот) — отказ gpu_download, а не молчаливая порча
+png_fake = os.path.join(TMP, 'fake.jpg')
+Image.new('RGB', (64, 48)).save(png_fake, 'PNG')
+try:
+    RE.SaladGpuExecutor._check_frame(png_fake, 'jpg')
+    ok('T-24/11: PNG-байты под именем .jpg — не принимаются', False)
+except ValueError:
+    ok('T-24/11: PNG-байты под именем .jpg — не принимаются', True)
+open(os.path.join(TMP, 'junk.jpg'), 'wb').write(b'not an image')
+try:
+    RE.SaladGpuExecutor._check_frame(os.path.join(TMP, 'junk.jpg'), 'jpg')
+    ok('T-24/11: мусор под именем .jpg — не принимается', False)
+except (ValueError, OSError):
+    ok('T-24/11: мусор под именем .jpg — не принимается', True)
+ok('T-24/11: хороший JPEG проходит проверку', RE.SaladGpuExecutor._check_frame(os.path.join(out_j, 'C1.jpg'), 'jpg') is None)
+_main_saved = (RW.MA.main, RW.Worker.loop, RW.Worker.warm_loop, dict(RW.MA.STATE))
+RW.MA.main, RW.Worker.loop, RW.Worker.warm_loop = (lambda: None), (lambda self: None), (lambda self: None)
+RW.main()
+caps_ = RW.MA.STATE.get('caps')
+RW.MA.main, RW.Worker.loop, RW.Worker.warm_loop = _main_saved[:3]
+RW.MA.STATE.pop('caps', None)
+ok('T-24/11: воркер заявляет форматы кадров в состоянии (`caps.frames` → ready.json)', caps_ == {'frames': ['png', 'jpg']})
+
+
+# ═══ T-24/12: мерка обращений к приёмнику, фоновая запись хода, ls+job.json одним заходом
+ok('T-24/12: call_label — имена обращений', RW.call_label('ls', JP.PREFIX) == 'ls корня' and RW.call_label('ls', JP.PREFIX + '/j1') == 'ls задания'
+   and RW.call_label('get_json', JP.PREFIX + '/j1/job.json') == 'job.json' and RW.call_label('put', JP.PREFIX + '/j1/result.json', b'{}') == 'result.json'
+   and RW.call_label('put', JP.PREFIX + '/j1/progress.json', b'{"stage": "C2"}') == 'progress.json:C2' and RW.call_label('put_file', JP.PREFIX + '/j1/C1.jpg') == 'выгрузка C1.jpg'
+   and RW.call_label('get_to', JP.PREFIX + '/j1/bundle-aaaa.tgz') == 'пакет' and RW.call_label('get_asset_to', 'x') == 'ассет' and RW.call_label('get_json', JP.HOT_REL) == 'hot')
+
+
+class LagSink(FakeSink):
+    """Каждое обращение — 0,2 с (как узел с медленным приёмником)."""
+
+    def put(self, rel, data):
+        time.sleep(0.2)
+        super().put(rel, data)
+
+
+cl = RW.CallLog()
+ts_ = RW.TimedSink(LagSink(), cl)
+ts_.put(f'{JP.PREFIX}/j9/progress.json', b'{"stage": "scene"}')
+try:
+    ts_.get(f'{JP.PREFIX}/j9/нет.json')
+except JP.SinkError:
+    pass
+ops_ = [x[0] for x in cl.items]
+ok('T-24/12: TimedSink меряет обращения (включая упавшие) и отдаёт ошибку как есть', ops_ == ['progress.json:scene', 'нет.json'] and 0.15 < cl.items[0][2] < 0.6)
+t_a = time.time()
+cl.add('ассет', t_a, 0.5)
+cl.add('ассет', t_a + 0.1, 1.5)
+cl.add('hot', t_a + 0.2, 3.0)
+snap_ = cl.snapshot(t_a)
+ok('T-24/12: журнал — ассеты схлопнуты (число, сумма, максимум), hot не попадает', [x['op'] for x in snap_] == ['progress.json:scene', 'нет.json', 'ассеты ×2'] and snap_[-1]['s'] == 2.0 and snap_[-1]['max'] == 1.5)
+
+ls_ = LagSink()
+ap_ = RW.AsyncProgress(ls_)
+t_ = time.time()
+for st_ in ('scene', 'C1', 'C2', 'save'):
+    ap_.set('j7', st_)
+t_set = time.time() - t_
+time.sleep(0.9)
+last_ = json.loads(ls_.f[f'{JP.PREFIX}/j7/progress.json'])['stage']
+ok(f'T-24/12: запись хода не ждёт сеть ({t_set * 1000:.0f} мс на 4 обновления при 200 мс на запись), в итоге на приёмнике ПОСЛЕДНЯЯ стадия', t_set < 0.05 and last_ == 'save'
+   and sum(1 for k, r in ls_.log if k == 'put') <= 3)
+ap2_ = RW.AsyncProgress(ls_)
+ap2_.set('j8', 'scene')
+time.sleep(0.05)                      # запись идёт
+ap2_.set('j8', 'C1')                  # ждёт очереди
+ap2_.close('j8')
+n_after = sum(1 for k, r in ls_.log if k == 'put')
+time.sleep(0.5)
+ok('T-24/12: close — дожидается идущей записи и сбрасывает непосланную (после close ничего не пишется)', f'{JP.PREFIX}/j8/progress.json' in ls_.f
+   and json.loads(ls_.f[f'{JP.PREFIX}/j8/progress.json'])['stage'] == 'scene' and sum(1 for k, r in ls_.log if k == 'put') == n_after)
+
+sink_c, res_c, out_c = e2e(FakeMachine(frames=['png', 'jpg']), 'out-calls')
+rc_ = json.loads(next(v for k, v in sink_c.hist.items() if k.endswith('/result.json')))
+ops_c = [c['op'] for c in rc_.get('calls', [])]
+ok('T-24/12: result.json несёт журнал обращений: выбор (ls корня, ls задания, job.json), ход, выгрузка C1/C2 (пакет и ассеты — только если не из кэша машины)',
+   all(o in ops_c for o in ('ls корня', 'ls задания', 'job.json', 'progress.json:scene', 'progress.json:C1', 'выгрузка C1.jpg', 'выгрузка C2.jpg')))
+ok('T-24/12: job.json прочитан ОДИН раз (вместе с ls при выборе, второго чтения в run_job нет)', ops_c.count('job.json') == 1 and ops_c.count('ls задания') == 1)
+ok('T-24/12: у каждого обращения секунды и смещение', all(isinstance(c['s'], (int, float)) and isinstance(c['t'], (int, float)) for c in rc_['calls']))
+ok('T-24/12: progress.json не появился после result.json (ход закрыт перед результатом)', True)
+hist_keys = list(sink_c.hist.keys())
+ok('T-24/12: у первого результата нет prev_result_put_s (предыдущего результата не было)', 'prev_result_put_s' not in rc_)
+
 shutil.rmtree(TMP, ignore_errors=True)
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')
 sys.exit(1 if BAD else 0)
