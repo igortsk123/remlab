@@ -748,6 +748,14 @@ class _ViewGuard:
                 self.log['views'] = [{k2: v for k2, v in r.items() if k2 in ('view', 'judged', 'frac', 'inside_px', 'reason')}
                                      for r in res]
                 self.bad = {r['view'] for r in res if r['empty']}
+                # MR — та же стадия сети для тех же ракурсов: вид, пустой в MR (14861 на пробе 18.11: альбедо — бледное, не
+                # пустое, MR — серый фон), провален целиком — выбрасываем из обоих bake (иначе MR верха остаётся 0,5/0,5)
+                mrv = (out or {}).get('mr') or []
+                if mrv and len(mrv) == len(alb):
+                    mres = VG.judge_views(mrv, list(conditions or [])[:half])
+                    self.log['bad_mr'] = sorted(r['view'] for r in mres if r['empty'])
+                    self.bad |= set(self.log['bad_mr'])
+                self.log['bad_albedo'] = sorted(r['view'] for r in res if r['empty'])
                 self.log['bad'] = sorted(self.bad)
             except Exception as e:  # noqa: BLE001 — сторож вторичен: покраска важнее
                 self.bad = set()

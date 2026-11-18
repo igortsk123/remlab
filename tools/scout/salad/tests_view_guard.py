@@ -39,7 +39,7 @@ FAKES['textureGenPipeline.py'] = '''
     import numpy as np, trimesh
     from PIL import Image
     BAKES = []
-    MODE = {'empty': [1], 'nconds': None}
+    MODE = {'empty': [1], 'mr_empty': [], 'nconds': None}
     class Hunyuan3DPaintConfig:
         def __init__(self, *a):
             pass
@@ -56,7 +56,7 @@ FAKES['textureGenPipeline.py'] = '''
         def __call__(self, images, conditions, prompt=None, custom_view_size=None, resize_input=False):
             n = len(conditions) // 2
             return {'albedo': [_view(i in MODE['empty']) for i in range(n)],
-                    'mr': [Image.new('RGB', (64, 64), (0, 128, 255)) for _ in range(n)]}
+                    'mr': [_view(True) if i in MODE['mr_empty'] else Image.new('RGB', (64, 64), (0, 128, 255)) for i in range(n)]}
     class _SR:
         def __call__(self, img):
             return img.resize((256, 256))
@@ -146,8 +146,17 @@ def main() -> int:
         r = VG.judge(Image.fromarray(sh), cond(box))
         ok('детектор: затенённый серый предмет — не пустой', r['judged'] and not r['empty'], r)
         r = VG.judge(view(205, (0, 128, 0, 128), body=205), cond((0, 128, 6, 122)))
-        ok('детектор: кадр залит светлым корпусом (фон не серый) — не судим, не пустой',
-           not r['judged'] and not r['empty'] and r.get('reason') == 'фон не серый' or not r['judged'], r)
+        ok('детектор: кадр залит светлым корпусом (фон не серый) — не пустой (эталон пустоты — серый 128)',
+           not r['empty'], r)
+        dk = np.full((128, 128, 3), 30, np.uint8)                         # 617634: вокруг тёмные пятна, крышка внутри пуста
+        dk[20:100, 24:104] = 128
+        dk[20, 24:104] = 235
+        r = VG.judge(Image.fromarray(dk), cond(box))
+        ok('детектор: вокруг НЕ серый фон, внутри пустой серый 128 — пустой вид (617634)',
+           r['judged'] and r['empty'] and r.get('bg_other') == [30, 30, 30], r)
+        dk[20:100, 24:104] = 28                                           # чёрный предмет на чёрном — не пустой
+        r = VG.judge(Image.fromarray(dk), cond(box))
+        ok('детектор: чёрный вид (внутри 28, снаружи 30) — не пустой', not r['empty'], r)
         r = VG.judge(view(128, (0, 128, 0, 128), body=128), cond((0, 128, 0, 128)))
         ok('детектор: силуэт на весь кадр (фон не измерить) — не судим', not r['judged'] and not r['empty'], r)
         r = VG.judge(view(128, box), cond((60, 64, 60, 64)))
@@ -162,9 +171,9 @@ def main() -> int:
         shape = os.path.join(tmp, 'prev-shape.glb')
         trimesh.creation.box(extents=(0.4, 0.9, 0.3)).export(shape)
 
-        def run(name, params, empty=(1,), nconds=None):
+        def run(name, params, empty=(1,), nconds=None, mr_empty=()):
             TG.BAKES.clear()
-            TG.MODE['empty'], TG.MODE['nconds'] = list(empty), nconds
+            TG.MODE['empty'], TG.MODE['nconds'], TG.MODE['mr_empty'] = list(empty), nconds, list(mr_empty)
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
                 res = P.generate(img, os.path.join(tmp, name), params=params, paint_image=img, shape_glb=shape)
@@ -184,6 +193,17 @@ def main() -> int:
            len(lines) == 1 and 'ОТБРОШЕН' in lines[0] and 'вид 1' in lines[0], out)
         ok('после задания перехваты сняты: сеть видов и bake — апстримные',
            type(pipe.models['multiview_model']).__name__ == '_MV' and 'bake_from_multiview' not in pipe.view_processor.__dict__)
+
+        # 2б: вид пуст только в MR (14861, проба 18.11) — выброшен из обоих bake; пуст в альбедо — тоже; в журнале раздельно
+        res, bakes, out, pipe = run('mr_empty', {}, empty=(), mr_empty=(1,))
+        vg = res.get('view_guard') or {}
+        ok('пустой только в MR: оба bake без вида 1, в журнале bad_mr=[1], bad_albedo=[]',
+           len(bakes) == 2 and all(b['n'] == 2 and b['elevs'] == [0, 0] for b in bakes)
+           and vg.get('bad') == [1] and vg.get('bad_mr') == [1] and vg.get('bad_albedo') == [], (bakes, vg))
+        res, bakes, out, pipe = run('both_empty', {}, empty=(1,), mr_empty=(2,))
+        vg = res.get('view_guard') or {}
+        ok('пустые в разных наборах (альбедо 1, MR 2): выброшены оба вида, остался один',
+           all(b['n'] == 1 for b in bakes) and vg.get('bad') == [1, 2] and vg.get('bad_albedo') == [1] and vg.get('bad_mr') == [2], (bakes, vg))
 
         # 3: пустых нет / выключен
         res, bakes, out, pipe = run('full', {}, empty=())
