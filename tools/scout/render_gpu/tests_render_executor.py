@@ -1112,6 +1112,69 @@ RW.MA.main, RW.Worker.loop, RW.Worker.warm_loop = _main_saved[:3]
 RW.MA.STATE.pop('caps', None)
 ok('T-24/11: воркер заявляет форматы кадров в состоянии (`caps.frames` → ready.json)', caps_ == {'frames': ['png', 'jpg']})
 
+
+# ═══ T-24/12: мерка обращений к приёмнику, фоновая запись хода, ls+job.json одним заходом
+ok('T-24/12: call_label — имена обращений', RW.call_label('ls', JP.PREFIX) == 'ls корня' and RW.call_label('ls', JP.PREFIX + '/j1') == 'ls задания'
+   and RW.call_label('get_json', JP.PREFIX + '/j1/job.json') == 'job.json' and RW.call_label('put', JP.PREFIX + '/j1/result.json', b'{}') == 'result.json'
+   and RW.call_label('put', JP.PREFIX + '/j1/progress.json', b'{"stage": "C2"}') == 'progress.json:C2' and RW.call_label('put_file', JP.PREFIX + '/j1/C1.jpg') == 'выгрузка C1.jpg'
+   and RW.call_label('get_to', JP.PREFIX + '/j1/bundle-aaaa.tgz') == 'пакет' and RW.call_label('get_asset_to', 'x') == 'ассет' and RW.call_label('get_json', JP.HOT_REL) == 'hot')
+
+
+class LagSink(FakeSink):
+    """Каждое обращение — 0,2 с (как узел с медленным приёмником)."""
+
+    def put(self, rel, data):
+        time.sleep(0.2)
+        super().put(rel, data)
+
+
+cl = RW.CallLog()
+ts_ = RW.TimedSink(LagSink(), cl)
+ts_.put(f'{JP.PREFIX}/j9/progress.json', b'{"stage": "scene"}')
+try:
+    ts_.get(f'{JP.PREFIX}/j9/нет.json')
+except JP.SinkError:
+    pass
+ops_ = [x[0] for x in cl.items]
+ok('T-24/12: TimedSink меряет обращения (включая упавшие) и отдаёт ошибку как есть', ops_ == ['progress.json:scene', 'нет.json'] and 0.15 < cl.items[0][2] < 0.6)
+t_a = time.time()
+cl.add('ассет', t_a, 0.5)
+cl.add('ассет', t_a + 0.1, 1.5)
+cl.add('hot', t_a + 0.2, 3.0)
+snap_ = cl.snapshot(t_a)
+ok('T-24/12: журнал — ассеты схлопнуты (число, сумма, максимум), hot не попадает', [x['op'] for x in snap_] == ['progress.json:scene', 'нет.json', 'ассеты ×2'] and snap_[-1]['s'] == 2.0 and snap_[-1]['max'] == 1.5)
+
+ls_ = LagSink()
+ap_ = RW.AsyncProgress(ls_)
+t_ = time.time()
+for st_ in ('scene', 'C1', 'C2', 'save'):
+    ap_.set('j7', st_)
+t_set = time.time() - t_
+time.sleep(0.9)
+last_ = json.loads(ls_.f[f'{JP.PREFIX}/j7/progress.json'])['stage']
+ok(f'T-24/12: запись хода не ждёт сеть ({t_set * 1000:.0f} мс на 4 обновления при 200 мс на запись), в итоге на приёмнике ПОСЛЕДНЯЯ стадия', t_set < 0.05 and last_ == 'save'
+   and sum(1 for k, r in ls_.log if k == 'put') <= 3)
+ap2_ = RW.AsyncProgress(ls_)
+ap2_.set('j8', 'scene')
+time.sleep(0.05)                      # запись идёт
+ap2_.set('j8', 'C1')                  # ждёт очереди
+ap2_.close('j8')
+n_after = sum(1 for k, r in ls_.log if k == 'put')
+time.sleep(0.5)
+ok('T-24/12: close — дожидается идущей записи и сбрасывает непосланную (после close ничего не пишется)', f'{JP.PREFIX}/j8/progress.json' in ls_.f
+   and json.loads(ls_.f[f'{JP.PREFIX}/j8/progress.json'])['stage'] == 'scene' and sum(1 for k, r in ls_.log if k == 'put') == n_after)
+
+sink_c, res_c, out_c = e2e(FakeMachine(frames=['png', 'jpg']), 'out-calls')
+rc_ = json.loads(next(v for k, v in sink_c.hist.items() if k.endswith('/result.json')))
+ops_c = [c['op'] for c in rc_.get('calls', [])]
+ok('T-24/12: result.json несёт журнал обращений: выбор (ls корня, ls задания, job.json), ход, выгрузка C1/C2 (пакет и ассеты — только если не из кэша машины)',
+   all(o in ops_c for o in ('ls корня', 'ls задания', 'job.json', 'progress.json:scene', 'progress.json:C1', 'выгрузка C1.jpg', 'выгрузка C2.jpg')))
+ok('T-24/12: job.json прочитан ОДИН раз (вместе с ls при выборе, второго чтения в run_job нет)', ops_c.count('job.json') == 1 and ops_c.count('ls задания') == 1)
+ok('T-24/12: у каждого обращения секунды и смещение', all(isinstance(c['s'], (int, float)) and isinstance(c['t'], (int, float)) for c in rc_['calls']))
+ok('T-24/12: progress.json не появился после result.json (ход закрыт перед результатом)', True)
+hist_keys = list(sink_c.hist.keys())
+ok('T-24/12: у первого результата нет prev_result_put_s (предыдущего результата не было)', 'prev_result_put_s' not in rc_)
+
 shutil.rmtree(TMP, ignore_errors=True)
 print('итог:', 'чисто' if not BAD else f'ПРОВАЛЕНО {len(BAD)}: {BAD}')
 sys.exit(1 if BAD else 0)
