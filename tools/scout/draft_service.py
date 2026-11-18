@@ -182,7 +182,7 @@ RENDER_DIR = os.environ.get('RENDER_DIR') or os.path.join(os.path.dirname(DR.FRA
 DEMO_DATA_FILE = os.environ.get('DEMO_DATA_FILE') or os.path.expanduser('~/scout-scenes/flat215-demo/demo-data.json')
 _KEY_RE = re.compile(r'^[0-9a-f]{32}$')
 CY_FRAME_URL = re.compile(r'^/render/cycles/frame/([0-9a-f]{32})/(C[12])\.jpg$')
-CY_UNAVAILABLE = {'error': 'Рендер сейчас недоступен. Попробуйте позже.', 'error_en': 'Rendering is unavailable right now. Try again later.',
+CY_UNAVAILABLE = {'error': 'Снимок сейчас недоступен. Попробуйте позже.', 'error_en': 'The photo is unavailable right now. Try again later.',
                   'code': 'render_unavailable'}
 
 

@@ -256,7 +256,8 @@ describe("peekShotRecs — кадры заготовки из ответа check
     expect(fn).toContain("'/api/render/cycles'");
     expect(fn).toContain("!SHOTS_LOADED");
     expect(fn).toContain("v.mine||v.cid");
-    expect(fn).toContain("st!==pubStateOf(v)||vwRealShots().length");
+    expect(fn).toContain("if(vwRealShots().length)return;");     // и правленая расстановка (T-20261118-20/14/1): check бесплатный, заказа не ставит
+    expect(fn).not.toContain("st!==pubStateOf(v)");
     expect(fn).toContain("check:true");
     expect(fn).toContain("curVid()!==vid||curStateId()!==st");
     expect(src).toContain("setTimeout(vwPeekCached,0)");
@@ -266,10 +267,10 @@ describe("peekShotRecs — кадры заготовки из ответа check
   // ЧЕСТНАЯ СТРОКА ПРО МАШИНУ (T-20261118-20/13/2): кадра нет — сервер в `check` отдаёт состояние машины; прогревается / запасной путь — текст сервера (RU/EN) под «Сделать фото», готова — строки нет
   const peekMachineNote = new Function("LANG", `${src.slice(src.indexOf("function peekMachineNote("), src.indexOf("async function vwPeekCached("))};return peekMachineNote;`) as (l: string) => (m: unknown) => string;
   it("peekMachineNote: warming/fallback — текст сервера на языке страницы; ready, пусто, чужое — ''", () => {
-    const m = { state: "fallback", text: "Машина рендера выключена. Считаем на запасной — будет дольше.", text_en: "The render machine is off. Using the backup — it will take longer.", eta_s: 0 };
+    const m = { state: "fallback", text: "Снимок будет готов через ≈2 мин. Подождите, пожалуйста.", text_en: "Your photo will be ready in about 2 min. Please wait.", eta_s: 0 };
     expect(peekMachineNote("ru")(m)).toBe(m.text);
     expect(peekMachineNote("en")(m)).toBe(m.text_en);
-    expect(peekMachineNote("ru")({ state: "warming", text: "Машина рендера прогревается, ≈3 мин.", text_en: "x" })).toBe("Машина рендера прогревается, ≈3 мин.");
+    expect(peekMachineNote("ru")({ state: "warming", text: "Первое создание снимка займёт ≈3 мин, далее ≈25 сек. Подождите, пожалуйста.", text_en: "x" })).toBe("Первое создание снимка займёт ≈3 мин, далее ≈25 сек. Подождите, пожалуйста.");
     expect(peekMachineNote("ru")({ state: "ready", text: "", text_en: "" })).toBe("");
     expect(peekMachineNote("ru")(null)).toBe("");
     expect(peekMachineNote("ru")({ state: "fallback", text: 5 })).toBe("");

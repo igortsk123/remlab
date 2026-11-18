@@ -41,6 +41,28 @@ WARM_SUFFIX = ':warm'                                                # заме�
 LEGACY_EX = 'local-cpu'                                              # замеры до учёта исполнителя были процессорные
 
 
+# ТЕКСТЫ ОЖИДАНИЯ СНИМКА ДЛЯ ЧЕЛОВЕКА (владелец 18.11, TG 1892/1893): про снимок, не про машину — без слов «машина», «рендер», «запасной». Числа в
+# них не из кода: «≈N» — из уже считаемого срока (eta сервера / замеры исполнителя), «далее ≈S сек» — из правил (`render_machine.executor.photo_next_s`).
+def wait_text(secs: float) -> tuple:
+    """(RU, EN) «Снимок будет готов через ≈N …»: до 90 с — секундами (шаг 5), дальше — минутами."""
+    s = max(0.0, float(secs or 0))
+    if s < 90:
+        n = max(10, int(round(s / 5.0)) * 5)
+        ru, en = f'≈{n} сек', f'about {n} sec'
+    else:
+        n = max(2, int(-(-s // 60)))
+        ru, en = f'≈{n} мин', f'about {n} min'
+    return (f'Снимок будет готов через {ru}. Подождите, пожалуйста.', f'Your photo will be ready in {en}. Please wait.')
+
+
+def first_text(first_s: float, next_s: float) -> tuple:
+    """(RU, EN) первый снимок после включения: «Первое создание снимка займёт ≈N мин, далее ≈S сек. Подождите, пожалуйста.» (образец владельца)."""
+    n = max(1, int(-(-float(first_s) // 60)))
+    k = max(5, int(round(float(next_s) / 5.0)) * 5)
+    return (f'Первое создание снимка займёт ≈{n} мин, далее ≈{k} сек. Подождите, пожалуйста.',
+            f'The first photo will take about {n} min, then about {k} sec. Please wait.')
+
+
 def _env_i(name: str, default: int) -> int:
     try:
         return max(0, int(os.environ.get(name, default)))
@@ -227,12 +249,20 @@ class RenderQueue:
         """Состояние машины рендера для страницы `{state: warming|ready|off|fallback, text, text_en, eta_s}` (тексты RU/EN — от сервера, T-20261118-10/7). У задания, что ушло на запасной,
         — отметка причины (`j['machine']`, пока считается там), иначе — живое состояние исполнителя. Исполнитель без машины — None (поле не отдаём)."""
         if j and j.get('machine'):
-            return j['machine']
+            return self._fill(j['machine'])
         f = getattr(self.executor, 'machine_info', None)
         try:
-            return f() if callable(f) else None
+            return self._fill(f()) if callable(f) else None
         except Exception:  # noqa: BLE001 — состояние машины не знаем: поле не отдаём, заказ от этого не страдает
             return None
+
+    def _fill(self, mi: dict | None) -> dict | None:
+        """Запасной путь: срок в тексте — из замеров запасного исполнителя (у исполнителя машины их нет): «Снимок будет готов через ≈N мин. Подождите, пожалуйста.»"""
+        if mi and mi.get('state') == 'fallback':
+            s = self.avg_sec(LEGACY_EX)
+            ru, en = wait_text(s)
+            return {**mi, 'text': ru, 'text_en': en, 'eta_s': int(s)}
+        return mi
 
     def durs_of(self, name: str) -> list:
         st = self.store
@@ -766,7 +796,7 @@ def _selftest() -> int:
         class Wk(Fake):
             name = 'fb'
             woke = 0
-            info = {'state': 'warming', 'text': 'Машина рендера прогревается, ≈3 мин.', 'text_en': 'The render machine is warming up, about 3 min.', 'eta_s': 150}
+            info = {'state': 'warming', 'text': 'Первое создание снимка займёт ≈3 мин, далее ≈25 сек. Подождите, пожалуйста.', 'text_en': 'The first photo will take about 3 min, then about 25 sec. Please wait.', 'eta_s': 150}
             ww = (150, 100, 300)
 
             def expected(self):
@@ -798,8 +828,9 @@ def _selftest() -> int:
         Wk.ww = (0, 0, 0)
         Wk.info = {'state': 'ready', 'text': '', 'text_en': '', 'eta_s': 0}
         ok(q9.view(j9['job'])['eta'] == 26 and q9.view(j9['job'])['machine']['state'] == 'ready', 'машина прогрета — срок без прогрева, state ready')
-        st9.jobs[j9['job']]['machine'] = {'state': 'fallback', 'text': 'Считаем на запасной — будет дольше.', 'text_en': 'Using the backup — it will take longer.', 'eta_s': 0}
-        ok(q9.view(j9['job'])['machine']['state'] == 'fallback', 'у задания, что ушло на запасной, — причина (RU/EN) вместо живого состояния')
+        st9.jobs[j9['job']]['machine'] = {'state': 'fallback', 'text': 'x', 'text_en': 'x', 'eta_s': 0}
+        m9 = q9.view(j9['job'])['machine']
+        ok(m9['state'] == 'fallback' and m9['text'].startswith('Снимок будет готов через ≈') and m9['text_en'].startswith('Your photo will be ready in about'), 'у задания, что ушло на запасной, — «Снимок будет готов через ≈N …» RU/EN (срок из замеров запасного), без слов про машину')
         # замер: заготовка — отдельно; ожидание прогрева — не в срок заказа
         class Wd(Fake):
             name = 'fb'

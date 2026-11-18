@@ -600,6 +600,13 @@ class SceneExecutor:
         ex = ((rules if rules is not None else self.machine().rules()).get('executor')) or {}
         return bool(ex.get('wake_on_order')), float(ex.get('wake_max_s', WAKE_MAX_S)), float(ex.get('wake_typical_s', WAKE_TYPICAL_S))
 
+    def photo_next_s(self) -> float:
+        """Сколько занимает следующий снимок на прогретой машине (правила `render_machine.executor.photo_next_s`, замер 18.11 ≈25 с) — для «далее ≈S сек»."""
+        try:
+            return float(((self.machine().rules().get('executor')) or {}).get('photo_next_s') or PHOTO_NEXT_S)
+        except (TypeError, ValueError):
+            return PHOTO_NEXT_S
+
     def wake_phase(self) -> str:
         """Что с машиной сейчас, по данным контроллера: `ready` (годна), `warming` (включена, прогревается), `off_wakeable` (выключена — заказ её включит), `cap` (выключена, дневной предел
         исчерпан), `disabled` (выключена, включение по заказу выключено правилом), `degraded` (не отвечает / деградация — запасной). Чистое чтение, Salad не трогает."""
@@ -668,16 +675,14 @@ class SceneExecutor:
             return {'state': 'ready', 'text': '', 'text_en': '', 'eta_s': 0}
         if phase in ('warming', 'off_wakeable'):
             eta = self.wake_wait()[0]
-            n = max(1, -(-int(eta) // 60))
+            import render_jobs as RJ
             if eta <= 30:
-                return {'state': 'warming', 'text': 'Машина рендера почти прогрелась.', 'text_en': 'The render machine is almost warmed up.', 'eta_s': int(eta)}
-            return {'state': 'warming', 'text': f'Машина рендера прогревается, ≈{n} мин.', 'text_en': f'The render machine is warming up, about {n} min.', 'eta_s': int(eta)}
-        if phase == 'disabled':
-            _, why = JP_verdict(self)
-            code, ru, en = GATE_TEXT.get(why, GATE_TEXT['degraded'])
-        else:
-            code, ru, en = WAKE_TEXT['cap'] if phase == 'cap' else GATE_TEXT['degraded']
-        return {'state': 'fallback', 'text': ru, 'text_en': en, 'eta_s': 0}
+                ru, en = RJ.wait_text(eta)                 # почти готова: «Снимок будет готов через ≈N сек.»
+            else:                                          # «Первое создание снимка займёт ≈N мин, далее ≈S сек.» (образец владельца TG 1892; S — из правил `photo_next_s`)
+                ru, en = RJ.first_text(eta, self.photo_next_s())
+            return {'state': 'warming', 'text': ru, 'text_en': en, 'eta_s': int(eta)}
+        # запасной путь: текст и срок («Снимок будет готов через ≈N мин…») подставляет очередь по замерам запасного исполнителя (`RenderQueue._fill`); причина — в журнале и коде
+        return {'state': 'fallback', 'text': '', 'text_en': '', 'eta_s': 0}
 
     def _gate_or_wake(self) -> tuple:
         """→ (правила, готова ли машина сейчас). Не годна, но заказ может её дождаться — включаем (выключена) и ждём прогрева после подготовки сцены; иначе `ExecutorUnavailable`."""
@@ -1175,7 +1180,7 @@ class LocalCpuExecutor(SceneExecutor):
         pr = preset()
         lim = pr['limits']
         if not os.path.isfile(self.blender):
-            raise ExecutorUnavailable('render_unavailable', 'Рендер сейчас недоступен. Попробуйте позже.', 'Rendering is unavailable right now. Try again later.')
+            raise ExecutorUnavailable('render_unavailable', 'Снимок сейчас недоступен. Попробуйте позже.', 'The photo is unavailable right now. Try again later.')
         sys.path.insert(0, os.path.join(REPO, 'tools', 'ops'))
         import heavy_slot as HS
         job = self._job_dir('job-', snap)
@@ -1253,27 +1258,26 @@ class LocalMachine:
         self.RM.set_note(text)
 
 
-# причина «машина не годна» → (код, RU, EN): текст — владельцу на странице («честное ожидание на запасной», без «ошибки»)
+# причина «машина не годна» → (код, RU, EN). Текст для человека — про снимок, без слов «машина/рендер/запасной» (владелец 18.11, TG 1892); причина — в КОДЕ и журнале.
+# Пока заказ считается на запасном, надпись ожидания строит очередь (`RenderQueue._fill`: «Снимок будет готов через ≈N мин…»); эти тексты видны, только если запасного нет (отказ заказа)
+NO_PHOTO = ('Снимок сейчас сделать не получается. Попробуйте чуть позже.',
+            'The photo cannot be made right now. Please try again a little later.')
 GATE_TEXT = {
-    'off': ('gpu_off', 'Машина рендера выключена. Считаем на запасной — будет дольше.', 'The render machine is off. Using the backup — it will take longer.'),
-    'warming': ('gpu_warming', 'Машина рендера ещё прогревается. Считаем на запасной — будет дольше.',
-                'The render machine is still warming up. Using the backup — it will take longer.'),
-    'degraded': ('gpu_degraded', 'Машина рендера не отвечает. Считаем на запасной — будет дольше.', 'The render machine is not responding. Using the backup — it will take longer.'),
-    'controller_silent': ('gpu_degraded', 'Машина рендера не отвечает. Считаем на запасной — будет дольше.',
-                          'The render machine is not responding. Using the backup — it will take longer.'),
+    'off': ('gpu_off',) + NO_PHOTO,
+    'warming': ('gpu_warming',) + NO_PHOTO,
+    'degraded': ('gpu_degraded',) + NO_PHOTO,
+    'controller_silent': ('gpu_degraded',) + NO_PHOTO,
 }
-# отказ включить/дождаться машину по заказу человека → (код, RU, EN): честная надпись «считаем на запасной» (T-20261118-10/7)
+# отказ включить/дождаться машину по заказу человека → (код, RU, EN) (T-20261118-10/7)
 WAKE_TEXT = {
-    'cap': ('gpu_day_cap', 'Дневной лимит машины рендера исчерпан. Считаем на запасной — будет дольше.',
-            'The render machine daily limit is used up. Using the backup — it will take longer.'),
-    'wake_failed': ('gpu_wake_failed', 'Машина рендера не включилась. Считаем на запасной — будет дольше.',
-                    'The render machine did not start. Using the backup — it will take longer.'),
-    'warm_timeout': ('gpu_warm_timeout', 'Машина рендера прогревается слишком долго. Считаем на запасной — будет дольше.',
-                     'The render machine is taking too long to warm up. Using the backup — it will take longer.'),
+    'cap': ('gpu_day_cap',) + NO_PHOTO,
+    'wake_failed': ('gpu_wake_failed',) + NO_PHOTO,
+    'warm_timeout': ('gpu_warm_timeout',) + NO_PHOTO,
 }
+PHOTO_NEXT_S = 25.0                              # запас, если в правилах нет `photo_next_s` (источник — правила)
 WAKE_MAX_S, WAKE_TYPICAL_S = 360.0, 180.0      # потолок ожидания прогрева заказом и типичный прогрев (замеры 18.11: 2,1 и 6,4 мин); настройка — `render_machine.executor.wake_max_s/wake_typical_s`
 
-GPU_FAILED = ('Машина рендера не справилась. Считаем на запасной — будет дольше.', 'The render machine failed. Using the backup — it will take longer.')
+GPU_FAILED = NO_PHOTO
 
 
 class _Fmt2Skip(Exception):
