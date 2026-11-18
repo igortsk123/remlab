@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: room-templates
-scope: Шаблоны комнат — порядок создания, паспорт, листы в масштабе
+scope: Шаблоны комнат — порядок, паспорт, листы
 tier2: "../domain/room-templates.md"
 updated: 2026-11-18
 importance: high

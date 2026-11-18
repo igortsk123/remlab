@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: agent-trial
-scope: Проба агента недвижимости (UK) — план, воркер, стадии, тур /try
+scope: Проба агента (UK) — план, воркер, стадии, тур /try
 tier2: "../plans/MASTER-agent-trial.md"
 updated: 2026-11-18
 importance: high

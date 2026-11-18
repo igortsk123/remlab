@@ -6,7 +6,14 @@ tier1: ../core/lr-checklist.md
 updated: 2026-11-18
 importance: high
 source: external:владелец 2026-08-07 (IKEA, The Spruce, Dimensions.com, H&G, AD, BH&G, House Beautiful)
-status: working
+memory_type: archive_note
+status: archived
+source_of_truth: historical
+original_path: .memory_bank/guides/living-room-inventory-by-area.md
+archived_at: 2026-11-18
+archived_by: memory-cleanup
+archive_reason: merged: исследование 07.08 вошло в rules/zones.json и чек-лист гостиной
+superseded_by: domain/living-room-checklist.md
 ---
 
 # Состав гостиной по площади (верифицированный синтез)

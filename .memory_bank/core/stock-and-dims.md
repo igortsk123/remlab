@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: stock-and-dims
-scope: Наличие и честность размеров — состояния, парсер, footprint
+scope: Размеры: наличие, честность, парсер, footprint
 tier2: "../domain/stock-and-dims.md"
 updated: 2026-11-18
 importance: high
