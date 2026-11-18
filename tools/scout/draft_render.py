@@ -3920,13 +3920,29 @@ def render(n: int | None = None, layout: dict | None = None, cam_name: str = 'C1
                 except Exception as e:  # noqa: BLE001
                     print(f'улучшение: нормировка яркости пропущена ({repr(e)[:100]})', flush=True)
                     _luma = []
+            _tame = []
+            if IM.render_source(layout) and IM.tame_on(layout):
+                # ПРИГЛУШЕНИЕ СОЛНЕЧНЫХ ПЯТЕН (T-20261118-05): нейросеть дорисовывает пятна солнца на полу и стенах — `improve_mode.tame_new_light` по маскам
+                # поверхностей рендера, после нормировки яркости. Нет маски ракурса или сбой шага — кадр остаётся как есть (платный ответ не теряем)
+                try:
+                    _refs2 = [_trim_band(x) for x in _split_pair(sheet)]
+                    for _i, (_p, _r, _c) in enumerate(zip(pieces, _refs2, want)):
+                        _sf2 = IM.surface_masks(layout['render']['mask_dir'], _c.name)
+                        if _sf2 is None:
+                            _tame.append({'camera': _c.name, 'skipped': 'no_mask'})
+                            continue
+                        pieces[_i], _tinf = IM.tame_new_light(_p, _r, _sf2)
+                        _tame.append({'camera': _c.name, **_tinf})
+                    print('улучшение: приглушение пятен света ' + '; '.join(f"{x.get('camera')} {x.get('patch_pct', 'нет маски')} %" for x in _tame), flush=True)
+                except Exception as e:  # noqa: BLE001
+                    print(f'улучшение: приглушение пятен света пропущено ({repr(e)[:100]})', flush=True)
             stamp = time.strftime('%H%M%S')
             shots = [{'camera': c.name, 'url': _publish_frame(p_, f'improve-{stamp}-{c.name}.jpg'),
                       'diag': {}, 'anchors': []}
                      for c, p_ in zip(want, pieces)]
             # что именно нарисовало фото — в ответ и реестр (demo-11): модель, качество, версия и отпечаток промпта
             res = {'shots': shots, 'url': shots[0]['url'], 'model': f'improve/{REALISTIC_MODEL}', 'image_quality': gq,
-                   'prompt_version': IM.prompt_version(layout), 'prompt_sha': IM.prompt_sha(prompt), 'tariff': _tr, 'luma': _luma,
+                   'prompt_version': IM.prompt_version(layout), 'prompt_sha': IM.prompt_sha(prompt), 'tariff': _tr, 'luma': _luma, 'tame': _tame,
                        'sheet_orient': built.get('orient') or 'landscape',
                    'sources': built['src_url'], 'diag': {'clay': built['clay']},
                        # откуда кадры и сколько заняла наша часть до вызова модели (demo-10: цель ≤ 2 с при кадрах из браузера)

@@ -494,6 +494,9 @@ class SceneExecutor:
                 size = [im.width, im.height]
                 im.save(jp, 'JPEG', quality=pr['jpegQuality'], optimize=True)
             sha[cam] = hashlib.sha256(open(jp, 'rb').read()).hexdigest()     # имя кадра для «Улучшить» (как у кадров браузера: sha256 JPEG)
+            mk = os.path.splitext(png)[0] + '.mask.png'
+            if os.path.isfile(mk):
+                shutil.copyfile(mk, os.path.join(tmp, f'{cam}.mask.png'))          # маска поверхностей рядом с кадром (приглушение солнечных пятен «Улучшить»)
         timing['total'] = round(time.time() - t0, 1)
         meta = {'scene_hash': snap['scene_hash'], 'snapshot_version': snap['v'], 'size': size, 'sha': sha, 'versions': self.versions(), 'timing': timing,
                 'executor': self.name, 'ts': int(time.time()), 'source': snap.get('source')}
@@ -502,6 +505,12 @@ class SceneExecutor:
         os.replace(tmp, out_dir)
         shutil.rmtree(job, ignore_errors=True)
         return {'timing': timing, 'executor': self.name}
+
+
+def masks_wanted() -> bool:
+    """Маски поверхностей (пол/стена) после кадров — для приглушения «солнечных пятен» в «Улучшить» (T-20261118-05). Только по `RENDER_MASKS=1` (не пресет:
+    пресет входит в ключ кэша кадров, а маска кадр не меняет). Пока считает только `LocalCpuExecutor`; машина Salad — отдельной задачей."""
+    return os.environ.get('RENDER_MASKS') == '1'
 
 
 class LocalCpuExecutor(SceneExecutor):
@@ -534,6 +543,8 @@ class LocalCpuExecutor(SceneExecutor):
                        '--cam', cam, '--out', png, '--samples', str(pr['samples']), '--pct', str(pr['pct']), '--threads', str(pr['threads']),
                        '--demo-glb', os.path.join(dump, 'demo_nodes.glb'), '--demo-nodes', os.path.join(dump, 'demo_nodes_uuids.json'),
                        '--export', os.path.join(dump, 'scene-export.json'), '--public', self.public, *pr['flags']]
+                if masks_wanted():
+                    cmd += ['--mask-out', os.path.join(job, f'{cam}.mask.png')]     # маска пола/стен после кадра (1 выборка, секунды) — для «Улучшить»
                 run_step(cmd, log, lim['blenderSecPerFrame'], lim['maxRssGb'], what=f'кадр {cam}')
                 if not os.path.isfile(png):
                     raise RenderError('render_failed', 'Рендер не дал кадра. Нажмите «Повторить».', 'The render produced no frame. Press "Retry".')
