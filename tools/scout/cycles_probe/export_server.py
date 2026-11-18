@@ -21,9 +21,21 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 IDLE_S = float(os.environ.get('EXPORT_SERVER_IDLE_S', '120'))
-RSS_MAX_MB = float(os.environ.get('EXPORT_SERVER_RSS_MB', '1400'))
+RSS_MAX_MB = float(os.environ.get('EXPORT_SERVER_RSS_MB', '1800'))
 MAX_PARTS = int(os.environ.get('EXPORT_SERVER_MAX_PARTS', '16'))
-KEEP_REQUESTS = int(os.environ.get('EXPORT_SERVER_KEEP_REQUESTS', '3'))
+KEEP_REQUESTS = int(os.environ.get('EXPORT_SERVER_KEEP_REQUESTS', '2'))
+
+
+def collect_garbage() -> None:
+    """Убранные из кэша меши (trimesh/PIL) держат друг друга циклическими ссылками — сами не освобождаются, пока сборщик не дойдёт до старших поколений (замер T-20261118-10/2:
+    +≈550 МБ на каждый новый диван, процесс упирался в потолок памяти и перезапускался). Явная сборка + возврат свободных страниц системе."""
+    import gc
+    gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL('libc.so.6').malloc_trim(0)
+    except (OSError, AttributeError):
+        pass
 
 
 def rss_mb() -> float:
@@ -83,15 +95,18 @@ class PartsCache:
                     self.sig[key] = (st.st_size, st.st_mtime_ns)
                 except OSError:
                     pass
-        fresh = [k for k in P if self._path(k) and self.n - self.used_at.get(k, 0) < KEEP_REQUESTS]
+        # время использования записано по ПУТИ файла (`wrapped(glb)`), а ключ кэша — пара (путь, режим): ищем по пути, иначе со 2-го заказа всё «старое» и кэш пуст
+        fresh = [k for k in P if self._path(k) and self.n - self.used_at.get(self._path(k), 0) < KEEP_REQUESTS]
         old = [k for k in P if self._path(k) and k not in fresh]
         for k in old:
             P.pop(k, None)
             self.sig.pop(k, None)
         if len(fresh) > MAX_PARTS:
-            for k in sorted(fresh, key=lambda k: self.used_at.get(k, 0))[:len(fresh) - MAX_PARTS]:
+            for k in sorted(fresh, key=lambda k: self.used_at.get(self._path(k), 0))[:len(fresh) - MAX_PARTS]:
                 P.pop(k, None)
                 self.sig.pop(k, None)
+        if old or len(fresh) > MAX_PARTS:
+            collect_garbage()
 
     def count(self) -> int:
         return sum(1 for k in self.DR._S3_PARTS if self._path(k))

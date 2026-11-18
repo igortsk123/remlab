@@ -18,6 +18,7 @@ import sys
 import time
 import uuid
 import weakref
+import zlib
 
 import numpy as np
 from PIL import Image
@@ -121,6 +122,68 @@ def put_png(arr, dst, key=None):   # (обёрнут в timed ниже)
 
 
 put_png = timed('put_png', put_png)
+
+
+# КЭШ СЖАТЫХ МЕШЕЙ ВЫГРУЗКИ (T-20261118-10/2 (б)): `np.savez_compressed` мира вершин/граней/UV одного меша — ≈0,04 с на меш, ≈0,5 с на гостиную, а при смене дивана меняется один
+# меш из 12–14: остальные — те же массивы (та же поза, тот же меш). Файл кладём в общий кэш ПО СОДЕРЖИМОМУ массивов (md5 + версии numpy/zlib: байты сжатия зависят от них) и
+# даём жёсткой ссылкой — те же байты `m###.npz`, что у прямой записи (проверка — тест и побайтное сравнение `scene/`).
+NPZ_CACHE = os.environ.get('RENDER_NPZ_CACHE') or os.path.expanduser('~/scout-cache/render-npz')
+NPZ_CACHE_MB = float(os.environ.get('RENDER_NPZ_CACHE_MB', '1500'))
+_NPZ_TAG = f'{np.__version__}|{zlib.ZLIB_VERSION}'.encode()
+_NPZ_WRITES = [0]
+
+
+def npz_key(data):
+    h = hashlib.md5(_NPZ_TAG)
+    for k in sorted(data):
+        a = np.ascontiguousarray(data[k])
+        h.update(f'|{k}|{a.dtype.str}|{a.shape}|'.encode())
+        h.update(a.data)
+    return h.hexdigest() + '.npz'
+
+
+def _prune_npz(cap_mb):
+    """Кэш не растёт без предела: за потолок — самые старые (по времени записи) долой до 80 %. Жёсткие ссылки в каталогах заданий от этого живы."""
+    try:
+        fs = [(e.stat().st_mtime, e.stat().st_size, e.path) for e in os.scandir(NPZ_CACHE) if e.name.endswith('.npz')]
+    except OSError:
+        return
+    total = sum(f[1] for f in fs)
+    if total <= cap_mb * 1048576:
+        return
+    for _m, sz, path in sorted(fs):
+        if total <= cap_mb * 1048576 * 0.8:
+            break
+        try:
+            os.remove(path)
+            total -= sz
+        except OSError:
+            pass
+
+
+def put_npz(data, dst):
+    key = npz_key(data)
+    c = os.path.join(NPZ_CACHE, key)
+    if not os.path.isfile(c):
+        os.makedirs(NPZ_CACHE, exist_ok=True)
+        tmp = f'{c}.{os.getpid()}-{uuid.uuid4().hex[:8]}.tmp'      # атомарно: временный → переименование; после записи — только чтение
+        with open(tmp, 'wb') as f:
+            np.savez_compressed(f, **data)
+        os.chmod(tmp, 0o444)
+        os.replace(tmp, c)
+        _NPZ_WRITES[0] += 1
+        wrote = True
+    else:
+        wrote = False
+    try:
+        os.link(c, dst)
+    except OSError:
+        shutil.copyfile(c, dst)
+    if wrote and _NPZ_WRITES[0] % 20 == 0:
+        _prune_npz(NPZ_CACHE_MB)         # после ссылки: выданный файл — жёсткая ссылка, чистка кэша его не трогает
+
+
+put_npz = timed('put_npz', put_npz)
 
 
 # ПАМЯТКА ПО КАРТИНКАМ МЕШЕЙ (T-20261118-10/1 (в)): текстура меша — одна и та же картинка PIL, пока жив кэш разобранных мешей постоянного процесса (`export_server.PartsCache`);
@@ -270,7 +333,7 @@ def main_export(D, idx, out):
                 cols = MR.flat_colors(mesh)
                 rec['rgb'] = [float(x) for x in np.asarray(cols).mean(axis=0)]
             _t_sz = time.time()
-            np.savez_compressed(os.path.join(out, rec['file']), **data)
+            put_npz(data, os.path.join(out, rec['file']))
             _ACC.setdefault('savez', [0.0, 0]); _ACC['savez'][0] += time.time() - _t_sz; _ACC['savez'][1] += 1
             objs.append(rec)
         return {}
