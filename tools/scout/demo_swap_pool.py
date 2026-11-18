@@ -36,6 +36,8 @@ sys.path.insert(0, HERE)
 RULES = json.load(open(os.path.join(HERE, 'rules', 'demo-swap.json'), encoding='utf-8'))   # conv-03: правила ленты
 PER_GROUP = int(os.environ.get('DEMO_SWAP_PER_GROUP', RULES['per_group']))
 IN_STYLE_MIN = float(RULES['in_style_min'])
+import price_tiers as PT                                              # ценовые ступени роли — одно место правила границ
+SEGMENTS_ON = os.environ.get('DEMO_SWAP_SEGMENTS', '1') != '0'        # 0 — откат на группу «подкатегория × стиль» (потолок на все цены)
 STYLES = ('лофт', 'сканди', 'джапанди', 'минимализм', 'неоклассика', 'современный')
 # роли, которые демо расставляет объёмными моделями (ковры и прочее плоское — вклейкой)
 ROLES = ('диван', 'кресло', 'столик', 'тв-тумба', 'стеллаж', 'комод', 'торшер', 'пуф',
@@ -265,8 +267,12 @@ def fits(p: dict, ceiling_cm: float | None = None) -> bool:
 
 
 def pick(rows: list[dict], ok=None, per_group: int = PER_GROUP, band: dict | None = None,
-         ceiling_cm: float | None = None) -> list[dict]:
-    """Группа «подкатегория × стиль» в порядке запроса → до `per_group` прошедших проверки: сперва по одному товару на модель
+         ceiling_cm: float | None = None, bounds: dict | None = None) -> list[dict]:
+    """Группа «подкатегория × стиль × ценовая ступень роли» (`price_tiers`; границы — `bounds` {роль: `price_tiers.bounds`}, нет — по
+    ценам самих строк; `DEMO_SWAP_SEGMENTS=0` — прежняя без ступени: потолок на все цены разом, дешёвые занимали все 30 мест и в
+    комфорте/премиуме лента была пуста, замер T-61/1). Ступени перекрываются — товар из перекрытия в двух группах, в выдаче один
+    раз) в порядке запроса → до
+    `per_group` прошедших проверки: сперва по одному товару на модель
     (`msid`), потом цвета тех же моделей. `ok(p)` — проверки сборки (модель на сервере, цвет, `unfit`); зовётся лениво, пока
     группа не набрана, и один раз на товар (товар повторяется в каждом своём стиле).
 
@@ -282,9 +288,15 @@ def pick(rows: list[dict], ok=None, per_group: int = PER_GROUP, band: dict | Non
 
     from slot_rules import in_band
     groups: dict = {}
+    if SEGMENTS_ON and bounds is None:
+        by_role: dict = {}
+        for p in rows:
+            by_role.setdefault(p['role'], []).append(p.get('price'))
+        bounds = {role: PT.bounds(ps) for role, ps in by_role.items()}
     for p in rows:
-        groups.setdefault((p['sub'], p['style']), []).append(p)
-    out = []
+        for tier in (PT.tiers_of(p.get('price'), (bounds or {}).get(p['role']) or {}) if SEGMENTS_ON else ('',)):
+            groups.setdefault((p['sub'], p['style'], tier), []).append(p)
+    out, emitted = [], set()
     for grp in groups.values():
         if band:
             grp = sorted(grp, key=lambda p: not in_band(p, band.get(p['role'])))   # устойчивая: порядок внутри сохраняется
@@ -298,7 +310,10 @@ def pick(rows: list[dict], ok=None, per_group: int = PER_GROUP, band: dict | Non
             if len(took) < per_group and p['sid'] not in taken and p['msid'] in models and good(p):
                 took.append(p)
                 taken.add(p['sid'])
-        out.extend(took)
+        for p in took:
+            if (p['sid'], p['style']) not in emitted:                  # товар из перекрытия ступеней — один раз
+                emitted.add((p['sid'], p['style']))
+                out.append(p)
     return out
 
 
@@ -308,7 +323,19 @@ def pool(ok=None, roles: tuple | None = None, band: dict | None = None, ceiling_
     потолок квартиры (`flat215_demo.demo_ceiling`; нет — базовый) для гейта подвеса."""
     from mesh_queue import db
     return pick([p for p in map(_row, db(pool_sql())) if p and (roles is None or p['role'] in roles)], ok, band=band,
-                ceiling_cm=ceiling_cm)
+                ceiling_cm=ceiling_cm, bounds=tier_bounds() if SEGMENTS_ON else None)
+
+
+def tier_bounds() -> dict:
+    """Границы ценовых ступеней по ролям пула — по ВСЕМУ каталогу роли (в наличии, активные), не по товарам с готовым мешем:
+    у меш-пула цены сдвинуты к уже сделанному, ступень «премиум» поехала бы вниз. Та же выборка цен, что у индекса сборки."""
+    from mesh_queue import db
+    by: dict = {}
+    for role, price in db(f"select cat_role, coalesce(price_shown_rub, price_rub) from products "
+                          f"where cat_role in ({_lit(ROLES)}) and in_stock and status = 'active' "
+                          f"and coalesce(price_shown_rub, price_rub) > 0"):
+        by.setdefault(role, []).append(float(price))
+    return {role: PT.bounds(ps) for role, ps in by.items()}
 
 
 def pool_top() -> list[dict]:
@@ -442,11 +469,34 @@ def _selftest() -> int:
     if [p['sid'] for p in pick(rows_b, per_group=3)] != ['w1', 'n1', 'w2']:
         bad += 1
         print('  FAIL: без полосы порядок прежний')
+    # ценовые ступени роли (T-61/2): 30 мест на ступень, а не на все цены разом; границы — `price_tiers` (свои у роли)
+    BND = {'диван': {'lo': (0, 20000), 'mid': (30000, 50000), 'hi': (80000, 10 ** 9)}}
+    rows_s = [dict(row(f'{k}{i}', f'{k}{i}'), price=pr) for k, pr in (('l', 10000), ('m', 40000), ('h', 90000)) for i in range(4)]
+    got_s = [p['sid'] for p in pick(rows_s, per_group=2, bounds=BND)]
+    if SEGMENTS_ON and got_s != ['l0', 'l1', 'm0', 'm1', 'h0', 'h1']:
+        bad += 1
+        print('  FAIL: по 2 на каждую ступень, а не 2 на все цены:', got_s)
+    if SEGMENTS_ON and len(pick(rows_s + [dict(r, style='лофт') for r in rows_s], per_group=2, bounds=BND)) != 12:
+        bad += 1
+        print('  FAIL: ступень × стиль — отдельные группы')
+    if SEGMENTS_ON and [p['sid'] for p in pick(rows_s[:6] + rows_s[8:], per_group=2, bounds=BND, ok=lambda p: p['sid'] != 'h0')] != \
+            ['l0', 'l1', 'm0', 'm1', 'h1', 'h2']:
+        bad += 1
+        print('  FAIL: непрошедший товар ступени заменяет следующий той же ступени, чужая ступень не занимает место')
+    # перекрытие ступеней: товар в двух группах — в выдаче один раз; границы без `bounds` — по ценам самих строк роли
+    ov = {'диван': {'lo': (0, 45000), 'mid': (35000, 50000), 'hi': (80000, 10 ** 9)}}
+    got_o = [p['sid'] for p in pick(rows_s[4:8], per_group=5, bounds=ov)]
+    if SEGMENTS_ON and sorted(got_o) != ['m0', 'm1', 'm2', 'm3']:
+        bad += 1
+        print('  FAIL: товар из перекрытия ступеней — один раз:', got_o)
+    if SEGMENTS_ON and len(pick(rows_s, per_group=30)) != 12:
+        bad += 1
+        print('  FAIL: без bounds границы — по ценам роли, все товары на месте')
     q2 = pool_sql(any_mesh=True)
     if 'mesh_status' in q2 or 'photo_alive' not in q2 or f'>= {IN_STYLE_MIN}' not in q2:
         bad += 1
         print('  FAIL: запрос «и без меша» — те же ворота, кроме готовности меша')
-    print(f'demo_swap_pool selftest: случаев 20, ошибок {bad}')
+    print(f'demo_swap_pool selftest: случаев 24, ошибок {bad}')
     return 1 if bad else 0
 
 
