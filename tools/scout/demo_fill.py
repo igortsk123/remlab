@@ -107,6 +107,7 @@ def color_need(role: str, it: dict | None, style: str | None) -> str | None:
 
 
 COLOUR_REASON = 'цвет не в стиле'
+SOFT_REASON = 'серая дыра покраски'      # мягкий карантин модели (`room_bindings.soft_policy`): меняем, если есть замена с годным мешем
 
 
 # МЯГКОЕ ВАРИАНТА ПО ЦВЕТУ (style-color-01 шаг 2б, T-20261107-25/3). Подушки гостиной сборщик брал парой акцентов `STYLE_PAIR`
@@ -122,7 +123,7 @@ def soft_color_need(role: str, it: dict | None, style: str | None) -> str | None
 
 def is_colour_swap(x: dict) -> bool:
     """Строка журнала `fill_set` — состоявшаяся замена по цвету (у неё есть `to`)."""
-    return bool(x.get('to')) and str(x.get('reason') or '').startswith(COLOUR_REASON)
+    return bool(x.get('to')) and str(x.get('reason') or '').startswith((COLOUR_REASON, SOFT_REASON))
 
 
 def color_order(role: str, cands: list[dict], style: str | None, old: dict | None = None, colour: bool = False,
@@ -302,11 +303,14 @@ def neighbour_fill(role: str, old: dict | None, s: dict, pool: list[dict], used:
 
 
 def fill_set(s: dict, pool: list[dict], ok, card, media, has_mesh, env: dict | None = None,
-             avoid: set | None = None, own: bool = True, colour_swap: bool = True) -> list[dict]:
+             avoid: set | None = None, own: bool = True, colour_swap: bool = True, soft=None, repl_ok=None) -> list[dict]:
     """Заменить негодные и добавить недостающие роли ядра. Меняет `s['items']`; → журнал замен.
     `own=False` — без своих запасных набора, только пул (прежнее дозаполнение: запасной вариант, если со своим запасным
     набор не расставился — `flat215_demo.fill_banks`). `colour_swap=False` — без замен по цвету (запасной вариант, если
-    замена по цвету выбила вещь из расстановки — `flat215_demo.choose_banks`)."""
+    замена по цвету выбила вещь из расстановки — `flat215_demo.choose_banks`).
+    `soft(it)` — модель стоящего товара в МЯГКОМ карантине (серая дыра покраски): товар меняем на годный (`repl_ok(c)` — меш не в карантине и по
+    цвету близок к фото), а если заменить нечем — он ОСТАЁТСЯ (карантин не опустошает вариант): строка журнала с `kept: True` и без `to` — это не
+    «снято без замены» (`dropped` её не считает; сборка печатает такие строки как WARN:grey_top_kept)."""
     items = s.setdefault('items', {})
     journal = []
     used = {f"{it.get('mid')}:{it.get('eid')}" for it in items.values() if it}
@@ -319,6 +323,14 @@ def fill_set(s: dict, pool: list[dict], ok, card, media, has_mesh, env: dict | N
         old = items.get(role)
         why = need_reason(role, old, media, has_mesh)
         colour = False
+        softmode = False
+        if not why and soft and old and soft(old):
+            why = f'{SOFT_REASON} (мягкий карантин модели)'
+            if not colour_swap:       # запасной проход без замен: прежняя вещь остаётся, но пометка в журнал нужна (замена не встала в расстановку)
+                journal.append({'role': role, 'from': old.get('name'), 'from_sku': sku(old), 'to': None, 'to_sku': None, 'kept': True,
+                                'reason': why + ': замена не встала в расстановку'})
+                continue
+            softmode = True
         if not why:
             why = color_need(role, old, s.get('style')) if colour_swap else None   # крупное цвета не в стиле (шаг 2а)
             if not why:
@@ -337,6 +349,8 @@ def fill_set(s: dict, pool: list[dict], ok, card, media, has_mesh, env: dict | N
                 continue                 # необязательное яркое не в стиле — не берём (T-20261107-11/3)
             if colour and color_eval_role(role, c, s.get('style'))['tier'] in BAD_TIERS:
                 continue                 # замена по цвету — только кандидатом с ярусом лучше
+            if softmode and repl_ok and not repl_ok(c):
+                continue                 # замена серой дыры — только товаром с годным мешем (цвет меша близок к фото)
             if ok(role, c, s, {r: v for r, v in items.items() if r != role}):
                 repl, spare, uni = card(c, old or {}), c.get('spare'), c.get('rug_universal')
                 if uni:                  # запасной нейтральный ковёр стиля (`demo_swap_pool.universal_rugs`) — с отметкой
@@ -344,6 +358,10 @@ def fill_set(s: dict, pool: list[dict], ok, card, media, has_mesh, env: dict | N
                 if colour:
                     by_colour[sku(old)] = c
                 break
+        if softmode and not repl:
+            journal.append({'role': role, 'from': (old or {}).get('name'), 'from_sku': sku(old), 'to': None, 'to_sku': None, 'kept': True,
+                            'reason': why})
+            continue                     # мягкий карантин — не дыра: заменить нечем — вещь остаётся (с пометкой), вариант цел
         if colour and not repl:
             continue                     # цвет — не дыра: заменить нечем — вещь остаётся, журнал не пишем; к соседу не идём
         nb = None
@@ -460,6 +478,33 @@ def _selftest() -> int:
     j7 = fill_set(s7, pool2, gate2, card, media2, has_mesh, own=False)
     ok('own=False — прежнее дозаполнение: только пул, свои запасные не смотрим',
        s7['items']['диван']['name'] == 'Диван из пула' and not any(x.get('source') for x in j7))
+    # МЯГКИЙ КАРАНТИН (серая дыра покраски, T-20261118-04/12/2): стоящий товар меняем на годный, а заменить нечем — он ОСТАЁТСЯ, вариант цел
+    alive |= {('7', 'soft')}
+    soft = lambda it: (it['mid'], it['eid']) == ('7', 'soft')  # noqa: E731
+    mks = lambda: {'style': 'лофт', 'items': {'диван': {'mid': '7', 'eid': 'soft', 'name': 'Диван с серой дырой', 'w': 200, 'd': 95},  # noqa: E731
+                                              'тв-тумба': {'mid': '1', 'eid': 'tv', 'name': 'Тумба'}}}
+    sa = mks()
+    ja = fill_set(sa, pool2, gate2, card, media2, has_mesh, soft=soft, repl_ok=lambda c: True)
+    xa = next(x for x in ja if x['role'] == 'диван')
+    ok('мягкий карантин: есть замена с годным мешем — товар заменён, причина названа, это замена «по цвету»-типа для запасного пути',
+       sa['items']['диван']['name'] == 'Диван из пула' and xa['reason'].startswith(SOFT_REASON) and is_colour_swap(xa) and not xa.get('kept'))
+    sb = mks()
+    jb = fill_set(sb, pool2, gate2, card, media2, has_mesh, soft=soft, repl_ok=lambda c: False)
+    xb = next(x for x in jb if x['role'] == 'диван')
+    ok('мягкий карантин: замена не по цвету фото (repl_ok нет) — товар ОСТАЁТСЯ, строка kept без to; вариант цел',
+       sb['items']['диван']['name'] == 'Диван с серой дырой' and xb.get('kept') and not xb['to'] and 'диван' not in core_missing(sb))
+    sc = mks()
+    jc = fill_set(sc, [], gate2, card, media2, has_mesh, soft=soft, repl_ok=lambda c: True)
+    ok('мягкий карантин: пул пуст (единственный кандидат слота — флаговый) — диван на месте, журнал с kept',
+       sc['items']['диван']['name'] == 'Диван с серой дырой' and any(x.get('kept') for x in jc))
+    sd = mks()
+    jd = fill_set(sd, pool2, gate2, card, media2, has_mesh, colour_swap=False, soft=soft, repl_ok=lambda c: True)
+    ok('запасной проход без замен по цвету: товар не тронут, но в журнале kept с пометкой «замена не встала в расстановку»',
+       sd['items']['диван']['name'] == 'Диван с серой дырой' and any(x.get('kept') and 'не встала' in x['reason'] for x in jd))
+    sh = mks()
+    sh['items']['диван']['eid'] = 'gone'
+    ok('жёсткая причина («нет модели») остаётся прежней: soft не мешает замене негодного',
+       fill_set(sh, pool2, gate2, card, media2, has_mesh, soft=soft, repl_ok=lambda c: False) and sh['items']['диван']['name'] == 'Диван из пула')
     s4 = {'style': 'лофт', 'alternates': {'кресло': [{'mid': 5, 'eid': 'spare2'}]}, 'items': {
         'кресло': {'mid': '7', 'eid': 'gone', 'name': 'Кресло снятое', 'w': 80}}}
     fill_set(s4, pool2, gate2, card, media2, has_mesh)

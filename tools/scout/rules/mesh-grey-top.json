@@ -18,6 +18,7 @@
  "mr_hi": 156,
  "bright_min": 230,
  "bright_share_min": 0.8,
+ "quarantine": {"soft_reasons": ["grey_top"], "replace_dL": 15, "replace_dab": 10, "_about": "Политика карантина по серой дыре (T-04/12/2, директор): причина из soft_reasons — МЯГКАЯ: модель остаётся в индексе и годна для предмета варианта, пока нет замены; замена — только товар с годным мешем (не в карантине и цвет меша близок к фото: ΔL ≤ replace_dL, Δab ≤ replace_dab по seen_vs_sku сторожа цвета). Пустой список soft_reasons — прежнее жёсткое вычитание."},
  "candidate_share": 0.8,
  "reject_share": 0.95,
  "std_max": 6.0,

@@ -242,7 +242,7 @@ def demo_verdict(base: dict, new: dict, promoted_ns: list, styles: dict) -> dict
         why = []
         if n in (new.get('banks') or []):
             rows = (new.get('journal') or {}).get(f'set{n}') or []
-            rep, drop = sum(1 for x in rows if x.get('to')), sum(1 for x in rows if not x.get('to'))
+            rep, drop = sum(1 for x in rows if x.get('to')), sum(1 for x in rows if not x.get('to') and not x.get('kept'))
             if rep or drop:
                 why.append(f'вариант демо дозаполнен: замен {rep}, снято без замены {drop} — '
                            + ', '.join(f"{x.get('role')}: {x.get('reason') or ''}".strip(': ') for x in rows[:4]))
