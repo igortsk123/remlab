@@ -603,6 +603,19 @@ class Worker:
         for line in proc.stdout:
             line = line.rstrip()
             tail = (tail + [line])[-25:]
+            _tt = round(time.time() - t1, 2)
+            if 'bl_first_line' not in timing:
+                timing['bl_first_line'] = _tt                    # T-20261118-09/3: куда уходят секунды Blender — запуск процесса до первой строки
+            if line.startswith('SCENE_BUILD_SEC '):
+                timing['bl_scene_ready'] = _tt                   # сборка сцены в Blender закончена (от запуска процесса)
+                try:
+                    timing['bl_scene_py'] = round(float(line.split()[1]), 2)      # то же по часам самой программы (от её начала)
+                except (ValueError, IndexError):
+                    pass
+            if line.startswith('DEVICE_USED'):
+                timing['bl_device_ready'] = _tt
+            if line.startswith('RENDER_SEC '):
+                timing[f'bl_end_{cam_of_line(line) or "x"}'] = _tt      # кадр готов (от запуска процесса)
             if line.startswith('DEVICE_USED'):
                 device = line.split(' ', 1)[1]
                 if device.startswith('CPU'):       # GPU не поднялся: считать на CPU машины ×30 медленнее — не нужно, пусть исполнитель решит
@@ -626,6 +639,7 @@ class Worker:
                 self.progress(jid, nxt)
         rc = proc.wait()
         timing['render'] = round(time.time() - t1, 1)
+        timing['bl_exit'] = round(time.time() - t1, 2)
         if killed == 'cpu':
             return err('gpu_failed', 'Видеокарта машины не взялась за рендер.', 'The machine GPU did not take the render.', device=device)
         if killed == 'timeout':
