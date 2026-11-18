@@ -4,12 +4,15 @@
 // `BASE_URL`) смотрят на НОВУЮ страницу до выкладки. `UK_OPTIONS_IN_PACKAGE=1` — в ответе карточки британской квартиры опции
 // застройщика идут в пакет (`settlement: allowance`), как после выкладки данных `data/partners/demo-uk.json` шага 3.
 //   STAGE=<папка сборки> PORT=8790 [UK_OPTIONS_IN_PACKAGE=1] [NO_EVENTS=1] node tools/ops/demo-walk/stage-proxy.mjs
+//   `LOCAL_API=http://127.0.0.1:<порт>` — заказы фото (`/api/render*`, `/api/job`) идут на СВОЙ экземпляр сервиса кадров (T-20261117-20/2: проверка
+//   «Сделать фото» = рендер без живого 8600), всё остальное — на прод
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { existsSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 
+const LOCAL_API = (process.env.LOCAL_API ?? "").replace(/\/+$/, "");
 const STAGE = process.env.STAGE ?? "", PORT = Number(process.env.PORT ?? 8790), UP = process.env.UPSTREAM ?? "https://remont-lab.online";
 const UK_OPT = process.env.UK_OPTIONS_IN_PACKAGE === "1", NO_EVENTS = process.env.NO_EVENTS === "1";
 if (!STAGE) { console.error("нужен STAGE=<папка сборки>"); process.exit(2); }
@@ -26,7 +29,8 @@ function local(path) {
 }
 
 const server = createServer(async (req, res) => {
-  const url = new URL(req.url ?? "/", UP);
+  const toLocal = LOCAL_API && /^\/api\/(render|job)(\/|\?|$)/.test(req.url ?? "");
+  const url = new URL(req.url ?? "/", toLocal ? LOCAL_API : UP);
   const file = local(url.pathname);
   try {
     if (file) {
@@ -47,8 +51,8 @@ const server = createServer(async (req, res) => {
     const headers = { ...req.headers };
     delete headers.host; delete headers["accept-encoding"]; delete headers.connection;
     // сервер принимает запись только со своего адреса — источник и ссылку переписываем на прод
-    if (headers.origin) headers.origin = UP;
-    if (typeof headers.referer === "string") headers.referer = headers.referer.replace(/^https?:\/\/[^/]+/, UP);
+    if (headers.origin) headers.origin = toLocal ? LOCAL_API : UP;
+    if (typeof headers.referer === "string") headers.referer = headers.referer.replace(/^https?:\/\/[^/]+/, toLocal ? LOCAL_API : UP);
     // `cache: "no-cache"` — условные заголовки браузера (If-None-Match) доходят до прода, и 304 возвращается как есть: в режиме по
     // умолчанию fetch Node отвечал 200 с телом, и замер кэша (demo-26) видел повторную закачку, которой на проде нет
     const up = await fetch(url, { method: req.method, headers, body: chunks.length ? Buffer.concat(chunks) : undefined, redirect: "manual", cache: "no-cache" });
@@ -60,7 +64,7 @@ const server = createServer(async (req, res) => {
     }
     // полные адреса прода в ответах API (кадры задания) — на адрес прокси: иначе картинка с `crossOrigin` чужая для страницы
     if (url.pathname.startsWith("/api/") && /json/.test(up.headers.get("content-type") ?? "") && req.headers.host)
-      body = Buffer.from(body.toString("utf8").replaceAll(UP + "/", `http://${req.headers.host}/`));
+      body = Buffer.from(body.toString("utf8").replaceAll((toLocal ? LOCAL_API : UP) + "/", `http://${req.headers.host}/`));
     const out = {};
     up.headers.forEach((v, k) => { if (!["content-encoding", "content-length", "transfer-encoding", "connection"].includes(k)) out[k] = v; });
     res.writeHead(up.status, out);

@@ -9,7 +9,7 @@ const fs=require('fs');const pw=require(process.cwd()+'/node_modules/.pnpm/'+fs.
 const BASE=process.env.BASE||'https://remont-lab.online/demo/', OUT=process.env.OUT||require('os').tmpdir()+'/';
 const [W,H]=(process.argv[2]||'375x667').split('x').map(Number), PHONE=W<=700;
 const R=[]; const ok=(n,c,i)=>R.push((c?'OK  ':'FAIL')+' '+n+' '+(i===undefined?'':typeof i==='string'?i:JSON.stringify(i)));
-const LOCK=/Менять можно, когда улучшение закончится/;
+const LOCK=/Менять можно, когда фото будет готово/;   // T-20261117-20/2: пока идёт РЕНДЕР «Сделать фото» (на «Улучшаю…» — «…когда улучшение закончится»)
 // ТОСТ ОКНА НА МЕСТЕ (T-20261022-07/3): компьютер — внутри области 3D/фото, по её центру, выше переключателя ракурсов (≥ 8 px), не на правой
 // панели; телефон — не задевает переключатель ракурсов и шторку
 const TOAST_GEO=`(()=>{const t=document.getElementById('toast'); if(!t||t.hidden)return {shown:false};
@@ -23,6 +23,7 @@ const TOAST_GEO=`(()=>{const t=document.getElementById('toast'); if(!t||t.hidden
 const geoOk=g=>g.shown&&!g.overCams&&!g.overPanel&&(g.gap==null||g.gap>=8)&&(PHONE||(g.inside&&g.center<=2));
 (async()=>{const b=await pw.chromium.launch({args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
   const ctx=await b.newContext({viewport:{width:W,height:H},deviceScaleFactor:2,isMobile:PHONE,hasTouch:PHONE,locale:'ru-RU'});
+  ctx.setDefaultTimeout(120000);   // снимок экрана на 1440 под программной графикой идёт десятки секунд (среда проверки, не страница)
   const p=await ctx.newPage(); const errs=[]; p.on('pageerror',e=>errs.push(String(e)));
   // снимок под программной графикой идёт секунды — короткий тост успел бы погаснуть: на время снимка таймер исчезновения стоит
   const shotToast=async name=>{await p.evaluate(()=>{const t=document.getElementById('toast'); if(t)clearTimeout(t._t);});
@@ -30,8 +31,10 @@ const geoOk=g=>g.shown&&!g.overCams&&!g.overPanel&&(g.gap==null||g.gap>=8)&&(PHO
   let done=null;   // ответ задания по готовности: {status:'done', shots:[…]}
   await p.route(/\/api\/events/,r=>r.fulfill({status:204,body:''}));
   await p.route(/\/api\/render\/frame/,r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:'f'+Date.now()+Math.random().toString(36).slice(2,8)})}));
+  // T-20261117-20/2: «Сделать фото» — рендер (`/api/render/cycles` → кадры в ответе `/api/job`), готово по `done`
+  await p.route(/\/api\/render\/cycles/,r=>r.request().method()==='POST'?r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({ok:true,job:'fake-r-'+Date.now(),kind:'render',status:'running',eta:60,eta_range:[50,70],queue:0,key:'b'.repeat(32),scene_hash:'a'.repeat(64)})}):r.continue());
   await p.route(/\/api\/render(\?|$)/,r=>r.request().method()==='POST'?r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({job:'fake-'+Date.now()})}):r.continue());
-  await p.route(/\/api\/job\?/,r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(done||{status:'running',eta:60})}));
+  await p.route(/\/api\/job\?/,r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(done||{status:'running',kind:'render',percent:20,eta:60,queue:0})}));
   await p.goto(demoUrl(BASE+'?lang=ru&live=force'),{waitUntil:'load',timeout:120000});
   await p.waitForFunction("typeof D!=='undefined'&&!!D&&!!FLAT",null,{timeout:90000});
   await p.waitForTimeout(1500);
@@ -44,17 +47,22 @@ const geoOk=g=>g.shown&&!g.overCams&&!g.overPanel&&(g.gap==null||g.gap>=8)&&(PHO
   // ссылок «Вся квартира в 3D» / «Посмотреть в 3D» нет (demo-20 Г6): ни в окне 3D, ни на странице под ним
   const fl0=await p.evaluate(()=>[...document.querySelectorAll('a[href*="/flat"]')].map(a=>a.id||a.className||a.textContent.trim()).slice(0,5));
   ok('0 окно 3D — ссылок на /flat нет',!fl0.length,fl0);
-  const s0=await p.evaluate(()=>curStateId());
+  let s0=await p.evaluate(()=>curStateId());
   // 1. «Сделать реалистичнее» → «Фото» с ходом работы
-  await p.click('#vCta'); await p.waitForFunction(()=>!!VJ.job,null,{timeout:20000});
+  // фото этой расстановки уже есть — кнопки нет; правим расстановку, жмём 📷 (первое нажатие в 3D — окошки ракурсов, второе — заказ)
+  await p.evaluate(()=>{const k=items.findIndex(i=>i.role&&!/ковер|ковёр/.test(i.role)); items[k].x+=23; draw(); histPush();}); await p.waitForTimeout(2500);
+  s0=await p.evaluate(()=>curStateId());   // номер правленой расстановки — «та же» сверяем с ним
+  await p.click('#vCta'); await p.waitForTimeout(1500);
+  if(!(await p.evaluate(()=>!!VJ.job)))await p.click('#vCta');
+  await p.waitForFunction(()=>!!VJ.job,null,{timeout:20000});
   await p.waitForFunction(()=>VW.mode==='photo',null,{timeout:30000}).catch(()=>{});
-  ok('1 задание идёт, окно на «Фото» с «Улучшаю…»',await p.evaluate(()=>!!VJ.job&&VW.mode==='photo'&&!!document.querySelector('#shot .vphwait')));
+  ok('1 задание идёт, окно на «Фото» с «Делаю фото · N %»',await p.evaluate(()=>!!VJ.job&&VW.mode==='photo'&&!!document.querySelector('#shot .vphwait')));
   await p.waitForTimeout(800); await p.screenshot({path:OUT+`lock-${W}-1-enhancing.png`});
   // 2. ушёл в 3D — правки не применяются, подсказка
   await p.evaluate(()=>vwMode('walk')); await p.waitForTimeout(1500);
   const rep=p.locator('#vside .row button',{hasText:'Заменить'}).first();
   if(PHONE)await p.evaluate(()=>vwSheet(2)); await p.waitForTimeout(600);
-  await (PHONE?rep.tap({timeout:10000}):rep.click({timeout:10000})).catch(e=>ok('2 «Заменить» нажимается',false,String(e).slice(0,120)));
+  await (PHONE?rep.tap({timeout:10000}):rep.click({timeout:10000,force:true})).catch(e=>ok('2 «Заменить» нажимается',false,String(e).slice(0,120)));
   await p.waitForTimeout(300);
   ok('2 «Заменить» — лист не открылся',await p.evaluate(()=>!document.getElementById('sheet').classList.contains('open')));
   const t2=await toastTxt(); ok('2 подсказка «Менять можно, когда улучшение закончится»',LOCK.test(t2),t2);
@@ -72,12 +80,14 @@ const geoOk=g=>g.shown&&!g.overCams&&!g.overPanel&&(g.gap==null||g.gap>=8)&&(PHO
   // 4. готово, человек в 3D — «Фото готово · Смотреть» → «Фото»
   await p.evaluate(()=>vwMode('walk')); await p.waitForTimeout(800);
   const url=await p.evaluate(()=>{const s=pubShot(allVariants()[cur])||shots.find(x=>x.url&&x.quality==='realistic'); return s?s.url:'';});
-  done={status:'done',shots:[{url,camera:'C1'},{url,camera:'C2'}],model:'probe'};
+  done={status:'done',kind:'render',key:'b'.repeat(32),scene_hash:'a'.repeat(64),cached:false,percent:100,timing:{},frames:[{camera:'C1',url,id:'c'.repeat(64),w:1600,h:1000},{camera:'C2',url,id:'d'.repeat(64),w:1600,h:1000}]};
   await p.waitForFunction(()=>!VJ.job,null,{timeout:30000}).catch(()=>{});
   await p.waitForTimeout(400);
   const t4=await toastTxt(); ok('4 «Фото готово» с «Смотреть»',/Фото готово/.test(t4)&&/Смотреть/.test(t4),t4);
   const g4=await p.evaluate(TOAST_GEO); ok('4 «Фото готово» на месте',geoOk(g4),g4);
   ok('4 окно осталось в 3D',await p.evaluate(()=>VW.mode==='walk'));
+  // снимок под программной графикой идёт десятки секунд — тост «Фото готово · Смотреть» успел бы погаснуть: на время снимка таймер исчезновения стоит
+  await p.evaluate(()=>{const t=document.getElementById('toast'); if(t)clearTimeout(t._t);});
   const t0=Date.now(); await p.screenshot({path:OUT+`lock-${W}-4-ready.png`}); const shotMs=Date.now()-t0;
   // кнопка сверху (не перекрыта) — и настоящий щелчок по ней; ожидание «устойчивости» не нужно: под программной графикой на 1440
   // живая сцена почти останавливает перерисовку, и Playwright не дожидается двух кадров
