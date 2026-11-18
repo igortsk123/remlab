@@ -52,6 +52,7 @@ ap.add_argument('--chandelier', type=float, default=60.0, help='мощность
 ap.add_argument('--hdri', default='', help='HDRI неба (Poly Haven, CC0): свет и портал вместо Nishita')
 ap.add_argument('--hdri-strength', type=float, default=1.0)
 ap.add_argument('--portal', type=int, default=0, help='1: световой портал в проёме окна')
+ap.add_argument('--shoulder', default='', help='плечо светов в сцен-линейном свете ДО view transform: "колено,потолок" (напр. 0.85,1.35): ниже колена кадр не меняется, пик канала выше колена плавно сжимается к потолку, оттенок сохраняется (без «выбито» белого). Пусто — выкл.')
 ap.add_argument('--transform', default='AgX', help='view transform: AgX | Filmic | Standard (сетка настроек, T-20261117-06/1)')
 ap.add_argument('--look', default='AgX - Medium High Contrast', help='look (подбирается по имени; нет такого — без look)')
 ap.add_argument('--cam-h', type=float, default=0.0, help='>0: высота глаза камеры, м (по умолчанию — как у ракурса)')
@@ -197,6 +198,46 @@ for _look in (a.look, _short, a.transform + ' - ' + _short):
         continue
 print('view', sc.view_settings.view_transform, '| look', sc.view_settings.look)
 sc.view_settings.exposure = a.exposure
+
+
+def shoulder_fn(peak, knee: float, ceil: float):
+    """Плечо светов по ПИКУ канала (numpy-массив или число): до колена — как есть; выше колена k + (P−k)·(1−exp(−(x−k)/(P−k))) — наклон 1 в колене, потолок P.
+    Чистая функция (проверяется тестом без Blender)."""
+    k, P = float(knee), float(ceil)
+    if not (0.2 < k < P):
+        raise ValueError(f'плечо: нужно 0.2 < колено < потолок, получено {k}, {P}')
+    x = np.asarray(peak, np.float32)
+    return np.where(x > k, k + (P - k) * (1.0 - np.exp(-(np.maximum(x, k) - k) / (P - k))), x)
+
+
+def apply_shoulder(spec: str, out_path: str) -> None:
+    """`--shoulder колено,потолок` (сцен-линейный свет, до view transform): после кадра читаем «Render Result» (линейный), у каждого пикселя сжимаем ПИК канала
+    функцией `shoulder_fn`, все три канала масштабируем одинаково (оттенок и насыщенность неба и стен не меняются — не как кривая по каналам, она белила небо),
+    кладём в float-картинку и сохраняем тем же `save_render` (экспозиция, view transform, dither, формат и качество — сцены): кадр перезаписывается."""
+    k, P = (float(v) for v in spec.split(','))
+    # «Render Result» в фоновом режиме без пикселей (size 0×0): линейный свет берём через временный EXR (32 бит, без view transform), потом возвращаем формат кадра
+    ims = sc.render.image_settings
+    keep = (ims.file_format, ims.color_mode, ims.color_depth)
+    exr = out_path + '.lin.exr'
+    ims.file_format, ims.color_mode, ims.color_depth = 'OPEN_EXR', 'RGB', '32'
+    bpy.data.images['Render Result'].save_render(exr, scene=sc)
+    ims.file_format, ims.color_mode, ims.color_depth = keep
+    src = bpy.data.images.load(exr)
+    w, h = src.size
+    buf = np.empty(w * h * 4, np.float32)
+    src.pixels.foreach_get(buf)
+    px = buf.reshape(h, w, 4)
+    peak = px[..., :3].max(axis=2)
+    px[..., :3] *= (shoulder_fn(peak, k, P) / np.maximum(peak, 1e-6))[..., None]
+    px[..., 3] = 1.0
+    tmp = bpy.data.images.new('shoulder_tmp', w, h, alpha=False, float_buffer=True)
+    tmp.pixels.foreach_set(px.ravel())
+    tmp.update()
+    tmp.save_render(out_path, scene=sc)
+    bpy.data.images.remove(tmp)
+    bpy.data.images.remove(src)
+    os.remove(exr)
+    print('SHOULDER', k, P, out_path, flush=True)
 sc.render.image_settings.file_format = 'PNG'
 sc.render.image_settings.color_depth = '8'
 if a.jpeg_quality > 0:
@@ -1244,6 +1285,8 @@ for _i, _cn in enumerate(CAMS):
     sc.render.filepath = _out
     t0 = time.time()
     bpy.ops.render.render(write_still=True)
+    if a.shoulder:
+        apply_shoulder(a.shoulder, _out)
     if a.also_png:                                   # PNG из «Render Result» (приёмка JPEG); сторож — после, он берёт хеш уже записанного кадра
         _ff = sc.render.image_settings.file_format
         sc.render.image_settings.file_format = 'PNG'
