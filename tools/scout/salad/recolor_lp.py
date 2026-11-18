@@ -55,6 +55,9 @@ MATE_AREA_MIN = 0.5     # пара кластеров фото должна на
 MATE_L_TOL = 15.0       # пиксели фото под участком: светлота в пределах ±15 от медианы…
 MATE_HOMOG = 0.65       # …у ≥ 65 % пикселей, иначе под участком на фото два разных места — цель неоднозначна
 COVER_OK, COVER_MIN = 0.80, 0.30   # покрыто участками: ≥0,8 — «ok», 0,3–0,8 — «частично», <0,3 — «отказ»
+NEUTRAL_C = 8.0         # цель с хромой фото ≤ 8 — «нейтральная», сдвиг хромы без ослабления
+PROTECT_DE = 15.0       # неправимый участок (ручки, ножки, фурнитура, мелкое), чей цвет дальше этого от всех правимых, — охраняется: поправка в его цвете гасится
+PROTECT_AREA = 0.001    # охраняем участки не меньше этой доли видимого (пыль кластеров не считаем)
 ELIGIBLE = ('правим', 'рисунок')   # статусы `color_o2.zones`, которые правим (рисунок — тоже: деталь сохраняется)
 FONT = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 20)
 FONT_S = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 16)
@@ -172,8 +175,11 @@ class Field:
     """Поправка цвета: участки (центр Lab, σ, сдвиг Lab). Вес текселя — близость цвета НИЗКИХ частот к центру участка;
     как в `color_o2.soft_lg`: знаменатель не меньше веса на 2,5σ — далёкие цвета плавно уходят к нулю."""
 
-    def __init__(self, C: np.ndarray, sig: np.ndarray, shifts: np.ndarray):
+    def __init__(self, C: np.ndarray, sig: np.ndarray, shifts: np.ndarray, PC: np.ndarray | None = None, PS: np.ndarray | None = None):
         self.C, self.sig, self.sh = C.astype(np.float32), np.maximum(sig, CO.SIGMA_DE).astype(np.float32), shifts.astype(np.float32)
+        # охраняемые участки: центр и σ; в знаменателе они «тянут» поправку к нулю у текселей их цвета (ручка рядом с фасадом не краснеет/не белеет)
+        self.PC = np.zeros((0, 3), np.float32) if PC is None else np.asarray(PC, np.float32).reshape(-1, 3)
+        self.PS = np.zeros(0, np.float32) if PS is None else np.maximum(np.asarray(PS, np.float32), CO.SIGMA_DE)
 
     def shift_at(self, Lab: np.ndarray) -> np.ndarray:
         if not len(self.C):
@@ -182,12 +188,18 @@ class Field:
         d2 = ((x[:, None, :] - self.C[None]) ** 2).sum(-1)
         wk = np.exp(-d2 / (2 * self.sig[None] ** 2))
         w0 = math.exp(-2.5 ** 2 / 2)
-        out = (wk[:, :, None] * self.sh[None]).sum(1) / np.maximum(wk.sum(1), w0)[:, None]
+        wp = np.zeros(len(x), np.float32)
+        if len(self.PC):
+            dp = ((x[:, None, :] - self.PC[None]) ** 2).sum(-1)
+            wp = np.exp(-dp / (2 * self.PS[None] ** 2)).sum(1)
+        out = (wk[:, :, None] * self.sh[None]).sum(1) / np.maximum(wk.sum(1) + wp, w0)[:, None]
         return out.reshape(Lab.shape).astype(np.float32)
 
 
-def recolor_texture(tex8: np.ndarray, fld: Field) -> tuple[np.ndarray, dict]:
-    """T1 = T0 · (B1 / B0), B1 = B0 + сдвиг Lab (линейный свет, мультипликативная деталь). → (новая текстура uint8, служебное)."""
+def recolor_texture(tex8: np.ndarray, fld: Field, metal: np.ndarray | None = None) -> tuple[np.ndarray, dict]:
+    """T1 = T0 · (B1 / B0), B1 = B0 + сдвиг Lab (линейный свет, мультипликативная деталь). → (новая текстура uint8, служебное).
+    `metal` — карта металличности (0–1, любого размера): тексели с металличностью > 0,5 НЕ правятся (ручки, ножки, фурнитура:
+    их оттенок задаёт металл, а не краска фасада — T-52/3/1, комод 1: ручка стала оливковой)."""
     import cv2
     alpha = None
     if tex8.ndim == 3 and tex8.shape[2] == 4:
@@ -203,6 +215,15 @@ def recolor_texture(tex8: np.ndarray, fld: Field) -> tuple[np.ndarray, dict]:
     r[dark] = 1.0
     h, w = tex8.shape[:2]
     rf = cv2.resize(r.astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR) if r.shape[:2] != (h, w) else r
+    mstat = {}
+    if metal is not None:
+        mm = cv2.resize(metal.astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR) if metal.shape[:2] != (h, w) else metal.astype(np.float32)
+        keep = np.clip((mm - 0.3) / 0.4, 0.0, 1.0)                   # 0,3…0,7 — плавный переход, чтобы не было шва по краю металла
+        cov = tex8.max(-1) > 15
+        ms = float(((mm > 0.5) & cov).sum() / max(cov.sum(), 1))
+        would = float((((mm > 0.5) & cov) & (np.abs(rf - 1.0) > 0.05).any(-1)).sum() / max(((mm > 0.5) & cov).sum(), 1))
+        mstat = {'metal_share': round(ms, 4), 'metal_would_change': round(would, 3)}
+        rf = 1.0 + (rf - 1.0) * (1.0 - keep)[..., None]
     T0 = s2l(tex8)
     T1 = np.clip(T0 * rf, 0.0, 1.0)
     out = l2s8(T1)
@@ -210,7 +231,7 @@ def recolor_texture(tex8: np.ndarray, fld: Field) -> tuple[np.ndarray, dict]:
     changed = (np.abs(rf - 1.0) > 0.02).any(-1)
     if alpha is not None:
         out = np.dstack([out, alpha])
-    return out, {'changed_share': round(float(changed.mean()), 4), 'clipped_share': round(clipped, 5), 'ratio': rf, 'T0': T0}
+    return out, {'changed_share': round(float(changed.mean()), 4), 'clipped_share': round(clipped, 5), 'ratio': rf, 'T0': T0, **mstat}
 
 
 # ── сохранность детали ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -313,7 +334,7 @@ def rewrite_glb(src: str, dst: str, fn) -> list[dict]:
 
 # ── один меш ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
-def build_field(base, ralpha, prgb, pmask, tm, metals, shift_scale: float = 1.0):
+def build_field(base, ralpha, prgb, pmask, tm, metals, shift_scale: float = 1.0, force: bool = False):
     """Участки по рендеру без света → поле поправки. → (Field | None, список участков для отчёта, причина отказа | None)."""
     P_lab = lab_f(prgb)
     pvis = CO.erode(pmask, 2)
@@ -324,7 +345,26 @@ def build_field(base, ralpha, prgb, pmask, tm, metals, shift_scale: float = 1.0)
     both = CO.erode(ralpha) & CO.erode(pmask)
     R_lab = lab_f(base)
     cs, sg, sh, rep = [], [], [], []
+    csf, sgf, shf = [], [], []
     cover = 0.0
+
+    def calc(z, reg):
+        tp, tm_ = tmed(P_lab[reg]), tmed(R_lab[reg])
+        d = tp - tm_
+        dl = float(np.clip(d[0], -MAX_DL, MAX_DL))
+        dab = d[1:]
+        n = float(np.hypot(*dab))
+        if n > MAX_DAB:
+            dab = dab * (MAX_DAB / n)
+        # цветность целится осторожнее: у тёмной цели (L* < 40) оттенок на фото ненадёжен (шум, потеря сигнала в тенях), у малых участков
+        # (ручки, ножки < 12 % видимого) один сдвиг не должен менять оттенок — иначе чёрная ручка становится оливковой (проба 1, комод)
+        # НО у нейтральной цели (хрома фото ≤ 8) оттенок надёжен: полный сдвиг, иначе остаётся «синяя боковина» рядом с графитовым фасадом
+        # (T-52/3/1 ❶: у шкафа 6 и комода 1 боковина была L 36–52, b −10, цель b −2…0, сдвиг хромы ×0,35 оставлял b −7)
+        tc = float(np.hypot(tp[1], tp[2]))
+        fade = 1.0 if tc <= NEUTRAL_C else float(np.clip((tp[0] - 15.0) / 25.0, 0.0, 1.0)) * (1.0 if z['area'] >= 0.12 else 0.4)
+        s_ = np.array([dl, dab[0] * fade, dab[1] * fade], np.float32) * shift_scale
+        return tp, tm_, s_, bool(abs(d[0]) > MAX_DL or n > MAX_DAB)
+
     for z in info:
         i = z['i']
         row = {'i': i, 'area': z['area'], 'st': z['st'], 'lab': z['lab'], 'need_stops': z.get('need')}
@@ -333,8 +373,8 @@ def build_field(base, ralpha, prgb, pmask, tm, metals, shift_scale: float = 1.0)
             why = None if z['st'] == 'мелкий' else z['st']                    # «не тот материал», «нет пары на фото», металл… — не правим
         elif z['lab'][0] < DARK_L:
             why = 'тёмная текстура (L меша %.0f < %.0f): сигнала нет, усилится шум' % (z['lab'][0], DARK_L)
+        reg = both & (cl == i) & np.isin(pcl, z.get('mates') or []) if (z['st'] in ELIGIBLE or z['st'] == 'не тот материал') else None
         if z['st'] in ELIGIBLE and why is None:
-            reg = both & (cl == i) & np.isin(pcl, z.get('mates') or [])
             zpx = int((both & (cl == i)).sum())
             if reg.sum() < 50:
                 why = 'нет пары на фото'
@@ -349,25 +389,41 @@ def build_field(base, ralpha, prgb, pmask, tm, metals, shift_scale: float = 1.0)
             row['why'] = why
         if z['st'] in ELIGIBLE and why is None:
             if True:
-                tp, tm_ = tmed(P_lab[reg]), tmed(R_lab[reg])
-                d = tp - tm_
-                dl = float(np.clip(d[0], -MAX_DL, MAX_DL))
-                dab = d[1:]
-                n = float(np.hypot(*dab))
-                if n > MAX_DAB:
-                    dab = dab * (MAX_DAB / n)
-                # цветность целится осторожнее: у тёмной цели (L* < 40) оттенок на фото ненадёжен (шум, потеря сигнала в тенях), у малых участков
-                # (ручки, ножки < 12 % видимого) один сдвиг не должен менять оттенок — иначе чёрная ручка становится оливковой (проба 1, комод)
-                fade = float(np.clip((tp[0] - 15.0) / 25.0, 0.0, 1.0)) * (1.0 if z['area'] >= 0.12 else 0.4)
-                s = np.array([dl, dab[0] * fade, dab[1] * fade], np.float32) * shift_scale
+                tp, tm_, s, capped = calc(z, reg)
                 cs.append(np.asarray(C[i], np.float32)); sg.append(z.get('spread') or CO.SIGMA_DE); sh.append(s)
                 cover += float(z['area'])
                 row.update(target=[round(float(v), 1) for v in tp], mesh=[round(float(v), 1) for v in tm_],
-                           shift=[round(float(v), 1) for v in s], capped=bool(abs(d[0]) > MAX_DL or n > MAX_DAB))
+                           shift=[round(float(v), 1) for v in s], capped=capped)
+        if force and reg is not None and reg.sum() >= 50:      # принудительно, мимо предфильтра — только чтобы сверить его с глазами
+            tp, tm_, s, capped = calc(z, reg)
+            csf.append(np.asarray(C[i], np.float32)); sgf.append(z.get('spread') or CO.SIGMA_DE); shf.append(s)
+            row['force_shift'] = [round(float(v), 1) for v in s]
         rep.append(row)
+    def guards(cents):
+        """Охрана: неправимый участок (не в `cents`) крупнее PROTECT_AREA, чей цвет ≥ PROTECT_DE от всех правимых центров, —
+        ручка/ножка/фурнитура иного цвета, чем фасад. Участок того же материала (близкий цвет) не охраняем — иначе остались бы пятна."""
+        if not len(cents):
+            return None, None, []
+        cents = np.array(cents, np.float32)
+        gc, gs, ids = [], [], []
+        for z in info:
+            c = np.asarray(C[z['i']], np.float32)
+            if z['area'] < PROTECT_AREA or any(np.allclose(c, k) for k in cents):
+                continue
+            if float(np.sqrt(((cents - c[None]) ** 2).sum(-1)).min()) >= PROTECT_DE:
+                gc.append(c); gs.append(z.get('spread') or CO.SIGMA_DE); ids.append(z['i'])
+        return (np.array(gc) if gc else None), (np.array(gs) if gs else None), ids
+
+    gcs, gss, gids = guards(cs)
+    for row in rep:
+        row['protect'] = row['i'] in gids                    # охраняется при нормальной поправке
+    ff = None
+    if csf:
+        fc, fs, _ = guards(csf)
+        ff = Field(np.array(csf), np.array(sgf), np.array(shf), fc, fs)
     if not cs:
-        return None, rep, 'нет участков для поправки', 0.0
-    return Field(np.array(cs), np.array(sg), np.array(sh)), rep, None, cover
+        return None, rep, 'нет участков для поправки', 0.0, ff
+    return Field(np.array(cs), np.array(sg), np.array(sh), gcs, gss), rep, None, cover, ff
 
 
 def region_metrics(rgb: np.ndarray, ralpha: np.ndarray, prgb: np.ndarray, pmask: np.ndarray) -> dict:
@@ -410,7 +466,7 @@ def render_unlit(glb: str, yaw: float, pitch: float, size: int) -> Image.Image:
             os.environ['UNLIT'] = prev
 
 
-def process(sku: str, gen: str, role: str, out: str, k: int, shift_scale: float = 1.0) -> dict:
+def process(sku: str, gen: str, role: str, out: str, k: int, shift_scale: float = 1.0, force: bool = False) -> dict:
     import mesh_render as MR
     sid = sku.replace(':', '_')
     d = f'{ROOT}/v2/{sid}/{gen}'
@@ -433,20 +489,30 @@ def process(sku: str, gen: str, role: str, out: str, k: int, shift_scale: float 
     if al['iou'] < IOU_MIN:
         r.update(status='отказ: силуэт фото не совпал с рендером (IoU %.2f < %.2f) — камере не верим' % (al['iou'], IOU_MIN))
         return r
-    fld, zrep, why, cover = build_field(base, ralpha, prgb, pmask, tm, metals, shift_scale)
+    fld, zrep, why, cover, ff = build_field(base, ralpha, prgb, pmask, tm, metals, shift_scale, force)
     r['zones'] = zrep
     r['cover'] = round(cover, 3)
     r['was'] = region_metrics(base, ralpha, prgb, pmask)
-    if fld is None or cover < COVER_MIN:
+    strict_ok = fld is not None and cover >= COVER_MIN
+    r['prefilter'] = 'перекрашивать' if strict_ok else 'перегенерация'
+    use = fld if strict_ok else (ff if force else None)
+    if use is None:
         whys = '; '.join(sorted({z['why'].split(' (')[0].split(':')[0] for z in zrep if z.get('why') and z['area'] >= 0.1}))
-        r.update(status='отказ: правимых участков %.0f %% < %.0f %% (%s)' % (100 * cover, 100 * COVER_MIN, whys or 'нет'))
+        r.update(status='отказ: правимых участков %.0f %% < %.0f %% (%s)' % (100 * cover, 100 * COVER_MIN, whys or 'нет'), secs=round(time.time() - t0, 1))
         frame(out, k, sku, role, glb, None, yaw, pitch, P, r)
         return r
+    fld = use
     dst = f'{out}/glb/{k:02d}_{sid}.glb'
     details = []
 
     def fn(arr):
-        new, ex = recolor_texture(arr, fld)
+        mt = None                                             # карта металличности той же части: картина baseColor ↔ часть — по совпадению пикселей
+        for pi, t in enumerate(texs):
+            if metals[pi] is not None and t is not None and t.shape[:2] == arr.shape[:2] and np.array_equal(np.asarray(t)[..., :3], arr[..., :3]):
+                mt = metals[pi]
+                break
+        new, ex = recolor_texture(arr, fld, mt)
+        r.setdefault('metal', []).append({k_: ex[k_] for k_ in ('metal_share', 'metal_would_change') if k_ in ex})
         dm = detail_metrics(arr, new, ex)
         details.append(dm)
         return new, dm
@@ -462,7 +528,10 @@ def process(sku: str, gen: str, role: str, out: str, k: int, shift_scale: float 
     Y = np.array([0.2126, 0.7152, 0.0722], np.float32)
     h0, h1 = _hp(s2l(base) @ Y), _hp(s2l(base1) @ Y)
     r['render_hp_corr'] = round(float(np.corrcoef(h0[both], h1[both])[0, 1]), 4)
-    if r['now']['de_med'] > r['was']['de_med'] + 0.5:
+    if not strict_ok:
+        whys = '; '.join(sorted({z['why'].split(' (')[0].split(':')[0] for z in zrep if z.get('why') and z['area'] >= 0.1}))
+        r['status'] = 'отказ предфильтра (%s) — стало посчитано ПРИНУДИТЕЛЬНО для сверки' % (whys or 'правимо <30 %')
+    elif r['now']['de_med'] > r['was']['de_med'] + 0.5:
         r['status'] = 'отказ: самопроверка — ΔE00 стало хуже (%s → %s), результат не принимать' % (r['was']['de_med'], r['now']['de_med'])
     elif cover >= COVER_OK:
         r['status'] = 'ok'
@@ -571,6 +640,7 @@ def table(rows: list[dict]) -> str:
     L = ['| № | sku | роль | IoU | покрыто | ΔE00 мед. пикс. было→стало | p90 | по областям | \\|ΔL\\| обл. | \\|ΔC*\\| обл. | деталь corr / SSIM / энергия | обрезано | статус |',
          '|---|---|---|---|---|---|---|---|---|---|---|---|---|']
     for i, r in enumerate(rows, 1):
+        i = r.get('k', i)
         w, n = r.get('was'), r.get('now')
         if not n:
             wtxt = f'{w["de_med"]} → —' if w else '—'
@@ -620,24 +690,35 @@ def main() -> int:
     ss = float(sys.argv[sys.argv.index('--shift-scale') + 1]) if '--shift-scale' in sys.argv else 1.0
     if '--lit' in sys.argv:
         LIT_ROWS.update(int(x) for x in sys.argv[sys.argv.index('--lit') + 1].split(','))
+    force = '--force' in sys.argv
+    shard = [int(x) for x in sys.argv[sys.argv.index('--shard') + 1].split('/')] if '--shard' in sys.argv else [0, 1]   # i/n: каждый n-й
     seen, rows = set(), []
     os.makedirs(out, exist_ok=True)
+    nums = {}
+    for j in jobs:                                        # номера моделей — по порядку файла заданий (одинаковы у всех потоков)
+        nums.setdefault(j['sku'], len(nums) + 1)
     for j in jobs:
         if j['sku'] in seen or (only and only not in j['sku']):
             continue
         seen.add(j['sku'])
-        k = len(rows) + 1
+        if (nums[j['sku']] - 1) % shard[1] != shard[0]:
+            continue
+        k = nums[j['sku']]
         try:
-            r = process(j['sku'], j['_t85']['v2_gen'], j.get('role', ''), out, k, ss)
+            r = process(j['sku'], j['_t85']['v2_gen'], j.get('role', ''), out, k, ss, force)
         except Exception as e:  # noqa: BLE001
             import traceback
             traceback.print_exc()
             r = {'sku': j['sku'], 'role': j.get('role', ''), 'status': 'ошибка: ' + repr(e)[:200]}
         r['control_in_t52'] = j['sku'] in [x['sku'] for x in jobs if x.get('_t52') == 'base']
+        r['k'] = k
+        for key in ('dE', 'dL', 'mesh_rgb', 'photo_rgb', 'where'):
+            if key in j:
+                r['census_' + key] = j[key]
         rows.append(r)
         print(k, j['sku'], r.get('status'), flush=True)
-        json.dump(rows, open(f'{out}/results.json', 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    open(f'{out}/table.md', 'w', encoding='utf-8').write(table(rows) + '\n')
+        json.dump(rows, open(f'{out}/results-{shard[0]}.json', 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    open(f'{out}/table-{shard[0]}.md', 'w', encoding='utf-8').write(table(rows) + '\n')
     print(table(rows))
     return 0
 
