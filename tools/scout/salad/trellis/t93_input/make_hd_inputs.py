@@ -21,7 +21,7 @@ for p in (HERE, TRELLIS, SALAD, os.path.dirname(SALAD)):
     sys.path.insert(0, p)
 
 PHOTOS = '/home/pakar/remlab-logs/t93-1119/db_photos.json'
-ROLES = {'114667:11634594969038554503': 'диван', '112923:13224664101879413845': 'комод'}     # как в inputs30 (роль берёт боевой конвейер из набора)
+INPUTS30 = '/home/pakar/remlab-logs/mesh-models-1118/trellis/inputs30/inputs.json'      # роли и «было» — оттуда (роль боевой конвейер берёт из набора)
 
 
 def main() -> int:
@@ -39,28 +39,44 @@ def main() -> int:
     PRE.cutout = cpu_cutout
     os.makedirs(a.out, exist_ok=True)
     db = json.load(open(PHOTOS, encoding='utf-8'))
-    res = {}
+    old = json.load(open(INPUTS30, encoding='utf-8'))
+    jp = os.path.join(a.out, 'inputs.json')
+    res = json.load(open(jp, encoding='utf-8')) if os.path.exists(jp) else {}      # возобновление: готовое не пересчитываем
     for sku in a.skus:
         mid, eid = sku.split(':', 1)
+        name = sku.replace(':', '_')
+        if res.get(sku, {}).get('input_png_sha256') and os.path.exists(os.path.join(a.out, f'{name}.rgba.png')):
+            print(sku, 'уже есть — пропуск', flush=True)
+            continue
         m = CM.media(mid, eid) or {}
         hd = m.get('img_hd') or (db.get(sku) or {}).get('image_url_hd')
+        if a.src == 'hd' and not hd:                                  # общее правило: HD нет — честно «HD нет», вход не меняем
+            res[sku] = {'no_hd': True, 'role': old.get(sku, {}).get('role')}
+            print(sku, 'HD нет — пропуск', flush=True)
+            json.dump(res, open(jp, 'w'), ensure_ascii=False, indent=1)
+            continue
         url = (hd if a.src == 'hd' else None) or m.get('img') or (db.get(sku) or {}).get('image_url')
-        role = ROLES.get(sku)
-        shape_img, cut, input_hash, info = PRE._cut_chain(url, role=role)
+        role = old.get(sku, {}).get('role')
+        try:
+            shape_img, cut, input_hash, info = PRE._cut_chain(url, role=role)
+        except Exception as e:  # noqa: BLE001 — один плохой товар не должен класть набор; причина — в отчёт
+            res[sku] = {'error': f'{type(e).__name__}: {str(e)[:120]}', 'image_url': url, 'role': role}
+            print(f'!! {sku}: вырезка упала — {res[sku]["error"]}', flush=True)
+            json.dump(res, open(jp, 'w'), ensure_ascii=False, indent=1)
+            continue
         rep = {}
         if not a.no_clean:
             shape_img, rep = clean_islands(shape_img)
             cut = PRE.trim_alpha(shape_img)
         buf = io.BytesIO()
         shape_img.save(buf, 'PNG')
-        name = sku.replace(':', '_')
         open(os.path.join(a.out, f'{name}.rgba.png'), 'wb').write(buf.getvalue())
         cut.save(os.path.join(a.out, f'{name}.cut-preview.png'))
         res[sku] = {'role': role, 'image_url': url, 'src': a.src, 'size': list(shape_img.size), 'input_png_sha256': hashlib.sha256(buf.getvalue()).hexdigest(),
                     'hybrid_error': info.get('hybrid_error'), 'uniform_bg': info.get('uniform_bg'), 'islands_removed': rep.get('removed'),
                     'mask': {k: info.get(k) for k in ('verdict', 'reason')}}
         print(sku, shape_img.size, 'hybrid_error:', info.get('hybrid_error'), '| срезано островков:', len(rep.get('removed') or []), flush=True)
-    json.dump(res, open(os.path.join(a.out, 'inputs.json'), 'w'), ensure_ascii=False, indent=1)
+        json.dump(res, open(jp, 'w'), ensure_ascii=False, indent=1)
     return 0
 
 
