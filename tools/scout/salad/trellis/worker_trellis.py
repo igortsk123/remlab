@@ -1289,8 +1289,9 @@ class MVAdapterTexBackend:
         from scripts import inference_ig2mv_sdxl as IG                                  # `scripts/__init__.py` есть; первым в sys.path — наш каталог
         from mvadapter.pipelines.pipeline_mvadapter_i2mv_sdxl import MVAdapterI2MVSDXLPipeline
         from mvadapter.pipelines.pipeline_texture import ModProcessConfig, TexturePipeline
-        from mvadapter.utils.mesh_utils import blend as MB
-        from mvadapter.utils.mesh_utils import render as MR
+        import importlib                                                                # `mesh_utils/__init__.py` экспортирует ФУНКЦИЮ `render` — она заслоняет подмодуль (a0852: 'function' has no attribute 'NVDiffRastContextWrapper'); берём сами модули
+        MB = importlib.import_module('mvadapter.utils.mesh_utils.blend')
+        MR = importlib.import_module('mvadapter.utils.mesh_utils.render')
         patches = []
         _init = MR.NVDiffRastContextWrapper.__init__
 
