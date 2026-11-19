@@ -56,6 +56,9 @@ MODEL_MEM_MB = {'supratex': SUPRA_MEM_MB}             # память групп�
 TEXTURE_MODELS = {'mvadapter-i2tex': '-mvtex', 'mvpainter': '-mvp', 'supratex': '-supra', 'pixal3d-tex': '-tex', 'trellis2': '-tex'}      # модели «краска готовой формы» и суффикс id задания (результат — `<id>.glb`)
 GPU_TIERS = ('high', 'medium', 'low', 'batch')        # тарифы Salad от дорогого к дешёвому; запасной порядок выбора класса — по ним
 MVP_DEFAULT_GPU = 'RTX 5090 (32 GB)'                  # mvpainter по умолчанию (директор 19.11): 4090 (24 ГБ) может не вместить; 4090 — только явным `--gpu "RTX 4090 (24 GB)"` / `--card`
+CREATE_WAIT_MIN = 30                                  # сколько минут ждать `stopped` после создания группы (параметр `--create-wait-min`)
+START_RETRIES = 5                                     # повторов `/start` при коде ≥ 300
+START_RETRY_S = 30                                    # пауза между попытками /start, секунд
 GPU_MIN_GB = 40                                       # запасной путь: классы от 40 ГБ видеопамяти (по умолчанию — 4090; у mvpainter с чекпойнтом на процессор, issue #13)
 LIVE_PRICES: dict = {}                                # (имя класса, тариф) → $/ч из API Salad (`fetch_gpu_items`); деньги считаем по ним, снимок `rules/salad-groups.json` — только если API молчит
 
@@ -549,14 +552,33 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     os.makedirs(a.out, exist_ok=True)
     t_start = run_since = None
     try:
-        for _ in range(120):                              # создание группы Salad иногда идёт 2–10 минут
+        create_wait_s = float(getattr(a, 'create_wait_min', None) or CREATE_WAIT_MIN) * 60
+        t_wait = clock()
+        while True:                                       # создание группы Salad бывает долгим (живая группа MV-Adapter 19.11 — дольше 10 минут); до `running` деньги не идут
             _, st, _c = BR.group_state(name)
             if st == 'stopped':
                 break
+            if clock() - t_wait >= create_wait_s:
+                say(f'!! группа {name} не дошла до stopped за {create_wait_s / 60:.0f} мин (состояние: {st}) — /start не шлю, гашу')
+                summary['stopped_by'] = 'create_timeout'
+                return 1
             sleep(5)
         t_start = clock()
-        code, _ = MG.api(f'/{name}/start', 'POST')
-        say('start HTTP', code)
+        started = False
+        for attempt in range(1 + START_RETRIES):          # /start на ещё не созданной группе отвечает 400 — повторяем, а не ждём молча у остановленной группы
+            code, _ = MG.api(f'/{name}/start', 'POST')
+            say('start HTTP', code, f'(попытка {attempt + 1} из {1 + START_RETRIES})')
+            if code < 300:
+                started = True
+                break
+            _, st2, cnt2 = BR.group_state(name)
+            say(f'!! start не принят: HTTP {code}; состояние группы: {st2} {cnt2 if cnt2 else ""}'.strip())
+            if attempt < START_RETRIES:
+                sleep(START_RETRY_S)
+        if not started:
+            say(f'!! группа не стартовала за {1 + START_RETRIES} попыток /start — гашу с проверкой')
+            summary['stopped_by'] = 'start_failed'
+            return 1
         gw, ready_at, fail_streak = None, None, 0
         ever_ok, last_gb, last_gb_t, last_say = False, None, None, 0.0           # видимость воркера: был ли хоть один ответ /health, рост докачки весов
         last_hc = 0.0                                                             # последний опрос /health во время задания (воркер «сломан» после фатальной ошибки CUDA)
@@ -752,6 +774,7 @@ def main() -> int:
     ap.add_argument('--mem-mb', type=int, default=None, help='память группы, МБ; по умолчанию 32768, для supratex 49152 (пик процессов ≈ 32,4 ГиБ)')
     ap.add_argument('--cap', type=float, default=2.0, help='потолок денег на ОДИН запуск (одну модель), $ — владелец TG 2064: $2 на модель, $10 на всю пробу')
     ap.add_argument('--max-min', type=int, default=180)
+    ap.add_argument('--create-wait-min', type=float, default=CREATE_WAIT_MIN, help='сколько минут ждать, пока созданная группа станет stopped, прежде чем слать /start (деньги до running не идут)')
     ap.add_argument('--ready-min', type=int, default=75, help='сколько минут после running ждать прогрева модели (холодный старт с докачкой весов — часть результата пробы)')
     ap.add_argument('--health-min', type=int, default=20, help='сколько минут после running ждать ПЕРВОГО ответа /health, иначе стоп (воркер мёртв)')
     ap.add_argument('--disk-min-gb', type=float, default=3.0, help='стоп, если свободного места на диске контейнера меньше, ГиБ')

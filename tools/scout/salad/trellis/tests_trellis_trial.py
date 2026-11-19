@@ -404,5 +404,64 @@ if have_pil:
     except SystemExit:
         ok('предел веса картинок срабатывает', True)
 
+print('[4б] драйвер: долгое создание группы и отказ /start (живая группа MV-Adapter 19.11: stopped позже 10 минут, /start → HTTP 400)')
+
+
+class SlowCreateBR(FakeBR):
+    """Группа создаётся `slow_s` секунд (по часам теста), потом становится stopped; `stuck` — не станет никогда."""
+    def __init__(self, clock_box, slow_s=0, stuck=False, **kw):
+        super().__init__(**kw)
+        self.cb, self.slow_s, self.stuck, self.state_calls = clock_box, slow_s, stuck, 0
+
+    def group_state(self, name):
+        self.state_calls += 1
+        if self.stuck or self.cb[0] < self.slow_s:
+            return 200, 'creating', {}
+        return 200, 'stopped', {}
+
+
+class StartCodesMG(FakeMG):
+    def __init__(self, codes, **kw):
+        super().__init__(**kw)
+        self.codes, self.starts = list(codes), []
+
+    def api(self, path, method='GET', body=None):
+        if method == 'POST' and path.endswith('/start'):
+            self.calls.append((method, path))
+            self.starts.append(1)
+            return (self.codes.pop(0) if self.codes else 202), {}
+        return super().api(path, method, body)
+
+
+def go2(tmp, mg, mkbr, **kw):
+    FakeGW.script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, 'phase': None, 'no_health': False, 'hf_gb': None, 'disk_free': 50.0, 'fatal_jobs': False, 'broken': None, 'job_hangs': False}
+    clock = [0.0]
+    br = mkbr(clock)
+    naps = []
+
+    def sleep(sec):
+        naps.append(sec)
+        clock[0] += sec
+    rc = T.run(args(tmp, **kw), mg, br, gw_factory=FakeGW, sleep=sleep, clock=lambda: clock[0], hf_head=lambda p, t: 200)
+    sp = os.path.join(tmp, 'out', f'summary-trial-trellis2-{kw.get("suffix", "t1")}.json')
+    return rc, br, naps, (json.load(open(sp)) if os.path.exists(sp) else None)
+
+
+d = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d)
+mg = StartCodesMG([400, 202])
+rc, br, naps, s = go2(d, mg, lambda c: SlowCreateBR(c, slow_s=15 * 60), suffix='c1')
+ok('группа создаётся 15 мин (старое окно было 10): ждём stopped, /start идёт только после него — первый HTTP 400, второй 202, прогон идёт до конца', rc == 0 and s['stopped_by'] == 'done' and len(mg.starts) == 2
+   and sum(x for x in naps[:200] if x == 5) >= 15 * 60 - 5 and 30 in naps, str((rc, mg.starts, s and s['stopped_by'])))
+ok('при повторе /start пауза 30 с, стоп с проверкой — один раз', br.stops == ['trial-trellis2-c1'] and naps.count(30) == 1, str(naps[:5]))
+mg = StartCodesMG([400] * 10)
+rc, br, naps, s = go2(d, mg, lambda c: SlowCreateBR(c), suffix='c2')
+ok('/start не принят ни разу: 1+5 попыток с паузой 30 с, потом стоп с проверкой и stopped_by=start_failed (а не тихое ожидание у остановленной группы)', rc == 1 and len(mg.starts) == 6 and naps.count(30) == 5
+   and s['stopped_by'] == 'start_failed' and s['stop_verified'] and br.stops == ['trial-trellis2-c2'] and s['running_s'] == 0.0, str((rc, len(mg.starts), s and s['stopped_by'])))
+mg = StartCodesMG([202])
+rc, br, naps, s = go2(d, mg, lambda c: SlowCreateBR(c, stuck=True), suffix='c3', create_wait_min=2)
+ok('группа так и не стала stopped за --create-wait-min → /start не шлём, стоп с проверкой, stopped_by=create_timeout', rc == 1 and mg.starts == [] and s['stopped_by'] == 'create_timeout' and br.stops == ['trial-trellis2-c3'], str((rc, mg.starts, s and s['stopped_by'])))
+ok('по умолчанию ждём stopped 30 минут', T.CREATE_WAIT_MIN == 30 and T.START_RETRIES == 5 and T.START_RETRY_S == 30)
+
 print('ИТОГО: ' + ('всё в норме' if not bad else f'провалов {bad}'))
 sys.exit(1 if bad else 0)
