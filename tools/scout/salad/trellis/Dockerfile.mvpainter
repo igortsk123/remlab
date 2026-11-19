@@ -1,0 +1,46 @@
+# ОБРАЗ ПРОБЫ MVPainter (T-20261119-06/4): «готовая форма (GLB) + одно фото → краска (PBR)», КАК ЕСТЬ у авторов (amap-cvlab/MV-Painter): ортографические нормали и глубина формы
+# (Blender) → диффузия рисует 6 видов по фото → IDArb даёт basecolor/metallic/roughness по видам → штатное упрощение формы до 30 тыс. вершин, развёртка xatlas, запекание → GLB с PBR.
+# ПОВЕРХ образа TRELLIS.2 с пинами (там Python 3.10, torch 2.6/cu124 devel с nvcc, nvdiffrast v0.4.0, trimesh). Версии библиотек — как в их requirements.txt (diffusers 0.20.2, huggingface-hub 0.22.2,
+# transformers 4.40.1, numpy 1.26.3, pytorch-lightning 2.2.4 …); torch из базы НЕ трогаем (у них cu121/2.5.1 — на нём расширения не пересобирались; базовый 2.6/cu124 — риск, проверить в живой пробе).
+# Два Blender (так у авторов, но bpy из PyPI поставить нельзя — `bpy==3.6.0` на PyPI нет, там только 4.2+ под Python 3.11): 4.2.9 — рендер глубины/нормалей и сборка PBR-GLB (их путь `../blender-4.2.9-linux-x64/blender`),
+# 3.6.9 LTS — упрощение формы и запекание (их скрипты пользуются старым импортёром OBJ `import_scene.obj`, убранным в Blender 4.0). Воркер запускает их скрипты внутри Blender 3.6 тонкой обёрткой (в клоне ничего не правим).
+# Большие веса (shaomq/MVPainter ≈ 28,5 ГиБ: unet, controlnet, unet_pbr + ckpt; lizb6626/IDArb — малые части) НЕ в образе: докачиваются на старте в $HF_HOME (воркер).
+# ЛИЦЕНЗИИ того, что ложится в образ: MV-Painter — Apache-2.0 (основной код); файлы с заголовком Tencent Non-Commercial (`differentiable_renderer/*`, `custom_rasterizer/**`, `utils.py`) — ТОЛЬКО некоммерческое
+# использование: для пробы допустимо, для БОЕВОГО — нет; лицензия весов shaomq/MVPainter в карточке не указана (не сверено); Blender (bpy) — GPL; IDArb — код MIT, веса без явной лицензии;
+# nvdiffrast и nvdiffrec (уже в базе TRELLIS.2) — Nvidia Source Code License-NC: только исследование и оценка; diffusers/transformers/accelerate/pytorch-lightning — Apache-2.0; rembg — MIT.
+ARG BASE=ghcr.io/igortsk123/mesh-trellis2-trial@sha256:d7beac21b04951697c3d86788ff580bfaa4f2498f97d822e6d281231b7112ad5
+FROM ${BASE}
+ARG MVPAINTER_COMMIT=f714682db5e6f78e8d1c7c0a43d1525638dda5a6
+ARG BLENDER42_SHA256=dfbc127a7d28f9c2175b23bf9d6701b2855f31eedfb391f9a6e60adb24572846
+ARG BLENDER36_SHA256=2b1047f4a7f826be1c1e8f7c055578c697ae80c618a03507dda65183ec66bb9c
+ENV DEBIAN_FRONTEND=noninteractive
+
+# системные библиотеки для Blender без экрана (рендер Cycles на процессоре, GL не нужен, но сами .so Blender подтягивает)
+RUN apt-get update && apt-get install -y --no-install-recommends xz-utils curl git ca-certificates libxi6 libxrender1 libxkbcommon0 libsm6 libgl1 libxxf86vm1 libxfixes3 libegl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# пины Python-библиотек — по их requirements.txt; opencv-headless (в базе уже есть — перетягиваем на 4.10 под numpy 1.26); cupy — для voronoi.py; pybind11 — для сборки mesh_processor
+RUN python3 -m pip install diffusers==0.20.2 "huggingface-hub==0.22.2" transformers==4.40.1 tokenizers==0.19.1 accelerate==0.29.1 safetensors==0.4.3 einops==0.8.0 omegaconf==2.3.0 \
+        numpy==1.26.3 scipy==1.13.0 scikit-image==0.23.2 opencv-python-headless==4.10.0.84 pytorch-lightning==2.2.4 lightning-utilities==0.11.2 imageio==2.34.1 jaxtyping==0.2.28 \
+        OpenEXR==3.2.4 rembg==2.0.59 onnxruntime==1.18.1 cupy-cuda12x==13.3.0 pybind11==2.13.6 xatlas==0.0.9 trimesh==4.5.2 pygltflib==1.16.5
+
+# код MV-Painter по закреплённому коммиту; рядом (в /opt/MV-Painter, на уровень выше MVPainter/) — Blender 4.2.9: так его ищут их скрипты (`../blender-4.2.9-linux-x64/blender`)
+RUN git clone https://github.com/amap-cvlab/MV-Painter.git /opt/MV-Painter \
+    && cd /opt/MV-Painter && git checkout ${MVPAINTER_COMMIT} \
+    && curl -fsSL -o /tmp/blender42.tar.xz https://download.blender.org/release/Blender4.2/blender-4.2.9-linux-x64.tar.xz \
+    && echo "${BLENDER42_SHA256}  /tmp/blender42.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/blender42.tar.xz -C /opt/MV-Painter && rm /tmp/blender42.tar.xz \
+    && curl -fsSL -o /tmp/blender36.tar.xz https://download.blender.org/release/Blender3.6/blender-3.6.9-linux-x64.tar.xz \
+    && echo "${BLENDER36_SHA256}  /tmp/blender36.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/blender36.tar.xz -C /opt && rm /tmp/blender36.tar.xz \
+    && /opt/MV-Painter/blender-4.2.9-linux-x64/4.2/python/bin/python3.11 -m ensurepip \
+    && /opt/MV-Painter/blender-4.2.9-linux-x64/4.2/python/bin/python3.11 -m pip install opencv-python-headless==4.10.0.84 \
+    && ln -sf "$(command -v python3)" /usr/local/bin/python
+
+# расширения: растеризатор (CUDA) и рендерер/покраска (C++ pybind11). Видеокарты при сборке нет — архитектуры задаём явно (3090/A100/4090/H100)
+RUN cd /opt/MV-Painter/MVPainter/mvpainter/custom_rasterizer && TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0" python setup.py install \
+    && cd /opt/MV-Painter/MVPainter/mvpainter/differentiable_renderer && python setup.py install \
+    && { echo "MV-Painter ${MVPAINTER_COMMIT}"; echo "blender-4.2.9 ${BLENDER42_SHA256}"; echo "blender-3.6.9 ${BLENDER36_SHA256}"; python3 -m pip freeze; } > /opt/BUILD_INFO_MVPAINTER.txt
+
+COPY worker_trellis.py /app/worker_trellis.py
+ENV MODEL=mvpainter MVPAINTER_DIR=/opt/MV-Painter/MVPainter BLENDER42=/opt/MV-Painter/blender-4.2.9-linux-x64/blender BLENDER36=/opt/blender-3.6.9-linux-x64/blender

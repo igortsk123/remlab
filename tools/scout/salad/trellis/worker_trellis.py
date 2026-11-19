@@ -21,7 +21,7 @@
   GET  /job/<id>      состояние: queued|running|done|failed + замеры (секунды по стадиям, пик VRAM, треугольники, карты, МБ) или трассировка
   GET  /glb/<id>      байты `model.glb`
 
-Бэкенд модели — по `MODEL` (`trellis2` | `pixal3d` | `pixal3d-tex` (краска Pixal3D по готовой форме) | `mvadapter-i2tex` (краска MV-Adapter по готовой форме) | `hunyuan21`); `MODEL=fake` — для теста без видеокарты (`tests_trellis_trial.py`). Токена Hugging Face в логи не пишем.
+Бэкенд модели — по `MODEL` (`trellis2` | `pixal3d` | `pixal3d-tex` (краска Pixal3D по готовой форме) | `mvadapter-i2tex` (краска MV-Adapter по готовой форме) | `mvpainter` (краска MVPainter по готовой форме) | `hunyuan21`); `MODEL=fake` — для теста без видеокарты (`tests_trellis_trial.py`). Токена Hugging Face в логи не пишем.
 """
 from __future__ import annotations
 
@@ -1113,13 +1113,17 @@ def mv_fit_yaw(verts, faces, rgba, n: int = FIT_N, force=None) -> dict:
     return {'yaw_deg': yaw, 'forced': force is not None, 'iou': ious[str(yaw)], 'iou_best': ious[str(best)], 'iou_by_yaw': ious}
 
 
-def mv_write_input_glb(path: str, p, faces, uv) -> None:
-    """Входной GLB для апстрима: форма в кубе (повёрнутая на yaw) + ТА ЖЕ развёртка; текстура-заглушка 4×4 (без материала trimesh не пишет UV). Вершины идут float32 (формат GLB)."""
+def mv_write_input_glb(path: str, p, faces, uv=None) -> None:
+    """Входной GLB для апстрима: форма в кубе (повёрнутая на yaw) + ТА ЖЕ развёртка; текстура-заглушка 4×4 (без материала trimesh не пишет UV). Вершины идут float32 (формат GLB).
+    `uv=None` — только форма, без развёртки (MVPainter строит свою, xatlas)."""
     import numpy as np
     import trimesh
     from PIL import Image
-    mat = trimesh.visual.material.PBRMaterial(baseColorTexture=Image.new('RGB', (4, 4), (255, 255, 255)))
-    m = trimesh.Trimesh(vertices=np.asarray(p, dtype=np.float64), faces=np.asarray(faces), visual=trimesh.visual.TextureVisuals(uv=np.asarray(uv, dtype=np.float64), material=mat), process=False)
+    visual = None
+    if uv is not None:
+        mat = trimesh.visual.material.PBRMaterial(baseColorTexture=Image.new('RGB', (4, 4), (255, 255, 255)))
+        visual = trimesh.visual.TextureVisuals(uv=np.asarray(uv, dtype=np.float64), material=mat)
+    m = trimesh.Trimesh(vertices=np.asarray(p, dtype=np.float64), faces=np.asarray(faces), visual=visual, process=False)
     m.export(path)
 
 
@@ -1376,8 +1380,443 @@ class MVAdapterTexBackend:
         return diag
 
 
+# ——— mvpainter: краска ГОТОВОЙ формы по MVPainter КАК ЕСТЬ (T-20261119-06/4) ———
+# Источник — github.com/amap-cvlab/MV-Painter, коммит f714682 (source: external:github; основной код Apache-2.0; файлы с заголовком Tencent Non-Commercial — `mvpainter/differentiable_renderer/*`,
+# `custom_rasterizer/**`, `utils.py` — только некоммерческое: для пробы допустимо; лицензия весов shaomq/MVPainter и lizb6626/IDArb не указана; Blender/bpy — GPL).
+# Что делает апстрим, и мы его скрипты НЕ правим — запускаем подпроцессами из `MVPainter/` (обёртки — наши, внизу):
+#   1) `infer_multiview.py`: Blender 4.2 рисует ортографические нормали и глубину формы (`scripts/blender_render_ortho.py`: `normalize_scene` :576-604 — габарит ×0,95/наибольшая сторона, центр в ноль),
+#      диффузия (`MVPainter_Pipeline` + ControlNet, 75 шагов) даёт 6 видов 512² по фото (`result_1..6.png`), `blender.obj` — форма в этом кадре;
+#   2) `infer_pbr.py` (по умолчанию): IDArb по видам даёт basecolor/metallic/roughness (`result_i_<карта>.png`);
+#   3) `infer_paint.py:25` `reduce_mesh(... target_vertices=30000)`: ШТАТНОЕ УПРОЩЕНИЕ формы до 30 тыс. вершин → `blender_low.obj` (форма меняется законно — владелец 19.11, TG 2149/2150);
+#      `mvpainter/bake_pipeline.py:173` `mesh_uv_wrap` (xatlas) строит свою развёртку, запекание видов в текстуру 1024², Blender собирает GLB (`scripts/blender_pbr_glb.py` для PBR).
+# Мы повторяем последовательность команд `infer_paint.py` САМИ (у него `os.system` скрывает сбои, а bpy 3.6 из PyPI не ставится): упрощение и запекание идут в Blender 3.6 LTS, PBR-GLB — в Blender 4.2.9.
+# Наше — только обёртки: `torch.load` на процессор (issue #13: 15 ГБ чекпойнт на видеокарту не помещается в 24 ГБ), чекпойнт `v29_25000.safetensors` вместо `.ckpt` 23,6 ГиБ (те же веса: ключи
+# `unet.*`/`controlnet.*` — это `state_dict` без внешнего префикса `unet.`; строгая загрузка у апстрима отвергнет несовпадение), фото с рамкой как у `resize_foreground(0.85)`.
+MVP_SIZE_MAX = 30000                                            # `infer_paint.py:25`
+MVP_FRAME_OK = 0.02                                             # средняя дистанция вершин итога до формы входа, доля диагонали: больше — кадр итога не тот (`frame.ok=false`)
+MVP_PATTERNS = ['model_index.json', 'feature_extractor_vae/*', 'scheduler/*', 'uc_text_emb.pt', 'uc_text_emb_2.pt', 'unet/*', 'vae/*', 'vision_encoder/*', 'vision_encoder_2/*', 'vision_processor/*']
+MVP_PATTERNS_PBR = ['unet_pbr/*']
+MVP_PATTERNS_IDARB = ['model_index.json', 'feature_extractor/*', 'scheduler/*', 'text_encoder/*', 'tokenizer/*', 'vae/*']
+
+MVP_RUN_PY = r'''# обёртка: запускает скрипт апстрима как `python <скрипт>` (каталог скрипта = cwd первым в sys.path), с двумя заплатками загрузки весов (клон не правится)
+import os
+import runpy
+import sys
+script = sys.argv[1]
+sys.argv = sys.argv[1:]
+sys.path.insert(0, os.getcwd())
+import torch
+_orig_load = torch.load
+
+
+def _load(f, *a, **k):
+    if os.environ.get('MVP_LOAD_CPU', '1') != '0':
+        k.setdefault('map_location', 'cpu')                  # issue #13: чекпойнт писался с видеокарты, torch.load без map_location кладёт его целиком на неё
+    k.setdefault('weights_only', False)                      # torch 2.6: по умолчанию True, а их чекпойнт — не только тензоры
+    if isinstance(f, (str, os.PathLike)) and str(f).endswith('.safetensors'):
+        from safetensors.torch import load_file
+        sd = load_file(str(f), device='cpu')
+        return {'state_dict': {'unet.' + key: v for key, v in sd.items()}}      # формат .ckpt: их фильтр `"unet" in k` и срез `k[5:]` вернут ключи safetensors как есть
+    return _orig_load(f, *a, **k)
+
+
+torch.load = _load
+if os.environ.get('MVP_CKPT', 'safetensors') == 'safetensors':
+    import huggingface_hub
+    _orig_dl = huggingface_hub.hf_hub_download
+
+    def _dl(*a, **k):
+        fn = k.get('filename')
+        if fn and fn.endswith('v29_25000.ckpt'):
+            k['filename'] = fn[:-len('.ckpt')] + '.safetensors'
+        return _orig_dl(*a, **k)
+    huggingface_hub.hf_hub_download = _dl
+runpy.run_path(script, run_name='__main__')
+'''
+MVP_REDUCE_PY = r'''# внутри Blender 3.6: штатное упрощение апстрима (`infer_paint.py:25`), та же функция и те же аргументы
+import os
+import sys
+root, obj, low, nv = sys.argv[sys.argv.index('--') + 1:][:4]
+os.chdir(root)
+sys.path.insert(0, root)
+from scripts.remesh_reduce_blender_script import reduce_mesh
+reduce_mesh(obj, target_vertices=int(nv), output_path=low)
+'''
+MVP_BAKE_PY = r'''# внутри Blender 3.6: их `scripts/blender_bake.py` как есть, но с аргументами без чужих ключей Blender
+import runpy
+import sys
+a = sys.argv[sys.argv.index('--') + 1:]
+sys.argv = [a[0]] + a[1:]
+runpy.run_path(a[0], run_name='__main__')
+'''
+
+
+class MVPStageError(RuntimeError):
+    """Стадия апстрима упала или не оставила ожидаемых файлов (их `os.system` такие сбои скрывает — мы проверяем сами). В тексте — хвост вывода (по нему `classify_cuda_error` отличает нехватку памяти от фатального сбоя)."""
+
+
+def mvp_gpu_used_mib():
+    """Занятая память видеокарты из драйвера (МиБ) или None (нет nvidia-smi — тест без видеокарты)."""
+    d = nvidia_smi()
+    return d.get('memory_used_mib') if d else None
+
+
+def mvp_run_stage(name: str, cmd: list, cwd: str, env: dict | None = None, expect: tuple = (), timeout: float = 1800.0, smi=None, tail_n: int = 40) -> dict:
+    """Одна стадия подпроцессом: секунды, пик занятой памяти видеокарты (опрос раз в секунду, отдельный поток), код выхода, хвост вывода; вывод идёт и в журнал контейнера.
+    Упала (код ≠ 0, таймаут) или не оставила файлов из `expect` (шаблоны `*` — через glob) — `MVPStageError` с хвостом."""
+    import collections
+    import glob
+    smi = smi or mvp_gpu_used_mib
+    tail: collections.deque = collections.deque(maxlen=tail_n)
+    peak: list = [None]
+    stop = threading.Event()
+
+    def sample():
+        try:
+            return smi()
+        except Exception:  # noqa: BLE001 — замер памяти не должен ронять стадию
+            return None
+
+    base = sample()
+
+    def poll() -> None:
+        while not stop.is_set():
+            v = sample()
+            if v is not None:
+                peak[0] = v if peak[0] is None else max(peak[0], v)
+            stop.wait(1.0)
+    th = threading.Thread(target=poll, daemon=True)
+    th.start()
+    t0 = time.time()
+    p = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace', bufsize=1)
+    timed_out = []
+    timer = threading.Timer(timeout, lambda: (timed_out.append(1), p.kill()))
+    timer.start()
+    try:
+        for line in p.stdout:
+            line = line.rstrip('\n')
+            tail.append(line[-400:])
+            print(f'[mvp:{name}] {line[-400:]}', flush=True)
+        rc = p.wait()
+    finally:
+        timer.cancel()
+        stop.set()
+        th.join(3)
+    info = {'name': name, 'rc': rc, 'seconds': round(time.time() - t0, 2), 'gpu_used_base_mib': base, 'gpu_peak_mib': peak[0], 'timed_out': bool(timed_out)}
+    missing = [e for e in expect if not glob.glob(e)]
+    if rc != 0 or missing:
+        why = f'таймаут {timeout:.0f} с' if timed_out else f'код выхода {rc}'
+        raise MVPStageError(f'стадия {name}: {why}' + (f'; нет файлов: {missing[:3]}' if missing else '') + '\n' + '\n'.join(list(tail)[-12:])[-1500:])
+    info['tail'] = list(tail)[-3:]
+    return info
+
+
+def mvp_resize_foreground(image, ratio: float = 0.85):
+    """Фото как у `resize_foreground(image, 0.85)` апстрима (`src/utils/infer_util.py:25-63`; он вызывается только без `--no_rembg`, а rembg и его загрузку весов нам не нужны — альфа у фото настоящая):
+    рамка по альфа > 0 (последняя строка и столбец рамки отбрасываются, как у них), квадрат, поля до `1/ratio`."""
+    import numpy as np
+    from PIL import Image
+    a = np.array(image.convert('RGBA'))
+    ys, xs = np.where(a[..., 3] > 0)
+    if ys.size == 0:
+        raise ValueError('на фото нет предмета: альфа пустая')
+    fg = a[ys.min():ys.max(), xs.min():xs.max()]
+    if fg.shape[0] == 0 or fg.shape[1] == 0:
+        fg = a[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+    size = max(fg.shape[0], fg.shape[1])
+    ph0, pw0 = (size - fg.shape[0]) // 2, (size - fg.shape[1]) // 2
+    sq = np.pad(fg, ((ph0, size - fg.shape[0] - ph0), (pw0, size - fg.shape[1] - pw0), (0, 0)), mode='constant')
+    new = int(sq.shape[0] / ratio)
+    p0 = (new - size) // 2
+    return Image.fromarray(np.pad(sq, ((p0, new - size - p0), (p0, new - size - p0), (0, 0)), mode='constant'))
+
+
+def mvp_rotations() -> list:
+    """24 поворота куба (знаковые перестановки осей, det = +1); первый — единичный."""
+    import itertools
+    import numpy as np
+    out = [np.eye(3)]
+    for perm in itertools.permutations(range(3)):
+        for signs in itertools.product((1.0, -1.0), repeat=3):
+            m = np.zeros((3, 3))
+            for i, (j, sg) in enumerate(zip(perm, signs)):
+                m[i, j] = sg
+            if abs(np.linalg.det(m) - 1.0) < 1e-9 and not np.allclose(m, np.eye(3)):
+                out.append(m)
+    return out
+
+
+def mvp_align_frame(v_out, p_ref, n: int = 6000, accept: float = MVP_FRAME_OK) -> tuple:
+    """Вернуть вершины итога апстрима в кадр входа (куб `to_cube`). Теория: `blender.obj` лежит в кадре входного GLB (импорт glTF Y→Z и экспорт OBJ Z→Y взаимно обратны), меняются только масштаб ×0,95/габарит и
+    сдвиг центра (`normalize_scene`), поворота нет. Значит достаточно подогнать габарит; но кадр проверяем ДАННЫМИ: средняя дистанция вершин итога до вершин входа (доля диагонали). Единичный поворот принимаем,
+    пока она ≤ `accept`; иначе берём лучший из 24 поворотов куба. Возвращает (вершины в кадре входа, info: rotation, score_identity, score_chosen, top3, ok)."""
+    import numpy as np
+    from scipy.spatial import cKDTree
+    v = np.asarray(v_out, dtype=np.float64)
+    ref = np.asarray(p_ref, dtype=np.float64)
+    lo_r, hi_r = ref.min(axis=0), ref.max(axis=0)
+    diag = float(np.linalg.norm(hi_r - lo_r))
+    ref_ext, ref_c = float((hi_r - lo_r).max()), (lo_r + hi_r) / 2.0
+    tree = cKDTree(ref[np.linspace(0, len(ref) - 1, min(len(ref), 200000)).astype(np.int64)])
+    idx = np.linspace(0, len(v) - 1, min(len(v), n)).astype(np.int64)
+
+    def fit(rot):
+        w = v @ rot.T
+        lo, hi = w.min(axis=0), w.max(axis=0)
+        return (w - (lo + hi) / 2.0) * (ref_ext / float((hi - lo).max())) + ref_c
+
+    def score(w) -> float:
+        return float(tree.query(w[idx])[0].mean()) / diag
+    rots = mvp_rotations()
+    s_id = score(fit(rots[0]))
+    scored = [(s_id, 0)]
+    best_i, best_s = 0, s_id
+    if s_id > accept:
+        scored = sorted((score(fit(r)), i) for i, r in enumerate(rots))
+        best_s, best_i = scored[0]
+    w = fit(rots[best_i])
+    return w, {'rotation': 'identity' if best_i == 0 else f'cube_rot_{best_i}', 'score_identity': round(s_id, 6), 'score_chosen': round(best_s, 6),
+               'top3': [[round(s, 6), i] for s, i in scored[:3]], 'ok': bool(best_s <= accept)}
+
+
+def mvp_geometry_metrics(v_in, f_in, v_out, f_out, n: int = 60000, seed: int = 0) -> dict:
+    """Что упрощение сделало с формой (вместо охраны «форма не меняется»): грани/вершины до и после; расстояние Хаусдорфа упрощённой к исходной (макс., средн., 99-й процентиль) и обратно — в долях диагонали
+    габарита исходной. Точки — вершины и выборка поверхности (`n`), поэтому оценка снизу (между точками форма может уйти чуть дальше)."""
+    import numpy as np
+    import trimesh
+    from scipy.spatial import cKDTree
+    v_in = np.asarray(v_in, dtype=np.float64)
+    v_out = np.asarray(v_out, dtype=np.float64)
+    diag = float(np.linalg.norm(v_in.max(axis=0) - v_in.min(axis=0)))
+    if not diag > 0:
+        raise ValueError('габарит исходной формы нулевой')
+
+    def cloud(v, f):
+        pts, _ = trimesh.sample.sample_surface(trimesh.Trimesh(vertices=v, faces=np.asarray(f), process=False), n, seed=seed)
+        return np.vstack([v, pts])
+    a, b = cloud(v_in, f_in), cloud(v_out, f_out)
+    d_out = cKDTree(a).query(b)[0] / diag               # упрощённая → исходная
+    d_in = cKDTree(b).query(a)[0] / diag                # исходная → упрощённая
+    r = lambda x: round(float(x), 6)                     # noqa: E731
+    return {'faces_in': int(len(f_in)), 'faces_out': int(len(f_out)), 'verts_in': int(len(v_in)), 'verts_out': int(len(v_out)), 'face_ratio': round(len(f_out) / max(1, len(f_in)), 4),
+            'hausdorff_out_to_in_rel': r(d_out.max()), 'mean_out_to_in_rel': r(d_out.mean()), 'p99_out_to_in_rel': r(np.percentile(d_out, 99)),
+            'hausdorff_in_to_out_rel': r(d_in.max()), 'hausdorff_sym_rel': r(max(d_out.max(), d_in.max())), 'samples': int(n)}
+
+
+class MVPRunner:
+    """Стадии апстрима подпроцессами (см. шапку блока). `run_stage` подменяется в тестах."""
+
+    def __init__(self, root: str, blender42: str, blender36: str, tools: str, env: dict, python: str | None = None, run_stage=None, timeout: float = 1800.0):
+        self.root, self.blender42, self.blender36, self.tools, self.env = root, blender42, blender36, tools, env
+        self.python = python or sys.executable
+        self.run_stage = run_stage or mvp_run_stage
+        self.timeout = timeout
+
+    def _stage(self, name: str, cmd: list, cwd: str, expect: tuple = ()) -> dict:
+        return self.run_stage(name, cmd, cwd, env=self.env, expect=expect, timeout=self.timeout)
+
+    def _blender(self, binary: str, driver: str, args: list) -> list:
+        return [binary, '--background', '-Y', '--python-exit-code', '1', '--python', driver, '--'] + [str(a) for a in args]
+
+    def run(self, uid: str, work: str, params: dict) -> dict:
+        """Вход: `work/in/glb/<uid>.glb` и `work/in/img/<uid>.png`. Выход: {'glb': путь, 'stages': [...], 'mv_dir': каталог с видами}."""
+        j = os.path.join
+        steps, seed = int(params['steps']), int(params['seed'])
+        reduce_on, pbr = bool(params['reduce']), bool(params['pbr'])
+        mv_out = j(work, 'mv')
+        mv_dir = j(mv_out, 'mvpainter')
+        obj_dir = j(mv_dir, uid)
+        res = j(work, 'res')
+        py, root = self.python, self.root
+        stages = [self._stage('multiview', [py, j(self.tools, 'mvp_run.py'), 'infer_multiview.py', '--input_glb_dir', j(work, 'in', 'glb'), '--input_img_dir', j(work, 'in', 'img'), '--output_dir', mv_out,
+                                            '--geo_rotation', '-90', '--diffusion_steps', steps, '--seed', seed, '--no_rembg'], root,
+                              tuple(j(obj_dir, f) for f in ['blender.obj'] + [f'result_{i}.png' for i in range(1, 7)]))]
+        if pbr:
+            stages.append(self._stage('pbr_views', [py, j(self.tools, 'mvp_run.py'), 'infer_pbr.py', '--mv_res_dir', mv_dir], root,
+                                      tuple(j(obj_dir, f'result_{i}_{m}.png') for i in range(1, 7) for m in ('basecolor', 'metallic', 'roughness'))))
+        low = j(obj_dir, 'blender_low.obj')
+        if reduce_on:
+            stages.append(self._stage('reduce', self._blender(self.blender36, j(self.tools, 'mvp_reduce.py'), [root, j(obj_dir, 'blender.obj'), low, MVP_SIZE_MAX]), root, (low,)))
+        else:
+            import shutil
+            shutil.copy(j(obj_dir, 'blender.obj'), low)             # `infer_paint.py:17` пропускает упрощение, если `blender_low.obj` уже есть
+        bake_cwd = j(root, 'mvpainter')
+        if not pbr:
+            stages.append(self._stage('bake', [py, 'bake_pipeline.py', '--input_dir', mv_dir, '--save_dir', j(res, 'glbs'), '--offset', '0'], bake_cwd, (j(res, 'glbs', '*.glb'),)))
+            return {'glb': self._pick(j(res, 'glbs'), uid), 'stages': stages, 'mv_dir': obj_dir}
+        for kind in ('basecolor', 'metallic', 'roughness'):
+            stages.append(self._stage(f'bake_{kind}', [py, 'bake_pipeline.py', '--input_dir', mv_dir, '--save_dir', j(res, kind), '--offset', '0', '--suffix', f'_{kind}'], bake_cwd, (j(res, kind, '*.glb'),)))
+            stages.append(self._stage(f'obj_{kind}', self._blender(self.blender36, j(self.tools, 'mvp_bake.py'), [j(root, 'scripts', 'blender_bake.py'), '--input_dir', j(res, kind), '--save_dir', j(res, kind + '_bake')]),
+                                      j(root, 'scripts'), (j(res, kind + '_bake', '*.obj'),)))
+        stages.append(self._stage('pbr_glb', [self.blender42, '--background', '-Y', '--python-exit-code', '1', '--python', j('scripts', 'blender_pbr_glb.py'), '--', '--basecolor_dir', j(res, 'basecolor_bake'),
+                                              '--metallic_dir', j(res, 'metallic_bake'), '--roughness_dir', j(res, 'roughness_bake'), '--output_dir', j(res, 'combine_pbr')], root, (j(res, 'combine_pbr', '*.glb'),)))
+        return {'glb': self._pick(j(res, 'combine_pbr'), uid), 'stages': stages, 'mv_dir': obj_dir}
+
+    @staticmethod
+    def _pick(folder: str, uid: str) -> str:
+        want = os.path.join(folder, uid + '.glb')
+        if os.path.exists(want):
+            return want
+        found = sorted(n for n in os.listdir(folder) if n.endswith('.glb'))
+        if len(found) != 1:
+            raise MVPStageError(f'в {folder} ожидался один GLB, найдено: {found}')
+        return os.path.join(folder, found[0])
+
+
+def mvp_flag(v, default: bool) -> bool:
+    if v is None or v == '':
+        return default
+    if isinstance(v, str):
+        return v.strip().lower() not in ('0', 'false', 'no', 'off')
+    return bool(v)
+
+
+def mvp_texture_on_shape(runner, mesh, image, params: dict, hooks: dict | None = None, work: str | None = None) -> tuple:
+    """Покрасить ГОТОВУЮ форму `mesh` (trimesh, кадр GLB: Y вверх) по фото `image` (RGBA, настоящая альфа). `runner.run(uid, work, {steps, seed, reduce, pbr})` — стадии апстрима (`MVPRunner`),
+    возвращает {'glb', 'stages', 'mv_dir'}. Форма меняется ЗАКОННО (штатное упрощение до 30 тыс. вершин, развёртка xatlas): итог — GLB апстрима, возвращённый в кадр и масштаб входа, + замеры упрощения
+    (`mvp_geometry_metrics`). Возвращает (trimesh, замеры)."""
+    import tempfile
+    import numpy as np
+    import trimesh
+    hk = {'sync': lambda: None, 'free': lambda: None, 'mem': lambda name: None, **(hooks or {})}
+    stage: dict = {}
+    t = time.time()
+
+    def lap(name: str) -> None:
+        hk['sync']()
+        nonlocal t
+        stage[name] = round(time.time() - t, 2)
+        hk['free']()
+        hk['mem'](name)
+        t = time.time()
+
+    verts = np.asarray(mesh.vertices, dtype=np.float64)
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    steps = int(params['mvp_steps'] if params.get('mvp_steps') is not None else 75)
+    if not 1 <= steps <= 150:
+        raise ValueError('mvp_steps: 1..150')
+    reduce_on, pbr = mvp_flag(params.get('mvp_reduce'), True), mvp_flag(params.get('mvp_pbr'), True)
+    seed = int(params.get('seed', 12))
+    yaw_param = params.get('mvp_yaw')
+    fit = mv_fit_yaw(verts, faces, image, force=None if yaw_param in (None, '', 'auto') else yaw_param)
+    lap('fit_yaw')
+    work = work or tempfile.mkdtemp(prefix='mvp-', dir=OUT if os.path.isdir(OUT) else None)
+    uid = f'm{int(time.time() * 1000)}'                                          # без «glb» в имени: infer_multiview.py заменяет эту подстроку при поиске PNG
+    os.makedirs(os.path.join(work, 'in', 'glb'), exist_ok=True)
+    os.makedirs(os.path.join(work, 'in', 'img'), exist_ok=True)
+    p, c, s, R = to_cube(verts, fit['yaw_deg'])
+    mv_write_input_glb(os.path.join(work, 'in', 'glb', uid + '.glb'), p, faces)
+    mvp_resize_foreground(image, 0.85).save(os.path.join(work, 'in', 'img', uid + '.png'))
+    lap('write_input')
+    out = runner.run(uid, work, {'steps': steps, 'seed': seed, 'reduce': reduce_on, 'pbr': pbr})
+    lap('upstream')
+    sc = trimesh.load(out['glb'], force='scene', process=False)
+    parts = sc.dump()
+    if not parts:
+        raise RuntimeError('апстрим вернул GLB без мешей')
+    back = parts[0] if len(parts) == 1 else trimesh.util.concatenate(parts)
+    aligned, frame = mvp_align_frame(np.asarray(back.vertices, dtype=np.float64), p)
+    v_final = from_cube(aligned, c, s, R)
+    lap('frame')
+    final = back.copy()
+    final.vertices = v_final
+    simp = mvp_geometry_metrics(verts, faces, v_final, np.asarray(final.faces))
+    lap('metrics')
+    tex = getattr(getattr(final.visual, 'material', None), 'baseColorTexture', None)
+    thumb = None
+    try:
+        import base64
+        from PIL import Image
+        ims = [Image.open(os.path.join(out['mv_dir'], f'result_{i}.png')).convert('RGB') for i in range(1, 7)]
+        h = 256
+        ims = [im.resize((max(1, im.width * h // im.height), h), Image.Resampling.LANCZOS) for im in ims]
+        strip = Image.new('RGB', (sum(im.width for im in ims), h))
+        x = 0
+        for im in ims:
+            strip.paste(im, (x, 0))
+            x += im.width
+        buf = io.BytesIO()
+        strip.save(buf, format='JPEG', quality=80)
+        thumb = base64.b64encode(buf.getvalue()).decode()
+    except Exception:  # noqa: BLE001 — миниатюра видов нужна для разбора, не для результата
+        thumb = None
+    stages = out['stages']
+    return final, {'fit': fit, 'frame': frame, 'simplify': simp, 'stage_s': stage, 'upstream_stages': [{k: v for k, v in x.items() if k != 'tail'} for x in stages],
+                   'upstream_s': round(sum(x['seconds'] for x in stages), 2), 'steps': steps, 'seed': seed, 'reduce': reduce_on, 'pbr': pbr, 'tex_in_size': list(tex.size) if tex is not None else None,
+                   'mesh_tris': int(len(faces)), 'mesh_verts': int(len(verts)), 'views_jpeg_b64': thumb}
+
+
+class MVPainterBackend:
+    """`mvpainter`: форма TRELLIS.2 (готовый GLB, `<job>.mesh.glb`) + краска MVPainter по одному фото, КАК У АВТОРОВ (штатное упрощение до 30 тыс. вершин; PBR через IDArb). Образ — `Dockerfile.mvpainter`.
+    Прогрев — только ДОКАЧКА весов в кэш Hugging Face (≈ 28 ГиБ): модели грузит каждый подпроцесс стадии заново (в память процессора, потом на видеокарту) — цена нескольких минут на задание. Родительский процесс
+    видеокарту не трогает (CUDA живёт только в подпроцессах). Переменные: `MVP_CKPT` (safetensors|ckpt, по умолчанию safetensors 14 ГиБ), `MVP_LOAD_CPU` (1), `MVP_STAGE_TIMEOUT` (1800 с), `MVP_PREFETCH` (1)."""
+    name = 'mvpainter'
+    runner = None
+    _trace: dict = {}
+
+    def load(self) -> dict:
+        root = os.environ.get('MVPAINTER_DIR', '/opt/MV-Painter/MVPainter')
+        b42 = os.environ.get('BLENDER42', '/opt/MV-Painter/blender-4.2.9-linux-x64/blender')
+        b36 = os.environ.get('BLENDER36', '/opt/blender-3.6.9-linux-x64/blender')
+        for what, pth in (('код MV-Painter', root), ('Blender 4.2', b42), ('Blender 3.6', b36)):
+            if not os.path.exists(pth):
+                raise RuntimeError(f'в образе нет: {what} ({pth}) — собран ли образ по Dockerfile.mvpainter?')
+        tools = os.environ.get('MVP_TOOLS', '/tmp/mvp_tools')
+        for fname, body in (('mvp_run.py', MVP_RUN_PY), ('mvp_reduce.py', MVP_REDUCE_PY), ('mvp_bake.py', MVP_BAKE_PY)):
+            atomic_write(os.path.join(tools, fname), body.encode())
+        hf = os.environ.get('HF_HOME', '/data/hf')
+        env = dict(os.environ, HF_HOME=hf, PYTHONUNBUFFERED='1', TOKENIZERS_PARALLELISM='false', PYTORCH_CUDA_ALLOC_CONF=os.environ.get('MVP_ALLOC_CONF', 'expandable_segments:False'),
+                   MVP_LOAD_CPU=os.environ.get('MVP_LOAD_CPU', '1'), MVP_CKPT=os.environ.get('MVP_CKPT', 'safetensors'))
+        ckpt = env['MVP_CKPT']
+        STATE['config'] = {'ckpt': ckpt, 'load_cpu': env['MVP_LOAD_CPU'], 'hf_home': hf, 'tools': tools, 'blender42': b42, 'blender36': b36,
+                           'debug_env': {k: os.environ.get(k) for k in ('CUDA_LAUNCH_BLOCKING', 'TORCH_SHOW_CPP_STACKTRACES')}}
+        print('[mvp] конфиг:', json.dumps(STATE['config'], ensure_ascii=False), flush=True)
+        STATE['phase'] = 'weights'
+        t = time.time()
+        if os.environ.get('MVP_PREFETCH', '1') != '0':
+            from huggingface_hub import snapshot_download
+            snapshot_download('shaomq/MVPainter', allow_patterns=MVP_PATTERNS + MVP_PATTERNS_PBR + [f'unet_w_controlnet/v29_25000.{"safetensors" if ckpt == "safetensors" else "ckpt"}'])
+            snapshot_download('lizb6626/IDArb', allow_patterns=MVP_PATTERNS_IDARB)
+        t_w = time.time() - t
+        self.runner = MVPRunner(root, b42, b36, tools, env, timeout=float(os.environ.get('MVP_STAGE_TIMEOUT', '1800')))
+        STATE['phase'] = 'to_gpu'
+        return {'weights_s': round(t_w, 1), 'weights_gb': dir_gb(hf)}
+
+    def generate(self, image, params: dict, path: str) -> dict:
+        if not params.get('texture_mesh'):
+            raise ValueError('mvpainter красит готовую форму: нужен --texture-mesh <clean.glb>')
+        import shutil
+        import trimesh
+        trace: dict = {}
+        self._trace = trace
+        t = time.time()
+        sc = trimesh.load(os.path.join(JOBS_DIR, params['job_id'] + '.mesh.glb'), force='scene')
+        parts = sc.dump()
+        if not parts:
+            raise ValueError('в GLB формы нет мешей')
+        mesh = parts[0] if len(parts) == 1 else trimesh.util.concatenate(parts)
+        load_s = round(time.time() - t, 2)
+        work = os.path.join(OUT, f'_mvp_{os.getpid()}_{int(time.time() * 1000)}')
+        os.makedirs(work, exist_ok=True)
+        try:
+            final, m = mvp_texture_on_shape(self.runner, mesh, image.convert('RGBA'), params, {'mem': lambda name: trace.__setitem__(name, nvidia_smi())}, work)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+            shutil.rmtree(os.path.join(self.runner.root, 'render_temp'), ignore_errors=True)       # кэш видов апстрима (`render_temp/<uid>` относительно cwd) — убираем
+        final.export(path)
+        m['stage_s']['load_shape'] = load_s
+        peaks = [x.get('gpu_peak_mib') or 0 for x in m['upstream_stages']]
+        m.update({'mode': 'mvpainter', 'peak_vram_gb': round(max(peaks or [0]) / 1024, 3), 'peak_vram_source': 'nvidia-smi memory.used (драйвер, вся карта)', 'mem': trace, 'config': dict(STATE.get('config') or {})})
+        return m
+
+    def on_error(self, e: BaseException) -> dict:
+        """Разбор упавшего задания: тип ошибки CUDA по тексту (включая хвост вывода стадии). `fatal` — воркер «сломан», драйвер гасит группу; `oom` — подпроцесс уже умер, память свободна."""
+        kind = classify_cuda_error(e)
+        return {'kind': kind, 'fatal': kind == 'fatal', 'gpu': nvidia_smi(), 'stage_mem': dict(self._trace), 'config': STATE.get('config')}
+
+
 def backend():
-    return {'trellis2': Trellis2Backend, 'pixal3d': Pixal3DBackend, 'pixal3d-tex': PixalTexBackend, 'mvadapter-i2tex': MVAdapterTexBackend, 'localmesh': LocalMeshBackend, 'hunyuan21': Hunyuan21Backend, 'fake': FakeBackend}[os.environ.get('MODEL', 'trellis2')]()
+    return {'trellis2': Trellis2Backend, 'pixal3d': Pixal3DBackend, 'pixal3d-tex': PixalTexBackend, 'mvadapter-i2tex': MVAdapterTexBackend, 'mvpainter': MVPainterBackend, 'localmesh': LocalMeshBackend, 'hunyuan21': Hunyuan21Backend, 'fake': FakeBackend}[os.environ.get('MODEL', 'trellis2')]()
 
 
 def versions() -> dict:
