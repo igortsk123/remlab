@@ -318,6 +318,58 @@ export const meshAuditNotes = pgTable(
   (t) => [index("mesh_audit_notes_item_idx").on(t.itemId, t.id)],
 );
 
+// Страница проверки вырезок /lab/cutout-check (T-20261119-104, `db/init/039-cutout-check.sql`): карточка на (прогон, товар) и журнал нажатий и
+// версий текста навсегда. generation_key — отпечаток вырезки: новая вырезка = новый ключ, отметка и текст сбрасываются (журнал остаётся).
+export const cutoutCheckItems = pgTable(
+  "cutout_check_items",
+  {
+    id: serial("id").primaryKey(),
+    run: text("run").notNull(),
+    sku: text("sku").notNull(),
+    position: integer("position").notNull().default(0),
+    role: text("role"),
+    name: text("name"),
+    nameEn: text("name_en"),
+    shop: text("shop"),
+    shopUrl: text("shop_url"),
+    photoUrl: text("photo_url"),
+    cutUrl: text("cut_url"),
+    generationKey: text("generation_key").notNull(),
+    info: jsonb("info").$type<Record<string, unknown>>(),
+    mark: text("mark"), // ok | bad | null
+    markAt: timestamp("mark_at", { withTimezone: true }),
+    markBy: text("mark_by"),
+    note: text("note"),
+    noteSeq: bigint("note_seq", { mode: "number" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("cutout_check_items_run_sku_uq").on(t.run, t.sku), index("cutout_check_items_run_pos_idx").on(t.run, t.position)],
+);
+
+export const cutoutCheckMarks = pgTable(
+  "cutout_check_marks",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    itemId: integer("item_id").notNull(),
+    run: text("run").notNull(),
+    sku: text("sku").notNull(),
+    generationKey: text("generation_key").notNull(),
+    kind: text("kind").notNull(), // mark | note
+    mark: text("mark"), // ok | bad | clear
+    body: text("body"), // текст как набран; пустой — стёрт
+    clientSeq: bigint("client_seq", { mode: "number" }),
+    expected: text("expected"),
+    applied: boolean("applied").notNull().default(true),
+    reason: text("reason"), // stale | state_conflict | older
+    reviewer: text("reviewer").notNull(),
+    editorId: text("editor_id"),
+    opId: text("op_id").notNull().unique("cutout_check_marks_op_uq"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("cutout_check_marks_item_idx").on(t.itemId, t.id)],
+);
+
 export const meshAuditBatches = pgTable(
   "mesh_audit_batches",
   {

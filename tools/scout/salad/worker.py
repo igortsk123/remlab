@@ -14,6 +14,9 @@
     docker run --gpus all -p 8000:8000 --env-file .env remlab/mesh-hunyuan:cu121
     curl -X POST localhost:8000/generate -d @job.json -H 'Content-Type: application/json'
 """
+import base64
+import hashlib
+import io
 import json
 import os
 import shutil
@@ -162,6 +165,14 @@ def warmup():
         if MASK_ONLY:
             # Прогрев генератора здесь был бы прямым вредом: он поднял бы Hunyuan в VRAM ради
             # режима, в котором тот не нужен, и съел бы весь смысл дешёвого прохода.
+            # Но готовность нужна: без `phase=ready` проба `/ready` вечно 503, и очередь не отдаст ни одного задания
+            # (T-20261119-104: режим был объявлен 29.08 и ни разу не поднимался). Грузим ТОЛЬКО BiRefNet и гоняем его на
+            # синтетическом кадре — компиляция ядер не должна попасть в замер первого настоящего фото.
+            t0 = time.time()
+            PRE.cutout(Image.new('RGB', (512, 512), (200, 180, 160)))
+            STATE['warmup_s'] = round(time.time() - t0, 1)
+            STATE['warm'] = True
+            STATE['phase'] = 'ready'
             return
         t0 = time.time()
         # RGBA, а не RGB: контракт входа — альфа И ЕСТЬ маска товара. На сером RGB форма
@@ -207,6 +218,29 @@ def assess(job: dict):
             'secs': round(time.time() - t0, 2)}
 
 
+def mask_job(job: dict) -> dict:
+    """РЕЖИМ `mask_only` (T-20261119-104): фото → маска BiRefNet (PNG, один канал, размер кадра) и больше ничего.
+
+    Остальную цепочку вырезки (гибрид, связность, ореол — `cutout_sync.chain`) считает приёмная сторона у себя: правка цепочки
+    не требует новой оплаты Salad, а маска хранится рядом с результатом. Ответ несёт sha256 ПОЛНЫХ байт фото — получатель
+    сверяет его со своим (фото могли подменить между выборкой и скачиванием нодой). Hunyuan не трогается; сеть и `/generate`
+    очереди те же, поэтому `queue_connection` группы менять не надо."""
+    sku = job.get('sku')
+    t0 = time.time()
+    try:
+        raw = PRE.fetch(job['image_url'])
+        src = Image.open(io.BytesIO(raw)).convert('RGB')
+        net = PRE.cutout(src)
+        buf = io.BytesIO()
+        net.getchannel('A').save(buf, 'PNG', optimize=True)
+    except Exception as e:  # noqa: BLE001 — мёртвое фото не должно ронять ноду; причина уходит в ответ
+        STATE['failed'] += 1
+        return input_failed(sku, e)
+    STATE['done'] += 1
+    return {'sku': sku, 'status': 'mask', 'sha256': hashlib.sha256(raw).hexdigest(), 'size': list(src.size),
+            'mask_png_b64': base64.b64encode(buf.getvalue()).decode(), 'secs': round(time.time() - t0, 2)}
+
+
 @app.post('/generate')
 def generate(job: dict):
     if not STATE['warm']:
@@ -215,6 +249,8 @@ def generate(job: dict):
     sku = job.get('sku')
     if not sku or not job.get('image_url'):
         raise HTTPException(status_code=400, detail='нет sku или image_url')
+    if MASK_ONLY:
+        return mask_job(job)
     # СТРАХОВКА КАНОНА (Codex q27): воркер пересчитывает стратегию сам и отклоняет чужое
     # ДО вырезки и GPU — новый источник заданий не сможет обойти реестр.
     try:
