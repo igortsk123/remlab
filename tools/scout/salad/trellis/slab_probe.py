@@ -49,9 +49,11 @@ def main():
         slab, info = MC.slab_faces(v, f)
         remB = slab
         remAB = remA | slab
+        remC = (remA & ~MC.footprint_inside(v, f)) | slab                 # вариант 3: A только для граней ЗА следом корпуса + B
+        remD = MC.slab_pieces(v, f, remA) | slab                           # вариант 3б: куски A, выступающие из-под предмета, целиком + B
         none = np.ones(len(f), dtype=bool)
         r = {'tris': int(len(f)), 'area': round(float(area.sum()), 4)}
-        for name, rem in (('A_куски', remA), ('B_нормали', remB), ('A+B', remAB)):
+        for name, rem in (('A_куски', remA), ('B_нормали', remB), ('A+B', remAB), ('C_вариант3', remC), ('D_куски_целиком', remD)):
             r[name] = {'удалено_треуг': int(rem.sum()), 'доля_площади': round(float(area[rem].sum() / area.sum()), 3), 'пятна_опоры': MC.floor_contacts(v, f, ~rem)}
         r['пятна_опоры_до'] = MC.floor_contacts(v, f, none)
         r['B_только_новое_площадь'] = round(float(area[remB & ~remA].sum() / area.sum()), 3)
@@ -59,6 +61,8 @@ def main():
         res[label] = r
         audit(parts, f, remB, os.path.join(a.out, f'{label}.B.audit.glb'))
         audit(parts, f, remAB, os.path.join(a.out, f'{label}.AB.audit.glb'))
+        audit(parts, f, remC, os.path.join(a.out, f'{label}.C.audit.glb'))
+        audit(parts, f, remD, os.path.join(a.out, f'{label}.D.audit.glb'))
         print(label, json.dumps({k: r[k] for k in r if k != 'B_группы'}, ensure_ascii=False), flush=True)
     json.dump(res, open(os.path.join(a.out, 'slab-probe.json'), 'w'), ensure_ascii=False, indent=1)
 

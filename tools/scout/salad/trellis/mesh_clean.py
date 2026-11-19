@@ -97,6 +97,35 @@ def tri_areas(v: np.ndarray, f: np.ndarray) -> np.ndarray:
     return 0.5 * np.linalg.norm(np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]]), axis=1)
 
 
+def footprint_inside(v: np.ndarray, f: np.ndarray, top_from: float = 0.35, grow: float = 0.05) -> np.ndarray:
+    """Для каждой грани: центр внутри «следа корпуса» (выпуклая оболочка XZ вершин выше `top_from` высоты меша, раздутая на `grow` габарита)? Пусто → всё «внутри»."""
+    ymin, ymax = float(v[:, 1].min()), float(v[:, 1].max())
+    up = v[:, 1] > ymin + top_from * max(ymax - ymin, 1e-9)
+    if up.sum() < 10:
+        return np.ones(len(f), dtype=bool)
+    from scipy.spatial import ConvexHull
+    pts = v[up][:, [0, 2]]
+    hull = ConvexHull(pts)
+    ext = max(np.ptp(pts[:, 0]), np.ptp(pts[:, 1]))
+    c = v[f].mean(1)
+    return np.all(c[:, [0, 2]] @ hull.equations[:, :2].T + hull.equations[:, 2] <= grow * ext, axis=1)
+
+
+def slab_pieces(v: np.ndarray, f: np.ndarray, flat: np.ndarray, min_out: float = 0.2) -> np.ndarray:
+    """Куски старого правила («тонкие у пола», маска граней `flat`) → в плиту идёт ЦЕЛИКОМ тот кусок, у которого ≥ `min_out` граней лежит ЗА следом корпуса (выступает из-под предмета);
+    кусок целиком внутри следа (основание торшера, пятачки ножек) остаётся. Часть плиты под самим предметом уходит вместе с выступающей, потому что это один кусок."""
+    if not flat.any():
+        return flat
+    lab = label_components(f, len(v))
+    out_face = ~footprint_inside(v, f)
+    res = np.zeros(len(f), dtype=bool)
+    for k in np.unique(lab[flat]):
+        m = lab == k
+        if out_face[m].mean() >= min_out:
+            res |= m
+    return res
+
+
 def slab_faces(v: np.ndarray, f: np.ndarray, band: float = 0.25, top_from: float = 0.35, grow: float = 0.05, horiz: float = 0.8, min_h_share: float = 0.6) -> tuple[np.ndarray, dict]:
     """ВТОРОЕ ПРАВИЛО ОЧИСТКИ (проба 19.11, директор): «почти горизонтальный слой у пола, выходящий за след корпуса сверху» — ПО НОРМАЛЯМ И ВЫСОТЕ, не по связным кускам и не срезом по высоте.
     След корпуса = выпуклая оболочка (XZ) вершин верхней части (выше `top_from` высоты меша), раздутая на `grow` габарита. Кандидаты — грани с центром ниже `band` высоты меша и ЗА следом.
