@@ -612,6 +612,9 @@ body.on-fav #flatPrice,body.on-fav #flatMore,body.on-fav #favHead{display:none!i
  grid-template-columns:repeat(auto-fill,minmax(168px,1fr))}
 /* цвета текущей модели — строка чипов во всю ширину ленты (приёмка 16.10 п.11а) */
 #grid>.hint.st-none{grid-column:1/-1;margin-top:0}
+#grid>.hint.empty-feed{grid-column:1/-1}
+#grid>.empty-feed-act{grid-column:1/-1}
+#grid .empty-feed-act .chip{padding:8px 16px;font-size:14px}
 #grid .colrow{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 #grid .colrow b{flex-basis:100%;font-size:13px;color:var(--muted);font-weight:600}
 #grid .colchip{display:flex;align-items:center;gap:6px;padding:3px 10px 3px 3px;border:1px solid var(--line);border-radius:999px;
@@ -9227,6 +9230,19 @@ function filters(){
   add(fx?money(60000)+'+':'60+ тыс',F.price==='hi',()=>F.price=F.price==='hi'?null:'hi');}
   add('дешевле сначала',F.sort==='price',()=>F.sort=F.sort==='price'?'fit':'price');}
 }
+// ПУСТАЯ ЛЕНТА — ОДНО ПРАВИЛО НА ВСЕ ПУТИ (T-20261118-61/8/1, живая проверка 18.11: торшер + «Эконом» + «по размеру + стиль» давал 0 карточек
+// и пустую шторку). Любое сочетание «роль × ступень цены × по размеру × стиль», где карточек нет, показывает подсказку (`msg` — пара RU/EN;
+// null — подсказку уже вывело место вызова) и, пока включено хоть одно ограничение, кнопку «Сбросить фильтры»: цена и размер снимаются, стиль
+// не режет; порядок («дешевле сначала») не трогаем.
+function emptyFeed(g,msg){
+  const EN=TR_EN();
+  if(msg)g.insertAdjacentHTML('beforeend',`<div class="hint empty-feed">${EN?msg[1]:msg[0]}</div>`);
+  if(!(F.price||F.fitOnly||!F.anyStyle))return;
+  const row=document.createElement('div');row.className='empty-feed-act';
+  const b=document.createElement('button');b.className='chip reset';b.textContent=EN?'Clear filters':'Сбросить фильтры';
+  b.onclick=()=>{F.price=null;F.fitOnly=false;F.anyStyle=true;filters();grid();};
+  row.appendChild(b);g.appendChild(row);
+}
 function grid(){
   const g=document.getElementById('grid');g.innerHTML='';
   const base=sel?sel.role.replace(/\s+\d+$/,''):'диван';
@@ -9256,7 +9272,7 @@ function grid(){
   list.sort((a,b)=>F.sort==='price'?((a.price||0)-(b.price||0))
                                    :(rank(a)-rank(b)||(a.price||0)-(b.price||0)));
   if(!list.length){head(0); if(TRIAL())trNowCard(g,base);
-    g.insertAdjacentHTML('beforeend','<div class="hint">Под фильтры ничего не подошло. Снимите ограничения.</div>');return;}
+    emptyFeed(g,['Под выбранные фильтры ничего не подошло.','Nothing matches the selected filters.']);return;}
   // ЦВЕТА ОДНОЙ МОДЕЛИ — ЧИПАМИ, ПЕРВЫМИ — ДРУГИЕ МОДЕЛИ (приёмка владельцем 16.10 п.11а): первые три кандидата сканди-дивана были
   // цветами того же «Викс» — одна модель, и замена выглядела несработавшей. Цвета текущей модели — строкой чипов сверху, другие
   // модели — по одной карточке с пометкой «ещё N цветов»; цвет на сцене — подкраской (`sku.tint`)
@@ -9283,6 +9299,8 @@ function grid(){
   list=[...byM.values()];
   // тур: первая карточка — то, что стоит сейчас (T-40); замен нет — и честная строка; /demo — без неё, как было
   if(TRIAL()){if(!list.length&&colours.length<2)trNone(); else trNowCard(g,base);}
+  // карточек других моделей нет (после фильтров остался только текущий товар и его цвета) — лента не молчит (T-20261118-61/8/1)
+  if(!list.length)emptyFeed(g,TRIAL()&&colours.length<2?null:['Других моделей под выбранные фильтры нет.','No other models match the selected filters.']);
   list.forEach(p=>{const c=document.createElement('div');c.className='card';
     // у ковра высоты нет — плита (в данных 1 см только для расчёта сцены): «200×140 см», а не «200×140×1 см»
     const dims=base==='ковёр'?dimsText({w:p.w,d:p.d}):dimsText(p);
