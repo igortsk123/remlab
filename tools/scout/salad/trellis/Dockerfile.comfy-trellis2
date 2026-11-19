@@ -1,0 +1,18 @@
+# ОБРАЗ ПРОБЫ «официальный TRELLIS.2 в ComfyUI» (core-узлы, без nvdiffrast и без своих CUDA-расширений) — T-20261119-94/2, решение владельца TG 1960.
+# ТОНКИЙ образ: python 3.12 + torch (cu128, нужен для Blackwell sm_120 и Ada sm_89) + ComfyUI v0.46.0 (тег, не ветка) + его requirements.txt БЕЗ веб-интерфейса и шаблонов (headless; воркер запускает ComfyUI с `--front-end-root`).
+# Веса НЕ в образе (≈14 ГБ): воркер докачивает их с Hugging Face при старте в /data/comfy-models (публичные репозитории Comfy-Org, токен не нужен) и кладёт ссылками в models/.
+# Код воркера (`worker_comfy.py`) едет в группе переменной TRIAL_WORKER_Z, как у остальных проб, — для правок воркера образ не пересобирается.
+FROM python:3.12-slim-bookworm
+ARG COMFY_TAG=v0.46.0
+ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 PYTHONUNBUFFERED=1
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates libgl1 libglib2.0-0 libegl1 libgomp1 curl \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+RUN git clone --depth 1 --branch ${COMFY_TAG} https://github.com/Comfy-Org/ComfyUI.git /opt/ComfyUI \
+    && grep -v -E '^(comfyui-frontend-package|comfyui-workflow-templates|comfyui-embedded-docs|torch|torchvision)([=<>~ ]|$)|^#|^$' /opt/ComfyUI/requirements.txt > /tmp/req-headless.txt \
+    && pip install -r /tmp/req-headless.txt \
+    && { echo "ComfyUI ${COMFY_TAG} $(git -C /opt/ComfyUI rev-parse HEAD)"; pip list 2>/dev/null | grep -i -E '^(torch|torchvision|numpy|scipy|safetensors|transformers|comfy)'; } > /opt/BUILD_INFO_COMFY.txt
+# проверка без видеокарты: узлы TRELLIS.2 и постобработки меша регистрируются (падение сборки лучше падения на Salad)
+RUN cd /opt/ComfyUI && { python -c "import comfy_extras.nodes_trellis2, comfy_extras.nodes_mesh_postprocess; print('nodes import ok')" || echo 'ПРЕДУПРЕЖДЕНИЕ: импорт узлов без видеокарты не прошёл (это не обязательно ошибка — проверяется на локальном ComfyUI и на Salad)'; }
+ENV COMFY_DIR=/opt/ComfyUI MODEL=comfy PORT=8000 HF_HOME=/data/hf OUT_DIR=/data/out
+WORKDIR /opt/ComfyUI
