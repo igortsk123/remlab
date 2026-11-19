@@ -54,6 +54,14 @@ except ValueError:
     ok('товар без вырезки — отказ', True)
 ok('цена 4090 есть по тарифам', all((T.price_usd_h(t) or 0) > 0 for t in ('batch', 'low', 'medium', 'high')))
 ok('деньги: 0 с running — 0; 1 ч по $0,33 = $0,33 + запас 60 с', T.cost_usd(0, 0.33) == 0 and abs(T.cost_usd(3600, 0.33) - 0.33 * 3660 / 3600) < 1e-9)
+LIVE = [{'name': 'RTX 4090 (24 GB)', 'prices': [{'priority': 'high', 'price': '0.44'}, {'priority': 'low', 'price': '0.253'}]},
+        {'name': 'RTX 4060 Ti (16 GB)', 'prices': [{'priority': 'high', 'price': '0.14'}]}]
+ok('живая цена из ответа Salad: 4090 high = 0,44 (снимок 0,33 занижал на треть)', T.parse_live_price(LIVE, 'RTX 4090 (24 GB)', 'high') == 0.44 and T.price_usd_h('high') != 0.44)
+ok('живая цена: другой класс и тариф; нет класса/тарифа/мусор — None',
+   T.parse_live_price(LIVE, 'RTX 4060 Ti (16 GB)', 'high') == 0.14 and T.parse_live_price(LIVE, 'RTX 4090 (24 GB)', 'medium') is None
+   and T.parse_live_price(LIVE, 'нет такой', 'high') is None and T.parse_live_price([{'name': 'RTX 4090 (24 GB)', 'prices': [{'priority': 'high', 'price': 'x'}]}], 'RTX 4090 (24 GB)', 'high') is None
+   and T.parse_live_price(None, 'a', 'high') is None)
+ok('нет связи с Salad — живая цена None (запасной путь — снимок)', T.live_price_usd_h(object(), 'RTX 4090 (24 GB)', 'high') is None)
 
 print('[2] тело группы')
 body = T.build_body('trial-trellis2-x', 'ghcr.io/x/y:t', 'high', 'trellis2', 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}})
