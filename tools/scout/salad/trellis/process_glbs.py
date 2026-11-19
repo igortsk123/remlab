@@ -68,7 +68,7 @@ def main() -> int:
     ap.add_argument('--set', default=os.path.join(ROOT, 'trellis', 'set30.json'))
     ap.add_argument('--frames', default=os.path.join(ROOT, 'frames-clean2'))
     ap.add_argument('--audit', default=os.path.join(ROOT, 'frames-clean2-audit'))
-    ap.add_argument('--rule', default='E', choices=['A', 'E', 'EF'], help='правило очистки: E (принято 19.11) или EF (плюс микро-осколки в воздухе, `mesh_clean.floaters`)')
+    ap.add_argument('--rule', default='E', choices=['A', 'E', 'EF', 'EFG'], help='правило очистки: E (принято 19.11) или EF (плюс микро-осколки в воздухе, `mesh_clean.floaters`), или EFG (плюс коврик под ножками, `mesh_clean.floor_plate`)')
     ap.add_argument('--tag', default='2', help='метка файлов очистки: <id>.clean<метка>.glb (старые не перезаписываются)')
     ap.add_argument('--views', default='az000,az045,az180,top55')
     ap.add_argument('--modes', default='tex,clay')

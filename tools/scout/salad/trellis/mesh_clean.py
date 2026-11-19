@@ -223,7 +223,86 @@ def floaters(v: np.ndarray, f: np.ndarray, removed: np.ndarray, small: float = 0
     return out
 
 
-def slab_rule_e(v: np.ndarray, f: np.ndarray, flat_a: np.ndarray, use_f: bool = False) -> np.ndarray:
+def floor_plate(v: np.ndarray, f: np.ndarray, removed: np.ndarray, horiz_share: float = 0.95, thick: float = 0.01, low_eps: float = 0.0025,
+                plan_out: float = 0.05, contact_max: float = 0.25, max_share: float = 0.03, grid: int = 64) -> tuple[np.ndarray, dict]:
+    """ПРАВИЛО G («коврик под ножками», комод Сего-2 19.11): ПОВТОР отсечки у пола по ОСТАВШЕЙСЯ форме — после E/F (маска `removed`) пол и высота считаются от низа того, что осталось, а не сырого меша
+    (после срезанной плиты верхний лист плиты остаётся парить на уровне ~19 % сырой высоты — A, B, D, «пыль» и F его не видят). Снимается ОТДЕЛЬНЫЙ связный кусок, только если выполнены ВСЕ условия:
+    ① ≥ `horiz_share` площади — горизонтальные грани (|нормаль_Y| ≥ 0,8); ② толщина < `thick` высоты оставшейся формы; ③ низ куска — самый нижний в форме (в пределах `low_eps` высоты) И тело касается его
+    только кончиками ножек или не касается: доля клеток плана куска (сетка `grid`²), над которыми в полосе [верх−0,5 %, верх+3 %] есть грани ДРУГИХ кусков, ≤ `contact_max` (сплошной цоколь/плита-основание — доля велика, остаётся);
+    ④ план куска не шире плана тела (габарит остальных кусков) больше чем на `plan_out` по X и Z. ПРЕДОХРАНИТЕЛЬ: за товар G снимает не больше `max_share` площади меша, иначе — ничего и отказ с причиной в `info['refused']`.
+    Возвращает (маска, info: кандидаты ①② с числами и причиной «снят/не снят»)."""
+    info: dict = {'removed_tris': 0, 'removed_area_share': 0.0, 'refused': None, 'candidates': []}
+    out = np.zeros(len(f), dtype=bool)
+    keep = ~removed
+    if int(keep.sum()) < 10:
+        return out, info
+    area = tri_areas(v, f)
+    total = max(float(area.sum()), 1e-12)
+    ky = v[f[keep]][:, :, 1]
+    ymin_k, hr = float(ky.min()), max(float(ky.max() - ky.min()), 1e-9)
+    nrm = np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]])
+    ny = np.abs(nrm[:, 1]) / np.maximum(2 * area, 1e-12)
+    idx = np.nonzero(keep)[0]
+    lab = label_components(f[idx], len(v))
+    cen = v[f].mean(1)
+    comps = [idx[lab == g] for g in np.unique(lab)]
+    for gi in comps:
+        a = float(area[gi].sum())
+        hs = float(area[gi][ny[gi] >= 0.8].sum() / max(a, 1e-12))
+        ys = v[f[gi]][:, :, 1]
+        bot, top = float(ys.min()), float(ys.max())
+        if hs < horiz_share or (top - bot) >= thick * hr:
+            continue
+        rec = {'faces': int(len(gi)), 'area_share': round(a / total, 4), 'bottom_pct': round((bot - ymin_k) / hr * 100, 2), 'thick_pct': round((top - bot) / hr * 100, 2), 'removed': False}
+        info['candidates'].append(rec)
+        if bot > ymin_k + low_eps * hr:
+            rec['reason'] = 'не самый нижний в форме'
+            continue
+        others = keep.copy()
+        others[gi] = False
+        if not others.any():
+            rec['reason'] = 'другого тела нет'
+            continue
+        pxz = v[f[gi]][:, :, [0, 2]].reshape(-1, 2)
+        oxz = v[f[others]][:, :, [0, 2]].reshape(-1, 2)
+        sx, sz = float(np.ptp(pxz[:, 0])), float(np.ptp(pxz[:, 1]))
+        bx, bz = float(np.ptp(oxz[:, 0])), float(np.ptp(oxz[:, 1]))
+        rec['plan_over_body_pct'] = [round((sx / max(bx, 1e-9) - 1) * 100, 1), round((sz / max(bz, 1e-9) - 1) * 100, 1)]
+        if sx > bx * (1 + plan_out) or sz > bz * (1 + plan_out):
+            rec['reason'] = 'план шире тела больше допуска'
+            continue
+        lo = pxz.min(0)
+        span = np.maximum(pxz.max(0) - lo, 1e-9)
+
+        def cells(face_ids):
+            g = np.zeros((grid, grid), dtype=bool)
+            tri = v[f[face_ids]][:, :, [0, 2]]
+            c0 = np.clip(((tri.min(1) - lo) / span * grid).astype(int), 0, grid - 1)
+            c1 = np.clip(((tri.max(1) - lo) / span * grid).astype(int), 0, grid - 1)
+            for (a0, b0), (a1, b1) in zip(c0, c1):
+                g[a0:a1 + 1, b0:b1 + 1] = True
+            return g
+        band = others & (cen[:, 1] >= top - 0.005 * hr) & (cen[:, 1] <= top + 0.03 * hr)
+        pc = cells(gi)
+        oc = cells(np.nonzero(band)[0]) if band.any() else np.zeros_like(pc)
+        contact = float((pc & oc).sum() / max(int(pc.sum()), 1))
+        rec['contact'] = round(contact, 3)
+        if contact > contact_max:
+            rec['reason'] = 'тело опирается сплошным низом'
+            continue
+        rec['removed'] = True
+        rec['reason'] = 'снят'
+        out[gi] = True
+    share = float(area[out].sum() / total)
+    if share > max_share:
+        info['refused'] = f'предохранитель: G снял бы {share * 100:.1f} % площади (> {max_share * 100:.0f} %)'
+        return np.zeros(len(f), dtype=bool), info
+    info['removed_tris'] = int(out.sum())
+    info['removed_area_share'] = round(share, 5)
+    return out, info
+
+
+def slab_rule_e(v: np.ndarray, f: np.ndarray, flat_a: np.ndarray, use_f: bool = False, use_g: bool = False, info: dict | None = None) -> np.ndarray:
     """ПРАВИЛО ОЧИСТКИ E = куски A, выступающие из-под предмета (целиком) + B (горизонтальные группы у пола вне следа) + «пыль». Маска граней к удалению."""
     slab, _ = slab_faces(v, f)
     rem = slab_pieces(v, f, flat_a) | slab
@@ -232,7 +311,13 @@ def slab_rule_e(v: np.ndarray, f: np.ndarray, flat_a: np.ndarray, use_f: bool = 
         rem = rem | slab_dust(v, f, rem)
     if not use_f:
         return rem
-    return rem | floaters(v, f, rem)                                           # F: отлетевшие осколки в воздухе — всегда
+    rem = rem | floaters(v, f, rem)                                            # F: отлетевшие осколки в воздухе — всегда
+    if use_g:                                                                  # G: коврик под ножками — по оставшейся форме
+        g, ginfo = floor_plate(v, f, rem)
+        if info is not None:
+            info['G'] = ginfo
+        rem = rem | g
+    return rem
 
 
 def slab_faces(v: np.ndarray, f: np.ndarray, band: float = 0.25, top_from: float = 0.35, grow: float = 0.05, horiz: float = 0.8, min_h_share: float = 0.6) -> tuple[np.ndarray, dict]:
@@ -303,8 +388,11 @@ def clean_glb(path: str, out_path: str | None = None, dims_cm=None, thin: float 
     joint = trimesh.Trimesh(v, f, process=False)
     metrics, keep = analyse(joint, thin, floor)
     area = tri_areas(v, f)
-    if rule in ('E', 'EF'):                          # новое правило (19.11, директор): плита по нормалям/следу + пыль; 'EF' — плюс микро-осколки в воздухе (F); 'A' — прежнее (только куски)
-        keep = ~slab_rule_e(v, f, ~keep, use_f=(rule == 'EF'))
+    if rule in ('E', 'EF', 'EFG'):                   # новое правило (19.11, директор): плита по нормалям/следу + пыль; 'EF' — плюс микро-осколки в воздухе (F); 'EFG' — плюс коврик под ножками (G); 'A' — прежнее (только куски)
+        ginfo: dict = {}
+        keep = ~slab_rule_e(v, f, ~keep, use_f=(rule in ('EF', 'EFG')), use_g=(rule == 'EFG'), info=ginfo)
+        if 'G' in ginfo:
+            metrics['floor_plate'] = ginfo['G']
     metrics['rule'] = rule
     rem = ~keep
     metrics['primitives'] = len(parts)
