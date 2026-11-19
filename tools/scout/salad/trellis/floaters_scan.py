@@ -33,7 +33,8 @@ for p in sorted(glob.glob(os.path.join(d, '*-1024-42-0.glb'))):
     if float(area[rem].sum() / area.sum()) >= 0.10:
         rem = rem | MC.slab_dust(v, f, rem)
     fl = MC.floaters(v, f, rem)
-    rows.append({'sku': k.replace('_', ':', 1), 'pieces_E': pieces(v, f, rem), 'pieces_EF': pieces(v, f, rem | fl), 'tris_F': int(fl.sum()), 'area_share_F': round(float(area[fl].sum() / area.sum()), 4)})
+    fl0 = MC.floaters(v, f, rem, floor_band=-1e9)          # F без условия «под телом» (подножие)
+    rows.append({'sku': k.replace('_', ':', 1), 'pieces_E': pieces(v, f, rem), 'pieces_EF': pieces(v, f, rem | fl), 'tris_F': int(fl.sum()), 'tris_F_no_floor': int(fl0.sum()), 'tris_floor': int((fl & ~fl0).sum()), 'area_floor': round(float(area[fl & ~fl0].sum() / area.sum()), 5), 'area_share_F': round(float(area[fl].sum() / area.sum()), 4)})
     print(json.dumps(rows[-1], ensure_ascii=False), flush=True)
 out = sys.argv[sys.argv.index('--out') + 1] if '--out' in sys.argv else None
 if out:

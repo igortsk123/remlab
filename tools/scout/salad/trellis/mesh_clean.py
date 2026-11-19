@@ -169,11 +169,12 @@ def slab_dust(v: np.ndarray, f: np.ndarray, removed: np.ndarray, band: float = 0
     return out
 
 
-def floaters(v: np.ndarray, f: np.ndarray, removed: np.ndarray, small: float = 0.003, gap: float = 0.002, max_faces: int = 20, max_share: float = 0.025) -> np.ndarray:
+def floaters(v: np.ndarray, f: np.ndarray, removed: np.ndarray, small: float = 0.003, gap: float = 0.03, max_faces: int = 20, max_share: float = 0.025, floor_band: float = 0.01) -> np.ndarray:
     """ПРАВИЛО F («осколки в воздухе»; стол Сего-2 19.11: после E оставалось 6780 мелких кусков — 4951 из них висели в воздухе вокруг предмета с зазором, а не на полу).
     Мелкий связный кусок ОСТАВШЕГОСЯ (площадь < `small` площади меша), у которого ни одна вершина не ближе `gap` высоты к ТЕЛУ предмета (вершины и центры граней КРУПНЫХ кусков, ≥ `small`) — это отлетевший
-    осколок, он удаляется — но только МИКРО-осколок: меньше `max_faces` граней (у россыпи столика Сего-2 медиана 2 грани, p90 12; у болтов и накладок на панели — сотни граней и размер до 46 % высоты — первая версия 19.11 срезала их и 82 % стеклянной
+    осколок, он удаляется. Зазор `gap` = 1 % высоты (при 0,2 % проверка кромок 19.11 нашла мелкие вырезы по краю панели консоли: куски самой поверхности лежат у тела в пределах 1 %, у висящей россыпи зазор в медиане 6,9 %) — но только МИКРО-осколок: меньше `max_faces` граней (у россыпи столика Сего-2 медиана 2 грани, p90 12; у болтов и накладок на панели — сотни граней и размер до 46 % высоты — первая версия 19.11 срезала их и 82 % стеклянной
     вазы). Прилегающие к телу (зазор ≈ 0) и любые куски от `max_faces` граней остаются. Нет крупных кусков — ничего не трогаем.
+    ВТОРОЕ УСЛОВИЕ («хлопья у подножия», менеджер 19.11; проба на консоли Сего-2: «низ ≤ 1 % высоты и плоский» не снимал ничего — хлопья тонкие вертикальные, а нижняя отметка меша задана ими же): микро-осколок (< `max_faces` граней), который ЦЕЛИКОМ лежит не выше низа ТЕЛА + `floor_band` высоты (низ тела = самая нижняя точка крупных кусков), и центр которого СНАРУЖИ плана тела (выпуклая оболочка нижней полосы крупных кусков), удаляется и при малом зазоре — мусор на полу у подножия. Внутри плана такие куски — осколки самого основания (проба 19.11 на комоде Hunyuan: 172 плоских куска плиты основания, 2 % площади, все внутри плана) — не трогаем. Опоры (ножки, полозья, основание) — крупные куски, их условие не задевает.
     ПРЕДОХРАНИТЕЛЬ: если микро-осколки в сумме больше `max_share` площади меша, меш раздроблен «по природе» (стеклянная ваза, торшер с абажуром из нитей: осколки — часть поверхности, F пробил бы в ней дырки) — F не применяется."""
     from scipy.spatial import cKDTree
     keep = ~removed
@@ -198,9 +199,24 @@ def floaters(v: np.ndarray, f: np.ndarray, removed: np.ndarray, small: float = 0
     bi = np.concatenate(big_idx)
     pts = np.vstack([v[np.unique(f[bi].ravel())], v[f[bi]].mean(axis=1)])
     tree = cKDTree(pts)
+    body_bottom = float(v[f[bi]][:, :, 1].min())
+    hull_eq = None                                    # план тела: выпуклая оболочка нижней полосы (3 % высоты) крупных кусков
+    try:
+        from scipy.spatial import ConvexHull
+        bp = v[np.unique(f[bi].ravel())]
+        bp = bp[bp[:, 1] <= body_bottom + 0.03 * ext][:, [0, 2]]
+        hull_eq = ConvexHull(bp).equations
+    except Exception:
+        hull_eq = None
     for gi in sm.values():
+        if len(gi) >= max_faces:
+            continue
         d, _ = tree.query(v[np.unique(f[gi].ravel())], k=1)
-        if len(gi) < max_faces and float(d.min()) > gap * ext:
+        on_floor = False
+        if hull_eq is not None and float(v[f[gi]][:, :, 1].max()) <= body_bottom + floor_band * ext:
+            c = v[f[gi]].mean(axis=(0, 1))[[0, 2]]
+            on_floor = bool(np.any(hull_eq[:, :2] @ c + hull_eq[:, 2] > 0.0))      # центр СНАРУЖИ плана тела
+        if float(d.min()) > gap * ext or on_floor:
             out[gi] = True
     if float(area[out].sum()) > max_share * total:
         return np.zeros(len(f), dtype=bool)
@@ -287,8 +303,8 @@ def clean_glb(path: str, out_path: str | None = None, dims_cm=None, thin: float 
     joint = trimesh.Trimesh(v, f, process=False)
     metrics, keep = analyse(joint, thin, floor)
     area = tri_areas(v, f)
-    if rule == 'E':                                  # новое правило (19.11, директор): плита по нормалям/следу + пыль; 'A' — прежнее (только куски)
-        keep = ~slab_rule_e(v, f, ~keep)
+    if rule in ('E', 'EF'):                          # новое правило (19.11, директор): плита по нормалям/следу + пыль; 'EF' — плюс микро-осколки в воздухе (F); 'A' — прежнее (только куски)
+        keep = ~slab_rule_e(v, f, ~keep, use_f=(rule == 'EF'))
     metrics['rule'] = rule
     rem = ~keep
     metrics['primitives'] = len(parts)
