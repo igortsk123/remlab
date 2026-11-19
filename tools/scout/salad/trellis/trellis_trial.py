@@ -898,6 +898,9 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     {'job_id': j['job_id'], 'status': x.get('status'), 'seconds': x.get('seconds'), 'glb': x.get('glb_path'), 'error': x.get('error'),
                      'fail_class': classify_failure(x.get('error'), x.get('diag')) if x.get('status') == 'failed' else None, **job_mem(x, mem_limit_gb)} if x else
                     {'job_id': j['job_id'], 'status': 'not_run', 'seconds': None, 'glb': None, 'error': None, 'fail_class': None, **job_mem({}, mem_limit_gb)})
+                m12 = ((x or {}).get('metrics') or {}).get('mv12')
+                if m12:                                   # вариант 5 (--mv-views 12): счётчики слияния проходов (strong_changed, filled_pct, …) и время проходов; ключ только при mv_views=12 — иначе итог прежний
+                    summary['by_sku'][j['sku'] if per_sku[j['sku']] == 1 else j['job_id']]['mv12'] = m12
             for sku, v in summary['by_sku'].items():
                 say('товар', sku, v['status'], v['fail_class'] or '', f'видео {v["peak_vram_gb"]} ГБ, процесс {v["peak_rss_gb"]} ГБ, группа {v["peak_cgroup_gb"]} из {v["mem_limit_gb"]} ГБ',
                     v['glb'] or v['error'] or '')

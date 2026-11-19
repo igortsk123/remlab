@@ -587,6 +587,28 @@ ok('итог по товару: пики видео/процесса/групп�
                                                                                       and sm7['by_sku'][k]['mem_limit_gb'] == 32.0 for k in ('a:1', 'b:2', 'c:3')), str(sm7['by_sku']))
 ok('счётчик отказов в summary: все категории и not_run есть, при успехе — нули', sm7['fail_classes'] == {'uvatlas': 0, 'oom_gpu': 0, 'oom_ram': 0, 'shape_changed': 0, 'cuda': 0, 'other': 0, 'not_run': 0}, str(sm7['fail_classes']))
 ok('в строке «товар …» память видна: видео, процесс, группа из лимита', 'видео 17.0 ГБ, процесс 22.5 ГБ, группа 26.0 из 32.0 ГБ' in buf7.getvalue() and '"fail_classes"' in buf7.getvalue())
+ok('итог по товару БЕЗ метрик слияния — ключа mv12 нет (прежний вид итога)', all('mv12' not in v for v in sm7['by_sku'].values()), str(sm7['by_sku']))
+
+
+class Mv12GW(FakeGW):
+    """Воркер с --mv-views 12 отдаёт в метриках итог слияния проходов; драйвер обязан сохранить его в итоге по товару (T-20261119-81: в первом платном прогоне он терялся)."""
+    def call(self, method, path, body=None, timeout=60, raw=False):
+        c, r = super().call(method, path, body, timeout, raw)
+        if path.startswith('/job/') and r.get('status') == 'done':
+            r = {**r, 'metrics': {**r['metrics'], 'mv_views': 12, 'mv12': {'merge': {'strong_changed': 0, 'filled_pct': 7.5}, 'views_s': {'pass1': 20.0, 'pass2': 20.5}}}}
+        return c, r
+
+
+d12 = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d12, ('a:1',))
+cat12 = tempfile.mkdtemp(prefix='shp-')
+open(os.path.join(cat12, 'a_1-1024-42-0.clean2.glb'), 'wb').write(b'glTF')
+buf12 = io.StringIO()
+with __import__('contextlib').redirect_stdout(buf12):
+    rc12, _m, _b, _ = go(d12, model='mvadapter-i2tex', skus=['a:1'], shape_dir=cat12, texture_mesh=None, gw=Mv12GW, mem_mb=None, fail_streak=9, suffix='q12')
+sm12 = json.load(open(os.path.join(d12, 'out', 'summary-trial-mvadapter-i2tex-q12.json')))
+ok('итог по товару: счётчики слияния 12 камер (strong_changed, filled_pct, время проходов) сохраняются в summary', rc12 == 0 and sm12['by_sku']['a:1']['mv12']['merge'] == {'strong_changed': 0, 'filled_pct': 7.5}
+   and sm12['by_sku']['a:1']['mv12']['views_s']['pass2'] == 20.5, str(sm12['by_sku']))
 buf8 = io.StringIO()
 with __import__('contextlib').redirect_stdout(buf8):
     rc, mg8, br8, _ = go(d, model='mvadapter-i2tex', skus=['a:1', 'b:2', 'c:3'], shape_dir=cat2, texture_mesh=None, gw=MemGW, script={'fail_jobs': 2}, mem_mb=None, fail_streak=9, suffix='q2')
