@@ -55,6 +55,21 @@ def _relief_scene(shift: int, dense_photo: bool = False, flat: bool = False):
     return rel, ph_edge, mask, n
 
 
+def t_threshold_adapts_to_rough_surface():
+    """Гладкая плита: порог = REL_T. Шумная геометрия (мягкая мебель): порог растёт вместе с медианой наклона, чтобы «рельефом» не стала вся поверхность."""
+    n = 300
+    mask = np.ones((n, n), bool)
+    flat = np.zeros((n, n), np.float32)
+    flat[100:200, 100:200] = 1.0
+    r = PF.depth_edges(flat, mask, 0.05)
+    assert PF.relief_threshold(r, mask) == PF.REL_T
+    rough = np.random.RandomState(3).rand(n, n).astype(np.float32) * 0.4              # шум геометрии: наклон ≫ REL_T везде
+    rr = PF.depth_edges(rough, mask, 0.05)
+    assert (rr >= PF.REL_T).mean() > 0.9, 'без адаптации «рельеф» везде'
+    th = PF.relief_threshold(rr, mask)
+    assert th > 5 * PF.REL_T and (rr >= th).mean() < 0.1, (th, (rr >= th).mean())
+
+
 def t_gate_aligned_accepts():
     rel, pe, mask, n = _relief_scene(0)
     gate, st = PF.gate_map(rel, pe, mask, float(n))

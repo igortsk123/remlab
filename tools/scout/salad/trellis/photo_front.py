@@ -56,6 +56,7 @@ REL_T = 0.15                      # порог «кромка рельефа»: 
 REL_FRAC = 0.02                   # рельеф есть, если резких пикселей в участке не меньше этой доли его площади
 AGREE_MIN = 0.50                  # совпадение кромок для разрешения класть: (доля кромок рельефа рядом с кромкой фото − доля «случайных попаданий») / (1 − доля случайных)
 PHOTO_EDGE_PCT = 92.0             # кромка фото — градиент L* выше этого процентиля внутри маски
+REL_MED_K = 12.0                  # порог кромки рельефа не ниже стольких медиан наклона предмета (см. relief_threshold)
 GATE_SMOOTH_FRAC = 0.02           # σ сглаживания решения гейта (чтобы не было швов по границам участков), доля ширины
 SPLAT_SIGMA = 1.2                 # σ сглаживания накоплений в текселях
 COVER_MIN = 0.25                  # минимальная масса накопления у текселя, чтобы считаться покрытым
@@ -127,6 +128,13 @@ def depth_edges(depth: np.ndarray, mask: np.ndarray, px_len: float) -> np.ndarra
     return np.where(mask, np.hypot(gx, gy) / max(px_len, 1e-12), 0.0).astype(np.float32)
 
 
+def relief_threshold(rel: np.ndarray, mask: np.ndarray) -> float:
+    """Порог «кромка рельефа» для предмета: не ниже `REL_T` и не ниже `REL_MED_K` медиан наклона. У гладкой плиты медиана ≈ 0 → работает `REL_T`; у мягкой мебели геометрия шумная (медиана наклона
+    в десятки раз выше) — абсолютный порог объявил бы «рельефом» всю поверхность и гейт отказал бы всё."""
+    med = float(np.median(rel[mask])) if mask.any() else 0.0
+    return max(REL_T, REL_MED_K * med)
+
+
 def photo_edges(L_photo: np.ndarray, mask: np.ndarray, width: float) -> np.ndarray:
     """Кромки фото (bool): градиент L* после снятия низких частот выше процентиля внутри маски."""
     import cv2
@@ -137,14 +145,15 @@ def photo_edges(L_photo: np.ndarray, mask: np.ndarray, width: float) -> np.ndarr
     return (g > thr) & mask
 
 
-def gate_map(rel: np.ndarray, ph_edge: np.ndarray, mask: np.ndarray, width: float) -> tuple[np.ndarray, dict]:
+def gate_map(rel: np.ndarray, ph_edge: np.ndarray, mask: np.ndarray, width: float, rel_t: float | None = None) -> tuple[np.ndarray, dict]:
     """Гейт по участкам → вес 0..1 в кадре (сглажен) и счётчики. Нет рельефа — 1; есть рельеф и кромки совпали — 1; иначе 0."""
     from scipy.ndimage import distance_transform_edt
     H, W = mask.shape
     P = max(16, int(round(PATCH_FRAC * width)))
     tol = max(2.0, TOL_FRAC * width)
     d_ph = distance_transform_edt(~ph_edge)
-    rel_px = (rel >= REL_T) & mask
+    rel_t = REL_T if rel_t is None else rel_t
+    rel_px = (rel >= rel_t) & mask
     match_px = rel_px & (d_ph <= tol)
     ny, nx = -(-H // P), -(-W // P)
     pad = lambda a: np.pad(a.astype(np.float32), ((0, ny * P - H), (0, nx * P - W)))  # noqa: E731
@@ -260,8 +269,10 @@ def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: 
     pos, valid = texel_positions(geo[0]['V'], geo[0]['F'], geo[0]['UV'], 2048)
     depth, px_len = frame_depth(pos, valid, uv, S)
     rel = depth_edges(depth, inner, px_len)
+    rel_t = relief_threshold(rel, inner)
     ph_edge = photo_edges(L_ph, inner, width)
-    gate, gst = gate_map(rel, ph_edge, inner, width)
+    gate, gst = gate_map(rel, ph_edge, inner, width, rel_t)
+    gst['rel_threshold'] = round(rel_t, 4)
     zone = inner & (wa * gate > 0.5)
     fade = surface_fade(zone, aoi, width)
     conf = (wa * gate * fade * inner).astype(np.float32)
@@ -286,7 +297,7 @@ def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: 
     Image.fromarray((np.clip(conf, 0, 1) * 255).astype(np.uint8)).save(os.path.join(out_dir, f'{stem}.photo-conf.png'))
     gv = np.zeros(S.shape + (3,), np.uint8)
     gv[..., 1] = (np.clip(gate, 0, 1) * 160).astype(np.uint8)
-    gv[..., 0] = (np.clip(rel / (3 * REL_T), 0, 1) * 255).astype(np.uint8)
+    gv[..., 0] = (np.clip(rel / (3 * rel_t), 0, 1) * 255).astype(np.uint8)
     gv[ph_edge] = (60, 60, 255)
     gv[~inner] = 0
     Image.fromarray(gv).save(os.path.join(out_dir, f'{stem}.photo-gate.png'))
