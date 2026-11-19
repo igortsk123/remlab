@@ -45,13 +45,13 @@ def one(model: str, c: dict, a, summary: dict) -> bool:
     frames = os.path.join(a.frames, model, fn(sku))
     if os.path.exists(os.path.join(frames, 'done')):
         return True
-    m = mesh_clean.clean_glb(raw, dims_cm=c.get('dims_cm'))
-    clean = raw[:-4] + '.clean.glb'
+    m = mesh_clean.clean_glb(raw, dims_cm=c.get('dims_cm'), tag=a.tag)           # правило E (19.11); файлы с меткой — старые .clean.glb не трогаем
+    clean = raw[:-4] + f'.clean{a.tag}.glb'
     log = os.path.join(a.frames, f'process-{model}.log')
     os.makedirs(frames, exist_ok=True)
     rc = render(f'p91-{model[:4]}-{fn(sku)[-6:]}', clean, frames, a.views, a.modes, a.samples, log)
     if m.get('audit_glb'):
-        render(f'p91a-{model[:4]}-{fn(sku)[-6:]}', raw[:-4] + '.audit.glb', os.path.join(a.audit, model, fn(sku)), 'az045', 'tex', a.samples, log)
+        render(f'p91a-{model[:4]}-{fn(sku)[-6:]}', raw[:-4] + f'.audit{a.tag}.glb', os.path.join(a.audit, model, fn(sku)), 'az045', 'tex', a.samples, log)
     summary[sku] = {'status': 'done' if rc == 0 else 'frames_failed', 'triangles': m.get('clean_tris'), 'size_mb': round(os.path.getsize(clean) / 2 ** 20, 1),
                     'note': f"плоский слой {int(m['flat_layer']['tris_share'] * 100)} %, отрезано {m.get('removed', {}).get('tris', 0)} треуг.; пропорции без слоя {m.get('item_ratio_w_d_h')} (фид {m.get('feed_ratio_w_d_h')})"}
     if rc == 0:
@@ -66,8 +66,9 @@ def main() -> int:
     ap.add_argument('--glb-dir', default=None, help='по умолчанию — папка модели ~/remlab-logs/mesh-models-1118/<модель>/')
     ap.add_argument('--glb-suffix', default='-1024-42-0')
     ap.add_argument('--set', default=os.path.join(ROOT, 'trellis', 'set30.json'))
-    ap.add_argument('--frames', default=os.path.join(ROOT, 'frames'))
-    ap.add_argument('--audit', default=os.path.join(ROOT, 'frames-audit'))
+    ap.add_argument('--frames', default=os.path.join(ROOT, 'frames-clean2'))
+    ap.add_argument('--audit', default=os.path.join(ROOT, 'frames-clean2-audit'))
+    ap.add_argument('--tag', default='2', help='метка файлов очистки: <id>.clean<метка>.glb (старые не перезаписываются)')
     ap.add_argument('--views', default='az000,az045,az180,top55')
     ap.add_argument('--modes', default='tex,clay')
     ap.add_argument('--samples', type=int, default=32)

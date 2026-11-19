@@ -64,6 +64,14 @@ except ValueError:
     ok('товар без вырезки — отказ', True)
 ok('цена 4090 есть по тарифам', all((T.price_usd_h(t) or 0) > 0 for t in ('batch', 'low', 'medium', 'high')))
 ok('деньги: 0 с running — 0; 1 ч по $0,33 = $0,33 + запас 60 с', T.cost_usd(0, 0.33) == 0 and abs(T.cost_usd(3600, 0.33) - 0.33 * 3660 / 3600) < 1e-9)
+LIVE = [{'name': 'RTX 4090 (24 GB)', 'prices': [{'priority': 'high', 'price': '0.44'}, {'priority': 'low', 'price': '0.253'}]},
+        {'name': 'RTX 4060 Ti (16 GB)', 'prices': [{'priority': 'high', 'price': '0.14'}]}]
+ok('живая цена из ответа Salad: 4090 high = 0,44 (снимок 0,33 занижал на треть)', T.parse_live_price(LIVE, 'RTX 4090 (24 GB)', 'high') == 0.44 and T.price_usd_h('high') != 0.44)
+ok('живая цена: другой класс и тариф; нет класса/тарифа/мусор — None',
+   T.parse_live_price(LIVE, 'RTX 4060 Ti (16 GB)', 'high') == 0.14 and T.parse_live_price(LIVE, 'RTX 4090 (24 GB)', 'medium') is None
+   and T.parse_live_price(LIVE, 'нет такой', 'high') is None and T.parse_live_price([{'name': 'RTX 4090 (24 GB)', 'prices': [{'priority': 'high', 'price': 'x'}]}], 'RTX 4090 (24 GB)', 'high') is None
+   and T.parse_live_price(None, 'a', 'high') is None)
+ok('нет связи с Salad — живая цена None (запасной путь — снимок)', T.live_price_usd_h(object(), 'RTX 4090 (24 GB)', 'high') is None)
 
 print('[2] тело группы')
 body = T.build_body('trial-trellis2-x', 'ghcr.io/x/y:t', 'high', 'trellis2', 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}})
@@ -415,6 +423,13 @@ ok('сторож: быстрая нода (17 % за 100 с, потом 40 % з�
 ok('сторож: медленная нода (16 % за 27 мин → прогноз 169 мин; 8 мин и 3 % → прогноз 267 мин) меняется', T.pull_is_slow(0.03, 480, 480, 1800) and T.pull_is_slow(0.16, 1620, 480, 1800))
 ok('сторож: после проверки и без прогресса вовсе — меняем', T.pull_is_slow(None, 600, 480, 1800) and T.pull_is_slow(0.0, 600, 480, 1800))
 ok('сторож: ровно на пороге (прогноз = лимит) не меняем', not T.pull_is_slow(0.2667, 480, 480, 1800))
+
+# ---- живая цена при нескольких разрешённых классах GPU (слияние живой цены р.1 и --also-cards)
+_orig_live = T.live_price_usd_h
+T.live_price_usd_h = lambda MG_, n, t: {'A': 0.44, 'B': 0.20, 'C': 0.27}.get(n)
+ok('живая цена нескольких классов — по самому дорогому', T.live_price_max_usd_h(None, ['A', 'B', 'C'], 'high') == 0.44)
+ok('цена хоть одного класса неизвестна → None (берём снимок целиком)', T.live_price_max_usd_h(None, ['A', 'Z'], 'high') is None and T.live_price_max_usd_h(None, [], 'high') is None)
+T.live_price_usd_h = _orig_live
 
 print('ИТОГО: ' + ('всё в норме' if not bad else f'провалов {bad}'))
 sys.exit(1 if bad else 0)
