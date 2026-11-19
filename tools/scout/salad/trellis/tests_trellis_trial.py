@@ -75,6 +75,10 @@ ok('контроль: код воркера едет в command + env TRIAL_WORK
    hb['container']['command'][:3] == ['python', '-u', '-c'] and __import__('zlib').decompress(__import__('base64').b64decode(henv['TRIAL_WORKER_Z'])) == open(os.path.join(HERE, 'worker_trellis.py'), 'rb').read())
 ok('TRELLIS.2: воркер едет через command (bash: pip-пин transformers с повторами → exec python3) без пересборки образа',
    body['container']['command'][:2] == ['bash', '-c'] and 'transformers==4.56' in body['container']['command'][2] and 'exec python3 -u -c' in body['container']['command'][2] and __import__('zlib').decompress(__import__('base64').b64decode(env['TRIAL_WORKER_Z'])) == open(os.path.join(HERE, 'worker_trellis.py'), 'rb').read())
+pb = T.build_body('trial-pixal3d-x', 'ghcr.io/x/y@sha256:' + 'b' * 64, 'high', 'pixal3d', 'hf_SECRET', 8, 32768, 'n', {'basic': {}})
+ok('Pixal3D: MODEL=pixal3d, воркер через command (python3), pip-пин TRELLIS.2 НЕ ставится (образ с transformers 4.57.3), карта 4090, диск 80 ГиБ',
+   pb['container']['environment_variables']['MODEL'] == 'pixal3d' and pb['container']['command'][:3] == ['python3', '-u', '-c'] and 'pip' not in json.dumps(pb['container']['command'])
+   and pb['container']['resources']['gpu_classes'] == [T.CARD['class_id']] and pb['container']['resources']['storage_amount'] == 80 * 2 ** 30)
 buf = io.StringIO()
 real = sys.stdout
 sys.stdout = buf

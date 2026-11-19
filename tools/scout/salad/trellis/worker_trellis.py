@@ -21,7 +21,7 @@
   GET  /job/<id>      состояние: queued|running|done|failed + замеры (секунды по стадиям, пик VRAM, треугольники, карты, МБ) или трассировка
   GET  /glb/<id>      байты `model.glb`
 
-Бэкенд модели — по `MODEL` (`trellis2` | `hunyuan21`); `MODEL=fake` — для теста без видеокарты (`tests_trellis_trial.py`). Токена Hugging Face в логи не пишем.
+Бэкенд модели — по `MODEL` (`trellis2` | `pixal3d` | `hunyuan21`); `MODEL=fake` — для теста без видеокарты (`tests_trellis_trial.py`). Токена Hugging Face в логи не пишем.
 """
 from __future__ import annotations
 
@@ -201,8 +201,92 @@ class Hunyuan21Backend:
             shutil.rmtree(work, ignore_errors=True)
 
 
+class Pixal3DBackend:
+    """Pixal3D (Tencent ARC, MIT; дообучение TRELLIS.2 с попиксельной проекцией признаков, `inference.py` апстрима): образ лежит поверх образа TRELLIS.2 (`Dockerfile.pixal3d`).
+    Порядок как в апстриме: `preprocess_image` (вход — наша RGBA-вырезка, фон не удаляем: BiRefNet заменён заглушкой) → камера по картинке (MoGe-2) → `pipeline.run(camera_params=…)` →
+    `to_glb` + поворот в Y-up. DINOv3 берётся ИЗ ОФИЦИАЛЬНОГО (закрытого) репозитория facebook/…, зеркало camenduru из апстрима заменено sed-ом при сборке образа."""
+    name = 'pixal3d'
+
+    def load(self) -> dict:
+        os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
+        os.environ.setdefault('OPENCV_IO_ENABLE_OPENEXR', '1')
+        sys.path.insert(0, os.environ.get('PIXAL3D_DIR', '/opt/Pixal3D'))
+        STATE['phase'] = 'importing'
+        t_imp = time.time()
+        import torch
+        import inference as INF                                   # апстрим: сборка пайплайна, камера, константы
+        from pixal3d.pipelines import rembg
+        STATE['timings']['import_s'] = round(time.time() - t_imp, 1)
+
+        class NoRembg:                                            # вход — RGBA с настоящей альфой; вырезка фона не нужна
+            def __init__(self, **_kw):
+                pass
+
+            def to(self, *_a):
+                return self
+
+            def cpu(self):
+                return self
+
+            def __call__(self, *_a, **_k):
+                raise RuntimeError('вырезка фона отключена: вход должен быть RGBA с настоящей альфой')
+        rembg.BiRefNet = NoRembg
+        self.INF = INF
+        STATE['phase'] = 'weights'
+        t = time.time()
+        self.pipe = INF.init_pipeline(low_vram=False)             # веса Pixal3D + 4 экстрактора DINOv3 + NAF; всё на видеокарте (≈ 18 ГБ)
+        t_w = time.time() - t
+        STATE['phase'] = 'moge'
+        t = time.time()
+        self.moge = INF.load_moge_model(device='cuda')            # камера по картинке; маленькая, держим резидентно
+        torch.cuda.synchronize()
+        return {'weights_s': round(t_w, 1), 'moge_s': round(time.time() - t, 1)}
+
+    def generate(self, image, params: dict, path: str) -> dict:
+        import math
+        import numpy as np
+        import o_voxel
+        import torch
+        INF = self.INF
+        torch.cuda.reset_peak_memory_stats()
+        stage = {}
+        seed = int(params.get('seed', 42))
+        t = time.time()
+        pre = self.pipe.preprocess_image(image)
+        tmp = os.path.join(OUT, f'_pre_{os.getpid()}_{int(time.time() * 1000)}.png')
+        pre.save(tmp)
+        cam = INF.get_camera_params_wild_moge(tmp, self.moge, device='cuda', mesh_scale=1.0, extend_pixel=0, image_resolution=512)
+        os.remove(tmp)
+        stage['preprocess_camera'] = round(time.time() - t, 2)
+        t = time.time()
+        torch.manual_seed(seed)
+        ptype = params.get('pipeline_type') or '1024_cascade'
+        samp = {'ss': {'steps': 12, 'guidance_strength': 7.5, 'guidance_rescale': 0.7, 'rescale_t': 5.0},
+                'shape': {'steps': 12, 'guidance_strength': 7.5, 'guidance_rescale': 0.5, 'rescale_t': 3.0},
+                'tex': {'steps': 12, 'guidance_strength': 1.0, 'guidance_rescale': 0.0, 'rescale_t': 3.0}}
+        mesh_list, (_shape_slat, _tex_slat, res) = self.pipe.run(
+            pre, camera_params=cam, seed=seed, sparse_structure_sampler_params=samp['ss'], shape_slat_sampler_params=samp['shape'],
+            tex_slat_sampler_params=samp['tex'], preprocess_image=False, return_latent=True, pipeline_type=ptype, max_num_tokens=49152)
+        torch.cuda.synchronize()
+        stage['run'] = round(time.time() - t, 2)
+        peak_run = torch.cuda.max_memory_allocated() / 2 ** 30
+        mesh = mesh_list[0]
+        t = time.time()
+        glb = o_voxel.postprocess.to_glb(
+            vertices=mesh.vertices, faces=mesh.faces, attr_volume=mesh.attrs, coords=mesh.coords, attr_layout=self.pipe.pbr_attr_layout,
+            grid_size=res, aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]], decimation_target=int(params.get('decimation_target', 500000)),
+            texture_size=int(params.get('texture_size', 2048)), remesh=True, remesh_band=1, remesh_project=0, use_tqdm=False)
+        glb.apply_transform(np.array([[-1, 0, 0, 0], [0, 0, -1, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=np.float64))    # как в апстриме: Z-up → Y-up
+        torch.cuda.synchronize()
+        stage['to_glb'] = round(time.time() - t, 2)
+        glb.export(path, extension_webp=bool(int(os.environ.get('EXPORT_WEBP', '0'))))        # PNG-текстуры: тот же вид GLB, что у остальных моделей
+        return {'stage_s': stage, 'peak_vram_gb': round(max(peak_run, torch.cuda.max_memory_allocated() / 2 ** 30), 2),
+                'peak_reserved_gb': round(torch.cuda.max_memory_reserved() / 2 ** 30, 2),
+                'camera': {'fov_rad': round(float(cam['camera_angle_x']), 4), 'distance': round(float(cam['distance']), 3)}}
+
+
 def backend():
-    return {'trellis2': Trellis2Backend, 'hunyuan21': Hunyuan21Backend, 'fake': FakeBackend}[os.environ.get('MODEL', 'trellis2')]()
+    return {'trellis2': Trellis2Backend, 'pixal3d': Pixal3DBackend, 'hunyuan21': Hunyuan21Backend, 'fake': FakeBackend}[os.environ.get('MODEL', 'trellis2')]()
 
 
 def versions() -> dict:

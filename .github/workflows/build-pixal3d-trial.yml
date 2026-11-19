@@ -1,0 +1,93 @@
+# СБОРКА ОБРАЗА ПРОБЫ Pixal3D НА GITHUB ACTIONS (T-20261118-91) — не на pakardev (диск общий с базой tamara; решение директора 18.11).
+# Запускается ТОЛЬКО пушем в ветку `trial/trellis2` (на main и остальные ветки не срабатывает) или вручную из этой же ветки.
+# Что делает: освобождает диск сборщика → собирает `tools/scout/salad/trellis/Dockerfile.pixal3d` → печатает размер образа и digest → пушит в GHCR.
+# Куда: основной адрес — тот же пакет мешей `ghcr.io/<владелец>/mesh-pixal3d-trial:pixal3d-trial`. Если `GITHUB_TOKEN` в этот пакет писать не может
+# (пакет создан личным токеном и мог не быть привязан к репо — тогда 403), образ уходит в ЗАПАСНОЙ адрес `ghcr.io/<владелец>/mesh-pixal3d-trial:pixal3d-trial`;
+# какой сработал — в сводке шага. Боевые группы закреплены по digest и этот тег не затрагивают. Деплоя нет.
+name: build-pixal3d-trial
+
+on:
+  push:
+    branches: ['trial/trellis2']
+    paths:
+      - 'tools/scout/salad/trellis/Dockerfile.pixal3d'
+      - 'tools/scout/salad/trellis/worker_trellis.py'
+      - '.github/workflows/build-pixal3d-trial.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-pixal3d-trial
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  PRIMARY: ghcr.io/${{ github.repository_owner }}/mesh-pixal3d-trial:pixal3d-trial
+  FALLBACK: ghcr.io/${{ github.repository_owner }}/mesh-pixal3d-trial:pixal3d-trial
+  CTX: tools/scout/salad/trellis
+
+jobs:
+  build:
+    # только своя пробная ветка: даже ручной запуск с другой ветки не соберёт
+    if: github.ref == 'refs/heads/trial/trellis2'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Диск сборщика — до очистки
+        run: df -h /
+
+      - name: Освободить диск сборщика
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      /usr/share/swift /usr/local/share/powershell /usr/local/julia* || true
+          sudo docker system prune -af || true
+          sudo apt-get clean || true
+
+      - name: Диск сборщика — после очистки
+        run: |
+          df -h /
+          FREE_GB=$(df -BG --output=avail / | tail -1 | tr -dc 0-9)
+          echo "свободно: ${FREE_GB} ГБ"
+          [ "$FREE_GB" -ge 40 ] || { echo "::error::после очистки меньше 40 ГБ — образ может не поместиться"; exit 1; }
+
+      - name: Вход в GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Сборка (обычный docker build — без второго кэша на диске)
+        run: |
+          docker build -f "$CTX/Dockerfile.pixal3d" -t "$PRIMARY" "$CTX" 2>&1 | tee build.log | tail -60
+          test "${PIPESTATUS[0]}" -eq 0
+          SIZE=$(docker image inspect "$PRIMARY" --format '{{.Size}}')
+          echo "размер образа (распакованный): $(python3 -c "print(round($SIZE/2**30,2))") ГБ"
+          df -h /
+
+      - name: BUILD_INFO из образа (версии и коммиты расширений)
+        run: docker run --rm --entrypoint cat "$PRIMARY" /opt/BUILD_INFO_PIXAL3D.txt
+
+      - name: Публикация в GHCR (основной адрес, при отказе — запасной)
+        id: push
+        run: |
+          set +e
+          TARGET="$PRIMARY"
+          if ! docker push "$PRIMARY"; then
+            echo "::warning::push в $PRIMARY отказан (скорее всего, пакет не привязан к репо) — пробую запасной адрес"
+            docker tag "$PRIMARY" "$FALLBACK" && docker push "$FALLBACK" || { echo "::error::push не удался ни в один адрес"; exit 1; }
+            TARGET="$FALLBACK"
+          fi
+          DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' "$TARGET")
+          # сжатый размер слоёв — по манифесту в реестре (лимит Salad 35 ГБ, наш порог 30)
+          COMPRESSED=$(docker manifest inspect "$DIGEST" 2>/dev/null | python3 -c 'import json,sys; m=json.load(sys.stdin); print(sum(l["size"] for l in m.get("layers",[])))' || echo 0)
+          GB=$(python3 -c "print(round($COMPRESSED/2**30,2))")
+          {
+            echo "### Образ пробы Pixal3D"
+            echo "- адрес: \`$TARGET\`"
+            echo "- digest: \`$DIGEST\`"
+            echo "- сжатый размер в реестре: **${GB} ГБ** (лимит Salad 35, наш порог 30)"
+            echo "- коммит: \`${GITHUB_SHA}\`"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          python3 -c "import sys; sys.exit(1 if $COMPRESSED/2**30 > 30 else 0)" || { echo "::error::образ больше 30 ГБ"; exit 1; }
