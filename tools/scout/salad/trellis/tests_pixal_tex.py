@@ -383,10 +383,20 @@ class NoTouchMG:
         raise AssertionError('Salad тронут до проверки аргументов: ' + k)
 
 
+shp_glb = os.path.join(tp, 'shape.glb')                      # настоящий файл формы: отказы ниже — по своей причине, а не «нет файла»
+open(shp_glb, 'wb').write(b'glTF')
 base = dict(model='pixal3d-tex', inputs=tp, skus=['a:1'], plan='1024:1', seed=42, texture_mesh=None, tex_align='fit', set=None, suffix='t', tier='high', out=None)
-for name, kw in (('без --texture-mesh', {}), ('два товара', {'texture_mesh': '/x.glb', 'skus': ['a:1', 'b:2']}), ('неизвестный --tex-align', {'texture_mesh': '/x.glb', 'tex_align': 'fit,zzz'})):
+for name, kw in (('без --texture-mesh', {}), ('два товара', {'texture_mesh': shp_glb, 'skus': ['a:1', 'b:2']}), ('неизвестный --tex-align', {'texture_mesh': shp_glb, 'tex_align': 'fit,zzz'})):
     rc = T.run(types.SimpleNamespace(**{**base, **kw}), NoTouchMG(), NoTouchMG())
     ok(f'{name}: отказ (код 2) до обращения к Salad — группа не создаётся, денег 0', rc == 2)
+json.dump({k: {'input_png_sha256': 'x'} for k in ('a:1', 'b:2', 'c:3')}, open(os.path.join(tp, 'inputs.json'), 'w'))      # c:3 есть среди входов, но формы у него нет
+cat = tempfile.mkdtemp(prefix='shp-')                         # каталог форм: у a:1 есть clean2, у b:2 только clean, у c:3 ничего (T-20261119-06/5/2)
+for fn_ in ('a_1-1024-42-0.clean2.glb', 'b_2-1024-42-0.clean.glb'):
+    open(os.path.join(cat, fn_), 'wb').write(b'glTF')
+rc = T.run(types.SimpleNamespace(**{**base, 'skus': ['a:1', 'b:2', 'c:3'], 'shape_dir': cat}), NoTouchMG(), NoTouchMG())
+ok('несколько товаров из каталога форм, но у c:3 формы нет — отказ (код 2) ДО обращения к Salad: группа не создаётся, денег 0', rc == 2)
+rc = T.run(types.SimpleNamespace(**{**base, 'skus': ['a:1', 'b:2'], 'texture_mesh': shp_glb, 'shape_dir': cat}), NoTouchMG(), NoTouchMG())
+ok('и --texture-mesh, и --shape-dir сразу — отказ до Salad', rc == 2)
 js = [{'job_id': 'a_1-1024-42-0'}]
 vs = [T.parse_tex_variant(x) for x in ('fit', 'official', 'fit+g3', 'fit+g2.5+s40')]
 two = T.expand_align_jobs(js, vs)
@@ -396,7 +406,7 @@ ok('варианты: суффиксы id, align, сила направляющ�
    and [(j['align'], j['tex_guidance'], j['shape_smooth']) for j in two] == [('fit', 1.0, 0), ('official', 1.0, 0), ('fit', 3.0, 0), ('fit', 2.5, 40)])
 ok('один вариант: id как был', [j['job_id'] for j in one] == ['a_1-1024-42-0'] and one[0]['align'] == 'official')
 ok('неверные записи вариантов отвергаются', all(T.parse_tex_variant(x) is None for x in ('zzz', 'fit+x3', 'fit+g0', 'fit+g11', 'fit+s0', 'fit+sabc', 'fit+s501', '')))
-rc = T.run(types.SimpleNamespace(**{**base, 'texture_mesh': '/x.glb', 'tex_align': 'fit+g99'}), NoTouchMG(), NoTouchMG())
+rc = T.run(types.SimpleNamespace(**{**base, 'texture_mesh': shp_glb, 'tex_align': 'fit+g99'}), NoTouchMG(), NoTouchMG())
 ok('--tex-align fit+g99: отказ (код 2) до обращения к Salad', rc == 2)
 
 print('[3b] драйвер: окружение воркера и отладка CUDA (T-20261119-05/3, ❺)')
@@ -412,7 +422,7 @@ for mdl in ('pixal3d', 'trellis2', 'localmesh'):
     bo = T.build_body('trial-x-y', 'ghcr.io/x/y:t', 'high', mdl, 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}}, extra_env={'CUDA_LAUNCH_BLOCKING': '1'})
     ok(f'другая модель ({mdl}) переменных отладки не получает', 'CUDA_LAUNCH_BLOCKING' not in bo['container']['environment_variables'])
 for name, kw in (('кривая запись', {'worker_env': ['HF_TOKEN=x']}), ('--debug-cuda у другой модели', {'model': 'trellis2', 'debug_cuda': True, 'texture_mesh': None})):
-    rc = T.run(types.SimpleNamespace(**{**base, 'texture_mesh': '/x.glb', **kw}), NoTouchMG(), NoTouchMG())
+    rc = T.run(types.SimpleNamespace(**{**base, 'texture_mesh': shp_glb, **kw}), NoTouchMG(), NoTouchMG())
     ok(f'{name}: отказ (код 2) до обращения к Salad', rc == 2)
 sh = open(os.path.join(HERE, 'probe_pixal_tex.sh'), encoding='utf-8').read()
 ok('скрипт пробы: DEBUG_CUDA=1 → --debug-cuda, WORKER_ENV → --worker-env; по умолчанию выключено', 'DEBUG_CUDA:-0' in sh and '--debug-cuda' in sh and '--worker-env' in sh and 'WORKER_ENV:-' in sh)

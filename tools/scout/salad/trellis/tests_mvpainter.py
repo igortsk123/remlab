@@ -379,6 +379,16 @@ rc = T.run(NS(**{**base, 'model': 'trellis2', 'worker_env': ['MVP_CKPT=ckpt'], '
 ok('--worker-env для другой модели: отказ до Salad', rc == 2)
 
 
+json.dump({k: {'input_png_sha256': 'x'} for k in ('a:1', 'b:2', 'c:3')}, open(os.path.join(tp, 'inputs.json'), 'w'))      # c:3 есть среди входов, но формы у него нет
+cat = tempfile.mkdtemp(prefix='shp-')                         # каталог форм: у a:1 есть clean2, у b:2 только clean, у c:3 ничего (T-20261119-06/5/2)
+for fn_ in ('a_1-1024-42-0.clean2.glb', 'b_2-1024-42-0.clean.glb'):
+    open(os.path.join(cat, fn_), 'wb').write(b'glTF')
+rc = T.run(NS(**{**base, 'skus': ['a:1', 'b:2', 'c:3'], 'texture_mesh': None, 'shape_dir': cat}), NoTouchMG(), NoTouchMG())
+ok('несколько товаров из каталога форм, но у c:3 формы нет — отказ (код 2) ДО обращения к Salad: группа не создаётся, денег 0', rc == 2)
+rc = T.run(NS(**{**base, 'skus': ['a:1', 'b:2'], 'texture_mesh': shape_path, 'shape_dir': cat}), NoTouchMG(), NoTouchMG())
+ok('и --texture-mesh, и --shape-dir сразу — отказ до Salad (форма задаётся одним способом)', rc == 2)
+
+
 class DryMG:
     API = 'https://api.salad.com/api/public/organizations/o/projects/p/containers'
 
@@ -398,6 +408,14 @@ txt = buf.getvalue()
 ok('сухой прогон: код 0, задание `<ключ>-1024-42-0-mvp`, группа trial-mvpainter-t, карта по умолчанию RTX 5090 по имени из API, живая цена $0,60/ч, потолок $1,0; секретов в печати нет',
    rc == 0 and 'задание a_1-1024-42-0-mvp' in txt and 'trial-mvpainter-t' in txt and 'потолок $ 1.0' in txt and 'RTX 5090 (32 GB) тариф high цена $/ч 0.6 ' in txt and '"c5090"' in txt and 'hf_SECRET' not in txt and 'PW' not in txt and '<скрыто>' in txt, txt[:400])
 ok('сухой прогон печатает таблицу классов от 40 ГБ с ценами (запасной путь), без 4090', 'классы GPU ≥ 40 ГБ' in txt and 'RTX A6000 (48 GB)' in txt and 'H100 (80 GB)' in txt and '0.490' in txt and 'RTX 4090 (24 GB)  ' not in txt.split('классы GPU')[1].split('группа')[0], txt[:600])
+ns_m = NS(**{**ns.__dict__, 'skus': ['a:1', 'b:2'], 'texture_mesh': None, 'shape_dir': cat, 'out': None, 'suffix': 'm'})
+buf = io.StringIO()
+with redirect_stdout(buf):
+    rc = T.run(ns_m, DryMG(), NS())
+txt2 = buf.getvalue()
+ok('два товара в ОДНОЙ группе (сухой прогон): код 0, одна группа trial-mvpainter-m, два задания — по товару, у каждого своя форма из каталога (clean2 / clean)',
+   rc == 0 and txt2.count('  задание ') == 2 and 'задание a_1-1024-42-0-%s' % 'mvp' in txt2 and 'задание b_2-1024-42-0-%s' % 'mvp' in txt2 and txt2.count('группа trial-mvpainter-m ') == 1
+   and 'a_1-1024-42-0.clean2.glb' in txt2 and 'b_2-1024-42-0.clean.glb' in txt2 and 'заданий 2' in txt2, txt2[:300])
 ok('результаты — в СВОЕЙ папке модели (…/mesh-models-1118/mvpainter), не в общей `trellis/`', ns.out == T.default_out('mvpainter') and os.path.basename(ns.out) == 'mvpainter' and os.path.basename(ns.out) != 'trellis', str(ns.out))
 open(os.path.join(tp, 'a_1-1024-42-0-mvp.model'), 'w').write('trellis2')
 ok('чужой результат под тем же именем — отказ (owner_conflicts не ослаблен)', T.owner_conflicts(tp, ['a_1-1024-42-0-mvp'], 'mvpainter') == ['a_1-1024-42-0-mvp'])
@@ -516,10 +534,44 @@ except W.MVPStageError as e3:
 
 print('[6] скрипт пробы и образ (по тексту)')
 sh = open(os.path.join(HERE, 'probe_mvpainter.sh'), encoding='utf-8').read()
-ok('probe_mvpainter.sh: товар — аргумент (отказ без него), в коде нет ни одного id товара', 'нужен товар' in sh and 'exit 2' in sh and not __import__('re').search(r'\b\d{5,}:\d{10,}\b', sh))
-ok('форма: clean2, иначе clean; потолок CAP=1.0; вывод в t19-06-1119/mvp-<ЧЧММ>, НЕ в trellis/', 'clean2.glb' in sh and '.clean.glb' in sh and 'CAP="${CAP:-1.0}"' in sh and 't19-06-1119/mvp-$STAMP' in sh and 'OUT="${OUT:-$HOME/remlab-logs/mesh-models-1118/trellis' not in sh)
-ok('кадры 0°/45° через render_stand.py, лист «гибрид | MV-Adapter | MVPainter» (общий `mv_sheet.py --cols`), свои имена кадров как у эталона', '--only az000,az045' in sh and 'COLS+=("MV-Adapter=$MVA")' in sh and 'mv_sheet.py" --cols' in sh and 'MVPainter=$OUT/frames/$n' in sh)
+lib = open(os.path.join(HERE, 'probe_lib.sh'), encoding='utf-8').read()
+ok('probe_mvpainter.sh: товары — аргументы (отказ без них), в коде нет ни одного id товара', 'нужен хотя бы один товар' in lib and 'exit 2' in lib and 'probe_init "$@"' in sh
+   and not __import__('re').search(r'\b\d{5,}:\d{10,}\b', sh + lib))
+ok('форма: clean2, иначе clean; потолок CAP=1.0; вывод в t19-06-1119/mvp-<ЧЧММ>, НЕ в trellis/', 'clean2.glb' in lib and '.clean.glb' in lib and 'CAP="${CAP:-1.0}"' in sh and 't19-06-1119/mvp-$STAMP' in sh and 'OUT="${OUT:-$HOME/remlab-logs/mesh-models-1118/trellis' not in sh)
+ok('несколько товаров в одной группе: --skus "${SKUS[@]}" и --shape-dir (форма на товар), кадры 0°/45° через render_stand.py, лист «гибрид р.3 | MV-Adapter | MVPainter» (общий `mv_sheet.py --cols`) — по товару в свою подпапку',
+   '--skus "${SKUS[@]}"' in sh and '--shape-dir "$BASE"' in sh and 'probe_accept mvp "MVPainter"' in sh and '--only az000,az045' in lib and 'cols+=("MV-Adapter=${MVA[$s]}")' in lib
+   and 'mv_sheet.py" --cols' in lib and 'd="$OUT/$skuf"' in lib and '$d/frames/$n' in lib)
 ok('сухой прогон по умолчанию (APPLY=1 — платный), «денег 0»', 'APPLY:-0' in sh and 'денег 0' in sh)
+
+# --- сами скрипты пробы, на подложном HOME и «питоне» echo: несколько товаров в одной команде драйверу, отказ до драйвера при отсутствии формы/фото ---
+fh = tempfile.mkdtemp(prefix='fh-')
+fb = os.path.join(fh, 'remlab-logs', 'mesh-models-1118', 'trellis')
+os.makedirs(os.path.join(fb, 'inputs30'))
+for fn in ('a_1-1024-42-0.clean2.glb', 'a_1-1024-42-0.clean.glb', 'b_2-1024-42-0.clean.glb'):
+    open(os.path.join(fb, fn), 'wb').write(b'glTF')
+for fn in ('a_1.rgba.png', 'b_2.rgba.png'):                      # c:3 — без формы и без фото
+    open(os.path.join(fb, 'inputs30', fn), 'wb').write(b'\x89PNG')
+
+
+def run_probe(script, *skus, **env):
+    e = {**os.environ, 'HOME': fh, 'PY': '/bin/echo', 'OUT': os.path.join(fh, 'out-' + script), **env}
+    e.pop('SKU', None)
+    return subprocess.run(['bash', os.path.join(HERE, script), *skus], capture_output=True, text=True, env=e, timeout=60)
+
+
+for script, model in (('probe_mvpainter.sh', 'mvpainter'), ('probe_supratex.sh', 'supratex'), ('probe_mvadapter.sh', 'mvadapter-i2tex')):
+    r2 = run_probe(script, 'a:1', 'b:2')
+    ok(f'{script} a:1 b:2 (сухой): код 0, «денег 0», драйверу ушли оба товара и каталог форм, без --apply и без одиночного --texture-mesh',
+       r2.returncode == 0 and 'денег 0' in r2.stdout and f'--model {model}' in r2.stdout and '--skus a:1 b:2 ' in r2.stdout and f'--shape-dir {fb} ' in r2.stdout and '--apply' not in r2.stdout
+       and '--texture-mesh' not in r2.stdout and 'clean2' in r2.stdout and '[a:1] форма' in r2.stdout and '[b:2] форма' in r2.stdout, r2.stdout[-400:] + r2.stderr[-300:])
+    r3 = run_probe(script, 'a:1', 'c:3', 'b:2')
+    ok(f'{script}: у c:3 нет ни формы, ни фото — отказ (код 2) ДО драйвера: драйвер не вызван, названы форма и фото, группа не создаётся',
+       r3.returncode == 2 and '--model' not in r3.stdout and 'c:3] нет формы' in r3.stderr and 'c:3] нет фото' in r3.stderr and 'a:1] нет' not in r3.stderr and 'b:2] нет' not in r3.stderr
+       and 'группа не создаётся' in r3.stderr, r3.stdout[-200:] + r3.stderr[-300:])
+    r4 = run_probe(script)
+    ok(f'{script} без товаров: отказ (код 2)', r4.returncode == 2 and 'нужен хотя бы один товар' in r4.stderr)
+r5 = run_probe('probe_mvpainter.sh', 'a:1', 'a:1', 'b:2')
+ok('повтор товара в аргументах не плодит заданий: a:1 один раз', '--skus a:1 b:2 ' in r5.stdout)
 df = open(os.path.join(HERE, 'Dockerfile.mvpainter'), encoding='utf-8').read()
 ok('Dockerfile.mvpainter: база по digest, коммит MV-Painter закреплён, оба Blender по sha256, пины версий, воркер и MODEL=mvpainter', '@sha256:' in df and 'f714682db5e6f78e8d1c7c0a43d1525638dda5a6' in df and df.count('sha256sum -c') >= 2
    and 'diffusers==0.20.2' in df and 'COPY worker_trellis.py' in df and 'MODEL=mvpainter' in df and 'blender-4.2.9-linux-x64' in df and 'blender-3.6.9-linux-x64' in df)

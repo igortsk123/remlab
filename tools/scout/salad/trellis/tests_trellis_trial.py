@@ -199,7 +199,7 @@ def make_inputs(tmp, skus=('a:1',)):
     json.dump(inp, open(os.path.join(tmp, 'inputs.json'), 'w'))
 
 
-def go(tmp, mg=None, br=None, hf=200, script=None, **kw):
+def go(tmp, mg=None, br=None, hf=200, script=None, gw=None, **kw):
     FakeGW.script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, 'phase': None, 'no_health': False, 'hf_gb': None, 'disk_free': 50.0,
                      'fatal_jobs': False, 'broken': None, 'job_hangs': False, **(script or {})}
     clock = [0.0]
@@ -208,7 +208,7 @@ def go(tmp, mg=None, br=None, hf=200, script=None, **kw):
         clock[0] += s
     mg, br = mg or FakeMG(), br or FakeBR()
     try:
-        rc = T.run(args(tmp, **kw), mg, br, gw_factory=FakeGW, sleep=sleep, clock=lambda: clock[0], hf_head=lambda p, t: hf)
+        rc = T.run(args(tmp, **kw), mg, br, gw_factory=gw or FakeGW, sleep=sleep, clock=lambda: clock[0], hf_head=lambda p, t: hf)
     except RuntimeError as e:
         rc = f'exc:{e}'
     summ = None
@@ -470,6 +470,82 @@ mg = StartCodesMG([202])
 rc, br, naps, s = go2(d, mg, lambda c: SlowCreateBR(c, stuck=True), suffix='c3', create_wait_min=2)
 ok('группа так и не стала stopped за --create-wait-min → /start не шлём, стоп с проверкой, stopped_by=create_timeout', rc == 1 and mg.starts == [] and s['stopped_by'] == 'create_timeout' and br.stops == ['trial-trellis2-c3'], str((rc, mg.starts, s and s['stopped_by'])))
 ok('по умолчанию ждём stopped 30 минут', T.CREATE_WAIT_MIN == 30 and T.START_RETRIES == 5 and T.START_RETRY_S == 30)
+
+
+print('[5] текстурные модели: несколько товаров в одной группе, у каждого своя форма (T-20261119-06/5/2)')
+import base64  # noqa: E402
+cat = tempfile.mkdtemp(prefix='shp-')
+for fn, data in (('a_1-1024-42-0.clean2.glb', b'glTF-A2'), ('a_1-1024-42-0.clean.glb', b'glTF-A1'), ('b_2-1024-42-0.clean.glb', b'glTF-B1')):
+    open(os.path.join(cat, fn), 'wb').write(data)
+ok('форма из каталога: clean2, если есть, иначе clean; нет ни той ни другой — None', T.find_shape(cat, 'a:1')[0].endswith('a_1-1024-42-0.clean2.glb') and T.find_shape(cat, 'b:2')[0].endswith('b_2-1024-42-0.clean.glb')
+   and 'clean2' in T.find_shape(cat, 'a:1')[1] and T.find_shape(cat, 'c:3') is None)
+NSx = types.SimpleNamespace
+r_ok, why = T.resolve_shapes(NSx(model='supratex', texture_mesh=None, shape_dir=cat), ['a:1', 'b:2'])
+ok('resolve_shapes: два товара — у каждого своя форма', why == '' and list(r_ok) == ['a:1', 'b:2'] and r_ok['a:1'].endswith('.clean2.glb') and r_ok['b:2'].endswith('.clean.glb'), str((r_ok, why)))
+r_no, why = T.resolve_shapes(NSx(model='supratex', texture_mesh=None, shape_dir=cat), ['a:1', 'c:3', 'd:4'])
+ok('resolve_shapes: формы нет у двух из трёх — отказ, названы ВСЕ без формы', r_no is None and 'c:3' in why and 'd:4' in why and 'a:1' not in why.split('у товаров:')[1], why)
+ok('resolve_shapes: нет ни --shape-dir, ни --texture-mesh / оба сразу / --texture-mesh при двух товарах / файла нет — отказ',
+   all(T.resolve_shapes(NSx(model='mvpainter', **kw), sk)[0] is None for kw, sk in (
+       ({'texture_mesh': None, 'shape_dir': None}, ['a:1']), ({'texture_mesh': os.path.join(cat, 'a_1-1024-42-0.clean.glb'), 'shape_dir': cat}, ['a:1']),
+       ({'texture_mesh': os.path.join(cat, 'a_1-1024-42-0.clean.glb'), 'shape_dir': None}, ['a:1', 'b:2']), ({'texture_mesh': '/нет/такого.glb', 'shape_dir': None}, ['a:1']),
+       ({'texture_mesh': None, 'shape_dir': cat}, []))))
+one_ok, _ = T.resolve_shapes(NSx(model='mvpainter', texture_mesh=os.path.join(cat, 'a_1-1024-42-0.clean.glb'), shape_dir=None), ['a:1'])
+ok('прежний способ: --texture-mesh при одном товаре работает', one_ok == {'a:1': os.path.join(cat, 'a_1-1024-42-0.clean.glb')})
+
+
+class RecGW(FakeGW):
+    """Шлюз, запоминающий тело каждого задания: какая форма (`texture_mesh_b64`) уехала с каким job_id."""
+    bodies: list = []
+
+    def call(self, method, path, body=None, timeout=60, raw=False):
+        if path == '/generate':
+            RecGW.bodies.append((body['job_id'], body.get('texture_mesh_b64')))
+        return super().call(method, path, body, timeout, raw)
+
+
+d = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d, ('a:1', 'b:2', 'c:3'))
+mg0 = FakeMG()
+for model in ('supratex', 'mvpainter', 'mvadapter-i2tex', 'pixal3d-tex'):
+    mg0 = FakeMG()
+    rc, mg0, br0, _ = go(d, mg=mg0, model=model, skus=['a:1', 'c:3'], shape_dir=cat, texture_mesh=None, tex_align='fit', suffix='r-' + model)
+    ok(f'{model}: форма есть не у всех (нет у c:3) — отказ (код 2) ДО группы: к Salad ни одного обращения, остановка не нужна', rc == 2 and mg0.calls == [] and br0.stops == [], str((rc, mg0.calls)))
+mg1 = FakeMG()
+rc, mg1, br1, _ = go(d, mg=mg1, model='supratex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, apply=False, suffix='dry')
+ok('сухой прогон двух товаров: код 0, ничего не создано', rc == 0 and not [c for c in mg1.calls if c[0] in ('POST', 'PATCH')])
+buf5 = io.StringIO()
+with __import__('contextlib').redirect_stdout(buf5):
+    go(d, model='supratex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, apply=False, mem_mb=None, suffix='dry2')
+ok('сухой прогон: два задания (по товару), общая группа trial-supratex-dry2, память группы 49152', buf5.getvalue().count('  задание ') == 2 and 'a_1-1024-42-0-supra' in buf5.getvalue()
+   and 'b_2-1024-42-0-supra' in buf5.getvalue() and 'trial-supratex-dry2' in buf5.getvalue() and '"memory": 49152' in buf5.getvalue(), buf5.getvalue()[:300])
+buf6 = io.StringIO()
+with __import__('contextlib').redirect_stdout(buf6):
+    rc, *_ = go(d, model='pixal3d-tex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, tex_align='fit,official', apply=False, suffix='dry3')
+ok('pixal3d-tex: два товара × два варианта кадрирования = четыре задания в одной группе', rc == 0 and buf6.getvalue().count('  задание ') == 4, buf6.getvalue()[-300:])
+
+RecGW.bodies = []
+rc, mg2, br2, _ = go(d, model='supratex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, gw=RecGW, suffix='m1')
+sm = json.load(open(os.path.join(d, 'out', 'summary-trial-supratex-m1.json')))
+got = dict(RecGW.bodies)
+ok('боевой ход, два товара в ОДНОЙ группе: группа создана и остановлена с проверкой ровно один раз, оба задания выполнены', rc == 0 and [c for c in mg2.calls if c == ('POST', '')] == [('POST', '')] and br2.stops == ['trial-supratex-m1']
+   and sm['stopped_by'] == 'done' and sm['stop_verified'] and len(sm['jobs']) == 2, str((rc, br2.stops, sm['stopped_by'])))
+ok('в каждое задание уехала СВОЯ форма: a:1 — clean2 (A2), b:2 — clean (B1); тела разные',
+   got.get('a_1-1024-42-0-supra') == base64.b64encode(b'glTF-A2').decode() and got.get('b_2-1024-42-0-supra') == base64.b64encode(b'glTF-B1').decode() and len(set(got.values())) == 2, str(got))
+ok('итог по товару (by_sku): статус, id задания, файл результата; результаты — по товару', set(sm['by_sku']) == {'a:1', 'b:2'} and all(v['status'] == 'done' and v['glb'] for v in sm['by_sku'].values())
+   and os.path.exists(os.path.join(d, 'out', 'trial-supratex', 'x')) is False and sm['by_sku']['a:1']['job_id'] == 'a_1-1024-42-0-supra', str(sm['by_sku']))
+RecGW.bodies = []
+rc, mg3, br3, _ = go(d, model='supratex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, gw=RecGW, script={'fail_jobs': 1}, suffix='m2')
+sm = json.load(open(os.path.join(d, 'out', 'summary-trial-supratex-m2.json')))
+ok('первый товар упал, второй всё равно идёт: итог по товару — failed с причиной и done; один стоп с проверкой', sm['by_sku']['a:1']['status'] == 'failed' and sm['by_sku']['a:1']['error'] and sm['by_sku']['b:2']['status'] == 'done'
+   and br3.stops == ['trial-supratex-m2'], str(sm['by_sku']))
+RecGW.bodies = []
+rc, mg4, br4, _ = go(d, model='supratex', skus=['a:1', 'b:2'], shape_dir=cat, texture_mesh=None, gw=RecGW, script={'fail_jobs': 1, 'fatal_jobs': True}, suffix='m3')
+sm = json.load(open(os.path.join(d, 'out', 'summary-trial-supratex-m3.json')))
+ok('фатальная ошибка CUDA на первом товаре: группа гасится сразу, второй — not_run (в итоге по товару это видно), а не «пропал»', sm['stopped_by'] == 'worker_broken' and sm['by_sku']['a:1']['status'] == 'failed'
+   and sm['by_sku']['b:2']['status'] == 'not_run' and br4.stops == ['trial-supratex-m3'], str(sm['by_sku']))
+RecGW.bodies = []
+rc, mg5, br5, _ = go(d, model='supratex', skus=['a:1'], texture_mesh=os.path.join(cat, 'b_2-1024-42-0.clean.glb'), gw=RecGW, suffix='m4')
+ok('прежний способ (--texture-mesh, один товар) по-прежнему едет формой в задании', rc == 0 and dict(RecGW.bodies).get('a_1-1024-42-0-supra') == base64.b64encode(b'glTF-B1').decode(), str(RecGW.bodies)[:200])
 
 print('ИТОГО: ' + ('всё в норме' if not bad else f'провалов {bad}'))
 sys.exit(1 if bad else 0)

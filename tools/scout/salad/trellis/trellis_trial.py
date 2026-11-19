@@ -54,6 +54,8 @@ SUPRA_TEX_SIZES = (1024, 2048, 4096)                  # supratex: размер �
 SUPRA_MEM_MB = 49152                                  # supratex: пик памяти процессов ≈ 32,4 ГиБ (замер апстрима на 3090) — 32768 МБ группы впритык; 48 ГиБ (лимит Salad 61440)
 MODEL_MEM_MB = {'supratex': SUPRA_MEM_MB}             # память группы по умолчанию для моделей, которым общих 32768 МБ мало
 TEXTURE_MODELS = {'mvadapter-i2tex': '-mvtex', 'mvpainter': '-mvp', 'supratex': '-supra', 'pixal3d-tex': '-tex', 'trellis2': '-tex'}      # модели «краска готовой формы» и суффикс id задания (результат — `<id>.glb`)
+MULTI_TEX_MODELS = ('pixal3d-tex', 'mvadapter-i2tex', 'mvpainter', 'supratex')      # модели «краска готовой формы»: несколько товаров в одной группе, у каждого своя форма (T-20261119-06/5/2)
+SHAPE_KINDS = (('clean2', 'clean2 (правило очистки E)'), ('clean', 'clean (прежнее правило очистки; clean2 нет)'))      # каталог форм: сперва clean2, иначе clean
 GPU_TIERS = ('high', 'medium', 'low', 'batch')        # тарифы Salad от дорогого к дешёвому; запасной порядок выбора класса — по ним
 MVP_DEFAULT_GPU = 'RTX 5090 (32 GB)'                  # mvpainter по умолчанию (директор 19.11): 4090 (24 ГБ) может не вместить; 4090 — только явным `--gpu "RTX 4090 (24 GB)"` / `--card`
 CREATE_WAIT_MIN = 30                                  # сколько минут ждать `stopped` после создания группы (параметр `--create-wait-min`)
@@ -117,6 +119,44 @@ def build_jobs(skus: list[str], plan: list[dict], inputs: dict, seed: int = 42) 
             for k in range(step['n']):
                 jobs.append({'sku': sku, 'res': step['res'], 'rep': k, 'seed': seed, 'job_id': f'{sku.replace(":", "_")}-{step["res"]}-{seed}-{k}'})
     return jobs
+
+
+def find_shape(shape_dir: str, sku: str) -> tuple[str, str] | None:
+    """Форма товара из каталога форм (`~/remlab-logs/mesh-models-1118/trellis/`): `<магазин_товар>-1024-42-0.clean2.glb`, если есть, иначе `.clean.glb`. → (путь, вид) или None."""
+    stem = os.path.join(os.path.expanduser(shape_dir), sku.replace(':', '_') + '-1024-42-0')
+    for kind, label in SHAPE_KINDS:
+        if os.path.isfile(f'{stem}.{kind}.glb'):
+            return f'{stem}.{kind}.glb', label
+    return None
+
+
+def resolve_shapes(a, skus: list[str]) -> tuple[dict | None, str]:
+    """Формы для текстурных моделей: `{товар: путь к GLB}` либо (None, причина отказа). Источники — каталог форм `--shape-dir` (по правилу clean2 → clean, для нескольких товаров) или
+    `--texture-mesh <GLB>` (один товар; прежний способ). Нет формы хотя бы у одного товара — отказ ДО группы и денег (список всех, у кого нет)."""
+    tm, sd = getattr(a, 'texture_mesh', None), getattr(a, 'shape_dir', None)
+    if tm and sd:
+        return None, f'{a.model}: форма задаётся одним способом — либо --shape-dir <каталог форм>, либо --texture-mesh <clean.glb> (один товар), не оба — группа не создаётся'
+    if not tm and not sd:
+        return None, f'{a.model} красит готовую форму: укажите --shape-dir <каталог форм> (форма на каждый товар: clean2, иначе clean) или --texture-mesh <clean.glb> (один товар) — группа не создаётся'
+    if not skus:
+        return None, f'{a.model}: нет товаров в --skus — группа не создаётся'
+    if tm:
+        if len(skus) != 1:
+            return None, f'{a.model}: --texture-mesh — форма одна, товаров {len(skus)}; для нескольких товаров дайте --shape-dir <каталог форм> — группа не создаётся'
+        if not os.path.isfile(os.path.expanduser(tm)):
+            return None, f'{a.model}: нет файла формы {tm} — группа не создаётся'
+        return {skus[0]: os.path.expanduser(tm)}, ''
+    found, missing = {}, []
+    for sku in skus:
+        hit = find_shape(sd, sku)
+        if hit is None:
+            missing.append(sku)
+        else:
+            found[sku] = hit[0]
+            say('форма', sku, '→', hit[0], '—', hit[1])
+    if missing:
+        return None, f'{a.model}: нет формы (ни clean2, ни clean в {sd}) у товаров: {", ".join(missing)} — группа не создаётся'
+    return found, ''
 
 
 def parse_tex_variant(tok: str) -> dict | None:
@@ -428,38 +468,32 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         say(f'ОТКАЗ: в {a.out} уже лежат файлы от другой модели для {len(clash)} заданий (первое: {clash[0]}) — укажи свою --out или --force-out')
         return 2
     aligns = [parse_tex_variant(x) for x in (getattr(a, 'tex_align', None) or 'fit').split(',') if x.strip()]
-    if a.model == 'pixal3d-tex':                          # краска Pixal3D по готовой форме: без формы работать нечему — отказ ДО группы и денег
-        if not getattr(a, 'texture_mesh', None):
-            say('pixal3d-tex красит готовую форму: укажите --texture-mesh <clean.glb> — группа не создаётся')
+    shapes: dict = {}
+    if a.model in MULTI_TEX_MODELS:                       # у каждого товара своя форма (clean2 → clean из каталога форм); нет у одного — отказ ДО группы и денег
+        shapes, why = resolve_shapes(a, skus)
+        if shapes is None:
+            say(why)
             return 2
-        if len(skus) != 1 or not aligns or any(x is None for x in aligns):
-            say(f'pixal3d-tex: один товар в --skus (форма одна) и --tex-align из {TEX_ALIGNS} с добавками +g<сила>, +s<проходов> (например fit+g3) — группа не создаётся')
+    if a.model == 'pixal3d-tex':                          # краска Pixal3D по готовой форме: варианты кадрирования из списка — иначе отказ ДО группы и денег
+        if not aligns or any(x is None for x in aligns):
+            say(f'pixal3d-tex: --tex-align из {TEX_ALIGNS} с добавками +g<сила>, +s<проходов> (например fit+g3) — группа не создаётся')
             return 2
     mvo = {}
-    if a.model == 'mvadapter-i2tex':                      # краска MV-Adapter по готовой форме: форма обязательна, товар один, параметры из списка — иначе отказ ДО группы и денег
+    if a.model == 'mvadapter-i2tex':                      # краска MV-Adapter по готовой форме: параметры из списка — иначе отказ ДО группы и денег
         mvo = mv_options(a)
-        if not getattr(a, 'texture_mesh', None):
-            say('mvadapter-i2tex красит готовую форму: укажите --texture-mesh <clean.glb> — группа не создаётся')
-            return 2
-        if len(skus) != 1 or mvo is None:
-            say(f'mvadapter-i2tex: один товар в --skus (форма одна); --mv-yaw из {MV_YAWS}, --mv-uv-size из {MV_UV_SIZES}, --mv-steps 1..100, --mv-ref-scale 0..2 — группа не создаётся')
+        if mvo is None:
+            say(f'mvadapter-i2tex: --mv-yaw из {MV_YAWS}, --mv-uv-size из {MV_UV_SIZES}, --mv-steps 1..100, --mv-ref-scale 0..2 — группа не создаётся')
             return 2
     supo = {}
-    if a.model == 'supratex':                             # SUPRA-Tex красит готовую форму (и сам её пересобирает): форма обязательна, товар один, параметры из списка — иначе отказ ДО группы и денег
+    if a.model == 'supratex':                             # SUPRA-Tex красит готовую форму (и сам её пересобирает): параметры из списка — иначе отказ ДО группы и денег
         supo = supra_options(a)
-        if not getattr(a, 'texture_mesh', None):
-            say('supratex красит готовую форму: укажите --texture-mesh <clean.glb> — группа не создаётся')
+        if supo is None:
+            say(f'supratex: --supra-texture-size из {SUPRA_TEX_SIZES}, --supra-decimation 10000..2000000 — группа не создаётся')
             return 2
-        if len(skus) != 1 or supo is None:
-            say(f'supratex: один товар в --skus (форма одна); --supra-texture-size из {SUPRA_TEX_SIZES}, --supra-decimation 10000..2000000 — группа не создаётся')
-            return 2
-    if a.model == 'mvpainter':                            # краска MVPainter по готовой форме: форма обязательна, товар один, параметры из списка — иначе отказ ДО группы и денег
+    if a.model == 'mvpainter':                            # краска MVPainter по готовой форме: параметры из списка — иначе отказ ДО группы и денег
         mvo = mvp_options(a)
-        if not getattr(a, 'texture_mesh', None):
-            say('mvpainter красит готовую форму: укажите --texture-mesh <clean.glb> — группа не создаётся')
-            return 2
-        if len(skus) != 1 or mvo is None:
-            say(f'mvpainter: один товар в --skus (форма одна); --mvp-yaw из {MV_YAWS}, --mvp-steps 1..150, --mvp-reduce 0|1, --mvp-pbr 0|1 — группа не создаётся')
+        if mvo is None:
+            say(f'mvpainter: --mvp-yaw из {MV_YAWS}, --mvp-steps 1..150, --mvp-reduce 0|1, --mvp-pbr 0|1 — группа не создаётся')
             return 2
     wenv = parse_worker_env(getattr(a, 'worker_env', None), bool(getattr(a, 'debug_cuda', False)))
     if wenv is None or (wenv and a.model not in WENV_MODELS):          # переменные воркера — только пробам краски и только из белого списка; иначе отказ ДО группы и денег
@@ -526,10 +560,14 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     sp = a.set or os.path.join(os.path.dirname(os.path.abspath(a.inputs)), 'set30.json')
     if os.path.exists(sp):
         meta = {c['sku']: c for c in json.load(open(sp, encoding='utf-8'))}                       # роль и габариты (нужны контролю Hunyuan)
-    tex_mesh_b64 = None
-    if getattr(a, 'texture_mesh', None):                  # контроль перекраски: одна готовая форма (GLB) уходит в задание, id задания с суффиксом -tex
-        tex_mesh_b64 = base64.b64encode(open(os.path.expanduser(a.texture_mesh), 'rb').read()).decode()
-        for j in jobs:
+    tex_by_sku: dict = {}                                 # товар → форма (GLB, base64): едет В ТЕЛЕ КАЖДОГО задания (`texture_mesh_b64`), воркер кладёт её рядом с заданием (`<id>.mesh.glb`)
+    if shapes:                                            # текстурные модели: у каждого товара своя форма
+        tex_by_sku = {sku: base64.b64encode(open(path, 'rb').read()).decode() for sku, path in shapes.items()}
+    elif getattr(a, 'texture_mesh', None):                # контроль перекраски TRELLIS.2: одна готовая форма (GLB) на все задания
+        one = base64.b64encode(open(os.path.expanduser(a.texture_mesh), 'rb').read()).decode()
+        tex_by_sku = {j['sku']: one for j in jobs}
+    if tex_by_sku:
+        for j in jobs:                                    # id задания с суффиксом модели (результат — `<id>.glb`)
             j['job_id'] += TEXTURE_MODELS.get(a.model, '-tex')
     if a.model == 'pixal3d-tex':                          # варианты кадрирования фото (fit — подгонка по силуэту формы, official — как в апстриме): по заданию на вариант, id с суффиксом
         jobs = expand_align_jobs(jobs, aligns)
@@ -687,7 +725,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     j = pending.pop(0)
                     png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.rgba.png'), 'rb').read()
                     pl = {'job_id': j['job_id'], 'image_b64': base64.b64encode(png).decode(), 'pipeline_type': pipeline_type(j['res']), 'seed': j['seed'],
-                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_mesh_b64, 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'), **mvo, **supo}
+                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_by_sku.get(j['sku']), 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'), **mvo, **supo}
                     c, r = gw.call('POST', '/generate', pl, timeout=90)
                     inflight = {**j, 'submitted': t, 'http': c}
                     say('задание', j['job_id'], '→ HTTP', c)
@@ -759,6 +797,18 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     finally:
         ok_stop = BR.stop_and_verify(name)
         summary['stop_verified'] = ok_stop
+        if tex_by_sku:                                    # итог по товару (в группе их может быть несколько): статус, секунды, GLB, причина отказа; не дошедшие до запуска — not_run
+            done_jobs = {x['job_id']: x for x in summary['jobs']}
+            summary['by_sku'] = {}
+            per_sku = {}
+            for j in jobs:
+                per_sku[j['sku']] = per_sku.get(j['sku'], 0) + 1
+            for j in jobs:                                # ключ — товар; если у товара несколько заданий (варианты --tex-align) — id задания
+                x = done_jobs.get(j['job_id'])
+                summary['by_sku'][j['sku'] if per_sku[j['sku']] == 1 else j['job_id']] = ({'job_id': j['job_id'], 'status': x.get('status'), 'seconds': x.get('seconds'), 'glb': x.get('glb_path'), 'error': x.get('error')} if x else
+                                               {'job_id': j['job_id'], 'status': 'not_run', 'seconds': None, 'glb': None, 'error': None})
+            for sku, v in summary['by_sku'].items():
+                say('товар', sku, v['status'], v['glb'] or v['error'] or '')
         summary['running_s'] = round((clock() - run_since), 1) if run_since is not None else 0.0
         summary['cost_usd_est'] = round(cost_usd(summary['running_s'], price), 3)
         json.dump(summary, open(os.path.join(a.out, f'summary-{name}.json'), 'w'), ensure_ascii=False, indent=1)
@@ -781,7 +831,9 @@ def main() -> int:
     ap.add_argument('--texture', type=int, default=2048)
     ap.add_argument('--card', default=CARD['class_name'], help='класс карты по полному имени ("RTX 4060 Ti (16 GB)" для localmesh)')
     ap.add_argument('--detail', default='high', choices=['draft', 'standard', 'high', 'max'], help='localmesh: ярус качества (high = форма 1024, 16 шагов, 250 тыс. граней)')
-    ap.add_argument('--texture-mesh', default=None, help='контроль: готовая форма (GLB) — TRELLIS.2 только перекрасит её по фото (один товар в --skus)')
+    ap.add_argument('--texture-mesh', default=None, help='контроль: готовая форма (GLB) — TRELLIS.2 только перекрасит её по фото (один товар в --skus); у текстурных моделей (pixal3d-tex, mvadapter-i2tex, mvpainter, supratex) — форма ОДНОГО товара')
+    ap.add_argument('--shape-dir', default=None, help='текстурные модели (pixal3d-tex, mvadapter-i2tex, mvpainter, supratex): каталог форм — у каждого товара из --skus своя форма `<магазин_товар>-1024-42-0.clean2.glb`, иначе `.clean.glb`; '
+                    'товаров может быть несколько (одна группа, одна загрузка весов); нет формы хотя бы у одного — отказ до группы')
     ap.add_argument('--supra-refine', action='store_true', help='supratex: --refine апстрима (чёткий мелкий рисунок, +≈2 мин на 3090)')
     ap.add_argument('--supra-texture-size', type=int, default=4096, help='supratex: размер текстуры выпуска (1024/2048/4096; 4096 — как в апстриме)')
     ap.add_argument('--supra-decimation', type=int, default=500000, help='supratex: целевое число граней выпуска (по умолчанию 500000, как в апстриме; форма пересобирается ремешем)')

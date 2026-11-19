@@ -412,6 +412,16 @@ for name, kw in (('без --texture-mesh', {'texture_mesh': None}), ('два т�
     ok(f'{name}: отказ (код 2) до обращения к Salad — группа не создаётся, денег 0', rc == 2)
 
 
+json.dump({k: {'input_png_sha256': 'x'} for k in ('a:1', 'b:2', 'c:3')}, open(os.path.join(tp, 'inputs.json'), 'w'))      # c:3 есть среди входов, но формы у него нет
+cat = tempfile.mkdtemp(prefix='shp-')                         # каталог форм: у a:1 есть clean2, у b:2 только clean, у c:3 ничего (T-20261119-06/5/2)
+for fn_ in ('a_1-1024-42-0.clean2.glb', 'b_2-1024-42-0.clean.glb'):
+    open(os.path.join(cat, fn_), 'wb').write(b'glTF')
+rc = T.run(NS(**{**base, 'skus': ['a:1', 'b:2', 'c:3'], 'texture_mesh': None, 'shape_dir': cat}), NoTouchMG(), NoTouchMG())
+ok('несколько товаров из каталога форм, но у c:3 формы нет — отказ (код 2) ДО обращения к Salad: группа не создаётся, денег 0', rc == 2)
+rc = T.run(NS(**{**base, 'skus': ['a:1', 'b:2'], 'texture_mesh': shape_path, 'shape_dir': cat}), NoTouchMG(), NoTouchMG())
+ok('и --texture-mesh, и --shape-dir сразу — отказ до Salad (форма задаётся одним способом)', rc == 2)
+
+
 class DryMG:
     def env_from_file(self):
         pass
@@ -427,6 +437,14 @@ with redirect_stdout(buf):
 txt = buf.getvalue()
 ok('сухой прогон: код 0, задание `<ключ>-1024-42-0-supra`, группа trial-supratex-…, потолок $0,35, память группы 49152 МБ; секретов в печати нет',
    rc == 0 and 'задание a_1-1024-42-0-supra' in txt and 'trial-supratex-t' in txt and 'потолок $ 0.35' in txt and '"memory": 49152' in txt and 'hf_SECRET' not in txt and 'PW' not in txt and '<скрыто>' in txt, txt[:300])
+ns_m = NS(**{**ns.__dict__, 'skus': ['a:1', 'b:2'], 'texture_mesh': None, 'shape_dir': cat, 'out': None, 'suffix': 'm'})
+buf = io.StringIO()
+with redirect_stdout(buf):
+    rc = T.run(ns_m, DryMG(), NS())
+txt2 = buf.getvalue()
+ok('два товара в ОДНОЙ группе (сухой прогон): код 0, одна группа trial-supratex-m, два задания — по товару, у каждого своя форма из каталога (clean2 / clean)',
+   rc == 0 and txt2.count('  задание ') == 2 and 'задание a_1-1024-42-0-%s' % 'supra' in txt2 and 'задание b_2-1024-42-0-%s' % 'supra' in txt2 and txt2.count('группа trial-supratex-m ') == 1
+   and 'a_1-1024-42-0.clean2.glb' in txt2 and 'b_2-1024-42-0.clean.glb' in txt2 and 'заданий 2' in txt2, txt2[:300])
 ok('результаты — в СВОЕЙ папке модели (…/mesh-models-1118/supratex), не в общей `trellis/`', ns.out == T.default_out('supratex') and os.path.basename(ns.out) == 'supratex' and os.path.basename(ns.out) != 'trellis', ns.out)
 ns2 = NS(**{**base, 'model': 'trellis2', 'texture_mesh': None, 'image': 'ghcr.io/x/y:t', 'cap': 0.35, 'cpu': 8, 'mem_mb': None, 'card': None, 'donor': 'd', 'force_out': False, 'tex_align': 'fit'})
 buf = io.StringIO()

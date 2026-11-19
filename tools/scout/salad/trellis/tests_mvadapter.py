@@ -319,6 +319,16 @@ rc = T.run(NS(**{**base, 'model': 'trellis2', 'worker_env': ['MVTEX_OFFLOAD=0'],
 ok('--worker-env для другой модели: отказ до Salad', rc == 2)
 
 
+json.dump({k: {'input_png_sha256': 'x'} for k in ('a:1', 'b:2', 'c:3')}, open(os.path.join(tp, 'inputs.json'), 'w'))      # c:3 есть среди входов, но формы у него нет
+cat = tempfile.mkdtemp(prefix='shp-')                         # каталог форм: у a:1 есть clean2, у b:2 только clean, у c:3 ничего (T-20261119-06/5/2)
+for fn_ in ('a_1-1024-42-0.clean2.glb', 'b_2-1024-42-0.clean.glb'):
+    open(os.path.join(cat, fn_), 'wb').write(b'glTF')
+rc = T.run(NS(**{**base, 'skus': ['a:1', 'b:2', 'c:3'], 'texture_mesh': None, 'shape_dir': cat}), NoTouchMG(), NoTouchMG())
+ok('несколько товаров из каталога форм, но у c:3 формы нет — отказ (код 2) ДО обращения к Salad: группа не создаётся, денег 0', rc == 2)
+rc = T.run(NS(**{**base, 'skus': ['a:1', 'b:2'], 'texture_mesh': shape_path, 'shape_dir': cat}), NoTouchMG(), NoTouchMG())
+ok('и --texture-mesh, и --shape-dir сразу — отказ до Salad (форма задаётся одним способом)', rc == 2)
+
+
 class DryMG:
     def env_from_file(self):
         pass
@@ -334,6 +344,14 @@ with redirect_stdout(buf):
 txt = buf.getvalue()
 ok('сухой прогон: код 0, задание `<ключ>-1024-42-0-mvtex`, группа trial-mvadapter-i2tex-…, потолок $0,35; секретов в печати нет', rc == 0 and 'задание a_1-1024-42-0-mvtex' in txt and 'trial-mvadapter-i2tex-t' in txt and 'потолок $ 0.35' in txt
    and 'hf_SECRET' not in txt and 'PW' not in txt and '<скрыто>' in txt, txt[:300])
+ns_m = NS(**{**ns.__dict__, 'skus': ['a:1', 'b:2'], 'texture_mesh': None, 'shape_dir': cat, 'out': None, 'suffix': 'm'})
+buf = io.StringIO()
+with redirect_stdout(buf):
+    rc = T.run(ns_m, DryMG(), NS())
+txt2 = buf.getvalue()
+ok('два товара в ОДНОЙ группе (сухой прогон): код 0, одна группа trial-mvadapter-i2tex-m, два задания — по товару, у каждого своя форма из каталога (clean2 / clean)',
+   rc == 0 and txt2.count('  задание ') == 2 and 'задание a_1-1024-42-0-%s' % 'mvtex' in txt2 and 'задание b_2-1024-42-0-%s' % 'mvtex' in txt2 and txt2.count('группа trial-mvadapter-i2tex-m ') == 1
+   and 'a_1-1024-42-0.clean2.glb' in txt2 and 'b_2-1024-42-0.clean.glb' in txt2 and 'заданий 2' in txt2, txt2[:300])
 ok('результаты — в СВОЕЙ папке модели (…/mesh-models-1118/mvadapter-i2tex), не в общей `trellis/`', ns.out == T.default_out('mvadapter-i2tex') and os.path.basename(ns.out) == 'mvadapter-i2tex' and os.path.basename(ns.out) != 'trellis', ns.out)
 ok('чужой результат в папке — отказ (owner_conflicts не ослаблен): файл от другой модели под тем же именем', T.owner_conflicts(tp, ['x'], 'mvadapter-i2tex') == [] and (lambda: (open(os.path.join(tp, 'x-1024-42-0-mvtex.model'), 'w').write('trellis2'), T.owner_conflicts(tp, ['x-1024-42-0-mvtex'], 'mvadapter-i2tex'))[1])() == ['x-1024-42-0-mvtex'])
 
