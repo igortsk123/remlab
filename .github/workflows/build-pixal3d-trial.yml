@@ -59,8 +59,15 @@ jobs:
 
       - name: Сборка (обычный docker build — без второго кэша на диске)
         run: |
-          docker build -f "$CTX/Dockerfile.pixal3d" -t "$PRIMARY" "$CTX" 2>&1 | tee build.log | tail -60
-          test "${PIPESTATUS[0]}" -eq 0
+          set +e
+          docker build --progress=plain -f "$CTX/Dockerfile.pixal3d" -t "$PRIMARY" "$CTX" > build.log 2>&1
+          rc=$?
+          tail -40 build.log
+          if [ "$rc" -ne 0 ]; then
+            # логи Actions без токена не читаются — хвост уходит в аннотации (публичный API check-runs) и в сводку шага
+            python3 "$CTX/ci_annotate.py" build.log 96 12
+            exit "$rc"
+          fi
           SIZE=$(docker image inspect "$PRIMARY" --format '{{.Size}}')
           echo "размер образа (распакованный): $(python3 -c "print(round($SIZE/2**30,2))") ГБ"
           df -h /
