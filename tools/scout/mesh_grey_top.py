@@ -212,7 +212,7 @@ def face_roles(V: np.ndarray, F: np.ndarray, R: dict) -> np.ndarray:
 
 def _demote_grey_goods(out: list, R: dict) -> None:
     """gt-v3: кандидат (не отказ) на поверхности, которая НЕ похожа на пустой фон сети, — настоящий серый товар (диван, кровать, кашпо):
-    для верха нужен чистый фон ≥ cand_top_pure_min ИЛИ контраст с остальным изделием ≥ cand_top_edge_min; для боковых ролей — чистый фон ≥ cand_side_pure_min.
+    для верха нужен чистый фон ≥ cand_top_pure_min ИЛИ контраст с остальным изделием ≥ cand_top_edge_min; для боковых ролей — чистый фон ≥ cand_side_pure_min И (MR 0,5/0,5 ≥ cand_side_mr_min ИЛИ контраст ≥ cand_side_edge_min): бок серой ткани — без этих признаков не пустота (разметка глазами T-04/16/3: 12 серых товаров из 41 → 5 снято).
     Иначе вердикт → ok, `demoted`=True (было 3 из 6 ложных на контроле; настоящие серые крышки — чистое окно 124–134 — остаются)."""
     for x in out:
         if x['verdict'] != 'candidate':
@@ -221,7 +221,7 @@ def _demote_grey_goods(out: list, R: dict) -> None:
         if x['role'] == 'верх':
             keep = x['pure_share'] >= R['cand_top_pure_min'] or (ec is not None and ec >= R['cand_top_edge_min'])
         else:
-            keep = x['pure_share'] >= R['cand_side_pure_min']
+            keep = x['pure_share'] >= R['cand_side_pure_min'] and ((x.get('mr_share') or 0) >= R['cand_side_mr_min'] or (ec is not None and ec >= R['cand_side_edge_min']))
         if not keep:
             x['verdict'], x['demoted'] = 'ok', True
 
@@ -510,10 +510,13 @@ def _selftest() -> int:
              {'role': 'вертикаль-z', 'verdict': 'candidate', 'pure_share': 0.17, 'edge_contrast': 69.0},
              {'role': 'верх', 'verdict': 'candidate', 'pure_share': 0.17, 'edge_contrast': 40.0},
              {'role': 'верх', 'verdict': 'candidate', 'pure_share': 0.9, 'edge_contrast': 1.0},
-             {'role': 'верх', 'verdict': 'reject', 'pure_share': 0.17, 'edge_contrast': 1.0}]
+             {'role': 'верх', 'verdict': 'reject', 'pure_share': 0.17, 'edge_contrast': 1.0},
+             {'role': 'сиденье', 'verdict': 'candidate', 'pure_share': 0.9, 'edge_contrast': 2.0, 'mr_share': 0.0},
+             {'role': 'сиденье', 'verdict': 'candidate', 'pure_share': 0.9, 'edge_contrast': 40.0, 'mr_share': 0.0},
+             {'role': 'сиденье', 'verdict': 'candidate', 'pure_share': 0.9, 'edge_contrast': 2.0, 'mr_share': 1.0}]
     _demote_grey_goods(_rows, R)
     ok('gt-v3: серый товар (верх без контраста и чистого фона; бок с размытым серым) → ok; контраст/чистый фон/reject остаются',
-       [x['verdict'] for x in _rows] == ['ok', 'ok', 'candidate', 'candidate', 'reject'])
+       [x['verdict'] for x in _rows] == ['ok', 'ok', 'candidate', 'candidate', 'reject', 'ok', 'candidate', 'candidate'])
     ok('gt-v3: серый 114 с MR 0,5/0,5 и плоский → candidate (mr-flat), с настоящим MR → ok',
        analyze_arrays(V, F, UV, _atlas((114, 114, 114), (150, 100, 40)), mrg, R)['verdict'] == 'candidate'
        and analyze_arrays(V, F, UV, _atlas((114, 114, 114), (150, 100, 40)), mro, R)['verdict'] == 'ok')
