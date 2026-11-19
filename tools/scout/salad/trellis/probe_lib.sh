@@ -73,7 +73,7 @@ probe_accept() {
     mkdir -p "$d"
     if [ ! -f "$ours" ]; then echo "[$s] результата нет: $ours (задание упало? смотри summary-*.json в $OUT)" >&2; fails=$((fails + 1)); continue; fi
     n="$(basename "$ours" .glb)"
-    tools/ops/heavy-slot.sh "p06-$n" --cores 4 --min-gb 3 --timeout 3000 -- "$blender" -b -P "$TR/render_stand.py" -- \
+    tools/ops/heavy-slot.sh "p06-$n" --cores "${ACCEPT_CORES:-4}" --min-gb 3 --timeout 3000 -- "$blender" -b -P "$TR/render_stand.py" -- \
       --glb "$ours" --out "$d/frames/$n" --samples 32 --modes tex,clay --only az000,az045 >> "$d/render.log" 2>&1
     cols=()
     [ -n "${REF[$s]}" ] && cols+=("гибрид р.3=${REF[$s]}")
