@@ -463,6 +463,8 @@ def build_row(model: str, c: dict, spec: dict, meta: dict, cache_dir: str, a) ->
     suffix = spec.get('suffix')
     found = locate(spec['dir'], key, suffix)
     job = (meta['jobs'].get(key + suffix) if suffix else None) or meta['jobs'].get(key + '-1024-42-0') or meta['jobs'].get(sku) or {}
+    if found and spec.get('sum_model') and job.get('status') != 'done':
+        found = None                                                 # у этой модели задания «готов» нет: файл в общей папке — чужой
     if found and spec.get('sum_model') and job.get('status') == 'done':
         raw_own = owned(found['raw'], job, 'raw') is not False
         clean_own = bool(found['clean']) and owned(found['clean'], job, 'clean') is not False
