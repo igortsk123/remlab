@@ -256,7 +256,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
         t_start = clock()
         code, _ = MG.api(f'/{name}/start', 'POST')
         say('start HTTP', code)
-        gw, ready_at, ever_ok, last_gb, last_gb_t, last_say = None, None, False, None, None, 0.0
+        gw, ready_at, ever_ok, last_gb, last_gb_t, last_say, minute_say = None, None, False, None, None, 0.0, 0.0
         pending, fail_streak = list(runs), 0
 
         def over_limits(t: float) -> str | None:
@@ -280,6 +280,10 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
                 summary['to_first_running_s'] = round(t - t_start, 1)
                 say(f'первый running: t+{t - t_start:.0f} с от /start')
             why = over_limits(t)
+            if t - minute_say >= 60:                  # строка раз в минуту (просьба директора 19.11): состояние группы и экземпляра, пока воркер ещё не отвечает
+                minute_say = t
+                i0 = ins[0] if ins else {}
+                say(f'мин: группа {st} · экземпляр {i0.get("state")} started={i0.get("started")} ready={i0.get("ready")} cpu {round(i0.get("cpu_percent") or 0)}% · ≈${summary.get("cost_usd_est", 0):.2f}')
             if why:
                 say(f'!! стоп по причине «{why}» (≈${summary.get("cost_usd_est")}, потолок ${a.cap}) — гашу')
                 summary['stopped_by'] = why
@@ -311,7 +315,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
                         say(f'!! на диске осталось {free} ГиБ < {a.disk_min_gb} — гашу')
                         summary['stopped_by'] = 'disk_low'
                         break
-                    if t - last_say >= 600 and not h.get('warm'):          # строка хода каждые 10 минут
+                    if t - last_say >= 60 and not h.get('warm'):           # прогрев — строка раз в минуту (в бою ход прогонов — каждые 10 минут)
                         last_say = t
                         say(progress_line(f'прогрев, фаза {h.get("phase")}', summary['cost_usd_est'], a.cap, f'· кэш весов {gb} ГБ, диск {h.get("disk_gb")}'))
                     if h.get('phase') == 'weights' and last_gb_t is not None and t - last_gb_t > a.stall_min * 60:
@@ -406,7 +410,7 @@ def main() -> int:
     ap.add_argument('--cap', type=float, default=4.0, help='потолок денег на ВЕСЬ замер, $ (владелец TG 2014–2015: $4)')
     ap.add_argument('--max-min', type=int, default=150)
     ap.add_argument('--ready-min', type=int, default=60)
-    ap.add_argument('--health-min', type=int, default=20)
+    ap.add_argument('--health-min', type=int, default=8, help='минут после running без ответа /health → стоп (воркер открывает порт за секунды; 19.11 пустая нода на python:slim жгла деньги)')
     ap.add_argument('--disk-min-gb', type=float, default=3.0)
     ap.add_argument('--stall-min', type=int, default=10)
     ap.add_argument('--job-timeout', type=int, default=40, help='минут на один прогон Blender (8 видов + запекание + экспорт)')
