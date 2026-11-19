@@ -104,12 +104,12 @@ def build_jobs(skus: list[str], plan: list[dict], inputs: dict, seed: int = 42) 
     return jobs
 
 
-def paint_jobs(skus: list[str], variants: str, shape_dir: str | None, inputs: dict, seed: int = 42) -> list[dict]:
+def paint_jobs(skus: list[str], variants: str, shape_dir: str | None, inputs: dict, seed: int = 42, shape_suffix: str = 'clean') -> list[dict]:
     """Задания гибрида (только `--model hunyuan21`): форма — `<shape_dir>/<sku_с_«_»>-1024-<seed>-0.clean.glb` (очищенный GLB TRELLIS.2), покраска боевая; на товар — по заданию
     на вариант `remesh` (апстрим по умолчанию: упрощение и перестройка сетки) и `noremesh` (форма как есть, `use_remesh=False`)."""
     out = []
     for sku in skus or []:
-        sp = os.path.join(shape_dir or '', f'{sku.replace(":", "_")}-1024-{seed}-0.clean.glb')
+        sp = os.path.join(shape_dir or '', f'{sku.replace(":", "_")}-1024-{seed}-0.{shape_suffix}.glb')
         if not os.path.exists(sp):
             raise ValueError(f'{sku}: нет формы {sp}')
         if sku not in inputs or 'input_png_sha256' not in inputs[sku]:
@@ -145,6 +145,21 @@ def expand_align_jobs(jobs: list[dict], variants: list[dict]) -> list[dict]:
     """pixal3d-tex: по заданию на каждый вариант; вариантов несколько — id получает суффикс варианта (`…-fit`, `…-fit-g3`), один — id как был."""
     return [dict(j, job_id=f'{j["job_id"]}-{v["tok"].replace("+", "-")}' if len(variants) > 1 else j['job_id'], align=v['align'], tex_guidance=v['guidance'], shape_smooth=v['smooth'])
             for j in jobs for v in variants]
+
+
+def pull_forecast(progress: float | None, elapsed_s: float) -> float | None:
+    """Сколько секунд всего займёт докачка образа на этой ноде (по скорости с момента, как увидели `downloading`): None — прогресса ещё нет."""
+    if not progress or progress <= 0 or elapsed_s <= 0:
+        return None
+    return elapsed_s / min(float(progress), 1.0)
+
+
+def pull_is_slow(progress: float | None, elapsed_s: float, check_s: float, limit_s: float) -> bool:
+    """Сторож медленной докачки: прошло ≥ check_s, а прогноз докачки > limit_s (или прогресса нет вовсе) — ноду стоит сменить (hy1 19.11: 16 % за 27 мин)."""
+    if elapsed_s < check_s:
+        return False
+    fc = pull_forecast(progress, elapsed_s)
+    return fc is None or fc > limit_s
 
 
 def gpu_class_ids() -> list[str]:
@@ -269,7 +284,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     inputs = json.load(open(os.path.join(a.inputs, 'inputs.json'), encoding='utf-8'))
     skus = a.skus or [k for k, v in inputs.items() if isinstance(v, dict) and v.get('input_png_sha256')]      # без --skus — весь набор из inputs.json (30 товаров)
     jobs = build_jobs(skus, parse_plan(a.plan), inputs, a.seed) if skus and not getattr(a, 'no_control', False) else []
-    pj = paint_jobs(getattr(a, 'paint_skus', []), getattr(a, 'paint_variants', 'noremesh,remesh'), getattr(a, 'paint_shape_dir', None), inputs, a.seed)
+    pj = paint_jobs(getattr(a, 'paint_skus', []), getattr(a, 'paint_variants', 'noremesh,remesh'), getattr(a, 'paint_shape_dir', None), inputs, a.seed, getattr(a, 'paint_shape_suffix', 'clean'))
     k = max(0, int(getattr(a, 'paint_after', 0)))
     jobs = jobs[:k] + pj + jobs[k:]                       # гибрид «форма TRELLIS + покраска Hunyuan» — в той же группе, после первых `--paint-after` контрольных
     name = f'trial-{a.model}-{a.suffix}'
@@ -381,6 +396,8 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         ever_ok, last_gb, last_gb_t, last_say = False, None, None, 0.0           # видимость воркера: был ли хоть один ответ /health, рост докачки весов
         pending = list(jobs)
         inflight = None
+        pull_seen, rerolls = {}, 0                         # машина → (когда впервые увидели докачку образа); число смен ноды
+        summary['nodes'] = []                              # скорость докачки образа по каждой ноде (журнал T-91/2: 150 мин «без машины» были медленной докачкой)
         while True:
             t = clock()
             _, st, cnt = BR.group_state(name)
@@ -390,6 +407,36 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                 summary['to_first_running_s'] = round(t - t_start, 1)
                 say(f'первый running: t+{t - t_start:.0f} с от /start')
             running_s = (t - run_since) if run_since is not None else 0.0
+            if run_since is None and getattr(a, 'pull_rerolls', 0) >= 0:
+                slow = None
+                for i in ins:
+                    if i.get('state') != 'downloading':
+                        continue
+                    mid = str(i.get('machine_id') or i.get('id'))
+                    t0 = pull_seen.setdefault(mid, t)
+                    pr = i.get('pulling_progress')
+                    el = t - t0
+                    if el >= getattr(a, 'pull_check_min', 8) * 60 and not any(n['machine'] == mid[:8] for n in summary['nodes']):
+                        fc = pull_forecast(pr, el)
+                        summary['nodes'].append({'machine': mid[:8], 'progress': pr, 'elapsed_s': round(el), 'pct_per_min': None if not pr else round(pr * 100 / (el / 60), 2),
+                                                 'forecast_min': None if fc is None else round(fc / 60)})
+                        say(f'нода {mid[:8]}: докачка образа {0 if pr is None else pr:.0%} за {el / 60:.0f} мин' + ('' if fc is None else f', прогноз {fc / 60:.0f} мин всего'))
+                    if pull_is_slow(pr, el, getattr(a, 'pull_check_min', 8) * 60, getattr(a, 'pull_limit_min', 30) * 60):
+                        slow = mid
+                if slow is not None and rerolls < getattr(a, 'pull_rerolls', 3):
+                    rerolls += 1
+                    for n in summary['nodes']:
+                        if n['machine'] == slow[:8]:
+                            n['verdict'] = 'медленная, сменена'
+                    say(f'!! нода {slow[:8]}: докачка образа медленная — меняю ноду (попытка {rerolls} из {getattr(a, "pull_rerolls", 3)}; ожидание не оплачивается)')
+                    if not BR.stop_and_verify(name):
+                        summary['stopped_by'] = 'reroll_stop_failed'
+                        break
+                    code, _ = MG.api(f'/{name}/start', 'POST')
+                    say('start (новая нода) HTTP', code)
+                    pull_seen.clear()
+                    sleep(10)
+                    continue
             cost = cost_usd(running_s, price)
             summary['cost_usd_est'] = round(cost, 3)
             if cost >= a.cap:
@@ -527,6 +574,9 @@ def main() -> int:
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--decimation', type=int, default=500000)
     ap.add_argument('--texture', type=int, default=2048)
+    ap.add_argument('--pull-check-min', type=int, default=8, help='сторож докачки образа: через сколько минут после начала скачивания на ноде оценивать скорость')
+    ap.add_argument('--pull-limit-min', type=int, default=30, help='сторож докачки: прогноз полной докачки дольше этого (мин) — ноду меняем')
+    ap.add_argument('--pull-rerolls', type=int, default=3, help='сколько раз менять ноду (стоп + старт группы) при медленной докачке; 0 — не менять')
     ap.add_argument('--also-cards', default='', help='запасные классы карт через запятую (например "RTX 3090 (24 GB),RTX 4080 (16 GB)"): группа берёт любую; деньги — по самому дорогому')
     ap.add_argument('--card', default=CARD['class_name'], help='класс карты по полному имени ("RTX 4060 Ti (16 GB)" для localmesh)')
     ap.add_argument('--detail', default='high', choices=['draft', 'standard', 'high', 'max'], help='localmesh: ярус качества (high = форма 1024, 16 шагов, 250 тыс. граней)')
@@ -545,6 +595,7 @@ def main() -> int:
     ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))
     ap.add_argument('--paint-skus', nargs='*', default=[], help='hunyuan21: товары для гибрида (форма TRELLIS из --paint-shape-dir + покраска Hunyuan)')
     ap.add_argument('--paint-shape-dir', default=os.path.expanduser('~/remlab-logs/mesh-models-1118/trellis'))
+    ap.add_argument('--paint-shape-suffix', default='clean', help='окончание файла формы: <ключ>-1024-42-0.<суффикс>.glb (clean — старая очистка, clean2 — переочистка правилом E)')
     ap.add_argument('--paint-variants', default='noremesh,remesh')
     ap.add_argument('--paint-after', type=int, default=0, help='после скольких контрольных заданий ставить гибрид (1 — сперва один контрольный товар)')
     ap.add_argument('--machine-wait-min', type=int, default=60, help='сколько минут от /start ждать running (скачивание образа ≈ 30 ГБ на медленной машине 18.11 шло дольше часа; ожидание не оплачивается)')
