@@ -21,7 +21,7 @@
   GET  /job/<id>      состояние: queued|running|done|failed + замеры (секунды по стадиям, пик VRAM, треугольники, карты, МБ) или трассировка
   GET  /glb/<id>      байты `model.glb`
 
-Бэкенд модели — по `MODEL` (`trellis2` | `pixal3d` | `pixal3d-tex` (краска Pixal3D по готовой форме) | `hunyuan21`); `MODEL=fake` — для теста без видеокарты (`tests_trellis_trial.py`). Токена Hugging Face в логи не пишем.
+Бэкенд модели — по `MODEL` (`trellis2` | `pixal3d` | `pixal3d-tex` (краска Pixal3D по готовой форме) | `mvadapter-i2tex` (краска MV-Adapter по готовой форме) | `hunyuan21`); `MODEL=fake` — для теста без видеокарты (`tests_trellis_trial.py`). Токена Hugging Face в логи не пишем.
 """
 from __future__ import annotations
 
@@ -1044,8 +1044,340 @@ class LocalMeshBackend:
                 'faces': res.faces, 'notes': res.notes[:12], 'engine_duration_s': round(res.duration_s, 1)}
 
 
+# ——— mvadapter-i2tex: краска ГОТОВОЙ формы по MV-Adapter (T-20261119-06/2) ———
+# Источник — github.com/huanngzh/MV-Adapter, коммит 4277e00 (source: external:github; код Apache-2.0, веса huanngzh/mv-adapter Apache-2.0, SDXL base — OpenRAIL++-M; nvdiffrast — некоммерческий).
+# Что делает апстрим (`scripts/texture_i2tex.py`): 1) `run_pipeline` (scripts/inference_ig2mv_sdxl.py:122) рисует с формы карты позиций и нормалей в 6 видах 768² (ортографическая камера ±0,55,
+# расстояние 1,8, подъём 0/0/0/0/+89,99/−89,99°, поворот [0,90,180,270,180,180]−90°) и SDXL с адаптером даёт 6 цветных видов с опорой на фото (50 шагов, guidance 3,0);
+# 2) `TexturePipeline.__call__` (mvadapter/pipelines/pipeline_texture.py:136) увеличивает виды RealESRGAN ×2, проецирует их на развёртку 4096² (`CameraProjection`) и достраивает невидимое LaMa по видам.
+# Мы подаём форму из GLB с ГОТОВОЙ развёрткой CuMesh (`uv_unwarp=False`: тяжёлую развёртку UVAtlas на процессоре не зовём — вершины, грани и UV остаются как были).
+MV_ORTHO = 1.1                  # сторона ортографической камеры апстрима (left/right/bottom/top = ±0,55)
+MV_VIEWS = 6
+MV_BASE = 'stabilityai/stable-diffusion-xl-base-1.0'
+MV_VAE = 'madebyollin/sdxl-vae-fp16-fix'
+MV_ADAPTER = 'huanngzh/mv-adapter'
+MV_NEG = 'watermark, ugly, deformed, noisy, blurry, low contrast'
+MV_AZ = [x - 90 for x in [0, 90, 180, 270, 180, 180]]          # как в `scripts/texture_i2tex.py:118`; `TexturePipeline` вычитает ещё 90° и сама поворачивает форму (front_x_to_y) — вместе кадр тот же, что у `run_pipeline`
+
+
+def mv_norm_mask(m, n: int = FIT_N, fill: float = 0.9):
+    """Маска → кадр n×n так, как апстрим готовит фото (`preprocess_image`, inference_ig2mv_sdxl.py:91): рамка по маске, длинная сторона = fill·n, по центру. Нужна, чтобы сравнивать силуэты
+    формы и фото независимо от масштаба и сдвига. Пустая маска — ValueError."""
+    import numpy as np
+    from PIL import Image
+    m = np.asarray(m)
+    ys, xs = np.nonzero(m)
+    if ys.size == 0:
+        raise ValueError('пустая маска: на картинке или в проекции формы нет предмета')
+    crop = (m[ys.min():ys.max() + 1, xs.min():xs.max() + 1] > 0).astype(np.uint8) * 255
+    h, w = crop.shape
+    k = fill * n / max(h, w)
+    nh, nw = max(1, int(round(h * k))), max(1, int(round(w * k)))
+    im = np.asarray(Image.fromarray(crop).resize((nw, nh), Image.Resampling.BILINEAR)) > 127
+    out = np.zeros((n, n), dtype=bool)
+    y0, x0 = (n - nh) // 2, (n - nw) // 2
+    out[y0:y0 + nh, x0:x0 + nw] = im
+    return out
+
+
+def mv_photo_mask(rgba, n: int = FIT_N):
+    """Силуэт фото как у апстрима: альфа > 0 (inference_ig2mv_sdxl.py:93), потом `mv_norm_mask`."""
+    import numpy as np
+    a = np.asarray(rgba.convert('RGBA').getchannel('A')) > 0
+    return mv_norm_mask(a, n)
+
+
+def mv_ortho_uv(p):
+    """Куда ортографическая камера вида 0 (азимут −90°: смотрит на сторону +Z формы, вверх +Y, вправо +X; ±0,55) кладёт точки куба; кадр [0, 1]². Вывод: `get_orthogonal_camera` апстрима,
+    `load_mesh(front_x_to_y=False)` — у `run_pipeline` форма идёт без поворота кадра; наш GLB — Y вверх, лицом +Z, то есть вид 0 = «в лоб»."""
+    import numpy as np
+    p = np.asarray(p, dtype=np.float64)
+    return 0.5 + p[:, 0] / MV_ORTHO, 0.5 - p[:, 1] / MV_ORTHO
+
+
+def mv_fit_yaw(verts, faces, rgba, n: int = FIT_N, force=None) -> dict:
+    """Какой поворот формы вокруг вертикали (0/90/180/270°) ставит её «лицом» к виду 0, как на фото: IoU силуэтов (форма в ортографии и фото после рамки/масштаба апстрима).
+    Ничья — меньший угол. Предупреждение: силуэт вида спереди и сзади — зеркальные, 0° и 180° различаются только несимметричностью предмета — потому есть `force` (`--mv-yaw`)."""
+    A = mv_photo_mask(rgba, n)
+    ious = {}
+    for yaw in YAWS_DEG:
+        p = to_cube(verts, yaw)[0]
+        u, v = mv_ortho_uv(p)
+        ious[str(yaw)] = round(_iou(A, mv_norm_mask(surface_mask(u, v, faces, n), n)), 4)
+    best = max(YAWS_DEG, key=lambda y: (ious[str(y)], -y))
+    if force is not None:
+        if int(force) not in YAWS_DEG:
+            raise ValueError(f'mv_yaw: auto или одно из {YAWS_DEG}, получено {force!r}')
+        yaw = int(force)
+    else:
+        yaw = best
+    return {'yaw_deg': yaw, 'forced': force is not None, 'iou': ious[str(yaw)], 'iou_best': ious[str(best)], 'iou_by_yaw': ious}
+
+
+def mv_write_input_glb(path: str, p, faces, uv) -> None:
+    """Входной GLB для апстрима: форма в кубе (повёрнутая на yaw) + ТА ЖЕ развёртка; текстура-заглушка 4×4 (без материала trimesh не пишет UV). Вершины идут float32 (формат GLB)."""
+    import numpy as np
+    import trimesh
+    from PIL import Image
+    mat = trimesh.visual.material.PBRMaterial(baseColorTexture=Image.new('RGB', (4, 4), (255, 255, 255)))
+    m = trimesh.Trimesh(vertices=np.asarray(p, dtype=np.float64), faces=np.asarray(faces), visual=trimesh.visual.TextureVisuals(uv=np.asarray(uv, dtype=np.float64), material=mat), process=False)
+    m.export(path)
+
+
+def mv_build_final(verts, faces, uv, texture, texture_size: int):
+    """Итог: ИСХОДНЫЕ вершины, грани и развёртка + краска апстрима (его GLB хранит её JPEG 4096², здесь — к `texture_size`, PNG). Свойства материала — как у апстрима (металл 0, шероховатость 0,9)."""
+    import numpy as np
+    import trimesh
+    from PIL import Image
+    tex = texture.convert('RGB')
+    if texture_size and tex.size != (texture_size, texture_size):
+        tex = tex.resize((texture_size, texture_size), Image.Resampling.LANCZOS)
+    mat = trimesh.visual.material.PBRMaterial(baseColorTexture=tex, baseColorFactor=[255, 255, 255, 255], metallicFactor=0.0, roughnessFactor=0.9)
+    return trimesh.Trimesh(vertices=np.asarray(verts, dtype=np.float64), faces=np.asarray(faces), visual=trimesh.visual.TextureVisuals(uv=np.asarray(uv, dtype=np.float64), material=mat), process=False)
+
+
+def mv_stub_modules() -> list:
+    """`mesh_process.py` апстрима на уровне модуля импортирует open3d и pymeshlab (нужны только развёртке UVAtlas, мы её не зовём; `Percentage` — единственное имя, берётся при импорте). Не установлены —
+    ставим пустые заглушки в `sys.modules` (вызов чего-либо из них — ошибка с понятным текстом). Возвращает имена подставленных."""
+    import importlib
+    import types
+    done = []
+    for name in ('open3d', 'pymeshlab'):
+        try:
+            importlib.import_module(name)
+            continue
+        except ImportError:
+            pass
+        mod = types.ModuleType(name)
+
+        def _nope(*_a, _n=name, **_k):
+            raise RuntimeError(f'{_n} в образе нет: нужен только развёртке UVAtlas (uv_unwarp=True), а мы берём готовую развёртку формы')
+
+        def _getattr(attr, _f=_nope):
+            if attr.startswith('__'):
+                raise AttributeError(attr)
+            return _f                                         # `from pymeshlab import Percentage` и т. п. импортируются, вызов — ошибка
+        mod.__getattr__ = _getattr
+        sys.modules[name] = mod
+        done.append(name)
+    return done
+
+
+def mv_texture_on_shape(runner, mesh, image, params: dict, hooks: dict | None = None, work: str | None = None) -> tuple:
+    """Покрасить ГОТОВУЮ форму `mesh` (trimesh, кадр GLB: Y вверх; нужна развёртка UV на каждую вершину) по фото `image` (RGBA, настоящая альфа). `runner` — две стадии апстрима:
+    `views(in_glb, image, params, work) → путь к PNG с 6 видами в ряд` и `unproject(in_glb, views_png, work, uv_size) → путь к GLB с краской`. Возвращает (trimesh: исходные вершины/грани/UV + краска, замеры).
+    Форма не меняется: после апстрима GLB читается обратно, вершины возвращаются из куба и сверяются с входом (`check_shape_unchanged`, допуск 1e-4 диагонали), развёртка — тоже."""
+    import tempfile
+    import numpy as np
+    import trimesh
+    hk = {'sync': lambda: None, 'free': lambda: None, 'mem': lambda name: None, **(hooks or {})}
+    stage: dict = {}
+    t = time.time()
+
+    def lap(name: str) -> None:
+        hk['sync']()
+        nonlocal t
+        stage[name] = round(time.time() - t, 2)
+        hk['free']()
+        hk['mem'](name)
+        t = time.time()
+
+    verts = np.asarray(mesh.vertices, dtype=np.float64)
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    uv = getattr(getattr(mesh, 'visual', None), 'uv', None)
+    if uv is None or len(uv) != len(verts):
+        raise ValueError('у формы нет развёртки (UV на каждую вершину): mvadapter-i2tex использует готовую развёртку из GLB — нужен GLB от TRELLIS.2 (CuMesh), не «сырая» форма')
+    uv = np.asarray(uv, dtype=np.float64)
+    uv_size = int(params['mv_uv_size'] if params.get('mv_uv_size') is not None else 4096)
+    steps = int(params['mv_steps'] if params.get('mv_steps') is not None else 50)
+    if uv_size not in (1024, 2048, 4096) or not 1 <= steps <= 100:
+        raise ValueError('mv_uv_size: 1024/2048/4096, mv_steps: 1..100')
+    texture_size = int(params.get('texture_size', 2048))
+    yaw_param = params.get('mv_yaw')
+    fit = mv_fit_yaw(verts, faces, image, force=None if yaw_param in (None, '', 'auto') else yaw_param)
+    lap('fit_yaw')
+    work = work or tempfile.mkdtemp(prefix='mvtex-', dir=OUT if os.path.isdir(OUT) else None)
+    p, c, s, R = to_cube(verts, fit['yaw_deg'])
+    in_glb = os.path.join(work, 'in.glb')
+    mv_write_input_glb(in_glb, p, faces, uv)
+    lap('write_input')
+    views_png = runner.views(in_glb, image, params, work)
+    lap('views')
+    shaded = runner.unproject(in_glb, views_png, work, uv_size)
+    lap('unproject')
+    back = trimesh.load(shaded, force='mesh', process=False)
+    v_back = from_cube(np.asarray(back.vertices, dtype=np.float64), c, s, R).astype(np.float32).astype(np.float64)       # через float32, как лежит в GLB
+    shape = check_shape_unchanged(verts.astype(np.float32).astype(np.float64), faces, v_back, np.asarray(back.faces))
+    uv_back = getattr(back.visual, 'uv', None)
+    uv_dev = float(np.abs(np.asarray(uv_back, dtype=np.float64) - uv).max()) if uv_back is not None and len(uv_back) == len(uv) else float('inf')
+    if not uv_dev <= 1e-4:
+        raise ShapeChanged(f'развёртка изменилась: наибольшее расхождение UV {uv_dev:.2e} (допуск 1e-4)')
+    tex = getattr(getattr(back.visual, 'material', None), 'baseColorTexture', None)
+    if tex is None:
+        raise RuntimeError('апстрим вернул GLB без текстуры')
+    lap('check_shape')
+    final = mv_build_final(verts, faces, uv, tex, texture_size)
+    lap('build')
+    thumb = None
+    try:
+        import base64
+        from PIL import Image
+        im = Image.open(views_png).convert('RGB')
+        im = im.resize((max(1, im.width * 256 // im.height), 256), Image.Resampling.LANCZOS)
+        buf = io.BytesIO()
+        im.save(buf, format='JPEG', quality=80)
+        thumb = base64.b64encode(buf.getvalue()).decode()
+    except Exception:  # noqa: BLE001 — миниатюра видов нужна для разбора, не для результата
+        thumb = None
+    return final, {'fit': fit, 'shape': shape, 'uv_max_dev': round(uv_dev, 8), 'stage_s': stage, 'mesh_tris': int(len(faces)), 'mesh_verts': int(len(verts)),
+                   'uv_size': uv_size, 'steps': steps, 'texture_size': texture_size, 'tex_in_size': list(tex.size), 'views_jpeg_b64': thumb}
+
+
+class MVRunner:
+    """Две стадии апстрима на настоящих моделях (`MVAdapterTexBackend.load`). `offload`: между стадиями SDXL уходит на процессор (освобождает ≈ 7 ГБ под проекцию на 4096²)."""
+
+    def __init__(self, ig, tex_pipe, mod_cfg, pipe, offload: bool, torch):
+        self.ig, self.tex_pipe, self.mod_cfg, self.pipe, self.offload, self.torch = ig, tex_pipe, mod_cfg, pipe, offload, torch
+
+    def _pipe_to(self, dev: str) -> None:
+        self.pipe.to(dev)
+        self.pipe.cond_encoder.to(dev)           # адаптер не входит в компоненты конвейера (prepare_pipeline двигает его отдельно)
+
+    def views(self, in_glb: str, image, params: dict, work: str) -> str:
+        from PIL import Image
+        if self.offload:
+            self._pipe_to('cuda')
+        try:
+            images, _pos, _nrm, _ref = self.ig.run_pipeline(
+                self.pipe, mesh_path=in_glb, num_views=MV_VIEWS, text=params.get('mv_text') or 'high quality', image=image, height=768, width=768,
+                num_inference_steps=int(params['mv_steps'] if params.get('mv_steps') is not None else 50), guidance_scale=3.0, seed=int(params.get('seed', 42)),
+                reference_conditioning_scale=float(params['mv_ref_scale'] if params.get('mv_ref_scale') is not None else 1.0), negative_prompt=MV_NEG, device='cuda', remove_bg_fn=None)
+        finally:
+            if self.offload:
+                self._pipe_to('cpu')
+        grid = Image.new('RGB', (768 * MV_VIEWS, 768))
+        for i, im in enumerate(images):
+            grid.paste(im.convert('RGB'), (768 * i, 0))
+        path = os.path.join(work, 'mv.png')
+        grid.save(path)
+        return path
+
+    def unproject(self, in_glb: str, views_png: str, work: str, uv_size: int) -> str:
+        out = self.tex_pipe(mesh_path=in_glb, save_dir=work, save_name='mv', uv_unwarp=False, preprocess_mesh=False, uv_size=uv_size, rgb_path=views_png,
+                            rgb_process_config=self.mod_cfg(view_upscale=True, inpaint_mode='view'), camera_azimuth_deg=MV_AZ)
+        return out.shaded_model_save_path
+
+
+class MVAdapterTexBackend:
+    """`mvadapter-i2tex`: форма TRELLIS.2 (готовый GLB, `<job>.mesh.glb`) + краска MV-Adapter по одному фото (6 видов SDXL → проекция на готовую развёртку). Образ — `Dockerfile.mvadapter`
+    (код MV-Adapter в /opt/MV-Adapter, чекпойнты RealESRGAN/LaMa вшиты; веса SDXL fp16 + VAE + mv-adapter докачиваются на старте ≈ 10 ГиБ). Код едет через `command`.
+    Заплатки (ставит `load`, апстрим не правим): nvdiffrast «gl» → «cuda» (в контейнере без EGL/OpenGL), решатель Пуассона «torch-cuda» (JIT-сборка ядра при старте) → «torch-native» (мы его не зовём:
+    poisson_blending=False), заглушки open3d/pymeshlab, `from_pretrained` базовой SDXL — вариант fp16 (иначе качается fp32 ≈ 13 ГБ)."""
+    name = 'mvadapter-i2tex'
+    offload = True                  # MVTEX_OFFLOAD (по умолчанию 1)
+    runner = None
+    _trace: dict = {}
+
+    def load(self) -> dict:
+        os.environ['PYTORCH_CUDA_ALLOC_CONF'] = os.environ.get('MVTEX_ALLOC_CONF', 'expandable_segments:False')      # урок pixal3d-tex (a0346): расширяемые сегменты — путь фатальной ошибки аллокатора
+        self.offload = os.environ.get('MVTEX_OFFLOAD', '1') != '0'
+        mva = os.environ.get('MVADAPTER_DIR', '/opt/MV-Adapter')
+        sys.path.insert(0, mva)
+        STATE['phase'] = 'importing'
+        t_imp = time.time()
+        import torch
+        stubs = mv_stub_modules()
+        from scripts import inference_ig2mv_sdxl as IG                                  # `scripts/__init__.py` есть; первым в sys.path — наш каталог
+        from mvadapter.pipelines.pipeline_mvadapter_i2mv_sdxl import MVAdapterI2MVSDXLPipeline
+        from mvadapter.pipelines.pipeline_texture import ModProcessConfig, TexturePipeline
+        from mvadapter.utils.mesh_utils import blend as MB
+        from mvadapter.utils.mesh_utils import render as MR
+        patches = []
+        _init = MR.NVDiffRastContextWrapper.__init__
+
+        def _init_cuda(self, device, context_type='gl'):                                # RasterizeGLContext в контейнере без дисплея падает; растеризатор CUDA даёт те же карты
+            _init(self, device, 'cuda')
+        MR.NVDiffRastContextWrapper.__init__ = _init_cuda
+        patches.append('nvdiffrast_gl_to_cuda')
+        MB.PBTorchCUDAKernelBackend = MB.PBTorchNativeBackend
+        patches.append('poisson_torch_cuda_to_native')
+        _fp = MVAdapterI2MVSDXLPipeline.from_pretrained.__func__
+
+        def _fp16(cls, *a, **kw):
+            kw.setdefault('variant', 'fp16')
+            kw.setdefault('torch_dtype', torch.float16)
+            kw.setdefault('use_safetensors', True)
+            return _fp(cls, *a, **kw)
+        MVAdapterI2MVSDXLPipeline.from_pretrained = classmethod(_fp16)
+        patches.append('sdxl_fp16_variant')
+        STATE['timings']['import_s'] = round(time.time() - t_imp, 1)
+        STATE['config'] = {'alloc': os.environ['PYTORCH_CUDA_ALLOC_CONF'], 'offload': self.offload, 'patches': patches, 'stubs': stubs,
+                           'debug_env': {k: os.environ.get(k) for k in ('CUDA_LAUNCH_BLOCKING', 'TORCH_SHOW_CPP_STACKTRACES')}}
+        print('[mvtex] конфиг:', json.dumps(STATE['config'], ensure_ascii=False), flush=True)
+        STATE['phase'] = 'weights'
+        t = time.time()
+        pipe = IG.prepare_pipeline(base_model=MV_BASE, vae_model=MV_VAE, unet_model=None, lora_model=None, adapter_path=MV_ADAPTER, scheduler=None, num_views=MV_VIEWS, device='cuda', dtype=torch.float16)
+        t_w = time.time() - t
+        STATE['phase'] = 'to_gpu'
+        t = time.time()
+        tex_pipe = TexturePipeline(upscaler_ckpt_path=os.path.join(mva, 'checkpoints', 'RealESRGAN_x2plus.pth'), inpaint_ckpt_path=os.path.join(mva, 'checkpoints', 'big-lama.pt'), device='cuda')
+        self.runner = MVRunner(IG, tex_pipe, ModProcessConfig, pipe, self.offload, torch)
+        if self.offload:
+            self.runner._pipe_to('cpu')
+        free_gpu()
+        STATE['config']['mem_after_warm'] = gpu_mem()
+        return {'weights_s': round(t_w, 1), 'to_gpu_s': round(time.time() - t, 1), 'mem_after_warm': STATE['config']['mem_after_warm']}
+
+    def generate(self, image, params: dict, path: str) -> dict:
+        if not params.get('texture_mesh'):
+            raise ValueError('mvadapter-i2tex красит готовую форму: нужен --texture-mesh <clean.glb>')
+        import shutil
+        import torch
+        import trimesh
+        trace: dict = {}
+        self._trace = trace
+
+        def mem(name: str) -> None:
+            trace[name] = gpu_mem(reset_peak=True)
+        mem('start')
+        t = time.time()
+        sc = trimesh.load(os.path.join(JOBS_DIR, params['job_id'] + '.mesh.glb'), force='scene')
+        parts = sc.dump()
+        if not parts:
+            raise ValueError('в GLB формы нет мешей')
+        mesh = parts[0] if len(parts) == 1 else trimesh.util.concatenate(parts)
+        load_s = round(time.time() - t, 2)
+        work = os.path.join(OUT, f'_mv_{os.getpid()}_{int(time.time() * 1000)}')
+        os.makedirs(work, exist_ok=True)
+        try:
+            hooks = {'sync': torch.cuda.synchronize, 'free': free_gpu, 'mem': mem}
+            final, m = mv_texture_on_shape(self.runner, mesh, image, params, hooks, work)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        final.export(path)
+        m['stage_s']['load_shape'] = load_s
+        m.update({'mode': 'mvadapter_i2tex', 'peak_vram_gb': max([v.get('peak_allocated_gb', 0.0) for v in trace.values()] or [0.0]),
+                  'peak_reserved_gb': max([v.get('peak_reserved_gb', 0.0) for v in trace.values()] or [0.0]), 'mem': trace, 'config': dict(STATE.get('config') or {})})
+        return m
+
+    def on_error(self, e: BaseException) -> dict:
+        """Разбор упавшего задания (зовёт `run_job`): тип ошибки CUDA, память по стадиям. `fatal` — воркер помечается сломанным (`mark_broken`), драйвер гасит группу. Нехватка памяти (`oom`) — освободить память."""
+        import traceback as tb
+        kind = classify_cuda_error(e)
+        tb.clear_frames(e.__traceback__)
+        diag = {'kind': kind, 'fatal': kind == 'fatal', 'mem': gpu_mem(), 'stage_mem': dict(self._trace), 'config': STATE.get('config')}
+        if kind == 'oom':
+            try:
+                if self.runner is not None and self.runner.offload:
+                    self.runner._pipe_to('cpu')
+            except Exception:  # noqa: BLE001
+                pass
+            free_gpu()
+            diag['mem_after_free'] = gpu_mem()
+        return diag
+
+
 def backend():
-    return {'trellis2': Trellis2Backend, 'pixal3d': Pixal3DBackend, 'pixal3d-tex': PixalTexBackend, 'localmesh': LocalMeshBackend, 'hunyuan21': Hunyuan21Backend, 'fake': FakeBackend}[os.environ.get('MODEL', 'trellis2')]()
+    return {'trellis2': Trellis2Backend, 'pixal3d': Pixal3DBackend, 'pixal3d-tex': PixalTexBackend, 'mvadapter-i2tex': MVAdapterTexBackend, 'localmesh': LocalMeshBackend, 'hunyuan21': Hunyuan21Backend, 'fake': FakeBackend}[os.environ.get('MODEL', 'trellis2')]()
 
 
 def versions() -> dict:

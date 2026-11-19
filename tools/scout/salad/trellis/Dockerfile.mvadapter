@@ -1,0 +1,34 @@
+# ОБРАЗ ПРОБЫ MV-Adapter i2tex (T-20261119-06/2): «готовая форма (GLB) + одно фото → краска» другим способом, чем TRELLIS.2/Pixal3D:
+# SDXL рисует 6 видов формы (по картам позиций и нормалей) с опорой на фото, затем виды проецируются на развёртку 4096² (RealESRGAN ×2 + LaMa по видам).
+# ПОВЕРХ образа TRELLIS.2 с пинами (там уже Python 3.10, torch 2.6/cu124 devel с nvcc, nvdiffrast v0.4.0, trimesh, transformers 4.56.2, opencv-headless, huggingface_hub 0.35.3).
+# Что добавляет: diffusers/peft/accelerate/omegaconf/einops/matplotlib/imageio/jaxtyping/typeguard/spandrel/cvcuda по пинам; код MV-Adapter по закреплённому коммиту;
+# два малых чекпойнта (RealESRGAN x2plus 64 МиБ, big-lama 196 МиБ) — с проверкой sha256.
+# Большие веса (SDXL base fp16 ≈ 6,5 ГиБ, sdxl-vae-fp16-fix 0,3 ГиБ, mv-adapter ≈ 3,4 ГиБ — всего ≈ 10 ГиБ) НЕ в образе: докачиваются на старте в $HF_HOME (воркер).
+# open3d и pymeshlab (в requirements апстрима) НЕ ставим: они нужны только развёртке UVAtlas (`uv_unwarp=True`), а мы берём готовую развёртку из GLB; воркер подставляет заглушки
+# модулей, чтобы `import` в `mesh_process.py` не падал.
+# ЛИЦЕНЗИИ того, что ложится в образ: MV-Adapter — Apache-2.0; веса huanngzh/mv-adapter — Apache-2.0; SDXL base 1.0 — CreativeML OpenRAIL++-M; sdxl-vae-fp16-fix — MIT;
+# RealESRGAN — BSD-3; LaMa (big-lama) — Apache-2.0; spandrel — MIT; diffusers/peft/accelerate — Apache-2.0; cvcuda — лицензия на PyPI не указана (проект Apache-2.0 по репозиторию, не сверено);
+# nvdiffrast и nvdiffrec (уже в базе TRELLIS.2) — Nvidia Source Code License-NC: только исследование и оценка, для БОЕВОГО использования не годятся — для пробы допустимо.
+ARG BASE=ghcr.io/igortsk123/mesh-trellis2-trial@sha256:d7beac21b04951697c3d86788ff580bfaa4f2498f97d822e6d281231b7112ad5
+FROM ${BASE}
+ARG MVADAPTER_COMMIT=4277e0018232bac82bb2c103caf0893cedb711be
+ARG ESRGAN_SHA256=49fafd45f8fd7aa8d31ab2a22d14d91b536c34494a5cfe31eb5d89c2fa266abb
+ARG LAMA_SHA256=344c77bbcb158f17dd143070d1e789f38a66c04202311ae3a258ef66667a9ea9
+
+# пины: diffusers 0.32.2 — эпоха кода MV-Adapter (кастомные процессоры внимания и конвейер SDXL); transformers 4.56.2 и huggingface_hub 0.35.3 остаются из базы (не трогаем)
+# imageio/matplotlib/jaxtyping/typeguard — импортируются на уровне модулей `mvadapter.utils` (saving.py, typing.py), без них `import mvadapter.utils` падает
+RUN python3 -m pip install diffusers==0.32.2 peft==0.14.0 accelerate==1.2.1 omegaconf==2.3.0 einops==0.8.0 matplotlib==3.9.4 imageio==2.36.1 \
+        jaxtyping==0.2.36 typeguard==4.4.1 spandrel==0.4.1 cvcuda_cu12==0.14.0 \
+    && python3 -m pip install -q "huggingface_hub==0.35.3" "transformers==4.56.2"
+
+RUN git clone https://github.com/huanngzh/MV-Adapter.git /opt/MV-Adapter \
+    && cd /opt/MV-Adapter && git checkout ${MVADAPTER_COMMIT} \
+    && mkdir -p checkpoints \
+    && curl -fsSL -o checkpoints/RealESRGAN_x2plus.pth https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth \
+    && curl -fsSL -o checkpoints/big-lama.pt https://github.com/Sanster/models/releases/download/add_big_lama/big-lama.pt \
+    && echo "${ESRGAN_SHA256}  checkpoints/RealESRGAN_x2plus.pth" | sha256sum -c - \
+    && echo "${LAMA_SHA256}  checkpoints/big-lama.pt" | sha256sum -c - \
+    && { echo "MV-Adapter ${MVADAPTER_COMMIT}"; echo "RealESRGAN_x2plus ${ESRGAN_SHA256}"; echo "big-lama ${LAMA_SHA256}"; python3 -m pip freeze; } > /opt/BUILD_INFO_MVADAPTER.txt
+
+COPY worker_trellis.py /app/worker_trellis.py
+ENV MODEL=mvadapter-i2tex MVADAPTER_DIR=/opt/MV-Adapter

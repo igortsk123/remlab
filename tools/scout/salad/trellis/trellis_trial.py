@@ -46,6 +46,9 @@ STARTUP = {'http': {'path': '/health', 'port': PORT, 'scheme': 'http', 'headers'
            'initial_delay_seconds': 10, 'period_seconds': 60, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 20}   # API Salad: failure_threshold ≤ 20 (400 от 18.11) → 20 мин на докачку весов
 NO_FAIL_STREAK = 2
 TEX_ALIGNS = ('fit', 'official')      # pixal3d-tex: как кадрировать фото под форму (`worker_trellis.texture_on_shape`)
+WENV_MODELS = ('pixal3d-tex', 'mvadapter-i2tex')      # модели, которым можно передать окружение воркера (`--worker-env`, `--debug-cuda`)
+MV_YAWS = ('auto', '0', '90', '180', '270')           # mvadapter-i2tex: поворот формы к виду 0 — по силуэту фото или задан руками
+MV_UV_SIZES = (1024, 2048, 4096)
 
 
 def say(*a) -> None:
@@ -128,16 +131,27 @@ DEBUG_CUDA_ENV = {'CUDA_LAUNCH_BLOCKING': '1', 'TORCH_SHOW_CPP_STACKTRACES': '1'
 
 
 def parse_worker_env(items: list[str] | None, debug_cuda: bool = False) -> dict | None:
-    """pixal3d-tex: переменные окружения воркера из `--worker-env ИМЯ=ЗНАЧЕНИЕ` (повтор) и `--debug-cuda`. Допустимы только `PIXTEX_*`, `CUDA_LAUNCH_BLOCKING` и `TORCH_SHOW_CPP_STACKTRACES`
+    """pixal3d-tex и mvadapter-i2tex: переменные окружения воркера из `--worker-env ИМЯ=ЗНАЧЕНИЕ` (повтор) и `--debug-cuda`. Допустимы только `PIXTEX_*`, `MVTEX_*`, `CUDA_LAUNCH_BLOCKING` и `TORCH_SHOW_CPP_STACKTRACES`
     (секреты и чужие переменные через флаг не пройдут). Ошибка в записи → None."""
     import re
     env = dict(DEBUG_CUDA_ENV) if debug_cuda else {}
     for it in items or []:
-        m = re.fullmatch(r'(PIXTEX_[A-Z0-9_]+|CUDA_LAUNCH_BLOCKING|TORCH_SHOW_CPP_STACKTRACES)=([A-Za-z0-9_:,.+\-]*)', it.strip())
+        m = re.fullmatch(r'((?:PIXTEX|MVTEX)_[A-Z0-9_]+|CUDA_LAUNCH_BLOCKING|TORCH_SHOW_CPP_STACKTRACES)=([A-Za-z0-9_:,.+\-]*)', it.strip())
         if not m:
             return None
         env[m.group(1)] = m.group(2)
     return env
+
+
+def mv_options(a) -> dict | None:
+    """mvadapter-i2tex: параметры задания из аргументов (`--mv-yaw`, `--mv-uv-size`, `--mv-steps`, `--mv-ref-scale`); неверное значение → None (отказ ДО группы и денег)."""
+    yaw = str(getattr(a, 'mv_yaw', 'auto') or 'auto')
+    uv = int(getattr(a, 'mv_uv_size', None) if getattr(a, 'mv_uv_size', None) is not None else 4096)
+    steps = int(getattr(a, 'mv_steps', None) if getattr(a, 'mv_steps', None) is not None else 50)
+    ref = float(getattr(a, 'mv_ref_scale', 1.0) if getattr(a, 'mv_ref_scale', None) is not None else 1.0)
+    if yaw not in MV_YAWS or uv not in MV_UV_SIZES or not 1 <= steps <= 100 or not 0 <= ref <= 2:
+        return None
+    return {'mv_yaw': yaw, 'mv_uv_size': uv, 'mv_steps': steps, 'mv_ref_scale': ref}
 
 
 def expand_align_jobs(jobs: list[dict], variants: list[dict]) -> list[dict]:
@@ -192,13 +206,15 @@ def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu:
         if model == 'pixal3d':      # px2 (19.11): CUDA out of memory в декодере текстуры на 24 ГБ — меньше фрагментации и меньше токенов
             env['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
             env['PIXAL3D_MAX_TOKENS'] = '32768'
+    elif donor is None and model == 'mvadapter-i2tex':   # образ MV-Adapter (`Dockerfile.mvadapter`): transformers 4.56.2 и huggingface_hub 0.35.3 уже закреплены в образе — pip на старте не нужен
+        command, env['TRIAL_WORKER_Z'] = worker_command(python='python3')
     elif donor is None and model == 'localmesh':        # образ LocalMesh (py3.12, transformers 5.x, hub 1.x) — свои версии, pip-пины не нужны
         command, env['TRIAL_WORKER_Z'] = worker_command(python='python3')
     elif donor is None:      # TRELLIS.2: образ уже содержит воркер, но актуальный код едет через command — без пересборки образа (python3 в образе, `python` нет)
         pre = (f'for i in 1 2 3; do python3 -m pip install -q "{TRELLIS_PIP_PIN}" && break; echo "[pip] попытка $i не удалась"; sleep 5; done; '
                f'python3 -m pip list 2>/dev/null | grep -i -E "^(transformers|huggingface|tokenizers|safetensors|torch|trimesh|timm|kornia|numpy) " | tr -s " " | tr "\\n" ";"; echo')
         command, env['TRIAL_WORKER_Z'] = worker_command(python='python3', pre=pre)
-    if extra_env and model == 'pixal3d-tex':              # только пробе краски: остальные модели эти переменные не получают
+    if extra_env and model in WENV_MODELS:                # только пробам краски: остальные модели эти переменные не получают
         env.update(extra_env)
     if donor is not None:
         denv = (donor.get('container') or {}).get('environment_variables') or {}
@@ -266,7 +282,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     skus = a.skus or [k for k, v in inputs.items() if isinstance(v, dict) and v.get('input_png_sha256')]      # без --skus — весь набор из inputs.json (30 товаров)
     jobs = build_jobs(skus, parse_plan(a.plan), inputs, a.seed)
     name = f'trial-{a.model}-{a.suffix}'
-    if not a.out:
+    if not getattr(a, 'out', None):
         a.out = default_out(a.model)
     clash = owner_conflicts(a.out, [j['job_id'] for j in jobs], a.model) if not getattr(a, 'force_out', False) else []
     if clash:                                             # отказ ДО группы и денег: чужой результат под тем же именем затёрт не будет
@@ -280,9 +296,18 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         if len(skus) != 1 or not aligns or any(x is None for x in aligns):
             say(f'pixal3d-tex: один товар в --skus (форма одна) и --tex-align из {TEX_ALIGNS} с добавками +g<сила>, +s<проходов> (например fit+g3) — группа не создаётся')
             return 2
+    mvo = {}
+    if a.model == 'mvadapter-i2tex':                      # краска MV-Adapter по готовой форме: форма обязательна, товар один, параметры из списка — иначе отказ ДО группы и денег
+        mvo = mv_options(a)
+        if not getattr(a, 'texture_mesh', None):
+            say('mvadapter-i2tex красит готовую форму: укажите --texture-mesh <clean.glb> — группа не создаётся')
+            return 2
+        if len(skus) != 1 or mvo is None:
+            say(f'mvadapter-i2tex: один товар в --skus (форма одна); --mv-yaw из {MV_YAWS}, --mv-uv-size из {MV_UV_SIZES}, --mv-steps 1..100, --mv-ref-scale 0..2 — группа не создаётся')
+            return 2
     wenv = parse_worker_env(getattr(a, 'worker_env', None), bool(getattr(a, 'debug_cuda', False)))
-    if wenv is None or (wenv and a.model != 'pixal3d-tex'):          # переменные воркера — только пробе краски и только из белого списка; иначе отказ ДО группы и денег
-        say('--worker-env: только ИМЯ=ЗНАЧЕНИЕ из PIXTEX_*, CUDA_LAUNCH_BLOCKING, TORCH_SHOW_CPP_STACKTRACES и только для --model pixal3d-tex; --debug-cuda — тоже только для неё — группа не создаётся')
+    if wenv is None or (wenv and a.model not in WENV_MODELS):          # переменные воркера — только пробам краски и только из белого списка; иначе отказ ДО группы и денег
+        say('--worker-env: только ИМЯ=ЗНАЧЕНИЕ из PIXTEX_*, MVTEX_*, CUDA_LAUNCH_BLOCKING, TORCH_SHOW_CPP_STACKTRACES и только для --model pixal3d-tex / mvadapter-i2tex; --debug-cuda — тоже только для них — группа не создаётся')
         return 2
     MG.env_from_file()
     card = getattr(a, 'card', None) or CARD['class_name']
@@ -312,7 +337,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     if getattr(a, 'texture_mesh', None):                  # контроль перекраски: одна готовая форма (GLB) уходит в задание, id задания с суффиксом -tex
         tex_mesh_b64 = base64.b64encode(open(os.path.expanduser(a.texture_mesh), 'rb').read()).decode()
         for j in jobs:
-            j['job_id'] += '-tex'
+            j['job_id'] += '-mvtex' if a.model == 'mvadapter-i2tex' else '-tex'
     if a.model == 'pixal3d-tex':                          # варианты кадрирования фото (fit — подгонка по силуэту формы, official — как в апстриме): по заданию на вариант, id с суффиксом
         jobs = expand_align_jobs(jobs, aligns)
     for j in jobs:
@@ -449,7 +474,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     j = pending.pop(0)
                     png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.rgba.png'), 'rb').read()
                     pl = {'job_id': j['job_id'], 'image_b64': base64.b64encode(png).decode(), 'pipeline_type': pipeline_type(j['res']), 'seed': j['seed'],
-                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_mesh_b64, 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth')}
+                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_mesh_b64, 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'), **mvo}
                     c, r = gw.call('POST', '/generate', pl, timeout=90)
                     inflight = {**j, 'submitted': t, 'http': c}
                     say('задание', j['job_id'], '→ HTTP', c)
@@ -483,6 +508,10 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                                     open(fp, 'wb').write(glb)
                                     open(fp[:-4] + '.model', 'w', encoding='utf-8').write(a.model)
                                     inflight['glb_path'] = fp
+                                    vb = (r.get('metrics') or {}).get('views_jpeg_b64')          # mvadapter-i2tex: 6 видов SDXL (миниатюра) — рядом с GLB, из сводки убираем
+                                    if vb:
+                                        open(fp[:-4] + '.views.jpg', 'wb').write(base64.b64decode(vb))
+                                        r['metrics']['views_jpeg_b64'] = 'saved:' + os.path.basename(fp[:-4]) + '.views.jpg'
                                     inflight['glb_bytes'] = len(glb)
                                     if (r.get('metrics') or {}).get('has_ai'):          # localmesh: вторая версия — текстура «как нарисовала модель», до проекции фото
                                         ca, glb_ai = gw.call('GET', '/glb/' + inflight['job_id'] + '?v=ai', timeout=300, raw=True)
@@ -526,7 +555,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--model', default='trellis2', choices=['trellis2', 'pixal3d', 'pixal3d-tex', 'localmesh', 'hunyuan21'])
+    ap.add_argument('--model', default='trellis2', choices=['trellis2', 'pixal3d', 'pixal3d-tex', 'mvadapter-i2tex', 'localmesh', 'hunyuan21'])
     ap.add_argument('--donor', default='mesh-q-low-1', help='hunyuan21: боевая группа-образец (образ, ресурсы, env без секретов приёмника)')
     ap.add_argument('--set', default=None, help='JSON набора (роль, габариты); по умолчанию set30.json рядом с папкой inputs')
     ap.add_argument('--fail-streak', type=int, default=NO_FAIL_STREAK, help='сколько упавших заданий подряд гасят замер (контролю Hunyuan — больше: боевые ворота брака)')
@@ -541,6 +570,10 @@ def main() -> int:
     ap.add_argument('--detail', default='high', choices=['draft', 'standard', 'high', 'max'], help='localmesh: ярус качества (high = форма 1024, 16 шагов, 250 тыс. граней)')
     ap.add_argument('--texture-mesh', default=None, help='контроль: готовая форма (GLB) — TRELLIS.2 только перекрасит её по фото (один товар в --skus)')
     ap.add_argument('--tex-align', default='fit', help='pixal3d-tex: варианты через запятую, по заданию на вариант: fit (подгонка фото по силуэту формы), official (как в апстриме Pixal3D); добавки: +g<сила направляющей, по умолчанию 1>, +s<проходов сглаживания формы для латента>; пример: fit,official,fit+g3,fit+s60')
+    ap.add_argument('--mv-yaw', default='auto', help='mvadapter-i2tex: поворот формы к виду 0 (лицом к камере): auto — по силуэту фото, либо 0/90/180/270 (силуэты 0° и 180° зеркальны — различаются только несимметричностью предмета)')
+    ap.add_argument('--mv-uv-size', type=int, default=4096, help='mvadapter-i2tex: размер развёртки при проекции видов (1024/2048/4096; 4096 — как в апстриме, самый тяжёлый по памяти)')
+    ap.add_argument('--mv-steps', type=int, default=50, help='mvadapter-i2tex: шагов SDXL (по умолчанию 50, как в апстриме)')
+    ap.add_argument('--mv-ref-scale', type=float, default=1.0, help='mvadapter-i2tex: сила опоры на фото (reference_conditioning_scale, по умолчанию 1,0)')
     ap.add_argument('--tier', default='high', choices=['batch', 'low', 'medium', 'high'])
     ap.add_argument('--cpu', type=int, default=8)
     ap.add_argument('--mem-mb', type=int, default=32768)
@@ -554,9 +587,9 @@ def main() -> int:
     ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))
     ap.add_argument('--out', default=None, help='папка результатов; по умолчанию — ~/remlab-logs/mesh-models-1118/<модель>/')
     ap.add_argument('--force-out', action='store_true', help='писать, даже если там лежат файлы от другой модели (не нужно)')
-    ap.add_argument('--worker-env', action='append', default=[], metavar='ИМЯ=ЗНАЧЕНИЕ', help='pixal3d-tex: переменная окружения воркера (повторяемая), только PIXTEX_ALLOC_CONF / PIXTEX_LOW_VRAM / PIXTEX_INFERENCE_MODE / PIXTEX_OOM_PROBE512 '
-                    '(PIXTEX_*), CUDA_LAUNCH_BLOCKING, TORCH_SHOW_CPP_STACKTRACES; другим моделям не передаётся')
-    ap.add_argument('--debug-cuda', action='store_true', help='pixal3d-tex: CUDA_LAUNCH_BLOCKING=1 и TORCH_SHOW_CPP_STACKTRACES=1 в группу (ошибка CUDA — на своей строке, со стеком C++; медленнее). По умолчанию выключено')
+    ap.add_argument('--worker-env', action='append', default=[], metavar='ИМЯ=ЗНАЧЕНИЕ', help='pixal3d-tex / mvadapter-i2tex: переменная окружения воркера (повторяемая), только PIXTEX_* (ALLOC_CONF, LOW_VRAM, INFERENCE_MODE, OOM_PROBE512), MVTEX_* (ALLOC_CONF, OFFLOAD), '
+                    'CUDA_LAUNCH_BLOCKING, TORCH_SHOW_CPP_STACKTRACES; другим моделям не передаётся')
+    ap.add_argument('--debug-cuda', action='store_true', help='pixal3d-tex / mvadapter-i2tex: CUDA_LAUNCH_BLOCKING=1 и TORCH_SHOW_CPP_STACKTRACES=1 в группу (ошибка CUDA — на своей строке, со стеком C++; медленнее). По умолчанию выключено')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--stop-only', action='store_true')
     a = ap.parse_args()
