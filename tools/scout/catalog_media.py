@@ -149,7 +149,7 @@ def sync_bank(path: str = 'sets3.json', apply: bool = False) -> dict:
 def sync_sets(sets: list) -> dict:
     """То же в памяти, без записи: кандидат банка (`bank_prepare`, conv-14 шаг 2.2) пишет только `set_identity.write_bank`."""
     stat = {'ok': 0, 'fixed_img': 0, 'fixed_url': 0, 'gone': 0, 'unknown': 0,
-            'fixed_shop': 0, 'fixed_dims': 0, 'dims_unknown': 0}
+            'fixed_shop': 0, 'fixed_dims': 0, 'dims_unknown': 0, 'fixed_name': 0}
     for st in sets:
         for role, it in (st.get('items') or {}).items():
             if not it or not it.get('eid'):
@@ -171,6 +171,13 @@ def sync_sets(sets: list) -> dict:
             if (it.get('url') or '') != (m['url'] or ''):
                 stat['fixed_url'] += 1
                 it['url'] = m['url']
+            # НАЗВАНИЕ — ТОЖЕ ИЗ КАТАЛОГА (T-20261119-07/5 п.1): магазин переименовал товар («Далти» → «Далти-П»), а банк хранил прежнее — копии одного товара
+            # (предмет варианта, лента замен, /demo) расходились. Английское название из банка не берётся — считается при сборке по русскому (`names_en`);
+            # залежавшийся `name_en` у записи банка снимаем, чтобы он не описывал прежнее имя
+            if m.get('name') and it.get('name') != m['name']:
+                stat['fixed_name'] += 1
+                it['name'] = m['name']
+                it.pop('name_en', None)
             # ГАБАРИТЫ И МАГАЗИН — ТОЖЕ ИЗ КАТАЛОГА (26.08, находка владельца: коврик 90 см
             # стоял в банке как 230×160 и с чужим магазином — размеры остались от предыдущего
             # товара слота). Размер решает, влезет ли предмет в комнату: хранить его отдельно
@@ -202,7 +209,7 @@ if __name__ == '__main__':
     import sys
     st = sync_bank(apply='--apply' in sys.argv)
     print(f"медиа банка: сверено {st['ok']}, фото исправлено {st['fixed_img']}, "
-          f"ссылок исправлено {st['fixed_url']}, габаритов {st['fixed_dims']}, "
+          f"ссылок исправлено {st['fixed_url']}, названий {st['fixed_name']}, габаритов {st['fixed_dims']}, "
           f"магазин исправлен {st['fixed_shop']}, размер неизвестен каталогу {st['dims_unknown']}, "
           f"ушли из каталога {st['gone']}, магазин в карантине {st['unknown']}"
           + ('' if '--apply' in sys.argv else '  (сухой прогон, --apply чтобы записать)'))
