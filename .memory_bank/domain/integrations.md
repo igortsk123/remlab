@@ -439,3 +439,10 @@ base 2833 против 85 у `gpt-4o`, то есть в долларах как 
   дешевле всего подходит A100 PCIe 80 ГБ SECURE **$2,09/ч** (community $1,19 — нет в наличии). Прокси `https://<pod>-8000.proxy.runpod.net`
   отвечает 403 на User-Agent Python-urllib — нужен UA как у curl (урок 748). Веса UltraTex (~50 ГБ) качаются ~13 мин при каждом новом поде.
 - Когда звать: метод не влезает в 32 ГБ (кандидат — MVPainter, «от 40 ГБ» у авторов). Сначала проба на 5090 в Salad.
+
+## GitHub — логи CI (19.11.2026, владелец TG 2117/2118)
+- Fine-grained ключ `GITHUB_ACTIONS_READ_TOKEN`: только репо remlab, Actions — Read-only, 90 дней (истекает ≈17.02.2027); значение — `_secrets/ACCESS.md`.
+- `gh` на pakardev вошёл этим ключом: `gh run view <id> -R igortsk123/remlab --log-failed` — строки ошибки упавшего шага.
+- Напоминание владельцу обновить ключ — user-таймер systemd `github-token-remind.timer` (10.02.2027 10:00 Лондон, `tools/scout/alert.sh`).
+- Без ключа видны только аннотации шага (`::error::` в `.github/workflows/ci.yml`, шаг test_mesh_photo) — публичны через API check-runs.
+- Дальше: сигнал «CI красный» сам прикладывает строки ошибки (план задач П1.100).

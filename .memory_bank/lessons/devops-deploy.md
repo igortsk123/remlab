@@ -3,7 +3,7 @@ tier: 2
 topic: lessons-devops-deploy
 scope: Уроки: devops — docker/buildkit, exit-fi, gitignore, деплой, CI, хуки, инструменты dev-машины — читать перед планом по этой теме
 tier1: ../core/lessons.md
-updated: 2026-11-18
+updated: 2026-11-19
 importance: med
 source: manual
 status: stable
@@ -529,3 +529,8 @@ Claude на common, DNS на pakardev (`money_guard` «слепой тик» 26 
 упал на scp (`publish_demo.sh:282`). Нод Salad в этот момент не было. Перед этим sshfs `remlab-mount` на common отдавал EPERM на open (ls/stat
 работали) — PreToolUse-хук `guard_conveyor.py` блокировал ВСЕ Bash; лечится `systemctl --user restart remlab-mount`. Правило: после
 обрыва — первым `money_guard.log` (работают ли ноды), потом толчок всем работникам «продолжи с места», потом повтор оборванной публикации. Дополнение 18.11 19:00: EPERM прошёл сам за ≤3 мин без перезапуска (перегрузка — 8 субагентов у одного работника) — сперва подождать 2–3 мин; субагентов у работника ≤ 2.
+- **757 (19.11, директор)** — CI `scout-orient` красный 37 мин, на DEV зелёный: `test_mesh_photo` через `dimless.categories` молча ходил в живую
+  базу `remlab-devdb` (docker exec), в CI базы нет. Логи без входа не читались (gh 401), трассу дали аннотации шага `::error::` (публичны).
+  Починка c81db00c (подмена `_CATS`), шаг с аннотациями 3c44566b, ключ `gh` только на чтение (`core/access-and-integrations.md`). Правило:
+  воспроизводить CI без docker в PATH; новый python-тест не должен трогать живую базу. Там же: вынос кода в функцию сломал `test_demo_soft`,
+  читавший исходник через `ast` — при переносе кода grep тестов, читающих исходник.

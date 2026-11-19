@@ -556,3 +556,8 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 751 — вопрос владельцу о решённом; OOM → сразу большая карта → `lessons/memory-process.md`
 - 752 — заглушка мягче настоящего Popen скрыла TypeError → `lessons/mesh-salad-pool.md`
 - 753 — чужой код правит read-only массивы; читать Traceback внутри контейнера → `lessons/mesh-salad-pool.md`
+- 754 — Salad молчит: воркер слушал только IPv4 (не «slim-база») → `lessons/mesh-salad-pool.md`
+- 755 — «создано» = 201 + в списке; молчащий драйвер и тест-сирота → `lessons/mesh-salad-pool.md`
+- 756 — дефект формы искать во входе; тросы рвала 4-связность, не fal → `lessons/mesh-salad-pool.md`
+- 757 — тест на DEV ходил в живую базу, CI красный; аннотации шага → `lessons/devops-deploy.md`
+- 758 — подпись кадра со входом; принцип метода — после сверки → `lessons/memory-process.md`
