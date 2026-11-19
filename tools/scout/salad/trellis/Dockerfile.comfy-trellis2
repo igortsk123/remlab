@@ -1,13 +1,15 @@
-# ОБРАЗ ПРОБЫ «официальный TRELLIS.2 в ComfyUI» (core-узлы, без nvdiffrast и без своих CUDA-расширений) — T-20261119-94/2, решение владельца TG 1960.
-# ТОНКИЙ образ: python 3.12 + torch (cu128, нужен для Blackwell sm_120 и Ada sm_89) + ComfyUI v0.46.0 (тег, не ветка) + его requirements.txt БЕЗ веб-интерфейса и шаблонов (headless; воркер запускает ComfyUI с `--front-end-root`).
+# ОБРАЗ ПРОБЫ «официальный TRELLIS.2 в ComfyUI» (core-узлы, без nvdiffrast и без своих CUDA-расширений) — T-20261119-94/2–3, решение владельца TG 1960.
+# База — nvidia/cuda:12.8.1-runtime (как у образов, что на Salad работали: pixal3d-bw/trellis2-bw). Первая сборка на python:3.12-slim (тег trellis2-0460) на Salad НЕ ответила на /health 20 мин (t94h, t94i:
+# экземпляр running, started=false, ready=false, при конфиге группы, совпадающем с рабочей t94d) — гипотеза: GPU-рантайм Salad ждёт переменные/структуру cuda-базы (NVIDIA_VISIBLE_DEVICES и т.п.).
+# ТОНКИЙ образ: python 3.12 (venv) + torch (cu128: Blackwell sm_120 и Ada sm_89) + ComfyUI v0.46.0 (тег, не ветка) + его requirements.txt БЕЗ веб-интерфейса и шаблонов (headless; воркер запускает ComfyUI с `--front-end-root`).
 # Веса НЕ в образе (≈14 ГБ): воркер докачивает их с Hugging Face при старте в /data/comfy-models (публичные репозитории Comfy-Org, токен не нужен) и кладёт ссылками в models/.
 # Код воркера (`worker_comfy.py`) едет в группе переменной TRIAL_WORKER_Z, как у остальных проб, — для правок воркера образ не пересобирается.
-FROM python:3.12-slim-bookworm
+FROM nvidia/cuda:12.8.1-runtime-ubuntu24.04
 ARG COMFY_TAG=v0.46.0
-ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 PYTHONUNBUFFERED=1
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates libgl1 libglib2.0-0 libegl1 libgomp1 curl \
-    && rm -rf /var/lib/apt/lists/*
-RUN pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 PYTHONUNBUFFERED=1 PATH=/opt/venv/bin:$PATH NVIDIA_DRIVER_CAPABILITIES=all
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv python3-pip git ca-certificates libgl1 libglib2.0-0 libegl1 libgomp1 curl \
+    && rm -rf /var/lib/apt/lists/* && python3 --version && python3 -m venv /opt/venv
+RUN pip install --upgrade pip && pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 RUN git clone --depth 1 --branch ${COMFY_TAG} https://github.com/Comfy-Org/ComfyUI.git /opt/ComfyUI \
     && grep -v -E '^(comfyui-frontend-package|comfyui-workflow-templates|comfyui-embedded-docs|torch|torchvision)([=<>~ ]|$)|^#|^$' /opt/ComfyUI/requirements.txt > /tmp/req-headless.txt \
     && pip install -r /tmp/req-headless.txt \

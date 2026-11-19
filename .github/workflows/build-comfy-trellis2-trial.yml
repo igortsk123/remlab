@@ -1,6 +1,6 @@
 # СБОРКА ОБРАЗА ПРОБЫ «ComfyUI v0.46.0 + официальный TRELLIS.2» НА GITHUB ACTIONS (T-20261119-94/2, владелец TG 1960) — не на pakardev (диск).
 # Запускается ТОЛЬКО пушем в ветку `trial/trellis2-comfy` (на main и остальные ветки не срабатывает) или вручную из неё. Деплоя нет; боевые группы тег не трогают.
-# Тонкий образ (python 3.12 + torch cu128 + ComfyUI по тегу), веса докачиваются воркером при старте. Адрес: `ghcr.io/<владелец>/mesh-comfy-trial:trellis2-0460`.
+# Тонкий образ (python 3.12 + torch cu128 + ComfyUI по тегу), веса докачиваются воркером при старте. Адрес: `ghcr.io/<владелец>/mesh-comfy-trial:trellis2-0460-cuda`.
 name: build-comfy-trellis2-trial
 
 on:
@@ -20,8 +20,8 @@ permissions:
   packages: write
 
 env:
-  PRIMARY: ghcr.io/${{ github.repository_owner }}/mesh-comfy-trial:trellis2-0460
-  FALLBACK: ghcr.io/${{ github.repository_owner }}/mesh-comfy-trial:trellis2-0460
+  PRIMARY: ghcr.io/${{ github.repository_owner }}/mesh-comfy-trial:trellis2-0460-cuda
+  FALLBACK: ghcr.io/${{ github.repository_owner }}/mesh-comfy-trial:trellis2-0460-cuda
   CTX: tools/scout/salad/trellis
 
 jobs:
