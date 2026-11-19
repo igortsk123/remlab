@@ -182,12 +182,57 @@ class Hunyuan21Backend:
             P.generate(img, d, seed=0, params={'num_inference_steps': 5, 'octree_resolution': 128})
         return {'weights_s': round(t_w, 1), 'weights_fetch': fw, 'warmup_gen_s': round(time.time() - t, 1)}
 
+    @staticmethod
+    def _paint_only(P, PRE, shape_img, params: dict, path: str) -> dict:
+        """ГИБРИД «чужая форма + покраска Hunyuan Paint 2.1» (T-20261118-91/2): форма приходит в задании (`shape_b64` — GLB, например TRELLIS.2), текстуру с неё
+        снимаем (в покраску идёт голая геометрия), красит боевая стадия `pipeline.generate(..., shape_glb=...)`. Апстрим-покраска по умолчанию делает `use_remesh=True`
+        (упрощает до ~40 тыс. граней и перестраивает сетку — форма меняется); `use_remesh` из задания включает/выключает это явно (по умолчанию в гибриде — False)."""
+        import base64 as b64
+        import inspect
+        import shutil
+        import tempfile
+        import trimesh
+        remesh = bool(params.get('use_remesh', False))
+        work = tempfile.mkdtemp(prefix='hybrid-')
+        try:
+            src = trimesh.load(io_bytes(b64.b64decode(params['shape_b64'])), file_type='glb', force='mesh')
+            v = src.vertices - (src.bounds[0] + src.bounds[1]) / 2.0
+            v = v * (2.0 / float(max(src.extents)))                                                 # как у формы Hunyuan: центр в нуле, наибольший размер 2 (покраска ждёт такой масштаб)
+            bare = trimesh.Trimesh(vertices=v, faces=src.faces, process=False)                      # без UV и материала: покраска строит свою развёртку
+            shape = os.path.join(work, 'in-shape.glb')
+            bare.export(shape)
+            tris_in = int(len(bare.faces))
+            pipe = P.paint_pipeline()
+            cls = type(pipe)
+            if 'use_remesh' not in inspect.signature(cls.__call__).parameters:
+                raise RuntimeError('в Hunyuan3DPaintPipeline.__call__ нет параметра use_remesh — гибрид без него неуправляем')
+            orig = cls.__call__
+
+            def patched(self, *a, **k):
+                k['use_remesh'] = remesh
+                return orig(self, *a, **k)
+            cls.__call__ = patched
+            try:
+                dims = params.get('dims_cm') or []
+                pp = {'_dims': {'w': dims[0], 'd': dims[1], 'h': dims[2], 'dia': None} if len(dims) == 3 else {}}
+                res = P.generate(shape_img, work, seed=int(params.get('seed', 0)), params=pp, paint_image=PRE._paint_crop(shape_img), role=params.get('role'), shape_glb=shape)
+            finally:
+                cls.__call__ = orig
+            shutil.copy(res['glb'], path)
+            g = res.get('gpu') or {}
+            return {'stage_s': res['timings'], 'peak_vram_gb': g.get('paint_gb') or 0, 'gpu_pipeline': g, 'mode': 'paint_only', 'use_remesh': remesh, 'tris_in': tris_in,
+                    'view_guard': res.get('view_guard')}
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
     def generate(self, image, params: dict, path: str) -> dict:
         import shutil
         import tempfile
         import pipeline as P
         import preprocess as PRE
         shape_img = image.convert('RGBA')
+        if params.get('shape_b64'):
+            return self._paint_only(P, PRE, shape_img, params, path)
         dims = params.get('dims_cm') or []
         pp = {'_dims': {'w': dims[0], 'd': dims[1], 'h': dims[2], 'dia': None} if len(dims) == 3 else {},
               '_square_role': params.get('role') in ('кашпо', 'ваза', 'торшер', 'лампа', 'пуф')}
@@ -305,6 +350,11 @@ def versions() -> dict:
     except Exception:  # noqa: BLE001
         pass
     return out
+
+
+def io_bytes(b: bytes):
+    import io
+    return io.BytesIO(b)
 
 
 def atomic_write(path: str, data: bytes) -> None:

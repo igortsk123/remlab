@@ -76,6 +76,23 @@ def build_jobs(skus: list[str], plan: list[dict], inputs: dict, seed: int = 42) 
     return jobs
 
 
+def paint_jobs(skus: list[str], variants: str, shape_dir: str | None, inputs: dict, seed: int = 42) -> list[dict]:
+    """Задания гибрида (только `--model hunyuan21`): форма — `<shape_dir>/<sku_с_«_»>-1024-<seed>-0.clean.glb` (очищенный GLB TRELLIS.2), покраска боевая; на товар — по заданию
+    на вариант `remesh` (апстрим по умолчанию: упрощение и перестройка сетки) и `noremesh` (форма как есть, `use_remesh=False`)."""
+    out = []
+    for sku in skus or []:
+        sp = os.path.join(shape_dir or '', f'{sku.replace(":", "_")}-1024-{seed}-0.clean.glb')
+        if not os.path.exists(sp):
+            raise ValueError(f'{sku}: нет формы {sp}')
+        if sku not in inputs or 'input_png_sha256' not in inputs[sku]:
+            raise ValueError(f'{sku}: нет вырезки в inputs.json')
+        for v in [x.strip() for x in variants.split(',') if x.strip()]:
+            if v not in ('remesh', 'noremesh'):
+                raise ValueError(f'вариант {v}: допустимы remesh, noremesh')
+            out.append({'sku': sku, 'res': 1024, 'rep': 0, 'seed': seed, 'variant': v, 'shape_path': sp, 'job_id': f'{sku.replace(":", "_")}-paint-{v}-{seed}'})
+    return out
+
+
 def price_usd_h(tier: str) -> float | None:
     """Цена 4090 по тарифу из `rules/salad-groups.json` (`prices_by_class_usd_h`); нет — None (деньги без цены не считаем)."""
     try:
@@ -184,7 +201,8 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     """Весь замер. `MG` — `migrate_groups` (API Salad), `BR` — `bench_run` (состояние группы, остановка с проверкой). Подмена обоих + `gw_factory`/`sleep`/`clock`/`hf_head` — тесты."""
     inputs = json.load(open(os.path.join(a.inputs, 'inputs.json'), encoding='utf-8'))
     skus = a.skus or [k for k, v in inputs.items() if isinstance(v, dict) and v.get('input_png_sha256')]      # без --skus — весь набор из inputs.json (30 товаров)
-    jobs = build_jobs(skus, parse_plan(a.plan), inputs, a.seed)
+    jobs = build_jobs(skus, parse_plan(a.plan), inputs, a.seed) if skus and not getattr(a, 'no_control', False) else []
+    jobs = paint_jobs(getattr(a, 'paint_skus', []), getattr(a, 'paint_variants', 'noremesh,remesh'), getattr(a, 'paint_shape_dir', None), inputs, a.seed) + jobs      # гибрид «форма TRELLIS + покраска Hunyuan»: идёт ПЕРВЫМ в той же группе
     name = f'trial-{a.model}-{a.suffix}'
     price = price_usd_h(a.tier)
     MG.env_from_file()
@@ -333,6 +351,9 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.rgba.png'), 'rb').read()
                     pl = {'job_id': j['job_id'], 'image_b64': base64.b64encode(png).decode(), 'pipeline_type': pipeline_type(j['res']), 'seed': j['seed'],
                           'decimation_target': a.decimation, 'texture_size': a.texture, 'role': j.get('role'), 'dims_cm': j.get('dims_cm')}
+                    if j.get('shape_path'):
+                        pl['shape_b64'] = base64.b64encode(open(j['shape_path'], 'rb').read()).decode()
+                        pl['use_remesh'] = j['variant'] == 'remesh'
                     c, r = gw.call('POST', '/generate', pl, timeout=90)
                     inflight = {**j, 'submitted': t, 'http': c}
                     say('задание', j['job_id'], '→ HTTP', c)
@@ -404,6 +425,10 @@ def main() -> int:
     ap.add_argument('--job-timeout', type=int, default=15)
     ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/mesh-models-1118/trellis'))
+    ap.add_argument('--paint-skus', nargs='*', default=[], help='hunyuan21: товары для гибрида (форма TRELLIS из --paint-shape-dir + покраска Hunyuan)')
+    ap.add_argument('--paint-shape-dir', default=os.path.expanduser('~/remlab-logs/mesh-models-1118/trellis'))
+    ap.add_argument('--paint-variants', default='noremesh,remesh')
+    ap.add_argument('--no-control', action='store_true', help='не ставить контрольные задания (--skus), только гибрид')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--stop-only', action='store_true')
     a = ap.parse_args()
