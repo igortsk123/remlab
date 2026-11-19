@@ -317,7 +317,11 @@ jobs:
       - run: python tools/scout/room_mesh_demand.py --selftest && python tools/scout/room_mesh_jobs.py --selftest   # спрос мешей комнат: общий остаток ≤ 500 ₽ на все комнаты и запуски (два запуска подряд), спрос по вариантам витрины (T-20261106-75)
       - run: python tools/scout/tests/test_front_roles.py   # перед меша — свойство роли в данных (front в asset-strategies.json): гостиная и спальня как были, прихожая направленная, резерв спроса тот же (T-20261106-78)
       # вход мешей (T-20261119-96, ADR-0452): одно правило фото (HD, иначе превью; пустая строка — не HD), сторож размера вырезки на пороге и рядом, вердикт photo_too_small, пересчёт хранимого вердикта, спрос из сетов с HD, ни одно место не держит свой coalesce без nullif
-      - run: python tools/scout/tests/test_mesh_photo.py
+      # падение — строки FAIL/ошибки в аннотации (их видно без входа в GitHub; на DEV тест зелёный, в CI красный с 188ce21b)
+      - run: |
+          set +e; python tools/scout/tests/test_mesh_photo.py > mp.log 2>&1; rc=$?; cat mp.log
+          [ $rc -eq 0 ] || grep -E 'FAIL|Error|Traceback|line [0-9]+' mp.log | head -8 | sed 's/^/::error::/'
+          exit $rc
       - run: python tools/scout/mesh_photo_survey.py --selftest   # замер входа мешей: таблица порог → сколько отсечём, оценка по ролям без вырезки (бесплатно: только заголовки файлов)
       - run: python tools/scout/photo_hash.py --selftest   # хеш фото меша: адрес — то же правило mesh_photo (nullif), комнаты, гостиная
       - run: python tools/scout/room_bindings.py --selftest   # привязка товар→меш комнат: готовность (фото, поколение, sha, ориентация, паспорт), семья ссылкой, снимок и таблица (T-20261105-45)
