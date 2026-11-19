@@ -54,9 +54,11 @@ stub('slot_contract', photo_ok=lambda sku, context='heal': True, substitute_ok=l
 stub('proportions', check=lambda role, cand, ctx, sub: (True, None, None))   # proportions.json вне git — в CI его нет
 import heal_policy as _hp  # noqa: E402 — настоящий предохранитель; журнал и БД — заглушки ниже
 JOURNAL = []
+SUSP_REAL = [False]    # heal-тесты держат «всё подозрительно»; contracts-тесты — настоящее правило надёжности причины
 stub('heal_policy', run_allowed=_hp.run_allowed, MAX_PER_SET_PER_DAY=1,
+     contracts_allowed=_hp.contracts_allowed, MAX_CONTRACT_SETS_SHARE=_hp.MAX_CONTRACT_SETS_SHARE,
      record=lambda sid, slot, old, new, reason, source_sha=None: JOURNAL.append((sid, slot, old, new, reason)),
-     journal_reason=lambda r: 'archived', suspicious=lambda reason, mid, trusted: True,
+     journal_reason=lambda r: 'archived', suspicious=lambda reason, mid, trusted: _hp.suspicious(reason, mid, trusted) if SUSP_REAL[0] else True,
      trusted_archive_mids=lambda: set(), quarantined=lambda sku: False, budget_left=lambda sid: True)
 
 import sets_incremental as si  # noqa: E402
@@ -75,6 +77,8 @@ def write_bank(sets):
     for ext in ('.bak', '.bak-contracts', '.bak-pairs'):
         if os.path.exists(bank + ext):
             os.remove(bank + ext)
+    if os.path.exists(os.path.join(tmp, 'contracts-state.json')):   # счёт «прогонов подряд» — на каждый сценарий с нуля
+        os.remove(os.path.join(tmp, 'contracts-state.json'))
     return sha(bank)
 
 
@@ -82,17 +86,41 @@ si.SETS = bank
 real_slot_ok, real_live = si._slot_ok, si._live_candidates
 si._rows = lambda q: []                                   # БД не нужна
 
-# --- contracts: отказ предохранителя ---
-before = write_bank([{'set_id': f'set-t{i}', 'm2': 18, 'style': 'сканди',
-                      'items': {'диван': {'mid': 1, 'eid': str(i), 'name': f'Диван {i}', 'w': 200, 'd': 90, 'price': 1000,
-                                          'qty': 1}}} for i in range(4)])
-si._slot_ok = lambda role, cand, s, chosen=None, current=False: False    # все позиции вне контракта
-si._live_candidates = lambda *a, **k: []                  # замен нет → снятие → затронуты все 4 из 4
-warn = [ln for ln in run(si.enforce_contracts, apply=True) if ln.startswith('WARN:')]
-check('contracts: отказ предохранителя — WARN:contracts_fuse', any(ln.startswith('WARN:contracts_fuse:') for ln in warn))
-check('contracts: в WARN причина «затронуло бы 4 комплектов из 4»', any('затронуло бы 4 комплектов из 4' in ln for ln in warn))
+# --- contracts: ширина — много РАЗНЫХ товаров вне контракта (пустой/сломанный фид, сломанная проверка) → стоп ---
+def liv(i, vase=None, pill=None, **over):
+    """Комплект гостиной: обязательное ядро (диван, столик, носитель ТВ) + необязательные ваза/подушка."""
+    def it(role, eid):
+        return {'mid': 1, 'eid': eid, 'name': f'{role} {eid}', 'w': 60, 'd': 40, 'price': 100, 'qty': 1}
+    items = {'диван': it('диван', f'd{i}'), 'столик': it('столик', f't{i}'), 'тв-тумба': it('тв-тумба', f'tv{i}'),
+             'ваза': it('ваза', vase or f'v{i}')}
+    if pill:
+        items['подушка'] = it('подушка', pill)
+    items.update({k: it(k, v) for k, v in over.items()})
+    return {'set_id': f'set-c{i}', 'm2': 18, 'style': 'сканди', 'items': items}
+
+
+import bank_invariants as si_bi
+SUSP_REAL[0] = True
+BAD = set()                                               # eid позиций вне контракта
+si._slot_ok = lambda role, cand, s, chosen=None, current=False: cand.get('eid') not in BAD
+si._live_candidates = lambda *a, **k: []                  # замен нет → снятие
+
+
+def wlines(lines):
+    return [ln for ln in lines if ln.startswith('WARN:')]
+
+
+before = write_bank([liv(i, pill=f'p{i}') for i in range(4)])        # всего 20 разных товаров
+BAD.update({f'v{i}' for i in range(4)} | {f'p{i}' for i in range(4)})   # вне контракта 8 из 20 (40 %) — все магазина, ушедшего из фида
+warn = wlines(run(si.enforce_contracts, apply=True))
+check('contracts: много разных товаров — WARN:contracts_fuse', any(ln.startswith('WARN:contracts_fuse:') for ln in warn))
+check('contracts: в WARN причина «отдельных товаров 8 из 20»', any('отдельных товаров 8 из 20' in ln for ln in warn))
 check('contracts: банк не тронут (sha256 тот же)', sha(bank) == before)
 check('contracts: бэкап .bak-contracts при отказе не пишется', not os.path.exists(bank + '.bak-contracts'))
+warn2 = wlines(run(si.enforce_contracts, apply=True))
+check('contracts: второй стоп подряд — WARN:contracts_stuck ПЕРВОЙ строкой (в дайджест идёт первая строка WARN), затем fuse',
+      [ln.split(':')[1] for ln in warn2] == ['contracts_stuck', 'contracts_fuse'])
+BAD.clear()
 
 saved = sys.modules['heal_policy']
 sys.modules['heal_policy'] = None                         # нет модуля предохранителя — писать без проверки нельзя
@@ -104,6 +132,92 @@ except ImportError:
 sys.modules['heal_policy'] = saved
 check('contracts: нет heal_policy — банк не тронут', sha(bank) == before)
 
+# --- contracts: радиус — ОДИН товар во всех комплектах (авария 29.08: «один товар выбросило из всех 126») → стоп всегда ---
+before = write_bank([liv(i, vase='V') for i in range(10)])              # одна ваза V в 10 из 10; всего 31 разный товар (3 %)
+BAD.add('V')
+warn = wlines(run(si.enforce_contracts, apply=True))
+check('contracts: один товар в 10 из 10 комплектов — WARN:contracts_fuse «в одиночку»',
+      any(ln.startswith('WARN:contracts_fuse:') and 'в одиночку трогают' in ln for ln in warn))
+check('contracts: …банк и бэкап не тронуты', sha(bank) == before and not os.path.exists(bank + '.bak-contracts'))
+BAD.clear()
+
+# --- contracts: «110 из 126» — один товар в ПОЛОВИНЕ комплектов лечится (было: 32 ночи стоп) ---
+before = write_bank([liv(i, vase='V' if i < 5 else None) for i in range(10)])   # V в 5 из 10 комплектов, 1 из 36 товаров
+BAD.add('V')
+JOURNAL.clear()
+lines = run(si.enforce_contracts, apply=True)
+after = json.load(open(bank, encoding='utf-8'))
+check('contracts: один товар в 5 из 10 комплектов — предохранитель пропускает, банк записан', sha(bank) != before and not wlines(lines))
+check('contracts: …снят во всех 5 комплектах, ядро цело', all('ваза' not in s['items'] and not si_bi.core_missing(s) for s in after[:5]))
+check('contracts: …каждое снятие — coverage_gap и журнал с new_sku=None',
+      all(any('coverage_gap: ваза' in g for g in s.get('gaps', [])) for s in after[:5])
+      and sorted(j[0] for j in JOURNAL if j[3] is None and j[4] == 'contract_fail') == [f'set-c{i}' for i in range(5)])
+BAD.clear()
+
+# --- contracts: порция — товары по возрастанию охвата, пока объединение комплектов ≤ 60 %; остальное — следующим прогоном ---
+before = write_bank([liv(i, vase='A' if i < 6 else None, pill='B' if i >= 4 else None) for i in range(10)])   # A в 0–5, B в 4–9
+BAD.update({'A', 'B'})
+JOURNAL.clear()
+lines = run(si.enforce_contracts, apply=True)
+after = json.load(open(bank, encoding='utf-8'))
+check('contracts: порция — A (6 комплектов = 60 %) снят, B ждёт', all('ваза' not in s['items'] for s in after[:6])
+      and all('подушка' in s['items'] for s in after[4:]))
+check('contracts: порция — строка «отложено порцией: 1 товаров»', any(ln.startswith('отложено порцией: 1 товаров') for ln in lines))
+check('contracts: порция — отложенное идёт в счёт «подряд» (streak 1), WARN нет', not wlines(lines)
+      and json.load(open(os.path.join(tmp, 'contracts-state.json')))['streak'] == 1)
+lines = run(si.enforce_contracts, apply=True)
+after = json.load(open(bank, encoding='utf-8'))
+check('contracts: следующий прогон добирает B (охват 6 ≤ 60 %)', all('подушка' not in s['items'] for s in after)
+      and not any(ln.startswith('отложено порцией') for ln in lines))
+check('contracts: порция выполнена — счёт «подряд» обнулён', json.load(open(os.path.join(tmp, 'contracts-state.json')))['streak'] == 0)
+BAD.clear()
+
+# --- contracts: подозрительная причина («карточка мертва») не снимается; надёжная («нет в наличии» по странице) снимается ---
+write_bank([liv(i, vase='S' if i < 3 else None, pill='R' if 3 <= i < 6 else None) for i in range(10)])
+BAD.update({'S', 'R'})
+si._rows = lambda q: ([['1', 'S', 'карточка мертва'], ['1', 'R', 'нет в наличии (страница)']] if 'e.status <>' in q else [])
+lines = run(si.enforce_contracts, apply=True)
+after = json.load(open(bank, encoding='utf-8'))
+check('contracts: «карточка мертва» — позиция остаётся в 3 комплектах', all('ваза' in s['items'] for s in after[:3]))
+check('contracts: «нет в наличии (страница)» — снята в 3 комплектах', all('подушка' not in s['items'] for s in after[3:6]))
+check('contracts: подозрительное — WARN:contracts_deferred с причиной и числом',
+      any(ln.startswith('WARN:contracts_deferred:') and 'карточка мертва — 3' in ln for ln in lines))
+lines = run(si.enforce_contracts, apply=True)
+check('contracts: подозрительное висит 2 прогона подряд — WARN:contracts_stuck первой строкой',
+      [ln.split(':')[1] for ln in wlines(lines)][:1] == ['contracts_stuck'])
+BAD.clear()
+si._rows = lambda q: []
+
+# --- contracts: ядро — снятие без замены, после которого комплект теряет столик/диван, не применяется ---
+before = write_bank([liv(i, **{'столик': 'T'}) for i in range(3)] + [liv(i) for i in range(3, 10)])
+BAD.add('T')
+lines = run(si.enforce_contracts, apply=True)
+after = json.load(open(bank, encoding='utf-8'))
+check('contracts: ядро — столик без замены не снят (3 комплекта), файл не тронут', sha(bank) == before
+      and all('столик' in s['items'] for s in after[:3]))
+check('contracts: ядро — WARN:contracts_core_held с ролью', any(ln.startswith('WARN:contracts_core_held:') and 'столик' in ln
+                                                                  for ln in lines))
+BAD.clear()
+
+# --- предохранитель contracts_allowed: таблица пределов; run_allowed (heal/pairs) не тронут ---
+ca = _hp.contracts_allowed
+check('contracts_allowed: 25 из 100 товаров и 60 из 100 комплектов — можно', ca(25, 100, 60, 100)[0])
+check('contracts_allowed: 26 из 100 товаров — стоп (ширина)', not ca(26, 100, 10, 100)[0])
+check('contracts_allowed: 61 из 100 комплектов — стоп (радиус)', not ca(5, 100, 61, 100)[0])
+check('contracts_allowed: ядро ухудшилось — стоп', not ca(5, 100, 10, 100, core_regress=[3])[0])
+check('contracts_allowed: в отказе названы крупнейшие по охвату', 'X — 63 компл.' in ca(26, 100, 10, 100, top=[('X', 63)])[1])
+check('run_allowed (heal/pairs): прежний предел 25 % комплектов', not _hp.run_allowed(32, 126)[0] and _hp.run_allowed(31, 126)[0])
+
+# --- надёжность причины выбытия (таблица состояний фид/страница/доверие) ---
+tr = {'112923'}
+sp = _hp.suspicious
+check('причина: archived доверенного магазина — надёжна', not sp('archived', 112923, tr))
+check('причина: archived недоверенного магазина — подозрительна', sp('archived', 99272, tr))
+check('причина: «нет в наличии (страница)» — надёжна', not sp('нет в наличии (страница)', 99272, tr))
+check('причина: «карточка мертва» — подозрительна даже у доверенного', sp('карточка мертва', 112923, tr))
+check('причина: «роль снята каталогом» — подозрительна', sp('роль снята каталогом', 112923, tr))
+
+SUSP_REAL[0] = False    # дальше heal-тесты: «всё подозрительно», как было
 # --- heal: основное кресло и «кресло 2» выбыли, замен нет ---
 si._load = lambda: {}
 alerts = []
@@ -111,6 +225,8 @@ si.subprocess = types.SimpleNamespace(run=lambda args, **k: alerts.append(args[-
 
 
 def dead_rows(eids):
+    # индекс кандидатов с «используемыми» товарами: пустой индекс = нечего спрашивать у БД (_dead_reasons не ходит с пустым списком)
+    si._load = lambda: {f'1:{e}': {'used': True} for e in eids}
     return lambda q: [['1', e, 'archived'] for e in eids] if 'e.status <>' in q else []
 
 
