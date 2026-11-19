@@ -15,19 +15,25 @@ RUN python3 -m pip install imageio==2.37.2 imageio-ffmpeg==0.6.0 tqdm==4.67.1 ea
     && python3 -m pip install "git+https://github.com/microsoft/MoGe.git@${MOGE_COMMIT}"
 
 # natten 0.21.0 — компиляция под RTX 4090 (sm_89); долго (десятки минут)
-RUN NATTEN_CUDA_ARCH="8.9" NATTEN_N_WORKERS=4 python3 -m pip install natten==0.21.0 --no-build-isolation
+# сборке natten нужен cmake (в базе его нет — сборка 19.11 упала «Cannot find CMake executable»)
+RUN python3 -m pip install cmake ninja \
+    && NATTEN_CUDA_ARCH="8.9" NATTEN_N_WORKERS=4 python3 -m pip install natten==0.21.0 --no-build-isolation
 
 RUN git clone https://github.com/TencentARC/Pixal3D.git /opt/Pixal3D \
     && cd /opt/Pixal3D && git checkout ${PIXAL3D_COMMIT} \
     && grep -rl "camenduru/dinov3-vitl16-pretrain-lvd1689m" /opt/Pixal3D --include=*.py --include=*.json | xargs -r sed -i 's#camenduru/dinov3-vitl16-pretrain-lvd1689m#facebook/dinov3-vitl16-pretrain-lvd1689m#g' \
-    && ! grep -rn "camenduru" /opt/Pixal3D --include=*.py --include=*.json
+    && ! grep -rn "camenduru/" /opt/Pixal3D --include=*.py --include=*.json     # остаться может только слово «camenduru» в комментарии, адреса зеркала быть не должно
 
 # NAF: код по закреплённому коммиту и веса релиза — в кэше torch.hub (`torch.hub.load("valeoai/NAF", …, trust_repo=True)` берёт кэш без обращения к GitHub)
 RUN mkdir -p /root/.cache/torch/hub/checkpoints \
     && git clone https://github.com/valeoai/NAF.git /root/.cache/torch/hub/valeoai_NAF_main \
     && git -C /root/.cache/torch/hub/valeoai_NAF_main checkout ${NAF_COMMIT} \
+    && echo valeoai_NAF >> /root/.cache/torch/hub/trusted_list \
     && curl -fsSL -o /root/.cache/torch/hub/checkpoints/naf_release.pth https://github.com/valeoai/NAF/releases/download/model/naf_release.pth \
     && { echo "Pixal3D ${PIXAL3D_COMMIT}"; echo "MoGe ${MOGE_COMMIT}"; echo "NAF ${NAF_COMMIT}"; python3 -m pip freeze; } > /opt/BUILD_INFO_PIXAL3D.txt
+
+# transformers 4.57.3 требует huggingface-hub <1.0; зависимости MoGe/diffusers утянули 2.4.0 (px0 19.11) — возвращаем пин последним слоем
+RUN python3 -m pip install -q "huggingface_hub==0.35.3" && python3 -m pip list 2>/dev/null | grep -i -E "^(transformers|huggingface|diffusers|natten) " >> /opt/BUILD_INFO_PIXAL3D.txt
 
 COPY worker_trellis.py /app/worker_trellis.py
 ENV MODEL=pixal3d PIXAL3D_DIR=/opt/Pixal3D ATTN_BACKEND=flash_attn

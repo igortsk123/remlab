@@ -37,6 +37,16 @@ def ok(name, cond, extra=''):
 
 # ——— чистые функции ———
 print('[1] план, задания, деньги')
+# --- папка результатов у каждой модели своя; чужой файл не затирается (19.11: Hunyuan затёр 12 GLB TRELLIS.2) ---
+ok('папка по умолчанию — по модели', T.default_out('pixal3d').endswith('/mesh-models-1118/pixal3d') and T.default_out('trellis2').endswith('/trellis2') and T.default_out('hunyuan21') != T.default_out('trellis2'))
+with tempfile.TemporaryDirectory() as _d:
+    _old = os.path.join(_d, 'trellis'); os.makedirs(_old)
+    open(os.path.join(_old, 'k-1024-42-0.glb'), 'wb').write(b'x')
+    ok('старая общая папка: файл без метки — чужой для любой модели', T.owner_conflicts(_old, ['k-1024-42-0'], 'pixal3d') == ['k-1024-42-0'] and T.owner_conflicts(_old, ['k-1024-42-0'], 'trellis2') == ['k-1024-42-0'])
+    _own = os.path.join(_d, 'pixal3d'); os.makedirs(_own)
+    ok('своя пустая папка — писать можно', T.owner_conflicts(_own, ['k-1024-42-0'], 'pixal3d') == [])
+    open(os.path.join(_own, 'k-1024-42-0.glb'), 'wb').write(b'x'); open(os.path.join(_own, 'k-1024-42-0.model'), 'w').write('pixal3d')
+    ok('метка своей модели — повтор можно, чужой моделью — отказ', T.owner_conflicts(_own, ['k-1024-42-0'], 'pixal3d') == [] and T.owner_conflicts(_own, ['k-1024-42-0'], 'hunyuan21') == ['k-1024-42-0'])
 ok('план 1024:1,1536:2 разбирается', T.parse_plan('1024:1,1536:2') == [{'res': 1024, 'n': 1}, {'res': 1536, 'n': 2}])
 try:
     T.parse_plan('2048:1')
@@ -93,9 +103,13 @@ except ValueError:
 import shutil as _sh
 _sh.rmtree(_d, ignore_errors=True)
 pb = T.build_body('trial-pixal3d-x', 'ghcr.io/x/y@sha256:' + 'b' * 64, 'high', 'pixal3d', 'hf_SECRET', 8, 32768, 'n', {'basic': {}})
-ok('Pixal3D: MODEL=pixal3d, воркер через command (python3), pip-пин TRELLIS.2 НЕ ставится (образ с transformers 4.57.3), карта 4090, диск 80 ГиБ',
-   pb['container']['environment_variables']['MODEL'] == 'pixal3d' and pb['container']['command'][:3] == ['python3', '-u', '-c'] and 'pip' not in json.dumps(pb['container']['command'])
+ok('Pixal3D: MODEL=pixal3d, воркер через command (python3), при старте пин huggingface_hub==0.35.3, пина transformers TRELLIS.2 НЕТ (образ с 4.57.3), карта 4090, диск 80 ГиБ',
+   pb['container']['environment_variables']['MODEL'] == 'pixal3d' and pb['container']['command'][-1] is not None and 'huggingface_hub==0.35.3' in json.dumps(pb['container']['command']) and T.TRELLIS_PIP_PIN not in json.dumps(pb['container']['command'])
    and pb['container']['resources']['gpu_classes'] == [T.CARD['class_id']] and pb['container']['resources']['storage_amount'] == 80 * 2 ** 30)
+lb = T.build_body('trial-localmesh-x', 'ghcr.io/x/y@sha256:' + 'c' * 64, 'high', 'localmesh', 'hf_SECRET', 8, 32768, 'n', {'basic': {}})
+ok('LocalMesh: MODEL=localmesh, воркер через command (python3), без pip-пина TRELLIS.2, HF_TOKEN только в env',
+   lb['container']['environment_variables']['MODEL'] == 'localmesh' and lb['container']['command'][:3] == ['python3', '-u', '-c'] and 'pip' not in json.dumps(lb['container']['command'])
+   and lb['container']['environment_variables']['HF_TOKEN'] == 'hf_SECRET' and 'hf_SECRET' not in json.dumps(lb['container']['command']))
 buf = io.StringIO()
 real = sys.stdout
 sys.stdout = buf
@@ -322,6 +336,16 @@ if have:
            and 'stage_s' in j['metrics'] and j['metrics']['glb']['size_mb'] >= 0, str(j)[:200])
         cg, rg = call('GET', '/glb/j1')
         ok('GLB отдаётся байтами (заголовок glTF)', cg == 200 and rg[:4] == b'glTF')
+        pm = dict(payload, job_id='j2', texture_mesh_b64=base64.b64encode(rg).decode())
+        c3, _r3 = call('POST', '/generate', pm)
+        j2 = {}
+        for _ in range(150):
+            j2 = json.loads(call('GET', '/job/j2')[1])
+            if j2.get('status') in ('done', 'failed'):
+                break
+            time.sleep(0.1)
+        ok('контроль перекраски: форма уходит файлом, в задании только флаг (base64 в ответ не попадает), ?v=ai без второго GLB — 404',
+           c3 == 202 and j2.get('params', {}).get('texture_mesh') is True and 'texture_mesh_b64' not in json.dumps(j2) and call('GET', '/glb/j2?v=ai')[0] == 404, str(j2)[:200])
         ok('чужой job — 404', call('GET', '/job/net')[0] == 404 and call('GET', '/glb/net')[0] == 404)
         if socket.has_ipv6:                       # шлюз Salad ходит по IPv6: сервер обязан слушать `::` (поймано 18.11: на 0.0.0.0 /health не отвечал ни разу)
             try:

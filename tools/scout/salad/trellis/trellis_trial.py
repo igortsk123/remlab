@@ -36,17 +36,45 @@ sys.path.insert(0, HERE)
 
 CARD = {'class_name': 'RTX 4090 (24 GB)', 'class_id': 'ed563892-aacd-40f5-80b7-90c9be6c759b'}
 HF_GATED = {'trellis2': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json',
-            'pixal3d': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json'}      # закрытые веса, без которых модель не поднимется
+            'pixal3d': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json',
+            'pixal3d-tex': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json',
+            'localmesh': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json'}      # закрытые веса, без которых модель не поднимется
 PORT = 8000
 READINESS = {'http': {'path': '/health', 'port': PORT, 'scheme': 'http', 'headers': []},      # НЕ /ready: пока проба не пройдена, шлюз отдаёт 503 на любой путь и прогрев не виден (урок шага 0, 18.11)
              'initial_delay_seconds': 30, 'period_seconds': 10, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 3}
 STARTUP = {'http': {'path': '/health', 'port': PORT, 'scheme': 'http', 'headers': []},
            'initial_delay_seconds': 10, 'period_seconds': 60, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 20}   # API Salad: failure_threshold ≤ 20 (400 от 18.11) → 20 мин на докачку весов
 NO_FAIL_STREAK = 2
+TEX_ALIGNS = ('fit', 'official')      # pixal3d-tex: как кадрировать фото под форму (`worker_trellis.texture_on_shape`)
 
 
 def say(*a) -> None:
     print(time.strftime('%H:%M:%S', time.gmtime()), *a, flush=True)
+
+
+RESULTS_ROOT = os.path.expanduser('~/remlab-logs/mesh-models-1118')
+
+
+def default_out(model: str) -> str:
+    """Папка результатов — СВОЯ у каждой модели (`trellis2/`, `hunyuan21/`, `pixal3d/`, `localmesh/`, `pixal3d-tex/`). До 19.11 все писали в `trellis/` под одним именем
+    `<ключ>-1024-42-0.glb`: Hunyuan-контроль затёр 12 GLB TRELLIS.2 (и наоборот 2) — кадры и таблицы по ним смешались."""
+    return os.path.join(RESULTS_ROOT, model)
+
+
+def owner_conflicts(out: str, job_ids: list[str], model: str) -> list[str]:
+    """Задания, чей GLB в папке уже есть от ДРУГОЙ модели: по метке `<id>.model` рядом; без метки файл в старой общей папке `trellis/` считается чужим для любой модели,
+    кроме trellis2 (и то только по метке — потому «безымянный» файл там не трогаем). Пусто — писать можно."""
+    bad = []
+    legacy = os.path.basename(os.path.normpath(out)) == 'trellis'
+    for jid in job_ids:
+        glb = os.path.join(out, jid + '.glb')
+        tag = os.path.join(out, jid + '.model')
+        if os.path.exists(tag):
+            if open(tag, encoding='utf-8').read().strip() != model:
+                bad.append(jid)
+        elif os.path.exists(glb) and (legacy or os.path.basename(os.path.normpath(out)) != model):
+            bad.append(jid)
+    return bad
 
 
 def parse_plan(plan: str) -> list[dict]:
@@ -93,6 +121,32 @@ def paint_jobs(skus: list[str], variants: str, shape_dir: str | None, inputs: di
     return out
 
 
+def parse_tex_variant(tok: str) -> dict | None:
+    """pixal3d-tex: вариант прогона `<align>[+g<сила>][+s<повторов>]`: `fit+g3` — подгонка фото и сила направляющей 3 (по умолчанию 1), `fit+s40` — латент формы по копии,
+    сглаженной 40 проходами Тобина (краска ложится на настоящую форму). Неверная запись → None."""
+    parts = tok.strip().split('+')
+    if parts[0] not in TEX_ALIGNS:
+        return None
+    v = {'tok': tok.strip(), 'align': parts[0], 'guidance': 1.0, 'smooth': 0}
+    for q in parts[1:]:
+        try:
+            if q[:1] == 'g' and 0 < float(q[1:]) <= 10:
+                v['guidance'] = float(q[1:])
+            elif q[:1] == 's' and 0 < int(q[1:]) <= 500:
+                v['smooth'] = int(q[1:])
+            else:
+                return None
+        except ValueError:
+            return None
+    return v
+
+
+def expand_align_jobs(jobs: list[dict], variants: list[dict]) -> list[dict]:
+    """pixal3d-tex: по заданию на каждый вариант; вариантов несколько — id получает суффикс варианта (`…-fit`, `…-fit-g3`), один — id как был."""
+    return [dict(j, job_id=f'{j["job_id"]}-{v["tok"].replace("+", "-")}' if len(variants) > 1 else j['job_id'], align=v['align'], tex_guidance=v['guidance'], shape_smooth=v['smooth'])
+            for j in jobs for v in variants]
+
+
 def price_usd_h(tier: str) -> float | None:
     """Цена 4090 по тарифу из `rules/salad-groups.json` (`prices_by_class_usd_h`); нет — None (деньги без цены не считаем)."""
     try:
@@ -131,7 +185,14 @@ def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu:
            'NVIDIA_DRIVER_CAPABILITIES': 'all', 'DEPLOYMENT_EPOCH': f'20261118-{name}'}
     res = {'cpu': cpu, 'memory': mem_mb, 'gpu_classes': [CARD['class_id']], 'storage_amount': 80 * 2 ** 30, 'shm_size': 1024}      # 80 ГиБ: кэш HF ≈ 42 ГиБ + запас на 30 результатов (директор 19.11)
     command = None
-    if donor is None and model == 'pixal3d':        # образ Pixal3D (поверх TRELLIS.2) уже с нужными версиями (transformers 4.57.3) — pip-пин TRELLIS.2 ему вреден; только код воркера
+    if donor is None and model in ('pixal3d', 'pixal3d-tex'):        # образ Pixal3D: transformers 4.57.3 требует huggingface-hub <1.0, а в образе оказался 2.4.0 (px0, 19.11: ImportError на прогреве) — пин при старте, пересборка не нужна
+        pre = ('for i in 1 2 3; do python3 -m pip install -q "huggingface_hub==0.35.3" && break; echo "[pip] попытка $i не удалась"; sleep 5; done; '
+               'python3 -m pip list 2>/dev/null | grep -i -E "^(transformers|huggingface|tokenizers|safetensors|torch|diffusers|natten) " | tr -s " " | tr "\\n" ";"; echo')
+        command, env['TRIAL_WORKER_Z'] = worker_command(python='python3', pre=pre)
+        if model == 'pixal3d':      # px2 (19.11): CUDA out of memory в декодере текстуры на 24 ГБ — меньше фрагментации и меньше токенов
+            env['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+            env['PIXAL3D_MAX_TOKENS'] = '32768'
+    elif donor is None and model == 'localmesh':        # образ LocalMesh (py3.12, transformers 5.x, hub 1.x) — свои версии, pip-пины не нужны
         command, env['TRIAL_WORKER_Z'] = worker_command(python='python3')
     elif donor is None:      # TRELLIS.2: образ уже содержит воркер, но актуальный код едет через command — без пересборки образа (python3 в образе, `python` нет)
         pre = (f'for i in 1 2 3; do python3 -m pip install -q "{TRELLIS_PIP_PIN}" && break; echo "[pip] попытка $i не удалась"; sleep 5; done; '
@@ -206,8 +267,31 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     k = max(0, int(getattr(a, 'paint_after', 0)))
     jobs = jobs[:k] + pj + jobs[k:]                       # гибрид «форма TRELLIS + покраска Hunyuan» — в той же группе, после первых `--paint-after` контрольных
     name = f'trial-{a.model}-{a.suffix}'
-    price = price_usd_h(a.tier)
+    if not a.out:
+        a.out = default_out(a.model)
+    clash = owner_conflicts(a.out, [j['job_id'] for j in jobs], a.model) if not getattr(a, 'force_out', False) else []
+    if clash:                                             # отказ ДО группы и денег: чужой результат под тем же именем затёрт не будет
+        say(f'ОТКАЗ: в {a.out} уже лежат файлы от другой модели для {len(clash)} заданий (первое: {clash[0]}) — укажи свою --out или --force-out')
+        return 2
+    aligns = [parse_tex_variant(x) for x in (getattr(a, 'tex_align', None) or 'fit').split(',') if x.strip()]
+    if a.model == 'pixal3d-tex':                          # краска Pixal3D по готовой форме: без формы работать нечему — отказ ДО группы и денег
+        if not getattr(a, 'texture_mesh', None):
+            say('pixal3d-tex красит готовую форму: укажите --texture-mesh <clean.glb> — группа не создаётся')
+            return 2
+        if len(skus) != 1 or not aligns or any(x is None for x in aligns):
+            say(f'pixal3d-tex: один товар в --skus (форма одна) и --tex-align из {TEX_ALIGNS} с добавками +g<сила>, +s<проходов> (например fit+g3) — группа не создаётся')
+            return 2
     MG.env_from_file()
+    card = getattr(a, 'card', None) or CARD['class_name']
+    if card != CARD['class_name']:                        # другая карта (localmesh — 4060 Ti 16 ГБ): id по полному имени среди классов организации
+        import recreate_group as RG
+        try:
+            cid = RG.pick_gpu_exact(RG.gpu_classes(), [card])[0]
+        except (ValueError, IndexError) as e:
+            say('карта', card, 'не найдена среди классов организации:', str(e)[:200])
+            return 2
+        CARD.update(class_name=card, class_id=cid)
+    price = price_usd_h(a.tier)
     hf = os.environ.get('HF_TOKEN', '')
     donor = None
     if a.model == 'hunyuan21':                            # контроль: боевой образ и ресурсы берём у боевой группы-образца (в ней нет нашего кода — он едет в command)
@@ -221,6 +305,13 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     sp = a.set or os.path.join(os.path.dirname(os.path.abspath(a.inputs)), 'set30.json')
     if os.path.exists(sp):
         meta = {c['sku']: c for c in json.load(open(sp, encoding='utf-8'))}                       # роль и габариты (нужны контролю Hunyuan)
+    tex_mesh_b64 = None
+    if getattr(a, 'texture_mesh', None):                  # контроль перекраски: одна готовая форма (GLB) уходит в задание, id задания с суффиксом -tex
+        tex_mesh_b64 = base64.b64encode(open(os.path.expanduser(a.texture_mesh), 'rb').read()).decode()
+        for j in jobs:
+            j['job_id'] += '-tex'
+    if a.model == 'pixal3d-tex':                          # варианты кадрирования фото (fit — подгонка по силуэту формы, official — как в апстриме): по заданию на вариант, id с суффиксом
+        jobs = expand_align_jobs(jobs, aligns)
     for j in jobs:
         j['role'] = (inputs.get(j['sku']) or {}).get('role') or meta.get(j['sku'], {}).get('role')
         j['dims_cm'] = meta.get(j['sku'], {}).get('dims_cm')
@@ -352,7 +443,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     j = pending.pop(0)
                     png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.rgba.png'), 'rb').read()
                     pl = {'job_id': j['job_id'], 'image_b64': base64.b64encode(png).decode(), 'pipeline_type': pipeline_type(j['res']), 'seed': j['seed'],
-                          'decimation_target': a.decimation, 'texture_size': a.texture, 'role': j.get('role'), 'dims_cm': j.get('dims_cm')}
+                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_mesh_b64, 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth')}
                     if j.get('shape_path'):
                         pl['shape_b64'] = base64.b64encode(open(j['shape_path'], 'rb').read()).decode()
                         pl['use_remesh'] = j['variant'] == 'remesh'
@@ -371,8 +462,15 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                                 if cg == 200:
                                     fp = os.path.join(a.out, inflight['job_id'] + '.glb')
                                     open(fp, 'wb').write(glb)
+                                    open(fp[:-4] + '.model', 'w', encoding='utf-8').write(a.model)
                                     inflight['glb_path'] = fp
                                     inflight['glb_bytes'] = len(glb)
+                                    if (r.get('metrics') or {}).get('has_ai'):          # localmesh: вторая версия — текстура «как нарисовала модель», до проекции фото
+                                        ca, glb_ai = gw.call('GET', '/glb/' + inflight['job_id'] + '?v=ai', timeout=300, raw=True)
+                                        if ca == 200:
+                                            fp_ai = os.path.join(a.out, inflight['job_id'] + '.ai.glb')
+                                            open(fp_ai, 'wb').write(glb_ai)
+                                            inflight['glb_ai_path'] = fp_ai
                                 else:
                                     inflight.update(status='failed', error=f'GLB не скачался: HTTP {cg}')
                         elif t - inflight['submitted'] > a.job_timeout * 60:
@@ -404,7 +502,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--model', default='trellis2', choices=['trellis2', 'pixal3d', 'hunyuan21'])
+    ap.add_argument('--model', default='trellis2', choices=['trellis2', 'pixal3d', 'pixal3d-tex', 'localmesh', 'hunyuan21'])
     ap.add_argument('--donor', default='mesh-q-low-1', help='hunyuan21: боевая группа-образец (образ, ресурсы, env без секретов приёмника)')
     ap.add_argument('--set', default=None, help='JSON набора (роль, габариты); по умолчанию set30.json рядом с папкой inputs')
     ap.add_argument('--fail-streak', type=int, default=NO_FAIL_STREAK, help='сколько упавших заданий подряд гасят замер (контролю Hunyuan — больше: боевые ворота брака)')
@@ -415,6 +513,10 @@ def main() -> int:
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--decimation', type=int, default=500000)
     ap.add_argument('--texture', type=int, default=2048)
+    ap.add_argument('--card', default=CARD['class_name'], help='класс карты по полному имени ("RTX 4060 Ti (16 GB)" для localmesh)')
+    ap.add_argument('--detail', default='high', choices=['draft', 'standard', 'high', 'max'], help='localmesh: ярус качества (high = форма 1024, 16 шагов, 250 тыс. граней)')
+    ap.add_argument('--texture-mesh', default=None, help='контроль: готовая форма (GLB) — TRELLIS.2 только перекрасит её по фото (один товар в --skus)')
+    ap.add_argument('--tex-align', default='fit', help='pixal3d-tex: варианты через запятую, по заданию на вариант: fit (подгонка фото по силуэту формы), official (как в апстриме Pixal3D); добавки: +g<сила направляющей, по умолчанию 1>, +s<проходов сглаживания формы для латента>; пример: fit,official,fit+g3,fit+s60')
     ap.add_argument('--tier', default='high', choices=['batch', 'low', 'medium', 'high'])
     ap.add_argument('--cpu', type=int, default=8)
     ap.add_argument('--mem-mb', type=int, default=32768)
@@ -426,13 +528,14 @@ def main() -> int:
     ap.add_argument('--stall-min', type=int, default=10, help='сколько минут докачка весов может не расти, иначе стоп')
     ap.add_argument('--job-timeout', type=int, default=15)
     ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))
-    ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/mesh-models-1118/trellis'))
     ap.add_argument('--paint-skus', nargs='*', default=[], help='hunyuan21: товары для гибрида (форма TRELLIS из --paint-shape-dir + покраска Hunyuan)')
     ap.add_argument('--paint-shape-dir', default=os.path.expanduser('~/remlab-logs/mesh-models-1118/trellis'))
     ap.add_argument('--paint-variants', default='noremesh,remesh')
     ap.add_argument('--paint-after', type=int, default=0, help='после скольких контрольных заданий ставить гибрид (1 — сперва один контрольный товар)')
     ap.add_argument('--machine-wait-min', type=int, default=60, help='сколько минут от /start ждать running (скачивание образа ≈ 30 ГБ на медленной машине 18.11 шло дольше часа; ожидание не оплачивается)')
     ap.add_argument('--no-control', action='store_true', help='не ставить контрольные задания (--skus), только гибрид')
+    ap.add_argument('--out', default=None, help='папка результатов; по умолчанию — ~/remlab-logs/mesh-models-1118/<модель>/')
+    ap.add_argument('--force-out', action='store_true', help='писать, даже если там лежат файлы от другой модели (не нужно)')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--stop-only', action='store_true')
     a = ap.parse_args()

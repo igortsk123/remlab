@@ -29,6 +29,7 @@ ap.add_argument('--w', type=int, default=1600)
 ap.add_argument('--h', type=int, default=1200)
 ap.add_argument('--threads', type=int, default=4)
 ap.add_argument('--analyze', action='store_true', help='только разбор кусков меша и габарита (без кадров)')
+ap.add_argument('--modes', default='tex,clay', help='tex,clay | tex | clay')
 ap.add_argument('--only', default='', help='отладка: список видов через запятую (az000,top55,bot-20)')
 a = ap.parse_args(argv)
 T0 = time.time()
@@ -194,16 +195,18 @@ views = [(f'az{az:03d}', az, 15) for az in range(0, 360, 45)] + [('top55', 45, 5
 if a.only:
     views = [v for v in views if v[0] in a.only.split(',')]
 n = 0
+modes = a.modes.split(',')
+n_total = len(modes) * len(views)
 for vi, (name, az, el) in enumerate(views):
     floor.hide_render = el < 0                       # снизу пола нет
     aim(cam, polar(az, el, dist), centre)
     aim(sun, polar(az - 40, el + 35, 5), centre)     # свет — на 40° левее и на 35° выше камеры: одинаков относительно камеры во всех кадрах
-    for mode in ('tex', 'clay'):
+    for mode in modes:
         bpy.context.view_layer.material_override = clay if mode == 'clay' else None
         n += 1
         p = os.path.join(a.out, f'{n:02d}_{name}_{mode}.png')
         sc.render.filepath = p
         t = time.time()
         bpy.ops.render.render(write_still=True)
-        print(f'кадр {n}/{2 * len(views)} {name} {mode}: {time.time() - t:.0f} с', flush=True)
+        print(f'кадр {n}/{n_total} {name} {mode}: {time.time() - t:.0f} с', flush=True)
 print(f'ГОТОВО {n} кадров за {time.time() - T0:.0f} с, габарит {tuple(round(x, 3) for x in ext)}', flush=True)

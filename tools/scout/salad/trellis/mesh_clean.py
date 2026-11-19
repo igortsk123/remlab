@@ -3,7 +3,7 @@
 
 ПРАВИЛО. Связные куски меша (по вершинам), у которых толщина по вертикали < 2 % габарита (`--thin`, по умолчанию 0.02) и которые лежат у пола (нижняя точка в нижних 5 % высоты предмета,
 `--floor`), — «плоский слой»: у TRELLIS.2 это стопка тонких листов 1×1 с вырезом под предметом (комод: 5 887 кусков, 67 % треугольников). Они отрезаются ОДИНАКОВО у любой модели,
-остальное — сам предмет. Сырой GLB не трогается: рядом кладётся `<имя>.clean.glb` (текстуры и материалы те же) и `<имя>.metrics.json`.
+остальное — сам предмет. Сырой GLB не трогается: рядом кладётся `<имя>.clean.glb` (примитивы и материалы те же, НЕ склеиваются), `<имя>.metrics.json` (в т.ч. площадь и габарит удалённого) и `<имя>.audit.glb` (удалённое красным — для проверки глазами).
 
 ЧИСЛА (в metrics.json): ① доля плоского слоя (куски и доля треугольников); ② пропорции предмета БЕЗ слоя — ширина : глубина : высота к большей стороне (вертикаль — Y glTF);
 габарит с слоем и без; треугольники до/после; число кусков предмета. Пропорции из фида (`dims_cm`) сравниваются, если переданы `--dims W D H`.
@@ -93,21 +93,55 @@ def analyse(mesh, thin: float = 0.02, floor: float = 0.05) -> dict:
     return out, keep
 
 
+def tri_areas(v: np.ndarray, f: np.ndarray) -> np.ndarray:
+    return 0.5 * np.linalg.norm(np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]]), axis=1)
+
+
 def clean_glb(path: str, out_path: str | None = None, dims_cm=None, thin: float = 0.02, floor: float = 0.05) -> dict:
+    """Очистка БЕЗ слияния примитивов: у каждого примитива (материала) свой `submesh`, материалы и текстуры сохраняются (Codex, директор 19.11).
+    Связные куски считаются по ВСЕМ примитивам вместе (куски могут пересекать границу материала). Рядом, кроме `.clean.glb` и `.metrics.json`, кладётся `.audit.glb` —
+    сохранённое как есть + удалённое одним ярко-красным материалом: по одному кадру на товар глазами проверить, что правило не срезало низкую полку, царгу, стеклянное основание."""
     import trimesh
     sc = trimesh.load(path, force='scene')
-    geoms = list(sc.geometry.values())
-    if len(geoms) != 1:
-        mesh = trimesh.util.concatenate(geoms)
-    else:
-        mesh = geoms[0]
-    metrics, keep = analyse(mesh, thin, floor)
-    idx = np.nonzero(keep)[0]
-    clean = mesh.submesh([idx], append=True, repair=False) if len(idx) else mesh
+    parts = [g for g in sc.dump() if len(g.faces)]               # dump применяет узловые преобразования, материалы остаются у своих примитивов
+    offs = np.cumsum([0] + [len(g.vertices) for g in parts])
+    v = np.concatenate([np.asarray(g.vertices) for g in parts])
+    f = np.concatenate([np.asarray(g.faces) + o for g, o in zip(parts, offs)])
+    fo = np.cumsum([0] + [len(g.faces) for g in parts])           # границы граней по примитивам
+    joint = trimesh.Trimesh(v, f, process=False)
+    metrics, keep = analyse(joint, thin, floor)
+    area = tri_areas(v, f)
+    rem = ~keep
+    metrics['primitives'] = len(parts)
+    metrics['removed'] = {'tris': int(rem.sum()), 'area': round(float(area[rem].sum()), 5), 'area_share': round(float(area[rem].sum() / max(area.sum(), 1e-12)), 3)}
+    if rem.any():
+        rv = v[np.unique(f[rem])]
+        ext = rv.max(0) - rv.min(0)
+        metrics['removed']['bbox_xyz'] = [round(float(x), 4) for x in ext]
+        iext = metrics.get('item_extent_xyz')
+        if iext:
+            metrics['removed']['bbox_volume_share_of_item_bbox'] = round(float(np.prod(ext) / max(np.prod(iext), 1e-12)), 3)       # у листов объёма нет — считаем объём габаритного ящика
+    kept, removed = [], []
+    for k, g in enumerate(parts):
+        m = keep[fo[k]:fo[k + 1]]
+        if m.any():
+            kept.append(g.submesh([np.nonzero(m)[0]], append=True, repair=False))
+        if (~m).any():
+            removed.append(g.submesh([np.nonzero(~m)[0]], append=True, repair=False))
     out_path = out_path or path[:-4] + '.clean.glb'
-    clean.export(out_path)
+    trimesh.Scene(kept).export(out_path)
     metrics['clean_glb'] = os.path.basename(out_path)
-    metrics['clean_tris'] = int(len(clean.faces))
+    metrics['clean_tris'] = int(sum(len(g.faces) for g in kept))
+    if removed:
+        red = trimesh.visual.material.PBRMaterial(baseColorFactor=[230, 20, 20, 255], metallicFactor=0.0, roughnessFactor=0.9)
+        marked = []
+        for g in removed:
+            g = g.copy()
+            g.visual = trimesh.visual.TextureVisuals(material=red, uv=np.zeros((len(g.vertices), 2)))
+            marked.append(g)
+        audit = path[:-4] + '.audit.glb'
+        trimesh.Scene(kept + marked).export(audit)
+        metrics['audit_glb'] = os.path.basename(audit)
     if dims_cm and 'item_ratio_w_d_h' in metrics:
         w, d, h = sorted(dims_cm[:2], reverse=True) + [dims_cm[2]]
         m = max(w, d, h)
