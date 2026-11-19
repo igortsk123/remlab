@@ -29,6 +29,8 @@
       --model trellis2=<корень>/trellis --model hunyuan=~/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 [--workers 2] [--no-lite]
   `--model` понимает приписку: `имя=папка?suffix=-1024-42-0&sum=hunyuan21&variant=&kpi=trellis2-r30&pilot=-s0` — точное имя файла после ключа, сводки только этой модели, задания
   без/с вариантом, траты для KPI — по группам (регулярка имени группы), пилоты «встать» отдельной колонкой (в $ за принятую не входят).
+  Ещё приписки: `clean=clean2` — судить `<сырой>.clean2.glb` (правило очистки E), нет — `.clean.glb`; `cleandir=папка[&cleansuffix=-1024-42-0]` — очистка в другой папке
+  (по `_copy-report.json` рядом: только ключи из «ok»); `sumdir=папка1|папка2` — сводки драйвера ещё и в этих папках; `dir` может быть `папка1|папка2` (первая, где есть товар).
   ОБЩАЯ ПАПКА ВЫВОДА: драйверы моделей пишут `<ключ>-1024-42-0.glb` в одну папку и перезаписывают друг друга; с `sum=` файл признаётся своим, только если его размер
   (сырой; `size_mb` журнала — МиБ) и число треугольников (`.clean.glb`, по `*.metrics.json`) совпадают с журналом задания этой модели (`owned`); иначе строка «нет: перезаписан».
   python3 trial_table.py --selftest        # без trimesh/рендера: ΔE00, IoU, раскладки, расчёт итогов и автоприёмки
@@ -123,17 +125,20 @@ def key_of(sku: str) -> str:
     return sku.replace(':', '_')
 
 
-def locate(model_dir: str, key: str, suffix: str | None = None) -> dict | None:
+def locate(model_dir: str, key: str, suffix: str | None = None, clean_tag: str = 'clean') -> dict | None:
     """Файлы товара в папке модели → {'raw','clean','dir','complete'} или None. Раскладки — в шапке файла. `suffix` — точное имя после ключа
-    (`-1024-42-0`, `-paint-noremesh-42`): в общей папке несколько моделей/вариантов, шаблон `<ключ>-*` взял бы чужой файл."""
+    (`-1024-42-0`, `-paint-noremesh-42`): в общей папке несколько моделей/вариантов, шаблон `<ключ>-*` взял бы чужой файл.
+    `clean_tag` — метка очистки (`clean` — прежняя, `clean2` — правило E после переочистки 19.11: файл `<сырой>.clean2.glb`; нет такого — берётся `.clean.glb`)."""
     if suffix:
         raw = os.path.join(model_dir, key + suffix + '.glb')
         if not os.path.exists(raw):
             return None
-        clean = raw[:-4] + '.clean.glb'
+        clean = raw[:-4] + f'.{clean_tag}.glb'
+        if not os.path.exists(clean):
+            clean = raw[:-4] + '.clean.glb'
         return {'raw': raw, 'clean': clean if os.path.exists(clean) else None, 'dir': model_dir, 'complete': None}
     flat_raw = sorted(p for p in glob.glob(os.path.join(model_dir, key + '-*.glb'))
-                      if not p.endswith(('.clean.glb', '.audit.glb')))
+                      if not p.endswith(('.clean.glb', '.clean2.glb', '.audit.glb', '.audit2.glb')))
     if flat_raw:
         raw = flat_raw[-1]
         clean = raw[:-4] + '.clean.glb'
@@ -215,7 +220,9 @@ def owned(path: str, job: dict | None, kind: str = 'raw', tol_mb: float = 0.06) 
         if all(g.get('size_mb') is None for g in gs):
             return None
         return any(g.get('size_mb') is not None and abs(os.path.getsize(path) / 1048576 - float(g['size_mb'])) <= tol_mb for g in gs)  # `size_mb` — МиБ
-    mp = path[:-len('.clean.glb')] + '.metrics.json'
+    stem = re.sub(r'\.clean\d*\.glb$', '', path)
+    cands = [stem + '.metrics2.json', stem + '.metrics.json'] if path.endswith('.clean2.glb') else [stem + '.metrics.json']
+    mp = next((q for q in cands if os.path.exists(q)), cands[-1])
     if all(g.get('triangles') is None for g in gs) or not os.path.exists(mp):
         return None
     try:
@@ -474,7 +481,19 @@ def build_row(model: str, c: dict, spec: dict, meta: dict, cache_dir: str, a) ->
     row = {k: None for k in COLS}
     row.update(model=model, sku=sku, role=c.get('role'), accepted='нет', why_not='')
     suffix = spec.get('suffix')
-    found = locate(spec['dir'], key, suffix)
+    ctag = spec.get('clean') or 'clean'
+    found = None
+    for d in str(spec['dir']).split('|'):                            # несколько папок модели (гибриды: стол в одной, комод в другой)
+        found = locate(d, key, suffix, ctag)
+        if found:
+            break
+    cd = spec.get('cleandir')                                        # очистка лежит в другой папке (боевой Hunyuan: сырой в хранилище, `clean2` — в папке пробы)
+    if found and cd:
+        rp = os.path.join(cd, '_copy-report.json')
+        okset = set(json.load(open(rp, encoding='utf-8')).get('ok') or []) if os.path.exists(rp) else None
+        cp2 = os.path.join(cd, key + (spec.get('cleansuffix') or '-1024-42-0') + f'.{ctag}.glb')
+        if os.path.exists(cp2) and (okset is None or sku in okset):
+            found['clean'] = cp2
     job = (meta['jobs'].get(key + suffix) if suffix else None) or meta['jobs'].get(key + '-1024-42-0') or meta['jobs'].get(sku) or {}
     if found and spec.get('sum_model') and job.get('status') != 'done':
         found = None                                                 # у этой модели задания «готов» нет: файл в общей папке — чужой
@@ -616,7 +635,9 @@ def main() -> int:
         path, _, q = path.partition('?')                         # name=папка?suffix=-1024-42-0&sum=hunyuan21&variant=noremesh
         opts = dict(kv.split('=', 1) for kv in q.split('&') if '=' in kv)
         specs[name] = {'dir': os.path.expanduser(path or os.path.join(a.root, name)), 'suffix': opts.get('suffix'),
-                       'sum_model': opts.get('sum'), 'variant': opts.get('variant'), 'kpi': opts.get('kpi'), 'pilot': opts.get('pilot')}
+                       'sum_model': opts.get('sum'), 'variant': opts.get('variant'), 'kpi': opts.get('kpi'), 'pilot': opts.get('pilot'),
+                       'clean': opts.get('clean'), 'cleandir': os.path.expanduser(opts['cleandir']) if opts.get('cleandir') else None,
+                       'cleansuffix': opts.get('cleansuffix'), 'sumdir': [os.path.expanduser(x) for x in opts.get('sumdir', '').split('|') if x]}
     override = {k: float(v) for k, v in (s.split('=') for s in a.spend)}
     items = json.load(open(a.set, encoding='utf-8'))
     set_name = os.path.basename(a.set)
@@ -625,7 +646,14 @@ def main() -> int:
     rows, sums, notes = [], {}, {}
     for name, spec in specs.items():
         setup = None
-        meta = load_summaries(spec['dir'], spec.get('sum_model'), spec.get('variant'))
+        meta = load_summaries(spec['dir'].split('|')[0], spec.get('sum_model'), spec.get('variant'))
+        for sd in spec.get('sumdir') or []:                          # сводки драйвера лежат и в других папках (прогоны r30/px* — в `trellis/`)
+            m2 = load_summaries(sd, spec.get('sum_model'), spec.get('variant'))
+            for k2, j2 in m2['jobs'].items():
+                meta['jobs'].setdefault(k2, j2)
+            meta['spend'] = round(meta['spend'] + m2['spend'], 4)
+            meta['groups'] += m2['groups']
+            meta['by_group'].update(m2['by_group'])
         tasks = [(name, c, spec, meta, cache_dir, a) for c in items]
         if a.workers > 1:
             from concurrent.futures import ProcessPoolExecutor
@@ -712,6 +740,13 @@ def selftest() -> int:
     with tempfile.TemporaryDirectory() as t:
         for n, size in (('7_8-1024-42-0.glb', 5_000_000), ('7_8-paint-x-42.glb', 1000)):
             open(os.path.join(t, n), 'wb').write(b'x' * size)
+        for n in ('7_8-1024-42-0.clean.glb', '7_8-1024-42-0.clean2.glb'):
+            open(os.path.join(t, n), 'wb').write(b'y')
+        json.dump({'tris_total': 111}, open(os.path.join(t, '7_8-1024-42-0.metrics.json'), 'w'))
+        json.dump({'tris_total': 490000}, open(os.path.join(t, '7_8-1024-42-0.metrics2.json'), 'w'))
+        c2 = locate(t, '7_8', '-1024-42-0', 'clean2')
+        check('clean2: берётся `.clean2.glb`, метка по умолчанию — `.clean.glb`', c2['clean'].endswith('.clean2.glb') and locate(t, '7_8', '-1024-42-0')['clean'].endswith('.clean.glb'))
+        check('owned clean2: треугольники — из metrics2', owned(c2['clean'], {'metrics': {'glb': {'triangles': 490000}}}, 'clean') is True)
         check('suffix: берётся именно свой файл', locate(t, '7_8', '-paint-x-42')['raw'].endswith('paint-x-42.glb') and locate(t, '7_8', '-nope-42') is None)
         raw = os.path.join(t, '7_8-1024-42-0.glb')
         check('owned: размер совпал → свой', owned(raw, {'metrics': {'glb': {'size_mb': 4.77}}}) is True)

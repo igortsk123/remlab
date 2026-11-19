@@ -193,10 +193,7 @@ def expand_align_jobs(jobs: list[dict], variants: list[dict]) -> list[dict]:
 
 
 def price_usd_h(tier: str) -> float | None:
-    """Цена выбранного класса карты по тарифу: живая из API Salad (`LIVE_PRICES`, заполняет `fetch_gpu_items`; актуальнее снимка), иначе из `rules/salad-groups.json` (`prices_by_class_usd_h`, снимок 24.10); нет нигде — None (деньги без цены не считаем)."""
-    v = LIVE_PRICES.get((CARD['class_name'], tier))
-    if v is not None:
-        return float(v)
+    """ЗАПАСНАЯ цена выбранного класса карты по тарифу — снимок `rules/salad-groups.json` (`prices_by_class_usd_h`, 24.10; занижает). Основной путь денег — `live_price_usd_h`; сюда падаем, только если Salad не ответил."""
     try:
         d = json.load(open(os.path.join(SCOUT, 'rules', 'salad-groups.json'), encoding='utf-8'))
         return float(d['prices_by_class_usd_h'][CARD['class_name']][tier])
@@ -280,6 +277,33 @@ def format_gpu_table(rows: list[dict], note: str = '', min_gb: int = GPU_MIN_GB)
     if not rows:
         out.append(f'  (нет ни одного класса от {min_gb} ГБ)')
     return '\n'.join(out)
+
+
+_UNSET = object()
+
+
+def parse_live_price(items: list, class_name: str, tier: str) -> float | None:
+    """Живая цена класса карты и тарифа из ответа Salad `GET /gpu-classes` (`items[].prices[]`: priority, price); нет — None."""
+    for c in items or []:
+        if c.get('name') == class_name:
+            for x in c.get('prices') or []:
+                if str(x.get('priority')).lower() == tier:
+                    try:
+                        return float(x['price'])
+                    except (KeyError, TypeError, ValueError):
+                        return None
+    return None
+
+
+def live_price_usd_h(MG, class_name: str, tier: str, items=_UNSET) -> float | None:
+    """ЕДИНАЯ точка денег пробы: ЖИВАЯ цена из Salad (19.11: 4090 high $0,44, а снимок в `rules/salad-groups.json` от 24.10 говорил $0,33 — траты занижались на треть). Нет ответа — None (вызывающий берёт снимок `price_usd_h`).
+    Источник один — `fetch_gpu_items` (тот же запрос `gpu-classes`, он же кладёт цены в `LIVE_PRICES` и кормит таблицу `--gpu`). `items` — уже полученный ответ (None = API молчал, повторно не опрашиваем)."""
+    v = LIVE_PRICES.get((class_name, tier))
+    if v is not None:
+        return float(v)
+    if items is _UNSET:
+        items = fetch_gpu_items(MG)
+    return parse_live_price(items or [], class_name, tier)
 
 
 def cost_usd(running_s: float, price: float, reserve_s: float = 60.0) -> float:
@@ -485,7 +509,10 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
             say('карта', card, 'не найдена среди классов организации:', str(e)[:200])
             return 2
         CARD.update(class_name=card, class_id=cid)
-    price = price_usd_h(a.tier)
+    price = live_price_usd_h(MG, CARD['class_name'], a.tier, items=items)     # живая цена Salad (единая точка); снимок — только запасной
+    price_src = 'живая (Salad gpu-classes)'
+    if price is None:
+        price, price_src = price_usd_h(a.tier), 'СНИМОК rules/salad-groups.json (живая цена недоступна)'
     hf = os.environ.get('HF_TOKEN', '')
     donor = None
     if a.model == 'hunyuan21':                            # контроль: боевой образ и ресурсы берём у боевой группы-образца (в ней нет нашего кода — он едет в command)
@@ -513,7 +540,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     body = build_body(name, a.image, a.tier, a.model, hf, a.cpu, mem_mb, a.image.split('@')[-1][:19], MG.ghcr_auth(), donor, extra_env=wenv)
     if wenv:
         say('окружение воркера (отладка/настройки):', wenv)
-    say('группа', name, CARD['class_name'], 'тариф', a.tier, 'цена $/ч', price, 'заданий', len(jobs), 'потолок $', a.cap)
+    say('группа', name, CARD['class_name'], 'тариф', a.tier, 'цена $/ч', price, f'[{price_src}]', 'заданий', len(jobs), 'потолок $', a.cap)
     if not a.apply:
         safe_print(body)
         for j in jobs:
