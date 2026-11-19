@@ -1,0 +1,77 @@
+# СБОРКА ОБРАЗА ПРОБЫ «StableGen на Salad» НА GITHUB ACTIONS (T-20261119-90/5, этап 1) — не на pakardev (диск).
+# Тонкий слой поверх образа р.4 (`mesh-comfy-trial:trellis2-0460`): добавляет узел ComfyUI-GGUF. Запускается ТОЛЬКО пушем в свою ветку `trial/trellis2-stablegen`
+# (на main, на ветку р.4 и остальные не срабатывает) или вручную из неё. Деплоя нет; боевые группы тег не трогают. Адрес: `ghcr.io/<владелец>/mesh-comfy-trial:stablegen-0460`.
+name: build-stablegen-trial
+
+on:
+  push:
+    branches: ['trial/trellis2-stablegen']
+    paths:
+      - 'tools/scout/stablegen/Dockerfile.sg-comfy'
+      - '.github/workflows/build-stablegen-trial.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-stablegen-trial
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  BASE: ghcr.io/${{ github.repository_owner }}/mesh-comfy-trial:trellis2-0460
+  PRIMARY: ghcr.io/${{ github.repository_owner }}/mesh-comfy-trial:stablegen-0460
+  CTX: tools/scout/stablegen
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/trial/trellis2-stablegen'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Освободить диск сборщика
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      /usr/share/swift /usr/local/share/powershell /usr/local/julia* || true
+          sudo docker system prune -af || true
+          df -h /
+          FREE_GB=$(df -BG --output=avail / | tail -1 | tr -dc 0-9)
+          [ "$FREE_GB" -ge 40 ] || { echo "::error::после очистки меньше 40 ГБ — базовый образ не поместится"; exit 1; }
+
+      - name: Вход в GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Сборка (слой поверх образа р.4)
+        run: |
+          set +e
+          docker build --progress=plain --build-arg BASE="$BASE" -f "$CTX/Dockerfile.sg-comfy" -t "$PRIMARY" "$CTX" > build.log 2>&1
+          rc=$?
+          tail -40 build.log
+          if [ "$rc" -ne 0 ]; then
+            python3 "$CTX/ci_annotate.py" build.log 96 12
+            exit "$rc"
+          fi
+          SIZE=$(docker image inspect "$PRIMARY" --format '{{.Size}}')
+          echo "размер образа (распакованный): $(python3 -c "print(round($SIZE/2**30,2))") ГБ"
+
+      - name: BUILD_INFO из образа
+        run: docker run --rm --entrypoint cat "$PRIMARY" /opt/BUILD_INFO_SG.txt
+
+      - name: Публикация в GHCR
+        id: push
+        run: |
+          docker push "$PRIMARY"
+          DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' "$PRIMARY")
+          COMPRESSED=$(docker manifest inspect "$DIGEST" 2>/dev/null | python3 -c 'import json,sys; m=json.load(sys.stdin); print(sum(l["size"] for l in m.get("layers",[])))' || echo 0)
+          GB=$(python3 -c "print(round($COMPRESSED/2**30,2))")
+          {
+            echo "### Образ пробы StableGen (ComfyUI v0.46.0 + ComfyUI-GGUF)"
+            echo "- адрес: \`$PRIMARY\`"
+            echo "- digest: \`$DIGEST\`"
+            echo "- сжатый размер в реестре: **${GB} ГБ** (лимит Salad 35, наш порог 30)"
+            echo "- коммит: \`${GITHUB_SHA}\`"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 -c "import sys; sys.exit(1 if $COMPRESSED/2**30 > 30 else 0)" || { echo "::error::образ больше 30 ГБ"; exit 1; }

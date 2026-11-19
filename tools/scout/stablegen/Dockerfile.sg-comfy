@@ -1,0 +1,20 @@
+# ОБРАЗ ПРОБЫ «StableGen на Salad» — T-20261119-90/5, этап 1 (решение владельца TG 1998–1999). ТОНКИЙ слой поверх образа р.4 (ComfyUI v0.46.0, torch cu128, python 3.12): добавляет только
+# узел ComfyUI-GGUF (загрузчик квантованных Qwen-Image-Edit `.gguf`; тот же коммит, что ставит установщик StableGen — `setup/installer.py`). Веса НЕ в образе: воркер докачивает их с
+# публичных репозиториев Hugging Face при старте (токен не нужен), как у р.4. Код воркера (`worker_sg.py`) едет в группе переменной TRIAL_WORKER_Z — для правок воркера образ не пересобирается.
+# Ветку и образ р.4 не трогаем: своя ветка `trial/trellis2-stablegen`, свой тег `mesh-comfy-trial:stablegen-0460`.
+ARG BASE=ghcr.io/igortsk123/mesh-comfy-trial:trellis2-0460
+FROM ${BASE}
+ARG GGUF_COMMIT=6ea2651e7df66d7585f6ffee804b20e92fb38b8a
+RUN git clone https://github.com/city96/ComfyUI-GGUF /opt/ComfyUI/custom_nodes/ComfyUI-GGUF \
+    && git -C /opt/ComfyUI/custom_nodes/ComfyUI-GGUF checkout ${GGUF_COMMIT} \
+    && pip install -r /opt/ComfyUI/custom_nodes/ComfyUI-GGUF/requirements.txt \
+    && { echo "ComfyUI-GGUF $(git -C /opt/ComfyUI/custom_nodes/ComfyUI-GGUF rev-parse HEAD)"; pip list 2>/dev/null | grep -i -E '^(gguf|sentencepiece|protobuf|aiohttp) '; } > /opt/BUILD_INFO_SG.txt
+# проверка без видеокарты (падение сборки лучше падения на Salad): пакет gguf, узел загрузчика на месте, штатный узел кодирования Qwen-Edit в ядре ComfyUI
+RUN python -c "import gguf; print('gguf', gguf.__version__ if hasattr(gguf, '__version__') else 'ok')" \
+    && test -f /opt/ComfyUI/custom_nodes/ComfyUI-GGUF/nodes.py \
+    && grep -q "TextEncodeQwenImageEditPlus" /opt/ComfyUI/comfy_extras/nodes_qwen.py \
+    && grep -q "UnetLoaderGGUF" /opt/ComfyUI/custom_nodes/ComfyUI-GGUF/nodes.py
+RUN mkdir -p /data/out /data/weights && chmod -R 777 /data
+ENV COMFY_DIR=/opt/ComfyUI MODEL=stablegen PORT=8000 OUT_DIR=/data/out DATA_DIR=/data/weights
+EXPOSE 8000
+WORKDIR /opt/ComfyUI

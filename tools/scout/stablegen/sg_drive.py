@@ -4,7 +4,7 @@
 пока `sg_modal_active` станет ложью:  импорт формы → пресет и настройки → камеры (`object.add_cameras`) → генерация (`object.test_stable`, ComfyUI на дальнем сервере) → запекание в НАШУ
 развёртку (`object.bake_textures`, `try_unwrap=none`) → экспорт GLB. Форма и UV НЕ меняются. Ход пишется в `<out>/drive.log` и `<out>/status.json`.
 Конфиг (JSON): glb, out, server ("127.0.0.1:8189"), preset ("QWEN PRECISE"|"QWEN SAFE"|…), prompt, cameras {mode,num}, texture_resolution, seed, style_image (путь к фото-образцу или null),
-model_unet (имя GGUF, если не первое в списке), stop_after ("cameras"|"generate"|null), timeout_s."""
+model_unet (имя GGUF, если не первое в списке), lora_name (другая Lightning-LoRA, для 2511), bake_samples, stop_after ("cameras"|"generate"|null), timeout_s."""
 import json
 import os
 import sys
@@ -113,6 +113,9 @@ def steps():
         setattr(sc, k, v)
     if CFG.get('model_unet'):
         sc.model_name = CFG['model_unet']
+    if CFG.get('lora_name') and len(sc.lora_units):      # Qwen-Image-Edit-2511: пресет кладёт LoRA от 2509 — подменяем на свою Lightning-LoRA (`lightx2v/Qwen-Image-Edit-2511-Lightning`)
+        sc.lora_units[0].model_name = CFG['lora_name']
+        say(f'LoRA: {sc.lora_units[0].model_name}')
     say(f"архитектура {sc.model_architecture}, метод {sc.generation_method}, модель {sc.model_name!r}")
 
     # 3. камеры
