@@ -349,10 +349,11 @@ def rot_x(deg: float):
     return np.array([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]], dtype=np.float64)
 
 
-def to_cube(verts, yaw_deg: float = 0.0, pitch_deg: float = 0.0):
+def to_cube(verts, yaw_deg: float = 0.0, pitch_deg: float = 0.0, fill: float = 1.0):
     """Вершины входного GLB (Y вверх) → кадр сетки Pixal3D: поворот на yaw, центр габарита в ноль, наибольшая сторона = 0,99999 (как `preprocess_mesh` апстрима, без его
     обмена осей: сетка Pixal3D — это Y вверх, лицом +Z, то есть кадр GLB; обмен осей апстрима для TRELLIS.2 даёт Z вверх, ComfyUI компенсирует его опцией «90 degrees»).
-    `pitch_deg` — наклон формы вокруг X (после поворота на yaw). Возвращает (p, center, scale, R); обратное — `from_cube`."""
+    `pitch_deg` — наклон формы вокруг X (после поворота на yaw). `fill` (0 < fill ≤ 1, T-20261119-92) — доля куба: форма вписывается не на весь куб, а на `fill` его стороны
+    (активных вокселей — ≈ fill² от прежнего; сама форма не меняется — это только масштаб, `from_cube` его возвращает). Возвращает (p, center, scale, R); обратное — `from_cube`."""
     import numpy as np
     v = np.asarray(verts, dtype=np.float64)
     R = rot_x(pitch_deg) @ rot_y(yaw_deg)
@@ -362,7 +363,9 @@ def to_cube(verts, yaw_deg: float = 0.0, pitch_deg: float = 0.0):
     ext = float((hi - lo).max())
     if not ext > 0:
         raise ValueError('форма вырождена: габарит нулевой')
-    s = 0.99999 / ext
+    if not 0 < fill <= 1:
+        raise ValueError(f'fill: доля куба в (0; 1], получено {fill!r}')
+    s = fill * 0.99999 / ext
     return (vr - c) * s, c, s, R
 
 
@@ -670,7 +673,11 @@ def texture_on_shape(pipe, mesh, image, cam: dict, params: dict, hooks: dict | N
     lap('fit')
     cond_img = warp_photo(rgba, fit['sigma'], fit['tx'], fit['ty'], 1024) if align == 'fit' else compose_black(rgba)
     cam_scale = float(fit['mesh_scale']) if align == 'fit' else mscale                 # «fit»: форма подогнана к фото масштабом камеры; «official» — камера как дала MoGe
-    p, c, s, R = to_cube(verts, fit['yaw_deg'], fit['pitch_deg']) if align == 'fit' else to_cube(verts, fit['yaw_base_deg'])          # «official» — только поворот, кратный 90°, как в апстриме
+    fill = float(params.get('shape_fill') or 1.0)                                      # доля куба (по умолчанию весь): ниже 1 — форма меньше в сетке → меньше активных вокселей (память), форма не меняется
+    if not 0.2 <= fill <= 1.0:
+        raise ValueError(f'shape_fill: от 0,2 до 1, получено {fill!r}')
+    cam_scale *= fill                                                                  # мир = куб / mesh_scale (ProjGrid): форма в кубе в fill раз меньше → mesh_scale во столько же раз меньше, проекция фото та же
+    p, c, s, R = to_cube(verts, fit['yaw_deg'], fit['pitch_deg'], fill) if align == 'fit' else to_cube(verts, fit['yaw_base_deg'], 0.0, fill)          # «official» — только поворот, кратный 90°, как в апстриме
     m_in = trimesh.Trimesh(vertices=p, faces=faces, process=False)
     if has_uv:
         m_in.visual = trimesh.visual.TextureVisuals(uv=np.asarray(uv, dtype=np.float64).copy())
@@ -703,7 +710,7 @@ def texture_on_shape(pipe, mesh, image, cam: dict, params: dict, hooks: dict | N
     shape = check_shape_unchanged(verts.astype(np.float32).astype(np.float64), faces, v_back, np.asarray(out.faces))
     lap('check_shape')
     return final, {'align': align, 'fit': fit, 'shape': shape, 'has_uv': bool(has_uv), 'stage_s': stage,
-                   'smooth': smooth_info, 'cond_canvas': list(cond_img.size), 'cond_mesh_scale': round(cam_scale, 5), 'photo_crop': list(rgba.size), 'mesh_tris': int(len(faces)), 'tex_resolution': resolution}
+                   'smooth': smooth_info, 'cond_canvas': list(cond_img.size), 'cond_mesh_scale': round(cam_scale, 5), 'shape_fill': fill, 'photo_crop': list(rgba.size), 'mesh_tris': int(len(faces)), 'tex_resolution': resolution}
 
 
 FATAL_CUDA_MARKERS = ('device not ready', 'illegal memory access', 'internal assert', 'device-side assert', 'unspecified launch failure', 'cuda driver error',

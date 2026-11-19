@@ -314,6 +314,21 @@ if have_tm:
     final_o, m_o = W.texture_on_shape(FakePipe(), mesh_in, photo_r, cam, {'align': 'official'})
     ok('official: форма идёт только с поворотом, кратным 90° (как в апстриме), форма на выходе та же', np.allclose(np.asarray(final_o.vertices), Vi, atol=1e-6))
 
+    # T-20261119-92: рычаг «доля куба» — форма в сетке меньше, сама форма и число граней те же, камера краски получает mesh_scale × fill
+    fpf = FakePipe()
+    final_f, m_f = W.texture_on_shape(fpf, mesh_in, photo, cam, {'align': 'fit', 'shape_fill': 0.75})
+    enc_f = [c for c in fpf.calls if c[0] == 'encode'][0]
+    cond_f = [c for c in fpf.calls if c[0] == 'cond'][0]
+    ok('shape_fill=0,75: форма в кубе в 0,75 раза меньше (наибольшая сторона 0,75, не больше 0,375 от центра)', abs(float((fpf.enc_mesh.vertices.max(0) - fpf.enc_mesh.vertices.min(0)).max()) - 0.75 * 0.99999) < 1e-6 and enc_f[1] <= 0.375 + 1e-6, str(enc_f))
+    ok('shape_fill=0,75: форма на выходе та же (Хаусдорф ~0, грани те же), mesh_scale камеры краски = подогнанный × 0,75, в метриках shape_fill',
+       np.allclose(np.asarray(final_f.vertices), Vi, atol=1e-6) and m_f['shape']['tris_in'] == m_f['shape']['tris_out'] and abs(cond_f[6] - m_f['fit']['mesh_scale'] * 0.75) < 1e-9 and m_f['shape_fill'] == 0.75, str(cond_f))
+    for bad_fill in (0.1, 1.5, -1):
+        try:
+            W.texture_on_shape(FakePipe(), mesh_in, photo, cam, {'align': 'fit', 'shape_fill': bad_fill})
+            ok(f'shape_fill={bad_fill}: отказ', False)
+        except ValueError:
+            ok(f'shape_fill={bad_fill}: отказ', True)
+
     # рычаги «двойного узора»: сглаживание копии формы для латента и сила направляющей
     fp = FakePipe()
     final, m = W.texture_on_shape(fp, mesh_in, photo, cam, {'align': 'fit', 'shape_smooth': 8})
@@ -390,13 +405,16 @@ for name, kw in (('без --texture-mesh', {}), ('два товара', {'textur
     ok(f'{name}: отказ (код 2) до обращения к Salad — группа не создаётся, денег 0', rc == 2)
 js = [{'job_id': 'a_1-1024-42-0'}]
 vs = [T.parse_tex_variant(x) for x in ('fit', 'official', 'fit+g3', 'fit+g2.5+s40')]
+vf = [T.parse_tex_variant(x) for x in ('fit+f75', 'fit+g3+f50')]
+ok('вариант +f<процент>: доля куба 0,75 / 0,5, по умолчанию 1; id и shape_fill в задании', vf[0]['fill'] == 0.75 and vf[1]['fill'] == 0.5 and vs[0]['fill'] == 1.0
+   and [j['shape_fill'] for j in T.expand_align_jobs([{'job_id': 'a'}], vf)] == [0.75, 0.5] and T.expand_align_jobs([{'job_id': 'a'}], vf)[0]['job_id'] == 'a-fit-f75')
 two = T.expand_align_jobs(js, vs)
 one = T.expand_align_jobs(js, vs[1:2])
 ok('варианты: суффиксы id, align, сила направляющей и сглаживание проставлены',
    [j['job_id'] for j in two] == ['a_1-1024-42-0-fit', 'a_1-1024-42-0-official', 'a_1-1024-42-0-fit-g3', 'a_1-1024-42-0-fit-g2.5-s40']
    and [(j['align'], j['tex_guidance'], j['shape_smooth']) for j in two] == [('fit', 1.0, 0), ('official', 1.0, 0), ('fit', 3.0, 0), ('fit', 2.5, 40)])
 ok('один вариант: id как был', [j['job_id'] for j in one] == ['a_1-1024-42-0'] and one[0]['align'] == 'official')
-ok('неверные записи вариантов отвергаются', all(T.parse_tex_variant(x) is None for x in ('zzz', 'fit+x3', 'fit+g0', 'fit+g11', 'fit+s0', 'fit+sabc', 'fit+s501', '')))
+ok('неверные записи вариантов отвергаются', all(T.parse_tex_variant(x) is None for x in ('zzz', 'fit+x3', 'fit+g0', 'fit+g11', 'fit+s0', 'fit+sabc', 'fit+s501', 'fit+f19', 'fit+f101', 'fit+fabc', '')))
 rc = T.run(types.SimpleNamespace(**{**base, 'texture_mesh': '/x.glb', 'tex_align': 'fit+g99'}), NoTouchMG(), NoTouchMG())
 ok('--tex-align fit+g99: отказ (код 2) до обращения к Salad', rc == 2)
 

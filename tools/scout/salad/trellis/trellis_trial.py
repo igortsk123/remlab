@@ -80,18 +80,21 @@ def build_jobs(skus: list[str], plan: list[dict], inputs: dict, seed: int = 42) 
 
 
 def parse_tex_variant(tok: str) -> dict | None:
-    """pixal3d-tex: вариант прогона `<align>[+g<сила>][+s<повторов>]`: `fit+g3` — подгонка фото и сила направляющей 3 (по умолчанию 1), `fit+s40` — латент формы по копии,
-    сглаженной 40 проходами Тобина (краска ложится на настоящую форму). Неверная запись → None."""
+    """pixal3d-tex: вариант прогона `<align>[+g<сила>][+s<повторов>][+f<процент>]`: `fit+g3` — подгонка фото и сила направляющей 3 (по умолчанию 1), `fit+s40` — латент формы по копии,
+    сглаженной 40 проходами Тобина (краска ложится на настоящую форму), `fit+f75` — форма вписана в 75 % куба (T-20261119-92: активных вокселей ≈ 56 % от прежнего,
+    форма и число треугольников те же; 20…100, по умолчанию 100). Неверная запись → None."""
     parts = tok.strip().split('+')
     if parts[0] not in TEX_ALIGNS:
         return None
-    v = {'tok': tok.strip(), 'align': parts[0], 'guidance': 1.0, 'smooth': 0}
+    v = {'tok': tok.strip(), 'align': parts[0], 'guidance': 1.0, 'smooth': 0, 'fill': 1.0}
     for q in parts[1:]:
         try:
             if q[:1] == 'g' and 0 < float(q[1:]) <= 10:
                 v['guidance'] = float(q[1:])
             elif q[:1] == 's' and 0 < int(q[1:]) <= 500:
                 v['smooth'] = int(q[1:])
+            elif q[:1] == 'f' and 20 <= int(q[1:]) <= 100:
+                v['fill'] = int(q[1:]) / 100.0
             else:
                 return None
         except ValueError:
@@ -117,7 +120,7 @@ def parse_worker_env(items: list[str] | None, debug_cuda: bool = False) -> dict 
 
 def expand_align_jobs(jobs: list[dict], variants: list[dict]) -> list[dict]:
     """pixal3d-tex: по заданию на каждый вариант; вариантов несколько — id получает суффикс варианта (`…-fit`, `…-fit-g3`), один — id как был."""
-    return [dict(j, job_id=f'{j["job_id"]}-{v["tok"].replace("+", "-")}' if len(variants) > 1 else j['job_id'], align=v['align'], tex_guidance=v['guidance'], shape_smooth=v['smooth'])
+    return [dict(j, job_id=f'{j["job_id"]}-{v["tok"].replace("+", "-")}' if len(variants) > 1 else j['job_id'], align=v['align'], tex_guidance=v['guidance'], shape_smooth=v['smooth'], shape_fill=v['fill'])
             for j in jobs for v in variants]
 
 
@@ -415,7 +418,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     j = pending.pop(0)
                     png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.rgba.png'), 'rb').read()
                     pl = {'job_id': j['job_id'], 'image_b64': base64.b64encode(png).decode(), 'pipeline_type': pipeline_type(j['res']), 'seed': j['seed'],
-                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_mesh_b64, 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth')}
+                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_mesh_b64, 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'), 'shape_fill': j.get('shape_fill')}
                     c, r = gw.call('POST', '/generate', pl, timeout=90)
                     inflight = {**j, 'submitted': t, 'http': c}
                     say('задание', j['job_id'], '→ HTTP', c)
