@@ -176,6 +176,8 @@ def reissue(job_id: str, result: dict, old: dict, ctx: dict | None = None) -> tu
     # свободное место в коробке комнаты, полоса «по размеру» страницы — от места (T-40)
     bands: dict = {}
     feeds, report['feeds_short'] = TB.feeds_for(variants, demo, geo=new['rooms_geo'], bands=bands)
+    # одна карточка на pid во всех вхождениях (T-20261119-07/5 п.2): переименование товара магазином не расходится между предметом, лентой и декором
+    report['names'] = TB.unify_cards(variants, feeds, TB._Goods(ctx.get('goods'), ctx.get('room_goods')), TB.known_sids(demo))
     rules = dict(new['rules'])
     if ctx.get('slot_band') and TB.LIVING in new['rooms_geo']:
         rules['slot_band_cm'] = ctx['slot_band'](new['rooms_geo'][TB.LIVING])

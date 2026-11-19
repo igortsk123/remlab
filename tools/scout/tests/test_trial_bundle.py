@@ -1781,3 +1781,113 @@ def test_carried_pids_catalog_tiles_union_and_refusal():
     tiles = {'img/dddddddddddddddd.jpg': {'R_4'}, 'img/eeeeeeeeeeeeeeee.jpg': {'R_8'}}
     assert TB.carried_pids([{'items': [{'sku': a}, {'sku': b}, {'sku': c}]}], demo, tiles) == {'set': 1, 'none': 1, 'ambiguous': 1}
     assert a['pid'] == TB.pid_of('R_4') and 'pid' not in b and 'pid' not in c
+
+
+# ——— ОДНА КАРТОЧКА НА pid (T-20261119-07/5 п.2, план product-names-01) ———
+def _uc_card(sid, name, price=1000, **kw):
+    c = {'name': name, 'name_en': 'EN ' + name, 'price': price, 'img': 'img/aaaaaaaaaaaaaaaa.jpg', 'url': 'https://s/x', 'shop': 'S',
+         'w': 100, 'd': 50, 'h': 80, 'msid': 'm1', 'pid': TB.pid_of(sid), '_sid': sid, **kw}
+    return c
+
+
+def _uc_data(var_name='Кровать Далти-П', feed_name='Кровать Далти', **feed_kw):
+    sid = '1_100'
+    var = {'room_id': 'bedroom-1', 'style': 'лофт', 'items': [{'role': 'кровать', 'sku': _uc_card(sid, var_name)}], 'decor': []}
+    row = {k: v for k, v in _uc_card(sid, feed_name, **feed_kw).items() if k != '_sid'}
+    return sid, [var], {'bedroom-1:кровать': [row]}
+
+
+def _uc_live(sid, name='Кровать Далти-П', price=1200):
+    g = {'name': name, 'name_en': 'EN ' + name, 'price': price, 'img': 'img/bbbbbbbbbbbbbbbb.jpg', 'url': 'https://s/live', 'shop': 'S'}
+    return lambda s, role: dict(g) if s == sid else None
+
+
+def test_unify_cards_one_name_from_live_catalog_everywhere():
+    sid, variants, feeds = _uc_data()
+    st = TB.unify_cards(variants, feeds, _uc_live(sid), [sid])
+    card, row = variants[0]['items'][0]['sku'], feeds['bedroom-1:кровать'][0]
+    assert card['name'] == row['name'] == 'Кровать Далти-П'
+    assert card['name_en'] == row['name_en'] and card['price'] == row['price'] == 1200
+    assert card['img'] == row['img'] == 'img/bbbbbbbbbbbbbbbb.jpg' and card['url'] == row['url'] == 'https://s/live'
+    assert st['names_unified'] == 1 and st['live_cards'] == 1 and st['names_conflict'] == 0 and st['identity_suspect'] == 0
+    assert card['msid'] == 'm1' and (card['w'], card['d'], card['h']) == (100, 50, 80)      # модель и размеры сцены не тронуты
+
+
+def test_unify_cards_live_wins_over_variant_card_and_no_live_falls_back_to_variant():
+    sid, variants, feeds = _uc_data(var_name='Кровать Далти', feed_name='Кровать Далти-П')
+    TB.unify_cards(variants, feeds, _uc_live(sid, 'Кровать Далти-ПП'), [sid])
+    assert variants[0]['items'][0]['sku']['name'] == feeds['bedroom-1:кровать'][0]['name'] == 'Кровать Далти-ПП'    # источник — каталог, не карточка варианта
+    sid, variants, feeds = _uc_data(var_name='Кровать Далти', feed_name='Кровать Далти-П')
+    st = TB.unify_cards(variants, feeds, lambda s, r: None, [sid])                       # каталога нет (ушёл/недоступен): первая карточка варианта
+    assert variants[0]['items'][0]['sku']['name'] == feeds['bedroom-1:кровать'][0]['name'] == 'Кровать Далти'
+    assert st['live_cards'] == 0 and st['names_unified'] == 1
+
+
+def test_unify_cards_idempotent_and_swatch_follows_new_photo():
+    sid, variants, feeds = _uc_data(swatch='#112233')
+    TB.unify_cards(variants, feeds, _uc_live(sid), [sid])
+    assert 'swatch' not in feeds['bedroom-1:кровать'][0]                                 # фото сменилось — цвет по фото считается заново
+    snap = json.dumps([variants, feeds], sort_keys=True, ensure_ascii=False)
+    st = TB.unify_cards(variants, feeds, _uc_live(sid), [sid])
+    assert json.dumps([variants, feeds], sort_keys=True, ensure_ascii=False) == snap and st['names_unified'] == 0
+
+
+def test_unify_cards_neutral_item_is_not_a_card_and_not_overwritten():
+    sid = '1_100'
+    neutral = {'name': 'Кровать 160 см', 'name_en': 'Bed 160 cm', 'pid': TB.pid_of(sid), '_sid': sid, 'msid': 'm1'}          # товара нет: без цены
+    row = {k: v for k, v in _uc_card(sid, 'Кровать Далти').items() if k != '_sid'}
+    variants = [{'room_id': 'bedroom-1', 'items': [{'role': 'кровать', 'sku': neutral}], 'decor': []}]
+    TB.unify_cards(variants, {'bedroom-1:кровать': [row]}, _uc_live(sid, 'Кровать Далти'), [sid])
+    assert neutral['name'] == 'Кровать 160 см' and 'price' not in neutral                # настоящее имя ленты не затёрто нейтральным и наоборот
+
+
+def test_unify_cards_pid_only_in_decor_or_feed():
+    sid = '2_200'
+    lamp = _uc_card(sid, 'Лампа А')
+    row = {k: v for k, v in _uc_card(sid, 'Лампа Б').items() if k != '_sid'}
+    variants = [{'room_id': 'living', 'items': [], 'decor': [{'role': 'лампа', 'sku': lamp}]}]
+    feeds = {'лампа': [row]}
+    TB.unify_cards(variants, feeds, _uc_live(sid, 'Лампа В'), [sid])
+    assert lamp['name'] == row['name'] == 'Лампа В'
+    only = {'лампа': [row]}                                                              # товар только в ленте
+    TB.unify_cards([], only, _uc_live(sid, 'Лампа Г'), [sid])
+    assert only['лампа'][0]['name'] == 'Лампа Г'
+
+
+def test_unify_cards_identity_suspect_quarantines_only_that_product():
+    sid, variants, feeds = _uc_data(feed_name='Кровать Совсем Другая', w=260)           # название и габариты разошлись — не переименование
+    other = {k: v for k, v in _uc_card('3_300', 'Кровать Ещё').items() if k != '_sid'}
+    feeds['bedroom-1:кровать'].append(other)
+    st = TB.unify_cards(variants, feeds, _uc_live(sid), [sid, '3_300'])
+    assert st['identity_suspect'] == 1 and st['names_conflict'] == 0
+    assert [r['name'] for r in feeds['bedroom-1:кровать']] == ['Кровать Ещё']            # из ленты вон; чужой товар на месте
+    sk = variants[0]['items'][0]['sku']
+    assert sk['name'] == TB.neutral_names('кровать')[0] and 'price' not in sk and 'img' not in sk   # в предмете — нейтральное «недоступен»
+
+
+def test_unify_cards_residual_conflict_refuses_publication():
+    sid, variants, feeds = _uc_data()
+    real_cards = TB._cards_of
+
+    def broken(v, f):                                                                    # сведение «не сработало»: ошибка кода → отказ, не молчаливая выдача
+        out = real_cards(v, f)
+        return [(dict(c, name='Кровать Иная') if w[0] == 'feed' else c, w) for c, w in out]
+    TB._cards_of = lambda v, f: broken(v, f) if not getattr(TB, '_uc_done', False) else real_cards(v, f)
+    try:
+        TB._uc_done = True
+        TB.unify_cards(variants, feeds, _uc_live(sid), [sid])                            # норма: одна карточка
+        TB._uc_done = False
+        with pytest.raises(TB.BundleRefused) as e:
+            TB.unify_cards(variants, feeds, _uc_live(sid), [sid])
+        assert e.value.code == 'names_conflict'
+    finally:
+        TB._cards_of = real_cards
+        TB._uc_done = False
+
+
+def test_unify_cards_peek_does_not_count_offers():
+    calls = []
+    g = TB._Goods(lambda sid, role: calls.append(sid) or {'name': 'Х', 'price': 1, 'img': 'img/cccccccccccccccc.jpg'})
+    assert g.peek('1_1', 'диван')['name'] == 'Х' and g.states == {} and g.want_img == {}
+    g.offer('1_1', 'диван')
+    assert g.states == {'products': {'available': 1}}
