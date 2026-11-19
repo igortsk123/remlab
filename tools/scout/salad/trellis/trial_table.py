@@ -442,11 +442,15 @@ def build_row(model: str, c: dict, spec: dict, meta: dict, cache_dir: str, a) ->
     found = locate(spec['dir'], key, suffix)
     job = (meta['jobs'].get(key + suffix) if suffix else None) or meta['jobs'].get(key + '-1024-42-0') or meta['jobs'].get(sku) or {}
     if found and spec.get('sum_model') and job.get('status') == 'done':
-        if owned(found['raw'], job, 'raw') is False:                 # файл — другой модели (перезапись в общей папке)
-            row.update(status='нет', reason='GLB перезаписан другой моделью (общая папка вывода) — исходный потерян', accepted='—')
-            return row
-        if found['clean'] and owned(found['clean'], job, 'clean') is False:
+        raw_own = owned(found['raw'], job, 'raw') is not False
+        clean_own = bool(found['clean']) and owned(found['clean'], job, 'clean') is not False
+        if not clean_own:
             found['clean'] = None                                    # очистка сделана из чужого GLB — не берём
+        if not raw_own:                                              # сырой — другой модели (перезапись в общей папке)
+            if not found['clean']:
+                row.update(status='нет', reason='GLB перезаписан другой моделью (общая папка вывода) — исходный потерян', accepted='—')
+                return row
+            found['raw'] = None                                      # сырого нет, но своя очистка уцелела — судим её (итоговый GLB)
     if not found:
         if job.get('status') == 'failed':
             row.update(status='отказ', reason=(job.get('error') or 'failed')[:120], t_s=(job.get('metrics') or {}).get('total_s'))
@@ -455,8 +459,8 @@ def build_row(model: str, c: dict, spec: dict, meta: dict, cache_dir: str, a) ->
         row['accepted'] = '—'
         return row
     final = found['clean'] or found['raw']
-    row.update(status='готов', reason='', final='clean' if found['clean'] else 'raw',
-               mb_raw=round(os.path.getsize(found['raw']) / 1e6, 2))
+    row.update(status='готов', reason='' if found['raw'] else 'сырой GLB перезаписан чужой моделью, итоговый — своя очистка', final='clean' if found['clean'] else 'raw',
+               mb_raw=round(os.path.getsize(found['raw']) / 1e6, 2) if found['raw'] else None)
     # время и деньги из журналов драйвера
     m = job.get('metrics') or {}
     if m.get('total_s') is not None:
@@ -478,7 +482,7 @@ def build_row(model: str, c: dict, spec: dict, meta: dict, cache_dir: str, a) ->
     if os.path.exists(cp):
         meas = json.load(open(cp, encoding='utf-8'))
     else:
-        meas = measure_pair({'final': final, 'raw': found['raw'], 'cutout': cut if os.path.exists(cut) else None, 'sku': sku,
+        meas = measure_pair({'final': final, 'raw': found['raw'] or final, 'cutout': cut if os.path.exists(cut) else None, 'sku': sku,
                              'iou_grid': a.iou_grid, 'pattern_fn': a.pattern_fn, 'pattern': not a.no_pattern,
                              'lite_dir': None if a.no_lite else os.path.join(a.out, 'lite', model)})
         json.dump(meas, open(cp, 'w', encoding='utf-8'), ensure_ascii=False)
@@ -540,7 +544,7 @@ def write_outputs(out_dir: str, rows: list[dict], sums: dict, notes: dict, set_n
               '| товар | роль | статус | с | $ | треуг. | МБ сырой | МБ лёгкая | IoU | ΔE00 | ΔL | pattern | серый верх | пуст. вид | цвет | принят | почему нет |',
               '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|']
         for r in (x for x in rows if x['model'] == m):
-            st = r['status'] if r['status'] != 'отказ' else f"отказ: {r['reason']}"
+            st = r['status'] if not r['reason'] else (f"отказ: {r['reason']}" if r['status'] == 'отказ' else f"{r['status']} ({r['reason']})")
             iou = fmt(r['iou_front']) + ('' if r['iou_open'] is None else f" (без тонких {r['iou_open']})") + ('' if r['iou_turn'] is None else f" (повёрн. {r['iou_turn']})")
             L.append(f"| `{r['sku']}` | {r['role'] or ''} | {st} | {fmt(r['t_s'])} | {fmt(r['usd'])} | {fmt(r['tris'])} | {fmt(r['mb_raw'])} | "
                      f"{fmt(r['mb_lite'])} | {iou} | {fmt(r['de00'])} | {fmt(r['dL'])} | {fmt(r['pattern_grad_ncc'])} | {fmt(r['grey_top'])} | "
