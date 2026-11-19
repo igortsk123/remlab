@@ -127,7 +127,14 @@ def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) 
     if bad:
         return 3
     pod, price, t_create = None, None, None
-    for gpu, cloud in cand:
+    if a.reuse_pod:                       # живой под от прошлого запуска (его драйвер убит, под цел): не платим за новый образ/веса заново
+        c, d = api.call('GET', f'/v2/pods/{a.reuse_pod}')
+        if c == 200 and d.get('status') == 'RUNNING':
+            pod, price, t_create = a.reuse_pod, float(d.get('cost') or 0), clock() - a.reuse_age_s
+            say(f'беру живой под {pod}: ${price}/ч, возраст {a.reuse_age_s:.0f} с (для оценки денег)')
+        else:
+            say(f'!! под {a.reuse_pod} не RUNNING (HTTP {c}) — создаю новый')
+    for gpu, cloud in ([] if pod else cand):
         c, d = api.call('POST', '/v2/pods', pod_body(name, a.image, gpu, cloud, spec, a.disk, a.min_ram))
         say(f'создание пода {gpu} {cloud}: HTTP {c}', '' if c < 300 else str(d)[:260])
         if c < 300 and d.get('id'):
@@ -269,6 +276,8 @@ def main() -> int:
     ap.add_argument('--relay-python', default='/usr/bin/python3')
     ap.add_argument('--relay-deps', default=os.path.join(SG_HOME, 'fake-deps'))
     ap.add_argument('--salad-logs', nargs='*', default=[], help='журналы Salad-запуска: если в них уже «нода готова» — RunPod гасим')
+    ap.add_argument('--reuse-pod', default=None, help='id живого пода (драйвер прошлого запуска убит без удаления): работать на нём')
+    ap.add_argument('--reuse-age-s', type=float, default=0.0, help='сколько секунд под уже живёт (для оценки денег)')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--stop-only', action='store_true')
     ap.add_argument('--pod')

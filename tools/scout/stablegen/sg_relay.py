@@ -18,7 +18,8 @@ HOP = {'host', 'connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'cont
 
 
 def clean_headers(h, key: str | None) -> dict:
-    out = {k: v for k, v in h.items() if k.lower() not in HOP and k.lower() != 'salad-api-key'}
+    out = {k: v for k, v in h.items() if k.lower() not in HOP and k.lower() not in ('salad-api-key', 'user-agent')}
+    out['User-Agent'] = 'remlab-mesh/1.0'          # прокси RunPod (Cloudflare) режет чужой User-Agent (python-requests/aiohttp) ответом 403
     if key:
         out['Salad-Api-Key'] = key
     return out

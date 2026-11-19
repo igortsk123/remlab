@@ -100,6 +100,8 @@ def steps():
     t_ref = time.time()
     while getattr(sg_state, '_pending_refreshes', 0) > 0 and time.time() - t_ref < 60:
         yield 'wait-refresh'
+    while getattr(sg_state, '_cached_lora_list', [('NONE_AVAILABLE',)])[0][0] in ('NONE_AVAILABLE', 'NO_SERVER') and time.time() - t_ref < 90:
+        yield 'wait-lora-list'                       # ответ на список LoRA приходит фоном; сервер далеко (прокси) — ждём, пока не придёт
     say(f"списки: LoRA {getattr(sg_state, '_cached_lora_list', None)}")
     yield 'settings'
     sc.stablegen_preset = CFG['preset']
@@ -149,6 +151,11 @@ def steps():
     err = getattr(sg('texturing.generator').ComfyUIGenerate, '_error', None)
     if err:
         raise RuntimeError(f'генерация: {err}')
+    import glob
+    gen = glob.glob(os.path.join(OUT, 'sg-output', '**', 'generated', 'generated_image*.png'), recursive=True)     # молчаливый отказ сервера аддон не считает ошибкой: без картинок видов дальше нечего запекать
+    say(f'картинок видов: {len(gen)} из {len(cams)}')
+    if len(gen) < len(cams):
+        raise RuntimeError(f'генерация не дала картинок видов: {len(gen)} из {len(cams)} (сервер не ответил? смотри журнал моста)')
     say('генерация завершена')
     if CFG.get('stop_after') == 'generate':
         return
