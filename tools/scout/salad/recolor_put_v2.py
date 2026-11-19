@@ -32,9 +32,9 @@ def sha(p: str) -> str:
     return hashlib.sha256(open(p, 'rb').read()).hexdigest()
 
 
-def pick_generation(sku: str, gen: str | None, root: str = V2) -> str:
+def pick_generation(sku: str, gen: str | None, root: str | None = None) -> str:
     """Каталог поколения: явный `gen` или единственное с model.glb (иначе AssertionError с перечнем)."""
-    base = f'{root}/{sku.replace(":", "_")}'
+    base = f'{root or V2}/{sku.replace(":", "_")}'
     have = [d for d in sorted(os.listdir(base)) if os.path.exists(f'{base}/{d}/model.glb')]
     if gen:
         assert gen in have, f'поколения {gen} с моделью нет: {have}'
@@ -54,7 +54,7 @@ def de_of(result: str | None, k: int) -> tuple:
 
 
 def put(sku: str, new: str, k: int, gen: str | None = None, result: str | None = None, apply: bool = False, use_gate: bool = True,
-        root: str = V2, table_path: str | None = None, gate_fn=None) -> dict:
+        root: str | None = None, table_path: str | None = None, gate_fn=None) -> dict:
     """→ {'ok', 'refused', 'gate', 'dir', 'rec'}; refused=True — гейт отказал (ничего не записано)."""
     g_dir = pick_generation(sku, gen, root)
     before, after = sha(f'{g_dir}/model.glb'), sha(new)
