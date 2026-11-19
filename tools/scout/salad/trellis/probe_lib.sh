@@ -9,6 +9,7 @@ probe_init() {
   PY="${PY:-$HOME/venvs/scout/bin/python}"
   LOGS="$HOME/remlab-logs/mesh-models-1118"
   BASE="$LOGS/trellis"
+  SHAPE_DIR="${SHAPE_DIR:-$BASE}"                  # каталог форм (по умолчанию тот же, что фото: $BASE); можно задать другой, например $LOGS/trellis2 (формы clean2), фото остаются в $BASE/inputs30
   local list=() s seen=" " bad=0
   if [ "$#" -gt 0 ]; then list=("$@"); else list=(${SKU:-}); fi
   SKUS=()
@@ -29,12 +30,12 @@ probe_init() {
   local skuf c
   for s in "${SKUS[@]}"; do
     skuf="${s//:/_}"
-    if [ -f "$BASE/${skuf}-1024-42-0.clean2.glb" ]; then
-      SHAPE[$s]="$BASE/${skuf}-1024-42-0.clean2.glb"; echo "[$s] форма: ${SHAPE[$s]} — clean2 (правило очистки E)"
-    elif [ -f "$BASE/${skuf}-1024-42-0.clean.glb" ]; then
-      SHAPE[$s]="$BASE/${skuf}-1024-42-0.clean.glb"; echo "[$s] форма: ${SHAPE[$s]} — clean (прежнее правило очистки; clean2 нет)"
+    if [ -f "$SHAPE_DIR/${skuf}-1024-42-0.clean2.glb" ]; then
+      SHAPE[$s]="$SHAPE_DIR/${skuf}-1024-42-0.clean2.glb"; echo "[$s] форма: ${SHAPE[$s]} — clean2 (правило очистки E)"
+    elif [ -f "$SHAPE_DIR/${skuf}-1024-42-0.clean.glb" ]; then
+      SHAPE[$s]="$SHAPE_DIR/${skuf}-1024-42-0.clean.glb"; echo "[$s] форма: ${SHAPE[$s]} — clean (прежнее правило очистки; clean2 нет)"
     else
-      echo "[$s] нет формы: ни $BASE/${skuf}-1024-42-0.clean2.glb, ни .clean.glb" >&2; bad=1
+      echo "[$s] нет формы: ни $SHAPE_DIR/${skuf}-1024-42-0.clean2.glb, ни .clean.glb" >&2; bad=1
     fi
     PHOTO[$s]="$BASE/inputs30/${skuf}.rgba.png"
     [ -f "${PHOTO[$s]}" ] || { echo "[$s] нет фото: ${PHOTO[$s]}" >&2; bad=1; }

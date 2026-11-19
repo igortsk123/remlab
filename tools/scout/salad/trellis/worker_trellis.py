@@ -19,7 +19,7 @@
   GET  /info          видеокарта (nvidia-smi), версии, тайминги холодного старта
   POST /generate      {"job_id","image_b64","pipeline_type","seed","decimation_target","texture_size","role","dims_cm"} → 202; задания идут по одному (один GPU)
   GET  /job/<id>      состояние: queued|running|done|failed + замеры (секунды по стадиям, пик VRAM, треугольники, карты, МБ) или трассировка
-  GET  /glb/<id>      байты `model.glb`
+  GET  /glb/<id>      байты `model.glb` (`?v=ai` — localmesh: текстура до проекции фото; `?v=stages` — mvadapter-i2tex с `mv_keep_stages=1`: архив стадий `stages.zip`, А0)
 
 Бэкенд модели — по `MODEL` (`trellis2` | `pixal3d` | `pixal3d-tex` (краска Pixal3D по готовой форме) | `mvadapter-i2tex` (краска MV-Adapter по готовой форме) | `mvpainter` (краска MVPainter по готовой форме; форму упрощает штатно) | `supratex` (краска SUPRA-Tex с Qwen-Image-2.1 по готовой форме; форму и развёртку выпуск меняет) | `hunyuan21`); `MODEL=fake` — для теста без видеокарты (`tests_trellis_trial.py`). Токена Hugging Face в логи не пишем.
 """
@@ -1095,6 +1095,9 @@ MV_VAE = 'madebyollin/sdxl-vae-fp16-fix'
 MV_ADAPTER = 'huanngzh/mv-adapter'
 MV_NEG = 'watermark, ugly, deformed, noisy, blurry, low contrast'
 MV_AZ = [x - 90 for x in [0, 90, 180, 270, 180, 180]]          # как в `scripts/texture_i2tex.py:118`; `TexturePipeline` вычитает ещё 90° и сама поворачивает форму (front_x_to_y) — вместе кадр тот же, что у `run_pipeline`
+MV_EL = [0, 0, 0, 0, 89.99, -89.99]                            # подъём камер — по умолчанию `TexturePipeline.__call__` (camera_elevation_deg)
+MV_STAGE_PX = 1536                                             # А0 (`mv_keep_stages`): кадр рендера в камере вида 0 — как вид после RealESRGAN ×2
+MV_STAGE_SS = 2                                                # рендер в 2× и усреднение 2×2: текстура 4096² в кадре 1536² иначе даёт муар
 
 
 def mv_norm_mask(m, n: int = FIT_N, fill: float = 0.9):
@@ -1204,7 +1207,65 @@ def mv_stub_modules() -> list:
     return done
 
 
-def mv_texture_on_shape(runner, mesh, image, params: dict, hooks: dict | None = None, work: str | None = None) -> tuple:
+def mv_keep_flag(v) -> bool:
+    """`mv_keep_stages` из задания: 1/true/'1' — включено; нет, 0, '', 'false' — выключено (по умолчанию выключено, ничего не меняет)."""
+    return str(v).strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def mv_split_views(views_png: str, out_dir: str, n: int = MV_VIEWS) -> list:
+    """Сетка `mv.png` (n видов в ряд) → n отдельных PNG без потерь (`v0.png` … ). Возвращает относительные имена (от папки стадий: `views_768/vN.png`)."""
+    from PIL import Image
+    os.makedirs(out_dir, exist_ok=True)
+    im = Image.open(views_png)
+    im.load()
+    w = im.width // n
+    names = []
+    for i in range(n):
+        p = os.path.join(out_dir, f'v{i}.png')
+        im.crop((i * w, 0, (i + 1) * w, im.height)).save(p)
+        names.append(os.path.join(os.path.basename(out_dir), f'v{i}.png'))
+    return names
+
+
+def mv_zip_dir(src: str, zip_path: str) -> dict:
+    """Папка стадий → архив (без сжатия: PNG и npz уже сжаты). Пути в архиве — от `src`, с `/`. → {'bytes', 'files'}."""
+    import zipfile
+    n = 0
+    os.makedirs(os.path.dirname(zip_path) or '.', exist_ok=True)
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_STORED) as z:
+        for root, _dirs, files in os.walk(src):
+            for fn in sorted(files):
+                full = os.path.join(root, fn)
+                z.write(full, os.path.relpath(full, src).replace(os.sep, '/'))
+                n += 1
+    return {'bytes': os.path.getsize(zip_path), 'files': n}
+
+
+def mv_keep_stages(runner, in_glb: str, uv_size: int, cap: dict, tex, final, views_png: str, stages_dir: str, zip_path: str, info: dict) -> dict:
+    """А0 (`mv_keep_stages=1`, только проба): сохранить стадии без потерь и собрать `stages.zip`. Не меняет ни форму, ни краску итога. Сбой самого сохранения не отнимает у задания GLB (деньги уже потрачены):
+    причина идёт в метрики (`error`), архив собирается из того, что успело сохраниться; фатальная ошибка CUDA — наружу (воркер помечается сломанным, как везде)."""
+    t0 = time.time()
+    os.makedirs(stages_dir, exist_ok=True)
+    err = None
+    ran: dict = {}
+    try:
+        info['views_768'] = mv_split_views(views_png, os.path.join(stages_dir, 'views_768'))
+        import shutil
+        shutil.copy(views_png, os.path.join(stages_dir, 'mv.png'))
+        ran = runner.keep_stages(in_glb, uv_size, cap, tex, final.visual.material.baseColorTexture, stages_dir) or {}
+    except Exception as e:  # noqa: BLE001
+        if classify_cuda_error(e) == 'fatal':
+            raise
+        err = f'{type(e).__name__}: {str(e)[:300]}'
+        print('[mvtex] keep_stages: сбой сохранения стадий —', err, '\n' + traceback.format_exc()[-1500:], flush=True)
+    manifest = {**info, **ran, 'error': err}
+    with open(os.path.join(stages_dir, 'manifest.json'), 'w', encoding='utf-8') as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=1, default=str)
+    z = mv_zip_dir(stages_dir, zip_path)
+    return {'zip': os.path.basename(zip_path), **z, 'keep_s': round(time.time() - t0, 2), 'error': err, 'timing_s': ran.get('timing_s'), 'jpeg_mae_255': ran.get('jpeg_mae_255')}
+
+
+def mv_texture_on_shape(runner, mesh, image, params: dict, hooks: dict | None = None, work: str | None = None, stages_zip: str | None = None) -> tuple:
     """Покрасить ГОТОВУЮ форму `mesh` (trimesh, кадр GLB: Y вверх; нужна развёртка UV на каждую вершину) по фото `image` (RGBA, настоящая альфа). `runner` — две стадии апстрима:
     `views(in_glb, image, params, work) → путь к PNG с 6 видами в ряд` и `unproject(in_glb, views_png, work, uv_size) → путь к GLB с краской`. Возвращает (trimesh: исходные вершины/грани/UV + краска, замеры).
     Форма не меняется: после апстрима GLB читается обратно, вершины возвращаются из куба и сверяются с входом (`check_shape_unchanged`, допуск 1e-4 диагонали), развёртка — тоже."""
@@ -1242,9 +1303,11 @@ def mv_texture_on_shape(runner, mesh, image, params: dict, hooks: dict | None = 
     in_glb = os.path.join(work, 'in.glb')
     mv_write_input_glb(in_glb, p, faces, uv)
     lap('write_input')
+    keep = mv_keep_flag(params.get('mv_keep_stages'))          # А0: сохранить стадии (только проба; выключено — поведение и вывод прежние)
+    cap = {} if keep else None
     views_png = runner.views(in_glb, image, params, work)
     lap('views')
-    shaded = runner.unproject(in_glb, views_png, work, uv_size)
+    shaded = runner.unproject(in_glb, views_png, work, uv_size, capture=cap) if keep else runner.unproject(in_glb, views_png, work, uv_size)
     lap('unproject')
     back = trimesh.load(shaded, force='mesh', process=False)
     v_back = from_cube(np.asarray(back.vertices, dtype=np.float64), c, s, R).astype(np.float32).astype(np.float64)       # через float32, как лежит в GLB
@@ -1259,6 +1322,12 @@ def mv_texture_on_shape(runner, mesh, image, params: dict, hooks: dict | None = 
     lap('check_shape')
     final = mv_build_final(verts, faces, uv, tex, texture_size)
     lap('build')
+    stages = None
+    if keep:                                                    # после защиты «форма и развёртка не изменились» и после сборки итога: итог от этого не меняется
+        stages = mv_keep_stages(runner, in_glb, uv_size, cap, tex, final, views_png, os.path.join(work, 'stages'), stages_zip or os.path.join(work, 'stages.zip'),
+                                {'uv_size': uv_size, 'texture_size': texture_size, 'steps': steps, 'yaw_deg': fit['yaw_deg'], 'mv_az': MV_AZ, 'mv_el': MV_EL, 'ortho': MV_ORTHO,
+                                 'view_px': 768, 'tex_in_size': list(tex.size)})
+        lap('keep_stages')
     thumb = None
     try:
         import base64
@@ -1270,8 +1339,11 @@ def mv_texture_on_shape(runner, mesh, image, params: dict, hooks: dict | None = 
         thumb = base64.b64encode(buf.getvalue()).decode()
     except Exception:  # noqa: BLE001 — миниатюра видов нужна для разбора, не для результата
         thumb = None
-    return final, {'fit': fit, 'shape': shape, 'uv_max_dev': round(uv_dev, 8), 'stage_s': stage, 'mesh_tris': int(len(faces)), 'mesh_verts': int(len(verts)),
-                   'uv_size': uv_size, 'steps': steps, 'texture_size': texture_size, 'tex_in_size': list(tex.size), 'views_jpeg_b64': thumb}
+    out = {'fit': fit, 'shape': shape, 'uv_max_dev': round(uv_dev, 8), 'stage_s': stage, 'mesh_tris': int(len(faces)), 'mesh_verts': int(len(verts)),
+           'uv_size': uv_size, 'steps': steps, 'texture_size': texture_size, 'tex_in_size': list(tex.size), 'views_jpeg_b64': thumb}
+    if stages is not None:
+        out['stages'] = stages                                  # {'zip', 'bytes', 'files', 'keep_s', 'error', …}; ключ появляется только при mv_keep_stages
+    return final, out
 
 
 class MVRunner:
@@ -1303,10 +1375,150 @@ class MVRunner:
         grid.save(path)
         return path
 
-    def unproject(self, in_glb: str, views_png: str, work: str, uv_size: int) -> str:
+    def _unproject(self, in_glb: str, views_png: str, work: str, uv_size: int) -> str:
         out = self.tex_pipe(mesh_path=in_glb, save_dir=work, save_name='mv', uv_unwarp=False, preprocess_mesh=False, uv_size=uv_size, rgb_path=views_png,
                             rgb_process_config=self.mod_cfg(view_upscale=True, inpaint_mode='view'), camera_azimuth_deg=MV_AZ)
         return out.shaded_model_save_path
+
+    def unproject(self, in_glb: str, views_png: str, work: str, uv_size: int, capture: dict | None = None) -> str:
+        """Без `capture` — как раньше. С `capture` (А0, `mv_keep_stages`) тот же вызов апстрима, но с двумя «подслушивающими» обёртками, поведение которых не меняют:
+        `maybe_upscale_image` (выход RealESRGAN: 6 видов 1536² → `capture['up_pil']`, вид 0 в float32 → `capture['up0']`) и `replace_mesh_texture_and_save` модуля `pipeline_texture`
+        (картинка карты 4096² ДО JPEG, в который её жмёт апстрим при записи GLB → `capture['tex_lossless']`). Обе обёртки снимаются в `finally`."""
+        if capture is None:
+            return self._unproject(in_glb, views_png, work, uv_size)
+        import importlib
+        import numpy as np
+        from PIL import Image
+        torch = self.torch
+        PT = importlib.import_module('mvadapter.pipelines.pipeline_texture')
+        orig_up = self.tex_pipe.maybe_upscale_image
+        orig_save = PT.replace_mesh_texture_and_save
+
+        def spy_up(tensor, upscale, upscale_factor, batched=False):
+            out = orig_up(tensor, upscale, upscale_factor, batched)
+            if upscale and 'up_pil' not in capture:
+                u8 = (out.detach().clamp(0, 1) * 255).round().to(torch.uint8).cpu().numpy()
+                capture['up_pil'] = [Image.fromarray(np.ascontiguousarray(x)) for x in u8]
+                capture['up0'] = out[0:1].detach().float().cpu().clone()
+            return out
+
+        def spy_save(*a, **kw):
+            tx = kw.get('texture')
+            if isinstance(tx, Image.Image):
+                capture['tex_lossless'] = tx.copy()
+            return orig_save(*a, **kw)
+        self.tex_pipe.maybe_upscale_image = spy_up
+        PT.replace_mesh_texture_and_save = spy_save
+        try:
+            return self._unproject(in_glb, views_png, work, uv_size)
+        finally:
+            PT.replace_mesh_texture_and_save = orig_save
+            try:
+                del self.tex_pipe.maybe_upscale_image                       # вернуть метод класса
+            except AttributeError:
+                pass
+
+    def keep_stages(self, in_glb: str, uv_size: int, cap: dict, tex_glb, tex_final, out_dir: str) -> dict:
+        """А0: всё, что нужно, чтобы сравнить стадии с видом 0 «пиксель в пиксель». Камера — ТА ЖЕ ортокамера вида 0, что у проекции (форма и камеры собраны точно как в `TexturePipeline.__call__`:
+        `load_mesh(rescale=True, front_x_to_y=True, default_uv_size)`, `get_orthogonal_camera(… azimuth = MV_AZ − 90)`); рендер — `render` апстрима (nvdiffrast, видеокарта).
+        Сохраняет в `out_dir`: `views_1536/vN.png` (после RealESRGAN), `maps/tex4096_lossless.png` (до JPEG), `tex4096_glb.png` (то, что лежит в GLB апстрима, после JPEG), `tex4096_from0.png` (запекание ТОЛЬКО из вида 0),
+        `tex2048.png` (итог), `render_view0/*` (рендеры форм с четырьмя картами, маска, нормали, cos угла к камере, UV по пикселям). Запекание из вида 0: второй вызов `cam_proj` с ОДНИМ видом (его картинка после RealESRGAN
+        и его камера) и теми же порогами, что у основного (aoi_cos 0,2, depth_grad 0,1/5, alpha 3): остальные виды физически не участвуют, веса нормируются на единицу; LaMa-достройка невидимого не делается
+        (нужен только фасад вида 0). Возвращает описание файлов, время и измерение потери на JPEG."""
+        import importlib
+        import numpy as np
+        from PIL import Image
+        torch = self.torch
+        TF = torch.nn.functional
+        dev = getattr(self.tex_pipe, 'device', 'cuda')
+        MU = importlib.import_module('mvadapter.utils.mesh_utils')
+        MR = importlib.import_module('mvadapter.utils.mesh_utils.render')
+        MUT = importlib.import_module('mvadapter.utils.mesh_utils.utils')
+        files: dict = {}
+        timing: dict = {}
+        t = [time.time()]
+
+        def lap(name: str) -> None:
+            try:
+                torch.cuda.synchronize()
+            except Exception:  # noqa: BLE001 — без видеокарты (проверка на процессоре) синхронизировать нечего
+                pass
+            timing[name] = round(time.time() - t[0], 2)
+            t[0] = time.time()
+
+        def save(img, rel: str) -> None:
+            p = os.path.join(out_dir, rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            img.save(p)
+            files[rel] = os.path.getsize(p)
+
+        def u8(x):                                               # float [0, 1] → uint8 без потерь, кроме округления
+            return (x.detach().clamp(0, 1) * 255).round().to(torch.uint8).cpu().numpy()
+
+        for i, im in enumerate(cap.get('up_pil') or []):
+            save(im, f'views_{MV_STAGE_PX}/v{i}.png')
+        lap('save_views_up')
+        save(tex_glb.convert('RGB'), 'maps/tex4096_glb.png')
+        if cap.get('tex_lossless') is not None:
+            save(cap['tex_lossless'].convert('RGB'), 'maps/tex4096_lossless.png')
+        save(tex_final.convert('RGB'), 'maps/tex2048.png')
+        lap('save_maps')
+        mesh = MU.load_mesh(in_glb, rescale=True, move_to_center=False, front_x_to_y=True, default_uv_size=uv_size, device=dev)
+        cams = MU.get_orthogonal_camera(elevation_deg=MV_EL, distance=[1.0] * 6, left=-MV_ORTHO / 2, right=MV_ORTHO / 2, bottom=-MV_ORTHO / 2, top=MV_ORTHO / 2,
+                                        azimuth_deg=[x - 90 for x in MV_AZ], device=dev)
+        cam0 = cams[0:1]
+        # --- запекание только из вида 0 ---
+        texs = {'r4096_from6': tex_glb, 'r2048': tex_final}
+        if cap.get('tex_lossless') is not None:
+            texs['r4096_lossless'] = cap['tex_lossless']
+        from0 = None
+        if cap.get('up0') is not None:
+            out = self.tex_pipe.cam_proj(cap['up0'].to(dev), mesh, cam0, from_scratch=True, poisson_blending=False, depth_grad_dilation=5, depth_grad_threshold=0.1,
+                                         uv_exp_blend_alpha=3, uv_exp_blend_view_weight=torch.as_tensor([1]), aoi_cos_valid_threshold=0.2, uv_size=uv_size, uv_padding=True, return_dict=True)
+            from0 = out.uv_proj.detach()
+            valid0 = out.uv_proj_mask.detach()
+            save(Image.fromarray(u8(from0)), 'maps/tex4096_from0.png')
+            save(Image.fromarray(valid0.cpu().numpy().astype(np.uint8) * 255), 'maps/tex4096_from0_valid.png')
+            del out
+        lap('bake_from0')
+        px, ss = MV_STAGE_PX, MV_STAGE_SS
+        # --- геометрия в камере вида 0: маска, нормали, cos угла, UV по пикселям ---
+        g = MR.render(self.tex_pipe.ctx, mesh, cam0, height=px, width=px, render_attr=False, render_depth=False, render_normal=True)
+        mask = g.mask[0]
+        n_cs = TF.normalize((g.normal[:, :, :, None, :] * cam0.w2c[:, None, None, :3, :3]).sum(-1), dim=-1)          # нормаль в системе камеры, как у `uv_render_geometry`
+        n_cs = torch.where(mask[None, :, :, None], n_cs, torch.zeros_like(n_cs))
+        aoi = n_cs[0, :, :, 2].clamp(0, 1)
+        save(Image.fromarray(mask.cpu().numpy().astype(np.uint8) * 255), 'render_view0/mask.png')
+        save(Image.fromarray(u8(n_cs[0] * 0.5 + 0.5)), 'render_view0/normal_cam.png')
+        save(Image.fromarray((aoi.clamp(0, 1) * 65535).round().to(torch.int32).cpu().numpy().astype(np.uint16)), 'render_view0/aoi_cos16.png')
+        clip = MUT.get_clip_space_position(mesh.v_pos, cam0.mvp_mtx)
+        rast, _ = self.tex_pipe.ctx.rasterize(clip, mesh.t_pos_idx, (px, px), grad_db=False)
+        uvm, _ = self.tex_pipe.ctx.interpolate(mesh.v_tex[None], rast, mesh.t_tex_idx)
+        uvp = os.path.join(out_dir, 'render_view0', 'uv.npz')
+        np.savez_compressed(uvp, uv=uvm[0].detach().float().cpu().numpy().astype(np.float32), mask=(rast[0, :, :, 3] > 0).cpu().numpy())
+        files['render_view0/uv.npz'] = os.path.getsize(uvp)
+        lap('geometry')
+        # --- рендеры форм с картами (в 2× и усреднение) ---
+        if from0 is not None:
+            texs['r4096_from0'] = from0
+        for name, tx in texs.items():
+            ten = tx if torch.is_tensor(tx) else torch.from_numpy(np.asarray(tx.convert('RGB'), dtype=np.float32) / 255.0).to(dev)
+            r = MR.render(self.tex_pipe.ctx, mesh, cam0, height=px * ss, width=px * ss, render_attr=True, render_depth=False, render_normal=False,
+                          texture_override=ten.contiguous(), attr_background=0.5, texture_filter_mode='linear')
+            a = r.attr[0].detach().float().reshape(px, ss, px, ss, 3).mean(dim=(1, 3))
+            save(Image.fromarray(u8(a)), f'render_view0/{name}.png')
+            del r, a, ten
+            lap('render_' + name)
+        jpeg_mae = None
+        if cap.get('tex_lossless') is not None and cap['tex_lossless'].size == tex_glb.size:
+            jpeg_mae = round(float(np.abs(np.asarray(cap['tex_lossless'].convert('RGB'), dtype=np.int16) - np.asarray(tex_glb.convert('RGB'), dtype=np.int16)).mean()), 4)
+        try:
+            torch.cuda.empty_cache()
+        except Exception:  # noqa: BLE001
+            pass
+        return {'render_px': px, 'render_ss': ss, 'camera': {'view': 0, 'elevation_deg': MV_EL[0], 'azimuth_deg': MV_AZ[0] - 90, 'ortho': MV_ORTHO, 'distance': 1.0},
+                'uv_flip_v': True, 'uv_note': 'uv.npz: uv[y,x]=(u, v_flipped) — столбец u·uv_size, строка v_flipped·uv_size (строка 0 — верх картинки карты)',
+                'files': files, 'timing_s': timing, 'jpeg_mae_255': jpeg_mae, 'from0_bake': 'cam_proj по одному виду 0 (после RealESRGAN); без LaMa'}
 
 
 class MVAdapterTexBackend:
@@ -1399,7 +1611,7 @@ class MVAdapterTexBackend:
         os.makedirs(work, exist_ok=True)
         try:
             hooks = {'sync': torch.cuda.synchronize, 'free': free_gpu, 'mem': mem}
-            final, m = mv_texture_on_shape(self.runner, mesh, image, params, hooks, work)
+            final, m = mv_texture_on_shape(self.runner, mesh, image, params, hooks, work, stages_zip=path[:-len('.glb')] + '.stages.zip' if mv_keep_flag(params.get('mv_keep_stages')) else None)
         finally:
             shutil.rmtree(work, ignore_errors=True)
         final.export(path)
@@ -2543,12 +2755,13 @@ class H(BaseHTTPRequestHandler):
         if p.startswith('/glb/'):
             jid = os.path.basename(p[5:])
             rp = os.path.join(JOBS_DIR, jid + '.res.json')
-            fp = os.path.join(OUT, f'{jid}.ai.glb' if 'v=ai' in self.path else f'{jid}.glb')      # ?v=ai — localmesh: текстура до проекции фото
+            stages = 'v=stages' in self.path                                                   # ?v=stages — mvadapter-i2tex с mv_keep_stages: архив стадий (А0)
+            fp = os.path.join(OUT, f'{jid}.stages.zip' if stages else (f'{jid}.ai.glb' if 'v=ai' in self.path else f'{jid}.glb'))      # ?v=ai — localmesh: текстура до проекции фото
             if not os.path.exists(rp) or json.load(open(rp, encoding='utf-8')).get('status') != 'done' or not os.path.exists(fp):
-                return self._json(404, {'error': 'GLB нет (задание не готово или упало)'})
+                return self._json(404, {'error': 'GLB нет (задание не готово или упало)' if not stages else 'архива стадий нет (mv_keep_stages не было или сохранение упало)'})
             data = open(fp, 'rb').read()
             self.send_response(200)
-            self.send_header('Content-Type', 'model/gltf-binary')
+            self.send_header('Content-Type', 'application/zip' if stages else 'model/gltf-binary')
             self.send_header('Content-Length', str(len(data)))
             self.end_headers()
             self.wfile.write(data)
