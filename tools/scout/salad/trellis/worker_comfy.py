@@ -11,6 +11,7 @@ drop_inverted, drop_enclosed, drop_small, smooth_iters, fix_poles, decimate (ц�
 Вся форма (три сэмплера + VAE) считается один раз: ComfyUI переиспользует результаты неизменённых узлов между запросами, поэтому варианты дешёвые.
 Сборка workflow и разбор ответов — чистые функции без сети и видеокарты (tests_comfy.py)."""
 import base64
+import collections
 import json
 import os
 import re
@@ -248,6 +249,20 @@ def comfy_post(path: str, body: dict, timeout: int = 60):
             return e.code, {}
 
 
+LOG_TAIL = collections.deque(maxlen=50)                   # последние 50 строк журнала ComfyUI — в /health, чтобы причина падения не уходила вместе с группой (T-94/3, 19.11: t94l)
+
+
+def _pump_log(child: subprocess.Popen) -> None:
+    """Читает вывод ComfyUI: каждую строку — в кольцо LOG_TAIL и дальше в свой stdout (журнал Salad)."""
+    try:
+        for line in child.stdout:
+            line = line.rstrip('\n')
+            LOG_TAIL.append(line[:500])
+            print(line, flush=True)
+    except (ValueError, OSError):
+        pass
+
+
 def start_comfy() -> subprocess.Popen:
     out_dir = os.path.join(OUT, 'comfy-out')
     os.makedirs(out_dir, exist_ok=True)
@@ -256,7 +271,9 @@ def start_comfy() -> subprocess.Popen:
     os.makedirs(front, exist_ok=True)
     cmd = [sys.executable, '-u', 'main.py', '--listen', '127.0.0.1', '--port', str(COMFY_PORT), '--disable-auto-launch', '--output-directory', out_dir,
            '--temp-directory', '/tmp/comfy-temp', '--disable-metadata', '--front-end-root', front, '--disable-partner-nodes']
-    return subprocess.Popen(cmd, cwd=COMFY_DIR)
+    child = subprocess.Popen(cmd, cwd=COMFY_DIR, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, errors='replace')
+    threading.Thread(target=_pump_log, args=(child,), daemon=True).start()
+    return child
 
 
 def boot() -> None:
@@ -403,7 +420,8 @@ def health() -> dict:
     alive = child is not None and child.poll() is None
     broken = STATE['error'] if STATE['phase'] == 'failed' else (None if alive or STATE['phase'] in ('boot', 'weights', 'starting_comfy') else 'ComfyUI не работает')
     return {'ok': not broken, 'phase': STATE['phase'], 'warm': bool(STATE['warm']) and alive, 'error': STATE['error'] or broken, 'broken': broken, 'progress': STATE['progress'],
-            'disk_gb': {'hf': _disk(DATA), 'out': _disk(OUT)}, 'timings': STATE['timings'], 'weights_gb': STATE.get('weights_gb'), 'uptime_s': round(time.time() - T0, 1)}
+            'disk_gb': {'hf': _disk(DATA), 'out': _disk(OUT)}, 'timings': STATE['timings'], 'weights_gb': STATE.get('weights_gb'), 'uptime_s': round(time.time() - T0, 1), 'comfy_returncode': (child.returncode if child is not None else None),
+            'log_tail': list(LOG_TAIL) if (broken or STATE['phase'] == 'failed') else list(LOG_TAIL)[-5:]}
 
 
 class H(BaseHTTPRequestHandler):

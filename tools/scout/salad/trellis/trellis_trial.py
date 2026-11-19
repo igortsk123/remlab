@@ -512,6 +512,10 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                             summary['jobs'].append(inflight)
                             summary['failed'] += 1
                             summary['broken'] = hh.get('broken') or hh.get('error')
+                            summary['comfy_log_tail'] = hh.get('log_tail')                 # журнал ComfyUI уходит вместе с группой — сохраняем в итог и в журнал запуска
+                            summary['comfy_returncode'] = hh.get('comfy_returncode')
+                            for _l in (hh.get('log_tail') or [])[-50:]:
+                                say('  comfy|', str(_l)[:300])
                             say('!! воркер сломан (фатальная ошибка CUDA):', summary['broken'], '— гашу сразу')
                             summary['stopped_by'] = 'worker_broken'
                             break

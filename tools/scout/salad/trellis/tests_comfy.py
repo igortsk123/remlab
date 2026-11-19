@@ -123,6 +123,24 @@ except OSError:
 ok('/health отвечает 200 по IPv6 (::1) — или в окружении нет IPv6', v6 in (True, None))
 srv.shutdown()
 
+print('6c. журнал ComfyUI в /health при падении (T-94/3: причина не должна уходить с группой)')
+import subprocess as _sp
+_c = _sp.Popen([sys.executable, '-c', "import sys\nfor i in range(80): print('line', i, flush=True)\nprint('CUDA error: out of memory', file=sys.stderr, flush=True)\nsys.exit(3)"],
+               stdout=_sp.PIPE, stderr=_sp.STDOUT, text=True, bufsize=1)
+W.LOG_TAIL.clear()
+_th = _t.Thread(target=W._pump_log, args=(_c,), daemon=True)
+_th.start()
+_c.wait()
+_th.join(5)
+ok('кольцо держит последние 50 строк из 81', len(W.LOG_TAIL) == 50 and W.LOG_TAIL[-1] == 'CUDA error: out of memory' and W.LOG_TAIL[0] == 'line 31')
+_old = (W.STATE.get('child'), W.STATE['phase'], W.STATE['warm'])
+W.STATE.update(child=_c, phase='ready', warm=True)
+_h = W.health()
+ok('при упавшем ComfyUI /health: broken, код возврата, 50 строк журнала', bool(_h['broken']) and _h['comfy_returncode'] == 3 and len(_h['log_tail']) == 50 and _h['log_tail'][-1].startswith('CUDA error'))
+W.STATE.update(child=None, phase='ready', warm=True)
+W.STATE.update(child=_old[0], phase=_old[1], warm=_old[2])
+ok('живой воркер — только хвост из 5 строк (ответ короткий)', (lambda h: len(h['log_tail']) <= 5)(W.health()))
+
 print('7. драйвер: модель comfy, вход hdc')
 import base64
 import tempfile
