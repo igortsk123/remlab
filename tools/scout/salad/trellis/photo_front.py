@@ -322,11 +322,17 @@ def splat(uv: np.ndarray, size: int, mask: np.ndarray, color: np.ndarray, conf: 
     return {'A': Ab, 'W': Wb, 'C': Cb, 'ref': ref, 'texels_per_pixel': r, 'sigma': sg}
 
 
-def apply_photo(tex: np.ndarray, sp: dict) -> tuple[np.ndarray, dict]:
+def photo_weight(sp: dict) -> tuple[np.ndarray, np.ndarray]:
+    """Вес фото на тексель карты (0…1) и маска покрытия: то, чем фото-слой перекрывает базу в `apply_photo` (0 — тексель остаётся базой, 1 — целиком из фото)."""
     cover = sp['A'] >= COVER_MIN * sp.get('ref', 1.0)                  # покрытие — относительно типичной плотности (на карте плотнее кадра абсолютный порог не набирается)
-    colour = sp['C'] / np.maximum(sp['W'], 1e-6)[..., None]
     w = np.where(cover, np.clip(sp['W'] / np.maximum(sp['A'], 1e-6), 0, 1), 0.0)
-    w = np.where(w < CONF_MIN, 0.0, w)[..., None]
+    return np.where(w < CONF_MIN, 0.0, w).astype(np.float32), cover
+
+
+def apply_photo(tex: np.ndarray, sp: dict) -> tuple[np.ndarray, dict]:
+    w, cover = photo_weight(sp)
+    colour = sp['C'] / np.maximum(sp['W'], 1e-6)[..., None]
+    w = w[..., None]
     out = np.clip(np.round(tex.astype(np.float32) * (1 - w) + colour * w), 0, 255).astype(np.uint8)
     return out, {'texels_covered': int(cover.sum()), 'texels_changed_share': round(float((w[..., 0] > 0.05).mean()), 5), 'mean_weight_on_covered': round(float(w[..., 0][cover].mean()) if cover.any() else 0.0, 4)}
 
@@ -407,6 +413,8 @@ def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: 
 
     sp = splat(uv, size, inner, layer, conf)
     new, apinfo = apply_photo(tex, sp)
+    wmap, _ = photo_weight(sp)
+    Image.fromarray(np.round(wmap * 255).astype(np.uint8)).save(os.path.join(out_dir, f'{stem}.uvmap-confidence.png'))      # вес фото на тексель (карта той же сетки, что итог); читает uv_maps.py
     r_out = A.render_view0(new, uvd)
 
     jn, bn = A.swap_texture(j0, b0, A.png_bytes(new))

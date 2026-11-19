@@ -27,26 +27,28 @@ SHIFT = 4          # субпиксель fillConvexPoly: координаты �
 
 
 def load_geom(glb: str) -> dict:
-    """Одна геометрия GLB: вершины, грани, UV (trimesh, без слияния вершин), сглаженные нормали вершин."""
-    import trimesh
-    sc = trimesh.load(glb, force='scene', process=False)
-    if len(sc.geometry) != 1:
-        raise ValueError(f'ожидалась одна геометрия, найдено {len(sc.geometry)}')
-    g = next(iter(sc.geometry.values()))
-    return {'V': np.asarray(g.vertices, np.float64), 'F': np.asarray(g.faces, np.int64), 'UV': np.asarray(g.visual.uv, np.float64), 'N': np.asarray(g.vertex_normals, np.float64)}
-
-
-def rot_y(deg: float) -> np.ndarray:
-    a = np.radians(deg)
-    c, s = np.cos(a), np.sin(a)
-    return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]], np.float64)
+    """Одна геометрия GLB (как `tex_coverage.load_geoms`: трансформы сцены применены, вершины не сливаются): вершины, грани, UV, сглаженные нормали вершин (по площади граней)."""
+    import tex_coverage as TC
+    geo = TC.load_geoms(glb)
+    if len(geo) != 1:
+        raise ValueError(f'ожидалась одна геометрия, найдено {len(geo)}')
+    V, F = np.asarray(geo[0]['V'], np.float64), np.asarray(geo[0]['F'], np.int64)
+    fn = np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]])          # длина = 2·площадь: взвешивание по площади
+    N = np.zeros_like(V)
+    for k in range(3):
+        np.add.at(N, F[:, k], fn)
+    N /= np.maximum(np.linalg.norm(N, axis=1, keepdims=True), 1e-12)
+    return {'V': V, 'F': F, 'UV': np.asarray(geo[0]['UV'], np.float64), 'N': N}
 
 
 def render(geo: dict, yaw: float = 0.0, px: int = 1536, ortho: float = 1.1) -> dict:
-    """Кадр вида 0: id грани на пиксель (−1 — фон), барицентры, UV (u, v_flipped), сглаженная нормаль в камере, cos. Камера смотрит вдоль −z из +z, y вверх, x вправо (после поворота на yaw)."""
+    """Кадр вида 0 — как у воркера: форма в куб `worker_trellis.to_cube(V, yaw)` (поворот, центр габарита в ноль, наибольшая сторона 1), камера вида 0 ортографическая ±ortho/2, смотрит на сторону +Z, вверх +Y,
+    вправо +X (`worker_trellis.mv_ortho_uv`). Результат: id грани на пиксель (−1 — фон), UV (u, v_flipped), сглаженная нормаль в камере, cos = |n_z| (порядок обхода граней у сеток TRELLIS не всегда «наружу»,
+    видимая поверхность по построению смотрит в камеру — как в `tex_coverage`)."""
     import cv2
-    R = rot_y(yaw)
-    V = geo['V'] @ R.T
+    import worker_trellis as W
+    P, _c, _s, R = W.to_cube(geo['V'], yaw)
+    V = P
     N = geo['N'] @ R.T
     F = geo['F']
     sx = (V[:, 0] + ortho / 2) / ortho * px          # пиксель кадра: столбец
@@ -83,8 +85,8 @@ def render(geo: dict, yaw: float = 0.0, px: int = 1536, ortho: float = 1.1) -> d
     n = wa[:, None] * N[a] + wb[:, None] * N[b] + wc[:, None] * N[c]
     n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
     ncam = np.zeros((px, px, 3), np.float32)
-    ncam[ys, xs] = n
-    cos = np.clip(ncam[..., 2], 0.0, 1.0)
+    ncam[ys, xs] = n * np.where(n[:, 2:3] < 0, -1.0, 1.0)            # к камере (см. docstring)
+    cos = np.clip(np.abs(ncam[..., 2]), 0.0, 1.0)
     return {'ids': ids, 'mask': mask, 'uv': uv, 'normal': ncam, 'cos': cos}
 
 
