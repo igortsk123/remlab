@@ -21,7 +21,7 @@
   GET  /job/<id>      состояние: queued|running|done|failed + замеры (секунды по стадиям, пик VRAM, треугольники, карты, МБ) или трассировка
   GET  /glb/<id>      байты `model.glb`
 
-Бэкенд модели — по `MODEL` (`trellis2` | `pixal3d` | `hunyuan21`); `MODEL=fake` — для теста без видеокарты (`tests_trellis_trial.py`). Токена Hugging Face в логи не пишем.
+Бэкенд модели — по `MODEL` (`trellis2` | `pixal3d` | `pixal3d-tex` (краска Pixal3D по готовой форме) | `hunyuan21`); `MODEL=fake` — для теста без видеокарты (`tests_trellis_trial.py`). Токена Hugging Face в логи не пишем.
 """
 from __future__ import annotations
 
@@ -307,6 +307,453 @@ class Pixal3DBackend:
                 'camera': {'fov_rad': round(float(cam['camera_angle_x']), 4), 'distance': round(float(cam['distance']), 3)}}
 
 
+# ——— `pixal3d-tex`: КРАСКА Pixal3D ПО ГОТОВОЙ ФОРМЕ (T-20261119-05, П1.91) ———
+# Геометрия ниже — чистый numpy/PIL (без видеокарты, без torch): ровно она проверяется тестами в CI (`tests_pixal_tex.py`). Видеокарта нужна только классу `PixalTexBackend`.
+# Источник схемы — `texture_mesh_pixal3d` из github.com/visualbruno/ComfyUI-Trellis2 (MIT, коммит b0e84c0f, source: external:github): форма кодируется VAE формы TRELLIS.2,
+# вместо сгенерированной скрытой формы стоит она, а условие краски — проекция признаков фото на сетку (`get_proj_cond_shape` из апстрима Pixal3D, TencentARC, MIT).
+# Сам ComfyUI не используется: берутся методы апстрима Pixal3D (`pixal3d/pipelines`), сборка — здесь.
+YAWS_DEG = (0, 90, 180, 270)
+SHAPE_TOL = 1e-4                      # допуск формы: отклонение вершин от входа / диагональ габарита (float32 в GLB даёт ~1e-7)
+FIT_N = 192                           # разрешение масок для подгонки фото к форме
+
+
+class ShapeChanged(RuntimeError):
+    """После краски форма отличается от входной (число треугольников или положение вершин) — результат не отдаём."""
+
+
+def rot_y(deg: float):
+    """Поворот вокруг вертикали Y (кадр сетки Pixal3D: Y вверх, лицом к камере +Z); кратные 90° — точные."""
+    import numpy as np
+    k = int(round(deg / 90.0)) if abs(deg / 90.0 - round(deg / 90.0)) < 1e-9 else None
+    if k is not None:
+        c, s = [(1, 0), (0, 1), (-1, 0), (0, -1)][k % 4]
+    else:
+        c, s = np.cos(np.radians(deg)), np.sin(np.radians(deg))
+    return np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]], dtype=np.float64)
+
+
+def to_cube(verts, yaw_deg: float = 0.0):
+    """Вершины входного GLB (Y вверх) → кадр сетки Pixal3D: поворот на yaw, центр габарита в ноль, наибольшая сторона = 0,99999 (как `preprocess_mesh` апстрима, без его
+    обмена осей: сетка Pixal3D — это Y вверх, лицом +Z, то есть кадр GLB; обмен осей апстрима для TRELLIS.2 даёт Z вверх, ComfyUI компенсирует его опцией «90 degrees»).
+    Возвращает (p, center, scale, R); обратное — `from_cube`."""
+    import numpy as np
+    v = np.asarray(verts, dtype=np.float64)
+    R = rot_y(yaw_deg)
+    vr = v @ R.T
+    lo, hi = vr.min(axis=0), vr.max(axis=0)
+    c = (lo + hi) / 2.0
+    ext = float((hi - lo).max())
+    if not ext > 0:
+        raise ValueError('форма вырождена: габарит нулевой')
+    s = 0.99999 / ext
+    return (vr - c) * s, c, s, R
+
+
+def from_cube(p, c, s, R):
+    """Обратное к `to_cube`: куб → исходные координаты (кадр и масштаб входного GLB)."""
+    import numpy as np
+    return (np.asarray(p, dtype=np.float64) / s + c) @ R
+
+
+def undo_upstream_swap(out_vertices):
+    """`postprocess_mesh` апстрима в конце обменивает оси `(x, y, z) → (x, z, −y)` (Z вверх → Y вверх). Наш кадр уже Y вверх — возвращаем как было: `(x, y, z) → (x, −z, y)`."""
+    import numpy as np
+    o = np.asarray(out_vertices, dtype=np.float64)
+    return np.stack([o[:, 0], -o[:, 2], o[:, 1]], axis=1)
+
+
+def project_cube(p, fov: float, dist: float, mesh_scale: float = 1.0):
+    """Куда камера Pixal3D (`ProjGrid`: камера на +Z на расстоянии `dist`, горизонтальный угол `fov`, `mesh_scale`) кладёт точки куба; координаты кадра [0, 1]².
+    Вывод из `project_points_to_image_batch` и `ProjGrid.forward` апстрима: q = p / mesh_scale; глубина = dist − q_z; u = 0,5 + F·q_x / глубина; v = 0,5 − F·q_y / глубина;
+    F = 0,5 / tan(fov / 2). `dist` от `get_camera_params_wild_moge` равен F: центральная плоскость куба (глубина = dist) занимает кадр ровно по ширине."""
+    import numpy as np
+    q = np.asarray(p, dtype=np.float64) / float(mesh_scale)
+    focal = 0.5 / np.tan(float(fov) / 2.0)
+    depth = float(dist) - q[:, 2]
+    safe = np.where(depth > 1e-6, depth, np.nan)
+    return 0.5 + focal * q[:, 0] / safe, 0.5 - focal * q[:, 1] / safe, depth
+
+
+def _dilate(m):
+    import numpy as np
+    n0, n1 = m.shape
+    pd = np.pad(m, 1)
+    out = m.copy()
+    for dy in range(3):
+        for dx in range(3):
+            out |= pd[dy:dy + n0, dx:dx + n1]
+    return out
+
+
+def surface_mask(u, v, faces, n: int = FIT_N, seed: int = 0):
+    """Силуэт сетки на кадре n×n: вершины + случайные точки внутри треугольников (число — по площади на экране, ≈ 4 на пиксель), затем расширение на 1 пиксель (закрывает дыры)."""
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    P = np.stack([u * n, v * n], axis=1)
+    f = np.asarray(faces)
+    a, b, c = P[f[:, 0]], P[f[:, 1]], P[f[:, 2]]
+    ok = np.isfinite(a).all(1) & np.isfinite(b).all(1) & np.isfinite(c).all(1)
+    a, b, c = a[ok], b[ok], c[ok]
+    area = 0.5 * np.abs((b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0]))
+    cnt = np.maximum(np.ceil(area / 0.25), 1).astype(np.int64)       # ≥ 4 точек на пиксель площади: у крупных граней (малополигональная форма) дыр нет
+    total = int(cnt.sum())
+    if total > 3_000_000:                                               # потолок по времени и памяти: уменьшаем пропорционально (мелкие грани остаются по одной точке)
+        cnt = np.maximum(1, (cnt * (3_000_000 / total)).astype(np.int64))
+    idx = np.repeat(np.arange(len(a)), cnt)
+    r1, r2 = rng.random(len(idx)), rng.random(len(idx))
+    sq = np.sqrt(r1)
+    w0, w1, w2 = 1 - sq, sq * (1 - r2), sq * r2
+    S = w0[:, None] * a[idx] + w1[:, None] * b[idx] + w2[:, None] * c[idx]
+    pts = np.concatenate([S, P[np.isfinite(P).all(1)]], axis=0)
+    ix, iy = np.floor(pts[:, 0]).astype(np.int64), np.floor(pts[:, 1]).astype(np.int64)
+    inside = (ix >= 0) & (ix < n) & (iy >= 0) & (iy < n)
+    m = np.zeros((n, n), dtype=bool)
+    m[iy[inside], ix[inside]] = True
+    return _dilate(m)
+
+
+def crop_square_rgba(img, pad: float = 1.1, max_side: int = 1024):
+    """Квадратная вырезка вокруг предмета — ровно как `preprocess_image` Pixal3D (граница по альфе > 0,8, поле 1,1, вход ≤ 1024), но без заливки фона: нужна и альфа."""
+    import numpy as np
+    from PIL import Image
+    im = img.convert('RGBA')
+    ms = max(im.size)
+    if ms > max_side:
+        sc = max_side / ms
+        im = im.resize((int(im.width * sc), int(im.height * sc)), Image.Resampling.LANCZOS)
+    alpha = np.asarray(im)[:, :, 3]
+    bb = np.argwhere(alpha > 0.8 * 255)
+    if bb.size == 0:
+        raise ValueError('на входной картинке нет предмета: альфа пустая')
+    x0, y0, x1, y1 = bb[:, 1].min(), bb[:, 0].min(), bb[:, 1].max(), bb[:, 0].max()
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    size = int(max(x1 - x0, y1 - y0) * pad)
+    return im.crop((cx - size // 2, cy - size // 2, cx + size // 2, cy + size // 2))
+
+
+def compose_black(rgba):
+    """RGBA → RGB на чёрном фоне (`rgb · alpha`), как в апстриме."""
+    import numpy as np
+    from PIL import Image
+    a = np.asarray(rgba.convert('RGBA')).astype(np.float32) / 255.0
+    return Image.fromarray((np.clip(a[:, :, :3] * a[:, :, 3:4], 0, 1) * 255).astype(np.uint8))
+
+
+def photo_mask(rgba, n: int = FIT_N):
+    import numpy as np
+    from PIL import Image
+    al = rgba.convert('RGBA').getchannel('A').resize((n, n), Image.Resampling.BILINEAR)
+    return _dilate(np.asarray(al) > 127)
+
+
+def _warp_mask(A, sigma: float, tx: float, ty: float):
+    """Маска фото после «масштаб σ вокруг центра кадра, затем сдвиг (tx, ty)»: x_вых = 0,5 + σ·(x_вх − 0,5) + tx."""
+    import numpy as np
+    n = A.shape[0]
+    xs = (np.arange(n) + 0.5) / n
+    ix = np.floor((0.5 + (xs - 0.5 - tx) / sigma) * n).astype(np.int64)
+    iy = np.floor((0.5 + (xs - 0.5 - ty) / sigma) * n).astype(np.int64)
+    vx, vy = (ix >= 0) & (ix < n), (iy >= 0) & (iy < n)
+    out = np.zeros((n, n), dtype=bool)
+    out[np.ix_(vy, vx)] = A[np.ix_(iy[vy], ix[vx])]
+    return out
+
+
+def _iou(a, b) -> float:
+    uni = int((a | b).sum())
+    return float((a & b).sum()) / uni if uni else 0.0
+
+
+def fit_similarity(A, M, max_iter: int = 120, fix_sigma: bool = False):
+    """Подогнать маску фото A к силуэту формы M подобием (масштаб σ, сдвиг tx, ty) по IoU: старт — по центру тяжести и площади, затем спуск с уменьшением шага.
+    `fix_sigma` — масштаб фото не трогать (σ = 1), подбирать только сдвиг. Возвращает (σ, tx, ty, IoU)."""
+    import numpy as np
+    n = A.shape[0]
+    aA, aM = int(A.sum()), int(M.sum())
+    if aA == 0 or aM == 0:
+        raise ValueError('пустая маска фото или силуэта формы')
+
+    def centroid(m):
+        yy, xx = np.nonzero(m)
+        return (xx.mean() + 0.5) / n, (yy.mean() + 0.5) / n
+    cax, cay = centroid(A)
+    cmx, cmy = centroid(M)
+    sigma = 1.0 if fix_sigma else float(np.sqrt(aM / aA))
+    tx, ty = cmx - (0.5 + sigma * (cax - 0.5)), cmy - (0.5 + sigma * (cay - 0.5))
+    best = _iou(_warp_mask(A, sigma, tx, ty), M)
+    ds, dt = 0.05, 0.02
+    for _ in range(max_iter):
+        improved = False
+        moves = ((sigma, tx + dt, ty), (sigma, tx - dt, ty), (sigma, tx, ty + dt), (sigma, tx, ty - dt))
+        if not fix_sigma:
+            moves = ((sigma * (1 + ds), tx, ty), (sigma / (1 + ds), tx, ty)) + moves
+        for cs, cx, cy in moves:
+            sc = _iou(_warp_mask(A, cs, cx, cy), M)
+            if sc > best + 1e-6:
+                best, sigma, tx, ty, improved = sc, cs, cx, cy, True
+        if not improved:
+            ds, dt = ds / 2, dt / 2
+            if dt < 0.0007:
+                break
+    return float(sigma), float(tx), float(ty), float(best)
+
+
+def fit_photo(verts, faces, rgba, fov: float, dist: float, mesh_scale: float = 1.0, n: int = FIT_N) -> dict:
+    """Поворот формы (0/90/180/270° вокруг вертикали), `mesh_scale` и сдвиг фото, при которых силуэт формы в камере Pixal3D лучше всего совпадает с вырезкой фото.
+    ЗАЧЕМ. Краска читает фото по проекции сетки: форма из TRELLIS.2 обязана стоять в кадре так, как её видит камера (иначе текстура уходит в чёрный фон), а апстрим кадрирует
+    фото с полем 1,1 (предмет занимает 0,909 кадра), тогда как куб формы заполнен целиком. Фото НЕ масштабируем (иначе его края срежет рамка кадра): масштаб подгоняется
+    параметром `mesh_scale` самой камеры (больше — форма дальше и мельче), фото только сдвигается. Ничьи (симметричный предмет) уступают меньшему повороту.
+    IoU «без подгонки» (`mesh_scale` как дан, сдвиг 0 — поведение апстрима) возвращается рядом: видно, что дала подгонка. `sigma` в ответе всегда 1,0 (масштаб фото не меняется)."""
+    A = photo_mask(rgba, n)
+    best = None
+    by_yaw = {}
+    for yaw in YAWS_DEG:
+        p, _c, _s, _R = to_cube(verts, yaw)
+        u, v, _d = project_cube(p, fov, dist, mesh_scale)
+        M0 = surface_mask(u, v, faces, n)
+        sig0 = fit_similarity(A, M0)[0]                              # грубая оценка масштаба: фото мельче силуэта в σ раз → форму отодвинуть в σ раз
+        cache: dict = {}
+
+        def at(sc):
+            k = round(sc, 5)
+            if k not in cache:
+                uu, vv, _dd = project_cube(p, fov, dist, k)
+                cache[k] = fit_similarity(A, surface_mask(uu, vv, faces, n), fix_sigma=True)
+            return cache[k]
+        s_best = mesh_scale * sig0
+        for step in (0.08, 0.03, 0.01):
+            cands = [s_best * (1 + step * j) for j in (-2, -1, 0, 1, 2)]
+            s_best = max(cands, key=lambda c: at(c)[3])
+        _sg, tx, ty, iou = at(s_best)
+        by_yaw[str(yaw)] = round(iou, 4)
+        if best is None or iou > best['iou'] + 0.005:
+            best = {'yaw_deg': yaw, 'sigma': 1.0, 'tx': tx, 'ty': ty, 'mesh_scale': float(round(s_best, 5)), 'iou': iou, 'iou_identity': _iou(A, M0)}
+    best['iou_by_yaw'] = by_yaw
+    return {k: (round(x, 4) if isinstance(x, float) else x) for k, x in best.items()}
+
+
+def warp_photo(rgba, sigma: float, tx: float, ty: float, size: int = 1024):
+    """Фото (RGBA) → RGB size×size на чёрном: содержимое масштабируется на σ вокруг центра кадра и сдвигается на (tx, ty) долей кадра (то же преобразование, что `_warp_mask`)."""
+    from PIL import Image
+    src = compose_black(rgba)
+    w, h = src.size
+    a = w / (sigma * size)
+    e = h / (sigma * size)
+    c = w * (0.5 - (0.5 + tx) / sigma)
+    f = h * (0.5 - (0.5 + ty) / sigma)
+    return src.transform((size, size), Image.Transform.AFFINE, (a, 0, c, 0, e, f), resample=Image.Resampling.BICUBIC, fillcolor=(0, 0, 0))
+
+
+def hausdorff_vertices(a, b, max_n: int = 20000) -> float:
+    """Симметричное расстояние Хаусдорфа между облаками вершин (по ближайшей вершине; не больше max_n точек с каждой стороны, равномерно по индексу). scipy — если есть."""
+    import numpy as np
+    a = np.asarray(a, dtype=np.float64)
+    b = np.asarray(b, dtype=np.float64)
+    if len(a) > max_n:
+        a = a[np.linspace(0, len(a) - 1, max_n).astype(np.int64)]
+    if len(b) > max_n:
+        b = b[np.linspace(0, len(b) - 1, max_n).astype(np.int64)]
+    try:
+        from scipy.spatial import cKDTree
+        return float(max(cKDTree(b).query(a)[0].max(), cKDTree(a).query(b)[0].max()))
+    except ImportError:
+        pass
+
+    def one_way(x, y):
+        worst = 0.0
+        for i in range(0, len(x), 512):
+            d2 = ((x[i:i + 512, None, :] - y[None, :, :]) ** 2).sum(-1)
+            worst = max(worst, float(np.sqrt(d2.min(axis=1).max())))
+        return worst
+    return max(one_way(a, b), one_way(b, a))
+
+
+def check_shape_unchanged(v_in, f_in, v_out, f_out, tol: float = SHAPE_TOL) -> dict:
+    """Форма после краски = форма на входе: ТО ЖЕ число треугольников и расстояние Хаусдорфа к входу ≈ 0 (в долях диагонали габарита). Нарушение — `ShapeChanged`.
+    Вершины в том же порядке и грани те же (путь с готовой развёрткой) — проверяем поточечно (верхняя граница Хаусдорфа); иначе (развёртка расщепила вершины) — по ближайшим вершинам."""
+    import numpy as np
+    v_in = np.asarray(v_in, dtype=np.float64)
+    v_out = np.asarray(v_out, dtype=np.float64)
+    diag = float(np.linalg.norm(v_in.max(axis=0) - v_in.min(axis=0)))
+    if not diag > 0:
+        raise ShapeChanged('габарит входной формы нулевой')
+    res = {'tris_in': int(len(f_in)), 'tris_out': int(len(f_out)), 'verts_in': int(len(v_in)), 'verts_out': int(len(v_out)), 'tol_rel': tol}
+    if len(f_in) != len(f_out):
+        raise ShapeChanged(f'число треугольников изменилось: {len(f_in)} → {len(f_out)}')
+    same_topology = len(v_in) == len(v_out) and np.array_equal(np.asarray(f_in), np.asarray(f_out))
+    if same_topology:
+        dev = float(np.abs(v_out - v_in).max()) / diag
+        res.update(mode='pointwise', hausdorff_rel=round(dev, 9), same_faces=True)
+    else:
+        hd = hausdorff_vertices(v_in, v_out) / diag
+        res.update(mode='nearest_vertex', hausdorff_rel=round(hd, 9), same_faces=False)
+    if res['hausdorff_rel'] > tol:
+        raise ShapeChanged(f'форма сдвинулась: Хаусдорф {res["hausdorff_rel"]:.2e} диагонали габарита (допуск {tol:.0e})')
+    return res
+
+
+def texture_on_shape(pipe, mesh, image, cam: dict, params: dict, hooks: dict | None = None) -> tuple:
+    """Покрасить ГОТОВУЮ форму `mesh` (trimesh, кадр GLB: Y вверх) по фото `image` (RGBA, настоящая альфа); `pipe` — методы апстрима Pixal3D (см. `PixalTexBackend.load`),
+    `cam` — камера по картинке (`camera_angle_x`, `distance`, `mesh_scale`). Возвращает (trimesh с текстурой в исходном кадре и масштабе, замеры). Форма не меняется:
+    вершины возвращаются из куба обратным преобразованием, затем `check_shape_unchanged` (иначе `ShapeChanged`)."""
+    import numpy as np
+    import trimesh
+    hk = {'seed': lambda s: None, 'sync': lambda: None, 'free': lambda: None, **(hooks or {})}
+    stage: dict = {}
+    t = time.time()
+
+    def lap(name: str) -> None:
+        hk['sync']()
+        nonlocal t
+        stage[name] = round(time.time() - t, 2)
+        t = time.time()
+
+    align = params.get('align') or 'fit'
+    if align not in ('fit', 'official'):
+        raise ValueError(f'align: «fit» или «official», получено {align!r}')
+    resolution = int(params.get('tex_resolution') or 1024)
+    if resolution % 16:
+        raise ValueError('разрешение краски кратно 16')
+    texture_size = int(params.get('texture_size', 2048))
+    mscale = float(cam.get('mesh_scale', 1.0))
+    verts = np.asarray(mesh.vertices, dtype=np.float64)
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    uv = getattr(getattr(mesh, 'visual', None), 'uv', None)
+    has_uv = uv is not None and len(uv) == len(verts)
+
+    rgba = crop_square_rgba(image)
+    fit = fit_photo(verts, faces, rgba, float(cam['camera_angle_x']), float(cam['distance']), mscale)
+    lap('fit')
+    cond_img = warp_photo(rgba, fit['sigma'], fit['tx'], fit['ty'], 1024) if align == 'fit' else compose_black(rgba)
+    cam_scale = float(fit['mesh_scale']) if align == 'fit' else mscale                 # «fit»: форма подогнана к фото масштабом камеры; «official» — камера как дала MoGe
+    p, c, s, R = to_cube(verts, fit['yaw_deg'])
+    m_in = trimesh.Trimesh(vertices=p, faces=faces, process=False)
+    if has_uv:
+        m_in.visual = trimesh.visual.TextureVisuals(uv=np.asarray(uv, dtype=np.float64).copy())
+    hk['seed'](int(params.get('seed', 42)))
+    enc_mesh, smooth_info = m_in, {'iterations': 0}
+    smooth_n = int(params.get('shape_smooth') or 0)
+    if smooth_n > 0:                       # рычаг «двойного узора»: ЛАТЕНТ формы (его краска читает как условие) считаем по сглаженной копии, а запекаем краску на настоящую форму (она не меняется)
+        sm = trimesh.Trimesh(vertices=p.copy(), faces=faces, process=False)
+        trimesh.smoothing.filter_taubin(sm, lamb=0.5, nu=-0.53, iterations=smooth_n)
+        disp = float(np.linalg.norm(np.asarray(sm.vertices) - p, axis=1).max())
+        enc_mesh = sm
+        smooth_info = {'iterations': smooth_n, 'max_disp_rel': round(disp / float(np.linalg.norm(p.max(0) - p.min(0))), 5)}
+    shape_slat = pipe.encode_shape_slat(enc_mesh, resolution)
+    lap('encode_shape')
+    cond = pipe.get_proj_cond_shape(pipe.image_cond_model_tex_1024, [cond_img], shape_slat.coords, camera_angle_x=float(cam['camera_angle_x']),
+                                    distance=float(cam['distance']), mesh_scale=cam_scale, grid_resolution_override=resolution // 16)
+    hk['free']()
+    lap('cond')
+    tex_slat = pipe.sample_tex_slat(cond, pipe.models['tex_slat_flow_model_1024'], shape_slat, params.get('sampler') or {})
+    del cond
+    hk['free']()
+    lap('sample_tex')
+    pbr = pipe.decode_tex_slat_plain(tex_slat)
+    hk['free']()
+    lap('decode_tex')
+    out = pipe.postprocess_mesh(m_in, pbr, resolution, texture_size)
+    lap('bake')
+    v_back = from_cube(undo_upstream_swap(out.vertices), c, s, R).astype(np.float32).astype(np.float64)      # через float32, как лежит в GLB
+    final = trimesh.Trimesh(vertices=v_back, faces=np.asarray(out.faces), visual=out.visual, process=False)
+    shape = check_shape_unchanged(verts.astype(np.float32).astype(np.float64), faces, v_back, np.asarray(out.faces))
+    lap('check_shape')
+    return final, {'align': align, 'fit': fit, 'shape': shape, 'has_uv': bool(has_uv), 'stage_s': stage,
+                   'smooth': smooth_info, 'cond_canvas': list(cond_img.size), 'cond_mesh_scale': round(cam_scale, 5), 'photo_crop': list(rgba.size), 'mesh_tris': int(len(faces)), 'tex_resolution': resolution}
+
+
+class PixalTexBackend:
+    """`pixal3d-tex`: форма TRELLIS.2 (готовый GLB, `<job>.mesh.glb`) + краска Pixal3D по одному фото. Грузим ТОЛЬКО то, что нужно покраске: поток краски 1024 и декодер краски из
+    `TencentARC/Pixal3D`, кодировщик формы из `microsoft/TRELLIS.2-4B` (у Pixal3D его нет), экстрактор DINOv3 + NAF стадии tex_1024 и MoGe-2 (камера). Потоки формы и структуры не грузятся
+    (минус ≈ 15 ГБ скачивания и видеопамяти против `pixal3d`). Методы пайплайна — апстрима: `get_proj_cond_shape`, `sample_tex_slat` (Pixal3D) и `encode_shape_slat`,
+    `decode_tex_slat` без направляющих, `postprocess_mesh` (его Trellis2TexturingPipeline). Образ — тот же, что у `pixal3d` (`Dockerfile.pixal3d`), код едет через `command`."""
+    name = 'pixal3d-tex'
+
+    def load(self) -> dict:
+        os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
+        os.environ.setdefault('OPENCV_IO_ENABLE_OPENEXR', '1')
+        sys.path.insert(0, os.environ.get('PIXAL3D_DIR', '/opt/Pixal3D'))
+        STATE['phase'] = 'importing'
+        t_imp = time.time()
+        import torch
+        import inference as INF
+        from pixal3d import models as PM
+        from pixal3d.pipelines import Pixal3DImageTo3DPipeline, rembg
+        from pixal3d.pipelines.trellis2_texturing import Trellis2TexturingPipeline as T2T
+        STATE['timings']['import_s'] = round(time.time() - t_imp, 1)
+
+        class NoRembg:                                            # вход — RGBA с настоящей альфой; вырезка фона не нужна
+            def __init__(self, **_kw):
+                pass
+
+            def to(self, *_a):
+                return self
+
+            def cpu(self):
+                return self
+
+            def __call__(self, *_a, **_k):
+                raise RuntimeError('вырезка фона отключена: вход должен быть RGBA с настоящей альфой')
+        rembg.BiRefNet = NoRembg
+
+        class TexOnly(Pixal3DImageTo3DPipeline):
+            model_names_to_load = ['tex_slat_flow_model_1024', 'tex_slat_decoder']       # Pipeline.from_pretrained качает и грузит только их
+            encode_shape_slat = T2T.encode_shape_slat
+            decode_tex_slat_plain = T2T.decode_tex_slat                                  # без guide_subs (форма не генерируется)
+            postprocess_mesh = T2T.postprocess_mesh                                      # растеризация по развёртке, запекание, inpaint
+        self.INF = INF
+        STATE['phase'] = 'weights'
+        t = time.time()
+        pipe = TexOnly.from_pretrained(INF.MODEL_PATH)
+        pipe.models['shape_slat_encoder'] = PM.from_pretrained('microsoft/TRELLIS.2-4B/ckpts/shape_enc_next_dc_f16c32_fp16')
+        pipe.models['shape_slat_encoder'].eval()
+        pipe.low_vram = False
+        pipe.image_cond_model_tex_1024 = INF.build_image_cond_model(INF.IMAGE_COND_CONFIGS['tex_1024'])
+        t_w = time.time() - t
+        STATE['phase'] = 'to_gpu'
+        t = time.time()
+        pipe.cuda()
+        pipe.image_cond_model_tex_1024.cuda()
+        pipe.image_cond_model_tex_1024._load_naf()
+        self.pipe = pipe
+        t_gpu = time.time() - t
+        STATE['phase'] = 'moge'
+        t = time.time()
+        self.moge = INF.load_moge_model(device='cuda')
+        torch.cuda.synchronize()
+        return {'weights_s': round(t_w, 1), 'to_gpu_s': round(t_gpu, 1), 'moge_s': round(time.time() - t, 1)}
+
+    def generate(self, image, params: dict, path: str) -> dict:
+        if not params.get('texture_mesh'):
+            raise ValueError('pixal3d-tex красит готовую форму: нужен --texture-mesh <clean.glb>')
+        import torch
+        import trimesh
+        torch.cuda.reset_peak_memory_stats()
+        t = time.time()
+        sc = trimesh.load(os.path.join(JOBS_DIR, params['job_id'] + '.mesh.glb'), force='scene')
+        parts = sc.dump()                                                  # геометрии с применёнными преобразованиями узлов
+        if not parts:
+            raise ValueError('в GLB формы нет мешей')
+        mesh = parts[0] if len(parts) == 1 else trimesh.util.concatenate(parts)      # несколько кусков: сливаем, развёртка уйдёт в cumesh
+        load_s = round(time.time() - t, 2)
+        t = time.time()
+        rgba = crop_square_rgba(image)
+        tmp = os.path.join(OUT, f'_pre_{os.getpid()}_{int(time.time() * 1000)}.png')
+        compose_black(rgba).save(tmp)
+        cam = self.INF.get_camera_params_wild_moge(tmp, self.moge, device='cuda', mesh_scale=1.0, extend_pixel=0, image_resolution=512)
+        os.remove(tmp)
+        camera_s = round(time.time() - t, 2)
+        samp = {'steps': 12, 'guidance_strength': float(params.get('tex_guidance') or 1.0), 'guidance_rescale': 0.0, 'rescale_t': 3.0}
+        hooks = {'seed': torch.manual_seed, 'sync': torch.cuda.synchronize, 'free': torch.cuda.empty_cache}
+        with torch.no_grad():
+            final, m = texture_on_shape(self.pipe, mesh, image, cam, {**params, 'sampler': samp}, hooks)
+        final.export(path, extension_webp=bool(int(os.environ.get('EXPORT_WEBP', '0'))))
+        m['stage_s'].update({'load_shape': load_s, 'camera': camera_s})
+        m.update({'mode': 'pixal3d_tex', 'peak_vram_gb': round(torch.cuda.max_memory_allocated() / 2 ** 30, 2), 'peak_reserved_gb': round(torch.cuda.max_memory_reserved() / 2 ** 30, 2),
+                  'camera_params': {'fov_rad': round(float(cam['camera_angle_x']), 4), 'distance': round(float(cam['distance']), 3)}})
+        return m
+
+
 class LocalMeshBackend:
     """LocalMesh Engine (Apache-2.0, github.com/Quentincls/localmesh-engine): TRELLIS.2 в FP8 + проекция самих пикселей фото на текстуру, режим ОДНОГО фото.
     Образ — отдельный (`Dockerfile.localmesh`: py3.12, torch 2.8/cu128). Веса докачиваются на старте в `$HF_HOME/lm/models`: открытое — из `Qtn-Cls/LocalMeshEngine` (без multivue),
@@ -366,7 +813,7 @@ class LocalMeshBackend:
 
 
 def backend():
-    return {'trellis2': Trellis2Backend, 'pixal3d': Pixal3DBackend, 'localmesh': LocalMeshBackend, 'hunyuan21': Hunyuan21Backend, 'fake': FakeBackend}[os.environ.get('MODEL', 'trellis2')]()
+    return {'trellis2': Trellis2Backend, 'pixal3d': Pixal3DBackend, 'pixal3d-tex': PixalTexBackend, 'localmesh': LocalMeshBackend, 'hunyuan21': Hunyuan21Backend, 'fake': FakeBackend}[os.environ.get('MODEL', 'trellis2')]()
 
 
 def versions() -> dict:
