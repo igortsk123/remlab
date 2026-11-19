@@ -9353,7 +9353,7 @@ function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.rol
     const v=allVariants()[cur]||{}, d=(v.decor||[])[s.dec];
     if(d){
       d.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop,
-             sid:p.sid||null,msid:p.msid||p.sid||null,basis:p.basis||null,
+             sid:p.sid||null,...(p.pid?{pid:p.pid}:{}),msid:p.msid||p.sid||null,basis:p.basis||null,
              w:p.w,d:p.d,h:p.h||null,pack:p.pack||1,...(p.yaw!=null?{yaw:p.yaw}:{}),...(p.tint?{tint:p.tint}:{}),
              ...(p.fam?{fam:p.fam}:{}),   // семья цветов едет с товаром: после выбора цвета кружки остаются (T-20261112-110/2)
              ...(p.img_art?{img_art:p.img_art}:{})};   // картина: полотно без белого поля (`wall_art.annotate_crop`)
@@ -9388,7 +9388,8 @@ function tryOn(p){if(vwEditLock())return false; const s=sel||items.find(i=>i.rol
   // msid — артикул МОДЕЛИ (представителя семейства): у цветового варианта своего меша нет, и
   // без этого поля сцена после замены рисовала серую коробку (08.09, ADR-0196).
   s.sku={name:p.name,price:p.price,img:p.img,url:p.url,shop:p.shop,
-         sid:p.sid||null,msid:p.msid||p.sid||null,pack:p.pack||1,hung:!!p.hung,
+         sid:p.sid||null,...(p.pid?{pid:p.pid}:{}),   // публичный ключ тура едет с товаром: без `sid` (в туре его нет) заказ «Сделать фото» после замены терял ключ → `bad_item` (T-20261119-07/5)
+         msid:p.msid||p.sid||null,pack:p.pack||1,hung:!!p.hung,
          // разворот фронта модели (demo-01): живая сцена ставит заменённую модель по нему, как сервер по orient.json
          ...(p.yaw!=null?{yaw:p.yaw}:{}),
          // подкраска цветового варианта на модели семейства (приёмка 16.10 п.11б, `flat215_demo.annotate_tint`)

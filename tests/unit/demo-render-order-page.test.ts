@@ -20,6 +20,13 @@ describe("заказ рендера со страницы (vwRenderReq)", () => 
     expect(body).not.toMatch(/msid/);
     expect(body).not.toMatch(/name:String\(k\.name\)/);
   });
+  it("замена товара (мебель и декор) переносит pid ленты: без него в туре (sid нет) заказ терял ключ предмета → ref → bad_item (T-20261119-07/5)", () => {
+    const t0 = html.indexOf("function tryOn(p)");
+    const swap = html.slice(t0, html.indexOf("\nfunction ", t0 + 10));
+    expect(swap.match(/sid:p\.sid\|\|null,\.\.\.\(p\.pid\?\{pid:p\.pid\}:\{\}\)/g)).toHaveLength(2);   // карточка декора и карточка мебели
+    expect(swap).toMatch(/\bd\.sku=\{/);
+    expect(swap).toMatch(/\bs\.sku=\{/);
+  });
   it("статус машины от сервера читается из ответа (machine.state = warming)", () => {
     expect(html).toMatch(/job\.mach=\(v\.machine&&typeof v\.machine==='object'\)\?v\.machine:null/);
     expect(html).toMatch(/mc&&mc\.state==='warming'/);
