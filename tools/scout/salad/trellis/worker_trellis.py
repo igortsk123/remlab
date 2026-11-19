@@ -185,7 +185,7 @@ class Hunyuan21Backend:
     @staticmethod
     def _paint_only(P, PRE, shape_img, params: dict, path: str) -> dict:
         """ГИБРИД «чужая форма + покраска Hunyuan Paint 2.1» (T-20261118-91/2): форма приходит в задании (`shape_b64` — GLB, например TRELLIS.2), текстуру с неё
-        снимаем (в покраску идёт голая геометрия), красит боевая стадия `pipeline.generate(..., shape_glb=...)`. Апстрим-покраска по умолчанию делает `use_remesh=True`
+        снимаем (в покраску идёт голая геометрия), красит боевая покраска `paint_pipeline()` напрямую. Апстрим-покраска по умолчанию делает `use_remesh=True`
         (упрощает до ~40 тыс. граней и перестраивает сетку — форма меняется); `use_remesh` из задания включает/выключает это явно (по умолчанию в гибриде — False)."""
         import base64 as b64
         import inspect
@@ -211,17 +211,22 @@ class Hunyuan21Backend:
             def patched(self, *a, **k):
                 k['use_remesh'] = remesh
                 return orig(self, *a, **k)
+            final = os.path.join(work, 'model.glb')
+            t = time.time()
             cls.__call__ = patched
             try:
-                dims = params.get('dims_cm') or []
-                pp = {'_dims': {'w': dims[0], 'd': dims[1], 'h': dims[2], 'dia': None} if len(dims) == 3 else {}}
-                res = P.generate(shape_img, work, seed=int(params.get('seed', 0)), params=pp, paint_image=PRE._paint_crop(shape_img), role=params.get('role'), shape_glb=shape)
+                # покраска напрямую (боевой `pipeline.generate(shape_glb=…)` есть не во всех образах: у `memtrim-d8c51952` его нет — TypeError 18.11 02:56)
+                painted = pipe(mesh_path=shape, image_path=PRE._paint_crop(shape_img))
             finally:
                 cls.__call__ = orig
-            shutil.copy(res['glb'], path)
-            g = res.get('gpu') or {}
-            return {'stage_s': res['timings'], 'peak_vram_gb': g.get('paint_gb') or 0, 'gpu_pipeline': g, 'mode': 'paint_only', 'use_remesh': remesh, 'tris_in': tris_in,
-                    'view_guard': res.get('view_guard')}
+            t_paint = round(time.time() - t, 1)
+            P._save_painted(painted, final)
+            shutil.copy(final, path)
+            try:
+                P._unload('paint')                      # как боевая стадийность: следующему заданию (форма Hunyuan) нужна видеопамять
+            except Exception:  # noqa: BLE001
+                pass
+            return {'stage_s': {'paint': t_paint, 'total': round(time.time() - t, 1)}, 'mode': 'paint_only', 'use_remesh': remesh, 'tris_in': tris_in}
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
