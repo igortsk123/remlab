@@ -230,7 +230,8 @@ def _extra_top_rules(out: list, R: dict) -> None:
     """gt-v3: три признака пустого верха, которых не видит «≥80 % окна 117–141» (калибровка T-20261118-04/16, 3 пропуска из 81 известных):
     1) однотонный низкосатурированный верх светлее остальных поверхностей изделия на ≥ flat_body_dL (графитовая тумба с серой крышкой);
     2) однотонный верх с MR≈0,5/0,5 и серым медианом 110–141 (чёрная столешница, у которой фон сети чуть темнее 117);
-    3) частичная дыра: ≥ partial_share верха — чистый фон 124–134 (дуб, у которого пол-крышки серое).
+    3) частичная дыра: ≥ partial_share верха — чистый фон 124–134 (дуб, у которого пол-крышки серое);
+    4) серость ≥ gedge_share верха (окно 117–141) при контрасте с остальным ≥ gedge_edge_min (графитовая тумба, серая крышка 140).
     Только роль «верх»; вердикт — candidate (отказ — по прежнему правилу), причина — поле `why`."""
     top = next((x for x in out if x['role'] == 'верх' and x['verdict'] == 'ok' and not x.get('demoted')), None)
     if top is None:
@@ -252,6 +253,10 @@ def _extra_top_rules(out: list, R: dict) -> None:
         return
     if top['pure_share'] >= R['partial_share'] and top['grey_share'] >= R['partial_share']:
         top['verdict'], top['why'] = 'candidate', 'partial'
+        return
+    ec = top.get('edge_contrast')
+    if top['grey_share'] >= R['gedge_share'] and ec is not None and ec >= R['gedge_edge_min'] and top['std'] <= R['gedge_std_max']:
+        top['verdict'], top['why'] = 'candidate', 'grey-edge'      # серость ≥70 % верха (не чистое окно) при контрасте с остальным изделием: графитовая тумба с серой крышкой
 
 
 def surfaces_arrays(V, F, UV, albedo, mr=None, R: dict | None = None) -> dict:
