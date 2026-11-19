@@ -19,12 +19,14 @@
 
 ГЕЙТ «РЕЛЬЕФ ≠ ФОТО → НЕ КЛАСТЬ» (упрощённая версия А2-lite). Двойной узор: форма (придуманный генератором рельеф) не совпадает с раскладкой на фото, и фото ложится на рельеф со сдвигом.
 По участкам размера `PATCH_FRAC`·ширина (и по пикселям внутри участка):
-  • рельеф есть — доля пикселей с резким поворотом нормали (`normal_cam`, градиент ≥ `REL_T`) ≥ `REL_FRAC`;
-  • совпадение — доля кромок РЕЛЬЕФА, рядом с которыми (≤ `TOL_FRAC` ширины) есть кромка ФОТО (сильные градиенты L* фото без низких частот);
+  • рельеф есть — доля пикселей с резким наклоном поверхности ≥ `REL_T` ≥ `REL_FRAC`; наклон — по ГЛУБИНЕ кадра: 3D-точка каждого текселя (барицентры грани, `texel_positions`) → кадр через `uv.npz`
+    → плоскость кадра регрессией → остаток вдоль её нормали (`frame_depth`, `depth_edges`). Нормали `normal_cam` не годятся: у плоских плит с узором листьев поворот нормали почти нулевой;
+  • совпадение — доля кромок РЕЛЬЕФА, рядом с которыми (≤ `TOL_FRAC` ширины) есть кромка ФОТО (сильные градиенты L* фото без низких частот), с поправкой на случайные попадания
+    (доля площади участка рядом с кромкой фото): (сырое − случайное) / (1 − случайное) — плотные кромки фото иначе совпадают «сами»;
   • решение: нет рельефа → класть (риск двойного узора нулевой); рельеф есть и совпадение ≥ `AGREE_MIN` → класть; иначе — не класть (остаётся MV).
 Доля отказанных пикселей — в json. Периодичность (повторяющийся узор с неоднозначным совпадением) — НЕ проверяется (отступление: см. отчёт T-88).
 
-  photo_front.py --glb <GLB с картой> --stages <папка stages/ товара> --photo <фото .rgba.png> --out-dir <папка> --stem <имя> [--light lp|raw]
+  photo_front.py --glb <GLB с картой> --stages <папка stages/ товара> --photo <фото .rgba.png> --out-dir <папка> --stem <имя> [--light lp|raw] [--out-size 4096]
   → <out-dir>/<stem>-photo.glb, <stem>.photo.json, <stem>.view0_{in,photo}.png, <stem>.photo-conf.png (уверенность в кадре), <stem>.photo-gate.png, <stem>.photo-layer.png
 """
 from __future__ import annotations
@@ -74,18 +76,6 @@ def masked_blur(x: np.ndarray, m: np.ndarray, sigma: float) -> np.ndarray:
 def angle_weight(cos: np.ndarray) -> np.ndarray:
     t = np.clip((cos - COS_LO) / (COS_HI - COS_LO), 0, 1)
     return (t * t).astype(np.float32)
-
-
-def relief_edges(normals: np.ndarray, mask: np.ndarray) -> np.ndarray:
-    """Карта поворота нормали на пиксель (√Σ по каналам градиента Собеля, масштаб 1/8 → разность на пиксель) внутри маски; нормали 0..255 → −1..1."""
-    import cv2
-    n = normals.astype(np.float32) / 255.0 * 2.0 - 1.0
-    g2 = np.zeros(mask.shape, np.float32)
-    for c in range(3):
-        ch = smooth(n[..., c], 1.0)
-        gx, gy = cv2.Sobel(ch, cv2.CV_32F, 1, 0, ksize=3) / 8.0, cv2.Sobel(ch, cv2.CV_32F, 0, 1, ksize=3) / 8.0
-        g2 += gx * gx + gy * gy
-    return np.where(mask, np.sqrt(g2), 0.0).astype(np.float32)
 
 
 def texel_positions(V: np.ndarray, F: np.ndarray, UV: np.ndarray, T: int) -> tuple[np.ndarray, np.ndarray]:
@@ -235,7 +225,7 @@ def apply_photo(tex: np.ndarray, sp: dict) -> tuple[np.ndarray, dict]:
     return out, {'texels_covered': int(cover.sum()), 'texels_changed_share': round(float((w[..., 0] > 0.05).mean()), 5), 'mean_weight_on_covered': round(float(w[..., 0][cover].mean()) if cover.any() else 0.0, 4)}
 
 
-def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: str = 'lp') -> dict:
+def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: str = 'lp', out_size: int = 0) -> dict:
     import cv2
     from PIL import Image
     os.makedirs(out_dir, exist_ok=True)
@@ -253,6 +243,9 @@ def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: 
     ph = np.clip(SL.warp_inv(photo[..., :3], P, (fw, fh), cv2.INTER_LINEAR), 0, 255).astype(np.uint8)
     j0, b0 = A.read_glb(glb)
     tex = T.read_texture(j0, b0)
+    tex_in_size = tex.shape[0]
+    if out_size and out_size != tex.shape[0]:                        # итог крупнее входа (mv12: карта 2048 → 4096): база растягивается, фото-слой кладётся уже в новую сетку
+        tex = cv2.resize(tex, (out_size, out_size), interpolation=cv2.INTER_CUBIC if out_size > tex.shape[0] else cv2.INTER_AREA)
     size = tex.shape[0]
     r_in = A.render_view0(tex, uvd)
 
@@ -299,7 +292,7 @@ def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: 
     Image.fromarray(gv).save(os.path.join(out_dir, f'{stem}.photo-gate.png'))
     Image.fromarray(layer).save(os.path.join(out_dir, f'{stem}.photo-layer.png'))
     cm_n = max(int(cm.sum()), 1)
-    res = {'glb_in': glb, 'stem': stem, 'light': light, 'tex_size': list(tex.shape[:2]), 'width_px': round(float(width), 1),
+    res = {'glb_in': glb, 'stem': stem, 'light': light, 'tex_size_in': tex_in_size, 'tex_size': list(tex.shape[:2]), 'width_px': round(float(width), 1),
            'params': {'COS_LO': COS_LO, 'COS_HI': COS_HI, 'FADE_FRAC': FADE_FRAC, 'LIGHT_FRAC': LIGHT_FRAC, 'PATCH_FRAC': PATCH_FRAC, 'TOL_FRAC': TOL_FRAC, 'REL_T': REL_T, 'REL_FRAC': REL_FRAC,
                       'AGREE_MIN': AGREE_MIN, 'PHOTO_EDGE_PCT': PHOTO_EDGE_PCT},
            'gate': gst, 'frame': {'mask_px': cm_n, 'conf_gt_0.5_share': round(float(((conf > 0.5) & cm).sum() / cm_n), 4), 'conf_gt_0_share': round(float(((conf > 0) & cm).sum() / cm_n), 4)},
@@ -316,6 +309,7 @@ def main() -> int:
     ap.add_argument('--out-dir')
     ap.add_argument('--stem')
     ap.add_argument('--light', choices=('lp', 'raw'), default='lp')
+    ap.add_argument('--out-size', type=int, default=0, help='размер карты результата (0 — как у входа)')
     ap.add_argument('--rel-t', type=float, default=None, help='порог поворота нормали (REL_T)')
     ap.add_argument('--rel-frac', type=float, default=None, help='доля рельефных пикселей в участке (REL_FRAC)')
     ap.add_argument('--agree-min', type=float, default=None, help='минимум совпадения кромок (AGREE_MIN)')
@@ -326,7 +320,7 @@ def main() -> int:
             g[k] = v
     if not all([a.glb, a.stages, a.photo, a.out_dir, a.stem]):
         ap.error('нужны --glb --stages --photo --out-dir --stem')
-    r = run(a.glb, a.stages, a.photo, a.out_dir, a.stem, a.light)
+    r = run(a.glb, a.stages, a.photo, a.out_dir, a.stem, a.light, a.out_size)
     print(json.dumps({k: r[k] for k in ('stem', 'light', 'width_px', 'gate', 'frame', 'apply', 'table', 'guard')}, ensure_ascii=False, indent=1))
     return 0 if r['guard']['ok'] else 1
 
