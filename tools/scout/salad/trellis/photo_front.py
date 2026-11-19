@@ -58,8 +58,9 @@ AGREE_MIN = 0.50                  # совпадение кромок для р�
 PHOTO_EDGE_PCT = 92.0             # кромка фото — градиент L* выше этого процентиля внутри маски
 REL_MED_K = 12.0                  # порог кромки рельефа не ниже стольких медиан наклона предмета (см. relief_threshold)
 GATE_SMOOTH_FRAC = 0.02           # σ сглаживания решения гейта (чтобы не было швов по границам участков), доля ширины
-SPLAT_SIGMA = 1.2                 # σ сглаживания накоплений в текселях
-COVER_MIN = 0.25                  # минимальная масса накопления у текселя, чтобы считаться покрытым
+SPLAT_SIGMA = 1.2                 # минимальная σ сглаживания накоплений в текселях
+SPLAT_SIGMA_K = 0.55              # σ не меньше этого × √(текселей на пиксель кадра)
+COVER_MIN = 0.25                  # тексель покрыт, если масса накопления ≥ этой доли типичной (медианной) массы
 CONF_MIN = 0.02
 
 
@@ -199,6 +200,15 @@ def light_layer(ph: np.ndarray, r_in: np.ndarray, mask: np.ndarray, width: float
     return np.round(rgb).astype(np.uint8)
 
 
+def texels_per_pixel(uv: np.ndarray, size: int, mask: np.ndarray) -> float:
+    """Медианное число текселей карты на один пиксель кадра (якобиан развёртки uv(x, y)·size) внутри маски; ≥ 1."""
+    ux, uy = np.gradient(uv[..., 0].astype(np.float64) * size, axis=(1, 0))
+    vx, vy = np.gradient(uv[..., 1].astype(np.float64) * size, axis=(1, 0))
+    det = np.abs(ux * vy - uy * vx)
+    ok = mask & np.isfinite(det) & (det > 1e-6)
+    return float(max(1.0, np.median(det[ok]))) if ok.any() else 1.0
+
+
 def splat(uv: np.ndarray, size: int, mask: np.ndarray, color: np.ndarray, conf: np.ndarray) -> dict:
     """Пиксели кадра → карта: билинейное рассыпание на 4 тексела; накопления: масса A, уверенность·масса Wm, цвет·уверенность·масса C; сглажены (SPLAT_SIGMA)."""
     ys, xs = np.nonzero(mask & (conf > 0))
@@ -219,14 +229,16 @@ def splat(uv: np.ndarray, size: int, mask: np.ndarray, color: np.ndarray, conf: 
             Cc[:, c] += np.bincount(idx, weights=w * cf * col[:, c], minlength=size * size).astype(np.float32)
     A_, Wm = A_.reshape(size, size), Wm.reshape(size, size)
     Cc = Cc.reshape(size, size, 3)
-    sg = SPLAT_SIGMA
+    r = texels_per_pixel(uv, size, mask)
+    sg = max(SPLAT_SIGMA, SPLAT_SIGMA_K * float(np.sqrt(r)))           # карта плотнее кадра: масса пикселя (1) размазывается на r текселей, σ растёт вместе с √r
     Ab, Wb = smooth(A_, sg), smooth(Wm, sg)
     Cb = np.stack([smooth(Cc[..., c], sg) for c in range(3)], -1)
-    return {'A': Ab, 'W': Wb, 'C': Cb}
+    ref = float(np.median(Ab[Ab > 0])) if (Ab > 0).any() else 1.0       # типичная плотность массы там, куда легли пиксели кадра
+    return {'A': Ab, 'W': Wb, 'C': Cb, 'ref': ref, 'texels_per_pixel': r, 'sigma': sg}
 
 
 def apply_photo(tex: np.ndarray, sp: dict) -> tuple[np.ndarray, dict]:
-    cover = sp['A'] >= COVER_MIN
+    cover = sp['A'] >= COVER_MIN * sp.get('ref', 1.0)                  # покрытие — относительно типичной плотности (на карте плотнее кадра абсолютный порог не набирается)
     colour = sp['C'] / np.maximum(sp['W'], 1e-6)[..., None]
     w = np.where(cover, np.clip(sp['W'] / np.maximum(sp['A'], 1e-6), 0, 1), 0.0)
     w = np.where(w < CONF_MIN, 0.0, w)[..., None]

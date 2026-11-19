@@ -148,6 +148,23 @@ def t_splat_apply():
     assert info['texels_covered'] > 1500, info
 
 
+def t_splat_dense_map_is_covered():
+    """Карта плотнее кадра в 4 раза по стороне (16 текселей на пиксель): фасад должен покрыться сплошь, а не 1–2 % (раньше абсолютный порог массы не набирался)."""
+    f, size = 32, 128
+    yy, xx = np.mgrid[0:f, 0:f]
+    uv = np.stack([(xx + 0.5) / f, (yy + 0.5) / f], -1).astype(np.float32)
+    mask = np.ones((f, f), bool)
+    conf = np.ones((f, f), np.float32)
+    col = np.zeros((f, f, 3), np.uint8)
+    col[...] = (10, 200, 90)
+    sp = PF.splat(uv, size, mask, col, conf)
+    assert abs(sp['texels_per_pixel'] - 16.0) < 1.0, sp['texels_per_pixel']
+    out, info = PF.apply_photo(np.zeros((size, size, 3), np.uint8), sp)
+    inner = out[8:size - 8, 8:size - 8]
+    assert (np.abs(inner.astype(int) - np.array([10, 200, 90])).max(-1) <= 3).mean() > 0.97, 'внутренность карты покрыта фото'
+    assert info['texels_covered'] > 0.8 * size * size, info
+
+
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith('t_') and callable(v)]
     for t in tests:
