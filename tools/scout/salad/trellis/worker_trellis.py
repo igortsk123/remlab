@@ -134,9 +134,31 @@ class Trellis2Backend:
         torch.cuda.synchronize()
         return {'weights_s': round(t_weights, 1), 'to_gpu_s': round(time.time() - t, 1)}
 
+    def texture_only(self, image, params: dict, path: str) -> dict:
+        """Контроль (Codex, директор 19.11): `Trellis2TexturingPipeline` красит ГОТОВУЮ форму (`<job>.mesh.glb`) по фото — лечит ли узор своя же покраска TRELLIS.2, без новой формы."""
+        import torch
+        import trimesh
+        from trellis2.pipelines import Trellis2TexturingPipeline
+        torch.cuda.reset_peak_memory_stats()
+        stage = {}
+        t = time.time()
+        if getattr(self, 'tex_pipe', None) is None:
+            self.tex_pipe = Trellis2TexturingPipeline.from_pretrained(os.environ.get('TRELLIS_MODEL', 'microsoft/TRELLIS.2-4B'), config_file='texturing_pipeline.json')
+            self.tex_pipe.cuda()
+        stage['load_texturing'] = round(time.time() - t, 2)
+        t = time.time()
+        mesh = trimesh.load(os.path.join(JOBS_DIR, params['job_id'] + '.mesh.glb'), force='mesh')
+        out = self.tex_pipe.run(mesh, image, seed=int(params.get('seed', 42)), resolution=1024, texture_size=int(params.get('texture_size', 2048)))
+        torch.cuda.synchronize()
+        stage['run'] = round(time.time() - t, 2)
+        out.export(path, extension_webp=bool(int(os.environ.get('EXPORT_WEBP', '0'))))
+        return {'mode': 'texture_only', 'stage_s': stage, 'peak_vram_gb': round(torch.cuda.max_memory_allocated() / 2 ** 30, 2), 'mesh_tris': int(len(mesh.faces))}
+
     def generate(self, image, params: dict, path: str) -> dict:
         import o_voxel
         import torch
+        if params.get('texture_mesh'):
+            return self.texture_only(image, params, path)
         torch.cuda.reset_peak_memory_stats()
         stage = {}
         t = time.time()
@@ -642,6 +664,7 @@ class H(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(n))
             jid = os.path.basename(str(body['job_id']))
             png = base64.b64decode(body.pop('image_b64'))
+            mesh_glb = base64.b64decode(body.pop('texture_mesh_b64')) if body.get('texture_mesh_b64') else None      # контроль «перекраска готовой формы»
         except (ValueError, KeyError):
             return self._json(400, {'error': 'нужны job_id и image_b64'})
         h = health()
@@ -651,6 +674,9 @@ class H(BaseHTTPRequestHandler):
         if os.path.exists(base + '.req.json'):
             return self._json(409, {'error': 'такой job_id уже есть'})           # повтор не жжёт GPU второй раз
         atomic_write(base + '.png', png)
+        if mesh_glb:
+            atomic_write(base + '.mesh.glb', mesh_glb)
+            body['texture_mesh'] = True
         atomic_write(base + '.req.json', json.dumps(body, ensure_ascii=False).encode())
         self._json(202, {'job_id': jid, 'status': 'queued'})
 

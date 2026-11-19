@@ -309,6 +309,16 @@ if have:
            and 'stage_s' in j['metrics'] and j['metrics']['glb']['size_mb'] >= 0, str(j)[:200])
         cg, rg = call('GET', '/glb/j1')
         ok('GLB отдаётся байтами (заголовок glTF)', cg == 200 and rg[:4] == b'glTF')
+        pm = dict(payload, job_id='j2', texture_mesh_b64=base64.b64encode(rg).decode())
+        c3, _r3 = call('POST', '/generate', pm)
+        j2 = {}
+        for _ in range(150):
+            j2 = json.loads(call('GET', '/job/j2')[1])
+            if j2.get('status') in ('done', 'failed'):
+                break
+            time.sleep(0.1)
+        ok('контроль перекраски: форма уходит файлом, в задании только флаг (base64 в ответ не попадает), ?v=ai без второго GLB — 404',
+           c3 == 202 and j2.get('params', {}).get('texture_mesh') is True and 'texture_mesh_b64' not in json.dumps(j2) and call('GET', '/glb/j2?v=ai')[0] == 404, str(j2)[:200])
         ok('чужой job — 404', call('GET', '/job/net')[0] == 404 and call('GET', '/glb/net')[0] == 404)
         if socket.has_ipv6:                       # шлюз Salad ходит по IPv6: сервер обязан слушать `::` (поймано 18.11: на 0.0.0.0 /health не отвечал ни разу)
             try:
