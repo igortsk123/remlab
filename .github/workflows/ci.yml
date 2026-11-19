@@ -39,6 +39,7 @@ jobs:
         shell: bash
         run: |
           node --test tests/memory-project-audit.test.mjs
+          node --test tests/access-inventory.test.mjs   # инвентарь доступов: имена из ACCESS.md отдельным блоком, ключ «только в ACCESS.md» ≠ «нет ключа», значения не печатаются (T-20261119-95)
           mode="$(cat .memory_bank/_kit/gate-mode.txt 2>/dev/null || echo warn)"
           echo "gate mode: $mode"
           set +e
