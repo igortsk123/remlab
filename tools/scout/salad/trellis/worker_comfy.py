@@ -14,6 +14,7 @@ import base64
 import json
 import os
 import re
+import socket
 import struct
 import subprocess
 import sys
@@ -466,6 +467,25 @@ class H(BaseHTTPRequestHandler):
         self._json(202, {'job_id': jid, 'status': 'queued'})
 
 
+class DualStackServer(ThreadingHTTPServer):
+    """Слушает и IPv6, и IPv4 одним сокетом (`::`, IPV6_V6ONLY=0). Шлюз и пробы Salad ходят по IPv6 (урок 724; docs.salad.com → gateway → enabling-ipv6): сервер только на `0.0.0.0` НЕ отвечал им ни разу —
+    у comfy-проб t94h/t94i/t94k это дало «running, started=false, /health 503» при живом процессе (причина найдена 19.11 20:45)."""
+    address_family = socket.AF_INET6
+    daemon_threads = True
+
+    def server_bind(self):
+        self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        super().server_bind()
+
+
+def make_server(port: int) -> ThreadingHTTPServer:
+    try:
+        return DualStackServer(('::', port), H)
+    except OSError as e:                         # в окружении нет IPv6 — обычный IPv4
+        print(f'[worker_comfy] IPv6 недоступен ({e}) — слушаю только IPv4', flush=True)
+        return ThreadingHTTPServer(('0.0.0.0', port), H)
+
+
 def main() -> None:
     global OUT, DATA
     print(f'[worker_comfy] старт: python {sys.version.split()[0]}, uid {os.getuid()}, cwd {os.getcwd()}, порт {PORT}', flush=True)
@@ -480,7 +500,7 @@ def main() -> None:
             print(f'[worker_comfy] {path}: {e} — использую {alt}', flush=True)
             os.makedirs(alt, exist_ok=True)
             globals()[name] = alt
-    server = ThreadingHTTPServer(('0.0.0.0', PORT), H)            # порт открыт СРАЗУ: /health отвечает 200 и во время докачки весов
+    server = make_server(PORT)                                   # порт открыт СРАЗУ, на IPv6+IPv4: /health отвечает 200 и во время докачки весов
     print('[worker_comfy] HTTP слушает, запускаю докачку весов', flush=True)
     threading.Thread(target=boot, daemon=True).start()
     server.serve_forever()

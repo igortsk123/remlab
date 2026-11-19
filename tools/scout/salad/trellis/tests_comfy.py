@@ -107,6 +107,22 @@ ok('HF_TOKEN в запросы за весами не уходит', 'HF_TOKEN' 
 ok('ComfyUI слушает только 127.0.0.1 и без партнёрских узлов', "'--listen', '127.0.0.1'" in src and '--disable-partner-nodes' in src)
 ok('по умолчанию разрешение remesh не 512: в коде нет числа 512 как значения по умолчанию', "'resolution', grid" in src)
 
+print('6b. сервер слушает IPv6 и IPv4 (урок 724: шлюз и пробы Salad ходят по IPv6)')
+import socket as _s
+import threading as _t
+import urllib.request as _u
+srv = W.make_server(0)
+port = srv.server_address[1]
+_t.Thread(target=srv.serve_forever, daemon=True).start()
+ok('сокет — IPv6 (`::`), а не только 0.0.0.0', srv.address_family == _s.AF_INET6)
+ok('/health отвечает 200 по IPv4 (127.0.0.1)', _u.urlopen(f'http://127.0.0.1:{port}/health', timeout=5).status == 200)
+try:
+    v6 = _u.urlopen(f'http://[::1]:{port}/health', timeout=5).status == 200
+except OSError:
+    v6 = None                                    # в окружении теста нет IPv6-loopback — проверить нельзя
+ok('/health отвечает 200 по IPv6 (::1) — или в окружении нет IPv6', v6 in (True, None))
+srv.shutdown()
+
 print('7. драйвер: модель comfy, вход hdc')
 import base64
 import tempfile

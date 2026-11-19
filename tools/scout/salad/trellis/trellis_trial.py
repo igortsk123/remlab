@@ -403,7 +403,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     os.makedirs(a.out, exist_ok=True)
     t_start = run_since = None
     try:
-        for _ in range(120):                              # создание группы Salad иногда идёт 2–10 минут
+        for _ in range(480):                              # создание группы Salad идёт 2–40 минут (t94j: образ 6,6 ГБ — pending 11 мин, /start раньше срока дал HTTP 400)
             _, st, _c = BR.group_state(name)
             if st == 'stopped':
                 break
