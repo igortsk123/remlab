@@ -28,8 +28,11 @@ RUN python3 -m pip install --upgrade pip setuptools wheel packaging \
     && python3 -m pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
 
 # basic из setup.sh (без gradio и sudo; pillow-simd заменён обычным pillow — тот же интерфейс)
-RUN python3 -m pip install imageio imageio-ffmpeg tqdm easydict opencv-python-headless trimesh transformers tensorboard pandas lpips zstandard \
-        kornia timm pillow huggingface_hub \
+# ПИНЫ (шаг 0, 18.11): без версии встал transformers 5.20.2, а TRELLIS.2 (`DINOv3ViTModel.layer`) писан под 4.x → AttributeError на первом задании.
+# 4.56.2 — первая линейка с DINOv3, `.layer` проверен по исходникам v4.56.0/4.56.2/4.57.0; huggingface_hub 0.35.3 — в её границах (>=0.34,<1.0); trimesh — как в пробе.
+# Остальное (imageio, easydict, opencv, pandas, lpips, kornia, timm …) работало без пина на 5.20.2/torch 2.6 — их версии фиксируются в /opt/BUILD_INFO.txt (полный pip freeze).
+RUN python3 -m pip install imageio imageio-ffmpeg tqdm easydict opencv-python-headless trimesh==5.2.1 transformers==4.56.2 tensorboard pandas lpips zstandard \
+        kornia timm pillow huggingface_hub==0.35.3 \
     && python3 -m pip install git+https://github.com/EasternJournalist/utils3d.git@${UTILS3D_COMMIT}
 
 # flash-attn 2.7.3 (по умолчанию — готовое колесо под torch 2.6/cu12; если не нашлось, соберётся из исходников — долго)
@@ -51,7 +54,7 @@ RUN mkdir -p /tmp/extensions \
     && cp -r /opt/TRELLIS.2/o-voxel /tmp/extensions/o-voxel \
     && python3 -m pip install /tmp/extensions/o-voxel --no-build-isolation \
     && { for d in nvdiffrast nvdiffrec CuMesh FlexGEMM; do echo "$d $(git -C /tmp/extensions/$d rev-parse HEAD)"; done; \
-         echo "TRELLIS.2 ${TRELLIS_COMMIT}"; python3 -m pip freeze | grep -i -E '^(torch|flash|transformers|trimesh|o-voxel|nvdiffrast|cumesh|flexgemm)' ; } > /opt/BUILD_INFO.txt \
+         echo "TRELLIS.2 ${TRELLIS_COMMIT}"; python3 -m pip freeze ; } > /opt/BUILD_INFO.txt \
     && rm -rf /tmp/extensions
 
 COPY worker_trellis.py /app/worker_trellis.py

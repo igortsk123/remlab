@@ -89,13 +89,21 @@ def cost_usd(running_s: float, price: float, reserve_s: float = 60.0) -> float:
     return max(0.0, running_s + (reserve_s if running_s > 0 else 0.0)) / 3600.0 * price
 
 
-def worker_command(path: str | None = None, python: str = 'python') -> tuple[list[str], str]:
+# TRELLIS.2 писан под transformers 4.x (`DINOv3ViTModel.layer`); в образе без пина встал 5.20.2 → AttributeError (шаг 0, s0e). Пока образ не пересобран с пином,
+# версия ставится при старте контейнера (с повторами; 4.56.* — первая с DINOv3, `.layer` проверен по исходникам v4.56.0/4.56.2/4.57.0)
+TRELLIS_PIP_PIN = "transformers==4.56.2"
+
+
+def worker_command(path: str | None = None, python: str = 'python', pre: str = '') -> tuple[list[str], str]:
     """Код воркера → (command, сжатый код) для боевого образа: `python -u -c "exec(zlib+base64 из env TRIAL_WORKER_Z)"` — как боевые группы
     несут свой код в `command`; образ не пересобирается. Код едет переменной окружения (≈ 3 КБ после сжатия), а не в аргументе."""
     import zlib
     src = open(path or os.path.join(HERE, 'worker_trellis.py'), 'rb').read()
     z = base64.b64encode(zlib.compress(src, 9)).decode()
-    return [python, '-u', '-c', "import base64,os,zlib;exec(zlib.decompress(base64.b64decode(os.environ['TRIAL_WORKER_Z'])).decode())"], z
+    code = "import base64,os,zlib;exec(zlib.decompress(base64.b64decode(os.environ['TRIAL_WORKER_Z'])).decode())"
+    if pre:        # сперва подготовка (pip с повторами), затем воркер процессом-заменой (exec), чтобы сигналы и код выхода шли воркеру
+        return ['bash', '-c', f'{pre}\nexec {python} -u -c "$0"', code], z
+    return [python, '-u', '-c', code], z
 
 
 def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu: int, mem_mb: int, run_note: str, auth: dict, donor: dict | None = None) -> dict:
@@ -106,7 +114,9 @@ def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu:
     res = {'cpu': cpu, 'memory': mem_mb, 'gpu_classes': [CARD['class_id']], 'storage_amount': 60 * 2 ** 30, 'shm_size': 1024}
     command = None
     if donor is None:        # TRELLIS.2: образ уже содержит воркер, но актуальный код едет через command — без пересборки образа (python3 в образе, `python` нет)
-        command, env['TRIAL_WORKER_Z'] = worker_command(python='python3')
+        pre = (f'for i in 1 2 3; do python3 -m pip install -q "{TRELLIS_PIP_PIN}" && break; echo "[pip] попытка $i не удалась"; sleep 5; done; '
+               f'python3 -m pip list 2>/dev/null | grep -i -E "^(transformers|huggingface|tokenizers|safetensors|torch|trimesh|timm|kornia|numpy) " | tr -s " " | tr "\\n" ";"; echo')
+        command, env['TRIAL_WORKER_Z'] = worker_command(python='python3', pre=pre)
     if donor is not None:
         denv = (donor.get('container') or {}).get('environment_variables') or {}
         env = {k: v for k, v in denv.items() if not k.startswith(('MESH_SINK', 'QUEUE')) and k not in ('STORAGE_BACKEND', 'DEPLOYMENT_EPOCH')}
@@ -286,9 +296,15 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     mark = (gb, None if cpu is None else int(cpu // 20))       # «живой» ход: растёт кэш весов ИЛИ ребёнок жжёт процессор (строит модель)
                     if gb is not None and mark != last_gb:
                         last_gb, last_gb_t = mark, t
+                    free = ((h.get('disk_gb') or {}).get('hf') or {}).get('free')
+                    summary['disk_free_gb_min'] = free if free is None else min(free, summary.get('disk_free_gb_min', free))
+                    if free is not None and free < a.disk_min_gb:
+                        say(f'!! на диске контейнера осталось {free} ГиБ < {a.disk_min_gb} — гашу (кэш весов + результаты не помещаются)')
+                        summary['stopped_by'] = 'disk_low'
+                        break
                     if t - last_say >= 120 and not h.get('warm'):
                         last_say = t
-                        say(f'прогрев: фаза {h.get("phase")}, в кэше HF {gb} ГБ, ребёнок {h.get("child")}, память группы {h.get("cgroup_gb")}')
+                        say(f'прогрев: фаза {h.get("phase")}, в кэше HF {gb} ГБ, диск {h.get("disk_gb")}, ребёнок {h.get("child")}')
                     if h.get('phase') == 'weights' and last_gb_t is not None and t - last_gb_t > a.stall_min * 60:
                         say(f'!! загрузка стоит {a.stall_min} мин (кэш {gb} ГБ не растёт, процессор ребёнка {cpu} с не растёт) — гашу')
                         summary['stopped_by'] = 'download_stalled'
@@ -380,6 +396,7 @@ def main() -> int:
     ap.add_argument('--max-min', type=int, default=180)
     ap.add_argument('--ready-min', type=int, default=75, help='сколько минут после running ждать прогрева модели (холодный старт с докачкой весов — часть результата пробы)')
     ap.add_argument('--health-min', type=int, default=20, help='сколько минут после running ждать ПЕРВОГО ответа /health, иначе стоп (воркер мёртв)')
+    ap.add_argument('--disk-min-gb', type=float, default=3.0, help='стоп, если свободного места на диске контейнера меньше, ГиБ')
     ap.add_argument('--stall-min', type=int, default=10, help='сколько минут докачка весов может не расти, иначе стоп')
     ap.add_argument('--job-timeout', type=int, default=15)
     ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))

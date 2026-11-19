@@ -73,8 +73,8 @@ ok('контроль: боевые ручки образца (STAGED, PIPELINE_V
    and hb['container']['resources']['gpu_classes'] == [T.CARD['class_id']] and hb['container']['resources']['memory'] == 24576)
 ok('контроль: код воркера едет в command + env TRIAL_WORKER_Z и распаковывается обратно в тот же файл',
    hb['container']['command'][:3] == ['python', '-u', '-c'] and __import__('zlib').decompress(__import__('base64').b64decode(henv['TRIAL_WORKER_Z'])) == open(os.path.join(HERE, 'worker_trellis.py'), 'rb').read())
-ok('TRELLIS.2: актуальный воркер тоже едет через command (python3) без пересборки образа',
-   body['container']['command'][:3] == ['python3', '-u', '-c'] and __import__('zlib').decompress(__import__('base64').b64decode(env['TRIAL_WORKER_Z'])) == open(os.path.join(HERE, 'worker_trellis.py'), 'rb').read())
+ok('TRELLIS.2: воркер едет через command (bash: pip-пин transformers с повторами → exec python3) без пересборки образа',
+   body['container']['command'][:2] == ['bash', '-c'] and 'transformers==4.56' in body['container']['command'][2] and 'exec python3 -u -c' in body['container']['command'][2] and __import__('zlib').decompress(__import__('base64').b64decode(env['TRIAL_WORKER_Z'])) == open(os.path.join(HERE, 'worker_trellis.py'), 'rb').read())
 buf = io.StringIO()
 real = sys.stdout
 sys.stdout = buf
@@ -125,7 +125,7 @@ class FakeBR:
 
 class FakeGW:
     """Шлюз ноды: прогрет сразу; задания — по сценарию `fail_jobs` (сколько первых упадут)."""
-    script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, 'phase': None, 'no_health': False, 'hf_gb': None}
+    script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, 'phase': None, 'no_health': False, 'hf_gb': None, 'disk_free': 50.0}
 
     def __init__(self, base, key):
         self.jobs, self.k = {}, 0
@@ -138,7 +138,7 @@ class FakeGW:
             if s['no_health']:
                 return 503, {}
             return 200, {'warm': s['warm'], 'phase': s['phase'] or ('ready' if s['warm'] else 'loading'), 'error': s['health_error'], 'timings': {'weights_s': 5},
-                         'progress': {'hf_gb': s['hf_gb']} if s['hf_gb'] is not None else None, 'child': {'alive': True}, 'cgroup_gb': {'current': 1.0, 'max': 24.0}}
+                         'progress': {'hf_gb': s['hf_gb']} if s['hf_gb'] is not None else None, 'child': {'alive': True}, 'cgroup_gb': {'current': 1.0, 'max': 24.0}, 'disk_gb': {'hf': {'free': s['disk_free'], 'total': 60.0}}}
         if path == '/info':
             return 200, {'gpu': {'name': 'RTX 4090'}}
         if path == '/generate':
@@ -156,7 +156,7 @@ class FakeGW:
 
 def args(tmp, **kw):
     d = dict(donor='mesh-q-low-1', set=None, fail_streak=2, model='trellis2', image='ghcr.io/x/y:t', inputs=tmp, skus=['a:1'], plan='1024:1', seed=42, decimation=500000, texture=2048, tier='high', cpu=8,
-             mem_mb=32768, cap=3.0, max_min=90, ready_min=40, health_min=20, stall_min=10, job_timeout=15, suffix='t1', out=os.path.join(tmp, 'out'), apply=True, stop_only=False)
+             mem_mb=32768, cap=3.0, max_min=90, ready_min=40, health_min=20, stall_min=10, disk_min_gb=3.0, job_timeout=15, suffix='t1', out=os.path.join(tmp, 'out'), apply=True, stop_only=False)
     d.update(kw)
     return types.SimpleNamespace(**d)
 
@@ -170,7 +170,7 @@ def make_inputs(tmp, skus=('a:1',)):
 
 
 def go(tmp, mg=None, br=None, hf=200, script=None, **kw):
-    FakeGW.script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, 'phase': None, 'no_health': False, 'hf_gb': None, **(script or {})}
+    FakeGW.script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, 'phase': None, 'no_health': False, 'hf_gb': None, 'disk_free': 50.0, **(script or {})}
     clock = [0.0]
 
     def sleep(s):
@@ -219,6 +219,8 @@ rc, mg, br, s = go(d, suffix='t7', script={'no_health': True}, health_min=2)
 ok('воркер не ответил на /health ни разу за health_min → гашу (мёртвый процесс не жжёт деньги до 75 мин)', s['stopped_by'] == 'no_health' and br.stops == ['trial-trellis2-t7'])
 rc, mg, br, s = go(d, suffix='t8', script={'warm': False, 'phase': 'weights', 'hf_gb': 3.5}, stall_min=1, ready_min=30)
 ok('докачка весов не растёт stall_min → гашу (причина — download_stalled)', s['stopped_by'] == 'download_stalled' and br.stops == ['trial-trellis2-t8'])
+rc, mg, br, s = go(d, suffix='t10', script={'warm': False, 'phase': 'weights', 'hf_gb': 20.0, 'disk_free': 1.0})
+ok('на диске контейнера < 3 ГиБ → гашу (disk_low), минимум свободного места в сводке', s['stopped_by'] == 'disk_low' and s['disk_free_gb_min'] == 1.0 and br.stops == ['trial-trellis2-t10'])
 rc, mg, br, s = go(d, suffix='t9', script={'warm': False, 'phase': 'child_dead', 'health_error': 'дочерний процесс завершился, код -9'})
 ok('ребёнок убит (−9) → гашу сразу, причина в сводке', s['stopped_by'] == 'warm_failed' and br.stops == ['trial-trellis2-t9'] and '-9' in str(s['health']['error']))
 d2 = tempfile.mkdtemp(prefix='tt-')

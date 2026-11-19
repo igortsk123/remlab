@@ -206,13 +206,15 @@ def backend():
 
 
 def versions() -> dict:
+    """Версии того, что реально стоит в контейнере (шаг 0: transformers 5.x вместо 4.x уронил задание) — по метаданным пакетов, без импорта."""
     out = {}
-    for mod in ('torch', 'trimesh', 'transformers', 'flash_attn', 'o_voxel', 'nvdiffrast'):
+    from importlib import metadata
+    for pkg in ('torch', 'torchvision', 'transformers', 'huggingface_hub', 'tokenizers', 'safetensors', 'timm', 'kornia', 'numpy', 'trimesh', 'pillow',
+                'flash_attn', 'o_voxel', 'nvdiffrast', 'diffusers', 'accelerate', 'opencv-python-headless', 'utils3d'):
         try:
-            m = __import__(mod)
-            out[mod] = getattr(m, '__version__', 'ok')
-        except Exception:  # noqa: BLE001
-            out[mod] = None
+            out[pkg] = metadata.version(pkg)
+        except metadata.PackageNotFoundError:
+            pass
     try:
         import torch
         out['cuda'] = torch.version.cuda
@@ -259,6 +261,20 @@ def proc_cpu(pid: int) -> dict:
         return {'state': parts[0], 'cpu_s': round((int(parts[11]) + int(parts[12])) / tck, 1), 'threads': int(parts[17])}
     except (OSError, ValueError, IndexError):
         return {}
+
+
+def disk_gb() -> dict:
+    """Свободное место на диске контейнера (кэш весов HF ≈ 42 ГиБ + результаты): падение «нет места» посреди 30 товаров ловим заранее."""
+    import shutil
+    out = {}
+    for name, path in (('hf', os.environ.get('HF_HOME', '/data/hf')), ('out', OUT)):
+        try:
+            os.makedirs(path, exist_ok=True)
+            u = shutil.disk_usage(path)
+            out[name] = {'free': round(u.free / 2 ** 30, 1), 'total': round(u.total / 2 ** 30, 1)}
+        except OSError:
+            pass
+    return out
 
 
 def cgroup_gb() -> dict:
@@ -409,7 +425,7 @@ def health() -> dict:
         phase = 'child_dead'
         err = f'дочерний процесс завершился, код {ci.get("returncode")} (−9 = убит ядром, почти наверняка нехватка памяти)'
     return {'ok': True, 'phase': phase, 'warm': bool(st.get('warm')) and bool(ci.get('alive')), 'error': err, 'timings': st.get('timings'),
-            'progress': st.get('progress'), 'child': ci, 'cgroup_gb': cgroup_gb(), 'uptime_s': round(time.time() - T_CONTAINER, 1)}
+            'progress': st.get('progress'), 'child': ci, 'cgroup_gb': cgroup_gb(), 'disk_gb': disk_gb(), 'uptime_s': round(time.time() - T_CONTAINER, 1)}
 
 
 def watch_loop() -> None:
