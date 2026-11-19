@@ -547,5 +547,55 @@ RecGW.bodies = []
 rc, mg5, br5, _ = go(d, model='supratex', skus=['a:1'], texture_mesh=os.path.join(cat, 'b_2-1024-42-0.clean.glb'), gw=RecGW, suffix='m4')
 ok('прежний способ (--texture-mesh, один товар) по-прежнему едет формой в задании', rc == 0 and dict(RecGW.bodies).get('a_1-1024-42-0-supra') == base64.b64encode(b'glTF-B1').decode(), str(RecGW.bodies)[:200])
 
+
+print('[6] отказы по категориям и память по товару (T-20261119-06/6/1)')
+cf = T.classify_failure
+ok('категории: UVAtlas (в любом регистре и записи), контейнер убит (код -9/137, Killed), нехватка видеопамяти, форма/развёртка изменились, CUDA, прочее',
+   cf('RuntimeError: UVAtlasPack failed') == 'uvatlas' and cf('uvatlas: bad') == 'uvatlas' and cf('дочерний процесс завершился, код -9 (−9 = убит ядром)') == 'oom_ram' and cf('exit code 137') == 'oom_ram'
+   and cf('Killed') == 'oom_ram' and cf('CUDA out of memory.', {'kind': 'oom'}) == 'oom_gpu' and cf('x', {'kind': 'oom'}) == 'oom_gpu' and cf('ShapeChanged: развёртка изменилась: 3e-2') == 'shape_changed'
+   and cf('RuntimeError: CUDA driver error', {'fatal': True}) == 'cuda' and cf('ValueError: форма: нет мешей') == 'other' and cf(None) == 'other')
+ok('приоритеты: UVAtlas важнее прочего, убитый контейнер важнее «CUDA» в том же тексте', cf('CUDA out of memory in UVAtlas') == 'uvatlas' and cf('CUDA context lost; код -9') == 'oom_ram')
+jm = T.job_mem({'metrics': {'peak_vram_gb': 18.5, 'peak_rss_gb': 21.0, 'peak_cgroup_gb': 27.5}}, 32.0)
+ok('пики из метрик done: видео, процесс, группа и лимит группы', jm == {'peak_vram_gb': 18.5, 'peak_rss_gb': 21.0, 'peak_cgroup_gb': 27.5, 'mem_limit_gb': 32.0}, str(jm))
+jf = T.job_mem({'diag': {'peak_rss_gb': 30.5, 'stage_mem': {'start': {'peak_allocated_gb': 1.0, 'cgroup_gb': 12.0}, 'views': {'peak_allocated_gb': 14.0, 'cgroup_gb': 29.0}}, 'mem': {'peak_allocated_gb': 2.0, 'cgroup_gb': 30.5}}}, 32.0)
+ok('пики упавшего задания — из диагностики воркера (стадии до падения + текущий замер)', jf == {'peak_vram_gb': 14.0, 'peak_rss_gb': 30.5, 'peak_cgroup_gb': 30.5, 'mem_limit_gb': 32.0}, str(jf))
+ok('нет данных — None, а не ноль', T.job_mem({}, 32.0) == {'peak_vram_gb': None, 'peak_rss_gb': None, 'peak_cgroup_gb': None, 'mem_limit_gb': 32.0})
+
+
+class MemGW(FakeGW):
+    """Метрики задания с памятью; второй товар падает «убит ядром» (код −9)."""
+    def call(self, method, path, body=None, timeout=60, raw=False):
+        c, r = super().call(method, path, body, timeout, raw)
+        if path.startswith('/job/') and r.get('status') == 'done':
+            r = {**r, 'metrics': {**r['metrics'], 'peak_vram_gb': 17.0, 'peak_rss_gb': 22.5, 'peak_cgroup_gb': 26.0}}
+        if path.startswith('/job/') and r.get('status') == 'failed':
+            r = {**r, 'error': 'дочерний процесс завершился, код -9 (−9 = убит ядром, почти наверняка нехватка памяти)', 'diag': {'kind': 'other', 'fatal': False, 'peak_rss_gb': 31.2,
+                                                                                                                            'stage_mem': {'views': {'peak_allocated_gb': 15.0, 'cgroup_gb': 31.9}}}}
+        return c, r
+
+
+d = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d, ('a:1', 'b:2', 'c:3'))
+cat2 = tempfile.mkdtemp(prefix='shp-')
+for k in ('a_1', 'b_2', 'c_3'):
+    open(os.path.join(cat2, k + '-1024-42-0.clean2.glb'), 'wb').write(b'glTF')
+buf7 = io.StringIO()
+with __import__('contextlib').redirect_stdout(buf7):
+    rc, mg7, br7, _ = go(d, model='mvadapter-i2tex', skus=['a:1', 'b:2', 'c:3'], shape_dir=cat2, texture_mesh=None, gw=MemGW, script={'fail_jobs': 0}, mem_mb=None, fail_streak=9, suffix='q1')
+sm7 = json.load(open(os.path.join(d, 'out', 'summary-trial-mvadapter-i2tex-q1.json')))
+ok('итог по товару: пики видео/процесса/группы и лимит группы (32 ГБ) у каждого товара', all(sm7['by_sku'][k]['peak_rss_gb'] == 22.5 and sm7['by_sku'][k]['peak_cgroup_gb'] == 26.0 and sm7['by_sku'][k]['peak_vram_gb'] == 17.0
+                                                                                      and sm7['by_sku'][k]['mem_limit_gb'] == 32.0 for k in ('a:1', 'b:2', 'c:3')), str(sm7['by_sku']))
+ok('счётчик отказов в summary: все категории и not_run есть, при успехе — нули', sm7['fail_classes'] == {'uvatlas': 0, 'oom_gpu': 0, 'oom_ram': 0, 'shape_changed': 0, 'cuda': 0, 'other': 0, 'not_run': 0}, str(sm7['fail_classes']))
+ok('в строке «товар …» память видна: видео, процесс, группа из лимита', 'видео 17.0 ГБ, процесс 22.5 ГБ, группа 26.0 из 32.0 ГБ' in buf7.getvalue() and '"fail_classes"' in buf7.getvalue())
+buf8 = io.StringIO()
+with __import__('contextlib').redirect_stdout(buf8):
+    rc, mg8, br8, _ = go(d, model='mvadapter-i2tex', skus=['a:1', 'b:2', 'c:3'], shape_dir=cat2, texture_mesh=None, gw=MemGW, script={'fail_jobs': 2}, mem_mb=None, fail_streak=9, suffix='q2')
+sm8 = json.load(open(os.path.join(d, 'out', 'summary-trial-mvadapter-i2tex-q2.json')))
+ok('два отказа «убит ядром»: oom_ram = 2, остальные 0; у упавших пик процесса 31,2 ГБ и группы 31,9 ГБ из 32; у третьего done', sm8['fail_classes']['oom_ram'] == 2 and sum(sm8['fail_classes'].values()) == 2
+   and sm8['by_sku']['a:1']['fail_class'] == 'oom_ram' and sm8['by_sku']['a:1']['peak_rss_gb'] == 31.2 and sm8['by_sku']['a:1']['peak_cgroup_gb'] == 31.9 and sm8['by_sku']['c:3']['status'] == 'done' and sm8['by_sku']['c:3']['fail_class'] is None, str(sm8['by_sku']['a:1']))
+rc, mg9, br9, _ = go(d, model='mvadapter-i2tex', skus=['a:1', 'b:2', 'c:3'], shape_dir=cat2, texture_mesh=None, script={'fail_jobs': 3, 'fatal_jobs': True}, mem_mb=None, suffix='q3')
+sm9 = json.load(open(os.path.join(d, 'out', 'summary-trial-mvadapter-i2tex-q3.json')))
+ok('фатальный отказ на первом: failed 1 по своей категории, остальные два — not_run = 2', sm9['fail_classes']['not_run'] == 2 and sm9['fail_classes']['cuda'] == 1 and sum(v for k, v in sm9['fail_classes'].items() if k != 'not_run') == 1, str(sm9['fail_classes']))
+
 print('ИТОГО: ' + ('всё в норме' if not bad else f'провалов {bad}'))
 sys.exit(1 if bad else 0)

@@ -746,6 +746,42 @@ def gpu_mem(reset_peak: bool = False) -> dict:
         return {}
 
 
+def _status_gb(key: str) -> float | None:
+    """Строка `/proc/self/status` (VmRSS — сейчас, VmHWM — пик) в ГБ; нет файла/строки — None."""
+    try:
+        for line in open('/proc/self/status'):
+            if line.startswith(key + ':'):
+                return round(int(line.split()[1]) / 2 ** 20, 3)      # кБ → ГиБ
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def reset_rss_peak() -> bool:
+    """Сбросить пик RSS процесса (VmHWM): «5» в /proc/self/clear_refs. Не вышло (нет прав/файла) — False, пик тогда считается с начала жизни процесса (задание это пишет: rss_peak_reset=False)."""
+    try:
+        with open('/proc/self/clear_refs', 'w') as f:
+            f.write('5')
+        return True
+    except OSError:
+        return False
+
+
+def mem_snapshot(reset_peak: bool = False) -> dict:
+    """Память на стадии: видеокарта (`gpu_mem`) + обычная память процесса (`rss_gb` — VmRSS ребёнка) и группы контейнера (`cgroup_gb` — current). Причина: issue #66 — процесс MV-Adapter
+    убивали по обычной памяти (~31 ГБ) при свободной видеопамяти; по одной видеопамяти такое не увидеть."""
+    d = gpu_mem(reset_peak)
+    d['rss_gb'] = _status_gb('VmRSS')
+    d['cgroup_gb'] = (cgroup_gb() or {}).get('current')
+    return d
+
+
+def job_mem_metrics(trace: dict, rss_reset: bool) -> dict:
+    """Итог задания по обычной памяти: `peak_rss_gb` (VmHWM с начала задания), `peak_cgroup_gb` (максимум current группы по замерам стадий — между замерами пик может быть выше), `rss_peak_reset`."""
+    cg = [v.get('cgroup_gb') for v in trace.values() if v.get('cgroup_gb') is not None]
+    return {'peak_rss_gb': _status_gb('VmHWM'), 'peak_cgroup_gb': max(cg) if cg else None, 'rss_peak_reset': rss_reset}
+
+
 def free_gpu() -> None:
     """Между стадиями: синхронизация → сборка мусора (отпускает тензоры, на которые держат ссылки циклы и кадры исключений) → возврат кэша аллокатора драйверу."""
     import gc
@@ -905,8 +941,10 @@ class PixalTexBackend:
         trace: dict = {}                                                   # память карты после каждой стадии (пик — с прошлого замера); пишется и при падении (`on_error`)
         self._trace = trace
 
+        rss_reset = reset_rss_peak()                                       # пик обычной памяти — с начала ЭТОГО задания (T-20261119-06/6/1)
+
         def mem(name: str) -> None:
-            trace[name] = gpu_mem(reset_peak=True)
+            trace[name] = mem_snapshot(reset_peak=True)
         mem('start')
         t = time.time()
         sc = trimesh.load(os.path.join(JOBS_DIR, params['job_id'] + '.mesh.glb'), force='scene')
@@ -940,7 +978,7 @@ class PixalTexBackend:
         m['stage_s'].update({'load_shape': load_s, 'camera': camera_s})
         m.update({'mode': 'pixal3d_tex', 'peak_vram_gb': max([v.get('peak_allocated_gb', 0.0) for v in trace.values()] or [0.0]),
                   'peak_reserved_gb': max([v.get('peak_reserved_gb', 0.0) for v in trace.values()] or [0.0]), 'mem': trace, 'encoder': dict(self.pipe.diag),
-                  'config': dict(STATE.get('config') or {}),
+                  'config': dict(STATE.get('config') or {}), **job_mem_metrics(trace, rss_reset),
                   'camera_params': {'fov_rad': round(float(cam['camera_angle_x']), 4), 'distance': round(float(cam['distance']), 3)}})
         return m
 
@@ -951,7 +989,7 @@ class PixalTexBackend:
         import traceback as tb
         kind = classify_cuda_error(e)
         tb.clear_frames(e.__traceback__)                      # кадры исключения держат тензоры — без этого освободить память нельзя
-        diag = {'kind': kind, 'fatal': kind == 'fatal', 'mem': gpu_mem(), 'stage_mem': dict(self._trace), 'encoder': dict(getattr(self.pipe, 'diag', {}) or {}),
+        diag = {'kind': kind, 'fatal': kind == 'fatal', 'mem': mem_snapshot(), 'peak_rss_gb': _status_gb('VmHWM'), 'stage_mem': dict(self._trace), 'encoder': dict(getattr(self.pipe, 'diag', {}) or {}),
                 'config': STATE.get('config')}
         if kind == 'oom':
             free_gpu()
@@ -1345,8 +1383,10 @@ class MVAdapterTexBackend:
         trace: dict = {}
         self._trace = trace
 
+        rss_reset = reset_rss_peak()                                       # пик обычной памяти — с начала ЭТОГО задания (T-20261119-06/6/1)
+
         def mem(name: str) -> None:
-            trace[name] = gpu_mem(reset_peak=True)
+            trace[name] = mem_snapshot(reset_peak=True)
         mem('start')
         t = time.time()
         sc = trimesh.load(os.path.join(JOBS_DIR, params['job_id'] + '.mesh.glb'), force='scene')
@@ -1365,7 +1405,8 @@ class MVAdapterTexBackend:
         final.export(path)
         m['stage_s']['load_shape'] = load_s
         m.update({'mode': 'mvadapter_i2tex', 'peak_vram_gb': max([v.get('peak_allocated_gb', 0.0) for v in trace.values()] or [0.0]),
-                  'peak_reserved_gb': max([v.get('peak_reserved_gb', 0.0) for v in trace.values()] or [0.0]), 'mem': trace, 'config': dict(STATE.get('config') or {})})
+                  'peak_reserved_gb': max([v.get('peak_reserved_gb', 0.0) for v in trace.values()] or [0.0]), 'mem': trace, 'config': dict(STATE.get('config') or {}),
+                  **job_mem_metrics(trace, rss_reset)})
         return m
 
     def on_error(self, e: BaseException) -> dict:
@@ -1373,7 +1414,7 @@ class MVAdapterTexBackend:
         import traceback as tb
         kind = classify_cuda_error(e)
         tb.clear_frames(e.__traceback__)
-        diag = {'kind': kind, 'fatal': kind == 'fatal', 'mem': gpu_mem(), 'stage_mem': dict(self._trace), 'config': STATE.get('config')}
+        diag = {'kind': kind, 'fatal': kind == 'fatal', 'mem': mem_snapshot(), 'peak_rss_gb': _status_gb('VmHWM'), 'stage_mem': dict(self._trace), 'config': STATE.get('config')}
         if kind == 'oom':
             try:
                 if self.runner is not None and self.runner.offload:

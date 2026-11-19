@@ -23,6 +23,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -119,6 +120,42 @@ def build_jobs(skus: list[str], plan: list[dict], inputs: dict, seed: int = 42) 
             for k in range(step['n']):
                 jobs.append({'sku': sku, 'res': step['res'], 'rep': k, 'seed': seed, 'job_id': f'{sku.replace(":", "_")}-{step["res"]}-{seed}-{k}'})
     return jobs
+
+
+FAIL_CLASSES = ('uvatlas', 'oom_gpu', 'oom_ram', 'shape_changed', 'cuda', 'other')      # категории отказа задания для счётчика в ИТОГе (T-20261119-06/6/1); `not_run` — не дошло до запуска
+
+
+def classify_failure(error: str | None, diag: dict | None = None) -> str:
+    """Категория отказа по тексту ошибки и диагностике воркера. Порядок важен: UVAtlas (issue #65 — ждём 0, считаем отдельно) → нехватка обычной памяти (контейнер убит: код −9/137, `Killed`; issue #66) →
+    нехватка видеопамяти → «форма/развёртка изменились» → фатальная ошибка CUDA → прочее."""
+    text = f'{error or ""} {(diag or {}).get("kind") or ""}'
+    low = text.lower()
+    if 'uvatlas' in low:
+        return 'uvatlas'
+    if re.search(r'(код|returncode|exit code|rc)\s*[=:]?\s*(-9|137)\b', low) or re.search(r'\bkilled\b', low) or 'sigkill' in low:
+        return 'oom_ram'
+    if (diag or {}).get('kind') == 'oom' or 'out of memory' in low or 'outofmemory' in low:
+        return 'oom_gpu'
+    if re.search(r'shapechanged|форма сдвинулась|форма изменилась|развёртка изменилась|число треугольников изменилось', low):
+        return 'shape_changed'
+    if (diag or {}).get('fatal') or (diag or {}).get('kind') == 'fatal' or 'cuda' in low:
+        return 'cuda'
+    return 'other'
+
+
+def job_mem(x: dict, mem_limit_gb: float | None) -> dict:
+    """Пики памяти задания для итога по товару: видеопамять, обычная память процесса (VmHWM), память группы контейнера (максимум по стадиям) и лимит группы, ГБ. Берётся из метрик (done)
+    или из диагностики воркера (failed: стадии до падения)."""
+    m, dg = x.get('metrics') or {}, x.get('diag') or {}
+    stages = [v for v in (m.get('mem') or dg.get('stage_mem') or {}).values() if isinstance(v, dict)] + ([dg['mem']] if isinstance(dg.get('mem'), dict) else [])
+
+    def mx(vals):
+        vals = [v for v in vals if isinstance(v, (int, float))]
+        return max(vals) if vals else None
+    vram = m.get('peak_vram_gb') if m.get('peak_vram_gb') is not None else mx([v.get('peak_allocated_gb') for v in stages])
+    rss = m.get('peak_rss_gb') if m.get('peak_rss_gb') is not None else dg.get('peak_rss_gb')
+    cg = m.get('peak_cgroup_gb') if m.get('peak_cgroup_gb') is not None else mx([v.get('cgroup_gb') for v in stages])
+    return {'peak_vram_gb': vram, 'peak_rss_gb': rss, 'peak_cgroup_gb': cg, 'mem_limit_gb': mem_limit_gb}
 
 
 def find_shape(shape_dir: str, sku: str) -> tuple[str, str] | None:
@@ -575,6 +612,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         j['role'] = (inputs.get(j['sku']) or {}).get('role') or meta.get(j['sku'], {}).get('role')
         j['dims_cm'] = meta.get(j['sku'], {}).get('dims_cm')
     mem_mb = getattr(a, 'mem_mb', None) or MODEL_MEM_MB.get(a.model, 32768)
+    mem_limit_gb = round(mem_mb / 1024, 1)                # лимит памяти группы — в итог по товару рядом с пиками
     body = build_body(name, a.image, a.tier, a.model, hf, a.cpu, mem_mb, a.image.split('@')[-1][:19], MG.ghcr_auth(), donor, extra_env=wenv)
     if wenv:
         say('окружение воркера (отладка/настройки):', wenv)
@@ -805,14 +843,23 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                 per_sku[j['sku']] = per_sku.get(j['sku'], 0) + 1
             for j in jobs:                                # ключ — товар; если у товара несколько заданий (варианты --tex-align) — id задания
                 x = done_jobs.get(j['job_id'])
-                summary['by_sku'][j['sku'] if per_sku[j['sku']] == 1 else j['job_id']] = ({'job_id': j['job_id'], 'status': x.get('status'), 'seconds': x.get('seconds'), 'glb': x.get('glb_path'), 'error': x.get('error')} if x else
-                                               {'job_id': j['job_id'], 'status': 'not_run', 'seconds': None, 'glb': None, 'error': None})
+                summary['by_sku'][j['sku'] if per_sku[j['sku']] == 1 else j['job_id']] = (
+                    {'job_id': j['job_id'], 'status': x.get('status'), 'seconds': x.get('seconds'), 'glb': x.get('glb_path'), 'error': x.get('error'),
+                     'fail_class': classify_failure(x.get('error'), x.get('diag')) if x.get('status') == 'failed' else None, **job_mem(x, mem_limit_gb)} if x else
+                    {'job_id': j['job_id'], 'status': 'not_run', 'seconds': None, 'glb': None, 'error': None, 'fail_class': None, **job_mem({}, mem_limit_gb)})
             for sku, v in summary['by_sku'].items():
-                say('товар', sku, v['status'], v['glb'] or v['error'] or '')
+                say('товар', sku, v['status'], v['fail_class'] or '', f'видео {v["peak_vram_gb"]} ГБ, процесс {v["peak_rss_gb"]} ГБ, группа {v["peak_cgroup_gb"]} из {v["mem_limit_gb"]} ГБ',
+                    v['glb'] or v['error'] or '')
+        fc = {k: 0 for k in FAIL_CLASSES}                  # счётчик отказов по категориям (для любой модели) + не дошедшие до запуска
+        for x in summary['jobs']:
+            if x.get('status') == 'failed':
+                fc[classify_failure(x.get('error'), x.get('diag'))] += 1
+        fc['not_run'] = max(0, len(jobs) - len(summary['jobs']))
+        summary['fail_classes'] = fc
         summary['running_s'] = round((clock() - run_since), 1) if run_since is not None else 0.0
         summary['cost_usd_est'] = round(cost_usd(summary['running_s'], price), 3)
         json.dump(summary, open(os.path.join(a.out, f'summary-{name}.json'), 'w'), ensure_ascii=False, indent=1)
-        say('ИТОГ', json.dumps({k: summary.get(k) for k in ('group', 'stopped_by', 'stop_verified', 'failed', 'running_s', 'cost_usd_est')}, ensure_ascii=False))
+        say('ИТОГ', json.dumps({k: summary.get(k) for k in ('group', 'stopped_by', 'stop_verified', 'failed', 'fail_classes', 'running_s', 'cost_usd_est')}, ensure_ascii=False))
     return 0 if summary['stop_verified'] and summary['stopped_by'] == 'done' else 1
 
 

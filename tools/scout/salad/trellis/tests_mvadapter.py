@@ -247,6 +247,27 @@ if have_tm:
         met = be.generate(photo0, {'job_id': 'j1-mvtex', 'texture_mesh': True, 'texture_size': 64, 'mv_steps': 5}, out_path)
         ok('generate: GLB записан, метрики: режим, пик памяти по замерам, память по стадиям, форма и развёртка не изменились',
            os.path.exists(out_path) and met['mode'] == 'mvadapter_i2tex' and met['peak_vram_gb'] == 3.0 and 'views' in met['mem'] and met['shape']['hausdorff_rel'] <= 1e-4 and 'load_shape' in met['stage_s'], str(met)[:300])
+        # --- память процесса и группы на задание (T-20261119-06/6/1, issue #66: процесс убивали по обычной памяти при свободной видеопамяти) ---
+        ok('метрики: peak_rss_gb (VmHWM процесса) числом, rss_peak_reset — булево, peak_cgroup_gb есть (число или None, если cgroup недоступен); на каждой стадии рядом с видеопамятью rss_gb и cgroup_gb',
+           (met['peak_rss_gb'] is None or met['peak_rss_gb'] > 0) and isinstance(met['rss_peak_reset'], bool) and 'peak_cgroup_gb' in met and all('rss_gb' in v and 'cgroup_gb' in v for v in met['mem'].values()), str(met['mem'])[:300])
+        cg_keep = W.cgroup_gb
+        seq = iter([1.0, 2.0, 9.5, 4.0, 3.0] + [3.0] * 50)
+        W.cgroup_gb = lambda: {'current': next(seq), 'max': 32.0}
+        try:
+            out2 = os.path.join(W.OUT, 'j1b-mvtex.glb')
+            mesh_in.export(os.path.join(W.JOBS_DIR, 'j1b-mvtex.mesh.glb'))
+            met2 = be.generate(photo0, {'job_id': 'j1b-mvtex', 'texture_mesh': True, 'texture_size': 64, 'mv_steps': 5}, out2)
+            ok('peak_cgroup_gb — максимум current группы по стадиям (9,5), а не последнее значение', met2['peak_cgroup_gb'] == 9.5 and max(v['cgroup_gb'] for v in met2['mem'].values()) == 9.5, str(met2['peak_cgroup_gb']))
+            W.cgroup_gb = lambda: {'current': 7.5, 'max': 32.0}
+            d7 = be.on_error(RuntimeError('boom'))
+            ok('on_error отдаёт и cgroup_gb, и rss_gb (память процесса), и пик VmHWM', d7['mem']['cgroup_gb'] == 7.5 and 'rss_gb' in d7['mem'] and 'peak_rss_gb' in d7)
+            os.remove(out2)
+        finally:
+            W.cgroup_gb = cg_keep
+        import unittest.mock as _um
+        with _um.patch('builtins.open', side_effect=OSError('нет прав')):
+            ok('сброс пика RSS не вышел (нет прав на clear_refs) — False, а не исключение; в метрике это видно', W.reset_rss_peak() is False)
+        ok('сброс пика RSS: «5» пишется в /proc/self/clear_refs (где доступно)', (not os.path.exists('/proc/self/clear_refs')) or W.reset_rss_peak() in (True, False))
         ok('рабочая папка задания убрана (в OUT только результат)', sorted(os.listdir(W.OUT)) == ['j1-mvtex.glb'], str(os.listdir(W.OUT)))
         got = trimesh.load(out_path, force='mesh', process=False)
         ok('результат читается: вершины исходные, текстура 64²', np.allclose(np.asarray(got.vertices), Vi, atol=1e-6) and got.visual.material.baseColorTexture.size == (64, 64))
