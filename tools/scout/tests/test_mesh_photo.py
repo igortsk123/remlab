@@ -144,6 +144,7 @@ check('hybrid_error из измерений вынимается', MP.hybrid_err
 check('нет сбоя / не словарь / пустая строка — None', MP.hybrid_error({}) is None and MP.hybrid_error(None) is None and MP.hybrid_error({'hybrid_error': ''}) is None)
 
 # 7c) ворота «требуется меш» (mesh_bind): фото есть, если есть HD ИЛИ превью (7 товаров были с одним HD)
+MB.DL._CATS = []   # список «категорий без размеров» без базы: на DEV dimless ходит в remlab-devdb, в CI базы нет (CI красный с 188ce21b)
 gate = MB.catalog_gates_sql(['диван'], [])
 check('ворота mesh_bind: «фото есть» — по общему правилу (HD или превью), не по одному превью',
       MP.photo_sql('p') + ' is not null' in gate and 'p.image_url is not null' not in gate, gate[:160])
