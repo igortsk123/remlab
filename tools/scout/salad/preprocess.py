@@ -108,13 +108,19 @@ def cutout(img: Image.Image) -> Image.Image:
     return out
 
 
-def clean_edges(img: Image.Image, bg_lum: float, rep: dict) -> Image.Image:
+def clean_edges(img: Image.Image, bg_lum: float, rep: dict, bg_rgb=None) -> Image.Image:
     """Чистка кромки по цвету (T-20261119-99): ореол `edge_halo` + островки `clean_islands`; счётчики — в `rep`. Сбой шага не валит вырезку.
     Вынесено из `defringe`, чтобы пробы и замеры гоняли ровно этот шаг на готовых вырезках (у сохранённых вырезок RGB в прозрачном = 0,
     а `defringe` берёт фон по углам — для них фон считается явно: `clean_edges(img, 255.0, rep)`)."""
     try:
         img, h = edge_halo.clean_edge_halo(img, bg_lum)
         img, isl = _islands.clean_islands(img, bg_lum)
+        # T-107: крупинки, похожие на ФОН, на кромке (кремовые точки над дубовой крышкой комода) — общее правило, пороги в clean_islands.py
+        img, sp = _islands.clean_bg_like_specks(img, tuple(float(v) for v in (bg_rgb if bg_rgb is not None else (bg_lum,) * 3)))
+        rep['specks_removed_px'] = sp['removed_px']
+        rep['specks_pieces'] = sp['pieces']
+        if sp.get('skipped'):
+            rep['specks_skipped'] = sp['skipped']
         rep['halo_removed_px'] = h['removed']
         rep['islands_removed'] = len(isl.get('removed') or [])
         rep['islands_removed_px'] = int(sum(r['area'] for r in isl.get('removed') or []))
@@ -145,7 +151,7 @@ def defringe(img: Image.Image, info: dict | None = None) -> Image.Image:
     rep: dict = {}
     uniform = float(corners.std(axis=0).max()) <= 12 and float(bg.mean()) >= 200
     if uniform:
-        img = clean_edges(img, float(bg.mean()), rep)
+        img = clean_edges(img, float(bg.mean()), rep, bg_rgb=bg)
         a = np.asarray(img).astype(np.float32)
     else:
         rep['skipped'] = 'фон не однотонный/не светлый — чистка кромки не применялась'

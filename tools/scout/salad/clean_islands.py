@@ -80,6 +80,78 @@ def clean_islands(rgba: Image.Image, bg_lum: float = 255.0):
     return Image.fromarray(res, 'RGBA'), info
 
 
+# ---- T-107: «крупинка, похожая на фон» на кромке --------------------------------------------------------------------------------------
+# Над светлой дубовой крышкой комода остаются кремовые точки: они не отдельные островки (касаются тела, 8-связность их приклеила), цвет почти
+# фона (cream 254,243,227 при фоне 255), но `clean_islands` берёт только крошки ≤ max(4 px, 2e-5·тело), `edge_halo` требует тёмного соседа,
+# `components.clean` оставляет всё ближе NEAR_PX к телу. Ни одно правило не спрашивало «похож ли кусочек на ФОН» (для дырок такая проверка
+# есть — `components.fill_holes_unlike_bg`). Правило: связный кусок ПОХОЖИХ НА ФОН пикселей, лежащий на кромке (касается пустоты или края кадра),
+# КОМПАКТНЫЙ (не длиннее SPECK_MAX_SIDE_REL·ширина тела, не меньше SPECK_MIN_SIDE px) и заметно светлее соседнего тела (≥ SPECK_CONTRAST) — убрать.
+# Вытянутое/крупное (провод, трос, ножка, белая трубка, белый корпус) — длиннее предела или не светлее тела — не трогается. Откат: убрано > SPECK_MAX_SHARE тела.
+SPECK_BG_DIST = 45        # «похож на фон»: расстояние до цвета фона по RGB ≤ (кремовые точки комода: 24–36)
+SPECK_MIN_SIDE = 6        # px: куски короче этого — всегда «компактные»
+SPECK_MAX_SIDE_REL = 0.015  # …длиннее max(SPECK_MIN_SIDE, это·ширина тела) — уже не крупинка
+SPECK_CONTRAST = 35       # на столько светлее соседнего тела (яркость), иначе это часть светлого тела
+SPECK_REF_NEAR, SPECK_REF_FAR = 3, 10   # px: кольцо, по которому берём цвет соседнего тела
+SPECK_MIN_THICK = 3       # px: соседнее тело толще (расстояние до пустоты у кольца ≥ этого) — иначе это провод/трос/тонкая ножка: их и точки при них не трогаем
+SPECK_MAX_SHARE = 0.01    # откат: убрано больше 1 % площади тела
+
+
+def clean_bg_like_specks(rgba: Image.Image, bg_rgb=(255.0, 255.0, 255.0)):
+    """→ (RGBA без крупинок, {'removed_px', 'pieces', 'skipped'?}). bg_rgb — цвет фона каталога (по углам исходного фото)."""
+    im = np.asarray(rgba.convert('RGBA')).astype(np.float32)
+    rgb, a = im[..., :3], im[..., 3] / 255.0
+    al = a > THR
+    rep = {'removed_px': 0, 'pieces': 0}
+    if not al.any():
+        return rgba, rep
+    ys, xs = np.where(al)
+    body_w = int(xs.max() - xs.min() + 1)
+    max_side = max(SPECK_MIN_SIDE, int(round(SPECK_MAX_SIDE_REL * body_w)))
+    dist = np.linalg.norm(rgb - np.array(bg_rgb, np.float32), axis=2)
+    Lc = lum(rgb)
+    on_edge = ndimage.binary_dilation(~al, np.ones((3, 3)), border_value=1) & al          # кромка: касается пустоты или края кадра
+    thick = ndimage.distance_transform_edt(np.pad(al, 1))[1:-1, 1:-1]      # толщина тела: расстояние до пустоты (край кадра — тоже пустота)
+    cand = al & (dist <= SPECK_BG_DIST)
+    lab, n = ndimage.label(cand, structure=np.ones((3, 3)))
+    if n == 0:
+        return rgba, rep
+    kill = np.zeros(al.shape, bool)
+    pieces = 0
+    for i, sl in enumerate(ndimage.find_objects(lab), 1):
+        pad = SPECK_REF_FAR + 1
+        y0, y1 = max(sl[0].start - pad, 0), min(sl[0].stop + pad, al.shape[0])
+        x0, x1 = max(sl[1].start - pad, 0), min(sl[1].stop + pad, al.shape[1])
+        m = lab[y0:y1, x0:x1] == i
+        if not (m & on_edge[y0:y1, x0:x1]).any():
+            continue                                                  # внутри тела (блик) — не кромка
+        h, w = sl[0].stop - sl[0].start, sl[1].stop - sl[1].start
+        if max(h, w) > max_side:
+            continue                                                  # длинное/крупное — провод, трос, ножка, светлая часть товара
+        ring = (ndimage.binary_dilation(m, np.ones((3, 3)), iterations=SPECK_REF_FAR)
+                & ~ndimage.binary_dilation(m, np.ones((3, 3)), iterations=SPECK_REF_NEAR)
+                & al[y0:y1, x0:x1] & ~(lab[y0:y1, x0:x1] > 0))
+        if ring.sum() < 6:
+            continue                                                  # соседнего тела нет — это не крупинка на теле
+        if float(np.median(thick[y0:y1, x0:x1][ring])) < SPECK_MIN_THICK:
+            continue                                                  # рядом тонкое (провод, трос, ножка) — не трогаем
+        if float(Lc[y0:y1, x0:x1][m].mean()) - float(np.median(Lc[y0:y1, x0:x1][ring])) < SPECK_CONTRAST:
+            continue                                                  # не светлее тела — часть светлого тела
+        kill[y0:y1, x0:x1] |= m
+        pieces += 1
+    if not kill.any():
+        return rgba, rep
+    grown = ndimage.binary_dilation(kill, np.ones((3, 3))) & al & (dist <= SPECK_BG_DIST + 20)    # мягкая кромка крупинки
+    kill |= grown
+    removed = int(kill.sum())
+    if removed > SPECK_MAX_SHARE * al.sum():
+        rep['skipped'] = f'убрать пришлось бы {removed} px (> {SPECK_MAX_SHARE:.0%} тела) — не трогаем'
+        return rgba, rep
+    out = a.copy()
+    out[kill] = 0.0
+    rep.update(removed_px=removed, pieces=pieces)
+    return Image.fromarray(np.dstack([rgb, out * 255.0]).clip(0, 255).astype(np.uint8), 'RGBA'), rep
+
+
 if __name__ == '__main__':
     src, dst = sys.argv[1], sys.argv[2]
     r, inf = clean_islands(Image.open(src))

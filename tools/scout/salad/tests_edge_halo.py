@@ -236,6 +236,95 @@ def test_components_clean_keeps_diagonal_wire():
     assert (out4[40:160, :] > 0.5).sum() < 20, 'контроль: при 4-связности трос рассыпался бы (проверка, что тест различает)'
 
 
+def _specks_case():
+    """Тело — светлый дуб (200,170,120), 320×180; над верхней кромкой и сбоку прилипли кремовые крошки цвета почти фона (254,243,227)."""
+    a = canvas((200, 170, 120), size=(420, 300), box=(50, 60, 370, 240))
+    crumbs = []
+    for x in (80, 110, 150, 200, 260, 300):             # компактные крошки 2×2 / 3×2 на кромке, часть — на самой границе, часть — на 1 px выше (мост 1 px)
+        a[58:60, x:x + 3, :3] = (254, 243, 227)
+        a[58:60, x:x + 3, 3] = 230
+        crumbs.append((58, 60, x, x + 3))
+    return a, crumbs
+
+
+def test_bg_like_speck_on_light_body_removed():
+    """T-107: компактная крошка цвета фона на кромке светлого дуба (не остров — касается тела) уходит; тело, кромка и сам дуб целы."""
+    import clean_islands as CI
+    a, crumbs = _specks_case()
+    out, rep = CI.clean_bg_like_specks(Image.fromarray(a, 'RGBA'), (255.0, 255.0, 255.0))
+    o = np.asarray(out)
+    for y0, y1, x0, x1 in crumbs:
+        assert (o[y0:y1, x0:x1, 3] == 0).all(), f'крошка {x0} осталась'
+    assert rep['pieces'] == len(crumbs) and rep['removed_px'] > 0
+    assert (o[60:240, 50:370, 3] == 255).all(), 'тело тронуто'
+
+
+def test_thin_wire_and_its_light_dots_kept():
+    """T-107: тонкий светлый трос (1–2 px) и светлые точки при нём — не крошки на теле: ничего не убирается (рядом нет толстого тела)."""
+    import clean_islands as CI
+    a = canvas((200, 170, 120), size=(420, 300), box=(50, 150, 370, 270))
+    for y in range(10, 150):                            # диагональный трос шириной 1 px от потолка к телу
+        x = 200 + (y - 10) // 3
+        a[y, x, :3] = (150, 150, 150)
+        a[y, x, 3] = 255
+        if y % 11 == 0:
+            a[y, x + 1, :3] = (250, 245, 235)           # светлая точка при тросе
+            a[y, x + 1, 3] = 220
+    before = a.copy()
+    out, rep = CI.clean_bg_like_specks(Image.fromarray(a, 'RGBA'), (255.0, 255.0, 255.0))
+    assert (np.asarray(out)[:140, :, 3] == before[:140, :, 3]).all(), 'трос или точки при нём тронуты'
+    assert rep['pieces'] == 0
+
+
+def test_dark_detail_and_long_light_part_kept():
+    """T-107: тёмная деталь у светлого тела и протяжённая светлая часть (белая трубка, длиннее крупинки) остаются."""
+    import clean_islands as CI
+    a = canvas((60, 60, 62), size=(420, 300), box=(50, 60, 370, 240))            # тёмное тело
+    a[40:60, 100:130, :3] = (40, 40, 40)                                             # тёмная ручка над кромкой
+    a[40:60, 100:130, 3] = 255
+    a[56:60, 200:300, :3] = (250, 245, 235)                                          # светлая протяжённая часть (100 px) на кромке — не крошка
+    a[56:60, 200:300, 3] = 255
+    before = a.copy()
+    out, rep = CI.clean_bg_like_specks(Image.fromarray(a, 'RGBA'), (255.0, 255.0, 255.0))
+    assert (np.asarray(out)[..., 3] == before[..., 3]).all(), 'тёмная деталь или длинная светлая часть тронуты'
+
+
+def test_white_body_not_eaten():
+    """T-107: белое тело на белом фоне — всё тело «похоже на фон», но это один большой кусок, не светлее соседнего тела: не трогается."""
+    import clean_islands as CI
+    a = canvas((250, 250, 248))
+    before = a.copy()
+    out, rep = CI.clean_bg_like_specks(Image.fromarray(a, 'RGBA'), (255.0, 255.0, 255.0))
+    assert (np.asarray(out)[..., 3] == before[..., 3]).all()
+
+
+def test_speck_rollback_when_too_much():
+    """T-107: если «убрать» пришлось бы больше SPECK_MAX_SHARE тела — не трогаем ничего (сторож от ошибки правила)."""
+    import clean_islands as CI
+    a = canvas((200, 170, 120), size=(420, 300), box=(50, 60, 370, 240))
+    for x in range(52, 368, 8):                                                      # 40 крошек подряд по верху — заведомо больше 1 % тела
+        a[56:60, x:x + 4, :3] = (254, 243, 227)
+        a[56:60, x:x + 4, 3] = 255
+    out, rep = CI.clean_bg_like_specks(Image.fromarray(a, 'RGBA'), (255.0, 255.0, 255.0))
+    assert rep.get('skipped') and rep['removed_px'] == 0
+    assert (np.asarray(out)[..., 3] == a[..., 3]).all()
+
+
+def test_clean_edges_reports_specks():
+    """T-107: шаг подключён в `preprocess.clean_edges` — счётчики specks_* в отчёте, крошки уходят (тест пропускается без torch)."""
+    try:
+        import preprocess as PRE
+    except Exception as e:      # noqa: BLE001
+        print('skip:', e)
+        return
+    a, crumbs = _specks_case()
+    rep = {}
+    out = PRE.clean_edges(Image.fromarray(a, 'RGBA'), 255.0, rep)
+    assert rep.get('specks_pieces', 0) >= len(crumbs), rep
+    y0, y1, x0, x1 = crumbs[0]
+    assert (np.asarray(out)[y0:y1, x0:x1, 3] == 0).all()
+
+
 if __name__ == '__main__':
     fails = 0
     for name, fn in sorted(globals().items()):
