@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# T-20261119-05/1, этап 3 — проба `pixal3d-tex` на комоде 112923:13224664101879413845 (форма TRELLIS.2 + краска Pixal3D). НЕ запускалась (этап 3 — после слова директора).
+# T-20261119-05/1, этап 3 — проба `pixal3d-tex` на ОДНОМ товаре (форма TRELLIS.2 + краска Pixal3D). НЕ запускалась (этап 3 — после слова директора).
+# Товар — обязательный вход: `SKU=<магазин:товар> probe_pixal_tex.sh` или первым аргументом. Нет — отказ с кодом 2. Форма — `<папка>/<магазин_товар>-1024-42-0.clean.glb`
+# в `~/remlab-logs/mesh-models-1118/trellis`, фото — `inputs30/<магазин_товар>.rgba.png` рядом.
+# Запуск: пока ветка не влита — из worktree `pixtex-1119` (так REPO стоит по умолчанию); ПОСЛЕ влития в `trial/trellis2` — из копии `trial/trellis2` (`REPO=<её путь>`).
 #
 #   probe_pixal_tex.sh            — «сухой» прогон: печатает тело группы без секретов, ничего не создаёт и ничего не стоит
 #   APPLY=1 probe_pixal_tex.sh    — настоящий запуск (платный, потолок CAP, по умолчанию $0,5) + бесплатная приёмка после него
@@ -12,8 +15,12 @@ set -u
 REPO="${REPO:-/home/pakar/igor/remlab/.claude/worktrees/pixtex-1119}"
 TR="$REPO/tools/scout/salad/trellis"
 PY="${PY:-$HOME/venvs/scout/bin/python}"
-SKU="112923:13224664101879413845"
-SKUF="112923_13224664101879413845"
+SKU="${1:-${SKU:-}}"
+case "$SKU" in
+  *:*) ;;
+  *) echo "нужен товар: SKU=<магазин:товар> $0 (или первым аргументом)" >&2; exit 2;;
+esac
+SKUF="${SKU//:/_}"
 BASE="$HOME/remlab-logs/mesh-models-1118/trellis"
 SHAPE="$BASE/${SKUF}-1024-42-0.clean.glb"
 IMAGE="${IMAGE:-ghcr.io/igortsk123/mesh-pixal3d-trial:pixal3d-trial}"       # лучше digest (ghcr.io/…@sha256:…) — тот, на котором прошёл прогрев у рабочего 1
