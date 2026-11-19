@@ -337,6 +337,13 @@ def cmd_masks(a) -> int:
     import queue_run as QR
     import salad_groups as SG
     MG.env_from_file()
+    # Замок конвейера на время прогона: по нему heartbeat.sh (крон, раз в 3 мин) ставит на сервере отметку жизни. Без неё «мёртвая рука»
+    # сервера (infra/server/salad-deadman.py) через 30 мин гасит любую группу `mesh-*`, где есть машины, — даже пока нода только качает
+    # образ (так погасла группа полного прогона 19.11 в 22:31, отметка стояла с 21:54). 'busy' — замок держит чужой конвейер, отметка и так идёт.
+    lock = QR.hold_lock()
+    say(f'замок конвейера для отметки жизни (мёртвая рука сервера): {lock}')
+    if lock == 'none':
+        sys.exit('замок не открылся — сервер погасит группу через 30 мин; чини ~/scout-scenes/.batch_show.lock')
     d = run_dir(a.run)
     rows = json.load(open(os.path.join(d, 'products.json'), encoding='utf-8'))
     done = {r['sha'] for r in jl_read(os.path.join(d, 'masks.jsonl')) if r.get('status') == 'ok'}
