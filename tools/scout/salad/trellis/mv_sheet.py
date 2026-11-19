@@ -24,6 +24,19 @@ def find_frame(folder: str, view: str, mode: str) -> str | None:
     return None
 
 
+FONTS = ('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+         '/usr/share/fonts/truetype/freefont/FreeSans.ttf')
+
+
+def label_font(size: int = 16):
+    """Шрифт с кириллицей для подписей (встроенный шрифт PIL кириллицу рисует квадратиками); нет ни одного — встроенный."""
+    from PIL import ImageFont
+    for f in FONTS:
+        if os.path.exists(f):
+            return ImageFont.truetype(f, size)
+    return ImageFont.load_default()
+
+
 def make_sheet_cols(cols: list, out: str, width: int = 800) -> dict:
     """Лист из N столбцов: `cols` — [(подпись, папка кадров), …]; строки — 0° и 45°. Возвращает {'sheet', 'missing': ['<подпись>:<вид>_<режим>', …]} — нет кадра → серая плашка с пометкой, лист всё равно собирается."""
     from PIL import Image, ImageDraw
@@ -39,14 +52,15 @@ def make_sheet_cols(cols: list, out: str, width: int = 800) -> dict:
     top, n = 28, len(cols)
     sheet = Image.new('RGB', (width * n, (h + top) * len(ROWS)), (235, 235, 235))
     d = ImageDraw.Draw(sheet)
+    font = label_font()
     for i, c in enumerate(cells):
         r, k = divmod(i, n)
         x, y = k * width, r * (h + top)
-        d.text((x + 8, y + 8), cols[k][0] + ' | ' + ROWS[r][2], fill=(20, 20, 20))
+        d.text((x + 8, y + 5), cols[k][0] + ' | ' + ROWS[r][2], fill=(20, 20, 20), font=font)
         if c is not None:
             sheet.paste(c.resize((width, h), Image.Resampling.LANCZOS), (x, y + top))
         else:
-            d.text((x + 8, y + top + 8), 'кадра нет', fill=(160, 0, 0))
+            d.text((x + 8, y + top + 8), 'кадра нет', fill=(160, 0, 0), font=font)
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     sheet.save(out)
     return {'sheet': out, 'missing': missing}
