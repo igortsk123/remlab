@@ -210,13 +210,29 @@ def face_roles(V: np.ndarray, F: np.ndarray, R: dict) -> np.ndarray:
     return roles
 
 
+def _demote_grey_goods(out: list, R: dict) -> None:
+    """gt-v3: кандидат (не отказ) на поверхности, которая НЕ похожа на пустой фон сети, — настоящий серый товар (диван, кровать, кашпо):
+    для верха нужен чистый фон ≥ cand_top_pure_min ИЛИ контраст с остальным изделием ≥ cand_top_edge_min; для боковых ролей — чистый фон ≥ cand_side_pure_min.
+    Иначе вердикт → ok, `demoted`=True (было 3 из 6 ложных на контроле; настоящие серые крышки — чистое окно 124–134 — остаются)."""
+    for x in out:
+        if x['verdict'] != 'candidate':
+            continue
+        ec = x.get('edge_contrast')
+        if x['role'] == 'верх':
+            keep = x['pure_share'] >= R['cand_top_pure_min'] or (ec is not None and ec >= R['cand_top_edge_min'])
+        else:
+            keep = x['pure_share'] >= R['cand_side_pure_min']
+        if not keep:
+            x['verdict'], x['demoted'] = 'ok', True
+
+
 def _extra_top_rules(out: list, R: dict) -> None:
     """gt-v3: три признака пустого верха, которых не видит «≥80 % окна 117–141» (калибровка T-20261118-04/16, 3 пропуска из 81 известных):
     1) однотонный низкосатурированный верх светлее остальных поверхностей изделия на ≥ flat_body_dL (графитовая тумба с серой крышкой);
     2) однотонный верх с MR≈0,5/0,5 и серым медианом 110–141 (чёрная столешница, у которой фон сети чуть темнее 117);
     3) частичная дыра: ≥ partial_share верха — чистый фон 124–134 (дуб, у которого пол-крышки серое).
     Только роль «верх»; вердикт — candidate (отказ — по прежнему правилу), причина — поле `why`."""
-    top = next((x for x in out if x['role'] == 'верх' and x['verdict'] == 'ok'), None)
+    top = next((x for x in out if x['role'] == 'верх' and x['verdict'] == 'ok' and not x.get('demoted')), None)
     if top is None:
         return
     import mesh_color_check as MC
@@ -291,6 +307,7 @@ def surfaces_arrays(V, F, UV, albedo, mr=None, R: dict | None = None) -> dict:
         if r == 'низ':
             row['verdict'] = 'ok'                      # дно не видно: считаем, но не судим
         out.append(row)
+    _demote_grey_goods(out, R)
     _extra_top_rules(out, R)
     for row in out:
         if row['verdict'] != 'ok' and (worst is None or order[row['verdict']] > order[worst['verdict']]
@@ -484,6 +501,14 @@ def _selftest() -> int:
     ok('дубовая крышка → ok', r['verdict'] == 'ok' and r['grey_share'] < 0.05)
     r = analyze_arrays(V, F, UV, _atlas((120, 120, 120), (150, 100, 40)), mrg, R)
     ok('серый 100 (за всеми окнами) → ok: граница держится', analyze_arrays(V, F, UV, _atlas((100, 100, 100), (150, 100, 40)), mrg, R)['verdict'] == 'ok')
+    _rows = [{'role': 'верх', 'verdict': 'candidate', 'pure_share': 0.17, 'edge_contrast': 1.0},
+             {'role': 'вертикаль-z', 'verdict': 'candidate', 'pure_share': 0.17, 'edge_contrast': 69.0},
+             {'role': 'верх', 'verdict': 'candidate', 'pure_share': 0.17, 'edge_contrast': 40.0},
+             {'role': 'верх', 'verdict': 'candidate', 'pure_share': 0.9, 'edge_contrast': 1.0},
+             {'role': 'верх', 'verdict': 'reject', 'pure_share': 0.17, 'edge_contrast': 1.0}]
+    _demote_grey_goods(_rows, R)
+    ok('gt-v3: серый товар (верх без контраста и чистого фона; бок с размытым серым) → ok; контраст/чистый фон/reject остаются',
+       [x['verdict'] for x in _rows] == ['ok', 'ok', 'candidate', 'candidate', 'reject'])
     ok('gt-v3: серый 114 с MR 0,5/0,5 и плоский → candidate (mr-flat), с настоящим MR → ok',
        analyze_arrays(V, F, UV, _atlas((114, 114, 114), (150, 100, 40)), mrg, R)['verdict'] == 'candidate'
        and analyze_arrays(V, F, UV, _atlas((114, 114, 114), (150, 100, 40)), mro, R)['verdict'] == 'ok')
