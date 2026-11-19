@@ -63,7 +63,7 @@ def one(model: str, c: dict, a, summary: dict) -> bool:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--model', required=True)
-    ap.add_argument('--glb-dir', default=os.path.join(ROOT, 'trellis'))
+    ap.add_argument('--glb-dir', default=None, help='по умолчанию — папка модели ~/remlab-logs/mesh-models-1118/<модель>/')
     ap.add_argument('--glb-suffix', default='-1024-42-0')
     ap.add_argument('--set', default=os.path.join(ROOT, 'trellis', 'set30.json'))
     ap.add_argument('--frames', default=os.path.join(ROOT, 'frames'))
@@ -74,6 +74,8 @@ def main() -> int:
     ap.add_argument('--watch', action='store_true')
     ap.add_argument('--max-wait-min', type=int, default=240)
     a = ap.parse_args()
+    if not a.glb_dir:
+        a.glb_dir = os.path.join(ROOT, a.model)
     items = json.load(open(a.set, encoding='utf-8'))
     rj = os.path.join(a.frames, a.model, 'results.json')
     os.makedirs(os.path.dirname(rj), exist_ok=True)

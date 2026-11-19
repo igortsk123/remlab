@@ -52,6 +52,31 @@ def say(*a) -> None:
     print(time.strftime('%H:%M:%S', time.gmtime()), *a, flush=True)
 
 
+RESULTS_ROOT = os.path.expanduser('~/remlab-logs/mesh-models-1118')
+
+
+def default_out(model: str) -> str:
+    """Папка результатов — СВОЯ у каждой модели (`trellis2/`, `hunyuan21/`, `pixal3d/`, `localmesh/`, `pixal3d-tex/`). До 19.11 все писали в `trellis/` под одним именем
+    `<ключ>-1024-42-0.glb`: Hunyuan-контроль затёр 12 GLB TRELLIS.2 (и наоборот 2) — кадры и таблицы по ним смешались."""
+    return os.path.join(RESULTS_ROOT, model)
+
+
+def owner_conflicts(out: str, job_ids: list[str], model: str) -> list[str]:
+    """Задания, чей GLB в папке уже есть от ДРУГОЙ модели: по метке `<id>.model` рядом; без метки файл в старой общей папке `trellis/` считается чужим для любой модели,
+    кроме trellis2 (и то только по метке — потому «безымянный» файл там не трогаем). Пусто — писать можно."""
+    bad = []
+    legacy = os.path.basename(os.path.normpath(out)) == 'trellis'
+    for jid in job_ids:
+        glb = os.path.join(out, jid + '.glb')
+        tag = os.path.join(out, jid + '.model')
+        if os.path.exists(tag):
+            if open(tag, encoding='utf-8').read().strip() != model:
+                bad.append(jid)
+        elif os.path.exists(glb) and (legacy or os.path.basename(os.path.normpath(out)) != model):
+            bad.append(jid)
+    return bad
+
+
 def parse_plan(plan: str) -> list[dict]:
     """`1024:1,1536:1` → [{'res': 1024, 'n': 1}, …]; допустимо 512 / 1024 / 1536 (pipeline_type цепочки TRELLIS.2: 512, 1024_cascade, 1536_cascade)."""
     out = []
@@ -222,6 +247,12 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     skus = a.skus or [k for k, v in inputs.items() if isinstance(v, dict) and v.get('input_png_sha256')]      # без --skus — весь набор из inputs.json (30 товаров)
     jobs = build_jobs(skus, parse_plan(a.plan), inputs, a.seed)
     name = f'trial-{a.model}-{a.suffix}'
+    if not a.out:
+        a.out = default_out(a.model)
+    clash = owner_conflicts(a.out, [j['job_id'] for j in jobs], a.model) if not getattr(a, 'force_out', False) else []
+    if clash:                                             # отказ ДО группы и денег: чужой результат под тем же именем затёрт не будет
+        say(f'ОТКАЗ: в {a.out} уже лежат файлы от другой модели для {len(clash)} заданий (первое: {clash[0]}) — укажи свою --out или --force-out')
+        return 2
     aligns = [parse_tex_variant(x) for x in (getattr(a, 'tex_align', None) or 'fit').split(',') if x.strip()]
     if a.model == 'pixal3d-tex':                          # краска Pixal3D по готовой форме: без формы работать нечему — отказ ДО группы и денег
         if not getattr(a, 'texture_mesh', None):
@@ -408,6 +439,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                                 if cg == 200:
                                     fp = os.path.join(a.out, inflight['job_id'] + '.glb')
                                     open(fp, 'wb').write(glb)
+                                    open(fp[:-4] + '.model', 'w', encoding='utf-8').write(a.model)
                                     inflight['glb_path'] = fp
                                     inflight['glb_bytes'] = len(glb)
                                     if (r.get('metrics') or {}).get('has_ai'):          # localmesh: вторая версия — текстура «как нарисовала модель», до проекции фото
@@ -473,7 +505,8 @@ def main() -> int:
     ap.add_argument('--stall-min', type=int, default=10, help='сколько минут докачка весов может не расти, иначе стоп')
     ap.add_argument('--job-timeout', type=int, default=15)
     ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))
-    ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/mesh-models-1118/trellis'))
+    ap.add_argument('--out', default=None, help='папка результатов; по умолчанию — ~/remlab-logs/mesh-models-1118/<модель>/')
+    ap.add_argument('--force-out', action='store_true', help='писать, даже если там лежат файлы от другой модели (не нужно)')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--stop-only', action='store_true')
     a = ap.parse_args()

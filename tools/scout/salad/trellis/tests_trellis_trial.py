@@ -37,6 +37,16 @@ def ok(name, cond, extra=''):
 
 # ——— чистые функции ———
 print('[1] план, задания, деньги')
+# --- папка результатов у каждой модели своя; чужой файл не затирается (19.11: Hunyuan затёр 12 GLB TRELLIS.2) ---
+ok('папка по умолчанию — по модели', T.default_out('pixal3d').endswith('/mesh-models-1118/pixal3d') and T.default_out('trellis2').endswith('/trellis2') and T.default_out('hunyuan21') != T.default_out('trellis2'))
+with tempfile.TemporaryDirectory() as _d:
+    _old = os.path.join(_d, 'trellis'); os.makedirs(_old)
+    open(os.path.join(_old, 'k-1024-42-0.glb'), 'wb').write(b'x')
+    ok('старая общая папка: файл без метки — чужой для любой модели', T.owner_conflicts(_old, ['k-1024-42-0'], 'pixal3d') == ['k-1024-42-0'] and T.owner_conflicts(_old, ['k-1024-42-0'], 'trellis2') == ['k-1024-42-0'])
+    _own = os.path.join(_d, 'pixal3d'); os.makedirs(_own)
+    ok('своя пустая папка — писать можно', T.owner_conflicts(_own, ['k-1024-42-0'], 'pixal3d') == [])
+    open(os.path.join(_own, 'k-1024-42-0.glb'), 'wb').write(b'x'); open(os.path.join(_own, 'k-1024-42-0.model'), 'w').write('pixal3d')
+    ok('метка своей модели — повтор можно, чужой моделью — отказ', T.owner_conflicts(_own, ['k-1024-42-0'], 'pixal3d') == [] and T.owner_conflicts(_own, ['k-1024-42-0'], 'hunyuan21') == ['k-1024-42-0'])
 ok('план 1024:1,1536:2 разбирается', T.parse_plan('1024:1,1536:2') == [{'res': 1024, 'n': 1}, {'res': 1536, 'n': 2}])
 try:
     T.parse_plan('2048:1')
