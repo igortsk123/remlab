@@ -40,6 +40,7 @@ HF_GATED = {'trellis2': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/c
             'pixal3d': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json',
             'pixal3d-tex': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json',
             'localmesh': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json',
+            'triposg-mv': 'VAST-AI/TripoSG/resolve/main/model_index.json',      # triposg-mv: веса MIT и открытые; проверка бесплатна, ловит исчезнувший репозиторий до создания группы
             'mvpainter': 'shaomq/MVPainter/resolve/main/model_index.json'}      # mvpainter: веса открытые, но проверка бесплатна и ловит исчезнувший репозиторий до создания группы      # закрытые веса, без которых модель не поднимется
 PORT = 8000
 READINESS = {'http': {'path': '/health', 'port': PORT, 'scheme': 'http', 'headers': []},      # НЕ /ready: пока проба не пройдена, шлюз отдаёт 503 на любой путь и прогрев не виден (урок шага 0, 18.11)
@@ -48,13 +49,21 @@ STARTUP = {'http': {'path': '/health', 'port': PORT, 'scheme': 'http', 'headers'
            'initial_delay_seconds': 10, 'period_seconds': 60, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 20}   # API Salad: failure_threshold ≤ 20 (400 от 18.11) → 20 мин на докачку весов
 NO_FAIL_STREAK = 2
 TEX_ALIGNS = ('fit', 'official')      # pixal3d-tex: как кадрировать фото под форму (`worker_trellis.texture_on_shape`)
-WENV_MODELS = ('pixal3d-tex', 'mvadapter-i2tex', 'mvpainter', 'supratex')      # модели, которым можно передать окружение воркера (`--worker-env`, `--debug-cuda`)
+WENV_MODELS = ('pixal3d-tex', 'mvadapter-i2tex', 'triposg-mv', 'mvpainter', 'supratex')      # модели, которым можно передать окружение воркера (`--worker-env`, `--debug-cuda`)
 MV_YAWS = ('auto', '0', '90', '180', '270')           # mvadapter-i2tex, mvpainter: поворот формы к виду 0 — по силуэту фото или задан руками
 MV_UV_SIZES = (1024, 2048, 4096)
 SUPRA_TEX_SIZES = (1024, 2048, 4096)                  # supratex: размер текстуры выпуска (по умолчанию 4096, как в апстриме)
 SUPRA_MEM_MB = 49152                                  # supratex: пик памяти процессов ≈ 32,4 ГиБ (замер апстрима на 3090) — 32768 МБ группы впритык; 48 ГиБ (лимит Salad 61440)
 MODEL_MEM_MB = {'supratex': SUPRA_MEM_MB}             # память группы по умолчанию для моделей, которым общих 32768 МБ мало
-TEXTURE_MODELS = {'mvadapter-i2tex': '-mvtex', 'mvpainter': '-mvp', 'supratex': '-supra', 'pixal3d-tex': '-tex', 'trellis2': '-tex'}      # модели «краска готовой формы» и суффикс id задания (результат — `<id>.glb`)
+TP_MEM_MB = 40960                                     # triposg-mv: два набора весов (TripoSG ≈ 7,4 + SDXL/MV-Adapter ≈ 10 ГиБ) живут в памяти процесса — 40 ГиБ (лимит Salad 61440); отдельно от MODEL_MEM_MB, чтобы таблица чужих моделей не менялась
+TP_SHAPE_SUFFIX = '-tpshape'                          # triposg-mv: id задания «форма» (результат — GLB формы без краски); id задания «краска» — с суффиксом `-tpmv`
+TP_CLEAN_TAG = '2'                                    # метка очистки: `<id>-tpshape.clean2.glb` (то же правило E, что у форм TRELLIS.2 в frames-clean2)
+# Урок 742: образ собран под ОДНУ архитектуру CUDA (`TORCH_CUDA_ARCH_LIST` в `Dockerfile.trellis` = 8.9 → расширения CuMesh/diso/nvdiffrast на других картах дают «no kernel image»).
+# Таблица «образ → архитектуры» и «карта → архитектура» — здесь; неизвестная карта — отказ ДО группы (проверить нельзя — не создаём).
+IMAGE_ARCH = {'triposg-mv': ('8.9',)}
+CARD_ARCH = {'RTX 4090': '8.9', 'RTX 4080': '8.9', 'RTX 4070': '8.9', 'RTX 4060': '8.9', 'RTX 3090': '8.6', 'RTX 3080': '8.6', 'RTX 3070': '8.6', 'RTX 3060': '8.6', 'RTX 5090': '12.0', 'RTX 5080': '12.0',
+             'RTX 6000 Ada': '8.9', 'L40S': '8.9', 'L4': '8.9', 'A100': '8.0', 'H100': '9.0'}
+TEXTURE_MODELS = {'triposg-mv': '-tpmv', 'mvadapter-i2tex': '-mvtex', 'mvpainter': '-mvp', 'supratex': '-supra', 'pixal3d-tex': '-tex', 'trellis2': '-tex'}      # модели «краска готовой формы» и суффикс id задания (результат — `<id>.glb`)
 MULTI_TEX_MODELS = ('pixal3d-tex', 'mvadapter-i2tex', 'mvpainter', 'supratex')      # модели «краска готовой формы»: несколько товаров в одной группе, у каждого своя форма (T-20261119-06/5/2)
 SHAPE_KINDS = (('clean2', 'clean2 (правило очистки E)'), ('clean', 'clean (прежнее правило очистки; clean2 нет)'))      # каталог форм: сперва clean2, иначе clean
 GPU_TIERS = ('high', 'medium', 'low', 'batch')        # тарифы Salad от дорогого к дешёвому; запасной порядок выбора класса — по ним
@@ -269,6 +278,49 @@ def mv_options(a) -> dict | None:
     return out
 
 
+def card_arch(card: str) -> str | None:
+    """Архитектура CUDA класса карты по имени класса Salad («RTX 4090 (24 GB)» → 8.9); неизвестная карта → None."""
+    name = re.sub(r'\s*\(.*?\)\s*', ' ', card or '').strip()
+    for k in sorted(CARD_ARCH, key=len, reverse=True):
+        if name.lower().startswith(k.lower()):
+            return CARD_ARCH[k]
+    return None
+
+
+def check_image_arch(model: str, card: str) -> tuple[bool, str]:
+    """Урок 742: класс карты ↔ архитектуры, под которые собран образ модели. Модели без записи в `IMAGE_ARCH` не проверяются (ok). Нет записи для карты — НЕ ok (проверить нельзя)."""
+    built = IMAGE_ARCH.get(model)
+    if not built:
+        return True, ''
+    arch = card_arch(card)
+    if arch is None:
+        return False, f'{model}: архитектура карты «{card}» неизвестна (нет в CARD_ARCH), образ собран под {" ".join(built)} — проверить нельзя'
+    if arch not in built:
+        return False, f'{model}: карта «{card}» — архитектура CUDA {arch}, образ собран под {" ".join(built)} (расширения CuMesh/diso/nvdiffrast на ней дадут «no kernel image»)'
+    return True, f'{model}: карта «{card}» — архитектура CUDA {arch} входит в сборку образа ({" ".join(built)})'
+
+
+def tp_options(a) -> dict | None:
+    """triposg-mv: параметры задания «форма» (`--tp-steps`, `--tp-guidance`); ключ в задании только если задан — иначе воркер берёт значения апстрима (50 шагов, guidance 7,0). Неверное → None (отказ ДО группы и денег)."""
+    steps, guid = getattr(a, 'tp_steps', None), getattr(a, 'tp_guidance', None)
+    if steps is not None and not 1 <= int(steps) <= 200:
+        return None
+    if guid is not None and not 0 <= float(guid) <= 20:
+        return None
+    out = {}
+    if steps is not None:
+        out['tp_steps'] = int(steps)
+    if guid is not None:
+        out['tp_guidance'] = float(guid)
+    return out
+
+
+def clean_shape(path: str, dims_cm=None) -> dict:
+    """Общее правило очистки формы (`mesh_clean.clean_glb`, правило E) — то же, что у форм TRELLIS.2 (`process_glbs.py`, метка `2`). Возвращает метрики; файл — `<путь без .glb>.clean2.glb`."""
+    import mesh_clean
+    return mesh_clean.clean_glb(path, dims_cm=dims_cm, tag=TP_CLEAN_TAG)
+
+
 def mvp_options(a) -> dict | None:
     """mvpainter: параметры задания (`--mvp-yaw`, `--mvp-steps`, `--mvp-reduce`, `--mvp-pbr`); неверное значение → None (отказ ДО группы и денег). `--mvp-reduce 1` — штатное упрощение до 30 тыс. вершин (по умолчанию),
     `0` — не упрощать (дольше и тяжелее); `--mvp-pbr 1` — PBR через IDArb (по умолчанию), `0` — только базовый цвет."""
@@ -446,7 +498,7 @@ def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu:
         if model == 'pixal3d':      # px2 (19.11): CUDA out of memory в декодере текстуры на 24 ГБ — меньше фрагментации и меньше токенов
             env['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
             env['PIXAL3D_MAX_TOKENS'] = '32768'
-    elif donor is None and model == 'mvadapter-i2tex':   # образ MV-Adapter (`Dockerfile.mvadapter`): transformers 4.56.2 и huggingface_hub 0.35.3 уже закреплены в образе — pip на старте не нужен
+    elif donor is None and model in ('mvadapter-i2tex', 'triposg-mv'):   # образ MV-Adapter (triposg-mv — Dockerfile.triposg поверх него) (`Dockerfile.mvadapter`): transformers 4.56.2 и huggingface_hub 0.35.3 уже закреплены в образе — pip на старте не нужен
         command, env['TRIAL_WORKER_Z'] = worker_command(python='python3')
     elif donor is None and model in ('mvpainter', 'supratex'):        # образы `Dockerfile.mvpainter` / `Dockerfile.supratex`: версии закреплены в образе, pip на старте не нужен; веса докачивает воркер (mvpainter ≈ 28 ГиБ, supratex ≈ 43 ГиБ; открытые, токен не обязателен)
         command, env['TRIAL_WORKER_Z'] = worker_command(python='python3')
@@ -518,7 +570,7 @@ class Gateway:
             return -1, {}
 
 
-def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_head=None) -> int:
+def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_head=None, clean_fn=None) -> int:
     """Весь замер. `MG` — `migrate_groups` (API Salad), `BR` — `bench_run` (состояние группы, остановка с проверкой). Подмена обоих + `gw_factory`/`sleep`/`clock`/`hf_head` — тесты."""
     inputs = json.load(open(os.path.join(a.inputs, 'inputs.json'), encoding='utf-8'))
     skus = a.skus or [k for k, v in inputs.items() if isinstance(v, dict) and v.get('input_png_sha256')]      # без --skus — весь набор из inputs.json (30 товаров)
@@ -541,11 +593,28 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         if not aligns or any(x is None for x in aligns):
             say(f'pixal3d-tex: --tex-align из {TEX_ALIGNS} с добавками +g<сила>, +s<проходов> (например fit+g3) — группа не создаётся')
             return 2
-    mvo = {}
-    if a.model == 'mvadapter-i2tex':                      # краска MV-Adapter по готовой форме: параметры из списка — иначе отказ ДО группы и денег
+    mvo, tpo = {}, {}
+    two_phase = a.model == 'triposg-mv'                   # две фазы на товар: «форма» (TripoSG → CuMesh) → чистка у нас → «краска» (MV-Adapter); одна нода, один холодный старт
+    if a.model in ('mvadapter-i2tex', 'triposg-mv'):      # краска MV-Adapter по готовой форме: параметры из списка — иначе отказ ДО группы и денег
         mvo = mv_options(a)
         if mvo is None:
-            say(f'mvadapter-i2tex: --mv-yaw из {MV_YAWS}, --mv-uv-size из {MV_UV_SIZES}, --mv-steps 1..100, --mv-ref-scale 0..2 — группа не создаётся')
+            say(f'{a.model}: --mv-yaw из {MV_YAWS}, --mv-uv-size из {MV_UV_SIZES}, --mv-steps 1..100, --mv-ref-scale 0..2 — группа не создаётся')
+            return 2
+    if two_phase:
+        tpo = tp_options(a)
+        if tpo is None:
+            say('triposg-mv: --tp-steps 1..200, --tp-guidance 0..20 — группа не создаётся')
+            return 2
+        if not skus:
+            say('triposg-mv: нет товаров в --skus — группа не создаётся')
+            return 2
+        for j in jobs:                                    # задание «форма»: id с суффиксом; «краска» (id с суффиксом -tpmv) создаётся, когда форма пришла и почищена
+            j['phase'] = 'shape'
+            j['paint_id'] = j['job_id'] + TEXTURE_MODELS['triposg-mv']
+            j['job_id'] += TP_SHAPE_SUFFIX
+        clash = owner_conflicts(a.out, [x['job_id'] for x in jobs] + [x['paint_id'] for x in jobs], a.model) if not getattr(a, 'force_out', False) else []
+        if clash:
+            say(f'ОТКАЗ: в {a.out} уже лежат файлы от другой модели для {len(clash)} заданий (первое: {clash[0]}) — укажи свою --out или --force-out')
             return 2
     supo = {}
     if a.model == 'supratex':                             # SUPRA-Tex красит готовую форму (и сам её пересобирает): параметры из списка — иначе отказ ДО группы и денег
@@ -606,6 +675,12 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
             say('карта', card, 'не найдена среди классов организации:', str(e)[:200])
             return 2
         CARD.update(class_name=card, class_id=cid)
+    arch_ok, arch_note = check_image_arch(a.model, CARD['class_name'])        # урок 742: класс карты ↔ архитектура образа — ДО группы и денег (в сухом прогоне тоже)
+    if arch_note:
+        say('проверка «карта ↔ образ»:', arch_note)
+    if not arch_ok:
+        say('группа не создаётся: карта не подходит образу')
+        return 2
     price = live_price_usd_h(MG, CARD['class_name'], a.tier, items=items)     # живая цена Salad (единая точка); снимок — только запасной
     price_src = 'живая (Salad gpu-classes)'
     if price is None:
@@ -629,7 +704,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     elif getattr(a, 'texture_mesh', None):                # контроль перекраски TRELLIS.2: одна готовая форма (GLB) на все задания
         one = base64.b64encode(open(os.path.expanduser(a.texture_mesh), 'rb').read()).decode()
         tex_by_sku = {j['sku']: one for j in jobs}
-    if tex_by_sku:
+    if tex_by_sku:                                        # (triposg-mv сюда не попадает: форма у него своя, id уже с суффиксами)
         for j in jobs:                                    # id задания с суффиксом модели (результат — `<id>.glb`)
             j['job_id'] += TEXTURE_MODELS.get(a.model, '-tex')
     if a.model == 'pixal3d-tex':                          # варианты кадрирования фото (fit — подгонка по силуэту формы, official — как в апстриме): по заданию на вариант, id с суффиксом
@@ -637,7 +712,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     for j in jobs:
         j['role'] = (inputs.get(j['sku']) or {}).get('role') or meta.get(j['sku'], {}).get('role')
         j['dims_cm'] = meta.get(j['sku'], {}).get('dims_cm')
-    mem_mb = getattr(a, 'mem_mb', None) or MODEL_MEM_MB.get(a.model, 32768)
+    mem_mb = getattr(a, 'mem_mb', None) or MODEL_MEM_MB.get(a.model, TP_MEM_MB if two_phase else 32768)
     mem_limit_gb = round(mem_mb / 1024, 1)                # лимит памяти группы — в итог по товару рядом с пиками
     body = build_body(name, a.image, a.tier, a.model, hf, a.cpu, mem_mb, a.image.split('@')[-1][:19], MG.ghcr_auth(), donor, extra_env=wenv)
     if wenv:
@@ -646,7 +721,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     if not a.apply:
         safe_print(body)
         for j in jobs:
-            print('  задание', j['job_id'])
+            print('  задание', j['job_id'], f'→ затем краска {j["paint_id"]} (форма чистится правилом E здесь, метка {TP_CLEAN_TAG})' if two_phase else '')
         return 0
     if price is None:
         say('цены группы нет в rules/salad-groups.json — стоп (деньги без цены не считаем)')
@@ -676,6 +751,9 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     if code >= 300:
         return 1
     ok_stop = False
+    shape_store: dict = {}                                # triposg-mv: job_id задания «краска» → почищенная форма (base64); в сводку не попадает
+    cleaned: dict = {}                                    # triposg-mv: товар → метрики очистки (кладутся в итог по товару)
+    n_expected = len(jobs) * (2 if two_phase else 1)      # сколько заданий должно быть всего (для счётчика not_run)
     summary = {'group': name, 'model': a.model, 'image': a.image, 'tier': a.tier, 'price_usd_h': price, 'cap_usd': a.cap, 'jobs': [], 'failed': 0,
                'stop_verified': False, 'stopped_by': None}
     os.makedirs(a.out, exist_ok=True)
@@ -789,7 +867,8 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     j = pending.pop(0)
                     png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.rgba.png'), 'rb').read()
                     pl = {'job_id': j['job_id'], 'image_b64': base64.b64encode(png).decode(), 'pipeline_type': pipeline_type(j['res']), 'seed': j['seed'],
-                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_by_sku.get(j['sku']), 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'), **mvo, **supo}
+                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': shape_store.get(j['job_id']) or tex_by_sku.get(j['sku']), 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'),
+                          **(tpo if j.get('phase') == 'shape' else mvo), **supo}      # triposg-mv: «форма» получает --tp-*, «краска» — --mv-*; остальные модели — как раньше
                     c, r = gw.call('POST', '/generate', pl, timeout=90)
                     inflight = {**j, 'submitted': t, 'http': c}
                     say('задание', j['job_id'], '→ HTTP', c)
@@ -828,6 +907,18 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                                         open(fp[:-4] + '.views.jpg', 'wb').write(base64.b64decode(vb))
                                         r['metrics']['views_jpeg_b64'] = 'saved:' + os.path.basename(fp[:-4]) + '.views.jpg'
                                     inflight['glb_bytes'] = len(glb)
+                                    if inflight.get('phase') == 'shape':                      # triposg-mv: форма пришла — чистим общим правилом (то же, что у форм TRELLIS.2), на ней же краска
+                                        try:
+                                            cm = (clean_fn or clean_shape)(fp, inflight.get('dims_cm'))
+                                            cp = fp[:-4] + f'.clean{TP_CLEAN_TAG}.glb'
+                                            if not os.path.isfile(cp):
+                                                raise RuntimeError(f'очистка не создала {os.path.basename(cp)}')
+                                            shape_store[inflight['paint_id']] = base64.b64encode(open(cp, 'rb').read()).decode()
+                                            inflight['clean_glb'] = cp
+                                            cleaned[inflight['sku']] = {k: (cm or {}).get(k) for k in ('rule', 'removed', 'clean_tris', 'primitives')}
+                                            say('форма почищена:', os.path.basename(cp), json.dumps(cleaned[inflight['sku']], ensure_ascii=False))
+                                        except Exception as e:                                # noqa: BLE001 — любой сбой очистки = отказ задания с причиной, а не падение замера
+                                            inflight.update(status='failed', error=f'очистка формы (mesh_clean): {type(e).__name__}: {str(e)[:160]}')
                                     if (r.get('metrics') or {}).get('stages'):                 # mvadapter-i2tex с --mv-keep-stages: архив стадий (А0) — тем же путём, что GLB, `?v=stages`
                                         cs, zb = gw.call('GET', '/glb/' + inflight['job_id'] + '?v=stages', timeout=900, raw=True)
                                         if cs == 200:
@@ -856,6 +947,9 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                             say('!! фатальная ошибка CUDA в задании — воркер сломан, гашу сразу')
                             summary['stopped_by'] = 'worker_broken'
                             break
+                        if two_phase and inflight.get('phase') == 'shape' and inflight['status'] == 'done':          # форма готова → краска этого же товара следующей (не после чужой формы)
+                            pj = {**{k: v for k, v in inflight.items() if k in ('sku', 'res', 'rep', 'seed', 'role', 'dims_cm')}, 'job_id': inflight['paint_id'], 'phase': 'paint', 'shape_job': inflight['job_id']}
+                            pending.insert(0, pj)
                         inflight = None
                         if fail_streak >= a.fail_streak:
                             say(f'!! {a.fail_streak} задания подряд упали — гашу (чинить в коде, не жечь деньги)')
@@ -883,11 +977,24 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
             for sku, v in summary['by_sku'].items():
                 say('товар', sku, v['status'], v['fail_class'] or '', f'видео {v["peak_vram_gb"]} ГБ, процесс {v["peak_rss_gb"]} ГБ, группа {v["peak_cgroup_gb"]} из {v["mem_limit_gb"]} ГБ',
                     v['glb'] or v['error'] or '')
+        if two_phase:                                     # итог по товару: две фазы (форма, краска) + метрики очистки; не дошедшие — not_run
+            done_jobs = {x['job_id']: x for x in summary['jobs']}
+
+            def phase_row(jid):
+                x = done_jobs.get(jid)
+                return ({'job_id': jid, 'status': x.get('status'), 'seconds': x.get('seconds'), 'glb': x.get('glb_path'), 'error': x.get('error'),
+                         'fail_class': classify_failure(x.get('error'), x.get('diag')) if x.get('status') == 'failed' else None, **job_mem(x, mem_limit_gb)} if x else
+                        {'job_id': jid, 'status': 'not_run', 'seconds': None, 'glb': None, 'error': None, 'fail_class': None, **job_mem({}, mem_limit_gb)})
+            summary['by_sku'] = {}
+            for j in jobs:
+                shp, pnt = phase_row(j['job_id']), phase_row(j['paint_id'])
+                summary['by_sku'][j['sku']] = {'shape': shp, 'paint': pnt, 'clean': cleaned.get(j['sku']), 'clean_glb': (done_jobs.get(j['job_id']) or {}).get('clean_glb')}
+                say('товар', j['sku'], 'форма', shp['status'], shp['fail_class'] or '', f'видео {shp["peak_vram_gb"]} ГБ;', 'краска', pnt['status'], pnt['fail_class'] or '', f'видео {pnt["peak_vram_gb"]} ГБ', pnt['glb'] or pnt['error'] or shp['error'] or '')
         fc = {k: 0 for k in FAIL_CLASSES}                  # счётчик отказов по категориям (для любой модели) + не дошедшие до запуска
         for x in summary['jobs']:
             if x.get('status') == 'failed':
                 fc[classify_failure(x.get('error'), x.get('diag'))] += 1
-        fc['not_run'] = max(0, len(jobs) - len(summary['jobs']))
+        fc['not_run'] = max(0, n_expected - len(summary['jobs']))
         summary['fail_classes'] = fc
         summary['running_s'] = round((clock() - run_since), 1) if run_since is not None else 0.0
         summary['cost_usd_est'] = round(cost_usd(summary['running_s'], price), 3)
@@ -898,7 +1005,9 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--model', default='trellis2', choices=['trellis2', 'pixal3d', 'pixal3d-tex', 'mvadapter-i2tex', 'mvpainter', 'supratex', 'localmesh', 'hunyuan21'])
+    ap.add_argument('--model', default='trellis2', choices=['trellis2', 'pixal3d', 'pixal3d-tex', 'mvadapter-i2tex', 'triposg-mv', 'mvpainter', 'supratex', 'localmesh', 'hunyuan21'])
+    ap.add_argument('--tp-steps', type=int, default=None, help='triposg-mv: шагов TripoSG (по умолчанию 50, как в апстриме); краска — теми же --mv-* , что у mvadapter-i2tex')
+    ap.add_argument('--tp-guidance', type=float, default=None, help='triposg-mv: guidance TripoSG (по умолчанию 7,0, как в апстриме)')
     ap.add_argument('--donor', default='mesh-q-low-1', help='hunyuan21: боевая группа-образец (образ, ресурсы, env без секретов приёмника)')
     ap.add_argument('--set', default=None, help='JSON набора (роль, габариты); по умолчанию set30.json рядом с папкой inputs')
     ap.add_argument('--fail-streak', type=int, default=NO_FAIL_STREAK, help='сколько упавших заданий подряд гасят замер (контролю Hunyuan — больше: боевые ворота брака)')

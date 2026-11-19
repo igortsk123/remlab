@@ -1638,6 +1638,232 @@ class MVAdapterTexBackend:
         return diag
 
 
+# ——— triposg-mv: форма TripoSG → чистка и развёртка CuMesh → краска MV-Adapter (T-20261119-80, вариант 6 владельца) ———
+# Источник формы — github.com/VAST-AI-Research/TripoSG (source: external:github; код MIT, веса VAST-AI/TripoSG — MIT, 7,4 ГиБ, не закрытые; коммит — `Dockerfile.triposg`). У TripoSG нет ни цвета, ни развёртки UV:
+# `TripoSGPipeline` (rectified flow, 50 шагов, guidance 7,0, декодер flash octree 9 → `diso.DiffDMC`) отдаёт только вершины и грани в своём кадре.
+# Дальше — ТЕ ЖЕ шаги, что у TRELLIS.2 в `o_voxel.postprocess.to_glb` без запекания (ветка remesh=False): CuMesh simplify(3×цель) → чистка (дубли граней, неманифолдные рёбра, мелкие куски 1e-5)
+# → simplify(цель) → чистка → единая ориентация граней → вырожденные грани < 1e-10 → `uv_unwrap` (быстрая кластеризация + xatlas, те же пороги). Затем драйвер на pakardev чистит форму общим правилом `mesh_clean`
+# (плита у пола; одно правило для всех моделей) и возвращает её этой же ноде заданием «краска» — тот же `MVAdapterTexBackend.generate`, что у `mvadapter-i2tex` (код краски не дублируется).
+# Кадр формы: TripoSG не обещает, какая ось «вверх» и куда «лицом» — выбираем из 24 поворотов куба тот, чей силуэт в ортографии лучше всего совпадает с фото (`tp_fit_orient`), иначе краска ляжет не на ту сторону.
+TP_REPO = 'VAST-AI/TripoSG'
+TP_STEPS = 50                 # как в апстриме (`scripts/inference_triposg.py`)
+TP_GUIDANCE = 7.0
+TP_FIT_FACES = 120000         # для подгонки кадра берём не больше граней (силуэт от этого не меняется, а 24 прохода по миллиону граней — минуты)
+TP_ORIENT_MARGIN = 0.02       # уйти от «как есть» можно, только если лучший поворот лучше на столько IoU: иначе 0° и 180° (зеркальные силуэты) дрожали бы от шума
+TP_CODE = '/opt/TripoSG'
+
+
+def tp_rotations() -> list:
+    """24 поворота куба (оси переставляются, знаки меняются, определитель +1): [(имя, R)], «как есть» — первым. Имя — какие оси исходной формы стали X, Y, Z (`-Z` — перевёрнутая)."""
+    import itertools
+    import numpy as np
+    out = []
+    for perm in itertools.permutations(range(3)):
+        for signs in itertools.product((1, -1), repeat=3):
+            R = np.zeros((3, 3))
+            for i, (p, s) in enumerate(zip(perm, signs)):
+                R[i, p] = s
+            if np.linalg.det(R) > 0:
+                out.append((' '.join(('-' if s < 0 else '') + 'XYZ'[p] for p, s in zip(perm, signs)), R))
+    out.sort(key=lambda x: (not np.array_equal(x[1], np.eye(3)), x[0]))
+    return out
+
+
+def tp_fit_orient(verts, faces, rgba, n: int = FIT_N, max_faces: int = TP_FIT_FACES) -> dict:
+    """Какой из 24 поворотов куба ставит форму TripoSG «вверх по Y, лицом +Z» как на фото: IoU силуэта формы (ортографическая камера вида 0 MV-Adapter) и силуэта фото (`mv_photo_mask`). Возвращает
+    {'name','R','iou','iou_identity','switched','top': [(имя, IoU) ×3]}. «Как есть» остаётся, пока лучший не лучше его на `TP_ORIENT_MARGIN`."""
+    import numpy as np
+    verts = np.asarray(verts, dtype=np.float64)
+    faces = np.asarray(faces)
+    if len(faces) > max_faces:
+        faces = faces[np.random.default_rng(0).choice(len(faces), size=max_faces, replace=False)]
+    A = mv_photo_mask(rgba, n)
+    rots = tp_rotations()
+    ious = []
+    for _name, R in rots:
+        u, v = mv_ortho_uv(to_cube(verts @ R.T, 0.0)[0])
+        ious.append(_iou(A, mv_norm_mask(surface_mask(u, v, faces, n), n)))
+    best = max(range(len(rots)), key=lambda k: (round(ious[k], 4), -k))
+    pick = 0 if ious[0] >= ious[best] - TP_ORIENT_MARGIN else best
+    top = sorted(range(len(rots)), key=lambda k: (-ious[k], k))[:3]
+    return {'name': rots[pick][0], 'R': rots[pick][1], 'iou': round(ious[pick], 4), 'iou_identity': round(ious[0], 4), 'switched': pick != 0, 'top': [(rots[k][0], round(ious[k], 4)) for k in top]}
+
+
+def tp_normalize(verts):
+    """Центр габарита — в ноль, наибольшая сторона — 1 (как у TRELLIS.2: aabb [−0,5; 0,5]); с ним пороги CuMesh (мелкие куски 1e-5) значат то же, что в `to_glb`. → (вершины, центр, масштаб)."""
+    import numpy as np
+    v = np.asarray(verts, dtype=np.float64)
+    lo, hi = v.min(axis=0), v.max(axis=0)
+    ext = float((hi - lo).max())
+    if not ext > 0:
+        raise ValueError('форма вырождена: габарит нулевой')
+    c = (lo + hi) / 2.0
+    return (v - c) / ext, c, 1.0 / ext
+
+
+def _tp_np(x):
+    import numpy as np
+    return x.detach().cpu().numpy() if hasattr(x, 'detach') else np.asarray(x)
+
+
+def tp_cumesh_uv(verts, faces, target: int, CM, to_gpu) -> tuple:
+    """Чистка и развёртка CuMesh — шаги `o_voxel.postprocess.to_glb` (remesh=False) без запекания. `CM` — модуль cumesh (в тестах подмена), `to_gpu(массив numpy) → тензор на видеокарте`.
+    Возвращает (вершины, грани, UV, замеры) numpy; вершины, грани и UV — уже после `uv_unwrap` (вершины размножены по швам, V перевёрнут как у TRELLIS.2)."""
+    import numpy as np
+    info: dict = {'faces_in': int(len(faces)), 'verts_in': int(len(verts)), 'target': int(target)}
+    t = time.time()
+    mesh = CM.CuMesh()
+    mesh.init(to_gpu(np.ascontiguousarray(verts, dtype=np.float32)), to_gpu(np.ascontiguousarray(faces, dtype=np.int32)))
+
+    def clean() -> None:
+        mesh.remove_duplicate_faces()
+        mesh.repair_non_manifold_edges()
+        mesh.remove_small_connected_components(1e-5)
+    if mesh.num_faces > target:
+        mesh.simplify(target * 3)
+        info['faces_after_simplify3'] = int(mesh.num_faces)
+    clean()
+    if mesh.num_faces > target:
+        mesh.simplify(target)
+    clean()
+    mesh.unify_face_orientations()
+    info['faces_clean'] = int(mesh.num_faces)
+    info['clean_s'] = round(time.time() - t, 2)
+    vt, ft = mesh.read()
+    vn, fn = _tp_np(vt), _tp_np(ft)
+    a = np.linalg.norm(np.cross(vn[fn[:, 1]] - vn[fn[:, 0]], vn[fn[:, 2]] - vn[fn[:, 0]]), axis=1)         # вырожденные (xatlas на них падает): тот же порог 1e-10, что в to_glb
+    bad = a < 1e-10
+    info['degenerate_removed'] = int(bad.sum())
+    if bad.any():
+        mesh = CM.CuMesh()
+        mesh.init(to_gpu(np.ascontiguousarray(vn, dtype=np.float32)), to_gpu(np.ascontiguousarray(fn[~bad], dtype=np.int32)))
+    t = time.time()
+    out_v, out_f, out_uv, _vmaps = mesh.uv_unwrap(compute_charts_kwargs={'threshold_cone_half_angle_rad': float(np.radians(90.0)), 'refine_iterations': 0, 'global_iterations': 1, 'smooth_strength': 1},
+                                                  return_vmaps=True)
+    info['uv_s'] = round(time.time() - t, 2)
+    out_v, out_f, out_uv = _tp_np(out_v).astype(np.float64), _tp_np(out_f).astype(np.int64), _tp_np(out_uv).astype(np.float64).copy()
+    out_uv[:, 1] = 1.0 - out_uv[:, 1]                                                                     # как в to_glb: V наоборот (glTF)
+    info.update(faces_out=int(len(out_f)), verts_out=int(len(out_v)))
+    return out_v, out_f, out_uv, info
+
+
+class TripoSGMVBackend(MVAdapterTexBackend):
+    """`triposg-mv`: ОДНА нода, два вида заданий. БЕЗ `texture_mesh` — «форма»: фото → TripoSG → поворот кадра по силуэту фото → CuMesh (чистка + UV) → GLB формы без краски (текстура-заглушка 4×4).
+    С `texture_mesh` — «краска»: форма, которую драйвер почистил общим правилом, красится MV-Adapter ровно как у `mvadapter-i2tex` (наследуем `generate`). Образ — `Dockerfile.triposg` (поверх образа MV-Adapter:
+    TripoSG в /opt/TripoSG, `diso`, scikit-image). Веса: TripoSG ≈ 7,4 ГиБ + MV-Adapter ≈ 10 ГиБ докачиваются на старте. TripoSG на видеокарте только между «формой» и «краской» (перед краской уходит на процессор)."""
+    name = 'triposg-mv'
+    tp = None
+
+    def check_arch(self) -> dict:
+        """Образ собран под одну архитектуру CUDA (`IMAGE_CUDA_ARCH`, урок 742): другая карта — «no kernel image» на первом расширении. Падаем при прогреве, а не на задании."""
+        import torch
+        cap = '%d.%d' % torch.cuda.get_device_capability()
+        built = (os.environ.get('IMAGE_CUDA_ARCH') or '').split()
+        if built and cap not in built:
+            raise RuntimeError(f'карта с архитектурой CUDA {cap} ({torch.cuda.get_device_name()}), образ собран под {" ".join(built)} — расширения (CuMesh, diso, nvdiffrast) на ней не заработают')
+        return {'card_arch': cap, 'image_arch': built, 'card': torch.cuda.get_device_name()}
+
+    def load(self) -> dict:
+        import importlib
+        import importlib.util
+        import numpy as np  # noqa: F401
+        import torch
+        STATE['phase'] = 'importing'
+        arch = self.check_arch()
+        code = os.environ.get('TRIPOSG_DIR', TP_CODE)
+        sys.path.insert(0, code)
+        t_imp = time.time()
+        CM = importlib.import_module('cumesh')                                           # те же расширения, что у TRELLIS.2 (образ-основа); нет — падаем ДО докачки 17 ГиБ весов
+        importlib.import_module('diso')
+        importlib.import_module('skimage.measure')
+        TP = importlib.import_module('triposg.pipelines.pipeline_triposg')
+        spec = importlib.util.spec_from_file_location('tripo_image_process', os.path.join(code, 'scripts', 'image_process.py'))      # не `scripts.*`: пакет `scripts` занят MV-Adapter
+        self.prep = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.prep)
+        self.cm = CM
+        STATE['timings']['tp_import_s'] = round(time.time() - t_imp, 1)
+        STATE['phase'] = 'weights'
+        from huggingface_hub import snapshot_download
+        t = time.time()
+        wdir = snapshot_download(repo_id=TP_REPO, local_dir=os.path.join(os.environ.get('HF_HOME', '/data/hf'), 'TripoSG'))
+        t_tp = time.time() - t
+        info = super().load()                                                            # MV-Adapter: импорты, веса SDXL/адаптера, текстурный конвейер (на процессоре до задания)
+        STATE['phase'] = 'to_gpu'
+        t = time.time()
+        self.tp = TP.TripoSGPipeline.from_pretrained(wdir).to('cuda', torch.float16)
+        free_gpu()
+        STATE['config']['triposg'] = {'dir': wdir, 'arch': arch, 'mem_after_warm': gpu_mem()}
+        info.update({'triposg_weights_s': round(t_tp, 1), 'triposg_to_gpu_s': round(time.time() - t, 1), 'mem_after_warm': STATE['config']['triposg']['mem_after_warm']})
+        return info
+
+    def _tp_to(self, dev: str) -> None:
+        if self.tp is not None:
+            self.tp.to(dev)
+            free_gpu()
+
+    def generate(self, image, params: dict, path: str) -> dict:
+        if params.get('texture_mesh'):                                                   # «краска»: готовая (почищенная) форма
+            self._tp_to('cpu')
+            m = super().generate(image, params, path)
+            m['phase'] = 'paint'
+            return m
+        return self.shape(image, params, path)
+
+    def shape(self, image, params: dict, path: str) -> dict:
+        import numpy as np
+        import torch
+        trace: dict = {}
+        self._trace = trace
+        rss_reset = reset_rss_peak()
+        stage: dict = {}
+        t0 = [time.time()]
+
+        def mem(name: str) -> None:
+            trace[name] = mem_snapshot(reset_peak=True)
+
+        def lap(name: str) -> None:
+            torch.cuda.synchronize()
+            stage[name] = round(time.time() - t0[0], 2)
+            mem(name)
+            t0[0] = time.time()
+        mem('start')
+        rgba = image.convert('RGBA')
+        a = np.asarray(rgba.getchannel('A'))
+        if not ((a < 13).mean() >= 0.01 and (a >= 243).mean() >= 0.01):                 # как `is_valid_alpha` апстрима: иначе он зовёт вырезку фона RMBG-1.4 (лицензия bria — не для нас)
+            raise ValueError('вход без настоящей альфы: нужна вырезка (RGBA, ≥ 1 % прозрачных и ≥ 1 % непрозрачных пикселей)')
+        work = os.path.join(OUT, f'_tp_{os.getpid()}_{int(time.time() * 1000)}')
+        os.makedirs(work, exist_ok=True)
+        try:
+            png = os.path.join(work, 'in.png')
+            rgba.save(png)
+            if getattr(self, 'runner', None) is not None and not self.runner.offload:       # MVTEX_OFFLOAD=0: SDXL живёт на видеокарте — на время формы уводим на процессор
+                self.runner._pipe_to('cpu')
+                free_gpu()
+            self._tp_to('cuda')
+            lap('to_gpu')
+            prepared = self.prep.prepare_image(png, bg_color=np.array([1.0, 1.0, 1.0]), rmbg_net=None)
+            steps = int(params['tp_steps'] if params.get('tp_steps') is not None else TP_STEPS)
+            guidance = float(params['tp_guidance'] if params.get('tp_guidance') is not None else TP_GUIDANCE)
+            out = self.tp(image=prepared, generator=torch.Generator(device='cuda').manual_seed(int(params.get('seed', 42))), num_inference_steps=steps, guidance_scale=guidance).samples[0]
+            v_raw, f_raw = out[0], out[1]
+            if v_raw is None or f_raw is None or len(f_raw) == 0:
+                raise ValueError('TripoSG не дал меш (DiffDMC вернул пусто — см. журнал воркера)')
+            lap('triposg')
+            fit = tp_fit_orient(v_raw, f_raw, rgba)
+            v, c, s = tp_normalize(np.asarray(v_raw, dtype=np.float64) @ fit['R'].T)
+            lap('orient')
+            ov, of, ouv, cinfo = tp_cumesh_uv(v, f_raw, int(params.get('decimation_target', 500000)), self.cm, lambda x: torch.as_tensor(x, device='cuda'))
+            lap('cumesh')
+            mv_write_input_glb(path, ov, of, ouv)
+            lap('write')
+        finally:
+            import shutil
+            shutil.rmtree(work, ignore_errors=True)
+        return {'mode': 'triposg_shape', 'phase': 'shape', 'stage_s': stage, 'steps': steps, 'guidance': guidance, 'raw_verts': int(len(v_raw)), 'raw_faces': int(len(f_raw)),
+                'orient': {k: (v2 if k != 'R' else None) for k, v2 in fit.items() if k != 'R'}, 'cumesh': cinfo, 'peak_vram_gb': max([x.get('peak_allocated_gb', 0.0) for x in trace.values()] or [0.0]),
+                'mem': trace, 'config': dict(STATE.get('config') or {}), **job_mem_metrics(trace, rss_reset)}
+
+
 def _surface_samples(v, f, n: int, seed: int = 0):
     """n точек на поверхности (площадь-взвешенно) — для честного расстояния между поверхностями, а не между вершинами разной густоты."""
     import numpy as np
@@ -2453,7 +2679,7 @@ class SupraTexBackend:
 
 
 def backend():
-    return {'trellis2': Trellis2Backend, 'pixal3d': Pixal3DBackend, 'pixal3d-tex': PixalTexBackend, 'mvadapter-i2tex': MVAdapterTexBackend, 'mvpainter': MVPainterBackend, 'supratex': SupraTexBackend, 'localmesh': LocalMeshBackend, 'hunyuan21': Hunyuan21Backend, 'fake': FakeBackend}[os.environ.get('MODEL', 'trellis2')]()
+    return {'trellis2': Trellis2Backend, 'pixal3d': Pixal3DBackend, 'pixal3d-tex': PixalTexBackend, 'mvadapter-i2tex': MVAdapterTexBackend, 'triposg-mv': TripoSGMVBackend, 'mvpainter': MVPainterBackend, 'supratex': SupraTexBackend, 'localmesh': LocalMeshBackend, 'hunyuan21': Hunyuan21Backend, 'fake': FakeBackend}[os.environ.get('MODEL', 'trellis2')]()
 
 
 def versions() -> dict:

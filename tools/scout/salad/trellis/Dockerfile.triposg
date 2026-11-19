@@ -1,0 +1,40 @@
+# ОБРАЗ ПРОБЫ triposg-mv (T-20261119-80, вариант 6 владельца TG 2250–2256): форма TripoSG («набросок геометрии») → развёртка CuMesh (как у TRELLIS.2) → краска MV-Adapter.
+# ПОВЕРХ образа TRELLIS.2 с пинами (Python 3.10, torch 2.6/cu124 devel с nvcc, nvdiffrast v0.4.0, CuMesh, trimesh, transformers 4.56.2, opencv-headless, huggingface_hub 0.35.3) — ТОТ ЖЕ digest, что у Dockerfile.mvadapter.
+# Первый блок — слово в слово слой MV-Adapter из Dockerfile.mvadapter (пины, код по коммиту, два малых чекпойнта с sha256): образ MV-Adapter с GHCR как основу не берём — пакет может не читаться токеном сборки,
+# а так сборка зависит от одного внешнего образа (основы TRELLIS.2), как и сборка MV-Adapter. Второй блок — TripoSG: код по коммиту (MIT), scikit-image (нужен `image_process.py`), `diso` (расширение CUDA, DiffDMC — извлечение сетки;
+# на PyPI только sdist 0.1.4, собирается здесь под архитектуру 8.9 = RTX 4090; `FORCE_CUDA=1`, потому что видеокарты на сборщике нет).
+# Веса НЕ в образе: TripoSG ≈ 7,4 ГиБ (VAST-AI/TripoSG, MIT, не закрытые) и MV-Adapter ≈ 10 ГиБ докачиваются на старте в $HF_HOME (воркер).
+# ЛИЦЕНЗИИ: TripoSG — MIT (код и веса); остальное — как в Dockerfile.mvadapter (nvdiffrast/nvdiffrec из основы — NVIDIA Source Code License-NC: для пробы допустимо, для БОЕВОГО использования нет); diso — MIT (по репозиторию, не сверено).
+# АРХИТЕКТУРА (урок 742): расширения собраны под 8.9; воркер сверяет карту с `IMAGE_CUDA_ARCH` на прогреве, драйвер — ДО создания группы (`trellis_trial.IMAGE_ARCH`). 3090 (8.6) и 5090 (12.0) — «no kernel image».
+ARG BASE=ghcr.io/igortsk123/mesh-trellis2-trial@sha256:d7beac21b04951697c3d86788ff580bfaa4f2498f97d822e6d281231b7112ad5
+FROM ${BASE}
+ARG MVADAPTER_COMMIT=4277e0018232bac82bb2c103caf0893cedb711be
+ARG ESRGAN_SHA256=49fafd45f8fd7aa8d31ab2a22d14d91b536c34494a5cfe31eb5d89c2fa266abb
+ARG LAMA_SHA256=344c77bbcb158f17dd143070d1e789f38a66c04202311ae3a258ef66667a9ea9
+ARG TRIPOSG_COMMIT=fc5c40990181e2a756c4e0b1c2f4d6b5202faf8c
+ARG DISO_VERSION=0.1.4
+
+RUN python3 -m pip install diffusers==0.32.2 peft==0.14.0 accelerate==1.2.1 omegaconf==2.3.0 einops==0.8.0 matplotlib==3.9.4 imageio==2.36.1 \
+        jaxtyping==0.2.36 typeguard==4.4.1 spandrel==0.4.1 cvcuda_cu12==0.14.0 gltflib==1.0.13 \
+    && python3 -m pip install -q "huggingface_hub==0.35.3" "transformers==4.56.2"
+
+RUN git clone https://github.com/huanngzh/MV-Adapter.git /opt/MV-Adapter \
+    && cd /opt/MV-Adapter && git checkout ${MVADAPTER_COMMIT} \
+    && mkdir -p checkpoints \
+    && curl -fsSL -o checkpoints/RealESRGAN_x2plus.pth https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth \
+    && curl -fsSL -o checkpoints/big-lama.pt https://github.com/Sanster/models/releases/download/add_big_lama/big-lama.pt \
+    && echo "${ESRGAN_SHA256}  checkpoints/RealESRGAN_x2plus.pth" | sha256sum -c - \
+    && echo "${LAMA_SHA256}  checkpoints/big-lama.pt" | sha256sum -c -
+
+# TripoSG: numpy==1.22.3 и pymeshlab из его requirements НЕ ставим (numpy в основе новее, pymeshlab нужен только упрощению, которое у нас делает CuMesh); scikit-image — для `scripts/image_process.py`
+RUN git clone https://github.com/VAST-AI-Research/TripoSG.git /opt/TripoSG \
+    && cd /opt/TripoSG && git checkout ${TRIPOSG_COMMIT} \
+    && python3 -m pip install "scikit-image==0.25.2"
+ENV TORCH_CUDA_ARCH_LIST="8.9" FORCE_CUDA=1 CUDA_HOME=/usr/local/cuda MAX_JOBS=4 IMAGE_CUDA_ARCH="8.9"
+RUN python3 -m pip install ninja \
+    && python3 -m pip install --no-build-isolation "diso==${DISO_VERSION}" \
+    && python3 -c "import importlib.util as u, sys; s = u.find_spec('diso'); print('diso', s and s.origin); sys.exit(0 if s else 1)" \
+    && { echo "MV-Adapter ${MVADAPTER_COMMIT}"; echo "RealESRGAN_x2plus ${ESRGAN_SHA256}"; echo "big-lama ${LAMA_SHA256}"; echo "TripoSG ${TRIPOSG_COMMIT}"; echo "diso ${DISO_VERSION} arch ${TORCH_CUDA_ARCH_LIST}"; python3 -m pip freeze; } > /opt/BUILD_INFO_TRIPOSG.txt
+
+COPY worker_trellis.py /app/worker_trellis.py
+ENV MODEL=triposg-mv MVADAPTER_DIR=/opt/MV-Adapter TRIPOSG_DIR=/opt/TripoSG

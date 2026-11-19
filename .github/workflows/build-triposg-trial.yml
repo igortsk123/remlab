@@ -1,0 +1,99 @@
+# СБОРКА ОБРАЗА ПРОБЫ triposg-mv НА GITHUB ACTIONS (T-20261119-80, вариант 6) — не на pakardev (диск общий с базой tamara; решение директора 18.11).
+# Запускается ТОЛЬКО пушем в ветки `trial/triposg*` (на main и остальные ветки не срабатывает) при правке Dockerfile.triposg, воркера или этого файла, либо вручную из такой ветки.
+# Что делает: освобождает диск сборщика → собирает `tools/scout/salad/trellis/Dockerfile.triposg` (поверх образа TRELLIS.2 по digest: слой MV-Adapter + TripoSG + diso; веса НЕ в образе) → печатает размер и digest → пушит в GHCR.
+# Куда: `ghcr.io/<владелец>/mesh-triposg-trial:triposg-trial` (отдельный пакет: образ MV-Adapter и боевые группы не затрагиваются). Если `GITHUB_TOKEN` в новый пакет писать не может (403), образ уходит в тот же адрес
+# запасным путём — понадобится привязка пакета к репо или пуш личным токеном; какой сработал — в сводке шага. Деплоя нет.
+name: build-triposg-trial
+
+on:
+  push:
+    branches: ['trial/triposg*']
+    paths:
+      - 'tools/scout/salad/trellis/Dockerfile.triposg'
+      - 'tools/scout/salad/trellis/worker_trellis.py'
+      - '.github/workflows/build-triposg-trial.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-triposg-trial
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  PRIMARY: ghcr.io/${{ github.repository_owner }}/mesh-triposg-trial:triposg-trial
+  FALLBACK: ghcr.io/${{ github.repository_owner }}/mesh-triposg-trial:triposg-trial
+  CTX: tools/scout/salad/trellis
+
+jobs:
+  build:
+    # только своя пробная ветка: даже ручной запуск с другой ветки не соберёт
+    if: startsWith(github.ref, 'refs/heads/trial/triposg')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Диск сборщика — до очистки
+        run: df -h /
+
+      - name: Освободить диск сборщика
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      /usr/share/swift /usr/local/share/powershell /usr/local/julia* || true
+          sudo docker system prune -af || true
+          sudo apt-get clean || true
+
+      - name: Диск сборщика — после очистки
+        run: |
+          df -h /
+          FREE_GB=$(df -BG --output=avail / | tail -1 | tr -dc 0-9)
+          echo "свободно: ${FREE_GB} ГБ"
+          [ "$FREE_GB" -ge 40 ] || { echo "::error::после очистки меньше 40 ГБ — образ может не поместиться"; exit 1; }
+
+      - name: Вход в GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Сборка (обычный docker build — без второго кэша на диске)
+        run: |
+          set +e
+          docker build --progress=plain -f "$CTX/Dockerfile.triposg" -t "$PRIMARY" "$CTX" > build.log 2>&1
+          rc=$?
+          tail -40 build.log
+          if [ "$rc" -ne 0 ]; then
+            # логи Actions без токена не читаются — хвост уходит в аннотации (публичный API check-runs) и в сводку шага
+            python3 "$CTX/ci_annotate.py" build.log 96 12
+            exit "$rc"
+          fi
+          SIZE=$(docker image inspect "$PRIMARY" --format '{{.Size}}')
+          echo "размер образа (распакованный): $(python3 -c "print(round($SIZE/2**30,2))") ГБ"
+          df -h /
+
+      - name: BUILD_INFO из образа (версии и коммиты расширений)
+        run: docker run --rm --entrypoint cat "$PRIMARY" /opt/BUILD_INFO_TRIPOSG.txt
+
+      - name: Публикация в GHCR (основной адрес, при отказе — запасной)
+        id: push
+        run: |
+          set +e
+          TARGET="$PRIMARY"
+          if ! docker push "$PRIMARY"; then
+            echo "::warning::push в $PRIMARY отказан (скорее всего, пакет не привязан к репо) — пробую запасной адрес"
+            docker tag "$PRIMARY" "$FALLBACK" && docker push "$FALLBACK" || { echo "::error::push не удался ни в один адрес"; exit 1; }
+            TARGET="$FALLBACK"
+          fi
+          DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' "$TARGET")
+          # сжатый размер слоёв — по манифесту в реестре (лимит Salad 35 ГБ, наш порог 30)
+          COMPRESSED=$(docker manifest inspect "$DIGEST" 2>/dev/null | python3 -c 'import json,sys; m=json.load(sys.stdin); print(sum(l["size"] for l in m.get("layers",[])))' || echo 0)
+          GB=$(python3 -c "print(round($COMPRESSED/2**30,2))")
+          {
+            echo "### Образ пробы triposg-mv (TripoSG + CuMesh + MV-Adapter)"
+            echo "- адрес: \`$TARGET\`"
+            echo "- digest: \`$DIGEST\`"
+            echo "- сжатый размер в реестре: **${GB} ГБ** (лимит Salad 35, наш порог 30)"
+            echo "- коммит: \`${GITHUB_SHA}\`"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          python3 -c "import sys; sys.exit(1 if $COMPRESSED/2**30 > 30 else 0)" || { echo "::error::образ больше 30 ГБ"; exit 1; }
