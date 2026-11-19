@@ -85,9 +85,29 @@ def sku_index(data: dict) -> dict:
     return idx
 
 
+DIM_TOL_CM = 1.0          # габариты одного товара в разных копиях совпадают до округления; больше — другой товар под тем же ключом
+
+
+def _same_product(a: dict, b: dict) -> bool:
+    """Две карточки с одним `pid` — один товар: то же название, та же модель (`msid`, если назван у обеих) и те же габариты (`w`/`d`/`h`, те, что
+    есть у обеих). Расхождение — подозрение, что под ключом оказался другой товар (T-20261119-07/5 п.4); сама плитка фото не сравнивается."""
+    if a.get('name') != b.get('name'):
+        return False
+    ma, mb = a.get('msid'), b.get('msid')
+    if ma not in (None, '') and mb not in (None, '') and ma != mb:
+        return False
+    for k in ('w', 'd', 'h'):
+        x, y = a.get(k), b.get(k)
+        if isinstance(x, (int, float)) and isinstance(y, (int, float)) and not isinstance(x, bool) and not isinstance(y, bool) \
+                and abs(x - y) > DIM_TOL_CM:
+            return False
+    return True
+
+
 def pid_index(data: dict) -> dict:
     """pid → карточка товара по ВСЕМ местам данных (то же, что `sku_index`, но по публичному ключу тура). Карточки с одним `pid`, но разным
-    товаром (название или плитка фото) — неоднозначно: ключ в индексе помечается `None`, заказ с ним отказывается (`bad_item`), а не берёт первую.
+    товаром (`_same_product`: название, модель `msid` или габариты) — неоднозначно: ключ в индексе помечается `None`, заказ с ним отказывается
+    (`bad_item`), а не берёт первую. Плитка фото в сравнение НЕ входит: у одного товара в разных лентах она законно разная (кэш по адресу).
     Исключение — предмет самого варианта с этим ключом: `_item` берёт его карточку раньше индекса (товар комнаты назван однозначно)."""
     idx: dict = {}
 
@@ -97,7 +117,7 @@ def pid_index(data: dict) -> dict:
             if isinstance(p, str) and PID_RE.match(p) and isinstance(o.get('name'), str):
                 if p not in idx:
                     idx[p] = o
-                elif idx[p] is not None and idx[p].get('name') != o.get('name'):
+                elif idx[p] is not None and not _same_product(idx[p], o):
                     idx[p] = None
             for v in o.values():
                 walk(v)
@@ -541,6 +561,23 @@ def _selftest() -> int:
     ph['feeds']['ковёр'][0].update(pid=pa, name=own_name, img='img/9999999999999999.jpg')
     ph_snap = canonicalize(ph, {'v': 1, 'variant_id': 'tv1', 'items': [{'role': 'диван', 'pid': pa, 'x': 220, 'y': 270, 'rot': 180}]})
     ok(ph_snap['variant']['items'][0]['sku'].get('img') != 'img/9999999999999999.jpg' and ph_snap['variant']['items'][0]['sku'].get('img') == tour['variants'][0]['items'][0]['sku'].get('img'), 'тот же товар, другая плитка в ленте: не отказ, берётся карточка предмета комнаты')
+    # ——— один pid, то же название, но другая модель или габариты — подозрение на другой товар под тем же ключом (T-20261119-07/5 п.4); плитка фото не в счёте
+    def feed_only(**kw):                                  # pid только в ленте, дважды: общий индекс решает сам (карточки комнаты с этим ключом нет)
+        dd = copy.deepcopy(tour)
+        second = tsk(pc, 'Ковёр В', msid=None, img='img/cccccccccccccccc.jpg', w=230, d=160, h=1)
+        second.update(kw)
+        dd['feeds']['ковёр'] = [tsk(pc, 'Ковёр В', msid=None, img='img/cccccccccccccccc.jpg', w=230, d=160, h=1), second]
+        return pid_index(dd)[pc]
+    ok(feed_only() is not None, 'тур: две карточки одного товара — не коллизия')
+    ok(feed_only(img='img/dddddddddddddddd.jpg') is not None, 'тур: то же имя, другая плитка фото — не коллизия (кэш по адресу, у товара законно разная)')
+    ok(feed_only(msid='m9') is not None, 'тур: модель названа у одной карточки — не коллизия')
+    ok(feed_only(w=230.6) is not None, 'тур: габариты в пределах округления — не коллизия')
+    ok(feed_only(w=260) is None, 'тур: то же имя, другая ширина — коллизия (подозрение на другой товар)')
+    ok(feed_only(h=40) is None, 'тур: то же имя, другая высота — коллизия')
+    di = copy.deepcopy(tour)
+    di['feeds']['ковёр'] = [tsk(pc, 'Ковёр В', msid='m1', w=230, d=160, h=1), tsk(pc, 'Ковёр В', msid='m2', w=230, d=160, h=1)]
+    ok(pid_index(di)[pc] is None, 'тур: то же имя, другая модель (`msid`) — коллизия')
+    ok(tbad({**swap, 'items': [{'role': 'ковёр', 'pid': pc, 'x': 220, 'y': 160, 'rot': 0}]}, di) == 'bad_item', 'тур: коллизия по модели — заказ отказан, не первая карточка')
     # ——— плоский предмет без меша и без ключа (ковёр вне витрины): данные — из варианта, карточку не ищем (директор, T-20261118-03/9)
     flat = copy.deepcopy(tour)
     rug = flat['variants'][0]['items'][1]
