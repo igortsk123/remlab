@@ -34,7 +34,7 @@ sys.path.insert(0, os.path.join(SCOUT, 'salad'))
 sys.path.insert(0, os.path.join(SCOUT, 'render_gpu'))
 sys.path.insert(0, HERE)
 
-CARD = {'class_name': 'RTX 4090 (24 GB)', 'class_id': 'ed563892-aacd-40f5-80b7-90c9be6c759b'}
+CARD = {'class_name': 'RTX 4090 (24 GB)', 'class_id': 'ed563892-aacd-40f5-80b7-90c9be6c759b', 'extra': []}      # extra — запасные классы (--also-cards): 4090 дают не всегда (hy4 19.11: 150 мин без машины)
 HF_GATED = {'trellis2': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json',
             'pixal3d': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json',
             'pixal3d-tex': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json',
@@ -147,11 +147,17 @@ def expand_align_jobs(jobs: list[dict], variants: list[dict]) -> list[dict]:
             for j in jobs for v in variants]
 
 
+def gpu_class_ids() -> list[str]:
+    """Классы карт для группы: основной (`--card`) и запасные (`--also-cards`)."""
+    return [CARD['class_id']] + [e['class_id'] for e in CARD.get('extra', [])]
+
+
 def price_usd_h(tier: str) -> float | None:
     """Цена 4090 по тарифу из `rules/salad-groups.json` (`prices_by_class_usd_h`); нет — None (деньги без цены не считаем)."""
     try:
         d = json.load(open(os.path.join(SCOUT, 'rules', 'salad-groups.json'), encoding='utf-8'))
-        return float(d['prices_by_class_usd_h'][CARD['class_name']][tier])
+        names = [CARD['class_name']] + [e['class_name'] for e in CARD.get('extra', [])]
+        return max(float(d['prices_by_class_usd_h'][n][tier]) for n in names)      # деньги считаем по самому дорогому из разрешённых классов
     except (OSError, KeyError, ValueError, TypeError):
         return None
 
@@ -183,7 +189,7 @@ def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu:
     `donor` (только hunyuan21) — боевая группа-образец: берём её переменные окружения (STAGED, PIPELINE_VERSION, …) БЕЗ секретов приёмника и очереди."""
     env = {'MODEL': model, 'IMAGE_NOTE': run_note, 'HF_TOKEN': hf_token, 'HF_HOME': '/data/hf', 'OUT_DIR': '/data/out',
            'NVIDIA_DRIVER_CAPABILITIES': 'all', 'DEPLOYMENT_EPOCH': f'20261118-{name}'}
-    res = {'cpu': cpu, 'memory': mem_mb, 'gpu_classes': [CARD['class_id']], 'storage_amount': 80 * 2 ** 30, 'shm_size': 1024}      # 80 ГиБ: кэш HF ≈ 42 ГиБ + запас на 30 результатов (директор 19.11)
+    res = {'cpu': cpu, 'memory': mem_mb, 'gpu_classes': gpu_class_ids(), 'storage_amount': 80 * 2 ** 30, 'shm_size': 1024}      # 80 ГиБ: кэш HF ≈ 42 ГиБ + запас на 30 результатов (директор 19.11)
     command = None
     if donor is None and model in ('pixal3d', 'pixal3d-tex'):        # образ Pixal3D: transformers 4.57.3 требует huggingface-hub <1.0, а в образе оказался 2.4.0 (px0, 19.11: ImportError на прогреве) — пин при старте, пересборка не нужна
         pre = ('for i in 1 2 3; do python3 -m pip install -q "huggingface_hub==0.35.3" && break; echo "[pip] попытка $i не удалась"; sleep 5; done; '
@@ -204,7 +210,7 @@ def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu:
         env.update({'MODEL': model, 'IMAGE_NOTE': run_note, 'OUT_DIR': '/tmp/trial-out', 'DEPLOYMENT_EPOCH': f'20261118-{name}'})
         command, env['TRIAL_WORKER_Z'] = worker_command()
         dres = donor['container']['resources']
-        res = {'cpu': dres.get('cpu', cpu), 'memory': dres.get('memory', mem_mb), 'gpu_classes': [CARD['class_id']],
+        res = {'cpu': dres.get('cpu', cpu), 'memory': dres.get('memory', mem_mb), 'gpu_classes': gpu_class_ids(),
                'storage_amount': dres.get('storage_amount', 60 * 2 ** 30), 'shm_size': dres.get('shm_size', 1024)}
     body = {
         'name': name, 'display_name': name,
@@ -291,6 +297,14 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
             say('карта', card, 'не найдена среди классов организации:', str(e)[:200])
             return 2
         CARD.update(class_name=card, class_id=cid)
+    CARD['extra'] = []
+    for nm in [x.strip() for x in (getattr(a, 'also_cards', '') or '').split(',') if x.strip()]:
+        import recreate_group as RG
+        try:
+            CARD['extra'].append({'class_name': nm, 'class_id': RG.pick_gpu_exact(RG.gpu_classes(), [nm])[0]})
+        except (ValueError, IndexError) as e:
+            say('запасная карта', nm, 'не найдена среди классов организации:', str(e)[:200])
+            return 2
     price = price_usd_h(a.tier)
     hf = os.environ.get('HF_TOKEN', '')
     donor = None
@@ -316,7 +330,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         j['role'] = (inputs.get(j['sku']) or {}).get('role') or meta.get(j['sku'], {}).get('role')
         j['dims_cm'] = meta.get(j['sku'], {}).get('dims_cm')
     body = build_body(name, a.image, a.tier, a.model, hf, a.cpu, a.mem_mb, a.image.split('@')[-1][:19], MG.ghcr_auth(), donor)
-    say('группа', name, CARD['class_name'], 'тариф', a.tier, 'цена $/ч', price, 'заданий', len(jobs), 'потолок $', a.cap)
+    say('группа', name, CARD['class_name'] + ''.join(' / ' + e['class_name'] for e in CARD.get('extra', [])), 'тариф', a.tier, 'цена $/ч', price, 'заданий', len(jobs), 'потолок $', a.cap)
     if not a.apply:
         safe_print(body)
         for j in jobs:
@@ -513,6 +527,7 @@ def main() -> int:
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--decimation', type=int, default=500000)
     ap.add_argument('--texture', type=int, default=2048)
+    ap.add_argument('--also-cards', default='', help='запасные классы карт через запятую (например "RTX 3090 (24 GB),RTX 4080 (16 GB)"): группа берёт любую; деньги — по самому дорогому')
     ap.add_argument('--card', default=CARD['class_name'], help='класс карты по полному имени ("RTX 4060 Ti (16 GB)" для localmesh)')
     ap.add_argument('--detail', default='high', choices=['draft', 'standard', 'high', 'max'], help='localmesh: ярус качества (high = форма 1024, 16 шагов, 250 тыс. граней)')
     ap.add_argument('--texture-mesh', default=None, help='контроль: готовая форма (GLB) — TRELLIS.2 только перекрасит её по фото (один товар в --skus)')
