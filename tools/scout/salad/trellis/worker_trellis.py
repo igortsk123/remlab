@@ -32,6 +32,7 @@ import os
 import socket
 import subprocess
 import sys
+import re
 import threading
 import time
 import traceback
@@ -95,6 +96,49 @@ class FakeBackend:
         return {'stage_s': {'run': 0.01, 'to_glb': 0.01}, 'peak_vram_gb': 0.0}
 
 
+SDPA_BRANCH = """    elif config.ATTN == 'sdpa':                      # T-20261119-94: ветка из Pixal3D (pixal3d/modules/sparse/attention/full_attn.py) — flash-attn под sm_120 нет
+        from torch.nn.functional import scaled_dot_product_attention as _sdpa
+        if num_all_args == 1:
+            q, k, v = qkv.unbind(dim=1)
+        elif num_all_args == 2:
+            k, v = kv.unbind(dim=1)
+        q_offs = [0] + list(torch.cumsum(torch.tensor(q_seqlen), dim=0).tolist())
+        kv_offs = [0] + list(torch.cumsum(torch.tensor(kv_seqlen), dim=0).tolist())
+        outs = []
+        for i in range(len(q_seqlen)):
+            qi = q[q_offs[i]:q_offs[i + 1]].unsqueeze(0).permute(0, 2, 1, 3)
+            ki = k[kv_offs[i]:kv_offs[i + 1]].unsqueeze(0).permute(0, 2, 1, 3)
+            vi = v[kv_offs[i]:kv_offs[i + 1]].unsqueeze(0).permute(0, 2, 1, 3)
+            outs.append(_sdpa(qi, ki, vi).permute(0, 2, 1, 3).squeeze(0))
+        out = torch.cat(outs, dim=0)
+"""
+SDPA_MARK = "config.ATTN == 'sdpa'"
+
+
+def patch_trellis2_sdpa(trellis_dir: str) -> list[str]:
+    """Официальный TRELLIS.2 в РАЗРЕЖЕННОМ внимании знает только xformers/flash_attn/flash_attn_3 (`trellis2/modules/sparse/config.py`, `.../attention/full_attn.py`),
+    а flash-attn под Blackwell (sm_120) не собран — `ModuleNotFoundError: flash_attn` (T-20261119-94, первый запуск на 5090). Дописываем ветку `sdpa` (как в Pixal3D) в
+    файлы на месте; идемпотентно; не нашёл якорь — RuntimeError (лучше громко, чем молча на flash_attn). Плотное внимание (`trellis2/modules/attention`) sdpa знает само."""
+    done = []
+    cfg = os.path.join(trellis_dir, 'trellis2', 'modules', 'sparse', 'config.py')
+    fa = os.path.join(trellis_dir, 'trellis2', 'modules', 'sparse', 'attention', 'full_attn.py')
+    t = open(cfg, encoding='utf-8').read()
+    if "'sdpa'" not in t:
+        a = "in ['xformers', 'flash_attn', 'flash_attn_3']:"
+        if a not in t:
+            raise RuntimeError('sparse/config.py: нет ожидаемой строки со списком бэкендов — патч sdpa не применён')
+        open(cfg, 'w', encoding='utf-8').write(t.replace(a, "in ['xformers', 'flash_attn', 'flash_attn_3', 'sdpa']:"))
+        done.append('config')
+    t = open(fa, encoding='utf-8').read()
+    if SDPA_MARK not in t:
+        a = '    else:\n        raise ValueError(f"Unknown attention module: {config.ATTN}")'
+        if t.count(a) != 1:
+            raise RuntimeError('sparse/attention/full_attn.py: нет ожидаемого хвоста с ValueError — патч sdpa не применён')
+        open(fa, 'w', encoding='utf-8').write(t.replace(a, SDPA_BRANCH + a))
+        done.append('full_attn')
+    return done
+
+
 class Trellis2Backend:
     """TRELLIS.2-4B (MIT): `Trellis2ImageTo3DPipeline` → `o_voxel.postprocess.to_glb` (BaseColor/Metallic/Roughness/Alpha).
     Фон не удаляем: вход — наша вырезка с настоящей альфой (`preprocess_image` берёт её как есть), а модуль вырезки фона
@@ -105,6 +149,8 @@ class Trellis2Backend:
         os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
         os.environ.setdefault('OPENCV_IO_ENABLE_OPENEXR', '1')
         sys.path.insert(0, os.environ.get('TRELLIS_DIR', '/opt/TRELLIS.2'))
+        if os.environ.get('ATTN_BACKEND') == 'sdpa':
+            STATE['sdpa_patched'] = patch_trellis2_sdpa(os.environ.get('TRELLIS_DIR', '/opt/TRELLIS.2'))
         STATE['phase'] = 'importing'
         t_imp = time.time()
         import torch
@@ -173,6 +219,16 @@ class Trellis2Backend:
             raw_info.update(export_raw_mesh(mesh, path[:-4] + '.raw.glb'))
         t = time.time()
         mesh.simplify(16777216)             # предел nvdiffrast, как в example.py
+        variant_files = []
+        for vr in trellis2_pack_variants(params):     # T-94/2 шаг 02: тот же результат формы, разные параметры упаковки (remesh/band/project/decimation) — без новой генерации
+            vg = o_voxel.postprocess.to_glb(
+                vertices=mesh.vertices.clone(), faces=mesh.faces.clone(), attr_volume=mesh.attrs.clone(), coords=mesh.coords.clone(), attr_layout=mesh.layout,
+                voxel_size=mesh.voxel_size, aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
+                decimation_target=vr['decimation_target'], texture_size=int(params.get('texture_size', 2048)),
+                remesh=vr['remesh'], remesh_band=vr['remesh_band'], remesh_project=vr['remesh_project'], verbose=False)
+            torch.cuda.synchronize()
+            vg.export(path[:-4] + '.' + vr['name'] + '.glb', extension_webp=bool(int(os.environ.get('EXPORT_WEBP', '0'))))
+            variant_files.append(vr['name'])
         glb = o_voxel.postprocess.to_glb(
             vertices=mesh.vertices, faces=mesh.faces, attr_volume=mesh.attrs, coords=mesh.coords, attr_layout=mesh.layout,
             voxel_size=mesh.voxel_size, aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
@@ -185,7 +241,7 @@ class Trellis2Backend:
         return {'stage_s': stage, 'peak_vram_gb': round(max(peak_run, torch.cuda.max_memory_allocated() / 2 ** 30), 2),
                 'peak_reserved_gb': round(torch.cuda.max_memory_reserved() / 2 ** 30, 2),
                 'pipeline_type': params.get('pipeline_type') or '1024_cascade', 'grid_res_actual': grid_res, 'run_kwargs': run_kw, 'decimation_target': int(params.get('decimation_target', 500000)),
-                **raw_info, 'has_raw': bool(params.get('export_raw'))}
+                **raw_info, 'has_raw': bool(params.get('export_raw')), 'variant_files': variant_files}
 
 
 TRELLIS2_RANGES = {'steps': (1, 50), 'guidance_strength': (0.0, 10.0), 'guidance_rescale': (0.0, 1.0), 'rescale_t': (1.0, 6.0)}
@@ -215,6 +271,22 @@ def trellis2_run_kwargs(params: dict) -> dict:
             raise ValueError(f'max_num_tokens: от 49152 до 262144, получено {n}')
         kw['max_num_tokens'] = n
     return kw
+
+
+def trellis2_pack_variants(params: dict) -> list[dict]:
+    """T-94/2 шаг 02: `variants` — список `{name, remesh, remesh_band, remesh_project, decimation_target}` (имя из букв, цифр, «-_»); по умолчанию — пусто. Диапазоны: band 0,5–4, project 0–1,
+    decimation 50 тыс.–2 млн. Каждый вариант — отдельный файл `<job>.<name>.glb` (отдаётся по `?v=<name>`)."""
+    out, seen = [], set()
+    for v in params.get('variants') or []:
+        nm = str(v.get('name') or '')
+        if not nm or not all(c.isalnum() or c in '-_' for c in nm) or nm in ('raw', 'ai') or nm in seen:
+            raise ValueError(f'variants: нужно уникальное имя из букв, цифр и «-_» (не raw/ai): {nm!r}')
+        seen.add(nm)
+        band, proj, dec = float(v.get('remesh_band', 1)), float(v.get('remesh_project', 0)), int(v.get('decimation_target', 500000))
+        if not (0.5 <= band <= 4 and 0 <= proj <= 1 and 50000 <= dec <= 2000000):
+            raise ValueError(f'variants {nm}: band 0,5–4, project 0–1, decimation 50 тыс.–2 млн')
+        out.append({'name': nm, 'remesh': bool(v.get('remesh', True)), 'remesh_band': band, 'remesh_project': proj, 'decimation_target': dec})
+    return out
 
 
 def export_raw_mesh(mesh, path: str) -> dict:
@@ -1405,7 +1477,8 @@ class H(BaseHTTPRequestHandler):
         if p.startswith('/glb/'):
             jid = os.path.basename(p[5:])
             rp = os.path.join(JOBS_DIR, jid + '.res.json')
-            fp = os.path.join(OUT, f'{jid}.ai.glb' if 'v=ai' in self.path else f'{jid}.raw.glb' if 'v=raw' in self.path else f'{jid}.glb')      # ?v=ai — localmesh: текстура до проекции фото; ?v=raw — TRELLIS.2: сырая форма до упаковки
+            vq = re.search(r'[?&]v=([A-Za-z0-9_-]+)', self.path)
+            fp = os.path.join(OUT, f'{jid}.{vq.group(1)}.glb' if vq else f'{jid}.glb')      # ?v=ai — localmesh: текстура до проекции фото; ?v=raw — TRELLIS.2: сырая форма до упаковки
             if not os.path.exists(rp) or json.load(open(rp, encoding='utf-8')).get('status') != 'done' or not os.path.exists(fp):
                 return self._json(404, {'error': 'GLB нет (задание не готово или упало)'})
             data = open(fp, 'rb').read()

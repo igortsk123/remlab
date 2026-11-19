@@ -124,7 +124,7 @@ def expand_align_jobs(jobs: list[dict], variants: list[dict]) -> list[dict]:
             for j in jobs for v in variants]
 
 
-LADDER_KEYS = ('ss_steps', 'ss_guidance', 'ss_rescale', 'ss_rescale_t', 'shape_steps', 'shape_guidance', 'shape_rescale', 'shape_rescale_t', 'max_num_tokens', 'export_raw')
+LADDER_KEYS = ('ss_steps', 'ss_guidance', 'ss_rescale', 'ss_rescale_t', 'shape_steps', 'shape_guidance', 'shape_rescale', 'shape_rescale_t', 'max_num_tokens', 'export_raw', 'variants')
 
 
 def parse_ladder(path: str) -> list[dict]:
@@ -532,6 +532,12 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                                             inflight['glb_raw_bytes'] = len(glb_raw)
                                         else:
                                             inflight['glb_raw_error'] = f'HTTP {cr}'
+                                    for vn in (r.get('metrics') or {}).get('variant_files') or []:          # TRELLIS.2: варианты упаковки (T-94/2 шаг 02) — по файлу на вариант
+                                        cv, glb_v = gw.call('GET', '/glb/' + inflight['job_id'] + '?v=' + vn, timeout=600, raw=True)
+                                        if cv == 200:
+                                            open(os.path.join(a.out, f'{inflight["job_id"]}.{vn}.glb'), 'wb').write(glb_v)
+                                        else:
+                                            inflight.setdefault('variant_errors', []).append(f'{vn}: HTTP {cv}')
                                     if (r.get('metrics') or {}).get('has_ai'):          # localmesh: вторая версия — текстура «как нарисовала модель», до проекции фото
                                         ca, glb_ai = gw.call('GET', '/glb/' + inflight['job_id'] + '?v=ai', timeout=300, raw=True)
                                         if ca == 200:

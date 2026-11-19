@@ -444,6 +444,32 @@ for bl in ([], [{'name': 'a'}, {'name': 'a'}], [{'name': 'a b'}], [{'name': 'a',
     except ValueError:
         bad_l += 1
 ok('parse_ladder: пусто, повтор имени, пробел в имени, неверное фото/разрешение, чужой ключ → ValueError', bad_l == 6, str(bad_l))
+
+# варианты упаковки to_glb (T-94/2 шаг 02): по умолчанию пусто; значения по умолчанию = боевые (remesh, band 1, project 0, 500k)
+ok('trellis2_pack_variants: нет `variants` → пусто', W.trellis2_pack_variants({}) == [])
+pv = W.trellis2_pack_variants({'variants': [{'name': 'A-300k', 'decimation_target': 300000}, {'name': 'C', 'remesh_project': 0.5, 'decimation_target': 1000000}]})
+ok('trellis2_pack_variants: значения по умолчанию и заданные', pv[0] == {'name': 'A-300k', 'remesh': True, 'remesh_band': 1.0, 'remesh_project': 0.0, 'decimation_target': 300000} and pv[1]['remesh_project'] == 0.5 and pv[1]['decimation_target'] == 1000000)
+bad_pv = 0
+for bv in ([{'name': 'raw'}], [{'name': 'a b'}], [{'name': 'a'}, {'name': 'a'}], [{'name': 'a', 'remesh_project': 2}], [{'name': 'a', 'decimation_target': 100}], [{'name': 'a', 'remesh_band': 9}]):
+    try:
+        W.trellis2_pack_variants({'variants': bv})
+    except ValueError:
+        bad_pv += 1
+ok('trellis2_pack_variants: имя raw/ai/повтор/пробел и значения вне диапазона → ValueError', bad_pv == 6, str(bad_pv))
+
+# патч sdpa для разреженного внимания TRELLIS.2 (T-20261119-94, flash_attn под sm_120 нет): якоря — как в microsoft/TRELLIS.2 @75fbf018
+sd = tempfile.mkdtemp(prefix='sdpa-')
+os.makedirs(os.path.join(sd, 'trellis2', 'modules', 'sparse', 'attention'))
+open(os.path.join(sd, 'trellis2', 'modules', 'sparse', 'config.py'), 'w').write("    if env_sparse_attn_backend is not None and env_sparse_attn_backend in ['xformers', 'flash_attn', 'flash_attn_3']:\n        ATTN = env_sparse_attn_backend\n")
+open(os.path.join(sd, 'trellis2', 'modules', 'sparse', 'attention', 'full_attn.py'), 'w').write("    elif config.ATTN == 'flash_attn_3':\n        pass\n    else:\n        raise ValueError(f\"Unknown attention module: {config.ATTN}\")\n")
+ok('patch_trellis2_sdpa: добавляет sdpa в список и ветку внимания, второй раз — ничего', W.patch_trellis2_sdpa(sd) == ['config', 'full_attn'] and W.patch_trellis2_sdpa(sd) == [] and "'sdpa']" in open(os.path.join(sd, 'trellis2', 'modules', 'sparse', 'config.py')).read() and "config.ATTN == 'sdpa'" in open(os.path.join(sd, 'trellis2', 'modules', 'sparse', 'attention', 'full_attn.py')).read())
+open(os.path.join(sd, 'trellis2', 'modules', 'sparse', 'attention', 'full_attn.py'), 'w').write('# якорь изменился\n')
+try:
+    W.patch_trellis2_sdpa(sd)
+    patch_loud = False
+except RuntimeError:
+    patch_loud = True
+ok('patch_trellis2_sdpa: нет якоря в коде апстрима → громкая ошибка, а не тихий flash_attn', patch_loud)
 rc = T.run(types.SimpleNamespace(**{**base, 'texture_mesh': '/x.glb', 'tex_align': 'fit+g99'}), NoTouchMG(), NoTouchMG())
 ok('--tex-align fit+g99: отказ (код 2) до обращения к Salad', rc == 2)
 

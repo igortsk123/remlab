@@ -30,6 +30,8 @@ ap.add_argument('--h', type=int, default=1200)
 ap.add_argument('--threads', type=int, default=4)
 ap.add_argument('--analyze', action='store_true', help='только разбор кусков меша и габарита (без кадров)')
 ap.add_argument('--modes', default='tex,clay', help='tex,clay | tex | clay')
+ap.add_argument('--shade', default='orig', choices=['orig', 'flat', 'recalc'], help='T-94/2 шаг 01: orig — нормали из файла; flat — плоское затенение без своих нормалей; recalc — нормали пересчитаны «наружу» + гладкое')
+ap.add_argument('--backface', action='store_true', help='T-94/2 шаг 01: обратная сторона граней красным (диагностика перевёрнутых нормалей и дыр)')
 ap.add_argument('--only', default='', help='отладка: список видов через запятую (az000,top55,bot-20)')
 a = ap.parse_args(argv)
 T0 = time.time()
@@ -41,6 +43,25 @@ bpy.ops.import_scene.gltf(filepath=a.glb)
 meshes = [o for o in sc.objects if o.type == 'MESH']
 if not meshes:
     raise SystemExit('в GLB нет мешей')
+
+if a.shade != 'orig':                                # T-94/2 шаг 01: проверка «дело в нормалях или в форме»
+    import bmesh
+    for o in meshes:
+        me = o.data
+        bpy.context.view_layer.objects.active = o
+        try:
+            bpy.ops.mesh.customdata_custom_splitnormals_clear()
+        except RuntimeError:
+            pass
+        if a.shade == 'recalc':
+            bm = bmesh.new()
+            bm.from_mesh(me)
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+            bm.to_mesh(me)
+            bm.free()
+            me.shade_smooth()
+        else:
+            me.shade_flat()
 
 
 def bounds():
@@ -150,6 +171,14 @@ clay = bpy.data.materials.new('clay')
 clay.use_nodes = True
 clay.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = (0.50, 0.50, 0.49, 1)
 clay.node_tree.nodes['Principled BSDF'].inputs['Roughness'].default_value = 0.85
+if a.backface:                                        # обратная сторона — красная эмиссия
+    nt = clay.node_tree
+    geo, emi, mix, out = nt.nodes.new('ShaderNodeNewGeometry'), nt.nodes.new('ShaderNodeEmission'), nt.nodes.new('ShaderNodeMixShader'), nt.nodes['Material Output']
+    emi.inputs['Color'].default_value = (1, 0, 0, 1)
+    nt.links.new(geo.outputs['Backfacing'], mix.inputs['Fac'])
+    nt.links.new(nt.nodes['Principled BSDF'].outputs['BSDF'], mix.inputs[1])
+    nt.links.new(emi.outputs['Emission'], mix.inputs[2])
+    nt.links.new(mix.outputs['Shader'], out.inputs['Surface'])
 
 cam_d = bpy.data.cameras.new('cam')
 cam_d.lens = 50

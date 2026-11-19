@@ -18,7 +18,7 @@ while [ $# -gt 0 ]; do
   mkdir -p "$out"
   cd "$REPO" || exit 2
   tools/ops/heavy-slot.sh "t92-fr-$label" --prio 1 --cores 2 --min-gb 3 --timeout 3000 -- "$BLENDER" -b -P "$TR/render_stand.py" -- \
-    --glb "$glb" --out "$out" --samples 32 --modes tex,clay --only "$VIEWS" --threads 2 >> "$ROOT/render-$label.log" 2>&1
+    --glb "$glb" --out "$out" --samples 32 --modes "${MODES:-tex,clay}" --only "$VIEWS" --threads 2 >> "$ROOT/render-$label.log" 2>&1
   echo "$label rc=$?"
   "$PY" -I "$TR/caption_frames.py" "$out" "$label" >> "$ROOT/render-$label.log" 2>&1
 done
