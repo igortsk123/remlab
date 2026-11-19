@@ -36,7 +36,7 @@ if [ -z "${ONLY_SCORE:-}" ]; then
   [ -n "${GPU_MIN_GB:-}" ] && EXTRA+=(--gpu-min-gb "$GPU_MIN_GB")
   for kv in ${WORKER_ENV:-}; do EXTRA+=(--worker-env "$kv"); done
   "$PY" trellis_trial.py --model mvpainter --image "$IMAGE" --inputs "$BASE/inputs30" --skus "${SKUS[@]}" \
-    --shape-dir "$BASE" --plan 1024:1 --seed 42 --tier high --cap "$CAP" --suffix "$SUFFIX" --out "$OUT" \
+    --shape-dir "$SHAPE_DIR" --plan 1024:1 --seed 42 --tier high --cap "$CAP" --suffix "$SUFFIX" --out "$OUT" \
     --ready-min "${READY_MIN:-90}" --job-timeout "${JOB_MIN:-45}" \
     --mvp-yaw "${MVP_YAW:-auto}" --mvp-steps "${MVP_STEPS:-75}" --mvp-reduce "${MVP_REDUCE:-1}" --mvp-pbr "${MVP_PBR:-1}" \
     ${EXTRA[@]+"${EXTRA[@]}"} $FLAG || exit $?

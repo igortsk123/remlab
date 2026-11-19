@@ -34,7 +34,7 @@ if [ -z "${ONLY_SCORE:-}" ]; then
   [ "${SUPRA_REFINE:-0}" = "1" ] && EXTRA+=(--supra-refine)
   for kv in ${WORKER_ENV:-}; do EXTRA+=(--worker-env "$kv"); done
   "$PY" trellis_trial.py --model supratex --image "$IMAGE" --inputs "$BASE/inputs30" --skus "${SKUS[@]}" \
-    --shape-dir "$BASE" --plan 1024:1 --seed 42 --tier high --cap "$CAP" --suffix "$SUFFIX" --out "$OUT" \
+    --shape-dir "$SHAPE_DIR" --plan 1024:1 --seed 42 --tier high --cap "$CAP" --suffix "$SUFFIX" --out "$OUT" \
     --job-timeout "${JOB_MIN:-40}" \
     --supra-texture-size "${SUPRA_TEX_SIZE:-4096}" --supra-decimation "${SUPRA_DECIMATION:-500000}" \
     ${EXTRA[@]+"${EXTRA[@]}"} $FLAG || exit $?
