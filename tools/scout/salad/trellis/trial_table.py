@@ -623,6 +623,7 @@ def main() -> int:
     ap.add_argument('--no-pattern', action='store_true', help='не считать pattern_grad_ncc (справочная колонка)')
     ap.add_argument('--hy-tier', default='high', help='тариф Salad для оценки $ боевого Hunyuan (по complete.json); группы боевых прогонов были разные')
     ap.add_argument('--spend', action='append', default=[], help='модель=USD — траты, если сводок драйвера нет/неполны (идущий прогон)')
+    ap.add_argument('--pilot-spend', action='append', default=[], help='модель=USD — пилоты «встать» по живой цене (отдельная колонка; в $ за принятую не входят)')
     ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args()
     if a.selftest:
@@ -639,6 +640,7 @@ def main() -> int:
                        'clean': opts.get('clean'), 'cleandir': os.path.expanduser(opts['cleandir']) if opts.get('cleandir') else None,
                        'cleansuffix': opts.get('cleansuffix'), 'sumdir': [os.path.expanduser(x) for x in opts.get('sumdir', '').split('|') if x]}
     override = {k: float(v) for k, v in (s.split('=') for s in a.spend)}
+    pilot_over = {k: float(v) for k, v in (s.split('=') for s in a.pilot_spend)}
     items = json.load(open(a.set, encoding='utf-8'))
     set_name = os.path.basename(a.set)
     cache_dir = os.path.join(a.out, 'cache')
@@ -673,6 +675,8 @@ def main() -> int:
             est = [r['usd'] for r in mrows if r['usd'] is not None]
             spend = round(sum(est), 4) if est else None
             notes[name] = 'оценка: время генерации × тариф, без холодных стартов' if est else 'трат нет в журналах'
+        if name in pilot_over:
+            setup = pilot_over[name]
         sums[name] = model_summary(mrows, spend, setup)
         print(f'{name}: пробовали {sums[name]["tried"]}, принято {sums[name]["accepted"]}, $/принятую {sums[name]["usd_per_accepted"]}', flush=True)
     paths = write_outputs(a.out, rows, sums, notes, set_name)
