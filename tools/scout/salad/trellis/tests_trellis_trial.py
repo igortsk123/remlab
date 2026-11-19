@@ -266,6 +266,18 @@ ok('обычная нехватка памяти (diag.fatal=false) — преж
 rc, mg, br, s = go(d, suffix='t13', script={'job_hangs': True, 'broken': 'RuntimeError: !handles_.at(i) INTERNAL ASSERT'}, job_timeout=60)
 ok('/health «сломан» во время задания → гашу сразу (до таймаута задания), причина и задание в сводке', s['stopped_by'] == 'worker_broken' and 'INTERNAL ASSERT' in str(s['broken'])
    and s['failed'] == 1 and s['jobs'][0]['status'] == 'failed' and br.stops == ['trial-trellis2-t13'])
+rc, mg, br, s = go(d, suffix='t14', script={'job_hangs': True, 'hf_gb': 80.7}, cap=0.05, job_timeout=600)
+ok('потолок денег посреди задания → в сводке снимок: /health (фаза, ГБ весов) и последний ответ /job, секунды задания (19.11: r2/r3 молчали без следа)',
+   s['stopped_by'] == 'money' and s.get('unfinished', {}).get('job_id') and s['unfinished']['seconds'] > 0
+   and s['unfinished']['health']['phase'] == 'ready' and s['unfinished']['warmup']['progress'] == {'hf_gb': 80.7}
+   and s['unfinished']['job'] == {'status': 'running'} and br.stops == ['trial-trellis2-t14'])
+rc, mg, br, s = go(d, suffix='t15', script={'job_hangs': True}, job_timeout=1, fail_streak=5)
+ok('таймаут задания → последний ответ /job сохранён в самом задании (last_job), стоп подтверждён',
+   s['jobs'] and s['jobs'][0]['status'] == 'failed' and s['jobs'][0]['last_job'] == {'status': 'running'} and 'unfinished' not in s and br.stops == ['trial-trellis2-t15'])
+rc, mg, br, s = go(d, suffix='t16')
+ok('нормальный ход — снимка нет (задание закончено), стоп один раз', s['stopped_by'] == 'done' and 'unfinished' not in s and br.stops == ['trial-trellis2-t16'])
+ok('slim_job: длинные строки и тяжёлые поля не раздувают сводку', len(json.dumps(T.slim_job({'status': 'running', 'trace': 'x' * 5000, 'm': {'views': 'y' * 9000}, 'n': 3}))) < 700
+   and T.slim_job('мусор') == {'raw': 'мусор'})
 rc, mg, br, s = go(d, suffix='t4', script={'raise_on': '/generate'})
 ok('исключение посреди замера → стоп с проверкой всё равно сделан', isinstance(rc, str) and rc.startswith('exc:') and br.stops == ['trial-trellis2-t4'])
 rc, mg, br, s = go(d, suffix='t5', br=FakeBR(running_after=10 ** 6))

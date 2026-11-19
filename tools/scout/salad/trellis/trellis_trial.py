@@ -125,6 +125,39 @@ def build_jobs(skus: list[str], plan: list[dict], inputs: dict, seed: int = 42) 
 FAIL_CLASSES = ('uvatlas', 'oom_gpu', 'oom_ram', 'shape_changed', 'cuda', 'other')      # категории отказа задания для счётчика в ИТОГе (T-20261119-06/6/1); `not_run` — не дошло до запуска
 
 
+def slim_job(r) -> dict:
+    """Ответ `GET /job/<id>` без тяжёлых полей (картинки, трассы) — в сводку отказа: статус, стадия, ход, ошибка (T-20261119-84: r2/r3 «молчали» без единого следа)."""
+    if not isinstance(r, dict):
+        return {'raw': str(r)[:200]}
+    out = {}
+    for k, v in r.items():
+        if isinstance(v, str):
+            out[k] = v if len(v) <= 300 else v[:300] + '…'
+        elif isinstance(v, (int, float, bool)) or v is None:
+            out[k] = v
+        elif isinstance(v, (dict, list)) and len(json.dumps(v, default=str)) <= 600:
+            out[k] = v
+        else:
+            out[k] = f'<{type(v).__name__}, пропущено>'
+    return out
+
+
+def unfinished_snapshot(gw, inflight: dict, now: float) -> dict:
+    """Что делал воркер, когда замер остановили на середине задания (потолок денег, предел времени, исключение): `/health` (фаза, прогрев, ГБ весов, память, диск)
+    и последний `GET /job/<id>`. Раньше сводка r2/r3 SUPRA хранила только «остановлено по потолку» — куда ушли 20 минут, узнать было нельзя (19.11).
+    Сбой самого снимка не мешает остановке группы: ошибка уходит в поле."""
+    snap = {'job_id': inflight.get('job_id'), 'seconds': round(now - inflight.get('submitted', now), 1)}
+    for key, path in (('health', '/health'), ('job', '/job/' + str(inflight.get('job_id')))):
+        try:
+            c, r = gw.call('GET', path, timeout=20)
+            snap[key] = slim_job(r) if c == 200 else {'http': c}
+        except Exception as e:  # noqa: BLE001 — снимок не должен сорвать остановку (деньги важнее диагностики)
+            snap[key] = {'error': f'{type(e).__name__}: {str(e)[:120]}'}
+    h = snap.get('health') or {}
+    snap['warmup'] = {k: h.get(k) for k in ('phase', 'warm', 'progress', 'child', 'timings', 'cgroup_gb', 'disk_gb') if k in h}
+    return snap
+
+
 def classify_failure(error: str | None, diag: dict | None = None) -> str:
     """Категория отказа по тексту ошибки и диагностике воркера. Порядок важен: UVAtlas (issue #65 — ждём 0, считаем отдельно) → нехватка обычной памяти (контейнер убит: код −9/137, `Killed`; issue #66) →
     нехватка видеопамяти → «форма/развёртка изменились» → фатальная ошибка CUDA → прочее."""
@@ -680,6 +713,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                'stop_verified': False, 'stopped_by': None}
     os.makedirs(a.out, exist_ok=True)
     t_start = run_since = None
+    gw = inflight = None                                  # finally: снимок незавершённого задания (нужен и при раннем выходе)
     try:
         create_wait_s = float(getattr(a, 'create_wait_min', None) or CREATE_WAIT_MIN) * 60
         t_wait = clock()
@@ -708,11 +742,10 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
             say(f'!! группа не стартовала за {1 + START_RETRIES} попыток /start — гашу с проверкой')
             summary['stopped_by'] = 'start_failed'
             return 1
-        gw, ready_at, fail_streak = None, None, 0
+        ready_at, fail_streak = None, 0
         ever_ok, last_gb, last_gb_t, last_say = False, None, None, 0.0           # видимость воркера: был ли хоть один ответ /health, рост докачки весов
         last_hc = 0.0                                                             # последний опрос /health во время задания (воркер «сломан» после фатальной ошибки CUDA)
         pending = list(jobs)
-        inflight = None
         while True:
             t = clock()
             _, st, cnt = BR.group_state(name)
@@ -844,7 +877,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                                 else:
                                     inflight.update(status='failed', error=f'GLB не скачался: HTTP {cg}')
                         elif t - inflight['submitted'] > a.job_timeout * 60:
-                            inflight.update(status='failed', error=f'задание не закончилось за {a.job_timeout} мин')
+                            inflight.update(status='failed', error=f'задание не закончилось за {a.job_timeout} мин', last_job=slim_job(r) if c == 200 else {'http': c})
                     if inflight.get('status') in ('done', 'failed'):
                         inflight['seconds'] = round(t - inflight['submitted'], 1)
                         summary['jobs'].append(inflight)
@@ -866,6 +899,8 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     break
             sleep(10)
     finally:
+        if gw is not None and inflight is not None and inflight.get('status') not in ('done', 'failed'):
+            summary['unfinished'] = unfinished_snapshot(gw, inflight, clock())   # потолок/таймаут/исключение посреди задания: что видел воркер — ДО остановки группы
         ok_stop = BR.stop_and_verify(name)
         summary['stop_verified'] = ok_stop
         if tex_by_sku:                                    # итог по товару (в группе их может быть несколько): статус, секунды, GLB, причина отказа; не дошедшие до запуска — not_run
