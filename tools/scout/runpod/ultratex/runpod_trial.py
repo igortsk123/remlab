@@ -152,6 +152,25 @@ def sku_key(sku: str) -> str:
     return sku.replace(':', '_')
 
 
+SHAPE_NAME = '{key}-1024-42-0.{tag}.glb'
+
+
+def shape_path(args, key: str) -> str:
+    name = getattr(args, 'shape_name', None) or SHAPE_NAME
+    return os.path.join(args.shape_dir, name.format(key=key, tag=args.shape_tag))
+
+
+def missing_inputs(args) -> list[str]:
+    """Файлы формы и фото каждого товара: чего нет — перечислить ДО создания пода (платный под не должен падать на пропавшем файле)."""
+    out = []
+    for sku in args.skus:
+        key = sku_key(sku)
+        for f in (shape_path(args, key), os.path.join(args.inputs, f'{key}.rgba.png')):
+            if not os.path.isfile(f):
+                out.append(f)
+    return out
+
+
 def iso_epoch(s: str) -> float:
     import datetime
     s = s.replace('Z', '+00:00')
@@ -200,7 +219,7 @@ def run(api: Api, args, gpu: dict, sleep=time.sleep, now=time.time) -> dict:
             for steps in (getattr(args, 'steps_by_sku', None) or {}).get(sku, args.steps):
                 tag = f'{key}-s{steps}'
                 png = open(os.path.join(args.inputs, f'{key}.rgba.png'), 'rb').read()
-                glb = open(os.path.join(args.shape_dir, f'{key}-1024-42-0.{args.shape_tag}.glb'), 'rb').read()
+                glb = open(shape_path(args, key), 'rb').read()
                 job = {'job_id': tag, 'image_b64': base64.b64encode(png).decode(), 'glb_b64': base64.b64encode(glb).decode(),
                        'resolution': args.resolution, 'steps': steps, 'seed': args.seed}
                 st, r = http_json('POST', f'{url}/generate', job, timeout=300)
@@ -236,7 +255,20 @@ def run(api: Api, args, gpu: dict, sleep=time.sleep, now=time.time) -> dict:
     return summary
 
 
+def apply_jobs(args) -> None:
+    if args.jobs:
+        args.skus, args.steps_by_sku = [], {}
+        for j in args.jobs:
+            sku, _, st = j.partition('@')
+            if sku not in args.skus:
+                args.skus.append(sku)
+            args.steps_by_sku.setdefault(sku, []).append(int(st or 25))
+
+
 def dry_run(api: Api, args) -> int:
+    miss = missing_inputs(args)
+    if args.skus:
+        say('файлы формы и фото: ' + ('все найдены' if not miss else 'НЕ НАЙДЕНЫ ' + ', '.join(miss)))
     st, cat = api.call('GET', '/catalog/gpus?include=AVAILABILITY&product=POD')
     say(f'каталог карт: HTTP {st}, карт {len(cat.get("gpus", []))}')
     gpu = pick_gpu(cat)
@@ -263,6 +295,7 @@ def main(argv=None) -> int:
     ap.add_argument('--skus', nargs='*', default=[])
     ap.add_argument('--shape-dir', default=os.path.expanduser('~/remlab-logs/mesh-models-1118/trellis2'))
     ap.add_argument('--shape-tag', default='clean2')
+    ap.add_argument('--shape-name', default=None, help='шаблон имени файла формы в --shape-dir, поля {key} и {tag}; по умолчанию {key}-1024-42-0.{tag}.glb')
     ap.add_argument('--inputs', default=os.path.expanduser('~/remlab-logs/mesh-models-1118/trellis/inputs30'))
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/T-20261119-90/run'))
     ap.add_argument('--steps', type=int, nargs='+', default=[25])
@@ -281,18 +314,12 @@ def main(argv=None) -> int:
         say('нет RUNPOD_API_KEY в ~/scout-scenes/salad.env')
         return 2
     api = Api(key)
+    apply_jobs(args)
     if args.dry_run:
         return dry_run(api, args)
     if not args.cap or args.cap <= 0 or args.cap > 5.0:
         say('платное — только с --cap в пределах (0; 5] $ (решение директора: потолок пробы $5)')
         return 2
-    if args.jobs:
-        args.skus, args.steps_by_sku = [], {}
-        for j in args.jobs:
-            sku, _, st = j.partition('@')
-            if sku not in args.skus:
-                args.skus.append(sku)
-            args.steps_by_sku.setdefault(sku, []).append(int(st or 25))
     if not args.skus:
         say('нет --skus')
         return 2
@@ -304,6 +331,10 @@ def main(argv=None) -> int:
         if not gpu:
             say('❗ нет карты A100/H100 80 ГБ в наличии — под не создаю')
             return 2
+    miss = missing_inputs(args)
+    if miss:
+        say('❗ нет входных файлов, под не создаю: ' + ', '.join(miss))
+        return 2
     res = run(api, args, gpu)
     bad = [k for k, v in res['per_sku'].items() if v.get('status') != 'done']
     return 0 if res.get('stop_verified') and not bad and not res.get('error') else 1

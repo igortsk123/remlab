@@ -130,8 +130,21 @@ check('--pod-id: под не создаётся (нет POST), цена из API
 seen_jobs = []
 T.Api = lambda key: Fake()
 T.run = lambda api, a, gpu, **kw: (seen_jobs.append((list(a.skus), dict(a.steps_by_sku))), {'per_sku': {}, 'stop_verified': True})[1]
+_mi = T.missing_inputs
+T.missing_inputs = lambda a: []
 T.main(['--pod-id', 'p1', '--cap', '3', '--jobs', 'B@25', 'B@8', 'A@8'])
+T.missing_inputs = _mi
 check('--jobs: комод s25, комод s8, диван s8 — без лишнего «диван s25»', seen_jobs == [(['B', 'A'], {'B': [25, 8], 'A': [8]})])
+
+# ---- шаблон имени формы и проверка входных файлов до создания пода
+d = tempfile.mkdtemp()
+os.makedirs(d + '/in')
+open(d + '/B-hd.glb', 'wb').write(b'x')
+open(d + '/in/B.rgba.png', 'wb').write(b'x')
+a3 = types.SimpleNamespace(skus=['B'], shape_dir=d, shape_tag='clean2', shape_name='{key}-hd.glb', inputs=d + '/in')
+check('шаблон имени формы: файл найден', T.missing_inputs(a3) == [] and T.shape_path(a3, 'B') == d + '/B-hd.glb')
+a3.shape_name = None
+check('умолчание {key}-1024-42-0.{tag}.glb: нет файла → в списке пропавших', T.missing_inputs(a3) == [d + '/B-1024-42-0.clean2.glb'])
 
 # ---- платное без --cap не стартует
 T.Api = lambda key: Fake()
