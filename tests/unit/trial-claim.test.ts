@@ -286,6 +286,7 @@ describe.skipIf(!URL)("очередь пробы (real postgres)", () => {
     expect(up.headers.get("referrer-policy")).toBe("no-referrer");
     const { id, editKey } = (await up.json()) as { id: string; editKey: string };
     expect(id).toMatch(L.token.TOKEN_RE);
+    expect(id).toMatch(L.token.JOB_ID_START_RE);       // первый знак — буква/цифра (T-20261119-02): стадии Python отвергают `_…`, argparse путает `-…` с флагом
 
     const v = await view(new Request("http://app/x"), ctx(id));
     expect(v.status).toBe(200);
