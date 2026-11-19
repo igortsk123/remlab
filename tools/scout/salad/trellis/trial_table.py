@@ -27,6 +27,9 @@
 
   ~/venvs/scout/bin/python trial_table.py --set <корень>/trellis/set30.json --out ДИР \
       --model trellis2=<корень>/trellis --model hunyuan=~/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 [--workers 2] [--no-lite]
+  `--model` понимает приписку: `имя=папка?suffix=-1024-42-0&sum=hunyuan21&variant=` — точное имя файла после ключа, сводки только этой модели, задания без/с вариантом.
+  ОБЩАЯ ПАПКА ВЫВОДА: драйверы моделей пишут `<ключ>-1024-42-0.glb` в одну папку и перезаписывают друг друга; с `sum=` файл признаётся своим, только если его размер
+  (сырой) и число треугольников (`.clean.glb`, по `*.metrics.json`) совпадают с журналом задания этой модели (`owned`); иначе строка «нет: перезаписан».
   python3 trial_table.py --selftest        # без trimesh/рендера: ΔE00, IoU, раскладки, расчёт итогов и автоприёмки
 """
 from __future__ import annotations
@@ -119,8 +122,15 @@ def key_of(sku: str) -> str:
     return sku.replace(':', '_')
 
 
-def locate(model_dir: str, key: str) -> dict | None:
-    """Файлы товара в папке модели → {'raw','clean','dir','complete'} или None. Раскладки — в шапке файла."""
+def locate(model_dir: str, key: str, suffix: str | None = None) -> dict | None:
+    """Файлы товара в папке модели → {'raw','clean','dir','complete'} или None. Раскладки — в шапке файла. `suffix` — точное имя после ключа
+    (`-1024-42-0`, `-paint-noremesh-42`): в общей папке несколько моделей/вариантов, шаблон `<ключ>-*` взял бы чужой файл."""
+    if suffix:
+        raw = os.path.join(model_dir, key + suffix + '.glb')
+        if not os.path.exists(raw):
+            return None
+        clean = raw[:-4] + '.clean.glb'
+        return {'raw': raw, 'clean': clean if os.path.exists(clean) else None, 'dir': model_dir, 'complete': None}
     flat_raw = sorted(p for p in glob.glob(os.path.join(model_dir, key + '-*.glb'))
                       if not p.endswith(('.clean.glb', '.audit.glb')))
     if flat_raw:
@@ -159,9 +169,10 @@ def price_usd_h(gpu_name: str | None, tier: str, groups: dict | None = None) -> 
     return None
 
 
-def load_summaries(model_dir: str) -> dict:
-    """Сводки драйвера `summary-*.json` в папке модели → {'jobs': {sku: последнее задание}, 'spend': сумма cost_usd_est, 'groups': N}.
-    Последнее по времени задание на товар побеждает: упавшее, потом сделанное — «готов»."""
+def load_summaries(model_dir: str, sum_model: str | None = None, variant: str | None = None) -> dict:
+    """Сводки драйвера `summary-*.json` в папке → {'jobs': {job_id: последнее задание}, 'spend': сумма cost_usd_est, 'groups': N}.
+    `sum_model` — только сводки этой модели (поле `model`: в общей папке лежат сводки и TRELLIS.2, и Hunyuan, и других); `variant` — `''` только задания без
+    варианта, иначе только с таким `variant` (гибриды «форма + покраска»). Последнее по времени задание на номер побеждает: упавшее, потом сделанное — «готов»."""
     jobs: dict[str, dict] = {}
     spend, groups = 0.0, 0
     for p in sorted(glob.glob(os.path.join(model_dir, 'summary-*.json')), key=os.path.getmtime):
@@ -169,15 +180,40 @@ def load_summaries(model_dir: str) -> dict:
             d = json.load(open(p, encoding='utf-8'))
         except (OSError, ValueError):
             continue
+        if sum_model and d.get('model') != sum_model:
+            continue
+        if variant is not None and d.get('jobs') and not any((j.get('variant') or '') == variant for j in d['jobs']):
+            continue                                            # группа гибридов/контроля чужого варианта: её траты не наши (группы без заданий — считаем, траты холодных стартов)
         groups += 1
         spend += float(d.get('cost_usd_est') or 0.0)
         for j in d.get('jobs') or []:
+            if variant is not None and (j.get('variant') or '') != variant:
+                continue
             j = dict(j)
             j['price_usd_h'] = d.get('price_usd_h')
             j['gpu'] = ((d.get('info') or {}).get('gpu') or {}).get('name')
             j['_group'] = d.get('group')
-            jobs[j.get('sku')] = j
+            jobs[j.get('job_id') or j.get('sku')] = j
     return {'jobs': jobs, 'spend': round(spend, 4), 'groups': groups}
+
+
+def owned(path: str, job: dict | None, kind: str = 'raw', tol_mb: float = 0.06) -> bool | None:
+    """ПРИНАДЛЕЖНОСТЬ файла модели по журналу её драйвера (общая папка вывода: драйверы разных моделей пишут `<ключ>-1024-42-0.glb` в одно место и
+    перезаписывают друг друга — найдено 19.11). Сырой GLB — размер совпадает с `metrics.glb.size_mb` задания (±tol_mb); `.clean.glb` — число треугольников
+    исходника в `*.metrics.json` рядом (±1 %) совпадает с `metrics.glb.triangles` задания. None — в журнале нет размера/треугольников, судить нечем (файл берём)."""
+    g = ((job or {}).get('metrics') or {}).get('glb') or {}
+    if kind == 'raw':
+        if g.get('size_mb') is None:
+            return None
+        return abs(os.path.getsize(path) / 1e6 - float(g['size_mb'])) <= tol_mb
+    mp = path[:-len('.clean.glb')] + '.metrics.json'
+    if g.get('triangles') is None or not os.path.exists(mp):
+        return None
+    try:
+        t = float(json.load(open(mp, encoding='utf-8')).get('tris_total'))
+    except (OSError, ValueError, TypeError):
+        return None
+    return abs(t - float(g['triangles'])) <= max(2.0, 0.01 * float(g['triangles']))
 
 
 def accept(grey: str | None, view_empty: bool | None, colour: str | None, iou: float | None = None, iou_open: float | None = None,
@@ -402,8 +438,15 @@ def build_row(model: str, c: dict, spec: dict, meta: dict, cache_dir: str, a) ->
     key = key_of(sku)
     row = {k: None for k in COLS}
     row.update(model=model, sku=sku, role=c.get('role'), accepted='нет', why_not='')
-    found = locate(spec['dir'], key)
-    job = meta['jobs'].get(sku) or {}
+    suffix = spec.get('suffix')
+    found = locate(spec['dir'], key, suffix)
+    job = (meta['jobs'].get(key + suffix) if suffix else None) or meta['jobs'].get(key + '-1024-42-0') or meta['jobs'].get(sku) or {}
+    if found and spec.get('sum_model') and job.get('status') == 'done':
+        if owned(found['raw'], job, 'raw') is False:                 # файл — другой модели (перезапись в общей папке)
+            row.update(status='нет', reason='GLB перезаписан другой моделью (общая папка вывода) — исходный потерян', accepted='—')
+            return row
+        if found['clean'] and owned(found['clean'], job, 'clean') is False:
+            found['clean'] = None                                    # очистка сделана из чужого GLB — не берём
     if not found:
         if job.get('status') == 'failed':
             row.update(status='отказ', reason=(job.get('error') or 'failed')[:120], t_s=(job.get('metrics') or {}).get('total_s'))
@@ -529,7 +572,10 @@ def main() -> int:
     specs = {}
     for m in a.model:
         name, _, path = m.partition('=')
-        specs[name] = {'dir': os.path.expanduser(path or os.path.join(a.root, name))}
+        path, _, q = path.partition('?')                         # name=папка?suffix=-1024-42-0&sum=hunyuan21&variant=noremesh
+        opts = dict(kv.split('=', 1) for kv in q.split('&') if '=' in kv)
+        specs[name] = {'dir': os.path.expanduser(path or os.path.join(a.root, name)), 'suffix': opts.get('suffix'),
+                       'sum_model': opts.get('sum'), 'variant': opts.get('variant')}
     override = {k: float(v) for k, v in (s.split('=') for s in a.spend)}
     items = json.load(open(a.set, encoding='utf-8'))
     set_name = os.path.basename(a.set)
@@ -537,7 +583,7 @@ def main() -> int:
     os.makedirs(cache_dir, exist_ok=True)
     rows, sums, notes = [], {}, {}
     for name, spec in specs.items():
-        meta = load_summaries(spec['dir'])
+        meta = load_summaries(spec['dir'], spec.get('sum_model'), spec.get('variant'))
         tasks = [(name, c, spec, meta, cache_dir, a) for c in items]
         if a.workers > 1:
             from concurrent.futures import ProcessPoolExecutor
@@ -614,6 +660,26 @@ def selftest() -> int:
         s = load_summaries(flat)
         check('сводки: траты 0,35, 2 группы', abs(s['spend'] - 0.35) < 1e-9 and s['groups'] == 2)
         check('сводки: упавшее, затем сделанное → done', s['jobs']['a:1']['status'] == 'done' and s['jobs']['a:1']['price_usd_h'] == 0.33)
+    # общая папка: точное имя, принадлежность файла по журналу, фильтр сводок по модели
+    with tempfile.TemporaryDirectory() as t:
+        for n, size in (('7_8-1024-42-0.glb', 5_000_000), ('7_8-paint-x-42.glb', 1000)):
+            open(os.path.join(t, n), 'wb').write(b'x' * size)
+        check('suffix: берётся именно свой файл', locate(t, '7_8', '-paint-x-42')['raw'].endswith('paint-x-42.glb') and locate(t, '7_8', '-nope-42') is None)
+        raw = os.path.join(t, '7_8-1024-42-0.glb')
+        check('owned: размер совпал → свой', owned(raw, {'metrics': {'glb': {'size_mb': 5.0}}}) is True)
+        check('owned: размер другой (перезаписан чужой моделью) → не свой', owned(raw, {'metrics': {'glb': {'size_mb': 20.7}}}) is False)
+        check('owned: в журнале нет размера → судить нечем (None)', owned(raw, {'metrics': {}}) is None)
+        cl = os.path.join(t, '7_8-1024-42-0.clean.glb')
+        open(cl, 'wb').write(b'x')
+        json.dump({'tris_total': 490132}, open(os.path.join(t, '7_8-1024-42-0.metrics.json'), 'w'))
+        check('owned clean: треугольники исходника совпали → свой', owned(cl, {'metrics': {'glb': {'triangles': 490000}}}, 'clean') is True)
+        check('owned clean: у чужой модели 40000 → не свой', owned(cl, {'metrics': {'glb': {'triangles': 40000}}}, 'clean') is False)
+        for g, m, v in (('a', 'trellis2', None), ('b', 'hunyuan21', None), ('c', 'hunyuan21', 'noremesh')):
+            json.dump({'group': g, 'model': m, 'cost_usd_est': 1.0, 'jobs': [{'job_id': 'j-' + g, 'sku': 'x:1', 'status': 'done', **({'variant': v} if v else {})}]},
+                      open(os.path.join(t, f'summary-{g}.json'), 'w'))
+        sa = load_summaries(t, 'hunyuan21', '')
+        check('сводки: только своя модель и без вариантов', sorted(sa['jobs']) == ['j-b'] and sa['spend'] == 1.0 and sa['groups'] == 1)
+        check('сводки: вариант отдельно', sorted(load_summaries(t, 'hunyuan21', 'noremesh')['jobs']) == ['j-c'])
     g = {'prices_by_class_usd_h': {'RTX 3090 (24 GB)': {'high': 0.17}, 'RTX 4090 (24 GB)': {'high': 0.33}}}
     check('цена по классу карты', price_usd_h('NVIDIA GeForce RTX 3090', 'high', g) == 0.17 and price_usd_h('RTX 4090', 'high', g) == 0.33)
     check('неизвестная карта → None, не 0', price_usd_h('Tesla T4', 'high', g) is None and price_usd_h(None, 'high', g) is None)
