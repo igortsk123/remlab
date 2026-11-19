@@ -89,6 +89,11 @@ v, f, sp = scene(plate_hx=0.515)
 g, info = MC.floor_plate(v, f, np.zeros(len(f), dtype=bool), max_share=0.5)
 ok('④ шире тела на 3 % — снимает', bool(g[sp[0][0]:sp[0][1]].all()), str(info))
 
+# 6б. ⑤ пятачок ножки (малый план) — остаётся, хотя плоский, тонкий и самый нижний
+v, f, sp = scene(plate_hx=0.1, plate_hz=0.1)
+g, info = MC.floor_plate(v, f, np.zeros(len(f), dtype=bool), max_share=0.5)
+ok('⑤ малый план (пятачок ножки) — не снимает', not g.any() and any(c.get('reason') == 'план куска мал (пятачок ножки, не коврик)' for c in info['candidates']), str(info))
+
 # 7. предохранитель: стандартные 3 % площади — плита здесь ≈ 29 % → ничего и причина отказа
 v, f, sp = scene()
 g, info = MC.floor_plate(v, f, np.zeros(len(f), dtype=bool))

@@ -224,12 +224,12 @@ def floaters(v: np.ndarray, f: np.ndarray, removed: np.ndarray, small: float = 0
 
 
 def floor_plate(v: np.ndarray, f: np.ndarray, removed: np.ndarray, horiz_share: float = 0.95, thick: float = 0.01, low_eps: float = 0.0025,
-                plan_out: float = 0.05, contact_max: float = 0.25, max_share: float = 0.03, grid: int = 64) -> tuple[np.ndarray, dict]:
+                plan_out: float = 0.05, plan_min: float = 0.5, contact_max: float = 0.25, max_share: float = 0.03, grid: int = 64) -> tuple[np.ndarray, dict]:
     """ПРАВИЛО G («коврик под ножками», комод Сего-2 19.11): ПОВТОР отсечки у пола по ОСТАВШЕЙСЯ форме — после E/F (маска `removed`) пол и высота считаются от низа того, что осталось, а не сырого меша
     (после срезанной плиты верхний лист плиты остаётся парить на уровне ~19 % сырой высоты — A, B, D, «пыль» и F его не видят). Снимается ОТДЕЛЬНЫЙ связный кусок, только если выполнены ВСЕ условия:
     ① ≥ `horiz_share` площади — горизонтальные грани (|нормаль_Y| ≥ 0,8); ② толщина < `thick` высоты оставшейся формы; ③ низ куска — самый нижний в форме (в пределах `low_eps` высоты) И тело касается его
     только кончиками ножек или не касается: доля клеток плана куска (сетка `grid`²), над которыми в полосе [верх−0,5 %, верх+3 %] есть грани ДРУГИХ кусков, ≤ `contact_max` (сплошной цоколь/плита-основание — доля велика, остаётся);
-    ④ план куска не шире плана тела (габарит остальных кусков) больше чем на `plan_out` по X и Z. ПРЕДОХРАНИТЕЛЬ: за товар G снимает не больше `max_share` площади меша, иначе — ничего и отказ с причиной в `info['refused']`.
+    ④ план куска не шире плана тела (габарит остальных кусков) больше чем на `plan_out` по X и Z, и ⑤ (добавлено при проверке на 30 формах 19.11: без него G снимал пятачки-наконечники ножек стула — плоские, тонкие, самые нижние, тело касается их кончиками) не уже `plan_min` плана тела хотя бы по одной оси — коврик ≈ след тела, пятачок ножки — единицы процентов. ПРЕДОХРАНИТЕЛЬ: за товар G снимает не больше `max_share` площади меша, иначе — ничего и отказ с причиной в `info['refused']`.
     Возвращает (маска, info: кандидаты ①② с числами и причиной «снят/не снят»)."""
     info: dict = {'removed_tris': 0, 'removed_area_share': 0.0, 'refused': None, 'candidates': []}
     out = np.zeros(len(f), dtype=bool)
@@ -270,6 +270,9 @@ def floor_plate(v: np.ndarray, f: np.ndarray, removed: np.ndarray, horiz_share: 
         rec['plan_over_body_pct'] = [round((sx / max(bx, 1e-9) - 1) * 100, 1), round((sz / max(bz, 1e-9) - 1) * 100, 1)]
         if sx > bx * (1 + plan_out) or sz > bz * (1 + plan_out):
             rec['reason'] = 'план шире тела больше допуска'
+            continue
+        if sx < bx * plan_min and sz < bz * plan_min:
+            rec['reason'] = 'план куска мал (пятачок ножки, не коврик)'
             continue
         lo = pxz.min(0)
         span = np.maximum(pxz.max(0) - lo, 1e-9)
