@@ -14,7 +14,9 @@
 пересчёт происходит сам, а старые замеры остаются в истории.
 
 ИСТОЧНИК МАСКИ СМЕННЫЙ (`CUTOUT_BACKEND`):
-  fal    — сейчас: `birefnet/v2`, те же веса BiRefNet, что в образе Salad. ~$0.0005/фото.
+  fal    — сейчас: `birefnet/v2` с настройками fal по умолчанию (модель «General Use (Light)», 1024×1024; тело запроса — только `image_url`).
+           Это НЕ те же веса, что в образе Salad (там полный ZhengPeng7/BiRefNet, `BIREFNET_REVISION` ниже). Проба T-99/3 (19.11): на тонких деталях
+           (тросы люстры) Light, Heavy и Heavy-2K дают одинаково — смена модели ничего не меняет; ~$0.0008/фото.
   local  — BiRefNet на CPU, ~14 с/фото на 12 ядрах. Бесплатно, если некуда спешить.
   salad  — когда подключим ноду: маска считается там же, где меши, и бесплатно.
 
@@ -210,7 +212,7 @@ def chain(src: Image.Image, net: Image.Image, role: str | None = None) -> tuple[
                                          (np.clip(cleaned, 0, 1) * 255).astype(np.uint8)]), 'RGBA')
     is_col, why, feats = collage.is_collage(np.asarray(src).astype(np.float32), cleaned)
     info['collage'] = {'verdict': bool(is_col), 'why': why, 'features': feats}
-    shape = PRE.defringe(refined)
+    shape = PRE.defringe(refined, info)
     cut = PRE.trim_alpha(shape)
     info.update(PRE.mask_verdict(cut))
     if is_col:

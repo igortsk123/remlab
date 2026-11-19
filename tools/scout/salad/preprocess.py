@@ -17,7 +17,10 @@ import torch
 from PIL import Image
 
 import collage
+import clean_islands as _islands
 import components
+import edge_halo
+import fg_estimate
 import hybrid_mask
 
 # Версия оценщика: измерения кэшируются по (байты фото, версия). Меняешь цепочку вырезки или
@@ -105,20 +108,65 @@ def cutout(img: Image.Image) -> Image.Image:
     return out
 
 
-def defringe(img: Image.Image) -> Image.Image:
-    """Снимает светлую кайму: у полупрозрачных пикселей вычитаем подмешанный фон карточки.
+def clean_edges(img: Image.Image, bg_lum: float, rep: dict) -> Image.Image:
+    """Чистка кромки по цвету (T-20261119-99): ореол `edge_halo` + островки `clean_islands`; счётчики — в `rep`. Сбой шага не валит вырезку.
+    Вынесено из `defringe`, чтобы пробы и замеры гоняли ровно этот шаг на готовых вырезках (у сохранённых вырезок RGB в прозрачном = 0,
+    а `defringe` берёт фон по углам — для них фон считается явно: `clean_edges(img, 255.0, rep)`)."""
+    try:
+        img, h = edge_halo.clean_edge_halo(img, bg_lum)
+        img, isl = _islands.clean_islands(img, bg_lum)
+        rep['halo_removed_px'] = h['removed']
+        rep['islands_removed'] = len(isl.get('removed') or [])
+        rep['islands_removed_px'] = int(sum(r['area'] for r in isl.get('removed') or []))
+        if h.get('skipped'):
+            rep['halo_skipped'] = h['skipped']
+    except Exception as e:  # noqa: BLE001 — чистка не должна ронять вырезку; факт сбоя виден
+        rep['error'] = f'{type(e).__name__}: {str(e)[:100]}'
+    return img
+
+
+def defringe(img: Image.Image, info: dict | None = None) -> Image.Image:
+    """Снимает светлую кайму: чистит ореол по кромке и островки-тени, у полупрозрачных пикселей вычитает подмешанный фон карточки.
 
     Иначе вместе с товаром уезжает белый ободок, и предмет выглядит наклеенным — а генератор
     честно превращает этот ободок в геометрию.
+
+    T-20261119-99 («ушки» над спинкой дивана): прежняя версия правила только ЦВЕТ полупрозрачных пикселей, а светлые чёрточки остатка
+    фона над тёмным кантом имеют α≈226 (>0,8·255 — порог TRELLIS) и цвет почти фона: «вычитание фона» их не меняет (≈216 из 220), и
+    они уезжали в вход генератора непрозрачной деталью. Теперь до вычитания: (1) `edge_halo` — убрать КОРОТКИЕ светлые бесцветные куски на
+    кромке поверх тёмного контура; (2) `clean_islands` — отдельные светлые бесцветные островки у низа (тень/блик пола); оба — только на
+    однотонном светлом фоне и только если контраст тела с фоном ≥ 45; после — сторож `edge_halo.audit` (счётчики в `info['edge_clean']`:
+    сколько убрано, сколько осталось, статус clean/dirty/skipped). Сбой шага не валит вырезку (`error` в `info`).
     """
     a = np.asarray(img).astype(np.float32)
-    rgb, alpha = a[..., :3], a[..., 3:4] / 255.0
     corners = np.concatenate([a[:4, :4, :3].reshape(-1, 3), a[:4, -4:, :3].reshape(-1, 3),
                               a[-4:, :4, :3].reshape(-1, 3), a[-4:, -4:, :3].reshape(-1, 3)])
     bg = corners.mean(axis=0)
+    rep: dict = {}
+    uniform = float(corners.std(axis=0).max()) <= 12 and float(bg.mean()) >= 200
+    if uniform:
+        img = clean_edges(img, float(bg.mean()), rep)
+        a = np.asarray(img).astype(np.float32)
+    else:
+        rep['skipped'] = 'фон не однотонный/не светлый — чистка кромки не применялась'
+    rgb, alpha = a[..., :3], a[..., 3:4] / 255.0
     soft = (alpha > 0.02) & (alpha < 0.98)
     fixed = np.where(soft, np.clip((rgb - bg * (1 - alpha)) / np.maximum(alpha, 0.02), 0, 255), rgb)
-    return Image.fromarray(np.concatenate([fixed, alpha * 255], axis=2).astype(np.uint8), 'RGBA')
+    # T-99/2: цвет предмета у кромки по blur fusion (refine_foreground из BiRefNet, MIT) — поверх вычитания фона: убирает подмешанный фон и у пикселей с α≥0,98
+    # (их вычитание пропускает) и там, где фон не точно углового цвета. Альфа не меняется, только RGB в полосе ≤3 px у границы. Сбой — вырезка как была.
+    try:
+        fixed, rep['fg_px'] = fg_estimate.refine_edges(fixed, alpha[..., 0])
+    except Exception as e:  # noqa: BLE001
+        rep['fg_error'] = f'{type(e).__name__}: {str(e)[:100]}'
+    out = Image.fromarray(np.concatenate([fixed, alpha * 255], axis=2).astype(np.uint8), 'RGBA')
+    if uniform and 'error' not in rep:
+        try:
+            rep.update(edge_halo.audit(out, float(bg.mean())))
+        except Exception as e:  # noqa: BLE001
+            rep['audit_error'] = f'{type(e).__name__}: {str(e)[:100]}'
+    if info is not None:
+        info['edge_clean'] = rep
+    return out
 
 
 def trim_alpha(img: Image.Image, pad: int = 8) -> Image.Image:
@@ -294,14 +342,13 @@ def _cut_chain(image_url: str, role: str | None = None) -> tuple[Image.Image, Im
     refined = Image.fromarray(
         np.dstack([np.asarray(refined)[..., :3],
                    (np.clip(cleaned, 0, 1) * 255).astype(np.uint8)]), 'RGBA')
-
     # Коллаж вычисткой не лечится: в кадре плашка, свойства текстом, интерьерная сцена и нередко
     # ВТОРАЯ копия товара. Проверяем только здесь — детектору нужна настоящая маска, без неё
     # фактура самого товара читается как текст.
     is_col, why, feats = collage.is_collage(np.asarray(src).astype(np.float32), cleaned)
     mask_info['collage'] = {'verdict': bool(is_col), 'why': why, 'features': feats}
 
-    shape_img = defringe(refined)            # полный холст: кроп и поле сделает recenter
+    shape_img = defringe(refined, mask_info)  # полный холст: кроп и поле сделает recenter; чистка кромки и островков — внутри (mask_info['edge_clean'])
     # Пары «два предмета в кадре»: срез второго одобрен владельцем ТОЛЬКО для стульев
     # (30.08, после проверки /test/pair-fix/); прочим ролям детектор не доверяем
     # (самовольный кроп люстры). До 30.08 здесь была NameError: вызов детектора потерялся

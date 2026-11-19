@@ -82,11 +82,13 @@ def fill_holes_unlike_bg(alpha, rgb, thr=0.5, max_hole_share=0.25, role=None):
     return out, {'filled_px': filled_px, 'filled_holes': filled_holes}
 
 
-def clean(alpha, thr=0.5):
+def clean(alpha, thr=0.5, eight=True):
     """alpha: float 0..1. → (очищенная alpha, отчёт)."""
     fg = alpha > thr
     rep = {'dropped_share': 0.0, 'dropped_components': 0, 'components': 0, 'suspect': False}
-    lab, n = ndimage.label(fg)
+    # T-99/3: 8-связность (раньше по умолчанию 4): диагональный трос/провод шириной 1–2 px при 4-связности рассыпается на одиночные пиксели,
+    # которые не примыкают к телу и срезались как мусор — от тросов люстры оставались огрызки у плафона и кольца (99272_11551104666593844009).
+    lab, n = ndimage.label(fg, structure=np.ones((3, 3)) if eight else None)      # eight=False — прежнее поведение (только для сравнения в пробах)
     rep['components'] = int(n)
     if n <= 1:
         return alpha, rep
