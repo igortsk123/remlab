@@ -283,7 +283,19 @@ def main() -> None:
     app = web.Application(client_max_size=512 * 2 ** 20)
     app.add_routes([web.get('/health', h_health), web.get('/ready', h_health), web.get('/info', h_info), web.get('/ws', h_ws), web.route('*', '/{tail:.*}', h_proxy)])
     threading.Thread(target=boot, daemon=True).start()
-    web.run_app(app, host='0.0.0.0', port=PORT, print=lambda *_: print(f'[worker_sg] HTTP слушает :{PORT}, запускаю докачку весов', flush=True))
+    # Шлюз и пробы Salad ходят по IPv6 (урок 724; найдено 19.11 20:45 у trial-comfy): сервер только на 0.0.0.0 им НЕ отвечает → «running, started=false, 503».
+    # Один сокет на `::` с IPV6_V6ONLY=0 слушает и IPv6, и IPv4; нет IPv6 в окружении — обычный IPv4.
+    import socket
+    try:
+        sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        sock.bind(('::', PORT))
+        kw = {'sock': sock}
+    except OSError as e:
+        print(f'[worker_sg] IPv6 недоступен ({e}) — слушаю только IPv4', flush=True)
+        kw = {'host': '0.0.0.0', 'port': PORT}
+    web.run_app(app, print=lambda *_: print(f'[worker_sg] HTTP слушает :{PORT} (IPv6+IPv4), запускаю докачку весов', flush=True), **kw)
 
 
 if __name__ == '__main__':
