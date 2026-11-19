@@ -29,7 +29,7 @@
       --model trellis2=<корень>/trellis --model hunyuan=~/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 [--workers 2] [--no-lite]
   `--model` понимает приписку: `имя=папка?suffix=-1024-42-0&sum=hunyuan21&variant=` — точное имя файла после ключа, сводки только этой модели, задания без/с вариантом.
   ОБЩАЯ ПАПКА ВЫВОДА: драйверы моделей пишут `<ключ>-1024-42-0.glb` в одну папку и перезаписывают друг друга; с `sum=` файл признаётся своим, только если его размер
-  (сырой) и число треугольников (`.clean.glb`, по `*.metrics.json`) совпадают с журналом задания этой модели (`owned`); иначе строка «нет: перезаписан».
+  (сырой; `size_mb` журнала — МиБ) и число треугольников (`.clean.glb`, по `*.metrics.json`) совпадают с журналом задания этой модели (`owned`); иначе строка «нет: перезаписан».
   python3 trial_table.py --selftest        # без trimesh/рендера: ΔE00, IoU, раскладки, расчёт итогов и автоприёмки
 """
 from __future__ import annotations
@@ -205,7 +205,7 @@ def owned(path: str, job: dict | None, kind: str = 'raw', tol_mb: float = 0.06) 
     if kind == 'raw':
         if g.get('size_mb') is None:
             return None
-        return abs(os.path.getsize(path) / 1e6 - float(g['size_mb'])) <= tol_mb
+        return abs(os.path.getsize(path) / 1048576 - float(g['size_mb'])) <= tol_mb      # `size_mb` в журнале — МиБ (проверено на 28 файлах)
     mp = path[:-len('.clean.glb')] + '.metrics.json'
     if g.get('triangles') is None or not os.path.exists(mp):
         return None
@@ -666,7 +666,7 @@ def selftest() -> int:
             open(os.path.join(t, n), 'wb').write(b'x' * size)
         check('suffix: берётся именно свой файл', locate(t, '7_8', '-paint-x-42')['raw'].endswith('paint-x-42.glb') and locate(t, '7_8', '-nope-42') is None)
         raw = os.path.join(t, '7_8-1024-42-0.glb')
-        check('owned: размер совпал → свой', owned(raw, {'metrics': {'glb': {'size_mb': 5.0}}}) is True)
+        check('owned: размер совпал → свой', owned(raw, {'metrics': {'glb': {'size_mb': 4.77}}}) is True)
         check('owned: размер другой (перезаписан чужой моделью) → не свой', owned(raw, {'metrics': {'glb': {'size_mb': 20.7}}}) is False)
         check('owned: в журнале нет размера → судить нечем (None)', owned(raw, {'metrics': {}}) is None)
         cl = os.path.join(t, '7_8-1024-42-0.clean.glb')
