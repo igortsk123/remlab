@@ -17,7 +17,7 @@
      сохранность детали: корреляция и SSIM высокочастотного остатка логарифма яркости, отношение энергий, доля «обрезанных»
      текселей; на рендере — корреляция остатка. В листе — «фото | было | стало» без света, полного размера, по кадру на модель.
 
-  ~/venvs/scout/bin/python recolor_lp.py run <jobs52.json> <папка> [--only ПОДСТРОКА] [--shift-scale K]
+  ~/venvs/scout/bin/python recolor_lp.py run <jobs52.json> <папка> [--only ПОДСТРОКА] [--shift-scale K] [--no-variants-gate]
   ~/venvs/scout/bin/python recolor_lp.py --selftest
 
 Живые меши не трогает: берёт копию-чтение `v2/<gen>/model.glb`, пишет только в <папка>/glb/.
@@ -39,6 +39,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [HERE, os.path.dirname(HERE)]
 import color_o2 as CO  # noqa: E402
 import color_steps as CS  # noqa: E402
+import recolor_variants_gate as VG  # noqa: E402  (T-20261119-03/1: гейт по вариантам семьи с подкраской)
 
 ROOT = os.path.expanduser('~/scout-scenes/meshes-hunyuan/meshes/hunyuan21')
 IOU_MIN = 0.60          # ниже — камере фото не верим, меш не трогаем (Codex: 0,6–0,65)
@@ -497,7 +498,7 @@ def judge(was: dict, now: dict, hp_corr: float, cover: float, strict_ok: bool, z
     return 'частично (правим %.0f %% видимого)' % (100 * cover)
 
 
-def process(sku: str, gen: str, role: str, out: str, k: int, shift_scale: float = 1.0, force: bool = False) -> dict:
+def process(sku: str, gen: str, role: str, out: str, k: int, shift_scale: float = 1.0, force: bool = False, variants_gate: bool = True) -> dict:
     import mesh_render as MR
     sid = sku.replace(':', '_')
     d = f'{ROOT}/v2/{sid}/{gen}'
@@ -561,6 +562,13 @@ def process(sku: str, gen: str, role: str, out: str, k: int, shift_scale: float 
     r['render_hp_corr'] = round(float(np.corrcoef(h0[both], h1[both])[0, 1]), 4)
     r['status'] = judge(r['was'], r['now'], r['render_hp_corr'], cover, strict_ok, [z for z in zrep if z.get('why') and z['area'] >= 0.1])
     r['secs'] = round(time.time() - t0, 1)
+    if variants_gate and r['status'].startswith(('ok', 'частично')):
+        # T-20261119-03/1: семейство с подкраской вариантов — прогноз ночной проверки «без перекраски» против «после»; хуже — отказ ДО записи
+        g = VG.gate_for_family(sku, dst, glb)
+        r['variants_gate'] = {k_: g.get(k_) for k_ in ('ok', 'n_variants', 'reasons', 'mesh_rgb', 'note') if k_ in g}
+        if g.get('ok') is False:
+            r['status_before_gate'] = r['status']
+            r['status'] = 'отказ: ' + VG.refusal_text(g)
     # кадр «фото | было | стало»
     frame(out, k, sku, role, glb, dst, yaw, pitch, P, r)
     if k in LIT_ROWS:
@@ -714,6 +722,7 @@ def main() -> int:
     if '--lit' in sys.argv:
         LIT_ROWS.update(int(x) for x in sys.argv[sys.argv.index('--lit') + 1].split(','))
     force = '--force' in sys.argv
+    vgate = '--no-variants-gate' not in sys.argv
     shard = [int(x) for x in sys.argv[sys.argv.index('--shard') + 1].split('/')] if '--shard' in sys.argv else [0, 1]   # i/n: каждый n-й
     seen, rows = set(), []
     os.makedirs(out, exist_ok=True)
@@ -728,7 +737,7 @@ def main() -> int:
             continue
         k = nums[j['sku']]
         try:
-            r = process(j['sku'], j['_t85']['v2_gen'], j.get('role', ''), out, k, ss, force)
+            r = process(j['sku'], j['_t85']['v2_gen'], j.get('role', ''), out, k, ss, force, vgate)
         except Exception as e:  # noqa: BLE001
             import traceback
             traceback.print_exc()
