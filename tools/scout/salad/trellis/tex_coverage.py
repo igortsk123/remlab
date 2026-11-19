@@ -57,16 +57,24 @@ EXT_RES = 384                # буфер глубины наружных вид
 EXT_ORTHO = 1.8
 EXT_COS = 0.3                 # «снаружи» — видно с |cos| не меньше (под скользящим углом допуск глубины растёт и пропускает стенки изнутри)
 UNPAINTED = {'black_max': 12, 'white_min': 245}      # тексель «фон»: все каналы ≤ black_max (чёрный) или ≥ white_min (белый)
+# ШВЫ ВИДОВ. «Главный вид» текселя — вид MV-Adapter с наибольшим |cos| среди видящих его. Граница — пара соседних на поверхности текселей (расстояние между точками ≤ `neigh` размеров тексела
+# по сетке карты) с РАЗНЫМ главным видом; скачок — ΔE00 между их цветами. Плохой шов: скачок > max(abs_de, ratio × p-й перцентиль скачков у пар ВНУТРИ областей одного главного вида по этому же товару):
+# абсолютный пол — чтобы гладкий товар (внутри почти 0) не ловил заметный глазу, но слабый скачок; относительный — чтобы пёстрое дерево, где внутри ΔE и так большой, не было «сплошным швом».
+SEAM = {'neigh': 2.5, 'abs_de': 10.0, 'ratio': 1.5, 'inner_pct': 95.0, 'inner_sample': 400000}
+# ПОЧЕМУ unseen среди наружных (диагностика, `explain`): мелкие отдельные куски формы («крошки», площадь куска < crumb_area_frac площади всей формы) · узкие места основного тела
+# (видны снаружи не более crevice_max_dirs из 26 направлений: щели, зазоры подушек) · остальное `gap` — реально видимые места, до которых 6 видов не дотянулись; из них `gap_edge_on` — не закрыты,
+# но смотрят на все 6 видов ребром (|cos| ≤ COS_SEEN: каркас дивана, торцы), `gap_occluded` — закрыты другими частями формы во всех 6 видах (боковины под подлокотником, зазоры под подушками).
+EXPLAIN = {'crumb_area_frac': 0.01, 'crevice_max_dirs': 2}
 
 # --- ПОРОГИ РЕШЕНИЯ (ЧЕРНОВЫЕ; единственное место чисел). `max`: метрика БОЛЬШЕ порога → сработало; `min`: метрика МЕНЬШЕ порога → сработало.
 # Порядок: сначала `reject`, потом `repaint`; ничего не сработало → `keep`. Метрики — ключи `flat_metrics` (проценты) и колонки таблицы пробы.
 THRESHOLDS = {
     'reject': {
-        'max': {'unseen_outer_tex_pct': 45.0, 'unpainted_seen_tex_pct': 30.0, 'de00': 40.0},
+        'max': {'unseen_outer_tex_pct': 45.0, 'unpainted_seen_tex_pct': 30.0, 'de00': 40.0, 'seam_tex_pct': 12.0, 'seam_len_pct': 60.0},
         'min': {},
     },
     'repaint': {
-        'max': {'unseen_outer_tex_pct': 20.0, 'grazing_outer_tex_pct': 30.0, 'unpainted_outer_tex_pct': 8.0, 'de00': 25.0},
+        'max': {'unseen_outer_tex_pct': 20.0, 'grazing_outer_tex_pct': 30.0, 'unpainted_outer_tex_pct': 8.0, 'de00': 25.0, 'seam_tex_pct': 4.0, 'seam_len_pct': 30.0},
         'min': {},          # например {'pattern_grad_ncc': 0.05}: слабая справочная мера, пока без порога
     },
 }
@@ -202,6 +210,93 @@ def project(P, view, ortho: float = 1.1):
 
 
 # ---------------------------------------------------------------- покрытие ----------------------------------------
+def rgb2lab(rgb):
+    """sRGB uint8 (N,3) → Lab (N,3), белая точка D65."""
+    import numpy as np
+    c = np.asarray(rgb, np.float64) / 255.0
+    c = np.where(c > 0.04045, ((c + 0.055) / 1.055) ** 2.4, c / 12.92)
+    M = np.array([[0.4124564, 0.3575761, 0.1804375], [0.2126729, 0.7151522, 0.0721750], [0.0193339, 0.1191920, 0.9503041]])
+    xyz = (c @ M.T) / np.array([0.95047, 1.0, 1.08883])
+    f = np.where(xyz > 216 / 24389, np.cbrt(xyz), (24389 / 27 * xyz + 16) / 116)
+    return np.stack([116 * f[:, 1] - 16, 500 * (f[:, 0] - f[:, 1]), 200 * (f[:, 1] - f[:, 2])], 1)
+
+
+def de2000_v(l1, l2):
+    """CIEDE2000 между двумя массивами Lab (N,3) (Sharma, Wu, Dalal 2005; kL=kC=kH=1) — по строкам."""
+    import numpy as np
+    L1, a1, b1 = l1[:, 0], l1[:, 1], l1[:, 2]
+    L2, a2, b2 = l2[:, 0], l2[:, 1], l2[:, 2]
+    C1, C2 = np.hypot(a1, b1), np.hypot(a2, b2)
+    Cb = (C1 + C2) / 2
+    G = 0.5 * (1 - np.sqrt(Cb ** 7 / (Cb ** 7 + 25.0 ** 7)))
+    a1p, a2p = (1 + G) * a1, (1 + G) * a2
+    C1p, C2p = np.hypot(a1p, b1), np.hypot(a2p, b2)
+    h1p = np.degrees(np.arctan2(b1, a1p)) % 360
+    h2p = np.degrees(np.arctan2(b2, a2p)) % 360
+    dL, dC = L2 - L1, C2p - C1p
+    dh = h2p - h1p
+    dh = np.where(dh > 180, dh - 360, np.where(dh < -180, dh + 360, dh))
+    dh = np.where((C1p * C2p) == 0, 0.0, dh)
+    dH = 2 * np.sqrt(C1p * C2p) * np.sin(np.radians(dh / 2))
+    Lb, Cpb = (L1 + L2) / 2, (C1p + C2p) / 2
+    hs = h1p + h2p
+    hb = np.where((C1p * C2p) == 0, hs, np.where(np.abs(h1p - h2p) <= 180, hs / 2, np.where(hs < 360, (hs + 360) / 2, (hs - 360) / 2)))
+    T = 1 - 0.17 * np.cos(np.radians(hb - 30)) + 0.24 * np.cos(np.radians(2 * hb)) + 0.32 * np.cos(np.radians(3 * hb + 6)) - 0.20 * np.cos(np.radians(4 * hb - 63))
+    dth = 30 * np.exp(-(((hb - 275) / 25) ** 2))
+    Rc = 2 * np.sqrt(Cpb ** 7 / (Cpb ** 7 + 25.0 ** 7))
+    Sl = 1 + 0.015 * (Lb - 50) ** 2 / np.sqrt(20 + (Lb - 50) ** 2)
+    Sc, Sh = 1 + 0.045 * Cpb, 1 + 0.015 * Cpb * T
+    Rt = -np.sin(np.radians(2 * dth)) * Rc
+    return np.sqrt((dL / Sl) ** 2 + (dC / Sc) ** 2 + (dH / Sh) ** 2 + Rt * (dC / Sc) * (dH / Sh))
+
+
+def seam_pairs(T: int, ti, Q, tsize, mvi, seen, rgb, rng):
+    """Пары соседних по карте текселей (вправо и вниз), оба видимы и ТОЖЕ соседи на поверхности (расстояние ≤ SEAM['neigh'] размеров тексела: чужие островки рядом на карте отсеиваются).
+    Возвращает (ai, bi, de, ln) для границ главных видов — индексы в массивах текселей геометрии, скачок ΔE00, длина (средний размер тексела) — и de_inner: скачки у пар внутри областей (выборка)."""
+    import numpy as np
+    idx = np.full(T * T, -1, np.int64)
+    idx[ti] = np.arange(len(ti))
+    idx = idx.reshape(T, T)
+    A, B = [], []
+    for a, b in ((idx[:, :-1], idx[:, 1:]), (idx[:-1, :], idx[1:, :])):
+        m = (a >= 0) & (b >= 0)
+        A.append(a[m])
+        B.append(b[m])
+    A, B = np.concatenate(A), np.concatenate(B)
+    m = seen[A] & seen[B]
+    A, B = A[m], B[m]
+    ts = np.maximum(tsize[A], tsize[B])
+    m = np.linalg.norm(Q[A] - Q[B], axis=1) <= SEAM['neigh'] * np.maximum(ts, 1e-12)
+    A, B, ts = A[m], B[m], ts[m]
+    edge = mvi[A] != mvi[B]
+    ai, bi, tb = A[edge], B[edge], ts[edge]
+    ia, ib = A[~edge], B[~edge]
+    if len(ia) > SEAM['inner_sample']:
+        pick = rng.choice(len(ia), SEAM['inner_sample'], replace=False)
+        ia, ib = ia[pick], ib[pick]
+    de = de2000_v(rgb2lab(rgb[ai]), rgb2lab(rgb[bi])) if len(ai) else np.zeros(0)
+    di = de2000_v(rgb2lab(rgb[ia]), rgb2lab(rgb[ib])) if len(ia) else np.zeros(0)
+    return ai, bi, de, tb, di
+
+
+def face_components(P, F, area):
+    """Куски формы: связность граней по ПОЛОЖЕНИЮ вершин (в GLB вершины дублируются по швам развёртки). → (метка куска у каждой грани, площадь куска по меткам) или None без scipy."""
+    import numpy as np
+    try:
+        from scipy.sparse import coo_matrix
+        from scipy.sparse.csgraph import connected_components
+    except ImportError:
+        return None
+    _u, inv = np.unique(np.round(np.asarray(P, np.float64) * 1e5).astype(np.int64), axis=0, return_inverse=True)
+    inv = np.asarray(inv).reshape(-1)
+    n = int(inv.max()) + 1
+    rows = np.concatenate([inv[F[:, 0]], inv[F[:, 1]], inv[F[:, 2]]])
+    cols = np.concatenate([inv[F[:, 1]], inv[F[:, 2]], inv[F[:, 0]]])
+    _k, lab = connected_components(coo_matrix((np.ones(len(rows), np.int8), (rows, cols)), shape=(n, n)), directed=False)
+    cf = lab[inv[F[:, 0]]]
+    return cf, np.bincount(cf, weights=area, minlength=int(cf.max()) + 1)
+
+
 def ext_views(n: int = EXT_DIRS) -> list:
     """Направления «наружу»: до 26 (грани, рёбра и углы куба), как камеры (на_камеру, вправо, вверх) в нашем кадре. Вверх — +Y (у вертикальных направлений — +Z)."""
     import itertools
@@ -247,6 +342,9 @@ def analyze(geoms: list, yaw: float = 0.0, grid: int = 2048, view_res: int = 768
     for sub in ('a', 'oa'):
         tot[sub] = {k: 0.0 for k in KEYS}
     maps = []
+    seam_store = []
+    expl = {'unseen_outer': 0, 'crumbs': 0, 'crevice': 0, 'gap': 0, 'gap_edge_on': 0, 'gap_occluded': 0, 'components': 0, 'crumb_components': 0, 'crumb_area': 0.0, 'area': 0.0, 'ok': True}
+    rng = np.random.RandomState(7)
     for gi, g in enumerate(geoms):
         T = int(grid)
         F0 = np.asarray(g['F'], np.int64)
@@ -277,9 +375,12 @@ def analyze(geoms: list, yaw: float = 0.0, grid: int = 2048, view_res: int = 768
             wt = wface[f]
             N = nrm[f]
             best = np.zeros(len(ti))
+            mvi = np.full(len(ti), -1, np.int8)
+            ext_cnt = np.zeros(len(ti), np.int16)
+            dep_any = np.zeros(len(ti), bool)             # виден ли тексель хоть с одного вида MV-Adapter по глубине (без порога по углу)
             seen = np.zeros(len(ti), bool)
             outer = np.zeros(len(ti), bool)
-            for v, zb, res, ortho, is_mv in cams:
+            for ci, (v, zb, res, ortho, is_mv) in enumerate(cams):
                 x, y, d = project(Q, v, ortho)
                 ix = np.clip(np.floor(x * res).astype(np.int64), 0, res - 1)
                 iy = np.clip(np.floor(y * res).astype(np.int64), 0, res - 1)
@@ -287,11 +388,16 @@ def analyze(geoms: list, yaw: float = 0.0, grid: int = 2048, view_res: int = 768
                 cs = cs if signed else np.abs(cs)
                 cmin = COS_SEEN if is_mv else EXT_COS
                 eps = DEPTH_EPS + (ortho / res) * np.sqrt(np.maximum(1.0 - cs * cs, 0.0)) / np.maximum(np.abs(cs), cmin)      # постоянный допуск + рост глубины по пикселю на наклонной
-                vis = (zb[iy * res + ix] <= d + eps) & (cs > cmin)
+                vis_geo = zb[iy * res + ix] <= d + eps
+                vis = vis_geo & (cs > cmin)
                 outer |= vis
                 if is_mv:
+                    dep_any |= vis_geo
+                    mvi = np.where(vis & (cs > best), ci, mvi).astype(np.int8)
                     best = np.where(vis, np.maximum(best, cs), best)
                     seen |= vis
+                else:
+                    ext_cnt += vis
             H, Wd = tex.shape[:2]
             tx = np.clip(np.floor(px / T * Wd).astype(np.int64), 0, Wd - 1)
             ty = np.clip(np.floor(py / T * H).astype(np.int64), 0, H - 1)
@@ -305,6 +411,26 @@ def analyze(geoms: list, yaw: float = 0.0, grid: int = 2048, view_res: int = 768
             c[unseen] = np.where(outer[unseen], 2, 5)
             cls[ti] = c
             base[ti] = rgb
+            ai, bi, de_b, ln_b, de_in = seam_pairs(T, ti, Q, np.sqrt(wt), mvi, seen, rgb, rng)
+            seam_store.append({'gi': gi, 'ti': ti, 'outer': outer, 'ai': ai, 'bi': bi, 'de': de_b, 'ln': ln_b, 'inner': de_in})
+            comp = face_components(Pg, F0, area3)
+            if comp is None:
+                expl['ok'] = False
+            else:
+                cf, ca = comp
+                crumb = (ca < EXPLAIN['crumb_area_frac'] * float(area3.sum()))[cf][f]
+                uo = unseen & outer
+                expl['unseen_outer'] += int(uo.sum())
+                expl['crumbs'] += int((uo & crumb).sum())
+                expl['crevice'] += int((uo & ~crumb & (ext_cnt <= EXPLAIN['crevice_max_dirs'])).sum())
+                gap = uo & ~crumb & (ext_cnt > EXPLAIN['crevice_max_dirs'])
+                expl['gap'] += int(gap.sum())
+                expl['gap_edge_on'] += int((gap & dep_any).sum())             # не закрыт ни в одном виде, но смотрит на все 6 видов под |cos| ≤ COS_SEEN (ребром)
+                expl['gap_occluded'] += int((gap & ~dep_any).sum())           # закрыт другими частями формы во всех 6 видах
+                expl['components'] += len(ca)
+                expl['crumb_components'] += int((ca < EXPLAIN['crumb_area_frac'] * float(area3.sum())).sum())
+                expl['crumb_area'] += float(ca[ca < EXPLAIN['crumb_area_frac'] * float(area3.sum())].sum())
+                expl['area'] += float(area3.sum())
             masks = {'island': np.ones(len(ti), bool), 'unseen': unseen, 'grazing': graz, 'unpainted': unp, 'unpainted_seen': unp & seen}
             for k, m in masks.items():
                 tot['t'][k] += int(m.sum())
@@ -313,6 +439,32 @@ def analyze(geoms: list, yaw: float = 0.0, grid: int = 2048, view_res: int = 768
                 tot['oa'][k] += float(wt[m & outer].sum())
         maps.append({'cls': cls.reshape(T, T), 'base': base.reshape(T, T, 3)})
     stage['texels'] = round(time.time() - t0, 2)
+    # швы: порог по товару целиком (скачки внутри областей — по всем геометриям), затем плохие пары → тексели → картинка
+    inner_all = np.concatenate([d['inner'] for d in seam_store]) if seam_store else np.zeros(0)
+    de_all = np.concatenate([d['de'] for d in seam_store]) if seam_store else np.zeros(0)
+    ln_all = np.concatenate([d['ln'] for d in seam_store]) if seam_store else np.zeros(0)
+    inner_p = float(np.percentile(inner_all, SEAM['inner_pct'])) if len(inner_all) else 0.0
+    thr = max(SEAM['abs_de'], SEAM['ratio'] * inner_p)
+    bad_tex = 0
+    for d in seam_store:
+        bad = d['de'] > thr
+        hit = np.zeros(len(d['ti']), bool)
+        hit[d['ai'][bad]] = True
+        hit[d['bi'][bad]] = True
+        mp = maps[d['gi']]
+        flat = mp['cls'].reshape(-1)
+        flat[d['ti'][hit]] = 6
+        bad_tex += int((hit & d['outer']).sum())
+    n_out = tot['ot']['island']
+    seam = {'seam_tex_pct': round(100.0 * bad_tex / n_out, 2) if n_out else None,
+            'seam_len_share': round(float(ln_all[de_all > thr].sum() / ln_all.sum()), 4) if len(ln_all) and ln_all.sum() > 0 else 0.0,
+            'seam_de_med': round(float(np.median(de_all)), 2) if len(de_all) else None, 'seam_de_p90': round(float(np.percentile(de_all, 90)), 2) if len(de_all) else None,
+            'seam_inner_p95': round(inner_p, 2), 'seam_threshold': round(thr, 2), 'seam_boundary_pairs': int(len(de_all)), 'seam_bad_pairs': int((de_all > thr).sum())}
+    explain = None
+    if expl['ok'] and expl['unseen_outer']:
+        u, o = expl['unseen_outer'], tot['ot']['island']
+        explain = {k: {'of_unseen_pct': round(100.0 * expl[k] / u, 1), 'of_outer_pct': round(100.0 * expl[k] / o, 2)} for k in ('crumbs', 'crevice', 'gap', 'gap_edge_on', 'gap_occluded')}
+        explain.update(components=expl['components'], crumb_components=expl['crumb_components'], crumb_area_share_pct=round(100.0 * expl['crumb_area'] / expl['area'], 2) if expl['area'] else None)
 
     def pct(t, den):
         return {f'{k}_pct': (round(100.0 * t[k] / den, 2) if den else None) for k in ('unseen', 'grazing', 'unpainted', 'unpainted_seen')}
@@ -321,17 +473,17 @@ def analyze(geoms: list, yaw: float = 0.0, grid: int = 2048, view_res: int = 768
            'outer_tex': pct(tot['ot'], tot['ot']['island']), 'outer_area': pct(tot['oa'], tot['oa']['island']),
            'outer_share_tex_pct': round(100.0 * tot['ot']['island'] / tot['t']['island'], 2) if tot['t']['island'] else None,
            'outer_share_area_pct': round(100.0 * tot['oa']['island'] / tot['a']['island'], 2) if tot['a']['island'] else None,
-           'n_island': tot['t']['island'], 'maps': maps, 'time_s': {**stage, 'total': round(time.time() - t0, 2)}}
+           'seam': seam, 'unseen_outer_why': explain, 'n_island': tot['t']['island'], 'maps': maps, 'time_s': {**stage, 'total': round(time.time() - t0, 2)}}
     return out
 
 
 def coverage_image(m: dict):
-    """Картинка проверки: исходная краска приглушена; unseen, видимый снаружи — красный, unseen внутри (спрятан в предмете) — тёмно-бордовый, grazing — жёлтый, unpainted — синий."""
+    """Картинка проверки: исходная краска приглушена; шов видов (скачок цвета на границе главных видов) — пурпурный, unseen, видимый снаружи — красный, unseen внутри (спрятан в предмете) — тёмно-бордовый, grazing — жёлтый, unpainted — синий."""
     import numpy as np
     from PIL import Image
     cls, base = m['cls'], m['base']
     img = (base.astype(np.float64) * 0.55).astype(np.uint8)
-    for k, col in ((4, (0, 90, 255)), (3, (255, 220, 0)), (5, (90, 0, 30)), (2, (255, 0, 0))):
+    for k, col in ((4, (0, 90, 255)), (3, (255, 220, 0)), (5, (90, 0, 30)), (2, (255, 0, 0)), (6, (200, 0, 255))):
         img[cls == k] = col
     return Image.fromarray(img)
 
@@ -446,6 +598,11 @@ def flat_metrics(res: dict) -> dict:
         m[k.replace('_pct', '_outer_area_pct')] = v
     for k in ('outer_share_tex_pct', 'outer_share_area_pct'):
         m[k] = res.get(k)
+    sm = res.get('seam') or {}
+    for k in ('seam_tex_pct', 'seam_de_med', 'seam_de_p90'):
+        m[k] = sm.get(k)
+    if sm.get('seam_len_share') is not None:
+        m['seam_len_pct'] = round(100.0 * sm['seam_len_share'], 2)
     for k, v in (res.get('photo') or {}).items():
         if v is not None:
             m[k] = v
@@ -467,7 +624,7 @@ def process(glb: str, out_dir: str | None = None, yaw=None, grid: int = 2048, vi
     r = analyze(geoms, yw, T, view_res, ext_n=ext_n)
     res = {'file': os.path.abspath(glb), 'key': stem, 'faces': int(sum(len(g['F']) for g in geoms)), 'yaw_deg': yw, 'yaw_source': ysrc, 'grid': T, 'view_res': view_res,
            'texels_island': r['n_island'], 'tex': r['tex'], 'area': r['area'], 'outer_tex': r['outer_tex'], 'outer_area': r['outer_area'],
-           'outer_share_tex_pct': r['outer_share_tex_pct'], 'outer_share_area_pct': r['outer_share_area_pct'], 'photo': photo_of(match_row(stem, rows or [])) if rows else None}
+           'outer_share_tex_pct': r['outer_share_tex_pct'], 'outer_share_area_pct': r['outer_share_area_pct'], 'seam': r['seam'], 'unseen_outer_why': r['unseen_outer_why'], 'photo': photo_of(match_row(stem, rows or [])) if rows else None}
     if write_glb:
         dst = os.path.join(out_dir, stem + '.coverage.glb')
         write_coverage_glb(geoms, r['maps'], dst)
@@ -480,7 +637,7 @@ def process(glb: str, out_dir: str | None = None, yaw=None, grid: int = 2048, vi
 
 
 SUM_COLS = ['key', 'faces', 'outer_share_tex', 'unseen_outer_tex', 'grazing_outer_tex', 'unpainted_outer_tex', 'unseen_outer_area', 'grazing_outer_area', 'unpainted_outer_area',
-            'unseen_tex', 'grazing_tex', 'unpainted_tex', 'unpainted_seen_tex', 'unseen_area', 'grazing_area', 'unpainted_area', 'de00', 'dL', 'pattern_grad_ncc',
+            'seam_tex', 'seam_len', 'seam_de_med', 'seam_de_p90', 'unseen_tex', 'grazing_tex', 'unpainted_tex', 'unpainted_seen_tex', 'unseen_area', 'grazing_area', 'unpainted_area', 'de00', 'dL', 'pattern_grad_ncc',
             'colour_guard', 'verdict', 'why', 'time_s']
 
 
@@ -491,7 +648,9 @@ def summary_rows(results: list) -> list:
             out.append({'key': r['key'], 'verdict': 'ошибка', 'why': r['error']})
             continue
         ph = r.get('photo') or {}
-        out.append({'key': r['key'], 'faces': r['faces'], 'outer_share_tex': r.get('outer_share_tex_pct'),
+        fm = flat_metrics(r)
+        out.append({'key': r['key'], 'faces': r['faces'], 'outer_share_tex': r.get('outer_share_tex_pct'), 'seam_tex': fm.get('seam_tex_pct'), 'seam_len': fm.get('seam_len_pct'),
+                    'seam_de_med': fm.get('seam_de_med'), 'seam_de_p90': fm.get('seam_de_p90'),
                     **{f'{k[:-4]}_outer_tex': v for k, v in r['outer_tex'].items()}, **{f'{k[:-4]}_outer_area': v for k, v in r['outer_area'].items()},
                     **{f'{k[:-4]}_tex': v for k, v in r['tex'].items()}, **{f'{k[:-4]}_area': v for k, v in r['area'].items()},
                     'de00': ph.get('de00'), 'dL': ph.get('dL'), 'pattern_grad_ncc': ph.get('pattern_grad_ncc'), 'colour_guard': ph.get('colour_guard'),
@@ -520,14 +679,14 @@ def write_summary(out_dir: str, results: list, thresholds: dict | None = None) -
          'Доли — % текселей карты (в скобках — % площади поверхности) СРЕДИ НАРУЖНЫХ, то есть видимых снаружи хотя бы с одного из 26 направлений; «наружных» — % всех текселей (остальное спрятано внутри предмета и покупателю не видно). '
          'unseen — не виден ни с одного из 6 видов MV-Adapter (заплатки), grazing — только вскользь (|cos| < 0,35), unpainted — фоновый чёрный/белый. Решение — `tex_coverage.verdict` по ЧЕРНОВЫМ порогам. '
          'ΔE00/ΔL/pattern — из `trial_table.py` (сравнение с вырезкой). Доли по ВСЕМ текселям — в csv/json.', '',
-         '| товар | граней | наружных | unseen | grazing | unpainted | ΔE00 | ΔL | pattern | цвет | решение | почему | с |',
-         '|---|---|---|---|---|---|---|---|---|---|---|---|---|']
+         '| товар | граней | наружных | unseen | grazing | unpainted | швы, % текселей | швы, % длины | скачок ΔE00 мед/p90 | ΔE00 | ΔL | pattern | цвет | решение | почему | с |',
+         '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|']
     for r in rows:
         if r['verdict'] == 'ошибка':
-            L.append(f"| `{r['key']}` | | | | | | | | | | ошибка | {r['why']} | |")
+            L.append(f"| `{r['key']}` | | | | | | | | | | | | | ошибка | {r['why']} | |")
             continue
         L.append(f"| `{r['key']}` | {r['faces']} | {f(r['outer_share_tex'])} | {f(r['unseen_outer_tex'])} ({f(r['unseen_outer_area'])}) | {f(r['grazing_outer_tex'])} ({f(r['grazing_outer_area'])}) | "
-                 f"{f(r['unpainted_outer_tex'])} ({f(r['unpainted_outer_area'])}) | {f(r['de00'])} | {f(r['dL'])} | {f(r['pattern_grad_ncc'])} | {f(r['colour_guard'])} | **{r['verdict']}** | {r['why']} | {f(r['time_s'])} |")
+                 f"{f(r['unpainted_outer_tex'])} ({f(r['unpainted_outer_area'])}) | {f(r['seam_tex'])} | {f(r['seam_len'])} | {f(r['seam_de_med'])} / {f(r['seam_de_p90'])} | {f(r['de00'])} | {f(r['dL'])} | {f(r['pattern_grad_ncc'])} | {f(r['colour_guard'])} | **{r['verdict']}** | {r['why']} | {f(r['time_s'])} |")
     L += ['', 'Итого: ' + ', '.join(f'{k} — {v}' for k, v in sorted(counts.items()))]
     open(p_md, 'w', encoding='utf-8').write('\n'.join(L) + '\n')
     return p_csv, p_json, p_md

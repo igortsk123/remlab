@@ -279,5 +279,88 @@ except ValueError as e:
 ok('CLI: код возврата 1, если у какого-то товара ошибка; 0, если все посчитаны', TC.main([p0, '--out', os.path.join(tmp, 'c1')]) == 1 and TC.main([glb, '--out', os.path.join(tmp, 'c2'), '--grid', '256', '--no-glb']) == 0)
 ok('в коде проверок нет номеров товаров и порогов: числа порогов только в THRESHOLDS', 'THRESHOLDS = {' in open(os.path.join(HERE, 'tex_coverage.py'), encoding='utf-8').read())
 
+# ---------------------------------------------------------------- 8. швы видов --------------------------------------------
+print('8. швы: скачок цвета на границе главных видов')
+a, b = TC.rgb2lab(np.array([[120, 100, 80], [0, 0, 0], [255, 255, 255]], np.uint8)), None
+ok('Lab: белый L≈100, чёрный L≈0, нейтральный a,b≈0', abs(a[2, 0] - 100) < 0.1 and abs(a[1, 0]) < 0.1 and abs(a[2, 1]) < 0.1 and abs(a[2, 2]) < 0.1)
+sh = np.array([[50, 2.6772, -79.7751], [50, 3.1571, -77.2803], [50, 2.8361, -74.0200], [50, 2.5, 0.0]], np.float64)
+sh2 = np.array([[50, 0.0, -82.7485], [50, 0.0, -82.7485], [50, 0.0, -82.7485], [50, 0.0, -2.5]], np.float64)
+dd = TC.de2000_v(sh, sh2)
+ok('ΔE00 (по строкам) = эталоны Sharma 2005: 2,0425 · 2,8615 · 3,4412 · 4,3065', np.allclose(dd, [2.0425, 2.8615, 3.4412, 4.3065], atol=1e-3), str(np.round(dd, 4)))
+
+
+def roof(col_a, col_b, size=256):
+    """Два квадрата под прямым углом (+Z и +X) с общим ребром и ПРИЛЕГАЮЩИМИ плитками развёртки (левая половина — A, правая — B)."""
+    V = [(-0.5, -0.5, 0.5), (0.5, -0.5, 0.5), (0.5, 0.5, 0.5), (-0.5, 0.5, 0.5), (0.5, -0.5, 0.5), (0.5, -0.5, -0.5), (0.5, 0.5, -0.5), (0.5, 0.5, 0.5)]
+    UV = [(0, 0), (0.5, 0), (0.5, 1), (0, 1), (0.5, 0), (1, 0), (1, 1), (0.5, 1)]
+    F = [(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7)]
+    tex = np.zeros((size, size, 3), np.uint8)
+    tex[:, :size // 2] = col_a
+    tex[:, size // 2:] = col_b
+    return [{'name': 'm', 'V': np.array(V, np.float64), 'F': np.array(F, np.int64), 'UV': np.array(UV, np.float64), 'tex': tex}]
+
+
+r = TC.analyze(roof((120, 100, 80), (60, 160, 200)), 0.0, GRID, 256)
+sm = r['seam']
+ok('шов: цвет прыгает на границе главных видов (+Z | +X) → есть плохие пары, весь шов плохой (доля длины 1), скачок большой', sm['seam_bad_pairs'] > 100 and sm['seam_len_share'] > 0.95 and sm['seam_de_med'] > 30, str(sm))
+ok('швовые тексели: узкая полоска у границы (доля среди наружных мала, но не 0), порог = абсолютный пол (внутри областей скачков нет)', 0.5 < sm['seam_tex_pct'] < 5 and sm['seam_threshold'] == TC.SEAM['abs_de'] and sm['seam_inner_p95'] < 0.5, str(sm))
+cls = r['maps'][0]['cls']
+ok('в картинке-проверке шов — класс 6 (пурпурный) ровно у границы плиток (середина карты по горизонтали)', (cls == 6).sum() > 0 and abs(np.nonzero((cls == 6).any(axis=0))[0].mean() - GRID / 2) < 4)
+img = np.asarray(TC.coverage_image(r['maps'][0]))
+ok('пурпурный цвет в картинке', ((img[..., 0] == 200) & (img[..., 1] == 0) & (img[..., 2] == 255)).sum() == (cls == 6).sum())
+r0 = TC.analyze(roof((120, 100, 80), (120, 100, 80)), 0.0, GRID, 256)['seam']
+ok('тот же цвет по обе стороны границы — швов нет (граница есть, скачок 0)', r0['seam_bad_pairs'] == 0 and r0['seam_tex_pct'] == 0 and r0['seam_boundary_pairs'] > 100 and r0['seam_de_med'] < 0.5, str(r0))
+rs = TC.analyze(roof((120, 100, 80), (128, 106, 86)), 0.0, GRID, 256)['seam']
+ok('слабый скачок (ΔE00 ≈ 4–5, ниже абсолютного пола) — не шов', rs['seam_bad_pairs'] == 0 and 2 < rs['seam_de_med'] < TC.SEAM['abs_de'], str(rs))
+gd = roof((120, 100, 80), (120, 100, 80))
+tx = np.zeros((GRID, GRID, 3), np.uint8)
+rngx = np.random.RandomState(3)
+tx[:] = np.clip(120 + rngx.normal(0, 40, (GRID, GRID, 1)), 0, 255).astype(np.uint8)
+gd[0]['tex'] = tx
+rn = TC.analyze(gd, 0.0, GRID, 256)['seam']
+ok('шумный (пёстрый) товар: порог растёт вместе со скачками внутри областей, шумная граница не считается швом (порог = отношение × перцентиль внутри)', rn['seam_threshold'] > TC.SEAM['abs_de'] and rn['seam_len_share'] < 0.2, str(rn))
+fm = TC.flat_metrics({'tex': {}, 'seam': sm})
+ok('в плоских метриках: seam_tex_pct, seam_len_pct (в процентах), seam_de_med/p90 — их видит verdict', fm['seam_tex_pct'] == sm['seam_tex_pct'] and abs(fm['seam_len_pct'] - 100 * sm['seam_len_share']) < 0.01 and 'seam_de_p90' in fm)
+ok('verdict по швам: больше порога перекраски → repaint, больше порога отказа → reject, пороги — в THRESHOLDS',
+   TC.verdict({'seam_tex_pct': TC.THRESHOLDS['repaint']['max']['seam_tex_pct'] + 0.1}) == 'repaint' and TC.verdict({'seam_len_pct': TC.THRESHOLDS['reject']['max']['seam_len_pct'] + 1}) == 'reject'
+   and TC.verdict({'seam_tex_pct': 0.0, 'seam_len_pct': 0.0}) == 'keep')
+
+print('9. почему unseen среди наружных: крошки / щели / видимые места')
+sc = Scene()
+patch = sc.quad((-0.15, 0, -0.15), (0.15, 0, -0.15), (0.15, 0, 0.15), (-0.15, 0, 0.15), 0)
+for k, c in enumerate([((0.25, -0.25, -0.25), (0.25, 0.25, -0.25), (0.25, 0.25, 0.25), (0.25, -0.25, 0.25))]):
+    pass
+# клетка из шести плит на осях (±0,5), каждая ±0,25: закрывает пятно от всех 6 видов, диагонали проходят между плитами
+tile = 7
+for ax in range(3):
+    for sg in (-0.5, 0.5):
+        def pt(u, v, ax=ax, sg=sg):
+            q = [0.0, 0.0, 0.0]
+            q[ax] = sg
+            q[(ax + 1) % 3] = u
+            q[(ax + 2) % 3] = v
+            return tuple(q)
+        sc.quad(pt(-0.25, -0.25), pt(0.25, -0.25), pt(0.25, 0.25), pt(-0.25, 0.25), tile)
+        tile += 1
+# пятно с нормалью по диагонали (1,1,1): повернём его четырёхугольник
+nrm = np.array([1.0, 1.0, 1.0]) / np.sqrt(3)
+e1 = np.cross(nrm, [0.0, 1.0, 0.0])
+e1 /= np.linalg.norm(e1)
+e2 = np.cross(nrm, e1)
+sc.V[0:4] = [tuple(-0.15 * e1 - 0.15 * e2), tuple(0.15 * e1 - 0.15 * e2), tuple(0.15 * e1 + 0.15 * e2), tuple(-0.15 * e1 + 0.15 * e2)]
+crumb = sc.box((0.10, -0.10, -0.05), (0.14, -0.06, -0.01), 1)
+sc.V = [tuple(v) for v in sc.V]
+r = run(sc)
+cls = r['maps'][0]['cls']
+ok('пятно и крошка спрятаны от всех 6 видов плитами, но видны по диагонали: unseen «наружу» (класс 2)', frac(cls, 0, 2) > 0.9 and np.mean([frac(cls, t, 2) for t in range(1, 7)]) > 0.8, '%s %s' % (frac(cls, 0, 2), [round(frac(cls, t, 2), 2) for t in range(1, 7)]))
+w = r['unseen_outer_why']
+ok('разложение: крошки (малый отдельный кусок) ≈ 6 плиток из 7, видимое место (пятно основного тела) ≈ 1 из 7, щелей нет',
+   w is not None and w['crumbs']['of_unseen_pct'] > 70 and 5 < w['gap']['of_unseen_pct'] < 30 and w['crevice']['of_unseen_pct'] < 10, str(w))
+ok('«видимое место» делится на «ребром» и «закрыто»: в клетке пятно закрыто плитами во всех 6 видах (gap_occluded), и сумма частей = gap', w['gap_occluded']['of_unseen_pct'] > 5 and abs(w['gap_edge_on']['of_unseen_pct'] + w['gap_occluded']['of_unseen_pct'] - w['gap']['of_unseen_pct']) < 0.3, str(w))
+ok('сумма трёх причин = 100 % unseen среди наружных', abs(sum(w[k]['of_unseen_pct'] for k in ('crumbs', 'crevice', 'gap')) - 100) < 0.5, str(w))
+ok('число кусков формы: пятно + крошка + 6 плит = 8, из них крошка (площадь < 1 % всей) — одна (пятно крупнее); площадь крошек мала', w['components'] == 8 and w['crumb_components'] == 1 and w['crumb_area_share_pct'] < 2, str(w))
+cf, ca = TC.face_components(np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [5, 5, 5], [6, 5, 5], [5, 6, 5], [1, 0, 0], [0, 0, 0], [0, 1, 0.0]]), np.array([[0, 1, 2], [3, 4, 5], [6, 7, 8]]), np.array([0.5, 0.5, 0.5]))
+ok('face_components: вершины с одним положением (дубли по шву развёртки) склеивают куски; далёкий треугольник — отдельный', cf[0] == cf[2] and cf[0] != cf[1] and len(ca) == 2)
+
 print('ИТОГО: ' + ('всё в норме' if not bad else f'провалов {bad}'))
 sys.exit(1 if bad else 0)
