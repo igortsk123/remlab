@@ -1098,6 +1098,21 @@ MV_AZ = [x - 90 for x in [0, 90, 180, 270, 180, 180]]          # как в `scri
 MV_EL = [0, 0, 0, 0, 89.99, -89.99]                            # подъём камер — по умолчанию `TexturePipeline.__call__` (camera_elevation_deg)
 MV_STAGE_PX = 1536                                             # А0 (`mv_keep_stages`): кадр рендера в камере вида 0 — как вид после RealESRGAN ×2
 MV_STAGE_SS = 2                                                # рендер в 2× и усреднение 2×2: текстура 4096² в кадре 1536² иначе даёт муар
+# ВАРИАНТ 5 «12 камер» (T-20261119-48/1; параметр задания `mv_views=12`, без него всё как раньше — 6 камер, тот же путь).
+# Что показали исходники апстрима (коммит 4277e00): `DecoupledMVRowColSelfAttnProcessor2_0` (mvadapter/models/attention_processor.py:380) ЖЁСТКО рассчитан на шесть видов — строки по видам 0-1-2-3
+# (кольцо), столбцы по 0-2-4-5 (перед/зад/верх/низ), `torch.stack` ровно из шести; веса `to_k_mv/to_v_mv` обучены на этой раскладке. Значит 12 видов ОДНИМ проходом модель не принимает, а вот ДРУГИЕ камеры
+# в тех же шести местах — принимает: условие даёт карта позиций+нормалей, нарисованная с ЛЮБОЙ камеры (`run_pipeline` строит их из `get_orthogonal_camera`). Поведение на непривычных ракурсах не гарантировано
+# (обучали на 0/90/180/270 и ±90°) — поэтому второй проход только ДОПОЛНЯЕТ первый, а не заменяет (см. `mv_merge`). `TexturePipeline.__call__` на 12 камер тоже не годится: `distance=[…]*6`,
+# `uv_exp_blend_view_weight=[1]*6`, `load_packed_images` режет сетку на 6 — поэтому запекание второго прохода идёт теми же функциями апстрима (`uv_precompute/uv_render_geometry/uv_blend`), но своим вызовом.
+MV_VIEWS_ALLOWED = (6, 12)
+# Камеры второго прохода — в той же записи, что MV_AZ (азимут − 90°; камеру кадра GLB «лицом +Z» даёт вид 0 = −90). Кольцо 0-1-2-3 — со сдвигом 45° и подъёмом +30° (тот же подъём у всех четырёх: ряды
+# внимания идут вдоль строк картинки), места 4 и 5 — косые виды сверху-сбоку и снизу-сбоку вместо чистых верха и низа (чистые верх/низ уже есть в первом проходе). Выбор — по расчёту покрытия
+# `tex_coverage` на формах (жадный подбор по текселям, которые первые 6 видов не видят или видят вскользь): `.memory_bank`/отчёт T-20261119-48/1.
+MV2_AZ = [x - 90 for x in [45, 135, 225, 315, 45, 225]]
+MV2_EL = [30.0, 30.0, 30.0, 30.0, 60.0, -45.0]
+# Слияние проходов: тексель первого прохода с лучшим |cos| ≥ cos_hi считается «хорошо видимым» и НЕ меняется (второй проход цвет не сдвигает); с cos от cos_lo (порог валидности апстрима 0,2) до cos_hi
+# и в невидимых местах второй проход подмешивается по мере того, насколько он видит тексель лучше первого (`better` — разница |cos|, на которой вес доходит до 1).
+MV2_MERGE = {'cos_hi': 0.5, 'cos_lo': 0.2, 'better': 0.2, 'match': True, 'match_min': 5000, 'match_cos': 0.5, 'gain_min': 0.7, 'gain_max': 1.4, 'sample': 2000000}
 
 
 def mv_norm_mask(m, n: int = FIT_N, fill: float = 0.9):
@@ -1212,6 +1227,68 @@ def mv_keep_flag(v) -> bool:
     return str(v).strip().lower() in ('1', 'true', 'yes', 'on')
 
 
+def mv_views_count(v) -> int:
+    """`mv_views` из задания: нет/''/None/6 — 6 камер (как раньше); 12 — второй проход (вариант 5); остальное — ValueError (отказ ДО затрат)."""
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return MV_VIEWS
+    try:
+        n = int(str(v).strip())
+    except ValueError:
+        n = -1
+    if n not in MV_VIEWS_ALLOWED:
+        raise ValueError(f'mv_views: одно из {list(MV_VIEWS_ALLOWED)}, получено {v!r}')
+    return n
+
+
+def mv_merge(uv1, valid1, conf1, uv2, valid2, conf2, cfg: dict | None = None) -> tuple:
+    """Слияние двух запеканий на развёртке (numpy; вход — карты текстуры H×W×3 в [0, 1], булевы «есть краска» H×W и лучший |cos| среди ДЕЙСТВУЮЩИХ видов H×W; у невидимого конфиденс 0).
+    Правило «второй проход заполняет прежде всего тексели unseen/grazing первого, хорошо видимое не перекрашивает»:
+      нужда первого  need = clip((cos_hi − conf1)/(cos_hi − cos_lo), 0, 1): conf1 ≥ cos_hi → 0 (тексель НЕ трогаем), conf1 ≤ cos_lo (в том числе невидимое) → 1;
+      польза второго gain = valid2 · clip((conf2 − conf1)/better, 0, 1): второй проход влияет, только если видит тексель лучше первого;
+      вес второго a = need · gain;  итог = (1 − a)·uv1 + a·uv2'.
+    uv2' — второй проход, подогнанный по цвету к первому: линейно по каналам (усиление и сдвиг по средним/разбросу) на ОБЩИХ хорошо видимых текселях (оба конфиденса ≥ match_cos); меньше `match_min`
+    текселей — подгонка пропускается. Усиление зажато в [gain_min, gain_max]. Возвращает (uv, valid, info): `valid` — есть краска хоть в одном проходе (остальное достроит LaMa), `info` — счётчики
+    для отчёта (`strong_changed` — сколько хорошо видимых текселей первого прохода изменилось: должно быть 0)."""
+    import numpy as np
+    c = {**MV2_MERGE, **(cfg or {})}
+    uv1 = np.asarray(uv1, np.float32)
+    uv2 = np.asarray(uv2, np.float32)
+    valid1, valid2 = np.asarray(valid1, bool), np.asarray(valid2, bool)
+    c1 = np.where(valid1, np.asarray(conf1, np.float32), 0.0)
+    c2 = np.where(valid2, np.asarray(conf2, np.float32), 0.0)
+    span = max(c['cos_hi'] - c['cos_lo'], 1e-6)
+    need = np.clip((c['cos_hi'] - c1) / span, 0.0, 1.0)
+    gain_w = np.where(valid2, np.clip((c2 - c1) / max(c['better'], 1e-6), 0.0, 1.0), 0.0)
+    a = (need * gain_w).astype(np.float32)
+    info: dict = {'match': 'off'}
+    uv2m = uv2
+    if c['match']:
+        both = valid1 & valid2 & (c1 >= c['match_cos']) & (c2 >= c['match_cos'])
+        n = int(both.sum())
+        info['match_texels'] = n
+        if n >= c['match_min']:
+            idx = np.nonzero(both.reshape(-1))[0]
+            if len(idx) > c['sample']:
+                idx = idx[np.random.RandomState(0).choice(len(idx), c['sample'], replace=False)]
+            p1, p2 = uv1.reshape(-1, 3)[idx].astype(np.float64), uv2.reshape(-1, 3)[idx].astype(np.float64)
+            m1, m2, s1, s2 = p1.mean(0), p2.mean(0), p1.std(0), p2.std(0)
+            g = np.clip(s1 / np.maximum(s2, 1e-6), c['gain_min'], c['gain_max'])
+            o = m1 - g * m2
+            uv2m = np.clip(uv2 * g.astype(np.float32) + o.astype(np.float32), 0.0, 1.0)
+            info.update(match='on', gain=[round(float(x), 4) for x in g], offset=[round(float(x), 4) for x in o])
+        else:
+            info['match'] = 'skipped'
+    uv = (1.0 - a[..., None]) * uv1 + a[..., None] * uv2m
+    valid = valid1 | (valid2 & (a > 0))
+    tot = max(valid1.size, 1)
+    strong = valid1 & (c1 >= c['cos_hi'])
+    info.update(texels=int(tot), valid1_pct=round(100.0 * valid1.sum() / tot, 3), valid_pct=round(100.0 * valid.sum() / tot, 3),
+                filled_pct=round(100.0 * (valid & ~valid1).sum() / tot, 3), blended_pct=round(100.0 * (valid1 & (a > 0)).sum() / tot, 3),
+                replaced_pct=round(100.0 * (a >= 0.999).sum() / tot, 3), strong_pct=round(100.0 * strong.sum() / tot, 3),
+                strong_changed=int((strong & (a > 0)).sum()))
+    return uv, valid, info
+
+
 def mv_split_views(views_png: str, out_dir: str, n: int = MV_VIEWS) -> list:
     """Сетка `mv.png` (n видов в ряд) → n отдельных PNG без потерь (`v0.png` … ). Возвращает относительные имена (от папки стадий: `views_768/vN.png`)."""
     from PIL import Image
@@ -1295,6 +1372,9 @@ def mv_texture_on_shape(runner, mesh, image, params: dict, hooks: dict | None = 
     if uv_size not in (1024, 2048, 4096) or not 1 <= steps <= 100:
         raise ValueError('mv_uv_size: 1024/2048/4096, mv_steps: 1..100')
     texture_size = int(params.get('texture_size', 2048))
+    nviews = mv_views_count(params.get('mv_views'))              # 6 (по умолчанию, прежний путь) или 12 (вариант 5: второй проход)
+    if nviews != MV_VIEWS and mv_keep_flag(params.get('mv_keep_stages')):
+        raise ValueError('mv_keep_stages сохраняет стадии шести видов — вместе с mv_views=12 не поддерживается')
     yaw_param = params.get('mv_yaw')
     fit = mv_fit_yaw(verts, faces, image, force=None if yaw_param in (None, '', 'auto') else yaw_param)
     lap('fit_yaw')
@@ -1307,7 +1387,13 @@ def mv_texture_on_shape(runner, mesh, image, params: dict, hooks: dict | None = 
     cap = {} if keep else None
     views_png = runner.views(in_glb, image, params, work)
     lap('views')
-    shaded = runner.unproject(in_glb, views_png, work, uv_size, capture=cap) if keep else runner.unproject(in_glb, views_png, work, uv_size)
+    views2_png = None
+    if nviews == MV_VIEWS:
+        shaded = runner.unproject(in_glb, views_png, work, uv_size, capture=cap) if keep else runner.unproject(in_glb, views_png, work, uv_size)
+    else:                                                       # вариант 5: те же фото и форма, второй проход SDXL с косыми камерами; запекание — первый проход как у апстрима + второй по правилу `mv_merge`
+        views2_png = runner.views2(in_glb, image, params, work)
+        lap('views2')
+        shaded = runner.unproject12(in_glb, views_png, views2_png, work, uv_size)
     lap('unproject')
     back = trimesh.load(shaded, force='mesh', process=False)
     v_back = from_cube(np.asarray(back.vertices, dtype=np.float64), c, s, R).astype(np.float32).astype(np.float64)       # через float32, как лежит в GLB
@@ -1343,7 +1429,36 @@ def mv_texture_on_shape(runner, mesh, image, params: dict, hooks: dict | None = 
            'uv_size': uv_size, 'steps': steps, 'texture_size': texture_size, 'tex_in_size': list(tex.size), 'views_jpeg_b64': thumb}
     if stages is not None:
         out['stages'] = stages                                  # {'zip', 'bytes', 'files', 'keep_s', 'error', …}; ключ появляется только при mv_keep_stages
+    if views2_png is not None:                                  # ключи появляются только с mv_views=12 — без него вывод прежний
+        out['mv_views'] = nviews
+        out['mv12'] = {'az': MV2_AZ, 'el': MV2_EL, 'merge': getattr(runner, 'merge_info', None), 'views_s': {'pass1': stage.get('views'), 'pass2': stage.get('views2')}}
+        try:
+            import base64
+            from PIL import Image
+            im2 = Image.open(views2_png).convert('RGB')
+            im2 = im2.resize((max(1, im2.width * 256 // im2.height), 256), Image.Resampling.LANCZOS)
+            buf2 = io.BytesIO()
+            im2.save(buf2, format='JPEG', quality=80)
+            out['views2_jpeg_b64'] = base64.b64encode(buf2.getvalue()).decode()
+        except Exception:  # noqa: BLE001 — миниатюра для разбора, не для результата
+            out['views2_jpeg_b64'] = None
     return final, out
+
+
+def mv_bake(torch, UVM, cp, mesh, images, cams, uv_size: int) -> tuple:
+    """Запекание видов на развёртку теми же шагами, что `CameraProjection.__call__` апстрима (projection.py:54-170) при вызове из `TexturePipeline` для картинки (без масок, IoU-отказа и warp), с теми же
+    порогами; отличие одно — наружу идёт ещё и конфиденс «лучший |cos| среди ДЕЙСТВУЮЩИХ видов» (нужен слиянию проходов). `UVM` — модуль `mvadapter.utils.mesh_utils.uv`, `cp` — `CameraProjection`.
+    → (uv H×W×3, есть краска H×W, конфиденс H×W)."""
+    H, W = int(images.shape[1]), int(images.shape[2])
+    n = int(images.shape[0])
+    pre = UVM.uv_precompute(cp.ctx, mesh, height=uv_size, width=uv_size)
+    geo = UVM.uv_render_geometry(cp.ctx, mesh, cams, view_height=H, view_width=W, uv_precompute_output=pre, compute_depth_grad=True, depth_grad_dilation=5)
+    attr = UVM.uv_render_attr(images=images, masks=None, uv_render_geometry_output=geo)
+    out = UVM.uv_blend(pre, geo, attr, uv_validity_strategy=UVM.SimpleUVValidityStrategy(aoi_cos_thresh=0.2, depth_grad_thresh=0.1),
+                       uv_blend_weight_strategy=UVM.ExponentialBlend(alpha=3, view_weight=torch.as_tensor([1] * n)), empty_value=1.0, do_uv_padding=True, pad_unseen_area=True,
+                       poisson_blending=False, pb_solver=cp.pb_solver)
+    conf = (geo.uv_aoi_cos * out.uv_valid_mask.float()).amax(dim=0)
+    return out.uv_attr_blend, out.uv_valid_mask_blend, conf
 
 
 class MVRunner:
@@ -1417,6 +1532,79 @@ class MVRunner:
                 del self.tex_pipe.maybe_upscale_image                       # вернуть метод класса
             except AttributeError:
                 pass
+
+    # ——— вариант 5 «12 камер» (`mv_views=12`); пути выше (`views`, `unproject`) не тронуты ———
+    merge_info: dict | None = None
+
+    def views2(self, in_glb: str, image, params: dict, work: str) -> str:
+        """Второй проход SDXL: тот же вызов, что `run_pipeline` апстрима (scripts/inference_ig2mv_sdxl.py:122), но с камерами `MV2_AZ/MV2_EL` (шесть мест модели те же; условие — карты позиций и нормалей
+        с этих камер), тем же фото, тем же зерном и теми же параметрами. Сетка из 6 видов → `mv2.png`."""
+        from PIL import Image
+        IG, torch = self.ig, self.torch
+        if self.offload:
+            self._pipe_to('cuda')
+        try:
+            cams = IG.get_orthogonal_camera(elevation_deg=MV2_EL, distance=[1.8] * MV_VIEWS, left=-0.55, right=0.55, bottom=-0.55, top=0.55, azimuth_deg=MV2_AZ, device='cuda')
+            ctx = IG.NVDiffRastContextWrapper(device='cuda')
+            mesh = IG.load_mesh(in_glb, rescale=True, device='cuda')
+            ro = IG.render(ctx, mesh, cams, height=768, width=768, render_attr=False, normal_background=0.0)
+            control = torch.cat([(ro.pos + 0.5).clamp(0, 1), (ro.normal / 2 + 0.5).clamp(0, 1)], dim=-1).permute(0, 3, 1, 2).to('cuda')
+            ref = IG.preprocess_image(image, 768, 768) if image.mode == 'RGBA' else image
+            seed = int(params.get('seed', 42))
+            kw = {'generator': torch.Generator(device='cuda').manual_seed(seed)} if seed != -1 else {}
+            images = self.pipe(
+                params.get('mv_text') or 'high quality', height=768, width=768, num_inference_steps=int(params['mv_steps'] if params.get('mv_steps') is not None else 50), guidance_scale=3.0,
+                num_images_per_prompt=MV_VIEWS, control_image=control, control_conditioning_scale=1.0, reference_image=ref,
+                reference_conditioning_scale=float(params['mv_ref_scale'] if params.get('mv_ref_scale') is not None else 1.0), negative_prompt=MV_NEG,
+                cross_attention_kwargs={'scale': 1.0}, **kw).images
+        finally:
+            if self.offload:
+                self._pipe_to('cpu')
+        grid = Image.new('RGB', (768 * MV_VIEWS, 768))
+        for i, im in enumerate(images):
+            grid.paste(im.convert('RGB'), (768 * i, 0))
+        path = os.path.join(work, 'mv2.png')
+        grid.save(path)
+        return path
+
+    def unproject12(self, in_glb: str, views1_png: str, views2_png: str, work: str, uv_size: int) -> str:
+        """Запекание двух проходов. Первый — РОВНО как `TexturePipeline.__call__` (RealESRGAN ×2, `uv_blend` с теми же порогами: cos 0,2, градиент глубины 0,1/5, alpha 3, без Пуассона, с растяжкой границ),
+        но до LaMa; второй — теми же функциями со своими камерами. Дальше `mv_merge` (второй заполняет невидимое и плохо видимое первого, хорошо видимое не трогает), и только потом достройка LaMa по
+        видам (`view_inpaint`, как у апстрима) и запись GLB тем же `replace_mesh_texture_and_save`. Сверено построчно с pipeline_texture.py:136-428 (коммит 4277e00) и projection.py:54."""
+        import importlib
+        import numpy as np
+        torch = self.torch
+        dev = getattr(self.tex_pipe, 'device', 'cuda')
+        MU = importlib.import_module('mvadapter.utils.mesh_utils')
+        UVM = importlib.import_module('mvadapter.utils.mesh_utils.uv')
+        PT = importlib.import_module('mvadapter.pipelines.pipeline_texture')
+        tp = self.tex_pipe
+        cfg = self.mod_cfg(view_upscale=True, inpaint_mode='view')
+        mesh = MU.load_mesh(in_glb, rescale=True, move_to_center=False, front_x_to_y=True, default_uv_size=uv_size, device=dev)
+
+        def bake(png: str, az: list, el: list) -> tuple:
+            ten = PT.image_to_tensor(tp.load_packed_images(png), device=dev)
+            ten = tp.maybe_upscale_image(ten, cfg.view_upscale, cfg.view_upscale_factor)
+            cams = MU.get_orthogonal_camera(elevation_deg=el, distance=[1.0] * MV_VIEWS, left=-MV_ORTHO / 2, right=MV_ORTHO / 2, bottom=-MV_ORTHO / 2, top=MV_ORTHO / 2,
+                                            azimuth_deg=[x - 90 for x in az], device=dev)
+            uv, valid, conf = mv_bake(torch, UVM, tp.cam_proj, mesh, ten, cams, uv_size)
+            out = (uv.detach().float().cpu().numpy(), valid.detach().cpu().numpy(), conf.detach().float().cpu().numpy())
+            del ten, cams, uv, valid, conf
+            torch.cuda.empty_cache()
+            return out
+        b1 = bake(views1_png, MV_AZ, MV_EL)
+        b2 = bake(views2_png, MV2_AZ, MV2_EL)
+        uv, valid, info = mv_merge(b1[0], b1[1], b1[2], b2[0], b2[1], b2[2])
+        del b1, b2
+        self.merge_info = info
+        uv_t = torch.from_numpy(np.ascontiguousarray(uv)).to(dev)
+        valid_t = torch.from_numpy(np.ascontiguousarray(valid)).to(dev)
+        del uv, valid
+        uv_t, _valid_t = tp.view_inpaint('rgb', mesh, uv_t, valid_t, cfg)
+        out_path = os.path.join(work, 'mv12_shaded.glb')
+        PT.replace_mesh_texture_and_save(in_glb, out_path, texture=PT.tensor_to_image(uv_t), backend='gltflib', task_id='mv12')
+        torch.cuda.empty_cache()
+        return out_path
 
     def keep_stages(self, in_glb: str, uv_size: int, cap: dict, tex_glb, tex_final, out_dir: str) -> dict:
         """А0: всё, что нужно, чтобы сравнить стадии с видом 0 «пиксель в пиксель». Камера — ТА ЖЕ ортокамера вида 0, что у проекции (форма и камеры собраны точно как в `TexturePipeline.__call__`:

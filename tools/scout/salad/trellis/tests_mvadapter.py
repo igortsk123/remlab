@@ -508,6 +508,120 @@ if have_tm:
         for nm_ in ('mvadapter', 'mvadapter.pipelines', 'mvadapter.pipelines.pipeline_texture', 'mvadapter.utils', 'mvadapter.utils.mesh_utils', 'mvadapter.utils.mesh_utils.render', 'mvadapter.utils.mesh_utils.utils'):
             sys.modules.pop(nm_, None)
 
+print('[2c] вариант 5 «12 камер» (T-20261119-48/1): параметр, камеры, слияние проходов, путь вызова')
+ok('mv_views_count: нет/пусто/None/6/"6" — 6 камер (прежний путь); 12/"12" — 12', [W.mv_views_count(x) for x in (None, '', '  ', 6, '6')] == [6] * 5 and [W.mv_views_count(x) for x in (12, '12')] == [12, 12])
+for bad_v in (8, '7', 'x', 0, 13, 12.5):
+    try:
+        W.mv_views_count(bad_v)
+        ok(f'mv_views={bad_v!r} — отказ', False)
+    except ValueError:
+        ok(f'mv_views={bad_v!r} — ValueError (до всяких затрат)', True)
+ok('шесть прежних камер не тронуты (MV_AZ, MV_EL, MV_VIEWS, MV_ORTHO как в апстриме)', W.MV_AZ == [-90, 0, 90, 180, 90, 90] and W.MV_EL == [0, 0, 0, 0, 89.99, -89.99] and W.MV_VIEWS == 6 and W.MV_ORTHO == 1.1)
+ok('камеры второго прохода: шесть мест (как у модели), кольцо 0-1-2-3 на одном подъёме (ряды внимания идут вдоль строк), сдвиг 45° от первых четырёх, места 4 и 5 — косые (не чистые верх и низ)',
+   len(W.MV2_AZ) == len(W.MV2_EL) == 6 and len(set(W.MV2_EL[:4])) == 1 and 0 < W.MV2_EL[0] < 60 and all(abs(((a2 - a1 + 180) % 360) - 180) == 45 for a1, a2 in zip(W.MV_AZ[:4], W.MV2_AZ[:4]))
+   and all(abs(e) < 89 for e in W.MV2_EL[4:]), str((W.MV2_AZ, W.MV2_EL)))
+import tex_coverage as TCV  # noqa: E402
+cam1 = TCV.mv_views(W.MV_AZ, W.MV_EL)
+cam2 = TCV.mv_views(W.MV2_AZ, W.MV2_EL)
+ok('направления второго прохода не повторяют первые (угол между камерами ≥ 20°) — иначе проход пустой', all(float(np.dot(a[0], b[0])) < np.cos(np.radians(20)) for a in cam1 for b in cam2),
+   str(max(float(np.dot(a[0], b[0])) for a in cam1 for b in cam2)))
+
+# --- слияние проходов: mv_merge (numpy) ---
+H_ = 40
+rng_ = np.random.RandomState(5)
+u1 = rng_.rand(H_, H_, 3).astype(np.float32)
+u2 = (0.15 + 0.7 * rng_.rand(H_, H_, 3)).astype(np.float32)
+allT = np.ones((H_, H_), bool)
+conf_half = np.where(np.arange(H_)[None, :] < H_ // 2, 0.9, 0.3).astype(np.float32) * np.ones((H_, 1), np.float32)         # левая половина: первый проход видит хорошо, правая — слабо
+m_off = {'match': False}
+uo, vo, io_ = W.mv_merge(u1, allT, conf_half, u2, allT, np.full((H_, H_), 0.9, np.float32), m_off)
+ok('хорошо видимое (|cos| 0,9 ≥ cos_hi) НЕ меняется ни на один бит; strong_changed = 0', np.array_equal(uo[:, :H_ // 2], u1[:, :H_ // 2]) and io_['strong_changed'] == 0 and io_['strong_pct'] == 50.0, str(io_))
+need_ = (W.MV2_MERGE['cos_hi'] - 0.3) / (W.MV2_MERGE['cos_hi'] - W.MV2_MERGE['cos_lo'])
+ok('плохо видимое (|cos| 0,3): второй проход подмешан с весом need·gain = (0,5−0,3)/0,3 = 0,667 — между проходами', np.allclose(uo[:, H_ // 2:], (1 - need_) * u1[:, H_ // 2:] + need_ * u2[:, H_ // 2:], atol=1e-5) and abs(io_['blended_pct'] - 50.0) < 1e-6, str(io_))
+v1 = np.ones((H_, H_), bool)
+v1[:, H_ // 2:] = False                                                                                    # правая половина первым проходом не видна вовсе
+c1_ = np.where(v1, 0.9, 0.0).astype(np.float32)
+v2 = np.ones((H_, H_), bool)
+v2[:, :6] = False
+v2[:5, :] = False                                                                                          # второй не видит левые 6 столбцов и верхние 5 строк
+c2_ = np.where(v2, 0.8, 0.0).astype(np.float32)
+uo, vo, io_ = W.mv_merge(u1, v1, c1_, u2, v2, c2_, m_off)
+fill = ~v1 & v2
+ok('невидимое первым и видимое вторым — берётся из второго проходом целиком (вес 1), «есть краска» поднимается', np.array_equal(uo[fill], u2[fill]) and vo[fill].all())
+ok('невидимое обоими — остаётся как у первого (достроит LaMa), «краски нет» сохраняется', np.array_equal(uo[~v1 & ~v2], u1[~v1 & ~v2]) and not vo[~v1 & ~v2].any())
+ok('то, что первый видит хорошо, а второй нет, — как у первого; счётчик «заполнено» = доля невидимого, которое увидел второй', np.array_equal(uo[v1], u1[v1]) and abs(io_['filled_pct'] - 100.0 * fill.sum() / fill.size) < 1e-3, str(io_))
+uo, vo, io_ = W.mv_merge(u1, allT, np.full((H_, H_), 0.3, np.float32), u2, allT, np.full((H_, H_), 0.25, np.float32), m_off)
+ok('второй видит ХУЖЕ первого — первый не трогаем (вес 0)', np.array_equal(uo, u1) and io_['blended_pct'] == 0.0, str(io_))
+uo, vo, io_ = W.mv_merge(u1, v1, c1_, u2, np.zeros((H_, H_), bool), np.zeros((H_, H_), np.float32))
+ok('второй проход пуст — итог равен первому (краска и «есть краска»): с пустым вторым путь тот же, что у апстрима', np.array_equal(uo, u1) and np.array_equal(vo, v1))
+# подгонка цвета второго к первому по общим хорошо видимым текселям
+a_c = rng_.rand(H_, H_, 3).astype(np.float32) * 0.6 + 0.2
+b_c = np.clip(0.7 * a_c + 0.05, 0, 1)                                                                      # второй проход темнее и контрастнее ниже: известное линейное искажение
+v1m = np.ones((H_, H_), bool)
+v1m[:, H_ // 2:] = False
+c1m = np.where(v1m, 0.9, 0.0).astype(np.float32)
+v2m = np.ones((H_, H_), bool)
+c2m = np.full((H_, H_), 0.9, np.float32)
+uo, vo, io_ = W.mv_merge(a_c, v1m, c1m, b_c, v2m, c2m, {'match_min': 100})
+ok('подгонка включилась по общим текселям (левая половина) и зажала усиление 1/0,7 = 1,43 до gain_max 1,4', io_['match'] == 'on' and io_['match_texels'] == (H_ * H_) // 2 and abs(io_['gain'][0] - W.MV2_MERGE['gain_max']) < 1e-6, str(io_))
+fl = ~v1m
+raw_err = float(np.abs(b_c[fl] - a_c[fl]).mean())
+fit_err = float(np.abs(uo[fl] - a_c[fl]).mean())
+ok('после подгонки заполненные тексели ближе к «истинному» цвету, чем без неё (и всё в [0, 1])', fit_err < raw_err * 0.7 and uo.min() >= 0.0 and uo.max() <= 1.0, f'{raw_err:.4f} -> {fit_err:.4f}')
+uo, vo, io_ = W.mv_merge(a_c, v1m, c1m, b_c, v2m, c2m, {'match_min': 10 ** 9})
+ok('общих текселей мало — подгонка пропущена (второй проход как есть)', io_['match'] == 'skipped' and np.array_equal(uo[fl], b_c[fl]), str(io_))
+uo, vo, io_ = W.mv_merge(a_c, v1m, c1m, b_c, v2m, c2m, {'match_min': 100, 'match': False})
+ok('подгонку можно выключить (match=False): второй проход как есть', io_['match'] == 'off' and np.array_equal(uo[fl], b_c[fl]))
+ok('в info есть всё для отчёта: доли валидности до/после, заполнено, подмешано, заменено, strong', {'texels', 'valid1_pct', 'valid_pct', 'filled_pct', 'blended_pct', 'replaced_pct', 'strong_pct', 'strong_changed'} <= set(io_))
+
+if have_tm:
+    class Fake12(FakeRunner):
+        """Заглушка с вариантом 5: вторая стадия видов и запекание двух проходов."""
+        def views2(self, in_glb, image, params, work):
+            self.calls.append(('views2', os.path.basename(in_glb), params.get('mv_views')))
+            path = os.path.join(work, 'mv2.png')
+            Image.new('RGB', (48, 8), (200, 100, 50)).save(path)
+            return path
+
+        def unproject12(self, in_glb, views1_png, views2_png, work, uv_size):
+            n_ = len(self.calls)
+            out = FakeRunner.unproject(self, in_glb, views1_png, work, uv_size)              # общий код сборки GLB заглушки; его запись в calls убираем — это не вызов шести видов
+            del self.calls[n_:]
+            self.calls.append(('unproject12', os.path.basename(views1_png), os.path.basename(views2_png), uv_size))
+            self.merge_info = {'match': 'on', 'filled_pct': 12.5, 'strong_changed': 0}
+            return out
+
+    p12 = {**params, 'mv_views': 12}
+    r12 = Fake12()
+    f12, m12 = W.mv_texture_on_shape(r12, mesh_in, photo0, p12, None, tempfile.mkdtemp(prefix='mvw-'))
+    ok('12 камер: порядок стадий виды → виды2 → запекание двух проходов (одноразовый `unproject` шести видов не зовётся)', [c[0] for c in r12.calls] == ['views', 'views2', 'unproject12'] and r12.calls[2][1:3] == ('mv.png', 'mv2.png'), str(r12.calls))
+    ok('12 камер: метрики — mv_views, камеры, итог слияния, миниатюра видов 2 и время обоих проходов; стадии views2 и unproject в stage_s',
+       m12['mv_views'] == 12 and m12['mv12']['az'] == W.MV2_AZ and m12['mv12']['el'] == W.MV2_EL and m12['mv12']['merge']['filled_pct'] == 12.5 and bool(m12['views2_jpeg_b64'])
+       and {'views', 'views2', 'unproject'} <= set(m12['stage_s']) and m12['mv12']['views_s']['pass2'] == m12['stage_s']['views2'], str(m12)[:300])
+    ok('12 камер: защита «форма и развёртка не изменились» работает так же — итог те же вершины/грани/развёртка', np.allclose(np.asarray(f12.vertices), Vi, atol=1e-9) and np.array_equal(np.asarray(f12.faces), F) and m12['shape']['hausdorff_rel'] <= 1e-4)
+    try:
+        W.mv_texture_on_shape(Fake12(perturb=(5, 0, 0.01)), mesh_in, photo0, p12, None, tempfile.mkdtemp(prefix='mvw-'))
+        ok('12 камер: сдвинутая форма — ошибка', False)
+    except W.ShapeChanged:
+        ok('12 камер: сдвинутая форма — ShapeChanged (файл не отдаётся)', True)
+    for nm, prm in (('mv_views=8', {**params, 'mv_views': 8}), ('mv_views=12 вместе с mv_keep_stages', {**p12, 'mv_keep_stages': 1})):
+        rz = Fake12()
+        try:
+            W.mv_texture_on_shape(rz, mesh_in, photo0, prm, None, tempfile.mkdtemp(prefix='mvw-'))
+            ok(nm + ' — отказ до вызова апстрима', False)
+        except ValueError:
+            ok(nm + ' — ValueError до вызова апстрима (видеокарта не тронута, платить не за что)', rz.calls == [])
+    # по умолчанию — прежний путь: заглушка БЕЗ views2/unproject12, набор метрик без новых ключей
+    base_calls = FakeRunner()
+    f6, m6 = W.mv_texture_on_shape(base_calls, mesh_in, photo0, params, None, tempfile.mkdtemp(prefix='mvw-'))
+    f6b, m6b = W.mv_texture_on_shape(FakeRunner(), mesh_in, photo0, {**params, 'mv_views': 6}, None, tempfile.mkdtemp(prefix='mvw-'))
+    f6c, m6c = W.mv_texture_on_shape(FakeRunner(), mesh_in, photo0, {**params, 'mv_views': ''}, None, tempfile.mkdtemp(prefix='mvw-'))
+    new_keys = {'mv_views', 'mv12', 'views2_jpeg_b64'}
+    ok('без параметра, с mv_views=6 и с пустым — РОВНО прежний путь (views → unproject; у заглушки нет views2/unproject12), новых ключей метрик нет',
+       [c[0] for c in base_calls.calls] == ['views', 'unproject'] and not (new_keys & set(m6)) and not (new_keys & set(m6b)) and not (new_keys & set(m6c)) and set(m6) == set(m6b) == set(m6c))
+    ok('итог шести камер не зависит от наличия параметра (те же байты текстуры и вершин)', np.array_equal(np.asarray(f6.visual.material.baseColorTexture), np.asarray(f6b.visual.material.baseColorTexture))
+       and np.array_equal(np.asarray(f6.vertices), np.asarray(f6b.vertices)))
+
 print('[3] драйвер')
 import trellis_trial as T  # noqa: E402
 b = T.build_body('trial-mvadapter-i2tex-x', 'ghcr.io/x/y:t', 'high', 'mvadapter-i2tex', 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}}, extra_env={'MVTEX_OFFLOAD': '0'})
@@ -582,6 +696,35 @@ ok('два товара в ОДНОЙ группе (сухой прогон): к
    rc == 0 and txt2.count('  задание ') == 2 and 'задание a_1-1024-42-0-%s' % 'mvtex' in txt2 and 'задание b_2-1024-42-0-%s' % 'mvtex' in txt2 and txt2.count('группа trial-mvadapter-i2tex-m ') == 1
    and 'a_1-1024-42-0.clean2.glb' in txt2 and 'b_2-1024-42-0.clean.glb' in txt2 and 'заданий 2' in txt2, txt2[:300])
 ok('результаты — в СВОЕЙ папке модели (…/mesh-models-1118/mvadapter-i2tex), не в общей `trellis/`', ns.out == T.default_out('mvadapter-i2tex') and os.path.basename(ns.out) == 'mvadapter-i2tex' and os.path.basename(ns.out) != 'trellis', ns.out)
+ok('mv_options: --mv-views 12 → ключ mv_views=12; 6/нет → ключа НЕТ (тело задания прежнее); 8 и 12 вместе с --mv-keep-stages → None',
+   T.mv_options(NS(mv_views=12)) == {'mv_yaw': 'auto', 'mv_uv_size': 4096, 'mv_steps': 50, 'mv_ref_scale': 1.0, 'mv_views': 12}
+   and T.mv_options(NS(mv_views=6)) == T.mv_options(NS()) == {'mv_yaw': 'auto', 'mv_uv_size': 4096, 'mv_steps': 50, 'mv_ref_scale': 1.0} and T.mv_options(NS(mv_views=8)) is None
+   and T.mv_options(NS(mv_views=12, mv_keep_stages=True)) is None and 'mv_views' in T.mv_options(NS(mv_views=12, mv_yaw='90')))
+cat3 = tempfile.mkdtemp(prefix='shp3-')                        # SHAPE_TAG / --shape-tag: форма ТОЛЬКО заданного вида, без запасных
+for fn_ in ('a_1-1024-42-0.clean2.glb', 'a_1-1024-42-0.clean3.glb', 'b_2-1024-42-0.clean2.glb'):
+    open(os.path.join(cat3, fn_), 'wb').write(b'glTF')
+ok('find_shape: без тега — прежний порядок clean2 → clean; с тегом clean3 — только он; тега нет у товара — None (не подменяем формой clean2)',
+   T.find_shape(cat3, 'a:1')[0].endswith('a_1-1024-42-0.clean2.glb') and T.find_shape(cat3, 'a:1', 'clean3')[0].endswith('a_1-1024-42-0.clean3.glb') and T.find_shape(cat3, 'b:2', 'clean3') is None
+   and T.find_shape(cat3, 'b:2')[0].endswith('b_2-1024-42-0.clean2.glb'))
+rc = T.run(NS(**{**base, 'skus': ['a:1', 'b:2'], 'texture_mesh': None, 'shape_dir': cat3, 'shape_tag': 'clean3'}), NoTouchMG(), NoTouchMG())
+ok('--shape-tag clean3, а у b:2 такой формы нет — отказ (код 2) ДО Salad, группа не создаётся, денег 0', rc == 2)
+rc = T.run(NS(**{**base, 'skus': ['a:1'], 'texture_mesh': None, 'shape_dir': cat3, 'shape_tag': '../x'}), NoTouchMG(), NoTouchMG())
+ok('--shape-tag с путём вместо имени — отказ до Salad', rc == 2)
+rc = T.run(NS(**{**base, 'texture_mesh': None, 'shape_dir': cat3, 'mv_views': 12, 'mv_keep_stages': True}), NoTouchMG(), NoTouchMG())
+ok('--mv-views 12 вместе с --mv-keep-stages — отказ до Salad', rc == 2)
+ns12 = NS(**{**ns.__dict__, 'skus': ['a:1'], 'texture_mesh': None, 'shape_dir': cat3, 'shape_tag': 'clean3', 'mv_views': 12, 'out': None, 'suffix': 'v'})
+buf = io.StringIO()
+with redirect_stdout(buf):
+    rc = T.run(ns12, DryMG(), NS())
+t12 = buf.getvalue()
+ok('сухой прогон с --mv-views 12 --shape-tag clean3: код 0, форма clean3, в печати параметров задания mv_views=12, секретов нет, группа не создаётся (денег 0)',
+   rc == 0 and 'a_1-1024-42-0.clean3.glb' in t12 and '"mv_views": 12' in t12 and 'hf_SECRET' not in t12 and 'PW' not in t12 and 'задание a_1-1024-42-0-mvtex' in t12, t12[:400])
+ns6 = NS(**{**ns.__dict__, 'skus': ['a:1'], 'texture_mesh': None, 'shape_dir': cat3, 'out': None, 'suffix': 'w'})
+buf = io.StringIO()
+with redirect_stdout(buf):
+    rc = T.run(ns6, DryMG(), NS())
+t6 = buf.getvalue()
+ok('сухой прогон БЕЗ параметров: форма по прежнему порядку (clean2), в параметрах задания нет mv_views', rc == 0 and 'a_1-1024-42-0.clean2.glb' in t6 and 'mv_views' not in t6, t6[:300])
 ok('чужой результат в папке — отказ (owner_conflicts не ослаблен): файл от другой модели под тем же именем', T.owner_conflicts(tp, ['x'], 'mvadapter-i2tex') == [] and (lambda: (open(os.path.join(tp, 'x-1024-42-0-mvtex.model'), 'w').write('trellis2'), T.owner_conflicts(tp, ['x-1024-42-0-mvtex'], 'mvadapter-i2tex'))[1])() == ['x-1024-42-0-mvtex'])
 
 print('ИТОГО: ' + ('всё в норме' if not bad else f'провалов {bad}'))

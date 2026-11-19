@@ -30,7 +30,14 @@ probe_init() {
   local skuf c
   for s in "${SKUS[@]}"; do
     skuf="${s//:/_}"
-    if [ -f "$SHAPE_DIR/${skuf}-1024-42-0.clean2.glb" ]; then
+    if [ -n "${SHAPE_TAG:-}" ]; then                 # SHAPE_TAG=clean3 — форма ТОЛЬКО этого вида (без запасных: подмена формы незаметно портит сравнение); по умолчанию прежний порядок clean2 → clean
+      case "$SHAPE_TAG" in *[!a-z0-9]*) echo "SHAPE_TAG: латиница/цифры (например clean3), получено «$SHAPE_TAG»" >&2; exit 2;; esac
+      if [ -f "$SHAPE_DIR/${skuf}-1024-42-0.${SHAPE_TAG}.glb" ]; then
+        SHAPE[$s]="$SHAPE_DIR/${skuf}-1024-42-0.${SHAPE_TAG}.glb"; echo "[$s] форма: ${SHAPE[$s]} — ${SHAPE_TAG} (задана SHAPE_TAG)"
+      else
+        echo "[$s] нет формы: $SHAPE_DIR/${skuf}-1024-42-0.${SHAPE_TAG}.glb (задана SHAPE_TAG=$SHAPE_TAG; запасных форм нет)" >&2; bad=1
+      fi
+    elif [ -f "$SHAPE_DIR/${skuf}-1024-42-0.clean2.glb" ]; then
       SHAPE[$s]="$SHAPE_DIR/${skuf}-1024-42-0.clean2.glb"; echo "[$s] форма: ${SHAPE[$s]} — clean2 (правило очистки E)"
     elif [ -f "$SHAPE_DIR/${skuf}-1024-42-0.clean.glb" ]; then
       SHAPE[$s]="$SHAPE_DIR/${skuf}-1024-42-0.clean.glb"; echo "[$s] форма: ${SHAPE[$s]} — clean (прежнее правило очистки; clean2 нет)"

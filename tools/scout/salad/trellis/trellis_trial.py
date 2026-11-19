@@ -181,9 +181,12 @@ def save_stages(out: str, sku: str, job_id: str, data: bytes) -> dict:
     return {'zip': zp, 'dir': dest, 'bytes': len(data), 'files': n}
 
 
-def find_shape(shape_dir: str, sku: str) -> tuple[str, str] | None:
-    """Форма товара из каталога форм (`~/remlab-logs/mesh-models-1118/trellis/`): `<магазин_товар>-1024-42-0.clean2.glb`, если есть, иначе `.clean.glb`. → (путь, вид) или None."""
+def find_shape(shape_dir: str, sku: str, tag: str | None = None) -> tuple[str, str] | None:
+    """Форма товара из каталога форм (`~/remlab-logs/mesh-models-1118/trellis/`): `<магазин_товар>-1024-42-0.clean2.glb`, если есть, иначе `.clean.glb`. → (путь, вид) или None.
+    `tag` (`--shape-tag`, например clean3) — берётся ТОЛЬКО форма `.<tag>.glb` (без запасных: подмена формы незаметно портит сравнение)."""
     stem = os.path.join(os.path.expanduser(shape_dir), sku.replace(':', '_') + '-1024-42-0')
+    if tag:
+        return (f'{stem}.{tag}.glb', f'{tag} (задана --shape-tag)') if os.path.isfile(f'{stem}.{tag}.glb') else None
     for kind, label in SHAPE_KINDS:
         if os.path.isfile(f'{stem}.{kind}.glb'):
             return f'{stem}.{kind}.glb', label
@@ -208,14 +211,18 @@ def resolve_shapes(a, skus: list[str]) -> tuple[dict | None, str]:
         return {skus[0]: os.path.expanduser(tm)}, ''
     found, missing = {}, []
     for sku in skus:
-        hit = find_shape(sd, sku)
+        stag = getattr(a, 'shape_tag', None)
+        if stag is not None and not re.fullmatch(r'[a-z0-9]{1,16}', str(stag)):
+            return None, f'{a.model}: --shape-tag — латиница/цифры (например clean3), получено {stag!r} — группа не создаётся'
+        hit = find_shape(sd, sku, stag or None)
         if hit is None:
             missing.append(sku)
         else:
             found[sku] = hit[0]
             say('форма', sku, '→', hit[0], '—', hit[1])
     if missing:
-        return None, f'{a.model}: нет формы (ни clean2, ни clean в {sd}) у товаров: {", ".join(missing)} — группа не создаётся'
+        what = f'формы .{a.shape_tag}.glb' if getattr(a, 'shape_tag', None) else 'формы (ни clean2, ни clean'
+        return None, f'{a.model}: нет {what} в {sd}{"" if getattr(a, "shape_tag", None) else ")"} у товаров: {", ".join(missing)} — группа не создаётся'
     return found, ''
 
 
@@ -266,6 +273,11 @@ def mv_options(a) -> dict | None:
     out = {'mv_yaw': yaw, 'mv_uv_size': uv, 'mv_steps': steps, 'mv_ref_scale': ref}
     if getattr(a, 'mv_keep_stages', False):                # А0 (только проба): ключ в задании появляется ТОЛЬКО с флагом — без него тело задания прежнее
         out['mv_keep_stages'] = 1
+    nv = getattr(a, 'mv_views', None)
+    if nv is not None and int(nv) != 6:                    # вариант 5 «12 камер» (T-20261119-48/1): ключ появляется ТОЛЬКО при 12 — без него тело задания прежнее (6 камер, тот же путь)
+        if int(nv) != 12 or out.get('mv_keep_stages'):     # допустимо 6 или 12; стадии сохраняются только для шести видов
+            return None
+        out['mv_views'] = 12
     return out
 
 
@@ -545,7 +557,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     if a.model == 'mvadapter-i2tex':                      # краска MV-Adapter по готовой форме: параметры из списка — иначе отказ ДО группы и денег
         mvo = mv_options(a)
         if mvo is None:
-            say(f'mvadapter-i2tex: --mv-yaw из {MV_YAWS}, --mv-uv-size из {MV_UV_SIZES}, --mv-steps 1..100, --mv-ref-scale 0..2 — группа не создаётся')
+            say(f'mvadapter-i2tex: --mv-yaw из {MV_YAWS}, --mv-uv-size из {MV_UV_SIZES}, --mv-steps 1..100, --mv-ref-scale 0..2, --mv-views 6|12 (12 — без --mv-keep-stages) — группа не создаётся')
             return 2
     supo = {}
     if a.model == 'supratex':                             # SUPRA-Tex красит готовую форму (и сам её пересобирает): параметры из списка — иначе отказ ДО группы и денег
@@ -643,6 +655,8 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     if wenv:
         say('окружение воркера (отладка/настройки):', wenv)
     say('группа', name, CARD['class_name'], 'тариф', a.tier, 'цена $/ч', price, f'[{price_src}]', 'заданий', len(jobs), 'потолок $', a.cap)
+    if mvo and a.model == 'mvadapter-i2tex':              # параметры, которые уйдут в тело КАЖДОГО задания (в сухом прогоне видно, что mv_views=12 доедет)
+        say('параметры задания (в тело каждого):', json.dumps(mvo, ensure_ascii=False, sort_keys=True))
     if not a.apply:
         safe_print(body)
         for j in jobs:
@@ -827,6 +841,10 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                                     if vb:
                                         open(fp[:-4] + '.views.jpg', 'wb').write(base64.b64decode(vb))
                                         r['metrics']['views_jpeg_b64'] = 'saved:' + os.path.basename(fp[:-4]) + '.views.jpg'
+                                    vb2 = (r.get('metrics') or {}).get('views2_jpeg_b64')         # mvadapter-i2tex с --mv-views 12: шесть косых видов второго прохода
+                                    if vb2:
+                                        open(fp[:-4] + '.views2.jpg', 'wb').write(base64.b64decode(vb2))
+                                        r['metrics']['views2_jpeg_b64'] = 'saved:' + os.path.basename(fp[:-4]) + '.views2.jpg'
                                     inflight['glb_bytes'] = len(glb)
                                     if (r.get('metrics') or {}).get('stages'):                 # mvadapter-i2tex с --mv-keep-stages: архив стадий (А0) — тем же путём, что GLB, `?v=stages`
                                         cs, zb = gw.call('GET', '/glb/' + inflight['job_id'] + '?v=stages', timeout=900, raw=True)
@@ -922,6 +940,9 @@ def main() -> int:
     ap.add_argument('--mv-uv-size', type=int, default=4096, help='mvadapter-i2tex: размер развёртки при проекции видов (1024/2048/4096; 4096 — как в апстриме, самый тяжёлый по памяти)')
     ap.add_argument('--mv-steps', type=int, default=50, help='mvadapter-i2tex: шагов SDXL (по умолчанию 50, как в апстриме)')
     ap.add_argument('--mv-ref-scale', type=float, default=1.0, help='mvadapter-i2tex: сила опоры на фото (reference_conditioning_scale, по умолчанию 1,0)')
+    ap.add_argument('--mv-views', type=int, default=6, help='mvadapter-i2tex: 6 (по умолчанию, как раньше) или 12 (вариант 5: второй проход SDXL с косыми камерами на той же форме и фото; второй проход заполняет невидимое и плохо видимое первого, '
+                    'хорошо видимое не меняет). С --mv-keep-stages не сочетается')
+    ap.add_argument('--shape-tag', default=None, help='текстурные модели: брать форму `<магазин_товар>-1024-42-0.<тег>.glb` (например clean3) вместо порядка clean2 → clean; нет файла у кого-то — отказ до группы (запасных форм нет)')
     ap.add_argument('--mv-keep-stages', action='store_true', help='mvadapter-i2tex, только проба (А0): воркер сохраняет стадии без потерь (виды 768 и 1536, карты 4096/2048, запекание из одного вида 0, рендеры в камере вида 0) в stages.zip; драйвер кладёт их в <out>/<магазин_товар>/stages/. По умолчанию выключено — ничего не меняет')
     ap.add_argument('--mvp-yaw', default='auto', help='mvpainter: поворот формы к виду 0: auto — по силуэту фото, либо 0/90/180/270')
     ap.add_argument('--mvp-steps', type=int, default=75, help='mvpainter: шагов диффузии (по умолчанию 75, как в апстриме)')

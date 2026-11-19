@@ -12,6 +12,8 @@
 # Группа своя: `trial-mvadapter-i2tex-<SUFFIX>` (группа рабочего 1 `r30` не трогается). Только 4090, тариф high, остановка с проверкой — в драйвере.
 # Параметры: MV_YAW=auto|0|90|180|270 (поворот формы лицом к виду 0; auto — по силуэту фото), MV_UV_SIZE=4096|2048|1024, MV_STEPS=50, MV_REF_SCALE=1.0,
 # MV_KEEP_STAGES=1 (А0: сохранить виды 768/1536, карты 4096/2048, запекание из одного вида 0, рендеры в камере вида 0 → $OUT/<магазин_товар>/stages/; по умолчанию 0),
+# MV_VIEWS=12 (вариант 5: второй проход SDXL с косыми камерами, слияние «второй заполняет невидимое и плохо видимое первого»; по умолчанию 6; с MV_KEEP_STAGES не сочетается),
+# SHAPE_TAG=clean3 (форма ТОЛЬКО вида `<товар>-1024-42-0.clean3.glb` в $SHAPE_DIR, без запасных; по умолчанию прежний порядок clean2 → clean),
 # DEBUG_CUDA=1 (CUDA_LAUNCH_BLOCKING + стеки C++), WORKER_ENV="MVTEX_OFFLOAD=0 MVTEX_ALLOC_CONF=…".
 # Результат: OUT (по умолчанию ~/remlab-logs/t19-06-1119/run-<ЧЧММ по Лондону>/), НЕ папка `trellis/` (чужие результаты не затираются); задание — `<магазин_товар>-1024-42-0-mvtex` (GLB лежат в OUT);
 # кадры, лист «гибрид р.3 | MV-Adapter» и метрика — по товару, в подпапке `OUT/<магазин_товар>/`.
@@ -32,9 +34,14 @@ if [ -z "${ONLY_SCORE:-}" ]; then
   EXTRA=()
   [ "${DEBUG_CUDA:-0}" = "1" ] && EXTRA+=(--debug-cuda)
   [ "${MV_KEEP_STAGES:-0}" = "1" ] && EXTRA+=(--mv-keep-stages)       # А0: воркер сохраняет стадии без потерь, драйвер кладёт их в $OUT/<магазин_товар>/stages/ (только проба)
+  case "${MV_VIEWS:-6}" in
+    6) ;;
+    12) EXTRA+=(--mv-views 12);;                                         # вариант 5 «12 камер» (T-20261119-48/1): второй проход SDXL с косыми камерами; без переменной — 6 камер, тело задания прежнее
+    *) echo "MV_VIEWS: 6 или 12, получено «${MV_VIEWS}» — группа не создаётся" >&2; exit 2;;
+  esac
   for kv in ${WORKER_ENV:-}; do EXTRA+=(--worker-env "$kv"); done
   "$PY" trellis_trial.py --model mvadapter-i2tex --image "$IMAGE" --inputs "$BASE/inputs30" --skus "${SKUS[@]}" \
-    --shape-dir "$SHAPE_DIR" --plan 1024:1 --seed 42 --tier high --cap "$CAP" --suffix "$SUFFIX" --out "$OUT" \
+    --shape-dir "$SHAPE_DIR" ${SHAPE_TAG:+--shape-tag "$SHAPE_TAG"} --plan 1024:1 --seed 42 --tier high --cap "$CAP" --suffix "$SUFFIX" --out "$OUT" \
     --mv-yaw "${MV_YAW:-auto}" --mv-uv-size "${MV_UV_SIZE:-4096}" --mv-steps "${MV_STEPS:-50}" --mv-ref-scale "${MV_REF_SCALE:-1.0}" \
     ${EXTRA[@]+"${EXTRA[@]}"} $FLAG || exit $?
   [ -z "$FLAG" ] && { echo "сухой прогон окончен: денег 0"; exit 0; }
