@@ -149,8 +149,8 @@ def parse_ladder(path: str) -> list[dict]:
 
 
 def expand_ladder_jobs(jobs: list[dict], ladder: list[dict]) -> list[dict]:
-    """Задание на каждую ступень лесенки для каждого товара: `res`, фото (`cur` — как в БД 30 товаров, `hd` — `<товар>.hd.rgba.png`) и параметры ступени."""
-    return [dict(j, job_id=f'{j["sku"].replace(":", "_")}-{r["name"]}', res=r['res'], input=r['input'], worker_params=r['params']) for j in jobs for r in ladder]
+    """Задание на каждую ступень лесенки для каждого товара (порядок — по ступеням: сперва все товары первой ступени, затем второй…): `res`, фото (`cur` — как в БД 30 товаров, `hd` — `<товар>.hd.rgba.png`) и параметры ступени."""
+    return [dict(j, job_id=f'{j["sku"].replace(":", "_")}-{r["name"]}', res=r['res'], input=r['input'], worker_params=r['params']) for r in ladder for j in jobs]
 
 
 def price_usd_h(tier: str) -> float | None:
