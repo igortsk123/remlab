@@ -158,6 +158,29 @@ def job_mem(x: dict, mem_limit_gb: float | None) -> dict:
     return {'peak_vram_gb': vram, 'peak_rss_gb': rss, 'peak_cgroup_gb': cg, 'mem_limit_gb': mem_limit_gb}
 
 
+def save_stages(out: str, sku: str, job_id: str, data: bytes) -> dict:
+    """А0: архив стадий (`stages.zip` задания) → `<out>/<job_id>.stages.zip` и распаковка в `<out>/<магазин_товар>/stages/`. Пути внутри архива проверяются (только внутрь папки)."""
+    import zipfile
+    zp = os.path.join(out, job_id + '.stages.zip')
+    open(zp, 'wb').write(data)
+    dest = os.path.join(out, sku.replace(':', '_'), 'stages')
+    os.makedirs(dest, exist_ok=True)
+    root = os.path.realpath(dest)
+    n = 0
+    with zipfile.ZipFile(zp) as z:
+        for info in z.infolist():
+            tgt = os.path.realpath(os.path.join(dest, info.filename))
+            if info.is_dir():
+                continue
+            if tgt != root and not tgt.startswith(root + os.sep):
+                raise ValueError(f'в архиве стадий путь вне папки: {info.filename}')
+            os.makedirs(os.path.dirname(tgt), exist_ok=True)
+            with z.open(info) as src, open(tgt, 'wb') as dst:
+                dst.write(src.read())
+            n += 1
+    return {'zip': zp, 'dir': dest, 'bytes': len(data), 'files': n}
+
+
 def find_shape(shape_dir: str, sku: str) -> tuple[str, str] | None:
     """Форма товара из каталога форм (`~/remlab-logs/mesh-models-1118/trellis/`): `<магазин_товар>-1024-42-0.clean2.glb`, если есть, иначе `.clean.glb`. → (путь, вид) или None."""
     stem = os.path.join(os.path.expanduser(shape_dir), sku.replace(':', '_') + '-1024-42-0')
@@ -240,7 +263,10 @@ def mv_options(a) -> dict | None:
     ref = float(getattr(a, 'mv_ref_scale', 1.0) if getattr(a, 'mv_ref_scale', None) is not None else 1.0)
     if yaw not in MV_YAWS or uv not in MV_UV_SIZES or not 1 <= steps <= 100 or not 0 <= ref <= 2:
         return None
-    return {'mv_yaw': yaw, 'mv_uv_size': uv, 'mv_steps': steps, 'mv_ref_scale': ref}
+    out = {'mv_yaw': yaw, 'mv_uv_size': uv, 'mv_steps': steps, 'mv_ref_scale': ref}
+    if getattr(a, 'mv_keep_stages', False):                # А0 (только проба): ключ в задании появляется ТОЛЬКО с флагом — без него тело задания прежнее
+        out['mv_keep_stages'] = 1
+    return out
 
 
 def mvp_options(a) -> dict | None:
@@ -802,6 +828,13 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                                         open(fp[:-4] + '.views.jpg', 'wb').write(base64.b64decode(vb))
                                         r['metrics']['views_jpeg_b64'] = 'saved:' + os.path.basename(fp[:-4]) + '.views.jpg'
                                     inflight['glb_bytes'] = len(glb)
+                                    if (r.get('metrics') or {}).get('stages'):                 # mvadapter-i2tex с --mv-keep-stages: архив стадий (А0) — тем же путём, что GLB, `?v=stages`
+                                        cs, zb = gw.call('GET', '/glb/' + inflight['job_id'] + '?v=stages', timeout=900, raw=True)
+                                        if cs == 200:
+                                            inflight['stages'] = save_stages(a.out, inflight['sku'], inflight['job_id'], zb)
+                                        else:
+                                            inflight['stages'] = {'error': f'архив стадий не скачался: HTTP {cs}'}
+                                            say('!! архив стадий не скачался:', inflight['job_id'], f'HTTP {cs}')
                                     if (r.get('metrics') or {}).get('has_ai'):          # localmesh: вторая версия — текстура «как нарисовала модель», до проекции фото
                                         ca, glb_ai = gw.call('GET', '/glb/' + inflight['job_id'] + '?v=ai', timeout=300, raw=True)
                                         if ca == 200:
@@ -889,6 +922,7 @@ def main() -> int:
     ap.add_argument('--mv-uv-size', type=int, default=4096, help='mvadapter-i2tex: размер развёртки при проекции видов (1024/2048/4096; 4096 — как в апстриме, самый тяжёлый по памяти)')
     ap.add_argument('--mv-steps', type=int, default=50, help='mvadapter-i2tex: шагов SDXL (по умолчанию 50, как в апстриме)')
     ap.add_argument('--mv-ref-scale', type=float, default=1.0, help='mvadapter-i2tex: сила опоры на фото (reference_conditioning_scale, по умолчанию 1,0)')
+    ap.add_argument('--mv-keep-stages', action='store_true', help='mvadapter-i2tex, только проба (А0): воркер сохраняет стадии без потерь (виды 768 и 1536, карты 4096/2048, запекание из одного вида 0, рендеры в камере вида 0) в stages.zip; драйвер кладёт их в <out>/<магазин_товар>/stages/. По умолчанию выключено — ничего не меняет')
     ap.add_argument('--mvp-yaw', default='auto', help='mvpainter: поворот формы к виду 0: auto — по силуэту фото, либо 0/90/180/270')
     ap.add_argument('--mvp-steps', type=int, default=75, help='mvpainter: шагов диффузии (по умолчанию 75, как в апстриме)')
     ap.add_argument('--mvp-reduce', default='1', choices=['0', '1'], help='mvpainter: 1 — штатное упрощение формы до 30 тыс. вершин (по умолчанию, как у авторов), 0 — не упрощать')

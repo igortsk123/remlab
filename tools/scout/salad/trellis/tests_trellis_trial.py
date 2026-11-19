@@ -597,5 +597,78 @@ rc, mg9, br9, _ = go(d, model='mvadapter-i2tex', skus=['a:1', 'b:2', 'c:3'], sha
 sm9 = json.load(open(os.path.join(d, 'out', 'summary-trial-mvadapter-i2tex-q3.json')))
 ok('фатальный отказ на первом: failed 1 по своей категории, остальные два — not_run = 2', sm9['fail_classes']['not_run'] == 2 and sm9['fail_classes']['cuda'] == 1 and sum(v for k, v in sm9['fail_classes'].items() if k != 'not_run') == 1, str(sm9['fail_classes']))
 
+print('[7] А0: --mv-keep-stages — архив стадий скачивается и раскладывается (T-20261119-47/1)')
+import zipfile  # noqa: E402
+
+
+def stages_zip_bytes(extra=None):
+    bio = io.BytesIO()
+    with zipfile.ZipFile(bio, 'w', zipfile.ZIP_STORED) as z:
+        z.writestr('manifest.json', '{"error": null}')
+        z.writestr('views_768/v0.png', b'PNG0')
+        z.writestr('render_view0/r2048.png', b'PNG1')
+        for name in (extra or []):
+            z.writestr(name, b'x')
+    return bio.getvalue()
+
+
+class StagesGW(FakeGW):
+    """Шлюз: задание отдаёт метрики с `stages` (как воркер при mv_keep_stages), `?v=stages` — архив; запоминает тела заданий и все запросы архива."""
+    bodies: list = []
+    zip_calls: list = []
+    zip_data = b''
+    zip_code = 200
+    with_stages = True
+
+    def call(self, method, path, body=None, timeout=60, raw=False):
+        if path == '/generate':
+            StagesGW.bodies.append(dict(body))
+        if path.startswith('/glb/') and '?v=stages' in path:
+            StagesGW.zip_calls.append((path, timeout))
+            return StagesGW.zip_code, (StagesGW.zip_data if StagesGW.zip_code == 200 else {})
+        c, r = super().call(method, path, body, timeout, raw)
+        if path.startswith('/job/') and r.get('status') == 'done' and StagesGW.with_stages:
+            r = {**r, 'metrics': {**r['metrics'], 'stages': {'zip': 'x.stages.zip', 'bytes': len(StagesGW.zip_data), 'files': 3}}}
+        return c, r
+
+
+ok('mv_options: без флага тело задания прежнее (ключа mv_keep_stages нет); с флагом — mv_keep_stages=1',
+   'mv_keep_stages' not in T.mv_options(types.SimpleNamespace()) and T.mv_options(types.SimpleNamespace(mv_keep_stages=False)) == T.mv_options(types.SimpleNamespace())
+   and T.mv_options(types.SimpleNamespace(mv_keep_stages=True))['mv_keep_stages'] == 1)
+d7 = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d7, ('a:1',))
+cat7 = tempfile.mkdtemp(prefix='shp-')
+open(os.path.join(cat7, 'a_1-1024-42-0.clean2.glb'), 'wb').write(b'glTF')
+StagesGW.bodies, StagesGW.zip_calls, StagesGW.zip_data = [], [], stages_zip_bytes()
+rc, _mg, _br, _ = go(d7, model='mvadapter-i2tex', skus=['a:1'], shape_dir=cat7, texture_mesh=None, gw=StagesGW, mv_keep_stages=True, mem_mb=None, suffix='k1')
+sk = json.load(open(os.path.join(d7, 'out', 'summary-trial-mvadapter-i2tex-k1.json')))
+st = sk['jobs'][0].get('stages') or {}
+dest = os.path.join(d7, 'out', 'a_1', 'stages')
+ok('с флагом: в задание уехал mv_keep_stages=1; архив запрошен ОДИН раз тем же шлюзом (?v=stages, долгий таймаут)', rc == 0 and StagesGW.bodies[0].get('mv_keep_stages') == 1 and len(StagesGW.zip_calls) == 1
+   and StagesGW.zip_calls[0][0] == '/glb/a_1-1024-42-0-mvtex?v=stages' and StagesGW.zip_calls[0][1] >= 600, str((StagesGW.bodies, StagesGW.zip_calls)))
+ok('архив лёг в OUT/<ключ>/stages/ с подпапками; сам zip — рядом с GLB; в сводке — число файлов и размер', os.path.exists(os.path.join(dest, 'manifest.json')) and open(os.path.join(dest, 'views_768', 'v0.png'), 'rb').read() == b'PNG0'
+   and os.path.exists(os.path.join(dest, 'render_view0', 'r2048.png')) and os.path.exists(os.path.join(d7, 'out', 'a_1-1024-42-0-mvtex.stages.zip')) and st.get('files') == 3 and st.get('bytes') == len(StagesGW.zip_data)
+   and st.get('dir') == dest, str(st))
+StagesGW.bodies, StagesGW.zip_calls = [], []
+d8 = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d8, ('a:1',))
+StagesGW.with_stages = False                                   # без флага воркер блока stages в метрики не кладёт
+rc, _mg, _br, _ = go(d8, model='mvadapter-i2tex', skus=['a:1'], shape_dir=cat7, texture_mesh=None, gw=StagesGW, mem_mb=None, suffix='k2')
+ok('без флага: ключа mv_keep_stages в теле задания нет, архив не запрашивается, папки stages нет', rc == 0 and 'mv_keep_stages' not in StagesGW.bodies[0] and StagesGW.zip_calls == [] and not os.path.exists(os.path.join(d8, 'out', 'a_1', 'stages')))
+StagesGW.with_stages = True
+StagesGW.zip_code, StagesGW.zip_calls = 404, []
+d9 = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d9, ('a:1',))
+rc, _mg, _br, _ = go(d9, model='mvadapter-i2tex', skus=['a:1'], shape_dir=cat7, texture_mesh=None, gw=StagesGW, mv_keep_stages=True, mem_mb=None, suffix='k3')
+sk3 = json.load(open(os.path.join(d9, 'out', 'summary-trial-mvadapter-i2tex-k3.json')))
+ok('архив не скачался (404): задание остаётся done, GLB на месте, причина — в сводке; группа остановлена', sk3['jobs'][0]['status'] == 'done' and os.path.exists(sk3['jobs'][0]['glb_path']) and 'HTTP 404' in str(sk3['jobs'][0].get('stages')) and sk3['stop_verified'])
+StagesGW.zip_code = 200
+evil = tempfile.mkdtemp(prefix='ev-')
+try:
+    T.save_stages(evil, 'a:1', 'j', stages_zip_bytes(['../../evil.txt']))
+    ok('архив с путём вне папки — отказ, файл снаружи не создан', False)
+except ValueError:
+    ok('архив с путём вне папки — отказ, файл снаружи не создан', not os.path.exists(os.path.join(evil, 'evil.txt')) and not os.path.exists(os.path.join(os.path.dirname(evil), 'evil.txt')))
+
 print('ИТОГО: ' + ('всё в норме' if not bad else f'провалов {bad}'))
 sys.exit(1 if bad else 0)

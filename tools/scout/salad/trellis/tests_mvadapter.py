@@ -300,6 +300,214 @@ if have_tm:
         else:
             sys.modules['torch'] = torch_keep
 
+print('[2b] А0: mv_keep_stages — стадии сохраняются, итог не меняется (T-20261119-47/1)')
+if have_tm:
+    import zipfile
+
+    class KeepRunner(FakeRunner):
+        """Заглушка с поддержкой А0: `unproject(…, capture=)` кладёт «перехваченное» (как подслушивающие обёртки настоящего раннера), `keep_stages` пишет файлы и возвращает описание."""
+        def __init__(self, fail=None, **kw):
+            super().__init__(**kw)
+            self.fail, self.capture_seen = fail, None
+
+        def unproject(self, in_glb, views_png, work, uv_size, capture=None):
+            self.capture_seen = capture
+            if capture is not None:
+                capture['up_pil'] = [Image.new('RGB', (12, 12), (i, i, i)) for i in range(6)]
+            return super().unproject(in_glb, views_png, work, uv_size)
+
+        def keep_stages(self, in_glb, uv_size, cap, tex_glb, tex_final, out_dir):
+            self.calls.append(('keep_stages', uv_size, len(cap['up_pil']), tex_glb.size, tex_final.size))
+            if self.fail:
+                os.makedirs(os.path.join(out_dir, 'maps'), exist_ok=True)
+                Image.new('RGB', (4, 4)).save(os.path.join(out_dir, 'maps', 'half.png'))
+                raise self.fail
+            os.makedirs(os.path.join(out_dir, 'render_view0'), exist_ok=True)
+            tex_final.save(os.path.join(out_dir, 'render_view0', 'r2048.png'))
+            return {'files': {'render_view0/r2048.png': 1}, 'timing_s': {'x': 0.1}, 'jpeg_mae_255': 0.5}
+
+    base_final, base_mt = W.mv_texture_on_shape(FakeRunner(), mesh_in, photo0, params, None, tempfile.mkdtemp(prefix='mvw-'))
+    ok('без флага: прежний вызов `unproject` (без capture — заглушка прежней подписи не падает), метрики без ключа stages и без стадии keep_stages',
+       'stages' not in base_mt and 'keep_stages' not in base_mt['stage_s'])
+    kr = KeepRunner()
+    zp = os.path.join(tempfile.mkdtemp(prefix='mvz-'), 'o.stages.zip')
+    fk, mk = W.mv_texture_on_shape(kr, mesh_in, photo0, {**params, 'mv_keep_stages': 1}, None, tempfile.mkdtemp(prefix='mvw-'), stages_zip=zp)
+    ok('с флагом: итог тот же — вершины, грани, развёртка и ТОЧНО та же текстура (байты), что без флага',
+       np.array_equal(np.asarray(fk.vertices), np.asarray(base_final.vertices)) and np.array_equal(np.asarray(fk.faces), np.asarray(base_final.faces))
+       and np.array_equal(np.asarray(fk.visual.uv), np.asarray(base_final.visual.uv)) and np.array_equal(np.asarray(fk.visual.material.baseColorTexture), np.asarray(base_final.visual.material.baseColorTexture)))
+    ok('с флагом: `unproject` получил capture, `keep_stages` — размер развёртки, 6 видов после апскейла, карту из GLB и итоговую 128²; guard формы сработал до него (метрики shape есть)',
+       kr.capture_seen is not None and ('keep_stages', 2048, 6, (64, 64), (128, 128)) in kr.calls and [c[0] for c in kr.calls] == ['views', 'unproject', 'keep_stages'] and mk['shape']['hausdorff_rel'] <= 1e-4)
+    with zipfile.ZipFile(zp) as z:
+        names = sorted(z.namelist())
+        mani = json.loads(z.read('manifest.json'))
+        mv_cols = Image.open(io.BytesIO(z.read('views_768/v3.png')))
+    ok('stages.zip: 6 видов по отдельности (v0…v5, каждый — своя шестая часть сетки без потерь), сетка mv.png, файлы раннера, manifest.json',
+       all(f'views_768/v{i}.png' in names for i in range(6)) and 'mv.png' in names and 'render_view0/r2048.png' in names and 'manifest.json' in names and mv_cols.size == (8, 8), str(names))
+    ok('manifest: размер развёртки, поворот, камеры (азимуты, подъёмы, ортокамера), ошибки нет, время стадий и потеря на JPEG от раннера',
+       mani['uv_size'] == 2048 and mani['yaw_deg'] == 0 and mani['mv_az'] == W.MV_AZ and mani['mv_el'] == W.MV_EL and mani['ortho'] == 1.1 and mani['error'] is None and mani['jpeg_mae_255'] == 0.5 and mani['view_px'] == 768)
+    st = mk['stages']
+    ok('метрики задания: архив, размер в байтах, число файлов, время стадии сохранения (keep_s и stage_s.keep_stages), ошибка None', st['zip'] == 'o.stages.zip' and st['bytes'] == os.path.getsize(zp) and st['files'] == len(names)
+       and st['error'] is None and st['keep_s'] >= 0 and 'keep_stages' in mk['stage_s'])
+    # сбой самого сохранения: GLB не теряется, архив — из того, что успело сохраниться, причина — в метриках
+    kf = KeepRunner(fail=ValueError('нет места'))
+    zp2 = os.path.join(tempfile.mkdtemp(prefix='mvz-'), 'f.stages.zip')
+    ff, mf = W.mv_texture_on_shape(kf, mesh_in, photo0, {**params, 'mv_keep_stages': '1'}, None, tempfile.mkdtemp(prefix='mvw-'), stages_zip=zp2)
+    with zipfile.ZipFile(zp2) as z2:
+        n2 = z2.namelist()
+    ok('сбой в keep_stages (обычный): итог отдаётся, ошибка в метриках, архив есть и содержит уже сохранённое + manifest с ошибкой', np.array_equal(np.asarray(ff.visual.material.baseColorTexture), np.asarray(base_final.visual.material.baseColorTexture))
+       and 'нет места' in mf['stages']['error'] and 'maps/half.png' in n2 and 'manifest.json' in n2 and 'views_768/v0.png' in n2, str(mf['stages']))
+    try:
+        W.mv_texture_on_shape(KeepRunner(fail=RuntimeError('CUDA error: an illegal memory access was encountered')), mesh_in, photo0, {**params, 'mv_keep_stages': 1}, None, tempfile.mkdtemp(prefix='mvw-'))
+        ok('фатальная ошибка CUDA в keep_stages — наружу (воркер помечается сломанным, как везде)', False)
+    except RuntimeError as e:
+        ok('фатальная ошибка CUDA в keep_stages — наружу (воркер помечается сломанным, как везде)', 'illegal memory' in str(e))
+    for off in (None, 0, '0', '', 'false'):
+        rn_off = FakeRunner()
+        _f, m_off = W.mv_texture_on_shape(rn_off, mesh_in, photo0, {**params, 'mv_keep_stages': off}, None, tempfile.mkdtemp(prefix='mvw-'))
+        if 'stages' in m_off:
+            ok(f'mv_keep_stages={off!r} — выключено', False)
+            break
+    else:
+        ok('mv_keep_stages = None / 0 / «0» / «» / «false» — выключено: ни архива, ни ключа в метриках', True)
+    ok('mv_keep_flag: 1, «1», True, «true» — включено; прочее — нет', all(W.mv_keep_flag(v) for v in (1, '1', True, 'true', 'True')) and not any(W.mv_keep_flag(v) for v in (None, 0, '0', '', 'false', False)))
+    # делит сетку на шесть без потерь
+    gd = tempfile.mkdtemp(prefix='mvs-')
+    grid = Image.new('RGB', (6 * 10, 10))
+    for i in range(6):
+        grid.paste(Image.new('RGB', (10, 10), (i * 40, 255 - i * 40, 7)), (10 * i, 0))
+    gp = os.path.join(gd, 'mv.png')
+    grid.save(gp)
+    rel = W.mv_split_views(gp, os.path.join(gd, 'views_768'))
+    ok('mv_split_views: 6 файлов v0…v5, у каждого свой цвет, размер шестой части', rel == [f'views_768/v{i}.png' for i in range(6)]
+       and all(tuple(Image.open(os.path.join(gd, r_)).getpixel((3, 3))) == (i * 40, 255 - i * 40, 7) and Image.open(os.path.join(gd, r_)).size == (10, 10) for i, r_ in enumerate(rel)))
+    # generate: архив рядом с GLB (его отдаёт воркер как /glb/<id>?v=stages), рабочая папка убрана; без флага рядом только GLB (проверено выше)
+    sav2 = {k: getattr(W, k) for k in ('JOBS_DIR', 'OUT', 'STATE_PATH')}
+    td2 = tempfile.mkdtemp(prefix='mvb2-')
+    W.JOBS_DIR, W.OUT, W.STATE_PATH = os.path.join(td2, 'jobs'), os.path.join(td2, 'out'), os.path.join(td2, 'state.json')
+    os.makedirs(W.JOBS_DIR)
+    os.makedirs(W.OUT)
+    torch_keep2 = sys.modules.get('torch')
+    sys.modules['torch'] = fake_torch()
+    try:
+        be2 = W.MVAdapterTexBackend()
+        be2.runner = KeepRunner()
+        mesh_in.export(os.path.join(W.JOBS_DIR, 'k1-mvtex.mesh.glb'))
+        met_k = be2.generate(photo0, {'job_id': 'k1-mvtex', 'texture_mesh': True, 'texture_size': 64, 'mv_steps': 5, 'mv_keep_stages': 1}, os.path.join(W.OUT, 'k1-mvtex.glb'))
+        ok('generate с mv_keep_stages: рядом с GLB лежит k1-mvtex.stages.zip, в метриках — stages (размер, файлы), рабочая папка убрана',
+           sorted(os.listdir(W.OUT)) == ['k1-mvtex.glb', 'k1-mvtex.stages.zip'] and met_k['stages']['bytes'] == os.path.getsize(os.path.join(W.OUT, 'k1-mvtex.stages.zip')) and met_k['stages']['files'] >= 8, str(os.listdir(W.OUT)))
+    finally:
+        for k, v in sav2.items():
+            setattr(W, k, v)
+        if torch_keep2 is None:
+            sys.modules.pop('torch', None)
+        else:
+            sys.modules['torch'] = torch_keep2
+
+    # настоящий MVRunner на заглушке апстрима и настоящем torch (процессор): обёртки подслушивают, поведение не меняют, снимаются; keep_stages сохраняет все файлы
+    try:
+        import torch as real_torch
+    except ImportError:
+        real_torch = None
+        print('  · SKIP: нет torch в этом окружении (раннер проверяется на pakardev)')
+    if real_torch is not None:
+        wk_ = tempfile.mkdtemp(prefix='mvr-')
+        PT = types.ModuleType('mvadapter.pipelines.pipeline_texture')
+        saved_calls: list = []
+        PT.replace_mesh_texture_and_save = lambda *a, **kw: saved_calls.append(kw.get('texture')) or None
+        MUm = types.ModuleType('mvadapter.utils.mesh_utils')
+        MRm = types.ModuleType('mvadapter.utils.mesh_utils.render')
+        MUTm = types.ModuleType('mvadapter.utils.mesh_utils.utils')
+
+        class FakeCam:
+            def __init__(self, n):
+                self.w2c = real_torch.eye(4)[None].repeat(n, 1, 1)
+                self.mvp_mtx = real_torch.eye(4)[None].repeat(n, 1, 1)
+                self.n = n
+
+            def __getitem__(self, i):
+                return FakeCam(len(range(*i.indices(self.n))))
+
+            def __len__(self):
+                return self.n
+        cam_args: dict = {}
+        MUm.load_mesh = lambda path, **kw: (cam_args.__setitem__('load', kw), NS(v_pos=real_torch.zeros(3, 3), v_tex=real_torch.zeros(3, 2), t_pos_idx=real_torch.zeros(1, 3, dtype=real_torch.int64), t_tex_idx=real_torch.zeros(1, 3, dtype=real_torch.int64)))[1]
+        MUm.get_orthogonal_camera = lambda **kw: (cam_args.__setitem__('cam', kw), FakeCam(6))[1]
+        render_log: list = []
+
+        def fake_render(ctx, mesh, cam, height, width, render_attr=True, render_depth=True, render_normal=True, texture_override=None, attr_background=0.5, texture_filter_mode='linear', **kw):
+            render_log.append((height, render_attr, render_normal, None if texture_override is None else tuple(texture_override.shape)))
+            attr = None if texture_override is None else texture_override.mean(dim=(0, 1)).expand(1, height, width, 3).contiguous()
+            return NS(mask=real_torch.ones(1, height, width, dtype=real_torch.bool), normal=real_torch.tensor([0.0, 0.6, 0.8]).expand(1, height, width, 3).contiguous(), attr=attr)
+        MRm.render = fake_render
+        MUTm.get_clip_space_position = lambda v, mvp: real_torch.zeros(3, 4)
+        for nm_, mod_ in (('mvadapter', types.ModuleType('mvadapter')), ('mvadapter.pipelines', types.ModuleType('mvadapter.pipelines')), ('mvadapter.pipelines.pipeline_texture', PT), ('mvadapter.utils', types.ModuleType('mvadapter.utils')),
+                          ('mvadapter.utils.mesh_utils', MUm), ('mvadapter.utils.mesh_utils.render', MRm), ('mvadapter.utils.mesh_utils.utils', MUTm)):
+            sys.modules[nm_] = mod_
+        proj_calls: list = []
+
+        class FakeTexPipe:
+            device = 'cpu'
+
+            def __init__(self):
+                self.ctx = NS(rasterize=lambda clip, tri, res, grad_db=True: (real_torch.ones(1, res[0], res[1], 4), None), interpolate=lambda attr, rast, tri: (real_torch.full((1, rast.shape[1], rast.shape[2], 2), 0.25), None))
+
+            def maybe_upscale_image(self, tensor, upscale, upscale_factor, batched=False):
+                return tensor.repeat_interleave(2, dim=1).repeat_interleave(2, dim=2) if upscale else tensor
+
+            def __call__(self, **kw):
+                x = real_torch.rand(6, 4, 4, 3)
+                self.maybe_upscale_image(x, True, 2)
+                sys.modules['mvadapter.pipelines.pipeline_texture'].replace_mesh_texture_and_save('in', 'out', texture=Image.new('RGB', (16, 16), (10, 20, 30)), backend='gltflib')
+                return NS(shaded_model_save_path=os.path.join(wk_, 'shaded.glb'))
+
+            def cam_proj(self, images, mesh, cam, **kw):
+                proj_calls.append((tuple(images.shape), len(cam), kw))
+                return NS(uv_proj=real_torch.full((16, 16, 3), 0.25), uv_proj_mask=real_torch.ones(16, 16, dtype=real_torch.bool))
+        tp_ = FakeTexPipe()
+        orig_save = PT.replace_mesh_texture_and_save
+        rr = W.MVRunner(None, tp_, lambda **k: k, None, False, real_torch)
+        capn: dict = {}
+        out_p = rr.unproject('in.glb', 'mv.png', wk_, 16, capture=capn)
+        ok('MVRunner.unproject с capture: вызов апстрима прошёл, вернул путь; перехвачены 6 видов после апскейла (PNG), вид 0 в float32 [1,H,W,3], карта до JPEG 16²',
+           out_p == os.path.join(wk_, 'shaded.glb') and len(capn['up_pil']) == 6 and capn['up_pil'][0].size == (8, 8) and tuple(capn['up0'].shape) == (1, 8, 8, 3) and capn['up0'].dtype == real_torch.float32
+           and capn['tex_lossless'].size == (16, 16) and capn['tex_lossless'].getpixel((1, 1)) == (10, 20, 30))
+        ok('обёртки сняты: `maybe_upscale_image` — снова метод класса (не атрибут экземпляра), `replace_mesh_texture_and_save` модуля — оригинал; оригинал при этом вызван (сохранение GLB не потеряно)',
+           'maybe_upscale_image' not in vars(tp_) and PT.replace_mesh_texture_and_save is orig_save and len(saved_calls) == 1)
+        out_n = rr.unproject('in.glb', 'mv.png', wk_, 16)
+        ok('без capture — как раньше: ничего не перехвачено, оригинал вызван, обёртки не ставились', out_n == out_p and len(saved_calls) == 2 and 'maybe_upscale_image' not in vars(tp_))
+        W_px = W.MV_STAGE_PX
+        W.MV_STAGE_PX = 64
+        try:
+            out_dir = os.path.join(wk_, 'stages')
+            tg = Image.new('RGB', (16, 16), (100, 110, 120))
+            capn['tex_lossless'] = Image.new('RGB', (16, 16), (102, 110, 118))
+            res = rr.keep_stages('in.glb', 16, capn, tg, Image.new('RGB', (8, 8), (50, 60, 70)), out_dir)
+        finally:
+            W.MV_STAGE_PX = W_px
+        have_files = sorted(os.path.relpath(os.path.join(r_, f_), out_dir) for r_, _d, fs_ in os.walk(out_dir) for f_ in fs_)
+        want = ([f'views_64/v{i}.png' for i in range(6)] + ['maps/tex4096_glb.png', 'maps/tex4096_lossless.png', 'maps/tex2048.png', 'maps/tex4096_from0.png', 'maps/tex4096_from0_valid.png',
+                'render_view0/mask.png', 'render_view0/normal_cam.png', 'render_view0/aoi_cos16.png', 'render_view0/uv.npz'] + [f'render_view0/{n_}.png' for n_ in ('r4096_from6', 'r2048', 'r4096_lossless', 'r4096_from0')])
+        ok('keep_stages: сохранены все файлы — виды после апскейла, четыре карты и валидность from0, маска, нормали, cos угла, UV, четыре рендера', have_files == sorted(want), str(set(want) ^ set(have_files)))
+        ok('камера и форма — как в TexturePipeline: load_mesh(rescale, front_x_to_y, uv_size), орто ±0,55, расстояние 1, азимуты MV_AZ−90, подъёмы MV_EL; рендер от вида 0 (один вид)',
+           cam_args['load'].get('rescale') is True and cam_args['load'].get('front_x_to_y') is True and cam_args['load'].get('move_to_center') is False and cam_args['load'].get('default_uv_size') == 16
+           and cam_args['cam']['azimuth_deg'] == [x - 90 for x in W.MV_AZ] and cam_args['cam']['elevation_deg'] == W.MV_EL and abs(cam_args['cam']['right'] - 0.55) < 1e-9 and cam_args['cam']['distance'] == [1.0] * 6)
+        pc = proj_calls[0]
+        ok('запекание из вида 0: ОДИН вид (вид 0 после RealESRGAN, float), ОДНА камера, пороги как у основного (aoi 0,2; глубина 0,1/5; alpha 3), вес вида 1, from_scratch, без Пуассона; остальные виды не участвуют',
+           pc[0] == (1, 8, 8, 3) and pc[1] == 1 and pc[2]['aoi_cos_valid_threshold'] == 0.2 and pc[2]['depth_grad_threshold'] == 0.1 and pc[2]['depth_grad_dilation'] == 5 and pc[2]['uv_exp_blend_alpha'] == 3
+           and pc[2]['uv_exp_blend_view_weight'].tolist() == [1] and pc[2]['from_scratch'] is True and pc[2]['poisson_blending'] is False and pc[2]['uv_size'] == 16 and pc[2]['return_dict'] is True, str(pc[2]))
+        ok('рендер с картой — в 2× (128) и усреднение до 64; текстуры переданы с их размерами (16 и 8)', (128, True, False, (16, 16, 3)) in render_log and (128, True, False, (8, 8, 3)) in render_log, str(render_log))
+        rend = {n_: np.asarray(Image.open(os.path.join(out_dir, 'render_view0', n_ + '.png'))) for n_ in ('r4096_from6', 'r2048', 'r4096_lossless', 'r4096_from0')}
+        ok('рендеры не перепутаны: каждый — цвет СВОЕЙ карты (из 6: 100/110/120, итог 2048: 50/60/70, до JPEG: 102/110/118, из вида 0: 64)', tuple(rend['r4096_from6'][5, 5]) == (100, 110, 120) and tuple(rend['r2048'][5, 5]) == (50, 60, 70)
+           and tuple(rend['r4096_lossless'][5, 5]) == (102, 110, 118) and tuple(rend['r4096_from0'][5, 5]) == (64, 64, 64) and rend['r2048'].shape == (64, 64, 3))
+        uvz = np.load(os.path.join(out_dir, 'render_view0', 'uv.npz'))
+        aoi16 = np.asarray(Image.open(os.path.join(out_dir, 'render_view0', 'aoi_cos16.png')))
+        ok('геометрия в камере вида 0: UV float32 [64,64,2] с маской, cos угла 16 бит (нормаль (0;0,6;0,8) → 0,8 → 52428), маска вся', uvz['uv'].shape == (64, 64, 2) and uvz['uv'].dtype == np.float32 and uvz['mask'].all() and aoi16.dtype == np.uint16
+           and abs(int(aoi16[3, 3]) - 52428) <= 1 and np.asarray(Image.open(os.path.join(out_dir, 'render_view0', 'mask.png'))).all())
+        ok('потеря на JPEG измерена: средняя |до JPEG − в GLB| по каналам = 1,3333 из 255 (2, 0, 2); описание: файлы, время стадий, UV-соглашение, камера',
+           abs(res['jpeg_mae_255'] - 1.3333) < 1e-3 and 'bake_from0' in res['timing_s'] and res['uv_flip_v'] is True and res['camera']['azimuth_deg'] == W.MV_AZ[0] - 90 and set(res['files']) == set(want))
+        for nm_ in ('mvadapter', 'mvadapter.pipelines', 'mvadapter.pipelines.pipeline_texture', 'mvadapter.utils', 'mvadapter.utils.mesh_utils', 'mvadapter.utils.mesh_utils.render', 'mvadapter.utils.mesh_utils.utils'):
+            sys.modules.pop(nm_, None)
+
 print('[3] драйвер')
 import trellis_trial as T  # noqa: E402
 b = T.build_body('trial-mvadapter-i2tex-x', 'ghcr.io/x/y:t', 'high', 'mvadapter-i2tex', 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}}, extra_env={'MVTEX_OFFLOAD': '0'})
