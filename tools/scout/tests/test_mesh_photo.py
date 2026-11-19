@@ -22,6 +22,8 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCOUT = os.path.abspath(os.path.join(HERE, '..'))
 sys.path.insert(0, SCOUT)
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_mesh_photo')  # временное теста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
 import mesh_photo as MP  # noqa: E402
 import mesh_queue as MQ  # noqa: E402
 import mesh_bind as MB  # noqa: E402
