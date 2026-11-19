@@ -193,7 +193,13 @@ def load_summaries(model_dir: str, sum_model: str | None = None, variant: str | 
             j['price_usd_h'] = d.get('price_usd_h')
             j['gpu'] = ((d.get('info') or {}).get('gpu') or {}).get('name')
             j['_group'] = d.get('group')
-            jobs[j.get('job_id') or j.get('sku')] = j
+            jk = j.get('job_id') or j.get('sku')
+            prev = jobs.get(jk)                                  # повтор того же задания (тот же номер, другой прогон): GLB предыдущих «готов» — тоже наши
+            alts = list((prev or {}).get('_alt_glbs') or [])
+            if prev and prev.get('status') == 'done' and ((prev.get('metrics') or {}).get('glb')):
+                alts.append(prev['metrics']['glb'])
+            j['_alt_glbs'] = alts
+            jobs[jk] = j
     return {'jobs': jobs, 'spend': round(spend, 4), 'groups': groups}
 
 
@@ -201,19 +207,19 @@ def owned(path: str, job: dict | None, kind: str = 'raw', tol_mb: float = 0.06) 
     """ПРИНАДЛЕЖНОСТЬ файла модели по журналу её драйвера (общая папка вывода: драйверы разных моделей пишут `<ключ>-1024-42-0.glb` в одно место и
     перезаписывают друг друга — найдено 19.11). Сырой GLB — размер совпадает с `metrics.glb.size_mb` задания (±tol_mb); `.clean.glb` — число треугольников
     исходника в `*.metrics.json` рядом (±1 %) совпадает с `metrics.glb.triangles` задания. None — в журнале нет размера/треугольников, судить нечем (файл берём)."""
-    g = ((job or {}).get('metrics') or {}).get('glb') or {}
+    gs = [((job or {}).get('metrics') or {}).get('glb') or {}] + list((job or {}).get('_alt_glbs') or [])   # последний прогон и прежние того же номера (комод гонялся 3 раза)
     if kind == 'raw':
-        if g.get('size_mb') is None:
+        if all(g.get('size_mb') is None for g in gs):
             return None
-        return abs(os.path.getsize(path) / 1048576 - float(g['size_mb'])) <= tol_mb      # `size_mb` в журнале — МиБ (проверено на 28 файлах)
+        return any(g.get('size_mb') is not None and abs(os.path.getsize(path) / 1048576 - float(g['size_mb'])) <= tol_mb for g in gs)  # `size_mb` — МиБ
     mp = path[:-len('.clean.glb')] + '.metrics.json'
-    if g.get('triangles') is None or not os.path.exists(mp):
+    if all(g.get('triangles') is None for g in gs) or not os.path.exists(mp):
         return None
     try:
         t = float(json.load(open(mp, encoding='utf-8')).get('tris_total'))
     except (OSError, ValueError, TypeError):
         return None
-    return abs(t - float(g['triangles'])) <= max(2.0, 0.01 * float(g['triangles']))
+    return any(g.get('triangles') is not None and abs(t - float(g['triangles'])) <= max(2.0, 0.01 * float(g['triangles'])) for g in gs)
 
 
 def accept(grey: str | None, view_empty: bool | None, colour: str | None, iou: float | None = None, iou_open: float | None = None,
