@@ -113,6 +113,21 @@ def check_data(jid: str, tour: dict, demo: dict) -> list[str]:
     return out
 
 
+def check_names(rows: list[dict], run: Path, demo: dict) -> tuple[str, list[str]]:
+    """ОДНО НАЗВАНИЕ У ТОВАРА (T-20261119-97): по ВСЕМ собранным в проходе турам — у скольких товаров название не равно названию в `/demo`
+    (`product_names.between`, общий ключ `pid`). → (строка-итог, WARN при расхождении: число и примеры)."""
+    import product_names as PN
+    ids = [r['id'] for r in rows if r.get('status') in ('published', 'built') and (run / r['id'] / 'bundle-new.json').is_file()]
+    tours = [json.loads((run / i / 'bundle-new.json').read_text(encoding='utf-8')) for i in ids]
+    b = PN.between(demo, tours)
+    line = f"демо = туры, названия: туров {len(ids)}, общих товаров {b['pids']}, с разным названием {b['diff']}"
+    warns = []
+    if b['diff']:
+        ex = '; '.join(' ≠ '.join(v) for v in list(b['sample'].values())[:2])
+        warns.append(f"WARN:tour_reissue: названия: у {b['diff']} товаров название в турах не равно /demo (пример: {ex[:160]})")
+    return line, warns
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description='Проверка «демо и туры одинаковы» после автоперевыпуска')
     ap.add_argument('--run', required=True, help='папка прохода reissue.py (report.json, <id>/bundle-new.json)')
@@ -146,6 +161,12 @@ def main(argv=None) -> int:
             print(f"демо = туры, данные {jid}: " + ('сверено' if not bad else '; '.join(bad)))
             if bad:
                 warns.append(f"WARN:tour_reissue: тур {jid} собран не как /demo — {'; '.join(bad)}")
+        try:
+            nline, nwarns = check_names(rows, run, demo)
+            print(nline)
+            warns += nwarns
+        except Exception as e:  # noqa: BLE001 — сбой сверки названий не роняет проход, но громко
+            warns.append(f'WARN:tour_reissue: названия туров с /demo не сверены ({type(e).__name__}: {str(e)[:100]})')
     for w in warns:
         print(w)
     return 0

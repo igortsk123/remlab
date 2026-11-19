@@ -1111,8 +1111,8 @@ def test_stage_keys_carry_sid_but_page_never():
 
 
 def test_catalog_goods_like_demo_sku_bank_first_price_from_catalog(monkeypatch, tmp_path):
-    """Как `flat215_demo._sku`: название, фото, ссылка, магазин — из товара банка; цена — из каталога, нет — из банка. Товара нет
-    в банке — всё из каталога (ушёл из продажи — нейтрально). Банк спальни (`sid` «mid:eid», в `alternates`) — тоже находится."""
+    """Как `flat215_demo._sku`: фото, ссылка, магазин — из товара банка; название и цена — из каталога (T-20261119-97: единое правило
+    `product_names.pick_name`, банк отстаёт от фида), нет — из банка. Товара нет в банке — всё из каталога (ушёл из продажи — нейтрально). Банк спальни (`sid` «mid:eid», в `alternates`) — тоже находится."""
     import catalog_media as CM
     cat = {('1', 'a'): {'name': 'Каталог', 'price': 900, 'url': 'https://cat.example/x', 'shop': 'cat', 'state': 'available'},
            ('3', 'c'): {'name': 'Ушёл', 'price': 5, 'url': 'https://c/y', 'state': 'gone'},
@@ -1127,7 +1127,7 @@ def test_catalog_goods_like_demo_sku_bank_first_price_from_catalog(monkeypatch, 
     idx = TB.bank_index([str(bank), str(tmp_path / 'нет.json')])
     assert set(idx) == {'1_a', '2_b'}
     g = TB.catalog_goods('1_a', 'диван', idx)
-    assert g == {'name': 'Банк', 'name_en': 'Sofa', 'colour_en': None, 'price': 900, 'img': None, 'url': 'https://bank.example/x', 'shop': 'divan.ru'}
+    assert g == {'name': 'Каталог', 'name_en': 'Sofa', 'colour_en': None, 'price': 900, 'img': None, 'url': 'https://bank.example/x', 'shop': 'divan.ru'}
     assert TB.catalog_goods('2_b', 'кровать', idx)['price'] == 300
     assert TB.catalog_goods('3_c', 'диван', idx) is None
     cat[('1', 'a')]['state'] = 'gone'                     # товар банка снят с продажи — в туре его нет, как в демо (T-96)
@@ -1811,6 +1811,55 @@ def test_unify_cards_one_name_from_live_catalog_everywhere():
     assert card['img'] == row['img'] == 'img/bbbbbbbbbbbbbbbb.jpg' and card['url'] == row['url'] == 'https://s/live'
     assert st['names_unified'] == 1 and st['live_cards'] == 1 and st['names_conflict'] == 0 and st['identity_suspect'] == 0
     assert card['msid'] == 'm1' and (card['w'], card['d'], card['h']) == (100, 50, 80)      # модель и размеры сцены не тронуты
+
+
+def test_unify_cards_counts_names_that_differ_from_live_catalog_even_when_all_copies_agree():
+    """Сторож «тур = каталог» (T-20261119-97): все копии несут ОДНО, но устаревшее имя (магазин переименовал) — внутри файла расхождения нет, а от каталога — есть:
+    считается `names_catalog`, имя исправлено; совпало с каталогом — 0 (повтор не считает дважды)."""
+    sid, variants, feeds = _uc_data(var_name='Кровать Далти', feed_name='Кровать Далти')
+    st = TB.unify_cards(variants, feeds, _uc_live(sid, 'Кровать Далти-П'), [sid])
+    assert variants[0]['items'][0]['sku']['name'] == feeds['bedroom-1:кровать'][0]['name'] == 'Кровать Далти-П'
+    assert st['names_catalog'] == 1 and st['names_unified'] == 0 and st['names_conflict'] == 0
+    assert TB.unify_cards(variants, feeds, _uc_live(sid, 'Кровать Далти-П'), [sid])['names_catalog'] == 0
+    assert TB.unify_cards(variants, feeds, lambda s, r: None, [sid])['names_catalog'] == 0        # каталога нет — сравнивать не с чем
+
+
+def test_reissue_check_counts_names_that_differ_between_demo_and_tours(tmp_path):
+    """Сторож перевыпуска (`tour_reissue_check.check_names`): по всем собранным турам число товаров, у которых название не равно /demo; совпало — 0 и без WARN."""
+    sys.path.insert(0, os.path.join(os.path.dirname(HERE), '..', 'ops'))
+    import tour_reissue_check as TRC
+    pid = TB.pid_of('1_b')
+    demo = {'feeds': {'bedroom:кровать': [{'sid': '1_b', 'name': 'Далти 160'}, {'sid': '2_c', 'name': 'Шкаф'}]}}
+    for jid, nm in (('t1', 'Далти-П 160'), ('t2', 'Далти 160')):
+        (tmp_path / jid).mkdir()
+        (tmp_path / jid / 'bundle-new.json').write_text(json.dumps({'feeds': {'bedroom:кровать': [{'pid': pid, 'name': nm, 'price': 1}]}}))
+    rows = [{'id': 't1', 'status': 'published'}, {'id': 't2', 'status': 'published'}, {'id': 't3', 'status': 'skipped'}]
+    line, warns = TRC.check_names(rows, tmp_path, demo)
+    assert 'туров 2' in line and 'с разным названием 1' in line and len(warns) == 1 and 'WARN:tour_reissue: названия: у 1 товаров' in warns[0]
+    demo['feeds']['bedroom:кровать'][0]['name'] = 'Далти-П 160'
+    (tmp_path / 't2' / 'bundle-new.json').write_text(json.dumps({'feeds': {'bedroom:кровать': [{'pid': pid, 'name': 'Далти-П 160', 'price': 1}]}}))
+    line, warns = TRC.check_names(rows, tmp_path, demo)
+    assert 'с разным названием 0' in line and warns == []
+
+
+def test_demo_and_tour_take_name_from_one_rule(monkeypatch, tmp_path):
+    """Витрина (`product_names.unify`, финальный проход сборки /demo) и тур (`catalog_goods` / `room_goods`) дают ОДНО название одного товара — и когда банк отстал от фида
+    (live 19.11: /demo «Далти», туры «Далти-П»). Лишние пробелы фида (табуляция) схлопываются одинаково."""
+    import catalog_media as CM
+    import product_names as PN
+    name = 'Кровать divan.ru Далти-П 160\tВелюр Серый'
+    cat = {('1', 'b'): {'name': name, 'price': 900, 'url': 'https://c/x', 'shop': 'S', 'state': 'available'}}
+    monkeypatch.setattr(CM, 'media', lambda mid, eid: cat.get((str(mid), str(eid))))
+    monkeypatch.setattr(TB.TD, '_names_en', lambda it, role: {'name_en': 'Bed'})
+    bank = tmp_path / 'b.json'
+    bank.write_text(json.dumps({'sets': [{'items': {'кровать': {'mid': 1, 'eid': 'b', 'name': 'Кровать divan.ru Далти 160 Велюр Серый', 'price': 800, 'url': 'https://bank.example/x'}}}]}))
+    idx = TB.bank_index([str(bank)])
+    tour = TB.catalog_goods('1_b', 'кровать', idx)['name']
+    room = TB.room_goods('1_b', 'кровать', 'bedroom', bank={}, rows={'1_b': ('1', 'b', name, 'S', 900, 'https://c/x', 'https://i/x.jpg', None)})['name']
+    N = PN.Names({('1', 'b'): cat[('1', 'b')]}, {})
+    demo = {'feeds': {'bedroom:кровать': [{'sid': '1_b', 'name': 'Кровать divan.ru Далти 160 Велюр Серый'}]}}
+    assert PN.unify(demo, N)['fixed'] == 1
+    assert tour == room == demo['feeds']['bedroom:кровать'][0]['name'] == 'Кровать divan.ru Далти-П 160 Велюр Серый'
 
 
 def test_unify_cards_live_wins_over_variant_card_and_no_live_falls_back_to_variant():

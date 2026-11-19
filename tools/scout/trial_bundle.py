@@ -58,6 +58,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import trial_room as TR  # noqa: E402  (кладёт солвер в sys.path)
 import trial_demo as TD  # noqa: E402  (исход гостиной — `outcome_of`: «нет места» / «нет товаров», T-20261110-09)
+import product_names as PN  # noqa: E402  (ЕДИНОЕ правило названия товара: витрина и туры, T-20261119-97)
 
 LIVING = 'living'
 BEDROOM = 'bedroom'
@@ -240,7 +241,7 @@ SCENE_SKU_KEYS = {'tint', 'yaw', 'hung', 'fam'}            # fam — семья 
 # (`NEVER_KEYS`) — а заказ «Сделать фото» из тура должен назвать товар каждого предмета. `pid` — односторонний хеш `sid` с пространством имён (по нему
 # ключ поставщика не восстановить; 96 бит), одинаковый между перевыпусками; цена, корзина и подбор от него не зависят (поле только для ссылки заказа)
 PID_KEY = 'pid'
-PID_NS = 'p1:'                               # пространство имён и версия ключа: сменится схема — `p2:`, старые не спутаются
+from product_pid import PID_NS, pid_of  # noqa: E402,F401 — ОДНО определение ключа товара (вынесено, T-20261119-97); здесь — для прежних обращений `TB.pid_of`
 PID_RE = re.compile(r'p1:[0-9a-f]{24}')
 PUBLIC_SKU_KEYS = SKU_KEYS | PRODUCT_KEYS | SCENE_SKU_KEYS | {PID_KEY}
 # куски стадий (внутренние файлы DEV, в выход не идут): плюс ключ товара `sid` — по нему сборщик берёт товар из каталога — и его
@@ -489,11 +490,13 @@ def catalog_goods(sid: str | None, role: str, bank: dict | None = None, tile=Non
         src, price = m, m.get('price')
     else:
         return None
-    if not src.get('name') or not isinstance(price, (int, float)) or not price > 0:
+    # НАЗВАНИЕ — ПО ЕДИНОМУ ПРАВИЛУ (`product_names.pick_name`, T-20261119-97): живой каталог, а не имя из банка (банк обновляется оборотом и отстаёт от фида)
+    name = PN.pick_name(m) or src.get('name')
+    if not name or not isinstance(price, (int, float)) or not price > 0:
         return None
     url = src.get('url') if URL_RE.fullmatch(str(src.get('url') or '')) else None
-    ne = TD._names_en({'name': src['name'], 'mid': mid, 'eid': eid}, role)
-    return {'name': src['name'], 'name_en': ne.get('name_en') or None, 'colour_en': ne.get('colour_en') or None, 'price': int(price),
+    ne = TD._names_en({'name': name, 'mid': mid, 'eid': eid}, role)
+    return {'name': name, 'name_en': ne.get('name_en') or None, 'colour_en': ne.get('colour_en') or None, 'price': int(price),
             'img': demo_img(goods_img_urls(b, m)) or (tile(sid) if tile else None), 'url': url, 'shop': (src.get('shop') or None)}
 
 
@@ -526,7 +529,7 @@ def room_goods(sid: str | None, role: str, room: str, bank: dict | None = None, 
     if r is None:
         return None
     mid, eid = sid.split('_', 1)
-    name, shop, url = r[2], r[3], r[5]
+    name, shop, url = PN.clean(r[2]) if r[2] else r[2], r[3], r[5]   # строка room_catalog — комнатная ветка единого правила `product_names`; пробелы — как у витрины
     try:
         price = float(r[4]) if r[4] not in (None, '') else None
     except (TypeError, ValueError):
@@ -663,14 +666,6 @@ class _Goods:
 
     def __call__(self, sid, role, origin=None):
         return self.offer(sid, role, origin)[1]
-
-
-def pid_of(sid) -> str | None:
-    """Публичный ключ товара по `sid` (`PID_KEY`): `p1:` + 24 hex от пространства имён и нормализованного `sid` (двоеточие источника — как у
-    `_sid`: `a:b` и `a_b` — один товар). НИКОГДА не кладётся в `sid`/`msid`: меш и экспорт сцены читают `msid or sid` как файл модели."""
-    if not sid:
-        return None
-    return PID_NS + hashlib.sha256((PID_NS + str(sid).replace(':', '_', 1)).encode()).hexdigest()[:24]
 
 
 def put_pid(sku: dict, sid) -> dict:
@@ -1759,8 +1754,8 @@ def unify_cards(variants: list, feeds: dict, goods=None, sids=()) -> dict:
     `CARD_KEYS` ставятся из живого каталога (нет живой — из первой карточки варианта, иначе первой по порядку); другая модель или габариты под тем
     же ключом — подозрение на подмену: товар вон из лент, в предметах — нейтральное имя без товара (`identity_suspect`). Остаток после сведения
     (у одного `pid` два названия) — `BundleRefused('names_conflict')`. Данные меняются на месте. → {names_unified, identity_suspect, names_conflict,
-    live_cards, pids}."""
-    st = {'names_unified': 0, 'identity_suspect': 0, 'names_conflict': 0, 'live_cards': 0, 'pids': 0}
+    live_cards, pids, names_catalog}."""
+    st = {'names_unified': 0, 'identity_suspect': 0, 'names_conflict': 0, 'live_cards': 0, 'pids': 0, 'names_catalog': 0}
     cards = _cards_of(variants, feeds)
     by_pid: dict = {}
     for c, where in cards:
@@ -1800,6 +1795,9 @@ def unify_cards(variants: list, feeds: dict, goods=None, sids=()) -> dict:
             ref = {k: first[k] for k in CARD_KEYS if first.get(k) not in (None, '')}
         else:
             st['live_cards'] += 1
+            # СТОРОЖ «ТУР = КАТАЛОГ» (T-20261119-97): у скольких товаров название в собранных карточках не равно живому каталожному (то же правило, что у витрины, —
+            # `product_names.pick_name`); после сведения расхождений нет, число в отчёт сборки/перевыпуска
+            st['names_catalog'] += 1 if any(n != ref.get('name') for n in names) and ref.get('name') else 0
         changed = False
         for c, _ in lst:
             for k, v in ref.items():

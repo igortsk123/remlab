@@ -32,6 +32,7 @@ if __name__ == '__main__':
 import bank_paths as _BP  # noqa: E402
 import atomic_io as _AIO  # noqa: E402 — выходные json сборки пишутся подменой, не обрезкой (T-20261105-59)
 import room_bindings as _RB  # noqa: E402 — привязка, индекс прода и правило годности модели (одно с банком, T-20261106-70)
+import product_names as _PN  # noqa: E402 — ЕДИНОЕ правило названия товара: витрина и туры (T-20261119-97)
 BANK = _BP.demo_plan(os.environ, OUT)
 # ОДНА РАССТАНОВКА НА ВСЕ СТИЛИ (demo-31, `demo_one_layout.py`): включено — солвер берёт только гипотезы опорной подписи
 # (`rules/demo-layout.json`), раскладки — со своим суффиксом `-one` (общие `v3set{n}-layout.json` пересчитывают другие прогоны)
@@ -2317,7 +2318,8 @@ def build() -> dict:
             base = role.split(' ')[0]
             if base not in ENV or not it or not it.get('img'):
                 continue
-            roles[role] = {'name': it.get('name'), 'w': it.get('w'), 'd': it.get('d'),
+            roles[role] = {'name': _PN.name_of(f"{it['mid']}_{it['eid']}" if it.get('mid') and it.get('eid') else None, it.get('name')),
+                           'w': it.get('w'), 'd': it.get('d'),
                            'h': it.get('h'), 'price': _price(it)[0], 'img': it.get('img'),
                            'url': it.get('url'), 'shop': it.get('shop')}
         if roles:
@@ -2974,6 +2976,13 @@ def main() -> None:
     except Exception as e:  # noqa: BLE001 — замер не валит сборку
         print(f'  замер цвета семейств в лентах не удался: {repr(e)[:100]}', flush=True)
     print(scene_family_digest(data, _bind_rows()), flush=True)
+    # ОДНО НАЗВАНИЕ У ТОВАРА (T-20261119-97, П1.92): финальный проход — каждой карточке с `sid` название по единому правилу (`product_names`: живой каталог →
+    # `room_catalog`), то же, что у сборки туров; банки (спальня, прихожая) отстают от фида до оборота — витрина больше не показывает прежнее имя.
+    # Число исправлений — в журнал ночи (WARN, если не 0); английское считается ниже по русскому (`name_en` исправленных снят)
+    try:
+        print(_PN.report_line(_PN.unify(data), 'витрины (/demo)'), flush=True)
+    except Exception as e:  # noqa: BLE001 — каталог недоступен: витрина с названиями банка, но громко (не молча)
+        print(f'WARN:names_catalog_error: названия витрины не сверены с каталогом: {repr(e)[:160]}', flush=True)
     # АНГЛИЙСКИЕ НАЗВАНИЯ (план demo-31, владелец 30.10): `name_en`/`colour_en` каждому товару — для английского демо.
     # Без кириллицы и магазина по построению (нет перевода — нейтральное по роли, строка WARN); публикацию не останавливает
     try:
