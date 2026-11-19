@@ -256,7 +256,10 @@ class Pixal3DBackend:
         self.INF = INF
         STATE['phase'] = 'weights'
         t = time.time()
-        self.pipe = INF.init_pipeline(low_vram=False)             # веса Pixal3D + 4 экстрактора DINOv3 + NAF; всё на видеокарте (≈ 18 ГБ)
+        # px1 (19.11, 4090 24 ГБ): с low_vram=False всё лежит на карте (20 ГБ после прогрева) и первое же задание падает `CUDA out of memory`.
+        # Режим low_vram (README Pixal3D: «для ≤ 24 ГБ») грузит модели на карту по очереди; разрешение 1024_cascade у нас и так
+        low = os.environ.get('PIXAL3D_LOW_VRAM', '1') != '0'
+        self.pipe = INF.init_pipeline(low_vram=low)               # веса Pixal3D + 4 экстрактора DINOv3 + NAF
         t_w = time.time() - t
         STATE['phase'] = 'moge'
         t = time.time()
