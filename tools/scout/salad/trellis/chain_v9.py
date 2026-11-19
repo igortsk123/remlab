@@ -10,7 +10,8 @@
 На КАЖДОМ шаге: свой GLB и json в папке шага, кадр вида 0° (`view0.png`), мерки (hf 1 %, σL, ΔE00 нч, `pattern_grad_ncc`, регистрация фиксированная), проверка формы относительно входа (вершины/грани/UV, 1e-6).
 Любой отказ шага или формы — цепочка стоит, в `chain.json` причина (дальше не идём на «битом» входе).
 
-  chain_v9.py --glb <mv12.glb> --stages <A0 stages/> --photo <фото .rgba.png> --out-dir <папка> --key <ключ> [--yaw N] [--size 4096]
+  chain_v9.py --glb <mv12.glb> --stages <A0 stages/> --photo <фото .rgba.png> --out-dir <папка> --key <ключ> [--yaw N] [--size 4096] [--variant ours|mkl-all|mkl-clusters|telea [--fillmap …]]
+  Варианты для сравнения (доработка директора, TG 1882): mkl-* — шаг 3 заменён MKL (`mkl_tint.py`); telea — шаг 4 заменён `cv2.inpaint` (`inpaint_telea.py`), маска — fillmap `tex_fill` того же товара.
 """
 from __future__ import annotations
 
@@ -145,10 +146,16 @@ def make_steps(a) -> list:
         return os.path.join(d, f'{a.key}-photo.glb')
 
     def s3(glb, d):
+        if a.variant in ('mkl-all', 'mkl-clusters'):
+            _sub([py, os.path.join(HERE, 'mkl_tint.py'), '--glb', glb, '--stages', a.stages, '--photo', a.photo, '--out-dir', d, '--stem', a.key, '--mode', a.variant.split('-')[1]], os.path.join(d, 'step.log'))
+            return os.path.join(d, f'{a.key}-mkl.glb')
         _sub([py, os.path.join(HERE, 'ab_tint.py'), '--glb', glb, '--stages', a.stages, '--photo', a.photo, '--out-dir', d, '--stem', a.key], os.path.join(d, 'step.log'))
         return os.path.join(d, f'{a.key}-ab.glb')
 
     def s4(glb, d):
+        if a.variant == 'telea':
+            _sub([py, os.path.join(HERE, 'inpaint_telea.py'), '--glb', glb, '--fillmap', a.fillmap, '--out-dir', d, '--stem', a.key], os.path.join(d, 'step.log'))
+            return os.path.join(d, f'{a.key}-telea.glb')
         src = os.path.join(d, f'{a.key}.glb')
         shutil.copyfile(glb, src)                                           # tex_fill называет выход по имени входа: <ключ>-fill.glb
         env = dict(os.environ, PYTHONPATH=HERE + os.pathsep + os.environ.get('PYTHONPATH', ''))
@@ -178,8 +185,12 @@ def main() -> int:
     ap.add_argument('--key', required=True)
     ap.add_argument('--yaw', default='auto', help='поворот формы для tex_fill (из stages/manifest.json: yaw_deg)')
     ap.add_argument('--size', type=int, default=4096)
+    ap.add_argument('--variant', choices=('ours', 'mkl-all', 'mkl-clusters', 'telea'), default='ours', help='ours — ab_tint + tex_fill; mkl-* — MKL вместо шага 3; telea — cv2.inpaint вместо шага 4')
+    ap.add_argument('--fillmap', default=None, help='для telea: -fillmap.png от tex_fill (маска плохих текселей)')
     ap.add_argument('--fill-dir', default=os.path.expanduser('~/remlab-logs/t88-v9/tool'), help='папка с tex_fill.py и его tex_coverage.py (ветка trial/tex-fill)')
     a = ap.parse_args()
+    if a.variant == 'telea' and not a.fillmap:
+        ap.error('для telea нужен --fillmap')
     if a.yaw == 'auto':
         m = json.load(open(os.path.join(a.stages, 'manifest.json'), encoding='utf-8'))
         a.yaw = m.get('yaw_deg', 0.0)
