@@ -21,6 +21,11 @@
 T-20261112-121): при любой правке;
 не успела в потолок — стоп, как упавшая.
 Окружение — как у job: его `env:`, CI=true, GITHUB_ACTIONS=true, RUNNER_TEMP; `python` — venv scout, если есть.
+БЕЗ ЖИВОЙ БАЗЫ (урок 757, T-20261119-111): в CI нет контейнера `remlab-devdb`, а на DEV он есть — тест, который молча ходил
+в базу (`tools/scout/*.py: PSQL = ['docker','exec','-i','remlab-devdb','psql',…]`), был зелёным здесь и красным там (CI `scout-orient`
+37 мин, 19.11). Поэтому команды идут с `docker` из подмены в начале PATH: `docker exec …` → «No such container: remlab-devdb», код 1,
+как в CI; обращения пишутся в журнал, и проверка, которая ПРОГЛОТИЛА такую ошибку (код 0), печатает ⚠ — это находка, а не стоп.
+Отключить для разбора: `--with-db` или PREPUSH_WITH_DB=1 (в хуке перед пушем не использовать).
 Код выхода: 1 — какая-то проверка упала (пуш остановить); 0 — все прошли или не успели в потолок (это не стоп, их проверит CI)."""
 import io
 import os
@@ -76,6 +81,13 @@ def units_of(run: str, root: str) -> list:
     return [p.strip() for p in run.split('&&') if p.strip()]
 
 
+def _first_word(cmd: str) -> str:
+    """Первая команда шага без ведущих `set -e` / `set +e;` — иначе скрипт `set +e; python tests/test_mesh_photo.py …` (job
+    scout-orient, аннотация ошибки) считался «не локальным» и prepush его не гонял (T-20261119-111, урок 757)."""
+    c = re.sub(r'^\s*(set\s+[-+]\w+(\s+[-+]\w+)*\s*(;|\n)\s*)+', '', cmd)
+    return c.split()[0] if c.split() else ''
+
+
 def ci_units(ci_path: str, root: str) -> list:
     import yaml
     with open(ci_path, encoding='utf-8') as f:
@@ -91,7 +103,7 @@ def ci_units(ci_path: str, root: str) -> list:
                 if cmd in seen:
                     continue
                 seen.add(cmd)
-                first = cmd.split()[0] if cmd.split() else ''
+                first = _first_word(cmd)
                 slow = bool(SLOW.search(cmd)) or first not in RUNNERS
                 out.append({'job': job, 'cmd': cmd, 'env': env, 'paths': _paths(cmd, root), 'slow': slow})
     return out
@@ -177,9 +189,36 @@ def _localize(cmd: str, py: str) -> str:
     return re.sub(r'(^|&&\s*|;\s*|\n\s*)python3?(?=\s)', lambda m: m.group(1) + shlex.quote(py), cmd)
 
 
-def run_units(sel: list, root: str, budget: float, runner_temp: str, py: str | None = None, out=sys.stdout) -> int:
+# подмена `docker` для проверок: окружение «как CI» — docker есть, контейнеров DEV нет (`ps`/`images`/`info` — пусто, код 0, как у
+# чистого раннера; всё остальное — «No such container», код 1). Общий способ: ловит ЛЮБОЙ путь к живой базе через docker.
+NODB_SHIM = """#!/bin/sh
+case "$1" in
+  ps|images|info|version|--version|-v) exit 0 ;;
+esac
+[ -n "$PREPUSH_NODB_LOG" ] && echo "docker $*" >> "$PREPUSH_NODB_LOG"
+echo "Error response from daemon: No such container: remlab-devdb" >&2
+echo "prepush: тест полез в живую базу DEV (docker $1 ...) - в CI её нет; базу/данные подменить в самом тесте" >&2
+exit 1
+"""
+
+
+def nodb_bin(runner_temp: str) -> str:
+    """Папка с подменой `docker` (в начало PATH проверок)."""
+    d = os.path.join(runner_temp, 'nodb-bin')
+    os.makedirs(d, exist_ok=True)
+    f = os.path.join(d, 'docker')
+    with open(f, 'w', encoding='utf-8') as fh:
+        fh.write(NODB_SHIM)
+    os.chmod(f, 0o755)
+    return d
+
+
+def run_units(sel: list, root: str, budget: float, runner_temp: str, py: str | None = None, out=sys.stdout,
+              nodb: bool = True) -> int:
     py = py or _python()
-    t0, fails, late = time.time(), [], []
+    t0, fails, late, swallowed = time.time(), [], [], []
+    shim = nodb_bin(runner_temp) if nodb else ''
+    hits_log = os.path.join(runner_temp, 'nodb-hits.log')
     for i, u in enumerate(sel):
         left = budget - (time.time() - t0)
         if left <= 1:
@@ -188,6 +227,11 @@ def run_units(sel: list, root: str, budget: float, runner_temp: str, py: str | N
         env = dict(os.environ, **u['env'], CI='true', GITHUB_ACTIONS='true', RUNNER_TEMP=runner_temp)
         if not os.environ.get('REMLAB_TMP') and os.path.isdir(os.path.expanduser('~/remlab-scratch')):
             env['REMLAB_TMP'] = os.path.expanduser('~/remlab-scratch/tmp')   # CI=true иначе увело бы временное в /tmp (квота)
+        if nodb:
+            env['PATH'] = shim + os.pathsep + env.get('PATH', '')
+            env['PREPUSH_NODB'] = '1'
+            env['PREPUSH_NODB_LOG'] = hits_log
+            open(hits_log, 'w').close()
         t = time.time()
         p = subprocess.Popen(['bash', '-c', _localize(u['cmd'], py)], cwd=root, env=env, stdout=subprocess.PIPE,
                              stderr=subprocess.STDOUT, text=True, start_new_session=True)
@@ -203,6 +247,14 @@ def run_units(sel: list, root: str, budget: float, runner_temp: str, py: str | N
         if not ok:
             fails.append(u)
             print('     ' + '\n     '.join((text or '').strip().splitlines()[-15:]), file=out)
+        elif nodb:
+            try:
+                hits = [x for x in open(hits_log, encoding='utf-8', errors='replace').read().splitlines() if x.strip()]
+            except OSError:
+                hits = []
+            if hits:     # прошла, но лезла в базу и проглотила ошибку: в CI тоже зелёная, а на живых данных поведение другое
+                swallowed.append((u, len(hits)))
+                print(f'     ⚠ ходила в живую базу {len(hits)} раз и проглотила отказ: {hits[0][:90]}', file=out)
     for u in late:
         if u.get('always'):
             fails.append(u)
@@ -210,6 +262,9 @@ def run_units(sel: list, root: str, budget: float, runner_temp: str, py: str | N
             continue
         print(f"не успел в {budget:.0f} с (проверит CI): {u['cmd'].splitlines()[0][:110]}", file=out)
     late = [u for u in late if not u.get('always')]
+    if swallowed:
+        print(f'prepush: ⚠ {len(swallowed)} проверок ходили в живую базу и проглотили отказ (не стоп; подменить базу в тесте): ' +
+              '; '.join(u['cmd'].splitlines()[0][:60] for u, _ in swallowed[:5]), file=out)
     print(f'prepush: проверок {len(sel)}, упало {len(fails)}, не успел {len(late)}' +
           (' — ПУШ ОСТАНОВЛЕН, почини и повтори (обойти: git push --no-verify)' if fails else ''), file=out)
     return 1 if fails else 0
@@ -279,8 +334,10 @@ def main(argv: list) -> int:
         return 0
     sys.path.insert(0, os.path.join(HERE, '..', 'scout'))
     import remlab_tmp
+    nodb = '--with-db' not in argv and os.environ.get('PREPUSH_WITH_DB') != '1'
+    print('prepush: без живой базы (docker подменён, как в CI)' if nodb else 'prepush: --with-db — ЖИВАЯ БАЗА ДОСТУПНА (не как в CI)')
     with remlab_tmp.tmpdir('prepush-') as rt:
-        return run_units(sel, root, budget, rt)
+        return run_units(sel, root, budget, rt, nodb=nodb)
 
 
 def _selftest() -> int:
@@ -412,6 +469,40 @@ jobs:
     slow = dict(select(units, ['tools/scout/slow.py'], root)[0], always=True)
     rc = run_units([slow], root, 3, rt, py=sys.executable, out=buf)
     check(rc == 1 and 'обязательная' in buf.getvalue(), 'обязательная проверка не успела — код 1', (rc, buf.getvalue()))
+    # без живой базы (урок 757, T-20261119-111): `docker exec … remlab-devdb` в проверке → отказ, как в CI, а не молчаливый заход в базу DEV
+    nd = tempfile.mkdtemp(prefix='prepush-nodb-')
+    os.makedirs(os.path.join(nd, 'tools', 'scout'))
+    probes = {
+        'db_fail': "import subprocess, sys\nsys.exit(subprocess.run(['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab'],"
+                   " stdout=subprocess.DEVNULL).returncode)\n",
+        'db_swallow': "import subprocess\nsubprocess.run(['docker', 'exec', '-i', 'remlab-devdb', 'psql'], capture_output=True)\n",
+        'db_idle': "import subprocess, sys\nsys.exit(subprocess.run(['docker', 'ps'], capture_output=True).returncode)\n",
+    }
+    for name, body in probes.items():
+        with open(os.path.join(nd, 'tools', 'scout', name + '.py'), 'w', encoding='utf-8') as f:
+            f.write(body)
+    unit = lambda n: [{'job': 'x', 'cmd': f'python tools/scout/{n}.py', 'env': {}, 'paths': [], 'slow': False, 'why': [n]}]
+    rt2 = tempfile.mkdtemp(prefix='prepush-rt2-')
+    buf = io.StringIO()
+    rc = run_units(unit('db_fail'), nd, 30, rt2, py=sys.executable, out=buf)
+    check(rc == 1 and 'FAIL' in buf.getvalue() and 'No such container: remlab-devdb' in buf.getvalue(),
+          'без базы: тест, лезущий в `docker exec … remlab-devdb`, падает — как в CI (код 1, причина в выводе)', (rc, buf.getvalue()))
+    buf = io.StringIO()
+    rc = run_units(unit('db_swallow'), nd, 30, rt2, py=sys.executable, out=buf)
+    check(rc == 0 and '⚠' in buf.getvalue() and 'проглотил' in buf.getvalue(),
+          'без базы: проверка, проглотившая отказ базы, — не стоп, но ⚠ с числом обращений (находка)', (rc, buf.getvalue()))
+    buf = io.StringIO()
+    rc = run_units(unit('db_idle'), nd, 30, rt2, py=sys.executable, out=buf)
+    check(rc == 0 and '⚠' not in buf.getvalue(), 'без базы: `docker ps` — пусто и код 0, как у чистого раннера, без ⚠', (rc, buf.getvalue()))
+    check(_first_word('set +e; python tools/scout/tests/test_mesh_photo.py > mp.log 2>&1; rc=$?\ncat mp.log') == 'python'
+          and _first_word('set -x\ndocker images x') == 'docker' and _first_word('pnpm test') == 'pnpm',
+          '`set +e;` в начале шага не прячет команду: test_mesh_photo из scout-orient выбирается (на 3c44566b prepush его не гонял)')
+    real_units = {u['cmd'].split('\n')[0]: u for u in real}
+    mp = [u for c, u in real_units.items() if 'test_mesh_photo.py' in c]
+    check(mp and not mp[0]['slow'], 'настоящий ci.yml: test_mesh_photo — локальная проверка (не «медленная»)', mp)
+    shim_dir = nodb_bin(rt2)
+    check(os.access(os.path.join(shim_dir, 'docker'), os.X_OK) and 'PATH' not in NODB_SHIM,
+          'подмена docker исполняема и лежит во временной папке прогона', shim_dir)
     print(f'prepush_check selftest: ошибок {len(bad)}')
     return 1 if bad else 0
 
