@@ -128,7 +128,7 @@ source: manual
 
 **П1.54 · директор, Работник 2 · 90 %**
 Внутренняя страница /trace: картинки открываются (ссылки без 0.0.0.0, как на /lab/mesh-check)
-<!-- владелец TG 1406 13.11 07:31 · T-20261113-10 | 08:05 влито e6e2a7ce (publicOrigin: только свой домен, иначе remont-lab.online; тесты 11/11, typecheck 0); живое — после выкладки сайта  | 10:02 прод f9daf54d (CI починен f9daf54d): главная и /try — viewport user-scalable=no | 19.11 11:35 директор: на проде generation_runs = 0 записей — живой /trace проверить не на чем; код в проде (lib/trace/admin.ts:signedAssetUrl → publicOrigin); проверка — при первой генерации -->
+<!-- владелец TG 1406 13.11 07:31 · T-20261113-10 | 08:05 влито e6e2a7ce (publicOrigin: только свой домен, иначе remont-lab.online; тесты 11/11, typecheck 0); живое — после выкладки сайта  | 10:02 прод f9daf54d (CI починен f9daf54d): главная и /try — viewport user-scalable=no | 19.11 11:16 директор: на проде generation_runs = 0 записей — живой /trace проверить не на чем; код в проде (lib/trace/admin.ts:signedAssetUrl → publicOrigin); проверка — при первой генерации -->
 
 ## П2 · пауза (владелец TG 1438, 13.11 07:48)
 
