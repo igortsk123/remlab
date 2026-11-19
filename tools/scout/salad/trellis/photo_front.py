@@ -49,11 +49,11 @@ EDGE_ERODE_FRAC = 0.004           # эрозия маски силуэта, до
 FADE_FRAC = 0.012                 # радиус растушёвки по поверхности, доля ширины фасада
 LIGHT_FRAC = 0.03                 # σ «широких» частот L*, доля ширины фасада
 PATCH_FRAC = 0.06                 # сторона участка гейта, доля ширины фасада
-TOL_FRAC = 0.015                  # допуск «кромка рельефа рядом с кромкой фото», доля ширины фасада
-REL_T = 0.25                      # порог «резкий поворот нормали» (градиент векторов нормали на пиксель)
+TOL_FRAC = 0.006                  # допуск «кромка рельефа рядом с кромкой фото», доля ширины фасада
+REL_T = 0.15                      # порог «кромка рельефа»: наклон поверхности dz/dx по глубине кадра (ступеньки плит дают ≫ 1)
 REL_FRAC = 0.02                   # рельеф есть, если резких пикселей в участке не меньше этой доли его площади
-AGREE_MIN = 0.55                  # совпадение кромок для разрешения класть (доля кромок рельефа, у которых рядом кромка фото)
-PHOTO_EDGE_PCT = 85.0             # кромка фото — градиент L* выше этого процентиля внутри маски
+AGREE_MIN = 0.50                  # совпадение кромок для разрешения класть: (доля кромок рельефа рядом с кромкой фото − доля «случайных попаданий») / (1 − доля случайных)
+PHOTO_EDGE_PCT = 92.0             # кромка фото — градиент L* выше этого процентиля внутри маски
 GATE_SMOOTH_FRAC = 0.02           # σ сглаживания решения гейта (чтобы не было швов по границам участков), доля ширины
 SPLAT_SIGMA = 1.2                 # σ сглаживания накоплений в текселях
 COVER_MIN = 0.25                  # минимальная масса накопления у текселя, чтобы считаться покрытым
@@ -88,6 +88,55 @@ def relief_edges(normals: np.ndarray, mask: np.ndarray) -> np.ndarray:
     return np.where(mask, np.sqrt(g2), 0.0).astype(np.float32)
 
 
+def texel_positions(V: np.ndarray, F: np.ndarray, UV: np.ndarray, T: int) -> tuple[np.ndarray, np.ndarray]:
+    """3D-точка каждого текселя карты T×T (барицентры грани; строки — v_flipped, как `uv.npz`) и маска «тексель внутри островка». Растеризатор — `tex_coverage.raster`."""
+    import tex_coverage as TC
+    V, F, UV = np.asarray(V, np.float64), np.asarray(F, np.int64), np.asarray(UV, np.float64)
+    xy = np.stack([UV[:, 0] * T, (1.0 - UV[:, 1]) * T], 1)
+    ids, _ = TC.raster(xy, F, T)
+    ti = np.nonzero(ids >= 0)[0]
+    f = ids[ti].astype(np.int64)
+    a_, b_, c_ = F[f, 0], F[f, 1], F[f, 2]
+    px, py = (ti % T) + 0.5, (ti // T) + 0.5
+    A_, B_, C_ = xy[a_], xy[b_], xy[c_]
+    ar = (B_[:, 0] - A_[:, 0]) * (C_[:, 1] - A_[:, 1]) - (B_[:, 1] - A_[:, 1]) * (C_[:, 0] - A_[:, 0])
+    wa = ((B_[:, 0] - px) * (C_[:, 1] - py) - (B_[:, 1] - py) * (C_[:, 0] - px)) / ar
+    wb = ((C_[:, 0] - px) * (A_[:, 1] - py) - (C_[:, 1] - py) * (A_[:, 0] - px)) / ar
+    Q = wa[:, None] * V[a_] + wb[:, None] * V[b_] + (1.0 - wa - wb)[:, None] * V[c_]
+    pos = np.zeros((T * T, 3), np.float32)
+    pos[ti] = Q
+    valid = np.zeros(T * T, bool)
+    valid[ti] = True
+    return pos.reshape(T, T, 3), valid.reshape(T, T)
+
+
+def frame_depth(pos: np.ndarray, valid: np.ndarray, uv: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, float]:
+    """Глубина кадра вида 0 (ортографика): 3D-точка пикселя = `pos` в его текселе (`uv.npz`); камера не нужна — линейная регрессия 3D-точки на (x, y) пикселя даёт плоскость кадра, остаток вдоль
+    её нормали — глубина (единицы формы). Возвращает глубину (кадр, 0 вне маски) и 3D-длину одного пикселя (для наклонов)."""
+    import cv2
+    T = pos.shape[0]
+    mx, my = uv[..., 0].astype(np.float32) * T - 0.5, uv[..., 1].astype(np.float32) * T - 0.5
+    P3 = np.stack([cv2.remap(pos[..., c], mx, my, cv2.INTER_NEAREST) for c in range(3)], -1)
+    ok = mask & (cv2.remap(valid.astype(np.uint8), mx, my, cv2.INTER_NEAREST) > 0)
+    ys, xs = np.nonzero(ok)
+    X = np.stack([xs.astype(np.float64), ys.astype(np.float64), np.ones(len(xs))], 1)
+    C, *_ = np.linalg.lstsq(X, P3[ys, xs].astype(np.float64), rcond=None)
+    nrm = np.cross(C[0], C[1])
+    nrm /= max(np.linalg.norm(nrm), 1e-12)
+    depth = np.zeros(mask.shape, np.float32)
+    depth[ys, xs] = ((P3[ys, xs] - X @ C) @ nrm).astype(np.float32)
+    px_len = float(0.5 * (np.linalg.norm(C[0]) + np.linalg.norm(C[1])))
+    return depth, px_len
+
+
+def depth_edges(depth: np.ndarray, mask: np.ndarray, px_len: float) -> np.ndarray:
+    """Наклон поверхности по глубине (dz/dx, без размерности): √(gx²+gy²)/длина пикселя; ступеньки плит и кромки рельефа дают большие значения. Глубина сглажена на 1 px."""
+    import cv2
+    d = smooth(depth, 0.8)
+    gx, gy = cv2.Sobel(d, cv2.CV_32F, 1, 0, ksize=3) / 8.0, cv2.Sobel(d, cv2.CV_32F, 0, 1, ksize=3) / 8.0
+    return np.where(mask, np.hypot(gx, gy) / max(px_len, 1e-12), 0.0).astype(np.float32)
+
+
 def photo_edges(L_photo: np.ndarray, mask: np.ndarray, width: float) -> np.ndarray:
     """Кромки фото (bool): градиент L* после снятия низких частот выше процентиля внутри маски."""
     import cv2
@@ -112,7 +161,9 @@ def gate_map(rel: np.ndarray, ph_edge: np.ndarray, mask: np.ndarray, width: floa
     blk = lambda a: pad(a).reshape(ny, P, nx, P).sum((1, 3))  # noqa: E731
     area, nrel, nmatch = blk(mask), blk(rel_px), blk(match_px)
     present = (area >= 0.2 * P * P) & (nrel >= REL_FRAC * np.maximum(area, 1))
-    agree = np.where(nrel > 0, nmatch / np.maximum(nrel, 1), 1.0)
+    near = blk((d_ph <= tol) & mask) / np.maximum(area, 1)              # доля площади участка рядом с кромкой фото — «случайные попадания»
+    raw = nmatch / np.maximum(nrel, 1)
+    agree = np.where(nrel > 0, (raw - near) / np.maximum(1.0 - near, 1e-3), 1.0)
     ok = np.where(present, agree >= AGREE_MIN, True)
     gate = np.kron(ok.astype(np.float32), np.ones((P, P), np.float32))[:H, :W]
     gate = np.clip(smooth(gate, GATE_SMOOTH_FRAC * width), 0, 1)
@@ -193,7 +244,6 @@ def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: 
     rd = os.path.join(stages, 'render_view0')
     S = np.asarray(Image.open(os.path.join(rd, 'mask.png')).convert('L')) > 127
     aoi = np.asarray(Image.open(os.path.join(rd, 'aoi_cos16.png'))).astype(np.float32) / 65535.0
-    normals = np.asarray(Image.open(os.path.join(rd, 'normal_cam.png')).convert('RGB'))
     uvd = np.load(os.path.join(rd, 'uv.npz'))
     uv = uvd['uv']
     photo = SL.read_rgba(photo_path)
@@ -210,7 +260,13 @@ def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: 
     inner = cv2.erode((S & A_fr).astype(np.uint8), np.ones((2 * er + 1, 2 * er + 1), np.uint8)) > 0
     wa = angle_weight(aoi)
     L_ph = PM.rgb_to_lab(ph)[..., 0].astype(np.float32)
-    rel = relief_edges(normals, inner)
+    import tex_coverage as TC
+    geo = TC.load_geoms(glb)
+    if len(geo) != 1:
+        raise ValueError('ожидалась одна геометрия')
+    pos, valid = texel_positions(geo[0]['V'], geo[0]['F'], geo[0]['UV'], 2048)
+    depth, px_len = frame_depth(pos, valid, uv, S)
+    rel = depth_edges(depth, inner, px_len)
     ph_edge = photo_edges(L_ph, inner, width)
     gate, gst = gate_map(rel, ph_edge, inner, width)
     zone = inner & (wa * gate > 0.5)
@@ -237,7 +293,7 @@ def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: 
     Image.fromarray((np.clip(conf, 0, 1) * 255).astype(np.uint8)).save(os.path.join(out_dir, f'{stem}.photo-conf.png'))
     gv = np.zeros(S.shape + (3,), np.uint8)
     gv[..., 1] = (np.clip(gate, 0, 1) * 160).astype(np.uint8)
-    gv[..., 0] = (np.clip(rel / 0.8, 0, 1) * 255).astype(np.uint8)
+    gv[..., 0] = (np.clip(rel / (3 * REL_T), 0, 1) * 255).astype(np.uint8)
     gv[ph_edge] = (60, 60, 255)
     gv[~inner] = 0
     Image.fromarray(gv).save(os.path.join(out_dir, f'{stem}.photo-gate.png'))
@@ -260,7 +316,14 @@ def main() -> int:
     ap.add_argument('--out-dir')
     ap.add_argument('--stem')
     ap.add_argument('--light', choices=('lp', 'raw'), default='lp')
+    ap.add_argument('--rel-t', type=float, default=None, help='порог поворота нормали (REL_T)')
+    ap.add_argument('--rel-frac', type=float, default=None, help='доля рельефных пикселей в участке (REL_FRAC)')
+    ap.add_argument('--agree-min', type=float, default=None, help='минимум совпадения кромок (AGREE_MIN)')
     a = ap.parse_args()
+    g = globals()
+    for k, v in (('REL_T', a.rel_t), ('REL_FRAC', a.rel_frac), ('AGREE_MIN', a.agree_min)):
+        if v is not None:
+            g[k] = v
     if not all([a.glb, a.stages, a.photo, a.out_dir, a.stem]):
         ap.error('нужны --glb --stages --photo --out-dir --stem')
     r = run(a.glb, a.stages, a.photo, a.out_dir, a.stem, a.light)
