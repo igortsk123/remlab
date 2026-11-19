@@ -20,8 +20,8 @@ permissions:
   packages: write
 
 env:
-  BASE: ghcr.io/${{ github.repository_owner }}/mesh-comfy-trial:trellis2-0460
-  PRIMARY: ghcr.io/${{ github.repository_owner }}/mesh-comfy-trial:stablegen-0460
+  BASE: ghcr.io/${{ github.repository_owner }}/mesh-comfy-trial:trellis2-0460-cuda
+  PRIMARY: ghcr.io/${{ github.repository_owner }}/mesh-comfy-trial:stablegen-0460-cuda
   CTX: tools/scout/stablegen
 
 jobs:

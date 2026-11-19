@@ -2,7 +2,7 @@
 # узел ComfyUI-GGUF (загрузчик квантованных Qwen-Image-Edit `.gguf`; тот же коммит, что ставит установщик StableGen — `setup/installer.py`). Веса НЕ в образе: воркер докачивает их с
 # публичных репозиториев Hugging Face при старте (токен не нужен), как у р.4. Код воркера (`worker_sg.py`) едет в группе переменной TRIAL_WORKER_Z — для правок воркера образ не пересобирается.
 # Ветку и образ р.4 не трогаем: своя ветка `trial/trellis2-stablegen`, свой тег `mesh-comfy-trial:stablegen-0460`.
-ARG BASE=ghcr.io/igortsk123/mesh-comfy-trial:trellis2-0460
+ARG BASE=ghcr.io/igortsk123/mesh-comfy-trial:trellis2-0460-cuda
 FROM ${BASE}
 ARG GGUF_COMMIT=6ea2651e7df66d7585f6ffee804b20e92fb38b8a
 RUN git clone https://github.com/city96/ComfyUI-GGUF /opt/ComfyUI/custom_nodes/ComfyUI-GGUF \
