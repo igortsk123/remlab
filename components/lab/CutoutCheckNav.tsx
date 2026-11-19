@@ -26,8 +26,8 @@ export function CutoutCheckTop({ all, run }: { all: Counts; run: string }) {
       <div className="h-1.5 overflow-hidden rounded-full bg-tertiary" aria-hidden="true">
         <div className="h-full rounded-full bg-success-solid" style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-xs text-tertiary">
-        {L.checked.en} {all.checked} {L.of.en} {all.total} · run {run} · {L.rule.ru} / {L.rule.en}
+      <span className="text-xs text-tertiary" title={`run ${run}`}>
+        {L.checked.en} {all.checked} {L.of.en} {all.total} · {L.rule.ru} / {L.rule.en}
       </span>
     </div>
   );

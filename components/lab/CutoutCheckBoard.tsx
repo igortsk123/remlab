@@ -67,8 +67,8 @@ export function CutoutCheckBoard({ run, items: initial, roles: r0, all: a0, role
         </p>
       ) : (
         <div className="grid grid-cols-1 gap-3">
-          {items.map((it) => (
-            <CutoutCheckCard key={`${it.id}:${it.generationKey}`} item={it} onChange={onChange} onView={onView} onZoom={setZoom} />
+          {items.map((it, i) => (
+            <CutoutCheckCard key={`${it.id}:${it.generationKey}`} eager={i < 2} item={it} onChange={onChange} onView={onView} onZoom={setZoom} />
           ))}
         </div>
       )}

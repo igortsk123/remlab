@@ -137,7 +137,7 @@ export function CutoutCheckZoom({ target, onClose }: { target: ZoomTarget; onClo
         className={`min-h-0 flex-1 touch-none overflow-hidden rounded-lg select-none ${BG[target.bg]} ${v.s > 1 ? "cursor-grab" : "cursor-zoom-in"}`}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={target.src} alt="" draggable={false} style={{ transform: `translate(${v.x}px, ${v.y}px) scale(${v.s})` }} className="h-full w-full object-contain will-change-transform" />
+        <img src={target.src} alt="" draggable={false} style={{ transform: `translate(${v.x}px, ${v.y}px) scale(${v.s})` }} className="h-full w-full object-contain" />
       </div>
       <p className="pt-2 text-center text-xs text-white/70">
         колёсико / щипок — увеличить, тащить — двигать, двойной тап — ×3 · wheel / pinch to zoom, drag to pan, double-tap ×3

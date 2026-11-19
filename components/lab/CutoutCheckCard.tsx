@@ -29,7 +29,7 @@ const BG_STYLE: Record<Bg, string> = {
   dark: "bg-[#1b1b1f]",
 };
 
-export function Pic({ src, bg, label, onOpen }: { src: string | null; bg: Bg; label: Pair; onOpen: () => void }) {
+export function Pic({ src, bg, label, onOpen, eager }: { src: string | null; bg: Bg; label: Pair; onOpen: () => void; eager?: boolean }) {
   return (
     <button
       type="button"
@@ -40,7 +40,7 @@ export function Pic({ src, bg, label, onOpen }: { src: string | null; bg: Bg; la
     >
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt="" className="h-full w-full object-contain" loading="lazy" />
+        <img src={src} alt="" className="h-full w-full object-contain" loading={eager ? "eager" : "lazy"} decoding="async" />
       ) : (
         <span className="flex h-full items-center justify-center text-sm text-tertiary">
           {L.noPic.ru} / {L.noPic.en}
@@ -57,10 +57,11 @@ interface Props {
   item: CutoutItemView;
   onZoom: (t: ZoomTarget) => void;
   onChange: (item: CutoutItemView) => void;
+  eager?: boolean; // первые карточки страницы грузят картинки сразу (без ленивой загрузки); место держит рамка aspect-[4/3]
   onView: (id: number, generationKey: string) => void; // «просмотрено» дошло до сервера: доска сама подмешает в свежее состояние карточки
 }
 
-export function CutoutCheckCard({ item, onZoom, onChange, onView }: Props) {
+export function CutoutCheckCard({ item, onZoom, onChange, onView, eager }: Props) {
   const reviewer = useReviewer();
   const note = useRef<NoteSaver | null>(null);
   const { busy, error, press } = useCutoutPress(item, reviewer, onChange, async () => {
@@ -79,9 +80,9 @@ export function CutoutCheckCard({ item, onZoom, onChange, onView }: Props) {
   return (
     <section ref={box} style={bad ? { boxShadow: "inset 0 0 0 3px var(--color-bg-error-solid)" } : undefined} className={`flex flex-col gap-2.5 rounded-xl bg-primary p-3 ring-inset ${border}`} data-sku={item.sku} id={`c${item.id}`}>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <Pic src={item.photoUrl} bg="photo" label={L.photo} onOpen={open(item.photoUrl, "photo", L.photo)} />
-        <Pic src={item.cutUrl} bg="checker" label={L.cutChecker} onOpen={open(item.cutUrl, "checker", L.cutChecker)} />
-        <Pic src={item.cutUrl} bg="dark" label={L.cutDark} onOpen={open(item.cutUrl, "dark", L.cutDark)} />
+        <Pic src={item.photoUrl} bg="photo" label={L.photo} onOpen={open(item.photoUrl, "photo", L.photo)} eager={eager} />
+        <Pic src={item.cutUrl} bg="checker" label={L.cutChecker} onOpen={open(item.cutUrl, "checker", L.cutChecker)} eager={eager} />
+        <Pic src={item.cutUrl} bg="dark" label={L.cutDark} onOpen={open(item.cutUrl, "dark", L.cutDark)} eager={eager} />
       </div>
       <div className="flex flex-col gap-0.5">
         <span className="text-sm font-semibold text-primary">{item.name || item.sku}</span>
