@@ -815,13 +815,14 @@ class LocalMeshBackend:
         STATE['phase'] = 'importing'
         t = time.time()
         import torch
+        from localmesh_engine import matting
+        # заглушки plyfile/nvdiffrast регистрирует сам пакет при импорте — o_voxel.convert можно трогать только ПОСЛЕ него (иначе «No module named plyfile»)
         import o_voxel.convert as ovc
         if not hasattr(ovc, 'tiled_flexible_dual_grid_to_mesh'):      # в собранном o-voxel (TRELLIS.2 75fbf018) этой функции нет; движок импортирует её только для обходного пути LUMENGEN_FIX_TILED_MESH=0
             def _no_legacy_tiled(*_a, **_k):
                 raise RuntimeError('устаревшая tiled_flexible_dual_grid_to_mesh отсутствует в o_voxel образа; движок должен идти по своей реализации (LUMENGEN_FIX_TILED_MESH=1)')
             ovc.tiled_flexible_dual_grid_to_mesh = _no_legacy_tiled
         os.environ.setdefault('LUMENGEN_FIX_TILED_MESH', '1')
-        from localmesh_engine import matting
 
         def _no_matte(*_a, **_k):                        # BiRefNet_HR (trust_remote_code) не грузим: вход — RGBA с настоящей альфой
             raise RuntimeError('вырезка фона отключена: вход должен быть RGBA с настоящей альфой (BiRefNet из Hub не исполняем)')
