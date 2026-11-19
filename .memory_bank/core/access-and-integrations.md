@@ -29,7 +29,7 @@ review_after: 2026-12-05
 
 - **Vercel AI Gateway:** основной путь к LLM; «нет денег» — `tools/scout/llm_gateway.py:NoCredits`; баланс — `GET /v1/credits`
   ключом `VERCEL_AI_GATEWAY_KEY` (0 → 402 у фото и у Codex `vercel-sol`), тревога `gateway_no_credits` (`tools/ops/dev-checks.sh`).
-- **fal.ai:** клиент `tools/scout/falmini.py`; на мешах заменён Salad (ADR-0131); 403 «locked» = баланс пуст, не повторять.
+- **fal.ai:** `tools/scout/falmini.py`; меши — Salad (ADR-0131); 403 «locked» = баланс пуст.
 
 ## Прочие доступы (детали — `../domain/integrations.md`)
 - **Мост мешей DEV↔прод:** `MESH_REVIEW_SECRET` (кука владельца) + `MESH_REVIEW_MACHINE_TOKEN`
@@ -37,6 +37,7 @@ review_after: 2026-12-05
 - **SaladCloud + GHCR (31.08):** GPU под меши вместо fal; орг `prodstore`/`dmodel`, ключи в
   `_secrets/`, образ только digest'ом. События машин — `log-entries` (бесплатно, [[mesh-pool]] Tier 2 § 6). Грабли API — ADR-0137.
   GHCR — единственная копия образа (ADR-0232), вход `GHCR_TOKEN` (Tier 2). `HF_TOKEN` (DINOv3, 18.11) — Tier 2 § env_keys.
+- **RunPod (19.11):** карты ≥40 ГБ, ключ в `_secrets/` — Tier 2.
 - **Гдеслон (03.09):** фиды первичны (`original_picture`, `article`, описание), API — комиссия;
   id округлён (связь по `article`), `available` бесполезен — ADR-0171.
 - **Telegram `@remlabservice_bot` (03.09):** токен и chat_id в `tools/scout/.env.alert` и `/opt/remlab/catalog-watchdog/.env`. С 14.10 — и клиентский бот; UptimeRobot — Tier 2.
