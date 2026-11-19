@@ -97,6 +97,60 @@ def tri_areas(v: np.ndarray, f: np.ndarray) -> np.ndarray:
     return 0.5 * np.linalg.norm(np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]]), axis=1)
 
 
+def slab_faces(v: np.ndarray, f: np.ndarray, band: float = 0.25, top_from: float = 0.35, grow: float = 0.05, horiz: float = 0.8, min_h_share: float = 0.6) -> tuple[np.ndarray, dict]:
+    """ВТОРОЕ ПРАВИЛО ОЧИСТКИ (проба 19.11, директор): «почти горизонтальный слой у пола, выходящий за след корпуса сверху» — ПО НОРМАЛЯМ И ВЫСОТЕ, не по связным кускам и не срезом по высоте.
+    След корпуса = выпуклая оболочка (XZ) вершин верхней части (выше `top_from` высоты меша), раздутая на `grow` габарита. Кандидаты — грани с центром ниже `band` высоты меша и ЗА следом.
+    Из кандидатов берутся связные группы; плитой считается группа, где ≥ `min_h_share` площади — горизонтальные грани (|нормаль_Y| ≥ `horiz`) И которая НЕ приросла к предмету выше полосы
+    (общие вершины с гранями выше `band`): основание торшера/ножки приросли, плита и её обрывки лежат отдельно. Возвращает маску граней плиты и числа."""
+    ymin, ymax = float(v[:, 1].min()), float(v[:, 1].max())
+    h = max(ymax - ymin, 1e-9)
+    up = v[:, 1] > ymin + top_from * h
+    info = {'footprint_pts': int(up.sum())}
+    if up.sum() < 10:
+        return np.zeros(len(f), dtype=bool), info
+    from scipy.spatial import ConvexHull
+    pts = v[up][:, [0, 2]]
+    hull = ConvexHull(pts)
+    ext = max(np.ptp(pts[:, 0]), np.ptp(pts[:, 1]))
+    eq = hull.equations                                      # n·x + d ≤ 0 внутри
+    c = v[f].mean(1)
+    inside = np.all(c[:, [0, 2]] @ eq[:, :2].T + eq[:, 2] <= grow * ext, axis=1)
+    cand = (c[:, 1] <= ymin + band * h) & ~inside
+    info.update({'footprint_area': round(float(hull.volume), 5), 'cand_faces': int(cand.sum())})
+    if not cand.any():
+        return cand, info
+    nrm = np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]])
+    area = 0.5 * np.linalg.norm(nrm, axis=1)
+    ny = np.abs(nrm[:, 1]) / np.maximum(2 * area, 1e-12)
+    idx = np.nonzero(cand)[0]
+    above = c[:, 1] > ymin + band * h                        # грани выше полосы: к ним должны прирастать основание/ножки
+    attached = np.zeros(len(v), dtype=bool)
+    attached[np.unique(f[above])] = True
+    lab = label_components(f[idx], len(v))
+    out = np.zeros(len(f), dtype=bool)
+    groups = []
+    for g in np.unique(lab):
+        gi = idx[lab == g]
+        a_all = float(area[gi].sum())
+        hs = float(area[gi][ny[gi] >= horiz].sum() / max(a_all, 1e-12))
+        take = hs >= min_h_share and not attached[np.unique(f[gi])].any()
+        groups.append({'faces': int(len(gi)), 'area': round(a_all, 5), 'h_share': round(hs, 2), 'attached_up': bool(attached[np.unique(f[gi])].any()), 'slab': bool(take)})
+        if take:
+            out[gi] = True
+    info['groups'] = sorted(groups, key=lambda x: -x['area'])[:6]
+    return out, info
+
+
+def floor_contacts(v: np.ndarray, f: np.ndarray, keep: np.ndarray, band: float = 0.04) -> int:
+    """Число «пятен опоры» (ножки/основание): связные группы граней с центром в нижних `band` высоты меша — по оставленным граням. Для «ножки до/после»."""
+    ymin, ymax = float(v[:, 1].min()), float(v[:, 1].max())
+    c = v[f].mean(1)
+    sel = keep & (c[:, 1] <= ymin + band * max(ymax - ymin, 1e-9))
+    if not sel.any():
+        return 0
+    return int(label_components(f[sel], len(v)).max() + 1)
+
+
 def clean_glb(path: str, out_path: str | None = None, dims_cm=None, thin: float = 0.02, floor: float = 0.05) -> dict:
     """Очистка БЕЗ слияния примитивов: у каждого примитива (материала) свой `submesh`, материалы и текстуры сохраняются (Codex, директор 19.11).
     Связные куски считаются по ВСЕМ примитивам вместе (куски могут пересекать границу материала). Рядом, кроме `.clean.glb` и `.metrics.json`, кладётся `.audit.glb` —
