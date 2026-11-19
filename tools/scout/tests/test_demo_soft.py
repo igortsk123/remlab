@@ -97,7 +97,8 @@ SRC = open(os.path.join(HERE, '..', 'flat215_demo.py'), encoding='utf-8').read()
 FUNCS = {n.name: ast.get_source_segment(SRC, n) for n in ast.parse(SRC).body if isinstance(n, ast.FunctionDef)}
 check('экспорт варианта: мягкое — в список варианта, модель обнулена',
       "soft = soft_role(role)" in FUNCS['build'] and "sk['msid'] = None" in FUNCS['build'])
-check('данные: правило ролей уходит странице (rules.soft_roles)', "'soft_roles': soft_roles()" in FUNCS['build'])
+check('данные: правило ролей уходит странице (rules.soft_roles)',   # один набор правил страницы (T-20261119-98): page_rules() зовёт build
+      "'soft_roles': soft_roles()" in FUNCS['page_rules'] and "**page_rules()" in FUNCS['build'])
 check('сборка: мягкое без роли в каталоге меняется из ленты сборки, нечем — строка снята; показуемой вазой мягкое не меняем',
       '_SOFT_LOST.update(soft_lost(sets))' in FUNCS['build'] and "p.get('soft') and p.get('sid') not in taken" in FUNCS['build']
       and 'soft_dropped.append' in FUNCS['build'] and "if soft_role(d.get('role')):\n                continue" in FUNCS['build'])
