@@ -18,7 +18,7 @@ ARG LAMA_SHA256=344c77bbcb158f17dd143070d1e789f38a66c04202311ae3a258ef66667a9ea9
 # пины: diffusers 0.32.2 — эпоха кода MV-Adapter (кастомные процессоры внимания и конвейер SDXL); transformers 4.56.2 и huggingface_hub 0.35.3 остаются из базы (не трогаем)
 # imageio/matplotlib/jaxtyping/typeguard — импортируются на уровне модулей `mvadapter.utils` (saving.py, typing.py), без них `import mvadapter.utils` падает
 RUN python3 -m pip install diffusers==0.32.2 peft==0.14.0 accelerate==1.2.1 omegaconf==2.3.0 einops==0.8.0 matplotlib==3.9.4 imageio==2.36.1 \
-        jaxtyping==0.2.36 typeguard==4.4.1 spandrel==0.4.1 cvcuda_cu12==0.14.0 \
+        jaxtyping==0.2.36 typeguard==4.4.1 spandrel==0.4.1 cvcuda_cu12==0.14.0 gltflib==1.0.13 \
     && python3 -m pip install -q "huggingface_hub==0.35.3" "transformers==4.56.2"
 
 RUN git clone https://github.com/huanngzh/MV-Adapter.git /opt/MV-Adapter \
