@@ -1,0 +1,90 @@
+# СБОРКА ОБРАЗА ПРОБЫ UltraTex НА GITHUB ACTIONS (T-20261119-90/2, вариант 8) — не на pakardev (диск общий с базой tamara; решение директора 18.11).
+# Запускается ТОЛЬКО пушем в ветки `trial/trellis2*` при правке Dockerfile.ultratex, воркера, ultratex_core или этого файла, либо вручную из такой ветки.
+# Что делает: освобождает диск сборщика → собирает `tools/scout/runpod/ultratex/Dockerfile.ultratex` (CUDA 12.4 runtime + Python 3.12 + код авторов по закреплённому коммиту; веса НЕ в образе) →
+# проверки БЕЗ видеокарты внутри образа (импорт воркера и ultratex_core, EGL-контекст moderngl на llvmpipe, тесты воркера) → печатает размер и digest → пушит в GHCR.
+# Куда: `ghcr.io/<владелец>/mesh-ultratex-trial:ultratex-trial` (тот же способ, что у supratex; при 403 — привязать пакет к репо или пуш личным токеном).
+# Боевые группы не затрагивает. Деплоя нет. RunPod тянет образ отсюда (пакет должен быть доступен поду: публичный или с реквизитами реестра в теле пода).
+name: build-ultratex-trial
+
+on:
+  push:
+    branches: ['trial/trellis2*']
+    paths:
+      - 'tools/scout/runpod/ultratex/**'
+      - '.github/workflows/build-ultratex-trial.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-ultratex-trial
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/mesh-ultratex-trial:ultratex-trial
+  CTX: tools/scout/runpod/ultratex
+
+jobs:
+  build:
+    if: startsWith(github.ref, 'refs/heads/trial/trellis2')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Освободить диск сборщика
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      /usr/share/swift /usr/local/share/powershell /usr/local/julia* || true
+          sudo docker system prune -af || true
+          df -h /
+          FREE_GB=$(df -BG --output=avail / | tail -1 | tr -dc 0-9)
+          [ "$FREE_GB" -ge 30 ] || { echo "::error::после очистки меньше 30 ГБ"; exit 1; }
+
+      - name: Вход в GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Сборка
+        run: |
+          set +e
+          docker build --progress=plain -f "$CTX/Dockerfile.ultratex" -t "$IMAGE" "$CTX" > build.log 2>&1
+          rc=$?
+          tail -40 build.log
+          if [ "$rc" -ne 0 ]; then
+            # логи Actions без токена не читаются — хвост уходит в аннотации (публичный API check-runs) и в сводку шага
+            python3 tools/scout/salad/trellis/ci_annotate.py build.log 96 12
+            exit "$rc"
+          fi
+          SIZE=$(docker image inspect "$IMAGE" --format '{{.Size}}')
+          echo "размер образа (распакованный): $(python3 -c "print(round($SIZE/2**30,2))") ГБ"
+
+      - name: BUILD_INFO из образа
+        run: docker run --rm --entrypoint cat "$IMAGE" /opt/BUILD_INFO_ULTRATEX.txt | head -40
+
+      - name: Проверки без видеокарты (импорт, EGL на llvmpipe, тесты воркера)
+        run: |
+          set +e
+          docker run --rm -v "$PWD/$CTX:/t:ro" --entrypoint python "$IMAGE" /t/check_image.py > check.log 2>&1
+          rc1=$?
+          docker run --rm -v "$PWD/$CTX:/t:ro" --entrypoint python "$IMAGE" /t/tests_ultratex.py >> check.log 2>&1
+          rc2=$?
+          tail -30 check.log
+          if [ "$rc1" -ne 0 ] || [ "$rc2" -ne 0 ]; then python3 tools/scout/salad/trellis/ci_annotate.py check.log 96 12; exit 1; fi
+
+      - name: Публикация в GHCR
+        id: push
+        run: |
+          docker push "$IMAGE"
+          DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
+          COMPRESSED=$(docker manifest inspect "$DIGEST" 2>/dev/null | python3 -c 'import json,sys; m=json.load(sys.stdin); print(sum(l["size"] for l in m.get("layers",[])))' || echo 0)
+          GB=$(python3 -c "print(round($COMPRESSED/2**30,2))")
+          {
+            echo "### Образ пробы UltraTex"
+            echo "- адрес: \`$IMAGE\`"
+            echo "- digest: \`$DIGEST\`"
+            echo "- сжатый размер в реестре: **${GB} ГБ**"
+            echo "- коммит: \`${GITHUB_SHA}\`"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
