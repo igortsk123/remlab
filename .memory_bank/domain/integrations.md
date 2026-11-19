@@ -424,8 +424,12 @@ base 2833 против 85 у `gpt-4o`, то есть в долларах как 
 ## Вырезка фона: BiRefNet local и fal (свод недели 06–12.11 по журналам, T-20261112-85)
 - Веса и код BiRefNet закреплены ревизией (`tools/scout/cutout_sync.py:BIREFNET_REVISION`, T-46/3): модель грузится с
   `trust_remote_code=True`, без ревизии transformers сам скачивал новый `birefnet.py`. На ноде Salad (`tools/scout/salad/preprocess.py`) ревизия НЕ закреплена.
-- `CUTOUT_BACKEND=local` — CPU, 18–23 с на фото, порциями по 100 (вызова `heavy-slot` в коде вырезки нет — не подтверждено 18.11); fal ≈ $0,0005–0,0008
-  за фото (4 потока: 372 фото за 624 с).
+- `CUTOUT_BACKEND` по умолчанию `fal` (`tools/scout/cutout_sync.py:63`; у fal веса Light, не те, что в образе Salad — `:17`); `local` — CPU
+  ≈14 с на фото на 12 ядрах (`:20`), до `DAILY_MAX=400` за ночь (`:65`); вызова `heavy-slot` в коде вырезки нет. fal ≈ $0,0008 за фото, по
+  умолчанию 2 потока (`:64`; на 6 потоках — 376 отказов из 508).
+- Цепочка после маски (19.11, T-99/T-107): 8-связность в `components.clean` (`tools/scout/salad/components.py`, тросы люстр целы);
+  в `clean_edges` — ореол, крошки и `clean_islands.clean_bg_like_specks` (крупинка на кромке, похожая на фон, `tools/scout/salad/preprocess.py:clean_edges`);
+  затем `refine_foreground` (blur fusion у кромки). `cutout_sync.chain` — та же цепочка, но без `components.prune_attached` (есть только в `_cut_chain`).
 
 ## RunPod — карты ≥40 ГБ (19.11.2026, владелец TG 2178–2182)
 - Ключ `RUNPOD_API_KEY` — в `_secrets/ACCESS.md`. Скопирован из архивного проекта julia по слову владельца. В коде remlab клиента пока нет.
@@ -444,5 +448,5 @@ base 2833 против 85 у `gpt-4o`, то есть в долларах как 
 - Fine-grained ключ `GITHUB_ACTIONS_READ_TOKEN`: только репо remlab, Actions — Read-only, 90 дней (истекает ≈17.02.2027); значение — `_secrets/ACCESS.md`.
 - `gh` на pakardev вошёл этим ключом: `gh run view <id> -R igortsk123/remlab --log-failed` — строки ошибки упавшего шага.
 - Напоминание владельцу обновить ключ — user-таймер systemd `github-token-remind.timer` (10.02.2027 10:00 Лондон, `tools/scout/alert.sh`).
-- Без ключа видны только аннотации шага (`::error::` в `.github/workflows/ci.yml`, шаг test_mesh_photo) — публичны через API check-runs.
+- Без ключа видны только аннотации `::error::` (`.github/workflows/ci.yml`: шаги test_mesh_photo и memory-project-audit) — публичны через API check-runs.
 - Дальше: сигнал «CI красный» сам прикладывает строки ошибки (план задач П1.100).

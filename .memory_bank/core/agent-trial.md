@@ -8,7 +8,7 @@ importance: high
 source: _intake/session-scratch.md
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-18
+last_verified: 2026-11-19
 review_after: 2026-12-10
 ---
 
@@ -20,14 +20,14 @@ review_after: 2026-12-10
 - **Задание:** `app/try/page.tsx` → `POST /api/trial` → `trial_jobs` (`db/init/022-trial-jobs.sql` … 038); лимиты — ADR-0371
   (`lib/trial/upload-limits.ts`, `own-key.ts`), хранение 30 дн (`lib/trial/config.ts:trialFileHours`).
 - **Воркер DEV:** `tools/floorplan/worker.py`, юнит `remlab-trial-worker`, аренда `lib/trial/repo-worker.ts`; не берёт при < 3 ГБ,
-  ≥ 2 тяжёлых (`worker.py:heavy_queue`), прод не 200; правка — после перезапуска (урок 608). Исходник покупателю — нет (ADR-0418).
+  ≥ 2 тяжёлых (`worker.py:heavy_waiting`), прод не 200; правка — после перезапуска. Исходник покупателю — нет (ADR-0418).
 - **Стены:** `tools/floorplan/pipeline.py`, лист `tools/floorplan/bench.py:dev_sheet` (ADR-0374), балкон `outdoor` (ADR-0375),
   регресс `tools/floorplan/regress.py`. Площадь ↔ подпись — `tools/floorplan/area_checks.py`.
 - **Стадии:** `tools/floorplan/conveyor.py` → гостиная `tools/scout/trial_demo.py` → спальни `tools/scout/trial_bedroom.py`
   (стиль — ≤ 16 вызовов решателя, `STYLE_SOLVES`, ADR-0414); данные `tools/scout/trial_bundle.py`; нет масштаба — `awaiting_check`
   (`trial_bundle.py:size_check`), «Обустроить» — `conveyor.Rebuild`.
-- **Тур:** `app/try/[id]/tour/[[...path]]/route.ts`; витрина закреплена (`lib/trial/tour-bundle.ts:ensureJobRelease`), обновляет
-  `tools/floorplan/reissue.py` (мебель подтверждённого тура — до переподтверждения). Ссылка покупателя
+- **Тур:** `app/try/[id]/tour/[[...path]]/route.ts`; витрина закреплена (`lib/trial/tour-bundle.ts:ensureJobRelease`), обновляют
+  `tools/floorplan/reissue.py` и «Обустроить»/«Перечитать» (`lib/trial/tour-bundle.ts:repinCurrentRelease`). Ссылка покупателя
   закрыта до «Подтвердить планировку» (`lib/trial/buyer-gate.ts`, ADR-0386); проёмы — как у застройщика (ADR-0399); исходник —
   агенту по `?k=` (`lib/trial/tour-source.ts`).
 - **Скорость (ADR-0376):** `tools/scout/cams_par.py`, `tools/floorplan/cards.py`. **Товары:** `trial_bundle.py:catalog_goods`, £ —
