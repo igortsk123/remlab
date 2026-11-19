@@ -33,7 +33,8 @@ class Runs(unittest.TestCase):
                 self.assertIn(w, cat, f'{var}: нет весов {w}')
             names = [(cat[w][3] or os.path.basename(cat[w][1])) for w in v['weights']]
             self.assertIn(v['unet'], names, f'{var}: имя GGUF в списке сервера ≠ имя файла воркера')
-            self.assertIn(v['lora'], names, f'{var}: имя LoRA в списке сервера ≠ имя файла воркера')
+            if v['lora']:
+                self.assertIn(v['lora'], names, f'{var}: имя LoRA в списке сервера ≠ имя файла воркера')
 
 
 class Money(unittest.TestCase):
@@ -86,10 +87,45 @@ class Worker(unittest.TestCase):
 class Relay(unittest.TestCase):
     def test_key_injected_and_foreign_dropped(self):
         h = sg_relay.clean_headers({'Host': 'x', 'Salad-Api-Key': 'old', 'Content-Type': 'application/json', 'Upgrade': 'websocket'}, 'K')
-        self.assertEqual(h, {'Content-Type': 'application/json', 'Salad-Api-Key': 'K'})
+        self.assertEqual(h, {'Content-Type': 'application/json', 'User-Agent': 'remlab-mesh/1.0', 'Salad-Api-Key': 'K'})
 
     def test_no_key_no_header(self):
         self.assertNotIn('Salad-Api-Key', sg_relay.clean_headers({'Salad-Api-Key': 'old'}, None))
+
+    def test_foreign_user_agent_replaced(self):          # прокси RunPod отвечает 403 на python-requests/aiohttp
+        self.assertEqual(sg_relay.clean_headers({'User-Agent': 'python-requests/2.32'}, None)['User-Agent'], 'remlab-mesh/1.0')
+
+
+class Experiments(unittest.TestCase):
+    def test_no_lora_variant_config(self):
+        c = S.build_cfg('K', 'q2509nl', '/o', 's', 8, 2048, 42, 60)
+        self.assertTrue(c['no_lora'])
+        self.assertIsNone(c['lora_name'])
+        self.assertEqual(c['scene_props'], {'steps': 24, 'cfg': 4.0})
+        self.assertNotIn('lora2509', S.weights_for([('K', 'q2509nl')]).split(','))
+
+    def test_edge_variant_levers(self):
+        c = S.build_cfg('K', 'q2509edge', '/o', 's', 8, 2048, 42, 60)
+        self.assertFalse(c['bake_denoise'])
+        self.assertEqual(c['scene_props']['weight_exponent_after_generation'], 15.0)
+        self.assertTrue(c['scene_props']['weight_exponent_generation_only'])
+        self.assertNotIn('bake_denoise', S.build_cfg('K', 'q2509q5', '/o', 's', 8, 2048, 42, 60))
+
+    def test_r2b1_newcut_keys(self):
+        c = S.build_cfg('112923_13224664101879413845@r2b1+newcut', 'q2509q5', '/o', 's', 8, 2048, 42, 60)
+        self.assertTrue(c['glb'].endswith('R2b1.s140k-uv.glb'))
+        self.assertIn('newcut-2149', c['style_image'])
+        self.assertIn('hd_inputs', S.build_cfg('114667_11634594969038554503@r2b1', 'q2509q5', '/o', 's', 8, 2048, 42, 60)['style_image'])
+
+    def test_megapixels_variant(self):
+        self.assertEqual(S.build_cfg('K', 'q2509mp', '/o', 's', 8, 2048, 42, 60)['megapixels'], 1.76)
+        self.assertNotIn('megapixels', S.build_cfg('K', 'q2509q5', '/o', 's', 8, 2048, 42, 60))
+
+    def test_shape_suffix_picks_comfy_shape(self):
+        c = S.build_cfg('112923_1322@c1024', 'q2509q5', '/o', 's', 8, 2048, 42, 60)
+        self.assertTrue(c['glb'].endswith('out-comfy/112923_1322-c1024.glb'))
+        self.assertTrue(c['style_image'].endswith('112923_1322.rgba.png'))
+        self.assertEqual(S.parse_runs('112923_1322@c1024:q2509q5'), [('112923_1322@c1024', 'q2509q5')])
 
 
 if __name__ == '__main__':

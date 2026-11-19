@@ -45,6 +45,7 @@ STARTUP = {'http': {'path': '/health', 'port': PORT, 'scheme': 'http', 'headers'
 FAIL_STREAK = 2
 SG_HOME = os.path.expanduser('~/remlab-logs/t90-1119/sg')
 HD_GLB = os.path.expanduser('~/remlab-logs/t94-1119/out/{key}-hd.glb')                      # HD-форма (без пересборки развёртки)
+NEWCUT_INPUT = os.path.expanduser('~/remlab-logs/t94-1119/newcut-2149/{key}.rgba.png')       # новая вырезка (комод; диван — только если р.4 пришлёт)
 HD_INPUT = os.path.expanduser('~/remlab-logs/t93-1119/hd_inputs/{key}.rgba.png')            # HD-вырезка: внешний стиль для StableGen
 
 # вариант → имя GGUF и LoRA в списках сервера + ключи весов воркера (`worker_sg.WEIGHTS`) + подпись для кадров
@@ -53,6 +54,22 @@ VARIANTS = {
     'q2509q8': {'unet': 'Qwen-Image-Edit-2509-Q8_0.gguf', 'lora': 'Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors', 'weights': ['q2509_q8', 'lora2509'], 'label': 'Qwen-Image-Edit-2509 Q8_0'},
     'q2511q5': {'unet': 'Qwen-Image-Edit-2511-Q5_K_M.gguf', 'lora': 'Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors', 'weights': ['q2511_q5', 'lora2511'], 'label': 'Qwen-Image-Edit-2511 Q5_K_M'},
     'q2511q8': {'unet': 'Qwen-Image-Edit-2511-Q8_0.gguf', 'lora': 'Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors', 'weights': ['q2511_q8', 'lora2511'], 'label': 'Qwen-Image-Edit-2511 Q8_0'},
+}
+# ОПЫТЫ ночи (директор, T-90/6): те же веса 2509 Q5, меняем одно за раз. Ключ прогона «<товар>@<суффикс формы>» берёт форму из t94 out-comfy (например `…@c1024` — без щели крышки).
+VARIANTS['q2509nl'] = {'unet': 'Qwen-Image-Edit-2509-Q5_K_M.gguf', 'lora': None, 'weights': ['q2509_q5'], 'no_lora': True, 'scene_props': {'steps': 24, 'cfg': 4.0},
+                       'label': 'Qwen-Image-Edit-2509 Q5_K_M без Lightning-LoRA (24 шага, cfg 4)'}
+# Бесплатный рычаг против «мыла» (находка 22:5x по аддону): в QWEN PRECISE `weight_exponent`=3 держится и в ФИНАЛЬНОЙ проекции, поэтому вид на точку усредняется по нескольким камерам.
+# Как в пресете QWEN VORONOI — «сбросить» степень после генерации до 15 (почти «лучший вид на точку»): `weight_exponent_generation_only`=True + `weight_exponent_after_generation`=15.
+SHARP_BLEND = {'weight_exponent_generation_only': True, 'weight_exponent_after_generation': 15.0}
+VARIANTS['q2509mp'] = dict(VARIANTS['q2509q5'], megapixels=1.76, scene_props=dict(SHARP_BLEND),
+                           label='Qwen-Image-Edit-2509 Q5_K_M + Lightning, виды 1,76 Мп (≈1328²) + резкое смешивание видов (степень 15 после генерации)')
+VARIANTS['q2509edge'] = dict(VARIANTS['q2509q5'], bake_margin=32, bake_denoise=False,
+                             scene_props={'sg_silhouette_margin': 8, 'sg_silhouette_feather': 24, 'refine_edge_feather_width': 60, 'discard_factor_after_generation': 75.0, **SHARP_BLEND},
+                             label='Qwen-Image-Edit-2509 Q5_K_M + Lightning, края: срез по углу 75°, силуэт-запас 8, растушёвка 24/60, запас запекания 32 px, запекание без шумоподавления, резкое смешивание (степень 15)')
+SHAPE_DIR = os.path.expanduser('~/remlab-logs/t94-1119/out-comfy')
+SHAPE_PATHS = {      # формы R2b1 (TRELLIS.2 k1024, solid fill 20 band 1), упрощены до ≈150 тыс. граней и развёрнуты sg_prep_shape.py (правило директора 21:54)
+    ('112923_13224664101879413845', 'r2b1'): os.path.expanduser('~/remlab-logs/t90-1119/sg/shapes/112923_13224664101879413845-k1024.R2b1.s140k-uv.glb'),
+    ('114667_11634594969038554503', 'r2b1'): os.path.expanduser('~/remlab-logs/t94-1119/simple150/114667_11634594969038554503-k1024.R2b1.s150k-uv.glb'),
 }
 PROMPTS = {'112923_13224664101879413845': 'a wooden chest of drawers', '114667_11634594969038554503': 'a fabric sofa'}      # короткое описание предмета для промпта StableGen
 
@@ -166,9 +183,19 @@ def safe_print(body: dict) -> None:
 def build_cfg(key: str, var: str, out: str, server: str, cameras: int, texture: int, seed: int, timeout_s: int) -> dict:
     """Конфиг драйвера Blender для одного прогона: пресет «Qwen Precise», 8–10 камер вокруг предмета, фото-вырезка как внешний стиль (решение владельца TG 2005)."""
     v = VARIANTS[var]
-    return {'glb': HD_GLB.format(key=key), 'out': out, 'server': server, 'preset': 'QWEN PRECISE', 'prompt': PROMPTS.get(key, 'a piece of furniture'),
-            'cameras': {'mode': 'orbit_ring', 'num': cameras}, 'texture_resolution': texture, 'bake_samples': 16, 'seed': seed, 'timeout_s': timeout_s,
-            'style_image': HD_INPUT.format(key=key), 'model_unet': v['unet'], 'lora_name': v['lora']}
+    prod, _, shape = key.partition('@')                      # «товар@суффикс» → форма из SHAPE_DIR/<товар>-<суффикс>.glb, иначе HD-форма
+    style = HD_INPUT.format(key=prod)
+    if shape.endswith('+newcut'):                            # «…+newcut» — вход: новая вырезка цепочки main после T-107 (t94 newcut-2149), а не t93 hd_inputs
+        shape = shape[:-len('+newcut')]
+        style = NEWCUT_INPUT.format(key=prod)
+    glb = SHAPE_PATHS[(prod, shape)] if (prod, shape) in SHAPE_PATHS else os.path.join(SHAPE_DIR, f'{prod}-{shape}.glb') if shape else HD_GLB.format(key=prod)    # «товар@r2b1» — упрощённая форма с развёрткой из SHAPE_PATHS
+    cfg = {'glb': glb, 'out': out, 'server': server, 'preset': 'QWEN PRECISE', 'prompt': PROMPTS.get(prod, 'a piece of furniture'),
+           'cameras': {'mode': 'orbit_ring', 'num': cameras}, 'texture_resolution': texture, 'bake_samples': 16, 'seed': seed, 'timeout_s': timeout_s,
+           'style_image': style, 'model_unet': v['unet'], 'lora_name': v['lora']}
+    for k in ('no_lora', 'scene_props', 'megapixels', 'bake_margin', 'bake_denoise'):
+        if k in v:
+            cfg[k] = v[k]
+    return cfg
 
 
 def progress_line(stage: str, cost: float, cap: float, extra: str = '') -> str:

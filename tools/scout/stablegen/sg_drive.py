@@ -25,6 +25,7 @@ def sg(mod):
 ARGS = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 CFG = json.load(open(ARGS[0], encoding='utf-8'))
 OUT = CFG['out']
+os.environ['SG_MEGAPIXELS'] = str(CFG.get('megapixels', 1))      # размер видов для Qwen (в аддоне зашито 1 Мп; наша копия аддона читает эту переменную)
 os.makedirs(OUT, exist_ok=True)
 LOG = open(os.path.join(OUT, 'drive.log'), 'a', encoding='utf-8')
 T0 = time.time()
@@ -113,6 +114,9 @@ def steps():
         sc.qwen_external_style_image = CFG['style_image']
     for k, v in (CFG.get('scene_props') or {}).items():
         setattr(sc, k, v)
+    if CFG.get('no_lora'):                                # опыт «без Lightning»: обычные шаги/cfg из scene_props
+        sc.lora_units.clear()
+        say('LoRA-юниты убраны (без Lightning)')
     if CFG.get('model_unet'):
         sc.model_name = CFG['model_unet']
     if CFG.get('lora_name') and len(sc.lora_units):      # Qwen-Image-Edit-2511: пресет кладёт LoRA от 2509 — подменяем на свою Lightning-LoRA (`lightx2v/Qwen-Image-Edit-2511-Lightning`)
@@ -132,6 +136,24 @@ def steps():
     say(f'камер: {len(cams)}')
     if not cams:
         raise RuntimeError('камеры не созданы')
+    if CFG.get('fit_cameras', True):                      # T-90/6: орбитальное кольцо берёт радиус от камеры «окна просмотра» (≈18 м) — предмет 1 м занимал ≈10 % кадра; подгонка аддона — по силуэту с запасом 10 %
+        for o in bpy.context.scene.objects:
+            o.select_set(False)
+        with bpy.context.temp_override(**view3d_override()):
+            r = bpy.ops.object.apply_auto_aspect('EXEC_DEFAULT')
+        say(f'подгонка камер по силуэту (apply_auto_aspect): {r}')
+        bpy.context.view_layer.update()
+    from bpy_extras.object_utils import world_to_camera_view
+    from mathutils import Vector
+    bb = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
+    ST['framing'] = []
+    for c in sorted([o for o in bpy.context.scene.objects if o.type == 'CAMERA'], key=lambda o: o.name):
+        pts = [world_to_camera_view(bpy.context.scene, c, p) for p in bb]
+        w, h = max(p.x for p in pts) - min(p.x for p in pts), max(p.y for p in pts) - min(p.y for p in pts)
+        dist = (c.location - Vector(sum(bb, Vector()) / 8)).length
+        ST['framing'].append({'cam': c.name, 'dist': round(dist, 2), 'w': round(w, 3), 'h': round(h, 3)})
+        say(f'кадрирование {c.name}: расстояние {dist:.2f}, bbox занимает {w * 100:.0f} % ширины и {h * 100:.0f} % высоты кадра')
+    save_status()
     if CFG.get('stop_after') == 'cameras':
         return
 
@@ -162,9 +184,13 @@ def steps():
 
     # 5. запекание в нашу UV
     yield 'bake'
+    if CFG.get('bake_margin'):                              # запас запекания (пиксели за краем островка) — против тёмного ободка; в аддоне берётся max(этого, 16)
+        bpy.context.scene.render.bake.margin = int(CFG['bake_margin'])
+        say(f'запас запекания: {bpy.context.scene.render.bake.margin} px')
     with bpy.context.temp_override(**view3d_override()):
         bpy.ops.object.bake_textures('EXEC_DEFAULT',texture_resolution=int(CFG.get('texture_resolution', 2048)), try_unwrap='none', overlap_only=False,
-                                     bake_pbr=False, add_material=True, flatten_for_refine=False, samples=int(CFG.get('bake_samples', 16)))
+                                     bake_pbr=False, add_material=True, flatten_for_refine=False, samples=int(CFG.get('bake_samples', 16)),
+                                     use_denoise=bool(CFG.get('bake_denoise', True)))      # шумоподавление запекания темнит кромки островков (Blender T94573); по умолчанию — как в аддоне (вкл.)
     n = 0
     while busy():
         n += 1

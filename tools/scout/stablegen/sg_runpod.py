@@ -209,7 +209,7 @@ def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) 
                     cfg = S.build_cfg(key, var, os.path.join(odir, 'blender'), f'127.0.0.1:{RELAY_PORT}', a.cameras, a.texture, a.seed, a.job_timeout * 60)
                     cfg_path = os.path.join(odir, 'cfg.json')
                     json.dump(cfg, open(cfg_path, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-                    cmd = [os.path.join(SCOUT, '..', 'ops', 'heavy-slot.sh'), f't90-sg-{var}', '--prio', '1', '--cores', '3', '--min-gb', '6', '--timeout', str(a.job_timeout * 60), '--', os.path.join(HERE, 'sg_run.sh'), cfg_path]
+                    cmd = [os.path.join(SCOUT, '..', 'ops', 'heavy-slot.sh'), f't90-sg-{var}', '--prio', '2', '--cores', '3', '--min-gb', '3', '--timeout', str(a.job_timeout * 60), '--', os.path.join(HERE, 'sg_run.sh'), cfg_path]
                     proc = popen(cmd, env={**os.environ, 'SG_HOME': SG_HOME}, stdout=open(os.path.join(odir, 'run.log'), 'ab'), stderr=subprocess.STDOUT)
                     cur = {'key': key, 'variant': var, 'label': S.VARIANTS[var]['label'], 'dir': odir, 'proc': proc, 'started': t, 'last_say': t}
                     say('прогон', key, var, '→', odir)

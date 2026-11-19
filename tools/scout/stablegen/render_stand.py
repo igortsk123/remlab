@@ -32,6 +32,7 @@ ap.add_argument('--analyze', action='store_true', help='только разбо�
 ap.add_argument('--modes', default='tex,clay', help='tex,clay | tex | clay')
 ap.add_argument('--shade', default='orig', choices=['orig', 'flat', 'recalc'], help='T-94/2 шаг 01: orig — нормали из файла; flat — плоское затенение без своих нормалей; recalc — нормали пересчитаны «наружу» + гладкое')
 ap.add_argument('--backface', action='store_true', help='T-94/2 шаг 01: обратная сторона граней красным (диагностика перевёрнутых нормалей и дыр)')
+ap.add_argument('--unlit', action='store_true', help='T-90/6: кадр БЕЗ света — цвет текстуры идёт в излучение (отделяет свет стенда от цвета текстуры)')
 ap.add_argument('--only', default='', help='отладка: список видов через запятую (az000,top55,bot-20)')
 a = ap.parse_args(argv)
 T0 = time.time()
@@ -222,7 +223,31 @@ def polar(az_deg, el_deg, r):
 
 views = [(f'az{az:03d}', az, 15) for az in range(0, 360, 45)] + [('top55', 45, 55), ('bot-20', 45, -20)]
 if a.only:
-    views = [v for v in views if v[0] in a.only.split(',')]
+    import re
+    want = [w for w in a.only.split(',') if w]
+    extra = []
+    for w in want:                                            # «topNN»/«botNN» — вид сверху/снизу под любым углом места (азимут 45°), напр. top35
+        m = re.fullmatch(r'(top|bot)(\d+)', w)
+        if m and w not in [v[0] for v in views]:
+            extra.append((w, 45, int(m.group(2)) * (1 if m.group(1) == 'top' else -1)))
+    views = [v for v in views + extra if v[0] in want]
+if a.unlit:
+    for m_ in bpy.data.materials:
+        if m_.name in ('clay', 'floor') or not m_.use_nodes:
+            continue
+        bsdf = next((x for x in m_.node_tree.nodes if x.type == 'BSDF_PRINCIPLED'), None)
+        if bsdf is None:
+            continue
+        bc = bsdf.inputs['Base Color']
+        if bc.links:
+            m_.node_tree.links.new(bc.links[0].from_socket, bsdf.inputs['Emission Color'])
+        else:
+            bsdf.inputs['Emission Color'].default_value = bc.default_value
+        bsdf.inputs['Emission Strength'].default_value = 1.0
+        bc.default_value = (0, 0, 0, 1)
+        for l_ in list(bc.links):
+            m_.node_tree.links.remove(l_)
+        bsdf.inputs['Specular IOR Level'].default_value = 0.0
 n = 0
 modes = a.modes.split(',')
 n_total = len(modes) * len(views)
