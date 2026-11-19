@@ -139,6 +139,31 @@ def price_usd_h(tier: str) -> float | None:
         return None
 
 
+def parse_live_price(items: list, class_name: str, tier: str) -> float | None:
+    """Живая цена класса карты и тарифа из ответа Salad `GET /gpu-classes` (`items[].prices[]`: priority, price); нет — None."""
+    for c in items or []:
+        if c.get('name') == class_name:
+            for x in c.get('prices') or []:
+                if str(x.get('priority')).lower() == tier:
+                    try:
+                        return float(x['price'])
+                    except (KeyError, TypeError, ValueError):
+                        return None
+    return None
+
+
+def live_price_usd_h(MG, class_name: str, tier: str) -> float | None:
+    """ЖИВАЯ цена из Salad (19.11: 4090 high $0,44, а снимок в `rules/salad-groups.json` от 24.10 говорил $0,33 — траты занижались на треть). Нет ответа — None (берём снимок)."""
+    try:
+        import urllib.request
+        url = MG.API.split('/projects/')[0] + '/gpu-classes'
+        req = urllib.request.Request(url, headers={'Salad-Api-Key': os.environ['SALAD_API_KEY'], 'User-Agent': 'remlab-mesh/1.0'})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return parse_live_price(json.loads(r.read()).get('items') or [], class_name, tier)
+    except Exception:  # noqa: BLE001 — нет сети/ключа/формата: запасной путь — снимок
+        return None
+
+
 def cost_usd(running_s: float, price: float, reserve_s: float = 60.0) -> float:
     """Начисления по времени `running` + запас на отставание счёта (платим с момента running, ADR-0135)."""
     return max(0.0, running_s + (reserve_s if running_s > 0 else 0.0)) / 3600.0 * price
@@ -271,7 +296,10 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
             say('карта', card, 'не найдена среди классов организации:', str(e)[:200])
             return 2
         CARD.update(class_name=card, class_id=cid)
-    price = price_usd_h(a.tier)
+    price = live_price_usd_h(MG, CARD['class_name'], a.tier)                  # живая цена Salad; снимок — только запасной
+    price_src = 'живая (Salad gpu-classes)'
+    if price is None:
+        price, price_src = price_usd_h(a.tier), 'СНИМОК rules/salad-groups.json (живая цена недоступна)'
     hf = os.environ.get('HF_TOKEN', '')
     donor = None
     if a.model == 'hunyuan21':                            # контроль: боевой образ и ресурсы берём у боевой группы-образца (в ней нет нашего кода — он едет в command)
@@ -296,7 +324,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         j['role'] = (inputs.get(j['sku']) or {}).get('role') or meta.get(j['sku'], {}).get('role')
         j['dims_cm'] = meta.get(j['sku'], {}).get('dims_cm')
     body = build_body(name, a.image, a.tier, a.model, hf, a.cpu, a.mem_mb, a.image.split('@')[-1][:19], MG.ghcr_auth(), donor)
-    say('группа', name, CARD['class_name'], 'тариф', a.tier, 'цена $/ч', price, 'заданий', len(jobs), 'потолок $', a.cap)
+    say('группа', name, CARD['class_name'], 'тариф', a.tier, 'цена $/ч', price, f'[{price_src}]', 'заданий', len(jobs), 'потолок $', a.cap)
     if not a.apply:
         safe_print(body)
         for j in jobs:
