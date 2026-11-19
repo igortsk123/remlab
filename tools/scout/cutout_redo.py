@@ -143,6 +143,52 @@ def cmd_list(a) -> int:
     return 0
 
 
+def light_score(rgb) -> float | None:
+    """Насколько фото — «светлый товар на белом фоне» (самый трудный случай для вырезки): край кадра почти белый, а сам товар светлый.
+    rgb — numpy-массив H×W×3. None — фон не белый (случай не тот). Иначе средняя яркость 0..255 пикселей товара (не белых): чем выше, тем труднее."""
+    import numpy as np
+    a = np.asarray(rgb).astype(float)
+    edge = np.concatenate([a[0], a[-1], a[:, 0], a[:, -1]])
+    if edge.mean() < 245 or edge.min() < 200:
+        return None
+    lum = a.mean(axis=2)
+    obj = lum < 245
+    if obj.mean() < 0.05:
+        return None  # почти пустой кадр
+    return float(lum[obj].mean())
+
+
+def cmd_light(a) -> int:
+    """Для каждой роли — светлый товар на белом фоне из живого списка: качаем до `--per` фото роли, берём с наибольшим light_score."""
+    from PIL import Image
+    import numpy as np
+    d = run_dir(a.run)
+    rows = json.load(open(os.path.join(d, 'products.json'), encoding='utf-8'))
+    best = {}
+    for role in a.roles.split(','):
+        cand = [r for r in rows if r['role'] == role and r['photo_url']][:a.per]
+        scored = []
+
+        def one(r):
+            try:
+                im = Image.open(io.BytesIO(fetch_photo(r['photo_url']))).convert('RGB')
+                im.thumbnail((200, 200))
+                return r['sku'], light_score(np.asarray(im))
+            except Exception as e:  # noqa: BLE001 — не скачалось: пропуск с причиной
+                say(f'  ✗ {r["sku"]}: {type(e).__name__}: {str(e)[:80]}')
+                return r['sku'], None
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            scored = [x for x in ex.map(one, cand) if x[1] is not None]
+        scored.sort(key=lambda x: -x[1])
+        say(f'{role}: проверено {len(cand)}, на белом фоне {len(scored)}, лучший {scored[0] if scored else None}')
+        if scored:
+            best[role] = scored[0][0]
+    out = os.path.join(d, 'light-pick.json')
+    json.dump(best, open(out, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    print(','.join(best.values()))
+    return 0
+
+
 # ------------------------------------------------------------------ masks (Salad)
 
 def classify(out: dict | None, raw_sha: str) -> tuple[str, str]:
@@ -399,6 +445,13 @@ def _selftest() -> int:
     ok('проба по ролям: комод, диван, люстра (тросы), торшер, затем любой; ровно 5', [r['role'] for r in p][:4] == ['комод', 'диван', 'люстра', 'торшер'] and len(p) == 5)
     ok('--first: названные товары идут первыми', [r['sku'] for r in pick_trial(rows, 5, ('l2', 'n'))][:2] == ['l2', 'n'])
     ok('проба без фото-адреса такие товары пропускает', len(pick_trial([{'sku': 'z', 'role': 'диван', 'photo_url': None}], 3)) == 0)
+    import numpy as np
+    white = np.full((40, 40, 3), 255, dtype=np.uint8)
+    light = white.copy(); light[10:30, 10:30] = (225, 220, 210)
+    dark = white.copy(); dark[10:30, 10:30] = (60, 50, 40)
+    grey_bg = np.full((40, 40, 3), 128, dtype=np.uint8)
+    ok('светлый товар на белом — оценка выше тёмного', light_score(light) is not None and light_score(dark) is not None and light_score(light) > light_score(dark))
+    ok('серый фон и пустой кадр — не тот случай (None)', light_score(grey_bg) is None and light_score(white) is None)
     print('ИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not bad else f'{bad} провалов')
     return 1 if bad else 0
 
@@ -408,7 +461,7 @@ def main() -> int:
         return _selftest()
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest='cmd', required=True)
-    for name in ('list', 'masks', 'chain'):
+    for name in ('list', 'masks', 'chain', 'light'):
         p = sub.add_parser(name)
         p.add_argument('--run', default=None, help='метка папки прогона (по умолчанию — время старта)')
     m = sub.choices['masks']
@@ -422,13 +475,16 @@ def main() -> int:
     m.add_argument('--workers', type=int, default=4)
     m.add_argument('--job-max-s', type=float, default=900)
     m.add_argument('--ready-max-s', type=float, default=5400, help='сколько ждать running/ready, с (холодная закачка образа — до ~60 мин)')
+    lt = sub.choices['light']
+    lt.add_argument('--roles', default='комод,диван,люстра,торшер,ковёр', help='роли через запятую')
+    lt.add_argument('--per', type=int, default=25, help='сколько фото роли смотреть')
     c = sub.choices['chain']
     c.add_argument('--only', default=None)
     c.add_argument('--workers', type=int, default=4)
     a = ap.parse_args()
     if a.cmd == 'masks' and not (a.trial or a.all):
         sys.exit('нужен --trial N или --all')
-    return {'list': cmd_list, 'masks': cmd_masks, 'chain': cmd_chain}[a.cmd](a)
+    return {'list': cmd_list, 'masks': cmd_masks, 'chain': cmd_chain, 'light': cmd_light}[a.cmd](a)
 
 
 if __name__ == '__main__':

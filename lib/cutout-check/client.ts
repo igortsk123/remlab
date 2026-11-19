@@ -15,6 +15,7 @@ export type MarkOutcome =
 
 const MARKS = "/api/lab/cutout-check/marks";
 const NOTES = "/api/lab/cutout-check/notes";
+const VIEWS = "/api/lab/cutout-check/views";
 
 /** Одно нажатие = один idem_key: повтор того же запроса (сеть, двойной тап) не даёт второй строки журнала. expected — отметка, которую видит вкладка. */
 export async function sendPress(item: Pick<CutoutItemView, "id" | "generationKey" | "mark">, press: Mark, reviewer: string): Promise<MarkOutcome> {
@@ -51,4 +52,19 @@ export function beaconNote(p: NotePayload): boolean {
   }
   void fetch(NOTES, { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true }).catch(() => undefined);
   return true;
+}
+
+/** «Просмотрено» — карточка побыла на экране ≥ 1 с. Тихо: сбой не мешает работе, карточка просто останется непросмотренной до следующего показа. */
+export async function sendView(item: Pick<CutoutItemView, "id" | "generationKey">, reviewer: string): Promise<boolean> {
+  try {
+    const r = await fetch(VIEWS, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ itemId: item.id, generationKey: item.generationKey, reviewer, opId: nonce() }),
+      keepalive: true,
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
 }

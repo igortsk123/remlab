@@ -15,13 +15,23 @@ export type PressPlan =
   | { applied: true; log: Mark | "clear"; next: Mark | null }
   | { applied: false; reason: "stale" | "state_conflict"; message: string };
 
-/** expected — какую отметку видела вкладка (null — «не проверено»): другая вкладка успела раньше — не применяем молча. Повтор той же отметки снимает её. */
+/** Одна кнопка «не ок»: нет отметки = «ок». press=bad ставит отметку, повтор снимает; press=ok («вернуть в ок») всегда снимает.
+ * expected — какую отметку видела вкладка (null — без отметки): другая вкладка успела раньше — не применяем молча. */
 export function planPress(item: { generationKey: string; mark: string | null }, generationKey: string, press: Mark, expected: Mark | null): PressPlan {
   if (item.generationKey !== generationKey) return { applied: false, reason: "stale", message: "вырезка уже заменена, обновите страницу" };
   if ((item.mark ?? null) !== expected) return { applied: false, reason: "state_conflict", message: "отметку уже поменяли в другой вкладке" };
-  if (press === item.mark) return { applied: true, log: "clear", next: null };
-  return { applied: true, log: press, next: press };
+  if (press === "bad" && item.mark !== "bad") return { applied: true, log: "bad", next: "bad" };
+  return { applied: true, log: "clear", next: null };
 }
+
+/** «Просмотрено» (карточка побыла на экране ≥ 1 с): записываем один раз; вырезка заменена — только отказ. */
+export function viewVerdict(item: { generationKey: string; viewedAt: Date | string | null }, generationKey: string): "apply" | "stale" | "already" {
+  if (item.generationKey !== generationKey) return "stale";
+  return item.viewedAt ? "already" : "apply";
+}
+
+/** Сколько секунд карточка должна быть на экране, чтобы считаться просмотренной (владелец: без кликов). */
+export const VIEW_MS = 1000;
 
 /** Версия комментария: принять или только записать в журнал (вырезка заменена / версия старее принятой). */
 export function noteVerdict(item: { generationKey: string; noteSeq: number | null }, n: { generationKey: string; seq: number }): "apply" | "stale" | "older" {
@@ -30,8 +40,9 @@ export function noteVerdict(item: { generationKey: string; noteSeq: number | nul
   return "apply";
 }
 
-export function isChecked(item: { mark: string | null }): boolean {
-  return item.mark === "ok" || item.mark === "bad";
+/** Просмотрена = побыла на экране или владелец сам нажал «не ок». */
+export function isChecked(item: { mark: string | null; viewedAt?: string | Date | null }): boolean {
+  return item.mark === "bad" || item.mark === "ok" || !!item.viewedAt;
 }
 
 export interface Counts {
@@ -40,23 +51,26 @@ export interface Counts {
   bad: number;
 }
 
-export function countMarks(rows: readonly { mark: string | null }[]): Counts {
+export function countMarks(rows: readonly { mark: string | null; viewedAt?: string | Date | null }[]): Counts {
   return { total: rows.length, checked: rows.filter(isChecked).length, bad: rows.filter((r) => r.mark === "bad").length };
 }
 
 /** Надписи парой RU/EN (владелец 12.11, TG 1341): везде показываем обе, русская — основная. */
 export const L = {
   title: { ru: "Проверка вырезок", en: "Cutout check" },
+  undo: { ru: "вернуть в ок", en: "back to OK" },
   photo: { ru: "Фото магазина", en: "Shop photo" },
   cutChecker: { ru: "Вырезка · шахматка", en: "Cutout · checkerboard" },
   cutDark: { ru: "Вырезка · тёмный фон", en: "Cutout · dark" },
   ok: { ru: "Ок", en: "OK" },
   bad: { ru: "Не ок", en: "Not OK" },
+  badOn: { ru: "Не ок · нажмите, чтобы снять", en: "Not OK · tap to undo" },
   note: { ru: "Что не так? (необязательно)", en: "What is wrong? (optional)" },
+  rule: { ru: "Всё, что не нажато, считается «ок»", en: "Anything you do not tap counts as OK" },
   all: { ru: "все", en: "all" },
-  todo: { ru: "непроверенные", en: "unchecked" },
+  todo: { ru: "непросмотренные", en: "not viewed" },
   badFilter: { ru: "не ок", en: "not OK" },
-  checked: { ru: "проверено", en: "checked" },
+  checked: { ru: "просмотрено", en: "viewed" },
   of: { ru: "из", en: "of" },
   next: { ru: "следующие 20", en: "next 20" },
   prev: { ru: "назад", en: "back" },

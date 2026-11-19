@@ -15,8 +15,9 @@ export function CutoutCheckTop({ all, run }: { all: Counts; run: string }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-lg font-semibold text-primary">
-          {L.title.ru} <span className="text-sm font-normal text-tertiary">/ {L.title.en}</span>
+        <h1 className="flex flex-col leading-tight">
+          <span className="text-lg font-semibold text-primary">{L.title.ru}</span>
+          <span className="text-xs font-normal text-tertiary">{L.title.en}</span>
         </h1>
         <span className="text-sm text-tertiary">
           {L.checked.ru} {all.checked} {L.of.ru} {all.total} · {pct} % · {L.badFilter.ru}: {all.bad}
@@ -26,7 +27,7 @@ export function CutoutCheckTop({ all, run }: { all: Counts; run: string }) {
         <div className="h-full rounded-full bg-success-solid" style={{ width: `${pct}%` }} />
       </div>
       <span className="text-xs text-tertiary">
-        {L.checked.en} {all.checked} {L.of.en} {all.total} · run {run}
+        {L.checked.en} {all.checked} {L.of.en} {all.total} · run {run} · {L.rule.ru} / {L.rule.en}
       </span>
     </div>
   );

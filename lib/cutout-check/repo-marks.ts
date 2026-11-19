@@ -4,7 +4,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { cutoutCheckItems, cutoutCheckMarks } from "@/db/schema";
-import { noteVerdict, planPress, type Mark } from "./rules";
+import { noteVerdict, planPress, viewVerdict, type Mark } from "./rules";
 import { toView, type ItemRow } from "./repo-items";
 import type { CutoutItemView } from "./types";
 
@@ -92,5 +92,32 @@ export async function saveNote(n: NoteIn): Promise<NoteResult> {
     if (v !== "apply") return { http: 200, body: { ok: true, applied: false, reason: v } };
     await tx.update(cutoutCheckItems).set({ note: n.body, noteSeq: n.seq, updatedAt: new Date() }).where(eq(cutoutCheckItems.id, item.id));
     return { http: 200, body: { ok: true, applied: true } };
+  });
+}
+
+export interface ViewIn {
+  itemId: number;
+  generationKey: string;
+  opId: string;
+  reviewer: string;
+}
+
+export type ViewResult =
+  | { http: 200; body: { ok: true; recorded: boolean; reason?: "stale" | "already" | "duplicate" } }
+  | { http: 404; body: { error: string; code: "not_found" } };
+
+/** «Просмотрено»: карточка побыла на экране ≥ 1 с. Первая запись ставит viewed_at и пишет строку журнала; повтор и чужая вырезка — без строки. */
+export async function recordView(v: ViewIn): Promise<ViewResult> {
+  return db().transaction(async (tx) => {
+    const item = await lock(tx, v.itemId);
+    if (!item) return { http: 404, body: { error: "нет карточки", code: "not_found" } };
+    const dup = await tx.select({ id: cutoutCheckMarks.id }).from(cutoutCheckMarks).where(eq(cutoutCheckMarks.opId, v.opId));
+    if (dup.length > 0) return { http: 200, body: { ok: true, recorded: false, reason: "duplicate" } };
+    const verdict = viewVerdict(item, v.generationKey);
+    if (verdict !== "apply") return { http: 200, body: { ok: true, recorded: false, reason: verdict } };
+    const now = new Date();
+    await tx.update(cutoutCheckItems).set({ viewedAt: now, viewedBy: v.reviewer, updatedAt: now }).where(eq(cutoutCheckItems.id, item.id));
+    await tx.insert(cutoutCheckMarks).values({ itemId: item.id, run: item.run, sku: item.sku, generationKey: v.generationKey, kind: "view", reviewer: v.reviewer, opId: v.opId });
+    return { http: 200, body: { ok: true, recorded: true } };
   });
 }

@@ -26,6 +26,7 @@ export function toView(r: ItemRow): CutoutItemView {
     info: r.info,
     mark: r.mark,
     markBy: r.markBy,
+    viewedAt: r.viewedAt ? r.viewedAt.toISOString() : null,
     note: r.note,
     noteSeq: r.noteSeq,
   };
@@ -38,8 +39,8 @@ export async function currentRun(): Promise<string | null> {
 }
 
 export async function roleCounts(run: string): Promise<{ roles: RoleCount[]; all: Counts }> {
-  const rows = await db().select({ role: cutoutCheckItems.role, mark: cutoutCheckItems.mark }).from(cutoutCheckItems).where(eq(cutoutCheckItems.run, run));
-  const by = new Map<string, { mark: string | null }[]>();
+  const rows = await db().select({ role: cutoutCheckItems.role, mark: cutoutCheckItems.mark, viewedAt: cutoutCheckItems.viewedAt }).from(cutoutCheckItems).where(eq(cutoutCheckItems.run, run));
+  const by = new Map<string, { mark: string | null; viewedAt: Date | null }[]>();
   for (const r of rows) by.set(r.role ?? "—", [...(by.get(r.role ?? "—") ?? []), r]);
   const roles = [...by.entries()].map(([role, rs]) => ({ role, ...countMarks(rs) })).sort((a, b) => b.total - a.total || a.role.localeCompare(b.role, "ru"));
   return { roles, all: countMarks(rows) };
@@ -48,7 +49,7 @@ export async function roleCounts(run: string): Promise<{ roles: RoleCount[]; all
 function where(run: string, role: string | null, filter: CheckFilter): SQL | undefined {
   const parts: (SQL | undefined)[] = [eq(cutoutCheckItems.run, run)];
   if (role) parts.push(role === "—" ? isNull(cutoutCheckItems.role) : eq(cutoutCheckItems.role, role));
-  if (filter === "todo") parts.push(isNull(cutoutCheckItems.mark));
+  if (filter === "todo") parts.push(isNull(cutoutCheckItems.mark), isNull(cutoutCheckItems.viewedAt));
   if (filter === "bad") parts.push(eq(cutoutCheckItems.mark, "bad"));
   return and(...parts);
 }
@@ -102,6 +103,8 @@ export async function upsertItems(run: string, items: ItemInput[]): Promise<numb
             mark: sql`case when ${same} then ${cutoutCheckItems.mark} else null end`,
             markAt: sql`case when ${same} then ${cutoutCheckItems.markAt} else null end`,
             markBy: sql`case when ${same} then ${cutoutCheckItems.markBy} else null end`,
+            viewedAt: sql`case when ${same} then ${cutoutCheckItems.viewedAt} else null end`,
+            viewedBy: sql`case when ${same} then ${cutoutCheckItems.viewedBy} else null end`,
             note: sql`case when ${same} then ${cutoutCheckItems.note} else null end`,
             noteSeq: sql`case when ${same} then ${cutoutCheckItems.noteSeq} else null end`,
             generationKey: sql`excluded.generation_key`,

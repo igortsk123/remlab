@@ -27,12 +27,29 @@ for (const [name, vp, dsf] of [
   await page.waitForTimeout(300);
   await page.screenshot({ path: `${out}/${name}-top.png` });
   await page.screenshot({ path: `${out}/${name}-full.png`, fullPage: true });
+  // «просмотрено»: листаем карточки, каждая стоит на экране > 1 с — счётчик вверху растёт без единого клика
+  const cards = page.locator("section[data-sku]");
+  for (let i = 0; i < (await cards.count()); i++) {
+    await cards.nth(i).scrollIntoViewIfNeeded();
+    await page.waitForTimeout(1500);
+  }
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: `${out}/${name}-viewed.png` });
   if (process.env.SHOT_BAD === "1") {
-    await page.locator("button[aria-pressed]").nth(1).click(); // «Не ок» у первой карточки
+    const bad = page.locator("button[aria-pressed]").first(); // единственная кнопка «Не ок» у первой карточки
+    if ((await bad.getAttribute("aria-pressed")) !== "true") await bad.click(); // отметка с прошлого прогона уже стоит — не снимать
     await page.locator("textarea").first().fill("остался кусок фона у ножки / background left near the leg");
     await page.waitForTimeout(1800);
     await page.screenshot({ path: `${out}/${name}-marked.png` });
   }
+  // зум: открыть вид «шахматка», колёсико вверх ×4 к краю
+  await page.locator("section[data-sku] button[aria-label*='шахматка']").first().click();
+  await page.waitForTimeout(300);
+  await page.mouse.move(vp.width * 0.4, vp.height * 0.55);
+  for (let i = 0; i < 6; i++) await page.mouse.wheel(0, -400);
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `${out}/${name}-zoom.png` });
   await ctx.close();
 }
 await browser.close();

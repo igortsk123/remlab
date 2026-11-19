@@ -4,6 +4,10 @@
 import { z } from "zod";
 
 export { PressBody, NoteBody } from "@/lib/mesh-audit/check-body";
+import { NoteBody } from "@/lib/mesh-audit/check-body";
+
+// «Просмотрено»: тот же человек и вкладка, что у версии текста; op_id — повтор запроса (маяк, сеть) не даёт второй строки журнала.
+export const ViewBody = NoteBody.pick({ itemId: true, generationKey: true, opId: true, reviewer: true });
 
 export const ItemIn = z.object({
   sku: z.string().min(1),

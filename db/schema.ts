@@ -339,6 +339,8 @@ export const cutoutCheckItems = pgTable(
     mark: text("mark"), // ok | bad | null
     markAt: timestamp("mark_at", { withTimezone: true }),
     markBy: text("mark_by"),
+    viewedAt: timestamp("viewed_at", { withTimezone: true }), // побыла на экране ≥ 1 с
+    viewedBy: text("viewed_by"),
     note: text("note"),
     noteSeq: bigint("note_seq", { mode: "number" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -355,7 +357,7 @@ export const cutoutCheckMarks = pgTable(
     run: text("run").notNull(),
     sku: text("sku").notNull(),
     generationKey: text("generation_key").notNull(),
-    kind: text("kind").notNull(), // mark | note
+    kind: text("kind").notNull(), // mark | note | view
     mark: text("mark"), // ok | bad | clear
     body: text("body"), // текст как набран; пустой — стёрт
     clientSeq: bigint("client_seq", { mode: "number" }),

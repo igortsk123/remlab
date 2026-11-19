@@ -3,10 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Ручки /api/lab/cutout-check (T-20261119-104): входы (кука владельца / Bearer конвейера), разбор тела, ответы слоя БД. Слой БД подменён.
 
 const auth = vi.hoisted(() => ({ reviewer: true, origin: true, machine: true }));
-const repo = vi.hoisted(() => ({ pressMark: vi.fn(), saveNote: vi.fn(), upsertItems: vi.fn(), exportMarks: vi.fn() }));
+const repo = vi.hoisted(() => ({ pressMark: vi.fn(), saveNote: vi.fn(), recordView: vi.fn(), upsertItems: vi.fn(), exportMarks: vi.fn() }));
 
 vi.mock("@/lib/mesh-review/auth", () => ({ reviewerOk: async () => auth.reviewer, originOk: async () => auth.origin, machineOk: async () => auth.machine }));
-vi.mock("@/lib/cutout-check/repo-marks", () => ({ pressMark: repo.pressMark, saveNote: repo.saveNote }));
+vi.mock("@/lib/cutout-check/repo-marks", () => ({ pressMark: repo.pressMark, saveNote: repo.saveNote, recordView: repo.recordView }));
 vi.mock("@/lib/cutout-check/repo-items", () => ({ upsertItems: repo.upsertItems }));
 vi.mock("@/lib/cutout-check/repo-export", () => ({ exportMarks: repo.exportMarks }));
 
@@ -14,6 +14,7 @@ import { GET as getExport } from "@/app/api/lab/cutout-check/export/route";
 import { POST as postItems } from "@/app/api/lab/cutout-check/items/route";
 import { POST as postMark } from "@/app/api/lab/cutout-check/marks/route";
 import { POST as postNote } from "@/app/api/lab/cutout-check/notes/route";
+import { POST as postView } from "@/app/api/lab/cutout-check/views/route";
 
 const press = { itemId: 3, generationKey: "g1", press: "bad", expected: null, reviewer: "Аня", idemKey: "k-12345678" };
 const note = { itemId: 3, generationKey: "g1", body: "дыра у ножки", seq: 1_800_000_000_001, opId: "op-12345678", editorId: "ed-12345678", reviewer: "Аня" };
@@ -48,6 +49,27 @@ describe("POST marks", () => {
     const r = await postMark(post("/m", JSON.stringify(press)));
     expect(r.status).toBe(409);
     expect(await r.json()).toMatchObject({ code: "race" });
+  });
+});
+
+describe("POST views («просмотрено»)", () => {
+  const view = { itemId: 3, generationKey: "g1", opId: "op-12345678", reviewer: "Аня" };
+  it("без входа — 401, чужой сайт — 403, кривое — 400; верное уходит в слой БД", async () => {
+    auth.reviewer = false;
+    expect((await postView(post("/v", JSON.stringify(view)))).status).toBe(401);
+    auth.reviewer = true;
+    auth.origin = false;
+    expect((await postView(post("/v", JSON.stringify(view)))).status).toBe(403);
+    auth.origin = true;
+    expect((await postView(post("/v", "{"))).status).toBe(400);
+    expect(repo.recordView).not.toHaveBeenCalled();
+    repo.recordView.mockResolvedValue({ http: 200, body: { ok: true, recorded: true } });
+    expect(await (await postView(post("/v", JSON.stringify(view)))).json()).toEqual({ ok: true, recorded: true });
+    expect(repo.recordView).toHaveBeenCalledWith(view);
+  });
+  it("гонка по op_id — 200 duplicate, не 500", async () => {
+    repo.recordView.mockRejectedValue(new Error('duplicate key value violates unique constraint "cutout_check_marks_op_uq"'));
+    expect(await (await postView(post("/v", JSON.stringify(view)))).json()).toMatchObject({ recorded: false, reason: "duplicate" });
   });
 });
 

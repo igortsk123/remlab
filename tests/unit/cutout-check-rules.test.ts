@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ItemsBody } from "@/lib/cutout-check/body";
-import { countMarks, isChecked, L, noteVerdict, parseFilter, planPress } from "@/lib/cutout-check/rules";
+import { countMarks, isChecked, L, noteVerdict, parseFilter, planPress, viewVerdict } from "@/lib/cutout-check/rules";
 import { checkHref } from "@/components/lab/CutoutCheckNav";
 
 // Правила /lab/cutout-check (T-20261119-104): нажатия, версии текста, фильтры, входы заливки, надписи парой RU/EN.
@@ -8,19 +8,30 @@ import { checkHref } from "@/components/lab/CutoutCheckNav";
 const item = (mark: string | null, gk = "g1") => ({ generationKey: gk, mark });
 
 describe("planPress", () => {
-  it("«не ок» по непроверенной ставит отметку, «ок» тоже", () => {
+  it("«не ок» по карточке без отметки ставит отметку; «ок» без отметки ничего не меняет (без отметки = ок)", () => {
     expect(planPress(item(null), "g1", "bad", null)).toEqual({ applied: true, log: "bad", next: "bad" });
-    expect(planPress(item(null), "g1", "ok", null)).toEqual({ applied: true, log: "ok", next: "ok" });
+    expect(planPress(item(null), "g1", "ok", null)).toEqual({ applied: true, log: "clear", next: null });
   });
   it("повтор той же отметки снимает её (в журнал — clear)", () => {
     expect(planPress(item("bad"), "g1", "bad", "bad")).toEqual({ applied: true, log: "clear", next: null });
   });
-  it("«не ок» → «ок» переключает без снятия", () => {
-    expect(planPress(item("bad"), "g1", "ok", "bad")).toEqual({ applied: true, log: "ok", next: "ok" });
+  it("«вернуть в ок» у отмеченной снимает отметку", () => {
+    expect(planPress(item("bad"), "g1", "ok", "bad")).toEqual({ applied: true, log: "clear", next: null });
+  });
+  it("старая отметка «ок» заменяется на «не ок»", () => {
+    expect(planPress(item("ok"), "g1", "bad", "ok")).toEqual({ applied: true, log: "bad", next: "bad" });
   });
   it("вырезка заменена — stale, другая вкладка успела раньше — state_conflict; оба не применяются", () => {
     expect(planPress(item(null, "g2"), "g1", "bad", null)).toMatchObject({ applied: false, reason: "stale" });
-    expect(planPress(item("ok"), "g1", "bad", null)).toMatchObject({ applied: false, reason: "state_conflict" });
+    expect(planPress(item("bad"), "g1", "bad", null)).toMatchObject({ applied: false, reason: "state_conflict" });
+  });
+});
+
+describe("viewVerdict (просмотрено ≥ 1 с)", () => {
+  it("первый показ записывается, повтор — already, чужая вырезка — stale", () => {
+    expect(viewVerdict({ generationKey: "g1", viewedAt: null }, "g1")).toBe("apply");
+    expect(viewVerdict({ generationKey: "g1", viewedAt: "2026-11-19T21:00:00Z" }, "g1")).toBe("already");
+    expect(viewVerdict({ generationKey: "g2", viewedAt: null }, "g1")).toBe("stale");
   });
 });
 
@@ -35,10 +46,11 @@ describe("noteVerdict", () => {
 });
 
 describe("счётчики и фильтр", () => {
-  it("проверено = есть ok/bad; bad считается отдельно", () => {
-    expect(isChecked({ mark: "ok" })).toBe(true);
+  it("просмотрено = побыла на экране или нажато «не ок»; bad считается отдельно", () => {
+    expect(isChecked({ mark: "bad" })).toBe(true);
+    expect(isChecked({ mark: null, viewedAt: "2026-11-19T21:00:00Z" })).toBe(true);
     expect(isChecked({ mark: null })).toBe(false);
-    expect(countMarks([{ mark: "ok" }, { mark: "bad" }, { mark: null }])).toEqual({ total: 3, checked: 2, bad: 1 });
+    expect(countMarks([{ mark: null, viewedAt: "x" }, { mark: "bad" }, { mark: null }])).toEqual({ total: 3, checked: 2, bad: 1 });
   });
   it("фильтр: известные значения, остальное — «все»", () => {
     expect(parseFilter("bad")).toBe("bad");

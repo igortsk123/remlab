@@ -1,9 +1,11 @@
 "use client";
 
 // Карточка проверки вырезки (T-20261119-104): фото магазина | вырезка на шахматке | вырезка на тёмном фоне (телефон — друг под другом),
-// каждая увеличивается; «Ок» / «Не ок» — повтор снимает; «что не так» сохраняется само. Подписи парой RU/EN.
+// каждая увеличивается; одна кнопка «Не ок» (без отметки = ок), «что не так» — только после неё, сохраняется само; «просмотрено» — когда карточка
+// побыла на экране ≥ 1 с. Подписи парой RU/EN.
 
-import { useRef } from "react";
+import { useCallback, useRef } from "react";
+import { sendView } from "@/lib/cutout-check/client";
 import { L, type Pair } from "@/lib/cutout-check/rules";
 import type { CutoutItemView } from "@/lib/cutout-check/types";
 import type { NoteSaver } from "@/lib/mesh-audit/note-saver";
@@ -11,6 +13,7 @@ import { CutoutCheckNote } from "./CutoutCheckNote";
 import { CutoutCheckPresses } from "./CutoutCheckPresses";
 import { useReviewer } from "./MeshCheckReviewer";
 import { useCutoutPress } from "./useCutoutPress";
+import { useSeenOnScreen } from "./useSeenOnScreen";
 
 export type Bg = "photo" | "checker" | "dark";
 export interface ZoomTarget {
@@ -54,20 +57,27 @@ interface Props {
   item: CutoutItemView;
   onZoom: (t: ZoomTarget) => void;
   onChange: (item: CutoutItemView) => void;
+  onView: (id: number, generationKey: string) => void; // «просмотрено» дошло до сервера: доска сама подмешает в свежее состояние карточки
 }
 
-export function CutoutCheckCard({ item, onZoom, onChange }: Props) {
+export function CutoutCheckCard({ item, onZoom, onChange, onView }: Props) {
   const reviewer = useReviewer();
   const note = useRef<NoteSaver | null>(null);
   const { busy, error, press } = useCutoutPress(item, reviewer, onChange, async () => {
     if (note.current?.pending()) await note.current.flush();
   });
-  const border = item.mark === "ok" ? "ring-fg-success-secondary" : item.mark === "bad" ? "ring-error_subtle" : "ring-secondary";
+  const bad = item.mark === "bad";
+  const box = useRef<HTMLElement | null>(null);
+  const seen = useCallback(() => {
+    void sendView(item, reviewer).then((ok) => ok && onView(item.id, item.generationKey));
+  }, [item, reviewer, onView]);
+  useSeenOnScreen(box, !item.viewedAt && !bad && reviewer !== "", seen);
+  const border = bad ? "" : "ring-1 ring-secondary";
   const open = (src: string | null, bg: Bg, label: Pair) => () => src && onZoom({ src, bg, label });
   const warn = typeof item.info?.verdict === "string" && item.info.verdict !== "ok" ? String(item.info.verdict) : null;
 
   return (
-    <section className={`flex flex-col gap-2.5 rounded-xl bg-primary p-3 ring-1 ring-inset ${border}`} data-sku={item.sku} id={`c${item.id}`}>
+    <section ref={box} style={bad ? { boxShadow: "inset 0 0 0 3px var(--color-bg-error-solid)" } : undefined} className={`flex flex-col gap-2.5 rounded-xl bg-primary p-3 ring-inset ${border}`} data-sku={item.sku} id={`c${item.id}`}>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <Pic src={item.photoUrl} bg="photo" label={L.photo} onOpen={open(item.photoUrl, "photo", L.photo)} />
         <Pic src={item.cutUrl} bg="checker" label={L.cutChecker} onOpen={open(item.cutUrl, "checker", L.cutChecker)} />
@@ -83,7 +93,7 @@ export function CutoutCheckCard({ item, onZoom, onChange }: Props) {
         {warn && <span className="text-xs text-tertiary">цепочка: {warn}</span>}
       </div>
       <CutoutCheckPresses mark={item.mark} busy={busy} onPress={press} />
-      <CutoutCheckNote item={item} reviewer={reviewer} saverRef={note} />
+      {bad && <CutoutCheckNote item={item} reviewer={reviewer} saverRef={note} />}
       {error && <p className="text-xs text-error-primary">{error}</p>}
     </section>
   );

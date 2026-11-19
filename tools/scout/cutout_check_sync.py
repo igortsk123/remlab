@@ -162,7 +162,7 @@ def cmd_export(d: str, run: str) -> int:
     data = api('GET', f'/api/lab/cutout-check/export?run={run}')
     out = os.path.join(d, f'owner-marks-{time.strftime("%Y%m%d-%H%M%S")}.json')  # новый файл с меткой, старые не трогаем
     json.dump(data, open(out, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    say(f'прогон {data["run"]}: проверено {data["ok"] + data["bad"]} из {data["total"]} · не ок {data["bad"]} · ок {data["ok"]} · журнал {data["journal"]} строк → {out}')
+    say(f'прогон {data["run"]}: просмотрено {data.get("viewed", data["ok"] + data["bad"])} из {data["total"]} · не ок {data["bad"]} · журнал {data["journal"]} строк → {out}')
     for m in data['marks']:
         if m['mark'] == 'bad':
             print(f'  ✕ {m["sku"]} · {m.get("role") or "—"} · {m.get("name") or ""}' + (f' — {m["note"]}' if m.get('note') else ''))

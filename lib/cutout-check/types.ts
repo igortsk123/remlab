@@ -16,6 +16,7 @@ export interface CutoutItemView {
   info: Record<string, unknown> | null; // вердикт цепочки, размеры
   mark: string | null; // ok | bad | null
   markBy: string | null;
+  viewedAt: string | null; // ISO: карточка побыла на экране ≥ 1 с
   note: string | null;
   noteSeq: number | null;
 }

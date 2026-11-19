@@ -19,13 +19,14 @@ export interface ExportRow {
 export interface ExportData {
   run: string;
   total: number;
-  ok: number;
+  viewed: number; // просмотрено (побыла на экране ≥ 1 с или нажато «не ок»)
+  ok: number; // старые отметки «ок» (после правки «вернуть в ок» снимает отметку, их больше не ставят)
   bad: number;
   journal: number; // строк журнала (нажатия + версии текста) по прогону
   marks: ExportRow[];
 }
 
-/** Только карточки с отметкой (ок / не ок) либо с текстом: «не ок» первыми — это и есть список для разбора. */
+/** Только карточки с отметкой: «не ок» первыми — это и есть список для разбора (остальное, что просмотрено, считается «ок»). */
 export async function exportMarks(run?: string): Promise<ExportData | null> {
   const r = run ?? (await currentRun());
   if (!r) return null;
@@ -34,7 +35,10 @@ export async function exportMarks(run?: string): Promise<ExportData | null> {
     .from(cutoutCheckItems)
     .where(and(eq(cutoutCheckItems.run, r), isNotNull(cutoutCheckItems.mark)))
     .orderBy(asc(cutoutCheckItems.mark), asc(cutoutCheckItems.position));
-  const [t] = await db().select({ n: sql<number>`count(*)::int` }).from(cutoutCheckItems).where(eq(cutoutCheckItems.run, r));
+  const [t] = await db()
+    .select({ n: sql<number>`count(*)::int`, v: sql<number>`count(*) filter (where ${cutoutCheckItems.viewedAt} is not null or ${cutoutCheckItems.mark} is not null)::int` })
+    .from(cutoutCheckItems)
+    .where(eq(cutoutCheckItems.run, r));
   if (!t || t.n === 0) return null;
   const [j] = await db().select({ n: sql<number>`count(*)::int` }).from(cutoutCheckMarks).where(eq(cutoutCheckMarks.run, r));
   const marks: ExportRow[] = rows.map((x) => ({
@@ -47,5 +51,5 @@ export async function exportMarks(run?: string): Promise<ExportData | null> {
     at: x.markAt ? x.markAt.toISOString() : null,
     generationKey: x.generationKey,
   }));
-  return { run: r, total: t.n, ok: marks.filter((m) => m.mark === "ok").length, bad: marks.filter((m) => m.mark === "bad").length, journal: j?.n ?? 0, marks };
+  return { run: r, total: t.n, viewed: t.v, ok: marks.filter((m) => m.mark === "ok").length, bad: marks.filter((m) => m.mark === "bad").length, journal: j?.n ?? 0, marks };
 }

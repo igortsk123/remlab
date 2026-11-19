@@ -1,5 +1,6 @@
 -- Страница проверки вырезок /lab/cutout-check (T-20261119-104, владелец TG 2098/2102): по каждому товару /demo — фото магазина и вырезка, кнопка «не ок»
--- и комментарий «что не так». Отметки доходят до конвейера выгрузкой списком (`tools/scout/cutout_check_sync.py --export`).
+-- и комментарий «что не так». Одна кнопка «не ок»: без отметки карточка считается «ок»; «просмотрено» — карточка побыла на экране ≥ 1 с (viewed_at).
+-- Отметки доходят до конвейера выгрузкой списком (`tools/scout/cutout_check_sync.py --export`).
 -- Только добавления: существующие таблицы не меняются. Идемпотентно (прод применяет все init-файлы на каждом деплое): if not exists + именованные ограничения.
 -- Перед первым применением на проде — pg_dump (директор, 19.11: «новые таблицы в пилоте без вопросов, pg_dump перед применением»).
 -- Откат (только руками, после pg_dump):  drop table if exists cutout_check_marks; drop table if exists cutout_check_items;
@@ -20,9 +21,11 @@ create table if not exists cutout_check_items (
   cut_url        text,                               -- вырезка с прозрачностью (webp)
   generation_key text        not null,
   info           jsonb,                              -- вердикт цепочки, размеры, предупреждения — для подписи и разбора
-  mark           text,                               -- null | ok | bad
+  mark           text,                               -- null (= ок) | bad; 'ok' допустим — старый вид «вернуть в ок» теперь снимает отметку
   mark_at        timestamptz,
   mark_by        text,
+  viewed_at      timestamptz,                        -- карточка побыла на экране ≥ 1 с (без нажатий); новая вырезка сбрасывает
+  viewed_by      text,
   note           text,                               -- последняя принятая версия «что не так»
   note_seq       bigint,
   created_at     timestamptz not null default now(),
@@ -40,7 +43,7 @@ create table if not exists cutout_check_marks (
   run            text        not null,
   sku            text        not null,
   generation_key text        not null,
-  kind           text        not null,               -- mark | note
+  kind           text        not null,               -- mark | note | view
   mark           text,                               -- для kind=mark: ok | bad | clear
   body           text,                               -- для kind=note: текст как набран (пустой — стёрт)
   client_seq     bigint,                             -- для kind=note: номер версии из браузера
@@ -52,7 +55,7 @@ create table if not exists cutout_check_marks (
   op_id          text        not null,
   created_at     timestamptz not null default now(),
   constraint cutout_check_marks_op_uq unique (op_id),
-  constraint cutout_check_marks_kind_chk check (kind in ('mark', 'note')),
+  constraint cutout_check_marks_kind_chk check (kind in ('mark', 'note', 'view')),
   constraint cutout_check_marks_mark_chk check (mark is null or mark in ('ok', 'bad', 'clear')),
   constraint cutout_check_marks_body_len check (body is null or char_length(body) <= 2000),
   constraint cutout_check_marks_reviewer_len check (char_length(reviewer) between 1 and 40)
