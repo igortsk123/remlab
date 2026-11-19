@@ -1,0 +1,56 @@
+# ОБРАЗ ПРОБЫ SUPRA-Tex КАК ЕСТЬ (T-20261119-06/5): «одно фото (RGBA) + наша форма → краска». Qwen-Image-2.1 рисует по фото альбедо и карту материала (R металл, G шероховатость),
+# затем генератор SUPRA (TRELLIS.2-совместимый, дополнение по наблюдению) красит форму и сам делает выпуск GLB: ремеш, упрощение до 500 тыс. граней, НОВАЯ развёртка, запекание 4096².
+# ПОВЕРХ образа TRELLIS.2 с пинами (Python 3.10, torch 2.6.0/cu124 devel с nvcc, TORCH_CUDA_ARCH_LIST=8.9, trimesh, opencv-headless).
+# Что добавляет: зависимости апстрима по его requirements-python.txt; сам репозиторий SUPRA-Tex по закреплённому коммиту; NATTEN 0.17.5 (колесо под torch 2.6/cu124);
+# четыре расширения CUDA ПЕРЕСОБРАНЫ на коммитах, закреплённых апстримом (`deployment/docs/DEPENDENCIES.md`): CuMesh, FlexGEMM, nvdiffrast, o-voxel (из TRELLIS.2) — в базе стоят другие версии.
+# РИСК: именно эта связка (пины SUPRA поверх базы TRELLIS.2) сборкой не проверялась до первого запуска Actions; сборка идёт на сборщике без видеокарты (TORCH_CUDA_ARCH_LIST=8.9 из базы), импорт-проверка — только текстовая.
+# Веса НЕ в образе (≈ 43 ГиБ): Qwen-Image-2.1 (≈ 31 ГиБ), дополнение SUPRA 7,8 ГиБ, адаптер материала 0,13 ГиБ, VAE TRELLIS.2 3,1 ГиБ, MoGe-2 1,2 ГиБ — докачиваются воркером на старте в $HF_HOME по закреплённым ревизиям.
+# ЛИЦЕНЗИИ того, что ложится в образ: репозиторий SUPRA-Tex — MIT; дополнение SUPRA, VAE TRELLIS.2, MoGe-2 — MIT; Qwen-Image-2.1 и адаптер материала SUPRA — Qwen Research License (НЕ коммерческая;
+# коммерческое использование — отдельная лицензия Alibaba); nvdiffrast и nvdiffrec — Nvidia Source Code License-NC (только исследование); лицензии CuMesh/FlexGEMM/o-voxel/NATTEN/flash-attn здесь не сверялись.
+ARG BASE=ghcr.io/igortsk123/mesh-trellis2-trial@sha256:d7beac21b04951697c3d86788ff580bfaa4f2498f97d822e6d281231b7112ad5
+FROM ${BASE}
+ARG SUPRATEX_COMMIT=cee4435652d0f23737bd28d5704e0fae9830b411
+ARG CUMESH_COMMIT=ef40f3ae4612ea3ec934b4151e019dc95c5d276b
+ARG FLEXGEMM_COMMIT=b1965ad0ae4bc8488d13b5280afb54439ce27359
+ARG NVDIFFRAST_COMMIT=253ac4fcea7de5f396371124af597e6cc957bfae
+ARG TRELLIS2_COMMIT=5565d240c4a494caaf9ece7a554542b76ffa36d3
+ARG NATTEN_WHL=https://github.com/SHI-Labs/NATTEN/releases/download/v0.17.5/natten-0.17.5%2Btorch260cu124-cp310-cp310-linux_x86_64.whl
+
+# 1. код SUPRA-Tex по коммиту (читаем его requirements и конфиг пинов)
+RUN git clone https://github.com/Supra-3D/SUPRA-Tex.git /opt/SUPRA-Tex \
+    && cd /opt/SUPRA-Tex && git checkout ${SUPRATEX_COMMIT}
+
+# 2. зависимости апстрима (пины его файла; torch/torchvision закреплены ограничением — pip не должен их менять)
+RUN python3 -c "import torch,torchvision;print('torch',torch.__version__,'tv',torchvision.__version__)" \
+    && printf 'torch==%s\ntorchvision==%s\n' "$(python3 -c 'import torch;print(torch.__version__)')" "$(python3 -c 'import torchvision;print(torchvision.__version__)')" > /tmp/constraints.txt \
+    && python3 -m pip install --no-input --constraint /tmp/constraints.txt -r /opt/SUPRA-Tex/deployment/runtime/requirements-python.txt
+
+# 3. сам пакет, MoGe-2 и utils3d из репозитория SUPRA (без зависимостей: они уже по пинам)
+RUN cd /opt/SUPRA-Tex \
+    && python3 -m pip install --no-input --no-build-isolation --no-deps ./deployment/runtime/moge ./deployment/runtime/utils3d \
+    && python3 -m pip install --no-input --no-build-isolation --no-deps -e . \
+    && python3 -m pip install --no-input --no-deps --no-index --only-binary=:all: "${NATTEN_WHL}"
+
+# 4. расширения CUDA на пинах апстрима (поверх версий из базы; --force-reinstall --no-deps, без изоляции сборки)
+ENV MAX_JOBS=4
+RUN mkdir -p /opt/src && cd /opt/src \
+    && git clone https://github.com/JeffreyXiang/CuMesh.git && cd CuMesh && git checkout --detach ${CUMESH_COMMIT} && git submodule update --init --recursive && cd .. \
+    && NVCC_APPEND_FLAGS="--extended-lambda" python3 -m pip install --no-input --no-build-isolation --no-deps --force-reinstall ./CuMesh
+RUN cd /opt/src \
+    && git clone https://github.com/JeffreyXiang/FlexGEMM.git && cd FlexGEMM && git checkout --detach ${FLEXGEMM_COMMIT} && git submodule update --init --recursive && cd .. \
+    && python3 -m pip install --no-input --no-build-isolation --no-deps --force-reinstall ./FlexGEMM
+RUN cd /opt/src \
+    && git clone https://github.com/NVlabs/nvdiffrast.git && cd nvdiffrast && git checkout --detach ${NVDIFFRAST_COMMIT} && git submodule update --init --recursive && cd .. \
+    && python3 -m pip install --no-input --no-build-isolation --no-deps --force-reinstall ./nvdiffrast
+RUN cd /opt/src \
+    && git clone https://github.com/microsoft/TRELLIS.2.git && cd TRELLIS.2 && git checkout --detach ${TRELLIS2_COMMIT} && git submodule update --init --recursive && cd .. \
+    && NVCC_APPEND_FLAGS="--extended-lambda -U__CUDA_NO_HALF_OPERATORS__ -U__CUDA_NO_HALF_CONVERSIONS__ -U__CUDA_NO_HALF2_OPERATORS__" \
+       python3 -m pip install --no-input --no-build-isolation --no-deps --force-reinstall ./TRELLIS.2/o-voxel
+
+# 5. порядок пинов: transformers 4.57.3 требует huggingface-hub <1.0 (апстрим — 0.36.2); проверка целостности и текстовая проверка импортов (без видеокарты)
+RUN python3 -m pip check || true \
+    && python3 -c "import importlib.util as u; names=['supratex','natten','o_voxel','flex_gemm','cumesh','nvdiffrast','moge','utils3d']; miss=[n for n in names if u.find_spec(n) is None]; print('нет модулей:', miss); raise SystemExit(1 if miss else 0)" \
+    && { echo "SUPRA-Tex ${SUPRATEX_COMMIT}"; echo "CuMesh ${CUMESH_COMMIT}"; echo "FlexGEMM ${FLEXGEMM_COMMIT}"; echo "nvdiffrast ${NVDIFFRAST_COMMIT}"; echo "TRELLIS.2 (o-voxel) ${TRELLIS2_COMMIT}"; echo "NATTEN ${NATTEN_WHL}"; python3 -m pip freeze; } > /opt/BUILD_INFO_SUPRATEX.txt
+
+COPY worker_trellis.py /app/worker_trellis.py
+ENV MODEL=supratex SUPRATEX_DIR=/opt/SUPRA-Tex PYTHONNOUSERSITE=1

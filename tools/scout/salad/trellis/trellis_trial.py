@@ -46,9 +46,12 @@ STARTUP = {'http': {'path': '/health', 'port': PORT, 'scheme': 'http', 'headers'
            'initial_delay_seconds': 10, 'period_seconds': 60, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 20}   # API Salad: failure_threshold ≤ 20 (400 от 18.11) → 20 мин на докачку весов
 NO_FAIL_STREAK = 2
 TEX_ALIGNS = ('fit', 'official')      # pixal3d-tex: как кадрировать фото под форму (`worker_trellis.texture_on_shape`)
-WENV_MODELS = ('pixal3d-tex', 'mvadapter-i2tex')      # модели, которым можно передать окружение воркера (`--worker-env`, `--debug-cuda`)
+WENV_MODELS = ('pixal3d-tex', 'mvadapter-i2tex', 'supratex')      # модели, которым можно передать окружение воркера (`--worker-env`, `--debug-cuda`)
 MV_YAWS = ('auto', '0', '90', '180', '270')           # mvadapter-i2tex: поворот формы к виду 0 — по силуэту фото или задан руками
 MV_UV_SIZES = (1024, 2048, 4096)
+SUPRA_TEX_SIZES = (1024, 2048, 4096)                  # supratex: размер текстуры выпуска (по умолчанию 4096, как в апстриме)
+SUPRA_MEM_MB = 49152                                  # supratex: пик памяти процессов ≈ 32,4 ГиБ (замер апстрима на 3090) — 32768 МБ группы впритык; 48 ГиБ (лимит Salad 61440)
+MODEL_MEM_MB = {'supratex': SUPRA_MEM_MB}             # память группы по умолчанию для моделей, которым общих 32768 МБ мало
 
 
 def say(*a) -> None:
@@ -154,6 +157,15 @@ def mv_options(a) -> dict | None:
     return {'mv_yaw': yaw, 'mv_uv_size': uv, 'mv_steps': steps, 'mv_ref_scale': ref}
 
 
+def supra_options(a) -> dict | None:
+    """supratex: параметры задания из аргументов (`--supra-refine`, `--supra-texture-size`, `--supra-decimation`); неверное значение → None (отказ ДО группы и денег)."""
+    ts = int(getattr(a, 'supra_texture_size', None) if getattr(a, 'supra_texture_size', None) is not None else 4096)
+    dec = int(getattr(a, 'supra_decimation', None) if getattr(a, 'supra_decimation', None) is not None else 500000)
+    if ts not in SUPRA_TEX_SIZES or not 10000 <= dec <= 2000000:
+        return None
+    return {'supra_refine': bool(getattr(a, 'supra_refine', False)), 'supra_texture_size': ts, 'supra_decimation': dec}
+
+
 def expand_align_jobs(jobs: list[dict], variants: list[dict]) -> list[dict]:
     """pixal3d-tex: по заданию на каждый вариант; вариантов несколько — id получает суффикс варианта (`…-fit`, `…-fit-g3`), один — id как был."""
     return [dict(j, job_id=f'{j["job_id"]}-{v["tok"].replace("+", "-")}' if len(variants) > 1 else j['job_id'], align=v['align'], tex_guidance=v['guidance'], shape_smooth=v['smooth'])
@@ -207,6 +219,8 @@ def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu:
             env['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
             env['PIXAL3D_MAX_TOKENS'] = '32768'
     elif donor is None and model == 'mvadapter-i2tex':   # образ MV-Adapter (`Dockerfile.mvadapter`): transformers 4.56.2 и huggingface_hub 0.35.3 уже закреплены в образе — pip на старте не нужен
+        command, env['TRIAL_WORKER_Z'] = worker_command(python='python3')
+    elif donor is None and model == 'supratex':          # образ SUPRA-Tex (`Dockerfile.supratex`): всё закреплено в образе; веса ≈ 43 ГиБ докачиваются воркером на старте (открытые, токен не обязателен)
         command, env['TRIAL_WORKER_Z'] = worker_command(python='python3')
     elif donor is None and model == 'localmesh':        # образ LocalMesh (py3.12, transformers 5.x, hub 1.x) — свои версии, pip-пины не нужны
         command, env['TRIAL_WORKER_Z'] = worker_command(python='python3')
@@ -305,9 +319,18 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         if len(skus) != 1 or mvo is None:
             say(f'mvadapter-i2tex: один товар в --skus (форма одна); --mv-yaw из {MV_YAWS}, --mv-uv-size из {MV_UV_SIZES}, --mv-steps 1..100, --mv-ref-scale 0..2 — группа не создаётся')
             return 2
+    supo = {}
+    if a.model == 'supratex':                             # SUPRA-Tex красит готовую форму (и сам её пересобирает): форма обязательна, товар один, параметры из списка — иначе отказ ДО группы и денег
+        supo = supra_options(a)
+        if not getattr(a, 'texture_mesh', None):
+            say('supratex красит готовую форму: укажите --texture-mesh <clean.glb> — группа не создаётся')
+            return 2
+        if len(skus) != 1 or supo is None:
+            say(f'supratex: один товар в --skus (форма одна); --supra-texture-size из {SUPRA_TEX_SIZES}, --supra-decimation 10000..2000000 — группа не создаётся')
+            return 2
     wenv = parse_worker_env(getattr(a, 'worker_env', None), bool(getattr(a, 'debug_cuda', False)))
     if wenv is None or (wenv and a.model not in WENV_MODELS):          # переменные воркера — только пробам краски и только из белого списка; иначе отказ ДО группы и денег
-        say('--worker-env: только ИМЯ=ЗНАЧЕНИЕ из PIXTEX_*, MVTEX_*, CUDA_LAUNCH_BLOCKING, TORCH_SHOW_CPP_STACKTRACES и только для --model pixal3d-tex / mvadapter-i2tex; --debug-cuda — тоже только для них — группа не создаётся')
+        say('--worker-env: только ИМЯ=ЗНАЧЕНИЕ из PIXTEX_*, MVTEX_*, CUDA_LAUNCH_BLOCKING, TORCH_SHOW_CPP_STACKTRACES и только для --model pixal3d-tex / mvadapter-i2tex / supratex; --debug-cuda — тоже только для них — группа не создаётся')
         return 2
     MG.env_from_file()
     card = getattr(a, 'card', None) or CARD['class_name']
@@ -337,13 +360,14 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     if getattr(a, 'texture_mesh', None):                  # контроль перекраски: одна готовая форма (GLB) уходит в задание, id задания с суффиксом -tex
         tex_mesh_b64 = base64.b64encode(open(os.path.expanduser(a.texture_mesh), 'rb').read()).decode()
         for j in jobs:
-            j['job_id'] += '-mvtex' if a.model == 'mvadapter-i2tex' else '-tex'
+            j['job_id'] += {'mvadapter-i2tex': '-mvtex', 'supratex': '-supra'}.get(a.model, '-tex')
     if a.model == 'pixal3d-tex':                          # варианты кадрирования фото (fit — подгонка по силуэту формы, official — как в апстриме): по заданию на вариант, id с суффиксом
         jobs = expand_align_jobs(jobs, aligns)
     for j in jobs:
         j['role'] = (inputs.get(j['sku']) or {}).get('role') or meta.get(j['sku'], {}).get('role')
         j['dims_cm'] = meta.get(j['sku'], {}).get('dims_cm')
-    body = build_body(name, a.image, a.tier, a.model, hf, a.cpu, a.mem_mb, a.image.split('@')[-1][:19], MG.ghcr_auth(), donor, extra_env=wenv)
+    mem_mb = getattr(a, 'mem_mb', None) or MODEL_MEM_MB.get(a.model, 32768)
+    body = build_body(name, a.image, a.tier, a.model, hf, a.cpu, mem_mb, a.image.split('@')[-1][:19], MG.ghcr_auth(), donor, extra_env=wenv)
     if wenv:
         say('окружение воркера (отладка/настройки):', wenv)
     say('группа', name, CARD['class_name'], 'тариф', a.tier, 'цена $/ч', price, 'заданий', len(jobs), 'потолок $', a.cap)
@@ -474,7 +498,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     j = pending.pop(0)
                     png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.rgba.png'), 'rb').read()
                     pl = {'job_id': j['job_id'], 'image_b64': base64.b64encode(png).decode(), 'pipeline_type': pipeline_type(j['res']), 'seed': j['seed'],
-                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_mesh_b64, 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'), **mvo}
+                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_mesh_b64, 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'), **mvo, **supo}
                     c, r = gw.call('POST', '/generate', pl, timeout=90)
                     inflight = {**j, 'submitted': t, 'http': c}
                     say('задание', j['job_id'], '→ HTTP', c)
@@ -555,7 +579,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--model', default='trellis2', choices=['trellis2', 'pixal3d', 'pixal3d-tex', 'mvadapter-i2tex', 'localmesh', 'hunyuan21'])
+    ap.add_argument('--model', default='trellis2', choices=['trellis2', 'pixal3d', 'pixal3d-tex', 'mvadapter-i2tex', 'supratex', 'localmesh', 'hunyuan21'])
     ap.add_argument('--donor', default='mesh-q-low-1', help='hunyuan21: боевая группа-образец (образ, ресурсы, env без секретов приёмника)')
     ap.add_argument('--set', default=None, help='JSON набора (роль, габариты); по умолчанию set30.json рядом с папкой inputs')
     ap.add_argument('--fail-streak', type=int, default=NO_FAIL_STREAK, help='сколько упавших заданий подряд гасят замер (контролю Hunyuan — больше: боевые ворота брака)')
@@ -569,6 +593,9 @@ def main() -> int:
     ap.add_argument('--card', default=CARD['class_name'], help='класс карты по полному имени ("RTX 4060 Ti (16 GB)" для localmesh)')
     ap.add_argument('--detail', default='high', choices=['draft', 'standard', 'high', 'max'], help='localmesh: ярус качества (high = форма 1024, 16 шагов, 250 тыс. граней)')
     ap.add_argument('--texture-mesh', default=None, help='контроль: готовая форма (GLB) — TRELLIS.2 только перекрасит её по фото (один товар в --skus)')
+    ap.add_argument('--supra-refine', action='store_true', help='supratex: --refine апстрима (чёткий мелкий рисунок, +≈2 мин на 3090)')
+    ap.add_argument('--supra-texture-size', type=int, default=4096, help='supratex: размер текстуры выпуска (1024/2048/4096; 4096 — как в апстриме)')
+    ap.add_argument('--supra-decimation', type=int, default=500000, help='supratex: целевое число граней выпуска (по умолчанию 500000, как в апстриме; форма пересобирается ремешем)')
     ap.add_argument('--tex-align', default='fit', help='pixal3d-tex: варианты через запятую, по заданию на вариант: fit (подгонка фото по силуэту формы), official (как в апстриме Pixal3D); добавки: +g<сила направляющей, по умолчанию 1>, +s<проходов сглаживания формы для латента>; пример: fit,official,fit+g3,fit+s60')
     ap.add_argument('--mv-yaw', default='auto', help='mvadapter-i2tex: поворот формы к виду 0 (лицом к камере): auto — по силуэту фото, либо 0/90/180/270 (силуэты 0° и 180° зеркальны — различаются только несимметричностью предмета)')
     ap.add_argument('--mv-uv-size', type=int, default=4096, help='mvadapter-i2tex: размер развёртки при проекции видов (1024/2048/4096; 4096 — как в апстриме, самый тяжёлый по памяти)')
@@ -576,7 +603,7 @@ def main() -> int:
     ap.add_argument('--mv-ref-scale', type=float, default=1.0, help='mvadapter-i2tex: сила опоры на фото (reference_conditioning_scale, по умолчанию 1,0)')
     ap.add_argument('--tier', default='high', choices=['batch', 'low', 'medium', 'high'])
     ap.add_argument('--cpu', type=int, default=8)
-    ap.add_argument('--mem-mb', type=int, default=32768)
+    ap.add_argument('--mem-mb', type=int, default=None, help='память группы, МБ; по умолчанию 32768, для supratex 49152 (пик процессов ≈ 32,4 ГиБ)')
     ap.add_argument('--cap', type=float, default=2.0, help='потолок денег на ОДИН запуск (одну модель), $ — владелец TG 2064: $2 на модель, $10 на всю пробу')
     ap.add_argument('--max-min', type=int, default=180)
     ap.add_argument('--ready-min', type=int, default=75, help='сколько минут после running ждать прогрева модели (холодный старт с докачкой весов — часть результата пробы)')
