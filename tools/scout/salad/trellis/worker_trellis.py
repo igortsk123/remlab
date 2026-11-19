@@ -162,10 +162,15 @@ class Trellis2Backend:
         torch.cuda.reset_peak_memory_stats()
         stage = {}
         t = time.time()
-        mesh = self.pipe.run(image, seed=int(params.get('seed', 42)), pipeline_type=params.get('pipeline_type') or '1024_cascade')[0]
+        run_kw = trellis2_run_kwargs(params)
+        mesh = self.pipe.run(image, seed=int(params.get('seed', 42)), pipeline_type=params.get('pipeline_type') or '1024_cascade', **run_kw)[0]
         torch.cuda.synchronize()
         stage['run'] = round(time.time() - t, 2)
         peak_run = torch.cuda.max_memory_allocated() / 2 ** 30
+        grid_res = int(round(1.0 / float(mesh.voxel_size)))          # РЕАЛЬНОЕ разрешение сетки: каскад молча снижает 1536 → 1408 → … пока токенов ≥ max_num_tokens (trellis2_image_to_3d.py, sample_shape_slat_cascade)
+        raw_info = {'raw_tris': int(len(mesh.faces)), 'raw_verts': int(len(mesh.vertices))}
+        if params.get('export_raw'):          # сырая форма ДО упаковки (simplify/remesh/decimation) — только форма, без краски; оси как у GLB (Y вверх)
+            raw_info.update(export_raw_mesh(mesh, path[:-4] + '.raw.glb'))
         t = time.time()
         mesh.simplify(16777216)             # предел nvdiffrast, как в example.py
         glb = o_voxel.postprocess.to_glb(
@@ -178,7 +183,49 @@ class Trellis2Backend:
         # PNG-текстуры (без EXT_texture_webp): тот же вид GLB, что у Hunyuan, — наши рендеры читают его без расширений
         glb.export(path, extension_webp=bool(int(os.environ.get('EXPORT_WEBP', '0'))))
         return {'stage_s': stage, 'peak_vram_gb': round(max(peak_run, torch.cuda.max_memory_allocated() / 2 ** 30), 2),
-                'peak_reserved_gb': round(torch.cuda.max_memory_reserved() / 2 ** 30, 2)}
+                'peak_reserved_gb': round(torch.cuda.max_memory_reserved() / 2 ** 30, 2),
+                'pipeline_type': params.get('pipeline_type') or '1024_cascade', 'grid_res_actual': grid_res, 'run_kwargs': run_kw, 'decimation_target': int(params.get('decimation_target', 500000)),
+                **raw_info, 'has_raw': bool(params.get('export_raw'))}
+
+
+TRELLIS2_RANGES = {'steps': (1, 50), 'guidance_strength': (0.0, 10.0), 'guidance_rescale': (0.0, 1.0), 'rescale_t': (1.0, 6.0)}
+
+
+def trellis2_run_kwargs(params: dict) -> dict:
+    """Лесенка формы TRELLIS.2 (T-20261119-94): только то, что ЗАДАНО в задании, уходит в `Trellis2ImageTo3DPipeline.run` — остальное (12 шагов, guidance 7,5, rescale 0,5/0,7, rescale_t 3/5) остаётся
+    по умолчанию апстрима, поэтому прежние задания работают как раньше. Ключи: `ss_*` — разреженная структура, `shape_*` — форма (`steps`, `guidance`, `rescale`, `rescale_t`); `max_num_tokens` —
+    потолок токенов каскада (по умолчанию 49152: при превышении разрешение снижается шагами по 128, кроме 1024). Вне диапазонов fal.ai/апстрима — ValueError."""
+    kw: dict = {}
+    for prefix, arg in (('ss', 'sparse_structure_sampler_params'), ('shape', 'shape_slat_sampler_params')):
+        d: dict = {}
+        for key, name in (('steps', 'steps'), ('guidance', 'guidance_strength'), ('rescale', 'guidance_rescale'), ('rescale_t', 'rescale_t')):
+            v = params.get(f'{prefix}_{key}')
+            if v is None:
+                continue
+            lo, hi = TRELLIS2_RANGES[name]
+            x = int(v) if name == 'steps' else float(v)
+            if not lo <= x <= hi:
+                raise ValueError(f'{prefix}_{key}: от {lo} до {hi}, получено {v!r}')
+            d[name] = x
+        if d:
+            kw[arg] = d
+    if params.get('max_num_tokens') is not None:
+        n = int(params['max_num_tokens'])
+        if not 49152 <= n <= 262144:
+            raise ValueError(f'max_num_tokens: от 49152 до 262144, получено {n}')
+        kw['max_num_tokens'] = n
+    return kw
+
+
+def export_raw_mesh(mesh, path: str) -> dict:
+    """Сырая форма TRELLIS.2 (`MeshWithVoxel.vertices/faces`, куб ±0,5, Z вверх) → GLB без краски в кадре GLB (Y вверх: (x, y, z) → (x, z, −y), как в `to_glb` апстрима)."""
+    import numpy as np
+    import trimesh
+    v = mesh.vertices.detach().cpu().numpy() if hasattr(mesh.vertices, 'detach') else np.asarray(mesh.vertices)
+    f = mesh.faces.detach().cpu().numpy() if hasattr(mesh.faces, 'detach') else np.asarray(mesh.faces)
+    v = np.stack([v[:, 0], v[:, 2], -v[:, 1]], axis=1).astype(np.float32)
+    trimesh.Trimesh(vertices=v, faces=f.astype(np.uint32), process=False).export(path)
+    return {'raw_glb_bytes': os.path.getsize(path)}
 
 
 class Hunyuan21Backend:
@@ -1358,7 +1405,7 @@ class H(BaseHTTPRequestHandler):
         if p.startswith('/glb/'):
             jid = os.path.basename(p[5:])
             rp = os.path.join(JOBS_DIR, jid + '.res.json')
-            fp = os.path.join(OUT, f'{jid}.ai.glb' if 'v=ai' in self.path else f'{jid}.glb')      # ?v=ai — localmesh: текстура до проекции фото
+            fp = os.path.join(OUT, f'{jid}.ai.glb' if 'v=ai' in self.path else f'{jid}.raw.glb' if 'v=raw' in self.path else f'{jid}.glb')      # ?v=ai — localmesh: текстура до проекции фото; ?v=raw — TRELLIS.2: сырая форма до упаковки
             if not os.path.exists(rp) or json.load(open(rp, encoding='utf-8')).get('status') != 'done' or not os.path.exists(fp):
                 return self._json(404, {'error': 'GLB нет (задание не готово или упало)'})
             data = open(fp, 'rb').read()

@@ -124,6 +124,35 @@ def expand_align_jobs(jobs: list[dict], variants: list[dict]) -> list[dict]:
             for j in jobs for v in variants]
 
 
+LADDER_KEYS = ('ss_steps', 'ss_guidance', 'ss_rescale', 'ss_rescale_t', 'shape_steps', 'shape_guidance', 'shape_rescale', 'shape_rescale_t', 'max_num_tokens', 'export_raw')
+
+
+def parse_ladder(path: str) -> list[dict]:
+    """T-20261119-94 — лесенка формы TRELLIS.2: JSON-список ступеней `{name, input: cur|hd, res: 1024|1536, ss_steps?, shape_steps?, shape_rescale?, max_num_tokens?, export_raw?}`. Имя ступени — в id задания
+    (`<товар>-<имя>`), у каждой ступени меняется РОВНО то, что записано; прочее — по умолчанию апстрима. Ошибка в файле → ValueError (до группы и денег)."""
+    items = json.load(open(os.path.expanduser(path), encoding='utf-8'))
+    if not isinstance(items, list) or not items:
+        raise ValueError('лесенка: нужен непустой JSON-список ступеней')
+    seen, out = set(), []
+    for it in items:
+        nm = str(it.get('name') or '')
+        if not nm or not all(c.isalnum() or c in '-_.' for c in nm) or nm in seen:
+            raise ValueError(f'лесенка: у ступени нужно уникальное имя из букв, цифр и «-_.»: {nm!r}')
+        seen.add(nm)
+        if it.get('input', 'cur') not in ('cur', 'hd') or int(it.get('res', 1024)) not in (512, 1024, 1536):
+            raise ValueError(f'лесенка {nm}: input — cur или hd, res — 512, 1024 или 1536')
+        bad = [k for k in it if k not in ('name', 'input', 'res') + LADDER_KEYS]
+        if bad:
+            raise ValueError(f'лесенка {nm}: неизвестные ключи {bad}')
+        out.append({'name': nm, 'input': it.get('input', 'cur'), 'res': int(it.get('res', 1024)), 'params': {k: it[k] for k in LADDER_KEYS if k in it}})
+    return out
+
+
+def expand_ladder_jobs(jobs: list[dict], ladder: list[dict]) -> list[dict]:
+    """Задание на каждую ступень лесенки для каждого товара: `res`, фото (`cur` — как в БД 30 товаров, `hd` — `<товар>.hd.rgba.png`) и параметры ступени."""
+    return [dict(j, job_id=f'{j["sku"].replace(":", "_")}-{r["name"]}', res=r['res'], input=r['input'], worker_params=r['params']) for j in jobs for r in ladder]
+
+
 def price_usd_h(tier: str) -> float | None:
     """Цена 4090 по тарифу из `rules/salad-groups.json` (`prices_by_class_usd_h`); нет — None (деньги без цены не считаем)."""
     try:
@@ -312,6 +341,20 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
             j['job_id'] += '-tex'
     if a.model == 'pixal3d-tex':                          # варианты кадрирования фото (fit — подгонка по силуэту формы, official — как в апстриме): по заданию на вариант, id с суффиксом
         jobs = expand_align_jobs(jobs, aligns)
+    if getattr(a, 'ladder', None):                         # лесенка формы TRELLIS.2 (T-20261119-94): по заданию на ступень; HD-фото — файл `<товар>.hd.rgba.png` рядом с обычным
+        if a.model != 'trellis2':
+            say('--ladder только для --model trellis2 — группа не создаётся')
+            return 2
+        try:
+            ladder = parse_ladder(a.ladder)
+        except (ValueError, OSError, AttributeError) as e:
+            say(f'лесенка не разобрана ({e}) — группа не создаётся')
+            return 2
+        missing = [s for s in skus for r in ladder if r['input'] == 'hd' and not os.path.exists(os.path.join(a.inputs, f'{s.replace(":", "_")}.hd.rgba.png'))]
+        if missing:
+            say(f'нет HD-фото `<товар>.hd.rgba.png` в {a.inputs}: {sorted(set(missing))} — группа не создаётся')
+            return 2
+        jobs = expand_ladder_jobs(jobs, ladder)
     for j in jobs:
         j['role'] = (inputs.get(j['sku']) or {}).get('role') or meta.get(j['sku'], {}).get('role')
         j['dims_cm'] = meta.get(j['sku'], {}).get('dims_cm')
@@ -444,9 +487,9 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
             if ready_at is not None:
                 if inflight is None and pending:
                     j = pending.pop(0)
-                    png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.rgba.png'), 'rb').read()
+                    png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.{"hd." if j.get("input") == "hd" else ""}rgba.png'), 'rb').read()
                     pl = {'job_id': j['job_id'], 'image_b64': base64.b64encode(png).decode(), 'pipeline_type': pipeline_type(j['res']), 'seed': j['seed'],
-                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_mesh_b64, 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'), 'shape_fill': j.get('shape_fill')}
+                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_mesh_b64, 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'), 'shape_fill': j.get('shape_fill'), **(j.get('worker_params') or {})}
                     c, r = gw.call('POST', '/generate', pl, timeout=90)
                     inflight = {**j, 'submitted': t, 'http': c}
                     say('задание', j['job_id'], '→ HTTP', c)
@@ -480,6 +523,15 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                                     open(fp, 'wb').write(glb)
                                     inflight['glb_path'] = fp
                                     inflight['glb_bytes'] = len(glb)
+                                    if (r.get('metrics') or {}).get('has_raw'):          # TRELLIS.2: сырая форма до упаковки (simplify/remesh/decimation) — вторым файлом, по ступеням с export_raw
+                                        cr, glb_raw = gw.call('GET', '/glb/' + inflight['job_id'] + '?v=raw', timeout=600, raw=True)
+                                        if cr == 200:
+                                            fp_raw = os.path.join(a.out, inflight['job_id'] + '.raw.glb')
+                                            open(fp_raw, 'wb').write(glb_raw)
+                                            inflight['glb_raw_path'] = fp_raw
+                                            inflight['glb_raw_bytes'] = len(glb_raw)
+                                        else:
+                                            inflight['glb_raw_error'] = f'HTTP {cr}'
                                     if (r.get('metrics') or {}).get('has_ai'):          # localmesh: вторая версия — текстура «как нарисовала модель», до проекции фото
                                         ca, glb_ai = gw.call('GET', '/glb/' + inflight['job_id'] + '?v=ai', timeout=300, raw=True)
                                         if ca == 200:
@@ -535,6 +587,7 @@ def main() -> int:
     ap.add_argument('--texture', type=int, default=2048)
     ap.add_argument('--card', default=CARD['class_name'], help='класс карты по полному имени ("RTX 4060 Ti (16 GB)" для localmesh)')
     ap.add_argument('--detail', default='high', choices=['draft', 'standard', 'high', 'max'], help='localmesh: ярус качества (high = форма 1024, 16 шагов, 250 тыс. граней)')
+    ap.add_argument('--ladder', default=None, help='trellis2: JSON со ступенями лесенки формы (имя, input cur|hd, res, шаги/rescale формы, max_num_tokens, export_raw) — по заданию на ступень на товар; HD-фото — `<товар>.hd.rgba.png` в --inputs')
     ap.add_argument('--texture-mesh', default=None, help='контроль: готовая форма (GLB) — TRELLIS.2 только перекрасит её по фото (один товар в --skus)')
     ap.add_argument('--tex-align', default='fit', help='pixal3d-tex: варианты через запятую, по заданию на вариант: fit (подгонка фото по силуэту формы), official (как в апстриме Pixal3D); добавки: +g<сила направляющей, по умолчанию 1>, +s<проходов сглаживания формы для латента>; пример: fit,official,fit+g3,fit+s60')
     ap.add_argument('--tier', default='high', choices=['batch', 'low', 'medium', 'high'])

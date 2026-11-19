@@ -11,7 +11,6 @@ on:
     branches: ['trial/trellis2-pixtex']
     paths:
       - 'tools/scout/salad/trellis/Dockerfile.pixal3d-bw'
-      - 'tools/scout/salad/trellis/worker_trellis.py'
       - '.github/workflows/build-pixal3d-bw-trial.yml'
   workflow_dispatch:
 

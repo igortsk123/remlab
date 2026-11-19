@@ -418,6 +418,32 @@ ok('варианты: суффиксы id, align, сила направляющ�
    and [(j['align'], j['tex_guidance'], j['shape_smooth']) for j in two] == [('fit', 1.0, 0), ('official', 1.0, 0), ('fit', 3.0, 0), ('fit', 2.5, 40)])
 ok('один вариант: id как был', [j['job_id'] for j in one] == ['a_1-1024-42-0'] and one[0]['align'] == 'official')
 ok('неверные записи вариантов отвергаются', all(T.parse_tex_variant(x) is None for x in ('zzz', 'fit+x3', 'fit+g0', 'fit+g11', 'fit+s0', 'fit+sabc', 'fit+s501', 'fit+f19', 'fit+f101', 'fit+fabc', '')))
+
+# лесенка формы TRELLIS.2 (T-20261119-94): в `run` уходит только заданное, остальное — по умолчанию апстрима
+ok('trellis2_run_kwargs: пусто → ничего не меняем (прежние задания работают как раньше)', W.trellis2_run_kwargs({'job_id': 'x', 'seed': 1}) == {})
+ok('trellis2_run_kwargs: шаги ×2 и rescale формы → только `shape_slat_sampler_params`, steps целое', W.trellis2_run_kwargs({'shape_steps': 24, 'shape_rescale': 0.7}) == {'shape_slat_sampler_params': {'steps': 24, 'guidance_rescale': 0.7}})
+ok('trellis2_run_kwargs: структура и токены', W.trellis2_run_kwargs({'ss_steps': 20, 'max_num_tokens': 98304}) == {'sparse_structure_sampler_params': {'steps': 20}, 'max_num_tokens': 98304})
+bad_kw = 0
+for bp in ({'shape_steps': 0}, {'shape_steps': 51}, {'shape_rescale': 1.2}, {'shape_guidance': -1}, {'ss_rescale_t': 7}, {'max_num_tokens': 1000}, {'max_num_tokens': 300000}):
+    try:
+        W.trellis2_run_kwargs(bp)
+    except ValueError:
+        bad_kw += 1
+ok('trellis2_run_kwargs: значения вне диапазона fal.ai/апстрима → ValueError', bad_kw == 7, str(bad_kw))
+lad_path = os.path.join(tempfile.mkdtemp(prefix='lad-'), 'l.json')
+json.dump([{'name': 'hd', 'input': 'hd', 'res': 1024}, {'name': 'hd1536-s24', 'input': 'hd', 'res': 1536, 'shape_steps': 24, 'shape_rescale': 0.7, 'max_num_tokens': 98304, 'export_raw': True}], open(lad_path, 'w'))
+lad = T.parse_ladder(lad_path)
+ok('parse_ladder: ступени с именем, фото, разрешением и параметрами', [x['name'] for x in lad] == ['hd', 'hd1536-s24'] and lad[1]['res'] == 1536 and lad[1]['params']['shape_steps'] == 24 and lad[0]['params'] == {} and lad[1]['input'] == 'hd')
+lj = T.expand_ladder_jobs([{'sku': '112923:13224664101879413845', 'res': 1024, 'rep': 0, 'seed': 42, 'job_id': '112923_13224664101879413845-1024-42-0'}], lad)
+ok('expand_ladder_jobs: id = товар-ступень, res и параметры ступени, фото hd', [j['job_id'] for j in lj] == ['112923_13224664101879413845-hd', '112923_13224664101879413845-hd1536-s24'] and lj[1]['res'] == 1536 and lj[1]['worker_params']['export_raw'] is True and lj[0]['input'] == 'hd')
+bad_l = 0
+for bl in ([], [{'name': 'a'}, {'name': 'a'}], [{'name': 'a b'}], [{'name': 'a', 'input': 'x'}], [{'name': 'a', 'res': 2048}], [{'name': 'a', 'steps': 5}]):
+    json.dump(bl, open(lad_path, 'w'))
+    try:
+        T.parse_ladder(lad_path)
+    except ValueError:
+        bad_l += 1
+ok('parse_ladder: пусто, повтор имени, пробел в имени, неверное фото/разрешение, чужой ключ → ValueError', bad_l == 6, str(bad_l))
 rc = T.run(types.SimpleNamespace(**{**base, 'texture_mesh': '/x.glb', 'tex_align': 'fit+g99'}), NoTouchMG(), NoTouchMG())
 ok('--tex-align fit+g99: отказ (код 2) до обращения к Salad', rc == 2)
 
