@@ -144,6 +144,13 @@ fit = W.fit_photo(V, F, ph, FOV, DIST)
 ok('подгонка находит поворот 90° (буква Г несимметрична), IoU ≥ 0,93', fit['yaw_deg'] == 90 and fit['iou'] >= 0.93, str(fit))
 ok('подгонка находит mesh_scale ≈ 1,4 (±4 %) и сдвиг tx ≈ 0,03, ty ≈ −0,02 (±0,02 кадра: сдвиг по вертикали и масштаб частично взаимозаменимы); масштаб фото не трогает (σ = 1)', abs(fit['mesh_scale'] - SS) / SS < 0.04 and abs(fit['tx'] - TX) < 0.02 and abs(fit['ty'] - TY) < 0.02 and fit['sigma'] == 1.0, str(fit))
 ok('без подгонки (mesh_scale 1, сдвиг 0 — как в апстриме) силуэт хуже: IoU «до» < IoU «после»', fit['iou_identity'] < fit['iou'] - 0.05, str(fit))
+# тонкая поза: фото снято с поворотом 15° и наклоном 10° относительно «в лоб» — доводка находит их (±5°) и IoU растёт против «в лоб»
+pf, _c, _s, _R = W.to_cube(V, 15, 10)
+uf_, vf_, _ = W.project_cube(pf, FOV, DIST, 1.2)
+fit_f = W.fit_photo(V, F, photo_from_mask(W.surface_mask(uf_, vf_, F, 256), 1.0, 0.0, 0.0), FOV, DIST)
+ok('тонкая поза: найдены поворот 15° и наклон 10° (±5°), IoU вырос более чем на 0,01 против «в лоб», база — угол, кратный 90°',
+   fit_f['yaw_base_deg'] == 0 and abs(fit_f['yaw_deg'] - 15) <= 5 and abs(fit_f['pitch_deg'] - 10) <= 5 and fit_f['iou'] > fit_f['iou_coarse'] + 0.01, str(fit_f))
+ok('«в лоб» остаётся «в лоб», когда доводка ничего не даёт (буква Г, фото ровно с 90°): поворот 90, наклон 0', fit['yaw_deg'] == 90 and fit['pitch_deg'] == 0.0)
 ok('IoU по всем 4 поворотам записан, у выбранного — наибольший', len(fit['iou_by_yaw']) == 4 and fit['iou_by_yaw']['90'] == max(fit['iou_by_yaw'].values()))
 Vb, Fb = box((-0.3, -0.2, -0.1), (0.3, 0.2, 0.1))
 pb, _c, _s, _R = W.to_cube(Vb, 0)
@@ -284,6 +291,18 @@ if have_tm:
         final.export(out_glb)
         back = trimesh.load(out_glb, force='mesh')
         ok(f'[{align}] GLB пишется и читается: те же грани, габарит как у входа', len(back.faces) == len(F) and np.allclose(back.extents, mesh_in.extents, atol=1e-5))
+
+    # фото снято под углом (поворот 15°, наклон 10°): форма идёт в кодировщик повёрнутой, а на выходе возвращается в исходный кадр точно
+    pr, _c, _s, _R = W.to_cube(Vi, 15, 10)
+    ur, vr_, _ = W.project_cube(pr, FOV, DIST, 1.25)
+    Mr = W.surface_mask(ur, vr_, F, 400)
+    photo_r = Image.fromarray(np.stack([np.where(Mr, 200, 0), np.where(Mr, 90, 0), np.where(Mr, 40, 0), Mr * 255], axis=-1).astype(np.uint8), 'RGBA')
+    fpr = FakePipe()
+    final_r, m_r = W.texture_on_shape(fpr, mesh_in, photo_r, cam, {'align': 'fit'})
+    ok('фото под углом: поза найдена (поворот ≠ 0 или наклон ≠ 0), форма на выходе — в исходном кадре, как была', (m_r['fit']['yaw_deg'] != 0 or m_r['fit']['pitch_deg'] != 0)
+       and np.allclose(np.asarray(final_r.vertices), Vi, atol=1e-6) and m_r['shape']['hausdorff_rel'] < 1e-6, str(m_r['fit']))
+    final_o, m_o = W.texture_on_shape(FakePipe(), mesh_in, photo_r, cam, {'align': 'official'})
+    ok('official: форма идёт только с поворотом, кратным 90° (как в апстриме), форма на выходе та же', np.allclose(np.asarray(final_o.vertices), Vi, atol=1e-6))
 
     # рычаги «двойного узора»: сглаживание копии формы для латента и сила направляющей
     fp = FakePipe()

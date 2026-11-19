@@ -314,6 +314,11 @@ class Pixal3DBackend:
 # Сам ComfyUI не используется: берутся методы апстрима Pixal3D (`pixal3d/pipelines`), сборка — здесь.
 YAWS_DEG = (0, 90, 180, 270)
 SHAPE_TOL = 1e-4                      # допуск формы: отклонение вершин от входа / диагональ габарита (float32 в GLB даёт ~1e-7)
+FINE_YAW = (-10, -5, 0, 5, 10)         # тонкая доводка позы: шаги вокруг найденной (два круга → до ±20°)
+FINE_PITCH = (-10, -5, 0, 5, 10)
+FINE_YAW_MAX = 25                     # предел отклонения от угла, кратного 90°, и наклона, градусов
+FINE_PITCH_MAX = 20
+FINE_GAIN = 0.01                      # принимаем отклонение, только если IoU силуэта растёт хотя бы на столько (иначе поза «в лоб»)
 FIT_N = 192                           # разрешение масок для подгонки фото к форме
 
 
@@ -332,13 +337,22 @@ def rot_y(deg: float):
     return np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]], dtype=np.float64)
 
 
-def to_cube(verts, yaw_deg: float = 0.0):
+def rot_x(deg: float):
+    """Поворот вокруг горизонтальной оси X (наклон формы к камере/от неё); 0° — точная единица."""
+    import numpy as np
+    if deg == 0:
+        return np.eye(3)
+    c, s = np.cos(np.radians(deg)), np.sin(np.radians(deg))
+    return np.array([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]], dtype=np.float64)
+
+
+def to_cube(verts, yaw_deg: float = 0.0, pitch_deg: float = 0.0):
     """Вершины входного GLB (Y вверх) → кадр сетки Pixal3D: поворот на yaw, центр габарита в ноль, наибольшая сторона = 0,99999 (как `preprocess_mesh` апстрима, без его
     обмена осей: сетка Pixal3D — это Y вверх, лицом +Z, то есть кадр GLB; обмен осей апстрима для TRELLIS.2 даёт Z вверх, ComfyUI компенсирует его опцией «90 degrees»).
-    Возвращает (p, center, scale, R); обратное — `from_cube`."""
+    `pitch_deg` — наклон формы вокруг X (после поворота на yaw). Возвращает (p, center, scale, R); обратное — `from_cube`."""
     import numpy as np
     v = np.asarray(verts, dtype=np.float64)
-    R = rot_y(yaw_deg)
+    R = rot_x(pitch_deg) @ rot_y(yaw_deg)
     vr = v @ R.T
     lo, hi = vr.min(axis=0), vr.max(axis=0)
     c = (lo + hi) / 2.0
@@ -505,13 +519,10 @@ def fit_photo(verts, faces, rgba, fov: float, dist: float, mesh_scale: float = 1
     параметром `mesh_scale` самой камеры (больше — форма дальше и мельче), фото только сдвигается. Ничьи (симметричный предмет) уступают меньшему повороту.
     IoU «без подгонки» (`mesh_scale` как дан, сдвиг 0 — поведение апстрима) возвращается рядом: видно, что дала подгонка. `sigma` в ответе всегда 1,0 (масштаб фото не меняется)."""
     A = photo_mask(rgba, n)
-    best = None
-    by_yaw = {}
-    for yaw in YAWS_DEG:
-        p, _c, _s, _R = to_cube(verts, yaw)
-        u, v, _d = project_cube(p, fov, dist, mesh_scale)
-        M0 = surface_mask(u, v, faces, n)
-        sig0 = fit_similarity(A, M0)[0]                              # грубая оценка масштаба: фото мельче силуэта в σ раз → форму отодвинуть в σ раз
+
+    def evaluate(yaw, pitch, s_start, steps):
+        """Для позы (yaw, pitch): подобрать mesh_scale (поиск вокруг s_start с уменьшающимся шагом) и сдвиг фото. → (IoU, mesh_scale, tx, ty, маска без подгонки)."""
+        p, _c, _s, _R = to_cube(verts, yaw, pitch)
         cache: dict = {}
 
         def at(sc):
@@ -520,14 +531,41 @@ def fit_photo(verts, faces, rgba, fov: float, dist: float, mesh_scale: float = 1
                 uu, vv, _dd = project_cube(p, fov, dist, k)
                 cache[k] = fit_similarity(A, surface_mask(uu, vv, faces, n), fix_sigma=True)
             return cache[k]
-        s_best = mesh_scale * sig0
-        for step in (0.08, 0.03, 0.01):
-            cands = [s_best * (1 + step * j) for j in (-2, -1, 0, 1, 2)]
-            s_best = max(cands, key=lambda c: at(c)[3])
-        _sg, tx, ty, iou = at(s_best)
+        sb = s_start
+        for step in steps:
+            sb = max([sb * (1 + step * j) for j in (-2, -1, 0, 1, 2)], key=lambda c: at(c)[3])
+        _sg, tx, ty, iou = at(sb)
+        return iou, float(sb), tx, ty
+
+    best = None
+    by_yaw = {}
+    for yaw in YAWS_DEG:
+        p, _c, _s, _R = to_cube(verts, yaw)
+        u, v, _d = project_cube(p, fov, dist, mesh_scale)
+        M0 = surface_mask(u, v, faces, n)
+        sig0 = fit_similarity(A, M0)[0]                              # грубая оценка масштаба: фото мельче силуэта в σ раз → форму отодвинуть в σ раз
+        iou, sb, tx, ty = evaluate(yaw, 0.0, mesh_scale * sig0, (0.08, 0.03, 0.01))
         by_yaw[str(yaw)] = round(iou, 4)
         if best is None or iou > best['iou'] + 0.005:
-            best = {'yaw_deg': yaw, 'sigma': 1.0, 'tx': tx, 'ty': ty, 'mesh_scale': float(round(s_best, 5)), 'iou': iou, 'iou_identity': _iou(A, M0)}
+            best = {'yaw_deg': yaw, 'yaw_base_deg': yaw, 'pitch_deg': 0.0, 'sigma': 1.0, 'tx': tx, 'ty': ty, 'mesh_scale': sb, 'iou': iou, 'iou_identity': _iou(A, M0), 'iou_coarse': iou}
+    # тонкая доводка позы: фото снято не строго «в лоб» (форма сгенерирована по нему, но с поворотом в единицы и десятки градусов). Принимаем отклонение, только если оно даёт ≥ FINE_GAIN IoU
+    cur = dict(best)
+    for _round in range(2):
+        for axis, offs in (('yaw', FINE_YAW), ('pitch', FINE_PITCH)):
+            top = None
+            for o in offs:
+                if o == 0:
+                    continue
+                yy = cur['yaw_deg'] + (o if axis == 'yaw' else 0)
+                pp = cur['pitch_deg'] + (o if axis == 'pitch' else 0)
+                if abs(yy - best['yaw_base_deg']) > FINE_YAW_MAX or abs(pp) > FINE_PITCH_MAX:
+                    continue
+                iou, sb, tx, ty = evaluate(yy, pp, cur['mesh_scale'], (0.03, 0.01))
+                if top is None or iou > top[0]:
+                    top = (iou, yy, pp, sb, tx, ty)
+            if top is not None and top[0] > cur['iou'] + FINE_GAIN:
+                cur.update(iou=top[0], yaw_deg=top[1], pitch_deg=top[2], mesh_scale=top[3], tx=top[4], ty=top[5])
+    best = cur
     best['iou_by_yaw'] = by_yaw
     return {k: (round(x, 4) if isinstance(x, float) else x) for k, x in best.items()}
 
@@ -626,7 +664,7 @@ def texture_on_shape(pipe, mesh, image, cam: dict, params: dict, hooks: dict | N
     lap('fit')
     cond_img = warp_photo(rgba, fit['sigma'], fit['tx'], fit['ty'], 1024) if align == 'fit' else compose_black(rgba)
     cam_scale = float(fit['mesh_scale']) if align == 'fit' else mscale                 # «fit»: форма подогнана к фото масштабом камеры; «official» — камера как дала MoGe
-    p, c, s, R = to_cube(verts, fit['yaw_deg'])
+    p, c, s, R = to_cube(verts, fit['yaw_deg'], fit['pitch_deg']) if align == 'fit' else to_cube(verts, fit['yaw_base_deg'])          # «official» — только поворот, кратный 90°, как в апстриме
     m_in = trimesh.Trimesh(vertices=p, faces=faces, process=False)
     if has_uv:
         m_in.visual = trimesh.visual.TextureVisuals(uv=np.asarray(uv, dtype=np.float64).copy())
