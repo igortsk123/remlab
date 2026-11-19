@@ -21,6 +21,8 @@ review_after: 2026-12-05
 (ремонт ОТМЕНЁН, ADR-0143) → привязка → чистка приёмника → прополка болванок `prune_shapes.py`
 → ориентация (ADR-0129), топ-вью; семейства — при старте волны. Цвет — [[mesh-color]].
 
+**Вход** — крупное фото, сторож 512 px (ADR-0452).
+
 **`shape.glb`** (продукт — `model.glb`) полется у принятых (ADR-0233) или старше 14 сут (`dev-disk.json`; условия — `prune_shapes.py:classify`), кроме стоящих в перегон/перекраску.
 **Ориентация:** на прод — только решённые (`tools/scout/orient_policy.py`; Tier 2 § «Ориентация мешей»).
 
@@ -43,5 +45,4 @@ review_after: 2026-12-05
 **Автобрак:** `generated` = годный (`tools/scout/mesh_ready.py`); обрезка чужих кусков на ноде выключена
 (`tools/scout/salad/pipeline.py` `ALIEN_CUT=0` — только метка).
 
-**Tier 2:** `../domain/viz-fidelity-playbook.md` · планы `mesh-owner-audit`, `mesh-bulk-salad-hunyuan`,
-`mesh-pool-hardening` · ADR-0129…0134, 0146, 0168–0178, 0182, 0188–0197.
+**Tier 2:** `../domain/viz-fidelity-playbook.md` · ADR-0129…0134, 0146, 0168–0178, 0182, 0188–0197.

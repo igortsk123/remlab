@@ -546,3 +546,13 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 741 — очистка мусора у пола резала основания и вазу; проверка на чужой модели и стекле → `lessons/mesh-salad-pool.md`
 - 742 — образ под одну архитектуру CUDA на чужих картах «no kernel image»; сверка до группы → `lessons/mesh-salad-pool.md`
 - 743 — директор выдал часть плана, уже сделанную другим работником; перед выдачей спросить исполнителя → `lessons/memory-process.md`
+- 744 — после CUDA OOM воркер TRELLIS.2 роняет следующее задание; выходить после OOM → `lessons/mesh-salad-pool.md`
+- 745 — 5090 (sm_120) требует torch ≥ 2.7/cu128 и пересборки расширений → `lessons/mesh-salad-pool.md`
+- 746 — очистка clean3 резала обивку дивана; принимать по clay-кадрам дивана → `lessons/mesh-salad-pool.md`
+- 747 — «мятая» форма: вход 450 px и молчаливое снижение каскада TRELLIS.2 → `lessons/mesh-salad-pool.md`
+- 748 — RunPod 403 на Python-urllib, тихий простой платной машины; `platnoe-hod` → `lessons/mesh-salad-pool.md`
+- 749 — свои параллельные процессы под общей очередью heavy-slot не ускоряют → `lessons/mesh-salad-pool.md`
+- 750 — ключ RunPod спросили повторно: инвентарь не видел ACCESS.md → `lessons/memory-process.md`
+- 751 — вопрос владельцу о решённом; OOM → сразу большая карта → `lessons/memory-process.md`
+- 752 — заглушка мягче настоящего Popen скрыла TypeError → `lessons/mesh-salad-pool.md`
+- 753 — чужой код правит read-only массивы; читать Traceback внутри контейнера → `lessons/mesh-salad-pool.md`

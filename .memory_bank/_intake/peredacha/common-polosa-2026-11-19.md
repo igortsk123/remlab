@@ -52,3 +52,7 @@
 
 ## Не в git, только у меня в сессии
 Ничего важного. Кадры для владельца лежат в скретчпаде, повторяются из путей выше. Блокнот пишу в `_intake/session-scratch.md`.
+
+## 19.11 14:50 — стоп кадров 30 (TG 1750)
+- р.1 поставила метки-заглушки `done` со словом «ПРОПУЩЕНО» (process_glbs их пропускает): clean3 TRELLIS.2 — 25 товаров, кадры E LocalMesh — 23. Список — `~/remlab-logs/mesh-models-1118/skipped-19-11.json`. Готово: clean3 TRELLIS.2 5/30 (`frames-clean3/trellis2/`), LocalMesh 6/30 (`frames-clean2/localmesh/`).
+- Возобновить после выбора пути владельцем: удалить `done` с «ПРОПУЩЕНО» (через `r unlink`) и перезапустить process_glbs. У 23 LocalMesh нет `.clean2.glb` — досчитываются без рендера за минуты.
