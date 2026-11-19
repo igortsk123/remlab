@@ -188,20 +188,25 @@ def project(points_gltf: np.ndarray, view, size: int, rig: np.ndarray | None = N
     return size / 2 + f * p[..., 0] / depth, size / 2 - f * p[..., 1] / depth, depth
 
 
-_CTX = None
+import threading
+
+_TLS = threading.local()
 
 
 def _context():
-    global _CTX
-    if _CTX is None:
+    # ПРАВКИ remlab: (1) в контейнере без экрана — EGL (Mesa llvmpipe или NVIDIA); без неё X11 → «cannot open display».
+    # (2) Контекст EGL «текущий» только в потоке, где создан: воркер берёт каждое задание в новом потоке, а общий контекст на 2-м задании
+    # давал «cannot create program» (RunPod 19.11, T-90/2) → свой контекст на поток (threading.local, не по номеру потока: номера переиспользуются).
+    ctx = getattr(_TLS, 'ctx', None)
+    if ctx is None:
         import moderngl
 
-        # ПРАВКА remlab (единственная в этом файле): в контейнере без экрана — EGL (Mesa llvmpipe или NVIDIA); без неё X11 → «cannot open display».
         try:
-            _CTX = moderngl.create_standalone_context(require=330, backend="egl")
+            ctx = moderngl.create_standalone_context(require=330, backend="egl")
         except Exception:
-            _CTX = moderngl.create_standalone_context(require=330)
-    return _CTX
+            ctx = moderngl.create_standalone_context(require=330)
+        _TLS.ctx = ctx
+    return ctx
 
 
 class GLRenderer:

@@ -23,4 +23,31 @@ try:
 except Exception as exc:                                       # noqa: BLE001
     bad.append('egl')
     print('EGL УПАЛ:', type(exc).__name__, str(exc)[:300])
+# два «задания» подряд в РАЗНЫХ потоках (воркер берёт каждое в новом потоке): контекст EGL привязан к потоку — на RunPod 19.11 2-е задание
+# падало «cannot create program» (T-90/2). Строим программу и рисуем крошечную сетку в каждом потоке.
+import threading
+import numpy as np
+from ultratex_core.render import GLRenderer
+
+
+def one_job(res):
+    try:
+        v = np.array([[-1, -1, 0], [1, -1, 0], [0, 1, 0]], dtype='f8')
+        n = np.tile([0, 0, 1.0], (3, 1))
+        f = np.array([[0, 1, 2]])
+        with GLRenderer(v, n, f) as r:
+            r._render(16, np.eye(4, dtype='f4'), np.eye(4, dtype='f4'), 0)
+        res.append('ok')
+    except Exception as exc:                                   # noqa: BLE001
+        res.append(f'{type(exc).__name__}: {str(exc)[:200]}')
+
+
+for i in (1, 2, 3):
+    res = []
+    t = threading.Thread(target=one_job, args=(res,))
+    t.start()
+    t.join()
+    print(f'задание-поток {i}:', res[0])
+    if res[0] != 'ok':
+        bad.append(f'thread-job-{i}')
 sys.exit(1 if bad else 0)

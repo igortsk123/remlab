@@ -113,9 +113,13 @@ def pod_url(pod_id: str) -> str:
     return f'https://{pod_id}-8000.proxy.runpod.net'
 
 
+# Прокси RunPod стоит за Cloudflare, который режет `Python-urllib` (403) — шлём заголовок обычного клиента (T-90/2, 19.11)
+UA = 'curl/8.5.0'
+
+
 def http_json(method: str, url: str, body: dict | None = None, timeout: int = 120) -> tuple[int, dict]:
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data, method=method, headers={'Content-Type': 'application/json'})
+    req = urllib.request.Request(url, data=data, method=method, headers={'Content-Type': 'application/json', 'User-Agent': UA})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, json.loads(r.read() or b'{}')
@@ -148,22 +152,36 @@ def sku_key(sku: str) -> str:
     return sku.replace(':', '_')
 
 
+def iso_epoch(s: str) -> float:
+    import datetime
+    s = s.replace('Z', '+00:00')
+    d = datetime.datetime.fromisoformat(s)
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=datetime.timezone.utc)
+    return d.timestamp()
+
+
 def run(api: Api, args, gpu: dict, sleep=time.sleep, now=time.time) -> dict:
     os.makedirs(args.out, exist_ok=True)
-    body = pod_body(gpu, args.image, args.cap, os.environ.get('HF_TOKEN', ''), args.registry)
-    st, pod = api.call('POST', '/pods', body)
+    if getattr(args, 'pod_id', None):                         # взять уже созданный под: цена из API, потолок и срок — от его создания
+        st, pod = api.call('GET', f'/pods/{args.pod_id}')
+    else:
+        body = pod_body(gpu, args.image, args.cap, os.environ.get('HF_TOKEN', ''), args.registry)
+        st, pod = api.call('POST', '/pods', body)
     summary: dict = {'gpu': gpu, 'cap': args.cap, 'per_sku': {}, 'stop_verified': False}
     if st not in (200, 201, 202) or not pod.get('id'):
         say(f'создание пода отказано: HTTP {st} {redact(json.dumps(pod, ensure_ascii=False)[:300])}')
         summary['error'] = f'create HTTP {st}'
         return summary
     pid, t0 = pod['id'], now()
+    if getattr(args, 'pod_id', None) and pod.get('createdAt'):
+        t0 = min(t0, iso_epoch(pod['createdAt']))
     price = float(pod.get('cost') or gpu['price'])
     summary.update(pod_id=pid, price_per_h=price)
-    say(f'под {pid} создан, цена ${price}/ч, статус {pod.get("status")}')
+    say(f'под {pid} {"взят" if getattr(args, "pod_id", None) else "создан"}, цена ${price}/ч, статус {pod.get("status")}, затрат уже ≈ ${(now() - t0) / 3600 * price:.2f}')
     try:
         url = args.pod_url or pod_url(pid)
-        deadline = t0 + args.warm_timeout
+        deadline = max(t0 + args.warm_timeout, now() + 600) if getattr(args, 'pod_id', None) else t0 + args.warm_timeout
         phase, h = '', {}
         while now() < deadline:
             if (now() - t0) / 3600 * price >= args.cap:
@@ -199,7 +217,7 @@ def run(api: Api, args, gpu: dict, sleep=time.sleep, now=time.time) -> dict:
                     sleep(10)
                 summary['per_sku'][tag] = {'status': r['status'], 'metrics': r.get('metrics'), 'error': r.get('error')}
                 if r['status'] == 'done':
-                    req = urllib.request.Request(f'{url}/result/{tag}/glb')
+                    req = urllib.request.Request(f'{url}/result/{tag}/glb', headers={'User-Agent': UA})
                     with urllib.request.urlopen(req, timeout=300) as resp:
                         open(os.path.join(args.out, f'{tag}-ultratex.glb'), 'wb').write(resp.read())
                     say(f"готово {tag}: {json.dumps(r.get('metrics'), ensure_ascii=False)[:300]}")
@@ -252,6 +270,7 @@ def main(argv=None) -> int:
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--warm-timeout', type=int, default=2400)
     ap.add_argument('--pod-url', default=None)
+    ap.add_argument('--pod-id', default=None, help='взять существующий под (не создавать); цена из API, потолок и срок — от его создания')
     args = ap.parse_args(argv)
     sys.path.insert(0, SALAD)
     import migrate_groups as MG
@@ -269,11 +288,14 @@ def main(argv=None) -> int:
     if not args.skus:
         say('нет --skus')
         return 2
-    st, cat = api.call('GET', '/catalog/gpus?include=AVAILABILITY&product=POD')
-    gpu = pick_gpu(cat)
-    if not gpu:
-        say('❗ нет карты A100/H100 80 ГБ в наличии — под не создаю')
-        return 2
+    if args.pod_id:
+        gpu = {'id': 'existing', 'price': 0.0, 'cloud': 'SECURE'}
+    else:
+        st, cat = api.call('GET', '/catalog/gpus?include=AVAILABILITY&product=POD')
+        gpu = pick_gpu(cat)
+        if not gpu:
+            say('❗ нет карты A100/H100 80 ГБ в наличии — под не создаю')
+            return 2
     res = run(api, args, gpu)
     bad = [k for k, v in res['per_sku'].items() if v.get('status') != 'done']
     return 0 if res.get('stop_verified') and not bad and not res.get('error') else 1

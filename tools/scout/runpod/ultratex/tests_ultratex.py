@@ -221,6 +221,31 @@ st2.jobs['z'] = {'status': 'running', 'metrics': {}, 'error': ''}
 W._work(st2, CudaEngine(), {'job_id': 'z'}, b'', b'')
 ok(st2.phase == 'broken' and st2.jobs['z']['status'] == 'failed' and st2.busy is False, 'фатальная ошибка CUDA → нода «broken», новые задания не берутся')
 
+# ---- контекст GL — свой на поток (EGL привязан к потоку; воркер берёт каждое задание в новом потоке, T-90/2 19.11): на подмене moderngl
+import importlib
+import threading as _th
+import types as _types
+
+_made = []
+_fake = _types.ModuleType('moderngl')
+_fake.create_standalone_context = lambda **kw: (_made.append(object()), _made[-1])[1]
+_saved = sys.modules.get('moderngl')
+sys.modules['moderngl'] = _fake
+try:
+    _R = importlib.import_module('ultratex_core.render')
+    _got = []
+    for _ in range(3):
+        _t = _th.Thread(target=lambda: _got.append((_R._context(), _R._context())))
+        _t.start()
+        _t.join()
+    ok(len(_made) == 3 and all(a is b for a, b in _got) and len({id(a) for a, _ in _got}) == 3, 'GL: в одном потоке контекст один, в каждом новом потоке — свой')
+finally:
+    if _saved is None:
+        sys.modules.pop('moderngl', None)
+    else:
+        sys.modules['moderngl'] = _saved
+    sys.modules.pop('ultratex_core.render', None)
+
 # ---- рендер + развёртка вшитого ultratex_core (в образе идёт; без moderngl/EGL/trimesh/xatlas — пропуск)
 try:
     import moderngl

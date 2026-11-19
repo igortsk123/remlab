@@ -82,6 +82,50 @@ args.warm_timeout = 10**9
 res4 = T.run(f4, args, g, sleep=lambda s: None, now=now4)
 check('потолок денег срабатывает до готовности, под погашен', 'потолок' in res4.get('error', '') and res4['stop_verified'] is True)
 
+
+# ---- User-Agent (Cloudflare прокси RunPod режет Python-urllib → 403) и режим --pod-id
+import urllib.request as _ur
+seen = []
+
+
+class _R:
+    status = 200
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return b'{"phase": "ready"}'
+
+
+_orig = _ur.urlopen
+_ur.urlopen = lambda req, timeout=0: (seen.append(req.get_header('User-agent')), _R())[1]
+import importlib
+importlib.reload(T)
+T.http_json('GET', 'https://x-8000.proxy.runpod.net/health')
+_ur.urlopen = _orig
+check('запрос к прокси идёт с User-Agent как у curl (не Python-urllib)', seen == ['curl/8.5.0'])
+
+
+class FakeExisting(Fake):
+    def call(self, method, path, body=None):
+        if method == 'GET' and path == '/pods/p1':
+            self.log.append((method, path))
+            return 200, {'id': 'p1', 'status': 'RUNNING', 'cost': 2.09, 'createdAt': '1970-01-01T00:00:00Z'}
+        return super().call(method, path, body)
+
+
+args2 = types.SimpleNamespace(out=tempfile.mkdtemp(), image='img', cap=5.0, registry=None, pod_url='http://x', warm_timeout=60, skus=['1:2'], steps=[25], inputs='/nonexistent',
+                              shape_dir='/nonexistent', shape_tag='clean2', resolution=2048, seed=42, pod_id='p1')
+T.http_json = lambda method, url, body=None, timeout=120: (200, {'phase': 'ready'})
+f5 = FakeExisting()
+res5 = T.run(f5, args2, {'id': 'existing', 'price': 0.0, 'cloud': 'SECURE'}, sleep=lambda s: None, now=lambda: 1000.0)
+check('--pod-id: под не создаётся (нет POST), цена из API, в конце удалён и стоп проверен',
+      not any(m == 'POST' for m, _ in f5.log) and res5.get('price_per_h') == 2.09 and res5['stop_verified'] is True and ('DELETE', '/pods/p1') in f5.log)
+
 # ---- платное без --cap не стартует
 T.Api = lambda key: Fake()
 check('платное без --cap отказывает', T.main(['--skus', '1:2']) == 2)
