@@ -12,7 +12,8 @@
   4. МАТЕРИАЛЬНАЯ ОБЛАСТЬ: хорошие тексели кластеризуются по цвету (k-means в Lab, `k` кластеров); у плохого текселя кластер определяется голосованием ближайших доноров (вес 1/d²), берутся ТОЛЬКО
      доноры победившего кластера: дерево ножки не течёт на ткань;
   5. цвет — средневзвешенный (1/d²) по `n_donors` ближайшим донорам кластера; unseen/unpainted перекрашиваются целиком, grazing — смешиваются с донором по весу угла:
-     w_ориг = clip((cos_лучшего_вида / COS_GRAZE)², 0, 1), cos считается по нормали грани и 6 видам MV-Adapter (без учёта загораживания — приближение сверху);
+     w_ориг = clip((cos − graz_lo) / (graz_hi − graz_lo), 0, 1)², cos — лучший |cos(нормаль, на камеру)| ТОЛЬКО по видам MV-Adapter, где тексель виден (с загораживанием, как у `tex_coverage`);
+     по умолчанию lo = 0,10, hi = 0,30: у «вскользь» (cos < 0,35) растянутая картинка — это и есть пятна, оставляем исходный цвет только у самых «боковых к камере» (cos ≥ 0,30);
   6. цвета хороших текселей и освещение НЕ меняются (diff = 0 — проверка в тестах и в счётчиках); форма и развёртка не меняются (вершины/грани/UV совпадают с точностью 1e-6 — `guard_geometry`).
   Ярусы: 1 — донор той же части формы и той же стороны; 2 (`any_side`) — той же части, другой стороны (внутренняя сторона подлокотника); 3 (`cross_radius`) — чужой части, но близко (≤ доли размера)
   и того же кластера материала (ящик, вставка, целиком не нарисованные). Нет донора (дальше радиуса / другая нормаль / другой кусок формы) — отказ с причиной по текселю, цвет остаётся прежним. Крупные пятна unpainted (чёрные/белые детали, а не дыры) не трогаем:
@@ -34,7 +35,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import tex_coverage as TC  # noqa: E402
 
-PARAMS = {'radius': 0.10, 'max_normal_deg': 60.0, 'k': 6, 'n_donors': 24, 'any_side': True, 'cross_radius': 0.05, 'knn': 64, 'blob_max_frac': 0.01, 'kmeans_sample': 60000, 'kmeans_iter': 12, 'hf_band_frac': 0.025, 'hf_sigma': 2.0}
+PARAMS = {'radius': 0.10, 'max_normal_deg': 60.0, 'k': 6, 'n_donors': 24, 'any_side': True, 'graz_lo': 0.10, 'graz_hi': 0.30, 'cross_radius': 0.05, 'knn': 64, 'blob_max_frac': 0.01, 'kmeans_sample': 60000, 'kmeans_iter': 12, 'hf_band_frac': 0.025, 'hf_sigma': 2.0}
 CLS_GOOD = (1, 6)                  # норма, шов видов (цвет нарисован сетью)
 CLS_UNSEEN, CLS_GRAZING, CLS_UNPAINTED = 2, 3, 4      # (5 — unseen внутри предмета: покупатель не видит, не трогаем)
 REASONS = ('no_good', 'no_donor_radius', 'no_donor_normal', 'no_donor_component')
@@ -77,6 +78,32 @@ def kmeans(X, k: int, iters: int, seed: int = 3):
     return C
 
 
+def build_cams(Pall, Fall, view_res: int = 768) -> list:
+    """Буферы глубины 6 видов MV-Adapter для всей формы в кадре куба (как `tex_coverage.analyze`): [(вид, буфер глубины, разрешение, ортографическая сторона)]."""
+    import numpy as np
+    import worker_trellis as W
+    cams = []
+    for v in TC.mv_views(W.MV_AZ):
+        x, y, d = TC.project(Pall, v, W.MV_ORTHO)
+        cams.append((v, TC.raster(np.stack([x * view_res, y * view_res], 1), np.asarray(Fall, np.int64), view_res, d)[1], view_res, W.MV_ORTHO))
+    return cams
+
+
+def best_visible_cos(Q, N, cams, diag=None):
+    """Лучший |cos(нормаль, на камеру)| среди видов MV-Adapter, где тексель виден (первая грань вдоль луча — условие `tex_coverage.analyze`, `COS_SEEN`, допуск глубины `DEPTH_EPS`); нет вида — 0."""
+    import numpy as np
+    best = np.zeros(len(Q))
+    for v, zb, res, ortho in cams:
+        x, y, d = TC.project(Q, v, ortho)
+        ix = np.clip(np.floor(x * res).astype(np.int64), 0, res - 1)
+        iy = np.clip(np.floor(y * res).astype(np.int64), 0, res - 1)
+        cs = np.abs(N @ v[0])
+        eps = TC.DEPTH_EPS + (ortho / res) * np.sqrt(np.maximum(1.0 - cs * cs, 0.0)) / np.maximum(cs, TC.COS_SEEN)
+        vis = (zb[iy * res + ix] <= d + eps) & (cs > TC.COS_SEEN)
+        best = np.where(vis, np.maximum(best, cs), best)
+    return best
+
+
 # ---------------------------------------------------------------- ядро (чистое, без GLB) --------------------------
 def texel_geometry(V, F, UV, T: int):
     """Для карты T×T: индексы текселей внутри островков `ti`, грань `f`, 3D-точка `Q` и нормаль `N` (единичная, по грани), площадь грани не нужна. Тот же растеризатор, что у `tex_coverage`."""
@@ -101,9 +128,10 @@ def texel_geometry(V, F, UV, T: int):
     return ti, f, Q, nrm[f], nrm
 
 
-def fill_geom(V, F, UV, tex, cls, views=None, only=('unseen', 'grazing', 'unpainted'), params=None):
+def fill_geom(V, F, UV, tex, cls, views=None, only=('unseen', 'grazing', 'unpainted'), params=None, cams=None):
     """Заливка одной геометрии. V — положения (любой кадр, расстояния в нём), tex uint8 (T,T,3), cls (T,T) uint8 — классы `tex_coverage.analyze` (0 вне, 1 норма, 2 unseen наружу, 3 grazing,
-    4 unpainted, 5 unseen внутри, 6 шов). views — виды MV-Adapter (на_камеру, вправо, вверх) в ТОМ ЖЕ кадре, что V (для веса grazing); None — grazing заливается как unseen.
+    4 unpainted, 5 unseen внутри, 6 шов). views — виды MV-Adapter (на_камеру, вправо, вверх) в ТОМ ЖЕ кадре, что V: приближённый вес grazing (лучший cos без учёта загораживания, нужен только тестам); `cams` — [(вид, буфер глубины, разрешение, ортографическая
+    сторона)] от `build_cams` — ТОЧНЫЙ вес: лучший cos только по видам, где тексель реально виден (как у `tex_coverage.analyze`); ни того, ни другого — grazing заливается как unseen.
     → (новая текстура, статистика, карта действий (T,T) uint8: 0 нет, 1 залито, 2 смешано, 3 отказ нет донора)."""
     import numpy as np
     from scipy.spatial import cKDTree
@@ -209,9 +237,12 @@ def fill_geom(V, F, UV, tex, cls, views=None, only=('unseen', 'grazing', 'unpain
         refused['no_donor_normal'] += int(r_norm.sum())
         refused['no_donor_component'] += int(r_comp.sum())
         graz = cl[b] == CLS_GRAZING
-        if views is not None and graz.any():
+        if cams is not None and graz.any():
+            cb = best_visible_cos(Q[b], fnorm[f[b]], cams, diag)
+            w_orig = np.clip((cb - P['graz_lo']) / max(P['graz_hi'] - P['graz_lo'], 1e-6), 0.0, 1.0) ** 2
+        elif views is not None and graz.any():
             cb = np.max(np.abs(fnorm[f[b]] @ np.array([v[0] for v in views]).T), axis=1)
-            w_orig = np.clip((cb / TC.COS_GRAZE) ** 2, 0.0, 1.0)
+            w_orig = np.clip((cb - P['graz_lo']) / max(P['graz_hi'] - P['graz_lo'], 1e-6), 0.0, 1.0) ** 2
         else:
             w_orig = np.zeros(len(b))
         w_orig = np.where(graz, w_orig, 0.0)
@@ -358,10 +389,12 @@ def process(glb: str, out_dir: str, yaw=None, grid: int = 2048, suffix: str = '-
     Vall = np.concatenate([g['V'] for g in geoms])
     Pc = Vall if classify == 'color' else W.to_cube(Vall, yw)[0]
     offs = np.cumsum([0] + [len(g['V']) for g in geoms])
-    views = None if classify == 'color' else TC.mv_views(W.MV_AZ)
+    views = None
+    Fall = np.concatenate([np.asarray(g['F'], np.int64) + offs[i] for i, g in enumerate(geoms)])
+    cams = None if classify == 'color' else build_cams(Pc, Fall, view_res)
     new_tex, stats, actions = [], [], []
     for i, g in enumerate(geoms):
-        nt, st, ac = fill_geom(Pc[offs[i]:offs[i + 1]], g['F'], g['UV'], g['tex'], r['maps'][i]['cls'], views, only, params)
+        nt, st, ac = fill_geom(Pc[offs[i]:offs[i + 1]], g['F'], g['UV'], g['tex'], r['maps'][i]['cls'], views, only, params, cams)
         new_tex.append(nt)
         stats.append(st)
         actions.append(ac)
