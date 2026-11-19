@@ -365,9 +365,8 @@ print('[3] драйвер')
 import trellis_trial as T  # noqa: E402
 b = T.build_body('trial-pixal3d-tex-x', 'ghcr.io/x/y:t', 'high', 'pixal3d-tex', 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}})
 e = b['container']['environment_variables']
-ok('тело группы: MODEL=pixal3d-tex, код воркера едет в command (как у pixal3d: сперва пин huggingface_hub==0.35.3, затем воркер), приёмника нет',
-   e['MODEL'] == 'pixal3d-tex' and b['container']['command'][:2] == ['bash', '-c'] and 'huggingface_hub==0.35.3' in b['container']['command'][2] and 'exec python3 -u -c' in b['container']['command'][2]
-   and not any(k.startswith('MESH_SINK') for k in e)
+ok('тело группы: MODEL=pixal3d-tex, код воркера едет в command (как у pixal3d: обёртка bash с пином huggingface_hub, без pip-пина TRELLIS.2), приёмника нет',
+   e['MODEL'] == 'pixal3d-tex' and (lambda c: c[:2] == ['bash', '-c'] and 'exec python3 -u -c' in c[2] and T.TRELLIS_PIP_PIN not in c[2])(b['container']['command']) and not any(k.startswith('MESH_SINK') for k in e)
    and __import__('zlib').decompress(__import__('base64').b64decode(e['TRIAL_WORKER_Z'])) == open(os.path.join(HERE, 'worker_trellis.py'), 'rb').read())
 ok('закрытые веса DINOv3 проверяются бесплатно до создания группы (как у pixal3d)', 'pixal3d-tex' in T.HF_GATED and T.HF_GATED['pixal3d-tex'] == T.HF_GATED['pixal3d'])
 ok('только 4090, образ тот же', b['container']['resources']['gpu_classes'] == [T.CARD['class_id']] and b['container']['image'] == 'ghcr.io/x/y:t')
@@ -384,7 +383,7 @@ class NoTouchMG:
         raise AssertionError('Salad тронут до проверки аргументов: ' + k)
 
 
-base = dict(model='pixal3d-tex', inputs=tp, skus=['a:1'], plan='1024:1', seed=42, texture_mesh=None, tex_align='fit', set=None, suffix='t', tier='high')
+base = dict(model='pixal3d-tex', inputs=tp, skus=['a:1'], plan='1024:1', seed=42, texture_mesh=None, tex_align='fit', set=None, suffix='t', tier='high', out=None)
 for name, kw in (('без --texture-mesh', {}), ('два товара', {'texture_mesh': '/x.glb', 'skus': ['a:1', 'b:2']}), ('неизвестный --tex-align', {'texture_mesh': '/x.glb', 'tex_align': 'fit,zzz'})):
     rc = T.run(types.SimpleNamespace(**{**base, **kw}), NoTouchMG(), NoTouchMG())
     ok(f'{name}: отказ (код 2) до обращения к Salad — группа не создаётся, денег 0', rc == 2)
