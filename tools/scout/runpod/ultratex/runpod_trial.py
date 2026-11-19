@@ -197,7 +197,7 @@ def run(api: Api, args, gpu: dict, sleep=time.sleep, now=time.time) -> dict:
             raise RuntimeError(f'воркер не готов: фаза «{phase or "нет ответа"}» {h.get("error", "") if phase else ""}')
         for sku in args.skus:
             key = sku_key(sku)
-            for steps in args.steps:
+            for steps in (getattr(args, 'steps_by_sku', None) or {}).get(sku, args.steps):
                 tag = f'{key}-s{steps}'
                 png = open(os.path.join(args.inputs, f'{key}.rgba.png'), 'rb').read()
                 glb = open(os.path.join(args.shape_dir, f'{key}-1024-42-0.{args.shape_tag}.glb'), 'rb').read()
@@ -269,6 +269,7 @@ def main(argv=None) -> int:
     ap.add_argument('--resolution', type=int, default=2048)
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--warm-timeout', type=int, default=2400)
+    ap.add_argument('--jobs', nargs='*', default=[], help='точный порядок заданий «товар@шаги» (например 112923:13224664101879413845@25 …); вместо --skus × --steps')
     ap.add_argument('--pod-url', default=None)
     ap.add_argument('--pod-id', default=None, help='взять существующий под (не создавать); цена из API, потолок и срок — от его создания')
     args = ap.parse_args(argv)
@@ -285,6 +286,13 @@ def main(argv=None) -> int:
     if not args.cap or args.cap <= 0 or args.cap > 5.0:
         say('платное — только с --cap в пределах (0; 5] $ (решение директора: потолок пробы $5)')
         return 2
+    if args.jobs:
+        args.skus, args.steps_by_sku = [], {}
+        for j in args.jobs:
+            sku, _, st = j.partition('@')
+            if sku not in args.skus:
+                args.skus.append(sku)
+            args.steps_by_sku.setdefault(sku, []).append(int(st or 25))
     if not args.skus:
         say('нет --skus')
         return 2

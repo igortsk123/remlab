@@ -126,6 +126,13 @@ res5 = T.run(f5, args2, {'id': 'existing', 'price': 0.0, 'cloud': 'SECURE'}, sle
 check('--pod-id: под не создаётся (нет POST), цена из API, в конце удалён и стоп проверен',
       not any(m == 'POST' for m, _ in f5.log) and res5.get('price_per_h') == 2.09 and res5['stop_verified'] is True and ('DELETE', '/pods/p1') in f5.log)
 
+# ---- --jobs: точный порядок и состав заданий (товар@шаги)
+seen_jobs = []
+T.Api = lambda key: Fake()
+T.run = lambda api, a, gpu, **kw: (seen_jobs.append((list(a.skus), dict(a.steps_by_sku))), {'per_sku': {}, 'stop_verified': True})[1]
+T.main(['--pod-id', 'p1', '--cap', '3', '--jobs', 'B@25', 'B@8', 'A@8'])
+check('--jobs: комод s25, комод s8, диван s8 — без лишнего «диван s25»', seen_jobs == [(['B', 'A'], {'B': [25, 8], 'A': [8]})])
+
 # ---- платное без --cap не стартует
 T.Api = lambda key: Fake()
 check('платное без --cap отказывает', T.main(['--skus', '1:2']) == 2)
