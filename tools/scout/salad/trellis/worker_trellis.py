@@ -636,6 +636,18 @@ def check_shape_unchanged(v_in, f_in, v_out, f_out, tol: float = SHAPE_TOL) -> d
     return res
 
 
+class WritableMesh:
+    """Вход апстримного `postprocess_mesh` (читает `vertices`, `faces`, `vertex_normals`, `visual.uv`): у trimesh нормали и вершины «только для чтения», а апстрим меняет оси
+    на месте (`normals[:, 1], normals[:, 2] = …`) — падение «assignment destination is read-only» у любой формы с развёрткой (T-20261119-92/1, диван clean2). Копии — свои, форма и грани те же."""
+
+    def __init__(self, m):
+        import numpy as np
+        self.vertices = np.array(m.vertices, dtype=np.float64)
+        self.faces = np.asarray(m.faces)
+        self.vertex_normals = np.array(m.vertex_normals, dtype=np.float64)
+        self.visual = m.visual
+
+
 def texture_on_shape(pipe, mesh, image, cam: dict, params: dict, hooks: dict | None = None) -> tuple:
     """Покрасить ГОТОВУЮ форму `mesh` (trimesh, кадр GLB: Y вверх) по фото `image` (RGBA, настоящая альфа); `pipe` — методы апстрима Pixal3D (см. `PixalTexBackend.load`),
     `cam` — камера по картинке (`camera_angle_x`, `distance`, `mesh_scale`). Возвращает (trimesh с текстурой в исходном кадре и масштабе, замеры). Форма не меняется:
@@ -702,7 +714,7 @@ def texture_on_shape(pipe, mesh, image, cam: dict, params: dict, hooks: dict | N
     pbr = pipe.decode_tex_slat_plain(tex_slat)
     del shape_slat, tex_slat
     lap('decode_tex')
-    out = pipe.postprocess_mesh(m_in, pbr, resolution, texture_size)
+    out = pipe.postprocess_mesh(WritableMesh(m_in), pbr, resolution, texture_size)       # апстрим меняет оси прямо в `mesh.vertices` и `mesh.vertex_normals` (у формы с развёрткой — без копии) → даём записываемые копии
     del pbr
     lap('bake')
     v_back = from_cube(undo_upstream_swap(out.vertices), c, s, R).astype(np.float32).astype(np.float64)      # через float32, как лежит в GLB

@@ -248,6 +248,9 @@ if have_tm:
         def postprocess_mesh(self, mesh, pbr, resolution, texture_size):
             self.calls.append(('post', pbr, resolution, texture_size))
             v = np.asarray(mesh.vertices).copy()
+            vv, nn = mesh.vertices, mesh.vertex_normals          # как апстрим (`postprocess_mesh`): обмен осей ПРЯМО в этих массивах (у формы с развёрткой нормали не копируются) — у trimesh нормали только для чтения → «assignment destination is read-only» (проба 19.11, диван clean2)
+            vv[:, 1], vv[:, 2] = vv[:, 2], -vv[:, 1]
+            nn[:, 1], nn[:, 2] = nn[:, 2], -nn[:, 1]
             if self.perturb:
                 v[self.perturb[0], self.perturb[1]] += self.perturb[2]
             out_v = np.stack([v[:, 0], v[:, 2], -v[:, 1]], axis=1)          # как апстрим: (x, y, z) → (x, z, −y)
