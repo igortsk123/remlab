@@ -27,7 +27,8 @@
 
   ~/venvs/scout/bin/python trial_table.py --set <корень>/trellis/set30.json --out ДИР \
       --model trellis2=<корень>/trellis --model hunyuan=~/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2 [--workers 2] [--no-lite]
-  `--model` понимает приписку: `имя=папка?suffix=-1024-42-0&sum=hunyuan21&variant=` — точное имя файла после ключа, сводки только этой модели, задания без/с вариантом.
+  `--model` понимает приписку: `имя=папка?suffix=-1024-42-0&sum=hunyuan21&variant=&kpi=trellis2-r30&pilot=-s0` — точное имя файла после ключа, сводки только этой модели, задания
+  без/с вариантом, траты для KPI — по группам (регулярка имени группы), пилоты «встать» отдельной колонкой (в $ за принятую не входят).
   ОБЩАЯ ПАПКА ВЫВОДА: драйверы моделей пишут `<ключ>-1024-42-0.glb` в одну папку и перезаписывают друг друга; с `sum=` файл признаётся своим, только если его размер
   (сырой; `size_mb` журнала — МиБ) и число треугольников (`.clean.glb`, по `*.metrics.json`) совпадают с журналом задания этой модели (`owned`); иначе строка «нет: перезаписан».
   python3 trial_table.py --selftest        # без trimesh/рендера: ΔE00, IoU, раскладки, расчёт итогов и автоприёмки
@@ -175,6 +176,7 @@ def load_summaries(model_dir: str, sum_model: str | None = None, variant: str | 
     варианта, иначе только с таким `variant` (гибриды «форма + покраска»). Последнее по времени задание на номер побеждает: упавшее, потом сделанное — «готов»."""
     jobs: dict[str, dict] = {}
     spend, groups = 0.0, 0
+    by_group: dict[str, float] = {}
     for p in sorted(glob.glob(os.path.join(model_dir, 'summary-*.json')), key=os.path.getmtime):
         try:
             d = json.load(open(p, encoding='utf-8'))
@@ -186,6 +188,7 @@ def load_summaries(model_dir: str, sum_model: str | None = None, variant: str | 
             continue                                            # группа гибридов/контроля чужого варианта: её траты не наши (группы без заданий — считаем, траты холодных стартов)
         groups += 1
         spend += float(d.get('cost_usd_est') or 0.0)
+        by_group[str(d.get('group'))] = float(d.get('cost_usd_est') or 0.0)
         for j in d.get('jobs') or []:
             if variant is not None and (j.get('variant') or '') != variant:
                 continue
@@ -200,7 +203,7 @@ def load_summaries(model_dir: str, sum_model: str | None = None, variant: str | 
                 alts.append(prev['metrics']['glb'])
             j['_alt_glbs'] = alts
             jobs[jk] = j
-    return {'jobs': jobs, 'spend': round(spend, 4), 'groups': groups}
+    return {'jobs': jobs, 'spend': round(spend, 4), 'groups': groups, 'by_group': by_group}
 
 
 def owned(path: str, job: dict | None, kind: str = 'raw', tol_mb: float = 0.06) -> bool | None:
@@ -220,6 +223,16 @@ def owned(path: str, job: dict | None, kind: str = 'raw', tol_mb: float = 0.06) 
     except (OSError, ValueError, TypeError):
         return None
     return any(g.get('triangles') is not None and abs(t - float(g['triangles'])) <= max(2.0, 0.01 * float(g['triangles'])) for g in gs)
+
+
+def split_spend(by_group: dict, kpi: str | None, pilot: str | None) -> tuple[float, float | None]:
+    """Траты модели: (для KPI, пилоты «встать»). `kpi` — регулярка по имени группы Salad (рабочие прогоны: `trellis2-r30` берёт r30, r30t, r30d), `pilot` — по пилотам
+    (проверка, что модель встаёт и сколько стоит: s0b…s0f). Группы вне обеих — в KPI не входят и в пилоты тоже (их видно в сводках драйвера). Без `kpi` — все группы."""
+    if not kpi:
+        return round(sum(by_group.values()), 4), None
+    k = sum(c for g, c in by_group.items() if re.search(kpi, g))
+    pl = sum(c for g, c in by_group.items() if pilot and re.search(pilot, g)) if pilot else None
+    return round(k, 4), (None if pl is None else round(pl, 4))
 
 
 def accept(grey: str | None, view_empty: bool | None, colour: str | None, iou: float | None = None, iou_open: float | None = None,
@@ -242,7 +255,7 @@ def accept(grey: str | None, view_empty: bool | None, colour: str | None, iou: f
     return (not why), why
 
 
-def model_summary(rows: list[dict], spend_usd: float | None) -> dict:
+def model_summary(rows: list[dict], spend_usd: float | None, setup_usd: float | None = None) -> dict:
     """Итог по модели. Доля принятых — от товаров, где модель ПРОБОВАЛИ (есть файл или запись об отказе); «нет» — не пробовали, в знаменатель не входит.
     $ за одну принятую = все траты / число принятых (нет принятых или нет трат — None)."""
     tried = [r for r in rows if r['status'] in ('готов', 'отказ')]
@@ -250,7 +263,7 @@ def model_summary(rows: list[dict], spend_usd: float | None) -> dict:
     out = {'products': len(rows), 'tried': len(tried), 'ready': sum(r['status'] == 'готов' for r in tried),
            'refused': sum(r['status'] == 'отказ' for r in tried), 'not_run': sum(r['status'] == 'нет' for r in rows),
            'accepted': len(acc), 'accepted_share': round(len(acc) / len(tried), 3) if tried else None,
-           'thin_notes': sum('силуэт: тонкие части' in (r.get('why_not') or '') for r in tried), 'spend_usd': spend_usd, 'usd_per_accepted': None}
+           'thin_notes': sum('силуэт: тонкие части' in (r.get('why_not') or '') for r in tried), 'spend_usd': spend_usd, 'setup_usd': setup_usd, 'usd_per_accepted': None}
     if acc and spend_usd:
         out['usd_per_accepted'] = round(spend_usd / len(acc), 4)
     return out
@@ -544,7 +557,7 @@ def write_outputs(out_dir: str, rows: list[dict], sums: dict, notes: dict, set_n
         w.writeheader()
         for r in rows:
             w.writerow({k: ('' if r.get(k) is None else r.get(k)) for k in COLS})
-    scols = ['model', 'products', 'tried', 'ready', 'refused', 'not_run', 'accepted', 'accepted_share', 'thin_notes', 'spend_usd', 'usd_per_accepted',
+    scols = ['model', 'products', 'tried', 'ready', 'refused', 'not_run', 'accepted', 'accepted_share', 'thin_notes', 'spend_usd', 'setup_usd', 'usd_per_accepted',
              'spend_note']
     with open(p_sum, 'w', newline='', encoding='utf-8') as f:
         w = csv.DictWriter(f, fieldnames=scols)
@@ -556,12 +569,12 @@ def write_outputs(out_dir: str, rows: list[dict], sums: dict, notes: dict, set_n
          '**$ за одну принятую** = все траты на модель / число принятых. Четвёртое условие — IoU силуэта спереди не ниже боевого порога `mesh_make.mesh_trusted` '
          f'({IOU_OK:g}, берётся из боевого кода); «тонкие части» — IoU без ножек и спиц достигает порога, не принят, пометка для решения ведущего.', '',
          '## Итог по моделям', '',
-         '| модель | пробовали | готово | отказ | принято | доля принятых | траты, $ | **$ за одну принятую** | из не принятых — «тонкие части» | чем считали траты |',
-         '|---|---|---|---|---|---|---|---|---|---|']
+         '| модель | пробовали | готово | отказ | принято | доля принятых | траты (KPI), $ | пилоты «встать», $ | **$ за одну принятую** | из не принятых — «тонкие части» | чем считали траты |',
+         '|---|---|---|---|---|---|---|---|---|---|---|']
     for m, s in sums.items():
         share = fmt(None if s['accepted_share'] is None else round(s['accepted_share'] * 100, 1))
         L.append(f"| {m} | {s['tried']} (не пробовали: {s['not_run']}) | {s['ready']} | {s['refused']} | {s['accepted']} | "
-                 f"{share}{'' if share == '—' else ' %'} | {fmt(s['spend_usd'])} | **{fmt(s['usd_per_accepted'])}** | "
+                 f"{share}{'' if share == '—' else ' %'} | {fmt(s['spend_usd'])} | {fmt(s['setup_usd'])} | **{fmt(s['usd_per_accepted'])}** | "
                  f"{s['thin_notes']} | {notes.get(m, '')} |")
     for m in sums:
         L += ['', f'## {m}', '',
@@ -603,7 +616,7 @@ def main() -> int:
         path, _, q = path.partition('?')                         # name=папка?suffix=-1024-42-0&sum=hunyuan21&variant=noremesh
         opts = dict(kv.split('=', 1) for kv in q.split('&') if '=' in kv)
         specs[name] = {'dir': os.path.expanduser(path or os.path.join(a.root, name)), 'suffix': opts.get('suffix'),
-                       'sum_model': opts.get('sum'), 'variant': opts.get('variant')}
+                       'sum_model': opts.get('sum'), 'variant': opts.get('variant'), 'kpi': opts.get('kpi'), 'pilot': opts.get('pilot')}
     override = {k: float(v) for k, v in (s.split('=') for s in a.spend)}
     items = json.load(open(a.set, encoding='utf-8'))
     set_name = os.path.basename(a.set)
@@ -611,6 +624,7 @@ def main() -> int:
     os.makedirs(cache_dir, exist_ok=True)
     rows, sums, notes = [], {}, {}
     for name, spec in specs.items():
+        setup = None
         meta = load_summaries(spec['dir'], spec.get('sum_model'), spec.get('variant'))
         tasks = [(name, c, spec, meta, cache_dir, a) for c in items]
         if a.workers > 1:
@@ -622,13 +636,16 @@ def main() -> int:
         rows += mrows
         if name in override:
             spend, notes[name] = override[name], 'задано вручную (--spend)'
+        elif meta['groups'] and spec.get('kpi'):
+            spend, setup = split_spend(meta['by_group'], spec['kpi'], spec.get('pilot'))
+            notes[name] = f"группы /{spec['kpi']}/ (с холодными стартами); пилоты «встать» — отдельно, в KPI не входят"
         elif meta['groups']:
             spend, notes[name] = meta['spend'], f"{meta['groups']} сводок драйвера (все группы, с холодными стартами)"
         else:
             est = [r['usd'] for r in mrows if r['usd'] is not None]
             spend = round(sum(est), 4) if est else None
             notes[name] = 'оценка: время генерации × тариф, без холодных стартов' if est else 'трат нет в журналах'
-        sums[name] = model_summary(mrows, spend)
+        sums[name] = model_summary(mrows, spend, setup)
         print(f'{name}: пробовали {sums[name]["tried"]}, принято {sums[name]["accepted"]}, $/принятую {sums[name]["usd_per_accepted"]}', flush=True)
     paths = write_outputs(a.out, rows, sums, notes, set_name)
     print('\n'.join(paths))
@@ -688,6 +705,9 @@ def selftest() -> int:
         s = load_summaries(flat)
         check('сводки: траты 0,35, 2 группы', abs(s['spend'] - 0.35) < 1e-9 and s['groups'] == 2)
         check('сводки: упавшее, затем сделанное → done', s['jobs']['a:1']['status'] == 'done' and s['jobs']['a:1']['price_usd_h'] == 0.33)
+    bg = {'trial-trellis2-s0b': 0.226, 'trial-trellis2-s0f': 0.056, 'trial-trellis2-r30': 0.996, 'trial-trellis2-r30t': 0.1, 'trial-trellis2-r30d': 0.4}
+    check('траты: KPI = r30+r30t+r30d, пилоты отдельно', split_spend(bg, 'trellis2-r30', '-s0') == (1.496, 0.282))
+    check('траты: без kpi — все группы, пилотов нет', split_spend(bg, None, None) == (round(sum(bg.values()), 4), None))
     # общая папка: точное имя, принадлежность файла по журналу, фильтр сводок по модели
     with tempfile.TemporaryDirectory() as t:
         for n, size in (('7_8-1024-42-0.glb', 5_000_000), ('7_8-paint-x-42.glb', 1000)):
