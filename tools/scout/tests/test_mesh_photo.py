@@ -24,6 +24,7 @@ SCOUT = os.path.abspath(os.path.join(HERE, '..'))
 sys.path.insert(0, SCOUT)
 import mesh_photo as MP  # noqa: E402
 import mesh_queue as MQ  # noqa: E402
+import mesh_bind as MB  # noqa: E402
 import photo_fit as PF  # noqa: E402
 
 fails = 0
@@ -74,7 +75,9 @@ with tempfile.TemporaryDirectory() as td:
     p = os.path.join(td, 'm.json')
     json.dump({'min_cut_side_px': 400, 'measure': 'странно'}, open(p, 'w'))
     check('неизвестная мера → min', MP.load_rules(p)['measure'] == 'min')
-check('боевой конфиг: порог пока не утверждён владельцем (null) — поведение конвейера не меняется', MP.load_rules()['min_cut_side_px'] is None)
+check('боевой конфиг: 512 px по ДЛИННОЙ стороне (владелец 19.11, TG 1894)', MP.load_rules() == {'min_cut_side_px': 512, 'measure': 'long'}, str(MP.load_rules()))
+check('боевой порог: длинная 511 — отсечено, 512 — проходит, длинная 800 при короткой 200 — проходит',
+      MP.check_size([300, 511])[0] is False and MP.check_size([300, 512])[0] is True and MP.check_size([200, 800])[0] is True)
 
 # 4) вердикт
 real_rules = MP.RULES
@@ -105,8 +108,14 @@ with tempfile.TemporaryDirectory() as td:
         check('пересчёт: ok→too_small и too_small→ok, остальное нетронуто', plan == [('s1', 'a1', 'photo_too_small'), ('s3', 'a1', 'ok')], str(plan))
     finally:
         MP.RULES = real_rules
-check('после возврата конфига: сторож выключен, пересчёт ничего не двигает',
-      PF.reverdict_plan([('s1', 'a1', 'диван', 'ok', json.dumps({'photo': {'object_wh': [10, 10]}}))]) == [])
+# боевой конфиг: сторож только для ролей с генерацией меша
+live = lambda role, wh: PF.verdict_from_metrics(role, {'photo': {'object_wh': wh, 'object_rel_side': 0.7, 'object_share': 0.4}})[0]
+check('боевой конфиг: диван 400×500 → photo_too_small, 400×512 → ok', live('диван', [400, 500]) == 'photo_too_small' and live('диван', [400, 512]) == 'ok')
+check('боевой конфиг: зеркало и ковёр (плоскость, без генерации меша) размером не отсекаются', live('зеркало', [100, 200]) == 'ok' and live('ковёр', [100, 200]) == 'ok')
+check('боевой конфиг: роль неизвестна (пусто) — не судим', live('', [100, 200]) == 'ok' and live(None, [100, 200]) == 'ok')
+check('пересчёт по боевому конфигу двигает только роли с мешем',
+      PF.reverdict_plan([('a', 'a1', 'диван', 'ok', json.dumps({'photo': {'object_wh': [10, 10]}})),
+                         ('b', 'a1', 'зеркало', 'ok', json.dumps({'photo': {'object_wh': [10, 10]}}))]) == [('a', 'a1', 'photo_too_small')])
 
 # 6) спрос мешей
 orig_db = MQ.db
@@ -132,9 +141,14 @@ check('сбой сторожа — -1 и предупреждение, не мо
 check('hybrid_error из измерений вынимается', MP.hybrid_error({'hybrid_error': 'RuntimeError: x'}) == 'RuntimeError: x')
 check('нет сбоя / не словарь / пустая строка — None', MP.hybrid_error({}) is None and MP.hybrid_error(None) is None and MP.hybrid_error({'hybrid_error': ''}) is None)
 
+# 7c) ворота «требуется меш» (mesh_bind): фото есть, если есть HD ИЛИ превью (7 товаров были с одним HD)
+gate = MB.catalog_gates_sql(['диван'], [])
+check('ворота mesh_bind: «фото есть» — по общему правилу (HD или превью), не по одному превью',
+      MP.photo_sql('p') + ' is not null' in gate and 'p.image_url is not null' not in gate, gate[:160])
+
 # 8) все места берут правило из mesh_photo
 BAD = re.compile(r"coalesce\(\s*[a-z]*\.?image_url_hd\s*,\s*[a-z]*\.?image_url\b")   # coalesce(image_url_hd, image_url) без nullif — пустая строка проглатывает превью
-PLACES = ['mesh_queue.py', 'photo_hash.py', 'catalog_media.py', 'mesh_priority.py', 'mesh_pilot.py', 'cutout_sync.py', 'mesh_review_sync.py', 'mesh_quarantine.py', 'mesh_audit_sync.py',
+PLACES = ['mesh_queue.py', 'photo_hash.py', 'catalog_media.py', 'mesh_priority.py', 'mesh_bind.py', 'mesh_pilot.py', 'cutout_sync.py', 'mesh_review_sync.py', 'mesh_quarantine.py', 'mesh_audit_sync.py',
           'orient_review.py', 'photo_review_page.py', 'photo_bg.py', 'pipeline_map.py', 'room_mesh_demand.py', 'room_mesh_jobs.py', 'photo_fit.py',
           os.path.join('salad', 'cutout_probe.py'), os.path.join('salad', 'blocked_page.py')]
 for rel in PLACES:

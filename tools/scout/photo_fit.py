@@ -32,6 +32,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, 'salad'))
 
 import mesh_photo as MP  # noqa: E402 — сторож размера вырезки (ADR-0452)
+import asset_strategy as AS  # noqa: E402 — канон стратегий ассета: сторож только для ролей с генерацией меша
 
 POLICY_VERSION = 'p2'
 
@@ -66,9 +67,12 @@ def verdict_from_metrics(role: str, metrics: dict) -> tuple[str, str | None]:
         return 'tiny_object', f'товар занимает {100 * share:.1f}% площади кадра'
     # СТОРОЖ РАЗМЕРА (ADR-0452, решение владельца TG 1864: «маленькие фото в меш не пропускать»): порог — `rules/mesh-photo.json`,
     # null = выключен. Стоит ПОСЛЕ прочих вердиктов: у коллажа и брака маски своя причина, размер их не перекрывает.
-    fit, why = MP.check_size(ph.get('object_wh'))
-    if not fit:
-        return MP.STATUS, why
+    # Только роли, которым ГЕНЕРИРУЕТСЯ меш (`hunyuan3d` канона): зеркало — плоскость, подушка/плед — вырезка; их текстуру размер вырезки не лишает
+    # допуска (иначе `render_strategy.cut_ok` скрыл бы их из сцен). Роль неизвестна (пусто) — не судим.
+    if role and AS.strategy(role) == 'hunyuan3d':
+        fit, why = MP.check_size(ph.get('object_wh'))
+        if not fit:
+            return MP.STATUS, why
     return 'ok', None
 
 
