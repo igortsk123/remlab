@@ -22,9 +22,9 @@ last_verified: 2026-11-18
 `data/flat3d/light-rules.json`); «Улучшить» — `improve-render-v5.5` + `improve_mode.match_luma` (`tools/scout/improve_mode.py:69,77`).
 
 **Машина (ADR-0429/0430/0432):** Salad 4090, группа — `tools/scout/rules/salad-groups.json` (18.11 `render-4090m13`), контроллер
-`tools/scout/render_gpu/render_machine.py` (автостоп 20 мин, $3/день; расход по меткам `--by` — `state.spent_by`; смена группы гасит прежнюю, сироты — `infra/server/render-guard.py`).
+`tools/scout/render_gpu/render_machine.py` (автостоп 20 мин, $3/день; сироты — `infra/server/render-guard.py`).
 **Заказ человека включает машину** (`on --by order`, ≤360 с, поле `machine`; CPU — только при сбое). Заготовка /demo — `tools/scout/render_prewarm.py`
-(`render_jobs.WARM_SUFFIX`; потолок — по своим тратам, ADR-0434). Тур греет машину с получения фото, рендеры по версиям —
+(потолок — по своим тратам, ADR-0434). Тур греет машину с получения фото, рендеры по версиям —
 `tools/scout/render_tour.py` (ADR-0435, выкл `TRIAL_TOUR_WARM=0` — читает `tools/floorplan/worker.py:430`). Холодный старт ≈2 мин, ≈$0,0025 за рендер.
 
 **Какое фото в окне (ADR-0434):** только снимок текущего состава — `index.html:realPubPick` + `tools/scout/rules/demo-photo-pick.json`; готовый
@@ -33,6 +33,7 @@ last_verified: 2026-11-18
 **Подготовка:** кэш `render_exec._prep_key` (урок 707). **Сторож кадров:** `tools/scout/cycles_probe/frame_qa.py` (выкл
 `RENDER_QA_GATE=0`), ночью `tools/scout/render_gpu/qa_night.py`.
 
-**Заказ из тура:** ключ товара `sku.pid` (`tools/scout/trial_bundle.py:pid_of`), снимок ищет по `sid` или `pid` — подробно в Tier 2.
+**Заказ из тура:** ключ `sku.pid` (`tools/scout/trial_bundle.py:pid_of`); карточка — сперва из предметов варианта
+(`tools/scout/render_snapshot.py:_item`), замена переносит `pid` (урок 732). Ключ службы на DEV — ADR-0450.
 **Ожидание (ADR-0439):** заказ живёт вне окна — `index.html:ordersResume`. Ключ тура = страницы — ADR-0442, урок 726; скорость — ADR-0444.
-Открыто: ADR-0419 на пересмотре (TG 1811). Подробно — `domain/viz-fidelity-playbook.md`. Уроки 697–720.
+ADR-0419 на пересмотре (TG 1811). Детали — Tier 2. Уроки 697–720, 731–732.
