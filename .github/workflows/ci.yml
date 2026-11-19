@@ -301,6 +301,7 @@ jobs:
       # серая крышка (T-20261118-04/12): детектор по верхней поверхности (синтетические коробки, без БД и без ~), карантин-причина grey_top и защита болванок, приёмка кладёт поле в verdict.json
       - run: python tools/scout/mesh_grey_top.py --selftest
       - run: python tools/scout/mesh_quarantine.py --selftest
+      - run: python tools/scout/tests/test_grey_soft.py   # серая крышка — МЯГКИЙ карантин по всем мешам детектора (owner+sha), статус ревизии не меняется, auto_release не блокирует, удержание болванок от прополки (T-20261119-101/3)
       - run: python tools/scout/salad/tests_accept_finish.py
       - run: pip install shapely && python tools/scout/tests/test_family_colour_feed.py   # (shapely — trial_demo → trial_room; в scout-orient его нет, CI красный с 2cd4032b) вариант семьи на чужой модели другого цвета не идёт в «Заменить» /demo и тура: подкраска от модели, строгий порог, отметка без замера, свой меш в спрос («Латте» зелёная, T-20261112-89)
       - run: pip install scipy && python tools/scout/salad/tests_alien_debris.py   # пометка обломков меша: GLB (Scene) и Trimesh судятся без ошибки, ALIEN_CUT=0 файл не трогает (T-20261106-85/3; scipy — trimesh.split делит меш на тела через него, в образе воркера он есть)

@@ -590,6 +590,11 @@ for room in bedroom hall; do [ "$(room_flag "$room" enabled)" = 1 ] && rooms_on+
 # числом, без WARN: К8 отложен, T-14/3; список own-mismatch.tsv рядом с таблицей). Сбой — FAIL
 # шага, привязка идёт без отметок (fail-open). Только когда привязку пересобирают (иначе таблицу никто не прочтёт)
 [ -n "$rooms_on" ] && step mesh_color_guard "$PY" mesh_color_check.py guard
+# СЕРАЯ КРЫШКА — МЯГКИЙ КАРАНТИН (T-20261119-101/3, Codex 19.11): по ВСЕМ мешам детектора (`current.json` сторожа: owner + glb_sha, варианты семьи
+# наследуют owner), а не по списку осей; строка только с причиной grey_top статус ревизии НЕ меняет (модель в индексе, замену ищут, роль не пустеет —
+# `room_bindings.soft_sql`), прежние quarantine «только из-за grey_top» возвращаются в prev_status общим правилом; автоснятие auto_release_* решением не
+# считается; пишет список удержания болванок (читает прополка `salad/prune_shapes.py`). Сразу после сторожа, ДО первой привязки — её индекс читает мягкий набор
+[ -n "$rooms_on" ] && step grey_sync "$PY" mesh_quarantine.py --sync-grey
 [ -n "$rooms_on" ] && step room_bindings "$PY" room_bindings.py --build --digest   # DIGEST правил роли и запасного пути (T-25/5)
 for room in bedroom hall; do
   if [[ " $rooms_on " != *" $room "* ]]; then

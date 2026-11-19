@@ -10,6 +10,7 @@
 из `/api/lab/review` (ADR-0275). Решённое повторно в карантин не попадает.
 
   ~/venvs/scout/bin/python mesh_quarantine.py --apply [--limit N]   # замерить новые модели, вывести кривые
+  ~/venvs/scout/bin/python mesh_quarantine.py --sync-grey [--dry]   # серая крышка: МЯГКИЙ карантин по всем мешам детектора + удержание болванок (ночью, после mesh_color_guard)
   ~/venvs/scout/bin/python mesh_quarantine.py --pull                # забрать решения владельца
   ~/venvs/scout/bin/python mesh_quarantine.py --page [--publish]    # страница разбора
   python3 mesh_quarantine.py --selftest
@@ -58,27 +59,178 @@ def pick(measures: list[dict], thr: float, decided: set) -> list[dict]:
     return [m for m in measures if reasons(m, thr) and (m['sku'], m['glb_sha']) not in decided]
 
 
-GREY_SOURCE = 'серая крышка (mesh_grey_top, карантин)'
+# ---------- СЕРАЯ КРЫШКА — ТОЛЬКО МЯГКИЙ КАРАНТИН (T-20261119-101/3, Codex 19.11 `_intake/codex/2026-11-19-grey-quarantine-answer.md`) ----------
+# Источник — ВСЕ меши детектора (`mesh-color/current.json` сторожа цвета: asset_id, owner, via_family), а не список осей `MD.rows` (паспорт, роль, решённая ориентация):
+# 19.11 осевой список не видел ~⅔ серых (Харис — ориентация review_pending, Тебар — роль «шкаф», Мостар — нет в products). Единица — `(owner, glb_sha16)`:
+# 149 строк сторожа = ~104 уникальных GLB, варианты семьи наследуют owner (чужой меш представителя). Строка только с причиной `grey_top` МЯГКАЯ
+# (`room_bindings.soft_sql`): статус ревизии НЕ меняется (модель в индексе, замену ищут, пока её нет — роль остаётся). Прежнее поведение (`quarantine` в
+# `asset_revisions` от любого flagged) было жёстким запретом в обход мягкой политики — и снимается общим правилом (`RESTORE_SQL`).
+MC_DIR = os.path.expanduser(os.environ.get('MESH_COLOR_DIR') or '~/scout-scenes/catalog-assets/mesh-color')
+GREY_STATE = 'grey-quarantine.json'     # снимок прохода: {owner|sha16: {severity, grey_share, offers}} — тяжесть (candidate/reject) отдельно от БД
+SHAPE_HOLD = 'grey-shape-hold.json'     # удержание болванок: ключи «<sku_>/<job>»; читает ТОЛЬКО прополка (`salad/prune_shapes.py`)
+GREY = 'grey_top'
+# «решения», которые решениями НЕ считаются: автоснятие по замеру (v1 → v2, чистый детектор). Владельческие accept/reject/cut — терминальны для файла
+NON_DECISIONS = ('auto_release_v2', 'auto_release_grey')
+BAD_GREY = ('candidate', 'reject')
+DECIDED_SQL = f"select sku, glb_sha from mesh_quarantine where decision is not null and decision not in {NON_DECISIONS}"
 
 
-def grey_redo(flagged: dict, cur_gen: dict, decisions: dict, has_shape) -> list:
-    """ЗАЩИТА БОЛВАНОК СЕРЫХ МЕШЕЙ ОТ ПРОПОЛКИ (T-20261118-04/12): меш с серой крышкой, у которого ещё лежит `shape.glb`, получает решение «переделать» в журнале
-    `mesh_decisions` — то самое «действующее решение redo», которое условие 7 `salad/prune_shapes.py` уже считает очередью перекраски (болванку держим). Решение
-    привязано к ТЕКУЩЕМУ поколению (`generation_key`): новая модель — решение теряет силу само. Уже есть любое решение по SKU — не дописываем (владелец главнее).
-    Чистая функция: → [(sku, generation_key)] к записи. `flagged` — {(sku, glb_sha): замер с причиной grey_top}; `has_shape(sku)` — лежит ли болванка."""
-    out, seen = [], set()
-    for (sku, _sha), m in sorted(flagged.items()):
-        if m.get('grey_top') not in ('candidate', 'reject') or sku in seen or sku in decisions or not cur_gen.get(sku) or not has_shape(sku):
+def grey_units(rows: dict, glb_of: dict | None = None) -> dict:
+    """Строки сторожа цвета (`current.json: rows`, поле `grey_top` есть только у candidate/reject после снятия «серый товар») → {(owner, sha16): {severity, grey_share, offers, glb}}.
+    owner — чей меш (представитель у варианта семьи), sha16 — из `asset_id` («sha256:…»), как `asset_revisions.glb_sha`. Тяжесть — худшая по строкам. Чистая функция."""
+    glb_of = glb_of or {}
+    out: dict = {}
+    for sku, r in sorted(rows.items()):
+        g = r.get('grey_top') or {}
+        sha = str(r.get('asset_id') or '').removeprefix('sha256:')[:16]
+        if g.get('verdict') not in BAD_GREY or not sha:
             continue
-        seen.add(sku)
-        out.append((sku, cur_gen[sku]))
+        u = out.setdefault((r.get('owner') or sku, sha), {'severity': g['verdict'], 'grey_share': g.get('grey_share'), 'offers': [], 'glb': None})
+        if g['verdict'] == 'reject':
+            u['severity'] = 'reject'
+        u['offers'].append(sku)
+        u['glb'] = u['glb'] or glb_of.get(sku)
     return out
 
 
-def has_shape(sku: str) -> bool:
-    import glob
-    src = os.path.expanduser(os.environ.get('PRUNE_SRC', '~/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2'))
-    return bool(glob.glob(os.path.join(src, sku.replace(':', '_'), '*', 'shape.glb')))
+def seen_units(rows: dict) -> set:
+    """Все (owner, sha16), которые детектор ОЦЕНИЛ в этом проходе (любая строка таблицы с asset_id), — снимать мягкую строку можно только у них."""
+    return {(r.get('owner') or sku, str(r['asset_id']).removeprefix('sha256:')[:16]) for sku, r in rows.items() if r.get('asset_id')}
+
+
+def plan_grey(units: dict, mq: dict, rev: dict, detector_ran: bool = True, seen: set | None = None) -> dict:
+    """Что сделать с таблицей карантина. `mq` — {(sku, sha16): {decision, reasons, prev}} (decision '' = нет), `rev` — {(sku, sha16): статус ревизии}.
+      insert  — нет строки: мягкая строка (причина `grey_top`, статус ревизии не трогаем);
+      reopen  — строка с `auto_release_v2/auto_release_grey` на ТОТ ЖЕ GLB: автоснятие решением не считается, строка снова мягкая;
+      blocked — решение владельца (accept/reject/cut) на этот GLB: не трогаем (терминально для файла; новый GLB — новая строка);
+      hard    — строка без решения с другими причинами (ось/маска/подложка/тёмная): остаётся жёсткой, `grey_top` ей не добавляем;
+      clear   — мягкая строка, которую детектор оценил и больше не держит (фото совпало, правила уточнены): автоснятие. Только если проход детектора шёл (`detector_ran`) и мешом
+                из `seen` (оценён в таблице сторожа); мешов, которых в таблице нет (не в привязке), не трогаем — «не оценён» ≠ «чист». Новый GLB — другой ключ: старая строка
+                остаётся историей (она и так не влияет — решение по прежнему GLB).
+    Чистая функция: → словарь списков. Статус ревизии не меняет ни одна ветка — возврат из `quarantine` делает общее правило `RESTORE_SQL`."""
+    out: dict = {'insert': [], 'reopen': [], 'blocked': [], 'hard': [], 'clear': [], 'soft': []}
+    for (sku, sha), u in sorted(units.items()):
+        row = mq.get((sku, sha))
+        if row is None:
+            prev = rev.get((sku, sha))
+            out['insert'].append((sku, sha, prev if prev and prev != 'quarantine' else 'generated'))
+        elif row['decision'] in NON_DECISIONS:
+            out['reopen'].append((sku, sha))
+        elif row['decision']:
+            out['blocked'].append((sku, sha, row['decision']))
+        elif row['reasons'] == GREY:
+            out['soft'].append((sku, sha))
+        else:
+            out['hard'].append((sku, sha, row['reasons']))
+    if detector_ran:
+        for (sku, sha), row in sorted(mq.items()):
+            if (sku, sha) not in units and (seen is None or (sku, sha) in seen) and not row['decision'] and row['reasons'] == GREY:
+                out['clear'].append((sku, sha))
+    return out
+
+
+def hold_keys(units: dict, mq: dict, has_shape_file) -> list:
+    """Какие болванки держать от прополки: все НЕРЕШЁННЫЕ помеченные меши ТЕКУЩЕГО поколения (candidate и reject), у которых лежит `shape.glb`.
+    Ключ «<sku_>/<job>» — как `prune_shapes.key`. Не через `redo` (оно запрещает товар банку, `bank_ready.py`). Новое поколение — другой job → ключ
+    не повторяется и держание снимается само; решение владельца (accept/reject/cut) на этот GLB — тоже снимает. `has_shape_file(glb)` — есть ли рядом болванка."""
+    out = set()
+    for (sku, sha), u in units.items():
+        d = (mq.get((sku, sha)) or {}).get('decision') or ''
+        if d and d not in NON_DECISIONS:
+            continue
+        glb = u.get('glb')
+        if glb and has_shape_file(glb):
+            out.add('/'.join(os.path.normpath(os.path.dirname(glb)).split(os.sep)[-2:]))
+    return sorted(out)
+
+
+def soft_cond() -> str:
+    import room_bindings as RB
+    return RB.soft_sql()
+
+
+# Общее правило: ревизия в `quarantine` ТОЛЬКО из-за мягкой причины (строка без решения, причины целиком из `soft_reasons`) возвращается в прежний статус.
+# Подзапрос с неполными именами (decision/reasons — колонки `mesh_quarantine`), чтобы не путать с колонками `asset_revisions`
+def restore_sql() -> str:
+    return ("update asset_revisions r set status = mq.prev_status, updated = now() from mesh_quarantine mq "
+            "where r.sku = mq.sku and r.glb_sha = mq.glb_sha and r.status = 'quarantine' and mq.prev_status in ('accepted','generated') "
+            f"and (mq.sku, mq.glb_sha) in (select sku, glb_sha from mesh_quarantine where {soft_cond()});")
+
+
+def grey_sql(plan: dict, units: dict, thr: float) -> list:
+    """SQL по плану — по транзакции на ~100 строк; ни одна не трогает `asset_revisions` и `mesh_decisions` (кроме общего возврата `restore_sql`, он первым)."""
+    from mesh_queue import q
+    out = [restore_sql()]
+
+    def batch(stmts):
+        for i in range(0, len(stmts), 100):
+            out.append('begin;\n' + '\n'.join(stmts[i:i + 100]) + '\ncommit;')
+    batch([f"insert into mesh_quarantine (sku, glb_sha, prev_status, axis, threshold, reasons, metric_version) values ({q(s)}, {q(h)}, {q(p)}, "
+           f"{q('grey:' + units[(s, h)]['severity'])}, {thr}, '{GREY}', 2) on conflict (sku, glb_sha) do nothing;" for s, h, p in plan['insert']])
+    batch([f"update mesh_quarantine set decision = null, decided_at = null, reasons = '{GREY}', axis = {q('grey:' + units[(s, h)]['severity'])} "
+           f"where sku = {q(s)} and glb_sha = {q(h)} and decision in {NON_DECISIONS};" for s, h in plan['reopen']])
+    batch([f"update mesh_quarantine set axis = {q('grey:' + units[(s, h)]['severity'])} where sku = {q(s)} and glb_sha = {q(h)} and decision is null and reasons = '{GREY}';"
+           for s, h in plan['soft']])
+    batch([f"update mesh_quarantine set decision = 'auto_release_grey', decided_at = now() where sku = {q(s)} and glb_sha = {q(h)} and decision is null and reasons = '{GREY}';"
+           for s, h in plan['clear']])
+    return out
+
+
+def sync_grey(dry: bool = False) -> int:
+    """Ночной шаг (после `mesh_color_guard`, до `room_bindings`): мягкий карантин «серая крышка» по ВСЕМ мешам детектора + удержание болванок.
+    `--dry` — только чтение базы и печать (SQL не выполняется, файлы не пишутся)."""
+    import datetime
+    import mesh_color_check as MCC
+    from mesh_queue import db
+    path = os.path.join(MC_DIR, MCC.TABLE)
+    try:
+        T = json.load(open(path, encoding='utf-8'))
+    except (OSError, ValueError) as e:
+        print(f'WARN:серая крышка: таблицы сторожа нет ({type(e).__name__}) — карантин не менялся', flush=True)
+        return 0
+    counts = T.get('counts') or {}
+    ran = 'grey_top_reject' in counts
+    glb_of = {}
+    try:
+        snap = json.load(open(MCC.BINDINGS, encoding='utf-8'))
+        if snap.get('content_sha') == T.get('bindings_sha'):
+            glb_of = {p['sku']: p['glb'] for p in MCC.pairs_of(snap)}
+        else:
+            print('WARN:серая крышка: привязка в таблице сторожа и текущая разные — болванки сегодня не пересчитываю', flush=True)
+    except (OSError, ValueError) as e:
+        print(f'WARN:серая крышка: привязка не прочитана ({type(e).__name__}) — болванки сегодня не пересчитываю', flush=True)
+    units = grey_units(T.get('rows') or {}, glb_of)
+    mq = {}
+    for r in db("select sku, glb_sha, coalesce(decision,''), coalesce(reasons,''), prev_status from mesh_quarantine"):
+        if len(r) >= 5:
+            mq[(r[0], r[1])] = {'decision': r[2], 'reasons': r[3], 'prev': r[4]}
+    owners = sorted({s for s, _ in units})
+    rev = {}
+    if owners:
+        inl = ','.join("'" + o.replace("'", "''") + "'" for o in owners)
+        for r in db(f"select distinct on (sku, glb_sha) sku, glb_sha, status from asset_revisions where glb_sha is not null and sku in ({inl}) order by sku, glb_sha, updated desc"):
+            if len(r) >= 3:
+                rev[(r[0], r[1])] = r[2]
+    plan = plan_grey(units, mq, rev, detector_ran=ran and bool(units), seen=seen_units(T.get('rows') or {}))
+    hold = hold_keys(units, mq, lambda g: os.path.isfile(os.path.join(os.path.dirname(g), 'shape.glb'))) if glb_of else None
+    sev = {k: sum(1 for u in units.values() if u['severity'] == k) for k in BAD_GREY}
+    print(f'серая крышка (мягкий карантин): уникальных мешей {len(units)} (отказ {sev["reject"]}, на проверку {sev["candidate"]}; строк сторожа '
+          f'{sum(len(u["offers"]) for u in units.values())}); новых строк {len(plan["insert"])}, снято автоснятие {len(plan["reopen"])}, '
+          f'уже мягких {len(plan["soft"])}, решение владельца {len(plan["blocked"])}, жёсткие по другим причинам {len(plan["hard"])}, '
+          f'снимается (детектор не держит) {len(plan["clear"])}'
+          + (f'; болванок под удержанием {len(hold)}' if hold is not None else '; болванки не пересчитаны'), flush=True)
+    sqls = grey_sql(plan, units, threshold())
+    if dry:
+        print(f'СУХО: SQL не выполняется ({len(sqls)} блоков; первый — общий возврат ревизий из quarantine)', flush=True)
+        return 0
+    for s in sqls:
+        db(s)
+    state = {'built_at': datetime.datetime.now().isoformat(timespec='seconds'), 'bindings_sha': T.get('bindings_sha'),
+             'units': {f'{s}|{h}': {'severity': u['severity'], 'grey_share': u['grey_share'], 'offers': len(u['offers'])} for (s, h), u in units.items()}}
+    MCC._atomic_json(os.path.join(MC_DIR, GREY_STATE), state)
+    if hold is not None:
+        MCC._atomic_json(os.path.join(MC_DIR, SHAPE_HOLD), {'built_at': state['built_at'], 'bindings_sha': T.get('bindings_sha'), 'keys': hold})
+    return 0
 
 
 def apply(limit: int = 0) -> int:
@@ -121,11 +273,7 @@ def apply(limit: int = 0) -> int:
             print(f'  dark: {it["sku"]} не замерена ({str(e)[:60]})', flush=True)
             return dkey(it), None
 
-    # СЕРАЯ КРЫШКА (T-20261118-04/12): свой ключ кэша (версия правил детектора), считаем по одной модели (память, как тёмные)
-    import mesh_grey_top as GT
-    gkey = lambda it: f'grey:{GT.rules()["version"]}:' + it['glb_sha'][:16]  # noqa: E731
-    gtodo = [it for it in items if it['glb_sha'] and gkey(it) not in cache][: limit or None]
-
+    # СЕРАЯ КРЫШКА здесь больше не меряется и не пишется: её ведёт `sync_grey` (все меши детектора, МЯГКИЙ карантин; T-20261119-101/3)
 
     done = 0
     with ThreadPoolExecutor(3) as ex:
@@ -143,29 +291,12 @@ def apply(limit: int = 0) -> int:
         if n % 50 == 0:                        # кэш по ходу: обрыв не теряет замеренное
             json.dump(cache, open(CACHE, 'w'))
             print(f'  тёмные: замерено {n}/{len(dtodo)}', flush=True)
-    print(f'замерить серую крышку {len(gtodo)}', flush=True)
-    path_of = {}
-    for it in gtodo:
-        glb = MD.find_glb(it['sku'], it['glb_sha'])
-        if glb:
-            path_of.setdefault(glb, []).append(it)
-        else:
-            cache[gkey(it)] = None
-    for n, (g, res, err) in enumerate(GT.run_batches(list(path_of), 3), 1):      # пачками новыми процессами (память), по 3 параллельно
-        for it in path_of[g]:
-            cache[gkey(it)] = ({'verdict': res['verdict'], 'grey_share': res.get('grey_share'), 'median_rgb': res.get('median_rgb')} if res else None)
-            if not res:
-                print(f'  grey_top: {it["sku"]} не замерена ({err})', flush=True)
-        if n % 50 == 0:        # кэш по ходу: обрыв не теряет замеренное
-            json.dump(cache, open(CACHE, 'w'))
-            print(f'  серая крышка: замерено {n}/{len(path_of)}', flush=True)
     os.makedirs(os.path.dirname(CACHE), exist_ok=True)
     json.dump(cache, open(CACHE, 'w'))
-    decided = {(r[0], r[1]) for r in db("select sku, glb_sha from mesh_quarantine where decision is not null") if len(r) == 2}
-    photos = GT.photo_table()          # серый верх у серого по фото товара — не дефект (`mesh_grey_top.effective`)
+    # решением владельца считается accept/reject/cut; автоснятие замера (`auto_release_*`) — НЕТ: оно блокировало новые признаки на тот же GLB навсегда (Харис/Мелтон 19.11)
+    decided = {(r[0], r[1]) for r in db(DECIDED_SQL) if len(r) == 2}
     measures = [{'sku': it['sku'], 'glb_sha': it['glb_sha'][:16], **cache.get(key(it), {}),
-                 **({'dark': cache[dkey(it)]} if cache.get(dkey(it)) is not None else {}),
-                 **({'grey_top': GT.effective(cache[gkey(it)], photos.get(it['sku']))} if cache.get(gkey(it)) else {})} for it in items]
+                 **({'dark': cache[dkey(it)]} if cache.get(dkey(it)) is not None else {})} for it in items]
     flagged = {(m['sku'], m['glb_sha']): m for m in pick(measures, thr, decided)}
     # НЕРЕШЁННЫЕ ПО v1, КОТОРЫХ v2 НЕ ДЕРЖИТ, — вернуть в работу (ложная тревога замера v1)
     released = 0
@@ -185,19 +316,11 @@ select r.sku, r.glb_sha, r.status, {q(m.get('axis', ''))}, {m.get('max_dev') if 
        {m.get('dl', 'null')}, {m.get('ds', 'null')}, {thr}, {q(rs)}, 2, {q(m.get('slab')) if m.get('slab') else 'null'},
        {q(m.get('mask')) if m.get('mask') else 'null'}
   from asset_revisions r where r.sku = {q(sku)} and r.glb_sha = {q(sha)} and r.status in ('accepted','generated','quarantine')
-on conflict (sku, glb_sha) do update set reasons = excluded.reasons, metric_version = 2, slab = excluded.slab,
+on conflict (sku, glb_sha) do update set reasons = excluded.reasons || case when coalesce(mesh_quarantine.reasons,'') like '%{GREY}%' then ',{GREY}' else '' end, metric_version = 2, slab = excluded.slab,
        mask = excluded.mask, dev = excluded.dev, dw = excluded.dw, dd = excluded.dd, axis = excluded.axis, threshold = excluded.threshold;
 update asset_revisions set status = 'quarantine', updated = now()
  where sku = {q(sku)} and glb_sha = {q(sha)} and status in ('accepted','generated');
 commit;""")
-    # болванки серых — под защиту от прополки (решение redo текущего поколения; сам карантин выше от этого не зависит)
-    import mesh_decisions as MDC
-    recs, cur = MDC._db_records()
-    n_prot = 0
-    for sku, gk in grey_redo(flagged, cur, MDC.load(), has_shape):
-        MDC.record(sku, 'redo', GREY_SOURCE, gk, 'верх — серый фон генерации; болванку формы держим для перекраски')
-        n_prot += 1
-    print(f'серая крышка: болванок взято под защиту (redo) {n_prot}', flush=True)
     total = db("select count(*) from mesh_quarantine where decision is null or decision = 'cut'")
     print(f'v2: в карантине {len(flagged)} (без решения владельца), возвращено из v1 {released}; ждут решения {total[0][0] if total else "?"}', flush=True)
     return 0
@@ -238,20 +361,24 @@ def page(publish: bool) -> int:
     # прятал их брак от владельца. Карточка — из `products`, иначе из `room_catalog` (первая комната по имени); нет ни там, ни там —
     # не показываем, как раньше.
     rows = db("""select mq.sku, mq.glb_sha, coalesce(mq.reasons,''), coalesce(mq.decision,''), coalesce(mq.mask,''),
-                        coalesce(mq.dev::text,''), coalesce(p.name, rc.name), coalesce(p.cat_role, rc.role),
+                        coalesce(mq.dev::text,''), coalesce(p.name, rc.name, mq.sku), coalesce(p.cat_role, rc.role, '—'),
                         coalesce(""" + MP.photo_sql('p') + """, rc.img, ''),
-                        coalesce(p.w_cm, rc.w_cm)::text, coalesce(p.d_cm, rc.d_cm)::text, coalesce(p.h_cm, rc.h_cm)::text
+                        coalesce(coalesce(p.w_cm, rc.w_cm)::text, '?'), coalesce(coalesce(p.d_cm, rc.d_cm)::text, '?'), coalesce(coalesce(p.h_cm, rc.h_cm)::text, '?')
                    from mesh_quarantine mq
                    left join products p on p.shop_mid||':'||p.external_id = mq.sku
                    left join lateral (select r.name, r.role, """ + MP.photo_sql('r') + """ as img, r.w_cm, r.d_cm, r.h_cm
                                         from room_catalog r where r.shop_mid||':'||r.external_id = mq.sku
                                        order by r.room limit 1) rc on p.external_id is null
-                  where coalesce(mq.decision,'') not in ('auto_release_v2')
-                    and (p.external_id is not null or rc.name is not null)
+                  where coalesce(mq.decision,'') not in ('auto_release_v2', 'auto_release_grey')
+                    and (p.external_id is not null or rc.name is not null or coalesce(mq.reasons,'') like '%grey_top%')   -- серая крышка идёт и по мешам без товара/комнаты (T-20261119-101/3)
                   order by (mq.decision is null) desc, mq.reasons""")
     os.makedirs(IMGDIR, exist_ok=True)
     cache = json.load(open(CACHE)) if os.path.exists(CACHE) else {}
     slab_of = {f'{r[0]}|{r[1]}': (cache.get('v2:' + r[1]) or {}).get('slab') for r in rows if len(r) >= 2}
+    try:
+        grey_state = json.load(open(os.path.join(MC_DIR, GREY_STATE), encoding='utf-8')).get('units') or {}
+    except (OSError, ValueError):
+        grey_state = {}
     cards = []
     for r in rows:
         if len(r) < 12:
@@ -279,6 +406,10 @@ def page(publish: bool) -> int:
                     im.thumbnail((400, 400))
                     im.save(cut)
         why = [REASON_TEXT[x] for x in rs.split(',') if x in REASON_TEXT] or (['решено вами по замеру v1'] if dec else ['замер v1'])
+        gu = grey_state.get(f'{sku}|{sha}')
+        if gu:     # снимок детектора: тяжесть и доля серого (подпись у карточек без товара в каталоге)
+            why.append(f'детектор: {"отказ" if gu["severity"] == "reject" else "на проверку"}, серого на верху {round(100 * float(gu.get("grey_share") or 0))} % '
+                       f'(предметов в лентах и вариантах семьи: {gu.get("offers")}); модель остаётся, пока нет замены, — решение владельца главнее')
         if mask:
             why.append('конвейер записал: ' + mask)
         if dec == 'accept' and slab_of.get(key):
@@ -346,25 +477,9 @@ def _selftest() -> int:
     ok('серая крышка: решённое владельцем («принять») повторно в карантин не возвращается',
        pick([{'sku': 's', 'glb_sha': 'g', 'grey_top': 'reject'}], 0.6, {('s', 'g')}) == [])
     ok('серая крышка: у причины есть текст для страницы', 'grey_top' in REASON_TEXT)
-    fl = {('a:1', 'g'): {'grey_top': 'reject'}, ('b:2', 'g'): {'grey_top': 'candidate'}, ('c:3', 'g'): {'grey_top': 'ok'}, ('d:4', 'g'): {'grey_top': 'reject'},
-          ('e:5', 'g'): {'grey_top': 'reject'}, ('f:6', 'g'): {'dark': 5.0}}
-    cur = {'a:1': 'G1', 'b:2': 'G2', 'c:3': 'G3', 'd:4': 'G4', 'f:6': 'G6'}
-    got = grey_redo(fl, cur, {'d:4': {'decision': 'reject'}}, lambda s: s in ('a:1', 'b:2', 'c:3', 'd:4', 'e:5', 'f:6'))
-    ok('защита болванок: redo текущего поколения — только серые крышки с болванкой; есть решение владельца (d), нет поколения (e), не серая (c, f) — пропуск',
-       got == [('a:1', 'G1'), ('b:2', 'G2')])
-    ok('защита болванок: нет болванки — нечего защищать', grey_redo(fl, cur, {}, lambda s: False) == [])
-    import tempfile
-    _td = tempfile.mkdtemp()
-    os.makedirs(os.path.join(_td, 'a_1', 'job1'))
-    open(os.path.join(_td, 'a_1', 'job1', 'shape.glb'), 'wb').write(b'x')
-    os.environ['PRUNE_SRC'] = _td
-    ok('has_shape: ищет shape.glb в каталоге SKU так же, как прополка', has_shape('a:1') and not has_shape('b:2'))
-    # то же условие, что у прополки: «redo» из журнала решений делает SKU «в очереди» (`prune_shapes.requeue_dirs`)
-    import mesh_decisions as _MDC
-    _lat = _MDC.latest([{'sku': 'a:1', 'decision': 'redo', 'source': GREY_SOURCE, 'generation_key': 'G1', 'at': '2026-11-18T10:00:00'}], {'a:1': 'G1'})
-    ok('решение redo серой крышки действует, пока поколение текущее, и снимается новым поколением',
-       _lat.get('a:1', {}).get('decision') == 'redo' and _MDC.latest([{'sku': 'a:1', 'decision': 'redo', 'source': GREY_SOURCE, 'generation_key': 'G1',
-                                                                        'at': '2026-11-18T10:00:00'}], {'a:1': 'G2'}) == {})
+    # новая схема (мягкий карантин по всем мешам детектора, T-20261119-101/3) проверяется целиком в `tests/test_grey_soft.py`
+    ok('решением владельца не считается автоснятие замера (auto_release_*): запрос «решённых» их исключает',
+       all(n in DECIDED_SQL for n in NON_DECISIONS) and 'not in' in DECIDED_SQL)
     return 1 if bad else 0
 
 
@@ -374,6 +489,8 @@ if __name__ == '__main__':
         sys.exit(_selftest())
     if '--apply' in a:
         sys.exit(apply(int(a[a.index('--limit') + 1]) if '--limit' in a else 0))
+    if '--sync-grey' in a:
+        sys.exit(sync_grey(dry='--dry' in a))
     if '--pull' in a:
         sys.exit(pull())
     if '--page' in a:

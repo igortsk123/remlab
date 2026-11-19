@@ -110,6 +110,22 @@ def shape_max_age_d() -> float | None:
 LIVE_JOBS = ('queued', 'submitted', 'running', 'retry_wait')
 
 
+# УДЕРЖАНИЕ БОЛВАНОК СЕРОЙ КРЫШКИ (T-20261119-101/3): файл-список ключей «<sku>/<job>» пишет ночной шаг `mesh_quarantine.py --sync-grey` (все нерешённые помеченные
+# меши ТЕКУЩЕГО поколения), читает только прополка. Не `redo` (оно запрещает товар банку). Новое поколение — другой job, ключа в списке нет, удержание снято само.
+HOLD_FILE = os.path.join(os.path.expanduser(os.environ.get('MESH_COLOR_DIR') or '~/scout-scenes/catalog-assets/mesh-color'), 'grey-shape-hold.json')
+
+
+def hold_keys(path: str = HOLD_FILE) -> set | None:
+    """Ключи удерживаемых болванок. Файла нет — пустое множество (шаг ещё не шёл); файл есть, но не читается — `None`: ничего не трогать."""
+    if not os.path.exists(path):
+        return set()
+    try:
+        return {str(k) for k in json.load(open(path, encoding='utf-8')).get('keys') or []}
+    except (OSError, ValueError, AttributeError, TypeError) as e:
+        print(f'  список удержания {path} не прочитан ({e})', flush=True)
+        return None
+
+
 def requeue_dirs() -> set | None:
     """Каталоги SKU (`<sku>` с «:» → «_», как в хранилище) в очереди перегона/перекраски: живые `mesh_jobs` + решения
     «переделать» (`mesh_decisions.load`). `None` — база или журнал решений не прочитались: не трогать ничего."""
@@ -242,9 +258,9 @@ def resolve_sink(argv, probe) -> tuple:
 
 
 def classify(job: str, sink: set, now: float, accepted: set, gen_of: dict,
-             requeue: set = frozenset(), max_age_d: float | None = None) -> str:
+             requeue: set = frozenset(), max_age_d: float | None = None, hold: set = frozenset()) -> str:
     """Что делать с болванкой: 'del' (принят) | 'del_old' (старше срока, без приёмки) | 'keep_no_model' | 'keep_partial'
-    | 'keep_sink' | 'keep_requeue' | 'keep_unaccepted' | 'keep_young' | 'none'."""
+    | 'keep_sink' | 'keep_requeue' | 'keep_hold' | 'keep_unaccepted' | 'keep_young' | 'none'."""
     sg = os.path.join(job, 'shape.glb')
     if not os.path.isfile(sg):
         return 'none'
@@ -258,6 +274,8 @@ def classify(job: str, sink: set, now: float, accepted: set, gen_of: dict,
     # ОЧЕРЕДЬ ПЕРЕГОНА/ПЕРЕКРАСКИ (условие 7): болванку держим при любом сроке и любой приёмке
     if os.path.basename(os.path.dirname(os.path.normpath(job))) in requeue:
         return 'keep_requeue'
+    if key(job) in hold:      # серая крышка: болванка нужна перекраске (шаг А, T-20261119-101/3), срок и приёмка не отменяют удержание
+        return 'keep_hold'
     try:
         age_h = (now - os.path.getmtime(done)) / 3600
     except OSError:
@@ -275,12 +293,12 @@ def classify(job: str, sink: set, now: float, accepted: set, gen_of: dict,
 
 
 KEEP_LABEL = {'keep_no_model': 'без model.glb', 'keep_partial': 'неполный комплект', 'keep_sink': 'на приёмнике',
-              'keep_requeue': 'в очереди перегона/перекраски', 'keep_unaccepted': 'не принято владельцем (моложе срока)',
+              'keep_requeue': 'в очереди перегона/перекраски', 'keep_hold': 'удержана (серая крышка)', 'keep_unaccepted': 'не принято владельцем (моложе срока)',
               'keep_young': 'молодые'}
 
 
 def prune(src: str, journal: str, apply: bool, sink: set,
-          accepted: set, gen_of: dict, requeue: set = frozenset(), max_age_d: float | None = None) -> dict:
+          accepted: set, gen_of: dict, requeue: set = frozenset(), max_age_d: float | None = None, hold: set = frozenset()) -> dict:
     """Пройти хранилище и (при `apply`) убрать болванки. Возвращает счётчики."""
     c = {'комплектов': 0, 'удалить': 0, 'байт': 0, 'из них старше срока без приёмки': 0, 'байт старше срока': 0,
          **{v: 0 for v in KEEP_LABEL.values()}, 'байт оставлено': 0, 'ошибок': 0}
@@ -290,7 +308,7 @@ def prune(src: str, journal: str, apply: bool, sink: set,
         if not os.path.isdir(job):
             continue
         c['комплектов'] += 1
-        verdict = classify(job, sink, now, accepted, gen_of, requeue, max_age_d)
+        verdict = classify(job, sink, now, accepted, gen_of, requeue, max_age_d, hold)
         if verdict == 'none':
             continue
         if verdict in KEEP_LABEL:
@@ -448,8 +466,12 @@ def _selftest() -> int:
             'old_no_model': (('shape.glb', 'complete.json', 'manifest.json'), 20, False, False, False),
             'old_partial': (('model.glb', 'shape.glb', 'manifest.json'), 20, False, False, False),
             'acc_ok': (full, 5, True, False, False),          # принят, старше выдержки — уходит, как раньше
+            'old_hold': (full, 20, False, False, False),      # старше срока, но в списке удержания серой крышки — остаётся
+            'acc_hold': (full, 5, True, False, False),        # принят, но ключ ещё в списке (шаг не успел снять) — остаётся
+            'old_newgen': (full, 20, False, False, False),    # старше срока, ключ списка — ДРУГОЕ поколение (job) — уходит
         }
         gen_of, accepted, requeue, sink = {}, set(), set(), set()
+        hold = {'sku_old_hold/job', 'sku_acc_hold/job', 'sku_old_newgen/job-prev'}
         for name, (files, age_d, acc, queue, on_sink) in cases.items():
             d = os.path.join(src, f'sku_{name}', 'job')
             os.makedirs(d)
@@ -470,9 +492,9 @@ def _selftest() -> int:
         journal = os.path.join(tmp, 'journal.jsonl')
         want = {'old_unacc': 'del_old', 'old_unknown': 'del_old', 'mid_unacc': 'keep_unaccepted', 'old_queue': 'keep_requeue',
                 'acc_queue': 'keep_requeue', 'old_sink': 'keep_sink', 'old_no_model': 'keep_no_model',
-                'old_partial': 'keep_partial', 'acc_ok': 'del'}
+                'old_partial': 'keep_partial', 'acc_ok': 'del', 'old_hold': 'keep_hold', 'acc_hold': 'keep_hold', 'old_newgen': 'del_old'}
         now = time.time()
-        got = {n: classify(os.path.join(src, f'sku_{n}', 'job'), sink, now, accepted, gen_of, requeue, 14) for n in cases}
+        got = {n: classify(os.path.join(src, f'sku_{n}', 'job'), sink, now, accepted, gen_of, requeue, 14, hold) for n in cases}
         if got != want:
             bad += 1
             print(f'  FAIL срок: раскладка {got}')
@@ -480,21 +502,21 @@ def _selftest() -> int:
         if off['old_unacc'] != 'keep_unaccepted' or off['old_unknown'] != 'keep_unaccepted':
             bad += 1
             print(f'  FAIL срок выключен (правила не прочитались) — старые без приёмки должны остаться: {off}')
-        dry = prune(src, journal, False, sink, accepted, gen_of, requeue, 14)
-        if (dry['удалить'] != 3 or dry['из них старше срока без приёмки'] != 2 or dry['в очереди перегона/перекраски'] != 2
-                or dry['байт старше срока'] != 200 or os.path.exists(journal)):
+        dry = prune(src, journal, False, sink, accepted, gen_of, requeue, 14, hold)
+        if (dry['удалить'] != 4 or dry['из них старше срока без приёмки'] != 3 or dry['в очереди перегона/перекраски'] != 2 or dry['удержана (серая крышка)'] != 2
+                or dry['байт старше срока'] != 300 or os.path.exists(journal)):
             bad += 1
             print(f'  FAIL срок: сухой прогон {dry}')
-        real = prune(src, journal, True, sink, accepted, gen_of, requeue, 14)
+        real = prune(src, journal, True, sink, accepted, gen_of, requeue, 14, hold)
         gone = {n for n in cases if not os.path.exists(os.path.join(src, f'sku_{n}', 'job', 'shape.glb'))}
-        if gone != {'old_unacc', 'old_unknown', 'acc_ok'} or real['ошибок']:
+        if gone != {'old_unacc', 'old_unknown', 'acc_ok', 'old_newgen'} or real['ошибок']:
             bad += 1
             print(f'  FAIL срок: удалены {sorted(gone)}, счётчики {real}')
         if any(not os.path.exists(os.path.join(src, f'sku_{n}', 'job', 'model.glb')) for n in cases if n != 'old_no_model'):
             bad += 1
             print('  FAIL срок: задет продукт model.glb')
         rows = [json.loads(ln) for ln in open(journal, encoding='utf-8') if ln.strip()]
-        if sorted(r['why'].split()[0] for r in rows) != ['принят', 'старше', 'старше']:
+        if sorted(r['why'].split()[0] for r in rows) != ['принят', 'старше', 'старше', 'старше']:
             bad += 1
             print(f'  FAIL срок: журнал без причины {rows}')
     os.environ['PRUNE_SHAPE_MAX_AGE_D'] = '9'
@@ -556,8 +578,12 @@ def main() -> int:
         print('  очередь перегона/перекраски не прочитана — ничего не трогаю: болванка могла быть нужна перекраске')
         return 0
     print(f'  принято владельцем поколений: {len(accepted)}; в реестре каталогов: {len(gen_of)}; '
-          f'срок без приёмки: {"нет" if max_age_d is None else f"{max_age_d:g} сут"}')
-    c = prune(SRC, JOURNAL, apply, sink, accepted, gen_of, requeue, max_age_d)
+          f'срок без приёмки: {"нет" if max_age_d is None else f"{max_age_d:g} сут"}; под удержанием серой крышки: {len(hold_keys() or ())}')
+    hold = hold_keys()
+    if hold is None:
+        print('  список удержания болванок есть, но не читается — ничего не трогаю')
+        return 0
+    c = prune(SRC, JOURNAL, apply, sink, accepted, gen_of, requeue, max_age_d, hold)
     print('  ' + ', '.join(f'{k}: {v}' for k, v in c.items() if not k.startswith('байт'))
           + f", объём: {c['байт'] / GB:.2f} ГБ (старше срока {c['байт старше срока'] / GB:.2f} ГБ), "
           f"оставлено {c['байт оставлено'] / GB:.2f} ГБ")
