@@ -55,21 +55,11 @@ def main() -> int:
         i['position'] = n
     print('карточек:', post(a.base, '/api/lab/cutout-check/items', {'run': a.label, 'items': items}))
     cookie = hmac.new(b'preview-secret', b'mesh-review-ok', hashlib.sha256).hexdigest()
+    import subprocess
     os.makedirs(a.out, exist_ok=True)
-    from playwright.sync_api import sync_playwright
-    with sync_playwright() as p:
-        b = p.chromium.launch()
-        for name, vp in (('phone-375x667', {'width': 375, 'height': 667}), ('desktop-1280x900', {'width': 1280, 'height': 900})):
-            ctx = b.new_context(viewport=vp, device_scale_factor=2 if vp['width'] < 500 else 1)
-            ctx.add_cookies([{'name': 'mesh_review', 'value': cookie, 'url': a.base}])
-            pg = ctx.new_page()
-            pg.add_init_script("try{localStorage.setItem('mesh-check-reviewer','Проба')}catch(e){}")
-            pg.goto(a.base + '/lab/cutout-check', wait_until='networkidle')
-            pg.wait_for_timeout(1200)
-            pg.screenshot(path=os.path.join(a.out, f'{name}-top.png'))
-            pg.screenshot(path=os.path.join(a.out, f'{name}-full.png'), full_page=True)
-            ctx.close()
-        b.close()
+    r = subprocess.run(['node', os.path.join(REPO, 'tools', 'ops', 'cutout-check-shots.mjs'), a.base, a.out, cookie], cwd=REPO, env={**os.environ, 'SHOT_BAD': '1'}, timeout=300)
+    if r.returncode:
+        return r.returncode
     print('снимки:', a.out)
     return 0
 

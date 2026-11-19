@@ -168,7 +168,7 @@ def pick_trial(rows: list[dict], n: int, first: tuple = ()) -> list[dict]:
     by = {r['sku']: r for r in rows if r['photo_url']}
     out = [by[s] for s in first if s in by]
     seen = {r['sku'] for r in out}
-    for want in ('люстра', 'торшер', 'ковёр', 'стул', 'кровать', 'ваза'):
+    for want in ('комод', 'диван', 'люстра', 'торшер', 'ковёр', 'стул', 'кровать', 'ваза'):
         for r in rows:
             if len(out) >= n:
                 break
@@ -271,13 +271,16 @@ def cmd_masks(a) -> int:
     say(f'к вырезке масок: {len(todo)} (папка {d}, группа {a.group}, тариф ${price}/ч, потолок ${a.cap})')
     code, g = MG.api(f'/{a.group}')
     st0 = (g.get('current_state') or {}).get('status') if code == 200 else None
-    if st0 != 'stopped':
+    if st0 != 'stopped' and not a.adopt:
         sys.exit(f'группа {a.group}: статус {st0!r}, нужен stopped (создаётся/уже запущена) — не стартую')
     t_start = time.time()
-    code, _ = MG.api(f'/{a.group}/start', 'POST')
-    say('start HTTP', code)
-    if code >= 300:
-        sys.exit(1)
+    if a.adopt:
+        say(f'группа уже запущена (статус {st0}) — подхватываю без нового /start (деньги считаю с первого running)')
+    else:
+        code, _ = MG.api(f'/{a.group}/start', 'POST')
+        say('start HTTP', code)
+        if code >= 300:
+            sys.exit(1)
     run_since, paid, stopped_by, ok_stop = None, 0.0, None, False
     pool = ThreadPoolExecutor(max_workers=a.workers)
     futs = []
@@ -392,9 +395,9 @@ def _selftest() -> int:
     ok('деньги: 30 мин по $0.10/ч = $0.05', abs(cost_usd(1800, 0.10) - 0.05) < 1e-9)
     rows = [{'sku': s, 'role': r, 'photo_url': 'u'} for s, r in [('a', 'диван'), ('s_komod', 'комод'), ('s_divan', 'диван'),
                                                                  ('l1', 'люстра'), ('l2', 'люстра'), ('t', 'торшер'), ('n', None)]]
-    p = pick_trial(rows, 5, ('s_komod', 's_divan'))
-    ok('проба: названные первыми, затем люстра и торшер, ровно 5',
-       [r['sku'] for r in p][:2] == ['s_komod', 's_divan'] and len(p) == 5 and p[2]['role'] == 'люстра' and p[3]['role'] == 'торшер')
+    p = pick_trial(rows, 5)
+    ok('проба по ролям: комод, диван, люстра (тросы), торшер, затем любой; ровно 5', [r['role'] for r in p][:4] == ['комод', 'диван', 'люстра', 'торшер'] and len(p) == 5)
+    ok('--first: названные товары идут первыми', [r['sku'] for r in pick_trial(rows, 5, ('l2', 'n'))][:2] == ['l2', 'n'])
     ok('проба без фото-адреса такие товары пропускает', len(pick_trial([{'sku': 'z', 'role': 'диван', 'photo_url': None}], 3)) == 0)
     print('ИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not bad else f'{bad} провалов')
     return 1 if bad else 0
@@ -411,6 +414,7 @@ def main() -> int:
     m = sub.choices['masks']
     m.add_argument('--trial', type=int, default=0, help='проба: N товаров')
     m.add_argument('--first', default='', help='sku через запятую: идут в пробе первыми (названные в задании)')
+    m.add_argument('--adopt', action='store_true', help='группа уже запущена прошлым прогоном этого драйвера (его убили до готовности): без нового /start')
     m.add_argument('--all', action='store_true')
     m.add_argument('--group', default=GROUP)
     m.add_argument('--queue', default=QUEUE)

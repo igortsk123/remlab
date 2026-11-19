@@ -2,7 +2,7 @@
 // Переходы — ссылками (?r=&f=&p=), без своего состояния; подписи парой RU/EN.
 
 import Link from "next/link";
-import { L, type CheckFilter, type Counts } from "@/lib/cutout-check/rules";
+import { L, type CheckFilter, type Counts, type Pair } from "@/lib/cutout-check/rules";
 import type { RoleCount } from "@/lib/cutout-check/types";
 
 export function checkHref(role: string | null, f: CheckFilter, p = 1): string {
@@ -52,18 +52,15 @@ export function CutoutCheckTabs({ roles, role, filter }: { roles: readonly RoleC
   );
 }
 
-const FILTER_LABEL: Record<CheckFilter, string> = {
-  all: `${L.all.ru} / ${L.all.en}`,
-  todo: `${L.todo.ru} / ${L.todo.en}`,
-  bad: `${L.badFilter.ru} / ${L.badFilter.en}`,
-};
+const FILTER_LABEL: Record<CheckFilter, Pair> = { all: L.all, todo: L.todo, bad: L.badFilter };
 
 export function CutoutCheckFilter({ role, filter }: { role: string | null; filter: CheckFilter }) {
   return (
     <div className="flex overflow-hidden self-start rounded-lg bg-primary ring-1 ring-secondary ring-inset" role="group" aria-label="Фильтр / Filter">
       {(Object.keys(FILTER_LABEL) as CheckFilter[]).map((f) => (
-        <Link key={f} href={checkHref(role, f)} aria-current={f === filter ? "true" : undefined} className={`flex min-h-11 items-center px-3 text-sm ${f === filter ? "bg-secondary font-semibold text-primary" : "text-secondary"}`}>
-          {FILTER_LABEL[f]}
+        <Link key={f} href={checkHref(role, f)} aria-current={f === filter ? "true" : undefined} className={`flex min-h-11 flex-col items-center justify-center px-3 text-sm leading-tight ${f === filter ? "bg-secondary font-semibold text-primary" : "text-secondary"}`}>
+          <span>{FILTER_LABEL[f].ru}</span>
+          <span className="text-[11px] font-normal opacity-80">{FILTER_LABEL[f].en}</span>
         </Link>
       ))}
     </div>
