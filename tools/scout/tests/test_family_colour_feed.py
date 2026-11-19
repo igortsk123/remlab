@@ -82,6 +82,7 @@ check('привязка: та же группа цвета без замера �
 
 # 3) лента /demo и проба
 FD._BIND_ROWS = {LATTE: bind}
+FD._MESH_REP = {L_: O_}     # семья «Имин»: модель оливкового — представитель «Латте» (из базы на DEV; без базы — задано, T-20261119-114)
 FD._MESH_IDX = {O_}
 FD.feed_envs = lambda: ({'тв-тумба': (50, 250)}, {})
 FD.color_ok = lambda msid, name: True

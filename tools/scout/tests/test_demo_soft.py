@@ -29,6 +29,11 @@ import asset_strategy as AS  # noqa: E402
 import draft_render as DR  # noqa: E402
 import flat215_demo as F  # noqa: E402
 import improve_mode as IM  # noqa: E402
+import catalog_media as CM  # noqa: E402
+
+# Каталог — без базы (в CI её нет, DEV-база в тест не ходит): товаров теста (mid 1 / eid c, 112923:vigge, …) в живом каталоге нет —
+# `media()` отдаёт None и `_price` берёт цену самой карточки; пустой кэш даёт то же самое без обращения к `remlab-devdb` (T-20261119-114)
+CM._CACHE = {}
 
 # 1) роли
 check('канон: мягкое = cutout без настольных часов', AS.soft_roles() == {'плед', 'подушка', 'покрывало', 'полка', 'шторы'},

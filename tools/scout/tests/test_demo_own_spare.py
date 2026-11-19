@@ -49,6 +49,7 @@ def kit(n, style, sofa, alts):
 
 STUBS = {
     'catalog_media': types.SimpleNamespace(media=media),
+    'demo_swap_pool': types.SimpleNamespace(pool=lambda *a, **k: []),   # пул банкеток — из базы; `bench_pool` ниже подменён, пул ему не нужен
     'img_alive': types.SimpleNamespace(alive_now=lambda url: True),
     'footprint': types.SimpleNamespace(footprint_known=lambda m: True),
     'item_function': types.SimpleNamespace(subtype=lambda b, c: None),
@@ -61,11 +62,12 @@ STUBS = {
 }
 keep_mods = {k: sys.modules.get(k) for k in STUBS}
 keep_f = {k: getattr(F, k) for k in ('_mesh_index', 'color_ok', 'bench_pool', 'drop_lonely_nook', 'solve_layouts', 'layout_ok',
-                                     'layout_path', '_write_demo_sets', '_msid')}
+                                     'layout_path', '_write_demo_sets', '_msid', '_BIND_ROWS')}
 keep_pool = DF.load_pool
 sys.modules.update(STUBS)
 F._mesh_index = lambda: {'1_spare', '2_pool-sofa', '1_столик', '1_тв-тумба', '1_торшер'}
 F._msid = lambda sid: sid
+F._BIND_ROWS = {}     # привязка мешей — не из базы: у подставных товаров строки привязки нет (colour_flagged(None) = False, как на DEV)
 F.color_ok = lambda msid, name: True
 F.bench_pool = lambda sets, rows=None: {}
 F.drop_lonely_nook = lambda s, benches: None

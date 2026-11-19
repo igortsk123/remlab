@@ -41,6 +41,7 @@ def sofa(path, body, shade=None, legs=(20, 20, 20), hole=False):
 
 def main():
     import flat215_demo as F
+    F._MESH_REP = {}     # семьи — не из базы: у подставных sid a/b/c представителя в каталоге нет, как на DEV (T-20261119-114)
     tmp = tempfile.mkdtemp(prefix='swatch-')
     lum = lambda c: 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]                # noqa: E731
     milk = os.path.join(tmp, 'milk.jpg')

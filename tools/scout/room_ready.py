@@ -198,8 +198,14 @@ def _selftest() -> int:
     try:
         urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(OSError('нет сети'))
         buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            got = RB.prod_index(lambda: {'x', 'y'}, quarantine=lambda: {'y'})
+        import mesh_queue
+        keep_db = mesh_queue.db
+        mesh_queue.db = lambda q, quiet=True: []     # мягкий карантин — из базы; без базы (T-20261119-114) таблица пуста
+        try:
+            with contextlib.redirect_stdout(buf):
+                got = RB.prod_index(lambda: {'x', 'y'}, quarantine=lambda: {'y'})
+        finally:
+            mesh_queue.db = keep_db
         ok('prod_index: прод не ответил — запасной список, карантин вычтен, WARN', got == {'x'} and 'WARN:mesh_index' in buf.getvalue())
     finally:
         urllib.request.urlopen = keep
