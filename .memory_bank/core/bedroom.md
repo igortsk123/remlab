@@ -3,7 +3,7 @@ tier: 1
 topic: bedroom
 scope: Спальня — каталог, банк наборов, показ, группы, детская
 tier2: "../domain/pipeline-order-details.md"
-updated: 2026-11-18
+updated: 2026-11-19
 importance: med
 source: manual
 status: working

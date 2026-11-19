@@ -429,3 +429,11 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-19	.memory_bank/domain/integrations.md	code	12	4	4	
 2026-11-19	.memory_bank/core/regression-net.md	code	22	0	0	
 2026-11-19	.memory_bank/core/agent-trial.md	rotation	28	3	3	
+2026-11-19	domain/catalog-enrichment.md	drift	92	3	3	T-109: TRUTH_SQL->DERIVED_SQL, OVERRIDES/MIXED, mesh-url; sets_incremental сверен
+2026-11-19	domain/pipeline-order-details.md	drift	110	5	5	T-109: bank_ready blocked_policy, cutout мягкого, T-96/3 закрыто, write_enabled по комнатам, name_re
+2026-11-19	guides/orchestration.md	drift	46	5	5	T-109: состав менеджеров, форматы, порог 85%, algor; вне репо (скрипты ~/.local/bin) не сверялись
+2026-11-19	domain/viz-fidelity-playbook.md	drift	152	11	11	T-109: 9 съехавших якорей, maybe_off/warm, разметка серого верха
+2026-11-19	lessons/catalog-stock.md	drift	82	12	12	T-109: уроки с пометками «исправлено/сейчас» + съехавшие якоря; у дока нет last_verified — сдвинут updated
+2026-11-19	lessons/flat3d-configurator.md	drift	58	2	2	T-109: рамка ковра убрана T-12/5, стенд variant-snap починен T-09
+2026-11-19	lessons/memory-process.md	drift	34	2	2	T-109: бюджет Tier0 10 КБ, снятие из heavy-slot
+2026-11-19	lessons/viz-render.md	drift	84	6	6	T-109: устаревшие уроки 63/67/95/110/113/127/145 помечены отменёнными; tint исправлен T-23/1

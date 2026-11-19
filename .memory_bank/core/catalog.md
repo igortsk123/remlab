@@ -3,7 +3,7 @@ tier: 1
 topic: catalog
 scope: Каталог — загрузка из фидов/API, свежесть, сторожа
 tier2: "../domain/catalog-enrichment.md"
-updated: 2026-11-18
+updated: 2026-11-19
 importance: high
 source: manual
 status: working

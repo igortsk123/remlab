@@ -8,7 +8,7 @@ importance: high
 source: external:ресёрч 2026-08-01 (BFL/Google/OpenAI доки + практика) + собственные A/B на Сете 1
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-12
+last_verified: 2026-11-19
 ---
 
 # Схожесть товаров в генерациях: плейбук (проверено на Сете 1)
@@ -25,12 +25,12 @@ last_verified: 2026-11-12
   `tools/scout/systemd/remlab-render.service` (`dev_render_backend.sh` — только сторож юнитов из крона) и
   в окружении прод-контейнера (`/opt/remlab/draft/.env`, запасной путь рисует сам, если туннель упал). Пробный запрос `dry_run`
   показывает, чем рисует процесс за туннелем (`draft_service._dry_info`; живая 2.29). Пробное фото Сканди: модель 28,7 с.
-- **Промпт improve-v3 по умолчанию, improve-v4 при `IMPROVE_PROMPT=v4`** (так у DEV-рендера; `tools/scout/improve_mode.py:56-60`; точные версии — improve-v3.5 и improve-v4.5 (`PROMPT_VERSION`, ключ кэша));
+- **Промпт improve-v3 по умолчанию, improve-v4 при `IMPROVE_PROMPT=v4`** (так у DEV-рендера; `tools/scout/improve_mode.py:57-61`; точные версии — improve-v3.5 и improve-v4.5 (`PROMPT_VERSION`, ключ кэша));
   блоки с v2 — `PHOTO_LOOK/SHAPE_RULE`: фотографический вид (объектив — как у IMAGE 1) и
   каталожная форма (не выдумывать подушки, пледы, подлокотники; исправление обивки по эталону — остаётся). Готовый ответ берётся
   только той же модели, качества и версии промпта (`draft_render._improve_cache`), собранный лист-исходник — только если в `meta.json` та же
   версия промпта, качество `full` или без пометки (старая папка принимается) и есть счёт фото `n_items`/`n_photos`, иначе
-  пересборка (`improve_mode.from_sources`, `tools/scout/improve_mode.py:1510`); в ответ и
+  пересборка (`improve_mode.from_sources`, `tools/scout/improve_mode.py:1511`); в ответ и
   реестр — `image_quality`, `prompt_version`, `prompt_sha`. Гайды 6 стилей — тёплые, с температурой света (`styles.json:render_guide`;
   страница владельцу `/test/share/style-guides/`, `tools/ops/style-guides-page.py`).
 - Лист режется по полосе, остатки наклонной полосы по краям срезаются (`draft_render._trim_band`). Съёмка вариантов —
@@ -293,9 +293,9 @@ medium 0.197, high 0.250. При РАВНОМ образе и равном ра�
   серверного пути). Ночь и ручная выкладка зовут `tools/ops/demo-realistic.mjs --night --frames` (`tools/ops/demo-real.sh`,
   T-20261112-114, TG 1313): кадры живой 3D-сцены, не серверный эскиз; не снялись — стоп без оплаты; очередь — 6 ядер, 3 ГБ
   (`demo-realistic.mjs:underSlot`), сухой ход `--dry` 3D не грузит (2 ядра). Цель владельца (TG 559/563): кадры готовить сразу после последней правки (пауза 1–2 с), платный заказ — по нажатию.
-- **Гейт до оплаты:** `improve_mode.paid_gate` отказывает (422 `no_product_sheet`, до вызова модели), если лист товаров не собрался (только путь с листом эталонов: для входа-рендера гейт выходит сразу, `improve_mode.py:1428-1429`),
+- **Гейт до оплаты:** `improve_mode.paid_gate` отказывает (422 `no_product_sheet`, до вызова модели), если лист товаров не собрался (только путь с листом эталонов: для входа-рендера гейт выходит сразу, `improve_mode.py:1430-1431`),
   список товаров промпта не собрался, счёт фото неизвестен или доля карточек с настоящим фото < `MIN_PHOTO_SHARE` 0,75
-  (`tools/scout/improve_mode.py:937-957` (`MIN_PHOTO_SHARE`, `sheet_counts`), `paid_gate` `:1418`; `tools/scout/draft_service.py:539,1088`; T-17, 09.11).
+  (`tools/scout/improve_mode.py:938` (`MIN_PHOTO_SHARE`), `sheet_counts` `:958`, `paid_gate` `:1419`; `tools/scout/draft_service.py:1086-1088` (422 `no_product_sheet`); T-17, 09.11).
 - **Промпт по типу комнаты:** `tools/scout/rules/improve-rooms.json` (не добавлять крупную мебель/технику сверх набора; спальня — без ТВ
   и заглушки-ТВ); гостиная побайтно прежняя — `tools/scout/tests/test_improve_prompt.py` (хеш f67c3f4c294b). Файл есть и в образе запасного
   рендера прода (`infra/draft/Dockerfile:20-22`): 07.11 без него фото не-гостиной на запасном пути падало.
@@ -307,7 +307,7 @@ medium 0.197, high 0.250. При РАВНОМ образе и равном ра�
 - **Фото устаревают от состава, не от байтов:** перепривязка товар→модель и любая правка состава варианта меняют `stateId` — фото этой
   расстановки больше не «своё» (снимать после ВСЕХ правок состава, после перепривязки — прогрев + досъёмка). Замена файла модели под тем
   же `msid` `stateId` не меняет — такое фото переснимают руками.
-- Белый квадрат на потолке кадра — заглушка светильника для нейросети (ADR-0321, промпт `tools/scout/improve_mode.py:49`), не дефект.
+- Белый квадрат на потолке кадра — заглушка светильника для нейросети (ADR-0321, промпт `tools/scout/improve_mode.py:50`, блок CEILING FIXTURE `:490`), не дефект.
 
 ## Ориентация мешей: каскад, роли, что уходит на прод (свод 05–07.11, план orient-cabinet-01)
 - **Ветка «завален верх»** (`orient_worker.decide`, наклон > 15°) до 05.11 ставила единичную матрицу = перед на ЗАДЕ сырого меша.
@@ -356,7 +356,7 @@ medium 0.197, high 0.250. При РАВНОМ образе и равном ра�
   варианты семьи на ЧУЖОМ ярком меше, tint (множитель подкраски от модели — до `hi_mesh` 5,0, `tools/scout/rules/mesh-color-guard.json`; 2,5 — только у запасной `mesh_color_check.py:tint_of`) не спасает. Сторож `tools/scout/mesh_color_check.py guard` (порог
   `tools/scout/rules/mesh-color-guard.json`): такой вариант прячется из ленты и не берётся на чужом меше, в спросе — «не готов» (кандидат на свой
   меш); свой меш — только предупреждение; новая семья — основа нейтральная (`mesh_family`). Ночью — шаг `mesh_color_guard` перед
-  `room_bindings --build`, ТОЛЬКО при включённых спальне или прихожей (`rooms_on`, `tools/scout/refresh_daily.sh:576-591`); нет таблицы —
+  `room_bindings --build`, ТОЛЬКО при включённых спальне или прихожей (`rooms_on`, `tools/scout/refresh_daily.sh:578-592`); нет таблицы —
   привязка без отметок (fail-open), КРОМЕ вариантов семьи с `family_colour_mismatch`: без таблицы/замера они блокируются
   `mesh_color_mismatch:unmeasured` (`tools/scout/room_bindings.py:measured_colour`, T-89). «Серый = светлый» в
   `tools/scout/mesh_dark.py:COLOUR_GROUPS` пускает белое на графитовую модель — разделение отложено 06.11 (сняло бы 164 привязки).
@@ -393,7 +393,7 @@ medium 0.197, high 0.250. При РАВНОМ образе и равном ра�
 ## Фото по кнопке — устройство подробно (из `core/photo-render.md`, 18.11)
 
 
-**Поток (ADR-0428, влит `f40fcaaa`, на странице кнопки «Сделать фото» / «Улучшить фото» — `tools/scout/flat215-demo/index.html:6362-6365`, `shImprove` `:8443`):** как прежний GPT-поток. 3D: фото этой расстановки есть — кнопки нет; нет или изменили — «Сделать фото» (кнопка шторки
+**Поток (ADR-0428, влит `f40fcaaa`, на странице кнопки «Сделать фото» / «Улучшить фото» — `tools/scout/flat215-demo/index.html:6373-6376`, `shImprove` `:8454`):** как прежний GPT-поток. 3D: фото этой расстановки есть — кнопки нет; нет или изменили — «Сделать фото» (кнопка шторки
 / модалка «Вы изменили комнату…») → рендер Cycles 2 ракурсов → % → «Фото» → внизу «Улучшить фото» → нейросеть по кадру рендера →
 улучшенное без кнопок. /demo и туры одинаково. Страница `tools/scout/flat215-demo/index.html`.
 
@@ -404,7 +404,7 @@ medium 0.197, high 0.250. При РАВНОМ образе и равном ра�
   исполнитель — `RENDER_EXECUTOR` в юните `tools/scout/systemd/remlab-render.service` = `salad-gpu,local-cpu` (машина прогрета → она, иначе CPU DEV; `render_exec.make_executor`, `Fallback`; без переменной — только CPU, урок 702); ход `GET /api/job?id=` — стадии scene/C1/C2/save, %;
 - выгрузка сцены — `tools/scout/cycles_probe/demo_scene_dump.mjs`,
   рендер — `tools/scout/cycles_probe/render_cycles.py` (`--device`, несколько ракурсов в одном процессе, сторож картин `wall_art.has_content`; «с рисунком» меряется на полотне как в 3D — `wall_art.art_stats`, тот же вход у подбора `flat215_demo.wall_art_step` и `wall_art_reannotate.py`; годной картины нет → стена пустая), пресет — `tools/scout/cycles_probe/render-preset.json` (1536×1116, 64 выборки + OIDN);
-- «Улучшить» — прежний GPT-маршрут с `render_key`, промпт `improve-render-v5.5+luma-1` (ADR-0419; `tools/scout/improve_mode.py:69`) + `improve_mode.match_luma` в `tools/scout/draft_render.py`:
+- «Улучшить» — прежний GPT-маршрут с `render_key`, промпт `improve-render-v5.5+luma-1` (ADR-0419; `tools/scout/improve_mode.py:70`) + `improve_mode.match_luma` в `tools/scout/draft_render.py`:
   яркость ответа нейросети = как у входного рендера (одно усиление ×0,85…1,35, без сдвига оттенка, окно/пересвет вне замера); версия
   `PROMPT_VERSION_RENDER` (`…+luma-1`) — в ключе кэша.
 
@@ -463,7 +463,7 @@ medium 0.197, high 0.250. При РАВНОМ образе и равном ра�
   общий кэш npz `~/scout-cache/render-npz` ≤1,5 ГБ; подушки без гонки (`settleSwaps`). Подготовка гостиной p50 2,86 → 1,46 с, «новый» диван 1,19 с.
   `render_texwarm.py` — ручной, в конвейер не встроен (выигрыш ≈0). Chromium дампера — плато 1,55–1,6 ГБ.
 - **Заказ человека включает машину** (`on --by order`, прогрев ≤360 с, поле `machine{state,text,text_en,eta_s}`, CPU — только отказ/предел/таймаут/`gpu_off`;
-  `maybe_off` не гасит `by=order`; заготовка — метка `salad-gpu:warm`). До этого машину включали только заготовка и `/render_on`. Смена группы гасит прежнюю
+  гашение после заготовки — только если `state.by=='prewarm'`, шаг 4б `tools/scout/render_prewarm.py` (пауза `off_idle_s` 120 с), заказ человека не гасится; заготовки идут в очередь с признаком `warm`, `RenderQueue.warm_ok`; классы расхода `prewarm|order|tour|bot|probe` — `render_machine.py:145-157`). До этого машину включали только заготовка и `/render_on`. Смена группы гасит прежнюю
   (`retire_previous`), сироты — `infra/server/render-guard.py` (на сервере `/opt/remlab/scripts`, бэкап `.bak-20261118-0924`). Процессы подготовки — 1200 с +
   `warm_prep`; 40 товаров ленты замен (145 МБ) — в горячем списке; POST дольше 3 с — стеки всех потоков в журнал (`POST_STALL_DUMP_S`, только диагностика).
 - **Честный замер «как покупатель»** (T-10/6, сквозь 8600, 6 смен): до — p50 25,9 с, p90 ≈41 с (машина 14–18, подготовка DEV 1,5–3,3, выгрузка 1–5 —
@@ -481,7 +481,7 @@ medium 0.197, high 0.250. При РАВНОМ образе и равном ра�
 
 ## Заказ фото из тура: ключ товара `pid` (T-20261118-03/9, 18.11)
 публичный бандл тура `sid` не несёт (`tools/scout/trial_bundle.py` `NEVER_KEYS`), поэтому у товара есть публичный
-ключ `sku.pid` = `p1:` + 24 hex от sid (`trial_bundle.pid_of`; в `sid`/`msid` не попадает). Снимок ищет товар по `sid` ИЛИ `pid` (`render_snapshot.pid_index`;
+ключ `sku.pid` = `p1:` + 24 hex от sid (`trial_bundle.pid_of` (определение — `tools/scout/product_pid.py:9-13`, `trial_bundle.py:244` реэкспортирует); в `sid`/`msid` не попадает). Снимок ищет товар по `sid` ИЛИ `pid` (`render_snapshot.pid_index`;
 неоднозначный pid — `bad_item`; `contracts/trial.ts`, `lib/trial/repo-render.ts:collectPid`), плоский предмет без меша (ковёр, картина, зеркало —
 `procedural_plane`) — по `ref` (номер в варианте, данные предмета из бандла на сервере). Хеши /demo не меняются. Перевыпуск переносит предметы без sid:
 `reissue.py --carry-pids-by-img` берёт sid по плитке фото (только однозначные). 
@@ -525,6 +525,6 @@ medium 0.197, high 0.250. При РАВНОМ образе и равном ра�
   ΔE 40→4 у 7 из 20, где в текстуре есть сигнал; чёрные текстуры (L < `DARK_L`=8, `tools/scout/salad/recolor_lp.py:57`) не лечит — там перегенерация покраски.
 - **Серая крышка — детектор gt-v4 (19.11, ADR-0447):** признаки gt-v3 (`tools/scout/mesh_grey_top.py:_extra_top_rules` — верх светлее корпуса,
   MR-плоский серый верх, частичная дыра ≥60 %, серый край) и снятие «серого товара» (`_demote_grey_goods`); gt-v4 — бок остаётся кандидатом только при чистом фоне ≥0,5 и
-  (MR 0,5/0,5 или контрасте ≥20). Разметка глазами 41 помеченного (12 брак, 12 серый товар, 4 плита, 13 спорно) — `tools/scout/rules/mesh-grey-top-labels.json`;
+  (MR 0,5/0,5 или контрасте ≥20). Разметка глазами — `tools/scout/rules/mesh-grey-top-labels.json`: известных брака 92 (80 прежних + 12 найденных), серых товаров-контроля 15, плита 5 (+2 пограничных), спорно 13;
   известных 92/92, ложных на серых товарах 7/15 — признанный остаток. «Серая плита под мешем» — 6 из 3013, детектора нет (решение с владельцем);
   у TRELLIS.2 та же плита у пола (комод — 41,6 % треугольников) — пробная чистка тонких кусков у пола вне репо (`~/remlab-logs`, П1.91).

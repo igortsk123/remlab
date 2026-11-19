@@ -3,10 +3,10 @@ tier: 2
 topic: pipeline-order-details
 scope: Порядок конвейера — обоснования этапов и незакрытые места
 tier1: "../core/pipeline-order.md"
-updated: 2026-11-18
+updated: 2026-11-19
 importance: med
 source: manual
-last_verified: 2026-11-12
+last_verified: 2026-11-19
 ---
 
 # Порядок конвейера — детали
@@ -21,12 +21,14 @@ last_verified: 2026-11-12
 линии узора), вазе/кашпо/статуэтке — силуэт вместо оптической прозрачности, коллажи и обрывки
 фона отсеиваются (ADR-0133, уроки 319–322).
 
-Мягкий декор (роли не `hunyuan3d` по `tools/scout/rules/asset-strategies.json`, `tools/scout/mesh_queue.py:_mesh_needed`) режется тоже — вырезка нужна витрине и вклейке, — но в очередь
+Мягкий декор (роли не `hunyuan3d` по `tools/scout/rules/asset-strategies.json`, `tools/scout/mesh_queue.py:_mesh_needed`) режется тоже (`cutout_sync.py:229-267` режет весь пул без фильтра по стратегии) — вырезка нужна витрине и вклейке, — но в очередь
 мешей не попадает: плед, штора и ковёр рисуются плоско по фото, меш им ничего не добавит.
 
 ## Вердикт вырезки едет в задании
 `mesh_queue.export()` кладёт в задание `role`, `photo_verdict` и `assessor_version`; забракованное
-на обрезке на карту не отправляется вовсе. Нода прогоняет ТУ ЖЕ цепочку `preprocess.prepare`
+на обрезке на карту не отправляется вовсе (`mesh_queue.py:523-524`); вердикт `photo_too_small` по порогу
+`tools/scout/rules/mesh-photo.json` (`min_cut_side_px=512`) — тоже (`photo_fit.py:157`); спрос берёт `image_url_hd`, иначе превью
+(`mesh_photo.pick`, `mesh_queue.py:411-421`, T-96). Нода прогоняет ТУ ЖЕ цепочку `preprocess.prepare`
 с той же ролью, поэтому маска воспроизводима, а расхождение вердиктов видно в манифесте.
 До 29.08 в задании был только `image_url`, и нода резала исходник заново — наша вырезка была
 справкой рядом с конвейером, а не его входом (критика Codex).
@@ -58,7 +60,7 @@ last_verified: 2026-11-12
   `bank_pending.policy_blocks`; сборка кандидата `sets3.next.json` в изолированной копии, инварианты, сверка медиа
   `catalog_media.sync_sets` — сборщик пишет прямую ссылку фида, партнёрскую ставит только сверка) → `bank_pending` (ожидание по
   ячейке; спрос мешей `bank_candidate`) →
-  `bank_promote` (готовые ячейки, экзамен, manifest) → писатель `bank_refresh.py` (сейчас `write_enabled=false`).
+  `bank_promote` (готовые ячейки, экзамен, manifest) → писатель `bank_refresh.py` (у гостиной `write_enabled=false`; у спальни `true`, у прихожей `false` — `bank-candidate.json:rooms`).
 - **Цепочка одной ночи (06.11, room-bank-01 этап А, T-20261106-60):** `tools/scout/refresh_daily.sh` задаёт `BANK_RUN_ID`
   (`night-<время>-<pid>`) и идёт `bank_prepare && bank_pending --night && bank_promote` с `--run-id`; писатель `bank_refresh` — только
   при целой цепочке (`bank_chain_ok`), сбой любого звена — строка `DIGEST:` «цепочка ночи … остановлена», живой банк не трогается,
@@ -72,8 +74,8 @@ last_verified: 2026-11-12
   (sha «до» и «после», готовая запись журнала), затем rename; намерение снимается последним. `recover` идёт в начале записи и отката:
   поколение уже в журнале — снять намерение; живой = «до» — `recover/abort`; живой = «после» и идентичность сошлась — доводка журнала,
   не сошлась — возврат снимка (`recover/restore`); живой ни то ни другое — отказ, код 1, разбор руками и `bank_refresh.py recover --abandon`.
-- **Готовность ячейки** — `tools/scout/bank_ready.classify` по роли слота: cutout-роль = в продаже + живое фото + текущая ссылка (вырезка
-  не требуется: вырезок мягкого 0, показ их не использует); ковёр — w,d; меш — гейт геометрии. Типы ожидания: `wait_asset`, `wait_catalog`,
+- **Готовность ячейки** — `tools/scout/bank_ready.classify` по роли слота: cutout-роль = в продаже + живое фото + текущая ссылка + нет решения `replace_needed`/`reject` по мешу
+  (иначе `blocked_policy`, `tools/scout/bank_ready.py:101-103`); вырезка для неё не требуется (`bank_ready.py:104-105`); ковёр — w,d; меш — гейт геометрии. Типы ожидания: `wait_asset`, `wait_catalog`,
   `redo`, `blocked_policy`, `legacy_unknown`. Журнал решений по мешам — файлы (`tools/scout/rules/mesh-asset-decisions.json`,
   `~/scout-scenes/mesh-asset-decisions.jsonl`), без БД.
 - **Удержание** (`tools/scout/bank_keep.py`): источник — прошлый кандидат (`BANK_KEEP_FROM`), состояние `sets3.next.keep.json`; три
@@ -179,9 +181,10 @@ bedroom (сборщик `compose_bedroom`); по вариантам витрин
   (2) память отказа кровати на ядре — «не встала» вместо `budget`, решатель второй раз не зовётся (`tools/scout/trial_bedroom.py:bed_nofit_known`,
   `note_bed_nofit`); (3) тумба гостевой/одиночной — через `compact` (ADR-0404, `services/planner-solver/rules/room-templates/bedroom.json:53,73` (`sleep_before_mode`)). Туры main→ветка: iT0X 18→24,
   sVE0 0→5, aRQV 17→16 (граница бюджета 30 с на загруженной машине).
-- **Открыто → T-96/3 (12.11):** в туре ЛЮБАЯ кровать каталога спальни подменяется витринной — `tools/scout/trial_bundle.py:catalog_goods` ищет
-  товар через `catalog_media.media` в таблице `products`, а каталог спальни — `room_catalog` (1376 из 1376 кроватей нет); углубление (recess)
-  не передаётся решателю как стык (`tools/scout/trial_room.py:solver_openings`) → шкаф/комод iT0X b1 к «глухой стене»; общая причина algor —
+- **Было открыто, закрыто T-96/3 (12.11):** в туре ЛЮБАЯ кровать каталога спальни подменялась витринной — `tools/scout/trial_bundle.py:catalog_goods` искал
+  товар через `catalog_media.media` только в таблице `products`, а каталог спальни — `room_catalog` (1376 из 1376 кроватей нет); теперь читает и
+  его (`trial_bundle.py:room_rows`, `:512`); углубление (recess) не передавалось решателю как стык → шкаф/комод iT0X b1 к «глухой стене»; теперь
+  передаётся при `recess_open` (`tools/scout/trial_room.py:758`, `solver_openings` `:800`); общая причина algor —
   солвер видит только прямоугольник ядра, а `trial_bedroom.py:back_off_wall` меряет до настоящего контура (полоса 40 см у окна → брак).
   **Перевыпуск туров — СТОП** (стоп-файл ночного `tour_reissue`) до T-96/3: один перевыпуск на всё. **Закрыто 12–13.11:** владелец TG 1309 разрешил
   перевыпуск до T-96/3 (22:07), T-96/3 влит (В1 углубление — портал/пристройка, `e1fa7315`/`eb89134d`; В2 общий resolver; В3 — лимит вызовов
@@ -235,7 +238,7 @@ bedroom (сборщик `compose_bedroom`); по вариантам витрин
 
 ## Дополнено сводом недели (свод недели 06–12.11 по журналам, T-20261112-85)
 - **Прихожая — комплекты из модулей** (T-71, 06.11): товар роли «прихожая» с признаками комплекта (`kits` в
-  `tools/scout/rules/hall-roles.json`: `name_re` «модульн|комплект|набор|стенк» или ≥2 модуля «Серия-N» в параметрах;
+  `tools/scout/rules/hall-roles.json`: `name_re` «модульн|комплект|\bнабор\b|\bстенк» (границы слов) или ≥2 модуля «Серия-N» в параметрах;
   `tools/scout/hall_catalog.py:kit_of`) получает `footprint_ok=false` — идёт только по фото, меш и спрос не нужны. Правило общее, не по SKU.
 - **Прихожая — типоразмеры слотов** (T-90, 06.11): у слотов обувница/банкетка/консоль `sizes` `{id, ideal}`
   (`tools/scout/compose_common.py:slot_sizes`, `tools/scout/compose_hall.py:fit_size`); допуск −20…+10 % — внутри типоразмера,
