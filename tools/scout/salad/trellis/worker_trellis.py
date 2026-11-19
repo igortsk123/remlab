@@ -1288,6 +1288,10 @@ class MVAdapterTexBackend:
         sys.path.insert(0, mva)
         STATE['phase'] = 'importing'
         t_imp = time.time()
+        try:                                                                            # `pipeline_texture` сохраняет GLB через gltflib (backend='gltflib' жёстко), а в requirements апстрима его нет — b0919 упала на сохранении после всех видов
+            import gltflib  # noqa: F401
+        except ImportError:
+            subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'gltflib==1.0.13'], check=True, timeout=600)
         import torch
         stubs = mv_stub_modules()
         from scripts import inference_ig2mv_sdxl as IG                                  # `scripts/__init__.py` есть; первым в sys.path — наш каталог
