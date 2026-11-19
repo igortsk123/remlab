@@ -143,7 +143,7 @@ class FakeBR:
 
 class FakeGW:
     """Шлюз ноды: прогрет сразу; задания — по сценарию `fail_jobs` (сколько первых упадут)."""
-    script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, 'phase': None, 'no_health': False, 'hf_gb': None, 'disk_free': 50.0}
+    script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, 'phase': None, 'no_health': False, 'hf_gb': None, 'disk_free': 50.0, 'fatal_jobs': False, 'broken': None, 'job_hangs': False}
 
     def __init__(self, base, key):
         self.jobs, self.k = {}, 0
@@ -155,7 +155,7 @@ class FakeGW:
         if path == '/health':
             if s['no_health']:
                 return 503, {}
-            return 200, {'warm': s['warm'], 'phase': s['phase'] or ('ready' if s['warm'] else 'loading'), 'error': s['health_error'], 'timings': {'weights_s': 5},
+            return 200, {'ok': s['broken'] is None, 'broken': s['broken'], 'warm': s['warm'], 'phase': s['phase'] or ('ready' if s['warm'] else 'loading'), 'error': s['health_error'], 'timings': {'weights_s': 5},
                          'progress': {'hf_gb': s['hf_gb']} if s['hf_gb'] is not None else None, 'child': {'alive': True}, 'cgroup_gb': {'current': 1.0, 'max': 24.0}, 'disk_gb': {'hf': {'free': s['disk_free'], 'total': 60.0}}}
         if path == '/info':
             return 200, {'gpu': {'name': 'RTX 4090'}}
@@ -165,8 +165,12 @@ class FakeGW:
             return 202, {'status': 'queued'}
         if path.startswith('/job/'):
             st = self.jobs[path[5:]]
+            if s['job_hangs']:
+                return 200, {'status': 'running'}
+            if st == 'failed' and s['fatal_jobs']:
+                return 200, {'status': 'failed', 'error': 'RuntimeError: CUDA driver error: device not ready', 'trace': 't', 'diag': {'kind': 'fatal', 'fatal': True}}
             return 200, ({'status': 'done', 'metrics': {'peak_vram_gb': 19.0, 'glb': {'triangles': 10}}} if st == 'done'
-                         else {'status': 'failed', 'error': 'OOM', 'trace': 't'})
+                         else {'status': 'failed', 'error': 'OOM', 'trace': 't', 'diag': {'kind': 'oom', 'fatal': False}})
         if path.startswith('/glb/'):
             return 200, b'GLBDATA'
         return 404, {}
@@ -188,7 +192,8 @@ def make_inputs(tmp, skus=('a:1',)):
 
 
 def go(tmp, mg=None, br=None, hf=200, script=None, **kw):
-    FakeGW.script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, 'phase': None, 'no_health': False, 'hf_gb': None, 'disk_free': 50.0, **(script or {})}
+    FakeGW.script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, 'phase': None, 'no_health': False, 'hf_gb': None, 'disk_free': 50.0,
+                     'fatal_jobs': False, 'broken': None, 'job_hangs': False, **(script or {})}
     clock = [0.0]
 
     def sleep(s):
@@ -245,6 +250,14 @@ d2 = tempfile.mkdtemp(prefix='tt-')
 make_inputs(d2, ('a:1', 'b:2', 'c:3'))
 rc, mg, br, s = go(d2, skus=['a:1', 'b:2', 'c:3'], plan='1024:1', script={'fail_jobs': 5})
 ok('два упавших задания подряд → гашу, счётчик отказов в сводке', s['stopped_by'] == 'failures' and s['failed'] == 2 and br.stops == ['trial-trellis2-t1'])
+rc, mg, br, s = go(d2, suffix='t11', skus=['a:1', 'b:2', 'c:3'], script={'fail_jobs': 5, 'fatal_jobs': True})
+ok('фатальная ошибка CUDA в задании (diag.fatal) → гашу сразу после ПЕРВОГО, не ждём серию отказов; стоп подтверждён', s['stopped_by'] == 'worker_broken' and s['failed'] == 1
+   and len(s['jobs']) == 1 and 'device not ready' in str(s['broken']) and br.stops == ['trial-trellis2-t11'])
+rc, mg, br, s = go(d2, suffix='t12', skus=['a:1', 'b:2', 'c:3'], script={'fail_jobs': 5})
+ok('обычная нехватка памяти (diag.fatal=false) — прежнее правило: гасит только серия отказов', s['stopped_by'] == 'failures' and s['failed'] == 2 and 'broken' not in s)
+rc, mg, br, s = go(d, suffix='t13', script={'job_hangs': True, 'broken': 'RuntimeError: !handles_.at(i) INTERNAL ASSERT'}, job_timeout=60)
+ok('/health «сломан» во время задания → гашу сразу (до таймаута задания), причина и задание в сводке', s['stopped_by'] == 'worker_broken' and 'INTERNAL ASSERT' in str(s['broken'])
+   and s['failed'] == 1 and s['jobs'][0]['status'] == 'failed' and br.stops == ['trial-trellis2-t13'])
 rc, mg, br, s = go(d, suffix='t4', script={'raise_on': '/generate'})
 ok('исключение посреди замера → стоп с проверкой всё равно сделан', isinstance(rc, str) and rc.startswith('exc:') and br.stops == ['trial-trellis2-t4'])
 rc, mg, br, s = go(d, suffix='t5', br=FakeBR(running_after=10 ** 6))
