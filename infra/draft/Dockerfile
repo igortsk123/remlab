@@ -21,7 +21,7 @@ COPY tools/scout/rules/asset-strategies.json tools/scout/rules/capabilities.json
      tools/scout/rules/openai_prices.json tools/scout/rules/practice_priors.json \
      tools/scout/rules/improve-rooms.json tools/scout/rules/photo-set-roles.json tools/scout/rules/photo-tariffs.json /app/rules/
 COPY tools/scout/draft_service.py tools/scout/draft_guard.py tools/scout/draft_jobs.py tools/scout/draft_trial.py tools/scout/draft_render.py \
-     tools/scout/asset_strategy.py tools/scout/falmini.py tools/scout/improve_mode.py \
+     tools/scout/asset_strategy.py tools/scout/falmini.py tools/scout/improve_mode.py tools/scout/render_config.py \
      tools/scout/mesh_render.py tools/scout/scene_mesh.py tools/scout/opening_ir.py tools/scout/view_consistency.py tools/scout/post_stall.py tools/scout/refs_check.py tools/scout/env_keys.py tools/scout/orient_policy.py tools/scout/styles.json /app/
 # сборка падает, если HTTP-рендеру чего-то не хватает (а не ночью на первом кадре)
 RUN python -c "import draft_service, draft_jobs, draft_trial, draft_render, mesh_render, scene_mesh, opening_ir, improve_mode, asset_strategy, view_consistency, post_stall, refs_check, env_keys, orient_policy; print('imports ok')"

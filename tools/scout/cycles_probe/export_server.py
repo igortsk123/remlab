@@ -150,6 +150,7 @@ class PartsCache:
 def serve(inp=sys.stdin, out=sys.stdout):
     import export_scene as ES
     ES.preload()
+    ES.warn_unhashed_modules('после прогрева', file=sys.stderr)       # stdout — канал ответов; WARN прогрева — в stderr процесса
     import draft_render as DR
     cache = PartsCache(DR)
     out.write(json.dumps({'ready': True, 'rss_mb': round(rss_mb())}) + '\n')

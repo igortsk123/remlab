@@ -17,6 +17,7 @@
 !tools/scout/asset_strategy.py
 !tools/scout/falmini.py
 !tools/scout/improve_mode.py
+!tools/scout/render_config.py
 !tools/scout/mesh_render.py
 !tools/scout/scene_mesh.py
 !tools/scout/opening_ir.py

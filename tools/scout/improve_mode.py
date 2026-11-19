@@ -37,7 +37,8 @@ from PIL import Image  # noqa: E402
 
 DEMO_URL = 'https://remont-lab.online/demo/demo-data.json'
 IMG_BASE = 'https://remont-lab.online/demo/'
-SIZE = os.environ.get('IMPROVE_SIZE', '2048x3072')     # замер: принимается шлюзом
+import render_config as _RC  # noqa: E402 — размер кадра общий с выгрузчиком сцены (T-20261119-100/2); значение и env `IMPROVE_SIZE` те же
+SIZE = _RC.frame_size()     # замер: принимается шлюзом (по умолчанию 2048x3072)
 # improve-v2 (demo-11, бенч 17.10, ADR-0302): блок PHOTOGRAPHIC LOOK и правило каталожной формы. Версия — часть ключа
 # готового ответа и исходника (`draft_render._improve_cache`, `from_sources`): ответ v1 не отдаётся на запрос v2
 # improve-v3 (demo-13, 17.10): гайды стилей v2.1 (6 блоков, без чисел и абсолютов) + общий префикс-защита перед гайдом; строки WALLS/FLOOR
