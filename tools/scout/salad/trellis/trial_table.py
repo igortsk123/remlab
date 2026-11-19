@@ -568,7 +568,23 @@ def fmt(v, nd=None):
     return f'{v:.{nd}f}' if nd is not None and isinstance(v, float) else str(v)
 
 
-def write_outputs(out_dir: str, rows: list[dict], sums: dict, notes: dict, set_name: str) -> tuple[str, str, str]:
+def add_common(rows: list[dict], sums: dict, ref: str | None = None) -> str | None:
+    """Колонки «на общих»: доли принятых по товарам, где ЕСТЬ готовый GLB и у опорной модели (иначе числа разных наборов несравнимы). Опорная — `ref`, по умолчанию
+    из моделей с ≥10 готовыми та, у которой готовых меньше всего. Пишет в `sums[m]`: common_n (общих товаров), common_accepted, common_share. Возвращает имя опорной."""
+    ready = {m: {r['sku'] for r in rows if r['model'] == m and r['status'] == 'готов'} for m in sums}
+    if not ref:
+        cands = [m for m in sums if len(ready[m]) >= 10]
+        ref = min(cands, key=lambda m: len(ready[m])) if cands else None
+    if not ref or ref not in ready:
+        return None
+    for m in sums:
+        com = ready[m] & ready[ref]
+        acc = sum(1 for r in rows if r['model'] == m and r['sku'] in com and r.get('accepted') == 'да')
+        sums[m].update(common_n=len(com), common_accepted=acc, common_share=round(acc / len(com), 3) if com else None)
+    return ref
+
+
+def write_outputs(out_dir: str, rows: list[dict], sums: dict, notes: dict, set_name: str, ref: str | None = None) -> tuple[str, str, str]:
     os.makedirs(out_dir, exist_ok=True)
     p_csv, p_sum, p_md = (os.path.join(out_dir, n) for n in ('trial-table.csv', 'trial-models.csv', 'trial-table.md'))
     with open(p_csv, 'w', newline='', encoding='utf-8') as f:
@@ -577,23 +593,27 @@ def write_outputs(out_dir: str, rows: list[dict], sums: dict, notes: dict, set_n
         for r in rows:
             w.writerow({k: ('' if r.get(k) is None else r.get(k)) for k in COLS})
     scols = ['model', 'products', 'tried', 'ready', 'refused', 'not_run', 'accepted', 'accepted_share', 'thin_notes', 'spend_usd', 'setup_usd', 'usd_per_accepted',
-             'spend_note']
+             'common_n', 'common_accepted', 'common_share', 'spend_note']
     with open(p_sum, 'w', newline='', encoding='utf-8') as f:
         w = csv.DictWriter(f, fieldnames=scols)
         w.writeheader()
         for m, s in sums.items():
             w.writerow({'model': m, **{k: ('' if s.get(k) is None else s[k]) for k in scols[1:-1]}, 'spend_note': notes.get(m, '')})
+    if ref:
+        L0 = f'**На общих** — товары, где готовый GLB есть и у опорной модели `{ref}`: доли по разным наборам несравнимы, по общим — сравнимы.'
+    else:
+        L0 = ''
     L = [f'# Проба генераторов мешей — таблица (набор `{set_name}`, расчёт `{VERSION}`)', '',
          '**Принят** = все три боевых сторожа чисты по итоговому GLB (серый верх · пустой вид зад/верх · цвет против вырезки). '
          '**$ за одну принятую** = все траты на модель / число принятых. Четвёртое условие — IoU силуэта спереди не ниже боевого порога `mesh_make.mesh_trusted` '
-         f'({IOU_OK:g}, берётся из боевого кода); «тонкие части» — IoU без ножек и спиц достигает порога, не принят, пометка для решения ведущего.', '',
+         f'({IOU_OK:g}, берётся из боевого кода); «тонкие части» — IoU без ножек и спиц достигает порога, не принят, пометка для решения ведущего.', L0, '',
          '## Итог по моделям', '',
-         '| модель | пробовали | готово | отказ | принято | доля принятых | траты (KPI), $ | пилоты «встать», $ | **$ за одну принятую** | из не принятых — «тонкие части» | чем считали траты |',
-         '|---|---|---|---|---|---|---|---|---|---|---|']
+         '| модель | пробовали | готово | отказ | принято | доля принятых | **на общих (с опорной)**: принято / товаров | траты (KPI), $ | пилоты «встать», $ | **$ за одну принятую** | из не принятых — «тонкие части» | чем считали траты |',
+         '|---|---|---|---|---|---|---|---|---|---|---|---|']
     for m, s in sums.items():
         share = fmt(None if s['accepted_share'] is None else round(s['accepted_share'] * 100, 1))
         L.append(f"| {m} | {s['tried']} (не пробовали: {s['not_run']}) | {s['ready']} | {s['refused']} | {s['accepted']} | "
-                 f"{share}{'' if share == '—' else ' %'} | {fmt(s['spend_usd'])} | {fmt(s['setup_usd'])} | **{fmt(s['usd_per_accepted'])}** | "
+                 f"{share}{'' if share == '—' else ' %'} | {fmt(s.get('common_accepted'))} / {fmt(s.get('common_n'))} | {fmt(s['spend_usd'])} | {fmt(s['setup_usd'])} | **{fmt(s['usd_per_accepted'])}** | "
                  f"{s['thin_notes']} | {notes.get(m, '')} |")
     for m in sums:
         L += ['', f'## {m}', '',
@@ -623,6 +643,9 @@ def main() -> int:
     ap.add_argument('--no-pattern', action='store_true', help='не считать pattern_grad_ncc (справочная колонка)')
     ap.add_argument('--hy-tier', default='high', help='тариф Salad для оценки $ боевого Hunyuan (по complete.json); группы боевых прогонов были разные')
     ap.add_argument('--spend', action='append', default=[], help='модель=USD — траты, если сводок драйвера нет/неполны (идущий прогон)')
+    ap.add_argument('--pilot-spend', action='append', default=[], help='модель=USD — пилоты «встать» по живой цене (отдельная колонка; в $ за принятую не входят)')
+    ap.add_argument('--common-with', default='', help='опорная модель для колонки «на общих» (по умолчанию — из моделей с ≥10 готовыми та, у которой готовых меньше)')
+    ap.add_argument('--spend-note', action='append', default=[], help='модель=текст — пояснение к тратам (например «оценка: время × тариф»)')
     ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args()
     if a.selftest:
@@ -639,6 +662,7 @@ def main() -> int:
                        'clean': opts.get('clean'), 'cleandir': os.path.expanduser(opts['cleandir']) if opts.get('cleandir') else None,
                        'cleansuffix': opts.get('cleansuffix'), 'sumdir': [os.path.expanduser(x) for x in opts.get('sumdir', '').split('|') if x]}
     override = {k: float(v) for k, v in (s.split('=') for s in a.spend)}
+    pilot_over = {k: float(v) for k, v in (s.split('=') for s in a.pilot_spend)}
     items = json.load(open(a.set, encoding='utf-8'))
     set_name = os.path.basename(a.set)
     cache_dir = os.path.join(a.out, 'cache')
@@ -673,9 +697,16 @@ def main() -> int:
             est = [r['usd'] for r in mrows if r['usd'] is not None]
             spend = round(sum(est), 4) if est else None
             notes[name] = 'оценка: время генерации × тариф, без холодных стартов' if est else 'трат нет в журналах'
+        if name in pilot_over:
+            setup = pilot_over[name]
         sums[name] = model_summary(mrows, spend, setup)
         print(f'{name}: пробовали {sums[name]["tried"]}, принято {sums[name]["accepted"]}, $/принятую {sums[name]["usd_per_accepted"]}', flush=True)
-    paths = write_outputs(a.out, rows, sums, notes, set_name)
+    ref = add_common(rows, sums, a.common_with or None)
+    for kv in a.spend_note:
+        k, _, v = kv.partition('=')
+        if k in notes:
+            notes[k] = v
+    paths = write_outputs(a.out, rows, sums, notes, set_name, ref)
     print('\n'.join(paths))
     return 0
 
@@ -735,6 +766,11 @@ def selftest() -> int:
         check('сводки: упавшее, затем сделанное → done', s['jobs']['a:1']['status'] == 'done' and s['jobs']['a:1']['price_usd_h'] == 0.33)
     bg = {'trial-trellis2-s0b': 0.226, 'trial-trellis2-s0f': 0.056, 'trial-trellis2-r30': 0.996, 'trial-trellis2-r30t': 0.1, 'trial-trellis2-r30d': 0.4}
     check('траты: KPI = r30+r30t+r30d, пилоты отдельно', split_spend(bg, 'trellis2-r30', '-s0') == (1.496, 0.282))
+    rr = [{'model': m, 'sku': k, 'status': 'готов', 'accepted': ac} for m, k, ac in
+          [('a', f'{i}', 'да' if i % 2 else 'нет') for i in range(12)] + [('b', f'{i}', 'да') for i in range(6)] + [('c', '99', 'да')]]
+    ss = {'a': {}, 'b': {}, 'c': {}}
+    check('на общих: опорная — модель с ≥10 готовыми и меньшим числом (a), b пересекается на 6', add_common(rr, ss) == 'a' and ss['b']['common_n'] == 6 and ss['b']['common_accepted'] == 6
+          and ss['a']['common_n'] == 12 and ss['c']['common_n'] == 0 and ss['c']['common_share'] is None)
     check('траты: без kpi — все группы, пилотов нет', split_spend(bg, None, None) == (round(sum(bg.values()), 4), None))
     # общая папка: точное имя, принадлежность файла по журналу, фильтр сводок по модели
     with tempfile.TemporaryDirectory() as t:

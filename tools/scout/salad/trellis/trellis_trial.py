@@ -121,6 +121,36 @@ def paint_jobs(skus: list[str], variants: str, shape_dir: str | None, inputs: di
     return out
 
 
+TEX_MESH_SUFFIX = '.clean2.glb'
+
+
+def texture_mesh_path(dirpath: str, job: dict, suffix: str = TEX_MESH_SUFFIX) -> str:
+    """Готовая форма задания для `--texture-mesh-dir`: `<папка>/<ключ товара>-<разрешение>-<seed>-<n><суффикс>` (имя задания до приписки `-tex`)."""
+    return os.path.join(os.path.expanduser(dirpath), job['job_id'] + suffix)
+
+
+def shape_only_glb(path: str) -> bytes:
+    """Форма для покраски: геометрия и развёртка (UV) без вшитых текстур — покраске нужны только они, а тело запроса воркера ограничено 40 МБ (форма с двумя текстурами 2048² и 477 тыс. граней — 23 МБ, в base64 ≈ 31 МБ).
+    UV сохраняются как есть: покраска берёт их, если они есть, и сама разворачивает форму, если их нет (`trellis2_texturing.py`). Нет trimesh или форма не читается — отдаём файл как есть."""
+    raw = open(os.path.expanduser(path), 'rb').read()
+    try:
+        import io
+
+        import trimesh
+        sc = trimesh.load(io.BytesIO(raw), file_type='glb', force='scene')
+        geoms = list(sc.geometry.values())
+        if len(geoms) != 1:
+            return raw
+        g = geoms[0]
+        uv = getattr(g.visual, 'uv', None)
+        g.visual = trimesh.visual.TextureVisuals(uv=uv) if uv is not None else trimesh.visual.ColorVisuals()
+        out = sc.export(file_type='glb')
+        return out if len(out) < len(raw) else raw
+    except Exception as e:  # noqa: BLE001 — запасной путь: файл как есть
+        say('форма без текстур не собрана, уходит как есть:', str(e)[:120])
+        return raw
+
+
 def parse_tex_variant(tok: str) -> dict | None:
     """pixal3d-tex: вариант прогона `<align>[+g<сила>][+s<повторов>]`: `fit+g3` — подгонка фото и сила направляющей 3 (по умолчанию 1), `fit+s40` — латент формы по копии,
     сглаженной 40 проходами Тобина (краска ложится на настоящую форму). Неверная запись → None."""
@@ -373,6 +403,20 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         tex_mesh_b64 = base64.b64encode(open(os.path.expanduser(a.texture_mesh), 'rb').read()).decode()
         for j in jobs:
             j['job_id'] += '-tex'
+    if getattr(a, 'texture_mesh_dir', None):              # контроль «родная краска TRELLIS.2 на ТЕХ ЖЕ формах» (T-20261118-91/9): у каждого товара своя готовая форма из папки
+        if a.model != 'trellis2' or getattr(a, 'texture_mesh', None):
+            say('--texture-mesh-dir — только для --model trellis2 и без --texture-mesh — группа не создаётся')
+            return 2
+        miss = []
+        for j in jobs:
+            j['tex_mesh'] = texture_mesh_path(a.texture_mesh_dir, j, getattr(a, 'texture_mesh_suffix', None) or TEX_MESH_SUFFIX)
+            if not os.path.exists(j['tex_mesh']):
+                miss.append(j['tex_mesh'])
+        if miss:                                          # отказ ДО группы и денег: форма нужна каждому заданию
+            say(f'ОТКАЗ: нет готовой формы для {len(miss)} заданий (первая: {miss[0]}) — группа не создаётся')
+            return 2
+        for j in jobs:
+            j['job_id'] += '-tex'
     if a.model == 'pixal3d-tex':                          # варианты кадрирования фото (fit — подгонка по силуэту формы, official — как в апстриме): по заданию на вариант, id с суффиксом
         jobs = expand_align_jobs(jobs, aligns)
     for j in jobs:
@@ -538,7 +582,8 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     j = pending.pop(0)
                     png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.rgba.png'), 'rb').read()
                     pl = {'job_id': j['job_id'], 'image_b64': base64.b64encode(png).decode(), 'pipeline_type': pipeline_type(j['res']), 'seed': j['seed'],
-                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_mesh_b64, 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth')}
+                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None),
+                          'texture_mesh_b64': base64.b64encode(shape_only_glb(j['tex_mesh'])).decode() if j.get('tex_mesh') else tex_mesh_b64, 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth')}
                     if j.get('shape_path'):
                         pl['shape_b64'] = base64.b64encode(open(j['shape_path'], 'rb').read()).decode()
                         pl['use_remesh'] = j['variant'] == 'remesh'
@@ -615,6 +660,8 @@ def main() -> int:
     ap.add_argument('--card', default=CARD['class_name'], help='класс карты по полному имени ("RTX 4060 Ti (16 GB)" для localmesh)')
     ap.add_argument('--detail', default='high', choices=['draft', 'standard', 'high', 'max'], help='localmesh: ярус качества (high = форма 1024, 16 шагов, 250 тыс. граней)')
     ap.add_argument('--texture-mesh', default=None, help='контроль: готовая форма (GLB) — TRELLIS.2 только перекрасит её по фото (один товар в --skus)')
+    ap.add_argument('--texture-mesh-dir', default=None, help='контроль «родная краска TRELLIS.2 на тех же формах»: папка готовых форм, у каждого товара своя (<ключ>-<разрешение>-<seed>-<n><суффикс>); много товаров — одна группа')
+    ap.add_argument('--texture-mesh-suffix', default=None, help=f'суффикс файла формы в --texture-mesh-dir (по умолчанию {TEX_MESH_SUFFIX})')
     ap.add_argument('--tex-align', default='fit', help='pixal3d-tex: варианты через запятую, по заданию на вариант: fit (подгонка фото по силуэту формы), official (как в апстриме Pixal3D); добавки: +g<сила направляющей, по умолчанию 1>, +s<проходов сглаживания формы для латента>; пример: fit,official,fit+g3,fit+s60')
     ap.add_argument('--tier', default='high', choices=['batch', 'low', 'medium', 'high'])
     ap.add_argument('--cpu', type=int, default=8)

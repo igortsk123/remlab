@@ -169,14 +169,54 @@ def slab_dust(v: np.ndarray, f: np.ndarray, removed: np.ndarray, band: float = 0
     return out
 
 
-def slab_rule_e(v: np.ndarray, f: np.ndarray, flat_a: np.ndarray) -> np.ndarray:
+def floaters(v: np.ndarray, f: np.ndarray, removed: np.ndarray, small: float = 0.003, gap: float = 0.002, max_faces: int = 20, max_share: float = 0.025) -> np.ndarray:
+    """ПРАВИЛО F («осколки в воздухе»; стол Сего-2 19.11: после E оставалось 6780 мелких кусков — 4951 из них висели в воздухе вокруг предмета с зазором, а не на полу).
+    Мелкий связный кусок ОСТАВШЕГОСЯ (площадь < `small` площади меша), у которого ни одна вершина не ближе `gap` высоты к ТЕЛУ предмета (вершины и центры граней КРУПНЫХ кусков, ≥ `small`) — это отлетевший
+    осколок, он удаляется — но только МИКРО-осколок: меньше `max_faces` граней (у россыпи столика Сего-2 медиана 2 грани, p90 12; у болтов и накладок на панели — сотни граней и размер до 46 % высоты — первая версия 19.11 срезала их и 82 % стеклянной
+    вазы). Прилегающие к телу (зазор ≈ 0) и любые куски от `max_faces` граней остаются. Нет крупных кусков — ничего не трогаем.
+    ПРЕДОХРАНИТЕЛЬ: если микро-осколки в сумме больше `max_share` площади меша, меш раздроблен «по природе» (стеклянная ваза, торшер с абажуром из нитей: осколки — часть поверхности, F пробил бы в ней дырки) — F не применяется."""
+    from scipy.spatial import cKDTree
+    keep = ~removed
+    out = np.zeros(len(f), dtype=bool)
+    if not keep.any():
+        return out
+    area = tri_areas(v, f)
+    total = float(area.sum())
+    ext = max(float(v[:, 1].max() - v[:, 1].min()), 1e-9)
+    idx = np.nonzero(keep)[0]
+    lab = label_components(f[idx], len(v))
+    sm = {}
+    big_idx = []
+    for g in np.unique(lab):
+        gi = idx[lab == g]
+        if float(area[gi].sum()) >= small * total:
+            big_idx.append(gi)
+        else:
+            sm[g] = gi
+    if not big_idx or not sm:
+        return out
+    bi = np.concatenate(big_idx)
+    pts = np.vstack([v[np.unique(f[bi].ravel())], v[f[bi]].mean(axis=1)])
+    tree = cKDTree(pts)
+    for gi in sm.values():
+        d, _ = tree.query(v[np.unique(f[gi].ravel())], k=1)
+        if len(gi) < max_faces and float(d.min()) > gap * ext:
+            out[gi] = True
+    if float(area[out].sum()) > max_share * total:
+        return np.zeros(len(f), dtype=bool)
+    return out
+
+
+def slab_rule_e(v: np.ndarray, f: np.ndarray, flat_a: np.ndarray, use_f: bool = False) -> np.ndarray:
     """ПРАВИЛО ОЧИСТКИ E = куски A, выступающие из-под предмета (целиком) + B (горизонтальные группы у пола вне следа) + «пыль». Маска граней к удалению."""
     slab, _ = slab_faces(v, f)
     rem = slab_pieces(v, f, flat_a) | slab
     area = tri_areas(v, f)
-    if float(area[rem].sum() / max(float(area.sum()), 1e-12)) < 0.10:
-        return rem                                   # плиты нет (стол «Тюлип» и др.) — «пыли» от неё тоже нет; осколки поверхности самого предмета не трогаем
-    return rem | slab_dust(v, f, rem)
+    if float(area[rem].sum() / max(float(area.sum()), 1e-12)) >= 0.10:         # плита есть — убираем «пыль» её осколков; нет (стол «Тюлип») — «пыли» нет, поверхность предмета не трогаем
+        rem = rem | slab_dust(v, f, rem)
+    if not use_f:
+        return rem
+    return rem | floaters(v, f, rem)                                           # F: отлетевшие осколки в воздухе — всегда
 
 
 def slab_faces(v: np.ndarray, f: np.ndarray, band: float = 0.25, top_from: float = 0.35, grow: float = 0.05, horiz: float = 0.8, min_h_share: float = 0.6) -> tuple[np.ndarray, dict]:

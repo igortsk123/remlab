@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import base64
 import io
 import json
 import os
@@ -169,6 +170,7 @@ class FakeBR:
 class FakeGW:
     """Шлюз ноды: прогрет сразу; задания — по сценарию `fail_jobs` (сколько первых упадут)."""
     script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, 'phase': None, 'no_health': False, 'hf_gb': None, 'disk_free': 50.0}
+    sent = []                                             # (job_id, texture_mesh_b64) каждого отправленного задания
 
     def __init__(self, base, key):
         self.jobs, self.k = {}, 0
@@ -186,6 +188,7 @@ class FakeGW:
             return 200, {'gpu': {'name': 'RTX 4090'}}
         if path == '/generate':
             self.k += 1
+            FakeGW.sent.append((body['job_id'], body.get('texture_mesh_b64')))
             self.jobs[body['job_id']] = 'failed' if self.k <= s['fail_jobs'] else 'done'
             return 202, {'status': 'queued'}
         if path.startswith('/job/'):
@@ -276,6 +279,31 @@ rc, mg, br, s = go(d, suffix='t5', br=FakeBR(running_after=10 ** 6))
 ok('нода не вышла в running за час → стоп (платили 0)', s['stopped_by'] == 'no_machine' and s['cost_usd_est'] == 0.0)
 rc, mg, br, s = go(d, suffix='t6', mg=FakeMG(create_code=400))
 ok('создание группы отвергнуто → код 1, гасить нечего', rc == 1 and br.stops == [])
+
+print('[4b] драйвер: родная краска TRELLIS.2 на готовых формах (--texture-mesh-dir, T-20261118-91/9)')
+d3 = tempfile.mkdtemp(prefix='tt-')
+make_inputs(d3, ('a:1', 'b:2'))
+shapes = tempfile.mkdtemp(prefix='tt-shapes-')
+for k, body in (('a_1', b'SHAPE-A'), ('b_2', b'SHAPE-B')):
+    open(os.path.join(shapes, f'{k}-1024-42-0.clean2.glb'), 'wb').write(body)
+FakeGW.sent = []
+rc, mg, br, s = go(d3, skus=['a:1', 'b:2'], suffix='n1', texture_mesh_dir=shapes)
+sent = dict(FakeGW.sent)
+ok('у каждого товара — своя форма, id задания с приставкой -tex, обе формы ушли разными байтами',
+   rc == 0 and sorted(sent) == ['a_1-1024-42-0-tex', 'b_2-1024-42-0-tex'] and sent['a_1-1024-42-0-tex'] != sent['b_2-1024-42-0-tex']
+   and base64.b64decode(sent['a_1-1024-42-0-tex']) == b'SHAPE-A' and base64.b64decode(sent['b_2-1024-42-0-tex']) == b'SHAPE-B', str(sent)[:200])
+ok('результаты — файлы <id>-tex.glb, одна группа на всех, стоп подтверждён один раз',
+   s and [os.path.basename(j['glb_path']) for j in s['jobs']] == ['a_1-1024-42-0-tex.glb', 'b_2-1024-42-0-tex.glb'] and br.stops == ['trial-trellis2-n1'])
+FakeGW.sent = []
+os.remove(os.path.join(shapes, 'b_2-1024-42-0.clean2.glb'))
+rc, mg, br, s = go(d3, skus=['a:1', 'b:2'], suffix='n2', texture_mesh_dir=shapes)
+ok('нет формы хотя бы для одного товара → отказ ДО группы и денег (код 2), задания не отправлены', rc == 2 and ('POST', '') not in mg.calls and br.stops == [] and FakeGW.sent == [])
+rc, mg, br, s = go(d3, skus=['a:1'], suffix='n3', texture_mesh_dir=shapes, model='pixal3d')
+ok('только для trellis2: другая модель с --texture-mesh-dir → отказ (код 2), группа не создаётся', rc == 2 and ('POST', '') not in mg.calls)
+sh = T.shape_only_glb(os.path.join(shapes, 'a_1-1024-42-0.clean2.glb'))
+ok('форма не собирается (не glb) → уходит как есть, без падения', sh == b'SHAPE-A')
+ok('имя файла формы: ключ-разрешение-seed-n + суффикс; свой суффикс', T.texture_mesh_path('/p', {'job_id': 'k-1024-42-0'}) == '/p/k-1024-42-0.clean2.glb'
+   and T.texture_mesh_path('/p', {'job_id': 'k-1024-42-0'}, '.clean3.glb') == '/p/k-1024-42-0.clean3.glb')
 
 print('[5] воркер по HTTP (бэкенд fake)')
 os.environ['MODEL'] = 'fake'
