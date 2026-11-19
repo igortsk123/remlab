@@ -99,6 +99,22 @@ def parse_tex_variant(tok: str) -> dict | None:
     return v
 
 
+DEBUG_CUDA_ENV = {'CUDA_LAUNCH_BLOCKING': '1', 'TORCH_SHOW_CPP_STACKTRACES': '1'}      # отладка CUDA: синхронные запуски ядер (ошибка — на своей строке) и стеки C++; медленнее — по умолчанию выключено
+
+
+def parse_worker_env(items: list[str] | None, debug_cuda: bool = False) -> dict | None:
+    """pixal3d-tex: переменные окружения воркера из `--worker-env ИМЯ=ЗНАЧЕНИЕ` (повтор) и `--debug-cuda`. Допустимы только `PIXTEX_*`, `CUDA_LAUNCH_BLOCKING` и `TORCH_SHOW_CPP_STACKTRACES`
+    (секреты и чужие переменные через флаг не пройдут). Ошибка в записи → None."""
+    import re
+    env = dict(DEBUG_CUDA_ENV) if debug_cuda else {}
+    for it in items or []:
+        m = re.fullmatch(r'(PIXTEX_[A-Z0-9_]+|CUDA_LAUNCH_BLOCKING|TORCH_SHOW_CPP_STACKTRACES)=([A-Za-z0-9_:,.+\-]*)', it.strip())
+        if not m:
+            return None
+        env[m.group(1)] = m.group(2)
+    return env
+
+
 def expand_align_jobs(jobs: list[dict], variants: list[dict]) -> list[dict]:
     """pixal3d-tex: по заданию на каждый вариант; вариантов несколько — id получает суффикс варианта (`…-fit`, `…-fit-g3`), один — id как был."""
     return [dict(j, job_id=f'{j["job_id"]}-{v["tok"].replace("+", "-")}' if len(variants) > 1 else j['job_id'], align=v['align'], tex_guidance=v['guidance'], shape_smooth=v['smooth'])
@@ -136,7 +152,8 @@ def worker_command(path: str | None = None, python: str = 'python', pre: str = '
     return [python, '-u', '-c', code], z
 
 
-def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu: int, mem_mb: int, run_note: str, auth: dict, donor: dict | None = None) -> dict:
+def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu: int, mem_mb: int, run_note: str, auth: dict, donor: dict | None = None,
+               extra_env: dict | None = None) -> dict:
     """Тело группы Salad. `auth` — доступ к приватному реестру (`migrate_groups.ghcr_auth()`); приёмника на проде (`MESH_SINK_*`) в окружении НЕТ.
     `donor` (только hunyuan21) — боевая группа-образец: берём её переменные окружения (STAGED, PIPELINE_VERSION, …) БЕЗ секретов приёмника и очереди."""
     env = {'MODEL': model, 'IMAGE_NOTE': run_note, 'HF_TOKEN': hf_token, 'HF_HOME': '/data/hf', 'OUT_DIR': '/data/out',
@@ -153,6 +170,8 @@ def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu:
         pre = (f'for i in 1 2 3; do python3 -m pip install -q "{TRELLIS_PIP_PIN}" && break; echo "[pip] попытка $i не удалась"; sleep 5; done; '
                f'python3 -m pip list 2>/dev/null | grep -i -E "^(transformers|huggingface|tokenizers|safetensors|torch|trimesh|timm|kornia|numpy) " | tr -s " " | tr "\\n" ";"; echo')
         command, env['TRIAL_WORKER_Z'] = worker_command(python='python3', pre=pre)
+    if extra_env and model == 'pixal3d-tex':              # только пробе краски: остальные модели эти переменные не получают
+        env.update(extra_env)
     if donor is not None:
         denv = (donor.get('container') or {}).get('environment_variables') or {}
         env = {k: v for k, v in denv.items() if not k.startswith(('MESH_SINK', 'QUEUE')) and k not in ('STORAGE_BACKEND', 'DEPLOYMENT_EPOCH')}
@@ -227,6 +246,10 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         if len(skus) != 1 or not aligns or any(x is None for x in aligns):
             say(f'pixal3d-tex: один товар в --skus (форма одна) и --tex-align из {TEX_ALIGNS} с добавками +g<сила>, +s<проходов> (например fit+g3) — группа не создаётся')
             return 2
+    wenv = parse_worker_env(getattr(a, 'worker_env', None), bool(getattr(a, 'debug_cuda', False)))
+    if wenv is None or (wenv and a.model != 'pixal3d-tex'):          # переменные воркера — только пробе краски и только из белого списка; иначе отказ ДО группы и денег
+        say('--worker-env: только ИМЯ=ЗНАЧЕНИЕ из PIXTEX_*, CUDA_LAUNCH_BLOCKING, TORCH_SHOW_CPP_STACKTRACES и только для --model pixal3d-tex; --debug-cuda — тоже только для неё — группа не создаётся')
+        return 2
     MG.env_from_file()
     card = getattr(a, 'card', None) or CARD['class_name']
     if card != CARD['class_name']:                        # другая карта (localmesh — 4060 Ti 16 ГБ): id по полному имени среди классов организации
@@ -261,7 +284,9 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     for j in jobs:
         j['role'] = (inputs.get(j['sku']) or {}).get('role') or meta.get(j['sku'], {}).get('role')
         j['dims_cm'] = meta.get(j['sku'], {}).get('dims_cm')
-    body = build_body(name, a.image, a.tier, a.model, hf, a.cpu, a.mem_mb, a.image.split('@')[-1][:19], MG.ghcr_auth(), donor)
+    body = build_body(name, a.image, a.tier, a.model, hf, a.cpu, a.mem_mb, a.image.split('@')[-1][:19], MG.ghcr_auth(), donor, extra_env=wenv)
+    if wenv:
+        say('окружение воркера (отладка/настройки):', wenv)
     say('группа', name, CARD['class_name'], 'тариф', a.tier, 'цена $/ч', price, 'заданий', len(jobs), 'потолок $', a.cap)
     if not a.apply:
         safe_print(body)
@@ -311,6 +336,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         say('start HTTP', code)
         gw, ready_at, fail_streak = None, None, 0
         ever_ok, last_gb, last_gb_t, last_say = False, None, None, 0.0           # видимость воркера: был ли хоть один ответ /health, рост докачки весов
+        last_hc = 0.0                                                             # последний опрос /health во время задания (воркер «сломан» после фатальной ошибки CUDA)
         pending = list(jobs)
         inflight = None
         while True:
@@ -396,10 +422,26 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     if c not in (202, 409):
                         inflight.update(status='failed', error=f'POST {c} {str(r)[:120]}')
                 elif inflight is not None:
+                    if inflight.get('status') != 'failed' and t - last_hc >= 30:
+                        last_hc = t
+                        ch, hh = gw.call('GET', '/health', timeout=20)
+                        if ch == 200 and (hh.get('broken') or hh.get('ok') is False):
+                            cj, rj = gw.call('GET', '/job/' + inflight['job_id'], timeout=30)          # последний ответ задания (диагностика) — до остановки
+                            if cj == 200 and rj.get('status') in ('done', 'failed'):
+                                inflight.update(status=rj['status'], metrics=rj.get('metrics'), error=rj.get('error'), trace=rj.get('trace'), diag=rj.get('diag'))
+                            else:
+                                inflight.update(status='failed', error=f'воркер сломан: {hh.get("broken") or hh.get("error")}')
+                            inflight['seconds'] = round(t - inflight['submitted'], 1)
+                            summary['jobs'].append(inflight)
+                            summary['failed'] += 1
+                            summary['broken'] = hh.get('broken') or hh.get('error')
+                            say('!! воркер сломан (фатальная ошибка CUDA):', summary['broken'], '— гашу сразу')
+                            summary['stopped_by'] = 'worker_broken'
+                            break
                     if inflight.get('status') != 'failed':
                         c, r = gw.call('GET', '/job/' + inflight['job_id'], timeout=30)
                         if c == 200 and r.get('status') in ('done', 'failed'):
-                            inflight.update(status=r['status'], metrics=r.get('metrics'), error=r.get('error'), trace=r.get('trace'))
+                            inflight.update(status=r['status'], metrics=r.get('metrics'), error=r.get('error'), trace=r.get('trace'), diag=r.get('diag'))
                             if r['status'] == 'done':
                                 cg, glb = gw.call('GET', '/glb/' + inflight['job_id'], timeout=300, raw=True)
                                 if cg == 200:
@@ -423,6 +465,11 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                         fail_streak = fail_streak + 1 if inflight['status'] == 'failed' else 0
                         summary['failed'] += inflight['status'] == 'failed'
                         say('задание', inflight['job_id'], inflight['status'], inflight.get('error') or '', f'{inflight["seconds"]} с')
+                        if (inflight.get('diag') or {}).get('fatal'):         # фатальная ошибка CUDA: следующие задания только повторят её — гасим сразу, не ждём серию отказов
+                            summary['broken'] = inflight.get('error')
+                            say('!! фатальная ошибка CUDA в задании — воркер сломан, гашу сразу')
+                            summary['stopped_by'] = 'worker_broken'
+                            break
                         inflight = None
                         if fail_streak >= a.fail_streak:
                             say(f'!! {a.fail_streak} задания подряд упали — гашу (чинить в коде, не жечь деньги)')
@@ -471,6 +518,9 @@ def main() -> int:
     ap.add_argument('--job-timeout', type=int, default=15)
     ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/mesh-models-1118/trellis'))
+    ap.add_argument('--worker-env', action='append', default=[], metavar='ИМЯ=ЗНАЧЕНИЕ', help='pixal3d-tex: переменная окружения воркера (повторяемая), только PIXTEX_ALLOC_CONF / PIXTEX_LOW_VRAM / PIXTEX_INFERENCE_MODE / PIXTEX_OOM_PROBE512 '
+                    '(PIXTEX_*), CUDA_LAUNCH_BLOCKING, TORCH_SHOW_CPP_STACKTRACES; другим моделям не передаётся')
+    ap.add_argument('--debug-cuda', action='store_true', help='pixal3d-tex: CUDA_LAUNCH_BLOCKING=1 и TORCH_SHOW_CPP_STACKTRACES=1 в группу (ошибка CUDA — на своей строке, со стеком C++; медленнее). По умолчанию выключено')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--stop-only', action='store_true')
     a = ap.parse_args()

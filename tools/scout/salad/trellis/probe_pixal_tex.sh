@@ -10,6 +10,9 @@
 #
 # Образ: тот же, что у пробы pixal3d (`Dockerfile.pixal3d`, пересборки НЕ нужно; код едет через command). Адрес — IMAGE (по умолчанию тег пакета pixal3d-trial).
 # Группа своя: `trial-pixal3d-tex-<SUFFIX>` (группа рабочего 1 `r30` не трогается). Только 4090, тариф high ($0,33/ч), остановка с проверкой — в драйвере.
+# Отладка CUDA (T-20261119-05/3, выключена по умолчанию): `DEBUG_CUDA=1` — CUDA_LAUNCH_BLOCKING=1 и TORCH_SHOW_CPP_STACKTRACES=1 в группу; `WORKER_ENV="ИМЯ=ЗНАЧЕНИЕ …"` — настройки
+# воркера краски: PIXTEX_ALLOC_CONF (по умолчанию expandable_segments:False), PIXTEX_LOW_VRAM (1), PIXTEX_INFERENCE_MODE (1), PIXTEX_OOM_PROBE512 (0). Один «fit»-прогон с отладкой:
+# `VARIANTS=fit DEBUG_CUDA=1 CAP=0.28 APPLY=1 probe_pixal_tex.sh`.
 # Четыре варианта на одну форму: fit (подгонка фото), official (как в апстриме — контроль), fit+g3 (сильнее слушаться фото), fit+s60 (латент формы по сглаженной копии).
 set -u
 REPO="${REPO:-/home/pakar/igor/remlab/.claude/worktrees/pixtex-1119}"
@@ -34,9 +37,12 @@ if [ -z "${ONLY_SCORE:-}" ]; then
   cd "$TR" || exit 2
   FLAG=""
   [ "${APPLY:-0}" = "1" ] && FLAG="--apply"
+  EXTRA=()
+  [ "${DEBUG_CUDA:-0}" = "1" ] && EXTRA+=(--debug-cuda)          # CUDA_LAUNCH_BLOCKING=1 + TORCH_SHOW_CPP_STACKTRACES=1 в группу (по умолчанию выключено)
+  for kv in ${WORKER_ENV:-}; do EXTRA+=(--worker-env "$kv"); done  # например WORKER_ENV="PIXTEX_LOW_VRAM=0 PIXTEX_OOM_PROBE512=1"
   "$PY" trellis_trial.py --model pixal3d-tex --image "$IMAGE" --inputs "$BASE/inputs30" --skus "$SKU" \
     --texture-mesh "$SHAPE" --tex-align "$VARIANTS" --plan 1024:1 --seed 42 --tier high --cap "$CAP" \
-    --suffix "$SUFFIX" --out "$OUT" $FLAG || exit $?
+    --suffix "$SUFFIX" --out "$OUT" ${EXTRA[@]+"${EXTRA[@]}"} $FLAG || exit $?
   [ -z "$FLAG" ] && { echo "сухой прогон окончен: денег 0"; exit 0; }
   GLBS_DIR="$OUT"
 else
@@ -58,4 +64,4 @@ for g in "${LIST[@]}"; do
 done
 "$PY" "$TR/score_pixal_tex.py" "$BASE/inputs30/${SKUF}.rgba.png" "$OUT/score" "${LIST[@]}" 2>&1 | tee "$OUT/score.log"
 echo "готово: кадры $OUT/frames/*, метрика $OUT/score/score.json, кадры фасада $OUT/score/frames-az000.png и frames-az045.png"
-echo "метрики воркера (форма не изменилась: shape.hausdorff_rel <= 1e-4, tris_in == tris_out): $OUT/*.metrics.json"
+echo "метрики воркера (форма не изменилась: shape.hausdorff_rel <= 1e-4, tris_in == tris_out; память по стадиям: mem, кодировщик: encoder; при падении — diag): $OUT/summary-trial-pixal3d-tex-$SUFFIX.json"

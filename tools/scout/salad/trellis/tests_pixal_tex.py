@@ -292,6 +292,16 @@ if have_tm:
         back = trimesh.load(out_glb, force='mesh')
         ok(f'[{align}] GLB пишется и читается: те же грани, габарит как у входа', len(back.faces) == len(F) and np.allclose(back.extents, mesh_in.extents, atol=1e-5))
 
+    # между стадиями: синхронизация → освобождение памяти → замер (T-20261119-05/3, ❷); вход кодировщика отдаётся для диагностики 512
+    ev: list = []
+    hk_t = {'sync': lambda: ev.append('sync'), 'free': lambda: ev.append('free'), 'mem': lambda n_: ev.append('mem:' + n_), 'enc_mesh': lambda m_: ev.append(('enc_mesh', len(m_.faces)))}
+    W.texture_on_shape(FakePipe(), mesh_in, photo, cam, {'align': 'fit'}, hk_t)
+    mi = [i for i, x in enumerate(ev) if isinstance(x, str) and x.startswith('mem:')]
+    ok('замер памяти после КАЖДОЙ стадии: fit, encode_shape, cond, sample_tex, decode_tex, bake, check_shape',
+       [ev[i] for i in mi] == ['mem:fit', 'mem:encode_shape', 'mem:cond', 'mem:sample_tex', 'mem:decode_tex', 'mem:bake', 'mem:check_shape'], str([ev[i] for i in mi]))
+    ok('на каждой границе стадий порядок: синхронизация → освобождение (gc + empty_cache) → замер', all(ev[i - 2] == 'sync' and ev[i - 1] == 'free' for i in mi))
+    ok('вход кодировщика (тот же меш, что ушёл в encode_shape_slat) отдан один раз — до кодировщика', ev.count(('enc_mesh', len(F))) == 1 and ev.index(('enc_mesh', len(F))) < ev.index('mem:encode_shape'))
+
     # фото снято под углом (поворот 15°, наклон 10°): форма идёт в кодировщик повёрнутой, а на выходе возвращается в исходный кадр точно
     pr, _c, _s, _R = W.to_cube(Vi, 15, 10)
     ur, vr_, _ = W.project_cube(pr, FOV, DIST, 1.25)
@@ -355,8 +365,9 @@ print('[3] драйвер')
 import trellis_trial as T  # noqa: E402
 b = T.build_body('trial-pixal3d-tex-x', 'ghcr.io/x/y:t', 'high', 'pixal3d-tex', 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}})
 e = b['container']['environment_variables']
-ok('тело группы: MODEL=pixal3d-tex, код воркера едет в command (как у pixal3d, без pip-пина TRELLIS.2), приёмника нет',
-   e['MODEL'] == 'pixal3d-tex' and b['container']['command'][:3] == ['python3', '-u', '-c'] and not any(k.startswith('MESH_SINK') for k in e)
+ok('тело группы: MODEL=pixal3d-tex, код воркера едет в command (как у pixal3d: сперва пин huggingface_hub==0.35.3, затем воркер), приёмника нет',
+   e['MODEL'] == 'pixal3d-tex' and b['container']['command'][:2] == ['bash', '-c'] and 'huggingface_hub==0.35.3' in b['container']['command'][2] and 'exec python3 -u -c' in b['container']['command'][2]
+   and not any(k.startswith('MESH_SINK') for k in e)
    and __import__('zlib').decompress(__import__('base64').b64decode(e['TRIAL_WORKER_Z'])) == open(os.path.join(HERE, 'worker_trellis.py'), 'rb').read())
 ok('закрытые веса DINOv3 проверяются бесплатно до создания группы (как у pixal3d)', 'pixal3d-tex' in T.HF_GATED and T.HF_GATED['pixal3d-tex'] == T.HF_GATED['pixal3d'])
 ok('только 4090, образ тот же', b['container']['resources']['gpu_classes'] == [T.CARD['class_id']] and b['container']['image'] == 'ghcr.io/x/y:t')
@@ -388,6 +399,224 @@ ok('один вариант: id как был', [j['job_id'] for j in one] == ['
 ok('неверные записи вариантов отвергаются', all(T.parse_tex_variant(x) is None for x in ('zzz', 'fit+x3', 'fit+g0', 'fit+g11', 'fit+s0', 'fit+sabc', 'fit+s501', '')))
 rc = T.run(types.SimpleNamespace(**{**base, 'texture_mesh': '/x.glb', 'tex_align': 'fit+g99'}), NoTouchMG(), NoTouchMG())
 ok('--tex-align fit+g99: отказ (код 2) до обращения к Salad', rc == 2)
+
+print('[3b] драйвер: окружение воркера и отладка CUDA (T-20261119-05/3, ❺)')
+we = T.parse_worker_env(['PIXTEX_LOW_VRAM=0', 'PIXTEX_ALLOC_CONF=expandable_segments:False,max_split_size_mb:512'])
+ok('--worker-env: PIXTEX_* принимаются', we == {'PIXTEX_LOW_VRAM': '0', 'PIXTEX_ALLOC_CONF': 'expandable_segments:False,max_split_size_mb:512'}, str(we))
+ok('--debug-cuda = CUDA_LAUNCH_BLOCKING=1 + TORCH_SHOW_CPP_STACKTRACES=1; по умолчанию пусто', T.parse_worker_env([], True) == {'CUDA_LAUNCH_BLOCKING': '1', 'TORCH_SHOW_CPP_STACKTRACES': '1'} and T.parse_worker_env([], False) == {} and T.parse_worker_env(None) == {})
+ok('чужие и кривые записи отвергаются (секреты и произвольные переменные через флаг не проходят)',
+   all(T.parse_worker_env([x]) is None for x in ('HF_TOKEN=x', 'PIXTEX_LOW_VRAM', 'PIXTEX_LOW_VRAM=1;rm', 'PATH=/x', 'pixtex_low_vram=1', 'PIXTEX_X=a b')))
+bd = T.build_body('trial-pixal3d-tex-x', 'ghcr.io/x/y:t', 'high', 'pixal3d-tex', 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}}, extra_env=T.parse_worker_env([], True))
+ok('в тело группы pixal3d-tex окружение отладки попадает', bd['container']['environment_variables']['CUDA_LAUNCH_BLOCKING'] == '1' and bd['container']['environment_variables']['TORCH_SHOW_CPP_STACKTRACES'] == '1')
+ok('по умолчанию в группу отладки нет (выключена)', not any(k in e for k in ('CUDA_LAUNCH_BLOCKING', 'TORCH_SHOW_CPP_STACKTRACES')) and not any(k.startswith('PIXTEX_') for k in e))
+for mdl in ('pixal3d', 'trellis2', 'localmesh'):
+    bo = T.build_body('trial-x-y', 'ghcr.io/x/y:t', 'high', mdl, 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}}, extra_env={'CUDA_LAUNCH_BLOCKING': '1'})
+    ok(f'другая модель ({mdl}) переменных отладки не получает', 'CUDA_LAUNCH_BLOCKING' not in bo['container']['environment_variables'])
+for name, kw in (('кривая запись', {'worker_env': ['HF_TOKEN=x']}), ('--debug-cuda у другой модели', {'model': 'trellis2', 'debug_cuda': True, 'texture_mesh': None})):
+    rc = T.run(types.SimpleNamespace(**{**base, 'texture_mesh': '/x.glb', **kw}), NoTouchMG(), NoTouchMG())
+    ok(f'{name}: отказ (код 2) до обращения к Salad', rc == 2)
+sh = open(os.path.join(HERE, 'probe_pixal_tex.sh'), encoding='utf-8').read()
+ok('скрипт пробы: DEBUG_CUDA=1 → --debug-cuda, WORKER_ENV → --worker-env; по умолчанию выключено', 'DEBUG_CUDA:-0' in sh and '--debug-cuda' in sh and '--worker-env' in sh and 'WORKER_ENV:-' in sh)
+
+print('[4] воркер pixal3d-tex: аллокатор CUDA, low_vram, «сломан» после фатальной ошибки (без видеокарты, с поддельным torch)')
+import contextlib  # noqa: E402
+import inspect  # noqa: E402
+import threading  # noqa: E402
+import urllib.error  # noqa: E402
+import urllib.request  # noqa: E402
+from types import SimpleNamespace as NS  # noqa: E402
+
+
+class OutOfMemoryError(RuntimeError):          # как torch.cuda.OutOfMemoryError (классифицируем по имени класса и тексту, torch не нужен)
+    pass
+
+
+for exc, want in ((OutOfMemoryError('CUDA out of memory. Tried to allocate 2.00 GiB'), 'oom'), (RuntimeError('CUDA error: out of memory'), 'oom'),
+                  (RuntimeError('CUDA driver error: device not ready'), 'fatal'), (RuntimeError('!handles_.at(i) INTERNAL ASSERT FAILED at "CUDACachingAllocator.cpp":400'), 'fatal'),
+                  (RuntimeError('CUDA error: an illegal memory access was encountered'), 'fatal'), (RuntimeError('CUDA error: device-side assert triggered'), 'fatal'),
+                  (ValueError('форма: нет мешей'), 'other'), (W.ShapeChanged('форма сдвинулась'), 'other'), (KeyError('x'), 'other')):
+    ok(f'ошибка «{str(exc)[:46]}» → {want}', W.classify_cuda_error(exc) == want, W.classify_cuda_error(exc))
+
+
+def fake_torch(eff=None, calls=None):
+    """Поддельный torch: аллокатор запоминает строку настроек и отдаёт её в `_snapshot()['allocator_settings']` (как memory_snapshot.cpp:371-375); память — круглые числа."""
+    st = {'exp': None}
+    calls = calls if calls is not None else []
+
+    def setter(s):
+        calls.append(s)
+        for it in s.split(','):
+            k, _, v = it.partition(':')
+            if k == 'expandable_segments':
+                st['exp'] = v == 'True'
+    g = 2 ** 30
+    cuda = NS(memory=NS(_set_allocator_settings=setter, _snapshot=lambda: {'allocator_settings': {'expandable_segments': st['exp'] if eff is None else eff}}),
+              mem_get_info=lambda: (10 * g, 24 * g), memory_allocated=lambda: g, memory_reserved=lambda: 2 * g, max_memory_allocated=lambda: 3 * g, max_memory_reserved=lambda: 4 * g,
+              reset_peak_memory_stats=lambda: calls.append('reset_peak'), synchronize=lambda: calls.append('sync'), empty_cache=lambda: calls.append('empty_cache'))
+    mod = types.ModuleType('torch')
+    mod.cuda, mod.inference_mode, mod.no_grad = cuda, (lambda: contextlib.nullcontext()), (lambda: contextlib.nullcontext())
+    return mod
+
+
+env_keep = {k: os.environ.get(k) for k in ('PYTORCH_CUDA_ALLOC_CONF', 'PIXTEX_ALLOC_CONF')}
+os.environ.pop('PIXTEX_ALLOC_CONF', None)
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'            # так оставляет `import inference` (inference.py:11)
+cl: list = []
+r_a = W.apply_alloc_conf(fake_torch(calls=cl))
+ok('аллокатор: по умолчанию expandable_segments:False, перебивает значение апстрима и в env, и в самом аллокаторе (вызов на ходу)',
+   os.environ['PYTORCH_CUDA_ALLOC_CONF'] == 'expandable_segments:False' and cl == ['expandable_segments:False'] and r_a['wanted'] == 'expandable_segments:False', str((r_a, cl)))
+ok('в /health и метрики уходит действующее значение аллокатора (effective.expandable_segments == False)', r_a['effective'].get('expandable_segments') is False and r_a['env'] == 'expandable_segments:False')
+os.environ['PIXTEX_ALLOC_CONF'] = 'expandable_segments:True,max_split_size_mb:512'
+ok('PIXTEX_ALLOC_CONF переопределяет значение', W.apply_alloc_conf(fake_torch())['effective'].get('expandable_segments') is True and os.environ['PYTORCH_CUDA_ALLOC_CONF'] == 'expandable_segments:True,max_split_size_mb:512')
+os.environ['PIXTEX_ALLOC_CONF'] = 'expandable_segments:False'
+try:
+    W.apply_alloc_conf(fake_torch(eff=True))
+    ok('аллокатор не принял настройку (действует True, просили False) — отказ при прогреве, а не молчание', False)
+except RuntimeError as e:
+    ok('аллокатор не принял настройку (действует True, просили False) — отказ при прогреве, а не молчание', 'не принял' in str(e))
+for k, v in env_keep.items():
+    if v is None:
+        os.environ.pop(k, None)
+    else:
+        os.environ[k] = v
+
+src = inspect.getsource(W.PixalTexBackend.load)
+ok('порядок в load: import inference → apply_alloc_conf → прочие импорты и ЛЮБОЕ выделение на карте', src.index('import inference as INF') < src.index('apply_alloc_conf(torch)') < src.index('import o_voxel') < src.index('from_pretrained'))
+ok('старый setdefault(PYTORCH_CUDA_ALLOC_CONF, True) убран', "setdefault('PYTORCH_CUDA_ALLOC_CONF'" not in src)
+ok('PIXTEX_LOW_VRAM (по умолчанию 1), PIXTEX_INFERENCE_MODE (1), PIXTEX_OOM_PROBE512 (0) читаются при прогреве', all(s in src for s in ("os.environ.get('PIXTEX_LOW_VRAM', '1')", "os.environ.get('PIXTEX_INFERENCE_MODE', '1')", "os.environ.get('PIXTEX_OOM_PROBE512', '0')")))
+low_part, _, std_part = src.partition('if self.low_vram:\n            # как')[2].partition('else:\n            pipe.cuda()')
+ok('low_vram: pipe.cuda() и постоянный .cuda() экстрактора — только в ветке «выключено»; во включённой — NAF на CPU и `_device` карты',
+   '_load_naf()' in low_part and "pipe._device = torch.device('cuda')" in low_part and 'cuda()' not in low_part.replace("torch.device('cuda')", '') and 'pipe.cuda()' not in low_part and std_part.count('.cuda()') >= 1)
+ok('MoGe: при low_vram грузится на CPU; на карте — только на время камеры', "device='cpu' if self.low_vram else 'cuda'" in src and "self.moge.to('cuda')" in inspect.getsource(W.PixalTexBackend.generate) and "self.moge.to('cpu')" in inspect.getsource(W.PixalTexBackend.generate))
+ok('значения по умолчанию класса: low_vram=True, inference_mode=True, probe512=False', W.PixalTexBackend.low_vram is True and W.PixalTexBackend.inference_mode is True and W.PixalTexBackend.probe512 is False)
+ok('Pixal3DBackend рабочего 1 не тронут: его load по-прежнему читает PIXAL3D_LOW_VRAM и не знает PIXTEX_*', 'PIXAL3D_LOW_VRAM' in inspect.getsource(W.Pixal3DBackend.load) and 'PIXTEX' not in inspect.getsource(W.Pixal3DBackend))
+
+# — «сломан» и обычная нехватка памяти: настоящие `run_job`/`health`/POST воркера на поддельном бэкенде —
+torch_keep = sys.modules.get('torch')
+sys.modules['torch'] = fake_torch()
+sav = {k: getattr(W, k) for k in ('JOBS_DIR', 'OUT', 'STATE_PATH', 'BACKEND')}
+sav_state = dict(W.STATE)
+td = tempfile.mkdtemp(prefix='ptxw-')
+W.JOBS_DIR, W.OUT, W.STATE_PATH = os.path.join(td, 'jobs'), os.path.join(td, 'out'), os.path.join(td, 'state.json')
+os.makedirs(W.JOBS_DIR)
+os.makedirs(W.OUT)
+
+
+def mkjob(jid):
+    Image.new('RGBA', (8, 8), (1, 2, 3, 255)).save(os.path.join(W.JOBS_DIR, jid + '.png'))
+    open(os.path.join(W.JOBS_DIR, jid + '.req.json'), 'w').write(json.dumps({'job_id': jid, 'texture_mesh': True}))
+
+
+def reset_state():
+    """Воркер снова «жив»: и в памяти ребёнка, и в файле состояния (его читает /health главного процесса)."""
+    W.STATE.pop('broken', None)
+    W.STATE.update(phase='ready', warm=True, error=None)
+    W.save_state()
+
+
+def result(jid):
+    return json.load(open(os.path.join(W.JOBS_DIR, jid + '.res.json'), encoding='utf-8'))
+
+
+class FakeEnc:
+    def __init__(self, exc=None):
+        self.calls, self.exc, self.diag = [], exc, {'active_voxels': 1_200_000, 'faces': 500}
+
+    def encode_shape_slat(self, mesh, resolution):
+        self.calls.append(resolution)
+        if self.exc:
+            raise self.exc
+        self.diag = {'resolution': resolution, 'active_voxels': 150_000}
+        return NS(coords=np.zeros((7, 4)))
+
+
+class FakeBackend(W.PixalTexBackend):
+    """Настоящие `on_error`/`_probe512` бэкенда краски; `generate` — по сценарию."""
+    def __init__(self, exc, probe=False, enc_exc=None):
+        self.exc, self.n = exc, 0
+        self.pipe = FakeEnc(enc_exc)
+        self._trace = {'start': {'allocated_gb': 1.0}, 'camera': {'allocated_gb': 1.2}}
+        self.probe512, self._enc_mesh = probe, (object() if probe else None)
+
+    def generate(self, image, params, path):
+        self.n += 1
+        raise self.exc
+
+
+try:
+    reset_state()
+    gm = W.gpu_mem()
+    ok('gpu_mem: allocated/reserved/пики/свободно/всего из PyTorch и драйвера (ГБ)', gm == {'allocated_gb': 1.0, 'reserved_gb': 2.0, 'peak_allocated_gb': 3.0, 'peak_reserved_gb': 4.0, 'free_gb': 10.0, 'total_gb': 24.0}, str(gm))
+    # ❹ фатальная ошибка
+    W.BACKEND = fb = FakeBackend(RuntimeError('CUDA driver error: device not ready'))
+    mkjob('j1')
+    W.run_job('j1')
+    r1 = result('j1')
+    ok('фатальная ошибка: задание failed, diag.fatal, замеры кодировщика и память по стадиям в ответе', r1['status'] == 'failed' and r1['diag']['kind'] == 'fatal' and r1['diag']['fatal'] is True
+       and r1['diag']['encoder']['active_voxels'] == 1_200_000 and r1['diag']['stage_mem']['camera']['allocated_gb'] == 1.2 and r1['diag']['mem']['free_gb'] == 10.0, str(r1.get('diag')))
+    ok('воркер помечен сломанным', 'device not ready' in str(W.STATE.get('broken')) and W.STATE['warm'] is False and W.STATE['phase'] == 'broken')
+    h = W.health()
+    ok('/health: ok=false, phase=broken, warm=false, причина в error и broken', h['ok'] is False and h['phase'] == 'broken' and h['warm'] is False and 'device not ready' in str(h['error']) and h['broken'] == h['error'], str(h))
+    mkjob('j2')
+    W.run_job('j2')
+    r2 = result('j2')
+    ok('новое задание после «сломан»: отказ сразу, бэкенд (видеокарта) не вызывается', r2['status'] == 'failed' and 'воркер сломан' in r2['error'] and fb.n == 1)
+    srv = W.make_server(0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    import base64  # noqa: E402
+    rq = urllib.request.Request(f'http://127.0.0.1:{srv.server_address[1]}/generate', data=json.dumps({'job_id': 'j3', 'image_b64': base64.b64encode(b'x').decode()}).encode(), method='POST')
+    try:
+        urllib.request.urlopen(rq, timeout=10)
+        code_post, body_post = 200, {}
+    except urllib.error.HTTPError as he:
+        code_post, body_post = he.code, json.loads(he.read())
+    srv.shutdown()
+    ok('POST /generate у сломанного воркера: 503 с причиной, файлов задания не создаёт', code_post == 503 and 'broken' in body_post and not os.path.exists(os.path.join(W.JOBS_DIR, 'j3.req.json')), str((code_post, body_post)))
+    # обычная нехватка памяти: воркер жив, диагностика 512 — только если включена
+    reset_state()
+    W.BACKEND = fb = FakeBackend(OutOfMemoryError('CUDA out of memory. Tried to allocate 3.00 GiB'))
+    mkjob('o1')
+    W.run_job('o1')
+    ro = result('o1')
+    ok('обычная нехватка памяти (OutOfMemoryError): diag.kind=oom, НЕ фатальная, воркер жив (/health ok), память освобождена, диагностики 512 нет (выключена по умолчанию)',
+       ro['diag']['kind'] == 'oom' and ro['diag']['fatal'] is False and not W.STATE.get('broken') and W.health()['ok'] is True and 'probe512' not in ro['diag'] and fb.pipe.calls == []
+       and 'mem_after_free' in ro['diag'], str(ro['diag']))
+    W.BACKEND = fb = FakeBackend(OutOfMemoryError('CUDA out of memory.'), probe=True)
+    mkjob('o2')
+    W.run_job('o2')
+    ro = result('o2')
+    ok('PIXTEX_OOM_PROBE512=1: после обычной нехватки памяти ровно один проход кодировщика в 512, с замерами; краска не считается; воркер жив',
+       fb.pipe.calls == [512] and ro['diag']['probe512']['ok'] is True and ro['diag']['probe512']['resolution'] == 512 and ro['diag']['probe512']['active_voxels'] == 150_000
+       and ro['diag']['probe512']['tokens'] == 7 and 'mem_after' in ro['diag']['probe512'] and ro['diag']['fatal'] is False and not W.STATE.get('broken'), str(ro['diag']))
+    W.BACKEND = fb = FakeBackend(OutOfMemoryError('CUDA out of memory.'), probe=True, enc_exc=RuntimeError('CUDA error: an illegal memory access was encountered'))
+    mkjob('o3')
+    W.run_job('o3')
+    ro = result('o3')
+    ok('если диагностика 512 сама ловит фатальную ошибку CUDA — воркер сломан', ro['diag']['probe512']['ok'] is False and ro['diag']['probe512']['fatal'] is True and ro['diag']['fatal'] is True and W.STATE.get('broken'))
+    reset_state()
+    W.BACKEND = fb = FakeBackend(ValueError('форма: нет мешей'), probe=True)
+    mkjob('x1')
+    W.run_job('x1')
+    rx = result('x1')
+    ok('ошибка входа (ValueError): kind=other, воркер жив, память не трогали, диагностики 512 нет', rx['diag']['kind'] == 'other' and rx['diag']['fatal'] is False and not W.STATE.get('broken') and fb.pipe.calls == [] and 'probe512' not in rx['diag'])
+    # бэкенд без on_error (все остальные модели) — прежнее поведение
+    class Plain:
+        def generate(self, image, params, path):
+            raise RuntimeError('CUDA driver error: device not ready')
+    W.BACKEND = Plain()
+    mkjob('p1')
+    W.run_job('p1')
+    rp = result('p1')
+    ok('другие модели (бэкенд без on_error): прежнее поведение — failed без diag, воркер не помечается сломанным', rp['status'] == 'failed' and 'diag' not in rp and not W.STATE.get('broken'))
+finally:
+    for k, v in sav.items():
+        setattr(W, k, v)
+    W.STATE.clear()
+    W.STATE.update(sav_state)
+    if torch_keep is None:
+        sys.modules.pop('torch', None)
+    else:
+        sys.modules['torch'] = torch_keep
 
 print('ИТОГО: ' + ('всё в норме' if not bad else f'провалов {bad}'))
 sys.exit(1 if bad else 0)

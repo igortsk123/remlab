@@ -639,14 +639,17 @@ def texture_on_shape(pipe, mesh, image, cam: dict, params: dict, hooks: dict | N
     вершины возвращаются из куба обратным преобразованием, затем `check_shape_unchanged` (иначе `ShapeChanged`)."""
     import numpy as np
     import trimesh
-    hk = {'seed': lambda s: None, 'sync': lambda: None, 'free': lambda: None, **(hooks or {})}
+    hk = {'seed': lambda s: None, 'sync': lambda: None, 'free': lambda: None, 'mem': lambda name: None, 'enc_mesh': lambda m: None, **(hooks or {})}
     stage: dict = {}
     t = time.time()
 
     def lap(name: str) -> None:
+        """Конец стадии: синхронизация видеокарты → время → освобождение памяти между стадиями (`free`: gc + empty_cache) → замер памяти (`mem`)."""
         hk['sync']()
         nonlocal t
         stage[name] = round(time.time() - t, 2)
+        hk['free']()
+        hk['mem'](name)
         t = time.time()
 
     align = params.get('align') or 'fit'
@@ -680,20 +683,20 @@ def texture_on_shape(pipe, mesh, image, cam: dict, params: dict, hooks: dict | N
         disp = float(np.linalg.norm(np.asarray(sm.vertices) - p, axis=1).max())
         enc_mesh = sm
         smooth_info = {'iterations': smooth_n, 'max_disp_rel': round(disp / float(np.linalg.norm(p.max(0) - p.min(0))), 5)}
+    hk['enc_mesh'](enc_mesh)                 # для диагностики при нехватке памяти: тот же вход в кодировщик, но в 512 (`PixalTexBackend.on_error`)
     shape_slat = pipe.encode_shape_slat(enc_mesh, resolution)
     lap('encode_shape')
     cond = pipe.get_proj_cond_shape(pipe.image_cond_model_tex_1024, [cond_img], shape_slat.coords, camera_angle_x=float(cam['camera_angle_x']),
                                     distance=float(cam['distance']), mesh_scale=cam_scale, grid_resolution_override=resolution // 16)
-    hk['free']()
     lap('cond')
     tex_slat = pipe.sample_tex_slat(cond, pipe.models['tex_slat_flow_model_1024'], shape_slat, params.get('sampler') or {})
     del cond
-    hk['free']()
     lap('sample_tex')
     pbr = pipe.decode_tex_slat_plain(tex_slat)
-    hk['free']()
+    del shape_slat, tex_slat
     lap('decode_tex')
     out = pipe.postprocess_mesh(m_in, pbr, resolution, texture_size)
+    del pbr
     lap('bake')
     v_back = from_cube(undo_upstream_swap(out.vertices), c, s, R).astype(np.float32).astype(np.float64)      # через float32, как лежит в GLB
     final = trimesh.Trimesh(vertices=v_back, faces=np.asarray(out.faces), visual=out.visual, process=False)
@@ -703,6 +706,73 @@ def texture_on_shape(pipe, mesh, image, cam: dict, params: dict, hooks: dict | N
                    'smooth': smooth_info, 'cond_canvas': list(cond_img.size), 'cond_mesh_scale': round(cam_scale, 5), 'photo_crop': list(rgba.size), 'mesh_tris': int(len(faces)), 'tex_resolution': resolution}
 
 
+FATAL_CUDA_MARKERS = ('device not ready', 'illegal memory access', 'internal assert', 'device-side assert', 'unspecified launch failure', 'cuda driver error',
+                      'misaligned address', 'uncorrectable ecc', 'launch failure', 'cuda error', 'cudaerror', 'cublas_status', 'cudnn_status')
+
+
+def classify_cuda_error(e: BaseException) -> str:
+    """`oom` — обычная нехватка видеопамяти (`torch.cuda.OutOfMemoryError` или «out of memory» в тексте): процесс цел, память можно освободить и идти дальше;
+    `fatal` — сбой драйвера/ядра/аллокатора («device not ready», «illegal memory access», «INTERNAL ASSERT» и т. п.): состояние CUDA в процессе испорчено (первая ошибка
+    ломает аллокатор, вторая — её следствие, проба a0346 19.11), дальше задания не берём; `other` — остальное (ошибка входа, форма сдвинулась и т. д.)."""
+    text = f'{type(e).__name__}: {e}'.lower()
+    if type(e).__name__ == 'OutOfMemoryError' or 'out of memory' in text:
+        return 'oom'
+    if any(m in text for m in FATAL_CUDA_MARKERS):
+        return 'fatal'
+    return 'other'
+
+
+def gpu_mem(reset_peak: bool = False) -> dict:
+    """Память видеокарты: PyTorch (выделено/зарезервировано/пик с прошлого замера) и драйвер (`mem_get_info` — свободно/всего), ГБ. Без CUDA или при сбое — пусто, не исключение."""
+    try:
+        import torch
+        g = 2 ** 30
+        free, total = torch.cuda.mem_get_info()
+        d = {'allocated_gb': round(torch.cuda.memory_allocated() / g, 3), 'reserved_gb': round(torch.cuda.memory_reserved() / g, 3),
+             'peak_allocated_gb': round(torch.cuda.max_memory_allocated() / g, 3), 'peak_reserved_gb': round(torch.cuda.max_memory_reserved() / g, 3),
+             'free_gb': round(free / g, 3), 'total_gb': round(total / g, 3)}
+        if reset_peak:
+            torch.cuda.reset_peak_memory_stats()
+        return d
+    except Exception:  # noqa: BLE001 — диагностика не должна ронять задание (после фатальной ошибки CUDA сама может не отвечать)
+        return {}
+
+
+def free_gpu() -> None:
+    """Между стадиями: синхронизация → сборка мусора (отпускает тензоры, на которые держат ссылки циклы и кадры исключений) → возврат кэша аллокатора драйверу."""
+    import gc
+    try:
+        import torch
+        torch.cuda.synchronize()
+        gc.collect()
+        torch.cuda.empty_cache()
+    except Exception:  # noqa: BLE001
+        gc.collect()
+
+
+def apply_alloc_conf(torch) -> dict:
+    """Конфиг аллокатора CUDA для `pixal3d-tex` — ПОСЛЕ `import inference` и ДО первого выделения памяти на видеокарте. Апстрим Pixal3D в `inference.py:11` БЕЗУСЛОВНО пишет
+    `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` при импорте, а `setdefault` у нас это не перебивал (a0346: «!handles_.at(i) INTERNAL ASSERT» в `CUDACachingAllocator.cpp:400` —
+    путь расширяемых сегментов). Читает torch 2.6 так: единственный экземпляр `CUDAAllocatorConfig::instance()` создаётся ПРИ ПЕРВОМ обращении (статическая переменная функции,
+    `getenv` в этот момент — `c10/cuda/CUDAAllocatorConfig.h:80-88`), НЕ при `import torch`; но и позже настройку можно сменить на ходу: `torch.cuda.memory._set_allocator_settings`
+    (`torch/cuda/memory.py:921` → `Module.cpp:446` → `CUDAAllocatorConfig.cpp:412`) заново разбирает строку, `expandable_segments` читается при КАЖДОМ выделении (`CUDACachingAllocator.cpp:2542,2574,2719`).
+    Поэтому и env, и вызов; действующее значение читаем из `torch.cuda.memory._snapshot()['allocator_settings']` (`memory_snapshot.cpp:371-375`) и отказываем, если оно не то."""
+    want = os.environ.get('PIXTEX_ALLOC_CONF', 'expandable_segments:False')
+    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = want
+    torch.cuda.memory._set_allocator_settings(want)
+    eff = None
+    try:
+        eff = torch.cuda.memory._snapshot().get('allocator_settings') or {}
+    except Exception:  # noqa: BLE001
+        pass
+    res = {'wanted': want, 'env': os.environ.get('PYTORCH_CUDA_ALLOC_CONF'), 'effective': eff}
+    for item in want.split(','):
+        k, _, v = item.partition(':')
+        if k.strip() == 'expandable_segments' and eff and eff.get('expandable_segments') != (v.strip() == 'True'):
+            raise RuntimeError(f'аллокатор CUDA не принял {item!r}: действует {eff.get("expandable_segments")}')
+    return res
+
+
 class PixalTexBackend:
     """`pixal3d-tex`: форма TRELLIS.2 (готовый GLB, `<job>.mesh.glb`) + краска Pixal3D по одному фото. Грузим ТОЛЬКО то, что нужно покраске: поток краски 1024 и декодер краски из
     `TencentARC/Pixal3D`, кодировщик формы из `microsoft/TRELLIS.2-4B` (у Pixal3D его нет), экстрактор DINOv3 + NAF стадии tex_1024 и MoGe-2 (камера). Потоки формы и структуры не грузятся
@@ -710,15 +780,31 @@ class PixalTexBackend:
     `decode_tex_slat` без направляющих, `postprocess_mesh` (его Trellis2TexturingPipeline). Образ — тот же, что у `pixal3d` (`Dockerfile.pixal3d`), код едет через `command`."""
     name = 'pixal3d-tex'
 
+    low_vram = True                 # PIXTEX_LOW_VRAM (по умолчанию 1): модели на карту по очереди, не все сразу (a0346: 7,5 из 24 ГБ после прогрева и срыв на пике кодировщика формы)
+    inference_mode = True           # PIXTEX_INFERENCE_MODE (по умолчанию 1): torch.inference_mode вместо no_grad
+    probe512 = False                # PIXTEX_OOM_PROBE512 (по умолчанию 0): при обычной нехватке памяти — один диагностический проход кодировщика формы в 512
+    pipe = None
+    _enc_mesh = None                # вход кодировщика (куб) последнего задания — для диагностики 512
+    _trace: dict = {}               # память по стадиям последнего задания
+
     def load(self) -> dict:
-        os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
         os.environ.setdefault('OPENCV_IO_ENABLE_OPENEXR', '1')
+        os.environ['PYTORCH_CUDA_ALLOC_CONF'] = os.environ.get('PIXTEX_ALLOC_CONF', 'expandable_segments:False')      # до импорта torch; апстрим перепишет при `import inference` — ниже вернём
+        self.low_vram = os.environ.get('PIXTEX_LOW_VRAM', '1') != '0'
+        self.inference_mode = os.environ.get('PIXTEX_INFERENCE_MODE', '1') != '0'
+        self.probe512 = os.environ.get('PIXTEX_OOM_PROBE512', '0') == '1'
         sys.path.insert(0, os.environ.get('PIXAL3D_DIR', '/opt/Pixal3D'))
         STATE['phase'] = 'importing'
         t_imp = time.time()
         import torch
-        import inference as INF
+        import inference as INF                                   # inference.py:11 пишет expandable_segments:True БЕЗУСЛОВНО
+        alloc = apply_alloc_conf(torch)                           # …поэтому сразу после импорта и до первого выделения на карте ставим своё
+        STATE['config'] = {'alloc': alloc, 'low_vram': self.low_vram, 'inference_mode': self.inference_mode, 'oom_probe512': self.probe512,
+                           'debug_env': {k: os.environ.get(k) for k in ('CUDA_LAUNCH_BLOCKING', 'TORCH_SHOW_CPP_STACKTRACES')}}
+        print('[pixtex] конфиг:', json.dumps(STATE['config'], ensure_ascii=False), flush=True)
+        import o_voxel
         from pixal3d import models as PM
+        from pixal3d.modules.sparse import SparseTensor
         from pixal3d.pipelines import Pixal3DImageTo3DPipeline, rembg
         from pixal3d.pipelines.trellis2_texturing import Trellis2TexturingPipeline as T2T
         STATE['timings']['import_s'] = round(time.time() - t_imp, 1)
@@ -739,37 +825,81 @@ class PixalTexBackend:
 
         class TexOnly(Pixal3DImageTo3DPipeline):
             model_names_to_load = ['tex_slat_flow_model_1024', 'tex_slat_decoder']       # Pipeline.from_pretrained качает и грузит только их
-            encode_shape_slat = T2T.encode_shape_slat
-            decode_tex_slat_plain = T2T.decode_tex_slat                                  # без guide_subs (форма не генерируется)
-            postprocess_mesh = T2T.postprocess_mesh                                      # растеризация по развёртке, запекание, inpaint
+            decode_tex_slat_plain = T2T.decode_tex_slat                                  # без guide_subs (форма не генерируется); при low_vram сам переносит декодер на карту и назад (trellis2_texturing.py:280-284)
+            postprocess_mesh = T2T.postprocess_mesh                                      # растеризация по развёртке, запекание, inpaint; моделей не трогает (только тензоры карты)
+            diag: dict = {}
+
+            def encode_shape_slat(self, mesh, resolution: int = 1024):
+                """То же, что `Trellis2TexturingPipeline.encode_shape_slat` (trellis2_texturing.py:183-222: o_voxel.mesh_to_flexible_dual_grid → SparseTensor → кодировщик; при low_vram кодировщик
+                сам идёт на карту и назад), плюс замеры ДО кодировщика: грани, вершины, число активных вокселей и `intersected`, память карты (`self.diag`). Апстрим обучали на ≤ 1 млн вокселей
+                (flexi_dual_grid.py:67) — больше значит риск пика."""
+                d = self.diag = {'resolution': int(resolution), 'verts': int(len(mesh.vertices)), 'faces': int(len(mesh.faces))}
+                vertices = torch.from_numpy(mesh.vertices).float()
+                faces = torch.from_numpy(mesh.faces).long()
+                voxel_indices, dual_vertices, intersected = o_voxel.convert.mesh_to_flexible_dual_grid(
+                    vertices.cpu(), faces.cpu(), grid_size=resolution, aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
+                    face_weight=1.0, boundary_weight=0.2, regularization_weight=1e-2, timing=True)
+                d['active_voxels'] = int(voxel_indices.shape[0])
+                d['over_1m_voxels'] = d['active_voxels'] > 1_000_000
+                try:
+                    d['intersected'] = int(intersected.reshape(len(intersected), -1).any(-1).sum())
+                except Exception:  # noqa: BLE001
+                    d['intersected'] = None
+                vertices = SparseTensor(feats=dual_vertices * resolution - voxel_indices,
+                                        coords=torch.cat([torch.zeros_like(voxel_indices[:, 0:1]), voxel_indices], dim=-1)).to(self.device)
+                intersected = vertices.replace(intersected).to(self.device)
+                d['mem_before_encoder'] = gpu_mem(reset_peak=True)
+                print('[pixtex] до кодировщика:', json.dumps(d, ensure_ascii=False), flush=True)
+                if self.low_vram:
+                    self.models['shape_slat_encoder'].to(self.device)
+                shape_slat = self.models['shape_slat_encoder'](vertices, intersected)
+                if self.low_vram:
+                    self.models['shape_slat_encoder'].cpu()
+                d['mem_after_encoder'] = gpu_mem()
+                return shape_slat
         self.INF = INF
         STATE['phase'] = 'weights'
         t = time.time()
         pipe = TexOnly.from_pretrained(INF.MODEL_PATH)
         pipe.models['shape_slat_encoder'] = PM.from_pretrained('microsoft/TRELLIS.2-4B/ckpts/shape_enc_next_dc_f16c32_fp16')
         pipe.models['shape_slat_encoder'].eval()
-        pipe.low_vram = False
+        pipe.low_vram = self.low_vram
         pipe.image_cond_model_tex_1024 = INF.build_image_cond_model(INF.IMAGE_COND_CONFIGS['tex_1024'])
         t_w = time.time() - t
         STATE['phase'] = 'to_gpu'
         t = time.time()
-        pipe.cuda()
-        pipe.image_cond_model_tex_1024.cuda()
-        pipe.image_cond_model_tex_1024._load_naf()
+        if self.low_vram:
+            # как `inference.init_pipeline(low_vram=True)` (inference.py:84-95): модели остаются на CPU, NAF докачивается на CPU, пайплайн знает карту (`_device`); каждая стадия сама переносит свою модель
+            # на карту и назад: кодировщик формы — trellis2_texturing.py:217-221, DINOv3+NAF (одним `image_cond_model.to/.cpu`, он двигает и NAF) — pixal3d_image_to_3d.py:255-256 и 287-288,
+            # поток краски — 533/544, декодер — trellis2_texturing.py:280-284
+            pipe.image_cond_model_tex_1024._load_naf()
+            pipe._device = torch.device('cuda')
+        else:
+            pipe.cuda()
+            pipe.image_cond_model_tex_1024.cuda()
+            pipe.image_cond_model_tex_1024._load_naf()
         self.pipe = pipe
         t_gpu = time.time() - t
         STATE['phase'] = 'moge'
         t = time.time()
-        self.moge = INF.load_moge_model(device='cuda')
-        torch.cuda.synchronize()
-        return {'weights_s': round(t_w, 1), 'to_gpu_s': round(t_gpu, 1), 'moge_s': round(time.time() - t, 1)}
+        self.moge = INF.load_moge_model(device='cpu' if self.low_vram else 'cuda')           # при low_vram — на карту только на время расчёта камеры
+        free_gpu()
+        STATE['config']['mem_after_warm'] = gpu_mem()
+        return {'weights_s': round(t_w, 1), 'to_gpu_s': round(t_gpu, 1), 'moge_s': round(time.time() - t, 1), 'mem_after_warm': STATE['config']['mem_after_warm']}
 
     def generate(self, image, params: dict, path: str) -> dict:
         if not params.get('texture_mesh'):
             raise ValueError('pixal3d-tex красит готовую форму: нужен --texture-mesh <clean.glb>')
         import torch
         import trimesh
-        torch.cuda.reset_peak_memory_stats()
+        self._enc_mesh = None
+        self.pipe.diag = {}
+        trace: dict = {}                                                   # память карты после каждой стадии (пик — с прошлого замера); пишется и при падении (`on_error`)
+        self._trace = trace
+
+        def mem(name: str) -> None:
+            trace[name] = gpu_mem(reset_peak=True)
+        mem('start')
         t = time.time()
         sc = trimesh.load(os.path.join(JOBS_DIR, params['job_id'] + '.mesh.glb'), force='scene')
         parts = sc.dump()                                                  # геометрии с применёнными преобразованиями узлов
@@ -781,18 +911,64 @@ class PixalTexBackend:
         rgba = crop_square_rgba(image)
         tmp = os.path.join(OUT, f'_pre_{os.getpid()}_{int(time.time() * 1000)}.png')
         compose_black(rgba).save(tmp)
-        cam = self.INF.get_camera_params_wild_moge(tmp, self.moge, device='cuda', mesh_scale=1.0, extend_pixel=0, image_resolution=512)
-        os.remove(tmp)
+        ctx = torch.inference_mode if self.inference_mode else torch.no_grad
+        try:
+            if self.low_vram:
+                self.moge.to('cuda')                                       # MoGe на карте только на время камеры
+            with ctx():
+                cam = self.INF.get_camera_params_wild_moge(tmp, self.moge, device='cuda', mesh_scale=1.0, extend_pixel=0, image_resolution=512)
+        finally:
+            if self.low_vram:
+                self.moge.to('cpu')
+            os.remove(tmp)
+        free_gpu()
+        mem('camera')
         camera_s = round(time.time() - t, 2)
         samp = {'steps': 12, 'guidance_strength': float(params.get('tex_guidance') or 1.0), 'guidance_rescale': 0.0, 'rescale_t': 3.0}
-        hooks = {'seed': torch.manual_seed, 'sync': torch.cuda.synchronize, 'free': torch.cuda.empty_cache}
-        with torch.no_grad():
+        hooks = {'seed': torch.manual_seed, 'sync': torch.cuda.synchronize, 'free': free_gpu, 'mem': mem, 'enc_mesh': lambda m_: setattr(self, '_enc_mesh', m_)}
+        with ctx():
             final, m = texture_on_shape(self.pipe, mesh, image, cam, {**params, 'sampler': samp}, hooks)
         final.export(path, extension_webp=bool(int(os.environ.get('EXPORT_WEBP', '0'))))
         m['stage_s'].update({'load_shape': load_s, 'camera': camera_s})
-        m.update({'mode': 'pixal3d_tex', 'peak_vram_gb': round(torch.cuda.max_memory_allocated() / 2 ** 30, 2), 'peak_reserved_gb': round(torch.cuda.max_memory_reserved() / 2 ** 30, 2),
+        m.update({'mode': 'pixal3d_tex', 'peak_vram_gb': max([v.get('peak_allocated_gb', 0.0) for v in trace.values()] or [0.0]),
+                  'peak_reserved_gb': max([v.get('peak_reserved_gb', 0.0) for v in trace.values()] or [0.0]), 'mem': trace, 'encoder': dict(self.pipe.diag),
+                  'config': dict(STATE.get('config') or {}),
                   'camera_params': {'fov_rad': round(float(cam['camera_angle_x']), 4), 'distance': round(float(cam['distance']), 3)}})
         return m
+
+    def on_error(self, e: BaseException) -> dict:
+        """Разбор упавшего задания (зовёт `run_job`): тип ошибки (`classify_cuda_error`), память по стадиям до падения, замеры кодировщика, действующий конфиг аллокатора. `fatal` — воркер помечается
+        сломанным (`mark_broken`: /health ok=false, новые задания отказ), драйвер гасит группу сразу. Обычная нехватка памяти (`oom`) — освободить память и, при PIXTEX_OOM_PROBE512=1, один
+        диагностический проход кодировщика формы в 512 (только он, без краски) — ответ «лезет ли форма в карту при меньшем разрешении»."""
+        import traceback as tb
+        kind = classify_cuda_error(e)
+        tb.clear_frames(e.__traceback__)                      # кадры исключения держат тензоры — без этого освободить память нельзя
+        diag = {'kind': kind, 'fatal': kind == 'fatal', 'mem': gpu_mem(), 'stage_mem': dict(self._trace), 'encoder': dict(getattr(self.pipe, 'diag', {}) or {}),
+                'config': STATE.get('config')}
+        if kind == 'oom':
+            free_gpu()
+            diag['mem_after_free'] = gpu_mem()
+            if self.probe512 and self._enc_mesh is not None:
+                diag['probe512'] = self._probe512()
+                if diag['probe512'].get('fatal'):
+                    diag['fatal'] = True
+        return diag
+
+    def _probe512(self) -> dict:
+        """Диагностика: кодировщик формы на той же форме, но в сетке 512 (в 8 раз меньше вокселей, чем в 1024), с теми же замерами. Краска не считается."""
+        import torch
+        t = time.time()
+        r: dict = {}
+        try:
+            with (torch.inference_mode if self.inference_mode else torch.no_grad)():
+                out = self.pipe.encode_shape_slat(self._enc_mesh, 512)
+            r = {'ok': True, 'tokens': int(out.coords.shape[0]), **dict(self.pipe.diag)}
+            del out
+        except Exception as e2:  # noqa: BLE001
+            r = {'ok': False, 'error': f'{type(e2).__name__}: {str(e2)[:300]}', 'fatal': classify_cuda_error(e2) == 'fatal', **dict(getattr(self.pipe, 'diag', {}) or {})}
+        free_gpu()
+        r.update(seconds=round(time.time() - t, 2), mem_after=gpu_mem())
+        return r
 
 
 class LocalMeshBackend:
@@ -977,12 +1153,27 @@ def warm() -> None:
 BACKEND = None
 
 
+def mark_broken(reason: str) -> None:
+    """Фатальная ошибка CUDA (не обычная нехватка памяти): состояние CUDA в процессе испорчено, дальше жечь деньги нельзя. /health → ok=false, phase=broken, warm=false;
+    новые задания — отказ (HTTP 503 и `run_job`); драйвер видит это в /health и в ответе задания и гасит группу."""
+    STATE['broken'] = reason[:300]
+    STATE['warm'] = False
+    STATE['phase'] = 'broken'
+    STATE['error'] = STATE['broken']
+    save_state()
+    print(f'[child] ВОРКЕР СЛОМАН: {STATE["broken"]}', flush=True)
+
+
 def run_job(jid: str) -> None:
     """Одно задание из каталога заданий: png + req.json → res.json (+ glb в OUT). Исключение не роняет ребёнка — уходит в res.json."""
     from PIL import Image
     base = os.path.join(JOBS_DIR, jid)
     body = json.load(open(base + '.req.json', encoding='utf-8'))
     res = {'job_id': jid, 'status': 'running', 'params': body, 'started': time.time()}
+    if STATE.get('broken'):                    # после фатальной ошибки CUDA видеокарту не трогаем: отказ сразу (драйвер к этому моменту уже гасит группу)
+        res.update(status='failed', error=f'воркер сломан: {STATE["broken"]}', finished=time.time())
+        atomic_write(base + '.res.json', json.dumps(res, ensure_ascii=False).encode())
+        return
     atomic_write(base + '.running', b'1')
     try:
         img = Image.open(base + '.png')
@@ -1002,8 +1193,17 @@ def run_job(jid: str) -> None:
         res['error'] = f'{type(e).__name__}: {str(e)[:400]}'
         res['trace'] = traceback.format_exc()[-2500:]
         print(f'ЗАДАНИЕ {jid} УПАЛО:\n' + res['trace'], flush=True)
+        on_error = getattr(BACKEND, 'on_error', None)
+        if on_error is not None:               # разбор падения бэкендом (pixal3d-tex): тип ошибки CUDA, память по стадиям; фатальная — воркер «сломан»
+            try:
+                res['diag'] = on_error(e)
+            except Exception as e2:  # noqa: BLE001 — после фатальной ошибки разбор сам может упасть: не теряем сам факт
+                res['diag'] = {'kind': 'unknown', 'fatal': True, 'error': f'{type(e2).__name__}: {str(e2)[:200]}'}
+            print('[diag]', json.dumps(res['diag'], ensure_ascii=False, default=str)[:3000], flush=True)
+            if res['diag'].get('fatal'):
+                mark_broken(res['error'])
     res['finished'] = time.time()
-    atomic_write(base + '.res.json', json.dumps(res, ensure_ascii=False).encode())
+    atomic_write(base + '.res.json', json.dumps(res, ensure_ascii=False, default=str).encode())
 
 
 def child_main() -> None:
@@ -1083,7 +1283,9 @@ def health() -> dict:
     if ci.get('started') and not ci.get('alive'):
         phase = 'child_dead'
         err = f'дочерний процесс завершился, код {ci.get("returncode")} (−9 = убит ядром, почти наверняка нехватка памяти)'
-    return {'ok': True, 'phase': phase, 'warm': bool(st.get('warm')) and bool(ci.get('alive')), 'error': err, 'timings': st.get('timings'),
+    broken = st.get('broken')                   # фатальная ошибка CUDA в ребёнке: ok=false, новые задания отказ, драйвер гасит группу (`mark_broken`)
+    return {'ok': not broken, 'phase': 'broken' if broken else phase, 'warm': bool(st.get('warm')) and bool(ci.get('alive')) and not broken, 'error': broken or err, 'broken': broken,
+            'timings': st.get('timings'), 'config': st.get('config'),
             'progress': st.get('progress'), 'child': ci, 'cgroup_gb': cgroup_gb(), 'disk_gb': disk_gb(), 'uptime_s': round(time.time() - T_CONTAINER, 1)}
 
 
@@ -1163,6 +1365,8 @@ class H(BaseHTTPRequestHandler):
         except (ValueError, KeyError):
             return self._json(400, {'error': 'нужны job_id и image_b64'})
         h = health()
+        if h.get('broken'):
+            return self._json(503, {'error': 'воркер сломан после фатальной ошибки CUDA, новые задания не берёт', 'broken': h['broken'], 'phase': h['phase']})
         if not h['warm']:
             return self._json(503, {'error': 'модель ещё не готова', 'phase': h['phase']})
         base = os.path.join(JOBS_DIR, jid)
