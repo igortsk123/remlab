@@ -103,3 +103,8 @@ status: working
   Grep/Glob десятка параллельных субагентов `verify` по всему репо через сеть (по файлу за раз); предел fd sftp-server (1024) не доказан.
   Правило: на common поиск по коду только `r 'git grep -n …'`, ≤2 субагента на рабочего; держится — `systemctl --user restart remlab-mount`
   из сессии вне remlab.
+
+- **730 (19.11, П1.91)** — логов GitHub Actions агентам не видно: токена GitHub нет ни на common, ни на pakardev (`gh` → 401), а сборки
+  образов теперь только в Actions (урок 722). Публично читаются шаги job (`/repos/<o>/<r>/actions/runs/<id>/jobs`) и аннотации
+  (`/check-runs/<job_id>/annotations`). Правило: в сборочных workflow при ошибке выводить хвост лога построчно в `::error::` и в
+  `$GITHUB_STEP_SUMMARY` (сделано в пробных `build-pixal3d`/`localmesh-trial`, ветки trial). Токен gh — вопрос владельцу (TG 1825/1826).

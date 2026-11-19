@@ -3,12 +3,12 @@ tier: 2
 topic: integrations-details
 scope: Детали внешних интеграций — эндпоинты, форматы запросов/ответов, env-переменные, конфиги, цены
 tier1: ../core/access-and-integrations.md
-updated: 2026-11-18
+updated: 2026-11-19
 importance: high
 source: manual
 status: working
 source_of_truth: canonical
-last_verified: 2026-11-12
+last_verified: 2026-11-19
 ---
 
 # Интеграции — детали (Tier 2)
@@ -125,8 +125,9 @@ last_verified: 2026-11-12
   Compose образ = `${REMLAB_IMAGE:-remlab-app:latest}`.
 - **CI-деплой-ключ:** `~/.ssh/remlab_ci_deploy` (создан 2026-07-01) — публичная часть в `authorized_keys`
   сервера (вход проверен). Приватную часть нужно положить в GitHub-секрет `DEPLOY_SSH_KEY`, чтобы раннер
-  заходил на сервер. Секрет задан — авто-деплой работает по push в `main` (`.github/workflows/deploy.yml`;
-  шаги пропускаются, только если секрета нет). [История: до заведения секрета деплой шаги пропускал.]
+  заходил на сервер. Секрет задан — авто-деплой идёт после зелёного «CI gate» на `main` (`.github/workflows/deploy.yml`: `workflow_run`,
+  `conclusion == 'success'`); шаги пропускаются, если секрета нет ИЛИ шаг «Нужна ли выкладка» (`tools/ops/deploy-need.sh`) решил, что
+  менялись только память/доки или цель — предок уже выкатанной версии). [История: до заведения секрета деплой шаги пропускал.]
   Значения секретов в память НЕ пишем.
 - **GitHub PAT (наблюдение CI):** владелец выдал fine-grained токен (у Клода локально, вне репо;
   read-only Actions на 2026-07-01) — хватает читать логи/прогоны, не хватает писать секреты/запускать workflow.
@@ -371,7 +372,7 @@ Standard, `isDownloadable:false`, платная модель магазина.
   читают `tools/scout/mesh_audit_sync.py --tick` (крон раз в минуту, `infra/dev/crontab`) и `tools/scout/mesh_review_sync.py`
   (шаги `review_push`/`review_pull` в `tools/scout/refresh_daily.sh` — раз в сутки).
 - Ручки: `/api/lab/mesh-review/{tasks,decisions,session}`, `/api/lab/mesh-audit/{items,decisions,
-  batch,seen,cancellations}` — решения append-only, конвейер забирает курсором `after_id` (у `cancellations` — свой). Статика приёмки —
+  batch,seen,cancellations,marks,notes}` (`marks` — «ок/брак» с `/lab/mesh-check`, T-20261112-118) — решения append-only, конвейер забирает курсором `after_id` (у `cancellations` — свой). Статика приёмки —
   `/test/mesh-audit/*` (Caddy, кэш immutable; каталог `/opt/remlab/test/mesh-audit/`).
 
 ## OpenAI — реестры цен и запрет mini под картинки (ротационная сверка 11.10)

@@ -3,7 +3,7 @@ tier: 1
 topic: photo-render
 scope: Фото по кнопке — рендер, «Улучшить», машина Salad
 tier2: "../domain/viz-fidelity-playbook.md"
-updated: 2026-11-18
+updated: 2026-11-19
 importance: high
 source: manual
 status: working

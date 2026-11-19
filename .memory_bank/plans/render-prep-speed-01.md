@@ -1,6 +1,7 @@
 ---
 tier: 2
 topic: render-prep-speed
+title: "Фото за ≈15 с после смены товара"
 scope: Ускорение «Сделать фото» после смены товара покупателем — подготовка сцены на DEV и докачка моделей на машину
 status: in_progress
 plan_kind: task

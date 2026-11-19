@@ -422,3 +422,7 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-18	core/styles.md	drift	16	0	0	
 2026-11-18	domain/interior-styles.md	drift	55	2	2	
 2026-11-18	domain/deployment-details.md	drift	94	1	1	ещё 3 уточнения формулировок
+2026-11-19	core/mesh-color.md	code	25	0	0	свод ночь 19.11; якорь гейта коллапса добавлен
+2026-11-19	domain/viz-fidelity-playbook.md	drift	30	3	3	частично: серая крышка и перекраска; last_verified не двигал
+2026-11-19	core/access-and-integrations.md	rotation	12	0	0	свод ночь 19.11
+2026-11-19	domain/integrations.md	drift	78	2	2	весь док; деплой по CI gate, ручки marks/notes
