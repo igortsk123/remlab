@@ -25,12 +25,15 @@ RUN python3 -m pip install diffusers==0.20.2 "huggingface-hub==0.22.2" transform
         OpenEXR==3.2.4 rembg==2.0.59 onnxruntime==1.18.1 cupy-cuda12x==13.3.0 pybind11==2.13.6 xatlas==0.0.9 trimesh==4.5.2 pygltflib==1.16.5
 
 # код MV-Painter по закреплённому коммиту; рядом (в /opt/MV-Painter, на уровень выше MVPainter/) — Blender 4.2.9: так его ищут их скрипты (`../blender-4.2.9-linux-x64/blender`)
-RUN git clone https://github.com/amap-cvlab/MV-Painter.git /opt/MV-Painter \
+# download.blender.org отдаёт 403 сборщикам GitHub (run 44503491934) — берём с зеркал по очереди; подлинность — та же сумма sha256
+RUN getb() { for m in https://download.blender.org/release https://mirrors.ocf.berkeley.edu/blender/release https://ftp.nluug.nl/pub/graphics/blender/release https://mirror.clarkson.edu/blender/release; do \
+            curl -fsSL -A "Mozilla/5.0" --retry 2 -o "$2" "$m/$1" && return 0; echo "зеркало $m: отказ"; done; return 1; } \
+    && git clone https://github.com/amap-cvlab/MV-Painter.git /opt/MV-Painter \
     && cd /opt/MV-Painter && git checkout ${MVPAINTER_COMMIT} \
-    && curl -fsSL -o /tmp/blender42.tar.xz https://download.blender.org/release/Blender4.2/blender-4.2.9-linux-x64.tar.xz \
+    && getb Blender4.2/blender-4.2.9-linux-x64.tar.xz /tmp/blender42.tar.xz \
     && echo "${BLENDER42_SHA256}  /tmp/blender42.tar.xz" | sha256sum -c - \
     && tar -xJf /tmp/blender42.tar.xz -C /opt/MV-Painter && rm /tmp/blender42.tar.xz \
-    && curl -fsSL -o /tmp/blender36.tar.xz https://download.blender.org/release/Blender3.6/blender-3.6.9-linux-x64.tar.xz \
+    && getb Blender3.6/blender-3.6.9-linux-x64.tar.xz /tmp/blender36.tar.xz \
     && echo "${BLENDER36_SHA256}  /tmp/blender36.tar.xz" | sha256sum -c - \
     && tar -xJf /tmp/blender36.tar.xz -C /opt && rm /tmp/blender36.tar.xz \
     && /opt/MV-Painter/blender-4.2.9-linux-x64/4.2/python/bin/python3.11 -m ensurepip \
