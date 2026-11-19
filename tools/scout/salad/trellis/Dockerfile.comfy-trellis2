@@ -14,5 +14,7 @@ RUN git clone --depth 1 --branch ${COMFY_TAG} https://github.com/Comfy-Org/Comfy
     && { echo "ComfyUI ${COMFY_TAG} $(git -C /opt/ComfyUI rev-parse HEAD)"; pip list 2>/dev/null | grep -i -E '^(torch|torchvision|numpy|scipy|safetensors|transformers|comfy)'; } > /opt/BUILD_INFO_COMFY.txt
 # проверка без видеокарты: узлы TRELLIS.2 и постобработки меша регистрируются (падение сборки лучше падения на Salad)
 RUN cd /opt/ComfyUI && { python -c "import comfy_extras.nodes_trellis2, comfy_extras.nodes_mesh_postprocess; print('nodes import ok')" || echo 'ПРЕДУПРЕЖДЕНИЕ: импорт узлов без видеокарты не прошёл (это не обязательно ошибка — проверяется на локальном ComfyUI и на Salad)'; }
+RUN mkdir -p /data/out /data/hf /data/comfy-models && chmod -R 777 /data
 ENV COMFY_DIR=/opt/ComfyUI MODEL=comfy PORT=8000 HF_HOME=/data/hf OUT_DIR=/data/out
+EXPOSE 8000
 WORKDIR /opt/ComfyUI

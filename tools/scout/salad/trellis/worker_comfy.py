@@ -179,6 +179,9 @@ def glb_stats(data: bytes) -> dict:
 
 
 # ---------------------------------------------------------------- загрузка весов и ComfyUI
+_DL_BASE = [0]            # байт уже докачанных файлов — `hf_gb` в /health растёт монотонно по всем весам (по нему драйвер ловит зависшую докачку)
+
+
 def http_get(url: str, dest: str, label: str) -> None:
     tmp = dest + '.part'
     req = urllib.request.Request(url, headers={'User-Agent': 'remlab-mesh/1.0'})
@@ -193,7 +196,7 @@ def http_get(url: str, dest: str, label: str) -> None:
             f.write(b)
             done += len(b)
             if time.time() - last > 5:
-                STATE['progress'] = {'file': label, 'gb': round(done / 2 ** 30, 2), 'of_gb': round(total / 2 ** 30, 2)}
+                STATE['progress'] = {'file': label, 'gb': round(done / 2 ** 30, 2), 'of_gb': round(total / 2 ** 30, 2), 'hf_gb': round((_DL_BASE[0] + done) / 2 ** 30, 2), 'at': time.time()}
                 last = time.time()
     os.replace(tmp, dest)
 
@@ -215,6 +218,8 @@ def fetch_weights() -> dict:
                     if attempt == 3:
                         raise
                     time.sleep(10)
+        _DL_BASE[0] += os.path.getsize(dest)
+        STATE['progress'] = dict(STATE.get('progress') or {}, hf_gb=round(_DL_BASE[0] / 2 ** 30, 2), at=time.time())
         link_dir = os.path.join(COMFY_DIR, 'models', sub)
         os.makedirs(link_dir, exist_ok=True)
         link = os.path.join(link_dir, os.path.basename(rel))
@@ -255,7 +260,7 @@ def start_comfy() -> subprocess.Popen:
 
 def boot() -> None:
     try:
-        STATE['phase'] = 'downloading'
+        STATE['phase'] = 'weights'
         STATE['weights_gb'] = fetch_weights()
         STATE['phase'] = 'starting_comfy'
         t = time.time()
@@ -383,12 +388,21 @@ def job_loop() -> None:
 
 
 # ---------------------------------------------------------------- HTTP
+def _disk(path: str) -> dict:
+    try:
+        import shutil
+        u = shutil.disk_usage(path if os.path.exists(path) else '/')
+        return {'free': round(u.free / 2 ** 30, 1), 'total': round(u.total / 2 ** 30, 1)}
+    except OSError:
+        return {}
+
+
 def health() -> dict:
     child = STATE.get('child')
     alive = child is not None and child.poll() is None
-    broken = STATE['error'] if STATE['phase'] == 'failed' else (None if alive or STATE['phase'] in ('boot', 'downloading', 'starting_comfy') else 'ComfyUI не работает')
+    broken = STATE['error'] if STATE['phase'] == 'failed' else (None if alive or STATE['phase'] in ('boot', 'weights', 'starting_comfy') else 'ComfyUI не работает')
     return {'ok': not broken, 'phase': STATE['phase'], 'warm': bool(STATE['warm']) and alive, 'error': STATE['error'] or broken, 'broken': broken, 'progress': STATE['progress'],
-            'timings': STATE['timings'], 'weights_gb': STATE.get('weights_gb'), 'uptime_s': round(time.time() - T0, 1)}
+            'disk_gb': {'hf': _disk(DATA), 'out': _disk(OUT)}, 'timings': STATE['timings'], 'weights_gb': STATE.get('weights_gb'), 'uptime_s': round(time.time() - T0, 1)}
 
 
 class H(BaseHTTPRequestHandler):
@@ -405,7 +419,7 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         p = self.path.split('?')[0]
-        if p == '/health':
+        if p in ('/', '/health', '/ready'):
             return self._json(200, health())
         if p == '/info':
             return self._json(200, {'backend': 'comfy-0.46.0', 'gpu': (STATE.get('gpu') or {}).get('name'), 'vram_total': (STATE.get('gpu') or {}).get('vram_total'), 'weights_gb': STATE.get('weights_gb')})
@@ -453,9 +467,23 @@ class H(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    os.makedirs(OUT, exist_ok=True)
+    global OUT, DATA
+    print(f'[worker_comfy] старт: python {sys.version.split()[0]}, uid {os.getuid()}, cwd {os.getcwd()}, порт {PORT}', flush=True)
+    for name in ('OUT', 'DATA'):                      # нет /data или нет прав — не падаем до открытия порта (иначе шлюз 503 и причины не видно): запасной путь в /tmp
+        path = globals()[name]
+        try:
+            os.makedirs(path, exist_ok=True)
+            if not os.access(path, os.W_OK):
+                raise PermissionError(path)
+        except OSError as e:
+            alt = os.path.join('/tmp', 'comfy-' + name.lower())
+            print(f'[worker_comfy] {path}: {e} — использую {alt}', flush=True)
+            os.makedirs(alt, exist_ok=True)
+            globals()[name] = alt
+    server = ThreadingHTTPServer(('0.0.0.0', PORT), H)            # порт открыт СРАЗУ: /health отвечает 200 и во время докачки весов
+    print('[worker_comfy] HTTP слушает, запускаю докачку весов', flush=True)
     threading.Thread(target=boot, daemon=True).start()
-    ThreadingHTTPServer(('0.0.0.0', PORT), H).serve_forever()
+    server.serve_forever()
 
 
 if __name__ == '__main__':
