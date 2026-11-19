@@ -197,6 +197,42 @@ def gpu_class_ids() -> list[str]:
     return [CARD['class_id']] + [e['class_id'] for e in CARD.get('extra', [])]
 
 
+GPU_RULES_PATH = os.path.join(SCOUT, 'rules', 'salad-image-gpu.json')
+
+
+def gpu_class_info(class_name: str, rules: dict) -> tuple[str | None, int | None]:
+    """Архитектура CUDA (compute capability) и видеопамять (ГБ) класса Salad по имени: семейство — `rules['families']` (RTX 40 → 8.9…), память — «(N GB)» в имени.
+    Семейство неизвестно — (None, …): такой класс проверка не пропускает."""
+    import re
+    arch = next((f['arch'] for f in rules.get('families', []) if re.search(f['match'], class_name)), None)
+    m = re.search(r'\((\d+)\s*GB\)', class_name)
+    return arch, int(m.group(1)) if m else None
+
+
+def check_image_gpu(model: str, class_names: list[str], rules: dict | None = None) -> list[str]:
+    """Проверка ДО группы и денег (T-20261118-91/9, tn3 19.11: запасная RTX 3090 (8.6) на образе под 8.9 — «no kernel image» на каждом задании): каждый разрешённый класс карты —
+    под архитектуры образа модели (`rules/salad-image-gpu.json`, `models.<модель>.archs`) и не меньше `min_vram_gb`. Вернёт список причин отказа (пусто — всё подходит).
+    Модели нет в таблице — не проверяем (пусто)."""
+    if rules is None:
+        try:
+            rules = json.load(open(GPU_RULES_PATH, encoding='utf-8'))
+        except (OSError, ValueError) as e:
+            return [f'не прочитан {GPU_RULES_PATH}: {str(e)[:100]}']
+    spec = (rules.get('models') or {}).get(model)
+    if not spec:
+        return []
+    bad = []
+    for nm in class_names:
+        arch, vram = gpu_class_info(nm, rules)
+        if arch is None:
+            bad.append(f'{nm}: семейство карты неизвестно (добавить в families)')
+        elif arch not in spec['archs']:
+            bad.append(f'{nm}: архитектура {arch}, образ {model} собран под {"/".join(spec["archs"])}')
+        elif vram is None or vram < spec.get('min_vram_gb', 0):
+            bad.append(f'{nm}: видеопамяти {vram} ГБ, нужно не меньше {spec.get("min_vram_gb")}')
+    return bad
+
+
 def price_usd_h(tier: str) -> float | None:
     """Цена 4090 по тарифу из `rules/salad-groups.json` (`prices_by_class_usd_h`); нет — None (деньги без цены не считаем)."""
     try:
@@ -381,6 +417,10 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         except (ValueError, IndexError) as e:
             say('запасная карта', nm, 'не найдена среди классов организации:', str(e)[:200])
             return 2
+    bad_gpu = check_image_gpu(a.model, [CARD['class_name']] + [e['class_name'] for e in CARD['extra']])
+    if bad_gpu:                                           # отказ ДО группы и денег: образ не заработает на этой карте
+        say('ОТКАЗ: класс карты не подходит образу модели', a.model, '—', '; '.join(bad_gpu), '— группа не создаётся (правила: rules/salad-image-gpu.json)')
+        return 2
     price = live_price_max_usd_h(MG, [CARD['class_name']] + [e['class_name'] for e in CARD['extra']], a.tier)       # живая цена Salad по самому дорогому из разрешённых классов; снимок — только запасной
     price_src = 'живая (Salad gpu-classes)'
     if price is None:

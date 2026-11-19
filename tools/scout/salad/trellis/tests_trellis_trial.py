@@ -459,5 +459,23 @@ ok('живая цена нескольких классов — по самом�
 ok('цена хоть одного класса неизвестна → None (берём снимок целиком)', T.live_price_max_usd_h(None, ['A', 'Z'], 'high') is None and T.live_price_max_usd_h(None, [], 'high') is None)
 T.live_price_usd_h = _orig_live
 
+print('[7] проверка карты и образа до группы (rules/salad-image-gpu.json, T-20261118-91/9)')
+R = json.load(open(T.GPU_RULES_PATH, encoding='utf-8'))
+ok('семейства карт: 4090 → 8.9, 3090 → 8.6, 5090 → 12.0, 4060 Ti → 8.9 и 16 ГБ, AMD — не CUDA',
+   T.gpu_class_info('RTX 4090 (24 GB)', R) == ('8.9', 24) and T.gpu_class_info('RTX 3090 (24 GB)', R) == ('8.6', 24)
+   and T.gpu_class_info('RTX 5090 (32 GB)', R) == ('12.0', 32) and T.gpu_class_info('RTX 4060 Ti (16 GB)', R) == ('8.9', 16)
+   and T.gpu_class_info('AMD RX 7900 XTX (24GB)', R)[0] == 'none')
+ok('trellis2: 4090 подходит, пусто', T.check_image_gpu('trellis2', ['RTX 4090 (24 GB)'], R) == [])
+r3090 = T.check_image_gpu('trellis2', ['RTX 4090 (24 GB)', 'RTX 3090 (24 GB)'], R)
+ok('trellis2 + 3090 → отказ по архитектуре (tn3 19.11), причина называет класс и 8.9', len(r3090) == 1 and '3090' in r3090[0] and '8.9' in r3090[0], str(r3090))
+r4060 = T.check_image_gpu('trellis2', ['RTX 4060 Ti (16 GB)'], R)
+ok('trellis2 + 4060 Ti → отказ по памяти (пик 17,6 ГБ)', len(r4060) == 1 and '16' in r4060[0] and '24' in r4060[0], str(r4060))
+ok('localmesh + 4060 Ti (16 ГБ) подходит', T.check_image_gpu('localmesh', ['RTX 4060 Ti (16 GB)'], R) == [])
+ok('5090 (12.0) образу под 8.9 не подходит; AMD не подходит', len(T.check_image_gpu('trellis2', ['RTX 5090 (32 GB)'], R)) == 1 and len(T.check_image_gpu('trellis2', ['AMD RX 7900 XTX (24GB)'], R)) == 1)
+ok('семейство неизвестно → отказ (а не молчаливый пропуск)', 'неизвестно' in (T.check_image_gpu('trellis2', ['Foo 9000 (24 GB)'], R) or [''])[0])
+ok('модели нет в таблице (hunyuan21 — боевой образ) → не проверяем', T.check_image_gpu('hunyuan21', ['RTX 3090 (24 GB)'], R) == [])
+ok('таблица читается из репо; все модели пробы с образом под 8.9 перечислены',
+   all(m in R['models'] for m in ('trellis2', 'pixal3d', 'pixal3d-tex', 'localmesh')))
+
 print('ИТОГО: ' + ('всё в норме' if not bad else f'провалов {bad}'))
 sys.exit(1 if bad else 0)

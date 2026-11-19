@@ -1,0 +1,18 @@
+{
+  "_doc": "Проверка пробы Salad ДО создания группы и денег (T-20261118-91/9, находка: образ trellis2 собран только под архитектуру 8.9, а запасной класс RTX 3090 (8.6) падал «no kernel image» на каждом задании). Для каждой модели пробы (`trellis_trial.py --model`): под какие архитектуры CUDA (compute capability) собран её образ и сколько видеопамяти нужно не меньше. Каждый разрешённый класс карты (`--card` и `--also-cards`) сверяется с этой таблицей; не подошёл — отказ, группа не создаётся. Архитектура класса — по имени класса Salad (семейство: GTX 10 → 6.1, GTX 16/RTX 20 → 7.5, RTX 30 → 8.6, RTX 40 → 8.9, RTX 50 → 12.0; AMD — не CUDA), видеопамять — из «(N GB)» в имени. Модели без записи не проверяются (говорит журнал). Новый образ — новая запись; пересобрали под другие архитектуры — поправить `archs`.",
+  "families": [
+    {"match": "^GTX 10", "arch": "6.1"},
+    {"match": "^GTX 16", "arch": "7.5"},
+    {"match": "^RTX 20", "arch": "7.5"},
+    {"match": "^RTX 30", "arch": "8.6"},
+    {"match": "^RTX 40", "arch": "8.9"},
+    {"match": "^RTX 50", "arch": "12.0"},
+    {"match": "^AMD", "arch": "none"}
+  ],
+  "models": {
+    "trellis2": {"archs": ["8.9"], "min_vram_gb": 24, "source": "Dockerfile.trellis: TORCH_CUDA_ARCH_LIST=8.9; пик видеопамяти режима texture_only до 17,6 ГБ на 26 формах (tn4 19.11), на 4060 Ti (16 ГБ) часть форм не влезла бы; на RTX 3090 — «no kernel image» (tn3 19.11)"},
+    "pixal3d": {"archs": ["8.9"], "min_vram_gb": 24, "source": "Dockerfile.pixal3d: natten скомпилирован под sm_89"},
+    "pixal3d-tex": {"archs": ["8.9"], "min_vram_gb": 24, "source": "тот же образ, что pixal3d"},
+    "localmesh": {"archs": ["8.9"], "min_vram_gb": 16, "source": "Dockerfile.localmesh: TORCH_CUDA_ARCH_LIST=8.9, карта 4060 Ti (16 ГБ)"}
+  }
+}
