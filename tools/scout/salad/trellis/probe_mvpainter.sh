@@ -11,8 +11,8 @@
 #   ONLY_SCORE=<папка с .glb> probe_mvpainter.sh <SKU>   — только приёмка, без Salad
 #
 # Образ: `Dockerfile.mvpainter` (собирается на GitHub Actions пушем в ветку trial/trellis2*; адрес — IMAGE, лучше digest). Код воркера едет через command. Веса ≈ 28 ГиБ докачиваются на старте.
-# Карта: по умолчанию 4090 (24 ГБ; чекпойнт грузится на процессор — issue #13); запасной путь — GPU="<полное имя класса>" или GPU=cheapest (самый дешёвый от GPU_MIN_GB, по умолчанию 40, на тарифе high, иначе ниже — драйвер скажет, на каком).
-# ВАЖНО (замер API 19.11): в организации классов от 40 ГБ НЕТ, самый большой — RTX 5090 (32 ГБ); для запасного пути — GPU_MIN_GB=32 GPU=cheapest.
+# Карта: по умолчанию RTX 5090 (32 ГБ, живая цена ≈ $0,60/ч; решение директора 19.11 — на 24 ГБ MVPainter может не поместиться); 4090 — только явно: GPU="RTX 4090 (24 GB)" (чекпойнт тогда грузится на процессор, issue #13).
+# Другой класс — GPU="<полное имя>"; GPU=cheapest + GPU_MIN_GB=N — самый дешёвый от N ГБ (в организации классов от 40 ГБ нет: замер API 19.11, самый большой — 5090). Цена и потолок — по живому прайсу API.
 # Параметры: MVP_YAW=auto|0|90|180|270, MVP_STEPS=75, MVP_REDUCE=1|0 (1 — штатное упрощение), MVP_PBR=1|0, READY_MIN=90, JOB_MIN=45, DEBUG_CUDA=1, WORKER_ENV="MVP_CKPT=ckpt MVP_LOAD_CPU=0" (проверка issue #13 «как у авторов»).
 # Результат: OUT (по умолчанию ~/remlab-logs/t19-06-1119/mvp-<ЧЧММ по Лондону>/), НЕ папка `trellis/` и не `run-*` пробы MV-Adapter; задание называется `<магазин_товар>-1024-42-0-mvp`.
 set -u
@@ -59,7 +59,7 @@ if [ -z "${ONLY_SCORE:-}" ]; then
   [ "${APPLY:-0}" = "1" ] && FLAG="--apply"
   EXTRA=()
   [ "${DEBUG_CUDA:-0}" = "1" ] && EXTRA+=(--debug-cuda)
-  [ -n "${GPU:-}" ] && EXTRA+=(--gpu "$GPU")
+  EXTRA+=(--gpu "${GPU:-RTX 5090 (32 GB)}")       # по умолчанию 5090 (директор 19.11); 4090 — только GPU="RTX 4090 (24 GB)"
   [ -n "${GPU_MIN_GB:-}" ] && EXTRA+=(--gpu-min-gb "$GPU_MIN_GB")
   for kv in ${WORKER_ENV:-}; do EXTRA+=(--worker-env "$kv"); done
   "$PY" trellis_trial.py --model mvpainter --image "$IMAGE" --inputs "$BASE/inputs30" --skus "$SKU" \
@@ -82,10 +82,11 @@ n="$(basename "$OURS" .glb)"
 tools/ops/heavy-slot.sh "p06-$n" --cores 4 --min-gb 3 --timeout 3000 -- "$BLENDER" -b -P "$TR/render_stand.py" -- \
   --glb "$OURS" --out "$OUT/frames/$n" --samples 32 --modes tex,clay --only az000,az045 >> "$OUT/render.log" 2>&1
 if [ -n "$REF" ]; then
-  BETWEEN=()
-  [ -n "$MVA" ] && BETWEEN=(--between "MV-Adapter=$MVA")
-  "$PY" "$TR/mv_sheet.py" "$REF" "$OUT/frames/$n" "$OUT/side-by-side.png" --label MVPainter ${BETWEEN[@]+"${BETWEEN[@]}"} 2>&1 | tee -a "$OUT/render.log"
+  COLS=("гибрид=$REF")
+  [ -n "$MVA" ] && COLS+=("MV-Adapter=$MVA")
+  COLS+=("MVPainter=$OUT/frames/$n")
+  "$PY" "$TR/mv_sheet.py" --cols "${COLS[@]}" --out "$OUT/side-by-side.png" 2>&1 | tee -a "$OUT/render.log"
 fi
 "$PY" "$TR/score_pixal_tex.py" "$PHOTO" "$OUT/score" "$SHAPE" "$OURS" 2>&1 | tee "$OUT/score.log" || echo "метрика рисунка не посчиталась (кадры и лист — выше)"
 echo "готово: кадры $OUT/frames/$n/ (отдельные файлы полного размера), лист $OUT/side-by-side.png, метрика $OUT/score/score.json"
-echo "метрики воркера (упрощение: simplify.faces_in/out, hausdorff_*_rel; кадр итога: frame.ok; стадии: upstream_stages, stage_s; пик памяти: peak_vram_gb; при падении — diag): $OUT/summary-trial-mvpainter-$SUFFIX.json; шесть видов — $OUT/$n.views.jpg"
+echo "метрики воркера (упрощение: simplify.faces_in/out, hausdorff_rel/mean_rel/p99_rel; кадр итога: frame.ok; стадии: upstream_stages, stage_s; пик памяти: peak_vram_gb; при падении — diag): $OUT/summary-trial-mvpainter-$SUFFIX.json; шесть видов — $OUT/$n.views.jpg"

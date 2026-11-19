@@ -21,7 +21,7 @@
   GET  /job/<id>      состояние: queued|running|done|failed + замеры (секунды по стадиям, пик VRAM, треугольники, карты, МБ) или трассировка
   GET  /glb/<id>      байты `model.glb`
 
-Бэкенд модели — по `MODEL` (`trellis2` | `pixal3d` | `pixal3d-tex` (краска Pixal3D по готовой форме) | `mvadapter-i2tex` (краска MV-Adapter по готовой форме) | `mvpainter` (краска MVPainter по готовой форме) | `hunyuan21`); `MODEL=fake` — для теста без видеокарты (`tests_trellis_trial.py`). Токена Hugging Face в логи не пишем.
+Бэкенд модели — по `MODEL` (`trellis2` | `pixal3d` | `pixal3d-tex` (краска Pixal3D по готовой форме) | `mvadapter-i2tex` (краска MV-Adapter по готовой форме) | `mvpainter` (краска MVPainter по готовой форме; форму упрощает штатно) | `supratex` (краска SUPRA-Tex с Qwen-Image-2.1 по готовой форме; форму и развёртку выпуск меняет) | `hunyuan21`); `MODEL=fake` — для теста без видеокарты (`tests_trellis_trial.py`). Токена Hugging Face в логи не пишем.
 """
 from __future__ import annotations
 
@@ -1293,8 +1293,9 @@ class MVAdapterTexBackend:
         from scripts import inference_ig2mv_sdxl as IG                                  # `scripts/__init__.py` есть; первым в sys.path — наш каталог
         from mvadapter.pipelines.pipeline_mvadapter_i2mv_sdxl import MVAdapterI2MVSDXLPipeline
         from mvadapter.pipelines.pipeline_texture import ModProcessConfig, TexturePipeline
-        from mvadapter.utils.mesh_utils import blend as MB
-        from mvadapter.utils.mesh_utils import render as MR
+        import importlib                                                                # `mesh_utils/__init__.py` экспортирует ФУНКЦИЮ `render` — она заслоняет подмодуль (a0852: 'function' has no attribute 'NVDiffRastContextWrapper'); берём сами модули
+        MB = importlib.import_module('mvadapter.utils.mesh_utils.blend')
+        MR = importlib.import_module('mvadapter.utils.mesh_utils.render')
         patches = []
         _init = MR.NVDiffRastContextWrapper.__init__
 
@@ -1380,6 +1381,56 @@ class MVAdapterTexBackend:
         return diag
 
 
+def _surface_samples(v, f, n: int, seed: int = 0):
+    """n точек на поверхности (площадь-взвешенно) — для честного расстояния между поверхностями, а не между вершинами разной густоты."""
+    import numpy as np
+    v = np.asarray(v, dtype=np.float64)
+    f = np.asarray(f, dtype=np.int64)
+    a, b, c = v[f[:, 0]], v[f[:, 1]], v[f[:, 2]]
+    area = np.linalg.norm(np.cross(b - a, c - a), axis=1) / 2.0
+    tot = float(area.sum())
+    if not tot > 0:
+        return v[np.linspace(0, len(v) - 1, min(n, len(v))).astype(np.int64)]
+    rng = np.random.default_rng(seed)
+    idx = rng.choice(len(f), size=n, p=area / tot)
+    r1, r2 = rng.random(n), rng.random(n)
+    s = np.sqrt(r1)
+    return (1 - s)[:, None] * a[idx] + (s * (1 - r2))[:, None] * b[idx] + (s * r2)[:, None] * c[idx]
+
+
+def _nn_dist(x, y):
+    """Расстояние от каждой точки x до ближайшей точки y (scipy, иначе кусками)."""
+    import numpy as np
+    try:
+        from scipy.spatial import cKDTree
+        return cKDTree(y).query(x)[0]
+    except ImportError:
+        out = np.empty(len(x))
+        for i in range(0, len(x), 256):
+            d2 = ((x[i:i + 256, None, :] - y[None, :, :]) ** 2).sum(-1)
+            out[i:i + 256] = np.sqrt(d2.min(axis=1))
+        return out
+
+
+def shape_change_metrics(v_in, f_in, v_out, f_out, n: int = 30000) -> dict:
+    """ОБЩАЯ для проб краски, которые меняют форму (supratex — ремеш, mvpainter — штатное упрощение): грани/вершины до и после и расстояние между ПОВЕРХНОСТЯМИ входной формы и выпуска (симметрично, по n точкам с каждой): макс, среднее, 99-й процентиль; в долях диагонали габарита входа.
+    Форма меняться МОЖЕТ (ремеш), поэтому исключения нет — решает тот, кто читает замеры."""
+    import numpy as np
+    v_in = np.asarray(v_in, dtype=np.float64)
+    diag = float(np.linalg.norm(v_in.max(axis=0) - v_in.min(axis=0)))
+    if not diag > 0:
+        raise ValueError('габарит входной формы нулевой')
+    a = _surface_samples(v_in, f_in, n, 1)
+    b = _surface_samples(v_out, f_out, n, 2)
+    d = np.concatenate([_nn_dist(a, b), _nn_dist(b, a)])
+    return {'faces_in': int(len(f_in)), 'faces_out': int(len(f_out)), 'verts_in': int(len(v_in)), 'verts_out': int(len(v_out)),
+            'faces_ratio': round(len(f_out) / max(1, len(f_in)), 4), 'samples': int(n), 'diag': round(diag, 6),
+            'hausdorff_rel': round(float(d.max()) / diag, 6), 'mean_rel': round(float(d.mean()) / diag, 6), 'p99_rel': round(float(np.percentile(d, 99)) / diag, 6)}
+
+
+supra_shape_metrics = shape_change_metrics      # прежнее имя (SUPRA-Tex, T-20261119-06/5)
+
+
 # ——— mvpainter: краска ГОТОВОЙ формы по MVPainter КАК ЕСТЬ (T-20261119-06/4) ———
 # Источник — github.com/amap-cvlab/MV-Painter, коммит f714682 (source: external:github; основной код Apache-2.0; файлы с заголовком Tencent Non-Commercial — `mvpainter/differentiable_renderer/*`,
 # `custom_rasterizer/**`, `utils.py` — только некоммерческое: для пробы допустимо; лицензия весов shaomq/MVPainter и lizb6626/IDArb не указана; Blender/bpy — GPL).
@@ -1454,6 +1505,10 @@ runpy.run_path(a[0], run_name='__main__')
 class MVPStageError(RuntimeError):
     """Стадия апстрима упала или не оставила ожидаемых файлов (их `os.system` такие сбои скрывает — мы проверяем сами). В тексте — хвост вывода (по нему `classify_cuda_error` отличает нехватку памяти от фатального сбоя)."""
 
+    def __init__(self, msg: str, info: dict | None = None):
+        super().__init__(msg)
+        self.info = info or {}                                  # замеры упавшей стадии (секунды, пик памяти видеокарты) — в диагностику задания, чтобы при нехватке памяти пик был виден
+
 
 def mvp_gpu_used_mib():
     """Занятая память видеокарты из драйвера (МиБ) или None (нет nvidia-smi — тест без видеокарты)."""
@@ -1506,7 +1561,8 @@ def mvp_run_stage(name: str, cmd: list, cwd: str, env: dict | None = None, expec
     missing = [e for e in expect if not glob.glob(e)]
     if rc != 0 or missing:
         why = f'таймаут {timeout:.0f} с' if timed_out else f'код выхода {rc}'
-        raise MVPStageError(f'стадия {name}: {why}' + (f'; нет файлов: {missing[:3]}' if missing else '') + '\n' + '\n'.join(list(tail)[-12:])[-1500:])
+        info['failed'] = True
+        raise MVPStageError(f'стадия {name}: {why}' + (f'; нет файлов: {missing[:3]}' if missing else '') + '\n' + '\n'.join(list(tail)[-12:])[-1500:], info)
     info['tail'] = list(tail)[-3:]
     return info
 
@@ -1579,30 +1635,6 @@ def mvp_align_frame(v_out, p_ref, n: int = 6000, accept: float = MVP_FRAME_OK) -
                'top3': [[round(s, 6), i] for s, i in scored[:3]], 'ok': bool(best_s <= accept)}
 
 
-def mvp_geometry_metrics(v_in, f_in, v_out, f_out, n: int = 60000, seed: int = 0) -> dict:
-    """Что упрощение сделало с формой (вместо охраны «форма не меняется»): грани/вершины до и после; расстояние Хаусдорфа упрощённой к исходной (макс., средн., 99-й процентиль) и обратно — в долях диагонали
-    габарита исходной. Точки — вершины и выборка поверхности (`n`), поэтому оценка снизу (между точками форма может уйти чуть дальше)."""
-    import numpy as np
-    import trimesh
-    from scipy.spatial import cKDTree
-    v_in = np.asarray(v_in, dtype=np.float64)
-    v_out = np.asarray(v_out, dtype=np.float64)
-    diag = float(np.linalg.norm(v_in.max(axis=0) - v_in.min(axis=0)))
-    if not diag > 0:
-        raise ValueError('габарит исходной формы нулевой')
-
-    def cloud(v, f):
-        pts, _ = trimesh.sample.sample_surface(trimesh.Trimesh(vertices=v, faces=np.asarray(f), process=False), n, seed=seed)
-        return np.vstack([v, pts])
-    a, b = cloud(v_in, f_in), cloud(v_out, f_out)
-    d_out = cKDTree(a).query(b)[0] / diag               # упрощённая → исходная
-    d_in = cKDTree(b).query(a)[0] / diag                # исходная → упрощённая
-    r = lambda x: round(float(x), 6)                     # noqa: E731
-    return {'faces_in': int(len(f_in)), 'faces_out': int(len(f_out)), 'verts_in': int(len(v_in)), 'verts_out': int(len(v_out)), 'face_ratio': round(len(f_out) / max(1, len(f_in)), 4),
-            'hausdorff_out_to_in_rel': r(d_out.max()), 'mean_out_to_in_rel': r(d_out.mean()), 'p99_out_to_in_rel': r(np.percentile(d_out, 99)),
-            'hausdorff_in_to_out_rel': r(d_in.max()), 'hausdorff_sym_rel': r(max(d_out.max(), d_in.max())), 'samples': int(n)}
-
-
 class MVPRunner:
     """Стадии апстрима подпроцессами (см. шапку блока). `run_stage` подменяется в тестах."""
 
@@ -1611,9 +1643,16 @@ class MVPRunner:
         self.python = python or sys.executable
         self.run_stage = run_stage or mvp_run_stage
         self.timeout = timeout
+        self.done: list = []                                    # замеры стадий этого задания по порядку (в том числе упавшей)
 
     def _stage(self, name: str, cmd: list, cwd: str, expect: tuple = ()) -> dict:
-        return self.run_stage(name, cmd, cwd, env=self.env, expect=expect, timeout=self.timeout)
+        try:
+            info = self.run_stage(name, cmd, cwd, env=self.env, expect=expect, timeout=self.timeout)
+        except MVPStageError as e:
+            self.done.append({k: v for k, v in (e.info or {'name': name}).items() if k != 'tail'})      # упавшая стадия тоже в списке: её пик памяти нужен при нехватке видеопамяти
+            raise
+        self.done.append({k: v for k, v in info.items() if k != 'tail'})
+        return info
 
     def _blender(self, binary: str, driver: str, args: list) -> list:
         return [binary, '--background', '-Y', '--python-exit-code', '1', '--python', driver, '--'] + [str(a) for a in args]
@@ -1621,6 +1660,7 @@ class MVPRunner:
     def run(self, uid: str, work: str, params: dict) -> dict:
         """Вход: `work/in/glb/<uid>.glb` и `work/in/img/<uid>.png`. Выход: {'glb': путь, 'stages': [...], 'mv_dir': каталог с видами}."""
         j = os.path.join
+        self.done = []
         steps, seed = int(params['steps']), int(params['seed'])
         reduce_on, pbr = bool(params['reduce']), bool(params['pbr'])
         mv_out = j(work, 'mv')
@@ -1674,7 +1714,7 @@ def mvp_flag(v, default: bool) -> bool:
 def mvp_texture_on_shape(runner, mesh, image, params: dict, hooks: dict | None = None, work: str | None = None) -> tuple:
     """Покрасить ГОТОВУЮ форму `mesh` (trimesh, кадр GLB: Y вверх) по фото `image` (RGBA, настоящая альфа). `runner.run(uid, work, {steps, seed, reduce, pbr})` — стадии апстрима (`MVPRunner`),
     возвращает {'glb', 'stages', 'mv_dir'}. Форма меняется ЗАКОННО (штатное упрощение до 30 тыс. вершин, развёртка xatlas): итог — GLB апстрима, возвращённый в кадр и масштаб входа, + замеры упрощения
-    (`mvp_geometry_metrics`). Возвращает (trimesh, замеры)."""
+    (`shape_change_metrics`, общая с supratex). Возвращает (trimesh, замеры)."""
     import tempfile
     import numpy as np
     import trimesh
@@ -1720,7 +1760,7 @@ def mvp_texture_on_shape(runner, mesh, image, params: dict, hooks: dict | None =
     lap('frame')
     final = back.copy()
     final.vertices = v_final
-    simp = mvp_geometry_metrics(verts, faces, v_final, np.asarray(final.faces))
+    simp = shape_change_metrics(verts, faces, v_final, np.asarray(final.faces))
     lap('metrics')
     tex = getattr(getattr(final.visual, 'material', None), 'baseColorTexture', None)
     thumb = None
@@ -1812,11 +1852,351 @@ class MVPainterBackend:
     def on_error(self, e: BaseException) -> dict:
         """Разбор упавшего задания: тип ошибки CUDA по тексту (включая хвост вывода стадии). `fatal` — воркер «сломан», драйвер гасит группу; `oom` — подпроцесс уже умер, память свободна."""
         kind = classify_cuda_error(e)
-        return {'kind': kind, 'fatal': kind == 'fatal', 'gpu': nvidia_smi(), 'stage_mem': dict(self._trace), 'config': STATE.get('config')}
+        stages = list(getattr(self.runner, 'done', None) or [])
+        if isinstance(e, MVPStageError) and e.info and not any(x.get('name') == e.info.get('name') and x.get('failed') for x in stages):
+            stages.append({k: v for k, v in e.info.items() if k != 'tail'})
+        peaks = [x.get('gpu_peak_mib') or 0 for x in stages]
+        return {'kind': kind, 'fatal': kind == 'fatal', 'gpu': nvidia_smi(), 'stage_mem': dict(self._trace), 'upstream_stages': stages, 'peak_vram_gb': round(max(peaks or [0]) / 1024, 3),
+                'failed_stage': next((x.get('name') for x in stages if x.get('failed')), None), 'config': STATE.get('config')}
+
+
+# ——— SUPRA-Tex КАК ЕСТЬ (T-20261119-06/5): фото → Qwen-Image-2.1 (альбедо + карта материала) → генератор SUPRA красит ФОРМУ и сам выпускает GLB ———
+# Что апстрим (SUPRA-Tex cee4435) делает с формой — читать так (файл:строка в `/opt/SUPRA-Tex`, проверено по клону 19.11):
+#   • `texturing.py` принимает меш в кубе [−0,5; 0,5]³ (`supratex/inference/pipeline.py:252` `_shape`, `aabb=[[-.5,-.5,-.5],[.5,.5,.5]]`, сетка `RESOLUTION`=1024);
+#   • выпуск `pipeline.py:350` `_export` → `mesh_export.py` `to_glb(remesh=True, remesh_band=1, remesh_project=0, decimation_target=500000)`: заделка дыр, РЕМЕШ двойными контурами на сетке 1024
+#     (`mesh_export.py` ≈ 205-225), упрощение до `decimation_target` граней, НОВАЯ развёртка (`uv_unwrap` ≈ 239), запекание 4096². Значит, форма, грани И развёртка МЕНЯЮТСЯ, UV входа не сохраняется;
+#   • в конце `to_glb` обменивает оси (x,y,z) → (x,z,−y), `_export` применяет M=[[−1,0,0],[0,0,−1],[0,−1,0]]: вместе (x,y,z) → (−x,y,−z) = поворот на 180° вокруг Y кадра куба. Мы не верим этому на слово:
+#     перебираем кадры-кандидаты (`SUPRA_FRAMES`), берём тот, где расстояние к входной форме наименьшее, и пишем его имя в замеры (`out_frame`) — ошибка предположения видна в цифрах;
+#   • плавающие куски (`remove_floaters`) трогаются ТОЛЬКО с флагом — мы его не передаём; грани входа до экспорта не меняются.
+# Поэтому здесь НЕТ проверки «форма не изменилась» (как у mvadapter-i2tex): вместо неё в замеры идут грани до/после и расстояние Хаусдорфа к исходной форме (макс/среднее/99-й процентиль, в долях диагонали).
+SUPRA_REPO = 'supra3d/supra-tex'
+SUPRA_REV = '1bc02eb969a8ed0f1418c2bbe1e409a8481f834c'
+SUPRA_PATTERNS = ['completion/config.json', 'completion/partial_normalization.json', 'completion/denoiser_step0030000.safetensors', 'completion/LICENSE', 'material/*']
+SUPRA_PINS = {                      # зеркало `configs/pipeline.json` апстрима (`external_models`); при старте читаем сам файл, это — запас
+    'qwen-base': {'repo_id': 'Qwen/Qwen-Image-2.1', 'revision': 'd26bb61231c349cf6b7896fa83353113880e1ba3', 'allow_patterns': ['processor/*', 'vae/*', 'text_encoder/*', 'transformer/*', 'LICENSE*', 'README.md']},
+    'moge2': {'repo_id': 'Ruicheng/moge-2-vitl-normal', 'revision': 'cb0e8bbd6b1e243589717c78e750b1ba4c093acf', 'allow_patterns': ['model.pt', 'README.md', 'LICENSE*']},
+    'vae': {'repo_id': 'microsoft/TRELLIS.2-4B', 'revision': 'af44b45f2e35a493886929c6d786e563ec68364d',
+            'allow_patterns': [f'ckpts/{s}_next_dc_f16c32_fp16.{e}' for s in ('shape_enc', 'tex_enc', 'shape_dec', 'tex_dec') for e in ('json', 'safetensors')]},
+}
+SUPRA_ENV = {'PYTHONNOUSERSITE': '1', 'HF_HUB_OFFLINE': '1', 'TRANSFORMERS_OFFLINE': '1', 'FLEX_GEMM_USE_AUTOTUNE_CACHE': '0', 'FLEX_GEMM_AUTOSAVE_AUTOTUNE_CACHE': '0'}
+SUPRA_FRAMES = ('identity', 'rot_y_180', 'swap_xz', 'unswap_xz')      # как вернуть вершины выпуска в кадр куба (до `from_cube`)
+SUPRA_STAGE_TIMEOUT = 2400            # секунд на стадию (фронт и текстурирование); на 3090 весь прогон — 665 с, на 4090 с докачкой ядер — до нескольких раз дольше
+
+
+class SupraStageError(RuntimeError):
+    """Стадия SUPRA (подпроцесс) упала: в тексте — код выхода и хвост журнала (по нему `classify_cuda_error` отличает фатальный сбой CUDA от нехватки памяти)."""
+
+
+def supra_manifest(sdir: str) -> dict:
+    """Пины внешних весов: из `configs/pipeline.json` клона апстрима, нет файла — зеркало `SUPRA_PINS`. Возвращает {qwen-base, moge2, vae: {repo_id, revision, allow_patterns}}."""
+    try:
+        ext = json.load(open(os.path.join(sdir, 'configs', 'pipeline.json'), encoding='utf-8'))['external_models']
+        return {k: {kk: ext[k][kk] for kk in ('repo_id', 'revision', 'allow_patterns')} for k in SUPRA_PINS}
+    except (OSError, KeyError, ValueError):
+        return {k: dict(v) for k, v in SUPRA_PINS.items()}
+
+
+def supra_frame_candidates(v_out):
+    """Вершины выпуска → кадр куба: словарь {имя: массив}. Имена — `SUPRA_FRAMES`."""
+    import numpy as np
+    o = np.asarray(v_out, dtype=np.float64)
+    return {'identity': o, 'rot_y_180': o @ rot_y(180).T, 'swap_xz': np.stack([o[:, 0], o[:, 2], -o[:, 1]], axis=1), 'unswap_xz': np.stack([o[:, 0], -o[:, 2], o[:, 1]], axis=1)}
+
+
+def supra_pick_frame(v_out, v_ref_cube, max_n: int = 20000) -> tuple:
+    """Какой кадр-кандидат лучше всего накладывает выпуск на входную форму в кубе (по расстоянию Хаусдорфа вершин). → (имя, вершины в кубе, {имя: расстояние})."""
+    cands = supra_frame_candidates(v_out)
+    dist = {k: hausdorff_vertices(v, v_ref_cube, max_n) for k, v in cands.items()}
+    best = min(SUPRA_FRAMES, key=lambda k: dist[k])
+    return best, cands[best], {k: round(float(x), 6) for k, x in dist.items()}
+
+
+def supra_shift(arr, dx: int, dy: int, fill):
+    """Сдвиг картинки/карты на целые пиксели: содержимое уходит вправо на dx и вниз на dy, пустое место — `fill`; размер не меняется."""
+    import numpy as np
+    a = np.asarray(arr)
+    out = np.full_like(a, fill)
+    h, w = a.shape[:2]
+    if abs(dx) >= w or abs(dy) >= h:
+        return out
+    ys0, ys1 = max(0, dy), min(h, h + dy)
+    xs0, xs1 = max(0, dx), min(w, w + dx)
+    out[ys0:ys1, xs0:xs1] = a[ys0 - dy:ys1 - dy, xs0 - dx:xs1 - dx]
+    return out
+
+
+def supra_find_case(root: str) -> str:
+    """Папка с результатом фронта (condition_rgba.png, camera.json, albedo.png, mra.png): сама `root` или подпапка на один уровень вглубь (куда апстрим кладёт по `--key`)."""
+    need = ('condition_rgba.png', 'camera.json', 'albedo.png', 'mra.png')
+    for d in [root] + sorted(os.path.join(root, x) for x in os.listdir(root) if os.path.isdir(os.path.join(root, x))):
+        if all(os.path.isfile(os.path.join(d, n)) for n in need):
+            return d
+    raise SupraStageError(f'фронт SUPRA не оставил {need} ни в {root}, ни в подпапках')
+
+
+def supra_prepare_case(case: str, fit: dict) -> dict:
+    """Подгонка наблюдения под НАШУ форму: фото и обе карты сдвигаются на целые пиксели (доли кадра tx, ty из `fit_photo`; `image_depth.npy` — с NaN на пустом месте), `camera.json` получает
+    `mesh_scale` из подгонки. Масштаб фото не трогаем (как у pixal3d-tex). Возвращает {dx_cond, dy_cond, dx_map, dy_map, mesh_scale}."""
+    import numpy as np
+    from PIL import Image
+    tx, ty = float(fit.get('tx', 0.0)), float(fit.get('ty', 0.0))
+    info = {}
+    cond = Image.open(os.path.join(case, 'condition_rgba.png')).convert('RGBA')
+    dxc, dyc = int(round(tx * cond.width)), int(round(ty * cond.height))
+    Image.fromarray(supra_shift(np.asarray(cond), dxc, dyc, 0)).save(os.path.join(case, 'condition_rgba.png'))
+    rgb = os.path.join(case, 'condition_rgb.png')
+    if os.path.isfile(rgb):
+        im = np.asarray(Image.open(rgb).convert('RGB'))
+        Image.fromarray(supra_shift(im, dxc, dyc, 0)).save(rgb)
+    dxm = dym = 0
+    for name in ('albedo.png', 'mra.png'):
+        im = Image.open(os.path.join(case, name))
+        dxm, dym = int(round(tx * im.width)), int(round(ty * im.height))
+        Image.fromarray(supra_shift(np.asarray(im), dxm, dym, 0)).save(os.path.join(case, name))
+    dp = os.path.join(case, 'image_depth.npy')
+    if os.path.isfile(dp):
+        d = np.load(dp, allow_pickle=False).astype(np.float32)
+        np.save(dp, supra_shift(d, dxc, dyc, np.nan))
+    cj = os.path.join(case, 'camera.json')
+    cam = json.load(open(cj, encoding='utf-8'))
+    cam['mesh_scale'] = float(fit.get('mesh_scale', cam.get('mesh_scale', 1.0)))
+    atomic_write(cj, json.dumps(cam).encode())
+    info.update(dx_cond=dxc, dy_cond=dyc, dx_map=dxm, dy_map=dym, mesh_scale=cam['mesh_scale'])
+    return info
+
+
+def supra_texture_on_shape(runner, mesh, image, params: dict, hooks: dict | None = None, work: str | None = None, out_path: str | None = None) -> tuple:
+    """Покрасить нашу форму `mesh` (trimesh, кадр GLB: Y вверх) по фото `image` (RGBA, настоящая альфа) пайплайном SUPRA-Tex. `runner`: `frontend(photo_png, out_dir) → dict замеров`
+    и `texturing(case_dir, out_glb, params) → dict замеров` (подпроцессы апстрима; `SupraRunner`). Возвращает (trimesh выпуска В КАДРЕ ВХОДНОЙ ФОРМЫ — вершины возвращены из куба, грани и UV — как их сделал SUPRA, замеры)."""
+    import tempfile
+    import numpy as np
+    import trimesh
+    hk = {'sync': lambda: None, 'free': lambda: None, 'mem': lambda name: None, **(hooks or {})}
+    stage: dict = {}
+    t = time.time()
+
+    def lap(name: str) -> None:
+        nonlocal t
+        stage[name] = round(time.time() - t, 2)
+        hk['mem'](name)
+        t = time.time()
+
+    verts = np.asarray(mesh.vertices, dtype=np.float64)
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    work = work or tempfile.mkdtemp(prefix='supra-', dir=OUT if os.path.isdir(OUT) else None)
+    photo = os.path.join(work, 'photo.png')
+    image.convert('RGBA').save(photo)
+    fdir = os.path.join(work, 'front')
+    os.makedirs(fdir, exist_ok=True)
+    lap('prepare')
+    front = runner.frontend(photo, fdir)
+    lap('material')
+    case = supra_find_case(fdir)
+    cam = json.load(open(os.path.join(case, 'camera.json'), encoding='utf-8'))
+    fov, dist = float(cam['camera_angle_x']), float(cam['distance'])
+    from PIL import Image
+    cond = Image.open(os.path.join(case, 'condition_rgba.png')).convert('RGBA')
+    fit = fit_photo(verts, faces, cond, fov, dist, float(cam.get('mesh_scale', 1.0)))
+    lap('fit')
+    shift = supra_prepare_case(case, fit)
+    p, c, s, R = to_cube(verts, fit['yaw_deg'], fit['pitch_deg'])
+    np.savez(os.path.join(case, 'geometry.npz'), verts=p.astype(np.float32), faces=faces.astype(np.int32))
+    lap('write_case')
+    glb = os.path.join(work, 'supra.glb')
+    tex = runner.texturing(case, glb, params)
+    lap('texturing')
+    back = trimesh.load(glb, force='mesh', process=False)
+    v_out = np.asarray(back.vertices, dtype=np.float64)
+    frame, v_cube, frame_dist = supra_pick_frame(v_out, p)
+    v_final = from_cube(v_cube, c, s, R)
+    shape = supra_shape_metrics(verts, faces, v_final, np.asarray(back.faces))
+    shape.update(out_frame=frame, frame_dist=frame_dist)
+    lap('metrics')
+    back.vertices = v_final
+    tex_img = getattr(getattr(back.visual, 'material', None), 'baseColorTexture', None)
+    if tex_img is None:
+        raise RuntimeError('SUPRA вернул GLB без текстуры')
+    return back, {'fit': fit, 'shift': shift, 'shape': shape, 'stage_s': stage, 'front': front, 'texturing': tex, 'camera': {'fov': fov, 'distance': dist},
+                  'tex_size': list(tex_img.size), 'observation_iou': tex.get('observation_iou'), 'mesh_tris': int(len(faces)), 'mesh_verts': int(len(verts))}
+
+
+def run_logged(cmd: list, env: dict, cwd: str | None, timeout: int, log_path: str, poll_s: float = 2.0) -> dict:
+    """Подпроцесс стадии: журнал в файл, пик занятой видеопамяти (по `nvidia-smi`, то есть всех процессов карты) и пик памяти группы (cgroup) — опросом раз в `poll_s`; пик RSS детей — `getrusage`.
+    → {rc, s, peak_vram_mib, peak_cgroup_gb, child_maxrss_gb, tail}. Не ноль или таймаут — `SupraStageError` с хвостом журнала (нужен классификатору ошибок CUDA)."""
+    import resource
+    stop = threading.Event()
+    peaks = {'vram': 0, 'cg': 0.0}
+
+    def watch() -> None:
+        while not stop.wait(poll_s):
+            peaks['vram'] = max(peaks['vram'], int(nvidia_smi().get('memory_used_mib') or 0))
+            peaks['cg'] = max(peaks['cg'], float(cgroup_gb().get('current') or 0.0))
+    th = threading.Thread(target=watch, daemon=True)
+    r0 = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+    t0 = time.time()
+    th.start()
+    rc, timed_out = None, False
+    try:
+        with open(log_path, 'wb') as lf:
+            pr = subprocess.Popen(cmd, env=env, cwd=cwd, stdout=lf, stderr=subprocess.STDOUT)
+            try:
+                rc = pr.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                pr.terminate()
+                try:
+                    pr.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    pr.kill()
+                    pr.wait()
+                rc = pr.returncode
+    finally:
+        stop.set()
+        th.join(timeout=5)
+    try:
+        tail = open(log_path, 'rb').read()[-3000:].decode('utf-8', 'replace')
+    except OSError:
+        tail = ''
+    r1 = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+    res = {'rc': rc, 's': round(time.time() - t0, 1), 'peak_vram_mib': peaks['vram'], 'peak_cgroup_gb': round(peaks['cg'], 2),
+           'child_maxrss_gb': round(max(r0, r1) / 2 ** 20, 2), 'tail': tail[-600:]}
+    if timed_out or rc != 0:
+        why = f'таймаут {timeout} с' if timed_out else f'код выхода {rc}' + (' (убит, вероятно по памяти группы)' if rc == -9 else '')
+        raise SupraStageError(f'{os.path.basename(cmd[1]) if len(cmd) > 1 else cmd[0]}: {why}; хвост журнала: {tail[-1500:]}')
+    return res
+
+
+class SupraRunner:
+    """Две стадии апстрима подпроцессами (`/opt/SUPRA-Tex`): фронт (MoGe-2 + Qwen-Image-2.1 → камера, альбедо, карта материала) и `texturing.py` (генератор + выпуск GLB)."""
+
+    def __init__(self, sdir: str, paths: dict, work_log: str | None = None, run=run_logged, python: str | None = None):
+        self.sdir, self.paths, self.run, self.python = sdir, paths, run, python or sys.executable
+        self.work_log = work_log or OUT
+
+    def _env(self) -> dict:
+        env = dict(os.environ)
+        env.update(SUPRA_ENV)
+        env['PYTHONPATH'] = os.pathsep.join([self.sdir] + ([env['PYTHONPATH']] if env.get('PYTHONPATH') else []))
+        env.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:False')
+        env.pop('HF_TOKEN', None)                                  # токен подпроцессам не нужен (всё скачано заранее) и в их журнал не должен попасть
+        return env
+
+    def frontend(self, photo: str, out_dir: str) -> dict:
+        cmd = [self.python, '-m', 'supratex.frontend.pipeline', '--input', photo, '--output', out_dir, '--use-input-alpha', '--moge-model', self.paths['moge'],
+               '--material-base', self.paths['qwen'], '--material-model', self.paths['material'], '--local-files-only', '--attention', 'sdpa', '--low-vram']
+        return self.run(cmd, self._env(), self.sdir, SUPRA_STAGE_TIMEOUT, os.path.join(self.work_log, 'supra_front.log'))
+
+    def texturing(self, case: str, out_glb: str, params: dict) -> dict:
+        ts = int(params['supra_texture_size'] if params.get('supra_texture_size') is not None else 4096)
+        dec = int(params['supra_decimation'] if params.get('supra_decimation') is not None else 500000)
+        cmd = [self.python, os.path.join(self.sdir, 'texturing.py'), '--pretrained', self.paths['completion'], '--trellis-root', self.paths['vae'], '--local-files-only',
+               '--input-dir', case, '--output', out_glb, '--texture-size', str(ts), '--decimation-target', str(dec), '--seed', str(int(params.get('seed', 42))),
+               '--attention', 'sdpa', '--low-vram']
+        if params.get('supra_refine'):
+            cmd.append('--refine')
+        res = self.run(cmd, self._env(), self.sdir, SUPRA_STAGE_TIMEOUT, os.path.join(self.work_log, 'supra_tex.log'))
+        import re
+        m = re.search(r'Observation: silhouette IoU ([0-9.]+)', res.get('tail', '') + _read_log(os.path.join(self.work_log, 'supra_tex.log')))
+        res['observation_iou'] = float(m.group(1)) if m else None
+        res.update(texture_size=ts, decimation_target=dec, refine=bool(params.get('supra_refine')))
+        return res
+
+
+def _read_log(path: str) -> str:
+    try:
+        return open(path, 'rb').read().decode('utf-8', 'replace')
+    except OSError:
+        return ''
+
+
+class SupraTexBackend:
+    """`supratex`: наша форма (готовый GLB, `<job>.mesh.glb`) + RGBA-фото → краска SUPRA-Tex КАК ЕСТЬ (с Qwen-Image-2.1). Образ — `Dockerfile.supratex` (код в /opt/SUPRA-Tex, веса ≈ 43 ГиБ докачиваются
+    на старте по закреплённым ревизиям: Qwen-Image-2.1 ≈ 31 ГиБ, дополнение SUPRA 7,8, VAE TRELLIS.2 3,1, MoGe-2 1,2, адаптер материала 0,13). GPU трогают только подпроцессы; сам воркер видеокарту не занимает
+    (замеры памяти — `nvidia-smi` и cgroup). Фатальный сбой CUDA в подпроцессе (`SupraStageError` с маркерами) — воркер «сломан», как у остальных."""
+    name = 'supratex'
+    runner = None
+    _trace: dict = {}
+
+    def load(self) -> dict:
+        sdir = os.environ.get('SUPRATEX_DIR', '/opt/SUPRA-Tex')
+        STATE['phase'] = 'weights'
+        man = supra_manifest(sdir)
+        from huggingface_hub import snapshot_download
+        t_all = time.time()
+        sizes, secs = {}, {}
+
+        def get(key: str, repo: str, rev: str, patterns: list) -> str:
+            t = time.time()
+            path = snapshot_download(repo_id=repo, revision=rev, allow_patterns=patterns)
+            secs[key] = round(time.time() - t, 1)
+            sizes[key] = dir_gb(path)
+            print(f'[supra] {key}: {repo}@{rev[:8]} → {sizes[key]} ГиБ за {secs[key]} с', flush=True)
+            return path
+        proj = get('project', SUPRA_REPO, SUPRA_REV, SUPRA_PATTERNS)
+        qwen = get('qwen', man['qwen-base']['repo_id'], man['qwen-base']['revision'], man['qwen-base']['allow_patterns'])
+        moge = get('moge', man['moge2']['repo_id'], man['moge2']['revision'], man['moge2']['allow_patterns'])
+        vae = get('vae', man['vae']['repo_id'], man['vae']['revision'], man['vae']['allow_patterns'])
+        paths = {'completion': os.path.join(proj, 'completion'), 'material': os.path.join(proj, 'material'), 'qwen': qwen, 'moge': os.path.join(moge, 'model.pt'), 'vae': vae}
+        missing = [k for k, v in paths.items() if not os.path.exists(v)]
+        if missing:
+            raise RuntimeError(f'после докачки нет: {missing}')
+        STATE['phase'] = 'importing'
+        t = time.time()
+        chk = subprocess.run([sys.executable, '-c', 'import supratex, natten, o_voxel, flex_gemm, cumesh, nvdiffrast, moge.model.v2, utils3d; print("imports ok")'],
+                             capture_output=True, text=True, env={**os.environ, **SUPRA_ENV}, timeout=600)
+        if chk.returncode != 0:
+            raise RuntimeError('импорты SUPRA не прошли: ' + (chk.stderr or chk.stdout)[-600:])
+        STATE['config'] = {'sdir': sdir, 'sizes_gb': sizes, 'download_s': secs, 'pins': {k: v['revision'] for k, v in man.items()}, 'project_rev': SUPRA_REV,
+                           'debug_env': {k: os.environ.get(k) for k in ('CUDA_LAUNCH_BLOCKING', 'TORCH_SHOW_CPP_STACKTRACES')}, 'cgroup': cgroup_gb()}
+        os.makedirs(OUT, exist_ok=True)
+        self.runner = SupraRunner(sdir, paths)
+        return {'weights_s': round(time.time() - t_all, 1), 'import_check_s': round(time.time() - t, 1), 'download_s': secs, 'download_gb': sizes, 'mem_after_warm': {'gpu': nvidia_smi(), 'cgroup': cgroup_gb()}}
+
+    def generate(self, image, params: dict, path: str) -> dict:
+        if not params.get('texture_mesh'):
+            raise ValueError('supratex красит готовую форму: нужен --texture-mesh <clean.glb>')
+        import shutil
+        import trimesh
+        trace: dict = {}
+        self._trace = trace
+
+        def mem(name: str) -> None:
+            trace[name] = {'gpu': nvidia_smi(), 'cgroup': cgroup_gb()}
+        mem('start')
+        t = time.time()
+        sc = trimesh.load(os.path.join(JOBS_DIR, params['job_id'] + '.mesh.glb'), force='scene')
+        parts = sc.dump()
+        if not parts:
+            raise ValueError('в GLB формы нет мешей')
+        mesh = parts[0] if len(parts) == 1 else trimesh.util.concatenate(parts)
+        load_s = round(time.time() - t, 2)
+        work = os.path.join(OUT, f'_supra_{os.getpid()}_{int(time.time() * 1000)}')
+        os.makedirs(work, exist_ok=True)
+        self.runner.work_log = work
+        try:
+            final, m = supra_texture_on_shape(self.runner, mesh, image, params, {'mem': mem}, work)
+            final.export(path)
+            log_tail = {k: _read_log(os.path.join(work, k))[-400:] for k in ('supra_front.log', 'supra_tex.log')}
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        m['stage_s']['load_shape'] = load_s
+        m['stage_s']['front_s'] = (m.get('front') or {}).get('s')
+        m['stage_s']['texturing_s'] = (m.get('texturing') or {}).get('s')
+        peaks = [x for x in (m.get('front') or {}, m.get('texturing') or {})]
+        m.update({'mode': 'supratex', 'peak_vram_mib': max([int(x.get('peak_vram_mib') or 0) for x in peaks] or [0]), 'peak_cgroup_gb': max([float(x.get('peak_cgroup_gb') or 0.0) for x in peaks] or [0.0]),
+                  'child_maxrss_gb': max([float(x.get('child_maxrss_gb') or 0.0) for x in peaks] or [0.0]), 'mem': trace, 'log_tail': log_tail, 'config': dict(STATE.get('config') or {})})
+        return m
+
+    def on_error(self, e: BaseException) -> dict:
+        """Разбор упавшего задания: тип ошибки CUDA по тексту (хвост журнала подпроцесса внутри), память. `fatal` — воркер «сломан» (`mark_broken`), драйвер гасит группу."""
+        import traceback as tb
+        kind = classify_cuda_error(e)
+        tb.clear_frames(e.__traceback__)
+        return {'kind': kind, 'fatal': kind == 'fatal', 'gpu': nvidia_smi(), 'cgroup': cgroup_gb(), 'stage_mem': dict(self._trace), 'config': STATE.get('config')}
 
 
 def backend():
-    return {'trellis2': Trellis2Backend, 'pixal3d': Pixal3DBackend, 'pixal3d-tex': PixalTexBackend, 'mvadapter-i2tex': MVAdapterTexBackend, 'mvpainter': MVPainterBackend, 'localmesh': LocalMeshBackend, 'hunyuan21': Hunyuan21Backend, 'fake': FakeBackend}[os.environ.get('MODEL', 'trellis2')]()
+    return {'trellis2': Trellis2Backend, 'pixal3d': Pixal3DBackend, 'pixal3d-tex': PixalTexBackend, 'mvadapter-i2tex': MVAdapterTexBackend, 'mvpainter': MVPainterBackend, 'supratex': SupraTexBackend, 'localmesh': LocalMeshBackend, 'hunyuan21': Hunyuan21Backend, 'fake': FakeBackend}[os.environ.get('MODEL', 'trellis2')]()
 
 
 def versions() -> dict:

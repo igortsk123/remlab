@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""T-20261119-06/2, 06/4: лист «эталон | [другие пробы] | наша краска» для проб краски (mvadapter-i2tex, mvpainter) — кадры 0° и 45° (текстура), слева лучший гибрид (форма TRELLIS.2 + краска Hunyuan), справа результат пробы.
+"""T-20261119-06/2: лист «эталон | наша краска» для пробы mvadapter-i2tex — кадры 0° и 45° (текстура), слева лучший гибрид (форма TRELLIS.2 + краска Hunyuan), справа результат пробы.
 Только для быстрого сравнения; на оценку владельцу кадры идут ОТДЕЛЬНЫМИ файлами полного размера (`01_az000_tex.png` … `04_az045_clay.png` в обеих папках), не листом.
 
-  python3 mv_sheet.py <папка кадров эталона> <папка кадров пробы> <выход.png> [--width 800] [--label <подпись пробы>] [--between "<подпись>=<папка кадров>"]...
-  (в папках — кадры `render_stand.py`: NN_az000_tex.png и т. д.; --between — промежуточные столбцы между эталоном и пробой, повторяемый: «гибрид | MV-Adapter | MVPainter»)
+  python3 mv_sheet.py <папка кадров эталона> <папка кадров пробы> <выход.png> [--width 800]   (в обеих папках — кадры `render_stand.py`: NN_az000_tex.png и т. д.)
+  python3 mv_sheet.py --cols "гибрид р.3=<папка>" "MV-Adapter=<папка>" "SUPRA-Tex=<папка>" --out <выход.png> [--width 800]   (T-20261119-06/5: любое число столбцов)
   python3 mv_sheet.py --selftest
 """
 from __future__ import annotations
@@ -24,22 +24,19 @@ def find_frame(folder: str, view: str, mode: str) -> str | None:
     return None
 
 
-def make_sheet(ref_dir: str, ours_dir: str, out: str, width: int = 800, label: str = 'mvadapter-i2tex', between: list | None = None) -> dict:
-    """Лист: строки — 0° и 45°, столбцы — эталон | [промежуточные пробы `between`: (подпись, папка)] | наша проба (`label`); подписи сверху. Возвращает {'sheet', 'missing': [...]} —
-    нет кадра → серая плашка с пометкой, лист всё равно собирается. Один код на любое число столбцов (T-20261119-06/4: «гибрид | MV-Adapter | MVPainter»)."""
+def make_sheet_cols(cols: list, out: str, width: int = 800) -> dict:
+    """Лист из N столбцов: `cols` — [(подпись, папка кадров), …]; строки — 0° и 45°. Возвращает {'sheet', 'missing': ['<подпись>:<вид>_<режим>', …]} — нет кадра → серая плашка с пометкой, лист всё равно собирается."""
     from PIL import Image, ImageDraw
-    cols = [('эталон (гибрид)', ref_dir, 'ref')] + [(lab, d, lab) for lab, d in (between or [])] + [(label, ours_dir, 'ours')]
     cells, missing = [], []
     for view, mode, _lab in ROWS:
-        for _name, folder, who in cols:
+        for label, folder in cols:
             p = find_frame(folder, view, mode)
             if p is None:
-                missing.append(f'{who}:{view}_{mode}')
+                missing.append(f'{label}:{view}_{mode}')
             cells.append(Image.open(p).convert('RGB') if p else None)
     base = next((c for c in cells if c is not None), None)
     h = int(width * (base.height / base.width)) if base else int(width * 0.75)
-    top = 28
-    n = len(cols)
+    top, n = 28, len(cols)
     sheet = Image.new('RGB', (width * n, (h + top) * len(ROWS)), (235, 235, 235))
     d = ImageDraw.Draw(sheet)
     for i, c in enumerate(cells):
@@ -53,6 +50,13 @@ def make_sheet(ref_dir: str, ours_dir: str, out: str, width: int = 800, label: s
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     sheet.save(out)
     return {'sheet': out, 'missing': missing}
+
+
+def make_sheet(ref_dir: str, ours_dir: str, out: str, width: int = 800, labels: tuple = ('эталон (гибрид)', 'mvadapter-i2tex')) -> dict:
+    """Лист «эталон | проба» (два столбца) — частный случай `make_sheet_cols`; пропуски названы `ref:`/`ours:` (как раньше)."""
+    r = make_sheet_cols([(labels[0], ref_dir), (labels[1], ours_dir)], out, width)
+    r['missing'] = [m.replace(labels[0] + ':', 'ref:', 1).replace(labels[1] + ':', 'ours:', 1) for m in r['missing']]
+    return r
 
 
 def _selftest() -> int:
@@ -76,15 +80,14 @@ def _selftest() -> int:
         ok2 = r2['missing'] == ['ours:az045_tex'] and os.path.exists(r2['sheet'])
         print('  ' + ('✓' if ok2 else '✗') + ' нет кадра пробы → лист собирается, пропуск назван')
         bad += not ok2
-        mid = os.path.join(t, 'mid')
-        os.makedirs(mid)
+        c = os.path.join(t, 'third')
+        os.makedirs(c)
         for n, (v, m) in enumerate((('az000', 'tex'), ('az000', 'clay'), ('az045', 'tex'), ('az045', 'clay')), 1):
-            Image.new('RGB', (160, 120), (10, 200, 10)).save(os.path.join(mid, f'{n:02d}_{v}_{m}.png'))
-        os.path.exists(os.path.join(b, '03_az045_tex.png')) or Image.new('RGB', (160, 120), (10, 10, 200)).save(os.path.join(b, '03_az045_tex.png'))
-        r3 = make_sheet(a, b, os.path.join(t, 'o', 'sheet3.png'), 80, label='MVPainter', between=[('MV-Adapter', mid)])
+            Image.new('RGB', (160, 120), (10, 200, 10)).save(os.path.join(c, f'{n:02d}_{v}_{m}.png'))
+        r3 = make_sheet_cols([('гибрид р.3', a), ('MV-Adapter', b), ('SUPRA-Tex', c)], os.path.join(t, 'o', 'sheet3.png'), 80)
         im3 = Image.open(r3['sheet'])
-        ok3 = im3.size == (240, (60 + 28) * 2) and not r3['missing'] and im3.getpixel((10, 40))[0] > 150 and im3.getpixel((100, 40))[1] > 150 and im3.getpixel((180, 40))[2] > 150
-        print('  ' + ('✓' if ok3 else '✗') + ' три столбца: эталон (красный) | MV-Adapter (зелёный) | MVPainter (синий)')
+        ok3 = im3.size == (240, (60 + 28) * 2) and r3['missing'] == ['MV-Adapter:az045_tex'] and im3.getpixel((200, 40))[1] > 150
+        print('  ' + ('✓' if ok3 else '✗') + ' три столбца: ширина 3×, пропуск назван по подписи, третий столбец (зелёный) на месте')
         bad += not ok3
     return bad
 
@@ -92,24 +95,24 @@ def _selftest() -> int:
 if __name__ == '__main__':
     if '--selftest' in sys.argv:
         sys.exit(1 if _selftest() else 0)
-    argv = sys.argv[1:]
-    opts = {'--width': '800', '--label': 'mvadapter-i2tex'}
-    between = []
-    pos = []
-    i = 0
-    while i < len(argv):
-        if argv[i] in opts and i + 1 < len(argv):
-            opts[argv[i]] = argv[i + 1]
-            i += 2
-        elif argv[i] == '--between' and i + 1 < len(argv) and '=' in argv[i + 1]:
-            lab, _, d = argv[i + 1].partition('=')
-            between.append((lab, d))
-            i += 2
-        elif argv[i].startswith('--'):
+    if '--cols' in sys.argv:
+        argv = sys.argv[1:]
+        i = argv.index('--cols')
+        items = []
+        for x in argv[i + 1:]:
+            if x.startswith('--'):
+                break
+            items.append(x)
+        cols = [tuple(x.split('=', 1)) for x in items if '=' in x]
+        if len(cols) < 2 or '--out' not in argv:
             sys.exit(__doc__)
-        else:
-            pos.append(argv[i])
-            i += 1
-    if len(pos) != 3:
+        w = int(argv[argv.index('--width') + 1]) if '--width' in argv else 800
+        print(make_sheet_cols(cols, argv[argv.index('--out') + 1], w))
+        sys.exit(0)
+    args = [x for x in sys.argv[1:] if not x.startswith('--')]
+    w = int(sys.argv[sys.argv.index('--width') + 1]) if '--width' in sys.argv else 800
+    if '--width' in sys.argv:
+        args.remove(sys.argv[sys.argv.index('--width') + 1])
+    if len(args) != 3:
         sys.exit(__doc__)
-    print(make_sheet(pos[0], pos[1], pos[2], int(opts['--width']), opts['--label'], between))
+    print(make_sheet(args[0], args[1], args[2], w))

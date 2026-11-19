@@ -47,13 +47,17 @@ STARTUP = {'http': {'path': '/health', 'port': PORT, 'scheme': 'http', 'headers'
            'initial_delay_seconds': 10, 'period_seconds': 60, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 20}   # API Salad: failure_threshold ≤ 20 (400 от 18.11) → 20 мин на докачку весов
 NO_FAIL_STREAK = 2
 TEX_ALIGNS = ('fit', 'official')      # pixal3d-tex: как кадрировать фото под форму (`worker_trellis.texture_on_shape`)
-WENV_MODELS = ('pixal3d-tex', 'mvadapter-i2tex', 'mvpainter')      # модели, которым можно передать окружение воркера (`--worker-env`, `--debug-cuda`)
-MV_YAWS = ('auto', '0', '90', '180', '270')           # mvadapter-i2tex: поворот формы к виду 0 — по силуэту фото или задан руками
+WENV_MODELS = ('pixal3d-tex', 'mvadapter-i2tex', 'mvpainter', 'supratex')      # модели, которым можно передать окружение воркера (`--worker-env`, `--debug-cuda`)
+MV_YAWS = ('auto', '0', '90', '180', '270')           # mvadapter-i2tex, mvpainter: поворот формы к виду 0 — по силуэту фото или задан руками
 MV_UV_SIZES = (1024, 2048, 4096)
-TEXTURE_MODELS = {'mvadapter-i2tex': '-mvtex', 'mvpainter': '-mvp', 'pixal3d-tex': '-tex', 'trellis2': '-tex'}      # модели «краска готовой формы» и суффикс id задания (результат — `<id>.glb`)
+SUPRA_TEX_SIZES = (1024, 2048, 4096)                  # supratex: размер текстуры выпуска (по умолчанию 4096, как в апстриме)
+SUPRA_MEM_MB = 49152                                  # supratex: пик памяти процессов ≈ 32,4 ГиБ (замер апстрима на 3090) — 32768 МБ группы впритык; 48 ГиБ (лимит Salad 61440)
+MODEL_MEM_MB = {'supratex': SUPRA_MEM_MB}             # память группы по умолчанию для моделей, которым общих 32768 МБ мало
+TEXTURE_MODELS = {'mvadapter-i2tex': '-mvtex', 'mvpainter': '-mvp', 'supratex': '-supra', 'pixal3d-tex': '-tex', 'trellis2': '-tex'}      # модели «краска готовой формы» и суффикс id задания (результат — `<id>.glb`)
 GPU_TIERS = ('high', 'medium', 'low', 'batch')        # тарифы Salad от дорогого к дешёвому; запасной порядок выбора класса — по ним
-GPU_MIN_GB = 40                                       # mvpainter: запасной путь — классы от 40 ГБ видеопамяти (по умолчанию — 4090 с чекпойнтом на процессор, issue #13)
-LIVE_PRICES: dict = {}                                # (имя класса, тариф) → $/ч из API Salad (`fetch_gpu_items`), если в `rules/salad-groups.json` класса нет
+MVP_DEFAULT_GPU = 'RTX 5090 (32 GB)'                  # mvpainter по умолчанию (директор 19.11): 4090 (24 ГБ) может не вместить; 4090 — только явным `--gpu "RTX 4090 (24 GB)"` / `--card`
+GPU_MIN_GB = 40                                       # запасной путь: классы от 40 ГБ видеопамяти (по умолчанию — 4090; у mvpainter с чекпойнтом на процессор, issue #13)
+LIVE_PRICES: dict = {}                                # (имя класса, тариф) → $/ч из API Salad (`fetch_gpu_items`); деньги считаем по ним, снимок `rules/salad-groups.json` — только если API молчит
 
 
 def say(*a) -> None:
@@ -169,6 +173,14 @@ def mvp_options(a) -> dict | None:
     if yaw not in MV_YAWS or not 1 <= steps <= 150 or red not in ('0', '1') or pbr not in ('0', '1'):
         return None
     return {'mvp_yaw': yaw, 'mvp_steps': steps, 'mvp_reduce': int(red), 'mvp_pbr': int(pbr)}
+
+def supra_options(a) -> dict | None:
+    """supratex: параметры задания из аргументов (`--supra-refine`, `--supra-texture-size`, `--supra-decimation`); неверное значение → None (отказ ДО группы и денег)."""
+    ts = int(getattr(a, 'supra_texture_size', None) if getattr(a, 'supra_texture_size', None) is not None else 4096)
+    dec = int(getattr(a, 'supra_decimation', None) if getattr(a, 'supra_decimation', None) is not None else 500000)
+    if ts not in SUPRA_TEX_SIZES or not 10000 <= dec <= 2000000:
+        return None
+    return {'supra_refine': bool(getattr(a, 'supra_refine', False)), 'supra_texture_size': ts, 'supra_decimation': dec}
 
 
 def expand_align_jobs(jobs: list[dict], variants: list[dict]) -> list[dict]:
@@ -306,7 +318,7 @@ def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu:
             env['PIXAL3D_MAX_TOKENS'] = '32768'
     elif donor is None and model == 'mvadapter-i2tex':   # образ MV-Adapter (`Dockerfile.mvadapter`): transformers 4.56.2 и huggingface_hub 0.35.3 уже закреплены в образе — pip на старте не нужен
         command, env['TRIAL_WORKER_Z'] = worker_command(python='python3')
-    elif donor is None and model == 'mvpainter':        # образ MVPainter (`Dockerfile.mvpainter`): все версии закреплены в образе, Blender 4.2/3.6 внутри — pip на старте не нужен
+    elif donor is None and model in ('mvpainter', 'supratex'):        # образы `Dockerfile.mvpainter` / `Dockerfile.supratex`: версии закреплены в образе, pip на старте не нужен; веса докачивает воркер (mvpainter ≈ 28 ГиБ, supratex ≈ 43 ГиБ; открытые, токен не обязателен)
         command, env['TRIAL_WORKER_Z'] = worker_command(python='python3')
     elif donor is None and model == 'localmesh':        # образ LocalMesh (py3.12, transformers 5.x, hub 1.x) — свои версии, pip-пины не нужны
         command, env['TRIAL_WORKER_Z'] = worker_command(python='python3')
@@ -405,6 +417,15 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         if len(skus) != 1 or mvo is None:
             say(f'mvadapter-i2tex: один товар в --skus (форма одна); --mv-yaw из {MV_YAWS}, --mv-uv-size из {MV_UV_SIZES}, --mv-steps 1..100, --mv-ref-scale 0..2 — группа не создаётся')
             return 2
+    supo = {}
+    if a.model == 'supratex':                             # SUPRA-Tex красит готовую форму (и сам её пересобирает): форма обязательна, товар один, параметры из списка — иначе отказ ДО группы и денег
+        supo = supra_options(a)
+        if not getattr(a, 'texture_mesh', None):
+            say('supratex красит готовую форму: укажите --texture-mesh <clean.glb> — группа не создаётся')
+            return 2
+        if len(skus) != 1 or supo is None:
+            say(f'supratex: один товар в --skus (форма одна); --supra-texture-size из {SUPRA_TEX_SIZES}, --supra-decimation 10000..2000000 — группа не создаётся')
+            return 2
     if a.model == 'mvpainter':                            # краска MVPainter по готовой форме: форма обязательна, товар один, параметры из списка — иначе отказ ДО группы и денег
         mvo = mvp_options(a)
         if not getattr(a, 'texture_mesh', None):
@@ -415,15 +436,16 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
             return 2
     wenv = parse_worker_env(getattr(a, 'worker_env', None), bool(getattr(a, 'debug_cuda', False)))
     if wenv is None or (wenv and a.model not in WENV_MODELS):          # переменные воркера — только пробам краски и только из белого списка; иначе отказ ДО группы и денег
-        say('--worker-env: только ИМЯ=ЗНАЧЕНИЕ из PIXTEX_*, MVTEX_*, MVP_*, CUDA_LAUNCH_BLOCKING, TORCH_SHOW_CPP_STACKTRACES и только для --model pixal3d-tex / mvadapter-i2tex / mvpainter; --debug-cuda — тоже только для них — группа не создаётся')
+        say('--worker-env: только ИМЯ=ЗНАЧЕНИЕ из PIXTEX_*, MVTEX_*, MVP_*, CUDA_LAUNCH_BLOCKING, TORCH_SHOW_CPP_STACKTRACES и только для --model pixal3d-tex / mvadapter-i2tex / mvpainter / supratex; --debug-cuda — тоже только для них — группа не создаётся')
         return 2
     MG.env_from_file()
     card = getattr(a, 'card', None) or CARD['class_name']
     gpu = getattr(a, 'gpu', None)
+    if a.model == 'mvpainter' and not gpu and not getattr(a, 'card', None):
+        gpu = MVP_DEFAULT_GPU                             # по имени класса из API (не `cheapest`: он скатился бы на 4090)
     min_gb = int(getattr(a, 'gpu_min_gb', None) or GPU_MIN_GB)
-    items = None
+    items = fetch_gpu_items(MG, getattr(a, 'gpu_fetch', None))        # живые цены классов — для ВСЕХ моделей (деньги и потолок считаем по ним; снимок rules — только если API молчит)
     if a.model == 'mvpainter' or gpu:                     # таблица классов от 40 ГБ с ценами — всегда в сухом прогоне mvpainter (запасной путь, если на 24 ГБ не влезет) и по запросу (`--gpu list`)
-        items = fetch_gpu_items(MG, getattr(a, 'gpu_fetch', None))
         src = items if items is not None else rules_gpu_items()
         note = 'API Salad, сейчас' if items is not None else 'API недоступен: снимок rules/salad-groups.json от 24.10, без id'
         rows = gpu_table(src, min_gb)
@@ -484,7 +506,8 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     for j in jobs:
         j['role'] = (inputs.get(j['sku']) or {}).get('role') or meta.get(j['sku'], {}).get('role')
         j['dims_cm'] = meta.get(j['sku'], {}).get('dims_cm')
-    body = build_body(name, a.image, a.tier, a.model, hf, a.cpu, a.mem_mb, a.image.split('@')[-1][:19], MG.ghcr_auth(), donor, extra_env=wenv)
+    mem_mb = getattr(a, 'mem_mb', None) or MODEL_MEM_MB.get(a.model, 32768)
+    body = build_body(name, a.image, a.tier, a.model, hf, a.cpu, mem_mb, a.image.split('@')[-1][:19], MG.ghcr_auth(), donor, extra_env=wenv)
     if wenv:
         say('окружение воркера (отладка/настройки):', wenv)
     say('группа', name, CARD['class_name'], 'тариф', a.tier, 'цена $/ч', price, 'заданий', len(jobs), 'потолок $', a.cap)
@@ -615,7 +638,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     j = pending.pop(0)
                     png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.rgba.png'), 'rb').read()
                     pl = {'job_id': j['job_id'], 'image_b64': base64.b64encode(png).decode(), 'pipeline_type': pipeline_type(j['res']), 'seed': j['seed'],
-                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_mesh_b64, 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'), **mvo}
+                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_mesh_b64, 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'), **mvo, **supo}
                     c, r = gw.call('POST', '/generate', pl, timeout=90)
                     inflight = {**j, 'submitted': t, 'http': c}
                     say('задание', j['job_id'], '→ HTTP', c)
@@ -696,7 +719,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--model', default='trellis2', choices=['trellis2', 'pixal3d', 'pixal3d-tex', 'mvadapter-i2tex', 'mvpainter', 'localmesh', 'hunyuan21'])
+    ap.add_argument('--model', default='trellis2', choices=['trellis2', 'pixal3d', 'pixal3d-tex', 'mvadapter-i2tex', 'mvpainter', 'supratex', 'localmesh', 'hunyuan21'])
     ap.add_argument('--donor', default='mesh-q-low-1', help='hunyuan21: боевая группа-образец (образ, ресурсы, env без секретов приёмника)')
     ap.add_argument('--set', default=None, help='JSON набора (роль, габариты); по умолчанию set30.json рядом с папкой inputs')
     ap.add_argument('--fail-streak', type=int, default=NO_FAIL_STREAK, help='сколько упавших заданий подряд гасят замер (контролю Hunyuan — больше: боевые ворота брака)')
@@ -710,6 +733,9 @@ def main() -> int:
     ap.add_argument('--card', default=CARD['class_name'], help='класс карты по полному имени ("RTX 4060 Ti (16 GB)" для localmesh)')
     ap.add_argument('--detail', default='high', choices=['draft', 'standard', 'high', 'max'], help='localmesh: ярус качества (high = форма 1024, 16 шагов, 250 тыс. граней)')
     ap.add_argument('--texture-mesh', default=None, help='контроль: готовая форма (GLB) — TRELLIS.2 только перекрасит её по фото (один товар в --skus)')
+    ap.add_argument('--supra-refine', action='store_true', help='supratex: --refine апстрима (чёткий мелкий рисунок, +≈2 мин на 3090)')
+    ap.add_argument('--supra-texture-size', type=int, default=4096, help='supratex: размер текстуры выпуска (1024/2048/4096; 4096 — как в апстриме)')
+    ap.add_argument('--supra-decimation', type=int, default=500000, help='supratex: целевое число граней выпуска (по умолчанию 500000, как в апстриме; форма пересобирается ремешем)')
     ap.add_argument('--tex-align', default='fit', help='pixal3d-tex: варианты через запятую, по заданию на вариант: fit (подгонка фото по силуэту формы), official (как в апстриме Pixal3D); добавки: +g<сила направляющей, по умолчанию 1>, +s<проходов сглаживания формы для латента>; пример: fit,official,fit+g3,fit+s60')
     ap.add_argument('--mv-yaw', default='auto', help='mvadapter-i2tex: поворот формы к виду 0 (лицом к камере): auto — по силуэту фото, либо 0/90/180/270 (силуэты 0° и 180° зеркальны — различаются только несимметричностью предмета)')
     ap.add_argument('--mv-uv-size', type=int, default=4096, help='mvadapter-i2tex: размер развёртки при проекции видов (1024/2048/4096; 4096 — как в апстриме, самый тяжёлый по памяти)')
@@ -719,11 +745,11 @@ def main() -> int:
     ap.add_argument('--mvp-steps', type=int, default=75, help='mvpainter: шагов диффузии (по умолчанию 75, как в апстриме)')
     ap.add_argument('--mvp-reduce', default='1', choices=['0', '1'], help='mvpainter: 1 — штатное упрощение формы до 30 тыс. вершин (по умолчанию, как у авторов), 0 — не упрощать')
     ap.add_argument('--mvp-pbr', default='1', choices=['0', '1'], help='mvpainter: 1 — PBR через IDArb (по умолчанию), 0 — только базовый цвет')
-    ap.add_argument('--gpu', default=None, help='класс карты: полное имя («RTX 6000 Ada (48 GB)», то же, что --card), `cheapest` — самый дешёвый от 40 ГБ на тарифе --tier (нет на нём — тариф ниже, с предупреждением), `list` — только напечатать таблицу классов от 40 ГБ и выйти; без флага — --card (4090)')
+    ap.add_argument('--gpu', default=None, help='класс карты (для mvpainter по умолчанию RTX 5090 (32 GB); 4090 — только явно): полное имя («RTX 6000 Ada (48 GB)», то же, что --card), `cheapest` — самый дешёвый от 40 ГБ на тарифе --tier (нет на нём — тариф ниже, с предупреждением), `list` — только напечатать таблицу классов от 40 ГБ и выйти; без флага — --card (4090)')
     ap.add_argument('--gpu-min-gb', type=int, default=GPU_MIN_GB, help='порог видеопамяти для таблицы и для `--gpu cheapest` (по умолчанию 40 ГБ; в организации классов от 40 ГБ нет — самый большой RTX 5090 32 ГБ)')
     ap.add_argument('--tier', default='high', choices=['batch', 'low', 'medium', 'high'])
     ap.add_argument('--cpu', type=int, default=8)
-    ap.add_argument('--mem-mb', type=int, default=32768)
+    ap.add_argument('--mem-mb', type=int, default=None, help='память группы, МБ; по умолчанию 32768, для supratex 49152 (пик процессов ≈ 32,4 ГиБ)')
     ap.add_argument('--cap', type=float, default=2.0, help='потолок денег на ОДИН запуск (одну модель), $ — владелец TG 2064: $2 на модель, $10 на всю пробу')
     ap.add_argument('--max-min', type=int, default=180)
     ap.add_argument('--ready-min', type=int, default=75, help='сколько минут после running ждать прогрева модели (холодный старт с докачкой весов — часть результата пробы)')

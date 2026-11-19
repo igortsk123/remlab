@@ -106,12 +106,12 @@ import trimesh  # noqa: E402
 sph = trimesh.creation.icosphere(subdivisions=3)
 sph_lo = trimesh.creation.icosphere(subdivisions=2)
 sc = np.array([0.5, 0.3, 0.3])
-met = W.mvp_geometry_metrics(np.asarray(sph.vertices) * sc, sph.faces, np.asarray(sph_lo.vertices) * sc, sph_lo.faces, n=8000)
+met = W.shape_change_metrics(np.asarray(sph.vertices) * sc, sph.faces, np.asarray(sph_lo.vertices) * sc, sph_lo.faces, n=8000)
 ok('метрики упрощения: грани/вершины до и после (1280 → 320 граней), Хаусдорф в долях диагонали — малый, но не нулевой',
-   met['faces_in'] == 1280 and met['faces_out'] == 320 and met['verts_in'] == 642 and met['verts_out'] == 162 and 0 < met['hausdorff_sym_rel'] < 0.06 and met['hausdorff_out_to_in_rel'] > 0
-   and met['p99_out_to_in_rel'] <= met['hausdorff_out_to_in_rel'] and abs(met['face_ratio'] - 0.25) < 1e-6, str(met))
-same = W.mvp_geometry_metrics(np.asarray(sph.vertices), sph.faces, np.asarray(sph.vertices), sph.faces, n=4000)
-ok('та же форма → расстояние 0 (метрика не выдумывает сдвиг)', same['hausdorff_sym_rel'] < 1e-9, str(same))
+   met['faces_in'] == 1280 and met['faces_out'] == 320 and met['verts_in'] == 642 and met['verts_out'] == 162 and 0 < met['hausdorff_rel'] < 0.06 and met['mean_rel'] > 0
+   and met['p99_rel'] <= met['hausdorff_rel'] and abs(met['faces_ratio'] - 0.25) < 1e-6, str(met))
+same = W.shape_change_metrics(np.asarray(sph.vertices), sph.faces, np.asarray(sph.vertices), sph.faces, n=4000)
+ok('та же форма → расстояние почти 0 (только шаг выборки; метрика не выдумывает сдвиг), общая функция с supratex', same['hausdorff_rel'] < 0.03 and W.supra_shape_metrics is W.shape_change_metrics, str(same))
 
 print('[2] стадии апстрима подпроцессами')
 wd = tempfile.mkdtemp(prefix='mvps-')
@@ -214,7 +214,7 @@ final, m3 = W.mvp_texture_on_shape(FakeRunner(), mesh_in, photo0, {'seed': 7}, N
 ok('по умолчанию упрощение ВКЛЮЧЕНО (reduce=True), PBR включён, 75 шагов, зерно из задания', seen['reduce'] is True and seen['pbr'] is True and seen['steps'] == 75 and seen['seed'] == 7, str(seen))
 ok('апстриму ушли форма (GLB без развёртки) и фото (PNG), имя без «glb»', seen['has_in_glb'] and seen['has_in_png'] and 'glb' not in seen['uid'] and seen['uid'].startswith('m'))
 ok('форма изменилась ЗАКОННО: охраны нет (исключения нет), в метриках 1280 → 320 граней, Хаусдорф к исходной — доли диагонали', m3['simplify']['faces_in'] == 1280 and m3['simplify']['faces_out'] == 320
-   and 0 < m3['simplify']['hausdorff_out_to_in_rel'] < 0.06, str(m3['simplify']))
+   and 0 < m3['simplify']['hausdorff_rel'] < 0.06, str(m3['simplify']))
 ok('кадр итога вернулся в кадр входа: идентичный поворот, оценка мала, ok; габарит итога ≈ габариту исходной формы',
    m3['frame']['rotation'] == 'identity' and m3['frame']['ok'] and np.allclose(final.bounds, mesh_in.bounds, atol=0.03), str(m3['frame']) + str(final.bounds) + str(mesh_in.bounds))
 ok('материал и развёртка апстрима сохранены (текстура 16², UV на каждую вершину), замеры: стадии, пик, миниатюра видов', m3['tex_in_size'] == [16, 16] and len(final.visual.uv) == len(final.vertices) and m3['upstream_s'] == 2.0
@@ -319,6 +319,7 @@ print('[5] драйвер: выбор класса GPU, тело группы, �
 import trellis_trial as T  # noqa: E402
 items = [
     {'id': 'c4090', 'name': 'RTX 4090 (24 GB)', 'prices': [{'priority': 'high', 'price': '0.33'}, {'priority': 'medium', 'price': '0.3'}]},
+    {'id': 'c5090', 'name': 'RTX 5090 (32 GB)', 'prices': [{'priority': 'high', 'price': '0.600'}, {'priority': 'medium', 'price': '0.483'}]},
     {'id': 'a6000', 'name': 'RTX A6000 (48 GB)', 'prices': [{'priority': 'high', 'price': '0.49'}, {'priority': 'medium', 'price': '0.40'}, {'priority': 'low', 'price': '0.35'}]},
     {'id': 'l40s', 'name': 'L40S (48 GB)', 'prices': [{'priority': 'high', 'price': '0.69'}, {'priority': 'low', 'price': '0.50'}]},
     {'id': 'a100', 'name': 'A100 (40 GB)', 'prices': [{'priority': 'high', 'price': '0.89'}]},
@@ -343,7 +344,7 @@ e = b['container']['environment_variables']
 ok('тело группы: MODEL=mvpainter, код воркера в command (python3 -u -c, без pip: версии в образе), приёмника на проде нет, окружение воркера (MVP_CKPT) доехало',
    e['MODEL'] == 'mvpainter' and b['container']['command'][:2] == ['python3', '-u'] and not any(k.startswith('MESH_SINK') for k in e) and e['MVP_CKPT'] == 'ckpt'
    and __import__('zlib').decompress(__import__('base64').b64decode(e['TRIAL_WORKER_Z'])) == open(os.path.join(HERE, 'worker_trellis.py'), 'rb').read())
-ok('по умолчанию 4090, диск 80 ГиБ (веса ≈ 28 ГиБ + кэш), образ тот же', b['container']['resources']['gpu_classes'] == [T.CARD['class_id']] and T.CARD['class_name'] == 'RTX 4090 (24 GB)'
+ok('build_body без выбора класса — 4090 (CARD), диск 80 ГиБ (веса ≈ 28 ГиБ + кэш), образ тот же', b['container']['resources']['gpu_classes'] == [T.CARD['class_id']] and T.CARD['class_name'] == 'RTX 4090 (24 GB)'
    and b['container']['resources']['storage_amount'] == 80 * 2 ** 30 and b['container']['image'] == 'ghcr.io/x/y:t')
 b2 = T.build_body('trial-trellis2-x', 'ghcr.io/x/y:t', 'high', 'trellis2', 'hf_SECRET', 8, 32768, 'note', {'basic': {}}, extra_env={'MVP_CKPT': 'ckpt'})
 ok('окружение воркера чужим моделям не передаётся', 'MVP_CKPT' not in b2['container']['environment_variables'])
@@ -394,8 +395,8 @@ buf = io.StringIO()
 with redirect_stdout(buf):
     rc = T.run(ns, DryMG(), NS())
 txt = buf.getvalue()
-ok('сухой прогон: код 0, задание `<ключ>-1024-42-0-mvp`, группа trial-mvpainter-t, потолок $1,0, 4090; секретов в печати нет',
-   rc == 0 and 'задание a_1-1024-42-0-mvp' in txt and 'trial-mvpainter-t' in txt and 'потолок $ 1.0' in txt and 'RTX 4090 (24 GB)' in txt and 'hf_SECRET' not in txt and 'PW' not in txt and '<скрыто>' in txt, txt[:400])
+ok('сухой прогон: код 0, задание `<ключ>-1024-42-0-mvp`, группа trial-mvpainter-t, карта по умолчанию RTX 5090 по имени из API, живая цена $0,60/ч, потолок $1,0; секретов в печати нет',
+   rc == 0 and 'задание a_1-1024-42-0-mvp' in txt and 'trial-mvpainter-t' in txt and 'потолок $ 1.0' in txt and 'RTX 5090 (32 GB) тариф high цена $/ч 0.6 ' in txt and '"c5090"' in txt and 'hf_SECRET' not in txt and 'PW' not in txt and '<скрыто>' in txt, txt[:400])
 ok('сухой прогон печатает таблицу классов от 40 ГБ с ценами (запасной путь), без 4090', 'классы GPU ≥ 40 ГБ' in txt and 'RTX A6000 (48 GB)' in txt and 'H100 (80 GB)' in txt and '0.490' in txt and 'RTX 4090 (24 GB)  ' not in txt.split('классы GPU')[1].split('группа')[0], txt[:600])
 ok('результаты — в СВОЕЙ папке модели (…/mesh-models-1118/mvpainter), не в общей `trellis/`', ns.out == T.default_out('mvpainter') and os.path.basename(ns.out) == 'mvpainter' and os.path.basename(ns.out) != 'trellis', str(ns.out))
 open(os.path.join(tp, 'a_1-1024-42-0-mvp.model'), 'w').write('trellis2')
@@ -444,8 +445,8 @@ buf = io.StringIO()
 with redirect_stdout(buf):
     rc7 = T.run(ns7, DryMG(), NS())
 t7 = buf.getvalue()
-ok('классов от 40 ГБ нет → печатается «нет ни одного» и следом все классы больше 24 ГБ (5090 — $0,60/ч); цена 4090 в сухом прогоне — живая 0,44, не снимок 0,33',
-   rc7 == 0 and 'нет ни одного класса от 40 ГБ' in t7 and 'RTX 5090 (32 GB)' in t7 and '0.600' in t7 and 'цена $/ч 0.44' in t7, t7[:700])
+ok('классов от 40 ГБ нет → печатается «нет ни одного» и следом все классы больше 24 ГБ (5090 — $0,60/ч); карта по умолчанию — 5090 с живой ценой 0,6',
+   rc7 == 0 and 'нет ни одного класса от 40 ГБ' in t7 and 'RTX 5090 (32 GB)' in t7 and '0.600' in t7 and 'RTX 5090 (32 GB) тариф high цена $/ч 0.6 ' in t7, t7[:700])
 T.CARD.update(card_keep)
 ns8 = NS(**{**ns2.__dict__, 'gpu': 'cheapest', 'gpu_min_gb': 32, 'gpu_fetch': lambda: items_real})
 buf = io.StringIO()
@@ -460,11 +461,64 @@ ok('--gpu cheapest при порогe 40 ГБ и без таких классо�
 T.CARD.update(card_keep)
 T.LIVE_PRICES.clear()
 
+ns10 = NS(**{**ns2.__dict__, 'gpu': 'RTX 4090 (24 GB)', 'gpu_fetch': lambda: items})
+buf = io.StringIO()
+with redirect_stdout(buf):
+    rc10 = T.run(ns10, DryMG(), NS())
+ok('4090 — только явным `--gpu "RTX 4090 (24 GB)"`: класс 4090, цена живая $0,33 из ответа API (в тесте), не 5090', rc10 == 0 and 'RTX 4090 (24 GB) тариф high цена $/ч 0.33 ' in buf.getvalue() and '"c4090"' in buf.getvalue(), buf.getvalue()[-300:])
+T.CARD.update(card_keep)
+T.LIVE_PRICES.clear()
+ns11 = NS(**{**ns2.__dict__, 'model': 'trellis2', 'texture_mesh': None, 'gpu': None, 'gpu_fetch': lambda: items, 'skus': ['a:1']})
+buf = io.StringIO()
+with redirect_stdout(buf):
+    T.run(ns11, DryMG(), NS())
+ok('деньги по живой цене для ВСЕХ моделей: у trellis2 (4090 по умолчанию) цена из API 0,33 берётся из LIVE_PRICES, а не из снимка rules (там 0,33 → отличим подменой)', ('цена $/ч 0.33 ' in buf.getvalue()) and ('RTX 4090 (24 GB)' in buf.getvalue()), buf.getvalue()[-300:])
+T.CARD.update(card_keep)
+T.LIVE_PRICES.clear()
+items_live = [{'id': 'c4090', 'name': 'RTX 4090 (24 GB)', 'prices': [{'priority': 'high', 'price': '0.777'}]}]
+ns12 = NS(**{**ns11.__dict__, 'gpu_fetch': lambda: items_live})
+buf = io.StringIO()
+with redirect_stdout(buf):
+    T.run(ns12, DryMG(), NS())
+ok('живая цена главнее снимка rules: API сказал 0,777 — в выводе 0,777', 'цена $/ч 0.777 ' in buf.getvalue(), buf.getvalue()[-300:])
+T.CARD.update(card_keep)
+T.LIVE_PRICES.clear()
+
+# нехватка видеопамяти: пик памяти по стадиям попадает в диагностику задания (а оттуда — в summary-*.json драйвера)
+oom_runner = W.MVPRunner('/opt/MV-Painter/MVPainter', '/b42', '/b36', '/tools', {}, run_stage=None)
+
+
+def oom_stage(name, cmd, cwd, env=None, expect=(), timeout=0):
+    if name == 'multiview':
+        return {'name': name, 'rc': 0, 'seconds': 40.0, 'gpu_peak_mib': 20480, 'gpu_used_base_mib': 0, 'timed_out': False, 'tail': []}
+    raise W.MVPStageError('стадия pbr_views: код выхода 1\ntorch.cuda.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.00 GiB',
+                          {'name': name, 'rc': 1, 'seconds': 12.0, 'gpu_peak_mib': 32000, 'gpu_used_base_mib': 0, 'timed_out': False, 'failed': True, 'tail': ['x']})
+
+
+oom_runner.run_stage = oom_stage
+wk = tempfile.mkdtemp(prefix='mvpo-')
+try:
+    oom_runner.run('mt', wk, {'steps': 5, 'seed': 1, 'reduce': True, 'pbr': True})
+    ok('нехватка памяти на стадии → MVPStageError', False)
+except W.MVPStageError as e_oom:
+    be2 = W.MVPainterBackend()
+    be2.runner = oom_runner
+    d = be2.on_error(e_oom)
+    ok('OOM: kind=oom, воркер жив, в диагностике пик по стадиям — multiview 20 ГиБ, упавшая pbr_views 31,25 ГиБ, общий пик 31,25 ГиБ, названа упавшая стадия',
+       d['kind'] == 'oom' and d['fatal'] is False and d['peak_vram_gb'] == 31.25 and d['failed_stage'] == 'pbr_views' and [x['name'] for x in d['upstream_stages']] == ['multiview', 'pbr_views']
+       and d['upstream_stages'][0]['gpu_peak_mib'] == 20480, str(d)[:300])
+    import json as _j
+    ok('диагностика сериализуется в JSON (уходит в res.json воркера и в summary драйвера)', len(_j.dumps(d, default=str)) > 50)
+try:
+    W.mvp_run_stage('t_oom', [sys.executable, '-c', 'import sys,time; time.sleep(1.3); print("CUDA out of memory"); sys.exit(1)'], wk, smi=lambda: 12345)
+except W.MVPStageError as e3:
+    ok('mvp_run_stage при сбое отдаёт замеры упавшей стадии (пик памяти) в исключении', e3.info.get('gpu_peak_mib') == 12345 and e3.info.get('failed') is True and e3.info.get('seconds', 0) >= 1.3, str(e3.info))
+
 print('[6] скрипт пробы и образ (по тексту)')
 sh = open(os.path.join(HERE, 'probe_mvpainter.sh'), encoding='utf-8').read()
 ok('probe_mvpainter.sh: товар — аргумент (отказ без него), в коде нет ни одного id товара', 'нужен товар' in sh and 'exit 2' in sh and not __import__('re').search(r'\b\d{5,}:\d{10,}\b', sh))
 ok('форма: clean2, иначе clean; потолок CAP=1.0; вывод в t19-06-1119/mvp-<ЧЧММ>, НЕ в trellis/', 'clean2.glb' in sh and '.clean.glb' in sh and 'CAP="${CAP:-1.0}"' in sh and 't19-06-1119/mvp-$STAMP' in sh and 'OUT="${OUT:-$HOME/remlab-logs/mesh-models-1118/trellis' not in sh)
-ok('кадры 0°/45° через render_stand.py, лист «гибрид | MV-Adapter | MVPainter» (--between), свои имена кадров как у эталона', '--only az000,az045' in sh and '--between "MV-Adapter=$MVA"' in sh and 'mv_sheet.py' in sh and '--label MVPainter' in sh)
+ok('кадры 0°/45° через render_stand.py, лист «гибрид | MV-Adapter | MVPainter» (общий `mv_sheet.py --cols`), свои имена кадров как у эталона', '--only az000,az045' in sh and 'COLS+=("MV-Adapter=$MVA")' in sh and 'mv_sheet.py" --cols' in sh and 'MVPainter=$OUT/frames/$n' in sh)
 ok('сухой прогон по умолчанию (APPLY=1 — платный), «денег 0»', 'APPLY:-0' in sh and 'денег 0' in sh)
 df = open(os.path.join(HERE, 'Dockerfile.mvpainter'), encoding='utf-8').read()
 ok('Dockerfile.mvpainter: база по digest, коммит MV-Painter закреплён, оба Blender по sha256, пины версий, воркер и MODEL=mvpainter', '@sha256:' in df and 'f714682db5e6f78e8d1c7c0a43d1525638dda5a6' in df and df.count('sha256sum -c') >= 2
