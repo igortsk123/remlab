@@ -318,10 +318,20 @@ def measure_pair(task: dict) -> dict:
     cut_im = Image.open(cut).convert('RGBA') if cut and os.path.exists(cut) else None
 
     # --- рендеры: IoU (силуэт), цвет без света, пустой зад/верх
-    def shot(yaw, pitch):
-        return MR.render(parts, yaw, pitch, size=RENDER)
+    cur = {'parts': parts}
 
-    if parts is not None and cut_im is not None:
+    def shot(yaw, pitch):
+        # упрощатель мог сломать индексы UV (пример: `IndexError: index 53766 … size 53765` на Hunyuan-GLB) — один раз пробуем полные части
+        try:
+            return MR.render(cur['parts'], yaw, pitch, size=RENDER)
+        except IndexError:
+            if cur['parts'] is not parts:
+                raise
+            cur['parts'] = MR.load_parts(final)
+            out.setdefault('notes', []).append('упрощение частей ломало UV — рендер по полным частям')
+            return MR.render(cur['parts'], yaw, pitch, size=RENDER)
+
+    def render_block():
         cm = _mask256(cut_im)
         yaws = IOU_YAWS_QUICK if task['iou_grid'] == 'quick' else (0.0, -20.0, 20.0)
         pitches = (PITCH,) if task['iou_grid'] == 'quick' else (0.0, 12.0, 22.0)
@@ -353,12 +363,15 @@ def measure_pair(task: dict) -> dict:
             elif task.get('pattern'):
                 out['pattern_grad_ncc'] = guard('pattern_grad_ncc', lambda: pattern_value(front_img, cut_im))
 
+    if parts is not None and cut_im is not None:
+        guard('рендер (IoU/цвет)', render_block)
+
     # --- сторож 1: серый верх (боевая функция, не прогон модуля)
     g = guard('mesh_grey_top', lambda: GT.analyze(final))
     out['grey_top'] = (g or {}).get('verdict') if g is not None else 'ошибка'
 
     # --- сторож 2: пустой вид по рендеру итогового GLB (зад и верх; идея view_guard)
-    if parts is not None:
+    def view_block():
         flags = []
         for yw, pt in ((180.0, PITCH), (0.0, 55.0)):
             im = shot(yw, pt)
@@ -371,6 +384,9 @@ def measure_pair(task: dict) -> dict:
             near = np.all(np.abs(rgb[inside] - np.array(VG.EMPTY_GREY)) <= VG.TOL, axis=-1)
             flags.append(float(near.mean()) >= VG.EMPTY_FRAC)
         out['view_empty'] = any(flags) if flags else None
+
+    if parts is not None:
+        guard('рендер (пустой вид)', view_block)
 
     # --- сторож 3: цвет модели против цвета вырезки (боевые функции и пороги)
     if cut:
