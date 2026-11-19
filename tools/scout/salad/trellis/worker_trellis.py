@@ -260,6 +260,13 @@ class Pixal3DBackend:
         # Режим low_vram (README Pixal3D: «для ≤ 24 ГБ») грузит модели на карту по очереди; разрешение 1024_cascade у нас и так
         low = os.environ.get('PIXAL3D_LOW_VRAM', '1') != '0'
         self.pipe = INF.init_pipeline(low_vram=low)               # веса Pixal3D + 4 экстрактора DINOv3 + NAF
+        for _name in ('decode_tex_slat', 'decode_shape_slat', 'sample_tex_slat', 'sample_shape_slat'):     # перед каждой тяжёлой стадией отдаём кэш аллокатора (px2: «CUDA driver error: out of memory» в decode_tex_slat)
+            _f = getattr(self.pipe, _name, None)
+            if callable(_f):
+                def _w(*a, _f=_f, **k):
+                    torch.cuda.empty_cache()
+                    return _f(*a, **k)
+                setattr(self.pipe, _name, _w)
         t_w = time.time() - t
         STATE['phase'] = 'moge'
         t = time.time()
@@ -276,6 +283,7 @@ class Pixal3DBackend:
         torch.cuda.reset_peak_memory_stats()
         stage = {}
         seed = int(params.get('seed', 42))
+        torch.cuda.empty_cache()
         t = time.time()
         pre = self.pipe.preprocess_image(image)
         tmp = os.path.join(OUT, f'_pre_{os.getpid()}_{int(time.time() * 1000)}.png')
@@ -291,7 +299,7 @@ class Pixal3DBackend:
                 'tex': {'steps': 12, 'guidance_strength': 1.0, 'guidance_rescale': 0.0, 'rescale_t': 3.0}}
         mesh_list, (_shape_slat, _tex_slat, res) = self.pipe.run(
             pre, camera_params=cam, seed=seed, sparse_structure_sampler_params=samp['ss'], shape_slat_sampler_params=samp['shape'],
-            tex_slat_sampler_params=samp['tex'], preprocess_image=False, return_latent=True, pipeline_type=ptype, max_num_tokens=49152)
+            tex_slat_sampler_params=samp['tex'], preprocess_image=False, return_latent=True, pipeline_type=ptype, max_num_tokens=int(os.environ.get('PIXAL3D_MAX_TOKENS', '49152')))
         torch.cuda.synchronize()
         stage['run'] = round(time.time() - t, 2)
         peak_run = torch.cuda.max_memory_allocated() / 2 ** 30

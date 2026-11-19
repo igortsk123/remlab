@@ -147,6 +147,9 @@ def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu:
         pre = ('for i in 1 2 3; do python3 -m pip install -q "huggingface_hub==0.35.3" && break; echo "[pip] попытка $i не удалась"; sleep 5; done; '
                'python3 -m pip list 2>/dev/null | grep -i -E "^(transformers|huggingface|tokenizers|safetensors|torch|diffusers|natten) " | tr -s " " | tr "\\n" ";"; echo')
         command, env['TRIAL_WORKER_Z'] = worker_command(python='python3', pre=pre)
+        if model == 'pixal3d':      # px2 (19.11): CUDA out of memory в декодере текстуры на 24 ГБ — меньше фрагментации и меньше токенов
+            env['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+            env['PIXAL3D_MAX_TOKENS'] = '32768'
     elif donor is None and model == 'localmesh':        # образ LocalMesh (py3.12, transformers 5.x, hub 1.x) — свои версии, pip-пины не нужны
         command, env['TRIAL_WORKER_Z'] = worker_command(python='python3')
     elif donor is None:      # TRELLIS.2: образ уже содержит воркер, но актуальный код едет через command — без пересборки образа (python3 в образе, `python` нет)
