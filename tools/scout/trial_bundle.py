@@ -282,7 +282,7 @@ def quiz_rule() -> dict:
 def default_ctx() -> dict:
     """Что берётся у живого демо: числа правил страницы, модель товара, правило опроса. Импорт `flat215_demo` тяжёлый — только здесь."""
     import flat215_demo as FD
-    return {'rules': {**FD._rules(), 'soft_roles': FD.soft_roles()}, 'msid_of': FD._msid, 'slot_band': FD._slot_band, 'quiz': quiz_rule(),
+    return {'rules': FD.page_rules(), 'msid_of': FD._msid, 'slot_band': FD._slot_band, 'quiz': quiz_rule(),
             'goods': _demo_goods, 'room_goods': _demo_room_goods, 'img_queue': queue_images, 'money_en': uk_money(), 'demo_feeds': _demo_feeds, 'dev_flat': dev_flat(), 'scene_live': scene_live}
 
 

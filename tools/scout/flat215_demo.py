@@ -111,6 +111,14 @@ def _photo_pick() -> dict:
     return {'window_old_key_photo': w if w in ('hide', 'dim') else 'hide', 'home_old_key_photo': h if h in ('keep', 'hide') else 'keep'}
 
 
+def page_rules() -> dict:
+    """ПРАВИЛА СТРАНИЦЫ ОДНИМ НАБОРОМ (T-20261119-98, П1.23): всё, что `D.rules` получает от файлов правил, кроме полос размера
+    (`slot_band_cm` — по каталогу своей квартиры). Зовут и сборка /demo (`build`), и тур (`trial_bundle.default_ctx`) — новое правило
+    страницы добавлять СЮДА, иначе тур его не получит и сверка «демо = туры» покажет «правила страницы отличаются»
+    (так `photo_pick` 18.11 лёг только в /demo)."""
+    return {**_rules(), 'soft_roles': soft_roles(), 'photo_pick': _photo_pick()}
+
+
 def _rules() -> dict:
     occ = json.load(open(os.path.join(RULES, 'occupancy.json'), encoding='utf-8'))
     zn = json.load(open(os.path.join(RULES, 'zones.json'), encoding='utf-8'))
@@ -2355,7 +2363,7 @@ def build() -> dict:
             # ПОЛОСА «ПОДХОДЯЩИХ ПО РАЗМЕРУ» ленты замен (решение владельца 22.10, demo-20 А4; частично отменяет ADR-0271): ширина
             # 0.8–1.1 идеала слота этой комнаты — одно правило со сборкой комплектов (`slot_rules.slot_band`); лента в данных
             # остаётся широкой (`DEMO_ENV`), страница фильтрует по полосе, пока включён чип «Подходящие по размеру»
-            'rules': {**_rules(), 'slot_band_cm': {**_slot_band(liv), **rules_extra}, 'soft_roles': soft_roles(), 'photo_pick': _photo_pick()},
+            'rules': {**page_rules(), 'slot_band_cm': {**_slot_band(liv), **rules_extra}},
             **cats,
             # ОПРОС-ЗНАКОМСТВО (onb-03 Т1, ADR-0330): правило и тексты вопросов — `rules/quiz.json` целиком (страница: `D.quiz`, подбор —
             # блок QUIZPICK). Показ решает флаг квартиры в карточке `/api/apartments` (`quiz.enabled`) или `?quiz=1`, не наличие правила
