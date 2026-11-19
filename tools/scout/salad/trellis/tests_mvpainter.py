@@ -539,7 +539,7 @@ ok('probe_mvpainter.sh: товары — аргументы (отказ без �
    and not __import__('re').search(r'\b\d{5,}:\d{10,}\b', sh + lib))
 ok('форма: clean2, иначе clean; потолок CAP=1.0; вывод в t19-06-1119/mvp-<ЧЧММ>, НЕ в trellis/', 'clean2.glb' in lib and '.clean.glb' in lib and 'CAP="${CAP:-1.0}"' in sh and 't19-06-1119/mvp-$STAMP' in sh and 'OUT="${OUT:-$HOME/remlab-logs/mesh-models-1118/trellis' not in sh)
 ok('несколько товаров в одной группе: --skus "${SKUS[@]}" и --shape-dir (форма на товар), кадры 0°/45° через render_stand.py, лист «гибрид р.3 | MV-Adapter | MVPainter» (общий `mv_sheet.py --cols`) — по товару в свою подпапку',
-   '--skus "${SKUS[@]}"' in sh and '--shape-dir "$BASE"' in sh and 'probe_accept mvp "MVPainter"' in sh and '--only az000,az045' in lib and 'cols+=("MV-Adapter=${MVA[$s]}")' in lib
+   '--skus "${SKUS[@]}"' in sh and '--shape-dir "$SHAPE_DIR"' in sh and 'probe_accept mvp "MVPainter"' in sh and '--only az000,az045' in lib and 'cols+=("MV-Adapter=${MVA[$s]}")' in lib
    and 'mv_sheet.py" --cols' in lib and 'd="$OUT/$skuf"' in lib and '$d/frames/$n' in lib)
 ok('сухой прогон по умолчанию (APPLY=1 — платный), «денег 0»', 'APPLY:-0' in sh and 'денег 0' in sh)
 
