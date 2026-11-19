@@ -202,7 +202,9 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     inputs = json.load(open(os.path.join(a.inputs, 'inputs.json'), encoding='utf-8'))
     skus = a.skus or [k for k, v in inputs.items() if isinstance(v, dict) and v.get('input_png_sha256')]      # без --skus — весь набор из inputs.json (30 товаров)
     jobs = build_jobs(skus, parse_plan(a.plan), inputs, a.seed) if skus and not getattr(a, 'no_control', False) else []
-    jobs = paint_jobs(getattr(a, 'paint_skus', []), getattr(a, 'paint_variants', 'noremesh,remesh'), getattr(a, 'paint_shape_dir', None), inputs, a.seed) + jobs      # гибрид «форма TRELLIS + покраска Hunyuan»: идёт ПЕРВЫМ в той же группе
+    pj = paint_jobs(getattr(a, 'paint_skus', []), getattr(a, 'paint_variants', 'noremesh,remesh'), getattr(a, 'paint_shape_dir', None), inputs, a.seed)
+    k = max(0, int(getattr(a, 'paint_after', 0)))
+    jobs = jobs[:k] + pj + jobs[k:]                       # гибрид «форма TRELLIS + покраска Hunyuan» — в той же группе, после первых `--paint-after` контрольных
     name = f'trial-{a.model}-{a.suffix}'
     price = price_usd_h(a.tier)
     MG.env_from_file()
@@ -293,8 +295,8 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                 say(f'!! предел времени {a.max_min} мин — гашу')
                 summary['stopped_by'] = 'time'
                 break
-            if run_since is None and (t - t_start) > 3600:
-                say('!! за час нода не вышла в running — гашу (платили 0)')
+            if run_since is None and (t - t_start) > getattr(a, 'machine_wait_min', 60) * 60:
+                say(f'!! за {getattr(a, "machine_wait_min", 60)} мин нода не вышла в running — гашу (платили 0)')
                 summary['stopped_by'] = 'no_machine'
                 break
             if run_since is not None and gw is None:
@@ -428,6 +430,8 @@ def main() -> int:
     ap.add_argument('--paint-skus', nargs='*', default=[], help='hunyuan21: товары для гибрида (форма TRELLIS из --paint-shape-dir + покраска Hunyuan)')
     ap.add_argument('--paint-shape-dir', default=os.path.expanduser('~/remlab-logs/mesh-models-1118/trellis'))
     ap.add_argument('--paint-variants', default='noremesh,remesh')
+    ap.add_argument('--paint-after', type=int, default=0, help='после скольких контрольных заданий ставить гибрид (1 — сперва один контрольный товар)')
+    ap.add_argument('--machine-wait-min', type=int, default=60, help='сколько минут от /start ждать running (скачивание образа ≈ 30 ГБ на медленной машине 18.11 шло дольше часа; ожидание не оплачивается)')
     ap.add_argument('--no-control', action='store_true', help='не ставить контрольные задания (--skus), только гибрид')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--stop-only', action='store_true')
