@@ -62,6 +62,10 @@ SPLAT_SIGMA = 1.2                 # минимальная σ сглаживан
 SPLAT_SIGMA_K = 0.55              # σ не меньше этого × √(текселей на пиксель кадра)
 COVER_MIN = 0.25                  # тексель покрыт, если масса накопления ≥ этой доли типичной (медианной) массы
 CONF_MIN = 0.02
+REG_MIN = 0.50                    # фото кладём, только если после ECC совпадение кромок фото↔база не ниже этого (иначе — только MV)
+COLOR_T0 = 7.0                    # цветовой гейт: расхождение a*b* фото и базы (после вычета общего сдвига оттенка) ниже — класть полностью
+COLOR_T1 = 16.0                   # выше — не класть (фото другого материала: серое поверх дерева); между — плавно
+BASE_EDGE_T = 0.5                 # «рельеф» гейта по базе: кромки рендера базы заданы как 0/1
 
 
 def smooth(x: np.ndarray, sigma: float) -> np.ndarray:
@@ -177,6 +181,87 @@ def gate_map(rel: np.ndarray, ph_edge: np.ndarray, mask: np.ndarray, width: floa
     return gate, st
 
 
+def edge_agreement(L_a: np.ndarray, L_b: np.ndarray, mask: np.ndarray, width: float) -> dict:
+    """Совпадение кромок двух кадров (a — фото, b — рендер базы) внутри маски, с поправкой на случайные попадания: для каждой стороны доля её кромок, рядом с которыми (≤ `TOL_FRAC`·ширина) есть
+    кромка другой, минус доля площади «рядом с кромкой другой» (chance), делённая на (1 − chance). Итог — среднее двух сторон (симметрично: плотные кромки одной стороны не дают «совпадения сами»)."""
+    from scipy.ndimage import distance_transform_edt
+    ea, eb = photo_edges(L_a, mask, width), photo_edges(L_b, mask, width)
+    tol = max(2.0, TOL_FRAC * width)
+    out = []
+    for e1, e2 in ((ea, eb), (eb, ea)):
+        near = distance_transform_edt(~e2) <= tol
+        chance = float((near & mask).sum() / max(mask.sum(), 1))
+        raw = float((e1 & near).sum() / max(e1.sum(), 1))
+        out.append((raw - chance) / max(1.0 - chance, 1e-3))
+    return {'agree': round(float(np.mean(out)), 4), 'photo_to_base': round(out[0], 4), 'base_to_photo': round(out[1], 4), 'tol_px': round(tol, 2)}
+
+
+def _ecc_features(L: np.ndarray, mask: np.ndarray, width: float) -> np.ndarray:
+    """Признак для ECC: модуль градиента L* без низких частот, сглаженный; вне маски 0; нормирован по 99-му процентилю."""
+    import cv2
+    hf = L - masked_blur(L, mask, LIGHT_FRAC * width)
+    h = smooth(hf, max(1.0, 0.002 * width))
+    g = np.hypot(cv2.Sobel(h, cv2.CV_32F, 1, 0, ksize=3), cv2.Sobel(h, cv2.CV_32F, 0, 1, ksize=3)) * mask
+    return (g / max(float(np.percentile(g[mask], 99)) if mask.any() else 1.0, 1e-6)).astype(np.float32)
+
+
+def register_to_base(L_ph: np.ndarray, L_base: np.ndarray, mask_base: np.ndarray, mask_ph: np.ndarray, width: float, levels: int = 3, iters: int = 200) -> tuple[np.ndarray, dict]:
+    """Уточнение регистрации фото → рендер базы (mv12 на той же форме): ECC (cv2.findTransformECC) по признакам кромок внутри маски фасада, от тождества (фото уже в кадре по регистрации А0).
+    Сначала аффинная модель по пирамиде (грубо → точно), затем гомография на двух верхних уровнях. Возвращает H (3×3, такую, что cv2.warpPerspective(фото, H, …, WARP_INVERSE_MAP) кладёт фото на базу)
+    и статистику: до/после совпадение кромок, сходимость каждого шага. Не сошлось/хуже — тождество."""
+    import cv2
+    er = max(3, int(round(0.01 * width)))
+    k = np.ones((2 * er + 1, 2 * er + 1), np.uint8)
+    mb = cv2.erode(mask_base.astype(np.uint8), k) > 0
+    mp = cv2.erode(mask_ph.astype(np.uint8), k) > 0
+    tmpl, inp = _ecc_features(L_base, mb, width), _ecc_features(L_ph, mp, width)
+    H, W = tmpl.shape
+    st = {'steps': []}
+    Hm = np.eye(3, dtype=np.float64)
+
+    def at(level):
+        sc = 1.0 / (2 ** level)
+        return sc, (cv2.resize(tmpl, None, fx=sc, fy=sc, interpolation=cv2.INTER_AREA), cv2.resize(inp, None, fx=sc, fy=sc, interpolation=cv2.INTER_AREA),
+                    (cv2.resize(mb.astype(np.uint8), None, fx=sc, fy=sc, interpolation=cv2.INTER_NEAREST) > 0))
+    crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, iters, 1e-6)
+    for motion, name, lv_list in ((cv2.MOTION_AFFINE, 'affine', list(range(levels - 1, -1, -1))), (cv2.MOTION_HOMOGRAPHY, 'homography', [1, 0])):
+        for lv in lv_list:
+            sc, (t, i, m) = at(lv)
+            S = np.diag([sc, sc, 1.0])
+            Hs = S @ Hm @ np.linalg.inv(S)
+            wm = Hs[:2].astype(np.float32) if motion == cv2.MOTION_AFFINE else Hs.astype(np.float32)
+            try:
+                cc, wm = cv2.findTransformECC(t, i, wm, motion, crit, m.astype(np.uint8), 5)
+            except cv2.error as e:
+                st['steps'].append({'model': name, 'level': lv, 'error': str(e)[:120]})
+                continue
+            Hs = np.vstack([wm, [0, 0, 1]]) if motion == cv2.MOTION_AFFINE else wm.astype(np.float64)
+            Hm = np.linalg.inv(S) @ Hs @ S
+            st['steps'].append({'model': name, 'level': lv, 'cc': round(float(cc), 4)})
+    return Hm, st
+
+
+def warp_by(H: np.ndarray, img: np.ndarray, size: tuple[int, int], interp=None) -> np.ndarray:
+    import cv2
+    return cv2.warpPerspective(img, H, size, flags=(cv2.INTER_LINEAR if interp is None else interp) | cv2.WARP_INVERSE_MAP, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+
+
+def color_gate(ph: np.ndarray, r_in: np.ndarray, mask: np.ndarray, width: float) -> tuple[np.ndarray, dict]:
+    """Попиксельный гейт «тот же материал»: расхождение a*b* между фото и рендером базы (оба слегка сглажены), за вычетом общего (медианного) сдвига оттенка — глобальную разницу правит шаг 3.
+    Остаточное расхождение больше `COLOR_T1` = фото другого материала в этом месте (узор сдвинут: серое поверх дерева и наоборот) → вес 0; меньше `COLOR_T0` → 1; между — плавно.
+    Узор фото и базы без сдвига — гейт не срабатывает; общее правило, без геометрии и без ID."""
+    lp = PM.rgb_to_lab(ph).astype(np.float32)[..., 1:]
+    lb = PM.rgb_to_lab(r_in).astype(np.float32)[..., 1:]
+    s = max(1.0, 0.002 * width)
+    d = np.stack([smooth(lp[..., c], s) - smooth(lb[..., c], s) for c in range(2)], -1)
+    med = np.array([np.median(d[..., c][mask]) for c in range(2)]) if mask.any() else np.zeros(2)
+    e = np.hypot(d[..., 0] - med[0], d[..., 1] - med[1])
+    t = np.clip((e - COLOR_T0) / (COLOR_T1 - COLOR_T0), 0, 1)
+    g = 1.0 - t * t * (3 - 2 * t)
+    g = np.where(mask, g, 1.0).astype(np.float32)
+    return g, {'median_shift_ab': [round(float(v), 2) for v in med], 'mask_share_refused': round(float(((g < 0.5) & mask).sum() / max(mask.sum(), 1)), 4)}
+
+
 def surface_fade(ok: np.ndarray, cos: np.ndarray, width: float) -> np.ndarray:
     """Растушёвка к границе зоны «можно класть»: расстояние в кадре среди видимых пикселей × локальный множитель 1/cos (длина вдоль поверхности), от 0 на границе до 1 на `FADE_FRAC`·ширина."""
     from scipy.ndimage import distance_transform_edt
@@ -246,7 +331,7 @@ def apply_photo(tex: np.ndarray, sp: dict) -> tuple[np.ndarray, dict]:
     return out, {'texels_covered': int(cover.sum()), 'texels_changed_share': round(float((w[..., 0] > 0.05).mean()), 5), 'mean_weight_on_covered': round(float(w[..., 0][cover].mean()) if cover.any() else 0.0, 4)}
 
 
-def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: str = 'lp', out_size: int = 0) -> dict:
+def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: str = 'lp', out_size: int = 0, register: str = 'ecc') -> dict:
     import cv2
     from PIL import Image
     os.makedirs(out_dir, exist_ok=True)
@@ -270,10 +355,30 @@ def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: 
     size = tex.shape[0]
     r_in = A.render_view0(tex, uvd)
 
-    er = max(3, int(round(EDGE_ERODE_FRAC * width)))
-    inner = cv2.erode((S & A_fr).astype(np.uint8), np.ones((2 * er + 1, 2 * er + 1), np.uint8)) > 0
     wa = angle_weight(aoi)
     L_ph = PM.rgb_to_lab(ph)[..., 0].astype(np.float32)
+    L_base = PM.rgb_to_lab(r_in)[..., 0].astype(np.float32)
+    reg = {'mode': register}
+    lay_photo = True
+    if register == 'ecc':
+        reg['before'] = edge_agreement(L_ph, L_base, S & A_fr, width)
+        Hm, rst = register_to_base(L_ph, L_base, S, A_fr, width)
+        ph_r = warp_by(Hm, ph, (fw, fh))
+        A_r = warp_by(Hm, A_fr.astype(np.uint8), (fw, fh), cv2.INTER_NEAREST) > 0
+        L_r = PM.rgb_to_lab(ph_r)[..., 0].astype(np.float32)
+        reg['after'] = edge_agreement(L_r, L_base, S & A_r, width)
+        reg['H'] = [round(float(v), 6) for v in Hm.ravel()]
+        reg['ecc'] = rst['steps']
+        if reg['after']['agree'] > reg['before']['agree']:
+            ph, A_fr, L_ph = ph_r, A_r, L_r
+            cm, width = SL.common_mask(S, A_fr, aoi)
+            reg['used'] = True
+        else:
+            reg['used'] = False
+        lay_photo = reg['after' if reg['used'] else 'before']['agree'] >= REG_MIN
+        reg['photo_laid'] = bool(lay_photo)
+    er = max(3, int(round(EDGE_ERODE_FRAC * width)))
+    inner = cv2.erode((S & A_fr).astype(np.uint8), np.ones((2 * er + 1, 2 * er + 1), np.uint8)) > 0
     import tex_coverage as TC
     geo = TC.load_geoms(glb)
     if len(geo) != 1:
@@ -285,6 +390,15 @@ def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: 
     ph_edge = photo_edges(L_ph, inner, width)
     gate, gst = gate_map(rel, ph_edge, inner, width, rel_t)
     gst['rel_threshold'] = round(rel_t, 4)
+    base_edge = photo_edges(L_base, inner, width).astype(np.float32)           # страховка «фото ≠ база»: кромки рендера базы (MV на той же форме) должны найти кромки фото рядом
+    gate_b, gbst = gate_map(base_edge, ph_edge, inner, width, BASE_EDGE_T)
+    gate = gate * gate_b
+    gst['base_gate'] = gbst
+    gate_c, gcst = color_gate(ph, r_in, inner, width)
+    gate = gate * gate_c
+    gst['color_gate'] = gcst
+    if not lay_photo:
+        gate = gate * 0.0                                                      # регистрация не сошлась: фото на этот товар не кладём целиком (только MV)
     zone = inner & (wa * gate > 0.5)
     fade = surface_fade(zone, aoi, width)
     conf = (wa * gate * fade * inner).astype(np.float32)
@@ -319,7 +433,7 @@ def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: 
            'params': {'COS_LO': COS_LO, 'COS_HI': COS_HI, 'FADE_FRAC': FADE_FRAC, 'LIGHT_FRAC': LIGHT_FRAC, 'PATCH_FRAC': PATCH_FRAC, 'TOL_FRAC': TOL_FRAC, 'REL_T': REL_T, 'REL_FRAC': REL_FRAC,
                       'AGREE_MIN': AGREE_MIN, 'PHOTO_EDGE_PCT': PHOTO_EDGE_PCT},
            'gate': gst, 'frame': {'mask_px': cm_n, 'conf_gt_0.5_share': round(float(((conf > 0.5) & cm).sum() / cm_n), 4), 'conf_gt_0_share': round(float(((conf > 0) & cm).sum() / cm_n), 4)},
-           'apply': apinfo, 'table': table, 'guard': g, 'files': {'photo': p_out, 'photo_mb': round(os.path.getsize(p_out) / 2 ** 20, 2)}, 'registration': sl['registration']}
+           'registration_refine': reg, 'apply': apinfo, 'table': table, 'guard': g, 'files': {'photo': p_out, 'photo_mb': round(os.path.getsize(p_out) / 2 ** 20, 2)}, 'registration': sl['registration']}
     json.dump(res, open(os.path.join(out_dir, f'{stem}.photo.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     return res
 
@@ -333,6 +447,7 @@ def main() -> int:
     ap.add_argument('--stem')
     ap.add_argument('--light', choices=('lp', 'raw'), default='lp')
     ap.add_argument('--out-size', type=int, default=0, help='размер карты результата (0 — как у входа)')
+    ap.add_argument('--register', choices=('ecc', 'none'), default='ecc', help='уточнение регистрации фото → база (ECC) перед проекцией')
     ap.add_argument('--rel-t', type=float, default=None, help='порог поворота нормали (REL_T)')
     ap.add_argument('--rel-frac', type=float, default=None, help='доля рельефных пикселей в участке (REL_FRAC)')
     ap.add_argument('--agree-min', type=float, default=None, help='минимум совпадения кромок (AGREE_MIN)')
@@ -343,8 +458,8 @@ def main() -> int:
             g[k] = v
     if not all([a.glb, a.stages, a.photo, a.out_dir, a.stem]):
         ap.error('нужны --glb --stages --photo --out-dir --stem')
-    r = run(a.glb, a.stages, a.photo, a.out_dir, a.stem, a.light, a.out_size)
-    print(json.dumps({k: r[k] for k in ('stem', 'light', 'width_px', 'gate', 'frame', 'apply', 'table', 'guard')}, ensure_ascii=False, indent=1))
+    r = run(a.glb, a.stages, a.photo, a.out_dir, a.stem, a.light, a.out_size, a.register)
+    print(json.dumps({k: r[k] for k in ('stem', 'light', 'width_px', 'registration_refine', 'gate', 'frame', 'apply', 'table', 'guard')}, ensure_ascii=False, indent=1))
     return 0 if r['guard']['ok'] else 1
 
 

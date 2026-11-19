@@ -165,6 +165,62 @@ def t_splat_dense_map_is_covered():
     assert info['texels_covered'] > 0.8 * size * size, info
 
 
+def _pattern(n=300):
+    """Фасад с узором: рамка, сетка, дуги — кромки в разных направлениях; L* ≈ 50 + 30·рисунок."""
+    import cv2
+    im = np.full((n, n), 50.0, np.float32)
+    for k in range(40, n - 30, 60):
+        cv2.line(im, (k, 30), (k, n - 30), 80.0, 3)
+        cv2.line(im, (30, k), (n - 30, k), 80.0, 3)
+    cv2.circle(im, (n // 2, n // 2), n // 5, 85.0, 4)
+    cv2.circle(im, (n // 3, 2 * n // 3), n // 8, 20.0, 4)
+    return im + 1.0 * np.random.RandomState(2).rand(n, n).astype(np.float32)
+
+
+def t_register_recovers_scale_shift():
+    """Фото = база, сжатая по x на 0,9 и сдвинутая на 25 px (как на комоде: узор сжат/сдвинут): ECC возвращает совпадение кромок с ~0 до высокого."""
+    n = 300
+    base = _pattern(n)
+    H_true = np.array([[0.9, 0.0, 25.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    import cv2
+    ph = cv2.warpPerspective(base, H_true, (n, n), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    mask = np.ones((n, n), bool)
+    mask[:20] = mask[-20:] = False
+    mask[:, :20] = mask[:, -20:] = False
+    before = PF.edge_agreement(ph, base, mask, float(n))['agree']
+    Hm, st = PF.register_to_base(ph, base, mask, mask, float(n))
+    after_img = PF.warp_by(Hm, ph, (n, n))
+    after = PF.edge_agreement(after_img, base, mask, float(n))['agree']
+    assert before < 0.5 and after > 0.8 and after > before + 0.3, (before, after, st)
+
+
+def t_edge_agreement_chance_corrected():
+    """Две независимые плотные картинки: «совпадение» после поправки на случайные попадания ≈ 0, а не 0,5+."""
+    n = 300
+    mask = np.ones((n, n), bool)
+    a = 50 + 25 * np.random.RandomState(1).rand(n, n).astype(np.float32)
+    b = 50 + 25 * np.random.RandomState(9).rand(n, n).astype(np.float32)
+    assert PF.edge_agreement(a, b, mask, float(n))['agree'] < 0.25
+    assert PF.edge_agreement(a, a, mask, float(n))['agree'] > 0.9
+
+
+def t_color_gate_refuses_shifted_material():
+    """База: дерево слева, серое справа, граница на x=150. Фото — тот же узор, граница сдвинута на 25 px: в полосе сдвига материалы разные → гейт 0; вдали от полосы → 1; общий сдвиг оттенка не мешает."""
+    n = 300
+    def img(edge, tint=0):
+        im = np.zeros((n, n, 3), np.uint8)
+        im[:, :edge] = (210 + tint, 170, 110)
+        im[:, edge:] = (120, 120, 125)
+        return im
+    base, ph = img(150), img(175, tint=4)
+    mask = np.ones((n, n), bool)
+    g, st = PF.color_gate(ph, base, mask, float(n))
+    assert g[150, 160] < 0.1, g[150, 160]                            # полоса сдвига (фото дерево, база серое)
+    assert g[150, 40] > 0.9 and g[150, 260] > 0.9, (g[150, 40], g[150, 260])
+    g0, _ = PF.color_gate(img(150, tint=4), base, mask, float(n))     # без сдвига узора, только общий оттенок — не отказывать
+    assert g0.min() > 0.9, g0.min()
+
+
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith('t_') and callable(v)]
     for t in tests:

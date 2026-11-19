@@ -117,6 +117,32 @@ class Measurer:
         A_fr = SL.warp_inv((photo[..., 3] > 127).astype(np.float32), P, (fw, fh)) > 0.5
         self.cm, self.width = SL.common_mask(S, A_fr, aoi)
         self.ph = np.clip(SL.warp_inv(photo[..., :3], P, (fw, fh), cv2.INTER_LINEAR), 0, 255).astype(np.uint8)
+        self.S, self.aoi, self.A_fr, self.reg_done = S, aoi, A_fr, False
+
+    def _refined(self, d: str) -> dict:
+        """После шага 2: если photo_front уточнил регистрацию (ECC, `registration_refine.H`) — все следующие мерки считаются против фото в УТОЧНЁННОЙ регистрации; вход цепочки (s1) пересчитывается тем же фото один раз."""
+        import glob
+        import cv2
+        if self.reg_done:
+            return {}
+        js = glob.glob(os.path.join(os.path.dirname(d), 's2-photo', '*.photo.json'))
+        if not js:
+            return {}
+        r = json.load(open(js[0], encoding='utf-8')).get('registration_refine', {})
+        self.reg_done = True
+        if not r.get('used'):
+            return {}
+        H = np.array(r['H'], np.float64).reshape(3, 3)
+        fh, fw = self.S.shape
+        self.ph = cv2.warpPerspective(self.ph, H, (fw, fh), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP)
+        a2 = cv2.warpPerspective(self.A_fr.astype(np.uint8), H, (fw, fh), flags=cv2.INTER_NEAREST | cv2.WARP_INVERSE_MAP) > 0
+        self.cm, self.width = self.SL.common_mask(self.S, a2, self.aoi)
+        v1 = os.path.join(os.path.dirname(os.path.dirname(d)), os.path.basename(os.path.dirname(d)), 's1-mv12', 'view0.png')
+        out = {'registration': 'ECC (кадр фото уточнён)'}
+        if os.path.exists(v1):
+            m1 = self.SL.stage_metrics(np.asarray(self.Image.open(v1).convert('RGB')), self.ph, self.cm, self.width, ncc=True)
+            out['s1_vs_refined_photo'] = {'hf_1%': m1['hf']['1%']['ratio'], 'sigmaL': m1['sigmaL']['ratio'], 'dE00_lf': m1['dE00_lf_median'], 'ncc': (m1.get('ncc') or {}).get('median')}
+        return out
 
     def __call__(self, glb: str, d: str, name: str) -> dict:
         import ab_tint as T
@@ -124,8 +150,9 @@ class Measurer:
         tex = T.read_texture(j, b)
         img = self.A.render_view0(tex, self.uvd)
         self.Image.fromarray(img).save(os.path.join(d, 'view0.png'))
+        extra = self._refined(d)
         m = self.SL.stage_metrics(img, self.ph, self.cm, self.width, ncc=True)
-        out = {'tex_size': list(tex.shape[:2]), 'hf_1%': m['hf']['1%']['ratio'], 'sigmaL': m['sigmaL']['ratio'], 'dE00_lf': m['dE00_lf_median'],
+        out = {**extra, 'tex_size': list(tex.shape[:2]), 'hf_1%': m['hf']['1%']['ratio'], 'sigmaL': m['sigmaL']['ratio'], 'dE00_lf': m['dE00_lf_median'],
                'ncc': (m.get('ncc') or {}).get('median'), 'ncc_p10': (m.get('ncc') or {}).get('p10')}
         json.dump(out, open(os.path.join(d, 'metrics.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         return out
