@@ -36,7 +36,8 @@ sys.path.insert(0, HERE)
 
 CARD = {'class_name': 'RTX 4090 (24 GB)', 'class_id': 'ed563892-aacd-40f5-80b7-90c9be6c759b'}
 HF_GATED = {'trellis2': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json',
-            'pixal3d': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json'}      # закрытые веса, без которых модель не поднимется
+            'pixal3d': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json',
+            'localmesh': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json'}      # закрытые веса, без которых модель не поднимется
 PORT = 8000
 READINESS = {'http': {'path': '/health', 'port': PORT, 'scheme': 'http', 'headers': []},      # НЕ /ready: пока проба не пройдена, шлюз отдаёт 503 на любой путь и прогрев не виден (урок шага 0, 18.11)
              'initial_delay_seconds': 30, 'period_seconds': 10, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 3}
@@ -114,7 +115,7 @@ def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu:
            'NVIDIA_DRIVER_CAPABILITIES': 'all', 'DEPLOYMENT_EPOCH': f'20261118-{name}'}
     res = {'cpu': cpu, 'memory': mem_mb, 'gpu_classes': [CARD['class_id']], 'storage_amount': 80 * 2 ** 30, 'shm_size': 1024}      # 80 ГиБ: кэш HF ≈ 42 ГиБ + запас на 30 результатов (директор 19.11)
     command = None
-    if donor is None and model == 'pixal3d':        # образ Pixal3D (поверх TRELLIS.2) уже с нужными версиями (transformers 4.57.3) — pip-пин TRELLIS.2 ему вреден; только код воркера
+    if donor is None and model in ('pixal3d', 'localmesh'):        # образ Pixal3D (поверх TRELLIS.2) уже с нужными версиями (transformers 4.57.3) — pip-пин TRELLIS.2 ему вреден; только код воркера
         command, env['TRIAL_WORKER_Z'] = worker_command(python='python3')
     elif donor is None:      # TRELLIS.2: образ уже содержит воркер, но актуальный код едет через command — без пересборки образа (python3 в образе, `python` нет)
         pre = (f'for i in 1 2 3; do python3 -m pip install -q "{TRELLIS_PIP_PIN}" && break; echo "[pip] попытка $i не удалась"; sleep 5; done; '
@@ -186,8 +187,17 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     skus = a.skus or [k for k, v in inputs.items() if isinstance(v, dict) and v.get('input_png_sha256')]      # без --skus — весь набор из inputs.json (30 товаров)
     jobs = build_jobs(skus, parse_plan(a.plan), inputs, a.seed)
     name = f'trial-{a.model}-{a.suffix}'
-    price = price_usd_h(a.tier)
     MG.env_from_file()
+    card = getattr(a, 'card', None) or CARD['class_name']
+    if card != CARD['class_name']:                        # другая карта (localmesh — 4060 Ti 16 ГБ): id по полному имени среди классов организации
+        import recreate_group as RG
+        try:
+            cid = RG.pick_gpu_exact(RG.gpu_classes(), [card])[0]
+        except (ValueError, IndexError) as e:
+            say('карта', card, 'не найдена среди классов организации:', str(e)[:200])
+            return 2
+        CARD.update(class_name=card, class_id=cid)
+    price = price_usd_h(a.tier)
     hf = os.environ.get('HF_TOKEN', '')
     donor = None
     if a.model == 'hunyuan21':                            # контроль: боевой образ и ресурсы берём у боевой группы-образца (в ней нет нашего кода — он едет в command)
@@ -332,7 +342,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     j = pending.pop(0)
                     png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.rgba.png'), 'rb').read()
                     pl = {'job_id': j['job_id'], 'image_b64': base64.b64encode(png).decode(), 'pipeline_type': pipeline_type(j['res']), 'seed': j['seed'],
-                          'decimation_target': a.decimation, 'texture_size': a.texture, 'role': j.get('role'), 'dims_cm': j.get('dims_cm')}
+                          'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'role': j.get('role'), 'dims_cm': j.get('dims_cm')}
                     c, r = gw.call('POST', '/generate', pl, timeout=90)
                     inflight = {**j, 'submitted': t, 'http': c}
                     say('задание', j['job_id'], '→ HTTP', c)
@@ -350,6 +360,12 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                                     open(fp, 'wb').write(glb)
                                     inflight['glb_path'] = fp
                                     inflight['glb_bytes'] = len(glb)
+                                    if (r.get('metrics') or {}).get('has_ai'):          # localmesh: вторая версия — текстура «как нарисовала модель», до проекции фото
+                                        ca, glb_ai = gw.call('GET', '/glb/' + inflight['job_id'] + '?v=ai', timeout=300, raw=True)
+                                        if ca == 200:
+                                            fp_ai = os.path.join(a.out, inflight['job_id'] + '.ai.glb')
+                                            open(fp_ai, 'wb').write(glb_ai)
+                                            inflight['glb_ai_path'] = fp_ai
                                 else:
                                     inflight.update(status='failed', error=f'GLB не скачался: HTTP {cg}')
                         elif t - inflight['submitted'] > a.job_timeout * 60:
@@ -381,7 +397,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--model', default='trellis2', choices=['trellis2', 'pixal3d', 'hunyuan21'])
+    ap.add_argument('--model', default='trellis2', choices=['trellis2', 'pixal3d', 'localmesh', 'hunyuan21'])
     ap.add_argument('--donor', default='mesh-q-low-1', help='hunyuan21: боевая группа-образец (образ, ресурсы, env без секретов приёмника)')
     ap.add_argument('--set', default=None, help='JSON набора (роль, габариты); по умолчанию set30.json рядом с папкой inputs')
     ap.add_argument('--fail-streak', type=int, default=NO_FAIL_STREAK, help='сколько упавших заданий подряд гасят замер (контролю Hunyuan — больше: боевые ворота брака)')
@@ -392,6 +408,8 @@ def main() -> int:
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--decimation', type=int, default=500000)
     ap.add_argument('--texture', type=int, default=2048)
+    ap.add_argument('--card', default=CARD['class_name'], help='класс карты по полному имени ("RTX 4060 Ti (16 GB)" для localmesh)')
+    ap.add_argument('--detail', default='high', choices=['draft', 'standard', 'high', 'max'], help='localmesh: ярус качества (high = форма 1024, 16 шагов, 250 тыс. граней)')
     ap.add_argument('--tier', default='high', choices=['batch', 'low', 'medium', 'high'])
     ap.add_argument('--cpu', type=int, default=8)
     ap.add_argument('--mem-mb', type=int, default=32768)

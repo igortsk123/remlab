@@ -285,8 +285,66 @@ class Pixal3DBackend:
                 'camera': {'fov_rad': round(float(cam['camera_angle_x']), 4), 'distance': round(float(cam['distance']), 3)}}
 
 
+class LocalMeshBackend:
+    """LocalMesh Engine (Apache-2.0, github.com/Quentincls/localmesh-engine): TRELLIS.2 в FP8 + проекция самих пикселей фото на текстуру, режим ОДНОГО фото.
+    Образ — отдельный (`Dockerfile.localmesh`: py3.12, torch 2.8/cu128). Веса докачиваются на старте в `$HF_HOME/lm/models`: открытое — из `Qtn-Cls/LocalMeshEngine` (без multivue),
+    DINOv3 — из ОФИЦИАЛЬНОГО закрытого репозитория facebook/… по HF_TOKEN. Вырезка фона (BiRefNet_HR, `trust_remote_code`) отключена: движок берёт нашу настоящую альфу,
+    а попытка загрузить BiRefNet падает с понятной ошибкой — чужой код с Hub в рантайме не исполняется. Выход: `model_<seed>.glb` (с проекцией) → `<id>.glb`, `.ai.glb` → `<id>.ai.glb`."""
+    name = 'localmesh'
+
+    def load(self) -> dict:
+        os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
+        root = os.path.join(os.environ.get('HF_HOME', '/data/hf'), 'lm')
+        models = os.path.join(root, 'models')
+        os.environ['LOCALMESH_ROOT'] = root
+        os.makedirs(models, exist_ok=True)
+        STATE['phase'] = 'weights'                       # докачка весов (размер — в progress.hf_gb: корень весов лежит внутри HF_HOME)
+        t = time.time()
+        from huggingface_hub import snapshot_download
+        tok = os.environ.get('HF_TOKEN') or None
+        snapshot_download('Qtn-Cls/LocalMeshEngine', local_dir=models, allow_patterns=['TRELLIS.2-4B/*', 'microsoft/*'], token=tok)
+        snapshot_download('facebook/dinov3-vitl16-pretrain-lvd1689m', local_dir=os.path.join(models, 'facebook', 'dinov3-vitl16-pretrain-lvd1689m'), token=tok)
+        t_dl = time.time() - t
+        STATE['phase'] = 'importing'
+        t = time.time()
+        import torch
+        from localmesh_engine import matting
+
+        def _no_matte(*_a, **_k):                        # BiRefNet_HR (trust_remote_code) не грузим: вход — RGBA с настоящей альфой
+            raise RuntimeError('вырезка фона отключена: вход должен быть RGBA с настоящей альфой (BiRefNet из Hub не исполняем)')
+        matting.Matter.load = _no_matte
+        from localmesh_engine import Engine
+        STATE['timings']['import_s'] = round(time.time() - t, 1)
+        STATE['phase'] = 'to_gpu'
+        t = time.time()
+        self.engine = Engine()
+        self.engine.load()
+        torch.cuda.synchronize()
+        return {'weights_s': round(t_dl, 1), 'to_gpu_s': round(time.time() - t, 1)}
+
+    def generate(self, image, params: dict, path: str) -> dict:
+        import shutil
+        from pathlib import Path
+        from localmesh_engine import GenerateSettings
+        seed = int(params.get('seed', 42))
+        detail = params.get('detail') or 'high'
+        work = os.path.join(OUT, f'_lm_{os.getpid()}_{int(time.time() * 1000)}')
+        os.makedirs(work, exist_ok=True)
+        src = os.path.join(work, 'in.png')
+        image.save(src)
+        st = GenerateSettings(images=[Path(src)], detail=detail, seed=seed, projection_texture=True)
+        res = self.engine.generate(st, Path(work))
+        shutil.move(str(res.glb_path), path)
+        has_ai = bool(res.glb_ai and os.path.exists(str(res.glb_ai)))
+        if has_ai:
+            shutil.move(str(res.glb_ai), path[:-4] + '.ai.glb')
+        shutil.rmtree(work, ignore_errors=True)
+        return {'detail': detail, 'has_ai': has_ai, 'stage_s': res.stages, 'peak_vram_gb': res.peak_vram_gb, 'vram_source': res.vram_portee, 'vram_occupation_pct': res.vram_occupation_pct,
+                'faces': res.faces, 'notes': res.notes[:12], 'engine_duration_s': round(res.duration_s, 1)}
+
+
 def backend():
-    return {'trellis2': Trellis2Backend, 'pixal3d': Pixal3DBackend, 'hunyuan21': Hunyuan21Backend, 'fake': FakeBackend}[os.environ.get('MODEL', 'trellis2')]()
+    return {'trellis2': Trellis2Backend, 'pixal3d': Pixal3DBackend, 'localmesh': LocalMeshBackend, 'hunyuan21': Hunyuan21Backend, 'fake': FakeBackend}[os.environ.get('MODEL', 'trellis2')]()
 
 
 def versions() -> dict:
@@ -294,7 +352,7 @@ def versions() -> dict:
     out = {}
     from importlib import metadata
     for pkg in ('torch', 'torchvision', 'transformers', 'huggingface_hub', 'tokenizers', 'safetensors', 'timm', 'kornia', 'numpy', 'trimesh', 'pillow',
-                'flash_attn', 'o_voxel', 'nvdiffrast', 'diffusers', 'accelerate', 'opencv-python-headless', 'utils3d'):
+                'flash_attn', 'o_voxel', 'nvdiffrast', 'diffusers', 'accelerate', 'opencv-python-headless', 'utils3d', 'localmesh-engine', 'natten', 'cumesh', 'flex_gemm'):
         try:
             out[pkg] = metadata.version(pkg)
         except metadata.PackageNotFoundError:
@@ -562,7 +620,7 @@ class H(BaseHTTPRequestHandler):
         if p.startswith('/glb/'):
             jid = os.path.basename(p[5:])
             rp = os.path.join(JOBS_DIR, jid + '.res.json')
-            fp = os.path.join(OUT, f'{jid}.glb')
+            fp = os.path.join(OUT, f'{jid}.ai.glb' if 'v=ai' in self.path else f'{jid}.glb')      # ?v=ai — localmesh: текстура до проекции фото
             if not os.path.exists(rp) or json.load(open(rp, encoding='utf-8')).get('status') != 'done' or not os.path.exists(fp):
                 return self._json(404, {'error': 'GLB нет (задание не готово или упало)'})
             data = open(fp, 'rb').read()

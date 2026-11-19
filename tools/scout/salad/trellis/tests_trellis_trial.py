@@ -79,6 +79,10 @@ pb = T.build_body('trial-pixal3d-x', 'ghcr.io/x/y@sha256:' + 'b' * 64, 'high', '
 ok('Pixal3D: MODEL=pixal3d, воркер через command (python3), pip-пин TRELLIS.2 НЕ ставится (образ с transformers 4.57.3), карта 4090, диск 80 ГиБ',
    pb['container']['environment_variables']['MODEL'] == 'pixal3d' and pb['container']['command'][:3] == ['python3', '-u', '-c'] and 'pip' not in json.dumps(pb['container']['command'])
    and pb['container']['resources']['gpu_classes'] == [T.CARD['class_id']] and pb['container']['resources']['storage_amount'] == 80 * 2 ** 30)
+lb = T.build_body('trial-localmesh-x', 'ghcr.io/x/y@sha256:' + 'c' * 64, 'high', 'localmesh', 'hf_SECRET', 8, 32768, 'n', {'basic': {}})
+ok('LocalMesh: MODEL=localmesh, воркер через command (python3), без pip-пина TRELLIS.2, HF_TOKEN только в env',
+   lb['container']['environment_variables']['MODEL'] == 'localmesh' and lb['container']['command'][:3] == ['python3', '-u', '-c'] and 'pip' not in json.dumps(lb['container']['command'])
+   and lb['container']['environment_variables']['HF_TOKEN'] == 'hf_SECRET' and 'hf_SECRET' not in json.dumps(lb['container']['command']))
 buf = io.StringIO()
 real = sys.stdout
 sys.stdout = buf
