@@ -189,6 +189,94 @@ def cmd_light(a) -> int:
     return 0
 
 
+def edge_roughness(alpha):
+    """Рваность кромки: сколько «выщербин» (вмятин и щелей до 6 px, которые закрытие кругом r=3 заполняет) приходится на длину кромки.
+    alpha — numpy H×W (0..255). Возвращает (оценка, карта выщербин bool). Ровная кромка и острые углы ≈ 0; зубцы, щербинки, щели — растут."""
+    import numpy as np
+    from scipy import ndimage as ndi
+    a = np.asarray(alpha) > 127
+    yy, xx = np.ogrid[-3:4, -3:4]
+    disk = (xx * xx + yy * yy) <= 9
+    notch = ndi.binary_closing(np.pad(a, 4), disk)[4:-4, 4:-4] & ~a
+    edge_len = int((a ^ ndi.binary_erosion(a)).sum())
+    return float(notch.sum()) / max(1, edge_len), notch
+
+
+def solidity(alpha) -> float:
+    """Доля площади товара в его габаритной рамке: сплошные предметы (диван, комод, ковёр) высокие, ажурные (торшер, люстра) — низкие."""
+    import numpy as np
+    a = np.asarray(alpha) > 127
+    ys, xs = np.where(a)
+    return float(a.sum()) / max(1, (ys.max() - ys.min() + 1) * (xs.max() - xs.min() + 1)) if len(ys) else 0.0
+
+
+LIGHT_MIN = 170  # светлый товар: средняя яркость не-белых пикселей фото ≥ этого (по light_score)
+
+
+def cmd_edges(a) -> int:
+    """Список «светлое на белом» (по яркости фото) и 5 худших кромок крупно: для каждой — окно с наибольшим числом выщербин, ×4, вырезка на тёмном рядом с фото."""
+    from PIL import Image
+    import numpy as np
+    from scipy import ndimage as ndi
+    d = run_dir(a.run)
+    rows = {r['sku']: r for r in json.load(open(os.path.join(d, 'products.json'), encoding='utf-8'))}
+    last = {}
+    for ln in open(os.path.join(d, 'chain.jsonl'), encoding='utf-8'):
+        try:
+            c = json.loads(ln)
+        except ValueError:
+            continue
+        last[c['sku']] = c
+    res, fails = [], 0
+    for sku, c in last.items():
+        if c.get('status') != 'ok' or sku not in rows:
+            continue
+        try:
+            ph = Image.open(os.path.join(d, 'photos', c['sha'] + '.img')).convert('RGB')
+            ph.thumbnail((200, 200))
+            ls = light_score(np.asarray(ph))
+            cut = Image.open(os.path.join(d, 'cut', c['sha'] + '.png')).convert('RGBA')
+            rough, _ = edge_roughness(np.asarray(cut)[..., 3])
+            sol = solidity(np.asarray(cut)[..., 3])
+        except Exception as e:  # noqa: BLE001 — счётчик отказов с причиной
+            fails += 1
+            say(f'  ✗ {sku}: {type(e).__name__}: {str(e)[:80]}')
+            continue
+        res.append({'sku': sku, 'sha': c['sha'], 'role': rows[sku].get('role'), 'name': rows[sku].get('name'), 'light': ls, 'rough': round(rough, 4), 'solid': round(sol, 3)})
+    light = sorted([r for r in res if r['light'] is not None and r['light'] >= LIGHT_MIN], key=lambda r: -r['rough'])
+    json.dump({'light_min': LIGHT_MIN, 'total': len(res), 'light_count': len(light), 'fails': fails, 'light': light, 'all_rough': sorted(res, key=lambda r: -r['rough'])[:30]},
+              open(os.path.join(d, 'edges.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    out = os.path.join(d, f'edges-{time.strftime("%H%M")}')
+    os.makedirs(out, exist_ok=True)
+    say(f'проверено {len(res)}, отказов {fails}, «светлое на белом» (яркость ≥ {LIGHT_MIN}): {len(light)}')
+    # крупно — только сплошные предметы: у ажурных (торшер, люстра) «щели» между частями — это форма, а не брак
+    shown = [r for r in light if r['solid'] >= a.solid_min][: a.top]
+    for i, r in enumerate(shown, 1):
+        cut = Image.open(os.path.join(d, 'cut', r['sha'] + '.png')).convert('RGBA')
+        _, diff = edge_roughness(np.asarray(cut)[..., 3])
+        dens = ndi.uniform_filter(diff.astype(float), size=41)
+        cy, cx = np.unravel_index(int(np.argmax(dens)), dens.shape)
+        W, H = 200, 120
+        x0 = int(min(max(0, cx - W // 2), max(0, cut.width - W)))
+        y0 = int(min(max(0, cy - H // 2), max(0, cut.height - H)))
+        box = (x0, y0, min(cut.width, x0 + W), min(cut.height, y0 + H))
+        bg = Image.new('RGBA', cut.size, (27, 27, 31, 255))
+        bg.alpha_composite(cut)
+        plain = bg.convert('RGB')
+        marked = np.asarray(plain).copy()
+        marked[diff] = (255, 40, 40)  # выщербины — красным (сверка для глаза; сам кадр сверху без разметки)
+        sz = ((box[2] - box[0]) * 4, (box[3] - box[1]) * 4)
+        crop = plain.crop(box).resize(sz, Image.NEAREST)
+        mcrop = Image.fromarray(marked).crop(box).resize(sz, Image.NEAREST)
+        sheet = Image.new('RGB', (crop.width, crop.height * 2 + 6), (90, 90, 90))
+        sheet.paste(crop, (0, 0))
+        sheet.paste(mcrop, (0, crop.height + 6))
+        fn = os.path.join(out, f'{i}-{r["role"] or "x"}-rough{r["rough"]}.png')
+        sheet.save(fn)
+        say(f'  {i}. {r["role"]} {r["sku"]} рваность {r["rough"]} сплошность {r["solid"]} яркость {r["light"]:.0f} → {fn}')
+    return 0
+
+
 # ------------------------------------------------------------------ masks (Salad)
 
 def classify(out: dict | None, raw_sha: str) -> tuple[str, str]:
@@ -452,6 +540,14 @@ def _selftest() -> int:
     grey_bg = np.full((40, 40, 3), 128, dtype=np.uint8)
     ok('светлый товар на белом — оценка выше тёмного', light_score(light) is not None and light_score(dark) is not None and light_score(light) > light_score(dark))
     ok('серый фон и пустой кадр — не тот случай (None)', light_score(grey_bg) is None and light_score(white) is None)
+    rough_smooth, _ = edge_roughness(np.pad(np.full((30, 30), 255, dtype=np.uint8), 10))
+    jag = np.pad(np.full((30, 30), 255, dtype=np.uint8), 10)
+    jag[10, 12:20] = 0
+    jag[10, 22:25] = 0
+    jag[9, 14] = 255
+    rough_jag, _ = edge_roughness(jag)
+    ok('рваность: ровный прямоугольник = 0, с выщербинами больше', rough_smooth == 0 and rough_jag > 0)
+    ok('сплошность: прямоугольник 1.0, тонкая линия мала', solidity(np.pad(np.full((30, 30), 255, dtype=np.uint8), 10)) == 1.0 and solidity(np.pad(np.full((2, 30), 255, dtype=np.uint8), 10)) <= 1.0)
     print('ИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not bad else f'{bad} провалов')
     return 1 if bad else 0
 
@@ -461,7 +557,7 @@ def main() -> int:
         return _selftest()
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest='cmd', required=True)
-    for name in ('list', 'masks', 'chain', 'light'):
+    for name in ('list', 'masks', 'chain', 'light', 'edges'):
         p = sub.add_parser(name)
         p.add_argument('--run', default=None, help='метка папки прогона (по умолчанию — время старта)')
     m = sub.choices['masks']
@@ -475,6 +571,9 @@ def main() -> int:
     m.add_argument('--workers', type=int, default=4)
     m.add_argument('--job-max-s', type=float, default=900)
     m.add_argument('--ready-max-s', type=float, default=5400, help='сколько ждать running/ready, с (холодная закачка образа — до ~60 мин)')
+    ed = sub.choices['edges']
+    ed.add_argument('--solid-min', dest='solid_min', type=float, default=0.35, help='крупно показывать только предметы с долей площади в рамке не ниже')
+    ed.add_argument('--top', type=int, default=5, help='сколько худших кромок показать крупно')
     lt = sub.choices['light']
     lt.add_argument('--roles', default='комод,диван,люстра,торшер,ковёр', help='роли через запятую')
     lt.add_argument('--per', type=int, default=25, help='сколько фото роли смотреть')
@@ -484,7 +583,7 @@ def main() -> int:
     a = ap.parse_args()
     if a.cmd == 'masks' and not (a.trial or a.all):
         sys.exit('нужен --trial N или --all')
-    return {'list': cmd_list, 'masks': cmd_masks, 'chain': cmd_chain, 'light': cmd_light}[a.cmd](a)
+    return {'list': cmd_list, 'masks': cmd_masks, 'chain': cmd_chain, 'light': cmd_light, 'edges': cmd_edges}[a.cmd](a)
 
 
 if __name__ == '__main__':
