@@ -32,5 +32,8 @@ RUN mkdir -p /root/.cache/torch/hub/checkpoints \
     && curl -fsSL -o /root/.cache/torch/hub/checkpoints/naf_release.pth https://github.com/valeoai/NAF/releases/download/model/naf_release.pth \
     && { echo "Pixal3D ${PIXAL3D_COMMIT}"; echo "MoGe ${MOGE_COMMIT}"; echo "NAF ${NAF_COMMIT}"; python3 -m pip freeze; } > /opt/BUILD_INFO_PIXAL3D.txt
 
+# transformers 4.57.3 требует huggingface-hub <1.0; зависимости MoGe/diffusers утянули 2.4.0 (px0 19.11) — возвращаем пин последним слоем
+RUN python3 -m pip install -q "huggingface_hub==0.35.3" && python3 -m pip list 2>/dev/null | grep -i -E "^(transformers|huggingface|diffusers|natten) " >> /opt/BUILD_INFO_PIXAL3D.txt
+
 COPY worker_trellis.py /app/worker_trellis.py
 ENV MODEL=pixal3d PIXAL3D_DIR=/opt/Pixal3D ATTN_BACKEND=flash_attn
