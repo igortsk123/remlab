@@ -60,7 +60,7 @@ frames_one() {      # frames_one <товар> — кадры 0°/45° с тек�
   d="$OUT/$skuf"
   mkdir -p "$d"
   if [ ! -f "$glb" ]; then echo "[$s] результата нет: $glb (задание упало? смотри summary-*.json в $OUT)" >&2; return 1; fi
-  tools/ops/heavy-slot.sh "p80-$n" --cores 2 --min-gb 3 --timeout 3000 -- "$blender" -b -P "$TR/render_stand.py" -- \
+  tools/ops/heavy-slot.sh "p80-$n" --cores 2 --prio 1 --min-gb 3 --timeout 3000 -- "$blender" -b -P "$TR/render_stand.py" -- \
     --glb "$glb" --out "$d/frames/$n" --samples 32 --modes tex,clay --only az000,az045 >> "$d/render.log" 2>&1
   echo "[$s] кадры: $d/frames/$n/ (отдельные файлы полного размера; сравнить с $LOGS/frames-clean2/mvadapter/$skuf/)"
 }
