@@ -31,8 +31,20 @@ def key(sid) -> str | None:
 
 
 def clean(name: str) -> str:
-    """Пробельные символы названия фида (табуляция, двойные пробелы) — одним пробелом: у «Лео Кровать 160*200<TAB>Вельвет» витрина и тур писали по-разному."""
+    """ПРОБЕЛЫ НАЗВАНИЯ — ОДНО ПРАВИЛО (T-20261119-97, T-20261119-105/1): любой пробельный символ (табуляция, неразрывный пробел NBSP, тонкие пробелы, перевод строки)
+    и любая серия подряд — ОДИН обычный пробел, пробелы по краям — убрать: у «Лео Кровать 160*200<TAB>Вельвет» витрина и тур писали по-разному. Обычное имя не меняется.
+    Зовётся и там, где каталожного названия нет (имя из банка/ленты — `clean_card`, `name_of(…, fallback)`): иначе грязное имя уезжало в данные как есть."""
     return ' '.join(str(name).split())
+
+
+def clean_card(c: dict) -> bool:
+    """Название карточки — по `clean` (на месте). True — поменяли; английское (`name_en`) тогда снимается: считается по русскому заново (`names_en.annotate` / `trial_demo._names_en`)."""
+    n = c.get('name')
+    if not isinstance(n, str) or clean(n) == n:
+        return False
+    c['name'] = clean(n)
+    c.pop('name_en', None)
+    return True
 
 
 def pick_name(media: dict | None, room_name: str | None = None) -> str | None:
@@ -100,7 +112,7 @@ def default() -> Names:
 
 def name_of(sid, fallback: str | None = None, N: Names | None = None) -> str | None:
     """Название товара по единому правилу; нет в каталогах — `fallback` (свое имя вызывающего)."""
-    return (N or default()).name(sid) or fallback
+    return (N or default()).name(sid) or (clean(fallback) if isinstance(fallback, str) else fallback)
 
 
 def cards(data):
@@ -116,15 +128,17 @@ def cards(data):
 
 
 def unify(data, N: Names | None = None) -> dict:
-    """Каждой карточке с `sid` — каталожное название (правка на месте). → {cards, fixed, sids_fixed, unknown}; `unknown` — карточки без названия в каталогах."""
+    """Каждой карточке с `sid` — каталожное название (правка на месте). → {cards, fixed, sids_fixed, unknown, ws}; `unknown` — карточки без названия в каталогах
+    (им только `clean`: `ws` — у скольких поправлены пробелы)."""
     N = N or default()
-    rep = {'cards': 0, 'fixed': 0, 'unknown': 0}
+    rep = {'cards': 0, 'fixed': 0, 'unknown': 0, 'ws': 0}
     fixed: set = set()
     for c in cards(data):
         rep['cards'] += 1
         cat = N.name(c['sid'])
         if not cat:
             rep['unknown'] += 1
+            rep['ws'] += clean_card(c)      # каталожного названия нет — хотя бы пробелы по общему правилу (`clean`), а не «как в банке/ленте»
         elif c['name'] != cat:
             c['name'] = cat
             c.pop('name_en', None)          # английское — по русскому (`names_en.annotate` / `trial_demo._names_en`)
@@ -148,7 +162,7 @@ def mismatches(data, N: Names | None = None) -> dict:
 def report_line(rep: dict, where: str) -> str:
     """Строка в журнал ночи: число расхождений с каталогом (WARN, если нашлись и исправлены — банк/копия отстали от фида)."""
     base = f"названия {where}: карточек {rep['cards']}, по каталогу исправлено {rep['fixed']} (товаров {rep.get('sids_fixed', 0)}), без названия в каталоге {rep['unknown']}"
-    return ('WARN:names_catalog: ' if rep['fixed'] else '') + base
+    return ('WARN:names_catalog: ' if rep['fixed'] else '') + base + (f", пробелов исправлено {rep['ws']}" if rep.get('ws') else '')
 
 
 def names_by_sid(data) -> dict:
@@ -261,7 +275,7 @@ def _selftest() -> int:
     ok('mismatches: расхождение найдено, без правки', list(mm) == ['1_10'] and mm['1_10'] == {'Далти'} and d['feeds']['bedroom:кровать'][0]['name'] == 'Далти')
     rep = unify(d, N)
     ok('unify: исправлены 2 карточки одного товара, неизвестная и без sid не тронуты',
-       rep == {'cards': 4, 'fixed': 2, 'unknown': 1, 'sids_fixed': 1} and d['feeds']['bedroom:кровать'][2]['name'] == 'Нет в каталоге' and d['feeds']['bedroom:кровать'][3]['name'] == 'Без sid')
+       rep == {'cards': 4, 'fixed': 2, 'unknown': 1, 'ws': 0, 'sids_fixed': 1} and d['feeds']['bedroom:кровать'][2]['name'] == 'Нет в каталоге' and d['feeds']['bedroom:кровать'][3]['name'] == 'Без sid')
     ok('unify: у исправленной name_en снят, у верной остаётся', 'name_en' not in d['variants'][0]['items'][0]['sku'] and 'name_en' not in d['feeds']['bedroom:кровать'][0])
     ok('повтор — ничего не меняет (идемпотентность)', unify(d, N)['fixed'] == 0 and not mismatches(d, N))
     ok('строка журнала: WARN при исправлении, без — нет', report_line(rep, 'витрины').startswith('WARN:names_catalog: ') and not report_line({'cards': 1, 'fixed': 0, 'unknown': 0}, 'x').startswith('WARN'))
@@ -279,6 +293,14 @@ def _selftest() -> int:
         ok('сверка двух файлов: было 1 расхождение между файлами и 1 с каталогом, стало 0 и 0',
            (before['разные названия МЕЖДУ файлами'], before['не равны каталогу'], after['разные названия МЕЖДУ файлами'], after['не равны каталогу']) == (1, 1, 0, 0))
     ok('пробелы названия: табуляция и двойной пробел — одним пробелом', clean('Лео 160*200\tВельвет  Корд') == 'Лео 160*200 Вельвет Корд')
+    ok('пробелы: NBSP, пробелы по краям, перевод строки; обычное имя не меняется',
+       clean('\u00a0Лео\u00a0Кровать\u00a0 160*200 \n') == 'Лео Кровать 160*200' and clean('Босс Лофт Кровать+ПМ 160*200 \tВелюр') == 'Босс Лофт Кровать+ПМ 160*200 Велюр'
+       and clean('Обычное имя 160*200, Орех') == 'Обычное имя 160*200, Орех')
+    dd = {'feeds': {'k': [{'sid': '5_5', 'name': 'Нет  в\tкаталоге\u00a0', 'name_en': 'x'}, {'sid': '5_6', 'name': 'Чистое имя', 'name_en': 'y'}]}}
+    r2 = unify(dd, N)
+    ok('unify: карточке без каталожного названия — пробелы по правилу (name_en снят), чистой — ничего',
+       r2['ws'] == 1 and dd['feeds']['k'][0]['name'] == 'Нет в каталоге' and 'name_en' not in dd['feeds']['k'][0] and dd['feeds']['k'][1] == {'sid': '5_6', 'name': 'Чистое имя', 'name_en': 'y'})
+    ok('name_of: fallback тоже чистится', name_of('9_9', ' Свое\tимя ', N) == 'Свое имя')
     print('итог: ' + ('OK' if not bad else f'FAIL ({bad})'))
     return 1 if bad else 0
 

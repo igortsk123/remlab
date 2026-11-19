@@ -491,7 +491,7 @@ def catalog_goods(sid: str | None, role: str, bank: dict | None = None, tile=Non
     else:
         return None
     # НАЗВАНИЕ — ПО ЕДИНОМУ ПРАВИЛУ (`product_names.pick_name`, T-20261119-97): живой каталог, а не имя из банка (банк обновляется оборотом и отстаёт от фида)
-    name = PN.pick_name(m) or src.get('name')
+    name = PN.pick_name(m) or PN.clean(src.get('name') or '') or None   # нет в каталоге — имя банка, но пробелы по тому же правилу (T-20261119-105/1)
     if not name or not isinstance(price, (int, float)) or not price > 0:
         return None
     url = src.get('url') if URL_RE.fullmatch(str(src.get('url') or '')) else None
@@ -1757,6 +1757,8 @@ def unify_cards(variants: list, feeds: dict, goods=None, sids=()) -> dict:
     live_cards, pids, names_catalog}."""
     st = {'names_unified': 0, 'identity_suspect': 0, 'names_conflict': 0, 'live_cards': 0, 'pids': 0, 'names_catalog': 0}
     cards = _cards_of(variants, feeds)
+    for c, _ in cards:                          # пробелы названий — по единому правилу (`product_names.clean`) у ВСЕХ вхождений, и без `pid`/цены (строки лент витрины): ДО сравнения,
+        PN.clean_card(c)                        # табуляция и двойной пробел не делают два названия (T-20261119-105/1)
     by_pid: dict = {}
     for c, where in cards:
         if _is_card(c):

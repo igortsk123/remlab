@@ -1862,6 +1862,36 @@ def test_demo_and_tour_take_name_from_one_rule(monkeypatch, tmp_path):
     assert tour == room == demo['feeds']['bedroom:кровать'][0]['name'] == 'Кровать divan.ru Далти-П 160 Велюр Серый'
 
 
+def test_whitespace_in_names_one_rule_when_catalog_has_no_name_tour_and_demo():
+    """T-20261119-105/1: у товара нет каталожного названия (ушёл из продажи, банк) — имя из банка/ленты всё равно чистится ТЕМ ЖЕ правилом `product_names.clean`:
+    табуляция, двойной пробел, NBSP, пробелы по краям → один пробел; обычное имя не меняется. Тур (`unify_cards`) и витрина (`product_names.unify`) дают одно и то же (live 19.11:
+    «Лео Кровать 160*200<TAB>Вельвет Корд» в турах и /demo)."""
+    import product_names as PN
+    ok_name = 'Лео Кровать 160*200 Вельвет Корд'
+    # тур: каталога нет, у карточки варианта и ленты «разные» по пробелам названия — после правила одно имя, не конфликт и не «переименование»
+    sid, variants, feeds = _uc_data(var_name='Лео Кровать 160*200\tВельвет  Корд', feed_name='\u00a0Лео Кровать 160*200 Вельвет\u00a0Корд ')
+    st = TB.unify_cards(variants, feeds, lambda s, r: None, [sid])
+    assert variants[0]['items'][0]['sku']['name'] == feeds['bedroom-1:кровать'][0]['name'] == ok_name
+    assert st['names_conflict'] == 0 and st['names_unified'] == 0 and st['identity_suspect'] == 0
+    # строка ленты БЕЗ `pid` (товар без ключа — live 19.11, «Лео Кровать…<TAB>…» в лентах спален) тоже чистится: правило не зависит от наличия `pid`
+    feeds['bedroom-1:кровать'].append({'name': 'Лео Кровать 160*200\tШенилл  Смарт серый', 'price': 19999})
+    TB.unify_cards(variants, feeds, lambda s, r: None, [sid])
+    assert feeds['bedroom-1:кровать'][-1]['name'] == 'Лео Кровать 160*200 Шенилл Смарт серый'
+    # обычное имя тур не меняет
+    sid, variants, feeds = _uc_data(var_name='Кровать Далти-П 160, Велюр', feed_name='Кровать Далти-П 160, Велюр')
+    TB.unify_cards(variants, feeds, lambda s, r: None, [sid])
+    assert variants[0]['items'][0]['sku']['name'] == feeds['bedroom-1:кровать'][0]['name'] == 'Кровать Далти-П 160, Велюр'
+    # витрина: карточки с `sid`, каталожного названия нет — те же четыре случая и то же имя
+    N = PN.Names({}, {})
+    demo = {'feeds': {'k': [{'sid': '5_5', 'name': 'Лео Кровать 160*200\tВельвет Корд'}, {'sid': '5_6', 'name': 'Лео Кровать 160*200  Вельвет Корд'},
+                            {'sid': '5_7', 'name': '\u00a0Лео Кровать 160*200 Вельвет Корд\u00a0'}, {'sid': '5_8', 'name': ' Лео Кровать 160*200 Вельвет Корд '},
+                            {'sid': '5_9', 'name': ok_name, 'name_en': 'Bed'}]}}
+    rep = PN.unify(demo, N)
+    assert [r['name'] for r in demo['feeds']['k']] == [ok_name] * 5 and rep['ws'] == 4 and rep['fixed'] == 0 and demo['feeds']['k'][4]['name_en'] == 'Bed'
+    assert PN.unify(demo, N)['ws'] == 0                     # повтор ничего не меняет
+    assert PN.name_of('9_9', 'Свое\tимя ', N) == 'Свое имя'  # и запасное имя вызывающего (`flat215_demo`: роли комплекта)
+
+
 def test_unify_cards_live_wins_over_variant_card_and_no_live_falls_back_to_variant():
     sid, variants, feeds = _uc_data(var_name='Кровать Далти', feed_name='Кровать Далти-П')
     TB.unify_cards(variants, feeds, _uc_live(sid, 'Кровать Далти-ПП'), [sid])
