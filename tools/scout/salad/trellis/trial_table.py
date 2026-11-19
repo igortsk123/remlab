@@ -38,6 +38,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -45,18 +46,30 @@ SCOUT = os.path.normpath(os.path.join(HERE, '..', '..'))
 REPO = os.path.normpath(os.path.join(SCOUT, '..', '..'))
 ROOT = os.path.expanduser('~/remlab-logs/mesh-models-1118')
 RULES_GROUPS = os.path.join(SCOUT, 'rules', 'salad-groups.json')
-VERSION = 'tt-1'                      # версия расчёта: меняется формула/ракурсы/пороги — старые кэши строк не берём
+VERSION = 'tt-2'                      # версия расчёта: меняется формула/ракурсы/пороги — старые кэши строк не берём
 
 IOU_SIZE = (256, 256)
 IOU_ALPHA = 90                        # как в `mesh_make.mesh_trusted`
-IOU_OK = 0.6                          # порог боевой самопроверки модели
+THIN_R = 3                            # радиус «открытия» маски (px при 256²): ножки/спицы тоньше ~6 px исчезают из обеих масок
+
+
+def _battle_min_iou() -> float:
+    """Порог силуэта — БОЕВОЙ: значение `min_iou` по умолчанию у `mesh_make.mesh_trusted` (читаем из исходника: импорт модуля тянет fal/viz_*;
+    все боевые вызовы — `viz_build`, `viz_paste` — зовут без своего порога). Своего числа тут нет: поменяют боевое — поменяется и тут."""
+    m = re.search(r'def mesh_trusted\([^)]*min_iou:\s*float\s*=\s*([0-9.]+)', open(os.path.join(SCOUT, 'mesh_make.py'), encoding='utf-8').read())
+    if not m:
+        raise RuntimeError('mesh_make.mesh_trusted: порог min_iou не найден — сверить trial_table')
+    return float(m.group(1))
+
+
+IOU_OK = _battle_min_iou()
 RENDER = (500, 500)
 PITCH = 12.0
 IOU_YAWS_QUICK = (0.0, -20.0, 20.0)   # быстрый режим: три ракурса при наклоне 12°; `--iou-grid full` — 3×3 как в боевом
 GPU_CLASS = {'RTX 4090 Laptop': 'RTX 4090 Laptop (16 GB)', 'RTX A5000': 'RTX A5000 (24 GB)', 'RTX 4090': 'RTX 4090 (24 GB)', 'RTX 3090 Ti': 'RTX 3090 Ti (24 GB)', 'RTX 3090': 'RTX 3090 (24 GB)',
              'RTX 4060 Ti': 'RTX 4060 Ti (16 GB)', 'RTX 4070 Ti': 'RTX 4070 Ti (12 GB)'}
 
-COLS = ['model', 'sku', 'role', 'status', 'reason', 't_s', 'usd', 'tris', 'mb_raw', 'mb_lite', 'iou_front', 'iou_turn',
+COLS = ['model', 'sku', 'role', 'status', 'reason', 't_s', 'usd', 'tris', 'mb_raw', 'mb_lite', 'iou_front', 'iou_open', 'iou_turn',
         'de00', 'dL', 'pattern_grad_ncc', 'grey_top', 'view_empty', 'colour_guard', 'accepted', 'why_not', 'final', 'input_sha8']
 
 
@@ -167,10 +180,17 @@ def load_summaries(model_dir: str) -> dict:
     return {'jobs': jobs, 'spend': round(spend, 4), 'groups': groups}
 
 
-def accept(grey: str | None, view_empty: bool | None, colour: str | None) -> tuple[bool, list[str]]:
-    """Автоприёмка: «принят», только если ВСЕ три сторожа чисты. Серый верх: ok/na чисто. Пустой вид: None (не судим) — чисто.
-    Цвет: только ok (unknown — нет замера — не принимаем)."""
+def accept(grey: str | None, view_empty: bool | None, colour: str | None, iou: float | None = None, iou_open: float | None = None,
+           min_iou: float | None = None) -> tuple[bool, list[str]]:
+    """Автоприёмка: «принят», только если ВСЕ условия чисты. Серый верх: ok/na чисто. Пустой вид: None (не судим) — чисто.
+    Цвет: только ok (unknown — нет замера — не принимаем). Силуэт спереди — БОЕВОЙ порог `mesh_trusted` (`IOU_OK`): ниже — не принят; если без тонких частей
+    (открытие масок) порог берётся — причина «силуэт: тонкие части» (ножки/спицы, а не чужая форма), всё равно не принят: решение о таких — за ведущим."""
+    min_iou = IOU_OK if min_iou is None else min_iou
     why = []
+    if iou is None:
+        why.append('силуэт: нет замера')
+    elif iou < min_iou:
+        why.append('силуэт: тонкие части' if (iou_open or 0) >= min_iou else f'силуэт: IoU {iou:.2f} < {min_iou:g}')
     if grey not in ('ok', 'na'):
         why.append(f'серый верх: {grey}')
     if view_empty:
@@ -185,15 +205,12 @@ def model_summary(rows: list[dict], spend_usd: float | None) -> dict:
     $ за одну принятую = все траты / число принятых (нет принятых или нет трат — None)."""
     tried = [r for r in rows if r['status'] in ('готов', 'отказ')]
     acc = [r for r in tried if r.get('accepted') == 'да']
-    acc_iou = [r for r in acc if (r.get('iou_front') or 0) >= IOU_OK]
     out = {'products': len(rows), 'tried': len(tried), 'ready': sum(r['status'] == 'готов' for r in tried),
            'refused': sum(r['status'] == 'отказ' for r in tried), 'not_run': sum(r['status'] == 'нет' for r in rows),
            'accepted': len(acc), 'accepted_share': round(len(acc) / len(tried), 3) if tried else None,
-           'accepted_iou': len(acc_iou), 'spend_usd': spend_usd, 'usd_per_accepted': None, 'usd_per_accepted_iou': None}
+           'thin_notes': sum('силуэт: тонкие части' in (r.get('why_not') or '') for r in tried), 'spend_usd': spend_usd, 'usd_per_accepted': None}
     if acc and spend_usd:
         out['usd_per_accepted'] = round(spend_usd / len(acc), 4)
-    if acc_iou and spend_usd:
-        out['usd_per_accepted_iou'] = round(spend_usd / len(acc_iou), 4)
     return out
 
 
@@ -225,6 +242,12 @@ def _mask256(rgba):
     return np.asarray(c.resize(IOU_SIZE, Image.LANCZOS))[..., 3] > IOU_ALPHA
 
 
+def _opened(m):
+    """Открытие маски (эрозия + наращивание, как `view_guard._morph`): тонкие части короче 2·THIN_R px пропадают."""
+    from salad import view_guard as VG
+    return VG._morph(VG._morph(m, THIN_R, grow=False), THIN_R, grow=True)
+
+
 def measure_pair(task: dict) -> dict:
     """Все числа для одной пары товар × модель. Исключения — в `error` (счётчик отказов обязателен, молчать нельзя)."""
     import numpy as np
@@ -238,7 +261,7 @@ def measure_pair(task: dict) -> dict:
     from salad import view_guard as VG
 
     final, raw, cut = task['final'], task['raw'], task['cutout']
-    out: dict = {'tris': None, 'mb_lite': None, 'iou_front': None, 'iou_turn': None, 'de00': None, 'dL': None,
+    out: dict = {'tris': None, 'mb_lite': None, 'iou_front': None, 'iou_open': None, 'iou_turn': None, 'de00': None, 'dL': None,
                  'pattern_grad_ncc': None, 'grey_top': None, 'view_empty': None, 'colour_guard': None, 'errors': []}
 
     def guard(name, fn):
@@ -260,14 +283,18 @@ def measure_pair(task: dict) -> dict:
         cm = _mask256(cut_im)
         yaws = IOU_YAWS_QUICK if task['iou_grid'] == 'quick' else (0.0, -20.0, 20.0)
         pitches = (PITCH,) if task['iou_grid'] == 'quick' else (0.0, 12.0, 22.0)
-        best, front_img = 0.0, None
+        best, front_img, best_mask = 0.0, None, None
         for yw in yaws:
             for pt in pitches:
                 im = shot(yw, pt)
                 if yw == 0.0 and pt == PITCH:
                     front_img = im
-                best = max(best, iou_masks(_mask256(im), cm))
+                mk = _mask256(im)
+                v = iou_masks(mk, cm)
+                if best_mask is None or v > best:
+                    best, best_mask = v, mk
         out['iou_front'] = round(best, 3)
+        out['iou_open'] = round(iou_masks(_opened(best_mask), _opened(cm)), 3)      # без тонких частей: ножки, спицы, плафонные стойки
         if best < IOU_OK:                                       # не лицом? — подсказка «модель повёрнута», а не «плохая форма»
             out['iou_turn'] = round(max(iou_masks(_mask256(shot(yw, PITCH)), cm) for yw in (90.0, 180.0, 270.0)), 3)
         if front_img is not None:
@@ -416,9 +443,9 @@ def build_row(model: str, c: dict, spec: dict, meta: dict, cache_dir: str, a) ->
         row['tris'] = count_tris(final)
     except Exception as e:  # noqa: BLE001
         meas.setdefault('errors', []).append(f'треугольники: {str(e)[:60]}')
-    for k in ('mb_lite', 'iou_front', 'iou_turn', 'de00', 'dL', 'pattern_grad_ncc', 'grey_top', 'view_empty', 'colour_guard'):
+    for k in ('mb_lite', 'iou_front', 'iou_open', 'iou_turn', 'de00', 'dL', 'pattern_grad_ncc', 'grey_top', 'view_empty', 'colour_guard'):
         row[k] = meas.get(k)
-    ok, why = accept(row['grey_top'], row['view_empty'], row['colour_guard'])
+    ok, why = accept(row['grey_top'], row['view_empty'], row['colour_guard'], row['iou_front'], row['iou_open'])
     if meas.get('errors'):
         ok, why = False, why + ['сторож упал: ' + '; '.join(meas['errors'])[:100]]
     row['accepted'] = 'да' if ok else 'нет'
@@ -446,8 +473,8 @@ def write_outputs(out_dir: str, rows: list[dict], sums: dict, notes: dict, set_n
         w.writeheader()
         for r in rows:
             w.writerow({k: ('' if r.get(k) is None else r.get(k)) for k in COLS})
-    scols = ['model', 'products', 'tried', 'ready', 'refused', 'not_run', 'accepted', 'accepted_share', 'accepted_iou', 'spend_usd', 'usd_per_accepted',
-             'usd_per_accepted_iou', 'spend_note']
+    scols = ['model', 'products', 'tried', 'ready', 'refused', 'not_run', 'accepted', 'accepted_share', 'thin_notes', 'spend_usd', 'usd_per_accepted',
+             'spend_note']
     with open(p_sum, 'w', newline='', encoding='utf-8') as f:
         w = csv.DictWriter(f, fieldnames=scols)
         w.writeheader()
@@ -455,23 +482,23 @@ def write_outputs(out_dir: str, rows: list[dict], sums: dict, notes: dict, set_n
             w.writerow({'model': m, **{k: ('' if s.get(k) is None else s[k]) for k in scols[1:-1]}, 'spend_note': notes.get(m, '')})
     L = [f'# Проба генераторов мешей — таблица (набор `{set_name}`, расчёт `{VERSION}`)', '',
          '**Принят** = все три боевых сторожа чисты по итоговому GLB (серый верх · пустой вид зад/верх · цвет против вырезки). '
-         '**$ за одну принятую** = все траты на модель / число принятых. Колонка «+ силуэт ≥ 0,6» — справочно: те же принятые, у которых ещё и IoU силуэта спереди '
-         '≥ 0,6 (порог боевой самопроверки `mesh_make.mesh_trusted`); в определение «принят» он не входит.', '',
+         '**$ за одну принятую** = все траты на модель / число принятых. Четвёртое условие — IoU силуэта спереди не ниже боевого порога `mesh_make.mesh_trusted` '
+         f'({IOU_OK:g}, берётся из боевого кода); «тонкие части» — IoU без ножек и спиц достигает порога, не принят, пометка для решения ведущего.', '',
          '## Итог по моделям', '',
-         '| модель | пробовали | готово | отказ | принято | доля принятых | траты, $ | **$ за одну принятую** | + силуэт ≥ 0,6: принято / $ | чем считали траты |',
+         '| модель | пробовали | готово | отказ | принято | доля принятых | траты, $ | **$ за одну принятую** | из не принятых — «тонкие части» | чем считали траты |',
          '|---|---|---|---|---|---|---|---|---|---|']
     for m, s in sums.items():
         share = fmt(None if s['accepted_share'] is None else round(s['accepted_share'] * 100, 1))
         L.append(f"| {m} | {s['tried']} (не пробовали: {s['not_run']}) | {s['ready']} | {s['refused']} | {s['accepted']} | "
                  f"{share}{'' if share == '—' else ' %'} | {fmt(s['spend_usd'])} | **{fmt(s['usd_per_accepted'])}** | "
-                 f"{s['accepted_iou']} / {fmt(s['usd_per_accepted_iou'])} | {notes.get(m, '')} |")
+                 f"{s['thin_notes']} | {notes.get(m, '')} |")
     for m in sums:
         L += ['', f'## {m}', '',
               '| товар | роль | статус | с | $ | треуг. | МБ сырой | МБ лёгкая | IoU | ΔE00 | ΔL | pattern | серый верх | пуст. вид | цвет | принят | почему нет |',
               '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|']
         for r in (x for x in rows if x['model'] == m):
             st = r['status'] if r['status'] != 'отказ' else f"отказ: {r['reason']}"
-            iou = fmt(r['iou_front']) + ('' if r['iou_turn'] is None else f" (повёрн. {r['iou_turn']})")
+            iou = fmt(r['iou_front']) + ('' if r['iou_open'] is None else f" (без тонких {r['iou_open']})") + ('' if r['iou_turn'] is None else f" (повёрн. {r['iou_turn']})")
             L.append(f"| `{r['sku']}` | {r['role'] or ''} | {st} | {fmt(r['t_s'])} | {fmt(r['usd'])} | {fmt(r['tris'])} | {fmt(r['mb_raw'])} | "
                      f"{fmt(r['mb_lite'])} | {iou} | {fmt(r['de00'])} | {fmt(r['dL'])} | {fmt(r['pattern_grad_ncc'])} | {fmt(r['grey_top'])} | "
                      f"{fmt(r['view_empty'])} | {fmt(r['colour_guard'])} | {r['accepted']} | {r['why_not'] or ''} |")
@@ -591,21 +618,24 @@ def selftest() -> int:
     check('цена по классу карты', price_usd_h('NVIDIA GeForce RTX 3090', 'high', g) == 0.17 and price_usd_h('RTX 4090', 'high', g) == 0.33)
     check('неизвестная карта → None, не 0', price_usd_h('Tesla T4', 'high', g) is None and price_usd_h(None, 'high', g) is None)
     # автоприёмка: все чисты → принят; любой грязный → нет
-    check('приёмка: ok/ok/ok → принят', accept('ok', False, 'ok') == (True, []))
-    check('приёмка: na и вид не судим → принят', accept('na', None, 'ok')[0])
-    check('приёмка: серый верх reject → нет', not accept('reject', False, 'ok')[0])
-    check('приёмка: candidate (на ручную) → нет', not accept('candidate', False, 'ok')[0])
-    check('приёмка: пустой вид → нет', not accept('ok', True, 'ok')[0])
-    check('приёмка: цвет mismatch/unknown → нет', not accept('ok', False, 'mismatch')[0] and not accept('ok', False, 'unknown')[0])
-    check('приёмка: три нарушения — три причины', len(accept('reject', True, 'mismatch')[1]) == 3)
+    check('порог силуэта — боевой (0,6 из mesh_trusted)', IOU_OK == 0.6)
+    check('приёмка: ok/ok/ok/силуэт 0,9 → принят', accept('ok', False, 'ok', 0.9, 0.95) == (True, []))
+    check('приёмка: na и вид не судим → принят', accept('na', None, 'ok', 0.7, 0.7)[0])
+    check('приёмка: силуэт ровно на пороге → принят', accept('ok', False, 'ok', IOU_OK, IOU_OK)[0])
+    check('приёмка: силуэт ниже порога → нет, причина с числом', accept('ok', False, 'ok', 0.4, 0.45)[1] == ['силуэт: IoU 0.40 < 0.6'])
+    check('приёмка: ниже порога, но без тонких частей достигает → пометка «тонкие части», не принят', accept('ok', False, 'ok', 0.4, 0.7) == (False, ['силуэт: тонкие части']))
+    check('приёмка: нет замера силуэта → нет', accept('ok', False, 'ok') == (False, ['силуэт: нет замера']))
+    check('приёмка: серый верх reject → нет', not accept('reject', False, 'ok', 0.9, 0.9)[0])
+    check('приёмка: candidate (на ручную) → нет', not accept('candidate', False, 'ok', 0.9, 0.9)[0])
+    check('приёмка: пустой вид → нет', not accept('ok', True, 'ok', 0.9, 0.9)[0])
+    check('приёмка: цвет mismatch/unknown → нет', not accept('ok', False, 'mismatch', 0.9, 0.9)[0] and not accept('ok', False, 'unknown', 0.9, 0.9)[0])
+    check('приёмка: три нарушения — три причины', len(accept('reject', True, 'mismatch', 0.9, 0.9)[1]) == 3)
     # итог по модели: $ за принятую = все траты / принятые; «нет» в знаменатель не входит
     rows = [{'status': 'готов', 'accepted': 'да'}, {'status': 'готов', 'accepted': 'нет'}, {'status': 'отказ', 'accepted': 'нет'},
             {'status': 'нет', 'accepted': '—'}, {'status': 'готов', 'accepted': 'да'}]
     sm = model_summary(rows, 1.0)
     check('итог: пробовали 4 из 5, принято 2, доля 0,5', sm['tried'] == 4 and sm['accepted'] == 2 and sm['accepted_share'] == 0.5 and sm['not_run'] == 1)
     check('итог: $ за принятую = 1,0 / 2 = 0,5', sm['usd_per_accepted'] == 0.5)
-    sm2 = model_summary([{'status': 'готов', 'accepted': 'да', 'iou_front': 0.9}, {'status': 'готов', 'accepted': 'да', 'iou_front': 0.3}], 1.0)
-    check('итог: принятые с силуэтом ≥ 0,6 — отдельно, $ считается по ним', sm2['accepted_iou'] == 1 and sm2['usd_per_accepted_iou'] == 1.0 and sm2['usd_per_accepted'] == 0.5)
     check('цена: 4090 Laptop и A5000 находятся (не 4090)', price_usd_h('NVIDIA GeForce RTX 4090 Laptop GPU', 'high', {'prices_by_class_usd_h': {'RTX 4090 Laptop (16 GB)': {'high': 0.2}, 'RTX 4090 (24 GB)': {'high': 0.33}}}) == 0.2
           and price_usd_h('NVIDIA RTX A5000', 'high', {'prices_by_class_usd_h': {'RTX A5000 (24 GB)': {'high': 0.15}}}) == 0.15)
     check('итог: нет принятых → $ за принятую None', model_summary([{'status': 'готов', 'accepted': 'нет'}], 1.0)['usd_per_accepted'] is None)
