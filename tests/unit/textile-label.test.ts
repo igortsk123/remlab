@@ -24,13 +24,36 @@ const PILLOW = { role: "подушка 2", strategy: "textile_abstract",
   look: { hex: "#d8c4a6", from: "name:бежев", sheer: false, of: "p2" }, sku: { name: "Подушка Удина", price: 990, sid: "p2", w: 45, d: 45, h: 11 } };
 
 describe("ярлык пледа", () => {
-  it("страница зеркалит правило: CLOTH_LABEL в index.html = формы с label:true в data/flat3d/textile.json", () => {
+  it("страница зеркалит правило: CLOTH_LABEL / CLOTH_NOGEO / CLOTH_LABEL_AT в index.html = label, render:false и labelAt в data/flat3d/textile.json", () => {
     const html = readFileSync(resolve(__dirname, "../../tools/scout/flat215-demo/index.html"), "utf8");
-    const m = /const CLOTH_LABEL=\[([^\]]*)\]/.exec(html);
-    expect(m, "в index.html нет CLOTH_LABEL").not.toBeNull();
-    const page = m![1]!.split(",").map((s) => s.trim().replace(/['"]/g, "")).filter(Boolean).sort();
-    const data = Object.entries(textileJson.label).filter(([, on]) => on === true).map(([k]) => k).sort();
-    expect(page).toEqual(data);
+    const list = (name: string): string[] => {
+      const m = new RegExp(`const ${name}=\\[([^\\]]*)\\]`).exec(html);
+      expect(m, `в index.html нет ${name}`).not.toBeNull();
+      return m![1]!.split(",").map((s) => s.trim().replace(/['"]/g, "")).filter(Boolean).sort();
+    };
+    const label = Object.entries(textileJson.label).filter(([, on]) => on === true).map(([k]) => k).sort();
+    expect(list("CLOTH_LABEL")).toEqual(label);
+    const nogeo = Object.entries(textileJson.render).filter(([k, on]) => on === false && label.includes(k)).map(([k]) => k).sort();
+    expect(list("CLOTH_NOGEO")).toEqual(nogeo);
+    const at = /const CLOTH_LABEL_AT=\{([^}]*)\}/.exec(html);
+    expect(at, "в index.html нет CLOTH_LABEL_AT").not.toBeNull();
+    const page = Object.fromEntries(at![1]!.split(",").map((s) => s.split(":").map((v) => v.trim())).map(([k, v]) => [k, Number(v)]));
+    expect(page).toEqual(textileJson.labelAt);
+    for (const k of label) expect(textileJson.labelAt[k as keyof typeof textileJson.labelAt], `labelAt.${k}`).toBeGreaterThan(0);
+  });
+
+  it("ярлыки и ценники держат зазор ≥ 8 px до элементов управления поверх 3D: зоны берутся из DOM (`PINS.busy`) и раздуваются на PIN_CTL_GAP, в том числе подсказка «Потяните…»", () => {
+    const html = readFileSync(resolve(__dirname, "../../tools/scout/flat215-demo/index.html"), "utf8");
+    expect(html).toMatch(/const PIN_CTL_GAP=8;/);
+    expect(html).toMatch(/PINS\.busy=\[[\s\S]*?\.map\(vwCtlZone\)/);
+    expect(html).toMatch(/PINS\.hint=LIVE\.badge[^;]*vwCtlZone\(/);
+    // управление поверх 3D, которое ярлык не должен задевать: переключатель «Фото/3D», «Цены», ×, «От двери / Другой вид», панель с камерой
+    for (const sel of ["#shotx", ".vmodes", ".vprice", ".vcams", "#vsum", "#vside"]) expect(html).toContain(sel);
+  });
+  it("у штор геометрия остаётся и ярлык включён: правило данных не ломает место-ярлык пледа и экспорт штор", () => {
+    expect(textileJson.render.curtain).toBe(true);
+    expect(textileJson.label.curtain).toBe(true);
+    expect(textileJson.render.throw).toBe(false);
   });
 
   it("место-ярлык: невидимо для глаза, но в сцене есть рамка (для ярлыка страницы) и луч его находит (тап → карточка)", () => {
