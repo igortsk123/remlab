@@ -73,7 +73,7 @@ jobs:
           df -h /
 
       - name: BUILD_INFO из образа (версии и коммиты расширений)
-        run: docker run --rm --entrypoint cat "$PRIMARY" /opt/BUILD_INFO_MVADAPTER.txt
+        run: docker run --rm --entrypoint cat "$PRIMARY" /opt/BUILD_INFO_MVPAINTER.txt
 
       - name: Публикация в GHCR (основной адрес, при отказе — запасной)
         id: push
