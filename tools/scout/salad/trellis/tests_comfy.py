@@ -125,6 +125,8 @@ jobs = T.expand_ladder_jobs([{'sku': '1:2', 'job_id': 'x', 'res': 1024}], pl)
 ok('задание: id <товар>-<ступень>, input hdc', jobs[0]['job_id'] == '1_2-hdc1024' and jobs[0]['input'] == 'hdc')
 bad_in = os.path.join(tempfile.gettempdir(), 'tests_comfy_ladder_bad.json')
 json.dump([{'name': 'a', 'input': 'zzz'}], open(bad_in, 'w'))
+json.dump([{'name': 'k', 'input': 'clean', 'res': 1024}], open(lad, 'w'))
+ok('лесенка: input clean (чистая вырезка) принимается', T.parse_ladder(lad)[0]['input'] == 'clean')
 ok('лесенка: неизвестный input → ValueError до группы', raises(lambda: T.parse_ladder(bad_in)))
 
 print(f'\nИТОГО: {"всё в норме" if not bad else f"упало {bad}"}')

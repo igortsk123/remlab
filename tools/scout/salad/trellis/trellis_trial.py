@@ -139,8 +139,8 @@ def parse_ladder(path: str) -> list[dict]:
         if not nm or not all(c.isalnum() or c in '-_.' for c in nm) or nm in seen:
             raise ValueError(f'лесенка: у ступени нужно уникальное имя из букв, цифр и «-_.»: {nm!r}')
         seen.add(nm)
-        if it.get('input', 'cur') not in ('cur', 'hd', 'hdc') or int(it.get('res', 1024)) not in (512, 1024, 1536):
-            raise ValueError(f'лесенка {nm}: input — cur, hd или hdc (дочищенная HD-вырезка, `<товар>.hdc.rgba.png`), res — 512, 1024 или 1536')
+        if it.get('input', 'cur') not in ('cur', 'hd', 'hdc', 'clean') or int(it.get('res', 1024)) not in (512, 1024, 1536):
+            raise ValueError(f'лесенка {nm}: input — cur, hd, hdc (дочищенная HD-вырезка, `<товар>.hdc.rgba.png`) или clean (вход без ореола фона, `<товар>.clean.rgba.png`), res — 512, 1024 или 1536')
         bad = [k for k in it if k not in ('name', 'input', 'res') + LADDER_KEYS]
         if bad:
             raise ValueError(f'лесенка {nm}: неизвестные ключи {bad}')
@@ -353,7 +353,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         except (ValueError, OSError, AttributeError) as e:
             say(f'лесенка не разобрана ({e}) — группа не создаётся')
             return 2
-        missing = [f'{s.replace(":", "_")}.{r["input"]}.rgba.png' for s in skus for r in ladder if r['input'] in ('hd', 'hdc') and not os.path.exists(os.path.join(a.inputs, f'{s.replace(":", "_")}.{r["input"]}.rgba.png'))]
+        missing = [f'{s.replace(":", "_")}.{r["input"]}.rgba.png' for s in skus for r in ladder if r['input'] in ('hd', 'hdc', 'clean') and not os.path.exists(os.path.join(a.inputs, f'{s.replace(":", "_")}.{r["input"]}.rgba.png'))]
         if missing:
             say(f'нет HD-фото в {a.inputs}: {sorted(set(missing))} — группа не создаётся')
             return 2
@@ -490,7 +490,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
             if ready_at is not None:
                 if inflight is None and pending:
                     j = pending.pop(0)
-                    png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.{j["input"] + "." if j.get("input") in ("hd", "hdc") else ""}rgba.png'), 'rb').read()
+                    png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.{j["input"] + "." if j.get("input") in ("hd", "hdc", "clean") else ""}rgba.png'), 'rb').read()
                     pl = {'job_id': j['job_id'], 'image_b64': base64.b64encode(png).decode(), 'pipeline_type': pipeline_type(j['res']), 'seed': j['seed'],
                           'decimation_target': a.decimation, 'texture_size': a.texture, 'detail': getattr(a, 'detail', None), 'texture_mesh_b64': tex_mesh_b64, 'role': j.get('role'), 'dims_cm': j.get('dims_cm'), 'align': j.get('align'), 'tex_guidance': j.get('tex_guidance'), 'shape_smooth': j.get('shape_smooth'), 'shape_fill': j.get('shape_fill'), **(j.get('worker_params') or {})}
                     c, r = gw.call('POST', '/generate', pl, timeout=90)
