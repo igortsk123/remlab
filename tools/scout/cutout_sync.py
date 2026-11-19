@@ -55,6 +55,7 @@ import hybrid_mask        # noqa: E402
 import preprocess as PRE  # noqa: E402  (defringe/trim_alpha/mask_verdict — они без GPU)
 import photo_hash as PH   # noqa: E402  (единственный писатель хеша фото, план mesh-14)
 import pool_gate as PG    # noqa: E402  (ворота пула и граница 0.65)
+import mesh_photo as MP    # noqa: E402  (ЕДИНОЕ правило фото меша и сторож размера, ADR-0452)
 
 CACHE = os.path.expanduser(os.environ.get('CUTOUT_CACHE', '~/scout-scenes/cutouts'))
 BACKEND = os.environ.get('CUTOUT_BACKEND', 'fal')
@@ -301,6 +302,9 @@ def one(job) -> tuple[str, str | None]:
         if net.size != src.size:
             net = net.resize(src.size, Image.LANCZOS)
         cut, info = chain(src, net, role=role)
+        he = MP.hybrid_error(info)
+        if he:      # ADR-0452: сбой гибридной маски — видим в журнале ночи, а не только внутри измерений
+            print(f'WARN:hybrid_error {sku}: {he}', flush=True)
         os.makedirs(CACHE, exist_ok=True)
         cut.save(dst)
         info['backend'] = BACKEND

@@ -31,7 +31,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, 'salad'))
 
-POLICY_VERSION = 'p1'
+import mesh_photo as MP  # noqa: E402 — сторож размера вырезки (ADR-0452)
+
+POLICY_VERSION = 'p2'
 
 # Пороги взяты ИЗ ЗАМЕРА, а не из головы, и намеренно ниже всего наблюдавшегося: на выборке 36
 # минимум у живых карточек — длинная сторона 0.382 кадра и площадь 0.124. Всё, что ниже этих
@@ -62,6 +64,11 @@ def verdict_from_metrics(role: str, metrics: dict) -> tuple[str, str | None]:
         return 'tiny_object', f'товар занимает {100 * rel:.0f}% длинной стороны кадра'
     if share is not None and share < MIN_OBJECT_SHARE:
         return 'tiny_object', f'товар занимает {100 * share:.1f}% площади кадра'
+    # СТОРОЖ РАЗМЕРА (ADR-0452, решение владельца TG 1864: «маленькие фото в меш не пропускать»): порог — `rules/mesh-photo.json`,
+    # null = выключен. Стоит ПОСЛЕ прочих вердиктов: у коллажа и брака маски своя причина, размер их не перекрывает.
+    fit, why = MP.check_size(ph.get('object_wh'))
+    if not fit:
+        return MP.STATUS, why
     return 'ok', None
 
 
@@ -103,8 +110,47 @@ def _load() -> dict[str, str]:
     return out
 
 
+def reverdict_plan(rows: list) -> list:
+    """rows [(source_sha, assessor_version, role, stored_verdict, metrics_json)] → [(source_sha, assessor_version, новый вердикт)].
+    Двигаем ТОЛЬКО границу `ok` ↔ `photo_too_small` (область сторожа размера, ADR-0452): прочие вердикты не трогаем — они вынесены при вырезке.
+    Чистая функция."""
+    out = []
+    for sha, ver, role, stored, raw in rows:
+        if stored not in ('ok', MP.STATUS):
+            continue
+        try:
+            m = json.loads(raw) if raw else {}
+        except Exception:  # noqa: BLE001
+            continue
+        new = verdict_from_metrics(role, m)[0]
+        if new in ('ok', MP.STATUS) and new != stored:
+            out.append((sha, ver, new))
+    return out
+
+
+def reverdict() -> dict:
+    """Привести ХРАНИМЫЙ `photo_assessment.verdict` к текущему порогу сторожа (его читают очередь мешей, экспорт, рендер, воронка: «ok» — единый
+    допуск). Смена порога не требует заново резать фото: вердикт пересчитывается из сохранённых измерений. Идемпотентно. → счётчик {'ok→…': n}."""
+    try:
+        from preprocess import ASSESSOR_VERSION
+    except Exception:  # noqa: BLE001 — вне образа зависимостей нет (как в mesh_queue)
+        ASSESSOR_VERSION = os.environ.get('ASSESSOR_VERSION', 'a1')
+    rows = _db("select a.source_sha, a.assessor_version, coalesce(max(p.cat_role), ''), a.verdict, a.metrics::text "
+               "  from photo_assessment a "
+               "  left join product_photo_current c on c.source_sha = a.source_sha "
+               "  left join products p on p.shop_mid||':'||p.external_id = c.sku "
+               f" where a.assessor_version = '{ASSESSOR_VERSION}' and a.verdict in ('ok', '{MP.STATUS}') "
+               " group by a.source_sha, a.assessor_version, a.verdict, a.metrics::text")
+    plan = reverdict_plan([r for r in rows if len(r) == 5])
+    for sha, ver, new in plan:
+        _db(f"update photo_assessment set verdict = '{new}' where source_sha = '{sha}' and assessor_version = '{ver}'")
+    n_off = sum(1 for _, _, v in plan if v == MP.STATUS)
+    print(f'[photo_fit] вердикты по порогу сторожа: отсечено новых {n_off}, вернулось в ok {len(plan) - n_off}', flush=True)
+    return {'to_too_small': n_off, 'back_to_ok': len(plan) - n_off}
+
+
 def photo_fit(sku: str) -> str:
-    """ok | collage | tiny_object | bad_cutout | unknown."""
+    """ok | collage | tiny_object | photo_too_small | bad_cutout | unknown."""
     return _load().get(sku, 'unknown')
 
 
@@ -120,12 +166,20 @@ def report() -> None:
     c = Counter(_load().values())
     total = sum(c.values())
     print(f'оценено фото: {total} (политика {POLICY_VERSION})')
-    for k in ('ok', 'collage', 'tiny_object', 'bad_cutout'):
+    for k in ('ok', 'collage', 'tiny_object', MP.STATUS, 'bad_cutout'):
         print(f'  {k:12} {c.get(k, 0):6}  ({100 * c.get(k, 0) / max(total, 1):.1f}%)')
     unassessed = _db("select count(*) from mesh_demand where status='wanted' "
                      "and source_sha is not null and source_sha not in "
                      "(select source_sha from photo_assessment)")
     print(f'  ждут оценки {unassessed[0][0]}')
+    # СЧЁТЧИК ВХОДА МЕШЕЙ (ADR-0452): сколько отсечено сторожем размера и при каком пороге; сбои гибридной маски ДОЛЖНЫ быть видны
+    thr = MP.load_rules()
+    print(f"  сторож размера: порог {thr['min_cut_side_px'] or 'выключен'} px ({thr['measure']}), отсечено {c.get(MP.STATUS, 0)}")
+    try:
+        hy = _db("select count(*) from photo_assessment where metrics ? 'hybrid_error'")[0][0]
+        print(f'  сбоев гибридной маски (hybrid_error в измерениях): {hy}')
+    except Exception as e:  # noqa: BLE001 — нет БД: счётчик пропускаем, но не молча
+        print(f'  счётчик hybrid_error не получен ({type(e).__name__})')
 
 
 if __name__ == '__main__':

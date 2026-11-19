@@ -29,6 +29,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import photo_hash as PH  # noqa: E402 — хеш фото считает только он (план mesh-14)
 import pool_gate as PG  # noqa: E402 — граница качества 0.65 включительно (план mesh-14)
+import mesh_photo as MP  # noqa: E402 — ЕДИНОЕ правило выбора фото меша: HD, иначе превью (ADR-0452)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SETS = os.path.join(HERE, 'sets3.json')
@@ -219,11 +220,11 @@ def demand_reserve() -> dict[str, dict]:
     """Резерв ролей `reserve_roles` (только направленные) прямо из БД — ворота методики (ADR-0131)."""
     roles = ','.join(q(r) for r in sorted(RESERVE_ROLES & DIRECTED)) or "''"
     rows = db(f"""
-      select p.shop_mid||':'||p.external_id, p.cat_role, p.image_url,
+      select p.shop_mid||':'||p.external_id, p.cat_role, {MP.photo_sql('p')},
              regexp_replace(coalesce(p.name,''), E'[\\n\\r\\x1f]', ' ', 'g')
         from products p
         join product_enrichment e using (shop_mid, external_id)
-       where p.cat_role in ({roles}) and p.in_stock and p.image_url is not null
+       where p.cat_role in ({roles}) and p.in_stock and {MP.photo_sql('p')} is not null
          and e.status='active' and e.payload is not null and {PG.quality_ok('e.quality')}
        order by p.cat_role, e.quality desc, p.shop_mid, p.external_id
     """)
@@ -260,7 +261,7 @@ def demand_from_cut_pool() -> dict[str, dict]:
             ex_roles.add(role)
     ex = ','.join(q(r) for r in sorted(ex_roles)) or "''"
     rows = db(
-        "select c.sku, p.cat_role, coalesce(p.image_url_hd, c.image_url), c.source_sha, "
+        "select c.sku, p.cat_role, coalesce(" + MP.photo_sql('p') + ", c.image_url), c.source_sha, "
         "       regexp_replace(coalesce(p.name,''), E'[\n\r\x1f]', ' ', 'g') "
         "  from product_photo_current c "
         "  join products p on p.shop_mid||':'||p.external_id = c.sku "
@@ -314,9 +315,9 @@ def demand_from_reserve_deficit() -> dict[str, dict]:
                 if not img:
                     no_img.append(sku)
     if no_img:
-        rows = db("select p.shop_mid||':'||p.external_id, p.image_url from products p "
+        rows = db("select p.shop_mid||':'||p.external_id, " + MP.photo_sql('p') + " from products p "
                   "where p.shop_mid||':'||p.external_id in ("
-                  + ','.join(q(x) for x in no_img) + ") and p.image_url is not null")
+                  + ','.join(q(x) for x in no_img) + ") and " + MP.photo_sql('p') + " is not null")
         for r in rows:
             if len(r) == 2 and r[0] in out:
                 out[r[0]]['image_url'] = r[1]
@@ -386,6 +387,39 @@ def reconcile_legacy() -> int:
     return n
 
 
+def size_guard() -> int:
+    """Сторож размера (ADR-0452): привести хранимые вердикты к порогу `rules/mesh-photo.json` и вернуть, сколько спроса сейчас отсечено
+    (`photo_too_small`) — это число идёт в строку итога ночи. Сбой не роняет шаг, но виден в журнале."""
+    try:
+        import photo_fit as PF
+        PF.reverdict()
+        r = db("select count(distinct d.sku) from mesh_demand d "
+               "join product_photo_current c on c.sku = d.sku "
+               "join photo_assessment a on a.source_sha = c.source_sha "
+               f"where d.status = 'wanted' and a.assessor_version = {q(ASSESSOR_VERSION)} and a.verdict = {q(MP.STATUS)}")
+        return int(r[0][0]) if r else 0
+    except Exception as e:  # noqa: BLE001 — счётчик не получен ≠ «ноль»: пишем причину
+        print(f'[mesh_queue] ПРЕДУПРЕЖДЕНИЕ: сторож размера не отработал ({type(e).__name__}: {str(e)[:80]})', flush=True)
+        return -1
+
+
+def prefer_hd(want: dict) -> dict:
+    """Единое правило фото меша (ADR-0452) для спроса из ВСЕХ источников: сеты и кандидаты несут фидовое превью (`img`, 450 px) —
+    заменяем на `image_url_hd` (`MP.pick`: HD, иначе превью). Без этого спрос из сетов шёл бы с превью, а `copy_photo_current` чинил
+    бы это лишь задним числом и только там, где уже есть хеш."""
+    if not want:
+        return want
+    lit = ','.join(q(s) for s in want)
+    rows = db("select p.shop_mid||':'||p.external_id, coalesce(p.image_url_hd, ''), coalesce(p.image_url, '') "
+              f"from products p where p.shop_mid||':'||p.external_id in ({lit})")
+    got = {r[0]: MP.pick(r[1], r[2])[0] for r in rows if len(r) == 3}
+    for sku, v in want.items():
+        url = got.get(sku)
+        if url:
+            v['image_url'] = url
+    return want
+
+
 def run() -> None:
     db(SCHEMA)
     # Приоритет 1 — то, что уже стоит в комплектах: их видно на витрине сегодня.
@@ -408,6 +442,7 @@ def run() -> None:
     # товар без роли (кровать, секция дивана, топпер — T-53) в спрос не идёт: колонка role NOT NULL, а выпавший из `want`
     # уходит в not_required ниже; готовый меш при этом не трогаем
     want = {k: v for k, v in want.items() if v.get('role')}
+    want = prefer_hd(want)
     for sku, v in want.items():
         db(f"""insert into mesh_demand (sku, role, priority, image_url, dims, name)
                values ({q(sku)}, {q(v['role'])}, {v['priority']}, {q(v['image_url'])},
@@ -437,6 +472,7 @@ def run() -> None:
     copy_photo_current()
     got = ingest(INGEST_MAX)
     legacy = reconcile_legacy()
+    small = size_guard()
 
     # ЗАДАНИЯ ЗДЕСЬ БОЛЬШЕ НЕ СОЗДАЮТСЯ. Раньше `run()` ставил их на весь спрос, и при
     # десятке генераций в день очередь превращалась в список на годы, где порядок задавался
@@ -444,7 +480,7 @@ def run() -> None:
     # СЕТОВ (критика Codex 29.08). Здесь остаётся только учёт спроса и хешей.
     new = []
     print(f'[mesh_queue] спрос {len(want)} | ingest +{got} | legacy-ревизий {legacy} | '
-          f'новых заданий {len(new)}', flush=True)
+          f'новых заданий {len(new)} | отсечено сторожем размера (photo_too_small) {small}', flush=True)
 
 
 def export(path: str) -> None:
@@ -457,6 +493,7 @@ def export(path: str) -> None:
     Нода прогоняет ТУ ЖЕ цепочку `preprocess.prepare`, поэтому маска воспроизводима; расхождение
     вердикта с нашим — сигнал, что версии разъехались, и его видно в манифесте.
     """
+    size_guard()          # вердикты по ТЕКУЩЕМУ порогу: экспорт может идти отдельно от ночного учёта спроса
     rows = db("""select j.job_key, d.sku, d.role, d.image_url, d.dims, d.name,
                         coalesce(a.verdict, 'unknown'), coalesce(a.assessor_version, '')
                    from mesh_jobs j

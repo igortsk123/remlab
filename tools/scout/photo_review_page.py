@@ -16,6 +16,9 @@ import os
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import mesh_photo as MP  # noqa: E402 — ЕДИНОЕ правило выбора фото меша (ADR-0452)
+
 OUT = os.path.expanduser('~/scout-scenes/photo-review')
 PSQL = ['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab',
         '-q', '-v', 'ON_ERROR_STOP=1', '-t', '-A', '-F', '\x1f']
@@ -58,7 +61,7 @@ def main() -> None:
                  f'Внутри роли — самые крайние случаи сверху (доля белого по краю кадра).</p>')
 
     for role in roles:
-        rows = db("select coalesce(name,''), coalesce(image_url_hd, image_url), "
+        rows = db("select coalesce(name,''), " + MP.photo_sql(None) + ", "
                   "round(coalesce(photo_bg_score,0)::numeric,2)::text, "
                   "coalesce(url,''), coalesce(mesh_status,'none') "
                   f"from products where photo_collage and cat_role={q(role)} "

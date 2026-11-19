@@ -314,6 +314,10 @@ jobs:
       - run: python tools/scout/asset_coverage.py --selftest   # аудит покрытия мешей: статус товара (привязан/сирота/брак), вариант семьи, корзины, банк (T-20261105-42)
       - run: python tools/scout/room_mesh_demand.py --selftest && python tools/scout/room_mesh_jobs.py --selftest   # спрос мешей комнат: общий остаток ≤ 500 ₽ на все комнаты и запуски (два запуска подряд), спрос по вариантам витрины (T-20261106-75)
       - run: python tools/scout/tests/test_front_roles.py   # перед меша — свойство роли в данных (front в asset-strategies.json): гостиная и спальня как были, прихожая направленная, резерв спроса тот же (T-20261106-78)
+      # вход мешей (T-20261119-96, ADR-0452): одно правило фото (HD, иначе превью; пустая строка — не HD), сторож размера вырезки на пороге и рядом, вердикт photo_too_small, пересчёт хранимого вердикта, спрос из сетов с HD, ни одно место не держит свой coalesce без nullif
+      - run: python tools/scout/tests/test_mesh_photo.py
+      - run: python tools/scout/mesh_photo_survey.py --selftest   # замер входа мешей: таблица порог → сколько отсечём, оценка по ролям без вырезки (бесплатно: только заголовки файлов)
+      - run: python tools/scout/photo_hash.py --selftest   # хеш фото меша: адрес — то же правило mesh_photo (nullif), комнаты, гостиная
       - run: python tools/scout/room_bindings.py --selftest   # привязка товар→меш комнат: готовность (фото, поколение, sha, ориентация, паспорт), семья ссылкой, снимок и таблица (T-20261105-45)
       - run: python tools/scout/tests_scene_dims.py   # глубина «для сцены» у стульев К2: солвер и предметы демо — по мешу, подпись — каталог, банк не тронут, откат флагом (T-20261107-25/9)
       - run: python tools/scout/room_publish.py --selftest && python tools/scout/mesh_publish.py --selftest   # публикация мешей комнат: файл привязки с проверкой sha, представитель один раз, без настройки — гостиная как прежде (T-20261105-47)

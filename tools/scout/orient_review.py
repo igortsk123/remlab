@@ -22,6 +22,9 @@ import subprocess
 import sys
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import mesh_photo as MP  # noqa: E402 — ЕДИНОЕ правило выбора фото меша (ADR-0452)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 SITE = 'https://remont-lab.online'
 PROD = '/opt/remlab/test/mesh-pilot10'
@@ -97,7 +100,7 @@ def _gather():
     from mesh_queue import db
     rows = db("select replace(o.sku, ':', '_'), o.status, coalesce(o.resolution->>'glb_sha',''), "
               "coalesce(o.resolution->>'legacy_front_yaw',''), coalesce(o.resolution->>'source',''), coalesce(p.cat_role,''), "
-              "coalesce(p.image_url_hd, p.image_url, '') "
+              "coalesce(" + MP.photo_sql('p') + ", '') "
               "from orientation_state o left join products p on p.shop_mid||':'||p.external_id = o.sku "
               "where o.revision_key like '%|orient-v1'")
     return sha, prod, [tuple(r) for r in rows if len(r) == 7]

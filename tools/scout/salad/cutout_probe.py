@@ -21,6 +21,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.dirname(HERE))
+import mesh_photo as MP  # noqa: E402 — ЕДИНОЕ правило выбора фото меша (ADR-0452)
 import ssh_run as S  # noqa: E402
 
 OUT = os.path.expanduser('~/scout-scenes/cutout-probe')
@@ -85,8 +87,8 @@ def main() -> None:
     out_dir = (sys.argv[sys.argv.index('--out') + 1] if '--out' in sys.argv else OUT)
     os.makedirs(out_dir, exist_ok=True)
 
-    rows = db("select shop_mid||':'||external_id, coalesce(name,''), coalesce(cat_role,''), "
-              "coalesce(image_url_hd, image_url) from products where "
+    rows = db("select shop_mid||':'||external_id, coalesce(name,''), coalesce(cat_role,''), " +
+              MP.photo_sql(None) + " from products where "
               "shop_mid||':'||external_id in (" + ','.join("'" + s + "'" for s in skus) + ");")
     info = {r[0]: {'name': r[1], 'role': r[2], 'url': r[3]} for r in rows}
 

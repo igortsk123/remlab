@@ -33,6 +33,9 @@ import subprocess
 import sys
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import mesh_photo as MP  # noqa: E402 — ЕДИНОЕ правило выбора фото меша (ADR-0452)
+
 import numpy as np
 from PIL import Image
 
@@ -125,8 +128,8 @@ def fetch(url: str, timeout: int = 40) -> Image.Image:
 
 
 def rows_for(where: str, limit: int) -> list:
-    return db("select shop_mid||':'||external_id, coalesce(name,''), "
-              "coalesce(image_url_hd, image_url), coalesce(mesh_status,'none') "
+    return db("select shop_mid||':'||external_id, coalesce(name,''), " +
+              MP.photo_sql(None) + ", coalesce(mesh_status,'none') "
               f"from products where {where} limit {int(limit)};")
 
 
@@ -139,10 +142,10 @@ def main() -> None:
                         + ','.join(q(s) for s in skus) + ')', len(skus))
     elif '--sample' in sys.argv:
         n = int(sys.argv[sys.argv.index('--sample') + 1])
-        rows = rows_for("in_stock and coalesce(image_url_hd, image_url) is not null "
+        rows = rows_for("in_stock and " + MP.photo_sql(None) + " is not null "
                         "order by random()", n)
     else:
-        rows = rows_for("in_stock and coalesce(image_url_hd, image_url) is not null "
+        rows = rows_for("in_stock and " + MP.photo_sql(None) + " is not null "
                         "and photo_bg_at is null", limit)
 
     seen = collage = 0

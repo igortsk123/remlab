@@ -68,6 +68,8 @@ def _load() -> dict:
          # РОЛЬ КАТАЛОГА СЕЙЧАС (T-20261105-53/2): удержание, инварианты и promote сверяют её со слотом
          # (`bank_invariants.slot_catalog_compatible`); пусто — товар без роли
          "||'\x1f'||coalesce(p.cat_role,'')"
+         # ФОТО ДЛЯ МЕША (ADR-0452): оригинал магазина; `img` — превью витрины, его НЕ меняем. Выбор «HD, иначе превью» — `mesh_photo.pick`
+         "||'\x1f'||coalesce(p.image_url_hd,'')"
          " from products p left join product_page_status ps"
          " on ps.shop_mid=p.shop_mid and ps.external_id=p.external_id")
     r = subprocess.run(PSQL + [q], capture_output=True, text=True)
@@ -119,7 +121,8 @@ def _load() -> dict:
                                    'h_src': p[21] if len(p) > 21 else '', 'h_cm': (p[22] if len(p) > 22 else '') or None,
                                    'adj': p[23] if len(p) > 23 else '',
                                    'drop_min': (p[24] if len(p) > 24 else '') or None,   # минимальный вылет (Н2в этап 2)
-                                   **({'cat_role': p[25] or None} if len(p) > 25 else {})}
+                                   **({'cat_role': p[25] or None} if len(p) > 25 else {}),
+                                   'img_hd': (p[26] if len(p) > 26 else '') or None}
     _CACHE = m
     return m
 

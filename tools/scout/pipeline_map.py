@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import mesh_photo as MP  # noqa: E402 — ЕДИНОЕ правило выбора фото меша (ADR-0452)
 import photo_hash as PH  # noqa: E402
 MAP = os.path.join(HERE, 'rules', 'pipeline-map.json')
 STATE = os.path.expanduser(os.environ.get('PIPELINE_STATE', '~/scout-scenes/pipeline-state.json'))
@@ -54,7 +55,7 @@ def collect() -> dict:
     m: dict = {}
     m['catalog_active'] = _n("select count(*) from products where status='active'")
     m['in_stock'] = ins = _n('select count(*) from products where in_stock')
-    m['photo_share'] = _n("select count(*) from products where in_stock and coalesce(image_url_hd,image_url) is not null "
+    m['photo_share'] = _n("select count(*) from products where in_stock and " + MP.photo_sql(None) + " is not null "
                           "and coalesce(photo_alive,true)") / ins if ins else 0
     m['role_share'] = _n('select count(*) from lr_roles l join products p using (shop_mid, external_id) '
                          'where l.role is not null and p.in_stock') / ins if ins else 0

@@ -29,6 +29,9 @@ import os
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import mesh_photo as MP  # noqa: E402 — ЕДИНОЕ правило выбора фото меша (ADR-0452)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(HERE, 'candidates-index.json')
 SETS = os.path.join(HERE, 'sets3.json')
@@ -94,7 +97,7 @@ def from_db(pids: list[str]) -> dict:
     vals = ','.join(f"({p.split(':')[0]},'{p.split(':')[1]}')" for p in pids)
     q = f"""
       with want(mid, eid) as (values {vals})
-      select p.shop_mid||':'||p.external_id, p.name, p.shop, p.image_url,
+      select p.shop_mid||':'||p.external_id, p.name, p.shop, {MP.photo_sql('p')},
              coalesce(p.direct_url, p.url),
              coalesce(p.w_cm,0), coalesce(p.d_cm,0), coalesce(p.h_cm,0), coalesce(p.dia_cm,0),
              coalesce(e.payload->'model'->>'role',''),
@@ -102,7 +105,7 @@ def from_db(pids: list[str]) -> dict:
         from products p join want w on w.mid=p.shop_mid and w.eid=p.external_id
         left join product_enrichment e
                on e.shop_mid=p.shop_mid and e.external_id=p.external_id
-       where p.image_url is not null
+       where {MP.photo_sql('p')} is not null
     """
     r = subprocess.run(PSQL, input=q, capture_output=True, text=True)
     if r.returncode != 0:
@@ -146,6 +149,7 @@ def build_sample() -> dict:
 
     order = list(dict.fromkeys(order))
     extra = from_db([p for p in order if p not in idx])
+    hd = from_db([p for p in order if p in idx])   # индекс несёт превью 450 px: для меша берём оригинал (HD), иначе превью
 
     jobs, missing = [], []
     for pid in order:
@@ -157,7 +161,7 @@ def build_sample() -> dict:
             'sku': pid, 'mid': int(pid.split(':')[0]), 'eid': pid.split(':')[1],
             'role': role_of.get(pid) or it.get('role'), 'subtype': it.get('subtype'),
             'name': it.get('name'), 'shop': it.get('shop'),
-            'image_url': it['img'], 'product_url': it.get('url'),
+            'image_url': (hd.get(pid) or {}).get('img') or it['img'], 'product_url': it.get('url'),
             'dims_cm': {'w': it.get('w'), 'd': it.get('d'), 'h': it.get('h'),
                         'dia': it.get('dia')},
             'strata': {'role': role_of.get(pid), 'material': material_class(it.get('materials')),
