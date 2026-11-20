@@ -70,8 +70,10 @@ SHAPE_DIR = os.path.expanduser('~/remlab-logs/t94-1119/out-comfy')
 SHAPE_PATHS = {      # формы R2b1 (TRELLIS.2 k1024, solid fill 20 band 1), упрощены до ≈150 тыс. граней и развёрнуты sg_prep_shape.py (правило директора 21:54)
     ('112923_13224664101879413845', 'r2b1'): os.path.expanduser('~/remlab-logs/t90-1119/sg/shapes/112923_13224664101879413845-k1024.R2b1.s140k-uv.glb'),
     ('114667_11634594969038554503', 'r2b1'): os.path.expanduser('~/remlab-logs/t94-1119/simple150/114667_11634594969038554503-k1024.R2b1.s150k-uv.glb'),
+    ('112923_1167444740116678789', 'r2b1'): os.path.expanduser('~/remlab-logs/t90-1119/sg/shapes/112923_1167444740116678789-k1024.s150k-uv.glb'),      # кресло с обивкой (проба 18.11, TRELLIS.2 1024-42), 150 тыс. граней
 }
-PROMPTS = {'112923_13224664101879413845': 'a wooden chest of drawers', '114667_11634594969038554503': 'a fabric sofa'}      # короткое описание предмета для промпта StableGen
+HD20_INPUT = os.path.expanduser('~/remlab-logs/t93-1119/hd20/{key}.rgba.png')                 # HD-вырезка товаров из набора hd20 (кресло)
+PROMPTS = {'112923_13224664101879413845': 'a wooden chest of drawers', '114667_11634594969038554503': 'a fabric sofa', '112923_1167444740116678789': 'an upholstered armchair'}      # короткое описание предмета для промпта StableGen
 
 
 def say(*a) -> None:
@@ -185,6 +187,8 @@ def build_cfg(key: str, var: str, out: str, server: str, cameras: int, texture: 
     v = VARIANTS[var]
     prod, _, shape = key.partition('@')                      # «товар@суффикс» → форма из SHAPE_DIR/<товар>-<суффикс>.glb, иначе HD-форма
     style = HD_INPUT.format(key=prod)
+    if not os.path.exists(style) and os.path.exists(HD20_INPUT.format(key=prod)):
+        style = HD20_INPUT.format(key=prod)
     if shape.endswith('+newcut'):                            # «…+newcut» — вход: новая вырезка цепочки main после T-107 (t94 newcut-2149), а не t93 hd_inputs
         shape = shape[:-len('+newcut')]
         style = NEWCUT_INPUT.format(key=prod)
