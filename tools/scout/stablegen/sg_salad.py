@@ -67,6 +67,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sg_views                                                          # noqa: E402  (чистые функции: тексты видов, шаблоны, словарь материалов)
 VARIANTS['q2509vp'] = dict(VARIANTS['q2509q5'], view_prompts=True, scene_props=dict(sg_views.CUSTOM_PROMPT_PROPS),      # T-90/7 ⑪ (Codex 20.11): фото только первому виду, зерно по силуэту, обход соседями, тексты видов по классу роли, штатные шаблоны аддона
                            label='Qwen-Image-Edit-2509 Q5_K_M + Lightning, ⑪: зерно по силуэту + обход соседями + тексты видов по классу роли и зоне + фото только первому виду (штатные шаблоны Qwen)')
+# Диагностика ⑪ (директор 20.11, комод/диван дали заливку цветом): по одному признаку ⑪, 1 вид. vp_off — что отключить (text — подсказки видов, order — порядок от зерна); prompt_keep — оставить прежний короткий промпт.
+VARIANTS['q2509t1'] = dict(VARIANTS['q2509vp'], vp_off=['text'], label='диагностика: промпт из каталога без подсказок видов')
+VARIANTS['q2509t3'] = dict(VARIANTS['q2509vp'], prompt_keep=True, label='диагностика: подсказки видов + прежний короткий промпт')
+VARIANTS['q2509t4'] = dict(VARIANTS['q2509q5'], scene_props={'qwen_external_style_initial_only': True}, label='диагностика: прежний промпт, фото только первому виду')
 VARIANTS['q2509edge'] = dict(VARIANTS['q2509q5'], bake_margin=32, bake_denoise=False,
                              scene_props={'sg_silhouette_margin': 8, 'sg_silhouette_feather': 24, 'refine_edge_feather_width': 60, 'discard_factor_after_generation': 75.0, **SHARP_BLEND},
                              label='Qwen-Image-Edit-2509 Q5_K_M + Lightning, края: срез по углу 75°, силуэт-запас 8, растушёвка 24/60, запас запекания 32 px, запекание без шумоподавления, резкое смешивание (степень 15)')
@@ -200,14 +204,16 @@ def build_cfg(key: str, var: str, out: str, server: str, cameras: int, texture: 
     cfg = {'glb': glb, 'out': out, 'server': server, 'preset': 'QWEN PRECISE', 'prompt': PROMPTS.get(prod, 'a piece of furniture'),
            'cameras': {'mode': 'orbit_ring', 'num': cameras}, 'texture_resolution': texture, 'bake_samples': 16, 'seed': seed, 'timeout_s': timeout_s,
            'style_image': style, 'model_unet': v['unet'], 'lora_name': v['lora']}
-    for k in ('no_lora', 'scene_props', 'megapixels', 'bake_margin', 'bake_denoise', 'view_prompts'):
+    for k in ('no_lora', 'scene_props', 'megapixels', 'bake_margin', 'bake_denoise', 'view_prompts', 'vp_off'):
         if k in v:
             cfg[k] = v[k]
     if v.get('view_prompts'):                                # ⑪: роль/материал/название — из каталога (БД dev), не из кода; нет данных → прежний короткий промпт + флаг
         attrs = catalog_attrs(prod)
         cfg['cat_role'] = attrs.get('role', '')
         cfg['catalog_name'] = attrs.get('name', '')
-        cfg['prompt'], cfg['prompt_flags'] = sg_views.build_prompt(attrs.get('role', ''), attrs.get('material'), cfg['prompt'])
+        built, cfg['prompt_flags'] = sg_views.build_prompt(attrs.get('role', ''), attrs.get('material'), cfg['prompt'])
+        if not v.get('prompt_keep'):
+            cfg['prompt'] = built
         if not attrs:
             cfg['prompt_flags'] = list(cfg['prompt_flags']) + ['catalog_unavailable']
     return cfg

@@ -232,16 +232,21 @@ def steps():
         ST['seed'] = {'camera': seed, 'iou': scores, 'confident': sure}
         say(f'зерно (камера, чей силуэт ближе к фото): {seed}; IoU {scores}; {"уверенно" if sure else "НЕУВЕРЕННО (перёд/зад неразличимы) — решает близость к −Y"}')
         order = sg_views.camera_order([c.name for c in cams_all], seed)
+        off = CFG.get('vp_off') or []                        # диагностика: что из ⑪ отключить
         scn.sg_camera_order.clear()
-        for n_ in order:
-            scn.sg_camera_order.add().name = n_
-        scn.sg_use_custom_camera_order = True
+        if 'order' not in off:
+            for n_ in order:
+                scn.sg_camera_order.add().name = n_
+        scn.sg_use_custom_camera_order = 'order' not in off
         ST['order'] = order
         say(f'порядок камер: {order}')
         sv = next(c for c in cams_all if c.name == seed)
         fv = sv.location - ctr
         front = CFG.get('front_vec') or (fv.x, fv.y, 0.0)
         ST['view_prompts'], ST['view_meta'], flags = apply_view_prompts(scn, bb, front, CFG.get('cat_role', ''), seed)
+        if 'text' in off:
+            scn.use_camera_prompts = False
+            flags.append('diag_no_view_text')
         if CFG.get('prompt_flags'):
             flags += list(CFG['prompt_flags'])
         if not sure:

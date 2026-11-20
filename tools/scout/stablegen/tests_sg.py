@@ -233,6 +233,16 @@ class Views(unittest.TestCase):
         self.assertNotIn('qwen_prompt_template', c['scene_props'])
         self.assertNotIn('view_prompts', S.build_cfg('112923_13224664101879413845@r2b1+newcut', 'q2509q5', '/o', 's', 8, 2048, 42, 60))
 
+    def test_diagnostic_variants_toggle_one_factor(self):
+        k = '112923_13224664101879413845@r2b1+newcut'
+        t1, t3, t4 = (S.build_cfg(k, v, '/o', 's', 2, 2048, 42, 60) for v in ('q2509t1', 'q2509t3', 'q2509t4'))
+        self.assertEqual(t1['vp_off'], ['text'])
+        self.assertTrue(t1['view_prompts'])
+        self.assertNotIn('vp_off', t3)
+        self.assertEqual(t3['prompt'], 'a wooden chest of drawers')           # prompt_keep: прежний короткий промпт, подсказки видов остаются
+        self.assertNotIn('view_prompts', t4)
+        self.assertEqual(t4['scene_props'], {'qwen_external_style_initial_only': True})
+
 
 class RunpodDriverStops(unittest.TestCase):
     """Драйвер пода: «контейнер не встал» (RUNNING, uptime 0, /health нет) — удаляем через container-min, не ждём потолка (директор 20.11, под cef3upb6ek9udf)."""
