@@ -381,6 +381,11 @@ class RunpodDriverStops(unittest.TestCase):
         cfg = S.build_cfg('112923_13224664101879413845@r2b1+newcut', 'q2509t5g', '/o', 's', 2, 2048, 42, 60)
         self.assertEqual(cfg['back_limit'], 100.0)                           # порог доходит до конфига драйвера, в коде драйвера — только значение по умолчанию
 
+    def test_shape_and_cut_dirs_by_suffix(self):
+        c = S.build_cfg('112923_321183910010607839@n1024+cut:vyb10', 'q2509t5g', '/o', 's', 8, 2048, 42, 60)
+        self.assertTrue(c['glb'].endswith('t90-1120/shape/out/112923_321183910010607839-n1024.glb'))
+        self.assertTrue(c['style_image'].endswith('t104-1120/vyb10-1216/112923_321183910010607839.rgba.png'))
+
     def test_t5_variant_keeps_photo_on_every_view(self):
         v = S.VARIANTS['q2509t5']
         self.assertTrue(v['short_side'] and v['view_prompts'])
