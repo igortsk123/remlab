@@ -265,7 +265,7 @@ def steps():
             scn.camera_prompts.clear()
             ST['view_prompts'], ST['view_meta'] = {}, {}
             for c_ in sorted([o for o in scn.objects if o.type == 'CAMERA'], key=lambda o: sg_views.natural_key(o.name)):
-                text_, meta_ = sg_views.short_side_text(CFG.get('cat_role', ''), tuple(c_.location - ctr), tuple(front))
+                text_, meta_ = sg_views.short_side_text(CFG.get('cat_role', ''), tuple(c_.location - ctr), tuple(front), CFG.get('back_suffix', ''))
                 ST['view_prompts'][c_.name], ST['view_meta'][c_.name] = text_, meta_
                 if text_:
                     scn.camera_prompts.add().name = c_.name

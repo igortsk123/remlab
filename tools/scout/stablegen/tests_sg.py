@@ -315,6 +315,14 @@ class RunpodDriverStops(unittest.TestCase):
         self.assertEqual(txt(-135), 'the plain back of the same chest of drawers')
         self.assertEqual(txt(90, 'неизвестная роль'), 'the plain left side of the same piece of furniture')
 
+    def test_t5b_back_suffix_only_on_back(self):
+        import sg_views as V
+        self.assertEqual(S.VARIANTS['q2509t5b']['back_suffix'], ', same colour and material as its side panels')
+        r = math.radians(180)
+        self.assertTrue(V.short_side_text('комод', (math.sin(r), -math.cos(r), 0.3), (0, -1, 0), ', X')[0].endswith('chest of drawers, X'))
+        r = math.radians(90)
+        self.assertEqual(V.short_side_text('комод', (math.sin(r), -math.cos(r), 0.3), (0, -1, 0), ', X')[0], 'the plain left side of the same chest of drawers')
+
     def test_t5_variant_keeps_photo_on_every_view(self):
         v = S.VARIANTS['q2509t5']
         self.assertTrue(v['short_side'] and v['view_prompts'] and v['prompt_keep'])

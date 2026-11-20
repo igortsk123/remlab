@@ -148,7 +148,7 @@ def view_text(cat_role, cam_dir, front, is_seed=False):
     return tpl.format(front_core=core, side=side, Side=side.capitalize()), meta
 
 
-def short_side_text(cat_role, cam_dir, front):
+def short_side_text(cat_role, cam_dir, front, back_suffix=''):
     """T-90/8 (T5): КОРОТКАЯ подпись направления только у видов сбоку/сзади — по углу камеры от переда, не по товару. |угол| < 60° → '' (подпись не меняется);
     60…120° → «the plain left|right side of the same <предмет>»; > 120° → «the plain back of the same <предмет>». Предмет — по роли из каталога (ROLE_NOUN), иначе «piece of furniture».
     Возвращает (текст, мета)."""
@@ -160,7 +160,7 @@ def short_side_text(cat_role, cam_dir, front):
         return '', meta
     if a <= 120.0:
         return f"the plain {'left' if ang > 0 else 'right'} side of the same {noun}", meta
-    return f'the plain back of the same {noun}', meta
+    return f'the plain back of the same {noun}{back_suffix}', meta
 
 
 # ---- шаблоны Qwen: СВОИ формулировки с ролями картинок НЕ работают (пробный прогон ⑪ 20.11 08:36: Qwen при «Render the same product on the guide» игнорировал фото и закрасил глубину
