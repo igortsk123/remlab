@@ -207,6 +207,7 @@ _CAPTIONS_FALLBACK = {                       # запасные значения
                         'wood_solid': 'solid wood with a visible natural grain', 'wood_veneer': 'wood veneer with a fine straight grain',
                         'ldsp': 'matte laminated chipboard finish with a fine uniform surface', 'mdf_film': 'smooth matte painted finish', 'metal': 'brushed metal', 'glass': 'clear glass'},
     'back_by_class': {'casework': 'one uninterrupted flat construction back panel in the carcass finish, simple fastening seams'},
+    'parts': {'by_role': {}, 'colour_phrases': []},
 }
 
 
@@ -221,6 +222,9 @@ def load_captions(path=None):
     out['material_phrase_bare'] = {k: x for k, x in (d.get('material_phrase_bare') or {}).items() if not k.startswith('_')}
     out['pattern_words'] = list(d.get('pattern_words') or [])
     out['colour_template'] = {k: x for k, x in (d.get('colour_template') or {}).items() if not k.startswith('_')}
+    pt = d.get('parts') or {}
+    out['parts'] = {'by_role': {norm_role(k): x for k, x in (pt.get('by_role') or {}).items() if not k.startswith('_')},       # T-161: цвет по частям — данные, не код
+                    'colour_phrases': [(re.compile(rx), en) for rx, en in (pt.get('colour_phrases') or [])]}
     return out
 
 
@@ -229,6 +233,7 @@ MATERIAL_PHRASE = CAPTIONS['material_phrase']
 BACK_BY_CLASS = CAPTIONS['back_by_class']
 BARE_PHRASE = CAPTIONS['material_phrase_bare']
 COLOUR_TEMPLATE = CAPTIONS['colour_template']
+PARTS = CAPTIONS['parts']
 # русские названия и частые слова → id класса (точное совпадение после нормализации; нечёткого поиска нет)
 MATERIAL_WORDS = {norm_role(w): c for c, ws in {
     'velour': ['велюр', 'велюра'], 'velvet': ['вельвет'], 'rogozhka': ['рогожка'], 'chenille': ['шенилл'], 'boucle': ['букле'],
@@ -278,6 +283,41 @@ def colour_from_texts(texts):
     return None
 
 
+def colours_in_order(texts):
+    """Слова цвета по порядку появления в тексте (T-161, П6): слова таблицы COLOUR_WORDS и фразы данных `parts.colour_phrases` («светлое дерево»).
+    Берётся первый текст, где два и больше РАЗНЫХ цвета; иначе первый, где есть хоть один; нет — []."""
+    first = []
+    for t in texts:
+        s = unicodedata.normalize('NFKC', t or '').casefold()
+        hits = []                                                               # (начало, конец, слово)
+        for rx, en in PARTS['colour_phrases']:
+            hits += [(m.start(), m.end(), en) for m in rx.finditer(s)]
+        for m in re.finditer(r'\w+', s):
+            if m.group() in COLOUR_WORDS and not any(a <= m.start() < b for a, b, _ in hits):
+                hits.append((m.start(), m.end(), COLOUR_WORDS[m.group()]))
+        out = []
+        for _, _, en in sorted(hits):
+            if en not in out:
+                out.append(en)
+        if len(out) >= 2:
+            return out
+        if out and not first:
+            first = out
+    return first
+
+
+def parts_phrase(cat_role, colours, top_colours=None):
+    """Подпись-композиция «with a white top and natural wood frame and legs» (T-161, П6) по шаблону роли из данных; None — шаблона нет или цвет один (прежняя подпись).
+    `top_colours` — цвета из поля «цвет столешницы», если оно есть в каталоге: найденный среди `colours` — верх, другой — каркас и ножки."""
+    tpl = PARTS['by_role'].get(norm_role(cat_role))
+    cols = list(colours or [])
+    if not tpl or len(cols) < 2:
+        return None
+    top = next((c for c in (top_colours or []) if c in cols), cols[0])
+    rest = next((c for c in cols if c != top), None)
+    return tpl.format(c1=top, c2=rest) if rest else None
+
+
 def strip_colour(prompt):
     """T-90/11: подпись без слова цвета — для видов С фото (их ведёт фото, цвет из каталога им лишний и «серит» узор): «a graphite chest of drawers, matte …» → «a chest of drawers, matte …».
     Слово цвета берём из таблицы COLOUR_WORDS (значения), только в первой фразе до запятой; артикль a/an пересчитывается. Нет слова цвета — подпись как есть."""
@@ -298,9 +338,13 @@ def _art(word):
     return 'an' if word[:1].casefold() in 'aeiou' else 'a'
 
 
-def add_colour(prompt, word, cat_role=None):
+def add_colour(prompt, word, cat_role=None, parts=None):
     """Слово цвета в подпись без цвета: «a chair, matte …» → «a <цвет> chair, matte …» (данные colour_template: классу — слово только к основной поверхности:
-    «a dining table with a white main surface», детали ведёт образец). Слова цвета уже есть / нет слова / нет артикля — подпись как есть."""
+    «a dining table with a white main surface», детали ведёт образец). Слова цвета уже есть / нет слова / нет артикля — подпись как есть.
+    `parts` (T-161, П6) — готовая подпись-композиция («with a white top and natural wood frame and legs»): вместо слова цвета, «a dining table with a white top and …»."""
+    if parts:
+        head, sep, tail = prompt.partition(',')
+        return f'{head.strip()} {parts}{sep}{tail}' if re.match(r'^an?\s', head.strip(), flags=re.I) and parts not in prompt else prompt
     if not word or strip_colour(prompt) != prompt:
         return prompt
     head, sep, tail = prompt.partition(',')
@@ -313,7 +357,7 @@ def add_colour(prompt, word, cat_role=None):
     return f'{_art(word)} {word} {m.group(2)}{sep}{tail}'
 
 
-def build_prompt(cat_role, material, colour=None, bare=False):
+def build_prompt(cat_role, material, colour=None, bare=False, parts=None):
     """Основной промпт из атрибутов каталога: «a <цвет> <предмет по роли>, <фраза материала>». Никогда не подменяется «заготовкой по ID»:
     неизвестная роль → «piece of furniture», неизвестный материал/цвет → честно без них. Возвращает (промпт, флаги)."""
     flags = []
@@ -327,6 +371,8 @@ def build_prompt(cat_role, material, colour=None, bare=False):
     if not colour:
         flags.append('unknown_colour')
     head = f'{colour} {noun}' if colour else noun
+    if parts:                                                                    # T-161: цвет по частям — «a dining table with a white top and … frame and legs» (общая подпись, не разметка граней)
+        head = f'{noun} {parts}'
     text = f"{'an' if head[0] in 'aeiou' else 'a'} {head}"
     if mc:
         text += f', {(BARE_PHRASE.get(mc) or MATERIAL_PHRASE[mc]) if bare else MATERIAL_PHRASE[mc]}'

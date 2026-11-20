@@ -169,7 +169,7 @@ def install_back_hook(info, gi=None):
                 plan['prompt'] = info['photo_prompt']
             return plan
         if gi is not None and CFG.get('prompt_bare'):          # T-154/1: виды без фото — подпись БЕЗ слов рисунка + слово цвета (каталог, а нет его — из фото вида-зерна); слово не «пустое»
-            plan['prompt'] = sg_views.add_colour(CFG['prompt_bare'], gi['state'].get('colour_word'), CFG.get('cat_role'))
+            plan['prompt'] = sg_views.add_colour(CFG['prompt_bare'], gi['state'].get('colour_word'), CFG.get('cat_role'), parts=CFG.get('parts_phrase'))
         if name not in info.get('cameras', ()):
             return plan
         mode = info.get('mode')

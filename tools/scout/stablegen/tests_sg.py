@@ -313,6 +313,33 @@ class ViewGuard(unittest.TestCase):
         full, _ = V.build_prompt('диван', 'rogozhka', None)
         self.assertIn('slubby', full)                                 # подпись фото-вида прежняя
 
+    def test_parts_caption_two_colours(self):
+        """T-161 П6: «Белый Светлое дерево» → верх белый, каркас и ножки светлое дерево; один цвет, неизвестная роль, верх из каталога — честно."""
+        import sg_views as V
+        cols = V.colours_in_order(['Белый Светлое дерево', 'Кухонный стол Таргет 80х80 Белый/Натуральный'])
+        self.assertEqual(cols, ['white', 'light natural wood'])
+        self.assertEqual(V.colours_in_order(['Белый', 'Стол Белый/Натуральный']), ['white', 'natural wood'])     # в основном поле цвет один → берём название, где два
+        self.assertEqual(V.colours_in_order(['', 'Комод Модерн Графитовый']), ['graphite'])
+        self.assertEqual(V.colours_in_order(['', '']), [])
+        ph = V.parts_phrase('стол обеденный', cols)
+        self.assertEqual(ph, 'with a white top and light natural wood frame and legs')
+        self.assertEqual(V.parts_phrase('стол обеденный', ['light natural wood', 'white'], ['white']), ph)         # «цвет столешницы» белый → верх белый, порядок слов в каталоге не важен
+        self.assertIsNone(V.parts_phrase('стол обеденный', ['white']))                                           # один цвет — прежняя подпись
+        self.assertIsNone(V.parts_phrase('диван', cols))                                                         # нет шаблона для роли — прежняя подпись
+        p, _ = V.build_prompt('стол обеденный', 'массив', 'white', parts=ph)
+        self.assertEqual(p, 'a dining table with a white top and light natural wood frame and legs, solid wood with a visible natural grain')
+        bare, _ = V.build_prompt('стол обеденный', 'массив', None, bare=True)
+        self.assertEqual(V.add_colour(bare, 'white', 'стол обеденный', parts=ph), p)                                # виды без фото — та же композиция
+        self.assertEqual(V.add_colour(p, 'white', 'стол обеденный', parts=ph), p)                                  # дважды не дублируем
+        self.assertEqual(V.add_colour(bare, 'white', 'стол обеденный'), 'a dining table with a white main surface, solid wood with a visible natural grain')   # без parts — прежнее
+        self.assertNotIn('no ', ph)                                                                              # утверждения, не отрицания (правило подписей)
+
+    def test_parts_variant_flags(self):
+        """Вариант pc0 включает композицию; прочие варианты её не включают (прежние подписи не меняются)."""
+        self.assertTrue(S.VARIANTS['q2509pc0'].get('parts_caption'))
+        self.assertFalse(S.VARIANTS['q2509g1'].get('parts_caption'))
+        self.assertEqual(S.VARIANTS['q2509pc0']['guard'], S.VARIANTS['q2509g1']['guard'])
+
     def test_photo_colour_word(self):
         import sg_guard as G
         r = G.load_rules()

@@ -82,6 +82,7 @@ VARIANTS['q2509t5h'] = dict(VARIANTS['q2509t5g'], back_suffix=', same colour and
 VARIANTS['q2509t5i'] = dict(VARIANTS['q2509t5g'], photo_no_colour=True, label='T5i: как T5g, но у ПЕРВОГО вида (зерно, с фото) подпись без цвета (тип+материал); остальным — с цветом каталога (директор 20.11: перёд vid0 вышел серым; на всех видах с фото бока ушли в дуб — комод T5i)')
 VARIANTS['q2509g1'] = dict(VARIANTS['q2509t5i'], back_mode='side_sample_sign', guard=True, scene_props={'qwen_guidance_background_color': (0.5, 0.5, 0.5)},
                            label='G1 (T-154/1): как T5i + сторож каждого вида (малиновое/цвет → повтор → без контекста → отклонить), заднему виду — образец бока по знаку угла вместо «без фото», серый фон контекста')
+VARIANTS['q2509pc0'] = dict(VARIANTS['q2509g1'], parts_caption=True, label='PC0 (T-161, П6): как G1 + подпись-композиция «верх … цвета, каркас и ножки … цвета» из каталога (общая подпись, не разметка граней; утечки и выдумка сзади — меряем)')
 VARIANTS['q2509t5f'] = dict(_T5BASE, back_mode='no_photo', label='T5f: T5b + порядок от переда; виду сзади фото не даём, только подпись и последовательный контекст')
 VARIANTS['q2509t3'] = dict(VARIANTS['q2509vp'], label='диагностика: подсказки видов + прежний короткий промпт')
 VARIANTS['q2509t4'] = dict(VARIANTS['q2509q5'], scene_props={'qwen_external_style_initial_only': True}, label='диагностика: прежний промпт, фото только первому виду')
@@ -265,15 +266,21 @@ def build_cfg(key: str, var: str, out: str, server: str, cameras: int, texture: 
     cfg = {'glb': glb, 'out': out, 'server': server, 'preset': 'QWEN PRECISE', 'prompt': 'a piece of furniture',
            'cameras': {'mode': 'orbit_ring', 'num': cameras}, 'texture_resolution': texture, 'bake_samples': 16, 'seed': seed, 'timeout_s': timeout_s,
            'style_image': style, 'model_unet': v['unet'], 'lora_name': v['lora']}
-    for k in ('no_lora', 'scene_props', 'megapixels', 'bake_margin', 'bake_denoise', 'view_prompts', 'vp_off', 'short_side', 'back_suffix', 'order_mode', 'back_mode', 'back_limit', 'photo_no_colour', 'guard'):
+    for k in ('no_lora', 'scene_props', 'megapixels', 'bake_margin', 'bake_denoise', 'view_prompts', 'vp_off', 'short_side', 'back_suffix', 'order_mode', 'back_mode', 'back_limit', 'photo_no_colour', 'guard', 'parts_caption'):
         if k in v:
             cfg[k] = v[k]
     attrs = catalog_attrs(prod)                              # T-90/10: подсказка — из каталога (роль + материал + цвет), для ВСЕХ товаров; словаря по ID нет
     cfg['cat_role'] = attrs.get('role', '')
     cfg['catalog_name'] = attrs.get('name', '')
-    cfg['colour'] = attrs.get('colour')                      # T-154/1: слово цвета каталога — сторож цвета и исключение для розового/фиолетового
-    cfg['prompt'], cfg['prompt_flags'] = sg_views.build_prompt(attrs.get('role', ''), attrs.get('material'), attrs.get('colour'))
+    cfg['colour'] = attrs.get('colour')                     # T-154/1: слово цвета каталога — сторож цвета и исключение для розового/фиолетового
+    parts = None
+    if v.get('parts_caption'):                               # T-161 П6: подпись-композиция «верх такого-то цвета, каркас и ножки такого-то» из каталога; двух цветов/шаблона нет → прежняя подпись + флаг
+        parts = sg_views.parts_phrase(attrs.get('role', ''), attrs.get('colours'), attrs.get('top_colours'))
+    cfg['parts_phrase'] = parts
+    cfg['prompt'], cfg['prompt_flags'] = sg_views.build_prompt(attrs.get('role', ''), attrs.get('material'), attrs.get('colour'), parts=parts)
     cfg['prompt_bare'] = sg_views.build_prompt(attrs.get('role', ''), attrs.get('material'), None, bare=True)[0]     # T-154/1: подпись видов БЕЗ фото — без слов рисунка и без цвета (цвет подставит драйвер)
+    if v.get('parts_caption') and not parts:
+        cfg['prompt_flags'] = list(cfg['prompt_flags']) + ['parts_caption_unavailable']
     if not attrs:
         cfg['prompt_flags'] = list(cfg['prompt_flags']) + ['catalog_unavailable']
     return cfg
@@ -284,18 +291,20 @@ def catalog_attrs(prod: str) -> dict:
     shop, _, ext = prod.partition('_')
     if not shop.isdigit() or not ext.isdigit():
         return {}
-    q = (f"select cat_role, name, coalesce(params->>'Материал обивки',''), coalesce(params->>'Материал фасада',''), coalesce(params->>'Материал корпуса',''), coalesce(params->>'Цвет основной',''), coalesce(params->>'Расцветка материала обивки',''), coalesce(params->>'Цвет шкафа: Цвет корпуса',''), coalesce(params->>'Цвет шкафа: Цвет фасада','') "
+    q = (f"select cat_role, name, coalesce(params->>'Материал обивки',''), coalesce(params->>'Материал фасада',''), coalesce(params->>'Материал корпуса',''), coalesce(params->>'Цвет основной',''), coalesce(params->>'Расцветка материала обивки',''), coalesce(params->>'Цвет шкафа: Цвет корпуса',''), coalesce(params->>'Цвет шкафа: Цвет фасада',''), coalesce(params->>'Материал столешницы: Цвет столешницы','') "
          f"from products where shop_mid::text='{shop}' and external_id='{ext}'")
     try:
         r = subprocess.run(['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab', '-At', '-F', '|', '-c', q], capture_output=True, text=True, timeout=20)
         row = r.stdout.strip().split('\n')[0].split('|') if r.returncode == 0 and r.stdout.strip() else None
     except (OSError, subprocess.TimeoutExpired):
         row = None
-    if not row or len(row) < 9:
+    if not row or len(row) < 10:
         return {}
-    role, name, upholstery, facade, body, c_main, c_uph, c_body, c_facade = row[:9]
+    role, name, upholstery, facade, body, c_main, c_uph, c_body, c_facade, c_top = row[:10]
     return {'role': role, 'name': name, 'material': sg_views.material_from_texts([upholstery, facade, body, name]),
-            'colour': sg_views.colour_from_texts([name, c_uph, c_main, c_body, c_facade])}
+            'colour': sg_views.colour_from_texts([name, c_uph, c_main, c_body, c_facade]),
+            'colours': sg_views.colours_in_order([c_main, name]),            # T-161 П6: все цвета по порядку («Белый Светлое дерево» → white, light natural wood); верх — из «цвет столешницы», если есть
+            'top_colours': sg_views.colours_in_order([c_top])}
 
 
 def progress_line(stage: str, cost: float, cap: float, extra: str = '') -> str:
