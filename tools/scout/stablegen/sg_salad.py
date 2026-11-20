@@ -153,6 +153,21 @@ def price_usd_h(tier: str) -> float | None:
         return None
 
 
+def resolve_card(MG, name: str) -> bool:
+    """Класс карты по имени (например «RTX 5090 (32 GB)») из живого списка Salad → CARD (id для группы). Нет такого/нет ответа — False (группу не создаём)."""
+    try:
+        url = MG.API.split('/projects/')[0] + '/gpu-classes'
+        req = urllib.request.Request(url, headers={'Salad-Api-Key': os.environ['SALAD_API_KEY'], 'User-Agent': 'remlab-mesh/1.0'})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            for c in json.loads(r.read()).get('items') or []:
+                if c.get('name') == name and c.get('id'):
+                    CARD.update({'class_name': name, 'class_id': c['id']})
+                    return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
 def live_price_usd_h(MG, tier: str) -> float | None:
     """ЖИВАЯ цена класса карты из Salad (снимок в rules/ бывает устаревшим: 19.11 4090 high — $0,44 против $0,33). Нет ответа — None (берём снимок)."""
     try:
@@ -309,6 +324,9 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
     urls = weight_urls(spec, load_weights_catalog())
     name = f'trial-sg-{a.suffix}'
     MG.env_from_file()
+    if getattr(a, 'card', None) and a.card != CARD['class_name'] and not resolve_card(MG, a.card):
+        say(f'класс карты «{a.card}» не найден у Salad — стоп, денег не потрачено')
+        return 3
     price = live_price_usd_h(MG, a.tier)
     price_src = 'живая (Salad gpu-classes)'
     if price is None:
@@ -346,6 +364,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
     relay = None
     run_since = None
     queue = None
+    relay_port = getattr(a, 'relay_port', None) or RELAY_PORT
     try:
         for _ in range(120):
             _, st, _c = BR.group_state(name)
@@ -362,7 +381,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
             stamp = time.strftime('%H%M%S', time.gmtime())
             odir = os.path.join(a.out, f'{key}-{var}-{stamp}')            # новая папка с меткой времени — старое не перезаписывается
             os.makedirs(odir, exist_ok=True)
-            cfg = build_cfg(key, var, os.path.join(odir, 'blender'), f'127.0.0.1:{RELAY_PORT}', a.cameras, a.texture, a.seed, a.job_timeout * 60)   # стоп «форма без UV» — здесь, до Blender
+            cfg = build_cfg(key, var, os.path.join(odir, 'blender'), f'127.0.0.1:{relay_port}', a.cameras, a.texture, a.seed, a.job_timeout * 60)   # стоп «форма без UV» — здесь, до Blender
             cfg_path = os.path.join(odir, 'cfg.json')
             json.dump(cfg, open(cfg_path, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
             heavy = os.path.join(SCOUT, '..', 'ops', 'heavy-slot.sh')
@@ -381,7 +400,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
                 return 'money'
             if run_since is not None and running_s > a.max_min * 60:
                 return 'time'
-            if run_since is None and (t - t_start) > 3600:
+            if run_since is None and (t - t_start) > getattr(a, 'running_min', 60) * 60:
                 return 'no_machine'
             return None
 
@@ -442,7 +461,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
                         summary['timings'] = h.get('timings')
                         summary['info'] = gw.call('GET', '/info', timeout=30)[1]
                         say(f'нода готова: t+{t - t_start:.0f} с от /start', (summary['info'] or {}).get('gpu'), 'веса', h.get('weights_gb'))
-                        relay = popen([a.relay_python, os.path.join(HERE, 'sg_relay.py'), '--listen', str(RELAY_PORT), '--target', f'https://{summary["gateway"]}', '--key-env', 'SALAD_API_KEY'],
+                        relay = popen([a.relay_python, os.path.join(HERE, 'sg_relay.py'), '--listen', str(relay_port), '--target', f'https://{summary["gateway"]}', '--key-env', 'SALAD_API_KEY'],
                                       env={**os.environ, 'PYTHONPATH': a.relay_deps}, stdout=open(os.path.join(a.out, f'relay-{a.suffix}.log'), 'ab'), stderr=subprocess.STDOUT)
                         sleep(3)
                 if run_since is not None and not ever_ok and running_s > a.health_min * 60:
@@ -500,6 +519,9 @@ def main() -> int:
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/t90-1119/sg/salad'))
     ap.add_argument('--relay-python', default='/usr/bin/python3', help='интерпретатор моста (нужен aiohttp)')
     ap.add_argument('--relay-deps', default=os.path.join(SG_HOME, 'fake-deps'), help='папка с aiohttp для моста')
+    ap.add_argument('--card', default=None, help='класс карты Salad по имени, напр. «RTX 5090 (32 GB)» (по умолчанию 4090)')
+    ap.add_argument('--relay-port', type=int, default=None, help='порт моста (разные у одновременных групп)')
+    ap.add_argument('--running-min', type=int, default=60, help='минут от /start до running (нода выдана); дольше — группу гасим (директор 20.11: 15)')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--stop-only', action='store_true')
     a = ap.parse_args()
