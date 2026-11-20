@@ -12,9 +12,39 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 
 BAKE_EXPECT_S, BAKE_WATCH_FACTOR = 300, 3                  # ожидаемое запекание ≈4–5 мин (комод 226 с); дольше 3× — зависло (T-90/11: форма без UV крутилась 55 мин)
 FAIL_STREAK = 2
+MIN_FREE_GB = 1.5                                          # сторож места (директор 20.11): меньше — новый товар не даём, группу гасим, строка «диск»
+SLIM_DROP = ('session.blend',)                             # после успешного прогона: сессия Blender (≈96 МБ из 125) не нужна; остаются painted.glb, 8 видов (generated), cfg, журналы
+SLIM_DROP_DIRS = ('inpaint', 'controlnet', 'baked')        # промежуточные копии внутри sg-output/<сцена>/<время>/
+
+
+def slim_run(d: str) -> int:
+    """Убрать тяжёлое промежуточное из папки УСПЕШНОГО прогона; вернёт освобождённые байты. Ошибки удаления — молча (не ронять драйвер)."""
+    freed = 0
+    for f in SLIM_DROP:
+        p = os.path.join(d, 'blender', f)
+        if os.path.isfile(p):
+            freed += os.path.getsize(p)
+            try:
+                os.remove(p)
+            except OSError:
+                freed -= os.path.getsize(p) if os.path.exists(p) else 0
+    root = os.path.join(d, 'blender', 'sg-output')
+    for dp, dns, _fn in os.walk(root):
+        for dn in list(dns):
+            if dn in SLIM_DROP_DIRS:
+                p = os.path.join(dp, dn)
+                freed += sum(os.path.getsize(os.path.join(a, b)) for a, _x, bs in os.walk(p) for b in bs)
+                shutil.rmtree(p, ignore_errors=True)
+                dns.remove(dn)
+    return freed
+
+
+def free_gb(path: str = '/home') -> float:
+    return shutil.disk_usage(path).free / 2 ** 30
 
 
 def bake_started_at(it: dict) -> float | None:
@@ -34,10 +64,11 @@ def stage_of(it: dict) -> str:
 
 
 class RunQueue:
-    def __init__(self, runs, summary: dict, *, start, finish, say, progress, job_timeout_s: float, gate=None, fail_streak: int = FAIL_STREAK):
+    def __init__(self, runs, summary: dict, *, start, finish, say, progress, job_timeout_s: float, gate=None, fail_streak: int = FAIL_STREAK, free_gb=free_gb, min_free_gb: float = MIN_FREE_GB):
         self.pending, self.summary = list(runs), summary
         self.start, self.finish, self.say, self.progress, self.gate = start, finish, say, progress, gate
         self.job_timeout_s, self.fail_streak_max = job_timeout_s, fail_streak
+        self.free_gb, self.min_free_gb = free_gb, min_free_gb
         self.cur, self.baking = None, []
         self.fail_streak, self.ever_ok = 0, False
         summary.setdefault('runs', [])
@@ -52,6 +83,10 @@ class RunQueue:
 
     def step(self, t: float, cost: float = 0.0, cap: float = 0.0) -> str | None:
         """Один шаг. Возвращает причину остановки группы или None."""
+        if self.pending and self.free_gb() < self.min_free_gb:
+            self.say(f'!! диск: свободно {self.free_gb():.1f} ГБ < {self.min_free_gb} — новый товар не даю, группу гашу (осталось {len(self.pending)} в очереди)')
+            self.summary['disk_low'] = True
+            return 'disk'
         if self.cur is None and self.pending:
             g = self.gate(t, len(self.summary['runs'])) if self.gate else 'go'
             if g == 'stop':
@@ -87,6 +122,9 @@ class RunQueue:
             rec = {'key': it['key'], 'variant': it['variant'], 'label': it['label'], 'dir': it['dir'], 'rc': rc, 'ok': ok, **extra, 'seconds': round(t - it['started'], 1), 'glb': glb if ok else None}
             if it.get('bake_hung'):
                 rec['note'] = 'запекание зависло'
+            if ok:
+                freed = slim_run(it['dir'])
+                rec['freed_mb'] = round(freed / 2 ** 20)
             self.summary['runs'].append(rec)
             self.summary['failed'] += not ok
             self.say('прогон', it['key'], it['variant'], 'ГОТОВО' if ok else f'УПАЛ (rc={rc}, смотри {it["dir"]}/run.log)', f'{rec["seconds"]} с')

@@ -579,6 +579,8 @@ class QueueTests(unittest.TestCase):
         def poll(self): return self.rc
         def terminate(self): self.killed, self.rc = True, -15
 
+    free = 100.0
+
     def make(self, runs, tmp, results):
         import sg_queue as Q
         procs = {}
@@ -592,7 +594,7 @@ class QueueTests(unittest.TestCase):
         def finish(it, rc, t):
             return results.get(it['key'], rc == 0), {}
         said = []
-        q = Q.RunQueue(runs, {}, start=start, finish=finish, say=lambda *x: said.append(' '.join(map(str, x))), progress=lambda s, c, cap: s, job_timeout_s=3000)
+        q = Q.RunQueue(runs, {}, free_gb=lambda: self.free, start=start, finish=finish, say=lambda *x: said.append(' '.join(map(str, x))), progress=lambda s, c, cap: s, job_timeout_s=3000)
         return q, procs, said
 
     def status(self, tmp, key, stage, steps=()):
@@ -615,6 +617,26 @@ class QueueTests(unittest.TestCase):
                 q.step(0)
                 procs[k].rc = 0
                 self.assertEqual(q.step(1), expect, k)
+
+    def test_low_disk_stops_group_and_slim_keeps_result(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            q, procs, said = self.make([('a', 'v'), ('b', 'v')], tmp, {})
+            q.step(0)
+            b = os.path.join(tmp, 'a', 'blender')
+            os.makedirs(os.path.join(b, 'sg-output', 'S', 't', 'inpaint'))
+            os.makedirs(os.path.join(b, 'sg-output', 'S', 't', 'generated'))
+            for f in ('session.blend', 'painted.glb', 'sg-output/S/t/inpaint/x.png', 'sg-output/S/t/generated/v.png'):
+                open(os.path.join(b, f), 'wb').write(b'x' * 10)
+            procs['a'].rc = 0
+            q.step(1)
+            self.assertFalse(os.path.exists(os.path.join(b, 'session.blend')))
+            self.assertFalse(os.path.exists(os.path.join(b, 'sg-output', 'S', 't', 'inpaint')))
+            self.assertTrue(os.path.exists(os.path.join(b, 'painted.glb')) and os.path.exists(os.path.join(b, 'sg-output', 'S', 't', 'generated', 'v.png')))
+            self.free = 1.0
+            self.assertEqual(q.step(2), 'disk')
+            self.assertTrue(any('диск' in x for x in said))
+            self.free = 100.0
 
     def test_next_starts_when_previous_bakes_and_hung_bake_is_killed(self):
         import tempfile
