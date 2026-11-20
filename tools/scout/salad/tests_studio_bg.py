@@ -351,6 +351,25 @@ def test_hang_wedge_keeps_panel_between_legs_and_bottom_body():
     assert (out2 == a2).all(), f'светлый низ срезан: {info2}'
 
 
+def test_hang_wedge_keeps_tall_narrow_strip_in_light_body():
+    # живая находка T-104/7: в светлой кровати/шкафу узкая высокая полоса светло-серых столбцов под редким «плотным» пикселем принималась за клин и
+    # вырезалась (вертикальные прорези в теле). Клин пологий (шире высоты); полоса выше своей ширины — тело.
+    r, a = _bar_legs()
+    for i in range(70):                             # серая полоса 16 px шириной и 70 высотой между ножками
+        r[100 + i, 190:206] = (185, 185, 188) if i % 2 == 0 else (160, 160, 162)
+        a[100 + i, 190:206] = 1.0
+    bg, rcore, rsoft = regs(r)
+    out, info = S.hang_wedge(a, r, bg, rsoft)
+    assert (out == a).all(), f'полоса срезана: {info}'
+    S_ = (S.HW_ASPECT, S.HW_MIN_W)
+    try:                                            # контроль: без правила формы та же полоса срезалась бы (тест различает)
+        S.HW_ASPECT, S.HW_MIN_W = 0, 0
+        out2, info2 = S.hang_wedge(a, r, bg, rsoft)
+        assert info2.get('hw_px', 0) > 0, f'контроль: без правила формы полоса не срезана — тест ничего не проверяет: {info2}'
+    finally:
+        S.HW_ASPECT, S.HW_MIN_W = S_
+
+
 if __name__ == '__main__':
     bad = 0
     for name, fn in sorted(globals().items()):
