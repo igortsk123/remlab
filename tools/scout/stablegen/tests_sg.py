@@ -1,4 +1,5 @@
 """Тесты чистых частей пробы StableGen (T-20261119-90/5): драйвер Salad, воркер, мост. Запуск: PYTHONPATH=<папка с aiohttp> python3 -m unittest tests_sg -v (из этой папки)."""
+import math
 import os
 import sys
 import unittest
@@ -298,6 +299,28 @@ class RunpodDriverStops(unittest.TestCase):
         self.assertTrue(summ['terminated'])
         self.assertEqual(summ['runs'], [])                             # ни одного прогона на чужом сервере
         self.assertEqual(rc, 1)
+
+    def test_t5_short_side_text_by_angle_only(self):
+        import sg_views as V
+        front = (0.0, -1.0, 0.0)
+        def txt(az, role='комод'):
+            r = math.radians(az)
+            return V.short_side_text(role, (math.sin(r), -math.cos(r), 0.3), front)[0]
+        for az in (0, 30, -45, 59):
+            self.assertEqual(txt(az), '')
+        self.assertEqual(txt(90), 'the plain left side of the same chest of drawers')
+        self.assertEqual(txt(-90), 'the plain right side of the same chest of drawers')
+        self.assertEqual(txt(135), 'the plain back of the same chest of drawers')
+        self.assertEqual(txt(180), 'the plain back of the same chest of drawers')
+        self.assertEqual(txt(-135), 'the plain back of the same chest of drawers')
+        self.assertEqual(txt(90, 'неизвестная роль'), 'the plain left side of the same piece of furniture')
+
+    def test_t5_variant_keeps_photo_on_every_view(self):
+        v = S.VARIANTS['q2509t5']
+        self.assertTrue(v['short_side'] and v['view_prompts'] and v['prompt_keep'])
+        self.assertEqual(v.get('scene_props'), S.VARIANTS['q2509q5'].get('scene_props'))
+        self.assertNotIn('qwen_external_style_initial_only', v.get('scene_props') or {})
+        self.assertEqual(v['vp_off'], ['order'])
 
     def test_run_records_who_answered_and_marks_unanswered_as_failure(self):
         import json

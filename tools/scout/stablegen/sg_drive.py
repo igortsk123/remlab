@@ -261,6 +261,17 @@ def steps():
         fv = sv.location - ctr
         front = CFG.get('front_vec') or (fv.x, fv.y, 0.0)
         ST['view_prompts'], ST['view_meta'], flags = apply_view_prompts(scn, bb, front, CFG.get('cat_role', ''), seed)
+        if CFG.get('short_side'):                          # T-90/8 (T5): подпись только у видов сбоку/сзади, фронтальные — без подписи (штатный промпт)
+            scn.camera_prompts.clear()
+            ST['view_prompts'], ST['view_meta'] = {}, {}
+            for c_ in sorted([o for o in scn.objects if o.type == 'CAMERA'], key=lambda o: sg_views.natural_key(o.name)):
+                text_, meta_ = sg_views.short_side_text(CFG.get('cat_role', ''), tuple(c_.location - ctr), tuple(front))
+                ST['view_prompts'][c_.name], ST['view_meta'][c_.name] = text_, meta_
+                if text_:
+                    scn.camera_prompts.add().name = c_.name
+                    scn.camera_prompts[c_.name].prompt = text_
+            scn.use_camera_prompts = True
+            flags.append('short_side')
         if 'text' in off:
             scn.use_camera_prompts = False
             flags.append('diag_no_view_text')

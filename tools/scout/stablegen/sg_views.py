@@ -148,6 +148,21 @@ def view_text(cat_role, cam_dir, front, is_seed=False):
     return tpl.format(front_core=core, side=side, Side=side.capitalize()), meta
 
 
+def short_side_text(cat_role, cam_dir, front):
+    """T-90/8 (T5): КОРОТКАЯ подпись направления только у видов сбоку/сзади — по углу камеры от переда, не по товару. |угол| < 60° → '' (подпись не меняется);
+    60…120° → «the plain left|right side of the same <предмет>»; > 120° → «the plain back of the same <предмет>». Предмет — по роли из каталога (ROLE_NOUN), иначе «piece of furniture».
+    Возвращает (текст, мета)."""
+    ang = azimuth_deg(cam_dir, front)
+    a = abs(ang)
+    noun = ROLE_NOUN.get(norm_role(cat_role), 'piece of furniture')
+    meta = {'azimuth': round(ang, 1), 'zone': 'front' if a < 60 else ('side' if a <= 120 else 'back')}
+    if a < 60.0:
+        return '', meta
+    if a <= 120.0:
+        return f"the plain {'left' if ang > 0 else 'right'} side of the same {noun}", meta
+    return f'the plain back of the same {noun}', meta
+
+
 # ---- шаблоны Qwen: СВОИ формулировки с ролями картинок НЕ работают (пробный прогон ⑪ 20.11 08:36: Qwen при «Render the same product on the guide» игнорировал фото и закрасил глубину
 # плоским ярким цветом). Работает только штатная идиома аддона «Change and transfer the format of … image 1 … style from image 2 … Replace all solid magenta areas in image 2» — оставляем штатные
 # шаблоны (QWEN_EDIT_LEGACY), меняем только то, что передаётся в {main_prompt} (тексты видов), и «фото только первому виду».
