@@ -2,12 +2,15 @@
 workstream: design
 slug: onb-00-quiz-master
 title: МЕТАПЛАН — опрос-знакомство и новая главная по методике дизайнера — вопросы, Фигма, внедрение по ступеням (гостиная → спальни → кухня)
-status: in_progress
+status: partial
 created: 2026-11-05
-updated: 2026-11-05
+updated: 2026-11-20
 completed:
 plan_kind: track_master
 parent_plan: MASTER-cost-first
+pause_reason: "нет в плане задач (plan-zadach.md) с 12.11 — без движения с 05.11; приоритеты ставит владелец"
+resume_trigger: "пункт с этим планом появился в plan-zadach.md"
+review_after: 2026-12-04
 ---
 
 ## Цель
