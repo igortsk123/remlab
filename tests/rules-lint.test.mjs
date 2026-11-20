@@ -1,8 +1,8 @@
 // Тесты линтера реестра правил: node --test tests/rules-lint.test.mjs
 // Фикстуры — временный репозиторий (mkdtemp): эталон чистый, каждый дефект ловится своей категорией.
-import { test } from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +11,12 @@ import { lintRules } from "../tools/rules-lint.mjs";
 
 const TODAY = "2026-11-20";
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
+// временное — как у правила remlab_tmp: REMLAB_TMP (если задан), иначе системная; каждая фикстура убирается в after()
+const TMP_BASE = process.env.REMLAB_TMP || tmpdir();
+const MADE = [];
+after(() => {
+  for (const d of MADE) rmSync(d, { recursive: true, force: true });
+});
 
 function pfile(id, o = {}) {
   const f = { id, status: "working", rule_status: "active", approval_ref: "TG 100 (01.11)", review_after: "2027-02-20", supersedes: "", superseded_by: "", ...o };
@@ -19,7 +25,9 @@ function pfile(id, o = {}) {
 
 // spec: { P-001: {…поля…}, … }; opts.regIndex / opIndex — список id для индексов (по умолчанию все), layer — доп. байты в CLAUDE.md
 function mk(spec, opts = {}) {
-  const root = mkdtempSync(join(tmpdir(), "rl-"));
+  mkdirSync(TMP_BASE, { recursive: true });
+  const root = mkdtempSync(join(TMP_BASE, "rl-"));
+  MADE.push(root);
   const w = (p, t) => {
     mkdirSync(dirname(join(root, p)), { recursive: true });
     writeFileSync(join(root, p), t);
