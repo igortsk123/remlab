@@ -273,6 +273,7 @@ def build_cfg(key: str, var: str, out: str, server: str, cameras: int, texture: 
     cfg['catalog_name'] = attrs.get('name', '')
     cfg['colour'] = attrs.get('colour')                      # T-154/1: слово цвета каталога — сторож цвета и исключение для розового/фиолетового
     cfg['prompt'], cfg['prompt_flags'] = sg_views.build_prompt(attrs.get('role', ''), attrs.get('material'), attrs.get('colour'))
+    cfg['prompt_bare'] = sg_views.build_prompt(attrs.get('role', ''), attrs.get('material'), None, bare=True)[0]     # T-154/1: подпись видов БЕЗ фото — без слов рисунка и без цвета (цвет подставит драйвер)
     if not attrs:
         cfg['prompt_flags'] = list(cfg['prompt_flags']) + ['catalog_unavailable']
     return cfg

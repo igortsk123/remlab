@@ -196,6 +196,26 @@ def catalog_lab(word: str | None, rules: dict):
     return srgb_to_lab(rgb) if rgb else None
 
 
+def photo_colour_word(stats: dict, rules: dict) -> tuple[str | None, float | None]:
+    """«Цвет из фото» (T-154/1, разбор T-155: у 7 из 9 подписей без слова цвета вышло малиновое): ближайшее слово цвета по медианному Lab предмета на принятом виде-зерне.
+    Слова — catalog_rgb + colour_words_extra (данные). Предмет мал или ближайшее слово дальше max_dE_to_word — (None, None): слова не подставляем."""
+    lab = stats.get('lab')
+    pc = rules.get('photo_colour') or {}
+    if lab is None or stats.get('obj_frac', 0.0) < pc.get('min_object_frac', 0.02):
+        return None, None
+    words = {**(rules.get('catalog_rgb') or {}), **(rules.get('colour_words_extra') or {})}
+    best, bd = None, None
+    for w, rgb in words.items():
+        if w.startswith('_') or not isinstance(rgb, list):
+            continue
+        d = delta_e(lab, srgb_to_lab(rgb), rules)
+        if bd is None or d < bd:
+            best, bd = w, d
+    if best is None or bd > pc.get('max_dE_to_word', 40.0):
+        return None, None
+    return best, round(float(bd), 1)
+
+
 def judge_colour(stats: dict, rules: dict, neighbour_lab=None, catalog=None) -> tuple[bool, str, dict]:
     """Сверка цвета вида: с ближайшим принятым соседом (перекрытие) и с цветом каталога. Нет данных (предмет мал, нет соседа/слова цвета) — проверка пропущена, не провал."""
     info = {}

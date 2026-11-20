@@ -16,5 +16,31 @@
   },
   "back_by_class": {
     "casework": "one uninterrupted flat construction back panel in the carcass finish, simple fastening seams"
+  },
+  "material_phrase_bare": {
+    "_doc": "фраза материала для видов БЕЗ фото (T-154/1, разбор T-155): только класс материала, без слов рисунка (pattern_words) — они рисуют жилки/сетку на заду",
+    "rogozhka": "woven linen-like upholstery, matte",
+    "boucle": "bouclé upholstery, matte",
+    "chenille": "chenille upholstery, matte",
+    "velour": "velour upholstery, matte",
+    "velvet": "corduroy upholstery, matte"
+  },
+  "pattern_words": [
+    "marbled",
+    "mottled",
+    "veined",
+    "speckled",
+    "slubby",
+    "nubby",
+    "curly",
+    "flecked",
+    "streaked",
+    "crushed",
+    "parallel cords",
+    "pile"
+  ],
+  "colour_template": {
+    "_doc": "как слово цвета входит в подпись: по умолчанию «a <цвет> <предмет>»; классам из списка — слово относится только к основной поверхности, детали (ножки, ручки, столешница) ведёт образец (разбор T-155: «white» от столешницы красил ножки)",
+    "open_frame": "{head} with {art} {colour} main surface"
   }
 }

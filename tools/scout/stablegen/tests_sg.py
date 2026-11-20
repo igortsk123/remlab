@@ -296,6 +296,34 @@ class ViewGuard(unittest.TestCase):
         self.assertEqual(V.BACK_BY_CLASS['casework'], d['back_by_class']['casework'])
         self.assertNotIn('marbled', d['material_phrase']['velour'])
 
+    def test_add_colour_and_bare_captions(self):
+        """Разбор T-155: подпись видов без фото — без слов рисунка и СО словом цвета; для открытых каркасов слово — только к основной поверхности."""
+        import sg_views as V
+        self.assertEqual(V.add_colour('an armchair, velour upholstery, matte', 'olive', 'кресло'), 'an olive armchair, velour upholstery, matte')
+        self.assertEqual(V.add_colour('a sofa, matte', 'grey', 'диван'), 'a grey sofa, matte')
+        self.assertEqual(V.add_colour('a dining table, solid wood with a visible natural grain', 'white', 'стол обеденный'),
+                         'a dining table with a white main surface, solid wood with a visible natural grain')
+        self.assertEqual(V.add_colour('an olive chair, matte', 'grey', 'стул'), 'an olive chair, matte')      # цвет уже есть — не дублируем
+        self.assertEqual(V.add_colour('a sofa', None, 'диван'), 'a sofa')
+        patterns = V.CAPTIONS['pattern_words']
+        self.assertIn('marbled', patterns)
+        for mat in ('rogozhka', 'boucle', 'chenille', 'velour', 'velvet'):
+            txt, _ = V.build_prompt('диван', mat, None, bare=True)
+            self.assertFalse([w for w in patterns if w in txt.lower()], (mat, txt))
+        full, _ = V.build_prompt('диван', 'rogozhka', None)
+        self.assertIn('slubby', full)                                 # подпись фото-вида прежняя
+
+    def test_photo_colour_word(self):
+        import sg_guard as G
+        r = G.load_rules()
+        st = G.view_stats(self._img(obj=(178, 136, 89)), r)         # дубовая столешница
+        w, d = G.photo_colour_word(st, r)
+        self.assertIn(w, ('tan', 'light brown', 'sand', 'mustard', 'terracotta', 'brown'))
+        self.assertLess(d, r['photo_colour']['max_dE_to_word'])
+        st_pale = G.view_stats(self._img(obj=(175, 190, 182)), r)    # бледный серо-мятный, как у шкафа 17 по фото
+        self.assertIn(G.photo_colour_word(st_pale, r)[0], ('light grey', 'mint', 'grey', 'light blue'))
+        self.assertEqual(G.photo_colour_word({'lab': None, 'obj_frac': 0.0}, r), (None, None))
+
 
 class Experiments(unittest.TestCase):
     def test_no_lora_variant_config(self):

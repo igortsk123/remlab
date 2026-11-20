@@ -168,6 +168,8 @@ def install_back_hook(info, gi=None):
             if info.get('photo_prompt'):                       # T-90/11: ПЕРВЫЙ вид (зерно, с фото) — подпись без цвета (фото ведёт; цвет каталога «серит» узор)
                 plan['prompt'] = info['photo_prompt']
             return plan
+        if gi is not None and CFG.get('prompt_bare'):          # T-154/1: виды без фото — подпись БЕЗ слов рисунка + слово цвета (каталог, а нет его — из фото вида-зерна); слово не «пустое»
+            plan['prompt'] = sg_views.add_colour(CFG['prompt_bare'], gi['state'].get('colour_word'), CFG.get('cat_role'))
         if name not in info.get('cameras', ()):
             return plan
         mode = info.get('mode')
@@ -263,6 +265,16 @@ def install_back_hook(info, gi=None):
             if idx == 0:
                 st['baseline'] = sts['mag_frac']
                 st['catalog_dE'] = (rec['attempts'][-1].get('dE_catalog'))
+                pw, pd_ = sg_guard.photo_colour_word(sts, G)
+                cw = st.get('colour_word_catalog')
+                if cw and (gi['catalog_lab'] is None or rec['result'] != 'colour_unresolved'):
+                    st['colour_word'], st['colour_source'] = cw, 'catalog'      # цвет каталога сошёлся с видом-зерном (или проверить нечем, напр. дерево)
+                elif pw:
+                    st['colour_word'], st['colour_source'] = pw, 'photo' if not cw else 'photo (зерно не сошлось с каталогом)'    # слова нет, либо перёд по фото ушёл от слова — зад берёт цвет перёда
+                else:
+                    st['colour_word'], st['colour_source'] = cw, 'catalog' if cw else 'none'
+                st['photo_colour'] = {'word': pw, 'dE_to_word': pd_}
+                say(f"слово цвета для видов без фото: {st['colour_word']!r} (источник: {st['colour_source']}; из фото: {pw!r} ΔE {pd_}; каталог: {cw!r})")
         return res
     hooked._back_hook = True
     cls.generate_qwen_edit = hooked
@@ -458,7 +470,7 @@ def steps():
         if CFG.get('guard'):                                 # T-154/1: сторож каждого вида до проекции и до использования как контекст (rules/stablegen-view-guard.json)
             g_rules = sg_guard.load_rules()
             word = CFG.get('colour')
-            ST['guard'] = {'views': {}, 'accepted': {}, 'baseline': 0.0, 'views_retried': [], 'views_rejected': [], 'colour_unresolved': [], 'catalog_dE': None, 'review': '', 'colour_word': word}
+            ST['guard'] = {'views': {}, 'accepted': {}, 'baseline': 0.0, 'views_retried': [], 'views_rejected': [], 'colour_unresolved': [], 'catalog_dE': None, 'review': '', 'colour_word': word, 'colour_word_catalog': word, 'colour_source': '', 'photo_colour': None}
             gi = {'rules': g_rules, 'angles': {c.name: sg_views.azimuth_deg((c.location.x - ctr.x, c.location.y - ctr.y, 0.0), front) for c in cams_all}, 'order': order,
                   'full_prompt': CFG['prompt'], 'exempt': sg_guard.is_pink_colour(word, g_rules), 'catalog_lab': sg_guard.catalog_lab(word, g_rules), 'state': ST['guard']}
             say(f"сторож видов включён: цвет каталога {word!r}, розовый/фиолетовый цвет каталога (исключение) {gi['exempt']}, сверка с каталогом {'есть' if gi['catalog_lab'] is not None else 'нет (слова нет в справочнике)'}")
@@ -525,11 +537,11 @@ def steps():
     gst = ST.get('guard')
     if gst:                                                  # итоговый сторож модели (T-154/1): основной цвет далёк от цвета каталога — модель автоматически не принимается
         labs = [a['lab'] for a in gst['accepted'].values() if a.get('lab')]
-        word_lab = sg_guard.catalog_lab(gst.get('colour_word'), sg_guard.load_rules())
+        word_lab = sg_guard.catalog_lab(gst.get('colour_word_catalog'), sg_guard.load_rules())
         if labs and word_lab is not None:
             gst['model_dE_catalog'] = round(sg_guard.delta_e(np.median(np.array(labs), axis=0), word_lab, sg_guard.load_rules()), 1)
             if gst['model_dE_catalog'] > sg_guard.load_rules()['colour']['catalog_max']:
-                gst['review'] = f"основной цвет модели далёк от цвета каталога {gst.get('colour_word')!r}: ΔE {gst['model_dE_catalog']}"
+                gst['review'] = f"основной цвет модели далёк от цвета каталога {gst.get('colour_word_catalog')!r}: ΔE {gst['model_dE_catalog']}"
         if len(gst['views_rejected']) * 2 >= len(cams):
             gst['review'] = (gst['review'] + '; ' if gst['review'] else '') + f"отклонено видов {len(gst['views_rejected'])} из {len(cams)}"
         say(f"сторож видов — итог: повторено {gst['views_retried']}, отклонено {gst['views_rejected']}, цвет не сошёлся {gst['colour_unresolved']}, ΔE каталога {gst.get('model_dE_catalog')}, проверка модели: {gst['review'] or 'принимается'}")

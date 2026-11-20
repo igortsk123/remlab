@@ -217,12 +217,18 @@ def load_captions(path=None):
             d = json.load(fh)
     except OSError:
         return _CAPTIONS_FALLBACK
-    return {k: d.get(k) or _CAPTIONS_FALLBACK[k] for k in _CAPTIONS_FALLBACK}
+    out = {k: d.get(k) or _CAPTIONS_FALLBACK[k] for k in _CAPTIONS_FALLBACK}
+    out['material_phrase_bare'] = {k: x for k, x in (d.get('material_phrase_bare') or {}).items() if not k.startswith('_')}
+    out['pattern_words'] = list(d.get('pattern_words') or [])
+    out['colour_template'] = {k: x for k, x in (d.get('colour_template') or {}).items() if not k.startswith('_')}
+    return out
 
 
 CAPTIONS = load_captions()
 MATERIAL_PHRASE = CAPTIONS['material_phrase']
 BACK_BY_CLASS = CAPTIONS['back_by_class']
+BARE_PHRASE = CAPTIONS['material_phrase_bare']
+COLOUR_TEMPLATE = CAPTIONS['colour_template']
 # русские названия и частые слова → id класса (точное совпадение после нормализации; нечёткого поиска нет)
 MATERIAL_WORDS = {norm_role(w): c for c, ws in {
     'velour': ['велюр', 'велюра'], 'velvet': ['вельвет'], 'rogozhka': ['рогожка'], 'chenille': ['шенилл'], 'boucle': ['букле'],
@@ -288,7 +294,26 @@ def strip_colour(prompt):
     return prompt
 
 
-def build_prompt(cat_role, material, colour=None):
+def _art(word):
+    return 'an' if word[:1].casefold() in 'aeiou' else 'a'
+
+
+def add_colour(prompt, word, cat_role=None):
+    """Слово цвета в подпись без цвета: «a chair, matte …» → «a <цвет> chair, matte …» (данные colour_template: классу — слово только к основной поверхности:
+    «a dining table with a white main surface», детали ведёт образец). Слова цвета уже есть / нет слова / нет артикля — подпись как есть."""
+    if not word or strip_colour(prompt) != prompt:
+        return prompt
+    head, sep, tail = prompt.partition(',')
+    m = re.match(r'^(an?)\s+(.*)$', head.strip(), flags=re.I)
+    if not m:
+        return prompt
+    tpl = COLOUR_TEMPLATE.get(role_class(cat_role)[0]) if cat_role else None
+    if tpl:
+        return tpl.format(head=head.strip(), art=_art(word), colour=word) + sep + tail
+    return f'{_art(word)} {word} {m.group(2)}{sep}{tail}'
+
+
+def build_prompt(cat_role, material, colour=None, bare=False):
     """Основной промпт из атрибутов каталога: «a <цвет> <предмет по роли>, <фраза материала>». Никогда не подменяется «заготовкой по ID»:
     неизвестная роль → «piece of furniture», неизвестный материал/цвет → честно без них. Возвращает (промпт, флаги)."""
     flags = []
@@ -304,7 +329,7 @@ def build_prompt(cat_role, material, colour=None):
     head = f'{colour} {noun}' if colour else noun
     text = f"{'an' if head[0] in 'aeiou' else 'a'} {head}"
     if mc:
-        text += f', {MATERIAL_PHRASE[mc]}'
+        text += f', {(BARE_PHRASE.get(mc) or MATERIAL_PHRASE[mc]) if bare else MATERIAL_PHRASE[mc]}'
     return text, flags
 
 
