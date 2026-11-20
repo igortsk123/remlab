@@ -18,11 +18,9 @@ Tier 0 = этот файл + INDEX + `.claude/rules/*.md`; Tier 2 = `.memory_ban
 При компакции сохранить: активный план (slug+статус), изменённые файлы, next steps, блокнот.
 
 ## Критично
-- **Конец задачи = `/memory-check`**; план не `completed`, пока память не записана и audit не чист.
-- **План first, code second** — `.claude/rules/agent-workflow.md`. Без явного «деплой» код не пишем.
-- **Гипотезы, не аксиомы:** отклонился от спеки обоснованно → ADR (`decisions.md` + том).
-- **Две сессии:** fable-lead (план, приёмка, память) ↔ opus-worker (код, тесты, отчёт) — `.claude/rules/orchestration.md`; владелец говорит только с fable-lead.
-- **Сложное/рискованное решение:** свой вывод → скилл `ask-codex` (второе мнение) → финал. Правило — `.claude/rules/codex-adviser.md`.
+Все правила работы — реестр `.memory_bank/rules/` (свод 20.11.2026): строка на правило — `.claude/rules/00-operating-index.md`,
+четыре гейта — `.claude/rules/10-decision-gates.md`. Главное: конец задачи = `/memory-check` (P-046); план first, code second (P-044);
+две роли — ведущий и рабочий, владелец говорит с ведущим (P-013); сложное решение — вывод → `ask-codex` → финал (P-048); гипотезы, не аксиомы (P-012).
 
 ## Команды
 `pnpm test` · `pnpm e2e` · `pnpm typecheck` · `pnpm lint` · `pnpm db:migrate` · `pnpm build` · `./deploy.sh`
@@ -31,5 +29,5 @@ Tier 0 = этот файл + INDEX + `.claude/rules/*.md`; Tier 2 = `.memory_ban
 Партнёрки/Гдеслон; кэшбек; цены paid-ступеней; модель после бенча; источники прайсов; дизайн экранов; юр. вопросы.
 
 ## Path-scoped правила (.claude/rules/)
-всегда: `agent-workflow` (план→деплой) · `memory-discipline` · `codex-adviser`; по путям:
+всегда: `00-operating-index` · `10-decision-gates` · `review-checklist` (остальные — указатели в реестр); по путям:
 `code-standards` (ts/tsx) · `ui-rules` (app/components) · `pipeline-tracing` (ADR-0013).

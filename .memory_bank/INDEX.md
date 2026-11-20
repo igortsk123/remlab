@@ -55,7 +55,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт → реф-сме�
 
 ## Always-on docs (Tier 0/1)
 `source-of-truth.md` · `project-state.md` · `decisions.md` (индекс; тексты — `decisions/`) ·
-`deployment.md` · уроки — `core/lessons.md` → `lessons/`.
+`deployment.md` · уроки — `core/lessons.md` → `lessons/` · правила работы — `rules/INDEX.md` (P-001…, индекс — `.claude/rules/00-operating-index.md`).
 
 ## Гайды и «что сейчас»
 Сейчас делаем — `plan-zadach.md` (закрытое — `changelog/plan-zadach-done-2026-11.md`) · как будет — `guides/product-book.md` · роли и токены — `guides/orchestration.md` · все гайды — `guides/README.md`.
