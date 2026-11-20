@@ -577,6 +577,19 @@ def carrier_caps(o: dict) -> dict | None:
     return {'foot_h_cm': h} if top is not DD.RT._MISSING and 0 < h <= max(top) else None
 
 
+LAMP_STATE: dict = {}      # тег варианта → ('ok', ламп, тумб) | ('missing', причина, тумб) | ('partial', причина, тумб); сводка сборки (T-20261120-118)
+
+
+def lamp_summary(state: dict) -> str:
+    """Сводка ламп вариантов одной строкой: с лампой на каждой тумбе / без лампы с причиной / не на всех тумбах."""
+    ok = sorted(t for t, x in state.items() if x[0] == 'ok')
+    miss = sorted(t for t, x in state.items() if x[0] == 'missing')
+    part = sorted(t for t, x in state.items() if x[0] == 'partial')
+    return (f'лампы на тумбах: у {len(ok)} из {len(state)} вариантов лампа на каждой тумбе'
+            + (f'; без лампы (причина в WARN:lamp_missing) {len(miss)}: {", ".join(miss)}' if miss else '')
+            + (f'; не на всех тумбах (WARN:lamp) {len(part)}: {", ".join(part)}' if part else ''))
+
+
 def room_dependent_decor(room_type: str, v: dict, geo: dict, bank: list, rec: dict) -> None:
     """ЗАВИСИМЫЙ ДЕКОР КОМНАТЫ КРОМЕ ГОСТИНОЙ (T-20261113-22, владелец TG 1619/1623 «всё видно: предметы мешами, шторы — абстракцией»):
     по паспорту типа (`dependent_decor.ROOM_DEPS`; нет типа — ничего). ЛАМПЫ — на тумбах по размеру (`lamp_pick_all`: лампа набора, иначе
@@ -589,6 +602,18 @@ def room_dependent_decor(room_type: str, v: dict, geo: dict, bank: list, rec: di
         return
     tag = v.get('id') or rec.get('room_id')
     rows = [d for d in v.get('decor') or [] if DD.is_lamp(d.get('role'))]
+    # В НАБОРЕ ЛАМПЫ НЕТ, А НОСИТЕЛЬ ЕСТЬ (T-20261120-118, П1.70): живая ячейка банка могла остаться без лампы («лампа: нет подходящей»),
+    # пока кандидат с лампой соседнего стиля ждёт чужих мешей (комод/шкаф), которые витрина подменяет сама. Подбор тот же, что у
+    # набора с лампой (свои лампы стиля из банка → запас соседнего стиля, модель обязательна, по лампе на каждый носитель), а не
+    # «нет строки — нет лампы»; не нашлось — явная строка `WARN:lamp_missing` с причиной, цена прежняя (без лампы)
+    # только там, где набор сам записал «слот лампы объявлен, но пуст» (`gaps`: «лампа: нет подходящей»); назначения без слота лампы
+    # (кабинет, детская) строки не получают — новых входов правил у сборки нет
+    absent = not rows and any(DD.LAMP_ROLE in str(g) for g in rec.get('gaps') or [])
+    if absent:
+        cfg = DD.ROOM_DEPS[room_type]
+        pid = cfg['carriers'][cfg['lamp_carrier']]
+        n_car = sum(1 for k, _o in DD.carrier_objs(v['items'], cfg['carriers']) if k.startswith(f'{pid}#'))
+        rows = [{'role': DD.LAMP_ROLE if k == 0 else f'{DD.LAMP_ROLE} {k + 1}'} for k in range(n_car)]
     if rows:
         sets = [rec] + [b for b in bank if b is not rec]
         import demo_room
@@ -600,15 +625,24 @@ def room_dependent_decor(room_type: str, v: dict, geo: dict, bank: list, rec: di
             for row, pl in zip(rows, pls):
                 keep.append(DD.lamp_row(pl, v['items'], sk, room_type, row.get('role') or DD.LAMP_ROLE))
             own = (rows[0].get('sku') or {}).get('sid')
-            swap = '' if sk.get('sid') == own else f" (вместо «{(rows[0].get('sku') or {}).get('name')}»: {'; '.join(why)})"
+            frm = f" (соседний стиль «{it['style_from']}»)" if it.get('style_from') else ''
+            swap = (f' (в наборе лампы не было{frm})' if absent else
+                    '' if sk.get('sid') == own else f" (вместо «{(rows[0].get('sku') or {}).get('name')}»: {'; '.join(why)})")
             print(f"  лампа {tag}: «{it.get('name')}» × {len(keep)} на " + ', '.join(p.parent_slot_instance_id for p in pls) + swap,
                   flush=True)
         dropped = rows[len(keep):]
-        if dropped:
+        LAMP_STATE[tag] = (('ok', len(keep), len(rows)) if not dropped else
+                           ('missing' if not keep else 'partial', '; '.join(why) or 'тумб меньше, чем ламп', len(rows)))
+        if dropped and absent:
+            print(f"WARN:lamp_missing: {tag} — без лампы: {'; '.join(why) or 'нет кандидатов с моделью'}", flush=True)
+        elif dropped:
             print(f"WARN:lamp: {tag} — {len(dropped)} из {len(rows)} ламп сняты из набора и цены (в 3D им места нет): "
                   f"{'; '.join(why) or 'тумб меньше, чем ламп'}", flush=True)
-        placed = {id(r): k for r, k in zip(rows, keep)}         # строка набора → её лампа на тумбе; лишние строки — прочь
-        v['decor'] = [placed.get(id(d), d) for d in v['decor'] if not DD.is_lamp(d.get('role')) or id(d) in placed]
+        if absent:
+            v['decor'] = keep + list(v.get('decor') or [])
+        else:
+            placed = {id(r): k for r, k in zip(rows, keep)}     # строка набора → её лампа на тумбе; лишние строки — прочь
+            v['decor'] = [placed.get(id(d), d) for d in v['decor'] if not DD.is_lamp(d.get('role')) or id(d) in placed]
     TX.annotate(v['decor'], v['items'], geo, tag, demo_ceiling(), decor_sku_model, room_type, carrier_caps)
 
 
@@ -1933,6 +1967,8 @@ def room_variants(room_type: str, apt: dict, flags: dict, variants: list, feeds:
                           f"{(it.get('sku') or {}).get('sid')} — {w} (сторож выключен, предмет в варианте)", flush=True)
         variants.append(v)
         made += 1
+    if LAMP_STATE and room_type == 'bedroom':
+        print(f'{room_type}_lamps: {lamp_summary(LAMP_STATE)}', flush=True)
     any_mesh = os.environ.get(FEED_ANY_MESH_ENV) == '1'
     # ЛЕНТА — ТЕМ ЖЕ СТОРОЖЕМ, ЧТО ВАРИАНТ (T-20261106-77 Д1): замена на товар без годной модели ставила на место кровати коробку
     # (/test/t32f). Сторож выключен (`<ТИП>_MESH_GATE=0`) — прежняя проверка индекса прода

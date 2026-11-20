@@ -1091,6 +1091,16 @@ def check_bank(bank: list, R: dict, tol: tuple, spare: str = 'hard') -> list:
             if r in short:      # декор тоньше мебели — предупреждение (`~`), не нарушение
                 n, major = short[r]
                 bad.append(('' if major and spare == 'hard' else '~ ') + f'{sid}: {r} — альтернатив {n} < {SPARE_MIN}')
+        # ЛАМПА У ТУМБЫ — ЛИБО ТОВАР, ЛИБО ЯВНАЯ ПРИЧИНА (T-20261120-118, П1.70, директор): ячейка с прикроватными тумбами при объявленном
+        # слоте лампы (`decor.лампа` назначения) без лампы и без строки «лампа: …» в `gaps` — молчаливый пропуск → нарушение; с причиной —
+        # предупреждение `~` «без лампы: причина» (видно в вердикте, ячейку не снимает)
+        if (it.get('тумба прикроватная') or {}).get('qty') and 'лампа' in (R['purposes'][s['purpose']].get('decor') or {}):
+            has_lamp = any(re.sub(r'\s+\d+$', '', r) == 'лампа' for r in it)
+            why_lamp = next((g for g in s.get('gaps') or [] if 'ламп' in str(g)), None)
+            if not has_lamp and not why_lamp:
+                bad.append(f'{sid}: лампа не подобрана, а причины в gaps нет (молчаливый пропуск)')
+            elif not has_lamp:
+                bad.append(f'~ {sid}: без лампы — {why_lamp}')
         lay = s['layout']
         if s['purpose'] == 'couple' and (it.get('тумба прикроватная') or {}).get('qty') != 2:
             # движок групп: «одна тумба» — шаблон P2 с причиной (NIGHTSTAND_PAIR_NO_FIT), предупреждение, не нарушение
