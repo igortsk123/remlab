@@ -823,6 +823,23 @@ class RunpodDriverStops(unittest.TestCase):
         self.assertEqual(rc, 1)
 
 
+class WeightsSpeed(unittest.TestCase):
+    """Сторож скорости докачки весов (T-154/1, ga 20.11: 0,1 ГБ/мин при ~23 ГБ — часы платной простоя)."""
+
+    def test_slow_node_detected_after_window(self):
+        import sg_salad as S
+        hist = [(0, 1.7), (60, 1.8), (120, 1.9), (180, 2.0), (240, 2.1)]
+        r = S.weights_slow(hist, 180, 0.5)
+        self.assertIsNotNone(r)
+        self.assertLess(r, 0.5)
+
+    def test_fast_node_and_short_history_not_flagged(self):
+        import sg_salad as S
+        self.assertIsNone(S.weights_slow([(0, 0.0), (60, 5.0), (120, 10.0), (200, 16.0)], 180, 0.5))   # ≈4,8 ГБ/мин
+        self.assertIsNone(S.weights_slow([(0, 1.7), (60, 1.75), (120, 1.8)], 180, 0.5))                 # окно 3 мин ещё не набралось
+        self.assertIsNone(S.weights_slow([(0, 1.7)], 180, 0.5))
+
+
 class QueueTests(unittest.TestCase):
     """Общая очередь прогонов (sg_queue.RunQueue) — одни правила для RunPod и Salad (T-90/12)."""
 

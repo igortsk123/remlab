@@ -409,6 +409,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
         say('start HTTP', code)
         gw, ready_at, ever_ok, last_gb, last_gb_t, last_say, minute_say = None, None, False, None, None, 0.0, 0.0
         pending = list(runs)
+        gb_hist = []                                              # (время, ГБ весов) — для сторожа скорости докачки
 
         def start_run(key, var, t):
             stamp = time.strftime('%H%M%S', time.gmtime())
@@ -484,6 +485,14 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
                     if t - last_say >= 60 and not h.get('warm'):           # прогрев — строка раз в минуту (в бою ход прогонов — каждые 10 минут)
                         last_say = t
                         say(progress_line(f'прогрев, фаза {h.get("phase")}', summary['cost_usd_est'], a.cap, f'· кэш весов {gb} ГБ, диск {h.get("disk_gb")}'))
+                    if h.get('phase') == 'weights' and gb is not None:
+                        gb_hist.append((t, float(gb)))
+                        slow = weights_slow(gb_hist, a.slow_window_s, a.min_gb_min)
+                        if slow is not None:
+                            say(f'!! веса качаются {slow:.2f} ГБ/мин < {a.min_gb_min} уже {a.slow_window_s // 60} мин — нода медленная, гашу (беру другую)')
+                            summary['stopped_by'] = 'download_slow'
+                            summary['weights_gb_min'] = round(slow, 3)
+                            break
                     if h.get('phase') == 'weights' and last_gb_t is not None and t - last_gb_t > a.stall_min * 60:
                         say(f'!! докачка весов стоит {a.stall_min} мин — гашу')
                         summary['stopped_by'] = 'download_stalled'
@@ -531,6 +540,19 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
     return 0 if summary['stop_verified'] and summary['stopped_by'] == 'done' else 1
 
 
+def weights_slow(hist: list, window_s: float, min_gb_min: float) -> float | None:
+    """Скорость докачки весов за последние window_s секунд, если она ниже min_gb_min ГБ/мин (иначе None). hist — [(время_с, ГБ)] по возрастанию времени; нужна выборка, покрывающая всё окно."""
+    if len(hist) < 2:
+        return None
+    t1, g1 = hist[-1]
+    old = [(t, g) for t, g in hist if t <= t1 - window_s]
+    if not old:
+        return None                                             # окно ещё не набралось
+    t0, g0 = old[-1]
+    rate = (g1 - g0) / ((t1 - t0) / 60)
+    return rate if rate < min_gb_min else None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--image', help='образ группы: тег или digest, ghcr.io/igortsk123/mesh-comfy-trial:stablegen-0460')
@@ -554,6 +576,8 @@ def main() -> int:
     ap.add_argument('--relay-deps', default=os.path.join(SG_HOME, 'fake-deps'), help='папка с aiohttp для моста')
     ap.add_argument('--card', default=None, help='класс карты Salad по имени, напр. «RTX 5090 (32 GB)» (по умолчанию 4090)')
     ap.add_argument('--relay-port', type=int, default=None, help='порт моста (разные у одновременных групп)')
+    ap.add_argument('--min-gb-min', type=float, default=0.5, help='скорость докачки весов, ГБ/мин: ниже столько же --slow-window-s секунд подряд — нода медленная, гасим (директор 20.11)')
+    ap.add_argument('--slow-window-s', type=int, default=180)
     ap.add_argument('--running-min', type=int, default=60, help='минут от /start до running (нода выдана); дольше — группу гасим (директор 20.11: 15)')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--stop-only', action='store_true')
