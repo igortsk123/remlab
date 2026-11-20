@@ -87,7 +87,7 @@ VARIANTS['q2509edge'] = dict(VARIANTS['q2509q5'], bake_margin=32, bake_denoise=F
 SHAPE_DIR = os.path.expanduser('~/remlab-logs/t94-1119/out-comfy')
 SHAPE_DIRS = {'n1024': os.path.expanduser('~/remlab-logs/t90-1120/shape/out'), 'n1024b': os.path.expanduser('~/remlab-logs/t90-1120/shape30/out')}     # форма R2b1s (TRELLIS.2 1024, ≤150 тыс. граней с UV) из Salad-группы: «товар@n1024»
 SHAPE_FILE = {'n1024b': 'n1024'}                                                                                                        # имя файла формы во второй группе то же, что в первой
-CUT_DIRS = {'vyb10': os.path.expanduser('~/remlab-logs/t104-1120/vyb10-1216'), 'vyb30': os.path.expanduser('~/remlab-logs/t104-1120/vyb30-1242')}    # новые вырезки цепочки цикла 6: «товар@форма+cut:vyb10»
+CUT_DIRS = {'vyb10': os.path.expanduser('~/remlab-logs/t104-1120/vyb10-1216'), 'vyb30': os.path.expanduser('~/remlab-logs/t104-1120/vyb30-1242')}    # новые вырезки цепочки цикла 6: «товар@форма+cut-vyb10»
 SHAPE_PATHS = {      # формы R2b1 (TRELLIS.2 k1024, solid fill 20 band 1), упрощены до ≈150 тыс. граней и развёрнуты sg_prep_shape.py (правило директора 21:54)
     ('112923_13224664101879413845', 'r2b1'): os.path.expanduser('~/remlab-logs/t90-1119/sg/shapes/112923_13224664101879413845-k1024.R2b1.s140k-uv.glb'),
     ('114667_11634594969038554503', 'r2b1'): os.path.expanduser('~/remlab-logs/t94-1119/simple150/114667_11634594969038554503-k1024.R2b1.s150k-uv.glb'),
@@ -212,8 +212,8 @@ def build_cfg(key: str, var: str, out: str, server: str, cameras: int, texture: 
     if shape.endswith('+newcut'):                            # «…+newcut» — вход: новая вырезка цепочки main после T-107 (t94 newcut-2149), а не t93 hd_inputs
         shape = shape[:-len('+newcut')]
         style = NEWCUT_INPUT.format(key=prod)
-    if '+cut:' in shape:                                     # «…+cut:<метка>» — вход: вырезка из папки CUT_DIRS[метка] (`<товар>.rgba.png`)
-        shape, _, tag = shape.partition('+cut:')
+    if '+cut-' in shape:                                     # «…+cut-<метка>» — вход: вырезка из папки CUT_DIRS[метка] (`<товар>.rgba.png`)
+        shape, _, tag = shape.partition('+cut-')
         style = os.path.join(CUT_DIRS[tag], f'{prod}.rgba.png')
     glb = SHAPE_PATHS[(prod, shape)] if (prod, shape) in SHAPE_PATHS else os.path.join(SHAPE_DIRS.get(shape, SHAPE_DIR), f'{prod}-{SHAPE_FILE.get(shape, shape)}.glb') if shape else HD_GLB.format(key=prod)    # «товар@r2b1» — упрощённая форма с развёрткой из SHAPE_PATHS
     cfg = {'glb': glb, 'out': out, 'server': server, 'preset': 'QWEN PRECISE', 'prompt': 'a piece of furniture',

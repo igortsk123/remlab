@@ -382,10 +382,10 @@ class RunpodDriverStops(unittest.TestCase):
         self.assertEqual(cfg['back_limit'], 100.0)                           # порог доходит до конфига драйвера, в коде драйвера — только значение по умолчанию
 
     def test_shape_and_cut_dirs_by_suffix(self):
-        c = S.build_cfg('112923_321183910010607839@n1024+cut:vyb10', 'q2509t5g', '/o', 's', 8, 2048, 42, 60)
+        c = S.build_cfg('112923_321183910010607839@n1024+cut-vyb10', 'q2509t5g', '/o', 's', 8, 2048, 42, 60)
         self.assertTrue(c['glb'].endswith('t90-1120/shape/out/112923_321183910010607839-n1024.glb'))
         self.assertTrue(c['style_image'].endswith('t104-1120/vyb10-1216/112923_321183910010607839.rgba.png'))
-        c = S.build_cfg('112923_321183910010607839@n1024b+cut:vyb30', 'q2509t5g', '/o', 's', 8, 2048, 42, 60)
+        c = S.build_cfg('112923_321183910010607839@n1024b+cut-vyb30', 'q2509t5g', '/o', 's', 8, 2048, 42, 60)
         self.assertTrue(c['glb'].endswith('t90-1120/shape30/out/112923_321183910010607839-n1024.glb'))
         self.assertTrue(c['style_image'].endswith('t104-1120/vyb30-1242/112923_321183910010607839.rgba.png'))
 
