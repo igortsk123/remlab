@@ -128,5 +128,119 @@ class Experiments(unittest.TestCase):
         self.assertEqual(S.parse_runs('112923_1322@c1024:q2509q5'), [('112923_1322@c1024', 'q2509q5')])
 
 
+class Views(unittest.TestCase):
+    """T-90/7 ⑪: тексты видов по классу роли и зоне от «переда», словарь материалов, порядок камер, шаблоны CUSTOM (Codex 20.11)."""
+
+    def test_zones_boundaries_and_sign(self):
+        import sg_views as V
+        f = (0.0, -1.0, 0.0)
+        z = lambda x, y: V.zone_of(V.azimuth_deg((x, y, 0.5), f))
+        self.assertEqual(z(0.0, -2.0), 'front')
+        self.assertEqual(z(1.0, -2.0), 'quarter')                    # ≈26,6°
+        self.assertEqual(z(2.0, -1.0), 'quarter')                    # ≈63,4°
+        self.assertEqual(z(2.0, 0.0), 'side')
+        self.assertEqual(z(1.0, 2.0), 'rear_quarter')                # ≈153,4°
+        self.assertEqual(z(0.0, 2.0), 'rear')
+        self.assertEqual(V.zone_of(22.4), 'front')
+        self.assertEqual(V.zone_of(22.5), 'quarter')
+        self.assertEqual(V.zone_of(-67.5), 'side')
+        self.assertEqual(V.zone_of(112.5), 'rear_quarter')
+        self.assertEqual(V.zone_of(157.5), 'rear')
+        self.assertGreater(V.azimuth_deg((1.7, -0.7, 0.5), f), 0)       # камера на +X при переде −Y — левая сторона предмета
+        self.assertLess(V.azimuth_deg((-1.7, -0.7, 0.5), f), 0)
+
+    def test_custom_front_vector(self):
+        import sg_views as V
+        t, m = V.view_text('комод', (2.0, 0.0, 0.5), (1.0, 0.0, 0.0), is_seed=True)
+        self.assertEqual(m['zone'], 'front')
+        self.assertTrue(t.startswith('Front view. Match'))
+        t, m = V.view_text('комод', (0.0, -2.0, 0.5), (1.0, 0.0, 0.0))
+        self.assertEqual(m['zone'], 'side')
+
+    def test_class_texts_are_affirmative_and_have_no_front_motif(self):
+        import sg_views as V
+        for role in ('комод', 'диван', 'стул', 'люстра', 'бра', 'ковёр', 'абажур'):
+            for cam in ((1.7, -0.7, 0.9), (0.0, 2.0, 0.9), (-1.7, 0.7, 0.9)):
+                t, _ = V.view_text(role, cam, (0.0, -1.0, 0.0))
+                self.assertNotRegex(t.lower(), r'\bno\b|\bnot\b|\bwithout\b|\bdon\'t\b')
+                self.assertNotIn('product reference', t.lower().replace('match the', ''))   # тексты не-зерна не ссылаются на фото; «Match … to the product reference» — только у зерна
+
+    def test_seed_only_gets_photo_wording(self):
+        import sg_views as V
+        seed, _ = V.view_text('диван', (0.0, -2.0, 0.9), (0.0, -1.0, 0.0), is_seed=True)
+        other, _ = V.view_text('диван', (0.0, -2.0, 0.9), (0.0, -1.0, 0.0), is_seed=False)
+        self.assertIn('product reference', seed)
+        self.assertNotIn('product reference', other)
+        self.assertIn('painted front', other)
+
+    def test_unknown_role_is_cautious_and_flagged(self):
+        import sg_views as V
+        t, m = V.view_text('абажур', (0.0, 2.0, 0.9), (0.0, -1.0, 0.0))
+        self.assertFalse(m['known'])
+        self.assertEqual(m['class'], 'generic')
+        self.assertIn('corresponding adjacent painted component', t)
+        self.assertNotIn('panel', t)                                  # неизвестная роль никогда не получает «глухую панель»
+        self.assertEqual(V.role_class('Диван'), ('upholstered', True))
+        self.assertEqual(V.role_class('Chest_of_Drawers'), ('casework', True))
+        self.assertEqual(V.role_class('прикроватная-тумба'), ('casework', True))
+
+    def test_top_only_when_really_high(self):
+        import sg_views as V
+        t, _ = V.view_text('комод', (1.0, -1.0, 1.0), (0.0, -1.0, 0.0))     # ≈35° — обычный вид с приподнятого кольца
+        self.assertNotIn('High view', t)
+        t, _ = V.view_text('комод', (0.1, -0.1, 2.0), (0.0, -1.0, 0.0))
+        self.assertTrue(t.startswith('High view'))
+
+    def test_material_vocabulary_and_prompt(self):
+        import sg_views as V
+        self.assertEqual(V.material_from_texts(['Ткань', 'Диван Король Велюр Роял']), 'velour')
+        self.assertEqual(V.material_from_texts(['', 'ЛДСП 16 мм', '']), 'ldsp')
+        self.assertEqual(V.material_from_texts(['рогожка']), 'rogozhka')
+        self.assertEqual(V.material_from_texts(['экокожа']), 'leather')
+        self.assertIsNone(V.material_from_texts(['Ткань', 'Диван Модерн']))
+        p, fl = V.build_prompt('диван', 'velour', 'a fabric sofa')
+        self.assertEqual(fl, [])
+        self.assertIn('crushed velvet', p)
+        self.assertIn('marbled mottled pile', p)
+        p, fl = V.build_prompt('диван', None, 'a fabric sofa')
+        self.assertEqual((p, fl), ('a fabric sofa', ['unknown_material']))
+        p, fl = V.build_prompt('абажур', 'velour', 'x')
+        self.assertEqual((p, fl), ('x', ['unknown_role_noun']))
+
+    def test_seed_choice_and_order(self):
+        import sg_views as V
+        # симметричный предмет (перёд ≈ зад по силуэту): берём камеру, ближайшую к −Y, и помечаем «неуверенно»
+        sc = {'C0': .5556, 'C1': .5503, 'C2': .8435, 'C3': .833, 'C4': .5571, 'C5': .5515, 'C6': .8174, 'C7': .8113}
+        dirs = {'C2': (0.71, 1.62), 'C3': (-0.62, 1.64), 'C4': (-1.74, .69), 'C5': (-1.75, -.6), 'C6': (-.7, -1.61), 'C7': (.62, -1.64), 'C0': (1.75, -.7), 'C1': (1.75, .6)}
+        self.assertEqual(V.choose_seed(sc, dirs), ('C7', False))
+        # несимметричный (лучший заметно впереди остальных с другой стороны) — берём лучший по IoU, «уверенно»
+        sc2 = dict(sc, C2=.95)
+        self.assertEqual(V.choose_seed(sc2, dirs), ('C2', True))
+        self.assertEqual(V.choose_seed({'a': .7}, {}), ('a', True))
+        self.assertEqual(V.camera_order(['Camera_10', 'Camera_2', 'Camera_1'], 'Camera_2'), ['Camera_2', 'Camera_10', 'Camera_1'])
+        self.assertEqual(V.camera_order(['Camera_0', 'Camera_1', 'Camera_2', 'Camera_3'], 'Camera_2'), ['Camera_2', 'Camera_3', 'Camera_0', 'Camera_1'])
+
+    def test_no_product_ids_in_views(self):
+        import re
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sg_views.py'), encoding='utf-8').read()
+        self.assertIsNone(re.search(r'\d{5,}[_:]\d{5,}', src))                  # правило конвейера: ID товаров в коде запрещены
+
+    def test_custom_templates_roles_and_props(self):
+        import sg_views as V
+        P = V.CUSTOM_PROMPT_PROPS
+        self.assertEqual(P['qwen_prompt_template'], 'CUSTOM')
+        self.assertTrue(P['qwen_use_custom_prompts'] and P['qwen_external_style_initial_only'])
+        for k in ('qwen_custom_prompt_initial', 'qwen_custom_prompt_seq_replace', 'qwen_custom_prompt_seq_additional', 'qwen_custom_prompt_seq_none'):
+            self.assertIn('{main_prompt}', P[k])
+            self.assertNotIn('style', P[k].lower())
+        self.assertIn('product reference', P['qwen_custom_prompt_initial'])
+        for k in ('qwen_custom_prompt_seq_replace', 'qwen_custom_prompt_seq_additional', 'qwen_custom_prompt_seq_none'):
+            self.assertNotIn('product reference', P[k])
+        c = S.build_cfg('112923_13224664101879413845@r2b1+newcut', 'q2509vp', '/o', 's', 8, 2048, 42, 60)
+        self.assertTrue(c['view_prompts'])
+        self.assertEqual(c['scene_props']['qwen_prompt_template'], 'CUSTOM')
+        self.assertNotIn('view_prompts', S.build_cfg('112923_13224664101879413845@r2b1+newcut', 'q2509q5', '/o', 's', 8, 2048, 42, 60))
+
+
 if __name__ == '__main__':
     unittest.main()

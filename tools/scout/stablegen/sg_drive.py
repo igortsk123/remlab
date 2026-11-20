@@ -6,7 +6,9 @@
 Конфиг (JSON): glb, out, server ("127.0.0.1:8189"), preset ("QWEN PRECISE"|"QWEN SAFE"|…), prompt, cameras {mode,num}, texture_resolution, seed, style_image (путь к фото-образцу или null),
 model_unet (имя GGUF, если не первое в списке), lora_name (другая Lightning-LoRA, для 2511), bake_samples, stop_after ("cameras"|"generate"|null), timeout_s."""
 import json
+import math
 import os
+import re
 import sys
 import time
 import traceback
@@ -14,6 +16,10 @@ import traceback
 import addon_utils
 import bpy
 import importlib
+import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import sg_views  # noqa: E402
 
 ADDON = 'bl_ext.user_default.stablegen'
 
@@ -63,6 +69,70 @@ def view3d_override():
 
 def busy():
     return sg('utils').sg_modal_active(bpy.context)
+
+
+def _mask_norm(mask, h_out=96, w_out=384):
+    """Силуэт → канон для сравнения: обрезка по рамке, масштаб с сохранением пропорций, по центру холста h_out×w_out (nearest)."""
+    ys, xs = np.nonzero(mask)
+    if len(ys) == 0:
+        return np.zeros((h_out, w_out), bool)
+    m = mask[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+    s = min(h_out / m.shape[0], w_out / m.shape[1])
+    hh, ww = max(1, int(round(m.shape[0] * s))), max(1, int(round(m.shape[1] * s)))
+    yi = (np.arange(hh) / s).astype(int).clip(0, m.shape[0] - 1)
+    xi = (np.arange(ww) / s).astype(int).clip(0, m.shape[1] - 1)
+    out = np.zeros((h_out, w_out), bool)
+    y0, x0 = (h_out - hh) // 2, (w_out - ww) // 2
+    out[y0:y0 + hh, x0:x0 + ww] = m[np.ix_(yi, xi)]
+    return out
+
+
+def pick_seed_camera(sc, cams, photo_path, tmp_dir, prior_dir=(0.0, -1.0, 0.0), centre=None):
+    """Камера, силуэт предмета с которой лучше всего совпадает с силуэтом фото (IoU по канону). Рендер — Workbench, маленький, без света.
+    Возвращает (имя, {имя: IoU}, уверенно). Если среди равных по силуэту (в пределах SEED_TIE) есть камера из противоположной полусферы (перёд/зад неразличимы) → решает близость к «prior_dir» (−Y), уверенно=False."""
+    old = (sc.render.engine, sc.render.resolution_x, sc.render.resolution_y, sc.render.resolution_percentage, sc.render.film_transparent, sc.render.filepath, sc.camera)
+    img = bpy.data.images.load(photo_path)
+    pw, ph = img.size
+    pa = np.array(img.pixels[:], dtype=np.float32).reshape(ph, pw, 4)[::-1, :, 3] > 0.5
+    ref = _mask_norm(pa)
+    sc.render.engine = 'BLENDER_WORKBENCH'
+    sc.render.film_transparent = True
+    sc.render.resolution_percentage = 100
+    sc.render.resolution_x, sc.render.resolution_y = 320, 280
+    scores = {}
+    os.makedirs(tmp_dir, exist_ok=True)
+    for c in sorted(cams, key=lambda o: sg_views.natural_key(o.name)):
+        sc.camera = c
+        p = os.path.join(tmp_dir, f'sil-{c.name}.png')
+        sc.render.filepath = p
+        bpy.ops.render.render(write_still=True)
+        im = bpy.data.images.load(p)
+        w, h = im.size
+        a = np.array(im.pixels[:], dtype=np.float32).reshape(h, w, 4)[::-1, :, 3] > 0.5
+        m = _mask_norm(a)
+        scores[c.name] = round(float((m & ref).sum() / max(1, (m | ref).sum())), 4)
+    (sc.render.engine, sc.render.resolution_x, sc.render.resolution_y, sc.render.resolution_percentage, sc.render.film_transparent, sc.render.filepath, sc.camera) = old
+    dirs = {c.name: ((c.location - centre).x, (c.location - centre).y) for c in cams} if centre is not None else {}
+    seed, sure = sg_views.choose_seed(scores, dirs, prior_dir)
+    return seed, scores, sure
+
+
+def apply_view_prompts(sc, bb, front, cat_role, seed_name):
+    """Своя подсказка каждому виду: коллекция `scene.camera_prompts` + `use_camera_prompts` (аддон ставит её ПЕРЕД общим промптом). Возвращает ({камера: текст}, {камера: мета}, флаги)."""
+    from mathutils import Vector
+    ctr = sum(bb, Vector()) / 8
+    out, metas, flags = {}, {}, []
+    sc.camera_prompts.clear()
+    for c in sorted([o for o in sc.objects if o.type == 'CAMERA'], key=lambda o: sg_views.natural_key(o.name)):
+        text, meta = sg_views.view_text(cat_role, tuple(c.location - ctr), tuple(front), is_seed=(c.name == seed_name))
+        item = sc.camera_prompts.add()
+        item.name = c.name
+        item.prompt = text
+        out[c.name], metas[c.name] = text, meta
+        if not meta['known'] and 'unknown_role' not in flags:
+            flags.append('unknown_role')
+    sc.use_camera_prompts = True
+    return out, metas, flags
 
 
 def steps():
@@ -154,6 +224,34 @@ def steps():
         ST['framing'].append({'cam': c.name, 'dist': round(dist, 2), 'w': round(w, 3), 'h': round(h, 3)})
         say(f'кадрирование {c.name}: расстояние {dist:.2f}, bbox занимает {w * 100:.0f} % ширины и {h * 100:.0f} % высоты кадра')
     save_status()
+    if CFG.get('view_prompts'):                           # T-90/7 ⑪: зерно по силуэту фото → порядок обхода → тексты видов по классу роли и зоне от «переда» (= направление зерна)
+        scn = bpy.context.scene
+        cams_all = [o for o in scn.objects if o.type == 'CAMERA']
+        ctr = sum(bb, Vector()) / 8
+        seed, scores, sure = pick_seed_camera(scn, cams_all, CFG['style_image'], os.path.join(OUT, 'seed-sil'), centre=ctr)
+        ST['seed'] = {'camera': seed, 'iou': scores, 'confident': sure}
+        say(f'зерно (камера, чей силуэт ближе к фото): {seed}; IoU {scores}; {"уверенно" if sure else "НЕУВЕРЕННО (перёд/зад неразличимы) — решает близость к −Y"}')
+        order = sg_views.camera_order([c.name for c in cams_all], seed)
+        scn.sg_camera_order.clear()
+        for n_ in order:
+            scn.sg_camera_order.add().name = n_
+        scn.sg_use_custom_camera_order = True
+        ST['order'] = order
+        say(f'порядок камер: {order}')
+        sv = next(c for c in cams_all if c.name == seed)
+        fv = sv.location - ctr
+        front = CFG.get('front_vec') or (fv.x, fv.y, 0.0)
+        ST['view_prompts'], ST['view_meta'], flags = apply_view_prompts(scn, bb, front, CFG.get('cat_role', ''), seed)
+        if CFG.get('prompt_flags'):
+            flags += list(CFG['prompt_flags'])
+        if not sure:
+            flags.append('seed_ambiguous_front_by_minus_Y')
+        ST['flags'] = flags
+        for name_ in order:
+            say(f"подсказка вида {name_} {ST['view_meta'][name_]}: {ST['view_prompts'][name_]}")
+        if flags:
+            say(f'ФЛАГИ: {flags}')
+        save_status()
     if CFG.get('stop_after') == 'cameras':
         return
 
