@@ -65,6 +65,20 @@ FILL = {
     'draft_max_dist': 0.03,          # trellis: дальше от поверхности черновика (доли размера предмета) — черновика в тексele нет
 }
 BLACK_MAX = TC.UNPAINTED_SG['black_max']
+VIEW_CLASSES = getattr(TC, 'VIEW_CLASSES', ('низ', 'верх', 'зад', 'перёд', 'бока', 'прочее'))   # как в сторожe T-152 (tex_coverage.view_class, ветка tex-guard-152); после слияния — только TC
+
+
+def view_class(nout):
+    """(n,3) наружные нормали (Y вверх, перёд +Z) → индексы в VIEW_CLASSES. Та же раскладка, что `tex_coverage.view_class` (ветка tex-guard-152, 8be604ff)."""
+    if hasattr(TC, 'view_class'):
+        return TC.view_class(nout)
+    k = np.full(len(nout), 5, np.int8)
+    k[np.abs(nout[:, 0]) > 0.5] = 4
+    k[nout[:, 2] > 0.5] = 3
+    k[nout[:, 2] < -0.5] = 2
+    k[nout[:, 1] > 0.5] = 1
+    k[nout[:, 1] < -0.5] = 0
+    return k
 
 
 # ---------------------------------------------------------------- цвет -----------------------------------------
@@ -677,6 +691,9 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         bad_before = int((unpainted_mask(tex_in[gi].reshape(-1, 3)[tx.ti])).sum())
         bad_after = int((unpainted_mask(rgb.reshape(-1, 3)[tx.ti])).sum())
         rep['geoms'][gi].update({'unpainted_before': bad_before, 'unpainted_after': bad_after})
+        vc = view_class(tx.N * np.where((tx.Q * tx.N).sum(axis=1) >= 0.0, 1.0, -1.0)[:, None])     # вид по наружной нормали (наружу — по знаку (точка − центр)·нормаль)
+        ub, ua = unpainted_mask(tex_in[gi].reshape(-1, 3)[tx.ti]), unpainted_mask(rgb.reshape(-1, 3)[tx.ti])
+        rep['geoms'][gi]['by_view'] = [[int((vc == i).sum()), int((vc == i)[ub].sum()), int((vc == i)[ua].sum())] for i in range(len(VIEW_CLASSES))]
         nfc = np.bincount(tx.f, minlength=len(tx.F)).astype(np.float64)
         tx.unk_face = (np.bincount(tx.f, weights=(~kn[gi].reshape(-1)[tx.ti]).astype(np.float64), minlength=len(tx.F)) > 0.5 * np.maximum(nfc, 1.0)) & (nfc > 0)
         rep['geoms'][gi]['steps'] = {'before': step_stats(tx, tex_in[gi], c['step_de']), 'after': step_stats(tx, rgb, c['step_de'])}
@@ -698,6 +715,9 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     rep['far_pct'] = {'known': round(fk, 2), 'filled': round(ff, 2), 'excess': round(ff - fk, 2)}
     n_all = sum(r['texels'] for r in rep['geoms'])
     rep['texels'] = n_all
+    bv = np.sum([r['by_view'] for r in rep['geoms']], axis=0)
+    rep['unpainted_by_view'] = {nm: {'texels_pct': round(100.0 * int(bv[i, 0]) / max(n_all, 1), 2), 'before_of_all_pct': round(100.0 * int(bv[i, 1]) / max(n_all, 1), 3),
+                                     'after_of_all_pct': round(100.0 * int(bv[i, 2]) / max(n_all, 1), 3)} for i, nm in enumerate(VIEW_CLASSES)}
     rep['known_pct'] = round(100.0 * sum(r['known'] for r in rep['geoms']) / max(n_all, 1), 2)
     rep['mirrored_pct'] = round(100.0 * sum(r['mirrored'] for r in rep['geoms']) / max(n_all, 1), 2)
     rep['geodesic_pct'] = round(100.0 * sum(r['geodesic'] for r in rep['geoms']) / max(n_all, 1), 2)
@@ -805,7 +825,7 @@ def render_ortho(geoms: list, texs: list, azimuth: float = 180.0, res: int = 102
 # ---------------------------------------------------------------- этап 07 пути покраски: выход, проверка, кадр ----
 STAGE = '07-fill'
 THRESHOLDS = {                                   # пороги этапа (check.json): плана R1 — ΔE00 перёд↔зад ≤ 5–6; «ступени» — предварительно, уточнить по прогонам
-    'empty_pct': ('<=', 0.0),                    # «не закрашено» после заливки, % текселей развёртки
+    'empty_pct': ('<=', 0.5),                    # ОБЩЕЕ «не закрашено» после заливки (все тексели, дно и зад тоже), % — решение директора 20.11, порог ≈0,5 %
     'dE00_front_back': ('<=', 6.0),              # перёд↔зад одной части: худшая из частей, у которых известного ≥ 1 % известного предмета
     'filled_faces_step_pct': ('<=', 10.0),       # доля достроенных граней со скачком цвета к соседу той же части (ΔE00 > FILL['step_de'])
     'far_excess_pct': ('<=', 10.0),              # мера пятен: доля достроенных текселей с ΔE00 > far_de от цвета части МИНУС та же доля у видимых (фактура фото не «пятно»)
@@ -931,5 +951,5 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     with open(os.path.join(d, 'report.json'), 'w', encoding='utf-8') as f:
         json.dump(report, f, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
     check = PS.write_check(d, out_name or STAGE, sku, None, dict(metrics['empty_pct'], name='empty_pct'), '', metrics={k: v for k, v in metrics.items() if k != 'empty_pct'}, seconds=secs,
-                           outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], steps=rep['steps'], parts=parts_note)
+                           outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note)
     return {'check': check, 'report': rep, 'geoms': geoms, 'tex_before': tex_before, 'tex_after': tex_after, 'known': known, 'parts': parts, 'dir': d, 'deltaE': de, 'kback': kback}

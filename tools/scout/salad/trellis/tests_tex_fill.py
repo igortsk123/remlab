@@ -171,6 +171,10 @@ def test_parts():
     ok(de(lab_D.mean(axis=0), TF.rgb2lab(col['blue'][None])[0]) > 25 and de(lab_D.mean(axis=0), TF.rgb2lab(col['yellow'][None])[0]) > 25, 'D не получил цвета части 1 (синий, жёлтый)')
     ok(rep['unpainted_before_pct'] > 5 and rep['unpainted_after_pct'] == 0.0, f'покрытие: «не закрашено» {rep["unpainted_before_pct"]} % → {rep["unpainted_after_pct"]} %')
     ok(rep['fallback_global'] == 0 and rep['no_patch'] >= 0, 'у обеих частей хватает известного: общей статистики не нужно')
+    bv = rep['unpainted_by_view']
+    ok(set(bv) == set(TF.VIEW_CLASSES) and abs(sum(v['texels_pct'] for v in bv.values()) - 100.0) < 0.2 and sum(v['after_of_all_pct'] for v in bv.values()) == 0.0
+       and sum(v['before_of_all_pct'] for v in bv.values()) > 5, f'по видам (низ/верх/зад/перёд/бока): до {sum(v["before_of_all_pct"] for v in bv.values()):.1f} %, после 0; доли видов в сумме 100 %')
+    ok(TF.THRESHOLDS['empty_pct'] == ('<=', 0.5), 'порог общего «не закрашено» после заливки — 0,5 % (решение директора 20.11)')
 
 
 def test_no_known_part():
