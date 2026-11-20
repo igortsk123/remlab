@@ -382,6 +382,12 @@ def steps():
 
     # 5. запекание в нашу UV
     yield 'bake'
+    try:                                                    # T-90/11 (директор 20.11): запекание под больше не ждёт — отдаём ядра тому, что ждёт оплаченный под (подготовка/приём видов следующего товара): nice 10 и 4 потока
+        os.nice(10)
+        bpy.context.scene.render.threads_mode = 'FIXED'
+        bpy.context.scene.render.threads = int(CFG.get('bake_threads', 4))
+    except Exception as e:  # noqa: BLE001
+        say(f'приоритет запекания не понижен: {e}')
     if CFG.get('bake_margin'):                              # запас запекания (пиксели за краем островка) — против тёмного ободка; в аддоне берётся max(этого, 16)
         bpy.context.scene.render.bake.margin = int(CFG['bake_margin'])
         say(f'запас запекания: {bpy.context.scene.render.bake.margin} px')
