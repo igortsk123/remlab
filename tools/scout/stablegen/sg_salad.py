@@ -534,7 +534,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--image', help='образ группы: тег или digest, ghcr.io/igortsk123/mesh-comfy-trial:stablegen-0460')
-    ap.add_argument('--runs', required=True, help='<товар>[@форма][+cut-метка]:<вариант>[,…]')   # без значения по умолчанию: ID товара в коде запрещён (T-20261120-147)
+    ap.add_argument('--runs', default=None, help='<товар>[@форма][+cut-метка]:<вариант>[,…]')   # без значения по умолчанию: ID товара в коде запрещён (T-20261120-147)
     ap.add_argument('--tier', default='high', choices=['batch', 'low', 'medium', 'high'])
     ap.add_argument('--cpu', type=int, default=8)
     ap.add_argument('--mem-mb', type=int, default=32768)
@@ -563,6 +563,8 @@ def main() -> int:
     if a.stop_only:
         MG.env_from_file()
         return 0 if BR.stop_and_verify(f'trial-sg-{a.suffix}') else 1
+    if not a.runs:
+        sys.exit('нужен --runs <товар>[@форма][+cut-метка]:<вариант>[,…] (товар по умолчанию в коде запрещён, T-20261120-147)')
     if not a.image or ('@' not in a.image and ':' not in a.image):
         sys.exit('нужен --image: тег или digest с именем репозитория')
     return run(a, MG, BR)
