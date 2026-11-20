@@ -131,6 +131,13 @@ def install_back_hook(info):
         sc = context.scene
         name = op._cameras[op._current_image].name
         if name not in info['cameras'] or op._current_image == 0:
+            if info.get('photo_prompt'):                       # T-90/11: вид с фото — подпись без цвета (фото ведёт; цвет каталога «серит» узор)
+                saved_p = sc.comfyui_prompt
+                try:
+                    sc.comfyui_prompt = info['photo_prompt']
+                    return orig(self, context, camera_id=camera_id)
+                finally:
+                    sc.comfyui_prompt = saved_p
             return orig(self, context, camera_id=camera_id)
         saved = (sc.qwen_external_style_initial_only, sc.qwen_external_style_image, sc.sequential_ipadapter)
         try:
@@ -294,6 +301,9 @@ def steps():
         back_ = sg_views.back_cameras(dirs_, front, CFG.get('back_limit', sg_views.BACK_LIMIT_DEG)) if CFG.get('back_mode') else []
         if back_:
             ST['back'] = {'mode': CFG['back_mode'], 'cameras': back_}
+            if CFG.get('photo_no_colour') and CFG['back_mode'] == 'no_photo':    # T-90/11: виды с фото — подпись без цвета, цвет каталога держат только виды без фото
+                ST['back']['photo_prompt'] = sg_views.strip_colour(CFG['prompt'])
+                say(f"подпись видов с фото (без цвета): {ST['back']['photo_prompt']}")
             if CFG['back_mode'] == 'drop':                    # T5d: камеры строго сзади нет вовсе — зад красится из ±135
                 for n_ in back_:
                     bpy.data.objects.remove(bpy.data.objects[n_], do_unlink=True)

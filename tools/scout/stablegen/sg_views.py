@@ -242,6 +242,22 @@ def colour_from_texts(texts):
     return None
 
 
+def strip_colour(prompt):
+    """T-90/11: подпись без слова цвета — для видов С фото (их ведёт фото, цвет из каталога им лишний и «серит» узор): «a graphite chest of drawers, matte …» → «a chest of drawers, matte …».
+    Слово цвета берём из таблицы COLOUR_WORDS (значения), только в первой фразе до запятой; артикль a/an пересчитывается. Нет слова цвета — подпись как есть."""
+    head, sep, tail = prompt.partition(',')
+    m = re.match(r'^(an?)\s+(.*)$', head.strip(), flags=re.I)
+    if not m:
+        return prompt
+    rest = m.group(2)
+    for col in sorted(set(COLOUR_WORDS.values()), key=len, reverse=True):
+        if rest.casefold().startswith(col + ' '):
+            rest = rest[len(col) + 1:]
+            art = 'an' if rest[:1].casefold() in 'aeiou' else 'a'
+            return f'{art} {rest}{sep}{tail}'
+    return prompt
+
+
 def build_prompt(cat_role, material, colour=None):
     """Основной промпт из атрибутов каталога: «a <цвет> <предмет по роли>, <фраза материала>». Никогда не подменяется «заготовкой по ID»:
     неизвестная роль → «piece of furniture», неизвестный материал/цвет → честно без них. Возвращает (промпт, флаги)."""

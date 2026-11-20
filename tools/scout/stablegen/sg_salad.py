@@ -78,6 +78,7 @@ VARIANTS['q2509t5d'] = dict(_T5BASE, back_mode='drop', label='T5d: T5b + пор�
 VARIANTS['q2509t5e'] = dict(_T5BASE, back_mode='side_sample', label='T5e: T5b + порядок от переда; виду сзади вместо фото магазина — готовый вид бока (±90)')
 VARIANTS['q2509t5g'] = dict(_T5BASE, back_mode='no_photo', back_limit=100.0, label='T5g: T5b + порядок от переда; фото получают виды ≤±90°, виды ±135° и 180° — без фото (только подпись и контекст чистых боков)')
 VARIANTS['q2509t5h'] = dict(VARIANTS['q2509t5g'], back_suffix=', same colour and material as its side panels, top same as the front view top', label='T5h: как T5g + в подписи видов сзади «цвет и материал как у боков, верх как у переда» (общее правило: невидимые стороны = материал боков)')
+VARIANTS['q2509t5i'] = dict(VARIANTS['q2509t5g'], photo_no_colour=True, label='T5i: как T5g, но у видов С фото подпись без цвета (тип+материал), цвет каталога — только видам без фото (директор 20.11: перёд vid0 вышел серым)')
 VARIANTS['q2509t5f'] = dict(_T5BASE, back_mode='no_photo', label='T5f: T5b + порядок от переда; виду сзади фото не даём, только подпись и последовательный контекст')
 VARIANTS['q2509t3'] = dict(VARIANTS['q2509vp'], label='диагностика: подсказки видов + прежний короткий промпт')
 VARIANTS['q2509t4'] = dict(VARIANTS['q2509q5'], scene_props={'qwen_external_style_initial_only': True}, label='диагностика: прежний промпт, фото только первому виду')
@@ -219,7 +220,7 @@ def build_cfg(key: str, var: str, out: str, server: str, cameras: int, texture: 
     cfg = {'glb': glb, 'out': out, 'server': server, 'preset': 'QWEN PRECISE', 'prompt': 'a piece of furniture',
            'cameras': {'mode': 'orbit_ring', 'num': cameras}, 'texture_resolution': texture, 'bake_samples': 16, 'seed': seed, 'timeout_s': timeout_s,
            'style_image': style, 'model_unet': v['unet'], 'lora_name': v['lora']}
-    for k in ('no_lora', 'scene_props', 'megapixels', 'bake_margin', 'bake_denoise', 'view_prompts', 'vp_off', 'short_side', 'back_suffix', 'order_mode', 'back_mode', 'back_limit'):
+    for k in ('no_lora', 'scene_props', 'megapixels', 'bake_margin', 'bake_denoise', 'view_prompts', 'vp_off', 'short_side', 'back_suffix', 'order_mode', 'back_mode', 'back_limit', 'photo_no_colour'):
         if k in v:
             cfg[k] = v[k]
     attrs = catalog_attrs(prod)                              # T-90/10: подсказка — из каталога (роль + материал + цвет), для ВСЕХ товаров; словаря по ID нет

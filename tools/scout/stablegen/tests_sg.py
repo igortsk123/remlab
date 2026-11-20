@@ -381,6 +381,14 @@ class RunpodDriverStops(unittest.TestCase):
         cfg = S.build_cfg('112923_13224664101879413845@r2b1+newcut', 'q2509t5g', '/o', 's', 2, 2048, 42, 60)
         self.assertEqual(cfg['back_limit'], 100.0)                           # порог доходит до конфига драйвера, в коде драйвера — только значение по умолчанию
 
+    def test_strip_colour_for_photo_views(self):
+        import sg_views as V
+        self.assertEqual(V.strip_colour('a graphite chest of drawers, matte laminated chipboard finish'), 'a chest of drawers, matte laminated chipboard finish')
+        self.assertEqual(V.strip_colour('a beige armchair, coarse woven linen-like upholstery, matte'), 'an armchair, coarse woven linen-like upholstery, matte')
+        self.assertEqual(V.strip_colour('an armchair'), 'an armchair')                                        # цвета нет — как есть
+        self.assertEqual(V.strip_colour('a light blue sofa, velvet'), 'a sofa, velvet')                        # цвет из двух слов
+        self.assertEqual(V.strip_colour('a wardrobe, white doors'), 'a wardrobe, white doors')                # цвет вне первой фразы не трогаем
+
     def test_shape_and_cut_dirs_by_suffix(self):
         c = S.build_cfg('112923_321183910010607839@n1024+cut-vyb10', 'q2509t5g', '/o', 's', 8, 2048, 42, 60)
         self.assertTrue(c['glb'].endswith('t90-1120/shape/out/112923_321183910010607839-n1024.glb'))
