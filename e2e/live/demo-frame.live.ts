@@ -93,6 +93,12 @@ test("2.12 фото с изменениями из конструктора", as
   await page.locator("#consShot").click();                // demo-02: из конструктора — в окно с живой сценой
   await expect(page.locator("#shot .livecv, #shot .shotwrap img.vmain").first()).toBeVisible({ timeout: 60_000 });
   await expect(page.locator("#cons")).toBeHidden();
-  expect(await page.evaluate("VW.mode")).toBe("walk");
-  console.log(`  · окно с изменениями из конструктора за ${Math.round((Date.now() - t) / 1000)} с`);
+  // режим окна — по правилу страницы (`openLiveWindow`, `index.html:10352`), не «всегда 3D»: есть хоть одно фото комнаты — «Фото» с
+  // затемнённым последним фото и «Вы изменили комнату» (`vwStaleUi`; «после правки „Фото“ не прячем», 4c80b277, T-20261107-66 Б);
+  // фото нет — «3D» (живая сцена). Правка при этом должна дойти до окна: у «Фото» — плашка, у «3D» — сцена
+  const photo = await page.evaluate("vwPhotoShots().length > 0") as boolean;
+  expect(await page.evaluate("VW.mode")).toBe(photo ? "photo" : "walk");
+  if (photo) await expect(page.locator("#shot .vstale")).toBeVisible();
+  else await expect(page.locator("#shot .livecv")).toBeVisible();
+  console.log(`  · окно с изменениями из конструктора за ${Math.round((Date.now() - t) / 1000)} с (${photo ? "«Фото» с плашкой «изменили комнату»" : "3D"})`);
 });

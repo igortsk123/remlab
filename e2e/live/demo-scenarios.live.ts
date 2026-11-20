@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 
 import { demoUrl } from "./browser";
 import { HOME_READY, homeStyles, pickInWindow, pickStyle } from "./home";
+import { LIVE_READY, ctaLabel, enter3D, openWithoutPhoto, orderRender, photoJob, routeCycles, type PhotoStage } from "./window";
 
 // КАРТА СЦЕНАРИЕВ ДЕМО НА ПРОДЕ (план demo-03, `.memory_bank/domain/demo-scenario-map.md`). Номера тестов = номера строк
 // карты. Каждая проверка печатает число (время, количество, сумму): «не упало» — не проверка. Платный путь не тратит
@@ -130,15 +131,18 @@ test("2.4 режимы в одном окне: «Фото» — только п�
     await expect(page.locator(`[data-vm="${m}"]`)).toHaveClass(/on/);
     say(`режим ${m}: ${Date.now() - t} мс`);
   }
-  await expect(page.locator("#shot .livecv")).toBeVisible();   // закончили в 3D — видна живая сцена (картинка «Фото» под ней спрятана)
+  // закончили в 3D — видна живая сцена (картинка «Фото» под ней спрятана); холст появляется, когда сцена построена, — ждём её готовности
+  await page.waitForFunction(LIVE_READY, null, { timeout: 90_000 });
+  await expect(page.locator("#shot .livecv")).toBeVisible();
 });
 
 test("2.24 без реалистичного фото — 3D с ценниками и «Сделать реалистичнее»; без 3D — заглушка, не эскиз (demo-09)", async ({ page }) => {
+  await routeCycles(page);
   await openDemo(page, "?live=force");
-  await page.evaluate("shots = shots.filter((x) => x.quality !== 'realistic'); openLiveWindow()");
-  await page.waitForFunction("LIVE.scene && LIVE.state === 'ready'", null, { timeout: 120_000 });
+  // «без фото» — без ЛЮБОГО фото (рендер тоже фото, `vwIsPhoto`): иначе окно открывается в «Фото» и сцена не строится (`e2e/live/window.ts`)
+  await openWithoutPhoto(page);
   expect(await page.evaluate("VW.mode")).toBe("walk");
-  await expect(page.locator("#vCta")).toHaveText(/Сделать фото/);
+  expect(await ctaLabel(page)).toMatch(/Сделать фото/);
   // «Фото» без снимка не прячется (T-20261113-16, владелец TG 1516): внутри — «Фото этой расстановки ещё нет» и «Сделать фото»
   await page.locator('[data-vm="photo"]').click();
   await expect(page.locator("#shot .vtrph")).toContainText("Фото этой расстановки ещё нет");
@@ -148,43 +152,61 @@ test("2.24 без реалистичного фото — 3D с ценникам
   say("ценников в 3D:", await page.locator("#vpins .vpin:not([hidden])").count());
   await page.goto(demoUrl("/demo/?live=0"), { waitUntil: "networkidle" });
   await page.waitForFunction("typeof allVariants === 'function' && allVariants().length > 0 && !!FLAT");
-  await page.evaluate("shots = shots.filter((x) => x.quality !== 'realistic'); openLiveWindow()");
+  await page.evaluate("shots = shots.filter((x) => !vwIsPhoto(x)); openLiveWindow()");
   await expect(page.locator("#vStub")).toBeVisible();
   await expect(page.locator("#vCta")).toBeVisible();
   await expect(page.locator("#shot .restale")).toBeHidden();
 });
 
-// 2.25–2.26 (demo-09): «Сделать реалистичнее» — фоновое задание; ответ сервера подменён (платный путь не вызывается)
-// 2.26 после demo-20 Г5: менять расстановку, пока рисуется её фото, нельзя (`vwEditLock`) — правка не применяется, подсказка; фото — само
+// 2.25–2.26 (demo-09; после T-20261117-20/2 — два шага): «Сделать фото» — рендер, потом «Улучшить фото» — нейросеть по этому рендеру; ответы
+// сервера подменены (рендер и платный путь не вызываются, `e2e/live/window.ts`). Ход — по центру окна (`vwPhWaitUi`, `index.html:11962`):
+// рендер — «Делаю фото · N %», улучшение — «Улучшаю · N %» (слова владельца 17.11, TG 1668); кнопка на это время заблокирована, подпись
+// прежняя (владелец 18.11, TG 1893/1895; `vwCtaUi`). 2.26 (demo-20 Г5): пока рисуется фото этой расстановки, менять её нельзя
+// (`vwEditLock`, `index.html:11945`) — правка не применяется, подсказка; готовое фото встаёт само
 test("2.25–2.26 фото готово для этой расстановки → «Фото» само; правка во время съёмки не применяется — подсказка, фото той же расстановки", async ({ page }) => {
-  let ready = false;
-  await page.route(/\/api\/render/, (r) => r.fulfill({ json: { job: "fake-" + Date.now() } }));
-  await page.route(/\/api\/job\?/, (r) => r.fulfill({ json: ready
-    ? { shots: [{ camera: "C1", url: "/demo/img/og.jpg" }, { camera: "C2", url: "/demo/img/og.jpg" }], backend: "fake" }
-    : { status: "running", eta: 30 } }));
+  let stage: PhotoStage = "render-run";
+  const orders = await routeCycles(page);
+  const improves: string[] = [];
+  await page.route(/\/api\/render(?!\/cycles)/, (r) => { improves.push(String(r.request().postData() || "").slice(0, 200)); return r.fulfill({ json: { job: "fake-" + Date.now() } }); });
+  await page.route(/\/api\/job\?/, (r) => r.fulfill({ json: photoJob(stage) }));
   await openDemo(page, "?live=force");
-  await page.evaluate("shots = shots.filter((x) => x.quality !== 'realistic'); openLiveWindow()");
-  await page.waitForFunction("LIVE.scene && LIVE.state === 'ready'", null, { timeout: 120_000 });
-  await page.locator("#vCta").click();
-  // сразу «Фото» с ходом работы во весь кадр (demo-20 Б3, владелец 22.10 TG 791/795)
-  await expect(page.locator("#shot .vphwait b")).toHaveText(/^Улучшаю… \d+ %$/);
+  await openWithoutPhoto(page);
+  await orderRender(page);
+  expect(orders.length, "заказ рендера ушёл подменой").toBe(1);
+  // сразу «Фото» с ходом работы во весь кадр (demo-20 Б3, владелец 22.10 TG 791/795); кнопка — заблокирована, подпись не меняется
+  await expect(page.locator("#shot .vphwait b")).toHaveText(/^Делаю фото · \d+ %$/);
   expect(await page.evaluate("VW.mode")).toBe("photo");
-  ready = true;
-  await expect.poll(() => page.evaluate("VW.mode"), { timeout: 20_000 }).toBe("photo");
-  // «Фото» включено сразу с ходом работы (demo-20 Б3) — ждём КОНЕЦ задания: пока «Улучшаю…», правки заперты (demo-20 Г5, `vwEditLock`)
+  await expect(page.locator("#vCta")).toBeDisabled();
+  expect(await ctaLabel(page)).toMatch(/Сделать фото/);
+  stage = "render-done";
+  // ждём КОНЕЦ задания: пока рисуется, правки заперты (demo-20 Г5, `vwEditLock`)
   await expect(page.locator("#shot .vphwait")).toHaveCount(0, { timeout: 20_000 });
+  expect(await page.evaluate("VW.mode")).toBe("photo");
   await expect(page.locator('[data-vm="photo"]')).toBeVisible();
-  await expect(page.locator("#vCta")).toBeHidden();
-  ready = false;
-  await page.evaluate("(() => { const g = devGroups().find((x) => x.kind === 'flooring'); devSet(g.id, g.variants[1].id); })()");
-  await expect.poll(() => page.evaluate("VW.mode")).toBe("walk");               // изменение → 3D
+  // рендер без улучшения → «Улучшить фото» (`vwCtaKind`)
+  await expect.poll(() => ctaLabel(page)).toMatch(/Улучшить фото/);
+  await expect(page.locator("#vCta")).toBeEnabled();
+  stage = "improve-run";
   await page.locator("#vCta").click();
+  await expect(page.locator("#shot .vphwait b")).toHaveText(/^Улучшаю · \d+ %$/);
+  expect(improves.length, "заказ «Улучшить» ушёл подменой").toBe(1);
+  expect(improves[0], "заказ несёт рендер, который улучшают").toContain("render_key");
+  stage = "improve-done";
+  await expect(page.locator("#shot .vphwait")).toHaveCount(0, { timeout: 20_000 });
+  expect(await page.evaluate("VW.mode")).toBe("photo");
+  await expect(page.locator('[data-vm="photo"]')).toBeVisible();
+  await expect(page.locator("#vCta")).toBeHidden();                             // фото улучшено — кнопок нет
+  // 2.26: изменение → 3D (`vwAfterChange`); новая расстановка без фото — снова «Сделать фото»
+  await page.evaluate("(() => { const g = devGroups().find((x) => x.kind === 'flooring'); devSet(g.id, g.variants[1].id); })()");
+  await expect.poll(() => page.evaluate("VW.mode")).toBe("walk");
+  stage = "render-run";
+  await orderRender(page);
   const floor = "(() => { const g = devGroups().find((x) => x.kind === 'flooring'); return devPick(g).id; })()";
   const before = await page.evaluate(floor);
   await page.evaluate("(() => { const g = devGroups().find((x) => x.kind === 'flooring'); devSet(g.id, g.variants[2].id); })()");
-  await expect(page.locator("#toast")).toContainText("Менять можно, когда улучшение закончится");
+  await expect(page.locator("#toast")).toContainText("Менять можно, когда фото будет готово");
   expect(await page.evaluate(floor)).toBe(before);                              // правка не применилась
-  ready = true;
+  stage = "render-done";
   await expect(page.locator("#shot .vphwait")).toHaveCount(0, { timeout: 20_000 });
   expect(await page.evaluate("VW.mode")).toBe("photo");
   await expect(page.locator('[data-vm="photo"]')).toBeVisible();
@@ -473,8 +495,9 @@ test("2.34 липкая шапка после прокрутки ≤ 140 px (Р�
 });
 
 // 2.35 корзина (владелец 18.10): две коллекции и по одной на каждую схему пакета при подменённом лимите — без ПДн, без номера менеджера.
-// Перерасход (demo-23, ADR-0308) — не отказ, а доплата: полоса окна «выйдет за лимит на N», включение — только по «Доплата N — подтвердить?»
-test("2.35 корзина: 0 на старте; первая гостиная включается сама; вторая — «вместо …?»; «Не включать»; перерасход — «выйдет за лимит», доплата с подтверждением (общий и раздельный пакет)", async ({ browser }) => {
+// Перерасход (demo-23, ADR-0308) — не отказ, а доплата: полоса окна «доплата N» (выбрано сверх лимита; «выйдет за лимит на N» — только у предпросмотра),
+// включение — только по «Доплата N — подтвердить?»
+test("2.35 корзина: 0 на старте; первая гостиная включается сама; вторая — «вместо …?»; «Не включать»; перерасход — «доплата N» в окне и доплата с подтверждением (общий и раздельный пакет)", async ({ browser }) => {
   test.setTimeout(8 * 60_000);
   const { ctx, page } = await phonePage(browser, "?live=force");
   expect((await basketState(page)).cert).toBe(0);
@@ -513,7 +536,14 @@ test("2.35 корзина: 0 на старте; первая гостиная в
     expect(await o.page.locator("#hmCert [role=group] [role=meter]").count()).toBe(pkg.mode === "split" ? 2 : 1);
     await o.page.locator("#hmRooms .hm-room[data-room=living] [data-swap]").click();
     await o.page.waitForSelector("#shot.on.v2 #vside");
-    await expect(o.page.locator("#vsum .cs-ov")).toContainText(/выйдет за лимит на [\d\s  ]+₽/, { timeout: 30_000 });
+    // слова полосы — по сумме (`index.html:3397` `ovLine`): выбрано сверх лимита — «доплата N», только предпросмотр расстановки — «выйдет за лимит на N».
+    // С home-figma-02 «Выбрано» = сумма вариантов ВСЕХ комнат главной (ведущий 07.11), а не одна корзина: при лимите 100 000 перерасход есть ещё до
+    // открытия окна — это «доплата» (выбранное), «выйдет за лимит» остаётся только у предпросмотра, когда выбранное в лимите
+    await expect(o.page.locator("#vsum .cs-ov")).toContainText(/доплата [\d\s  ]+₽/, { timeout: 30_000 });
+    const top = Number(((await o.page.locator("#vsum .cs-ov").innerText()).match(/доплата ([\d\s  ]+)₽/)?.[1] ?? "").replace(/\D/g, ""));
+    say(pkg.mode, "доплата в окне:", top);
+    expect(top, "доплата в окне").toBeGreaterThan(0);
+    if (pkg.mode === "pooled") expect(top, "доплата = выбрано на главной − лимит").toBe(Math.round(await o.page.evaluate("homeChosen()") as number) - 100_000);
     await o.page.evaluate(() => document.getElementById("vFav")!.click());
     await o.page.locator("#favOk").click();
     await expect(o.page.locator("#favPop")).toContainText(/Доплата [\d\s  ]+₽\. Подтвердить\?/, { timeout: 30_000 });
@@ -614,12 +644,15 @@ test("2.37 свёрнутая шторка = плашка + чип + кнопк�
     const ctx = await browser.newContext({ ...phone, viewport: vp });
     const page = await ctx.newPage();
     await page.route(/\/api\/events/, (r) => r.fulfill({ status: 204, body: "" }));
+    await routeCycles(page);
     await page.goto(demoUrl("/demo/?live=force"), { waitUntil: "load" });
     await page.waitForFunction(basketReady, null, { timeout: 90_000 });
+    // кнопка «Сделать фото» есть только в «3D» без фото (`vwCtaKind`, index.html:12002); у настоящего варианта фото (рендер или улучшенное)
+    // бывают — тогда окно в «Фото», где кнопка другая («Улучшить фото») или её нет. Меряем вариант без фото (`e2e/live/window.ts`)
+    await page.evaluate("shots = shots.filter((x) => !vwIsPhoto(x))");
     await page.locator("#hmRooms .hm-room[data-room=living] [data-swap]").click();
     await expect(page.locator("#shot")).toHaveClass(/\bon\b/);
-    // у варианта может быть реалистичное фото — тогда окно в «Фото», где кнопки нет (снимок уже есть); меряем в 3D
-    await page.evaluate("if (VW.mode === 'photo') vwMode('walk')");
+    expect(await page.evaluate("VW.mode")).toBe("walk");
     await page.waitForTimeout(900);
     const open = await collapsed(page);
     say(`${vp.width}×${vp.height}`, "открыл окно:", JSON.stringify(open));
@@ -627,7 +660,9 @@ test("2.37 свёрнутая шторка = плашка + чип + кнопк�
     expect(open.ctaTop).toBeGreaterThanOrEqual(0);
     expect(open.ctaBottom).toBeLessThanOrEqual(open.H);
     if (vp.height === 667) expect(open.h).toBeLessThanOrEqual(190);
-    await expect(page.locator("#vCta")).toHaveText(/Сделать фото/);
+    // на малом телефоне (375×667) кнопка — значок, подпись в `title`/`aria-label` (21c184e9, `vwCtaUi`); на 390×844 — текст
+    await expect(page.locator("#vCta")).toBeVisible();
+    expect(await ctaLabel(page)).toMatch(/Сделать фото/);
     // замена как человек: чип → полная, «Заменить» у первой строки, первая карточка ленты
     await page.locator("#vgrip").click();
     await expect.poll(() => page.evaluate("document.getElementById('vside').dataset.pos")).toBe("3");
