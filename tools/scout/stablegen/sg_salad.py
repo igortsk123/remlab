@@ -327,6 +327,26 @@ def hf_head(url: str) -> int:
         return -1
 
 
+def api_retry(MG, path: str, method: str, body, name: str, say, sleep=time.sleep, rules=None):
+    """create/start группы Salad с повтором при 502/503/504 (T-153/1, признаки — rules/stablegen-transient.json → salad_api). Перед каждым повтором смотрим группу:
+    создание — группа уже есть (200) → считаем созданной; старт — состояние не «stopped» → уже стартовала. Возвращает (код, ответ, число_повторов)."""
+    import sg_transient
+    r = (rules or sg_transient.load_rules())['salad_api']
+    code, resp = MG.api(path, method, body) if body is not None else MG.api(path, method)
+    for attempt in range(r['retries']):
+        if code not in r['status_codes']:
+            return code, resp, attempt
+        sleep(sg_transient.pause_s(r, attempt))
+        c2, g = MG.api(f'/{name}')
+        state = ((g or {}).get('current_state') or {}).get('status') if c2 == 200 else None
+        if c2 == 200 and (method == 'POST' and path == '' or state not in (None, 'stopped')):
+            say(f'{method} {path or "создание"}: ответ {code}, но группа уже есть (состояние {state}) — считаю выполненным')
+            return 201 if path == '' else 202, resp, attempt + 1
+        say(f'{method} {path or "создание"}: краткий сбой Salad API {code} — повтор {attempt + 1}/{r["retries"]}')
+        code, resp = MG.api(path, method, body) if body is not None else MG.api(path, method)
+    return code, resp, r['retries']
+
+
 def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=hf_head, popen=subprocess.Popen) -> int:
     runs = parse_runs(a.runs)
     spec = weights_for(runs)
@@ -364,7 +384,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
     if code == 200:
         say(f'группа {name} уже есть — не пересоздаю молча (другая --suffix)')
         return 2
-    code, resp = MG.api('', 'POST', body)
+    code, resp, _n = api_retry(MG, '', 'POST', body, name, say, sleep)
     say('POST создание', code, str(resp)[:200] if code >= 300 else 'ok')
     if code >= 300:
         return 1
@@ -381,7 +401,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
                 break
             sleep(5)
         t_start = clock()
-        code, _ = MG.api(f'/{name}/start', 'POST')
+        code, _, _n = api_retry(MG, f'/{name}/start', 'POST', None, name, say, sleep)
         say('start HTTP', code)
         gw, ready_at, ever_ok, last_gb, last_gb_t, last_say, minute_say = None, None, False, None, None, 0.0, 0.0
         pending = list(runs)
@@ -483,7 +503,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
                     break
             if ready_at is not None:
                 if queue is None:
-                    queue = Q.RunQueue(pending, summary, start=start_run, finish=finish_run, say=say, progress=progress_line, job_timeout_s=a.job_timeout * 60)
+                    queue = Q.RunQueue(pending, summary, start=start_run, finish=finish_run, say=say, progress=progress_line, job_timeout_s=a.job_timeout * 60, relay_port=relay_port)
                 qwhy = queue.step(t, summary['cost_usd_est'], a.cap)
                 if qwhy:
                     summary['stopped_by'] = qwhy

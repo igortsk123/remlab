@@ -14,6 +14,8 @@ import json
 import os
 import shutil
 
+import sg_transient
+
 BAKE_EXPECT_S, BAKE_WATCH_FACTOR = 300, 3                  # ожидаемое запекание ≈4–5 мин (комод 226 с); дольше 3× — зависло (T-90/11: форма без UV крутилась 55 мин)
 FAIL_STREAK = 2
 MIN_FREE_GB = 1.5                                          # сторож места (директор 20.11): меньше — новый товар не даём, группу гасим, строка «диск»
@@ -56,6 +58,13 @@ def bake_started_at(it: dict) -> float | None:
     return next((it['started'] + float(t_rel) for t_rel, name in steps if name == 'bake'), None)
 
 
+def json_status(it: dict) -> dict:
+    try:
+        return json.load(open(os.path.join(it['dir'], 'blender', 'status.json'), encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+
+
 def stage_of(it: dict) -> str:
     try:
         return json.load(open(os.path.join(it['dir'], 'blender', 'status.json'), encoding='utf-8')).get('stage') or ''
@@ -64,11 +73,12 @@ def stage_of(it: dict) -> str:
 
 
 class RunQueue:
-    def __init__(self, runs, summary: dict, *, start, finish, say, progress, job_timeout_s: float, gate=None, fail_streak: int = FAIL_STREAK, free_gb=free_gb, min_free_gb: float = MIN_FREE_GB):
+    def __init__(self, runs, summary: dict, *, start, finish, say, progress, job_timeout_s: float, gate=None, fail_streak: int = FAIL_STREAK, free_gb=free_gb, min_free_gb: float = MIN_FREE_GB, relay_port: int | None = None):
         self.pending, self.summary = list(runs), summary
         self.start, self.finish, self.say, self.progress, self.gate = start, finish, say, progress, gate
         self.job_timeout_s, self.fail_streak_max = job_timeout_s, fail_streak
         self.free_gb, self.min_free_gb = free_gb, min_free_gb
+        self.relay_port, self._relay_seen = relay_port, 0
         self.cur, self.baking = None, []
         self.fail_streak, self.ever_ok = 0, False
         summary.setdefault('runs', [])
@@ -122,6 +132,15 @@ class RunQueue:
             rec = {'key': it['key'], 'variant': it['variant'], 'label': it['label'], 'dir': it['dir'], 'rc': rc, 'ok': ok, **extra, 'seconds': round(t - it['started'], 1), 'glb': glb if ok else None}
             if it.get('bake_hung'):
                 rec['note'] = 'запекание зависло'
+            rs = sg_transient.relay_stats(self.relay_port)               # T-153/1: сколько повторов связи понадобилось (мост + Blender) — в запись прогона и в журнал
+            drive_r = (json_status(it).get('server_retries') or 0)
+            if rs is not None or drive_r:
+                relay_n = (rs or {}).get('retries', 0) - self._relay_seen
+                self._relay_seen = (rs or {}).get('retries', 0)
+                rec['retries'] = {'relay': relay_n, 'drive': drive_r}
+                self.summary['retries_total'] = self.summary.get('retries_total', 0) + relay_n + drive_r
+                if relay_n or drive_r:
+                    self.say(f'повторы связи у {it["key"]}: мост {relay_n}, Blender {drive_r}')
             if ok:
                 freed = slim_run(it['dir'])
                 rec['freed_mb'] = round(freed / 2 ** 20)

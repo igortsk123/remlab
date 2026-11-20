@@ -9,6 +9,10 @@ import argparse
 import asyncio
 import os
 import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import sg_transient as T  # noqa: E402
 
 import aiohttp
 from aiohttp import WSMsgType, web
@@ -25,8 +29,10 @@ def clean_headers(h, key: str | None) -> dict:
     return out
 
 
-def make_app(target: str, key: str | None) -> web.Application:
+def make_app(target: str, key: str | None, rules: dict | None = None, sleep=asyncio.sleep) -> web.Application:
     target = target.rstrip('/')
+    rules = rules or T.load_rules()
+    stats = {'retries': 0, 'gave_up': 0, 'reasons': {}, 'started': time.time()}      # сколько повторов понадобилось (T-153/1) — отдаётся на /_relay/stats и в журнал прогона
     ws_target = ('wss://' + target[8:]) if target.startswith('https://') else ('ws://' + target[7:])
 
     async def h_ws(req):
@@ -57,19 +63,39 @@ def make_app(target: str, key: str | None) -> web.Application:
                     p.cancel()
         return ws_c
 
+    async def h_stats(req):
+        return web.json_response(stats)
+
     async def h_proxy(req):
         body = await req.read()
-        try:
-            async with aiohttp.ClientSession() as sess:
-                async with sess.request(req.method, target + req.path_qs, data=body or None, headers=clean_headers(req.headers, key),
-                                        timeout=aiohttp.ClientTimeout(total=1800)) as r:
-                    data = await r.read()
-                    return web.Response(body=data, status=r.status, headers={k: v for k, v in r.headers.items() if k.lower() not in HOP})
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:          # сеть до шлюза пропала: аддон увидит 502 и сам решит, повторять ли
-            return web.json_response({'error': f'мост: {type(e).__name__}: {e}'}, status=502)
+        n = rules['retries']
+        for attempt in range(n + 1):
+            reason, answer = None, None
+            try:
+                async with aiohttp.ClientSession() as sess:
+                    async with sess.request(req.method, target + req.path_qs, data=body or None, headers=clean_headers(req.headers, key),
+                                            timeout=aiohttp.ClientTimeout(total=1800)) as r:
+                        data = await r.read()
+                        reason = T.response_reason(rules, req.method, r.status, data)
+                        answer = web.Response(body=data, status=r.status, headers={k: v for k, v in r.headers.items() if k.lower() not in HOP})
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:          # сеть до шлюза пропала
+                reason = T.error_reason(req.method, e, isinstance(e, aiohttp.ClientConnectorError))
+                answer = web.json_response({'error': f'мост: {type(e).__name__}: {e}'}, status=502)
+            if not reason:
+                return answer
+            if attempt == n:
+                stats['gave_up'] += 1
+                print(f'мост: {req.method} {req.path} — сбой «{reason}» после {n} повторов, отдаю как есть', flush=True)
+                return answer
+            stats['retries'] += 1
+            stats['reasons'][reason] = stats['reasons'].get(reason, 0) + 1
+            p = T.pause_s(rules, attempt)
+            print(f'мост: {req.method} {req.path} — краткий сбой «{reason}», повтор {attempt + 1}/{n} через {p:.0f} с', flush=True)
+            await sleep(p)
+        return answer
 
     app = web.Application(client_max_size=512 * 2 ** 20)
-    app.add_routes([web.get('/ws', h_ws), web.route('*', '/{tail:.*}', h_proxy)])
+    app.add_routes([web.get('/ws', h_ws), web.get('/_relay/stats', h_stats), web.route('*', '/{tail:.*}', h_proxy)])
     return app
 
 
