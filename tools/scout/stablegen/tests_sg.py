@@ -1,7 +1,13 @@
 """Тесты чистых частей пробы StableGen (T-20261119-90/5): драйвер Salad, воркер, мост. Запуск: PYTHONPATH=<папка с aiohttp> python3 -m unittest tests_sg -v (из этой папки)."""
+import fcntl
 import math
 import os
+import shutil
+import signal
+import subprocess
 import sys
+import tempfile
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -818,6 +824,71 @@ class QueueTests(unittest.TestCase):
             self.assertTrue(procs['a'].killed)
             self.assertTrue(any('запекание зависло' in x for x in said))
             self.assertEqual(q.summary['runs'][0]['note'], 'запекание зависло')
+
+
+def _children(ppid):
+    """pid → comm потомков первого уровня (по /proc, без pgrep/ps)."""
+    out = {}
+    for d in os.listdir('/proc'):
+        if not d.isdigit():
+            continue
+        try:
+            st = open(f'/proc/{d}/stat').read()
+        except OSError:
+            continue
+        rest = st[st.rindex(')') + 2:].split()
+        if int(rest[1]) == ppid:
+            out[int(d)] = st[st.index('(') + 1:st.rindex(')')]
+    return out
+
+
+@unittest.skipUnless(all(shutil.which(x) for x in ('xvfb-run', 'Xvfb', 'xauth', 'setpriv', 'sleep')), 'нет xvfb-run/Xvfb/xauth/setpriv')
+class XvfbRunNoLock(unittest.TestCase):
+    """T-20261120-162: xvfb_run.sh — Xvfb не наследует fd замка heavy-slot и уходит вместе с убитым xvfb-run (иначе сирота держал слот часами)."""
+
+    def _run(self, wrapper):
+        with tempfile.TemporaryDirectory() as td:
+            lock = os.path.join(td, 'lock')
+            fd0 = os.open(lock, os.O_CREAT | os.O_RDWR)
+            fd = fcntl.fcntl(fd0, fcntl.F_DUPFD, 10)         # не 3: fd 3 xvfb-run берёт под свой диагностический вывод
+            os.close(fd0)
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            p = subprocess.Popen(wrapper + ['-a', 'sleep', '300'], pass_fds=(fd,), start_new_session=True,
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            os.close(fd)                                     # замок остаётся только у потомков (как у heavy-slot после finally)
+            kids, t0 = {}, time.time()
+            while time.time() - t0 < 20 and not ('Xvfb' in kids.values() and 'sleep' in kids.values()):
+                time.sleep(0.2)
+                kids = _children(p.pid)
+            xvfb = [k for k, v in kids.items() if v == 'Xvfb']
+            cmd = [k for k, v in kids.items() if v == 'sleep']
+            self.assertTrue(xvfb and cmd, f'xvfb-run не поднял Xvfb и команду: {kids}')
+            try:
+                fd2 = os.open(lock, os.O_RDWR)
+                with self.assertRaises(BlockingIOError):     # пока всё живо — замок занят
+                    fcntl.flock(fd2, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                os.kill(p.pid, signal.SIGKILL)               # trap xvfb-run не идёт
+                p.wait()
+                for c in cmd:
+                    os.kill(c, signal.SIGTERM)               # команда — законный держатель, уходит сама
+                t0 = time.time()
+                while time.time() - t0 < 5:
+                    try:
+                        fcntl.flock(fd2, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        return True
+                    except BlockingIOError:
+                        time.sleep(0.2)
+                return False
+            finally:
+                for k in xvfb + cmd:
+                    try:
+                        os.kill(k, signal.SIGKILL)
+                    except OSError:
+                        pass
+
+    def test_orphan_xvfb_does_not_hold_lock(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        self.assertTrue(self._run([os.path.join(here, 'xvfb_run.sh')]), 'осиротевший Xvfb держит замок')
 
 
 if __name__ == '__main__':
