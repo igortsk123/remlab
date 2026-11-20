@@ -163,14 +163,14 @@ class Views(unittest.TestCase):
             for cam in ((1.7, -0.7, 0.9), (0.0, 2.0, 0.9), (-1.7, 0.7, 0.9)):
                 t, _ = V.view_text(role, cam, (0.0, -1.0, 0.0))
                 self.assertNotRegex(t.lower(), r'\bno\b|\bnot\b|\bwithout\b|\bdon\'t\b')
-                self.assertNotIn('product reference', t.lower().replace('match the', ''))   # тексты не-зерна не ссылаются на фото; «Match … to the product reference» — только у зерна
+                self.assertNotIn('style reference', t.lower().replace('match the', ''))   # тексты не-зерна не ссылаются на фото; «Match … to the product reference» — только у зерна
 
     def test_seed_only_gets_photo_wording(self):
         import sg_views as V
         seed, _ = V.view_text('диван', (0.0, -2.0, 0.9), (0.0, -1.0, 0.0), is_seed=True)
         other, _ = V.view_text('диван', (0.0, -2.0, 0.9), (0.0, -1.0, 0.0), is_seed=False)
-        self.assertIn('product reference', seed)
-        self.assertNotIn('product reference', other)
+        self.assertIn('style reference', seed)
+        self.assertNotIn('style reference', other)
         self.assertIn('painted front', other)
 
     def test_unknown_role_is_cautious_and_flagged(self):
@@ -225,21 +225,60 @@ class Views(unittest.TestCase):
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sg_views.py'), encoding='utf-8').read()
         self.assertIsNone(re.search(r'\d{5,}[_:]\d{5,}', src))                  # правило конвейера: ID товаров в коде запрещены
 
-    def test_custom_templates_roles_and_props(self):
+    def test_only_initial_only_prop_and_no_custom_templates(self):
         import sg_views as V
-        P = V.CUSTOM_PROMPT_PROPS
-        self.assertEqual(P['qwen_prompt_template'], 'CUSTOM')
-        self.assertTrue(P['qwen_use_custom_prompts'] and P['qwen_external_style_initial_only'])
-        for k in ('qwen_custom_prompt_initial', 'qwen_custom_prompt_seq_replace', 'qwen_custom_prompt_seq_additional', 'qwen_custom_prompt_seq_none'):
-            self.assertIn('{main_prompt}', P[k])
-            self.assertNotIn('style', P[k].lower())
-        self.assertIn('product reference', P['qwen_custom_prompt_initial'])
-        for k in ('qwen_custom_prompt_seq_replace', 'qwen_custom_prompt_seq_additional', 'qwen_custom_prompt_seq_none'):
-            self.assertNotIn('product reference', P[k])
+        self.assertEqual(V.CUSTOM_PROMPT_PROPS, {'qwen_external_style_initial_only': True})   # свои шаблоны с ролями картинок провалились на поде 20.11 — штатные остаются
         c = S.build_cfg('112923_13224664101879413845@r2b1+newcut', 'q2509vp', '/o', 's', 8, 2048, 42, 60)
         self.assertTrue(c['view_prompts'])
-        self.assertEqual(c['scene_props']['qwen_prompt_template'], 'CUSTOM')
+        self.assertNotIn('qwen_prompt_template', c['scene_props'])
         self.assertNotIn('view_prompts', S.build_cfg('112923_13224664101879413845@r2b1+newcut', 'q2509q5', '/o', 's', 8, 2048, 42, 60))
+
+
+class RunpodDriverStops(unittest.TestCase):
+    """Драйвер пода: «контейнер не встал» (RUNNING, uptime 0, /health нет) — удаляем через container-min, не ждём потолка (директор 20.11, под cef3upb6ek9udf)."""
+
+    class FakeApi:
+        def __init__(self):
+            self.calls = []
+            self.deleted = False
+
+        def call(self, method, path, body=None, timeout=60):
+            self.calls.append((method, path))
+            if method == 'POST' and path == '/v2/pods':
+                return 201, {'id': 'podX', 'cost': 0.89, 'status': 'RUNNING'}
+            if method == 'GET' and path == '/v2/pods/podX':
+                return (404, {}) if self.deleted else (200, {'status': 'RUNNING', 'uptimeSeconds': 0, 'runtime': None})
+            if method == 'POST' and path.endswith('/action'):
+                self.deleted = True
+                return 204, {}
+            return 200, {}
+
+    def _args(self, out, **kw):
+        import argparse
+        a = argparse.Namespace(runs=f'{KEY}:q2509q5', gpu=None, cloud='SECURE', image='img', disk=80, min_ram=32, cameras=8, texture=2048, seed=42, cap=0.5, max_price=1.0,
+                               max_min=150, no_machine_min=20, health_min=12, container_min=6, job_timeout=40, suffix='t', out=out, relay_python='x', relay_deps='x',
+                               salad_logs=[], reuse_pod=None, reuse_age_s=0, apply=True, gate=None, gate_min=15)
+        for k, v in kw.items():
+            setattr(a, k, v)
+        return a
+
+    def test_container_not_started_is_deleted_after_container_min(self):
+        import tempfile
+        from unittest import mock
+        import sg_runpod as R
+        clock = [1000.0]
+        api = self.FakeApi()
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(S, 'hf_head', return_value=200), mock.patch.object(R, 'public_get', return_value=(404, {})), \
+                mock.patch.object(S, 'load_weights_catalog', return_value={}), mock.patch.object(S, 'weight_urls', return_value=[]):
+            def sleep(n):
+                clock[0] += 60
+            rc = R.run(self._args(d), api, sleep=sleep, clock=lambda: clock[0])
+            import json
+            summ = json.load(open(os.path.join(d, 'summary-trial-sg-rp-t.json'), encoding='utf-8'))
+        self.assertEqual(summ['stopped_by'], 'no_container')
+        self.assertTrue(summ['terminated'])
+        self.assertLess(summ['alive_s'], 12 * 60)            # раньше 12-минутного health-min
+        self.assertEqual(rc, 1)
 
 
 if __name__ == '__main__':

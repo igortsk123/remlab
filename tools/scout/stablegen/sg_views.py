@@ -6,7 +6,7 @@
     «продолжи материал соответствующей детали» + флаг `unknown_role` (никогда не правило «глухая панель»);
   • 5 зон по азимуту от «переда» (границы на половинах шага: 22,5° / 67,5° / 112,5° / 157,5°): front · quarter · side · rear_quarter · rear; левая/правая — по знаку;
   • «перёд» — направление камеры-зерна (камеры, ближайшей к фото по силуэту), а не допущение «−Y» (Codex: −Y — соглашение рендера стенда, не контракт формы);
-  • фото товара — только первому виду (qwen_external_style_initial_only): тексты следующих видов продолжают материал уже покрашенных соседних участков, не ссылаются на «product reference»;
+  • фото товара — только первому виду (qwen_external_style_initial_only): тексты следующих видов продолжают материал уже покрашенных соседних участков, не ссылаются на «style reference»;
   • верх: кольцо камер приподнято (≈26°), верх виден на обычных боковых видах — формулировка про верх входит в тексты классов; «top view» — лишь при угле места > 60°."""
 import math
 import re
@@ -119,13 +119,13 @@ _V = {
 
 # «ядро» переда: для вида-зерна (фото есть) — «совпади с фото»; для остальных — «продолжай уже покрашенный перед»
 _FRONT_CORE = {
-    'casework': ('Match the doors, drawers, hardware and front-face finish to the product reference',
+    'casework': ('Match the doors, drawers, hardware and front-face finish to the style reference',
                  'Continue the doors, drawers, hardware and front-face finish consistently with the painted front components'),
-    'upholstered': ('Match the upholstery, cushions, seams and exposed legs to the product reference',
+    'upholstered': ('Match the upholstery, cushions, seams and exposed legs to the style reference',
                     'Continue the upholstery, cushions and seams consistently with the painted front'),
-    'open_frame': ('Match the visible components and their materials to the product reference',
+    'open_frame': ('Match the visible components and their materials to the style reference',
                    'Continue the visible components in the materials of the corresponding painted components'),
-    'wall': ('Match the visible face, frame and fixture materials to the product reference',
+    'wall': ('Match the visible face, frame and fixture materials to the style reference',
              'Continue the face, frame and fixture materials consistently with the painted face'),
 }
 
@@ -148,21 +148,10 @@ def view_text(cat_role, cam_dir, front, is_seed=False):
     return tpl.format(front_core=core, side=side, Side=side.capitalize()), meta
 
 
-# ---- шаблоны CUSTOM для Qwen (роли картинок явно, без «overall style»; {main_prompt} = «текст вида, общий промпт» — аддон ставит текст камеры перед общим)
-TEMPLATE_INITIAL = ('Image 1 is the current-view depth guide. Image 2 is the product reference for this view. '
-                    'Render the same product on the guide. {main_prompt}')
-_SEQ_TAIL = ('Fill the solid-magenta object regions by continuing the matching materials from adjacent painted regions. '
-             'Preserve the existing non-magenta object pixels. {main_prompt}')
-TEMPLATE_SEQ_REPLACE = 'Image 1 is the current-view depth guide. Image 2 is the current projected texture. ' + _SEQ_TAIL      # контекст-рендер вместо стиля
-TEMPLATE_SEQ_ADDITIONAL = 'Image 1 is the current-view depth guide. Image 2 is the previously painted view. Image 3 is the current projected texture. ' + _SEQ_TAIL
-TEMPLATE_SEQ_NONE = 'Image 1 is the current-view depth guide. Image 2 is the previously painted view. Continue its materials on the same product. {main_prompt}'
+# ---- шаблоны Qwen: СВОИ формулировки с ролями картинок НЕ работают (пробный прогон ⑪ 20.11 08:36: Qwen при «Render the same product on the guide» игнорировал фото и закрасил глубину
+# плоским ярким цветом). Работает только штатная идиома аддона «Change and transfer the format of … image 1 … style from image 2 … Replace all solid magenta areas in image 2» — оставляем штатные
+# шаблоны (QWEN_EDIT_LEGACY), меняем только то, что передаётся в {main_prompt} (тексты видов), и «фото только первому виду».
 CUSTOM_PROMPT_PROPS = {
-    'qwen_prompt_template': 'CUSTOM',
-    'qwen_use_custom_prompts': True,
-    'qwen_custom_prompt_initial': TEMPLATE_INITIAL,
-    'qwen_custom_prompt_seq_replace': TEMPLATE_SEQ_REPLACE,
-    'qwen_custom_prompt_seq_additional': TEMPLATE_SEQ_ADDITIONAL,
-    'qwen_custom_prompt_seq_none': TEMPLATE_SEQ_NONE,
     'qwen_external_style_initial_only': True,
 }
 

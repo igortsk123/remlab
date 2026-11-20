@@ -65,8 +65,8 @@ VARIANTS['q2509mp'] = dict(VARIANTS['q2509q5'], megapixels=1.76, scene_props=dic
                            label='Qwen-Image-Edit-2509 Q5_K_M + Lightning, виды 1,76 Мп (≈1328²) + резкое смешивание видов (степень 15 после генерации)')
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sg_views                                                          # noqa: E402  (чистые функции: тексты видов, шаблоны, словарь материалов)
-VARIANTS['q2509vp'] = dict(VARIANTS['q2509q5'], view_prompts=True, scene_props=dict(sg_views.CUSTOM_PROMPT_PROPS),      # T-90/7 ⑪ (Codex 20.11): фото только первому виду, зерно по силуэту, обход соседями, тексты видов по классу роли, шаблоны с ролями картинок
-                           label='Qwen-Image-Edit-2509 Q5_K_M + Lightning, ⑪: зерно по силуэту + обход соседями + тексты видов по классу роли и зоне + фото только первому виду (CUSTOM-шаблоны)')
+VARIANTS['q2509vp'] = dict(VARIANTS['q2509q5'], view_prompts=True, scene_props=dict(sg_views.CUSTOM_PROMPT_PROPS),      # T-90/7 ⑪ (Codex 20.11): фото только первому виду, зерно по силуэту, обход соседями, тексты видов по классу роли, штатные шаблоны аддона
+                           label='Qwen-Image-Edit-2509 Q5_K_M + Lightning, ⑪: зерно по силуэту + обход соседями + тексты видов по классу роли и зоне + фото только первому виду (штатные шаблоны Qwen)')
 VARIANTS['q2509edge'] = dict(VARIANTS['q2509q5'], bake_margin=32, bake_denoise=False,
                              scene_props={'sg_silhouette_margin': 8, 'sg_silhouette_feather': 24, 'refine_edge_feather_width': 60, 'discard_factor_after_generation': 75.0, **SHARP_BLEND},
                              label='Qwen-Image-Edit-2509 Q5_K_M + Lightning, края: срез по углу 75°, силуэт-запас 8, растушёвка 24/60, запас запекания 32 px, запекание без шумоподавления, резкое смешивание (степень 15)')

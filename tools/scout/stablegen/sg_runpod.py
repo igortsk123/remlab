@@ -127,6 +127,7 @@ def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) 
     if bad:
         return 3
     pod, price, t_create = None, None, None
+    gate_since = None
     if a.reuse_pod:                       # живой под от прошлого запуска (его драйвер убит, под цел): не платим за новый образ/веса заново
         c, d = api.call('GET', f'/v2/pods/{a.reuse_pod}')
         if c == 200 and d.get('status') == 'RUNNING':
@@ -178,10 +179,16 @@ def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) 
                 summary['stopped_by'] = why
                 break
             hc, h = (public_get(base + '/health') if st == 'RUNNING' else (-1, {}))
+            up = d.get('uptimeSeconds') if c == 200 and isinstance(d, dict) else None
+            if (not why and running_at is not None and ready_at is None and hc != 200 and t - running_at > a.container_min * 60
+                    and c == 200 and not up and not d.get('runtime')):      # директор 20.11: «контейнер не встал» (RUNNING, /health 404, uptime 0, GPU нет) — не ждать потолка
+                say(f'!! контейнер не встал за {a.container_min} мин (uptimeSeconds={up}, /health {hc}) — удаляю (≈${cost:.2f})')
+                summary['stopped_by'] = 'no_container'
+                break
             if t - last_minute >= 60:
                 last_minute = t
                 p = (h.get('progress') or {}) if hc == 200 else {}
-                say(f'мин: под {st} · /health {hc} {h.get("phase") if hc == 200 else ""} hf_gb={p.get("hf_gb")} · ≈${cost:.2f}')
+                say(f'мин: под {st} · /health {hc} {h.get("phase") if hc == 200 else ""} hf_gb={p.get("hf_gb")} · uptime={up} · ≈${cost:.2f}')
             if hc == 200 and ready_at is None:
                 if h.get('error') or h.get('phase') in ('failed', 'child_dead'):
                     say('!! прогрев упал:', h.get('error'), (h.get('comfy_log_tail') or [])[-5:])
@@ -202,7 +209,20 @@ def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) 
                                   env={**os.environ, 'PYTHONPATH': a.relay_deps}, stdout=open(os.path.join(a.out, f'relay-rp-{a.suffix}.log'), 'ab'), stderr=subprocess.STDOUT)
                     sleep(3)
             if ready_at is not None:
-                if cur is None and pending:
+                if cur is None and pending and a.gate and summary['runs']:      # ворота между товарами (директор 20.11): смотрим результат первого, файл «go» — дальше, «stop» — стоп и удаление пода
+                    gv = open(a.gate, encoding='utf-8').read().strip().lower() if os.path.exists(a.gate) else ''
+                    if gate_since is None:
+                        gate_since = t
+                        say(f'ворота: жду слова в файле {a.gate} (go|stop), не дольше {a.gate_min} мин')
+                    if gv.startswith('stop') or t - gate_since > a.gate_min * 60:
+                        say('!! ворота: стоп' if gv.startswith('stop') else '!! ворота: слова нет за срок — удаляю под')
+                        summary['stopped_by'] = 'gate_stop'
+                        break
+                    if not gv.startswith('go'):
+                        sleep(10)
+                        continue
+                    gate_since = None
+                if cur is None and pending and not (a.gate and summary['runs'] and gate_since is not None):
                     key, var = pending.pop(0)
                     odir = os.path.join(a.out, f'{key}-{var}-rp-{time.strftime("%H%M%S", time.gmtime())}')
                     os.makedirs(odir, exist_ok=True)
@@ -270,6 +290,7 @@ def main() -> int:
     ap.add_argument('--max-min', type=int, default=150)
     ap.add_argument('--no-machine-min', type=int, default=20)
     ap.add_argument('--health-min', type=int, default=12)
+    ap.add_argument('--container-min', type=int, default=6, help='RUNNING, но uptimeSeconds=0 и /health не отвечает дольше N мин → контейнер не встал, удаляем (норма прогрева 3–7 мин)')
     ap.add_argument('--job-timeout', type=int, default=40)
     ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/t90-1119/sg/runpod'))
@@ -278,6 +299,8 @@ def main() -> int:
     ap.add_argument('--salad-logs', nargs='*', default=[], help='журналы Salad-запуска: если в них уже «нода готова» — RunPod гасим')
     ap.add_argument('--reuse-pod', default=None, help='id живого пода (драйвер прошлого запуска убит без удаления): работать на нём')
     ap.add_argument('--reuse-age-s', type=float, default=0.0, help='сколько секунд под уже живёт (для оценки денег)')
+    ap.add_argument('--gate', default=None, help='файл-ворота между товарами: после первого прогона ждём в нём «go» (дальше) или «stop» (стоп и удаление пода)')
+    ap.add_argument('--gate-min', type=int, default=15)
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--stop-only', action='store_true')
     ap.add_argument('--pod')
