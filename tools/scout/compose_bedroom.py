@@ -619,6 +619,7 @@ class Composer:
                     slots[key2] = {'ideal': dc.get('ideal', {}), 'band': band, 'tolerance': list(self.tol), 'qty': len(cov), 'mesh': False,
                                    'per_window': True}
                     win_of[key2] = cov
+                    gaps.append(f'{role}: рулонная на окно {_cm(cov)} см (по ширине окна)')
                     if not wset:
                         continue
                     win_of[role] = wset
@@ -654,7 +655,9 @@ class Composer:
             if not cands:
                 gaps.append(dc.get('gap') or (f'{role}: нет в стиле' + (' по размеру окна' if dc.get('min_w') == 'window' else '')))
                 continue
+            nb_gap = None
             if nb_from:
+                nb_gap = len(gaps)           # текст уточним после выбора: при `neighbour_pool: all` сосед — тот, чей товар победил, а не первый
                 gaps.append(f'{role}: нет в стиле — взята у соседа «{nb_from}» (запас)')
             if dc.get('prefer'):
                 pref = re.compile(dc['prefer'], re.I)
@@ -690,6 +693,9 @@ class Composer:
                     gaps.append(f'{role}: нет опоры ({dc["qty_from"]})')
                     continue
             pick = rk[0]
+            if nb_gap is not None and pick.get('style_from') and gaps[nb_gap].startswith(f'{role}: нет в стиле — взята'):
+                part = f' на окно {_cm(wset)} см' if wset is not windows else ''       # шторы по окну: запас — только окнам без рулонной
+                gaps[nb_gap] = f'{role}: нет в стиле{part} — взята у соседа «{pick["style_from"]}» (запас)'
             if role == 'ковёр':
                 place = rug_place(lay, room, pick)
                 if place is None:
@@ -712,9 +718,13 @@ class Composer:
                     'h': picks['лампа']['h'], 'elev': p.item.h_cm, 'on': p.role, 'sid': picks['лампа']['sid']}
         if 'плед' in picks:
             lay_extra['плед'] = {'on': 'кровать', 'sid': picks['плед']['sid']}
-        for role in [r for r in win_of if r not in picks and f'{r} 2' in picks]:   # основной путь не дал шторы — рулонные становятся основными
-            picks[role], slots[role] = picks.pop(f'{role} 2'), slots.pop(f'{role} 2')
-            alts[role], win_of[role] = alts.pop(f'{role} 2'), win_of.pop(f'{role} 2')
+        for role in [r for r in win_of if (slots.get(f'{r} 2') or {}).get('per_window')]:
+            # рулонные (по окну) — ОСНОВНАЯ строка роли, «2» — запас соседа окнам без рулонной (или рулонные одни, если запаса нет)
+            k2 = f'{role} 2'
+            roll = (picks.pop(k2), slots.pop(k2), alts.pop(k2), win_of.pop(k2))
+            if role in picks:
+                picks[k2], slots[k2], alts[k2], win_of[k2] = picks[role], slots[role], alts[role], win_of[role]
+            picks[role], slots[role], alts[role], win_of[role] = roll
         for role in [r for r in picks if r == 'шторы' or r.startswith('шторы ')]:
             lay_extra[role] = {'windows': [{'wall': o.wall, 'offset_cm': o.offset_cm, 'width_cm': o.width_cm}
                                            for o in win_of.get(role, windows)], 'sid': picks[role]['sid']}
@@ -809,28 +819,35 @@ def model_code(name: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _cm(windows) -> str:
+    """Ширины окон для подписи: «100» / «100/240»."""
+    return '/'.join(f'{w:g}' for w in sorted({o.width_cm for o in windows}))
+
+
 def _decor_filter(dc: dict, windows: list, rules: dict | None = None, source: list = (), style: str | None = None):
     """Доп. фильтр декора из правил: `deny` — по названию (рулонные шторы не закрывают окно 2,4 м; `@ключ` — регэксп из
     корня правил), `deny_model` — и братья по артикулу отсеянного, `min_w: window` — ширина не меньше самого широкого
     окна комнаты (полотно 300 на окно 240; 55 см — нет). `deny_by_style` {стиль комнаты: регэксп} — свой deny для этого стиля
-    вместо общего (T-20261120-163: в лофте рулонные шторы по стилю разрешены, римские/кафе/кухонные — нет)."""
+    вместо общего (T-20261120-163: в лофте рулонные шторы по стилю разрешены, римские/кафе/кухонные — нет); `deny_all` — регэксп,
+    действующий для ВСЕХ стилей поверх deny (фотопечать, «ночной город» на шторе — нигде не годится, T-20261120-163/4)."""
     pat = (dc.get('deny_by_style') or {}).get(style, dc.get('deny'))
     if pat and pat.startswith('@'):
         pat = (rules or {}).get(pat[1:])
     deny = re.compile(pat, re.I) if pat else None
-    task = (lambda it: bool(deny and deny.search(it.get('name') or '')) or bool(it.get('desc_task'))) \
+    nope = re.compile(dc['deny_all'], re.I) if dc.get('deny_all') else None     # ни в одном стиле (фотопечать/принт штор), поверх deny/deny_by_style
+    task =(lambda it: bool(deny and deny.search(it.get('name') or '')) or bool(it.get('desc_task'))) \
         if dc.get('deny_model') else (lambda it: False)
     codes = ({model_code(it.get('name')) for it in source if task(it)} | set((rules or {}).get('lamp_task_models') or ())) - {None} \
         if dc.get('deny_model') else set()
     wmin = max((o.width_cm for o in windows), default=0) if dc.get('min_w') == 'window' else 0
 
     def ok(it):
-        if deny and deny.search(it.get('name') or ''):
+        if (deny and deny.search(it.get('name') or '')) or (nope and nope.search(it.get('name') or '')):
             return False
         if dc.get('deny_model') and (it.get('desc_task') or model_code(it.get('name')) in codes):
             return False   # рабочая по описанию, по фото (lamp_task_models) или брат по артикулу рабочей
         return not wmin or (num(it.get('w')) or 0) >= wmin
-    return ok if (deny or wmin) else None
+    return ok if (deny or nope or wmin) else None
 
 
 RUG_BLOCKERS = ('шкаф', 'комод', 'туалетный столик', 'стол рабочий')

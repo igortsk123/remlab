@@ -74,9 +74,11 @@ def _curtains(decor, style, *widths):
 def test_loft_narrow_window_gets_roller_wide_window_gets_neighbour_panel():
     d = [_c(1, 'Рулонная штора Лофт графит', 'лофт', 100, DARK), _c(2, 'Комплект штор Джапанди', 'джапанди', 260)]
     picks, gaps, lay = _curtains(d, 'лофт', 90, 240)
-    assert picks['шторы 2']['eid'] == '1' and picks['шторы 2']['qty'] == 1                      # рулонная — узкому окну
-    assert picks['шторы']['eid'] == '2' and picks['шторы']['qty'] == 1 and picks['шторы']['style_from'] == 'джапанди'   # широкому — шторы соседа
-    assert [w['width_cm'] for w in lay['шторы 2']['windows']] == [90.0] and [w['width_cm'] for w in lay['шторы']['windows']] == [240.0]
+    assert picks['шторы']['eid'] == '1' and picks['шторы']['qty'] == 1                           # основная строка — рулонная по окну
+    assert picks['шторы 2']['eid'] == '2' and picks['шторы 2']['qty'] == 1 and picks['шторы 2']['style_from'] == 'джапанди'   # «2» — запас соседа
+    assert [w['width_cm'] for w in lay['шторы']['windows']] == [90.0] and [w['width_cm'] for w in lay['шторы 2']['windows']] == [240.0]
+    assert any('рулонная на окно 90 см' in g for g in gaps)                                     # подпись про рулонные
+    assert any('на окно 240 см' in g and '«джапанди»' in g for g in gaps)                       # и про запас соседа — только широкому окну
 
 
 def test_loft_all_windows_narrow_roller_covers_all():
@@ -106,8 +108,32 @@ def test_loft_prefers_dark_neighbour_curtains_over_light():
     d = [_c(1, 'Комплект штор Бежевый', 'джапанди', 260, LIGHT), _c(2, 'Комплект штор Графит', 'современный', 260, DARK)]
     picks, gaps, lay = _curtains(d, 'лофт', 240)
     assert picks['шторы']['eid'] == '2' and picks['шторы']['style_from'] == 'современный'     # соседи — в одном пуле: тёмная у второго соседа не теряется
+    txt = [g for g in gaps if g.startswith('шторы')]
+    assert txt and all('«современный»' in g and 'джапанди' not in g for g in txt)             # подпись — фактический сосед, а не первый в порядке
 
 
 def test_loft_takes_light_when_no_dark():
     picks, gaps, lay = _curtains([_c(1, 'Комплект штор Бежевый', 'джапанди', 260, LIGHT)], 'лофт', 240)
     assert picks['шторы']['eid'] == '1'
+
+
+PRINTED = ('Штора рулонная Уют Сити ночь черный 140х175 см', 'Штора рулонная Уют Парадиз 120х175 см белый', 'Роллета Уют Paradise 8914',
+           'Роллета Уют 100х175 Челси', 'Штора Daily By T Мадагаскар синий 200х270 см', 'Фотошторы Лес', 'Штора с принтом')
+PLAIN = ('Рулонная штора FixLine Amigo Base День-Ночь 80х160 см Черный', 'Комплект штор Togas Отавио серый 260х300 см',
+         'Штора рулонная Уют Фрост 80х175 см серый', 'Рулонная штора FixLine Amigo Motive мокко 40х160 см', 'Тюль Togas Деворе Джаллини серый')
+
+
+def test_photo_print_denied_in_every_purpose_and_style_data_driven():
+    for name, dc in _rules_curtains().items():
+        nope = re.compile(dc['deny_all'], re.I)
+        for bad in PRINTED:
+            assert nope.search(bad), (name, bad)
+        for ok in PLAIN:
+            assert not nope.search(ok), (name, ok)                                        # зебра «День-Ночь», жаккард, однотонные — не задеты
+
+
+def test_printed_curtain_never_picked_in_any_style():
+    for st, nb in (('лофт', 'джапанди'), ('сканди', 'джапанди')):
+        d = [_c(1, 'Штора рулонная Уют Сити ночь черный 100х175 см', st, 100, DARK), _c(2, 'Комплект штор Мадагаскар синий', nb, 260)]
+        picks, gaps, lay = _curtains(d, st, 90)
+        assert not any('Сити' in (v.get('name') or '') or 'Мадагаскар' in (v.get('name') or '') for v in picks.values()), st
