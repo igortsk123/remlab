@@ -483,7 +483,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
                     break
             if ready_at is not None:
                 if queue is None:
-                    queue = Q.RunQueue(pending, summary, start=start_run, finish=finish_run, say=say, progress=progress_line, job_timeout_s=a.job_timeout * 60)
+                    queue = Q.RunQueue(pending, summary, start=start_run, finish=finish_run, say=say, progress=progress_line, job_timeout_s=a.job_timeout * 60, relay_port=relay_port)
                 qwhy = queue.step(t, summary['cost_usd_est'], a.cap)
                 if qwhy:
                     summary['stopped_by'] = qwhy

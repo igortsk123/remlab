@@ -97,6 +97,70 @@ class Relay(unittest.TestCase):
         self.assertEqual(sg_relay.clean_headers({'User-Agent': 'python-requests/2.32'}, None)['User-Agent'], 'remlab-mesh/1.0')
 
 
+class RelayRetry(unittest.TestCase):
+    """T-153/1: мост сам повторяет краткие сбои связи (поддельный ComfyUI за шлюзом); отказ — только после повторов."""
+
+    GATE_403 = '<html><ul aria-label="Salad Connection Error"><h1>Error 403 Detected</h1></ul></html>'
+
+    def run_relay(self, script, method='GET', path='/queue'):
+        import asyncio
+        import sg_transient
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+        calls = []
+
+        async def upstream(req):
+            code, body = script[min(len(calls), len(script) - 1)]
+            calls.append(code)
+            return web.Response(status=code, text=body)
+
+        up = web.Application()
+        up.add_routes([web.route('*', '/{tail:.*}', upstream)])
+        rules = sg_transient.load_rules()
+
+        async def go():
+            async with TestServer(up) as srv:
+                app = sg_relay.make_app(f'http://127.0.0.1:{srv.port}', None, rules, sleep=lambda s: asyncio.sleep(0))
+                async with TestClient(TestServer(app)) as cl:
+                    r = await cl.request(method, path, data=b'x' if method == 'POST' else None)
+                    st = await (await cl.get('/_relay/stats')).json()
+                    return r.status, st
+        status, stats = asyncio.run(go())
+        return status, stats, calls
+
+    def test_403_gateway_page_is_retried_then_succeeds(self):
+        status, stats, calls = self.run_relay([(403, self.GATE_403), (403, self.GATE_403), (200, '{}')])
+        self.assertEqual((status, calls, stats['retries'], stats['gave_up']), (200, [403, 403, 200], 2, 0))
+        self.assertEqual(stats['reasons'], {'403 Salad Connection Error': 2})
+
+    def test_gives_up_after_three_retries(self):
+        status, stats, calls = self.run_relay([(403, self.GATE_403)])
+        self.assertEqual((status, len(calls), stats['retries'], stats['gave_up']), (403, 4, 3, 1))
+
+    def test_real_403_and_real_errors_are_not_retried(self):
+        status, _s, calls = self.run_relay([(403, '{"error":"bad key"}')])
+        self.assertEqual((status, calls), (403, [403]))
+        status, _s, calls = self.run_relay([(500, 'workflow failed')])
+        self.assertEqual((status, calls), (500, [500]))
+
+    def test_502_retried_for_get_but_not_post(self):
+        status, stats, calls = self.run_relay([(502, ''), (200, '{}')])
+        self.assertEqual((status, calls, stats['retries']), (200, [502, 200], 1))
+        status, _s, calls = self.run_relay([(502, ''), (200, '{}')], method='POST', path='/prompt')       # POST мог дойти до ComfyUI — не дублируем
+        self.assertEqual((status, calls), (502, [502]))
+
+    def test_post_with_gateway_403_page_is_retried(self):                 # страница шлюза = запрос не дошёл до ComfyUI
+        status, _s, calls = self.run_relay([(403, self.GATE_403), (200, '{}')], method='POST', path='/upload/image')
+        self.assertEqual((status, calls), (200, [403, 200]))
+
+    def test_rules_are_data_and_sane(self):
+        import sg_transient
+        r = sg_transient.load_rules()
+        self.assertEqual((r['retries'], r['pauses_s']), (3, [2, 5, 10]))
+        self.assertTrue(sg_transient.text_has_server_marker(r, "ComfyUI isn't reachable at 127.0.0.1:18193"))
+        self.assertEqual(sg_transient.pause_s(r, 9), 10.0)
+
+
 class Experiments(unittest.TestCase):
     def test_no_lora_variant_config(self):
         c = S.build_cfg('K', 'q2509nl', '/o', 's', 8, 2048, 42, 60)
@@ -622,6 +686,23 @@ class QueueTests(unittest.TestCase):
                 q.step(0)
                 procs[k].rc = 0
                 self.assertEqual(q.step(1), expect, k)
+
+    def test_retries_are_recorded_in_run_and_journal(self):
+        import json
+        import tempfile
+        import unittest.mock as um
+        import sg_transient
+        with tempfile.TemporaryDirectory() as tmp:
+            q, procs, said = self.make([('a', 'v')], tmp, {})
+            q.relay_port = 1
+            q.step(0)
+            json.dump({'stage': 'export', 'steps': [], 'server_retries': 1}, open(os.path.join(tmp, 'a', 'blender', 'status.json'), 'w'))
+            procs['a'].rc = 0
+            with um.patch.object(sg_transient, 'relay_stats', return_value={'retries': 2}):
+                q.step(1)
+            self.assertEqual(q.summary['runs'][0]['retries'], {'relay': 2, 'drive': 1})
+            self.assertEqual(q.summary['retries_total'], 3)
+            self.assertTrue(any('повторы связи' in x for x in said))
 
     def test_low_disk_stops_group_and_slim_keeps_result(self):
         import tempfile

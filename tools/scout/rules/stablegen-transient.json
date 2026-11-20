@@ -1,0 +1,16 @@
+{
+  "_doc": "T-20261120-153/1: признаки КРАТКОВРЕМЕННОГО сбоя связи с нодой покраски (RunPod/Salad). Читают sg_relay.py (мост) и sg_drive.py (Blender). Шаг повторяется сами до `retries` раз с растущей паузой `pauses_s`; отказом товар считается только после этого. Список — данными, в одном месте.",
+  "retries": 3,
+  "pauses_s": [2, 5, 10],
+  "relay": {
+    "status_codes": [502, 503, 504],
+    "forbidden_body_markers": ["Salad Connection Error", "Error 403 Detected"],
+    "post_safe_status_codes": [],
+    "post_safe_forbidden_markers": ["Salad Connection Error"]
+  },
+  "drive": {
+    "retries": 3,
+    "pauses_s": [10, 20, 40],
+    "server_markers": ["NO_SERVER", "isn't reachable", "server is not connected", "Salad Connection Error"]
+  }
+}

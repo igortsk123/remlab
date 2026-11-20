@@ -19,6 +19,7 @@ import importlib
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import sg_transient  # noqa: E402
 import sg_views  # noqa: E402
 
 ADDON = 'bl_ext.user_default.stablegen'
@@ -227,13 +228,25 @@ def steps():
     yield 'refresh-lists'
     sc.model_architecture = CFG.get('architecture', 'qwen_image_edit')
     sg_state = sg('core.state')
-    bpy.ops.stablegen.refresh_checkpoint_list()
-    bpy.ops.stablegen.refresh_lora_list()
-    t_ref = time.time()
-    while getattr(sg_state, '_pending_refreshes', 0) > 0 and time.time() - t_ref < 60:
-        yield 'wait-refresh'
-    while getattr(sg_state, '_cached_lora_list', [('NONE_AVAILABLE',)])[0][0] in ('NONE_AVAILABLE', 'NO_SERVER') and time.time() - t_ref < 90:
-        yield 'wait-lora-list'                       # ответ на список LoRA приходит фоном; сервер далеко (прокси) — ждём, пока не придёт
+    TR = sg_transient.load_rules()                         # T-153/1: краткий сбой связи (сервер не отвечает на списки) — повторяем шаг сами, отказ только после повторов
+    ST['server_retries'] = 0
+    for attempt in range(TR['drive']['retries'] + 1):
+        bpy.ops.stablegen.refresh_checkpoint_list()
+        bpy.ops.stablegen.refresh_lora_list()
+        t_ref = time.time()
+        while getattr(sg_state, '_pending_refreshes', 0) > 0 and time.time() - t_ref < 60:
+            yield 'wait-refresh'
+        while getattr(sg_state, '_cached_lora_list', [('NONE_AVAILABLE',)])[0][0] in ('NONE_AVAILABLE', 'NO_SERVER') and time.time() - t_ref < (90 if attempt == 0 else 60):
+            yield 'wait-lora-list'                       # ответ на список LoRA приходит фоном; сервер далеко (прокси) — ждём, пока не придёт
+        if getattr(sg_state, '_cached_lora_list', [('NONE_AVAILABLE',)])[0][0] not in ('NONE_AVAILABLE', 'NO_SERVER') or attempt == TR['drive']['retries']:
+            break
+        ST['server_retries'] += 1
+        p = sg_transient.pause_s(TR, attempt, 'drive')
+        say(f"сервер не ответил на списки (повтор {attempt + 1}/{TR['drive']['retries']} через {p:.0f} с): {getattr(sg_state, '_cached_lora_list', None)}")
+        save_status()
+        t_p = time.time()
+        while time.time() - t_p < p:
+            yield 'retry-pause'
     say(f"списки: LoRA {getattr(sg_state, '_cached_lora_list', None)}")
     yield 'settings'
     sc.stablegen_preset = CFG['preset']

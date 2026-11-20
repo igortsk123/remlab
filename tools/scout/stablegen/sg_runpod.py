@@ -264,7 +264,7 @@ def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) 
             if ready_at is not None:
                 if queue is None:
                     queue = Q.RunQueue(runs, summary, start=start_run, finish=finish_run, say=say, progress=S.progress_line, job_timeout_s=a.job_timeout * 60,
-                                       gate=gate_fn if a.gate else None)
+                                       gate=gate_fn if a.gate else None, relay_port=relay_port)
                 qwhy = queue.step(t, cost, a.cap)
                 if qwhy:
                     summary['stopped_by'] = qwhy
