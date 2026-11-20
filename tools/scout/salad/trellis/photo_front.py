@@ -389,8 +389,13 @@ def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: 
     geo = TC.load_geoms(glb)
     if len(geo) != 1:
         raise ValueError('ожидалась одна геометрия')
-    pos, valid = texel_positions(geo[0]['V'], geo[0]['F'], geo[0]['UV'], 2048)
-    depth, px_len = frame_depth(pos, valid, uv, S)
+    dz = os.path.join(rd, 'depth.npz')
+    if os.path.exists(dz):                                                      # перспективный кадр (pose_fit.py): глубина и длина пикселя посчитаны камерой, регрессия плоскости годится только для ортографики
+        dd = np.load(dz)
+        depth, px_len = dd['depth'].astype(np.float32), float(dd['px_len'])
+    else:
+        pos, valid = texel_positions(geo[0]['V'], geo[0]['F'], geo[0]['UV'], 2048)
+        depth, px_len = frame_depth(pos, valid, uv, S)
     rel = depth_edges(depth, inner, px_len)
     rel_t = relief_threshold(rel, inner)
     ph_edge = photo_edges(L_ph, inner, width)
