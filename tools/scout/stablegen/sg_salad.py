@@ -65,6 +65,7 @@ VARIANTS['q2509mp'] = dict(VARIANTS['q2509q5'], megapixels=1.76, scene_props=dic
                            label='Qwen-Image-Edit-2509 Q5_K_M + Lightning, виды 1,76 Мп (≈1328²) + резкое смешивание видов (степень 15 после генерации)')
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sg_queue as Q                                                        # noqa: E402
+import sg_store as ST                                                        # noqa: E402  — выход покраски → склад мешей (план painted-to-rt-01)
 import sg_views                                                          # noqa: E402  (чистые функции: тексты видов, шаблоны, словарь материалов)
 VARIANTS['q2509vp'] = dict(VARIANTS['q2509q5'], view_prompts=True, scene_props=dict(sg_views.CUSTOM_PROMPT_PROPS),      # T-90/7 ⑪ (Codex 20.11): фото только первому виду, зерно по силуэту, обход соседями, тексты видов по классу роли, штатные шаблоны аддона
                            label='Qwen-Image-Edit-2509 Q5_K_M + Lightning, ⑪: зерно по силуэту + обход соседями + тексты видов по классу роли и зоне + фото только первому виду (штатные шаблоны Qwen)')
@@ -503,7 +504,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
                     break
             if ready_at is not None:
                 if queue is None:
-                    queue = Q.RunQueue(pending, summary, start=start_run, finish=finish_run, say=say, progress=progress_line, job_timeout_s=a.job_timeout * 60, relay_port=relay_port)
+                    queue = Q.RunQueue(pending, summary, start=start_run, finish=finish_run, say=say, progress=progress_line, job_timeout_s=a.job_timeout * 60, relay_port=relay_port, on_ok=ST.store_run)
                 qwhy = queue.step(t, summary['cost_usd_est'], a.cap)
                 if qwhy:
                     summary['stopped_by'] = qwhy

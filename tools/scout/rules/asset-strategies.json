@@ -40,6 +40,10 @@
   "часы": "cutout",
   "полка": "cutout"
  },
+ "_mesh_strategies_why": "КАКИЕ СТРАТЕГИИ ДАЮТ РОЛИ 3D-МОДЕЛЬ — и значит лёгкую копию на /rt/ и показ в галерее мешей (T-20261120-150/1, план painted-to-rt-01). Раньше в коде стояло «== hunyuan3d» в runtime_mesh.mesh_role и gallery_build; теперь список здесь. Роль получает стратегию покраски так же, как любую другую (строка в roles), — код не правится.",
+ "mesh_strategies": ["hunyuan3d", "stablegen_painted"],
+ "_painted_why": "ИСТОЧНИК «КРАШЕНАЯ МОДЕЛЬ» (покраска StableGen, tools/scout/stablegen/sg_store.py) — не роль, а происхождение файла, поэтому отдельный блок. store — склад покраски той же раскладки, что склад Hunyuan: <store>/<товар>/<прогон>/{model.glb, manifest.json}; gallery_build.py читает оба склада. Победитель на SKU (ADR по плану painted-to-rt-01, п. г): крашеная выигрывает у Hunyuan, ТОЛЬКО если в её manifest.json поле guard == guard_pass (сторож покрытия текстуры) её лёгкая копия не отказана по весу И SKU есть в файле accepted_file (rules/painted-accepted.json) с отметкой владельца «принято» — дата и номер TG (владелец TG 2734: сперва показ ему, на сайт — после «принято»; строки пишет ведущий по слову владельца, код сам их не добавляет); mtime не используется. Сторож под 8 камер StableGen — отдельная задача; пока он не написан, sg_store пишет guard = guard_none и крашеная не побеждает.",
+ "painted_source": {"source": "stablegen", "store": "~/scout-scenes/meshes-painted", "guard_pass": "pass", "guard_none": "none", "accepted_file": "painted-accepted.json"},
  "policy_version": 2,
  "_pillow_why": "подушка — hunyuan3d (ADR-0402, владелец TG 953: подушки — настоящие модели; T-20261113-03, 13.11): все подушки каталога, не список SKU. Перед — none: квадратная подушка с двух сторон одинакова, ориентацию не ждём.",
  "soft_until_models": ["подушка"],

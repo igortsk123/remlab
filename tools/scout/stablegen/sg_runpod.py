@@ -25,6 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SCOUT = os.path.normpath(os.path.join(HERE, '..'))
 sys.path.insert(0, HERE)
 import sg_queue as Q
+import sg_store as ST  # noqa: E402
 import sg_salad as S  # noqa: E402  — общие части: варианты, веса, конфиг драйвера, цена, HEAD по HF, строки хода
 
 API = 'https://api.runpod.io'
@@ -264,7 +265,7 @@ def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) 
             if ready_at is not None:
                 if queue is None:
                     queue = Q.RunQueue(runs, summary, start=start_run, finish=finish_run, say=say, progress=S.progress_line, job_timeout_s=a.job_timeout * 60,
-                                       gate=gate_fn if a.gate else None, relay_port=relay_port)
+                                       gate=gate_fn if a.gate else None, relay_port=relay_port, on_ok=ST.store_run)
                 qwhy = queue.step(t, cost, a.cap)
                 if qwhy:
                     summary['stopped_by'] = qwhy

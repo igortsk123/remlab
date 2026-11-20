@@ -23,11 +23,13 @@ import hashlib
 import html
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
-SRC = os.environ.get('GALLERY_SRC', os.path.expanduser('~/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2'))
+SRC = os.environ.get('GALLERY_SRC', os.path.expanduser('~/scout-scenes/meshes-hunyuan/meshes/hunyuan21/v2'))   # склад Hunyuan; GALLERY_SRC можно задать списком через «:»
+RT_TABLE = os.environ.get('RT_MANIFEST') or os.path.expanduser('~/scout-scenes/flat3d-rt/runtime-meshes.json')   # таблица лёгких копий: оттуда — отказы по весу
 OUT = os.environ.get('GALLERY_OUT') or os.path.expanduser('~/scout-scenes/mesh-pilot-gallery')
 SHA_CACHE = os.path.expanduser('~/scout-scenes/catalog-assets/v1/glb-sha-cache.json')   # кэш room_bindings: только читаем
 
@@ -44,13 +46,80 @@ def drop_strays() -> None:
             print(f'убран чужой реестр из папки публикации: {_stray}', flush=True)
 
 
-def select(entries: list, only: set | None, bound: dict, from_binding: bool) -> tuple:
+def stores(painted: dict | None = None) -> list:
+    """Склады мешей, которые читает галерея: Hunyuan (`GALLERY_SRC`, можно списком через «:») и склад покраски (`painted_source.store`
+    канона `rules/asset-strategies.json`) — одной раскладки `<склад>/<товар>/<прогон>/{model.glb, manifest.json}` (T-20261120-150/1).
+    Склад покраски нужен только если он существует: пока ничего не покрашено, галерея собирается как прежде."""
+    out = [os.path.expanduser(x) for x in SRC.split(os.pathsep) if x]
+    if painted:
+        p = os.path.expanduser(painted['store'])
+        if os.path.isdir(p) and p not in out:
+            out.append(p)
+    return out
+
+
+def refused_shas(path: str = RT_TABLE) -> set:
+    """glb_sha исходных файлов, чью лёгкую копию `runtime_mesh.py` ОТКАЗАЛ по весу (запись `rt_weight*` со статусом refused в таблице
+    копий): такая крашеная модель не побеждает — сайт остался бы без копии. Таблицы нет или не читается — пусто (громко не падаем:
+    отказа просто не знаем)."""
+    try:
+        meshes = json.load(open(path, encoding='utf-8')).get('meshes', {})
+    except (OSError, ValueError):
+        return set()
+    return {w['glb_sha'] for e in meshes.values() for k, w in e.items()
+            if k.startswith('rt_weight') and isinstance(w, dict) and w.get('status') == 'refused' and w.get('glb_sha')}
+
+
+def accepted_skus(path: str | None = None, painted: dict | None = None) -> dict:
+    """«ПРИНЯТО ВЛАДЕЛЬЦЕМ» (владелец, TG 2734): {sku: {date, tg, glb_sha?}} из файла `rules/<painted_source.accepted_file>` (по умолчанию
+    `rules/painted-accepted.json`; `PAINTED_ACCEPTED` — другой путь для стенда и теста). Строки пишет ведущий по слову владельца,
+    код — никогда. Строка без даты `ГГГГ-ММ-ДД` или без номера TG недействительна (= не принято, с предупреждением в stderr).
+    Файла нет / не читается — пусто: никто не принят, побеждает Hunyuan (безопасная сторона)."""
+    if path is None:
+        path = os.environ.get('PAINTED_ACCEPTED') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'rules',
+                                                                   (painted or {}).get('accepted_file') or 'painted-accepted.json')
+    try:
+        raw = json.load(open(path, encoding='utf-8')).get('accepted') or {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+    out = {}
+    for sku, v in raw.items():
+        if (isinstance(v, dict) and re.fullmatch(r'\d{4}-\d{2}-\d{2}', str(v.get('date') or ''))
+                and isinstance(v.get('tg'), int) and not isinstance(v.get('tg'), bool)):
+            out[sku] = v
+        else:
+            print(f'[галерея] ВНИМАНИЕ: {sku} в файле принятия без даты/TG — не считается принятым', file=sys.stderr, flush=True)
+    return out
+
+
+def painted_winners(entries: list, only: set | None, refused: set, guard_pass: str, accepted: dict | None = None) -> dict:
+    """ПОБЕДИТЕЛЬ НА SKU: крашеная модель выигрывает у Hunyuan ТОЛЬКО при ВСЕХ условиях: в её `manifest.json` `guard == guard_pass`
+    (сторож покрытия текстуры); SKU есть в `accepted` (принято владельцем: дата + TG; если у строки есть `glb_sha` — он совпадает
+    с файлом); лёгкая копия не отказана по весу (`refused` — glb_sha). `accepted=None` — никто не принят. Время файла НЕ участвует:
+    из нескольких подходящих берётся первая по имени папки (детерминированно). Не подошла — не побеждает и не показывается,
+    остаётся предыдущая модель. → {sku: dir}."""
+    won: dict = {}
+    accepted = accepted or {}
+    for e in sorted((x for x in entries if x.get('painted')), key=lambda x: os.path.normpath(x['dir'])):
+        acc = accepted.get(e['sku'])
+        if (e['sku'] in won or e['owner_reject'] or (only is not None and e['sku'] not in only) or not e['role_mesh']
+                or not e['has_glb'] or e.get('guard') != guard_pass or (e.get('glb_sha') or '') in refused
+                or acc is None or (acc.get('glb_sha') and not (e.get('glb_sha') or '').startswith(str(acc['glb_sha'])[:16]))):
+            continue
+        won[e['sku']] = e['dir']
+    return won
+
+
+def select(entries: list, only: set | None, bound: dict, from_binding: bool, refused: set | frozenset = frozenset(),
+           guard_pass: str = 'pass', accepted: dict | None = None) -> tuple:
     """Какую папку поколения показывать на SKU. entries — папки в порядке обхода сборки (свежий manifest первым):
     {dir, sku, owner_reject, role_mesh, has_glb}. Прежнее правило: первая папка SKU без брака владельца, из списка отбора,
     с ролью-мешем и model.glb (папка без model.glb SKU не занимает). bound — sku → папка файла привязки (уже проверенного:
     цел, sha совпал); с from_binding у такого SKU берётся ТОЛЬКО эта папка, если она проходит те же условия, иначе —
     прежнее правило. → ({sku: dir}, {sku: 'binding'|'mtime'})."""
-    ok = lambda e: not e['owner_reject'] and (only is None or e['sku'] in only) and e['role_mesh'] and e['has_glb']  # noqa: E731
+    # крашеные записи в обычный выбор (привязка / свежесть) не входят — их место определяет только победитель (г), `painted_winners`
+    ok = lambda e: not e.get('painted') and not e['owner_reject'] and (only is None or e['sku'] in only) and e['role_mesh'] and e['has_glb']  # noqa: E731
+    won = painted_winners(entries, only, set(refused), guard_pass, accepted)
     want = {}
     if from_binding:
         dirs = {os.path.normpath(e['dir']): e for e in entries}
@@ -58,7 +127,7 @@ def select(entries: list, only: set | None, bound: dict, from_binding: bool) -> 
             e = dirs.get(os.path.normpath(d))
             if e is not None and e['sku'] == sku and ok(e):
                 want[sku] = os.path.normpath(d)
-    chosen, how = {}, {}
+    chosen, how = dict(won), {s: 'painted' for s in won}
     for e in entries:
         s = e['sku']
         if s in chosen or not ok(e):
@@ -302,15 +371,21 @@ def build() -> str:
     # генератора (владелец 01.09 — «ремонт калечит, оставляй оригинальные модели»): model.repaired.glb не читается.
     # Папка без model.glb (suspect-комплект, одна диагностика) SKU не занимает — показывается предыдущая версия.
     entries, mans = [], {}
-    for d in sorted(glob.glob(os.path.join(SRC, '*/*/')), key=lambda p: -os.path.getmtime(os.path.join(p,'manifest.json')) if os.path.exists(os.path.join(p,'manifest.json')) else 0):
+    pcfg = AS.painted_source()                           # источник «крашеная» (T-20261120-150/1): склад, поле guard — данные канона
+    dirs = [d for st in stores(pcfg) for d in glob.glob(os.path.join(st, '*/*/'))]
+    for d in sorted(dirs, key=lambda p: -os.path.getmtime(os.path.join(p,'manifest.json')) if os.path.exists(os.path.join(p,'manifest.json')) else 0):
         man_p = os.path.join(d, 'manifest.json')
         if not os.path.exists(man_p):
             continue
         man = json.load(open(man_p, encoding='utf-8'))
         mans[d] = man
+        painted = man.get('source') == pcfg['source']
         entries.append({'dir': d, 'sku': man['sku'], 'owner_reject': os.path.exists(os.path.join(d, 'owner_reject.json')),
-                        'role_mesh': AS.strategy(man.get('role')) == 'hunyuan3d',
-                        'has_glb': os.path.exists(os.path.join(d, 'model.glb'))})
+                        'role_mesh': AS.has_mesh(man.get('role')),
+                        'has_glb': os.path.exists(os.path.join(d, 'model.glb')),
+                        # крашеная: сторож и sha файла нужны победителю (г); у Hunyuan sha не считаем (4 000 файлов)
+                        'painted': painted, 'guard': man.get('guard') if painted else None,
+                        'glb_sha': (glb_sha(os.path.join(d, 'model.glb')) or '')[:16] if painted and os.path.exists(os.path.join(d, 'model.glb')) else None})
     from_binding = os.environ.get('GALLERY_FROM_BINDING') == '1'
     # ПРИВЯЗКА ТОЛЬКО ДЛЯ СПИСКА (T-20261106-77/6): `mesh_publish` даёт модели гостиной, чей файл везёт привязка
     # (`living_bound`), — остальной отбор по свежести, как прежде. Нет файла списка — привязка для всего отбора.
@@ -321,13 +396,21 @@ def build() -> str:
         bind_only = bind_only & only if only is not None else bind_only
         print(f'[галерея] файл по привязке — только для списка: {len(bind_only)} SKU', flush=True)
     bound, bad = binding_dirs(bind_only if bind_only is not None else only) if from_binding else ({}, {})
-    chosen, how = select(entries, only, bound, from_binding)
+    refused = refused_shas()
+    accepted = accepted_skus(painted=pcfg)
+    chosen, how = select(entries, only, bound, from_binding, refused, pcfg['guard_pass'], accepted)
+    n_p = sum(1 for v in how.values() if v == 'painted')
+    n_pe = sum(1 for e in entries if e.get('painted'))
+    if n_pe:
+        print(f'[галерея] крашеные модели: в складе {n_pe}, победили {n_p} (нужны guard={pcfg["guard_pass"]}, «принято владельцем» и копия не тяжелее порога; '
+              f'принято владельцем SKU: {len(accepted)}, отказов по весу в таблице копий: {len(refused)})', flush=True)
     if from_binding:
         n_b = sum(1 for v in how.values() if v == 'binding')
         none = len(only - set(chosen)) if only is not None else 0
         no_row = sum(1 for s, v in how.items() if v == 'mtime' and s not in bound)
-        print(f'[галерея] выбор файла: по привязке {n_b} / по mtime {len(how) - n_b} / нет ничего {none} '
-              f'(по mtime: нет строки привязки {no_row}, файл привязки не годен для показа {len(how) - n_b - no_row}; '
+        n_m = sum(1 for v in how.values() if v == 'mtime')
+        print(f'[галерея] выбор файла: по привязке {n_b} / по mtime {n_m} / крашеных {n_p} / нет ничего {none} '
+              f'(по mtime: нет строки привязки {no_row}, файл привязки не годен для показа {n_m - no_row}; '
               f'отказы привязки {bad or "—"})', flush=True)
     for d in [e['dir'] for e in entries if chosen.get(e['sku']) == e['dir']]:
         man = mans[d]
