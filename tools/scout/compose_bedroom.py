@@ -593,9 +593,9 @@ class Composer:
             sl = dict(dc, role=role, need_dims=(('w', 'd') if role == 'ковёр' else ('w', 'd', 'h')) if dc.get('band') else None)
             sl.setdefault('ideal', {})
             src = [it for it in self.decor if it['role'] == role]
-            cands, band, rx = self.pool(sl, style, tier, self.decor, _decor_filter(dc, windows, self.R, src))
+            cands, band, rx = self.pool(sl, style, tier, self.decor, _decor_filter(dc, windows, self.R, src, style))
             if role == 'ковёр' and rug_fit(self.R):       # ковёр по норме выступа и зазора (T-20261112-31)
-                got = self.rug_by_norm(sl, dc, style, tier, ctx, lay, room, cands, _decor_filter(dc, windows, self.R, src))
+                got = self.rug_by_norm(sl, dc, style, tier, ctx, lay, room, cands, _decor_filter(dc, windows, self.R, src, style))
                 if got['gap']:
                     gaps.append(got['gap'])
                 if got['pick'] is None:
@@ -618,7 +618,7 @@ class Composer:
                 keep = dict(self.shortage)      # учёт нехватки слота — по своему стилю, соседа не пишем
                 found = ([], None)
                 for nb in demo_room.neighbour_styles(style):
-                    c3, _, _ = self.pool(sl, nb, tier, self.decor, _decor_filter(dc, windows, self.R, src))
+                    c3, _, _ = self.pool(sl, nb, tier, self.decor, _decor_filter(dc, windows, self.R, src, style))   # ворота — по стилю КОМНАТЫ
                     palette(c3)
                     c3 = [c for c in c3 if CC.color_eval(c, role, style, ctx=ctx)['tier'] in ('preferred', 'allowed')
                           and (not need_mesh or c.get('mesh'))]
@@ -765,11 +765,12 @@ def model_code(name: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _decor_filter(dc: dict, windows: list, rules: dict | None = None, source: list = ()):
+def _decor_filter(dc: dict, windows: list, rules: dict | None = None, source: list = (), style: str | None = None):
     """Доп. фильтр декора из правил: `deny` — по названию (рулонные шторы не закрывают окно 2,4 м; `@ключ` — регэксп из
     корня правил), `deny_model` — и братья по артикулу отсеянного, `min_w: window` — ширина не меньше самого широкого
-    окна комнаты (полотно 300 на окно 240; 55 см — нет)."""
-    pat = dc.get('deny')
+    окна комнаты (полотно 300 на окно 240; 55 см — нет). `deny_by_style` {стиль комнаты: регэксп} — свой deny для этого стиля
+    вместо общего (T-20261120-163: в лофте рулонные шторы по стилю разрешены, римские/кафе/кухонные — нет)."""
+    pat = (dc.get('deny_by_style') or {}).get(style, dc.get('deny'))
     if pat and pat.startswith('@'):
         pat = (rules or {}).get(pat[1:])
     deny = re.compile(pat, re.I) if pat else None
@@ -1303,6 +1304,15 @@ def _selftest() -> int:
     f = _decor_filter({'min_w': 'window', 'deny': 'рулон'}, [NS(width_cm=210), NS(width_cm=240)])
     ok('шторы: не уже окна 240 и не рулонные', f({'name': 'Тюль', 'w': 300}) and not f({'name': 'Тюль', 'w': 200})
        and not f({'name': 'Рулонная штора', 'w': 300}) and _decor_filter({}, []) is None)
+    fl = {'min_w': 'window', 'deny': 'рулон|римск|кафе|для кухни', 'deny_by_style': {'лофт': 'римск|кафе|для кухни'}}
+    fw = [NS(width_cm=200)]
+    ok('шторы лофта: рулонные можно, римские/кафе/кухонные — нет; другой стиль и без стиля — рулонные нельзя',
+       _decor_filter(fl, fw, None, (), 'лофт')({'name': 'Рулонная штора графит', 'w': 220})
+       and not _decor_filter(fl, fw, None, (), 'лофт')({'name': 'Римская штора', 'w': 220})
+       and not _decor_filter(fl, fw, None, (), 'лофт')({'name': 'Штора для кухни', 'w': 220})
+       and not _decor_filter(fl, fw, None, (), 'лофт')({'name': 'Рулонная штора', 'w': 150})
+       and not _decor_filter(fl, fw, None, (), 'сканди')({'name': 'Рулонная штора', 'w': 220})
+       and not _decor_filter(fl, fw)({'name': 'Рулонная штора', 'w': 220}))
     built = [('сканди', {'кровать': 'B1', 'шкаф': 'W1', 'комод': 'K1'})]
     ok('другой стиль: одна общая модель — можно', diversity_ok('B1', 'кровать', {}, built, 'лофт'))
     ok('другой стиль: вторая общая — нельзя', not diversity_ok('W1', 'шкаф', {'кровать': 'B1'}, built, 'лофт'))
