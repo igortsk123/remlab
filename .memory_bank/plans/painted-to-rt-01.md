@@ -60,13 +60,13 @@ parent_plan: mesh-type-rules-01
 
 ## Задачи
 - [x] 0. Влить ветку покраски в `main` (T-20261120-147, f3fa8010, 20.11 15:35) (отдельная задача директора), иначе (а) нечем править.
-- [ ] 1. `rules/rt-weight.json` + чтение порога в `runtime_mesh.py` (без литералов `5 * 1024 * 1024` в коде).
-- [ ] 2. Лестница тяжёлой: упаковка с `--size 1024` → если > порога: `--size 512` → если всё ещё > порога: `--simplify` по шагам из правила (минимум граней — из правила) → если не вышло: отказ, копии нет, в манифесте `rt_weight: {"status": "refused", "bytes": N, "tried": [...]}`; демо с такой моделью не публикуется (общий «ворота» — нет свежей копии у модели варианта → код 1). Никакого молчаливого `except`.
-- [ ] 3. (а) выход покраски → склад (`model.glb`, `manifest.json`).
-- [ ] 4. (б) стратегия покраски в данных; `mesh_role`/`gallery_build` читают её.
-- [ ] 5. (г) привязка победителя: файл привязки SKU → источник; крашеная побеждает Hunyuan, только если в `manifest.json` есть `guard: pass` (сторож покраски `tex_coverage`, keep ≠ repaint/reject — ADR-0451; ветка `worktree-tex-fill`/`unitex-1119` — вливается отдельно) и копия легче порога. Нет `guard: pass` → остаётся предыдущая модель (как «Папка без model.glb» в `gallery_build`), mtime не используется.
-- [ ] 6. Автопроверка П-4: `runtime_mesh.py --check` и шаг в `publish_rt.sh` — все копии из `data/flat3d/runtime-meshes.json` ≤ `max_bytes`; сторож-сводка `WARN:rt_weight` ночью в отчёт.
-- [ ] 7. Тесты + job CI; прогон на `painted.glb` комода (ожидание: 1,50 МБ, 139 904 грани) и на заведомо тяжёлой подложенной модели (лестница сработала, отказ с причиной).
+- [x] 1. `rules/rt-weight.json` + чтение порога в `runtime_mesh.py` (без литералов `5 * 1024 * 1024` в коде).
+- [x] 2. Лестница тяжёлой: упаковка с `--size 1024` → если > порога: `--size 512` → если всё ещё > порога: `--simplify` по шагам из правила (минимум граней — из правила) → если не вышло: отказ, копии нет, в манифесте `rt_weight: {"status": "refused", "bytes": N, "tried": [...]}`; демо с такой моделью не публикуется (общий «ворота» — нет свежей копии у модели варианта → код 1). Никакого молчаливого `except`.
+- [x] 3. (а) выход покраски → склад (`model.glb`, `manifest.json`).
+- [x] 4. (б) стратегия покраски в данных; `mesh_role`/`gallery_build` читают её.
+- [x] 5. (г) привязка победителя: файл привязки SKU → источник; крашеная побеждает Hunyuan, только если в `manifest.json` есть `guard: pass` (сторож покраски `tex_coverage`, keep ≠ repaint/reject — ADR-0451; ветка `worktree-tex-fill`/`unitex-1119` — вливается отдельно) и копия легче порога. Нет `guard: pass` → остаётся предыдущая модель (как «Папка без model.glb» в `gallery_build`), mtime не используется.
+- [x] 6. Автопроверка П-4: `runtime_mesh.py --check` и шаг в `publish_rt.sh` — все копии из `data/flat3d/runtime-meshes.json` ≤ `max_bytes`; сторож-сводка `WARN:rt_weight` ночью в отчёт.
+- [x] 7. Тесты + job CI; прогон на `painted.glb` комода (ожидание: 1,50 МБ, 139 904 грани) и на заведомо тяжёлой подложенной модели (лестница сработала, отказ с причиной). Живой прогон 20.11 17:12 (heavy-slot, билет 10869): комод 15,70 → 1,50 МБ, 139 904 грани; порог 1,3 МБ → лестница 1,20 МБ (512+si0.6); порог 0,2 МБ → отказ rt_weight_over_limit.
 - [ ] 8. Перевыпуск и живая проверка (шаг перевыпуска ниже).
 
 ## Критерии приёмки
@@ -126,6 +126,7 @@ tools/scout/rules/rt-weight.json   (черновик структуры, зна�
 - [ ] `/memory-check` выполнен, audit «чисто»
 
 ## Лог выполнения
+- 2026-11-20 — T-20261120-150/1 (рабочий 4, ветка `painted-rt-150`, не влита): задачи 1–6 в коде. Порог и лестница — `tools/scout/rules/rt-weight.json` (5 242 880 Б; 1024 → 512 → упрощение 0,6 → 0,4; `min_triangles` 40 000; причина `rt_weight_over_limit`), читает `runtime_mesh.py:weight_rule/ladder_steps/build_light` (литерала порога в коде нет — проверяет тест). Отказ: копии нет, запись `rt_weight{refused, reason, steps, sha, rule, glb_sha}` в манифесте, повторно не гоняется (тот же исходник и то же правило), `--check` считает копию несвежей/тяжёлой, `--check-weight`, `--heavy-in`, шаг в `publish_rt.sh` (тяжёлое — отказ до rsync), сводка в `demo_rt.sh`, `WARN:rt_weight`. (а) `tools/scout/stablegen/sg_store.py` + хук `on_ok` в `sg_queue.RunQueue` (оба драйвера): `blender/painted.glb` → `~/scout-scenes/meshes-painted/<товар>/<прогон>/{model.glb, manifest.json}`, `guard: none`. (б) `mesh_strategies` и `painted_source` — в `asset-strategies.json`, загрузчик `asset_strategy.py` (отклонение от «менять не должен»: единый загрузчик; копии в `tools/scout/salad/` синхронизированы, CI `diff -q`). (г) `gallery_build.py:painted_winners` — крашеная побеждает Hunyuan при ТРЁХ условиях: `guard: pass`, SKU «принято владельцем» в `rules/painted-accepted.json` (дата + TG; решение владельца TG 2734; файл в `rules/`, чтобы решение было видно в git; строки пишет только ведущий), копия не отказана по весу; mtime не участвует. Промежуточные файлы упаковки теперь `<id>.src<N>.glb` и `<id>.cand.glb` — убираются при любом выходе. Тесты: `tools/assets/tests/test_rt_weight.py`, `test_painted_binding.py` (job `planner`), `tools/scout/stablegen/tests_sg.py` (+склад/очередь).
 - 2026-11-20 — план создан (draft) по замеру T-20261120-144/1; код не писался; ждёт «код» по этому плану (agent-workflow).
 - 2026-11-20 15:35 — ветка покраски и сторож tex_coverage влиты в main (f3fa8010, T-147); код плана — р.4 (T-20261120-150), разрешение владельца TG 2687.
 

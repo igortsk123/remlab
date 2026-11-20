@@ -15,6 +15,13 @@ ADD_ONLY=(); [ "${RT_ADD_ONLY:-}" = 1 ] && ADD_ONLY=(--ignore-existing)
 [ -d "$SRC" ] || { echo "нет каталога $SRC — сперва tools/assets/runtime_mesh.py"; exit 1; }
 COUNT=$(find "$SRC" -name '*.glb' | wc -l)
 [ "$COUNT" -gt 0 ] || { echo "в $SRC нет моделей"; exit 1; }
+# П-4 (владелец TG 2671, план painted-to-rt-01): тяжелее порога `rules/rt-weight.json` на /rt/ не едет — сторож веса, до rsync.
+# Порог читает `runtime_mesh.py --heavy-in` из правила: литерала в скрипте нет; список тяжёлых — в журнал (stdout) и отказ
+PY=${PY:-$HOME/venvs/scout/bin/python}; [ -x "$PY" ] || PY=python3
+if ! HEAVY=$("$PY" "$(dirname "$0")/runtime_mesh.py" --heavy-in "$SRC" 2>&1); then
+  echo "$HEAVY"; echo "WARN:rt_weight: выкладка на /rt/ остановлена — в $SRC есть копии тяжелее порога (убрать или пересобрать по лестнице веса)"; exit 1
+fi
+echo "$HEAVY" | tail -1
 echo "выкладываю $COUNT моделей ($(du -sh "$SRC" | cut -f1))"
 # БЕЗ --delete: на проде могут лежать модели прошлых партий, которые ещё открыты по ссылкам
 rsync -a "${ADD_ONLY[@]}" --info=stats1 --exclude runtime-meshes.json -e "ssh -p 22222 -o StrictHostKeyChecking=no" "$SRC/" root@89.167.127.0:/opt/remlab/test/rt/

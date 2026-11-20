@@ -766,6 +766,43 @@ class QueueTests(unittest.TestCase):
             self.assertTrue(any('диск' in x for x in said))
             self.free = 100.0
 
+    def test_ok_run_goes_to_store_and_store_failure_is_loud(self):
+        """T-20261120-150/1 (а): успешный прогон → `on_ok` (склад мешей); сбой склада не роняет очередь и не молчит (store_error + строка хода)."""
+        import tempfile
+        import sg_queue as Q
+        for boom in (False, True):
+            with tempfile.TemporaryDirectory() as tmp:
+                q, procs, said = self.make([('a', 'v')], tmp, {})
+                seen = []
+
+                def on_ok(it):
+                    seen.append(it['key'])
+                    if boom:
+                        raise OSError('диск полон')
+                    return {'stored': '/склад/a', 'guard': 'none'}
+                q.on_ok = on_ok
+                q.step(0)
+                open(os.path.join(tmp, 'a', 'blender', 'painted.glb'), 'wb').write(b'x')
+                procs['a'].rc = 0
+                q.step(1)
+                rec = q.summary['runs'][0]
+                self.assertEqual(seen, ['a'])
+                self.assertTrue(rec['ok'])
+                if boom:
+                    self.assertIn('OSError', rec['store_error'])
+                    self.assertTrue(any('в склад покраски не записано' in x for x in said))
+                else:
+                    self.assertEqual((rec['stored'], rec['guard']), ('/склад/a', 'none'))
+                    self.assertNotIn('store_error', rec)
+        with tempfile.TemporaryDirectory() as tmp:                  # упавший прогон в склад не идёт
+            q, procs, _ = self.make([('a', 'v')], tmp, {'a': False})
+            calls = []
+            q.on_ok = lambda it: calls.append(it) or {}
+            q.step(0)
+            procs['a'].rc = 1
+            q.step(1)
+            self.assertEqual(calls, [])
+
     def test_next_starts_when_previous_bakes_and_hung_bake_is_killed(self):
         import tempfile
         import sg_queue as Q

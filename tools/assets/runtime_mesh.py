@@ -182,6 +182,12 @@ def optimise(data: bytes, size: int, quality: int, drop_mr: bool = True) -> tupl
     if js.get("buffers"):
         js["buffers"][0]["byteLength"] = len(new_bin)
         js["buffers"][0].pop("uri", None)
+    stats["triangles"] = count_triangles(js)
+    return write_glb(js, bytes(new_bin)), stats
+
+
+def count_triangles(js: dict) -> int:
+    """Треугольники по индексам примитивов (у упакованной meshopt-копии счётчики акцессоров те же)."""
     accessors = js.get("accessors", [])
     tri = 0
     for mesh in js.get("meshes", []):
@@ -189,8 +195,7 @@ def optimise(data: bytes, size: int, quality: int, drop_mr: bool = True) -> tupl
             acc = prim.get("indices")
             if isinstance(acc, int) and acc < len(accessors):
                 tri += int(accessors[acc].get("count", 0)) // 3
-    stats["triangles"] = tri
-    return write_glb(js, bytes(new_bin)), stats
+    return tri
 
 
 def pack(src_path: str, dst_path: str, simplify: float = 0.0, ktx2: bool = True) -> tuple[bool, str]:
@@ -282,19 +287,127 @@ def src_sha(data: bytes, recipe: str = "") -> str:
 RULES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scout", "rules")
 
 
+# ——— ПОРОГ ВЕСА КОПИИ И ЛЕСТНИЦА (П-4, владелец TG 2671; план painted-to-rt-01, T-20261120-150/1) ———
+# Всё — данные `rules/rt-weight.json` (путь можно подменить `RT_WEIGHT_RULES` — тесты и пробы): ни порога, ни шагов лестницы в коде нет.
+def weight_rule(path: str | None = None) -> dict:
+    """Правило веса: `max_bytes`, `ladder`, `min_triangles`, `refuse_reason` + `fingerprint` (первые 8 знаков sha256 файла: отказ
+    «не лезет» действителен, пока правило то же, — ослабили порог или лестницу, ближайший прогон пробует снова)."""
+    p = path or os.environ.get("RT_WEIGHT_RULES") or os.path.join(RULES, "rt-weight.json")
+    raw = open(p, "rb").read()
+    r = json.loads(raw.decode("utf-8"))
+    if not isinstance(r.get("max_bytes"), int) or r["max_bytes"] <= 0:
+        raise ValueError(f"{p}: max_bytes — целое > 0")
+    for s in r.get("ladder") or []:
+        if ("size" in s) == ("simplify" in s):
+            raise ValueError(f"{p}: шаг лестницы — либо size, либо simplify: {s}")
+    r["fingerprint"] = hashlib.sha256(raw).hexdigest()[:8]
+    return r
+
+
+def ladder_steps(rule: dict, size: int, simplify: float) -> list[tuple[str, int, float]]:
+    """Шаги по порядку: (метка, сторона текстуры, доля треугольников). Первый — запуск как есть; дальше шаги правила, которые
+    что-то меняют: размер не легче текущего и упрощение не мягче текущего пропускаются (у -lite стартовые 512 — шаги 1024/512 пустые)."""
+    steps = [(f"{size}" + (f"+si{simplify:g}" if simplify else ""), size, simplify)]
+    cur_size, cur_simp = size, simplify
+    for s in rule.get("ladder") or []:
+        if "size" in s:
+            if int(s["size"]) >= cur_size:
+                continue
+            cur_size = int(s["size"])
+        else:
+            v = float(s["simplify"])
+            if 0 < cur_simp <= v:
+                continue
+            cur_simp = v
+        steps.append((f"{cur_size}" + (f"+si{cur_simp:g}" if cur_simp else ""), cur_size, cur_simp))
+    return steps
+
+
+def build_light(src: bytes, dst: str, size: int, quality: int, simplify: float, ktx2: bool, rule: dict) -> dict:
+    """Одна лёгкая копия по лестнице веса. Кандидат пишется в `<dst>.cand`, а не в `dst`: тяжёлый не затирает прежнюю годную копию.
+    Шаг не вышел по весу (`> max_bytes`) — следующий; упаковка битая по текстуре — отказ сразу (это не вес, лестница не лечит).
+    Рабочие файлы (`.srcN.glb`, `.cand`, `.new`) убираются при любом выходе, в том числе при ошибке.
+    → {ok, kind: ''|'weight'|'texture', packed, how, probs, bytes, stats, tried: [{step, size, simplify, bytes|skip|problems}]}."""
+    max_bytes, min_tri = rule["max_bytes"], int(rule.get("min_triangles") or 0)
+    cand = dst[:-4] + ".cand.glb"
+    cache: dict[int, tuple[str, dict]] = {}
+    tried: list[dict] = []
+    res: dict = {"ok": False, "kind": "weight", "packed": False, "how": "", "probs": [], "bytes": 0, "stats": {}, "tried": tried}
+    try:
+        for label, sz, simp in ladder_steps(rule, size, simplify):
+            if sz not in cache:
+                out, stats = optimise(src, sz, quality)
+                tmp = dst[:-4] + f".src{sz}.glb"           # gltfpack узнаёт формат ПО РАСШИРЕНИЮ, поэтому промежуточный файл тоже .glb
+                with open(tmp, "wb") as fh:
+                    fh.write(out)
+                cache[sz] = (tmp, stats)
+            tmp, stats = cache[sz]
+            if simp and min_tri and stats["triangles"] * simp < min_tri:
+                tried.append({"step": label, "size": sz, "simplify": simp, "skip": f"граней {stats['triangles']}×{simp:g} < {min_tri}"})
+                break                                      # дальше упрощение только мельче — стоп (силуэт не едим)
+            packed, how, probs = build_copy(tmp, cand, simp, ktx2, stats["images_out"] > 0)
+            if probs:
+                tried.append({"step": label, "size": sz, "simplify": simp, "problems": probs[:2]})
+                res.update(kind="texture", probs=probs, stats=stats)
+                return res
+            nbytes = os.path.getsize(cand)
+            tried.append({"step": label, "size": sz, "simplify": simp, "bytes": nbytes})
+            res.update(packed=packed, how=how, bytes=nbytes, stats=stats)
+            if nbytes <= max_bytes:
+                os.replace(cand, dst)
+                res.update(ok=True, kind="")
+                return res
+            os.remove(cand)
+        return res
+    finally:
+        for p in [cand, cand[:-4] + ".new.glb"] + [t for t, _s in cache.values()]:
+            if os.path.exists(p):
+                os.remove(p)
+
+
+def weight_entry(res: dict, rule: dict, sha: str, src: bytes = b"") -> dict:
+    """Запись `rt_weight` манифеста: только то, что полезно человеку и сторожу (какие шаги, сколько весило, чем кончилось)."""
+    steps = [[t["step"], t.get("bytes"), t.get("skip") or t.get("problems")] for t in res["tried"]]
+    e = {"status": "ok" if res["ok"] else "refused", "limit": rule["max_bytes"], "bytes": res["bytes"], "steps": steps}
+    if not res["ok"]:
+        # glb_sha — первые 16 знаков sha256 ИСХОДНОГО файла, как `mesh-index.json` галереи: по нему галерея не берёт отказанную крашеную модель
+        e.update(reason=rule.get("refuse_reason") or "rt_weight_over_limit", sha=sha, rule=rule["fingerprint"], glb_sha=hashlib.sha256(src).hexdigest()[:16])
+    return e
+
+
+def refused_here(entry: dict, suffix: str, sha: str, rule: dict) -> bool:
+    """Отказ по весу уже есть для ТОГО ЖЕ исходника и ТОГО ЖЕ правила — заново гонять лестницу (до 4 упаковок) нет смысла."""
+    w = entry.get(f"rt_weight{suffix}") or {}
+    return w.get("status") == "refused" and w.get("sha") == sha and w.get("rule") == rule["fingerprint"]
+
+
+def heavy_files(folder: str, rule: dict | None = None) -> list[tuple[str, int]]:
+    """Файлы `*.glb` в папке тяжелее порога (publish_rt.sh перед выкладкой: тяжёлое на /rt/ не едет)."""
+    lim = (rule or weight_rule())["max_bytes"]
+    out = [(f, os.path.getsize(os.path.join(folder, f))) for f in sorted(os.listdir(folder)) if f.endswith(".glb")]
+    return [(f, n) for f, n in out if n > lim]
+
+
+def heavy_in_manifest(manifest: dict, rule: dict | None = None) -> list[tuple[str, str, int]]:
+    """Записи таблицы копий с весом выше порога: (id, ключ, байт) — по `size` и `size-lite`."""
+    lim = (rule or weight_rule())["max_bytes"]
+    return [(m, k, v) for m, e in sorted(manifest.items()) for k, v in e.items()
+            if (k == "size" or k == "size-lite") and isinstance(v, int) and v > lim]
+
+
 def base_role(role) -> str:
     return re.sub(r"\s+\d+$", "", str(role or ""))
 
 
-def mesh_role(role, strategies: dict | None = None) -> bool:
-    """Нужна ли роли 3D-модель — по канону стратегий ассета (`rules/asset-strategies.json`, Codex q27): `hunyuan3d` — модель;
-    ковёр и картина — плоскость из вырезки, плед и шторы — спрайт: им лёгкая копия модели не нужна (T-20261106-77 Д1/Д3 —
-    вместо особого случая «ковёр» в коде)."""
+def mesh_role(role, strategies: dict | None = None, mesh_strategies: tuple | None = None) -> bool:
+    """Нужна ли роли 3D-модель — по канону стратегий ассета (`rules/asset-strategies.json`, Codex q27): стратегии из `mesh_strategies`
+    канона (`hunyuan3d`, крашеная `stablegen_painted`) — модель; ковёр и картина — плоскость из вырезки, плед и шторы — спрайт: им
+    лёгкая копия модели не нужна (T-20261106-77 Д1/Д3 — вместо особого случая «ковёр» в коде; T-20261120-150/1 — вместо литерала)."""
     if strategies is None:                              # единственный загрузчик канона — `tools/scout/asset_strategy.py`
         sys.path.insert(0, os.path.join(os.path.dirname(RULES)))
         import asset_strategy as AS
-        return AS.strategy(role) == "hunyuan3d"
-    return strategies.get(base_role(role), strategies.get("_default")) == "hunyuan3d"
+        return AS.has_mesh(role)
+    return strategies.get(base_role(role), strategies.get("_default")) in (mesh_strategies or ("hunyuan3d",))
 
 
 def room_type(room_id) -> str:
@@ -394,7 +507,30 @@ def main() -> int:
     ap.add_argument("--feed-top", type=int, default=None,
                     help="сколько кандидатов каждой ленты (0 — вся); по умолчанию — по комнатам, rules/demo-swap.json:rt_feed_top")
     ap.add_argument("--check", action="store_true", help="только проверить наличие и свежесть (код 1 — нет/устарело у вариантов)")
+    ap.add_argument("--check-weight", action="store_true",
+                    help="только проверить вес: все копии таблицы --manifest не тяжелее порога rules/rt-weight.json (код 1 — есть тяжелее; П-4)")
+    ap.add_argument("--heavy-in", default="", help="папка с копиями: перечислить файлы тяжелее порога (код 1 — есть); зовёт publish_rt.sh")
     a = ap.parse_args()
+    rule = weight_rule()
+    if a.heavy_in:
+        bad = heavy_files(os.path.expanduser(a.heavy_in), rule)
+        for f, n in bad[:50]:
+            print(f"  тяжелее порога: {f} {n/1e6:.2f} МБ")
+        print(f"вес копий в {a.heavy_in}: тяжелее порога {rule['max_bytes']/1e6:.2f} МБ — {len(bad)}")
+        return 1 if bad else 0
+    if a.check_weight:
+        try:
+            meshes = json.load(open(os.path.expanduser(a.manifest), encoding="utf-8")).get("meshes", {})
+        except (OSError, ValueError) as e:
+            print(f"WARN:rt_weight: таблица копий не читается ({a.manifest}: {str(e)[:80]}) — вес не проверен")
+            return 1
+        bad = heavy_in_manifest(meshes, rule)
+        refused = [m for m, e in sorted(meshes.items()) for k, w in e.items() if k.startswith("rt_weight") and isinstance(w, dict) and w.get("status") == "refused"]
+        print(f"вес копий: в таблице {len(meshes)} моделей, тяжелее порога {rule['max_bytes']/1e6:.2f} МБ — {len(bad)}, отказов лестницы — {len(refused)}")
+        if bad or refused:
+            print(f"WARN:rt_weight: копии тяжелее порога {rule['max_bytes']/1e6:.2f} МБ — {len(bad)}, отказ по весу — {len(refused)}: "
+                  f"{' '.join([f'{m}{k[4:]}={v/1e6:.1f}МБ' for m, k, v in bad[:4]] + refused[:4])}")
+        return 1 if bad or refused else 0
 
     var_ids: list[str] = []
     if a.ids_from_demo:
@@ -419,6 +555,7 @@ def main() -> int:
             try:
                 # свежая = того же исходника И цела (T-15: битая текстура с верным отпечатком — тоже «нет копии»)
                 fresh = (os.path.exists(dst) and manifest.get(mid, {}).get(sha_key) == src_sha(fetch_source(mid), recipe)
+                         and os.path.getsize(dst) <= rule["max_bytes"]       # П-4: копия тяжелее порога — несвежая (собрать по лестнице)
                          and not copy_problems(dst, expect_texture=False))
             except Exception:  # noqa: BLE001 — исходник недоступен: копию не проверить, считаем несвежей
                 fresh = False
@@ -433,6 +570,8 @@ def main() -> int:
     bad_tex: list[str] = []        # копия с битой текстурой не записана (T-20261107-15) — отказ и WARN в сводку
     fallback: list[str] = []       # KTX2 не вышел — копия с JPEG (сигнал: /tmp под квотой)
     healed: list[str] = []         # прежняя копия того же исходника была битой — пересобрана
+    bad_weight: list[str] = []     # лестница веса кончилась, копия тяжелее порога — не записана (П-4), WARN:rt_weight
+    healed_w: list[str] = []       # копия собрана не с первого шага лестницы (облегчена: 512 / упрощение)
     t0 = time.time()
     for i, mid in enumerate(ids, 1):
         dst = os.path.join(a.out, f"{mid}{a.suffix}.glb")
@@ -444,19 +583,35 @@ def main() -> int:
             # 07.11 копия числилась в таблице с верным отпечатком и пропускалась бы вечно
             # Запасная JPEG-копия (KTX2 не вышел) свежа для ворот, но в следующий прогон пробуем KTX2 снова
             jpeg_key = f"jpeg{a.suffix or ''}"
+            wkey = f"rt_weight{a.suffix or ''}"
+            if not a.force and refused_here(manifest.get(mid, {}), a.suffix or "", sha, rule):
+                fail += 1                                       # отказ по весу для ТОГО ЖЕ исходника и правила — лестницу заново не гоняем
+                bad_weight.append(mid)
+                continue
             if os.path.exists(dst) and not a.force and manifest.get(mid, {}).get(sha_key) == sha:
                 if copy_problems(dst, expect_texture=False):
                     healed.append(mid)
+                elif os.path.getsize(dst) > rule["max_bytes"]:
+                    pass                                        # П-4: прежняя копия тяжелее (порог ужесточили) — пересобрать по лестнице
                 elif a.no_ktx2 or not manifest[mid].get(jpeg_key):
                     skip += 1
                     continue
-            out, stats = optimise(src, a.size, a.quality)
-            # gltfpack узнаёт формат ПО РАСШИРЕНИЮ, поэтому промежуточный файл тоже .glb
-            tmp = dst[:-4] + ".src.glb"
-            with open(tmp, "wb") as fh:
-                fh.write(out)
-            packed, how, probs = build_copy(tmp, dst, a.simplify, not a.no_ktx2, stats["images_out"] > 0)
-            os.remove(tmp)
+            res = build_light(src, dst, a.size, a.quality, a.simplify, not a.no_ktx2, rule)
+            packed, how, probs, stats = res["packed"], res["how"], res["probs"], res["stats"]
+            if res["kind"] == "weight":
+                # ЛЕСТНИЦА КОНЧИЛАСЬ, А КОПИЯ ТЯЖЕЛЕЕ ПОРОГА: копии нет (кандидат убран), причина — в манифест, демо с такой моделью не
+                # публикуется (ворота `--check`: нет свежей копии у модели варианта). Прежний файл на /rt/ не трогаем
+                fail += 1
+                bad_weight.append(mid)
+                entry = manifest.get(mid, {})
+                for k in (f"size{a.suffix or ''}", sha_key, jpeg_key):
+                    entry.pop(k, None)
+                entry[wkey] = weight_entry(res, rule, sha, src)
+                manifest[mid] = entry
+                steps = "; ".join(f"{t['step']}={t['bytes']/1e6:.2f}" if t.get("bytes") else f"{t['step']}: {t.get('skip')}" for t in res["tried"])
+                print(f"[{i}/{len(ids)}] {mid}: ОТКАЗ — {rule.get('refuse_reason', 'rt_weight_over_limit')}: после лестницы "
+                      f"{res['bytes']/1e6:.2f} МБ > {rule['max_bytes']/1e6:.2f} МБ ({steps})", file=sys.stderr)
+                continue
             if probs:
                 # КОПИЮ НЕ ПИШЕМ: битая прежняя тоже уходит из таблицы и с диска — сцена возьмёт исходник (`meshUrl`), а не белое
                 fail += 1
@@ -478,6 +633,11 @@ def main() -> int:
             entry[f"texture_px{a.suffix or ''}"] = stats["px"]
             entry["triangles"] = stats["triangles"]
             entry["packed"] = packed
+            if len(res["tried"]) > 1:
+                entry[wkey] = weight_entry(res, rule, sha)      # лестница шагала: какие шаги и что весили (первый шаг прошёл — записи нет)
+                healed_w.append(mid)
+            else:
+                entry.pop(wkey, None)
             if fallback and fallback[-1] == mid:
                 entry[jpeg_key] = True
             else:
@@ -505,12 +665,17 @@ def main() -> int:
     total_src = sum(m.get("source_bytes", 0) for m in manifest.values())
     total_out = sum(m.get("size", 0) for m in manifest.values())
     print(
-        f"\nготово: {ok}, пропущено: {skip}, отказов: {fail} (битая текстура {len(bad_tex)}), без KTX2 {len(fallback)}, "
+        f"\nготово: {ok}, пропущено: {skip}, отказов: {fail} (битая текстура {len(bad_tex)}, вес {len(bad_weight)}), без KTX2 {len(fallback)}, "
         f"пересобрано битых {len(healed)}, {time.time()-t0:.0f} с\n"
         f"вес: {total_src/1e6:.0f} → {total_out/1e6:.0f} МБ"
     )
     # строки WARN — в сводку ночи (контракт `refresh_daily.sh:step`), последними: `demo_rt.sh` берёт хвост вывода
     tag = a.suffix or ""
+    if bad_weight:
+        print(f"WARN:rt_weight: лёгкие копии{tag}: {len(bad_weight)} не легче порога {rule['max_bytes']/1e6:.2f} МБ даже после лестницы — "
+              f"не записаны, демо с ними не публикуется — {' '.join(bad_weight[:4])}")
+    if healed_w:
+        print(f"WARN:rt_weight_ladder: лёгкие копии{tag}: {len(healed_w)} собраны облегчённо (не с первого шага лестницы) — {' '.join(healed_w[:4])}")
     if bad_tex:
         print(f"WARN:rt_texture: лёгкие копии{tag}: {len(bad_tex)} с битой текстурой не записаны (сцена берёт исходник) — "
               f"{' '.join(bad_tex[:4])}; причина обычно квота /tmp у gltfpack")

@@ -73,12 +73,13 @@ def stage_of(it: dict) -> str:
 
 
 class RunQueue:
-    def __init__(self, runs, summary: dict, *, start, finish, say, progress, job_timeout_s: float, gate=None, fail_streak: int = FAIL_STREAK, free_gb=free_gb, min_free_gb: float = MIN_FREE_GB, relay_port: int | None = None):
+    def __init__(self, runs, summary: dict, *, start, finish, say, progress, job_timeout_s: float, gate=None, fail_streak: int = FAIL_STREAK, free_gb=free_gb, min_free_gb: float = MIN_FREE_GB, relay_port: int | None = None, on_ok=None):
         self.pending, self.summary = list(runs), summary
         self.start, self.finish, self.say, self.progress, self.gate = start, finish, say, progress, gate
         self.job_timeout_s, self.fail_streak_max = job_timeout_s, fail_streak
         self.free_gb, self.min_free_gb = free_gb, min_free_gb
         self.relay_port, self._relay_seen = relay_port, 0
+        self.on_ok = on_ok                                 # успешный прогон → склад мешей (`sg_store.store_run`): поля идут в запись прогона; сбой — громко, не молча
         self.cur, self.baking = None, []
         self.fail_streak, self.ever_ok = 0, False
         summary.setdefault('runs', [])
@@ -141,6 +142,12 @@ class RunQueue:
                 self.summary['retries_total'] = self.summary.get('retries_total', 0) + relay_n + drive_r
                 if relay_n or drive_r:
                     self.say(f'повторы связи у {it["key"]}: мост {relay_n}, Blender {drive_r}')
+            if ok and self.on_ok is not None:
+                try:
+                    rec.update(self.on_ok(it))
+                except Exception as e:  # noqa: BLE001 — прогон удался, а в склад не легло: пишем причину и говорим, ход очереди не роняем
+                    rec['store_error'] = f'{type(e).__name__}: {str(e)[:120]}'
+                    self.say(f'!! в склад покраски не записано: {it["key"]} {it["variant"]} — {rec["store_error"]}')
             if ok:
                 freed = slim_run(it['dir'])
                 rec['freed_mb'] = round(freed / 2 ** 20)
