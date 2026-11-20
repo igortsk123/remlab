@@ -57,6 +57,10 @@ def store_run(it: dict, cfg: dict | None = None, root: str | None = None) -> dic
     os.makedirs(dest, exist_ok=True)
     data = open(glb, 'rb').read()
     _atomic_write(os.path.join(dest, 'model.glb'), data)
+    for src, name in ((os.path.join(it['dir'], 'blender', 'cameras.json'), 'cameras.json'), (os.path.join(it['dir'], 'blender', 'status.json'), 'status.json'),
+                      (os.path.join(it['dir'], 'cfg.json'), 'cfg.json')):
+        if os.path.isfile(src):                         # T-152/1: камеры прогона едут с записью (сторож покрытия читает их из данных, не из констант): записанные позы или то, из чего их восстановить
+            _atomic_write(os.path.join(dest, name), open(src, 'rb').read())
     man = {'sku': sku, 'role': run_cfg.get('cat_role') or '', 'source': cfg['source'], 'variant': it['variant'], 'label': it.get('label'),
            'run': os.path.basename(it['dir'].rstrip('/')), 'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data),
            'guard': cfg['guard_none'], 'stored_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}
