@@ -30,6 +30,8 @@ import tempfile
 import time
 import urllib.error
 
+import numpy as np
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "assets"))
 import runtime_mesh as RM  # noqa: E402
@@ -55,6 +57,138 @@ def _roles() -> dict[str, str]:
 
 
 ROLES = _roles()
+
+
+# ── ПОВОРОТ СТАРОЙ МОДЕЛИ К КРАШЕНОЙ (T-20261120-120/2): по геометрии, без ID ──────────────────────────────────────────
+# Старая и крашеная модель одного товара иногда смотрят «фасадом» в разные стороны (кратно 90° вокруг вертикали). Берём все
+# вершины обеих (с матрицами узлов), строим вид сверху «высота по клеткам» (максимум высоты в клетке; масштаб — высота модели,
+# центр — середина габарита), крутим старую на 0/90/180/270° и берём поворот с меньшей разницей карт. Высотная карта различает
+# и 0°/180° (спинка кресла, фасад шкафа смещают массу), а не только длинную/короткую сторону. Поворот берём, только если он
+# заметно лучше нулевого — у симметричных (круглый стол, ваза) остаётся 0.
+_CT = {5120: np.int8, 5121: np.uint8, 5122: np.int16, 5123: np.uint16, 5125: np.uint32, 5126: np.float32}
+_NC = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT4": 16}
+
+
+def _node_matrix(n: dict) -> np.ndarray:
+    if "matrix" in n:
+        return np.array(n["matrix"], dtype=float).reshape(4, 4).T
+    m = np.eye(4)
+    t, r, sc = n.get("translation", [0, 0, 0]), n.get("rotation", [0, 0, 0, 1]), n.get("scale", [1, 1, 1])
+    x, y, z, w = r
+    R = np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                  [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                  [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+    m[:3, :3] = R * np.array(sc)
+    m[:3, 3] = t
+    return m
+
+
+def _positions(data: bytes) -> np.ndarray:
+    """Все вершины модели в мировых координатах (N×3). Не разобралась (сжатие meshopt и т.п.) — исключение."""
+    js, bn = RM.parse_glb(data)
+    if "EXT_meshopt_compression" in (js.get("extensionsRequired") or []):
+        raise ValueError("геометрия сжата meshopt")
+    pts: list[np.ndarray] = []
+
+    def acc_read(ai: int) -> np.ndarray:
+        a = js["accessors"][ai]
+        bv = js["bufferViews"][a["bufferView"]]
+        dt = np.dtype(_CT[a["componentType"]])
+        nc = _NC[a["type"]]
+        stride = bv.get("byteStride") or dt.itemsize * nc
+        off = bv.get("byteOffset", 0) + a.get("byteOffset", 0)
+        n = a["count"]
+        raw = np.frombuffer(bn, dtype=np.uint8, count=stride * (n - 1) + dt.itemsize * nc, offset=off)
+        arr = np.lib.stride_tricks.as_strided(raw, shape=(n, dt.itemsize * nc), strides=(stride, 1)).copy().view(dt).reshape(n, nc)
+        arr = arr.astype(np.float64)
+        if a.get("normalized") and a["componentType"] != 5126:
+            arr = arr / float(np.iinfo(dt).max)
+        return arr
+
+    def walk(ni: int, parent: np.ndarray) -> None:
+        n = js["nodes"][ni]
+        m = parent @ _node_matrix(n)
+        if "mesh" in n:
+            for pr in js["meshes"][n["mesh"]]["primitives"]:
+                v = acc_read(pr["attributes"]["POSITION"])
+                pts.append((np.c_[v, np.ones(len(v))] @ m.T)[:, :3])
+        for c in n.get("children", []):
+            walk(c, m)
+
+    sc = js["scenes"][js.get("scene", 0)]
+    for r in sc["nodes"]:
+        walk(r, np.eye(4))
+    return np.vstack(pts)
+
+
+def _hmap(P: np.ndarray, ymin: float, hy: float, cx: float, cz: float, G: float, n: int = 28) -> np.ndarray:
+    x = (P[:, 0] - cx) / hy
+    z = (P[:, 2] - cz) / hy
+    y = (P[:, 1] - ymin) / hy
+    i = np.clip(((x + G) / (2 * G) * n).astype(int), 0, n - 1)
+    j = np.clip(((z + G) / (2 * G) * n).astype(int), 0, n - 1)
+    m = np.zeros((n, n))
+    np.maximum.at(m, (i, j), y)
+    return m
+
+
+def auto_yaw(old: bytes, new: bytes) -> tuple[int, dict]:
+    """Поворот старой модели вокруг вертикали (0/90/180/270), при котором она лучше всего совпадает с крашеной."""
+    Po, Pn = _positions(old), _positions(new)
+
+    def frame(P: np.ndarray):
+        lo, hi = P.min(0), P.max(0)
+        return lo[1], max(hi[1] - lo[1], 1e-9), (lo[0] + hi[0]) / 2, (lo[2] + hi[2]) / 2
+
+    fo, fn = frame(Po), frame(Pn)
+    G = 0.02 + max(np.abs((Po[:, 0] - fo[2]) / fo[1]).max(), np.abs((Po[:, 2] - fo[3]) / fo[1]).max(),
+                   np.abs((Pn[:, 0] - fn[2]) / fn[1]).max(), np.abs((Pn[:, 2] - fn[3]) / fn[1]).max())
+    mn = _hmap(Pn, fn[0], fn[1], fn[2], fn[3], G)
+    errs = []
+    for k in range(4):
+        th = np.pi / 2 * k
+        c, s = np.cos(th), np.sin(th)
+        q = Po.copy()
+        dx, dz = Po[:, 0] - fo[2], Po[:, 2] - fo[3]
+        q[:, 0] = fo[2] + dx * c + dz * s
+        q[:, 2] = fo[3] - dx * s + dz * c
+        errs.append(float(np.abs(_hmap(q, fo[0], fo[1], fo[2], fo[3], G) - mn).mean()))
+    best = int(np.argmin(errs))
+    k = best if (errs[best] < 0.85 * errs[0] and errs[0] - errs[best] > 0.004) else 0
+    return k * 90, {"errs": [round(e, 4) for e in errs], "picked": k * 90}
+
+
+def catalog_name(mid: str) -> tuple[str, str]:
+    """Название и роль товара «магазин_внешнийid» из БД dev (только чтение, тот же запрос, что у `sg_salad.catalog_attrs`)."""
+    shop, _, ext = mid.partition("_")
+    if not (shop.isdigit() and ext.isdigit()):
+        return "", ""
+    q = f"select name, cat_role from products where shop_mid::text='{shop}' and external_id='{ext}'"
+    try:
+        r = subprocess.run(["docker", "exec", "-i", "remlab-devdb", "psql", "-U", "remlab", "-d", "remlab", "-At", "-F", "|", "-c", q],
+                           capture_output=True, text=True, timeout=20)
+        row = r.stdout.strip().split("\n")[0].split("|") if r.returncode == 0 and r.stdout.strip() else []
+    except (OSError, subprocess.TimeoutExpired):
+        row = []
+    return (row[0], row[1] if len(row) > 1 else "") if row else ("", "")
+
+
+def ref_photo(src: str, dst: str, side: int = 480, limit: int = 300 * 1024) -> int:
+    """Фото магазина (style_image прогона, обычно вырезка RGBA) → квадрат side×side JPEG на светлом фоне, ≤300 КБ."""
+    from PIL import Image
+    im = Image.open(src).convert("RGBA")
+    bg = Image.new("RGBA", im.size, (244, 244, 242, 255))
+    bg.alpha_composite(im)
+    im = bg.convert("RGB")
+    w, h = im.size
+    m = max(w, h)
+    sq = Image.new("RGB", (m, m), (244, 244, 242))
+    sq.paste(im, ((m - w) // 2, (m - h) // 2))
+    for sd, q in ((side, 84), (side, 74), (360, 74), (300, 70)):
+        sq.resize((sd, sd), Image.LANCZOS).save(dst, "JPEG", quality=q, optimize=True)
+        if os.path.getsize(dst) <= limit:
+            break
+    return os.path.getsize(dst)
 
 
 def mid_of(run_dir: str) -> str:
@@ -142,8 +276,27 @@ def build(args) -> dict:
         glb = os.path.join(d, "blender", "painted.glb")
         role = cfg.get("cat_role") or ROLES.get(mid, "—")
         # у части прогонов название не записано (`cfg.json: catalog_name` пусто) — тогда роль и номер товара, а не «пустая» строка
-        entry = {"id": mid, "name": cfg.get("catalog_name") or f"{role.capitalize()} (название не записано) №{mid.split('_')[-1][-6:]}",
+        name = cfg.get("catalog_name")
+        if not name:
+            # название в прогоне не записано — берём из каталога по id (кэш: БД каждый раз не трогаем)
+            nc = cache.get(f"{mid}-name")
+            if not nc or not nc.get("name"):
+                nm, rl = catalog_name(mid)
+                nc = {"name": nm, "role": rl}
+                if nm:
+                    cache[f"{mid}-name"] = nc
+            name = nc.get("name")
+            role = role if role != "—" else (nc.get("role") or "—")
+        entry = {"id": mid, "name": name or f"{role.capitalize()} — товара нет в текущем каталоге, №{mid.split('_')[-1][-6:]}",
                  "role": role, "run": os.path.basename(d)}
+        entry["ref"] = None
+        sp = cfg.get("style_image")
+        if sp and os.path.exists(sp):
+            rdst = os.path.join(mdir, f"{mid}-ref.jpg")
+            rk = f"ref:{stamp(sp)}"
+            if not (os.path.exists(rdst) and cache.get(f"{mid}-ref", {}).get("key") == rk):
+                cache[f"{mid}-ref"] = {"key": rk, "size": ref_photo(sp, rdst)}
+            entry["ref"] = {"file": f"m/{mid}-ref.jpg", "v": rk.split(":")[-1][:8], "size": os.path.getsize(rdst)}
         try:
             for kind, srcpath in (("new", glb), ("old", None)):
                 dst = os.path.join(mdir, f"{mid}-{kind}.glb")
@@ -173,6 +326,19 @@ def build(args) -> dict:
                     cache[ck] = info
                 entry[kind] = {"file": f"m/{mid}-{kind}.glb", "size": os.path.getsize(dst), "how": info.get("how", ""),
                                "v": key.split(":")[-1][:8]}
+            if entry.get("old"):
+                # поворот старой к крашеной — по геометрии исходников; считаем один раз на пару исходников (кэш)
+                yk = f"yaw:{entry['old']['v']}:{entry['new']['v']}"
+                yc = cache.get(f"{mid}-yaw", {})
+                if yc.get("key") != yk:
+                    try:
+                        yaw, yinfo = auto_yaw(RM.fetch_source(mid), open(glb, "rb").read())
+                    except Exception as ye:  # noqa: BLE001 — не определился: 0°, но говорим об этом
+                        yaw, yinfo = 0, {"error": str(ye)[:100]}
+                        print(f"  поворот {mid}: не определён ({ye}), 0°", file=sys.stderr, flush=True)
+                    yc = {"key": yk, "yaw": yaw, "info": yinfo}
+                    cache[f"{mid}-yaw"] = yc
+                entry["old"]["yaw"] = yc["yaw"]
             items.append(entry)
         except Exception as exc:  # noqa: BLE001 — отказ в счёт и на страницу, молчать нельзя
             fails.append({"id": mid, "name": entry["name"], "why": str(exc)[:200]})
@@ -196,12 +362,16 @@ def card(i: dict, n: int) -> str:
         if not m:
             return ('<figure><div class="none"><div>Старой модели на сайте нет<br><small>у товара не было 3D-модели</small></div></div>'
                     f'<figcaption>{label}</figcaption></figure>')
+        ori = f' orientation="0deg 0deg {m["yaw"]}deg"' if m.get("yaw") else ""
         return (f'<figure><model-viewer data-pair="{n}" src="{m["file"]}?v={m["v"]}" camera-controls touch-action="pan-y" '
                 f'loading="lazy" reveal="auto" shadow-intensity="0.8" exposure="1" environment-image="neutral" '
-                f'camera-orbit="30deg 70deg auto" interaction-prompt="none" alt="{e(i["name"])} — {label}"></model-viewer>'
+                f'camera-orbit="30deg 70deg auto" interaction-prompt="none"{ori} alt="{e(i["name"])} — {label}"></model-viewer>'
                 f'<figcaption>{label} · {m["size"]/1e6:.1f} МБ</figcaption></figure>')
+    r = i.get("ref")
+    ref = (f'<figure class="ref"><img src="{r["file"]}?v={r["v"]}" loading="lazy" alt="Фото магазина — {e(i["name"])}">'
+           f'<figcaption>Фото магазина</figcaption></figure>') if r else '<figure class="ref"><div class="none">Фото магазина не найдено</div></figure>'
     return (f'<section class="pair" id="p{n}"><h2><span class="n">{n}</span> {e(i["name"])} <small>{e(i["role"])}</small></h2>'
-            f'<div class="row">{mv("old", "Старая модель")}{mv("new", "Крашеная")}</div></section>')
+            f'<div class="row">{ref}{mv("old", "Старая модель")}{mv("new", "Крашеная")}</div></section>')
 
 
 def render(items: list, fails: list, total: int) -> str:
@@ -235,7 +405,9 @@ PAGE = """<!doctype html>
   h2 { font-size: 16px; margin: 0 0 8px; font-weight: 600; }
   h2 small { font-weight: 400; color: #666; margin-left: 6px; }
   .n { display: inline-block; min-width: 24px; text-align: center; background: #222; color: #fff; border-radius: 12px; font-size: 13px; padding: 1px 6px; }
-  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .row { display: grid; grid-template-columns: minmax(0, .62fr) minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  .ref img { width: 100%; aspect-ratio: 1; object-fit: contain; background: #f4f4f2; border-radius: 10px; display: block; }
+  .ref .none { height: auto; min-height: 0; aspect-ratio: 1; }
   figure { margin: 0; }
   model-viewer { width: 100%; height: 56vh; min-height: 300px; max-height: 620px; background: #f4f4f2; border-radius: 10px; --poster-color: #f4f4f2; }
   .none { height: 56vh; min-height: 300px; max-height: 620px; display: flex; align-items: center; justify-content: center; text-align: center; background: #efefec; border: 2px dashed #c4c4be; border-radius: 10px; color: #777; }
@@ -244,6 +416,7 @@ PAGE = """<!doctype html>
   @media (max-width: 760px) {
     header { padding: 5px 12px; } header b { font-size: 14px; } header span { font-size: 12px; } .hint { display: none; }
     .row { grid-template-columns: 1fr; }
+    .ref img { max-height: 42vh; }
     model-viewer { height: 46vh; min-height: 260px; }
     .none { height: 70px; min-height: 0; }
   }
