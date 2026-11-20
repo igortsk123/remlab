@@ -949,6 +949,17 @@ unset HEAVY_SLOT_PROCSTAT HEAVY_SLOT_CPU_STUB HEAVY_SLOT_CPU_WINDOW HEAVY_SLOT_S
   HEAVY_SLOT_CORES_OVERCOMMIT
 mem 8
 
+# T-20261120-162: команда оставила осиротевшего потомка (так Xvfb от xvfb-run держал слот часами) — после ЕЁ нормального конца слот
+# свободен сразу: LOCK_UN в finally отпускает замок для всех копий fd; следующий берёт без ожидания, фантома «замок без записи» нет
+"$S" t-orph -- sh -c "sleep 30 & echo \$! > $T/orph.pid"; rc=$?
+orph=$(cat "$T/orph.pid" 2>/dev/null)
+st=$("$S" --status)
+ok "осиротевший потомок команды слот НЕ держит: после конца команды очередь свободна, фантома нет" \
+  "$(yes_if '[ $rc = 0 ] && [ -n "$orph" ] && kill -0 "$orph" 2>/dev/null && grep -q "^СВОБОДНО" <<<"$st" && ! grep -q "унаследовали" <<<"$st"')"
+"$S" t-after --timeout 3 -- true; rc=$?
+ok "…и следующий задачу берёт сразу (rc 0, не 124)" "$(yes_if '[ $rc = 0 ]')"
+[ -n "$orph" ] && kill "$orph" 2>/dev/null; true
+
 st=$("$S" --status)
 ok "после всех: очередь свободна, ожидающих нет" "$(yes_if 'grep -q "^СВОБОДНО" <<<"$st" && grep -q "^ЖДУТ: 0" <<<"$st"')"
 
