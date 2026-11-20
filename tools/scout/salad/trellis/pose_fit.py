@@ -6,7 +6,7 @@
 Всё общее, без особых случаев: фронтальная ортография — частный случай (az=0, el=0, d→∞).
 
   pose_fit.py --glb <GLB с UV и базой> --photo <фото .rgba.png> --out-run <папка> [--yaw N] [--px 1536] [--n-fit 256] [--topk 4]
-  → <out-run>/stages/{manifest.json, render_view0/{mask,aoi_cos16,normal_cam}.png, render_view0/{uv,depth}.npz}, <out-run>/stage_loss.json (регистрация фото → кадр), <out-run>/pose.json, <out-run>/pose_overlay.png
+  → <out-run>/stages/{manifest.json, render_view0/{mask,aoi_cos16,normal_cam}.png, render_view0/{uv,depth,ids}.npz}, <out-run>/stage_loss.json (регистрация фото → кадр), <out-run>/pose.json, <out-run>/pose_overlay.png
 
 Как. (1) Сетка: азимут 0…345° шаг 15, подъём −10…40, сила перспективы d ∈ {2,3,5,10} (размеры предмета), масштаб и сдвиг — аналитически по габариту силуэта (сходство по bbox); IoU по облаку вершин.
 (2) Уточнение Нелдера–Мида (az, el, ln d, ln f, cx, cy) от лучших разных стартов; цель 1−IoU.
@@ -14,6 +14,7 @@
 (`photo_front.edge_agreement`; фото в кадр, перспективный кадр 768 px).
 (4) Кадр камеры (`render_persp`): грань на пиксель (глубина, дальние первыми), перспективно-верные барицентры → UV, нормаль, cos угла к лучу, глубина; регистрация фото → кадр — точная (поле фото вырезано
 квадратом вокруг силуэта), дальше `photo_front` уточняет ECC как раньше.
+Из кода: `pose_fit.fit_pose(glb, photo, out_run, yaw, px) → {camera, iou_frame, edge_agree, …}` (точка входа для этапа «видимость»; формы без текстуры тоже).
 Обозначения: форма в кубе `worker_trellis.to_cube(V, yaw)` (Y вверх, спереди +Z); камера смотрит в начало куба с расстояния d (куб ≈ 1), азимут 0 — спереди, + — камера вправо (от предмета).
 """
 from __future__ import annotations
@@ -217,6 +218,17 @@ def to_cube_geo(geo: dict, yaw: float) -> dict:
     return {'V': P, 'F': geo['F'], 'UV': geo['UV'], 'N': geo['N'] @ R.T}
 
 
+LIGHT = np.array([-0.45, 0.65, 0.62], np.float32)       # условный свет «сверху-слева-спереди» для формы без текстуры (кромки = стыки плоскостей разной ориентации)
+
+
+def shade_view(r: dict) -> np.ndarray:
+    """Кадр формы БЕЗ текстуры (TRELLIS shape-uv): яркость по нормали к условному свету; нужна только как «база» для кромок (`edge_agreement` смотрит L*)."""
+    nrm = r['normal'].astype(np.float32)
+    lam = np.clip(nrm @ (LIGHT / np.linalg.norm(LIGHT)), 0.0, 1.0)
+    g = (np.where(r['mask'], 70.0 + 150.0 * lam, 235.0)).clip(0, 255).astype(np.uint8)
+    return np.repeat(g[..., None], 3, axis=2)
+
+
 def edge_score(geo: dict, cam: dict, photo: np.ndarray, alpha: np.ndarray, cv: dict, tex: np.ndarray, n: int = 768) -> dict:
     """Совпадение кромок фото↔база в кадре этой камеры (без ECC): выбор между кандидатами с почти равным силуэтом."""
     import a1_tone as A
@@ -229,7 +241,7 @@ def edge_score(geo: dict, cam: dict, photo: np.ndarray, alpha: np.ndarray, cv: d
     A_fr = SL.warp_inv(alpha.astype(np.float32), P, (n, n)) > 0.5
     ph = np.clip(SL.warp_inv(photo[..., :3], P, (n, n)), 0, 255).astype(np.uint8)
     cm, width = SL.common_mask(S, A_fr, r['cos'])
-    img = A.render_view0(tex, {'uv': r['uv'], 'mask': S})
+    img = A.render_view0(tex, {'uv': r['uv'], 'mask': S}) if tex is not None else shade_view(r)
     L_ph = PM.rgb_to_lab(ph)[..., 0].astype(np.float32)
     L_b = PM.rgb_to_lab(img)[..., 0].astype(np.float32)
     ea = PFR.edge_agreement(L_ph, L_b, S & A_fr, width, PFR.EDGE_MIN_LEN) if width >= 16 else {'agree': -1.0}
@@ -276,8 +288,9 @@ def write_stages(r: dict, out_run: str, cam: dict, cv: dict, photo_path: str, ya
     Image.fromarray((r['cos'] * 65535).round().astype(np.uint16)).save(os.path.join(rd, 'aoi_cos16.png'))
     np.savez_compressed(os.path.join(rd, 'uv.npz'), uv=r['uv'], mask=r['mask'])
     np.savez_compressed(os.path.join(rd, 'depth.npz'), depth=r['depth'], px_len=np.float64(r['px_len']))
+    np.savez_compressed(os.path.join(rd, 'ids.npz'), ids=r['ids'].astype(np.int32))      # индекс грани на пиксель (−1 — фон), порядок граней = порядок индексов примитива GLB
     man = {'uv_size': 4096, 'render_px': px, 'yaw_deg': yaw, 'camera': {'kind': 'perspective', **cam}, 'canvas': cv, 'uv_flip_v': True, 'source': 'pose_fit.py (CPU)', 'glb': glb,
-           'uv_note': 'uv.npz: uv[y,x]=(u, v_flipped); depth.npz: depth (Z вдоль оси камеры, единицы куба), px_len (куб на пиксель)'}
+           'uv_note': 'uv.npz: uv[y,x]=(u, v_flipped); depth.npz: depth (Z вдоль оси камеры, единицы куба), px_len (куб на пиксель); ids.npz: ids[y,x] — индекс грани (−1 фон)'}
     json.dump(man, open(os.path.join(st, 'manifest.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     photo = SL.read_rgba(photo_path)
     P = canvas_P(cv, px)
@@ -288,13 +301,65 @@ def write_stages(r: dict, out_run: str, cam: dict, cv: dict, photo_path: str, ya
     return reg
 
 
-def main() -> int:
-    from PIL import Image
+def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int = 1536, n_fit: int = 256, topk: int = 4, ortho: bool = False, log=print) -> dict:
+    """ТОЧКА ВХОДА (код): камера фото на форме `glb` → файлы в `out_run` (см. шапку) и словарь
+    {camera: {az, el, d, f, cx, cy}, canvas, yaw, px, iou_frame, edge_agree, textured, stages_dir, pose_json, candidates, iou_frontal_ortho_bbox}.
+    Форма без текстуры (нет `images`) — кромки сверяются по затенению нормалей (`shade_view`). `ortho=True` — сравнение: d прибита к D_MAX."""
     import cv2
+    from PIL import Image
     import a1_tone as A
     import ab_tint as T
     import stage_loss as SL
     import stages_cpu as SC
+    saved = (globals()['GRID_D'], globals()['D_MIN'])
+    if ortho:
+        globals()['GRID_D'] = (D_MAX,)
+        globals()['D_MIN'] = D_MAX - 1.0
+    try:
+        os.makedirs(out_run, exist_ok=True)
+        photo = SL.read_rgba(photo_path)
+        alpha = photo[..., 3] > 127
+        cv = photo_canvas(alpha)
+        n = n_fit
+        Mp = canvas_mask(alpha, cv, n)
+        geo = to_cube_geo(SC.load_geom(glb), yaw)
+        log(f'форма: {len(geo["V"])} вершин, {len(geo["F"])} граней; фото {photo.shape[1]}×{photo.shape[0]}, кадр {px}, подбор {n}')
+        cands = fit_camera(geo['V'], Mp, n, topk, log=log)
+        j, b = A.read_glb(glb)
+        tex = T.read_texture(j, b) if (j.get('images') or []) else None
+        best_iou = cands[0]['iou']
+        pool = [c for c in cands if c['iou'] >= best_iou - TIE_IOU]
+        for c in pool:
+            c['edge'] = edge_score(geo, c['cam'], photo, alpha, cv, tex)
+            log(f"  кандидат az={c['cam']['az']:.1f} el={c['cam']['el']:.1f} d={c['cam']['d']:.2f} IoU {c['iou']} кромки до ECC {c['edge']['agree']}")
+        for c in pool:                                                 # уточнение по внутренним кромкам: силуэт один, поз с разными кромками много
+            c['cam_sil'] = dict(c['cam'])
+            c['cam'], c['edge'] = refine_by_edges(geo, c['cam'], photo, alpha, cv, tex, log=log)
+            c['iou'] = round(iou(splat_mask(geo['V'][:: max(1, len(geo['V']) // 150000)], c['cam'], n), Mp), 4)
+            log(f"  после уточнения az={c['cam']['az']:.1f} el={c['cam']['el']:.1f} d={c['cam']['d']:.2f} IoU(силуэт) {c['iou']} кромки до ECC {c['edge']['agree']}")
+        pick = max(pool, key=lambda c: c['edge']['agree'])
+        cam = pick['cam']
+        front = _bbox_fit(geo['V'][:: max(1, len(geo['V']) // 150000)], 0.0, 0.0, 1000.0, (lambda ys, xs: (xs.min() / n, ys.min() / n, (xs.max() + 1) / n, (ys.max() + 1) / n))(*np.nonzero(Mp)))
+        iou_front = iou(splat_mask(geo['V'][:: max(1, len(geo['V']) // 150000)], front, n), Mp)
+        log(f"выбрана: az={cam['az']:.1f} el={cam['el']:.1f} d={cam['d']:.2f} (IoU подбора {pick['iou']}; фронтальная ортография по габариту {iou_front:.4f})")
+        r = render_persp(geo, cam, px)
+        extra = {'pose': {'picked': pick, 'candidates': cands, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'fov_deg_canvas': round(float(np.degrees(2 * np.arctan(0.5 / cam['f']))), 2)}}
+        reg = write_stages(r, out_run, cam, cv, photo_path, yaw, px, glb, extra)
+        pj = os.path.join(out_run, 'pose.json')
+        json.dump({'camera': cam, 'canvas': cv, 'picked': pick, 'candidates': cands, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'iou_frame': reg['iou'], 'px': px, 'yaw': yaw, 'textured': tex is not None},
+                  open(pj, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        A_fr = SL.warp_inv(alpha.astype(np.float32), canvas_P(cv, px), (px, px)) > 0.5
+        ov = np.zeros((px, px, 3), np.uint8)
+        ov[..., 0] = (A_fr * 255).astype(np.uint8)
+        ov[..., 1] = (r['mask'] * 255).astype(np.uint8)
+        Image.fromarray(cv2.resize(ov, (768, 768), interpolation=cv2.INTER_AREA)).save(os.path.join(out_run, 'pose_overlay.png'))
+        return {'camera': cam, 'canvas': cv, 'yaw': yaw, 'px': px, 'iou_frame': reg['iou'], 'edge_agree': pick['edge']['agree'], 'textured': tex is not None,
+                'stages_dir': os.path.join(out_run, 'stages'), 'pose_json': pj, 'candidates': cands, 'iou_frontal_ortho_bbox': round(iou_front, 4)}
+    finally:
+        globals()['GRID_D'], globals()['D_MIN'] = saved
+
+
+def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--glb', required=True)
     ap.add_argument('--photo', required=True)
@@ -305,46 +370,8 @@ def main() -> int:
     ap.add_argument('--topk', type=int, default=4)
     ap.add_argument('--ortho', action='store_true', help='сравнение: дистанция камеры прибита к D_MAX (слабая перспектива ≈ ортография), остальное как обычно')
     a = ap.parse_args()
-    if a.ortho:
-        globals()['GRID_D'] = (D_MAX,)
-        globals()['D_MIN'] = D_MAX - 1.0
-    os.makedirs(a.out_run, exist_ok=True)
-    photo = SL.read_rgba(a.photo)
-    alpha = photo[..., 3] > 127
-    cv = photo_canvas(alpha)
-    n = a.n_fit
-    Mp = canvas_mask(alpha, cv, n)
-    geo = to_cube_geo(SC.load_geom(a.glb), a.yaw)
-    print(f'форма: {len(geo["V"])} вершин, {len(geo["F"])} граней; фото {photo.shape[1]}×{photo.shape[0]}, кадр {a.px}, подбор {n}')
-    cands = fit_camera(geo['V'], Mp, n, a.topk)
-    j, b = A.read_glb(a.glb)
-    tex = T.read_texture(j, b)
-    best_iou = cands[0]['iou']
-    pool = [c for c in cands if c['iou'] >= best_iou - TIE_IOU]
-    for c in pool:
-        c['edge'] = edge_score(geo, c['cam'], photo, alpha, cv, tex)
-        print(f"  кандидат az={c['cam']['az']:.1f} el={c['cam']['el']:.1f} d={c['cam']['d']:.2f} IoU {c['iou']} кромки до ECC {c['edge']['agree']}")
-    for c in pool:                                                     # уточнение по внутренним кромкам: силуэт один, поз с разными кромками много
-        c['cam_sil'] = dict(c['cam'])
-        c['cam'], c['edge'] = refine_by_edges(geo, c['cam'], photo, alpha, cv, tex)
-        c['iou'] = round(iou(splat_mask(geo['V'][:: max(1, len(geo['V']) // 150000)], c['cam'], n), Mp), 4)
-        print(f"  после уточнения az={c['cam']['az']:.1f} el={c['cam']['el']:.1f} d={c['cam']['d']:.2f} IoU(силуэт) {c['iou']} кромки до ECC {c['edge']['agree']}")
-    pick = max(pool, key=lambda c: c['edge']['agree'])
-    cam = pick['cam']
-    front = _bbox_fit(geo['V'][:: max(1, len(geo['V']) // 150000)], 0.0, 0.0, 1000.0, (lambda ys, xs: (xs.min() / n, ys.min() / n, (xs.max() + 1) / n, (ys.max() + 1) / n))(*np.nonzero(Mp)))
-    iou_front = iou(splat_mask(geo['V'][:: max(1, len(geo['V']) // 150000)], front, n), Mp)
-    print(f"выбрана: az={cam['az']:.1f} el={cam['el']:.1f} d={cam['d']:.2f} (IoU подбора {pick['iou']}; фронтальная ортография по габариту {iou_front:.4f})")
-    r = render_persp(geo, cam, a.px)
-    extra = {'pose': {'picked': pick, 'candidates': cands, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'fov_deg_canvas': round(float(np.degrees(2 * np.arctan(0.5 / cam['f']))), 2)}}
-    reg = write_stages(r, a.out_run, cam, cv, a.photo, a.yaw, a.px, a.glb, extra)
-    json.dump({'camera': cam, 'canvas': cv, 'picked': pick, 'candidates': cands, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'iou_frame': reg['iou'], 'px': a.px, 'yaw': a.yaw},
-              open(os.path.join(a.out_run, 'pose.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    A_fr = SL.warp_inv(alpha.astype(np.float32), canvas_P(cv, a.px), (a.px, a.px)) > 0.5
-    ov = np.zeros((a.px, a.px, 3), np.uint8)
-    ov[..., 0] = (A_fr * 255).astype(np.uint8)
-    ov[..., 1] = (r['mask'] * 255).astype(np.uint8)
-    Image.fromarray(cv2.resize(ov, (768, 768), interpolation=cv2.INTER_AREA)).save(os.path.join(a.out_run, 'pose_overlay.png'))
-    print(json.dumps({'camera': cam, 'iou_frame': reg['iou'], 'edge_agree_before_ecc': pick['edge']['agree']}, ensure_ascii=False))
+    res = fit_pose(a.glb, a.photo, a.out_run, a.yaw, a.px, a.n_fit, a.topk, a.ortho)
+    print(json.dumps({'camera': res['camera'], 'iou_frame': res['iou_frame'], 'edge_agree_before_ecc': res['edge_agree']}, ensure_ascii=False))
     return 0
 
 
