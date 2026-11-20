@@ -385,6 +385,9 @@ class RunpodDriverStops(unittest.TestCase):
         c = S.build_cfg('112923_321183910010607839@n1024+cut:vyb10', 'q2509t5g', '/o', 's', 8, 2048, 42, 60)
         self.assertTrue(c['glb'].endswith('t90-1120/shape/out/112923_321183910010607839-n1024.glb'))
         self.assertTrue(c['style_image'].endswith('t104-1120/vyb10-1216/112923_321183910010607839.rgba.png'))
+        c = S.build_cfg('112923_321183910010607839@n1024b+cut:vyb30', 'q2509t5g', '/o', 's', 8, 2048, 42, 60)
+        self.assertTrue(c['glb'].endswith('t90-1120/shape30/out/112923_321183910010607839-n1024.glb'))
+        self.assertTrue(c['style_image'].endswith('t104-1120/vyb30-1242/112923_321183910010607839.rgba.png'))
 
     def test_t5_variant_keeps_photo_on_every_view(self):
         v = S.VARIANTS['q2509t5']
