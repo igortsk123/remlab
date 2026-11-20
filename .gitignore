@@ -53,6 +53,9 @@ tools/scout/*
 # проба T-20261117-02: Cycles/Blender и path-tracer поверх сцены демо — скрипты (код); картинки и логи — ~/remlab-logs/t63-1117
 !tools/scout/cycles_probe/
 !tools/scout/cycles_probe/*
+# покраска StableGen — код (драйверы, воркер, тесты); ветка trial/trellis2-stablegen клала файлы через `git add -f`, новые файлы терялись (T-20261120-147)
+!tools/scout/stablegen/
+!tools/scout/stablegen/**
 # Демо-страница интерактивного планировщика — ИСХОДНИК, а не данные: без неё демо
 # невоспроизводимо (26.08, демо квартиры 215)
 !tools/scout/flat215-demo/

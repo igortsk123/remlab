@@ -28,7 +28,7 @@ import sg_queue as Q
 import sg_salad as S  # noqa: E402  — общие части: варианты, веса, конфиг драйвера, цена, HEAD по HF, строки хода
 
 API = 'https://api.runpod.io'
-ACCESS = '/home/pakar/igor/remlab/.memory_bank/_secrets/ACCESS.md'
+ACCESS = os.environ.get('REMLAB_ACCESS_FILE') or os.path.expanduser('~/igor/remlab/.memory_bank/_secrets/ACCESS.md')   # вне git — основная копия, не worktree; env — другая машина/папка (T-20261120-147)
 PORT = 8000
 RELAY_PORT = 18191          # только запасной номер; драйвер берёт СВОБОДНЫЙ порт (free_port), см. урок 20.11: чужой fake_comfy на 18191 принимал запросы вместо пода
 
@@ -290,7 +290,7 @@ def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--image', help='образ пода: digest или тег с именем репозитория')
-    ap.add_argument('--runs', default='112923_13224664101879413845:q2509q5')
+    ap.add_argument('--runs', required=True, help='<товар>[@форма][+cut-метка]:<вариант>[,…]')   # без значения по умолчанию: ID товара в коде запрещён (T-20261120-147)
     ap.add_argument('--gpu', default=None, help='один тип карты вместо списка кандидатов')
     ap.add_argument('--cloud', default='COMMUNITY', choices=['COMMUNITY', 'SECURE'])
     ap.add_argument('--disk', type=int, default=80, help='диск контейнера, ГБ (веса ≈ 25–45)')

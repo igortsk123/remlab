@@ -90,11 +90,20 @@ SHAPE_DIR = os.path.expanduser('~/remlab-logs/t94-1119/out-comfy')
 SHAPE_DIRS = {'n1024': os.path.expanduser('~/remlab-logs/t90-1120/shape-uv'), 'n1024b': os.path.expanduser('~/remlab-logs/t90-1120/shape-uv')}     # форма R2b1s (TRELLIS.2 1024, ≤150 тыс. граней с UV) из Salad-группы: «товар@n1024»
 SHAPE_FILE = {'n1024b': 'n1024'}                                                                                                        # имя файла формы во второй группе то же, что в первой
 CUT_DIRS = {'vyb10': os.path.expanduser('~/remlab-logs/t104-1120/vyb10-1216'), 'vyb30': os.path.expanduser('~/remlab-logs/t104-1120/vyb30-1242')}    # новые вырезки цепочки цикла 6: «товар@форма+cut-vyb10»
-SHAPE_PATHS = {      # формы R2b1 (TRELLIS.2 k1024, solid fill 20 band 1), упрощены до ≈150 тыс. граней и развёрнуты sg_prep_shape.py (правило директора 21:54)
-    ('112923_13224664101879413845', 'r2b1'): os.path.expanduser('~/remlab-logs/t90-1119/sg/shapes/112923_13224664101879413845-k1024.R2b1.s140k-uv.glb'),
-    ('114667_11634594969038554503', 'r2b1'): os.path.expanduser('~/remlab-logs/t94-1119/simple150/114667_11634594969038554503-k1024.R2b1.s150k-uv.glb'),
-    ('112923_1167444740116678789', 'r2b1'): os.path.expanduser('~/remlab-logs/t90-1119/sg/shapes/112923_1167444740116678789-k1024.s150k-uv.glb'),      # кресло с обивкой (проба 18.11, TRELLIS.2 1024-42), 150 тыс. граней
-}
+SHAPES_RULES = os.environ.get('SG_SHAPES_RULES') or os.path.join(SCOUT, 'rules', 'stablegen-shapes.json')
+
+
+def load_shape_paths(path: str = SHAPES_RULES) -> dict:
+    """Формы R2b1 (TRELLIS.2 k1024, ≈150 тыс. граней, развёрнуты sg_prep_shape.py — правило директора 21:54): ID товаров — в данных
+    `rules/stablegen-shapes.json` («товар|форма» → путь), не в коде (T-20261120-147). → {(товар, форма): путь}; нет файла — пусто."""
+    if not os.path.exists(path):
+        return {}
+    with open(path, encoding='utf-8') as fh:
+        raw = json.load(fh).get('shape_paths', {})
+    return {tuple(k.split('|', 1)): os.path.expanduser(v) for k, v in raw.items()}
+
+
+SHAPE_PATHS = load_shape_paths()
 HD20_INPUT = os.path.expanduser('~/remlab-logs/t93-1119/hd20/{key}.rgba.png')                 # HD-вырезка товаров из набора hd20 (кресло)
 
 
@@ -501,7 +510,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--image', help='образ группы: тег или digest, ghcr.io/igortsk123/mesh-comfy-trial:stablegen-0460')
-    ap.add_argument('--runs', default='112923_13224664101879413845:q2509q5')
+    ap.add_argument('--runs', required=True, help='<товар>[@форма][+cut-метка]:<вариант>[,…]')   # без значения по умолчанию: ID товара в коде запрещён (T-20261120-147)
     ap.add_argument('--tier', default='high', choices=['batch', 'low', 'medium', 'high'])
     ap.add_argument('--cpu', type=int, default=8)
     ap.add_argument('--mem-mb', type=int, default=32768)
