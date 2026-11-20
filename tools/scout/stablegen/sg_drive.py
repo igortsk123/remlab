@@ -248,7 +248,13 @@ def steps():
         seed, scores, sure = pick_seed_camera(scn, cams_all, CFG['style_image'], os.path.join(OUT, 'seed-sil'), centre=ctr)
         ST['seed'] = {'camera': seed, 'iou': scores, 'confident': sure}
         say(f'зерно (камера, чей силуэт ближе к фото): {seed}; IoU {scores}; {"уверенно" if sure else "НЕУВЕРЕННО (перёд/зад неразличимы) — решает близость к −Y"}')
-        order = sg_views.camera_order([c.name for c in cams_all], seed)
+        sv = next(c for c in cams_all if c.name == seed)
+        fv = sv.location - ctr
+        front = CFG.get('front_vec') or (fv.x, fv.y, 0.0)
+        if CFG.get('order_mode') == 'alternating':           # T-90/9 (T5c): зерно → ±45 → ±90 → ±135 → 180 по углам от переда, зад последним
+            order = sg_views.alternating_order({c.name: (c.location.x - ctr.x, c.location.y - ctr.y) for c in cams_all}, front, seed)
+        else:
+            order = sg_views.camera_order([c.name for c in cams_all], seed)
         off = CFG.get('vp_off') or []                        # диагностика: что из ⑪ отключить
         scn.sg_camera_order.clear()
         if 'order' not in off:
@@ -257,9 +263,6 @@ def steps():
         scn.sg_use_custom_camera_order = 'order' not in off
         ST['order'] = order
         say(f'порядок камер: {order}')
-        sv = next(c for c in cams_all if c.name == seed)
-        fv = sv.location - ctr
-        front = CFG.get('front_vec') or (fv.x, fv.y, 0.0)
         ST['view_prompts'], ST['view_meta'], flags = apply_view_prompts(scn, bb, front, CFG.get('cat_role', ''), seed)
         if CFG.get('short_side'):                          # T-90/8 (T5): подпись только у видов сбоку/сзади, фронтальные — без подписи (штатный промпт)
             scn.camera_prompts.clear()

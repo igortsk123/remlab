@@ -260,6 +260,16 @@ def choose_seed(scores, dirs, prior_dir=(0.0, -1.0)):
     return min(cands, key=lambda n: -(unit(n)[0] * prior_dir[0] + unit(n)[1] * prior_dir[1])), False
 
 
+def alternating_order(dirs, front, seed):
+    """T-90/9 (T5c): порядок «от переда попеременно в обе стороны, зад последним»: зерно, затем ±45°, ±90°, ±135°, 180° по УГЛАМ от переда (не списком имён).
+    dirs — {камера: (dx, dy) от центра предмета}; сначала камеры с + (против часовой), потом − на каждой ступени."""
+    def key(n):
+        ang = azimuth_deg((dirs[n][0], dirs[n][1], 0.0), front)
+        return (round(abs(ang) / 45.0), 0 if ang > 0 else 1, natural_key(n))
+    rest = sorted((n for n in dirs if n != seed), key=key)
+    return [seed] + rest
+
+
 def camera_order(names, seed):
     """Обход по кругу от зерна: seed, следующая по номеру, … (Codex: один обход соседями, не «перёд → зад → бок»)."""
     ns = sorted(names, key=natural_key)

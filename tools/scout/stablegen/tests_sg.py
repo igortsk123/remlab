@@ -323,6 +323,20 @@ class RunpodDriverStops(unittest.TestCase):
         r = math.radians(90)
         self.assertEqual(V.short_side_text('комод', (math.sin(r), -math.cos(r), 0.3), (0, -1, 0), ', X')[0], 'the plain left side of the same chest of drawers')
 
+    def test_t5c_alternating_order_by_angles_and_photo_only_to_seed(self):
+        import sg_views as V
+        az = {'Camera_7': 0.0, 'Camera_0': 47.5, 'Camera_1': 88.4, 'Camera_2': 135.7, 'Camera_3': 180.0, 'Camera_4': -132.4, 'Camera_5': -91.8, 'Camera_6': -44.3}     # углы из лога T5 (20.11)
+        dirs = {n: (math.sin(math.radians(a)), -math.cos(math.radians(a))) for n, a in az.items()}
+        self.assertEqual(V.alternating_order(dirs, (0.0, -1.0, 0.0), 'Camera_7'), ['Camera_7', 'Camera_0', 'Camera_6', 'Camera_1', 'Camera_5', 'Camera_2', 'Camera_4', 'Camera_3'])
+        rot = {n: (math.sin(math.radians(a + 20)), -math.cos(math.radians(a + 20))) for n, a in az.items()}        # перёд в другом месте кольца — порядок тот же, по углам, не по именам
+        front = (math.sin(math.radians(20)), -math.cos(math.radians(20)), 0.0)
+        self.assertEqual(V.alternating_order(rot, front, 'Camera_7')[-1], 'Camera_3')
+        v = S.VARIANTS['q2509t5c']
+        self.assertEqual(v['order_mode'], 'alternating')
+        self.assertEqual(v['scene_props'], {'qwen_external_style_initial_only': True})
+        self.assertEqual(v['vp_off'], [])
+        self.assertEqual(v['back_suffix'], S.VARIANTS['q2509t5b']['back_suffix'])
+
     def test_t5_variant_keeps_photo_on_every_view(self):
         v = S.VARIANTS['q2509t5']
         self.assertTrue(v['short_side'] and v['view_prompts'] and v['prompt_keep'])
