@@ -86,6 +86,7 @@ class RunQueue:
         self.relay_port, self._relay_seen = relay_port, 0
         self.cur, self.baking = None, []
         self.fail_streak, self.ever_ok = 0, False
+        self.retried = set()
         summary.setdefault('runs', [])
         summary.setdefault('failed', 0)
 
@@ -163,6 +164,18 @@ class RunQueue:
             self.summary['failed'] += not ok
             self.say('прогон', it['key'], it['variant'], 'ГОТОВО' if ok else f'УПАЛ (rc={rc}, смотри {it["dir"]}/run.log)', f'{rec["seconds"]} с')
             self.fail_streak = 0 if ok else self.fail_streak + 1
+            if not ok and 'NONE_FOUND' in str(json_status(it).get('error') or '') and (it['key'], it['variant']) not in self.retried:
+                self.retried.add((it['key'], it['variant']))        # список моделей на ноде ещё пуст — один повтор товара, а не стоп группы (T-154/1, 20.11)
+                self.pending.insert(0, (it['key'], it['variant']))
+                self.say(f'повтор товара {it["key"]}: список моделей на ноде был пуст (NONE_FOUND)')
+                if it is self.cur:
+                    self.cur = None
+                else:
+                    self.baking.remove(it)
+                self.summary['runs'].pop()
+                self.summary['failed'] -= 1
+                self.fail_streak = max(0, self.fail_streak - 1)
+                continue
             probe = not ok and not self.ever_ok
             self.ever_ok = self.ever_ok or ok
             if it is self.cur:

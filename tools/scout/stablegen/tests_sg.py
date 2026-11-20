@@ -861,6 +861,21 @@ class QueueTests(unittest.TestCase):
             procs['a'].rc = 1
             self.assertEqual(q.step(1), 'probe_failed')
 
+    def test_none_found_retries_product_once_instead_of_stopping(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            q, procs, said = self.make([('a', 'v')], tmp, {})
+            q.step(0)
+            json.dump({'stage': 'settings', 'error': "enum 'x.gguf' not found in ('NONE_FOUND')", 'steps': []}, open(os.path.join(tmp, 'a', 'blender', 'status.json'), 'w'))
+            procs['a'].rc = 1
+            self.assertIsNone(q.step(1))                     # первый отказ с пустым списком моделей — повтор, не стоп
+            self.assertEqual(q.pending, [('a', 'v')])
+            self.assertEqual(q.summary['failed'], 0)
+            q.step(2)
+            procs['a'].rc = 1
+            self.assertEqual(q.step(3), 'probe_failed')      # второй раз — уже настоящий отказ
+
     def test_second_failure_after_success_does_not_stop_but_two_in_a_row_do(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
