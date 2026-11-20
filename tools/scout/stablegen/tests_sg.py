@@ -161,6 +161,48 @@ class RelayRetry(unittest.TestCase):
         self.assertEqual(sg_transient.pause_s(r, 9), 10.0)
 
 
+class SaladApiRetry(unittest.TestCase):
+    """create/start группы Salad при 504: повтор, перед повтором проверка «уже выполнено»."""
+
+    class MG:
+        def __init__(self, script, group_state=None):
+            self.script, self.calls, self.group = list(script), [], group_state
+
+        def api(self, path, method='GET', body=None):
+            self.calls.append((method, path))
+            if method == 'GET':
+                return (200, {'current_state': {'status': self.group}}) if self.group else (404, {})
+            return self.script.pop(0) if len(self.script) > 1 else self.script[0]
+
+    def test_create_504_then_ok(self):
+        mg, said = self.MG([(504, {}), (201, {})]), []
+        code, _r, n = S.api_retry(mg, '', 'POST', {'x': 1}, 'g', lambda *a: said.append(a), lambda s: None)
+        self.assertEqual((code, n), (201, 1))
+        self.assertEqual([c for c in mg.calls if c[0] == 'POST'], [('POST', ''), ('POST', '')])
+
+    def test_create_504_but_group_exists_is_not_recreated(self):
+        mg = self.MG([(504, {})], group_state='stopped')
+        code, _r, n = S.api_retry(mg, '', 'POST', {'x': 1}, 'g', lambda *a: None, lambda s: None)
+        self.assertEqual((code, n), (201, 1))
+        self.assertEqual([c for c in mg.calls if c[0] == 'POST'], [('POST', '')])
+
+    def test_start_504_but_already_deploying_is_not_restarted(self):
+        mg = self.MG([(504, {})], group_state='deploying')
+        code, _r, n = S.api_retry(mg, '/g/start', 'POST', None, 'g', lambda *a: None, lambda s: None)
+        self.assertEqual((code, n), (202, 1))
+        self.assertEqual(len([c for c in mg.calls if c[0] == 'POST']), 1)
+
+    def test_start_504_while_stopped_is_retried_and_gives_up_after_three(self):
+        mg = self.MG([(504, {})], group_state='stopped')
+        code, _r, n = S.api_retry(mg, '/g/start', 'POST', None, 'g', lambda *a: None, lambda s: None)
+        self.assertEqual((code, n), (504, 3))
+        self.assertEqual(len([c for c in mg.calls if c[0] == 'POST']), 4)
+
+    def test_real_error_not_retried(self):
+        mg = self.MG([(400, {'errors': 'name'})])
+        self.assertEqual(S.api_retry(mg, '', 'POST', {}, 'g', lambda *a: None, lambda s: None)[::2], (400, 0))
+
+
 class Experiments(unittest.TestCase):
     def test_no_lora_variant_config(self):
         c = S.build_cfg('K', 'q2509nl', '/o', 's', 8, 2048, 42, 60)
