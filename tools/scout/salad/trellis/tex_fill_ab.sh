@@ -12,6 +12,12 @@ for k in $(grep -v '^#' "$LIST" | cut -f1); do RUNS="$RUNS $(ls -d "$SALAD/$k"-q
 mkdir -p "$OUT/A-stat" "$OUT/B-trellis"
 # shellcheck disable=SC2086
 "$HOME/venvs/scout/bin/python" "$HERE/tex_fill_probe.py" --source stat "$OUT/A-stat" $RUNS > "$OUT/A-stat/probe.log" 2>&1
+RUNSB=""                                          # Б — только товары с родным черновиком (остальных ждём от T-167); пропуск пишется в журнал
+for r in $RUNS; do
+  b="$(basename "$r")"; b="${b%%@*}"
+  if [ -f "$DRAFTS/$b-1024-42-0.glb" ]; then RUNSB="$RUNSB $r"; else echo "нет черновика: $b" >> "$OUT/B-trellis/skipped.txt"; fi
+done
+RUNS="$RUNSB"
 # shellcheck disable=SC2086
 "$HOME/venvs/scout/bin/python" "$HERE/tex_fill_probe.py" --source trellis --draft-dir "$DRAFTS" "$OUT/B-trellis" $RUNS > "$OUT/B-trellis/probe.log" 2>&1
 echo "готово: $OUT"
