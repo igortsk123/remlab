@@ -199,7 +199,11 @@ if __name__ == '__main__':
             lo, hi = bbox_glb(os.path.join(run_files(sys.argv[2])[0], 'painted.glb') if os.path.isfile(os.path.join(run_files(sys.argv[2])[0], 'painted.glb')) else os.path.join(sys.argv[2], 'model.glb'))
             rec = json.load(open(sys.argv[3], encoding='utf-8'))
             reb = rig_for_run(sys.argv[2], [(a + b) / 2 for a, b in zip(lo, hi)], reconstruct_only=True)
-            print(json.dumps(compare(rec, reb, max(b - a for a, b in zip(lo, hi))) if reb else {'error': 'восстановить нечем'}))
+            res = compare(rec, reb, max(b - a for a, b in zip(lo, hi))) if reb else {'error': 'восстановить нечем'}
+            if reb:
+                tol = rules()['tolerance']
+                res['within_tolerance'] = res['position_frac'] <= tol['position_frac'] and res['forward_deg'] <= tol['forward_deg']
+            print(json.dumps(res))
         elif len(sys.argv) >= 3 and sys.argv[1] == 'show':
             doc = rig_for_run(sys.argv[2])
             print(f"{sys.argv[2]}: " + ('нет камер' if not doc else f"{doc['source']}, камер {len(doc['cameras'])}, кадр {doc['res']}"))
