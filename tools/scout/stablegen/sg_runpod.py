@@ -119,6 +119,15 @@ def terminate(api: Api, pod_id: str) -> bool:
     return ok
 
 
+def bake_started_at(it: dict) -> float | None:
+    """Когда у прогона начался шаг bake (часы драйвера): старт прогона + время шага из status.json; None — ещё не дошёл."""
+    try:
+        steps = json.load(open(os.path.join(it['dir'], 'blender', 'status.json'), encoding='utf-8')).get('steps') or []
+    except (OSError, ValueError):
+        return None
+    return next((it['started'] + float(t_rel) for t_rel, name in steps if name == 'bake'), None)
+
+
 def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) -> int:
     runs = S.parse_runs(a.runs)
     spec = S.weights_for(runs)
@@ -259,6 +268,12 @@ def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) 
                 stop_all = False
                 for it in ([cur] if cur is not None else []) + list(baking):
                         rc = it['proc'].poll()
+                        bs = bake_started_at(it) if rc is None else None
+                        if bs is not None and t - bs > S.BAKE_EXPECT_S * S.BAKE_WATCH_FACTOR:           # сторож (директор 20.11): запекание дольше 3× ожидаемого — убиваем, товар помечаем, под берёт следующий
+                            it['proc'].terminate()
+                            it['bake_hung'] = True
+                            say(f'!! запекание зависло: {it["key"]} {it["variant"]} идёт {(t - bs) / 60:.0f} мин при ожидаемых {S.BAKE_EXPECT_S / 60:.0f} — убиваю')
+                            rc = -2
                         if rc is None and t - it['last_say'] >= 600:
                             it['last_say'] = t
                             stp = os.path.join(it['dir'], 'blender', 'status.json')
@@ -277,6 +292,8 @@ def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) 
                             ok = rc == 0 and os.path.exists(glb) and bool(answered['backend'] and answered['gpu'])
                             summary['runs'].append({'key': it['key'], 'variant': it['variant'], 'label': it['label'], 'dir': it['dir'], 'rc': rc, 'ok': ok, 'answered_by': answered, 'seconds': round(t - it['started'], 1), 'glb': glb if ok else None})
                             fail_streak = 0 if ok else fail_streak + 1
+                            if it.get('bake_hung'):
+                                summary['runs'][-1]['note'] = 'запекание зависло'
                             summary['failed'] += not ok
                             say('прогон', it['key'], it['variant'], 'ГОТОВО' if ok else f'УПАЛ (rc={rc}, {it["dir"]}/run.log)', f'{summary["runs"][-1]["seconds"]} с')
                             if it is cur:

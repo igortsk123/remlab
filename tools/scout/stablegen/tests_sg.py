@@ -391,11 +391,79 @@ class RunpodDriverStops(unittest.TestCase):
 
     def test_shape_and_cut_dirs_by_suffix(self):
         c = S.build_cfg('112923_321183910010607839@n1024+cut-vyb10', 'q2509t5g', '/o', 's', 8, 2048, 42, 60)
-        self.assertTrue(c['glb'].endswith('t90-1120/shape/out/112923_321183910010607839-n1024.glb'))
+        self.assertTrue(c['glb'].endswith('t90-1120/shape-uv/112923_321183910010607839-n1024.glb'))
         self.assertTrue(c['style_image'].endswith('t104-1120/vyb10-1216/112923_321183910010607839.rgba.png'))
         c = S.build_cfg('112923_321183910010607839@n1024b+cut-vyb30', 'q2509t5g', '/o', 's', 8, 2048, 42, 60)
-        self.assertTrue(c['glb'].endswith('t90-1120/shape30/out/112923_321183910010607839-n1024.glb'))
+        self.assertTrue(c['glb'].endswith('t90-1120/shape-uv/112923_321183910010607839-n1024.glb'))
         self.assertTrue(c['style_image'].endswith('t104-1120/vyb30-1242/112923_321183910010607839.rgba.png'))
+
+    @staticmethod
+    def _glb(path, attrs):
+        import json
+        import struct
+        j = json.dumps({'asset': {'version': '2.0'}, 'meshes': [{'primitives': [{'attributes': attrs}]}]}).encode()
+        j += b' ' * (-len(j) % 4)
+        open(path, 'wb').write(b'glTF' + struct.pack('<III', 2, 20 + len(j), len(j)) + b'JSON' + j)
+
+    def test_shape_without_uv_is_refused_before_pod(self):
+        """T-90/11: формы Salad без UV запекались 55 мин и не кончались — build_cfg отказывает ДО старта пода; с UV и несуществующий файл — проходят."""
+        import tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d:
+            self._glb(os.path.join(d, 'pA-tt.glb'), {'POSITION': 0})
+            self._glb(os.path.join(d, 'pB-tt.glb'), {'POSITION': 0, 'TEXCOORD_0': 1})
+            self.assertFalse(S.glb_has_uv(os.path.join(d, 'pA-tt.glb')))
+            self.assertTrue(S.glb_has_uv(os.path.join(d, 'pB-tt.glb')))
+            self.assertIsNone(S.glb_has_uv(os.path.join(d, 'нет.glb')))
+            with mock.patch.dict(S.SHAPE_DIRS, {'tt': d}):
+                with self.assertRaises(ValueError):
+                    S.build_cfg('pA@tt', 'q2509t5g', '/o', 's', 8, 2048, 42, 60)
+                S.build_cfg('pB@tt', 'q2509t5g', '/o', 's', 8, 2048, 42, 60)
+
+    def test_bake_watchdog_kills_hung_bake_and_marks_it(self):
+        """T-90/11: запекание дольше 3× ожидаемого — убиваем, товар «запекание зависло», под берёт следующий."""
+        import json
+        import tempfile
+        from unittest import mock
+        import sg_runpod as R
+        clock = [1000.0]
+        api = self.FakeApi()
+        procs = []
+
+        def pg(url, timeout=20):
+            return (200, {'backend': 'comfy-0.46.0+gguf', 'gpu': 'NVIDIA RTX A6000'}) if url.endswith('/info') else (200, {'warm': True, 'weights_gb': 1})
+
+        def popen(cmd, **kw):
+            m = mock.Mock()
+            if 'sg_relay.py' in ' '.join(map(str, cmd)):
+                m.poll.return_value = None
+                return m
+            cfg = json.load(open(cmd[-1], encoding='utf-8'))
+            os.makedirs(cfg['out'], exist_ok=True)
+            n = len(procs)
+            t0 = clock[0]
+            open(os.path.join(cfg['out'], 'status.json'), 'w').write(json.dumps({'stage': 'bake', 'steps': [[1.0, 'generate'], [5.0, 'bake']]}))
+            m.poll.return_value = None                                 # запекание первого товара висит; второй кончается сам
+            if n >= 1:
+                m.poll.side_effect = lambda: (open(os.path.join(cfg['out'], 'painted.glb'), 'wb').write(b'g') and 0) if clock[0] - t0 >= 100 else None
+            procs.append(m)
+            return m
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(S, 'hf_head', return_value=200), mock.patch.object(R, 'public_get', side_effect=pg), \
+                mock.patch.object(S, 'load_weights_catalog', return_value={}), mock.patch.object(S, 'weight_urls', return_value=[]), \
+                mock.patch.object(S, 'build_cfg', side_effect=lambda key, var, out, *r, **k: {'out': out}), mock.patch.object(S, 'parse_runs', return_value=[('k1', 'q2509t5i'), ('k2', 'q2509t5i')]), \
+                mock.patch.object(S, 'weights_for', return_value={}):
+            args = self._args(d)
+            args.out = d
+
+            def sleep(n):
+                clock[0] += 20
+            R.run(args, api, sleep=sleep, clock=lambda: clock[0], popen=popen)
+            summ = json.load(open(os.path.join(d, 'summary-trial-sg-rp-t.json'), encoding='utf-8'))
+        procs[0].terminate.assert_called()
+        hung = [r for r in summ['runs'] if r.get('note') == 'запекание зависло']
+        self.assertEqual(len(hung), 1)
+        self.assertFalse(hung[0]['ok'])
+        self.assertEqual(len(procs), 2)                                  # оба товара стартовали: второй не ждал зависшего первого
 
     def test_t5_variant_keeps_photo_on_every_view(self):
         v = S.VARIANTS['q2509t5']

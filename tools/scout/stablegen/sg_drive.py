@@ -209,6 +209,8 @@ def steps():
     obj.select_set(True)
     ST['mesh'] = {'name': obj.name, 'verts': len(obj.data.vertices), 'faces': len(obj.data.polygons), 'uv_layers': [u.name for u in obj.data.uv_layers]}
     say(f"форма: {ST['mesh']}")
+    if not obj.data.uv_layers:                              # T-90/11: без развёртки запекание не кончается (55 мин вместо 4) — стоп ДО генерации, платный под не греем; форму прогнать через sg_prep_shape.py
+        raise RuntimeError('форма без развёртки (uv_layers пуст): сначала sg_prep_shape.py')
     # слой нашей развёртки называем так, как аддон ищет для запекания
     if obj.data.uv_layers and 'BakeUV' not in obj.data.uv_layers:
         obj.data.uv_layers[0].name = 'BakeUV'

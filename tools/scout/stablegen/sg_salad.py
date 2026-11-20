@@ -43,6 +43,7 @@ READINESS = {'http': {'path': '/health', 'port': PORT, 'scheme': 'http', 'header
 STARTUP = {'http': {'path': '/health', 'port': PORT, 'scheme': 'http', 'headers': []},
            'initial_delay_seconds': 10, 'period_seconds': 60, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 20}      # API Salad: failure_threshold ≤ 20
 FAIL_STREAK = 2
+BAKE_EXPECT_S, BAKE_WATCH_FACTOR = 300, 3                  # сторож запекания: ожидаемое ≈ 4–5 мин (комод 226 с); дольше 3× — зависло (T-90/11: форма без UV крутилась 55 мин)
 SG_HOME = os.path.expanduser('~/remlab-logs/t90-1119/sg')
 HD_GLB = os.path.expanduser('~/remlab-logs/t94-1119/out/{key}-hd.glb')                      # HD-форма (без пересборки развёртки)
 NEWCUT_INPUT = os.path.expanduser('~/remlab-logs/t94-1119/newcut-2149/{key}.rgba.png')       # новая вырезка (комод; диван — только если р.4 пришлёт)
@@ -86,7 +87,7 @@ VARIANTS['q2509edge'] = dict(VARIANTS['q2509q5'], bake_margin=32, bake_denoise=F
                              scene_props={'sg_silhouette_margin': 8, 'sg_silhouette_feather': 24, 'refine_edge_feather_width': 60, 'discard_factor_after_generation': 75.0, **SHARP_BLEND},
                              label='Qwen-Image-Edit-2509 Q5_K_M + Lightning, края: срез по углу 75°, силуэт-запас 8, растушёвка 24/60, запас запекания 32 px, запекание без шумоподавления, резкое смешивание (степень 15)')
 SHAPE_DIR = os.path.expanduser('~/remlab-logs/t94-1119/out-comfy')
-SHAPE_DIRS = {'n1024': os.path.expanduser('~/remlab-logs/t90-1120/shape/out'), 'n1024b': os.path.expanduser('~/remlab-logs/t90-1120/shape30/out')}     # форма R2b1s (TRELLIS.2 1024, ≤150 тыс. граней с UV) из Salad-группы: «товар@n1024»
+SHAPE_DIRS = {'n1024': os.path.expanduser('~/remlab-logs/t90-1120/shape-uv'), 'n1024b': os.path.expanduser('~/remlab-logs/t90-1120/shape-uv')}     # форма R2b1s (TRELLIS.2 1024, ≤150 тыс. граней с UV) из Salad-группы: «товар@n1024»
 SHAPE_FILE = {'n1024b': 'n1024'}                                                                                                        # имя файла формы во второй группе то же, что в первой
 CUT_DIRS = {'vyb10': os.path.expanduser('~/remlab-logs/t104-1120/vyb10-1216'), 'vyb30': os.path.expanduser('~/remlab-logs/t104-1120/vyb30-1242')}    # новые вырезки цепочки цикла 6: «товар@форма+cut-vyb10»
 SHAPE_PATHS = {      # формы R2b1 (TRELLIS.2 k1024, solid fill 20 band 1), упрощены до ≈150 тыс. граней и развёрнуты sg_prep_shape.py (правило директора 21:54)
@@ -203,6 +204,22 @@ def safe_print(body: dict) -> None:
     print(json.dumps(b, ensure_ascii=False, indent=1))
 
 
+def glb_has_uv(path: str) -> bool | None:
+    """У формы-GLB есть TEXCOORD_0 у всех примитивов? None — файла нет/не GLB (проверка не применима). T-90/11: формы Salad приходят без UV."""
+    import struct
+    try:
+        with open(path, 'rb') as f:
+            head = f.read(20)
+            if head[:4] != b'glTF':
+                return None
+            n = struct.unpack('<I', head[12:16])[0]
+            j = json.loads(f.read(n))
+    except (OSError, ValueError, struct.error):
+        return None
+    prims = [p for m in j.get('meshes', []) for p in m.get('primitives', [])]
+    return bool(prims) and all('TEXCOORD_0' in p.get('attributes', {}) for p in prims)
+
+
 def build_cfg(key: str, var: str, out: str, server: str, cameras: int, texture: int, seed: int, timeout_s: int) -> dict:
     """Конфиг драйвера Blender для одного прогона: пресет «Qwen Precise», 8–10 камер вокруг предмета, фото-вырезка как внешний стиль (решение владельца TG 2005)."""
     v = VARIANTS[var]
@@ -217,6 +234,8 @@ def build_cfg(key: str, var: str, out: str, server: str, cameras: int, texture: 
         shape, _, tag = shape.partition('+cut-')
         style = os.path.join(CUT_DIRS[tag], f'{prod}.rgba.png')
     glb = SHAPE_PATHS[(prod, shape)] if (prod, shape) in SHAPE_PATHS else os.path.join(SHAPE_DIRS.get(shape, SHAPE_DIR), f'{prod}-{SHAPE_FILE.get(shape, shape)}.glb') if shape else HD_GLB.format(key=prod)    # «товар@r2b1» — упрощённая форма с развёрткой из SHAPE_PATHS
+    if glb_has_uv(glb) is False:                             # форма без развёртки — запекание не кончится; платный под не поднимаем
+        raise ValueError(f'форма без UV: {glb} — сначала sg_prep_shape.py')
     cfg = {'glb': glb, 'out': out, 'server': server, 'preset': 'QWEN PRECISE', 'prompt': 'a piece of furniture',
            'cameras': {'mode': 'orbit_ring', 'num': cameras}, 'texture_resolution': texture, 'bake_samples': 16, 'seed': seed, 'timeout_s': timeout_s,
            'style_image': style, 'model_unet': v['unet'], 'lora_name': v['lora']}
