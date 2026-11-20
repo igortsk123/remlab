@@ -270,6 +270,28 @@ def alternating_order(dirs, front, seed):
     return [seed] + rest
 
 
+BACK_LIMIT_DEG = 150.0
+
+
+def back_cameras(dirs, front, limit=BACK_LIMIT_DEG):
+    """T-90/10: камеры «строго сзади» — |угол от зерна| > limit (по углу, не по имени)."""
+    return [n for n in dirs if abs(azimuth_deg((dirs[n][0], dirs[n][1], 0.0), front)) > limit]
+
+
+def side_sample_camera(dirs, front, order):
+    """T-90/10 (T5e): уже сгенерированный вид бока для зада — |угол| в 60–120°, ближайший к 90° (при равенстве — раньше в порядке обхода)."""
+    best, key = None, None
+    for i, n in enumerate(order):
+        if n not in dirs:
+            continue
+        a = abs(azimuth_deg((dirs[n][0], dirs[n][1], 0.0), front))
+        if 60.0 <= a <= 120.0:
+            k = (round(abs(a - 90.0), 1), i)
+            if key is None or k < key:
+                best, key = n, k
+    return best
+
+
 def camera_order(names, seed):
     """Обход по кругу от зерна: seed, следующая по номеру, … (Codex: один обход соседями, не «перёд → зад → бок»)."""
     ns = sorted(names, key=natural_key)

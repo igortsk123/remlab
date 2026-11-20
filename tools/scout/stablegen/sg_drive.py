@@ -117,6 +117,41 @@ def pick_seed_camera(sc, cams, photo_path, tmp_dir, prior_dir=(0.0, -1.0, 0.0), 
     return seed, scores, sure
 
 
+def install_back_hook(info):
+    """T-90/10: перехват генерации кадра Qwen: виду «строго сзади» — без фото магазина (no_photo) или с образцом = готовый вид бока (side_sample).
+    Правило по углу от зерна (см. sg_views.back_cameras); флаги сцены на время вызова и возвращаются."""
+    wf = sg('workflows')
+    cls = wf.WorkflowManager
+    orig = cls.generate_qwen_edit
+    if getattr(orig, '_back_hook', False):
+        return
+
+    def hooked(self, context, camera_id=None):
+        op = self.operator
+        sc = context.scene
+        name = op._cameras[op._current_image].name
+        if name not in info['cameras'] or op._current_image == 0:
+            return orig(self, context, camera_id=camera_id)
+        saved = (sc.qwen_external_style_initial_only, sc.qwen_external_style_image, sc.sequential_ipadapter)
+        try:
+            if info['mode'] == 'no_photo':
+                sc.qwen_external_style_initial_only = True
+                say(f'вид {name}: фото магазина НЕ даём (только подпись и готовый контекст)')
+            elif info['mode'] == 'side_sample' and info.get('sample_index') is not None:
+                import glob
+                fs = glob.glob(os.path.join(OUT, 'sg-output', '**', 'generated', f"generated_image{info['sample_index']}-0-0001.png"), recursive=True)
+                if fs:
+                    sc.qwen_external_style_image = fs[0]
+                    say(f"вид {name}: вместо фото магазина — готовый вид бока {info['sample']} ({fs[0]})")
+                else:
+                    raise RuntimeError(f"образец бока {info['sample']} не найден — зад не генерируем")
+            return orig(self, context, camera_id=camera_id)
+        finally:
+            sc.qwen_external_style_initial_only, sc.qwen_external_style_image, sc.sequential_ipadapter = saved
+    hooked._back_hook = True
+    cls.generate_qwen_edit = hooked
+
+
 def apply_view_prompts(sc, bb, front, cat_role, seed_name):
     """Своя подсказка каждому виду: коллекция `scene.camera_prompts` + `use_camera_prompts` (аддон ставит её ПЕРЕД общим промптом). Возвращает ({камера: текст}, {камера: мета}, флаги)."""
     from mathutils import Vector
@@ -255,6 +290,25 @@ def steps():
             order = sg_views.alternating_order({c.name: (c.location.x - ctr.x, c.location.y - ctr.y) for c in cams_all}, front, seed)
         else:
             order = sg_views.camera_order([c.name for c in cams_all], seed)
+        dirs_ = {c.name: (c.location.x - ctr.x, c.location.y - ctr.y) for c in cams_all}
+        back_ = sg_views.back_cameras(dirs_, front) if CFG.get('back_mode') else []
+        if back_:
+            ST['back'] = {'mode': CFG['back_mode'], 'cameras': back_}
+            if CFG['back_mode'] == 'drop':                    # T5d: камеры строго сзади нет вовсе — зад красится из ±135
+                for n_ in back_:
+                    bpy.data.objects.remove(bpy.data.objects[n_], do_unlink=True)
+                order = [n_ for n_ in order if n_ not in back_]
+                cams_all = [o for o in scn.objects if o.type == 'CAMERA']
+                cams = list(cams_all)
+                ST['cameras'] = len(cams)
+                say(f'камеры строго сзади убраны: {back_}')
+            else:
+                if CFG['back_mode'] == 'side_sample':          # T5e: вместо фото магазина — уже сгенерированный вид бока
+                    smp_ = sg_views.side_sample_camera(dirs_, front, order)
+                    ST['back']['sample'] = smp_
+                    ST['back']['sample_index'] = order.index(smp_) if smp_ else None
+                install_back_hook(ST['back'])
+                say(f'виду сзади {back_}: режим {CFG["back_mode"]}, образец {ST["back"].get("sample")}')
         off = CFG.get('vp_off') or []                        # диагностика: что из ⑪ отключить
         scn.sg_camera_order.clear()
         if 'order' not in off:

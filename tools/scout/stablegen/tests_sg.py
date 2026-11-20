@@ -337,6 +337,25 @@ class RunpodDriverStops(unittest.TestCase):
         self.assertEqual(v['vp_off'], [])
         self.assertEqual(v['back_suffix'], S.VARIANTS['q2509t5b']['back_suffix'])
 
+    def test_t5def_back_by_angle_and_variants(self):
+        import sg_views as V
+        az = {'Camera_7': 0.0, 'Camera_0': 47.5, 'Camera_1': 88.4, 'Camera_2': 135.7, 'Camera_3': 180.0, 'Camera_4': -132.4, 'Camera_5': -91.8, 'Camera_6': -44.3}
+        dirs = {n: (math.sin(math.radians(a)), -math.cos(math.radians(a))) for n, a in az.items()}
+        front = (0.0, -1.0, 0.0)
+        self.assertEqual(V.back_cameras(dirs, front), ['Camera_3'])                       # 135° — ещё не «строго сзади»
+        order = V.alternating_order(dirs, front, 'Camera_7')
+        self.assertEqual(V.side_sample_camera(dirs, front, order), 'Camera_1')              # |88,4−90|=1,6 < |91,8−90|=1,8: ближайший к 90°
+        rot = {n: (math.sin(math.radians(a + 33)), -math.cos(math.radians(a + 33))) for n, a in az.items()}
+        f2 = (math.sin(math.radians(33)), -math.cos(math.radians(33)), 0.0)
+        self.assertEqual(V.back_cameras(rot, f2), ['Camera_3'])                              # по углам, не по именам
+        for k, m in (('q2509t5d', 'drop'), ('q2509t5e', 'side_sample'), ('q2509t5f', 'no_photo')):
+            v = S.VARIANTS[k]
+            self.assertEqual(v['back_mode'], m)
+            self.assertEqual(v['order_mode'], 'alternating')
+            self.assertEqual(v['vp_off'], [])
+            self.assertNotIn('qwen_external_style_initial_only', v.get('scene_props') or {})   # фото остальным видам — как в T5b
+            self.assertEqual(v['back_suffix'], S.VARIANTS['q2509t5b']['back_suffix'])
+
     def test_t5_variant_keeps_photo_on_every_view(self):
         v = S.VARIANTS['q2509t5']
         self.assertTrue(v['short_side'] and v['view_prompts'] and v['prompt_keep'])
