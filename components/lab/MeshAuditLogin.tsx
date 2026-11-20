@@ -8,7 +8,8 @@ import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { loginWithSecret } from "@/lib/mesh-review/client";
 
-export function MeshAuditLogin() {
+/** title — заголовок окна входа (пара RU/EN строкой); по умолчанию — приёмка мешей. */
+export function MeshAuditLogin({ title = "Приёмка мешей — вход" }: { title?: string }) {
   const [secret, setSecret] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -27,7 +28,7 @@ export function MeshAuditLogin() {
 
   return (
     <div className="mx-auto flex max-w-sm flex-col gap-3 py-10">
-      <h1 className="text-lg font-semibold text-primary">Приёмка мешей — вход</h1>
+      <h1 className="text-lg font-semibold text-primary">{title}</h1>
       <Input aria-label="Код доступа" type="password" value={secret} onChange={setSecret} placeholder="Код доступа" />
       <Button color="primary" onClick={() => void login()} isDisabled={!secret || busy} isLoading={busy}>
         Войти

@@ -17,7 +17,7 @@ export default async function CutoutCheckPage({ searchParams }: { searchParams: 
   if (!(await reviewerOk())) {
     return (
       <main className="mx-auto max-w-5xl px-4">
-        <MeshAuditLogin />
+        <MeshAuditLogin title="Проверка вырезок — вход / Cutout check — sign in" />
       </main>
     );
   }

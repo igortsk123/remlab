@@ -138,7 +138,7 @@ def cmd_site(d: str) -> int:
 
 
 def cmd_publish(d: str, run: str) -> int:
-    r = subprocess.run(['rsync', '-aq', '-e', SSH, os.path.join(d, 'site') + '/', f'{REMOTE}/{run}/'], capture_output=True, text=True, timeout=1800)
+    r = subprocess.run(['rsync', '-aq', '--mkpath', '-e', SSH, os.path.join(d, 'site') + '/', f'{REMOTE}/{run}/'], capture_output=True, text=True, timeout=1800)
     if r.returncode != 0:
         say(f'rsync не удался: {r.stderr.strip()[-200:]}')
         return 2
