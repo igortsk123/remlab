@@ -29,7 +29,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from mesh_queue import PIPELINE_VERSION, db, q  # noqa: E402
+from mesh_queue import PIPELINE_VERSION, db, q, passport_observe, passport_report  # noqa: E402
 from render_strategy import asset_ready, base_role, strategy  # noqa: E402
 from mesh_ready import revision_current_sql  # noqa: E402
 
@@ -59,7 +59,23 @@ def _queue() -> dict[str, str]:
         "   and not exists (select 1 from mesh_jobs j "
         "        where j.job_key = d.sku||'|'||d.source_sha||'|'||" + q(PIPELINE_VERSION) + " "
         "          and j.status in ('queued','submitted','running'))")
-    return {r[0]: r[1] for r in rows if len(r) == 2}
+    out = {r[0]: r[1] for r in rows if len(r) == 2}
+    passport_observe(out)      # фаза 1 «тень»: гейт паспорта в observe — только счётчик, очередь не меняется
+    return out
+
+
+def _stamp_digest(job_key: str, sku: str) -> None:
+    """Хеш паспорта типа — в колонку `mesh_jobs.passport_digest` ОТДЕЛЬНЫМ update (вставка и ключ задания не меняются; в `job_key` хеш не входит).
+    Роль берём из спроса. Нет колонки (миграция 018 не применена)/сбой — одна WARN-строка и дальше: задание уже поставлено."""
+    try:
+        import mesh_type_passports as MTP
+        role = db(f"select role from mesh_demand where sku={q(sku)}")
+        dg = MTP.digest(role[0][0]) if role and role[0] else None
+        if dg:
+            db(f"update mesh_jobs set passport_digest={q(dg)} where job_key={q(job_key)}")
+    except Exception as e:  # noqa: BLE001
+        import mesh_type_passports as MTP
+        MTP.warn_once('stamp', f'WARN:passport_shadow: хеш паспорта в задании не записан ({type(e).__name__}) — задание поставлено, миграция 018 применена?')
 
 
 def tiers() -> list[tuple[int, str, str]]:
@@ -132,8 +148,12 @@ def main() -> int:
                f"select d.sku||'|'||d.source_sha||'|'||{q(PIPELINE_VERSION)}, d.sku "
                f"  from mesh_demand d where d.sku={q(sku)} and d.source_sha is not null "
                "on conflict (job_key) do nothing returning job_key")
-        made += len([x for x in r if x and x[0]])
+        new_keys = [x[0] for x in r if x and x[0]]
+        made += len(new_keys)
+        for jk in new_keys:
+            _stamp_digest(jk, sku)
     print(f'поставлено заданий: {made}')
+    passport_report()
     return 0
 
 

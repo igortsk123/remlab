@@ -546,6 +546,12 @@ def cmd_chain(a) -> int:
             verdict, reason = verdict_from_metrics(r['role'], info)[:2]
             rec = {'sku': sku, 'sha': sha, 'status': 'ok', 'verdict': verdict, 'reason': reason, 'cut_wh': list(cut.size), 'frame_wh': list(src.size),
                    'mask_verdict': info.get('verdict'), 'hybrid_error': info.get('hybrid_error')}
+            if getattr(a, 'guards', False):
+                import numpy as np
+                import cutout_guards as CG
+                # измерительный инструмент: тот же `evaluate`, что и тень; исходник и смещение вырезки — из этого прогона
+                rec['guards'] = CG.evaluate(r['role'], np.asarray(cut.convert('RGBA')), np.asarray(src),
+                                            (info.get('photo') or {}).get('object_xy'))
             with lock:
                 stat['ok'] += 1
         except Exception as e:  # noqa: BLE001 — отказ считаем и пишем с причиной
@@ -643,6 +649,7 @@ def main() -> int:
     c = sub.choices['chain']
     c.add_argument('--only', default=None)
     c.add_argument('--workers', type=int, default=4)
+    c.add_argument('--guards', action='store_true', help='сторожа паспортов (К1/К3) по роли: метрики и вердикты в chain.jsonl (поле guards); в БД не пишет')
     a = ap.parse_args()
     if a.cmd == 'masks' and not (a.trial or a.all):
         sys.exit('нужен --trial N или --all')
