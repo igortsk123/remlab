@@ -3,7 +3,7 @@
 // витрины (`demo-data.json`, картинки, лёгкие меши — ссылками на сборку), без записи в живую витрину. Браузер — программный рендер, как у стенда.
 //   node tools/flat3d/page-snap.mjs --site <папка-превью> --variants bedroom-1-loft,set1 --sizes 375x667,1440x900 --out <НОВАЯ папка> [--click-label]
 //     [--prices on|off] — «Показать/Скрыть цены» (T-20261117-17: при off ярлык ткани — кружок с фото без цены); [--dsf N] — плотность пикселей;
-//     [--clip-label] — крупный кадр вокруг каждого ярлыка (`<вариант>.<WxH>.label<k>.png`, с --dsf 3 — зум)
+//     [--lang ru|en] — язык страницы (`?lang=`); [--clip-label] — крупный кадр вокруг каждого ярлыка (`<вариант>.<WxH>.label<k>.png`, с --dsf 3 — зум)
 // Выход: <вариант>.<WxH>.jpg — кадр «3D» с ярлыками; `report.json` — по каждому ярлыку: рамка, размер пальца, читаемость, что под ним.
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -14,6 +14,7 @@ import { chromium } from "@playwright/test";
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i < 0 ? d : process.argv[i + 1]; };
 const SITE = arg("site"), OUT = arg("out"), CLICK = process.argv.includes("--click-label"), CLIP = process.argv.includes("--clip-label");
 const PRICES = arg("prices", ""), DSF = Number(arg("dsf", "1"));
+const LANG_Q = /^(ru|en)$/.test(arg("lang", "")) ? arg("lang", "") : "";   // [--lang ru|en] — язык страницы (по умолчанию — язык браузера стенда, английский)
 const VARIANTS = (arg("variants", "set1")).split(",");
 const SIZES = (arg("sizes", "375x667")).split(",").map((s) => s.split("x").map(Number));
 if (!SITE || !OUT) throw new Error("нужны --site и --out");
@@ -64,7 +65,7 @@ try {
       if (PRICES) await page.addInitScript((v) => { try { sessionStorage.setItem("remlab-prices-off", v); } catch { /* без хранилища — по умолчанию */ } }, PRICES === "off" ? "1" : "0");
       const errors = [];
       page.on("pageerror", (e) => errors.push(String(e)));
-      await page.goto(`${base}/index.html?live=force&quiz=0`, { waitUntil: "networkidle" });
+      await page.goto(`${base}/index.html?live=force&quiz=0${LANG_Q ? `&lang=${LANG_Q}` : ""}`, { waitUntil: "networkidle" });
       await page.waitForFunction("typeof allVariants === 'function' && allVariants().length > 0", null, { timeout: 60000 });
       const idx = await page.evaluate((v) => allVariants().findIndex((x) => x.id === v), id);
       if (idx < 0) { report.push({ id, size: `${w}x${h}`, error: "нет варианта" }); await page.close(); continue; }
