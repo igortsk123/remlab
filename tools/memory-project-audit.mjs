@@ -26,6 +26,7 @@
 //                      (кроме _intake/session-scratch.md) — истина не должна опираться на сырьё
 //   SECRET-FILE        вне _secrets/: .env*/.pem/.key-файл, либо .txt/.json/.md с приватным ключом /
 //                      sk-… / AKIA… / ghp_… / xox[bap]-… (сканируются и _intake/, и archive/)
+//   RULES-*            реестр правил P-NNN (tools/rules-lint.mjs): ID, статусы, approval_ref, циклы замен, trial, индексы, бюджет слоя
 //   KIT-MODIFIED       (warning) md5 файла из _kit/manifest.txt не совпадает с диском (или файла нет) —
 //                      локальная правка kit-owned файла потеряется при upgrade кита
 //   LESSON-DUP         (warning) номер урока в lessons/*.md встречается дважды и не признан в строке
@@ -45,6 +46,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join, relative, resolve, basename, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { lintRules } from "./rules-lint.mjs";
 
 // Те же исключения, что у кита: в этих каталогах не «content-доки» (для CANON-INTAKE-REF)
 const SKIP_DIRS = new Set(["_intake", "completed_plans", "archive", "changelog", "_secrets", "_kit"]);
@@ -329,6 +331,13 @@ export function runChecks(root, opts = {}) {
     const nx = readme.match(/следующий номер\D{0,5}(\d+)/i);
     if (nx && Number(nx[1]) <= max)
       warnings.push(`LESSON-NEXT lessons/README.md — «следующий номер: ${nx[1]}» ≤ максимального найденного ${max} — подними счётчик`);
+  }
+
+  // 8) Реестр правил работы P-NNN: tools/rules-lint.mjs (RULES-*; пороги и режим бюджета — .memory_bank/rules/lint-config.json)
+  {
+    const rl = lintRules(root, { today: o.today });
+    problems.push(...rl.errors);
+    warnings.push(...rl.warnings);
   }
 
   const byCategory = {};

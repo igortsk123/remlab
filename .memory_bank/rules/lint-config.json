@@ -1,0 +1,11 @@
+{
+  "_comment": "Данные линтера реестра правил (tools/rules-lint.mjs, plan rules-registry-01 шаг 5). Бюджет слоя без MEMORY.md: режим warn → error с error_from (T-148/3: слой 24,4 КБ при цели 20 — красным поверх превышения не включали; решение по срокам — директор). С MEMORY.md — всегда предупреждение, пока он не ужат (шаг 4).",
+  "rule_status_vocab": ["active", "trial", "suspended", "superseded", "retired"],
+  "status_vocab": ["draft", "working", "stable", "stale", "deprecated", "archived"],
+  "budget": {
+    "limit_kb": 20,
+    "without_memory": { "mode": "warn", "error_from": "2026-11-27" },
+    "with_memory": { "mode": "warn", "limit_kb": 20 },
+    "memory_md_candidates": ["~/.claude/projects/-home-pakar-igor-remlab/memory/MEMORY.md"]
+  }
+}
