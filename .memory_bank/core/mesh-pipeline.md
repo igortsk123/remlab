@@ -3,7 +3,7 @@ tier: 1
 topic: mesh-pipeline
 scope: 3D-меши — генерация, учёт, приёмка
 tier2: "../domain/viz-fidelity-playbook.md"
-updated: 2026-11-19
+updated: 2026-11-20
 importance: high
 source: manual
 status: working
@@ -22,6 +22,8 @@ review_after: 2026-12-05
 → ориентация (ADR-0129), топ-вью; семейства — при старте волны. Цвет — [[mesh-color]].
 
 **Вход** — крупное фото, сторож 512 px (ADR-0452).
+
+**Покраска и вырезка (пробы):** ADR-0454, уроки 765–768.
 
 **`shape.glb`** (продукт — `model.glb`) полется у принятых (ADR-0233) или старше 14 сут (`dev-disk.json`; условия — `prune_shapes.py:classify`), кроме стоящих в перегон/перекраску.
 **Ориентация:** на прод — только решённые (`tools/scout/orient_policy.py`; Tier 2 § «Ориентация мешей»).
@@ -42,7 +44,6 @@ review_after: 2026-12-05
 **Публикация на прод (ADR-0243):** `mesh_publish.py` перед сборкой витрины; индекс
 `/test/mesh-pilot10/mesh-index.json` пересобирается по серверу. Только товары банка.
 
-**Автобрак:** `generated` = годный (`tools/scout/mesh_ready.py`); обрезка чужих кусков на ноде выключена
-(`tools/scout/salad/pipeline.py` `ALIEN_CUT=0` — только метка).
+**Автобрак:** `generated` = годный (`tools/scout/mesh_ready.py`); `ALIEN_CUT=0` в `tools/scout/salad/pipeline.py`.
 
 **Tier 2:** `../domain/viz-fidelity-playbook.md` · ADR-0129…0134, 0146, 0168–0178, 0182, 0188–0197.
