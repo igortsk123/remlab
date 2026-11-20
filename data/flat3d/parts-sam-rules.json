@@ -1,0 +1,40 @@
+{
+  "_doc": "Пороги этапа 3 «части меша» (paint-photo-fill-01, T-20261120-169). Код — tools/assets/parts_vote.py, tools/assets/parts_sam.py, tools/assets/parts_orbit_blender.py. Все пороги стартовые, донастраиваются по пробе на 12 трудных; ID товаров здесь нет.",
+  "orbit": {
+    "views": [
+      {"el_deg": 20, "az_deg": [0, 45, 90, 135, 180, 225, 270, 315]},
+      {"el_deg": 60, "az_deg": [0, 90, 180, 270]}
+    ],
+    "size_px": 768,
+    "lens_mm": 50,
+    "fill": 0.8,
+    "samples": 16,
+    "min_cos": 0.17
+  },
+  "sam": {
+    "model": "facebook/sam2.1-hiera-small",
+    "grid": 14,
+    "iou_min": 0.6,
+    "dedupe_iou": 0.9,
+    "max_masks_per_view": 60
+  },
+  "region": {
+    "min_area_share": 0.01,
+    "max_area_share": 0.9,
+    "min_part_face_share": 0.01
+  },
+  "merge": {
+    "iou": 0.45,
+    "min_faces": 30
+  },
+  "geometry": {
+    "legs_overlap": 0.5
+  },
+  "check": {
+    "min_faces_with_part": 0.98,
+    "min_parts": 2,
+    "max_parts": 12,
+    "min_agreement": 0.6,
+    "agreement_face": 0.7
+  }
+}
