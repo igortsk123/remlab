@@ -185,3 +185,41 @@ def prune_attached(alpha, role=None, thr=0.5, bridge_px=4,
         return alpha, {'attached_skip': 'cut_share', 'attached_share': round(share, 4)}
     return np.where(cut, 0.0, alpha), {'attached_pruned': pruned,
                                        'attached_share': round(share, 4)}
+
+
+# ЗАЗОРЫ 1–2 px У КРОМКИ (T-20261119-104/2). У светлого товара на белом фоне сеть рвёт верхнюю кромку «пунктиром»: края тела почти
+# равны фону, и в маске остаются щели шириной в 1–2 пикселя (шкаф, комод, спинка дивана). Правило ОДНО для всех товаров, без ID:
+# морфологическое закрытие 3×3 (закрывает щели шириной ≤ 2 px; пустоты от 3 px — ножки, ручки, просветы реек — не закрывает) и
+# только в полосе EDGE_ZONE_PX от внешнего фона: внутренние дырки и мелкая сетка не трогаются. Цвет добавленных пикселей — от
+# ближайшего пикселя товара (не белый фон, чтобы не рисовать светлую крапинку на тёмном краю).
+EDGE_GAP_PX = int(__import__('os').environ.get('CUTOUT_EDGE_GAP_PX', '2'))   # 0 — выключено
+EDGE_ZONE_PX = 4
+
+
+def close_edge_gaps(alpha, rgb, thr=0.5, gap_px=None, zone_px=EDGE_ZONE_PX):
+    """Закрыть щели шириной ≤ `gap_px` у внешней кромки маски. Возвращает (alpha2, rgb2, info): info — `edge_gap_closed` (пикселей) и, если выключено, пометку."""
+    gap_px = EDGE_GAP_PX if gap_px is None else gap_px
+    if gap_px <= 0:
+        return alpha, rgb, {'edge_gap_closed': 0, 'edge_gap_off': True}
+    b = alpha > thr
+    if not b.any():
+        return alpha, rgb, {'edge_gap_closed': 0}
+    it = max(1, (gap_px + 1) // 2)                       # 3×3 за проход закрывает щель в 2 px
+    pad = it + 1
+    bp = np.pad(b, pad)                                  # рамка кадра — фон: закрытие не «съедает» товар у края кадра
+    closed = ndimage.binary_closing(bp, structure=np.ones((3, 3), bool), iterations=it)[pad:-pad, pad:-pad]
+    gaps = closed & ~b
+    if not gaps.any():
+        return alpha, rgb, {'edge_gap_closed': 0}
+    lab, _ = ndimage.label(~b)                           # внешний фон — компонента, достающая до рамки кадра
+    border = np.unique(np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]]))
+    ext = np.isin(lab, border[border > 0])
+    near_ext = ndimage.distance_transform_edt(~ext) <= zone_px
+    add = gaps & near_ext
+    n = int(add.sum())
+    if not n:
+        return alpha, rgb, {'edge_gap_closed': 0}
+    _, (iy, ix) = ndimage.distance_transform_edt(~b, return_indices=True)
+    a2 = np.where(add, 1.0, alpha).astype(alpha.dtype)
+    rgb2 = np.where(add[..., None], rgb[iy, ix], rgb)
+    return a2, rgb2, {'edge_gap_closed': n}

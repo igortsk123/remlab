@@ -207,9 +207,11 @@ def chain(src: Image.Image, net: Image.Image, role: str | None = None) -> tuple[
     # остаются нетронутыми — различаем по содержимому, а не по размеру (урок 307).
     cleaned, holes = components.fill_holes_unlike_bg(cleaned, np.asarray(src), role=role)
     comp.update(holes)
+    # щели 1–2 px у кромки (светлое на белом рвётся «пунктиром», T-20261119-104/2); внутренние дырки и пустоты от 3 px остаются
+    cleaned, rgb, gap = components.close_edge_gaps(cleaned, np.asarray(refined)[..., :3])
+    comp.update(gap)
     info['components'] = comp
-    refined = Image.fromarray(np.dstack([np.asarray(refined)[..., :3],
-                                         (np.clip(cleaned, 0, 1) * 255).astype(np.uint8)]), 'RGBA')
+    refined = Image.fromarray(np.dstack([rgb, (np.clip(cleaned, 0, 1) * 255).astype(np.uint8)]), 'RGBA')
     is_col, why, feats = collage.is_collage(np.asarray(src).astype(np.float32), cleaned)
     info['collage'] = {'verdict': bool(is_col), 'why': why, 'features': feats}
     shape = PRE.defringe(refined, info)
