@@ -28,6 +28,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, '..', '..'))
 import tex_coverage as TC  # noqa: E402
 
 FILL = {
@@ -54,6 +55,11 @@ FILL = {
     'gain_min': 0.5, 'gain_max': 2.0,
     'gutter': 8,                     # пикселей желоба вокруг островков
     'sample': 20000,                 # точек для оценки симметрии
+    'source': 'stat',                # источник «невидимого»: stat — цвет части + лоскут фактуры; trellis — цвет черновика TRELLIS.2 со сдвигом тона (нужен draft)
+    'draft_scale_min': 0.3, 'draft_scale_max': 3.0,   # потолок растяжения разброса черновика к разбросу фото части (по каналам Lab)
+    'draft_texture': False,          # trellis: класть поверх ещё и лоскут фактуры (детали черновика и так сохраняются)
+    'draft_cos': 0.2,                # trellis: нормаль точки черновика к нормали текселя — не меньше (иначе перёд/зад тонкой вещи путаются)
+    'draft_max_dist': 0.03,          # trellis: дальше от поверхности черновика (доли размера предмета) — черновика в тексele нет
 }
 BLACK_MAX = TC.UNPAINTED_SG['black_max']
 
@@ -315,14 +321,20 @@ def step_stats(tx, rgb, thr: float) -> dict:
 
 
 # ---------------------------------------------------------------- заливка ---------------------------------------
-def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None = None, mirror: bool = True) -> dict:
+def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None = None, mirror: bool = True, draft: dict | None = None) -> dict:
     """geoms — `tex_coverage.load_geoms`; known — по геометрии (T×T bool), parts — по геометрии номера частей ГРАНЕЙ (None — одна часть).
+    draft — черновик TRELLIS на ту же форму/развёртку (`draft_texels`): {'lab': [(T,T,3) Lab], 'ok': [(T,T) bool]}; нужен при cfg['source']=='trellis': невидимое берёт цвет черновика,
+    сдвинутый переносом статистики Lab (медиана/разброс части: черновик → видимое фото), детали черновика сохраняются; стыки — та же растушёвка. 'stat' (по умолчанию) — цвет части + лоскут фактуры.
     → {'tex': [uint8 (T,T,3) по геометриям], 'report': {...}}. Форма и развёртка не меняются."""
     from scipy.ndimage import binary_erosion, distance_transform_edt
     from scipy.sparse import coo_matrix
     from scipy.sparse.csgraph import dijkstra
     from scipy.spatial import cKDTree
     c = dict(FILL, **(cfg or {}))
+    if c['source'] not in ('stat', 'trellis'):
+        raise ValueError(f"source {c['source']!r}: ждём stat | trellis")
+    if c['source'] == 'trellis' and draft is None:
+        raise ValueError('source=trellis требует draft (draft_texels)')
     t0 = time.time()
     ctr, size = frame_of(geoms)
     offs = np.cumsum([0] + [len(g['V']) for g in geoms])
@@ -359,6 +371,36 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             stat[p] = (g_mean, g_std, len(L), True)
             rep['fallback_global'] += 1
         rep['parts'][p] = {'known_texels': int(len(L)), 'mean_lab': [round(float(x), 2) for x in stat[p][0]], 'std_lab': [round(float(x), 2) for x in stat[p][1]], 'stats_from_global': stat[p][3]}
+    dshift = None
+    if c['source'] == 'trellis':                     # перенос статистики Lab: черновик части → видимое фото той же части (медиана и разброс по каналам)
+        dshift = []
+        rep['draft'] = {'parts': {}, 'ok_pct': 0.0}
+        n_ok = n_all_t = 0
+        dm = {}
+        for p in part_ids:
+            D = np.concatenate([draft['lab'][gi].reshape(-1, 3)[tx.ti[draft['ok'][gi].reshape(-1)[tx.ti] & (tx.part == p)]] for gi, tx in enumerate(txs)])
+            if len(D) >= c['min_known']:
+                dmed, dstd = np.median(D, axis=0), D.std(axis=0)
+                scale = np.clip(stat[p][1] / np.maximum(dstd, 1e-3), c['draft_scale_min'], c['draft_scale_max'])
+                dm[p] = (dmed, scale)
+                rep['draft']['parts'][p] = {'texels': int(len(D)), 'draft_median_lab': [round(float(x), 2) for x in dmed], 'draft_std_lab': [round(float(x), 2) for x in dstd], 'scale': [round(float(x), 2) for x in scale]}
+            else:
+                rep['draft']['parts'][p] = {'texels': int(len(D)), 'no_draft': True}
+        for gi, tx in enumerate(txs):
+            T = tx.T
+            sh = np.zeros((T * T, 3))
+            okf = np.zeros(T * T, bool)
+            dl = draft['lab'][gi].reshape(-1, 3)
+            for p in part_ids:
+                if p not in dm:
+                    continue
+                idx = tx.ti[(tx.part == p) & draft['ok'][gi].reshape(-1)[tx.ti]]
+                sh[idx] = (dl[idx] - dm[p][0]) * dm[p][1] + stat[p][0]
+                okf[idx] = True
+            n_ok += int(okf[tx.ti].sum())
+            n_all_t += len(tx.ti)
+            dshift.append((sh, okf))
+        rep['draft']['ok_pct'] = round(100.0 * n_ok / max(n_all_t, 1), 2)
     rep['time_s']['prepare'] = round(time.time() - t0, 2)
     # --- шаг 1: зеркало
     out_lab = [lb.copy() for lb in labs]
@@ -462,9 +504,15 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             gsel_t = tsel & ~mflat                       # прочие: затухание от известного и зеркального к цвету части
             if gsel_t.any():
                 dist_a, col_a = field(kflat | mflat)
-                at, gc = at_texels(dist_a, col_a, c['geo_len'], gsel_t)
                 flat_idx = tx.ti[gsel_t]
-                lab_flat[flat_idx] = at[:, None] * gc + (1.0 - at[:, None]) * stat[p][0]
+                if dshift is not None:                   # черновик со сдвигом тона вместо цвета части; нет черновика в тексele — цвет части
+                    at, gc = at_texels(dist_a, col_a, c['feather_len'], gsel_t)
+                    sh, okf = dshift[gi]
+                    base = np.where(okf[flat_idx][:, None], sh[flat_idx], stat[p][0])
+                else:
+                    at, gc = at_texels(dist_a, col_a, c['geo_len'], gsel_t)
+                    base = stat[p][0]
+                lab_flat[flat_idx] = at[:, None] * gc + (1.0 - at[:, None]) * base
                 lam_t[gsel_t] = at
             if msel_t.any():
                 dist_k, col_k = field(kflat)
@@ -479,7 +527,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     rep['time_s']['geodesic'] = round(time.time() - t0, 2)
     # --- выравнивание яркости достроенного к видимому той же части (медиана L; поправка гаснет к стыку, зеркальное не трогаем)
     rep['brightness'] = {}
-    for p in part_ids:
+    for p in (part_ids if dshift is None else []):
         vals = [out_lab[gi].reshape(-1, 3)[tx.ti[unk_all[gi] & ~mirrored[gi].reshape(-1)[tx.ti] & (tx.part == p) & (lam_all[gi] < 0.2)]][:, 0] for gi, tx in enumerate(txs)]
         vals = np.concatenate(vals)
         if len(vals) < 50:
@@ -513,7 +561,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         im.reshape(-1)[tx.ti] = tx.island
         blur, _ = _blur_norm(labs[gi], kn[gi], c['hp_px'])
         blk[gi] = (labs[gi] - blur, pm, im)
-    for p in part_ids:
+    for p in (part_ids if (dshift is None or c['draft_texture']) else []):
         for B, thr in ((int(c['patch']), c['patch_known_min']), (int(c['patch']) // 2, c['patch_known_min']), (int(c['patch']) // 4, c['patch_known_min2'])):
             cands = []
             for gi, tx in enumerate(txs):
@@ -573,6 +621,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         T = tx.T
         rgb = tex_in[gi].copy()
         new = lab2rgb(out_lab[gi].reshape(-1, 3)[tx.ti])
+        new = np.where((new.max(axis=1) <= BLACK_MAX)[:, None], np.maximum(new, BLACK_MAX + 1), new)    # тёмное — не «чёрное непокрашенное»: сторож охвата считает ≤ порога дырой
         keepk = kn[gi].reshape(-1)[tx.ti]
         rgb.reshape(-1, 3)[tx.ti[~keepk]] = new[~keepk]
         occ = np.zeros((T, T), bool)
@@ -605,6 +654,55 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                            'filled_faces_step_pct': (round(sum((x['filled_faces_step_pct'] or 0.0) * x['pairs'] for x in ss) / n, 2) if any(x['filled_faces_step_pct'] is not None for x in ss) else None)}
     rep['time_s']['all'] = round(time.time() - t0, 2)
     return {'tex': outs, 'report': rep}
+
+
+# ---------------------------------------------------------------- черновик TRELLIS на нашу форму --------------------
+def draft_texels(geoms: list, draft_geoms: list, cfg: dict | None = None) -> dict:
+    """Цвет черновика (`tex_coverage.load_geoms` родного GLB TRELLIS.2 или его копии на упрощённую форму) в текселях НАШЕЙ развёртки: ближайшая точка поверхности черновика
+    (по 3D-позиции в кадре нашего предмета; нормаль не против нашей) → её Lab. Черновик в другой системе координат не подгоняется: кадр сверяется отчётом (`frame_gap`), расхождение — `ok` ложно.
+    → {'lab': [(T,T,3)], 'ok': [(T,T) bool], 'report': {...}}."""
+    from scipy.spatial import cKDTree
+    c = dict(FILL, **(cfg or {}))
+    ctr, size = frame_of(geoms)
+    offs = np.cumsum([0] + [len(g['V']) for g in geoms])
+    Pall = (np.concatenate([np.asarray(g['V'], np.float64) for g in geoms]) - ctr) / size
+    doffs = np.cumsum([0] + [len(g['V']) for g in draft_geoms])
+    Dall = (np.concatenate([np.asarray(g['V'], np.float64) for g in draft_geoms]) - ctr) / size
+    srcQ, srcN, srcL = [], [], []
+    for gi, g in enumerate(draft_geoms):
+        tx = Tex(g, Dall[doffs[gi]:doffs[gi + 1]], _grid(g), None, True)
+        rgb = np.asarray(g['tex'])[..., :3]
+        srcQ.append(tx.Q)
+        srcN.append(tx.N)
+        srcL.append(rgb2lab(rgb.reshape(-1, 3)[tx.ti]))
+    srcQ, srcN, srcL = np.concatenate(srcQ), np.concatenate(srcN), np.concatenate(srcL)
+    tree = cKDTree(srcQ)
+    labs, oks, d_all, n_ok, n_tot = [], [], [], 0, 0
+    for gi, g in enumerate(geoms):
+        T = _grid(g)
+        tx = Tex(g, Pall[offs[gi]:offs[gi + 1]], T, None, True)
+        K = 4
+        d, j = tree.query(tx.Q, k=K, distance_upper_bound=c['draft_max_dist'])
+        jj = np.where(np.isfinite(d), j, 0)
+        cs = (srcN[jj] * tx.N[:, None, :]).sum(axis=2)
+        good = np.isfinite(d) & (cs > c['draft_cos'])
+        first = good.argmax(axis=1)
+        has = good.any(axis=1)
+        pick = jj[np.arange(len(jj)), first]
+        lab = np.zeros((T * T, 3))
+        ok = np.zeros(T * T, bool)
+        lab[tx.ti[has]] = srcL[pick[has]]
+        ok[tx.ti[has]] = True
+        n_ok += int(has.sum())
+        n_tot += len(tx.ti)
+        labs.append(lab.reshape(T, T, 3))
+        oks.append(ok.reshape(T, T))
+        d_all.append(np.where(np.isfinite(d[:, 0]), d[:, 0], np.nan))
+    dd = np.concatenate(d_all)
+    A, B = (Pall.min(axis=0), Pall.max(axis=0)), (Dall.min(axis=0), Dall.max(axis=0))
+    gap = float(np.abs(np.concatenate([A[0] - B[0], A[1] - B[1]])).max())
+    return {'lab': labs, 'ok': oks, 'report': {'ok_pct': round(100.0 * n_ok / max(n_tot, 1), 2),
+                                               'nearest_median': None if np.isnan(dd).all() else round(float(np.nanmedian(dd)), 4), 'frame_gap': round(gap, 3)}}
 
 
 # ---------------------------------------------------------------- кадры «до | после» -------------------------------
@@ -643,3 +741,134 @@ def render_ortho(geoms: list, texs: list, azimuth: float = 180.0, res: int = 102
     img = np.full((res * res, 3), 245.0)
     img[hit] = col * (0.40 + 0.60 * np.abs(n3 @ v[0]))[:, None]
     return img.reshape(res, res, 3).astype(np.uint8)
+
+
+# ---------------------------------------------------------------- этап 07 пути покраски: выход, проверка, кадр ----
+STAGE = '07-fill'
+THRESHOLDS = {                                   # пороги этапа (check.json): плана R1 — ΔE00 перёд↔зад ≤ 5–6; «ступени» — предварительно, уточнить по прогонам
+    'empty_pct': ('<=', 0.0),                    # «не закрашено» после заливки, % текселей развёртки
+    'dE00_front_back': ('<=', 6.0),              # перёд↔зад одной части: худшая из частей, у которых известного ≥ 1 % известного предмета
+    'filled_faces_step_pct': ('<=', 10.0),       # доля достроенных граней со скачком цвета к соседу той же части (ΔE00 > FILL['step_de'])
+    'time_s': ('<=', 120.0),                     # план R1: < 2 мин на товар
+}
+
+
+def parts_from_geometry(geoms: list):
+    """Части граней по геометрии `tools/assets/material_parts.py`: 0 обивка/корпус, 1 ножки, 2 нейтральное (тонкое, полоса у ножек); нет уверенного деления — одна часть. → (список по геометриям | None, строка о способе)."""
+    try:
+        sys.path.insert(0, os.path.join(HERE, '..', '..', '..', 'assets'))
+        import material_parts as MP
+        rules = MP.load_rules()
+    except Exception as e:  # noqa: BLE001 — частей нет, заливка идёт одной частью
+        return None, f'частей нет ({type(e).__name__})'
+    out, note = [], []
+    for g in geoms:
+        nf = len(g['F'])
+        try:
+            rec = MP.judge(MP.analyze(g['mesh'], rules), rules, None)
+            if rec.get('status') == 'split' and rec.get('apply', rec.get('confidence', 0) >= rules['confidence']['apply']):
+                leg = MP.legs_face_mask(g['mesh'], rec)
+                neu = MP.neutral_face_mask(g['mesh'], rec) & ~leg
+                p = np.zeros(nf, np.int32)
+                p[leg] = 1
+                p[neu] = 2
+                out.append(p)
+                note.append(f"split ножки {int(leg.sum())} нейтр. {int(neu.sum())} из {nf}")
+                continue
+            note.append(f"{rec.get('status')} → одна часть")
+        except Exception as e:  # noqa: BLE001
+            note.append(f'сбой частей {type(e).__name__}')
+        out.append(np.zeros(nf, np.int32))
+    return out, '; '.join(note)
+
+
+def part_deltas(geoms: list, parts, kfront: list, kback: list, tex_before: list, tex_after: list) -> dict:
+    """ΔE00 перёд↔зад внутри одной части: средние Lab текселей, видимых спереди (kfront) и сзади (kback), до и после заливки. → {часть: {'before', 'after'}}."""
+    res = {}
+    ids = sorted({int(p) for pp in (parts or [np.zeros(len(g['F']), np.int32) for g in geoms]) for p in np.unique(pp)})
+    txs = [Tex(g, np.asarray(g['V'], np.float64), _grid(g), None if parts is None else parts[gi]) for gi, g in enumerate(geoms)]
+    for p in ids:
+        sets = {'before': ([], []), 'after': ([], [])}
+        for gi, tx in enumerate(txs):
+            sel = tx.part == p
+            for nm, tex in (('before', tex_before[gi]), ('after', tex_after[gi])):
+                flat = np.asarray(tex).reshape(-1, 3)
+                for k, kk in ((0, kfront[gi]), (1, kback[gi])):
+                    m = kk.reshape(-1)[tx.ti] & sel
+                    m &= ~unpainted_mask(flat[tx.ti])
+                    if m.any():
+                        sets[nm][k].append(rgb2lab(flat[tx.ti[m]]))
+        r = {}
+        for nm, (fr, bk) in sets.items():
+            if fr and bk:
+                a, b = np.concatenate(fr).mean(axis=0, keepdims=True), np.concatenate(bk).mean(axis=0, keepdims=True)
+                r[nm] = round(float(TC.de2000_v(a, b)[0]), 2)
+            else:
+                r[nm] = None
+        res[p] = r
+    return res
+
+
+def write_glb(geoms: list, texs: list, dst: str) -> None:
+    """Та же форма и развёртка, текстура — заполненная (выход этапа для следующих)."""
+    import trimesh
+    from PIL import Image
+    from trimesh.visual import TextureVisuals
+    from trimesh.visual.material import PBRMaterial
+    sc = trimesh.Scene()
+    for g, t in zip(geoms, texs):
+        mesh = trimesh.Trimesh(vertices=g['V'], faces=g['F'], process=False)
+        mesh.visual = TextureVisuals(uv=np.asarray(g['UV']), material=PBRMaterial(baseColorTexture=Image.fromarray(np.asarray(t)), metallicFactor=0.0, roughnessFactor=1.0))
+        sc.add_geometry(mesh, geom_name=str(g.get('name') or 'mesh'))
+    sc.export(dst)
+
+
+def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=None, cfg: dict | None = None, thresholds: dict | None = None, mirror: bool = True, draft_glb: str | None = None, out_name: str | None = None) -> dict:
+    """Этап 07 «докрасить невидимое»: GLB (текстура = фото на видимом) → `<run>/<sku>/07-fill/` {filled.glb, report.json, frame.png (az180 до | после), check.json}.
+    `known` — маска «видно с камеры фото» по геометриям (нет — из `known_from_photo`: az0/az45); `parts` — части граней (нет — `parts_from_geometry`). Не прошёл (check.json passed=false) — товар дальше не идёт.
+    → {'check', 'report', 'geoms', 'tex_before', 'tex_after', 'known', 'parts', 'dir'} (для проб и кадров)."""
+    import json
+    from PIL import Image
+    import paint_stage as PS
+    t0 = time.time()
+    d = PS.stage_dir(run, sku, out_name or STAGE)
+    th = dict(THRESHOLDS, **(thresholds or {}))
+    geoms = TC.load_geoms(glb)
+    tex_before = [np.asarray(g['tex']).copy() for g in geoms]
+    if known is None:
+        known = known_from_photo(geoms)
+    parts_note = 'заданы'
+    if parts is None:
+        parts, parts_note = parts_from_geometry(geoms)
+    draft = None
+    if (cfg or {}).get('source') == 'trellis':
+        draft = draft_texels(geoms, TC.load_geoms(draft_glb), cfg)
+    res = fill(geoms, known, parts, cfg, mirror, draft)
+    rep, tex_after = res['report'], res['tex']
+    kback = known_from_photo(geoms, azimuths=(180.0,))
+    de = part_deltas(geoms, parts, known, kback, tex_before, tex_after)
+    known_total = max(sum(v['known_texels'] for v in rep['parts'].values()), 1)
+    big = [p for p, v in rep['parts'].items() if v['known_texels'] >= 0.01 * known_total]
+    de_after = {int(p): v['after'] for p, v in de.items() if v['after'] is not None}
+    de_worst = max([de_after[p] for p in big if p in de_after] or [None]) if any(p in de_after for p in big) else None
+    write_glb(geoms, tex_after, os.path.join(d, 'filled.glb'))
+    a = render_ortho(geoms, tex_before, 180.0)
+    b = render_ortho(geoms, tex_after, 180.0)
+    Image.fromarray(np.concatenate([a, np.full((a.shape[0], 12, 3), 255, np.uint8), b], axis=1)).save(os.path.join(d, PS.FRAME))
+    secs = time.time() - t0
+    metrics = {
+        'empty_pct': {'value': rep['unpainted_after_pct'], 'threshold': th['empty_pct'][1], 'op': th['empty_pct'][0]},
+        'dE00_front_back': {'value': de_worst, 'threshold': th['dE00_front_back'][1], 'op': th['dE00_front_back'][0]},
+        'filled_faces_step_pct': {'value': rep['steps']['after']['filled_faces_step_pct'], 'threshold': th['filled_faces_step_pct'][1], 'op': th['filled_faces_step_pct'][0]},
+        'time_s': {'value': round(secs, 1), 'threshold': th['time_s'][1], 'op': th['time_s'][0]},
+    }
+    for m in metrics.values():
+        m['ok'] = PS.judge(m['value'], m['op'], m['threshold'])
+    if draft is not None:
+        rep['draft_transfer'] = draft['report']
+    report = {'report': rep, 'deltaE_by_part': de, 'big_parts': big, 'parts_note': parts_note, 'empty_before_pct': rep['unpainted_before_pct']}
+    with open(os.path.join(d, 'report.json'), 'w', encoding='utf-8') as f:
+        json.dump(report, f, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
+    check = PS.write_check(d, out_name or STAGE, sku, None, dict(metrics['empty_pct'], name='empty_pct'), '', metrics={k: v for k, v in metrics.items() if k != 'empty_pct'}, seconds=secs,
+                           outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], steps=rep['steps'], parts=parts_note)
+    return {'check': check, 'report': rep, 'geoms': geoms, 'tex_before': tex_before, 'tex_after': tex_after, 'known': known, 'parts': parts, 'dir': d, 'deltaE': de, 'kback': kback}

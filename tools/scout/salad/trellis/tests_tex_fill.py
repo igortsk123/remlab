@@ -339,8 +339,42 @@ def test_seam_steps_concavity():
     ok(float(o_ao['tex'][0][m].mean()) < float(o_no['tex'][0][m].mean()), 'AO-опция: впадина темнее, чем без неё')
 
 
+# ------------------------------------------------------------------ вариант Б: источник — черновик TRELLIS
+def test_draft_source():
+    print('вариант Б (source=trellis): цвет черновика со сдвигом тона, детали сохраняются, известное цело:')
+    g, parts, known, tl, col = scene_parts()
+    dg = dict(g)
+    dtex = np.full((T, T, 3), 90, np.uint8)
+    mA, mD = tile_mask(tl['A']), tile_mask(tl['D'])
+    x0, x1 = int(tl['D'][0] * T), int(tl['D'][2] * T)
+    stripes = np.tile(np.linspace(60, 140, x1 - x0), (T, 1))
+    ys, xs = np.nonzero(mD)
+    dtex[ys, xs] = np.clip(stripes[ys, xs - x0], 0, 255).astype(np.uint8)[:, None]
+    dg['tex'] = dtex
+    dt = TF.draft_texels([g], [dg])
+    ok(dt['report']['ok_pct'] > 99.0 and dt['report']['frame_gap'] < 1e-6, f'черновик перенесён на нашу развёртку: покрытие {dt["report"]["ok_pct"]} %, расхождение кадра {dt["report"]["frame_gap"]}')
+    out = TF.fill([g], known, parts, cfg={'gutter': 0, 'erode_known': 0, 'source': 'trellis'}, mirror=False, draft=dt)
+    tex, rep = out['tex'][0], out['report']
+    kn = known[0]
+    ok(int((tex[kn] != g['tex'][kn]).sum()) == 0, 'известные тексели не изменились')
+    lab_D = lab_of(tex, mD)
+    ok(de(lab_D.mean(axis=0), TF.rgb2lab(col['red'][None])[0]) < 12, 'D: тон сдвинут к видимому фото части 0 (красный), а не серый черновик', f'ΔE {de(lab_D.mean(axis=0), TF.rgb2lab(col["red"][None])[0]):.1f}')
+    ld = lab_D[:, 0]
+    pat = stripes[ys, xs - x0]
+    ok(float(np.corrcoef(ld, pat)[0, 1]) > 0.9 and float(ld.std()) > 2.0, f'детали черновика (полосы по яркости) сохранились: корреляция {float(np.corrcoef(ld, pat)[0, 1]):.2f}, разброс L {float(ld.std()):.1f}')
+    ok(rep['unpainted_after_pct'] == 0.0 and rep['no_patch'] == 0 and rep['draft']['ok_pct'] > 99.0, 'после заливки чёрного нет; лоскут фактуры не нужен (no_patch 0)')
+    out_t = TF.fill([g], known, parts, cfg={'gutter': 0, 'erode_known': 0, 'source': 'stat'}, mirror=False)
+    ok(float(np.abs(out_t['tex'][0][mD].astype(float) - tex[mD].astype(float)).mean()) > 1.0, 'stat и trellis дают разный результат на невидимом')
+    for bad_call, name in ((lambda: TF.fill([g], known, parts, cfg={'source': 'trellis'}, mirror=False), 'trellis без черновика'), (lambda: TF.fill([g], known, parts, cfg={'source': 'x'}, mirror=False), 'неизвестный source')):
+        try:
+            bad_call()
+            ok(False, name + ' отвергнут')
+        except ValueError:
+            ok(True, name + ' отвергнут')
+
+
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_draft_source):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0
