@@ -23,9 +23,14 @@ SLIM_DROP = ('session.blend',)                             # после успе
 SLIM_DROP_DIRS = ('inpaint', 'controlnet', 'baked')        # промежуточные копии внутри sg-output/<сцена>/<время>/
 
 
-def slim_run(d: str) -> int:
-    """Убрать тяжёлое промежуточное из папки УСПЕШНОГО прогона; вернёт освобождённые байты. Ошибки удаления — молча (не ронять драйвер)."""
+def slim_run(d: str, keep_guard: bool = False) -> int:
+    """Убрать тяжёлое промежуточное из папки УСПЕШНОГО прогона; вернёт освобождённые байты. Ошибки удаления — молча (не ронять драйвер).
+    Черновики сторожа (`blender/guard/`, неудачные попытки видов) — чистятся; остаются, только если какой-то вид отклонён (разбор)."""
     freed = 0
+    gd = os.path.join(d, 'blender', 'guard')
+    if os.path.isdir(gd) and not keep_guard:
+        freed += sum(os.path.getsize(os.path.join(a, b)) for a, _x, bs in os.walk(gd) for b in bs)
+        shutil.rmtree(gd, ignore_errors=True)
     for f in SLIM_DROP:
         p = os.path.join(d, 'blender', f)
         if os.path.isfile(p):
@@ -141,8 +146,18 @@ class RunQueue:
                 self.summary['retries_total'] = self.summary.get('retries_total', 0) + relay_n + drive_r
                 if relay_n or drive_r:
                     self.say(f'повторы связи у {it["key"]}: мост {relay_n}, Blender {drive_r}')
+            g = json_status(it).get('guard')                                # T-154/1: сторож видов — сколько повторено/отклонено, причина; в запись прогона и в сводку группы
+            if g:
+                rec['guard'] = {k: g.get(k) for k in ('views_retried', 'views_rejected', 'colour_unresolved', 'catalog_dE', 'review')}
+                self.summary['views_retried_total'] = self.summary.get('views_retried_total', 0) + len(g.get('views_retried') or [])
+                self.summary['views_rejected_total'] = self.summary.get('views_rejected_total', 0) + len(g.get('views_rejected') or [])
+                if g.get('review'):
+                    self.summary['review_total'] = self.summary.get('review_total', 0) + 1
+                    self.say(f'!! {it["key"]}: модель НЕ принимается автоматически — {g["review"]}')
+                if g.get('views_retried') or g.get('views_rejected'):
+                    self.say(f'сторож видов у {it["key"]}: повторено {g.get("views_retried")}, отклонено {g.get("views_rejected")}')
             if ok:
-                freed = slim_run(it['dir'])
+                freed = slim_run(it['dir'], keep_guard=bool((g or {}).get('views_rejected')))
                 rec['freed_mb'] = round(freed / 2 ** 20)
             self.summary['runs'].append(rec)
             self.summary['failed'] += not ok

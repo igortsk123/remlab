@@ -1,0 +1,20 @@
+{
+  "_doc": "Подписи StableGen — ДАННЫЕ (T-20261120-154/1, Codex 20.11): фразы материала и зада по классу. Утверждения, без отрицаний: слова «двери/ручки» даже в отрицании подсказывают нежелательный мотив. Читает sg_views.py; нет файла — встроенные запасные значения.",
+  "material_phrase": {
+    "velour": "fine short-pile velour upholstery with uniform low-contrast nap, matte",
+    "velvet": "ribbed corduroy upholstery with fine parallel cords, matte",
+    "rogozhka": "coarse woven slubby linen-like upholstery, matte",
+    "chenille": "soft chenille upholstery with a fine dense pile, matte",
+    "boucle": "looped bouclé upholstery with a curly nubby texture, matte",
+    "leather": "smooth leather upholstery with a fine grain and a soft sheen",
+    "wood_solid": "solid wood with a visible natural grain",
+    "wood_veneer": "wood veneer with a fine straight grain",
+    "ldsp": "matte laminated chipboard finish with a fine uniform surface",
+    "mdf_film": "smooth matte painted finish",
+    "metal": "brushed metal",
+    "glass": "clear glass"
+  },
+  "back_by_class": {
+    "casework": "one uninterrupted flat construction back panel in the carcass finish, simple fastening seams"
+  }
+}

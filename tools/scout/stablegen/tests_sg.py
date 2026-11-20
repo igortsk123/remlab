@@ -203,6 +203,100 @@ class SaladApiRetry(unittest.TestCase):
         self.assertEqual(S.api_retry(mg, '', 'POST', {}, 'g', lambda *a: None, lambda s: None)[::2], (400, 0))
 
 
+
+class ViewGuard(unittest.TestCase):
+    """T-154/1: сторож вида до проекции (sg_guard) + образец бока по знаку угла + подписи из данных."""
+
+    @staticmethod
+    def _img(obj=(200, 190, 180), mag_frac=0.0, size=96):
+        import numpy as np
+        a = np.full((size, size, 3), 140, np.uint8)                 # серый фон
+        a[20:76, 20:76] = obj                                        # предмет по центру
+        if mag_frac:
+            n = int(56 * 56 * mag_frac / 56)
+            a[20:76, 20:20 + max(1, n)] = (230, 20, 220)
+        return a
+
+    def test_magenta_judged_by_object_share_and_component(self):
+        import sg_guard as G
+        R = G.load_rules()
+        ok, _ = G.judge_magenta(G.view_stats(self._img(), R), R)
+        self.assertTrue(ok)
+        bad, why = G.judge_magenta(G.view_stats(self._img(mag_frac=0.3), R), R)
+        self.assertFalse(bad)
+        self.assertIn('малиновое', why)
+        few = self._img()
+        few[30:32, 30:32] = (230, 20, 220)                                          # 4 пикселя — не повод для повтора
+        self.assertTrue(G.judge_magenta(G.view_stats(few, R), R)[0])
+
+    def test_pink_catalog_product_is_exempt_but_jump_is_caught(self):
+        import sg_guard as G
+        R = G.load_rules()
+        self.assertTrue(G.is_pink_colour('pink', R) and not G.is_pink_colour('mint', R))
+        pinkish = G.view_stats(self._img(obj=(230, 20, 220)), R)                    # весь предмет «розовый» — цвет каталога
+        self.assertFalse(G.judge_magenta(pinkish, R)[0])
+        self.assertTrue(G.judge_magenta(pinkish, R, baseline=pinkish['mag_frac'], exempt=True)[0])
+        clean = G.view_stats(self._img(), R)
+        self.assertFalse(G.judge_magenta(G.view_stats(self._img(mag_frac=0.3), R), R, baseline=clean['mag_frac'], exempt=False)[0])
+
+    def test_colour_guard_neighbour_and_catalog(self):
+        import sg_guard as G
+        R = G.load_rules()
+        mint = G.view_stats(self._img(obj=(160, 225, 195)), R)
+        greywhite = G.view_stats(self._img(obj=(225, 225, 222)), R)
+        self.assertTrue(G.judge_colour(mint, R, catalog=G.catalog_lab('mint', R))[0])
+        ok, why, info = G.judge_colour(greywhite, R, catalog=G.catalog_lab('mint', R))      # «серо-белый фасад» у мятного шкафа (владелец TG 2770)
+        self.assertFalse(ok)
+        self.assertIn('каталога', why)
+        ok, why, info = G.judge_colour(mint, R, neighbour_lab=greywhite['lab'])
+        self.assertFalse(ok)
+        self.assertIn('соседнего', why)
+        self.assertTrue(G.judge_colour(mint, R, neighbour_lab=mint['lab'], catalog=None)[0])
+        self.assertTrue(G.judge_colour(mint, R, catalog=G.catalog_lab('дерево', R))[0])    # нет слова в справочнике — проверки цвета каталога нет
+
+    def test_repair_replaces_only_magenta_pixels(self):
+        import numpy as np
+        import sg_guard as G
+        R = G.load_rules()
+        a = self._img(mag_frac=0.3)
+        fixed = G.repair_magenta(a, R, G.srgb_to_lab((200, 190, 180)))
+        self.assertFalse(G.magenta_mask(fixed, R).any())
+        self.assertTrue((fixed[0, 0] == a[0, 0]).all())
+        self.assertLessEqual(int(np.abs(fixed[30, 30].astype(int) - (200, 190, 180)).max()), 2)
+
+    def test_png_decoder_matches_pillow(self):
+        import io
+        import numpy as np
+        import sg_guard as G
+        from PIL import Image
+        rng = np.random.default_rng(1)
+        a = rng.integers(0, 255, (33, 47, 3), dtype=np.uint8)
+        buf = io.BytesIO()
+        Image.fromarray(a).save(buf, format='PNG')
+        self.assertTrue((G._decode_png(buf.getvalue()) == a).all())
+
+    def test_side_sample_by_sign_of_angle(self):
+        import sg_views as V
+        angles = {'c0': 0.0, 'c1': 45.0, 'c2': -45.0, 'c3': 90.0, 'c4': -90.0, 'c5': 135.0, 'c6': -135.0, 'c7': 180.0}
+        order = ['c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7']
+        usable = set(order[:5])
+        self.assertEqual(V.side_sample_for(135.0, angles, order, usable), 'c3')
+        self.assertEqual(V.side_sample_for(-135.0, angles, order, usable), 'c4')
+        self.assertIn(V.side_sample_for(180.0, angles, order, usable), ('c3', 'c4'))
+        self.assertEqual(V.side_sample_for(135.0, angles, order, usable - {'c3'}), 'c4')       # образец той же стороны отклонён — берём другую
+        self.assertIsNone(V.side_sample_for(135.0, angles, order, {'c0', 'c1'}))
+
+    def test_captions_are_data(self):
+        import json
+        import os
+        import sg_views as V
+        p = os.path.join(os.path.dirname(V.__file__), '..', 'rules', 'stablegen-captions.json')
+        d = json.load(open(p, encoding='utf-8'))
+        self.assertEqual(V.MATERIAL_PHRASE['velour'], d['material_phrase']['velour'])
+        self.assertEqual(V.BACK_BY_CLASS['casework'], d['back_by_class']['casework'])
+        self.assertNotIn('marbled', d['material_phrase']['velour'])
+
+
 class Experiments(unittest.TestCase):
     def test_no_lora_variant_config(self):
         c = S.build_cfg('K', 'q2509nl', '/o', 's', 8, 2048, 42, 60)
@@ -312,12 +406,12 @@ class Views(unittest.TestCase):
         self.assertIsNone(V.material_from_texts(['Ткань', 'Диван Модерн']))
         p, fl = V.build_prompt('диван', 'velour', 'blue')
         self.assertEqual(fl, [])
-        self.assertTrue(p.startswith('a blue sofa, crushed velvet'))
-        self.assertIn('marbled mottled pile', p)
+        self.assertTrue(p.startswith('a blue sofa, fine short-pile velour'))      # T-154/1: «marbled mottled» убрано (Qwen его утрировал на тыле); фразы — данные rules/stablegen-captions.json
+        self.assertNotIn('marbled', p)
         p, fl = V.build_prompt('диван', None, 'beige')                                        # нет материала — честно без него, флаг
         self.assertEqual((p, fl), ('a beige sofa', ['unknown_material']))
         p, fl = V.build_prompt('абажур', 'velour', None)                                      # нет роли и цвета — «piece of furniture», флаги
-        self.assertTrue(p.startswith('a piece of furniture, crushed velvet'))
+        self.assertTrue(p.startswith('a piece of furniture, fine short-pile velour'))
         self.assertEqual(fl, ['unknown_role_noun', 'unknown_colour'])
         self.assertEqual(V.build_prompt('кресло', 'wood_solid', 'oak')[0][:9], 'an oak ar')   # артикль
         self.assertEqual(V.colour_from_texts(['Комод divan.ru Модерн 93x88 Графитовый']), 'graphite')
@@ -431,16 +525,19 @@ class RunpodDriverStops(unittest.TestCase):
             self.assertEqual(txt(az), '')
         self.assertEqual(txt(90), 'the plain left side of the same chest of drawers')
         self.assertEqual(txt(-90), 'the plain right side of the same chest of drawers')
-        self.assertEqual(txt(135), 'the plain back of the same chest of drawers')
-        self.assertEqual(txt(180), 'the plain back of the same chest of drawers')
-        self.assertEqual(txt(-135), 'the plain back of the same chest of drawers')
+        back = 'the back of the same chest of drawers, one uninterrupted flat construction back panel in the carcass finish, simple fastening seams'
+        for az in (135, 180, -135):
+            self.assertEqual(txt(az), back)
+            self.assertNotRegex(txt(az).casefold(), r'door|handle|drawer front')         # слова «двери/ручки» подсказывают мотив даже в отрицании
+        self.assertEqual(txt(180, 'диван'), 'the plain back of the same sofa')              # другой класс — прежняя короткая подпись
         self.assertEqual(txt(90, 'неизвестная роль'), 'the plain left side of the same piece of furniture')
 
     def test_t5b_back_suffix_only_on_back(self):
         import sg_views as V
         self.assertEqual(S.VARIANTS['q2509t5b']['back_suffix'], ', same colour and material as its side panels')
         r = math.radians(180)
-        self.assertTrue(V.short_side_text('комод', (math.sin(r), -math.cos(r), 0.3), (0, -1, 0), ', X')[0].endswith('chest of drawers, X'))
+        self.assertTrue(V.short_side_text('диван', (math.sin(r), -math.cos(r), 0.3), (0, -1, 0), ', X')[0].endswith('sofa, X'))
+        self.assertTrue(V.short_side_text('комод', (math.sin(r), -math.cos(r), 0.3), (0, -1, 0), ', X')[0].endswith('seams, X'))
         r = math.radians(90)
         self.assertEqual(V.short_side_text('комод', (math.sin(r), -math.cos(r), 0.3), (0, -1, 0), ', X')[0], 'the plain left side of the same chest of drawers')
 

@@ -31,8 +31,9 @@ MODELS = {
 
 
 class State:
-    def __init__(self, log_dir, fail_after):
+    def __init__(self, log_dir, fail_after, magenta_calls=(), steady_hue=False):
         self.log_dir, self.fail_after = log_dir, fail_after
+        self.magenta_calls, self.steady_hue = set(magenta_calls), steady_hue      # T-154/1: какие по счёту задания «рисуют» малиновое (как протёкшая заливка); steady_hue — один оттенок на все (иначе сторож цвета видит дрейф)
         self.inputs = {}                # имя файла → байты загруженной картинки
         self.sockets = {}               # clientId → websocket
         self.history = {}
@@ -41,13 +42,13 @@ class State:
         os.makedirs(log_dir, exist_ok=True)
 
 
-def tint_image(png: bytes, k: int, size=None) -> bytes:
+def tint_image(png: bytes, k: int, size=None, hue=None, sat=0.55) -> bytes:
     im = Image.open(io.BytesIO(png)).convert('RGB')
     if size:
         im = im.resize(size, Image.LANCZOS)
     a = np.asarray(im, dtype=np.float32) / 255.0
     lum = a.mean(axis=2, keepdims=True)
-    r, g, b = colorsys.hsv_to_rgb((0.07 + 0.12 * (k % 5)) % 1.0, 0.55, 0.85)
+    r, g, b = colorsys.hsv_to_rgb((0.07 + 0.12 * (k % 5)) % 1.0 if hue is None else hue, sat, 0.85)
     col = np.array([r, g, b], dtype=np.float32)[None, None, :]
     out = np.clip(col * (0.45 + 0.8 * lum), 0, 1)
     out = np.where(lum < 0.02, 0.5, out)                     # фон — серый, как просит аддон («solid gray»)
@@ -113,7 +114,8 @@ async def run_prompt(st, client_id, pid, prompt):
         if ws:
             await ws.send_json({'type': 'execution_error', 'data': {'prompt_id': pid, 'node_id': save or '?', 'exception_message': 'fake: заданный отказ'}})
         return
-    png = tint_image(srcs[0], k, find_size(prompt)) if srcs else tint_image(_blank(), k)
+    hue, sat = (0.83, 0.9) if k in st.magenta_calls else ((0.07, 0.55) if st.steady_hue else (None, 0.55))
+    png = tint_image(srcs[0], k, find_size(prompt), hue, sat) if srcs else tint_image(_blank(), k, None, hue, sat)
     if ws:
         await ws.send_json({'type': 'execution_start', 'data': {'prompt_id': pid}})
         for nid in list(prompt)[:3]:
@@ -168,10 +170,12 @@ def main():
     ap.add_argument('--port', type=int, default=8189)
     ap.add_argument('--log-dir', required=True)
     ap.add_argument('--ttl-min', type=float, default=30.0, help='автостоп: сам завершается через N минут (20.11: забытые fake занимали порт моста пода и принимали живые запросы); 0 — без автостопа')
+    ap.add_argument('--magenta-calls', default='', help='T-154/1: номера заданий (с 0), которые «рисуют» малиновое — проверка сторожа видов: «3,5,6,7»')
+    ap.add_argument('--steady-hue', action='store_true', help='один оттенок на все задания (иначе цвет дрейфует по счётчику)')
     ap.add_argument('--fail-after', type=int, default=None, help='после N принятых заданий отвечать ошибкой выполнения')
     a = ap.parse_args()
     app = web.Application(client_max_size=512 * 2 ** 20)
-    app['st'] = State(a.log_dir, a.fail_after)
+    app['st'] = State(a.log_dir, a.fail_after, [int(x) for x in a.magenta_calls.split(',') if x.strip()], a.steady_hue)
     app.add_routes([web.route('*', '/queue', h_queue), web.get('/models/{folder}', h_models), web.get('/object_info/{cls}', h_objinfo),
                     web.post('/upload/image', h_upload), web.get('/ws', h_ws), web.post('/prompt', h_prompt), web.get('/history/{pid}', h_history),
                     web.get('/view', h_view), web.route('*', '/{tail:.*}', h_any)])

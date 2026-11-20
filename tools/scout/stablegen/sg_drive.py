@@ -19,6 +19,7 @@ import importlib
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import sg_guard  # noqa: E402
 import sg_transient  # noqa: E402
 import sg_views  # noqa: E402
 
@@ -118,46 +119,166 @@ def pick_seed_camera(sc, cams, photo_path, tmp_dir, prior_dir=(0.0, -1.0, 0.0), 
     return seed, scores, sure
 
 
-def install_back_hook(info):
+SEED_STEP = 7919                                            # сдвиг seed повтора вида (простое число: не пересекается с seed соседних видов)
+HOOK_PROPS = ('qwen_external_style_initial_only', 'qwen_external_style_image', 'sequential_ipadapter', 'seed', 'comfyui_prompt', 'qwen_context_render_mode')
+
+
+def _sample_path(index):
+    import glob
+    fs = glob.glob(os.path.join(OUT, 'sg-output', '**', 'generated', f'generated_image{index}-0-0001.png'), recursive=True)
+    return fs[0] if fs else None
+
+
+def install_back_hook(info, gi=None):
     """T-90/10: перехват генерации кадра Qwen: виду «строго сзади» — без фото магазина (no_photo) или с образцом = готовый вид бока (side_sample).
+    T-154/1: `side_sample_sign` — образец бока по ЗНАКУ угла каждого заднего вида (+135° → +90°, −135° → −90°, 180° → лучший из двух; полное фото фасада задним видам не даём),
+    и сторож каждого вида (`gi` — данные сторожа): малиновое / цвет → 1 повтор (другой seed + образец бока) → запасной проход без контекста → иначе вид отклонён и очищен от малинового.
     Правило по углу от зерна (см. sg_views.back_cameras); флаги сцены на время вызова и возвращаются."""
     wf = sg('workflows')
     cls = wf.WorkflowManager
     orig = cls.generate_qwen_edit
     if getattr(orig, '_back_hook', False):
         return
+    G = gi['rules'] if gi else None
+
+    def one_try(self, context, camera_id, plan):
+        sc = context.scene
+        saved = {k: getattr(sc, k) for k in HOOK_PROPS}
+        try:
+            if plan.get('seed_shift'):
+                sc.seed = int(sc.seed) + int(plan['seed_shift'])
+            if plan.get('prompt') is not None:
+                sc.comfyui_prompt = plan['prompt']
+            if plan.get('context_none'):
+                sc.qwen_context_render_mode = 'NONE'
+            if plan.get('sample_path'):
+                sc.qwen_external_style_image = plan['sample_path']
+                sc.qwen_external_style_initial_only = False
+            elif plan.get('no_photo'):
+                sc.qwen_external_style_initial_only = True
+            return orig(self, context, camera_id=camera_id)
+        finally:
+            for k, v in saved.items():
+                setattr(sc, k, v)
+
+    def base_plan(idx, name, accepted):
+        """План обычной (первой) попытки вида — как раньше + образец бока по знаку угла."""
+        plan = {}
+        if idx == 0:
+            if info.get('photo_prompt'):                       # T-90/11: ПЕРВЫЙ вид (зерно, с фото) — подпись без цвета (фото ведёт; цвет каталога «серит» узор)
+                plan['prompt'] = info['photo_prompt']
+            return plan
+        if name not in info.get('cameras', ()):
+            return plan
+        mode = info.get('mode')
+        if mode == 'no_photo':
+            plan['no_photo'] = True
+            say(f'вид {name}: фото магазина НЕ даём (только подпись и готовый контекст)')
+        elif mode == 'side_sample' and info.get('sample_index') is not None:
+            p = _sample_path(info['sample_index'])
+            if not p:
+                raise RuntimeError(f"образец бока {info['sample']} не найден — зад не генерируем")
+            plan['sample_path'] = p
+            say(f"вид {name}: вместо фото магазина — готовый вид бока {info['sample']} ({p})")
+        elif mode == 'side_sample_sign':
+            smp = sg_views.side_sample_for(gi['angles'][name], gi['angles'], gi['order'], set(accepted))
+            if smp:
+                plan['sample_path'] = _sample_path(gi['order'].index(smp))
+            if plan.get('sample_path'):
+                plan['sample_name'] = smp
+                say(f"вид {name}: образец материала — готовый вид бока {smp} (знак угла {gi['angles'][name]:+.0f}°), фото фасада не даём")
+            else:
+                plan['no_photo'] = True
+                say(f'вид {name}: подходящего принятого бока нет — без образца (только подпись и контекст)')
+        return plan
+
+    def next_plan(attempt, plans, ok_m, ok_c, idx, name):
+        """План следующей попытки после провала `attempt` (None — попыток больше нет). Повтор: другой seed + образец бока (заднему виду; и любому при малиновом) + у вида-зерна, ушедшего от цвета каталога, подпись С цветом;
+        запасной проход (данные none_fallback): тот же повтор, но без контекста-с-заливкой — малиновому в нём неоткуда взяться."""
+        if attempt == 0 and int(G['retries']) >= 1:
+            retry = dict(plans[0], seed_shift=SEED_STEP)
+            if name in info.get('cameras', ()) or not ok_m:
+                smp = sg_views.side_sample_for(gi['angles'][name], gi['angles'], gi['order'], set(gi['state']['accepted']))
+                p = _sample_path(gi['order'].index(smp)) if smp else None
+                if p:
+                    retry.update(sample_path=p, sample_name=smp)
+                    retry.pop('no_photo', None)
+            if not ok_c and idx == 0 and info.get('photo_prompt'):
+                retry['prompt'] = gi['full_prompt']
+            return retry
+        if attempt >= 1 and not ok_m and G.get('none_fallback') and not any(p.get('context_none') for p in plans):
+            return dict(plans[-1], seed_shift=2 * SEED_STEP, context_none=True)
+        return None
 
     def hooked(self, context, camera_id=None):
         op = self.operator
-        sc = context.scene
-        name = op._cameras[op._current_image].name
-        if name not in info['cameras'] or op._current_image == 0:
-            if info.get('photo_prompt') and op._current_image == 0:    # T-90/11: ПЕРВЫЙ вид (зерно, с фото) — подпись без цвета (фото ведёт; цвет каталога «серит» узор). Боковые виды цвет в подписи ОСТАВЛЯЮТ: без него бока уезжают в дуб/бежевый (T5i, комод)
-                saved_p = sc.comfyui_prompt
-                try:
-                    sc.comfyui_prompt = info['photo_prompt']
-                    return orig(self, context, camera_id=camera_id)
-                finally:
-                    sc.comfyui_prompt = saved_p
-            return orig(self, context, camera_id=camera_id)
-        saved = (sc.qwen_external_style_initial_only, sc.qwen_external_style_image, sc.sequential_ipadapter)
-        try:
-            if info['mode'] == 'no_photo':
-                sc.qwen_external_style_initial_only = True
-                say(f'вид {name}: фото магазина НЕ даём (только подпись и готовый контекст)')
-            elif info['mode'] == 'side_sample' and info.get('sample_index') is not None:
-                import glob
-                fs = glob.glob(os.path.join(OUT, 'sg-output', '**', 'generated', f"generated_image{info['sample_index']}-0-0001.png"), recursive=True)
-                if fs:
-                    sc.qwen_external_style_image = fs[0]
-                    say(f"вид {name}: вместо фото магазина — готовый вид бока {info['sample']} ({fs[0]})")
-                else:
-                    raise RuntimeError(f"образец бока {info['sample']} не найден — зад не генерируем")
-            return orig(self, context, camera_id=camera_id)
-        finally:
-            sc.qwen_external_style_initial_only, sc.qwen_external_style_image, sc.sequential_ipadapter = saved
+        idx = op._current_image
+        name = op._cameras[idx].name
+        if gi is None:                                          # прежнее поведение (T-90/10, T-90/11) — без сторожа
+            return one_try(self, context, camera_id, base_plan(idx, name, ()))
+        st = gi['state']
+        rec = st['views'].setdefault(name, {'idx': idx, 'attempts': []})
+        plans = [base_plan(idx, name, st['accepted'])]
+        attempt = 0
+        while True:
+            res = one_try(self, context, camera_id, plans[attempt])
+            if not isinstance(res, (bytes, bytearray)):         # {"error": "conn_failed"} и т.п. — не наше дело: аддон сам остановит прогон
+                return res
+            rgb = sg_guard.decode(bytes(res))
+            sts = sg_guard.view_stats(rgb, G)
+            ok_m, why_m = sg_guard.judge_magenta(sts, G, baseline=st['baseline'], exempt=gi['exempt'])
+            nb = gi_neighbour(name, st, gi, G)
+            ok_c, why_c, info_c = sg_guard.judge_colour(sts, G, neighbour_lab=nb if idx > 0 else None, catalog=gi['catalog_lab'] if idx == 0 else None)
+            ok = ok_m and ok_c
+            rec['attempts'].append({'try': attempt, 'plan': {k: v for k, v in plans[attempt].items() if k in ('seed_shift', 'context_none', 'no_photo', 'sample_name')}, 'mag_frac': sts['mag_frac'], 'comp_frac': sts['comp_frac'], **info_c, 'ok': ok, 'why': why_m or why_c})
+            say(f"сторож вида {name} (попытка {attempt}): малиновое {sts['mag_frac'] * 100:.1f} %, кусок {sts['comp_frac'] * 100:.2f} %, {info_c or 'цвет не сверялся'} → {'годен' if ok else 'НЕ годен: ' + (why_m or why_c)}")
+            if ok:
+                break
+            os.makedirs(os.path.join(OUT, 'guard'), exist_ok=True)         # неудачные попытки — для разбора (чистятся в sg_queue.slim_run, если вид не отклонён)
+            with open(os.path.join(OUT, 'guard', f'{name}-try{attempt}.png'), 'wb') as fh:
+                fh.write(bytes(res))
+            nxt = next_plan(attempt, plans, ok_m, ok_c, idx, name)
+            if nxt is None:
+                break
+            plans.append(nxt)
+            attempt += 1
+            say(f"вид {name}: повтор {attempt} ({ {k: v for k, v in nxt.items() if k != 'sample_path'} })")
+        if attempt:
+            st['views_retried'].append(name)
+        if ok:
+            rec['result'] = 'accepted' if attempt == 0 else 'accepted_after_retry'
+        elif not ok_m:                                          # малиновое осталось после всех попыток — вид отклонён: заливку заменяем цветом соседа, чтобы она не попала в проекцию и контекст
+            rec['result'] = 'rejected'
+            st['views_rejected'].append(name)
+            fill = nb if nb is not None else next((a['lab'] for a in st['accepted'].values() if a.get('lab')), None)
+            if fill is not None:
+                res = sg_guard.encode_png(sg_guard.repair_magenta(rgb, G, fill))
+                rec['repaired_with_neighbour_colour'] = True
+            say(f"!! вид {name} ОТКЛОНЁН (малиновое не ушло за {attempt + 1} попыток) — " + ('малиновые пиксели заменены цветом соседа' if fill is not None else 'соседей для замены нет'))
+        else:                                                   # только цвет не сошёлся: малинового нет, вид не «заражает» — принимаем, но помечаем
+            rec['result'] = 'colour_unresolved'
+            st['colour_unresolved'].append(name)
+        if rec['result'] != 'rejected':
+            st['accepted'][name] = {'lab': sts['lab'], 'mag': sts['mag_frac']}
+            if idx == 0:
+                st['baseline'] = sts['mag_frac']
+                st['catalog_dE'] = (rec['attempts'][-1].get('dE_catalog'))
+        return res
     hooked._back_hook = True
     cls.generate_qwen_edit = hooked
+
+
+def gi_neighbour(name, st, gi, G):
+    """Медианный Lab ближайшего (по углу) ПРИНЯТОГО вида в пределах `overlap_max_angle` — для сверки цвета в перекрытии; нет — None."""
+    best, key = None, None
+    for n, a in st['accepted'].items():
+        if a.get('lab') is None or n == name:
+            continue
+        d = abs(gi['angles'][n] - gi['angles'][name])
+        d = min(d, 360.0 - d)
+        if d <= G['colour']['overlap_max_angle'] and (key is None or d < key):
+            best, key = a['lab'], d
+    return best
 
 
 def apply_view_prompts(sc, bb, front, cat_role, seed_name):
@@ -316,7 +437,7 @@ def steps():
         back_ = sg_views.back_cameras(dirs_, front, CFG.get('back_limit', sg_views.BACK_LIMIT_DEG)) if CFG.get('back_mode') else []
         if back_:
             ST['back'] = {'mode': CFG['back_mode'], 'cameras': back_}
-            if CFG.get('photo_no_colour') and CFG['back_mode'] == 'no_photo':    # T-90/11: первый вид (с фото) — подпись без цвета, цвет каталога — всем остальным
+            if CFG.get('photo_no_colour') and CFG['back_mode'] in ('no_photo', 'side_sample_sign'):    # T-90/11: первый вид (с фото) — подпись без цвета, цвет каталога — всем остальным
                 ST['back']['photo_prompt'] = sg_views.strip_colour(CFG['prompt'])
                 say(f"подпись ПЕРВОГО вида (с фото, без цвета): {ST['back']['photo_prompt']}")
             if CFG['back_mode'] == 'drop':                    # T5d: камеры строго сзади нет вовсе — зад красится из ±135
@@ -332,8 +453,17 @@ def steps():
                     smp_ = sg_views.side_sample_camera(dirs_, front, order)
                     ST['back']['sample'] = smp_
                     ST['back']['sample_index'] = order.index(smp_) if smp_ else None
-                install_back_hook(ST['back'])
                 say(f'виду сзади {back_}: режим {CFG["back_mode"]}, образец {ST["back"].get("sample")}')
+        gi = None
+        if CFG.get('guard'):                                 # T-154/1: сторож каждого вида до проекции и до использования как контекст (rules/stablegen-view-guard.json)
+            g_rules = sg_guard.load_rules()
+            word = CFG.get('colour')
+            ST['guard'] = {'views': {}, 'accepted': {}, 'baseline': 0.0, 'views_retried': [], 'views_rejected': [], 'colour_unresolved': [], 'catalog_dE': None, 'review': '', 'colour_word': word}
+            gi = {'rules': g_rules, 'angles': {c.name: sg_views.azimuth_deg((c.location.x - ctr.x, c.location.y - ctr.y, 0.0), front) for c in cams_all}, 'order': order,
+                  'full_prompt': CFG['prompt'], 'exempt': sg_guard.is_pink_colour(word, g_rules), 'catalog_lab': sg_guard.catalog_lab(word, g_rules), 'state': ST['guard']}
+            say(f"сторож видов включён: цвет каталога {word!r}, розовый/фиолетовый цвет каталога (исключение) {gi['exempt']}, сверка с каталогом {'есть' if gi['catalog_lab'] is not None else 'нет (слова нет в справочнике)'}")
+        if back_ or gi:
+            install_back_hook(ST.get('back') or {'cameras': [], 'mode': None}, gi)
         off = CFG.get('vp_off') or []                        # диагностика: что из ⑪ отключить
         scn.sg_camera_order.clear()
         if 'order' not in off:
@@ -392,6 +522,18 @@ def steps():
     if len(gen) < len(cams):
         raise RuntimeError(f'генерация не дала картинок видов: {len(gen)} из {len(cams)} (сервер не ответил? смотри журнал моста)')
     say('генерация завершена')
+    gst = ST.get('guard')
+    if gst:                                                  # итоговый сторож модели (T-154/1): основной цвет далёк от цвета каталога — модель автоматически не принимается
+        labs = [a['lab'] for a in gst['accepted'].values() if a.get('lab')]
+        word_lab = sg_guard.catalog_lab(gst.get('colour_word'), sg_guard.load_rules())
+        if labs and word_lab is not None:
+            gst['model_dE_catalog'] = round(sg_guard.delta_e(np.median(np.array(labs), axis=0), word_lab, sg_guard.load_rules()), 1)
+            if gst['model_dE_catalog'] > sg_guard.load_rules()['colour']['catalog_max']:
+                gst['review'] = f"основной цвет модели далёк от цвета каталога {gst.get('colour_word')!r}: ΔE {gst['model_dE_catalog']}"
+        if len(gst['views_rejected']) * 2 >= len(cams):
+            gst['review'] = (gst['review'] + '; ' if gst['review'] else '') + f"отклонено видов {len(gst['views_rejected'])} из {len(cams)}"
+        say(f"сторож видов — итог: повторено {gst['views_retried']}, отклонено {gst['views_rejected']}, цвет не сошёлся {gst['colour_unresolved']}, ΔE каталога {gst.get('model_dE_catalog')}, проверка модели: {gst['review'] or 'принимается'}")
+        save_status()
     if CFG.get('stop_after') == 'generate':
         return
 

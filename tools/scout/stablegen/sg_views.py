@@ -8,7 +8,9 @@
   • «перёд» — направление камеры-зерна (камеры, ближайшей к фото по силуэту), а не допущение «−Y» (Codex: −Y — соглашение рендера стенда, не контракт формы);
   • фото товара — только первому виду (qwen_external_style_initial_only): тексты следующих видов продолжают материал уже покрашенных соседних участков, не ссылаются на «style reference»;
   • верх: кольцо камер приподнято (≈26°), верх виден на обычных боковых видах — формулировка про верх входит в тексты классов; «top view» — лишь при угле места > 60°."""
+import json
 import math
+import os
 import re
 import unicodedata
 
@@ -167,6 +169,9 @@ def short_side_text(cat_role, cam_dir, front, back_suffix=''):
         return '', meta
     if a <= 120.0:
         return f"the plain {'left' if ang > 0 else 'right'} side of the same {noun}", meta
+    back_phrase = BACK_BY_CLASS.get(role_class(cat_role)[0])        # T-154/1: зад корпусной мебели — позитивно «одна сплошная задняя панель», без слов «двери/ручки» даже в отрицании
+    if back_phrase:
+        return f'the back of the same {noun}, {back_phrase}{back_suffix}', meta
     return f'the plain back of the same {noun}{back_suffix}', meta
 
 
@@ -194,20 +199,30 @@ ROLE_NOUN_BY_WORDS = {_words(k): v for k, v in ROLE_NOUN.items()}
 def role_noun(cat_role):
     """Английское существительное роли; порядок слов не важен; нет в словаре → None (вызывающий ставит «piece of furniture»)."""
     return ROLE_NOUN.get(norm_role(cat_role)) or ROLE_NOUN_BY_WORDS.get(_words(cat_role))
-MATERIAL_PHRASE = {
-    'velour': 'crushed velvet upholstery, soft marbled mottled pile, matte',
-    'velvet': 'ribbed corduroy upholstery with fine parallel cords, matte',
-    'rogozhka': 'coarse woven slubby linen-like upholstery, matte',
-    'chenille': 'soft chenille upholstery with a fine dense pile, matte',
-    'boucle': 'looped bouclé upholstery with a curly nubby texture, matte',
-    'leather': 'smooth leather upholstery with a fine grain and a soft sheen',
-    'wood_solid': 'solid wood with a visible natural grain',
-    'wood_veneer': 'wood veneer with a fine straight grain',
-    'ldsp': 'matte laminated chipboard finish with a fine uniform surface',
-    'mdf_film': 'smooth matte painted finish',
-    'metal': 'brushed metal',
-    'glass': 'clear glass',
+_CAPTIONS_PATH = os.environ.get('SG_CAPTIONS_RULES') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'rules', 'stablegen-captions.json')
+_CAPTIONS_FALLBACK = {                       # запасные значения, если файла данных нет (как был встроенный словарь); рабочие тексты — в rules/stablegen-captions.json
+    'material_phrase': {'velour': 'fine short-pile velour upholstery with uniform low-contrast nap, matte', 'velvet': 'ribbed corduroy upholstery with fine parallel cords, matte',
+                        'rogozhka': 'coarse woven slubby linen-like upholstery, matte', 'chenille': 'soft chenille upholstery with a fine dense pile, matte',
+                        'boucle': 'looped bouclé upholstery with a curly nubby texture, matte', 'leather': 'smooth leather upholstery with a fine grain and a soft sheen',
+                        'wood_solid': 'solid wood with a visible natural grain', 'wood_veneer': 'wood veneer with a fine straight grain',
+                        'ldsp': 'matte laminated chipboard finish with a fine uniform surface', 'mdf_film': 'smooth matte painted finish', 'metal': 'brushed metal', 'glass': 'clear glass'},
+    'back_by_class': {'casework': 'one uninterrupted flat construction back panel in the carcass finish, simple fastening seams'},
 }
+
+
+def load_captions(path=None):
+    """Подписи — данные (T-154/1): фразы материала и зада по классу. Нет файла — запасные значения."""
+    try:
+        with open(path or _CAPTIONS_PATH, encoding='utf-8') as fh:
+            d = json.load(fh)
+    except OSError:
+        return _CAPTIONS_FALLBACK
+    return {k: d.get(k) or _CAPTIONS_FALLBACK[k] for k in _CAPTIONS_FALLBACK}
+
+
+CAPTIONS = load_captions()
+MATERIAL_PHRASE = CAPTIONS['material_phrase']
+BACK_BY_CLASS = CAPTIONS['back_by_class']
 # русские названия и частые слова → id класса (точное совпадение после нормализации; нечёткого поиска нет)
 MATERIAL_WORDS = {norm_role(w): c for c, ws in {
     'velour': ['велюр', 'велюра'], 'velvet': ['вельвет'], 'rogozhka': ['рогожка'], 'chenille': ['шенилл'], 'boucle': ['букле'],
@@ -354,6 +369,23 @@ def side_sample_camera(dirs, front, order):
             k = (round(abs(a - 90.0), 1), i)
             if key is None or k < key:
                 best, key = n, k
+    return best
+
+
+def side_sample_for(ang, angles, order, usable):
+    """T-154/1 (Codex): образец материала заднему виду — готовый вид бока ТОГО ЖЕ знака угла (+135° → +90°, −135° → −90°); строго сзади (|угол| > 165°) — любой из двух ближайший к 90°.
+    angles {камера: знаковый азимут}, order — порядок обхода, usable — множество камер, чьи виды ПРИНЯТЫ (отклонённые образцом не служат). Нет подходящего — None."""
+    best, key = None, None
+    for i, n in enumerate(order):
+        if n not in usable or n not in angles:
+            continue
+        a = angles[n]
+        if not (60.0 <= abs(a) <= 120.0):
+            continue
+        mismatch = 0 if (abs(ang) > 165.0 or a * ang > 0) else 1
+        k = (mismatch, round(abs(abs(a) - 90.0), 1), i)
+        if key is None or k < key:
+            best, key = n, k
     return best
 
 
