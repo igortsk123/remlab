@@ -573,3 +573,9 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 768 — вырезка: мерить остаточную грязь, добавка тела только при резкой границе → `lessons/mesh-salad-pool.md`
 - 769 — tmux send-keys в занятую сессию: Enter отдельно и проверка → `lessons/dev-ops.md`
 - 770 — router встал при 6 сессиях: поднимать по одному, обрыв — владельцу сразу → `lessons/dev-ops.md`
+- 771 — место на диске считать по inode: жёсткие ссылки → `lessons/dev-ops.md`
+- 772 — новый --selftest в общем job: зависимости job явно → `lessons/devops-deploy.md`
+- 773 — малиновое покраски = служебная заливка StableGen, искать в исходнике → `lessons/mesh-salad-pool.md`
+- 774 — рабочий не усекает общий блокнот → `lessons/memory-process.md`
+- 775 — план конвейера: Codex сверяет с реальными точками входа → `lessons/memory-process.md`
+- 776 — живая проверка доски владельца без своих отметок → `lessons/dev-ops.md`
