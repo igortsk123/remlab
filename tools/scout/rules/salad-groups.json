@@ -180,6 +180,12 @@
       "queue": "mesh-q-greytop",
       "_why": "ТОЛЬКО ПРОБА T-20261118-04/13 (П1.85): сторож пустых видов покраски (tools/scout/salad/view_guard.py) на 5 серых мешах с болванкой shape.glb. Образ paint-guard-b8694f71 (digest в ~/remlab-logs/t0413-1118/image-digest.txt) поверх боевого digest, env PIPELINE_VERSION=greytop — комплекты в meshes/hunyuan21/greytop, реестр их не видит. Новая группа: образ у существующей не меняется (PATCH — 200 без эффекта). Создана queue_setup.py --donor mesh-q-low-1 --gpu-exact, 1 реплика, остановленной; в SALAD_GROUP её нет. Потолок 8 ₽ (владелец одобрил до $0,30). После опыта — остановлена."
     },
+    "mesh-q-mask-canary": {
+      "tier": "low",
+      "price_class": "RTX 4060 Ti (16 GB)",
+      "queue": "mesh-q-mask",
+      "_why": "ТОЛЬКО ПЕРЕВЫРЕЗКА ТОВАРОВ /demo (T-20261119-104, владелец TG 2098/2102): режим MASK_ONLY — нода считает лишь маску BiRefNet (Hunyuan не грузится), цепочку вырезки гоняет `cutout_redo.py` у нас. Образ mask-102fcd64 (digest ...cdf9b6ba5, слой кода поверх боевого bb42eb56 — `salad/image_append.py`). 1 реплика, создана остановленной; в SALAD_GROUP её нет. Потолок $3, гасит `cutout_redo.py` сам (проверка stopped)."
+    },
     "mesh-q-greytop2-canary": {
       "tier": "low",
       "price_class": "RTX 4060 Ti (16 GB)",
