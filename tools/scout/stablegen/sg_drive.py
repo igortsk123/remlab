@@ -395,7 +395,18 @@ def steps():
         sc.lora_units.clear()
         say('LoRA-юниты убраны (без Lightning)')
     if CFG.get('model_unet'):
-        sc.model_name = CFG['model_unet']
+        t_mu = time.time()                                # список моделей приходит фоном и бывает пуст (NONE_FOUND) сразу после «нода готова» (T-154/1, группа gb 20.11) — ждём и переспрашиваем до 120 с
+        while True:
+            try:
+                sc.model_name = CFG['model_unet']
+                break
+            except TypeError:
+                if time.time() - t_mu > 120:
+                    raise
+                bpy.ops.stablegen.refresh_checkpoint_list()
+                t_w = time.time()
+                while time.time() - t_w < 6:
+                    yield 'wait-model-list'
     if CFG.get('lora_name') and len(sc.lora_units):      # Qwen-Image-Edit-2511: пресет кладёт LoRA от 2509 — подменяем на свою Lightning-LoRA (`lightx2v/Qwen-Image-Edit-2511-Lightning`)
         sc.lora_units[0].model_name = CFG['lora_name']
         say(f'LoRA: {sc.lora_units[0].model_name}')
