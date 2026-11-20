@@ -160,6 +160,7 @@ def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) 
     os.makedirs(a.out, exist_ok=True)
     base = f'https://{pod}-{PORT}.proxy.runpod.net'
     relay, cur, running_at, ready_at, last_minute, last_say, fail_streak = None, None, None, None, 0.0, 0.0, 0
+    baking = []                                                # прогоны, у которых генерация на поде закончена и идёт локальное запекание: под уже свободен, следующий товар стартует (T-90/11, директор 20.11)
     relay_port = None
     pending = list(runs)
     try:
@@ -245,43 +246,56 @@ def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) 
                     cfg['require_worker'] = True               # Blender-драйвер сам проверит /info: без воркера пода (backend+карта) генерацию не начинает
                     cfg_path = os.path.join(odir, 'cfg.json')
                     json.dump(cfg, open(cfg_path, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-                    cmd = [os.path.join(SCOUT, '..', 'ops', 'heavy-slot.sh'), f't90-sg-{var}', '--prio', '2', '--cores', '3', '--min-gb', '3', '--timeout', str(a.job_timeout * 60), '--', os.path.join(HERE, 'sg_run.sh'), cfg_path]
+                    cmd = [os.path.join(SCOUT, '..', 'ops', 'heavy-slot.sh'), f't90-sg-{var}', '--prio', '2', '--cores', '4', '--min-gb', '3', '--timeout', str(a.job_timeout * 60), '--', os.path.join(HERE, 'sg_run.sh'), cfg_path]
                     proc = popen(cmd, env={**os.environ, 'SG_HOME': SG_HOME}, stdout=open(os.path.join(odir, 'run.log'), 'ab'), stderr=subprocess.STDOUT)
                     cur = {'key': key, 'variant': var, 'label': S.VARIANTS[var]['label'], 'dir': odir, 'proc': proc, 'started': t, 'last_say': t}
                     say('прогон', key, var, '→', odir)
-                elif cur is not None:
-                    rc = cur['proc'].poll()
-                    if rc is None and t - cur['last_say'] >= 600:
-                        cur['last_say'] = t
-                        stp = os.path.join(cur['dir'], 'blender', 'status.json')
-                        stage = json.load(open(stp, encoding='utf-8')).get('stage') if os.path.exists(stp) else 'старт Blender'
-                        say(S.progress_line(f'{cur["key"]} {cur["variant"]}: {stage}', cost, a.cap))
-                    if rc is None and t - cur['started'] > a.job_timeout * 60:
-                        cur['proc'].terminate()
-                        say(f'!! прогон не закончился за {a.job_timeout} мин — прерываю')
-                        rc = -1
-                    if rc is not None:
-                        glb = os.path.join(cur['dir'], 'blender', 'painted.glb')
-                        ic, ij = public_get(f'http://127.0.0.1:{relay_port}/info')           # ④ кто ответил: воркер пода, карта, версия — без этого кадры не считаются результатом
-                        answered = {'pod': pod, 'gpu': ij.get('gpu') if ic == 200 else None, 'backend': ij.get('backend') if ic == 200 else None, 'http': ic}
-                        json.dump(answered, open(os.path.join(cur['dir'], 'answered_by.json'), 'w', encoding='utf-8'), ensure_ascii=False)
-                        say('КТО ОТВЕТИЛ:', answered)
-                        ok = rc == 0 and os.path.exists(glb) and bool(answered['backend'] and answered['gpu'])
-                        summary['runs'].append({'key': cur['key'], 'variant': cur['variant'], 'label': cur['label'], 'dir': cur['dir'], 'rc': rc, 'ok': ok, 'answered_by': answered, 'seconds': round(t - cur['started'], 1), 'glb': glb if ok else None})
-                        fail_streak = 0 if ok else fail_streak + 1
-                        summary['failed'] += not ok
-                        say('прогон', cur['key'], cur['variant'], 'ГОТОВО' if ok else f'УПАЛ (rc={rc}, {cur["dir"]}/run.log)', f'{summary["runs"][-1]["seconds"]} с')
+                if cur is not None and not a.gate:                   # генерация на поде кончилась (дальше локальные «bake»/«export») — под свободен, следующий товар не ждёт запекания
+                    stp0 = os.path.join(cur['dir'], 'blender', 'status.json')
+                    if os.path.exists(stp0) and json.load(open(stp0, encoding='utf-8')).get('stage') in ('bake', 'export'):
+                        baking.append(cur)
+                        say('под свободен (идёт запекание', cur['key'], cur['variant'], 'локально) — следующий товар на под')
                         cur = None
-                        if fail_streak >= S.FAIL_STREAK:
-                            say(f'!! {S.FAIL_STREAK} прогона подряд упали — удаляю под')
-                            summary['stopped_by'] = 'failures'
-                            break
-                if cur is None and not pending:
+                stop_all = False
+                for it in ([cur] if cur is not None else []) + list(baking):
+                        rc = it['proc'].poll()
+                        if rc is None and t - it['last_say'] >= 600:
+                            it['last_say'] = t
+                            stp = os.path.join(it['dir'], 'blender', 'status.json')
+                            stage = json.load(open(stp, encoding='utf-8')).get('stage') if os.path.exists(stp) else 'старт Blender'
+                            say(S.progress_line(f'{it["key"]} {it["variant"]}: {stage}', cost, a.cap))
+                        if rc is None and t - it['started'] > a.job_timeout * 60:
+                            it['proc'].terminate()
+                            say(f'!! прогон не закончился за {a.job_timeout} мин — прерываю')
+                            rc = -1
+                        if rc is not None:
+                            glb = os.path.join(it['dir'], 'blender', 'painted.glb')
+                            ic, ij = public_get(f'http://127.0.0.1:{relay_port}/info')           # ④ кто ответил: воркер пода, карта, версия — без этого кадры не считаются результатом
+                            answered = {'pod': pod, 'gpu': ij.get('gpu') if ic == 200 else None, 'backend': ij.get('backend') if ic == 200 else None, 'http': ic}
+                            json.dump(answered, open(os.path.join(it['dir'], 'answered_by.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+                            say('КТО ОТВЕТИЛ:', answered)
+                            ok = rc == 0 and os.path.exists(glb) and bool(answered['backend'] and answered['gpu'])
+                            summary['runs'].append({'key': it['key'], 'variant': it['variant'], 'label': it['label'], 'dir': it['dir'], 'rc': rc, 'ok': ok, 'answered_by': answered, 'seconds': round(t - it['started'], 1), 'glb': glb if ok else None})
+                            fail_streak = 0 if ok else fail_streak + 1
+                            summary['failed'] += not ok
+                            say('прогон', it['key'], it['variant'], 'ГОТОВО' if ok else f'УПАЛ (rc={rc}, {it["dir"]}/run.log)', f'{summary["runs"][-1]["seconds"]} с')
+                            if it is cur:
+                                cur = None
+                            else:
+                                baking.remove(it)
+                            if fail_streak >= S.FAIL_STREAK:
+                                say(f'!! {S.FAIL_STREAK} прогона подряд упали — удаляю под')
+                                summary['stopped_by'] = 'failures'
+                                stop_all = True
+                                break
+                if stop_all:
+                    break
+                if cur is None and not pending and not baking:
                     summary['stopped_by'] = 'done'
                     break
             sleep(10)
     finally:
-        for p in ([relay] if relay else []) + ([cur['proc']] if cur else []):
+        for p in ([relay] if relay else []) + [x['proc'] for x in ([cur] if cur else []) + baking]:
             try:
                 p.terminate()
             except Exception:  # noqa: BLE001

@@ -437,6 +437,53 @@ class RunpodDriverStops(unittest.TestCase):
             self.assertEqual(summ['runs'][0]['ok'], expect_ok)
             self.assertEqual(bool(summ['runs'][0]['answered_by']['gpu']), expect_ok)
 
+    def test_next_product_starts_while_previous_is_baking(self):
+        """T-90/11: пока товар N запекается локально (stage=bake), под свободен — генерация товара N+1 стартует, а не ждёт."""
+        import json
+        import tempfile
+        from unittest import mock
+        import sg_runpod as R
+        clock = [1000.0]
+        api = self.FakeApi()
+        started, polls = [], {}
+
+        def pg(url, timeout=20):
+            return (200, {'backend': 'comfy-0.46.0+gguf', 'gpu': 'NVIDIA RTX A6000'}) if url.endswith('/info') else (200, {'warm': True, 'weights_gb': 1})
+
+        def popen(cmd, **kw):
+            m = mock.Mock()
+            if 'sg_relay.py' in ' '.join(map(str, cmd)):
+                m.poll.return_value = None
+                return m
+            cfg = json.load(open(cmd[-1], encoding='utf-8'))
+            os.makedirs(cfg['out'], exist_ok=True)
+            started.append((clock[0], cfg['out']))
+            open(os.path.join(cfg['out'], 'status.json'), 'w').write(json.dumps({'stage': 'bake'}))      # генерация на поде уже закончена
+            n = len(started)
+
+            def poll():                                              # запекание длится 300 с по часам теста
+                if clock[0] - started[n - 1][0] >= 300:
+                    open(os.path.join(cfg['out'], 'painted.glb'), 'wb').write(b'glb')
+                    return 0
+                return None
+            m.poll.side_effect = poll
+            return m
+        args = self._args(tempfile.mkdtemp())
+        args.runs = 'k1:q2509t5i,k2:q2509t5i'
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(S, 'hf_head', return_value=200), mock.patch.object(R, 'public_get', side_effect=pg), \
+                mock.patch.object(S, 'load_weights_catalog', return_value={}), mock.patch.object(S, 'weight_urls', return_value=[]), \
+                mock.patch.object(S, 'build_cfg', side_effect=lambda key, var, out, *r, **k: {'out': out}), mock.patch.object(S, 'parse_runs', return_value=[('k1', 'q2509t5i'), ('k2', 'q2509t5i')]), \
+                mock.patch.object(S, 'weights_for', return_value={}):
+            args.out = d
+
+            def sleep(n):
+                clock[0] += 20
+            R.run(args, api, sleep=sleep, clock=lambda: clock[0], popen=popen)
+            summ = json.load(open(os.path.join(d, 'summary-trial-sg-rp-t.json'), encoding='utf-8'))
+        self.assertEqual(len(started), 2)
+        self.assertLess(started[1][0] - started[0][0], 300)          # второй запущен, пока первый ещё запекался
+        self.assertEqual([r['ok'] for r in summ['runs']], [True, True])
+
     def test_container_not_started_is_deleted_after_container_min(self):
         import tempfile
         from unittest import mock
