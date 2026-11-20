@@ -194,10 +194,14 @@ def prune_attached(alpha, role=None, thr=0.5, bridge_px=4,
 # ближайшего пикселя товара (не белый фон, чтобы не рисовать светлую крапинку на тёмном краю).
 EDGE_GAP_PX = int(__import__('os').environ.get('CUTOUT_EDGE_GAP_PX', '2'))   # 0 — выключено
 EDGE_ZONE_PX = 4
+EDGE_GAP_ROLLBACK_GROWTH = 0.01   # добавка больше этой доли тела …
+EDGE_GAP_ROLLBACK_CORE = 0.20     # … и больше этой доли добавок в фоне у края → весь шаг откатывается
 
 
-def close_edge_gaps(alpha, rgb, thr=0.5, gap_px=None, zone_px=EDGE_ZONE_PX):
-    """Закрыть щели шириной ≤ `gap_px` у внешней кромки маски. Возвращает (alpha2, rgb2, info): info — `edge_gap_closed` (пикселей) и, если выключено, пометку."""
+def close_edge_gaps(alpha, rgb, thr=0.5, gap_px=None, zone_px=EDGE_ZONE_PX, rcore=None):
+    """Закрыть щели шириной ≤ `gap_px` у внешней кромки маски. Возвращает (alpha2, rgb2, info): info — `edge_gap_closed` (пикселей) и, если выключено, пометку.
+    `rcore` — фон, связанный с краем кадра (`studio_bg.regions`, только у фото с ровным белым фоном): добавки внутри него запрещены (крупа фона
+    у трубки торшера склеивалась в «бусины»), а шаг откатывается целиком, если добавка > 1 % тела И > 20 % добавок попало в rcore."""
     gap_px = EDGE_GAP_PX if gap_px is None else gap_px
     if gap_px <= 0:
         return alpha, rgb, {'edge_gap_closed': 0, 'edge_gap_off': True}
@@ -216,6 +220,11 @@ def close_edge_gaps(alpha, rgb, thr=0.5, gap_px=None, zone_px=EDGE_ZONE_PX):
     ext = np.isin(lab, border[border > 0])
     near_ext = ndimage.distance_transform_edt(~ext) <= zone_px
     add = gaps & near_ext
+    if rcore is not None and add.any():
+        n_prop, n_core = int(add.sum()), int((add & rcore).sum())
+        if n_prop > EDGE_GAP_ROLLBACK_GROWTH * b.sum() and n_core > EDGE_GAP_ROLLBACK_CORE * n_prop:
+            return alpha, rgb, {'edge_gap_closed': 0, 'edge_gap_rollback': f'добавка {n_prop} px (> 1 % тела), из них {n_core} в фоне у края ({n_core / n_prop:.0%}) — шаг откатан'}
+        add &= ~rcore
     n = int(add.sum())
     if not n:
         return alpha, rgb, {'edge_gap_closed': 0}

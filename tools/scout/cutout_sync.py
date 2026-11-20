@@ -53,6 +53,8 @@ sys.path.insert(0, HERE)
 
 import collage            # noqa: E402
 import components         # noqa: E402
+import studio_bg          # noqa: E402  («известный студийный фон», T-104/5)
+import soft_edge          # noqa: E402  (мягкий край по известному фону, T-104/5)
 import hybrid_mask        # noqa: E402
 import preprocess as PRE  # noqa: E402  (defringe/trim_alpha/mask_verdict — они без GPU)
 import photo_hash as PH   # noqa: E402  (единственный писатель хеша фото, план mesh-14)
@@ -190,18 +192,32 @@ BACKENDS = {'fal': mask_fal, 'local': mask_local, 'salad': mask_salad}
 
 # ------------------------------------------------------------------ цепочка и запись
 
-def chain(src: Image.Image, net: Image.Image, role: str | None = None) -> tuple[Image.Image, dict]:
-    """Наша цепочка — ровно та же, что в `salad/preprocess._cut_chain`, но с готовой маской.
-
-    `role` нужен точечным правкам: рост по связности — только коврам, заливка силуэта —
-    только вазам/кашпо/статуэткам. Остальные 95% товаров идут ровно как раньше.
-    """
+def chain_shape(src: Image.Image, net: Image.Image, role: str | None = None) -> tuple[Image.Image, dict]:
+    """Цепочка до обрезки: полнокадровая RGBA-вырезка + info. Отдельно от `chain`, чтобы замеры считали маску в координатах кадра."""
     try:
         refined, info = hybrid_mask.refine(src, net, role=role)
     except Exception as e:  # noqa: BLE001 — гибрид не должен ронять шаг; факт отказа виден
         refined, info = net, {'hybrid_error': f'{type(e).__name__}: {str(e)[:100]}'}
     a = np.asarray(refined)[..., 3].astype(np.float32) / 255.0
     cleaned, comp = components.clean(a)
+    # «Известный студийный фон» (T-20261119-104/5, Ч.1): строгий признак ровного белого фона по кольцу кадра; Rcore/Rsoft — заливка от рамки.
+    # Считаем ВСЕГДА (для замера «загрязнения» по шагам); правим вырезку только при включённом правиле. bg_mode: white_flat | net_only (+ причина).
+    src_rgb = np.asarray(src)
+    ms = {}
+    t0 = time.time()
+    bg, st = studio_bg.detect(src_rgb)
+    rcore = rsoft = None
+    act = studio_bg.enabled() and bg is not None
+    info['bg_mode'] = 'white_flat' if bg is not None else 'net_only'
+    info['studio'] = dict(st)
+    if bg is not None:
+        rcore, rsoft = studio_bg.regions(src_rgb, bg, st['t_core'], st['t_soft'])
+        info['studio']['pollution'] = {'raw': studio_bg.pollution(np.asarray(net)[..., 3].astype(np.float32) / 255.0, rcore),
+                                       'hybrid': studio_bg.pollution(a, rcore), 'clean': studio_bg.pollution(cleaned, rcore)}
+    if not studio_bg.enabled():
+        info['studio']['applied'] = False
+        info['studio']['skipped'] = 'выключено CUTOUT_STUDIO_BG=0'
+    ms['detect_regions'] = round(time.time() - t0, 3)
     # Дырки, внутри которых НЕ фон, — это потерянная основа товара (серый ковёр, узор которого
     # сеть удержала, а поле потеряла). Просветы проволоки и реек внутри показывают фон и
     # остаются нетронутыми — различаем по содержимому, а не по размеру (урок 307).
@@ -210,18 +226,54 @@ def chain(src: Image.Image, net: Image.Image, role: str | None = None) -> tuple[
     # дыры внутри тела корпусной мебели (светлые фасады «как фон», T-20261119-104/3): замкнутые телом возвращаются; стул/стеллаж/стол не трогаются
     cleaned, bh = components.fill_body_holes(cleaned, np.asarray(refined)[..., :3], role=role)
     comp.update(bh)
-    # щели 1–2 px у кромки (светлое на белом рвётся «пунктиром», T-20261119-104/2); внутренние дырки и пустоты от 3 px остаются
-    cleaned, rgb, gap = components.close_edge_gaps(cleaned, np.asarray(refined)[..., :3])
+    # щели 1–2 px у кромки (светлое на белом рвётся «пунктиром», T-20261119-104/2); внутренние дырки и пустоты от 3 px остаются.
+    # С известным фоном — только пикселями «не фон» (T-104/5: белая крупа вокруг трубки торшера склеивалась в «бусины»).
+    t0 = time.time()
+    cleaned, rgb, gap = components.close_edge_gaps(cleaned, np.asarray(refined)[..., :3], rcore=rcore if act else None)
     comp.update(gap)
+    ms['close_gaps'] = round(time.time() - t0, 3)
+    if rcore is not None:
+        info['studio']['pollution']['closing'] = studio_bg.pollution(cleaned, rcore)
+    # вычитатель — ПОСЛЕДНИЙ из растущих шагов: чистый фон у кромки, связанный с краем кадра, в полосе ≤ 2 px (T-104/5)
+    if act:
+        t0 = time.time()
+        cleaned, sub = studio_bg.subtract(cleaned, src_rgb, bg, rcore)
+        info['studio'].update(sub)
+        ms['subtract'] = round(time.time() - t0, 3)
+        info['studio']['pollution']['subtract'] = studio_bg.pollution(cleaned, rcore)
     info['components'] = comp
     refined = Image.fromarray(np.dstack([rgb, (np.clip(cleaned, 0, 1) * 255).astype(np.uint8)]), 'RGBA')
     is_col, why, feats = collage.is_collage(np.asarray(src).astype(np.float32), cleaned)
     info['collage'] = {'verdict': bool(is_col), 'why': why, 'features': feats}
     shape = PRE.defringe(refined, info)
+    # мягкий край по известному белому фону (аналитика, T-104/5): α = min(α, α_цвет) в полосе кромки, цвет — F; F ≈ B → α сети не трогаем
+    if act:
+        t0 = time.time()
+        sa = np.asarray(shape)
+        al, rg, soft = studio_bg.soft_alpha(sa[..., 3].astype(np.float32) / 255.0, sa[..., :3], bg, rsoft)
+        shape = Image.fromarray(np.dstack([rg, (np.clip(al, 0, 1) * 255).astype(np.uint8)]), 'RGBA')
+        info['studio'].update(soft)
+        ms['soft'] = round(time.time() - t0, 3)
+        if soft_edge.enabled():                       # опциональный A/B pymatting (по умолчанию выключен)
+            shape = soft_edge.apply(shape, src_rgb, bg, info)
+    if rcore is not None:
+        info['studio']['pollution']['final'] = studio_bg.pollution(np.asarray(shape)[..., 3].astype(np.float32) / 255.0, rcore)
+    info['studio']['applied'] = bool(act)
+    info['studio']['ms'] = ms
+    return shape, info
+
+
+def chain(src: Image.Image, net: Image.Image, role: str | None = None) -> tuple[Image.Image, dict]:
+    """Наша цепочка — ровно та же, что в `salad/preprocess._cut_chain`, но с готовой маской.
+
+    `role` нужен точечным правкам: рост по связности — только коврам, заливка силуэта —
+    только вазам/кашпо/статуэткам. Остальные 95% товаров идут ровно как раньше.
+    """
+    shape, info = chain_shape(src, net, role=role)
     cut = PRE.trim_alpha(shape)
     info.update(PRE.mask_verdict(cut))
-    if is_col:
-        info.update(verdict='bad', reason='фото-коллаж: ' + ', '.join(why[1:] or ['баннер']))
+    if info['collage']['verdict']:
+        info.update(verdict='bad', reason='фото-коллаж: ' + ', '.join(info['collage']['why'][1:] or ['баннер']))
     fw, fh = src.size
     cw, ch = cut.size
     info['photo'] = {'frame_wh': [fw, fh], 'object_wh': [cw, ch],
