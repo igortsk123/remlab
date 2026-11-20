@@ -586,6 +586,7 @@ class Composer:
         cfg = self.R['purposes'][purpose].get('decor', {})
         self.purpose = purpose
         picks, alts, gaps, lay_extra, slots, relaxed = {}, {}, [], {}, {}, []
+        win_of: dict = {}         # роль штор → окна, которые она закрывает (по окну — `per_window`)
         windows = [o for o in room.openings if o.kind == 'window']
         for role, dc in cfg.items():
             if role.startswith('_'):
@@ -607,6 +608,20 @@ class Composer:
                 slots[role] = {'ideal': dc.get('ideal', {}), 'band': band, 'tolerance': list(self.tol), 'qty': 1, 'mesh': False,
                                'fit': got['place']['fit'], **({'size_relaxed': True} if got['size_relaxed'] else {})}
                 continue
+            wset = windows
+            if dc.get('per_window') and windows:         # шторы ПО ОКНУ: рулонные своего стиля — окнам, куда годны по ширине (T-20261120-163)
+                pw = self.per_window(sl, dc, style, tier, windows, src, ctx)
+                if pw:
+                    rk_w, cov, wset = pw
+                    key2 = f'{role} 2' if wset else role         # на прежний путь остались окна — они «основные», рулонные — вторым местом
+                    picks[key2] = dict(rk_w[0], qty=len(cov))
+                    alts[key2] = [_alt(c) for c in rk_w if c['sid'] != rk_w[0]['sid']][:self.R['alternates']]
+                    slots[key2] = {'ideal': dc.get('ideal', {}), 'band': band, 'tolerance': list(self.tol), 'qty': len(cov), 'mesh': False,
+                                   'per_window': True}
+                    win_of[key2] = cov
+                    if not wset:
+                        continue
+                    win_of[role] = wset
             nb_from = None
 
             def nb_pool(need_mesh: bool = False) -> tuple:
@@ -622,7 +637,12 @@ class Composer:
                     palette(c3)
                     c3 = [c for c in c3 if CC.color_eval(c, role, style, ctx=ctx)['tier'] in ('preferred', 'allowed')
                           and (not need_mesh or c.get('mesh'))]
-                    if c3:
+                    if c3 and dc.get('neighbour_pool') == 'all':
+                        # ВСЕ соседи в один пул (T-20261120-163): выбор — по рангу (ярус цвета, тон роли стиля, балл), а не «первый сосед с
+                        # хоть чем-то»: тёмные шторы лофта у «современного» не теряются, когда у «джапанди» есть только светлые
+                        have = {(x['mid'], x['eid']) for x in found[0]}
+                        found = (found[0] + [dict(c, style_from=nb) for c in c3 if (c['mid'], c['eid']) not in have], found[1] or nb)
+                    elif c3:
                         found = ([dict(c, style_from=nb) for c in c3], nb)
                         break
                 self.shortage = keep
@@ -663,7 +683,7 @@ class Composer:
                 continue
             qty = 1
             if dc.get('qty_from') == 'windows':
-                qty = max(1, len(windows))
+                qty = max(1, len(wset))
             elif dc.get('qty_from'):
                 qty = (chosen.get(dc['qty_from']) or {}).get('qty', 0)
                 if not qty:
@@ -692,10 +712,34 @@ class Composer:
                     'h': picks['лампа']['h'], 'elev': p.item.h_cm, 'on': p.role, 'sid': picks['лампа']['sid']}
         if 'плед' in picks:
             lay_extra['плед'] = {'on': 'кровать', 'sid': picks['плед']['sid']}
-        if 'шторы' in picks:
-            lay_extra['шторы'] = {'windows': [{'wall': o.wall, 'offset_cm': o.offset_cm, 'width_cm': o.width_cm}
-                                              for o in windows], 'sid': picks['шторы']['sid']}
+        for role in [r for r in win_of if r not in picks and f'{r} 2' in picks]:   # основной путь не дал шторы — рулонные становятся основными
+            picks[role], slots[role] = picks.pop(f'{role} 2'), slots.pop(f'{role} 2')
+            alts[role], win_of[role] = alts.pop(f'{role} 2'), win_of.pop(f'{role} 2')
+        for role in [r for r in picks if r == 'шторы' or r.startswith('шторы ')]:
+            lay_extra[role] = {'windows': [{'wall': o.wall, 'offset_cm': o.offset_cm, 'width_cm': o.width_cm}
+                                           for o in win_of.get(role, windows)], 'sid': picks[role]['sid']}
         return picks, alts, gaps, lay_extra, slots, relaxed
+
+    def per_window(self, sl: dict, dc: dict, style: str, tier: str, windows: list, src: list, ctx: dict):
+        """ШТОРЫ ПО ОКНУ (T-20261120-163, владелец TG 69): товар, что продаётся на ОДНО окно (рулонная; регэксп `per_window` правила),
+        закрывает окно, только если не уже ЭТОГО окна, а не самого широкого в комнате (иначе рулонка 80 см на окно 2,4 м — канарейка 05.11).
+        Берём такие товары из пула СВОЕГО стиля (ворота стиля — `deny_by_style`; цена и ярус — как у слота) без ворот ширины: одна модель —
+        годная по ширине для самого широкого из окон, где вообще есть годная; остальные (шире любой рулонной) идут прежним путём — полотно
+        не уже окна своего стиля, нет — запас соседа. → (ранжированные рулонные, окна под ними, окна на прежний путь) | None (рулонных
+        в стиле нет / ни одна не годна ни одному окну — прежний путь для всех окон, байт в байт)."""
+        rx = re.compile(dc['per_window'], re.I)
+        loose, _, _ = self.pool(sl, style, tier, self.decor, _decor_filter(dict(dc, min_w=None), windows, self.R, src, style))
+        palette(loose)
+        rollers = [c for c in loose if rx.search(c.get('name') or '')]
+        wide = lambda c: num(c.get('w')) or 0       # noqa: E731
+        cov = [o for o in windows if any(wide(c) >= o.width_cm for c in rollers)]
+        if not cov:
+            return None
+        need = max(o.width_cm for o in cov)
+        rk = self.ranked([c for c in rollers if wide(c) >= need], style, ctx)
+        if not rk:
+            return None
+        return rk, cov, [o for o in windows if o not in cov]
 
     def rug_by_norm(self, sl: dict, dc: dict, style: str, tier: str, ctx: dict, lay, room, cands: list, flt) -> dict:
         """Ковёр по норме (rug_fit, T-20261112-31): первый по рангу, что ложится (`rug_fit_place`), из полосы слота → любого

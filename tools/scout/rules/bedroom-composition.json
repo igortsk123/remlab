@@ -34,7 +34,7 @@
    "decor": {"лампа": {"qty_from": "тумба прикроватная", "ideal": {"h": 45}, "band": ["h"], "deny": "@lamp_task", "deny_model": true, "prefer": "ночник|прикроватн|абажур|декоративн", "gap": "лампа: нет подходящей", "band_min": {"h": 33}, "neighbour_spare": true, "mesh_first": true},
              "ковёр": {"ideal": {"long": 300}, "band": ["long"], "_why": "200×300 поперёк кровати: по 60 см с боков"},
              "_шторы_why": "полотно не уже окна, рулонные/римские/кухонные — нет (канарейка 05.11: рулонка 55 см на окно 240)",
-             "шторы": {"qty_from": "windows", "min_w": "window", "deny": "рулон|римск|кафе|для кухни", "deny_by_style": {"лофт": "римск|кафе|для кухни"}, "neighbour_spare": true}, "плед": {}},
+             "шторы": {"qty_from": "windows", "min_w": "window", "deny": "рулон|римск|кафе|для кухни", "deny_by_style": {"лофт": "римск|кафе|для кухни"}, "per_window": "рулон", "neighbour_spare": true, "neighbour_pool": "all"}, "плед": {}},
    "_nightstand_steps_why": "T-20261112-95 (владелец TG 910 + «ок» TG 929): тесной паре тумбы 45×40 не встали обе — сперва узкие, потом подвесные, и только потом одна тумба / без тумб (лестница Codex `_intake/codex/2026-11-12-small-bedroom-answer.md`). Ступени «полки + бра» нет: полок в каталоге 0, бра 1 (замер 12.11) — пропущена. Кровать 140 — прежняя ступень (`compose_bedroom.py:Composer.step140`), кровать к стене — отказ COUPLE_NO_SECOND_SIDE. Применяют сборщик банка `compose_bedroom.py:Composer.nightstand_steps` и туры `trial_bedroom.py:slim_stands` (узкая/подвесная из банка стиля до следующего шаблона)",
    "nightstand_steps": [
     {"id": "slim", "ideal": {"w": 33, "d": 32, "h": 50}, "band": ["w", "d", "h"],
@@ -53,7 +53,7 @@
    ],
    "decor": {"лампа": {"qty_from": "тумба прикроватная", "ideal": {"h": 45}, "band": ["h"], "deny": "@lamp_task", "deny_model": true, "prefer": "ночник|прикроватн|абажур|декоративн", "gap": "лампа: нет подходящей", "band_min": {"h": 33}, "neighbour_spare": true, "mesh_first": true},
              "ковёр": {"ideal": {"long": 230}, "band": ["long"], "_why": "160×230 у кровати 120"},
-             "шторы": {"qty_from": "windows", "min_w": "window", "deny": "рулон|римск|кафе|для кухни", "deny_by_style": {"лофт": "римск|кафе|для кухни"}, "neighbour_spare": true}, "плед": {}}
+             "шторы": {"qty_from": "windows", "min_w": "window", "deny": "рулон|римск|кафе|для кухни", "deny_by_style": {"лофт": "римск|кафе|для кухни"}, "per_window": "рулон", "neighbour_spare": true, "neighbour_pool": "all"}, "плед": {}}
   },
   "guest": {
    "slots": [
@@ -65,7 +65,7 @@
    ],
    "decor": {"лампа": {"qty_from": "тумба прикроватная", "ideal": {"h": 45}, "band": ["h"], "deny": "@lamp_task", "deny_model": true, "prefer": "ночник|прикроватн|абажур|декоративн", "gap": "лампа: нет подходящей", "band_min": {"h": 33}, "neighbour_spare": true, "mesh_first": true},
              "ковёр": {"ideal": {"long": 230}, "band": ["long"]},
-             "шторы": {"qty_from": "windows", "min_w": "window", "deny": "рулон|римск|кафе|для кухни", "deny_by_style": {"лофт": "римск|кафе|для кухни"}, "neighbour_spare": true}, "плед": {}}
+             "шторы": {"qty_from": "windows", "min_w": "window", "deny": "рулон|римск|кафе|для кухни", "deny_by_style": {"лофт": "римск|кафе|для кухни"}, "per_window": "рулон", "neighbour_spare": true, "neighbour_pool": "all"}, "плед": {}}
   },
   "office": {"empty": "ROLES_DISABLED", "_why": "стол и стул рабочие загружены (onb-04), но не включены в roles_enabled и без оценки стиля спальни — демо их не показывает (ADR-0330 п.3)"},
   "child:0-3": {"empty": "PURPOSE_PENDING", "_why": "солвер: child — PURPOSE_PENDING (services/planner-solver/rules/bedroom.json), детские роли не включены; кроватка годная — 1 (purpose_requires)"},
@@ -94,7 +94,7 @@
    ],
    "decor": {"лампа": {"qty_from": "тумба прикроватная", "ideal": {"h": 45}, "band": ["h"], "deny": "@lamp_task", "deny_model": true, "prefer": "ночник|прикроватн|абажур|декоративн", "gap": "лампа: нет подходящей", "band_min": {"h": 33}, "neighbour_spare": true, "mesh_first": true},
              "ковёр": {"ideal": {"long": 200}, "band": ["long"], "_why": "120×170/140×200 у бока узкой кровати"},
-             "шторы": {"qty_from": "windows", "min_w": "window", "deny": "рулон|римск|кафе|для кухни", "deny_by_style": {"лофт": "римск|кафе|для кухни"}, "neighbour_spare": true}, "плед": {}}
+             "шторы": {"qty_from": "windows", "min_w": "window", "deny": "рулон|римск|кафе|для кухни", "deny_by_style": {"лофт": "римск|кафе|для кухни"}, "per_window": "рулон", "neighbour_spare": true, "neighbour_pool": "all"}, "плед": {}}
   }
  },
  "lamp_task": "прищеп|струбцин|офисн|рабоч|для маникюр|гибк|кольцев|ring light|fiber light|yeelight|ньютон|usb|\\bqi\\b|li-ion|\\d\\s?lm\\b|\\d{4}\\s?k\\b|диммируем|аккумулятор|светодиодный с",
