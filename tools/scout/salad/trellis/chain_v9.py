@@ -136,9 +136,15 @@ class Measurer:
         fh, fw = self.S.shape
         self.ph = cv2.warpPerspective(self.ph, H, (fw, fh), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP)
         a2 = cv2.warpPerspective(self.A_fr.astype(np.uint8), H, (fw, fh), flags=cv2.INTER_NEAREST | cv2.WARP_INVERSE_MAP) > 0
+        ff = r.get('flow_file')
+        if r.get('flow_used') and ff and os.path.exists(os.path.join(os.path.dirname(js[0]), ff)):
+            fl = np.load(os.path.join(os.path.dirname(js[0]), ff))['flow'].astype(np.float32)
+            gx, gy = np.meshgrid(np.arange(fw, dtype=np.float32), np.arange(fh, dtype=np.float32))
+            self.ph = cv2.remap(self.ph, gx + fl[..., 0], gy + fl[..., 1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+            a2 = cv2.remap(a2.astype(np.uint8), gx + fl[..., 0], gy + fl[..., 1], cv2.INTER_NEAREST) > 0
         self.cm, self.width = self.SL.common_mask(self.S, a2, self.aoi)
         v1 = os.path.join(os.path.dirname(os.path.dirname(d)), os.path.basename(os.path.dirname(d)), 's1-mv12', 'view0.png')
-        out = {'registration': 'ECC (кадр фото уточнён)'}
+        out = {'registration': 'ECC' + (' + поток' if r.get('flow_used') else '') + ' (кадр фото уточнён)'}
         if os.path.exists(v1):
             m1 = self.SL.stage_metrics(np.asarray(self.Image.open(v1).convert('RGB')), self.ph, self.cm, self.width, ncc=True)
             out['s1_vs_refined_photo'] = {'hf_1%': m1['hf']['1%']['ratio'], 'sigmaL': m1['sigmaL']['ratio'], 'dE00_lf': m1['dE00_lf_median'], 'ncc': (m1.get('ncc') or {}).get('median')}
@@ -169,7 +175,7 @@ def make_steps(a) -> list:
     py = sys.executable
 
     def s2(glb, d):
-        _sub([py, os.path.join(HERE, 'photo_front.py'), '--glb', glb, '--stages', a.stages, '--photo', a.photo, '--out-dir', d, '--stem', a.key, '--out-size', str(a.size)], os.path.join(d, 'step.log'))
+        _sub([py, os.path.join(HERE, 'photo_front.py'), '--glb', glb, '--stages', a.stages, '--photo', a.photo, '--out-dir', d, '--stem', a.key, '--out-size', str(a.size)] + (['--flow'] if a.flow else []), os.path.join(d, 'step.log'))
         return os.path.join(d, f'{a.key}-photo.glb')
 
     def s3(glb, d):
@@ -212,6 +218,7 @@ def main() -> int:
     ap.add_argument('--key', required=True)
     ap.add_argument('--yaw', default='auto', help='поворот формы для tex_fill (из stages/manifest.json: yaw_deg)')
     ap.add_argument('--size', type=int, default=4096)
+    ap.add_argument('--flow', action='store_true', help='photo_front: нежёсткая подгонка (поток) поверх ECC')
     ap.add_argument('--variant', choices=('ours', 'mkl-all', 'mkl-clusters', 'telea'), default='ours', help='ours — ab_tint + tex_fill; mkl-* — MKL вместо шага 3; telea — cv2.inpaint вместо шага 4')
     ap.add_argument('--fillmap', default=None, help='для telea: -fillmap.png от tex_fill (маска плохих текселей)')
     ap.add_argument('--fill-dir', default=os.path.expanduser('~/remlab-logs/t88-v9/tool'), help='папка с tex_fill.py и его tex_coverage.py (ветка trial/tex-fill)')

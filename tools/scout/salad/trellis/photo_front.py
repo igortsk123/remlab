@@ -62,6 +62,8 @@ SPLAT_SIGMA = 1.2                 # минимальная σ сглаживан
 SPLAT_SIGMA_K = 0.55              # σ не меньше этого × √(текселей на пиксель кадра)
 COVER_MIN = 0.25                  # тексель покрыт, если масса накопления ≥ этой доли типичной (медианной) массы
 CONF_MIN = 0.02
+FLOW_WIN_FRAC, FLOW_MAX_FRAC, FLOW_SMOOTH_FRAC = 0.05, 0.025, 0.02   # нежёсткая подгонка (--flow): окно потока, предел сдвига, сглаживание — доли ширины фасада
+EDGE_MIN_LEN = 0.02               # длинные кромки для совпадения: компоненты не короче доли ширины фасада (T-112; 0 — как раньше)
 REG_MIN = 0.50                    # фото кладём, только если после ECC совпадение кромок фото↔база не ниже этого (иначе — только MV)
 COLOR_T0 = 7.0                    # цветовой гейт: расхождение a*b* фото и базы (после вычета общего сдвига оттенка) ниже — класть полностью
 COLOR_T1 = 16.0                   # выше — не класть (фото другого материала: серое поверх дерева); между — плавно
@@ -181,19 +183,42 @@ def gate_map(rel: np.ndarray, ph_edge: np.ndarray, mask: np.ndarray, width: floa
     return gate, st
 
 
-def edge_agreement(L_a: np.ndarray, L_b: np.ndarray, mask: np.ndarray, width: float) -> dict:
-    """Совпадение кромок двух кадров (a — фото, b — рендер базы) внутри маски, с поправкой на случайные попадания: для каждой стороны доля её кромок, рядом с которыми (≤ `TOL_FRAC`·ширина) есть
-    кромка другой, минус доля площади «рядом с кромкой другой» (chance), делённая на (1 − chance). Итог — среднее двух сторон (симметрично: плотные кромки одной стороны не дают «совпадения сами»)."""
+def long_edges(e: np.ndarray, min_len: float) -> np.ndarray:
+    """Оставляет связные кромки длиннее `min_len` px (по числу пикселей компоненты): рябь текстуры (крапины, шум) — короткие обрывки, стыки, швы и контуры узора — длинные."""
+    import cv2
+    if min_len <= 0 or not e.any():
+        return e
+    n, lab, stats, _ = cv2.connectedComponentsWithStats(e.astype(np.uint8), connectivity=8)
+    keep = np.zeros(n, bool)
+    keep[1:] = stats[1:, cv2.CC_STAT_AREA] >= min_len
+    return keep[lab]
+
+
+def _agree(ea: np.ndarray, eb: np.ndarray, mask: np.ndarray, tol: float) -> tuple:
     from scipy.ndimage import distance_transform_edt
-    ea, eb = photo_edges(L_a, mask, width), photo_edges(L_b, mask, width)
-    tol = max(2.0, TOL_FRAC * width)
     out = []
     for e1, e2 in ((ea, eb), (eb, ea)):
         near = distance_transform_edt(~e2) <= tol
         chance = float((near & mask).sum() / max(mask.sum(), 1))
         raw = float((e1 & near).sum() / max(e1.sum(), 1))
         out.append((raw - chance) / max(1.0 - chance, 1e-3))
-    return {'agree': round(float(np.mean(out)), 4), 'photo_to_base': round(out[0], 4), 'base_to_photo': round(out[1], 4), 'tol_px': round(tol, 2)}
+    return out
+
+
+def edge_agreement(L_a: np.ndarray, L_b: np.ndarray, mask: np.ndarray, width: float, min_len_frac: float = 0.0) -> dict:
+    """Совпадение кромок двух кадров (a — фото, b — рендер базы) внутри маски, с поправкой на случайные попадания: для каждой стороны доля её кромок, рядом с которыми (≤ `TOL_FRAC`·ширина) есть
+    кромка другой, минус доля площади «рядом с кромкой другой» (chance), делённая на (1 − chance). Итог — среднее двух сторон (симметрично: плотные кромки одной стороны не дают «совпадения сами»).
+    `min_len_frac` > 0 (T-112): те же расчёты ещё и по длинным кромкам (компоненты не короче доли ширины) — в `agree` идёт он, прежнее число — `agree_raw`: рябь текстуры базы (крапины)
+    даёт «лишние» кромки и занижает совпадение, хотя стыки и контуры лежат ровно."""
+    ea, eb = photo_edges(L_a, mask, width), photo_edges(L_b, mask, width)
+    tol = max(2.0, TOL_FRAC * width)
+    raw = _agree(ea, eb, mask, tol)
+    res = {'agree': round(float(np.mean(raw)), 4), 'photo_to_base': round(raw[0], 4), 'base_to_photo': round(raw[1], 4), 'tol_px': round(tol, 2)}
+    if min_len_frac > 0:
+        ml = min_len_frac * width
+        lg = _agree(long_edges(ea, ml), long_edges(eb, ml), mask, tol)
+        res.update({'agree_raw': res['agree'], 'agree': round(float(np.mean(lg)), 4), 'photo_to_base': round(lg[0], 4), 'base_to_photo': round(lg[1], 4), 'min_len_px': round(ml, 1)})
+    return res
 
 
 def _ecc_features(L: np.ndarray, mask: np.ndarray, width: float) -> np.ndarray:
@@ -239,6 +264,31 @@ def register_to_base(L_ph: np.ndarray, L_base: np.ndarray, mask_base: np.ndarray
             Hm = np.linalg.inv(S) @ Hs @ S
             st['steps'].append({'model': name, 'level': lv, 'cc': round(float(cc), 4)})
     return Hm, st
+
+
+def flow_refine(L_ph: np.ndarray, L_base: np.ndarray, mask_base: np.ndarray, mask_ph: np.ndarray, width: float) -> np.ndarray:
+    """Нежёсткая подгонка после ECC (T-112): гладкий плотный поток (Farneback) между признаками кромок фото и рендера базы. Нужна, когда геометрия базы (MV) лишь похожа на предмет с фото:
+    стыки и контуры узора смещены на единицы процентов ширины, одной гомографией не лечится. Поток ограничен `FLOW_MAX_FRAC`·ширина и сильно сглажен (`FLOW_SMOOTH_FRAC`), чтобы не гнуть прямые.
+    Возвращает поток (H, W, 2): кадр(x) = фото(x + поток(x)) — для `cv2.remap`."""
+    import cv2
+    er = max(3, int(round(0.01 * width)))
+    k = np.ones((2 * er + 1, 2 * er + 1), np.uint8)
+    mb, mp = cv2.erode(mask_base.astype(np.uint8), k) > 0, cv2.erode(mask_ph.astype(np.uint8), k) > 0
+    sg = 0.004 * width
+    ft = cv2.GaussianBlur(_ecc_features(L_base, mb, width), (0, 0), sg)
+    fi = cv2.GaussianBlur(_ecc_features(L_ph, mp, width), (0, 0), sg)
+    t8, i8 = np.clip(ft * 255, 0, 255).astype(np.uint8), np.clip(fi * 255, 0, 255).astype(np.uint8)
+    flow = cv2.calcOpticalFlowFarneback(t8, i8, None, 0.5, 4, int(FLOW_WIN_FRAC * width) | 1, 5, 7, 1.5, 0)
+    mag = np.hypot(flow[..., 0], flow[..., 1])
+    flow *= np.minimum(1.0, FLOW_MAX_FRAC * width / np.maximum(mag, 1e-6))[..., None]
+    return cv2.GaussianBlur(flow, (0, 0), FLOW_SMOOTH_FRAC * width).astype(np.float32)
+
+
+def apply_flow(img: np.ndarray, flow: np.ndarray, interp=None) -> np.ndarray:
+    import cv2
+    h, w = flow.shape[:2]
+    gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
+    return cv2.remap(img, gx + flow[..., 0], gy + flow[..., 1], cv2.INTER_LINEAR if interp is None else interp, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
 
 
 def warp_by(H: np.ndarray, img: np.ndarray, size: tuple[int, int], interp=None) -> np.ndarray:
@@ -337,7 +387,7 @@ def apply_photo(tex: np.ndarray, sp: dict) -> tuple[np.ndarray, dict]:
     return out, {'texels_covered': int(cover.sum()), 'texels_changed_share': round(float((w[..., 0] > 0.05).mean()), 5), 'mean_weight_on_covered': round(float(w[..., 0][cover].mean()) if cover.any() else 0.0, 4)}
 
 
-def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: str = 'lp', out_size: int = 0, register: str = 'ecc') -> dict:
+def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: str = 'lp', out_size: int = 0, register: str = 'ecc', flow: bool = False) -> dict:
     import cv2
     from PIL import Image
     os.makedirs(out_dir, exist_ok=True)
@@ -367,12 +417,12 @@ def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: 
     reg = {'mode': register}
     lay_photo = True
     if register == 'ecc':
-        reg['before'] = edge_agreement(L_ph, L_base, S & A_fr, width)
+        reg['before'] = edge_agreement(L_ph, L_base, S & A_fr, width, EDGE_MIN_LEN)
         Hm, rst = register_to_base(L_ph, L_base, S, A_fr, width)
         ph_r = warp_by(Hm, ph, (fw, fh))
         A_r = warp_by(Hm, A_fr.astype(np.uint8), (fw, fh), cv2.INTER_NEAREST) > 0
         L_r = PM.rgb_to_lab(ph_r)[..., 0].astype(np.float32)
-        reg['after'] = edge_agreement(L_r, L_base, S & A_r, width)
+        reg['after'] = edge_agreement(L_r, L_base, S & A_r, width, EDGE_MIN_LEN)
         reg['H'] = [round(float(v), 6) for v in Hm.ravel()]
         reg['ecc'] = rst['steps']
         if reg['after']['agree'] > reg['before']['agree']:
@@ -381,7 +431,22 @@ def run(glb: str, stages: str, photo_path: str, out_dir: str, stem: str, light: 
             reg['used'] = True
         else:
             reg['used'] = False
-        lay_photo = reg['after' if reg['used'] else 'before']['agree'] >= REG_MIN
+        cur = reg['after' if reg['used'] else 'before']
+        if flow:                                                           # нежёсткая подгонка поверх ECC: берём, только если кромки совпали лучше
+            fl = flow_refine(L_ph, L_base, S, A_fr, width)
+            ph_f, A_f = apply_flow(ph, fl), apply_flow(A_fr.astype(np.uint8), fl, cv2.INTER_NEAREST) > 0
+            L_f = PM.rgb_to_lab(ph_f)[..., 0].astype(np.float32)
+            reg['after_flow'] = edge_agreement(L_f, L_base, S & A_f, width, EDGE_MIN_LEN)
+            reg['flow_max_px'] = round(float(np.hypot(fl[..., 0], fl[..., 1])[S & A_f].max()), 1)
+            reg['flow_used'] = bool(reg['after_flow']['agree'] > cur['agree'])
+            if reg['flow_used']:
+                np.savez_compressed(os.path.join(out_dir, f'{stem}.reg-flow.npz'), flow=fl.astype(np.float16))
+                reg['flow_file'] = f'{stem}.reg-flow.npz'
+                ph, A_fr, L_ph = ph_f, A_f, L_f
+                cm, width = SL.common_mask(S, A_fr, aoi)
+                cur = reg['after_flow']
+                reg['used'] = True
+        lay_photo = cur['agree'] >= REG_MIN
         reg['photo_laid'] = bool(lay_photo)
     er = max(3, int(round(EDGE_ERODE_FRAC * width)))
     inner = cv2.erode((S & A_fr).astype(np.uint8), np.ones((2 * er + 1, 2 * er + 1), np.uint8)) > 0
@@ -461,6 +526,7 @@ def main() -> int:
     ap.add_argument('--light', choices=('lp', 'raw'), default='lp')
     ap.add_argument('--out-size', type=int, default=0, help='размер карты результата (0 — как у входа)')
     ap.add_argument('--register', choices=('ecc', 'none'), default='ecc', help='уточнение регистрации фото → база (ECC) перед проекцией')
+    ap.add_argument('--flow', action='store_true', help='нежёсткая подгонка (гладкий поток) поверх ECC; берётся, если кромки совпали лучше')
     ap.add_argument('--rel-t', type=float, default=None, help='порог поворота нормали (REL_T)')
     ap.add_argument('--rel-frac', type=float, default=None, help='доля рельефных пикселей в участке (REL_FRAC)')
     ap.add_argument('--agree-min', type=float, default=None, help='минимум совпадения кромок (AGREE_MIN)')
@@ -471,7 +537,7 @@ def main() -> int:
             g[k] = v
     if not all([a.glb, a.stages, a.photo, a.out_dir, a.stem]):
         ap.error('нужны --glb --stages --photo --out-dir --stem')
-    r = run(a.glb, a.stages, a.photo, a.out_dir, a.stem, a.light, a.out_size, a.register)
+    r = run(a.glb, a.stages, a.photo, a.out_dir, a.stem, a.light, a.out_size, a.register, a.flow)
     print(json.dumps({k: r[k] for k in ('stem', 'light', 'width_px', 'registration_refine', 'gate', 'frame', 'apply', 'table', 'guard')}, ensure_ascii=False, indent=1))
     return 0 if r['guard']['ok'] else 1
 

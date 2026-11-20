@@ -232,7 +232,7 @@ def edge_score(geo: dict, cam: dict, photo: np.ndarray, alpha: np.ndarray, cv: d
     img = A.render_view0(tex, {'uv': r['uv'], 'mask': S})
     L_ph = PM.rgb_to_lab(ph)[..., 0].astype(np.float32)
     L_b = PM.rgb_to_lab(img)[..., 0].astype(np.float32)
-    ea = PFR.edge_agreement(L_ph, L_b, S & A_fr, width) if width >= 16 else {'agree': -1.0}
+    ea = PFR.edge_agreement(L_ph, L_b, S & A_fr, width, PFR.EDGE_MIN_LEN) if width >= 16 else {'agree': -1.0}
     return {'agree': ea['agree'], 'iou_frame': round(iou(S, A_fr), 4), 'width_px': round(float(width), 1)}
 
 
