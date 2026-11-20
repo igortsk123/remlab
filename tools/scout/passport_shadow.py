@@ -8,6 +8,9 @@
   • сбой тени не делает задачу вырезки `fail`: всё внутри своего `try`, счётчик `shadow_fail` отдельный (в `FAIL_STREAK_MAX` не входит);
   • `SHADOW_FAIL_MAX` (20) сбоев за прогон выключают тень в `one()` до конца прогона (`WARN:passport_shadow_off`), вырезка идёт; пропущенное подберёт проход;
   • пиксельный расчёт — в дочернем процессе с таймаутом `SHADOW_GUARD_TIMEOUT_S` (30 с): зависший сторож убит, исход `guard_timeout`;
+  • КАЖДЫЙ вызов БД тени — с жёстким таймаутом (`SHADOW_DB_TIMEOUT_S`, 20 с: `statement_timeout`+`lock_timeout` в сеансе и `timeout` у подпроцесса), чтение вердиктов
+    гейтом — `SHADOW_OBSERVE_TIMEOUT_S` (15 с), кандидатов прохода — `SHADOW_CANDIDATES_TIMEOUT_S` (120 с); скачивание исходника в проходе — не дольше
+    `SHADOW_FETCH_TIMEOUT_S` (45 с) и остатка бюджета; на ВСЮ тень в `one()` за прогон — бюджет `SHADOW_RUN_BUDGET_S` (900 с): исчерпан → тень выключена до конца прогона;
   • нет таблицы (миграция `018-passport-shadow.sql` не применена) — одна строка `WARN:passport_shadow` и пропуск, не падение;
   • `PASSPORT_SHADOW=0` — выключатель на всё (ни в `one()`, ни в проходе).
 
@@ -17,11 +20,14 @@
 (в выборку не возвращается, пока не сменится версия замера или не запущено `--retry-quarantine`). Закрытый список исходов (OUTCOMES): плановые missing_cache,
 fetch_failed, decode_failed, sha_moved, guard_timeout, ambiguous + два технических guard_error (прочее падение сторожа) и db_error (сбой БД на строке) — оба `retry`.
 Бюджет ночи `SHADOW_BACKFILL_BUDGET_S` (1800 с); `SHADOW_BACKFILL_STREAK_MAX` (15) подряд сбоев ОДНОГО кода с retry-исходом завершают проход ЭТОЙ ночи
-(`WARN:passport_backfill_stop code=…`, завтра идёт снова); число строк за ночь — `SHADOW_BACKFILL_MAX` (400). Проход не пишет в `photo_assessment` и не трогает кэш `<sha>.png`.
+(`WARN:passport_backfill_stop code=…`, завтра идёт снова); число строк за ночь — `SHADOW_BACKFILL_MAX` (400). Бюджет — сквозной: он же ограничивает каждый вызов БД и скачивание внутри строки.
+Один проход за раз: `flock` на `SHADOW_BACKFILL_LOCK` (по умолчанию `~/.remlab-shadow-backfill.lock`), а `attempts` растёт не чаще раза в сутки САМ ПО СЕБЕ (SQL `write_fail`:
+прибавка только если прошлая запись строки старше `COOLDOWN_S`) — даже без замка два одновременных прохода не посчитают одну неудачу дважды. Проход не пишет в `photo_assessment` и не трогает кэш `<sha>.png`.
 
   python tools/scout/passport_shadow.py --selftest
 """
 import collections
+import fcntl
 import hashlib
 import json
 import os
@@ -70,6 +76,54 @@ def attempts_max() -> int:
     return int(_env_f('SHADOW_ATTEMPTS_MAX', 3))
 
 
+def db_timeout() -> float:
+    return _env_f('SHADOW_DB_TIMEOUT_S', 20)
+
+
+def observe_timeout() -> float:
+    return _env_f('SHADOW_OBSERVE_TIMEOUT_S', 15)
+
+
+def candidates_timeout() -> float:
+    return _env_f('SHADOW_CANDIDATES_TIMEOUT_S', 120)
+
+
+def fetch_timeout() -> float:
+    return _env_f('SHADOW_FETCH_TIMEOUT_S', 45)
+
+
+def run_budget() -> float:
+    return _env_f('SHADOW_RUN_BUDGET_S', 900)
+
+
+LOCK_WAIT_S = 5          # потолок ожидания блокировки строки/таблицы в самой БД
+_DEADLINE: list = [None]   # [monotonic-срок прохода] — сквозной бюджет: ограничивает и каждый вызов БД, и скачивание
+
+
+def budget_left() -> float | None:
+    d = _DEADLINE[0]
+    return None if d is None else d - time.monotonic()
+
+
+def call_bounded(fn, timeout: float, *args):
+    """Вызвать `fn(*args)` не дольше `timeout` с (поток-демон: зависший вызов не держит процесс). Таймаут → TimeoutError, исключение вызова — как есть."""
+    box: dict = {}
+
+    def run():
+        try:
+            box['v'] = fn(*args)
+        except BaseException as e:  # noqa: BLE001 — переносим в вызвавший поток
+            box['e'] = e
+    th = threading.Thread(target=run, daemon=True)
+    th.start()
+    th.join(timeout)
+    if th.is_alive():
+        raise TimeoutError(f'вызов не уложился в {timeout:.0f} с')
+    if 'e' in box:
+        raise box['e']
+    return box['v']
+
+
 class TableMissing(RuntimeError):
     """Таблицы passport_shadow нет (миграция не применена)."""
 
@@ -88,8 +142,21 @@ def _q(v) -> str:
 class PgStore:
     """`passport_shadow` в remlab-devdb через psql (как остальные ночные шаги)."""
 
-    def db(self, sql: str) -> list:
-        r = subprocess.run(PSQL, capture_output=True, text=True, input=sql)
+    def db(self, sql: str, timeout: float | None = None) -> list:
+        """Один вызов psql с ЖЁСТКИМ потолком: `statement_timeout`/`lock_timeout` в сеансе (БД сама отменяет запрос) + `timeout` у подпроцесса (зависший docker/сокет).
+        Потолок = min(запрошенный, остаток сквозного бюджета прохода); бюджет исчерпан — RuntimeError без обращения к БД."""
+        t = float(db_timeout() if timeout is None else timeout)
+        left = budget_left()
+        if left is not None:
+            if left <= 0:
+                raise RuntimeError('shadow_budget: бюджет тени исчерпан')
+            t = min(t, left)
+        t = max(t, 1.0)
+        pre = f"set statement_timeout = {int(t * 1000)}; set lock_timeout = {int(min(t, LOCK_WAIT_S) * 1000)};\n"
+        try:
+            r = subprocess.run(PSQL, capture_output=True, text=True, input=pre + sql, timeout=t + 5)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f'db_timeout: psql не ответил за {t + 5:.0f} с') from None
         if r.returncode != 0:
             if 'does not exist' in r.stderr and TABLE in r.stderr:
                 raise TableMissing(r.stderr[:200])
@@ -101,16 +168,19 @@ class PgStore:
                 f"values ({_q(sha)}, {_q(role)}, {_q(mv)}, {_q(digest)}, {_q(json.dumps(metrics, ensure_ascii=False))}::jsonb, {_q(verdict)}, 'done', 0, null) "
                 "on conflict (source_sha, normalized_role, measurement_version) do update set "
                 "policy_digest = excluded.policy_digest, metrics = excluded.metrics, shadow_verdict = excluded.shadow_verdict, "
-                "status = 'done', last_error = null, updated = now()")
+                "status = 'done', attempts = 0, last_error = null, updated = now()")
 
     def write_fail(self, sha, role, mv, digest, code, terminal) -> None:
+        """Неудача попытки. `attempts` растёт НЕ ЧАЩЕ раза в `COOLDOWN_S`: прибавка только если прошлая запись строки старше срока — два одновременных прохода
+        (или повтор в ту же ночь) посчитают ОДНУ неудачу один раз. Терминальный исход и порог попыток → quarantine."""
         amax = attempts_max()
         first = 'quarantine' if terminal or amax <= 1 else 'retry'
+        inc = f"(case when {TABLE}.updated <= now() - interval '{COOLDOWN_S} seconds' then 1 else 0 end)"
         self.db(f"insert into {TABLE} (source_sha, normalized_role, measurement_version, policy_digest, status, attempts, last_error) "
                 f"values ({_q(sha)}, {_q(role)}, {_q(mv)}, {_q(digest)}, '{first}', 1, {_q(code)}) "
                 "on conflict (source_sha, normalized_role, measurement_version) do update set "
-                f"attempts = {TABLE}.attempts + 1, last_error = excluded.last_error, policy_digest = excluded.policy_digest, "
-                f"status = case when {'true' if terminal else 'false'} or {TABLE}.attempts + 1 >= {amax} then 'quarantine' else 'retry' end, updated = now() "
+                f"attempts = {TABLE}.attempts + {inc}, last_error = excluded.last_error, policy_digest = excluded.policy_digest, "
+                f"status = case when {'true' if terminal else 'false'} or {TABLE}.attempts + {inc} >= {amax} then 'quarantine' else 'retry' end, updated = now() "
                 f"where {TABLE}.status <> 'done'")
 
     def states(self) -> dict:
@@ -147,6 +217,7 @@ class Run:
         self.ok = 0
         self.fail = 0
         self.skipped = 0
+        self.spent = 0.0        # секунд, потраченных тенью в one() за прогон (бюджет SHADOW_RUN_BUDGET_S)
         self.off = False
         self.table_missing = False
         self.codes = collections.Counter()
@@ -199,8 +270,17 @@ def _write_result(role: str, sha: str, g: dict, passport: dict, m: dict, am_metr
 def after_assessment(role, sku, sha, raw, cut_path, info, store=None) -> list | None:
     """Сторожа паспорта роли после вставки `photo_assessment`. НИКОГДА не бросает. → список вердиктов или None (тень не нужна/выключена).
     `raw` — байты исходника (К1), `cut_path` — вырезка в кэше `<sha>.png`, `info` — метрики цепочки (`photo.object_xy`)."""
+    t_start = time.monotonic()
     try:
         if not enabled() or RUN.off or RUN.table_missing:
+            return None
+        with RUN.lock:
+            over = RUN.spent >= run_budget() and not RUN.off
+            if over:
+                RUN.off = True
+        if over:
+            print(f'WARN:passport_shadow_off: бюджет тени {run_budget():.0f} с за прогон исчерпан — тень выключена до конца прогона, вырезка идёт; пропущенное подберёт --shadow-backfill', flush=True)
+        if RUN.off:
             return None
         store = store or STORE
         passport = MTP.get(role)
@@ -236,6 +316,9 @@ def after_assessment(role, sku, sha, raw, cut_path, info, store=None) -> list | 
     except Exception as e:  # noqa: BLE001 — сбой тени не должен тронуть вырезку
         _count_fail('shadow_exception', f'{sku}: {type(e).__name__}: {str(e)[:100]}')
         return None
+    finally:
+        with RUN.lock:
+            RUN.spent += time.monotonic() - t_start
 
 
 # ------------------------------------------------------------------ проход по тёплой части
@@ -285,8 +368,9 @@ def process_one(job: dict, cache_dir: str, fetch, store, am_metrics: dict | None
         src_path = None
         if g['needs_source']:
             try:
-                raw = fetch(job['url'])
-            except Exception:  # noqa: BLE001 — сеть, HTTP, таймаут
+                left = budget_left()
+                raw = call_bounded(fetch, fetch_timeout() if left is None else max(1.0, min(fetch_timeout(), left)), job['url'])
+            except Exception:  # noqa: BLE001 — сеть, HTTP, таймаут (в т.ч. «капающий» ответ дольше потолка)
                 return fail('fetch_failed')
             if hashlib.sha256(raw).hexdigest() != sha:
                 return fail('sha_moved')
@@ -305,13 +389,40 @@ def process_one(job: dict, cache_dir: str, fetch, store, am_metrics: dict | None
     return ('ambiguous' if fv == 'ambiguous' else 'ok'), fv
 
 
+def lock_path() -> str:
+    return os.environ.get('SHADOW_BACKFILL_LOCK') or os.path.expanduser('~/.remlab-shadow-backfill.lock')
+
+
 def backfill(candidates: list, cache_dir: str, fetch, store=None, budget_s: float | None = None, streak_max: int | None = None,
              limit: int | None = None, clock=time.monotonic) -> dict:
-    """Проход по уже вырезанному. → отчёт {selected, done, outcomes, retry, quarantine, seconds, stop}. Не бросает наружу (кроме отсутствия таблицы — тогда stop)."""
+    """Проход по уже вырезанному под ЗАМКОМ (один проход за раз) и со СКВОЗНЫМ бюджетом (он ограничивает и каждый вызов БД, и скачивание). → отчёт
+    {selected, done, outcomes, retry, quarantine, seconds, stop}. Не бросает наружу (кроме отсутствия таблицы — тогда stop). Замок занят — выход без работы:
+    второй проход не дублирует скачивания и расчёты (а `attempts` и без замка не удваивается — SQL `write_fail`)."""
+    budget = _env_f('SHADOW_BACKFILL_BUDGET_S', 1800) if budget_s is None else budget_s
+    try:
+        fd = os.open(lock_path(), os.O_CREAT | os.O_RDWR, 0o644)
+    except OSError as e:     # нет места под замок — работать без него безопаснее, чем не работать: SQL всё равно не удвоит попытки
+        print(f'WARN:passport_backfill: замок прохода не открыт ({type(e).__name__}) — идём без замка', flush=True)
+        fd = None
+    try:
+        if fd is not None:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                print('проход тени: другой проход уже идёт — выходим без работы', flush=True)
+                return {'selected': 0, 'done': 0, 'outcomes': collections.Counter(), 'retry': 0, 'quarantine': 0, 'seconds': 0.0, 'stop': 'другой проход уже идёт'}
+        _DEADLINE[0] = time.monotonic() + budget
+        return _backfill(candidates, cache_dir, fetch, store, budget, streak_max, limit, clock)
+    finally:
+        _DEADLINE[0] = None
+        if fd is not None:
+            os.close(fd)      # закрытие снимает flock
+
+
+def _backfill(candidates: list, cache_dir: str, fetch, store, budget: float, streak_max: int | None, limit: int | None, clock) -> dict:
     store = store or STORE
     rep = {'selected': 0, 'done': 0, 'outcomes': collections.Counter(), 'retry': 0, 'quarantine': 0, 'seconds': 0.0, 'stop': None}
     t0 = clock()
-    budget = _env_f('SHADOW_BACKFILL_BUDGET_S', 1800) if budget_s is None else budget_s
     smax = int(_env_f('SHADOW_BACKFILL_STREAK_MAX', 15)) if streak_max is None else streak_max
     lim = int(_env_f('SHADOW_BACKFILL_MAX', 400)) if limit is None else limit
     if not enabled():
@@ -389,10 +500,11 @@ def default_candidates(assessor: str, db) -> list:
     return out
 
 
-def run_backfill(assessor: str, cache_dir: str, fetch, db) -> dict:
-    """Точка входа `cutout_sync.py --shadow-backfill`: кандидаты из БД → проход → строка отчёта и охват. Не бросает."""
+def run_backfill(assessor: str, cache_dir: str, fetch, db=None) -> dict:
+    """Точка входа `cutout_sync.py --shadow-backfill`: кандидаты из БД → проход → строка отчёта и охват. Не бросает.
+    `db=None` — запросы кандидатов идут через `STORE.db` с жёстким потолком `SHADOW_CANDIDATES_TIMEOUT_S`."""
     try:
-        cands = default_candidates(assessor, db)
+        cands = default_candidates(assessor, db or (lambda sql: STORE.db(sql, timeout=candidates_timeout())))
     except Exception as e:  # noqa: BLE001
         print(f'WARN:passport_backfill_stop code=candidates {type(e).__name__}: {str(e)[:100]}', flush=True)
         return {'selected': 0, 'done': 0, 'outcomes': collections.Counter(), 'retry': 0, 'quarantine': 0, 'seconds': 0, 'stop': 'кандидаты не получены'}
@@ -406,21 +518,50 @@ def run_backfill(assessor: str, cache_dir: str, fetch, db) -> dict:
     return rep
 
 
-def observe_gate(items: dict, db) -> None:
+def current_policy() -> dict:
+    """{(нормализованная роль, версия замера): хеш паспорта} — ТЕКУЩИЕ сторожа реестра. Строка тени годна гейту только если её ключ и хеш отсюда."""
+    reg = MTP.load()
+    return {(t, g['measurement_version']): MTP.digest_of(p) for t, p in reg['types'].items() for g in p['cutout']['guards']}
+
+
+def observe_gate(items: dict, db=None) -> None:
     """Гейт паспорта в `observe` на платном входе: items SKU→роль. Считает «заблокировал бы» (роли без паспорта — `would_block:no_passport`; вердикт тени
     не `ok` у блокирующего сторожа — `would_block:<вердикт>`). РЕШЕНИЕ ИГНОРИРУЕТСЯ: вход, очередь, ключи заданий и экспорт не меняются ни на байт.
-    Вердикты тени читаются ОДНИМ запросом по текущему хешу фото; нет таблицы/сбой чтения — гейт идёт без вердиктов (одна WARN), роли без паспорта считаются всё равно."""
+    Вердикты тени читаются ОДНИМ запросом с жёстким потолком `SHADOW_OBSERVE_TIMEOUT_S` (по умолчанию через `STORE.db`); нет таблицы/сбой/таймаут чтения — гейт
+    идёт без вердиктов (одна WARN), роли без паспорта считаются всё равно. Строка тени учитывается ТОЛЬКО если: роль строки = нормализованная роль ЭТОГО товара,
+    версия замера и `policy_digest` — текущие у паспорта (старые версии остаются в таблице намеренно, но гейту не отвечают; устаревший хеш — счётчик
+    `shadow_stale_digest`, его чинит `photo_fit.shadow_reverdict`). Из нескольких годных строк берётся первая по (роль, версия) — выбор детерминирован."""
     blocked = {}
     try:
-        for r in db("select d.sku, s.shadow_verdict from mesh_demand d "
-                    f"join {TABLE} s on s.source_sha = d.source_sha and s.status = 'done' "
-                    "where d.status = 'wanted' and s.shadow_verdict is not null and s.shadow_verdict <> 'ok'"):
-            if len(r) == 2:
-                blocked[r[0]] = r[1]
+        cur = current_policy()
+        keys = ', '.join(f"({_q(t)}, {_q(v)})" for t, v in sorted(cur))
+        if keys:
+            run = db or (lambda sql: STORE.db(sql, timeout=observe_timeout()))
+            for r in run("select d.sku, s.normalized_role, s.measurement_version, s.policy_digest, s.shadow_verdict from mesh_demand d "
+                         f"join {TABLE} s on s.source_sha = d.source_sha and s.status = 'done' "
+                         "where d.status = 'wanted' and s.shadow_verdict is not null and s.shadow_verdict <> 'ok' "
+                         f"and (s.normalized_role, s.measurement_version) in ({keys}) "
+                         "order by d.sku, s.normalized_role, s.measurement_version"):
+                if len(r) != 5 or r[0] in blocked or r[0] not in items:
+                    continue
+                sku, nrole, mv, dg, verdict = r
+                if MTP.normalize(items[sku]) != nrole:
+                    continue
+                if (nrole, mv) not in cur:      # старая версия замера: в таблице остаётся намеренно, гейту не отвечает (SQL её тоже не вернёт — это страховка)
+                    continue
+                if cur[(nrole, mv)] != dg:
+                    MTP.STATS['shadow_stale_digest'] += 1
+                    continue
+                blocked[sku] = verdict
     except Exception as e:  # noqa: BLE001
         MTP.warn_once('shadow_read', f'WARN:passport_shadow: вердикты тени не прочитаны ({type(e).__name__}) — гейт без них (observe)')
     for sku, role in items.items():
         MTP.gate(role, 'observe', blocked.get(sku))
+
+
+def timed_db(sql: str) -> list:
+    """Запрос через `STORE.db` с потолком `SHADOW_DB_TIMEOUT_S` — для мест вне модуля (`mesh_scheduler._stamp_digest`)."""
+    return STORE.db(sql)
 
 
 def _selftest() -> int:

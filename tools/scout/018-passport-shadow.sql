@@ -9,7 +9,11 @@
 -- ОТКАТ (данных вне тени нет): drop table if exists passport_shadow; alter table mesh_jobs drop column if exists passport_digest;
 -- ПЕРЕД применением (db-migrate-safe делает сам): pause шагов, `pg_dump` devdb, затем проверка:
 --   tools/ops/db-migrate-safe.sh tools/scout/018-passport-shadow.sql --check \
---     "(select count(*) from information_schema.tables where table_name='passport_shadow')=1 and (select count(*) from information_schema.columns where table_name='mesh_jobs' and column_name='passport_digest')=1"
+--     "(select count(*) from information_schema.tables where table_name='passport_shadow')=1 and (select count(*) from information_schema.columns where table_name='mesh_jobs' and column_name='passport_digest')=1 and (select count(*) from information_schema.columns where table_name='passport_shadow')=11 and (select count(*) from information_schema.key_column_usage k join information_schema.table_constraints c on c.constraint_name=k.constraint_name and c.table_name=k.table_name where c.table_name='passport_shadow' and c.constraint_type='PRIMARY KEY')=3"
+-- ЖЁСТКИЕ ПОТОЛКИ ожидания (проверка Codex T-151/6, п.6): `alter table mesh_jobs` берёт ACCESS EXCLUSIVE — без потолка случайная долгая транзакция
+-- подвесила бы выкатку. Не дождались замка за 5 с → миграция откатывается целиком (db-migrate-safe: --single-transaction), безопасно повторить позже.
+set lock_timeout = '5s';
+set statement_timeout = '60s';
 create table if not exists passport_shadow (
     source_sha          text        not null,
     normalized_role     text        not null,

@@ -64,18 +64,24 @@ def _queue() -> dict[str, str]:
     return out
 
 
+_STAMP_WARNED: list = []
+
+
 def _stamp_digest(job_key: str, sku: str) -> None:
     """Хеш паспорта типа — в колонку `mesh_jobs.passport_digest` ОТДЕЛЬНЫМ update (вставка и ключ задания не меняются; в `job_key` хеш не входит).
-    Роль берём из спроса. Нет колонки (миграция 018 не применена)/сбой — одна WARN-строка и дальше: задание уже поставлено."""
+    Роль берём из спроса. Нет колонки (миграция 018 не применена)/сбой/таймаут — одна WARN-строка и дальше: задание уже поставлено. Оба запроса — через
+    `passport_shadow.timed_db` (потолок `SHADOW_DB_TIMEOUT_S`); сбой самого импорта модулей тоже fail-open (повторного импорта в обработчике нет)."""
     try:
         import mesh_type_passports as MTP
-        role = db(f"select role from mesh_demand where sku={q(sku)}")
+        import passport_shadow as PS
+        role = PS.timed_db(f"select role from mesh_demand where sku={q(sku)}")
         dg = MTP.digest(role[0][0]) if role and role[0] else None
         if dg:
-            db(f"update mesh_jobs set passport_digest={q(dg)} where job_key={q(job_key)}")
-    except Exception as e:  # noqa: BLE001
-        import mesh_type_passports as MTP
-        MTP.warn_once('stamp', f'WARN:passport_shadow: хеш паспорта в задании не записан ({type(e).__name__}) — задание поставлено, миграция 018 применена?')
+            PS.timed_db(f"update mesh_jobs set passport_digest={q(dg)} where job_key={q(job_key)}")
+    except Exception as e:  # noqa: BLE001 — любой сбой, включая отсутствие/поломку модулей: задание уже поставлено
+        if not _STAMP_WARNED:       # одна строка за прогон, не по строке на задание
+            _STAMP_WARNED.append(1)
+            print(f'WARN:passport_shadow: хеш паспорта в задании не записан ({type(e).__name__}) — задание поставлено, миграция 018 применена?', flush=True)
 
 
 def tiers() -> list[tuple[int, str, str]]:

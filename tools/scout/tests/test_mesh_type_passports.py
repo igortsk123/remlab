@@ -67,6 +67,11 @@ import cutout_sync as CS  # noqa: E402
 import mesh_queue as MQ  # noqa: E402
 import mesh_scheduler as MS  # noqa: E402
 
+# БД в этом тесте ЗАКРЫТА: настоящий psql (`PS.PSQL`) заменён командой, которая всегда отказывает, — любой забытый путь к `PgStore` упадёт в fail-open,
+# а не сходит в живую dev-базу (проверка Codex T-151/6: тесты не должны зависеть от того, есть ли docker). Настоящий SQL — `passport_shadow_dbtest.py`.
+NO_DB = [sys.executable, '-c', 'import sys; sys.stderr.write("БД в тесте закрыта"); sys.exit(2)']
+PS.PSQL = NO_DB
+
 REG = MTP.load(force=True)
 K1 = REG['types']['кровать']['cutout']['guards'][0]
 K3 = REG['types']['подушка']['cutout']['guards'][0]
@@ -190,7 +195,8 @@ def synthetic():
     al = np.zeros((H, W), np.uint8)
     al[120:240, 80:320] = 255
     ci = np.dstack([interior[120:240, 80:320], al[120:240, 80:320]])
-    ok(k1(interior, ci, (80, 120)) in ('ok', 'headboard_loss'), 'К1: интерьерный кадр даёт один из двух исходов (названное ложное срабатывание — зафиксировано в золоте)')
+    got_i = k1(interior, ci, (80, 120))
+    ok(got_i == 'ok', f'К1: синтетический интерьерный кадр → ровно ok (ложное срабатывание на нём НЕ воспроизводится; два настоящих названных случая interior_false_positive закреплены в золоте); сейчас {got_i}')
 
     def pillow(kind):
         h, w = 200, 200
@@ -271,7 +277,8 @@ class FakeStore:
         r = self.rows.get((sha, role, mv))
         if r and r['status'] == 'done':
             return
-        n = (r['attempts'] if r else 0) + 1
+        # зеркало SQL `PgStore.write_fail`: прибавка к attempts — только если прошлая запись строки старше COOLDOWN_S (проверено на настоящем Postgres: passport_shadow_dbtest.py)
+        n = 1 if not r else r['attempts'] + (1 if r['age'] >= PS.COOLDOWN_S else 0)
         st = 'quarantine' if terminal or n >= PS.attempts_max() else 'retry'
         self.rows[(sha, role, mv)] = {'status': st, 'attempts': n, 'age': 0, 'verdict': None, 'metrics': None, 'err': code}
 
@@ -313,6 +320,7 @@ def bed_pair():
 def shadow_env(store=None, **env):
     """Изолированное окружение тени: своя заглушка хранилища, сброшенный счётчик прогона, переменные среды, откат всего."""
     old_store, old_cmd = PS.STORE, PS.GUARD_CMD
+    env = {'SHADOW_BACKFILL_LOCK': os.path.join(tempfile.mkdtemp(prefix='shadow-lock-'), 'backfill.lock'), **env}     # свой замок прохода: тесты не трогают ~/.remlab-shadow-backfill.lock
     old_env = {k: os.environ.get(k) for k in env}
     os.environ.update({k: str(v) for k, v in env.items()})
     PS.STORE = store or FakeStore()
@@ -480,7 +488,8 @@ def test_b():
         use_registry(path)
         MTP.reset_stats()
         sqls = []
-        saved = (MS.db, MS.tiers)
+        saved = (MS.db, MS.tiers, PS.STORE)
+        MS._STAMP_WARNED.clear()
 
         def fq(sql, *a, **k):
             sqls.append(sql)
@@ -493,10 +502,11 @@ def test_b():
             return []
         MS.db = fq
         MS.tiers = lambda: [(1, '1:11', 'тест')]
+        PS.STORE = types.SimpleNamespace(db=lambda sql, timeout=None: fq(sql))     # _stamp_digest ходит через PS.timed_db → STORE.db (с потолком), тот же журнал SQL
         try:
             r, out = quiet(MS.main)
         finally:
-            MS.db, MS.tiers = saved
+            MS.db, MS.tiers, PS.STORE = saved
         return r, sqls, out
     ok_r, ok_sql, ok_out = run_main(old_path)
     br_r, br_sql, br_out = run_main(broken)
@@ -538,17 +548,41 @@ def test_b():
     use_registry(old_path)
     MTP.reset_stats()
     # гейт observe сам: только читает
-    sql = []
-    saved = MQ.db
-    MQ.db = lambda s, *a, **k: sql.append(s) or []
+    sql, touts = [], []
+    saved = (MQ.db, PS.STORE)
+    MQ.db = lambda s, *a, **k: (_ for _ in ()).throw(AssertionError('гейт очереди не должен ходить в `db` очереди (у него нет таймаута)'))
+    PS.STORE = types.SimpleNamespace(db=lambda s, timeout=None: sql.append(s) or touts.append(timeout) or [])
     try:
         quiet(MQ.passport_observe, {'1:1': 'кровать', '1:2': 'ничего'})
     finally:
-        MQ.db = saved
-    ok(all(s.lstrip().lower().startswith('select') for s in sql) and MTP.STATS['would_block:no_passport'] == 1, 'гейт observe: только select; роль без паспорта — would_block:no_passport, решение pass')
+        MQ.db, PS.STORE = saved
+    ok(len(sql) == 1 and all(s.lstrip().lower().startswith('select') for s in sql) and MTP.STATS['would_block:no_passport'] == 1,
+       'гейт observe: один select; роль без паспорта — would_block:no_passport, решение pass')
+    ok(touts == [PS.observe_timeout()], f'гейт observe: чтение вердиктов — с потолком SHADOW_OBSERVE_TIMEOUT_S ({touts})')
     # sg_salad: вызов в своём try
-    import importlib
-    ok(True, 'sg_salad: `_passport_observe` проверена статически ниже (в своём try, cfg не меняется)')
+    # sg_salad: настоящая функция `_passport_observe` (достаётся из исходника через ast — модуль тянет тяжёлые зависимости), выполняется в трёх состояниях
+    src = open(os.path.join(SCOUT, 'stablegen', 'sg_salad.py'), encoding='utf-8').read()
+    fn_node = next(n for n in ast.parse(src).body if isinstance(n, ast.FunctionDef) and n.name == '_passport_observe')
+    msgs: list = []
+    ns = {'sys': sys, 'os': os, 'HERE': os.path.join(SCOUT, 'stablegen'), 'say': msgs.append}
+    exec(compile(ast.Module(body=[fn_node], type_ignores=[]), 'sg_salad_passport_observe', 'exec'), ns)
+    obs = ns['_passport_observe']
+    MTP.reset_stats()
+    r1 = obs('кровать')
+    ok(r1 is None and not msgs and sum(MTP.STATS.values()) == 1, f'sg_salad: гейт при норме — ничего не возвращает, ничего не печатает, ровно один счёт ({dict(MTP.STATS)})')
+    use_registry(broken)
+    MTP.reset_stats()
+    r2 = obs('кровать')
+    ok(r2 is None and sum(MTP.STATS.values()) == 1, 'sg_salad: гейт при битом реестре — не бросает, платный путь не меняется (gate ловит сам)')
+    use_registry(old_path)
+    saved_mod = sys.modules.get('mesh_type_passports')
+    sys.modules['mesh_type_passports'] = None            # import → ImportError: поломка самого модуля, не реестра
+    try:
+        r3 = obs('кровать')
+    finally:
+        sys.modules['mesh_type_passports'] = saved_mod
+    ok(r3 is None and len(msgs) == 1 and msgs[0].startswith('WARN:passport_registry'), 'sg_salad: сломанный импорт модуля — одна WARN, не исключение (свой try)')
+    MTP.reset_stats()
     src = open(os.path.join(SCOUT, 'stablegen', 'sg_salad.py'), encoding='utf-8').read()
     ok("_passport_observe(cfg['cat_role'])" in src and src.count('MTP.passport_preflight(role)') == 1 and "cfg['passport" not in src,
        'sg_salad: гейт вызывается из build_cfg, в cfg ничего не добавляется')
@@ -745,12 +779,217 @@ def test_e():
     r = subprocess.run(['git', '-C', ROOT, 'merge-base', 'HEAD', 'origin/main'], capture_output=True, text=True)
     base = r.stdout.strip()
     if r.returncode != 0 or not base:
-        print('  --  нет origin/main (shallow checkout) — проверка по diff пропущена, остаётся статическая')
+        # в CI копия обязана быть с историей (ci.yml: fetch-depth: 0) — отсутствие базы там = красный, а не тихий пропуск (Codex T-151/7)
+        ok(not os.environ.get('CI'), 'нет origin/main: в CI база обязана быть (fetch-depth: 0), локально проверка по diff пропущена — остаётся статическая')
     else:
         d = subprocess.run(['git', '-C', ROOT, 'diff', '--stat', base, '--', 'tools/scout/salad', 'tools/scout/salad/'], capture_output=True, text=True)
         ok(d.returncode == 0 and not d.stdout.strip(), 'git diff --stat по tools/scout/salad пуст' + ('' if not d.stdout.strip() else f': {d.stdout.strip()[:200]}'))
     src = open(os.path.join(SCOUT, 'passport_shadow.py'), encoding='utf-8').read() + open(os.path.join(SCOUT, 'mesh_type_passports.py'), encoding='utf-8').read()
     ok('salad/worker' not in src, 'код паспортов не обращается к salad/worker.py (фаза 2)')
+
+
+def _hang_cmd():
+    return [sys.executable, '-c', 'import time; time.sleep(120)']
+
+
+def test_t7_timeouts():
+    print('T-151/7 п.1: жёсткие потолки на каждый вызов БД, скачивание и бюджет тени:')
+    # (1а) PgStore.db: потолок у подпроцесса и statement/lock_timeout в сеансе
+    with tempfile.TemporaryDirectory() as td:
+        dump = os.path.join(td, 'stdin.sql')
+        PS.PSQL = [sys.executable, '-c', f'import sys; open({dump!r}, "w").write(sys.stdin.read())']
+        try:
+            PS.PgStore().db('select 1', timeout=7)
+            sent = open(dump, encoding='utf-8').read()
+            ok("statement_timeout = 7000" in sent and "lock_timeout = 5000" in sent and sent.rstrip().endswith('select 1'),
+               f'каждый вызов начинается с set statement_timeout/lock_timeout ({sent.splitlines()[0][:80]})')
+            PS.PSQL = _hang_cmd()
+            t0 = time.time()
+            err = None
+            try:
+                PS.PgStore().db('select 1', timeout=1)
+            except RuntimeError as e:
+                err = str(e)
+            ok(err and err.startswith('db_timeout') and time.time() - t0 < 15, f'зависший psql прерван по таймауту за {time.time() - t0:.1f} с ({err})')
+        finally:
+            PS.PSQL = NO_DB
+    # (1б) сквозной бюджет: исчерпан → к БД не идём вообще
+    with tempfile.TemporaryDirectory() as td:
+        touched = os.path.join(td, 'touched')
+        PS.PSQL = [sys.executable, '-c', f'open({touched!r}, "w").write("x")']
+        PS._DEADLINE[0] = time.monotonic() - 1
+        try:
+            err = None
+            try:
+                PS.PgStore().db('select 1')
+            except RuntimeError as e:
+                err = str(e)
+            ok(err and err.startswith('shadow_budget') and not os.path.exists(touched), 'бюджет исчерпан → RuntimeError без обращения к БД')
+        finally:
+            PS._DEADLINE[0] = None
+            PS.PSQL = NO_DB
+    # (1в) one(): зависшая БД тени не подвешивает вырезку
+    raw = png_bytes(np.full((136, 136, 3), (160, 60, 70), np.uint8), 'RGB')
+    cut = Image.open(io.BytesIO(pillow_cut())).convert('RGBA')
+    with tempfile.TemporaryDirectory() as td, shadow_env(PS.PgStore(), SHADOW_DB_TIMEOUT_S=1):
+        job, sqls, restore = one_env(td, raw, cut, GOOD_INFO)
+        PS.PSQL = _hang_cmd()
+        try:
+            t0 = time.time()
+            (r, _), out = quiet(lambda: (CS.one(job), None))
+            ok(r == ('ok', None) and any('insert into photo_assessment' in s for s in sqls) and time.time() - t0 < 25 and PS.RUN.fail == 1,
+               f'БД тени зависла: one() = ok за {time.time() - t0:.1f} с, оценка записана, сбой тени посчитан ({dict(PS.RUN.codes)})')
+        finally:
+            PS.PSQL = NO_DB
+            restore()
+    # (1г) бюджет тени в one() за прогон: исчерпан → тень выключена, вырезка идёт
+    with tempfile.TemporaryDirectory() as td, shadow_env(SHADOW_RUN_BUDGET_S=0.000001) as store:
+        job, sqls, restore = one_env(td, raw, cut, GOOD_INFO)
+        try:
+            (r1, _), o1 = quiet(lambda: (CS.one(job), None))
+            (r2, _), o2 = quiet(lambda: (CS.one(job), None))
+            ok(r1 == ('ok', None) and r2 == ('ok', None) and PS.RUN.off and 'бюджет тени' in o2 and PS.RUN.ok == 1,
+               'бюджет тени исчерпан → WARN:passport_shadow_off (бюджет), вырезка ok, вторая запись не сделана')
+        finally:
+            restore()
+    # (1д) скачивание в проходе: «капающий»/зависший ответ не держит проход дольше потолка
+    raw_bed, cut_bed = bed_pair()
+    sha_bed = hashlib.sha256(raw_bed).hexdigest()
+    with tempfile.TemporaryDirectory() as td, shadow_env(SHADOW_FETCH_TIMEOUT_S=1) as store:
+        open(os.path.join(td, sha_bed + '.png'), 'wb').write(cut_bed)
+
+        def slow(url):
+            time.sleep(30)
+            return raw_bed
+        t0 = time.time()
+        rep, _o = quiet(PS.backfill, [cand(sha_bed, 'кровать')], td, slow, store)
+        ok(rep['outcomes']['fetch_failed'] == 1 and time.time() - t0 < 15, f'скачивание зависло: fetch_failed за {time.time() - t0:.1f} с, проход идёт дальше')
+    # (1е) реальный PgStore в проходе при зависшей БД: состояние не прочитано, проход чисто остановлен и укладывается в потолок
+    with tempfile.TemporaryDirectory() as td, shadow_env(PS.PgStore(), SHADOW_DB_TIMEOUT_S=1):
+        PS.PSQL = _hang_cmd()
+        try:
+            t0 = time.time()
+            rep, out = quiet(PS.backfill, [cand('a')], td, lambda u: b'', None)
+            ok(rep['stop'] and 'состояние не прочитано' in rep['stop'] and time.time() - t0 < 25, f'зависшая БД: проход остановлен за {time.time() - t0:.1f} с ({rep["stop"]})')
+        finally:
+            PS.PSQL = NO_DB
+
+
+def test_t7_claim():
+    print('T-151/7 п.2: один проход за раз, attempts не удваивается:')
+    cut = pillow_cut()
+    with tempfile.TemporaryDirectory() as td, shadow_env() as store:
+        lock = os.environ['SHADOW_BACKFILL_LOCK']
+        fd = os.open(lock, os.O_CREAT | os.O_RDWR, 0o644)
+        import fcntl
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)      # «первый проход» держит замок
+        calls = []
+        try:
+            rep, out = quiet(PS.backfill, [cand('l1')], td, lambda u: calls.append(u) or b'', store)
+        finally:
+            os.close(fd)
+        ok(rep['stop'] == 'другой проход уже идёт' and rep['selected'] == 0 and not calls and not store.rows, 'замок занят: второй проход выходит, ничего не считает и не пишет')
+        open(os.path.join(td, 'l1.png'), 'wb').write(cut)
+        rep, _o = quiet(PS.backfill, [cand('l1')], td, lambda u: b'', store)
+        ok(rep['done'] == 1, 'замок свободен (первый закончил): проход идёт')
+    # без замка (параллельные процессы с одним снимком состояния): одна неудача считается один раз — зеркало SQL
+    with shadow_env() as store:
+        store.write_fail('m1', 'подушка', 'k3.v1', 'd', 'missing_cache', False)
+        store.write_fail('m1', 'подушка', 'k3.v1', 'd', 'missing_cache', False)
+        store.write_fail('m1', 'подушка', 'k3.v1', 'd', 'missing_cache', False)
+        ok(store.rows[('m1', 'подушка', 'k3.v1')]['attempts'] == 1 and store.rows[('m1', 'подушка', 'k3.v1')]['status'] == 'retry',
+           'три записи неудачи в одну ночь = attempts 1, не карантин')
+        store.age_all(PS.COOLDOWN_S + 60)
+        store.write_fail('m1', 'подушка', 'k3.v1', 'd', 'missing_cache', False)
+        ok(store.rows[('m1', 'подушка', 'k3.v1')]['attempts'] == 2, 'через сутки — 2-я попытка')
+    src = open(os.path.join(SCOUT, 'passport_shadow.py'), encoding='utf-8').read()
+    ok("updated <= now() - interval '{COOLDOWN_S} seconds'" in src and "attempts = 0, last_error = null" in src,
+       'в боевом SQL те же правила (настоящий Postgres — passport_shadow_dbtest.py, прогон на pakardev в отчёте)')
+
+
+def test_t7_observe():
+    print('T-151/7 п.3: observe_gate берёт только текущую роль, версию и хеш; reverdict штампует хеш:')
+    cur = PS.current_policy()
+    dg_k1, dg_k3 = cur[('кровать', 'k1.v1')], cur[('подушка', 'k3.v1')]
+
+    def run(rows, items):
+        MTP.reset_stats()
+        PS_sql = []
+        PS.observe_gate(items, lambda sql: PS_sql.append(sql) or rows)
+        return dict(MTP.STATS), PS_sql[0]
+    items = {'1:1': 'кровать', '1:2': 'кровать', '1:3': 'подушка', '1:4': 'кровать', '1:5': 'кровать'}
+    rows = [
+        ['1:1', 'кровать', 'k1.v0', dg_k1, 'headboard_loss'],      # старая версия замера — не отвечает
+        ['1:2', 'подушка', 'k3.v1', dg_k3, 'headboard_loss'],      # роль строки ≠ роль товара
+        ['1:3', 'подушка', 'k3.v1', 'старый-хеш', 'headboard_loss'],   # устаревший хеш политики
+        ['1:4', 'кровать', 'k1.v1', dg_k1, 'headboard_loss'],      # годная
+        ['1:5', 'кровать', 'k1.v1', dg_k1, 'headboard_loss'],
+        ['1:5', 'кровать', 'k1.v1', dg_k1, 'ambiguous'],           # дубль того же товара — берётся первая (порядок из SQL)
+    ]
+    st, sql = run(rows, items)
+    ok(st.get('would_block:headboard_loss') == 2 and st.get('shadow_stale_digest') == 1,
+       f'годны только строки текущей роли/версии/хеша: would_block 2 (1:4, 1:5), устаревший хеш — отдельный счётчик ({st})')
+    ok("('кровать', 'k1.v1')" in sql and "('подушка', 'k3.v1')" in sql and 'order by d.sku, s.normalized_role, s.measurement_version' in sql
+       and "s.status = 'done'" in sql, 'запрос: фильтр по паре (роль, версия) и детерминированный порядок')
+    st2, _ = run([['1:4', 'кровать', 'k1.v1', dg_k1, 'ambiguous']], {'1:4': 'кровать'})
+    ok(st2.get('would_block:headboard_loss', 0) == 0 and st2.get('pass:ok') == 1, 'ambiguous блокирующим не является: pass:ok, не «заблокировал бы»')
+    # reverdict: штамп хеша
+    targets = PF.shadow_digest_targets(REG)
+    ok(('кровать', 'k1.v1', dg_k1) in targets and ('подушка', 'k3.v1', dg_k3) in targets, 'shadow_digest_targets: текущие хеши сторожей реестра')
+    sqls: list = []
+    saved = PF._db
+    PF._db = lambda sql, *a, **k: sqls.append(sql) or []
+    try:
+        quiet(PF.shadow_reverdict)
+    finally:
+        PF._db = saved
+    upd = [s for s in sqls if s.startswith('update passport_shadow set policy_digest')]
+    ok(len(upd) == len(targets) and all("policy_digest <> '" in s and "status = 'done'" in s for s in upd) and any(dg_k1 in s for s in upd),
+       'shadow_reverdict: после пересчёта — по update штампа policy_digest на каждый сторож')
+
+
+def test_t7_failopen():
+    print('T-151/7 п.5: release_quarantine и импорт в _stamp_digest — fail-open:')
+    saved = (CS.run_jobs, CS.todo, CS.sync_photos, PS.run_backfill, sys.argv, PS.STORE)
+    CS.run_jobs = CS.todo = CS.sync_photos = lambda *a, **k: (_ for _ in ()).throw(AssertionError('вырезка не должна идти'))
+    called: list = []
+    PS.run_backfill = lambda *a, **k: called.append(1) or {}
+    sys.argv = ['cutout_sync.py', '--shadow-backfill', '--retry-quarantine']
+    try:
+        for exc, mark in ((PS.TableMissing('нет таблицы'), 'миграция 018'), (RuntimeError('db_timeout'), 'db_timeout')):
+            called.clear()
+            PS.STORE = types.SimpleNamespace(release_quarantine=lambda e=exc: (_ for _ in ()).throw(e))
+            r, out = quiet(CS.main)
+            ok(r == 0 and called == [1] and 'WARN:passport_shadow' in out and mark in out, f'--retry-quarantine при {type(exc).__name__}: код 0, WARN, проход всё равно идёт')
+    finally:
+        CS.run_jobs, CS.todo, CS.sync_photos, PS.run_backfill, sys.argv, PS.STORE = saved
+    # _stamp_digest: сломанный модуль паспортов / проход — задание не теряется, исключения нет, одна WARN
+    MS._STAMP_WARNED.clear()
+    saved_mods = {k: sys.modules.get(k) for k in ('mesh_type_passports', 'passport_shadow')}
+    try:
+        sys.modules['mesh_type_passports'] = None
+        sys.modules['passport_shadow'] = None
+        _r, out = quiet(lambda: [MS._stamp_digest('k|s|v', '1:1') for _ in range(3)])
+        ok(out.count('WARN:passport_shadow') == 1, 'сломанный импорт: _stamp_digest не бросает; одна WARN за прогон (а не по строке на задание)')
+    finally:
+        for k, v in saved_mods.items():
+            sys.modules[k] = v
+        MS._STAMP_WARNED.clear()
+    src = open(os.path.join(SCOUT, 'mesh_scheduler.py'), encoding='utf-8').read()
+    body = src[src.index('def _stamp_digest'):src.index('def tiers')]
+    ok(body.count('import mesh_type_passports') == 1, 'в _stamp_digest нет повторного импорта в обработчике исключения')
+
+
+def test_t7_migration():
+    print('T-151/7 п.6: миграция 018 с потолками ожидания:')
+    sql = open(os.path.join(SCOUT, '018-passport-shadow.sql'), encoding='utf-8').read()
+    code = [ln for ln in sql.splitlines() if ln.strip() and not ln.lstrip().startswith('--')]
+    i_lock = next(i for i, ln in enumerate(code) if ln.startswith("set lock_timeout"))
+    i_alter = next(i for i, ln in enumerate(code) if ln.startswith('alter table mesh_jobs'))
+    i_create = next(i for i, ln in enumerate(code) if ln.startswith('create table'))
+    ok(i_lock < i_create and i_lock < i_alter and any(ln.startswith('set statement_timeout') for ln in code[:i_create]),
+       'set lock_timeout и statement_timeout стоят ДО create table и alter table mesh_jobs')
+    ok('key_column_usage' in sql and "'PRIMARY KEY')=3" in sql, 'проверка «после» (--check) сверяет и ключ из трёх колонок, не только наличие таблицы')
 
 
 def test_shadow_reverdict():
@@ -766,7 +1005,8 @@ def test_shadow_reverdict():
 
 
 def main():
-    for f in (gold, chain_roles, synthetic, crop_box_test, test_a, test_b, test_g, test_d, test_d2, test_shadow_k1_in_one, test_e, test_shadow_reverdict):
+    for f in (gold, chain_roles, synthetic, crop_box_test, test_a, test_b, test_g, test_d, test_d2, test_shadow_k1_in_one, test_e, test_shadow_reverdict,
+              test_t7_timeouts, test_t7_claim, test_t7_observe, test_t7_failopen, test_t7_migration):
         f()
     print(f'\ntest_mesh_type_passports: {"ОШИБОК " + str(len(BAD)) if BAD else "всё зелёное"}')
     for b in BAD:

@@ -570,8 +570,13 @@ def main() -> int:
     if '--shadow-backfill' in sys.argv:
         # ТЕНЬ паспортов по уже вырезанному (без нового запроса к fal/Salad и без записи в photo_assessment и кэш вырезок): состояние — в passport_shadow
         if '--retry-quarantine' in sys.argv:
-            print(f'карантин тени возвращён в повтор: {PS.STORE.release_quarantine()}', flush=True)
-        PS.run_backfill(PRE.ASSESSOR_VERSION, CACHE, fetch, db)
+            try:
+                print(f'карантин тени возвращён в повтор: {PS.STORE.release_quarantine()}', flush=True)
+            except PS.TableMissing:
+                print('WARN:passport_shadow: таблицы passport_shadow нет (миграция 018 не применена) — карантин не возвращён', flush=True)
+            except Exception as e:  # noqa: BLE001 — fail-open: сбой возврата карантина не валит проход
+                print(f'WARN:passport_shadow: карантин не возвращён ({type(e).__name__}: {str(e)[:100]})', flush=True)
+        PS.run_backfill(PRE.ASSESSOR_VERSION, CACHE, fetch)
         return 0   # сбой тени не валит ночную цепочку (сам проход не бросает; причины — WARN в журнале)
     if BACKEND not in BACKENDS:
         print(f'неизвестный источник маски: {BACKEND}')

@@ -31,7 +31,7 @@ class Recorder(PS.PgStore):
     def __init__(self):
         self.sql = []
 
-    def db(self, sql):
+    def db(self, sql, timeout=None):
         self.sql.append(sql.strip().rstrip(';'))
         return []
 
@@ -40,24 +40,49 @@ def main():
     mig = open(os.path.join(SCOUT, '018-passport-shadow.sql'), encoding='utf-8').read()
     r = Recorder()
     A, B, C = 'a' * 64, 'b' * 64, 'c' * 64
+    AGE = "update passport_shadow set updated = updated - interval '2 days' where source_sha = '%s'"       # транзакция живёт в одном now(): «прошли сутки» — сдвигом updated
     r.write_fail(A, 'подушка', 'k3.v1', 'dg', 'missing_cache', False)      # 1-я неудача → retry/1
     r.sql.append("select 'S1', status, attempts, last_error from passport_shadow where source_sha = '%s'" % A)
-    r.write_fail(A, 'подушка', 'k3.v1', 'dg', 'missing_cache', False)      # 2 → retry/2
-    r.write_fail(A, 'подушка', 'k3.v1', 'dg', 'guard_timeout', False)      # 3 → quarantine/3
+    r.write_fail(A, 'подушка', 'k3.v1', 'dg', 'missing_cache', False)      # тот же момент (параллельный проход / повтор в ту же ночь) → остаётся 1
+    r.write_fail(A, 'подушка', 'k3.v1', 'dg', 'missing_cache', False)
+    r.sql.append("select 'S1b', status, attempts from passport_shadow where source_sha = '%s'" % A)
+    r.sql.append(AGE % A)
+    r.write_fail(A, 'подушка', 'k3.v1', 'dg', 'missing_cache', False)      # на следующую ночь → retry/2
+    r.sql.append("select 'S1c', status, attempts from passport_shadow where source_sha = '%s'" % A)
+    r.sql.append(AGE % A)
+    r.write_fail(A, 'подушка', 'k3.v1', 'dg', 'guard_timeout', False)      # ещё ночь → quarantine/3
     r.sql.append("select 'S2', status, attempts, last_error from passport_shadow where source_sha = '%s'" % A)
     r.write_fail(B, 'кровать', 'k1.v1', 'dg', 'decode_failed', True)       # терминальный → quarantine/1 сразу
     r.sql.append("select 'S3', status, attempts from passport_shadow where source_sha = '%s'" % B)
     r.write_done(C, 'кровать', 'k1.v1', 'dg', {'registered': True, 'comps': []}, 'ok')
     r.write_fail(C, 'кровать', 'k1.v1', 'dg', 'fetch_failed', False)       # отказ поверх done — не затирает
     r.sql.append("select 'S4', status, attempts, shadow_verdict, metrics->>'registered' from passport_shadow where source_sha = '%s'" % C)
-    r.write_done(A, 'подушка', 'k3.v1', 'dg2', {'p95_total': 1.0}, 'ok')   # успешная попытка после карантина — done, ошибка сброшена
-    r.sql.append("select 'S5', status, last_error is null, policy_digest from passport_shadow where source_sha = '%s'" % A)
+    r.write_done(A, 'подушка', 'k3.v1', 'dg2', {'p95_total': 1.0}, 'ok')   # успешная попытка после карантина — done, ошибка и attempts сброшены
+    r.sql.append("select 'S5', status, last_error is null, policy_digest, attempts from passport_shadow where source_sha = '%s'" % A)
     r.write_done(A, 'подушка', 'k3.v2', 'dg2', {'p95_total': 1.0}, 'ok')   # другая версия замера — новая строка
     r.sql.append("select 'S6', count(*) from passport_shadow where source_sha = '%s'" % A)
     r.sql.append("select 'S7', count(*) from passport_shadow where status = 'quarantine'")
     r.release_quarantine()
     r.sql.append("select 'S8', status, attempts from passport_shadow where source_sha = '%s'" % B)
     r.sql.append("select 'S9', count(*) from (select source_sha, normalized_role, measurement_version, status, attempts, extract(epoch from now() - updated)::bigint from passport_shadow) t")
+    # выборка observe_gate — НАСТОЯЩИЙ SQL из кода, на временной копии mesh_demand: берёт только текущую пару (роль, версия), done, не ok; порядок детерминирован
+    seen = []
+    MTP = PS.MTP
+    cur = PS.current_policy()
+    PS.observe_gate({'T1': 'кровать', 'T2': 'подушка'}, db=lambda sql: seen.append(sql) or [])
+    gate_sql = seen[0] if seen else ''
+    D, E = 'd' * 64, 'e' * 64
+    fixture = [
+        "create temp table mesh_demand (like mesh_demand including all)",
+        "insert into mesh_demand (sku, role, priority, source_sha) values ('T1', 'кровать', 1, '%s'), ('T2', 'подушка', 1, '%s')" % (D, E),
+        "insert into passport_shadow (source_sha, normalized_role, measurement_version, policy_digest, shadow_verdict, status) values "
+        "('%s', 'кровать', 'k1.v0', 'x', 'headboard_loss', 'done'), "          # старая версия — не отвечает
+        "('%s', 'кровать', 'k1.v1', 'x', 'headboard_loss', 'done'), "          # годная пара
+        "('%s', 'подушка', 'k3.v1', 'x', 'ok', 'done')" % (D, D, E),            # ok — блокирующим не является
+    ]
+    r.sql.extend(fixture)
+    r.sql.append("select 'G', d.sku, s.measurement_version from (" + gate_sql.rstrip().rstrip(';') + ") q(sku, nrole, mv, dg, verdict) join mesh_demand d on d.sku = q.sku join passport_shadow s on s.source_sha = d.source_sha and s.measurement_version = q.mv and s.normalized_role = q.nrole")
+    r.sql.append("select 'GN', count(*) from (" + gate_sql.rstrip().rstrip(';') + ") q")
     script = '\n'.join([
         'begin;',
         "create temp table mesh_jobs (like mesh_jobs including all);",     # временная копия перекрывает боевую в этом сеансе
@@ -75,14 +100,17 @@ def main():
     ok('миграция: колонка passport_digest добавлена (на временную копию mesh_jobs)', g('M1') == [['M1', '1']], str(g('M1')))
     ok('миграция: ключ и два индекса таблицы тени на месте (3 индекса вместе с pkey)', g('M2') == [['M2', '3']], str(g('M2')))
     ok('1-я неудача: retry, attempts 1', g('S1') == [['S1', 'retry', '1', 'missing_cache']], str(g('S1')))
-    ok('3-я неудача: quarantine, attempts 3, ошибка последняя', g('S2') == [['S2', 'quarantine', '3', 'guard_timeout']], str(g('S2')))
+    ok('две ещё записи в тот же момент (параллельный проход): attempts остаётся 1', g('S1b') == [['S1b', 'retry', '1']], str(g('S1b')))
+    ok('на следующую ночь: attempts 2, всё ещё retry', g('S1c') == [['S1c', 'retry', '2']], str(g('S1c')))
+    ok('3-я ночь: quarantine, attempts 3, ошибка последняя', g('S2') == [['S2', 'quarantine', '3', 'guard_timeout']], str(g('S2')))
     ok('терминальный исход: quarantine сразу', g('S3') == [['S3', 'quarantine', '1']], str(g('S3')))
     ok('отказ поверх done не затирает строку', g('S4') == [['S4', 'done', '0', 'ok', 'true']], str(g('S4')))
-    ok('успех после карантина: done, ошибка сброшена, digest обновлён', g('S5') == [['S5', 'done', 't', 'dg2']], str(g('S5')))
+    ok('успех после карантина: done, ошибка сброшена, digest обновлён', g('S5') == [['S5', 'done', 't', 'dg2', '0']], str(g('S5')))
     ok('другая версия замера — отдельная строка (2 строки у sha)', g('S6') == [['S6', '2']], str(g('S6')))
     ok('до возврата в карантине одна строка (B); у A уже done', g('S7') == [['S7', '1']], str(g('S7')))
     ok('release_quarantine: B снова retry, attempts 0', g('S8') == [['S8', 'retry', '0']], str(g('S8')))
     ok('states() читается', g('S9') == [['S9', '4']], str(g('S9')))
+    ok('выборка гейта: ровно одна строка — текущая пара (k1.v1, не ok); старая версия и ok не отвечают', g('GN') == [['GN', '1']] and g('G') == [['G', 'T1', 'k1.v1']], str(g('GN')) + str(g('G')))
     chk = subprocess.run(PS.PSQL, input="select count(*) from information_schema.tables where table_name='passport_shadow' and table_schema not like 'pg_temp%';",
                          capture_output=True, text=True)
     ok('после rollback в базе ничего не осталось (таблицы тени нет, пока миграцию не применит db-migrate-safe)',

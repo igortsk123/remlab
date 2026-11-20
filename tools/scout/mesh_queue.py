@@ -392,7 +392,7 @@ def passport_observe(items: dict) -> None:
     Спрос, ключи заданий, экспорт и манифест Salad не меняются (полей в манифест не добавляем). Всё в своём try: сбой реестра/таблицы очередь не трогает."""
     try:
         import passport_shadow as PS
-        PS.observe_gate(items, db)
+        PS.observe_gate(items)      # чтение вердиктов — своим psql с потолком SHADOW_OBSERVE_TIMEOUT_S, не `db` очереди (у него таймаута нет)
     except Exception as e:  # noqa: BLE001
         print(f'WARN:passport_registry: гейт очереди не вызван ({type(e).__name__}) — очередь не меняется', flush=True)
 

@@ -200,6 +200,13 @@ def shadow_reverdict_plan(rows: list, reg: dict | None = None) -> list:
     return out
 
 
+def shadow_digest_targets(reg: dict | None = None) -> list:
+    """[(роль, версия замера, ТЕКУЩИЙ хеш паспорта)] по всем сторожам реестра — какой штамп `policy_digest` должен стоять у строк тени после перевердикта. Чистая функция."""
+    import mesh_type_passports as MTP
+    reg = reg or MTP.load()
+    return [(t, g['measurement_version'], MTP.digest_of(p)) for t, p in sorted(reg['types'].items()) for g in p['cutout']['guards']]
+
+
 def shadow_reverdict() -> dict:
     """Привести `passport_shadow.shadow_verdict` к текущим порогам паспорта (пишет ТОЛЬКО в passport_shadow). Идемпотентно. → счётчик {'старый→новый': n}."""
     from collections import Counter
@@ -210,6 +217,10 @@ def shadow_reverdict() -> dict:
     for sha, role, mv, new in plan:
         _db(f"update passport_shadow set shadow_verdict = '{new}', updated = now() where source_sha = '{sha}' and normalized_role = '{role}' and measurement_version = '{mv}'")
         cnt[f'{stored[(sha, role, mv)]}→{new}'] += 1
+    # строки приведены к ТЕКУЩИМ порогам — штамп хеша паспорта тоже текущий (иначе `observe_gate` считал бы их устаревшими: фильтр по policy_digest)
+    for role, mv, dg in shadow_digest_targets():
+        _db(f"update passport_shadow set policy_digest = '{dg}', updated = now() where normalized_role = '{role}' and measurement_version = '{mv}' "
+            f"and status = 'done' and metrics is not null and policy_digest <> '{dg}'")
     print(f'[photo_fit] тень паспортов: перевердикт {sum(cnt.values())} {dict(cnt)}', flush=True)
     return dict(cnt)
 

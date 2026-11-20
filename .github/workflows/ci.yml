@@ -380,6 +380,8 @@ jobs:
       SCOUT_ROLES_PATH: tools/scout/tests/fixtures/category-roles-mini.json
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # тест (е) паспортов: `git merge-base HEAD origin/main` — в shallow-копии базы нет и проверка «salad/ не тронут» молча пропускалась (T-151/7, Codex)
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
