@@ -40,12 +40,9 @@ CHUNK = A.CHUNK
 
 # ——— карта из GLB ———
 def read_texture(j: dict, binc: bytes) -> np.ndarray:
-    """Единственная карта GLB (PNG/JPEG во вложенном буфере) → uint8 H×W×3."""
+    """Карта цвета GLB (PNG/JPEG во вложенном буфере или data:-адресе) → uint8 H×W×3; при нескольких картинках — baseColor материала (`a1_tone.base_color_image`)."""
     from PIL import Image
-    imgs = j.get('images') or []
-    if len(imgs) != 1 or 'bufferView' not in imgs[0]:
-        raise ValueError(f'ожидалась одна картинка во вложенном буфере, их {len(imgs)}')
-    return np.asarray(Image.open(io.BytesIO(A.view_bytes(j, binc, imgs[0]['bufferView']))).convert('RGB'))
+    return np.asarray(Image.open(io.BytesIO(A.image_bytes(j, binc, A.base_color_image(j)))).convert('RGB'))
 
 
 # ——— сдвиги ———

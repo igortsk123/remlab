@@ -73,6 +73,31 @@ im = np.asarray(Image.open(io.BytesIO(A.view_bytes(j2, b2, j2['images'][0]['buff
 check('в GLB лежит новая карта 128×128 без потерь', im.shape == (128, 128, 3) and np.array_equal(im, tex1))
 os.remove(p)
 
+# 1б. Hunyuan `model.glb`: две картинки data:-адресом (baseColor — вторая, metallicRoughness — первая); читаем и подменяем только baseColor
+import base64  # noqa: E402
+mr = rng.integers(0, 255, (32, 32, 3), dtype=np.uint8)
+d64 = lambda a: 'data:image/png;base64,' + base64.b64encode(png(a)).decode()  # noqa: E731
+jh = json.loads(json.dumps(j0))
+jh['images'] = [{'uri': d64(mr)}, {'uri': d64(tex0)}]
+jh['textures'] = [{'source': 0}, {'source': 1}]
+jh['materials'] = [{'pbrMetallicRoughness': {'baseColorTexture': {'index': 1}, 'metallicRoughnessTexture': {'index': 0}}}]
+bh = b0[:j0['bufferViews'][3]['byteOffset']]
+jh['bufferViews'] = jh['bufferViews'][:3]
+jh['buffers'] = [{'byteLength': len(bh)}]
+check('2 картинки: baseColor — по материалу', A.base_color_image(jh) == 1)
+check('2 картинки: байты baseColor читаются из data:', np.array_equal(np.asarray(Image.open(io.BytesIO(A.image_bytes(jh, bh, 1))).convert('RGB')), tex0))
+jh1, bh1 = A.swap_texture(jh, bh, png(tex1))
+gh = A.geometry_guard(jh, bh, jh1, bh1)
+check('2 картинки: форма/UV после подмены — те же', gh['ok'] and gh['max_abs_diff'] == 0.0, str(gh))
+check('2 картинки: новый baseColor в буфере, metallicRoughness не тронут', np.array_equal(np.asarray(Image.open(io.BytesIO(A.image_bytes(jh1, bh1, 1))).convert('RGB')), tex1) and jh1['images'][0] == jh['images'][0])
+jm = json.loads(json.dumps(jh))
+jm['materials'] = jm['materials'] * 2
+try:
+    A.base_color_image(jm)
+    check('2 картинки и 2 материала — отказ', False)
+except ValueError:
+    check('2 картинки и 2 материала — отказ', True)
+
 # 2. guard ловит сдвиг вершины и смену индексов
 jb, bb = j1, bytearray(b1)
 off = j1['bufferViews'][0]['byteOffset']

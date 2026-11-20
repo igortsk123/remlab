@@ -78,14 +78,41 @@ def view_bytes(j: dict, binc: bytes, vi: int) -> bytes:
     return binc[o:o + v['byteLength']]
 
 
-def swap_texture(j: dict, binc: bytes, png: bytes) -> tuple[dict, bytes]:
-    """Новая пара (JSON, BIN): картинка единственной текстуры заменена на `png`, остальные куски буфера — те же байты. Одна картинка — иначе отказ (чужие случаи не угадываем)."""
+def base_color_image(j: dict) -> int:
+    """Индекс картинки карты цвета (baseColor). Одна картинка в GLB — она. Несколько (Hunyuan `model.glb`: baseColor + metallicRoughness) —
+    только если материал один и его baseColorTexture указывает на картинку; иначе отказ (чужие случаи не угадываем)."""
     imgs = j.get('images') or []
-    if len(imgs) != 1 or 'bufferView' not in imgs[0]:
-        raise ValueError(f'ожидалась одна картинка во вложенном буфере, их {len(imgs)}')
-    iv = imgs[0]['bufferView']
+    if len(imgs) == 1:
+        return 0
+    mats = j.get('materials') or []
+    if len(imgs) < 1 or len(mats) != 1:
+        raise ValueError(f'ожидалась одна картинка или один материал с baseColorTexture, картинок {len(imgs)}, материалов {len(mats)}')
+    bt = (mats[0].get('pbrMetallicRoughness') or {}).get('baseColorTexture')
+    if bt is None:
+        raise ValueError('у материала нет baseColorTexture')
+    return (j.get('textures') or [])[bt['index']]['source']
+
+
+def image_bytes(j: dict, binc: bytes, ii: int) -> bytes:
+    """Байты картинки: из вложенного буфера (`bufferView`) или из `data:`-адреса."""
+    im = j['images'][ii]
+    if 'bufferView' in im:
+        return view_bytes(j, binc, im['bufferView'])
+    uri = im.get('uri') or ''
+    if uri.startswith('data:') and ';base64,' in uri:
+        import base64
+        return base64.b64decode(uri.split(';base64,', 1)[1])
+    raise ValueError('картинка не во вложенном буфере и не data:-адрес')
+
+
+def swap_texture(j: dict, binc: bytes, png: bytes) -> tuple[dict, bytes]:
+    """Новая пара (JSON, BIN): картинка карты цвета заменена на `png`, остальные куски буфера — те же байты. Одна картинка (или baseColor материала — см. `base_color_image`);
+    у `data:`-картинки новый PNG кладётся новым куском буфера (остальные картинки не трогаем)."""
+    ii = base_color_image(j)
+    im0 = j['images'][ii]
     out = bytearray()
     views = []
+    iv = im0.get('bufferView')
     for i, v in enumerate(j['bufferViews']):
         data = png if i == iv else view_bytes(j, binc, i)
         out += b'\0' * ((4 - len(out) % 4) % 4)
@@ -95,9 +122,14 @@ def swap_texture(j: dict, binc: bytes, png: bytes) -> tuple[dict, bytes]:
         out += data
         views.append(nv)
     nj = json.loads(json.dumps(j))
+    if iv is None:
+        out += b'\0' * ((4 - len(out) % 4) % 4)
+        views.append({'buffer': 0, 'byteOffset': len(out), 'byteLength': len(png)})
+        out += png
+        nj['images'][ii] = {'bufferView': len(views) - 1}
     nj['bufferViews'] = views
     nj['buffers'] = [dict(j['buffers'][0], byteLength=len(out))]
-    nj['images'][0]['mimeType'] = 'image/png'
+    nj['images'][ii]['mimeType'] = 'image/png'
     return nj, bytes(out)
 
 
