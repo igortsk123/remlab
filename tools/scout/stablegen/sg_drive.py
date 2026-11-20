@@ -291,7 +291,7 @@ def steps():
         else:
             order = sg_views.camera_order([c.name for c in cams_all], seed)
         dirs_ = {c.name: (c.location.x - ctr.x, c.location.y - ctr.y) for c in cams_all}
-        back_ = sg_views.back_cameras(dirs_, front) if CFG.get('back_mode') else []
+        back_ = sg_views.back_cameras(dirs_, front, CFG.get('back_limit', sg_views.BACK_LIMIT_DEG)) if CFG.get('back_mode') else []
         if back_:
             ST['back'] = {'mode': CFG['back_mode'], 'cameras': back_}
             if CFG['back_mode'] == 'drop':                    # T5d: камеры строго сзади нет вовсе — зад красится из ±135

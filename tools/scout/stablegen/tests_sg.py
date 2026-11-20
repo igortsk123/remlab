@@ -356,6 +356,21 @@ class RunpodDriverStops(unittest.TestCase):
             self.assertNotIn('qwen_external_style_initial_only', v.get('scene_props') or {})   # фото остальным видам — как в T5b
             self.assertEqual(v['back_suffix'], S.VARIANTS['q2509t5b']['back_suffix'])
 
+    def test_t5g_back_limit_is_variant_parameter_boundary(self):
+        import sg_views as V
+        def dirs_at(angles):
+            return {f'C{i}': (math.sin(math.radians(a)), -math.cos(math.radians(a))) for i, a in enumerate(angles)}
+        front = (0.0, -1.0, 0.0)
+        d = dirs_at([0, 90, 99.5, 100.5, 135, -135, 150.5, 180])
+        names = lambda lim: sorted(V.back_cameras(d, front, lim))
+        self.assertEqual(names(100.0), ['C3', 'C4', 'C5', 'C6', 'C7'])      # 99,5 — ещё с фото, 100,5 — уже без; ±135 и 180 — без
+        self.assertEqual(names(135.0 - 0.01), ['C4', 'C5', 'C6', 'C7'])       # граница 135: в пределах допуска ±135 включены
+        self.assertEqual(names(150.0), ['C6', 'C7'])                         # прежний порог T5d/e/f
+        v = S.VARIANTS['q2509t5g']
+        self.assertEqual((v['back_mode'], v['back_limit']), ('no_photo', 100.0))
+        cfg = S.build_cfg('112923_13224664101879413845@r2b1+newcut', 'q2509t5g', '/o', 's', 2, 2048, 42, 60)
+        self.assertEqual(cfg['back_limit'], 100.0)                           # порог доходит до конфига драйвера, в коде драйвера — только значение по умолчанию
+
     def test_t5_variant_keeps_photo_on_every_view(self):
         v = S.VARIANTS['q2509t5']
         self.assertTrue(v['short_side'] and v['view_prompts'] and v['prompt_keep'])

@@ -76,6 +76,7 @@ VARIANTS['q2509t5c'] = dict(VARIANTS['q2509t5b'], vp_off=[], order_mode='alterna
 _T5BASE = dict(VARIANTS['q2509t5b'], vp_off=[], order_mode='alternating')
 VARIANTS['q2509t5d'] = dict(_T5BASE, back_mode='drop', label='T5d: T5b + порядок от переда; камеры строго сзади нет, зад из ±135')
 VARIANTS['q2509t5e'] = dict(_T5BASE, back_mode='side_sample', label='T5e: T5b + порядок от переда; виду сзади вместо фото магазина — готовый вид бока (±90)')
+VARIANTS['q2509t5g'] = dict(_T5BASE, back_mode='no_photo', back_limit=100.0, label='T5g: T5b + порядок от переда; фото получают виды ≤±90°, виды ±135° и 180° — без фото (только подпись и контекст чистых боков); порог угла — back_limit в конфиге варианта')
 VARIANTS['q2509t5f'] = dict(_T5BASE, back_mode='no_photo', label='T5f: T5b + порядок от переда; виду сзади фото не даём, только подпись и последовательный контекст')
 VARIANTS['q2509t3'] = dict(VARIANTS['q2509vp'], prompt_keep=True, label='диагностика: подсказки видов + прежний короткий промпт')
 VARIANTS['q2509t4'] = dict(VARIANTS['q2509q5'], scene_props={'qwen_external_style_initial_only': True}, label='диагностика: прежний промпт, фото только первому виду')
@@ -212,7 +213,7 @@ def build_cfg(key: str, var: str, out: str, server: str, cameras: int, texture: 
     cfg = {'glb': glb, 'out': out, 'server': server, 'preset': 'QWEN PRECISE', 'prompt': PROMPTS.get(prod, 'a piece of furniture'),
            'cameras': {'mode': 'orbit_ring', 'num': cameras}, 'texture_resolution': texture, 'bake_samples': 16, 'seed': seed, 'timeout_s': timeout_s,
            'style_image': style, 'model_unet': v['unet'], 'lora_name': v['lora']}
-    for k in ('no_lora', 'scene_props', 'megapixels', 'bake_margin', 'bake_denoise', 'view_prompts', 'vp_off', 'short_side', 'back_suffix', 'order_mode', 'back_mode'):
+    for k in ('no_lora', 'scene_props', 'megapixels', 'bake_margin', 'bake_denoise', 'view_prompts', 'vp_off', 'short_side', 'back_suffix', 'order_mode', 'back_mode', 'back_limit'):
         if k in v:
             cfg[k] = v[k]
     if v.get('view_prompts'):                                # ⑪: роль/материал/название — из каталога (БД dev), не из кода; нет данных → прежний короткий промпт + флаг
