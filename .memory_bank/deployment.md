@@ -3,7 +3,7 @@ tier: 1
 topic: deployment
 scope: Деплой/откат/сервер exit-fi
 tier2: "domain/deployment-details.md"
-updated: 2026-11-18
+updated: 2026-11-20
 importance: high
 source: manual
 status: working
@@ -45,4 +45,4 @@ Push в `main` → CI gate → `Deploy prod` (`deploy.yml`). Сервер — `i
 ## Сторожа
 Каталог (ADR-0172), диск `cleanup.sh` (ADR-0005), `disk-watchdog.sh`, доступность `health-watch.sh` → Telegram. Правка сервера = бэкап + rollback.
 Правило для web-образа — исключением в `.dockerignore`, сторож `tools/ops/docker_context.py` (урок 674).
-**Tier 2:** `domain/deployment-details.md` — конвейер, две базы, Caddy и статик, сторожа.
+**Tier 2:** `domain/deployment-details.md` — конвейер, две базы, Caddy и статик, сторожа, `docker-prune.timer` DEV.

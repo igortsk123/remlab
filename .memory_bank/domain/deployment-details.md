@@ -3,7 +3,7 @@ tier: 2
 topic: deployment-details
 scope: Деплой exit-fi — подробности конвейера, сторожа, история правок сервера
 tier1: "../deployment.md"
-updated: 2026-11-18
+updated: 2026-11-20
 importance: med
 source: manual
 last_verified: 2026-11-18
@@ -187,6 +187,8 @@ flock /opt/remlab/.deploy.lock env REMLAB_IMAGE=remlab-app:prev APP_VERSION=prev
 Не зависит от DEV: сайт, демо, 3D, коллекции, ссылки менеджеров и сигналы (таймер на сервере), отчёт застройщику.
 
 **DEV-рендер как юниты systemd пользователя (18.10, T-04):** `remlab-render` (draft_service, 127.0.0.1:8600, OOMScoreAdjust=200 — первая жертва earlyoom) и `remlab-render-tunnel` (ssh -R 172.18.0.1:8601, OOMScoreAdjust=100, RestartSec=3). Исходники — `tools/scout/systemd/*.service`; ставит и чинит `tools/scout/dev_render_backend.sh` (крон `*/10` — `infra/dev/crontab`; строки @reboot в копии crontab нет). Статус: `systemctl --user status remlab-render remlab-render-tunnel`; логи — `~/scout-scenes/dev-render.log`, `dev-tunnel.log`. Живой ли туннель — с сервера `curl 172.18.0.1:8601/health` (version "dev"); `/api/draft/paid` жив ли туннель прямо не показывает: без своего ключа шлюза прод берёт баланс у DEV `GET /credits` через туннель (кэш 30 с), туннель мёртв → `{available:false, code:"unavailable"}` — неотличимо от других причин (`tools/scout/draft_service.py`). Юнит пользователя не может получить OOMScoreAdjust ниже 100; защита ssh — `--avoid` в `/etc/default/earlyoom` (sudo).
+
+**Диск DEV — чистка docker (19.11, владелец TG 2150–2152):** user-таймер `docker-prune.timer` (вс 05:30 Лондон, `~/.config/systemd/user/docker-prune.service`) — `docker image prune -a` и `builder prune` старше 7 дней; первый раз освободил 11→17 ГБ. Меши и логи проб (`~/remlab-logs`) без явного слова владельца НЕ удалять (TG 2152).
 
 **Память DEV (18.10, по слову владельца; к 10.11 RAM 15 ГБ — `free -g`):** было RAM 9,8 ГБ; своп `/swap.img` 4 ГБ + `/swap2.img` 8 ГБ (в `/etc/fstab`, копия `/etc/fstab.bak-20261018-1805`); zram 4,8 ГБ zstd, приоритет 100 (`/etc/systemd/zram-generator.conf`, `dev-zram0.swap`). Зачем: earlyoom (`-m 10,5 -s 10,5`) при полном свопе убивал draft_service и браузеры проверок. Перед пробами браузера — урок 512.
 earlyoom (`/etc/default/earlyoom`, сверено 10.11): `-r 3600 -m 10,5 -s 10,5 --avoid (sshd|ssh|autossh|systemd…) --prefer (qemu|buildkitd|containerd-shim)` —

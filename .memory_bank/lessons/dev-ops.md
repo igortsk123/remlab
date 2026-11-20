@@ -2,7 +2,7 @@
 tier: 2
 topic: lessons-dev-ops
 scope: Уроки DEV-машины — память, earlyoom, туннели, systemd
-updated: 2026-11-18
+updated: 2026-11-20
 importance: med
 source: manual
 status: working
@@ -108,3 +108,10 @@ status: working
   образов теперь только в Actions (урок 722). Публично читаются шаги job (`/repos/<o>/<r>/actions/runs/<id>/jobs`) и аннотации
   (`/check-runs/<job_id>/annotations`). Правило: в сборочных workflow при ошибке выводить хвост лога построчно в `::error::` и в
   `$GITHUB_STEP_SUMMARY` (сделано в пробных `build-pixal3d`/`localmesh-trial`, ветки trial). Токен gh — вопрос владельцу (TG 1825/1826).
+- **763 (19.11, T-90/6, директор)** — платный шаг prio 2 стоял 10 мин (≈$0,15) за слотом, который никто не держал: `xvfb-run` кадровщика
+  оставил осиротевший Xvfb (ppid 1), унаследовавший открытый `~/.cache/remlab-heavy-slot/slot2.lock`; `heavy_slot` писал «порог держателя
+  слота 2 не прочитан» и не выдавал слот даже prio 2. Убит по точному PID — слот взят через 40 с. Правило: при «не прочитан» — `--status`
+  и `fuser` на файле замка; правка `heavy_slot` — не наследовать fd замка в дочерние (close_fds / FD_CLOEXEC) — ещё не сделана.
+- **764 (19.11, T-104)** — ручной прогон по группе Salad `mesh-*` без замка `~/scout-scenes/.batch_show.lock`: сторож сервера
+  (`infra/server/salad-deadman.py`, отметка `/opt/remlab/mesh/heartbeat` пишется `heartbeat.sh` только при живом замке) гасит группу на
+  31-й мин. Правило: любой ручной драйвер очереди держит этот замок, как `queue_run.hold_lock` (cutout_redo masks — 4d696d9d, ветка feat/cutout-redo-104).
