@@ -69,16 +69,16 @@ VARIANTS['q2509vp'] = dict(VARIANTS['q2509q5'], view_prompts=True, scene_props=d
                            label='Qwen-Image-Edit-2509 Q5_K_M + Lightning, ⑪: зерно по силуэту + обход соседями + тексты видов по классу роли и зоне + фото только первому виду (штатные шаблоны Qwen)')
 # Диагностика ⑪ (директор 20.11, комод/диван дали заливку цветом): по одному признаку ⑪, 1 вид. vp_off — что отключить (text — подсказки видов, order — порядок от зерна); prompt_keep — оставить прежний короткий промпт.
 VARIANTS['q2509t1'] = dict(VARIANTS['q2509vp'], vp_off=['text'], label='диагностика: промпт из каталога без подсказок видов')
-VARIANTS['q2509t5'] = dict(VARIANTS['q2509q5'], view_prompts=True, short_side=True, vp_off=['order'], prompt_keep=True, label='T5: q5 + короткая подпись «plain side/back of the same …» у видов сбоку/сзади (угол от переда ≥60°), фото всем видам')
+VARIANTS['q2509t5'] = dict(VARIANTS['q2509q5'], view_prompts=True, short_side=True, vp_off=['order'], label='T5: q5 + короткая подпись «plain side/back of the same …» у видов сбоку/сзади (угол от переда ≥60°), фото всем видам')
 VARIANTS['q2509t5b'] = dict(VARIANTS['q2509t5'], back_suffix=', same colour and material as its side panels', label='T5b: как T5, подпись зада с «same colour and material as its side panels»')
 VARIANTS['q2509t5c'] = dict(VARIANTS['q2509t5b'], vp_off=[], order_mode='alternating', scene_props=dict(sg_views.CUSTOM_PROMPT_PROPS), label='T5c: подписи T5b + фото ТОЛЬКО виду-зерну (initial_only) + порядок от переда ±45/±90/±135, зад последним')
 # T-90/10 (директор 20.11): подписи и фото как в T5b для видов 0–135°, порядок «зерно, ±45, ±90, ±135, 180 последним»; различие — что с видом строго сзади (|угол от зерна| > 150°)
 _T5BASE = dict(VARIANTS['q2509t5b'], vp_off=[], order_mode='alternating')
 VARIANTS['q2509t5d'] = dict(_T5BASE, back_mode='drop', label='T5d: T5b + порядок от переда; камеры строго сзади нет, зад из ±135')
 VARIANTS['q2509t5e'] = dict(_T5BASE, back_mode='side_sample', label='T5e: T5b + порядок от переда; виду сзади вместо фото магазина — готовый вид бока (±90)')
-VARIANTS['q2509t5g'] = dict(_T5BASE, back_mode='no_photo', back_limit=100.0, label='T5g: T5b + порядок от переда; фото получают виды ≤±90°, виды ±135° и 180° — без фото (только подпись и контекст чистых боков); порог угла — back_limit в конфиге варианта')
+VARIANTS['q2509t5g'] = dict(_T5BASE, back_mode='no_photo', back_limit=100.0, label='T5g: T5b + порядок от переда; фото получают виды ≤±90°, виды ±135° и 180° — без фото (только подпись и контекст чистых боков)')
 VARIANTS['q2509t5f'] = dict(_T5BASE, back_mode='no_photo', label='T5f: T5b + порядок от переда; виду сзади фото не даём, только подпись и последовательный контекст')
-VARIANTS['q2509t3'] = dict(VARIANTS['q2509vp'], prompt_keep=True, label='диагностика: подсказки видов + прежний короткий промпт')
+VARIANTS['q2509t3'] = dict(VARIANTS['q2509vp'], label='диагностика: подсказки видов + прежний короткий промпт')
 VARIANTS['q2509t4'] = dict(VARIANTS['q2509q5'], scene_props={'qwen_external_style_initial_only': True}, label='диагностика: прежний промпт, фото только первому виду')
 VARIANTS['q2509edge'] = dict(VARIANTS['q2509q5'], bake_margin=32, bake_denoise=False,
                              scene_props={'sg_silhouette_margin': 8, 'sg_silhouette_feather': 24, 'refine_edge_feather_width': 60, 'discard_factor_after_generation': 75.0, **SHARP_BLEND},
@@ -90,7 +90,6 @@ SHAPE_PATHS = {      # формы R2b1 (TRELLIS.2 k1024, solid fill 20 band 1), 
     ('112923_1167444740116678789', 'r2b1'): os.path.expanduser('~/remlab-logs/t90-1119/sg/shapes/112923_1167444740116678789-k1024.s150k-uv.glb'),      # кресло с обивкой (проба 18.11, TRELLIS.2 1024-42), 150 тыс. граней
 }
 HD20_INPUT = os.path.expanduser('~/remlab-logs/t93-1119/hd20/{key}.rgba.png')                 # HD-вырезка товаров из набора hd20 (кресло)
-PROMPTS = {'112923_13224664101879413845': 'a wooden chest of drawers', '114667_11634594969038554503': 'a fabric sofa', '112923_1167444740116678789': 'an upholstered armchair'}      # короткое описание предмета для промпта StableGen
 
 
 def say(*a) -> None:
@@ -210,21 +209,18 @@ def build_cfg(key: str, var: str, out: str, server: str, cameras: int, texture: 
         shape = shape[:-len('+newcut')]
         style = NEWCUT_INPUT.format(key=prod)
     glb = SHAPE_PATHS[(prod, shape)] if (prod, shape) in SHAPE_PATHS else os.path.join(SHAPE_DIR, f'{prod}-{shape}.glb') if shape else HD_GLB.format(key=prod)    # «товар@r2b1» — упрощённая форма с развёрткой из SHAPE_PATHS
-    cfg = {'glb': glb, 'out': out, 'server': server, 'preset': 'QWEN PRECISE', 'prompt': PROMPTS.get(prod, 'a piece of furniture'),
+    cfg = {'glb': glb, 'out': out, 'server': server, 'preset': 'QWEN PRECISE', 'prompt': 'a piece of furniture',
            'cameras': {'mode': 'orbit_ring', 'num': cameras}, 'texture_resolution': texture, 'bake_samples': 16, 'seed': seed, 'timeout_s': timeout_s,
            'style_image': style, 'model_unet': v['unet'], 'lora_name': v['lora']}
     for k in ('no_lora', 'scene_props', 'megapixels', 'bake_margin', 'bake_denoise', 'view_prompts', 'vp_off', 'short_side', 'back_suffix', 'order_mode', 'back_mode', 'back_limit'):
         if k in v:
             cfg[k] = v[k]
-    if v.get('view_prompts'):                                # ⑪: роль/материал/название — из каталога (БД dev), не из кода; нет данных → прежний короткий промпт + флаг
-        attrs = catalog_attrs(prod)
-        cfg['cat_role'] = attrs.get('role', '')
-        cfg['catalog_name'] = attrs.get('name', '')
-        built, cfg['prompt_flags'] = sg_views.build_prompt(attrs.get('role', ''), attrs.get('material'), cfg['prompt'])
-        if not v.get('prompt_keep'):
-            cfg['prompt'] = built
-        if not attrs:
-            cfg['prompt_flags'] = list(cfg['prompt_flags']) + ['catalog_unavailable']
+    attrs = catalog_attrs(prod)                              # T-90/10: подсказка — из каталога (роль + материал + цвет), для ВСЕХ товаров; словаря по ID нет
+    cfg['cat_role'] = attrs.get('role', '')
+    cfg['catalog_name'] = attrs.get('name', '')
+    cfg['prompt'], cfg['prompt_flags'] = sg_views.build_prompt(attrs.get('role', ''), attrs.get('material'), attrs.get('colour'))
+    if not attrs:
+        cfg['prompt_flags'] = list(cfg['prompt_flags']) + ['catalog_unavailable']
     return cfg
 
 
@@ -233,17 +229,18 @@ def catalog_attrs(prod: str) -> dict:
     shop, _, ext = prod.partition('_')
     if not shop.isdigit() or not ext.isdigit():
         return {}
-    q = (f"select cat_role, name, coalesce(params->>'Материал обивки',''), coalesce(params->>'Материал фасада',''), coalesce(params->>'Материал корпуса','') "
+    q = (f"select cat_role, name, coalesce(params->>'Материал обивки',''), coalesce(params->>'Материал фасада',''), coalesce(params->>'Материал корпуса',''), coalesce(params->>'Цвет основной',''), coalesce(params->>'Расцветка материала обивки',''), coalesce(params->>'Цвет шкафа: Цвет корпуса',''), coalesce(params->>'Цвет шкафа: Цвет фасада','') "
          f"from products where shop_mid::text='{shop}' and external_id='{ext}'")
     try:
         r = subprocess.run(['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab', '-At', '-F', '|', '-c', q], capture_output=True, text=True, timeout=20)
         row = r.stdout.strip().split('\n')[0].split('|') if r.returncode == 0 and r.stdout.strip() else None
     except (OSError, subprocess.TimeoutExpired):
         row = None
-    if not row or len(row) < 5:
+    if not row or len(row) < 9:
         return {}
-    role, name, upholstery, facade, body = row[:5]
-    return {'role': role, 'name': name, 'material': sg_views.material_from_texts([upholstery, facade, body, name])}
+    role, name, upholstery, facade, body, c_main, c_uph, c_body, c_facade = row[:9]
+    return {'role': role, 'name': name, 'material': sg_views.material_from_texts([upholstery, facade, body, name]),
+            'colour': sg_views.colour_from_texts([name, c_uph, c_main, c_body, c_facade])}
 
 
 def progress_line(stage: str, cost: float, cap: float, extra: str = '') -> str:

@@ -282,7 +282,7 @@ def steps():
         ctr = sum(bb, Vector()) / 8
         seed, scores, sure = pick_seed_camera(scn, cams_all, CFG['style_image'], os.path.join(OUT, 'seed-sil'), centre=ctr)
         ST['seed'] = {'camera': seed, 'iou': scores, 'confident': sure}
-        say(f'зерно (камера, чей силуэт ближе к фото): {seed}; IoU {scores}; {"уверенно" if sure else "НЕУВЕРЕННО (перёд/зад неразличимы) — решает близость к −Y"}')
+        say(f'зерно (камера передней полусферы с лучшим IoU силуэта): {seed}; IoU {scores}; {"лучший по IoU — и так спереди" if sure else "лучший по IoU был вне передней полусферы — взято лучшее внутри неё (допущение −Y = лицо формы)"}')
         sv = next(c for c in cams_all if c.name == seed)
         fv = sv.location - ctr
         front = CFG.get('front_vec') or (fv.x, fv.y, 0.0)
@@ -335,7 +335,7 @@ def steps():
         if CFG.get('prompt_flags'):
             flags += list(CFG['prompt_flags'])
         if not sure:
-            flags.append('seed_ambiguous_front_by_minus_Y')
+            flags.append('seed_forced_to_front_hemisphere')
         ST['flags'] = flags
         for name_ in order:
             say(f"подсказка вида {name_} {ST['view_meta'][name_]}: {ST['view_prompts'][name_]}")

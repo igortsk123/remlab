@@ -199,24 +199,34 @@ class Views(unittest.TestCase):
         self.assertEqual(V.material_from_texts(['рогожка']), 'rogozhka')
         self.assertEqual(V.material_from_texts(['экокожа']), 'leather')
         self.assertIsNone(V.material_from_texts(['Ткань', 'Диван Модерн']))
-        p, fl = V.build_prompt('диван', 'velour', 'a fabric sofa')
+        p, fl = V.build_prompt('диван', 'velour', 'blue')
         self.assertEqual(fl, [])
-        self.assertIn('crushed velvet', p)
+        self.assertTrue(p.startswith('a blue sofa, crushed velvet'))
         self.assertIn('marbled mottled pile', p)
-        p, fl = V.build_prompt('диван', None, 'a fabric sofa')
-        self.assertEqual((p, fl), ('a fabric sofa', ['unknown_material']))
-        p, fl = V.build_prompt('абажур', 'velour', 'x')
-        self.assertEqual((p, fl), ('x', ['unknown_role_noun']))
+        p, fl = V.build_prompt('диван', None, 'beige')                                        # нет материала — честно без него, флаг
+        self.assertEqual((p, fl), ('a beige sofa', ['unknown_material']))
+        p, fl = V.build_prompt('абажур', 'velour', None)                                      # нет роли и цвета — «piece of furniture», флаги
+        self.assertTrue(p.startswith('a piece of furniture, crushed velvet'))
+        self.assertEqual(fl, ['unknown_role_noun', 'unknown_colour'])
+        self.assertEqual(V.build_prompt('кресло', 'wood_solid', 'oak')[0][:9], 'an oak ar')   # артикль
+        self.assertEqual(V.colour_from_texts(['Комод divan.ru Модерн 93x88 Графитовый']), 'graphite')
+        self.assertEqual(V.colour_from_texts(['Кресло Glasar Сакура 62х49х97 см', '']), None)
+        self.assertEqual(V.colour_from_texts(['Шкаф Монблан Косы Мятный', 'Зеленый Бежевый']), 'mint')
+        self.assertEqual(V.colour_from_texts(['Диван модульный divan.ru Брера 4 Букле Бежевый']), 'beige')   # «Букле» — материал, не «бук»
+        self.assertIsNone(V.colour_from_texts(['Серия Вега Сервант']))                                         # «серия», «сервант» — не «серый»
+        self.assertEqual(V.colour_from_texts(['Комод Дуб золотистый']), 'oak')
 
     def test_seed_choice_and_order(self):
         import sg_views as V
-        # симметричный предмет (перёд ≈ зад по силуэту): берём камеру, ближайшую к −Y, и помечаем «неуверенно»
+        # T-90/10: зерно только в передней полусфере (лицо формы на −Y); IoU выбирает угол внутри неё
         sc = {'C0': .5556, 'C1': .5503, 'C2': .8435, 'C3': .833, 'C4': .5571, 'C5': .5515, 'C6': .8174, 'C7': .8113}
         dirs = {'C2': (0.71, 1.62), 'C3': (-0.62, 1.64), 'C4': (-1.74, .69), 'C5': (-1.75, -.6), 'C6': (-.7, -1.61), 'C7': (.62, -1.64), 'C0': (1.75, -.7), 'C1': (1.75, .6)}
-        self.assertEqual(V.choose_seed(sc, dirs), ('C7', False))
-        # несимметричный (лучший заметно впереди остальных с другой стороны) — берём лучший по IoU, «уверенно»
-        sc2 = dict(sc, C2=.95)
-        self.assertEqual(V.choose_seed(sc2, dirs), ('C2', True))
+        self.assertEqual(V.choose_seed(sc, dirs), ('C6', False))          # лучший по IoU C2 — сзади; из передних камер IoU выбирает C6 (.8174 > C7 .8113), «неуверенно»
+        sc2 = dict(sc, C7=.95)
+        self.assertEqual(V.choose_seed(sc2, dirs), ('C7', True))          # лучший и так спереди
+        sc3 = dict(sc, C3=.99)                                            # кресло: IoU «уверенно» сзади, а лицо формы на −Y → зерно спереди
+        self.assertEqual(V.choose_seed(sc3, dirs)[0], 'C6')
+        self.assertFalse(V.choose_seed(sc3, dirs)[1])
         self.assertEqual(V.choose_seed({'a': .7}, {}), ('a', True))
         self.assertEqual(V.camera_order(['Camera_10', 'Camera_2', 'Camera_1'], 'Camera_2'), ['Camera_2', 'Camera_10', 'Camera_1'])
         self.assertEqual(V.camera_order(['Camera_0', 'Camera_1', 'Camera_2', 'Camera_3'], 'Camera_2'), ['Camera_2', 'Camera_3', 'Camera_0', 'Camera_1'])
@@ -240,7 +250,7 @@ class Views(unittest.TestCase):
         self.assertEqual(t1['vp_off'], ['text'])
         self.assertTrue(t1['view_prompts'])
         self.assertNotIn('vp_off', t3)
-        self.assertEqual(t3['prompt'], 'a wooden chest of drawers')           # prompt_keep: прежний короткий промпт, подсказки видов остаются
+        self.assertEqual(t3['prompt'], t1['prompt'])                          # подсказка — из каталога у всех вариантов, словаря по ID нет
         self.assertNotIn('view_prompts', t4)
         self.assertEqual(t4['scene_props'], {'qwen_external_style_initial_only': True})
 
@@ -373,7 +383,7 @@ class RunpodDriverStops(unittest.TestCase):
 
     def test_t5_variant_keeps_photo_on_every_view(self):
         v = S.VARIANTS['q2509t5']
-        self.assertTrue(v['short_side'] and v['view_prompts'] and v['prompt_keep'])
+        self.assertTrue(v['short_side'] and v['view_prompts'])
         self.assertEqual(v.get('scene_props'), S.VARIANTS['q2509q5'].get('scene_props'))
         self.assertNotIn('qwen_external_style_initial_only', v.get('scene_props') or {})
         self.assertEqual(v['vp_off'], ['order'])

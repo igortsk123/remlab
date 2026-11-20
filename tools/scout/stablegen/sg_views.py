@@ -220,18 +220,46 @@ def material_from_texts(texts):
     return None
 
 
-def build_prompt(cat_role, material, fallback):
-    """Основной промпт из атрибутов каталога. Возвращает (промпт, флаги). Неизвестная роль или материал → промпт `fallback` (как раньше) и флаг."""
-    noun = ROLE_NOUN.get(norm_role(cat_role))
-    mc = material_class(material) if material else None
+# русские слова цвета: основа (без окончания) → английское слово; данные по типам, без ID товаров
+COLOUR_STEMS = {
+    'графит': 'graphite', 'графитов': 'graphite', 'антрацит': 'anthracite', 'антрацитов': 'anthracite', 'сер': 'grey', 'бел': 'white',
+    'молочн': 'milky white', 'кремов': 'cream', 'бежев': 'beige', 'песочн': 'sand', 'чёрн': 'black', 'черн': 'black', 'син': 'blue', 'голуб': 'light blue',
+    'зелен': 'green', 'зелён': 'green', 'оливков': 'olive', 'мят': 'mint', 'мятн': 'mint', 'изумрудн': 'emerald', 'коричнев': 'brown', 'красн': 'red',
+    'бордов': 'burgundy', 'розов': 'pink', 'жёлт': 'yellow', 'желт': 'yellow', 'горчичн': 'mustard', 'оранжев': 'orange', 'терракотов': 'terracotta',
+    'фиолетов': 'purple', 'лавандов': 'lavender', 'дуб': 'oak', 'дубов': 'oak', 'орех': 'walnut', 'ореховый': 'walnut', 'ясен': 'ash', 'ясеневый': 'ash',
+    'венге': 'wenge', 'бук': 'beech', 'буков': 'beech', 'сосн': 'pine', 'сосновый': 'pine',
+}
+_COLOUR_ENDINGS = ('', 'ый', 'ий', 'ой', 'ая', 'яя', 'ое', 'ее', 'ые', 'ие', 'ого', 'ему', 'ым', 'ом', 'ых', 'их', 'ь', 'а', 'й')
+COLOUR_WORDS = {st + e: en for st, en in COLOUR_STEMS.items() for e in _COLOUR_ENDINGS}      # слово целиком, не по началу («букле» ≠ «бук», «серия» ≠ «сер»)
+
+
+def colour_from_texts(texts):
+    """Первое слово цвета по списку текстов в порядке приоритета (название, затем параметры): слово целиком — в таблице. Нет — None."""
+    for t in texts:
+        for tok in re.split(r'[^\w]+', (t or '').casefold()):
+            if tok in COLOUR_WORDS:
+                return COLOUR_WORDS[tok]
+    return None
+
+
+def build_prompt(cat_role, material, colour=None):
+    """Основной промпт из атрибутов каталога: «a <цвет> <предмет по роли>, <фраза материала>». Никогда не подменяется «заготовкой по ID»:
+    неизвестная роль → «piece of furniture», неизвестный материал/цвет → честно без них. Возвращает (промпт, флаги)."""
     flags = []
+    noun = ROLE_NOUN.get(norm_role(cat_role))
     if not noun:
+        noun = 'piece of furniture'
         flags.append('unknown_role_noun')
+    mc = material_class(material) if material else None
     if not mc:
         flags.append('unknown_material')
-    if flags:
-        return fallback, flags
-    return f'a {noun}, {MATERIAL_PHRASE[mc]}', flags
+    if not colour:
+        flags.append('unknown_colour')
+    head = f'{colour} {noun}' if colour else noun
+    text = f"{'an' if head[0] in 'aeiou' else 'a'} {head}"
+    if mc:
+        text += f', {MATERIAL_PHRASE[mc]}'
+    return text, flags
 
 
 # ---- выбор камеры-зерна и порядок обхода (чистая логика; рендер силуэтов — в sg_drive)
@@ -242,22 +270,28 @@ def natural_key(name):
     return tuple(int(p) if p.isdigit() else p.casefold() for p in re.split(r'(\d+)', name))
 
 
+FRONT_HEMI_MIN_DOT = 0.01   # камера — в передней полусфере, если cos угла к направлению «лица» (−Y) > этого (строго меньше 90°)
+
+
 def choose_seed(scores, dirs, prior_dir=(0.0, -1.0)):
-    """Чистая логика выбора зерна: scores {камера: IoU}, dirs {камера: (x, y) от центра предмета}. Возвращает (камера, уверенно).
-    Лучшая по IoU; если среди равных (в пределах SEED_TIE) есть камера из противоположной полусферы — перёд/зад неразличимы, берём ближайшую к prior_dir (−Y), уверенно=False."""
+    """Чистая логика выбора зерна: scores {камера: IoU}, dirs {камера: (x, y) от центра предмета}.
+    T-90/10 (общее правило): силуэт спереди и сзади совпадает, IoU их не различает — поэтому зерно ищем ТОЛЬКО среди камер передней полусферы
+    (лицо формы генератор ставит на prior_dir = −Y), IoU выбирает лишь угол внутри неё. Возвращает (камера, уверенно): уверенно=False, когда лучшая
+    по IoU камера вообще была вне передней полусферы (правило переопределило IoU) — тогда перёд задан только допущением «−Y = лицо»."""
     ranked = sorted(scores.items(), key=lambda kv: -kv[1])
     best = ranked[0]
     if not dirs:
         return best[0], True
-    cands = [n for n, s_ in ranked if best[1] - s_ < SEED_TIE]
-    def unit(n):
+
+    def dot(n):
         x, y = dirs[n]
         h = math.hypot(x, y) or 1.0
-        return x / h, y / h
-    bx, by = unit(best[0])
-    if not [n for n in cands if unit(n)[0] * bx + unit(n)[1] * by < 0.0]:
+        return (x * prior_dir[0] + y * prior_dir[1]) / h
+    front = [(n, s_) for n, s_ in ranked if n in dirs and dot(n) > FRONT_HEMI_MIN_DOT]
+    if not front:
         return best[0], True
-    return min(cands, key=lambda n: -(unit(n)[0] * prior_dir[0] + unit(n)[1] * prior_dir[1])), False
+    chosen = front[0][0]
+    return chosen, chosen == best[0]
 
 
 def alternating_order(dirs, front, seed):
