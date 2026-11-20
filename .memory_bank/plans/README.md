@@ -49,6 +49,7 @@ draft → in_progress → completed → перенос в completed_plans/
 |------|----------|--------|---------|---------|
 | trial-buyer-gate-01 | Ссылка покупателя на тур — только после подтверждения планировки агентом (T-40, ADR-0386) | in_progress | — | 2026-11-12 |
 | price-segments-01 | Ценовые ступени по роли (П1.90) | in_progress | — | 2026-11-19 |
+| paint-photo-fill-01 | — | in_progress | — | 2026-11-20 |
 | mesh-models-trial-01 | Проба открытых генераторов мешей против Hunyuan3D 2.1 | in_progress | — | 2026-11-20 |
 | floorplan-advisor-trials-01 | Пробы по совету советника — этажи, OCR размеров, внешняя сверка | in_progress | — | 2026-11-10 |
 | rules-registry-01 | Свод правил работы — один реестр P-NNN, короткий индекс, 4 гейта, без противоречий | in_progress | 2026-11-20 | 2026-11-20 |
