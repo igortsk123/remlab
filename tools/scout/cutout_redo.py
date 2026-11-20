@@ -42,6 +42,11 @@ sys.path.insert(0, os.path.join(HERE, 'render_gpu'))
 import mesh_photo as MP        # noqa: E402 — единое правило «какое фото брать»
 import product_names as PN     # noqa: E402 — обход карточек демо
 
+# Общее правило чтения фото магазинов: у части PNG огромный текстовый блок метаданных (XMP/описание), Pillow по умолчанию отказывает
+# («Decompressed data too large … MAX_TEXT_CHUNK», 1 из 1295, 19.11). Текст нам не нужен, пиксели целы — лимит поднят для всех товаров.
+from PIL import PngImagePlugin  # noqa: E402
+PngImagePlugin.MAX_TEXT_CHUNK = 256 * 1024 * 1024
+
 ROOT = os.path.expanduser('~/remlab-logs/t104-1119')
 DEMO = os.path.expanduser('~/scout-scenes/flat215-demo/demo-data.json')
 GROUP = 'mesh-q-mask-canary'
@@ -246,11 +251,18 @@ def cmd_edges(a) -> int:
     light = sorted([r for r in res if r['light'] is not None and r['light'] >= LIGHT_MIN], key=lambda r: -r['rough'])
     json.dump({'light_min': LIGHT_MIN, 'total': len(res), 'light_count': len(light), 'fails': fails, 'light': light, 'all_rough': sorted(res, key=lambda r: -r['rough'])[:30]},
               open(os.path.join(d, 'edges.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    out = os.path.join(d, f'edges-{time.strftime("%H%M")}')
+    out = os.path.join(d, f'edges-{time.strftime("%H%M")}' + ('-мебель' if a.skip_roles else ''))
     os.makedirs(out, exist_ok=True)
     say(f'проверено {len(res)}, отказов {fails}, «светлое на белом» (яркость ≥ {LIGHT_MIN}): {len(light)}')
     # крупно — только сплошные предметы: у ажурных (торшер, люстра) «щели» между частями — это форма, а не брак
-    shown = [r for r in light if r['solid'] >= a.solid_min][: a.top]
+    skip_roles = {x for x in a.skip_roles.split(',') if x}   # --skip-roles: роли, чья «рваность» — рисунок (картины, ковры), а не кромка
+    seen_sha: set[str] = set()   # одно фото у нескольких товаров (размеры одного ковра) — показываем один раз
+    shown = []
+    for r in light:
+        if r['solid'] >= a.solid_min and r['sha'] not in seen_sha and r['role'] not in skip_roles:
+            seen_sha.add(r['sha'])
+            shown.append(r)
+    shown = shown[: a.top]
     for i, r in enumerate(shown, 1):
         cut = Image.open(os.path.join(d, 'cut', r['sha'] + '.png')).convert('RGBA')
         _, diff = edge_roughness(np.asarray(cut)[..., 3])
@@ -353,6 +365,7 @@ def cmd_masks(a) -> int:
         sys.exit(f'{a.group}: нет цены в rules/salad-groups.json — деньги без цены не считаем')
     lock = threading.Lock()
     mpath = os.path.join(d, 'masks.jsonl')
+    have = {r['sku'] for r in jl_read(mpath) if r.get('status') == 'ok'}
     stat = collections.Counter()
     reasons = collections.Counter()
     state = {'streak': 0, 'stop': None}
@@ -369,6 +382,10 @@ def cmd_masks(a) -> int:
         sha = hashlib.sha256(raw).hexdigest()
         if sha in done or os.path.exists(os.path.join(d, 'masks', sha + '.png')):
             stat['already'] += 1
+            # то же фото (байт в байт) у другого товара (размеры одного ковра, цвета одной кровати): маска общая, но товару нужна своя
+            # строка «sku → sha», иначе цепочка и страница его не увидят (19.11: 50 из 1295 товаров выпали)
+            if sku not in have:
+                jl_append(mpath, {'sku': sku, 'sha': sha, 'status': 'ok', 'dup_photo': True, 'photo_url': r['photo_url']}, lock)
             return
         open(os.path.join(d, 'photos', sha + '.img'), 'wb').write(raw)
         for attempt in (1, 2):
@@ -474,6 +491,33 @@ def cmd_masks(a) -> int:
 
 # ------------------------------------------------------------------ chain (наш ЦП)
 
+def cmd_dups(a) -> int:
+    """Достроить `masks.jsonl` для товаров с общим фото: sha фото уже есть в masks/, строки у товара нет. Salad не нужен (фото тянем с магазина)."""
+    d = run_dir(a.run)
+    rows = json.load(open(os.path.join(d, 'products.json'), encoding='utf-8'))
+    mpath = os.path.join(d, 'masks.jsonl')
+    have = {r['sku'] for r in jl_read(mpath) if r.get('status') == 'ok'}
+    lock = threading.Lock()
+    stat = collections.Counter()
+    for r in rows:
+        if r['sku'] in have or not r['photo_url']:
+            continue
+        try:
+            sha = hashlib.sha256(fetch_photo(r['photo_url'])).hexdigest()
+        except Exception as e:  # noqa: BLE001
+            stat['fail'] += 1
+            say(f'  ✗ {r["sku"]}: photo: {e}')
+            continue
+        if not os.path.exists(os.path.join(d, 'masks', sha + '.png')):
+            stat['no_mask'] += 1
+            say(f'  ✗ {r["sku"]}: маски этого фото нет — нужна проба через Salad, не дубль')
+            continue
+        jl_append(mpath, {'sku': r['sku'], 'sha': sha, 'status': 'ok', 'dup_photo': True, 'photo_url': r['photo_url']}, lock)
+        stat['added'] += 1
+    say(f'дубли фото: добавлено {stat["added"]}, без маски {stat["no_mask"]}, отказов {stat["fail"]}')
+    return 1 if stat['fail'] or stat['no_mask'] else 0
+
+
 def cmd_chain(a) -> int:
     from PIL import Image
     import cutout_sync as CS
@@ -555,6 +599,17 @@ def _selftest() -> int:
     rough_jag, _ = edge_roughness(jag)
     ok('рваность: ровный прямоугольник = 0, с выщербинами больше', rough_smooth == 0 and rough_jag > 0)
     ok('сплошность: прямоугольник 1.0, тонкая линия мала', solidity(np.pad(np.full((30, 30), 255, dtype=np.uint8), 10)) == 1.0 and solidity(np.pad(np.full((2, 30), 255, dtype=np.uint8), 10)) <= 1.0)
+    from PIL import Image
+    big = io.BytesIO()
+    meta = PngImagePlugin.PngInfo()
+    meta.add_text('xmp', 'x' * (3 * 1024 * 1024), zip=True)  # текстовый блок 3 МБ — дефолтный лимит Pillow (1 МБ) его не читает
+    Image.new('RGB', (8, 8), (200, 200, 200)).save(big, 'PNG', pnginfo=meta)
+    try:
+        Image.open(io.BytesIO(big.getvalue())).convert('RGB')
+        got = True
+    except ValueError:
+        got = False
+    ok('PNG с огромным текстовым блоком метаданных открывается (общее правило чтения фото)', got)
     print('ИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not bad else f'{bad} провалов')
     return 1 if bad else 0
 
@@ -564,7 +619,7 @@ def main() -> int:
         return _selftest()
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest='cmd', required=True)
-    for name in ('list', 'masks', 'chain', 'light', 'edges'):
+    for name in ('list', 'masks', 'chain', 'light', 'edges', 'dups'):
         p = sub.add_parser(name)
         p.add_argument('--run', default=None, help='метка папки прогона (по умолчанию — время старта)')
     m = sub.choices['masks']
@@ -580,6 +635,7 @@ def main() -> int:
     m.add_argument('--ready-max-s', type=float, default=5400, help='сколько ждать running/ready, с (холодная закачка образа — до ~60 мин)')
     ed = sub.choices['edges']
     ed.add_argument('--solid-min', dest='solid_min', type=float, default=0.35, help='крупно показывать только предметы с долей площади в рамке не ниже')
+    ed.add_argument('--skip-roles', dest='skip_roles', default='', help='роли через запятую, которые не показывать крупно')
     ed.add_argument('--top', type=int, default=5, help='сколько худших кромок показать крупно')
     lt = sub.choices['light']
     lt.add_argument('--roles', default='комод,диван,люстра,торшер,ковёр', help='роли через запятую')
@@ -590,7 +646,7 @@ def main() -> int:
     a = ap.parse_args()
     if a.cmd == 'masks' and not (a.trial or a.all):
         sys.exit('нужен --trial N или --all')
-    return {'list': cmd_list, 'masks': cmd_masks, 'chain': cmd_chain, 'light': cmd_light, 'edges': cmd_edges}[a.cmd](a)
+    return {'list': cmd_list, 'masks': cmd_masks, 'chain': cmd_chain, 'light': cmd_light, 'edges': cmd_edges, 'dups': cmd_dups}[a.cmd](a)
 
 
 if __name__ == '__main__':
