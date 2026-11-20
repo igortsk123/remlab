@@ -42,9 +42,8 @@ def probe(rund: str, out: str, label: str, cfg: dict | None = None, draft_glb: s
             rec['guard_' + nm] = {'outer_tex': rr['outer_tex'], 'tex': rr['tex']}
     except Exception as e:  # noqa: BLE001 — мера охвата не обязательна для кадров
         rec['guard_error'] = f'{type(e).__name__}: {e}'
-    for az in (0.0, 90.0, 180.0):                                 # перёд (как «фото»), бок, зад
-        nm = f'az{int(az):03d}'
-        a, b = TF.render_ortho(geoms, before, az), TF.render_ortho(geoms, after, az)
+    for az, el, nm in ((0.0, 0.0, 'az000-перёд'), (90.0, 0.0, 'az090-бок'), (180.0, 0.0, 'az180-зад'), (0.0, -90.0, 'низ')):     # перёд (как «фото»), бок, зад, дно (камера снизу)
+        a, b = TF.render_ortho(geoms, before, az, elevation=el), TF.render_ortho(geoms, after, az, elevation=el)
         Image.fromarray(a).save(os.path.join(out, f'{label}-before-{nm}.png'))
         Image.fromarray(b).save(os.path.join(out, f'{label}-after-{nm}.png'))
         Image.fromarray(np.concatenate([a, np.full((a.shape[0], 12, 3), 255, np.uint8), b], axis=1)).save(os.path.join(out, f'{label}-pair-{nm}.png'))

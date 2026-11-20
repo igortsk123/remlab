@@ -423,8 +423,25 @@ def test_draft_source():
             ok(True, name + ' отвергнут')
 
 
+def test_render_low():
+    print('кадр снизу (дно) — elevation −90:')
+    q = Quads()
+    q.quad([[-0.5, 0, -0.5], [0.5, 0, -0.5], [0.5, 0, 0.5], [-0.5, 0, 0.5]], (0, 0, .5, .5), sub=4)       # горизонтальная плита, нормаль по ±Y
+    q.quad([[-0.5, 0.05, -0.5], [0.5, 0.05, -0.5], [0.5, 0.05, 0.5], [-0.5, 0.05, 0.5]], (.5, .5, 1, 1), sub=4)
+    tex = np.zeros((T, T, 3), np.uint8)
+    tex[tile_mask((0, 0, .5, .5))] = [200, 30, 30]
+    tex[tile_mask((.5, .5, 1, 1))] = [30, 30, 200]
+    g = q.geom(tex)
+    low = TF.render_ortho([g], [tex], 0.0, res=128, elevation=-90.0)
+    fr = TF.render_ortho([g], [tex], 0.0, res=128)
+    cov = lambda im: float((np.abs(im.astype(int) - 245).sum(axis=2) > 30).mean())    # noqa: E731
+    ok(cov(low) > 0.25 and cov(fr) < 0.05, f'снизу плита видна (покрыто {cov(low):.2f}), в лоб — ребром ({cov(fr):.2f})')
+    ctr = low[56:72, 56:72].reshape(-1, 3).mean(axis=0)
+    ok(ctr[0] > ctr[2], 'снизу ближняя к камере плита (низ, красная) закрывает верхнюю (синюю)', str(ctr))
+
+
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

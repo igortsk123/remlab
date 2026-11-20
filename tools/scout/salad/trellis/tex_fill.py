@@ -110,14 +110,15 @@ def unpainted_mask(rgb):
 
 
 # ---------------------------------------------------------------- видимость с камеры фото ----------------------
-def photo_views(azimuths=None) -> list:
-    """Камеры фото как виды (на_камеру, вправо, вверх) в кадре GLB (лицом +Z, Y вверх): азимут 0 — в лоб, 90 — справа (+X), 180 — сзади."""
+def photo_views(azimuths=None, elevation: float = 0.0) -> list:
+    """Камеры фото как виды (на_камеру, вправо, вверх) в кадре GLB (лицом +Z, Y вверх): азимут 0 — в лоб, 90 — справа (+X), 180 — сзади; elevation — угол над горизонтом (−90 — снизу, на дно)."""
     az = FILL['photo_azimuths'] if azimuths is None else azimuths
     out = []
     for a in az:
         r = np.radians(a)
-        c = np.array([np.sin(r), 0.0, np.cos(r)])
-        right = np.cross([0.0, 1.0, 0.0], c)
+        e = np.radians(elevation)
+        c = np.array([np.sin(r) * np.cos(e), np.sin(e), np.cos(r) * np.cos(e)])
+        right = np.cross([0.0, 1.0, 0.0], c) if abs(c[1]) < 0.999 else np.array([1.0, 0.0, 0.0])
         right /= np.linalg.norm(right)
         out.append((c, right, np.cross(c, right)))
     return out
@@ -785,7 +786,7 @@ def draft_texels(geoms: list, draft_geoms: list, cfg: dict | None = None) -> dic
 
 
 # ---------------------------------------------------------------- кадры «до | после» -------------------------------
-def render_ortho(geoms: list, texs: list, azimuth: float = 180.0, res: int = 1024, ortho: float = 1.25):
+def render_ortho(geoms: list, texs: list, azimuth: float = 180.0, res: int = 1024, ortho: float = 1.25, elevation: float = 0.0):
     """Ортографический кадр предмета с заданного азимута (0 — в лоб, 180 — сзади) с текстурами `texs` (по геометриям): цвет текстуры × освещение лоб-светом. Для проб, не для продукта."""
     ctr, size = frame_of(geoms)
     offs = np.cumsum([0] + [len(g['V']) for g in geoms])
@@ -793,7 +794,7 @@ def render_ortho(geoms: list, texs: list, azimuth: float = 180.0, res: int = 102
     F = np.concatenate([np.asarray(g['F'], np.int64) + offs[i] for i, g in enumerate(geoms)])
     fg = np.concatenate([np.full(len(g['F']), i) for i, g in enumerate(geoms)])
     UV = np.concatenate([np.asarray(g['UV'], np.float64) for g in geoms])
-    v = photo_views([azimuth])[0]
+    v = photo_views([azimuth], elevation)[0]
     x, y, d = TC.project(P, v, ortho)
     xy = np.stack([x * res, y * res], 1)
     ids, _zb = TC.raster(xy, F, res, d)
