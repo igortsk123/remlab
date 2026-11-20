@@ -19,7 +19,7 @@ import remlab_tmp  # noqa: E402
 remlab_tmp.use('tests_tex_coverage')
 import numpy as np  # noqa: E402
 import tex_coverage as TC  # noqa: E402
-import worker_trellis as W  # noqa: E402
+import mv_geometry as W  # noqa: E402  — геометрия кадра MV-Adapter (бывш. worker_trellis, T-20261120-147)
 
 bad = 0
 GRID = 256
@@ -93,7 +93,7 @@ views = TC.mv_views(W.MV_AZ)
 P = np.random.RandomState(1).uniform(-0.5, 0.5, (50, 3))
 x, y, d = TC.project(P, views[0], W.MV_ORTHO)
 u, v = W.mv_ortho_uv(P)
-ok('вид 0 совпадает с `worker_trellis.mv_ortho_uv` (вид «в лоб»: вправо +X, вверх +Y, камера на +Z)', np.allclose(x, u) and np.allclose(y, v) and np.allclose(d, P[:, 2]))
+ok('вид 0 совпадает с `mv_geometry.mv_ortho_uv` (вид «в лоб»: вправо +X, вверх +Y, камера на +Z)', np.allclose(x, u) and np.allclose(y, v) and np.allclose(d, P[:, 2]))
 ok('6 видов: 4 по горизонтали (+Z, +X, −Z, −X) и сверху/снизу; векторы единичные и перпендикулярны',
    len(views) == 6 and np.allclose([c for c, _, _ in views][:4], [[0, 0, 1], [1, 0, 0], [0, 0, -1], [-1, 0, 0]], atol=1e-9)
    and views[4][0][1] > 0.999 and views[5][0][1] < -0.999

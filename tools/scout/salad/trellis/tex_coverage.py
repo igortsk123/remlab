@@ -13,10 +13,10 @@
 что спрятаны внутри. Покупатель их не увидит. Поэтому доли считаются два раза: по ВСЕМ текселям и по «наружным» — видимым хотя бы с одного из 26 направлений вокруг предмета (грани, углы и рёбра куба, ортографический
 буфер глубины `EXT_RES`²; 6 видов MV-Adapter входят). Решение `verdict` смотрит на наружные доли (`*_outer_*`): «из того, что видно снаружи, столько-то заплатки/вскользь/пустое».
 
-КАК ВИДНО (та же камера, что у апстрима, `worker_trellis.py:MV_AZ/MV_ORTHO`; сверка с апстримом — `~/ext-src/mvadapter-1911/repo/mvadapter/utils/mesh_utils/camera.py` и `pipelines/pipeline_texture.py:199-205`):
+КАК ВИДНО (та же камера, что у апстрима, `mv_geometry.py:MV_AZ/MV_ORTHO`; сверка с апстримом — `~/ext-src/mvadapter-1911/repo/mvadapter/utils/mesh_utils/camera.py` и `pipelines/pipeline_texture.py:199-205`):
   6 видов, ортографическая камера ±0,55 (сторона `MV_ORTHO` = 1,1), азимуты `MV_AZ` (уже минус 90°), подъёмы 0/0/0/0/+89,99/−89,99, мир апстрима Z вверх → наш кадр GLB (Y вверх, лицом +Z) поворотом
-  (x, y, z)_мир → (x, z, −y)_наш: вид 0 = «в лоб» (смотрит на сторону +Z, вверх +Y, вправо +X; совпадает с `worker_trellis.mv_ortho_uv`, проверено тестом). Форма — в куб с поворотом `yaw`, как у воркера
-  (`worker_trellis.to_cube`): `yaw` берётся из сводки драйвера (`summary-*.json` → задание → `metrics.fit.yaw_deg`) или `--yaw`.
+  (x, y, z)_мир → (x, z, −y)_наш: вид 0 = «в лоб» (смотрит на сторону +Z, вверх +Y, вправо +X; совпадает с `mv_geometry.mv_ortho_uv`, проверено тестом). Форма — в куб с поворотом `yaw`, как у воркера
+  (`mv_geometry.to_cube`): `yaw` берётся из сводки драйвера (`summary-*.json` → задание → `metrics.fit.yaw_deg`) или `--yaw`.
   Тексель виден с вида, если его точка в кадре — ПЕРВАЯ вдоль луча (буфер глубины 768², как у апстрима; допуск глубины 0,002 размера предмета + наклон) и |cos(нормаль, на камеру)| > 0,1.
   Вместо лучей trimesh.ray на rtree здесь свой буфер глубины на numpy: ИТОГ тот же («первая грань вдоль луча»), но в разы быстрее (несколько секунд на 300 тыс. граней); равенство с `trimesh.ray` проверяет
   `tests_tex_coverage.py` на шаре. |cos| (а не знак) — потому что у сеток TRELLIS порядок обхода не всегда «наружу», знак дал бы ложные «не видно».
@@ -183,7 +183,7 @@ def mv_views(azimuths=None, elevations=None) -> list:
     (камера на (cos e cos a, cos e sin a, sin e), взгляд в центр, вверх +Z мира, вправо = взгляд × вверх); мир → наш кадр (x, y, z) → (x, z, −y)."""
     import numpy as np
     if azimuths is None:
-        import worker_trellis as W
+        import mv_geometry as W
         azimuths = W.MV_AZ
     elevations = MV_ELEV if elevations is None else elevations
     out = []
@@ -319,7 +319,7 @@ def analyze(geoms: list, yaw: float = 0.0, grid: int = 2048, view_res: int = 768
     Возвращает {'tex', 'area' (доли по всем текселям/площади), 'outer_tex', 'outer_area' (доли среди наружных), 'n_island', 'maps': [ {'cls' (T,T) uint8: 0 вне/1 норма/2 unseen наружу/3 grazing/
     4 unpainted/5 unseen внутри, 'base' (T,T,3)} по геометриям], 'time_s'}."""
     import numpy as np
-    import worker_trellis as W
+    import mv_geometry as W
     t0 = time.time()
     stage = {}
     Vall = np.concatenate([np.asarray(g['V'], np.float64) for g in geoms])
