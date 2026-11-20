@@ -983,6 +983,17 @@ class AlbedoPb1(unittest.TestCase):
             repo, rel, sub, name = cat[k]
             self.assertEqual((repo, sub, name or os.path.basename(rel)), ('Comfy-Org/marigold-v2-0', folder, fname), k)
 
+    def test_driver_records_albedo_check_first_in_status(self):
+        """sg_drive запускается только внутри Blender — проверяем исходник: albedo_check первым ключом статуса, запись до и после запекания, ID товаров не появились."""
+        import re
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sg_drive.py'), encoding='utf-8').read()
+        self.assertRegex(src, r"\nST = \{'albedo_check': \{\}, 'stage'")
+        self.assertIn("albedo_check('before_bake', obj)", src)
+        self.assertIn("albedo_check('after_bake', obj)", src)
+        self.assertLess(src.index("albedo_check('before_bake', obj)"), src.index("bpy.ops.object.bake_textures("))
+        self.assertGreater(src.index("albedo_check('after_bake', obj)"), src.index("bpy.ops.object.bake_textures("))
+        self.assertIsNone(re.search(r'\d{5,}[_:]\d{5,}', src))
+
     def test_cfg_forwards_pb1_props_and_weights_for_group(self):
         c = S.build_cfg(KEY, 'pb1', '/o', '127.0.0.1:18190', 8, 2048, 42, 2400)
         self.assertEqual(c['scene_props']['pbr_albedo_source'], 'marigold_v2')
