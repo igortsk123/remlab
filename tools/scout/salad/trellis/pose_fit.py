@@ -303,7 +303,11 @@ def main() -> int:
     ap.add_argument('--px', type=int, default=1536)
     ap.add_argument('--n-fit', type=int, default=256)
     ap.add_argument('--topk', type=int, default=4)
+    ap.add_argument('--ortho', action='store_true', help='сравнение: дистанция камеры прибита к D_MAX (слабая перспектива ≈ ортография), остальное как обычно')
     a = ap.parse_args()
+    if a.ortho:
+        globals()['GRID_D'] = (D_MAX,)
+        globals()['D_MIN'] = D_MAX - 1.0
     os.makedirs(a.out_run, exist_ok=True)
     photo = SL.read_rgba(a.photo)
     alpha = photo[..., 3] > 127
