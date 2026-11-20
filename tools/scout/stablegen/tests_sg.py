@@ -324,6 +324,22 @@ class ViewGuard(unittest.TestCase):
         self.assertIn(G.photo_colour_word(st_pale, r)[0], ('light grey', 'mint', 'grey', 'light blue'))
         self.assertEqual(G.photo_colour_word({'lab': None, 'obj_frac': 0.0}, r), (None, None))
 
+    def test_stop_only_works_without_runs(self):
+        """T-154/1: «гасилка» группы (--stop-only) падала на обязательном --runs и не гасила платную группу; без --runs обычный запуск по-прежнему отказывает."""
+        import sys
+        import types
+        from unittest import mock
+        calls = []
+        br = types.SimpleNamespace(stop_and_verify=lambda name: calls.append(name) or True)
+        mg = types.SimpleNamespace(env_from_file=lambda: None)
+        with mock.patch.dict(sys.modules, {'bench_run': br, 'migrate_groups': mg}):
+            with mock.patch.object(sys, 'argv', ['sg_salad.py', '--suffix', 'zz', '--stop-only']):
+                self.assertEqual(S.main(), 0)
+            self.assertEqual(calls, ['trial-sg-zz'])
+            with mock.patch.object(sys, 'argv', ['sg_salad.py', '--suffix', 'zz', '--image', 'r/i@sha256:x']):
+                with self.assertRaises(SystemExit):
+                    S.main()
+
 
 class Experiments(unittest.TestCase):
     def test_no_lora_variant_config(self):
