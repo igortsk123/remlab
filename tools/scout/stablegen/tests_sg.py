@@ -571,5 +571,67 @@ class RunpodDriverStops(unittest.TestCase):
         self.assertEqual(rc, 1)
 
 
+class QueueTests(unittest.TestCase):
+    """Общая очередь прогонов (sg_queue.RunQueue) — одни правила для RunPod и Salad (T-90/12)."""
+
+    class P:
+        def __init__(self): self.rc, self.killed = None, False
+        def poll(self): return self.rc
+        def terminate(self): self.killed, self.rc = True, -15
+
+    def make(self, runs, tmp, results):
+        import sg_queue as Q
+        procs = {}
+
+        def start(key, var, t):
+            d = os.path.join(tmp, key)
+            os.makedirs(os.path.join(d, 'blender'), exist_ok=True)
+            p = procs[key] = self.P()
+            return {'key': key, 'variant': var, 'label': var, 'dir': d, 'proc': p, 'started': t, 'last_say': t}
+
+        def finish(it, rc, t):
+            return results.get(it['key'], rc == 0), {}
+        said = []
+        q = Q.RunQueue(runs, {}, start=start, finish=finish, say=lambda *x: said.append(' '.join(map(str, x))), progress=lambda s, c, cap: s, job_timeout_s=3000)
+        return q, procs, said
+
+    def status(self, tmp, key, stage, steps=()):
+        import json
+        json.dump({'stage': stage, 'steps': list(steps)}, open(os.path.join(tmp, key, 'blender', 'status.json'), 'w'))
+
+    def test_probe_failure_stops_group(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            q, procs, _ = self.make([('a', 'v'), ('b', 'v')], tmp, {})
+            self.assertIsNone(q.step(0))
+            procs['a'].rc = 1
+            self.assertEqual(q.step(1), 'probe_failed')
+
+    def test_second_failure_after_success_does_not_stop_but_two_in_a_row_do(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            q, procs, _ = self.make([(k, 'v') for k in 'abcd'], tmp, {'b': False, 'c': False})
+            for k, expect in (('a', None), ('b', None), ('c', 'failures')):
+                q.step(0)
+                procs[k].rc = 0
+                self.assertEqual(q.step(1), expect, k)
+
+    def test_next_starts_when_previous_bakes_and_hung_bake_is_killed(self):
+        import tempfile
+        import sg_queue as Q
+        with tempfile.TemporaryDirectory() as tmp:
+            q, procs, said = self.make([('a', 'v'), ('b', 'v')], tmp, {})
+            q.step(0)
+            self.status(tmp, 'a', 'bake', [(10.0, 'bake')])
+            q.step(20)                                              # a ушёл в запекание → нода свободна
+            q.step(21)                                              # → стартует b
+            self.assertIn('b', procs)
+            self.assertEqual([x['key'] for x in q.baking], ['a'])
+            q.step(20 + Q.BAKE_EXPECT_S * Q.BAKE_WATCH_FACTOR + 5)
+            self.assertTrue(procs['a'].killed)
+            self.assertTrue(any('запекание зависло' in x for x in said))
+            self.assertEqual(q.summary['runs'][0]['note'], 'запекание зависло')
+
+
 if __name__ == '__main__':
     unittest.main()

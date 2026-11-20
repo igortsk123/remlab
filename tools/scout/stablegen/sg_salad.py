@@ -42,8 +42,7 @@ READINESS = {'http': {'path': '/health', 'port': PORT, 'scheme': 'http', 'header
              'initial_delay_seconds': 30, 'period_seconds': 10, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 3}
 STARTUP = {'http': {'path': '/health', 'port': PORT, 'scheme': 'http', 'headers': []},
            'initial_delay_seconds': 10, 'period_seconds': 60, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 20}      # API Salad: failure_threshold ≤ 20
-FAIL_STREAK = 2
-BAKE_EXPECT_S, BAKE_WATCH_FACTOR = 300, 3                  # сторож запекания: ожидаемое ≈ 4–5 мин (комод 226 с); дольше 3× — зависло (T-90/11: форма без UV крутилась 55 мин)
+from sg_queue import BAKE_EXPECT_S, BAKE_WATCH_FACTOR, FAIL_STREAK  # noqa: E402,F401  — одни правила очереди для RunPod и Salad (sg_queue.py)
 SG_HOME = os.path.expanduser('~/remlab-logs/t90-1119/sg')
 HD_GLB = os.path.expanduser('~/remlab-logs/t94-1119/out/{key}-hd.glb')                      # HD-форма (без пересборки развёртки)
 NEWCUT_INPUT = os.path.expanduser('~/remlab-logs/t94-1119/newcut-2149/{key}.rgba.png')       # новая вырезка (комод; диван — только если р.4 пришлёт)
@@ -65,6 +64,7 @@ SHARP_BLEND = {'weight_exponent_generation_only': True, 'weight_exponent_after_g
 VARIANTS['q2509mp'] = dict(VARIANTS['q2509q5'], megapixels=1.76, scene_props=dict(SHARP_BLEND),
                            label='Qwen-Image-Edit-2509 Q5_K_M + Lightning, виды 1,76 Мп (≈1328²) + резкое смешивание видов (степень 15 после генерации)')
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import sg_queue as Q                                                        # noqa: E402
 import sg_views                                                          # noqa: E402  (чистые функции: тексты видов, шаблоны, словарь материалов)
 VARIANTS['q2509vp'] = dict(VARIANTS['q2509q5'], view_prompts=True, scene_props=dict(sg_views.CUSTOM_PROMPT_PROPS),      # T-90/7 ⑪ (Codex 20.11): фото только первому виду, зерно по силуэту, обход соседями, тексты видов по классу роли, штатные шаблоны аддона
                            label='Qwen-Image-Edit-2509 Q5_K_M + Lightning, ⑪: зерно по силуэту + обход соседями + тексты видов по классу роли и зоне + фото только первому виду (штатные шаблоны Qwen)')
@@ -345,7 +345,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
     os.makedirs(a.out, exist_ok=True)
     relay = None
     run_since = None
-    cur = None
+    queue = None
     try:
         for _ in range(120):
             _, st, _c = BR.group_state(name)
@@ -356,7 +356,22 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
         code, _ = MG.api(f'/{name}/start', 'POST')
         say('start HTTP', code)
         gw, ready_at, ever_ok, last_gb, last_gb_t, last_say, minute_say = None, None, False, None, None, 0.0, 0.0
-        pending, fail_streak = list(runs), 0
+        pending = list(runs)
+
+        def start_run(key, var, t):
+            stamp = time.strftime('%H%M%S', time.gmtime())
+            odir = os.path.join(a.out, f'{key}-{var}-{stamp}')            # новая папка с меткой времени — старое не перезаписывается
+            os.makedirs(odir, exist_ok=True)
+            cfg = build_cfg(key, var, os.path.join(odir, 'blender'), f'127.0.0.1:{RELAY_PORT}', a.cameras, a.texture, a.seed, a.job_timeout * 60)   # стоп «форма без UV» — здесь, до Blender
+            cfg_path = os.path.join(odir, 'cfg.json')
+            json.dump(cfg, open(cfg_path, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+            heavy = os.path.join(SCOUT, '..', 'ops', 'heavy-slot.sh')
+            cmd = [heavy, f't90-sg-{var}', '--prio', '2', '--cores', '4', '--min-gb', '3', '--timeout', str(a.job_timeout * 60), '--', os.path.join(HERE, 'sg_run.sh'), cfg_path]   # prio 2: ждёт платная нода
+            proc = popen(cmd, env={**os.environ, 'SG_HOME': SG_HOME}, stdout=open(os.path.join(odir, 'run.log'), 'ab'), stderr=subprocess.STDOUT)
+            return {'key': key, 'variant': var, 'label': VARIANTS[var]['label'], 'dir': odir, 'proc': proc, 'started': t, 'last_say': t}
+
+        def finish_run(it, rc, t):
+            return rc == 0 and os.path.exists(os.path.join(it['dir'], 'blender', 'painted.glb')), {}
 
         def over_limits(t: float) -> str | None:
             running_s = (t - run_since) if run_since is not None else 0.0
@@ -439,50 +454,18 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
                     summary['stopped_by'] = 'not_ready'
                     break
             if ready_at is not None:
-                if cur is None and pending:
-                    key, var = pending.pop(0)
-                    stamp = time.strftime('%H%M%S', time.gmtime())
-                    odir = os.path.join(a.out, f'{key}-{var}-{stamp}')            # новая папка с меткой времени — старое не перезаписывается
-                    os.makedirs(odir, exist_ok=True)
-                    cfg = build_cfg(key, var, os.path.join(odir, 'blender'), f'127.0.0.1:{RELAY_PORT}', a.cameras, a.texture, a.seed, a.job_timeout * 60)
-                    cfg_path = os.path.join(odir, 'cfg.json')
-                    json.dump(cfg, open(cfg_path, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-                    heavy = os.path.join(SCOUT, '..', 'ops', 'heavy-slot.sh')
-                    cmd = [heavy, f't90-sg-{var}', '--prio', '1', '--cores', '3', '--min-gb', '6', '--timeout', str(a.job_timeout * 60), '--', os.path.join(HERE, 'sg_run.sh'), cfg_path]
-                    proc = popen(cmd, env={**os.environ, 'SG_HOME': SG_HOME}, stdout=open(os.path.join(odir, 'run.log'), 'ab'), stderr=subprocess.STDOUT)
-                    cur = {'key': key, 'variant': var, 'label': VARIANTS[var]['label'], 'dir': odir, 'proc': proc, 'started': t, 'last_say': t}
-                    say('прогон', key, var, '→', odir)
-                elif cur is not None:
-                    rc = cur['proc'].poll()
-                    if rc is None and t - cur['last_say'] >= 600:
-                        cur['last_say'] = t
-                        st_path = os.path.join(cur['dir'], 'blender', 'status.json')
-                        stage = json.load(open(st_path, encoding='utf-8')).get('stage') if os.path.exists(st_path) else 'старт Blender'
-                        say(progress_line(f'{cur["key"]} {cur["variant"]}: {stage}', summary['cost_usd_est'], a.cap))
-                    if rc is None and t - cur['started'] > a.job_timeout * 60:
-                        cur['proc'].terminate()
-                        say(f'!! прогон не закончился за {a.job_timeout} мин — прерываю')
-                        rc = -1
-                    if rc is not None:
-                        glb = os.path.join(cur['dir'], 'blender', 'painted.glb')
-                        ok = rc == 0 and os.path.exists(glb)
-                        rec = {'key': cur['key'], 'variant': cur['variant'], 'label': cur['label'], 'dir': cur['dir'], 'rc': rc, 'ok': ok, 'seconds': round(t - cur['started'], 1),
-                               'glb': glb if ok else None}
-                        summary['runs'].append(rec)
-                        fail_streak = 0 if ok else fail_streak + 1
-                        summary['failed'] += not ok
-                        say('прогон', cur['key'], cur['variant'], 'ГОТОВО' if ok else f'УПАЛ (rc={rc}, смотри {cur["dir"]}/run.log)', f'{rec["seconds"]} с')
-                        cur = None
-                        if fail_streak >= FAIL_STREAK:
-                            say(f'!! {FAIL_STREAK} прогона подряд упали — гашу (чинить в коде, не жечь деньги)')
-                            summary['stopped_by'] = 'failures'
-                            break
-                if cur is None and not pending:
+                if queue is None:
+                    queue = Q.RunQueue(pending, summary, start=start_run, finish=finish_run, say=say, progress=progress_line, job_timeout_s=a.job_timeout * 60)
+                qwhy = queue.step(t, summary['cost_usd_est'], a.cap)
+                if qwhy:
+                    summary['stopped_by'] = qwhy
+                    break
+                if queue.done:
                     summary['stopped_by'] = 'done'
                     break
             sleep(10)
     finally:
-        for p in ([relay] if relay else []) + ([cur['proc']] if cur else []):
+        for p in ([relay] if relay else []) + (queue.procs() if queue else []):
             try:
                 p.terminate()
             except Exception:  # noqa: BLE001

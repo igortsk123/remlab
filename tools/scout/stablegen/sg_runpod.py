@@ -24,6 +24,7 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCOUT = os.path.normpath(os.path.join(HERE, '..'))
 sys.path.insert(0, HERE)
+import sg_queue as Q
 import sg_salad as S  # noqa: E402  — общие части: варианты, веса, конфиг драйвера, цена, HEAD по HF, строки хода
 
 API = 'https://api.runpod.io'
@@ -119,13 +120,7 @@ def terminate(api: Api, pod_id: str) -> bool:
     return ok
 
 
-def bake_started_at(it: dict) -> float | None:
-    """Когда у прогона начался шаг bake (часы драйвера): старт прогона + время шага из status.json; None — ещё не дошёл."""
-    try:
-        steps = json.load(open(os.path.join(it['dir'], 'blender', 'status.json'), encoding='utf-8')).get('steps') or []
-    except (OSError, ValueError):
-        return None
-    return next((it['started'] + float(t_rel) for t_rel, name in steps if name == 'bake'), None)
+bake_started_at = Q.bake_started_at
 
 
 def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) -> int:
@@ -143,7 +138,6 @@ def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) 
     if bad:
         return 3
     pod, price, t_create = None, None, None
-    gate_since = None
     if a.reuse_pod:                       # живой под от прошлого запуска (его драйвер убит, под цел): не платим за новый образ/веса заново
         c, d = api.call('GET', f'/v2/pods/{a.reuse_pod}')
         if c == 200 and d.get('status') == 'RUNNING':
@@ -168,10 +162,44 @@ def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) 
     summary = {'pod': pod, 'image': a.image, 'price_usd_h': price, 'cap_usd': a.cap, 'weights': spec, 'runs': [], 'failed': 0, 'stopped_by': None, 'terminated': False}
     os.makedirs(a.out, exist_ok=True)
     base = f'https://{pod}-{PORT}.proxy.runpod.net'
-    relay, cur, running_at, ready_at, last_minute, last_say, fail_streak = None, None, None, None, 0.0, 0.0, 0
-    baking = []                                                # прогоны, у которых генерация на поде закончена и идёт локальное запекание: под уже свободен, следующий товар стартует (T-90/11, директор 20.11)
+    relay, running_at, ready_at, last_minute, last_say = None, None, None, 0.0, 0.0
     relay_port = None
-    pending = list(runs)
+    queue = None                                               # общая очередь прогонов (sg_queue.RunQueue: перекрытие, сторож запекания, проба) — одна и для RunPod, и для Salad (T-90/12)
+    gate_state = {'since': None}
+
+    def gate_fn(t, n_done):                                    # ворота между товарами (директор 20.11): после первого — ждём «go»/«stop» в файле
+        if not n_done:
+            return 'go'
+        gv = open(a.gate, encoding='utf-8').read().strip().lower() if os.path.exists(a.gate) else ''
+        if gate_state['since'] is None:
+            gate_state['since'] = t
+            say(f'ворота: жду слова в файле {a.gate} (go|stop), не дольше {a.gate_min} мин')
+        if gv.startswith('stop') or t - gate_state['since'] > a.gate_min * 60:
+            say('!! ворота: стоп' if gv.startswith('stop') else '!! ворота: слова нет за срок — удаляю под')
+            return 'stop'
+        if not gv.startswith('go'):
+            return 'wait'
+        gate_state['since'] = None
+        return 'go'
+
+    def start_run(key, var, t):
+        odir = os.path.join(a.out, f'{key}-{var}-rp-{time.strftime("%H%M%S", time.gmtime())}')
+        os.makedirs(odir, exist_ok=True)
+        cfg = S.build_cfg(key, var, os.path.join(odir, 'blender'), f'127.0.0.1:{relay_port}', a.cameras, a.texture, a.seed, a.job_timeout * 60)   # здесь стоп «форма без UV» — до запуска Blender и до трат пода
+        cfg['require_worker'] = True               # Blender-драйвер сам проверит /info: без воркера пода (backend+карта) генерацию не начинает
+        cfg_path = os.path.join(odir, 'cfg.json')
+        json.dump(cfg, open(cfg_path, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        cmd = [os.path.join(SCOUT, '..', 'ops', 'heavy-slot.sh'), f't90-sg-{var}', '--prio', '2', '--cores', '4', '--min-gb', '3', '--timeout', str(a.job_timeout * 60), '--', os.path.join(HERE, 'sg_run.sh'), cfg_path]
+        proc = popen(cmd, env={**os.environ, 'SG_HOME': SG_HOME}, stdout=open(os.path.join(odir, 'run.log'), 'ab'), stderr=subprocess.STDOUT)
+        return {'key': key, 'variant': var, 'label': S.VARIANTS[var]['label'], 'dir': odir, 'proc': proc, 'started': t, 'last_say': t}
+
+    def finish_run(it, rc, t):
+        glb = os.path.join(it['dir'], 'blender', 'painted.glb')
+        ic, ij = public_get(f'http://127.0.0.1:{relay_port}/info')           # ④ кто ответил: воркер пода, карта, версия — без этого кадры не считаются результатом
+        answered = {'pod': pod, 'gpu': ij.get('gpu') if ic == 200 else None, 'backend': ij.get('backend') if ic == 200 else None, 'http': ic}
+        json.dump(answered, open(os.path.join(it['dir'], 'answered_by.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+        say('КТО ОТВЕТИЛ:', answered)
+        return rc == 0 and os.path.exists(glb) and bool(answered['backend'] and answered['gpu']), {'answered_by': answered}
     try:
         while True:
             t = clock()
@@ -234,85 +262,19 @@ def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) 
                         break
                     say(f'мост 127.0.0.1:{relay_port} → под: /health с воркером пода ответил, серверу ComfyUI можно доверять')
             if ready_at is not None:
-                if cur is None and pending and a.gate and summary['runs']:      # ворота между товарами (директор 20.11): смотрим результат первого, файл «go» — дальше, «stop» — стоп и удаление пода
-                    gv = open(a.gate, encoding='utf-8').read().strip().lower() if os.path.exists(a.gate) else ''
-                    if gate_since is None:
-                        gate_since = t
-                        say(f'ворота: жду слова в файле {a.gate} (go|stop), не дольше {a.gate_min} мин')
-                    if gv.startswith('stop') or t - gate_since > a.gate_min * 60:
-                        say('!! ворота: стоп' if gv.startswith('stop') else '!! ворота: слова нет за срок — удаляю под')
-                        summary['stopped_by'] = 'gate_stop'
-                        break
-                    if not gv.startswith('go'):
-                        sleep(10)
-                        continue
-                    gate_since = None
-                if cur is None and pending and not (a.gate and summary['runs'] and gate_since is not None):
-                    key, var = pending.pop(0)
-                    odir = os.path.join(a.out, f'{key}-{var}-rp-{time.strftime("%H%M%S", time.gmtime())}')
-                    os.makedirs(odir, exist_ok=True)
-                    cfg = S.build_cfg(key, var, os.path.join(odir, 'blender'), f'127.0.0.1:{relay_port}', a.cameras, a.texture, a.seed, a.job_timeout * 60)
-                    cfg['require_worker'] = True               # Blender-драйвер сам проверит /info: без воркера пода (backend+карта) генерацию не начинает
-                    cfg_path = os.path.join(odir, 'cfg.json')
-                    json.dump(cfg, open(cfg_path, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-                    cmd = [os.path.join(SCOUT, '..', 'ops', 'heavy-slot.sh'), f't90-sg-{var}', '--prio', '2', '--cores', '4', '--min-gb', '3', '--timeout', str(a.job_timeout * 60), '--', os.path.join(HERE, 'sg_run.sh'), cfg_path]
-                    proc = popen(cmd, env={**os.environ, 'SG_HOME': SG_HOME}, stdout=open(os.path.join(odir, 'run.log'), 'ab'), stderr=subprocess.STDOUT)
-                    cur = {'key': key, 'variant': var, 'label': S.VARIANTS[var]['label'], 'dir': odir, 'proc': proc, 'started': t, 'last_say': t}
-                    say('прогон', key, var, '→', odir)
-                if cur is not None and not a.gate:                   # генерация на поде кончилась (дальше локальные «bake»/«export») — под свободен, следующий товар не ждёт запекания
-                    stp0 = os.path.join(cur['dir'], 'blender', 'status.json')
-                    if os.path.exists(stp0) and json.load(open(stp0, encoding='utf-8')).get('stage') in ('bake', 'export'):
-                        baking.append(cur)
-                        say('под свободен (идёт запекание', cur['key'], cur['variant'], 'локально) — следующий товар на под')
-                        cur = None
-                stop_all = False
-                for it in ([cur] if cur is not None else []) + list(baking):
-                        rc = it['proc'].poll()
-                        bs = bake_started_at(it) if rc is None else None
-                        if bs is not None and t - bs > S.BAKE_EXPECT_S * S.BAKE_WATCH_FACTOR:           # сторож (директор 20.11): запекание дольше 3× ожидаемого — убиваем, товар помечаем, под берёт следующий
-                            it['proc'].terminate()
-                            it['bake_hung'] = True
-                            say(f'!! запекание зависло: {it["key"]} {it["variant"]} идёт {(t - bs) / 60:.0f} мин при ожидаемых {S.BAKE_EXPECT_S / 60:.0f} — убиваю')
-                            rc = -2
-                        if rc is None and t - it['last_say'] >= 600:
-                            it['last_say'] = t
-                            stp = os.path.join(it['dir'], 'blender', 'status.json')
-                            stage = json.load(open(stp, encoding='utf-8')).get('stage') if os.path.exists(stp) else 'старт Blender'
-                            say(S.progress_line(f'{it["key"]} {it["variant"]}: {stage}', cost, a.cap))
-                        if rc is None and t - it['started'] > a.job_timeout * 60:
-                            it['proc'].terminate()
-                            say(f'!! прогон не закончился за {a.job_timeout} мин — прерываю')
-                            rc = -1
-                        if rc is not None:
-                            glb = os.path.join(it['dir'], 'blender', 'painted.glb')
-                            ic, ij = public_get(f'http://127.0.0.1:{relay_port}/info')           # ④ кто ответил: воркер пода, карта, версия — без этого кадры не считаются результатом
-                            answered = {'pod': pod, 'gpu': ij.get('gpu') if ic == 200 else None, 'backend': ij.get('backend') if ic == 200 else None, 'http': ic}
-                            json.dump(answered, open(os.path.join(it['dir'], 'answered_by.json'), 'w', encoding='utf-8'), ensure_ascii=False)
-                            say('КТО ОТВЕТИЛ:', answered)
-                            ok = rc == 0 and os.path.exists(glb) and bool(answered['backend'] and answered['gpu'])
-                            summary['runs'].append({'key': it['key'], 'variant': it['variant'], 'label': it['label'], 'dir': it['dir'], 'rc': rc, 'ok': ok, 'answered_by': answered, 'seconds': round(t - it['started'], 1), 'glb': glb if ok else None})
-                            fail_streak = 0 if ok else fail_streak + 1
-                            if it.get('bake_hung'):
-                                summary['runs'][-1]['note'] = 'запекание зависло'
-                            summary['failed'] += not ok
-                            say('прогон', it['key'], it['variant'], 'ГОТОВО' if ok else f'УПАЛ (rc={rc}, {it["dir"]}/run.log)', f'{summary["runs"][-1]["seconds"]} с')
-                            if it is cur:
-                                cur = None
-                            else:
-                                baking.remove(it)
-                            if fail_streak >= S.FAIL_STREAK:
-                                say(f'!! {S.FAIL_STREAK} прогона подряд упали — удаляю под')
-                                summary['stopped_by'] = 'failures'
-                                stop_all = True
-                                break
-                if stop_all:
+                if queue is None:
+                    queue = Q.RunQueue(runs, summary, start=start_run, finish=finish_run, say=say, progress=S.progress_line, job_timeout_s=a.job_timeout * 60,
+                                       gate=gate_fn if a.gate else None)
+                qwhy = queue.step(t, cost, a.cap)
+                if qwhy:
+                    summary['stopped_by'] = qwhy
                     break
-                if cur is None and not pending and not baking:
+                if queue.done:
                     summary['stopped_by'] = 'done'
                     break
             sleep(10)
     finally:
-        for p in ([relay] if relay else []) + [x['proc'] for x in ([cur] if cur else []) + baking]:
+        for p in ([relay] if relay else []) + (queue.procs() if queue else []):
             try:
                 p.terminate()
             except Exception:  # noqa: BLE001
