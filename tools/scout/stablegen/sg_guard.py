@@ -16,6 +16,7 @@ import csv
 import glob
 import json
 import os
+import re
 import sys
 import time
 
@@ -39,7 +40,8 @@ def sku_of(d: str) -> str:
     try:
         return json.load(open(os.path.join(d, 'manifest.json'), encoding='utf-8'))['sku']
     except (OSError, ValueError, KeyError):
-        return os.path.basename(d.rstrip('/')).partition('@')[0].replace('_', ':', 1)
+        m = re.match(r'(\d+)_(\d+)', os.path.basename(d.rstrip('/')))     # имя папки: `<mid>_<eid>@форма+вариант-метка` или `<mid>_<eid>-вариант-метка`
+        return f'{m.group(1)}:{m.group(2)}' if m else os.path.basename(d.rstrip('/'))
 
 
 def guard_value(verdict: str, cfg: dict | None = None) -> str:
