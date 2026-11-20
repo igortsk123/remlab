@@ -1,7 +1,7 @@
 ---
 tier: 1
 topic: stablegen-paint
-scope: Покраска мешей StableGen — пакет, стопы, повторы
+scope: Покраска StableGen — пакет, повторы
 tier2: "../domain/viz-fidelity-playbook.md"
 updated: 2026-11-20
 importance: high
