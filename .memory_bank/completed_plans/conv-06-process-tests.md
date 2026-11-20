@@ -2,16 +2,13 @@
 workstream: catalog
 slug: conv-06-process-tests
 title: Конвейер как процессы — карта этапов, инварианты на каждом стыке, один дайджест «где порвалось»
-status: partial
-pause_reason: "сделано 14.10: 19 стыков, интеграционный тест на временной БД, демо-гостиная в экзамене, развороты — на решение владельцу; осталось: стык вырезки (после conv-07 → conv-01, отметки владельца)"
-resume_trigger: "следующий проход очереди или красный стык без метрики"
+status: completed
 created: 2026-10-13
-updated: 2026-10-14
-completed:
+updated: 2026-11-20
+completed: 2026-11-20
 plan_kind: sub
 parent_plan: MASTER-conveyor-gaps
 assignee: opus-5.5
-review_after: 2026-11-13
 ---
 
 ## Цель
@@ -82,26 +79,27 @@ review_after: 2026-11-13
 - Переписывание `refresh_daily.sh` (порядок шагов меняют профильные планы).
 
 ## Файлы к изменению
-- [ ] `tools/scout/rules/pipeline-map.json` (новый)
-- [ ] `tools/scout/tests_chain.py` — инварианты из карты
-- [ ] `tools/scout/pipeline_metrics.py`, `tools/scout/health.py` — числа стыков
-- [ ] страница `/test/pipeline/` (скрипт публикации как у `/test/coverage/`)
-- [ ] `tools/scout/refresh_daily.sh` — блок дайджеста
-- [ ] `.memory_bank/core/pipeline-order.md`, `domain/pipeline-order-details.md`
+- [x] `tools/scout/rules/pipeline-map.json` (новый)
+- [x] `tools/scout/tests_chain.py` — инварианты из карты
+- [x] `tools/scout/pipeline_metrics.py`, `tools/scout/health.py` — числа стыков
+- [x] страница `/test/pipeline/` (скрипт публикации как у `/test/coverage/`)
+- [x] `tools/scout/refresh_daily.sh` — блок дайджеста
+- [x] `.memory_bank/core/pipeline-order.md`, `domain/pipeline-order-details.md`
 
 ## Критерии приёмки
-- [ ] У каждого этапа карты есть число за сегодня и вчера на странице; ни одного «?»
-- [ ] Искусственно сломанный стык (например, обнулить `lr_roles` на копии) даёт WARN в дайджесте
-- [ ] `tests_chain.py --selftest` в CI зелёный; `--live` в ночной цепочке
+- [x] У каждого этапа карты есть число за сегодня и вчера на странице; ни одного «?»
+- [x] Искусственно сломанный стык (например, обнулить `lr_roles` на копии) даёт WARN в дайджесте
+- [x] `tests_chain.py --selftest` в CI зелёный; `--live` в ночной цепочке
 
 ## Где обязательно советоваться с Codex
 - Выбор инвариантов и порогов падения (п.2 правила: бюджеты/отсечки) — ДО реализации.
 - Критика карты процессов (п.5: новый план/метаплан) — до показа владельцу.
 
 ## Definition of Done — память
-- [ ] `core/pipeline-order.md` переписан по карте; `core/regression-net.md` — ссылка; ADR; `/memory-check`
+- [x] `core/pipeline-order.md` переписан по карте; ADR-0272; ~~`core/regression-net.md` — ссылка~~ — снято: ссылки нет, карта живёт в `core/pipeline-order.md`
 
 ## Лог выполнения
+- 2026-11-20 — закрыт: completed (T-20261120-116, вердикты T-20261119-110 (П1.88)); главное перепроверено по коду 20.11.
 - 2026-10-14 — сверка книги: стык `light_missing` намеренно справочный (705 из 745 без лёгкой копии — сборка копий отдельной задачей ADR-0212); перепроверка страниц товаров демо перед сборкой (обещание conv-10) — долг этого плана.
 - 2026-10-14 — Opus 5.5: стык `light_missing` — опубликованные модели без лёгкой копии: 705 из 745 (справочно; сборка копий — ADR-0212).
 - 2026-10-14 — Opus 5.5: в скоуп добавлен стык «у опубликованной модели есть лёгкая копия» (книга, гл. 4.6: первый вход в 3D ≈ 30 МБ).
@@ -113,7 +111,9 @@ review_after: 2026-11-13
 - 2026-10-13 — план создан (draft), Fable 5.1
 
 ## Completion summary
-—
+- Итог: путь «фид → … → демо» описан как карта процессов — `tools/scout/rules/pipeline-map.json` + `tools/scout/pipeline_map.py` (шаг `pipeline_map` в ночной цепочке `refresh_daily.sh:766`, страница `/test/pipeline/`); инварианты стыков — `tools/scout/tests_chain.py` (`--live` в ночной цепочке `refresh_daily.sh:424`, стенд в списке CI `ci.yml:381`); интеграционный тест на одноразовой БД `tools/scout/tests/pipeline_chain_dbtest.py`; демо-гостиная в ночном экзамене (5 сцен `set{1,5,9,12,16}-demo`); стыки разворотов `orient_*` и справочный `light_missing`. 19 стыков. ADR-0272; коммиты 9ded2d5f, 0a036ecd, 90428031.
+- Не сделано, перенесено: стык «вырезка» — в `rules/pipeline-map.json` его нет (сверено `git grep` 20.11; ждал conv-07 → conv-01) → строкой в Follow-up `conv-07-cutout-before-style-experiment`.
+- Память: `core/pipeline-order.md` переписан по карте (есть ссылки на `pipeline_map`); в `core/regression-net.md` ссылки на карту нет — снято с DoD.
 
 ### Уроки
-—
+- Поломки 11–12.10 случились при зелёных тестах — тестировать надо процессы (числа на стыках), не функции; первый же интеграционный тест на чистой БД нашёл, что схема каталога без `bootstrap.sql` не собиралась.

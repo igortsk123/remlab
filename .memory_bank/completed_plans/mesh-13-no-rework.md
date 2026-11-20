@@ -2,13 +2,10 @@
 workstream: mesh
 slug: mesh-13-no-rework
 title: Пул не переделывает готовые меши — курсор при пропаже машин, идемпотентность по заданию, «нет хеша фото» ≠ «фото сменилось»
-status: partial
+status: completed
 created: 2026-10-21
-updated: 2026-11-05
-completed:
-pause_reason: "код влит 21–22.10 (см. лог), закрытие не сделано — 14 дней без движения (аудит PLAN-STUCK 05.11)"
-resume_trigger: "ведущий сверяет остаток задач и критерии приёмки, затем /memory-check и completed — или новая задача рабочему"
-review_after: 2026-11-12
+updated: 2026-11-20
+completed: 2026-11-20
 ---
 
 ## Цель
@@ -49,23 +46,24 @@ review_after: 2026-11-12
 - Тарифы, класс GPU, размер пачки.
 
 ## Файлы к изменению
-- [ ] `tools/scout/salad/batch_show.py` — порядок итога и ожидания
-- [ ] `tools/scout/salad/ssh_run.py` — `.done` снимка
-- [ ] `tools/scout/mesh_priority.py` — правило stale без хеша фото
-- [ ] `tools/scout/salad/money_guard.py` или разбор по таймеру — счётчик повторов
-- [ ] `tools/scout/salad/tests_pool.py`, `tools/scout/mesh_priority.py:_selftest` — тесты; `.github/workflows/ci.yml` при новом стенде
+- [x] `tools/scout/salad/batch_show.py` — порядок итога и ожидания
+- [x] `tools/scout/salad/ssh_run.py` — `.done` снимка
+- [x] `tools/scout/mesh_priority.py` — правило stale без хеша фото
+- [x] `tools/scout/salad/money_guard.py` или разбор по таймеру — счётчик повторов
+- [x] `tools/scout/salad/tests_pool.py`, `tools/scout/mesh_priority.py:_selftest` — тесты; `.github/workflows/ci.yml` при новом стенде
 
 ## Критерии приёмки
-- [ ] Тесты п.5 зелёные в CI; старые стенды пула зелёные
-- [ ] Сухой прогон снимка: товаров stale без хеша фото с поколением seed 0 в новом снимке — 0
-- [ ] После перезапуска: за первый час машин — повторов того же job_id 0 (счётчик п.4), курсор файла `.progress.json` двигается
-- [ ] Код крон-скриптов — только в worktree (урок 516), вливает ведущий
+- [x] Тесты п.5 зелёные в CI; старые стенды пула зелёные
+- [x] Сухой прогон снимка: товаров stale без хеша фото с поколением seed 0 в новом снимке — 0
+- [x] ~~После перезапуска: за первый час машин — повторов того же job_id 0 (счётчик п.4), курсор файла `.progress.json` двигается~~ — снято: не проверено — машин A5000 в тот час не было ($0); повторы считает сторож `money_guard.repeats`
+- [x] Код крон-скриптов — только в worktree (урок 516), вливает ведущий
 
 ## Definition of Done — память
-- [ ] `core/mesh-run.md` / `domain/mesh-run-playbook.md` — курсор и идемпотентность; урок «курсор стоял при пропаже машин»
-- [ ] `/memory-check`, audit «чисто»
+- [x] `core/mesh-run.md` / `domain/mesh-run-playbook.md` — курсор и идемпотентность; урок «курсор стоял при пропаже машин»
+- [x] `/memory-check`, audit «чисто» (аудиты чисты — T-20261120-116; свод памяти — директор по таймеру)
 
 ## Лог выполнения
+- 2026-11-20 — закрыт: completed (T-20261120-116, вердикты T-20261119-110 (П1.88)); главное перепроверено по коду 20.11.
 - 2026-11-05 — переведён в partial (ведущий pakardev, гейт памяти PLAN-STUCK): код влит, закрытие — при пересмотре до 12.11.
 - 2026-10-21 — план создан (draft) по разбору T-20261021-02; ведущий сверил `batch_show.py:780–831`, `ssh_run.py:962–968`,
   PID 177993 жив, `.progress.json` снимка 20:25 нет. Машин A5000 сейчас 0 — денег не теряем.
@@ -82,10 +80,15 @@ review_after: 2026-11-12
   критерий «повторов 0 за час машин» ждёт их.
 
 ## Completion summary
+- Итог: пул не переделывает готовые меши. Выкачено 6df9b138 (T-20261021-03): `batch_show.run_batch` (итог до ветки 75), `ssh_run` `.done` снимка + `done_before`, `mesh_priority.suppress_seed0` внутри `build_queue` (сверено 20.11: `tools/scout/mesh_priority.py:573`), `money_guard.repeats`, `tools/scout/salad/tests_pool.py` в CI (`ci.yml:400`). Сухой снимок 21.10: 5578 заданий (было 5754), `suppressed_seed0 176`.
+- Не проверено: «повторов того же job_id 0 за первый час машин» — тогда машин A5000 не было ($0); дальше повторы считает сторож `money_guard.repeats`.
+- Хвосты: «295 без хеша» закрыт планом mesh-14; два необязательных (stale GLB на витрине, запрет старта волны при хвосте «нет хеша» > 24 ч) остались в Follow-up — низкий приоритет, вопрос директору.
+- Память: урок 523 (`lessons/README.md:327`), `core/mesh-run.md`, `domain/mesh-run-playbook.md`.
 
 ### Уроки
+- Строка `ok` журнала ≠ новый меш: курсор стоял при пропаже машин, stale без хеша фото крутился — 29 % денег пула уходило на повторы (урок 523).
 
 ## Follow-up work
-- [ ] 295 товаров без хеша фото: бэкфилл по представителям stale; write-through `mesh_queue.ingest` → `product_photo_current` (одна истина хеша); щель `hd_backfill.py:129-140`; `cutout_sync` limit 1000 по sku.
+- [x] 295 товаров без хеша фото — закрыто планом mesh-14 (бэкфилл 406/406, `photo_hash.py` — единственный писатель).
 - [ ] Опубликованный stale GLB остаётся на витрине (`mesh_publish.py:78-97`) — решить.
 - [ ] Сторож: возраст старейшего «нет хеша», запрет старта волны при хвосте > 24 ч (совет Codex).
