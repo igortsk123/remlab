@@ -46,6 +46,33 @@ TEXTILE_FORM = {"шторы": "curtain", "подушка": "pillow", "плед":
 # ---------------------------------------------------------------- правила и классы
 
 
+def aabb_dist_cm(eye, mn, mx) -> float:
+    """Расстояние (см) от точки `eye` (метры) до габаритного ящика предмета (`mn`, `mx` — углы ящика, метры); внутри ящика — 0.
+    Правило «створка у объектива» (T-20261119-106): камера стоит в проёме в 2–3 см от створки, ближнюю плоскость (6 см) створка проходит только по центру
+    кадра, а на косых лучах остаётся перед линзой и рисуется чёрным блоком (в кадре «Спальня 2 · minimal» — треть кадра, вторая тумба за ним)."""
+    d2 = 0.0
+    for e, lo, hi in zip(eye, mn, mx):
+        d = lo - e if e < lo else e - hi if e > hi else 0.0
+        d2 += d * d
+    return (d2 ** 0.5) * 100.0
+
+
+def lens_hidden(eye, mn, mx, cm: float) -> bool:
+    """Скрыть ли предмет в кадре: он ближе `cm` см к объективу (cm ≤ 0 — правило выключено)."""
+    return cm > 0 and aabb_dist_cm(eye, mn, mx) < cm
+
+
+def seen_from_behind(hits) -> set:
+    """Какие предметы оболочки камера видит В ОСНОВНОМ С ИЗНАНКИ. `hits` — пары (имя предмета, задняя_грань?) первых видимых попаданий лучей по сетке кадра
+    (T-20261119-106: камера C2 спальни стоит между шторой и стеной — штора закрывает левую четверть кадра вместе с тумбой). Большинство попаданий в изнанку → предмет в кадре скрыт;
+    единичные попадания в изнанку складок при взгляде спереди предмет не скрывают."""
+    cnt: dict = {}
+    for name, back in hits:
+        c = cnt.setdefault(name, [0, 0])
+        c[1 if back else 0] += 1
+    return {n for n, (front, back) in cnt.items() if back > front}
+
+
 def load_rules(path: str = RULES_PATH) -> dict:
     with open(path, encoding="utf-8") as f:
         return json.load(f)
@@ -577,6 +604,7 @@ class Guard:
         self.frames: list[dict] = []
         self.t_qa = 0.0
         self.art: dict = {}
+        self.frame_hook = None      # fn(eye) — привести сцену к кадру камеры (скрытие предметов у объектива); маска сторожа строится по тому же состоянию, что и кадр
         self.dump_dir = os.path.dirname(os.path.abspath(a.demo_nodes)) if getattr(a, "demo_nodes", "") else ""
         if not enabled:
             return
@@ -908,6 +936,8 @@ class Guard:
             cam.data.shift_x, cam.data.shift_y = ac["shift"]
             sc.render.resolution_x, sc.render.resolution_y, sc.render.resolution_percentage = ac["res"]
             bpy.context.view_layer.update()
+            if self.frame_hook:
+                self.frame_hook(cam)
             mp = fr["out"] + ".qa-mask.png"
             sc.render.filepath = mp
             bpy.ops.render.render(write_still=True)
