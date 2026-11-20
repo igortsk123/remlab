@@ -42,6 +42,12 @@ describe("ссылка-вход mesh-review", () => {
     expect(res.headers.get("location")).toBe("/lab/mesh-check");
   });
 
+  it("to=/lab/cutout-check ведёт на доску проверки вырезок", async () => {
+    const res = await call(`key=${SECRET}&to=${encodeURIComponent("/lab/cutout-check")}`);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/lab/cutout-check");
+  });
+
   it.each(["https://evil.example", "//evil.example", "/lab/mesh-check/../../admin", "/lab/mesh-checkX", "/", ""])(
     "to=%s вне списка — путь по умолчанию (не открытый редирект)",
     async (to) => {
@@ -68,6 +74,8 @@ describe("ссылка-вход mesh-review", () => {
   it("loginTarget: только пути из списка", () => {
     expect(loginTarget("/lab/mesh-check")).toBe("/lab/mesh-check");
     expect(loginTarget("/lab/mesh-review")).toBe("/lab/mesh-review");
+    expect(loginTarget("/lab/cutout-check")).toBe("/lab/cutout-check");
+    expect(loginTarget("/lab/cutout-checkX")).toBe(DEFAULT_LOGIN_TARGET);
     expect(loginTarget(null)).toBe(DEFAULT_LOGIN_TARGET);
     expect(loginTarget("https://remont-lab.online/lab/mesh-check")).toBe(DEFAULT_LOGIN_TARGET);
   });
