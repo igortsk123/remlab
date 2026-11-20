@@ -20,6 +20,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sg_guard  # noqa: E402
+import sg_parts  # noqa: E402
 import sg_transient  # noqa: E402
 import sg_views  # noqa: E402
 
@@ -345,6 +346,22 @@ def steps():
     say(f"форма: {ST['mesh']}")
     if not obj.data.uv_layers:                              # T-90/11: без развёртки запекание не кончается (55 мин вместо 4) — стоп ДО генерации, платный под не греем; форму прогнать через sg_prep_shape.py
         raise RuntimeError('форма без развёртки (uv_layers пуст): сначала sg_prep_shape.py')
+    if CFG.get('parts_faces'):                              # T-161: слоты материала «тело/ножки» на гранях (разметка по геометрии посчитана вне Blender, sg_parts.py); число граней не сошлось → без слотов
+        try:
+            doc = json.load(open(CFG['parts_faces'], encoding='utf-8'))
+            idx = sg_parts.slot_indices(doc, len(obj.data.polygons))
+            if idx is None:
+                ST['parts'] = {'applied': False, 'why': f"число граней {len(obj.data.polygons)} ≠ {doc.get('faces')} — слотов нет, красим как сейчас"}
+            else:
+                obj.data.materials.clear()
+                for nm in (doc.get('names') or ['body', 'legs']):
+                    obj.data.materials.append(bpy.data.materials.new(nm))
+                obj.data.polygons.foreach_set('material_index', idx)
+                obj.data.update()
+                ST['parts'] = {'applied': True, 'legs_faces': len(doc['legs']), 'slots': len(obj.data.materials), 'why': doc.get('reason', '')}
+        except Exception as e:  # noqa: BLE001 — разметка не должна ронять платный прогон: слотов нет, красим как сейчас
+            ST['parts'] = {'applied': False, 'why': f'слоты не применены: {str(e)[:120]}'}
+        say(f"слоты частей: {ST['parts']}")
     # слой нашей развёртки называем так, как аддон ищет для запекания
     if obj.data.uv_layers and 'BakeUV' not in obj.data.uv_layers:
         obj.data.uv_layers[0].name = 'BakeUV'

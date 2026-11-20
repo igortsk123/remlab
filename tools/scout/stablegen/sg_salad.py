@@ -83,6 +83,7 @@ VARIANTS['q2509t5i'] = dict(VARIANTS['q2509t5g'], photo_no_colour=True, label='T
 VARIANTS['q2509g1'] = dict(VARIANTS['q2509t5i'], back_mode='side_sample_sign', guard=True, scene_props={'qwen_guidance_background_color': (0.5, 0.5, 0.5)},
                            label='G1 (T-154/1): как T5i + сторож каждого вида (малиновое/цвет → повтор → без контекста → отклонить), заднему виду — образец бока по знаку угла вместо «без фото», серый фон контекста')
 VARIANTS['q2509pc0'] = dict(VARIANTS['q2509g1'], parts_caption=True, label='PC0 (T-161, П6): как G1 + подпись-композиция «верх … цвета, каркас и ножки … цвета» из каталога (общая подпись, не разметка граней; утечки и выдумка сзади — меряем)')
+VARIANTS['q2509pc1'] = dict(VARIANTS['q2509pc0'], parts_slots=True, label='PC1 (T-161, П6): как PC0 + слоты материала «тело/ножки» на гранях формы — только если геометрия уверенно split (кресла, диваны с ножками); слитые формы (стол-табурет, лампа) — без слотов, как PC0')
 VARIANTS['q2509t5f'] = dict(_T5BASE, back_mode='no_photo', label='T5f: T5b + порядок от переда; виду сзади фото не даём, только подпись и последовательный контекст')
 VARIANTS['q2509t3'] = dict(VARIANTS['q2509vp'], label='диагностика: подсказки видов + прежний короткий промпт')
 VARIANTS['q2509t4'] = dict(VARIANTS['q2509q5'], scene_props={'qwen_external_style_initial_only': True}, label='диагностика: прежний промпт, фото только первому виду')
@@ -266,7 +267,7 @@ def build_cfg(key: str, var: str, out: str, server: str, cameras: int, texture: 
     cfg = {'glb': glb, 'out': out, 'server': server, 'preset': 'QWEN PRECISE', 'prompt': 'a piece of furniture',
            'cameras': {'mode': 'orbit_ring', 'num': cameras}, 'texture_resolution': texture, 'bake_samples': 16, 'seed': seed, 'timeout_s': timeout_s,
            'style_image': style, 'model_unet': v['unet'], 'lora_name': v['lora']}
-    for k in ('no_lora', 'scene_props', 'megapixels', 'bake_margin', 'bake_denoise', 'view_prompts', 'vp_off', 'short_side', 'back_suffix', 'order_mode', 'back_mode', 'back_limit', 'photo_no_colour', 'guard', 'parts_caption'):
+    for k in ('no_lora', 'scene_props', 'megapixels', 'bake_margin', 'bake_denoise', 'view_prompts', 'vp_off', 'short_side', 'back_suffix', 'order_mode', 'back_mode', 'back_limit', 'photo_no_colour', 'guard', 'parts_caption', 'parts_slots'):
         if k in v:
             cfg[k] = v[k]
     attrs = catalog_attrs(prod)                              # T-90/10: подсказка — из каталога (роль + материал + цвет), для ВСЕХ товаров; словаря по ID нет
@@ -281,6 +282,14 @@ def build_cfg(key: str, var: str, out: str, server: str, cameras: int, texture: 
     cfg['prompt_bare'] = sg_views.build_prompt(attrs.get('role', ''), attrs.get('material'), None, bare=True)[0]     # T-154/1: подпись видов БЕЗ фото — без слов рисунка и без цвета (цвет подставит драйвер)
     if v.get('parts_caption') and not parts:
         cfg['prompt_flags'] = list(cfg['prompt_flags']) + ['parts_caption_unavailable']
+    if v.get('parts_slots'):                                 # T-161: слоты «тело/ножки» по геометрии формы (sg_parts.py); нет уверенной разметки → без слотов, красим как сейчас + флаг
+        import sg_parts
+        info = sg_parts.face_slots(glb)
+        cfg['parts_slots_reason'] = info['reason']
+        if info['ok']:
+            cfg['parts_faces'] = sg_parts.write_faces(info, os.path.join(out, 'parts-faces.json'))
+        else:
+            cfg['prompt_flags'] = list(cfg['prompt_flags']) + ['parts_slots_unavailable']
     if not attrs:
         cfg['prompt_flags'] = list(cfg['prompt_flags']) + ['catalog_unavailable']
     return cfg

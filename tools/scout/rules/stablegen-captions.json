@@ -45,6 +45,12 @@
       "стол обеденный": "with a {c1} top and {c2} frame and legs",
       "столик": "with a {c1} top and {c2} frame and legs"
     },
+    "slots": {
+      "_doc": "Слоты материала на гранях (T-161, вариант `parts_slots`, код sg_parts.py): два слота — тело и ножки — только когда геометрия формы уверенно `split` (material_parts.py) и доля площади ножек между min и max; иначе слотов нет, красим как сейчас. Замеры 20.11: кресло 23 split (ножки 0,9%), стол 16 unsure, лампа 37 whole — этим двум слоты не кладём.",
+      "legs_share_min": 0.002,
+      "legs_share_max": 0.3,
+      "names": ["body", "legs"]
+    },
     "colour_phrases": [
       ["светл\\w* дерев\\w*", "light natural wood"],
       ["темн\\w* дерев\\w*", "dark wood"],

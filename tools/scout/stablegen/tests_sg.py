@@ -983,5 +983,81 @@ class QueueTests(unittest.TestCase):
             self.assertEqual(q.summary['runs'][0]['note'], 'запекание зависло')
 
 
+class PartsSlots(unittest.TestCase):
+    """T-161: слоты материала «тело/ножки» по геометрии формы (sg_parts.py) — на синтетике из trimesh, без сети и чужих мешей."""
+
+    @staticmethod
+    def _glb(tmp, name, parts):
+        import trimesh
+        ms = []
+        for sx, sy, sz, cx, cy, cz in parts:
+            m = trimesh.creation.box(extents=(sx, sy, sz))
+            m.apply_translation((cx, cy, cz))
+            ms.append(m)
+        p = os.path.join(tmp, name)
+        trimesh.util.concatenate(ms).export(p)
+        return p
+
+    LEGGED = [(2.0, 0.5, 1.0, 0, 0.5, 0)] + [(0.06, 0.25, 0.06, sx, 0.125, sz) for sx in (-0.9, 0.9) for sz in (-0.4, 0.4)]
+
+    def test_legged_body_gets_two_slots(self):
+        import tempfile
+        import sg_parts as P
+        with tempfile.TemporaryDirectory() as tmp:
+            r = P.face_slots(self._glb(tmp, 'a.glb', self.LEGGED))
+            self.assertTrue(r['ok'], r)
+            self.assertEqual(r['status'], 'split')
+            self.assertGreater(len(r['legs']), 0)
+            self.assertLess(len(r['legs']), r['faces'])
+            self.assertTrue(0.002 <= r['legs_share'] <= 0.30, r['legs_share'])
+            f = P.write_faces(r, os.path.join(tmp, 'sub', 'parts-faces.json'))              # папку создаёт сам
+            idx = P.slot_indices(__import__('json').load(open(f, encoding='utf-8')), r['faces'])
+            self.assertEqual(len(idx), r['faces'])
+            self.assertEqual(sum(1 for x in idx if x == P.LEGS), len(r['legs']))
+            self.assertEqual(set(idx), {P.BODY, P.LEGS})
+
+    def test_solid_box_has_no_slots(self):
+        """Сплошной ящик без ножек (whole) — слотов нет, красим как сейчас; не выдумываем разметку."""
+        import tempfile
+        import sg_parts as P
+        with tempfile.TemporaryDirectory() as tmp:
+            r = P.face_slots(self._glb(tmp, 'b.glb', [(2.0, 0.6, 1.0, 0, 0.3, 0)]))
+            self.assertFalse(r['ok'])
+            self.assertEqual(r['legs'], [])
+            self.assertIn('слотов нет', r['reason'])
+
+    def test_unreadable_shape_does_not_crash(self):
+        import sg_parts as P
+        r = P.face_slots('/nonexistent/shape.glb')
+        self.assertFalse(r['ok'])
+        self.assertIn('недоступна', r['reason'])
+
+    def test_decide_thresholds_from_data(self):
+        import sg_parts as P
+        rules = P.load_slot_rules()
+        rec = {'status': 'split', 'confidence': 0.75, 'reason': 'x'}
+        self.assertTrue(P.decide(rec, 0.009, rules, 0.6)[0])                                  # кресло 23: ножки 0,9 %
+        self.assertFalse(P.decide(rec, 0.0, rules, 0.6)[0])                                   # ножек нет по площади
+        self.assertFalse(P.decide(rec, 0.6, rules, 0.6)[0])                                   # «ножки» — больше трети предмета: не верим
+        self.assertFalse(P.decide(dict(rec, confidence=0.4), 0.05, rules, 0.6)[0])            # уверенность ниже порога правил геометрии
+        for st in ('whole', 'unsure', 'skip'):                                                # стол 16 unsure, лампа 37 whole
+            self.assertFalse(P.decide({'status': st, 'confidence': 0.9}, 0.05, rules, 0.6)[0])
+
+    def test_slot_indices_count_mismatch_means_no_slots(self):
+        import sg_parts as P
+        doc = {'faces': 12, 'legs': [0, 1]}
+        self.assertEqual(P.slot_indices(doc, 12), [1, 1] + [0] * 10)
+        self.assertIsNone(P.slot_indices(doc, 14))                                           # Blender пересобрал форму
+        self.assertIsNone(P.slot_indices({'faces': 12, 'legs': [99]}, 12))                   # индекс вне формы
+        self.assertIsNone(P.slot_indices({'faces': 12, 'legs': []}, 12))
+        self.assertIsNone(P.slot_indices({}, 12))
+
+    def test_variant_flags(self):
+        self.assertTrue(S.VARIANTS['q2509pc1'].get('parts_slots'))
+        self.assertTrue(S.VARIANTS['q2509pc1'].get('parts_caption'))                          # pc1 = pc0 + слоты
+        self.assertFalse(S.VARIANTS['q2509pc0'].get('parts_slots'))
+        self.assertFalse(S.VARIANTS['q2509g1'].get('parts_slots'))
+
+
 if __name__ == '__main__':
     unittest.main()
