@@ -184,6 +184,11 @@ class Views(unittest.TestCase):
         self.assertEqual(V.role_class('Диван'), ('upholstered', True))
         self.assertEqual(V.role_class('Chest_of_Drawers'), ('casework', True))
         self.assertEqual(V.role_class('прикроватная-тумба'), ('casework', True))
+        self.assertEqual(V.role_class('тумба прикроватная'), ('casework', True))                 # порядок слов роли не важен (Codex 20.11)
+        self.assertEqual(V.role_noun('тумба прикроватная'), 'bedside cabinet')
+        for r, n in (('торшер', 'floor lamp'), ('лампа', 'table lamp'), ('ваза', 'vase'), ('кашпо', 'planter'), ('люстра', 'chandelier')):
+            self.assertEqual(V.role_noun(r), n, r)                                                # роли «continuous» больше не дают «piece of furniture»
+        self.assertIsNone(V.role_noun('неизвестное'))
 
     def test_top_only_when_really_high(self):
         import sg_views as V

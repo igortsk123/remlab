@@ -37,9 +37,16 @@ def norm_role(role):
 ROLE_CLASS = {norm_role(r): c for c, rs in CLASS_ROLES.items() for r in rs}
 
 
+def _words(role):
+    return frozenset(norm_role(role).split())
+
+
+ROLE_CLASS_BY_WORDS = {_words(r): c for r, c in ROLE_CLASS.items()}        # порядок слов роли не важен: «тумба прикроватная» = «прикроватная тумба» (Codex, свод паспортов 20.11)
+
+
 def role_class(cat_role):
     """(класс, известна ли роль). Неизвестная роль → ('generic', False) — осторожный текст и флаг."""
-    c = ROLE_CLASS.get(norm_role(cat_role))
+    c = ROLE_CLASS.get(norm_role(cat_role)) or ROLE_CLASS_BY_WORDS.get(_words(cat_role))
     return (c, True) if c else ('generic', False)
 
 
@@ -154,7 +161,7 @@ def short_side_text(cat_role, cam_dir, front, back_suffix=''):
     Возвращает (текст, мета)."""
     ang = azimuth_deg(cam_dir, front)
     a = abs(ang)
-    noun = ROLE_NOUN.get(norm_role(cat_role), 'piece of furniture')
+    noun = role_noun(cat_role) or 'piece of furniture'
     meta = {'azimuth': round(ang, 1), 'zone': 'front' if a < 60 else ('side' if a <= 120 else 'back')}
     if a < 60.0:
         return '', meta
@@ -177,8 +184,16 @@ ROLE_NOUN = {
     'диван': 'sofa', 'кресло': 'armchair', 'пуф': 'pouf', 'подушка': 'cushion', 'кровать': 'bed',
     'стул': 'chair', 'стеллаж': 'shelving unit', 'столик': 'side table', 'стол обеденный': 'dining table',
     'комод ': 'chest of drawers',
+    'торшер': 'floor lamp', 'лампа': 'table lamp', 'люстра': 'chandelier', 'ваза': 'vase', 'кашпо': 'planter', 'растение': 'plant', 'статуэтка': 'figurine',
+    'ковер': 'rug', 'ковёр': 'rug', 'плед': 'throw blanket', 'шторы': 'curtains', 'бра': 'wall sconce', 'полка': 'wall shelf', 'зеркало': 'mirror', 'картина': 'painting', 'часы': 'clock', 'камин': 'fireplace',
 }
 ROLE_NOUN = {norm_role(k): v for k, v in ROLE_NOUN.items()}
+ROLE_NOUN_BY_WORDS = {_words(k): v for k, v in ROLE_NOUN.items()}
+
+
+def role_noun(cat_role):
+    """Английское существительное роли; порядок слов не важен; нет в словаре → None (вызывающий ставит «piece of furniture»)."""
+    return ROLE_NOUN.get(norm_role(cat_role)) or ROLE_NOUN_BY_WORDS.get(_words(cat_role))
 MATERIAL_PHRASE = {
     'velour': 'crushed velvet upholstery, soft marbled mottled pile, matte',
     'velvet': 'ribbed corduroy upholstery with fine parallel cords, matte',
@@ -262,7 +277,7 @@ def build_prompt(cat_role, material, colour=None):
     """Основной промпт из атрибутов каталога: «a <цвет> <предмет по роли>, <фраза материала>». Никогда не подменяется «заготовкой по ID»:
     неизвестная роль → «piece of furniture», неизвестный материал/цвет → честно без них. Возвращает (промпт, флаги)."""
     flags = []
-    noun = ROLE_NOUN.get(norm_role(cat_role))
+    noun = role_noun(cat_role)
     if not noun:
         noun = 'piece of furniture'
         flags.append('unknown_role_noun')
