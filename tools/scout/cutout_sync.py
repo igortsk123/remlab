@@ -251,6 +251,9 @@ def chain_shape(src: Image.Image, net: Image.Image, role: str | None = None) -> 
         # Ч.3: белые островки цвета фона у тёмного тела, отделённые от рамки тенью (не в Rcore)
         cleaned, cc = studio_bg.contrast_cut(cleaned, src_rgb, bg, rsoft)
         info['studio'].update(cc)
+        # клин пола между ножками под плотным телом (T-104/7)
+        cleaned, hw = studio_bg.hang_wedge(cleaned, src_rgb, bg, rsoft)
+        info['studio'].update(hw)
     info['components'] = comp
     refined = Image.fromarray(np.dstack([rgb, (np.clip(cleaned, 0, 1) * 255).astype(np.uint8)]), 'RGBA')
     is_col, why, feats = collage.is_collage(np.asarray(src).astype(np.float32), cleaned)

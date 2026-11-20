@@ -54,6 +54,11 @@ CC_CHROMA = 16.0        # размах каналов пикселя ≤ 16 (ф�
 CC_CONT = 14.0          # или: цвет пикселя ≈ цвету ближайшего пикселя СНАРУЖИ маски (≤ 14) — кромка сети режет плавную тень-градиент, а не край тела
 CC_SHARE = 0.70         # доля «тёмного» уверенного тела в окне 21×21
 CC_MAX_SHARE = 0.03     # всего срезать ≤ 3 % тела
+PROP_THIN_R = 6.0       # T-104/7: добавка, ПРИЛЕГАЮЩАЯ к рамке кадра, с вписанным радиусом < 6 px (≈ 12 px толщины) — провод/нить, не тело
+HW_D = 130.0            # T-104/7: «клин под телом» — бесцветное (размах ≤ 16) серое не темнее 125 (Δ от фона ≤ 130) НЕ считается плотным телом и лежит ниже самого низкого плотного (тёмного/цветного) пикселя столбца …
+HW_CHROMA = 16.0
+HW_MIN_PX = 300         # … компонент ≥ 300 px, касается кромки маски, примыкает к плотному телу сверху, с обеих сторон — плотное тело (ножки), опускающееся ниже клина
+HW_MAX_SHARE = 0.05     # всего срезать ≤ 5 % тела
 LIGHT_PRODUCT = 45.0    # Ч.2: товар в целом светлый (медиана тела ‖F−B‖ < 45, белый шкаф с рельефом: канавки 225 vs фон 255) — локальный порог 45, иначе рельеф принимается за контраст и край рвётся (T-104/5)
 LOCAL_F_WIN = 9         # окно (px) усреднения цвета уверенного тела вокруг пикселя кромки
 CONF_DIST = 40.0        # пиксель дальше этого от B — уверенное тело (для тонких трубок, где «внутри» нет)
@@ -306,6 +311,8 @@ def propose(alpha, raw, rgb, bg, rsoft, thr=0.5):
             why = 'упирается в рамку'
         elif sc[i] / a > PROP_SHADOW_SHARE:
             why = 'тень на полу'
+        elif pcount[i] > 0 and float(ndi.distance_transform_edt(lab == i).max()) < PROP_THIN_R:
+            why = 'тонкая добавка у рамки (провод)'
         elif not (lab == i)[nb].any() or float(np.median(step[(lab == i) & nb])) < PROP_EDGE_STEP:
             why = 'плавная граница (тень/градиент)'
         elif added + a > PROP_MAX_FRAME * h * w or added + a > PROP_MAX_FG * fg:
@@ -373,3 +380,57 @@ def contrast_cut(alpha, rgb, bg, rsoft, thr=0.5):
     out = alpha.copy()
     out[keep] = 0.0
     return out, {'cc_px': n_px}
+
+
+def hang_wedge(alpha, rgb, bg, rsoft, thr=0.5):
+    """T-104/7 (клин под телом, кровать №29): светлое бесцветное пятно ниже самого низкого плотного (тёмного/цветного) пикселя своих столбцов, между
+    ножками (плотное тело слева и справа опускается ниже клина), примыкающее сверху к плотному телу и касающееся кромки маски — это пол/фон между ножками.
+    Компонент ≥ 300 px; всего срезать ≤ 5 % тела. Светлое тело без плотного в столбце (белый шкаф) правило не касается. Возвращает (alpha2, info)."""
+    mask = alpha > thr
+    fg = int(mask.sum())
+    if not fg:
+        return alpha, {}
+    B = np.asarray(bg, np.float32)
+    f = rgb.astype(np.float32)
+    d = np.abs(f - B).max(axis=2)
+    chroma = f.max(axis=2) - f.min(axis=2)
+    depth = ndi.distance_transform_edt(mask)
+    conf = confident_body(mask, d, rsoft, depth)
+    solid = conf & (d >= CC_F_MIN) & ((chroma > HW_CHROMA) | (d > HW_D))     # бесцветное серое (грани тени/пола) плотным телом не считаем
+    if not solid.any():
+        return alpha, {'hw_px': 0}
+    h, w = mask.shape
+    has = solid.any(axis=0)
+    bot = np.where(has, h - 1 - solid[::-1].argmax(axis=0), -1)
+    below = (np.arange(h)[:, None] > bot[None, :]) & has[None, :]
+    cand = mask & below & (d <= HW_D) & (chroma <= HW_CHROMA)
+    if not cand.any():
+        return alpha, {'hw_px': 0}
+    lab, n = ndi.label(cand, structure=np.ones((3, 3), int))
+    area = np.bincount(lab.ravel(), minlength=n + 1)
+    keep = np.zeros_like(mask)
+    for i in range(1, n + 1):
+        if area[i] < HW_MIN_PX:
+            continue
+        c = lab == i
+        cont = ndi.binary_dilation(c, np.ones((3, 3), bool), iterations=3) & solid
+        if not (c & (depth <= 1.5)).any() or not cont.any():
+            continue
+        ys, xs = np.where(c)
+        # плотное тело примыкает только СВЕРХУ (верхние 30 % высоты клина); панель между ножками (примыкает по бокам на всю высоту) — тело, не трогаем
+        if np.where(cont)[0].max() > ys.min() + 0.3 * (ys.max() - ys.min()) + 3:
+            continue
+        x0, x1, yb = int(xs.min()), int(xs.max()), int(ys.max())
+        span = max(w // 2, 3 * (x1 - x0 + 1))        # плотное тело-ножки ищем по сторонам на полкадра
+        left = bot[max(0, x0 - span):x0]
+        right = bot[x1 + 1:x1 + 1 + span]
+        if left.size and right.size and left.max() > yb + 2 and right.max() > yb + 2:
+            keep |= c
+    n_px = int(keep.sum())
+    if not n_px:
+        return alpha, {'hw_px': 0}
+    if n_px > HW_MAX_SHARE * fg:
+        return alpha, {'hw_px': 0, 'hw_skipped': f'срез {n_px} px > {int(HW_MAX_SHARE * 100)} % тела'}
+    out = alpha.copy()
+    out[keep] = 0.0
+    return out, {'hw_px': n_px}

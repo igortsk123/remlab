@@ -293,6 +293,64 @@ def test_propose_rejects_gradient_shadow():
     assert (out2[70:150, 165:235] > 0.5).all(), f'ровное тело не возвращено: {info2}'
 
 
+def test_propose_rejects_thin_cord_at_frame():
+    r, dark = white()
+    r[60:220, 100:160] = dark
+    a = np.zeros((H, W), np.float32)
+    a[60:220, 100:160] = 1.0
+    r[198:203, 160:] = dark                         # провод 5 px от тела до правого края кадра
+    bg, rcore, rsoft = regs(r)
+    out, info = S.propose(a, a.copy(), r, bg, rsoft)
+    assert (out == a).all() and 'тонкая добавка' in str(info), f'провод добавлен: {info}'
+    # контроль: та же добавка толщиной 12 px (тело, а не нить) — возвращается
+    r[198:203, 160:] = 255
+    r[188:200, 160:] = dark
+    bg, rcore, rsoft = regs(r)
+    out2, info2 = S.propose(a, a.copy(), r, bg, rsoft)
+    assert (out2[190:198, 170:390] > 0.5).all(), f'толстое тело у рамки не возвращено: {info2}'
+
+
+def _bar_legs(wedge_grey=(185, 185, 188)):
+    r, _ = white()
+    wood = (200, 150, 80)
+    r[10:100, 50:350] = wood                        # «рама кровати»
+    r[100:200, 50:70] = wood                        # ножки
+    r[100:200, 330:350] = wood
+    a = np.zeros((H, W), np.float32)
+    a[10:100, 50:350] = 1.0
+    a[100:200, 50:70] = 1.0
+    a[100:200, 330:350] = 1.0
+    return r, a
+
+
+def test_hang_wedge_cuts_grey_wedge_between_legs():
+    r, a = _bar_legs()
+    for i in range(30):                             # серый клин под рамой между ножками (две грани разной яркости), сужается вниз
+        r[100 + i, 170 + i // 2:230 - i // 2] = (185, 185, 188) if i % 2 == 0 else (160, 160, 162)
+        a[100 + i, 170 + i // 2:230 - i // 2] = 1.0
+    bg, rcore, rsoft = regs(r)
+    out, info = S.hang_wedge(a, r, bg, rsoft)
+    assert (out[102:126, 190:210] < 0.5).all() and info.get('hw_px', 0) > 300, f'клин не срезан: {info}'
+    assert (out[10:100, 50:350] > 0.5).all() and (out[110:195, 52:68] > 0.5).all(), 'срезано тело'
+
+
+def test_hang_wedge_keeps_panel_between_legs_and_bottom_body():
+    r, a = _bar_legs()
+    r[100:160, 70:330] = (240, 240, 240)            # белая панель между ножками (примыкает к ножкам по бокам) — тело
+    a[100:160, 70:330] = 1.0
+    bg, rcore, rsoft = regs(r)
+    out, info = S.hang_wedge(a, r, bg, rsoft)
+    assert (out == a).all(), f'панель срезана: {info}'
+    r2, _ = white()                                 # светлое тело под тёмным верхом, без ножек по бокам (низ тела — само светлое)
+    r2[60:100, 50:350] = (50, 50, 50)
+    r2[100:160, 50:350] = (235, 235, 235)
+    a2 = np.zeros((H, W), np.float32)
+    a2[60:160, 50:350] = 1.0
+    bg, rcore, rsoft = regs(r2)
+    out2, info2 = S.hang_wedge(a2, r2, bg, rsoft)
+    assert (out2 == a2).all(), f'светлый низ срезан: {info2}'
+
+
 if __name__ == '__main__':
     bad = 0
     for name, fn in sorted(globals().items()):
