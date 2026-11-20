@@ -41,6 +41,11 @@ WEIGHTS = {
     'q2511_q8': ('unsloth/Qwen-Image-Edit-2511-GGUF', 'qwen-image-edit-2511-Q8_0.gguf', 'unet', 'Qwen-Image-Edit-2511-Q8_0.gguf'),
     'lora2509': ('lightx2v/Qwen-Image-Lightning', 'Qwen-Image-Edit-2509/Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors', 'loras', None),
     'lora2511': ('lightx2v/Qwen-Image-Edit-2511-Lightning', 'Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors', 'loras', None),
+    # Marigold V2 albedo (T-160/1, Apache-2.0; ≈22,5 ГБ): снимает свет и тени с видов. Имена файлов — как ждёт аддон (workflows.py generate_marigold_v2_map).
+    'mv2_base': ('Comfy-Org/marigold-v2-0', 'diffusion_models/qwen_image_edit_2509_int8_convrot.safetensors', 'diffusion_models', None),    # 20,5 ГБ
+    'mv2_lora': ('Comfy-Org/marigold-v2-0', 'loras/marigold_v2_albedo.safetensors', 'loras', None),                                          # 1,7 ГБ
+    'mv2_vae': ('Comfy-Org/marigold-v2-0', 'vae/marigold_v2_albedo_vae.safetensors', 'vae', None),                                           # 0,25 ГБ
+    'mv2_cond': ('Comfy-Org/marigold-v2-0', 'embeddings/marigold_v2_albedo_conditioning.safetensors', 'embeddings', None),                   # 2,5 МБ
 }
 DEFAULT_SET = 'te,vae,q2509_q5,lora2509,q2511_q5,lora2511'
 

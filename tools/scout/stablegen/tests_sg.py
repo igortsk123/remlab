@@ -956,5 +956,40 @@ class QueueTests(unittest.TestCase):
             self.assertEqual(q.summary['runs'][0]['note'], 'запекание зависло')
 
 
+class AlbedoPb1(unittest.TestCase):
+    """T-160/1: вариант pb1 = G1 + снятие света и теней (Marigold V2 albedo) данными, без кода под товар."""
+
+    def test_pb1_is_g1_plus_albedo_props_and_weights(self):
+        g1, pb1 = S.VARIANTS['q2509g1'], S.VARIANTS['pb1']
+        self.assertEqual(g1['scene_props'], {'qwen_guidance_background_color': (0.5, 0.5, 0.5)})   # g1 не тронут
+        sp = pb1['scene_props']
+        self.assertEqual(sp['qwen_guidance_background_color'], (0.5, 0.5, 0.5))                  # свойства g1 сохранены
+        self.assertEqual(sp['pbr_albedo_source'], 'marigold_v2')
+        self.assertTrue(sp['pbr_decomposition'] and sp['pbr_map_albedo'] and sp['pbr_replace_color_with_albedo'])
+        for k in ('roughness', 'metallic', 'normal', 'height', 'ao', 'emission'):
+            self.assertFalse(sp['pbr_map_' + k], k)
+        keys = list(sp)
+        self.assertLess(keys.index('pbr_albedo_source'), keys.index('pbr_albedo_auto_saturation'))   # выбор источника сам включает/выключает насыщенность → наше значение ПОСЛЕ
+        self.assertFalse(sp['pbr_albedo_auto_saturation'])
+        self.assertTrue(set(g1['weights']) < set(pb1['weights']))
+        self.assertEqual([w for w in pb1['weights'] if w.startswith('mv2_')], ['mv2_base', 'mv2_lora', 'mv2_vae', 'mv2_cond'])
+        self.assertTrue(pb1['guard'] and pb1['back_mode'] == g1['back_mode'])
+
+    def test_pb1_weights_have_addon_file_names_and_folders(self):
+        cat = S.load_weights_catalog()
+        want = {'mv2_base': ('diffusion_models', 'qwen_image_edit_2509_int8_convrot.safetensors'), 'mv2_lora': ('loras', 'marigold_v2_albedo.safetensors'),
+                'mv2_vae': ('vae', 'marigold_v2_albedo_vae.safetensors'), 'mv2_cond': ('embeddings', 'marigold_v2_albedo_conditioning.safetensors')}
+        for k, (folder, fname) in want.items():
+            repo, rel, sub, name = cat[k]
+            self.assertEqual((repo, sub, name or os.path.basename(rel)), ('Comfy-Org/marigold-v2-0', folder, fname), k)
+
+    def test_cfg_forwards_pb1_props_and_weights_for_group(self):
+        c = S.build_cfg(KEY, 'pb1', '/o', '127.0.0.1:18190', 8, 2048, 42, 2400)
+        self.assertEqual(c['scene_props']['pbr_albedo_source'], 'marigold_v2')
+        self.assertTrue(c['guard'])
+        self.assertIn('mv2_base', S.weights_for([(KEY, 'pb1')]).split(','))
+        self.assertNotIn('mv2_base', S.weights_for([(KEY, 'q2509g1')]).split(','))               # другим вариантам +22,5 ГБ не качаем
+
+
 if __name__ == '__main__':
     unittest.main()

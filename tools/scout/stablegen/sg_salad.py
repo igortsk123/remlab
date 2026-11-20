@@ -82,6 +82,14 @@ VARIANTS['q2509t5h'] = dict(VARIANTS['q2509t5g'], back_suffix=', same colour and
 VARIANTS['q2509t5i'] = dict(VARIANTS['q2509t5g'], photo_no_colour=True, label='T5i: как T5g, но у ПЕРВОГО вида (зерно, с фото) подпись без цвета (тип+материал); остальным — с цветом каталога (директор 20.11: перёд vid0 вышел серым; на всех видах с фото бока ушли в дуб — комод T5i)')
 VARIANTS['q2509g1'] = dict(VARIANTS['q2509t5i'], back_mode='side_sample_sign', guard=True, scene_props={'qwen_guidance_background_color': (0.5, 0.5, 0.5)},
                            label='G1 (T-154/1): как T5i + сторож каждого вида (малиновое/цвет → повтор → без контекста → отклонить), заднему виду — образец бока по знаку угла вместо «без фото», серый фон контекста')
+# T-160/1 (П5 тень-«вмятина», П7 блеск велюра): после всех видов аддон сам снимает свет и тени (Marigold V2 albedo) и кладёт albedo в Base Color.
+# Остальные PBR-карты выключены (нужен только цвет без света). Порядок свойств важен: выбор источника albedo сам переключает автонасыщенность, потому её выключаем ПОСЛЕ (V2 цвет и так держит).
+PB1_PROPS = {'pbr_decomposition': True, 'pbr_albedo_source': 'marigold_v2', 'pbr_map_albedo': True, 'pbr_map_roughness': False, 'pbr_map_metallic': False,
+             'pbr_map_normal': False, 'pbr_map_height': False, 'pbr_map_ao': False, 'pbr_map_emission': False, 'pbr_replace_color_with_albedo': True,
+             'pbr_albedo_auto_saturation': False}
+VARIANTS['pb1'] = dict(VARIANTS['q2509g1'], weights=VARIANTS['q2509g1']['weights'] + ['mv2_base', 'mv2_lora', 'mv2_vae', 'mv2_cond'],
+                       scene_props=dict(VARIANTS['q2509g1']['scene_props'], **PB1_PROPS),
+                       label='PB1 (T-160/1): как G1 + снятие света и теней с видов (Marigold V2 albedo → Base Color), остальные PBR-карты выкл.')
 VARIANTS['q2509t5f'] = dict(_T5BASE, back_mode='no_photo', label='T5f: T5b + порядок от переда; виду сзади фото не даём, только подпись и последовательный контекст')
 VARIANTS['q2509t3'] = dict(VARIANTS['q2509vp'], label='диагностика: подсказки видов + прежний короткий промпт')
 VARIANTS['q2509t4'] = dict(VARIANTS['q2509q5'], scene_props={'qwen_external_style_initial_only': True}, label='диагностика: прежний промпт, фото только первому виду')
