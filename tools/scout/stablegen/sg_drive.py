@@ -131,7 +131,7 @@ def install_back_hook(info):
         sc = context.scene
         name = op._cameras[op._current_image].name
         if name not in info['cameras'] or op._current_image == 0:
-            if info.get('photo_prompt'):                       # T-90/11: вид с фото — подпись без цвета (фото ведёт; цвет каталога «серит» узор)
+            if info.get('photo_prompt') and op._current_image == 0:    # T-90/11: ПЕРВЫЙ вид (зерно, с фото) — подпись без цвета (фото ведёт; цвет каталога «серит» узор). Боковые виды цвет в подписи ОСТАВЛЯЮТ: без него бока уезжают в дуб/бежевый (T5i, комод)
                 saved_p = sc.comfyui_prompt
                 try:
                     sc.comfyui_prompt = info['photo_prompt']
@@ -301,9 +301,9 @@ def steps():
         back_ = sg_views.back_cameras(dirs_, front, CFG.get('back_limit', sg_views.BACK_LIMIT_DEG)) if CFG.get('back_mode') else []
         if back_:
             ST['back'] = {'mode': CFG['back_mode'], 'cameras': back_}
-            if CFG.get('photo_no_colour') and CFG['back_mode'] == 'no_photo':    # T-90/11: виды с фото — подпись без цвета, цвет каталога держат только виды без фото
+            if CFG.get('photo_no_colour') and CFG['back_mode'] == 'no_photo':    # T-90/11: первый вид (с фото) — подпись без цвета, цвет каталога — всем остальным
                 ST['back']['photo_prompt'] = sg_views.strip_colour(CFG['prompt'])
-                say(f"подпись видов с фото (без цвета): {ST['back']['photo_prompt']}")
+                say(f"подпись ПЕРВОГО вида (с фото, без цвета): {ST['back']['photo_prompt']}")
             if CFG['back_mode'] == 'drop':                    # T5d: камеры строго сзади нет вовсе — зад красится из ±135
                 for n_ in back_:
                     bpy.data.objects.remove(bpy.data.objects[n_], do_unlink=True)

@@ -78,7 +78,7 @@ VARIANTS['q2509t5d'] = dict(_T5BASE, back_mode='drop', label='T5d: T5b + пор�
 VARIANTS['q2509t5e'] = dict(_T5BASE, back_mode='side_sample', label='T5e: T5b + порядок от переда; виду сзади вместо фото магазина — готовый вид бока (±90)')
 VARIANTS['q2509t5g'] = dict(_T5BASE, back_mode='no_photo', back_limit=100.0, label='T5g: T5b + порядок от переда; фото получают виды ≤±90°, виды ±135° и 180° — без фото (только подпись и контекст чистых боков)')
 VARIANTS['q2509t5h'] = dict(VARIANTS['q2509t5g'], back_suffix=', same colour and material as its side panels, top same as the front view top', label='T5h: как T5g + в подписи видов сзади «цвет и материал как у боков, верх как у переда» (общее правило: невидимые стороны = материал боков)')
-VARIANTS['q2509t5i'] = dict(VARIANTS['q2509t5g'], photo_no_colour=True, label='T5i: как T5g, но у видов С фото подпись без цвета (тип+материал), цвет каталога — только видам без фото (директор 20.11: перёд vid0 вышел серым)')
+VARIANTS['q2509t5i'] = dict(VARIANTS['q2509t5g'], photo_no_colour=True, label='T5i: как T5g, но у ПЕРВОГО вида (зерно, с фото) подпись без цвета (тип+материал); остальным — с цветом каталога (директор 20.11: перёд vid0 вышел серым; на всех видах с фото бока ушли в дуб — комод T5i)')
 VARIANTS['q2509t5f'] = dict(_T5BASE, back_mode='no_photo', label='T5f: T5b + порядок от переда; виду сзади фото не даём, только подпись и последовательный контекст')
 VARIANTS['q2509t3'] = dict(VARIANTS['q2509vp'], label='диагностика: подсказки видов + прежний короткий промпт')
 VARIANTS['q2509t4'] = dict(VARIANTS['q2509q5'], scene_props={'qwen_external_style_initial_only': True}, label='диагностика: прежний промпт, фото только первому виду')
