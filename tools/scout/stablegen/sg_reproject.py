@@ -1,6 +1,6 @@
 """ЛОКАЛЬНАЯ ПЕРЕПРОЕКЦИЯ StableGen (T-20261119-90/6, идея директора 22:5x): те же сохранённые виды прогона, другие настройки смешивания → запекание → GLB. БЕЗ пода/GPU.
 Запускается ВНУТРИ Blender с уже открытым session.blend прогона (таймер сохраняется только так):
-  xvfb-run -a blender session.blend --factory-startup --python-use-system-env --python sg_reproject.py -- <config.json>
+  xvfb_run.sh -a blender session.blend --factory-startup --python-use-system-env --python sg_reproject.py -- <config.json>
 Конфиг: out (новая папка), sgout (копия `sg-output` прогона; аддон ищет виды по scene.output_timestamp), scene_props (например weight_exponent, discard_factor),
 bake_margin, bake_denoise, texture_resolution, bake_samples, timeout_s. Шаги: перепроекция (`object.stablegen_reproject`) → запекание в слой BakeUV → экспорт GLB."""
 import json
