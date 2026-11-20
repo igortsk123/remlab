@@ -207,19 +207,25 @@ def shadow_digest_targets(reg: dict | None = None) -> list:
     return [(t, g['measurement_version'], MTP.digest_of(p)) for t, p in sorted(reg['types'].items()) for g in p['cutout']['guards']]
 
 
+def _sdb(sql: str) -> list[list[str]]:
+    """Запрос к `passport_shadow` через `PgStore.db` с жёстким потолком (SHADOW_CANDIDATES_TIMEOUT_S: чтение всех строк тени дольше обычного) — не голый `_db`."""
+    import passport_shadow as PS
+    return PS.STORE.db(sql, timeout=PS.candidates_timeout())
+
+
 def shadow_reverdict() -> dict:
     """Привести `passport_shadow.shadow_verdict` к текущим порогам паспорта (пишет ТОЛЬКО в passport_shadow). Идемпотентно. → счётчик {'старый→новый': n}."""
     from collections import Counter
-    rows = _db("select source_sha, normalized_role, measurement_version, metrics::text, shadow_verdict from passport_shadow where status = 'done' and metrics is not null")
+    rows = _sdb("select source_sha, normalized_role, measurement_version, metrics::text, shadow_verdict from passport_shadow where status = 'done' and metrics is not null")
     stored = {(r[0], r[1], r[2]): r[4] for r in rows if len(r) == 5}
     plan = shadow_reverdict_plan([r for r in rows if len(r) == 5])
     cnt = Counter()
     for sha, role, mv, new in plan:
-        _db(f"update passport_shadow set shadow_verdict = '{new}', updated = now() where source_sha = '{sha}' and normalized_role = '{role}' and measurement_version = '{mv}'")
+        _sdb(f"update passport_shadow set shadow_verdict = '{new}', updated = now() where source_sha = '{sha}' and normalized_role = '{role}' and measurement_version = '{mv}'")
         cnt[f'{stored[(sha, role, mv)]}→{new}'] += 1
     # строки приведены к ТЕКУЩИМ порогам — штамп хеша паспорта тоже текущий (иначе `observe_gate` считал бы их устаревшими: фильтр по policy_digest)
     for role, mv, dg in shadow_digest_targets():
-        _db(f"update passport_shadow set policy_digest = '{dg}', updated = now() where normalized_role = '{role}' and measurement_version = '{mv}' "
+        _sdb(f"update passport_shadow set policy_digest = '{dg}', updated = now() where normalized_role = '{role}' and measurement_version = '{mv}' "
             f"and status = 'done' and metrics is not null and policy_digest <> '{dg}'")
     print(f'[photo_fit] тень паспортов: перевердикт {sum(cnt.values())} {dict(cnt)}', flush=True)
     return dict(cnt)

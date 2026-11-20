@@ -81,6 +81,18 @@ def main():
         "('%s', 'подушка', 'k3.v1', 'x', 'ok', 'done')" % (D, D, E),            # ok — блокирующим не является
     ]
     r.sql.extend(fixture)
+    # --check миграции: точная схема. Строка берётся из самого файла 018 (то, что получит db-migrate-safe); mesh_jobs в тесте — временная копия, поэтому её схема подменяется на pg_temp
+    chk = next(ln for ln in mig.splitlines() if ln.startswith('--     "(select'))[len('--     "'):-1]
+    chk_t = chk.replace("table_schema='public' and table_name='mesh_jobs'", "table_schema like 'pg_temp%' and table_name='mesh_jobs'")
+    blk = ["select 'C1', (%s)" % chk_t]      # блок идёт В НАЧАЛО сценария: на пустой таблице поломки схемы (set not null и др.) выполнимы
+    for tag, brk in (('C2', "alter table passport_shadow alter column metrics set not null"),
+                     ('C3', "alter table passport_shadow alter column attempts set default 5"),
+                     ('C4', "alter table passport_shadow alter column last_error type varchar"),
+                     ('C5', "drop index passport_shadow_status_idx"),
+                     ('C6', "alter table passport_shadow drop constraint passport_shadow_status_check"),
+                     ('C7', "alter table passport_shadow drop constraint passport_shadow_pkey, add primary key (normalized_role, source_sha, measurement_version)")):
+        blk += ["savepoint sp", brk, "select '%s', (%s)" % (tag, chk_t), "rollback to savepoint sp"]
+    r.sql[0:0] = blk
     r.sql.append("select 'G', d.sku, s.measurement_version from (" + gate_sql.rstrip().rstrip(';') + ") q(sku, nrole, mv, dg, verdict) join mesh_demand d on d.sku = q.sku join passport_shadow s on s.source_sha = d.source_sha and s.measurement_version = q.mv and s.normalized_role = q.nrole")
     r.sql.append("select 'GN', count(*) from (" + gate_sql.rstrip().rstrip(';') + ") q")
     script = '\n'.join([
@@ -110,6 +122,10 @@ def main():
     ok('до возврата в карантине одна строка (B); у A уже done', g('S7') == [['S7', '1']], str(g('S7')))
     ok('release_quarantine: B снова retry, attempts 0', g('S8') == [['S8', 'retry', '0']], str(g('S8')))
     ok('states() читается', g('S9') == [['S9', '4']], str(g('S9')))
+    ok('--check миграции на правильной схеме = true', g('C1') == [['C1', 't']], str(g('C1')))
+    for tag, what in (('C2', 'metrics NOT NULL'), ('C3', 'default attempts'), ('C4', 'тип last_error'), ('C5', 'нет индекса status'),
+                      ('C6', 'нет ограничения status'), ('C7', 'порядок колонок PK')):
+        ok(f'--check ловит поломку схемы: {what}', g(tag) == [[tag, 'f']], str(g(tag)))
     ok('выборка гейта: ровно одна строка — текущая пара (k1.v1, не ok); старая версия и ok не отвечают', g('GN') == [['GN', '1']] and g('G') == [['G', 'T1', 'k1.v1']], str(g('GN')) + str(g('G')))
     chk = subprocess.run(PS.PSQL, input="select count(*) from information_schema.tables where table_name='passport_shadow' and table_schema not like 'pg_temp%';",
                          capture_output=True, text=True)

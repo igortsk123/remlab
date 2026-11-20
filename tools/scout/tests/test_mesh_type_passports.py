@@ -937,12 +937,12 @@ def test_t7_observe():
     targets = PF.shadow_digest_targets(REG)
     ok(('кровать', 'k1.v1', dg_k1) in targets and ('подушка', 'k3.v1', dg_k3) in targets, 'shadow_digest_targets: текущие хеши сторожей реестра')
     sqls: list = []
-    saved = PF._db
-    PF._db = lambda sql, *a, **k: sqls.append(sql) or []
+    saved = PF._sdb
+    PF._sdb = lambda sql, *a, **k: sqls.append(sql) or []
     try:
         quiet(PF.shadow_reverdict)
     finally:
-        PF._db = saved
+        PF._sdb = saved
     upd = [s for s in sqls if s.startswith('update passport_shadow set policy_digest')]
     ok(len(upd) == len(targets) and all("policy_digest <> '" in s and "status = 'done'" in s for s in upd) and any(dg_k1 in s for s in upd),
        'shadow_reverdict: после пересчёта — по update штампа policy_digest на каждый сторож')
@@ -989,7 +989,11 @@ def test_t7_migration():
     i_create = next(i for i, ln in enumerate(code) if ln.startswith('create table'))
     ok(i_lock < i_create and i_lock < i_alter and any(ln.startswith('set statement_timeout') for ln in code[:i_create]),
        'set lock_timeout и statement_timeout стоят ДО create table и alter table mesh_jobs')
-    ok('key_column_usage' in sql and "'PRIMARY KEY')=3" in sql, 'проверка «после» (--check) сверяет и ключ из трёх колонок, не только наличие таблицы')
+    chk = next((ln for ln in sql.splitlines() if ln.startswith('--     "(select')), '')
+    need = ["table_schema='public'", 'column_default', 'is_nullable', 'data_type', 'indisprimary', "'source_sha,normalized_role,measurement_version'",
+            'pg_get_constraintdef', 'passport_shadow_status_idx', 'passport_shadow_role_verdict_idx', "'passport_digest'"]
+    miss = [n for n in need if n not in chk]
+    ok(not miss and chk.count("table_schema='public'") >= 2 + 0, f'--check сверяет точную схему public.passport_shadow (типы, NOT NULL, defaults, PK по порядку, status, оба индекса) и mesh_jobs.passport_digest; нет: {miss}')
 
 
 def test_shadow_reverdict():
