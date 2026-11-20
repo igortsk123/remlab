@@ -186,6 +186,113 @@ def test_soft_alpha_edge_and_controls():
     assert (al2 == a).all(), f'товар цвета фона изменён: {info2}'
 
 
+def _bed():
+    """Кровать: тёмное основание 150..260 × 40..360, белый щит 60..150 × 40..360 (цвет 228, светлее тела, темнее фона 255), сеть щит потеряла."""
+    r, _ = white()
+    r[150:260, 40:360] = (120, 90, 60)
+    r[110:150, 40:360] = (228, 228, 230)
+    return r
+
+
+def test_propose_white_headboard_recovered():
+    r = _bed()
+    a = np.zeros((H, W), np.float32)
+    a[150:260, 40:360] = 1.0
+    raw = a.copy()
+    bg, rcore, rsoft = regs(r)
+    out, info = S.propose(a, raw, r, bg, rsoft)
+    assert (out[115:145, 50:350] > 0.5).all(), f'щит не возвращён: {info}'
+    assert (out[10:50, :] == 0).all() and (out[:, :30] == 0).all(), 'добавлен фон'
+    assert info['prop_px'] >= 40 * 320 * 0.95, info
+
+
+def test_propose_rejects_shadow_small_and_frame():
+    r, dark = white()
+    r[100:200, 100:300] = dark
+    a = np.zeros((H, W), np.float32)
+    a[100:200, 100:300] = 1.0
+    r[200:230, 100:300] = (205, 205, 205)          # тень на полу под тележкой
+    bg, rcore, rsoft = regs(r)
+    out, info = S.propose(a, a.copy(), r, bg, rsoft)
+    assert (out == a).all(), f'тень добавлена: {info}'
+    r2, dark = white()
+    r2[100:200, 100:300] = dark
+    r2[60:64, 100:104] = (200, 200, 200)           # мелочь
+    a2 = np.zeros((H, W), np.float32)
+    a2[100:200, 100:300] = 1.0
+    bg, rcore, rsoft = regs(r2)
+    out2, _ = S.propose(a2, a2.copy(), r2, bg, rsoft)
+    assert (out2 == a2).all(), 'мелочь добавлена'
+    r3, dark = white()
+    r3[100:200, 100:300] = dark
+    r3[0:100, :] = (230, 230, 230)                 # серая полоса через весь кадр до рамки — не тело
+    a3 = np.zeros((H, W), np.float32)
+    a3[100:200, 100:300] = 1.0
+    bg, rcore, rsoft = regs(white()[0])               # области фона — как у чистого кадра: полоса «не фон» для propose
+    rsoft = rsoft & ~(np.abs(r3.astype(np.float32) - 255).max(axis=2) > 16)
+    out3, info3 = S.propose(a3, a3.copy(), r3, bg, rsoft)
+    assert (out3 == a3).all() and 'упирается в рамку' in str(info3), f'компонент, упирающийся в рамку, добавлен: {info3}'
+
+
+def test_detect_relaxes_when_product_touches_ring():
+    r = _bed()
+    r[110:150, :40] = (228, 228, 230)               # щит вплотную к левой рамке (кольцо 4 % его захватывает)
+    r[:, :14] = np.where(np.arange(H)[:, None, None] % 2 == 0, 255, 255)
+    bg, st = S.detect(r)
+    assert bg is not None and float(bg.min()) >= 245, st
+    full = np.full((H, W, 3), 255, np.uint8)
+    full[:, :200] = (228, 228, 230)                # половина рамки — товар: фон НЕ принимается
+    assert S.detect(full)[0] is None
+
+
+def test_contrast_cut_dark_sofa_grey_strip():
+    r, dark = white((70, 60, 55))
+    r[100:200, 100:300] = dark
+    r[150:200, 94:100] = (200, 200, 200)           # серая полоса-тень вплотную к тёмному телу, внутри маски сети
+    a = np.zeros((H, W), np.float32)
+    a[100:200, 100:300] = 1.0
+    a[150:200, 94:100] = 1.0
+    bg, rcore, rsoft = regs(r)
+    out, info = S.contrast_cut(a, r, bg, rsoft)
+    assert (out[150:200, 94:100] == 0).all(), f'полоса осталась: {info}'
+    assert (out[100:200, 100:300] == 1.0).all(), 'тело тронуто'
+
+
+def test_contrast_cut_light_body_with_dark_specks_untouched():
+    r, _ = white()
+    r[100:200, 100:300] = 235                       # светлый шкаф
+    for x in range(110, 290, 6):
+        r[110:190, x:x + 1] = 120                   # тёмные канавки/ручки
+    a = np.zeros((H, W), np.float32)
+    a[100:200, 100:300] = 1.0
+    r[150:160, 96:100] = 225
+    a[150:160, 96:100] = 1.0
+    bg, rcore, rsoft = regs(r)
+    out, info = S.contrast_cut(a, r, bg, rsoft)
+    assert (out == a).all(), f'светлое тело с тёмными пятнами изменено: {info}'
+
+
+def test_propose_rejects_gradient_shadow():
+    r, dark = white()
+    r[60:220, 100:160] = dark                       # две «ножки»-стойки (тело), между ними — столбцы без маски
+    r[60:220, 240:300] = dark
+    a = np.zeros((H, W), np.float32)
+    a[60:220, 100:160] = 1.0
+    a[60:220, 240:300] = 1.0
+    for i in range(140):                            # плавная тень между стойками: шатёр 255 → 205 → 255 (не ниже пола тела: колонок маски там нет)
+        v = int(255 - 50 * (1 - abs(i - 70) / 70))
+        r[60 + i, 160:240] = v
+    bg, rcore, rsoft = regs(r)
+    out, info = S.propose(a, a.copy(), r, bg, rsoft)
+    assert (out == a).all() and 'плавная граница' in str(info), f'градиентная тень добавлена: {info}'
+    # контроль: тот же участок, но ровный (резкий край) — это тело (щит между стойками) и оно возвращается
+    r[60:220, 160:240] = 255
+    r[60:60 + 100, 160:240] = (228, 228, 230)
+    bg, rcore, rsoft = regs(r)
+    out2, info2 = S.propose(a, a.copy(), r, bg, rsoft)
+    assert (out2[70:150, 165:235] > 0.5).all(), f'ровное тело не возвращено: {info2}'
+
+
 if __name__ == '__main__':
     bad = 0
     for name, fn in sorted(globals().items()):

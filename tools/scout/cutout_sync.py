@@ -234,6 +234,13 @@ def chain_shape(src: Image.Image, net: Image.Image, role: str | None = None) -> 
     ms['close_gaps'] = round(time.time() - t0, 3)
     if rcore is not None:
         info['studio']['pollution']['closing'] = studio_bg.pollution(cleaned, rcore)
+    # Ч.2 (T-104/5): осторожно вернуть крупное потерянное тело (белый щит на белом); до вычитателя — он потом чистит и край добавки
+    if act:
+        t0 = time.time()
+        cleaned, prop = studio_bg.propose(cleaned, np.asarray(net)[..., 3].astype(np.float32) / 255.0, src_rgb, bg, rsoft)
+        info['studio'].update(prop)
+        ms['propose'] = round(time.time() - t0, 3)
+        info['studio']['pollution']['proposal'] = studio_bg.pollution(cleaned, rcore)
     # вычитатель — ПОСЛЕДНИЙ из растущих шагов: чистый фон у кромки, связанный с краем кадра, в полосе ≤ 2 px (T-104/5)
     if act:
         t0 = time.time()
@@ -241,6 +248,9 @@ def chain_shape(src: Image.Image, net: Image.Image, role: str | None = None) -> 
         info['studio'].update(sub)
         ms['subtract'] = round(time.time() - t0, 3)
         info['studio']['pollution']['subtract'] = studio_bg.pollution(cleaned, rcore)
+        # Ч.3: белые островки цвета фона у тёмного тела, отделённые от рамки тенью (не в Rcore)
+        cleaned, cc = studio_bg.contrast_cut(cleaned, src_rgb, bg, rsoft)
+        info['studio'].update(cc)
     info['components'] = comp
     refined = Image.fromarray(np.dstack([rgb, (np.clip(cleaned, 0, 1) * 255).astype(np.uint8)]), 'RGBA')
     is_col, why, feats = collage.is_collage(np.asarray(src).astype(np.float32), cleaned)
