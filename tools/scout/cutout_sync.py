@@ -207,6 +207,9 @@ def chain(src: Image.Image, net: Image.Image, role: str | None = None) -> tuple[
     # остаются нетронутыми — различаем по содержимому, а не по размеру (урок 307).
     cleaned, holes = components.fill_holes_unlike_bg(cleaned, np.asarray(src), role=role)
     comp.update(holes)
+    # дыры внутри тела корпусной мебели (светлые фасады «как фон», T-20261119-104/3): замкнутые телом возвращаются; стул/стеллаж/стол не трогаются
+    cleaned, bh = components.fill_body_holes(cleaned, np.asarray(refined)[..., :3], role=role)
+    comp.update(bh)
     # щели 1–2 px у кромки (светлое на белом рвётся «пунктиром», T-20261119-104/2); внутренние дырки и пустоты от 3 px остаются
     cleaned, rgb, gap = components.close_edge_gaps(cleaned, np.asarray(refined)[..., :3])
     comp.update(gap)

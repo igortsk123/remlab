@@ -223,3 +223,71 @@ def close_edge_gaps(alpha, rgb, thr=0.5, gap_px=None, zone_px=EDGE_ZONE_PX):
     a2 = np.where(add, 1.0, alpha).astype(alpha.dtype)
     rgb2 = np.where(add[..., None], rgb[iy, ix], rgb)
     return a2, rgb2, {'edge_gap_closed': n}
+
+
+# ДЫРЫ ВНУТРИ ТЕЛА (T-20261119-104/3). У светлой корпусной мебели на белом сеть теряет куски фасада: белое «как фон», и в теле остаются
+# замкнутые дыры (комод 112923:15785626124008834727: на тёмном — чёрные коробки в белой рамке). `fill_holes_unlike_bg` их не лечит: допуск
+# «похоже на фон» (≥24) принимает белый фасад за фон. ГЛАВНОЕ, ЧТО ПОКАЗАЛ ЗАМЕР 20.11 на 1295 товарах: у ролей с глухим корпусом почти ВСЕ
+# замкнутые дыры — настоящие просветы (между ножками и кольцом пуфа, ажурный каркас консоли, рама тумбы): внутри 92–100 % пикселей совпадают с
+# чистым фоном кадра. Заливать их нельзя — получится белая плита вместо ножек. Потеря товара — дыра, внутри которой фона НЕТ (белый фасад чуть
+# серее и с градиентом/кромкой ящика): `pure_bg_share` < BODY_HOLE_BG_MAX. Такая дыра, замкнутая телом (не касается внешнего фона маски),
+# возвращается пикселями ИСХОДНОГО фото (RGB у маски те же, что в кадре), а не заливкой цветом.
+# Роли — `SOLID_SILHOUETTE_ROLES` (стекло/керамика) плюс корпусные ниже; в сам `SOLID_SILHOUETTE_ROLES` корпусные НЕ добавляем: он правит
+# `fill_holes_unlike_bg` и в `salad/preprocess._cut_chain` (меши) — там поведение менять нельзя. Стул, стеллаж, стол, кровать (реечное
+# изголовье), кресло (плетёное), люстра, торшер сюда не входят: просветы у них настоящие.
+SOLID_BODY_ROLES = SOLID_SILHOUETTE_ROLES | {'комод', 'тумба прикроватная', 'тв-тумба', 'шкаф', 'пуф', 'банкетка', 'диван'}
+BODY_HOLE_MAX_SHARE = float(__import__('os').environ.get('CUTOUT_BODY_HOLE_MAX_SHARE', '0.9'))   # дыра крупнее этой доли тела — не лечим (0 — правило выключено)
+BODY_HOLE_BG_MAX = float(__import__('os').environ.get('CUTOUT_BODY_HOLE_BG_MAX', '0.5'))        # доля «чистого фона» внутри дыры, с которой это уже просвет, а не потеря
+BG_PURE_TOL = 6.0                                                                              # допуск совпадения с фоном кадра (шум JPEG), по каналу
+
+
+def pure_bg_share(rgb, mask):
+    """Доля пикселей `mask`, у которых цвет совпадает с фоном кадра (медиана рамки в 4 %) в пределах шума: сквозь дыру виден фон."""
+    rgb = rgb.astype(np.float32)
+    h, w = mask.shape
+    b = max(2, int(min(h, w) * 0.04))
+    band = np.concatenate([rgb[:b].reshape(-1, 3), rgb[-b:].reshape(-1, 3), rgb[:, :b].reshape(-1, 3), rgb[:, -b:].reshape(-1, 3)])
+    bg = np.median(band, axis=0)
+    d = np.abs(rgb[mask] - bg).max(axis=1)
+    return float((d <= BG_PURE_TOL).mean())
+
+
+def fill_body_holes(alpha, rgb, role=None, thr=0.5, max_share=None, bg_max=None, stats=None):
+    """Вернуть в товар замкнутые дыры внутри тела роли с глухим корпусом, ЕСЛИ внутри дыры нет фона кадра (потерянный фасад, а не просвет).
+    Возвращает (alpha2, info): `body_holes_filled(_px)`, `body_holes_seethrough` (просветы, оставленные как есть); stats — список по дырам (для замеров)."""
+    max_share = BODY_HOLE_MAX_SHARE if max_share is None else max_share
+    bg_max = BODY_HOLE_BG_MAX if bg_max is None else bg_max
+    if max_share <= 0:
+        return alpha, {'body_holes_off': True}
+    if (role or '').strip() not in SOLID_BODY_ROLES:
+        return alpha, {}
+    fg = alpha > thr
+    if not fg.any():
+        return alpha, {}
+    filled = ndimage.binary_fill_holes(fg)
+    holes = filled & ~fg
+    if not holes.any():
+        return alpha, {}
+    area = float(filled.sum())
+    lab, n = ndimage.label(holes)
+    out = alpha.copy()
+    px = cnt = see = 0
+    for i in range(1, n + 1):
+        m = lab == i
+        if m.sum() > max_share * area:
+            continue
+        share = pure_bg_share(rgb, m)
+        if stats is not None:
+            stats.append({'px': int(m.sum()), 'pure_bg': round(share, 3)})
+        if share >= bg_max:                 # внутри фон кадра — настоящий просвет (ножки, ажур, рама)
+            see += 1
+            continue
+        out[m] = np.maximum(out[m], 1.0)
+        px += int(m.sum())
+        cnt += 1
+    info = {}
+    if cnt:
+        info.update(body_holes_filled=cnt, body_holes_filled_px=px)
+    if see:
+        info['body_holes_seethrough'] = see
+    return out, info
