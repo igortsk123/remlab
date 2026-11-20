@@ -167,6 +167,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--port', type=int, default=8189)
     ap.add_argument('--log-dir', required=True)
+    ap.add_argument('--ttl-min', type=float, default=30.0, help='автостоп: сам завершается через N минут (20.11: забытые fake занимали порт моста пода и принимали живые запросы); 0 — без автостопа')
     ap.add_argument('--fail-after', type=int, default=None, help='после N принятых заданий отвечать ошибкой выполнения')
     a = ap.parse_args()
     app = web.Application(client_max_size=512 * 2 ** 20)
@@ -174,6 +175,11 @@ def main():
     app.add_routes([web.route('*', '/queue', h_queue), web.get('/models/{folder}', h_models), web.get('/object_info/{cls}', h_objinfo),
                     web.post('/upload/image', h_upload), web.get('/ws', h_ws), web.post('/prompt', h_prompt), web.get('/history/{pid}', h_history),
                     web.get('/view', h_view), web.route('*', '/{tail:.*}', h_any)])
+    if a.ttl_min > 0:
+        import threading
+        t = threading.Timer(a.ttl_min * 60, lambda: os._exit(0))
+        t.daemon = True
+        t.start()
     web.run_app(app, host='127.0.0.1', port=a.port, print=lambda *_: print(f'fake ComfyUI на 127.0.0.1:{a.port}', flush=True))
 
 

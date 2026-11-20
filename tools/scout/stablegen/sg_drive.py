@@ -135,6 +135,16 @@ def apply_view_prompts(sc, bb, front, cat_role, seed_name):
     return out, metas, flags
 
 
+def server_info(server: str) -> dict:
+    import urllib.request
+    try:
+        with urllib.request.urlopen(urllib.request.Request(f'http://{server}/info', headers={'User-Agent': 'remlab-mesh/1.0'}), timeout=15) as r:
+            d = json.loads(r.read() or b'{}')
+            return {k: d.get(k) for k in ('backend', 'gpu', 'vram_total', 'weights_gb')} if isinstance(d, dict) else {}
+    except Exception as e:  # noqa: BLE001 — нет /info (например fake_comfy) = «не воркер»
+        return {'error': str(e)[:120]}
+
+
 def steps():
     addon_utils.enable(ADDON, default_set=True, persistent=True)
     prefs = bpy.context.preferences.addons[ADDON].preferences
@@ -163,6 +173,13 @@ def steps():
     bpy.context.view_layer.update()
 
     # 2. настройки: сперва списки моделей с сервера (энум-списки аддон заполняет фоновыми запросами)
+    yield 'server-identity'
+    info = server_info(CFG['server'])                      # кто отвечает по адресу: воркер пода/ноды (/info с backend и картой) или чужой/поддельный сервер
+    ST['server_info'] = info
+    say(f'сервер {CFG["server"]}: {info}')
+    if CFG.get('require_worker') and not (info.get('backend') and info.get('gpu')):
+        raise RuntimeError(f'по адресу {CFG["server"]} отвечает не воркер пода (/info: {info}) — генерацию не начинаю (уроки 20.11: чужой fake_comfy на порту моста)')
+    save_status()
     yield 'refresh-lists'
     sc.model_architecture = CFG.get('architecture', 'qwen_image_edit')
     sg_state = sg('core.state')

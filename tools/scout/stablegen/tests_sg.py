@@ -272,6 +272,66 @@ class RunpodDriverStops(unittest.TestCase):
             setattr(a, k, v)
         return a
 
+    def test_relay_must_reach_the_pod_not_a_stranger(self):
+        import tempfile
+        from unittest import mock
+        import sg_runpod as R
+        clock = [1000.0]
+        api = self.FakeApi()
+        seen = []
+
+        def pg(url, timeout=20):
+            seen.append(url)
+            if 'proxy.runpod.net' in url:
+                return 200, {'warm': True, 'weights_gb': 1}          # под готов
+            return 200, {'ok': 1}                                      # по порту моста отвечает ЧУЖОЙ сервер без поля warm (как fake_comfy на занятом порту)
+        fake_relay = mock.Mock()
+        fake_relay.poll.return_value = None
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(S, 'hf_head', return_value=200), mock.patch.object(R, 'public_get', side_effect=pg), \
+                mock.patch.object(S, 'load_weights_catalog', return_value={}), mock.patch.object(S, 'weight_urls', return_value=[]):
+            def sleep(n):
+                clock[0] += 5
+            import json
+            rc = R.run(self._args(d), api, sleep=sleep, clock=lambda: clock[0], popen=lambda *a, **k: fake_relay)
+            summ = json.load(open(os.path.join(d, 'summary-trial-sg-rp-t.json'), encoding='utf-8'))
+        self.assertEqual(summ['stopped_by'], 'relay_not_pod')
+        self.assertTrue(summ['terminated'])
+        self.assertEqual(summ['runs'], [])                             # ни одного прогона на чужом сервере
+        self.assertEqual(rc, 1)
+
+    def test_run_records_who_answered_and_marks_unanswered_as_failure(self):
+        import json
+        import tempfile
+        from unittest import mock
+        import sg_runpod as R
+        for info, expect_ok in (({'backend': 'comfy-0.46.0+gguf', 'gpu': 'NVIDIA GeForce RTX 4090'}, True), ({}, False)):
+            clock = [1000.0]
+            api = self.FakeApi()
+
+            def pg(url, timeout=20, info=info):
+                if url.endswith('/info'):
+                    return (200, info) if info else (404, {})
+                return 200, {'warm': True, 'weights_gb': 1}
+
+            def popen(cmd, **kw):
+                m = mock.Mock()
+                m.poll.return_value = None if 'sg_relay.py' in ' '.join(map(str, cmd)) else 0      # мост жив, задание Blender завершилось
+                if str(cmd[0]).endswith('heavy-slot.sh'):
+                    cfg = json.load(open(cmd[-1], encoding='utf-8'))
+                    os.makedirs(cfg['out'], exist_ok=True)
+                    open(os.path.join(cfg['out'], 'painted.glb'), 'wb').write(b'glb')
+                    self.assertTrue(cfg['require_worker'])
+                return m
+            with tempfile.TemporaryDirectory() as d, mock.patch.object(S, 'hf_head', return_value=200), mock.patch.object(R, 'public_get', side_effect=pg), \
+                    mock.patch.object(S, 'load_weights_catalog', return_value={}), mock.patch.object(S, 'weight_urls', return_value=[]):
+                def sleep(n):
+                    clock[0] += 20
+                R.run(self._args(d), api, sleep=sleep, clock=lambda: clock[0], popen=popen)
+                summ = json.load(open(os.path.join(d, 'summary-trial-sg-rp-t.json'), encoding='utf-8'))
+            self.assertEqual(len(summ['runs']), 1)
+            self.assertEqual(summ['runs'][0]['ok'], expect_ok)
+            self.assertEqual(bool(summ['runs'][0]['answered_by']['gpu']), expect_ok)
+
     def test_container_not_started_is_deleted_after_container_min(self):
         import tempfile
         from unittest import mock

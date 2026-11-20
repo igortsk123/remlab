@@ -29,7 +29,14 @@ import sg_salad as S  # noqa: E402  — общие части: варианты,
 API = 'https://api.runpod.io'
 ACCESS = '/home/pakar/igor/remlab/.memory_bank/_secrets/ACCESS.md'
 PORT = 8000
-RELAY_PORT = 18191
+RELAY_PORT = 18191          # только запасной номер; драйвер берёт СВОБОДНЫЙ порт (free_port), см. урок 20.11: чужой fake_comfy на 18191 принимал запросы вместо пода
+
+
+def free_port() -> int:
+    import socket
+    with socket.socket() as sk:
+        sk.bind(('127.0.0.1', 0))
+        return sk.getsockname()[1]
 # порядок попыток: нужна 24+ ГБ и хост с CUDA ≥ 12.8 (torch cu128 в образе); 3090/A5000 (CUDA 12.4) не годятся
 CANDIDATES = [('NVIDIA GeForce RTX 4090', 'COMMUNITY'), ('NVIDIA GeForce RTX 4090', 'SECURE'), ('NVIDIA RTX A6000', 'COMMUNITY'), ('NVIDIA RTX PRO 4000 Blackwell', 'COMMUNITY')]
 SG_HOME = S.SG_HOME
@@ -153,6 +160,7 @@ def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) 
     os.makedirs(a.out, exist_ok=True)
     base = f'https://{pod}-{PORT}.proxy.runpod.net'
     relay, cur, running_at, ready_at, last_minute, last_say, fail_streak = None, None, None, None, 0.0, 0.0, 0
+    relay_port = None
     pending = list(runs)
     try:
         while True:
@@ -205,9 +213,16 @@ def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) 
                         summary['stopped_by'] = 'salad_first'
                         break
                     say('RUNPOD ПЕРВЫЙ — Salad-группу надо погасить вручную (sg_salad.py --stop-only)')
-                    relay = popen([a.relay_python, os.path.join(HERE, 'sg_relay.py'), '--listen', str(RELAY_PORT), '--target', base],
+                    relay_port = free_port()
+                    relay = popen([a.relay_python, os.path.join(HERE, 'sg_relay.py'), '--listen', str(relay_port), '--target', base],
                                   env={**os.environ, 'PYTHONPATH': a.relay_deps}, stdout=open(os.path.join(a.out, f'relay-rp-{a.suffix}.log'), 'ab'), stderr=subprocess.STDOUT)
                     sleep(3)
+                    rc_, rh = public_get(f'http://127.0.0.1:{relay_port}/health')      # за мостом должен отвечать именно воркер пода (ключ warm), а не чужой/поддельный сервер
+                    if relay.poll() is not None or rc_ != 200 or not isinstance(rh, dict) or 'warm' not in rh:
+                        say(f'!! мост на порту {relay_port} не ведёт к поду (мост завершён={relay.poll() is not None}, /health {rc_}) — стоп и удаление пода, деньги на запросы не тратим')
+                        summary['stopped_by'] = 'relay_not_pod'
+                        break
+                    say(f'мост 127.0.0.1:{relay_port} → под: /health с воркером пода ответил, серверу ComfyUI можно доверять')
             if ready_at is not None:
                 if cur is None and pending and a.gate and summary['runs']:      # ворота между товарами (директор 20.11): смотрим результат первого, файл «go» — дальше, «stop» — стоп и удаление пода
                     gv = open(a.gate, encoding='utf-8').read().strip().lower() if os.path.exists(a.gate) else ''
@@ -226,7 +241,8 @@ def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) 
                     key, var = pending.pop(0)
                     odir = os.path.join(a.out, f'{key}-{var}-rp-{time.strftime("%H%M%S", time.gmtime())}')
                     os.makedirs(odir, exist_ok=True)
-                    cfg = S.build_cfg(key, var, os.path.join(odir, 'blender'), f'127.0.0.1:{RELAY_PORT}', a.cameras, a.texture, a.seed, a.job_timeout * 60)
+                    cfg = S.build_cfg(key, var, os.path.join(odir, 'blender'), f'127.0.0.1:{relay_port}', a.cameras, a.texture, a.seed, a.job_timeout * 60)
+                    cfg['require_worker'] = True               # Blender-драйвер сам проверит /info: без воркера пода (backend+карта) генерацию не начинает
                     cfg_path = os.path.join(odir, 'cfg.json')
                     json.dump(cfg, open(cfg_path, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
                     cmd = [os.path.join(SCOUT, '..', 'ops', 'heavy-slot.sh'), f't90-sg-{var}', '--prio', '2', '--cores', '3', '--min-gb', '3', '--timeout', str(a.job_timeout * 60), '--', os.path.join(HERE, 'sg_run.sh'), cfg_path]
@@ -246,8 +262,12 @@ def run(a, api: Api, sleep=time.sleep, clock=time.time, popen=subprocess.Popen) 
                         rc = -1
                     if rc is not None:
                         glb = os.path.join(cur['dir'], 'blender', 'painted.glb')
-                        ok = rc == 0 and os.path.exists(glb)
-                        summary['runs'].append({'key': cur['key'], 'variant': cur['variant'], 'label': cur['label'], 'dir': cur['dir'], 'rc': rc, 'ok': ok, 'seconds': round(t - cur['started'], 1), 'glb': glb if ok else None})
+                        ic, ij = public_get(f'http://127.0.0.1:{relay_port}/info')           # ④ кто ответил: воркер пода, карта, версия — без этого кадры не считаются результатом
+                        answered = {'pod': pod, 'gpu': ij.get('gpu') if ic == 200 else None, 'backend': ij.get('backend') if ic == 200 else None, 'http': ic}
+                        json.dump(answered, open(os.path.join(cur['dir'], 'answered_by.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+                        say('КТО ОТВЕТИЛ:', answered)
+                        ok = rc == 0 and os.path.exists(glb) and bool(answered['backend'] and answered['gpu'])
+                        summary['runs'].append({'key': cur['key'], 'variant': cur['variant'], 'label': cur['label'], 'dir': cur['dir'], 'rc': rc, 'ok': ok, 'answered_by': answered, 'seconds': round(t - cur['started'], 1), 'glb': glb if ok else None})
                         fail_streak = 0 if ok else fail_streak + 1
                         summary['failed'] += not ok
                         say('прогон', cur['key'], cur['variant'], 'ГОТОВО' if ok else f'УПАЛ (rc={rc}, {cur["dir"]}/run.log)', f'{summary["runs"][-1]["seconds"]} с')
