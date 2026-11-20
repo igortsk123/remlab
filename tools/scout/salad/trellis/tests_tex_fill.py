@@ -339,6 +339,52 @@ def test_seam_steps_concavity():
     ok(float(o_ao['tex'][0][m].mean()) < float(o_no['tex'][0][m].mean()), 'AO-опция: впадина темнее, чем без неё')
 
 
+# ------------------------------------------------------------------ диффузия, запасной лоскут, мера пятен
+def test_diffuse_quilt_far():
+    print('диффузия цвета (без «зон источников»), запасной лоскут из мелких блоков, мера пятен:')
+    q = Quads()
+    q.quad([[0, 0, 0], [3, 0, 0], [3, 1, 0], [0, 1, 0]], (0, 0, .9, .45), sub=40)      # длинная полоса: слева красное известное, справа синее, посередине — неизвестное
+    tex = np.zeros((T, T, 3), np.uint8)
+    rng = np.random.RandomState(4)
+    W = int(.9 * T)
+    m_all = tile_mask((0, 0, .9, .45))
+    ys, xs = np.nonzero(m_all)
+    left, right = xs < int(.2 * T), xs > int(.7 * T)
+    tex[ys[left], xs[left]] = [200, 40, 40]
+    tex[ys[right], xs[right]] = [40, 60, 200]
+    g = q.geom(tex)
+    kn = [m_all.copy()]
+    kn[0][:, int(.2 * T):int(.7 * T) + 1] = False
+    kn[0] &= (tex.sum(axis=2) > 0)
+    cfg = {'gutter': 0, 'erode_known': 0, 'geo_len': 0.6, 'ao': 0.0}
+    a = TF.fill([g], kn, None, cfg=dict(cfg, diffuse_iter=0), mirror=False)
+    b = TF.fill([g], kn, None, cfg=dict(cfg, diffuse_iter=300), mirror=False)
+    mid = m_all.copy()
+    mid[:, :int(.2 * T)] = False
+    mid[:, int(.7 * T) + 1:] = False
+    row = lambda o: TF.rgb2lab(o['tex'][0][T - int(.2 * T), int(.2 * T):int(.7 * T)])    # noqa: E731 — строка из середины полосы
+    la, lb = row(a), row(b)
+    step = lambda x: float(TC.de2000_v(x[1:], x[:-1]).max())    # noqa: E731
+    ok(step(lb) < step(la) + 1e-6 and step(lb) < 6.0, f'диффузия: между красным и синим цвет меняется плавно (макс. скачок {step(lb):.1f}, без диффузии {step(la):.1f})')
+    ok('far_pct' in b['report'] and np.isfinite(b['report']['far_pct']['excess']), f'мера пятен считается: {b["report"]["far_pct"]}')
+    # запасной лоскут: у известного 20 % дыр — блоки 64/32/16 с 90 % известного не находятся, сборка из мелких блоков находится
+    q2 = Quads()
+    q2.quad([[0, 0, 0], [2, 0, 0], [2, 1, 0], [0, 1, 0]], (0, 0, .9, .9), sub=8)
+    tex2 = np.zeros((T, T, 3), np.uint8)
+    m2 = tile_mask((0, 0, .9, .9))
+    ys, xs = np.nonzero(m2)
+    base = np.clip(120 + rng.randint(-25, 26, (len(ys), 3)), 0, 255)
+    tex2[ys, xs] = base
+    kn2 = m2.copy()
+    kn2[:, int(.45 * T):] = False
+    holes = rng.rand(T, T) < 0.2
+    kn2 &= ~holes
+    g2 = q2.geom(np.where(kn2[..., None], tex2, 0).astype(np.uint8))
+    o2 = TF.fill([g2], [kn2], None, cfg={'gutter': 0, 'erode_known': 0, 'patch_known_min': 0.98, 'patch_known_min2': 0.98, 'quilt_known_min': 0.7}, mirror=False)
+    ok(o2['report']['no_patch'] == 0 and o2['report'].get('quilt') == 1, f'запасной лоскут: сборка из мелких блоков (quilt {o2["report"].get("quilt")}, no_patch {o2["report"]["no_patch"]})')
+    ok(o2['report']['unpainted_after_pct'] == 0.0, 'после заливки чёрного нет')
+
+
 # ------------------------------------------------------------------ вариант Б: источник — черновик TRELLIS
 def test_draft_source():
     print('вариант Б (source=trellis): цвет черновика со сдвигом тона, детали сохраняются, известное цело:')
@@ -374,7 +420,7 @@ def test_draft_source():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_draft_source):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

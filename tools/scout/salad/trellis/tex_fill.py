@@ -36,7 +36,7 @@ FILL = {
     'photo_res': 1024,               # буфер глубины вида, пикселей
     'photo_ortho': 1.8,              # сторона ортографического кадра (наибольшая сторона габарита = 1; диагональ куба 1,73)
     'cos_min': 0.35,                 # ниже — «вскользь» (как COS_GRAZE меры охвата): тексель не образец
-    'erode_known': 1,                # отступ известного от границы известного/неизвестного, пикселей карты
+    'erode_known': 3,                # отступ известного от границы известного/неизвестного и края островка, пикселей карты (у края — стыки, низкая уверенность)
     'min_known': 200,                # меньше известных текселей у части — статистика части берётся по всему предмету
     'smooth_iter': 4,                # проходов сглаживания цвета вершин по графу части (низкие частоты; шумный цвет мелких граней)
     'hp_px': 5.0,                    # сигма размытия для остатка (высокие частоты — фактура)
@@ -53,6 +53,9 @@ FILL = {
     'patch_known_min': 0.98,         # доля известных текселей в блоке, чтобы он годился (блок 64 и 32)
     'patch_known_min2': 0.90,        # то же для запасного блока 16 (известное дробное — большой блок не нашёлся)
     'gain_min': 0.5, 'gain_max': 2.0,
+    'diffuse_iter': 150,             # проходов диффузии цвета по поверхности части: границы между «зонами ближайшего источника» размываются (без «лоскутов»)
+    'far_de': 8.0,                   # мера пятен: тексель «далёк» от цвета своей части, если ΔE00 > far_de
+    'quilt_block': 16, 'quilt_known_min': 0.75, 'quilt_n': 4,   # запасной лоскут фактуры: сборка quilt_n×quilt_n из мелких блоков, где известного ≥ quilt_known_min
     'gutter': 8,                     # пикселей желоба вокруг островков
     'sample': 20000,                 # точек для оценки симметрии
     'source': 'stat',                # источник «невидимого»: stat — цвет части + лоскут фактуры; trellis — цвет черновика TRELLIS.2 со сдвигом тона (нужен draft)
@@ -489,6 +492,15 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                     reach = np.isfinite(d) & used & (srcs >= 0)
                     dist[reach] = d[reach]
                     col[reach] = vcol[srcs[reach]]
+                    if c['diffuse_iter'] > 0:                  # неизвестные вершины — среднее соседей (известные зафиксированы): плавный переход вместо «зон источников»
+                        deg = np.asarray(Wn.sum(axis=1)).ravel()
+                        free = reach & ~vknown
+                        cur = col.copy()
+                        cur[vknown & used] = vcol[vknown & used]
+                        for _ in range(int(c['diffuse_iter'])):
+                            nxt = (Wn @ cur) / np.maximum(deg, 1.0)[:, None]
+                            cur[free] = nxt[free]
+                        col[free] = cur[free]
                 return dist, col
 
             def at_texels(dist, col, length, sel):
@@ -590,7 +602,38 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 patch_gain[p] = med / max(pick[0], 1e-6)       # типичный блок по контрастности; амплитуда подгоняется к медиане разброса известного
                 break
         else:
-            rep['no_patch'] += 1
+            Bq, nq = int(c['quilt_block']), int(c['quilt_n'])
+            cands = []
+            for gi, tx in enumerate(txs):
+                T = tx.T
+                res_, pm, im = blk[gi]
+                n = T // Bq
+                if n < 1:
+                    continue
+                m = n * Bq
+                res0 = res_ * kn[gi][..., None]                 # неизвестные пиксели в остаток не входят
+
+                def tilesq(a):
+                    ex = a.shape[2:]
+                    return a[:m, :m].reshape(n, Bq, n, Bq, *ex).transpose(0, 2, 1, 3, *range(4, 4 + len(ex))).reshape(n, n, Bq * Bq, *ex)
+                kf = tilesq(kn[gi]).mean(axis=2)
+                pb = tilesq(pm)
+                okb = (kf >= c['quilt_known_min']) & (pb.min(axis=2) == p) & (pb.max(axis=2) == p)
+                rb = tilesq(res0)
+                for by, bx in zip(*np.nonzero(okb)):
+                    blkr = rb[by, bx].reshape(Bq, Bq, 3)
+                    cands.append((float(blkr.std()), blkr.copy()))
+            if len(cands) >= 2:
+                ss = np.array([x[0] for x in cands])
+                med = float(np.median(ss))
+                near = np.argsort(np.abs(ss - med))[:max(2, min(len(cands), 32))]
+                pick = rng.choice(near, size=nq * nq, replace=True)
+                rows = [np.concatenate([cands[int(pick[r * nq + q])][1] for q in range(nq)], axis=1) for r in range(nq)]
+                patches[p] = np.concatenate(rows, axis=0)
+                patch_gain[p] = med / max(float(patches[p].std()), 1e-6)
+                rep['quilt'] = rep.get('quilt', 0) + 1
+            else:
+                rep['no_patch'] += 1
     for gi, tx in enumerate(txs):
         T = tx.T
         unk_flat = (~kn[gi].reshape(-1)[tx.ti]) & (~mirrored[gi].reshape(-1)[tx.ti])
@@ -637,6 +680,22 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         nfc = np.bincount(tx.f, minlength=len(tx.F)).astype(np.float64)
         tx.unk_face = (np.bincount(tx.f, weights=(~kn[gi].reshape(-1)[tx.ti]).astype(np.float64), minlength=len(tx.F)) > 0.5 * np.maximum(nfc, 1.0)) & (nfc > 0)
         rep['geoms'][gi]['steps'] = {'before': step_stats(tx, tex_in[gi], c['step_de']), 'after': step_stats(tx, rgb, c['step_de'])}
+    far = {'known': [], 'filled': []}
+    rs = np.random.RandomState(11)
+    for gi, tx in enumerate(txs):
+        lab_o = rgb2lab(outs[gi].reshape(-1, 3)[tx.ti])
+        kk = kn[gi].reshape(-1)[tx.ti]
+        for p in part_ids:
+            sel = tx.part == p
+            for nm, m in (('known', sel & kk), ('filled', sel & ~kk)):
+                idx = np.nonzero(m)[0]
+                if len(idx) > 100000:
+                    idx = rs.choice(idx, 100000, replace=False)
+                if len(idx):
+                    far[nm].append((TC.de2000_v(lab_o[idx], np.broadcast_to(stat[p][0], (len(idx), 3)).copy()) > c['far_de']))
+    fk = float(np.concatenate(far['known']).mean()) * 100.0 if far['known'] else 0.0
+    ff = float(np.concatenate(far['filled']).mean()) * 100.0 if far['filled'] else 0.0
+    rep['far_pct'] = {'known': round(fk, 2), 'filled': round(ff, 2), 'excess': round(ff - fk, 2)}
     n_all = sum(r['texels'] for r in rep['geoms'])
     rep['texels'] = n_all
     rep['known_pct'] = round(100.0 * sum(r['known'] for r in rep['geoms']) / max(n_all, 1), 2)
@@ -749,6 +808,7 @@ THRESHOLDS = {                                   # пороги этапа (chec
     'empty_pct': ('<=', 0.0),                    # «не закрашено» после заливки, % текселей развёртки
     'dE00_front_back': ('<=', 6.0),              # перёд↔зад одной части: худшая из частей, у которых известного ≥ 1 % известного предмета
     'filled_faces_step_pct': ('<=', 10.0),       # доля достроенных граней со скачком цвета к соседу той же части (ΔE00 > FILL['step_de'])
+    'far_excess_pct': ('<=', 10.0),              # мера пятен: доля достроенных текселей с ΔE00 > far_de от цвета части МИНУС та же доля у видимых (фактура фото не «пятно»)
     'time_s': ('<=', 120.0),                     # план R1: < 2 мин на товар
 }
 
@@ -860,6 +920,7 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
         'empty_pct': {'value': rep['unpainted_after_pct'], 'threshold': th['empty_pct'][1], 'op': th['empty_pct'][0]},
         'dE00_front_back': {'value': de_worst, 'threshold': th['dE00_front_back'][1], 'op': th['dE00_front_back'][0]},
         'filled_faces_step_pct': {'value': rep['steps']['after']['filled_faces_step_pct'], 'threshold': th['filled_faces_step_pct'][1], 'op': th['filled_faces_step_pct'][0]},
+        'far_excess_pct': {'value': rep['far_pct']['excess'], 'threshold': th['far_excess_pct'][1], 'op': th['far_excess_pct'][0]},
         'time_s': {'value': round(secs, 1), 'threshold': th['time_s'][1], 'op': th['time_s'][0]},
     }
     for m in metrics.values():
