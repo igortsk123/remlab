@@ -26,7 +26,12 @@ P_LIMITS = (6.0, 10.0, 18.0)   # p80/p90/p95 отклонения кольца �
 PERIM_MIN = 0.70        # доля внешнего периметра «как фон»
 BAND_CORE = 2           # вычитатель: ≤ 2 px внутрь от кромки
 SUBTRACT_MAX_SHARE = 0.03   # снос больше 3 % тела — это белый товар, а не крупа: откат
-F_MIN_DIST = 20.0       # ‖F−B‖∞ меньше — товар цвета фона, α сети не трогаем
+F_MIN_DIST = 20.0       # ‖F−B‖∞ меньше — товар (в целом) цвета фона, шаги не трогают маску сети
+LOCAL_F_MIN = F_MIN_DIST  # ЛОКАЛЬНЫЙ цвет тела у кромки ближе этого к фону (белая ткань на белом, 104/5 правки): край сети не трогаем — ни вычитать, ни α. Тот же порог 20, что у «товар цвета фона»; 40 оставлял грязь у светлых тел (80 фото вместо 18)
+SOFT_DROP_BELOW = 0.3   # ac ниже — пиксель по цвету почти чистый фон: можно срезать; выше — только смягчить (α ≥ 0.5)
+SOFT_KEEP_FLOOR = 0.6    # нижняя граница α у пикселей, которые не срезаем (строго выше порога маски 0.5)
+SOFT_SMOOTH = 5         # окно сглаживания ac вдоль кромки (px)
+LOCAL_F_WIN = 9         # окно (px) усреднения цвета уверенного тела вокруг пикселя кромки
 CONF_DIST = 40.0        # пиксель дальше этого от B — уверенное тело (для тонких трубок, где «внутри» нет)
 SOFT_MAX_SHARE = 0.03   # мягкий край снёс (α<0,5) больше 3 % тела — откат
 
@@ -84,6 +89,32 @@ def regions(rgb, bg, t_core, t_soft):
     return reach_from_border(d <= t_core), reach_from_border(d <= t_soft)
 
 
+def confident_body(mask, d, rsoft, depth):
+    """Уверенное тело: глубже кромки или локальный максимум удаления от фона (тонкая трубка), не фон Rsoft."""
+    peak = d >= ndi.maximum_filter(d, size=5) - 8.0
+    return mask & ((depth > BAND_CORE + 1) | ((d >= CONF_DIST) & peak)) & ~rsoft
+
+
+def local_fg(conf, f, win=LOCAL_F_WIN):
+    """Локальный цвет тела вокруг каждого пикселя (нормированное усреднение по уверенному телу в окне win×win). Возвращает (F, есть_ли_тело_рядом)."""
+    w = conf.astype(np.float32)
+    num = np.stack([ndi.uniform_filter(f[..., c] * w, size=win, mode='constant') for c in range(3)], axis=2)
+    den = ndi.uniform_filter(w, size=win, mode='constant')
+    ok = den > 1e-4
+    return num / np.maximum(den, 1e-4)[..., None], ok
+
+
+def local_state(conf, f, B):
+    """(F, похоже_на_фон, есть_тело_рядом): F — среднее уверенного тела в окне (нет — ближайший пиксель тела); «похоже на фон» — если близко к B
+    ИЛИ среднее по окну, ИЛИ ближайший пиксель тела (консервативно: край светлой ткани лучше оставить, чем стесать)."""
+    Fw, ok = local_fg(conf, f)
+    _, (iy, ix) = ndi.distance_transform_edt(~conf, return_indices=True)
+    Fn = f[iy, ix]
+    F = np.where(ok[..., None], Fw, Fn)
+    near = (np.abs(Fw - B).max(axis=2) < LOCAL_F_MIN) | (np.abs(Fn - B).max(axis=2) < LOCAL_F_MIN)
+    return F, near, ok
+
+
 def pollution(alpha, rcore, thr=0.5):
     """Сколько пикселей маски лежит на фоне, связанном с краем (Rcore) — «загрязнение» шага."""
     return int(((alpha > thr) & rcore).sum())
@@ -101,14 +132,28 @@ def subtract(alpha, rgb, bg, rcore, thr=0.5):
         return alpha, {'subtract_skipped': 'товар цвета фона (‖F−B‖ < 20) — маску сети не трогаем'}
     depth = ndi.distance_transform_edt(mask)
     rm = mask & rcore & (depth <= BAND_CORE)
+    if rm.any():
+        # локальный цвет тела у кромки: если он близок к фону (белая ткань на белом) — край сети не трогаем (T-104/5 правки директора)
+        f = rgb.astype(np.float32)
+        dd = np.abs(f - np.asarray(bg, np.float32)).max(axis=2)
+        conf = confident_body(mask, dd, rcore, depth)
+        if conf.any():
+            _, near, ok = local_state(conf, f, np.asarray(bg, np.float32))
+            kept = rm & (near | ~ok)
+        else:
+            kept = rm
+        rm &= ~kept
+        nk = int(kept.sum())
+    else:
+        nk = 0
     n = int(rm.sum())
     if not n:
-        return alpha, {'subtract_px': 0}
+        return alpha, ({'subtract_px': 0, 'subtract_local_kept_px': nk} if nk else {'subtract_px': 0})
     if n > SUBTRACT_MAX_SHARE * mask.sum():
         return alpha, {'subtract_skipped': f'снести пришлось бы {n} px (> {int(SUBTRACT_MAX_SHARE * 100)} % тела) — белый товар, не трогаем'}
     out = alpha.copy()
     out[rm] = 0.0
-    return out, {'subtract_px': n}
+    return out, ({'subtract_px': n, 'subtract_local_kept_px': nk} if nk else {'subtract_px': n})
 
 
 def soft_alpha(alpha, rgb, bg, rsoft, thr=0.5):
@@ -122,23 +167,36 @@ def soft_alpha(alpha, rgb, bg, rsoft, thr=0.5):
     depth = ndi.distance_transform_edt(mask)
     # «уверенное тело» (откуда берём цвет F): глубже кромки или локальный максимум удаления от фона (для тонкой трубки, где «глубже» нет;
     # смешанные пиксели кромки по удалению от фона слабее соседнего чистого тела)
-    peak = d >= ndi.maximum_filter(d, size=5) - 8.0
-    conf = mask & ((depth > BAND_CORE + 1) | ((d >= CONF_DIST) & peak)) & ~rsoft
+    conf = confident_body(mask, d, rsoft, depth)
     # переходная полоса: пиксели маски у кромки, рядом (≤ 2 px) с фоном Rsoft — тени и прочее не «фон», их не трогаем
     band = mask & (depth <= BAND_CORE) & ~conf & ndi.binary_dilation(rsoft, iterations=BAND_CORE)
     if not band.any():
         return alpha, rgb, {'soft_px': 0}
     if not conf.any():
         return alpha, rgb, {'soft_skipped': 'нет уверенного тела для цвета F'}
-    _, (iy, ix) = ndi.distance_transform_edt(~conf, return_indices=True)
-    F = f[iy, ix]
+    F, similar, _ = local_state(conf, f, B)
     FB = F - B
     nrm2 = (FB * FB).sum(axis=2)
     ac = np.clip(((f - B) * FB).sum(axis=2) / (nrm2 + 1e-3), 0.0, 1.0)
-    similar = np.abs(FB).max(axis=2) < F_MIN_DIST           # F ≈ B: объект цвета фона — α сети не трогаем
     act = band & ~similar & (ac < alpha)
     if not act.any():
         return alpha, rgb, {'soft_px': 0}
+    # слоями (T-104/5, правки): второй слой кромки трогаем, только если внешний слой реально срезан (α<0.5). Светлый блик/ребро ярче тела
+    # (рама картины, верх шкафа) — не смесь с фоном: без этого во втором ряду появлялась щель-«лесенка» между рядами.
+    L1 = act & (depth <= 1.0 + 1e-3)
+    drop1 = L1 & (ac < thr)
+    outer_gone = ndi.binary_dilation(drop1 | (~mask), structure=np.ones((3, 3), bool))
+    act = L1 | (act & ~L1 & outer_gone)
+    if not act.any():
+        return alpha, rgb, {'soft_px': 0}
+    # ac по кромке шумит вокруг порога 0.5 (текстура, блики) — граница α>0.5 получается зубчатой; усредняем по соседним пикселям кромки (окно 5×5)
+    w = act.astype(np.float32)
+    nb = ndi.uniform_filter(w, size=SOFT_SMOOTH, mode='constant')
+    acs = ndi.uniform_filter(ac * w, size=SOFT_SMOOTH, mode='constant') / np.maximum(nb, 1e-4)
+    ac = np.where(act & (nb > 1e-4), acs, ac)
+    # геометрию (α>0.5) мягкий край меняет только там, где пиксель явно фон (ac < SOFT_DROP_BELOW); у остальных α не ниже 0.5 — светлая кайма ковра/блик
+    # не «пилится» шумом ac вокруг порога
+    ac = np.where(ac < SOFT_DROP_BELOW, ac, np.maximum(ac, SOFT_KEEP_FLOOR))
     new = np.where(act, ac, alpha)
     dropped = int((act & (ac < thr)).sum())
     if dropped > SOFT_MAX_SHARE * mask.sum():

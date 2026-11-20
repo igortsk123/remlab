@@ -94,6 +94,35 @@ def test_subtract_interior_hole_untouched():
     assert (out[140:150, 150:160] > 0.5).all(), 'внутренняя дырка стёрта'
 
 
+def test_subtract_and_soft_keep_light_fabric_edge():
+    """Белая ткань (237: ‖F−B‖=18 < 20, но вне Rsoft) поверх тёмной кровати: край ткани в сети «пробит» бликами 252 (≈ фон) — не вычитать и не смягчать (правки 104/5)."""
+    r, dark = white()
+    r[130:230, 100:300] = dark                      # тёмная рама
+    r[100:130, 100:300] = 237                       # светлая ткань сверху
+    r[96:100, 100:300] = 252                        # блики по самому краю ткани: «как фон» по цвету
+    a = np.zeros((H, W), np.float32)
+    a[96:230, 100:300] = 1.0
+    bg, rcore, rsoft = regs(r)
+    out, info = S.subtract(a, r, bg, rcore)
+    assert (out[96:100, 100:300] > 0.5).all(), f'край светлой ткани стёсан: {info}'
+    al, _, info2 = S.soft_alpha(a, r, bg, rsoft)
+    assert (al[96:100, 100:300] > 0.99).all(), f'край светлой ткани смягчён: {info2}'
+
+
+def test_soft_alpha_highlight_rim_no_gap():
+    """Светлое ребро (205) поверх более тёмного тела (150): внешний ряд — смесь, второй — блик; щели во втором ряду быть не должно (правки 104/5)."""
+    r, _ = white()
+    body = np.array([150, 142, 136], np.uint8)
+    r[100:200, 100:300] = body
+    r[100:102, 100:300] = (205, 198, 192)           # ребро-блик в 2 верхних рядах
+    a = np.zeros((H, W), np.float32)
+    a[100:200, 100:300] = 1.0
+    _, _, rsoft = regs(r)
+    bg = np.array([255, 255, 255], np.float32)
+    al, _, info = S.soft_alpha(a, r, bg, rsoft)
+    assert (al[101, 110:290] > 0.95).all(), f'второй ряд ребра продавлен (щель): {al[101, 110:112]} {info}'
+
+
 def test_close_edge_gaps_guard():
     r, dark = white()
     r[100:200, 100:300] = dark
@@ -147,7 +176,7 @@ def test_soft_alpha_edge_and_controls():
     bg, rcore, rsoft = regs(r)
     al, rg, info = S.soft_alpha(a, r, bg, rsoft)
     assert 0.3 < al[150, 99] < 0.7, f'переход не стал мягким: {al[150, 99]} {info}'
-    assert tuple(rg[150, 99]) == tuple(dark), 'цвет перехода не очищен от белого'
+    assert np.abs(rg[150, 99].astype(int) - dark.astype(int)).max() <= 2, f'цвет перехода не очищен от белого: {rg[150, 99]}'
     assert (al[110:190, 110:290] == 1.0).all() and al[10, 10] == 0, 'внутренность/фон тронуты'
     # контроль: белый товар (F ≈ B) — α сети не трогаем
     r2, _ = white()
