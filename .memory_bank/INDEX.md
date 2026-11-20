@@ -44,6 +44,7 @@ remlab — «Смета-first» v0.4 (ADR-0016): расчёт → реф-сме�
 | Регресс-защита — тесты, CI, гардрейлы | `core/regression-net.md` | `../docs/tech-spec-ts-stack.md` |
 | Замер комнаты по фото | `core/room-measurement.md` | `domain/room-measurement.md` |
 | Шаблоны комнат — порядок, паспорт, листы | `core/room-templates.md` | `domain/room-templates.md` |
+| Покраска мешей StableGen — пакет, стопы, повторы | `core/stablegen-paint.md` | `domain/viz-fidelity-playbook.md` |
 | Размеры: наличие, честность, парсер, footprint | `core/stock-and-dims.md` | `domain/stock-and-dims.md` |
 | Стили — паспорта, скоринг, сеты | `core/styles.md` | `domain/interior-styles.md` |
 | Stage 1 UX-flow, аналитика | `core/user-flow.md` | `domain/user-flow-details.md` |

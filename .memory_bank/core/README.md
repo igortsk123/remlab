@@ -43,6 +43,7 @@
 | `regression-net.md` | regression-net | Регресс-защита — тесты, CI, гардрейлы | `../../docs/tech-spec-ts-stack.md` | 2026-11-18 |
 | `room-measurement.md` | room-measurement | Замер комнаты по фото | `../domain/room-measurement.md` | 2026-11-18 |
 | `room-templates.md` | room-templates | Шаблоны комнат — порядок, паспорт, листы | `../domain/room-templates.md` | 2026-11-18 |
+| `stablegen-paint.md` | stablegen-paint | Покраска мешей StableGen — пакет, стопы, повторы | `../domain/viz-fidelity-playbook.md` | 2026-11-20 |
 | `stock-and-dims.md` | stock-and-dims | Размеры: наличие, честность, парсер, footprint | `../domain/stock-and-dims.md` | 2026-11-18 |
 | `styles.md` | styles | Стили — паспорта, скоринг, сеты | `../domain/interior-styles.md` | 2026-11-18 |
 | `user-flow.md` | user-flow | Stage 1 UX-flow, аналитика | `../domain/user-flow-details.md` | 2026-11-18 |
