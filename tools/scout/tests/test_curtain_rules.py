@@ -137,3 +137,30 @@ def test_printed_curtain_never_picked_in_any_style():
         d = [_c(1, 'Штора рулонная Уют Сити ночь черный 100х175 см', st, 100, DARK), _c(2, 'Комплект штор Мадагаскар синий', nb, 260)]
         picks, gaps, lay = _curtains(d, st, 90)
         assert not any('Сити' in (v.get('name') or '') or 'Мадагаскар' in (v.get('name') or '') for v in picks.values()), st
+
+
+def _two_styles(borrow_first: bool):
+    """Лофт берёт шторы у «джапанди» (запас); потом «джапанди» собирает свои. Возвращает eid шторы «джапанди»."""
+    R = copy.deepcopy(CB.rules())
+    R['purposes']['couple']['decor'] = {'шторы': R['purposes']['couple']['decor']['шторы']}
+    best, second = _c(1, 'Комплект штор Нанти бежевый', 'джапанди', 260), _c(2, 'Комплект штор Пайнон экрю', 'джапанди', 260)
+    best['styles']['джапанди'], second['styles']['джапанди'] = 9.5, 9.0
+    comp = CB.Composer([], [best, second], set(), set(), R, CB.tolerance(), 6.6)
+    lay = type('L', (), {'placements': []})()
+    used_all = set()
+    if borrow_first:
+        picks, *_ = comp.decor_pick('couple', 'лофт', 'комфорт', {'used_style': set(), 'used_all': used_all}, lay, _win(240), {})
+        assert picks['шторы']['style_from'] == 'джапанди'                         # заёмщик взял лучший товар донора
+        used_all |= CB.used_fams({}, picks)
+    picks, *_ = comp.decor_pick('couple', 'джапанди', 'комфорт', {'used_style': set(), 'used_all': used_all}, lay, _win(240), {})
+    return picks['шторы']['eid']
+
+
+def test_donor_set_unchanged_by_borrower():
+    """Набор стиля-донора побайтно тот же, брал у него сосед или нет (seen_all не уводит донора на другие шторы)."""
+    assert _two_styles(borrow_first=True) == _two_styles(borrow_first=False) == '1'
+
+
+def test_used_fams_skips_borrowed_but_keeps_own():
+    own, borrowed = {'fam': 'a'}, {'fam': 'b', 'style_from': 'джапанди'}
+    assert CB.used_fams({'кровать': {'fam': 'k'}}, {'шторы': borrowed, 'лампа': own}) == {'k', 'a'}

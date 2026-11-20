@@ -997,6 +997,12 @@ def _item(c: dict) -> dict:
     return dict({k: c.get(k) for k in keep if k in c}, has_mesh=bool(c.get('mesh')), mesh_defect=bool(c.get('mesh_defect')))
 
 
+def used_fams(chosen: dict, decor: dict) -> set:
+    """Семейства набора, что идут в «уже стоит в других наборах» (`seen_style`/`seen_all`). Запас соседа (`style_from`) НЕ пишем: донор важнее
+    заёмщика (T-20261120-163/5) — набор стиля-донора не должен меняться оттого, что другой стиль взял у него товар."""
+    return {c['fam'] for c in list(chosen.values()) + [d for d in decor.values() if not d.get('style_from')]}
+
+
 def record(C: Composer, room_id: str, spec: dict, purpose: str, style: str, tier: str, res: dict, dec: tuple) -> dict:
     import compose_common as CC
     chosen, lay = res["chosen"], res["layout"]
@@ -1092,7 +1098,7 @@ def compose(rooms: list, C: Composer) -> tuple:
                     rec = record(C, room_id, spec, purpose, style, tier, res, dec)
                     bank.append(rec)
                     built.append((style, {r: res['chosen'][r]['fam'] for r in res['chosen'] if r in MAJOR}))
-                    fams = {c['fam'] for c in list(res['chosen'].values()) + list(dec[0].values())}
+                    fams = used_fams(res['chosen'], dec[0])        # запас соседа в «использованное» не пишем (донор важнее заёмщика)
                     used['style'] |= fams
                     used_all |= fams
                     report['cells'].append(dict(cell, set_id=rec['set_id'], total=rec['total'], fit=rec['style_fit'],
