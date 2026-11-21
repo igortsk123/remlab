@@ -159,6 +159,8 @@ def _carry_tone(r: dict, cls: dict, cat: dict) -> None:
         ent = None
     if ent and ent.get("tone") and ent.get("class") == r["class"]:
         r["tone"] = list(ent["tone"])
+        if ent.get("tone_source"):
+            r["tone_source"] = ent["tone_source"]
 
 
 def unsure_parts_report(mesh, part: np.ndarray, parts_rep: list[dict], parts: list[dict], recipes: dict) -> list[dict]:
@@ -732,7 +734,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
         if r.get("tone") and r["class"] in glass_cls:
             rt = reconcile_tone(r["tone"], photo_rgb, gt)
             r["tone"] = rt["used"]
-            tone_rep.append({"part": int(pid), **rt})
+            tone_rep.append({"part": int(pid), **rt, **({"tone_source": r["tone_source"]} if r.get("tone_source") else {})})
             face_tone[part == pid] = rt["used"]
     face_neutral = np.full((nf, 3), np.nan)
     group = np.full(nf, -1, dtype=np.int64)

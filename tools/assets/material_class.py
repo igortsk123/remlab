@@ -117,8 +117,9 @@ def glass_finish(rules: dict, key: str, value: str, params: dict) -> dict | None
             h = hits[0]
             out.update(colour=h["name"], colour_key=ck, colour_value=str(cv), tone=list(h["rgb"]))
             out["frosted"] = out["frosted"] or bool(h.get("frosted"))
-            if h.get("white_alone_is_not_opal") and not out["frosted"] and key in gf.get("white_is_opal_for", []):
-                out["frosted"] = True                                     # переключатель правил: для этих ключей «Белый» = опал (замер по фото: см. plans/mesh-type-rules-01.md)
+            if h.get("white_alone_is_not_opal") and not out["frosted"] and key in gf.get("white_is_opal_for", []) and not any(re.search(b, ct) for b in gf.get("white_opal_blockers", [])):
+                out["frosted"] = True
+                out["white_key"] = True                                   # переключатель правил: для этих ключей «Белый» = опал (замер по фото: см. plans/mesh-type-rules-01.md)
             if h.get("white_alone_is_not_opal") and not out["frosted"]:      # «Белый» без сильных слов (матов/опал/молочн/сатин/морозн/пескостру): прозрачное часто так записано,
                 out.pop("tone")                                               # бывает и крашеное непрозрачное — опал не доказан, остаётся обычное стекло (нужен сигнал с фото)
                 out["white_unconfirmed"] = True
@@ -137,6 +138,8 @@ def _apply_finish(rules: dict, cand: dict, key: str, val: str, params: dict) -> 
         cand["class"] = rules["glass_finish"]["frosted_class"]
     if "tone" in fin:
         cand["tone"] = fin["tone"]
+    if fin.get("white_key"):
+        cand["tone_source"] = "white-shade-key"                  # опал по «Белый» в ключе плафона, без сильного слова — в check.json виден источник
     if "colour_key" in fin:
         cand["reason_extra"] = f"{fin['colour_key']}={fin['colour_value']}" + (" (опал не доказан — нужен сигнал с фото)" if fin.get("white_unconfirmed") else "")
     return fin
@@ -243,6 +246,8 @@ def classify(rules: dict, rec: dict) -> dict:
             out["reason"] += "; " + p["reason_extra"]
         if p.get("tone"):
             out["tone"] = p["tone"]
+        if p.get("tone_source"):
+            out["tone_source"] = p["tone_source"]
         same_glass = bool(n) and byid[n["class"]]["family"] == "glass" and byid[p["class"]]["family"] == "glass"      # «стеклянный» в названии согласен и с glass, и с glass_frosted
         if p["alt"]:
             out["alt"] = p["alt"]
