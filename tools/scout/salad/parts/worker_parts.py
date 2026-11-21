@@ -15,6 +15,7 @@ import base64
 import io
 import json
 import os
+import socket
 import subprocess
 import sys
 import tarfile
@@ -375,6 +376,25 @@ class H(BaseHTTPRequestHandler):
             return self._send(400, {'error': f'{type(e).__name__}: {e}'[:300]})
 
 
+class DualStackServer(ThreadingHTTPServer):
+    """Слушает IPv6 и IPv4 одним сокетом (`::`, IPV6_V6ONLY=0): шлюз и пробы Salad ходят по IPv6 — сервер только на 0.0.0.0 им не отвечает ни разу при живом процессе
+    (урок 724, эталон — worker_trellis.DualStackServer)."""
+    address_family = socket.AF_INET6
+    daemon_threads = True
+
+    def server_bind(self):
+        self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        super().server_bind()
+
+
+def make_server(port: int) -> ThreadingHTTPServer:
+    try:
+        return DualStackServer(('::', port), H)
+    except OSError as e:                         # нет IPv6 (CI, часть хостов) — обычный IPv4
+        print(f'[http] IPv6 недоступен ({e}) — слушаю только IPv4', flush=True)
+        return ThreadingHTTPServer(('0.0.0.0', port), H)
+
+
 def main() -> None:
     global OUT_DIR
     ap = argparse.ArgumentParser()
@@ -402,7 +422,7 @@ def main() -> None:
     os.makedirs(OUT_DIR, exist_ok=True)
     threading.Thread(target=load_backend, daemon=True).start()
     threading.Thread(target=worker_loop, args=(QUEUE,), daemon=True).start()
-    srv = ThreadingHTTPServer(('0.0.0.0', PORT), H)
+    srv = make_server(PORT)
     print(f'[worker] HTTP :{PORT}, модель {MODEL}, out {OUT_DIR}', flush=True)
     srv.serve_forever()
 
