@@ -296,7 +296,10 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     jobs = build_jobs(skus, parse_plan(a.plan), inputs, a.seed)
     name = f'trial-{a.model}-{a.suffix}'
     aligns = [parse_tex_variant(x) for x in (getattr(a, 'tex_align', None) or 'fit').split(',') if x.strip()]
-    if a.model == 'pixal3d-tex':                          # краска Pixal3D по готовой форме: без формы работать нечему — отказ ДО группы и денег
+    if getattr(a, 'hold_after', 0) and (not getattr(a, 'hold_file', None) or getattr(a, 'hold_max_min', 0) <= 0):          # пауза без файла-разрешения и срока — деньги шли бы без выхода
+        say('--hold-after требует --hold-file и --hold-max-min > 0 — группа не создаётся')
+        return 2
+    if a.model == 'pixal3d-tex':                        # краска Pixal3D по готовой форме: без формы работать нечему — отказ ДО группы и денег
         if not getattr(a, 'texture_mesh', None):
             say('pixal3d-tex красит готовую форму: укажите --texture-mesh <clean.glb> — группа не создаётся')
             return 2
@@ -413,6 +416,8 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         last_hc = 0.0                                                             # последний опрос /health во время задания (воркер «сломан» после фатальной ошибки CUDA)
         pending = list(jobs)
         inflight = None
+        last_wait_say = -1e9
+        hold_t0 = None                                                        # пауза «проба → ок → партия» на ТЁПЛОЙ ноде (T-20261121-172): момент начала ожидания файла-разрешения
         while True:
             t = clock()
             _, st, cnt = BR.group_state(name)
@@ -422,6 +427,10 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                 summary['to_first_running_s'] = round(t - t_start, 1)
                 say(f'первый running: t+{t - t_start:.0f} с от /start')
             running_s = (t - run_since) if run_since is not None else 0.0
+            if run_since is None and t - last_wait_say >= 120:          # до первого running лог молчал 15–25 мин (образ тянется): строка хода раз в 2 мин, P-039
+                last_wait_say = t
+                i0 = ins[0] if ins else {}
+                say(f'ждём running: группа {st}, счётчики {cnt}, экземпляр {i0.get("state")}, образ {round((i0.get("pulling_progress") or 0) * 100)} %, прошло {t - t_start:.0f} с от /start (деньги $0 до running)')
             cost = cost_usd(running_s, price)
             summary['cost_usd_est'] = round(cost, 3)
             if cost >= a.cap:
@@ -485,6 +494,16 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                     summary['stopped_by'] = 'not_ready'
                     break
             if ready_at is not None:
+                if inflight is None and pending and getattr(a, 'hold_after', 0) and len(summary['jobs']) >= a.hold_after and not os.path.exists(a.hold_file):
+                    if hold_t0 is None:
+                        hold_t0 = t
+                        say(f'пауза: сделано {len(summary["jobs"])} из {len(jobs)}; нода тёплая и ждёт файл {a.hold_file} (дальше — партия) не дольше {a.hold_max_min} мин; деньги идут, потолок ${a.cap} действует')
+                    if t - hold_t0 > a.hold_max_min * 60:
+                        say(f'!! разрешения (файл {a.hold_file}) нет {a.hold_max_min} мин — гашу')
+                        summary['stopped_by'] = 'hold_timeout'
+                        break
+                    sleep(10)
+                    continue
                 if inflight is None and pending:
                     j = pending.pop(0)
                     png = open(os.path.join(a.inputs, f'{j["sku"].replace(":", "_")}.{"hd." if j.get("input") == "hd" else ""}rgba.png'), 'rb').read()
@@ -596,6 +615,9 @@ def main() -> int:
     ap.add_argument('--ladder', default=None, help='trellis2: JSON со ступенями лесенки формы (имя, input cur|hd, res, шаги/rescale формы, max_num_tokens, export_raw) — по заданию на ступень на товар; HD-фото — `<товар>.hd.rgba.png` в --inputs')
     ap.add_argument('--texture-mesh', default=None, help='контроль: готовая форма (GLB) — TRELLIS.2 только перекрасит её по фото (один товар в --skus)')
     ap.add_argument('--tex-align', default='fit', help='pixal3d-tex: варианты через запятую, по заданию на вариант: fit (подгонка фото по силуэту формы), official (как в апстриме Pixal3D); добавки: +g<сила направляющей, по умолчанию 1>, +s<проходов сглаживания формы для латента>; пример: fit,official,fit+g3,fit+s60')
+    ap.add_argument('--hold-after', type=int, default=0, help='пауза на тёплой ноде: после N готовых заданий (проба) не слать следующие, пока не появится файл --hold-file (разрешение партии); 0 — без паузы')
+    ap.add_argument('--hold-file', default=None, help='файл-разрешение (создаёт ведущий/рабочий после «ок» по пробе); нужен вместе с --hold-after')
+    ap.add_argument('--hold-max-min', type=int, default=30, help='сколько минут ждать файл-разрешение, иначе группа гасится (потолок денег --cap действует и в паузе)')
     ap.add_argument('--tier', default='high', choices=['batch', 'low', 'medium', 'high'])
     ap.add_argument('--cpu', type=int, default=8)
     ap.add_argument('--mem-mb', type=int, default=32768)
