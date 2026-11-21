@@ -32,6 +32,7 @@
     "legs_overlap": 0.5
   },
   "refine": {
+    "islands": {"_about": "Крошка на границе частей (T-169, кадр дивана 114082 «сзади»): малый связный кусок (< max_faces граней, не главный, не больше max_rel_main главного куска своей части) с >= foreign границы в одну чужую часть вливается в неё; side=hidden — только где не видно камерам этапа 3. P-062: выключено до просмотра директором.", "enabled": false, "max_faces": 200, "max_rel_main": 0.2, "foreign": 0.8, "side": "hidden", "passes": 2},
     "thin_min_share": 0.0006,
     "colour_cap_de": 12.0,
     "legs_up_max": 0.35,

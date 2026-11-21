@@ -484,6 +484,53 @@ class Step2DryRules(unittest.TestCase):
         self.assertEqual((out[1]["role"], out[1]["dry_hint"][0]["rule"]), ("unknown", "single_class_support"))
 
 
+class AbsorbIslands(unittest.TestCase):
+    """parts_refine.absorb_islands: крошка (малый чужой кусок на границе) вливается в соседа; настоящие малые части, видимая сторона при side=hidden и несовместимые виды — нет."""
+    import parts_refine as prf
+
+    @staticmethod
+    def strip(n=100):
+        v, f = [], []
+        for i in range(n):
+            b = len(v)
+            v += [(i, 0, 0), (i + 1, 0, 0), (i, 1, 0), (i + 1, 1, 0)]
+            f += [(b, b + 1, b + 2), (b + 1, b + 3, b + 2)]
+        return np.array(v, dtype=float), np.array(f)
+
+    def setUp(self):
+        self.v, self.f = self.strip()
+        self.part = np.array([0] * 80 + [1] * 120)                          # квадраты 0..39 → часть 0, 40..99 → часть 1
+        self.part[120:124] = 0                                              # крошка: 2 квадрата части 0 внутри части 1
+        self.cfg = {"max_faces": 10, "max_rel_main": 0.2, "foreign": 0.8, "side": "both", "passes": 2}
+
+    def test_foreign_island_is_absorbed(self):
+        new, rep = self.prf.absorb_islands(self.part, self.v, self.f, None, self.cfg)
+        self.assertTrue((new[120:124] == 1).all())
+        self.assertEqual((rep["islands"], rep["faces"]), (1, 4))
+        self.assertEqual(int((new == 0).sum()), 80)                          # главный кусок части 0 цел
+
+    def test_big_island_or_main_is_not_touched(self):
+        new, rep = self.prf.absorb_islands(self.part, self.v, self.f, None, {**self.cfg, "max_faces": 3})
+        self.assertEqual(rep["islands"], 0)
+        self.assertTrue((new == self.part).all())
+
+    def test_side_hidden_skips_visible_island(self):
+        seen = np.ones(len(self.f), dtype=bool)                              # всё видно хоть одной камерой
+        _, rep = self.prf.absorb_islands(self.part, self.v, self.f, seen, {**self.cfg, "side": "hidden"})
+        self.assertEqual(rep["islands"], 0)
+        _, rep = self.prf.absorb_islands(self.part, self.v, self.f, ~seen, {**self.cfg, "side": "hidden"})
+        self.assertEqual(rep["islands"], 1)
+
+    def test_incompatible_kind_is_not_absorbed(self):
+        kind = np.where(self.part == 0, 1, 0)                                # часть 0 — linear (тонкая), часть 1 — объём: ножка в обивку нельзя
+        _, rep = self.prf.absorb_islands(self.part, self.v, self.f, None, self.cfg, kind)
+        self.assertEqual(rep["islands"], 0)
+
+    def test_shipped_off(self):
+        import parts_vote as pv
+        self.assertFalse(pv.load_rules()["refine"]["islands"]["enabled"])
+
+
 class RulesFile(unittest.TestCase):
     def test_no_product_ids_and_known_types(self):
         import json
