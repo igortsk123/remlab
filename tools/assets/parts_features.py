@@ -6,8 +6,8 @@
   area_share, up_q10/up_q90 (площадные перцентили высоты), up_min (самая низкая вершина), up_q02, kind (thin/mid/body), is_largest;
   obb{L,W,T,thin_ratio=T/L,slab} — ориентированная рамка по главным осям; plate_horizontal/plate_vertical — доля площади с вертикальной / горизонтальной нормалью;
   contacts — соседние части (общая граница ИЛИ близость ≤ `contact_eps`·габарит: части касаются и без общих вершин); contacts_main;
-  floor_contact (up_min ≤ `floor_eps`), supports_body (касается пола И главной части, а главная от пола оторвана: опора соединяет корпус с полом);
-  symmetry_group — сколько частей той же формы и высоты (4 ножки = 4, пара подлокотников = 2), symmetry_members — какие именно (движок ролей из них строит группы повторов: одна группа — одна роль);
+  floor_contact (up_min ≤ `floor_eps`), floor_near/supports_near_body (то же с допуском ×`floor_near_factor`: для осторожного вето), supports_body (касается пола И главной части, а главная от пола оторвана: опора соединяет корпус с полом);
+  symmetry_group — сколько частей той же формы и высоты (или одного нижнего слоя: оба у пола, объёмные (body), та же толщина, ширина и верх любые; ножки и каркас сюда не входят) (4 ножки = 4, пара подлокотников = 2), symmetry_members — какие именно (движок ролей из них строит группы повторов: одна группа — одна роль);
   front/right/front_facing_share — из камеры фото (`cam_az`, pose.json этапа 4 ТОЛЬКО со статусом passed; фото магазина почти всегда спереди → направление на камеру = перёд).
   Нет камеры — эти три = None, и правила, требующие фронт, не срабатывают (unknown лучше неверной роли);
   agree/seen — доверие этапа 3 (порог воздержания); delta_e_main — ТОЛЬКО для отчёта, в роль не идёт.
@@ -65,7 +65,7 @@ def _obb_components(idx: np.ndarray, c: np.ndarray, area: np.ndarray, adj, scale
 def part_features(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, kind: np.ndarray, kinds: dict[int, str],
                   lab: np.ndarray | None = None, cam_az: float | None = None, adj=None,
                   agree: np.ndarray | None = None, seen: np.ndarray | None = None,
-                  floor_eps: float = 0.04, contact_eps: float = 0.02, sym_tol: float = 0.15, sym_h_tol: float = 0.08) -> dict[int, dict]:
+                  floor_eps: float = 0.04, floor_near_factor: float = 2.0, contact_eps: float = 0.02, sym_tol: float = 0.15, sym_h_tol: float = 0.08) -> dict[int, dict]:
     """Признаки каждой части {id: {...}}. `kind` — вид граней (part_shapes), `kinds` — вид частей (parts_refine.part_kinds), `adj` — соседство граней (parts_vote.weld_adjacency)."""
     from scipy.spatial import cKDTree
 
@@ -145,10 +145,13 @@ def part_features(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, kin
                 contacts[q].add(p)
     main_up_min = out[largest]["up_q02"] if ids else 0                       # у главной части одна шальная вершина у пола не в счёт: берём 2-й площадный перцентиль
     for p in ids:
+        out[p]["floor_near"] = out[p]["up_min"] <= floor_near_factor * floor_eps               # «почти у пола»: допуск шире, нужен для осторожного вето (support_unclear) и для слоя основания
+    for p in ids:
         f = out[p]
         f["contacts"] = sorted(contacts[p])
         f["contacts_main"] = largest in contacts[p]
         f["floor_contact"] = f["up_min"] <= floor_eps
+        f["supports_near_body"] = bool(p != largest and f["floor_near"] and f["contacts_main"] and main_up_min > floor_eps)
         f["supports_body"] = bool(p != largest and f["floor_contact"] and f["contacts_main"] and main_up_min > floor_eps)
         g = 1
         mem = []
@@ -157,8 +160,12 @@ def part_features(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, kin
             if q == p:
                 continue
             oq = out[q]["obb"]
-            if all(abs(o[k] - oq[k]) <= sym_tol * max(o[k], oq[k], 1e-9) + 0.005 for k in ("L", "W", "T")) \
-               and abs(f["up_q10"] - out[q]["up_q10"]) <= sym_h_tol and abs(f["up_q90"] - out[q]["up_q90"]) <= sym_h_tol:
+            same_h = abs(f["up_q10"] - out[q]["up_q10"]) <= sym_h_tol and abs(f["up_q90"] - out[q]["up_q90"]) <= sym_h_tol
+            same_box = all(abs(o[k] - oq[k]) <= sym_tol * max(o[k], oq[k], 1e-9) + 0.005 for k in ("L", "W", "T"))
+            # нижний слой: модули основания разной ширины и высоты верха (сегментация режет их по-разному), но оба объёмные (не ножки) у пола, та же толщина — один слой, одна роль
+            same_layer = f["floor_near"] and out[q]["floor_near"] and f["kind"] == out[q]["kind"] == "body" \
+                and abs(o["T"] - oq["T"]) <= sym_tol * max(o["T"], oq["T"], 1e-9) + 0.005
+            if (same_h and same_box) or same_layer:
                 g += 1
                 mem.append(q)
         f["symmetry_group"] = g

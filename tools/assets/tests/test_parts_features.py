@@ -159,6 +159,16 @@ class Roles(unittest.TestCase):
         self.assertEqual(r[1]["role"], r[2]["role"])                        # одинаковые части — одна роль
         self.assertEqual(r[1]["unknown_reason"], "group_disagree")
 
+    def test_plinth_modules_of_different_width_are_one_layer(self):
+        body = box(0, 0.55, 0, 1.4, 0.9, 0.6, n=24)
+        a = box(-0.45, 0.05, 0, 0.5, 0.1, 0.4, n=10)                        # два модуля основания разной ширины, та же толщина и высота
+        b = box(0.3, 0.13, 0, 0.8, 0.1, 0.4, n=10)                          # второй чуть выше от пола
+        v, f, part = assemble([body, a, b])
+        ft = feats(v, f, part, {0: "body", 1: "body", 2: "body"})
+        self.assertIn(2, ft[1]["symmetry_members"])                         # слой найден, хотя рамки разные
+        r = pr.assign_roles(ft, self.rules, "диван", {"legs"})
+        self.assertEqual(r[1]["role"], r[2]["role"])
+
     def test_group_ignores_unreliable_members(self):
         v, f, part = table()
         kinds = {0: "body", 1: "thin", 2: "thin", 3: "thin", 4: "thin"}

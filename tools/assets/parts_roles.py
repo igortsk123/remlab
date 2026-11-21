@@ -8,7 +8,7 @@
   ③ body — запасная: объёмная (kind body) часть, не подошедшая под иную роль и прошедшая доверие; у корпусной мебели — только крупнейшая, у стола body нет вовсе (столешница и ножки названы отдельно);
      тонкая/средняя без правила остаётся unknown;
   ③б объёмная часть, что стоит на полу и держит главную (цоколь, нижний модуль), но под ножки не подошла и по цвету заметно иная (ΔE ≥ порога) — unknown:support_unclear; ΔE здесь только ВЕТО (снимает роль, роль не ставит);
-  ③в глобальная согласованность: части одной группы повторов (одинаковые размеры рамки и высота) получают ОДНУ роль, расходятся — вся группа unknown:group_disagree;
+  ③в глобальная согласованность: части одной группы повторов (одинаковые размеры рамки и высота; либо один нижний слой — оба объёмные у пола, та же толщина) получают ОДНУ роль, расходятся — вся группа unknown:group_disagree;
   ④ glass_mirror геометрия не ставит никогда; ΔE в роль не входит.
 Тип товара — `role` каталога → группа в `data/flat3d/material-classes.json` (тот же источник, что у этапа 8); каналы — ключи `parts` результата `material_class.classify`.
 """
@@ -145,7 +145,7 @@ def assign_roles(features: dict[int, dict], rules: dict, product_role: str | Non
             done(p, "unknown", "роль возможна, но не хватает " + ("фронта (камера этапа 4 не passed)" if fail[p] == "no_front" else "контакта/опоры"), rc["unknown"], fail[p])
         elif product_role in grp.get("no_body_for_types", []):
             done(p, "unknown", f"тип «{product_role}»: канала материала для частей нет", rc["unknown"], "no_channel")
-        elif f["kind"] == "body" and f["supports_body"] and f["area_share"] <= ab["support_unclear_max_share"] and (f["delta_e_main"] is None or f["delta_e_main"] >= ab["support_unclear_de_veto"]):
+        elif f["kind"] == "body" and f["supports_near_body"] and f["area_share"] <= ab["support_unclear_max_share"] and (f["delta_e_main"] is None or f["delta_e_main"] >= ab["support_unclear_de_veto"]):
             done(p, "unknown", "объёмная часть держит корпус на полу, но на ножки не похожа — материал основания не угадываем", rc["unknown"], "support_unclear")
         elif f["kind"] == "body" and (grp.get("body_scope", "all") == "none" or (grp.get("body_scope", "all") == "largest" and not f["is_largest"])):
             done(p, "unknown", "объёмная часть типа, где материал столешницы/фасада/корпуса назван отдельно — body только у крупнейшей", rc["unknown"], "body_scope")
