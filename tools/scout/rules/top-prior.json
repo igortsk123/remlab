@@ -1,0 +1,92 @@
+{
+  "_about": "Ш3в (T-20261121-173/3): правила верха деревянных столешниц. Все пороги ЗДЕСЬ, в коде их нет. Режим dry: только отчёт и кадр, текстура продукта не меняется. Мерка ABO (40 моделей, 21.11): тон с кромки ΔE00 медиана 0.5 / p90 8.4, с видимой плоскости 2.0 / 20.0; на фото кромка тоньше и темнее — пороги калибруются на наших столах. Класс «decor» (ЛДСП/МДФ-плёнка/пластик/композит) поднимается до «library» (узор дерева), если слова карточки (название, модификация, значения характеристик) называют дерево — `wood_look_words`. Родной цвет TRELLIS на верхе, когда он плоская заливка (разброс L < trellis_flat_std), не голос: на невидимом TRELLIS ничего не знает и красит одним цветом (Киннер: плоский рыже-коричневый ΔE00 37.8 от фото). Бин библиотеки берётся из семейств `bin_families` по классу карточки (массив/шпон — только дерево; ЛДСП — плита или дерево): хлопья плиты на столе «из дерева» — дефект выбора. Полоса кромки: edge_band_k × толщина столешницы из карточки / наибольший габарит (не меньше edge_band_min); нет данных — edge_band. Широкая полоса захватывает царгу под плитой (Киннер: царга бежевая, верх медовый).",
+  "enabled": false,
+  "mode": "dry",
+  "library": "data/flat3d/top-library/library.json",
+  "background_rgb": [
+    254,
+    254,
+    254
+  ],
+  "neutral_top_lab": [
+    70.0,
+    3.0,
+    12.0
+  ],
+  "fallback_tile_cm": 40.0,
+  "fallback_length_cm": 120.0,
+  "classes": {
+    "library": [
+      "wood_solid",
+      "wood_veneer"
+    ],
+    "decor": [
+      "ldsp",
+      "mdf_film",
+      "neutral",
+      "plastic"
+    ],
+    "other": [
+      "metal",
+      "chrome",
+      "glass",
+      "ceramic",
+      "stone",
+      "rattan"
+    ]
+  },
+  "geometry": {
+    "cos_top": 0.9,
+    "cos_vert": 0.3,
+    "top_level_q": 0.98,
+    "top_level_tol": 0.02,
+    "edge_band": 0.03,
+    "edge_above": 0.01,
+    "plane_from": 0.4,
+    "edge_band_k": 1.5,
+    "edge_band_min": 0.004
+  },
+  "decision": {
+    "min_edge_texels": 200,
+    "min_plane_texels": 500,
+    "min_trellis_texels": 500,
+    "bg_de00": 5.0,
+    "bg_share_max": 0.5,
+    "agree_de00": 10.0,
+    "edge_de00": 10.0,
+    "edge_plane_disagree": "prefer_edge",
+    "trellis_flat_std": 2.0
+  },
+  "wood_look_words": [
+    "древес",
+    "дерев",
+    "дуб",
+    "орех",
+    "ясен",
+    "бук",
+    "сосн",
+    "венге",
+    "шпон",
+    "береза",
+    "берёза",
+    "тик",
+    "wood",
+    "oak",
+    "walnut"
+  ],
+  "bin_families": {
+    "wood_solid": [
+      "wood"
+    ],
+    "wood_veneer": [
+      "wood"
+    ],
+    "ldsp": [
+      "chipboard",
+      "wood"
+    ],
+    "default": [
+      "wood"
+    ]
+  }
+}
