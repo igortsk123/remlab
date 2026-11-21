@@ -8,7 +8,7 @@
   python3 sg_color_transfer.py transfer --native родной.glb --shape упрощённая.glb --out результат.glb [--size 2048] [--max-dist 0.03]
       --shape — GLB с НОВОЙ развёрткой (`BakeUV` из sg_prep_shape.py), без текстуры; --size — сторона новой карты (по умолчанию — как у родной);
       --max-dist — доля диагонали габарита: дальше этого родной точки нет, тексель считается «без цвета» (заполняется ближайшим цветным; в отчёт идёт счётчик).
-      Печатает одну строку `перенос: …` с долей текселей с цветом (ЦЕЛЬ ≥ 99 %). Код 0 — доля ≥ `--min-share` (99 %), 3 — меньше.
+      Печатает одну строку `перенос: …` с долей текселей с цветом (ЦЕЛЬ ≥ 99 %). Код 0 — доля текселей ≥ `--min-share` (99 %) И граней с цветом верного места ≥ 99 %, 3 — меньше.
   python3 sg_color_transfer.py guard ПУТЬ...          # сторож шага 0: «baseColor пришёл?» и доля альфа<128 по занятым текселям; ПУТЬ — GLB или папка
       Счётчик: `ЦВЕТ: пришёл N из M; не пришёл K [список]; альфа<128 больше 30 %: J` — код 1, если хоть у одного GLB нет baseColor (fail-closed).
       Альфа — только сообщение, не отказ: замер T-166 (17 из 30 GLB с долей 31–94 % даже у велюра) показал, что как маска стекла она пока ненадёжна.
@@ -28,7 +28,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'salad', 'trellis'))   # tex_coverage.raster — растеризатор граней на numpy
 
 MIN_SHARE = 0.99          # доля текселей нового атласа с цветом, ниже — отказ (T-167)
-MAX_DIST = 0.03           # доля диагонали габарита для «родная точка найдена»
+FACES_TEXEL_MIN = 0.99    # этап 02, главная мерка: доля граней, получивших хотя бы один тексель
+CHAMFER_MAX = 0.01        # этап 02: Chamfer родной↔упрощённая, доля диагонали габарита; больше — «форма не от этого черновика»
+MAX_DIST = 0.03          # доля диагонали габарита для «родная точка найдена»
 ALPHA_SUSPECT = 0.30      # доля альфа<128 по занятым текселям, выше — «подозрительно» (только сообщение)
 ALPHA_LT = 128
 
@@ -64,7 +66,7 @@ def load_glb(path: str):
     return out
 
 
-def texel_points(V, F, UV, size: int):
+def texel_points(V, F, UV, size: int, conservative: bool = False):
     """Занятые развёрткой тексели карты size×size → (индексы пикселей (y, x), положения в 3D). Тексель — центр пикселя; точка = барицентрика грани."""
     import numpy as np
     from tex_coverage import raster
@@ -81,7 +83,73 @@ def texel_points(V, F, UV, size: int):
     wb = ((C[:, 0] - cx) * (A[:, 1] - cy) - (C[:, 1] - cy) * (A[:, 0] - cx)) / ar
     wc = 1.0 - wa - wb
     P = wa[:, None] * V[F[f, 0]] + wb[:, None] * V[F[f, 1]] + wc[:, None] * V[F[f, 2]]
+    if conservative:
+        # Мелкие грани (меньше пикселя) без «своего» текселя берут цвет соседнего острова — пятна не того цвета (кадры T-167). Даём такой грани тексель
+        # по центру её развёртки, если он свободен; точка — центр грани в 3D.
+        flat, fm = _claim_missing(F, xy, ids, size)
+        if len(fm):
+            Pm = (V[F[fm, 0]] + V[F[fm, 1]] + V[F[fm, 2]]) / 3.0
+            py = np.concatenate([py, flat // size])
+            px = np.concatenate([px, flat % size])
+            P = np.concatenate([P, Pm])
     return py, px, P
+
+
+def _claim_missing(F, xy, ids, size: int):
+    """Грани без своего текселя → (плоские индексы свободных текселей по центру развёртки грани, номера этих граней). Тексель берёт одна грань (первая)."""
+    import numpy as np
+    own = np.zeros(len(F), bool)
+    own[ids[ids >= 0]] = True
+    miss = np.nonzero(~own)[0]
+    if not len(miss):
+        return np.zeros(0, np.int64), np.zeros(0, np.int64)
+    cuv = (xy[F[miss, 0]] + xy[F[miss, 1]] + xy[F[miss, 2]]) / 3.0
+    flat = np.clip(np.floor(cuv[:, 1]).astype(np.int64), 0, size - 1) * size + np.clip(np.floor(cuv[:, 0]).astype(np.int64), 0, size - 1)
+    free = ids[flat] < 0
+    flat, k = np.unique(flat[free], return_index=True)
+    return flat, miss[free][k]
+
+
+def face_coverage(V, F, UV, size: int) -> float:
+    """Доля граней, получивших хотя бы один тексель в атласе size×size. Грань без текселя при показе берёт цвет соседнего острова (пятна не того цвета, кадры T-167)."""
+    import numpy as np
+    from tex_coverage import raster
+    xy = np.stack([UV[:, 0] * size, (1.0 - UV[:, 1]) * size], 1)
+    ids, _ = raster(xy, F, size)
+    ids = np.array(ids).ravel()
+    flat, fm = _claim_missing(F, xy, ids, size)
+    ids[flat] = fm                                   # свободные тексели по центру развёртки мелких граней — как в переносе
+    covered = np.zeros(len(F), bool)
+    covered[ids[ids >= 0]] = True
+    miss = np.nonzero(~covered)[0]
+    if len(miss):
+        # у грани нет своего текселя, но тексель в центре её развёртки занят соседом: цвет верный, если сосед в 3D рядом (≤ 1,5 длины её самого длинного ребра)
+        cuv = (xy[F[miss, 0]] + xy[F[miss, 1]] + xy[F[miss, 2]]) / 3.0
+        fl = np.clip(np.floor(cuv[:, 1]).astype(np.int64), 0, size - 1) * size + np.clip(np.floor(cuv[:, 0]).astype(np.int64), 0, size - 1)
+        ow = ids[fl]
+        has = ow >= 0
+        C = (V[F[:, 0]] + V[F[:, 1]] + V[F[:, 2]]) / 3.0
+        e = np.maximum.reduce([np.linalg.norm(V[F[miss, 0]] - V[F[miss, 1]], axis=1), np.linalg.norm(V[F[miss, 1]] - V[F[miss, 2]], axis=1),
+                               np.linalg.norm(V[F[miss, 2]] - V[F[miss, 0]], axis=1)])
+        near = np.zeros(len(miss), bool)
+        near[has] = np.linalg.norm(C[miss[has]] - C[ow[has]], axis=1) <= 1.5 * e[has]
+        covered[miss[near]] = True
+    return float(covered.mean()) if len(F) else 1.0
+
+
+def chamfer_ratio(native_path: str, shape_path: str, n: int = 40000) -> tuple[float, float]:
+    """Расстояние Chamfer между родной и упрощённой формой по точкам поверхности, в долях диагонали габарита родной: (среднее, p99). Большое — форма не от этого черновика или другие оси."""
+    import numpy as np
+    import trimesh
+    from scipy.spatial import cKDTree
+    a = trimesh.load(native_path, force='mesh', process=False)
+    b = trimesh.load(shape_path, force='mesh', process=False)
+    pa, _ = trimesh.sample.sample_surface(a, n, seed=1)
+    pb, _ = trimesh.sample.sample_surface(b, n, seed=1)
+    diag = float(np.linalg.norm(a.bounds[1] - a.bounds[0])) or 1.0
+    d1 = cKDTree(pb).query(pa)[0]
+    d2 = cKDTree(pa).query(pb)[0]
+    return float((d1.mean() + d2.mean()) / 2 / diag), float(max(np.percentile(d1, 99), np.percentile(d2, 99)) / diag)
 
 
 def _rgba(img, size: int | None = None):
@@ -121,7 +189,7 @@ def transfer(native_path: str, shape_path: str, out_path: str, size: int | None 
     base = _rgba(nat['base'])
     mr = _rgba(nat['mr'], nsize) if nat['mr'] is not None else None
     ny, nx, NP = texel_points(nat['V'], nat['F'], nat['UV'], nsize)
-    ty, tx, TP = texel_points(tgt['V'], tgt['F'], tgt['UV'], size)
+    ty, tx, TP = texel_points(tgt['V'], tgt['F'], tgt['UV'], size, conservative=True)
     t_ras = time.time() - t0
     diag = float(np.linalg.norm(nat['V'].max(0) - nat['V'].min(0))) or 1.0
     tree = cKDTree(NP)
@@ -150,7 +218,7 @@ def transfer(native_path: str, shape_path: str, out_path: str, size: int | None 
     m.export(tmp, file_type='glb')
     os.replace(tmp, out_path)
     rep = {'native': os.path.basename(native_path), 'native_size': nsize, 'size': size, 'native_texels': int(len(ny)), 'target_texels': int(len(ty)), 'with_color': int(ok.sum()),
-           'share': round(share, 5), 'max_dist_m': round(max_dist * diag, 5), 'dist_p50': round(float(np.median(dist)), 6) if len(dist) else 0.0,
+           'share': round(share, 5), 'faces_with_texel': round(face_coverage(tgt['V'], tgt['F'], tgt['UV'], size), 5), 'max_dist_m': round(max_dist * diag, 5), 'dist_p50': round(float(np.median(dist)), 6) if len(dist) else 0.0,
            'dist_p99': round(float(np.percentile(dist, 99)), 6) if len(dist) else 0.0, 'has_mr': mr is not None, 'sec_raster': round(t_ras, 1), 'sec_total': round(time.time() - t0, 1)}
     return rep
 
@@ -261,7 +329,7 @@ def stage02(run: str, sku: str, native_glb: str, out_glb: str, rep: dict | None 
     ps = _paint_stage()
     d = ps.stage_dir(run, sku, '02-prep')
     if not os.path.exists(out_glb):
-        return ps.write_check(d, '02-prep', sku, False, metric={'name': 'color_texel_share', 'value': None, 'threshold': min_share, 'op': '>='},
+        return ps.write_check(d, '02-prep', sku, False, metric={'name': 'faces_with_texel', 'value': None, 'threshold': FACES_TEXEL_MIN, 'op': '>='},
                               reason='нет выходного GLB упрощённой формы (перенос не удался или упрощение не прошло)', seconds=seconds)
     g = load_glb(out_glb)
     faces = int(len(g['F']))
@@ -278,9 +346,15 @@ def stage02(run: str, sku: str, native_glb: str, out_glb: str, rep: dict | None 
     elif g['base'] is not None:
         _atlas_frame(g['base'], os.path.join(d, 'frame.png'))
         frame = 'frame.png'
+    cov = face_coverage(g['V'], g['F'], g['UV'], g['base'].size[0] if g['base'] is not None else rep.get('size') or 1024)
+    ch_mean, ch_p99 = chamfer_ratio(native_glb, out_glb)
     return ps.write_check(d, '02-prep', sku, None,
-                          metric={'name': 'color_texel_share', 'value': rep['share'], 'threshold': min_share, 'op': '>='},
-                          metrics={'faces': {'value': faces, 'threshold': faces_max, 'op': '<='}},
+                          metric={'name': 'faces_with_texel', 'value': round(cov, 5), 'threshold': FACES_TEXEL_MIN, 'op': '>='},
+                          metrics={'faces': {'value': faces, 'threshold': faces_max, 'op': '<='},
+                                   'chamfer_diag': {'value': round(ch_mean, 5), 'threshold': CHAMFER_MAX, 'op': '<='},
+                                   'chamfer_p99_diag': {'value': round(ch_p99, 5)},
+                                   'color_texel_share': {'value': rep['share'], 'threshold': min_share, 'op': '>='}},
+                          reason='' if ch_mean <= CHAMFER_MAX else f'форма не от этого черновика: chamfer_diag {ch_mean:.3f} > {CHAMFER_MAX} (Chamfer родной↔упрощённая, доля диагонали)',
                           seconds=seconds, outputs=['shape.glb'], frame=frame, native_texels=rep.get('native_texels'), target_texels=rep.get('target_texels'),
                           dist_p50=rep.get('dist_p50'), dist_p99=rep.get('dist_p99'), atlas=rep.get('size'), has_mr=rep.get('has_mr'))
 
@@ -333,8 +407,13 @@ def main() -> int:
         return code
     rep = transfer(a.native, a.shape, a.out, a.size, a.max_dist)
     print('перенос:', rep)
-    print(f'перенос: с цветом {rep["share"]:.2%} текселей нового атласа (цель ≥ {a.min_share:.0%}), расстояние p50 {rep["dist_p50"]}, p99 {rep["dist_p99"]}, {rep["sec_total"]} с')
-    return 0 if rep['share'] >= a.min_share else 3
+    print(f'перенос: с цветом {rep["share"]:.2%} текселей нового атласа (цель ≥ {a.min_share:.0%}), граней с цветом верного места {rep["faces_with_texel"]:.2%} (цель ≥ {FACES_TEXEL_MIN:.0%}), расстояние p50 {rep["dist_p50"]}, p99 {rep["dist_p99"]}, {rep["sec_total"]} с')
+    if rep['share'] >= a.min_share and rep['faces_with_texel'] >= FACES_TEXEL_MIN:
+        return 0
+    rejected = (a.out[:-4] if a.out.endswith('.glb') else a.out) + '.rejected.glb'
+    os.replace(a.out, rejected)      # отказ: под рабочим именем файла НЕТ — потребители (out30) не возьмут негодную модель
+    print(f'перенос: ОТКАЗ — результат отложен как {rejected}')
+    return 3
 
 
 if __name__ == '__main__':

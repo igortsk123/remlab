@@ -139,26 +139,79 @@ def main() -> int:
         c1b = T.stage01(run, 'mid:eid2', shp)
         check('этап 01: форма без baseColor → не прошёл, причина «цвет не пришёл»', (not c1b['passed']) and 'цвет не пришёл' in c1b['reason'], c1b)
         c2 = T.stage02(run, 'mid:eid1', nat, out, rep)
-        check('этап 02: доля цвета ≥ 99 % и граней ≤ 150k → прошёл', c2['passed'] and c2['metric']['ok'] and c2['metrics']['faces']['ok'], c2)
+        check('этап 02: грани с текселем ≥ 99 %, граней ≤ 150k, Chamfer ≤ порога, цвет ≥ 99 % → прошёл',
+              c2['passed'] and c2['metric']['name'] == 'faces_with_texel' and c2['metric']['ok'] and c2['metrics']['faces']['ok']
+              and c2['metrics']['chamfer_diag']['ok'] and c2['metrics']['color_texel_share']['ok'], c2)
         check('этап 02: кадр (карта цвета) записан', os.path.getsize(os.path.join(run, 'mid_eid1', '02-prep', 'frame.png')) > 1000)
         c2e = T.stage02(run, 'mid:eid5', nat, out)
-        check('этап 02: без готового отчёта доля пересчитывается из файлов и проходит', c2e['passed'] and c2e['metric']['value'] >= T.MIN_SHARE, c2e)
+        check('этап 02: без готового отчёта доля пересчитывается из файлов и проходит', c2e['passed'] and c2e['metrics']['color_texel_share']['value'] >= T.MIN_SHARE, c2e)
         c2b = T.stage02(run, 'mid:eid6', nat, out, rep, faces_max=10)
         check('этап 02: граней больше порога → не прошёл, причина называет faces', (not c2b['passed']) and 'faces' in c2b['reason'], c2b['reason'])
         c2c = T.stage02(run, 'mid:eid3', nat, os.path.join(run, 'нет.glb'), None)
         check('этап 02: нет выходного GLB → не прошёл', (not c2c['passed']) and c2c['metric']['value'] is None, c2c)
         c2d = T.stage02(run, 'mid:eid4', nat, out, {'share': 0.5, 'native_texels': 1, 'target_texels': 2, 'size': 128})
         check('этап 02: доля цвета 50 % → не прошёл (мерка color_texel_share)', (not c2d['passed']) and 'color_texel_share' in c2d['reason'], c2d['reason'])
+        # грани без текселя (крошечные островки разворачки) — пятна не того цвета на кадрах; мерка должна это ловить
+        # (все 72 грани сброшены в один пиксель развёртки: цвет у большинства взят от далёкой грани → мерка должна отказать)
+        Vg0, Fg0, _ = grid(6, lambda x, y: (x, y))
+        Vt = Vg0[Fg0].reshape(-1, 3)
+        Ft = np.arange(len(Vt), dtype=np.int64).reshape(-1, 3)
+        UVt = np.tile(np.array([[0.5, 0.5], [0.5 + 0.004, 0.5], [0.5, 0.5 + 0.004]]), (len(Ft), 1))
+        tiny = os.path.join(d, 'tiny.glb')
+        write(tiny, Vt, Ft, UVt)
+        rep_t = T.transfer(nat, tiny, os.path.join(d, 'tiny-out.glb'), size=128)
+        c2f = T.stage02(run, 'mid:eid8', nat, os.path.join(d, 'tiny-out.glb'), rep_t)
+        check('этап 02: большинство граней без текселя → не прошёл (faces_with_texel < 99 %)',
+              (not c2f['passed']) and c2f['metric']['value'] < T.FACES_TEXEL_MIN and 'faces_with_texel' in c2f['reason'], c2f)
+        # каждая грань — свой крошечный островок (0,6 пикселя) в разных местах карты: центр пикселя в них почти не попадает; тексель по центру развёртки даёт цвет верного места
+        Vg, Fg, _ = grid(6, lambda x, y: (x, y))
+        Vd = Vg[Fg].reshape(-1, 3)
+        Fd = np.arange(len(Vd), dtype=np.int64).reshape(-1, 3)
+        cells = 12
+        UVd = np.zeros((len(Vd), 2))
+        for i in range(len(Fd)):
+            cx, cy = (i % cells + 0.5) * 64 / cells + 0.13, (i // cells + 0.5) * 64 / cells + 0.13
+            for k, (ox, oy) in enumerate(((0.0, 0.0), (0.6, 0.0), (0.0, 0.6))):
+                UVd[i * 3 + k] = ((cx + ox) / 64, 1.0 - (cy + oy) / 64)
+        dense = os.path.join(d, 'dense.glb')
+        write(dense, Vd, Fd, UVd)
+        py0, px0, _ = T.texel_points(Vd, Fd, UVd, 64)
+        py1, px1, P1 = T.texel_points(Vd, Fd, UVd, 64, conservative=True)
+        check('консервативные тексели: у крошечных островков появились свои (точек больше, чем без них)', len(py1) > len(py0) and len(py1) >= 0.99 * len(Fd), (len(py0), len(py1), len(Fd)))
+        rep_d = T.transfer(nat, dense, os.path.join(d, 'dense-out.glb'), size=64)
+        gd = T.load_glb(os.path.join(d, 'dense-out.glb'))
+        rgd = np.asarray(gd['base'].convert('RGBA'))
+        err = np.abs(rgd[py1, px1, 0].astype(float) - P1[:, 0] * 255)
+        check('мелкие грани: цвет тексела по центру развёртки верный (ошибка ≤ 12 из 255, p99)', np.percentile(err, 99) <= 12, float(np.percentile(err, 99)))
+        c2h = T.stage02(run, 'mid:eid9', nat, os.path.join(d, 'dense-out.glb'), rep_d)
+        check('этап 02: крошечные островки, но цвет с верного места → faces_with_texel ≥ 99 %', c2h['metric']['value'] >= T.FACES_TEXEL_MIN, c2h['metric'])
+        # форма не от этого черновика (другое положение/оси) — Chamfer выше порога
+        c2g = T.stage02(run, 'mid:eid7', nat, os.path.join(d, 'far-out.glb'), rep2)
+        check('этап 02: форма не от этого черновика → не прошёл, причина называет Chamfer',
+              (not c2g['passed']) and c2g['metrics']['chamfer_diag']['value'] > T.CHAMFER_MAX and 'chamfer_diag' in c2g['reason'], c2g['reason'])
         ps = T._paint_stage()
         ok, why = ps.gate(run, 'mid:eid1', ['01-trellis', '02-prep'])
         check('gate: eid1 оба этапа пройдены → можно дальше', ok, why)
         ok2, why2 = ps.gate(run, 'mid:eid2', ['01-trellis'])
         check('gate: eid2 без baseColor — дальше не идёт', not ok2, why2)
 
+        # команда transfer: отказ → код 3 и под рабочим именем файла НЕТ (лежит `.rejected.glb`); успех → код 0 и файл есть
+        import subprocess
+        cli = [sys.executable, os.path.join(HERE, 'sg_color_transfer.py'), 'transfer', '--native', nat, '--size', '64']
+        o_bad = os.path.join(d, 'cli-bad.glb')
+        r_bad = subprocess.run(cli + ['--shape', far_shape, '--out', o_bad], capture_output=True, text=True)
+        check('transfer (CLI): далёкая форма → код 3, рабочего файла нет, есть .rejected.glb',
+              r_bad.returncode == 3 and not os.path.exists(o_bad) and os.path.exists(os.path.join(d, 'cli-bad.rejected.glb')), (r_bad.returncode, r_bad.stdout[-200:], r_bad.stderr[-200:]))
+        o_ok = os.path.join(d, 'cli-ok.glb')
+        r_ok = subprocess.run(cli + ['--shape', shp, '--out', o_ok], capture_output=True, text=True)
+        check('transfer (CLI): своя форма → код 0 и файл есть', r_ok.returncode == 0 and os.path.exists(o_ok), (r_ok.returncode, r_ok.stderr[-200:]))
+
     # sg_prep_shape: по умолчанию выключено (Blender в CI нет — проверяем текст)
     src = open(os.path.join(HERE, 'sg_prep_shape.py'), encoding='utf-8').read()
     check("sg_prep_shape.py: флаг --color-from есть, по умолчанию None", "'--color-from'" in src and 'default=None' in src.split("'--color-from'")[1].split('\n')[0])
     check('sg_prep_shape.py: перенос только при флаге (`if a.color_from`)', 'if a.color_from' in src)
+    check('sg_prep_shape.py: развёртка при --color-from 89/0.0005, без флага прежняя 66/0.003',
+          'a.angle = 89.0 if a.color_from else 66.0' in src and 'a.margin = 0.0005 if a.color_from else 0.003' in src)
     print('ИТОГО:', 'всё в норме' if not FAILS else f'провалено {len(FAILS)}: {FAILS}')
     return 1 if FAILS else 0
 
