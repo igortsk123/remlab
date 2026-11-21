@@ -462,21 +462,16 @@ def load_backend() -> None:
     print(f'[worker] модель {MODEL} загружена за {LOAD_S[0]} с', flush=True)
 
 
-def ensure_deps() -> None:
-    """Образ 198012d4… собран ДО добавления fast-simplification в Dockerfile.p3sam: докладываем пакет при прогреве (`--no-deps`: не трогаем numpy/torch образа — урок b1).
-    Не вышло — не фатально: `_decimate` откатывается на trimesh (медленнее). Исчезает после следующей пересборки образа."""
+def check_deps() -> None:
+    """Зависимости — ТОЛЬКО из образа (п.1 рецепта: докачки при старте нет; урок b1 — pip при старте мог поменять numpy/numba). Нет пакета — прогрев падает сразу (фаза broken, $ минуты),
+    а не тихий откат на медленный trimesh."""
+    if MODEL != 'p3sam':
+        return
     try:
         import fast_simplification  # noqa: F401
-        STATE.note('fast_simplification: есть в образе')
-        return
-    except ImportError:
-        pass
-    if MODEL != 'p3sam' or os.environ.get('PARTS_NO_PIP'):
-        return
-    t = time.time()
-    r = subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-deps', '--no-cache-dir', 'fast-simplification'], capture_output=True, text=True, timeout=300)
-    print(f'[worker] pip fast-simplification rc={r.returncode} за {time.time() - t:.0f} с: {(r.stdout or r.stderr).strip()[-160:]}', flush=True)
-    STATE.note(f'pip fast-simplification rc={r.returncode}')
+    except ImportError as exc:
+        raise RuntimeError('в образе нет fast-simplification — пересобрать образ (Dockerfile.p3sam), докачку при старте не делаем') from exc
+    STATE.note('fast_simplification: есть в образе')
 
 
 def health_extra() -> dict:
@@ -583,7 +578,7 @@ def main() -> int:
     handler = PartsHandler.bind(STATE, wd, stop, VERSION, root_dir='/opt/weights', health_extra=health_extra)
     threading.Thread(target=worker_loop, args=(QUEUE,), daemon=True).start()
     print(f'[worker] kit HTTP :{PORT}, модель {MODEL}, out {OUT_DIR}', flush=True)
-    return KW.serve(handler, STATE, wd, stop, [('loading', ensure_deps), ('loading', load_backend)], port=PORT)
+    return KW.serve(handler, STATE, wd, stop, [('loading', check_deps), ('loading', load_backend)], port=PORT)
 
 
 if __name__ == '__main__':

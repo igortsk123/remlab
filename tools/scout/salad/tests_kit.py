@@ -273,7 +273,7 @@ with tempfile.TemporaryDirectory() as root:
     c4, h4 = http(f'http://127.0.0.1:{port}/health')
     ok(c4 == 200 and h4['root_gb'] is not None and 'cuda' in h4 and h4['root_gb'] > 0, 'и по IPv4; в /health root_gb (ход докачки) и cuda')
     ok(http(f'http://127.0.0.1:{port}/x') == (200, {'x': 1}) and http(f'http://127.0.0.1:{port}/nope')[0] == 404, 'пути модели через handle_get, чужие — 404')
-    ok(http(f'http://127.0.0.1:{port}/shutdown', 'POST')[0] == 200 and stop.is_set(), '/shutdown выставляет остановку')
+    ok(http(f'http://127.0.0.1:{port}/shutdown', 'POST')[0] == 200 and stop.wait(3), '/shutdown выставляет остановку')      # ответ уходит ДО stop.set() (процесс не должен умереть, не отдав 200) — ждём флаг, а не читаем сразу (плавающий тест под нагрузкой, 21.11)
     srv.shutdown()
     srv.server_close()
 ok(KW.make_server(0, Ping, host='0.0.0.0').address_family == socket.AF_INET, 'явный 0.0.0.0 остаётся IPv4 (только для тестов)')
@@ -295,6 +295,10 @@ sj.step('te')                                                  # тот же ш�
 sj.step('dit')
 v = sj.job_view()
 ok(v['id'] == 'j1' and v['step'] == 'dit' and [d[0] for d in v['done']] == ['старт', 'te'] and v['elapsed_s'] >= 0, f'ход задания: шаг и пройденные шаги ({v})')
+ok('cores_now' in v, 'ход задания: поле cores_now есть (ядра CPU процесса, None до первого интервала)')
+sj._cpu = (time.time() - 10.0, sum(os.times()[:2]) - 5.0)       # 10 с назад процесс имел на 5 с CPU меньше → ≈0,5 ядра + то, что реально жгли с тех пор
+v2 = sj.job_view()
+ok(isinstance(v2['cores_now'], float) and 0.4 <= v2['cores_now'] <= 8.0, f'ход задания: cores_now = CPU-секунды процесса / секунды интервала ({v2["cores_now"]})')
 sj.end_job()
 ok(sj.job_view() is None, 'ход задания: после конца — None')
 with tempfile.TemporaryDirectory() as root2:

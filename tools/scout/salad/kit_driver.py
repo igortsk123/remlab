@@ -843,7 +843,7 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
                         hc, hb = gw.call('GET', '/health', timeout=20)
                         jv = (hb or {}).get('job') if hc == 200 else None
                         if jv:
-                            say(f'ход задания {cur["key"]}: шаг «{jv.get("step")}» {jv.get("step_s")} с, всего {jv.get("elapsed_s")} с, GPU {jv.get("gpu_util")} % / {jv.get("gpu_mem_mb")} МБ; '
+                            say(f'ход задания {cur["key"]}: шаг «{jv.get("step")}» {jv.get("step_s")} с, всего {jv.get("elapsed_s")} с, GPU {jv.get("gpu_util")} % / {jv.get("gpu_mem_mb")} МБ, ядер CPU {jv.get("cores_now")}; '
                                 f'строка: {jv.get("line")}; пройдено {jv.get("done")}')
                         elif hc == 200:
                             say(f'ход задания {cur["key"]}: /health.job пуст — воркер не отдаёт ход (урок b1)')

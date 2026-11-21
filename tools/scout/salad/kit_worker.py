@@ -105,6 +105,7 @@ class State:
         self.busy = False
         self.lock = threading.Lock()
         self.t_start = time.time()
+        self._cpu = (time.time(), sum(os.times()[:2]))            # прошлый замер CPU процесса — для `cores_now` в job_view
         self.job: dict | None = None                              # ход ТЕКУЩЕГО задания: виден в /health (урок p4 21.11: 16 мин «busy» без видимого шага — не отличить медленное от зависшего)
 
     def begin_job(self, job_id: str) -> None:
@@ -138,8 +139,13 @@ class State:
             return None
         now = time.time()
         util, mem = gpu_util_mem()
+        t_prev, cpu_prev = self._cpu
+        cpu = sum(os.times()[:2])
+        cores = round((cpu - cpu_prev) / max(now - t_prev, 1e-6), 2) if now - t_prev >= 1.0 else None      # ядер CPU, занятых процессом (user+sys всех потоков) с прошлого просмотра
+        if cores is not None:
+            self._cpu = (now, cpu)
         return {'id': j['id'], 'elapsed_s': round(now - j['t0']), 'step': j['step'], 'step_s': round(now - j['step_t']), 'done': list(j['done'])[-12:],
-                'line': j.get('line'), 'gpu_util': util, 'gpu_mem_mb': mem}          # урок b1 21.11 (P3-SAM): 15 мин молчания — шаг, секунды шага, GPU %, последняя строка лога
+                'line': j.get('line'), 'gpu_util': util, 'gpu_mem_mb': mem, 'cores_now': cores}          # урок b1 21.11 (P3-SAM): 15 мин молчания — шаг, секунды шага, GPU %, последняя строка лога
 
 
 class Watchdog:
