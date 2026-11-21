@@ -225,11 +225,15 @@ def run(args) -> int:
     except Exception as e:                                           # роли не посчитались — части остаются, причина в check.json
         roles_sum = {"error": str(e)[:200]}
     ids, cnt = np.unique(part[part >= 0], return_counts=True)
+    mo_by: dict = {}
+    for o in refine_rep.get("merged_orphan", []):                      # след правила «сирота → в соседа» (доля площади < refine.orphan_max_area_share)
+        mo_by.setdefault(int(o["into"]), []).append({"faces": o["faces"], "area_share": o["area_share"]})
     parts = []
     for p, c in sorted(zip(ids, cnt), key=lambda t: -t[1]):
         role = (geom or {}).get("roles", {}).get(int(p), {}).get("role") if geom else None
         rr = roles.get(int(p))
         parts.append({"id": int(p), "face_share": round(float(c) / nf, 4), "role": (rr["role"] if rr else (role or f"part-{int(p)}")), "vl": None, "colour": colours.get(int(p)),
+                      **({"merged_orphan": mo_by[int(p)]} if int(p) in mo_by else {}),
                       **({k: rr[k] for k in ("role_title", "material_channel", "role_conf", "role_why", "unknown_reason")} | {"features": feats.get(int(p))} if rr else {})})
     np.savez_compressed(os.path.join(sdir, "parts.npz"), part=part.astype(np.int16), agree=res["agree"].astype(np.float16),
                         vote_part=vote_part.astype(np.int16), vote_agree=vote_agree.astype(np.float16), seen=res["seen_any"])   # vote_* — до доводки: доводку можно переиграть без SAM2

@@ -213,6 +213,68 @@ class PartsVote(unittest.TestCase):
         mosaic = pr.merge_small(part, kind, adj, lab, RULES, RULES["refine"]["colour_merge_max_share"], RULES["refine"]["colour_merge_de"], weak, seen)
         self.assertTrue((mosaic[speck] == 0).all(), "кадры спорят (мозаика) и цвет тот же — сливается")
 
+    def _adj(self, n, edges):
+        from scipy import sparse
+        e = np.array(edges)
+        a = sparse.coo_matrix((np.ones(len(e)), (e[:, 0], e[:, 1])), shape=(n, n)).tocsr()
+        return (a + a.T).tocsr()
+
+    def test_orphan_goes_to_neighbour_with_longest_border_regardless_of_kind(self):
+        part = np.array([0, 0, 0, 1, 1, 2])
+        area = np.ones(6)
+        adj = self._adj(6, [(5, 0), (5, 1), (5, 2), (5, 3), (0, 1), (1, 2), (3, 4)])        # у сироты 3 ребра с частью 0 и 1 с частью 1
+        out, tr = pr.merge_orphans(part, adj, area, 0.2)
+        self.assertEqual(out[5], 0)
+        self.assertEqual(tr[0]["faces"], 1)
+        self.assertAlmostEqual(tr[0]["area_share"], 1 / 6, places=4)
+
+    def test_orphan_tie_takes_neighbour_with_better_agreement_then_larger_area(self):
+        part = np.array([0, 0, 0, 1, 1, 2])
+        adj = self._adj(6, [(5, 0), (5, 3), (0, 1), (1, 2), (3, 4)])                        # границы равны (по одному ребру)
+        agree = np.array([0.6, 0.6, 0.6, 0.95, 0.95, 0.9])
+        out, _ = pr.merge_orphans(part, adj, np.ones(6), 0.2, agree)
+        self.assertEqual(out[5], 1, "равная граница → у кого согласие кадров выше")
+        out, _ = pr.merge_orphans(part, adj, np.ones(6), 0.2, np.full(6, 0.8))
+        self.assertEqual(out[5], 0, "согласие равно → у кого площадь больше")
+
+    def test_orphan_threshold_is_by_area_not_by_face_count(self):
+        part = np.array([0] * 10 + [1] * 10 + [2] * 10 + [3])                               # 2 — десять мелких граней; 3 — одна большая
+        area = np.array([1.0] * 20 + [0.0001] * 10 + [0.5])
+        edges = [(i, i + 1) for i in range(29)] + [(29, 30), (30, 0)]
+        adj = self._adj(31, edges)
+        out, tr = pr.merge_orphans(part, adj, area, 0.001)
+        self.assertTrue((out[20:30] != 2).all(), "десять граней, но доля площади ~5e-5 — сирота")
+        self.assertEqual(out[30], 3, "одна грань, но площадь 0.5 — не сирота")
+        self.assertEqual(len(tr), 1)
+
+    def test_orphan_rule_in_refine_leaves_trace_and_can_be_switched_off(self):
+        verts, faces, is_rod = self.chair_like()
+        from scipy import sparse
+        from scipy.spatial import cKDTree
+        c = verts[faces].mean(axis=1)
+        pairs = cKDTree(c).query_pairs(0.03, output_type="ndarray")
+        adj = sparse.coo_matrix((np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])), shape=(len(c), len(c))).tocsr()
+        adj = (adj + adj.T).tocsr()
+        part = np.where(is_rod, 1, 0).astype(np.int32)
+        speck = np.nonzero((~is_rod) & (c[:, 0] > 0.40) & (c[:, 2] > 0.40))[0][:1]            # одна грань
+        part[speck] = 2
+        import copy
+        rules = copy.deepcopy(RULES)
+        rules["refine"]["orphan_max_area_share"] = 0.5                                         # заведомо больше доли грани
+        rules["refine"]["colour_merge_max_share"] = 0                                          # прежние слияния выключены — проверяем только правило сирот
+        rules["region"]["min_part_face_share"] = 0
+        new, rep = pr.refine(part, verts, faces, adj, None, rules)
+        self.assertIn("merged_orphan", rep)
+        self.assertTrue(all(0 <= o["into"] < rep["parts_after"] for o in rep["merged_orphan"]))
+        rules["refine"]["orphan_max_area_share"] = 0
+        _, rep0 = pr.refine(part, verts, faces, adj, None, rules)
+        self.assertNotIn("merged_orphan", rep0, "порог 0 — правило выключено")
+
+    def test_orphan_threshold_sits_between_wedge_and_smallest_real_part(self):
+        thr = RULES["refine"]["orphan_max_area_share"]
+        self.assertGreater(thr, 0.0000980, "замер: клин у ножки (19 граней) 0.0098 % площади — должен считаться сиротой")
+        self.assertLess(thr, 0.00037, "замер: самая малая настоящая часть на 11 товарах v3 (ручка комода) 0.037 % — сиротой не считается")
+
     def test_cap_parts_merges_smallest_same_kind_keeps_thin(self):
         verts, faces, is_rod = self.chair_like()
         from scipy import sparse
