@@ -224,6 +224,12 @@ with tempfile.TemporaryDirectory() as tmp:
 # --- тело группы
 rd, st = KD.probes(8000)
 ok(st['failure_threshold'] <= 20 and rd['http']['path'] == '/health', 'пробы: /health, failure_threshold ≤ 20 (иначе HTTP 400)')
+ok(st['period_seconds'] == 10, 'стартовая проба: период 10 с (рецепт Hunyuan/TRELLIS.2 fast, урок 802), не 60')
+
+# --- сверка архитектуры CUDA образа с картой до группы (урок 742)
+ok(KD.card_arch('RTX 5090 (32 GB)') == '12.0' and KD.card_arch('RTX 4090 (24 GB)') == '8.9' and KD.card_arch('RTX 3090 (24 GB)') == '8.6' and KD.card_arch('Quadro Q') is None, 'карта → архитектура: 5090=12.0, 4090=8.9, 3090=8.6, незнакомая — None')
+ok(KD.arch_refusal('RTX 5090 (32 GB)', ('12.0',)) == '' and KD.arch_refusal('RTX 5090 (32 GB)', ()) == '' and KD.arch_refusal('Quadro Q', ('8.9',)) == '', 'сверка: подходит / модель не заявила / карта незнакомая — без отказа')
+ok('no kernel image' in KD.arch_refusal('RTX 5090 (32 GB)', ('8.9',)) and 'no kernel image' in KD.arch_refusal('RTX 3090 (24 GB)', ('8.9', '12.0')), 'сверка: образ под 8.9 на 5090/3090 — отказ ДО создания группы (урок 742)')
 body = KD.group_body('g', 'img@sha256:x', 'high', 'cls', 8000, {'HF_TOKEN': 'S1', 'KIT_WORKER_Z': 'zzzz'}, {'cpu': 8}, {'basic': {'password': 'S2'}}, ['python'])
 ok(body['container']['resources']['gpu_classes'] == ['cls'] and body['autostart_policy'] is False and body['restart_policy'] == 'never' and body['replicas'] == 1, 'группа: 1 нода, без автостарта и перезапуска')
 import contextlib  # noqa: E402
@@ -274,6 +280,13 @@ ok(KW.make_server(0, Ping, host='0.0.0.0').address_family == socket.AF_INET, 'я
 
 
 # --- ход задания в /health
+class OutOfMemoryError(RuntimeError):                          # как torch.OutOfMemoryError: распознаём по имени класса, torch не нужен
+    pass
+
+
+ok(KW.fatal_cuda(RuntimeError('CUDA out of memory. Tried to allocate 2.00 GiB')) and KW.fatal_cuda(OutOfMemoryError('x')) and KW.fatal_cuda(RuntimeError('!handles_.at(i) INTERNAL ASSERT FAILED at CUDACachingAllocator.cpp:432')),
+   'fatal_cuda (урок 744): CUDA OOM и INTERNAL ASSERT аллокатора — фатально (аллокатор испорчен), воркер broken и драйвер гасит ноду')
+ok(not KW.fatal_cuda(ValueError('что-то другое')) and not KW.fatal_cuda(RuntimeError('out of memory in the cache of regex')), 'fatal_cuda: посторонняя ошибка и «out of memory» без CUDA — не фатально')
 sj = KW.State()
 ok(sj.job_view() is None, 'ход задания: заданий нет — job = None')
 sj.begin_job('j1')

@@ -73,6 +73,28 @@ def gpu_class(MG, name: str, tier: str, fetch: Callable[[str, dict], dict] | Non
     return None, None
 
 
+# ---------------------------------------------------------------- сверка архитектуры CUDA образа с картой ДО группы (урок 742)
+CARD_ARCH = (('RTX 50', '12.0'), ('RTX 40', '8.9'), ('RTX 30', '8.6'), ('RTX 20', '7.5'), ('GTX 16', '7.5'), ('A100', '8.0'), ('H100', '9.0'))
+
+
+def card_arch(card: str) -> str | None:
+    """Вычислительная архитектура карты по имени класса Salad («RTX 5090 (32 GB)» → '12.0'); незнакомая карта — None (не блокируем, а говорим)."""
+    return next((arch for key, arch in CARD_ARCH if key in (card or '')), None)
+
+
+def arch_refusal(card: str, image_archs) -> str:
+    """'' — можно; иначе причина отказа ДО создания группы. `image_archs` — архитектуры, под которые собран образ (``('12.0',)``); пусто — модель не заявила, проверка не делается.
+    Урок 742: образ под 8.9 на картах 8.6 и 12.0 — «no kernel image», ≈$0,05 впустую; здесь отказ до денег."""
+    if not image_archs:
+        return ''
+    arch = card_arch(card)
+    if arch is None:
+        return ''
+    if arch not in {str(x) for x in image_archs}:
+        return f'образ собран под CUDA-архитектуры {sorted(map(str, image_archs))}, карта «{card}» — {arch}: «no kernel image» (урок 742); группу не создаю'
+    return ''
+
+
 # ---------------------------------------------------------------- образ: digest и размер из манифеста
 class ImageRefused(RuntimeError):
     pass
@@ -274,11 +296,14 @@ def head(url: str, token: str = '') -> int:
         return -1
 
 
+STARTUP_PERIOD_S = 10   # рецепт Hunyuan/TRELLIS.2 fast (урок 802): период стартовой пробы 10 с, не 60 — «контейнер запущен» виден за секунды (прогрев 1323 → 195 с). /health отвечает 200, пока процесс жив, поэтому частая проба не перезапускает прогрев
+
+
 def probes(port: int, path: str = '/health') -> tuple[dict, dict]:
     """Пробы готовности и старта на `/health` (200, пока процесс жив; в теле — фаза и ход докачки). API Salad: failure_threshold ≤ 20 (иначе HTTP 400, урок 724)."""
     http = {'path': path, 'port': port, 'scheme': 'http', 'headers': []}
     return ({'http': http, 'initial_delay_seconds': 30, 'period_seconds': 10, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 3},
-            {'http': http, 'initial_delay_seconds': 10, 'period_seconds': 60, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 20})
+            {'http': http, 'initial_delay_seconds': 10, 'period_seconds': STARTUP_PERIOD_S, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 20})
 
 
 def group_body(name: str, image: str, tier: str, class_id: str, port: int, env: dict, resources: dict, auth: dict, command: list | None = None) -> dict:
@@ -595,6 +620,7 @@ class Spec:
     health_keys: tuple = ('phase', 'root_gb', 'weights', 'cuda', 'error')
     ready_keys: tuple = ('version',)
     z_keys: tuple = ()
+    cuda_archs: tuple = ()                                         # архитектуры CUDA образа ('12.0',): пусто — сверка с картой не делается (урок 742)
 
 
 def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock=time.time, slot_check=require_slot,
@@ -625,6 +651,11 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
     ok, why, image_gib = image_check(a.image, MG.ghcr_auth())
     say('образ:', why)
     if not ok:
+        return 3
+    bad_arch = arch_refusal(spec.card, spec.cuda_archs)
+    if bad_arch:
+        say('ОТКАЗ:', bad_arch)
+        say('группу НЕ создаю, денег не потрачено')
         return 3
     if spec.preflight:
         ok, why = spec.preflight()

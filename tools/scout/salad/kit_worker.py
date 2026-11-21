@@ -79,6 +79,12 @@ def cuda_info() -> dict:
         return {'error': f'{type(exc).__name__}: {str(exc)[:80]}'}
 
 
+def is_cuda_oom(exc: BaseException) -> bool:
+    """Нехватка памяти карты: `torch.OutOfMemoryError` (по имени класса — без импорта torch) или «CUDA out of memory» в тексте."""
+    low = str(exc).lower()
+    return type(exc).__name__ == 'OutOfMemoryError' or ('out of memory' in low and 'cuda' in low)
+
+
 class State:
     def __init__(self):
         self.phase = 'weights'
@@ -135,9 +141,9 @@ class Watchdog:
 
 
 def fatal_cuda(exc: BaseException) -> bool:
-    """Фатальная ошибка CUDA: процесс после неё живёт испорченным (урок 744) — новых заданий не берём."""
+    """Фатальная ошибка CUDA: процесс после неё живёт испорченным (урок 744) — новых заданий не берём. Сюда же нехватка памяти карты (CUDA OOM портит аллокатор: следующее задание падает INTERNAL ASSERT handles_, d1 UltraTex 21.11) и сам этот assert. Воркер ставит phase=broken, драйвер гасит ноду."""
     s = str(exc)
-    return 'CUDA error' in s or 'illegal memory access' in s or 'no kernel image' in s or 'device-side assert' in s
+    return 'CUDA error' in s or 'illegal memory access' in s or 'no kernel image' in s or 'device-side assert' in s or 'INTERNAL ASSERT' in s or is_cuda_oom(exc)
 
 
 def gpu_selftest() -> None:

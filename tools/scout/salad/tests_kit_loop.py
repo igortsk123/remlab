@@ -277,7 +277,7 @@ class PullBR(BR):
         return 200, [{'id': f'n{self.n}', 'state': 'downloading', 'started': False, 'pulling_progress': pr}]
 
 
-def drive_pull(tmp, running_min, fast_second=True, second_rate=0.12, max_culls=3, guard_on=True):
+def drive_pull(tmp, running_min, fast_second=True, second_rate=0.12, max_culls=3, guard_on=True, spec_mod=None):
     clock = Clock()
     mg, br = MG(), PullBR(clock, second_rate)
     KD.gpu_class = lambda MG_, name, tier, fetch=None: ('cls', 0.6)
@@ -296,11 +296,14 @@ def drive_pull(tmp, running_min, fast_second=True, second_rate=0.12, max_culls=3
                            stall_min=5, stall_gb=0.05, job_min=0, out=os.path.join(tmp, 'out'), pull_guard=guard_on)
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        rc = KD.run_probe(a, mg, br, make_spec('a'), gw_factory=lambda base, key: GW(clock, 100.0), sleep=clock.sleep, clock=clock, slot_check=lambda: None,
+        spec = make_spec('a')
+        for k, v in (spec_mod or {}).items():
+            setattr(spec, k, v)
+        rc = KD.run_probe(a, mg, br, spec, gw_factory=lambda base, key: GW(clock, 100.0), sleep=clock.sleep, clock=clock, slot_check=lambda: None,
                           image_check=lambda *x, **k: (True, 'ok', 1.0), ledger=lambda rec: LEDGER.append(rec),
                           pull_guard=lambda name: KD.PullGuard(name, max_culls=max_culls, take_slot=lambda: 1, realloc=realloc))
     p = os.path.join(tmp, 'out', 'summary-kit-loop-t.json')
-    return rc, json.load(open(p)), buf.getvalue(), calls
+    return rc, (json.load(open(p)) if os.path.exists(p) else {}), buf.getvalue(), calls
 
 
 with tempfile.TemporaryDirectory() as tmp:
@@ -323,6 +326,10 @@ with tempfile.TemporaryDirectory() as tmp:
     check(summ.get('stopped_by') == 'pull_slow' and calls == ['n1'] and summ.get('stop_verified') and summ.get('cost_usd_est', 9) == 0.0 and 'урок 357' in out,
           f'цикл: замена тоже медленная при max_culls=1 → стоп pull_slow (образ/сеть), $0, стоп с проверкой ({summ.get("stopped_by")}, пересадок {calls})')
     check(re.search(r'downloading \d+%', out) is not None, 'цикл: в минутной строке журнала виден процент докачки образа (d2 21.11: его не было)')
+
+with tempfile.TemporaryDirectory() as tmp:
+    rc, summ, out, calls = drive_pull(tmp, running_min=14, spec_mod={'card': 'RTX 5090 (32 GB)', 'cuda_archs': ('8.9',)})
+    check(rc == 3 and 'no kernel image' in out and 'группу НЕ создаю' in out and not os.path.exists(os.path.join(tmp, 'out')), 'цикл: образ под 8.9 на карте 5090 — отказ ДО создания группы, код 3, /bin/bash (урок 742)')
 
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПАДЕНИЙ {len(FAILS)}')
 sys.exit(1 if FAILS else 0)
