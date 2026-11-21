@@ -33,7 +33,8 @@ def probe(rund: str, out: str, label: str, cfg: dict | None = None, draft_glb: s
             if not os.path.exists(fp):
                 break
             kn.append(np.asarray(Image.open(fp).convert('L')) > 127)
-        r = TF.run_stage(out, label, os.path.join(visible, 'visible.glb'), known=kn, cfg=cfg, draft_glb=draft_glb, prev_dir=visible)
+        npz = os.path.join(os.path.dirname(visible.rstrip('/')), '03-parts', 'parts.npz')                  # части этапа 3, если они есть рядом с 06-visible (как в боевом пути); нет — по геометрии
+        r = TF.run_stage(out, label, os.path.join(visible, 'visible.glb'), known=kn, cfg=cfg, draft_glb=draft_glb, prev_dir=visible, parts_npz=npz if os.path.exists(npz) else None)
         if r.get('refused'):                                   # этап 6 отказал (камера не прошла, нет выхода) — этап 7 не заливает; это не сбой пробы
             return {'run': label, 'refused': True, 'passed': False, 'reason': r['check']['reason'], 'seconds': r['check']['seconds']}
     else:

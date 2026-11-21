@@ -745,6 +745,27 @@ def test_trellis_relief():
     ok(dC < dB, f"перенос черновика строже у C (ok {dC} % < {dB} % у Б при тех же данных)")
 
 
+def test_part_roles_from_stage3():
+    print("классы частей для C берутся из этапа 3 (03-parts/parts.json) сами:")
+    import json
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        pj = os.path.join(td, "parts.json")
+        with open(pj, "w", encoding="utf-8") as f:
+            json.dump({"parts": [{"id": 0, "role": "body"}, {"id": 1, "role": "unknown"}, {"id": 2, "role": "legs"}, {"id": 3}]}, f)
+        ok(TF.roles_from_parts_json(pj) == {0: "body", 2: "legs"}, "роли: body и legs входят, unknown и часть без роли — нет")
+        ok(TF.roles_from_parts_json(os.path.join(td, "нет.json")) == {}, "нет файла — пустой словарь")
+        npz = os.path.join(td, "parts.npz")
+        c, note = TF.resolve_part_class({"source": "trellis_relief"}, npz, True)
+        ok(c["part_class"] == {0: "body", 2: "legs"} and "этапа 3" in note, f"source=trellis_relief и части из этапа 3 — part_class из parts.json ({note})")
+        c, note = TF.resolve_part_class({"source": "trellis_relief"}, npz, False)
+        ok(c.get("part_class") is None and "нет" in note, "части не из этапа 3 (геометрия) — класса нет, только однородность")
+        c, note = TF.resolve_part_class({"source": "trellis_relief", "part_class": {5: "body"}}, npz, True)
+        ok(c["part_class"] == {5: "body"}, "заданный в cfg part_class не перезаписывается")
+        c, note = TF.resolve_part_class({"source": "stat"}, npz, True)
+        ok("part_class" not in c and note is None, "stat/trellis — part_class не трогается")
+
+
 def test_hidden_visible():
     print("мерка «скрытое видимое» (tex_fill_hidden_visible): срез, метрики, свод:")
     import tex_fill_hidden_visible as HV
@@ -994,7 +1015,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

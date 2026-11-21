@@ -1502,6 +1502,32 @@ def parts_from_npz(path: str, geoms: list):
     return out, f'parts.npz: {int(part.max()) + 1} частей'
 
 
+def roles_from_parts_json(path: str) -> dict:
+    """Роли частей этапа 3 (`03-parts/parts.json`, поле `parts[].role`; правила — rules/part-roles.json): {номер части: роль} для частей с ОПРЕДЕЛЁННОЙ ролью.
+    `unknown` (недоверие, нет правила…) в словарь не входит — у такой части класса нет, C решает по однородности известного. Нет файла/поля — {}."""
+    import json
+    if not path or not os.path.exists(path):
+        return {}
+    with open(path, encoding='utf-8') as f:
+        d = json.load(f)
+    return {int(p['id']): str(p['role']) for p in d.get('parts', []) if p.get('role') and p['role'] != 'unknown' and 'id' in p}
+
+
+def resolve_part_class(cfg: dict | None, parts_npz: str | None, parts_from_stage3: bool) -> tuple:
+    """Классы частей для C (`part_class`): заданы в cfg — они; иначе при source=trellis_relief и частях ИЗ этапа 3 — роли из `parts.json` рядом с parts.npz (один источник — этап 3), иначе None. → (cfg с part_class, строка о способе)."""
+    c = dict(cfg or {})
+    if c.get('source') != 'trellis_relief':
+        return c, None
+    if c.get('part_class') is not None:
+        return c, 'part_class: заданы в cfg'
+    if parts_from_stage3 and parts_npz:
+        roles = roles_from_parts_json(os.path.join(os.path.dirname(parts_npz), 'parts.json'))
+        if roles:
+            c['part_class'] = roles
+            return c, f'part_class: роли этапа 3 (parts.json), частей с ролью {len(roles)}'
+    return c, 'part_class: нет — ворота C только по однородности известного'
+
+
 def part_deltas(geoms: list, parts, kfront: list, kback: list, tex_before: list, tex_after: list) -> dict:
     """ΔE00 перёд↔зад внутри одной части: средние Lab текселей, видимых спереди (kfront) и сзади (kback), до и после заливки. → {часть: {'before', 'after'}}."""
     res = {}
@@ -1660,10 +1686,12 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     if known is None:
         known = known_from_photo(geoms)
     parts_note = 'заданы'
+    from_stage3 = parts is None and bool(parts_npz)
     if parts is None and parts_npz:
         parts, parts_note = parts_from_npz(parts_npz, geoms)
     if parts is None:
         parts, parts_note = parts_from_geometry(geoms)
+    cfg, pc_note = resolve_part_class(cfg, parts_npz, from_stage3)          # C: классы частей — из этапа 3 сами (CFG_C больше не нужен)
     draft = None
     if (cfg or {}).get('source') in ('trellis', 'trellis_relief'):
         draft = draft_texels(geoms, TC.load_geoms(draft_glb), cfg)
@@ -1718,7 +1746,7 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
         m['ok'] = PS.judge(m['value'], m['op'], m['threshold'])
     if draft is not None:
         rep['draft_transfer'] = draft['report']
-    report = {'report': rep, 'deltaE_by_part': de, 'big_parts': big, 'parts_note': parts_note, 'empty_before_pct': rep['unpainted_before_pct']}
+    report = {'report': rep, 'deltaE_by_part': de, 'big_parts': big, 'parts_note': parts_note, 'part_class_note': pc_note, 'empty_before_pct': rep['unpainted_before_pct']}
     with open(os.path.join(d, 'report.json'), 'w', encoding='utf-8') as f:
         json.dump(report, f, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
     check = PS.write_check(d, out_name or STAGE, sku, None, dict(metrics['empty_pct'], name='empty_pct'), '', metrics={k: v for k, v in metrics.items() if k != 'empty_pct'}, seconds=secs,

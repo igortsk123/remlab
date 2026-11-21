@@ -97,6 +97,8 @@ def run_item(root: str, sku: str, sources: list, keeps: list, ndirs: int, cfg0: 
     known = TF.load_known_png(vis)
     npz = os.path.join(root, sku, '03-parts', 'parts.npz')
     parts, _ = TF.parts_from_npz(npz, geoms) if os.path.exists(npz) else TF.parts_from_geometry(geoms)
+    cfg0, _pcn = TF.resolve_part_class(dict(cfg0, source='trellis_relief') if cfg0.get('part_class') is None else cfg0, npz if os.path.exists(npz) else None, os.path.exists(npz))      # роли этапа 3 для C
+    cfg0 = {k: v for k, v in cfg0.items() if k != 'source'}
     txs = [TF.Tex(g, np.asarray(g['V'], np.float64), TF._grid(g), parts[gi]) for gi, g in enumerate(geoms)]
     ids = sorted({int(p) for pp in parts for p in np.unique(pp)})
     cnt = {p: sum(int((kn.reshape(-1)[tx.ti] & (tx.part == p)).sum()) for kn, tx in zip(known, txs)) for p in ids}
