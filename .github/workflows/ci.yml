@@ -191,6 +191,7 @@ jobs:
       # trimesh — `plant_from_scan.py`/`plant_procedural.py` (растения, T-20261117-07) импортируют его на верхнем уровне;
       # `test_plants.py` без него падал в CI «No module named 'trimesh'»
       - run: pip install numpy pillow opencv-python-headless trimesh scipy
+      - run: python tools/scout/tests/test_pattern_metric.py && python tools/scout/tests/test_photo_project.py   # метрика узора pattern_grad_ncc и проба проекции фото на UV (T-20261119-04/1): самопроверки модулей, нужны numpy и opencv (поставлены строкой выше) — были в репо без строки CI
       - run: python tools/assets/scene_extras_golden.py --check   # авто-ТВ и декор: сервер = эталон живой сцены (demo-05 п.9)
       - run: python tools/assets/tests/test_demo_ids.py   # лёгкие копии /rt/: все комнаты витрины, лента по типу комнаты, ковёр по стратегии (T-20261106-77)
       - run: python tools/assets/tests/test_floor_materials.py   # пол: доска ровно заданной ширины, шов ≤ 0,2 см без жил; CC0-сканы — тип → скан → размер → оттенок, лицензия и sha256, ≤ 1,5 МБ, цвет 512 телефону (T-20261111-24/2)
