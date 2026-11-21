@@ -630,6 +630,36 @@ def test_outlier_blocks():
     ok(nrej0 == 0, f"чистый пул не режется ({nrej0})")
 
 
+def test_stage6_gate():
+    print("этап 7 отказывает, если этап 6 отказал (камера не прошла / нет выхода); мягкий провал мерок — не отказ:")
+    import json
+    import tempfile
+    import paint_stage as PS
+    with tempfile.TemporaryDirectory() as td:
+        def mk(name, doc, glb):
+            d = os.path.join(td, name, "06-visible")
+            os.makedirs(d)
+            if doc is not None:
+                json.dump(doc, open(os.path.join(d, "check.json"), "w"))
+            if glb:
+                open(os.path.join(d, "visible.glb"), "wb").write(b"x")
+            return d
+        base = {"version": 1, "stage": "06-visible", "sku": "x", "metric": None, "metrics": {}, "outputs": [], "frame": None}
+        d1 = mk("cam", dict(base, passed=False, reason="камера этапа 4 не прошла", extra={"camera_failed": True, "camera_gate": "failed"}), False)
+        d2 = mk("soft", dict(base, passed=False, reason="known_share 0.14 < 0.15", extra={"needs_qwen": True}), True)
+        d3 = mk("ok", dict(base, passed=True, reason="", extra={}), True)
+        d4 = mk("nochk", None, True)
+        d5 = mk("noglb", dict(base, passed=True, reason="", extra={}), False)
+        g = {k: TF.stage6_gate(d) for k, d in (("cam", d1), ("soft", d2), ("ok", d3), ("nochk", d4), ("noglb", d5))}
+        ok(g["cam"][0] and "камера" in g["cam"][1], f"камера не прошла → отказ ({g['cam'][1][:40]})")
+        ok(not g["soft"][0] and g["soft"][2].get("soft_fail") is True, "мягкий провал мерок этапа 6 (есть выход) → заливка идёт, провал записан")
+        ok(not g["ok"][0] and g["ok"][2].get("soft_fail") is False, "этап 6 прошёл → заливка идёт")
+        ok(g["nochk"][0] and g["noglb"][0], "нет check.json или visible.glb → отказ")
+        r = TF.run_stage(td, "cam", os.path.join(d1, "visible.glb"), prev_dir=d1)
+        c = PS.read_check(PS.stage_dir(td, "cam", TF.STAGE))
+        ok(r.get("refused") and c is not None and c["passed"] is False and c["extra"].get("refused") is True and c["outputs"] == [], "run_stage при отказе: check.json passed=false, refused, выхода нет, GLB не читался")
+
+
 def test_render_low():
     print('кадр снизу (дно) — elevation −90:')
     q = Quads()
@@ -648,7 +678,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_stage6_gate, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

@@ -1386,7 +1386,24 @@ def known_changed_share(known: list, before: list, after: list, de_min: float) -
     return {'share_pct': round(100.0 * chg / max(tot, 1), 4), 'known': tot, 'changed': chg}
 
 
-def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=None, cfg: dict | None = None, thresholds: dict | None = None, mirror: bool = True, draft_glb: str | None = None, out_name: str | None = None, parts_npz: str | None = None) -> dict:
+def stage6_gate(prev_dir: str):
+    """Можно ли заливать: по `check.json` и выходу этапа 6 (`06-visible`). Отказ: нет check.json, камера этапа 4 не прошла (`extra.camera_failed` / `camera_gate`='failed'), этап пометил отказ (`extra.refused`), нет `visible.glb`.
+    Мягкий провал этапа 6 (passed=false по меркам, но выход есть — например `needs_qwen`) не отказ: заливка идёт, провал записывается в check.json (`stage6`). → (отказ, причина, {'passed', 'reason', 'soft_fail'})."""
+    import paint_stage as PS
+    c = PS.read_check(prev_dir)
+    if c is None:
+        return True, 'нет check.json этапа 6', {'passed': None}
+    ex = c.get('extra') or {}
+    info = {'passed': bool(c.get('passed')), 'reason': str(c.get('reason') or '')[:300]}
+    if ex.get('camera_failed') or ex.get('camera_gate') == 'failed' or ex.get('refused'):
+        return True, info['reason'] or 'камера не прошла', info
+    if not os.path.exists(os.path.join(prev_dir, 'visible.glb')):
+        return True, 'нет visible.glb этапа 6', info
+    info['soft_fail'] = not info['passed']
+    return False, '', info
+
+
+def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=None, cfg: dict | None = None, thresholds: dict | None = None, mirror: bool = True, draft_glb: str | None = None, out_name: str | None = None, parts_npz: str | None = None, prev_dir: str | None = None) -> dict:
     """Этап 07 «докрасить невидимое»: GLB (текстура = фото на видимом) → `<run>/<sku>/07-fill/` {filled.glb, report.json, frame.png (az180 до | после), check.json}.
     `known` — маска «видно с камеры фото» по геометриям (нет — из `known_from_photo`: az0/az45); `parts` — части граней (нет — `parts_from_geometry`). Не прошёл (check.json passed=false) — товар дальше не идёт.
     → {'check', 'report', 'geoms', 'tex_before', 'tex_after', 'known', 'parts', 'dir'} (для проб и кадров)."""
@@ -1396,6 +1413,12 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     t0 = time.time()
     d = PS.stage_dir(run, sku, out_name or STAGE)
     th = dict(THRESHOLDS, **(thresholds or {}))
+    s6 = None
+    if prev_dir:                                                  # выход этапа 6 (`06-visible`): отказ камеры/нет выхода — этап 7 сам отказывает, не заливает
+        refuse, why, s6 = stage6_gate(prev_dir)
+        if refuse:
+            chk = PS.write_check(d, out_name or STAGE, sku, False, None, 'этап 6 отказал: ' + why, seconds=time.time() - t0, outputs=[], refused=True, stage6=s6)
+            return {'check': chk, 'refused': True, 'report': None, 'dir': d}
     geoms = TC.load_geoms(glb)
     tex_before = [np.asarray(g['tex']).copy() for g in geoms]
     if known is None:
@@ -1462,5 +1485,5 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     with open(os.path.join(d, 'report.json'), 'w', encoding='utf-8') as f:
         json.dump(report, f, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
     check = PS.write_check(d, out_name or STAGE, sku, None, dict(metrics['empty_pct'], name='empty_pct'), '', metrics={k: v for k, v in metrics.items() if k != 'empty_pct'}, seconds=secs,
-                           outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried, pattern_metric=rep['pattern_metric'], pattern_src=rep.get('pattern_src'))
+                           outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried, pattern_metric=rep['pattern_metric'], pattern_src=rep.get('pattern_src'), stage6=s6, quilt_rejected=rep.get('quilt_rejected'))
     return {'check': check, 'report': rep, 'geoms': geoms, 'tex_before': tex_before, 'tex_after': tex_after, 'known': known, 'parts': parts, 'dir': d, 'deltaE': de, 'kback': kback}
