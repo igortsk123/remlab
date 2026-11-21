@@ -1240,5 +1240,36 @@ class V2Probe(unittest.TestCase):
         self.assertEqual(V.proc_size(3000, 2000, 2048), (2048, 1360))
 
 
+class KitSlotAndLedger(unittest.TestCase):
+    """T-178/2: боевой запуск sg — только под heavy-slot --prio 2 (сам себя перезапускает под слотом), образ и учёт денег — из общего набора."""
+
+    class A:
+        def __init__(self, apply=True, suffix='t1'):
+            self.apply, self.suffix = apply, suffix
+
+    def test_apply_without_slot_relaunches_under_heavy_slot_prio2(self):
+        argv = ['--runs', 'k:v', '--image', 'ghcr.io/o/n@sha256:' + 'a' * 64, '--apply']
+        w = S.slot_wrap_argv(self.A(), argv, env={})
+        self.assertTrue(w[0].endswith('heavy-slot.sh') and os.path.exists(w[0]))
+        self.assertEqual(w[w.index('--prio') + 1], '2')                              # ровно prio 2 — иначе require_slot откажет
+        self.assertEqual(w[w.index('--') + 1], sys.executable)
+        self.assertTrue(w[w.index('--') + 2].endswith('sg_salad.py'))
+        self.assertEqual(w[-len(argv):], argv)                                         # те же аргументы, образ по digest не подменяется
+
+    def test_no_wrap_when_already_in_slot_dry_run_or_no_slot(self):
+        self.assertIsNone(S.slot_wrap_argv(self.A(), [], env={'HEAVY_SLOT_HELD': '123'}))
+        self.assertIsNone(S.slot_wrap_argv(self.A(apply=False), [], env={}))           # разбор без --apply денег не тратит
+        self.assertIsNone(S.slot_wrap_argv(self.A(), [], env={'HEAVY_SLOT_NOSLOT': '1'}))   # --no-slot: драйвер сам откажет (код 4), не перезапускаем
+
+    def test_wait_timeout_from_env(self):
+        w = S.slot_wrap_argv(self.A(), [], env={'HEAVY_SLOT_WAIT_S': '600'})
+        self.assertEqual(w[w.index('--timeout') + 1], '600')
+
+    def test_shared_functions_come_from_kit(self):
+        import kit_driver as KD
+        self.assertIs(S.cost_usd, KD.cost_usd)
+        self.assertIs(S.weights_slow, KD.weights_slow)
+
+
 if __name__ == '__main__':
     unittest.main()

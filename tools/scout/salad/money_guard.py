@@ -30,6 +30,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import salad_groups as SG  # noqa: E402 — тариф/цена группы: ОДИН источник (rules/salad-groups.json)
 import mesh_price as MP    # noqa: E402 — ₽ за меш по группам за сутки (план mesh-15)
+import kit_driver as KD    # noqa: E402 — учёт платных проб Salad (T-178/2): пробы в общем отчёте, а не вне счёта
 import proc_run as PR      # noqa: E402 — шаг оболочки без сирот
 import sink_health as SH   # noqa: E402 — приёмник: красный = общая беда, а не вина нод
 import ssh_run as SR       # noqa: E402 — ОДНА цепочка уборки приёмника на всех
@@ -417,6 +418,14 @@ def repeats(since: float) -> tuple[int, str]:
     return n, ex
 
 
+def probe_line(seconds: float = 86400) -> str:
+    """Расход платных проб Salad (не мешей) за сутки — строкой в общий пульс; учёт проб — отдельный файл `kit_driver.ledger_path()`."""
+    try:
+        return KD.ledger_line(seconds)
+    except Exception as e:  # noqa: BLE001 — сводка не должна ронять пульс
+        return f'пробы Salad: не посчитано ({type(e).__name__})'
+
+
 def heartbeat(st: dict, gs: list[str], counts: dict, sink: dict) -> None:
     """Раз в сутки в HEARTBEAT_H UTC — короткая сводка владельцу. Ловит и «оповещения молча
     сломаны»: не пришёл пульс — значит сторож или телеграм мертвы."""
@@ -456,7 +465,7 @@ def heartbeat(st: dict, gs: list[str], counts: dict, sink: dict) -> None:
         price = f'не посчитано ({type(e).__name__})'
     notify(f'Пульс мешей: за сутки ok {ok}, из кэша {cached}, повторы {rep}; работает нод {sum(v for v in counts.values() if v > 0)} '
            f'{counts}; оплачено всего {sum(paid.values()) / 60:.1f} нодо-ч ≈ ${usd:.2f} ({rub:.0f} ₽); '
-           f'₽ за меш по группам за сутки: {price}; '
+           f'₽ за меш по группам за сутки: {price}; {probe_line()}; '
            f'приёмник {"ок" if sink["ok"] else "КРАСНЫЙ: " + sink["why"]}, свободно {sink.get("free_gb", 0):.1f} ГБ.{halt}')
     st['heartbeat_day'] = today
 

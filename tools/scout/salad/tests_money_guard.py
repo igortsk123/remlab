@@ -433,6 +433,34 @@ def case_foreign_wave() -> None:
         SG.price = keep_price
 
 
+def case_probe_spend(tmp: str) -> None:
+    """T-178/2: платные пробы Salad видны в пульсе денег (отдельный учёт, общий отчёт читает его)."""
+    led = os.path.join(tmp, 'probe-spend.jsonl')
+    keep = os.environ.get('SALAD_PROBE_LEDGER')
+    os.environ['SALAD_PROBE_LEDGER'] = led
+    try:
+        ok('пробы: учёта нет — «0 шт ≈ $0.00», не ошибка', G.probe_line() == 'пробы Salad за сутки: 0 шт ≈ $0.00')
+        G.KD.ledger_append({'group': 'trial-x-a', 'cost_usd_est': 0.211, 'stopped_by': 'done'}, led)
+        G.KD.ledger_append({'group': 'trial-x-b', 'cost_usd_est': 0.4, 'stopped_by': 'no_start'}, led)
+        ok('пробы: две строки учёта → «2 шт ≈ $0.61»', G.probe_line() == 'пробы Salad за сутки: 2 шт ≈ $0.61')
+        sent = []
+        keep_n, keep_h, keep_hour = G.notify, G.HEARTBEAT_H, G.HEARTBEAT_H
+        keep_by = G.MP.by_group
+        G.notify = lambda t: sent.append(t) or True
+        G.HEARTBEAT_H = time.gmtime().tm_hour
+        G.MP.by_group = lambda *a, **k: {}
+        try:
+            G.heartbeat({}, [], {}, {'ok': True, 'free_gb': 10})
+        finally:
+            G.notify, G.HEARTBEAT_H, G.MP.by_group = keep_n, keep_hour, keep_by
+        ok('пульс мешей содержит строку проб (общий отчёт читает учёт проб)', len(sent) == 1 and 'пробы Salad за сутки: 2 шт ≈ $0.61' in sent[0])
+    finally:
+        if keep is None:
+            os.environ.pop('SALAD_PROBE_LEDGER', None)
+        else:
+            os.environ['SALAD_PROBE_LEDGER'] = keep
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         G.STATE, G.HALT = os.path.join(tmp, 'guard.json'), os.path.join(tmp, 'halt.json')
@@ -453,6 +481,7 @@ def main() -> int:
         case_owner_pause(tmp)
         case_manual_cap(tmp)
         case_foreign_wave()
+        case_probe_spend(tmp)
     print('сторож денег: ' + ('ВСЁ ЗЕЛЁНОЕ' if not bad else f'ПРОВАЛОВ {bad}'))
     return 1 if bad else 0
 
