@@ -184,6 +184,36 @@ class TestTexVisible(unittest.TestCase):
             with open(os.path.join(sd, 'check.json'), encoding='utf-8') as fh:
                 self.assertTrue(json.load(fh)['extra']['camera_failed'])
 
+    def test_camera_gate_failed_refuses_even_if_silhouette_matches(self):
+        import trimesh
+        from trimesh.visual import TextureVisuals
+        with tempfile.TemporaryDirectory() as d:
+            g = self.geoms[0]
+            m = trimesh.Trimesh(vertices=g['V'], faces=g['F'], process=False)
+            m.visual = TextureVisuals(uv=g['UV'])
+            glb = os.path.join(d, 'shape.glb')
+            m.export(glb)
+            photo = os.path.join(d, 'p.png')
+            Image.fromarray(photo_red_blue()).save(photo)
+            pose = self._write_pose_run(d)
+            os.makedirs(os.path.join(pose, '04-camera'), exist_ok=True)
+            with open(os.path.join(pose, '04-camera', 'check.json'), 'w', encoding='utf-8') as fh:
+                json.dump({'passed': False, 'metric': {'name': 'iou_silhouette', 'value': 0.669, 'threshold': 0.85, 'op': '>=', 'ok': False},
+                           'metrics': {'miss': {'value': 0.18, 'threshold': 0.08, 'op': '<=', 'ok': False}}}, fh)
+            r = TV.run(glb, photo, pose, os.path.join(d, 'run'), 'sku:4')
+            self.assertFalse(r['passed'])
+            self.assertEqual(r['reason'], 'camera_gate')
+            sd = os.path.join(d, 'run', 'sku_4', '06-visible')
+            self.assertFalse(os.path.exists(os.path.join(sd, 'visible.glb')))
+            ch = json.load(open(os.path.join(sd, 'check.json'), encoding='utf-8'))
+            self.assertIn('не прошла свой гейт', ch['reason'])
+            self.assertIn('iou_silhouette 0.669', ch['reason'])
+            # с passed=true — идёт как обычно
+            with open(os.path.join(pose, '04-camera', 'check.json'), 'w', encoding='utf-8') as fh:
+                json.dump({'passed': True}, fh)
+            r2 = TV.run(glb, photo, pose, os.path.join(d, 'run'), 'sku:5')
+            self.assertNotEqual(r2.get('reason'), 'camera_gate')
+
     def test_import_error_writes_failed_check_instead_of_raising(self):
         with tempfile.TemporaryDirectory() as d:
             photo = os.path.join(d, 'p.png')

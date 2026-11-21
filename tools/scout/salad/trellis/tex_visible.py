@@ -320,9 +320,32 @@ def run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: fl
         return {'sku': sku, 'passed': False, 'reason': 'error', 'why': [why], 'dir': d}
 
 
+def camera_gate(pose_run: str) -> tuple:
+    """Гейт предыдущего этапа: `<pose_run>/04-camera/check.json`. (True|False|None, причина словами). None — файла нет (прогон камеры старше гейта): этап идёт, но в check.json пишется camera_gate=absent."""
+    p = os.path.join(pose_run, '04-camera', 'check.json')
+    if not os.path.exists(p):
+        return None, 'у камеры нет check.json'
+    try:
+        ch = json.load(open(p, encoding='utf-8'))
+    except (OSError, ValueError) as e:
+        return False, f'check.json камеры не читается ({e})'
+    if ch.get('passed') is True:
+        return True, ''
+    mt = ch.get('metric') or {}
+    bad = [f"{k} {v.get('value')} (нужно {v.get('op')} {v.get('threshold')})" for k, v in (ch.get('metrics') or {}).items() if isinstance(v, dict) and v.get('ok') is False]
+    if mt and mt.get('ok') is False:
+        bad.insert(0, f"{mt.get('name')} {mt.get('value')} (нужно {mt.get('op')} {mt.get('threshold')})")
+    return False, 'камера этапа 4 не прошла свой гейт: ' + ('; '.join(bad) or str(ch.get('reason') or 'passed=false'))
+
+
 def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: float = COS_MIN) -> dict:
     t0 = time.time()
     d = PS.stage_dir(run_dir, sku, '06-visible')
+    cg, cg_why = camera_gate(pose_run)
+    if cg is False:                                                  # вход не прошёл прежний гейт — этап его не берёт
+        PS.write_check(d, '06-visible', sku, passed=False, reason=cg_why + ' — этап 6 вход не берёт, перенос не делался', seconds=round(time.time() - t0, 1),
+                       needs_qwen=False, camera_failed=True, camera_gate='failed', pose_run=pose_run)
+        return {'sku': sku, 'passed': False, 'reason': 'camera_gate', 'why': [cg_why]}
     geoms = load_shape(glb)
     st = load_stage(pose_run)
     P = np.asarray(Image.open(photo).convert('RGBA'))
