@@ -9,10 +9,10 @@ from llm_gateway import chat  # noqa: E402
 from openai_budget import log_spend  # noqa: E402
 
 MODEL = "alibaba/qwen3-vl-instruct"
-O = os.path.expanduser("~/remlab-logs/t181-1121-out"); R = os.path.expanduser("~/remlab-logs/e2eHD-1121")
-PARTS = ["seat_cushion", "backrest", "armrest", "leg", "frame_or_post", "base_or_skirt", "side_panel", "back_panel", "drawer_or_door_front", "top_surface", "pillow", "other"]
+O = os.path.expanduser("~/remlab-logs/t181-1121-out"); R = os.path.expanduser(os.environ.get("QWEN_R", "~/remlab-logs/e2eHD-1121"))
+PARTS = ["seat_cushion", "backrest", "armrest", "leg", "frame_or_post", "base_or_skirt", "side_panel", "back_panel", "drawer_or_door_front", "top_surface", "table_edge", "handle", "glass_panel", "lamp_shade", "pillow", "other"]
 MATS = ["fabric", "wood", "metal", "leather", "glass", "plastic", "unknown"]
-PROMPT = ("Это фото предмета мебели из интернет-магазина. Часть, которую нужно назвать, закрашена ПУРПУРНЫМ с контуром; остальное — обычное фото.\n"
+PROMPT = ("Это фото предмета мебели или светильника из интернет-магазина. Часть, которую нужно назвать, закрашена ПУРПУРНЫМ с контуром; остальное — обычное фото.\n"
           f"Ответь только JSON без markdown: {{\"part\": одно из {PARTS}, \"material\": одно из {MATS}, \"why\": \"один видимый признак по-русски\"}}.\n"
           "Если пурпурная область — несколько разных частей или не видно, что это, пиши part=\"other\", material=\"unknown\". Материал — по виду поверхности (ткань, дерево, металл...), не по цвету.")
 sku = sys.argv[1]; maxn = int(sys.argv[2]) if len(sys.argv) > 2 else 14
@@ -26,7 +26,7 @@ pp = np.load(f"{R}/{sku}/03-parts/parts.npz")["part"]
 role_of = {int(p["id"] if "id" in p else i): p.get("role") for i, p in enumerate(parts["parts"])}
 cat = json.load(open(f"{O}/{sku}.layers.json")).get("catalog")
 regs = [(int(r), float((lab == r).sum()) / tot) for r in np.unique(lab) if r >= 0]
-regs = sorted([x for x in regs if x[1] >= 0.004], key=lambda t: -t[1])[:maxn]
+regs = sorted([x for x in regs if x[1] >= float(os.environ.get("QWEN_MIN", "0.004"))], key=lambda t: -t[1])[:maxn]
 usd = 0.0; rows = []
 for r, share in regs:
     mk = lab == r
