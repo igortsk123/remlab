@@ -146,6 +146,29 @@ class Roles(unittest.TestCase):
         r2 = pr.assign_roles(feats(v, f, part, {0: "body", 1: "body"}, lab=np.zeros((len(f), 3))), self.rules, "диван", {"legs"})
         self.assertEqual(r2[1]["role"], "body")                             # тот же цвет — повода сомневаться нет
 
+    def test_repeat_group_gets_one_role(self):
+        body = box(0, 0.55, 0, 1.0, 0.9, 0.6, n=24)                         # главная часть над полом (низ на 0.1)
+        a = box(-0.35, 0.05, 0, 0.3, 0.1, 0.4, n=10)                        # два одинаковых нижних модуля; один стоит на полу…
+        b = box(0.35, 0.13, 0, 0.3, 0.1, 0.4, n=10)                         # …второй приподнят на 0.08 (пол «чуть хуже»)
+        v, f, part = assemble([body, a, b])
+        kinds = {0: "body", 1: "body", 2: "body"}
+        ft = feats(v, f, part, kinds)
+        self.assertEqual(ft[1]["symmetry_group"], 2)                        # признаки видят повтор
+        self.assertNotEqual(ft[1]["supports_body"], ft[2]["supports_body"])   # а опорой по полу они расходятся
+        r = pr.assign_roles(ft, self.rules, "диван", {"legs"})
+        self.assertEqual(r[1]["role"], r[2]["role"])                        # одинаковые части — одна роль
+        self.assertEqual(r[1]["unknown_reason"], "group_disagree")
+
+    def test_group_ignores_unreliable_members(self):
+        v, f, part = table()
+        kinds = {0: "body", 1: "thin", 2: "thin", 3: "thin", 4: "thin"}
+        ft = feats(v, f, part, kinds)
+        ft[4]["agree"], ft[4]["seen"] = 0.1, 0.5                            # одна ножка нечитаема кадрами — группу из-за неё не рушим
+        r = pr.assign_roles(ft, self.rules, "столик", {"legs"})
+        self.assertEqual(r[4]["unknown_reason"], "unreliable")
+        for p in (1, 2, 3):
+            self.assertEqual(r[p]["role"], "legs")
+
     def test_merged_legs_with_stretchers_are_legs(self):
         top = box(0, 1.0, 0, 1.0, 0.06, 1.0, n=40)
         legs = [box(x, 0.485, z, 0.05, 0.97, 0.05, n=4) for x in (-0.45, 0.45) for z in (-0.45, 0.45)]

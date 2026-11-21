@@ -8,6 +8,7 @@
   ③ body — запасная: объёмная (kind body) часть, не подошедшая под иную роль и прошедшая доверие; у корпусной мебели — только крупнейшая, у стола body нет вовсе (столешница и ножки названы отдельно);
      тонкая/средняя без правила остаётся unknown;
   ③б объёмная часть, что стоит на полу и держит главную (цоколь, нижний модуль), но под ножки не подошла и по цвету заметно иная (ΔE ≥ порога) — unknown:support_unclear; ΔE здесь только ВЕТО (снимает роль, роль не ставит);
+  ③в глобальная согласованность: части одной группы повторов (одинаковые размеры рамки и высота) получают ОДНУ роль, расходятся — вся группа unknown:group_disagree;
   ④ glass_mirror геометрия не ставит никогда; ΔE в роль не входит.
 Тип товара — `role` каталога → группа в `data/flat3d/material-classes.json` (тот же источник, что у этапа 8); каналы — ключи `parts` результата `material_class.classify`.
 """
@@ -152,7 +153,38 @@ def assign_roles(features: dict[int, dict], rules: dict, product_role: str | Non
             done(p, "body", "объёмная часть, не подошедшая ни под одну роль", rc["body"])
         else:
             done(p, "unknown", "тонкая часть без правила" + (f" ({fail[p]})" if p in fail else ""), rc["unknown"], fail.get(p, "no_rule"))
+    gc = rules["decision"].get("group_consistency", {})
+    if gc.get("enabled"):
+        _group_consistency(features, out, gc, rules)
     return out
+
+
+def _group_consistency(features: dict[int, dict], out: dict[int, dict], gc: dict, rules: dict) -> None:
+    """Глобальная согласованность: части одной группы повторов (одинаковая рамка и высота; связность — по цепочке попарных совпадений) получают ОДНУ роль.
+    Роли расходятся — вся группа unknown:group_disagree. Части с причинами из `ignore_unknown_reasons` (tiny, unreliable — данных мало) в сравнение не входят и не меняются."""
+    parent = {p: p for p in features}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for p, f in features.items():
+        for q in f.get("symmetry_members", []):
+            parent[find(p)] = find(q)
+    groups: dict[int, list[int]] = {}
+    for p in features:
+        groups.setdefault(find(p), []).append(p)
+    for members in groups.values():
+        cmp = [p for p in members if out[p]["unknown_reason"] not in gc["ignore_unknown_reasons"]]
+        if len(cmp) < 2 or len({out[p]["role"] for p in cmp}) < 2:
+            continue
+        roles = sorted({out[p]["role"] for p in cmp})
+        for p in cmp:
+            rd = rules["roles"]["unknown"]
+            out[p] = {"role": "unknown", "role_title": rd["titleRu"], "material_channel": None, "role_conf": 0.0,
+                      "role_why": "группа повторов из %d частей получила разные роли: %s" % (len(cmp), ", ".join(roles)), "unknown_reason": gc["unknown_reason"]}
 
 
 def known_role_area_share(features: dict[int, dict], roles: dict[int, dict]) -> float:

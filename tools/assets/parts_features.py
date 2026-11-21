@@ -7,7 +7,7 @@
   obb{L,W,T,thin_ratio=T/L,slab} — ориентированная рамка по главным осям; plate_horizontal/plate_vertical — доля площади с вертикальной / горизонтальной нормалью;
   contacts — соседние части (общая граница ИЛИ близость ≤ `contact_eps`·габарит: части касаются и без общих вершин); contacts_main;
   floor_contact (up_min ≤ `floor_eps`), supports_body (касается пола И главной части, а главная от пола оторвана: опора соединяет корпус с полом);
-  symmetry_group — сколько частей той же формы и высоты (4 ножки = 4, пара подлокотников = 2);
+  symmetry_group — сколько частей той же формы и высоты (4 ножки = 4, пара подлокотников = 2), symmetry_members — какие именно (движок ролей из них строит группы повторов: одна группа — одна роль);
   front/right/front_facing_share — из камеры фото (`cam_az`, pose.json этапа 4 ТОЛЬКО со статусом passed; фото магазина почти всегда спереди → направление на камеру = перёд).
   Нет камеры — эти три = None, и правила, требующие фронт, не срабатывают (unknown лучше неверной роли);
   agree/seen — доверие этапа 3 (порог воздержания); delta_e_main — ТОЛЬКО для отчёта, в роль не идёт.
@@ -65,7 +65,7 @@ def _obb_components(idx: np.ndarray, c: np.ndarray, area: np.ndarray, adj, scale
 def part_features(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, kind: np.ndarray, kinds: dict[int, str],
                   lab: np.ndarray | None = None, cam_az: float | None = None, adj=None,
                   agree: np.ndarray | None = None, seen: np.ndarray | None = None,
-                  floor_eps: float = 0.04, contact_eps: float = 0.02, sym_tol: float = 0.15, sym_h_tol: float = 0.06) -> dict[int, dict]:
+                  floor_eps: float = 0.04, contact_eps: float = 0.02, sym_tol: float = 0.15, sym_h_tol: float = 0.08) -> dict[int, dict]:
     """Признаки каждой части {id: {...}}. `kind` — вид граней (part_shapes), `kinds` — вид частей (parts_refine.part_kinds), `adj` — соседство граней (parts_vote.weld_adjacency)."""
     from scipy.spatial import cKDTree
 
@@ -151,6 +151,7 @@ def part_features(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, kin
         f["floor_contact"] = f["up_min"] <= floor_eps
         f["supports_body"] = bool(p != largest and f["floor_contact"] and f["contacts_main"] and main_up_min > floor_eps)
         g = 1
+        mem = []
         o = f["obb"]
         for q in ids:
             if q == p:
@@ -159,5 +160,7 @@ def part_features(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, kin
             if all(abs(o[k] - oq[k]) <= sym_tol * max(o[k], oq[k], 1e-9) + 0.005 for k in ("L", "W", "T")) \
                and abs(f["up_q10"] - out[q]["up_q10"]) <= sym_h_tol and abs(f["up_q90"] - out[q]["up_q90"]) <= sym_h_tol:
                 g += 1
+                mem.append(q)
         f["symmetry_group"] = g
+        f["symmetry_members"] = mem                                                # попарно похожие части (размеры рамки и высота): из них движок строит группы повторов
     return out
