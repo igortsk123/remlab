@@ -51,6 +51,7 @@ EDGE_BG_PX = float(os.environ.get('EDGE_BG_PX', R.get('edge_bg_reject_px', 8.0))
 EDGE_BG_MEASURE = float(R.get('edge_bg_measure_px', 6.0))
 EDGE_BG_DL = float(R.get('edge_bg_dL', 6.0))
 EDGE_BG_WHITE_L = float(R.get('edge_bg_white_L', 90.0))   # медиана ядра светлее — ткань белая, мерка и правило каймы слепы (N/A)
+FRAYED_PX = int(R.get('frayed_px', 3))           # рваность: известный пиксель в этих px от неизвестного внутри силуэта
 EDGE_BG_MAX = float(R.get('edge_bg_share_max', 0.05))
 DEPTH_MED = int(R.get('depth_median_px', 7))   # медиана карты глубины перед поиском разрыва: на рёбрах треугольников в ней пятна-выбросы
 DEPTH_BAND = int(R.get('depth_band_px', 2))      # ширина этой полосы, пикселей кадра
@@ -195,9 +196,8 @@ def edge_bg_fringe(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarray:
     return bg_like(_lab(prgb), med) & (distance_transform_edt(pmask) <= EDGE_BG_PX) & pmask
 
 
-def edge_bg_share(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, tr: dict, after: np.ndarray) -> dict:
-    """Автопроверка: доля «светлых как фон» среди ВЗЯТЫХ пикселей кадра у края (<= EDGE_BG_MEASURE px от края альфы фото или силуэта растра)."""
-    from scipy.ndimage import distance_transform_edt
+def known_px(geoms: list, st: dict, tr: dict) -> np.ndarray:
+    """Маска кадра: пиксели силуэта растра, чей тексель взят из фото (known)."""
     ids, uv, mask = st['ids'], st['uv'], st['mask']
     offs = np.cumsum([0] + [len(g['F']) for g in geoms])
     gid = np.full(ids.shape, -1, np.int32)
@@ -209,6 +209,26 @@ def edge_bg_share(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, tr
         tx = np.clip(np.floor(uv[ys, xs, 0] * T).astype(np.int64), 0, T - 1)
         ty = np.clip(np.floor(uv[ys, xs, 1] * T).astype(np.int64), 0, T - 1)
         kn[ys, xs] = k[ty, tx]
+    return kn
+
+
+def frayed_share(kn: np.ndarray, mask: np.ndarray, px: int = FRAYED_PX) -> dict:
+    """Рваность края известного: доля взятых пикселей кадра, у которых в пределах px пикселей внутри силуэта есть неизвестный (щели, рваная кромка, брызги разрыва глубины).
+    Не порог, а мерка для сравнения форм/камер (Sakura: v3 0,237 → v4 0,113); < 200 взятых — мерки нет."""
+    from scipy.ndimage import binary_dilation
+    n = int(kn.sum())
+    if n < 200:
+        return {}
+    unk = mask & ~kn
+    fr = kn & binary_dilation(unk, iterations=px)
+    return {'frayed_share': round(float(fr.sum() / n), 4), 'frayed_px': int(fr.sum()), 'frayed_known_px': n}
+
+
+def edge_bg_share(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, tr: dict, after: np.ndarray) -> dict:
+    """Автопроверка: доля «светлых как фон» среди ВЗЯТЫХ пикселей кадра у края (<= EDGE_BG_MEASURE px от края альфы фото или силуэта растра)."""
+    from scipy.ndimage import distance_transform_edt
+    mask = st['mask']
+    kn = known_px(geoms, st, tr)
     near = (np.minimum(distance_transform_edt(pmask), distance_transform_edt(mask)) <= EDGE_BG_MEASURE) & kn
     med = core_median(st, prgb, pmask)
     if med[0] > EDGE_BG_WHITE_L:
@@ -417,6 +437,7 @@ def metrics(geoms, st, prgb, pmask, tr, after: np.ndarray, cos_min: float) -> di
                     continue
                 fs[g['name']] = {'dE': round(float(LP.de2000(mf[None], ms[None])[0]), 3), 'dL': round(float(mf[0] - ms[0]), 2), 'n_front': int(fr.sum()), 'n_side': int(sd.sum())}
         out['front_side'] = fs
+    out.update(frayed_share(known_px(geoms, st, tr), st['mask']))               # только мерка (порога нет): сравнение форм v3/v4 и камер
     eb = edge_bg_share(geoms, st, prgb, pmask, tr, after)
     out.update({k: v for k, v in eb.items() if v is not None})                   # None (мало краевых или белая ткань) — мерки нет; gate её тогда не требует
     return out

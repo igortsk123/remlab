@@ -162,6 +162,8 @@ class TestTexVisible(unittest.TestCase):
             self.assertGreater(r['metrics']['edge_corr'], 0.5)         # перенос не потерян при записи GLB (резкая синтетическая кромка + жёсткая эрозия 2 px по краю: мера на 200-пиксельном кадре низкая по построению)
             self.assertGreater(r['metrics']['known_share'], 0.15)
             self.assertLess(r['metrics']['lab_dE'], 1.0)
+            self.assertIn('frayed_share', r['metrics'])                  # мерка рваности попадает в check
+            self.assertIn('frayed_share', ch['extra']['extra_metrics'])
 
     def test_camera_failed_is_fail_closed(self):
         import trimesh
@@ -237,6 +239,16 @@ class TestTexVisible(unittest.TestCase):
             self.assertFalse(fr[inner].any(), fabric)                              # сама ткань — нет, даже кремовая
         white = np.full((n, n, 3), 255, np.uint8); white[inner] = (246, 246, 244)       # белая ткань на белом фоне: «светлее фона» — сама ткань, правило не режет и мерка N/A
         self.assertFalse(TV.edge_bg_fringe({'mask': pm.copy(), 'cos': np.ones((n, n), np.float32)}, white, pm).any())
+
+    def test_frayed_share_counts_known_pixels_next_to_unknown_only(self):
+        n = 100
+        mask = np.zeros((n, n), bool); mask[10:90, 10:90] = True
+        solid = mask.copy()                                                  # сплошное известное: рваности нет
+        self.assertEqual(TV.frayed_share(solid, mask)['frayed_share'], 0.0)
+        holey = mask.copy(); holey[48:52, 10:90] = False                     # щель в 4 px поперёк: известное в 3 px от неё — рваное
+        r = TV.frayed_share(holey, mask)
+        self.assertAlmostEqual(r['frayed_share'], 6 / 76, places=3)           # 3 известные строки с каждой стороны щели из 76
+        self.assertEqual(TV.frayed_share(mask & False, mask), {})            # нечего мерить — мерки нет, не ноль
 
     def test_multi_material_is_decided_by_bimodal_lightness_not_by_product(self):
         rng = np.random.default_rng(0)
