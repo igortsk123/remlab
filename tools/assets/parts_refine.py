@@ -32,6 +32,12 @@ def shape_cfg(rules: dict, path: str = RECIPES) -> dict:
     return {**load_shape_cfg(path), **rules["refine"].get("shape_override", {})}
 
 
+def _face_areas(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
+    v = np.asarray(vertices, np.float64)
+    f = np.asarray(faces)
+    return 0.5 * np.linalg.norm(np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]]), axis=1)
+
+
 def _onehot(part: np.ndarray, n: int):
     from scipy import sparse
 
@@ -142,6 +148,42 @@ def merge_small(part: np.ndarray, kind: np.ndarray, adj, lab: np.ndarray | None,
     return part
 
 
+def merge_orphans(part: np.ndarray, adj, area: np.ndarray, max_area_share: float, agree: np.ndarray | None = None) -> tuple[np.ndarray, list[dict]]:
+    """Крошечная часть-«сирота» (доля ПЛОЩАДИ < `max_area_share`, не граней: узкая щепка с кучей мелких граней всё равно мала) — в соседа с самой длинной общей границей,
+    ВНЕ зависимости от вида (у сироты нет своего смысла: свой цвет заливка этапа 7 возьмёт только с неё же, а у неё нет текселей с фото, и она красится тоном соседа/целого).
+    Равная граница → сосед с большим средним согласием кадров, затем с большей площадью (роли на этом шаге ещё нет — они ставятся после доводки).
+    Возвращает (части, след: [{faces, area_share, into_face0}] — `into_face0` — грань соседа-приёмника, по ней после перенумерации находится итоговый номер)."""
+    part = part.copy()
+    nf = len(part)
+    tot = float(area.sum()) or 1.0
+    trace = []
+    for _ in range(500):
+        ids = np.unique(part[part >= 0])
+        if len(ids) < 2:
+            break
+        remap = {int(p): i for i, p in enumerate(ids)}
+        dense = np.array([remap.get(int(x), -1) for x in part])
+        oh = _onehot(dense, len(ids))
+        bnd = (oh.T @ adj @ oh).toarray()
+        np.fill_diagonal(bnd, 0)
+        ar = np.asarray(oh.T @ area).ravel() / tot
+        sm = [i for i in np.argsort(ar) if ar[i] < max_area_share and bnd[i].max() > 0]
+        if not sm:
+            break
+        i = sm[0]
+        top = bnd[i].max()
+        cand = [j for j in range(len(ids)) if bnd[i, j] >= top - 1e-9 and j != i]
+        if len(cand) > 1:
+            def key(j):
+                a = float(agree[dense == j].mean()) if agree is not None else 0.0
+                return (a, ar[j])
+            cand.sort(key=key, reverse=True)
+        j = cand[0]
+        trace.append({"faces": int((dense == i).sum()), "area_share": round(float(ar[i]), 6), "into_face0": int(np.nonzero(dense == j)[0][0])})
+        part[dense == i] = ids[j]
+    return part, trace
+
+
 def cap_parts(part: np.ndarray, kind: np.ndarray, adj, lab: np.ndarray | None, max_parts: int, de_cap: float) -> np.ndarray:
     """Частей больше потолка (`check.max_parts`) — самая малая часть вливается в соседа ТОГО ЖЕ вида (тонкая — в тонкую, объёмная — в объёмную) с самой длинной границей;
     сначала только при близком цвете (ΔE76 < `refine.colour_cap_de`), если таких нет — по границе без цвета. Тонкие части (ножки) в объёмные не вливаются никогда."""
@@ -191,9 +233,17 @@ def refine(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, adj, lab_f
     n_split = int(len(np.unique(new[new >= 0]))) - n_before
     new = merge_small(new, kind, adj, lab_face, rules, rf["colour_merge_max_share"], rf["colour_merge_de"] if lab_face is not None else None, agree, seen)
     new = merge_small(new, kind, adj, None, rules, rules["region"]["min_part_face_share"], None)
+    orphans = []
+    if rf.get("orphan_max_area_share"):                                          # доля площади, не граней; 0/нет — правило выключено
+        area = _face_areas(vertices, faces)
+        new, orphans = merge_orphans(new, adj, area, rf["orphan_max_area_share"], agree)
     new = cap_parts(new, kind, adj, lab_face, rules["check"]["max_parts"], rf["colour_cap_de"])
     new = renumber(new)
+    for o in orphans:
+        o["into"] = int(new[o.pop("into_face0")])                                # итоговый номер части-приёмника (после cap/перенумерации)
     after = linear_in_blob_share(new, kind, 0.5, rf["thin_split_min_part_share"], floor, legs_mask)
     report = {"shape_share": rep["share"], "linear_in_blob_part_share_before": before, "linear_in_blob_part_share": after,
               "parts_before": n_before, "parts_split_off": n_split, "parts_after": int(len(np.unique(new[new >= 0])))}
+    if orphans:
+        report["merged_orphan"] = orphans
     return new, report
