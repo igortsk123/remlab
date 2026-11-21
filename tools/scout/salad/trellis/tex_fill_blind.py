@@ -4,7 +4,7 @@
 от силуэта, заслонений (неизвестное рядом), границ материала (другая часть) и бликов/теней (выбросы L части); эталон — albedo после 05 в известных текселях (его и несёт 06-visible/visible.glb: фото, перенесённое
 после снятия света); цвет не подгоняем. Режимы: local — связный кусок ≈35 % допустимого; far — дальняя половина по оси «на камеру»; side — боковые грани (|n·n_front| < 0,5). Симметрия: mirror вкл и выкл.
   python3 tex_fill_blind.py freeze [--margin N] [--spec-win N] <выход> <корень:метка> [<корень:метка> …]      — посчитать и ЗАМОРОЗИТЬ маски (frozen.json с хешами входов и масок + masks.npz)
-  python3 tex_fill_blind.py run <выход> <папка frozen> [--cfg '{…}'] [--tag имя]   — прогнать 07 на замороженных масках (хеши сверяются; расхождение — отказ), метрики и свод
+  python3 tex_fill_blind.py run <выход> <папка frozen> [--cfg '{…}'] [--tag имя] [--modes far,side] [--source trellis_relief --draft-dir <папка>]   — прогнать 07 на замороженных масках (хеши сверяются; расхождение — отказ), метрики и свод
 Метрики на оценочном участке (как в tex_fill_hidden_visible): dE_low (ΔE00 тона), band_ratio (фактура залитого/настоящего, 1 — та же сила, цель ≥0,5 «не гладко»), spec_dist, ori_dist; рисунок: macro_true / macro_fill
 (MAD-σ полосы σ_hi…4σ_hi) и pattern_invented — залитое имеет макро-рисунка заметно больше, чем настоящее (выдумано). Бесплатно (процессор), только под heavy-slot."""
 from __future__ import annotations
@@ -170,11 +170,18 @@ def macro_sigma(lab_l: np.ndarray, mask: np.ndarray, s_hi: float) -> float:
 
 def cmd_run(argv: list) -> int:
     cfg0, tag, a = {}, 'now', list(argv)
+    modes_only, source, draft_dir = None, None, None
     while len(a) > 2 and a[0].startswith('--'):
         if a[0] == '--cfg':
             cfg0 = json.loads(a[1])
         elif a[0] == '--tag':
             tag = a[1]
+        elif a[0] == '--modes':                       # напр. far,side — для вариантов с черновиком TRELLIS (в «локальном куске» черновик видел фото → утечка)
+            modes_only = a[1].split(',')
+        elif a[0] == '--source':                      # stat | trellis | trellis_relief
+            source = a[1]
+        elif a[0] == '--draft-dir':                   # папка черновиков TRELLIS: <метка>-1024-42-0.glb
+            draft_dir = a[1]
         a = a[2:]
     out, fd = a[0], a[1]
     fz = json.load(open(os.path.join(fd, 'frozen.json'), encoding='utf-8'))
@@ -202,8 +209,14 @@ def cmd_run(argv: list) -> int:
             R = TF.RULES['trellis_relief']
             s_lo = float(np.clip(R['band_lo'] / spac, R['sigma_lo_min'], R['sigma_lo_max']))
             s_hi = float(np.clip(R['band_hi'] / spac, 2.0 * s_lo, R['sigma_hi_max']))
+            draft_g = None
+            if source in ('trellis', 'trellis_relief'):
+                dgp = os.path.join(draft_dir, f'{sku.split(":")[-1]}-1024-42-0.glb')
+                if not os.path.exists(dgp):
+                    raise RuntimeError(f'нет черновика {dgp}')
+                draft_g = TC.load_geoms(dgp)
             for mode, md in it['modes'].items():
-                if 'skipped' in md:
+                if 'skipped' in md or (modes_only and mode not in modes_only):
                     continue
                 hidden = []
                 for gi, tx in enumerate(txs):
@@ -221,7 +234,11 @@ def cmd_run(argv: list) -> int:
                     kn_h.append(known[gi] & ~hidden[gi])
                 for sym in (True, False):
                     cfg = dict({'erode_known': 0}, **cfgb)
-                    res = TF.fill(geoms_h, kn_h, parts, cfg=cfg, mirror=sym)
+                    dr = None
+                    if draft_g is not None:
+                        cfg['source'] = source
+                        dr = TF.draft_texels(geoms_h, draft_g, cfg)
+                    res = TF.fill(geoms_h, kn_h, parts, cfg=cfg, mirror=sym, draft=dr)
                     agg = {}
                     for gi, tx in enumerate(txs):
                         ev = binary_erosion(hidden[gi], iterations=PARAMS['eval_erode'])
