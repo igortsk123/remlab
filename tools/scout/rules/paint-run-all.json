@@ -65,7 +65,9 @@
             "{prep_glb}"
           ]
         }
-      ]
+      ],
+      "adoptable": true,
+      "_adopt_about": "с --prep-glb/--prep-dir + --prep-run этап не запускается: папки 01-trellis и 02-prep копируются из прогона готовой формы (р.8, run30-v4), форма — готовый GLB"
     },
     "04": {
       "produces": [
