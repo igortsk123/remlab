@@ -1,0 +1,36 @@
+# ШАБЛОН ОБРАЗА ПРОБЫ SALAD — общий набор (T-20261121-178/2, директор: образ по digest, веса в образе, докачка недостающего фоном).
+# Скопировать в `tools/scout/<проба>/Dockerfile.<имя>`, заменить помеченное `<…>`. Образец, проверенный в деле: `Dockerfile.trellis2-fast` (р.5, f87b3c6b): прогрев 22 → 3,3 мин.
+#
+# Правила (каждое — урок, не вкус):
+#  • ОСНОВА — только по digest (ADR-0137): `ARG BASE=<репозиторий>@sha256:…`. Тег «поплывёт», пробу не повторить.
+#  • ВЕСА В ОБРАЗЕ ОТДЕЛЬНЫМИ СЛОЯМИ (по 2–5 ГиБ): скачивание образа до статуса running БЕСПЛАТНО, платным остаётся только чтение с диска в VRAM.
+#    Слой на файл/группу файлов — пуш и докачка идут кусками, один сбой не обнуляет остальное.
+#  • СЖАТЫЙ ОБРАЗ ≤ 30 ГиБ (иначе Salad держит pending слишком долго, `/start` отвечает HTTP 400 — e022e305). Больше — часть весов НЕ в образ, а в докачку (ниже).
+#    Размер проверяет сам драйвер из манифеста ДО /start (`kit_driver.check_image`); пробы без digest и больше 30 ГиБ он не запускает.
+#  • ЗАКРЫТЫЕ ВЕСА (нужен токен/лицензия) в образ НЕ кладём: токен — только в env группы (`HF_TOKEN`), качает воркер фоном.
+#  • ДОКАЧКА НЕДОСТАЮЩЕГО — шаг прогрева `weights` воркера: идемпотентный (есть файл с нужным размером — пропуск), пишет ход в `State.weights`, закрытое без допуска
+#    поднимает исключение с `code = 'WEIGHTS_DENIED'` → /health `broken`, драйвер гасит ноду (`warm_failed`). Образец — `worker_ultratex.fetch_weights`.
+#  • ВОРКЕР в образ НЕ запекаем: код едет в env группы (`KIT_WORKER_Z`, `kit_worker.bundle`) — правка воркера не пересобирает образ; в образе только зависимости и веса.
+#  • Сервер воркера — `kit_worker.make_server` (двойной стек `::`): шлюз Salad и пробы ходят по IPv6; на 0.0.0.0 нода «running, started=false, 503» (уроки 724/754).
+#  • Образ собирает и пушит ВЕДУЩИЙ/директор (ghcr), не рабочий; digest из вывода пуша — в `--image …@sha256:…` драйвера.
+ARG BASE=<репозиторий-основы>@sha256:<64-hex>
+FROM ${BASE}
+ENV HF_HUB_ENABLE_HF_TRANSFER=0
+
+# слой 1: конфиги и малые файлы
+RUN python3 -c "from huggingface_hub import snapshot_download as s; \
+s('<владелец>/<репозиторий>', local_dir='/opt/weights/<имя>', allow_patterns=['*.json','*.txt'], max_workers=8)"
+# слои 2…N: крупные файлы — каждый своим слоем (≤ ~5 ГиБ на слой)
+RUN python3 -c "from huggingface_hub import snapshot_download as s; \
+s('<владелец>/<репозиторий>', local_dir='/opt/weights/<имя>', allow_patterns=['<крупный-файл-1>*'], max_workers=8)"
+RUN python3 -c "from huggingface_hub import snapshot_download as s; \
+s('<владелец>/<репозиторий>', local_dir='/opt/weights/<имя>', allow_patterns=['<крупный-файл-2>*'], max_workers=8)"
+
+# проверка комплектности ВО ВРЕМЯ СБОРКИ: нужные файлы есть, размеры не нулевые; кэш загрузчика убираем (он удваивает слой)
+RUN python3 -c "import os,sys; R='/opt/weights/<имя>'; need=['<файл-1>','<файл-2>']; \
+miss=[f for f in need if not (os.path.exists(R+'/'+f) and os.path.getsize(R+'/'+f)>0)]; \
+print('нет файлов:', miss) if miss else print('веса комплектны'); sys.exit(1 if miss else 0)" \
+    && du -sh /opt/weights/<имя> && rm -rf /opt/weights/<имя>/.cache
+
+# код воркера НЕ копируем (едет в env группы); путь к весам воркер читает из ENV
+ENV <МОДЕЛЬ>_ROOT=/opt/weights/<имя>
