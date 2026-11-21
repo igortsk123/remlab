@@ -31,10 +31,10 @@ def ok(cond, msg):
 
 def block(text: str):
     """Текст между метками (включая метки) или None."""
-    a, b = text.find(BEGIN), text.find(END)
-    if a < 0 or b < a:
+    a, b = re.search(r'^' + re.escape(BEGIN) + r'$', text, re.M), re.search(r'^' + re.escape(END) + r'$', text, re.M)    # метки — только на отдельной строке (в докстрингах те же слова)
+    if not a or not b or b.start() < a.start():
         return None
-    return text[a:b + len(END)]
+    return text[a.start():b.end()]
 
 
 def problems(text: str, canonical: str) -> list[str]:
@@ -80,7 +80,7 @@ def allowed() -> dict:
 
 
 canonical = block(open(os.path.join(HERE, 'dualstack.py'), encoding='utf-8').read())
-ok(canonical is not None, 'в dualstack.py есть блок между метками')
+ok(canonical is not None and 'class _DualStackServer' in canonical and 'def make_server' in canonical, 'в dualstack.py есть блок между метками (класс и make_server внутри)')
 
 # 1. общий модуль отвечает по обоим стекам
 class _Ping(BaseHTTPRequestHandler):
