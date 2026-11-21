@@ -8,6 +8,12 @@
    рендера ставит его на время задания, поток заготовок тура — на время постановки);
 2. дескрипторный — то, что пишут напрямую дочерние процессы (Blender, node) и C-код (`faulthandler`), идёт в трубу; поток-читатель штампует такие строки `[-|-]`
    и пишет в исходный файл журнала. Читатель упал — дескрипторы возвращаются как были (журнал не блокируется).
+Дескрипторы: `sys.stdout.fileno()`/`sys.stderr.fileno()` возвращают настоящие 1/2 (при `fd_capture` они ведут в трубу и штампуются; без неё — копии исходных
+дескрипторов журнала, тогда сырые строки детей и C-кода остаются без штампа). Поэтому работают `faulthandler.dump_traceback(file=sys.stderr)` (сторож зависших
+заказов `post_stall`) и `subprocess.run(..., stdout=sys.stdout)`. Дамп стеков идёт через трубу строкой `[-|-]`; его порядок относительно соседних питоновых строк
+может сдвинуться на доли секунды (питоновые строки пишутся прямо, дамп — через читателя).
+Граница: сервис НЕ включает `faulthandler.enable()` (git grep по tools/ — только `dump_traceback` в post_stall), поэтому дампа при смертельном сигнале нет. Включат —
+его надо направить в исходный дескриптор: `faulthandler.enable(file=<err_fd из _state>)`, не в трубу: умерший процесс не дождётся читателя, и дамп потеряется.
 Выключатель — `LOG_STAMP=0` (прежний журнал без времени). Вход — `install()` один раз в начале процесса сервиса."""
 import contextlib
 import datetime
@@ -20,6 +26,19 @@ STAMP_RE = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2} \[[^
 _ctx = threading.local()
 _lock = threading.Lock()
 _state: dict = {}
+
+
+def write_all(fd: int, data: bytes) -> None:
+    """`os.write` может записать не всё (труба, сигнал): пишем циклом до конца. Ошибка записи (журнал закрыт, читатель умер) печать не роняет."""
+    view = memoryview(data)
+    try:
+        while view:
+            n = os.write(fd, view)
+            view = view[n:]
+    except InterruptedError:
+        write_all(fd, bytes(view))
+    except OSError:
+        pass
 
 
 def now_iso(ts: float | None = None) -> str:
@@ -58,8 +77,8 @@ def stamp_line(line: str, ts: float | None = None) -> str:
 class Stamper:
     """Файлоподобная обёртка потока: полные строки получают штамп и уходят в `sink(bytes)` целиком; хвост без перевода строки ждёт в буфере потока."""
 
-    def __init__(self, sink, name: str = 'stdout'):
-        self.sink, self.name = sink, name
+    def __init__(self, sink, name: str = 'stdout', fileno_fn=None):
+        self.sink, self.name, self._fileno = sink, name, fileno_fn
         self._bufs: dict = {}
         self.encoding, self.errors = 'utf-8', 'replace'
 
@@ -90,7 +109,9 @@ class Stamper:
         return False
 
     def fileno(self) -> int:
-        raise OSError('Stamper: нет дескриптора')
+        if self._fileno is None:
+            raise OSError('Stamper: нет дескриптора')
+        return self._fileno()
 
     def writable(self) -> bool:
         return True
@@ -109,10 +130,10 @@ def _pump(rfd: int, out_fd: int, restore) -> None:
             if lines:
                 data = ''.join(stamp_line(ln.decode('utf-8', 'replace')) + '\n' for ln in lines).encode('utf-8', 'replace')
                 with _lock:
-                    os.write(out_fd, data)
+                    write_all(out_fd, data)
         if buf:
             with _lock:
-                os.write(out_fd, (stamp_line(buf.decode('utf-8', 'replace')) + '\n').encode('utf-8', 'replace'))
+                write_all(out_fd, (stamp_line(buf.decode('utf-8', 'replace')) + '\n').encode('utf-8', 'replace'))
     except BaseException:  # noqa: BLE001 — читатель не должен остановить сервис: вернуть дескрипторы как были
         restore()
 
@@ -128,11 +149,11 @@ def install(env: dict | None = None, fd_capture: bool = True) -> bool:
 
         def write_out(b: bytes) -> None:
             with _lock:
-                os.write(out_fd, b)
+                write_all(out_fd, b)
 
         def write_err(b: bytes) -> None:
             with _lock:
-                os.write(err_fd, b)
+                write_all(err_fd, b)
 
         sys.stdout.flush()
         sys.stderr.flush()
@@ -151,8 +172,8 @@ def install(env: dict | None = None, fd_capture: bool = True) -> bool:
             os.close(wfd)
             _state.update(rfd=rfd, restore=restore)
             threading.Thread(target=_pump, args=(rfd, out_fd, restore), name='log-stamp-pump', daemon=True).start()
-        sys.stdout = Stamper(write_out, 'stdout')
-        sys.stderr = Stamper(write_err, 'stderr')
+        sys.stdout = Stamper(write_out, 'stdout', (lambda: 1) if fd_capture else (lambda: out_fd))
+        sys.stderr = Stamper(write_err, 'stderr', (lambda: 2) if fd_capture else (lambda: err_fd))
         return True
     except Exception:  # noqa: BLE001 — не вышло: журнал остаётся прежним
         _state.clear()

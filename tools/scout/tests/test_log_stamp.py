@@ -36,6 +36,11 @@ print('многострочный\nответ машины\nтрёх строк'
 sys.stderr.write('строка в stderr\n')
 os.write(1, 'прямая запись в дескриптор\n'.encode())
 subprocess.run(['sh', '-c', 'echo дочерний процесс; echo ошибка дочернего 1>&2'])
+import post_stall
+print('FILENO=' + str(sys.stdout.fileno()) + ',' + str(sys.stderr.fileno()), flush=True)
+post_stall._dump_stacks('заголовок дампа стеков')
+subprocess.run(['sh', '-c', 'echo вывод в stdout=sys.stdout'], stdout=sys.stdout)
+subprocess.run(['sh', '-c', 'echo вывод в stderr=sys.stderr 1>&2'], stderr=sys.stderr)
 class Fake:
     name = 'fake'
     def __init__(self, store): self.store = store
@@ -81,6 +86,11 @@ ok(any('[-|-] строка в stderr' in ln for ln in lines), 'stderr штамп
 ok(any('[-|-] прямая запись в дескриптор' in ln for ln in lines), 'прямая запись в дескриптор 1 — со штампом')
 ok(any('[-|-] дочерний процесс' in ln for ln in lines) and any('[-|-] ошибка дочернего' in ln for ln in lines), 'вывод дочернего процесса (stdout и stderr) — со штампом')
 ok(all(re.match(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2} ', ln) for ln in lines), 'время — ISO с поясом')
+ok(any(ln.endswith('FILENO=1,2') for ln in lines), 'sys.stdout/stderr.fileno() — настоящие 1 и 2 (при fd_capture)')
+k = next((i for i, ln in enumerate(lines) if 'заголовок дампа стеков' in ln), -1)
+dump = [ln for ln in lines[k + 1:] if 'Thread 0x' in ln or 'Current thread' in ln or re.search(r'\] +File "', ln)] if k >= 0 else []
+ok(k >= 0 and len(dump) >= 2 and all(LS.STAMP_RE.match(ln) for ln in dump), f'post_stall._dump_stacks (faulthandler.dump_traceback в sys.stderr) проходит, строки стеков со штампом ({len(dump)})')
+ok(any('[-|-] вывод в stdout=sys.stdout' in ln for ln in lines) and any('[-|-] вывод в stderr=sys.stderr' in ln for ln in lines), 'subprocess.run(…, stdout=sys.stdout / stderr=sys.stderr) работает, строки со штампом')
 off = run_child({'LOG_STAMP': '0'})
 ok(off and not any(LS.STAMP_RE.match(ln) for ln in off) and 'простая строка' in off, 'LOG_STAMP=0 — журнал прежний, без штампов')
 # штамп на уже проштампованной строке не удваивается; контекст вложен и снимается
@@ -93,5 +103,36 @@ with LS.context(job='j1'):
 ok(inner == '[j1|t1]' and outer == '[j1|-]' and LS.tag() == '[-|-]', 'контекст: вложенный видит оба, после выхода снят')
 with LS.context(job='плохой [id]|x'):
     ok(LS.STAMP_RE.match(LS.stamp_line('x')) is not None, 'странный номер в метке не ломает формат строки')
+CHILD2 = r"""
+import faulthandler, os, subprocess, sys
+sys.path.insert(0, %(scout)r)
+import log_stamp as LS
+LS.install(fd_capture=False)
+print('FILENO2=' + str(sys.stdout.fileno()) + ',' + str(sys.stderr.fileno()), flush=True)
+faulthandler.dump_traceback(file=sys.stderr)
+subprocess.run(['sh', '-c', 'echo прямой вывод ребёнка'], stdout=sys.stdout)
+print('конец', flush=True)
+"""
+out2 = os.path.join(TMP, 'journal2.log')
+with open(out2, 'wb') as f:
+    subprocess.run([sys.executable, '-I', '-c', CHILD2 % {'scout': SCOUT}], stdout=f, stderr=f, timeout=60, cwd=TMP)
+l2 = open(out2, encoding='utf-8').read().splitlines()
+fn = next((ln for ln in l2 if 'FILENO2=' in ln), '')
+ok(bool(re.search(r'FILENO2=(\d+),(\d+)$', fn)) and not fn.endswith('FILENO2=1,2'), 'без fd_capture fileno — копии исходных дескрипторов (не 1/2)')
+ok(any('Thread 0x' in ln or 'Current thread' in ln for ln in l2) and any('прямой вывод ребёнка' in ln for ln in l2) and any('[-|-] конец' in ln for ln in l2), 'без fd_capture: дамп faulthandler и stdout=sys.stdout работают (сырые строки без штампа — как задокументировано), питоновые — со штампом')
+# запись до конца: os.write пишет по 3 байта
+_real = os.write
+class _Part:
+    got = b''
+def _w(fd, data):
+    n = min(3, len(data))
+    _Part.got += bytes(data[:n])
+    return n
+os.write = _w
+try:
+    LS.write_all(99, 'проверка записи целиком\n'.encode())
+finally:
+    os.write = _real
+ok(_Part.got == 'проверка записи целиком\n'.encode(), 'write_all дописывает хвост при неполной записи os.write')
 print('ИТОГО:', 'ЧИСТО' if not BAD else f'{len(BAD)} FAIL')
 sys.exit(1 if BAD else 0)
