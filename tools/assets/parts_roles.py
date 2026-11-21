@@ -86,11 +86,13 @@ def _eval(conds: list[dict], f: dict, ctx: dict) -> tuple[bool, str | None]:
 
 
 def _colour_gate(cq: dict | None, ct: dict | None, st: dict) -> bool:
-    """Часть «похожа» на доверенную: цвет по видимым текселям фото (ΔE по lab_median) и текстура (разброс яркости spread_p90, в `tx_max` раз по log2)."""
+    """Часть «похожа» на доверенную: цвет по текстуре входа (ΔE по lab_median по всем граням части) и разброс (p90 ΔE до медианы без чёрных дыр текстуры — `spread_p90_clean`, иначе `spread_p90`; в `tx_max` раз по log2)."""
     if not isinstance(cq, dict) or not isinstance(ct, dict) or "lab_median" not in cq or "lab_median" not in ct:
         return False
     de = sum((a - b) ** 2 for a, b in zip(cq["lab_median"], ct["lab_median"])) ** 0.5
-    tx = abs(math.log2((cq.get("spread_p90", 0) + 1) / (ct.get("spread_p90", 0) + 1)))
+    k = st.get("tx_key", "spread_p90_clean")
+    sq, stt = cq.get(k, cq.get("spread_p90", 0)), ct.get(k, ct.get("spread_p90", 0))
+    tx = abs(math.log2((sq + 1) / (stt + 1)))
     return de <= st["de_max"] and tx <= st["tx_max"]
 
 

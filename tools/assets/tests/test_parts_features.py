@@ -677,6 +677,26 @@ class SimilarToTrusted(unittest.TestCase):
         self.assertEqual(self.make(col, "on", up_q90=0.4, delta_e_main=40.0)[2]["role"], "unknown")         # высокий блок — не ножка
         self.assertEqual(self.make(col, "on", up_q90=0.1, delta_e_main=12.0)[2]["role"], "unknown")         # цвет главной — не ножка
 
+    def test_black_texture_holes_do_not_block_similarity(self):
+        hole = {"lab_median": [67.9, 0.1, 4.3], "spread_p90": 65.0, "spread_p90_clean": 1.5, "dark_share": 0.25}
+        col = {0: self.C_BODY, 1: self.C_LEGS, 2: hole}
+        self.assertEqual(self.make(col, "on")[2]["role"], "body")                              # дыры в текстуре — не разброс ткани
+        col[2] = {**hole, "spread_p90_clean": 60.0}                                           # а настоящий разброс (дерево) — по-прежнему стоп
+        self.assertEqual(self.make(col, "on")[2]["role"], "unknown")
+
+    def test_part_colours_dark_holes(self):
+        import numpy as np
+        import parts_colour as pcol
+        rgb = np.tile(np.array([[170, 168, 160]], dtype=np.uint8), (200, 1)); rgb[:50] = (5, 5, 5)
+        part = np.zeros(200, dtype=np.int64)
+        c = pcol.part_colours(part, rgb)[0]
+        self.assertGreater(c["spread_p90"], 50)                                                # старое число не менялось
+        self.assertLess(c["spread_p90_clean"], 3)
+        self.assertAlmostEqual(c["dark_share"], 0.25, places=2)
+        dark_cloth = np.tile(np.array([[20, 20, 20]], dtype=np.uint8), (200, 1))              # вся часть тёмная (чёрный велюр) — не дыры
+        d = pcol.part_colours(part, dark_cloth)[0]
+        self.assertEqual(d["dark_share"], 0.0)
+
     def test_shipped_is_dry_and_no_ids(self):
         self.assertEqual(self.rules["decision"]["similar_to_trusted"]["mode"], "dry")
 
