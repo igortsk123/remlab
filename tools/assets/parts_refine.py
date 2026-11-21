@@ -47,15 +47,16 @@ def part_kinds(part: np.ndarray, kind: np.ndarray, linear_majority: float = 0.5)
     return out
 
 
-def linear_in_blob_share(part: np.ndarray, kind: np.ndarray, linear_majority: float = 0.5) -> float:
-    """Доля linear-граней, лежащих в части, где linear — меньшинство (тонкое в объёмной части, например ножка в одной части со спинкой)."""
+def linear_in_blob_share(part: np.ndarray, kind: np.ndarray, linear_majority: float = 0.5, min_part_share: float = 0.10) -> float:
+    """Доля linear-граней, лежащих в КРУПНОЙ объёмной части (от `min_part_share` всех граней, linear в ней — меньшинство): ножка/стойка в одной части с обивкой.
+    Малые части (подлокотник, ручка) не считаются: они уже отдельные, даже если у них часть граней linear."""
     lin = (kind == shp.LINEAR) & (part >= 0)
     if not lin.any():
         return 0.0
     kinds = part_kinds(part, kind, linear_majority)
     is_body = np.zeros(int(part.max()) + 1, dtype=bool)
     for p, k in kinds.items():
-        is_body[p] = k == "body"
+        is_body[p] = k == "body" and float((part == p).mean()) >= min_part_share
     return round(float(is_body[part[lin]].mean()), 4)
 
 
@@ -70,8 +71,8 @@ def split_thin(part: np.ndarray, kind: np.ndarray, adj, rules: dict) -> np.ndarr
     kinds = part_kinds(part, kind)
     nxt = int(part.max()) + 1
     for p, k in kinds.items():
-        if k != "body":
-            continue
+        if k != "body" or float((part == p).mean()) < rf["thin_split_min_part_share"]:
+            continue                                                             # малую часть (подлокотник, ручка) не режем: она уже отдельная
         sel = (part == p) & (kind == shp.LINEAR)
         if sel.sum() < minf:
             continue
@@ -90,8 +91,11 @@ def _part_lab_median(part: np.ndarray, lab: np.ndarray) -> dict[int, np.ndarray]
     return {int(p): np.median(lab[part == p], axis=0) for p in np.unique(part[part >= 0])}
 
 
-def merge_small(part: np.ndarray, kind: np.ndarray, adj, lab: np.ndarray | None, rules: dict, max_share: float, de_max: float | None) -> np.ndarray:
-    """Малая часть → сосед того же вида с самой длинной общей границей; при `de_max` — только если цвет соседа близок (ΔE76 медианы Lab < de_max)."""
+def merge_small(part: np.ndarray, kind: np.ndarray, adj, lab: np.ndarray | None, rules: dict, max_share: float, de_max: float | None,
+                agree: np.ndarray | None = None, seen: np.ndarray | None = None) -> np.ndarray:
+    """Малая часть → сосед того же вида с самой длинной общей границей; при `de_max` — только если цвет соседа близок (ΔE76 медианы Lab < de_max).
+    Если даны `agree`/`seen` — сливаются только НЕНАДЁЖНЫЕ части («мозаика»: среднее согласие кадров по увиденным граням < `refine.agree_merge_max`
+    или увиденных граней < `refine.min_seen_share`): настоящая малая часть (подлокотник, ножка) кадры согласованно видят, её цвет схож с соседом, но сливать нельзя."""
     part = part.copy()
     nf = len(part)
     for _ in range(200):
@@ -110,6 +114,13 @@ def merge_small(part: np.ndarray, kind: np.ndarray, adj, lab: np.ndarray | None,
         for i in np.argsort(size):
             if size[i] >= max_share:
                 break
+            if agree is not None and seen is not None:
+                m_i = dense == i
+                sn = m_i & seen
+                rf_ = rules["refine"]
+                weak = (sn.sum() < rf_["min_seen_share"] * m_i.sum()) or float(agree[sn].mean()) < rf_["agree_merge_max"]
+                if not weak:
+                    continue
             cand = [j for j in np.argsort(-bnd[i]) if bnd[i, j] > 0 and kinds.get(int(j)) == kinds.get(int(i))]
             if med is not None:
                 cand = [j for j in cand if float(np.linalg.norm(med[int(i)] - med[int(j)])) < de_max]
@@ -123,20 +134,21 @@ def merge_small(part: np.ndarray, kind: np.ndarray, adj, lab: np.ndarray | None,
     return part
 
 
-def refine(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, adj, lab_face: np.ndarray | None, rules: dict) -> tuple[np.ndarray, dict]:
+def refine(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, adj, lab_face: np.ndarray | None, rules: dict,
+           agree: np.ndarray | None = None, seen: np.ndarray | None = None) -> tuple[np.ndarray, dict]:
     """Доводка: срез тонкого → слияние пёстрых по цвету → малые в соседа. Возвращает (новые части без дыр в нумерации, отчёт с меркой)."""
     from parts_vote import renumber
 
     kind, up, rep = shp.face_shapes(vertices, faces, shape_cfg(rules))
     rf = rules["refine"]
-    before = linear_in_blob_share(part, kind)
+    before = linear_in_blob_share(part, kind, 0.5, rf["thin_split_min_part_share"])
     n_before = int(len(np.unique(part[part >= 0])))
     new = split_thin(part, kind, adj, rules)
     n_split = int(len(np.unique(new[new >= 0]))) - n_before
-    new = merge_small(new, kind, adj, lab_face, rules, rf["colour_merge_max_share"], rf["colour_merge_de"] if lab_face is not None else None)
+    new = merge_small(new, kind, adj, lab_face, rules, rf["colour_merge_max_share"], rf["colour_merge_de"] if lab_face is not None else None, agree, seen)
     new = merge_small(new, kind, adj, None, rules, rules["region"]["min_part_face_share"], None)
     new = renumber(new)
-    after = linear_in_blob_share(new, kind)
+    after = linear_in_blob_share(new, kind, 0.5, rf["thin_split_min_part_share"])
     report = {"shape_share": rep["share"], "linear_in_blob_part_share_before": before, "linear_in_blob_part_share": after,
               "parts_before": n_before, "parts_split_off": n_split, "parts_after": int(len(np.unique(new[new >= 0])))}
     return new, report

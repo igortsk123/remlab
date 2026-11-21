@@ -204,6 +204,14 @@ class PartsVote(unittest.TestCase):
         lab2[speck] = [40.0, 30.0, 20.0]
         out2 = pr.merge_small(part, kind, adj, lab2, RULES, RULES["refine"]["colour_merge_max_share"], RULES["refine"]["colour_merge_de"])
         self.assertTrue((out2[speck] == 2).all(), "другой цвет — не сливается")
+        good = np.full(len(faces), 0.95, dtype=np.float32)
+        seen = np.ones(len(faces), dtype=bool)
+        keep = pr.merge_small(part, kind, adj, lab, RULES, RULES["refine"]["colour_merge_max_share"], RULES["refine"]["colour_merge_de"], good, seen)
+        self.assertTrue((keep[speck] == 2).all(), "кадры согласны (настоящая малая часть, подлокотник) — не сливается, даже при том же цвете")
+        weak = good.copy()
+        weak[speck] = 0.5
+        mosaic = pr.merge_small(part, kind, adj, lab, RULES, RULES["refine"]["colour_merge_max_share"], RULES["refine"]["colour_merge_de"], weak, seen)
+        self.assertTrue((mosaic[speck] == 0).all(), "кадры спорят (мозаика) и цвет тот же — сливается")
 
     def test_shape_thresholds_are_the_ones_of_stage_08(self):
         """Один источник: этап 3 и этап 08 берут пороги формы из `material-recipes.json` → `geometry`; отличаться могут только ключи `refine.shape_override`."""

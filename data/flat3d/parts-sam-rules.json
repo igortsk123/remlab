@@ -33,6 +33,9 @@
   },
   "refine": {
     "thin_min_share": 0.003,
+    "thin_split_min_part_share": 0.10,
+    "agree_merge_max": 0.8,
+    "min_seen_share": 0.05,
     "colour_merge_max_share": 0.04,
     "colour_merge_de": 8.0,
     "shape_override": {"_doc": "замер на кресле/комоде: при радиусе 0.05·L и отношении 0.25 linear-граней 0 даже на ножках; 0.10 и 0.45 — ножки 70–100 %, ложных нет (стол-тюльпан 0)", "radius_frac": 0.10, "linear_ratio": 0.45}

@@ -182,7 +182,7 @@ def run(args) -> int:
         lab_face = None
     refine_rep = {}
     try:
-        part, refine_rep = pr.refine(part, mesh.vertices, mesh.faces, res["adj"], lab_face, rules)
+        part, refine_rep = pr.refine(part, mesh.vertices, mesh.faces, res["adj"], lab_face, rules, res["agree"], res["seen_any"])
         res["agree"] = pv.final_agreement(res["acc"], res["raw_part"], part)
     except Exception as e:                                           # доводка не удалась — остаются части голосования, причина в check.json
         refine_rep = {"error": str(e)[:200]}
