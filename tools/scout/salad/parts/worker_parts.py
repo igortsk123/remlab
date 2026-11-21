@@ -61,6 +61,38 @@ def peak_vram_gb() -> float | None:
     return None
 
 
+class VramSampler:
+    """Пик занятой видеопамяти по nvidia-smi раз в секунду (это то, что видит карта), отдельно от torch allocated/reserved."""
+    def __init__(self):
+        self.peak_mb = 0.0
+        self._stop = threading.Event()
+        self._t = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self):
+        while not self._stop.is_set():
+            u = nvidia_smi().get('mem_used_mb')
+            if u:
+                self.peak_mb = max(self.peak_mb, u)
+            self._stop.wait(1.0)
+
+    def __enter__(self):
+        self._t.start()
+        return self
+
+    def __exit__(self, *a):
+        self._stop.set()
+
+
+def torch_peaks() -> dict:
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return {'alloc': round(torch.cuda.max_memory_allocated() / 2 ** 30, 2), 'reserved': round(torch.cuda.max_memory_reserved() / 2 ** 30, 2)}
+    except Exception:  # noqa: BLE001
+        pass
+    return {}
+
+
 def reset_peak() -> None:
     try:
         import torch
@@ -85,21 +117,56 @@ class FakeBackend:
 
 
 class P3SamBackend:
-    """P3-SAM (Hunyuan3D-Part): метки частей без имён. Код — /opt/Hunyuan3D-Part/P3-SAM/demo/auto_mask.py (AutoMask.predict_aabb)."""
+    """P3-SAM (Hunyuan3D-Part): метки частей без имён. Код — /opt/Hunyuan3D-Part/P3-SAM/demo/auto_mask.py (AutoMask.predict_aabb).
+    Параметры (POST params): point_num, prompt_num (в коде mesh_sam они ЖЁСТКО заданы 100000/400 и затирают аргументы — при загрузке правим копию файла),
+    decimate_faces (0 = как есть; иначе прореживание до N граней + перенос меток на полный меш по ближайшей грани), threshold, prompt_bs, seed.
+    В meta: stages (время по стадиям из Timer кода P3-SAM), decimate_s, transfer_s, patched (правка копии удалась)."""
     def load(self) -> dict:
         import numpy as np  # noqa: F401
         root = os.environ.get('P3SAM_ROOT', '/opt/Hunyuan3D-Part')
+        demo = f'{root}/P3-SAM/demo'
+        self.patched = False
+        pdir = '/tmp/p3sam_patched'
+        try:
+            src = open(f'{demo}/auto_mask.py', encoding='utf-8').read()
+            old = '    point_num = 100000\n    prompt_num = 400\n'
+            if src.count(old) == 1:
+                os.makedirs(pdir, exist_ok=True)
+                open(f'{pdir}/auto_mask.py', 'w', encoding='utf-8').write(src.replace(old, ''))
+                self.patched = True
+        except Exception as e:  # noqa: BLE001
+            print(f'[worker] правка копии auto_mask не удалась: {e}', flush=True)
         for p in (f'{root}/P3-SAM/demo', f'{root}/P3-SAM', f'{root}/XPart/partgen'):
             sys.path.insert(0, p)
-        os.chdir(f'{root}/P3-SAM/demo')
+        if self.patched:
+            sys.path.insert(0, pdir)
+        os.chdir(demo)
         import auto_mask as AM
         self.AM = AM
-        AM.Timer.STATE = 0
+        AM.Timer.STATE = 1          # время по стадиям: печатает сам код модели, мы ловим вывод
         ck = os.environ.get('P3SAM_CKPT', '/opt/weights/hy3d-part/p3sam/p3sam.safetensors')
         self.am = AM.AutoMask(ck)
-        return {'ckpt': ck}
+        return {'ckpt': ck, 'patched': self.patched, 'auto_mask_file': getattr(AM, '__file__', None)}
+
+    @staticmethod
+    def _decimate(m, target: int):
+        import numpy as np
+        import trimesh
+        n = len(m.faces)
+        if target <= 0 or n <= target:
+            return m, None
+        try:
+            import fast_simplification as FS
+            v, f = FS.simplify(np.asarray(m.vertices, np.float32), np.asarray(m.faces, np.int32), target_count=int(target), agg=7)
+        except ImportError:
+            d = m.simplify_quadric_decimation(face_count=int(target))
+            v, f = d.vertices, d.faces
+        return trimesh.Trimesh(vertices=v, faces=f, process=False), True
 
     def segment(self, mesh, params: dict, outdir: str) -> dict:
+        import io
+        import re
+        import contextlib
         import numpy as np
         AM = self.AM
         m = mesh.copy()
@@ -107,16 +174,37 @@ class P3SamBackend:
         n_in = len(mesh.faces)
         if len(m.faces) != n_in:
             raise RuntimeError(f'merge_vertices изменил число граней {n_in}->{len(m.faces)}')
+        pn, qn = int(params.get('point_num', 100000)), int(params.get('prompt_num', 400))
+        if (pn != 100000 or qn != 400) and not self.patched:
+            raise RuntimeError('point_num/prompt_num заданы, а правка копии auto_mask не применилась — значения были бы молча проигнорированы')
+        dec = int(params.get('decimate_faces', 0))
+        t0 = time.time()
+        work, did = self._decimate(m, dec)
+        dec_s = round(time.time() - t0, 2)
         AM.set_seed(int(params.get('seed', 42)))
-        _aabb, face_ids, _mesh = self.am.predict_aabb(
-            m, point_num=int(params.get('point_num', 100000)), prompt_num=int(params.get('prompt_num', 400)),
-            threshold=float(params.get('threshold', 0.95)), post_process=bool(int(params.get('post_process', 0))),
-            save_mid_res=False, show_info=False, clean_mesh_flag=False, seed=int(params.get('seed', 42)), is_parallel=False,
-            prompt_bs=int(params.get('prompt_bs', 32)))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            _aabb, face_ids, _mesh = self.am.predict_aabb(
+                work, point_num=pn, prompt_num=qn,
+                threshold=float(params.get('threshold', 0.95)), post_process=bool(int(params.get('post_process', 0))),
+                save_mid_res=False, show_info=False, clean_mesh_flag=False, seed=int(params.get('seed', 42)), is_parallel=False,
+                prompt_bs=int(params.get('prompt_bs', 32)))
+        stages = {}
+        for mm in re.finditer(r'>>>>>>代码(.+?) 运行时间: ([0-9.]+) 秒', buf.getvalue()):
+            stages[mm.group(1)] = round(float(mm.group(2)), 2)
         fid = np.asarray(face_ids).astype(np.int64)
+        if fid.shape[0] != len(work.faces):
+            raise RuntimeError(f'модель вернула {fid.shape[0]} меток на {len(work.faces)} граней')
+        t1 = time.time()
+        if did:       # перенос на полный меш: метка ближайшей грани прореженного (по центрам граней)
+            from scipy.spatial import cKDTree
+            _, j = cKDTree(np.asarray(work.triangles_center)).query(np.asarray(m.triangles_center))
+            fid = fid[j]
+        tr_s = round(time.time() - t1, 2)
         if fid.shape[0] != n_in:
-            raise RuntimeError(f'модель вернула {fid.shape[0]} меток на {n_in} граней')
-        return {'faces': fid.astype(np.int32), 'names': None}
+            raise RuntimeError(f'после переноса {fid.shape[0]} меток на {n_in} граней')
+        return {'faces': fid.astype(np.int32), 'names': None,
+                'extra': {'stages': stages, 'decimate_s': dec_s, 'transfer_s': tr_s, 'n_faces_work': int(len(work.faces)), 'patched': self.patched, 'params': {'point_num': pn, 'prompt_num': qn, 'decimate_faces': dec}}}
 
 
 class PartLlmBackend:
@@ -219,10 +307,15 @@ def run_item(it: dict, params: dict, jobdir: str, first: bool) -> dict:
         meta['n_faces'] = int(len(mesh.faces))
         reset_peak()
         t = time.time()
-        res = BACKEND.segment(mesh, params, d)
+        with VramSampler() as vs:
+            res = BACKEND.segment(mesh, params, d)
         sec = round(time.time() - t, 2)
         meta['sec_cold' if first else 'sec_warm'] = sec
-        meta['peak_vram_gb'] = peak_vram_gb()
+        tp = torch_peaks()
+        meta['peak_torch_alloc_gb'] = tp.get('alloc')
+        meta['peak_torch_reserved_gb'] = tp.get('reserved')
+        meta['peak_smi_gb'] = round(vs.peak_mb / 1024, 2)
+        meta['peak_vram_gb'] = meta['peak_smi_gb'] or tp.get('reserved')     # то, что реально занято на карте (nvidia-smi)
         f = np.asarray(res['faces']).astype(np.int32)
         assert f.shape == (meta['n_faces'],), (f.shape, meta['n_faces'])
         np.save(os.path.join(d, 'faces.npy'), f)

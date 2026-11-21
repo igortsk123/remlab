@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 python3
     && rm -rf /var/lib/apt/lists/* && ln -sf /usr/bin/python3 /usr/local/bin/python
 RUN python -m pip install --upgrade pip setuptools wheel
 RUN pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cu121
-RUN pip install "numpy<2" scipy scikit-learn addict timm "huggingface_hub<1.0" safetensors viser fpsample trimesh numba pillow tqdm omegaconf \
+RUN pip install "numpy<2" scipy scikit-learn addict timm "huggingface_hub<1.0" safetensors viser fpsample trimesh numba pillow tqdm omegaconf fast-simplification \
     && pip install spconv-cu120 \
     && pip install "https://data.pyg.org/whl/torch-2.4.0+cu121/torch_scatter-2.1.2+pt24cu121-cp310-cp310-linux_x86_64.whl" \
     && pip install --no-deps "https://github.com/Dao-AILab/flash-attention/releases/download/v2.6.3/flash_attn-2.6.3+cu123torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl"

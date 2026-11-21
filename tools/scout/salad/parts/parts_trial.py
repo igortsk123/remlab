@@ -78,6 +78,7 @@ def main() -> int:
     ap.add_argument('--ready-min', type=int, default=25, help='минут от started до phase=ready')
     ap.add_argument('--job-timeout', type=int, default=15)
     ap.add_argument('--pre', default='', help='команда перед воркером (временная заплатка к образу, напр. pip install; в отчёт — отдельной строкой)')
+    ap.add_argument('--variants', default='', help='JSON-файл [{"tag","params"}]: каждый меш прогоняется по всем вариантам подряд (меш за мешом); результаты в <out>/<tag>/<sid>/')
     ap.add_argument('--params', default='{}', help='JSON параметров модели (POST /run params)')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--stop-only', action='store_true')
@@ -89,6 +90,7 @@ def main() -> int:
     if a.stop_only:
         return 0 if BR.stop_and_verify(name) else 1
     items = json.load(open(a.items))
+    VARS = json.load(open(a.variants)) if a.variants else []
     for it in items:
         if not os.path.isfile(os.path.expanduser(it['path'])):
             say('нет файла', it['path'])
@@ -135,7 +137,7 @@ def main() -> int:
         say('start HTTP', MG.api(f'/{name}/start', 'POST')[0])
         gw = None
         ready = False
-        todo = list(items)
+        todo = [{**it, 'tag': v.get('tag', ''), 'vparams': v.get('params', {})} for it in items for v in (VARS or [{}])]
         inflight = None
         last_say = last_wait = 0.0
         first_done = False
@@ -203,11 +205,13 @@ def main() -> int:
                 if inflight is None and todo:
                     it = todo.pop(0)
                     sid = it['sid']
+                    tag = it.get('tag', '')
+                    wsid = f'{sid}__{tag}' if tag else sid
                     glb = open(os.path.expanduser(it['path']), 'rb').read()
-                    jid = f'{a.model}-{sid}'
-                    c, r = gw.call('POST', '/run', {'job_id': jid, 'items': [{'sid': sid, 'glb_b64': base64.b64encode(glb).decode()}], 'params': json.loads(a.params)}, timeout=90)
-                    inflight = {'sid': sid, 'job': jid, 'path': os.path.expanduser(it['path']), 'submitted': t, 'http': c}
-                    say('меш', sid, '→ HTTP', c, f'{len(glb) / 1e6:.1f} МБ')
+                    jid = f'{a.model}-{wsid}'
+                    c, r = gw.call('POST', '/run', {'job_id': jid, 'items': [{'sid': wsid, 'glb_b64': base64.b64encode(glb).decode()}], 'params': {**json.loads(a.params), **it.get('vparams', {})}}, timeout=90)
+                    inflight = {'sid': sid, 'tag': tag, 'wsid': wsid, 'job': jid, 'path': os.path.expanduser(it['path']), 'submitted': t, 'http': c}
+                    say('меш', sid, tag or '-', '→ HTTP', c, f'{len(glb) / 1e6:.1f} МБ')
                     if c != 202:
                         inflight.update(status='failed', error=f'POST {c} {str(r)[:160]}')
                 elif inflight is not None:
@@ -216,10 +220,10 @@ def main() -> int:
                         if c == 200 and r.get('state') == 'done':
                             res = (r.get('results') or [{}])[0]
                             inflight.update(status='done' if res.get('rc') == 0 else 'failed', meta=res, error=res.get('error') or r.get('error'))
-                            od = os.path.join(a.out, inflight['sid'])
+                            od = os.path.join(a.out, inflight['tag'], inflight['sid']) if inflight.get('tag') else os.path.join(a.out, inflight['sid'])
                             os.makedirs(od, exist_ok=True)
                             for fn in ('meta.json', 'faces.npy', 'faces_class.npy'):
-                                cf, raw = gw.call('GET', f'/file/{inflight["job"]}/{inflight["sid"]}/{fn}', timeout=120, raw=True)
+                                cf, raw = gw.call('GET', f'/file/{inflight["job"]}/{inflight["wsid"]}/{fn}', timeout=120, raw=True)
                                 if cf == 200:
                                     open(os.path.join(od, fn), 'wb').write(raw)
                             if inflight['status'] == 'done':
@@ -237,7 +241,7 @@ def main() -> int:
                     if inflight.get('status') in ('done', 'failed'):
                         inflight['seconds'] = round(t - inflight['submitted'], 1)
                         summary['meshes'].append(inflight)
-                        say('меш', inflight['sid'], inflight['status'], inflight.get('error') or '', f'{inflight["seconds"]} с', json.dumps({k: (inflight.get('meta') or {}).get(k) for k in ('sec_cold', 'sec_warm', 'peak_vram_gb', 'n_parts', 'n_faces')}), json.dumps(inflight.get('check') or {}))
+                        say('меш', inflight['sid'], inflight.get('tag') or '-', inflight['status'], inflight.get('error') or '', f'{inflight["seconds"]} с', json.dumps({k: (inflight.get('meta') or {}).get(k) for k in ('sec_cold', 'sec_warm', 'peak_vram_gb', 'n_parts', 'n_faces')}), json.dumps(inflight.get('check') or {}))
                         if not first_done:
                             first_done = True
                             if inflight['status'] != 'done':
