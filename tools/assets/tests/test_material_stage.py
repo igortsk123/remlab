@@ -271,6 +271,26 @@ def test_stand_junction_is_metal():
     ok(MS.stand_near_axis(tab, np.where((np.abs(c3[:, 1] - 0.35) < 0.3), 1, 3), np.clip(c3[:, 1] / 0.74, 0, 1), R["geometry"], 1).sum() == 0, "четыре ножки по углам — не «одна стойка»: правило молчит (столешница не станет стойкой)")
 
 
+def test_unsure_parts_report():
+    import trimesh
+    m = trimesh.creation.box(extents=[1.0, 1.0, 1.0])
+    m = trimesh.Trimesh(*trimesh.remesh.subdivide_to_size(m.vertices, m.faces, max_edge=0.1), process=False)
+    cen = m.vertices[m.faces].mean(axis=1)
+    part = np.where(cen[:, 1] > 0.2, 1, 0).astype(np.int64)                   # верхняя полоса куба — часть 1, остальное — главная 0
+    col = lambda L: {"lab_median": [L, 0.0, 0.0]}   # noqa: E731
+    parts = [{"id": 0, "face_share": float((part == 0).mean()), "role": "part-0", "vl": None, "colour": col(70.0)},
+             {"id": 1, "face_share": float((part == 1).mean()), "role": "part-1", "vl": None, "colour": col(30.0)}]
+    res = MS.resolve_parts(parts, _cls("fabric", 0.9), R, parts_known=True)
+    rep_in = [dict(r, id=i, role=parts[i]["role"], face_share=parts[i]["face_share"]) for i, r in sorted(res.items())]
+    out = MS.unsure_parts_report(m, part, rep_in, parts, R)
+    ok(len(out) == 1 and out[0]["id"] == 1, "в отчёт идут только неуверенные части (главная и «цвет как у главной» — нет)")
+    d = out[0]
+    ok(abs(d["de_main"] - 40.0) < 0.2 and d["main_id"] == 0, f"ΔE к главной части посчитан: {d['de_main']}")
+    ok(d["where"]["label"].startswith("верх") and 0.6 < d["where"]["up"] < 1.0, f"верхняя полоса — «верх» по центроиду ({d['where']})")
+    ok(0.1 < d["area_share"] < 0.6 and d["face_share"] > 0.1, "доля площади и граней названа")
+    ok(d["lab"] == [30.0, 0.0, 0.0] and "ΔE" in d["reason"], "цвет Lab и причина — в отчёте")
+
+
 def test_top_zone_bigger_than_body():
     parts = [{"id": 0, "face_share": 0.2, "role": "shape:blob", "vl": None, "colour": None},
              {"id": 1, "face_share": 0.5, "role": "shape:blob-top", "vl": None, "colour": None},
@@ -320,7 +340,7 @@ def test_stage_geometry_and_inherited():
 
 
 if __name__ == "__main__":
-    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited):
+    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited):
         print(t.__name__)
         t()
     print(f"material_stage tests: ошибок {FAIL}")

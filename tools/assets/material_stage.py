@@ -126,10 +126,43 @@ def resolve_parts(parts: list[dict], cls: dict, recipes: dict, parts_known: bool
                  "reason": f"цвет как у главной части (ΔE {_de76(lab, main_lab):.1f})"}
         else:
             why = "нет цвета части" if lab is None else f"цвет отличается от главной части (ΔE {_de76(lab, main_lab):.1f})" if main_lab is not None else "нет цвета главной части"
-            r = {"class": fb, "source": "unsure", "confidence": conf["unsure"], "reason": f"нет метки, {why}"}
+            r = {"class": fb, "source": "unsure", "confidence": conf["unsure"], "reason": f"нет метки, {why}", "main_id": int(main["id"]),
+                 "de_main": round(float(_de76(lab, main_lab)), 1) if lab is not None and main_lab is not None else None}
         r["confident"] = bool(r["confidence"] >= cl["confident_from"])
         out[int(p["id"])] = r
     return out
+
+
+def unsure_parts_report(mesh, part: np.ndarray, parts_rep: list[dict], parts: list[dict], recipes: dict) -> list[dict]:
+    """Для каждой неуверенной части — всё, по чему её можно назвать (вход этапу 3/р.1 для подписи ролей): доля граней и площади, ΔE к главной, цвет Lab,
+    где она (по центроиду: высота верх/середина/низ в долях высоты модели, боковое смещение от оси: центр/сбоку/край в долях полуширины; ось Y вверх)."""
+    rep = recipes["unsure_report"]
+    v = np.asarray(mesh.vertices, dtype=np.float64)
+    f = np.asarray(mesh.faces)
+    tri = v[f]
+    cen = tri.mean(axis=1)
+    area = 0.5 * np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1)
+    lo, hi = float(v[:, 1].min()), float(v[:, 1].max())
+    mid = (v.min(axis=0) + v.max(axis=0)) / 2
+    half = np.maximum((v.max(axis=0) - v.min(axis=0)) / 2, 1e-9)
+    col = {int(p["id"]): (p.get("colour") or {}).get("lab_median") for p in parts}
+    out = []
+    for r in parts_rep:
+        if r["confident"]:
+            continue
+        sel = part == r["id"]
+        if not sel.any():
+            continue
+        c = np.average(cen[sel], axis=0, weights=np.maximum(area[sel], 1e-12))
+        up = float((c[1] - lo) / max(hi - lo, 1e-9))
+        off = float(max(abs(c[0] - mid[0]) / half[0], abs(c[2] - mid[2]) / half[2]))
+        vert = "верх" if up >= rep["up_top"] else "низ" if up <= rep["up_bottom"] else "середина"
+        side = "центр" if off <= rep["off_centre"] else "край" if off >= rep["off_edge"] else "сбоку"
+        lab = col.get(int(r["id"]))
+        out.append({"id": int(r["id"]), "role": r["role"], "face_share": round(float(sel.mean()), 4), "area_share": round(float(area[sel].sum() / max(area.sum(), 1e-12)), 4),
+                    "de_main": r.get("de_main"), "main_id": r.get("main_id"), "lab": [round(float(x), 1) for x in lab] if lab else None,
+                    "where": {"up": round(up, 2), "off": round(off, 2), "label": f"{vert}, {side}"}, "reason": r["reason"]})
+    return sorted(out, key=lambda d: -d["area_share"])
 
 
 def _shape_class(p: dict, cls: dict, cat: dict, recipes: dict) -> dict:
@@ -539,6 +572,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
                "handles": any(p["source"] == "geometry:small" for p in parts_rep), "frame": any(p["source"] == "geometry:linear" for p in parts_rep)}
     not_located = [k for k in (cls.get("parts") or {}) if parts_source == "geometry" and not located.get(k, False)]   # материал в каталоге есть, а где он — форма не нашла
     unsure = [f"{p['role']} ({p['face_share']:.0%}): {p['reason']}" for p in parts_rep if not p["confident"]]
+    unsure_rep = unsure_parts_report(mesh, part, parts_rep, parts, recipes)
     reason = ""
     if frame and not frame_name:
         reason = "кадр не получен: " + why_frame
@@ -555,7 +589,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
                  "geometry_unchanged": {"value": bool(geom_same), "threshold": True, "op": "=="},
                  "seconds": {"value": round(time.time() - t0, 1), "threshold": c["max_seconds"], "op": "<="}},
         reason=reason, seconds=time.time() - t0, outputs=["material.glb"], frame=frame_name,
-        faces=nf, parts_source=parts_source, shape=shape_rep, catalog_parts_not_located=not_located, product_class={"class": cls["class"], "stage": cls["stage"], "confidence": cls["confidence"], "reason": cls["reason"], "parts": cls.get("parts")},
+        faces=nf, parts_source=parts_source, shape=shape_rep, catalog_parts_not_located=not_located, unsure_parts=unsure_rep, product_class={"class": cls["class"], "stage": cls["stage"], "confidence": cls["confidence"], "reason": cls["reason"], "parts": cls.get("parts")},
         parts=parts_rep, classes=table, sheen=maps["hasSheen"], transmission=maps["hasTransmission"], recipes_sha=recipes_sha(), glb=pinfo)
     return doc
 

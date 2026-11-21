@@ -176,6 +176,13 @@
   "confident_from": 0.5,
   "legs_part_share": 0.6
  },
+ "unsure_report": {
+  "_about": "Отчёт по неуверенным частям (check.json → unsure_parts): где часть по центроиду. Высота — доля высоты модели (≥ up_top верх, ≤ up_bottom низ), боковое смещение от оси — доля полуширины (≤ off_centre центр, ≥ off_edge край). Только описание для подписи ролей, на вердикт не влияет.",
+  "up_top": 0.66,
+  "up_bottom": 0.33,
+  "off_centre": 0.35,
+  "off_edge": 0.75
+ },
  "check": {
   "_about": "Мерки check.json этапа 08. recipe_share — доля граней с любым рецептом (не должно быть граней без части). confident_share — доля граней, чей класс уверен (≥ classify.confident_from); ниже порога — товар дальше не идёт (причина «не уверен: …»).",
   "recipe_share_min": 0.999,
