@@ -206,6 +206,21 @@ def grey_top_field(glb: str) -> dict | None:
     return {k: r[k] for k in keep if k in r} if r.get('verdict') in GT.BAD else {'verdict': r.get('verdict')}
 
 
+def form_flat_field(glb: str, dims: dict | None, role: str | None) -> dict | None:
+    """Предупреждение `form_flat` (T-172, ВХОЛОСТУЮ): пропорции формы против карточки (тонкая/вытянутая относительно себя) → verdict.json; статус не меняет.
+    Нет карточки/высоты — {'verdict': 'na'}; сбой замера — None (приёмка идёт)."""
+    try:
+        import form_flat as FF
+    except Exception as e:  # noqa: BLE001 — замер не должен ронять приёмку
+        print(f'  форма против карточки: модуль недоступен ({type(e).__name__})', flush=True)
+        return None
+    r = FF.measure_glb(glb, dims, square=role in SQUARE_ROLES)
+    if r is None:
+        return None
+    keep = ('verdict', 'wide', 'thin', 'ratio', 'dry_run')
+    return {k: r[k] for k in keep if k in r}
+
+
 def main() -> None:
     """Приёмка без единой правки модели (владелец 01.09, см. docstring модуля).
 
@@ -302,6 +317,10 @@ def main() -> None:
         if excess and excess > 1.15 and status not in ('generated',):
             status = 'generated'
             print(f'  подложка сверх паспорта ×{excess}: {man["sku"]} → на переделку')
+        # Форма сплющена/вытянута против карточки — ТОЛЬКО предупреждение (T-172, вхолостую): статус не трогает, поле form_flat в verdict.json.
+        fflat = form_flat_field(glb, (man.get('input') or {}).get('dims_cm'), role)
+        if fflat and fflat.get('verdict') == 'warn':
+            print(f'  форма против карточки: отношение осей {fflat.get("ratio")} (вхолостую): {man["sku"]}', flush=True)
         # Цвет не как на фото — ТОЛЬКО измерение, в статус не бьёт (владелец 01.09).
         # Перегон с другим seed не лечит систематический увод тона покраской: тратит GPU
         # и возвращает тот же цвет. Решение по цвету — отдельной задачей, на входе покраски.
@@ -311,7 +330,7 @@ def main() -> None:
         pbr_problems = list(accept.last_pbr)
         if status == 'geometry_valid':
             finish[man['sku']] = {'seed': seed, 'problems': pbr_problems, 'gate_version': GATE_VERSION}
-        json.dump({'status': status, 'slab_excess': excess, 'color_mismatch': cmis,
+        json.dump({'status': status, 'slab_excess': excess, 'form_flat': fflat, 'color_mismatch': cmis,
                    'manual_repair_candidate': manual_repair(status, seed),
                    'pbr_problems': pbr_problems, 'gate_version': GATE_VERSION,
                    'grey_top': getattr(accept, 'last_grey_top', None)},

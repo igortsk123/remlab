@@ -322,6 +322,8 @@ jobs:
       - run: python tools/scout/mesh_quarantine.py --selftest
       - run: python tools/scout/tests/test_grey_soft.py   # серая крышка — МЯГКИЙ карантин по всем мешам детектора (owner+sha), статус ревизии не меняется, auto_release не блокирует, удержание болванок от прополки (T-20261119-101/3)
       - run: python tools/scout/salad/tests_accept_finish.py
+      # форма против карточки (T-172, вхолостую): сплющена/вытянута относительно карточки — предупреждение в verdict.json, статус не трогает (дополняет slab_excess)
+      - run: python tools/scout/form_flat.py --selftest
       - run: pip install shapely && python tools/scout/tests/test_family_colour_feed.py   # (shapely — trial_demo → trial_room; в scout-orient его нет, CI красный с 2cd4032b) вариант семьи на чужой модели другого цвета не идёт в «Заменить» /demo и тура: подкраска от модели, строгий порог, отметка без замера, свой меш в спрос («Латте» зелёная, T-20261112-89)
       - run: pip install scipy && python tools/scout/salad/tests_alien_debris.py   # пометка обломков меша: GLB (Scene) и Trimesh судятся без ошибки, ALIEN_CUT=0 файл не трогает (T-20261106-85/3; scipy — trimesh.split делит меш на тела через него, в образе воркера он есть)
       - run: pip install scipy numpy pillow && python tools/scout/salad/tests_edge_halo.py   # чистка светлого ореола у кромки вырезки и сторож (T-20261119-99, «ушки» над спинкой): общая чистка по цвету края, светлый товар/ножки/кант целы; тест defringe — пропуск, если нет torch
