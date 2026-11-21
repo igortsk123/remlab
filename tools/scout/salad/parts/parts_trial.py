@@ -78,6 +78,8 @@ def main() -> int:
     ap.add_argument('--ready-min', type=int, default=25, help='минут от started до phase=ready')
     ap.add_argument('--job-timeout', type=int, default=15)
     ap.add_argument('--pre', default='', help='команда перед воркером (временная заплатка к образу, напр. pip install; в отчёт — отдельной строкой)')
+    ap.add_argument('--max-meshes', type=int, default=0, help='после N отправленных прогонов новые не отправлять (0 = без ограничения); дождаться текущего и погасить')
+    ap.add_argument('--stop-file', default='', help='если файл существует — новые прогоны не отправлять (текущий дожидаемся, потом гасим); сигнал фоновому процессу НЕ работает')
     ap.add_argument('--variants', default='', help='JSON-файл [{"tag","params"}]: каждый меш прогоняется по всем вариантам подряд (меш за мешом); результаты в <out>/<tag>/<sid>/')
     ap.add_argument('--params', default='{}', help='JSON параметров модели (POST /run params)')
     ap.add_argument('--apply', action='store_true')
@@ -139,6 +141,8 @@ def main() -> int:
         ready = False
         todo = [{**it, 'tag': v.get('tag', ''), 'vparams': v.get('params', {})} for it in items for v in (VARS or [{}])]
         inflight = None
+        n_sent = 0
+        durs = []
         last_say = last_wait = 0.0
         first_done = False
         while True:
@@ -203,6 +207,20 @@ def main() -> int:
                     break
             if ready:
                 if inflight is None and todo:
+                    why = None
+                    sent = len(summary['meshes']) if isinstance(summary.get('meshes'), list) else 0
+                    if a.max_meshes and n_sent >= a.max_meshes:
+                        why = f'--max-meshes {a.max_meshes} достигнут'
+                    elif a.stop_file and os.path.exists(os.path.expanduser(a.stop_file)):
+                        why = f'есть файл-стоп {a.stop_file}'
+                    elif run_since is not None and durs and t + sum(durs) / len(durs) * 1.05 > run_since + a.max_min * 60:
+                        why = f'по средней длительности ({sum(durs) / len(durs):.0f} с) не успеет до предела {a.max_min} мин'
+                    if why:
+                        say('новые прогоны не отправляю:', why, '— гашу после текущих')
+                        summary['stopped_by'] = summary.get('stopped_by') or 'planned'
+                        todo = []
+                        continue
+                    n_sent += 1
                     it = todo.pop(0)
                     sid = it['sid']
                     tag = it.get('tag', '')
@@ -240,6 +258,8 @@ def main() -> int:
                             inflight.update(status='failed', error='воркер сломан (CUDA)')
                     if inflight.get('status') in ('done', 'failed'):
                         inflight['seconds'] = round(t - inflight['submitted'], 1)
+                        if inflight['status'] == 'done':
+                            durs.append(inflight['seconds'])
                         summary['meshes'].append(inflight)
                         say('меш', inflight['sid'], inflight.get('tag') or '-', inflight['status'], inflight.get('error') or '', f'{inflight["seconds"]} с', json.dumps({k: (inflight.get('meta') or {}).get(k) for k in ('sec_cold', 'sec_warm', 'peak_vram_gb', 'n_parts', 'n_faces')}), json.dumps(inflight.get('check') or {}))
                         if not first_done:
@@ -253,7 +273,7 @@ def main() -> int:
                             break
                         inflight = None
                 if inflight is None and not todo:
-                    summary['stopped_by'] = 'done'
+                    summary['stopped_by'] = summary.get('stopped_by') or 'done'
                     break
             time.sleep(10)
     finally:
