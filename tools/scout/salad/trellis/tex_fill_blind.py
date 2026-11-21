@@ -94,7 +94,7 @@ def make_masks(geoms, known, txs) -> dict:
     d = rng.normal(size=3)
     d /= np.linalg.norm(d)
     modes, why = {}, {}
-    for mode in MODES:
+    for mode in ('local', 'far', 'side'):                                   # wholepart — отдельная заморозка (--wholepart)
         if ek.sum() < 2 * P['min_hidden']:
             modes[mode], why[mode] = None, f'допустимых текселей {int(ek.sum())} — мало'
             continue
@@ -292,6 +292,8 @@ def cmd_run(argv: list) -> int:
                 draft_g = TC.load_geoms(dgp)
             for mode, md in it['modes'].items():
                 if 'skipped' in md or (modes_only and mode not in modes_only):
+                    continue
+                if mode == 'wholepart' and 'eval_sha256' not in md:             # ложные записи v2-заморозки (до правки режимов): те же маски, что «side», без оценочной маски — не мерка
                     continue
                 hidden, evm = [], []
                 for gi, tx in enumerate(txs):
