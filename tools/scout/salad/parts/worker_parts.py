@@ -62,6 +62,20 @@ def peak_vram_gb() -> float | None:
 
 
 CUR_SAMPLER = None
+PROGRESS = {'step': None, 'since': None, 'line': None}   # живой ход задания: виден в /job и /health (урок b1: 15 мин молчания без единой подсказки, где завис)
+
+
+def set_step(step: str, line: str = None) -> None:
+    PROGRESS.update(step=step, since=round(time.time(), 1), line=line if line is not None else PROGRESS.get('line'))
+
+
+def progress_view() -> dict:
+    d = dict(PROGRESS)
+    d['step_s'] = round(time.time() - d['since'], 1) if d.get('since') else None
+    u, m = gpu_util_mem()
+    d['gpu_util'], d['gpu_mem_mb'] = u, m
+    d['cores_now'] = (CUR_SAMPLER.samples[-1][3] if CUR_SAMPLER and CUR_SAMPLER.samples else None)
+    return d
 
 
 def gpu_util_mem() -> tuple:
@@ -131,6 +145,8 @@ class TimedOut:
         while '\n' in self._buf:
             ln, self._buf = self._buf.split('\n', 1)
             self.lines.append((time.time(), ln))
+            if ln.strip():
+                set_step('after: ' + ln.strip()[:80], ln.strip()[:160])
         return len(x)
 
     def flush(self):
@@ -232,8 +248,10 @@ class P3SamBackend:
         if (pn != 100000 or qn != 400) and not self.patched:
             raise RuntimeError('point_num/prompt_num заданы, а правка копии auto_mask не применилась — значения были бы молча проигнорированы')
         dec = int(params.get('decimate_faces', 0))
+        set_step('decimate')
         t0 = time.time()
         work, did = self._decimate(m, dec)
+        set_step('predict_aabb')
         dec_s = round(time.time() - t0, 2)
         AM.set_seed(int(params.get('seed', 42)))
         buf = TimedOut()
@@ -254,6 +272,7 @@ class P3SamBackend:
         fid = np.asarray(face_ids).astype(np.int64)
         if fid.shape[0] != len(work.faces):
             raise RuntimeError(f'модель вернула {fid.shape[0]} меток на {len(work.faces)} граней')
+        set_step('transfer')
         t1 = time.time()
         if did:       # перенос на полный меш: метка ближайшей грани прореженного (по центрам граней)
             from scipy.spatial import cKDTree
@@ -484,6 +503,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, health())          # 200 всегда: стартовая проба Salad не должна падать на ошибке модели, ошибка — в теле
             if p[0] == 'job' and len(p) == 2:
                 j = JOBS.get(p[1])
+                if j is not None and j.get('state') != 'done':
+                    j = {**j, 'progress': progress_view()}
                 return self._send(200 if j else 404, j or {'error': 'нет такого задания'})
             if p[0] == 'file' and len(p) >= 4:
                 fp = os.path.realpath(os.path.join(OUT_DIR, p[1], p[2], '/'.join(p[3:])))

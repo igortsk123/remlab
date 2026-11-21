@@ -277,6 +277,10 @@ def main() -> int:
                 elif inflight is not None:
                     if inflight.get('status') != 'failed':
                         c, r = gw.call('GET', '/job/' + inflight['job'], timeout=30)
+                        if c == 200 and r.get('state') != 'done' and t - inflight.get('last_prog', 0) >= 120:
+                            inflight['last_prog'] = t
+                            pg = r.get('progress') or {}
+                            say(f'  ход {t - inflight["submitted"]:.0f} с: шаг {pg.get("step")} ({pg.get("step_s")} с), GPU {pg.get("gpu_util")} %, {pg.get("gpu_mem_mb")} МБ, ядер {pg.get("cores_now")}; {str(pg.get("line"))[:90]}')
                         if c == 200 and r.get('state') == 'done':
                             res = (r.get('results') or [{}])[0]
                             inflight.update(status='done' if res.get('rc') == 0 else 'failed', meta=res, error=res.get('error') or r.get('error'))
