@@ -30,5 +30,8 @@ RUN test -s /opt/weights/partllm/model-00001-of-00002.safetensors && test -s /op
     && ls -la /opt/weights/partllm && du -sh /opt/weights/partllm && rm -rf /opt/weights/partllm/.cache \
     && { echo "PartLLM: ${CODE_COMMIT}; weights ${MODEL_REV}; torch 2.8.0+cu128 py3.11"; python -m pip list 2>/dev/null | grep -i -E "^(torch|spconv|flash|numpy|transformers|torch-scatter|torch-cluster|pymeshlab|peft|timm|ray) " | tr -s " "; } > /opt/BUILD_INFO_PARTS.txt
 RUN { python -c "import torch, spconv.pytorch, torch_scatter, torch_cluster, flash_attn, transformers, pymeshlab; print('импорты PartLLM ok, torch', torch.__version__, 'transformers', transformers.__version__)" || echo 'ПРЕДУПРЕЖДЕНИЕ: импорт без видеокарты не прошёл (проверка — на живой машине)'; } 2>&1 | tee -a /opt/BUILD_INFO_PARTS.txt
-ENV MODEL_PATH=/opt/weights/partllm HF_HUB_OFFLINE=1 HF_HOME=/data/hf OUT_DIR=/data/out MODEL=partllm
+COPY worker_parts.py /app/worker_parts.py
+ENV MODEL_PATH=/opt/weights/partllm HF_HUB_OFFLINE=1 HF_HOME=/data/hf OUT_DIR=/data/out MODEL=partllm PORT=8000
 WORKDIR /opt/PartLLM
+EXPOSE 8000
+CMD ["python", "-u", "/app/worker_parts.py"]

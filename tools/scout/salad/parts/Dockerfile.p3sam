@@ -26,4 +26,7 @@ RUN test -s /opt/weights/hy3d-part/p3sam/p3sam.safetensors && test -s /root/sona
 # проверка импортов без видеокарты — НЕ валит сборку (на машине без CUDA часть модулей может не грузиться); итог в BUILD_INFO
 RUN { python -c "import sys; sys.path.insert(0,'/opt/Hunyuan3D-Part/XPart/partgen'); import torch, spconv.pytorch, torch_scatter, flash_attn, fpsample, numba, trimesh; from models import sonata; print('импорты P3-SAM ok, torch', torch.__version__)" || echo 'ПРЕДУПРЕЖДЕНИЕ: импорт без видеокарты не прошёл (проверка — на живой машине)'; } 2>&1 | tee -a /opt/BUILD_INFO_PARTS.txt
 RUN printf '#!/bin/bash\ncd /opt/Hunyuan3D-Part/P3-SAM/demo && exec python auto_mask.py --ckpt_path /opt/weights/hy3d-part/p3sam/p3sam.safetensors "$@"\n' > /usr/local/bin/p3sam-auto && chmod +x /usr/local/bin/p3sam-auto
-ENV HF_HUB_OFFLINE=1 HF_HOME=/data/hf OUT_DIR=/data/out MODEL=p3sam
+COPY worker_parts.py /app/worker_parts.py
+ENV HF_HUB_OFFLINE=1 HF_HOME=/data/hf OUT_DIR=/data/out MODEL=p3sam PORT=8000
+EXPOSE 8000
+CMD ["python", "-u", "/app/worker_parts.py"]
