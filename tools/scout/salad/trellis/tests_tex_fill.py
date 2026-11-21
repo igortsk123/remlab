@@ -866,6 +866,20 @@ def test_nail_twins():
     ok(not TF.nail_twins(lab5, known, cand, part, {0: 86.0}, c)['mask'].any(), "двойники другого цвета — кандидаты не перекрашиваются в красное")
 
 
+def test_borrow_donors():
+    print("вариант 1 Ш6: часть без блоков берёт микрофактуру у части того же материала (роль и тон), узорную и skip не трогает:")
+    tones = {0: [70, 2, 4], 1: [72, 2, 5], 2: [40, 10, -30], 3: [71, 3, 4], 4: [70, 2, 4]}
+    roles = {0: 'body', 1: 'body', 2: 'body', 3: 'legs', 4: 'body'}
+    r = TF.borrow_donors([1, 2, 3], [0, 4], tones, roles, set(), 6.0)
+    ok(r.get(1) in (0, 4), f"ч.1 (тон рядом, та же роль) берёт у ч.0 или 4 (взяла {r.get(1)})")
+    ok(2 not in r, "ч.2 (другой тон) не берёт")
+    ok(3 not in r, "ч.3 (другая роль, ножки) не берёт")
+    ok(TF.borrow_donors([1], [0], tones, roles, {0}, 6.0) == {}, "донор из «плохих» (узорная/skip) не годится")
+    ok(TF.borrow_donors([1], [0], tones, roles, {1}, 6.0) == {}, "сама часть из «плохих» не берёт")
+    ok(TF.borrow_donors([1], [0], {0: tones[0]}, roles, set(), 6.0) == {}, "нет своего тона у части — не берёт")
+    ok(TF.borrow_donors([1], [0, 4], tones, roles, set(), 0.5) == {}, "порог тона строже расстояния — не берёт")
+
+
 def test_pr_camera_and_winding():
     print("камера образца узора из этапа 4 (az, el) и обмотка граней:")
     cfg, note = TF.pr_camera_from_extra({'camera': {'az': 341.3, 'el': 8.5}}, {})
@@ -1132,7 +1146,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

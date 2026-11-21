@@ -99,6 +99,8 @@ FILL = {
     'pattern_side_cos': 0.2,         # узорная часть: узор кладётся только на тексели, обращённые к фото (cos нормали с направлением камеры pr_az ≥ порога); обратная сторона/сиденье/низ — тон ткани без цветов (дефект Sakura 21.11: цветы спинки на заду и сиденье)
     'smooth_roles': ['legs', 'frame', 'handles'],   # роли без плитки фактуры на недостроенном: тон части без блоков («ёлочка» стыков на дереве, Sakura 21.11)
     'tone_share_roles': ['legs', 'frame', 'handles'],   # роли, у которых тон един на все части одной роли (один материал — один тон: задние ножки темнее передних из-за теней)
+    'borrow_texture': False,         # Ш6 вариант 1: часть без чистых блоков (нет квилта/блока) берёт микрофактуру у части ТОЙ ЖЕ материальной зоны (роль и тон близки, не узорная); по умолчанию выкл.
+    'borrow_max_de': 6.0,            # …тон (Lab, евклид) донорской части ближе этого
     'nail_twins': True,              # мелкие тёмные компактные пятна (шляпки гвоздей) невидимой стороны: цвет — как у видимых двойников этой части с фото, форма — нативная (ряд гвоздей сзади не стирается тоном ткани)
     'nail_dark_drop': 25.0,          # пятно темнее тона части на столько L
     'nail_min_tone_L': 60.0,         # части темнее этого тона (тёмная ткань) — правило молчит: тёмное там не выделяется
@@ -1276,6 +1278,15 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 rep['quilt'] = rep.get('quilt', 0) + 1
             else:
                 rep['no_patch'] += 1
+    if c.get('borrow_texture'):
+        tones_ = {int(q): np.asarray(stat[q][0], float) for q in part_ids if not stat[q][3]}
+        need_ = [q for q in part_ids if q not in patches]
+        bd = borrow_donors(need_, [q for q in part_ids if q in rep.get('quilt_info', {})], tones_, {int(q): roles_.get(q, roles_.get(str(q))) for q in part_ids}, set(skip_parts) | set(pat_parts), float(c['borrow_max_de']))
+        for q, d_ in bd.items():
+            patches[q] = patches[d_]
+            patch_gain[q] = patch_gain.get(d_, 1.0)
+        rep['borrowed'] = {int(q): int(d_) for q, d_ in bd.items()}
+    rep['texture_src'] = {int(p): ('borrow' if p in rep.get('borrowed', {}) else 'quilt' if p in rep.get('quilt_info', {}) else ('patch' if p in patches else 'none')) for p in part_ids}      # чем даётся фактура на каждой части: квилт из чистых блоков / один блок / ничем (гладко, счётчик no_patch)
     relief = None
     if c['source'] == 'trellis_relief':
         relief, rep['relief'] = draft_relief(txs, draft, labs, kn, part_ids, set(raw_mean) | set(pat_parts), c, RULES['trellis_relief'])
@@ -1654,6 +1665,25 @@ def _compact_blobs(mask, c: dict):
             keep[i] = (c['nail_min_px'] <= sz[i - 1] <= c['nail_max_px'] and sz[i - 1] / float(h * w) >= c['nail_min_fill'] and max(h, w) / float(min(h, w)) <= c['nail_max_aspect'])
     acc = keep[lab]
     return acc, np.where(acc, lab, 0), int(keep.sum())
+
+
+def borrow_donors(need: list, quilted: list, tones: dict, roles: dict, bad: set, max_de: float) -> dict:
+    """Ш6 вариант 1: {часть без своей фактуры → часть-донор того же материала}. need — части без блока/квилта; quilted — части с квилтом (есть чему делиться);
+    tones {часть: Lab} (нет ключа — тон не свой, не берём); roles {часть: роль}; bad — части, которым/у которых брать нельзя (узорные, skip). Донор: та же роль, тон ближе max_de, самый близкий по тону."""
+    out = {}
+    for p in need:
+        if p in bad or p not in tones:
+            continue
+        best = None
+        for q in quilted:
+            if q == p or q in bad or q not in tones or roles.get(q) != roles.get(p):
+                continue
+            d = float(np.linalg.norm(np.asarray(tones[p], float) - np.asarray(tones[q], float)))
+            if d <= max_de and (best is None or d < best[0]):
+                best = (d, q)
+        if best is not None:
+            out[p] = best[1]
+    return out
 
 
 def nail_twins(lab_in, known, cand, partmap, tone_L: dict, c: dict) -> dict:
