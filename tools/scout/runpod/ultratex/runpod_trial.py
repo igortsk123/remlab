@@ -382,7 +382,7 @@ def main(argv=None) -> int:
     ap.add_argument('--resolution', type=int, default=2048)
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--warm-timeout', type=int, default=2400)
-    ap.add_argument('--jobs', nargs='*', default=[], help='точный порядок заданий «товар@шаги» (например 112923:13224664101879413845@25 …); вместо --skus × --steps')
+    ap.add_argument('--jobs', nargs='*', default=[], help='точный порядок заданий «товар@шаги» (например <фид>:<id>@25 …); вместо --skus × --steps')
     ap.add_argument('--pod-url', default=None)
     ap.add_argument('--silence-min', type=int, default=10, help='воркер молчит дольше N минут (от старта контейнера) — гасим')
     ap.add_argument('--boot-min', type=int, default=15, help='сколько минут от создания пода ждём первый ответ воркера до отсчёта молчания')
