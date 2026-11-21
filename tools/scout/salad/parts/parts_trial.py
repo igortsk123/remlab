@@ -114,6 +114,7 @@ def main() -> int:
     ap.add_argument('--job-timeout', type=int, default=15)
     ap.add_argument('--pre', default='', help='команда перед воркером (временная заплатка к образу, напр. pip install; в отчёт — отдельной строкой)')
     ap.add_argument('--max-realloc', type=int, default=3, help='сколько раз пересадить медленно качающую образ ноду (0 = не пересаживать); бюджет общий с пулом (node_health)')
+    ap.add_argument('--stuck-min', type=float, default=4.0, help='шаг задания не меняется и GPU <5 % дольше N мин → считаем зависшим, гасим')
     ap.add_argument('--max-meshes', type=int, default=0, help='после N отправленных прогонов новые не отправлять (0 = без ограничения); дождаться текущего и погасить')
     ap.add_argument('--stop-file', default='', help='если файл существует — новые прогоны не отправлять (текущий дожидаемся, потом гасим); сигнал фоновому процессу НЕ работает')
     ap.add_argument('--variants', default='', help='JSON-файл [{"tag","params"}]: каждый меш прогоняется по всем вариантам подряд (меш за мешом); результаты в <out>/<tag>/<sid>/')
@@ -277,6 +278,18 @@ def main() -> int:
                 elif inflight is not None:
                     if inflight.get('status') != 'failed':
                         c, r = gw.call('GET', '/job/' + inflight['job'], timeout=30)
+                        if c == 200 and r.get('state') != 'done':
+                            pg0 = r.get('progress') or {}
+                            key = (pg0.get('step'), pg0.get('since'))
+                            gpu_idle = (pg0.get('gpu_util') or 0) < 5
+                            if inflight.get('stuck_key') != key or not gpu_idle:
+                                inflight['stuck_key'], inflight['stuck_since'] = key, t     # шаг сменился или GPU ожил — отсчёт заново
+                            if gpu_idle and t - inflight.get('stuck_since', t) > a.stuck_min * 60:
+                                say(f'!! завис: шаг {pg0.get("step")} не меняется {(t - inflight["stuck_since"]) / 60:.0f} мин при GPU {pg0.get("gpu_util")} % — гашу')
+                                inflight.update(status='failed', error=f'завис на шаге {pg0.get("step")} ({pg0.get("line")})')
+                                summary['stopped_by'] = 'stuck'
+                                summary['stuck_at'] = pg0
+                                break
                         if c == 200 and r.get('state') != 'done' and t - inflight.get('last_prog', 0) >= 120:
                             inflight['last_prog'] = t
                             pg = r.get('progress') or {}
