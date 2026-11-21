@@ -199,6 +199,7 @@ jobs:
       - run: python tools/scout/tests/test_recolor_window.py   # путь перекраски на живое (T-20261119-03/2): проверки pre, окно без волны (занято/волна посреди/шаг упал), бэкап, выкладка, recolor_rollback.sh в сухом прогоне (нужны numpy, bash)
       - run: python3 tools/assets/tests/test_material_class.py   # классы материала мебели для рендера: характеристики → название → роль, отрицания, общее «ткань», части; результат собран по этим правилам (T-20261117-14)
       - run: python3 tools/assets/tests/test_material_parts.py   # маска частей мебели: ножки отдельно от обивки по геометрии, неуверенность — без слоя; результат собран по этим правилам (T-20261117-14/3)
+      - run: python3 tools/assets/tests/test_material_stage.py   # этап 08 «материал»: класс части → PBR-рецепт, запекание в UV общего листа, GLB с sheen/transmission; цвет и форма не тронуты (T-20261121-170/1)
       - run: python3 tools/assets/tests/test_brick_ids.py   # карта «номер кирпича» для разнотона кладки: шов 0, кирпич через край тайла — один номер (T-20261117-16/2)
       - run: python tools/assets/tests/test_rt_texture_guard.py  # битая текстура лёгкой копии (gltfpack «ERR/» при квоте /tmp) — перепаковка без KTX2 или копию не пишем (T-20261107-15)
       - run: python tools/assets/tests/test_rt_weight.py   # П-4: порог веса лёгкой копии ТОЛЬКО в rules/rt-weight.json, лестница 1024 → 512 → упрощение → отказ с причиной, рабочие файлы убраны, publish_rt.sh читает порог из правила (T-20261120-150/1, план painted-to-rt-01)
