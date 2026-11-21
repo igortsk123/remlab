@@ -1,0 +1,38 @@
+{
+  "_about": "ЭТАП 9 «проверка» пути покраски (план paint-photo-fill-01, T-20261121-169/4). Здесь ТОЛЬКО то, чего нет в check.json этапов: какие этапы обязательны, какая мерка этапа «мягкая» (не блокирует показ, а ставит пометку), откуда брать итоговый GLB для сторожа охвата. ПОРОГИ мерок живут в самих этапах (check.json: value/threshold/op/ok — читаем как есть, не копируем); пороги охвата — в tex_coverage.THRESHOLDS (verdict keep/repaint/reject). Мерка может сама назвать себя мягкой флагом `\"soft\": true` в check.json этапа — он главнее этой таблицы; таблица — запасной путь, пока этапы флаг не пишут.",
+  "required_stages": ["01-trellis", "02-prep", "03-parts", "04-camera", "05-delight", "06-visible", "07-fill", "08-material"],
+  "titles": {
+    "01-trellis": "1 · модель и грубая раскраска",
+    "02-prep": "2 · облегчить, развернуть, перенести цвет",
+    "03-parts": "3 · части и из чего",
+    "04-camera": "4 · камера как у фотографа",
+    "05-delight": "5 · убрать свет",
+    "06-visible": "6 · фото на видимое",
+    "07-fill": "7 · докрасить невидимое",
+    "08-material": "8 · материал",
+    "coverage": "9 · охват текстуры (сторож)"
+  },
+  "soft": {
+    "_about": "Мерка из списка не прошла, остальные прошли → этап «мягко»: товар можно показывать с пометкой. Любая иная непрошедшая мерка, непрошедший этап без названной мерки или отсутствие check.json → «отказ»/«нет» (жёстко). \"*\" — весь этап мягкий. `everywhere` — мерки любого этапа (стоимость, не качество).",
+    "everywhere": ["seconds", "time_s"],
+    "05-delight": "*",
+    "06-visible": ["known_share", "edge_corr"],
+    "07-fill": ["dE00_front_back", "filled_faces_step_pct"]
+  },
+  "final_glb": {
+    "stages": ["08-material", "07-fill"],
+    "_about": "итоговый GLB для сторожа охвата: первый `*.glb` из `outputs` check.json первого из этих этапов, у которого он есть"
+  },
+  "coverage": {
+    "enabled": true,
+    "yaw": 0.0,
+    "grid": 2048,
+    "view_res": 768,
+    "ext_n": 26,
+    "outcome": {"keep": "ok", "repaint": "soft", "reject": "refused"},
+    "show_metrics": ["unseen_outer_tex_pct", "grazing_outer_tex_pct", "unpainted_outer_tex_pct", "seam_tex_pct", "outer_share_tex_pct"]
+  },
+  "ribbon": {"columns": 3, "cell_w": 640, "img_h": 400, "head_h": 66},
+  "words": {"ok": "прошёл", "soft": "мягко", "refused": "отказ", "missing": "нет этапа"},
+  "final_words": {"ready": "готов к показу владельцу", "ready_with_notes": "готов с пометкой", "not_ready": "не готов"}
+}
