@@ -291,6 +291,31 @@ def test_unsure_parts_report():
     ok(d["lab"] == [30.0, 0.0, 0.0] and "ΔE" in d["reason"], "цвет Lab и причина — в отчёте")
 
 
+def test_soft_body_inherits_upholstery():
+    col = lambda L: {"lab_median": [L, 0.0, 0.0]}   # noqa: E731
+    parts = [{"id": 0, "face_share": 0.5, "role": "part-0", "vl": None, "colour": col(70.0)},
+             {"id": 1, "face_share": 0.25, "role": "part-1", "vl": None, "colour": col(25.0)},      # подушка тёмного цвета: ΔE 45 к главной
+             {"id": 2, "face_share": 0.2, "role": "part-2", "vl": None, "colour": None},            # цвета нет вообще
+             {"id": 3, "face_share": 0.05, "role": "legs", "vl": None, "colour": col(40.0)}]
+    for grp in ("seating", "bed"):
+        cls = dict(_cls("velour", 0.9, legs="metal"), group=grp)
+        res = MS.resolve_parts(parts, cls, R, parts_known=True)
+        ok(res[1]["class"] == "velour" and res[1]["confident"] and res[1]["source"] == "body-soft", f"{grp}: тёмная часть корпуса — та же обивка, уверен (ΔE не решает)")
+        ok(res[2]["class"] == "velour" and res[2]["confident"], f"{grp}: часть без цвета — тоже обивка")
+        ok(res[3]["class"] == "metal" and res[3]["source"] == "catalog:legs", f"{grp}: ножки — отдельный класс из каталога, обивку не наследуют")
+    nograph = dict(_cls("ldsp", 0.9), group="case")
+    res = MS.resolve_parts(parts, nograph, R, parts_known=True)
+    ok(res[1]["source"] == "unsure" and not res[1]["confident"], "шкаф/комод: правило мягкой мебели не действует — отличающийся цвет остаётся «не уверен»")
+    res = MS.resolve_parts(parts, _cls("velour", 0.9), R, parts_known=True)
+    ok(res[1]["source"] == "unsure", "группа не названа — прежняя политика (цвет решает)")
+    near = [dict(p) for p in parts]; near[1] = dict(near[1], colour=col(66.0))
+    res = MS.resolve_parts(near, dict(_cls("velour", 0.9), group="seating"), R, parts_known=True)
+    ok(res[1]["source"] == "body-soft", "у мягкой мебели и близкий цвет — обивка по правилу корпуса (цвет не участвует)")
+    forms = [{"id": 0, "face_share": 0.6, "role": "part-0", "vl": None, "colour": col(70.0)}, {"id": 1, "face_share": 0.4, "role": "shape:blob-top", "vl": None, "colour": col(10.0)}]
+    res = MS.resolve_parts(forms, dict(_cls("velour", 0.9, shade="glass"), group="seating"), R, parts_known=True)
+    ok(res[1]["class"] == "glass", "часть формы (плафон из каталога) правилом корпуса не перекрывается")
+
+
 def test_top_zone_bigger_than_body():
     parts = [{"id": 0, "face_share": 0.2, "role": "shape:blob", "vl": None, "colour": None},
              {"id": 1, "face_share": 0.5, "role": "shape:blob-top", "vl": None, "colour": None},
@@ -340,7 +365,7 @@ def test_stage_geometry_and_inherited():
 
 
 if __name__ == "__main__":
-    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited):
+    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_soft_body_inherits_upholstery, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited):
         print(t.__name__)
         t()
     print(f"material_stage tests: ошибок {FAIL}")

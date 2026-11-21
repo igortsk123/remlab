@@ -121,6 +121,10 @@ def resolve_parts(parts: list[dict], cls: dict, recipes: dict, parts_known: bool
             if not parts_known and lost:      # в каталоге есть плафон/ручки другого материала, а где они — без частей этапа 3 неизвестно
                 r["confidence"] = min(r["confidence"], conf["no_parts_conflict"])
                 r["reason"] += "; в каталоге есть " + ", ".join(f"{k} ({cat[k]['class']})" for k in lost) + ", частей этапа 3 нет — где они, не знаем"
+        elif cls.get("group") in cl.get("body_inherit_groups", []) and not str(p.get("role", "")).startswith("shape:"):
+            de = f" (ΔE {_de76(lab, main_lab):.1f})" if lab is not None and main_lab is not None else ""
+            r = {"class": cls["class"], "source": "body-soft", "confidence": conf["body_inherit"],
+                 "reason": f"мягкая мебель: часть корпуса — та же обивка по каталогу, цвет роли не решает{de}"}
         elif main_lab is not None and lab is not None and _de76(lab, main_lab) <= cl["same_material_dE"]:
             r = {"class": cls["class"], "source": "colour≈main", "confidence": conf["same_colour_as_main"],
                  "reason": f"цвет как у главной части (ΔE {_de76(lab, main_lab):.1f})"}
@@ -519,6 +523,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
         return fail("в модели нет развёртки UV — рецепт некуда запекать", faces=nf)
     rules = mc.load_rules()
     cls = mc.classify(rules, {"role": product.get("role") or "", "name": product.get("name") or "", "params": product.get("params") or {}})
+    cls["group"] = rules["_roleGroup"].get(product.get("role") or "")          # группа каталога (seating/bed/…): от неё зависит политика для частей без метки
     pdir = parts_dir or os.path.join(run, ps.safe_name(sku), "03-parts")
     npz = os.path.join(pdir, "parts.npz")
     shape_rep = None
