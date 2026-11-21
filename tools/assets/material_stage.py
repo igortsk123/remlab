@@ -415,8 +415,22 @@ def rasterize_labels(uv: np.ndarray, faces: np.ndarray, face_label: np.ndarray, 
     return lab
 
 
-def bake_maps(lab: np.ndarray, table: list[str], recipes: dict) -> dict:
-    """Растр классов → карты: metallicRoughness (G rough, B metal), sheenColor (серый = сила sheen, sRGB), transmission (R); скаляр sheenRoughness."""
+def tint_sheen(sheen: np.ndarray, albedo, st: dict) -> np.ndarray:
+    """Цвет sheen = сила класса × цвет ткани (T-20261121-169, серость тёмного бархата): sheen_rgb = сила × lin(цвет) / max(макс.канал lin(цвет), floor), всё в линейном свете.
+    Серый sheen поверх тёмного синего альбедо добавляет серый свет (L +12, хрома −3 у дивана Денди); ворс настоящего бархата окрашен цветом ткани. Нет альбедо или `on`=false — серый, как раньше.
+    → (H×W×3 линейная сила 0..1)."""
+    if albedo is None or not st.get("on"):
+        return np.stack([sheen] * 3, axis=-1)
+    from PIL import Image as _I
+    a = albedo.convert("RGB") if hasattr(albedo, "convert") else albedo
+    a = np.asarray(a.resize((sheen.shape[1], sheen.shape[0]), _I.BILINEAR), dtype=np.float64) / 255.0
+    lin = np.power(a, 2.2)
+    tint = lin / np.maximum(lin.max(axis=-1, keepdims=True), float(st["floor"]))
+    return np.clip(sheen[..., None] * tint, 0.0, 1.0)
+
+
+def bake_maps(lab: np.ndarray, table: list[str], recipes: dict, albedo=None) -> dict:
+    """Растр классов → карты: metallicRoughness (G rough, B metal), sheenColor (сила sheen × цвет ткани, sRGB; серый — если `sheen_tint.on`=false или нет альбедо), transmission (R); скаляр sheenRoughness."""
     lut = {p: np.zeros(256, dtype=np.float64) for p in PROPS}
     lut_sr = np.zeros(256, dtype=np.float64)
     for i, cid in enumerate(table, start=1):
@@ -428,8 +442,7 @@ def bake_maps(lab: np.ndarray, table: list[str], recipes: dict) -> dict:
     rough, metal, sheen, trans = (lut[p][lab] for p in PROPS)
     to8 = lambda a: np.clip(np.round(a * 255.0), 0, 255).astype(np.uint8)  # noqa: E731
     mr = np.stack([np.full(lab.shape, 255, np.uint8), to8(rough), to8(metal)], axis=-1)
-    sheen_srgb = to8(np.power(np.clip(sheen, 0, 1), 1 / 2.2))
-    sheen_rgb = np.stack([sheen_srgb] * 3, axis=-1)
+    sheen_rgb = to8(np.power(tint_sheen(np.clip(sheen, 0, 1), albedo, recipes.get("sheen_tint") or {}), 1 / 2.2))
     trans_rgb = np.stack([to8(trans), np.zeros(lab.shape, np.uint8), np.zeros(lab.shape, np.uint8)], axis=-1)
     w = sheen.reshape(-1)
     sr = float((lut_sr[lab].reshape(-1) * w).sum() / w.sum()) if w.sum() > 0 else 0.5
@@ -820,7 +833,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     label_of = {c: i for i, c in enumerate(table, start=1)}
     face_label = np.array([label_of[c] for c in cls_of_face], dtype=np.int64)
     lab = rasterize_labels(np.asarray(uv, dtype=np.float64), np.asarray(mesh.faces), face_label, recipes["bake"]["mapSize"])
-    maps = bake_maps(lab, table, recipes)
+    maps = bake_maps(lab, table, recipes, _base_image(*read_glb(glb)))
     out_glb = os.path.join(sdir, "material.glb")
     gt = recipes["glass_tone"]
     glass_cls = {c for c, d in rules["_byId"].items() if d["family"] == "glass"}
@@ -949,6 +962,9 @@ def check() -> int:
     for k in ("photo_max_dE", "alpha_min", "min_pixels", "patch_dilate_px", "highlight_trim", "semi_alpha_max", "dark_L_max"):
         if not isinstance(gt.get(k), (int, float)) or gt[k] < 0:
             bad.append(f"glass_tone.{k}: {gt.get(k)!r}")
+    stt = recipes.get("sheen_tint") or {}
+    if not isinstance(stt.get("on"), bool) or not isinstance(stt.get("floor"), (int, float)) or not 0 < stt["floor"] <= 1:
+        bad.append(f"sheen_tint: {stt!r} (нужно on bool и floor 0..1)")
     pp = recipes.get("part_photo") or {}
     for k in ("iou_min", "inset_px", "min_pixels", "highlight_trim", "dE_apply"):
         if not isinstance(pp.get(k), (int, float)) or pp[k] < 0:
