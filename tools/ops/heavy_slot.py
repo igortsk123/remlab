@@ -78,6 +78,12 @@
     Поэтому сверх HEAVY_SLOT_SLOTS есть HEAVY_SLOT_PRIO_SLOTS (1) слот(ов) `slot<k>.lock`, которые берут ТОЛЬКО билеты класса ≥ 1;
     допуск — как в дополнительный слот (по памяти по факту, с долями всех держателей и запасом), долю держателя резерва считают все.
     Свободен только резерв — обычные впереди не мешают обгону (он не их), защита головы его не закрывает.
+  * УДАЛЁННЫЙ ПЛАТНЫЙ ДРАЙВЕР (T-116/доп, урок 703): билет класса ≥ HEAVY_SLOT_REMOTE_PRIO (2) с малой заявкой — порог ≤
+    HEAVY_SLOT_REMOTE_GB (1 ГБ), ядер ≤ HEAVY_SLOT_REMOTE_CORES (1) — это драйвер платной машины на стороне (Salad/RunPod,
+    `kit_driver`, `trial-*`): локально он почти ничего не ест, а машина владельца простаивает за деньги, пока он стоит в нашей
+    очереди. Допуск — по ФАКТУ свободной памяти: свободно ≥ свой порог + запас, БЕЗ вычета неизрасходованных заявок держателей
+    (при `t182-whole` 6 ГБ заявлено / 1 по факту драйвер ждал 8 мин); защита головы его не закрывает. Остальные — как прежде
+    (класс 1 и большие заявки доли держателей вычитают).
   * ЯДРА (T-20261111-17, владелец TG 1488: 11.11 в 13:55 нагрузка 24 на 15 ядрах — 3D в Playwright ~7 ядер, три регресса
     по -j 3 и ещё два прогона; память была, процессора нет). `--cores N` / `heavy_slot(cores=N)` — сколько ядер займёт задача;
     без ключа обёртка ВЫВОДИТ ядра из команды (T-17/2, `cores_hint`, строка журнала «ядра выведены: N (по …)»), не узнала —
@@ -193,6 +199,14 @@ def prio_slots() -> int:
     """РЕЗЕРВ ПРОБЫ (T-20261110-29): сколько слотов сверх `slots()` берут только билеты класса ≥ 1 (загрузка тура, «Обустроить») —
     HEAVY_SLOT_PRIO_SLOTS, по умолчанию 1; 0 — резерва нет. Допуск в резерв — как в дополнительный слот (по памяти по факту)."""
     return max(0, int(_env_f('HEAVY_SLOT_PRIO_SLOTS', 1)))
+
+
+def remote_small(prio: int, own: float, cores: float) -> bool:
+    """УДАЛЁННЫЙ ПЛАТНЫЙ ДРАЙВЕР (T-116/доп): билет класса ≥ HEAVY_SLOT_REMOTE_PRIO (2) с малой заявкой — порог ≤ HEAVY_SLOT_REMOTE_GB
+    (1 ГБ) и ядер ≤ HEAVY_SLOT_REMOTE_CORES (1). Платит владелец за машину на стороне (Salad/RunPod), а локально драйвер почти ничего не
+    ест: стоять ему в нашей очереди дольше, чем нужно по факту, — деньги и время зря (урок 703)."""
+    return (prio >= int(_env_f('HEAVY_SLOT_REMOTE_PRIO', 2)) and own <= _env_f('HEAVY_SLOT_REMOTE_GB', 1.0)
+            and cores <= _env_f('HEAVY_SLOT_REMOTE_CORES', 1.0))
 
 
 def fact_on() -> bool:
@@ -693,6 +707,11 @@ def _head_wait(d: str, live: list, now: float | None = None) -> tuple[str, float
         if m.get('ticket') == os.path.basename(live[0][1]):
             with contextlib.suppress(KeyError, ValueError):
                 t = max(now - float(m['since']), 0.0)
+        # T-162: отсчёт — от ПРИХОДА процесса в очередь (`since` билета не меняется ни уступкой, ни новым билетом), а не от момента, как билет
+        # стал первым: метка `head` обнуляется при каждой смене первого (пришёл старший класс, обогнал и ушёл — прежняя голова снова первая
+        # «с нуля»), и при потоке мелких окно обгона не закрывалось никогда — большая задача (порог 8,5) стояла 94 мин при «ждёт 11 мин из 20»
+        with contextlib.suppress(KeyError, ValueError, TypeError):
+            t = max(t, now - float(live[0][2]['since']))
         if not best[0] or t > best[1]:
             best = (live[0][2].get('label', '?'), t)
     return best
@@ -1177,6 +1196,12 @@ def _need(d: str, k: int, own: float, n: int, cores: float = CORES_DEFAULT, prio
     cok, cwhy = _cores_ok(d, k, n, cores, prio)
     if not cok:
         return False, f'память не считал; {cwhy}', free, 'ядра'
+    if remote_small(prio, own, cores):                # удалённый платный драйвер: по ФАКТУ свободной памяти, без неизрасходованных заявок держателей
+        alone = not any(is_held(j) for j in range(1, n + 1) if j != k)     # одиночный — как всегда: свой порог без запаса (иначе при малой памяти не пустили бы вовсе)
+        mok = free >= (own if alone else own + res)
+        return mok, (f"удалённый платный драйвер (приоритет {prio}, порог {own:g} ГБ, ядер {cores:g}): свободно {free:.1f} ГБ "
+                     f"{'≥' if mok else '<'} свой {own:g}" + (' (одиночный — без запаса)' if alone else f' + запас {res:.1f}')
+                     + f" — заявки держателей не вычитаю; {cwhy}"), free, 'память'
     others, why, any_h = _holders_need(d, k, n)
     mok = free >= (others + own + res if any_h else own)
     return mok and cok, (f"свободно {free:.1f} ГБ {'≥' if mok else '<'} свой {own:g}"
@@ -1359,7 +1384,8 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                     return 0
                 res_only = all(k in res_ids for k in free_k)
             who, waited = _head_wait(d, live)
-            if waited >= lim and not res_only:
+            remote = remote_small(pr, own, cores)    # удалённый платный драйвер: допуск по факту памяти, защита головы его не закрывает
+            if waited >= lim and not res_only and not remote:
                 if not said_closed:
                     note(f'обгон закрыт: голова {who} ждёт {waited / 60:.0f} мин (≥ {lim / 60:g}) — новые не стартуют, '
                          f'слоты стекают к ней; жду по очереди')
@@ -1373,7 +1399,7 @@ def heavy_slot(label: str, min_gb: float = 6.0, timeout: float | None = None, no
                 return 0
             others = _holders_need(d, 0, n)[0]
             room = mem_available_gb() - others - res
-            if own > room:
+            if own > (mem_available_gb() - res if remote else room):
                 return 0
             for i, (_, _, kv) in enumerate(live[:pos]):
                 if kv.get('proxy') == '1' or (i > 0 and kv.get('bf') != '1'):
@@ -1730,6 +1756,10 @@ def status(out=sys.stdout) -> int:
             if any_held and others != float('inf'):
                 line += f'\n  сейчас: держатели могут взять ещё {others:.1f} ГБ → войдёт задача с порогом до ' \
                         f'{max(mem_available_gb() - others - res, 0):.1f} ГБ'
+                line += (f'\n  удалённый платный драйвер (приоритет ≥ {int(_env_f("HEAVY_SLOT_REMOTE_PRIO", 2))}, порог ≤ '
+                         f'{_env_f("HEAVY_SLOT_REMOTE_GB", 1.0):g} ГБ, ядер ≤ {_env_f("HEAVY_SLOT_REMOTE_CORES", 1.0):g}): по факту — '
+                         f'войдёт, если свободно ≥ свой порог + запас {res:.1f} ГБ (сейчас свободно {mem_available_gb():.1f}), '
+                         f'заявки держателей не вычитаются')
         pr(line)
     pr(f'журнал: {log_path()} · замеры: {_peaks_path(d)} (сводка — --stats)')
     return 0
