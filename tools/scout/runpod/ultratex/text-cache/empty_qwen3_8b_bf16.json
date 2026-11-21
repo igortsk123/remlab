@@ -1,0 +1,29 @@
+{
+ "shape": [
+  1,
+  512,
+  12288
+ ],
+ "dtype": "torch.bfloat16",
+ "norm_fro": 39981.25,
+ "mean": 0.000787,
+ "std": 15.95396,
+ "abs_max": 22528.0,
+ "finite": true,
+ "sha256": "1ff796da4e3411efec1b4bc8a592fd677f7c927c59069b53dfb62575b4fcfee3",
+ "layers_out": [
+  9,
+  18,
+  27
+ ],
+ "max_length": 512,
+ "chat_text": "<|im_start|>user\n<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+ "padding_side": "right",
+ "forward_s": 282.9,
+ "rss_peak_gb": 8.11,
+ "total_s": 286.9,
+ "torch": "2.13.0+cpu",
+ "transformers": "5.16.1",
+ "upstream_commit": "a726678f3f3631fe2c5e3d1fb4597114784c7a8b",
+ "threads": 2
+}
