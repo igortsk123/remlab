@@ -38,7 +38,7 @@ os.environ['SG_MEGAPIXELS'] = str(CFG.get('megapixels', 1))      # размер 
 os.makedirs(OUT, exist_ok=True)
 LOG = open(os.path.join(OUT, 'drive.log'), 'a', encoding='utf-8')
 T0 = time.time()
-ST = {'stage': 'init', 'error': '', 'done': False, 'steps': []}
+ST = {'albedo_check': {}, 'stage': 'init', 'error': '', 'done': False, 'steps': []}      # albedo_check — ПЕРВЫМ ключом (T-160/1, директор 20.11): виден с первой строки status.json
 
 
 def say(msg):
@@ -50,6 +50,54 @@ def say(msg):
 
 def save_status():
     json.dump(ST, open(os.path.join(OUT, 'status.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+
+
+def _img_sha1(img):
+    """SHA1 пикселей картинки Blender (float32); слишком большие/пустые — None."""
+    import hashlib
+    n = int(img.size[0]) * int(img.size[1]) * int(img.channels)
+    if n <= 0 or n > 4096 * 4096 * 4:
+        return None
+    a = np.empty(n, dtype=np.float32)
+    img.pixels.foreach_get(a)
+    return hashlib.sha1(a.tobytes()).hexdigest()[:16]
+
+
+def albedo_check(tag, obj):
+    """T-160/1: проверка «Base Color берёт albedo». В status.json[albedo_check][tag]: источник albedo в сцене, какие картинки висят на Base Color (имя + хэш пикселей),
+    все картинки с «albedo» в имени (имя + хэш). Совпал хэш картинки Base Color с хэшем albedo → albedo действительно в материале. Не мешает прогону при сбое."""
+    try:
+        sc = bpy.context.scene
+        rec = {'pbr_albedo_source': getattr(sc, 'pbr_albedo_source', None), 'pbr_decomposition': bool(getattr(sc, 'pbr_decomposition', False)),
+               'replace_color_with_albedo': bool(getattr(sc, 'pbr_replace_color_with_albedo', False)), 'base_color': [], 'albedo_images': []}
+        for slot in obj.material_slots:
+            m = slot.material
+            if not m or not m.use_nodes:
+                continue
+            for n in m.node_tree.nodes:
+                if n.type != 'BSDF_PRINCIPLED':
+                    continue
+                seen, stack = set(), [n.inputs['Base Color']]
+                while stack:
+                    sock = stack.pop()
+                    for lk in sock.links:
+                        src = lk.from_node
+                        if src.name in seen:
+                            continue
+                        seen.add(src.name)
+                        if src.type == 'TEX_IMAGE' and src.image:
+                            rec['base_color'].append({'material': m.name, 'node': src.name, 'image': src.image.name, 'sha1': _img_sha1(src.image)})
+                        stack.extend(i for i in src.inputs if i.is_linked)
+        for im in bpy.data.images:
+            if 'albedo' in im.name.lower():
+                rec['albedo_images'].append({'image': im.name, 'sha1': _img_sha1(im)})
+        rec['base_color_is_albedo'] = bool({b['sha1'] for b in rec['base_color'] if b['sha1']} & {a['sha1'] for a in rec['albedo_images'] if a['sha1']}) if rec['albedo_images'] else None
+        ST['albedo_check'][tag] = rec
+        say(f"albedo_check[{tag}]: источник {rec['pbr_albedo_source']}, на Base Color {len(rec['base_color'])} картинок, albedo-картинок {len(rec['albedo_images'])}, Base Color = albedo: {rec['base_color_is_albedo']}")
+    except Exception as e:  # noqa: BLE001
+        ST['albedo_check'][tag] = {'error': f'{type(e).__name__}: {e}'}
+        say(f'albedo_check[{tag}] не удалась: {e}')
+    save_status()
 
 
 def finish(error=''):
@@ -586,6 +634,8 @@ def steps():
         return
 
     # 5. запекание в нашу UV
+    if getattr(bpy.context.scene, 'pbr_decomposition', False):
+        albedo_check('before_bake', obj)                    # T-160/1: на Base Color уже albedo (аддон кладёт его после всех видов)?
     yield 'bake'
     try:                                                    # T-90/11 (директор 20.11): запекание под больше не ждёт — отдаём ядра тому, что ждёт оплаченный под (подготовка/приём видов следующего товара): nice 10 и 4 потока
         os.nice(10)
@@ -607,6 +657,8 @@ def steps():
             say('запекание идёт…')
         yield 'wait-bake'
     say('запекание завершено')
+    if getattr(bpy.context.scene, 'pbr_decomposition', False):
+        albedo_check('after_bake', obj)                     # T-160/1: после запекания в нашу UV Base Color — запечённая картинка; хэш пишем для сравнения с before_bake
 
     # 6. экспорт
     yield 'export'

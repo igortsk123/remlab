@@ -85,6 +85,16 @@ VARIANTS['q2509g1'] = dict(VARIANTS['q2509t5i'], back_mode='side_sample_sign', g
                            label='G1 (T-154/1): как T5i + сторож каждого вида (малиновое/цвет → повтор → без контекста → отклонить), заднему виду — образец бока по знаку угла вместо «без фото», серый фон контекста')
 VARIANTS['q2509pc0'] = dict(VARIANTS['q2509g1'], parts_caption=True, label='PC0 (T-161, П6): как G1 + подпись-композиция «верх … цвета, каркас и ножки … цвета» из каталога (общая подпись, не разметка граней; утечки и выдумка сзади — меряем)')
 VARIANTS['q2509pc1'] = dict(VARIANTS['q2509pc0'], parts_slots=True, label='PC1 (T-161, П6): как PC0 + слоты материала «тело/ножки» на гранях формы — только если геометрия уверенно split (кресла, диваны с ножками); слитые формы (стол-табурет, лампа) — без слотов, как PC0')
+# T-160/1 (П5 тень-«вмятина», П7 блеск велюра): после всех видов аддон сам снимает свет и тени (Marigold V2 albedo) и кладёт albedo в Base Color.
+# Остальные PBR-карты выключены (нужен только цвет без света). Порядок свойств важен: выбор источника albedo сам переключает автонасыщенность, потому её выключаем ПОСЛЕ (V2 цвет и так держит).
+PB1_PROPS = {'pbr_decomposition': True, 'pbr_albedo_source': 'marigold_v2', 'pbr_map_albedo': True, 'pbr_map_roughness': False, 'pbr_map_metallic': False,
+             'pbr_map_normal': False, 'pbr_map_height': False, 'pbr_map_ao': False, 'pbr_map_emission': False, 'pbr_replace_color_with_albedo': True,
+             'pbr_albedo_auto_saturation': False}
+VARIANTS['pb1'] = dict(VARIANTS['q2509g1'], weights=VARIANTS['q2509g1']['weights'] + ['mv2_base', 'mv2_lora', 'mv2_vae', 'mv2_cond'],
+                       scene_props=dict(VARIANTS['q2509g1']['scene_props'], **PB1_PROPS),
+                       label='PB1 (T-160/1): как G1 + снятие света и теней с видов (Marigold V2 albedo → Base Color), остальные PBR-карты выкл.')
+VARIANTS['v2probe'] = dict(VARIANTS['q2509g1'], weights=['mv2_base', 'mv2_lora', 'mv2_vae', 'mv2_cond'], job='v2albedo', scene_props={},
+                           label='V2-проба (T-160/1, директор 21.11): Marigold V2 albedo по ВЫРЕЗКАМ фото магазина, без Blender и запекания (только ComfyUI-граф `sg_v2_albedo.py`)')
 VARIANTS['q2509t5f'] = dict(_T5BASE, back_mode='no_photo', label='T5f: T5b + порядок от переда; виду сзади фото не даём, только подпись и последовательный контекст')
 VARIANTS['q2509t3'] = dict(VARIANTS['q2509vp'], label='диагностика: подсказки видов + прежний короткий промпт')
 VARIANTS['q2509t4'] = dict(VARIANTS['q2509q5'], scene_props={'qwen_external_style_initial_only': True}, label='диагностика: прежний промпт, фото только первому виду')
@@ -131,7 +141,7 @@ def parse_runs(spec: str) -> list[tuple[str, str]]:
 
 def weights_for(runs: list[tuple[str, str]]) -> str:
     """Какие веса качать группе: общие (текст-кодировщик, VAE) + по паре «модель + LoRA» на каждый вариант (без повторов, порядок стабильный)."""
-    keys = ['te', 'vae']
+    keys = [] if runs and all(VARIANTS[v].get('job') == 'v2albedo' for _, v in runs) else ['te', 'vae']      # V2-проба: текст-кодировщик и VAE Qwen не нужны (свои VAE и conditioning) — экономим ≈8 ГБ докачки
     for _, var in runs:
         for w in VARIANTS[var]['weights']:
             if w not in keys:
@@ -434,6 +444,11 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
             stamp = time.strftime('%H%M%S', time.gmtime())
             odir = os.path.join(a.out, f'{key}-{var}-{stamp}')            # новая папка с меткой времени — старое не перезаписывается
             os.makedirs(odir, exist_ok=True)
+            if VARIANTS[var].get('job') == 'v2albedo':                    # V2-проба: лёгкий HTTP-клиент к ноде через мост (не тяжёлое — очередь heavy-slot не нужна); вход — вырезка из --v2-inputs
+                src = {i['name']: i['path'] for i in json.load(open(a.v2_inputs, encoding='utf-8'))}[key]
+                cmd = [sys.executable, os.path.join(HERE, 'sg_v2_albedo.py'), '--server', f'127.0.0.1:{relay_port}', '--in', src, '--out', os.path.join(odir, 'albedo.png'), '--timeout', str(a.job_timeout * 60)]
+                proc = popen(cmd, stdout=open(os.path.join(odir, 'run.log'), 'ab'), stderr=subprocess.STDOUT)
+                return {'key': key, 'variant': var, 'label': VARIANTS[var]['label'], 'dir': odir, 'proc': proc, 'started': t, 'last_say': t}
             cfg = build_cfg(key, var, os.path.join(odir, 'blender'), f'127.0.0.1:{relay_port}', a.cameras, a.texture, a.seed, a.job_timeout * 60)   # стоп «форма без UV» — здесь, до Blender
             cfg_path = os.path.join(odir, 'cfg.json')
             json.dump(cfg, open(cfg_path, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
@@ -443,6 +458,8 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
             return {'key': key, 'variant': var, 'label': VARIANTS[var]['label'], 'dir': odir, 'proc': proc, 'started': t, 'last_say': t}
 
         def finish_run(it, rc, t):
+            if VARIANTS[it['variant']].get('job') == 'v2albedo':
+                return rc == 0 and os.path.exists(os.path.join(it['dir'], 'albedo.png')), {}
             return rc == 0 and os.path.exists(os.path.join(it['dir'], 'blender', 'painted.glb')), {}
 
         def over_limits(t: float) -> str | None:
@@ -598,6 +615,7 @@ def main() -> int:
     ap.add_argument('--min-gb-min', type=float, default=0.5, help='скорость докачки весов, ГБ/мин: ниже столько же --slow-window-s секунд подряд — нода медленная, гасим (директор 20.11)')
     ap.add_argument('--slow-window-s', type=int, default=180)
     ap.add_argument('--running-min', type=int, default=60, help='минут от /start до running (нода выдана); дольше — группу гасим (директор 20.11: 15)')
+    ap.add_argument('--v2-inputs', default=None, help='JSON [{"name","path"}] — вырезки для варианта v2probe; --runs <name>:v2probe,…')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--stop-only', action='store_true')
     a = ap.parse_args()
