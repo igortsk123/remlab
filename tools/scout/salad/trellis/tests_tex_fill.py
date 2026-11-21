@@ -649,6 +649,215 @@ def test_outlier_blocks():
     ok(nrej2 == 2 and len(keep2) == 21, f"чёрная дыра и белый фон отброшены, ветка цела (отброшено {nrej2})")
 
 
+def test_trellis_relief():
+    print("вариант C (source=trellis_relief): цвет как stat, фактура — рельеф яркости черновика с ограничением силы, выбросы → лоскут stat:")
+    g, parts, known, tl, col = scene_parts()
+    rn = np.random.RandomState(8)
+    tex0 = g["tex"].copy()
+    for tile, c0, sub in ((tl["A"], col["red"], None), (tl["B"], col["blue"], 0.5), (tl["C"], col["yellow"], None)):          # фото ровное (не «узорное»): мелкий шум яркости
+        mm = tile_mask(tile, sub)
+        tex0[mm] = np.clip(c0 + rn.normal(0, 4.0, (int(mm.sum()), 3)), 0, 255).astype(np.uint8)
+    g = dict(g, tex=tex0)
+    mD, mA = tile_mask(tl["D"]), tile_mask(tl["A"])
+    ys, xs = np.nonzero(mD)
+    x0, y0 = int(xs.min()), int(ys.min())                          # строки UV перевёрнуты — рамку берём по самой маске
+    side = int(xs.max()) - x0 + 1
+
+    def mk_draft(noise_sd, blob, crumbs, seed=21):
+        rr = np.random.RandomState(seed)
+        dtex = np.full((T, T, 3), 90, np.uint8)
+        base = 90.0 + rr.normal(0, noise_sd, (T, T))
+        if blob:                                                   # большое тёмное пятно в центре D
+            cy, cx = y0 + side // 2, x0 + side // 2
+            h = side // 6
+            base[cy - h:cy + h, cx - h:cx + h] -= 60.0
+        if crumbs:                                                 # крошка: отдельные яркие/тёмные тексели
+            idx = rr.choice(len(ys), crumbs, replace=False)
+            base[ys[idx], xs[idx]] += rr.choice([-80.0, 80.0], crumbs)
+        dg_ = dict(g)
+        dtex[:] = np.clip(base, 0, 255).astype(np.uint8)[..., None]                 # шум по всей развёртке (у настоящего черновика фактура везде)
+        dg_["tex"] = dtex
+        return TF.draft_texels([g], [dg_])
+    dt = mk_draft(3.0, True, 15)
+    cfgC = {"gutter": 0, "erode_known": 0, "source": "trellis_relief", "pattern_chroma": 1e9}          # части сцены соседствуют цветными плитками — «узорность» по хроме здесь не нужна
+    out = TF.fill([g], known, parts, cfg=cfgC, mirror=False, draft=dt)
+    st = TF.fill([g], known, parts, cfg={"gutter": 0, "erode_known": 0, "source": "stat", "pattern_chroma": 1e9}, mirror=False)
+    tex, rep = out["tex"][0], out["report"]
+    ok(int((tex[known[0]] != g["tex"][known[0]]).sum()) == 0, "известные тексели не изменились")
+    labC, labS, labA = lab_of(tex, mD), lab_of(st["tex"][0], mD), lab_of(g["tex"], mA)
+    ok(de(labC.mean(axis=0), labS.mean(axis=0)) < 3.0, "цвет (тон) — как у stat, а не серый черновик", f"ΔE {de(labC.mean(axis=0), labS.mean(axis=0)):.1f}")
+    r0 = rep["relief"][0]
+    ok(r0["fallback"] is None and r0["gain"] <= TF.RULES["trellis_relief"]["gain_max"] + 1e-9 and r0.get("usable_texels", 0) > 0.5 * int(mD.sum()) and rep.get("relief_texels", 0) > 0.5 * int(mD.sum()), f"рельеф применён: gain {r0['gain']}, на залитом {rep.get('relief_texels', 0)} из {int(mD.sum())}")
+    ok(float(labC[:, 0].std()) <= float(labA[:, 0].std()) * 1.2 + 0.5, f"сила рельефа ограничена силой фактуры фото (σL залитого {float(labC[:, 0].std()):.1f} ≤ фото {float(labA[:, 0].std()):.1f})")
+    cy, cx = y0 + side // 2, x0 + side // 2
+    h = side // 5
+    ctr = tex[cy - h:cy + h, cx - h:cx + h]
+    blobL = float(TF.rgb2lab(ctr.reshape(-1, 3))[:, 0].mean())
+    ok(abs(blobL - float(labS[:, 0].mean())) < 8.0, f"большое тёмное пятно черновика не перенесено (L в центре {blobL:.1f}, тон {float(labS[:, 0].mean()):.1f})")
+    # крошка: самые яркие/тёмные тексели черновика не должны давать выбросов в результате
+    ok(float(np.percentile(labC[:, 0], 99.9)) < float(labS[:, 0].mean()) + 25.0 and float(np.percentile(labC[:, 0], 0.1)) > float(labS[:, 0].mean()) - 25.0, "крошка черновика (±80) не просочилась")
+    # вся часть — выбросы: запасной на лоскут
+    dt2 = mk_draft(3.0, False, int(0.6 * len(ys)))
+    o2 = TF.fill([g], known, parts, cfg=cfgC, mirror=False, draft=dt2)
+    ok(o2["report"]["relief"][0]["fallback"] is not None and "usable_texels" not in o2["report"]["relief"][0], f"много выбросов — вся часть на лоскуте ({o2['report']['relief'][0]['fallback']})")
+    try:
+        TF.fill([g], known, parts, cfg=cfgC, mirror=False)
+        ok(False, "trellis_relief без черновика отвергнут")
+    except ValueError:
+        ok(True, "trellis_relief без черновика отвергнут")
+    # --- C-gated (Codex+директор 21.11): ворота по классу, однородности; затухание у границы; гладко вместо плитки; полоса в масштабе поверхности; перенос строже
+    oc = TF.fill([g], known, parts, cfg=dict(cfgC, part_class={0: "legs", 1: "body"}), mirror=False, draft=dt)
+    r_c = oc["report"]["relief"]
+    ok("вне допустимых" in (r_c[0]["fallback"] or "") and r_c[1]["fallback"] is None, f"ворота по классу: ножки (legs) — без рельефа, обивка/корпус (body) — с рельефом ({r_c[0]['fallback']})")
+    tex_g = g["tex"].copy()
+    ramp = (20 + 7.0 * (np.arange(T)[:, None] % 32))[:, :, None] * np.ones((1, T, 3))   # неоднотонная часть: яркость внутри плитки плавно растёт в 10 раз
+    tex_g[mA] = np.clip(ramp, 0, 255).astype(np.uint8)[mA]
+    og = TF.fill([dict(g, tex=tex_g)], known, parts, cfg=cfgC, mirror=False, draft=dt)
+    ok("неоднотонная" in (og["report"]["relief"][0]["fallback"] or ""), f"класса нет и часть неоднотонная — без рельефа ({og['report']['relief'][0]['fallback']})")
+    sd_n = float(labC[:, 0].std())
+    R_ = TF.RULES["trellis_relief"]
+    keep_ = dict(R_)
+    try:
+        R_["smooth_pool_rejected"] = -1.0                          # лоскут выключен (гладко) — остаётся только рельеф
+        ob = TF.fill([g], known, parts, cfg=cfgC, mirror=False, draft=dt)
+        sd_b = float(lab_of(ob["tex"][0], mD)[:, 0].std())
+        R_["fade_len"] = 1e3                                       # граница фото «бесконечно далеко» затухания → рельеф ≈ 0 везде (сразу у границы он должен затухать)
+        of = TF.fill([g], known, parts, cfg=cfgC, mirror=False, draft=dt)
+        sd_f = float(lab_of(of["tex"][0], mD)[:, 0].std())
+        ok(sd_b > 0.3 and sd_f < 0.4 * sd_b, f"рельеф затухает у границы фото в физическом расстоянии (σL {sd_f:.2f} при длине затухания 1e3 vs {sd_b:.2f})")
+        R_["fade_len"] = keep_["fade_len"]
+        R_["smooth_pool_rejected"] = -1.0                          # пул «отбракован»: плохой черновик (много выбросов) → ГЛАДКО, не лоскут
+        os_ = TF.fill([g], known, parts, cfg=cfgC, mirror=False, draft=dt2)
+        R_["smooth_pool_rejected"] = keep_["smooth_pool_rejected"]
+        op_ = TF.fill([g], known, parts, cfg=cfgC, mirror=False, draft=dt2)
+        sd_s, sd_p = float(lab_of(os_["tex"][0], mD)[:, 0].std()), float(lab_of(op_["tex"][0], mD)[:, 0].std())
+        ok(os_["report"]["relief_smooth_parts"] and sd_s < 0.4 * sd_p + 0.05, f"плохой черновик и отбракованный пул — гладкая заливка тоном (σL {sd_s:.2f}), не плитка (σL {sd_p:.2f})")
+    finally:
+        R_.clear()
+        R_.update(keep_)
+    g2 = dict(g, UV=np.asarray(g["UV"]) * 0.5)
+    sp1 = float(np.median(TF.texel_spacing(TF.Tex(g, np.asarray(g["V"], float), T, parts[0]))))
+    sp2 = float(np.median(TF.texel_spacing(TF.Tex(g2, np.asarray(g2["V"], float), T, parts[0]))))
+    ok(abs(sp2 / sp1 - 2.0) < 0.1, f"шаг текселя учитывает плотность UV (развёртка вдвое мельче → шаг вдвое крупнее: {sp2 / sp1:.2f})")
+    dg_far = dict(g, V=np.asarray(g["V"], float) + np.array([0.0, 0.0, 0.2]), tex=np.full((T, T, 3), 90, np.uint8))      # черновик чуть в стороне (≈2,5 % размера): Б ещё берёт, C (≤1,5 %) — нет
+    dB = TF.draft_texels([g], [dg_far], {"source": "trellis"})["report"]["ok_pct"]
+    dC = TF.draft_texels([g], [dg_far], {"source": "trellis_relief"})["report"]["ok_pct"]
+    ok(dC < dB, f"перенос черновика строже у C (ok {dC} % < {dB} % у Б при тех же данных)")
+
+
+def test_hidden_visible():
+    print("мерка «скрытое видимое» (tex_fill_hidden_visible): срез, метрики, свод:")
+    import tex_fill_hidden_visible as HV
+    rng = np.random.RandomState(2)
+    Q = rng.normal(size=(5000, 3))
+    cand = rng.rand(5000) < 0.7
+    hid = HV.hide_sector(Q, cand, 0.3, np.random.RandomState(1))
+    kept = cand & ~hid
+    ok(not (hid & ~cand).any() and abs(kept.sum() / cand.sum() - 0.3) < 0.02, f"прячется кусок только из своей части, остаётся ≈ 30 % (осталось {kept.sum() / cand.sum():.2f})")
+    ok(float(np.ptp(Q[hid] @ (Q[hid].mean(axis=0) / np.linalg.norm(Q[hid].mean(axis=0))))) < float(np.ptp(Q @ (Q[hid].mean(axis=0) / np.linalg.norm(Q[hid].mean(axis=0))))), "спрятанный кусок — связный сектор (полупространство), а не россыпь")
+    Hh = 96
+    m = np.ones((Hh, Hh), bool)
+    noise = np.random.RandomState(3).normal(50, 4, (Hh, Hh))
+    stripes = 50 + 6.0 * np.sin(np.arange(Hh)[None, :] * 0.9) * np.ones((Hh, 1))
+    lab = lambda l: np.stack([l, np.zeros_like(l), np.zeros_like(l)], -1)  # noqa: E731
+    same = HV.metrics_hidden(lab(noise), lab(noise), m, 1.0, 6.0, np.random.RandomState(5))
+    diff = HV.metrics_hidden(lab(stripes), lab(noise), m, 1.0, 6.0, np.random.RandomState(5))
+    ok(same['dE_low'] < 1e-6 and abs(same['band_ratio'] - 1.0) < 1e-6 and same['spec_dist'] < 1e-6 and same['ori_dist'] < 1e-6, "одинаковое с настоящим — мерки идеальные (0 / 1)")
+    ok(diff['spec_dist'] > 0.1 and diff['ori_dist'] > 0.2, f"полосы вместо шума ловятся спектром ({diff['spec_dist']:.2f}) и ориентациями ({diff['ori_dist']:.2f})")
+    recs = [{'sku': 'a', 'dir': 0, 'keep': 0.3, 'source': s_, 'dE_low': d_, 'band_ratio': b_, 'spec_dist': 0.1, 'ori_dist': 0.2} for s_, d_, b_ in (('stat', 4.0, 0.5), ('trellis_relief', 2.0, 0.95))]
+    sm = HV.summarize(recs)
+    ok('trellis_relief против stat' in sm and 'dE_low' in sm and 'побед 1' in sm, "свод: попарно C против stat считает победы")
+
+
+def test_dark_fabric():
+    print("тёмная ткань (тон L≈15): чёрный порог относительный к тону — блоки пула и двойники зеркала не вымываются целиком (T-164, диван 114082):")
+    rng = np.random.RandomState(5)
+    qe, me = TF.RULES["quilt_extreme"], TF.RULES["mirror_extreme"]
+    tone_l = 15.0
+    ok(abs(TF.dark_floor(tone_l, qe["black_abs"], qe["black_rel"]) - qe["black_rel"] * tone_l) < 1e-9, "dark_floor на тёмной ткани = доля тона")
+    ok(TF.dark_floor(67.0, qe["black_abs"], qe["black_rel"]) == qe["black_abs"], "на светлой ткани порог прежний (black_abs)")
+    pool = [rng.normal(0, 2.0, (24, 24, 3)) for _ in range(20)]
+    hole = rng.normal(0, 2.0, (24, 24, 3)); hole[4:14, 4:20, 0] = 2.0 - tone_l                       # настоящая чёрная дыра (L 2) на тёмной ткани
+    old, nold = TF.reject_extreme_blocks(pool + [hole], tone_l, qe["dL_hi"], qe["black_abs"], qe["share"])
+    new, nnew = TF.reject_extreme_blocks(pool + [hole], tone_l, qe["dL_hi"], TF.dark_floor(tone_l, qe["black_abs"], qe["black_rel"]), qe["share"])
+    ok(nold >= 20 and nnew == 1 and len(new) == 20, f"абсолютный порог резал весь пул ({nold} из 21), относительный — только дыру ({nnew})")
+    # зеркало: тёмная ткань, двойники не выбрасываются; настоящая дыра — выбрасывается
+    q = Quads()
+    left = [[-1, 0, 0], [-1, 0, 1], [-1, 1, 1], [-1, 1, 0]]
+    right = [[1, 0, 1], [1, 0, 0], [1, 1, 0], [1, 1, 1]]
+    q.quad(left, (0, 0, .5, .5), sub=24)
+    q.quad(right, (.5, 0, 1, .5), sub=24)
+    q.quad([[-1, 0, 0], [1, 0, 0], [1, 0, 1], [-1, 0, 1]], (0, .5, .5, 1), sub=24)
+    q.quad([[-1, 1, 1], [1, 1, 1], [1, 1, 0], [-1, 1, 0]], (.5, .5, 1, 1), sub=24)
+    ml, mr = tile_mask((0, 0, .5, .5)), tile_mask((.5, 0, 1, .5))
+    mfloor, mtop = tile_mask((0, .5, .5, 1)), tile_mask((.5, .5, 1, 1))
+    tex = np.full((T, T, 3), 20, np.uint8)
+    yy = (np.arange(T)[:, None] * np.ones((1, T))).astype(float)
+    base = np.stack([26 + yy * 0.04, 34 + yy * 0.04, 58 + yy * 0.06], -1)
+    tex[ml] = np.clip(base + rng.normal(0, 1.5, base.shape), 0, 255).astype(np.uint8)[ml]
+    tex[mfloor] = (28, 36, 60)
+    tex[mtop] = (28, 36, 60)
+    known = [ml | mfloor | mtop]
+    Lk = TF.rgb2lab(tex[ml])[:, 0]
+    ok(10.0 < float(np.median(Lk)) < 19.0, f"сцена действительно тёмная (медиана L {float(np.median(Lk)):.1f})")
+    o = TF.fill([q.geom(tex)], known, None, cfg={"gutter": 0, "erode_known": 0}, mirror=True)
+    rm = o["report"]["mirror"]
+    ok(rm["applied"] and rm["texels"] > 0.9 * int(mr.sum()) and rm.get("dropped_black", 0) < 0.05 * int(mr.sum()), f"тёмный диван: зеркало копирует двойников (скопировано {rm['texels']}, отброшено {rm.get('dropped_black', 0)})")
+    tex_b = tex.copy()
+    holes = np.zeros((T, T), bool)
+    holes[int(T * 0.65):int(T * 0.73), int(T * 0.15):int(T * 0.35)] = True
+    tex_b[ml & holes] = (10, 12, 20)             # L≈4: темнее порога 7,5, но «покрашено» (не чёрное-пустое)
+    o2 = TF.fill([q.geom(tex_b)], known, None, cfg={"gutter": 0, "erode_known": 0}, mirror=True)
+    ok(o2["report"]["mirror"].get("dropped_black", 0) > 0, f"настоящая чёрная дыра на тёмной ткани всё равно не зеркалится (отброшено {o2['report']['mirror'].get('dropped_black', 0)})")
+    ok("dropped_pct" in rm, "в отчёте зеркала есть доля сброшенных двойников (dropped_pct)")
+
+    def part0(base, sd, flowers=None, ref=None):
+        qq = Quads()
+        qq.quad([[0, 0, 0], [2, 0, 0], [2, 1, 0], [0, 1, 0]], (0, 0, .9, .9), sub=8)
+        qq.quad([[0, 0, -1], [2, 0, -1], [2, 1, -1], [0, 1, -1]], (.9, .9, 1.0, 1.0), sub=2)
+        tx = np.zeros((T, T, 3), np.uint8)
+        r2 = np.random.RandomState(4)
+        m = tile_mask((0, 0, .9, .9))
+        ys, xs = np.nonzero(m)
+        tx[ys, xs] = np.clip(np.array(base) + r2.normal(0, sd, (len(ys), 3)), 0, 255).astype(np.uint8)
+        if flowers is not None:
+            fl = ((xs // 12 + ys // 12) % 7 == 0) & ((xs % 12) < 8) & ((ys % 12) < 8)
+            tx[ys[fl], xs[fl]] = flowers
+        cfg = {"gutter": 0, "erode_known": 0}
+        if ref is not None:
+            cfg["pattern_dark_ref"] = ref
+        return TF.fill([qq.geom(tx)], [m.copy()], None, cfg=cfg, mirror=False)["report"]["parts"][0]
+    dn, dn0, df = part0((30, 40, 66), 2.0), part0((30, 40, 66), 2.0, ref=0), part0((30, 40, 66), 2.0, flowers=[200, 60, 90])
+    ok(dn["pattern"] is False and dn["pattern_chroma_eff"] < dn["pattern_chroma_std"], f"тёмная ровная ткань с шумом хромы — не «узорная» (σ {dn['pattern_chroma_std']} → норм. {dn['pattern_chroma_eff']})")
+    ok(dn0["pattern"] is True, "контроль: без нормировки (pattern_dark_ref=0) тот же шум давал «узорную» — прежний дефект")
+    ok(df["pattern"] is True, f"тёмная ткань с настоящим узором (яркие цветы) остаётся «узорной» (норм. σ {df['pattern_chroma_eff']})")
+    # мягкий провал «пул отбракован > 50 %» в check.json: на тёмной узорной ткани со СТАРЫМ абсолютным порогом (black_rel огромный) пул режется целиком
+    import tempfile
+    qq = Quads()
+    qq.quad([[0, 0, 0], [2, 0, 0], [2, 1, 0], [0, 1, 0]], (0, 0, .9, .9), sub=8)
+    qq.quad([[0, 0, -1], [2, 0, -1], [2, 1, -1], [0, 1, -1]], (.9, .9, 1.0, 1.0), sub=2)
+    tx = np.zeros((T, T, 3), np.uint8)
+    r3 = np.random.RandomState(4)
+    m = tile_mask((0, 0, .9, .9))
+    ys, xs = np.nonzero(m)
+    tx[ys, xs] = np.clip(np.array((30, 40, 66)) + r3.normal(0, 2.0, (len(ys), 3)), 0, 255).astype(np.uint8)
+    fl = ((xs // 12 + ys // 12) % 7 == 0) & ((xs % 12) < 8) & ((ys % 12) < 8)
+    tx[ys[fl], xs[fl]] = [200, 60, 90]
+    gq = qq.geom(tx)
+    saved = dict(TF.RULES["quilt_extreme"])
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            TF.write_glb([gq], [tx], os.path.join(td, "in.glb"))
+            good = TF.run_stage(td, "dk:1", os.path.join(td, "in.glb"), known=[m.copy()], parts=None, cfg={"gutter": 0, "erode_known": 0}, mirror=False)
+            TF.RULES["quilt_extreme"]["black_rel"] = 1e9                       # прежний абсолютный порог
+            old = TF.run_stage(td, "dk:2", os.path.join(td, "in.glb"), known=[m.copy()], parts=None, cfg={"gutter": 0, "erode_known": 0}, mirror=False)
+    finally:
+        TF.RULES["quilt_extreme"].update(saved)
+    mg, mo = good["check"]["metrics"]["pool_rejected_pct"], old["check"]["metrics"]["pool_rejected_pct"]
+    ok(mg["ok"] and mg["value"] <= 50.0, f"относительный порог: пул не отбракован (pool_rejected_pct {mg['value']})")
+    ok((not mo["ok"]) and mo["value"] > 50.0 and "pool_rejected_pct" in old["check"]["reason"] and not old["check"]["passed"], f"прежний порог: пул отбракован ({mo['value']} %) → мягкий провал в check.json, выход есть", old["check"]["reason"][:80])
+
+
 def test_stage6_gate():
     print("этап 7 отказывает, если этап 6 отказал (камера не прошла / нет выхода); мягкий провал мерок — не отказ:")
     import json
@@ -785,7 +994,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0
