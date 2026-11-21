@@ -534,6 +534,8 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
     w = Watch(t_start, price, a.probe_cap, a.cap, a.max_min, a.running_min, a.start_min, a.health_min, a.ready_min, a.stall_min, a.stall_gb)
     gw = None
     streak = 0
+    busy_waits = 0
+    last_job_look = 0.0
     pending = list(spec.jobs)
     cur = None
     last_say = 0.0
@@ -590,13 +592,25 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
                 if cur is None and pending:
                     k = pending.pop(0)
                     cur, info = spec.submit(gw, k, t)
-                    if cur is None:
+                    if cur is None and info.get('http') == 429:
+                        # «занят»: нода ещё считает прежнее задание (p4 21.11: Сакура получила 429 и сожгла серию провалов, пока комод считался) — не провал: ключ в начало очереди, ждём
+                        pending.insert(0, k)
+                        busy_waits += 1
+                        if busy_waits in (1, 6) or busy_waits % 30 == 0:
+                            say(f'задание {k}: нода занята (429) — жду, не провал (ожидание №{busy_waits})')
+                    elif cur is None:
                         streak += 1
                         summary['jobs'][k] = {'status': 'not_accepted', **info}
                         say(f'задание {k}: не принято', str(info)[:160])
                 elif cur is not None:
+                    if t - last_job_look >= 60:                   # ход задания из /health воркера (kit_worker State.job): какой шаг, сколько идёт — видно, считает или завис
+                        last_job_look = t
+                        hc, hb = gw.call('GET', '/health', timeout=20)
+                        jv = (hb or {}).get('job') if hc == 200 else None
+                        if jv:
+                            say(f'ход задания {cur["key"]}: шаг «{jv.get("step")}» {jv.get("step_s")} с, всего {jv.get("elapsed_s")} с; пройдено {jv.get("done")}')
                     status, info = spec.poll(gw, cur, t)
-                    if status == 'running' and t - cur['t0'] > a.job_min * 60:
+                    if status == 'running' and a.job_min and t - cur['t0'] > a.job_min * 60:       # job_min=0 (по умолчанию) — задание живёт до потолка пробы; срезать только явным --job-min
                         status, info = 'failed', {'status': 'timeout'}
                         say(f'задание {cur["key"]}: дольше {a.job_min} мин — снимаю')
                     if status == 'done':
