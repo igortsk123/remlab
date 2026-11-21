@@ -121,8 +121,27 @@ def main() -> int:
         trimesh.Trimesh(vertices=lo.vertices, faces=lo.faces, process=False).export(sph_flat, file_type='glb')
         trimesh.Trimesh(vertices=lo.vertices, faces=lo.faces, vertex_normals=lo.vertices / np.linalg.norm(lo.vertices, axis=1, keepdims=True), process=False).export(sph_ok, file_type='glb')
         nd_flat, nd_ok = T.normal_deviation(sph_nat, sph_flat), T.normal_deviation(sph_nat, sph_ok)
+        nr = T.normal_rules()
         check('мерка нормалей: без NORMAL (плоские грани) — среднее выше порога, с нормалями родной — ниже; флаг «NORMAL в файле» верен',
-              nd_flat[0] > T.NORMAL_DEV_MEAN_MAX > nd_ok[0] and not nd_flat[2] and nd_ok[2], (nd_flat, nd_ok))
+              nd_flat[0] > nr['normal_dev_mean_deg_max'] > nd_ok[0] and not nd_flat[2] and nd_ok[2], (nd_flat, nd_ok))
+
+        # гейт по среднему И хвосту: среднее в норме, хвост выше порога (узкие полосы) — отказ с причиной про хвост; всё в норме — пусто
+        check('гейт нормалей: среднее в норме, а хвост p99 выше порога — отказ про хвост; оба в норме — пусто; среднее выше — отказ про среднее',
+              'normal_dev_p99_deg' in T.normals_reason(nr['normal_dev_mean_deg_max'] - 1, nr['normal_dev_p99_deg_max'] + 1, True, nr)
+              and T.normals_reason(nr['normal_dev_mean_deg_max'] - 1, nr['normal_dev_p99_deg_max'] - 1, True, nr) == ''
+              and 'normal_dev_mean_deg' in T.normals_reason(nr['normal_dev_mean_deg_max'] + 1, 0.0, False, nr), nr)
+        # пороги — из JSON, без файла или с битым значением — исключение (этап не проходит молча)
+        bad_rules = os.path.join(d, 'bad-rules.json')
+        with open(bad_rules, 'w', encoding='utf-8') as fp:
+            fp.write('{"normal_dev_mean_deg_max": 10, "normal_dev_p99_deg_max": "много"}')
+        raised = []
+        for path in (os.path.join(d, 'нет-такого.json'), bad_rules):
+            try:
+                T.normal_rules(path)
+                raised.append(False)
+            except (OSError, ValueError):
+                raised.append(True)
+        check('пороги мерки нормалей: нет файла или значение не число — исключение', raised == [True, True], raised)
 
         # плита-подложка TRELLIS (T-20261121-170): упрощённая форма собрана БЕЗ плиты → перенос и Chamfer сравнивают её с родной тоже без плиты
         def box(sx, sy, sz, cx, cy, cz):

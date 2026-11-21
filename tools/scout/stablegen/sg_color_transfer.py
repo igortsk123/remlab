@@ -84,7 +84,27 @@ def load_glb(path: str):
     return out
 
 
-NORMAL_DEV_MEAN_MAX = 10.0   # этап 02: среднее° разницы нормали затенения упрощённой и сглаженной родной не больше (Салми без NORMAL — 21°, с нормалями родной — 2,9°)
+NORMAL_RULES_PATH = os.path.join(os.path.dirname(HERE), 'rules', 'sg-prep-normals.json')   # пороги мерки нормалей этапа 02 — в JSON, не в коде
+
+
+def normal_rules(path: str = NORMAL_RULES_PATH) -> dict:
+    """Пороги мерки нормалей: среднее° и хвост p99° разницы нормали затенения упрощённой и сглаженной родной. Нет файла или битое значение → исключение (этап не проходит молча)."""
+    import json
+    with open(path, encoding='utf-8') as f:
+        r = json.load(f)
+    for k in ('normal_dev_mean_deg_max', 'normal_dev_p99_deg_max'):
+        if not isinstance(r.get(k), (int, float)) or isinstance(r.get(k), bool) or not 0 < r[k] <= 180:
+            raise ValueError(f'{path}: {k} должно быть числом в (0, 180], а не {r.get(k)!r}')
+    return r
+
+
+def normals_reason(mean: float, p99: float, has_n: bool, rules: dict) -> str:
+    """Причина отказа по нормалям (пусто — прошли): среднее ИЛИ хвост выше порога. Среднее прячет узкие полосы (шкаф: среднее 7,9°, хвост 36°, на кадре полосы), поэтому гейт по обоим."""
+    if mean > rules['normal_dev_mean_deg_max']:
+        return f'затенение не как у родной: normal_dev_mean_deg {mean:.1f} > {rules["normal_dev_mean_deg_max"]} (NORMAL в файле: {"да" if has_n else "нет"}) — плашки с прямыми краями на гладком боку'
+    if p99 > rules['normal_dev_p99_deg_max']:
+        return f'затенение не как у родной в узких местах: normal_dev_p99_deg {p99:.1f} > {rules["normal_dev_p99_deg_max"]} — полосы/складки на гладкой поверхности (кадр clay с плоским затенением)'
+    return ''
 NORMAL_K = 64           # сколько ближайших вершин родной рассматривается для нормали вершины упрощённой (берутся те, что в радиусе масштаба сетки упрощённой)
 NORMAL_AGREE = 0.3       # вершина родной участвует, только если её нормаль не смотрит против собственной нормали упрощённой (cos ≥ этого): тонкая стенка/рама иначе тянет нормаль с обратной стороны → чёрные пятна
 
@@ -465,8 +485,9 @@ def stage02(run: str, sku: str, native_glb: str, out_glb: str, rep: dict | None 
                'chamfer_p99_diag': {'value': round(ch_p99, 5)},
                'color_texel_share': {'value': rep['share'], 'threshold': min_share, 'op': '>='}}
     nd_mean, nd_p99, has_n = normal_deviation(native_glb, out_glb)
-    metrics.update({'normal_dev_mean_deg': {'value': round(nd_mean, 2), 'threshold': NORMAL_DEV_MEAN_MAX, 'op': '<='},
-                    'normal_dev_p99_deg': {'value': round(nd_p99, 1)},
+    nr = normal_rules()
+    metrics.update({'normal_dev_mean_deg': {'value': round(nd_mean, 2), 'threshold': nr['normal_dev_mean_deg_max'], 'op': '<='},
+                    'normal_dev_p99_deg': {'value': round(nd_p99, 1), 'threshold': nr['normal_dev_p99_deg_max'], 'op': '<='},
                     'normals_in_file': {'value': bool(has_n)}})
     plate_json = (out_glb[:-4] if out_glb.endswith('.glb') else out_glb) + '.plate.json'      # отчёт среза плиты, его пишет sg_prep_shape.py (до упрощения)
     if os.path.exists(plate_json):
@@ -480,7 +501,7 @@ def stage02(run: str, sku: str, native_glb: str, out_glb: str, rep: dict | None 
                           metric={'name': 'faces_with_texel', 'value': round(cov, 5), 'threshold': FACES_TEXEL_MIN, 'op': '>='},
                           metrics=metrics,
                           reason=(f'форма не от этого черновика: chamfer_diag {ch_mean:.3f} > {CHAMFER_MAX} (Chamfer родной↔упрощённая, доля диагонали)' if ch_mean > CHAMFER_MAX else
-                                  f'затенение не как у родной: normal_dev_mean_deg {nd_mean:.1f} > {NORMAL_DEV_MEAN_MAX} (NORMAL в файле: {"да" if has_n else "нет"}) — плашки с прямыми краями на гладком боку' if nd_mean > NORMAL_DEV_MEAN_MAX else ''),
+                                  normals_reason(nd_mean, nd_p99, has_n, nr)),
                           seconds=seconds, outputs=['shape.glb'], frame=frame, native_texels=rep.get('native_texels'), target_texels=rep.get('target_texels'),
                           dist_p50=rep.get('dist_p50'), dist_p99=rep.get('dist_p99'), atlas=rep.get('size'), has_mr=rep.get('has_mr'))
 
