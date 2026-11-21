@@ -782,10 +782,40 @@ def test_e():
         # в CI копия обязана быть с историей (ci.yml: fetch-depth: 0) — отсутствие базы там = красный, а не тихий пропуск (Codex T-151/7)
         ok(not os.environ.get('CI'), 'нет origin/main: в CI база обязана быть (fetch-depth: 0), локально проверка по diff пропущена — остаётся статическая')
     else:
-        d = subprocess.run(['git', '-C', ROOT, 'diff', '--stat', base, '--', 'tools/scout/salad', 'tools/scout/salad/'], capture_output=True, text=True)
-        ok(d.returncode == 0 and not d.stdout.strip(), 'git diff --stat по tools/scout/salad пуст' + ('' if not d.stdout.strip() else f': {d.stdout.strip()[:200]}'))
+        # смысл стража T-151: ПАСПОРТНАЯ работа не трогает платный путь. Поэтому судим коммиты, которые меняют файлы паспортов: ни один из них не меняет tools/scout/salad.
+        # Независимые законные правки salad (набор проб, T-178/2 и т.п.) в другом коммите стража не краснят — прежняя проверка «весь diff salad пуст» падала на любой из них.
+        pfiles = [f'tools/scout/{n}' for n in ('mesh_type_passports.py', 'passport_shadow.py', 'passport_measure.py')]
+        lg = subprocess.run(['git', '-C', ROOT, 'log', '--format=%H', f'{base}..HEAD', '--'] + pfiles, capture_output=True, text=True)
+        bad = []
+        for sha in lg.stdout.split():
+            st = subprocess.run(['git', '-C', ROOT, 'show', '--stat', '--format=', sha, '--', 'tools/scout/salad'], capture_output=True, text=True)
+            if st.returncode != 0 or st.stdout.strip():
+                bad.append(f'{sha[:8]}: {st.stdout.strip()[:120]}')
+        ok(lg.returncode == 0 and not bad, 'ни один коммит с файлами паспортов (от базы ветки) не меняет tools/scout/salad' + ('' if not bad else f': {bad}'))
     src = open(os.path.join(SCOUT, 'passport_shadow.py'), encoding='utf-8').read() + open(os.path.join(SCOUT, 'mesh_type_passports.py'), encoding='utf-8').read()
     ok('salad/worker' not in src, 'код паспортов не обращается к salad/worker.py (фаза 2)')
+    # самопроверка стража на примере: коммит с паспортом И salad ловится (иначе сужение превратило бы проверку в пустую)
+    with tempfile.TemporaryDirectory() as td:
+        def g(*a):
+            return subprocess.run(['git', '-C', td] + list(a), capture_output=True, text=True)
+        g('init', '-q')
+        g('config', 'user.email', 't@t')
+        g('config', 'user.name', 't')
+        os.makedirs(os.path.join(td, 'tools/scout/salad'))
+        open(os.path.join(td, 'tools/scout/mesh_type_passports.py'), 'w').write('a')
+        open(os.path.join(td, 'tools/scout/salad/x.py'), 'w').write('a')
+        g('add', '-A')
+        g('commit', '-qm', 'один коммит: паспорт и salad')
+        sha = g('rev-parse', 'HEAD').stdout.strip()
+        st = g('show', '--stat', '--format=', sha, '--', 'tools/scout/salad')
+        lg = g('log', '--format=%H', '--', 'tools/scout/mesh_type_passports.py')
+        ok(sha in lg.stdout.split() and st.stdout.strip() != '', 'страж ловит коммит, где паспорт и salad вместе (пример)')
+        open(os.path.join(td, 'tools/scout/salad/x.py'), 'w').write('b')
+        g('add', '-A')
+        g('commit', '-qm', 'только salad')
+        sha2 = g('rev-parse', 'HEAD').stdout.strip()
+        lg2 = g('log', '--format=%H', '--', 'tools/scout/mesh_type_passports.py')
+        ok(sha2 not in lg2.stdout.split(), 'коммит только salad страж не судит (законная правка набора)')
 
 
 def _hang_cmd():
