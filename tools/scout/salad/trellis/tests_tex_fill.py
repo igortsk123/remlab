@@ -817,6 +817,51 @@ def test_tone_from_neighbour():
     ok('tone_source' in r and 'tone_skipped_parts' in r, "отчёт: tone_source по частям и tone_skipped_parts записаны, заливка не падает")
 
 
+def test_nail_twins():
+    print("шляпки гвоздей: нативные тёмные пятна невидимой стороны — в цвете видимых двойников; линии, большие пятна и тёмная ткань — нет:")
+    n = 200
+    lab = np.zeros((n, n, 3))
+    lab[..., 0], lab[..., 1], lab[..., 2] = 86.0, 1.0, 3.0
+    known = np.zeros((n, n), bool)
+    known[:, :100] = True
+    part = np.zeros((n, n), int)
+    for i in range(6):                                              # видимые двойники: квадраты 5×5, тёмная бронза
+        lab[10 + i * 20:15 + i * 20, 20:25] = (45.0, 7.0, 8.0)
+    for i in range(8):                                              # невидимые гвозди: квадраты 5×5, нативно серо-коричневые
+        lab[10 + i * 20:15 + i * 20, 140:145] = (50.0, 2.0, 3.0)
+    lab[100, 120:190] = (50.0, 2.0, 3.0)                            # тонкая линия шва: вытянутая, не гвоздь
+    lab[150:190, 150:190] = (50.0, 2.0, 3.0)                        # большое тёмное пятно: тень/деталь, не гвоздь
+    cand = ~known
+    c = dict(TF.FILL)
+    r = TF.nail_twins(lab, known, cand, part, {0: 86.0}, c)
+    m = r['mask']
+    ok(r['report']['applied'] and r['report']['twins_blobs'] == 6, f"двойники найдены: {r['report']['twins_blobs']}")
+    ok(all(m[10 + i * 20:15 + i * 20, 140:145].all() for i in range(8)), "все 8 невидимых гвоздей приняты")
+    ok(not m[100, 120:190].any() and not m[150:190, 150:190].any(), "линия и большое пятно — не гвозди")
+    ok(abs(r['lab'][12, 142, 0] - 45.0) < 0.6 and abs(r['lab'][12, 142, 1] - 7.0) < 0.6, f"цвет пятна = медиана видимых двойников: {np.round(r['lab'][12, 142], 1)}")
+    ok(r['lab'][50, 50, 0] == 86.0 and r['lab'][0, 0, 0] == 86.0, "остальное не тронуто")
+    lab2 = lab.copy()
+    lab2[known & (lab2[..., 0] < 60)] = (86.0, 1.0, 3.0)
+    r2 = TF.nail_twins(lab2, known, cand, part, {0: 86.0}, c)
+    ok(not r2['report']['applied'] and 'нет видимых двойников' in r2['report'].get('skip', ''), "двойников нет — правило молчит (тёмное = тень/шов)")
+    r3 = TF.nail_twins(lab, known, cand, part, {0: 50.0}, c)
+    ok(not r3['report']['applied'], "тёмная ткань (тон части 50 < 60) — правило молчит")
+    ok(not TF.nail_twins(lab, known, np.zeros((n, n), bool), part, {0: 86.0}, c)['report']['applied'], "кандидатов нет — молчит")
+    lab4 = lab.copy()
+    lab4[10:15, 140:145] = (4.0, 0.0, 0.0)                          # чёрная дыра и красное пятно среди кандидатов — не гвозди (далеки от двойников)
+    lab4[30:35, 140:145] = (50.0, 40.0, 20.0)
+    m4 = TF.nail_twins(lab4, known, cand, part, {0: 86.0}, c)['mask']
+    ok(not m4[10:15, 140:145].any() and not m4[30:35, 140:145].any() and m4[50:55, 140:145].all(), "чёрное и красное пятно отвергнуты по ΔE к двойникам, обычные гвозди приняты")
+    lab6 = lab.copy()
+    lab6[30:35, 140:145] = (48.0, 18.0, 10.0)                       # красноватое пятно: ΔE к двойникам < 12, но цветность выше двойников + 8 — не гвоздь
+    m6 = TF.nail_twins(lab6, known, cand, part, {0: 86.0}, c)['mask']
+    ok(not m6[30:35, 140:145].any() and m6[50:55, 140:145].all(), "красноватое пятно (цветность выше двойников) отвергнуто, обычные гвозди приняты")
+    lab5 = lab.copy()
+    for i in range(6):
+        lab5[10 + i * 20:15 + i * 20, 20:25] = (50.0, 40.0, 20.0)   # двойники красные, кандидаты серо-коричневые: ΔE велик — не принимаются
+    ok(not TF.nail_twins(lab5, known, cand, part, {0: 86.0}, c)['mask'].any(), "двойники другого цвета — кандидаты не перекрашиваются в красное")
+
+
 def test_pr_camera_and_winding():
     print("камера образца узора из этапа 4 (az, el) и обмотка граней:")
     cfg, note = TF.pr_camera_from_extra({'camera': {'az': 341.3, 'el': 8.5}}, {})
@@ -1083,7 +1128,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

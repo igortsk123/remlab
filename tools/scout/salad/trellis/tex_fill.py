@@ -99,6 +99,12 @@ FILL = {
     'pattern_side_cos': 0.2,         # узорная часть: узор кладётся только на тексели, обращённые к фото (cos нормали с направлением камеры pr_az ≥ порога); обратная сторона/сиденье/низ — тон ткани без цветов (дефект Sakura 21.11: цветы спинки на заду и сиденье)
     'smooth_roles': ['legs', 'frame', 'handles'],   # роли без плитки фактуры на недостроенном: тон части без блоков («ёлочка» стыков на дереве, Sakura 21.11)
     'tone_share_roles': ['legs', 'frame', 'handles'],   # роли, у которых тон един на все части одной роли (один материал — один тон: задние ножки темнее передних из-за теней)
+    'nail_twins': True,              # мелкие тёмные компактные пятна (шляпки гвоздей) невидимой стороны: цвет — как у видимых двойников этой части с фото, форма — нативная (ряд гвоздей сзади не стирается тоном ткани)
+    'nail_dark_drop': 25.0,          # пятно темнее тона части на столько L
+    'nail_min_tone_L': 60.0,         # части темнее этого тона (тёмная ткань) — правило молчит: тёмное там не выделяется
+    'nail_min_px': 6, 'nail_max_px': 400, 'nail_min_fill': 0.4, 'nail_max_aspect': 3.5,   # размер пятна, плотность в рамке, вытянутость (линии шва/трещины — не гвозди)
+    'nail_max_de': 12.0, 'nail_max_dchroma': 8.0, 'nail_max_shift': 6.0,   # принимаем пятно, если средний Lab ближе к двойникам (красное/чёрное — не гвоздь); сдвиг к двойникам — мягкий
+    'nail_min_twins': 5,             # видимых двойников (пятен с тем же отбором) не меньше — иначе тёмное считается тенью/швом и правило молчит
     'tone_known_min_share': 0.02,    # часть с ролью этапа 3, у которой известного < этой доли её текселей: её тон — по случайным кусочкам (накладка подлокотника: известны торцы-дерево, тон вышел «песочным»); берёт тон соседней части ТОЙ ЖЕ роли с наибольшей общей границей
     'tone_compat_min_known': 1500, 'tone_compat_de': 25.0,   # донор той же роли: если у части известного ≥ порога — её видимый тон не должен отличаться от донора больше ΔE (иначе донор отвергнут)
     'catalog_tone': None, 'skip_global_tone': True,          # каталожный тон роли {роль: Lab}; часть с ролью без своего тона и без донора/каталога НЕ красится (не тон всего товара)
@@ -609,7 +615,7 @@ def concavity(tx, smooth: int = 2):
     return cv
 
 
-def step_stats(tx, rgb, thr: float) -> dict:
+def step_stats(tx, rgb, thr: float, skip=None) -> dict:
     """«Ступени» внутри части: резкий скачок цвета (ΔE00 > thr) между соседними гранями ОДНОЙ части вдоль поверхности (соседство — по склеенным вершинам). → доля граней со ступенью, доля пар,
     то же среди «достроенных» граней (больше половины их текселей неизвестны — передаётся в tx.unk_face)."""
     F, UV = tx.F, np.asarray(tx.UV)
@@ -630,6 +636,9 @@ def step_stats(tx, rgb, thr: float) -> dict:
     same = key[1:] == key[:-1]
     a, b = fi[:-1][same], fi[1:][same]
     keep = (a != b) & (tx.part_f[a] == tx.part_f[b])
+    if skip is not None:                                                 # шляпки гвоздей (nail_twins): настоящая деталь, а не шов — грани с ними в ступенях не считаются
+        sk = np.asarray(skip, bool)[py, px]
+        keep &= ~(sk[a] | sk[b])
     a, b = a[keep], b[keep]
     if len(a) == 0:
         return {'pairs': 0, 'faces_step_pct': 0.0, 'pairs_step_pct': 0.0, 'filled_faces_step_pct': None}
@@ -1324,9 +1333,23 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     rep['time_s']['texture'] = round(time.time() - t0, 2)
     # --- итог: RGB, желоб, проверка покрытия
     outs = []
+    nail_masks = {}
     for gi, tx in enumerate(txs):
         T = tx.T
         rgb = tex_in[gi].copy()
+        if c.get('nail_twins'):                                         # шляпки гвоздей: нативные тёмные пятна невидимой стороны в цвете видимых двойников (после всей заливки, до RGB)
+            pm_ = np.full(T * T, -1, np.int64)
+            pm_[tx.ti] = tx.part
+            cand_ = np.zeros(T * T, bool)
+            cand_[tx.ti] = ~kn[gi].reshape(-1)[tx.ti] & ~mirrored[gi].reshape(-1)[tx.ti] & ~unpainted_mask(tex_in[gi].reshape(-1, 3)[tx.ti])
+            nt_ = nail_twins(labs[gi], kn[gi], cand_.reshape(T, T), pm_.reshape(T, T), {p: float(stat[p][0][0]) for p in part_ids if p not in skip_parts and not stat[p][3]}, c)
+            rep['geoms'][gi]['nail_twins'] = nt_['report']
+            if nt_['mask'].any():
+                nail_masks[gi] = nt_['mask']
+            if nt_['mask'].any():
+                fl_ = out_lab[gi].reshape(-1, 3)
+                mk_ = nt_['mask'].reshape(-1)[tx.ti]
+                fl_[tx.ti[mk_]] = nt_['lab'].reshape(-1, 3)[tx.ti[mk_]]
         new = lab2rgb(out_lab[gi].reshape(-1, 3)[tx.ti])
         new = np.where((new.max(axis=1) <= BLACK_MAX)[:, None], np.maximum(new, BLACK_MAX + 1), new)    # тёмное — не «чёрное непокрашенное»: сторож охвата считает ≤ порога дырой
         keepk = kn_keep[gi].reshape(-1)[tx.ti]
@@ -1348,7 +1371,13 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         rep['geoms'][gi]['by_view'] = [[int((vc == i).sum()), int((vc == i)[ub].sum()), int((vc == i)[ua].sum())] for i in range(len(VIEW_CLASSES))]
         nfc = np.bincount(tx.f, minlength=len(tx.F)).astype(np.float64)
         tx.unk_face = (np.bincount(tx.f, weights=(~kn[gi].reshape(-1)[tx.ti]).astype(np.float64), minlength=len(tx.F)) > 0.5 * np.maximum(nfc, 1.0)) & (nfc > 0)
-        rep['geoms'][gi]['steps'] = {'before': step_stats(tx, tex_in[gi], c['step_de']), 'after': step_stats(tx, rgb, c['step_de'])}
+        nm_ = nail_masks.get(gi)
+        if nm_ is not None:
+            from scipy.ndimage import binary_dilation
+            nm_ = binary_dilation(nm_, iterations=1)
+        rep['geoms'][gi]['steps'] = {'before': step_stats(tx, tex_in[gi], c['step_de']), 'after': step_stats(tx, rgb, c['step_de'], nm_)}
+        if nm_ is not None:
+            rep['geoms'][gi]['steps']['after_with_nails'] = step_stats(tx, rgb, c['step_de'])
     far = {'known': [], 'filled': []}
     rs = np.random.RandomState(11)
     for gi, tx in enumerate(txs):
@@ -1609,6 +1638,74 @@ def part_borders(txs: list) -> dict:
         for x, y in zip(a[diff], b[diff]):
             k = (int(min(x, y)), int(max(x, y)))
             out[k] = out.get(k, 0) + 1
+    return out
+
+
+def _compact_blobs(mask, c: dict):
+    """Связные (8) пятна маски в развёртке, прошедшие отбор «гвоздь»: размер, плотность в рамке, вытянутость. → (маска принятых, метки, число пятен)."""
+    from scipy import ndimage as ndi
+    lab, n = ndi.label(mask, structure=np.ones((3, 3)))
+    keep = np.zeros(n + 1, bool)
+    if n:
+        sz = ndi.sum(mask, lab, range(1, n + 1))
+        for i, sl in enumerate(ndi.find_objects(lab), start=1):
+            h, w = sl[0].stop - sl[0].start, sl[1].stop - sl[1].start
+            keep[i] = (c['nail_min_px'] <= sz[i - 1] <= c['nail_max_px'] and sz[i - 1] / float(h * w) >= c['nail_min_fill'] and max(h, w) / float(min(h, w)) <= c['nail_max_aspect'])
+    acc = keep[lab]
+    return acc, np.where(acc, lab, 0), int(keep.sum())
+
+
+def nail_twins(lab_in, known, cand, partmap, tone_L: dict, c: dict) -> dict:
+    """Шляпки гвоздей невидимой стороны (T-164, Sakura HD): у невидимых текселей нативный (TRELLIS) цвет в развёртке сохраняет мелкие тёмные пятна — ряд гвоздей, а заливка тоном ткани его стирает,
+    и сзади гвоздей нет, спереди есть. Пятно-кандидат принимается, если тёмнее тона СВОЕЙ части на `nail_dark_drop` L, компактно и мелко (линии шва — нет), у части (или у товара) есть
+    ≥ `nail_min_twins` видимых двойников с тем же отбором, И средний цвет пятна близок к двойникам (ΔE ≤ `nail_max_de` и цветность не выше двойников + `nail_max_dchroma`: красные пятна, чёрные дыры — не гвозди). Принятое пятно красится своим нативным
+    Lab со сдвигом к медиане двойников (сдвиг ≤ `nail_max_shift` по каналу). → {'mask': (T,T) bool, 'lab': (T,T,3), 'report': {...}}."""
+    from scipy import ndimage as ndi
+    T = lab_in.shape[0]
+    L0 = lab_in[..., 0]
+    tl = np.full((T, T), np.nan)
+    for p, v in tone_L.items():
+        tl[partmap == p] = v
+    dark = (L0 < tl - c['nail_dark_drop']) & (tl >= c['nail_min_tone_L'])
+    _km, klab, n_kn = _compact_blobs(known & dark, c)
+    _cm, clab, n_cd = _compact_blobs(cand & dark, c)
+    rep = {'twins_blobs': n_kn, 'candidate_blobs': n_cd, 'parts': {}, 'texels': 0, 'applied': False}
+    out = {'mask': np.zeros((T, T), bool), 'lab': lab_in, 'report': rep}
+    if n_kn < c['nail_min_twins'] or n_cd == 0:
+        rep['skip'] = 'нет видимых двойников' if n_kn < c['nail_min_twins'] else 'нет кандидатов'
+        return out
+
+    def stats(lab_map):                                              # по пятну: среднее Lab и часть
+        idx = np.unique(lab_map[lab_map > 0])
+        mean = np.stack([ndi.mean(lab_in[..., k], lab_map, idx) for k in range(3)], 1)
+        prt = np.asarray(ndi.maximum(partmap, lab_map, idx), int)
+        return idx, mean, prt
+    ki, km, kp = stats(klab)
+    ci, cm, cp = stats(clab)
+    pooled = np.median(km, axis=0)
+    mask = np.zeros((T, T), bool)
+    new = lab_in.copy()
+    for p in sorted({int(x) for x in cp}):
+        tw = km[kp == p]
+        ref = np.median(tw, axis=0) if len(tw) >= c['nail_min_twins'] else pooled
+        sel = cp == p
+        de_ = np.linalg.norm(cm[sel] - ref, axis=1)
+        okb = (de_ <= c['nail_max_de']) & (np.hypot(cm[sel][:, 1], cm[sel][:, 2]) <= np.hypot(ref[1], ref[2]) + c['nail_max_dchroma'])     # цвет близок к двойникам и не «краснее» их (красные крапины нативного цвета — не гвозди)
+        pr = {'candidates': int(sel.sum()), 'accepted': int(okb.sum()), 'twins_blobs': int(len(tw)), 'ref_lab': [round(float(x), 1) for x in ref], 'ref': 'part' if len(tw) >= c['nail_min_twins'] else 'pooled'}
+        rep['parts'][p] = pr
+        if not okb.any():
+            continue
+        ids = ci[sel][okb]
+        mp = np.isin(clab, ids)
+        shift = np.clip(ref - np.median(cm[sel][okb], axis=0), -c['nail_max_shift'], c['nail_max_shift'])
+        cand_new = lab_in + shift
+        mp &= np.hypot(cand_new[..., 1], cand_new[..., 2]) <= np.hypot(ref[1], ref[2]) + c['nail_max_dchroma']      # и по тексельно: красные точки внутри принятого пятна не красим
+        new[mp] = cand_new[mp]
+        mask |= mp
+        pr['shift'] = [round(float(x), 1) for x in shift]
+        pr['texels'] = int(mp.sum())
+    out['mask'], out['lab'] = mask, new
+    rep['texels'], rep['applied'] = int(mask.sum()), bool(mask.any())
     return out
 
 
