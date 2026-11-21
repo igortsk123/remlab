@@ -94,6 +94,61 @@ def main() -> int:
         check('металл/шероховатость переносятся (G=200, B=30)', (np.abs(mrr[py, px, 1].astype(int) - 200) <= 1).all() and (np.abs(mrr[py, px, 2].astype(int) - 30) <= 1).all())
         check('поля вокруг островков залиты цветом (нет чёрных текселей)', int((rgba[..., :3].sum(2) == 0).sum()) <= 2)
 
+        # нормали: у родного есть NORMAL → переходят на упрощённую (ближайшая вершина), без NORMAL у родного — не пишем свои (T-167: плашки после упрощения)
+        nn = np.tile(np.array([0.0, 0.6, 0.8]), (len(Vn), 1))
+        mn = trimesh.Trimesh(vertices=Vn, faces=Fn, vertex_normals=nn, process=False)
+        mn.visual = trimesh.visual.TextureVisuals(uv=UVn, material=trimesh.visual.material.PBRMaterial(baseColorTexture=base, alphaMode='OPAQUE'))
+        nat_n = os.path.join(d, 'nat-n.glb')
+        mn.export(nat_n, file_type='glb')
+        rep_n = T.transfer(nat_n, shp, os.path.join(d, 'out-n.glb'), size=64)
+        gn = T.load_glb(os.path.join(d, 'out-n.glb'))
+        check('нормали родного переходят на упрощённую (NORMAL записан, значения те же)',
+              rep_n.get('normals_from_native') and gn['has_normals'] and np.allclose(gn['N'], [0.0, 0.6, 0.8], atol=1e-3), (rep_n.get('normals_from_native'), gn['has_normals']))
+
+        # нормали с обратной стороны (тонкая стенка рядом) не берём: у половины родной нормали перевёрнуты, у упрощённой все должны остаться «наружу» (cos с собственной нормалью > 0)
+        own = np.asarray(trimesh.Trimesh(vertices=Vs, faces=Fs, process=False).vertex_normals)
+        sign = np.where(Vn[:, 0] < 0.5, 1.0, -1.0)[:, None]
+        flip_N = np.array([0.0, 0.0, 1.0]) * sign * (1.0 if (own[:, 2].mean() > 0) else -1.0)
+        tn = T.transfer_normals(Vn, flip_N, Vs, Fs)
+        check('нормали родной с обратной стороны отбрасываются (у упрощённой cos с собственной нормалью > 0 у всех вершин, длина 1)',
+              (np.einsum('nc,nc->n', tn, own) > 0).all() and np.allclose(np.linalg.norm(tn, axis=1), 1.0, atol=1e-6), float(np.einsum('nc,nc->n', tn, own).min()))
+
+        # мерка «разница затенения»: гладкая сфера (родная, с NORMAL) против грубой сферы без NORMAL (плоские грани) и с нормалями родной
+        hi = trimesh.creation.icosphere(subdivisions=4)
+        lo = trimesh.creation.icosphere(subdivisions=0)             # 20 плоских граней: заведомо «плашки»
+        sph_nat, sph_flat, sph_ok = (os.path.join(d, x) for x in ('sph-nat.glb', 'sph-flat.glb', 'sph-ok.glb'))
+        trimesh.Trimesh(vertices=hi.vertices, faces=hi.faces, vertex_normals=hi.vertices / np.linalg.norm(hi.vertices, axis=1, keepdims=True), process=False).export(sph_nat, file_type='glb')
+        trimesh.Trimesh(vertices=lo.vertices, faces=lo.faces, process=False).export(sph_flat, file_type='glb')
+        trimesh.Trimesh(vertices=lo.vertices, faces=lo.faces, vertex_normals=lo.vertices / np.linalg.norm(lo.vertices, axis=1, keepdims=True), process=False).export(sph_ok, file_type='glb')
+        nd_flat, nd_ok = T.normal_deviation(sph_nat, sph_flat), T.normal_deviation(sph_nat, sph_ok)
+        check('мерка нормалей: без NORMAL (плоские грани) — среднее выше порога, с нормалями родной — ниже; флаг «NORMAL в файле» верен',
+              nd_flat[0] > T.NORMAL_DEV_MEAN_MAX > nd_ok[0] and not nd_flat[2] and nd_ok[2], (nd_flat, nd_ok))
+
+        # плита-подложка TRELLIS (T-20261121-170): упрощённая форма собрана БЕЗ плиты → перенос и Chamfer сравнивают её с родной тоже без плиты
+        def box(sx, sy, sz, cx, cy, cz):
+            b = trimesh.creation.box(extents=(sx, sy, sz))
+            b.apply_translation((cx, cy, cz))
+            return b
+        prod_parts = [box(0.6, 0.01, 0.4, 0, 0.3, 0)] + [box(0.04, 0.3, 0.04, sx, 0.15, sz) for sx in (-0.25, 0.25) for sz in (-0.15, 0.15)]
+        plate_parts = [box(1.0, 0.002, 1.0, 0, -0.001, 0), box(0.95, 0.001, 0.9, 0, -0.002, 0), box(1.0, 0.001, 1.0, 0, -0.003, 0)]
+        rng = np.random.default_rng(3)
+        for _ in range(40):
+            px_, pz_ = rng.uniform(-0.48, 0.48, 2)
+            plate_parts.append(box(0.03, 0.001, 0.03, px_, -0.0015, pz_))
+        with_plate = trimesh.util.concatenate(prod_parts + plate_parts)
+        only_prod = trimesh.util.concatenate(prod_parts)
+        uv_top = lambda v: np.stack([v[:, 0] + 0.5, v[:, 2] + 0.5], 1) * 0.98 + 0.01         # вид сверху на карту
+        pn, ps_ = os.path.join(d, 'plate-nat.glb'), os.path.join(d, 'plate-shape.glb')
+        write(pn, np.asarray(with_plate.vertices), np.asarray(with_plate.faces), uv_top(np.asarray(with_plate.vertices)), base, mr)
+        write(ps_, np.asarray(only_prod.vertices), np.asarray(only_prod.faces), uv_top(np.asarray(only_prod.vertices)))
+        ch_on = T.chamfer_ratio(pn, ps_)
+        ch_off = T.chamfer_ratio(pn, ps_, strip_plate=False)
+        check('Chamfer: родная без плиты ≈ упрощённая (≤ порога), с плитой — форма «не та» (> порога)', ch_on[0] <= T.CHAMFER_MAX < ch_off[0], (ch_on, ch_off))
+        rp = T.transfer(pn, ps_, os.path.join(d, 'plate-out.glb'), size=128)
+        check('перенос видит плиту родной и вычитает её (plate_found, доля с цветом ≥ 99 %)', rp['plate_found'] and rp['share'] >= T.MIN_SHARE, rp)
+        rp0 = T.transfer(pn, ps_, os.path.join(d, 'plate-out0.glb'), size=128, strip_plate=False)
+        check('выключатель: strip_plate=False плиту не ищет', not rp0['plate_found'], rp0)
+
         # слишком далёкая форма — цвета нет, доля низкая (отказ по порогу)
         Vf, Ff, UVf = grid(6, lambda x, y: (x, y), zshift=2.0)
         far_shape = os.path.join(d, 'far.glb')
@@ -116,7 +171,7 @@ def main() -> int:
         code, line, reps = T.guard([out, shp])
         check('сторож: форма без цвета → код 1, имя в списке', code == 1 and 'пришёл 1 из 2' in line and 'shape.glb' in line, line)
         code, line, reps = T.guard([d])
-        check('сторож: папка — берёт все *.glb (без .raw.)', len(reps) == 6, [r['file'] for r in reps])
+        check('сторож: папка — берёт все *.glb (без .raw.)', len(reps) == len([x for x in os.listdir(d) if x.endswith('.glb') and '.raw.' not in x]) and len(reps) >= 6, [r['file'] for r in reps])
         base_sus, mr_ = native_textures(alpha_rule=lambda u: 255 if u < 0.1 else 50)
         sus = os.path.join(d, 'sus.glb')
         write(sus, Vn, Fn, UVn, base_sus, mr_)
