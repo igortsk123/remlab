@@ -601,6 +601,104 @@ def tint_base_color(glb: str, uv: np.ndarray, faces: np.ndarray, face_tone: np.n
     return _png(out), mask, info
 
 
+def lab_to_rgb(lab: np.ndarray) -> np.ndarray:
+    """CIE Lab (D65, N×3) → sRGB 0..255 (uint8, с обрезкой)."""
+    fy = (lab[:, 0] + 16) / 116
+    fx, fz = fy + lab[:, 1] / 500, fy - lab[:, 2] / 200
+    f = np.stack([fx, fy, fz], axis=1)
+    xyz = np.where(f ** 3 > 216 / 24389, f ** 3, (116 * f - 16) / (24389 / 27)) * np.array([0.95047, 1.0, 1.08883])
+    m = np.array([[0.4124564, 0.3575761, 0.1804375], [0.2126729, 0.7151522, 0.0721750], [0.0193339, 0.1191920, 0.9503041]])
+    c = np.clip(xyz @ np.linalg.inv(m).T, 0.0, 1.0)
+    c = np.where(c <= 0.0031308, 12.92 * c, 1.055 * np.power(c, 1 / 2.4) - 0.055)
+    return np.clip(np.rint(c * 255), 0, 255).astype(np.uint8)
+
+
+def photo_signal(stages_dir: str, pp: dict):
+    """Вход «цвет части с фото» (T-20261121-169/9в ❷). Один источник «видимого» — этап 6 (камера этапа 4, z-буфер, угол к камере, отступ от края силуэта):
+    тексели `known.png` и цвет фото в `visible.glb`. Новой проекции здесь нет. Ворота: этап 4 passed и `silhouette_iou` этапа 6 ≥ `iou_min` (иначе камере не верим);
+    общий passed этапа 6 не нужен (known_share может быть мал, а видимые части — честные). → (инфо, known bool H×W | None, vis PIL RGBA | None)."""
+    from PIL import Image
+
+    def chk(st):
+        f = os.path.join(stages_dir, st, "check.json")
+        return json.load(open(f, encoding="utf-8")) if os.path.exists(f) else None
+
+    c4, c6 = chk("04-camera"), chk("06-visible")
+    if not c4 or not c4.get("passed"):
+        return {"gate": "closed", "why": "этап 4 не passed — камере не верим"}, None, None
+    m6 = (c6 or {}).get("metric") or {}
+    iou = m6.get("value") if m6.get("name") == "silhouette_iou" else None
+    if iou is None or iou < pp["iou_min"]:
+        return {"gate": "closed", "why": f"silhouette_iou этапа 6 {iou} < {pp['iou_min']}", "silhouette_iou": iou}, None, None
+    kp, vp = os.path.join(stages_dir, "06-visible", "known.png"), os.path.join(stages_dir, "06-visible", "visible.glb")
+    if not (os.path.exists(kp) and os.path.exists(vp)):
+        return {"gate": "closed", "why": "нет known.png/visible.glb этапа 6", "silhouette_iou": iou}, None, None
+    vis = _base_image(*read_glb(vp))
+    if vis is None:
+        return {"gate": "closed", "why": "в visible.glb нет карты цвета", "silhouette_iou": iou}, None, None
+    return {"gate": "open", "silhouette_iou": iou}, np.asarray(Image.open(kp).convert("L")) > 127, vis
+
+
+def part_photo_colours(uv: np.ndarray, faces: np.ndarray, part: np.ndarray, pids: list[int], base, known: np.ndarray, vis, pp: dict) -> dict[int, dict]:
+    """Цвет каждой части по «известным» текселям этапа 6 в её островах UV: отступ `inset_px` от стыка с другими частями/гранями без части и от края острова, без верхних
+    `highlight_trim` по L (блики); меньше `min_pixels` — нет данных (честно, цвет не выдумываем). `was` — медиана карты цвета входа по тому же ядру острова.
+    → {часть: {island_px, core_px, photo_px, photo, was, dE, island(маска острова: тексели только этой части)}}."""
+    import cv2
+    from PIL import Image
+
+    size = base.size
+    w, h = size
+    kn = known if known.shape == (h, w) else np.asarray(Image.fromarray((known * 255).astype(np.uint8)).resize(size, Image.NEAREST)) > 127
+    vi = np.asarray((vis if vis.size == size else vis.resize(size, Image.NEAREST)).convert("RGB"))
+    bi = np.asarray(base.convert("RGB"))
+    ids = sorted({int(x) for x in np.unique(part)})
+    occ = {q: np.asarray(_raster_faces(uv, faces, np.flatnonzero(part == q), size)) > 0 for q in ids}
+    cnt = np.zeros((h, w), np.int16)
+    for q in ids:
+        cnt += occ[q]
+    ker = np.ones((2 * pp["inset_px"] + 1,) * 2, np.uint8)
+    out: dict[int, dict] = {}
+    for pid in pids:
+        if pid not in occ:
+            continue
+        island = occ[pid] & ((cnt - occ[pid]) == 0)                  # тексели только этой части: чужие и «без части» исключены
+        core = cv2.erode(island.astype(np.uint8), ker) > 0
+        sel = core & kn
+        rec: dict = {"island_px": int(island.sum()), "core_px": int(core.sum()), "photo_px": int(sel.sum()), "photo": None, "was": None, "dE": None, "island": island}
+        if rec["core_px"] >= 1:
+            px = bi[core]
+            L = rgb_to_lab(px.astype(np.float64))[:, 0]
+            rec["was"] = [int(v) for v in np.median(px[L <= np.quantile(L, 1.0 - pp["highlight_trim"])], axis=0)]
+        if rec["photo_px"] >= pp["min_pixels"]:
+            px = vi[sel]
+            L = rgb_to_lab(px.astype(np.float64))[:, 0]
+            px = px[L <= np.quantile(L, 1.0 - pp["highlight_trim"])]
+            if len(px) >= pp["min_pixels"]:
+                rec["photo"] = [int(v) for v in np.median(px, axis=0)]
+        if rec["photo"] and rec["was"]:
+            rec["dE"] = round(float(np.linalg.norm(rgb_to_lab(np.array([rec["was"]], dtype=np.float64))[0] - rgb_to_lab(np.array([rec["photo"]], dtype=np.float64))[0])), 1)
+        out[pid] = rec
+    return out
+
+
+def shift_part_colours(base_png: bytes | None, glb: str, targets: dict[int, dict]) -> tuple[bytes, np.ndarray]:
+    """Сдвиг цвета островов частей к цвету с фото: в Lab добавляется разница (фото − было), рисунок внутри острова сохраняется. Меняются ТОЛЬКО тексели острова части
+    (`island`: чужие части и «без части» не входят), без полей. → (PNG, маска изменённых текселей)."""
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(base_png)).convert("RGBA") if base_png else _base_image(*read_glb(glb))
+    arr = np.asarray(img).copy()
+    mask = np.zeros(arr.shape[:2], bool)
+    for rec in targets.values():
+        isl = rec["island"]
+        d = rgb_to_lab(np.array([rec["photo"]], dtype=np.float64))[0] - rgb_to_lab(np.array([rec["was"]], dtype=np.float64))[0]
+        lab = rgb_to_lab(arr[isl][:, :3].astype(np.float64)) + d
+        lab[:, 0] = np.clip(lab[:, 0], 0, 100)
+        arr[isl, :3] = lab_to_rgb(lab)
+        mask |= isl
+    return _png(arr), mask
+
+
 def colour_unchanged_outside(src_glb: str, dst_glb: str, mask: np.ndarray | None) -> bool:
     """Карта цвета не тронута везде, кроме текселей под тоном стекла (mask). Нет маски — байт в байт."""
     if mask is None:
@@ -675,7 +773,7 @@ def _load_mesh(path: str):
     return trimesh.load(path, force="mesh", process=False)
 
 
-def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None = None, frame: bool = True, photo: str | None = None) -> dict:
+def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None = None, frame: bool = True, photo: str | None = None, stages_dir: str | None = None) -> dict:
     """Этап 08 одного товара → `<run>/<sku>/08-material/`. Возвращает check.json (словарь)."""
     ps = _paint_stage()
     mc, mp = _siblings()
@@ -728,11 +826,22 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     glass_cls = {c for c, d in rules["_byId"].items() if d["family"] == "glass"}
     tone_rep: list[dict] = []
     face_tone = np.full((nf, 3), np.nan)
+    pp = recipes.get("part_photo")
+    pp_rep = None                                                  # цвет частей с фото (этап 6): измерение всегда, применение — только `part_photo.apply`
+    pp_cols: dict[int, dict] = {}
+    if pp and parts_source == "stage3":
+        sig, known_px, vis_img = photo_signal(stages_dir or os.path.join(run, ps.safe_name(sku)), pp)
+        pp_rep = {"apply": bool(pp["apply"]), **sig, "parts": []}
+        if known_px is not None:
+            base0 = _base_image(*read_glb(glb))
+            if base0 is not None:
+                pp_cols = part_photo_colours(np.asarray(uv, dtype=np.float64), np.asarray(mesh.faces), part, [pid for pid in res], base0, known_px, vis_img, pp)
     glass_only = bool(res) and all(r["class"] in glass_cls for r in res.values())
     photo_rgb = photo_tone(photo, gt) if (photo and glass_only) else None      # фото сверяет тон только у цельностеклянного товара: плафон на фото от остального не отделить
     for pid, r in res.items():
         if r.get("tone") and r["class"] in glass_cls:
-            rt = reconcile_tone(r["tone"], photo_rgb, gt)
+            prgb = photo_rgb if glass_only else ((pp_cols.get(pid) or {}).get("photo") if (pp and pp["apply"]) else None)     # составной товар: цвет части с этапа 6, только при apply
+            rt = reconcile_tone(r["tone"], prgb, gt)
             r["tone"] = rt["used"]
             tone_rep.append({"part": int(pid), **rt, **({"tone_source": r["tone_source"]} if r.get("tone_source") else {})})
             face_tone[part == pid] = rt["used"]
@@ -745,7 +854,23 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     tinted = tint_base_color(glb, np.asarray(uv, dtype=np.float64), np.asarray(mesh.faces), face_tone, gt, face_neutral, group)
     if tinted:
         tone_rep.extend(tinted[2])
-    pinfo = patch_glb(glb, out_glb, maps, tinted[0] if tinted else None)
+    base_png = tinted[0] if tinted else None
+    mask_all = tinted[1] if tinted else None
+    if pp_rep is not None:
+        targets: dict[int, dict] = {}
+        for pid, rec in pp_cols.items():
+            r = res[pid]
+            is_glass = r["class"] in glass_cls
+            cand = (not is_glass) and rec["photo"] is not None and rec["was"] is not None and rec["dE"] is not None and rec["dE"] > pp["dE_apply"]
+            pp_rep["parts"].append({"part": int(pid), "role": next((p["role"] for p in parts if p["id"] == pid), None), "class": r["class"], **{k: v for k, v in rec.items() if k != "island"},
+                                    "would_apply": bool(cand), "applied": bool(cand and pp["apply"]),
+                                    **({"note": "стекло: цвет берёт тон стекла (reconcile_tone), не сдвиг карты"} if is_glass else {})})
+            if cand:
+                targets[pid] = rec
+        if pp["apply"] and targets:
+            base_png, m2 = shift_part_colours(base_png, glb, targets)
+            mask_all = m2 if mask_all is None else (mask_all | m2)
+    pinfo = patch_glb(glb, out_glb, maps, base_png)
     covered = part >= 0
     known = np.isin(part, [pid for pid in res])
     recipe_share = float((covered & known).sum()) / nf
@@ -753,7 +878,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     conf_ids = [pid for pid, r in res.items() if r["confident"]]
     confident_share = float(np.isin(part, conf_ids).sum()) / nf
     c = recipes["check"]
-    color_same = colour_unchanged_outside(glb, out_glb, tinted[1] if tinted else None)
+    color_same = colour_unchanged_outside(glb, out_glb, mask_all)
     geom_same = geometry_sha(glb) == geometry_sha(out_glb)
     parts_rep = [{"id": pid, "role": next((p["role"] for p in parts if p["id"] == pid), None), "face_share": next((p["face_share"] for p in parts if p["id"] == pid), None),
                   "inherited_share": round(float(((part == pid) & inherited).sum()) / nf, 4), **r}
@@ -784,7 +909,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
                  "seconds": {"value": round(time.time() - t0, 1), "threshold": c["max_seconds"], "op": "<="}},
         reason=reason, seconds=time.time() - t0, outputs=["material.glb"], frame=frame_name,
         faces=nf, parts_source=parts_source, shape=shape_rep, catalog_parts_not_located=not_located, unsure_parts=unsure_rep, product_class={"class": cls["class"], "stage": cls["stage"], "confidence": cls["confidence"], "reason": cls["reason"], "parts": cls.get("parts")},
-        parts=parts_rep, classes=table, glass_tone=tone_rep, sheen=maps["hasSheen"], transmission=maps["hasTransmission"], recipes_sha=recipes_sha(), glb=pinfo)
+        parts=parts_rep, classes=table, glass_tone=tone_rep, part_photo=pp_rep, sheen=maps["hasSheen"], transmission=maps["hasTransmission"], recipes_sha=recipes_sha(), glb=pinfo)
     return doc
 
 
@@ -824,6 +949,12 @@ def check() -> int:
     for k in ("photo_max_dE", "alpha_min", "min_pixels", "patch_dilate_px", "highlight_trim", "semi_alpha_max", "dark_L_max"):
         if not isinstance(gt.get(k), (int, float)) or gt[k] < 0:
             bad.append(f"glass_tone.{k}: {gt.get(k)!r}")
+    pp = recipes.get("part_photo") or {}
+    for k in ("iou_min", "inset_px", "min_pixels", "highlight_trim", "dE_apply"):
+        if not isinstance(pp.get(k), (int, float)) or pp[k] < 0:
+            bad.append(f"part_photo.{k}: {pp.get(k)!r}")
+    if not isinstance(pp.get("apply"), bool):
+        bad.append(f"part_photo.apply: {pp.get('apply')!r} (нужно true/false)")
     for word, cid in recipes["vl_labels"].items():
         if cid not in recipes["recipes"]:
             bad.append(f"vl_labels[{word}] → класс {cid} без рецепта")
@@ -843,6 +974,7 @@ def main(argv: list[str]) -> int:
     s.add_argument("--product", required=True, help="JSON {sid,name,role,params}")
     s.add_argument("--parts-dir", default=None)
     s.add_argument("--photo", default=None, help="RGBA-вырезка фото магазина: сверка тона стекла у цельностеклянного товара (необязательно)")
+    s.add_argument("--stages-dir", default=None, help="папка с 04-camera/ и 06-visible/ (по умолчанию <run>/<sku>)")
     s.add_argument("--no-frame", action="store_true")
     r = sub.add_parser("run")
     r.add_argument("--items", required=True)
@@ -853,13 +985,13 @@ def main(argv: list[str]) -> int:
     if a.cmd == "check":
         return check()
     if a.cmd == "stage":
-        items = [{"sku": a.sku, "glb": a.glb, "product": json.load(open(a.product, encoding="utf-8")), "parts_dir": a.parts_dir, "photo": a.photo}]
+        items = [{"sku": a.sku, "glb": a.glb, "product": json.load(open(a.product, encoding="utf-8")), "parts_dir": a.parts_dir, "photo": a.photo, "stages_dir": a.stages_dir}]
     else:
         items = json.load(open(a.items, encoding="utf-8"))
     bad = 0
     for it in items:
         try:
-            d = run_stage(it["glb"], a.run, it["sku"], it["product"], it.get("parts_dir"), not a.no_frame, it.get("photo"))
+            d = run_stage(it["glb"], a.run, it["sku"], it["product"], it.get("parts_dir"), not a.no_frame, it.get("photo"), it.get("stages_dir"))
         except Exception as e:  # noqa: BLE001 — счётчик отказов обязателен: падение товара не роняет прогон
             bad += 1
             print(f"ОШИБКА {it['sku']}: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
