@@ -724,6 +724,35 @@ class SimilarToTrusted(unittest.TestCase):
         self.assertEqual(self.rules["decision"]["similar_to_trusted"]["mode"], "dry")
 
 
+class RoleFrameHatch(unittest.TestCase):
+    """Кадр ролей: «без роли» (unknown) — серая штриховка, не цвет; легенда с таким же образцом (директор 21.11: красный legs и малиновый unknown путали)."""
+
+    def test_unknown_is_hatched_other_roles_flat(self):
+        import numpy as np
+        import parts_sam as ps
+        h = w = 40
+        yy, xx = np.mgrid[0:h, 0:w]
+        part = np.where(xx < 20, 0, 7).astype(np.int32).ravel()          # слева роль legs (метка 0), справа unknown (метка 7)
+        vis = np.ones(h * w, bool)
+        u, v = xx.ravel().astype(float), yy.ravel().astype(float)
+        mask = np.ones((h, w), bool)
+        rgb = np.full((h, w, 3), 128, np.uint8)
+        flat = ps.paint_frame("", "", part, u, v, vis, rgb, mask)
+        hat = ps.paint_frame("", "", part, u, v, vis, rgb, mask, hatch=7)
+        left, right = hat[:, :19], hat[:, 21:]
+        self.assertEqual(len({tuple(p) for p in left.reshape(-1, 3)}), 1)                      # legs — сплошной
+        self.assertEqual(len({tuple(p) for p in right.reshape(-1, 3)}), 2)                     # unknown — два тона штриховки
+        self.assertTrue((flat[:, :19] == hat[:, :19]).all())
+        self.assertTrue(all(abs(int(c[0]) - int(c[1])) < 3 and abs(int(c[1]) - int(c[2])) < 3 for c in right.reshape(-1, 3)))   # серые, не цветные
+
+    def test_legend_has_hatch_swatch(self):
+        import numpy as np
+        import parts_sam as ps
+        img = np.full((10, 400, 3), 255, np.uint8)
+        out = ps.add_legend(img, [("legs", ps.PALETTE[0]), ("no role (unknown)", "hatch")])
+        self.assertEqual(out.shape[0], 10 + 34)
+
+
 class RulesFile(unittest.TestCase):
     def test_no_product_ids_and_known_types(self):
         import json
