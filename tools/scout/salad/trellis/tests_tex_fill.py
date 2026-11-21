@@ -234,6 +234,17 @@ def test_mirror():
     kk = [tile_mask((0, 0, .5, .5))]
     o2 = TF.fill([g2], kk, None, cfg={'gutter': 0, 'erode_known': 0}, mirror=True)
     ok(not o2['report']['mirror']['applied'], 'несимметричный предмет: зеркало не применяется')
+    # чёрная дыра в известной левой стене не зеркалится на правую (mirror_extreme), правая красится геодезией
+    tex_b = tex.copy()
+    hole = np.zeros((T, T), bool)
+    hole[int(T * 0.65):int(T * 0.73), int(T * 0.15):int(T * 0.35)] = True
+    tex_b[ml & hole] = (6, 6, 6)
+    g3 = q.geom(tex_b)
+    o3 = TF.fill([g3], known, None, cfg={'gutter': 0, 'erode_known': 0}, mirror=True)
+    hole_r = np.zeros((T, T), bool)
+    hole_r[int(T * 0.65):int(T * 0.73), int(T * 0.65):int(T * 0.85)] = True
+    Lr = TF.rgb2lab(o3['tex'][0][mr & hole_r])[:, 0]
+    ok(o3['report']['mirror'].get('dropped_black', 0) > 0 and float(np.percentile(Lr, 10)) > TF.RULES['mirror_extreme']['black_abs'], f'чёрная дыра не зеркалится (отброшено {o3["report"]["mirror"].get("dropped_black", 0)}, L правой стены p10 {float(np.percentile(Lr, 10)):.0f})')
 
 
 # ------------------------------------------------------------------ фактура
