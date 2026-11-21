@@ -272,7 +272,21 @@ def absorb_islands(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, se
             okk = np.array([compatible(pk.get(int(cpart[c])), pk.get(int(top[c]))) for c in range(nc)])
         else:
             okk = np.ones(nc, dtype=bool)
-        sel = okk & (~is_main) & (cpart >= 0) & (size < cfg["max_faces"]) & (size <= cfg.get("max_rel_main", 0.2) * mainsize) & (tot > 0) & (frac >= cfg.get("foreign", 0.8)) & sidem
+        psize = np.bincount(part[part >= 0]) if (part >= 0).any() else np.zeros(1, dtype=np.int64)
+        pshare = np.array([psize[int(q)] if 0 <= q < len(psize) else 1 for q in cpart], dtype=np.float64)
+        lim = cfg["max_part_share"] * pshare if cfg.get("max_part_share") else np.full(nc, float(cfg["max_faces"]))   # размер крошки — доля СВОЕЙ части (не зависит от плотности меша)
+        sel = okk & (~is_main) & (cpart >= 0) & (size < lim) & (size <= cfg.get("max_rel_main", 0.2) * mainsize) & (tot > 0) & (frac >= cfg.get("foreign", 0.8)) & sidem
+        en = cfg.get("enclosed") or {}
+        if en.get("enabled") and kind_f is not None:                                   # накладка: крупнее крошки, но ОКРУЖЕНА одной частью и не стоит на полу — не ножка
+            fy = np.asarray(vertices)[np.asarray(faces)][:, :, 1].min(axis=1)
+            cmin = np.full(nc, np.inf)
+            np.minimum.at(cmin, lab, fy)
+            ymin = float(np.asarray(vertices)[:, 1].min())
+            hgt = max(float(np.asarray(vertices)[:, 1].max()) - ymin, 1e-9)
+            thin_to_body = np.array([pk.get(int(cpart[c])) == "thin" and pk.get(int(top[c])) == "body" for c in range(nc)])
+            sel2 = (~sel) & thin_to_body & (~is_main) & (cpart >= 0) & (size <= en.get("max_part_share", 0.10) * pshare) & (size <= en.get("max_rel_main", 0.3) * mainsize) & (tot >= en.get("min_border", 20)) & (frac >= en.get("foreign", 0.95)) & ((cmin - ymin) / hgt > en.get("floor_gap", 0.1)) & sidem
+            rep["enclosed"] = rep.get("enclosed", 0) + int(sel2.sum())
+            sel = sel | sel2
         if not sel.any():
             break
         for c in np.where(sel)[0]:

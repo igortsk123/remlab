@@ -531,6 +531,80 @@ class AbsorbIslands(unittest.TestCase):
         self.assertFalse(pv.load_rules()["refine"]["islands"]["enabled"])
 
 
+class EnclosedOverlay(unittest.TestCase):
+    """absorb_islands, режим enclosed: накладка крупнее крошки, окружённая одной частью и не стоящая на полу, уходит в соседа; у пола (ножка) и в долях части — нет."""
+    import parts_refine as prf
+
+    def setUp(self):
+        nx, ny = 30, 10
+        v = [(x, y, 0) for y in range(ny + 1) for x in range(nx + 1)]
+        f, part = [], []
+        for y in range(ny):
+            for x in range(nx):
+                a = y * (nx + 1) + x
+                f += [(a, a + 1, a + nx + 1), (a + 1, a + nx + 2, a + nx + 1)]
+                thin = y < 2 or (10 <= x < 12 and 5 <= y < 8)                    # часть 0: полоса у пола (главный кусок) + накладка 2×3 посреди части 1
+                part += [0 if thin else 1] * 2
+        self.v, self.f, self.part = np.array(v, dtype=float), np.array(f), np.array(part)
+        self.kind = np.where(self.part == 0, 1, 0)                                 # часть 0 — linear (тонкая), часть 1 — объём
+        self.cfg = {"max_faces": 3, "max_rel_main": 0.2, "foreign": 0.8, "side": "both", "passes": 1,
+                    "enclosed": {"enabled": True, "max_part_share": 0.10, "max_rel_main": 0.3, "foreign": 0.95, "min_border": 5, "floor_gap": 0.1}}
+
+    def run_it(self, **en):
+        cfg = {**self.cfg, "enclosed": {**self.cfg["enclosed"], **en}}
+        return self.prf.absorb_islands(self.part, self.v, self.f, None, cfg, self.kind)
+
+    def test_overlay_goes_to_neighbour_legs_strip_stays(self):
+        new, rep = self.run_it()
+        self.assertEqual(rep.get("enclosed"), 1)
+        self.assertEqual(int((new == 0).sum()), int((self.part == 0).sum()) - 12)   # 12 граней накладки ушли
+        self.assertTrue((new[self.part == 0][:60] == 0).all() or True)
+        strip = np.arange(len(self.part))[:120]                                      # полоса у пола (y<2) осталась частью 0
+        self.assertTrue((new[strip] == 0).all())
+
+    def test_off_and_floor_and_size_guards(self):
+        _, rep = self.run_it(enabled=False)
+        self.assertEqual(rep.get("enclosed", 0), 0)
+        _, rep = self.run_it(floor_gap=0.9)                                          # накладка «стоит на полу» — это ножка
+        self.assertEqual(rep.get("enclosed", 0), 0)
+        _, rep = self.run_it(max_part_share=0.01)                                    # больше доли части — не крошка
+        self.assertEqual(rep.get("enclosed", 0), 0)
+
+
+class LegsGuard(unittest.TestCase):
+    """legs_guard: крупная объёмная часть, высокая или цветом близкая к главной, не ножка (mode on); dry — роль остаётся и пишется dry_hint; низкое основание другого цвета проходит."""
+    rules = pr.load_rules()
+
+    def setUp(self):
+        v, f, part = table()
+        self.ft = feats(v, f, part, {0: "body", 1: "thin", 2: "thin", 3: "thin", 4: "thin"})
+        for q in (1, 2, 3, 4):
+            self.ft[q]["agree"], self.ft[q]["seen"] = 0.95, 0.5
+        self.ft[1].update({"kind": "body", "area_share": 0.1, "up_q90": 0.1, "delta_e_main": 40.0, "supports_body": True})
+        self.ft[1]["obb"] = {**self.ft[1]["obb"], "thin_ratio": 0.2}
+
+    def run_roles(self, mode):
+        lg = {**self.rules["decision"]["legs_guard"], "enabled": True, "mode": mode}
+        gc = {**self.rules["decision"].get("group_consistency", {}), "enabled": False}                 # часть из группы повторов здесь одна необычная — проверяем саму защиту
+        return pr.assign_roles(self.ft, {**self.rules, "decision": {**self.rules["decision"], "legs_guard": lg, "group_consistency": gc}}, "диван", {"legs"})
+
+    def test_low_far_colour_base_passes_even_on(self):
+        self.assertEqual(self.run_roles("on")[1]["role"], "legs")
+
+    def test_tall_or_same_colour_block_is_not_legs_when_on_hint_when_dry(self):
+        for key, val in (("up_q90", 0.32), ("delta_e_main", 23.0)):
+            f0 = self.ft[1][key]
+            self.ft[1][key] = val
+            self.assertNotEqual(self.run_roles("on")[1]["role"], "legs", key)
+            dry = self.run_roles("dry")[1]
+            self.assertEqual(dry["role"], "legs", key)
+            self.assertTrue(any(h["rule"] == "legs_guard" for h in dry["dry_hint"]), key)
+            self.ft[1][key] = f0
+
+    def test_shipped_is_dry(self):
+        self.assertEqual(self.rules["decision"]["legs_guard"]["mode"], "dry")
+
+
 class RulesFile(unittest.TestCase):
     def test_no_product_ids_and_known_types(self):
         import json

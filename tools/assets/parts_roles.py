@@ -84,6 +84,26 @@ def _eval(conds: list[dict], f: dict, ctx: dict) -> tuple[bool, str | None]:
     return False, None
 
 
+def _legs_guard_veto(f: dict, rules: dict, ctx: dict, p: int) -> bool:
+    """Защита legs (T-169, 21.11): крупная ОБЪЁМНАЯ часть (kind body) не ножка, если она высокая (up_q90 > max_up_q90) или по цвету близка к главной части (ΔE < min_de_main):
+    цоколь модуля мягкой мебели той же обивки. Низкое плоское основание с другим цветом (ножки-основание дивана) проходит. mode "dry": роль остаётся, в out пишется dry_hint; "on": вето."""
+    g = rules["decision"].get("legs_guard", {})
+    if not g.get("enabled") or f["kind"] not in g.get("kinds", ["body"]) or f["area_share"] < g.get("min_area_share", 0.03):
+        return False
+    de = f.get("delta_e_main")
+    why = []
+    if f["up_q90"] > g["max_up_q90"]:
+        why.append(f"высота up_q90 {f['up_q90']:.2f} > {g['max_up_q90']}")
+    if de is not None and de < g["min_de_main"]:
+        why.append(f"ΔE к главной {de:.1f} < {g['min_de_main']}")
+    if not why:
+        return False
+    if g.get("mode") == "on":
+        return True
+    ctx.setdefault("legs_hints", {})[p] = "; ".join(why)
+    return False
+
+
 def assign_roles(features: dict[int, dict], rules: dict, product_role: str | None, catalog_channels: set[str] | None = None,
                  classes: dict | None = None, catalog_classes: dict[str, str] | None = None) -> dict[int, dict]:
     """Роль каждой части: {id: {role, role_title, material_channel, role_conf, role_why, unknown_reason}}.
@@ -133,6 +153,8 @@ def assign_roles(features: dict[int, dict], rules: dict, product_role: str | Non
                     if why:
                         fail.setdefault(p, why)
                     continue
+                if name == "legs" and _legs_guard_veto(f, rules, ctx, p):
+                    continue
                 matched[p].append(name)
     for p in live:
         f = features[p]
@@ -165,6 +187,9 @@ def assign_roles(features: dict[int, dict], rules: dict, product_role: str | Non
     ua = rules["decision"].get("unseen_adopt", {})
     if ua.get("enabled"):
         _unseen_adopt(features, out, ua)
+    for q, h in (ctx.get("legs_hints") or {}).items():
+        if out.get(q, {}).get("role") == "legs":
+            out[q].setdefault("dry_hint", []).append({"rule": "legs_guard", "role": "не legs", "why": h})
     return out
 
 

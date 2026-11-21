@@ -114,6 +114,26 @@ def load_view(orbit: str, name: str):
     return rgb, mask, z["u"], z["v"], z["vis"], z["cos"]
 
 
+def add_legend(img: np.ndarray, items: list[tuple[str, tuple]], height: int = 34) -> np.ndarray:
+    """Легенда цветов прямо на кадре (директор 21.11): плашка сверху, квадрат цвета + подпись латиницей (шрифта с кириллицей на машинах нет)."""
+    from PIL import Image as _I, ImageDraw as _D
+
+    w = img.shape[1]
+    bar = _I.new("RGB", (w, height), (255, 255, 255))
+    d = _D.Draw(bar)
+    x = 8
+    for name, rgb in items:
+        d.rectangle([x, 8, x + 18, 26], fill=tuple(int(c) for c in rgb), outline=(60, 60, 60))
+        d.text((x + 24, 10), name, fill=(0, 0, 0))
+        x += 24 + 7 * len(name) + 22
+        if x > w - 60:
+            break
+    return np.concatenate([np.asarray(bar), img], axis=0)
+
+
+ROLE_ORDER = ["legs", "frame", "handles", "top", "facade", "shade", "body", "unknown"]
+
+
 def paint_frame(orbit: str, name: str, part: np.ndarray, u: np.ndarray, v: np.ndarray, vis: np.ndarray, rgb: np.ndarray, mask: np.ndarray) -> np.ndarray:
     """Кадр, раскрашенный по частям: цвета граней разносятся на пиксели ближайшего центра видимой грани (по сетке пикселей), картинка предмета — подложка."""
     from scipy import ndimage
@@ -241,7 +261,8 @@ def run(args) -> int:
     json.dump({"faces": nf, "n_views": len(names), "regions_per_view": per_view_regions, "n_parts_raw": res["n_parts_raw"], "parts": parts, "geometry": geom, "refine": refine_rep, "roles": roles_sum},
               open(os.path.join(sdir, "parts.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     tiles = [paint_frame(args.orbit, n, part, u, v, vis, rgb, mask) for (n, rgb, mask, u, v, vis) in (frames[0:8:2] if len(frames) >= 8 else frames[:4])]
-    Image.fromarray(np.concatenate(tiles, axis=1)).save(os.path.join(sdir, "frame.png"))
+    pids = [int(q) for q in np.unique(part[part >= 0])][:12]
+    Image.fromarray(add_legend(np.concatenate(tiles, axis=1), [(f"part {q}", PALETTE[q % len(PALETTE)]) for q in pids])).save(os.path.join(sdir, "frame.png"))
     if roles:                                                         # кадр ролей: та же облётка, цвет = роль (ножки, ручки, плафон, body, unknown…)
         order = ["legs", "frame", "handles", "top", "facade", "shade", "body", "unknown"]
         ridx = np.full(int(part.max()) + 1, order.index("unknown"), dtype=np.int32)
@@ -249,7 +270,7 @@ def run(args) -> int:
             ridx[p_] = order.index(r_["role"]) if r_["role"] in order else order.index("unknown")
         rpart = np.where(part >= 0, ridx[np.maximum(part, 0)], -1)
         rtiles = [paint_frame(args.orbit, n, rpart, u, v, vis, rgb, mask) for (n, rgb, mask, u, v, vis) in (frames[0:8:2] if len(frames) >= 8 else frames[:4])]
-        Image.fromarray(np.concatenate(rtiles, axis=1)).save(os.path.join(sdir, "frame_roles.png"))
+        Image.fromarray(add_legend(np.concatenate(rtiles, axis=1), [(("no role (unknown)" if r_ == "unknown" else r_), PALETTE[i_ % len(PALETTE)]) for i_, r_ in enumerate(order)])).save(os.path.join(sdir, "frame_roles.png"))
     metrics = {
         "faces_with_part_share": {"value": q["faces_with_part_share"], "threshold": rules["check"]["min_faces_with_part"], "op": ">=", "ok": q["faces_with_part_share"] >= rules["check"]["min_faces_with_part"]},
         "n_parts": {"value": q["n_parts"], "threshold": f"{rules['check']['min_parts']}–{rules['check']['max_parts']}", "op": "in", "ok": rules["check"]["min_parts"] <= q["n_parts"] <= rules["check"]["max_parts"]},
