@@ -172,7 +172,20 @@ class Trellis2Backend:
                 raise RuntimeError('вырезка фона отключена: вход должен быть RGBA с настоящей альфой')
         rembg.BiRefNet = NoRembg
         t = time.time()
-        self.pipe = Trellis2ImageTo3DPipeline.from_pretrained(os.environ.get('TRELLIS_MODEL', 'microsoft/TRELLIS.2-4B'))
+        model_src = os.environ.get('TRELLIS_MODEL', 'microsoft/TRELLIS.2-4B')
+        dino_th = None
+        if os.path.isdir(model_src):
+            # T-179/1: веса уже в образе (локальный путь) — из сети идёт только закрытый DINOv3 (по HF_TOKEN группы):
+            # качаем его фоновым потоком, пока основные веса читаются с диска образа; `from_pretrained` потом берёт его из кэша.
+            def _prefetch_dino():
+                from huggingface_hub import snapshot_download
+                t_d = time.time()
+                snapshot_download('facebook/dinov3-vitl16-pretrain-lvd1689m', token=os.environ.get('HF_TOKEN') or None)
+                STATE['timings']['dino_fetch_s'] = round(time.time() - t_d, 1)
+            dino_th = threading.Thread(target=_prefetch_dino, daemon=True)
+            dino_th.start()
+        STATE['timings']['weights_src'] = 'image' if dino_th else 'hub'
+        self.pipe = Trellis2ImageTo3DPipeline.from_pretrained(model_src)
         t_weights = time.time() - t
         STATE['phase'] = 'to_gpu'
         t = time.time()
