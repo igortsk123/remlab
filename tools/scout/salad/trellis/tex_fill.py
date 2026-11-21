@@ -954,6 +954,23 @@ def parts_from_geometry(geoms: list):
     return out, '; '.join(note)
 
 
+def parts_from_npz(path: str, geoms: list):
+    """Части граней этапа 3 пути покраски (`03-parts/parts.npz`, T-169): `part` int16 — ОДИН массив на все грани GLB в порядке геометрий; режется по числу граней каждой геометрии.
+    −1 («нет части») получает отдельный номер. Число граней не совпало → ValueError (части другого меша — заливать нельзя). → (список по геометриям, строка о способе)."""
+    z = np.load(path)
+    part = np.asarray(z['part']).astype(np.int32)
+    n = sum(len(g['F']) for g in geoms)
+    if len(part) != n:
+        raise ValueError(f'parts.npz: граней {len(part)}, а в GLB {n} — части другого меша')
+    if (part < 0).any():
+        part = np.where(part < 0, int(part.max()) + 1, part)
+    out, o = [], 0
+    for g in geoms:
+        out.append(part[o:o + len(g['F'])])
+        o += len(g['F'])
+    return out, f'parts.npz: {int(part.max()) + 1} частей'
+
+
 def part_deltas(geoms: list, parts, kfront: list, kback: list, tex_before: list, tex_after: list) -> dict:
     """ΔE00 перёд↔зад внутри одной части: средние Lab текселей, видимых спереди (kfront) и сзади (kback), до и после заливки. → {часть: {'before', 'after'}}."""
     res = {}
@@ -995,7 +1012,7 @@ def write_glb(geoms: list, texs: list, dst: str) -> None:
     sc.export(dst)
 
 
-def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=None, cfg: dict | None = None, thresholds: dict | None = None, mirror: bool = True, draft_glb: str | None = None, out_name: str | None = None) -> dict:
+def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=None, cfg: dict | None = None, thresholds: dict | None = None, mirror: bool = True, draft_glb: str | None = None, out_name: str | None = None, parts_npz: str | None = None) -> dict:
     """Этап 07 «докрасить невидимое»: GLB (текстура = фото на видимом) → `<run>/<sku>/07-fill/` {filled.glb, report.json, frame.png (az180 до | после), check.json}.
     `known` — маска «видно с камеры фото» по геометриям (нет — из `known_from_photo`: az0/az45); `parts` — части граней (нет — `parts_from_geometry`). Не прошёл (check.json passed=false) — товар дальше не идёт.
     → {'check', 'report', 'geoms', 'tex_before', 'tex_after', 'known', 'parts', 'dir'} (для проб и кадров)."""
@@ -1010,6 +1027,8 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     if known is None:
         known = known_from_photo(geoms)
     parts_note = 'заданы'
+    if parts is None and parts_npz:
+        parts, parts_note = parts_from_npz(parts_npz, geoms)
     if parts is None:
         parts, parts_note = parts_from_geometry(geoms)
     draft = None

@@ -475,6 +475,16 @@ def test_run_stage_fallback():
         ok(set(rep['source_tried']) == {'stat', 'trellis'} and rep['source_used'] in ('stat', 'trellis'), f'считаны А и Б, выбран {rep["source_used"]}: {rep["source_tried"]}')
         c = PS.read_check(r['dir'])
         ok(c is not None and c['extra']['source_used'] == rep['source_used'] and 'empty_pct' in (c['metric'] or {}).get('name', 'empty_pct'), 'check.json: источник заливки записан')
+        nf = len(g['F'])
+        np.savez(os.path.join(td, 'parts.npz'), part=np.where(np.arange(nf) % 2 == 0, 0, -1).astype(np.int16))
+        pp, note = TF.parts_from_npz(os.path.join(td, 'parts.npz'), [g])
+        ok(len(pp) == 1 and len(pp[0]) == nf and set(np.unique(pp[0])) == {0, 1} and '2 частей' in note, f'parts.npz режется по граням, −1 → отдельная часть ({note})')
+        np.savez(os.path.join(td, 'bad.npz'), part=np.zeros(nf + 1, np.int16))
+        try:
+            TF.parts_from_npz(os.path.join(td, 'bad.npz'), [g])
+            ok(False, 'части другого меша отвергнуты')
+        except ValueError:
+            ok(True, 'части другого меша (число граней не то) отвергнуты')
         r2 = TF.run_stage(td, 'sku:2', os.path.join(td, 'in.glb'), known=[tile_mask((0, 0, .9, .9))], parts=None, cfg={'source': 'trellis', 'gutter': 0, 'erode_known': 0, 'draft_fallback': False}, draft_glb=os.path.join(td, 'draft.glb'), mirror=False)
         ok(r2['report']['source_used'] == 'trellis' and r2['report']['source_tried'] == {}, 'draft_fallback выключен — только Б')
 
