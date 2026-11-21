@@ -65,7 +65,7 @@ def probe(rund: str, out: str, label: str, cfg: dict | None = None, draft_glb: s
 
 def main() -> int:
     args = sys.argv[1:]
-    cfg, draft_dir, visible_root = {}, None, None
+    cfg, draft_dir, visible_root, draft_pat = {}, None, None, '{base}-1024-42-0.glb'
     while args and args[0].startswith('--'):
         k, v = args[0], args[1]
         if k == '--source':
@@ -74,6 +74,8 @@ def main() -> int:
             draft_dir = v
         elif k == '--draft-fallback':                 # on|off: этап считает и А, берёт Б только если мерки не хуже (по умолчанию on); off — Б «как есть» для сравнения
             cfg['draft_fallback'] = (v == 'on')
+        elif k == '--draft-pattern':                 # имя черновика в --draft-dir, {base} — имя прогона/товара (по умолчанию родной TRELLIS.2: {base}-1024-42-0.glb; out30: {base}-n1024.glb)
+            draft_pat = v
         elif k == '--visible-root':                   # корень выхода этапа 6 (`<root>/<sku>/06-visible/`): вместо папок прогонов — имена товаров (sku)
             visible_root = v
         elif k == '--draft-texture':                  # on|off: класть на черновик Б лоскут фактуры фото (квилт)
@@ -92,7 +94,7 @@ def main() -> int:
         base = os.path.basename(rund.rstrip('/'))
         label = (base[-12:] if visible_root else base.split('-q2509')[0].split('@')[0][-12:] + '_' + base.split('@')[-1][:12])
         try:
-            dg = os.path.join(draft_dir, base.split('@')[0] + '-1024-42-0.glb') if draft_dir else None
+            dg = os.path.join(draft_dir, draft_pat.format(base=base.split('@')[0])) if draft_dir else None
             if dg and not os.path.exists(dg):
                 raise FileNotFoundError(f'нет черновика {dg}')
             rec = probe(rund, out, label, cfg, dg, os.path.join(visible_root, base, '06-visible') if visible_root else None)
