@@ -20,6 +20,9 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCOUT = os.path.abspath(os.path.join(HERE, '..'))
 sys.path.insert(0, HERE)
+sys.path.append(SCOUT)
+import remlab_tmp  # noqa: E402  временное теста — на диске, папка убирается при выходе (T-20261107-13)
+remlab_tmp.use('tests_kit')
 import kit_driver as KD  # noqa: E402
 import kit_worker as KW  # noqa: E402
 

@@ -13,6 +13,9 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.append(os.path.abspath(os.path.join(HERE, '..')))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402  временное теста — на диске, папка убирается при выходе (T-20261107-13)
+remlab_tmp.use('tests_kit_loop')
 import kit_driver as KD  # noqa: E402
 
 FAILS = []
