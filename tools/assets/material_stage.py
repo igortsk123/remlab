@@ -134,9 +134,31 @@ def resolve_parts(parts: list[dict], cls: dict, recipes: dict, parts_known: bool
             why = "нет цвета части" if lab is None else f"цвет отличается от главной части (ΔE {_de76(lab, main_lab):.1f})" if main_lab is not None else "нет цвета главной части"
             r = {"class": fb, "source": "unsure", "confidence": conf["unsure"], "reason": f"нет метки, {why}", "main_id": int(main["id"]),
                  "de_main": round(float(_de76(lab, main_lab)), 1) if lab is not None and main_lab is not None else None}
+        _carry_tone(r, cls, cat)
         r["confident"] = bool(r["confidence"] >= cl["confident_from"])
         out[int(p["id"])] = r
     return out
+
+
+def _carry_tone(r: dict, cls: dict, cat: dict) -> None:
+    """Тон стекла (`glass_finish` классов материала) переходит на часть из ТОГО места каталога, откуда взят её класс: ножки → `legs`, плафон → `shade`, остальное → товар."""
+    src = r.get("source", "")
+    if src.startswith("catalog:legs"):
+        ent = cat.get("legs")
+    elif src.startswith("role:"):
+        ent = cls if src == "role:main" else cat.get(src[5:])
+    elif src == "geometry:top":
+        ent = cat.get("shade")
+    elif src == "geometry:linear":
+        ent = cat.get("frame")
+    elif src == "geometry:small":
+        ent = cat.get("handles")
+    elif src in ("geometry:body", "body-soft", "colour≈main") or src.startswith("catalog:"):
+        ent = cls
+    else:
+        ent = None
+    if ent and ent.get("tone") and ent.get("class") == r["class"]:
+        r["tone"] = list(ent["tone"])
 
 
 def unsure_parts_report(mesh, part: np.ndarray, parts_rep: list[dict], parts: list[dict], recipes: dict) -> list[dict]:
@@ -484,8 +506,79 @@ def geometry_sha(path: str) -> str:
     return h.hexdigest()
 
 
-def patch_glb(src: str, dst: str, maps: dict) -> dict:
-    """Копия GLB с новыми картами материала 0: metallicRoughness заменена (на месте), sheenColor и transmission добавлены расширениями. Цвет и геометрия не тронуты."""
+# ───────────────────────── тон стекла ─────────────────────────
+
+def photo_tone(photo: str, gt: dict) -> list[int] | None:
+    """Медиана цвета предмета на фото (непрозрачные пиксели RGBA-вырезки) — для сверки тона стекла с каталогом. Нет файла/пикселей — None."""
+    from PIL import Image
+    if not photo or not os.path.exists(photo):
+        return None
+    im = np.asarray(Image.open(photo).convert("RGBA"))
+    px = im[im[..., 3] >= gt["alpha_min"]][:, :3]
+    if len(px) < gt["min_pixels"]:
+        return None
+    return [int(v) for v in np.median(px, axis=0)]
+
+
+def reconcile_tone(cat_tone: list[int], photo_rgb: list[int] | None, gt: dict) -> dict:
+    """Каталог называет цвет, фото уточняет: ΔE76(каталог, фото) ≤ порога — берём цвет с фото (стекло на фото бывает светлее/темнее типичного); дальше —
+    фото, скорее всего, блики или чужой фон, остаётся каталожный тон и пометка conflict. Нет фото — каталог."""
+    if photo_rgb is None:
+        return {"used": list(cat_tone), "source": "catalog", "catalogue": list(cat_tone), "photo": None, "dE": None}
+    de = float(np.linalg.norm(rgb_to_lab(np.array([cat_tone]))[0] - rgb_to_lab(np.array([photo_rgb]))[0]))
+    ok = de <= gt["photo_max_dE"]
+    return {"used": list(photo_rgb) if ok else list(cat_tone), "source": "photo" if ok else "catalog:photo-conflict",
+            "catalogue": list(cat_tone), "photo": list(photo_rgb), "dE": round(de, 1)}
+
+
+def _base_image(doc: dict, binb: bytes):
+    from PIL import Image
+    ref = doc["materials"][0].get("pbrMetallicRoughness", {}).get("baseColorTexture")
+    if not ref:
+        return None
+    img = doc["images"][doc["textures"][ref["index"]]["source"]]
+    return Image.open(io.BytesIO(_view_bytes(doc, binb, img["bufferView"]))).convert("RGBA")
+
+
+def tint_base_color(glb: str, uv: np.ndarray, faces: np.ndarray, face_tone: np.ndarray, gt: dict) -> tuple[bytes, np.ndarray] | None:
+    """Новая карта цвета: у граней с тоном стекла (face_tone N×3, nan — нет тона) цвет островов UV = тон; остальное байт в байт. → (PNG, маска изменённых текселей)."""
+    from PIL import Image, ImageDraw
+    from scipy import ndimage
+
+    doc, binb = read_glb(glb)
+    base = _base_image(doc, binb)
+    sel = ~np.isnan(face_tone[:, 0])
+    if base is None or not sel.any():
+        return None
+    w, h = base.size
+    ti = Image.new("RGB", (w, h), (0, 0, 0))
+    d = ImageDraw.Draw(ti)
+    tri = uv[faces[sel]]
+    xs, ys = tri[:, :, 0] * w, (1.0 - tri[:, :, 1]) * h
+    for k, i in enumerate(np.flatnonzero(sel)):
+        d.polygon([(xs[k, 0], ys[k, 0]), (xs[k, 1], ys[k, 1]), (xs[k, 2], ys[k, 2])], fill=tuple(int(v) for v in face_tone[i]))
+    ta = np.asarray(ti)
+    occupied = ta.any(axis=-1)
+    dist, idx = ndimage.distance_transform_edt(~occupied, return_indices=True)
+    mask = dist <= gt["patch_dilate_px"]                    # поля островов: билинейная выборка у шва не должна тянуть старый цвет
+    out = np.asarray(base).copy()
+    out[mask, :3] = ta[idx[0], idx[1]][mask]
+    return _png(out), mask
+
+
+def colour_unchanged_outside(src_glb: str, dst_glb: str, mask: np.ndarray | None) -> bool:
+    """Карта цвета не тронута везде, кроме текселей под тоном стекла (mask). Нет маски — байт в байт."""
+    if mask is None:
+        return image_sha(src_glb, "baseColor") == image_sha(dst_glb, "baseColor")
+    a, b = _base_image(*read_glb(src_glb)), _base_image(*read_glb(dst_glb))
+    if a is None or b is None or a.size != b.size:
+        return False
+    return bool((np.asarray(a)[~mask] == np.asarray(b)[~mask]).all())
+
+
+def patch_glb(src: str, dst: str, maps: dict, base_png: bytes | None = None) -> dict:
+    """Копия GLB с новыми картами материала 0: metallicRoughness заменена (на месте), sheenColor и transmission добавлены расширениями. Геометрия не тронута; цвет — тоже,
+    кроме `base_png` (карта цвета с тоном стекла у стеклянных граней — `tint_base_color`; нет тона — None, байт в байт)."""
     doc, binb = read_glb(src)
     views = [bytearray(_view_bytes(doc, binb, i)) for i in range(len(doc["bufferViews"]))]
     mat = doc["materials"][0]
@@ -513,6 +606,9 @@ def patch_glb(src: str, dst: str, maps: dict) -> dict:
         views[bv] = bytearray(mr_png)
     else:
         pbr["metallicRoughnessTexture"] = {"index": add_texture(mr_png)}
+    if base_png is not None and pbr.get("baseColorTexture"):
+        bvb = doc["images"][doc["textures"][pbr["baseColorTexture"]["index"]]["source"]]["bufferView"]
+        views[bvb] = bytearray(base_png)
     pbr["metallicFactor"] = 1.0
     pbr["roughnessFactor"] = 1.0
     ext = mat.setdefault("extensions", {})
@@ -544,7 +640,7 @@ def _load_mesh(path: str):
     return trimesh.load(path, force="mesh", process=False)
 
 
-def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None = None, frame: bool = True) -> dict:
+def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None = None, frame: bool = True, photo: str | None = None) -> dict:
     """Этап 08 одного товара → `<run>/<sku>/08-material/`. Возвращает check.json (словарь)."""
     ps = _paint_stage()
     mc, mp = _siblings()
@@ -593,7 +689,20 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     lab = rasterize_labels(np.asarray(uv, dtype=np.float64), np.asarray(mesh.faces), face_label, recipes["bake"]["mapSize"])
     maps = bake_maps(lab, table, recipes)
     out_glb = os.path.join(sdir, "material.glb")
-    pinfo = patch_glb(glb, out_glb, maps)
+    gt = recipes["glass_tone"]
+    glass_cls = {c for c, d in rules["_byId"].items() if d["family"] == "glass"}
+    tone_rep: list[dict] = []
+    face_tone = np.full((nf, 3), np.nan)
+    glass_only = bool(res) and all(r["class"] in glass_cls for r in res.values())
+    photo_rgb = photo_tone(photo, gt) if (photo and glass_only) else None      # фото сверяет тон только у цельностеклянного товара: плафон на фото от остального не отделить
+    for pid, r in res.items():
+        if r.get("tone") and r["class"] in glass_cls:
+            rt = reconcile_tone(r["tone"], photo_rgb, gt)
+            r["tone"] = rt["used"]
+            tone_rep.append({"part": int(pid), **rt})
+            face_tone[part == pid] = rt["used"]
+    tinted = tint_base_color(glb, np.asarray(uv, dtype=np.float64), np.asarray(mesh.faces), face_tone, gt)
+    pinfo = patch_glb(glb, out_glb, maps, tinted[0] if tinted else None)
     covered = part >= 0
     known = np.isin(part, [pid for pid in res])
     recipe_share = float((covered & known).sum()) / nf
@@ -601,7 +710,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     conf_ids = [pid for pid, r in res.items() if r["confident"]]
     confident_share = float(np.isin(part, conf_ids).sum()) / nf
     c = recipes["check"]
-    color_same = image_sha(glb, "baseColor") == image_sha(out_glb, "baseColor")
+    color_same = colour_unchanged_outside(glb, out_glb, tinted[1] if tinted else None)
     geom_same = geometry_sha(glb) == geometry_sha(out_glb)
     parts_rep = [{"id": pid, "role": next((p["role"] for p in parts if p["id"] == pid), None), "face_share": next((p["face_share"] for p in parts if p["id"] == pid), None),
                   "inherited_share": round(float(((part == pid) & inherited).sum()) / nf, 4), **r}
@@ -632,7 +741,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
                  "seconds": {"value": round(time.time() - t0, 1), "threshold": c["max_seconds"], "op": "<="}},
         reason=reason, seconds=time.time() - t0, outputs=["material.glb"], frame=frame_name,
         faces=nf, parts_source=parts_source, shape=shape_rep, catalog_parts_not_located=not_located, unsure_parts=unsure_rep, product_class={"class": cls["class"], "stage": cls["stage"], "confidence": cls["confidence"], "reason": cls["reason"], "parts": cls.get("parts")},
-        parts=parts_rep, classes=table, sheen=maps["hasSheen"], transmission=maps["hasTransmission"], recipes_sha=recipes_sha(), glb=pinfo)
+        parts=parts_rep, classes=table, glass_tone=tone_rep, sheen=maps["hasSheen"], transmission=maps["hasTransmission"], recipes_sha=recipes_sha(), glb=pinfo)
     return doc
 
 
@@ -668,6 +777,10 @@ def check() -> int:
             bad.append(f"рецепт {cid}: такого класса нет в material-classes.json")
     if recipes["fallback_class"] not in recipes["recipes"]:
         bad.append("fallback_class без рецепта")
+    gt = recipes.get("glass_tone") or {}
+    for k in ("photo_max_dE", "alpha_min", "min_pixels", "patch_dilate_px"):
+        if not isinstance(gt.get(k), (int, float)) or gt[k] < 0:
+            bad.append(f"glass_tone.{k}: {gt.get(k)!r}")
     for word, cid in recipes["vl_labels"].items():
         if cid not in recipes["recipes"]:
             bad.append(f"vl_labels[{word}] → класс {cid} без рецепта")
@@ -686,6 +799,7 @@ def main(argv: list[str]) -> int:
     s.add_argument("--sku", required=True)
     s.add_argument("--product", required=True, help="JSON {sid,name,role,params}")
     s.add_argument("--parts-dir", default=None)
+    s.add_argument("--photo", default=None, help="RGBA-вырезка фото магазина: сверка тона стекла у цельностеклянного товара (необязательно)")
     s.add_argument("--no-frame", action="store_true")
     r = sub.add_parser("run")
     r.add_argument("--items", required=True)
@@ -696,13 +810,13 @@ def main(argv: list[str]) -> int:
     if a.cmd == "check":
         return check()
     if a.cmd == "stage":
-        items = [{"sku": a.sku, "glb": a.glb, "product": json.load(open(a.product, encoding="utf-8")), "parts_dir": a.parts_dir}]
+        items = [{"sku": a.sku, "glb": a.glb, "product": json.load(open(a.product, encoding="utf-8")), "parts_dir": a.parts_dir, "photo": a.photo}]
     else:
         items = json.load(open(a.items, encoding="utf-8"))
     bad = 0
     for it in items:
         try:
-            d = run_stage(it["glb"], a.run, it["sku"], it["product"], it.get("parts_dir"), not a.no_frame)
+            d = run_stage(it["glb"], a.run, it["sku"], it["product"], it.get("parts_dir"), not a.no_frame, it.get("photo"))
         except Exception as e:  # noqa: BLE001 — счётчик отказов обязателен: падение товара не роняет прогон
             bad += 1
             print(f"ОШИБКА {it['sku']}: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)

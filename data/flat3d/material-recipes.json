@@ -114,6 +114,13 @@
    "sheenRoughness": 0.5,
    "transmission": 1.0
   },
+  "glass_frosted": {
+   "roughness": 0.6,
+   "metallic": 0.0,
+   "sheen": 0.0,
+   "sheenRoughness": 0.5,
+   "transmission": 0.45
+  },
   "ceramic": {
    "roughness": 0.2,
    "metallic": 0.0,
@@ -202,7 +209,14 @@
  },
  "bake": {
   "mapSize": 1024,
-  "_mapSize_about": "размер карт metallicRoughness / sheen / transmission; карта цвета остаётся как есть (цвет не трогаем)"
+  "_mapSize_about": "размер карт metallicRoughness / sheen / transmission; карта цвета остаётся как есть, КРОМЕ островов UV стеклянных частей с тоном (`glass_tone`)"
+ },
+ "glass_tone": {
+  "_about": "Тон стекла (T-20261121-169/9). Каталог называет цвет стекла (`glass_finish` в material-classes.json) — карта цвета TRELLIS у стекла почти всегда чёрная/серая и тонированное стекло выглядело чёрным. Поэтому у частей класса семейства glass С ТОНОМ цвет островов UV = тон. Фото только уточняет: у цельностеклянного товара берём медиану цвета предмета на фото, если она в пределах photo_max_dE (ΔE76 по Lab) от каталожного тона; дальше — блики/чужой фон, остаётся каталожный (в check.json `glass_tone[].source = catalog:photo-conflict`). Без фото — каталог. У товара без названного цвета ничего не перекрашивается.",
+  "photo_max_dE": 30,
+  "alpha_min": 200,
+  "min_pixels": 500,
+  "patch_dilate_px": 2
  },
  "frame": {
   "size": 768,

@@ -12,7 +12,8 @@
     "ldsp": "matte laminated chipboard finish with a fine uniform surface",
     "mdf_film": "smooth matte painted finish",
     "metal": "brushed metal",
-    "glass": "clear glass"
+    "glass": "clear glass",
+    "glass_frosted": "frosted milky opal glass, softly translucent"
   },
   "back_by_class": {
     "casework": "one uninterrupted flat construction back panel in the carcass finish, simple fastening seams"

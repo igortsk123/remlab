@@ -286,7 +286,9 @@
             "--product",
             "{work}/product.json",
             "--parts-dir",
-            "{sku_dir}/03-parts"
+            "{sku_dir}/03-parts",
+            "--photo",
+            "{photo_cam}"
           ],
           "heavy": {
             "prio": 1,
