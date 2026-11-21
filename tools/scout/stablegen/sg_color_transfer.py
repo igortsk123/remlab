@@ -35,6 +35,17 @@ ALPHA_SUSPECT = 0.30      # доля альфа<128 по занятым текс
 ALPHA_LT = 128
 
 
+def glb_has_normal(path: str) -> bool:
+    """Есть ли атрибут NORMAL у ВСЕХ примитивов GLB (читаем JSON-заголовок: trimesh сам досчитывает нормали, по нему «был ли NORMAL» не узнать)."""
+    import json
+    import struct
+    with open(path, 'rb') as f:
+        head = f.read(20)
+        js = json.loads(f.read(struct.unpack('<I', head[12:16])[0]))
+    prims = [pr for m in js.get('meshes', []) for pr in m['primitives']]
+    return bool(prims) and all('NORMAL' in pr['attributes'] for pr in prims)
+
+
 def load_glb(path: str):
     """GLB → {'V','F','UV','mesh','base','mr'}: вершины с применёнными трансформами сцены, развёртка (v вверх, как в trimesh), текстуры PIL (или None). Несколько геометрий сливаются."""
     import numpy as np
@@ -61,8 +72,159 @@ def load_glb(path: str):
         out['V'].append(np.asarray(g.vertices, np.float64))
         out['F'].append(np.asarray(g.faces, np.int64) + off)
         out['UV'].append(np.asarray(uv, np.float64) if uv is not None else np.zeros((len(g.vertices), 2)))
+        try:
+            out.setdefault('N', []).append(np.asarray(g.vertex_normals, np.float64))      # нормали файла (если есть NORMAL), иначе пересчитанные trimesh
+            out['has_normals'] = glb_has_normal(path)
+        except Exception:  # noqa: BLE001
+            out['N'] = None
+            out['has_normals'] = False
         off += len(g.vertices)
     out['V'], out['F'], out['UV'] = np.concatenate(out['V']), np.concatenate(out['F']), np.concatenate(out['UV'])
+    out['N'] = np.concatenate(out['N']) if out.get('N') else None
+    return out
+
+
+NORMAL_RULES_PATH = os.path.join(os.path.dirname(HERE), 'rules', 'sg-prep-normals.json')   # пороги мерки нормалей этапа 02 — в JSON, не в коде
+
+
+def normal_rules(path: str = NORMAL_RULES_PATH) -> dict:
+    """Пороги мерки нормалей: среднее° и хвост p99° разницы нормали затенения упрощённой и сглаженной родной. Нет файла или битое значение → исключение (этап не проходит молча)."""
+    import json
+    with open(path, encoding='utf-8') as f:
+        r = json.load(f)
+    for k in ('normal_dev_mean_deg_max', 'normal_dev_p99_deg_max'):
+        if not isinstance(r.get(k), (int, float)) or isinstance(r.get(k), bool) or not 0 < r[k] <= 180:
+            raise ValueError(f'{path}: {k} должно быть числом в (0, 180], а не {r.get(k)!r}')
+    return r
+
+
+def normals_reason(mean: float, p99: float, has_n: bool, rules: dict) -> str:
+    """Причина отказа по нормалям (пусто — прошли): среднее ИЛИ хвост выше порога. Среднее прячет узкие полосы (шкаф: среднее 7,9°, хвост 36°, на кадре полосы), поэтому гейт по обоим."""
+    if mean > rules['normal_dev_mean_deg_max']:
+        return f'затенение не как у родной: normal_dev_mean_deg {mean:.1f} > {rules["normal_dev_mean_deg_max"]} (NORMAL в файле: {"да" if has_n else "нет"}) — плашки с прямыми краями на гладком боку'
+    if p99 > rules['normal_dev_p99_deg_max']:
+        return f'затенение не как у родной в узких местах: normal_dev_p99_deg {p99:.1f} > {rules["normal_dev_p99_deg_max"]} — полосы/складки на гладкой поверхности (кадр clay с плоским затенением)'
+    return ''
+NORMAL_K = 64           # сколько ближайших вершин родной рассматривается для нормали вершины упрощённой (берутся те, что в радиусе масштаба сетки упрощённой)
+NORMAL_AGREE = 0.3       # вершина родной участвует, только если её нормаль не смотрит против собственной нормали упрощённой (cos ≥ этого): тонкая стенка/рама иначе тянет нормаль с обратной стороны → чёрные пятна
+
+
+def prep_sidecar_path(out_glb: str) -> str:
+    """`<выход>.prep.json` — какой предобработке подвергнута родная форма перед упрощением (пишет sg_prep_shape.py): эталон мерки и нормали берутся из родной после ТОЙ ЖЕ предобработки."""
+    return (out_glb[:-4] if out_glb.endswith('.glb') else out_glb) + '.prep.json'
+
+
+def read_prep(out_glb: str) -> dict:
+    """Предобработка родной из сайдкара: {'weld': bool, 'presmooth': int, 'presmooth_lambda': float}; нет файла — {} (родная как есть, прежнее поведение)."""
+    import json
+    p = prep_sidecar_path(out_glb)
+    if not os.path.exists(p):
+        return {}
+    with open(p, encoding='utf-8') as f:
+        d = json.load(f)
+    return {'weld': bool(d.get('weld')), 'presmooth': int(d.get('presmooth') or 0), 'presmooth_lambda': float(d.get('presmooth_lambda') or 0.5)}
+
+
+def weld_vertices(V, F, tol: float = 1e-7):
+    """Склеить вершины с совпадающими координатами (glTF режет вершину по каждому шву UV/нормалей). → (V, F) без неиспользуемых вершин."""
+    import numpy as np
+    key = np.round(np.asarray(V, np.float64) / tol).astype(np.int64)
+    _, first, inv = np.unique(key, axis=0, return_index=True, return_inverse=True)
+    inv = inv.reshape(-1)
+    F2 = inv[np.asarray(F)]
+    used = np.unique(F2)
+    remap = np.full(len(first), -1, np.int64)
+    remap[used] = np.arange(len(used))
+    return np.asarray(V, np.float64)[first][used], remap[F2]
+
+
+def taubin_smooth(V, F, iters: int, lam: float = 0.5):
+    """Сглаживание Таубина: Лапласово «сжатие» (+λ) и «растяжение» (μ = −λ/(1−0.1λ)) по очереди, `iters` раз — шум сетки гаснет, форма почти не садится. Одна функция для sg_prep_shape.py (форма для упрощения)
+    и для эталона мерки нормалей: эталон сглажен ТАК ЖЕ, иначе мерка сравнивала бы с шумом, который предобработка уже убрала."""
+    import numpy as np
+    V = np.asarray(V, np.float64)
+    F = np.asarray(F, np.int64)
+    E = np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]])
+    E = np.unique(np.sort(E, axis=1), axis=0)
+    ea, eb = np.concatenate([E[:, 0], E[:, 1]]), np.concatenate([E[:, 1], E[:, 0]])
+    nv = len(V)
+    deg = np.bincount(ea, minlength=nv).astype(np.float64)
+    mu = -lam / (1.0 - 0.1 * lam)
+    Q = V.copy()
+    for _ in range(int(iters)):
+        for k in (lam, mu):
+            S = np.stack([np.bincount(ea, weights=Q[eb, c], minlength=nv) for c in range(3)], 1)
+            nb = np.where(deg[:, None] > 0, S / np.maximum(deg, 1.0)[:, None], Q)
+            Q = Q + k * (nb - Q)
+    return Q
+
+
+def vertex_normals_area(V, F):
+    """Нормали вершин: сумма нормалей граней, взвешенных площадью (длина векторного произведения), нормированная."""
+    import numpy as np
+    V = np.asarray(V, np.float64)
+    F = np.asarray(F, np.int64)
+    fn = np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]])
+    N = np.zeros_like(V)
+    for c in range(3):
+        for k in range(3):
+            N[:, c] += np.bincount(F[:, k], weights=fn[:, c], minlength=len(V))
+    ln = np.linalg.norm(N, axis=1, keepdims=True)
+    return N / np.where(ln < 1e-12, 1.0, ln)
+
+
+def native_reference(nat_V, nat_F, nat_N, prep: dict):
+    """Родная для эталона нормалей и для их переноса: (вершины, нормали). `nat_F` — грани без плиты. Без предобработки — сырые вершины и нормали файла (как прежде); с предобработкой (склейка по швам,
+    Таубин) — та же склейка и то же сглаживание, нормали из получившейся геометрии: мерка проверяет только то, что сломало упрощение, а не то, что предобработка убрала сознательно."""
+    import numpy as np
+    used = np.unique(nat_F)
+    if not prep or not (prep.get('weld') or prep.get('presmooth')):
+        return nat_V[used], nat_N[used]
+    remap = np.full(len(nat_V), -1, np.int64)
+    remap[used] = np.arange(len(used))
+    V, F = weld_vertices(nat_V[used], remap[nat_F])
+    if prep.get('presmooth'):
+        V = taubin_smooth(V, F, prep['presmooth'], prep.get('presmooth_lambda') or 0.5)
+    return V, vertex_normals_area(V, F)
+
+
+def transfer_normals(nat_V, nat_N, tgt_V, tgt_F, k: int = NORMAL_K, agree: float = NORMAL_AGREE):
+    """Нормали упрощённой формы из родной (T-167: без NORMAL в GLB Blender считает свои по большим граням — плашки с прямыми краями на спинке): среднее нормалей k ближайших вершин родной с весом
+    по расстоянию, но только тех, что согласны с собственной нормалью упрощённой (cos ≥ agree; обратные — отбрасываем). Нет согласных — собственная нормаль упрощённой."""
+    import numpy as np
+    import trimesh
+    own = np.asarray(trimesh.Trimesh(vertices=tgt_V, faces=tgt_F, process=False).vertex_normals, np.float64)
+    return smooth_native_normals(nat_V, nat_N, tgt_V, own, vertex_spacing(tgt_V, tgt_F), k, agree)
+
+
+def vertex_spacing(V, F):
+    """Средняя длина рёбер, сходящихся в вершине (масштаб сетки упрощённой в этой точке)."""
+    import numpy as np
+    a, b, c = V[F[:, 0]], V[F[:, 1]], V[F[:, 2]]
+    lab, lbc, lca = np.linalg.norm(a - b, axis=1), np.linalg.norm(b - c, axis=1), np.linalg.norm(c - a, axis=1)
+    s = np.zeros(len(V))
+    n = np.zeros(len(V))
+    for idx, ln in ((F[:, 0], lab + lca), (F[:, 1], lab + lbc), (F[:, 2], lbc + lca)):
+        s += np.bincount(idx, weights=ln, minlength=len(V))
+        n += np.bincount(idx, weights=np.full(len(idx), 2.0), minlength=len(V))
+    return s / np.maximum(n, 1.0)
+
+
+def smooth_native_normals(nat_V, nat_N, pts, own, scale, k: int = NORMAL_K, agree: float = NORMAL_AGREE):
+    """Сглаженная нормаль родной в точках `pts`: среднее нормалей вершин родной в радиусе `scale` (масштаб сетки упрощённой в точке; ближайшая берётся всегда, до k вершин). Сырая сетка TRELLIS шумит
+    на масштабе своей вершины (мелкие борозды), упрощённая грань — крупнее: нормаль вершины должна быть средней по её окрестности, иначе борозды дают тёмные полосы (шкаф, кадры T-167). own — собственные нормали
+    точек: согласие с ними отсеивает вершины обратной стороны."""
+    import numpy as np
+    from scipy.spatial import cKDTree
+    d, j = cKDTree(nat_V).query(pts, k=k, workers=-1)
+    cand = nat_N[j]                                               # (n, k, 3)
+    cosv = np.einsum('nkc,nc->nk', cand, own)
+    near = d <= np.asarray(scale)[:, None]
+    near[:, 0] = True
+    w = ((cosv >= agree) & near).astype(np.float64)
+    s = np.einsum('nk,nkc->nc', w, cand)
+    ln = np.linalg.norm(s, axis=1, keepdims=True)
+    out = np.where(ln > 1e-12, s / np.where(ln < 1e-12, 1.0, ln), own)
     return out
 
 
@@ -110,6 +272,19 @@ def _claim_missing(F, xy, ids, size: int):
     return flat, miss[free][k]
 
 
+SLIVER_Q = 0.1       # грань — «щепка», если качество q = 4√3·S / (a²+b²+c²) ниже этого (равносторонняя 1, игла → 0)
+
+
+def sliver_share(V, F, q_max: float = SLIVER_Q) -> float:
+    """Доля граней-щепок (длинные узкие треугольники — следы упрощения, которое не смогло схлопнуть рёбра через шов; полосы и трещины на гладкой поверхности). T-167: сперва только отчёт, порога нет."""
+    import numpy as np
+    a, b, c = V[F[:, 0]], V[F[:, 1]], V[F[:, 2]]
+    area = 0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1)
+    s2 = np.einsum('nc,nc->n', b - a, b - a) + np.einsum('nc,nc->n', c - b, c - b) + np.einsum('nc,nc->n', a - c, a - c)
+    q = np.where(s2 > 0, 4.0 * np.sqrt(3.0) * area / np.where(s2 > 0, s2, 1.0), 0.0)
+    return float((q < q_max).mean())
+
+
 def face_coverage(V, F, UV, size: int) -> float:
     """Доля граней, получивших хотя бы один тексель в атласе size×size. Грань без текселя при показе берёт цвет соседнего острова (пятна не того цвета, кадры T-167)."""
     import numpy as np
@@ -137,12 +312,31 @@ def face_coverage(V, F, UV, size: int) -> float:
     return float(covered.mean()) if len(F) else 1.0
 
 
-def chamfer_ratio(native_path: str, shape_path: str, n: int = 40000) -> tuple[float, float]:
-    """Расстояние Chamfer между родной и упрощённой формой по точкам поверхности, в долях диагонали габарита родной: (среднее, p99). Большое — форма не от этого черновика или другие оси."""
+def plate_free_faces(V, F, strip_plate: bool = True):
+    """Грани родной формы без плиты-подложки TRELLIS (plate_strip.py, правила tools/scout/rules/plate-strip.json) → (F без плиты, отчёт). Упрощённая форма собрана БЕЗ плиты, поэтому
+    и перенос цвета, и Chamfer сравнивают её с родной тоже без плиты. Плиты нет / выключено / модуля нет — F как есть."""
+    import numpy as np
+    if not strip_plate:
+        return F, {'plate_found': False, 'refused': '', 'skipped': 'выключено'}
+    sys.path.insert(0, os.path.dirname(HERE))           # tools/scout
+    try:
+        import plate_strip as P
+    except ImportError:
+        return F, {'plate_found': False, 'refused': '', 'skipped': 'нет plate_strip.py'}
+    remove, rep = P.analyze(V, F)
+    return (F[~remove] if remove.any() else F), rep
+
+
+def chamfer_ratio(native_path: str, shape_path: str, n: int = 40000, strip_plate: bool = True) -> tuple[float, float]:
+    """Расстояние Chamfer между родной (без плиты-подложки) и упрощённой формой по точкам поверхности, в долях диагонали габарита родной: (среднее, p99). Большое — форма не от этого черновика или другие оси."""
     import numpy as np
     import trimesh
     from scipy.spatial import cKDTree
     a = trimesh.load(native_path, force='mesh', process=False)
+    Fk, _ = plate_free_faces(np.asarray(a.vertices), np.asarray(a.faces), strip_plate)
+    if len(Fk) != len(a.faces):
+        a = trimesh.Trimesh(vertices=np.asarray(a.vertices), faces=Fk, process=False)
+        a.remove_unreferenced_vertices()
     b = trimesh.load(shape_path, force='mesh', process=False)
     pa, _ = trimesh.sample.sample_surface(a, n, seed=1)
     pb, _ = trimesh.sample.sample_surface(b, n, seed=1)
@@ -150,6 +344,33 @@ def chamfer_ratio(native_path: str, shape_path: str, n: int = 40000) -> tuple[fl
     d1 = cKDTree(pb).query(pa)[0]
     d2 = cKDTree(pa).query(pb)[0]
     return float((d1.mean() + d2.mean()) / 2 / diag), float(max(np.percentile(d1, 99), np.percentile(d2, 99)) / diag)
+
+
+def normal_deviation(native_path: str, shape_path: str, n: int = 40000) -> tuple[float, float, bool]:
+    """Разница затенения родной↔упрощённая без съёмки (T-167: «плашка» на гладком боку у модели без NORMAL): на n точках поверхности упрощённой — угол между её НОРМАЛЬЮ ЗАТЕНЕНИЯ
+    (нормали вершин из файла по барицентрике; нет NORMAL в файле — плоская нормаль грани, как её рисует просмотрщик) и СГЛАЖЕННОЙ нормалью родной (родная без плиты, сырая сетка TRELLIS шумит
+    на масштабе вершины: среднее по ближайшим согласным вершинам). Яркость clay ≈ cos этого угла: p99 угла — геометрический аналог «p99 разницы затенения clay» без съёмки (съёмка родной и упрощённой
+    кадрируется по разным габаритам — плита, — поэтому в кадрах поточечно не сравнить). Возврат: (среднее°, p99°, есть ли в файле NORMAL)."""
+    import numpy as np
+    import trimesh
+    na, nb = load_glb(native_path), load_glb(shape_path)
+    na['F'], _ = plate_free_faces(na['V'], na['F'])
+    ref_V, ref_N = native_reference(na['V'], na['F'], na['N'], read_prep(shape_path))          # эталон — родная после той же предобработки (сайдкар `<выход>.prep.json`)
+    b = trimesh.Trimesh(vertices=nb['V'], faces=nb['F'], process=False)
+    has_n = bool(nb.get('has_normals')) and nb.get('N') is not None
+    pts, fi = trimesh.sample.sample_surface(b, n, seed=1)
+    if has_n:
+        tri = nb['V'][nb['F'][fi]]
+        bc = trimesh.triangles.points_to_barycentric(tri, pts)
+        nrm = np.einsum('nk,nkc->nc', bc, nb['N'][nb['F'][fi]])
+    else:
+        nrm = np.asarray(b.face_normals)[fi]
+    nrm = nrm / np.where(np.linalg.norm(nrm, axis=1, keepdims=True) < 1e-12, 1.0, np.linalg.norm(nrm, axis=1, keepdims=True))
+    scale = vertex_spacing(nb['V'], nb['F'])[nb['F'][fi]].mean(1)                    # тот же радиус сглаживания, что в переносе нормалей
+    ref = smooth_native_normals(ref_V, ref_N, pts, np.asarray(b.face_normals)[fi], scale)
+    cos = np.clip(np.einsum('nc,nc->n', nrm, ref), -1.0, 1.0)
+    ang = np.degrees(np.arccos(cos))
+    return float(ang.mean()), float(np.percentile(ang, 99)), has_n
 
 
 def _rgba(img, size: int | None = None):
@@ -173,7 +394,7 @@ def _fill_empty(arr, filled):
     return arr[idx[0], idx[1]]
 
 
-def transfer(native_path: str, shape_path: str, out_path: str, size: int | None = None, max_dist: float = MAX_DIST) -> dict:
+def transfer(native_path: str, shape_path: str, out_path: str, size: int | None = None, max_dist: float = MAX_DIST, strip_plate: bool = True) -> dict:
     """Главная функция: родной GLB (с цветом) + упрощённая форма с НОВОЙ развёрткой → GLB с перенесёнными baseColor / металл-шероховатость / альфа. Возвращает отчёт."""
     import numpy as np
     import trimesh
@@ -188,10 +409,12 @@ def transfer(native_path: str, shape_path: str, out_path: str, size: int | None 
     size = int(size or nsize)
     base = _rgba(nat['base'])
     mr = _rgba(nat['mr'], nsize) if nat['mr'] is not None else None
+    nat['F'], plate_rep = plate_free_faces(nat['V'], nat['F'], strip_plate)       # родная без плиты: плитные тексели цвет не отдают
+    used = np.unique(nat['F'])
     ny, nx, NP = texel_points(nat['V'], nat['F'], nat['UV'], nsize)
     ty, tx, TP = texel_points(tgt['V'], tgt['F'], tgt['UV'], size, conservative=True)
     t_ras = time.time() - t0
-    diag = float(np.linalg.norm(nat['V'].max(0) - nat['V'].min(0))) or 1.0
+    diag = float(np.linalg.norm(nat['V'][used].max(0) - nat['V'][used].min(0))) or 1.0
     tree = cKDTree(NP)
     dist, j = tree.query(TP, k=1, workers=-1)
     ok = dist <= max_dist * diag
@@ -212,14 +435,17 @@ def transfer(native_path: str, shape_path: str, out_path: str, size: int | None 
         baseColorTexture=Image.fromarray(res, 'RGBA'), baseColorFactor=np.array([255, 255, 255, 255], np.uint8),
         metallicRoughnessTexture=Image.fromarray(resmr[..., :3], 'RGB') if resmr is not None else None,
         metallicFactor=1.0 if resmr is not None else 0.0, roughnessFactor=1.0 if resmr is not None else 0.8, alphaMode='OPAQUE')
-    m = trimesh.Trimesh(vertices=tgt['V'], faces=tgt['F'], process=False)
+    prep = read_prep(out_path)                                    # предобработка родной перед упрощением (сайдкар sg_prep_shape.py): нормали берём из родной после неё же
+    ref_V, ref_N = native_reference(nat['V'], nat['F'], nat['N'], prep) if nat.get('N') is not None else (None, None)
+    normals = transfer_normals(ref_V, ref_N, tgt['V'], tgt['F']) if nat.get('has_normals') and ref_N is not None else None
+    m = trimesh.Trimesh(vertices=tgt['V'], faces=tgt['F'], vertex_normals=normals, process=False)
     m.visual = trimesh.visual.TextureVisuals(uv=tgt['UV'], material=mat)
     tmp = out_path + '.tmp.glb'
     m.export(tmp, file_type='glb')
     os.replace(tmp, out_path)
     rep = {'native': os.path.basename(native_path), 'native_size': nsize, 'size': size, 'native_texels': int(len(ny)), 'target_texels': int(len(ty)), 'with_color': int(ok.sum()),
            'share': round(share, 5), 'faces_with_texel': round(face_coverage(tgt['V'], tgt['F'], tgt['UV'], size), 5), 'max_dist_m': round(max_dist * diag, 5), 'dist_p50': round(float(np.median(dist)), 6) if len(dist) else 0.0,
-           'dist_p99': round(float(np.percentile(dist, 99)), 6) if len(dist) else 0.0, 'has_mr': mr is not None, 'sec_raster': round(t_ras, 1), 'sec_total': round(time.time() - t0, 1)}
+           'dist_p99': round(float(np.percentile(dist, 99)), 6) if len(dist) else 0.0, 'has_mr': mr is not None, 'normals_from_native': normals is not None, 'native_prep': prep, 'plate_found': bool(plate_rep.get('plate_found')) and not plate_rep.get('refused'), 'sec_raster': round(t_ras, 1), 'sec_total': round(time.time() - t0, 1)}
     return rep
 
 
@@ -323,7 +549,7 @@ def stage01(run: str, sku: str, native_glb: str, frame_src: str | None = None, s
 
 
 def stage02(run: str, sku: str, native_glb: str, out_glb: str, rep: dict | None = None, faces_max: int = FACES_MAX, min_share: float = MIN_SHARE,
-            frame_src: str | None = None, seconds: float | None = None) -> dict:
+            frame_src: str | None = None, seconds: float | None = None, strip_plate: bool = True) -> dict:
     """Этап 02-prep: упрощённая форма с НОВОЙ развёрткой и перенесённым цветом — доля текселей с цветом ≥ 99 % (главная мерка) и граней ≤ 150 тыс.
     `rep` — отчёт `transfer()`; нет — считается заново из файлов. Папка `<run>/<sku>/02-prep/`: `shape.glb`, `frame.png`, `check.json`."""
     ps = _paint_stage()
@@ -336,7 +562,7 @@ def stage02(run: str, sku: str, native_glb: str, out_glb: str, rep: dict | None 
     if rep is None:
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
-            rep = transfer(native_glb, out_glb, os.path.join(tmp, 'x.glb'), size=g['base'].size[0] if g['base'] is not None else None)
+            rep = transfer(native_glb, out_glb, os.path.join(tmp, 'x.glb'), size=g['base'].size[0] if g['base'] is not None else None, strip_plate=strip_plate)
     _link(out_glb, os.path.join(d, 'shape.glb'))
     frame = None
     if frame_src and os.path.exists(frame_src):
@@ -347,16 +573,32 @@ def stage02(run: str, sku: str, native_glb: str, out_glb: str, rep: dict | None 
         _atlas_frame(g['base'], os.path.join(d, 'frame.png'))
         frame = 'frame.png'
     cov = face_coverage(g['V'], g['F'], g['UV'], g['base'].size[0] if g['base'] is not None else rep.get('size') or 1024)
-    ch_mean, ch_p99 = chamfer_ratio(native_glb, out_glb)
+    ch_mean, ch_p99 = chamfer_ratio(native_glb, out_glb, strip_plate=strip_plate)
+    metrics = {'faces': {'value': faces, 'threshold': faces_max, 'op': '<='},
+               'sliver_share': {'value': round(sliver_share(g['V'], g['F']), 5), 'op': '<=', 'note': f'справочная, без порога (порог — по таблице 30): доля граней-щепок с качеством q < {SLIVER_Q}'},
+               'chamfer_diag': {'value': round(ch_mean, 5), 'threshold': CHAMFER_MAX, 'op': '<='},
+               'chamfer_p99_diag': {'value': round(ch_p99, 5)},
+               'color_texel_share': {'value': rep['share'], 'threshold': min_share, 'op': '>='}}
+    nd_mean, nd_p99, has_n = normal_deviation(native_glb, out_glb)
+    nr = normal_rules()
+    metrics.update({'normal_dev_mean_deg': {'value': round(nd_mean, 2), 'threshold': nr['normal_dev_mean_deg_max'], 'op': '<='},
+                    'normal_dev_p99_deg': {'value': round(nd_p99, 1), 'threshold': nr['normal_dev_p99_deg_max'], 'op': '<='},
+                    'normals_in_file': {'value': bool(has_n)}})
+    plate_json = (out_glb[:-4] if out_glb.endswith('.glb') else out_glb) + '.plate.json'      # отчёт среза плиты, его пишет sg_prep_shape.py (до упрощения)
+    if os.path.exists(plate_json):
+        import json
+        sys.path.insert(0, os.path.dirname(HERE))
+        import plate_strip as P
+        with open(plate_json, encoding='utf-8') as fp:
+            prep_plate = json.load(fp)
+        metrics.update({f'plate_{k}': v for k, v in P.plate_metrics(prep_plate).items()})
     return ps.write_check(d, '02-prep', sku, None,
                           metric={'name': 'faces_with_texel', 'value': round(cov, 5), 'threshold': FACES_TEXEL_MIN, 'op': '>='},
-                          metrics={'faces': {'value': faces, 'threshold': faces_max, 'op': '<='},
-                                   'chamfer_diag': {'value': round(ch_mean, 5), 'threshold': CHAMFER_MAX, 'op': '<='},
-                                   'chamfer_p99_diag': {'value': round(ch_p99, 5)},
-                                   'color_texel_share': {'value': rep['share'], 'threshold': min_share, 'op': '>='}},
-                          reason='' if ch_mean <= CHAMFER_MAX else f'форма не от этого черновика: chamfer_diag {ch_mean:.3f} > {CHAMFER_MAX} (Chamfer родной↔упрощённая, доля диагонали)',
+                          metrics=metrics,
+                          reason=(f'форма не от этого черновика: chamfer_diag {ch_mean:.3f} > {CHAMFER_MAX} (Chamfer родной↔упрощённая, доля диагонали)' if ch_mean > CHAMFER_MAX else
+                                  normals_reason(nd_mean, nd_p99, has_n, nr)),
                           seconds=seconds, outputs=['shape.glb'], frame=frame, native_texels=rep.get('native_texels'), target_texels=rep.get('target_texels'),
-                          dist_p50=rep.get('dist_p50'), dist_p99=rep.get('dist_p99'), atlas=rep.get('size'), has_mr=rep.get('has_mr'))
+                          dist_p50=rep.get('dist_p50'), dist_p99=rep.get('dist_p99'), atlas=rep.get('size'), has_mr=rep.get('has_mr'), native_prep=read_prep(out_glb))
 
 
 
@@ -379,6 +621,7 @@ def main() -> int:
     t.add_argument('--size', type=int, default=None)
     t.add_argument('--max-dist', type=float, default=MAX_DIST)
     t.add_argument('--min-share', type=float, default=MIN_SHARE)
+    t.add_argument('--no-plate-strip', action='store_true', help='не вычитать плиту-подложку из родной формы (если sg_prep_shape.py плиту не резал)')
     g = sub.add_parser('guard')
     g.add_argument('paths', nargs='+')
     st = sub.add_parser('stages', help='записать этапы 01-trellis и (если есть --out) 02-prep в <run>/<sku>/NN-этап/ (check.json + кадр)')
@@ -388,13 +631,14 @@ def main() -> int:
     st.add_argument('--out', default=None, help='упрощённая форма с перенесённым цветом (выход sg_prep_shape.py --color-from)')
     st.add_argument('--frame01', default=None)
     st.add_argument('--frame02', default=None)
+    st.add_argument('--no-plate-strip', action='store_true')
     a = ap.parse_args()
     if a.cmd == 'stages':
         c1 = stage01(a.run, a.sku, a.native, a.frame01)
         print('01-trellis:', 'прошёл' if c1['passed'] else 'НЕ прошёл', c1['reason'])
         code = 0 if c1['passed'] else 1
         if a.out:
-            c2 = stage02(a.run, a.sku, a.native, a.out, None, frame_src=a.frame02)
+            c2 = stage02(a.run, a.sku, a.native, a.out, None, frame_src=a.frame02, strip_plate=not a.no_plate_strip)
             print('02-prep:', 'прошёл' if c2['passed'] else 'НЕ прошёл', c2['reason'])
             code = code or (0 if c2['passed'] else 1)
         return code
@@ -405,7 +649,7 @@ def main() -> int:
                 print('  ', r)
         print(line)
         return code
-    rep = transfer(a.native, a.shape, a.out, a.size, a.max_dist)
+    rep = transfer(a.native, a.shape, a.out, a.size, a.max_dist, strip_plate=not a.no_plate_strip)
     print('перенос:', rep)
     print(f'перенос: с цветом {rep["share"]:.2%} текселей нового атласа (цель ≥ {a.min_share:.0%}), граней с цветом верного места {rep["faces_with_texel"]:.2%} (цель ≥ {FACES_TEXEL_MIN:.0%}), расстояние p50 {rep["dist_p50"]}, p99 {rep["dist_p99"]}, {rep["sec_total"]} с')
     if rep['share'] >= a.min_share and rep['faces_with_texel'] >= FACES_TEXEL_MIN:

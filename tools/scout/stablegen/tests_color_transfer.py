@@ -94,6 +94,116 @@ def main() -> int:
         check('металл/шероховатость переносятся (G=200, B=30)', (np.abs(mrr[py, px, 1].astype(int) - 200) <= 1).all() and (np.abs(mrr[py, px, 2].astype(int) - 30) <= 1).all())
         check('поля вокруг островков залиты цветом (нет чёрных текселей)', int((rgba[..., :3].sum(2) == 0).sum()) <= 2)
 
+        # нормали: у родного есть NORMAL → переходят на упрощённую (ближайшая вершина), без NORMAL у родного — не пишем свои (T-167: плашки после упрощения)
+        nn = np.tile(np.array([0.0, 0.6, 0.8]), (len(Vn), 1))
+        mn = trimesh.Trimesh(vertices=Vn, faces=Fn, vertex_normals=nn, process=False)
+        mn.visual = trimesh.visual.TextureVisuals(uv=UVn, material=trimesh.visual.material.PBRMaterial(baseColorTexture=base, alphaMode='OPAQUE'))
+        nat_n = os.path.join(d, 'nat-n.glb')
+        mn.export(nat_n, file_type='glb')
+        rep_n = T.transfer(nat_n, shp, os.path.join(d, 'out-n.glb'), size=64)
+        gn = T.load_glb(os.path.join(d, 'out-n.glb'))
+        check('нормали родного переходят на упрощённую (NORMAL записан, значения те же)',
+              rep_n.get('normals_from_native') and gn['has_normals'] and np.allclose(gn['N'], [0.0, 0.6, 0.8], atol=1e-3), (rep_n.get('normals_from_native'), gn['has_normals']))
+
+        # нормали с обратной стороны (тонкая стенка рядом) не берём: у половины родной нормали перевёрнуты, у упрощённой все должны остаться «наружу» (cos с собственной нормалью > 0)
+        own = np.asarray(trimesh.Trimesh(vertices=Vs, faces=Fs, process=False).vertex_normals)
+        sign = np.where(Vn[:, 0] < 0.5, 1.0, -1.0)[:, None]
+        flip_N = np.array([0.0, 0.0, 1.0]) * sign * (1.0 if (own[:, 2].mean() > 0) else -1.0)
+        tn = T.transfer_normals(Vn, flip_N, Vs, Fs)
+        check('нормали родной с обратной стороны отбрасываются (у упрощённой cos с собственной нормалью > 0 у всех вершин, длина 1)',
+              (np.einsum('nc,nc->n', tn, own) > 0).all() and np.allclose(np.linalg.norm(tn, axis=1), 1.0, atol=1e-6), float(np.einsum('nc,nc->n', tn, own).min()))
+
+        # мерка «разница затенения»: гладкая сфера (родная, с NORMAL) против грубой сферы без NORMAL (плоские грани) и с нормалями родной
+        hi = trimesh.creation.icosphere(subdivisions=4)
+        lo = trimesh.creation.icosphere(subdivisions=0)             # 20 плоских граней: заведомо «плашки»
+        sph_nat, sph_flat, sph_ok = (os.path.join(d, x) for x in ('sph-nat.glb', 'sph-flat.glb', 'sph-ok.glb'))
+        trimesh.Trimesh(vertices=hi.vertices, faces=hi.faces, vertex_normals=hi.vertices / np.linalg.norm(hi.vertices, axis=1, keepdims=True), process=False).export(sph_nat, file_type='glb')
+        trimesh.Trimesh(vertices=lo.vertices, faces=lo.faces, process=False).export(sph_flat, file_type='glb')
+        trimesh.Trimesh(vertices=lo.vertices, faces=lo.faces, vertex_normals=lo.vertices / np.linalg.norm(lo.vertices, axis=1, keepdims=True), process=False).export(sph_ok, file_type='glb')
+        nd_flat, nd_ok = T.normal_deviation(sph_nat, sph_flat), T.normal_deviation(sph_nat, sph_ok)
+        nr = T.normal_rules()
+        check('мерка нормалей: без NORMAL (плоские грани) — среднее выше порога, с нормалями родной — ниже; флаг «NORMAL в файле» верен',
+              nd_flat[0] > nr['normal_dev_mean_deg_max'] > nd_ok[0] and not nd_flat[2] and nd_ok[2], (nd_flat, nd_ok))
+
+        # предобработка родной перед упрощением (T-167): склейка по швам, Таубин, сайдкар, эталон «после той же предобработки»
+        n = 21
+        gx, gy = np.meshgrid(np.linspace(0, 1, n), np.linspace(0, 1, n))
+        rng = np.random.default_rng(7)
+        pv = np.stack([gx.ravel(), gy.ravel(), 0.02 * rng.standard_normal(n * n)], 1)
+        pf = np.array([[j * n + i, j * n + i + 1, (j + 1) * n + i] for j in range(n - 1) for i in range(n - 1)] + [[j * n + i + 1, (j + 1) * n + i + 1, (j + 1) * n + i] for j in range(n - 1) for i in range(n - 1)])
+        seam_v = np.concatenate([pv, pv[:n]])                                                    # первая строка продублирована (шов): грани второго ряда берут копии
+        seam_f = pf.copy()
+        upper = np.arange(len(pf))[:, None] >= len(pf) // 2
+        seam_f[(seam_f < n) & upper] += n * n                                                   # верхние треугольники у первой строки берут копии её вершин
+        wv, wf = T.weld_vertices(seam_v, seam_f)
+        check('склейка по швам: дубли вершин сливаются, грани целы (число граней то же, вершин как без дублей)', len(wf) == len(seam_f) and len(wv) <= len(seam_v) - 1 and len(np.unique(wf)) == len(wv), (len(seam_v), len(wv)))
+        sm = T.taubin_smooth(pv, pf, 3, 0.5)
+        inner = (np.abs(pv[:, 0] - 0.5) < 0.35) & (np.abs(pv[:, 1] - 0.5) < 0.35)
+        check('Таубин: шум плоскости (шаг сетки 0,05, шум 0,02) гаснет не менее чем вдвое за 3 прохода, внутри сетки вершины не уходят по плоскости более чем на шаг/2', sm[inner, 2].std() < pv[inner, 2].std() / 1.8 and np.abs(sm[inner, :2] - pv[inner, :2]).max() < 0.5 / (n - 1), (sm[inner, 2].std(), pv[inner, 2].std()))
+        ico = trimesh.creation.icosphere(subdivisions=3)
+        sm_ico = T.taubin_smooth(ico.vertices, ico.faces, 3, 0.5)
+        check('Таубин: объём держится (сфера радиуса 1 после 3 проходов — средний радиус в пределах 2 %)', abs(np.linalg.norm(sm_ico, axis=1).mean() - 1.0) < 0.02, float(np.linalg.norm(sm_ico, axis=1).mean()))
+        pj = os.path.join(d, 'out.glb')
+        check('сайдкар предобработки: нет файла — пусто', T.read_prep(pj) == {}, T.read_prep(pj))
+        with open(T.prep_sidecar_path(pj), 'w', encoding='utf-8') as fp:
+            fp.write('{"weld": true, "presmooth": 3, "presmooth_lambda": 0.5}')
+        check('сайдкар предобработки: читается', T.read_prep(pj) == {'weld': True, 'presmooth': 3, 'presmooth_lambda': 0.5}, T.read_prep(pj))
+        rv, rn = T.native_reference(seam_v, seam_f, np.tile([0.0, 0.0, 1.0], (len(seam_v), 1)), {'weld': True, 'presmooth': 3, 'presmooth_lambda': 0.5})
+        rv0, rn0 = T.native_reference(seam_v, seam_f, np.tile([0.0, 0.0, 1.0], (len(seam_v), 1)), {})
+        check('эталон: без предобработки — сырые вершины и нормали файла; с ней — склеенные, сглаженные, нормали единичные и смотрят вверх/вниз',
+              len(rv0) == len(np.unique(seam_f)) and len(rv) < len(rv0) and np.allclose(np.linalg.norm(rn, axis=1), 1.0, atol=1e-6) and (np.abs(rn[:, 2]) > 0.9).mean() > 0.8, (len(rv0), len(rv), float((np.abs(rn[:, 2]) > 0.9).mean())))
+
+        # доля граней-щепок: сетка из ровных треугольников — 0, добавленные иглы — ровно их доля
+        gv = np.array([[x, y, 0.0] for y in range(6) for x in range(6)], float)
+        gf = np.array([[y * 6 + x, y * 6 + x + 1, (y + 1) * 6 + x] for y in range(5) for x in range(5)] + [[y * 6 + x + 1, (y + 1) * 6 + x + 1, (y + 1) * 6 + x] for y in range(5) for x in range(5)])
+        gv_n = np.concatenate([gv, np.array([[0.0, 0.0, 1.0], [10.0, 0.0, 1.0], [5.0, 0.001, 1.0]])])        # игла: длина 10, ширина 0,001
+        gf_n = np.concatenate([gf, np.array([[36, 37, 38]])])
+        check('доля граней-щепок: ровная сетка (50 граней) — 0, плюс одна игла — 1/51',
+              T.sliver_share(gv, gf) == 0.0 and abs(T.sliver_share(gv_n, gf_n) - 1.0 / 51.0) < 1e-9, (T.sliver_share(gv, gf), T.sliver_share(gv_n, gf_n)))
+
+        # гейт по среднему И хвосту: среднее в норме, хвост выше порога (узкие полосы) — отказ с причиной про хвост; всё в норме — пусто
+        check('гейт нормалей: среднее в норме, а хвост p99 выше порога — отказ про хвост; оба в норме — пусто; среднее выше — отказ про среднее',
+              'normal_dev_p99_deg' in T.normals_reason(nr['normal_dev_mean_deg_max'] - 1, nr['normal_dev_p99_deg_max'] + 1, True, nr)
+              and T.normals_reason(nr['normal_dev_mean_deg_max'] - 1, nr['normal_dev_p99_deg_max'] - 1, True, nr) == ''
+              and 'normal_dev_mean_deg' in T.normals_reason(nr['normal_dev_mean_deg_max'] + 1, 0.0, False, nr), nr)
+        # пороги — из JSON, без файла или с битым значением — исключение (этап не проходит молча)
+        bad_rules = os.path.join(d, 'bad-rules.json')
+        with open(bad_rules, 'w', encoding='utf-8') as fp:
+            fp.write('{"normal_dev_mean_deg_max": 10, "normal_dev_p99_deg_max": "много"}')
+        raised = []
+        for path in (os.path.join(d, 'нет-такого.json'), bad_rules):
+            try:
+                T.normal_rules(path)
+                raised.append(False)
+            except (OSError, ValueError):
+                raised.append(True)
+        check('пороги мерки нормалей: нет файла или значение не число — исключение', raised == [True, True], raised)
+
+        # плита-подложка TRELLIS (T-20261121-170): упрощённая форма собрана БЕЗ плиты → перенос и Chamfer сравнивают её с родной тоже без плиты
+        def box(sx, sy, sz, cx, cy, cz):
+            b = trimesh.creation.box(extents=(sx, sy, sz))
+            b.apply_translation((cx, cy, cz))
+            return b
+        prod_parts = [box(0.6, 0.01, 0.4, 0, 0.3, 0)] + [box(0.04, 0.3, 0.04, sx, 0.15, sz) for sx in (-0.25, 0.25) for sz in (-0.15, 0.15)]
+        plate_parts = [box(1.0, 0.002, 1.0, 0, -0.001, 0), box(0.95, 0.001, 0.9, 0, -0.002, 0), box(1.0, 0.001, 1.0, 0, -0.003, 0)]
+        rng = np.random.default_rng(3)
+        for _ in range(40):
+            px_, pz_ = rng.uniform(-0.48, 0.48, 2)
+            plate_parts.append(box(0.03, 0.001, 0.03, px_, -0.0015, pz_))
+        with_plate = trimesh.util.concatenate(prod_parts + plate_parts)
+        only_prod = trimesh.util.concatenate(prod_parts)
+        uv_top = lambda v: np.stack([v[:, 0] + 0.5, v[:, 2] + 0.5], 1) * 0.98 + 0.01         # вид сверху на карту
+        pn, ps_ = os.path.join(d, 'plate-nat.glb'), os.path.join(d, 'plate-shape.glb')
+        write(pn, np.asarray(with_plate.vertices), np.asarray(with_plate.faces), uv_top(np.asarray(with_plate.vertices)), base, mr)
+        write(ps_, np.asarray(only_prod.vertices), np.asarray(only_prod.faces), uv_top(np.asarray(only_prod.vertices)))
+        ch_on = T.chamfer_ratio(pn, ps_)
+        ch_off = T.chamfer_ratio(pn, ps_, strip_plate=False)
+        check('Chamfer: родная без плиты ≈ упрощённая (≤ порога), с плитой — форма «не та» (> порога)', ch_on[0] <= T.CHAMFER_MAX < ch_off[0], (ch_on, ch_off))
+        rp = T.transfer(pn, ps_, os.path.join(d, 'plate-out.glb'), size=128)
+        check('перенос видит плиту родной и вычитает её (plate_found, доля с цветом ≥ 99 %)', rp['plate_found'] and rp['share'] >= T.MIN_SHARE, rp)
+        rp0 = T.transfer(pn, ps_, os.path.join(d, 'plate-out0.glb'), size=128, strip_plate=False)
+        check('выключатель: strip_plate=False плиту не ищет', not rp0['plate_found'], rp0)
+
         # слишком далёкая форма — цвета нет, доля низкая (отказ по порогу)
         Vf, Ff, UVf = grid(6, lambda x, y: (x, y), zshift=2.0)
         far_shape = os.path.join(d, 'far.glb')
@@ -116,7 +226,7 @@ def main() -> int:
         code, line, reps = T.guard([out, shp])
         check('сторож: форма без цвета → код 1, имя в списке', code == 1 and 'пришёл 1 из 2' in line and 'shape.glb' in line, line)
         code, line, reps = T.guard([d])
-        check('сторож: папка — берёт все *.glb (без .raw.)', len(reps) == 6, [r['file'] for r in reps])
+        check('сторож: папка — берёт все *.glb (без .raw.)', len(reps) == len([x for x in os.listdir(d) if x.endswith('.glb') and '.raw.' not in x]) and len(reps) >= 6, [r['file'] for r in reps])
         base_sus, mr_ = native_textures(alpha_rule=lambda u: 255 if u < 0.1 else 50)
         sus = os.path.join(d, 'sus.glb')
         write(sus, Vn, Fn, UVn, base_sus, mr_)
