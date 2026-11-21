@@ -75,6 +75,11 @@ FILL = {
     'draft_when': 'a_fails',         # trellis с откатом: Б считается только если А не прошёл все мерки (a_fails); always — считать оба всегда
     'pattern_chroma': 1.5,           # часть, у которой МЕЛКИЙ разброс хромы (σ остатка от размытия pattern_blur_px, sqrt(σa²+σb²)) больше — «узорная»: остаток берётся от тона части (цветы/прожилки целиком), иначе — от размытия
     'pattern_blur_px': 12.0,         # размытие для отделения мелкого узора от крупных зон цвета (две большие зоны — не узор)
+    'pattern_render': True,          # узорная часть: блоки квилта — из НЕПРЕРЫВНОГО кадра видимой стороны (az `pr_az`), а не из дырявой развёртки; мало блоков — прежний путь
+    'pr_az': 0.0, 'pr_res': 1024, 'pr_ortho': 1.25, 'pr_cos_min': 0.5,   # кадр образца: азимут (0 = в лоб), сторона, охват, косинус к камере (вскользь — не образец)
+    'pr_block_max': 96,              # блок квилта из кадра: до этой стороны (кадр непрерывный — крупный узор целиком), пикселей карты после пересчёта в масштаб карты
+    'src_dev_pattern': 8.0,          # узорная часть: цвет-источник геодезической заливки не дальше этого ΔE (Lab) от тона части — розовый цветок у края не растекается по стойке
+    'pm_spot_chroma': 10.0,          # мерка узора: «пятно» — хрома остатка от тона части больше этого
     'draft_blur_px': 6.0,            # trellis: размытие черновика внутри части до переноса статистики (штрих и муар черновика не переносятся)
     'draft_fallback': True,          # trellis: считать и А; взять Б, только если мерки не хуже (число непрошедших, затем ΔE00 перёд↔зад)
     'gutter': 8,                     # пикселей желоба вокруг островков
@@ -382,6 +387,103 @@ def pattern_period(resL: np.ndarray, ok: np.ndarray, lo: int, hi: int) -> int:
     return int(np.clip(int(round(3.0 * ell / 4.0)) * 4, lo, hi))
 
 
+def view_samples(geoms: list, azimuth: float, res: int, ortho: float, elevation: float = 0.0) -> dict:
+    """Растр вида (как `render_ortho`): по занятым пикселям кадра — геометрия, UV точки и косинус нормали с камерой. → {'hit' (индексы пикселей), 'g', 'u', 'v', 'cos', 'res', 'ppu' (пикселей на единицу кадра)}."""
+    ctr, size = frame_of(geoms)
+    offs = np.cumsum([0] + [len(g['V']) for g in geoms])
+    P = (np.concatenate([np.asarray(g['V'], np.float64) for g in geoms]) - ctr) / size
+    F = np.concatenate([np.asarray(g['F'], np.int64) + offs[i] for i, g in enumerate(geoms)])
+    fg = np.concatenate([np.full(len(g['F']), i) for i, g in enumerate(geoms)])
+    UV = np.concatenate([np.asarray(g['UV'], np.float64) for g in geoms])
+    v = photo_views([azimuth], elevation)[0]
+    x, y, d = TC.project(P, v, ortho)
+    xy = np.stack([x * res, y * res], 1)
+    ids, _zb = TC.raster(xy, F, res, d)
+    hit = np.nonzero(ids >= 0)[0]
+    f = ids[hit].astype(np.int64)
+    px, py = (hit % res) + 0.5, (hit // res) + 0.5
+    A, B, C = xy[F[f, 0]], xy[F[f, 1]], xy[F[f, 2]]
+    ar = (B[:, 0] - A[:, 0]) * (C[:, 1] - A[:, 1]) - (B[:, 1] - A[:, 1]) * (C[:, 0] - A[:, 0])
+    ar = np.where(np.abs(ar) < 1e-12, 1e-12, ar)
+    wa = ((B[:, 0] - px) * (C[:, 1] - py) - (B[:, 1] - py) * (C[:, 0] - px)) / ar
+    wb = ((C[:, 0] - px) * (A[:, 1] - py) - (C[:, 1] - py) * (A[:, 0] - px)) / ar
+    uv = wa[:, None] * UV[F[f, 0]] + wb[:, None] * UV[F[f, 1]] + (1.0 - wa - wb)[:, None] * UV[F[f, 2]]
+    n3 = np.cross(P[F[f, 1]] - P[F[f, 0]], P[F[f, 2]] - P[F[f, 0]])
+    n3 /= np.maximum(np.linalg.norm(n3, axis=1), 1e-30)[:, None]
+    return {'hit': hit, 'g': fg[f], 'u': uv[:, 0], 'v': uv[:, 1], 'cos': np.abs(n3 @ v[0]), 'res': res, 'ppu': res / ortho}
+
+
+def sample_view(S: dict, arrs: list, fill_value=0):
+    """Значения карт `arrs` (по геометриям, (T,T[,C])) в пикселях кадра `view_samples` (ближайший тексель); вне предмета — fill_value. → (res,res[,C])."""
+    a0 = np.asarray(arrs[0])
+    out = np.full((S['res'] * S['res'],) + a0.shape[2:], fill_value, a0.dtype)
+    for gi, a in enumerate(arrs):
+        s = S['g'] == gi
+        if not s.any():
+            continue
+        a = np.asarray(a)
+        H, W = a.shape[:2]
+        tx_ = np.clip(np.floor(S['u'][s] * W).astype(np.int64), 0, W - 1)
+        ty_ = np.clip(np.floor((1.0 - S['v'][s]) * H).astype(np.int64), 0, H - 1)
+        out[S['hit'][s]] = a[ty_, tx_]
+    return out.reshape((S['res'], S['res']) + a0.shape[2:])
+
+
+def texel_scale(geoms: list, parts: list | None, p: int, ppu: float) -> float:
+    """Во сколько раз плотность карты (текселей на единицу кадра) у части `p` больше плотности кадра `view_samples` (пикселей на единицу): медиана sqrt(площадь в UV·T² / площадь в 3D) по граням части."""
+    ctr, size = frame_of(geoms)
+    r = []
+    for gi, g in enumerate(geoms):
+        V = (np.asarray(g['V'], np.float64) - ctr) / size
+        F = np.asarray(g['F'], np.int64)
+        UV = np.asarray(g['UV'], np.float64)
+        tex = np.asarray(g['tex'])
+        a3 = 0.5 * np.linalg.norm(np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]]), axis=1)
+        e1, e2 = UV[F[:, 1]] - UV[F[:, 0]], UV[F[:, 2]] - UV[F[:, 0]]
+        auv = 0.5 * np.abs(e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]) * tex.shape[0] * tex.shape[1]
+        sel = (a3 > 1e-12) & (auv > 1e-9)
+        if parts is not None:
+            sel &= np.asarray(parts[gi]) == p
+        r.append(np.sqrt(auv[sel] / a3[sel]))
+    r = np.concatenate(r) if r else np.zeros(0)
+    return float(np.median(r) / ppu) if len(r) else 1.0
+
+
+def render_pool(resq: np.ndarray, okr: np.ndarray, c: dict, scale: float):
+    """Блоки узора из НЕПРЕРЫВНОГО кадра видимой стороны: `resq` (res,res,3) — остаток цвета от тона части, `okr` — пиксели «известное, эта часть, лицом к камере». Блок — по периоду узора, дыры ≤ `quilt_fill_px`
+    закрываются ближайшим известным; блоки пересчитываются в масштаб карты (`scale` = текселей на пиксель кадра). → (сторона блока в текселях, [блоки]) | None, если блоков мало."""
+    from scipy.ndimage import distance_transform_edt, zoom
+    if int(okr.sum()) < 200:
+        return None
+    Bq = pattern_period(resq[..., 0], okr, int(c['quilt_block_min']), int(c['pr_block_max']))
+    dist_, (iy_, ix_) = distance_transform_edt(~okr, return_indices=True)
+    fill_ = resq[iy_, ix_]
+    I_ok = np.pad(okr.astype(np.float64).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+    I_nr = np.pad((dist_ <= c['quilt_fill_px']).astype(np.float64).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+    R = okr.shape[0]
+    if R < Bq:
+        return None
+    s = max(Bq // 2, 1)
+    ys = np.arange(0, R - Bq + 1, s)
+    Y, X = np.meshgrid(ys, ys, indexing='ij')
+
+    def bsum(I):
+        return I[Y + Bq, X + Bq] - I[Y, X + Bq] - I[Y + Bq, X] + I[Y, X]
+    pool = []
+    for thr in (c['quilt_known'], 0.7, 0.5):
+        good = (bsum(I_ok) >= thr * Bq * Bq) & (bsum(I_nr) >= Bq * Bq - 0.5)
+        pool = [fill_[Y[by, bx]:Y[by, bx] + Bq, X[by, bx]:X[by, bx] + Bq] for by, bx in zip(*np.nonzero(good))]
+        if len(pool) >= int(c['quilt_pool_min']):
+            break
+    if len(pool) < 4:
+        return None
+    Bt = max(8, int(round(Bq * scale)))
+    if Bt != Bq:
+        z = Bt / Bq
+        pool = [zoom(b, (z, z, 1), order=1)[:Bt, :Bt] for b in pool]
+    return Bt, pool
+
+
 def symmetry(txs: list, known_flat: list, size_eps: float, sample: int, cos_min: float) -> dict:
     """Оценка симметрии: доля точек поверхности, у которых через плоскость X (или Z) через центр есть «двойник» (ближе `size_eps`, нормаль после отражения совпала). → {axis, score, planes}."""
     from scipy.spatial import cKDTree
@@ -657,6 +759,11 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                     num = Wn @ (vcol * wk[:, None]) + vcol * wk[:, None]
                     den = Wn @ wk + wk
                     vcol = np.where((den > 0)[:, None], num / np.maximum(den, 1e-12)[:, None], 0.0)
+                if rep['parts'][p]['pattern'] and c['src_dev_pattern'] > 0:      # узорная: цвет-источник не дальше `src_dev_pattern` от тона части (цветок у края не растекается по соседней детали)
+                    dv = vcol - stat[p][0]
+                    nv = np.linalg.norm(dv, axis=1, keepdims=True)
+                    has = np.any(vcol != 0.0, axis=1, keepdims=True)
+                    vcol = np.where(has, stat[p][0] + dv * np.minimum(1.0, c['src_dev_pattern'] / np.maximum(nv, 1e-9)), 0.0)
                 src = np.nonzero(vknown & used)[0]
                 dist = np.full(nvw, np.inf)
                 col = np.zeros((nvw, 3))
@@ -754,6 +861,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         shade_lo[p] = float(np.quantile(Lv, c['tone_shadow_q'])) if len(Lv) and c['tone_shadow_q'] > 0 else -1e9
     if c['patch_mode'] == 'quilt' and (dshift is None or c['draft_texture']):
         qrng = np.random.RandomState(7)
+        pr_S = pr_lab = pr_kn = pr_pm = None
         for p in part_ids:
             resg, okg = [], []
             for gi, tx in enumerate(txs):
@@ -767,32 +875,50 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             cnt = [int(o.sum()) for o in okg]
             if sum(cnt) < 200:
                 continue
-            gbest = int(np.argmax(cnt))                           # период узора — по геометрии, где у части больше всего известного
-            Bq = pattern_period(resg[gbest][..., 0], okg[gbest], int(c['quilt_block_min']), int(c['quilt_block_max']))
-            oq = max(2, int(round(Bq * c['quilt_overlap'])))
-            pool = []
-            ints = {}
-            for gi, tx in enumerate(txs):                          # дыры известного (грани мельче пикселя фото) закрываются ближайшим известным остатком той же части; блок годен, если дыры не дальше `quilt_fill_px`
-                if tx.T < Bq or cnt[gi] < Bq * Bq:
-                    continue
-                dist_, (iy_, ix_) = distance_transform_edt(~okg[gi], return_indices=True)
-                near_ = dist_ <= c['quilt_fill_px']
-                ints[gi] = (resg[gi][iy_, ix_], [np.pad(a.astype(np.float64).cumsum(0).cumsum(1), ((1, 0), (1, 0))) for a in (okg[gi], blk[gi][1] == p, near_)])
-            for thr in (c['quilt_known'], 0.7, 0.5):               # известного мало — порог доли известного в блоке снижается, пока в пуле не наберётся `quilt_pool_min`
+            rp = None
+            if p in pat_parts and c["pattern_render"]:                  # узорная: блоки — из непрерывного кадра видимой стороны (az фото), не из дырявой развёртки
+                if pr_S is None:
+                    pr_S = view_samples(geoms, c["pr_az"], int(c["pr_res"]), c["pr_ortho"])
+                    pr_lab = sample_view(pr_S, labs)
+                    pr_kn = sample_view(pr_S, kn)
+                    pr_pm = sample_view(pr_S, [blk[gi][1] for gi in range(len(txs))], -1)
+                cosimg = np.zeros(pr_S["res"] * pr_S["res"])
+                cosimg[pr_S["hit"]] = pr_S["cos"]
+                okr = pr_kn & (pr_pm == p) & (cosimg.reshape(pr_S["res"], pr_S["res"]) >= c["pr_cos_min"])
+                resr = (pr_lab - stat[p][0]) * (pr_lab[..., 0] >= shade_lo[p])[..., None]
+                sc = texel_scale(geoms, parts, p, pr_S["ppu"])
+                rp = render_pool(resr * okr[..., None], okr, c, sc)
+                rep.setdefault("pattern_src", {})[int(p)] = ({"render": True, "pixels": int(okr.sum()), "scale": round(sc, 3), "block": rp[0], "pool": len(rp[1])} if rp is not None else {"render": False, "pixels": int(okr.sum()), "scale": round(sc, 3)})
+            if rp is not None:
+                Bq, pool = rp
+                oq = max(2, int(round(Bq * c["quilt_overlap"])))
+            else:
+                gbest = int(np.argmax(cnt))                           # период узора — по геометрии, где у части больше всего известного
+                Bq = pattern_period(resg[gbest][..., 0], okg[gbest], int(c['quilt_block_min']), int(c['quilt_block_max']))
+                oq = max(2, int(round(Bq * c['quilt_overlap'])))
                 pool = []
-                for gi, (fill_, (I_ok, I_pm, I_nr)) in ints.items():
-                    T = txs[gi].T
-                    s = max(Bq // 2, 1)
-                    ys = np.arange(0, T - Bq + 1, s)
-                    Y, X = np.meshgrid(ys, ys, indexing='ij')
+                ints = {}
+                for gi, tx in enumerate(txs):                          # дыры известного (грани мельче пикселя фото) закрываются ближайшим известным остатком той же части; блок годен, если дыры не дальше `quilt_fill_px`
+                    if tx.T < Bq or cnt[gi] < Bq * Bq:
+                        continue
+                    dist_, (iy_, ix_) = distance_transform_edt(~okg[gi], return_indices=True)
+                    near_ = dist_ <= c['quilt_fill_px']
+                    ints[gi] = (resg[gi][iy_, ix_], [np.pad(a.astype(np.float64).cumsum(0).cumsum(1), ((1, 0), (1, 0))) for a in (okg[gi], blk[gi][1] == p, near_)])
+                for thr in (c['quilt_known'], 0.7, 0.5):               # известного мало — порог доли известного в блоке снижается, пока в пуле не наберётся `quilt_pool_min`
+                    pool = []
+                    for gi, (fill_, (I_ok, I_pm, I_nr)) in ints.items():
+                        T = txs[gi].T
+                        s = max(Bq // 2, 1)
+                        ys = np.arange(0, T - Bq + 1, s)
+                        Y, X = np.meshgrid(ys, ys, indexing='ij')
 
-                    def bsum(I):
-                        return I[Y + Bq, X + Bq] - I[Y, X + Bq] - I[Y + Bq, X] + I[Y, X]
-                    good = (bsum(I_pm) >= Bq * Bq - 0.5) & (bsum(I_ok) >= thr * Bq * Bq) & (bsum(I_nr) >= Bq * Bq - 0.5)
-                    for by, bx in zip(*np.nonzero(good)):
-                        pool.append(fill_[Y[by, bx]:Y[by, bx] + Bq, X[by, bx]:X[by, bx] + Bq])
-                if len(pool) >= int(c['quilt_pool_min']):
-                    break
+                        def bsum(I):
+                            return I[Y + Bq, X + Bq] - I[Y, X + Bq] - I[Y + Bq, X] + I[Y, X]
+                        good = (bsum(I_pm) >= Bq * Bq - 0.5) & (bsum(I_ok) >= thr * Bq * Bq) & (bsum(I_nr) >= Bq * Bq - 0.5)
+                        for by, bx in zip(*np.nonzero(good)):
+                            pool.append(fill_[Y[by, bx]:Y[by, bx] + Bq, X[by, bx]:X[by, bx] + Bq])
+                    if len(pool) >= int(c['quilt_pool_min']):
+                        break
             if len(pool) < 4:
                 continue
             if len(pool) > int(c['quilt_pool']):
@@ -1145,6 +1271,69 @@ def part_deltas(geoms: list, parts, kfront: list, kback: list, tex_before: list,
     return res
 
 
+def _part_map(g, T: int, part_f) -> np.ndarray:
+    """Карта частей развёртки (T,T): номер части грани в тексele, −1 вне развёртки."""
+    UV = np.asarray(g['UV'], np.float64)
+    ids, _ = TC.raster(np.stack([UV[:, 0] * T, (1.0 - UV[:, 1]) * T], 1), np.asarray(g['F'], np.int64), T)
+    pm = np.full((T, T), -1, np.int32)
+    m = ids >= 0
+    pm[m] = np.asarray(part_f, np.int32)[ids[m]]
+    return pm
+
+
+def _pattern_hists(lab: np.ndarray, mask: np.ndarray, tone: np.ndarray, spot_chroma: float) -> dict | None:
+    """Статистика узора по кадру: гистограмма ориентаций градиента яркости (12 направлений по модулю π, вес — модуль), доля «пятен» (хрома остатка от тона > порога) и гистограмма размеров связных пятен (степени двойки)."""
+    from scipy.ndimage import binary_erosion, gaussian_filter, label
+    m = binary_erosion(mask, iterations=3)
+    if int(m.sum()) < 500:
+        return None
+    L = gaussian_filter(np.where(mask, lab[..., 0], np.median(lab[..., 0][mask])), 1.0)
+    gy, gx = np.gradient(L)
+    mag = np.hypot(gx, gy)[m]
+    th = np.mod(np.arctan2(gy, gx)[m], np.pi)
+    oh = np.bincount(np.minimum((th / np.pi * 12).astype(int), 11), weights=mag, minlength=12)
+    oh = oh / max(oh.sum(), 1e-12)
+    chroma = np.hypot(lab[..., 1] - tone[1], lab[..., 2] - tone[2])
+    B = (chroma > spot_chroma) & m
+    lbl, n = label(B)
+    sizes = np.bincount(lbl.ravel())[1:] if n else np.zeros(0)
+    sh = np.bincount(np.minimum(np.log2(np.maximum(sizes, 1)).astype(int), 9), minlength=10).astype(np.float64)
+    sh = sh / max(sh.sum(), 1.0)
+    return {'orient': oh, 'spot_sizes': sh, 'spot_area': float(B.sum()) / float(m.sum()), 'n_spots': int(n), 'px': int(m.sum())}
+
+
+def pattern_metrics(geoms: list, parts, known: list, tex_after: list, rep: dict, c: dict) -> dict:
+    """Мерка узора (ТОЛЬКО отчёт, не отказ): внутри каждой узорной части — расстояние статистик узора перёд (известное, вид az `pr_az`) ↔ зад (достроенное, az+180):
+    orient = ½·L1 между гистограммами ориентаций градиента; spot_sizes = ½·L1 между гистограммами размеров пятен; dist = среднее двух; spot_area_front/back — доля пятен. → {часть: {...}}."""
+    out = {}
+    pats = [int(p) for p, v in rep['parts'].items() if v['pattern']]
+    if not pats:
+        return out
+    Ts = [np.asarray(t).shape[0] for t in tex_after]
+    pms = [_part_map(g, Ts[gi], np.zeros(len(g['F']), np.int32) if parts is None else parts[gi]) for gi, g in enumerate(geoms)]
+    labs_ = [rgb2lab(np.asarray(t)[..., :3].reshape(-1, 3)).reshape(Ts[gi], Ts[gi], 3) for gi, t in enumerate(tex_after)]
+    views = {}
+    for nm, az in (('front', c['pr_az']), ('back', c['pr_az'] + 180.0)):
+        S = view_samples(geoms, az, int(c['pr_res']), c['pr_ortho'])
+        cs = np.zeros(S['res'] * S['res'])
+        cs[S['hit']] = S['cos']
+        views[nm] = (sample_view(S, labs_), sample_view(S, pms, -1), sample_view(S, [np.asarray(k, bool) for k in known]), cs.reshape(S['res'], S['res']) >= c['pr_cos_min'])
+    for p in pats:
+        tone = np.asarray(rep['parts'][p]['mean_lab'])
+        hs = {}
+        for nm, (lab, pm, kn_, cosok) in views.items():
+            mk = (pm == p) & cosok & (kn_ if nm == 'front' else ~kn_)
+            hs[nm] = _pattern_hists(lab, mk, tone, c['pm_spot_chroma']) if mk.any() else None
+        if hs['front'] is None or hs['back'] is None:
+            out[p] = {'dist': None, 'note': 'мало пикселей перёд/зад'}
+            continue
+        o = 0.5 * float(np.abs(hs['front']['orient'] - hs['back']['orient']).sum())
+        z = 0.5 * float(np.abs(hs['front']['spot_sizes'] - hs['back']['spot_sizes']).sum())
+        out[p] = {'dist': round((o + z) / 2.0, 3), 'orient': round(o, 3), 'spot_sizes': round(z, 3), 'spot_area_front': round(hs['front']['spot_area'], 4), 'spot_area_back': round(hs['back']['spot_area'], 4),
+                  'n_spots_front': hs['front']['n_spots'], 'n_spots_back': hs['back']['n_spots'], 'px_front': hs['front']['px'], 'px_back': hs['back']['px']}
+    return out
+
+
 def write_glb(geoms: list, texs: list, dst: str) -> None:
     """Та же форма и развёртка, текстура — заполненная (выход этапа для следующих)."""
     import trimesh
@@ -1222,6 +1411,10 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     rep, tex_after, de, big, de_worst = pick['rep'], pick['tex'], pick['de'], pick['big'], pick['de_worst']
     kchg = known_changed_share(known, tex_before, tex_after, RULES['known_change_de'])
     rep['known_changed'] = kchg
+    try:                                                          # мерка узора — только отчёт (порог по трудным — позже), сбой её не роняет этап
+        rep['pattern_metric'] = pattern_metrics(geoms, parts, known, tex_after, rep, dict(FILL, **(cfg or {})))
+    except Exception as e:  # noqa: BLE001
+        rep['pattern_metric'] = {'error': f'{type(e).__name__}: {e}'}
     rep['source_used'], rep['source_tried'] = used, tried
     write_glb(geoms, tex_after, os.path.join(d, 'filled.glb'))
     a = render_ortho(geoms, tex_before, 180.0)
@@ -1244,5 +1437,5 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     with open(os.path.join(d, 'report.json'), 'w', encoding='utf-8') as f:
         json.dump(report, f, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
     check = PS.write_check(d, out_name or STAGE, sku, None, dict(metrics['empty_pct'], name='empty_pct'), '', metrics={k: v for k, v in metrics.items() if k != 'empty_pct'}, seconds=secs,
-                           outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried)
+                           outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried, pattern_metric=rep['pattern_metric'], pattern_src=rep.get('pattern_src'))
     return {'check': check, 'report': rep, 'geoms': geoms, 'tex_before': tex_before, 'tex_after': tex_after, 'known': known, 'parts': parts, 'dir': d, 'deltaE': de, 'kback': kback}

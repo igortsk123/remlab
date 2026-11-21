@@ -81,6 +81,8 @@ def main() -> int:
             visible_root = v
         elif k == '--draft-texture':                  # on|off: класть на черновик Б лоскут фактуры фото (квилт)
             cfg['draft_texture'] = (v == 'on')
+        elif k == '--cfg':                            # JSON-добавка к FILL (варианты проб): '{"pattern_render": false, "pr_block_max": 64}'
+            cfg.update(json.loads(v))
         else:
             print(__doc__)
             return 2

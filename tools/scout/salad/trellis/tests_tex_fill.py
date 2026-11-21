@@ -158,7 +158,7 @@ def scene_parts():
 def test_parts():
     print('заливка: известное цело; невидимое — цветом СВОЕЙ части, не через границу части и островка:')
     g, parts, known, tl, col = scene_parts()
-    out = TF.fill([g], known, parts, cfg={'gutter': 0, 'erode_known': 0, 'tone': 'median'}, mirror=False)     # часть 1 двухцветная (синий + жёлтый островок): геометрия заливки проверяется при медиане, мода — отдельный тест
+    out = TF.fill([g], known, parts, cfg={"gutter": 0, "erode_known": 0, "tone": "median", "src_dev_pattern": 0}, mirror=False)     # часть 1 двухцветная (синий + жёлтый островок): геометрия заливки проверяется при медиане, мода — отдельный тест
     tex, rep = out['tex'][0], out['report']
     tex0 = g['tex']
     kn = known[0]
@@ -576,6 +576,45 @@ def test_run_stage_fallback():
         ok(r2['report']['source_used'] == 'trellis' and r2['report']['source_tried'] == {}, 'draft_fallback выключен — только Б')
 
 
+def test_render_pattern():
+    print("узор из непрерывного кадра видимой стороны + мерка узора (отчёт):")
+    q = Quads()
+    q.quad([[-0.5, 0, 0], [0.5, 0, 0], [0.5, 1, 0], [-0.5, 1, 0]], (0, 0, .9, .9), sub=8)
+    q.quad([[-0.5, 0, -0.4], [0.5, 0, -0.4], [0.5, 1, -0.4], [-0.5, 1, -0.4]], (.9, .9, 1.0, 1.0), sub=2)
+    m = tile_mask((0, 0, .9, .9))
+    tex = np.zeros((T, T, 3), np.uint8)
+    ys, xs = np.nonzero(m)
+    dots = ((xs // 6) % 2 == 0) & ((ys // 6) % 2 == 0)      # 25 % площади — не «тень» (ниже квантиля яркости)
+    base = np.array([232, 226, 214])
+    col = np.where(dots[:, None], np.array([200, 60, 90]), base[None]).astype(np.uint8)
+    tex[ys, xs] = col
+    g = q.geom(tex)
+    out = TF.fill([g], [m], None, cfg={"gutter": 0, "erode_known": 0, "pr_res": 256}, mirror=False)
+    rep = out["report"]
+    ps = rep.get("pattern_src", {}).get(0)
+    ok(ps is not None and ps["render"] and ps["pool"] >= 4, f"блоки взяты из кадра видимой стороны: {ps}")
+    ok(rep["known_pct"] > 0, "известное есть")
+    back = tile_mask((.9, .9, 1.0, 1.0))
+    ab = TF.rgb2lab(out["tex"][0][back])
+    ok(float(np.hypot(ab[:, 1].std(), ab[:, 2].std())) > 2.0, f"залитое с узором, не плоское (σ хромы {float(np.hypot(ab[:, 1].std(), ab[:, 2].std())):.1f})")
+    off = TF.fill([g], [m], None, cfg={"gutter": 0, "erode_known": 0, "pattern_render": False}, mirror=False)["report"]
+    ok("pattern_src" not in off, "pattern_render=False — прежний путь по развёртке")
+    # мерка узора: одинаковая статистика → 0, точки против полос → больше
+    R = 160
+    yy, xx = np.mgrid[0:R, 0:R]
+    tone = np.array([70.0, 5.0, 12.0])
+    lab_d = np.zeros((R, R, 3)); lab_d[...] = tone
+    lab_d[((xx // 5) % 4 == 0) & ((yy // 5) % 4 == 0)] = [60, 40, 20]
+    lab_d2 = np.roll(lab_d, 7, axis=1)
+    lab_s = np.zeros((R, R, 3)); lab_s[...] = tone
+    lab_s[(xx % 9) < 3] = [60, 40, 20]
+    mk = np.ones((R, R), bool)
+    h1, h2, h3 = (TF._pattern_hists(a, mk, tone, 10.0) for a in (lab_d, lab_d2, lab_s))
+    d12 = 0.5 * float(np.abs(h1["orient"] - h2["orient"]).sum()) + 0.5 * float(np.abs(h1["spot_sizes"] - h2["spot_sizes"]).sum())
+    d13 = 0.5 * float(np.abs(h1["orient"] - h3["orient"]).sum()) + 0.5 * float(np.abs(h1["spot_sizes"] - h3["spot_sizes"]).sum())
+    ok(d12 < 0.2 and d13 > d12 + 0.2, f"мерка узора: те же точки со сдвигом {d12:.3f} < точки против полос {d13:.3f}")
+
+
 def test_render_low():
     print('кадр снизу (дно) — elevation −90:')
     q = Quads()
@@ -594,7 +633,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0
