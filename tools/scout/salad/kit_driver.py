@@ -228,13 +228,18 @@ def create_and_start(MG, BR, name: str, body: dict, say_fn=say, sleep=time.sleep
         return False, 0.0, f'create_http_{code}'
     t_wait = clock()
     seen = False
+    last_note = t_wait
     while clock() - t_wait < wait_s:
         c, g = MG.api(f'/{name}')
+        st = None
         if c == 200:
             seen = True
             _, st, _c = BR.group_state(name)
             if st == 'stopped':
                 break
+        if clock() - last_note >= 60:                              # b2k 21.11: 8 мин тишины, пока Salad готовит образ в кэше (группа pending, $0) — строка раз в минуту, лог живой (п.12 рецепта)
+            last_note = clock()
+            say_fn(f'ждём образ в кэше Salad (бесплатно): группа {st or "не видна"}, {clock() - t_wait:.0f} с от создания, предел {wait_s:.0f} с')
         sleep(5)
     else:
         return False, 0.0, 'create_wait_timeout' if seen else 'group_not_listed'
