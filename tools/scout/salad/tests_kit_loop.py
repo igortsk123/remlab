@@ -7,6 +7,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 
@@ -221,9 +222,23 @@ def feed(guard, iid, minutes, rate, t0=0.0):
 
 
 calls = []
-g = guard_with(calls)
+g = guard_with(calls, slots=10)
 check(feed(g, 'n1', 10, 0.5) and calls == [('g', 'n1')] and g.culls == 1, 'сторож: медленная нода → одна пересадка через общий бюджет')
-check(not feed(g, 'n2', 12, 0.5, t0=1000.0) and len(calls) == 1, 'урок 357: замена тоже медленная → пересадки больше нет (медленен образ/сеть), ждём')
+check(feed(g, 'n2', 12, 0.5, t0=1000.0) and feed(g, 'n3', 12, 0.5, t0=2000.0) and g.culls == 3 and not g.give_up, 'сторож: до 3 пересадок на запуск (n1, n2, n3 — медленные)')
+check(not feed(g, 'n4', 12, 0.5, t0=3000.0) and len(calls) == 3 and 'медленно качают все 4' in g.give_up, 'урок 357: после 3 пересадок и 4-я нода медленная → give_up (образ/сеть), по кругу не пересаживаем')
+
+# норма — от размера образа и здоровой скорости, не константы мешей (владелец 21.11)
+mt_ut, mt_mesh = KD.max_total_for_image(6.87), KD.max_total_for_image(26.0)
+check(16.0 <= mt_ut <= 17.5 and 60.0 <= mt_mesh <= 66.0 and KD.max_total_for_image(None) == 15.0 and KD.max_total_for_image(0.5) == KD.PULL_FLOOR_MIN,
+      f'норма: образ 6,87 ГиБ → {mt_ut:.1f} мин, образ мешей 26 ГиБ → {mt_mesh:.1f} мин, размер неизвестен → 15, не строже 10 ({KD.PULL_FLOOR_MIN})')
+d2like = [(i * 10.0, min(0.5, 0.5 * i * 10.0 / 600.0)) for i in range(0, 181)]          # d2: за 10 мин 50 %, дальше стоит до 30-й минуты
+d2_at_20 = [o for o in d2like if o[0] <= 1200]
+check(KD.pull_verdict(d2_at_20, max_total_min=mt_ut) is not None, 'образ UltraTex: d2 (50 % и стоит 20 мин) → пересадка по норме образа')
+check(KD.pull_verdict(line(3.0, 20), max_total_min=mt_ut) is not None, 'образ UltraTex 6,87 ГиБ: 3 %/мин (норма мешей для 26 ГиБ) → медленно, пересадка')
+check(KD.pull_verdict(line(3.0, 20), max_total_min=mt_mesh) is None, 'образ мешей 26 ГиБ: те же 3 %/мин — здоровая нода, не трогаем (меши не изменены)')
+check(KD.pull_verdict(line(15, 6.7), max_total_min=mt_ut) is None, 'образ UltraTex: здоровые 15 %/мин (d1: образ за ~7 мин) — не трогаем')
+check(KD.pull_txt({'state': 'downloading', 'pulling_progress': 0.372}) == ' 37%' and KD.pull_txt({'state': 'running', 'pulling_progress': 1.0}) == '' and KD.pull_txt({'state': 'downloading'}) == '',
+      'журнал: процент докачки виден только у downloading и только если Salad его отдал')
 
 calls = []
 g = guard_with(calls, slots=0)
@@ -246,9 +261,9 @@ check(not g.step(0.0, [{'id': 'x', 'state': 'running', 'pulling_progress': 0.1},
 # ---- в цикле пробы: медленная нода пересажена, «нода не выдана» считается заново, замена качает быстро → проба доходит до готовности
 class PullBR(BR):
     """Первая нода качает 0,5 %/мин; после пересадки замена качает 12 %/мин и становится running."""
-    def __init__(self, clock):
+    def __init__(self, clock, second_rate=0.12):
         super().__init__(clock)
-        self.realloc_at = None
+        self.realloc_at, self.second_rate, self.n = None, second_rate, 1
 
     def instances(self, name):
         if self.t0 is None:
@@ -256,15 +271,15 @@ class PullBR(BR):
         now = self.clock()
         if self.realloc_at is None:
             return 200, [{'id': 'n1', 'state': 'downloading', 'started': False, 'pulling_progress': 0.005 * (now - self.t0) / 60.0}]
-        pr = 0.12 * (now - self.realloc_at) / 60.0
+        pr = self.second_rate * (now - self.realloc_at) / 60.0
         if pr >= 1.0:
-            return 200, [{'id': 'n2', 'state': 'running', 'started': True, 'pulling_progress': 1.0}]
-        return 200, [{'id': 'n2', 'state': 'downloading', 'started': False, 'pulling_progress': pr}]
+            return 200, [{'id': f'n{self.n}', 'state': 'running', 'started': True, 'pulling_progress': 1.0}]
+        return 200, [{'id': f'n{self.n}', 'state': 'downloading', 'started': False, 'pulling_progress': pr}]
 
 
-def drive_pull(tmp, running_min, fast_second=True):
+def drive_pull(tmp, running_min, fast_second=True, second_rate=0.12, max_culls=3, guard_on=True):
     clock = Clock()
-    mg, br = MG(), PullBR(clock)
+    mg, br = MG(), PullBR(clock, second_rate)
     KD.gpu_class = lambda MG_, name, tier, fetch=None: ('cls', 0.6)
     orig = mg.api
     mg.api = lambda path, method='GET', body=None: (setattr(br, 't0', clock()) if (method == 'POST' and path.endswith('/start')) else None) or orig(path, method, body)
@@ -273,16 +288,17 @@ def drive_pull(tmp, running_min, fast_second=True):
     def realloc(g_, iid, why):
         calls.append(iid)
         br.realloc_at = clock()
+        br.n += 1
         if not fast_second:
             br.realloc_at = None
         return True
     a = argparse.Namespace(image='x@sha256:1', suffix='t', tier='high', apply=True, cap=4.0, probe_cap=1.0, max_min=600, running_min=running_min, start_min=20, health_min=8, ready_min=30,
-                           stall_min=5, stall_gb=0.05, job_min=0, out=os.path.join(tmp, 'out'))
+                           stall_min=5, stall_gb=0.05, job_min=0, out=os.path.join(tmp, 'out'), pull_guard=guard_on)
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         rc = KD.run_probe(a, mg, br, make_spec('a'), gw_factory=lambda base, key: GW(clock, 100.0), sleep=clock.sleep, clock=clock, slot_check=lambda: None,
                           image_check=lambda *x, **k: (True, 'ok', 1.0), ledger=lambda rec: LEDGER.append(rec),
-                          pull_guard=lambda name: KD.PullGuard(name, take_slot=lambda: 1, realloc=realloc))
+                          pull_guard=lambda name: KD.PullGuard(name, max_culls=max_culls, take_slot=lambda: 1, realloc=realloc))
     p = os.path.join(tmp, 'out', 'summary-kit-loop-t.json')
     return rc, json.load(open(p)), buf.getvalue(), calls
 
@@ -298,8 +314,15 @@ with tempfile.TemporaryDirectory() as tmp:
     check(clock_probe[1].get('stopped_by') != 'no_machine', '«нода не выдана» считается от пересадки, а не от /start (иначе 14-минутный срок вышел бы в ту же минуту)')
 
 with tempfile.TemporaryDirectory() as tmp:
-    rc, summ, out, calls = drive_pull(tmp, running_min=14, fast_second=False)
-    check(summ.get('stopped_by') == 'no_machine' and summ.get('stop_verified') and summ.get('cost_usd_est', 9) == 0.0, 'цикл: нода так и не пришла → no_machine, стоп с проверкой, $0 (до running не списывается)')
+    rc, summ, out, calls = drive_pull(tmp, running_min=14, guard_on=False)
+    check(summ.get('stopped_by') == 'no_machine' and calls == [] and summ.get('stop_verified') and summ.get('cost_usd_est', 9) == 0.0,
+          'цикл: сторож выключен (--no-pull-guard), нода так и не пришла → no_machine, стоп с проверкой, $0 (до running не списывается)')
+
+with tempfile.TemporaryDirectory() as tmp:
+    rc, summ, out, calls = drive_pull(tmp, running_min=60, second_rate=0.005, max_culls=1)
+    check(summ.get('stopped_by') == 'pull_slow' and calls == ['n1'] and summ.get('stop_verified') and summ.get('cost_usd_est', 9) == 0.0 and 'урок 357' in out,
+          f'цикл: замена тоже медленная при max_culls=1 → стоп pull_slow (образ/сеть), $0, стоп с проверкой ({summ.get("stopped_by")}, пересадок {calls})')
+    check(re.search(r'downloading \d+%', out) is not None, 'цикл: в минутной строке журнала виден процент докачки образа (d2 21.11: его не было)')
 
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПАДЕНИЙ {len(FAILS)}')
 sys.exit(1 if FAILS else 0)
