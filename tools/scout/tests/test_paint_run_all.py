@@ -180,6 +180,36 @@ with tempfile.TemporaryDirectory() as run:
     pl = {i['stage']: i for i in RA.plan(run, 'k', A, REAL, CR)}
     ok(pl['08']['action'] == 'blocked' and 'каталог' in pl['08']['why'], 'каталога нет → этап 8 заблокирован с понятной причиной')
 
+# 7г. готовая форма: этапы 01–02 копируются из прогона готовой формы, не строятся; отказ у них или нет файла — блок
+with tempfile.TemporaryDirectory() as base:
+    prun, run = os.path.join(base, 'prep-run'), os.path.join(base, 'run')
+    shapes = os.path.join(base, 'shapes')
+    os.makedirs(shapes)
+    open(os.path.join(shapes, 'k-n1024.glb'), 'wb').write(b'g')
+    for stg in ('01-trellis', '02-prep'):
+        put(prun, 'k', stg, True)
+    open(os.path.join(prun, 'k', '02-prep', 'extra.txt'), 'w').write('x')
+    aa = dict(A, native='', prep_dir=shapes, prep_run=prun)
+    pl = {i['stage']: i for i in RA.plan(run, 'k', aa, REAL, CR)}
+    ok(pl['01-02']['action'] == 'adopt' and not pl['01-02']['steps'], 'готовая форма: этап 01-02 — «adopt», команд построения нет')
+    ok(RA.make_ctx(run, 'k', aa, REAL)['prep_glb'] == os.path.join(shapes, 'k-n1024.glb'), 'prep_glb — готовый файл формы, не work/')
+    pl04 = pl['04']['steps'][0]['argv']
+    ok(os.path.join(shapes, 'k-n1024.glb') in pl04, 'следующие этапы берут готовую форму')
+    log = RA.execute(run, 'k', aa, dict(REAL, order=['01-02'], stages={'01-02': REAL['stages']['01-02']}), CR)
+    ok(log['stages'][0]['action'] == 'adopt' and os.path.exists(os.path.join(run, 'k', '02-prep', 'extra.txt')) and PS.read_check(os.path.join(run, 'k', '02-prep')) is not None, 'execute: папки 01-trellis и 02-prep скопированы вместе с check.json')
+    ok(log['stages'][0]['adopted_from'] == prun and log['stages'][0]['status'] == {'01-trellis': 'ok', '02-prep': 'ok'}, 'в журнале — откуда взято, статусы этапов')
+    pl = {i['stage']: i for i in RA.plan(run, 'k', aa, REAL, CR)}
+    ok(pl['01-02']['action'] == 'skip', 'повтор: этапы уже в run — пропуск')
+    put(prun, 'z', '01-trellis', True)
+    put(prun, 'z', '02-prep', False, metric={'name': 'faces', 'value': 9, 'threshold': 5, 'op': '<=', 'ok': False})
+    open(os.path.join(shapes, 'z-n1024.glb'), 'wb').write(b'g')
+    pl = {i['stage']: i for i in RA.plan(run, 'z', aa, REAL, CR)}
+    ok(pl['01-02']['action'] == 'blocked' and '02-prep' in pl['01-02']['why'] and pl['04']['action'] == 'blocked', 'у готовой формы отказ 02 → блок, следующие этапы не идут')
+    pl = {i['stage']: i for i in RA.plan(run, 'q', aa, REAL, CR)}
+    ok(pl['01-02']['action'] == 'blocked' and 'нет файла формы' in pl['01-02']['why'], 'нет файла формы → блок с причиной')
+    pl = {i['stage']: i for i in RA.plan(run, 'k2', dict(aa, prep_run=''), REAL, CR)}
+    ok(pl['01-02']['action'] == 'blocked' and '--prep-run' in pl['01-02']['why'], 'не задан --prep-run → блок с причиной')
+
 # 8. настоящие правила: целостность
 names = set(REAL['stages'])
 ok(set(REAL['order']) == names, 'order и stages совпадают')

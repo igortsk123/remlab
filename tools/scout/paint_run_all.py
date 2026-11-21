@@ -55,6 +55,15 @@ def product_record(a: dict, sku: str) -> dict | None:
     return None
 
 
+def prep_glb_path(a: dict, sku: str) -> str | None:
+    """Готовая форма этапа 2 (`--prep-glb` явно, либо `--prep-dir` + `<sku>-n1024.glb`); нет — None (форму строит этап 01-02)."""
+    if a.get('prep_glb'):
+        return a['prep_glb']
+    if a.get('prep_dir'):
+        return os.path.join(a['prep_dir'], sku + '-n1024.glb')
+    return None
+
+
 def make_ctx(run: str, sku: str, a: dict, rules: dict, stage_dones: dict | None = None) -> dict:
     root = a.get('root') or os.path.abspath(os.path.join(HERE, '..', '..'))
     home = os.path.expanduser('~')
@@ -63,6 +72,7 @@ def make_ctx(run: str, sku: str, a: dict, rules: dict, stage_dones: dict | None 
            'root': root, 'run': run, 'sku': sku, 'sku_dir': os.path.join(run, PS.safe_name(sku)), 'work': work,
            'prep_glb': os.path.join(work, sku + '-n1024.glb'), 'native': a.get('native', ''), 'photo': a.get('photo', ''),
            'channels': a.get('channels', ''), 'cam_az_args': [], '_record': product_record(a, sku)}
+    ctx['prep_glb'] = prep_glb_path(a, sku) or ctx['prep_glb']
     ctx['product_role'] = a.get('product_role') or (ctx['_record'] or {}).get('role', '')
     ctx['photo_cam'], ctx['photo_vis'], ctx['body_only_args'] = ctx['photo'], ctx['photo'], []
     ctx.update(rules.get('paths', {}))
@@ -190,6 +200,22 @@ def plan(run: str, sku: str, a: dict, rules: dict, check_rules: dict, only: list
             item.update(action='blocked', why='; '.join(blocked))
             for p in produces:
                 state[p] = 'missing'
+        elif st.get('adoptable') and prep_glb_path(a, sku) and not all(h['status'] != 'missing' for h in have):
+            src = a.get('prep_run') or ''
+            pst = [stage_status(src, sku, p, check_rules) for p in produces] if src else []
+            bad = [f"{x['stage']}: {x['status']}" for x in pst if x['status'] in ('refused', 'missing')]
+            if not os.path.exists(ctx['prep_glb']):
+                bad.append(f"нет файла формы {ctx['prep_glb']}")
+            if not src:
+                bad.append('не задан --prep-run (прогон, где этапы 01–02 уже сделаны)')
+            if bad:
+                item.update(action='blocked', why='готовая форма: ' + '; '.join(bad))
+                for p in produces:
+                    state[p] = 'missing'
+            else:
+                item.update(action='adopt', why=f"готовая форма {ctx['prep_glb']}; check.json этапов из {src}", adopt={'from': src, 'stages': produces})
+                for x in pst:
+                    state[x['stage']] = x['status']
         elif st.get('pending'):
             item.update(action='pending', why=st['pending'])
             for p in produces:
@@ -236,13 +262,18 @@ def execute(run: str, sku: str, a: dict, rules: dict, check_rules: dict, only: l
             continue
         item = next(i for i in plan(run, sku, a, rules, check_rules, [name]))   # решение по фактическому состоянию на сейчас
         entry = {'stage': name, 'action': item['action'], 'why': item['why'], 'steps': []}
+        if item['action'] == 'adopt':
+            import shutil
+            for stg in item['adopt']['stages']:
+                shutil.copytree(os.path.join(item['adopt']['from'], PS.safe_name(sku), stg), os.path.join(run, PS.safe_name(sku), stg), symlinks=True, dirs_exist_ok=False)
+            entry['adopted_from'] = item['adopt']['from']
         if item['action'] == 'run':
             for path, body in item['files'].items():
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 with open(path, 'w', encoding='utf-8') as f:
                     json.dump(body, f, ensure_ascii=False, indent=1)
-            for s in item['steps']:
-                r = _run_step(s, name, ctx, rules, timeout, bool(a.get('heavy')))
+            for i, s in enumerate(item['steps']):
+                r = _run_step(s, f'{name}-{i + 1}', ctx, rules, timeout, bool(a.get('heavy')))     # имя заявки heavy-slot у каждого шага своё
                 entry['steps'].append(r)
                 if r['rc'] != 0:
                     break                                                   # дальнейшие шаги этапа без первого не имеют смысла; статус скажет check.json
@@ -271,6 +302,9 @@ def main(argv: list) -> int:
     ap.add_argument('--product-role', default='')
     ap.add_argument('--channels', default='')
     ap.add_argument('--root', default='')
+    ap.add_argument('--prep-glb', default='', help='готовая форма этапа 2 (файл); этапы 01–02 не строятся, их check.json копируются из --prep-run')
+    ap.add_argument('--prep-dir', default='', help='папка готовых форм `<sku>-n1024.glb` (вместо --prep-glb для пакета)')
+    ap.add_argument('--prep-run', default='', help='прогон, где этапы 01–02 уже сделаны (`<prep-run>/<sku>/01-trellis`, `02-prep`)')
     ap.add_argument('--catalog', default='', help='выгрузка каталога: JSON-список (или одна запись) {sid, name, role, params}; нужен этапу 8, тип товара берётся оттуда, если нет --product-role')
     ap.add_argument('--only', default='')
     ap.add_argument('--force', action='store_true')
@@ -279,7 +313,7 @@ def main(argv: list) -> int:
     a = ap.parse_args(argv)
     rules, cr = load_rules(), PC.load_rules()
     only = [x for x in a.only.split(',') if x] or None
-    d = {'native': a.native, 'photo': a.photo, 'product_role': a.product_role, 'channels': a.channels, 'root': a.root, 'catalog': a.catalog, 'force': a.force, 'heavy': a.heavy}
+    d = {'native': a.native, 'photo': a.photo, 'product_role': a.product_role, 'channels': a.channels, 'root': a.root, 'catalog': a.catalog, 'prep_glb': a.prep_glb, 'prep_dir': a.prep_dir, 'prep_run': a.prep_run, 'force': a.force, 'heavy': a.heavy}
     if a.cmd == 'status':
         for name in rules['order']:
             for p in rules['stages'][name]['produces']:
@@ -291,10 +325,10 @@ def main(argv: list) -> int:
             print(f"{it['stage']:8} {it['action']:8} {it['why']}")
             for path in it.get('files', {}):
                 print('           [файл] ' + path)
-            for s in it['steps']:
-                print('           ' + ' '.join(_heavy(s, it['stage'], make_ctx(a.run, a.sku, d, rules), rules) if a.heavy else s['argv']))
+            for i, s in enumerate(it['steps']):
+                print('           ' + ' '.join(_heavy(s, f"{it['stage']}-{i + 1}", make_ctx(a.run, a.sku, d, rules), rules) if a.heavy else s['argv']))
         return 0
-    miss = [k for k in ('native', 'photo') if not d[k]]
+    miss = [k for k in ('native', 'photo') if not d[k] and not (k == 'native' and (a.prep_glb or a.prep_dir))]
     if miss:
         print('нужны --native и --photo', file=sys.stderr)
         return 2
