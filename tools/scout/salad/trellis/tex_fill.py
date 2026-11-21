@@ -104,6 +104,7 @@ FILL = {
     'nail_min_tone_L': 60.0,         # части темнее этого тона (тёмная ткань) — правило молчит: тёмное там не выделяется
     'nail_min_px': 6, 'nail_max_px': 400, 'nail_min_fill': 0.4, 'nail_max_aspect': 3.5,   # размер пятна, плотность в рамке, вытянутость (линии шва/трещины — не гвозди)
     'nail_max_de': 12.0, 'nail_max_dchroma': 8.0, 'nail_max_shift': 6.0,   # принимаем пятно, если средний Lab ближе к двойникам (красное/чёрное — не гвоздь); сдвиг к двойникам — мягкий
+    'nail_neighbor_px': 80, 'nail_min_neighbours': 1,   # пятно «в ряду»: рядом (≤ px развёртки) есть видимый двойник или другое принятое пятно; одиночка (красноватая точка) — не гвоздь
     'nail_min_twins': 5,             # видимых двойников (пятен с тем же отбором) не меньше — иначе тёмное считается тенью/швом и правило молчит
     'tone_known_min_share': 0.02,    # часть с ролью этапа 3, у которой известного < этой доли её текселей: её тон — по случайным кусочкам (накладка подлокотника: известны торцы-дерево, тон вышел «песочным»); берёт тон соседней части ТОЙ ЖЕ роли с наибольшей общей границей
     'tone_compat_min_known': 1500, 'tone_compat_de': 25.0,   # донор той же роли: если у части известного ≥ порога — её видимый тон не должен отличаться от донора больше ΔE (иначе донор отвергнут)
@@ -1685,12 +1686,29 @@ def nail_twins(lab_in, known, cand, partmap, tone_L: dict, c: dict) -> dict:
     pooled = np.median(km, axis=0)
     mask = np.zeros((T, T), bool)
     new = lab_in.copy()
-    for p in sorted({int(x) for x in cp}):
+    parts_ = sorted({int(x) for x in cp})
+    refs, okc = {}, np.zeros(len(ci), bool)
+    for p in parts_:                                                 # проход 1: цвет близок к двойникам и не «краснее» их (красные крапины нативного цвета — не гвозди)
         tw = km[kp == p]
-        ref = np.median(tw, axis=0) if len(tw) >= c['nail_min_twins'] else pooled
+        refs[p] = np.median(tw, axis=0) if len(tw) >= c['nail_min_twins'] else pooled
         sel = cp == p
-        de_ = np.linalg.norm(cm[sel] - ref, axis=1)
-        okb = (de_ <= c['nail_max_de']) & (np.hypot(cm[sel][:, 1], cm[sel][:, 2]) <= np.hypot(ref[1], ref[2]) + c['nail_max_dchroma'])     # цвет близок к двойникам и не «краснее» их (красные крапины нативного цвета — не гвозди)
+        okc[sel] = (np.linalg.norm(cm[sel] - refs[p], axis=1) <= c['nail_max_de']) & (np.hypot(cm[sel][:, 1], cm[sel][:, 2]) <= np.hypot(refs[p][1], refs[p][2]) + c['nail_max_dchroma'])
+    # проход 2: «в ряду» — у пятна есть сосед (видимый двойник или другое принятое пятно) в радиусе `nail_neighbor_px` развёртки; одиночка — не гвоздь
+    from scipy.spatial import cKDTree
+    cc_ = np.array(ndi.center_of_mass(np.ones_like(clab), clab, ci)) if len(ci) else np.zeros((0, 2))
+    kc_ = np.array(ndi.center_of_mass(np.ones_like(klab), klab, ki)) if len(ki) else np.zeros((0, 2))
+    pts = np.concatenate([kc_, cc_[okc]]) if len(kc_) + int(okc.sum()) else np.zeros((0, 2))
+    tree = cKDTree(pts) if len(pts) else None
+    lonely = np.zeros(len(ci), bool)
+    for i in np.nonzero(okc)[0]:
+        lonely[i] = len(tree.query_ball_point(cc_[i], c['nail_neighbor_px'])) - 1 < c['nail_min_neighbours']      # -1: сам себя
+    rep['lonely_dropped'] = int((okc & lonely).sum())
+    okc &= ~lonely
+    for p in parts_:
+        tw = km[kp == p]
+        ref = refs[p]
+        sel = cp == p
+        okb = okc[sel]
         pr = {'candidates': int(sel.sum()), 'accepted': int(okb.sum()), 'twins_blobs': int(len(tw)), 'ref_lab': [round(float(x), 1) for x in ref], 'ref': 'part' if len(tw) >= c['nail_min_twins'] else 'pooled'}
         rep['parts'][p] = pr
         if not okb.any():
