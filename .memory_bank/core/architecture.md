@@ -36,7 +36,7 @@ Untitled UI React, `components/base|application`; бренд — `styles/brand.c
 - `/db` (init 001–039), `/contracts`, `/lib` (+ `configurator`, `viewer3d`, `basket`, `collections`, `partners`,
   `embed`, `legal`, `telegram`, `trial`, `mesh-review`, `mesh-audit`, `cutout-check`), `/e2e`, `/docs`; `/tools` — в git, кроме данных
   scout (ADR-0055); каталог/меши — `tools/scout/` (Python, дев-БД).
-- Генерация AI (legacy М5): синхронно `app/api/p/[id]/generate` → `runGenerate`, `maxDuration=60`.
+- AI legacy М5: `app/api/p/[id]/generate` → `runGenerate` (синхронно, 60 с).
 
 ## Деплой (self-host, ADR-0001)
 Compose (`remlab-net`): caddy :443 (LE) → app (Next standalone :3000); db pgvector:pg17; imagor;
