@@ -11,10 +11,10 @@ from openai_budget import log_spend  # noqa: E402
 MODEL = "alibaba/qwen3-vl-instruct"
 O = os.path.expanduser("~/remlab-logs/t181-1121-out"); R = os.path.expanduser(os.environ.get("QWEN_R", "~/remlab-logs/e2eHD-1121"))
 PARTS = ["seat_cushion", "backrest", "armrest", "leg", "frame_or_post", "base_or_skirt", "side_panel", "back_panel", "drawer_or_door_front", "top_surface", "table_edge", "handle", "glass_panel", "lamp_shade", "pillow", "other"]
-MATS = ["fabric", "wood", "metal", "leather", "glass", "plastic", "unknown"]
+MATS = ["fabric", "wood", "laminate_board", "metal", "leather", "glass_clear", "glass_frosted_or_painted", "plastic", "unknown"]
 PROMPT = ("Это фото предмета мебели или светильника из интернет-магазина. Часть, которую нужно назвать, закрашена ПУРПУРНЫМ с контуром; остальное — обычное фото.\n"
           f"Ответь только JSON без markdown: {{\"part\": одно из {PARTS}, \"material\": одно из {MATS}, \"why\": \"один видимый признак по-русски\"}}.\n"
-          "Если пурпурная область — несколько разных частей или не видно, что это, пиши part=\"other\", material=\"unknown\". Материал — по виду поверхности (ткань, дерево, металл...), не по цвету.")
+          "Если пурпурная область — несколько разных частей или не видно, что это, пиши part=\"other\", material=\"unknown\". Материал — по виду поверхности, не по цвету: laminate_board — гладкая однородная плита без видимого рисунка древесины (белая или окрашенная ЛДСП/МДФ); wood — видна текстура дерева; glass_frosted_or_painted — матовое или окрашенное стекло (плафон-шар); если по фото материал не отличить (светлый металл или крашеное дерево) — material=\"unknown\", это нормальный ответ.")
 sku = sys.argv[1]; maxn = int(sys.argv[2]) if len(sys.argv) > 2 else 14
 z = np.load(f"{O}/{sku}.photo_regions.npz"); lab, obj, ids = z["lab"], z["obj"], z["ids"]
 cv = Image.open(f"{O}/{sku}.canvas.png").convert("RGB"); A = np.asarray(cv)
