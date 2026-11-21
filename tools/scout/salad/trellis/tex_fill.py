@@ -1209,7 +1209,7 @@ def load_rules(path: str | None = None) -> dict:
     import json
     with open(path or RULES_PATH, encoding='utf-8') as f:
         r = json.load(f)
-    for k in ('thresholds', 'known_change_de', 'quilt_outlier'):
+    for k in ('thresholds', 'known_change_de', 'quilt_outlier', 'stage6_gate'):
         if k not in r:
             raise KeyError(f'rules/paint-fill.json: нет ключа {k!r}')
     for k in ('empty_pct', 'dE00_front_back', 'filled_faces_step_pct', 'far_excess_pct', 'known_changed_share_pct', 'time_s'):
@@ -1390,15 +1390,17 @@ def stage6_gate(prev_dir: str):
     """Можно ли заливать: по `check.json` и выходу этапа 6 (`06-visible`). Отказ: нет check.json, камера этапа 4 не прошла (`extra.camera_failed` / `camera_gate`='failed'), этап пометил отказ (`extra.refused`), нет `visible.glb`.
     Мягкий провал этапа 6 (passed=false по меркам, но выход есть — например `needs_qwen`) не отказ: заливка идёт, провал записывается в check.json (`stage6`). → (отказ, причина, {'passed', 'reason', 'soft_fail'})."""
     import paint_stage as PS
+    hard = RULES['stage6_gate']['hard']                          # жёсткие причины отказа — в rules/paint-fill.json (stage6_gate.hard), всё прочее мягкое
     c = PS.read_check(prev_dir)
     if c is None:
-        return True, 'нет check.json этапа 6', {'passed': None}
+        return (True, 'нет check.json этапа 6', {'passed': None}) if hard['need_check_json'] else (False, '', {'passed': None, 'soft_fail': True})
     ex = c.get('extra') or {}
     info = {'passed': bool(c.get('passed')), 'reason': str(c.get('reason') or '')[:300]}
-    if ex.get('camera_failed') or ex.get('camera_gate') == 'failed' or ex.get('refused'):
-        return True, info['reason'] or 'камера не прошла', info
-    if not os.path.exists(os.path.join(prev_dir, 'visible.glb')):
-        return True, 'нет visible.glb этапа 6', info
+    if any(ex.get(k) for k in hard['extra_true']) or any(ex.get(k) == v for k, v in hard['extra_equals'].items()):
+        return True, info['reason'] or 'отказ этапа 6', info
+    for fn in hard['required_files']:
+        if not os.path.exists(os.path.join(prev_dir, fn)):
+            return True, f'нет {fn} этапа 6', info
     info['soft_fail'] = not info['passed']
     return False, '', info
 
