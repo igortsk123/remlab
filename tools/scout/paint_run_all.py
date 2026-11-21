@@ -62,11 +62,13 @@ def catalog_channels(record: dict | None) -> tuple[str, str]:
     try:
         sys.path.insert(0, os.path.join(HERE, '..', 'assets'))
         import material_class as mc
-        parts = mc.classify(mc.load_rules(), {'role': record.get('role') or '', 'name': record.get('name') or '', 'params': record.get('params') or {}}).get('parts') or {}
+        res = mc.classify(mc.load_rules(), {'role': record.get('role') or '', 'name': record.get('name') or '', 'params': record.get('params') or {}})
+        parts = res.get('parts') or {}
     except Exception:
         return '', ''
     ks = sorted(k for k, v in parts.items() if isinstance(v, dict) and v.get('class'))
-    return ','.join(ks), ','.join(f"{k}={parts[k]['class']}" for k in ks)
+    main = (res.get('class') or '') if isinstance(res, dict) else ''
+    return ','.join(ks), ','.join([f"{k}={parts[k]['class']}" for k in ks] + ([f'main={main}'] if main else []))
 
 
 def prep_glb_path(a: dict, sku: str) -> str | None:
@@ -128,10 +130,20 @@ def dynamic_ctx(run: str, sku: str, ctx: dict, rules: dict, state: dict | None =
     return out
 
 
+def soft_camera_ok(chk: dict, sc: dict) -> bool:
+    """«Мягкая» камера (P-062: включать только после просмотра): этап 4 не passed, но силуэт совпал (главная метрика ок, miss/extra ок) и не сошлись ТОЛЬКО перечисленные
+    метрики нижней полосы (грубая маска ног) — азимут годится для ролей с фронтом (он задаёт лишь «где перёд»), красить по такой камере по-прежнему нельзя."""
+    if not sc.get('enabled'):
+        return False
+    ms = chk.get('metrics') or {}
+    bad = [k for k, v in ms.items() if isinstance(v, dict) and v.get('ok') is False]
+    return bool((chk.get('metric') or {}).get('ok')) and bool(bad) and all(k in sc.get('only_failed', []) for k in bad)
+
+
 def cam_az_args(run: str, sku: str, check_rules: dict, rules: dict) -> list:
     """Азимут камеры в этап 3 — ТОЛЬКО если этап 4 passed (иначе роли с фронтом воздерживаются)."""
     chk = PS.read_check(os.path.join(run, PS.safe_name(sku), rules['camera_stage']))
-    if not chk or not chk.get('passed'):
+    if not chk or not (chk.get('passed') or soft_camera_ok(chk, rules.get('soft_camera') or {})):
         return []
     try:
         pj = json.load(open(os.path.join(run, PS.safe_name(sku), 'pose.json'), encoding='utf-8'))

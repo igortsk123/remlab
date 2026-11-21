@@ -431,6 +431,59 @@ class UnseenAdopt(unittest.TestCase):
             self.assertEqual(ft[p]["shared_faces"].get(q, 0), ft[q]["shared_faces"].get(p, 0))
 
 
+class Step2DryRules(unittest.TestCase):
+    """T-169 шаг 2 (P-062, вхолостую): no_front_same_channel и single_class_support — по умолчанию только `dry_hint`, роль не меняется; в apply — меняется."""
+    rr = pr.load_rules()
+    f = {"plate_vertical": 0.9, "is_largest": False, "front": None, "front_facing_share": None, "area_share": 0.5, "up_q10": 0.1}
+
+    @staticmethod
+    def unk(reason):
+        return {"role": "unknown", "role_title": "", "material_channel": None, "role_conf": 0.0, "role_why": "", "unknown_reason": reason}
+
+    def rules(self, key, mode):
+        return {**self.rr, "decision": {**self.rr["decision"], key: {**self.rr["decision"][key], "mode": mode}}}
+
+    def test_shipped_in_dry(self):
+        for k in ("no_front_same_channel", "single_class_support"):
+            self.assertEqual(self.rr["decision"][k]["mode"], "dry", k)
+
+    def test_front_free_roles_facade_only_without_handles_channel(self):
+        grp = self.rr["groups"]["case"]
+        ctx = {"product_role": "комод", "catalog_classes": {}}
+        self.assertEqual(pr._front_free_roles(self.f, grp, self.rr, set(), ctx), ["facade"])
+        self.assertEqual(pr._front_free_roles({**self.f, "is_largest": True}, grp, self.rr, set(), ctx), [])   # крупнейшая — не фасад
+
+    def test_no_front_dry_hint_then_apply(self):
+        grp, ctx, rc = self.rr["groups"]["case"], {"product_role": "комод", "catalog_classes": {}}, self.rr["decision"]["role_conf"]
+        out = {1: self.unk("no_front")}
+        pr._no_front_same_channel(1, self.f, out, grp, self.rules("no_front_same_channel", "dry"), set(), ctx, rc, "no_front")
+        self.assertEqual(out[1]["role"], "unknown")
+        self.assertEqual(out[1]["dry_hint"][0]["role"], "facade")
+        out = {1: self.unk("no_front")}
+        pr._no_front_same_channel(1, self.f, out, grp, self.rules("no_front_same_channel", "apply"), set(), ctx, rc, "no_front")
+        self.assertEqual((out[1]["role"], out[1]["unknown_reason"]), ("facade", None))
+        out = {1: self.unk("no_contact")}                                      # другая причина — не его дело
+        pr._no_front_same_channel(1, self.f, out, grp, self.rules("no_front_same_channel", "apply"), set(), ctx, rc, "no_contact")
+        self.assertEqual(out[1]["role"], "unknown")
+
+    def test_handles_channel_part_keeps_abstaining(self):
+        grp, rc = self.rr["groups"]["case"], self.rr["decision"]["role_conf"]
+        h = {**self.f, "area_share": 0.005, "up_q10": 0.5, "plate_vertical": 0.9}      # мелкая высокая часть: может быть ручкой (другой канал)
+        out = {1: self.unk("no_front")}
+        pr._no_front_same_channel(1, h, out, grp, self.rules("no_front_same_channel", "apply"), {"handles"}, {"product_role": "комод", "catalog_classes": {}}, rc, "no_front")
+        self.assertEqual(out[1]["role"], "unknown")
+
+    def test_single_class_support(self):
+        rc = self.rr["decision"]["role_conf"]
+        for cc, expect in (({"main": "ldsp", "legs": "ldsp"}, "body"), ({"main": "glass"}, "body"), ({"main": "ldsp", "legs": "wood_solid"}, "unknown"), ({}, "unknown")):
+            out = {1: self.unk("support_unclear")}
+            pr._single_class_support(1, out, self.rules("single_class_support", "apply"), {"catalog_classes": cc}, rc)
+            self.assertEqual(out[1]["role"], expect, cc)
+        out = {1: self.unk("support_unclear")}
+        pr._single_class_support(1, out, self.rules("single_class_support", "dry"), {"catalog_classes": {"main": "glass"}}, rc)
+        self.assertEqual((out[1]["role"], out[1]["dry_hint"][0]["rule"]), ("unknown", "single_class_support"))
+
+
 class RulesFile(unittest.TestCase):
     def test_no_product_ids_and_known_types(self):
         import json

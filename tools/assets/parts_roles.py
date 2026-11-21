@@ -144,10 +144,12 @@ def assign_roles(features: dict[int, dict], rules: dict, product_role: str | Non
             done(p, m[0], "условия роли выполнены: " + ", ".join(f"{c['f']} {c['op']} {c['v']}" for c in grp["roles"][m[0]]["require"]), rc["matched_trusted"] if trusted else rc["matched"])
         elif p in fail:
             done(p, "unknown", "роль возможна, но не хватает " + ("фронта (камера этапа 4 не passed)" if fail[p] == "no_front" else "контакта/опоры"), rc["unknown"], fail[p])
+            _no_front_same_channel(p, features[p], out, grp, rules, channels, ctx, rc, fail[p])
         elif product_role in grp.get("no_body_for_types", []):
             done(p, "unknown", f"тип «{product_role}»: канала материала для частей нет", rc["unknown"], "no_channel")
         elif f["kind"] == "body" and f["supports_near_body"] and f["area_share"] <= ab["support_unclear_max_share"] and (f["delta_e_main"] is None or f["delta_e_main"] >= ab["support_unclear_de_veto"]):
             done(p, "unknown", "объёмная часть держит корпус на полу, но на ножки не похожа — материал основания не угадываем", rc["unknown"], "support_unclear")
+            _single_class_support(p, out, rules, ctx, rc)
         elif f["kind"] == "body" and (grp.get("body_scope", "all") == "none" or (grp.get("body_scope", "all") == "largest" and not f["is_largest"])):
             done(p, "unknown", "объёмная часть типа, где материал столешницы/фасада/корпуса назван отдельно — body только у крупнейшей", rc["unknown"], "body_scope")
         elif f["kind"] == "body":
@@ -176,6 +178,59 @@ def _fits(f: dict, grp: dict, channels: set[str], ctx: dict) -> list[str]:
         if ok and not any(_eval([c], f, ctx)[0] for c in r.get("forbid", [])):
             fits.append(name)
     return fits
+
+
+def _rule_apply(rule: dict, p: int, out: dict, name: str, new: dict) -> None:
+    """Общий переключатель «включить / вхолостую» (P-062): enabled+mode!=dry — роль меняется; dry — роль прежняя, в `dry_hint` пишется, что было бы."""
+    if not rule or not rule.get("enabled"):
+        return
+    if rule.get("mode") == "dry":
+        out[p].setdefault("dry_hint", []).append({"rule": name, "role": new["role"], "why": new["role_why"]})
+    else:
+        out[p] = new
+
+
+def _front_free_roles(f: dict, grp: dict, rules: dict, channels: set, ctx: dict) -> list[str]:
+    """Роли группы, у которых НЕ хватает только фронта: прочие условия выполнены, запретов нет, канал каталога есть (если нужен)."""
+    names = []
+    for name, r in grp["roles"].items():
+        if not any(c["f"] in _FRONT_KEYS for c in r["require"]):
+            continue
+        if "only_if_catalog_channel" in r and r["only_if_catalog_channel"] not in channels:
+            continue
+        rest = [c for c in r["require"] if c["f"] not in _FRONT_KEYS and c["f"] != "touches_facade"]
+        if _eval(rest, f, ctx)[0] and not any(_eval([c], f, ctx)[0] for c in r.get("forbid", [])):
+            names.append(name)
+    return names
+
+
+def _no_front_same_channel(p: int, f: dict, out: dict, grp: dict, rules: dict, channels: set, ctx: dict, rc: dict, why: str) -> None:
+    """no_front, когда ВСЕ роли, которым не хватает фронта, красятся одним каналом с body (фасад/верх = основной класс): фронт не меняет материал → роль без фронта
+    (фасад как при камере). Есть среди кандидатов роль другого канала (ручки) — воздерживаемся по-прежнему."""
+    rule = rules["decision"].get("no_front_same_channel")
+    if why != "no_front" or not rule or not rule.get("enabled"):
+        return
+    names = _front_free_roles(f, grp, rules, channels, ctx)
+    main = rules["roles"]["body"].get("material_channel")
+    if not names or any(rules["roles"][n].get("material_channel") != main for n in names):
+        return
+    rd = rules["roles"][names[0]]
+    _rule_apply(rule, p, out, "no_front_same_channel", {"role": names[0], "role_title": rd["titleRu"], "material_channel": rd.get("material_channel"), "role_conf": rc["matched"],
+                "role_why": "фронта нет, но роли " + "/".join(names) + " красятся одним каналом с основной частью — фронт материал не меняет", "unknown_reason": None})
+
+
+def _single_class_support(p: int, out: dict, rules: dict, ctx: dict, rc: dict) -> None:
+    """support_unclear: вето ΔE нужно, пока основание МОЖЕТ быть другим материалом (ножки/каркас каталога ≠ основной класс). Каталог даёт один класс (каналов ножек/каркаса нет
+    или они того же класса, что основной) — основание красится основным классом, неопределённости нет → body."""
+    rule = rules["decision"].get("single_class_support")
+    cc = ctx.get("catalog_classes") or {}
+    if not rule or not rule.get("enabled") or not cc.get("main"):
+        return
+    if any(cc.get(k) and cc[k] != cc["main"] for k in ("legs", "frame", "handles", "shade")):
+        return
+    rd = rules["roles"]["body"]
+    _rule_apply(rule, p, out, "single_class_support", {"role": "body", "role_title": rd["titleRu"], "material_channel": rd.get("material_channel"), "role_conf": rc["body"],
+                "role_why": "каталог даёт один класс материала (" + cc["main"] + ") без отдельных ножек/каркаса — вето по цвету не нужно", "unknown_reason": None})
 
 
 def _wood_material_ok(ctx: dict) -> bool:

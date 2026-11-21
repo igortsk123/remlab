@@ -114,6 +114,12 @@ ok('--product-role' not in st and '--channels' not in st and '--cam-az' not in s
 ctx = RA.make_ctx('/r', 'k', {'native': 'n', 'photo': 'p', 'product_role': 'комод', 'channels': 'legs', 'root': '/x'}, REAL)
 st = RA.resolve_steps(REAL['stages']['03'], ctx, {'cam_az_args': ['--cam-az', '12.5']})[1]['argv']
 ok(st[st.index('--product-role') + 1] == 'комод' and st[st.index('--channels') + 1] == 'legs' and st[-2:] == ['--cam-az', '12.5'], 'заданные тип, каналы и азимут стоят в команде')
+# мягкая камера (P-062, выключена): только если не сошлись одни метрики нижней полосы при совпавшем силуэте
+chk = {'passed': False, 'metric': {'ok': True}, 'metrics': {'miss': {'ok': True}, 'extra_bottom': {'ok': False}}}
+on = {'enabled': True, 'only_failed': ['extra_bottom', 'miss_bottom']}
+ok(RA.soft_camera_ok(chk, on) and not RA.soft_camera_ok(chk, {**on, 'enabled': False}) and not RA.soft_camera_ok(chk, {}), 'soft_camera_ok: нижняя полоса при совпавшем силуэте — да; выключено — нет')
+ok(not RA.soft_camera_ok({**chk, 'metrics': {'extra': {'ok': False}}}, on) and not RA.soft_camera_ok({**chk, 'metric': {'ok': False}}, on) and not RA.soft_camera_ok({'passed': False, 'metric': {'ok': True}, 'metrics': {}}, on), 'soft_camera_ok: сорвался силуэт/боковая метрика/нечего прощать — нет')
+ok(REAL['soft_camera']['enabled'] is False, 'мягкая камера в правилах выключена')
 # каналы материала — из записи каталога (раньше в боевом прогоне уходили пустыми: роли frame/handles/shade молчали)
 rec = {'sid': 'k', 'name': 'Кресло', 'role': 'кресло', 'params': {'Материал каркаса': 'Дерево, Полиуретан', 'Материал обшивки': 'Лен', 'Основной материал': 'Дерево'}}
 ch, cc = RA.catalog_channels(rec)
