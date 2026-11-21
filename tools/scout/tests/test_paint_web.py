@@ -96,6 +96,36 @@ def test_decode_web_swaps_ktx2_for_png():
         assert not ok and 'boom' in why
 
 
+def test_pick_light_best_that_fits():
+    """pick_light: кандидаты из правила по порядку, победитель — первый, что влез; ключи gltfpack уходят в build_light; ни один — запасная лестница сайта."""
+    calls, fits = [], {}
+    real = W.RM.build_light
+
+    def fake(src, dst, size, quality, simplify, ktx2, rule, tex_flags=()):
+        key = (size, tuple(tex_flags))
+        calls.append((key, bool(rule.get('ladder'))))
+        ok = fits.get(key, False)
+        return {'ok': ok, 'kind': '' if ok else 'weight', 'bytes': 1000 if ok else 9 * 1048576, 'tried': [{'step': str(size), 'bytes': 1000}], 'probs': []}
+    W.RM.build_light = fake
+    try:
+        cands = [(c['size'], tuple(c['tex_flags'])) for c in RULE['candidates']]
+        assert len(cands) >= 2 and RULE['quality'] > 0
+        for win in range(len(cands)):
+            calls.clear()
+            fits.clear()
+            fits[cands[win]] = True
+            res, label = W.pick_light(b'', 'x.glb', RULE, {'max_bytes': 5 * 1048576, 'ladder': [{'size': 512}]})
+            assert res['ok'] and [c[0] for c in calls] == cands[:win + 1], (win, calls)
+            assert all(not c[1] for c in calls), 'у кандидатов своя лестница не нужна: шаги — сами кандидаты'
+            assert str(cands[win][0]) in label and len(res['steps']) == win + 1
+        calls.clear()
+        fits.clear()
+        res, label = W.pick_light(b'', 'x.glb', RULE, {'max_bytes': 5 * 1048576, 'ladder': [{'size': 512}]})
+        assert not res['ok'] and 'лестница сайта' in label and calls[-1][1], 'ни один кандидат не влез — запасная лестница rt-weight'
+    finally:
+        W.RM.build_light = real
+
+
 def test_no_ktx_tool_is_failure():
     """Нет утилиты ktx — ktx_bin() даёт None (этап тогда не проходит с причиной, а не возвращается к JPEG)."""
     old = dict(os.environ)

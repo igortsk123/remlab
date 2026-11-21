@@ -45,9 +45,29 @@ import paint_stage as PS  # noqa: E402  (общий писатель check.json)
 import runtime_mesh as RM  # noqa: E402  (лестница веса и сборка лёгкой копии — те же, что у сайта)
 
 
+def pick_light(src: bytes, dst: str, rule: dict, weight: dict) -> tuple[dict, str]:
+    """Лёгкая копия «лучшее, что влезает»: `candidates` из правила по порядку убывания качества (размер текстуры, ключи gltfpack), первый влезший в вес — победитель.
+    Ни один не влез — запасная обычная лестница сайта (rt-weight.json: размер ↓, упрощение граней), её отказ и есть причина. → (res со `steps`, метка)."""
+    one, steps = {**weight, 'ladder': []}, []
+    res, label = {}, ''
+    for c in rule['candidates']:
+        label = str(c['size']) + (' ' + ' '.join(c['tex_flags']) if c['tex_flags'] else '')
+        res = RM.build_light(src, dst, int(c['size']), int(rule['quality']), 0.0, True, one, tuple(c['tex_flags']))
+        t = res['tried'][-1] if res['tried'] else {}
+        steps.append([label, t.get('bytes'), t.get('skip') or t.get('problems')])
+        if res['ok']:
+            return {**res, 'steps': steps}, label
+    res = RM.build_light(src, dst, int(rule['candidates'][0]['size']), int(rule['quality']), 0.0, True, weight)
+    steps += [[t['step'], t.get('bytes'), t.get('skip') or t.get('problems')] for t in res['tried']]
+    return {**res, 'steps': steps}, ('лестница сайта: ' + res['tried'][-1]['step'] if res['tried'] else 'лестница сайта')
+
+
 def load_rule(path: str | None = None) -> dict:
     """Правило похожести; пороги проверены: у каждого op из paint_stage и число."""
     r = json.load(open(path or os.path.join(RULES, 'paint-web.json'), encoding='utf-8'))
+    cs = r.get('candidates')
+    if not cs or any(not isinstance(c.get('size'), int) or not isinstance(c.get('tex_flags'), list) for c in cs):
+        raise ValueError('paint-web.json: candidates — список {size: число, tex_flags: список}, по убыванию качества')
     for k, t in r['thresholds'].items():
         if t.get('op') not in PS.OPS or not isinstance(t.get('value'), (int, float)):
             raise ValueError(f'paint-web.json: порог {k}: нужен op из {sorted(PS.OPS)} и число')
@@ -184,31 +204,30 @@ def run_one(run: str, sku: str, glb: str, rule: dict | None = None, weight: dict
     if prev and not force and prev.get('extra', {}).get('glb_sha') == sha and prev.get('extra', {}).get('rule') == _rule_fp(rule, weight):
         return prev
     web, real = os.path.join(d, 'web.glb'), os.path.join(d, 'web-real.glb')
-    res = RM.build_light(src, web, int(rule['size']), int(rule['quality']), 0.0, True, weight)
-    steps = [[t['step'], t.get('bytes'), t.get('skip') or t.get('problems')] for t in res['tried']]
+    res, label = pick_light(src, web, rule, weight)
+    steps = res['steps']
     base = {'glb_sha': sha, 'rule': _rule_fp(rule, weight), 'steps': steps, 'ktx2_measured': False, 'texture_pack': res.get('how', ''),
             'bytes_before': len(src), 'atlas_px_before': _atlas_px(src)}
     size_metric = {'name': 'bytes', 'value': res.get('bytes', 0), 'threshold': weight['max_bytes'], 'op': '<='}
     if not res['ok']:
         why = 'текстура упаковалась битой: ' + '; '.join(res['probs'])[:120] if res['kind'] == 'texture' else \
-            f"тяжелее {weight['max_bytes'] / 1048576:.1f} МБ даже после лестницы ({steps[-1][0] if steps else '—'}: {res['bytes'] / 1048576:.2f} МБ)"
+            f"тяжелее {weight['max_bytes'] / 1048576:.1f} МБ даже после лестницы ({label}: {res['bytes'] / 1048576:.2f} МБ)"
         return PS.write_check(d, STAGE, sku, passed=False, metric=size_metric, reason=why, seconds=time.time() - t0, outputs=[], **base)
     # кадры — с НАСТОЯЩЕГО web.glb: его KTX2-картинку раскодирует утилита ktx (KTX-Software), PNG встаёт на место KTX2 (геометрия и UV те же, что поедут на сайт)
-    last = res['tried'][-1]
     ktx = ktx_bin()
     if not ktx:
-        return PS.write_check(d, STAGE, sku, passed=False, metric=size_metric, seconds=time.time() - t0, outputs=['web.glb'], bytes=res['bytes'], texture_step=last['step'],
+        return PS.write_check(d, STAGE, sku, passed=False, metric=size_metric, seconds=time.time() - t0, outputs=['web.glb'], bytes=res['bytes'], texture_step=label,
                               reason='нет утилиты ktx (KTX-Software: переменная KTX или PATH) — потеря на KTX2 не измерена', **base)
     ok, why, tinfo = decode_web(web, real, ktx, d)
     if not ok:
         return PS.write_check(d, STAGE, sku, passed=False, metric=size_metric, reason=why, seconds=time.time() - t0, outputs=['web.glb'], bytes=res['bytes'],
-                              texture_step=last['step'], **base)
+                              texture_step=label, **base)
     base.update(ktx2_measured=True, ktx2_tool=tinfo['tool'], ktx2_tex=_tex_loss(src, tinfo['png']))
     cfg = {'views': rule['views'], 'res': rule['res'], 'margin': rule['ortho_margin'],
            'items': [{'glb': glb, 'out': os.path.join(d, 'full')}, {'glb': real, 'out': os.path.join(d, 'web')}]}
     ok, why, info = _render(cfg, int(rule.get('blender_timeout', 900)))
     base.update(bytes=res['bytes'], atlas_px_after=max(tinfo['size']), faces_before=info.get(glb, {}).get('tris'), faces_after=info.get(real, {}).get('tris'),
-                texture_step=last['step'])
+                texture_step=label)
     if not ok:
         return PS.write_check(d, STAGE, sku, passed=False, metric=size_metric, reason=why, seconds=time.time() - t0, outputs=['web.glb', 'web-real.glb'], **base)
     views = {v['name']: compare_images(_load_rgba(os.path.join(d, f"full-{v['name']}.png")), _load_rgba(os.path.join(d, f"web-{v['name']}.png")) ) for v in rule['views']}
