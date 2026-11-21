@@ -56,7 +56,8 @@ for a in ARGS:
                      cfg={'erode_known': 0}, prev_dir=R + '/06-visible', parts_npz=R + '/03-parts/parts.npz')
     rep = r['report']
     geoms, after, before = r['geoms'], r['tex_after'], r['tex_before']
-    gl = TC.load_geoms(R + '/07-fill/filled.glb') if os.path.exists(R + '/07-fill/filled.glb') else None
+    _fg = f'{OUT}/{sku}/{sku}/07-fill/filled.glb'                       # запись ЭТОГО же прогона (раньше читался старый production-файл — сравнение было некорректным, Codex 21.11)
+    gl = TC.load_geoms(_fg) if os.path.exists(_fg) else None
     g = geoms[0]
     tx = TF.Tex(g, np.asarray(g['V'], float), TF._grid(g), r['parts'][0])
     T = tx.T
