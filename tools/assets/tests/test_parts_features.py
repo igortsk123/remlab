@@ -628,6 +628,59 @@ class SeenCliff(unittest.TestCase):
         self.assertEqual(self.roles(0.10)["unknown_reason"], "unreliable")
 
 
+class SimilarToTrusted(unittest.TestCase):
+    """similar_to_trusted: неизвестная часть берёт канал доверенной части того же товара по цвету+текстуре; дерево↔ткань не смешивается, без доверенных — unknown, ножки — только при legs_guard."""
+    rules = pr.load_rules()
+
+    def make(self, colours, mode="dry", **ft_over):
+        rd = self.rules["roles"]
+        def o(role, ch, reason=None):
+            return {"role": role, "role_title": rd[role]["titleRu"] if role in rd else role, "material_channel": ch, "role_conf": 0.9, "role_why": "тест", "unknown_reason": reason}
+        out = {0: o("body", "main"), 1: o("legs", "legs"), 2: o("unknown", None, "support_unclear"), 3: o("unknown", None, "tiny")}
+        ft = {q: {"agree": 0.95, "seen": 0.5, "kind": "body", "up_q90": 0.1, "delta_e_main": 40.0} for q in out}
+        for k, v in ft_over.items():
+            ft[2][k] = v
+        st = {**self.rules["decision"]["similar_to_trusted"], "mode": mode, "enabled": True}
+        pr._similar_to_trusted(ft, out, st, colours, self.rules)
+        return out
+
+    C_BODY = {"lab_median": [68.0, 0.3, 4.6], "spread_p90": 1.2}
+    C_LEGS = {"lab_median": [45.0, 8.0, 20.0], "spread_p90": 40.0}
+
+    def test_similar_to_main_takes_main_channel_dry_then_on(self):
+        col = {0: self.C_BODY, 1: self.C_LEGS, 2: {"lab_median": [67.5, 0.0, 4.4], "spread_p90": 1.6}, 3: self.C_BODY}
+        dry = self.make(col)[2]
+        self.assertEqual(dry["role"], "unknown")
+        self.assertEqual(dry["dry_hint"][0]["role"], "body")
+        on = self.make(col, "on")[2]
+        self.assertEqual((on["role"], on["material_channel"], on["unknown_reason"]), ("body", "main", None))
+        self.assertEqual(self.make(col, "on")[3]["role"], "unknown")                         # tiny не трогаем
+
+    def test_wood_vs_cloth_never_mixes_by_texture_and_colour(self):
+        col = {0: self.C_BODY, 1: self.C_LEGS, 2: {"lab_median": [67.5, 0.0, 4.4], "spread_p90": 60.0}}      # цвет как у обивки, а текстура деревянная
+        self.assertEqual(self.make(col, "on")[2]["role"], "unknown")
+        col[2] = {"lab_median": [44.0, 8.0, 20.0], "spread_p90": 1.0}                           # цвет дерева, текстура гладкая
+        self.assertEqual(self.make(col, "on")[2]["role"], "unknown")
+
+    def test_no_trusted_parts_means_unknown(self):
+        col = {0: self.C_BODY, 1: self.C_LEGS, 2: {"lab_median": [67.5, 0.0, 4.4], "spread_p90": 1.6}}
+        out = self.make({**col}, "on", agree=0.95)
+        out2 = {q: dict(v) for q, v in out.items()}
+        ft = {q: {"agree": 0.3, "seen": 0.5, "kind": "body", "up_q90": 0.1, "delta_e_main": 40.0} for q in out2}
+        out2[2] = {**out2[2], "role": "unknown", "unknown_reason": "support_unclear", "material_channel": None}
+        pr._similar_to_trusted(ft, out2, {**self.rules["decision"]["similar_to_trusted"], "mode": "on", "enabled": True}, col, self.rules)
+        self.assertEqual(out2[2]["role"], "unknown")
+
+    def test_legs_hint_needs_legs_guard(self):
+        col = {0: self.C_BODY, 1: self.C_LEGS, 2: {"lab_median": [45.0, 8.0, 20.0], "spread_p90": 42.0}}
+        self.assertEqual(self.make(col, "on", up_q90=0.1, delta_e_main=40.0)[2]["role"], "legs")            # низкая и не цвета главной
+        self.assertEqual(self.make(col, "on", up_q90=0.4, delta_e_main=40.0)[2]["role"], "unknown")         # высокий блок — не ножка
+        self.assertEqual(self.make(col, "on", up_q90=0.1, delta_e_main=12.0)[2]["role"], "unknown")         # цвет главной — не ножка
+
+    def test_shipped_is_dry_and_no_ids(self):
+        self.assertEqual(self.rules["decision"]["similar_to_trusted"]["mode"], "dry")
+
+
 class RulesFile(unittest.TestCase):
     def test_no_product_ids_and_known_types(self):
         import json

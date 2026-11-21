@@ -236,7 +236,8 @@ def run(args) -> int:
                                   agree=res["agree"], seen=res["seen_any"], **pro.load_rules()["features_params"])
         rrules = pro.load_rules()
         cclasses = dict(kv.split("=", 1) for kv in (args.channel_classes or "").split(",") if "=" in kv)
-        roles = pro.assign_roles(feats, rrules, args.product_role, set(filter(None, (args.channels or "").split(","))), catalog_classes=cclasses)
+        roles = pro.assign_roles(feats, rrules, args.product_role, set(filter(None, (args.channels or "").split(","))), catalog_classes=cclasses,
+                                colours={k: v for k, v in colours.items() if isinstance(v, dict)})
         unk = {}
         for r_ in roles.values():
             if r_["role"] == "unknown":
