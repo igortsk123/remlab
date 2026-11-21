@@ -586,6 +586,7 @@ class Composer:
         cfg = self.R['purposes'][purpose].get('decor', {})
         self.purpose = purpose
         picks, alts, gaps, lay_extra, slots, relaxed = {}, {}, [], {}, {}, []
+        win_of: dict = {}         # роль штор → окна, которые она закрывает (по окну — `per_window`)
         windows = [o for o in room.openings if o.kind == 'window']
         for role, dc in cfg.items():
             if role.startswith('_'):
@@ -593,9 +594,9 @@ class Composer:
             sl = dict(dc, role=role, need_dims=(('w', 'd') if role == 'ковёр' else ('w', 'd', 'h')) if dc.get('band') else None)
             sl.setdefault('ideal', {})
             src = [it for it in self.decor if it['role'] == role]
-            cands, band, rx = self.pool(sl, style, tier, self.decor, _decor_filter(dc, windows, self.R, src))
+            cands, band, rx = self.pool(sl, style, tier, self.decor, _decor_filter(dc, windows, self.R, src, style))
             if role == 'ковёр' and rug_fit(self.R):       # ковёр по норме выступа и зазора (T-20261112-31)
-                got = self.rug_by_norm(sl, dc, style, tier, ctx, lay, room, cands, _decor_filter(dc, windows, self.R, src))
+                got = self.rug_by_norm(sl, dc, style, tier, ctx, lay, room, cands, _decor_filter(dc, windows, self.R, src, style))
                 if got['gap']:
                     gaps.append(got['gap'])
                 if got['pick'] is None:
@@ -607,6 +608,21 @@ class Composer:
                 slots[role] = {'ideal': dc.get('ideal', {}), 'band': band, 'tolerance': list(self.tol), 'qty': 1, 'mesh': False,
                                'fit': got['place']['fit'], **({'size_relaxed': True} if got['size_relaxed'] else {})}
                 continue
+            wset = windows
+            if dc.get('per_window') and windows:         # шторы ПО ОКНУ: рулонные своего стиля — окнам, куда годны по ширине (T-20261120-163)
+                pw = self.per_window(sl, dc, style, tier, windows, src, ctx)
+                if pw:
+                    rk_w, cov, wset = pw
+                    key2 = f'{role} 2' if wset else role         # на прежний путь остались окна — они «основные», рулонные — вторым местом
+                    picks[key2] = dict(rk_w[0], qty=len(cov))
+                    alts[key2] = [_alt(c) for c in rk_w if c['sid'] != rk_w[0]['sid']][:self.R['alternates']]
+                    slots[key2] = {'ideal': dc.get('ideal', {}), 'band': band, 'tolerance': list(self.tol), 'qty': len(cov), 'mesh': False,
+                                   'per_window': True}
+                    win_of[key2] = cov
+                    gaps.append(f'{role}: рулонная на окно {_cm(cov)} см (по ширине окна)')
+                    if not wset:
+                        continue
+                    win_of[role] = wset
             nb_from = None
 
             def nb_pool(need_mesh: bool = False) -> tuple:
@@ -618,11 +634,16 @@ class Composer:
                 keep = dict(self.shortage)      # учёт нехватки слота — по своему стилю, соседа не пишем
                 found = ([], None)
                 for nb in demo_room.neighbour_styles(style):
-                    c3, _, _ = self.pool(sl, nb, tier, self.decor, _decor_filter(dc, windows, self.R, src))
+                    c3, _, _ = self.pool(sl, nb, tier, self.decor, _decor_filter(dc, windows, self.R, src, style))   # ворота — по стилю КОМНАТЫ
                     palette(c3)
                     c3 = [c for c in c3 if CC.color_eval(c, role, style, ctx=ctx)['tier'] in ('preferred', 'allowed')
                           and (not need_mesh or c.get('mesh'))]
-                    if c3:
+                    if c3 and dc.get('neighbour_pool') == 'all':
+                        # ВСЕ соседи в один пул (T-20261120-163): выбор — по рангу (ярус цвета, тон роли стиля, балл), а не «первый сосед с
+                        # хоть чем-то»: тёмные шторы лофта у «современного» не теряются, когда у «джапанди» есть только светлые
+                        have = {(x['mid'], x['eid']) for x in found[0]}
+                        found = (found[0] + [dict(c, style_from=nb) for c in c3 if (c['mid'], c['eid']) not in have], found[1] or nb)
+                    elif c3:
                         found = ([dict(c, style_from=nb) for c in c3], nb)
                         break
                 self.shortage = keep
@@ -634,7 +655,9 @@ class Composer:
             if not cands:
                 gaps.append(dc.get('gap') or (f'{role}: нет в стиле' + (' по размеру окна' if dc.get('min_w') == 'window' else '')))
                 continue
+            nb_gap = None
             if nb_from:
+                nb_gap = len(gaps)           # текст уточним после выбора: при `neighbour_pool: all` сосед — тот, чей товар победил, а не первый
                 gaps.append(f'{role}: нет в стиле — взята у соседа «{nb_from}» (запас)')
             if dc.get('prefer'):
                 pref = re.compile(dc['prefer'], re.I)
@@ -663,13 +686,16 @@ class Composer:
                 continue
             qty = 1
             if dc.get('qty_from') == 'windows':
-                qty = max(1, len(windows))
+                qty = max(1, len(wset))
             elif dc.get('qty_from'):
                 qty = (chosen.get(dc['qty_from']) or {}).get('qty', 0)
                 if not qty:
                     gaps.append(f'{role}: нет опоры ({dc["qty_from"]})')
                     continue
             pick = rk[0]
+            if nb_gap is not None and pick.get('style_from') and gaps[nb_gap].startswith(f'{role}: нет в стиле — взята'):
+                part = f' на окно {_cm(wset)} см' if wset is not windows else ''       # шторы по окну: запас — только окнам без рулонной
+                gaps[nb_gap] = f'{role}: нет в стиле{part} — взята у соседа «{pick["style_from"]}» (запас)'
             if role == 'ковёр':
                 place = rug_place(lay, room, pick)
                 if place is None:
@@ -692,10 +718,38 @@ class Composer:
                     'h': picks['лампа']['h'], 'elev': p.item.h_cm, 'on': p.role, 'sid': picks['лампа']['sid']}
         if 'плед' in picks:
             lay_extra['плед'] = {'on': 'кровать', 'sid': picks['плед']['sid']}
-        if 'шторы' in picks:
-            lay_extra['шторы'] = {'windows': [{'wall': o.wall, 'offset_cm': o.offset_cm, 'width_cm': o.width_cm}
-                                              for o in windows], 'sid': picks['шторы']['sid']}
+        for role in [r for r in win_of if (slots.get(f'{r} 2') or {}).get('per_window')]:
+            # рулонные (по окну) — ОСНОВНАЯ строка роли, «2» — запас соседа окнам без рулонной (или рулонные одни, если запаса нет)
+            k2 = f'{role} 2'
+            roll = (picks.pop(k2), slots.pop(k2), alts.pop(k2), win_of.pop(k2))
+            if role in picks:
+                picks[k2], slots[k2], alts[k2], win_of[k2] = picks[role], slots[role], alts[role], win_of[role]
+            picks[role], slots[role], alts[role], win_of[role] = roll
+        for role in [r for r in picks if r == 'шторы' or r.startswith('шторы ')]:
+            lay_extra[role] = {'windows': [{'wall': o.wall, 'offset_cm': o.offset_cm, 'width_cm': o.width_cm}
+                                           for o in win_of.get(role, windows)], 'sid': picks[role]['sid']}
         return picks, alts, gaps, lay_extra, slots, relaxed
+
+    def per_window(self, sl: dict, dc: dict, style: str, tier: str, windows: list, src: list, ctx: dict):
+        """ШТОРЫ ПО ОКНУ (T-20261120-163, владелец TG 69): товар, что продаётся на ОДНО окно (рулонная; регэксп `per_window` правила),
+        закрывает окно, только если не уже ЭТОГО окна, а не самого широкого в комнате (иначе рулонка 80 см на окно 2,4 м — канарейка 05.11).
+        Берём такие товары из пула СВОЕГО стиля (ворота стиля — `deny_by_style`; цена и ярус — как у слота) без ворот ширины: одна модель —
+        годная по ширине для самого широкого из окон, где вообще есть годная; остальные (шире любой рулонной) идут прежним путём — полотно
+        не уже окна своего стиля, нет — запас соседа. → (ранжированные рулонные, окна под ними, окна на прежний путь) | None (рулонных
+        в стиле нет / ни одна не годна ни одному окну — прежний путь для всех окон, байт в байт)."""
+        rx = re.compile(dc['per_window'], re.I)
+        loose, _, _ = self.pool(sl, style, tier, self.decor, _decor_filter(dict(dc, min_w=None), windows, self.R, src, style))
+        palette(loose)
+        rollers = [c for c in loose if rx.search(c.get('name') or '')]
+        wide = lambda c: num(c.get('w')) or 0       # noqa: E731
+        cov = [o for o in windows if any(wide(c) >= o.width_cm for c in rollers)]
+        if not cov:
+            return None
+        need = max(o.width_cm for o in cov)
+        rk = self.ranked([c for c in rollers if wide(c) >= need], style, ctx)
+        if not rk:
+            return None
+        return rk, cov, [o for o in windows if o not in cov]
 
     def rug_by_norm(self, sl: dict, dc: dict, style: str, tier: str, ctx: dict, lay, room, cands: list, flt) -> dict:
         """Ковёр по норме (rug_fit, T-20261112-31): первый по рангу, что ложится (`rug_fit_place`), из полосы слота → любого
@@ -765,27 +819,35 @@ def model_code(name: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _decor_filter(dc: dict, windows: list, rules: dict | None = None, source: list = ()):
+def _cm(windows) -> str:
+    """Ширины окон для подписи: «100» / «100/240»."""
+    return '/'.join(f'{w:g}' for w in sorted({o.width_cm for o in windows}))
+
+
+def _decor_filter(dc: dict, windows: list, rules: dict | None = None, source: list = (), style: str | None = None):
     """Доп. фильтр декора из правил: `deny` — по названию (рулонные шторы не закрывают окно 2,4 м; `@ключ` — регэксп из
     корня правил), `deny_model` — и братья по артикулу отсеянного, `min_w: window` — ширина не меньше самого широкого
-    окна комнаты (полотно 300 на окно 240; 55 см — нет)."""
-    pat = dc.get('deny')
+    окна комнаты (полотно 300 на окно 240; 55 см — нет). `deny_by_style` {стиль комнаты: регэксп} — свой deny для этого стиля
+    вместо общего (T-20261120-163: в лофте рулонные шторы по стилю разрешены, римские/кафе/кухонные — нет); `deny_all` — регэксп,
+    действующий для ВСЕХ стилей поверх deny (фотопечать, «ночной город» на шторе — нигде не годится, T-20261120-163/4)."""
+    pat = (dc.get('deny_by_style') or {}).get(style, dc.get('deny'))
     if pat and pat.startswith('@'):
         pat = (rules or {}).get(pat[1:])
     deny = re.compile(pat, re.I) if pat else None
-    task = (lambda it: bool(deny and deny.search(it.get('name') or '')) or bool(it.get('desc_task'))) \
+    nope = re.compile(dc['deny_all'], re.I) if dc.get('deny_all') else None     # ни в одном стиле (фотопечать/принт штор), поверх deny/deny_by_style
+    task =(lambda it: bool(deny and deny.search(it.get('name') or '')) or bool(it.get('desc_task'))) \
         if dc.get('deny_model') else (lambda it: False)
     codes = ({model_code(it.get('name')) for it in source if task(it)} | set((rules or {}).get('lamp_task_models') or ())) - {None} \
         if dc.get('deny_model') else set()
     wmin = max((o.width_cm for o in windows), default=0) if dc.get('min_w') == 'window' else 0
 
     def ok(it):
-        if deny and deny.search(it.get('name') or ''):
+        if (deny and deny.search(it.get('name') or '')) or (nope and nope.search(it.get('name') or '')):
             return False
         if dc.get('deny_model') and (it.get('desc_task') or model_code(it.get('name')) in codes):
             return False   # рабочая по описанию, по фото (lamp_task_models) или брат по артикулу рабочей
         return not wmin or (num(it.get('w')) or 0) >= wmin
-    return ok if (deny or wmin) else None
+    return ok if (deny or nope or wmin) else None
 
 
 RUG_BLOCKERS = ('шкаф', 'комод', 'туалетный столик', 'стол рабочий')
@@ -935,6 +997,12 @@ def _item(c: dict) -> dict:
     return dict({k: c.get(k) for k in keep if k in c}, has_mesh=bool(c.get('mesh')), mesh_defect=bool(c.get('mesh_defect')))
 
 
+def used_fams(chosen: dict, decor: dict) -> set:
+    """Семейства набора, что идут в «уже стоит в других наборах» (`seen_style`/`seen_all`). Запас соседа (`style_from`) НЕ пишем: донор важнее
+    заёмщика (T-20261120-163/5) — набор стиля-донора не должен меняться оттого, что другой стиль взял у него товар."""
+    return {c['fam'] for c in list(chosen.values()) + [d for d in decor.values() if not d.get('style_from')]}
+
+
 def record(C: Composer, room_id: str, spec: dict, purpose: str, style: str, tier: str, res: dict, dec: tuple) -> dict:
     import compose_common as CC
     chosen, lay = res["chosen"], res["layout"]
@@ -1030,7 +1098,7 @@ def compose(rooms: list, C: Composer) -> tuple:
                     rec = record(C, room_id, spec, purpose, style, tier, res, dec)
                     bank.append(rec)
                     built.append((style, {r: res['chosen'][r]['fam'] for r in res['chosen'] if r in MAJOR}))
-                    fams = {c['fam'] for c in list(res['chosen'].values()) + list(dec[0].values())}
+                    fams = used_fams(res['chosen'], dec[0])        # запас соседа в «использованное» не пишем (донор важнее заёмщика)
                     used['style'] |= fams
                     used_all |= fams
                     report['cells'].append(dict(cell, set_id=rec['set_id'], total=rec['total'], fit=rec['style_fit'],
@@ -1313,6 +1381,15 @@ def _selftest() -> int:
     f = _decor_filter({'min_w': 'window', 'deny': 'рулон'}, [NS(width_cm=210), NS(width_cm=240)])
     ok('шторы: не уже окна 240 и не рулонные', f({'name': 'Тюль', 'w': 300}) and not f({'name': 'Тюль', 'w': 200})
        and not f({'name': 'Рулонная штора', 'w': 300}) and _decor_filter({}, []) is None)
+    fl = {'min_w': 'window', 'deny': 'рулон|римск|кафе|для кухни', 'deny_by_style': {'лофт': 'римск|кафе|для кухни'}}
+    fw = [NS(width_cm=200)]
+    ok('шторы лофта: рулонные можно, римские/кафе/кухонные — нет; другой стиль и без стиля — рулонные нельзя',
+       _decor_filter(fl, fw, None, (), 'лофт')({'name': 'Рулонная штора графит', 'w': 220})
+       and not _decor_filter(fl, fw, None, (), 'лофт')({'name': 'Римская штора', 'w': 220})
+       and not _decor_filter(fl, fw, None, (), 'лофт')({'name': 'Штора для кухни', 'w': 220})
+       and not _decor_filter(fl, fw, None, (), 'лофт')({'name': 'Рулонная штора', 'w': 150})
+       and not _decor_filter(fl, fw, None, (), 'сканди')({'name': 'Рулонная штора', 'w': 220})
+       and not _decor_filter(fl, fw)({'name': 'Рулонная штора', 'w': 220}))
     built = [('сканди', {'кровать': 'B1', 'шкаф': 'W1', 'комод': 'K1'})]
     ok('другой стиль: одна общая модель — можно', diversity_ok('B1', 'кровать', {}, built, 'лофт'))
     ok('другой стиль: вторая общая — нельзя', not diversity_ok('W1', 'шкаф', {'кровать': 'B1'}, built, 'лофт'))

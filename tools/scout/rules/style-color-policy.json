@@ -107,6 +107,8 @@
   "лофт": {
    "_why": "паспорт: кирпич/бетон 25, тёмное дерево 15, кожа 10; styles.json :196 — terra +0,6, cyan нет. Кирпичные, ржавые, рыжие (и коньяк, кожа — в material) — материал, не акцент; cyan не награждается (в паре только terra); цветной корпус (зелёная тумба) — discouraged",
    "pair": ["terra"], "material_families": ["terra", "orange"], "max_chromatic_anchors": 1,
+   "tone": {"_why": "T-20261120-163 (владелец TG 50/52: шторы лофта — тёмные, графит, терракота): тон роли — ПОПРАВКА к рангу яруса, не отсечка: тёмный (слово из names или яркость фото ≤ lum_max) идёт первым внутри яруса, светлый — на else_rank хуже (между preferred 0 и allowed 1); светлые бежевые берутся, только если тёмных нет",
+            "шторы": {"names": "графит|антрацит|ч[её]рн|т[её]мн|терракот|шоколад|уголь|асфальт|коричнев", "lum_max": 0.4, "else_rank": 0.5}},
    "tiers": {
     "upholstered_anchor": {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "allowed", "vivid": "discouraged", "secondary": "allowed"},
     "large_casework":     {"neutral": "preferred", "material": "preferred", "weak": "allowed", "muted": "discouraged", "vivid": "discouraged", "secondary": "allowed"},
