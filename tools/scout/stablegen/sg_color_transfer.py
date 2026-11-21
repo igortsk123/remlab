@@ -85,7 +85,7 @@ def load_glb(path: str):
 
 
 NORMAL_DEV_MEAN_MAX = 10.0   # этап 02: среднее° разницы нормали затенения упрощённой и сглаженной родной не больше (Салми без NORMAL — 21°, с нормалями родной — 2,9°)
-NORMAL_K = 8            # сколько ближайших вершин родной участвует в нормали вершины упрощённой
+NORMAL_K = 64           # сколько ближайших вершин родной рассматривается для нормали вершины упрощённой (берутся те, что в радиусе масштаба сетки упрощённой)
 NORMAL_AGREE = 0.3       # вершина родной участвует, только если её нормаль не смотрит против собственной нормали упрощённой (cos ≥ этого): тонкая стенка/рама иначе тянет нормаль с обратной стороны → чёрные пятна
 
 
@@ -95,17 +95,34 @@ def transfer_normals(nat_V, nat_N, tgt_V, tgt_F, k: int = NORMAL_K, agree: float
     import numpy as np
     import trimesh
     own = np.asarray(trimesh.Trimesh(vertices=tgt_V, faces=tgt_F, process=False).vertex_normals, np.float64)
-    return smooth_native_normals(nat_V, nat_N, tgt_V, own, k, agree)
+    return smooth_native_normals(nat_V, nat_N, tgt_V, own, vertex_spacing(tgt_V, tgt_F), k, agree)
 
 
-def smooth_native_normals(nat_V, nat_N, pts, own, k: int = NORMAL_K, agree: float = NORMAL_AGREE):
-    """Сглаженная нормаль родной в точках `pts` (own — собственные нормали точек: согласие с ними отсеивает вершины обратной стороны)."""
+def vertex_spacing(V, F):
+    """Средняя длина рёбер, сходящихся в вершине (масштаб сетки упрощённой в этой точке)."""
+    import numpy as np
+    a, b, c = V[F[:, 0]], V[F[:, 1]], V[F[:, 2]]
+    lab, lbc, lca = np.linalg.norm(a - b, axis=1), np.linalg.norm(b - c, axis=1), np.linalg.norm(c - a, axis=1)
+    s = np.zeros(len(V))
+    n = np.zeros(len(V))
+    for idx, ln in ((F[:, 0], lab + lca), (F[:, 1], lab + lbc), (F[:, 2], lbc + lca)):
+        s += np.bincount(idx, weights=ln, minlength=len(V))
+        n += np.bincount(idx, weights=np.full(len(idx), 2.0), minlength=len(V))
+    return s / np.maximum(n, 1.0)
+
+
+def smooth_native_normals(nat_V, nat_N, pts, own, scale, k: int = NORMAL_K, agree: float = NORMAL_AGREE):
+    """Сглаженная нормаль родной в точках `pts`: среднее нормалей вершин родной в радиусе `scale` (масштаб сетки упрощённой в точке; ближайшая берётся всегда, до k вершин). Сырая сетка TRELLIS шумит
+    на масштабе своей вершины (мелкие борозды), упрощённая грань — крупнее: нормаль вершины должна быть средней по её окрестности, иначе борозды дают тёмные полосы (шкаф, кадры T-167). own — собственные нормали
+    точек: согласие с ними отсеивает вершины обратной стороны."""
     import numpy as np
     from scipy.spatial import cKDTree
     d, j = cKDTree(nat_V).query(pts, k=k, workers=-1)
     cand = nat_N[j]                                               # (n, k, 3)
     cosv = np.einsum('nkc,nc->nk', cand, own)
-    w = (cosv >= agree) / (d + 1e-9 * (d.max() + 1.0))
+    near = d <= np.asarray(scale)[:, None]
+    near[:, 0] = True
+    w = ((cosv >= agree) & near).astype(np.float64)
     s = np.einsum('nk,nkc->nc', w, cand)
     ln = np.linalg.norm(s, axis=1, keepdims=True)
     out = np.where(ln > 1e-12, s / np.where(ln < 1e-12, 1.0, ln), own)
@@ -237,7 +254,8 @@ def normal_deviation(native_path: str, shape_path: str, n: int = 40000) -> tuple
     else:
         nrm = np.asarray(b.face_normals)[fi]
     nrm = nrm / np.where(np.linalg.norm(nrm, axis=1, keepdims=True) < 1e-12, 1.0, np.linalg.norm(nrm, axis=1, keepdims=True))
-    ref = smooth_native_normals(na['V'][used], na['N'][used], pts, np.asarray(b.face_normals)[fi])
+    scale = vertex_spacing(nb['V'], nb['F'])[nb['F'][fi]].mean(1)                    # тот же радиус сглаживания, что в переносе нормалей
+    ref = smooth_native_normals(na['V'][used], na['N'][used], pts, np.asarray(b.face_normals)[fi], scale)
     cos = np.clip(np.einsum('nc,nc->n', nrm, ref), -1.0, 1.0)
     ang = np.degrees(np.arccos(cos))
     return float(ang.mean()), float(np.percentile(ang, 99)), has_n
