@@ -160,6 +160,33 @@ def main() -> int:
     a.max_meshes = 0
     spec3 = PT.make_spec(a, plan, [0.44])
     check(spec3.before_job('m1__v1', 0.0, 0.3) is None, 'before_job: без ограничений — шлём')
+    # --- образ без CMD и без запечённого воркера: нода стартует командой группы (python -u -c BOOT + KIT_WORKER_Z) из пустой папки, доходит до ready и гаснет сама по простою
+    import socket
+    import subprocess
+    sk = socket.socket()
+    sk.bind(('', 0))
+    bport = sk.getsockname()[1]
+    sk.close()
+    cmd, z = KW.bundle(W.__file__)
+    benv = {**os.environ, 'KIT_WORKER_Z': z, 'MODEL': 'fake', 'PORT': str(bport), 'OUT_DIR': tempfile.mkdtemp(), 'IDLE_S': '3', 'MAX_LIFETIME_S': '90'}
+    proc = subprocess.Popen([sys.executable] + cmd[1:], env=benv, cwd=tempfile.mkdtemp(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    hb = None
+    for _ in range(80):
+        try:
+            with urllib.request.urlopen(f'http://[::1]:{bport}/health', timeout=2) as r:
+                hb = json.loads(r.read())
+            if hb.get('phase') == 'ready':
+                break
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(0.25)
+    check(hb and hb.get('phase') == 'ready' and hb.get('model') == 'fake', f'старт командой группы (bundle, без /app и CMD): ready ({hb and hb.get("phase")})')
+    try:
+        proc.wait(timeout=30)
+        check(proc.returncode == 0, f'автостоп по простою — процесс вышел сам, rc={proc.returncode}')
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        check(False, 'автостоп по простою не сработал')
     W.make_backend = orig
     srv.shutdown()
     print('FAILS:', FAILS or 'нет')
