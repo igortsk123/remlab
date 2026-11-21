@@ -109,6 +109,85 @@ NORMAL_K = 64           # сколько ближайших вершин род�
 NORMAL_AGREE = 0.3       # вершина родной участвует, только если её нормаль не смотрит против собственной нормали упрощённой (cos ≥ этого): тонкая стенка/рама иначе тянет нормаль с обратной стороны → чёрные пятна
 
 
+def prep_sidecar_path(out_glb: str) -> str:
+    """`<выход>.prep.json` — какой предобработке подвергнута родная форма перед упрощением (пишет sg_prep_shape.py): эталон мерки и нормали берутся из родной после ТОЙ ЖЕ предобработки."""
+    return (out_glb[:-4] if out_glb.endswith('.glb') else out_glb) + '.prep.json'
+
+
+def read_prep(out_glb: str) -> dict:
+    """Предобработка родной из сайдкара: {'weld': bool, 'presmooth': int, 'presmooth_lambda': float}; нет файла — {} (родная как есть, прежнее поведение)."""
+    import json
+    p = prep_sidecar_path(out_glb)
+    if not os.path.exists(p):
+        return {}
+    with open(p, encoding='utf-8') as f:
+        d = json.load(f)
+    return {'weld': bool(d.get('weld')), 'presmooth': int(d.get('presmooth') or 0), 'presmooth_lambda': float(d.get('presmooth_lambda') or 0.5)}
+
+
+def weld_vertices(V, F, tol: float = 1e-7):
+    """Склеить вершины с совпадающими координатами (glTF режет вершину по каждому шву UV/нормалей). → (V, F) без неиспользуемых вершин."""
+    import numpy as np
+    key = np.round(np.asarray(V, np.float64) / tol).astype(np.int64)
+    _, first, inv = np.unique(key, axis=0, return_index=True, return_inverse=True)
+    inv = inv.reshape(-1)
+    F2 = inv[np.asarray(F)]
+    used = np.unique(F2)
+    remap = np.full(len(first), -1, np.int64)
+    remap[used] = np.arange(len(used))
+    return np.asarray(V, np.float64)[first][used], remap[F2]
+
+
+def taubin_smooth(V, F, iters: int, lam: float = 0.5):
+    """Сглаживание Таубина: Лапласово «сжатие» (+λ) и «растяжение» (μ = −λ/(1−0.1λ)) по очереди, `iters` раз — шум сетки гаснет, форма почти не садится. Одна функция для sg_prep_shape.py (форма для упрощения)
+    и для эталона мерки нормалей: эталон сглажен ТАК ЖЕ, иначе мерка сравнивала бы с шумом, который предобработка уже убрала."""
+    import numpy as np
+    V = np.asarray(V, np.float64)
+    F = np.asarray(F, np.int64)
+    E = np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]])
+    E = np.unique(np.sort(E, axis=1), axis=0)
+    ea, eb = np.concatenate([E[:, 0], E[:, 1]]), np.concatenate([E[:, 1], E[:, 0]])
+    nv = len(V)
+    deg = np.bincount(ea, minlength=nv).astype(np.float64)
+    mu = -lam / (1.0 - 0.1 * lam)
+    Q = V.copy()
+    for _ in range(int(iters)):
+        for k in (lam, mu):
+            S = np.stack([np.bincount(ea, weights=Q[eb, c], minlength=nv) for c in range(3)], 1)
+            nb = np.where(deg[:, None] > 0, S / np.maximum(deg, 1.0)[:, None], Q)
+            Q = Q + k * (nb - Q)
+    return Q
+
+
+def vertex_normals_area(V, F):
+    """Нормали вершин: сумма нормалей граней, взвешенных площадью (длина векторного произведения), нормированная."""
+    import numpy as np
+    V = np.asarray(V, np.float64)
+    F = np.asarray(F, np.int64)
+    fn = np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]])
+    N = np.zeros_like(V)
+    for c in range(3):
+        for k in range(3):
+            N[:, c] += np.bincount(F[:, k], weights=fn[:, c], minlength=len(V))
+    ln = np.linalg.norm(N, axis=1, keepdims=True)
+    return N / np.where(ln < 1e-12, 1.0, ln)
+
+
+def native_reference(nat_V, nat_F, nat_N, prep: dict):
+    """Родная для эталона нормалей и для их переноса: (вершины, нормали). `nat_F` — грани без плиты. Без предобработки — сырые вершины и нормали файла (как прежде); с предобработкой (склейка по швам,
+    Таубин) — та же склейка и то же сглаживание, нормали из получившейся геометрии: мерка проверяет только то, что сломало упрощение, а не то, что предобработка убрала сознательно."""
+    import numpy as np
+    used = np.unique(nat_F)
+    if not prep or not (prep.get('weld') or prep.get('presmooth')):
+        return nat_V[used], nat_N[used]
+    remap = np.full(len(nat_V), -1, np.int64)
+    remap[used] = np.arange(len(used))
+    V, F = weld_vertices(nat_V[used], remap[nat_F])
+    if prep.get('presmooth'):
+        V = taubin_smooth(V, F, prep['presmooth'], prep.get('presmooth_lambda') or 0.5)
+    return V, vertex_normals_area(V, F)
+
+
 def transfer_normals(nat_V, nat_N, tgt_V, tgt_F, k: int = NORMAL_K, agree: float = NORMAL_AGREE):
     """Нормали упрощённой формы из родной (T-167: без NORMAL в GLB Blender считает свои по большим граням — плашки с прямыми краями на спинке): среднее нормалей k ближайших вершин родной с весом
     по расстоянию, но только тех, что согласны с собственной нормалью упрощённой (cos ≥ agree; обратные — отбрасываем). Нет согласных — собственная нормаль упрощённой."""
@@ -193,6 +272,19 @@ def _claim_missing(F, xy, ids, size: int):
     return flat, miss[free][k]
 
 
+SLIVER_Q = 0.1       # грань — «щепка», если качество q = 4√3·S / (a²+b²+c²) ниже этого (равносторонняя 1, игла → 0)
+
+
+def sliver_share(V, F, q_max: float = SLIVER_Q) -> float:
+    """Доля граней-щепок (длинные узкие треугольники — следы упрощения, которое не смогло схлопнуть рёбра через шов; полосы и трещины на гладкой поверхности). T-167: сперва только отчёт, порога нет."""
+    import numpy as np
+    a, b, c = V[F[:, 0]], V[F[:, 1]], V[F[:, 2]]
+    area = 0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1)
+    s2 = np.einsum('nc,nc->n', b - a, b - a) + np.einsum('nc,nc->n', c - b, c - b) + np.einsum('nc,nc->n', a - c, a - c)
+    q = np.where(s2 > 0, 4.0 * np.sqrt(3.0) * area / np.where(s2 > 0, s2, 1.0), 0.0)
+    return float((q < q_max).mean())
+
+
 def face_coverage(V, F, UV, size: int) -> float:
     """Доля граней, получивших хотя бы один тексель в атласе size×size. Грань без текселя при показе берёт цвет соседнего острова (пятна не того цвета, кадры T-167)."""
     import numpy as np
@@ -263,7 +355,7 @@ def normal_deviation(native_path: str, shape_path: str, n: int = 40000) -> tuple
     import trimesh
     na, nb = load_glb(native_path), load_glb(shape_path)
     na['F'], _ = plate_free_faces(na['V'], na['F'])
-    used = np.unique(na['F'])
+    ref_V, ref_N = native_reference(na['V'], na['F'], na['N'], read_prep(shape_path))          # эталон — родная после той же предобработки (сайдкар `<выход>.prep.json`)
     b = trimesh.Trimesh(vertices=nb['V'], faces=nb['F'], process=False)
     has_n = bool(nb.get('has_normals')) and nb.get('N') is not None
     pts, fi = trimesh.sample.sample_surface(b, n, seed=1)
@@ -275,7 +367,7 @@ def normal_deviation(native_path: str, shape_path: str, n: int = 40000) -> tuple
         nrm = np.asarray(b.face_normals)[fi]
     nrm = nrm / np.where(np.linalg.norm(nrm, axis=1, keepdims=True) < 1e-12, 1.0, np.linalg.norm(nrm, axis=1, keepdims=True))
     scale = vertex_spacing(nb['V'], nb['F'])[nb['F'][fi]].mean(1)                    # тот же радиус сглаживания, что в переносе нормалей
-    ref = smooth_native_normals(na['V'][used], na['N'][used], pts, np.asarray(b.face_normals)[fi], scale)
+    ref = smooth_native_normals(ref_V, ref_N, pts, np.asarray(b.face_normals)[fi], scale)
     cos = np.clip(np.einsum('nc,nc->n', nrm, ref), -1.0, 1.0)
     ang = np.degrees(np.arccos(cos))
     return float(ang.mean()), float(np.percentile(ang, 99)), has_n
@@ -343,7 +435,9 @@ def transfer(native_path: str, shape_path: str, out_path: str, size: int | None 
         baseColorTexture=Image.fromarray(res, 'RGBA'), baseColorFactor=np.array([255, 255, 255, 255], np.uint8),
         metallicRoughnessTexture=Image.fromarray(resmr[..., :3], 'RGB') if resmr is not None else None,
         metallicFactor=1.0 if resmr is not None else 0.0, roughnessFactor=1.0 if resmr is not None else 0.8, alphaMode='OPAQUE')
-    normals = transfer_normals(nat['V'][used], nat['N'][used], tgt['V'], tgt['F']) if nat.get('has_normals') and nat.get('N') is not None else None
+    prep = read_prep(out_path)                                    # предобработка родной перед упрощением (сайдкар sg_prep_shape.py): нормали берём из родной после неё же
+    ref_V, ref_N = native_reference(nat['V'], nat['F'], nat['N'], prep) if nat.get('N') is not None else (None, None)
+    normals = transfer_normals(ref_V, ref_N, tgt['V'], tgt['F']) if nat.get('has_normals') and ref_N is not None else None
     m = trimesh.Trimesh(vertices=tgt['V'], faces=tgt['F'], vertex_normals=normals, process=False)
     m.visual = trimesh.visual.TextureVisuals(uv=tgt['UV'], material=mat)
     tmp = out_path + '.tmp.glb'
@@ -351,7 +445,7 @@ def transfer(native_path: str, shape_path: str, out_path: str, size: int | None 
     os.replace(tmp, out_path)
     rep = {'native': os.path.basename(native_path), 'native_size': nsize, 'size': size, 'native_texels': int(len(ny)), 'target_texels': int(len(ty)), 'with_color': int(ok.sum()),
            'share': round(share, 5), 'faces_with_texel': round(face_coverage(tgt['V'], tgt['F'], tgt['UV'], size), 5), 'max_dist_m': round(max_dist * diag, 5), 'dist_p50': round(float(np.median(dist)), 6) if len(dist) else 0.0,
-           'dist_p99': round(float(np.percentile(dist, 99)), 6) if len(dist) else 0.0, 'has_mr': mr is not None, 'normals_from_native': normals is not None, 'plate_found': bool(plate_rep.get('plate_found')) and not plate_rep.get('refused'), 'sec_raster': round(t_ras, 1), 'sec_total': round(time.time() - t0, 1)}
+           'dist_p99': round(float(np.percentile(dist, 99)), 6) if len(dist) else 0.0, 'has_mr': mr is not None, 'normals_from_native': normals is not None, 'native_prep': prep, 'plate_found': bool(plate_rep.get('plate_found')) and not plate_rep.get('refused'), 'sec_raster': round(t_ras, 1), 'sec_total': round(time.time() - t0, 1)}
     return rep
 
 
@@ -481,6 +575,7 @@ def stage02(run: str, sku: str, native_glb: str, out_glb: str, rep: dict | None 
     cov = face_coverage(g['V'], g['F'], g['UV'], g['base'].size[0] if g['base'] is not None else rep.get('size') or 1024)
     ch_mean, ch_p99 = chamfer_ratio(native_glb, out_glb, strip_plate=strip_plate)
     metrics = {'faces': {'value': faces, 'threshold': faces_max, 'op': '<='},
+               'sliver_share': {'value': round(sliver_share(g['V'], g['F']), 5), 'op': '<=', 'note': f'справочная, без порога (порог — по таблице 30): доля граней-щепок с качеством q < {SLIVER_Q}'},
                'chamfer_diag': {'value': round(ch_mean, 5), 'threshold': CHAMFER_MAX, 'op': '<='},
                'chamfer_p99_diag': {'value': round(ch_p99, 5)},
                'color_texel_share': {'value': rep['share'], 'threshold': min_share, 'op': '>='}}
@@ -503,7 +598,7 @@ def stage02(run: str, sku: str, native_glb: str, out_glb: str, rep: dict | None 
                           reason=(f'форма не от этого черновика: chamfer_diag {ch_mean:.3f} > {CHAMFER_MAX} (Chamfer родной↔упрощённая, доля диагонали)' if ch_mean > CHAMFER_MAX else
                                   normals_reason(nd_mean, nd_p99, has_n, nr)),
                           seconds=seconds, outputs=['shape.glb'], frame=frame, native_texels=rep.get('native_texels'), target_texels=rep.get('target_texels'),
-                          dist_p50=rep.get('dist_p50'), dist_p99=rep.get('dist_p99'), atlas=rep.get('size'), has_mr=rep.get('has_mr'))
+                          dist_p50=rep.get('dist_p50'), dist_p99=rep.get('dist_p99'), atlas=rep.get('size'), has_mr=rep.get('has_mr'), native_prep=read_prep(out_glb))
 
 
 

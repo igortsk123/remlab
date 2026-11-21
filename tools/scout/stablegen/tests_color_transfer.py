@@ -125,6 +125,42 @@ def main() -> int:
         check('мерка нормалей: без NORMAL (плоские грани) — среднее выше порога, с нормалями родной — ниже; флаг «NORMAL в файле» верен',
               nd_flat[0] > nr['normal_dev_mean_deg_max'] > nd_ok[0] and not nd_flat[2] and nd_ok[2], (nd_flat, nd_ok))
 
+        # предобработка родной перед упрощением (T-167): склейка по швам, Таубин, сайдкар, эталон «после той же предобработки»
+        n = 21
+        gx, gy = np.meshgrid(np.linspace(0, 1, n), np.linspace(0, 1, n))
+        rng = np.random.default_rng(7)
+        pv = np.stack([gx.ravel(), gy.ravel(), 0.02 * rng.standard_normal(n * n)], 1)
+        pf = np.array([[j * n + i, j * n + i + 1, (j + 1) * n + i] for j in range(n - 1) for i in range(n - 1)] + [[j * n + i + 1, (j + 1) * n + i + 1, (j + 1) * n + i] for j in range(n - 1) for i in range(n - 1)])
+        seam_v = np.concatenate([pv, pv[:n]])                                                    # первая строка продублирована (шов): грани второго ряда берут копии
+        seam_f = pf.copy()
+        upper = np.arange(len(pf))[:, None] >= len(pf) // 2
+        seam_f[(seam_f < n) & upper] += n * n                                                   # верхние треугольники у первой строки берут копии её вершин
+        wv, wf = T.weld_vertices(seam_v, seam_f)
+        check('склейка по швам: дубли вершин сливаются, грани целы (число граней то же, вершин как без дублей)', len(wf) == len(seam_f) and len(wv) <= len(seam_v) - 1 and len(np.unique(wf)) == len(wv), (len(seam_v), len(wv)))
+        sm = T.taubin_smooth(pv, pf, 3, 0.5)
+        inner = (np.abs(pv[:, 0] - 0.5) < 0.35) & (np.abs(pv[:, 1] - 0.5) < 0.35)
+        check('Таубин: шум плоскости (шаг сетки 0,05, шум 0,02) гаснет не менее чем вдвое за 3 прохода, внутри сетки вершины не уходят по плоскости более чем на шаг/2', sm[inner, 2].std() < pv[inner, 2].std() / 1.8 and np.abs(sm[inner, :2] - pv[inner, :2]).max() < 0.5 / (n - 1), (sm[inner, 2].std(), pv[inner, 2].std()))
+        ico = trimesh.creation.icosphere(subdivisions=3)
+        sm_ico = T.taubin_smooth(ico.vertices, ico.faces, 3, 0.5)
+        check('Таубин: объём держится (сфера радиуса 1 после 3 проходов — средний радиус в пределах 2 %)', abs(np.linalg.norm(sm_ico, axis=1).mean() - 1.0) < 0.02, float(np.linalg.norm(sm_ico, axis=1).mean()))
+        pj = os.path.join(d, 'out.glb')
+        check('сайдкар предобработки: нет файла — пусто', T.read_prep(pj) == {}, T.read_prep(pj))
+        with open(T.prep_sidecar_path(pj), 'w', encoding='utf-8') as fp:
+            fp.write('{"weld": true, "presmooth": 3, "presmooth_lambda": 0.5}')
+        check('сайдкар предобработки: читается', T.read_prep(pj) == {'weld': True, 'presmooth': 3, 'presmooth_lambda': 0.5}, T.read_prep(pj))
+        rv, rn = T.native_reference(seam_v, seam_f, np.tile([0.0, 0.0, 1.0], (len(seam_v), 1)), {'weld': True, 'presmooth': 3, 'presmooth_lambda': 0.5})
+        rv0, rn0 = T.native_reference(seam_v, seam_f, np.tile([0.0, 0.0, 1.0], (len(seam_v), 1)), {})
+        check('эталон: без предобработки — сырые вершины и нормали файла; с ней — склеенные, сглаженные, нормали единичные и смотрят вверх/вниз',
+              len(rv0) == len(np.unique(seam_f)) and len(rv) < len(rv0) and np.allclose(np.linalg.norm(rn, axis=1), 1.0, atol=1e-6) and (np.abs(rn[:, 2]) > 0.9).mean() > 0.8, (len(rv0), len(rv), float((np.abs(rn[:, 2]) > 0.9).mean())))
+
+        # доля граней-щепок: сетка из ровных треугольников — 0, добавленные иглы — ровно их доля
+        gv = np.array([[x, y, 0.0] for y in range(6) for x in range(6)], float)
+        gf = np.array([[y * 6 + x, y * 6 + x + 1, (y + 1) * 6 + x] for y in range(5) for x in range(5)] + [[y * 6 + x + 1, (y + 1) * 6 + x + 1, (y + 1) * 6 + x] for y in range(5) for x in range(5)])
+        gv_n = np.concatenate([gv, np.array([[0.0, 0.0, 1.0], [10.0, 0.0, 1.0], [5.0, 0.001, 1.0]])])        # игла: длина 10, ширина 0,001
+        gf_n = np.concatenate([gf, np.array([[36, 37, 38]])])
+        check('доля граней-щепок: ровная сетка (50 граней) — 0, плюс одна игла — 1/51',
+              T.sliver_share(gv, gf) == 0.0 and abs(T.sliver_share(gv_n, gf_n) - 1.0 / 51.0) < 1e-9, (T.sliver_share(gv, gf), T.sliver_share(gv_n, gf_n)))
+
         # гейт по среднему И хвосту: среднее в норме, хвост выше порога (узкие полосы) — отказ с причиной про хвост; всё в норме — пусто
         check('гейт нормалей: среднее в норме, а хвост p99 выше порога — отказ про хвост; оба в норме — пусто; среднее выше — отказ про среднее',
               'normal_dev_p99_deg' in T.normals_reason(nr['normal_dev_mean_deg_max'] - 1, nr['normal_dev_p99_deg_max'] + 1, True, nr)
