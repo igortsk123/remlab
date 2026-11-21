@@ -4,17 +4,19 @@
 
 Лёгкая копия собирается ТЕМ ЖЕ кодом, что копии сайта: `tools/assets/runtime_mesh.py:build_light` (лестница веса из `rules/rt-weight.json`: текстура 1024 → 512 → упрощение граней,
 gltfpack: meshopt + KTX2). Порог ВЕСА — только в rt-weight.json; пороги ПОХОЖЕСТИ — только в `rules/paint-web.json`; в коде порогов и ID товаров нет.
-Пишет `<run>/<sku>/10-web/`: `web.glb`, `check.json` (через paint_stage), `frame.png` («полная | лёгкая», ракурс `max_diff_view`), `web-preview.glb` и кадры `<full|web>-<вид>.png`.
+Пишет `<run>/<sku>/10-web/`: `web.glb`, `check.json` (через paint_stage), `frame.png` («полная | лёгкая», ракурс `max_diff_view`), `web-real.glb` и кадры `<full|web>-<вид>.png`.
 
-ПОХОЖЕСТЬ: Blender читает геометрию meshopt, но не читает KTX2 → кадры «лёгкой» берутся с `web-preview.glb` = ТА ЖЕ ступень лестницы (размер текстуры, упрощение, meshopt), но текстура JPEG, не KTX2.
-Потеря на KTX2 (перекодирование текстуры gltfpack) НЕ измеряется — в check.json `extra.ktx2_measured=false`; целостность KTX2 проверяет сторож `copy_problems` (текстура разбирается). Кадры — Cycles на ЦП (Workbench/Eevee тут не стартуют: нет libEGL), излучающие материалы = плоский свет, камеры `views` одинаковые у полной и лёгкой.
+ПОХОЖЕСТЬ: кадры «лёгкой» снимаются с НАСТОЯЩЕГО `web.glb`: его KTX2-картинку раскодирует утилита `ktx` (KTX-Software ≥4.4, переменная KTX или PATH) в PNG, и PNG встаёт на место KTX2
+(копия `web-real.glb`: геометрия meshopt, UV и материал — те же, что поедут на сайт; Blender KTX2 не читает, поэтому подмена). Потеря на KTX2 попадает в кадры и в мерки; отдельно в check.json
+`extra.ktx2_tex` — ΔE00 самой текстуры (раскодированная против карты цвета полной); `ktx2_measured=true`. Нет утилиты `ktx` — этап НЕ проходит (причина словами), молча к JPEG-двойнику не возвращается.
+Кадры — Cycles на ЦП (Workbench/Eevee тут не стартуют: нет libEGL), излучающие материалы = плоский свет, камеры `views` одинаковые у полной и лёгкой.
 Мерки по маске товара (непрозрачные пиксели обоих кадров): ΔE00 среднее и 95-й процентиль, SSIM на сером фоне, IoU силуэта; худший из ракурсов.
 
   paint_web.py run <run> <sku> <glb>             один товар
   paint_web.py batch <run> <папка-с-GLB> [--force] [--limit N]   все `*<sku_suffix>.glb` папки (суффикс — в правиле); таблица → <run>/summary-10-web.md
   paint_web.py table <run>                      только таблица по готовым check.json
   paint_web.py --selftest
-Окружение: `PAINT_STAGE_DIR` — папка с paint_stage.py (пока он не в main), `BLENDER` — бинарь Blender.
+Окружение: `PAINT_STAGE_DIR` — папка с paint_stage.py (пока он не в main), `BLENDER` — бинарь Blender, `KTX` — бинарь ktx (KTX-Software).
 """
 from __future__ import annotations
 
@@ -22,6 +24,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -180,7 +183,7 @@ def run_one(run: str, sku: str, glb: str, rule: dict | None = None, weight: dict
     prev = PS.read_check(d)
     if prev and not force and prev.get('extra', {}).get('glb_sha') == sha and prev.get('extra', {}).get('rule') == _rule_fp(rule, weight):
         return prev
-    web, preview = os.path.join(d, 'web.glb'), os.path.join(d, 'web-preview.glb')
+    web, real = os.path.join(d, 'web.glb'), os.path.join(d, 'web-real.glb')
     res = RM.build_light(src, web, int(rule['size']), int(rule['quality']), 0.0, True, weight)
     steps = [[t['step'], t.get('bytes'), t.get('skip') or t.get('problems')] for t in res['tried']]
     base = {'glb_sha': sha, 'rule': _rule_fp(rule, weight), 'steps': steps, 'ktx2_measured': False, 'texture_pack': res.get('how', ''),
@@ -190,22 +193,24 @@ def run_one(run: str, sku: str, glb: str, rule: dict | None = None, weight: dict
         why = 'текстура упаковалась битой: ' + '; '.join(res['probs'])[:120] if res['kind'] == 'texture' else \
             f"тяжелее {weight['max_bytes'] / 1048576:.1f} МБ даже после лестницы ({steps[-1][0] if steps else '—'}: {res['bytes'] / 1048576:.2f} МБ)"
         return PS.write_check(d, STAGE, sku, passed=False, metric=size_metric, reason=why, seconds=time.time() - t0, outputs=[], **base)
-    # кадры: тот же шаг лестницы, но JPEG вместо KTX2 (Blender KTX2 не читает) — по метке последнего шага
+    # кадры — с НАСТОЯЩЕГО web.glb: его KTX2-картинку раскодирует утилита ktx (KTX-Software), PNG встаёт на место KTX2 (геометрия и UV те же, что поедут на сайт)
     last = res['tried'][-1]
-    out, stats = RM.optimise(src, int(last['size']), int(rule['quality']))
-    tmp = os.path.join(d, '.preview-src.glb')
-    open(tmp, 'wb').write(out)
-    ok, why = RM.pack(tmp, preview, float(last['simplify'] or 0), False)
-    os.remove(tmp)
+    ktx = ktx_bin()
+    if not ktx:
+        return PS.write_check(d, STAGE, sku, passed=False, metric=size_metric, seconds=time.time() - t0, outputs=['web.glb'], bytes=res['bytes'], texture_step=last['step'],
+                              reason='нет утилиты ktx (KTX-Software: переменная KTX или PATH) — потеря на KTX2 не измерена', **base)
+    ok, why, tinfo = decode_web(web, real, ktx, d)
     if not ok:
-        return PS.write_check(d, STAGE, sku, passed=False, metric=size_metric, reason=f'кадры не собрались: {why}', seconds=time.time() - t0, outputs=['web.glb'], **base)
+        return PS.write_check(d, STAGE, sku, passed=False, metric=size_metric, reason=why, seconds=time.time() - t0, outputs=['web.glb'], bytes=res['bytes'],
+                              texture_step=last['step'], **base)
+    base.update(ktx2_measured=True, ktx2_tool=tinfo['tool'], ktx2_tex=_tex_loss(src, tinfo['png']))
     cfg = {'views': rule['views'], 'res': rule['res'], 'margin': rule['ortho_margin'],
-           'items': [{'glb': glb, 'out': os.path.join(d, 'full')}, {'glb': preview, 'out': os.path.join(d, 'web')}]}
+           'items': [{'glb': glb, 'out': os.path.join(d, 'full')}, {'glb': real, 'out': os.path.join(d, 'web')}]}
     ok, why, info = _render(cfg, int(rule.get('blender_timeout', 900)))
-    base.update(bytes=res['bytes'], atlas_px_after=stats['px'], faces_before=info.get(glb, {}).get('tris'), faces_after=info.get(preview, {}).get('tris'),
+    base.update(bytes=res['bytes'], atlas_px_after=max(tinfo['size']), faces_before=info.get(glb, {}).get('tris'), faces_after=info.get(real, {}).get('tris'),
                 texture_step=last['step'])
     if not ok:
-        return PS.write_check(d, STAGE, sku, passed=False, metric=size_metric, reason=why, seconds=time.time() - t0, outputs=['web.glb'], **base)
+        return PS.write_check(d, STAGE, sku, passed=False, metric=size_metric, reason=why, seconds=time.time() - t0, outputs=['web.glb', 'web-real.glb'], **base)
     views = {v['name']: compare_images(_load_rgba(os.path.join(d, f"full-{v['name']}.png")), _load_rgba(os.path.join(d, f"web-{v['name']}.png")) ) for v in rule['views']}
     metrics = {}
     for k, t in rule['thresholds'].items():       # худший из ракурсов: для «≤» наибольшее, для «≥» наименьшее; нет измерения хоть в одном — мерка не прошла
@@ -215,11 +220,93 @@ def run_one(run: str, sku: str, glb: str, rule: dict | None = None, weight: dict
     metrics['bytes'] = size_metric
     frame = _frame(d, rule['max_diff_view'])
     return PS.write_check(d, STAGE, sku, passed=None, metric={'name': 'de00_mean', **metrics.pop('de00_mean')}, metrics=metrics, seconds=time.time() - t0,
-                          outputs=['web.glb', 'web-preview.glb'], frame=frame, views=views, **base)
+                          outputs=['web.glb', 'web-real.glb'], frame=frame, views=views, **base)
+
+
+CODE_V = 2   # версия способа проверки (1 — JPEG-двойник, 2 — раскодированный KTX2): меняется — кэш прежних check.json не берётся
 
 
 def _rule_fp(rule: dict, weight: dict) -> str:
-    return hashlib.sha256(json.dumps([rule, weight.get('fingerprint')], sort_keys=True).encode()).hexdigest()[:8]
+    return hashlib.sha256(json.dumps([rule, weight.get('fingerprint'), CODE_V], sort_keys=True).encode()).hexdigest()[:8]
+
+
+def ktx_bin() -> str | None:
+    """Утилита ktx (KTX-Software ≥4.4): переменная KTX или PATH; нет — None."""
+    p = os.environ.get('KTX') or shutil.which('ktx')
+    return p if p and os.path.isfile(p) and os.access(p, os.X_OK) else None
+
+
+def decode_web(web_glb: str, out_glb: str, ktx: str, workdir: str) -> tuple[bool, str, dict]:
+    """KTX2-картинки web.glb → PNG утилитой `ktx extract --transcode rgba8` и подмена в копии GLB (`out_glb`): геометрия, UV и материал — прежние, текстура — та,
+    что реально раскодирует KTX2. → (ок, причина, {'png': путь PNG первой текстуры, 'size': [w, h], 'tool': версия})."""
+    js, b = RM.parse_glb(open(web_glb, 'rb').read())
+    b = bytearray(b)
+    first: dict = {}
+    for i, im in enumerate(js.get('images', [])):
+        if im.get('mimeType') != 'image/ktx2':
+            continue
+        k, p = os.path.join(workdir, f'.tex{i}.ktx2'), os.path.join(workdir, f'tex{i}-ktx2.png')
+        open(k, 'wb').write(RM.image_bytes(im, js, bytes(b)) or b'')
+        try:
+            r = subprocess.run([ktx, 'extract', '--transcode', 'rgba8', k, p], capture_output=True, text=True, timeout=300)
+        except subprocess.TimeoutExpired:
+            return False, 'ktx не раскодировал текстуру за 300 с', {}
+        finally:
+            if os.path.exists(k):
+                os.remove(k)
+        if r.returncode != 0 or not os.path.exists(p):
+            return False, 'ktx не раскодировал текстуру: ' + ((r.stderr or r.stdout).strip().splitlines() or ['код ' + str(r.returncode)])[-1][:140], {}
+        png = open(p, 'rb').read()
+        while len(b) % 4:
+            b.append(0)
+        js['bufferViews'].append({'buffer': 0, 'byteOffset': len(b), 'byteLength': len(png)})
+        b += png
+        im.clear()
+        im.update({'bufferView': len(js['bufferViews']) - 1, 'mimeType': 'image/png'})
+        for t in js.get('textures', []):
+            e = (t.get('extensions') or {}).get('KHR_texture_basisu')
+            if e and e.get('source') == i:
+                t['source'] = i
+                del t['extensions']['KHR_texture_basisu']
+                if not t['extensions']:
+                    del t['extensions']
+        first = first or {'png': p, 'size': list(Image.open(p).size)}
+    if not first:
+        return False, 'в web.glb нет KTX2-картинок (копия собрана без KTX2)', {}
+    for key in ('extensionsUsed', 'extensionsRequired'):
+        if key in js:
+            js[key] = [e for e in js[key] if e != 'KHR_texture_basisu']
+            if not js[key]:
+                del js[key]
+    js['buffers'][0]['byteLength'] = len(b)
+    open(out_glb, 'wb').write(RM.write_glb(js, bytes(b)))
+    ver = subprocess.run([ktx, '--version'], capture_output=True, text=True).stdout.strip().splitlines()
+    return True, '', {**first, 'tool': (ver[0] if ver else 'ktx')[:60]}
+
+
+def _base_color_png(src: bytes) -> Image.Image | None:
+    """Картинка карты цвета (baseColorTexture первого материала) исходной модели."""
+    js, b = RM.parse_glb(src)
+    try:
+        t = js['textures'][js['materials'][0]['pbrMetallicRoughness']['baseColorTexture']['index']]
+        raw = RM.image_bytes(js['images'][t['source']], js, b)
+        return Image.open(io.BytesIO(raw)).convert('RGB')
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
+def _tex_loss(src: bytes, png_path: str) -> dict:
+    """Потеря самой текстуры: раскодированный из KTX2 PNG против карты цвета полной модели (приведённой к тому же размеру), ΔE00 по каждому 3-му пикселю."""
+    ref = _base_color_png(src)
+    if ref is None:
+        return {'de00_mean': None, 'why': 'у полной модели нет карты цвета'}
+    got = Image.open(png_path).convert('RGB')
+    if ref.size != got.size:
+        ref = ref.resize(got.size, Image.LANCZOS)
+    a = np.asarray(ref, np.float64)[::3, ::3].reshape(-1, 3) / 255.0
+    c = np.asarray(got, np.float64)[::3, ::3].reshape(-1, 3) / 255.0
+    de = ciede2000(srgb_to_lab(a), srgb_to_lab(c))
+    return {'de00_mean': round(float(de.mean()), 4), 'de00_p95': round(float(np.percentile(de, 95)), 4), 'size': list(got.size)}
 
 
 def _frame(d: str, view: str) -> str:
@@ -234,7 +321,7 @@ def _frame(d: str, view: str) -> str:
 # ── таблица и пакет ───────────────────────────────────────────────────────────────────────────────────────────────
 
 def table(run: str) -> str:
-    rows = ['| товар | МБ до → после | граней до → после | атлас до → после | ΔE00 среднее / p95 | SSIM | силуэт | passed |', '|---|---|---|---|---|---|---|---|']
+    rows = ['| товар | МБ до → после | граней до → после | атлас до → после | ΔE00 среднее / p95 | SSIM | силуэт | ΔE текстуры после KTX2 | passed |', '|---|---|---|---|---|---|---|---|---|']
     for sku in sorted(os.listdir(run)) if os.path.isdir(run) else []:
         c = PS.read_check(os.path.join(run, sku, STAGE))
         if not c:
@@ -246,7 +333,7 @@ def table(run: str) -> str:
         f = lambda x: '—' if x is None else f'{x:.2f}' if abs(x) >= 1 else f'{x:.3f}'
         rows.append(f"| {sku} | {mb(e.get('bytes_before'))} → {mb(e.get('bytes'))} | {e.get('faces_before', '—')} → {e.get('faces_after', '—')} | "
                     f"{e.get('atlas_px_before', '—')} → {e.get('atlas_px_after', '—')} | {f(m.get('value'))} / {f((ms.get('de00_p95') or {}).get('value'))} | "
-                    f"{f((ms.get('ssim') or {}).get('value'))} | {f((ms.get('silhouette_iou') or {}).get('value'))} | "
+                    f"{f((ms.get('ssim') or {}).get('value'))} | {f((ms.get('silhouette_iou') or {}).get('value'))} | {f((e.get('ktx2_tex') or {}).get('de00_mean'))} | "
                     f"{'✓' if c['passed'] else '✗ ' + (c.get('reason') or '')[:70]} |")
     return '\n'.join(rows)
 
