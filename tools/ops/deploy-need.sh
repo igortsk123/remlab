@@ -106,6 +106,7 @@ selftest() {
 
   t=$(mktemp -d); s=$(mktemp -d); trap 'rm -rf "$t" "$s"' RETURN
   (
+    unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR GIT_PREFIX  # из хука — не в чужой репо
     cd "$t" && git init -q && git config user.email t@t && git config user.name t
     mkdir -p app docs .memory_bank && echo a > app/x.ts && echo d > docs/d.md && git add . && git commit -qm c1
     echo m > .memory_bank/m.md && git add . && git commit -qm docs

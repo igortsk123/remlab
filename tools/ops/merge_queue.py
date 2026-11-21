@@ -61,10 +61,21 @@ def now() -> str:
     return time.strftime('%H:%M:%S')
 
 
+# Переменные расположения репозитория (их ставит git в хуках, напр. pre-push): если их унаследовать, git во
+# временном репо самопроверки пишет в НАСТОЯЩИЙ (21.11: core.bare=true и мусорные ветки b1…c2) — убираем всегда.
+GIT_LOCATION_VARS = ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_COMMON_DIR',
+                     'GIT_PREFIX', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_NAMESPACE', 'GIT_CEILING_DIRECTORIES')
+
+
+def clean_env(extra: dict | None = None) -> dict:
+    e = {k: v for k, v in os.environ.items() if k not in GIT_LOCATION_VARS}
+    if extra:
+        e.update(extra)
+    return e
+
+
 def git(args: list, cwd: str, check: bool = True, env: dict | None = None) -> str:
-    e = dict(os.environ)
-    if env:
-        e.update(env)
+    e = clean_env(env)
     p = subprocess.run(['git'] + args, cwd=cwd, capture_output=True, text=True, env=e)
     if check and p.returncode != 0:
         raise RuntimeError(f'git {" ".join(args)}: {p.stderr.strip() or p.stdout.strip()}')
@@ -138,7 +149,7 @@ class Run:
                 it['status'], it['detail'] = 'ok', 'целиком внутри веток выше по набору'
                 continue
             p = subprocess.run(['git', 'cherry-pick', '--allow-empty', '--keep-redundant-commits'] + cs, cwd=self.wt,
-                               capture_output=True, text=True, env={**os.environ, **GIT_ID})
+                               capture_output=True, text=True, env=clean_env(GIT_ID))
             if p.returncode != 0:
                 files = git(['diff', '--name-only', '--diff-filter=U'], self.wt, check=False).split()
                 git(['cherry-pick', '--abort'], self.wt, check=False)
@@ -471,7 +482,7 @@ def selftest() -> int:
             bad.append(msg)
 
     def sh(cwd, *cmd):
-        subprocess.run(list(cmd), cwd=cwd, check=True, capture_output=True, env={**os.environ, **GIT_ID})
+        subprocess.run(list(cmd), cwd=cwd, check=True, capture_output=True, env=clean_env(GIT_ID))
 
     def commit(repo, branch, path, text, base='main'):
         if branch != 'main':
@@ -487,6 +498,7 @@ def selftest() -> int:
     with remlab_tmp.tmpdir('mq-selftest-') as t:
         repo = os.path.join(t, 'repo')
         os.makedirs(repo)
+        os.environ['GIT_DIR'] = os.path.join(t, 'decoy.git')   # как в pre-push хуке: самопроверка не должна его слушать
         sh(repo, 'git', 'init', '-q', '-b', 'main')
         commit(repo, 'main', 'shared.txt', 'a\n')
         commit(repo, 'b1', 'marks/b1', 'ok\n')
