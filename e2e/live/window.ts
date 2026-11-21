@@ -16,7 +16,20 @@ export const LIVE_READY = "!!LIVE.scene && LIVE.state === 'ready'";
 /** Окно варианта — в «3D», сцена готова. Заказ рендера и «Улучшить» нужны из «3D», пины и геометрия сцены — только там. */
 export async function enter3D(page: Page, timeout = 120_000): Promise<void> {
   await page.evaluate("if (VW.mode !== 'walk') vwMode('walk')");
-  await page.waitForFunction(LIVE_READY, null, { timeout });
+  await waitLive(page, LIVE_READY, timeout);
+}
+
+/**
+ * Ожидание условия на странице, пока в 3D занят главный поток (зонд T-115/2: rAF — 2 кадра за 2 с, в «Фото» — 43).
+ * Опрос по умолчанию идёт на rAF и в 3D почти не срабатывает → таймаут при готовой сцене; опрос по таймеру раз в 250 мс — срабатывает.
+ */
+export async function waitLive(page: Page, expr: string, timeout = 120_000): Promise<void> {
+  await page.waitForFunction(expr, null, { timeout, polling: 250 });
+}
+
+/** Клик по элементу из страницы (`el.click()`): не ждёт «устойчивости» кадров, которых при занятом потоке нет. */
+export async function clickIn(page: Page, selector: string): Promise<void> {
+  await page.evaluate((s) => { const e = document.querySelector(s) as HTMLElement | null; if (!e) throw new Error("нет элемента " + s); e.click(); }, selector);
 }
 
 /** Подпись главной кнопки шторки: на малом телефоне — `title`/`aria-label` значка (текста нет), иначе — текст кнопки. */

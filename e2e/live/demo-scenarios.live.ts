@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 
 import { demoUrl } from "./browser";
 import { HOME_READY, homeStyles, pickInWindow, pickStyle } from "./home";
-import { LIVE_READY, ctaLabel, enter3D, openWithoutPhoto, orderRender, photoJob, routeCycles, type PhotoStage } from "./window";
+import { LIVE_READY, ctaLabel, openWithoutPhoto, orderRender, photoJob, routeCycles, waitLive, type PhotoStage } from "./window";
 
 // КАРТА СЦЕНАРИЕВ ДЕМО НА ПРОДЕ (план demo-03, `.memory_bank/domain/demo-scenario-map.md`). Номера тестов = номера строк
 // карты. Каждая проверка печатает число (время, количество, сумму): «не упало» — не проверка. Платный путь не тратит
@@ -132,7 +132,7 @@ test("2.4 режимы в одном окне: «Фото» — только п�
     say(`режим ${m}: ${Date.now() - t} мс`);
   }
   // закончили в 3D — видна живая сцена (картинка «Фото» под ней спрятана); холст появляется, когда сцена построена, — ждём её готовности
-  await page.waitForFunction(LIVE_READY, null, { timeout: 90_000 });
+  await waitLive(page, LIVE_READY, 90_000);
   await expect(page.locator("#shot .livecv")).toBeVisible();
 });
 
@@ -167,7 +167,7 @@ test("2.25–2.26 фото готово для этой расстановки �
   let stage: PhotoStage = "render-run";
   const orders = await routeCycles(page);
   const improves: string[] = [];
-  await page.route(/\/api\/render(?!\/cycles)/, (r) => { improves.push(String(r.request().postData() || "").slice(0, 200)); return r.fulfill({ json: { job: "fake-" + Date.now() } }); });
+  await page.route(/\/api\/render(?!\/cycles)/, (r) => { improves.push(String(r.request().postData() || "")); return r.fulfill({ json: { job: "fake-" + Date.now() } }); });
   await page.route(/\/api\/job\?/, (r) => r.fulfill({ json: photoJob(stage) }));
   await openDemo(page, "?live=force");
   await openWithoutPhoto(page);
@@ -189,7 +189,8 @@ test("2.25–2.26 фото готово для этой расстановки �
   stage = "improve-run";
   await page.locator("#vCta").click();
   await expect(page.locator("#shot .vphwait b")).toHaveText(/^Улучшаю · \d+ %$/);
-  expect(improves.length, "заказ «Улучшить» ушёл подменой").toBe(1);
+  // заказ уходит не в тот же миг, что ход на экране (`makePhoto` — после показа хода): ждём, а не сверяем один раз
+  await expect.poll(() => improves.length, { message: "заказ «Улучшить» ушёл подменой", timeout: 15_000 }).toBe(1);
   expect(improves[0], "заказ несёт рендер, который улучшают").toContain("render_key");
   stage = "improve-done";
   await expect(page.locator("#shot .vphwait")).toHaveCount(0, { timeout: 20_000 });
@@ -724,7 +725,9 @@ async function pinsEveryStyle(page: Page, label: string): Promise<string[]> {
     await page.locator("#hmRooms .hm-room[data-room=living] [data-swap]").click();
     await expect(page.locator("#shot")).toHaveClass(/\bon\b/);
     await page.evaluate("if (VW.mode !== 'walk') vwMode('walk')");   // у варианта может быть реалистичное фото — пины только в 3D
-    await page.waitForFunction("LIVE.scene && LIVE.state === 'ready'", null, { timeout: 120_000 });
+    await waitLive(page, "LIVE.scene && LIVE.state === 'ready'", 120_000);
+    // на телефоне цены по умолчанию скрыты (`PRICES_OFF = VW_PHONE()`, index.html:10878; кнопка «Показать цены») — правило «пины в кадре» про показанные: включаем
+    await page.evaluate("if (PRICES_OFF) vwPricesToggle()");
     await expect.poll(() => page.locator("#vpins .vpin:not([hidden])").count(), { timeout: 20_000 }).toBeGreaterThanOrEqual(3);
     // пины стоят (шторка доехала, камера на месте): два замера подряд через 400 мс совпали
     let m = await pinsInFrame(page);
