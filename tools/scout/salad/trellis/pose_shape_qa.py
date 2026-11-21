@@ -379,7 +379,7 @@ def inject_defect(glb: str, out_glb: str, kind: str, mag: float) -> str:
     return out_glb
 
 
-def audit_product(glb: str, photo: str, out: str, rules: dict | None = None, log=print, probe: bool = True, multistart: str = 'on') -> dict:
+def audit_product(glb: str, photo: str, out: str, rules: dict | None = None, log=print, probe: bool = True, multistart: str = 'on', reuse: bool = False) -> dict:
     import cv2
     import pose_fit as PF
     import stage_loss as SL
@@ -388,7 +388,11 @@ def audit_product(glb: str, photo: str, out: str, rules: dict | None = None, log
     th = rules['thresholds']
     cal = bool(rules.get('calibration', {}).get('n_null'))
     os.makedirs(out, exist_ok=True)
-    fit = PF.fit_pose(glb, photo, out, multistart=multistart, log=log)
+    pj_path = os.path.join(out, 'pose.json')
+    if reuse and os.path.exists(pj_path) and (json.load(open(pj_path, encoding='utf-8')).get('multistart') or {}).get('ran'):
+        log('pose.json есть (мультистарт был) — подбор камеры не повторяю')          # вердикты можно пересчитать без 7-минутного подбора
+    else:
+        PF.fit_pose(glb, photo, out, multistart=multistart, log=log)
     pj = json.load(open(os.path.join(out, 'pose.json'), encoding='utf-8'))
     n = rules['n']
     alpha = SL.read_rgba(photo)[..., 3] > 127
