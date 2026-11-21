@@ -791,6 +791,23 @@ def test_stage7_side_tone_smooth_rules():
     ok(r2['tone_shared'] == {}, "роль вне tone_share_roles — тон не делится")
 
 
+def test_tone_from_neighbour():
+    print("тон по случайным кусочкам известного → тон соседней части той же роли с наибольшей границей:")
+    roles = {0: 'body', 1: 'body', 2: 'body', 3: 'legs'}
+    known = {0: 5000, 1: 30, 2: 4000, 3: 4000}
+    total = {0: 10000, 1: 10000, 2: 10000, 3: 10000}
+    borders = {(0, 1): 40, (1, 2): 90, (1, 3): 500}
+    d = TF.tone_donor(1, roles, known, total, borders, 0.02, 50)
+    ok(d == 2, f"часть 1 (известного 0,3 %) берёт тон соседа той же роли с большей границей (2, не дерево 3 и не 0): {d}")
+    ok(TF.tone_donor(0, roles, known, total, borders, 0.02, 50) is None, "хватает известного — тон свой")
+    ok(TF.tone_donor(1, {}, known, total, borders, 0.02, 50) is None, "ролей нет — правило молчит")
+    ok(TF.tone_donor(1, roles, known, total, {(1, 3): 500}, 0.02, 50) is None, "нет соседа той же роли — тон свой")
+    ok(TF.tone_donor(1, roles, known, total, borders, 0.0, 50) is None, "порог 0 — правило выключено")
+    g, parts, kn, tl, col = scene_parts()
+    r = TF.fill([g], kn, parts, cfg={"gutter": 0, "erode_known": 0, "tone": "median", "src_dev_pattern": 0, "part_role": {0: "body", 1: "body"}}, mirror=False)['report']
+    ok('tone_from_neighbour' in r, "отчёт: tone_from_neighbour записан, заливка не падает")
+
+
 def test_hidden_visible():
     print("мерка «скрытое видимое» (tex_fill_hidden_visible): срез, метрики, свод:")
     import tex_fill_hidden_visible as HV
@@ -1040,7 +1057,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

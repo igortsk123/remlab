@@ -99,6 +99,7 @@ FILL = {
     'pattern_side_cos': 0.2,         # узорная часть: узор кладётся только на тексели, обращённые к фото (cos нормали с направлением камеры pr_az ≥ порога); обратная сторона/сиденье/низ — тон ткани без цветов (дефект Sakura 21.11: цветы спинки на заду и сиденье)
     'smooth_roles': ['legs', 'frame', 'handles'],   # роли без плитки фактуры на недостроенном: тон части без блоков («ёлочка» стыков на дереве, Sakura 21.11)
     'tone_share_roles': ['legs', 'frame', 'handles'],   # роли, у которых тон един на все части одной роли (один материал — один тон: задние ножки темнее передних из-за теней)
+    'tone_known_min_share': 0.02,    # часть с ролью этапа 3, у которой известного < этой доли её текселей: её тон — по случайным кусочкам (накладка подлокотника: известны торцы-дерево, тон вышел «песочным»); берёт тон соседней части ТОЙ ЖЕ роли с наибольшей общей границей
     'quilt_jump_max': 0.5,           # неузорная часть: скачок на швах плитки (jump_L) выше — плитка не кладётся, тон части (швы заметны)
     'part_class': None,              # trellis_relief: {часть: роль/семья из этапа 3} (run_stage --part-roles); нет — ворота только по однородности известного
 }
@@ -830,6 +831,16 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         for p in mem:
             stat[p] = (tone, stat[p][1], stat[p][2], False)
         rep['tone_shared'][role] = {'parts': [int(p) for p in mem], 'tone': [round(float(x), 2) for x in tone], 'known': int(len(Lp))}
+    rep['tone_from_neighbour'] = {}
+    if c.get('tone_known_min_share', 0) > 0 and (c.get('part_role') or {}):               # тон по случайным кусочкам известного → тон соседней части той же роли
+        tot_ = {p: int(sum(int((tx.part == p).sum()) for tx in txs)) for p in part_ids}
+        kc_ = {p: int(stat[p][2]) if not stat[p][3] else 0 for p in part_ids}
+        bor_ = part_borders(txs)
+        for p in part_ids:
+            q = tone_donor(p, c['part_role'], kc_, tot_, bor_, c['tone_known_min_share'], int(c['min_known']))
+            if q is not None:
+                stat[p] = (stat[q][0], stat[q][1], stat[p][2], False)
+                rep['tone_from_neighbour'][int(p)] = {'donor': int(q), 'known': kc_[p], 'texels': tot_[p], 'tone': [round(float(x), 2) for x in stat[q][0]]}
     dshift = None
     if c['source'] == 'trellis':                     # перенос статистики Lab: черновик части → видимое фото той же части (медиана и разброс по каналам)
         dshift = []
@@ -1539,6 +1550,45 @@ def roles_from_parts_json(path: str) -> dict:
     with open(path, encoding='utf-8') as f:
         d = json.load(f)
     return {int(p['id']): str(p['role']) for p in d.get('parts', []) if p.get('role') and p['role'] != 'unknown' and 'id' in p}
+
+
+def part_borders(txs: list) -> dict:
+    """Общая граница частей: {(a, b) a<b: число рёбер} по граням, где соседние грани (общее ребро по сваренным вершинам) принадлежат разным частям."""
+    out = {}
+    for tx in txs:
+        F, pf = np.asarray(tx.FW), np.asarray(tx.part_f)
+        if len(F) == 0:
+            continue
+        e = np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]])
+        fi = np.tile(np.arange(len(F)), 3)
+        e.sort(axis=1)
+        key = e[:, 0].astype(np.int64) * (int(F.max()) + 1) + e[:, 1]
+        order = np.argsort(key, kind='stable')
+        ks, fs = key[order], fi[order]
+        same = ks[1:] == ks[:-1]
+        a, b = pf[fs[:-1][same]], pf[fs[1:][same]]
+        diff = a != b
+        for x, y in zip(a[diff], b[diff]):
+            k = (int(min(x, y)), int(max(x, y)))
+            out[k] = out.get(k, 0) + 1
+    return out
+
+
+def tone_donor(p: int, roles: dict, known_cnt: dict, total: dict, borders: dict, min_share: float, min_known: int):
+    """Часть p с ролью, но слишком малым известным (< min_share своих текселей): донор тона — соседняя часть ТОЙ ЖЕ роли с надёжным тоном и наибольшей общей границей; нет — None."""
+    role = roles.get(p, roles.get(str(p)))
+    if role is None or min_share <= 0 or known_cnt[p] >= min_share * total[p]:
+        return None
+    best, bn = None, 0
+    for (a, b), n in borders.items():
+        if p not in (a, b):
+            continue
+        q = b if a == p else a
+        if roles.get(q, roles.get(str(q))) != role or known_cnt[q] < max(min_known, min_share * total[q]):
+            continue
+        if n > bn:
+            best, bn = q, n
+    return best
 
 
 def pattern_side_ok(normals: np.ndarray, az_deg: float, cos_min: float | None) -> np.ndarray:
