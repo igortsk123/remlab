@@ -202,6 +202,13 @@ exit 1
 """
 
 
+def strip_git_env(env: dict) -> dict:
+    """Без переменных `GIT_*`: git-хук (pre-push) ставит GIT_DIR/GIT_INDEX_FILE/GIT_WORK_TREE и др., проверка с временным git-репо
+    (`git init` в mkdtemp) унаследовала бы их и писала бы в НАСТОЯЩИЙ репозиторий (21.11: коммит «init» в worktree директора,
+    раньше — e834645a, core.bare=true). В CI этих переменных нет — так проверки ближе к CI. T-20261121-184."""
+    return {k: v for k, v in env.items() if not k.startswith('GIT_')}
+
+
 def nodb_bin(runner_temp: str) -> str:
     """Папка с подменой `docker` (в начало PATH проверок)."""
     d = os.path.join(runner_temp, 'nodb-bin')
@@ -224,7 +231,7 @@ def run_units(sel: list, root: str, budget: float, runner_temp: str, py: str | N
         if left <= 1:
             late = sel[i:]
             break
-        env = dict(os.environ, **u['env'], CI='true', GITHUB_ACTIONS='true', RUNNER_TEMP=runner_temp)
+        env = dict(strip_git_env(os.environ), **u['env'], CI='true', GITHUB_ACTIONS='true', RUNNER_TEMP=runner_temp)
         if not os.environ.get('REMLAB_TMP') and os.path.isdir(os.path.expanduser('~/remlab-scratch')):
             env['REMLAB_TMP'] = os.path.expanduser('~/remlab-scratch/tmp')   # CI=true иначе увело бы временное в /tmp (квота)
         if nodb:
@@ -503,6 +510,26 @@ jobs:
     shim_dir = nodb_bin(rt2)
     check(os.access(os.path.join(shim_dir, 'docker'), os.X_OK) and 'PATH' not in NODB_SHIM,
           'подмена docker исполняема и лежит во временной папке прогона', shim_dir)
+    # хук: GIT_* из окружения не протекают в запускаемую проверку (T-20261121-184); `env:` шага ci.yml по-прежнему доходит
+    with open(os.path.join(nd, 'tools', 'scout', 'git_env.py'), 'w', encoding='utf-8') as f:
+        f.write("import os, subprocess, sys, tempfile\n"
+                "leak = sorted(k for k in os.environ if k.startswith('GIT_') and k != 'GIT_KEEP_ME')\n"
+                "if leak or os.environ.get('GIT_KEEP_ME') != '1':\n    print('GIT_* протекли или env шага потерян:', leak, os.environ.get('GIT_KEEP_ME')); sys.exit(1)\n"
+                "d = tempfile.mkdtemp(); subprocess.run(['git', 'init', '-q', d], check=True)\n"
+                "top = subprocess.run(['git', '-C', d, 'rev-parse', '--git-dir'], capture_output=True, text=True).stdout.strip()\n"
+                "sys.exit(0 if os.path.realpath(top if os.path.isabs(top) else os.path.join(d, top)) == os.path.realpath(os.path.join(d, '.git')) else 2)\n")
+    saved = {k: os.environ.get(k) for k in ('GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE')}
+    os.environ.update(GIT_DIR=os.path.join(nd, 'decoy.git'), GIT_INDEX_FILE=os.path.join(nd, 'decoy.index'), GIT_WORK_TREE=nd)
+    try:
+        u_git = dict(unit('git_env')[0], env={'GIT_KEEP_ME': '1'})
+        buf = io.StringIO()
+        rc = run_units([u_git], nd, 30, rt2, py=sys.executable, out=buf)
+        check(rc == 0, 'под хуком (GIT_DIR/GIT_INDEX_FILE/GIT_WORK_TREE в окружении) они не доходят до проверки; `git init` в временной папке — в ней самой', (rc, buf.getvalue()))
+    finally:
+        for k, v in saved.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+    check(strip_git_env({'GIT_DIR': 'x', 'GIT_AUTHOR_NAME': 'a', 'PATH': 'p', 'GITHUB_ACTIONS': 't'}) == {'PATH': 'p', 'GITHUB_ACTIONS': 't'},
+          'strip_git_env убирает только GIT_*, GITHUB_* остаётся')
     print(f'prepush_check selftest: ошибок {len(bad)}')
     return 1 if bad else 0
 
