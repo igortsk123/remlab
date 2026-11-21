@@ -2,7 +2,7 @@
 """Проба заливки невидимого (T-20261120-164) на готовых покрашенных прогонах Salad — без платного, на процессоре.
 На каждый прогон: этап 07 (`tex_fill.run_stage`: GLB → маска «видно с камер фото» az0/az45 → части → заливка → `<выход>/<метка>/07-fill/{filled.glb, report.json, frame.png, check.json}`) и сверх этапа —
 кадры «до | после» с az000 (перёд), az090, az180 (отдельные полные PNG + пара) и мера сторожа охвата с камерами прогона до/после.
-  python3 tex_fill_probe.py [--source stat|trellis --draft-dir <папка родных GLB TRELLIS.2>] <выход-папка> <папка-прогона> [<папка-прогона> …]
+  python3 tex_fill_probe.py [--source stat|trellis --draft-dir <папка родных GLB TRELLIS.2> --draft-fallback on|off --draft-texture on|off] <выход-папка> <папка-прогона> [<папка-прогона> …]
 Источник «trellis» (вариант Б): черновик берётся как `<draft-dir>/<mid>_<eid>-1024-42-0.glb` по имени прогона (до «@»); нет файла — сбой этого товара, счётчик отказов в итоге.
 Строка на прогон — `<выход>/results.jsonl`; таблица товар × этап — `python3 tools/scout/paint_stage.py table <выход>`."""
 from __future__ import annotations
@@ -60,6 +60,10 @@ def main() -> int:
             cfg['source'] = v
         elif k == '--draft-dir':
             draft_dir = v
+        elif k == '--draft-fallback':                 # on|off: этап считает и А, берёт Б только если мерки не хуже (по умолчанию on); off — Б «как есть» для сравнения
+            cfg['draft_fallback'] = (v == 'on')
+        elif k == '--draft-texture':                  # on|off: класть на черновик Б лоскут фактуры фото (квилт)
+            cfg['draft_texture'] = (v == 'on')
         else:
             print(__doc__)
             return 2

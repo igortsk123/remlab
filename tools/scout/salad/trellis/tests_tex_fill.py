@@ -158,7 +158,7 @@ def scene_parts():
 def test_parts():
     print('заливка: известное цело; невидимое — цветом СВОЕЙ части, не через границу части и островка:')
     g, parts, known, tl, col = scene_parts()
-    out = TF.fill([g], known, parts, cfg={'gutter': 0, 'erode_known': 0}, mirror=False)
+    out = TF.fill([g], known, parts, cfg={'gutter': 0, 'erode_known': 0, 'tone': 'median'}, mirror=False)     # часть 1 двухцветная (синий + жёлтый островок): геометрия заливки проверяется при медиане, мода — отдельный тест
     tex, rep = out['tex'][0], out['report']
     tex0 = g['tex']
     kn = known[0]
@@ -360,7 +360,7 @@ def test_diffuse_quilt_far():
     kn = [m_all.copy()]
     kn[0][:, int(.2 * T):int(.7 * T) + 1] = False
     kn[0] &= (tex.sum(axis=2) > 0)
-    cfg = {'gutter': 0, 'erode_known': 0, 'geo_len': 0.6, 'ao': 0.0}
+    cfg = {'gutter': 0, 'erode_known': 0, 'geo_len': 0.6, 'ao': 0.0, 'tone': 'median'}      # две равные половины (красная/синяя): у моды ничья — для проверки диффузии берём медиану
     a = TF.fill([g], kn, None, cfg=dict(cfg, diffuse_iter=0), mirror=False)
     b = TF.fill([g], kn, None, cfg=dict(cfg, diffuse_iter=300), mirror=False)
     mid = m_all.copy()
@@ -423,6 +423,62 @@ def test_draft_source():
             ok(True, name + ' отвергнут')
 
 
+def test_tone_mode_pattern():
+    print('тон части — мода (фон), узор — поверх; затенённое в тон не входит:')
+    q = Quads()
+    q.quad([[0, 0, 0], [2, 0, 0], [2, 1, 0], [0, 1, 0]], (0, 0, .9, .9), sub=8)
+    q.quad([[0, 0, -1], [2, 0, -1], [2, 1, -1], [0, 1, -1]], (.9, .9, 1.0, 1.0), sub=2)       # «зад» — будет неизвестно
+    tex = np.zeros((T, T, 3), np.uint8)
+    rng = np.random.RandomState(9)
+    m = tile_mask((0, 0, .9, .9))
+    ys, xs = np.nonzero(m)
+    tex[ys, xs] = [235, 225, 200]                                                              # кремовый фон
+    flower = ((xs // 12 + ys // 12) % 7 == 0) & ((xs % 12) < 8) & ((ys % 12) < 8)               # розовые «цветы» ≈ 11 % площади
+    tex[ys[flower], xs[flower]] = [220, 60, 110]
+    shade = (xs % 97) < 8                                                                        # тёмные складки ≈ 8 %
+    tex[ys[shade], xs[shade]] = [60, 55, 50]
+    g = q.geom(tex)
+    kn = [m.copy()]
+    out = TF.fill([g], kn, None, cfg={'gutter': 0, 'erode_known': 0}, mirror=False)
+    rep = out['report']
+    cream = TF.rgb2lab(np.array([[235, 225, 200]], np.uint8))[0]
+    tone = np.array(rep['parts'][0]['mean_lab'])
+    ok(float(TC.de2000_v(tone[None], cream[None])[0]) < 3.0, f'тон = кремовый фон, а не розовый средний (ΔE к фону {float(TC.de2000_v(tone[None], cream[None])[0]):.1f})')
+    ok(rep['parts'][0]['pattern'] is True, 'часть с цветами помечена «узорной»')
+    ok(rep.get('quilt') == 1 and rep['no_patch'] == 0, 'узор — квилтом из мелких блоков')
+    back = tile_mask((.9, .9, 1.0, 1.0))
+    lab_back = lab_of(out['tex'][0], back)
+    med_back = np.median(lab_back, axis=0)
+    ok(float(TC.de2000_v(med_back[None], cream[None])[0]) < 6.0, f'зад: фон кремовый (ΔE {float(TC.de2000_v(med_back[None], cream[None])[0]):.1f}), не розовый', f'медиана зада Lab {np.round(med_back, 1)}, фон {np.round(cream, 1)}, тон {np.round(tone, 1)}, mean-dev {out["report"]["parts"][0].get("pattern_chroma_std")}')
+    big = TF.fill([g], kn, None, cfg={'gutter': 0, 'erode_known': 0, 'tone': 'median'}, mirror=False)['report']
+    ok(float(TC.de2000_v(np.array(big['parts'][0]['mean_lab'])[None], cream[None])[0]) <= float(TC.de2000_v(tone[None], cream[None])[0]) + 8.0, 'контроль: медиана на этой сцене тоже рабочая (сравнение режимов)')
+
+
+def test_run_stage_fallback():
+    print('этап 07 с черновиком: считаются А и Б, берётся Б только если мерки не хуже; check.json:')
+    import tempfile
+    import paint_stage as PS
+    q = Quads()
+    q.quad([[-0.5, 0, 0], [0.5, 0, 0], [0.5, 1, 0], [-0.5, 1, 0]], (0, 0, .9, .9), sub=8)
+    q.quad([[-0.5, 0, -0.4], [0.5, 0, -0.4], [0.5, 1, -0.4], [-0.5, 1, -0.4]], (.9, .9, 1.0, 1.0), sub=2)
+    tex = np.zeros((T, T, 3), np.uint8)
+    tex[tile_mask((0, 0, .9, .9))] = [120, 140, 200]
+    g = q.geom(tex)
+    dtex = np.zeros((T, T, 3), np.uint8)
+    dm = tile_mask((0, 0, .9, .9)) | tile_mask((.9, .9, 1.0, 1.0))
+    dtex[dm] = [110, 135, 190]
+    with tempfile.TemporaryDirectory() as td:
+        TF.write_glb([g], [tex], os.path.join(td, 'in.glb'))
+        TF.write_glb([g], [dtex], os.path.join(td, 'draft.glb'))
+        r = TF.run_stage(td, 'sku:1', os.path.join(td, 'in.glb'), known=[tile_mask((0, 0, .9, .9))], parts=None, cfg={'source': 'trellis', 'gutter': 0, 'erode_known': 0}, draft_glb=os.path.join(td, 'draft.glb'), mirror=False)
+        rep = r['report']
+        ok(set(rep['source_tried']) == {'stat', 'trellis'} and rep['source_used'] in ('stat', 'trellis'), f'считаны А и Б, выбран {rep["source_used"]}: {rep["source_tried"]}')
+        c = PS.read_check(r['dir'])
+        ok(c is not None and c['extra']['source_used'] == rep['source_used'] and 'empty_pct' in (c['metric'] or {}).get('name', 'empty_pct'), 'check.json: источник заливки записан')
+        r2 = TF.run_stage(td, 'sku:2', os.path.join(td, 'in.glb'), known=[tile_mask((0, 0, .9, .9))], parts=None, cfg={'source': 'trellis', 'gutter': 0, 'erode_known': 0, 'draft_fallback': False}, draft_glb=os.path.join(td, 'draft.glb'), mirror=False)
+        ok(r2['report']['source_used'] == 'trellis' and r2['report']['source_tried'] == {}, 'draft_fallback выключен — только Б')
+
+
 def test_render_low():
     print('кадр снизу (дно) — elevation −90:')
     q = Quads()
@@ -441,7 +497,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

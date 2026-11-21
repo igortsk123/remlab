@@ -19,5 +19,5 @@ for r in $RUNS; do
 done
 RUNS="$RUNSB"
 # shellcheck disable=SC2086
-"$HOME/venvs/scout/bin/python" "$HERE/tex_fill_probe.py" --source trellis --draft-dir "$DRAFTS" "$OUT/B-trellis" $RUNS > "$OUT/B-trellis/probe.log" 2>&1
+"$HOME/venvs/scout/bin/python" "$HERE/tex_fill_probe.py" --source trellis --draft-dir "$DRAFTS" --draft-fallback off --draft-texture on "$OUT/B-trellis" $RUNS > "$OUT/B-trellis/probe.log" 2>&1
 echo "готово: $OUT"

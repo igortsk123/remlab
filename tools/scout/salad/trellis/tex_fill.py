@@ -56,6 +56,17 @@ FILL = {
     'diffuse_iter': 150,             # проходов диффузии цвета по поверхности части: границы между «зонами ближайшего источника» размываются (без «лоскутов»)
     'far_de': 8.0,                   # мера пятен: тексель «далёк» от цвета своей части, если ΔE00 > far_de
     'quilt_block': 16, 'quilt_known_min': 0.75, 'quilt_n': 4,   # запасной лоскут фактуры: сборка quilt_n×quilt_n из мелких блоков, где известного ≥ quilt_known_min
+    'tone': 'mode',                  # тон части: mode — самый частый цвет (фон, узор поверх), без затенённых; median — как раньше
+    'tone_shadow_q': 0.15,           # тон: тексели темнее этого квантиля L части (затенённые складки, щели) в моду не входят
+    'tone_bin': (4.0, 3.0, 3.0),     # тон: размер ячейки Lab (L, a, b) для моды; мода = медиана точек в ячейке и её соседях
+    'patch_mode': 'quilt',           # фактура: quilt — сборка из мелких блоков (вся статистика частей, узор не теряется); block — один «типичный» блок 64/32/16 (как было)
+    'quilt_pixels': 16,              # размер мелкого блока квилта, пикселей карты
+    'quilt_known': 0.9,              # доля известного в блоке квилта
+    'quilt_cells': 8,                # квилт = cells×cells блоков (сторона 128 пикселей при блоке 16)
+    'pattern_chroma': 6.0,           # часть, у которой МЕЛКИЙ разброс хромы (σ остатка от размытия pattern_blur_px, sqrt(σa²+σb²)) больше — «узорная»: остаток берётся от тона части (цветы/прожилки целиком), иначе — от размытия
+    'pattern_blur_px': 12.0,         # размытие для отделения мелкого узора от крупных зон цвета (две большие зоны — не узор)
+    'draft_blur_px': 6.0,            # trellis: размытие черновика внутри части до переноса статистики (штрих и муар черновика не переносятся)
+    'draft_fallback': True,          # trellis: считать и А; взять Б, только если мерки не хуже (число непрошедших, затем ΔE00 перёд↔зад)
     'gutter': 8,                     # пикселей желоба вокруг островков
     'sample': 20000,                 # точек для оценки симметрии
     'source': 'stat',                # источник «невидимого»: stat — цвет части + лоскут фактуры; trellis — цвет черновика TRELLIS.2 со сдвигом тона (нужен draft)
@@ -243,6 +254,28 @@ def _blur_norm(img, known, sigma: float):
     return num / np.maximum(den, 1e-9)[..., None], den
 
 
+def tone_of(L, c) -> np.ndarray:
+    """Тон части по Lab-точкам L (n,3): мода — самый частый цвет (фон; узор кладётся поверх остатком), без затенённых (L ниже квантиля `tone_shadow_q`). tone='median' — медиана."""
+    if len(L) == 0:
+        return np.array([50.0, 0.0, 0.0])
+    if c['tone'] == 'median':
+        return np.median(L, axis=0)
+    if len(L) > 400000:
+        L = L[np.random.RandomState(3).choice(len(L), 400000, replace=False)]
+    M = L
+    if c['tone_shadow_q'] > 0:
+        keep = L[:, 0] >= np.quantile(L[:, 0], c['tone_shadow_q'])
+        if keep.sum() >= max(50, 0.2 * len(L)):
+            M = L[keep]
+    q = np.floor(M / np.asarray(c['tone_bin'], np.float64)).astype(np.int64) + 512
+    key = (q[:, 0] * 1024 + q[:, 1]) * 1024 + q[:, 2]
+    u, cnt = np.unique(key, return_counts=True)
+    b = int(u[int(np.argmax(cnt))])
+    bq = np.array([b // (1024 * 1024), (b // 1024) % 1024, b % 1024])
+    near = (np.abs(q - bq) <= 1).all(axis=1)
+    return np.median(M[near], axis=0)
+
+
 def symmetry(txs: list, known_flat: list, size_eps: float, sample: int, cos_min: float) -> dict:
     """Оценка симметрии: доля точек поверхности, у которых через плоскость X (или Z) через центр есть «двойник» (ближе `size_eps`, нормаль после отражения совпала). → {axis, score, planes}."""
     from scipy.spatial import cKDTree
@@ -266,14 +299,16 @@ def symmetry(txs: list, known_flat: list, size_eps: float, sample: int, cos_min:
     return best
 
 
-def _gaussian_tile(patch, rng):
+def _gaussian_tile(patch, rng, keep_mean: bool = False):
     """Бесшовная плитка из блока остатка (B,B,3): смесь блока и его сдвига на пол-блока с весами, сохраняющими разброс (sin·sin и √(1−w²)) → периодична по обеим осям."""
     B = patch.shape[0]
     x = np.arange(B)
     w1 = (np.sin(np.pi * x / B)[:, None] * np.sin(np.pi * x / B)[None, :])[..., None]
     w2 = np.sqrt(np.maximum(1.0 - w1 * w1, 0.0))
-    p = patch - patch.mean(axis=(0, 1), keepdims=True)
-    return w1 * p + w2 * np.roll(p, (B // 2, B // 2), axis=(0, 1))
+    m = patch.mean(axis=(0, 1), keepdims=True)
+    p = patch - m
+    t = w1 * p + w2 * np.roll(p, (B // 2, B // 2), axis=(0, 1))
+    return t + m if keep_mean else t
 
 
 def concavity(tx, smooth: int = 2):
@@ -379,27 +414,42 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     for gi, tx in enumerate(txs):
         glob_l.append(labs[gi].reshape(-1, 3)[kn[gi].reshape(-1)])
     glob_l = np.concatenate(glob_l) if glob_l else np.zeros((0, 3))
-    g_mean = np.median(glob_l, axis=0) if len(glob_l) else np.array([50.0, 0.0, 0.0])
+    g_mean = tone_of(glob_l, c)
     g_std = glob_l.std(axis=0) if len(glob_l) else np.zeros(3)
+    lowb = [_blur_norm(labs[gi], kn[gi], c['pattern_blur_px'])[0] for gi in range(len(txs))]
+    pat_std = {}
+    for p in part_ids:
+        Hp = np.concatenate([(labs[gi] - lowb[gi]).reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)]] for gi, tx in enumerate(txs)])
+        pat_std[p] = float(np.hypot(Hp[:, 1].std(), Hp[:, 2].std())) if len(Hp) else 0.0
     for p in part_ids:
         L = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)]] for gi, tx in enumerate(txs)])
         if len(L) >= c['min_known']:
-            stat[p] = (np.median(L, axis=0), L.std(axis=0), len(L), False)
+            stat[p] = (tone_of(L, c), L.std(axis=0), len(L), False)
         else:
             stat[p] = (g_mean, g_std, len(L), True)
             rep['fallback_global'] += 1
-        rep['parts'][p] = {'known_texels': int(len(L)), 'mean_lab': [round(float(x), 2) for x in stat[p][0]], 'std_lab': [round(float(x), 2) for x in stat[p][1]], 'stats_from_global': stat[p][3]}
+        rep['parts'][p] = {'known_texels': int(len(L)), 'pattern': bool(pat_std[p] > c['pattern_chroma']), 'pattern_chroma_std': round(float(pat_std[p]), 2), 'mean_lab': [round(float(x), 2) for x in stat[p][0]], 'std_lab': [round(float(x), 2) for x in stat[p][1]], 'stats_from_global': stat[p][3]}
     dshift = None
     if c['source'] == 'trellis':                     # перенос статистики Lab: черновик части → видимое фото той же части (медиана и разброс по каналам)
         dshift = []
         rep['draft'] = {'parts': {}, 'ok_pct': 0.0}
         n_ok = n_all_t = 0
         dm = {}
+        dlab = [draft['lab'][gi] for gi in range(len(txs))]
+        plow = [None] * len(txs)
+        if c['draft_blur_px'] > 0:                   # черновик и фото — в низких частотах: штрих/муар черновика не переносится, разброс сравнивается по тем же частотам
+            dlab = [_blur_norm(draft['lab'][gi], draft['ok'][gi], c['draft_blur_px'])[0] for gi in range(len(txs))]
+            plow = [_blur_norm(labs[gi], kn[gi], c['draft_blur_px'])[0] for gi in range(len(txs))]
         for p in part_ids:
-            D = np.concatenate([draft['lab'][gi].reshape(-1, 3)[tx.ti[draft['ok'][gi].reshape(-1)[tx.ti] & (tx.part == p)]] for gi, tx in enumerate(txs)])
+            D = np.concatenate([dlab[gi].reshape(-1, 3)[tx.ti[draft['ok'][gi].reshape(-1)[tx.ti] & (tx.part == p)]] for gi, tx in enumerate(txs)])
             if len(D) >= c['min_known']:
-                dmed, dstd = np.median(D, axis=0), D.std(axis=0)
-                scale = np.clip(stat[p][1] / np.maximum(dstd, 1e-3), c['draft_scale_min'], c['draft_scale_max'])
+                dmed, dstd = tone_of(D, c), D.std(axis=0)
+                if plow[0] is not None:
+                    K_ = np.concatenate([plow[gi].reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)]] for gi, tx in enumerate(txs)])
+                    ref_std = K_.std(axis=0) if len(K_) >= c['min_known'] else stat[p][1]
+                else:
+                    ref_std = stat[p][1]
+                scale = np.clip(ref_std / np.maximum(dstd, 1e-3), c['draft_scale_min'], c['draft_scale_max'])
                 dm[p] = (dmed, scale)
                 rep['draft']['parts'][p] = {'texels': int(len(D)), 'draft_median_lab': [round(float(x), 2) for x in dmed], 'draft_std_lab': [round(float(x), 2) for x in dstd], 'scale': [round(float(x), 2) for x in scale]}
             else:
@@ -408,7 +458,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             T = tx.T
             sh = np.zeros((T * T, 3))
             okf = np.zeros(T * T, bool)
-            dl = draft['lab'][gi].reshape(-1, 3)
+            dl = dlab[gi].reshape(-1, 3)
             for p in part_ids:
                 if p not in dm:
                     continue
@@ -588,7 +638,48 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         im.reshape(-1)[tx.ti] = tx.island
         blur, _ = _blur_norm(labs[gi], kn[gi], c['hp_px'])
         blk[gi] = (labs[gi] - blur, pm, im)
+    pat_parts = {p for p in part_ids if rep['parts'][p]['pattern']}
+    raw_mean = {}
+    shade_lo = {}
+    for p in pat_parts:
+        Lv = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)], 0] for gi, tx in enumerate(txs)])
+        shade_lo[p] = float(np.quantile(Lv, c['tone_shadow_q'])) if len(Lv) and c['tone_shadow_q'] > 0 else -1e9
+    if c['patch_mode'] == 'quilt' and (dshift is None or c['draft_texture']):
+        Bq, nq = int(c['quilt_pixels']), int(c['quilt_cells'])
+        qrng = np.random.RandomState(7)
+        for p in part_ids:
+            cands = []
+            for gi, tx in enumerate(txs):
+                T = tx.T
+                res_, pm, _im = blk[gi]
+                n = T // Bq
+                if n < 1:
+                    continue
+                m = n * Bq
+                if p in pat_parts:                               # узорная: остаток от тона части; затенённые тексели (складки) в узор не входят — нулевое отклонение
+                    resq = (labs[gi] - stat[p][0]) * (labs[gi][..., 0] >= shade_lo[p])[..., None]
+                else:
+                    resq = res_
+                resq = resq * kn[gi][..., None]
+
+                def tq(a):
+                    ex = a.shape[2:]
+                    return a[:m, :m].reshape(n, Bq, n, Bq, *ex).transpose(0, 2, 1, 3, *range(4, 4 + len(ex))).reshape(n, n, Bq * Bq, *ex)
+                okb = (tq(kn[gi]).mean(axis=2) >= c['quilt_known']) & (tq(pm).min(axis=2) == p) & (tq(pm).max(axis=2) == p)
+                rb = tq(resq)
+                for by, bx in zip(*np.nonzero(okb)):
+                    cands.append(rb[by, bx].reshape(Bq, Bq, 3))
+            if len(cands) >= 4:
+                pick = qrng.choice(len(cands), size=nq * nq, replace=len(cands) < nq * nq)
+                rows = [np.concatenate([cands[int(pick[r * nq + q])] for q in range(nq)], axis=1) for r in range(nq)]
+                patches[p] = np.concatenate(rows, axis=0)
+                patch_gain[p] = 1.0
+                rep['quilt'] = rep.get('quilt', 0) + 1
+                if p in pat_parts:
+                    raw_mean[p] = patches[p].mean(axis=(0, 1))          # узорная: плитка без вычитания среднего и без смешения (фон = тон, цветы поверх)
     for p in (part_ids if (dshift is None or c['draft_texture']) else []):
+        if p in patches:
+            continue
         for B, thr in ((int(c['patch']), c['patch_known_min']), (int(c['patch']) // 2, c['patch_known_min']), (int(c['patch']) // 4, c['patch_known_min2'])):
             cands = []
             for gi, tx in enumerate(txs):
@@ -663,14 +754,14 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             if not sel.any():
                 continue
             Bp = patches[p].shape[0]
-            tile = _gaussian_tile(patches[p], rng)
+            tile = patches[p] if p in raw_mean else _gaussian_tile(patches[p], rng)
             ox1, oy1 = rng.randint(0, Bp, 2)
             ox2, oy2 = rng.randint(0, Bp, 2)
             t2 = np.rot90(tile)
             r1 = tile[(py[sel] + oy1) % Bp, (px[sel] + ox1) % Bp]
             r2 = t2[(py[sel] * 3 // 2 + oy2) % Bp, (px[sel] * 3 // 2 + ox2) % Bp]
             gain = float(np.clip(patch_gain[p], c['gain_min'], c['gain_max']))
-            add[sel] = gain * (r1 + r2) / np.sqrt(2.0)
+            add[sel] = gain * (r1 + r2) / np.sqrt(2.0) if p not in raw_mean else r1                  # узорная: узор из фото целиком (отклонение от тона), без смешения двух сдвигов
         out_lab[gi].reshape(-1, 3)[tx.ti[unk_flat]] += add
     rep['time_s']['texture'] = round(time.time() - t0, 2)
     # --- итог: RGB, желоб, проверка покрытия
@@ -924,14 +1015,29 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     draft = None
     if (cfg or {}).get('source') == 'trellis':
         draft = draft_texels(geoms, TC.load_geoms(draft_glb), cfg)
-    res = fill(geoms, known, parts, cfg, mirror, draft)
-    rep, tex_after = res['report'], res['tex']
     kback = known_from_photo(geoms, azimuths=(180.0,))
-    de = part_deltas(geoms, parts, known, kback, tex_before, tex_after)
-    known_total = max(sum(v['known_texels'] for v in rep['parts'].values()), 1)
-    big = [p for p, v in rep['parts'].items() if v['known_texels'] >= 0.01 * known_total]
-    de_after = {int(p): v['after'] for p, v in de.items() if v['after'] is not None}
-    de_worst = max([de_after[p] for p in big if p in de_after] or [None]) if any(p in de_after for p in big) else None
+
+    def one(cfg_, draft_):
+        r_ = fill(geoms, known, parts, cfg_, mirror, draft_)
+        rp, tx_ = r_['report'], r_['tex']
+        de_ = part_deltas(geoms, parts, known, kback, tex_before, tx_)
+        kt = max(sum(v['known_texels'] for v in rp['parts'].values()), 1)
+        bg = [p for p, v in rp['parts'].items() if v['known_texels'] >= 0.01 * kt]
+        da = {int(p): v['after'] for p, v in de_.items() if v['after'] is not None}
+        dw = max([da[p] for p in bg if p in da] or [None]) if any(p in da for p in bg) else None
+        vals = {'empty_pct': rp['unpainted_after_pct'], 'dE00_front_back': dw, 'filled_faces_step_pct': rp['steps']['after']['filled_faces_step_pct'], 'far_excess_pct': rp['far_pct']['excess']}
+        nfail = sum(0 if PS.judge(vals[k], th[k][0], th[k][1]) else 1 for k in vals)
+        return {'rep': rp, 'tex': tx_, 'de': de_, 'big': bg, 'de_worst': dw, 'vals': vals, 'nfail': nfail, 'key': (nfail, dw if dw is not None else 99.0, vals['far_excess_pct'] if vals['far_excess_pct'] is not None else 99.0)}
+    tried = {}
+    if draft is not None and dict(FILL, **(cfg or {}))['draft_fallback']:      # Б и А: Б берётся, только если мерки не хуже (число непрошедших, затем ΔE перёд↔зад, затем пятна)
+        cA = one(dict(cfg or {}, source='stat'), None)
+        cB = one(cfg, draft)
+        tried = {'stat': {'nfail': cA['nfail'], **cA['vals']}, 'trellis': {'nfail': cB['nfail'], **cB['vals']}}
+        pick, used = (cB, 'trellis') if cB['key'] <= cA['key'] else (cA, 'stat')
+    else:
+        pick, used = one(cfg, draft), ((cfg or {}).get('source') or 'stat')
+    rep, tex_after, de, big, de_worst = pick['rep'], pick['tex'], pick['de'], pick['big'], pick['de_worst']
+    rep['source_used'], rep['source_tried'] = used, tried
     write_glb(geoms, tex_after, os.path.join(d, 'filled.glb'))
     a = render_ortho(geoms, tex_before, 180.0)
     b = render_ortho(geoms, tex_after, 180.0)
@@ -952,5 +1058,5 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     with open(os.path.join(d, 'report.json'), 'w', encoding='utf-8') as f:
         json.dump(report, f, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
     check = PS.write_check(d, out_name or STAGE, sku, None, dict(metrics['empty_pct'], name='empty_pct'), '', metrics={k: v for k, v in metrics.items() if k != 'empty_pct'}, seconds=secs,
-                           outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note)
+                           outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried)
     return {'check': check, 'report': rep, 'geoms': geoms, 'tex_before': tex_before, 'tex_after': tex_after, 'known': known, 'parts': parts, 'dir': d, 'deltaE': de, 'kback': kback}
