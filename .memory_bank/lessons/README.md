@@ -580,3 +580,10 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 775 — план конвейера: Codex сверяет с реальными точками входа → `lessons/memory-process.md`
 - 776 — живая проверка доски владельца без своих отметок → `lessons/dev-ops.md`
 - 777 — самопроверка с временным репо: без GIT_DIR из хука → `lessons/dev-ops.md`
+- 778 — приоритет машины = и очередь heavy-slot → `lessons/dev-ops.md`
+- 779 — TaskStop не снимает заявку heavy-slot на pakardev → `lessons/dev-ops.md`
+- 780 — Xvfb унаследовал fd замка слота → `lessons/dev-ops.md`
+- 781 — правка правил спальни → весь planner tests до push → `lessons/dev-ops.md`
+- 782 — правила только Edit через окно, не sed → `lessons/dev-ops.md`
+- 783 — общий порт моста sg_salad → `lessons/mesh-salad-pool.md`
+- 784 — плита-подложка TRELLIS ломает камеру/материал/заливку → `lessons/mesh-salad-pool.md`

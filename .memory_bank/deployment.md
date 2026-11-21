@@ -3,7 +3,7 @@ tier: 1
 topic: deployment
 scope: Деплой/откат/сервер exit-fi
 tier2: "domain/deployment-details.md"
-updated: 2026-11-20
+updated: 2026-11-21
 importance: high
 source: manual
 status: working
@@ -31,8 +31,7 @@ nginx :80. Секреты — `/opt/remlab/.env`.
 ## Деплой (ADR-0179)
 Push в `main` → CI gate → `Deploy prod` (`deploy.yml`). Сервер — `infra/server/deploy-remote.sh` под `.deploy.lock`: `prev` → образ → БД →
 активация. `tools/ops/deploy-need.sh`: доки — без выката, предка прода не катит (ADR-0360), `--status`. `./deploy.sh` — запасной (не с DEV-VM).
-**«Прод позади» долго — проверить, что CI собрал образ:** на сервере `docker manifest inspect ghcr.io/igortsk123/remlab-app:<sha>`, `tools/ops/ci-status.sh`
-(урок 713). /demo не опережает сервер (ADR-0433).
+**«Прод позади» долго — собрал ли CI образ:** `docker manifest inspect ghcr.io/igortsk123/remlab-app:<sha>`, `tools/ops/ci-status.sh` (урок 713). /demo не опережает сервер (ADR-0433).
 
 ## Откат / smoke
 - smoke = `ok=true` И `version == TARGET_SHA`; не 200 → откат на `prev`. Вручную: `/`=200, `/api/health` ok, remnanode Up.
@@ -45,4 +44,4 @@ Push в `main` → CI gate → `Deploy prod` (`deploy.yml`). Сервер — `i
 ## Сторожа
 Каталог (ADR-0172), диск `cleanup.sh` (ADR-0005), `disk-watchdog.sh`, доступность `health-watch.sh` → Telegram. Правка сервера = бэкап + rollback.
 Правило для web-образа — исключением в `.dockerignore`, сторож `tools/ops/docker_context.py` (урок 674).
-**Tier 2:** `domain/deployment-details.md` — конвейер, две базы, Caddy и статик, сторожа, `docker-prune.timer` DEV.
+**Tier 2:** `domain/deployment-details.md` — конвейер, две базы, Caddy, сторожа, DEV: `docker-prune.timer`, HDD и бэкапы `bekap-hdd`.

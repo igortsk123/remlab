@@ -3,7 +3,7 @@ tier: 2
 topic: deployment-details
 scope: Деплой exit-fi — подробности конвейера, сторожа, история правок сервера
 tier1: "../deployment.md"
-updated: 2026-11-20
+updated: 2026-11-21
 importance: med
 source: manual
 last_verified: 2026-11-18
@@ -365,3 +365,6 @@ DEV `GET /credits` через туннель (снаружи `/api/draft/credits
 - **Стенд паритета сам убирает прогоны (T-48, 07.11):** хранит `keep_runs` (4) последних `run-*` плюс прогоны свежего эталона каждой
   комнаты (`tools/scout/parity_living.py` prune); эталон, указывающий на удалённый прогон, — WARN, переснять. Ловушки сверки — урок 646.
 
+## Диск HDD и бэкапы на pakardev (20.11, владелец TG 50/58–60)
+- Второй диск `sdb1` ext4 → `/mnt/hdd` (fstab `nofail`). Неактивное переносится копия→сверка→ссылка на месте (`~/remlab-logs/hdd_move.sh`).
+- `~/.local/bin/bekap-hdd` (cron 06:20): rsync без delete `remlab-backups`, `~/backups`, VPN/backups, tamara/data/backups → `/mnt/hdd/backups`; `git bundle --all` по воскресеньям; логи `~/remlab-logs` старше 7 сут → HDD со ссылкой. Журнал `/mnt/hdd/backups/bekap-hdd.log`.

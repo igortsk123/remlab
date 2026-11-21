@@ -15,7 +15,7 @@
 | `access-and-integrations.md` | access-and-integrations | Интеграции/доступы — ключи, клиенты | `../domain/integrations.md` | 2026-11-19 |
 | `agent-trial.md` | agent-trial | Проба агента (UK) — план, воркер, стадии, тур /try | `../plans/MASTER-agent-trial.md` | 2026-11-18 |
 | `apartment-configurator.md` | apartment-configurator | 3D-конфигуратор квартиры — устройство, где детали | `../domain/flat3d-configurator.md` | 2026-11-18 |
-| `architecture.md` | architecture | Стек, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-11-18 |
+| `architecture.md` | architecture | Стек, модули, генерация, деплой — по коду | `../../docs/tech-spec-ts-stack.md` | 2026-11-21 |
 | `catalog.md` | catalog | Каталог — загрузка из фидов/API, свежесть, сторожа | `../domain/catalog-enrichment.md` | 2026-11-19 |
 | `data-model.md` | data-model | Схема БД, миграции, pgvector | `../../docs/tech-spec-ts-stack.md` | 2026-11-18 |
 | `demo-planner.md` | demo-planner | Демо-планировщик для партнёра — расстановка и кадр | `../domain/demo-planner-ui.md` | 2026-11-18 |
@@ -43,7 +43,7 @@
 | `regression-net.md` | regression-net | Регресс-защита — тесты, CI, гардрейлы | `../../docs/tech-spec-ts-stack.md` | 2026-11-18 |
 | `room-measurement.md` | room-measurement | Замер комнаты по фото | `../domain/room-measurement.md` | 2026-11-18 |
 | `room-templates.md` | room-templates | Шаблоны комнат — порядок, паспорт, листы | `../domain/room-templates.md` | 2026-11-18 |
-| `stablegen-paint.md` | stablegen-paint | Покраска StableGen — пакет, повторы | `../domain/viz-fidelity-playbook.md` | 2026-11-20 |
+| `stablegen-paint.md` | stablegen-paint | Покраска StableGen — пакет, повторы | `../domain/viz-fidelity-playbook.md` | 2026-11-21 |
 | `stock-and-dims.md` | stock-and-dims | Размеры: наличие, честность, парсер, footprint | `../domain/stock-and-dims.md` | 2026-11-18 |
 | `styles.md` | styles | Стили — паспорта, скоринг, сеты | `../domain/interior-styles.md` | 2026-11-18 |
 | `user-flow.md` | user-flow | Stage 1 UX-flow, аналитика | `../domain/user-flow-details.md` | 2026-11-18 |

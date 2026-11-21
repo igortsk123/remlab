@@ -438,3 +438,4 @@ date	doc	reason	claims	mismatch	fixed	note
 2026-11-19	lessons/memory-process.md	drift	34	2	2	T-109: бюджет Tier0 10 КБ, снятие из heavy-slot
 2026-11-19	lessons/viz-render.md	drift	84	6	6	T-109: устаревшие уроки 63/67/95/110/113/127/145 помечены отменёнными; tint исправлен T-23/1
 2026-11-20	core/apartment-configurator.md	rotation	36	0	0	
+2026-11-21	.memory_bank/core/architecture.md	rotation	33	4	4	
