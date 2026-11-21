@@ -111,8 +111,8 @@ def merge_regions(view_regions: list[np.ndarray], view_vis: list[np.ndarray], ru
     return per_view, len(roots)
 
 
-def vote_faces(view_regions: list[np.ndarray], mapping: list[dict[int, int]], weights: list[np.ndarray], n_parts: int) -> tuple[np.ndarray, np.ndarray]:
-    """Часть на грань по весу кадров. Возвращает (часть −1/0.., согласие 0..1 — доля веса победителя от всего веса грани)."""
+def vote_faces(view_regions: list[np.ndarray], mapping: list[dict[int, int]], weights: list[np.ndarray], n_parts: int, with_acc: bool = False):
+    """Часть на грань по весу кадров. Возвращает (часть −1/0.., согласие 0..1 — доля веса победителя от всего веса грани); with_acc — ещё и копилку голосов грань × сырая часть."""
     nf = len(view_regions[0])
     acc = np.zeros((nf, max(1, n_parts)), dtype=np.float32)
     for reg, mp, w in zip(view_regions, mapping, weights):
@@ -122,7 +122,43 @@ def vote_faces(view_regions: list[np.ndarray], mapping: list[dict[int, int]], we
     tot = acc.sum(axis=1)
     part = np.where(tot > 0, acc.argmax(axis=1), -1).astype(np.int32)
     agree = np.where(tot > 0, acc.max(axis=1) / np.maximum(tot, 1e-9), 0.0).astype(np.float32)
-    return part, agree
+    return (part, agree, acc) if with_acc else (part, agree)
+
+
+def final_agreement(acc: np.ndarray, raw_part: np.ndarray, final_part: np.ndarray) -> np.ndarray:
+    """Согласие кадров относительно ИТОГОВЫХ частей: сырые части, склеенные в одну итоговую (мелкие слиты, номера сведены), голосуют вместе.
+    Сырая часть → итоговая, на чьих гранях её вес больше; согласие грани = доля веса, поданная за итоговую часть этой грани."""
+    nf, nraw = acc.shape
+    tot = acc.sum(axis=1)
+    lab = final_part >= 0
+    nfin = int(final_part.max()) + 1 if lab.any() else 0
+    raw_to_final = np.full(nraw, -1, dtype=np.int64)
+    if nfin:
+        w = np.zeros((nfin, nraw), dtype=np.float64)                         # вес сырой части на гранях каждой итоговой
+        for f in range(nfin):
+            w[f] = acc[final_part == f].sum(axis=0)
+        has = w.sum(axis=0) > 0
+        raw_to_final[has] = w[:, has].argmax(axis=0)
+    out = np.zeros(nf, dtype=np.float32)
+    for f in np.unique(raw_to_final[raw_to_final >= 0]):
+        cols = np.nonzero(raw_to_final == f)[0]
+        sel = (final_part == f) & (tot > 0)
+        out[sel] = acc[sel][:, cols].sum(axis=1) / tot[sel]
+    return out
+
+
+def fill_nearest(part: np.ndarray, verts: np.ndarray, faces: np.ndarray) -> np.ndarray:
+    """Грани, до которых не дотянулась заливка по соседству (отдельные острова: внутренности, не видные ни с одного ракурса) берут часть ближайшей по центру грани с частью."""
+    from scipy.spatial import cKDTree
+
+    todo = part < 0
+    if not todo.any() or todo.all():
+        return part
+    c = verts[faces].mean(axis=1)
+    _, idx = cKDTree(c[~todo]).query(c[todo])
+    out = part.copy()
+    out[todo] = part[~todo][idx]
+    return out
 
 
 def weld_adjacency(vertices: np.ndarray, faces: np.ndarray, decimals: int = 5):
@@ -252,10 +288,12 @@ def quality(part: np.ndarray, agree: np.ndarray, seen_any: np.ndarray, rules: di
 def run_vote(view_regions: list[np.ndarray], view_vis: list[np.ndarray], weights: list[np.ndarray], vertices: np.ndarray, faces: np.ndarray, rules: dict) -> dict:
     """Всё голосование разом: области кадров → части на гранях + мерки."""
     mapping, n_parts = merge_regions(view_regions, view_vis, rules)
-    part, agree = vote_faces(view_regions, mapping, weights, n_parts)
-    seen_any = part >= 0
+    raw_part, agree, acc = vote_faces(view_regions, mapping, weights, n_parts, with_acc=True)
+    seen_any = raw_part >= 0
     adj = weld_adjacency(vertices, faces)
-    part = fill_unlabeled(part, adj)
+    part = fill_unlabeled(raw_part, adj)
+    part = fill_nearest(part, vertices, faces)
     part = small_parts_to_neighbours(part, adj, rules["region"]["min_part_face_share"])
     part = renumber(part)
+    agree = final_agreement(acc, raw_part, part)                              # согласие — по итоговым частям, не по сырым номерам
     return {"part": part, "agree": agree, "seen_any": seen_any, "adj": adj, "n_parts_raw": n_parts}

@@ -59,6 +59,26 @@ class PartsVote(unittest.TestCase):
         self.assertEqual(part[70], part[-1])
         self.assertEqual(int(res["seen_any"].sum()), self.nf - 3, "невиденные считаются отдельно")
 
+    def test_island_without_neighbours_takes_nearest_part(self):
+        verts = np.concatenate([self.verts, self.verts[self.faces[60:70]].reshape(-1, 3) + np.array([0.0, 0.0, 5.0])])   # остров, не связанный с лентой
+        k = len(self.verts)
+        isl = np.arange(k, k + 30).reshape(10, 3)
+        faces = np.concatenate([self.faces, isl])
+        part = np.concatenate([np.where(self.top, 0, 1), np.full(10, -1)]).astype(np.int32)
+        adj = pv.weld_adjacency(verts, faces)
+        self.assertTrue((pv.fill_unlabeled(part, adj)[-10:] < 0).all(), "заливка по соседству остров не берёт")
+        out = pv.fill_nearest(pv.fill_unlabeled(part, adj), verts, faces)
+        self.assertTrue((out >= 0).all() and (out[-10:] == 1).all(), "остров над «ножками» берёт часть ближайших граней")
+
+    def test_agreement_counts_merged_raw_parts_together(self):
+        views = [self.regions((0, 1)), self.regions((2, 3))]        # одна физическая часть = разные сырые номера в разных кадрах
+        vis = [np.ones(self.nf, dtype=bool)] * 2
+        mapping, n = pv.merge_regions(views, vis, RULES)
+        raw, ag, acc = pv.vote_faces(views, [{0: 0, 1: 1}, {2: 2, 3: 3}], [self.w] * 2, 4, with_acc=True)   # сведение не удалось — 4 сырые части
+        self.assertLess(float(ag.mean()), 0.75)
+        final = np.where(self.top, 0, 1).astype(np.int32)           # а итог — две части
+        self.assertAlmostEqual(float(pv.final_agreement(acc, raw, final).mean()), 1.0, places=3)
+
     def test_tiny_part_goes_to_neighbour(self):
         part = np.where(self.top, 0, 1).astype(np.int32)
         part[30] = 2                                            # одна грань = 1 % — на границе порога → меньше доли
