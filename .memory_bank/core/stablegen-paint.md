@@ -15,7 +15,7 @@ review_after: 2026-12-05
 # Покраска мешей StableGen — как гоняем пакет (T-90/11–12, 20.11)
 
 Проба: результат — `painted.glb`, на сайт только после «принято» (P-059). Код — `tools/scout/stablegen/`.
-**С 20.11 основной путь — не StableGen**, а «фото + заливка» по 10 этапам (`tools/scout/paint_stage.py`) — ADR-0455, `plans/paint-photo-fill-01.md`; ниже — ориентир «до».
+**С 20.11 основной путь — не StableGen**, а «фото + заливка» по 10 этапам (`tools/scout/paint_stage.py`) — ADR-0455, порядок v3 — ADR-0457, `plans/paint-photo-fill-01.md`; ниже — ориентир «до».
 
 ## Конвейер
 - **Форма:** Salad (TRELLIS.2, `trellis_trial.py`) отдаёт GLB **без развёртки** → ОБЯЗАТЕЛЬНО `sg_prep_batch.sh` (`sg_prep_shape.py`: ≤150 тыс. граней + слой `BakeUV`). Без UV запекание не кончается (≈$1,9 впустую 20.11): стоп «форма без UV» ДО пода — `sg_salad.build_cfg`, `sg_drive.py`.

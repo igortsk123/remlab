@@ -601,3 +601,9 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 796 — кадры по этапам только у контрольных → `lessons/memory-process.md`
 - 797 — пакет из живого worktree: товар из двух версий → `lessons/dev-ops.md`
 - 798 — PNG RGBA 2 МБ не уходит фото в TG → `lessons/dev-ops.md`
+- 799 — причина цвета владельцу до замера по этапам → `lessons/mesh-salad-pool.md`
+- 800 — камера 04: IoU по точкам вершин, ложная поза ящиков → `lessons/mesh-salad-pool.md`
+- 801 — edge_agree как вердикт позы: 75 % ложных → `lessons/mesh-salad-pool.md`
+- 802 — образ TRELLIS.2 без рецепта прогрева Hunyuan → `lessons/mesh-salad-pool.md`
+- 803 — UltraTex учителем на 40 и эталон со страниц магазинов → `lessons/memory-process.md`
+- 804 — rsync -a без -H раздувает жёсткие ссылки → `lessons/dev-ops.md`
