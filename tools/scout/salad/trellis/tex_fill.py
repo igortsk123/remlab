@@ -734,6 +734,11 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 jj = np.where(okj, j, 0)
                 cs = np.abs((tx.N[unk] * R * srcN[jj]).sum(axis=1))
                 use = okj & (cs > c['mirror_cos'])
+                me = RULES['mirror_extreme']
+                lim_dark = max(float(me['black_abs']), float(np.quantile(srcL[:, 0], me['rel_quantile'])) - float(me['rel_margin']))      # темнее абсолютно чёрного ИЛИ темнее почти всего известного этой части на запас
+                black = use & (srcL[jj, 0] < lim_dark)                  # двойник — чёрный/слишком тёмный тексель (тень, дыра, край фото): не копируется, этот тексель красит геодезия
+                rep['mirror']['dropped_black'] = rep['mirror'].get('dropped_black', 0) + int(black.sum())
+                use &= ~black
                 idx = tx.ti[np.nonzero(unk)[0][use]]
                 flat = out_lab[gi].reshape(-1, 3)
                 flat[idx] = srcL[jj[use]]
@@ -1225,7 +1230,7 @@ def load_rules(path: str | None = None) -> dict:
     import json
     with open(path or RULES_PATH, encoding='utf-8') as f:
         r = json.load(f)
-    for k in ('thresholds', 'known_change_de', 'quilt_outlier', 'quilt_extreme', 'stage6_gate'):
+    for k in ('thresholds', 'known_change_de', 'quilt_outlier', 'quilt_extreme', 'mirror_extreme', 'stage6_gate'):
         if k not in r:
             raise KeyError(f'rules/paint-fill.json: нет ключа {k!r}')
     for k in ('empty_pct', 'dE00_front_back', 'filled_faces_step_pct', 'far_excess_pct', 'known_changed_share_pct', 'time_s'):
