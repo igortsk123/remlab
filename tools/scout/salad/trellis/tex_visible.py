@@ -152,6 +152,17 @@ def face_maps(st: dict, nF: int, off: int = 0) -> dict:
     return out
 
 
+def smooth_depth(st: dict) -> np.ndarray:
+    """Глубина растра, очищенная от пятен-выбросов на рёбрах треугольников (медиана 3×3 по занятым пикселям; пустое остаётся 0)."""
+    from scipy.ndimage import median_filter
+    d = st['depth'].astype(np.float64)
+    ok = d > 0
+    if not ok.any():
+        return d
+    sm = median_filter(np.where(ok, d, float(np.median(d[ok]))), size=3)
+    return np.where(ok, sm, 0.0)
+
+
 def depth_band(st: dict) -> np.ndarray:
     """Маска кадра: пиксели у разрыва глубины (край складки, щель между подушками, торец за выступом) шире DEPTH_BAND px — фото там берёт тень щели, а не поверхность."""
     from scipy.ndimage import binary_dilation, median_filter
@@ -175,7 +186,8 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
     """Новые текстуры + маски «известно» по геометриям. Каждый занятый тексель идёт на фото СВОЕЙ точкой (карта грани, `face_maps`), берётся, если: его грань видна с углом лучше `cos_min`,
     глубина точки совпадает с буфером глубины камеры (не заслонена), точка внутри силуэта фото с отступом от края. Цвет — билинейно с фото; невидимое остаётся прежним."""
     from scipy.ndimage import distance_transform_edt, map_coordinates
-    ids, depth = st['ids'], st['depth']
+    ids = st['ids']
+    depth = smooth_depth(st)                                        # сырая карта в пятнах на рёбрах треугольников: проверка «не заслонён» — по медиане 3×3
     px = st['px']
     offs = np.cumsum([0] + [len(g['F']) for g in geoms])
     if ids.max() >= offs[-1]:
