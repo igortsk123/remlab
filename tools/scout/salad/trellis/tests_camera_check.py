@@ -131,5 +131,40 @@ with tempfile.TemporaryDirectory() as root:
     check('e2e plate_found без среза: passed=false, unreliable=true', not unrel['passed'] and unrel['extra']['unreliable'] is True and 'plate_found' in unrel['extra']['unreliable_reason'], unrel['reason'])
     check('e2e: кадр frame.png записан', os.path.exists(os.path.join(root, 'good', '04-camera', 'frame.png')))
 
+# 9. пометка «низ: маска фото грубая»: бледные тонкие ножки на белом фоне — да; тёмные ножки / толстый низ — нет
+rgb_pale = np.full((H, W, 3), 255, np.uint8)
+rgb_pale[A] = (222, 214, 200)                                           # бледное на белом: контраст ≈ 0,1
+sr = CC.silhouette_shares(A, A, 0.15)['strip_rows']
+q = CC.bottom_mask_quality(rgb_pale, A, sr)
+check('маска грубая: тонкие бледные ножки → thin<0,3, contrast<0,25', q['thin_share'] < RULES['coarse_thin_max'] and q['contrast'] < RULES['coarse_contrast_max'], str(q))
+rgb_dark = np.full((H, W, 3), 255, np.uint8)
+rgb_dark[A] = (40, 30, 25)
+q = CC.bottom_mask_quality(rgb_dark, A, sr)
+check('маска не грубая: тёмные ножки → контраст высокий', q['contrast'] > RULES['coarse_contrast_max'], str(q))
+q = CC.bottom_mask_quality(rgb_dark, A, None)
+check('нет полосы → None', q['thin_share'] is None)
+
+# 10. мультистарт pose_fit: стол с четырьмя ножками, камера на 40°/15°; от стартов MS_AZ × MS_EL находит позу с IoU ≥ 0,9, и оценка лучшего старта выше худшего
+import pose_fit as PF  # noqa: E402
+rng = np.random.default_rng(1)
+
+
+def table_cloud() -> np.ndarray:
+    top = np.c_[rng.uniform(-.5, .5, 5000), np.full(5000, .5) + rng.uniform(0, .04, 5000), rng.uniform(-.35, .35, 5000)]
+    legs = [np.c_[np.full(800, x) + rng.uniform(-.02, .02, 800), rng.uniform(-.5, .5, 800), np.full(800, z) + rng.uniform(-.02, .02, 800)] for x, z in ((-.42, -.28), (.42, -.28), (-.42, .28), (.42, .28))]
+    return np.vstack([top] + legs)
+
+
+Pt = table_cloud()
+cam_true = {'az': 40.0, 'el': 15.0, 'd': 4.0, 'f': 3.0, 'cx': 0.5, 'cy': 0.5}
+Mt = PF.splat_mask(Pt, cam_true, 128)
+pick, allr = PF.multistart_fit(Pt, Mt, 128, topk=2, log=lambda *_: None)
+check('мультистарт: все старты записаны с числами', len(allr) == len(PF.MS_AZ) * len(PF.MS_EL) and all({'iou', 'miss', 'extra', 'score', 'start_az', 'cam'} <= set(r) for r in allr))
+check('мультистарт: лучший IoU ≥ 0,85 (поза с точностью до симметрии стола)', pick[0]['iou'] >= 0.85, f"{pick[0]['iou']}")
+check('мультистарт: оценки отсортированы, лучший ≥ худшего', allr[0]['score'] >= allr[-1]['score'] and pick[0]['score'] == allr[0]['score'])
+sc_bad = PF.pose_score(PF.splat_mask(Pt, {**cam_true, 'az': 40 + 90}, 128), Mt)
+sc_ok = PF.pose_score(Mt, Mt)
+check('оценка позы: точная > повёрнутая на 90°', sc_ok['score'] > sc_bad['score'], f"{sc_ok['score']} vs {sc_bad['score']}")
+
 print('all ok' if not bad else f'FAILED: {bad}')
 sys.exit(1 if bad else 0)

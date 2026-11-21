@@ -39,6 +39,14 @@ MARGIN = 0.08                      # поле вокруг силуэта в к�
 SHIFT = 4                          # субпиксель fillConvexPoly
 W_IOU = 2.0                        # вес силуэта против кромок в уточнении по кромкам
 R_AZ, R_EL, R_LND = 15.0, 10.0, 0.5   # пределы ухода камеры от найденной по силуэту
+# мультистарт (T-112/2, 21.11: у симметричных предметов — столы, табуреты, пуфы — силуэт даёт почти одинаковые решения через 90°, обычный подбор застревает в локальном минимуме)
+MS_TRIGGER = 0.90                  # режим auto: мультистарт, если лучший IoU силуэта после обычного подбора ниже этого
+MS_AZ = tuple(a0 + da for a0 in (0, 90, 180, 270) for da in (-15, 0, 15))   # 12 стартов по азимуту
+MS_EL = (5.0, 20.0, 35.0)          # старты по наклону (подъём камеры)
+MS_D = 3.0
+MS_W_BOTTOM = 0.25                 # вес долей несовпадения нижней полосы в оценке старта
+BLUR_FRAC = 0.10                   # размытие масок на этапе 1 мультистарта, доля стороны кадра
+_STRIP = None                      # strip_frac из rules/camera-check.json (читается один раз)
 
 
 # ——— камера ———
@@ -155,6 +163,78 @@ def fit_camera(P: np.ndarray, Mp: np.ndarray, n: int, topk: int = 4, log=print) 
         log(f"  старт az={cam['az']:.0f} el={cam['el']:.0f} d={cam['d']:.1f}: IoU {sc:.4f} → az={c['az']:.1f} el={c['el']:.1f} d={c['d']:.2f} IoU {1 - r.fun:.4f} ({r.nit} шагов)")
     out.sort(key=lambda t: -t['iou'])
     return out
+
+
+def pose_score(S: np.ndarray, Mp: np.ndarray) -> dict:
+    """Оценка позы по силуэтам (как гейт 04-camera): IoU − 0,5·(miss+extra) − MS_W_BOTTOM·0,5·(miss_низ+extra_низ). Выше — лучше."""
+    import camera_check as CC
+    global _STRIP
+    if _STRIP is None:
+        _STRIP = float(CC.load_rules()['strip_frac'])
+    sh = CC.silhouette_shares(S, Mp, _STRIP)
+    i = iou(S, Mp)
+    sc = i - 0.5 * (sh['miss'] + sh['extra']) - MS_W_BOTTOM * 0.5 * (sh['miss_bottom'] + sh['extra_bottom'])
+    return {'iou': round(i, 4), 'miss': round(sh['miss'], 4), 'extra': round(sh['extra'], 4), 'miss_bottom': round(sh['miss_bottom'], 4),
+            'extra_bottom': round(sh['extra_bottom'], 4), 'score': round(float(sc), 4)}
+
+
+def _blur(M: np.ndarray, n: int) -> np.ndarray:
+    import cv2
+    k = max(3, int(round(n * BLUR_FRAC)) | 1)                          # ≈ 10 % стороны кадра: широкий бассейн (проверено на синтетических столах, 6 из 6)
+    return cv2.GaussianBlur(M.astype(np.float32), (k, k), 0)
+
+
+def soft_iou(S: np.ndarray, Bp: np.ndarray) -> float:
+    """IoU размытых масок (Bp — размытая маска фото): ∑min / ∑max; плавный, у тонких ножек бассейн шире жёсткого IoU."""
+    Bs = _blur(S, S.shape[0])
+    den = float(np.maximum(Bs, Bp).sum())
+    return float(np.minimum(Bs, Bp).sum()) / den if den else 0.0
+
+
+def multistart_fit(P: np.ndarray, Mp: np.ndarray, n: int, topk: int = 4, log=print) -> tuple[list, list]:
+    """Много стартов по азимуту (0/90/180/270 ±15°) и подъёму, Нелдер–Мид от каждого. → (кандидаты [{cam, iou, iou_grid, score, …}] по убыванию оценки (разные позы, ≤ topk), ВСЕ старты с числами)."""
+    from scipy.optimize import minimize
+    ys, xs = np.nonzero(Mp)
+    tb = (xs.min() / n, ys.min() / n, (xs.max() + 1) / n, (ys.max() + 1) / n)
+    Pc = P[:: max(1, len(P) // 150000)]
+    allr = []
+    Mp_blur = _blur(Mp, n)
+    for az0 in MS_AZ:
+        for el0 in MS_EL:
+            cam0 = _bbox_fit(Pc, float(az0) % 360, el0, MS_D, tb)
+
+            def f_soft(v):                                              # этап 1: размытые маски — широкий бассейн у тонких ножек
+                c = _cam(v)
+                if not (D_MIN <= c['d'] <= D_MAX) or abs(c['el']) > 85:
+                    return 1.0
+                return 1.0 - soft_iou(splat_mask(Pc, c, n), Mp_blur)
+
+            def f(v):                                                   # этап 2: жёсткая оценка (IoU, miss, extra, низ)
+                c = _cam(v)
+                if not (D_MIN <= c['d'] <= D_MAX) or abs(c['el']) > 85:
+                    return 1.0
+                return 1.0 - pose_score(splat_mask(Pc, c, n), Mp)['score']
+            v0 = _vec(cam0)
+            sim = np.vstack([v0] + [v0 + np.eye(6)[i] * st for i, st in enumerate((6.0, 4.0, 0.2, 0.08, 0.02, 0.02))])
+            r1 = minimize(f_soft, v0, method='Nelder-Mead', options={'initial_simplex': sim, 'maxiter': 300, 'xatol': 1e-3, 'fatol': 1e-5})
+            v1 = r1.x
+            sim = np.vstack([v1] + [v1 + np.eye(6)[i] * st for i, st in enumerate((2.0, 1.5, 0.06, 0.03, 0.01, 0.01))])
+            r = minimize(f, v1, method='Nelder-Mead', options={'initial_simplex': sim, 'maxiter': 300, 'xatol': 1e-3, 'fatol': 1e-5})
+            r.nit += r1.nit
+            c = _cam(r.x)
+            m = pose_score(splat_mask(Pc, c, n), Mp)
+            rec = {'start_az': float(az0) % 360, 'start_el': el0, 'cam': c, 'iou_grid': round(iou(splat_mask(Pc, cam0, n), Mp), 4), **m, 'steps': int(r.nit)}
+            allr.append(rec)
+            log(f"  мультистарт az0={rec['start_az']:.0f} el0={el0:.0f}: → az={c['az']:.1f} el={c['el']:.1f} d={c['d']:.2f} IoU {m['iou']} miss {m['miss']} extra {m['extra']} оценка {m['score']}")
+    allr.sort(key=lambda t: -t['score'])
+    pick: list = []
+    for rec in allr:                                                   # лучшие, разные по позе
+        c = rec['cam']
+        if all(abs(((c['az'] - o['cam']['az'] + 180) % 360) - 180) > 12 or abs(c['el'] - o['cam']['el']) > 8 for o in pick):
+            pick.append(rec)
+        if len(pick) >= topk:
+            break
+    return pick, allr
 
 
 # ——— кадр камеры ———
@@ -301,7 +381,7 @@ def write_stages(r: dict, out_run: str, cam: dict, cv: dict, photo_path: str, ya
     return reg
 
 
-def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int = 1536, n_fit: int = 256, topk: int = 4, ortho: bool = False, log=print) -> dict:
+def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int = 1536, n_fit: int = 256, topk: int = 4, ortho: bool = False, multistart: str = 'auto', log=print) -> dict:
     """ТОЧКА ВХОДА (код): камера фото на форме `glb` → файлы в `out_run` (см. шапку) и словарь
     {camera: {az, el, d, f, cx, cy}, canvas, yaw, px, iou_frame, edge_agree, textured, stages_dir, pose_json, candidates, iou_frontal_ortho_bbox}.
     Форма без текстуры (нет `images`) — кромки сверяются по затенению нормалей (`shade_view`). `ortho=True` — сравнение: d прибита к D_MAX."""
@@ -325,10 +405,24 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
         geo = to_cube_geo(SC.load_geom(glb), yaw)
         log(f'форма: {len(geo["V"])} вершин, {len(geo["F"])} граней; фото {photo.shape[1]}×{photo.shape[0]}, кадр {px}, подбор {n}')
         cands = fit_camera(geo['V'], Mp, n, topk, log=log)
+        Pc = geo['V'][:: max(1, len(geo['V']) // 150000)]
+        ms_info = {'mode': multistart, 'trigger_iou': MS_TRIGGER, 'standard_best_iou': cands[0]['iou'], 'ran': False, 'starts': []}
+        run_ms = multistart == 'on' or (multistart == 'auto' and cands[0]['iou'] < MS_TRIGGER)
+        for c in cands:
+            c.update(pose_score(splat_mask(Pc, c['cam'], n), Mp))
+        if run_ms:
+            log(f"мультистарт: IoU обычного подбора {cands[0]['iou']} < {MS_TRIGGER} (режим {multistart}) — {len(MS_AZ) * len(MS_EL)} стартов")
+            ms_pick, ms_all = multistart_fit(geo['V'], Mp, n, topk, log=log)
+            ms_info.update({'ran': True, 'starts': ms_all, 'weights': 'оценка = IoU − 0,5·(miss+extra) − 0,125·(miss_низ+extra_низ)'})
+            cands = sorted(cands + ms_pick, key=lambda t: -t['score'])[: topk + len(ms_pick)]
+            pool = [c for c in cands if c['score'] >= cands[0]['score'] - TIE_IOU]
+        else:
+            pool = None
         j, b = A.read_glb(glb)
         tex = T.read_texture(j, b) if (j.get('images') or []) else None
         best_iou = cands[0]['iou']
-        pool = [c for c in cands if c['iou'] >= best_iou - TIE_IOU]
+        if pool is None:
+            pool = [c for c in cands if c['iou'] >= best_iou - TIE_IOU]
         for c in pool:
             c['edge'] = edge_score(geo, c['cam'], photo, alpha, cv, tex)
             log(f"  кандидат az={c['cam']['az']:.1f} el={c['cam']['el']:.1f} d={c['cam']['d']:.2f} IoU {c['iou']} кромки до ECC {c['edge']['agree']}")
@@ -343,10 +437,10 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
         iou_front = iou(splat_mask(geo['V'][:: max(1, len(geo['V']) // 150000)], front, n), Mp)
         log(f"выбрана: az={cam['az']:.1f} el={cam['el']:.1f} d={cam['d']:.2f} (IoU подбора {pick['iou']}; фронтальная ортография по габариту {iou_front:.4f})")
         r = render_persp(geo, cam, px)
-        extra = {'pose': {'picked': pick, 'candidates': cands, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'fov_deg_canvas': round(float(np.degrees(2 * np.arctan(0.5 / cam['f']))), 2)}}
+        extra = {'pose': {'picked': pick, 'candidates': cands, 'multistart': ms_info, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'fov_deg_canvas': round(float(np.degrees(2 * np.arctan(0.5 / cam['f']))), 2)}}
         reg = write_stages(r, out_run, cam, cv, photo_path, yaw, px, glb, extra)
         pj = os.path.join(out_run, 'pose.json')
-        json.dump({'camera': cam, 'canvas': cv, 'picked': pick, 'candidates': cands, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'iou_frame': reg['iou'], 'px': px, 'yaw': yaw, 'textured': tex is not None},
+        json.dump({'camera': cam, 'canvas': cv, 'picked': pick, 'candidates': cands, 'multistart': ms_info, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'iou_frame': reg['iou'], 'px': px, 'yaw': yaw, 'textured': tex is not None},
                   open(pj, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         A_fr = SL.warp_inv(alpha.astype(np.float32), canvas_P(cv, px), (px, px)) > 0.5
         ov = np.zeros((px, px, 3), np.uint8)
@@ -369,8 +463,9 @@ def main() -> int:
     ap.add_argument('--n-fit', type=int, default=256)
     ap.add_argument('--topk', type=int, default=4)
     ap.add_argument('--ortho', action='store_true', help='сравнение: дистанция камеры прибита к D_MAX (слабая перспектива ≈ ортография), остальное как обычно')
+    ap.add_argument('--multistart', choices=('auto', 'on', 'off'), default='auto', help='много стартов по азимуту (0/90/180/270 ±15°) и подъёму для симметричных предметов: auto — если IoU обычного подбора < MS_TRIGGER')
     a = ap.parse_args()
-    res = fit_pose(a.glb, a.photo, a.out_run, a.yaw, a.px, a.n_fit, a.topk, a.ortho)
+    res = fit_pose(a.glb, a.photo, a.out_run, a.yaw, a.px, a.n_fit, a.topk, a.ortho, a.multistart)
     print(json.dumps({'camera': res['camera'], 'iou_frame': res['iou_frame'], 'edge_agree_before_ecc': res['edge_agree']}, ensure_ascii=False))
     return 0
 

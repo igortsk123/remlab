@@ -64,6 +64,29 @@ def silhouette_shares(S: np.ndarray, A: np.ndarray, strip_frac: float) -> dict:
             'miss_bottom': sh(Ab & ~Sb, Ab, Sb), 'extra_bottom': sh(Sb & ~Ab, Sb, Ab), 'strip_rows': [y0, y1]}
 
 
+def bottom_mask_quality(rgb: np.ndarray, A: np.ndarray, strip_rows) -> dict:
+    """Насколько можно верить нижней полосе фото-маски (комод 13224: ножки бледные, маска грубая блоками — extra/miss внизу шумят и НЕ повод двигать порог).
+    thin_share — доля пикселей маски в полосе от (высота полосы × ширина силуэта фото); contrast — |яркость маски − яркость фона| в полосе (0…1; фон — не-маска той же полосы в ширине силуэта).
+    Нет полосы/маски → None."""
+    if not strip_rows:
+        return {'thin_share': None, 'contrast': None}
+    y0, y1 = strip_rows
+    A = np.asarray(A, bool)
+    cols = np.flatnonzero(A.any(axis=0))
+    if cols.size == 0:
+        return {'thin_share': None, 'contrast': None}
+    x0, x1 = int(cols[0]), int(cols[-1]) + 1
+    sub = A[y0:y1 + 1, x0:x1]
+    col = np.asarray(rgb)[y0:y1 + 1, x0:x1].astype(np.float32)
+    lum = 0.299 * col[..., 0] + 0.587 * col[..., 1] + 0.114 * col[..., 2]
+    area = sub.size
+    if area == 0 or not sub.any():
+        return {'thin_share': 0.0, 'contrast': None}
+    fg = float(lum[sub].mean())
+    bg = float(lum[~sub].mean()) if (~sub).any() else fg
+    return {'thin_share': round(float(sub.sum()) / area, 4), 'contrast': round(abs(fg - bg) / 255.0, 4)}
+
+
 def prep_plate_unreliable(root: str, sku: str) -> tuple[bool, str]:
     """02-prep: plate_found=true без среза (нет выходного файла и report.written ложно) → камера по такой форме ненадёжна (форма с плитой; IoU по силуэту плиту не видит).
     Нет check.json этапа 02-prep — не знаем, не флажим (False, '')."""
@@ -128,6 +151,12 @@ def main() -> int:
     pa = SL.warp_inv((photo[..., 3] > 127).astype(np.uint8) * 255, P, (w, h), interp=cv2.INTER_NEAREST) > 127
     shares = silhouette_shares(S, pa, rules['strip_frac'])
     ok, reason = verdict(iou, shares, edge, rules, unrel_why)
+    bq = bottom_mask_quality(ph, pa, shares['strip_rows'])
+    coarse = bool(bq['thin_share'] is not None and bq['contrast'] is not None
+                  and bq['thin_share'] < rules.get('coarse_thin_max', 0.3) and bq['contrast'] < rules.get('coarse_contrast_max', 0.35))
+    coarse_note = 'низ: маска фото грубая (мало пикселей маски в нижней полосе, низкий контраст) — доли внизу шумят, порог под такие не подгонять' if coarse else ''
+    if coarse_note:
+        reason = reason + '; ' + coarse_note if not ok else reason + ' (' + coarse_note + ')'
     if a.view0 and os.path.exists(a.view0):
         rend = np.asarray(Image.open(a.view0).convert('RGB'))
         if rend.shape[:2] != (h, w):
@@ -153,7 +182,7 @@ def main() -> int:
                                   'edge_agree': {'value': round(edge, 4)}},
                          reason=reason if not ok else '', seconds=round(time.time() - t0, 1), outputs=['frame.png'], frame='frame.png',
                          edge_ref_min=rules['edge_ref'], edge_below_ref=bool(edge < rules['edge_ref']), note=reason if ok else '', strip_rows=shares['strip_rows'], strip_frac=rules['strip_frac'],
-                         unreliable=bool(unrel), unreliable_reason=unrel_why, rules_file='tools/scout/rules/camera-check.json',
+                         bottom_mask_coarse=coarse, bottom_mask=bq, unreliable=bool(unrel), unreliable_reason=unrel_why, rules_file='tools/scout/rules/camera-check.json',
                          camera=pose['camera'], yaw=a.yaw if a.yaw is not None else pose.get('yaw'), pairs=None, photo=a.photo, method=reg.get('method'),
                          textured=pose.get('textured'), frame_note='фото 50 % + рендер 50 %; красный контур — рендер формы, зелёный — фото')
     print(f"{'OK ' if res['passed'] else 'НЕТ'} IoU {iou:.3f} miss {shares['miss']:.3f}/{shares['miss_bottom']:.3f} extra {shares['extra']:.3f}/{shares['extra_bottom']:.3f} (всё/низ) кромки {edge:.3f} — {reason}")
