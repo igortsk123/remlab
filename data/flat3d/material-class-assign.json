@@ -5165,11 +5165,6 @@
     "frame": {
      "class": "wood_veneer",
      "reason": "Материал каркаса=фанера, древесные плиты"
-    },
-    "legs": {
-     "class": "wood_veneer",
-     "inferred": true,
-     "reason": "Материал каркаса=фанера, древесные плиты"
     }
    },
    "reason": "Ткань=Велюр Монолит",
@@ -6246,6 +6241,11 @@
     "frame": {
      "class": "metal",
      "reason": "Материал каркаса=Металл, Шпон"
+    },
+    "legs": {
+     "class": "metal",
+     "inferred": true,
+     "reason": "Материал каркаса=Металл, Шпон"
     }
    },
    "reason": "Материал обшивки=Рогожка",
@@ -6492,6 +6492,6 @@
    "stage": "params"
   }
  },
- "rulesSha": "ca2f5af30e9eb333",
+ "rulesSha": "e790516c804e8b86",
  "version": 1
 }

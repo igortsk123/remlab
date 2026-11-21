@@ -170,7 +170,7 @@ def stage_parts(rules: dict, role: str, params: dict) -> dict:
             val = _param(params, key)
             if val is None:
                 continue
-            hits = [h for h in pick(rules, find_hits(val, rules["value_patterns"]), []) if rules["_byId"][h[2]]["family"] in fb["families"]]
+            hits = [h for h in pick(rules, find_hits(val, rules["value_patterns"]), []) if rules["_byId"][h[2]]["family"] in fb["families"] and h[2] not in fb.get("exclude_classes", [])]
             if hits and len({rules["_byId"][h[2]]["family"] for h in hits}) == 1:
                 out[part] = {"class": hits[0][2], "reason": f"{key}={val}", "inferred": True}
                 break

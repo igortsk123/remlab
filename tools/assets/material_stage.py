@@ -98,7 +98,9 @@ def resolve_parts(parts: list[dict], cls: dict, recipes: dict, parts_known: bool
     conf, cl = recipes["confidence"], recipes["classify"]
     fb = recipes["fallback_class"]
     cat = cls.get("parts") or {}
-    main = max(parts, key=lambda p: p["face_share"])
+    has_shade = "shade" in cat
+    pool = [p for p in parts if not (has_shade and str(p.get("role", "")) == "shape:blob-top")] or parts   # верхняя зона с плафоном в каталоге — не «главная часть», даже если самая большая
+    main = max(pool, key=lambda p: p["face_share"])
     main_lab = ((main.get("colour") or {}).get("lab_median"))
     out: dict[int, dict] = {}
     for p in parts:
@@ -156,8 +158,9 @@ def geometry_shape_parts(mesh, mp, cat_parts: dict, recipes: dict) -> tuple[np.n
     legs = legs_by_geometry(mesh, mp, cat_parts)
     kind, up, rep = psh.face_shapes(mesh.vertices, mesh.faces, g)
     nf = len(mesh.faces)
-    key = np.where(kind == psh.LINEAR, 1, np.where(kind == psh.BLOB, np.where(up >= g["top_from"], 3, 2), 0))   # 0 planar, 1 linear, 2 blob, 3 blob-top
-    names = {0: "planar", 1: "linear", 2: "blob", 3: "blob-top"}
+    # 0 planar, 1 linear, 2 blob, 3 top. Верхняя зона: всё, что не тонкая стойка, — «верх» (плафон; шар крупнее радиуса на вид «плоский» и дробился на пятна)
+    key = np.where(kind == psh.LINEAR, 1, np.where(up >= g["top_from"], 3, np.where(kind == psh.BLOB, 2, 0)))
+    names = {0: "planar", 1: "linear", 2: "blob", 3: "blob-top"}   # blob-top: классом плафона станет материал каталога (стекло, ткань…), не «стекло» вообще
     key = np.where(legs, -1, key)
     shares = {k: float((key == k).sum()) / nf for k in (0, 1, 2, 3)}
     big = max(shares, key=shares.get)

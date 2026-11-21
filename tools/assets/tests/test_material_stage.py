@@ -207,6 +207,39 @@ def test_shapes_without_stage3():
     ok(rep2["share"] == rep["share"], "масштаб модели ничего не меняет: пороги — доли габарита")
 
 
+def test_top_zone_shade():
+    import trimesh
+    import part_shapes as psh  # noqa: F401
+    mc, mp = MS._siblings()
+    m = _lamp_mesh()
+    big = trimesh.creation.icosphere(subdivisions=4, radius=0.13)        # шар крупнее радиуса окрестности: кусок поверхности на вид плоский
+    big.apply_translation([0, 1.45, 0])
+    v, f = trimesh.remesh.subdivide_to_size(big.vertices, big.faces, max_edge=0.02)
+    m = trimesh.util.concatenate([m, trimesh.Trimesh(v, f, process=False)])
+    part, parts, _ = MS.geometry_shape_parts(m, mp, {}, R)
+    cen = m.vertices[m.faces].mean(axis=1)
+    top = next((p for p in parts if p["role"] == "shape:blob-top"), None)
+    ok(top is not None and (part[cen[:, 1] > 1.35] == top["id"]).mean() > 0.95, "крупный плафон наверху — ≥95% граней в одной части «верх» (не пятнами)")
+    for shade_cls in ("glass", "fabric"):
+        res = MS.resolve_parts(parts, _cls("metal", 0.9, shade=shade_cls), R, parts_known=True)
+        by = {p["role"]: res[p["id"]] for p in parts}
+        ok(by["shape:blob-top"]["class"] == shade_cls and by["shape:blob-top"]["confident"], f"верх берёт класс плафона из каталога: {shade_cls}")
+    res = MS.resolve_parts(parts, _cls("metal", 0.9), R, parts_known=True)
+    by = {p["role"]: res[p["id"]] for p in parts}
+    ok(by["shape:blob-top"]["class"] == "metal", "плафона в каталоге нет — верх остаётся материалом корпуса, стекла не придумываем")
+
+
+def test_top_zone_bigger_than_body():
+    parts = [{"id": 0, "face_share": 0.2, "role": "shape:blob", "vl": None, "colour": None},
+             {"id": 1, "face_share": 0.5, "role": "shape:blob-top", "vl": None, "colour": None},
+             {"id": 2, "face_share": 0.3, "role": "shape:linear", "vl": None, "colour": None}]
+    res = MS.resolve_parts(parts, _cls("metal", 0.9, shade="fabric"), R, parts_known=True)
+    ok(res[1]["class"] == "fabric" and res[1]["source"] == "geometry:top", "верх — самая большая часть, но с плафоном в каталоге он плафон (ткань), а не «главная часть» металл")
+    ok(res[2]["class"] == "metal" and res[2]["source"].startswith("catalog:"), "главной становится крупнейшая из остальных частей (здесь стойка 30%)")
+    res = MS.resolve_parts(parts, _cls("metal", 0.9), R, parts_known=True)
+    ok(res[1]["class"] == "metal", "плафона в каталоге нет — верх по-прежнему главная часть")
+
+
 def test_inherit_unseen():
     import trimesh
     m = trimesh.creation.icosphere(subdivisions=3, radius=1.0)
@@ -245,7 +278,7 @@ def test_stage_geometry_and_inherited():
 
 
 if __name__ == "__main__":
-    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_inherit_unseen, test_stage_geometry_and_inherited):
+    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited):
         print(t.__name__)
         t()
     print(f"material_stage tests: ошибок {FAIL}")
