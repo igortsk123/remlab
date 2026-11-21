@@ -39,6 +39,7 @@ COS_MIN = 0.34          # cos угла к лучу: 70° и больше — в�
 COS_FULL = 0.55         # полный вес с этого косинуса; между COS_MIN и COS_FULL — плавная передача заготовке
 EDGE_FRAC = 4.0 / 480   # отступ от силуэта фото внутрь, доли стороны кадра: вес растёт от 0 до 1 (там фон и ореол)
 GUTTER = 6              # желоб вокруг островков, пикселей текстуры (билинейная выборка у шва не берёт серый фон)
+HOLE_R = 2.5            # дыры между взятыми текселями (пикселей кадра реже текселей) закрываются ближайшим взятым не дальше этого, текселей
 DEPTH_PX = 3.0          # допуск «тексель не заслонён»: расхождение глубины точки и буфера глубины камеры не больше стольких пикселей предмета (у косых граней — шире)
 GREY = 128
 GATE = {                # (порог, op) — провизорно, см. шапку
@@ -179,12 +180,31 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
         wmap = np.zeros((T, T), np.float64)
         wmap[ty, tx] = w
         known = wmap >= 0.5
+        n_face = int(known.sum())
+        ys, xs = np.nonzero(st['mask'] & (ids >= offs[gi]) & (ids < offs[gi + 1]))             # проход 2: пиксели растра камеры — каждый на тексель СВОЕЙ развёртки (грани мельче пикселя карту грани не строят)
+        wp = np.clip((st['cos'][ys, xs] - cos_min) / max(COS_FULL - cos_min, 1e-6), 0.0, 1.0) * np.clip(dist_edge[ys, xs] / edge_px, 0.0, 1.0) * pmask[ys, xs]
+        keep = wp > 0
+        ys, xs, wp = ys[keep], xs[keep], wp[keep]
+        tpx = np.clip(np.floor(st['uv'][ys, xs, 0] * T).astype(np.int64), 0, T - 1)
+        tpy = np.clip(np.floor(st['uv'][ys, xs, 1] * T).astype(np.int64), 0, T - 1)
+        flat = tpy * T + tpx
+        sw = np.bincount(flat, wp, T * T).reshape(T, T)
+        scol = np.stack([np.bincount(flat, wp * prgb[ys, xs, c].astype(np.float64), T * T).reshape(T, T) for c in range(3)], 2)
+        take = occ & ~known & (sw > 0.25)
+        tex[take] = scol[take] / sw[take][:, None]
+        known = known | take
+        n_splat = int(take.sum())
+        hd, (hy, hx) = distance_transform_edt(~known, return_distances=True, return_indices=True)       # дыры между пикселями: ближайший взятый тексель не дальше HOLE_R
+        fill = occ & ~known & (hd <= HOLE_R)
+        tex[fill] = tex[hy[fill], hx[fill]]
+        known = known | fill
+        n_fill = int(fill.sum())
         gd, (iy, ix) = distance_transform_edt(~occ, return_distances=True, return_indices=True)     # желоб: ближайший занятый тексель на GUTTER пикселей наружу
         ring = (~occ) & (gd <= GUTTER)
         tex[ring] = tex[iy[ring], ix[ring]]
         texs.append(np.clip(tex + 0.5, 0, 255).astype(np.uint8))
         knowns.append(known)
-        stats.append({'name': g['name'], 'T': T, 'occupied': int(occ.sum()), 'known': int(known.sum()), 'faces_ok': int(fm['ok'].sum()), 'faces_seen': int((fm['cnt'] > 0).sum()), 'texels_taken': int(use.sum())})
+        stats.append({'name': g['name'], 'T': T, 'occupied': int(occ.sum()), 'known': int(known.sum()), 'faces_ok': int(fm['ok'].sum()), 'faces_seen': int((fm['cnt'] > 0).sum()), 'texels_taken': int(use.sum()), 'known_facemap': n_face, 'known_splat': n_splat, 'known_filled': n_fill})
     return {'tex': texs, 'known': knowns, 'stats': stats}
 
 
