@@ -7,9 +7,11 @@
   результат = фото × g,  g = blur(Y_albedo) / blur(Y_фото),  σ = доля × длинная сторона, нормировано по медиане предмета, blur — только внутри маски.
 Цвет, стёжка, ворс остаются с фото. Все пороги и параметры модели — в `rules/paint-delight.json` (в коде чисел порогов и ID товаров нет).
 
-ЧЕСТНО О МЕРКЕ. `iid_shading_removed` = «результат/фото» по разбросу НИЗКОЧАСТОТНОЙ яркости внутри участка одного цвета (кластер хромы ФОТО; многотоновые участки по albedo не мерим).
-Это «убрано то, что IID счёл светом», а НЕ «свет снят на самом деле»: если IID принял тень за цвет, мерка пройдёт. Независимая проверка по нормалям меша (R2) — позже:
-в check.json стоит `independent_check: pending`. Света на фото мало (разброс < порога N/A) — мерка N/A, passed не краснеет. ΔL* к каталогу — НЕ здесь (шаг цвета).
+ЧЕСТНО О МЕРКЕ. `iid_follow_ratio` («следование IID») = остаток (результат − albedo) / свет по IID (фото − albedo): разброс P90−P10 НИЗКОЧАСТОТНОЙ яркости внутри участка одного цвета
+(кластер хромы ФОТО; многотоновые участки по albedo не мерим). Рисунок albedo (густота веток, тон частей) из знаменателя вычтен — прежняя «результат/фото» краснела на узорных тканях (Сакура 0,55).
+Это «результат следует albedo IID» — защита от поломки, а НЕ «свет снят на самом деле»: если IID принял тень за цвет или ошибся, мерка всё равно зелёная (замкнутый круг). Независимая проверка
+пользы — ΔE одной ткани перёд↔бок внутри части после переноса на форму (этап 6, со снятым светом и без); в check.json стоит `independent_check: pending`. Света мало
+(разброс на фото < `na_spread_below` или амплитуда по IID < `na_amp_below`) — мерка N/A с цифрой амплитуды, passed не краснеет. ΔL* к каталогу — НЕ здесь (шаг цвета).
 
   paint_delight.py run <run> <manifest.json> [--force]   manifest = [{"sku"[,"path"]}, …]; <run> — папка-прогон, где этап 04 уже положил `<sku>/04-camera/check.json`; повтор пропускает готовое
   paint_delight.py --selftest
@@ -40,6 +42,7 @@ import mesh_color_check as MC  # noqa: E402
 import paint_stage as PS  # noqa: E402
 
 STAGE = '05-delight'
+METRIC = 'iid_follow_ratio'          # «следование IID», не «свет снят» (директор 21.11)
 RULES_PATH = os.environ.get('DELIGHT_RULES') or os.path.join(HERE, 'rules', 'paint-delight.json')
 _PIPE = [None]
 
@@ -50,7 +53,7 @@ def load_rules(path: str | None = None) -> dict:
     for k in ('sigma', 'light', 'hf_corr_min', 'hf_energy_min', 'model', 'bg_grey', 'metric_side', 'min_mask_px'):
         if k not in r:
             raise KeyError(f'rules/paint-delight.json: нет ключа {k!r}')
-    for k in ('lf_sigma', 'clusters', 'min_cluster_share', 'stat_pct', 'na_spread_below', 'tone_split_max', 'ratio_max'):
+    for k in ('lf_sigma', 'clusters', 'min_cluster_share', 'stat_pct', 'na_spread_below', 'na_amp_below', 'tone_split_max', 'follow_max'):
         if k not in r['light']:
             raise KeyError(f'rules/paint-delight.json: light.{k} не задан')
     return r
@@ -114,7 +117,8 @@ def light_spread(photo8, res8, alb8, mask, lr):
     """Разброс НИЗКОЧАСТОТНОЙ яркости внутри одного цветового участка: P90−P10 размытого L*, среднее по участкам с весом по площади.
     Участок = кластер ХРОМЫ ФОТО (a,b к свету почти не чувствительны), а не albedo: иначе результат внутри участков «плоский» по построению.
     albedo лишь выкидывает многотоновые участки (чёрное+белое в одном кластере хромы): разброс тона albedo в участке > tone_split_max → не мерим.
-    → (фото, результат, число участков) или (None, None, 0), если мерить нечего."""
+    → словарь: photo/result — разброс L* фото и результата; amp_iid — «свет по IID» = разброс (фото − albedo); resid — разброс (результат − albedo); clusters; None, если мерить нечего.
+    Зачем amp/resid: у albedo свой плавный разброс (густота рисунка, тон частей) — это не свет; «результат/фото» его не отделяет и краснеет на узорных тканях (Сакура 0,55)."""
     from scipy.cluster.vq import kmeans2
     h, w = mask.shape
     sig = lr['lf_sigma'] * max(h, w)
@@ -122,14 +126,14 @@ def light_spread(photo8, res8, alb8, mask, lr):
     core = ndi.binary_erosion(mask, iterations=3)
     pts = ab[core]
     if len(pts) < 500:
-        return None, None, 0
+        return None
     sub = pts[np.random.default_rng(0).choice(len(pts), min(len(pts), 20000), replace=False)]
     cent, _ = kmeans2(sub, lr['clusters'], minit='++', seed=0)
     lbl = np.argmin(((ab[..., None, :] - cent[None, None]) ** 2).sum(-1), axis=-1)
     lp, lq = nblur(lab_l(photo8), mask, sig), nblur(lab_l(res8), mask, sig)
     la = nblur(lab_l(alb8), mask, sig)
     p_lo, p_hi = lr['stat_pct']
-    sp = sr = wsum = 0.0
+    sp = sr = s_amp = s_res = wsum = 0.0
     used = 0
     for k in range(len(cent)):
         m = core & (lbl == k)
@@ -137,11 +141,16 @@ def light_spread(photo8, res8, alb8, mask, lr):
             continue
         if np.percentile(la[m], p_hi) - np.percentile(la[m], p_lo) > lr['tone_split_max']:
             continue
-        sp += m.sum() * (np.percentile(lp[m], p_hi) - np.percentile(lp[m], p_lo))
-        sr += m.sum() * (np.percentile(lq[m], p_hi) - np.percentile(lq[m], p_lo))
+        spread = lambda v: np.percentile(v, p_hi) - np.percentile(v, p_lo)  # noqa: E731
+        sp += m.sum() * spread(lp[m])
+        sr += m.sum() * spread(lq[m])
+        s_amp += m.sum() * spread(lp[m] - la[m])          # «свет по IID»: отклонение фото от albedo (рисунок albedo из него вычтен)
+        s_res += m.sum() * spread(lq[m] - la[m])          # что от этого отклонения осталось в результате
         wsum += m.sum()
         used += 1
-    return (None, None, 0) if not wsum else (sp / wsum, sr / wsum, used)
+    if not wsum:
+        return None
+    return {'photo': sp / wsum, 'result': sr / wsum, 'amp_iid': s_amp / wsum, 'resid': s_res / wsum, 'clusters': used}
 
 
 def hf_metrics(photo8, res8, core):
@@ -157,10 +166,17 @@ def evaluate(photo8, res8, alb8, a, rules):
     pm, rm, bm = shrink(photo8, side), shrink(res8, side), shrink(alb8, side)
     am = np.asarray(Image.fromarray((a * 255).astype(np.uint8)).resize(pm.shape[1::-1], Image.BILINEAR)) > 128
     corr, en, lmed = hf_metrics(pm, rm, ndi.binary_erosion(am, iterations=4))
-    lp, lq, used = light_spread(pm, rm, bm, am, rules['light'])
-    na = lp is None or lp < rules['light']['na_spread_below']        # света на фото мало (студийный рендер) — мерка N/A
-    return pm, rm, {'hf_corr': corr, 'hf_energy_ratio': en, 'L_median': lmed, 'light_spread_photo': lp, 'light_spread_result': lq,
-                    'light_clusters': used, 'light_ratio': None if lp is None or lp <= 0 else lq / lp, 'light_na': bool(na)}
+    ls = light_spread(pm, rm, bm, am, rules['light'])
+    lr = rules['light']
+    if ls is None:
+        return pm, rm, {'hf_corr': corr, 'hf_energy_ratio': en, 'L_median': lmed, 'light_spread_photo': None, 'light_spread_result': None, 'light_amp_iid': None, 'light_resid': None,
+                        'light_clusters': 0, 'follow_ratio': None, 'photo_spread_ratio': None, 'light_na': True, 'na_why': 'нечего мерить: нет участков цвета'}
+    why = ('света на фото мало: разброс яркости %.1f L* < %s' % (ls['photo'], lr['na_spread_below'])) if ls['photo'] < lr['na_spread_below'] else \
+          ('света по IID мало: амплитуда %.1f L* < %s' % (ls['amp_iid'], lr['na_amp_below'])) if ls['amp_iid'] < lr['na_amp_below'] else ''
+    return pm, rm, {'hf_corr': corr, 'hf_energy_ratio': en, 'L_median': lmed, 'light_spread_photo': ls['photo'], 'light_spread_result': ls['result'],
+                    'light_amp_iid': ls['amp_iid'], 'light_resid': ls['resid'], 'light_clusters': ls['clusters'],
+                    'follow_ratio': ls['resid'] / ls['amp_iid'] if ls['amp_iid'] > 0 else None, 'photo_spread_ratio': ls['result'] / ls['photo'] if ls['photo'] > 0 else None,
+                    'light_na': bool(why), 'na_why': why}
 
 
 # ---------- модель ----------
@@ -245,7 +261,7 @@ def run_one(sku, run, rules, declared=None, sigma=None, force=False, model_fn=No
     except PhotoRefused as e:
         return PS.write_check(d, STAGE, sku, False, None, str(e), outputs=[], refused=True, independent_check='pending'), False
     old = PS.read_check(d)
-    if old is not None and not force and not old['extra'].get('refused') and old['extra'].get('source_photo') == path \
+    if old is not None and not force and not old['extra'].get('refused') and old['extra'].get('source_photo') == path and (old.get('metric') or {}).get('name') == METRIC \
             and os.path.exists(os.path.join(d, 'delight.rgba.png')):
         return old, True
     return _delight_file(sku, path, run, rules, sigma, model_fn)
@@ -274,18 +290,20 @@ def _delight_file(sku, path, run, rules, sigma=None, model_fn=None):
     frame(pm, rm, f'фото магазина — {sku}', f'снят свет (мягко, σ {sigma * 100:.1f} %) — этап 05', os.path.join(d, PS.FRAME))
     fmt = lambda v: None if v is None else round(float(v), 3)  # noqa: E731
     lr = rules['light']
-    ratio, na = mm['light_ratio'], mm['light_na']
+    ratio, na = mm['follow_ratio'], mm['light_na']
     doc = PS.write_check(
         d, STAGE, sku, None,
-        {'name': 'iid_shading_removed', 'value': fmt(ratio), 'threshold': lr['ratio_max'], 'op': '<=', 'na': bool(na),
-         'ok': None if na else PS.judge(ratio, '<=', lr['ratio_max']),
-         'note': ('N/A: света на фото мало (разброс низкочастотной яркости внутри цветового участка < %s L*) — passed не краснеет' % lr['na_spread_below']) if na
-         else 'результат/фото по разбросу низкочастотной яркости в участках цвета; это «убрано то, что IID счёл светом», не доказательство, что свет снят'},
+        {'name': METRIC, 'value': fmt(ratio), 'threshold': lr['follow_max'], 'op': '<=', 'na': bool(na), 'amplitude_iid': fmt(mm['light_amp_iid']),
+         'ok': None if na else PS.judge(ratio, '<=', lr['follow_max']),
+         'note': ('N/A: %s — мерка не считается, passed не краснеет' % mm['na_why']) if na
+         else 'следование IID: остаток (результат − albedo) / свет по IID (фото − albedo), разброс низкочастотной яркости в участках цвета. Это «результат следует albedo IID» — защита от поломки, '
+              'НЕ «свет снят»: если IID ошибся, мерка всё равно зелёная (независимая проверка — pending)'},
         metrics={'hf_corr': {'value': fmt(mm['hf_corr']), 'threshold': rules['hf_corr_min'], 'op': '>='},
                  'hf_energy_ratio': {'value': fmt(mm['hf_energy_ratio']), 'threshold': rules['hf_energy_min'], 'op': '>='}},
         seconds=time.time() - t0, outputs=['delight.rgba.png', 'albedo-iid-v11.png'], frame=PS.FRAME,
         independent_check='pending', source_photo=path, size=list(im.size), sigma=sigma, sec_iid=round(sec_iid, 1), L_median=fmt(mm['L_median']),
-        light_spread_photo=fmt(mm['light_spread_photo']), light_spread_result=fmt(mm['light_spread_result']), light_clusters=mm['light_clusters'], light_na=bool(na),
+        light_spread_photo=fmt(mm['light_spread_photo']), light_spread_result=fmt(mm['light_spread_result']), light_amp_iid=fmt(mm['light_amp_iid']), light_resid=fmt(mm['light_resid']),
+        photo_spread_ratio=fmt(mm['photo_spread_ratio']), light_clusters=mm['light_clusters'], light_na=bool(na), na_why=mm['na_why'],
         rules=os.path.relpath(RULES_PATH, HERE) if rules is not None else None,
         method='albedo Marigold IID-Appearance v1.1 → только низкие частоты света: фото × blur(Y_albedo)/blur(Y_фото), норма по медиане; детали и цвет — с фото')
     return doc, False
@@ -303,10 +321,11 @@ def table(run, man):
             rows.append([it['sku'], '', None, '', None, None, None, None, None, 0, doc['reason']])
             continue
         rows.append([it['sku'], 'x'.join(map(str, ex['size'])), m['value'], 'N/A' if m.get('na') else '', ms['hf_corr']['value'], ms['hf_energy_ratio']['value'],
-                     ex.get('light_spread_photo'), ex.get('light_spread_result'), ex.get('light_clusters'), int(doc['passed']), doc['reason']])
+                     ex.get('light_amp_iid'), ex.get('light_resid'), ex.get('light_spread_photo'), ex.get('light_spread_result'), ex.get('photo_spread_ratio'), ex.get('light_clusters'),
+                     int(doc['passed']), doc['reason']])
     with open(os.path.join(run, 'table-05-delight.tsv'), 'w', newline='', encoding='utf-8') as fh:
         w = csv.writer(fh, delimiter='\t')
-        w.writerow(['sku', 'size', 'iid_shading_removed', 'na', 'hf_corr', 'hf_energy_ratio', 'light_spread_photo', 'light_spread_result', 'clusters', 'passed', 'reason'])
+        w.writerow(['sku', 'size', METRIC, 'na', 'hf_corr', 'hf_energy_ratio', 'amp_iid', 'resid', 'spread_photo', 'spread_result', 'photo_spread_ratio_old', 'clusters', 'passed', 'reason'])
         w.writerows(rows)
     ranked = sorted([r for r in rows if r[2] is not None and r[3] != 'N/A'], key=lambda r: r[2])
     if ranked:
@@ -332,7 +351,7 @@ def cmd_run(run, manifest, force=False):
                 continue
             ok += 1
             m = doc.get('metric') or {}
-            print(f'[{n}/{len(man)}] {it["sku"]} {"(готово раньше)" if cached else ""} passed={doc["passed"]} iid_shading_removed={m.get("value")}{" N/A" if m.get("na") else ""} '
+            print(f'[{n}/{len(man)}] {it["sku"]} {"(готово раньше)" if cached else ""} passed={doc["passed"]} {METRIC}={m.get("value")} амплитуда_IID={m.get("amplitude_iid")}{" N/A" if m.get("na") else ""} '
                   f'hf_corr={(doc["metrics"].get("hf_corr") or {}).get("value")} {doc.get("seconds")} с', flush=True)
         except Exception as e:  # noqa: BLE001 — сбой одного товара не валит остальные, но считается и печатается
             fails.append((it['sku'], f'{type(e).__name__}: {e}'))
@@ -365,7 +384,7 @@ def selftest() -> int:
     import remlab_tmp
     remlab_tmp.use('paint_delight_selftest')
     rules = load_rules()
-    assert rules['light']['ratio_max'] > 0 and rules['sigma'] > 0
+    assert rules['light']['follow_max'] > 0 and rules['sigma'] > 0
     bad = 0
 
     def ok(cond, what):
@@ -387,10 +406,10 @@ def selftest() -> int:
             ok(not cached and out.shape == rgba.shape, f'{tag}: размер сохранён')
             ok((out[..., 3] == rgba[..., 3]).all(), f'{tag}: альфа сохранена')
             ok(os.path.exists(os.path.join(d, PS.FRAME)) and doc['extra']['independent_check'] == 'pending', f'{tag}: кадр и independent_check=pending')
-            ok(doc['metric']['name'] == 'iid_shading_removed' and 'light_spread_ratio' not in json.dumps(doc), f'{tag}: имя мерки')
+            ok(doc['metric']['name'] == METRIC == 'iid_follow_ratio' and 'light_spread_ratio' not in json.dumps(doc), f'{tag}: имя мерки')
             ok(doc['metrics']['hf_corr']['value'] >= rules['hf_corr_min'], f'{tag}: стёжка цела hf_corr={doc["metrics"]["hf_corr"]["value"]}')
             if tag == 'lit':
-                ok(not doc['metric']['na'] and doc['metric']['value'] <= rules['light']['ratio_max'] and doc['passed'], f'lit: свет снят ratio={doc["metric"]["value"]}')
+                ok(not doc['metric']['na'] and doc['metric']['value'] <= rules['light']['follow_max'] and doc['passed'], f'lit: результат следует albedo ratio={doc["metric"]["value"]}')
                 a = rgba[..., 3] > 128
                 lp, lq = lab_l(np.asarray(Image.fromarray(rgba[..., :3]))), lab_l(out[..., :3])
                 ok(np.percentile(lq[a], 90) - np.percentile(lq[a], 10) < 0.5 * (np.percentile(lp[a], 90) - np.percentile(lp[a], 10)), 'lit: разброс яркости упал вдвое')
@@ -429,7 +448,7 @@ def selftest() -> int:
         ratios = []
         for sg in (rules['sigma'], 0.25):
             _, _, mm = evaluate(p8, soft_transfer(p8, al, a, sg), al, a, rules)
-            ratios.append(mm['light_ratio'])
+            ratios.append(mm['follow_ratio'])
         ok(ratios[0] < ratios[1], f'больше σ — снято меньше {ratios}')
     print('paint_delight selftest:', 'OK' if not bad else f'{bad} сбоев')
     return 1 if bad else 0
