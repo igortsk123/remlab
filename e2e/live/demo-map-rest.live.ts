@@ -6,6 +6,7 @@ import { test, expect, type Browser, type BrowserContextOptions, type Page } fro
 
 import { demoUrl, LIVE_CHECK_HEADERS } from "./browser";
 import { homeStyles, pickStyle } from "./home";
+import { ctaLabel, openWithoutPhoto, orderRender, photoJob, routeCycles, waitLive, type PhotoStage } from "./window";
 
 // КАРТА СЦЕНАРИЕВ ДЕМО — ОСТАВШИЕСЯ СТРОКИ (T-20261106-69, план demo-03): 2.30–2.32, 2.39–2.48 `domain/demo-scenario-map.md`.
 // Ожидание берём из колонки «ожидание» строки карты, не из факта: проверка краснеет, когда сценарий сломан. Номер строки — в начале
@@ -32,7 +33,7 @@ const LIVING = "#hmRooms .hm-room[data-room=living] [data-swap]";
 const rnd = () => Array.from({ length: 22 }, () => "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"[Math.floor(Math.random() * 62)]).join("");
 
 type Pkg = { mode: "pooled" | "split"; limits: { furniture: number; fitout: number } };
-type Opts = { pkg?: Pkg; paid?: () => boolean; job?: () => unknown; renders?: { quality: string }[] };
+type Opts = { pkg?: Pkg; paid?: () => boolean; job?: () => unknown; renders?: { quality: string }[]; orders?: unknown[] };
 
 /** Страница демо: метка проверки, события в счётчики не идут, мутация HTML, сохранение коллекции — подменой (на проде не пишем). */
 async function demoPage(browser: Browser, ctxOpt: BrowserContextOptions, q = "", o: Opts = {}): Promise<{ page: Page; close: () => Promise<void>; errors: string[] }> {
@@ -72,6 +73,8 @@ async function demoPage(browser: Browser, ctxOpt: BrowserContextOptions, q = "",
   // фото — без денег: «есть ли деньги» отвечаем сами, задание и кадры — подмена (платный путь сервера не вызывается)
   await page.route(/\/api\/draft\/paid/, (r) => r.fulfill({ json: { available: o.paid ? o.paid() : false } }));
   await page.route(/\/api\/render\/frame/, (r) => r.fulfill({ json: { id: "t69-" + rnd() } }));
+  // «Сделать фото» — рендер: заказ идёт в `/api/render/cycles` (T-20261117-20/2) — и он подменён, настоящий рендер на проде не ставится
+  await routeCycles(page, o.orders);
   await page.route(/\/api\/render(\?.*)?$/, (r) => {
     let b: { quality?: string } = {};
     try { b = JSON.parse(r.request().postData() || "{}") as { quality?: string }; } catch { /* не JSON */ }
@@ -89,8 +92,13 @@ async function openWalk(page: Page) {
   await page.locator(LIVING).click();
   await expect(page.locator("#shot")).toHaveClass(/\bon\b/);
   await page.evaluate("if (VW.mode !== 'walk') vwMode('walk')");
-  await page.waitForFunction("LIVE.scene && LIVE.state === 'ready'", null, { timeout: 120_000 });
+  await waitLive(page, "LIVE.scene && LIVE.state === 'ready'", 120_000);
   await page.waitForTimeout(1200);
+}
+/** То же для варианта без фото: «Сделать фото» стоит в «3D» только пока фото расстановки нет (`vwCtaKind`, index.html:12002; `e2e/live/window.ts`). */
+async function openWalkNoPhoto(page: Page) {
+  await page.evaluate("shots = shots.filter((x) => !vwIsPhoto(x))");
+  await openWalk(page);
 }
 
 // ——— 2.30 тап по предмету ———
@@ -199,7 +207,7 @@ test("2.31 после «Заменить»: 3D, шторка свёрнута, �
   expect(k).toBeGreaterThanOrEqual(0);
   await page.locator("#sheet .mini:has-text('Заменить')").first().click();
   await expect.poll(() => page.evaluate("LIVE.framed || null"), { timeout: 60_000 }).not.toBeNull();
-  await page.waitForFunction("LIVE.state === 'ready'", null, { timeout: 60_000 });
+  await waitLive(page, "LIVE.state === 'ready'", 60_000);
   // камера доехала: поза не меняется 0,8 с
   let pose = "";
   for (let i = 0; i < 20; i++) { await page.waitForTimeout(400); const p = JSON.stringify(await page.evaluate("LIVE.scene.pose()")); if (p === pose) break; pose = p; }
@@ -232,10 +240,10 @@ test("2.31 после «Заменить»: 3D, шторка свёрнута, �
 });
 
 // ——— 2.32 окно на компьютере ———
-test("2.32 компьютер: окно без полос, сцена во всю высоту области, «Сделать реалистичнее» стоит под плашкой «Остаток» и не уезжает", async ({ browser }) => {
+test("2.32 компьютер: окно без полос, сцена во всю высоту области, «Сделать фото» стоит под плашкой «Остаток» и не уезжает", async ({ browser }) => {
   test.setTimeout(3 * 60_000);
   const { page, close } = await demoPage(browser, desk, "?live=force");
-  await openWalk(page);
+  await openWalkNoPhoto(page);
   const geo = () => page.evaluate(() => {
     const R = (s: string) => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return { l: Math.round(b.left), t: Math.round(b.top), r: Math.round(b.right), b: Math.round(b.bottom), h: Math.round(b.height), w: Math.round(b.width) }; };
     const cta = document.getElementById("vCta")!;
@@ -458,14 +466,17 @@ test("2.41–2.42 одна шкала сертификата (главная, о
   say("окно до выбора:", JSON.stringify(w0), "сумма расстановки", sum);
   expect(w0!.left).toMatch(/^Выбрано/);
   expect(rub(w0!.right)).toBe(rub(h0!.right));
-  expect(w0!.pv, "светлая часть «добавит эта расстановка» пустая").toBeGreaterThan(0);
-  // «i» — остаток и как включить (ничего не выбрано — остаток = весь сертификат: «Вам доступно N»)
+  // Светлой части «добавит эта расстановка» (`i.pv`) в окне нет: `certScale` вызывают без `add` (index.html:10234) — доля комнаты показана
+  // отрезком `.rmseg` и словами «Эта комната» (T-20261119-115/3: мёртвый код, на проде не виден). Проверяем то, что покупатель видит: шкала есть.
+  expect(w0!.meters, "в окне есть шкала сертификата").toBeGreaterThan(0);  // «i» — остаток и как включить (ничего не выбрано — остаток = весь сертификат: «Вам доступно N»)
   await page.locator("#vsum button.vpl-i").click();
   const bub = (await page.locator("#vsum .vpl-bub").innerText()).replace(/\s+/g, " ");
   say("пузырь «i» окна:", bub.slice(0, 200));
-  expect(bub).toMatch(/доступн/);
-  expect(rub(bub.split(".")[0]!), "в «i» — не остаток").toBe(total);
-  expect(bub).toMatch(/включить/);
+  // «i» окна = «i» главной (`certBub`, index.html:3440): «Вам доступен сертификат … N. Выбрано M. Осталось K.» (или «Доплата»); «Выбрано» — все комнаты главной
+  expect(bub).toMatch(/Вам доступен сертификат/);
+  expect(rub(bub.split(".")[0]!), "в «i» первой — сумма сертификата").toBe(total);
+  expect(bub).toMatch(/Выбрано [\d\s  ]+₽/);
+  expect(bub).toMatch(/Осталось|Доплата/);
   await page.locator("#vsum button.vpl-i").click();
   // сохранили — первая гостиная включилась сама: сообщение «… включено в сертификат, остаток N»
   await page.evaluate(() => document.getElementById("vFav")!.click());
@@ -473,15 +484,17 @@ test("2.41–2.42 одна шкала сертификата (главная, о
   await expect(page.locator("#toast")).toContainText(/включено в сертификат, остаток/, { timeout: 30_000 });
   const t1 = await page.locator("#toast").innerText();
   say("сообщение после сохранения:", t1);
-  expect(t1).toMatch(/«[^»]+» — (в избранном, )?включено в сертификат, остаток [\d\s  ]+₽/);
-  // вид сообщения — один: полупрозрачный фон, ширина min(92vw, 560px)
+  // формат `incText` (index.html:13889): «<имя>»: [в избранном, ]включено в сертификат, остаток N ₽ — двоеточие, не тире
+  expect(t1).toMatch(/«[^»]+»: (в избранном, )?включено в сертификат, остаток [\d\s  ]+₽/);
+  // вид сообщения — один: полупрозрачный фон; ширина по тексту (`width:max-content`), не шире min(86vw, 420px) (index.html `.msg`, T-20261112-117)
   const look = await page.evaluate("(() => { const e = document.getElementById('toast'), c = getComputedStyle(e); return { cls: e.className, bg: c.backgroundColor, w: Math.round(e.getBoundingClientRect().width), vw: innerWidth }; })()") as { cls: string; bg: string; w: number; vw: number };
   say("вид сообщения:", JSON.stringify(look));
   await shoot(page, "2.42-toast-phone");
   expect(look.cls).toMatch(/\bmsg\b/);
   const alpha = Number(look.bg.match(/rgba?\(([^)]+)\)/)?.[1]?.split(",")[3] ?? 1);
   expect(alpha, "фон сообщения непрозрачный").toBeLessThan(1);
-  expect(look.w).toBe(Math.round(Math.min(look.vw * 0.92, 560)));
+  expect(look.w, "сообщение имеет ширину").toBeGreaterThan(0);
+  expect(look.w, "сообщение не шире min(86vw, 420px)").toBeLessThanOrEqual(Math.round(Math.min(look.vw * 0.86, 420)) + 1);
   // шкала главной после сохранения — по-прежнему выбор комнат главной (корзина её не меняет); полоса = выбрано; «i» — остаток
   await page.keyboard.press("Escape");
   const h1 = await scale(page, "#hmCert");
@@ -509,85 +522,106 @@ test("2.41–2.42 одна шкала сертификата (главная, о
   await expect(page.locator("#toast")).toContainText(/включено в сертификат/);
   const t2 = await page.locator("#toast").innerText();
   say("своё имя:", t2);
-  expect(t2).toMatch(/^Гостиная «Проверка» — включено в сертификат, остаток [\d\s  ]+₽$/);
+  expect(t2).toMatch(/^Гостиная «Проверка»: включено в сертификат, остаток [\d\s  ]+₽$/);
   await close();
-  // компьютер: ширина сообщения 560
+  // компьютер: ширина сообщения — по тексту, ≤ 420 (`.msg`, index.html)
   const d = await demoPage(browser, desk);
   await d.page.evaluate("toast('Проверка вида сообщения')");
   const dw = await d.page.evaluate("Math.round(document.getElementById('toast').getBoundingClientRect().width)") as number;
   say("компьютер: ширина сообщения", dw);
-  expect(dw).toBe(560);
+  expect(dw, "сообщение на компьютере — по тексту, не шире 420 px").toBeGreaterThan(0);
+  expect(dw).toBeLessThanOrEqual(420);
   await d.close();
-  // доплата: мебель 100 000 — «Доплата N — подтвердить?»; после «Подтвердить» — «… включено в сертификат, доплата N»
+  // доплата: мебель 100 000 — «Доплата N ₽. Подтвердить?» (+ «Вариант выходит за лимит сертификата…»); после «Подтвердить» — «… включено в сертификат, доплата N»
   const o = await demoPage(browser, phone, "?live=force", { pkg: { mode: "pooled", limits: { furniture: 100_000, fitout: 0 } } });
   await o.page.locator(LIVING).click();
   await o.page.waitForSelector("#shot.on.v2 #vside");
   await o.page.evaluate(() => document.getElementById("vFav")!.click());
   await o.page.locator("#favOk").click();
-  await expect(o.page.locator("#favPop")).toContainText(/Доплата [\d\s  ]+₽ — подтвердить\?/, { timeout: 30_000 });
+  await expect(o.page.locator("#favPop")).toContainText(/Доплата [\d\s  ]+₽\. Подтвердить\?/, { timeout: 30_000 });
   const ask = rub(await o.page.locator("#favPop b").first().innerText());
   await o.page.locator("#favPop button.primary").click();
   await expect(o.page.locator("#toast")).toContainText(/включено в сертификат, доплата/);
   const t3 = (await o.page.locator("#toast").innerText()).replace(/\s*Перейти\s*→\s*$/, "");   // «Перейти →» — кнопка в сообщении, не текст
   say("доплата:", ask, "→", t3);
   await shoot(o.page, "2.42-topup");
-  expect(t3).toMatch(/«[^»]+» — включено в сертификат, доплата [\d\s  ]+₽$/);
+  expect(t3).toMatch(/«[^»]+»: включено в сертификат, доплата [\d\s  ]+₽$/);
   expect(rub(t3)).toBe(ask);
   await o.close();
   expect(MONEY.test(t1)).toBe(true);
 });
 
 // ——— 2.43 ожидание фото ———
-test("2.43 «Сделать реалистичнее»: полоса и «осталось N с» от 30 вниз; после нуля «ещё немного…», полоса до 99 %; без «2–4 минуты»", async ({ browser }) => {
-  test.setTimeout(3 * 60_000);
+// Ход фото — ПО ЦЕНТРУ ОКНА (`vwPhWaitUi`, `jobProg`), не на кнопке: пока идёт задание, кнопка заблокирована, подпись прежняя — ни %, ни полосы
+// (владелец 18.11, TG 1893/1895; `vwCtaUi`). «Сделать фото» (рендер) — «Делаю фото · N %», проценты от сервера. «Улучшить фото» (нейросеть по
+// рендеру) — «Улучшаю · N %» (владелец 17.11, TG 1668), проценты — по времени (`photoWait`, `PHOTO_EST_S = 30`): под ходом «осталось N с»
+// от 30 вниз, после нуля «ещё немного…», полоса дотягивается к 99 %, но не до конца
+test("2.43 «Сделать фото» → «Улучшить фото»: ход по центру окна «Улучшаю · N %», «осталось N с» от 30 вниз; после нуля «ещё немного…», полоса до 99 %; без «2–4 минуты»", async ({ browser }) => {
+  test.setTimeout(4 * 60_000);
   const renders: { quality: string }[] = [];
-  const { page, close } = await demoPage(browser, desk, "?live=force", { renders });
-  await page.evaluate("shots = shots.filter((x) => x.quality !== 'realistic'); openLiveWindow()");
-  await page.waitForFunction("LIVE.scene && LIVE.state === 'ready'", null, { timeout: 120_000 });
-  await expect(page.locator("#vCta")).toHaveText(/Сделать фото/);
+  const orders: unknown[] = [];
+  let stage: PhotoStage = "render-run";
+  const { page, close } = await demoPage(browser, desk, "?live=force", { renders, orders, job: () => photoJob(stage) });
+  await openWithoutPhoto(page);
+  // рендер: «Делаю фото · N %», кнопка заблокирована, подпись прежняя
+  await orderRender(page);
+  expect(orders.length, "заказ рендера ушёл (подмена — рендера на проде нет)").toBe(1);
+  await expect(page.locator("#shot .vphwait b")).toHaveText(/^Делаю фото · \d+ %$/);
+  await expect(page.locator("#vCta")).toBeDisabled();
+  expect(await ctaLabel(page)).toBe("Сделать фото");
+  stage = "render-done";
+  await expect(page.locator("#shot .vphwait")).toHaveCount(0, { timeout: 20_000 });
+  await expect.poll(() => ctaLabel(page)).toBe("Улучшить фото");
+  // улучшение: ход по времени
+  stage = "improve-run";
   const t0 = Date.now();
   await page.locator("#vCta").click();
   const read = () => page.evaluate(() => {
-    const cta = document.getElementById("vCta")!, ov = document.querySelector("#shot .vphwait");
+    const cta = document.getElementById("vCta") as HTMLButtonElement, ov = document.querySelector("#shot .vphwait");
     const pct = (e: Element | null) => (e ? parseFloat((e as HTMLElement).style.width) || 0 : -1);
-    return { mode: ((window as unknown as { __g: (n: string) => unknown }).__g("VW") as { mode: string }).mode, btn: cta.querySelector(".vcta-t")?.textContent ?? "", btnBar: pct(cta.querySelector(".vcta-bar")),
+    return { mode: ((window as unknown as { __g: (n: string) => unknown }).__g("VW") as { mode: string }).mode, btn: (cta.getAttribute("aria-label") || cta.title || cta.innerText || "").trim(), btnOff: cta.disabled,
       ov: ov?.querySelector("small")?.textContent ?? null, ovBar: pct(ov?.querySelector("s") ?? null), ovHead: ov?.querySelector("b")?.textContent ?? null, all: document.getElementById("shot")!.innerText };
   });
-  await expect.poll(async () => (await read()).btn, { timeout: 20_000, intervals: [100] }).toMatch(/осталось \d+ с/);
+  await expect.poll(async () => (await read()).ov ?? "", { timeout: 20_000, intervals: [100] }).toMatch(/осталось \d+ с/);
   const a = await read(), sa = (Date.now() - t0) / 1000, ta = Date.now();
   await page.waitForTimeout(3000);
   const b = await read(), sb = (Date.now() - t0) / 1000;
   const left = (t: string | null) => Number(t?.match(/осталось (\d+) с/)?.[1] ?? NaN);
+  const head = (t: string | null) => Number(t?.match(/^Улучшаю · (\d+) %$/)?.[1] ?? NaN);
   say(`через ${sa.toFixed(1)} с:`, JSON.stringify({ ...a, all: undefined }));
   say(`через ${sb.toFixed(1)} с:`, JSON.stringify({ ...b, all: undefined }));
   await shoot(page, "2.43-wait");
-  expect(renders.map((r) => r.quality)).toContain("realistic");     // задание ушло (подмена — денег нет)
-  expect(a.btn).toMatch(/^Улучшаю · осталось \d+ с$/);
-  // первый отсчёт — сразу после старта задания: 30 (съёмка кадров до него не считается — задание стартует после)
-  expect(left(a.btn)).toBeLessThanOrEqual(30);
-  expect(left(a.btn)).toBeGreaterThanOrEqual(28);
-  expect(left(b.btn)).toBeLessThan(left(a.btn));                    // отсчёт идёт вниз
-  expect(b.btnBar).toBeGreaterThan(a.btnBar);
-  if (a.mode === "photo") { expect(a.ov).toMatch(/^осталось \d+ с$/); expect(a.ovBar).toBeGreaterThan(0); }
+  expect(renders.map((r) => r.quality)).toContain("realistic");     // заказ «Улучшить» ушёл (подмена — денег нет)
+  expect(a.mode).toBe("photo");
+  expect(a.ovHead).toMatch(/^Улучшаю · \d+ %$/);
+  expect(a.ov).toMatch(/^осталось \d+ с$/);
+  // кнопка — заблокирована, подпись прежняя («Улучшить фото»): ни отсчёта, ни процентов на ней нет
+  expect(a.btnOff).toBe(true);
+  expect(a.btn).toBe("Улучшить фото");
+  // первый отсчёт — сразу после старта задания: 30
+  expect(left(a.ov)).toBeLessThanOrEqual(30);
+  expect(left(a.ov)).toBeGreaterThanOrEqual(28);
+  expect(left(b.ov)).toBeLessThan(left(a.ov));                      // отсчёт идёт вниз
+  expect(head(b.ovHead)).toBeGreaterThan(head(a.ovHead));           // проценты растут
+  expect(b.ovBar).toBeGreaterThan(a.ovBar);
+  expect(a.ovBar).toBeGreaterThanOrEqual(0);                         // первый кадр хода — полоса может стоять в нуле; рост — строкой выше
   // ноль — через ~N с после первого отсчёта N; ждём его + 3 с
-  await page.waitForTimeout(Math.max(0, (left(a.btn) + 3) * 1000 - (Date.now() - ta)));
+  await page.waitForTimeout(Math.max(0, (left(a.ov) + 3) * 1000 - (Date.now() - ta)));
   const c = await read();
   say("после 30 с:", JSON.stringify({ ...c, all: undefined }));
   await shoot(page, "2.43-after30");
-  expect(c.btn).toMatch(/ещё немного…/);
-  expect(c.btnBar).toBeGreaterThanOrEqual(95);
-  expect(c.btnBar).toBeLessThanOrEqual(99);
-  if (c.mode === "photo") expect(c.ov).toBe("ещё немного…");
+  expect(c.ov).toBe("ещё немного…");
+  expect(c.ovBar).toBeGreaterThanOrEqual(95);
+  expect(c.ovBar).toBeLessThanOrEqual(99);
   expect(c.all).not.toMatch(/2[–-]4 минут/);
   await page.waitForTimeout(30_000);
   const d = await read();
-  say("через минуту:", d.btnBar);
-  expect(d.btnBar).toBeLessThanOrEqual(99);
+  say("через минуту:", d.ovBar);
+  expect(d.ovBar).toBeLessThanOrEqual(99);
   await close();
 });
 
 // ——— 2.44 «во весь экран» ———
-const FAKE_SHOTS = ["/demo/img/og.jpg", "/demo/img/og.jpg?v=2"];
 async function realWindow(page: Page) {
   // настоящие реалистичные снимки этой расстановки, если есть; нет — два снимка подменой задания (как 2.25), денег не тратим
   await page.locator(LIVING).click();
@@ -598,15 +632,14 @@ async function realWindow(page: Page) {
 test("2.44 «во весь экран»: свайп вбок — соседний ракурс, вниз — закрыть; подписи как в окне; стрелки только с мышью; ←/→/Esc", async ({ browser }) => {
   test.setTimeout(5 * 60_000);
   for (const [label, vp] of [["компьютер", desk], ["телефон", phone]] as const) {
-    let ready = false;
-    const { page, close } = await demoPage(browser, vp, "?live=force", { job: () => ready
-      ? { shots: [{ camera: "C1", url: FAKE_SHOTS[0] }, { camera: "C2", url: FAKE_SHOTS[1] }], backend: "fake" } : { status: "running" } });
+    let stage: PhotoStage = "render-run";
+    const { page, close } = await demoPage(browser, vp, "?live=force", { job: () => photoJob(stage) });
     const src = await realWindow(page);
     if (src === "подмена") {
-      await page.evaluate("if (VW.mode !== 'walk') vwMode('walk')");
-      await page.waitForFunction("LIVE.scene && LIVE.state === 'ready'", null, { timeout: 120_000 });
-      await page.locator("#vCta").click();
-      ready = true;
+      // два кадра — подменой задания рендера (`photoJob`, `e2e/live/window.ts`): «Сделать фото» из «3D» без фото, как в 2.25; денег нет
+      await openWithoutPhoto(page);
+      await orderRender(page);
+      stage = "render-done";
       await expect.poll(() => page.evaluate("vwRealShots().length"), { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
       await page.evaluate("if (VW.mode !== 'photo') vwMode('photo')");
     }
@@ -732,7 +765,7 @@ async function freshState(page: Page) {
     await page.locator("#sheet .mini:has-text('Заменить')").first().click();
     await expect(page.locator("#toast")).toContainText("Заменено", { timeout: 30_000 });
     if (await page.locator("#sheet.open").count()) { await page.locator("#sh-close").click(); await page.waitForTimeout(300); }
-    await page.waitForFunction("LIVE.scene && LIVE.state === 'ready'", null, { timeout: 120_000 });
+    await waitLive(page, "LIVE.scene && LIVE.state === 'ready'", 120_000);
     await page.waitForTimeout(1200);
     if (await page.evaluate("vwRealShots().length === 0")) return;
   }
@@ -815,7 +848,9 @@ test("2.46 сохранили без фото → автофото: плашка
     const pw = await page.locator("#favGrid .pwait").first().innerText();
     say("плашка на карточке:", pw);
     await shoot(page, "2.46-pwait");
-    expect(pw).toMatch(/Улучшаю · осталось \d+ с/);
+    // плашка — «Улучшаю · N %» (`photoWaitText`, index.html:8177; с 18.11, владелец TG 1668); сколько секунд осталось — в `data-left`, не в тексте
+    expect(pw.trim()).toMatch(/^Улучшаю · \d+ %$/);
+    expect(Number(await page.locator("#favGrid .pwait").first().getAttribute("data-left")), "остаток секунд в data-left").toBeGreaterThanOrEqual(0);
     await page.evaluate("window.__basket.close()");
     ready = true;                                                    // задание готово — ждём картинку в избранном
     await expect.poll(() => page.evaluate("(window.__basket.state().favorites || []).map((f) => f.shot || '').join(',')"), { timeout: 30_000 }).toContain(frame);

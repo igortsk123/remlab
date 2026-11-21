@@ -78,6 +78,8 @@ jobs:
       - run: python3 tools/ops/ci_watch.py --selftest
       # скорость фото нейросети: медленно → WARN, отказы 503 считаются, пустой журнал — «заданий 0», старый журнал без двойного счёта (T-20261107-37)
       - run: python3 tools/ops/photo-speed.py --selftest
+      # сторож ночной живой проверки демо: красных ≥ порога (данные — tools/scout/rules/demo-live.json) → rc 1 и DIGEST:!, ниже → rc 0; ядро — любой красный; нет итога → rc 1 (T-20261119-115/2)
+      - run: python3 tools/ops/demo-live-gate.py --selftest
       # сводка прода: 5xx — по журналу доступа Caddy, без двойного счёта строк журнала ошибок (T-20261106-66)
       - run: bash infra/server/prod-digest.sh --selftest
       # мёртвая рука Salad: живая группа = есть машины; pending без машин не гасим (кэш образа), без счётчиков — как раньше (T-20261106-92)
