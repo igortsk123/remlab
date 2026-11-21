@@ -155,15 +155,27 @@ def pip_imports(docker_text):
     return out
 
 
-def py_imports(path):
+def entry_modules(docker_text):
+    """Имена модулей, которые образ запускает (`CMD`/`ENTRYPOINT` с `<имя>.py`): их блок `if __name__ == '__main__'` в контейнере
+    исполняется (21.11: `draft_service.py` в `__main__` импортировал `log_stamp`, которого не было в образе — тест его пропускал)."""
+    out = set()
+    for line in docker_text.splitlines():
+        if re.match(r'\s*(CMD|ENTRYPOINT)\b', line):
+            out |= {os.path.basename(m)[:-3] for m in re.findall(r'[\w./-]+\.py', line)}
+    return out
+
+
+def py_imports(path, main_runs=False):
     """[(верхнее имя, строка)] всех import в файле — и ленивых внутри функций, и в try/except; относительные пропускаем.
-    Кроме самопроверок: функции `_selftest*`/`selftest*` и блок `if __name__ == '__main__'` в контейнере не исполняются."""
+    Кроме самопроверок: функции `_selftest*`/`selftest*` и блок `if __name__ == '__main__'` в контейнере не исполняются —
+    кроме модуля, который запускает CMD образа (`main_runs=True`): у него `__main__` и есть работа сервиса."""
     with open(path, encoding='utf-8') as f:
         tree = ast.parse(f.read())
     skip = set()
     for n in ast.walk(tree):
         if (isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name.lstrip('_').startswith('selftest')) or \
-                (isinstance(n, ast.If) and isinstance(n.test, ast.Compare) and isinstance(n.test.left, ast.Name) and n.test.left.id == '__name__'):
+                (not main_runs and isinstance(n, ast.If) and isinstance(n.test, ast.Compare) and isinstance(n.test.left, ast.Name)
+                 and n.test.left.id == '__name__'):
             skip |= {id(x) for x in ast.walk(n)}
     out = []
     for n in ast.walk(tree):
@@ -183,6 +195,7 @@ def import_gaps(docker_text):
     planner_files = [m for m in app_modules(cps) if m.startswith('services/planner-solver/planner/')]
     pip = pip_imports(docker_text)
     planner_names = {os.path.basename(m)[:-3] for m in planner_files}
+    entries = entry_modules(docker_text)
     out, seen = [], set()
     todo = [(os.path.join(SCOUT, n + '.py'), n) for n in sorted(scout_in)] + [(os.path.join(ROOT, m), os.path.basename(m)) for m in planner_files]
     while todo:
@@ -190,7 +203,7 @@ def import_gaps(docker_text):
         if path in seen:
             continue
         seen.add(path)
-        for name, line in py_imports(path):
+        for name, line in py_imports(path, main_runs=label in entries):
             where = f'{label}:{line}'
             if name in scout_in or name in planner_names or name == 'planner' or name == '__future__':
                 continue
@@ -320,10 +333,12 @@ def main():
     ok(not gaps, 'все импорты обеспечены образом' + ('' if not gaps else ': ' + '; '.join(f'{a} import {b} — {c}' for a, b, c in sorted(set(gaps)))))
     for label, planted_text, want in (
             ('refs_check.py (18.11)', docker_text.replace(' tools/scout/refs_check.py', '', 1), 'refs_check'),
+            ('log_stamp.py — импорт в __main__ модуля CMD (21.11)', docker_text.replace(' tools/scout/log_stamp.py', '', 1), 'log_stamp'),
             ('orient_policy.py (05.11–18.11)', docker_text.replace(' tools/scout/orient_policy.py', '', 1), 'orient_policy'),
             ('opencv в pip (18.11)', docker_text.replace('opencv-python-headless==', 'opencv-nope==', 1), 'cv2')):
         ok(planted_text != docker_text, f'подложенный Dockerfile без {label} собран')
         ok(any(b == want for _, b, _ in import_gaps(planted_text)), f'Dockerfile без {label} — отказ с именем «{want}»')
+    ok('draft_service' in entry_modules(docker_text), 'модуль CMD образа найден: draft_service (его __main__ проверяется)')
     ok('opencv-python-headless' in docker_text and 'cv2' in pip_imports(docker_text), 'pip-список образа даёт cv2 (opencv-python-headless)')
     print('планировщик не ищет файлы вне пакета (кроме белого списка):')
     outs = outside_paths()
