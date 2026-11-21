@@ -20,6 +20,7 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "scout"))
+import parts_refine as pr  # noqa: E402
 import parts_vote as pv  # noqa: E402
 
 PALETTE = [(230, 57, 70), (69, 123, 157), (42, 157, 143), (233, 196, 106), (131, 56, 236), (244, 162, 97), (6, 214, 160), (255, 0, 110), (90, 90, 90), (0, 180, 216), (200, 120, 200), (120, 200, 60)]
@@ -172,7 +173,20 @@ def run(args) -> int:
         print(f"кадр {name}: масок {len(masks)}, областей {per_view_regions[-1]}, {time.time() - t0:.0f} с", flush=True)
     res = pv.run_vote(regions, viss, weights, mesh.vertices, mesh.faces, rules)
     part = res["part"]
-    q = pv.quality(part, res["agree"], res["seen_any"], rules)
+    lab_face = None
+    try:                                                              # цвет граней — для слияния пёстрых кусков по цвету
+        import parts_colour as pcol
+        tex0 = np.array(mesh.visual.material.baseColorTexture.convert("RGB"))
+        lab_face = pcol.rgb_to_lab(pcol.face_rgb(np.array(mesh.visual.uv), mesh.faces, tex0))
+    except Exception:
+        lab_face = None
+    refine_rep = {}
+    try:
+        part, refine_rep = pr.refine(part, mesh.vertices, mesh.faces, res["adj"], lab_face, rules)
+        res["agree"] = pv.final_agreement(res["acc"], res["raw_part"], part)
+    except Exception as e:                                           # доводка не удалась — остаются части голосования, причина в check.json
+        refine_rep = {"error": str(e)[:200]}
+    q = pv.quality(part, res["agree"], res["seen_any"], rules, refine_rep.get("linear_in_blob_part_share"))
     # геометрия ножек
     rec = geom = None
     try:
@@ -197,17 +211,20 @@ def run(args) -> int:
         role = (geom or {}).get("roles", {}).get(int(p), {}).get("role") if geom else None
         parts.append({"id": int(p), "face_share": round(float(c) / nf, 4), "role": role or f"part-{int(p)}", "vl": None, "colour": colours.get(int(p))})
     np.savez_compressed(os.path.join(sdir, "parts.npz"), part=part.astype(np.int16), agree=res["agree"].astype(np.float16))
-    json.dump({"faces": nf, "n_views": len(names), "regions_per_view": per_view_regions, "n_parts_raw": res["n_parts_raw"], "parts": parts, "geometry": geom},
+    json.dump({"faces": nf, "n_views": len(names), "regions_per_view": per_view_regions, "n_parts_raw": res["n_parts_raw"], "parts": parts, "geometry": geom, "refine": refine_rep},
               open(os.path.join(sdir, "parts.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-    tiles = [paint_frame(args.orbit, n, part, u, v, vis, rgb, mask) for (n, rgb, mask, u, v, vis) in frames[:: max(1, len(frames) // 4)][:4]]
+    tiles = [paint_frame(args.orbit, n, part, u, v, vis, rgb, mask) for (n, rgb, mask, u, v, vis) in (frames[0:8:2] if len(frames) >= 8 else frames[:4])]
     Image.fromarray(np.concatenate(tiles, axis=1)).save(os.path.join(sdir, "frame.png"))
     metrics = {
         "faces_with_part_share": {"value": q["faces_with_part_share"], "threshold": rules["check"]["min_faces_with_part"], "op": ">=", "ok": q["faces_with_part_share"] >= rules["check"]["min_faces_with_part"]},
         "n_parts": {"value": q["n_parts"], "threshold": f"{rules['check']['min_parts']}–{rules['check']['max_parts']}", "op": "in", "ok": rules["check"]["min_parts"] <= q["n_parts"] <= rules["check"]["max_parts"]},
         "frames_agreement_mean": {"value": q["frames_agreement_mean"], "threshold": rules["check"]["min_agreement"], "op": ">=", "ok": q["frames_agreement_mean"] >= rules["check"]["min_agreement"]},
     }
+    if "linear_in_blob_part_share" in q:
+        metrics["linear_in_blob_part_share"] = {"value": q["linear_in_blob_part_share"], "threshold": rules["check"]["max_linear_in_blob"], "op": "<=",
+                                                "ok": q["linear_in_blob_part_share"] <= rules["check"]["max_linear_in_blob"]}
     ps.write_check(sdir, "03-parts", args.sku, passed=q["ok"], metric={"name": "n_parts", **metrics["n_parts"]}, reason=q["reason"], metrics=metrics, seconds=time.time() - t0,
-                   outputs=["parts.npz", "parts.json"], frame="frame.png", faces_seen_by_views_share=q["faces_seen_by_views_share"], part_face_shares=q["part_face_shares"], geometry=geom, mixed_colour_parts=mixed)
+                   outputs=["parts.npz", "parts.json"], frame="frame.png", faces_seen_by_views_share=q["faces_seen_by_views_share"], part_face_shares=q["part_face_shares"], geometry=geom, mixed_colour_parts=mixed, refine=refine_rep)
     print(json.dumps({"ok": q["ok"], "reason": q["reason"], "n_parts": q["n_parts"], "agree": q["frames_agreement_mean"], "with_part": q["faces_with_part_share"], "geometry": geom and {k: v for k, v in geom.items() if k != "roles"}}, ensure_ascii=False))
     return 0
 

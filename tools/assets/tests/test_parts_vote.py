@@ -9,6 +9,8 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import parts_colour as pcol  # noqa: E402
+import parts_refine as pr  # noqa: E402
+import part_shapes as shp  # noqa: E402
 import parts_vote as pv  # noqa: E402
 
 RULES = pv.load_rules()
@@ -146,6 +148,62 @@ class PartsVote(unittest.TestCase):
         rgb2[30:60:2] = np.array([40, 30, 20])
         self.assertIn(0, pcol.mixed_parts(pcol.part_colours(part, rgb2), RULES), "два цвета в одной части — помечена")
 
+    @staticmethod
+    def chair_like():
+        """Объёмная «спинка+сиденье» (плотная точечная плита-куб) и тонкая «ножка» (стержень) — по точкам-граням: центры граней = сэмпл, вершины — крошечные треугольники."""
+        rng = np.random.default_rng(1)
+        body = rng.uniform([-0.5, 0.0, -0.5], [0.5, 0.35, 0.5], size=(9000, 3))
+        rod = np.column_stack([rng.normal(0.0, 0.003, 1500) + 0.3, rng.uniform(-0.7, 0.0, 1500), rng.normal(0.0, 0.003, 1500) + 0.3])
+        c = np.concatenate([body, rod])
+        d = 0.002
+        verts = np.concatenate([c + [0, 0, 0], c + [d, 0, 0], c + [0, d, 0]]).astype(np.float32)
+        n = len(c)
+        faces = np.column_stack([np.arange(n), np.arange(n) + n, np.arange(n) + 2 * n])
+        return verts, faces, np.arange(n) >= len(body)
+
+    def test_thin_rod_is_split_off_from_blob_part(self):
+        verts, faces, is_rod = self.chair_like()
+        part = np.zeros(len(faces), dtype=np.int32)                    # SAM2 склеил всё в одну часть
+        adj = pv.weld_adjacency(verts, faces, 5)
+        kind, _, _ = shp.face_shapes(verts, faces, RULES["shape"])
+        self.assertGreater(float((kind[is_rod] == shp.LINEAR).mean()), 0.8, "стержень — linear")
+        self.assertLess(float((kind[~is_rod] == shp.LINEAR).mean()), 0.1, "объём — не linear")
+        self.assertGreater(pr.linear_in_blob_share(part, kind), 0.9)
+        # соседство по сваренным вершинам у случайных точек пустое — свяжем ближайшими: рёбра между центрами в радиусе
+        from scipy import sparse
+        from scipy.spatial import cKDTree
+        c = verts[faces].mean(axis=1)
+        pairs = cKDTree(c).query_pairs(0.03, output_type="ndarray")
+        adj = sparse.coo_matrix((np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])), shape=(len(c), len(c))).tocsr()
+        adj = (adj + adj.T).tocsr()
+        new, rep = pr.refine(part, verts, faces, adj, None, RULES)
+        self.assertGreaterEqual(rep["parts_after"], 2)
+        self.assertLess(rep["linear_in_blob_part_share"], 0.1, rep)
+        self.assertGreater(rep["linear_in_blob_part_share_before"], 0.9)
+        rod_parts = np.unique(new[is_rod])
+        self.assertTrue(len(rod_parts) <= 2 and (new[is_rod] != new[~is_rod][0]).mean() > 0.8, "ножка — своя часть")
+
+    def test_small_part_of_same_kind_and_colour_merges_but_thin_stays(self):
+        verts, faces, is_rod = self.chair_like()
+        from scipy import sparse
+        from scipy.spatial import cKDTree
+        c = verts[faces].mean(axis=1)
+        pairs = cKDTree(c).query_pairs(0.03, output_type="ndarray")
+        adj = sparse.coo_matrix((np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])), shape=(len(c), len(c))).tocsr()
+        adj = (adj + adj.T).tocsr()
+        kind, _, _ = shp.face_shapes(verts, faces, RULES["shape"])
+        part = np.where(is_rod, 1, 0).astype(np.int32)
+        speck = (~is_rod) & (c[:, 0] > 0.40) & (c[:, 2] > 0.40)         # мозаичный кусок объёмной части того же цвета
+        part[speck] = 2
+        lab = np.tile(np.array([[80.0, 0.0, 0.0]]), (len(faces), 1))
+        out = pr.merge_small(part, kind, adj, lab, RULES, RULES["refine"]["colour_merge_max_share"], RULES["refine"]["colour_merge_de"])
+        self.assertTrue((out[speck] == 0).all(), "кусок того же цвета и вида влился в соседа")
+        self.assertTrue((out[is_rod] == 1).all(), "тонкая часть не влилась в объёмную")
+        lab2 = lab.copy()
+        lab2[speck] = [40.0, 30.0, 20.0]
+        out2 = pr.merge_small(part, kind, adj, lab2, RULES, RULES["refine"]["colour_merge_max_share"], RULES["refine"]["colour_merge_de"])
+        self.assertTrue((out2[speck] == 2).all(), "другой цвет — не сливается")
+
     def test_rules_have_no_product_ids_and_are_complete(self):
         import json
         raw = json.dumps({k: v for k, v in RULES.items() if not k.startswith("_")})
@@ -153,7 +211,7 @@ class PartsVote(unittest.TestCase):
         for k in ("orbit", "sam", "region", "merge", "geometry", "check"):
             self.assertIn(k, RULES)
         self.assertGreaterEqual(sum(len(v["az_deg"]) for v in RULES["orbit"]["views"]), 8)
-        self.assertLessEqual(sum(len(v["az_deg"]) for v in RULES["orbit"]["views"]), 12)
+        self.assertLessEqual(sum(len(v["az_deg"]) for v in RULES["orbit"]["views"]), 14)
 
 
 if __name__ == "__main__":

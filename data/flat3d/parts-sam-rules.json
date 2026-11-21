@@ -3,7 +3,8 @@
   "orbit": {
     "views": [
       {"el_deg": 20, "az_deg": [0, 45, 90, 135, 180, 225, 270, 315]},
-      {"el_deg": 60, "az_deg": [0, 90, 180, 270]}
+      {"el_deg": 60, "az_deg": [0, 90, 180, 270]},
+      {"el_deg": -25, "az_deg": [45, 225]}
     ],
     "size_px": 768,
     "lens_mm": 50,
@@ -30,6 +31,15 @@
   "geometry": {
     "legs_overlap": 0.5
   },
+  "shape": {
+    "_doc": "Форма куска (part_shapes.py): те же значения, что `geometry` в material-recipes.json р.7; при слиянии веток свести в один источник.",
+    "k": 96, "radius_frac": 0.05, "min_neighbors": 8, "linear_ratio": 0.25, "planar_ratio": 0.25, "cells_per_radius": 5
+  },
+  "refine": {
+    "thin_min_share": 0.003,
+    "colour_merge_max_share": 0.04,
+    "colour_merge_de": 8.0
+  },
   "check": {
     "min_faces_with_part": 0.98,
     "min_parts": 2,
@@ -37,6 +47,7 @@
     "min_agreement": 0.6,
     "agreement_face": 0.7,
     "input_min_texture_std": 3.0,
-    "part_spread_max": 25.0
+    "part_spread_max": 25.0,
+    "max_linear_in_blob": 0.10
   }
 }

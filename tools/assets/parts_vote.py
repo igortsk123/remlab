@@ -256,7 +256,7 @@ def colour_verdict(has_texture: bool, texture_std: float | None, rules: dict) ->
     return True, "ok"
 
 
-def quality(part: np.ndarray, agree: np.ndarray, seen_any: np.ndarray, rules: dict) -> dict:
+def quality(part: np.ndarray, agree: np.ndarray, seen_any: np.ndarray, rules: dict, linear_in_blob: float | None = None) -> dict:
     """Мерки этапа 3 для check.json: доля граней с частью, число частей, согласие кадров, доля граней, увиденных хотя бы одним кадром."""
     nf = len(part)
     lab = part >= 0
@@ -280,6 +280,10 @@ def quality(part: np.ndarray, agree: np.ndarray, seen_any: np.ndarray, rules: di
         reasons.append(f"число частей {m['n_parts']} вне {ck['min_parts']}–{ck['max_parts']}")
     if m["frames_agreement_mean"] < ck["min_agreement"]:
         reasons.append("кадры спорят о частях")
+    if linear_in_blob is not None:
+        m["linear_in_blob_part_share"] = linear_in_blob
+        if linear_in_blob > ck["max_linear_in_blob"]:
+            reasons.append("тонкие куски (ножки/стойки) остались в объёмной части")
     m["ok"] = not reasons
     m["reason"] = "; ".join(reasons) if reasons else "ok"
     return m
@@ -296,4 +300,4 @@ def run_vote(view_regions: list[np.ndarray], view_vis: list[np.ndarray], weights
     part = small_parts_to_neighbours(part, adj, rules["region"]["min_part_face_share"])
     part = renumber(part)
     agree = final_agreement(acc, raw_part, part)                              # согласие — по итоговым частям, не по сырым номерам
-    return {"part": part, "agree": agree, "seen_any": seen_any, "adj": adj, "n_parts_raw": n_parts}
+    return {"part": part, "agree": agree, "seen_any": seen_any, "adj": adj, "n_parts_raw": n_parts, "acc": acc, "raw_part": raw_part}
