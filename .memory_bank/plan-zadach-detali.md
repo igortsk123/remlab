@@ -246,3 +246,5 @@ source: manual
 <!-- владелец TG 1733 (18.11 05:27) · T-20261118-07/1 рабочему 2 (опора — showcase_assets.py T-24/7, render_jobs, render_machine; предел $2/день общий) · разбор пересвета П1.78 — на паузе -->
 
 <!-- Закрытое до 18.11 (Г2…Г59) перенесено дословно в changelog/plan-zadach-done-2026-11.md (уборка 18.11, T-20261118-60/3) -->
+
+<!-- T-121 стены, 20.11 18:5x (router): проба t121-walls2 упала за 5 с — путь текстуры склеен неверно: `.claude/worktrees/wall-samples-1120/public/home/pakar/remlab-logs/t70-1117/walls/pub/Concrete034-c.jpg` (pub `~/remlab-logs/…` из wall_samples.json приклеен к public/); скрипт пробы пишет rc=0 при падении (правда — probe1b.out и s-bed-loft-C1-loft_bed_concrete.log). Взявшему стены: починить склейку пути (абсолютный pub) + rc по факту кадра. Ветка wall-samples-1120 = 699cb171. -->
