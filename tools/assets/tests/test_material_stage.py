@@ -356,6 +356,20 @@ def test_stage3_roles():
     ok(pm2[2]["role"] == "body" and pm2[1]["role"] == "legs", "роль этапа 3 (body с каналом) геометрией ножек не перекрывается; unknown — добирается геометрией")
 
 
+def test_merge_roles_file():
+    import tempfile
+    parts = [{"id": 0, "role": "part-0"}, {"id": 1, "role": "part-1"}, {"id": 2, "role": "legs", "material_channel": "legs"}, {"id": 3, "role": "unknown", "material_channel": None}]
+    d = tempfile.mkdtemp(prefix="roles-")
+    path = os.path.join(d, "roles.json")
+    ok(MS.merge_roles(parts, path) == 0 and parts[0]["role"] == "part-0", "нет roles.json — части как были")
+    json.dump({"0": {"role": "body", "material_channel": "main", "role_conf": 0.6, "unknown_reason": None}, "1": {"role": "unknown", "material_channel": None, "unknown_reason": "no_rule"},
+               "2": {"role": "body", "material_channel": "main"}, "3": {"role": "top", "material_channel": "main"}}, open(path, "w"))
+    n = MS.merge_roles(parts, path)
+    ok(parts[0]["role"] == "body" and parts[0]["material_channel"] == "main" and parts[1]["unknown_reason"] == "no_rule", "роли из файла дописаны частям без роли")
+    ok(parts[2]["role"] == "legs", "роль с каналом, уже стоящая в parts.json, не перезаписывается")
+    ok(parts[3]["role"] == "top" and n == 3, f"unknown из parts.json заменяется ролью из файла (частей с ролью: {n})")
+
+
 def test_top_zone_bigger_than_body():
     parts = [{"id": 0, "face_share": 0.2, "role": "shape:blob", "vl": None, "colour": None},
              {"id": 1, "face_share": 0.5, "role": "shape:blob-top", "vl": None, "colour": None},
@@ -405,7 +419,7 @@ def test_stage_geometry_and_inherited():
 
 
 if __name__ == "__main__":
-    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_soft_body_inherits_upholstery, test_stage3_roles, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited):
+    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_soft_body_inherits_upholstery, test_stage3_roles, test_merge_roles_file, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited):
         print(t.__name__)
         t()
     print(f"material_stage tests: ошибок {FAIL}")

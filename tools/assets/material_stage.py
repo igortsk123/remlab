@@ -171,6 +171,24 @@ def unsure_parts_report(mesh, part: np.ndarray, parts_rep: list[dict], parts: li
     return sorted(out, key=lambda d: -d["area_share"])
 
 
+def merge_roles(parts: list[dict], path: str) -> int:
+    """Роли частей этапа 3 лежат отдельным файлом `roles.json` (пересчёт ролей без пересчёта частей): {id части: {role, material_channel, …}}. Части, у которых роль
+    с каналом уже в parts.json, не трогаем; остальным дописываем role/material_channel/role_conf/unknown_reason. → сколько частей получило роль. Нет файла — 0."""
+    if not os.path.exists(path):
+        return 0
+    roles = json.load(open(path, encoding="utf-8"))
+    n = 0
+    for p in parts:
+        r = roles.get(str(p["id"]))
+        if not r or (p.get("material_channel") and p.get("role") not in (None, "unknown")):
+            continue
+        for k in ("role", "material_channel", "role_conf", "unknown_reason"):
+            if k in r:
+                p[k] = r[k]
+        n += 1
+    return n
+
+
 def _role_class(p: dict, cls: dict, cat: dict, recipes: dict) -> dict | None:
     """Роль части от этапа 3 (`parts.json` → `role`, `material_channel`; правила — `part-roles.json`): канал материала `main` (body/top/facade) — основной класс товара
     (у стола — каталожный материал столешницы); канал legs/frame/handles/shade — материал этого канала в каталоге. Канала нет в каталоге, роль unknown/glass_mirror/прочее —
@@ -549,6 +567,7 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
         part = np.load(npz)["part"].astype(np.int64)
         info = json.load(open(os.path.join(pdir, "parts.json"), encoding="utf-8"))
         parts = info["parts"]
+        merge_roles(parts, os.path.join(pdir, "roles.json"))
         parts_source = "stage3"
         if len(part) != nf:
             return fail(f"число граней частей этапа 3 ({len(part)}) ≠ меша ({nf}) — части считались на другой модели", faces=nf)
