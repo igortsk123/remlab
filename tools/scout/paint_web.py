@@ -277,6 +277,8 @@ def batch(run: str, folder: str, force: bool = False, limit: int | None = None) 
 
 def selftest() -> int:
     import tempfile
+    import remlab_tmp
+    remlab_tmp.use('paint_web_selftest')
     # ΔE00: пары из таблицы Sharma 2005
     pairs = [((50, 2.6772, -79.7751), (50, 0, -82.7485), 2.0425), ((50, 3.1571, -77.2803), (50, 0, -82.7485), 2.8615), ((50, 2.5, 0), (50, 0, -2.5), 4.3065),
              ((50, 2.5, 0), (73, 25, -18), 27.1492), ((50, 2.5, 0), (50, 3.1736, 0.5854), 1.0000)]

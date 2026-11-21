@@ -13,6 +13,8 @@ SCOUT = os.path.join(HERE, '..')
 if os.environ.get('PAINT_STAGE_DIR'):
     sys.path.insert(0, os.environ['PAINT_STAGE_DIR'])
 sys.path.insert(0, SCOUT)
+import remlab_tmp  # noqa: E402
+remlab_tmp.use('test_paint_web')
 import paint_web as W  # noqa: E402
 import paint_stage as PS  # noqa: E402
 

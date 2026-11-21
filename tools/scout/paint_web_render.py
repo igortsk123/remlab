@@ -49,15 +49,16 @@ def flat_materials():
         out = next((n for n in nt.nodes if n.type == 'OUTPUT_MATERIAL'), None)
         if out is None:
             continue
-        tex = next((n for n in nt.nodes if n.type == 'TEX_IMAGE'), None)
+        # цвет берём ровно с входа Base Color (а не «первую попавшуюся картинку»: у полной модели есть и карта металла/шероховатости)
+        bsdf = next((n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED'), None)
         emi = nt.nodes.new('ShaderNodeEmission')
         emi.inputs['Strength'].default_value = 1.0
-        if tex is not None:
-            nt.links.new(tex.outputs['Color'], emi.inputs['Color'])
-        else:
-            bsdf = next((n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED'), None)
-            if bsdf is not None:
-                emi.inputs['Color'].default_value = bsdf.inputs['Base Color'].default_value
+        if bsdf is not None:
+            bc = bsdf.inputs['Base Color']
+            if bc.links:
+                nt.links.new(bc.links[0].from_socket, emi.inputs['Color'])
+            else:
+                emi.inputs['Color'].default_value = bc.default_value
         nt.links.new(emi.outputs['Emission'], out.inputs['Surface'])
 
 
