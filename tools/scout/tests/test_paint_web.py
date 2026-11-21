@@ -127,15 +127,94 @@ def test_pick_light_best_that_fits():
 
 
 def test_no_ktx_tool_is_failure():
-    """Нет утилиты ktx — ktx_bin() даёт None (этап тогда не проходит с причиной, а не возвращается к JPEG)."""
+    """Нет утилиты ktx (CI её не ставит): ktx_bin() даёт None, а run_one отказывает check.json с причиной словами — не падает с трассой и не возвращается к JPEG.
+    Кэш такого отказа повторно не берётся (поставили утилиту — пересчёт)."""
     old = dict(os.environ)
     try:
         os.environ['KTX'] = '/нет/такого/ktx'
         os.environ['PATH'] = '/нет'
-        assert W.ktx_bin() is None
+        rule = dict(RULE, ktx_bin='/нет/в/правиле/ktx')
+        assert W.ktx_bin() is None and W.ktx_bin(rule) is None
+        with tempfile.TemporaryDirectory() as t:
+            glb = os.path.join(t, 'x.glb')
+            open(glb, 'wb').write(b'not-a-glb')   # до проверки утилиты GLB не открывается
+            c = W.run_one(os.path.join(t, 'run'), 'x', glb, rule, {'max_bytes': 5 * 1048576, 'ladder': []})
+            assert c['passed'] is False and 'ktx' in c['reason'] and 'install-ktx.sh' in c['reason'], c
+            assert c['extra']['ktx2_measured'] is False and c['extra']['no_tool'] is True
+            c2 = W.run_one(os.path.join(t, 'run'), 'x', glb, rule, {'max_bytes': 5 * 1048576, 'ladder': []})
+            assert c2['extra']['no_tool'] is True and c2['passed'] is False   # снова отказ, а не кэш успеха
+        # путь из правила работает: подставная утилита по ktx_bin
+        with tempfile.TemporaryDirectory() as t:
+            fake = os.path.join(t, 'ktx')
+            open(fake, 'w').write('#!/bin/sh\n')
+            os.chmod(fake, 0o755)
+            assert W.ktx_bin(dict(RULE, ktx_bin=fake)) == fake
     finally:
         os.environ.clear()
         os.environ.update(old)
+
+
+def test_run_one_picks_first_that_fits_and_passes():
+    """run_one: кандидаты по порядку; победитель — первый, что влез И прошёл мерки. «Влез, но не прошёл» не останавливает перебор; никто не прошёл —
+    итог — первый из влезших (его же и пересобирают, чтобы файлы и кадры совпали с check.json); никто не влез — запасная лестница сайта. Сборку и кадры подменяем."""
+    cands = [c for c in RULE['candidates']]
+    assert len(cands) >= 3
+    calls = []
+    real_attempt, real_ktx = W._attempt, W.ktx_bin
+
+    def fake_factory(fits, passes):
+        def fake(run, sku, glb, rule, weight, ktx, t0, earlier, fallback, fp):
+            c = rule['candidates'][0]
+            key = (c['size'], tuple(c['tex_flags']))
+            calls.append((key, fallback, len(earlier)))
+            if fallback:
+                return {'passed': False, 'reason': 'лестница', 'extra': {'fits': False, 'texture_step': 'лестница сайта'}}
+            f, ps = key in fits, key in passes
+            return {'passed': f and ps, 'reason': '' if (f and ps) else ('не влез' if not f else 'ssim'), 'extra': {'fits': f, 'texture_step': str(key)}}
+        return fake
+    keys = [(c['size'], tuple(c['tex_flags'])) for c in cands]
+    W.ktx_bin = lambda rule=None: '/bin/true'
+    try:
+        with tempfile.TemporaryDirectory() as t:
+            glb = os.path.join(t, 'x.glb')
+            open(glb, 'wb').write(b'not-a-glb')
+            wt = {'max_bytes': 5 * 1048576, 'ladder': []}
+            # 0-й влез, но не прошёл; 1-й влез и прошёл → победил 1-й
+            W._attempt = fake_factory({keys[0], keys[1]}, {keys[1]})
+            calls.clear()
+            c = W.run_one(os.path.join(t, 'a'), 'x', glb, RULE, wt, force=True)
+            assert c['passed'] and [k for k, _, _ in calls] == keys[:2], calls
+            # 0-й не влез, 1-й влез и прошёл
+            W._attempt = fake_factory({keys[1]}, {keys[1]})
+            calls.clear()
+            c = W.run_one(os.path.join(t, 'b'), 'x', glb, RULE, wt, force=True)
+            assert c['passed'] and [k for k, _, _ in calls] == keys[:2]
+            # влезли 1-й и 2-й, не прошёл никто → итог по первому из влезших (1-й), пересобран последним
+            W._attempt = fake_factory({keys[1], keys[2]}, set())
+            calls.clear()
+            c = W.run_one(os.path.join(t, 'c'), 'x', glb, RULE, wt, force=True)
+            assert not c['passed'] and calls[-1][0] == keys[1] and not calls[-1][1] and len(calls) == len(keys) + 1, calls
+            # никто не влез → запасная лестница сайта
+            W._attempt = fake_factory(set(), set())
+            calls.clear()
+            c = W.run_one(os.path.join(t, 'd'), 'x', glb, RULE, wt, force=True)
+            assert not c['passed'] and calls[-1][1] is True and len(calls) == len(keys) + 1, calls
+    finally:
+        W._attempt, W.ktx_bin = real_attempt, real_ktx
+
+
+def test_install_ktx_data():
+    """tools/ops/install-ktx.sh: версия и контрольные суммы — в ktx-release.json, не в скрипте; установка в домашнюю папку, не в remlab-logs; путь бинаря в правиле совпадает."""
+    import subprocess
+    ops = os.path.join(HERE, '..', '..', 'ops')
+    rel = json.load(open(os.path.join(ops, 'ktx-release.json'), encoding='utf-8'))
+    sh = open(os.path.join(ops, 'install-ktx.sh'), encoding='utf-8').read()
+    assert rel['sha1'] not in sh and rel['sha256'] not in sh and rel['version'] not in sh, 'версия и суммы — только в данных'
+    assert 'sudo' not in re.sub(r'#.*', '', sh) and 'remlab-logs' not in rel['install_dir']
+    assert os.path.expanduser(RULE['ktx_bin']) == os.path.join(os.path.expanduser(rel['install_dir']), rel['binary']), 'путь в правиле и в данных релиза должен совпадать'
+    if os.path.isfile('/bin/bash'):
+        r = subprocess.run(['bash', os.path.join(ops, 'install-ktx.sh'), '--selftest'], capture_output=True, text=True)
+        assert r.returncode == 0 and 'ok' in r.stdout, r.stdout + r.stderr
 
 
 def test_overweight_is_reported():

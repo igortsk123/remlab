@@ -45,9 +45,9 @@ import paint_stage as PS  # noqa: E402  (общий писатель check.json)
 import runtime_mesh as RM  # noqa: E402  (лестница веса и сборка лёгкой копии — те же, что у сайта)
 
 
-def pick_light(src: bytes, dst: str, rule: dict, weight: dict) -> tuple[dict, str]:
+def pick_light(src: bytes, dst: str, rule: dict, weight: dict, fallback: bool = True) -> tuple[dict, str]:
     """Лёгкая копия «лучшее, что влезает»: `candidates` из правила по порядку убывания качества (размер текстуры, ключи gltfpack), первый влезший в вес — победитель.
-    Ни один не влез — запасная обычная лестница сайта (rt-weight.json: размер ↓, упрощение граней), её отказ и есть причина. → (res со `steps`, метка)."""
+    Ни один не влез — запасная обычная лестница сайта (rt-weight.json: размер ↓, упрощение граней), её отказ и есть причина (fallback=False — без неё: `ok` False). → (res со `steps`, метка)."""
     one, steps = {**weight, 'ladder': []}, []
     res, label = {}, ''
     for c in rule['candidates']:
@@ -57,6 +57,8 @@ def pick_light(src: bytes, dst: str, rule: dict, weight: dict) -> tuple[dict, st
         steps.append([label, t.get('bytes'), t.get('skip') or t.get('problems')])
         if res['ok']:
             return {**res, 'steps': steps}, label
+    if not fallback:
+        return {**res, 'steps': steps}, label
     res = RM.build_light(src, dst, int(rule['candidates'][0]['size']), int(rule['quality']), 0.0, True, weight)
     steps += [[t['step'], t.get('bytes'), t.get('skip') or t.get('problems')] for t in res['tried']]
     return {**res, 'steps': steps}, ('лестница сайта: ' + res['tried'][-1]['step'] if res['tried'] else 'лестница сайта')
@@ -193,7 +195,10 @@ def _render(cfg: dict, timeout: int) -> tuple[bool, str, dict]:
 
 
 def run_one(run: str, sku: str, glb: str, rule: dict | None = None, weight: dict | None = None, force: bool = False) -> dict:
-    """Этап 10 для одного товара → check.json (словарь). Не выкладывает."""
+    """Этап 10 для одного товара → check.json (словарь). Не выкладывает.
+    Кандидаты правила пробуются по убыванию качества: победитель — первый, что и влез в вес, и прошёл мерки (по тем же порогам). «Влез» ≠ «прошёл»:
+    у одних товаров выигрывает меньший размер без урезания кодека, у других — больший с урезанием, наперёд не угадать. Ни один не прошёл — в check.json лучший
+    из влезших (первый по порядку), с причиной; ни один не влез — запасная лестница сайта."""
     rule = rule or load_rule()
     weight = weight or RM.weight_rule()
     t0 = time.time()
@@ -201,12 +206,35 @@ def run_one(run: str, sku: str, glb: str, rule: dict | None = None, weight: dict
     src = open(glb, 'rb').read()
     sha = hashlib.sha256(src).hexdigest()[:16]
     prev = PS.read_check(d)
-    if prev and not force and prev.get('extra', {}).get('glb_sha') == sha and prev.get('extra', {}).get('rule') == _rule_fp(rule, weight):
+    if prev and not force and prev.get('extra', {}).get('glb_sha') == sha and prev.get('extra', {}).get('rule') == _rule_fp(rule, weight) and not prev['extra'].get('no_tool'):
         return prev
+    ktx = ktx_bin(rule)
+    if not ktx:        # до всякой сборки: без утилиты проверку по настоящей текстуре не сделать — честный отказ словами (кэш такого отказа не берётся: поставили утилиту — пересчитается)
+        return PS.write_check(d, STAGE, sku, passed=False, metric={'name': 'ktx_tool', 'value': 0, 'threshold': 1, 'op': '>='}, seconds=time.time() - t0, outputs=[],
+                              reason='нет утилиты ktx (KTX-Software): поставить tools/ops/install-ktx.sh или задать переменную KTX — потеря на KTX2 не измерена',
+                              glb_sha=sha, rule=_rule_fp(rule, weight), ktx2_measured=False, no_tool=True, bytes_before=len(src))
+    earlier, first_fit = [], None
+    for c in rule['candidates']:
+        ck = _attempt(run, sku, glb, dict(rule, candidates=[c]), weight, ktx, t0, earlier, False, _rule_fp(rule, weight))
+        if ck['passed']:
+            return ck
+        if ck['extra'].get('fits'):
+            first_fit = first_fit or c
+        earlier.append([ck['extra'].get('texture_step') or str(c['size']), ck.get('reason', '')[:100]])
+    if first_fit is None:      # ни один не влез — запасная лестница сайта
+        return _attempt(run, sku, glb, rule, weight, ktx, t0, earlier, True, _rule_fp(rule, weight))
+    return _attempt(run, sku, glb, dict(rule, candidates=[first_fit]), weight, ktx, t0, earlier, False, _rule_fp(rule, weight))   # ни один не прошёл: файлы и кадры — лучшего из влезших
+
+
+def _attempt(run: str, sku: str, glb: str, rule: dict, weight: dict, ktx: str, t0: float, earlier: list, fallback: bool, fp: str) -> dict:
+    """Одна попытка этапа 10 с кандидатами `rule['candidates']` (обычно один): сборка → раскодирование KTX2 → кадры → мерки → check.json (extra.fits — влез ли в вес)."""
+    d = PS.stage_dir(run, sku, STAGE)
+    src = open(glb, 'rb').read()
+    sha = hashlib.sha256(src).hexdigest()[:16]
     web, real = os.path.join(d, 'web.glb'), os.path.join(d, 'web-real.glb')
-    res, label = pick_light(src, web, rule, weight)
+    res, label = pick_light(src, web, rule, weight, fallback)
     steps = res['steps']
-    base = {'glb_sha': sha, 'rule': _rule_fp(rule, weight), 'steps': steps, 'ktx2_measured': False, 'texture_pack': res.get('how', ''),
+    base = {'glb_sha': sha, 'rule': fp, 'steps': steps, 'tried_before': earlier, 'fits': bool(res['ok']), 'ktx2_measured': False, 'texture_pack': res.get('how', ''),
             'bytes_before': len(src), 'atlas_px_before': _atlas_px(src)}
     size_metric = {'name': 'bytes', 'value': res.get('bytes', 0), 'threshold': weight['max_bytes'], 'op': '<='}
     if not res['ok']:
@@ -214,10 +242,6 @@ def run_one(run: str, sku: str, glb: str, rule: dict | None = None, weight: dict
             f"тяжелее {weight['max_bytes'] / 1048576:.1f} МБ даже после лестницы ({label}: {res['bytes'] / 1048576:.2f} МБ)"
         return PS.write_check(d, STAGE, sku, passed=False, metric=size_metric, reason=why, seconds=time.time() - t0, outputs=[], **base)
     # кадры — с НАСТОЯЩЕГО web.glb: его KTX2-картинку раскодирует утилита ktx (KTX-Software), PNG встаёт на место KTX2 (геометрия и UV те же, что поедут на сайт)
-    ktx = ktx_bin()
-    if not ktx:
-        return PS.write_check(d, STAGE, sku, passed=False, metric=size_metric, seconds=time.time() - t0, outputs=['web.glb'], bytes=res['bytes'], texture_step=label,
-                              reason='нет утилиты ktx (KTX-Software: переменная KTX или PATH) — потеря на KTX2 не измерена', **base)
     ok, why, tinfo = decode_web(web, real, ktx, d)
     if not ok:
         return PS.write_check(d, STAGE, sku, passed=False, metric=size_metric, reason=why, seconds=time.time() - t0, outputs=['web.glb'], bytes=res['bytes'],
@@ -249,10 +273,12 @@ def _rule_fp(rule: dict, weight: dict) -> str:
     return hashlib.sha256(json.dumps([rule, weight.get('fingerprint'), CODE_V], sort_keys=True).encode()).hexdigest()[:8]
 
 
-def ktx_bin() -> str | None:
-    """Утилита ktx (KTX-Software ≥4.4): переменная KTX или PATH; нет — None."""
-    p = os.environ.get('KTX') or shutil.which('ktx')
-    return p if p and os.path.isfile(p) and os.access(p, os.X_OK) else None
+def ktx_bin(rule: dict | None = None) -> str | None:
+    """Утилита ktx (KTX-Software ≥4.4): переменная KTX → PATH → путь из правила (`ktx_bin` в paint-web.json; ставит tools/ops/install-ktx.sh). Нет — None."""
+    for p in (os.environ.get('KTX'), shutil.which('ktx'), os.path.expanduser((rule or {}).get('ktx_bin') or '')):
+        if p and os.path.isfile(p) and os.access(p, os.X_OK):
+            return p
+    return None
 
 
 def decode_web(web_glb: str, out_glb: str, ktx: str, workdir: str) -> tuple[bool, str, dict]:
