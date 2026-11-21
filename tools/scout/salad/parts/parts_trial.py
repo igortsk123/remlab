@@ -62,6 +62,41 @@ def check_faces(glb_path, faces_path):
     return r
 
 
+_PULL = {}
+
+
+def pull_guard(name: str, ins: list, n_done: int, limit: int, now: float) -> int:
+    """Сторож медленной докачки образа (владелец TG 1069/1070; уроки 734/357): те же `batch_show.cull_verdict` / `_rate_per_min` и
+    `node_health.take_cull_slot/reallocate`, что у пула мешей (логику не копируем). Одна нода: «работающих < 2 — не трогать» тут не применяем
+    (иначе сторож бесполезен для пробы). Возвращает число сделанных пересадок за вызов."""
+    import batch_show as BS
+    import node_health as NH
+    acts = 0
+    for i in ins:
+        iid, raw = i.get('id'), i.get('pulling_progress')
+        if not iid or i.get('state') != 'downloading' or raw is None:
+            continue
+        prog = float(raw)
+        h = _PULL.setdefault(iid, {'first': now, 'best': prog, 'moved': now, 'obs': [(now, prog)]})
+        if prog < h['best'] - 0.10:
+            h.update(first=now, best=prog, moved=now, obs=[(now, prog)])
+        else:
+            if prog > h['best'] + BS.STALL_MIN:
+                h.update(best=prog, moved=now)
+            h['obs'] = [(t, p) for t, p in h['obs'] + [(now, prog)] if now - t <= 900]
+        why = BS.cull_verdict(now - h['first'], h['best'], now - h['moved'], BS._rate_per_min(h['obs']))
+        if why and n_done + acts < limit:
+            if NH.take_cull_slot():
+                say(f'сторож докачки: нода {iid[:8]}: {why} — пересаживаю ({n_done + acts + 1}/{limit})')
+                NH.reallocate(name, iid, f'медленная докачка образа: {why}')
+                _PULL.pop(iid, None)
+                acts += 1
+            else:
+                say(f'сторож докачки: {why}, но бюджет пересадок исчерпан')
+    return acts
+
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--model', required=True, choices=MODELS)
@@ -78,6 +113,7 @@ def main() -> int:
     ap.add_argument('--ready-min', type=int, default=25, help='минут от started до phase=ready')
     ap.add_argument('--job-timeout', type=int, default=15)
     ap.add_argument('--pre', default='', help='команда перед воркером (временная заплатка к образу, напр. pip install; в отчёт — отдельной строкой)')
+    ap.add_argument('--max-realloc', type=int, default=3, help='сколько раз пересадить медленно качающую образ ноду (0 = не пересаживать); бюджет общий с пулом (node_health)')
     ap.add_argument('--max-meshes', type=int, default=0, help='после N отправленных прогонов новые не отправлять (0 = без ограничения); дождаться текущего и погасить')
     ap.add_argument('--stop-file', default='', help='если файл существует — новые прогоны не отправлять (текущий дожидаемся, потом гасим); сигнал фоновому процессу НЕ работает')
     ap.add_argument('--variants', default='', help='JSON-файл [{"tag","params"}]: каждый меш прогоняется по всем вариантам подряд (меш за мешом); результаты в <out>/<tag>/<sid>/')
@@ -142,6 +178,7 @@ def main() -> int:
         todo = [{**it, 'tag': v.get('tag', ''), 'vparams': v.get('params', {})} for it in items for v in (VARS or [{}])]
         inflight = None
         n_sent = 0
+        realloc_n = 0
         durs = []
         last_say = last_wait = 0.0
         first_done = False
@@ -150,6 +187,11 @@ def main() -> int:
             _, st, cnt = BR.group_state(name)
             _, ins = BR.instances(name)
             i0 = ins[0] if ins else {}
+            if run_since is None and ins and a.max_realloc:
+                try:
+                    realloc_n += pull_guard(name, ins, realloc_n, a.max_realloc, t)
+                except Exception as e:  # noqa: BLE001 — сторож не должен ронять пробу
+                    say('сторож докачки: сбой', type(e).__name__, str(e)[:100])
             if started_at is None and (i0.get('started') or i0.get('state') == 'running'):
                 started_at = t
                 summary['to_started_s'] = round(t - t_start, 1)
