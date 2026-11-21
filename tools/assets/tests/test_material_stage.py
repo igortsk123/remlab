@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Этап 08 «материал» (paint-photo-fill-01, T-20261121-170/1): класс → PBR-рецепт по частям, запекание в UV общего листа, GLB с sheen/transmission.
+"""Этап 08 «материал» (paint-photo-fill-01, T-20261121-170/1; форма без частей и наследование граней — /4): класс → PBR-рецепт по частям, запекание в UV общего листа, GLB с sheen/transmission.
 Сети, Blender и чужих моделей нет: синтетика из trimesh (куб с UV и картой цвета). Кадр (Blender) здесь не проверяется — только `--no-frame` путь.
 Запуск: python3 tools/assets/tests/test_material_stage.py   (нужны numpy, scipy, trimesh, Pillow; для проверки check.json — tools/scout/paint_stage.py или PAINT_STAGE_DIR)"""
 import json
@@ -155,8 +155,95 @@ def test_stage_end_to_end():
         ok(again["extra"]["parts"] == doc["extra"]["parts"] and again["extra"]["glb"] == doc["extra"]["glb"], "перевыпуск даёт тот же результат")
 
 
+def _lamp_mesh():
+    """Синтетический торшер (Y вверх): плоская подставка, тонкая стойка, шарик-плафон наверху."""
+    import trimesh
+    rot = trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0])
+    base = trimesh.creation.cylinder(radius=0.2, height=0.01, sections=48)
+    base.apply_transform(rot)
+    base.apply_translation([0, 0.005, 0])
+    pole = trimesh.creation.cylinder(radius=0.008, height=1.2, sections=12)
+    pole.apply_transform(rot)
+    pole.apply_translation([0, 0.61, 0])
+    shade = trimesh.creation.icosphere(subdivisions=3, radius=0.05)
+    shade.apply_translation([0, 1.3, 0])
+    parts = []
+    for part in (base, pole, shade):                                   # как в TRELLIS — густая сетка: у стойки тоже сотни граней, а не 24
+        v, f = trimesh.remesh.subdivide_to_size(part.vertices, part.faces, max_edge=0.015)
+        parts.append(trimesh.Trimesh(v, f, process=False))
+    return trimesh.util.concatenate(parts)
+
+
+def test_shapes_without_stage3():
+    import part_shapes as psh
+    mc, mp = MS._siblings()
+    m = _lamp_mesh()
+    kind, up, rep = psh.face_shapes(m.vertices, m.faces, R["geometry"])
+    cen = m.vertices[m.faces].mean(axis=1)
+    pole = (np.abs(cen[:, 0]) < 0.02) & (cen[:, 1] > 0.1) & (cen[:, 1] < 1.1)
+    ok((kind[pole] == psh.LINEAR).mean() > 0.9, "тонкая стойка — linear (≥90% граней)")
+    ok((kind[cen[:, 1] > 1.25] == psh.BLOB).mean() > 0.9, "шарик наверху — blob")
+    part, parts, _ = MS.geometry_shape_parts(m, mp, {}, R)
+    roles = {p["role"] for p in parts}
+    ok({"shape:linear", "shape:blob-top"} <= roles, f"части по форме: стойка и плафон наверху найдены ({sorted(roles)})")
+    cls = _cls("metal", 0.9, shade="glass")
+    res = MS.resolve_parts(parts, cls, R, parts_known=True)
+    by = {p["role"]: res[p["id"]] for p in parts}
+    ok(by["shape:blob-top"]["class"] == "glass" and by["shape:blob-top"]["confident"], "плафон наверху — стекло из каталога, уверен")
+    ok(by["shape:linear"]["class"] == "metal" and by["shape:linear"]["confident"], "стойка — металл, уверен")
+    big = max(parts, key=lambda p: p["face_share"])
+    ok(res[big["id"]]["class"] == "metal" and res[big["id"]]["confident"], "главная часть — корпус из каталога")
+    wood = MS.resolve_parts(parts, _cls("wood_solid", 0.9), R, parts_known=True)
+    lin = next(p for p in parts if p["role"] == "shape:linear")
+    ok(wood[lin["id"]]["class"] == "wood_solid" and wood[lin["id"]]["class"] != "metal", "в каталоге нет металла — стойка берёт материал корпуса, а не металл")
+    extra = [dict(p) for p in parts]
+    extra[0] = dict(extra[0], face_share=0.9)                              # главная — не стойка: тогда стойка идёт веткой формы
+    mm = MS.resolve_parts(extra, _cls("wood_solid", 0.9), R, parts_known=True)
+    li = next(p for p in extra if p["role"] == "shape:linear")
+    ok(extra[0]["role"] != "shape:linear" and mm[li["id"]]["source"] == "geometry:body", "ветка формы: нет металла в каталоге — источник «geometry:body», причина названа")
+    _, _, rep2 = psh.face_shapes(m.vertices * 10.0, m.faces, R["geometry"])
+    ok(rep2["share"] == rep["share"], "масштаб модели ничего не меняет: пороги — доли габарита")
+
+
+def test_inherit_unseen():
+    import trimesh
+    m = trimesh.creation.icosphere(subdivisions=3, radius=1.0)
+    cen = m.vertices[m.faces].mean(axis=1)
+    part = np.where(cen[:, 0] < 0, 0, 1).astype(np.int64)
+    part[(cen[:, 0] > 0.2) & (cen[:, 1] > 0.4)] = -1
+    part[(cen[:, 0] < -0.5) & (cen[:, 1] < -0.4)] = 99          # номер, которого нет в parts.json — тоже «не видна»
+    new, mask = MS.inherit_unseen(m, part, [0, 1])
+    ok(mask.sum() == ((part == -1) | (part == 99)).sum() and set(np.unique(new)) == {0, 1}, "грань без части (−1 и неизвестный номер) получила часть соседа")
+    ok((new[mask & (cen[:, 0] > 0)] == 1).all() and (new[mask & (cen[:, 0] < 0)] == 0).all(), "берёт ближайшую: правая сторона — часть 1, левая — часть 0")
+    same, mask0 = MS.inherit_unseen(m, np.zeros(len(part), dtype=np.int64), [0])
+    ok(not mask0.any() and (same == 0).all(), "всё видно — ничего не меняется")
+    try:
+        MS.inherit_unseen(m, np.full(len(part), -1), [0])
+        ok(False, "ни одной грани с частью — отказ")
+    except ValueError:
+        ok(True, "ни одной грани с частью — отказ, наследовать не от кого")
+
+
+def test_stage_geometry_and_inherited():
+    try:
+        MS._paint_stage()
+    except SystemExit:
+        print("  – paint_stage.py не найден: сквозная проверка пропущена")
+        return
+    with tempfile.TemporaryDirectory() as d:
+        src = os.path.join(d, "lamp.glb")
+        _tiny_glb(src)
+        product = {"sid": "x", "name": "Светильник напольный", "role": "торшер", "params": {"Материал корпуса": "Металл", "Материал плафона": "Стекло"}}
+        doc = MS.run_stage(src, os.path.join(d, "run"), "sku-g", product, frame=False)
+        m = doc["metrics"]
+        ok(doc["extra"]["parts_source"] == "geometry" and "inherited_share" in m and m["inherited_share"]["value"] == 0.0, "без этапа 3: части по форме, inherited_share в check.json (0 — все грани разложены)")
+        ok(m["recipe_share"]["value"] == 1.0, "без этапа 3: у всех граней рецепт")
+        ok(isinstance(doc["extra"].get("catalog_parts_not_located"), list), "check.json называет материалы каталога, которых форма не нашла (уверенность не равна «проверено»)")
+        ok(isinstance(doc["extra"].get("shape"), dict) and "share" in doc["extra"]["shape"], "check.json хранит разбивку формы")
+
+
 if __name__ == "__main__":
-    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end):
+    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_inherit_unseen, test_stage_geometry_and_inherited):
         print(t.__name__)
         t()
     print(f"material_stage tests: ошибок {FAIL}")
