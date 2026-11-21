@@ -183,6 +183,18 @@ def _levels(tx, cfg: dict) -> dict:
     return {'up': up, 'top': top, 'ytop': ytop, 'ymin': float(tx.Q[:, 1].min()), 'ymax': float(tx.Q[:, 1].max())}
 
 
+def _real_known(run_dir: str, n: int):
+    """Маски «взято с фото» этапа 6 (`06-visible/known.png`, known1.png…) — настоящий вход голосов. Нет файла — (None, None)."""
+    from PIL import Image
+    out = []
+    for i in range(n):
+        fp = os.path.join(run_dir, '06-visible', 'known.png' if i == 0 else f'known{i}.png')
+        if not os.path.exists(fp):
+            return None, None
+        out.append(np.asarray(Image.open(fp).convert('L')) > 127)
+    return out, 'stage06_known_png'
+
+
 def analyze(run_dir: str, card: dict | None, rules: dict | None = None, filled_glb: str | None = None) -> dict:
     """Голоса и решение для одного прогона (папка со стадиями 01/03/06/07). Только чтение; возвращает отчёт и данные для кадра."""
     import tex_coverage as TC
@@ -194,7 +206,9 @@ def analyze(run_dir: str, card: dict | None, rules: dict | None = None, filled_g
         cfg['edge_band'] = max(cfg['edge_band_min'], min(cfg['edge_band'], cfg['edge_band_k'] * dims['thickness_cm'] / dims['length_cm']))
     vis = os.path.join(run_dir, '06-visible', 'visible.glb')
     geoms = TC.load_geoms(vis)
-    known = TF.known_from_photo(geoms)
+    known, known_src = _real_known(run_dir, len(geoms))
+    if known is None:                                                         # нет known.png: только геометрическая видимость с запасных ракурсов — на невидимом верху это заливка, не фото (урок Киннера 21.11)
+        known, known_src = TF.known_from_photo(geoms), 'geometry_only'
     ctr, size = TF.frame_of(geoms)
     offs = np.cumsum([0] + [len(g['V']) for g in geoms])
     P = (np.concatenate([np.asarray(g['V'], np.float64) for g in geoms]) - ctr) / size
@@ -263,6 +277,7 @@ def analyze(run_dir: str, card: dict | None, rules: dict | None = None, filled_g
     res['library'] = library_bin(res['tone_lab'], cc.get('group') or 'library', json.load(open(lib_path, encoding='utf-8')), rules, cc.get('class')) if os.path.exists(lib_path) else {'bin': None, 'note': 'нет library.json'}
     res['other_part_vertical'] = {'n': int(len(ov)), 'lab': [round(float(x), 1) for x in TF.tone_of(ov, TF.FILL)] if len(ov) else None, 'note': 'вертикальные видимые тексели ДРУГИХ частей (царга/корпус); голосом не служат'}
     res['top_texels'] = n_top
+    res['known_source'] = known_src
     res['card_dims'] = dict(dims, edge_band=round(cfg['edge_band'], 4))
     res['top_parts'] = {str(k): v for k, v in top_part_roles.items()}
     res['top_own_part'] = any(r == 'top' for r in top_part_roles.values())

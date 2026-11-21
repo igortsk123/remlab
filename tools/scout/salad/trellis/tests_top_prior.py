@@ -4,6 +4,7 @@ import copy
 import os
 import sys
 import unittest
+import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -98,6 +99,24 @@ class CardClass(unittest.TestCase):
 
     def test_no_card_no_class(self):
         self.assertIsNone(TP.card_class(None, RULES)['group'])
+
+
+class RealKnown(unittest.TestCase):
+    def test_missing_known_png_gives_none(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(TP._real_known(d, 1), (None, None))
+
+    def test_reads_known_png(self):
+        import tempfile
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, '06-visible'))
+            m = np.zeros((4, 4), np.uint8); m[1, 2] = 255
+            Image.fromarray(m).save(os.path.join(d, '06-visible', 'known.png'))
+            k, src = TP._real_known(d, 1)
+            self.assertEqual(src, 'stage06_known_png')
+            self.assertTrue(k[0][1, 2] and not k[0][0, 0])
 
 
 class CardDims(unittest.TestCase):
