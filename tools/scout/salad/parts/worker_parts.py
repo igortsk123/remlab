@@ -119,12 +119,72 @@ class P3SamBackend:
 
 
 class PartLlmBackend:
-    """PartLLM: подключается отдельным шагом (формат вывода infer.sh — после чтения кода); пока явный отказ, без молчаливых пропусков."""
+    """PartLLM (full-shape, без имён на входе: модель сама называет части). В процессе: веса грузятся один раз (cold/warm), далее по мешу
+    prepare_geometry_from_glb → run_inference → process_and_save (их же код, `test_mask_pred.py main_glb_dir`). На выходе faces.npy = ЭКЗЕМПЛЯРЫ частей (instance_labels.npy,
+    если есть, иначе face_labels), классы по именам — extra.class_faces → `faces_class.npy`; имена — meta.names (по классам). ПОРЯДОК ГРАНЕЙ: их combined_mesh строится
+    trimesh.load(process=True)+scene2meshes → сверяем центроиды граней с нашим glb (process=False) в нормированных координатах: identity | remapped (ближайший центроид) | fail.
+    НЕ проверено на GPU: нумерация классов и фон (последний класс логитов [S+1] — предположительно фон) — см. extra.n_classes / names."""
     def load(self) -> dict:
-        raise RuntimeError('PartLLM: адаптер вывода ещё не написан')
+        root = os.environ.get('PARTLLM_ROOT', '/opt/PartLLM')
+        for p in (f'{root}/recipe/part_seg/tools/inference', f'{root}/recipe/part_seg', root):
+            sys.path.insert(0, p)
+        os.chdir(root)
+        import test_mask_pred as T
+        self.T = T
+        mp = os.environ.get('MODEL_PATH', '/opt/weights/partllm')
+        self.prompt_set = os.environ.get('PARTLLM_PROMPT_SET', 'general')
+        sys.argv = ['partllm', '--glb_dir', '/tmp', '--output_dir', '/tmp/partllm-args', '--model_path', mp, '--config_path', mp,
+                    '--sem_mode', 'semantic', '--prompt_set', self.prompt_set]
+        self.args = T.parse_args()
+        T.set_global_seed(self.args.seed)
+        self.model, self.processor, _tok, self.hf_config, self.encoder_type = T.load_model(self.args)
+        return {'model_path': mp, 'prompt_set': self.prompt_set}
 
     def segment(self, mesh, params: dict, outdir: str) -> dict:
-        raise RuntimeError('PartLLM: адаптер вывода ещё не написан')
+        import numpy as np
+        from scipy.spatial import cKDTree
+        T = self.T
+        gran = params.get('prompt_set', self.prompt_set)
+        gp = T.build_glb_open_prompts('semantic', gran)
+        gran_name, tmpl = gp[0]
+        geo = T.prepare_geometry_from_glb(os.path.join(outdir, 'input.glb'), self.model, self.hf_config, self.encoder_type,
+                                          apply_z_positive=self.args.apply_z_positive, clean_mesh=False)
+        inputs, user_prompt = T.prepare_prompt_from_template(tmpl, geo, self.processor, self.model)
+        response, mask_logits, pca = T.run_inference(self.model, inputs, geo['utonia_point_dict'], self.processor, self.args)
+        sd = os.path.join(outdir, 'partllm')
+        os.makedirs(sd, exist_ok=True)
+        T.process_and_save(response, mask_logits, inputs, {'model_id': 'x', 'prompt_mode': f'open/{gran_name}', 'granularity': gran_name},
+                           sd, self.args, 0, user_prompt, None, mesh_vis_info=geo['mesh_vis_info'], pca_capture=pca)
+        if pca is not None:
+            pca.detach()
+        fl = os.path.join(sd, 'face_labels.npy')
+        if not os.path.isfile(fl):
+            raise RuntimeError('PartLLM не записал face_labels.npy (маски нет: mask_logits=None?)')
+        cls = np.load(fl).astype(np.int64)
+        il = os.path.join(sd, 'instance_labels.npy')
+        inst = np.load(il).astype(np.int64) if os.path.isfile(il) else None
+        lab = inst if inst is not None else cls
+        cm = geo['mesh_vis_info']['combined_mesh']
+        n_in = len(mesh.faces)
+        # сверка порядка граней: центроиды в координатах «центр bbox, диагональ 1»
+        def norm_c(m):
+            v = np.asarray(m.vertices, dtype=np.float64)
+            lo, hi = v.min(0), v.max(0)
+            return (np.asarray(m.triangles_center, dtype=np.float64) - (lo + hi) / 2) / max(float(np.linalg.norm(hi - lo)), 1e-12)
+        mine, theirs = norm_c(mesh), norm_c(cm)
+        if len(cm.faces) == n_in and float(np.abs(mine - theirs).max()) < 1e-3:
+            order, out, out_cls = {'order_check': 'identity', 'max_centroid_diff': float(np.abs(mine - theirs).max())}, lab, cls
+        else:
+            d, idx = cKDTree(theirs).query(mine)
+            order = {'order_check': 'remapped', 'faces_theirs': int(len(cm.faces)), 'faces_input': int(n_in), 'max_nn_dist': float(d.max()), 'p99_nn_dist': float(np.quantile(d, 0.99))}
+            if float(np.quantile(d, 0.99)) > 5e-3:
+                raise RuntimeError(f'порядок граней не восстановлен: {order}')
+            out, out_cls = lab[idx], cls[idx]
+        np.save(os.path.join(outdir, 'faces_class.npy'), out_cls.astype(np.int32))
+        parts = T.parse_response_parts(response)
+        names = [p['label'] for p in parts]
+        extra = dict(order, n_classes=int(mask_logits.shape[1]) if mask_logits is not None else None, instances=inst is not None, response=response[:2000], prompt=gran_name)
+        return {'faces': out.astype(np.int32), 'names': names, 'extra': extra}
 
 
 def make_backend():
