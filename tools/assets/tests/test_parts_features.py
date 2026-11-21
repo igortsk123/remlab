@@ -99,6 +99,7 @@ class Features(unittest.TestCase):
 
 class Roles(unittest.TestCase):
     rules = pr.load_rules()
+    off = {**rules, "decision": {**rules["decision"], "leg_rescue": {**rules["decision"]["leg_rescue"], "enabled": False}}}   # прежнее воздержание без leg_rescue
 
     def test_table_legs_and_top(self):
         v, f, part = table()
@@ -174,7 +175,7 @@ class Roles(unittest.TestCase):
         kinds = {0: "body", 1: "thin", 2: "thin", 3: "thin", 4: "thin"}
         ft = feats(v, f, part, kinds)
         ft[4]["agree"], ft[4]["seen"] = 0.1, 0.5                            # одна ножка нечитаема кадрами — группу из-за неё не рушим
-        r = pr.assign_roles(ft, self.rules, "столик", {"legs"})
+        r = pr.assign_roles(ft, self.off, "столик", {"legs"})
         self.assertEqual(r[4]["unknown_reason"], "unreliable")
         for p in (1, 2, 3):
             self.assertEqual(r[p]["role"], "legs")
@@ -232,9 +233,82 @@ class Roles(unittest.TestCase):
         kinds = {0: "body", 1: "thin", 2: "thin", 3: "thin", 4: "thin"}
         ft = feats(v, f, part, kinds)
         ft[1]["agree"], ft[1]["seen"] = 0.5, 0.9
-        r = pr.assign_roles(ft, self.rules, "столик", {"legs"})
+        r = pr.assign_roles(ft, self.off, "столик", {"legs"})
         self.assertEqual(r[1]["unknown_reason"], "unreliable")              # роль не увереннее разбиения
         self.assertEqual(r[2]["role"], "legs")
+
+
+class LegRescue(unittest.TestCase):
+    """leg_rescue: ножка с размытым голосованием кадров (agree мал) становится legs по геометрии; ткань и недоверенные случаи — нет."""
+    rules = pr.load_rules()
+
+    def setUp(self):
+        v, f, part = table()
+        self.kinds = {0: "body", 1: "thin", 2: "thin", 3: "thin", 4: "thin"}
+        self.ft = feats(v, f, part, self.kinds)
+        for p in (1, 2, 3, 4):
+            self.ft[p]["agree"], self.ft[p]["seen"] = 0.95, 0.5
+        self.ft[4]["agree"] = 0.016                                        # как у низа ножки Sakura: кадры не согласны
+
+    def run_roles(self, rules=None, ptype="столик"):
+        return pr.assign_roles(self.ft, rules or self.rules, ptype, {"legs"})
+
+    def with_rescue(self, **kw):
+        lr = {**self.rules["decision"]["leg_rescue"], **kw}
+        return {**self.rules, "decision": {**self.rules["decision"], "leg_rescue": lr}}
+
+    def test_blurred_leg_becomes_legs_with_normal_confidence(self):
+        r = self.run_roles()
+        self.assertEqual(r[4]["role"], "legs")
+        self.assertIn("по геометрии", r[4]["role_why"])
+        self.assertLess(r[4]["role_conf"], r[1]["role_conf"] or 1)         # увереннее ножек с доверием быть не может: matched, а не matched_trusted
+        self.assertIsNone(r[4]["unknown_reason"])
+        for p in (1, 2, 3):
+            self.assertEqual(r[p]["role"], "legs")
+
+    def test_switch_off_keeps_abstention(self):
+        r = self.run_roles(self.with_rescue(enabled=False))
+        self.assertEqual((r[4]["role"], r[4]["unknown_reason"]), ("unknown", "unreliable"))
+
+    def test_no_trusted_legs_no_rescue(self):
+        for p in (1, 2, 3):
+            self.ft[p]["agree"] = 0.3                                      # у предмета нет ни одной ножки с доверием
+        r = self.run_roles()
+        self.assertEqual(r[4]["role"], "unknown")
+
+    def test_slanted_or_floating_part_is_not_rescued(self):
+        self.ft[4]["obb"] = {**self.ft[4]["obb"], "axis_y": 0.5}
+        self.assertEqual(self.run_roles()[4]["role"], "unknown")           # ось не отвесна
+        self.ft[4]["obb"]["axis_y"] = 1.0
+        self.ft[4]["floor_contact"] = False
+        self.ft[4]["supports_body"] = False
+        self.assertEqual(self.run_roles()[4]["role"], "unknown")           # не стоит на полу (ткань у корпуса)
+
+    def test_tiny_is_not_rescued(self):
+        self.ft[4]["area_share"] = 0.001
+        r = self.run_roles()
+        self.assertEqual((r[4]["role"], r[4]["unknown_reason"]), ("unknown", "tiny"))
+
+    def test_touches_legs_link_is_stricter(self):
+        strict = self.with_rescue(link="touches_legs")
+        self.assertEqual(self.run_roles(strict)[4]["role"], "unknown")      # прутья стола друг друга не касаются — строгий вариант не берёт
+        self.ft[4]["contacts"] = sorted(set(self.ft[4]["contacts"]) | {1})
+        self.assertEqual(self.run_roles(strict)[4]["role"], "legs")
+
+    def test_two_fitting_roles_stay_unknown(self):
+        # комод: ножки и «рамка»-часть с теми же числами — если по геометрии подходят две роли, воздержание сохраняется
+        rules = self.with_rescue()
+        grp = rules["groups"]["table"]
+        saved = grp["roles"]["frame"]
+        grp["roles"]["frame"] = {**grp["roles"]["legs"], "forbid": []}
+        try:
+            self.assertEqual(self.run_roles(rules)[4]["role"], "unknown")
+        finally:
+            grp["roles"]["frame"] = saved
+
+    def test_axis_y_is_a_feature(self):
+        self.assertAlmostEqual(self.ft[1]["obb"]["axis_y"], 1.0, places=2)   # стойка отвесна
+        self.assertLess(self.ft[0]["obb"]["axis_y"], 0.2)                    # плита лежит
 
 
 class RulesFile(unittest.TestCase):
