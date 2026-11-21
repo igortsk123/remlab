@@ -61,26 +61,80 @@ def peak_vram_gb() -> float | None:
     return None
 
 
+CUR_SAMPLER = None
+
+
+def gpu_util_mem() -> tuple:
+    try:
+        r = subprocess.run(['nvidia-smi', '--query-gpu=utilization.gpu,memory.used', '--format=csv,noheader,nounits'], capture_output=True, text=True, timeout=5)
+        u, m = [x.strip() for x in r.stdout.strip().splitlines()[0].split(',')]
+        return float(u), float(m)
+    except Exception:  # noqa: BLE001
+        return None, None
+
+
 class VramSampler:
-    """Пик занятой видеопамяти по nvidia-smi раз в секунду (это то, что видит карта), отдельно от torch allocated/reserved."""
+    """Раз в секунду: загрузка GPU (nvidia-smi utilization.gpu), занятая видеопамять и ядра CPU, занятые ЭТИМ процессом (os.times: user+sys всех потоков).
+    Пик памяти — по nvidia-smi (то, что видит карта), отдельно от torch allocated/reserved. samples = [(t, gpu%, mem_mb, cores)]."""
     def __init__(self):
         self.peak_mb = 0.0
+        self.samples = []
         self._stop = threading.Event()
         self._t = threading.Thread(target=self._run, daemon=True)
 
     def _run(self):
+        last_t, last_cpu = time.time(), sum(os.times()[:2])
         while not self._stop.is_set():
-            u = nvidia_smi().get('mem_used_mb')
-            if u:
-                self.peak_mb = max(self.peak_mb, u)
+            u, mem = gpu_util_mem()
+            now, cpu = time.time(), sum(os.times()[:2])
+            cores = (cpu - last_cpu) / max(now - last_t, 1e-6)
+            last_t, last_cpu = now, cpu
+            if mem:
+                self.peak_mb = max(self.peak_mb, mem)
+            self.samples.append((now, u, mem, round(cores, 2)))
             self._stop.wait(1.0)
 
     def __enter__(self):
+        global CUR_SAMPLER
+        CUR_SAMPLER = self
         self._t.start()
         return self
 
     def __exit__(self, *a):
         self._stop.set()
+
+
+def stage_table(lines: list, sampler) -> list:
+    """lines = [(время конца стадии, имя, секунды)] из печати Timer модели; по семплам sampler — средняя загрузка GPU и ядер CPU в окне стадии."""
+    out = []
+    for t_end, name, sec in lines:
+        t0 = t_end - sec
+        w = [x for x in (sampler.samples if sampler else []) if t0 <= x[0] <= t_end]
+        gu = [x[1] for x in w if x[1] is not None]
+        cu = [x[3] for x in w]
+        row = {'stage': name, 'sec': round(sec, 2), 'samples': len(w),
+               'gpu_util_mean': round(sum(gu) / len(gu), 1) if gu else None, 'cores_mean': round(sum(cu) / len(cu), 2) if cu else None}
+        if sec >= 1.0 and row['gpu_util_mean'] is not None:
+            row['device'] = 'gpu' if row['gpu_util_mean'] >= 30 else 'cpu'
+        out.append(row)
+    return out
+
+
+class TimedOut:
+    """stdout-ловушка: запоминает время каждой строки (Timer печатает в конце стадии)."""
+    def __init__(self):
+        self.lines = []
+        self._buf = ''
+
+    def write(self, x):
+        self._buf += x
+        while '\n' in self._buf:
+            ln, self._buf = self._buf.split('\n', 1)
+            self.lines.append((time.time(), ln))
+        return len(x)
+
+    def flush(self):
+        pass
 
 
 def torch_peaks() -> dict:
@@ -182,7 +236,7 @@ class P3SamBackend:
         work, did = self._decimate(m, dec)
         dec_s = round(time.time() - t0, 2)
         AM.set_seed(int(params.get('seed', 42)))
-        buf = io.StringIO()
+        buf = TimedOut()
         with contextlib.redirect_stdout(buf):
             _aabb, face_ids, _mesh = self.am.predict_aabb(
                 work, point_num=pn, prompt_num=qn,
@@ -190,8 +244,13 @@ class P3SamBackend:
                 save_mid_res=False, show_info=False, clean_mesh_flag=False, seed=int(params.get('seed', 42)), is_parallel=False,
                 prompt_bs=int(params.get('prompt_bs', 32)))
         stages = {}
-        for mm in re.finditer(r'>>>>>>代码(.+?) 运行时间: ([0-9.]+) 秒', buf.getvalue()):
-            stages[mm.group(1)] = round(float(mm.group(2)), 2)
+        st_lines = []
+        for t_end, ln in buf.lines:
+            mm = re.search(r'>>>>>>代码(.+?) 运行时间: ([0-9.]+) 秒', ln)
+            if mm:
+                stages[mm.group(1)] = round(float(mm.group(2)), 2)
+                st_lines.append((t_end, mm.group(1), float(mm.group(2))))
+        table = stage_table(st_lines, CUR_SAMPLER)
         fid = np.asarray(face_ids).astype(np.int64)
         if fid.shape[0] != len(work.faces):
             raise RuntimeError(f'модель вернула {fid.shape[0]} меток на {len(work.faces)} граней')
@@ -204,7 +263,7 @@ class P3SamBackend:
         if fid.shape[0] != n_in:
             raise RuntimeError(f'после переноса {fid.shape[0]} меток на {n_in} граней')
         return {'faces': fid.astype(np.int32), 'names': None,
-                'extra': {'stages': stages, 'decimate_s': dec_s, 'transfer_s': tr_s, 'n_faces_work': int(len(work.faces)), 'patched': self.patched, 'params': {'point_num': pn, 'prompt_num': qn, 'decimate_faces': dec}}}
+                'extra': {'stages': stages, 'stage_table': table, 'cpu_count': os.cpu_count(), 'cpu_affinity': len(os.sched_getaffinity(0)), 'decimate_s': dec_s, 'transfer_s': tr_s, 'n_faces_work': int(len(work.faces)), 'patched': self.patched, 'params': {'point_num': pn, 'prompt_num': qn, 'decimate_faces': dec}}}
 
 
 class PartLlmBackend:
