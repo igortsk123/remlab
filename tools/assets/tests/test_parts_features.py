@@ -328,10 +328,11 @@ class LegWood(unittest.TestCase):
         for p in self.ft:                                                   # часть 4 — не из группы повторов (в HD Sakura часть «ножки+стойки» одна)
             self.ft[p]["symmetry_members"] = [q for q in self.ft[p].get("symmetry_members", []) if q != 4 and p != 4]
 
-    def run_roles(self, **kw):
+    def run_roles(self, classes=None, **kw):
         wood = {**self.rules["decision"]["leg_rescue"]["wood"], **kw}
         lr = {**self.rules["decision"]["leg_rescue"], "wood": wood}
-        return pr.assign_roles(self.ft, {**self.rules, "decision": {**self.rules["decision"], "leg_rescue": lr}}, "кресло", {"legs"})
+        return pr.assign_roles(self.ft, {**self.rules, "decision": {**self.rules["decision"], "leg_rescue": lr}}, "кресло", {"legs"},
+                               catalog_classes={"legs": "wood_solid", "frame": "wood_solid"} if classes is None else classes)
 
     def test_off_keeps_abstention_on_takes_whole_part(self):
         off = self.run_roles(enabled=False)[4]
@@ -354,6 +355,24 @@ class LegWood(unittest.TestCase):
             self.assertEqual(self.run_roles()[4]["role"], "unknown", key)
             self.ft[4][key] = f0
 
+    def test_catalog_material_must_agree(self):
+        """Советник (Codex), R1: ножка и каркас из одного материала по каталогу; иначе (ткань до пола, плетёнка, консольный металл) — нет; нет классов каталога — режим молчит."""
+        self.assertEqual(self.run_roles({"legs": "wood_solid"})[4]["role"], "legs")                       # каркаса нет → можно
+        self.assertEqual(self.run_roles({"legs": "wood_solid", "frame": "metal"})[4]["role"], "unknown")  # ножки дерево, каркас металл
+        self.assertEqual(self.run_roles({"legs": "metal", "frame": "wood_solid"})[4]["role"], "unknown")
+        self.assertEqual(self.run_roles({})[4]["role"], "unknown")                                        # классов каталога нет
+
+    def test_other_group_is_not_wood_business(self):
+        wood = {**self.rules["decision"]["leg_rescue"]["wood"]}
+        lr = {**self.rules["decision"]["leg_rescue"], "wood": wood}
+        r = pr.assign_roles(self.ft, {**self.rules, "decision": {**self.rules["decision"], "leg_rescue": lr}}, "комод", {"legs"},
+                            catalog_classes={"legs": "wood_solid"})
+        self.assertEqual(r[4]["role"], "unknown")
+
+    def test_candidate_must_pass_group_legs_veto(self):
+        self.ft[4]["up_q90"] = 0.9                                         # выше потолка max_up_q90 — стойка/спинка, не ножка
+        self.assertEqual(self.run_roles()[4]["role"], "unknown")
+
     def test_no_trusted_legs_no_wood_rescue(self):
         for p in (1, 2, 3):
             self.ft[p]["agree"] = 0.3
@@ -367,19 +386,29 @@ class LegWood(unittest.TestCase):
 
 class UnseenAdopt(unittest.TestCase):
     """unseen_adopt: часть, которой не видит ни одна камера (seen≈0, unreliable), берёт роль соседа с наибольшей общей границей — только при явном перевесе."""
-    ua = pr.load_rules()["decision"]["unseen_adopt"]
+    ua = {**pr.load_rules()["decision"]["unseen_adopt"], "mode": "apply"}   # в правилах сейчас dry (P-062); боевое поведение — здесь
 
     @staticmethod
     def role(r, conf=0.8, why=None):
         return {"role": r, "role_title": r, "material_channel": None, "role_conf": conf, "role_why": "", "unknown_reason": why}
 
-    def case(self, shared, seen=0.0, reason="unreliable", neighbor_roles=("body", "legs")):
+    def case(self, shared, seen=0.0, reason="unreliable", neighbor_roles=("body", "legs"), kind="body", ua=None):
         ft = {0: {"seen": 0.9, "shared_faces": {1: sum(shared.values())}},
-              1: {"seen": seen, "shared_faces": dict(zip((0, 2), shared.values()))},
+              1: {"seen": seen, "kind": kind, "shared_faces": dict(zip((0, 2), shared.values()))},
               2: {"seen": 0.9, "shared_faces": {1: 5}}}
         out = {0: self.role(neighbor_roles[0]), 1: self.role("unknown", 0.0, reason), 2: self.role(neighbor_roles[1])}
-        pr._unseen_adopt(ft, out, self.ua)
+        pr._unseen_adopt(ft, out, ua or self.ua)
         return out
+
+    def test_thin_part_is_not_adopted(self):
+        """Проба «выкинь одну часть»: тонкие ножки/стойки у соседа-тела брали роль тела (2 из 7 верно) — только kind body."""
+        o = self.case({0: 90, 2: 10}, kind="thin")
+        self.assertEqual((o[1]["role"], o[1]["unknown_reason"]), ("unknown", "unreliable"))
+
+    def test_dry_mode_only_hints(self):
+        o = self.case({0: 90, 2: 10}, ua={**self.ua, "mode": "dry"})
+        self.assertEqual(o[1]["role"], "unknown")
+        self.assertEqual(o[1]["unseen_hint"]["role"], "body")
 
     def test_adopts_role_of_dominant_neighbor(self):
         o = self.case({0: 90, 2: 10})
@@ -433,3 +462,8 @@ class RulesFile(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnseenAdoptDefaultDry(unittest.TestCase):
+    def test_rules_ship_in_dry_mode(self):
+        self.assertEqual(pr.load_rules()["decision"]["unseen_adopt"].get("mode"), "dry")

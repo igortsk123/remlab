@@ -114,6 +114,18 @@ ok('--product-role' not in st and '--channels' not in st and '--cam-az' not in s
 ctx = RA.make_ctx('/r', 'k', {'native': 'n', 'photo': 'p', 'product_role': 'комод', 'channels': 'legs', 'root': '/x'}, REAL)
 st = RA.resolve_steps(REAL['stages']['03'], ctx, {'cam_az_args': ['--cam-az', '12.5']})[1]['argv']
 ok(st[st.index('--product-role') + 1] == 'комод' and st[st.index('--channels') + 1] == 'legs' and st[-2:] == ['--cam-az', '12.5'], 'заданные тип, каналы и азимут стоят в команде')
+# каналы материала — из записи каталога (раньше в боевом прогоне уходили пустыми: роли frame/handles/shade молчали)
+rec = {'sid': 'k', 'name': 'Кресло', 'role': 'кресло', 'params': {'Материал каркаса': 'Дерево, Полиуретан', 'Материал обшивки': 'Лен', 'Основной материал': 'Дерево'}}
+ch, cc = RA.catalog_channels(rec)
+ok('legs' in ch.split(',') and 'legs=' in cc and RA.catalog_channels(None) == ('', ''), 'catalog_channels: каналы и классы из каталога; нет записи — пусто')
+with tempfile.TemporaryDirectory() as run:
+    cat = os.path.join(run, 'cat.json')
+    json.dump([rec], open(cat, 'w'))
+    ctx = RA.make_ctx('/r', 'k', {'native': 'n', 'photo': 'p', 'catalog': cat, 'root': '/x'}, REAL)
+    st = RA.resolve_steps(REAL['stages']['03'], ctx, {'cam_az_args': []})[1]['argv']
+    ok(st[st.index('--channels') + 1] == ctx['channels'] != '' and '--channel-classes' in st, 'канал не задан вручную → берётся из каталога, классы уходят на этап 3')
+    ctx = RA.make_ctx('/r', 'k', {'native': 'n', 'photo': 'p', 'catalog': cat, 'channels': 'handles', 'root': '/x'}, REAL)
+    ok(ctx['channels'] == 'handles', 'вручную заданные каналы каталогом не перебиваются')
 with tempfile.TemporaryDirectory() as run:
     ok(RA.cam_az_args(run, 'k', CR, REAL) == [], 'нет check.json этапа 4 → азимута нет')
     d = PS.stage_dir(run, 'k', '04-camera')

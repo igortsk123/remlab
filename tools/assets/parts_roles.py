@@ -85,7 +85,7 @@ def _eval(conds: list[dict], f: dict, ctx: dict) -> tuple[bool, str | None]:
 
 
 def assign_roles(features: dict[int, dict], rules: dict, product_role: str | None, catalog_channels: set[str] | None = None,
-                 classes: dict | None = None) -> dict[int, dict]:
+                 classes: dict | None = None, catalog_classes: dict[str, str] | None = None) -> dict[int, dict]:
     """Роль каждой части: {id: {role, role_title, material_channel, role_conf, role_why, unknown_reason}}.
     `features` — `parts_features.part_features`; `catalog_channels` — ключи `parts` из `material_class.classify` товара (legs, frame, handles, shade)."""
     g = group_of(product_role, classes)
@@ -93,7 +93,7 @@ def assign_roles(features: dict[int, dict], rules: dict, product_role: str | Non
     ab = rules["decision"]["abstain"]
     rc = rules["decision"]["role_conf"]
     channels = catalog_channels or set()
-    ctx = {"product_role": product_role}
+    ctx = {"product_role": product_role, "group": g, "catalog_classes": catalog_classes or {}}   # классы материала каналов каталога: {"legs": "wood_solid", "frame": …}
     out: dict[int, dict] = {}
 
     def done(p, role, why, conf, reason=None):
@@ -178,6 +178,19 @@ def _fits(f: dict, grp: dict, channels: set[str], ctx: dict) -> list[str]:
     return fits
 
 
+def _wood_material_ok(ctx: dict) -> bool:
+    """Режим wood — только если по каталогу материал ножек = материалу каркаса (или каркаса нет); классов каталога нет — режим молчит (сигнала «одно дерево» нет)."""
+    cc = ctx.get("catalog_classes") or {}
+    return bool(cc.get("legs")) and (not cc.get("frame") or cc["frame"] == cc["legs"])
+
+
+def _legs_geometry_ok(f: dict, r0: dict, ctx: dict, max_up_q90: float) -> bool:
+    """Групповые ограничения роли legs (require/alt_require/forbid — вето плиты у столов, лимит площади), КРОМЕ потолка высоты ножки: стойка уходит выше, потолок — `max_up_q90`."""
+    strip = lambda cs: [c for c in cs if c["f"] != "up_q90"]
+    ok = _eval(strip(r0["require"]), f, ctx)[0] or any(_eval(strip(a), f, ctx)[0] for a in r0.get("alt_require", []))
+    return ok and not any(_eval([c], f, ctx)[0] for c in r0.get("forbid", [])) and f["up_q90"] <= max_up_q90
+
+
 def _leg_rescue(features: dict[int, dict], out: dict[int, dict], grp: dict, lr: dict, rules: dict, channels: set[str], ctx: dict) -> None:
     """НОЖКА ПО ГЕОМЕТРИИ, КОГДА ГОЛОСОВАНИЕ КАДРОВ РАЗМЫТО (T-20261121-169/4, кадр Sakura: низ передней ножки — отдельная часть agree 0.016).
     Часть, которой роль не дали только из-за недоверия кадров (`unknown:unreliable`; tiny не в счёт), становится ножкой, если ВСЕ:
@@ -208,12 +221,12 @@ def _leg_rescue(features: dict[int, dict], out: dict[int, dict], grp: dict, lr: 
                   "role_why": f"ножка по геометрии при размытом голосовании кадров (agree={f['agree']}, seen={f['seen']}): условия роли и отвесная ось у пола выполнены, ножки у предмета уже есть",
                   "unknown_reason": None}
     wd = lr.get("wood")
-    if wd and wd.get("enabled"):                                       # ножка и стойка из одного дерева: часть уходит выше сиденья, но это те же ножки
+    if wd and wd.get("enabled") and ctx.get("group") in wd.get("groups", [ctx.get("group")]) and _wood_material_ok(ctx):                                       # ножка и стойка из одного дерева: часть уходит выше сиденья, но это те же ножки
         for p, o in list(out.items()):
             if o["unknown_reason"] not in wd["from_reasons"]:
                 continue
             f = features[p]
-            if not all(_eval([c], f, ctx)[0] for c in wd["require"]):
+            if not all(_eval([c], f, ctx)[0] for c in wd["require"]) or not _legs_geometry_ok(f, r0, ctx, wd.get("max_up_q90", 0.75)):
                 continue
             rd = rules["roles"][role]
             out[p] = {"role": role, "role_title": rd["titleRu"], "material_channel": rd.get("material_channel"), "role_conf": rc["matched"],
@@ -231,12 +244,17 @@ def _unseen_adopt(features: dict[int, dict], out: dict[int, dict], ua: dict) -> 
         f = features[p]
         if o["unknown_reason"] not in ua["from_reasons"] or (f.get("seen") or 0.0) > ua["max_seen"]:
             continue
+        if ua.get("kinds") and f.get("kind") not in ua["kinds"]:
+            continue                                                   # тонкая часть у тела (ножка, стойка) — соседство ≠ роль
         sh = f.get("shared_faces") or {}
         tot = sum(sh.values())
         if not tot:
             continue
         q = max(sh, key=lambda k: sh[k])
         if snap[q]["role"] == "unknown" or sh[q] / tot < ua["min_share"]:
+            continue
+        if ua.get("mode") == "dry":                                    # сухой режим: роль не меняем, только подсказка в отчёт
+            out[p] = {**snap[p], "unseen_hint": {"role": snap[q]["role"], "neighbor": q, "border_share": round(sh[q] / tot, 2)}}
             continue
         out[p] = {**snap[q], "role_conf": min(snap[q]["role_conf"], ua["role_conf"]),
                   "role_why": f"невидимая часть (seen={f.get('seen')}, голосов нет) берёт роль соседа {q} с наибольшей общей границей ({sh[q] / tot:.0%} её границы)",
