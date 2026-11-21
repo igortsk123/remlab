@@ -1204,6 +1204,8 @@ def _render_prewarm_start() -> None:
 
 
 if __name__ == '__main__':
+    import log_stamp as _LS
+    _LS.install()                           # каждая строка журнала — с временем и номером задания/тура (T-20261118-22/8); LOG_STAMP=0 — прежний журнал
     port = int(os.environ.get('DRAFT_PORT', 8099))
     print(f'черновой рендер слушает :{port}', flush=True)
     if os.environ.get('PREWARM', '1') == '1':

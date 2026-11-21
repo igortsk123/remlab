@@ -171,6 +171,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # тест (е) паспортов (ниже, test_mesh_type_passports): `git merge-base HEAD origin/main` — в shallow-копии базы нет, проверка «salad/ не тронут» молча пропускалась (T-151/8, Codex)
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -234,6 +236,8 @@ jobs:
       - run: python tools/scout/cycles_probe/test_frame_qa.py   # сторож кадров Cycles: классы слотов, оценка кадра, предпроверка (в т.ч. шторы/карниз/радиаторы оболочки), осколки внутри маски ковра (T-20261118-03/1–4)
       - run: pip install pillow -q && python tools/scout/render_gpu/tests_render_gate.py   # ворота сторожа кадров: брак предпроверки — заказ не рендерится, кадровый брак — не публикуется и не в кэш, MAIN_NOT_VISIBLE/«вплотную» не блокируют, RENDER_QA_GATE=0 — прежнее, повтор того же ключа без рендера, заготовка не зацикливается (T-20261118-03/7)
       - run: python tools/scout/render_gpu/tests_render_prewarm.py   # очередь рендера: заготовки мимо пределов покупателя, дополнительные потоки берут только заготовки (R8, T-20261118-22/4), заготовка витрины
+      - run: python tools/scout/tests/test_log_stamp.py   # журнал сервиса кадров: у каждой строки ISO-время и [задание|тур], в т.ч. вывод дочерних процессов; LOG_STAMP=0 — прежний (T-20261118-22/8)
+      - run: python tools/scout/tour_timing.py --selftest   # разбор времени тура по журналам: взятие → v1 → v2 → v3 → первый → последний кадр (T-20261118-22/8)
       - run: python tools/scout/render_gpu/tests_render_tour.py   # фото тура: крючки воркера, заготовки по версиям, порядок по кругам комнат (первый кадр каждой комнаты раньше; набор и число кадров те же — деньги не растут), отказ одного варианта не валит остальные (T-20261118-22/3)
       - run: python tools/scout/render_gpu/tests_qa_night.py   # ночной шаг сторожа без рендера: вердикты, брак по классам, потолок времени, память результатов, журнал (T-20261118-03/8)
       - run: python tools/scout/cycles_probe/test_rug_silhouette.py   # маска ковра: внутренние дыры — ковёр, эрозия только по внешнему контуру (светлый ковёр не крошится на осколки, T-20261118-03/3)
@@ -256,7 +260,9 @@ jobs:
       - run: python -m pytest tools/scout/tests/test_compose_bedroom_groups.py -q -p no:cacheprovider   # сторож набора спальни: группы ступеней, лампа на тумбе или причина в gaps (T-20261120-118)
       - run: python -m pytest tools/scout/tests/test_curtain_rules.py -q -p no:cacheprovider   # (солвер спальни) шторы спальни: deny по стилю (рулонные лофта можно), запас соседа, рулонные по окну, тёмные шторы лофта первыми (T-20261120-163)
       - run: python tools/scout/bed_headboard.py --selftest && python tools/scout/tests/test_bed_headboard.py   # кровать боком: изголовье по геометрии в каскаде (доворот / блок orientation_mismatch), сторож решений, одна проба на размер и низкие рамы под окном (T-20261110-20/3)
-      - run: python -m pytest tools/scout/tests/test_trial_bundle.py -q -p no:cacheprovider   # проба агента: данные страницы /demo под загруженный план — пустые комнаты, сцена, отказы; образец для контракта TS (T-20261109-21)
+      - run: python tools/scout/mesh_type_passports.py --selftest && python tools/scout/passport_measure.py --selftest && python tools/scout/cutout_guards.py --selftest && python tools/scout/passport_shadow.py --selftest   # паспорта типов, фаза 1 «тень» (T-20261120-151/6): реестр и схема, замеры К1/К3 (cv2+scipy выше), политика сторожей, состояние прохода
+      - run: python tools/scout/tests/test_mesh_type_passports.py   # паспорта типов: золото К1 (131) и К3 (89) по ИСХОДУ каждого случая; chain_flags реестра = наборы ролей кода; (а) сбой тени ≠ сбой вырезки; (б) битый реестр/нет таблицы — очередь, ключи заданий, экспорт Salad без изменений; (в) crop_box = trim_alpha; (г) object_xy не двигает потребителей; (д)/(д2) проход --shadow-backfill: не пишет оценки и кэш, отравленные строки, карантин, обрыв, таймаут, бюджет; (е) salad/ не тронут. `preprocess` (torch) подменён заглушкой внутри теста (T-20261120-151/6)
+      - run: python -m pytest tools/scout/tests/test_trial_bundle.py -q -p no:cacheprovider  # проба агента: данные страницы /demo под загруженный план — пустые комнаты, сцена, отказы; образец для контракта TS (T-20261109-21)
       - run: python tools/scout/product_names.py --selftest   # одно название у товара: единое правило витрина/туры, финальный проход, сторож «витрина = туры» (T-20261119-97, П1.92)
       - run: python -m pytest tools/scout/tests/test_cams_par.py -q -p no:cacheprovider   # пары ракурсов: подбор кусками, перенос из прежней собранной версии не теряет пары и cams_shared (T-20261118-22/1)
       - run: python -m pytest tools/scout/tests/test_rules_one.py -q -p no:cacheprovider   # один набор правил для /demo и загруженного плана: подкраска/разворот/подвесная/плоскость/семья цветов, предмет решателя спальни, предпроверка тура не строже движка на flat215 и планах из объявлений (T-20261112-96, TG 940/942)

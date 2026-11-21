@@ -412,6 +412,11 @@ room_digest() {                 # room_digest <комната> <метка=ша�
 }
 room_digest спальня каталог=room_catalog фото=rooms_alive стиль=style_bedroom вырезка=rooms_cutout
 room_digest прихожая каталог=hall_catalog фото=rooms_alive стиль=style_hall вырезка=rooms_cutout
+# ТЕНЬ ПАСПОРТОВ ТИПОВ, фаза 1 (T-20261120-151/6–7, план mesh-type-passports-01): проход по УЖЕ вырезанным фото (кровать К1, подушка К3) — вердикты сторожей в таблицу
+# `passport_shadow`, ничего не блокирует и не платное (нового запроса к fal/Salad нет; скачивается только исходник кровати). Квота: ≤400 строк и ≤1800 с (SHADOW_BACKFILL_*),
+# внешний потолок `timeout` 2400 с; один проход за раз (замок), `attempts` — не чаще раза в сутки. Без миграции 018 — одна WARN и пропуск. Выключатель PASSPORT_SHADOW=0.
+# Сбой шага (в т.ч. FAIL от timeout) вырезку и очередь мешей не останавливает: стоит после вырезки и не влияет на спрос.
+step shadow_backfill timeout -k 20 2400 env SHADOW_BACKFILL_MAX="${SHADOW_BACKFILL_MAX:-400}" SHADOW_BACKFILL_BUDGET_S="${SHADOW_BACKFILL_BUDGET_S:-1800}" "$PY" cutout_sync.py --shadow-backfill
 step sets_index "$PY" sets_incremental.py --index
 step sets_check "$PY" sets_incremental.py --check
 # 6→5b. Отчёт по комплектам: что из показываемого пользователю мертво/ждёт подтверждения

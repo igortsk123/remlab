@@ -515,7 +515,9 @@ class RenderQueue:
             jid = self._take(warm_only)
             if jid is None:
                 return
-            self.run_one(jid)
+            import log_stamp as LS                              # строки журнала на время задания — с номером задания и тура (T-20261118-22/8)
+            with LS.context(job=jid, tour=(self.store.jobs.get(jid) or {}).get('tour')):
+                self.run_one(jid)
 
     def run_one(self, jid: str) -> None:
         st = self.store
