@@ -173,6 +173,7 @@ def run(args) -> int:
         print(f"кадр {name}: масок {len(masks)}, областей {per_view_regions[-1]}, {time.time() - t0:.0f} с", flush=True)
     res = pv.run_vote(regions, viss, weights, mesh.vertices, mesh.faces, rules)
     part = res["part"]
+    vote_part, vote_agree = part.copy(), res["agree"].copy()
     lab_face = None
     try:                                                              # цвет граней — для слияния пёстрых кусков по цвету
         import parts_colour as pcol
@@ -210,7 +211,8 @@ def run(args) -> int:
     for p, c in sorted(zip(ids, cnt), key=lambda t: -t[1]):
         role = (geom or {}).get("roles", {}).get(int(p), {}).get("role") if geom else None
         parts.append({"id": int(p), "face_share": round(float(c) / nf, 4), "role": role or f"part-{int(p)}", "vl": None, "colour": colours.get(int(p))})
-    np.savez_compressed(os.path.join(sdir, "parts.npz"), part=part.astype(np.int16), agree=res["agree"].astype(np.float16))
+    np.savez_compressed(os.path.join(sdir, "parts.npz"), part=part.astype(np.int16), agree=res["agree"].astype(np.float16),
+                        vote_part=vote_part.astype(np.int16), vote_agree=vote_agree.astype(np.float16), seen=res["seen_any"])   # vote_* — до доводки: доводку можно переиграть без SAM2
     json.dump({"faces": nf, "n_views": len(names), "regions_per_view": per_view_regions, "n_parts_raw": res["n_parts_raw"], "parts": parts, "geometry": geom, "refine": refine_rep},
               open(os.path.join(sdir, "parts.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     tiles = [paint_frame(args.orbit, n, part, u, v, vis, rgb, mask) for (n, rgb, mask, u, v, vis) in (frames[0:8:2] if len(frames) >= 8 else frames[:4])]

@@ -47,11 +47,11 @@ def part_kinds(part: np.ndarray, kind: np.ndarray, linear_majority: float = 0.5)
     return out
 
 
-def linear_in_blob_share(part: np.ndarray, kind: np.ndarray, linear_majority: float = 0.5, min_part_share: float = 0.10) -> float:
+def linear_in_blob_share(part: np.ndarray, kind: np.ndarray, linear_majority: float = 0.5, min_part_share: float = 0.10, min_linear_faces: int = 0) -> float:
     """Доля linear-граней, лежащих в КРУПНОЙ объёмной части (от `min_part_share` всех граней, linear в ней — меньшинство): ножка/стойка в одной части с обивкой.
     Малые части (подлокотник, ручка) не считаются: они уже отдельные, даже если у них часть граней linear."""
     lin = (kind == shp.LINEAR) & (part >= 0)
-    if not lin.any():
+    if lin.sum() < min_linear_faces:                                           # linear-граней меньше, чем можно вырезать, — это шум классификатора, а не ножки
         return 0.0
     kinds = part_kinds(part, kind, linear_majority)
     is_body = np.zeros(int(part.max()) + 1, dtype=bool)
@@ -134,21 +134,56 @@ def merge_small(part: np.ndarray, kind: np.ndarray, adj, lab: np.ndarray | None,
     return part
 
 
+def cap_parts(part: np.ndarray, kind: np.ndarray, adj, lab: np.ndarray | None, max_parts: int, de_cap: float) -> np.ndarray:
+    """Частей больше потолка (`check.max_parts`) — самая малая часть вливается в соседа ТОГО ЖЕ вида (тонкая — в тонкую, объёмная — в объёмную) с самой длинной границей;
+    сначала только при близком цвете (ΔE76 < `refine.colour_cap_de`), если таких нет — по границе без цвета. Тонкие части (ножки) в объёмные не вливаются никогда."""
+    part = part.copy()
+    nf = len(part)
+    for _ in range(200):
+        ids = np.unique(part[part >= 0])
+        if len(ids) <= max_parts:
+            break
+        remap = {int(p): i for i, p in enumerate(ids)}
+        dense = np.array([remap.get(int(x), -1) for x in part])
+        oh = _onehot(dense, len(ids))
+        bnd = (oh.T @ adj @ oh).toarray()
+        np.fill_diagonal(bnd, 0)
+        size = np.asarray(oh.sum(axis=0)).ravel()
+        kinds = part_kinds(dense, kind)
+        med = _part_lab_median(dense, lab) if lab is not None else None
+        done = False
+        for use_colour in ((True, False) if med is not None else (False,)):
+            for i in np.argsort(size):
+                cand = [j for j in np.argsort(-bnd[i]) if bnd[i, j] > 0 and kinds.get(int(j)) == kinds.get(int(i))]
+                if use_colour:
+                    cand = [j for j in cand if float(np.linalg.norm(med[int(i)] - med[int(j)])) < de_cap]
+                if cand:
+                    part[dense == i] = ids[cand[0]]
+                    done = True
+                    break
+            if done:
+                break
+        if not done:
+            break
+    return part
+
+
 def refine(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, adj, lab_face: np.ndarray | None, rules: dict,
            agree: np.ndarray | None = None, seen: np.ndarray | None = None) -> tuple[np.ndarray, dict]:
-    """Доводка: срез тонкого → слияние пёстрых по цвету → малые в соседа. Возвращает (новые части без дыр в нумерации, отчёт с меркой)."""
+    """Доводка: срез тонкого → слияние пёстрых по цвету → малые в соседа → потолок числа частей. Возвращает (новые части без дыр в нумерации, отчёт с меркой)."""
     from parts_vote import renumber
 
     kind, up, rep = shp.face_shapes(vertices, faces, shape_cfg(rules))
     rf = rules["refine"]
-    before = linear_in_blob_share(part, kind, 0.5, rf["thin_split_min_part_share"])
+    before = linear_in_blob_share(part, kind, 0.5, rf["thin_split_min_part_share"], max(1, int(round(rf["thin_min_share"] * len(part)))))
     n_before = int(len(np.unique(part[part >= 0])))
     new = split_thin(part, kind, adj, rules)
     n_split = int(len(np.unique(new[new >= 0]))) - n_before
     new = merge_small(new, kind, adj, lab_face, rules, rf["colour_merge_max_share"], rf["colour_merge_de"] if lab_face is not None else None, agree, seen)
     new = merge_small(new, kind, adj, None, rules, rules["region"]["min_part_face_share"], None)
+    new = cap_parts(new, kind, adj, lab_face, rules["check"]["max_parts"], rf["colour_cap_de"])
     new = renumber(new)
-    after = linear_in_blob_share(new, kind, 0.5, rf["thin_split_min_part_share"])
+    after = linear_in_blob_share(new, kind, 0.5, rf["thin_split_min_part_share"], max(1, int(round(rf["thin_min_share"] * len(part)))))
     report = {"shape_share": rep["share"], "linear_in_blob_part_share_before": before, "linear_in_blob_part_share": after,
               "parts_before": n_before, "parts_split_off": n_split, "parts_after": int(len(np.unique(new[new >= 0])))}
     return new, report

@@ -213,6 +213,23 @@ class PartsVote(unittest.TestCase):
         mosaic = pr.merge_small(part, kind, adj, lab, RULES, RULES["refine"]["colour_merge_max_share"], RULES["refine"]["colour_merge_de"], weak, seen)
         self.assertTrue((mosaic[speck] == 0).all(), "кадры спорят (мозаика) и цвет тот же — сливается")
 
+    def test_cap_parts_merges_smallest_same_kind_keeps_thin(self):
+        verts, faces, is_rod = self.chair_like()
+        from scipy import sparse
+        from scipy.spatial import cKDTree
+        c = verts[faces].mean(axis=1)
+        pairs = cKDTree(c).query_pairs(0.03, output_type="ndarray")
+        adj = sparse.coo_matrix((np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])), shape=(len(c), len(c))).tocsr()
+        adj = (adj + adj.T).tocsr()
+        kind, _, _ = shp.face_shapes(verts, faces, SHAPE)
+        part = np.where(is_rod, 1, 0).astype(np.int32)
+        part[(~is_rod) & (c[:, 0] > 0.40)] = 2
+        part[(~is_rod) & (c[:, 0] < -0.40)] = 3
+        out = pr.cap_parts(part, kind, adj, None, 3, 12.0)
+        self.assertEqual(len(np.unique(out)), 3, "потолок 3")
+        self.assertTrue((out[is_rod] == 1).all(), "тонкая часть не вливается в объёмную")
+        self.assertEqual(len(np.unique(out[~is_rod])), 2, "влилась самая малая объёмная часть в соседа")
+
     def test_shape_thresholds_are_the_ones_of_stage_08(self):
         """Один источник: этап 3 и этап 08 берут пороги формы из `material-recipes.json` → `geometry`; отличаться могут только ключи `refine.shape_override`."""
         import json
