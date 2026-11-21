@@ -10,7 +10,8 @@
     "06-visible": "6 · фото на видимое",
     "07-fill": "7 · докрасить невидимое",
     "08-material": "8 · материал",
-    "coverage": "9 · охват текстуры (сторож)"
+    "coverage": "9 · охват текстуры (сторож)",
+    "palette": "9 · палитра: малиновая заглушка"
   },
   "soft": {
     "_about": "Мерка из списка не прошла, остальные прошли → этап «мягко»: товар можно показывать с пометкой. Любая иная непрошедшая мерка, непрошедший этап без названной мерки или отсутствие check.json → «отказ»/«нет» (жёстко). \"*\" — весь этап мягкий. `everywhere` — мерки любого этапа (стоимость, не качество).",
@@ -31,6 +32,13 @@
     "ext_n": 26,
     "outcome": {"keep": "ok", "repaint": "soft", "reject": "refused"},
     "show_metrics": ["unseen_outer_tex_pct", "grazing_outer_tex_pct", "unpainted_outer_tex_pct", "seam_tex_pct", "outer_share_tex_pct"]
+  },
+  "palette": {
+    "_about": "Сторож палитры итоговой текстуры (T-20261121-174/1, paint_palette.py): доля ПЛОЩАДИ поверхности, чей тексель — малиновая «служебная заливка» (протекла из StableGen/Qwen). ПОРОГИ И ОТТЕНОК — в `stablegen-view-guard.json` (блоки `magenta` и `magenta_baked`): правило одно на виды и на атлас, здесь не дублируются. Допуск = порог + доля такого же малинового на ФОТО товара (розовый диван — законный цвет).",
+    "enabled": true,
+    "guard_rules": "stablegen-view-guard.json",
+    "photo_stage": "04-camera",
+    "photo_keys": ["photo", "source_photo"]
   },
   "ribbon": {"columns": 3, "cell_w": 640, "img_h": 400, "head_h": 66},
   "words": {"ok": "прошёл", "soft": "мягко", "refused": "отказ", "missing": "нет этапа"},

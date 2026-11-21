@@ -6,7 +6,9 @@
 Что делает по `<run>/<sku>/`:
   ① читает `check.json` этапов 01…08 (через `paint_stage.read_check`, свой формат не заводит) и для каждого решает: прошёл / мягко / отказ / нет этапа;
   ② на итоговом GLB (первый `*.glb` из `outputs` этапа 08, иначе 07) запускает сторож охвата `salad/trellis/tex_coverage.py` (`process` → `verdict` keep/repaint/reject, пороги — его `THRESHOLDS`);
-  ③ итог товара: «готов к показу владельцу» — только если все 8 этапов есть и нет ни одного «отказ», и сторож не reject; «мягко» (и repaint) не блокирует — «готов с пометкой»;
+  ②б на нём же сторож палитры `paint_palette.py` (T-20261121-174/1): доля площади поверхности с малиновой «служебной заливкой» (протекла из StableGen/Qwen в атлас) сверх
+     допуска (порог + такой же цвет на фото товара) → отказ; малая доля → пометка; пороги — `rules/paint-check.json` → `palette`;
+  ③ итог товара: «готов к показу владельцу» — только если все 8 этапов есть и нет ни одного «отказ», и сторож охвата не reject, и палитра не «отказ»; «мягко» (и repaint) не блокирует — «готов с пометкой»;
   ④ пишет `<run>/<sku>/09-check/`: `check.json` (через `paint_stage.write_check`; `passed` = готов к показу; в `extra` — таблица этапов, охват, итог, пометки),
      `frame.png` (лента этапов), и общий `<run>/run_summary.tsv` (товар × этапы, итог, первая причина, пометки, ключевые числа охвата).
 ЕДИНСТВЕННЫЙ ИСТОЧНИК. Пороги мерок — в самих этапах (читаем `ok`/`threshold` из их check.json, не копируем); охвата — `tex_coverage.THRESHOLDS`; здесь (`rules/paint-check.json`) —
@@ -97,6 +99,64 @@ def run_coverage(glb: str, out_dir: str, rules: dict) -> dict:
     return {'verdict': res['verdict'], 'why': res['verdict_why'], 'metrics': {k: flat.get(k) for k in c['show_metrics']}, 'seconds': res['time_s']['all']}
 
 
+def load_guard(rules: dict) -> dict:
+    """Общие правила малинового (один файл на виды и атлас): `rules.palette.guard_rules` рядом с rules/paint-check.json. Только json, без numpy."""
+    return json.load(open(os.path.join(os.path.dirname(RULES), rules['palette']['guard_rules']), encoding='utf-8'))
+
+
+def run_palette(glb: str, photo: str | None, guard: dict) -> dict:
+    """Сторож палитры (`paint_palette.py`): доля площади поверхности с малиновой заглушкой + такая же доля на фото. Тяжёлые numpy/trimesh — только здесь."""
+    import paint_palette as PP  # noqa: E402
+    return PP.run_palette(glb, photo, guard)
+
+
+def find_photo(run: str, sku: str, rules: dict, stage_runs: dict | None = None) -> str | None:
+    """Фото товара — из `extra` check.json этапа `palette.photo_stage` (ключи `photo_keys`): своего пути не заводим, берём тот, что этап записал."""
+    p = rules['palette']
+    d = os.path.join((stage_runs or {}).get(p['photo_stage'], run), PS.safe_name(sku), p['photo_stage'])
+    ex = (PS.read_check(d) or {}).get('extra') or {}
+    for k in p['photo_keys']:
+        if ex.get(k) and os.path.exists(ex[k]):
+            return ex[k]
+    return None
+
+
+def classify_palette(glb: str | None, photo: str | None, rules: dict, pal_fn=None) -> dict:
+    """Малиновая заглушка вне палитры фото (T-20261121-174/1): доля площади > допуска → отказ; > мягкого порога → пометка. Не измерено (нет GLB/сторож упал) → missing, не «ок»."""
+    out = {'stage': 'palette', 'status': 'missing', 'reason': 'нет итогового GLB (этап 08/07 не выдал файл)', 'hard_failed': [], 'soft_failed': [], 'metrics': {}, 'glb': glb}
+    c = rules['palette']
+    if not c.get('enabled', True):
+        out.update(status='ok', reason='')
+        return out
+    if not glb:
+        return out
+    guard = load_guard(rules)
+    hard_share, soft_share = float(guard['magenta']['obj_frac_max']), float(guard['magenta_baked']['soft_frac'])
+    try:
+        r = (pal_fn or run_palette)(glb, photo, guard)
+    except Exception as e:                                                       # сторож упал — не «ок»: нет измерения
+        out['reason'] = f'сторож палитры упал: {type(e).__name__}: {str(e)[:120]}'
+        return out
+    if r.get('share') is None:
+        out['reason'] = 'сторож палитры: в GLB нет текстуры цвета — нечего мерить'
+        return out
+    share, ph = float(r['share']), float(r.get('photo_share') or 0.0)
+    hard, soft = hard_share + ph, soft_share + ph
+    out['metrics'] = {'magenta_surface_pct': {'value': round(share * 100, 3), 'threshold': round(hard * 100, 3), 'op': '<='},
+                      'photo_magenta_pct': {'value': round(ph * 100, 3)}}
+    out['rgb'] = r.get('rgb')
+    def why(limit: float, word: str) -> str:
+        return (f"малиновая заглушка {share * 100:.2f} % площади ({word} {limit * 100:.2f} % = порог {(hard_share if word == 'допуск' else soft_share) * 100:.2f} % "
+                f"+ на фото {ph * 100:.1f} %): служебная заливка «не покрашено» протекла в текстуру")
+    if share > hard:
+        out.update(status='refused', reason=why(hard, 'допуск'), hard_failed=['palette'])
+    elif share > soft:
+        out.update(status='soft', reason=why(soft, 'мягкий порог'), soft_failed=['palette'])
+    else:
+        out.update(status='ok', reason='')
+    return out
+
+
 def classify_coverage(glb: str | None, rules: dict, out_dir: str, cov_fn=None) -> dict:
     out = {'stage': 'coverage', 'status': 'missing', 'reason': 'нет итогового GLB (этап 08/07 не выдал файл)', 'hard_failed': [], 'soft_failed': [], 'metrics': {}, 'glb': glb, 'verdict': None}
     c = rules['coverage']
@@ -120,9 +180,9 @@ def classify_coverage(glb: str | None, rules: dict, out_dir: str, cov_fn=None) -
 
 
 # ----------------------------------------------------------------------------------------------- товар --------
-def judge_product(stages: list, cov: dict, rules: dict) -> dict:
+def judge_product(stages: list, cov: dict, rules: dict, pal: dict | None = None) -> dict:
     """Итог товара: ready | ready_with_notes | not_ready, первая блокирующая причина, список пометок."""
-    allst = stages + [cov]
+    allst = stages + [cov] + ([pal] if pal else [])
     block = [s for s in allst if s['status'] in ('refused', 'missing')]
     notes = [f"{s['stage']}: {s['reason']}" for s in allst if s['status'] == 'soft']
     if block:
@@ -131,7 +191,7 @@ def judge_product(stages: list, cov: dict, rules: dict) -> dict:
     return {'final': 'ready_with_notes' if notes else 'ready', 'reason': '', 'notes': notes, 'blocking': []}
 
 
-def check_product(run: str, sku: str, rules: dict, stage_runs: dict | None = None, cov_fn=None, ribbon: bool = True, with_coverage: bool = True) -> dict:
+def check_product(run: str, sku: str, rules: dict, stage_runs: dict | None = None, cov_fn=None, ribbon: bool = True, with_coverage: bool = True, pal_fn=None) -> dict:
     t0 = time.time()
     sr = stage_runs or {}
     stages = []
@@ -146,13 +206,15 @@ def check_product(run: str, sku: str, rules: dict, stage_runs: dict | None = Non
         cov = classify_coverage(glb, rules, out_dir, cov_fn)
     else:
         cov = {'stage': 'coverage', 'status': 'missing', 'reason': 'сторож охвата не запускался (--no-coverage)', 'hard_failed': [], 'soft_failed': [], 'metrics': {}, 'glb': glb, 'verdict': None}
-    verdict = judge_product(stages, cov, rules)
+    pal = classify_palette(glb, find_photo(run, sku, rules, sr), rules, pal_fn) if with_coverage else \
+        {'stage': 'palette', 'status': 'missing', 'reason': 'сторож палитры не запускался (--no-coverage)', 'hard_failed': [], 'soft_failed': [], 'metrics': {}, 'glb': glb}
+    verdict = judge_product(stages, cov, rules, pal)
     frame = None
     if ribbon:
-        frame = build_ribbon(sku, stages, cov, verdict, rules, os.path.join(out_dir, PS.FRAME))
+        frame = build_ribbon(sku, stages, cov, verdict, rules, os.path.join(out_dir, PS.FRAME), pal)
     n_block = len(verdict['blocking'])
     missing = [s['stage'] for s in stages if s['status'] == 'missing']
-    hard = [s['stage'] for s in stages if s['status'] == 'refused'] + (['coverage'] if cov['status'] == 'refused' else [])
+    hard = [s['stage'] for s in stages if s['status'] == 'refused'] + (['coverage'] if cov['status'] == 'refused' else []) + (['palette'] if pal['status'] == 'refused' else [])
     doc = PS.write_check(
         out_dir, STAGE, sku, passed=verdict['final'] != 'not_ready',
         metric={'name': 'blocking_stages', 'value': n_block, 'threshold': 0, 'op': '<='},
@@ -161,7 +223,8 @@ def check_product(run: str, sku: str, rules: dict, stage_runs: dict | None = Non
         reason=verdict['reason'], seconds=time.time() - t0, outputs=['check.json'] + ([PS.FRAME] if frame else []), frame=frame,
         final=verdict['final'], final_ru=rules['final_words'][verdict['final']], notes=verdict['notes'], blocking=verdict['blocking'],
         stages=[{k: s[k] for k in ('stage', 'status', 'reason', 'hard_failed', 'soft_failed', 'metrics', 'run')} for s in stages],
-        coverage={k: cov.get(k) for k in ('status', 'verdict', 'reason', 'metrics', 'glb', 'seconds')})
+        coverage={k: cov.get(k) for k in ('status', 'verdict', 'reason', 'metrics', 'glb', 'seconds')},
+        palette={k: pal.get(k) for k in ('status', 'reason', 'metrics', 'rgb')})
     return doc
 
 
@@ -184,13 +247,13 @@ def _cut(text: str, n: int) -> str:
     return text if len(text) <= n else text[:n - 1] + '…'
 
 
-def build_ribbon(sku: str, stages: list, cov: dict, verdict: dict, rules: dict, path: str) -> str:
+def build_ribbon(sku: str, stages: list, cov: dict, verdict: dict, rules: dict, path: str, pal: dict | None = None) -> str:
     """Сводный кадр: контрольный кадр каждого этапа (`frame` из check.json) с подписью «этап · слово», причина под ней; цвет рамки = статус. Сетка `columns` в ряд, последняя ячейка — охват."""
     from PIL import Image, ImageDraw
     rb = rules['ribbon']
     W, H, HEAD = rb['cell_w'], rb['img_h'], rb['head_h']
     cols = rb['columns']
-    cells = stages + [cov]
+    cells = stages + [cov] + ([pal] if pal else [])
     rows = -(-len(cells) // cols)
     top = 56
     img = Image.new('RGB', (cols * W, top + rows * (HEAD + H)), (245, 245, 245))
@@ -207,7 +270,7 @@ def build_ribbon(sku: str, stages: list, cov: dict, verdict: dict, rules: dict, 
         dr.text((x + 10, y + 6), f"{rules['titles'].get(s['stage'], s['stage'])} — {rules['words'][s['status']]}", fill=c, font=f1)
         dr.text((x + 10, y + 34), _cut(s['reason'] or _metric_line(s), 78), fill=(60, 60, 60), font=f2)
         fp = None
-        if s['stage'] != 'coverage' and s.get('dir'):
+        if s['stage'] not in ('coverage', 'palette') and s.get('dir'):
             fn = (PS.read_check(s['dir']) or {}).get('frame') or PS.FRAME
             fp = os.path.join(s['dir'], fn)
         if fp and os.path.exists(fp):
@@ -219,7 +282,7 @@ def build_ribbon(sku: str, stages: list, cov: dict, verdict: dict, rules: dict, 
                 continue
             except OSError:
                 pass
-        txt = _cov_text(s) if s['stage'] == 'coverage' else ['кадра нет']
+        txt = _cov_text(s) if s['stage'] == 'coverage' else _pal_text(s) if s['stage'] == 'palette' else ['кадра нет']
         for j, line in enumerate(txt):
             dr.text((x + 14, y + HEAD + 14 + j * 24), _cut(line, 60), fill=(90, 90, 90), font=f2)
     img.save(path)
@@ -230,6 +293,14 @@ def _metric_line(s: dict) -> str:
     ms = s.get('metrics') or {}
     first = next(iter(ms.items()), None)
     return f"{first[0]} {first[1].get('value')}" if first else ''
+
+
+def _pal_text(s: dict) -> list:
+    if s['status'] == 'missing':
+        return [s['reason']]
+    m = s.get('metrics') or {}
+    return [f"малиновая заглушка: {(m.get('magenta_surface_pct') or {}).get('value')} % площади", f"допуск: {(m.get('magenta_surface_pct') or {}).get('threshold')} %",
+            f"на фото такого цвета: {(m.get('photo_magenta_pct') or {}).get('value')} %"]
 
 
 def _cov_text(s: dict) -> list:
@@ -250,6 +321,8 @@ def table_rows(run: str, rules: dict) -> list:
         cov = ex.get('coverage') or {}
         rows.append({'sku': sku, 'final': ex.get('final_ru', ''), **{s: rules['words'].get(st.get(s, 'missing'), '') for s in rules['required_stages']},
                      'coverage': rules['words'].get(cov.get('status', 'missing'), '') + (f" ({cov.get('verdict')})" if cov.get('verdict') else ''),
+                     'palette': rules['words'].get((ex.get('palette') or {}).get('status', 'missing'), '') if ex.get('palette') else '',
+                     'magenta_surface_pct': (((ex.get('palette') or {}).get('metrics') or {}).get('magenta_surface_pct') or {}).get('value'),
                      'first_reason': (c.get('reason') or '')[:160], 'soft_notes': ' | '.join(ex.get('notes') or [])[:240],
                      **{k: ((cov.get('metrics') or {}).get(k) or {}).get('value') for k in rules['coverage']['show_metrics']}})
     return rows
@@ -257,7 +330,7 @@ def table_rows(run: str, rules: dict) -> list:
 
 def write_run_summary(run: str, rules: dict) -> str:
     rows = table_rows(run, rules)
-    cols = ['sku', 'final'] + rules['required_stages'] + ['coverage', 'first_reason', 'soft_notes'] + rules['coverage']['show_metrics']
+    cols = ['sku', 'final'] + rules['required_stages'] + ['coverage', 'palette', 'magenta_surface_pct', 'first_reason', 'soft_notes'] + rules['coverage']['show_metrics']
     path = os.path.join(run, 'run_summary.tsv')
     tmp = path + '.tmp'
     with open(tmp, 'w', encoding='utf-8') as f:
@@ -268,12 +341,12 @@ def write_run_summary(run: str, rules: dict) -> str:
     return path
 
 
-def check_batch(run: str, rules: dict, skus: list | None = None, stage_runs: dict | None = None, cov_fn=None, with_coverage: bool = True) -> list:
+def check_batch(run: str, rules: dict, skus: list | None = None, stage_runs: dict | None = None, cov_fn=None, with_coverage: bool = True, pal_fn=None) -> list:
     skus = skus or sorted(d for d in os.listdir(run) if os.path.isdir(os.path.join(run, d)) and d != STAGE)
     docs = []
     for i, sku in enumerate(skus, 1):
         try:
-            d = check_product(run, sku, rules, stage_runs, cov_fn, True, with_coverage)
+            d = check_product(run, sku, rules, stage_runs, cov_fn, True, with_coverage, pal_fn)
         except Exception as e:                                                  # один товар не валит прогон
             d = PS.write_check(PS.stage_dir(run, sku, STAGE), STAGE, sku, passed=False, reason=f'этап проверки упал: {type(e).__name__}: {str(e)[:120]}')
         print(f"[{i}/{len(skus)}] {sku} {d['extra'].get('final_ru', '?')} {d['reason'][:110]}", flush=True)

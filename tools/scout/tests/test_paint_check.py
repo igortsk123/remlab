@@ -16,6 +16,9 @@ import paint_stage as PS  # noqa: E402
 from PIL import Image  # noqa: E402
 
 R = PC.load_rules()
+# сторож палитры (paint_palette, numpy/trimesh) в этом файле подменён «чисто»: его настоящую работу на GLB проверяет test_paint_palette.py
+PAL_CLEAN = {'share': 0.0, 'photo_share': 0.0, 'rgb': None}
+PC.run_palette = lambda glb, photo, guard: dict(PAL_CLEAN)
 STAGES = R['required_stages']
 FAIL = 0
 
@@ -104,6 +107,31 @@ with tempfile.TemporaryDirectory() as run:
     full(run, 'j', glb=False)
     d = PC.check_product(run, 'j', R, cov_fn=cov('keep'))
     ok(not d['passed'] and d['extra']['coverage']['status'] == 'missing', 'нет итогового GLB → охват не измерен → не готов')
+
+    # палитра (T-20261121-174/1): малиновая заглушка вне палитры фото
+    def pal(share, photo=0.0):
+        return lambda glb, photo_path, guard: {'share': share, 'photo_share': photo, 'rgb': [158, 11, 115]}
+    full(run, 'p1')
+    d = PC.check_product(run, 'p1', R, cov_fn=cov('keep'), pal_fn=pal(0.04))
+    ok(not d['passed'] and 'palette' in d['extra']['blocking'] and 'малиновая заглушка 4.00 %' in d['reason'], 'малиновая заглушка 4 % площади, на фото нет → не готов, причина названа (кровать №4)')
+    ok(d['extra']['palette']['status'] == 'refused' and d['extra']['palette']['metrics']['magenta_surface_pct']['value'] == 4.0, 'в check.json палитра: статус и доля в процентах')
+    d = PC.check_product(run, 'p1', R, cov_fn=cov('keep'), pal_fn=pal(0.04, photo=0.30))
+    ok(d['passed'] and d['extra']['palette']['status'] == 'ok', 'розовый товар (на фото 30 % такого цвета) → допуск выше, не готов НЕ ставим')
+    d = PC.check_product(run, 'p1', R, cov_fn=cov('keep'), pal_fn=pal(0.0008))
+    ok(d['passed'] and d['extra']['final'] == 'ready_with_notes' and d['extra']['palette']['status'] == 'soft', 'крошка 0,08 % → готов с пометкой, не блокирует')
+    d = PC.check_product(run, 'p1', R, cov_fn=cov('keep'), pal_fn=pal(0.0))
+    ok(d['passed'] and d['extra']['final'] == 'ready', '0 % → готов')
+    d = PC.check_product(run, 'p1', R, cov_fn=cov('keep'), pal_fn=pal(PC.load_guard(R)['magenta']['obj_frac_max']))
+    ok(d['passed'], 'ровно на пороге допуска (не больше) → не отказ')
+    d = PC.check_product(run, 'p1', R, cov_fn=cov('keep'), pal_fn=lambda *a: (_ for _ in ()).throw(RuntimeError('нет памяти')))
+    ok(not d['passed'] and 'сторож палитры упал' in d['reason'], 'сторож палитры упал → не готов (нет измерения — не «ок»)')
+    d = PC.check_product(run, 'p1', R, cov_fn=cov('keep'), pal_fn=lambda *a: {'share': None, 'photo_share': 0.0})
+    ok(not d['passed'] and 'нет текстуры' in d['reason'], 'в GLB нет текстуры цвета → не измерено → не готов')
+    put(run, 'p1', '04-camera', outputs=[])
+    open(os.path.join(run, 'ph.png'), 'wb').write(b'x')
+    PS.write_check(PS.stage_dir(run, 'p1', '04-camera'), '04-camera', 'p1', passed=True, metric={'name': 'm', 'value': 1.0, 'threshold': 0.5, 'op': '>='}, photo=os.path.join(run, 'ph.png'))
+    ok(PC.find_photo(run, 'p1', R) == os.path.join(run, 'ph.png'), 'фото товара берётся из extra check.json этапа камеры (своего пути нет)')
+    ok(PC.find_photo(run, 'zz-нет', R) is None, 'нет check.json этапа → фото None, допуска нет')
 
     # этапы в разных папках прогона
     with tempfile.TemporaryDirectory() as other:
