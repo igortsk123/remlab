@@ -32,8 +32,10 @@
     "legs_overlap": 0.5
   },
   "refine": {
-    "thin_min_share": 0.0012,
+    "thin_min_share": 0.0006,
     "colour_cap_de": 12.0,
+    "legs_up_max": 0.35,
+    "linear_noise_share": 0.004,
     "thin_split_min_part_share": 0.10,
     "agree_merge_max": 0.8,
     "min_seen_share": 0.05,

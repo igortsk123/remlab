@@ -39,18 +39,26 @@ def _onehot(part: np.ndarray, n: int):
     return sparse.csr_matrix((np.ones(len(lab), dtype=np.float32), (lab, part[lab])), shape=(len(part), n))
 
 
-def part_kinds(part: np.ndarray, kind: np.ndarray, linear_majority: float = 0.5) -> dict[int, str]:
-    """Вид части: thin — большинство граней linear; иначе body."""
+def part_kinds(part: np.ndarray, kind: np.ndarray, linear_majority: float = 0.5, mid_share: float = 0.15) -> dict[int, str]:
+    """Вид части: thin — большинство граней linear (ножка, стойка); mid — заметная доля linear (подлокотник, звено царги); иначе body (объём)."""
     out = {}
     for p in np.unique(part[part >= 0]):
-        out[int(p)] = "thin" if float((kind[part == p] == shp.LINEAR).mean()) >= linear_majority else "body"
+        sh = float((kind[part == p] == shp.LINEAR).mean())
+        out[int(p)] = "thin" if sh >= linear_majority else ("mid" if sh >= mid_share else "body")
     return out
 
 
-def linear_in_blob_share(part: np.ndarray, kind: np.ndarray, linear_majority: float = 0.5, min_part_share: float = 0.10, min_linear_faces: int = 0) -> float:
+def compatible(a: str | None, b: str | None) -> bool:
+    """Сливать можно части одного вида; тонкая и «средняя» (звенья одной ножки/перекладины) — тоже; объём с ними — никогда."""
+    return a == b or {a, b} <= {"thin", "mid"}
+
+
+def linear_in_blob_share(part: np.ndarray, kind: np.ndarray, linear_majority: float = 0.5, min_part_share: float = 0.10, min_linear_faces: int = 0, legs_mask: np.ndarray | None = None) -> float:
     """Доля linear-граней, лежащих в КРУПНОЙ объёмной части (от `min_part_share` всех граней, linear в ней — меньшинство): ножка/стойка в одной части с обивкой.
     Малые части (подлокотник, ручка) не считаются: они уже отдельные, даже если у них часть граней linear."""
     lin = (kind == shp.LINEAR) & (part >= 0)
+    if legs_mask is not None:
+        lin = lin & legs_mask                                                   # «ножки» — linear-грани в нижней части по высоте (рёбра корпуса и перекладины выше не считаются)
     if lin.sum() < min_linear_faces:                                           # linear-граней меньше, чем можно вырезать, — это шум классификатора, а не ножки
         return 0.0
     kinds = part_kinds(part, kind, linear_majority)
@@ -121,7 +129,7 @@ def merge_small(part: np.ndarray, kind: np.ndarray, adj, lab: np.ndarray | None,
                 weak = (sn.sum() < rf_["min_seen_share"] * m_i.sum()) or float(agree[sn].mean()) < rf_["agree_merge_max"]
                 if not weak:
                     continue
-            cand = [j for j in np.argsort(-bnd[i]) if bnd[i, j] > 0 and kinds.get(int(j)) == kinds.get(int(i))]
+            cand = [j for j in np.argsort(-bnd[i]) if bnd[i, j] > 0 and compatible(kinds.get(int(j)), kinds.get(int(i)))]
             if med is not None:
                 cand = [j for j in cand if float(np.linalg.norm(med[int(i)] - med[int(j)])) < de_max]
             if not cand:
@@ -154,7 +162,7 @@ def cap_parts(part: np.ndarray, kind: np.ndarray, adj, lab: np.ndarray | None, m
         done = False
         for use_colour in ((True, False) if med is not None else (False,)):
             for i in np.argsort(size):
-                cand = [j for j in np.argsort(-bnd[i]) if bnd[i, j] > 0 and kinds.get(int(j)) == kinds.get(int(i))]
+                cand = [j for j in np.argsort(-bnd[i]) if bnd[i, j] > 0 and compatible(kinds.get(int(j)), kinds.get(int(i)))]
                 if use_colour:
                     cand = [j for j in cand if float(np.linalg.norm(med[int(i)] - med[int(j)])) < de_cap]
                 if cand:
@@ -175,7 +183,9 @@ def refine(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, adj, lab_f
 
     kind, up, rep = shp.face_shapes(vertices, faces, shape_cfg(rules))
     rf = rules["refine"]
-    before = linear_in_blob_share(part, kind, 0.5, rf["thin_split_min_part_share"], max(1, int(round(rf["thin_min_share"] * len(part)))))
+    legs_mask = up <= rf["legs_up_max"]
+    floor = max(1, int(round(rf["linear_noise_share"] * len(part))))
+    before = linear_in_blob_share(part, kind, 0.5, rf["thin_split_min_part_share"], floor, legs_mask)
     n_before = int(len(np.unique(part[part >= 0])))
     new = split_thin(part, kind, adj, rules)
     n_split = int(len(np.unique(new[new >= 0]))) - n_before
@@ -183,7 +193,7 @@ def refine(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, adj, lab_f
     new = merge_small(new, kind, adj, None, rules, rules["region"]["min_part_face_share"], None)
     new = cap_parts(new, kind, adj, lab_face, rules["check"]["max_parts"], rf["colour_cap_de"])
     new = renumber(new)
-    after = linear_in_blob_share(new, kind, 0.5, rf["thin_split_min_part_share"], max(1, int(round(rf["thin_min_share"] * len(part)))))
+    after = linear_in_blob_share(new, kind, 0.5, rf["thin_split_min_part_share"], floor, legs_mask)
     report = {"shape_share": rep["share"], "linear_in_blob_part_share_before": before, "linear_in_blob_part_share": after,
               "parts_before": n_before, "parts_split_off": n_split, "parts_after": int(len(np.unique(new[new >= 0])))}
     return new, report
