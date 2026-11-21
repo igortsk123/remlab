@@ -489,6 +489,27 @@ def test_quilt_efros():
     ok(abs(float(t_flat[0]) - float(np.median(spread[:, 0]))) < 1.0, f'равномерный разброс (ворс) — медиана, не случайная мода ({t_flat[0]:.1f})')
 
 
+def test_quilt_holes():
+    print('квилт при дырявом известном (вход этапа 6: грани мельче пикселя фото):')
+    q = Quads()
+    q.quad([[0, 0, 0], [2, 0, 0], [2, 1, 0], [0, 1, 0]], (0, 0, .9, .9), sub=8)
+    q.quad([[0, 0, -1], [2, 0, -1], [2, 1, -1], [0, 1, -1]], (.9, .9, 1.0, 1.0), sub=2)
+    tex = np.zeros((T, T, 3), np.uint8)
+    m = tile_mask((0, 0, .9, .9))
+    ys, xs = np.nonzero(m)
+    tex[ys, xs] = [235, 225, 200]
+    flower = ((xs // 12 + ys // 12) % 7 == 0) & ((xs % 12) < 8) & ((ys % 12) < 8)
+    tex[ys[flower], xs[flower]] = [220, 60, 110]
+    g = q.geom(tex)
+    kn = m.copy()
+    kn[::5, ::5] = False                                                   # редкие одиночные дыры
+    kn[(np.arange(T)[:, None] + np.arange(T)[None, :]) % 3 == 0] &= (np.random.RandomState(2).rand(T, T) > 0.6)[(np.arange(T)[:, None] + np.arange(T)[None, :]) % 3 == 0]   # плюс дырявость
+    out = TF.fill([g], [kn], None, cfg={'gutter': 0, 'erode_known': 0}, mirror=False)
+    qi = out['report'].get('quilt_info', {})
+    ok(len(qi) == 1 and list(qi.values())[0]['pool'] >= 4, f'квилт собран при дырявом известном: {qi}')
+    ok(out['report']['no_patch'] == 0 and out['report']['unpainted_after_pct'] == 0.0, 'после заливки пустого нет')
+
+
 def test_run_stage_fallback():
     print('этап 07 с черновиком: считаются А и Б, берётся Б только если мерки не хуже; check.json:')
     import tempfile
@@ -547,7 +568,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

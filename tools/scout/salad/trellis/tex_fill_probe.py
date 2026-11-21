@@ -26,6 +26,7 @@ def probe(rund: str, out: str, label: str, cfg: dict | None = None, draft_glb: s
     import sg_guard
     from PIL import Image
     if visible:
+        cfg = dict({'erode_known': 0}, **(cfg or {}))          # вход этапа 6: маска «взято с фото» уже честная (дыры ≤2,5 текселя закрыты); отступ в 3 пикселя съедал бы известное (грани мельче пикселя) и затирал бы кадр фото
         kn = []
         for i in range(64):
             fp = os.path.join(visible, 'known.png' if i == 0 else f'known{i}.png')

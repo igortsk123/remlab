@@ -67,7 +67,9 @@ FILL = {
     'quilt_overlap': 0.25,           # перекрытие блоков Efros–Freeman, доля блока (1/6–1/4)
     'quilt_block_min': 16, 'quilt_block_max': 48,   # блок — от периода узора (автокорреляция известного), в этих пределах
     'quilt_pool': 600,               # блоков-кандидатов на часть (шаг полблока, только чистые по части и известные)
-    'quilt_tries': 40,               # случайных кандидатов на каждое место квилта
+    'quilt_fill_px': 4,              # блок квилта: дыры известного не дальше стольких пикселей от известного (закрываются ближайшим известным остатком)
+    'quilt_pool_min': 24,            # меньше блоков в пуле — порог доли известного снижается (0,9 → 0,7 → 0,5)
+    'quilt_tries': 40,              # случайных кандидатов на каждое место квилта
     'quilt_gain': (0.75, 1.33),      # выравнивание разброса блока к типичному: границы множителя (узорная часть; прочие — 0,6–1,6)
     'tone_dominance': 0.4,           # мода тона берётся, только если ячейка моды (с соседями) — не менее этой доли точек части; иначе медиана (ворс, полосы)
     'draft_when': 'a_fails',         # trellis с откатом: Б считается только если А не прошёл все мерки (a_fails); always — считать оба всегда
@@ -767,22 +769,28 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             Bq = pattern_period(resg[gbest][..., 0], okg[gbest], int(c['quilt_block_min']), int(c['quilt_block_max']))
             oq = max(2, int(round(Bq * c['quilt_overlap'])))
             pool = []
-            for gi, tx in enumerate(txs):
-                T = tx.T
-                pm = blk[gi][1]
-                if T < Bq or cnt[gi] < Bq * Bq:
+            ints = {}
+            for gi, tx in enumerate(txs):                          # дыры известного (грани мельче пикселя фото) закрываются ближайшим известным остатком той же части; блок годен, если дыры не дальше `quilt_fill_px`
+                if tx.T < Bq or cnt[gi] < Bq * Bq:
                     continue
-                s = max(Bq // 2, 1)
-                ys = np.arange(0, T - Bq + 1, s)
-                I_ok = np.pad(okg[gi].astype(np.float64).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
-                I_pm = np.pad((pm == p).astype(np.float64).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
-                Y, X = np.meshgrid(ys, ys, indexing='ij')
+                dist_, (iy_, ix_) = distance_transform_edt(~okg[gi], return_indices=True)
+                near_ = dist_ <= c['quilt_fill_px']
+                ints[gi] = (resg[gi][iy_, ix_], [np.pad(a.astype(np.float64).cumsum(0).cumsum(1), ((1, 0), (1, 0))) for a in (okg[gi], blk[gi][1] == p, near_)])
+            for thr in (c['quilt_known'], 0.7, 0.5):               # известного мало — порог доли известного в блоке снижается, пока в пуле не наберётся `quilt_pool_min`
+                pool = []
+                for gi, (fill_, (I_ok, I_pm, I_nr)) in ints.items():
+                    T = txs[gi].T
+                    s = max(Bq // 2, 1)
+                    ys = np.arange(0, T - Bq + 1, s)
+                    Y, X = np.meshgrid(ys, ys, indexing='ij')
 
-                def bsum(I):
-                    return I[Y + Bq, X + Bq] - I[Y, X + Bq] - I[Y + Bq, X] + I[Y, X]
-                good = (bsum(I_pm) >= Bq * Bq - 0.5) & (bsum(I_ok) >= c['quilt_known'] * Bq * Bq)
-                for by, bx in zip(*np.nonzero(good)):
-                    pool.append(resg[gi][Y[by, bx]:Y[by, bx] + Bq, X[by, bx]:X[by, bx] + Bq])
+                    def bsum(I):
+                        return I[Y + Bq, X + Bq] - I[Y, X + Bq] - I[Y + Bq, X] + I[Y, X]
+                    good = (bsum(I_pm) >= Bq * Bq - 0.5) & (bsum(I_ok) >= thr * Bq * Bq) & (bsum(I_nr) >= Bq * Bq - 0.5)
+                    for by, bx in zip(*np.nonzero(good)):
+                        pool.append(fill_[Y[by, bx]:Y[by, bx] + Bq, X[by, bx]:X[by, bx] + Bq])
+                if len(pool) >= int(c['quilt_pool_min']):
+                    break
             if len(pool) < 4:
                 continue
             if len(pool) > int(c['quilt_pool']):
