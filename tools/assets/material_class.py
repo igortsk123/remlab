@@ -12,7 +12,7 @@
 Первая стадия, давшая класс, решает; расхождение стадий — `conflict`, уверенность ниже; `needsReview` — всё, что надо глазами.
 
 Результат на каждый меш — `data/flat3d/material-class-assign.json`: класс, уверенность, стадия, причина (какое поле и значение),
-запасные классы, части (ножки, ручки, плафон). ID товаров в код не попадают — только в этот файл-данные.
+запасные классы, части (ножки, ручки, плафон; ножки без своего поля — по каркасу/основному материалу, дерево или металл, пометка inferred). ID товаров в код не попадают — только в этот файл-данные.
 
 Запуск (из корня репо; `--input` — выгрузка названий и характеристик, см. `build --help`):
     python3 tools/assets/material_class.py build --input products.json --roles roles.json --names names.json [--report out.md]
@@ -162,6 +162,17 @@ def stage_parts(rules: dict, role: str, params: dict) -> dict:
             hits = pick(rules, find_hits(val, rules["value_patterns"]), [])
             if hits:
                 out[part] = {"class": hits[0][2], "reason": f"{key}={val}"}
+                break
+    for part, fb in (group.get("parts_fallback") or {}).items():       # своего поля нет — запасное (каркас, основной материал): только дерево/металл и однозначно
+        if part in out:
+            continue
+        for key in fb["keys"]:
+            val = _param(params, key)
+            if val is None:
+                continue
+            hits = [h for h in pick(rules, find_hits(val, rules["value_patterns"]), []) if rules["_byId"][h[2]]["family"] in fb["families"]]
+            if hits and len({rules["_byId"][h[2]]["family"] for h in hits}) == 1:
+                out[part] = {"class": hits[0][2], "reason": f"{key}={val}", "inferred": True}
                 break
     return out
 

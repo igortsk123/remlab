@@ -107,8 +107,10 @@ def resolve_parts(parts: list[dict], cls: dict, recipes: dict, parts_known: bool
         if vl:
             r = {"class": vl, "source": "vl", "confidence": conf["vl"], "reason": f"метка части «{p['vl']}»"}
         elif p.get("role") == "legs" and "legs" in cat:
-            r = {"class": cat["legs"]["class"], "source": "catalog:legs", "confidence": conf["legs_catalog"],
-                 "reason": f"ножки по геометрии; каталог: {cat['legs']['reason']}"}
+            inferred = bool(cat["legs"].get("inferred"))      # своего поля «материал ножек» нет — класс по каркасу/основному материалу (дерево, металл)
+            r = {"class": cat["legs"]["class"], "source": "catalog:legs-inferred" if inferred else "catalog:legs",
+                 "confidence": conf["legs_catalog_inferred"] if inferred else conf["legs_catalog"],
+                 "reason": f"ножки по геометрии; каталог{' (по каркасу, своего поля нет)' if inferred else ''}: {cat['legs']['reason']}"}
         elif str(p.get("role", "")).startswith("shape:") and p is not main:
             r = _shape_class(p, cls, cat, recipes)
         elif p is main:

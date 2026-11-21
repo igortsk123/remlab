@@ -56,6 +56,8 @@ def test_resolve():
     ok(res[1]["class"] == "metal" and res[1]["source"] == "catalog:legs", "ножки по геометрии берут класс «материал ножек» из каталога")
     ok(res[2]["class"] == "velour" and res[2]["source"] == "colour≈main", "часть без метки с цветом как у главной — тот же класс")
     ok(res[3]["class"] == R["fallback_class"] and res[3]["source"] == "unsure" and not res[3]["confident"], "цвет другой, метки нет — «не уверен», запасной рецепт")
+    inf = MS.resolve_parts(parts, {**_cls("fabric", 0.9), "parts": {"legs": {"class": "wood_solid", "reason": "Материал каркаса=Дерево", "inferred": True}}}, R)
+    ok(inf[1]["class"] == "wood_solid" and inf[1]["source"] == "catalog:legs-inferred" and R["confidence"]["legs_catalog_inferred"] < R["confidence"]["legs_catalog"] and inf[1]["confident"], "ножки по каркасу (своего поля нет): класс дерева, источник legs-inferred, уверенность ниже явной, но уверен")
     parts2 = [dict(p) for p in parts]
     parts2[3]["vl"] = "Стеклянный плафон"
     ok(MS.resolve_parts(parts2, _cls("metal", 0.9), R)[3]["class"] == "glass", "метка Qwen3-VL важнее цвета")

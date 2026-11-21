@@ -162,6 +162,7 @@
  },
  "confidence": {
   "legs_catalog": 0.85,
+  "legs_catalog_inferred": 0.7,
   "vl": 0.8,
   "main_part_scale": 1.0,
   "same_colour_as_main": 0.6,
