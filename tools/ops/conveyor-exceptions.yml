@@ -10,15 +10,6 @@
 # Лишнее (ничего не покрывает) — WARN: убрать.
 
 exceptions:
-  - path: tools/scout/cycles_probe/probe_soft.sh
-    detector: msid
-    literal: "112923_1000339805231639017"
-    why: >-
-      разовая проба Cycles «передача ткани» на одном диване-образце (сравнение вариантов p2–p4 при одинаковом ракурсе и свете;
-      скрипт запускается руками и не входит в ночную цепочку, `5e83ad2b`). Уходит, когда материалы дивана переедут в конвейер
-      по плану render-materials-01 и проба будет брать мебель из `scene-export.json` по роли, как столик и торшер в том же скрипте
-    plan: render-materials-01
-    until: 2026-12-11
   - path: tools/scout/bedroom_schemes.py
     detector: msid
     symbol: SKU_IDS
