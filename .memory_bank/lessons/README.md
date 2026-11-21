@@ -587,3 +587,9 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 782 — правила только Edit через окно, не sed → `lessons/dev-ops.md`
 - 783 — общий порт моста sg_salad → `lessons/mesh-salad-pool.md`
 - 784 — плита-подложка TRELLIS ломает камеру/материал/заливку → `lessons/mesh-salad-pool.md`
+- 785 — тест образа пропускал __main__ модуля CMD → `lessons/dev-ops.md`
+- 786 — фото покупателя за фоном в heavy-slot (старение, потоки) → `lessons/dev-ops.md`
+- 787 — питон в слоте: *_NUM_THREADS = --cores → `lessons/dev-ops.md`
+- 788 — полосы формы от швов родных GLB, мерка + p99 → `lessons/mesh-salad-pool.md`
+- 789 — «30/30 по числам» ≠ красиво, показывать цвет всех → `lessons/mesh-salad-pool.md`
+- 790 — «платного не было» только после журнала → `lessons/memory-process.md`
