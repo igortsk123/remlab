@@ -189,6 +189,23 @@ with tempfile.TemporaryDirectory() as d:
     ok(gta["conflict"] == "catalog:photo-conflict", "расхождение каталога («Синий») с фото (зелёное) помечено catalog:photo-conflict, а не молча проглочено")
     ok(da["metrics"]["color_unchanged"]["value"] is True, "метрика: вне островов тона цвет не тронут")
 
+# 6б. ограничитель света: часть, чьи известные тексели — смесь тёмного и светлого (разброс L* > l_spread_max), не применяется; ровная латунь — применяется
+with tempfile.TemporaryDirectory() as d:
+    vis_mix = base_tex.copy()
+    vis_mix[y0:y1, x0:x1, :3] = (200, 160, 90)
+    half = np.arange(y0, y1) % 2 == 0                                   # чередование строк: тёмная бронза / светлая латунь
+    vis_mix[y0:y1, x0:x1][half, :, :3] = (60, 45, 25)
+    stage_files(d, iou=0.9, cam_passed=True, known=known, vis_tex=vis_mix, base_tex=base_tex)
+    prod = {"sid": "x", "name": "Торшер Тест", "role": "торшер", "params": {"Материал корпуса": "Металл"}}
+    doc = MS.run_stage(os.path.join(d, "07-fill", "filled.glb"), os.path.join(d, "run"), "mix", prod, parts_dir=os.path.join(d, "03-parts"), frame=False, stages_dir=d)
+    pm = [p for p in doc["extra"]["part_photo"]["parts"] if p["part"] == 0][0]
+    ok(pm["L_spread"] is not None and pm["L_spread"] > PP["l_spread_max"], f"смесь тёмного и светлого: разброс L* {pm['L_spread']} > {PP['l_spread_max']}")
+    ok(pm["dE"] is not None and pm["dE"] > PP["dE_apply"] and pm["would_apply"] is False and "skipped" in pm, "ΔE больше порога, но would_apply=false и в check.json причина skipped")
+    stage_files(d, iou=0.9, cam_passed=True, known=known, vis_tex=vis_tex, base_tex=base_tex)
+    doc = MS.run_stage(os.path.join(d, "07-fill", "filled.glb"), os.path.join(d, "run"), "flat", prod, parts_dir=os.path.join(d, "03-parts"), frame=False, stages_dir=d)
+    pf = [p for p in doc["extra"]["part_photo"]["parts"] if p["part"] == 0][0]
+    ok(pf["L_spread"] is not None and pf["L_spread"] <= PP["l_spread_max"] and pf["would_apply"] is True and "skipped" not in pf, f"ровная латунь с бликами: разброс {pf['L_spread']} ≤ порога, would_apply остаётся true")
+
 # 7. код и рецепты
 ok(os.path.exists(os.path.join(HERE, "..", "material_stage.py")) and "apply" in PP and PP["apply"] is False, "по умолчанию apply=false (холостой) — включение только после просмотра директором")
 txt = open(os.path.join(HERE, "..", "material_stage.py"), encoding="utf-8").read() + open(os.path.join(HERE, "..", "..", "..", "data", "flat3d", "material-recipes.json"), encoding="utf-8").read()

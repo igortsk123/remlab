@@ -655,7 +655,7 @@ def photo_signal(stages_dir: str, pp: dict):
 def part_photo_colours(uv: np.ndarray, faces: np.ndarray, part: np.ndarray, pids: list[int], base, known: np.ndarray, vis, pp: dict) -> dict[int, dict]:
     """Цвет каждой части по «известным» текселям этапа 6 в её островах UV: отступ `inset_px` от стыка с другими частями/гранями без части и от края острова, без верхних
     `highlight_trim` по L (блики); меньше `min_pixels` — нет данных (честно, цвет не выдумываем). `was` — медиана карты цвета входа по тому же ядру острова.
-    → {часть: {island_px, core_px, photo_px, photo, was, dE, island(маска острова: тексели только этой части)}}."""
+    `L_spread` — разброс L* (p90−p10) известных текселей после среза бликов; → {часть: {island_px, core_px, photo_px, photo, was, dE, L_spread, island(маска острова: тексели только этой части)}}."""
     import cv2
     from PIL import Image
 
@@ -688,6 +688,8 @@ def part_photo_colours(uv: np.ndarray, faces: np.ndarray, part: np.ndarray, pids
             px = px[L <= np.quantile(L, 1.0 - pp["highlight_trim"])]
             if len(px) >= pp["min_pixels"]:
                 rec["photo"] = [int(v) for v in np.median(px, axis=0)]
+                Lt = rgb_to_lab(px.astype(np.float64))[:, 0]
+                rec["L_spread"] = round(float(np.percentile(Lt, 90) - np.percentile(Lt, 10)), 1)     # разброс света известных текселей: большой = смесь блика/тени/другого материала, медиане не верим
         if rec["photo"] and rec["was"]:
             rec["dE"] = round(float(np.linalg.norm(rgb_to_lab(np.array([rec["was"]], dtype=np.float64))[0] - rgb_to_lab(np.array([rec["photo"]], dtype=np.float64))[0])), 1)
         out[pid] = rec
@@ -874,10 +876,12 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
         for pid, rec in pp_cols.items():
             r = res[pid]
             is_glass = r["class"] in glass_cls
-            cand = (not is_glass) and rec["photo"] is not None and rec["was"] is not None and rec["dE"] is not None and rec["dE"] > pp["dE_apply"]
+            spread_bad = rec.get("L_spread") is not None and rec["L_spread"] > pp["l_spread_max"]          # ограничитель света: фото части — смесь света и тени, медиана неверна
+            cand = (not is_glass) and rec["photo"] is not None and rec["was"] is not None and rec["dE"] is not None and rec["dE"] > pp["dE_apply"] and not spread_bad
             pp_rep["parts"].append({"part": int(pid), "role": next((p["role"] for p in parts if p["id"] == pid), None), "class": r["class"], **{k: v for k, v in rec.items() if k != "island"},
                                     "would_apply": bool(cand), "applied": bool(cand and pp["apply"]),
-                                    **({"note": "стекло: цвет берёт тон стекла (reconcile_tone), не сдвиг карты"} if is_glass else {})})
+                                    **({"note": "стекло: цвет берёт тон стекла (reconcile_tone), не сдвиг карты"} if is_glass else {}),
+                                    **({"skipped": f"разброс света фото {rec['L_spread']} > {pp['l_spread_max']}: медиане не верим"} if (spread_bad and not is_glass and rec["dE"] is not None and rec["dE"] > pp["dE_apply"]) else {})})
             if cand:
                 targets[pid] = rec
         if pp["apply"] and targets:
@@ -966,7 +970,7 @@ def check() -> int:
     if not isinstance(stt.get("on"), bool) or not isinstance(stt.get("floor"), (int, float)) or not 0 < stt["floor"] <= 1:
         bad.append(f"sheen_tint: {stt!r} (нужно on bool и floor 0..1)")
     pp = recipes.get("part_photo") or {}
-    for k in ("iou_min", "inset_px", "min_pixels", "highlight_trim", "dE_apply"):
+    for k in ("iou_min", "inset_px", "min_pixels", "highlight_trim", "dE_apply", "l_spread_max"):
         if not isinstance(pp.get(k), (int, float)) or pp[k] < 0:
             bad.append(f"part_photo.{k}: {pp.get(k)!r}")
     if not isinstance(pp.get("apply"), bool):
