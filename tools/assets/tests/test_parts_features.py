@@ -311,6 +311,60 @@ class LegRescue(unittest.TestCase):
         self.assertLess(self.ft[0]["obb"]["axis_y"], 0.2)                    # плита лежит
 
 
+class LegWood(unittest.TestCase):
+    """leg_rescue.wood: ножка вместе со стойкой из одного дерева (часть уходит выше сиденья, причина no_rule) → legs целиком; ткань в теле, плавающие и крупные части — нет."""
+    rules = pr.load_rules()
+
+    def setUp(self):
+        v, f, part = table()
+        self.kinds = {0: "body", 1: "thin", 2: "thin", 3: "thin", 4: "thin"}
+        self.ft = feats(v, f, part, self.kinds)
+        for p in (1, 2, 3, 4):
+            self.ft[p]["agree"], self.ft[p]["seen"] = 0.95, 0.5
+        for p in (1, 2, 3):
+            self.ft[p]["up_q90"] = 0.3                                     # обычные ножки кресла (потолок ножки группы seating — 0.4)
+        self.ft[4]["up_q90"] = 0.6                                         # ножка продолжается стойкой выше потолка: обычная роль legs не подходит
+        self.ft[4]["agree"] = 0.83
+        for p in self.ft:                                                   # часть 4 — не из группы повторов (в HD Sakura часть «ножки+стойки» одна)
+            self.ft[p]["symmetry_members"] = [q for q in self.ft[p].get("symmetry_members", []) if q != 4 and p != 4]
+
+    def run_roles(self, **kw):
+        wood = {**self.rules["decision"]["leg_rescue"]["wood"], **kw}
+        lr = {**self.rules["decision"]["leg_rescue"], "wood": wood}
+        return pr.assign_roles(self.ft, {**self.rules, "decision": {**self.rules["decision"], "leg_rescue": lr}}, "кресло", {"legs"})
+
+    def test_off_keeps_abstention_on_takes_whole_part(self):
+        off = self.run_roles(enabled=False)[4]
+        self.assertEqual((off["role"], off["unknown_reason"]), ("unknown", "no_rule"))
+        on = self.run_roles()[4]
+        self.assertEqual(on["role"], "legs")
+        self.assertIn("стойк", on["role_why"])
+        self.assertIsNone(on["unknown_reason"])
+
+    def test_body_overlap_is_a_feature_and_cloth_in_body_is_not_taken(self):
+        self.assertEqual(self.ft[0]["body_overlap"], 0.0)                  # тело само в тело не считается
+        self.assertLess(self.ft[4]["body_overlap"], 0.5)                   # ножка касается плиты торцом
+        self.ft[4]["body_overlap"] = 0.95                                  # тонкая ткань, лежащая внутри объёма тела
+        self.assertEqual(self.run_roles()[4]["role"], "unknown")
+
+    def test_floating_or_big_or_not_thin_part_is_not_taken(self):
+        for key, val in (("floor_contact", False), ("supports_body", False), ("area_share", 0.3), ("kind", "body")):
+            f0 = self.ft[4][key]
+            self.ft[4][key] = val
+            self.assertEqual(self.run_roles()[4]["role"], "unknown", key)
+            self.ft[4][key] = f0
+
+    def test_no_trusted_legs_no_wood_rescue(self):
+        for p in (1, 2, 3):
+            self.ft[p]["agree"] = 0.3
+        self.assertEqual(self.run_roles()[4]["role"], "unknown")
+
+    def test_unreliable_reason_is_not_wood_business(self):
+        self.ft[4]["agree"] = 0.016                                         # unreliable обслуживает обычный режим (ось и пол), wood берёт только no_rule
+        r = self.run_roles()[4]
+        self.assertEqual((r["role"], r["unknown_reason"]), ("unknown", "unreliable"))
+
+
 class RulesFile(unittest.TestCase):
     def test_no_product_ids_and_known_types(self):
         import json

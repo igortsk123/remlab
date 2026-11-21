@@ -204,6 +204,18 @@ def _leg_rescue(features: dict[int, dict], out: dict[int, dict], grp: dict, lr: 
         out[p] = {"role": role, "role_title": rd["titleRu"], "material_channel": rd.get("material_channel"), "role_conf": rc["matched"],
                   "role_why": f"ножка по геометрии при размытом голосовании кадров (agree={f['agree']}, seen={f['seen']}): условия роли и отвесная ось у пола выполнены, ножки у предмета уже есть",
                   "unknown_reason": None}
+    wd = lr.get("wood")
+    if wd and wd.get("enabled"):                                       # ножка и стойка из одного дерева: часть уходит выше сиденья, но это те же ножки
+        for p, o in list(out.items()):
+            if o["unknown_reason"] not in wd["from_reasons"]:
+                continue
+            f = features[p]
+            if not all(_eval([c], f, ctx)[0] for c in wd["require"]):
+                continue
+            rd = rules["roles"][role]
+            out[p] = {"role": role, "role_title": rd["titleRu"], "material_channel": rd.get("material_channel"), "role_conf": rc["matched"],
+                      "role_why": f"ножка вместе со стойкой (одно дерево): тонкая, стоит на полу, касается тела, в его объёме {f['body_overlap']:.0%}, высота до {f['up_q90']}; ножки у предмета уже есть",
+                      "unknown_reason": None}
 
 
 def _group_consistency(features: dict[int, dict], out: dict[int, dict], gc: dict, rules: dict) -> None:
