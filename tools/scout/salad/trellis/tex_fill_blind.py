@@ -346,11 +346,17 @@ def cmd_run(argv: list) -> int:
                     if 'macro_true' in rec:
                         rec['pattern_invented'] = bool(rec['macro_fill'] > 1.5 * rec['macro_true'] + 0.5)
                     rec['no_patch'] = res['report'].get('no_patch')
-                    if mode == 'wholepart':
-                        rep_ = res['report']
-                        rec['texture_src'] = (rep_.get('texture_src') or {}).get(part)
-                        rec['borrowed_from'] = (rep_.get('borrowed') or {}).get(part)
-                        rec['tone_from'] = ((rep_.get('tone_from_neighbour') or {}).get(part) or {}).get('donor')
+                    rep_ = res['report']                                           # причина решения каждого правила по мишени — ВСЕГДА (Ш6, директор 21.11): «ничего не изменилось» ≠ «правило не сработало»
+                    _g = lambda d: ((d or {}).get(part) if part in (d or {}) else (d or {}).get(str(part)))
+                    rec['texture_src'] = _g(rep_.get('texture_src'))
+                    rec['borrowed_from'] = _g(rep_.get('borrowed'))
+                    rec['tone_from'] = (_g(rep_.get('tone_from_neighbour')) or {}).get('donor')
+                    rec['relief_why'] = json.loads(json.dumps(_g(rep_.get('relief')), default=str))
+                    rec['relief_texels'] = rep_.get('relief_texels')
+                    rec['source_used'] = rep_.get('source_used')
+                    rec['quilt_info'] = json.loads(json.dumps(_g(rep_.get('quilt_info')), default=str))
+                    rec['quilt_rejected_share'] = _g(rep_.get('quilt_rejected_share'))
+                    rec['pattern_part'] = bool((_g(rep_.get('parts')) or {}).get('pattern'))
                     recs.append(rec)
                     print(json.dumps(rec, ensure_ascii=False), flush=True)
         except Exception as e:  # noqa: BLE001 — один сбой не рушит пакет, счётчик отказов в итоге
