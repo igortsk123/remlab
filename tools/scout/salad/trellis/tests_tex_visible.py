@@ -214,6 +214,16 @@ class TestTexVisible(unittest.TestCase):
             r2 = TV.run(glb, photo, pose, os.path.join(d, 'run'), 'sku:5')
             self.assertNotEqual(r2.get('reason'), 'camera_gate')
 
+    def test_depth_jump_band_is_not_taken(self):
+        st = fake_stage()
+        mid = (Q0 + Q1) // 2
+        st['depth'] = st['depth'].copy()
+        st['depth'][:, mid:] += 50.0 * st['px_len']                  # ступенька глубины посередине (край складки)
+        band = TV.depth_band(st)
+        self.assertTrue(band[mid, mid - 1] and band[mid, mid])       # у разрыва — полоса
+        self.assertFalse(band[mid, Q0 + 3])                          # далеко от него — нет
+        self.assertTrue(TV.depth_band(fake_stage()).sum() == 0)      # ровная поверхность — полосы нет
+
     def test_import_error_writes_failed_check_instead_of_raising(self):
         with tempfile.TemporaryDirectory() as d:
             photo = os.path.join(d, 'p.png')

@@ -1,0 +1,9 @@
+{
+  "_doc": "Этап 6 (tex_visible.py): правила переноса фото в видимую часть текстуры. Общее для всех товаров (T-168, директор 21.11).",
+  "cos_min": 0.40,
+  "cos_full": 0.60,
+  "edge_erode_px": 2.0,
+  "depth_jump_px": 4.0,
+  "depth_band_px": 3,
+  "luma_outlier_dL": null
+}

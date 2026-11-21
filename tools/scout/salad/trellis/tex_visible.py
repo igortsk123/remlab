@@ -35,11 +35,21 @@ sys.path[:0] = [HERE, SALAD, SCOUT]
 import tex_coverage as TC  # noqa: E402
 import paint_stage as PS  # noqa: E402
 
-COS_MIN = 0.40          # cos угла к лучу: 70° и больше — вскользь, не берём (план: «угол < ~70°»)
-COS_FULL = 0.60         # полный вес с этого косинуса; между COS_MIN и COS_FULL — плавная передача заготовке
+def _rules() -> dict:
+    try:
+        return json.load(open(os.path.join(SCOUT, 'rules', 'tex-visible.json'), encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+
+
+R = _rules()
+COS_MIN = float(R.get('cos_min', 0.40))          # cos угла к лучу: 66° и больше — вскользь, не берём (rules/tex-visible.json)
+DEPTH_JUMP = float(R.get('depth_jump_px', 4.0))  # разрыв глубины между соседними пикселями кадра больше стольких px_len — край складки/щели: полоса вокруг не берётся
+DEPTH_BAND = int(R.get('depth_band_px', 3))      # ширина этой полосы, пикселей кадра
+COS_FULL = float(R.get('cos_full', 0.60))         # полный вес с этого косинуса; между COS_MIN и COS_FULL — плавная передача заготовке
 EDGE_FRAC = 4.0 / 480   # отступ от силуэта фото внутрь, доли стороны кадра: вес растёт от 0 до 1 (там фон и ореол)
 GUTTER = 6              # желоб вокруг островков, пикселей текстуры (билинейная выборка у шва не берёт серый фон)
-EDGE_ERODE = 2.0        # жёсткая эрозия маски фото: пиксели ближе к краю силуэта не берутся совсем (там белый фон и ореол; директор 21.11)
+EDGE_ERODE = float(R.get('edge_erode_px', 2.0))        # жёсткая эрозия маски фото: пиксели ближе к краю силуэта не берутся совсем (там белый фон и ореол; директор 21.11)
 W_TAKE = 0.25           # вес меньше — тексель не берём (остаётся прежним), вес выше — цвет фото целиком, без подмеса светлой заготовки (иначе светлые полосы на вскользь видимых краях)
 HOLE_R = 2.5            # дыры между взятыми текселями (пикселей кадра реже текселей) закрываются ближайшим взятым не дальше этого, текселей
 DEPTH_PX = 3.0          # допуск «тексель не заслонён»: расхождение глубины точки и буфера глубины камеры не больше стольких пикселей предмета (у косых граней — шире)
@@ -139,6 +149,24 @@ def face_maps(st: dict, nF: int, off: int = 0) -> dict:
     return out
 
 
+def depth_band(st: dict) -> np.ndarray:
+    """Маска кадра: пиксели у разрыва глубины (край складки, щель между подушками, торец за выступом) шире DEPTH_BAND px — фото там берёт тень щели, а не поверхность."""
+    from scipy.ndimage import binary_dilation
+    d = st['depth'].astype(np.float64)
+    ok = (d > 0) & st['mask']
+    lim = max(float(st.get('px_len') or 0.0), 1e-6) * DEPTH_JUMP
+    jump = np.zeros(d.shape, bool)
+    for dy, dx in ((0, 1), (1, 0)):
+        a, b = d[: d.shape[0] - dy, : d.shape[1] - dx], d[dy:, dx:]
+        both = ok[: d.shape[0] - dy, : d.shape[1] - dx] & ok[dy:, dx:]
+        j = both & (np.abs(a - b) > lim)
+        jump[: d.shape[0] - dy, : d.shape[1] - dx] |= j
+        jump[dy:, dx:] |= j
+    if DEPTH_BAND <= 0:
+        return jump
+    return binary_dilation(jump, iterations=DEPTH_BAND)
+
+
 def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min: float = COS_MIN) -> dict:
     """Новые текстуры + маски «известно» по геометриям. Каждый занятый тексель идёт на фото СВОЕЙ точкой (карта грани, `face_maps`), берётся, если: его грань видна с углом лучше `cos_min`,
     глубина точки совпадает с буфером глубины камеры (не заслонена), точка внутри силуэта фото с отступом от края. Цвет — билинейно с фото; невидимое остаётся прежним."""
@@ -149,6 +177,8 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
     if ids.max() >= offs[-1]:
         raise ValueError(f'растр камеры ссылается на грань {int(ids.max())}, в форме граней {int(offs[-1])} — форма не та, что у камеры')
     dist_edge = distance_transform_edt(pmask)
+    nogo = depth_band(st)
+    n_nogo = int((nogo & st['mask']).sum())
     edge_px = max(EDGE_FRAC * px, 1.0)
     z_eps = max(float(st.get('px_len') or 0.0), 1e-6) * DEPTH_PX
     texs, knowns, stats = [], [], []
@@ -173,7 +203,7 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
         cs = fm['cos'][f]
         w_ang = np.clip((cs - cos_min) / max(COS_FULL - cos_min, 1e-6), 0.0, 1.0)
         w_edge = np.clip((map_coordinates(dist_edge.astype(np.float32), [y - 0.5, x - 0.5], order=1, mode='nearest') - EDGE_ERODE) / edge_px, 0.0, 1.0)
-        w = np.where(inside & front & (depth[yi, xi] > 0) & pmask[yi, xi], w_ang * w_edge, 0.0)
+        w = np.where(inside & front & (depth[yi, xi] > 0) & pmask[yi, xi] & ~nogo[yi, xi], w_ang * w_edge, 0.0)
         use = w >= W_TAKE
         col = np.stack([map_coordinates(prgb[..., c].astype(np.float32), [y[use] - 0.5, x[use] - 0.5], order=1, mode='nearest') for c in range(3)], 1)
         tex = g['tex'].astype(np.float64).copy()
@@ -184,7 +214,7 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
         known = wmap >= W_TAKE
         n_face = int(known.sum())
         ys, xs = np.nonzero(st['mask'] & (ids >= offs[gi]) & (ids < offs[gi + 1]))             # проход 2: пиксели растра камеры — каждый на тексель СВОЕЙ развёртки (грани мельче пикселя карту грани не строят)
-        wp = np.clip((st['cos'][ys, xs] - cos_min) / max(COS_FULL - cos_min, 1e-6), 0.0, 1.0) * np.clip((dist_edge[ys, xs] - EDGE_ERODE) / edge_px, 0.0, 1.0) * pmask[ys, xs]
+        wp = np.clip((st['cos'][ys, xs] - cos_min) / max(COS_FULL - cos_min, 1e-6), 0.0, 1.0) * np.clip((dist_edge[ys, xs] - EDGE_ERODE) / edge_px, 0.0, 1.0) * pmask[ys, xs] * (~nogo[ys, xs])
         keep = wp >= W_TAKE
         ys, xs, wp = ys[keep], xs[keep], wp[keep]
         tpx = np.clip(np.floor(st['uv'][ys, xs, 0] * T).astype(np.int64), 0, T - 1)
@@ -207,7 +237,7 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
         texs.append(np.clip(tex + 0.5, 0, 255).astype(np.uint8))
         knowns.append(known)
         stats.append({'name': g['name'], 'T': T, 'occupied': int(occ.sum()), 'known': int(known.sum()), 'faces_ok': int(fm['ok'].sum()), 'faces_seen': int((fm['cnt'] > 0).sum()), 'texels_taken': int(use.sum()), 'known_facemap': n_face, 'known_splat': n_splat, 'known_filled': n_fill})
-    return {'tex': texs, 'known': knowns, 'stats': stats}
+    return {'tex': texs, 'known': knowns, 'stats': stats, 'depth_band_share': round(n_nogo / max(int(st['mask'].sum()), 1), 4)}
 
 
 def write_glb(geoms: list, texs: list, dst: str) -> None:
@@ -252,6 +282,16 @@ def frame_from_tex(st: dict, geoms: list, texs: list) -> np.ndarray:
     return out
 
 
+def hatch(tex: np.ndarray, known: np.ndarray) -> np.ndarray:
+    """Только для показа: непросмотренные тексели — нейтральная серая штриховка (цвет заготовки не путать с цветом товара)."""
+    out = tex.copy()
+    ty, tx = np.mgrid[0: tex.shape[0], 0: tex.shape[1]]
+    pat = np.where(((tx + ty) // 6) % 2 == 0, 205, 170).astype(np.uint8)
+    miss = ~known
+    out[miss] = pat[miss][:, None]
+    return out
+
+
 def metrics(geoms, st, prgb, pmask, tr, after: np.ndarray, cos_min: float) -> dict:
     from scipy.ndimage import binary_erosion
     import recolor_lp as LP
@@ -293,25 +333,25 @@ def gate(m: dict) -> tuple[dict, list]:
 
 # ── кадр ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-def frame(path: str, prgb: np.ndarray, pmask: np.ndarray, after: np.ndarray, dst_glb: str, size: int = 480) -> None:
+def frame(path: str, prgb: np.ndarray, pmask: np.ndarray, after: np.ndarray, dst_glb: str, size: int = 480, view_glb: str = None) -> None:
     """«фото | кадр с камеры фото по новой текстуре | −40° | +40°» отдельным листом; боковые — рендер без света записанного GLB (файл читается, развёртка на месте)."""
     import recolor_lp as LP
     px = prgb.shape[0]
     panels = [np.where(pmask[..., None], prgb, 255).astype(np.uint8), after]
     panels = [np.asarray(Image.fromarray(p).resize((size * 2, size * 2), Image.LANCZOS)) for p in panels]
     for yaw in (-40.0, 40.0):
-        im = np.asarray(LP.render_unlit(dst_glb, yaw, 10.0, size * 2))
+        im = np.asarray(LP.render_unlit(view_glb or dst_glb, yaw, 10.0, size * 2))
         panels.append(np.where((im[..., 3] > 8)[..., None], im[..., :3], 255).astype(np.uint8))
     Image.fromarray(np.concatenate(panels, axis=1)).save(path)
 
 
 # ── этап ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-def run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: float = COS_MIN) -> dict:
+def run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: float = COS_MIN, body_only: bool = False) -> dict:
     """Этап 6 для одного товара. Любая ошибка (форма не читается, нет файлов камеры, не та форма) — НЕ роняет пакет: пишет check.json passed=false с причиной (fail-closed, T-168)."""
     t0 = time.time()
     try:
-        return _run(glb, photo, pose_run, run_dir, sku, cos_min)
+        return _run(glb, photo, pose_run, run_dir, sku, cos_min, body_only)
     except Exception as e:  # noqa: BLE001 — причина уходит в check.json и в ответ, пакет идёт дальше
         d = PS.stage_dir(run_dir, sku, '06-visible')
         why = f'{type(e).__name__}: {e}'[:400]
@@ -338,11 +378,36 @@ def camera_gate(pose_run: str) -> tuple:
     return False, 'камера этапа 4 не прошла свой гейт: ' + ('; '.join(bad) or str(ch.get('reason') or 'passed=false'))
 
 
-def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: float = COS_MIN) -> dict:
+def body_cut(pose_run: str):
+    """«Корпус годен» (р.2): камера не прошла гейт ТОЛЬКО из-за нижней полосы (ножки формы не совпадают с фото), верх лёг (iou_top ≥ порога). Возвращает {'row': первая строка нижней полосы в пикселях кадра камеры, 'frame_px'} или None."""
+    p = os.path.join(pose_run, '04-camera', 'check.json')
+    try:
+        ch = json.load(open(p, encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    ex = ch.get('extra') or {}
+    rows = ex.get('strip_rows')
+    if not (ex.get('bottom_shape_mismatch') and rows and len(rows) == 2):
+        return None
+    if float(ex.get('iou_top') or 0.0) < float(ex.get('bottom_top_iou_min') or 0.85):
+        return None
+    bad = [k for k, v in (ch.get('metrics') or {}).items() if isinstance(v, dict) and v.get('ok') is False]
+    if any(not k.endswith('_bottom') for k in bad):                  # провал не только внизу — корпусу тоже не верим
+        return None
+    try:
+        sl = json.load(open(os.path.join(pose_run, 'stage_loss.json'), encoding='utf-8'))
+        fpx = int(sl.get('frame_px') or 0)
+    except (OSError, ValueError):
+        fpx = 0
+    return {'row': int(rows[0]), 'frame_px': fpx, 'iou_top': float(ex.get('iou_top') or 0.0)}
+
+
+def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: float = COS_MIN, body_only: bool = False) -> dict:
     t0 = time.time()
     d = PS.stage_dir(run_dir, sku, '06-visible')
     cg, cg_why = camera_gate(pose_run)
-    if cg is False:                                                  # вход не прошёл прежний гейт — этап его не берёт
+    bc = body_cut(pose_run) if (cg is False and body_only) else None
+    if cg is False and bc is None:                                   # вход не прошёл прежний гейт — этап его не берёт
         PS.write_check(d, '06-visible', sku, passed=False, reason=cg_why + ' — этап 6 вход не берёт, перенос не делался', seconds=round(time.time() - t0, 1),
                        needs_qwen=False, camera_failed=True, camera_gate='failed', pose_run=pose_run)
         return {'sku': sku, 'passed': False, 'reason': 'camera_gate', 'why': [cg_why]}
@@ -350,8 +415,17 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
     st = load_stage(pose_run)
     P = np.asarray(Image.open(photo).convert('RGBA'))
     prgb, pmask = photo_to_frame(P, st['P'], st['px'])
+    cut_row = None
+    if bc is not None:                                               # переносим только выше нижней полосы; ножки — этапу 8
+        cut_row = int(round(bc['row'] * st['px'] / bc['frame_px'])) if bc['frame_px'] else int(bc['row'])
+        cut_row = max(1, min(st['px'], cut_row - 4))                 # запас 4 px над полосой
+        st['ids'] = st['ids'].copy(); st['ids'][cut_row:] = -1
+        st['cos'] = st['cos'].copy(); st['cos'][cut_row:] = 0.0
+        st['mask'] = st['mask'].copy(); st['mask'][cut_row:] = False
+        pmask = pmask.copy(); pmask[cut_row:] = False
+        prgb = prgb.copy(); prgb[cut_row:] = 0
     iou_here = float((pmask & st['mask']).sum() / max((pmask | st['mask']).sum(), 1))
-    if st.get('iou_frame') is not None and abs(iou_here - st['iou_frame']) > 0.02:
+    if st.get('iou_frame') is not None and cut_row is None and abs(iou_here - st['iou_frame']) > 0.02:
         raise ValueError(f'фото не то или матрица не та: IoU силуэта здесь {iou_here:.3f}, в прогоне камеры {st["iou_frame"]:.3f}')
     st['iou_frame'] = iou_here
     if iou_here < GATE['silhouette_iou'][0]:                         # камере не верим: перенос не делаем (fail-closed)
@@ -366,13 +440,17 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
         Image.fromarray((k * 255).astype(np.uint8)).save(os.path.join(d, 'known.png' if i == 0 else f'known{i}.png'))
     after = frame_from_tex(st, geoms, tr['tex'])
     m = metrics(geoms, st, prgb, pmask, tr, after, cos_min)
-    frame(os.path.join(d, 'frame.png'), prgb, pmask, after, dst)
+    view = os.path.join(d, '_view.glb')                                 # для показа: непросмотренное — штриховка; в visible.glb заготовка не тронута (этап 7 заливает её)
+    write_glb(geoms, [hatch(t, k) for t, k in zip(tr['tex'], tr['known'])], view)
+    after_vis = frame_from_tex(st, geoms, [hatch(t, k) for t, k in zip(tr['tex'], tr['known'])])
+    frame(os.path.join(d, 'frame.png'), prgb, pmask, after_vis, dst, view_glb=view)
+    os.remove(view)
     mm, why = gate(m)
     main = mm.pop('silhouette_iou')
     ok = not why
     PS.write_check(d, '06-visible', sku, passed=ok, metric={'name': 'silhouette_iou', **{k: main[k] for k in ('value', 'threshold', 'op')}}, metrics=mm,
                    reason='' if ok else '; '.join(why), seconds=round(time.time() - t0, 1), outputs=['visible.glb', 'known.png', 'frame.png'], frame='frame.png',
-                   needs_qwen=(not ok), cos_min=cos_min, camera=st['camera'], pose_run=pose_run, stats=tr['stats'], extra_metrics={k: v for k, v in m.items() if k not in GATE})
+                   needs_qwen=(not ok), cos_min=cos_min, camera=st['camera'], pose_run=pose_run, stats=tr['stats'], depth_band_share=tr['depth_band_share'], body_only=(cut_row is not None), cut_row=cut_row, legs_left_to_stage8=(cut_row is not None), extra_metrics={k: v for k, v in m.items() if k not in GATE})
     return {'sku': sku, 'passed': ok, 'metrics': m, 'why': why, 'dir': d}
 
 
@@ -383,9 +461,10 @@ def main() -> int:
     ap.add_argument('photo', help='RGBA-вырезка товара (то же фото, по которому посчитана камера)')
     ap.add_argument('pose_run', help='папка прогона pose_fit.fit_pose (stage_loss.json, stages/render_view0/)')
     ap.add_argument('run_dir')
+    ap.add_argument('--body-only', action='store_true', help='камера красная только внизу (bottom_shape_mismatch): перенос выше нижней полосы, ножки — этапу 8')
     ap.add_argument('sku')
     a = ap.parse_args()
-    r = run(a.glb, a.photo, a.pose_run, a.run_dir, a.sku)
+    r = run(a.glb, a.photo, a.pose_run, a.run_dir, a.sku, body_only=a.body_only)
     print(json.dumps(r, ensure_ascii=False, default=str)[:2000])
     return 0 if r['passed'] else 1
 
