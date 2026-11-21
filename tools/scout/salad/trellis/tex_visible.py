@@ -261,7 +261,7 @@ def write_glb(geoms: list, texs: list, dst: str) -> None:
 
 def _lab(rgb8: np.ndarray) -> np.ndarray:
     import recolor_lp as LP
-    return LP.lab_f(LP.s2l(rgb8))
+    return LP.lab_f(rgb8)      # lab_f сам принимает sRGB 0–255 (прежний s2l перед ним сводил Lab к нулю: lab_dE и front_side были пустыми числами)
 
 
 def _sobel(L: np.ndarray) -> np.ndarray:
