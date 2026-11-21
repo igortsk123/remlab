@@ -2,6 +2,9 @@
   "_about": "ЧТО запускать на каждом этапе пути покраски (T-20261121-169/4). Код обвязки paint_run_all.py ничего не знает про этапы: порядок, команды, зависимости (`needs` — этапы, чей статус отказ/нет блокирует этот), служебные файлы — здесь. Подстановки {…}: py, blender, root, run, sku, sku_dir, work, prep_glb, native, photo, product_role, channels, cam_az_args. Пустые {product_role}/{channels} выпадают вместе со своим флагом.",
   "_unverified": "Команды собраны по шапкам/CLI скриптов на ветках, НЕ запускались. Сомнительное до первого запуска: (1) этап 7 — ветка paint-fill-1120 (f137a675) должна быть влита; (2) запись каталога (`--catalog`): сопоставление sid == sku точное; (3) порядок 04 до 03 — роли берут азимут камеры только при passed 4; (4) parts.npz этапа 3 и GLB этапа 6 — одно число граней (проверено на 3 формах out30-v3: 149999 = 149999, одна геометрия; для многогеометрийных этап 7 сам даст ValueError → rc 2).",
   "heavy_slot": "tools/ops/heavy-slot.sh",
+  "pythons": {"scout": "venvs/scout/bin/python", "delight": "venvs/delight/bin/python"},
+  "_pythons_about": "Интерпретаторы шагов — от домашней папки. По умолчанию (`default_python`) — scout; этап с полем `python` берёт другой. 05-delight: Marigold IID требует diffusers, а он тянет huggingface_hub новее, чем в scout (там живёт сервис кадров) — отдельный venv delight (как собрать — tools/ops/requirements-delight.txt; T-20261121-169/5).",
+  "default_python": "scout",
   "camera_stage": "04-camera",
   "order": [
     "01-02",
@@ -159,6 +162,7 @@
       ]
     },
     "05": {
+      "python": "delight",
       "produces": [
         "05-delight"
       ],

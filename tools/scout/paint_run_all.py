@@ -68,7 +68,8 @@ def make_ctx(run: str, sku: str, a: dict, rules: dict, stage_dones: dict | None 
     root = a.get('root') or os.path.abspath(os.path.join(HERE, '..', '..'))
     home = os.path.expanduser('~')
     work = os.path.join(run, PS.safe_name(sku), 'work')
-    ctx = {'py': os.path.join(home, 'venvs', 'scout', 'bin', 'python'), 'blender': os.path.join(home, 'opt', 'blender-4.5.9', 'blender'),
+    pythons = {k: os.path.join(home, v) for k, v in rules['pythons'].items()}                          # интерпретаторы — из правил (`pythons`), не из кода
+    ctx = {'py': pythons[rules.get('default_python', 'scout')], 'pythons': pythons, 'blender': os.path.join(home, 'opt', 'blender-4.5.9', 'blender'),
            'root': root, 'run': run, 'sku': sku, 'sku_dir': os.path.join(run, PS.safe_name(sku)), 'work': work,
            'prep_glb': os.path.join(work, sku + '-n1024.glb'), 'native': a.get('native', ''), 'photo': a.get('photo', ''),
            'channels': a.get('channels', ''), 'cam_az_args': [], '_record': product_record(a, sku)}
@@ -137,6 +138,10 @@ def resolve_steps(stage: dict, ctx: dict, extra: dict | None = None) -> list:
     """Шаги этапа с подставленными путями: [{argv, heavy, retry_extra}]. Пустое `{channels}`/`{product_role}` — соответствующие флаги выпадают (`optional`)."""
     steps = []
     ctx = {**ctx, **(extra or {})}
+    if stage.get('python'):                                                             # этапу нужен другой интерпретатор (правила: `stages.<этап>.python` → `pythons`)
+        if stage['python'] not in ctx['pythons']:
+            raise KeyError(f"у этапа python {stage['python']!r}, а в правилах `pythons` его нет")
+        ctx['py'] = ctx['pythons'][stage['python']]
     for s in stage.get('steps', []):
         argv = []
         for tok in s['argv']:

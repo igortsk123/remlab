@@ -47,7 +47,7 @@ def fake_rules(**over):
         'z': {'produces': ['09-check'], 'needs': [], 'steps': [writer('09-check')]},
     }
     st.update(over)
-    return {'heavy_slot': 'x', 'camera_stage': '04-camera', 'order': ['a', 'b', 'c', 'd', 'e', 'f', 'z'], 'stages': st}
+    return {'heavy_slot': 'x', 'pythons': {'scout': 'venvs/scout/bin/python'}, 'camera_stage': '04-camera', 'order': ['a', 'b', 'c', 'd', 'e', 'f', 'z'], 'stages': st}
 
 
 def calls(run):
@@ -255,6 +255,26 @@ with tempfile.TemporaryDirectory() as run:
     ok(pl['03']['action'] == 'run' and c[-2] == '--parts-npz', '3 ещё не запускали (в плане «будет») → путь к будущему parts.npz')
     pl = {i['stage']: i for i in RA.plan(run, 'k', dict(A, product_role='комод'), REAL, CR, only=['07'])}
     ok(pl['07']['steps'][0]['argv'][-1] == '--no-parts-npz', 'только этап 7 без прошедшего 3 → запасной путь')
+
+# 10. интерпретатор этапа — из правил (`pythons`, `stages.<этап>.python`, `default_python`), не из кода (T-20261121-169/5: 05 нужен venv delight с diffusers)
+HOME = os.path.expanduser('~')
+ctx10 = RA.make_ctx('/r', 'k', {'native': 'n', 'photo': 'p', 'product_role': '', 'channels': '', 'root': '/x'}, REAL)
+ok(ctx10['py'] == os.path.join(HOME, REAL['pythons'][REAL['default_python']]), 'по умолчанию py — интерпретатор default_python из правил')
+a05 = RA.resolve_steps(REAL['stages']['05'], ctx10)[0]['argv']
+ok(a05[0] == os.path.join(HOME, REAL['pythons']['delight']) and 'delight' in a05[0], 'этап 05 запускается интерпретатором delight (поле python у этапа)')
+ok([n for n, st in REAL['stages'].items() if st.get('python')] == ['05'] and REAL['default_python'] == 'scout', 'другой интерпретатор — только у 05; остальные этапы идут на scout по умолчанию')
+fake = {'steps': [{'argv': ['{py}', 'x.py']}]}
+ok(RA.resolve_steps(fake, ctx10)[0]['argv'][0] == ctx10['py'], 'у этапа нет поля python → интерпретатор по умолчанию')
+ok(RA.resolve_steps(dict(fake, python='delight'), ctx10)[0]['argv'][0] == ctx10['pythons']['delight'], 'поле python выбирает интерпретатор из правил')
+try:
+    RA.resolve_steps(dict(fake, python='нет_такого'), ctx10)
+    ok(False, 'неизвестный python этапа — ошибка')
+except KeyError as e:
+    ok('нет_такого' in str(e), 'неизвестный python этапа — понятная ошибка, а не молчаливый scout')
+rules2 = dict(REAL, pythons={'scout': 'a/py', 'delight': 'b/py'}, default_python='delight')
+c2 = RA.make_ctx('/r', 'k', {'native': 'n', 'photo': 'p', 'root': '/x'}, rules2)
+ok(c2['py'] == os.path.join(HOME, 'b/py'), 'default_python меняет интерпретатор по умолчанию без правки кода')
+ok('/venvs/' not in open(os.path.join(HERE, '..', 'paint_run_all.py'), encoding='utf-8').read().replace("'venvs'", ''), 'в коде обвязки нет путей к venv')
 
 print(f'paint_run_all: ошибок {FAIL}')
 sys.exit(1 if FAIL else 0)

@@ -431,8 +431,10 @@ def selftest() -> int:
     тыл остаётся текстурой модели; несовпавший силуэт — отказ без файла."""
     import tempfile
 
+    import remlab_tmp  # временное селфтеста — на диске, не в /tmp; папка убирается при выходе (T-20261107-13)
     import trimesh
     from PIL import Image
+    remlab_tmp.use('photo_project-selftest')
     fails = []
 
     def check(n, c, e=''):
