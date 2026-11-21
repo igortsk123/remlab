@@ -773,17 +773,12 @@ def test_shadow_k1_in_one():
             restore()
 
 
-# ------------------------------------------------------------------ (е) salad/ не изменён
+# ------------------------------------------------------------------ (е) код паспортов не зависит от salad/
 def test_e():
-    print('(е) salad/ не изменён относительно базы ветки:')
-    r = subprocess.run(['git', '-C', ROOT, 'merge-base', 'HEAD', 'origin/main'], capture_output=True, text=True)
-    base = r.stdout.strip()
-    if r.returncode != 0 or not base:
-        # в CI копия обязана быть с историей (ci.yml: fetch-depth: 0) — отсутствие базы там = красный, а не тихий пропуск (Codex T-151/7)
-        ok(not os.environ.get('CI'), 'нет origin/main: в CI база обязана быть (fetch-depth: 0), локально проверка по diff пропущена — остаётся статическая')
-    else:
-        d = subprocess.run(['git', '-C', ROOT, 'diff', '--stat', base, '--', 'tools/scout/salad', 'tools/scout/salad/'], capture_output=True, text=True)
-        ok(d.returncode == 0 and not d.stdout.strip(), 'git diff --stat по tools/scout/salad пуст' + ('' if not d.stdout.strip() else f': {d.stdout.strip()[:200]}'))
+    print('(е) код паспортов не зависит от salad/:')
+    # Прежняя часть «git diff --stat по tools/scout/salad пуст относительно merge-base с origin/main» (T-151/7) убрана 21.11 (T-170/2, по решению директора):
+    # она проверяла одну ветку T-151 и после её вливания ложно краснеет на любой ветке с правками salad (путь покраски живёт в salad/trellis) и на грязной копии.
+    # Остаётся статическая проверка: сам код паспортов в salad/worker не заходит.
     src = open(os.path.join(SCOUT, 'passport_shadow.py'), encoding='utf-8').read() + open(os.path.join(SCOUT, 'mesh_type_passports.py'), encoding='utf-8').read()
     ok('salad/worker' not in src, 'код паспортов не обращается к salad/worker.py (фаза 2)')
 
