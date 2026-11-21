@@ -9,6 +9,7 @@
      тонкая/средняя без правила остаётся unknown;
   ③б объёмная часть, что стоит на полу и держит главную (цоколь, нижний модуль), но под ножки не подошла и по цвету заметно иная (ΔE ≥ порога) — unknown:support_unclear; ΔE здесь только ВЕТО (снимает роль, роль не ставит);
   ③в глобальная согласованность: части одной группы повторов (одинаковые размеры рамки и высота; либо один нижний слой — оба объёмные у пола, та же толщина) получают ОДНУ роль, расходятся — вся группа unknown:group_disagree;
+  ③г ножка по геометрии при размытом голосовании (`leg_rescue`): unknown:unreliable → legs, если у предмета уже есть доверенные ножки, часть проходит все условия legs и стоит отвесно на полу;
   ④ glass_mirror геометрия не ставит никогда; ΔE в роль не входит.
 Тип товара — `role` каталога → группа в `data/flat3d/material-classes.json` (тот же источник, что у этапа 8); каналы — ключи `parts` результата `material_class.classify`.
 """
@@ -153,10 +154,56 @@ def assign_roles(features: dict[int, dict], rules: dict, product_role: str | Non
             done(p, "body", "объёмная часть, не подошедшая ни под одну роль", rc["body"])
         else:
             done(p, "unknown", "тонкая часть без правила" + (f" ({fail[p]})" if p in fail else ""), rc["unknown"], fail.get(p, "no_rule"))
+    lr = rules["decision"].get("leg_rescue", {})
+    if lr.get("enabled"):
+        _leg_rescue(features, out, grp, lr, rules, channels, ctx)
     gc = rules["decision"].get("group_consistency", {})
     if gc.get("enabled"):
         _group_consistency(features, out, gc, rules)
     return out
+
+
+def _fits(f: dict, grp: dict, channels: set[str], ctx: dict) -> list[str]:
+    """Роли группы, подходящие части по ГЕОМЕТРИИ (require/alt_require выполнены, ни один forbid), без воздержаний по доверию."""
+    fits = []
+    for name, r in grp["roles"].items():
+        if "only_if_catalog_channel" in r and r["only_if_catalog_channel"] not in channels:
+            continue
+        ok = _eval(r["require"], f, ctx)[0] or any(_eval(a, f, ctx)[0] for a in r.get("alt_require", []))
+        if ok and not any(_eval([c], f, ctx)[0] for c in r.get("forbid", [])):
+            fits.append(name)
+    return fits
+
+
+def _leg_rescue(features: dict[int, dict], out: dict[int, dict], grp: dict, lr: dict, rules: dict, channels: set[str], ctx: dict) -> None:
+    """НОЖКА ПО ГЕОМЕТРИИ, КОГДА ГОЛОСОВАНИЕ КАДРОВ РАЗМЫТО (T-20261121-169/4, кадр Sakura: низ передней ножки — отдельная часть agree 0.016).
+    Часть, которой роль не дали только из-за недоверия кадров (`unknown:unreliable`; tiny не в счёт), становится ножкой, если ВСЕ:
+    ① у предмета уже есть ножки, поставленные с доверием (matched_trusted) — ножки у него вообще есть (link=touches_legs: и она касается такой ножки);
+    ② по геометрии подходит РОВНО одна роль группы и это legs (все require, ни одного forbid — те же числа, что у обычных ножек);
+    ③ `extra_require` из правил: ось почти отвесна, часть стоит на полу. Ткань, подушка, подлокотник этого не пройдут (нет пола/отвесной оси).
+    Недоверие кадров касается только границы части, не того, что она ножка. Роль ставится с обычной (не высокой) уверенностью."""
+    role = lr["role"]
+    r0 = grp["roles"].get(role)
+    if not r0 or ("only_if_catalog_channel" in r0 and r0["only_if_catalog_channel"] not in channels):
+        return
+    rc = rules["decision"]["role_conf"]
+    trusted = {q for q, o in out.items() if o["role"] == role and o["role_conf"] >= rc["matched_trusted"]}
+    if not trusted:
+        return
+    for p, o in list(out.items()):
+        if o["unknown_reason"] not in lr["from_reasons"]:
+            continue
+        f = features[p]
+        if lr.get("link") == "touches_legs" and not (set(f["contacts"]) & trusted):
+            continue
+        if not all(_eval([c], f, ctx)[0] for c in lr.get("extra_require", [])):
+            continue
+        if _fits(f, grp, channels, ctx) != [role]:
+            continue
+        rd = rules["roles"][role]
+        out[p] = {"role": role, "role_title": rd["titleRu"], "material_channel": rd.get("material_channel"), "role_conf": rc["matched"],
+                  "role_why": f"ножка по геометрии при размытом голосовании кадров (agree={f['agree']}, seen={f['seen']}): условия роли и отвесная ось у пола выполнены, ножки у предмета уже есть",
+                  "unknown_reason": None}
 
 
 def _group_consistency(features: dict[int, dict], out: dict[int, dict], gc: dict, rules: dict) -> None:

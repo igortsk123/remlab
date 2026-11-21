@@ -4,7 +4,7 @@
 Все веса — по ПЛОЩАДИ граней (не по их числу: иначе зависит от плотности сетки); размеры — доли габарита модели (работает при любом масштабе). Ось вверх — Y (glTF).
 Признаки части:
   area_share, up_q10/up_q90 (площадные перцентили высоты), up_min (самая низкая вершина), up_q02, kind (thin/mid/body), is_largest;
-  obb{L,W,T,thin_ratio=T/L,slab} — ориентированная рамка по главным осям; plate_horizontal/plate_vertical — доля площади с вертикальной / горизонтальной нормалью;
+  obb{L,W,T,thin_ratio=T/L,slab,axis_y=|cos главной оси с вертикалью|} — ориентированная рамка по главным осям; plate_horizontal/plate_vertical — доля площади с вертикальной / горизонтальной нормалью;
   contacts — соседние части (общая граница ИЛИ близость ≤ `contact_eps`·габарит: части касаются и без общих вершин); contacts_main;
   floor_contact (up_min ≤ `floor_eps`), floor_near/supports_near_body (то же с допуском ×`floor_near_factor`: для осторожного вето), supports_body (касается пола И главной части, а главная от пола оторвана: опора соединяет корпус с полом);
   symmetry_group — сколько частей той же формы и высоты (или одного нижнего слоя: оба у пола, объёмные (body), та же толщина, ширина и верх любые; ножки и каркас сюда не входят) (4 ножки = 4, пара подлокотников = 2), symmetry_members — какие именно (движок ролей из них строит группы повторов: одна группа — одна роль);
@@ -35,14 +35,16 @@ def wquantile(x: np.ndarray, w: np.ndarray, q: float) -> float:
 def _obb(pts: np.ndarray, w: np.ndarray, scale: float) -> dict:
     """Рамка по главным осям центров граней (взвешены площадью); L ≥ W ≥ T в долях габарита модели."""
     if len(pts) < 4:
-        return {"L": 0.0, "W": 0.0, "T": 0.0, "thin_ratio": 1.0, "slab": False}
+        return {"L": 0.0, "W": 0.0, "T": 0.0, "thin_ratio": 1.0, "slab": False, "axis_y": None}
     mu = np.average(pts, axis=0, weights=w)
     cov = np.cov((pts - mu).T, aweights=w)
     _, vec = np.linalg.eigh(cov)
     prj = (pts - mu) @ vec
-    d = np.sort(prj.max(axis=0) - prj.min(axis=0))[::-1] / scale
+    ext_ = prj.max(axis=0) - prj.min(axis=0)
+    d = np.sort(ext_)[::-1] / scale
+    ay = abs(float(vec[1, int(np.argmax(ext_))]))                       # главная ось рамки против вертикали Y (1 — стоит отвесно)
     L, W, T = (float(d[0]), float(d[1]), float(d[2]))
-    return {"L": round(L, 3), "W": round(W, 3), "T": round(T, 3), "thin_ratio": round(T / max(L, 1e-9), 3), "slab": bool(T / max(W, 1e-9) <= 0.25)}
+    return {"L": round(L, 3), "W": round(W, 3), "T": round(T, 3), "thin_ratio": round(T / max(L, 1e-9), 3), "slab": bool(T / max(W, 1e-9) <= 0.25), "axis_y": round(ay, 3)}
 
 
 def _obb_components(idx: np.ndarray, c: np.ndarray, area: np.ndarray, adj, scale: float, min_share: float = 0.05) -> dict:

@@ -92,6 +92,27 @@
    "trusted_agree": 0.9,
    "trusted_seen": 0.2
   },
+  "leg_rescue": {
+   "about": "Ножка по геометрии, когда голосование кадров размыто (T-169/4): часть с unknown:unreliable (tiny не в счёт) → legs, если у предмета уже есть доверенные ножки, по геометрии подходит ровно одна роль группы и это legs, ось отвесна и часть стоит на полу. link: object_has_legs (у предмета есть доверенные ножки) | touches_legs (и она касается такой ножки — строже). Выкл.: enabled=false",
+   "enabled": true,
+   "role": "legs",
+   "from_reasons": [
+    "unreliable"
+   ],
+   "link": "object_has_legs",
+   "extra_require": [
+    {
+     "f": "obb.axis_y",
+     "op": ">=",
+     "v": 0.9
+    },
+    {
+     "f": "floor_contact",
+     "op": "==",
+     "v": true
+    }
+   ]
+  },
   "group_consistency": {
    "enabled": true,
    "ignore_unknown_reasons": [
