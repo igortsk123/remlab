@@ -362,6 +362,8 @@ _a.diag_first = False
 _a.diag_params = ''
 check(os.path.isfile(S.make_spec(_a).worker_file) and os.path.isfile(S.make_diag_spec(_a).worker_file)
       and not S.KD.worker_progress_refusal(S.make_spec(_a).worker_file), 'worker_file указан (оба Spec) и воркер UltraTex отдаёт ход задания (begin_job + шаги) — п.16')
+check(S.make_spec(_a).cuda_archs == ('12.0',) and S.make_diag_spec(_a).cuda_archs == ('12.0',) and S.KD.arch_refusal(S.CARD_NAME, S.CUDA_ARCHS) == ''
+      and S.KD.arch_refusal('RTX 4090 (24 GB)', S.CUDA_ARCHS) != '', 'п.6: образ заявляет sm_120; карта 5090 проходит, чужая архитектура — отказ до группы')
 check('ULTRATEX_DIAG_FIRST' not in S.make_spec(_a).build_body('n', 'cls', {})['container']['environment_variables'], 'без --diag-first затвора нет')
 
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПАДЕНИЙ {len(FAILS)}')

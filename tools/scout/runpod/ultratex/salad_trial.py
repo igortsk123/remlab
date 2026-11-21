@@ -29,6 +29,7 @@ import kit_worker as KW  # noqa: E402
 from kit_driver import Gateway, cost_usd, effective_cap, head, safe_print, say, weights_stalled  # noqa: E402,F401 — имена прежнего драйвера (тесты, вызовы)
 
 CARD_NAME = 'RTX 5090 (32 GB)'
+CUDA_ARCHS = ('12.0',)          # образ ultratex-bw: torch 2.8.0 cu128 (как trellis2-bw, sm_120 там проверен); не та карта → отказ до группы (урок 742)
 PORT = 8000
 MODEL_HEADS = (
     'https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B/resolve/main/flux-2-klein-base-9b.safetensors',
@@ -105,7 +106,7 @@ def make_diag_spec(a) -> KD.Spec:
         return 'running', {}
 
     return KD.Spec(prefix='trial-ultratex', card=CARD_NAME, model='ultratex-diag', jobs=['diag'], build_body=build, submit=submit, poll=poll, preflight=None,
-                   ready_keys=('version', 'offload', 'sparse'), z_keys=('KIT_WORKER_Z',), worker_file=os.path.join(HERE, 'worker_ultratex.py'))
+                   ready_keys=('version', 'offload', 'sparse'), z_keys=('KIT_WORKER_Z',), worker_file=os.path.join(HERE, 'worker_ultratex.py'), cuda_archs=CUDA_ARCHS)
 
 
 def make_spec(a, head_fn=head) -> KD.Spec:
@@ -150,7 +151,7 @@ def make_spec(a, head_fn=head) -> KD.Spec:
         return 'running', {}
 
     return KD.Spec(prefix='trial-ultratex', card=CARD_NAME, model='ultratex', jobs=jobs, build_body=build, submit=submit, poll=poll, preflight=preflight,
-                   ready_keys=('version', 'offload', 'sparse', 'gate'), z_keys=('KIT_WORKER_Z',), worker_file=os.path.join(HERE, 'worker_ultratex.py'))
+                   ready_keys=('version', 'offload', 'sparse', 'gate'), z_keys=('KIT_WORKER_Z',), worker_file=os.path.join(HERE, 'worker_ultratex.py'), cuda_archs=CUDA_ARCHS)
 
 
 def run(a, MG, BR, head_fn=head, **kw) -> int:
