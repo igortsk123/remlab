@@ -64,6 +64,31 @@ def _obb_components(idx: np.ndarray, c: np.ndarray, area: np.ndarray, adj, scale
     return {**big, "thin_ratio": round(sum(a * o["thin_ratio"] for a, o in obbs) / wsum, 3), "n_components": len(obbs)}
 
 
+def _body_overlap(c: np.ndarray, area: np.ndarray, part: np.ndarray, ids: list, kinds: dict, lo: np.ndarray, hi: np.ndarray, scale: float, div: int = 64) -> dict[int, float]:
+    """Доля площади части, лежащая ВНУТРИ объёма «тела» (части вида body: сиденье, спинка, накладки): воксели шага scale/div по центрам граней, закрытие щелей, заливка полостей.
+    Ножка/стойка касается тела торцом — доля мала; ткань, лежащая на теле или в нём, — велика. Для самих body-частей 0."""
+    from scipy import ndimage
+
+    body = [p for p in ids if kinds.get(p, "body") == "body"]
+    pitch = scale / div
+    shape = np.ceil((hi - lo) / pitch).astype(int) + 3
+    vox = lambda pts: np.clip(((pts - lo) / pitch).astype(int) + 1, 0, shape - 1)       # noqa: E731
+    occ = np.zeros(shape, dtype=bool)
+    if body:
+        v = vox(c[np.isin(part, body)])
+        occ[v[:, 0], v[:, 1], v[:, 2]] = True
+        occ = ndimage.binary_fill_holes(ndimage.binary_closing(occ, iterations=1))
+    res = {}
+    for p in ids:
+        if p in body:
+            res[p] = 0.0
+            continue
+        m = part == p
+        v = vox(c[m])
+        res[p] = round(float(area[m][occ[v[:, 0], v[:, 1], v[:, 2]]].sum() / max(area[m].sum(), 1e-12)), 3)
+    return res
+
+
 def part_features(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, kind: np.ndarray, kinds: dict[int, str],
                   lab: np.ndarray | None = None, cam_az: float | None = None, adj=None,
                   agree: np.ndarray | None = None, seen: np.ndarray | None = None,
@@ -145,6 +170,9 @@ def part_features(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, kin
             if np.isfinite(d).any():
                 contacts[p].add(q)
                 contacts[q].add(p)
+    bo = _body_overlap(c, area, part, ids, kinds, lo, hi, scale)
+    for p in ids:
+        out[p]["body_overlap"] = bo[p]
     main_up_min = out[largest]["up_q02"] if ids else 0                       # у главной части одна шальная вершина у пола не в счёт: берём 2-й площадный перцентиль
     for p in ids:
         out[p]["floor_near"] = out[p]["up_min"] <= floor_near_factor * floor_eps               # «почти у пола»: допуск шире, нужен для осторожного вето (support_unclear) и для слоя основания
