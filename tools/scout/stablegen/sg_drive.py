@@ -458,6 +458,14 @@ def steps():
         dist = (c.location - Vector(sum(bb, Vector()) / 8)).length
         ST['framing'].append({'cam': c.name, 'dist': round(dist, 2), 'w': round(w, 3), 'h': round(h, 3)})
         say(f'кадрирование {c.name}: расстояние {dist:.2f}, bbox занимает {w * 100:.0f} % ширины и {h * 100:.0f} % высоты кадра')
+    try:                                                  # T-152/1: позы камер — данные прогона для сторожа покрытия текстуры (`sg_cams`); ошибка записи прогон не роняет, но видна в журнале и status
+        import sg_cams
+        _cd = sg_cams.payload_from_scene(bpy.context.scene)
+        json.dump(_cd, open(os.path.join(OUT, 'cameras.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        ST['cameras_json'] = len(_cd['cameras'])
+    except Exception as e:  # noqa: BLE001
+        ST['cameras_json'] = f'ошибка: {e}'
+        say(f'cameras.json не записан: {e}')
     save_status()
     if CFG.get('view_prompts'):                           # T-90/7 ⑪: зерно по силуэту фото → порядок обхода → тексты видов по классу роли и зоне от «переда» (= направление зерна)
         scn = bpy.context.scene

@@ -8,6 +8,7 @@
   grazing   — виден, но только «вскользь»: лучшее |cos| между нормалью и направлением на камеру < 0,35 (картинка сильно растянута).
   unpainted — тексель цвета «фона», почти чёрный или почти белый, то есть краска туда не легла (пороги `UNPAINTED`). Отдельно `unpainted_seen` — только среди видимых (там это настоящий провал краски;
               среди невидимых заплатка тоже может дать белое). У белой мебели честно белый цвет попадает в unpainted — потому решение по нему мягче и смотрит на цифры вместе.
+              У камер прогона StableGen (analyze(rig=…)) мера другая и считается только по ТЕКСЕЛЯМ ВНУТРИ ОСТРОВКОВ развёртки (фон атласа вне островков не считается): unpainted = ровный чёрный, каким аддон заливает незакрашенное (≤ `UNPAINTED_SG.black_max`), либо сентинел магента; белый и честно тёмный цвет — краска.
 
 «НАРУЖУ» — ВАЖНО. У сеток TRELLIS внутри много поверхностей (ящики, толщина рельефа; у комода 17,3 площади при 3,5 у выпуклой оболочки), и до 80 % текселей не видны ни с одного вида просто потому,
 что спрятаны внутри. Покупатель их не увидит. Поэтому доли считаются два раза: по ВСЕМ текселям и по «наружным» — видимым хотя бы с одного из 26 направлений вокруг предмета (грани, углы и рёбра куба, ортографический
@@ -56,7 +57,11 @@ EXT_DIRS = 26                # направления «наружу» (куб: 
 EXT_RES = 384                # буфер глубины наружных видов, пикселей (ортограф. сторона 1,8 — диагональ куба 1,73)
 EXT_ORTHO = 1.8
 EXT_COS = 0.3                 # «снаружи» — видно с |cos| не меньше (под скользящим углом допуск глубины растёт и пропускает стенки изнутри)
-UNPAINTED = {'black_max': 12, 'white_min': 245}      # тексель «фон»: все каналы ≤ black_max (чёрный) или ≥ white_min (белый)
+UNPAINTED = {'black_max': 12, 'white_min': 245}      # тексель «фон» MV-Adapter: все каналы ≤ black_max (чёрный) или ≥ white_min (белый)
+# StableGen (режим rig=камеры прогона): не закрашено = ровный ЧЁРНЫЙ (аддон заливает им незакрашенные острова) или сентинел МАГЕНТА (1,0,1); белый — краска (светлая мебель). Считается только внутри островков развёртки.
+# ЗАМЕР 20.11 (T-152/1, 8 крашеных GLB, 3 товара + 4 из партии Salad): внутри островков max-канал ровно 0 у 17–86 % текселей, в корзинах 1–3 — 0–0,2 %, честно тёмные (ножки, каркас, фасады) — от 12 и выше, в основном 45–255;
+# отсюда порог black_max = 3 (запас на шум упаковки; граница между «залито» и «тёмная краска» лежит в пустой зоне 1–11). Магента в итоговых GLB не найдена (0,00 %), оставлена на случай промежуточных карт.
+UNPAINTED_SG = {'black_max': 3, 'r_min': 200, 'g_max': 70, 'b_min': 200}
 # ШВЫ ВИДОВ. «Главный вид» текселя — вид MV-Adapter с наибольшим |cos| среди видящих его. Граница — пара соседних на поверхности текселей (расстояние между точками ≤ `neigh` размеров тексела
 # по сетке карты) с РАЗНЫМ главным видом; скачок — ΔE00 между их цветами. Плохой шов: скачок > max(abs_de, ratio × p-й перцентиль скачков у пар ВНУТРИ областей одного главного вида по этому же товару):
 # абсолютный пол — чтобы гладкий товар (внутри почти 0) не ловил заметный глазу, но слабый скачок; относительный — чтобы пёстрое дерево, где внутри ΔE и так большой, не было «сплошным швом».
@@ -297,6 +302,33 @@ def face_components(P, F, area):
     return cf, np.bincount(cf, weights=area, minlength=int(cf.max()) + 1)
 
 
+def project_persp(P, view, eye, hx: float, hy: float):
+    """Перспективная камера StableGen: точки (N,3) → (x, y) в долях кадра [0, 1]² (y вниз), «глубина» = 1/расстояние вдоль взгляда (больше = ближе; ЛИНЕЙНА по экрану, поэтому буфер глубины
+    по треугольнику точен — само расстояние по экрану линейно не меняется), расстояние вдоль взгляда `df`. hx/hy — полуширина/полувысота кадра на единичном расстоянии (= сенсор/2/фокус)."""
+    import numpy as np
+    c, r, u = view
+    w = P - eye
+    df = np.maximum(-(w @ c), 1e-9)
+    return 0.5 + (w @ r) / (df * 2.0 * hx), 0.5 - (w @ u) / (df * 2.0 * hy), 1.0 / df, df
+
+
+def rig_views(rig: list, centre, size: float) -> list:
+    """Камеры прогона StableGen (`sg_cams.rig_glb`, кадр GLB) → [(вид (на_камеру, вправо, вверх), перспектива {eye, hx, hy, ortho})] в кадре предмета (центр в нуле, наибольшая сторона габарита = 1)."""
+    import numpy as np
+    out = []
+    for c in rig:
+        fwd = np.asarray(c['forward'], np.float64)
+        fwd = fwd / np.linalg.norm(fwd)
+        up = np.asarray(c['up'], np.float64)
+        up = up - fwd * float(up @ fwd)
+        up = up / np.linalg.norm(up)
+        right = np.cross(fwd, up)
+        eye = (np.asarray(c['eye'], np.float64) - centre) / size
+        k = 1.0 / size if c.get('ortho') else 1.0
+        out.append(((-fwd, right, up), {'eye': eye, 'hx': c['hx'] * k, 'hy': c['hy'] * k, 'ortho': bool(c.get('ortho')), 'name': c.get('name')}))
+    return out
+
+
 def ext_views(n: int = EXT_DIRS) -> list:
     """Направления «наружу»: до 26 (грани, рёбра и углы куба), как камеры (на_камеру, вправо, вверх) в нашем кадре. Вверх — +Y (у вертикальных направлений — +Z)."""
     import itertools
@@ -314,10 +346,12 @@ def ext_views(n: int = EXT_DIRS) -> list:
     return out
 
 
-def analyze(geoms: list, yaw: float = 0.0, grid: int = 2048, view_res: int = 768, signed: bool = False, ext_n: int = EXT_DIRS) -> dict:
+def analyze(geoms: list, yaw: float = 0.0, grid: int = 2048, view_res: int = 768, signed: bool = False, ext_n: int = EXT_DIRS, rig: list | None = None) -> dict:
     """geoms — список {'V' (n,3), 'F' (m,3), 'UV' (n,2) (v вверх, как у trimesh), 'tex' uint8 (H,W,3|4)}; всё вместе — один предмет (загораживают друг друга).
     Возвращает {'tex', 'area' (доли по всем текселям/площади), 'outer_tex', 'outer_area' (доли среди наружных), 'n_island', 'maps': [ {'cls' (T,T) uint8: 0 вне/1 норма/2 unseen наружу/3 grazing/
-    4 unpainted/5 unseen внутри, 'base' (T,T,3)} по геометриям], 'time_s'}."""
+    4 unpainted/5 unseen внутри, 'base' (T,T,3)} по геометриям], 'time_s'}.
+    rig=None — главные виды MV-Adapter (6 ортографических, форма в куб с поворотом yaw). rig=[…] (`sg_cams.rig_glb`) — камеры прогона StableGen (перспектива/ортография из ДАННЫХ прогона): форма приводится к
+    центру габарита и наибольшей стороне 1 БЕЗ поворота (камеры уже в кадре GLB), «виден» — по буферу глубины каждой камеры, как у главных видов MV-Adapter."""
     import numpy as np
     import mv_geometry as W
     t0 = time.time()
@@ -325,17 +359,29 @@ def analyze(geoms: list, yaw: float = 0.0, grid: int = 2048, view_res: int = 768
     Vall = np.concatenate([np.asarray(g['V'], np.float64) for g in geoms])
     offs = np.cumsum([0] + [len(g['V']) for g in geoms])
     Fall = np.concatenate([np.asarray(g['F'], np.int64) + offs[i] for i, g in enumerate(geoms)])
-    P, _c, _s, _R = W.to_cube(Vall, yaw)
-    views = mv_views(W.MV_AZ)
-    # 1) буфер глубины по каждому виду MV-Adapter и по наружным направлениям (вся сцена); (вид, буфер, разрешение, ортографическая сторона)
+    if rig is None:
+        P, _c, _s, _R = W.to_cube(Vall, yaw)
+    else:
+        lo, hi = Vall.min(axis=0), Vall.max(axis=0)
+        ctr, size = (lo + hi) / 2.0, float(max((hi - lo).max(), 1e-9))
+        P = (Vall - ctr) / size
+    # 1) буфер глубины по каждому главному виду (MV-Adapter или камера StableGen) и по наружным направлениям (вся сцена); (вид, буфер, разрешение, ортографическая сторона, главный, перспектива)
     cams = []
-    for v in views:
-        x, y, d = project(P, v, W.MV_ORTHO)
-        cams.append((v, raster(np.stack([x * view_res, y * view_res], 1), Fall, view_res, d)[1], view_res, W.MV_ORTHO, True))
+    if rig is None:
+        for v in mv_views(W.MV_AZ):
+            x, y, d = project(P, v, W.MV_ORTHO)
+            cams.append((v, raster(np.stack([x * view_res, y * view_res], 1), Fall, view_res, d)[1], view_res, W.MV_ORTHO, True, None))
+    else:
+        for v, pe in rig_views(rig, ctr, size):
+            if pe['ortho']:
+                x, y, d = project(P, v, 2.0 * pe['hx'])
+            else:
+                x, y, d, _df = project_persp(P, v, pe['eye'], pe['hx'], pe['hy'])
+            cams.append((v, raster(np.stack([x * view_res, y * view_res], 1), Fall, view_res, d)[1], view_res, 2.0 * pe['hx'], True, None if pe['ortho'] else pe))
     stage['zbuf'] = round(time.time() - t0, 2)
     for v in ext_views(ext_n):
         x, y, d = project(P, v, EXT_ORTHO)
-        cams.append((v, raster(np.stack([x * EXT_RES, y * EXT_RES], 1), Fall, EXT_RES, d)[1], EXT_RES, EXT_ORTHO, False))
+        cams.append((v, raster(np.stack([x * EXT_RES, y * EXT_RES], 1), Fall, EXT_RES, d)[1], EXT_RES, EXT_ORTHO, False, None))
     stage['zbuf_ext'] = round(time.time() - t0, 2)
     KEYS = ('island', 'unseen', 'grazing', 'unpainted', 'unpainted_seen')
     tot = {sub: {k: 0 for k in KEYS} for sub in ('t', 'a', 'ot', 'oa')}
@@ -380,14 +426,23 @@ def analyze(geoms: list, yaw: float = 0.0, grid: int = 2048, view_res: int = 768
             dep_any = np.zeros(len(ti), bool)             # виден ли тексель хоть с одного вида MV-Adapter по глубине (без порога по углу)
             seen = np.zeros(len(ti), bool)
             outer = np.zeros(len(ti), bool)
-            for ci, (v, zb, res, ortho, is_mv) in enumerate(cams):
-                x, y, d = project(Q, v, ortho)
+            for ci, (v, zb, res, ortho, is_mv, pe) in enumerate(cams):
+                if pe is None:
+                    x, y, d = project(Q, v, ortho)
+                    cs = N @ v[0]
+                    pix = ortho / res
+                    scale = 1.0
+                else:                                                  # перспектива: направление на камеру — своё у каждой точки, размер пикселя растёт с расстоянием
+                    x, y, d, df = project_persp(Q, v, pe['eye'], pe['hx'], pe['hy'])
+                    to_cam = pe['eye'] - Q
+                    cs = (N * to_cam).sum(axis=1) / np.maximum(np.linalg.norm(to_cam, axis=1), 1e-12)
+                    pix = 2.0 * pe['hx'] * df / res
+                    scale = 1.0 / (df * df)                            # допуск расстояния → допуск по 1/расстоянию
                 ix = np.clip(np.floor(x * res).astype(np.int64), 0, res - 1)
                 iy = np.clip(np.floor(y * res).astype(np.int64), 0, res - 1)
-                cs = N @ v[0]
                 cs = cs if signed else np.abs(cs)
                 cmin = COS_SEEN if is_mv else EXT_COS
-                eps = DEPTH_EPS + (ortho / res) * np.sqrt(np.maximum(1.0 - cs * cs, 0.0)) / np.maximum(np.abs(cs), cmin)      # постоянный допуск + рост глубины по пикселю на наклонной
+                eps = (DEPTH_EPS + pix * np.sqrt(np.maximum(1.0 - cs * cs, 0.0)) / np.maximum(np.abs(cs), cmin)) * scale      # постоянный допуск + рост глубины по пикселю на наклонной
                 vis_geo = zb[iy * res + ix] <= d + eps
                 vis = vis_geo & (cs > cmin)
                 outer |= vis
@@ -402,7 +457,10 @@ def analyze(geoms: list, yaw: float = 0.0, grid: int = 2048, view_res: int = 768
             tx = np.clip(np.floor(px / T * Wd).astype(np.int64), 0, Wd - 1)
             ty = np.clip(np.floor(py / T * H).astype(np.int64), 0, H - 1)
             rgb = tex[ty, tx]
-            unp = (rgb.max(axis=1) <= UNPAINTED['black_max']) | (rgb.min(axis=1) >= UNPAINTED['white_min'])
+            if rig is not None:
+                unp = (rgb.max(axis=1) <= UNPAINTED_SG['black_max']) | ((rgb[:, 0] >= UNPAINTED_SG['r_min']) & (rgb[:, 1] <= UNPAINTED_SG['g_max']) & (rgb[:, 2] >= UNPAINTED_SG['b_min']))
+            else:
+                unp = (rgb.max(axis=1) <= UNPAINTED['black_max']) | (rgb.min(axis=1) >= UNPAINTED['white_min'])
             unseen = ~seen
             graz = seen & (best < COS_GRAZE)
             c = np.ones(len(ti), np.uint8)
@@ -611,18 +669,26 @@ def flat_metrics(res: dict) -> dict:
 
 # ---------------------------------------------------------------- прогон ---------------------------------------
 def process(glb: str, out_dir: str | None = None, yaw=None, grid: int = 2048, view_res: int = 768, rows: list | None = None,
-            thresholds: dict | None = None, write_glb: bool = True, ext_n: int = EXT_DIRS) -> dict:
+            thresholds: dict | None = None, write_glb: bool = True, ext_n: int = EXT_DIRS, rig=None) -> dict:
+    """rig=None — виды MV-Adapter (yaw из сводки драйвера/`--yaw`). rig — камеры прогона StableGen: список (`sg_cams.rig_glb`) или функция `geoms → (список | None, подпись источника)`
+    (камеры могут зависеть от формы: центр габарита). Камер нет → ValueError («нет камер»): сторож не гадает по константам MV-Adapter."""
     t0 = time.time()
     stem = os.path.basename(glb)[:-4]
     out_dir = out_dir or os.path.dirname(os.path.abspath(glb))
     os.makedirs(out_dir, exist_ok=True)
     geoms = load_geoms(glb)
     t_load = round(time.time() - t0, 2)
-    yw, ysrc = find_yaw(glb, yaw)
+    rig_src = None
+    if callable(rig):
+        rig, rig_src = rig(geoms)
+        if not rig:
+            raise ValueError('нет камер прогона StableGen (ни cameras.json, ни status.json для восстановления)')
+    yw, ysrc = (0.0, 'камеры StableGen: поворота нет') if rig is not None else find_yaw(glb, yaw)
     # сетка карты — по размеру текстуры (не больше `grid`)
     T = min(int(grid), max(max(g['tex'].shape[:2]) for g in geoms))
-    r = analyze(geoms, yw, T, view_res, ext_n=ext_n)
+    r = analyze(geoms, yw, T, view_res, ext_n=ext_n, rig=rig)
     res = {'file': os.path.abspath(glb), 'key': stem, 'faces': int(sum(len(g['F']) for g in geoms)), 'yaw_deg': yw, 'yaw_source': ysrc, 'grid': T, 'view_res': view_res,
+           'cameras': ({'n': len(rig), 'source': rig_src, 'names': [c.get('name') for c in rig]} if rig is not None else {'n': 6, 'source': 'MV-Adapter'}),
            'texels_island': r['n_island'], 'tex': r['tex'], 'area': r['area'], 'outer_tex': r['outer_tex'], 'outer_area': r['outer_area'],
            'outer_share_tex_pct': r['outer_share_tex_pct'], 'outer_share_area_pct': r['outer_share_area_pct'], 'seam': r['seam'], 'unseen_outer_why': r['unseen_outer_why'], 'photo': photo_of(match_row(stem, rows or [])) if rows else None}
     if write_glb:
