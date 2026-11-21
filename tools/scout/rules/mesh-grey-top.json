@@ -1,6 +1,10 @@
 {
  "_about": "Детектор «серая крышка» (T-20261118-04/12, план mesh-grey-top-01): верх меша нарисован пустым фоном сети paint (128,128,128). Читает tools/scout/mesh_grey_top.py. Вердикт — ОТДЕЛЬНОЕ поле, правило общего цвета (mesh-color-guard.json) не заменяет. Смена любого числа — новая version (кэш вердиктов недействителен). gt-v4 (T-20261118-04/16/3): боковой кандидат требует MR 0,5/0,5 или контраст ≥20; известный остаток — 7 хороших серых товаров из 3013 (диваны/кресла/сиденья серой ткани) остаются помеченными: решение директора, лучше спрятать 7 хороших, чем пропустить брак.",
- "version": "gt-v4",
+ "version": "gt-v5",
+ "_gt_v5": "T-20261119-113 «серость вообще»: поверхность любой яркости, нейтральная (C*≤8), однотонная (σ≤4), заметная (доля ≥15 %), с ΔE≥20 от остального изделия и БЕЗ своего цвета на фото (вырезка cutout.png) → candidate neutral-flat; крайняя яркость (L*<20 или >90) — ΔE≥25 и доля ≥25 %. Только candidate.",
+ "neutral_chroma_max": 8, "neutral_std_max": 4.0, "neutral_share_min": 0.15, "neutral_dE_min": 20, "neutral_body_min": 0.2,
+ "neutral_L_lo": 20, "neutral_L_hi": 90, "neutral_ext_dE": 25, "neutral_ext_share": 0.25,
+ "neutral_photo_dE": 15, "neutral_photo_share_max": 0.01,
   "flat_std_max": 3.0, "flat_chroma_max": 8.0, "flat_lo": 105, "flat_hi": 145, "flat_body_dL": 30,
   "mrflat_share": 0.95, "mrflat_std_max": 3.0, "mrflat_lo": 110, "mrflat_hi": 141, "mrflat_spread": 6,
   "partial_share": 0.6, "gedge_share": 0.7, "gedge_edge_min": 10, "gedge_std_max": 8.0,
