@@ -64,6 +64,7 @@ SHARP_BLEND = {'weight_exponent_generation_only': True, 'weight_exponent_after_g
 VARIANTS['q2509mp'] = dict(VARIANTS['q2509q5'], megapixels=1.76, scene_props=dict(SHARP_BLEND),
                            label='Qwen-Image-Edit-2509 Q5_K_M + Lightning, виды 1,76 Мп (≈1328²) + резкое смешивание видов (степень 15 после генерации)')
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import kit_driver as KD                                                      # noqa: E402  — общий набор проб Salad (salad/kit_driver.py, T-178/2)
 import sg_queue as Q                                                        # noqa: E402
 import sg_store as ST                                                        # noqa: E402  — выход покраски → склад мешей (план painted-to-rt-01)
 import sg_views                                                          # noqa: E402  (чистые функции: тексты видов, шаблоны, словарь материалов)
@@ -164,9 +165,7 @@ def weight_urls(spec: str, catalog: dict) -> list[str]:
     return [f'https://huggingface.co/{repo}/resolve/main/{rel}' for repo, rel, _sub, _name in (catalog[k] for k in spec.split(','))]
 
 
-def cost_usd(running_s: float, price: float, reserve_s: float = 60.0) -> float:
-    """Начисления по времени `running` + запас на отставание счёта (платим с момента running)."""
-    return max(0.0, running_s + (reserve_s if running_s > 0 else 0.0)) / 3600.0 * price
+cost_usd = KD.cost_usd                                              # деньги по времени running + запас — одна формула на все пробы (kit_driver)
 
 
 def price_usd_h(tier: str) -> float | None:
@@ -373,26 +372,15 @@ def hf_head(url: str) -> int:
 
 
 def api_retry(MG, path: str, method: str, body, name: str, say, sleep=time.sleep, rules=None):
-    """create/start группы Salad с повтором при 502/503/504 (T-153/1, признаки — rules/stablegen-transient.json → salad_api). Перед каждым повтором смотрим группу:
-    создание — группа уже есть (200) → считаем созданной; старт — состояние не «stopped» → уже стартовала. Возвращает (код, ответ, число_повторов)."""
+    """create/start группы Salad с повтором при 502/503/504: цикл — общий (kit_driver.api_retry), признаки — rules/stablegen-transient.json → salad_api (T-153/1)."""
     import sg_transient
     r = (rules or sg_transient.load_rules())['salad_api']
-    code, resp = MG.api(path, method, body) if body is not None else MG.api(path, method)
-    for attempt in range(r['retries']):
-        if code not in r['status_codes']:
-            return code, resp, attempt
-        sleep(sg_transient.pause_s(r, attempt))
-        c2, g = MG.api(f'/{name}')
-        state = ((g or {}).get('current_state') or {}).get('status') if c2 == 200 else None
-        if c2 == 200 and (method == 'POST' and path == '' or state not in (None, 'stopped')):
-            say(f'{method} {path or "создание"}: ответ {code}, но группа уже есть (состояние {state}) — считаю выполненным')
-            return 201 if path == '' else 202, resp, attempt + 1
-        say(f'{method} {path or "создание"}: краткий сбой Salad API {code} — повтор {attempt + 1}/{r["retries"]}')
-        code, resp = MG.api(path, method, body) if body is not None else MG.api(path, method)
-    return code, resp, r['retries']
+    return KD.api_retry(MG, path, method, body, name, say, sleep,
+                        {'retries': r['retries'], 'status_codes': r['status_codes'], 'pauses_s': [sg_transient.pause_s(r, i) for i in range(max(1, r['retries']))]})
 
 
-def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=hf_head, popen=subprocess.Popen) -> int:
+def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=hf_head, popen=subprocess.Popen, ledger=None, image_check=None, slot_check=None) -> int:
+    """`ledger`/`image_check`/`slot_check` — из общего набора (kit_driver); `main()` подставляет боевые, тесты — без них (не пишут в общий счёт, без сети)."""
     runs = parse_runs(a.runs)
     spec = weights_for(runs)
     urls = weight_urls(spec, load_weights_catalog())
@@ -415,6 +403,17 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
     if price is None:
         say('цены группы нет — стоп (деньги без цены не считаем)')
         return 2
+    if slot_check:                                                # платное только под heavy-slot --prio 2 (урок р.5 с --no-slot)
+        try:
+            slot_check()
+        except KD.SlotRefused as exc:
+            say('ОТКАЗ:', exc, '— группу не создаю')
+            return 4
+    if image_check:                                               # образ по digest (ADR-0137) и сжатый размер ≤30 ГиБ — до /start (HTTP 400 на большом образе, e022e305)
+        good, why, _gib = image_check(a.image, MG.ghcr_auth())
+        say('образ:', why)
+        if not good:
+            return 3
     bad = [(u.split('/resolve')[0].split('huggingface.co/')[1], c) for u in urls for c in [head(u)] if c not in (200, 302)]
     say('проверка весов на Hugging Face (бесплатно):', 'все доступны' if not bad else f'НЕДОСТУПНЫ {bad}')
     if bad:
@@ -584,21 +583,17 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
         summary['running_s'] = round((clock() - run_since), 1) if run_since is not None else 0.0
         summary['cost_usd_est'] = round(cost_usd(summary['running_s'], price), 3)
         json.dump(summary, open(os.path.join(a.out, f'summary-{name}.json'), 'w'), ensure_ascii=False, indent=1)
+        if ledger:                                                # общий учёт денег проб Salad (T-178/2): одна строка на группу, даже если остановились по причине
+            warn = ledger({'group': name, 'model': 'stablegen', 'card': CARD['class_name'], 'tier': a.tier, 'image': a.image, 'running_s': summary['running_s'], 'price_usd_h': price,
+                           'cost_usd_est': summary['cost_usd_est'], 'stopped_by': summary['stopped_by'], 'stop_verified': summary['stop_verified'],
+                           'jobs_done': sum(1 for r_ in summary.get('runs') or [] if (r_ or {}).get('ok')), 'jobs_failed': summary['failed'], 'driver': 'sg_salad'})
+            if warn:
+                say('!!', warn)
         say('ИТОГ', json.dumps({k: summary.get(k) for k in ('group', 'stopped_by', 'stop_verified', 'failed', 'running_s', 'cost_usd_est')}, ensure_ascii=False))
     return 0 if summary['stop_verified'] and summary['stopped_by'] == 'done' else 1
 
 
-def weights_slow(hist: list, window_s: float, min_gb_min: float) -> float | None:
-    """Скорость докачки весов за последние window_s секунд, если она ниже min_gb_min ГБ/мин (иначе None). hist — [(время_с, ГБ)] по возрастанию времени; нужна выборка, покрывающая всё окно."""
-    if len(hist) < 2:
-        return None
-    t1, g1 = hist[-1]
-    old = [(t, g) for t, g in hist if t <= t1 - window_s]
-    if not old:
-        return None                                             # окно ещё не набралось
-    t0, g0 = old[-1]
-    rate = (g1 - g0) / ((t1 - t0) / 60)
-    return rate if rate < min_gb_min else None
+weights_slow = KD.weights_slow                                     # скорость докачки весов — одна на все пробы (kit_driver)
 
 
 def main() -> int:
@@ -640,7 +635,7 @@ def main() -> int:
         sys.exit('нужен --runs <товар>[@форма][+cut-метка]:<вариант>[,…] (товар по умолчанию в коде запрещён, T-20261120-147)')
     if not a.image or ('@' not in a.image and ':' not in a.image):
         sys.exit('нужен --image: тег или digest с именем репозитория')
-    return run(a, MG, BR)
+    return run(a, MG, BR, ledger=KD.ledger_append, image_check=KD.check_image, slot_check=KD.require_slot)
 
 
 if __name__ == '__main__':
