@@ -217,5 +217,31 @@ check('refine_ok: рост — принимаем', PF.refine_ok(0.85, 0.86))
 ms_r = {'ran': True, 'starts': [{'score': 0.76 - i * 0.01, 'iou': 0.50, 'iou_sil': 0.85 - i * 0.005} for i in range(5)]}
 check('shape_mismatch: коридор по IoU ДО уточнения (iou_sil), а не после', CC.shape_mismatch(0.80, ms_r, RULES)[1]['iou_spread'] <= 0.03, str(CC.shape_mismatch(0.80, ms_r, RULES)[1]))
 
+# --- surf_pick (T-173): из двух поз (боевая, surf) — с большим IoU по треугольникам; ничья ≤ SURF_TIE и пустые значения → боевая; по умолчанию выкл. ---
+import inspect  # noqa: E402
+
+
+def pk(tri):
+    return {'edge': {'iou_frame': tri}}
+
+
+r_321 = PF.choose_pose(pk(0.9632), pk(0.9106))      # серый комод на ножках: surf уводит позу на фронт и роняет форму
+check('choose_pose: surf хуже боевой (комод, −0,053) → боевая', r_321['chosen'] == 'base' and r_321['gap'] == -0.0526, str(r_321))
+r_tab = PF.choose_pose(pk(0.8099), pk(0.8582))      # столик: боевая с длинной ножкой, surf совпал
+check('choose_pose: surf лучше боевой (столик, +0,048) → surf', r_tab['chosen'] == 'surf' and r_tab['gap'] == 0.0483, str(r_tab))
+check('choose_pose: ничья в пределах SURF_TIE → боевая', PF.choose_pose(pk(0.900), pk(0.904))['chosen'] == 'base' and PF.choose_pose(pk(0.900), pk(0.9051))['chosen'] == 'surf')
+check('choose_pose: нет iou_frame у любой позы → боевая', PF.choose_pose({'edge': {}}, pk(0.9))['chosen'] == 'base' and PF.choose_pose(pk(0.9), {})['chosen'] == 'base' and PF.choose_pose({}, {})['gap'] is None)
+check('fit_pose: surf_pick по умолчанию выключен', inspect.signature(PF.fit_pose).parameters['surf_pick'].default is False)
+cube_V = np.array([[x, y, z] for x in (-.5, .5) for y in (-.5, .5) for z in (-.5, .5)], float)
+cube_F = np.array([[0, 1, 3], [0, 3, 2], [4, 6, 7], [4, 7, 5], [0, 4, 5], [0, 5, 1], [2, 3, 7], [2, 7, 6], [0, 2, 6], [0, 6, 4], [1, 5, 7], [1, 7, 3]])
+cube = {'V': cube_V, 'F': cube_F}
+S_pts = PF._surf_points(cube, n_pts=20000)
+cam_c = {'az': 30.0, 'el': 15.0, 'd': 4.0, 'f': 3.0, 'cx': 0.5, 'cy': 0.5}
+check('surf_points: вершины на месте + заданное число точек граней', len(S_pts) == len(cube_V) + 20000 and np.allclose(S_pts[:len(cube_V)], cube_V))
+check('surf_points: точки внутри габарита формы', bool((np.abs(S_pts) <= 0.5 + 1e-9).all()))
+m_v, m_s = PF.splat_mask(cube_V, cam_c, 128), PF.splat_mask(S_pts, cam_c, 128)
+check('surf_points: маска по поверхности заполнена, по вершинам дырявая (плоские грани)', m_s.sum() > 10 * m_v.sum(), f'{int(m_s.sum())} vs {int(m_v.sum())} px')
+check('surf_points: воспроизводимо (seed)', np.array_equal(PF._surf_points(cube, 500), PF._surf_points(cube, 500)))
+
 print('all ok' if not bad else f'FAILED: {bad}')
 sys.exit(1 if bad else 0)

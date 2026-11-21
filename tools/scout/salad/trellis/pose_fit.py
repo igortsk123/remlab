@@ -393,10 +393,37 @@ def write_stages(r: dict, out_run: str, cam: dict, cv: dict, photo_path: str, ya
     return reg
 
 
-def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int = 1536, n_fit: int = 256, topk: int = 4, ortho: bool = False, multistart: str = 'auto', log=print) -> dict:
+SURF_N = 200000                    # точек выборки с поверхности граней для второго поиска (surf_pick)
+SURF_TIE = 0.005                   # ничья по IoU треугольников между боевой и surf-позой → остаётся боевая
+
+
+def _surf_points(geo: dict, n_pts: int = SURF_N, seed: int = 0) -> np.ndarray:
+    """Облако для маски поиска: сами вершины + равномерная по площади выборка точек граней (барицентры). У крупных плоских граней вершин мало, маска по вершинам в них дырявая, и цель поиска (IoU) занижена — ранжирование поз идёт по шуму."""
+    V, F = geo['V'], geo['F']
+    a, b, c = V[F[:, 0]], V[F[:, 1]], V[F[:, 2]]
+    ar = 0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1)
+    rng = np.random.default_rng(seed)
+    idx = rng.choice(len(F), size=n_pts, p=ar / ar.sum())
+    u, v = rng.random(n_pts), rng.random(n_pts)
+    f = u + v > 1.0
+    u[f], v[f] = 1.0 - u[f], 1.0 - v[f]
+    return np.concatenate([V, a[idx] + u[:, None] * (b[idx] - a[idx]) + v[:, None] * (c[idx] - a[idx])], axis=0)
+
+
+def choose_pose(base: dict, surf: dict, tie: float = SURF_TIE) -> dict:
+    """Из двух выбранных поз (боевая — по вершинам, surf — по поверхности) берёт ту, у которой IoU по треугольникам (`edge.iou_frame`) выше; ничья в пределах `tie` или нет значения → боевая.
+    → {chosen: 'base'|'surf', iou_tri_base, iou_tri_surf, gap (surf − боевая), tie}."""
+    tb = (base.get('edge') or {}).get('iou_frame')
+    ts = (surf.get('edge') or {}).get('iou_frame')
+    use_surf = tb is not None and ts is not None and ts > tb + tie
+    return {'chosen': 'surf' if use_surf else 'base', 'iou_tri_base': tb, 'iou_tri_surf': ts, 'gap': round(ts - tb, 4) if tb is not None and ts is not None else None, 'tie': tie}
+
+
+def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int = 1536, n_fit: int = 256, topk: int = 4, ortho: bool = False, multistart: str = 'auto', log=print, surf_pick: bool = False) -> dict:
     """ТОЧКА ВХОДА (код): камера фото на форме `glb` → файлы в `out_run` (см. шапку) и словарь
-    {camera: {az, el, d, f, cx, cy}, canvas, yaw, px, iou_frame, edge_agree, textured, stages_dir, pose_json, candidates, iou_frontal_ortho_bbox}.
-    Форма без текстуры (нет `images`) — кромки сверяются по затенению нормалей (`shade_view`). `ortho=True` — сравнение: d прибита к D_MAX."""
+    {camera: {az, el, d, f, cx, cy}, canvas, yaw, px, iou_frame, edge_agree, textured, stages_dir, pose_json, candidates, iou_frontal_ortho_bbox, surf_pick}.
+    Форма без текстуры (нет `images`) — кромки сверяются по затенению нормалей (`shade_view`). `ortho=True` — сравнение: d прибита к D_MAX.
+    `surf_pick=True` (по умолчанию выкл., ×2 времени подбора): второй поиск по точкам с поверхности граней, из двух поз берётся с большим IoU по треугольникам (ничья ≤ SURF_TIE → боевая); итог — `surf_pick` в pose.json."""
     import cv2
     from PIL import Image
     import a1_tone as A
@@ -416,40 +443,52 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
         Mp = canvas_mask(alpha, cv, n)
         geo = to_cube_geo(SC.load_geom(glb), yaw)
         log(f'форма: {len(geo["V"])} вершин, {len(geo["F"])} граней; фото {photo.shape[1]}×{photo.shape[0]}, кадр {px}, подбор {n}')
-        cands = fit_camera(geo['V'], Mp, n, topk, log=log)
-        Pc = geo['V'][:: max(1, len(geo['V']) // 150000)]
-        ms_info = {'mode': multistart, 'trigger_iou': MS_TRIGGER, 'standard_best_iou': cands[0]['iou'], 'ran': False, 'starts': []}
-        run_ms = multistart == 'on' or (multistart == 'auto' and cands[0]['iou'] < MS_TRIGGER)
-        for c in cands:
-            c.update(pose_score(splat_mask(Pc, c['cam'], n), Mp))
-        if run_ms:
-            log(f"мультистарт: IoU обычного подбора {cands[0]['iou']} < {MS_TRIGGER} (режим {multistart}) — {len(MS_AZ) * len(MS_EL)} стартов")
-            ms_pick, ms_all = multistart_fit(geo['V'], Mp, n, topk, log=log)
-            ms_info.update({'ran': True, 'starts': ms_all, 'weights': 'оценка = IoU − 0,5·(miss+extra) − 0,125·(miss_низ+extra_низ)'})
-            cands = sorted(cands + ms_pick, key=lambda t: -t['score'])[: topk + len(ms_pick)]
-            pool = [c for c in cands if c['score'] >= cands[0]['score'] - TIE_IOU]
-        else:
-            pool = None
         j, b = A.read_glb(glb)
         tex = T.read_texture(j, b) if (j.get('images') or []) else None
-        best_iou = cands[0]['iou']
-        if pool is None:
-            pool = [c for c in cands if c['iou'] >= best_iou - TIE_IOU]
-        for c in pool:
-            c['edge'] = edge_score(geo, c['cam'], photo, alpha, cv, tex)
-            log(f"  кандидат az={c['cam']['az']:.1f} el={c['cam']['el']:.1f} d={c['cam']['d']:.2f} IoU {c['iou']} кромки до ECC {c['edge']['agree']}")
-        for c in pool:                                                 # уточнение по внутренним кромкам: силуэт один, поз с разными кромками много
-            c['cam_sil'] = dict(c['cam'])
-            c['iou_sil'] = c['iou']                                    # IoU силуэта ДО уточнения (коридор shape_mismatch в camera_check считает по нему)
-            edge_before = c['edge']
-            c['cam'], c['edge'] = refine_by_edges(geo, c['cam'], photo, alpha, cv, tex, log=log)
-            c['iou'] = round(iou(splat_mask(geo['V'][:: max(1, len(geo['V']) // 150000)], c['cam'], n), Mp), 4)
-            log(f"  после уточнения az={c['cam']['az']:.1f} el={c['cam']['el']:.1f} d={c['cam']['d']:.2f} IoU(силуэт) {c['iou']} кромки до ECC {c['edge']['agree']}")
-            c['refine_rejected'] = not refine_ok(c['iou_sil'], c['iou'])
-            if c['refine_rejected']:
-                log(f"  уточнение отклонено: IoU силуэта {c['iou_sil']} → {c['iou']} (падение > {REFINE_IOU_DROP}); остаётся поза по силуэту")
-                c['cam'], c['edge'], c['iou'] = dict(c['cam_sil']), edge_before, c['iou_sil']
-        pick = max(pool, key=lambda c: c['edge']['agree'])
+
+        def search(PTS: np.ndarray) -> tuple:
+            """Поиск позы по облаку точек формы PTS (вершины или выборка с поверхности): подбор → мультистарт → пул ничьих → кромки → уточнение. → (pick, cands, ms_info)."""
+            cands = fit_camera(PTS, Mp, n, topk, log=log)
+            Pc = PTS[:: max(1, len(PTS) // 150000)]
+            ms_info = {'mode': multistart, 'trigger_iou': MS_TRIGGER, 'standard_best_iou': cands[0]['iou'], 'ran': False, 'starts': []}
+            run_ms = multistart == 'on' or (multistart == 'auto' and cands[0]['iou'] < MS_TRIGGER)
+            for c in cands:
+                c.update(pose_score(splat_mask(Pc, c['cam'], n), Mp))
+            if run_ms:
+                log(f"мультистарт: IoU обычного подбора {cands[0]['iou']} < {MS_TRIGGER} (режим {multistart}) — {len(MS_AZ) * len(MS_EL)} стартов")
+                ms_pick, ms_all = multistart_fit(PTS, Mp, n, topk, log=log)
+                ms_info.update({'ran': True, 'starts': ms_all, 'weights': 'оценка = IoU − 0,5·(miss+extra) − 0,125·(miss_низ+extra_низ)'})
+                cands = sorted(cands + ms_pick, key=lambda t: -t['score'])[: topk + len(ms_pick)]
+                pool = [c for c in cands if c['score'] >= cands[0]['score'] - TIE_IOU]
+            else:
+                pool = None
+            best_iou = cands[0]['iou']
+            if pool is None:
+                pool = [c for c in cands if c['iou'] >= best_iou - TIE_IOU]
+            for c in pool:
+                c['edge'] = edge_score(geo, c['cam'], photo, alpha, cv, tex)
+                log(f"  кандидат az={c['cam']['az']:.1f} el={c['cam']['el']:.1f} d={c['cam']['d']:.2f} IoU {c['iou']} кромки до ECC {c['edge']['agree']}")
+            for c in pool:                                             # уточнение по внутренним кромкам: силуэт один, поз с разными кромками много
+                c['cam_sil'] = dict(c['cam'])
+                c['iou_sil'] = c['iou']                                # IoU силуэта ДО уточнения (коридор shape_mismatch в camera_check считает по нему)
+                edge_before = c['edge']
+                c['cam'], c['edge'] = refine_by_edges(geo, c['cam'], photo, alpha, cv, tex, log=log)
+                c['iou'] = round(iou(splat_mask(Pc, c['cam'], n), Mp), 4)
+                log(f"  после уточнения az={c['cam']['az']:.1f} el={c['cam']['el']:.1f} d={c['cam']['d']:.2f} IoU(силуэт) {c['iou']} кромки до ECC {c['edge']['agree']}")
+                c['refine_rejected'] = not refine_ok(c['iou_sil'], c['iou'])
+                if c['refine_rejected']:
+                    log(f"  уточнение отклонено: IoU силуэта {c['iou_sil']} → {c['iou']} (падение > {REFINE_IOU_DROP}); остаётся поза по силуэту")
+                    c['cam'], c['edge'], c['iou'] = dict(c['cam_sil']), edge_before, c['iou_sil']
+            return max(pool, key=lambda c: c['edge']['agree']), cands, ms_info
+
+        pick, cands, ms_info = search(geo['V'])
+        surf_info = None
+        if surf_pick:                                                  # вторая поза по выборке с поверхности граней; берём ту, у которой IoU по треугольникам выше
+            pick2, cands2, ms2 = search(_surf_points(geo))
+            surf_info = choose_pose(pick, pick2)
+            log(f"surf_pick: боевая iou_tri {surf_info['iou_tri_base']} / surf {surf_info['iou_tri_surf']} (разрыв surf−боевая {surf_info['gap']:+.4f}) → выбрана {surf_info['chosen']}")
+            if surf_info['chosen'] == 'surf':
+                pick, cands, ms_info = pick2, cands2, ms2
         cam = pick['cam']
         front = _bbox_fit(geo['V'][:: max(1, len(geo['V']) // 150000)], 0.0, 0.0, 1000.0, (lambda ys, xs: (xs.min() / n, ys.min() / n, (xs.max() + 1) / n, (ys.max() + 1) / n))(*np.nonzero(Mp)))
         iou_front = iou(splat_mask(geo['V'][:: max(1, len(geo['V']) // 150000)], front, n), Mp)
@@ -458,7 +497,7 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
         extra = {'pose': {'picked': pick, 'candidates': cands, 'multistart': ms_info, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'fov_deg_canvas': round(float(np.degrees(2 * np.arctan(0.5 / cam['f']))), 2)}}
         reg = write_stages(r, out_run, cam, cv, photo_path, yaw, px, glb, extra)
         pj = os.path.join(out_run, 'pose.json')
-        json.dump({'camera': cam, 'canvas': cv, 'picked': pick, 'candidates': cands, 'multistart': ms_info, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'iou_frame': reg['iou'], 'px': px, 'yaw': yaw, 'textured': tex is not None},
+        json.dump({'camera': cam, 'canvas': cv, 'picked': pick, 'candidates': cands, 'multistart': ms_info, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'iou_frame': reg['iou'], 'px': px, 'yaw': yaw, 'textured': tex is not None, 'surf_pick': surf_info},
                   open(pj, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         A_fr = SL.warp_inv(alpha.astype(np.float32), canvas_P(cv, px), (px, px)) > 0.5
         ov = np.zeros((px, px, 3), np.uint8)
@@ -466,7 +505,7 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
         ov[..., 1] = (r['mask'] * 255).astype(np.uint8)
         Image.fromarray(cv2.resize(ov, (768, 768), interpolation=cv2.INTER_AREA)).save(os.path.join(out_run, 'pose_overlay.png'))
         return {'camera': cam, 'canvas': cv, 'yaw': yaw, 'px': px, 'iou_frame': reg['iou'], 'edge_agree': pick['edge']['agree'], 'textured': tex is not None,
-                'stages_dir': os.path.join(out_run, 'stages'), 'pose_json': pj, 'candidates': cands, 'iou_frontal_ortho_bbox': round(iou_front, 4)}
+                'stages_dir': os.path.join(out_run, 'stages'), 'pose_json': pj, 'candidates': cands, 'iou_frontal_ortho_bbox': round(iou_front, 4), 'surf_pick': surf_info}
     finally:
         globals()['GRID_D'], globals()['D_MIN'] = saved
 
@@ -482,8 +521,9 @@ def main() -> int:
     ap.add_argument('--topk', type=int, default=4)
     ap.add_argument('--ortho', action='store_true', help='сравнение: дистанция камеры прибита к D_MAX (слабая перспектива ≈ ортография), остальное как обычно')
     ap.add_argument('--multistart', choices=('auto', 'on', 'off'), default='auto', help='много стартов по азимуту (0/90/180/270 ±15°) и подъёму для симметричных предметов: auto — если IoU обычного подбора < MS_TRIGGER')
+    ap.add_argument('--surf-pick', action='store_true', help='второй поиск по точкам с поверхности граней; из двух поз — с большим IoU по треугольникам (ничья ≤0,005 → боевая); ×2 времени подбора, по умолчанию выкл.')
     a = ap.parse_args()
-    res = fit_pose(a.glb, a.photo, a.out_run, a.yaw, a.px, a.n_fit, a.topk, a.ortho, a.multistart)
+    res = fit_pose(a.glb, a.photo, a.out_run, a.yaw, a.px, a.n_fit, a.topk, a.ortho, a.multistart, surf_pick=a.surf_pick)
     print(json.dumps({'camera': res['camera'], 'iou_frame': res['iou_frame'], 'edge_agree_before_ecc': res['edge_agree']}, ensure_ascii=False))
     return 0
 
