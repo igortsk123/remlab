@@ -114,6 +114,14 @@ check('рекомендация: общий сдвиг → REFINE', rec3 == 'REF
 rec4, _, _ = Q.recommendation('ORIENTATION_AMBIGUOUS', 'INDETERMINATE', res, sh2, TH)
 check('рекомендация: поза неоднозначна → REVIEW_POSE', rec4 == 'REVIEW_POSE')
 
+# — нижняя полоса: «ок» невозможен, если гейт низа этапа 04 не прошёл; корпус лёг, низ нет → LIMIT_PROJECTION —
+v6, _ = Q.shape_verdict('GOOD', 0.95, res_ok, {'explained': 0.0}, None, TH, False, bottom_ok=False)
+check('форма: низ не прошёл гейт 04 → не LIKELY_OK (ножки тонкие, в долях площади малы)', v6 == 'INDETERMINATE', v6)
+rec5, safe5, zone5 = Q.recommendation('GOOD', 'INDETERMINATE', res_ok, {'explained': 0.0}, TH, bottom_fail=True, iou_top=0.95)
+check('рекомендация: низ не прошёл, корпус лёг (IoU верха 0,95) → LIMIT_PROJECTION, body', rec5 == 'LIMIT_PROJECTION' and zone5 == 'body' and not safe5, f'{rec5} {zone5}')
+rec6, _, _ = Q.recommendation('GOOD', 'INDETERMINATE', res_ok, {'explained': 0.0}, TH, bottom_fail=True, iou_top=0.6)
+check('рекомендация: низ не прошёл и корпус не лёг → не LIMIT_PROJECTION', rec6 != 'LIMIT_PROJECTION', rec6)
+
 # — деформация —
 Pt = np.array([[0, 0.0, 0], [0, 0.1, 0], [0, 0.5, 0], [0, 1.0, 0]])
 Dd = Q.deform_legs(Pt, 0.5, 0.0, 1.0, 0.2)

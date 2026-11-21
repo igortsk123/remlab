@@ -326,7 +326,7 @@ def probe_cam_refit(Pc: np.ndarray, cam: dict, Mp: np.ndarray, n: int, rules: di
 
 
 # ——— вердикты ———
-def shape_verdict(pose_status: str, iou_tri: float, res: dict, shift: dict, probe: dict | None, th: dict, calibrated: bool) -> tuple[str, dict]:
+def shape_verdict(pose_status: str, iou_tri: float, res: dict, shift: dict, probe: dict | None, th: dict, calibrated: bool, bottom_ok: bool = True) -> tuple[str, dict]:
     ev = {'t_res': bool(res['non_bottom_share'] + res['bottom_share'] >= th['local_res_min'] and shift['explained'] <= th['shift_expl_max']),
           't_def': False, 'gain_over_cam': None}
     if probe and probe.get('best'):
@@ -334,7 +334,7 @@ def shape_verdict(pose_status: str, iou_tri: float, res: dict, shift: dict, prob
         gain = b['G_heldout'] - probe['cam']['G_heldout']
         ev['gain_over_cam'] = round(gain, 4)
         ev['t_def'] = bool(gain >= th['gain_min'] and b['pen'] <= th['pen_max'])
-    small = iou_tri >= th['iou_ok'] and res['local_share'] < th['local_res_min']
+    small = iou_tri >= th['iou_ok'] and res['local_share'] < th['local_res_min'] and bottom_ok     # «ок» только если и нижняя полоса прошла гейт этапа 04 (ножки тонкие: в долях всей площади их ошибка мала, а форма низа — неверна)
     if small and pose_status == 'GOOD':
         return 'LIKELY_OK', ev
     if calibrated and pose_status == 'GOOD' and ev['t_res'] and ev['t_def']:
@@ -342,14 +342,17 @@ def shape_verdict(pose_status: str, iou_tri: float, res: dict, shift: dict, prob
     return 'INDETERMINATE', ev
 
 
-def recommendation(pose_status: str, shape_status: str, res: dict, shift: dict, th: dict) -> tuple[str, bool, str]:
-    """→ (recommendation, projection_safe, safe_zone). safe_zone: full | body (ниже полосы фото не переносить) | none."""
+def recommendation(pose_status: str, shape_status: str, res: dict, shift: dict, th: dict, bottom_fail: bool = False, iou_top: float | None = None) -> tuple[str, bool, str]:
+    """→ (recommendation, projection_safe, safe_zone). safe_zone: full | body (ниже полосы фото не переносить) | none.
+    bottom_fail — нижняя полоса не прошла гейт этапа 04; iou_top — IoU верхней части (выше полосы): корпус лёг, ножки нет → LIMIT_PROJECTION (зона body)."""
     if pose_status != 'GOOD':
         return 'REVIEW_POSE', False, 'none'
     if shape_status == 'LIKELY_OK':
         return 'OK', True, 'full'
     if shift['explained'] >= th['shift_expl_refine']:
         return 'REFINE', False, 'none'
+    if bottom_fail and iou_top is not None and iou_top >= th.get('body_iou_min', 0.85):
+        return 'LIMIT_PROJECTION', False, 'body'
     if res['non_bottom_share'] <= th['body_res_max'] and res['bottom_share'] >= th['local_res_min'] / 2:
         return 'LIMIT_PROJECTION', False, 'body'
     if shape_status == 'SHAPE_MISMATCH_LIKELY':
@@ -438,15 +441,21 @@ def audit_product(glb: str, photo: str, out: str, rules: dict | None = None, log
     if probe and (disputed or not rules.get('probe_only_disputed', True)):          # G_shape — только на спорных (директор 21.11); на чистых — нечего проверять
         fams = [probe_family(Pc, cam, Mp, n, f, rules) for f in rules['probe']['families']]
         pr = {'families': fams, 'best': max(fams, key=lambda t: t['G_heldout']), 'cam': probe_cam_refit(Pc, cam, Mp, n, rules)}
-    shape_status, ev = shape_verdict(pose_status, iou_tri, res, shift, pr, th, cal)
-    rec, safe, zone = recommendation(pose_status, shape_status, res, shift, th)
+    import camera_check as CC
+    cc = CC.load_rules()
+    sh_ = CC.silhouette_shares(S, Mp, float(cc['strip_frac']))
+    bottom_fail = bool(sh_['miss_bottom'] > cc['miss_bottom_max'] or sh_['extra_bottom'] > cc['extra_bottom_max'])
+    strip = {'miss_bottom': round(sh_['miss_bottom'], 4), 'extra_bottom': round(sh_['extra_bottom'], 4), 'iou_top': None if sh_['iou_top'] is None else round(sh_['iou_top'], 4), 'bottom_fail_stage04': bottom_fail,
+             'limits': {'miss_bottom_max': cc['miss_bottom_max'], 'extra_bottom_max': cc['extra_bottom_max']}}
+    shape_status, ev = shape_verdict(pose_status, iou_tri, res, shift, pr, th, cal, bottom_ok=not bottom_fail)
+    rec, safe, zone = recommendation(pose_status, shape_status, res, shift, th, bottom_fail, sh_['iou_top'])
     rep = {'glb': glb, 'photo': photo, 'rules_version': rules.get('version'), 'calibrated': cal, 'tree_pose_fit': None,
            'pose_status': pose_status, 'shape_status': shape_status, 'projection_safe': safe, 'safe_zone': zone, 'recommendation': rec,
            'camera_model': (pj.get('rank') or {}).get('weak', {}).get('camera_model'), 'focal_distance_ambiguous': (pj.get('rank') or {}).get('weak', {}).get('focal_distance_ambiguous'),
            'silhouette_iou_tri': round(iou_tri, 4), 'silhouette_iou_fit': pj.get('iou_frame'), 'boundary_chamfer_px': cm.get('chamfer_px'), 'boundary_bf': cm.get('bf'),
            'front_back_margin': gap, 'flip_cam': (flip or {}).get('cam'), 'near_best': cand, 'cam_pick_vs_ref_disp': round(d_pick, 4),
            'max_disp': round(max(disps + [0.0]), 4), 'max_region_dis': round(max(regs + [0.0]), 4), 'n_starts': len(starts), 'n_near': len(nb),
-           'zbuf_check': zb, 'residual': res, 'shift': shift, 'probe': pr, 'evidence': ev, 'camera': cam}
+           'zbuf_check': zb, 'strip': strip, 'residual': res, 'shift': shift, 'probe': pr, 'evidence': ev, 'camera': cam}
     json.dump(rep, open(os.path.join(out, 'qa.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     try:
         sheet(out, Mp, S, geo, cam, cand, flip, res, pr, Pc, n, rules, rep)
