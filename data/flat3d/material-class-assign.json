@@ -5898,7 +5898,12 @@
    "needsReview": false,
    "reason": "Материал=Стекло",
    "role": "ваза",
-   "stage": "params"
+   "stage": "params",
+   "tone": [
+    66,
+    118,
+    88
+   ]
   },
   "99272_17598954721654987930": {
    "class": "glass",
@@ -5908,7 +5913,12 @@
    "needsReview": false,
    "reason": "Материал=Натрий-кальциевое стекло",
    "role": "ваза",
-   "stage": "params"
+   "stage": "params",
+   "tone": [
+    98,
+    100,
+    104
+   ]
   },
   "99272_17894879541595848038": {
    "class": "fabric",
@@ -6149,7 +6159,12 @@
    "needsReview": false,
    "reason": "Материал=Натрий-кальциевое стекло",
    "role": "ваза",
-   "stage": "params"
+   "stage": "params",
+   "tone": [
+    78,
+    108,
+    150
+   ]
   },
   "99272_4605871192508099154": {
    "class": "metal",
@@ -6492,6 +6507,6 @@
    "stage": "params"
   }
  },
- "rulesSha": "60dff77d4c4f0c44",
+ "rulesSha": "32e4f34c97dfb602",
  "version": 1
 }

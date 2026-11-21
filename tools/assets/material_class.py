@@ -97,6 +97,46 @@ def _param(params: dict, key: str) -> str | None:
     return None
 
 
+def glass_finish(rules: dict, key: str, value: str, params: dict) -> dict | None:
+    """Вид и тон стекла по правилам `glass_finish` (материал названа стеклом; `key` — ключ материала, `value` — его значение). None — прозрачное без тона.
+    {frosted, colour, colour_key, colour_value, tone}: матовость — слово в самом значении/цвете или цвет «белый/молочный»; тон — только если цвет назван ОДНИМ словом из правил."""
+    gf = rules.get("glass_finish")
+    if not gf:
+        return None
+    rx_f = gf["frosted_words"]
+    out: dict = {"frosted": any(re.search(w, norm(value)) for w in rx_f)}
+    for ck in gf["color_keys"].get(key, []):
+        cv = _param(params, ck)
+        if cv is None:
+            continue
+        ct = norm(cv)
+        hits = [c for c in gf["colours"] if any(re.search(rx, ct) for rx in c["any"])]
+        if any(re.search(w, ct) for w in rx_f):
+            out["frosted"] = True
+        if len(hits) == 1:                                   # несколько цветов («Черный, Медный») — это не про стекло: тон не угадываем
+            h = hits[0]
+            out.update(colour=h["name"], colour_key=ck, colour_value=str(cv), tone=list(h["rgb"]))
+            out["frosted"] = out["frosted"] or bool(h.get("frosted"))
+        break                                                # первый названный ключ цвета решает; следующие — запасные только если его нет
+    return out if out["frosted"] or "tone" in out else None
+
+
+def _apply_finish(rules: dict, cand: dict, key: str, val: str, params: dict) -> dict | None:
+    """Класс glass → glass_frosted / glass с тоном; cand меняется на месте. Возвращает finish или None."""
+    if cand.get("class") != "glass":
+        return None
+    fin = glass_finish(rules, key, val, params)
+    if not fin:
+        return None
+    if fin["frosted"]:
+        cand["class"] = rules["glass_finish"]["frosted_class"]
+    if "tone" in fin:
+        cand["tone"] = fin["tone"]
+    if "colour_key" in fin:
+        cand["reason_extra"] = f"{fin['colour_key']}={fin['colour_value']}"
+    return fin
+
+
 def stage_params(rules: dict, role: str, params: dict) -> dict | None:
     group = rules["groups"].get(rules["_roleGroup"].get(role, ""))
     if not group or not params:
@@ -118,6 +158,7 @@ def stage_params(rules: dict, role: str, params: dict) -> dict | None:
         is_generic = rules["_byId"][top[2]].get("generic", False)
         cand = {"class": top[2], "key": key, "value": val, "alt": [h[2] for h in ordered[1:]],
                 "confidence": conf["params_generic"] if is_generic else (conf["params_single"] if len(ordered) == 1 else conf["params_multi"])}
+        _apply_finish(rules, cand, key, val, params)
         if not is_generic:
             # общее «ткань» уже найдено в обивке: каркас и прочие ключи его не перебивают — берём только названный вид из предпочтительных
             if generic is None or _matches_prefer(rules, cand["class"], prefer) < len(prefer):
@@ -161,7 +202,11 @@ def stage_parts(rules: dict, role: str, params: dict) -> dict:
                 continue
             hits = pick(rules, find_hits(val, rules["value_patterns"]), [])
             if hits:
-                out[part] = {"class": hits[0][2], "reason": f"{key}={val}"}
+                ent = {"class": hits[0][2], "reason": f"{key}={val}"}
+                _apply_finish(rules, ent, key, val, params)
+                if "reason_extra" in ent:
+                    ent["reason"] += "; " + ent.pop("reason_extra")
+                out[part] = ent
                 break
     for part, fb in (group.get("parts_fallback") or {}).items():       # своего поля нет — запасное (каркас, основной материал): только дерево/металл и однозначно
         if part in out:
@@ -189,16 +234,21 @@ def classify(rules: dict, rec: dict) -> dict:
     out: dict
     if p:
         out = {"class": p["class"], "stage": "params", "confidence": p["confidence"], "reason": f"{p['key']}={p['value']}"}
+        if p.get("reason_extra"):
+            out["reason"] += "; " + p["reason_extra"]
+        if p.get("tone"):
+            out["tone"] = p["tone"]
+        same_glass = bool(n) and byid[n["class"]]["family"] == "glass" and byid[p["class"]]["family"] == "glass"      # «стеклянный» в названии согласен и с glass, и с glass_frosted
         if p["alt"]:
             out["alt"] = p["alt"]
         p_generic = byid[p["class"]].get("generic", False)
         if n and p_generic and byid[n["class"]]["family"] == "textile" and not byid[n["class"]].get("generic"):
             out = {"class": n["class"], "stage": "params+name", "confidence": conf["name"] + conf["agree_bonus"] * 4,
                    "reason": f"{p['key']}={p['value']}; название: «{n['word']}»"}
-        elif n and n["class"] != p["class"] and not p_generic:
+        elif n and n["class"] != p["class"] and not p_generic and not same_glass:
             out["conflict"] = {"name": n["class"], "word": n["word"]}
             out["confidence"] = round(out["confidence"] - conf["conflict_penalty"], 2)
-        elif n and n["class"] == p["class"]:
+        elif n and (n["class"] == p["class"] or same_glass):
             out["confidence"] = round(min(0.97, out["confidence"] + conf["agree_bonus"]), 2)
     elif n:
         out = {"class": n["class"], "stage": "name", "confidence": n["confidence"], "reason": f"слово названия «{n['word']}»"}
@@ -266,6 +316,19 @@ def check() -> int:
                     re.compile(rx)
                 except re.error as e:
                     problems.append(f"{section}: регулярка {rx!r}: {e}")
+    gf = rules.get("glass_finish")
+    if gf:
+        if gf["frosted_class"] not in ids:
+            problems.append(f"glass_finish: класс {gf['frosted_class']} не описан")
+        rxs = list(gf["frosted_words"]) + list(gf["clear_words"]) + [rx for c in gf["colours"] for rx in c["any"]]
+        for rx in rxs:
+            try:
+                re.compile(rx)
+            except re.error as e:
+                problems.append(f"glass_finish: регулярка {rx!r}: {e}")
+        for c in gf["colours"]:
+            if len(c["rgb"]) != 3 or not all(isinstance(v, int) and 0 <= v <= 255 for v in c["rgb"]):
+                problems.append(f"glass_finish: цвет {c['name']}: rgb {c['rgb']!r} вне 0..255")
     for r, d in rules["role_defaults"].items():
         if d["class"] not in ids:
             problems.append(f"role_defaults[{r}]: класс {d['class']} не описан")
