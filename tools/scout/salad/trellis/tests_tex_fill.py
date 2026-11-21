@@ -766,6 +766,31 @@ def test_part_roles_from_stage3():
         ok("part_class" not in c and note is None, "stat/trellis — part_class не трогается")
 
 
+def test_stage7_side_tone_smooth_rules():
+    print("правила 21.11 (Sakura): узор только на стороне фото, общий тон роли, без плитки на дереве:")
+    n = np.array([[0, 0, 1.0], [0, 0, -1.0], [0, 1.0, 0], [0.8, 0, 0.6], [0, 0, 0.1]])
+    m = TF.pattern_side_ok(n, 0.0, 0.2)
+    ok(m.tolist() == [True, False, False, True, False], f"зад/верх/вскользь — без узора, перёд и под углом — с узором ({m.tolist()})")
+    m90 = TF.pattern_side_ok(n, 90.0, 0.2)
+    ok(m90.tolist() == [False, False, False, True, False] or m90[3], "камера справа (az 90): учитывается направление фото")
+    ok(TF.pattern_side_ok(n, 0.0, None).all(), "cos_min=None — правило выключено")
+    c = dict(TF.FILL)
+    ok(TF.smooth_part_rule('legs', 0.1, False, c) and TF.smooth_part_rule('frame', None, False, c), "legs/frame — гладко независимо от швов")
+    ok(TF.smooth_part_rule('body', 0.9, False, c), "неузорная часть со скачком на швах > порога — гладко")
+    ok(not TF.smooth_part_rule('body', 0.2, False, c) and not TF.smooth_part_rule(None, None, False, c), "хорошие швы / нет данных — плитка остаётся")
+    ok(not TF.smooth_part_rule('body', 0.9, True, c), "узорная часть правилом jump_L не режется")
+    # общий тон роли: части одной роли (legs) красятся общим тоном; без роли — каждая своим
+    g, parts, known, tl, col = scene_parts()
+    base = {"gutter": 0, "erode_known": 0, "tone": "median", "src_dev_pattern": 0}
+    r0 = TF.fill([g], known, parts, cfg=dict(base), mirror=False)['report']
+    ok(r0.get('tone_shared') == {}, "роли не заданы — общего тона нет")
+    r1 = TF.fill([g], known, parts, cfg=dict(base, part_role={0: 'legs', 1: 'legs'}, tone_share_roles=['legs']), mirror=False)['report']
+    ts = r1['tone_shared'].get('legs')
+    ok(ts is not None and ts['parts'] == [0, 1], f"две части роли legs — один общий тон ({ts})")
+    r2 = TF.fill([g], known, parts, cfg=dict(base, part_role={0: 'body', 1: 'body'}, tone_share_roles=['legs']), mirror=False)['report']
+    ok(r2['tone_shared'] == {}, "роль вне tone_share_roles — тон не делится")
+
+
 def test_hidden_visible():
     print("мерка «скрытое видимое» (tex_fill_hidden_visible): срез, метрики, свод:")
     import tex_fill_hidden_visible as HV
@@ -1015,7 +1040,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

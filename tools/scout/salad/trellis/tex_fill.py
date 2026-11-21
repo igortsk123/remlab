@@ -95,6 +95,11 @@ FILL = {
     'relief_draft_cos': 0.5,         # trellis_relief: перенос строже (Codex 21.11): нормаль точки черновика к нормали текселя — не меньше этого (берётся больший из draft_cos и этого)
     'relief_draft_max_dist': 0.015,  # trellis_relief: ближе к поверхности черновика (берётся меньший из draft_max_dist и этого)
     'relief_draft_thin_cos': -0.2,   # trellis_relief: если рядом (в пределах расстояния) есть точка черновика с нормалью против нормали текселя (cos < этого) — тонкая вещь, перёд/зад путаются → тексель без черновика (None — выкл.)
+    'part_role': None,               # {часть: роль этапа 3} (run_stage берёт из 03-parts/parts.json; нет — правила по ролям не действуют)
+    'pattern_side_cos': 0.2,         # узорная часть: узор кладётся только на тексели, обращённые к фото (cos нормали с направлением камеры pr_az ≥ порога); обратная сторона/сиденье/низ — тон ткани без цветов (дефект Sakura 21.11: цветы спинки на заду и сиденье)
+    'smooth_roles': ['legs', 'frame', 'handles'],   # роли без плитки фактуры на недостроенном: тон части без блоков («ёлочка» стыков на дереве, Sakura 21.11)
+    'tone_share_roles': ['legs', 'frame', 'handles'],   # роли, у которых тон един на все части одной роли (один материал — один тон: задние ножки темнее передних из-за теней)
+    'quilt_jump_max': 0.5,           # неузорная часть: скачок на швах плитки (jump_L) выше — плитка не кладётся, тон части (швы заметны)
     'part_class': None,              # trellis_relief: {часть: роль/семья из этапа 3} (run_stage --part-roles); нет — ворота только по однородности известного
 }
 BLACK_MAX = TC.UNPAINTED_SG['black_max']
@@ -812,6 +817,19 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             rep['fallback_global'] += 1
         pat_eff[p] = pat_std[p] * (min(1.0, max(float(stat[p][0][0]), 0.0) / float(c['pattern_dark_ref'])) if float(c['pattern_dark_ref']) > 0 else 1.0)
         rep['parts'][p] = {'known_texels': int(len(L)), 'pattern': bool(pat_eff[p] > c['pattern_chroma']), 'pattern_chroma_std': round(float(pat_std[p]), 2), 'pattern_chroma_eff': round(float(pat_eff[p]), 2), 'mean_lab': [round(float(x), 2) for x in stat[p][0]], 'std_lab': [round(float(x), 2) for x in stat[p][1]], 'stats_from_global': stat[p][3]}
+    rep['tone_shared'] = {}
+    roles_ = c.get('part_role') or {}
+    for role in c.get('tone_share_roles') or []:                     # один материал — один тон: части одной роли (ножки…) красятся общим тоном (по свету, без теней)
+        mem = [p for p in part_ids if roles_.get(p, roles_.get(str(p))) == role]
+        if len(mem) < 2:
+            continue
+        Lp = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & np.isin(tx.part, mem)]] for gi, tx in enumerate(txs)])
+        if len(Lp) < c['min_known']:
+            continue
+        tone = tone_of(Lp, c)
+        for p in mem:
+            stat[p] = (tone, stat[p][1], stat[p][2], False)
+        rep['tone_shared'][role] = {'parts': [int(p) for p in mem], 'tone': [round(float(x), 2) for x in tone], 'known': int(len(Lp))}
     dshift = None
     if c['source'] == 'trellis':                     # перенос статистики Lab: черновик части → видимое фото той же части (медиана и разброс по каналам)
         dshift = []
@@ -1219,6 +1237,8 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             continue
         px, py = tx.ti[unk_flat] % T, tx.ti[unk_flat] // T
         add = np.zeros((len(px), 3))
+        side_ok = pattern_side_ok(tx.N[unk_flat], c['pr_az'], c['pattern_side_cos'])             # тексель обращён к фото
+        roles_ = c.get('part_role') or {}
         for p in part_ids:
             if p not in patches:
                 continue
@@ -1234,6 +1254,14 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             r2 = t2[(py[sel] * 3 // 2 + oy2) % Bp, (px[sel] * 3 // 2 + ox2) % Bp]
             gain = float(np.clip(patch_gain[p], c['gain_min'], c['gain_max']))
             add[sel] = gain * (r1 + r2) / np.sqrt(2.0) if p not in raw_mean else r1                  # узорная: узор из фото целиком (отклонение от тона), без смешения двух сдвигов
+            if p in raw_mean:                                                                         # узор только на стороне фото: зад, сиденье, низ — тон без цветов
+                add[sel & ~side_ok] = 0.0
+            smooth_p = smooth_part_rule(roles_.get(p, roles_.get(str(p))), rep.get('quilt_info', {}).get(p, {}).get('jump_L'), p in raw_mean, c)
+            if smooth_p:                                                                              # дерево/каркас и плитка с заметными швами — гладко, без «ёлочки»
+                add[sel] = 0.0
+                rep.setdefault('quilt_smooth_parts', [])
+                if int(p) not in rep['quilt_smooth_parts']:
+                    rep['quilt_smooth_parts'].append(int(p))
         if relief is not None:                                   # вариант C: на залитом (не зеркалом) — яркость рельефа черновика (только L), затухающая от границы фото; плохой черновик + отбракованный пул лоскута → ГЛАДКО (тон части), не плитка
             rv, rok = relief[gi]
             tl = tx.ti[unk_flat]
@@ -1513,6 +1541,23 @@ def roles_from_parts_json(path: str) -> dict:
     return {int(p['id']): str(p['role']) for p in d.get('parts', []) if p.get('role') and p['role'] != 'unknown' and 'id' in p}
 
 
+def pattern_side_ok(normals: np.ndarray, az_deg: float, cos_min: float | None) -> np.ndarray:
+    """Правило узора (T-164, Sakura 21.11): узор кладётся только на тексели, обращённые к фото — cos(нормаль, направление на камеру az) ≥ cos_min (кадр GLB: лицом +Z, az 0 — в лоб).
+    Зад, сиденье, низ — тон ткани без цветов. cos_min=None — правило выключено (все True)."""
+    n = len(normals)
+    if cos_min is None:
+        return np.ones(n, bool)
+    a = np.radians(az_deg)
+    return (np.asarray(normals) @ np.array([np.sin(a), 0.0, np.cos(a)])) >= cos_min
+
+
+def smooth_part_rule(role, jump_l, pattern: bool, c: dict) -> bool:
+    """Правило «без плитки» (дерево, «ёлочка» на швах): роль части (этап 3) в `smooth_roles`, либо неузорная часть со скачком L на швах плитки jump_L > `quilt_jump_max`."""
+    if role in (c.get('smooth_roles') or []):
+        return True
+    return (not pattern) and jump_l is not None and jump_l > c['quilt_jump_max']
+
+
 def resolve_part_class(cfg: dict | None, parts_npz: str | None, parts_from_stage3: bool) -> tuple:
     """Классы частей для C (`part_class`): заданы в cfg — они; иначе при source=trellis_relief и частях ИЗ этапа 3 — роли из `parts.json` рядом с parts.npz (один источник — этап 3), иначе None. → (cfg с part_class, строка о способе)."""
     c = dict(cfg or {})
@@ -1691,7 +1736,11 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
         parts, parts_note = parts_from_npz(parts_npz, geoms)
     if parts is None:
         parts, parts_note = parts_from_geometry(geoms)
-    cfg, pc_note = resolve_part_class(cfg, parts_npz, from_stage3)          # C: классы частей — из этапа 3 сами (CFG_C больше не нужен)
+    cfg, pc_note = resolve_part_class(cfg, parts_npz, from_stage3)
+    if from_stage3 and (cfg or {}).get('part_role') is None:                    # роли этапа 3 — для правил по ролям (общий тон, гладкое дерево)
+        _roles = roles_from_parts_json(os.path.join(os.path.dirname(parts_npz), 'parts.json'))
+        if _roles:
+            cfg = dict(cfg or {}, part_role=_roles)          # C: классы частей — из этапа 3 сами (CFG_C больше не нужен)
     draft = None
     if (cfg or {}).get('source') in ('trellis', 'trellis_relief'):
         draft = draft_texels(geoms, TC.load_geoms(draft_glb), cfg)
