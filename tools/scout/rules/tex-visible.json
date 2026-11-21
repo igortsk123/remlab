@@ -1,9 +1,11 @@
 {
   "_doc": "Этап 6 (tex_visible.py): правила переноса фото в видимую часть текстуры. Общее для всех товаров (T-168, директор 21.11).",
-  "cos_min": 0.40,
-  "cos_full": 0.60,
+  "cos_min": 0.4,
+  "cos_full": 0.6,
   "edge_erode_px": 2.0,
-  "depth_jump_px": 4.0,
-  "depth_band_px": 3,
-  "luma_outlier_dL": null
+  "depth_jump_px": 12.0,
+  "depth_band_px": 2,
+  "luma_outlier_dL": null,
+  "depth_median_px": 7,
+  "_depth_doc": "карта глубины растра в пятнах на рёбрах треугольников (30–60 % пар соседей «прыгают») — разрыв ищем по медиане 7×7, иначе отбрасывается 80 % кадра (run11)"
 }

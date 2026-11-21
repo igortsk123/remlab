@@ -44,8 +44,9 @@ def _rules() -> dict:
 
 R = _rules()
 COS_MIN = float(R.get('cos_min', 0.40))          # cos угла к лучу: 66° и больше — вскользь, не берём (rules/tex-visible.json)
-DEPTH_JUMP = float(R.get('depth_jump_px', 4.0))  # разрыв глубины между соседними пикселями кадра больше стольких px_len — край складки/щели: полоса вокруг не берётся
-DEPTH_BAND = int(R.get('depth_band_px', 3))      # ширина этой полосы, пикселей кадра
+DEPTH_JUMP = float(R.get('depth_jump_px', 12.0))  # разрыв глубины между соседними пикселями кадра больше стольких px_len — край складки/щели: полоса вокруг не берётся
+DEPTH_MED = int(R.get('depth_median_px', 7))   # медиана карты глубины перед поиском разрыва: на рёбрах треугольников в ней пятна-выбросы
+DEPTH_BAND = int(R.get('depth_band_px', 2))      # ширина этой полосы, пикселей кадра
 COS_FULL = float(R.get('cos_full', 0.60))         # полный вес с этого косинуса; между COS_MIN и COS_FULL — плавная передача заготовке
 EDGE_FRAC = 4.0 / 480   # отступ от силуэта фото внутрь, доли стороны кадра: вес растёт от 0 до 1 (там фон и ореол)
 GUTTER = 6              # желоб вокруг островков, пикселей текстуры (билинейная выборка у шва не берёт серый фон)
@@ -151,9 +152,10 @@ def face_maps(st: dict, nF: int, off: int = 0) -> dict:
 
 def depth_band(st: dict) -> np.ndarray:
     """Маска кадра: пиксели у разрыва глубины (край складки, щель между подушками, торец за выступом) шире DEPTH_BAND px — фото там берёт тень щели, а не поверхность."""
-    from scipy.ndimage import binary_dilation
-    d = st['depth'].astype(np.float64)
-    ok = (d > 0) & st['mask']
+    from scipy.ndimage import binary_dilation, median_filter
+    d0 = st['depth'].astype(np.float64)
+    ok = (d0 > 0) & st['mask']
+    d = median_filter(np.where(d0 > 0, d0, float(np.median(d0[ok])) if ok.any() else 0.0), size=max(DEPTH_MED, 1)) if DEPTH_MED > 1 else d0
     lim = max(float(st.get('px_len') or 0.0), 1e-6) * DEPTH_JUMP
     jump = np.zeros(d.shape, bool)
     for dy, dx in ((0, 1), (1, 0)):
