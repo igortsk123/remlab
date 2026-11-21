@@ -32,7 +32,7 @@ review_after: 2026-12-05
   `tools/ops/merge-queue.sh` (ADR-0406); Tier 2 — `domain/deployment-details.md` § CI.
 - **Observability:** трейс LLM (`lib/trace/`); health (`lib/health.ts:dbCheck`) + `health-watch.sh` (ADR-0266).
 - **Конвейер и надписи (ADR-0407):** реестр `tools/ops/conveyor-manifest.yml` + `tools/ops/conveyor_check.py`, хук
-  `tools/hooks/guard_conveyor.py`, разрешение `tools/ops/conveyor_permit.py`, линт ID `tools/ops/conveyor_ids.py` (WARN);
+  `tools/hooks/guard_conveyor.py`, разрешение `tools/ops/conveyor_permit.py`, линт ID `conveyor_ids.py` (блок с 20.11);
   пары RU/EN /demo — `tools/ops/demo-i18n-scan.mjs --check` (CI).
 - **Гарантии памяти (ADR-0055):** два аудита + хуки (`.claude/settings.json`): гард Bash (ADR-0195),
   SessionStart/Stop/PreCompact/PostToolUse (`tools/code-touch-hint.mjs`).
