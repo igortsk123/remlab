@@ -5043,6 +5043,11 @@
     "frame": {
      "class": "metal",
      "reason": "Материал каркаса=металл"
+    },
+    "legs": {
+     "class": "metal",
+     "inferred": true,
+     "reason": "Материал каркаса=металл"
     }
    },
    "reason": "Материал обивки=Экокожа",
@@ -5078,6 +5083,11 @@
    "parts": {
     "frame": {
      "class": "metal",
+     "reason": "Материал каркаса=Металлокаркас + ламели"
+    },
+    "legs": {
+     "class": "metal",
+     "inferred": true,
      "reason": "Материал каркаса=Металлокаркас + ламели"
     }
    },
@@ -5255,6 +5265,11 @@
     "frame": {
      "class": "plastic",
      "reason": "Материал каркаса=Пластик, Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "inferred": true,
+     "reason": "Материал каркаса=Пластик, Металл"
     }
    },
    "reason": "Основной материал=Пластик",
@@ -5270,6 +5285,11 @@
    "parts": {
     "frame": {
      "class": "metal",
+     "reason": "Материал каркаса=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "inferred": true,
      "reason": "Материал каркаса=Металл"
     }
    },
@@ -5352,6 +5372,11 @@
     "frame": {
      "class": "mdf_film",
      "reason": "Материал каркаса=МДФ, Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "inferred": true,
+     "reason": "Материал каркаса=МДФ, Металл"
     }
    },
    "reason": "Материал обшивки=Мех",
@@ -5423,6 +5448,11 @@
    "parts": {
     "frame": {
      "class": "wood_solid",
+     "reason": "Материал каркаса=Дерево, Полиуретан"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "inferred": true,
      "reason": "Материал каркаса=Дерево, Полиуретан"
     }
    },
@@ -5506,6 +5536,11 @@
    "parts": {
     "frame": {
      "class": "metal",
+     "reason": "Материал каркаса=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "inferred": true,
      "reason": "Материал каркаса=Металл"
     }
    },
@@ -5725,6 +5760,11 @@
     "frame": {
      "class": "wood_solid",
      "reason": "Материал каркаса=Дерево"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "inferred": true,
+     "reason": "Материал каркаса=Дерево"
     }
    },
    "reason": "Основной материал=Дерево",
@@ -5829,6 +5869,11 @@
     "frame": {
      "class": "metal",
      "reason": "Материал каркаса=Металл с порошковым покрытием"
+    },
+    "legs": {
+     "class": "metal",
+     "inferred": true,
+     "reason": "Материал каркаса=Металл с порошковым покрытием"
     }
    },
    "reason": "Материал обшивки=Велюр",
@@ -5874,6 +5919,11 @@
    "parts": {
     "frame": {
      "class": "wood_solid",
+     "reason": "Материал каркаса=Дерево"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "inferred": true,
      "reason": "Материал каркаса=Дерево"
     }
    },
@@ -5973,6 +6023,11 @@
    "parts": {
     "frame": {
      "class": "metal",
+     "reason": "Материал каркаса=Металл"
+    },
+    "legs": {
+     "class": "metal",
+     "inferred": true,
      "reason": "Материал каркаса=Металл"
     }
    },
@@ -6136,6 +6191,11 @@
     "frame": {
      "class": "wood_solid",
      "reason": "Материал каркаса=Массив гевеи"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "inferred": true,
+     "reason": "Материал каркаса=Массив гевеи"
     }
    },
    "reason": "Материал обшивки=Ткань",
@@ -6180,6 +6240,11 @@
    "parts": {
     "frame": {
      "class": "metal",
+     "reason": "Материал каркаса=Металл, Шпон"
+    },
+    "legs": {
+     "class": "metal",
+     "inferred": true,
      "reason": "Материал каркаса=Металл, Шпон"
     }
    },
@@ -6389,6 +6454,11 @@
     "frame": {
      "class": "wood_solid",
      "reason": "Материал каркаса=Дерево, Полиуретан"
+    },
+    "legs": {
+     "class": "wood_solid",
+     "inferred": true,
+     "reason": "Материал каркаса=Дерево, Полиуретан"
     }
    },
    "reason": "Материал обшивки=Лен",
@@ -6422,6 +6492,6 @@
    "stage": "params"
   }
  },
- "rulesSha": "5c4c02a3d4feb02d",
+ "rulesSha": "60dff77d4c4f0c44",
  "version": 1
 }

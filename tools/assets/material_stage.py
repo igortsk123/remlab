@@ -7,8 +7,9 @@
 
 КАК. 1) класс товара — `material_class.classify` (характеристики → слова названия → роль), ничего не угадываем по фото;
 2) части — `<run>/<sku>/03-parts/parts.npz` (этап 3: SAM2 + голосование на грани); нет этапа 3 — геометрия `material_parts` (ножки / тело);
-3) класс части: метка Qwen3-VL (`vl`, когда будет) → ножки с классом из каталога → главная часть = класс товара → часть без метки с цветом как у главной → иначе «не уверен»
-(запасной рецепт neutral, причина в check.json); 4) рецепт класса (`data/flat3d/material-recipes.json`) растеризуется в UV общего листа →
+3) грань без части этапа 3 — класс ближайшей грани с частью (inherited_share в check.json, предел в рецептах); нет этапа 3 — части по ФОРМЕ (`part_shapes.py`: стойка, корпус, плафон наверху; материал из каталога);
+4) класс части: метка Qwen3-VL (`vl`, когда будет) → ножки с классом из каталога → главная часть = класс товара → часть без метки с цветом как у главной → иначе «не уверен»
+(запасной рецепт neutral, причина в check.json); 5) рецепт класса (`data/flat3d/material-recipes.json`) растеризуется в UV общего листа →
 карты metallicRoughness / sheenColor / transmission → GLB (`KHR_materials_sheen`, `KHR_materials_transmission`); карта цвета и геометрия — байт в байт как были.
 
 Выход `<run>/<sku>/08-material/`: material.glb, check.json (общий формат `paint_stage.py`: доля граней с рецептом, доля уверенных, класс по частям с источником), frame.png (перёд, студийный свет).
@@ -97,7 +98,9 @@ def resolve_parts(parts: list[dict], cls: dict, recipes: dict, parts_known: bool
     conf, cl = recipes["confidence"], recipes["classify"]
     fb = recipes["fallback_class"]
     cat = cls.get("parts") or {}
-    main = max(parts, key=lambda p: p["face_share"])
+    has_shade = "shade" in cat
+    pool = [p for p in parts if not (has_shade and str(p.get("role", "")) == "shape:blob-top")] or parts   # верхняя зона с плафоном в каталоге — не «главная часть», даже если самая большая
+    main = max(pool, key=lambda p: p["face_share"])
     main_lab = ((main.get("colour") or {}).get("lab_median"))
     out: dict[int, dict] = {}
     for p in parts:
@@ -106,23 +109,171 @@ def resolve_parts(parts: list[dict], cls: dict, recipes: dict, parts_known: bool
         if vl:
             r = {"class": vl, "source": "vl", "confidence": conf["vl"], "reason": f"метка части «{p['vl']}»"}
         elif p.get("role") == "legs" and "legs" in cat:
-            r = {"class": cat["legs"]["class"], "source": "catalog:legs", "confidence": conf["legs_catalog"],
-                 "reason": f"ножки по геометрии; каталог: {cat['legs']['reason']}"}
+            inferred = bool(cat["legs"].get("inferred"))      # своего поля «материал ножек» нет — класс по каркасу/основному материалу (дерево, металл)
+            r = {"class": cat["legs"]["class"], "source": "catalog:legs-inferred" if inferred else "catalog:legs",
+                 "confidence": conf["legs_catalog_inferred"] if inferred else conf["legs_catalog"],
+                 "reason": f"ножки по геометрии; каталог{' (по каркасу, своего поля нет)' if inferred else ''}: {cat['legs']['reason']}"}
+        elif p is not main and _role_class(p, cls, cat, recipes) is not None:
+            r = _role_class(p, cls, cat, recipes)
+        elif str(p.get("role", "")).startswith("shape:") and p is not main:
+            r = _shape_class(p, cls, cat, recipes)
         elif p is main:
             r = {"class": cls["class"], "source": "catalog:" + cls["stage"], "confidence": round(cls["confidence"] * conf["main_part_scale"], 2), "reason": cls["reason"]}
             lost = [k for k, v in cat.items() if k not in ("legs", "frame") and v["class"] != cls["class"]]
             if not parts_known and lost:      # в каталоге есть плафон/ручки другого материала, а где они — без частей этапа 3 неизвестно
                 r["confidence"] = min(r["confidence"], conf["no_parts_conflict"])
                 r["reason"] += "; в каталоге есть " + ", ".join(f"{k} ({cat[k]['class']})" for k in lost) + ", частей этапа 3 нет — где они, не знаем"
+        elif cls.get("group") in cl.get("body_inherit_groups", []) and not str(p.get("role", "")).startswith("shape:"):
+            de = f" (ΔE {_de76(lab, main_lab):.1f})" if lab is not None and main_lab is not None else ""
+            r = {"class": cls["class"], "source": "body-soft", "confidence": conf["body_inherit"],
+                 "reason": f"мягкая мебель: часть корпуса — та же обивка по каталогу, цвет роли не решает{de}"}
         elif main_lab is not None and lab is not None and _de76(lab, main_lab) <= cl["same_material_dE"]:
             r = {"class": cls["class"], "source": "colour≈main", "confidence": conf["same_colour_as_main"],
                  "reason": f"цвет как у главной части (ΔE {_de76(lab, main_lab):.1f})"}
         else:
             why = "нет цвета части" if lab is None else f"цвет отличается от главной части (ΔE {_de76(lab, main_lab):.1f})" if main_lab is not None else "нет цвета главной части"
-            r = {"class": fb, "source": "unsure", "confidence": conf["unsure"], "reason": f"нет метки, {why}"}
+            r = {"class": fb, "source": "unsure", "confidence": conf["unsure"], "reason": f"нет метки, {why}", "main_id": int(main["id"]),
+                 "de_main": round(float(_de76(lab, main_lab)), 1) if lab is not None and main_lab is not None else None}
         r["confident"] = bool(r["confidence"] >= cl["confident_from"])
         out[int(p["id"])] = r
     return out
+
+
+def unsure_parts_report(mesh, part: np.ndarray, parts_rep: list[dict], parts: list[dict], recipes: dict) -> list[dict]:
+    """Для каждой неуверенной части — всё, по чему её можно назвать (вход этапу 3/р.1 для подписи ролей): доля граней и площади, ΔE к главной, цвет Lab,
+    где она (по центроиду: высота верх/середина/низ в долях высоты модели, боковое смещение от оси: центр/сбоку/край в долях полуширины; ось Y вверх)."""
+    rep = recipes["unsure_report"]
+    v = np.asarray(mesh.vertices, dtype=np.float64)
+    f = np.asarray(mesh.faces)
+    tri = v[f]
+    cen = tri.mean(axis=1)
+    area = 0.5 * np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1)
+    lo, hi = float(v[:, 1].min()), float(v[:, 1].max())
+    mid = (v.min(axis=0) + v.max(axis=0)) / 2
+    half = np.maximum((v.max(axis=0) - v.min(axis=0)) / 2, 1e-9)
+    col = {int(p["id"]): (p.get("colour") or {}).get("lab_median") for p in parts}
+    out = []
+    for r in parts_rep:
+        if r["confident"]:
+            continue
+        sel = part == r["id"]
+        if not sel.any():
+            continue
+        c = np.average(cen[sel], axis=0, weights=np.maximum(area[sel], 1e-12))
+        up = float((c[1] - lo) / max(hi - lo, 1e-9))
+        off = float(max(abs(c[0] - mid[0]) / half[0], abs(c[2] - mid[2]) / half[2]))
+        vert = "верх" if up >= rep["up_top"] else "низ" if up <= rep["up_bottom"] else "середина"
+        side = "центр" if off <= rep["off_centre"] else "край" if off >= rep["off_edge"] else "сбоку"
+        lab = col.get(int(r["id"]))
+        out.append({"id": int(r["id"]), "role": r["role"], "face_share": round(float(sel.mean()), 4), "area_share": round(float(area[sel].sum() / max(area.sum(), 1e-12)), 4),
+                    "de_main": r.get("de_main"), "main_id": r.get("main_id"), "lab": [round(float(x), 1) for x in lab] if lab else None,
+                    "where": {"up": round(up, 2), "off": round(off, 2), "label": f"{vert}, {side}"}, "reason": r["reason"]})
+    return sorted(out, key=lambda d: -d["area_share"])
+
+
+def merge_roles(parts: list[dict], path: str) -> int:
+    """Роли частей этапа 3 лежат отдельным файлом `roles.json` (пересчёт ролей без пересчёта частей): {id части: {role, material_channel, …}}. Части, у которых роль
+    с каналом уже в parts.json, не трогаем; остальным дописываем role/material_channel/role_conf/unknown_reason. → сколько частей получило роль. Нет файла — 0."""
+    if not os.path.exists(path):
+        return 0
+    roles = json.load(open(path, encoding="utf-8"))
+    n = 0
+    for p in parts:
+        r = roles.get(str(p["id"]))
+        if not r or (p.get("material_channel") and p.get("role") not in (None, "unknown")):
+            continue
+        for k in ("role", "material_channel", "role_conf", "unknown_reason"):
+            if k in r:
+                p[k] = r[k]
+        n += 1
+    return n
+
+
+def _role_class(p: dict, cls: dict, cat: dict, recipes: dict) -> dict | None:
+    """Роль части от этапа 3 (`parts.json` → `role`, `material_channel`; правила — `part-roles.json`): канал материала `main` (body/top/facade) — основной класс товара
+    (у стола — каталожный материал столешницы); канал legs/frame/handles/shade — материал этого канала в каталоге. Канала нет в каталоге, роль unknown/glass_mirror/прочее —
+    None (дальше прежняя политика: форма, цвет, «не уверен»). Название роли и каналы — в JSON `roles` (рецепты), не здесь."""
+    rl = recipes["roles"]
+    role, ch = p.get("role"), p.get("material_channel")
+    if role not in rl["known"] or not ch:
+        return None
+    sc = rl["confidence"]
+    if ch == "main":
+        return {"class": cls["class"], "source": "role:main", "confidence": sc["main"], "reason": f"роль «{role}» этапа 3 — основной материал товара: {cls['reason']}"}
+    if ch in cat and ch in rl["channels"]:
+        return {"class": cat[ch]["class"], "source": f"role:{ch}", "confidence": sc["channel"], "reason": f"роль «{role}» этапа 3 — канал «{ch}» каталога: {cat[ch]['reason']}"}
+    return None
+
+
+def _shape_class(p: dict, cls: dict, cat: dict, recipes: dict) -> dict:
+    """Часть без этапа 3, выделенная по форме: материал берём из каталога, форма говорит, какой именно (`geometry` в material-recipes.json)."""
+    g = recipes["geometry"]
+    gc = g["confidence"]
+    kind = p["role"].split(":", 1)[1]
+    present = {cls["class"]} | {v["class"] for v in cat.values()}
+    if kind == "linear":
+        if "frame" in cat:
+            return {"class": cat["frame"]["class"], "source": "geometry:linear", "confidence": gc["linear"], "reason": f"тонкая стойка по форме; каталог: {cat['frame']['reason']}"}
+        if "metal" in present:
+            return {"class": "metal", "source": "geometry:linear", "confidence": gc["linear"], "reason": "тонкая стойка по форме; в каталоге есть металл"}
+    if kind == "blob-top" and "shade" in cat:
+        return {"class": cat["shade"]["class"], "source": "geometry:top", "confidence": gc["blob_top"], "reason": f"объёмная часть наверху по форме; каталог: {cat['shade']['reason']}"}
+    if kind == "blob" and "handles" in cat and p["face_share"] <= g["handles_max_share"]:
+        return {"class": cat["handles"]["class"], "source": "geometry:small", "confidence": gc["blob_handles"], "reason": f"мелкая часть по форме; каталог: {cat['handles']['reason']}"}
+    return {"class": cls["class"], "source": "geometry:body", "confidence": gc["other_main"], "reason": f"часть формы «{kind}», другого материала для неё в каталоге нет — материал корпуса: {cls['reason']}"}
+
+
+def stand_near_axis(mesh, key: np.ndarray, up: np.ndarray, g: dict, linear_kind: int) -> np.ndarray:
+    """Маска граней верхней зоны (key 3), лежащих у оси единственной тонкой стойки (ближе `stand_k`·радиус стойки): стык стойки с цоколем лампы, крышка.
+    Ось и радиус — по linear-граням ниже `top_from` (вертикаль — Y); стойка должна быть одна и тонкой (радиус ≤ `stand_max_radius_frac` габарита): ножки по углам или
+    толстая ножка стола — не стойка, тогда маска пустая. Нет `stand_k` в JSON — правило выключено."""
+    none = np.zeros(len(key), dtype=bool)
+    sk = g.get("stand_k")
+    nf = len(key)
+    low = (key == 1) & (up < g["top_from"])
+    if not sk or low.sum() < max(10, int(g["min_part_share"] * nf)):
+        return none
+    c = np.asarray(mesh.vertices)[np.asarray(mesh.faces)].mean(axis=1)
+    xz = c[:, [0, 2]]
+    ax = np.median(xz[low], axis=0)
+    r = float(np.median(np.linalg.norm(xz[low] - ax, axis=1)))
+    ll = float((c.max(axis=0) - c.min(axis=0)).max())
+    spread = float(np.linalg.norm(xz[low] - ax, axis=1).max())
+    if r <= 0 or r > g["stand_max_radius_frac"] * ll or spread > g["stand_max_radius_frac"] * ll * 3:
+        return none
+    return (key == 3) & (np.linalg.norm(xz - ax, axis=1) <= sk * r)
+
+
+def geometry_shape_parts(mesh, mp, cat_parts: dict, recipes: dict) -> tuple[np.ndarray, list[dict], dict]:
+    """Части без этапа 3 по форме: ножки (геометрия `material_parts`) + остальное делится на planar / linear / blob / blob-top (`part_shapes`); мелкие группы (< min_part_share)
+    вливаются в крупнейшую. → (part на грань, parts как в parts.json, отчёт формы)."""
+    import part_shapes as psh
+    g = recipes["geometry"]
+    legs = legs_by_geometry(mesh, mp, cat_parts)
+    kind, up, rep = psh.face_shapes(mesh.vertices, mesh.faces, g)
+    nf = len(mesh.faces)
+    # 0 planar, 1 linear, 2 blob, 3 top. Верхняя зона: всё, что не тонкая стойка, — «верх» (плафон; шар крупнее радиуса на вид «плоский» и дробился на пятна)
+    key = np.where(kind == psh.LINEAR, 1, np.where(up >= g["top_from"], 3, np.where(kind == psh.BLOB, 2, 0)))
+    names = {0: "planar", 1: "linear", 2: "blob", 3: "blob-top"}   # blob-top: классом плафона станет материал каталога (стекло, ткань…), не «стекло» вообще
+    stand = stand_near_axis(mesh, key, up, g, psh.LINEAR)             # стык стойки с цоколем лампы в верхней зоне — стойка, не плафон
+    key[stand] = 1
+    key = np.where(legs, -1, key)
+    shares = {k: float((key == k).sum()) / nf for k in (0, 1, 2, 3)}
+    big = max(shares, key=shares.get)
+    for k in (0, 1, 2, 3):
+        if 0 < shares[k] < g["min_part_share"]:
+            key[key == k] = big
+    part = np.full(nf, -1, dtype=np.int16)
+    parts = []
+    pid = 0
+    for k in (-1, 0, 1, 2, 3):
+        sel = key == k
+        if not sel.any():
+            continue
+        part[sel] = pid
+        parts.append({"id": pid, "face_share": round(float(sel.mean()), 4), "role": "legs" if k == -1 else f"shape:{names[k]}", "vl": None, "colour": None})
+        pid += 1
+    return part, parts, rep
 
 
 def legs_by_geometry(mesh, mp, cat_parts: dict) -> np.ndarray:
@@ -152,8 +303,27 @@ def mark_legs(parts: list[dict], part: np.ndarray, legs: np.ndarray, share_min: 
         sel = part == p["id"]
         sh = float((legs & sel).sum()) / max(1, int(sel.sum()))
         p["legs_share"] = round(sh, 3)
-        if p["id"] != main and p.get("role") != "legs" and sh >= share_min:
+        if p["id"] != main and p.get("role") != "legs" and sh >= share_min and not (p.get("material_channel") and p.get("role") != "unknown"):   # роль этапа 3 (с каналом) главнее геометрии
             p["role"] = "legs"
+
+
+def inherit_unseen(mesh, part: np.ndarray, known_ids: list[int], max_points: int = 60000) -> tuple[np.ndarray, np.ndarray]:
+    """Грань без части (−1 или номер, которого нет в parts.json) берёт часть ближайшей грани с частью (по центрам граней; пометка inherited).
+    → (part с заполненными пропусками, маска унаследованных граней). Ни одной грани с частью — ValueError (нечего наследовать)."""
+    part = np.asarray(part).copy()
+    unseen = ~np.isin(part, known_ids)
+    if not unseen.any():
+        return part, unseen
+    if unseen.all():
+        raise ValueError("ни одной грани с частью: наследовать классу не от кого")
+    from scipy.spatial import cKDTree
+    c = np.asarray(mesh.vertices)[np.asarray(mesh.faces)].mean(axis=1)
+    seen = np.flatnonzero(~unseen)
+    if len(seen) > max_points:
+        seen = seen[np.random.default_rng(0).choice(len(seen), size=max_points, replace=False)]
+    _, nn = cKDTree(c[seen]).query(c[unseen], k=1)
+    part[unseen] = part[seen[nn]]
+    return part, unseen
 
 
 def rgb_to_lab(rgb: np.ndarray) -> np.ndarray:
@@ -389,17 +559,20 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
         return fail("в модели нет развёртки UV — рецепт некуда запекать", faces=nf)
     rules = mc.load_rules()
     cls = mc.classify(rules, {"role": product.get("role") or "", "name": product.get("name") or "", "params": product.get("params") or {}})
+    cls["group"] = rules["_roleGroup"].get(product.get("role") or "")          # группа каталога (seating/bed/…): от неё зависит политика для частей без метки
     pdir = parts_dir or os.path.join(run, ps.safe_name(sku), "03-parts")
     npz = os.path.join(pdir, "parts.npz")
+    shape_rep = None
     if os.path.exists(npz):
         part = np.load(npz)["part"].astype(np.int64)
         info = json.load(open(os.path.join(pdir, "parts.json"), encoding="utf-8"))
         parts = info["parts"]
+        merge_roles(parts, os.path.join(pdir, "roles.json"))
         parts_source = "stage3"
         if len(part) != nf:
             return fail(f"число граней частей этапа 3 ({len(part)}) ≠ меша ({nf}) — части считались на другой модели", faces=nf)
     else:
-        part, parts = geometry_parts(mesh, mp, cls.get("parts") or {})
+        part, parts, shape_rep = geometry_shape_parts(mesh, mp, cls.get("parts") or {}, recipes)
         part = part.astype(np.int64)
         parts_source = "geometry"
     if parts_source == "stage3":                    # этап 3 ножки называет редко: добираем геометрией; цвет частей — по листу цвета модели (этап 7)
@@ -408,9 +581,10 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     for p in parts:
         if not p.get("colour") or not p["colour"].get("lab_median"):
             p["colour"] = cols.get(p["id"])
-    res = resolve_parts(parts, cls, recipes, parts_known=parts_source == "stage3")
+    res = resolve_parts(parts, cls, recipes, parts_known=True)   # части по этапу 3 или по форме — материалы по ним разведены; «где плафон» не гадаем
+    part, inherited = inherit_unseen(mesh, part, list(res))
     fb = recipes["fallback_class"]
-    cls_of_face = np.full(nf, fb, dtype=object)         # грань без части (−1) — запасной рецепт, но в recipe_share не входит
+    cls_of_face = np.full(nf, fb, dtype=object)
     for pid, r in res.items():
         cls_of_face[part == pid] = r["class"]
     table = class_table(recipes, list(dict.fromkeys(cls_of_face.tolist())))
@@ -423,32 +597,41 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
     covered = part >= 0
     known = np.isin(part, [pid for pid in res])
     recipe_share = float((covered & known).sum()) / nf
+    inherited_share = float(inherited.sum()) / nf
     conf_ids = [pid for pid, r in res.items() if r["confident"]]
     confident_share = float(np.isin(part, conf_ids).sum()) / nf
     c = recipes["check"]
     color_same = image_sha(glb, "baseColor") == image_sha(out_glb, "baseColor")
     geom_same = geometry_sha(glb) == geometry_sha(out_glb)
-    parts_rep = [{"id": pid, "role": next((p["role"] for p in parts if p["id"] == pid), None), "face_share": next((p["face_share"] for p in parts if p["id"] == pid), None), **r}
+    parts_rep = [{"id": pid, "role": next((p["role"] for p in parts if p["id"] == pid), None), "face_share": next((p["face_share"] for p in parts if p["id"] == pid), None),
+                  "inherited_share": round(float(((part == pid) & inherited).sum()) / nf, 4), **r}
                  for pid, r in sorted(res.items(), key=lambda t: -next(p["face_share"] for p in parts if p["id"] == t[0]))]
     frame_name = None
     why_frame = ""
     if frame:
         frame_name, why_frame = render_frame(out_glb, os.path.join(sdir, "frame.png"), recipes)
+    located = {"legs": any(p["role"] == "legs" for p in parts_rep), "shade": any(p["source"] == "geometry:top" for p in parts_rep),
+               "handles": any(p["source"] == "geometry:small" for p in parts_rep), "frame": any(p["source"] == "geometry:linear" for p in parts_rep)}
+    not_located = [k for k in (cls.get("parts") or {}) if parts_source == "geometry" and not located.get(k, False)]   # материал в каталоге есть, а где он — форма не нашла
     unsure = [f"{p['role']} ({p['face_share']:.0%}): {p['reason']}" for p in parts_rep if not p["confident"]]
+    unsure_rep = unsure_parts_report(mesh, part, parts_rep, parts, recipes)
     reason = ""
     if frame and not frame_name:
         reason = "кадр не получен: " + why_frame
+    elif inherited_share > c["inherited_share_max"]:
+        reason = f"{inherited_share:.0%} граней без части (порог {c['inherited_share_max']:.0%}): класс по соседним граням — слишком много угадано"
     elif confident_share < c["confident_share_min"]:
         reason = "не уверен: " + "; ".join(unsure)[:400]
     doc = ps.write_check(
         sdir, STAGE, sku, passed=None if not reason else False,
         metric={"name": "confident_share", "value": round(confident_share, 4), "threshold": c["confident_share_min"], "op": ">="},
         metrics={"recipe_share": {"value": round(recipe_share, 4), "threshold": c["recipe_share_min"], "op": ">="},
+                 "inherited_share": {"value": round(inherited_share, 4), "threshold": c["inherited_share_max"], "op": "<="},
                  "color_unchanged": {"value": bool(color_same), "threshold": True, "op": "=="},
                  "geometry_unchanged": {"value": bool(geom_same), "threshold": True, "op": "=="},
                  "seconds": {"value": round(time.time() - t0, 1), "threshold": c["max_seconds"], "op": "<="}},
         reason=reason, seconds=time.time() - t0, outputs=["material.glb"], frame=frame_name,
-        faces=nf, parts_source=parts_source, product_class={"class": cls["class"], "stage": cls["stage"], "confidence": cls["confidence"], "reason": cls["reason"], "parts": cls.get("parts")},
+        faces=nf, parts_source=parts_source, shape=shape_rep, catalog_parts_not_located=not_located, unsure_parts=unsure_rep, product_class={"class": cls["class"], "stage": cls["stage"], "confidence": cls["confidence"], "reason": cls["reason"], "parts": cls.get("parts")},
         parts=parts_rep, classes=table, sheen=maps["hasSheen"], transmission=maps["hasTransmission"], recipes_sha=recipes_sha(), glb=pinfo)
     return doc
 
