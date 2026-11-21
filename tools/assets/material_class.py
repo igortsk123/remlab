@@ -117,8 +117,13 @@ def glass_finish(rules: dict, key: str, value: str, params: dict) -> dict | None
             h = hits[0]
             out.update(colour=h["name"], colour_key=ck, colour_value=str(cv), tone=list(h["rgb"]))
             out["frosted"] = out["frosted"] or bool(h.get("frosted"))
+            if h.get("white_alone_is_not_opal") and not out["frosted"] and key in gf.get("white_is_opal_for", []):
+                out["frosted"] = True                                     # переключатель правил: для этих ключей «Белый» = опал (замер по фото: см. plans/mesh-type-rules-01.md)
+            if h.get("white_alone_is_not_opal") and not out["frosted"]:      # «Белый» без сильных слов (матов/опал/молочн/сатин/морозн/пескостру): прозрачное часто так записано,
+                out.pop("tone")                                               # бывает и крашеное непрозрачное — опал не доказан, остаётся обычное стекло (нужен сигнал с фото)
+                out["white_unconfirmed"] = True
         break                                                # первый названный ключ цвета решает; следующие — запасные только если его нет
-    return out if out["frosted"] or "tone" in out else None
+    return out if out["frosted"] or "tone" in out or out.get("white_unconfirmed") else None
 
 
 def _apply_finish(rules: dict, cand: dict, key: str, val: str, params: dict) -> dict | None:
@@ -133,7 +138,7 @@ def _apply_finish(rules: dict, cand: dict, key: str, val: str, params: dict) -> 
     if "tone" in fin:
         cand["tone"] = fin["tone"]
     if "colour_key" in fin:
-        cand["reason_extra"] = f"{fin['colour_key']}={fin['colour_value']}"
+        cand["reason_extra"] = f"{fin['colour_key']}={fin['colour_value']}" + (" (опал не доказан — нужен сигнал с фото)" if fin.get("white_unconfirmed") else "")
     return fin
 
 

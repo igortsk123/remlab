@@ -509,26 +509,32 @@ def geometry_sha(path: str) -> str:
 # ───────────────────────── тон стекла ─────────────────────────
 
 def photo_tone(photo: str, gt: dict) -> list[int] | None:
-    """Медиана цвета предмета на фото (непрозрачные пиксели RGBA-вырезки) — для сверки тона стекла с каталогом. Нет файла/пикселей — None."""
+    """Медиана цвета предмета на фото (RGBA-вырезка) без верхних `highlight_trim` по L (блики) — тон цельного стекла. Вырезка чистая, если полупрозрачных пикселей
+    (0 < альфа < alpha_min) не больше `semi_alpha_max` от предмета и непрозрачных не меньше min_pixels; нет файла / грязная вырезка — None."""
     from PIL import Image
     if not photo or not os.path.exists(photo):
         return None
     im = np.asarray(Image.open(photo).convert("RGBA"))
-    px = im[im[..., 3] >= gt["alpha_min"]][:, :3]
+    a = im[..., 3]
+    solid, semi = a >= gt["alpha_min"], (a > 10) & (a < gt["alpha_min"])
+    if int(solid.sum()) < gt["min_pixels"] or semi.sum() > gt["semi_alpha_max"] * (solid.sum() + semi.sum()):
+        return None
+    px = im[solid][:, :3]
+    L = rgb_to_lab(px.astype(np.float64))[:, 0]
+    px = px[L <= np.quantile(L, 1.0 - gt["highlight_trim"])]
     if len(px) < gt["min_pixels"]:
         return None
     return [int(v) for v in np.median(px, axis=0)]
 
 
 def reconcile_tone(cat_tone: list[int], photo_rgb: list[int] | None, gt: dict) -> dict:
-    """Каталог называет цвет, фото уточняет: ΔE76(каталог, фото) ≤ порога — берём цвет с фото (стекло на фото бывает светлее/темнее типичного); дальше —
-    фото, скорее всего, блики или чужой фон, остаётся каталожный тон и пометка conflict. Нет фото — каталог."""
+    """Каталог называет цвет, фото (чистая вырезка, без бликов) решает: тон = фото. Расхождение ΔE76 > photo_max_dE не отменяет фото, а помечается
+    `conflict = catalog:photo-conflict` (каталожные цвета бывают неточными: «бирюзовая» ваза на фото бледно-мятная). Нет фото / грязная вырезка — каталог."""
     if photo_rgb is None:
-        return {"used": list(cat_tone), "source": "catalog", "catalogue": list(cat_tone), "photo": None, "dE": None}
+        return {"used": list(cat_tone), "source": "catalog", "catalogue": list(cat_tone), "photo": None, "dE": None, "conflict": None}
     de = float(np.linalg.norm(rgb_to_lab(np.array([cat_tone]))[0] - rgb_to_lab(np.array([photo_rgb]))[0]))
-    ok = de <= gt["photo_max_dE"]
-    return {"used": list(photo_rgb) if ok else list(cat_tone), "source": "photo" if ok else "catalog:photo-conflict",
-            "catalogue": list(cat_tone), "photo": list(photo_rgb), "dE": round(de, 1)}
+    return {"used": list(photo_rgb), "source": "photo", "catalogue": list(cat_tone), "photo": list(photo_rgb), "dE": round(de, 1),
+            "conflict": "catalog:photo-conflict" if de > gt["photo_max_dE"] else None}
 
 
 def _base_image(doc: dict, binb: bytes):
@@ -540,30 +546,57 @@ def _base_image(doc: dict, binb: bytes):
     return Image.open(io.BytesIO(_view_bytes(doc, binb, img["bufferView"]))).convert("RGBA")
 
 
-def tint_base_color(glb: str, uv: np.ndarray, faces: np.ndarray, face_tone: np.ndarray, gt: dict) -> tuple[bytes, np.ndarray] | None:
-    """Новая карта цвета: у граней с тоном стекла (face_tone N×3, nan — нет тона) цвет островов UV = тон; остальное байт в байт. → (PNG, маска изменённых текселей)."""
+def _raster_faces(uv: np.ndarray, faces: np.ndarray, idx: np.ndarray, size: tuple[int, int], fill=255, mode: str = "L"):
+    """Растр граней UV (индексы `idx`) в картинку size: тот же метод заливки для всех наборов граней, чтобы «чужие» тексели совпадали с занятыми."""
     from PIL import Image, ImageDraw
+
+    w, h = size
+    im = Image.new(mode, (w, h), 0 if mode == "L" else (0, 0, 0))
+    d = ImageDraw.Draw(im)
+    for k in idx:
+        t = uv[faces[k]]
+        d.polygon([(t[0, 0] * w, (1.0 - t[0, 1]) * h), (t[1, 0] * w, (1.0 - t[1, 1]) * h), (t[2, 0] * w, (1.0 - t[2, 1]) * h)], fill=fill if mode == "L" else tuple(int(v) for v in fill[k]))
+    return im
+
+
+def tint_base_color(glb: str, uv: np.ndarray, faces: np.ndarray, face_tone: np.ndarray, gt: dict, face_neutral: np.ndarray | None = None,
+                    group: np.ndarray | None = None) -> tuple[bytes | None, np.ndarray | None, list[dict]] | None:
+    """Новая карта цвета: у граней с тоном стекла (face_tone N×3, nan — нет тона) цвет островов UV = тон; остальное байт в байт. → (PNG, маска изменённых текселей, отчёт).
+    Нейтральная база (T-169/9в, советник Codex): стекло БЕЗ тона, у которого карта TRELLIS тёмная (медиана L его текселей < `dark_L_max`), получает нейтральный цвет
+    (`face_neutral` N×3, nan — не нужно; `group` — номер части у грани): чёрная карта под прозрачным стеклом давала «чёрное непросвечивающее»; нетёмная карта (янтарь, молоко) не трогается.
+    Поля островов (`patch_dilate_px`) — только в пустые тексели: тексели, занятые гранями БЕЗ тона, не перекрашиваются никогда (утечка в соседний остров исключена)."""
     from scipy import ndimage
 
     doc, binb = read_glb(glb)
     base = _base_image(doc, binb)
-    sel = ~np.isnan(face_tone[:, 0])
-    if base is None or not sel.any():
+    if base is None:
         return None
-    w, h = base.size
-    ti = Image.new("RGB", (w, h), (0, 0, 0))
-    d = ImageDraw.Draw(ti)
-    tri = uv[faces[sel]]
-    xs, ys = tri[:, :, 0] * w, (1.0 - tri[:, :, 1]) * h
-    for k, i in enumerate(np.flatnonzero(sel)):
-        d.polygon([(xs[k, 0], ys[k, 0]), (xs[k, 1], ys[k, 1]), (xs[k, 2], ys[k, 2])], fill=tuple(int(v) for v in face_tone[i]))
-    ta = np.asarray(ti)
-    occupied = ta.any(axis=-1)
+    size = base.size
+    ft = np.array(face_tone, dtype=np.float64)
+    info: list[dict] = []
+    if face_neutral is not None and group is not None:
+        bl = rgb_to_lab(np.asarray(base)[..., :3].reshape(-1, 3).astype(np.float64))[:, 0].reshape(size[1], size[0])
+        for g in sorted({int(x) for x in group[~np.isnan(face_neutral[:, 0])]}):
+            gi = np.flatnonzero((group == g) & ~np.isnan(face_neutral[:, 0]) & np.isnan(ft[:, 0]))
+            if not len(gi):
+                continue
+            occ = np.asarray(_raster_faces(uv, faces, gi, size)) > 0
+            med = float(np.median(bl[occ])) if occ.any() else None
+            use = med is not None and med < gt["dark_L_max"]
+            info.append({"part": g, "source": "neutral-base", "applied": bool(use), "median_L": None if med is None else round(med, 1), "used": [int(v) for v in face_neutral[gi[0]]] if use else None})
+            if use:
+                ft[gi] = face_neutral[gi]
+    sel = ~np.isnan(ft[:, 0])
+    if not sel.any():
+        return None, None, info                                  # перекрашивать нечего — карта байт в байт, но отчёт про нейтральную базу остаётся
+    ta = np.asarray(_raster_faces(uv, faces, np.flatnonzero(sel), size, fill=np.nan_to_num(ft, nan=0).astype(int), mode="RGB"))
+    occupied = np.asarray(_raster_faces(uv, faces, np.flatnonzero(sel), size)) > 0
+    other = np.asarray(_raster_faces(uv, faces, np.flatnonzero(~sel), size)) > 0       # тексели граней без тона: неприкосновенны
     dist, idx = ndimage.distance_transform_edt(~occupied, return_indices=True)
-    mask = dist <= gt["patch_dilate_px"]                    # поля островов: билинейная выборка у шва не должна тянуть старый цвет
+    mask = (dist <= gt["patch_dilate_px"]) & ~other        # поля островов: билинейная выборка у шва не должна тянуть старый цвет — но не в чужой остров
     out = np.asarray(base).copy()
     out[mask, :3] = ta[idx[0], idx[1]][mask]
-    return _png(out), mask
+    return _png(out), mask, info
 
 
 def colour_unchanged_outside(src_glb: str, dst_glb: str, mask: np.ndarray | None) -> bool:
@@ -701,7 +734,15 @@ def run_stage(glb: str, run: str, sku: str, product: dict, parts_dir: str | None
             r["tone"] = rt["used"]
             tone_rep.append({"part": int(pid), **rt})
             face_tone[part == pid] = rt["used"]
-    tinted = tint_base_color(glb, np.asarray(uv, dtype=np.float64), np.asarray(mesh.faces), face_tone, gt)
+    face_neutral = np.full((nf, 3), np.nan)
+    group = np.full(nf, -1, dtype=np.int64)
+    for pid, r in res.items():
+        if r["class"] in glass_cls and not r.get("tone"):
+            face_neutral[part == pid] = gt["neutral_rgb"].get(r["class"], gt["neutral_rgb"]["glass"])
+            group[part == pid] = pid
+    tinted = tint_base_color(glb, np.asarray(uv, dtype=np.float64), np.asarray(mesh.faces), face_tone, gt, face_neutral, group)
+    if tinted:
+        tone_rep.extend(tinted[2])
     pinfo = patch_glb(glb, out_glb, maps, tinted[0] if tinted else None)
     covered = part >= 0
     known = np.isin(part, [pid for pid in res])
@@ -778,7 +819,7 @@ def check() -> int:
     if recipes["fallback_class"] not in recipes["recipes"]:
         bad.append("fallback_class без рецепта")
     gt = recipes.get("glass_tone") or {}
-    for k in ("photo_max_dE", "alpha_min", "min_pixels", "patch_dilate_px"):
+    for k in ("photo_max_dE", "alpha_min", "min_pixels", "patch_dilate_px", "highlight_trim", "semi_alpha_max", "dark_L_max"):
         if not isinstance(gt.get(k), (int, float)) or gt[k] < 0:
             bad.append(f"glass_tone.{k}: {gt.get(k)!r}")
     for word, cid in recipes["vl_labels"].items():
