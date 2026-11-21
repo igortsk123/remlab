@@ -22,6 +22,8 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "scout"))
 import parts_refine as pr  # noqa: E402
 import parts_vote as pv  # noqa: E402
+import parts_features as pfe  # noqa: E402
+import parts_roles as pro  # noqa: E402
 
 PALETTE = [(230, 57, 70), (69, 123, 157), (42, 157, 143), (233, 196, 106), (131, 56, 236), (244, 162, 97), (6, 214, 160), (255, 0, 110), (90, 90, 90), (0, 180, 216), (200, 120, 200), (120, 200, 60)]
 
@@ -206,17 +208,43 @@ def run(args) -> int:
         mixed = pcol.mixed_parts(colours, rules)
     except Exception as e:
         colours = {"error": str(e)[:160]}
+    # роли частей = каналы материала каталога (parts_roles; правила tools/scout/rules/part-roles.json): тип и каналы товара — из аргументов, камера — только если этап 4 passed
+    roles, feats, roles_sum = {}, {}, {}
+    try:
+        kind_f, _, _ = pr.shp.face_shapes(mesh.vertices, mesh.faces, pr.shape_cfg(rules))
+        feats = pfe.part_features(part, mesh.vertices, mesh.faces, kind_f, pr.part_kinds(part, kind_f), lab=lab_face, cam_az=args.cam_az, adj=res["adj"],
+                                  agree=res["agree"], seen=res["seen_any"], **pro.load_rules()["features_params"])
+        rrules = pro.load_rules()
+        roles = pro.assign_roles(feats, rrules, args.product_role, set(filter(None, (args.channels or "").split(","))))
+        unk = {}
+        for r_ in roles.values():
+            if r_["role"] == "unknown":
+                unk[r_["unknown_reason"]] = unk.get(r_["unknown_reason"], 0) + 1
+        roles_sum = {"known_role_area_share": pro.known_role_area_share(feats, roles), "group": pro.group_of(args.product_role), "product_role": args.product_role,
+                     "channels": sorted(filter(None, (args.channels or "").split(","))), "camera": args.cam_az is not None, "unknown_reasons": unk}
+    except Exception as e:                                           # роли не посчитались — части остаются, причина в check.json
+        roles_sum = {"error": str(e)[:200]}
     ids, cnt = np.unique(part[part >= 0], return_counts=True)
     parts = []
     for p, c in sorted(zip(ids, cnt), key=lambda t: -t[1]):
         role = (geom or {}).get("roles", {}).get(int(p), {}).get("role") if geom else None
-        parts.append({"id": int(p), "face_share": round(float(c) / nf, 4), "role": role or f"part-{int(p)}", "vl": None, "colour": colours.get(int(p))})
+        rr = roles.get(int(p))
+        parts.append({"id": int(p), "face_share": round(float(c) / nf, 4), "role": (rr["role"] if rr else (role or f"part-{int(p)}")), "vl": None, "colour": colours.get(int(p)),
+                      **({k: rr[k] for k in ("role_title", "material_channel", "role_conf", "role_why", "unknown_reason")} | {"features": feats.get(int(p))} if rr else {})})
     np.savez_compressed(os.path.join(sdir, "parts.npz"), part=part.astype(np.int16), agree=res["agree"].astype(np.float16),
                         vote_part=vote_part.astype(np.int16), vote_agree=vote_agree.astype(np.float16), seen=res["seen_any"])   # vote_* — до доводки: доводку можно переиграть без SAM2
-    json.dump({"faces": nf, "n_views": len(names), "regions_per_view": per_view_regions, "n_parts_raw": res["n_parts_raw"], "parts": parts, "geometry": geom, "refine": refine_rep},
+    json.dump({"faces": nf, "n_views": len(names), "regions_per_view": per_view_regions, "n_parts_raw": res["n_parts_raw"], "parts": parts, "geometry": geom, "refine": refine_rep, "roles": roles_sum},
               open(os.path.join(sdir, "parts.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     tiles = [paint_frame(args.orbit, n, part, u, v, vis, rgb, mask) for (n, rgb, mask, u, v, vis) in (frames[0:8:2] if len(frames) >= 8 else frames[:4])]
     Image.fromarray(np.concatenate(tiles, axis=1)).save(os.path.join(sdir, "frame.png"))
+    if roles:                                                         # кадр ролей: та же облётка, цвет = роль (ножки, ручки, плафон, body, unknown…)
+        order = ["legs", "frame", "handles", "top", "facade", "shade", "body", "unknown"]
+        ridx = np.full(int(part.max()) + 1, order.index("unknown"), dtype=np.int32)
+        for p_, r_ in roles.items():
+            ridx[p_] = order.index(r_["role"]) if r_["role"] in order else order.index("unknown")
+        rpart = np.where(part >= 0, ridx[np.maximum(part, 0)], -1)
+        rtiles = [paint_frame(args.orbit, n, rpart, u, v, vis, rgb, mask) for (n, rgb, mask, u, v, vis) in (frames[0:8:2] if len(frames) >= 8 else frames[:4])]
+        Image.fromarray(np.concatenate(rtiles, axis=1)).save(os.path.join(sdir, "frame_roles.png"))
     metrics = {
         "faces_with_part_share": {"value": q["faces_with_part_share"], "threshold": rules["check"]["min_faces_with_part"], "op": ">=", "ok": q["faces_with_part_share"] >= rules["check"]["min_faces_with_part"]},
         "n_parts": {"value": q["n_parts"], "threshold": f"{rules['check']['min_parts']}–{rules['check']['max_parts']}", "op": "in", "ok": rules["check"]["min_parts"] <= q["n_parts"] <= rules["check"]["max_parts"]},
@@ -226,7 +254,7 @@ def run(args) -> int:
         metrics["linear_in_blob_part_share"] = {"value": q["linear_in_blob_part_share"], "threshold": rules["check"]["max_linear_in_blob"], "op": "<=",
                                                 "ok": q["linear_in_blob_part_share"] <= rules["check"]["max_linear_in_blob"]}
     ps.write_check(sdir, "03-parts", args.sku, passed=q["ok"], metric={"name": "n_parts", **metrics["n_parts"]}, reason=q["reason"], metrics=metrics, seconds=time.time() - t0,
-                   outputs=["parts.npz", "parts.json"], frame="frame.png", faces_seen_by_views_share=q["faces_seen_by_views_share"], part_face_shares=q["part_face_shares"], geometry=geom, mixed_colour_parts=mixed, refine=refine_rep)
+                   outputs=["parts.npz", "parts.json"], frame="frame.png", faces_seen_by_views_share=q["faces_seen_by_views_share"], part_face_shares=q["part_face_shares"], geometry=geom, mixed_colour_parts=mixed, refine=refine_rep, roles_summary=roles_sum)
     print(json.dumps({"ok": q["ok"], "reason": q["reason"], "n_parts": q["n_parts"], "agree": q["frames_agreement_mean"], "with_part": q["faces_with_part_share"], "geometry": geom and {k: v for k, v in geom.items() if k != "roles"}}, ensure_ascii=False))
     return 0
 
@@ -240,6 +268,9 @@ def main() -> int:
     r.add_argument("--run", required=True)
     r.add_argument("--sku", required=True)
     r.add_argument("--limit", type=int, default=0)
+    r.add_argument("--product-role", default=None, help="тип товара каталога («диван», «комод»…): группа правил ролей; нет — группа any")
+    r.add_argument("--channels", default="", help="каналы материала каталога через запятую (legs,frame,handles,shade)")
+    r.add_argument("--cam-az", type=float, default=None, help="азимут камеры фото из pose.json этапа 4 — ТОЛЬКО если этап passed; нет — роли с фронтом воздерживаются")
     a = ap.parse_args()
     return run(a)
 
