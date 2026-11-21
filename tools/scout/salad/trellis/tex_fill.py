@@ -73,6 +73,7 @@ FILL = {
     'quilt_gain': (0.75, 1.33),      # выравнивание разброса блока к типичному: границы множителя (узорная часть; прочие — 0,6–1,6)
     'tone_dominance': 0.4,           # мода тона берётся, только если ячейка моды (с соседями) — не менее этой доли точек части; иначе медиана (ворс, полосы)
     'draft_when': 'a_fails',         # trellis с откатом: Б считается только если А не прошёл все мерки (a_fails); always — считать оба всегда
+    'pattern_dark_ref': 40.0,        # на тёмной ткани (тон L ниже) шум хромы фото раздувается: σ хромы части умножается на min(1, L тона / pattern_dark_ref) до сравнения с pattern_chroma (диван L≈15 σ 1,6 — ровный, а не «узорный»; настоящий узор на тёмном — σ в разы выше). 0 — не нормировать
     'pattern_chroma': 1.5,           # часть, у которой МЕЛКИЙ разброс хромы (σ остатка от размытия pattern_blur_px, sqrt(σa²+σb²)) больше — «узорная»: остаток берётся от тона части (цветы/прожилки целиком), иначе — от размытия
     'pattern_blur_px': 12.0,         # размытие для отделения мелкого узора от крупных зон цвета (две большие зоны — не узор)
     'pattern_render': True,          # узорная часть: блоки квилта — из НЕПРЕРЫВНОГО кадра видимой стороны (az `pr_az`), а не из дырявой развёртки; мало блоков — прежний путь
@@ -86,11 +87,15 @@ FILL = {
     'draft_fallback': True,          # trellis: считать и А; взять Б, только если мерки не хуже (число непрошедших, затем ΔE00 перёд↔зад)
     'gutter': 8,                     # пикселей желоба вокруг островков
     'sample': 20000,                 # точек для оценки симметрии
-    'source': 'stat',                # источник «невидимого»: stat — цвет части + лоскут фактуры; trellis — цвет черновика TRELLIS.2 со сдвигом тона (нужен draft)
+    'source': 'stat',                # источник «невидимого»: stat — цвет части + лоскут фактуры; trellis — цвет черновика TRELLIS.2 со сдвигом тона (нужен draft); trellis_relief — цвет как stat, фактура = рельеф яркости черновика с ограничением силы (нужен draft; пороги — rules trellis_relief)
     'draft_scale_min': 0.3, 'draft_scale_max': 3.0,   # потолок растяжения разброса черновика к разбросу фото части (по каналам Lab)
     'draft_texture': False,          # trellis: класть поверх ещё и лоскут фактуры (детали черновика и так сохраняются)
     'draft_cos': 0.2,                # trellis: нормаль точки черновика к нормали текселя — не меньше (иначе перёд/зад тонкой вещи путаются)
     'draft_max_dist': 0.03,          # trellis: дальше от поверхности черновика (доли размера предмета) — черновика в тексele нет
+    'relief_draft_cos': 0.5,         # trellis_relief: перенос строже (Codex 21.11): нормаль точки черновика к нормали текселя — не меньше этого (берётся больший из draft_cos и этого)
+    'relief_draft_max_dist': 0.015,  # trellis_relief: ближе к поверхности черновика (берётся меньший из draft_max_dist и этого)
+    'relief_draft_thin_cos': -0.2,   # trellis_relief: если рядом (в пределах расстояния) есть точка черновика с нормалью против нормали текселя (cos < этого) — тонкая вещь, перёд/зад путаются → тексель без черновика (None — выкл.)
+    'part_class': None,              # trellis_relief: {часть: роль/семья из этапа 3} (run_stage --part-roles); нет — ворота только по однородности известного
 }
 BLACK_MAX = TC.UNPAINTED_SG['black_max']
 VIEW_CLASSES = getattr(TC, 'VIEW_CLASSES', ('низ', 'верх', 'зад', 'перёд', 'бока', 'прочее'))   # как в сторожe T-152 (tex_coverage.view_class, ветка tex-guard-152); после слияния — только TC
@@ -461,8 +466,14 @@ def reject_outlier_blocks(pool: list, k: float, floor: float, quantile: float):
     return [b for b, kp in zip(pool, keep) if kp], int((~keep).sum())
 
 
+def dark_floor(tone_l: float, black_abs: float, black_rel: float) -> float:
+    """Порог «абсолютно чёрного» L*: не выше `black_abs` и не выше доли `black_rel` тона части — на тёмной ткани (тон L≈15) порог 20 резал ВЕСЬ пул блоков и всё зеркало (T-164, диван 114082).
+    Один источник для quilt_extreme и mirror_extreme (правила — rules/paint-fill.json)."""
+    return min(float(black_abs), float(black_rel) * max(float(tone_l), 0.0))
+
+
 def reject_extreme_blocks(pool: list, tone_l: float, dl_hi: float, black_abs: float, share: float):
-    """Узорная часть, блоки — остаток Lab от тона: «плохой» пиксель — светлее тона больше чем на `dl_hi` (L*) или абсолютно чёрный (L* тона + остаток < `black_abs`). Блок, где плохих пикселей больше доли `share`, отбрасывается.
+    """Узорная часть, блоки — остаток Lab от тона: «плохой» пиксель — светлее тона больше чем на `dl_hi` (L*) или абсолютно чёрный (L* тона + остаток < `black_abs` — вызывающий передаёт уже `dark_floor`, т.е. порог относительно тона). Блок, где плохих пикселей больше доли `share`, отбрасывается.
     Пороги — rules/paint-fill.json (quilt_extreme). → (оставшиеся блоки, сколько отброшено)."""
     P = np.stack(pool).astype(np.float64)
     L = P[..., 0]
@@ -605,6 +616,143 @@ def step_stats(tx, rgb, thr: float) -> dict:
             'pairs_step_pct': round(100.0 * float(st.mean()), 2), 'filled_faces_step_pct': fl}
 
 
+def _mad_sigma(v: np.ndarray) -> float:
+    """Робастный σ (1,4826·MAD): крошка и клочья черновика σ не раздувают."""
+    return float(1.4826 * np.median(np.abs(v - np.median(v)))) if len(v) else 0.0
+
+
+def texel_spacing(tx) -> np.ndarray:
+    """Поверхностный шаг текселя в долях размера предмета (диагональ рамки): sqrt(площадь грани в 3D / площадь грани в текселях карты) / размер — на каждый тексел; поправка плотности UV."""
+    P = tx.P
+    size = max(float(np.linalg.norm(P.max(axis=0) - P.min(axis=0))), 1e-12)
+    F = tx.F
+    A3 = 0.5 * np.linalg.norm(np.cross(P[F[:, 1]] - P[F[:, 0]], P[F[:, 2]] - P[F[:, 0]]), axis=1)
+    xy = tx.UV * tx.T
+    Au = 0.5 * np.abs((xy[F[:, 1], 0] - xy[F[:, 0], 0]) * (xy[F[:, 2], 1] - xy[F[:, 0], 1]) - (xy[F[:, 1], 1] - xy[F[:, 0], 1]) * (xy[F[:, 2], 0] - xy[F[:, 0], 0]))
+    return np.sqrt(A3[tx.f] / np.maximum(Au[tx.f], 1e-12)) / size
+
+
+def _band(lab_l: np.ndarray, mask: np.ndarray, s_lo: float, s_hi: float) -> tuple:
+    """Полосовой фильтр (DoG) яркости по маске: размытие(σ_lo) − размытие(σ_hi), оба с нормировкой по весу; → (полоса (T,T), вес при σ_hi (T,T))."""
+    img = np.repeat(lab_l[..., None], 3, axis=2)
+    b1 = _blur_norm(img, mask, s_lo)[0][..., 0]
+    b2, w2 = _blur_norm(img, mask, s_hi)
+    return b1 - b2[..., 0], w2
+
+
+def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, pat_parts: set, c: dict, R: dict) -> tuple:
+    """Вариант C-gated (T-164, Codex+директор 21.11): цвет — как stat, фактура невидимого — рельеф яркости черновика TRELLIS (DoG-полоса в МАСШТАБЕ ПОВЕРХНОСТИ, без цвета и пятен), только там, где это безопасно.
+    Ворота по части: узорная (pat_parts) → stat; класс материала части (`c['part_class']`: {часть: семья}) вне `allowed_families` (дерево, металл, стекло…) → без рельефа; класса нет → только «однотонная» (σ низкочастотной L известного ≤ homog_max_std).
+    Полоса: σ_lo/σ_hi = band_lo/band_hi (доли размера предмета) ÷ шаг текселя части (texel_spacing, поправка плотности UV). Амплитуда: gain = min(gain_max, σ_фото / σ_черновика) — оба σ робастные (MAD), фото — только уверенно известное
+    (вес ≥ far_w при σ_hi, вдали от границы; затенённые тексели ниже квантиля tone_shadow_q не входят); потолок |рельеф| ≤ p95_cap·p95|полоса фото| (абсолют, не только gain). Маска «тут ждём фактуру»: локальная энергия черновика / σ_черновика ≤ 1 (гладкое остаётся гладким).
+    Выброс (|полоса| > clip_k·σ, или большое пятно: размытое L (patch_frac) отличается от медианы части > patch_dl) и тексели без черновика — не берутся; доля выбросов > part_max_share — часть без рельефа. Тексели с `ok` черновика сужаются на ok_erode_px (границы/силуэт).
+    → ([(значение L (T·T,), годно (T·T,)) по геометриям], отчёт по частям с причиной «ворот»). Стык (затухание от границы фото) и «гладкая заливка» вместо плитки — в fill()."""
+    from scipy.ndimage import binary_dilation, binary_erosion, gaussian_filter
+    spacing = [texel_spacing(tx) for tx in txs]
+    cls = c.get('part_class') or {}
+    out = [(np.zeros(tx.T * tx.T), np.zeros(tx.T * tx.T, bool)) for tx in txs]
+    rp = {}
+    dok = []
+    for gi in range(len(txs)):
+        ok_ = draft['ok'][gi]
+        dok.append(binary_erosion(ok_, iterations=int(R['ok_erode_px'])) if R['ok_erode_px'] > 0 else ok_)
+    for p in part_ids:
+        if p in pat_parts:
+            rp[p] = {'fallback': 'узорная часть — stat (узор из фото)'}
+            continue
+        fam = cls.get(p, cls.get(str(p)))
+        if fam is not None and fam not in R['allowed_families']:
+            rp[p] = {'fallback': f'класс {fam!r} вне допустимых {R["allowed_families"]} — stat', 'family': fam}
+            continue
+        sp = float(np.median(np.concatenate([spacing[gi][tx.part == p] for gi, tx in enumerate(txs)] or [np.zeros(0)]))) if any((tx.part == p).any() for tx in txs) else 0.0
+        if sp <= 0:
+            continue
+        s_lo = float(np.clip(R['band_lo'] / sp, R['sigma_lo_min'], R['sigma_lo_max']))
+        s_hi = float(np.clip(R['band_hi'] / sp, 2.0 * s_lo, R['sigma_hi_max']))
+        selk = [kn[gi].reshape(-1)[tx.ti] & (tx.part == p) for gi, tx in enumerate(txs)]
+        Lk = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[selk[gi]], 0] for gi, tx in enumerate(txs)])
+        if len(Lk) < c['min_known']:
+            rp[p] = {'fallback': f'мало известного ({len(Lk)} текселей) — stat'}
+            continue
+        shade = float(np.quantile(Lk, c['tone_shadow_q'])) if c['tone_shadow_q'] > 0 else -1e9
+        pb, dbd, dlow = [], [], []
+        for gi, tx in enumerate(txs):
+            T = tx.T
+            Lm = labs[gi][..., 0]
+            m_vis = kn[gi] & (Lm >= shade)
+            band, w2 = _band(Lm, m_vis, s_lo, s_hi)
+            pb.append(band.reshape(-1)[tx.ti[selk[gi] & (w2.reshape(-1)[tx.ti] >= R['far_w']) & (Lm.reshape(-1)[tx.ti] >= shade)]])
+            dl = draft['lab'][gi][..., 0]
+            band_d, wd = _band(dl, dok[gi], s_lo, s_hi)
+            band_d = np.where(dok[gi], band_d, 0.0)
+            loc = np.sqrt(gaussian_filter(band_d ** 2, s_hi, mode='nearest'))
+            lowL = _blur_norm(np.repeat(dl[..., None], 3, axis=2), dok[gi], max(R['patch_frac'] / sp, 3.0 * s_hi))[0][..., 0]
+            hp = np.where(dok[gi], dl - _blur_norm(np.repeat(dl[..., None], 3, axis=2), dok[gi], 1.0)[0][..., 0], 0.0)      # пиксельная высокая частота — для поиска крошки (в полосе она размазана на σ_hi)
+            dbd.append((band_d, loc, lowL, wd, hp))
+        PB = np.concatenate(pb)
+        if len(PB) < c['min_known']:
+            rp[p] = {'fallback': f'мало уверенного фото в полосе ({len(PB)}) — stat', 'spacing': round(sp, 5)}
+            continue
+        sv, p95 = _mad_sigma(PB), float(np.quantile(np.abs(PB), 0.95))
+        selD = [dok[gi].reshape(-1)[tx.ti] & (tx.part == p) & (dbd[gi][3].reshape(-1)[tx.ti] >= R['far_w']) for gi, tx in enumerate(txs)]
+        DD = np.concatenate([dbd[gi][0].reshape(-1)[tx.ti[selD[gi]]] for gi, tx in enumerate(txs)])
+        if len(DD) < c['min_known']:
+            rp[p] = {'fallback': f'мало черновика в части ({len(DD)}) — stat', 'spacing': round(sp, 5)}
+            continue
+        sd = _mad_sigma(DD)
+        homog = float(np.concatenate([_blur_norm(np.repeat(labs[gi][..., 0][..., None], 3, axis=2), kn[gi], s_hi)[0][..., 0].reshape(-1)[tx.ti[selk[gi]]] for gi, tx in enumerate(txs)]).std())
+        info = {'family': fam, 'spacing': round(sp, 5), 'sigma_lo_px': round(s_lo, 2), 'sigma_hi_px': round(s_hi, 2), 'sigma_photo': round(sv, 3), 'sigma_draft': round(sd, 3), 'p95_photo': round(p95, 3), 'homog_std': round(homog, 2), 'fallback': None}
+        if fam is None and homog > R['homog_max_std']:
+            info['fallback'] = f'класса нет, часть неоднотонная (σ низких частот {homog:.1f} > {R["homog_max_std"]}) — stat'
+            rp[p] = info
+            continue
+        med = float(np.median(np.concatenate([dbd[gi][2].reshape(-1)[tx.ti[selD[gi]]] for gi, tx in enumerate(txs)])))
+        sdh = _mad_sigma(np.concatenate([dbd[gi][4].reshape(-1)[tx.ti[selD[gi]]] for gi, tx in enumerate(txs)]))
+        lim = R['clip_k'] * max(sdh, 0.3)
+        cand, bad_n, tot_n = [], 0, 0
+        for gi, tx in enumerate(txs):
+            T = tx.T
+            band_d, loc, lowL, wd, hp = dbd[gi]
+            outl = (np.abs(hp) > lim) | (np.abs(lowL - med) > R['patch_dl'])
+            selA = dok[gi].reshape(-1)[tx.ti] & (tx.part == p)                    # применяем на всём, где есть черновик (края островка тоже: полоса там считается по нормировке веса); σ оценивали по дальним
+            om = np.zeros(T * T, bool)
+            om[tx.ti[selA & outl.reshape(-1)[tx.ti]]] = True
+            if R['dilate_px'] > 0:
+                om = binary_dilation(om.reshape(T, T), iterations=int(R['dilate_px'])).reshape(-1)
+            ti = tx.ti[selA]
+            bad_n += int(om[ti].sum())
+            tot_n += len(ti)
+            cand.append((ti, om))
+        share = bad_n / max(tot_n, 1)
+        nh_ = nl_ = 0
+        for gi, tx in enumerate(txs):                            # разбор выбросов по причинам (в отчёт): крошка (пиксельная ВЧ) / большое пятно (низкочастотное L)
+            _b, _l, lowL_, _w, hp_ = dbd[gi]
+            sA = dok[gi].reshape(-1)[tx.ti] & (tx.part == p)
+            nh_ += int((np.abs(hp_.reshape(-1)[tx.ti[sA]]) > lim).sum())
+            nl_ += int((np.abs(lowL_.reshape(-1)[tx.ti[sA]] - med) > R['patch_dl']).sum())
+        info.update(outlier_pct=round(100.0 * share, 2), draft_texels=tot_n)
+        info.update(crumb_pct=round(100.0 * nh_ / max(tot_n, 1), 2), blob_pct=round(100.0 * nl_ / max(tot_n, 1), 2), lim=round(lim, 3))
+        if share > R['part_max_share']:
+            info['fallback'] = 'выбросов %.1f %% > %.0f %% — часть без рельефа (stat/гладко)' % (100.0 * share, 100.0 * R['part_max_share'])
+            rp[p] = info
+            continue
+        gain = float(min(R['gain_max'], sv / max(sd, 1e-6)))
+        cap = R['p95_cap'] * max(p95, 1e-6)
+        info['gain'] = round(gain, 3)
+        n_use = 0
+        for gi, (ti, om) in enumerate(cand):
+            band_d, loc, lowL, wd, hp = dbd[gi]
+            good = ~om[ti]
+            w_det = np.clip(loc.reshape(-1)[ti] / max(sd, 1e-6), 0.0, 1.0)
+            val, okm = out[gi]
+            val[ti[good]] = np.clip(gain * band_d.reshape(-1)[ti[good]] * w_det[good], -cap, cap)
+            okm[ti[good]] = True
+            n_use += int(good.sum())
+        info['usable_texels'] = n_use
+        rp[p] = info
+    return out, rp
+
+
 # ---------------------------------------------------------------- заливка ---------------------------------------
 def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None = None, mirror: bool = True, draft: dict | None = None) -> dict:
     """geoms — `tex_coverage.load_geoms`; known — по геометрии (T×T bool), parts — по геометрии номера частей ГРАНЕЙ (None — одна часть).
@@ -616,10 +764,10 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     from scipy.sparse.csgraph import dijkstra
     from scipy.spatial import cKDTree
     c = dict(FILL, **(cfg or {}))
-    if c['source'] not in ('stat', 'trellis'):
-        raise ValueError(f"source {c['source']!r}: ждём stat | trellis")
-    if c['source'] == 'trellis' and draft is None:
-        raise ValueError('source=trellis требует draft (draft_texels)')
+    if c['source'] not in ('stat', 'trellis', 'trellis_relief'):
+        raise ValueError(f"source {c['source']!r}: ждём stat | trellis | trellis_relief")
+    if c['source'] in ('trellis', 'trellis_relief') and draft is None:
+        raise ValueError(f"source={c['source']} требует draft (draft_texels)")
     t0 = time.time()
     ctr, size = frame_of(geoms)
     offs = np.cumsum([0] + [len(g['V']) for g in geoms])
@@ -651,7 +799,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     g_mean = tone_of(glob_l, c)
     g_std = glob_l.std(axis=0) if len(glob_l) else np.zeros(3)
     lowb = [_blur_norm(labs[gi], kn[gi], c['pattern_blur_px'])[0] for gi in range(len(txs))]
-    pat_std = {}
+    pat_std, pat_eff = {}, {}
     for p in part_ids:
         Hp = np.concatenate([(labs[gi] - lowb[gi]).reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)]] for gi, tx in enumerate(txs)])
         pat_std[p] = float(np.hypot(Hp[:, 1].std(), Hp[:, 2].std())) if len(Hp) else 0.0
@@ -662,7 +810,8 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         else:
             stat[p] = (g_mean, g_std, len(L), True)
             rep['fallback_global'] += 1
-        rep['parts'][p] = {'known_texels': int(len(L)), 'pattern': bool(pat_std[p] > c['pattern_chroma']), 'pattern_chroma_std': round(float(pat_std[p]), 2), 'mean_lab': [round(float(x), 2) for x in stat[p][0]], 'std_lab': [round(float(x), 2) for x in stat[p][1]], 'stats_from_global': stat[p][3]}
+        pat_eff[p] = pat_std[p] * (min(1.0, max(float(stat[p][0][0]), 0.0) / float(c['pattern_dark_ref'])) if float(c['pattern_dark_ref']) > 0 else 1.0)
+        rep['parts'][p] = {'known_texels': int(len(L)), 'pattern': bool(pat_eff[p] > c['pattern_chroma']), 'pattern_chroma_std': round(float(pat_std[p]), 2), 'pattern_chroma_eff': round(float(pat_eff[p]), 2), 'mean_lab': [round(float(x), 2) for x in stat[p][0]], 'std_lab': [round(float(x), 2) for x in stat[p][1]], 'stats_from_global': stat[p][3]}
     dshift = None
     if c['source'] == 'trellis':                     # перенос статистики Lab: черновик части → видимое фото той же части (медиана и разброс по каналам)
         dshift = []
@@ -735,7 +884,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 cs = np.abs((tx.N[unk] * R * srcN[jj]).sum(axis=1))
                 use = okj & (cs > c['mirror_cos'])
                 me = RULES['mirror_extreme']
-                lim_dark = max(float(me['black_abs']), float(np.quantile(srcL[:, 0], me['rel_quantile'])) - float(me['rel_margin']))      # темнее абсолютно чёрного ИЛИ темнее почти всего известного этой части на запас
+                lim_dark = max(dark_floor(float(stat[p][0][0]), me['black_abs'], me['black_rel']), float(np.quantile(srcL[:, 0], me['rel_quantile'])) - float(me['rel_margin']))      # темнее абсолютно чёрного ИЛИ темнее почти всего известного этой части на запас
                 black = use & (srcL[jj, 0] < lim_dark)                  # двойник — чёрный/слишком тёмный тексель (тень, дыра, край фото): не копируется, этот тексель красит геодезия
                 rep['mirror']['dropped_black'] = rep['mirror'].get('dropped_black', 0) + int(black.sum())
                 use &= ~black
@@ -746,6 +895,8 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 mirrored[gi].reshape(-1)[idx] = True
                 rep['mirror']['texels'] += int(use.sum())
     rep['time_s']['mirror'] = round(time.time() - t0, 2)
+    _md = rep['mirror'].get('dropped_black', 0)
+    rep['mirror']['dropped_pct'] = round(100.0 * _md / max(_md + rep['mirror']['texels'], 1), 1)
     # --- шаг 2: геодезическая заливка (низкие частоты) по поверхности ТОЙ ЖЕ части; зеркальное достраивается растушёвкой от известного
     lam_all, unk_all = [], []
     for gi, g in enumerate(geoms):
@@ -956,14 +1107,18 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 continue
             qo = RULES['quilt_outlier']
             if p not in pat_parts and qo['k'] > 0 and len(pool) >= int(qo['min_pool']):       # неузорная часть: блок с чужеродным тёмным/светлым пятном (тень, шов, фон на краю фото) в образец не идёт
+                n0 = len(pool)
                 pool, nrej = reject_outlier_blocks(pool, qo['k'], qo['floor'], qo['quantile'])
                 rep.setdefault('quilt_rejected', {})[int(p)] = nrej
+                rep.setdefault('quilt_rejected_share', {})[int(p)] = round(nrej / max(n0, 1), 3)
                 if len(pool) < 4:
                     continue
             qe = RULES['quilt_extreme']
             if p in pat_parts and qe['share'] > 0:                  # узорная часть (остаток от тона): блок с чёрным (тень, дыра) или сильно светлее тона (белый фон края фото) в образец не идёт; цветы и ветви — не такие
-                pool, nrej = reject_extreme_blocks(pool, float(stat[p][0][0]), qe['dL_hi'], qe['black_abs'], qe['share'])
+                n0 = len(pool)
+                pool, nrej = reject_extreme_blocks(pool, float(stat[p][0][0]), qe['dL_hi'], dark_floor(float(stat[p][0][0]), qe['black_abs'], qe['black_rel']), qe['share'])
                 rep.setdefault('quilt_rejected', {})[int(p)] = nrej
+                rep.setdefault('quilt_rejected_share', {})[int(p)] = round(nrej / max(n0, 1), 3)
                 if len(pool) < 4:
                     continue
             if len(pool) > int(c['quilt_pool']):
@@ -1046,6 +1201,17 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 rep['quilt'] = rep.get('quilt', 0) + 1
             else:
                 rep['no_patch'] += 1
+    relief = None
+    if c['source'] == 'trellis_relief':
+        relief, rep['relief'] = draft_relief(txs, draft, labs, kn, part_ids, set(raw_mean) | set(pat_parts), c, RULES['trellis_relief'])
+        Rr = RULES['trellis_relief']
+        spac = [texel_spacing(tx) for tx in txs]
+        fade = []
+        for gi, tx in enumerate(txs):                            # затухание рельефа от границы фото в ФИЗИЧЕСКОМ расстоянии (шаг текселя × расстояние в карте), известные тексели не трогаем
+            dpx = distance_transform_edt(~kn[gi])
+            fade.append(np.clip(dpx.reshape(-1)[tx.ti] * spac[gi] / max(Rr['fade_len'], 1e-9), 0.0, 1.0))
+        smooth_parts = {p for p in part_ids if p not in raw_mean and p not in pat_parts and rep.get('quilt_rejected_share', {}).get(p, 0.0) > Rr['smooth_pool_rejected']}
+        rep['relief_smooth_parts'] = sorted(int(p) for p in smooth_parts)
     for gi, tx in enumerate(txs):
         T = tx.T
         unk_flat = (~kn[gi].reshape(-1)[tx.ti]) & (~mirrored[gi].reshape(-1)[tx.ti])
@@ -1068,6 +1234,17 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             r2 = t2[(py[sel] * 3 // 2 + oy2) % Bp, (px[sel] * 3 // 2 + ox2) % Bp]
             gain = float(np.clip(patch_gain[p], c['gain_min'], c['gain_max']))
             add[sel] = gain * (r1 + r2) / np.sqrt(2.0) if p not in raw_mean else r1                  # узорная: узор из фото целиком (отклонение от тона), без смешения двух сдвигов
+        if relief is not None:                                   # вариант C: на залитом (не зеркалом) — яркость рельефа черновика (только L), затухающая от границы фото; плохой черновик + отбракованный пул лоскута → ГЛАДКО (тон части), не плитка
+            rv, rok = relief[gi]
+            tl = tx.ti[unk_flat]
+            for p in smooth_parts:
+                add[tx.part[unk_flat] == p] = 0.0
+            m_ = rok[tl]
+            w_ = fade[gi][unk_flat]
+            add[m_, 0] = rv[tl][m_] * w_[m_]
+            add[m_, 1:] = 0.0
+            rep.setdefault('relief_texels', 0)
+            rep['relief_texels'] += int(m_.sum())
         out_lab[gi].reshape(-1, 3)[tx.ti[unk_flat]] += add
     rep['time_s']['texture'] = round(time.time() - t0, 2)
     # --- итог: RGB, желоб, проверка покрытия
@@ -1159,10 +1336,15 @@ def draft_texels(geoms: list, draft_geoms: list, cfg: dict | None = None) -> dic
         T = _grid(g)
         tx = Tex(g, Pall[offs[gi]:offs[gi + 1]], T, None, True)
         K = 4
-        d, j = tree.query(tx.Q, k=K, distance_upper_bound=c['draft_max_dist'])
+        rl = c['source'] == 'trellis_relief'
+        max_d = min(c['draft_max_dist'], c['relief_draft_max_dist']) if rl else c['draft_max_dist']
+        cos_min = max(c['draft_cos'], c['relief_draft_cos']) if rl else c['draft_cos']
+        d, j = tree.query(tx.Q, k=K, distance_upper_bound=max_d)
         jj = np.where(np.isfinite(d), j, 0)
         cs = (srcN[jj] * tx.N[:, None, :]).sum(axis=2)
-        good = np.isfinite(d) & (cs > c['draft_cos'])
+        good = np.isfinite(d) & (cs > cos_min)
+        if rl and c['relief_draft_thin_cos'] is not None:
+            good &= ~(np.isfinite(d) & (cs < c['relief_draft_thin_cos'])).any(axis=1)[:, None]      # тонкая вещь: рядом поверхность с противоположной нормалью
         first = good.argmax(axis=1)
         has = good.any(axis=1)
         pick = jj[np.arange(len(jj)), first]
@@ -1233,7 +1415,16 @@ def load_rules(path: str | None = None) -> dict:
     for k in ('thresholds', 'known_change_de', 'quilt_outlier', 'quilt_extreme', 'mirror_extreme', 'stage6_gate'):
         if k not in r:
             raise KeyError(f'rules/paint-fill.json: нет ключа {k!r}')
-    for k in ('empty_pct', 'dE00_front_back', 'filled_faces_step_pct', 'far_excess_pct', 'known_changed_share_pct', 'time_s'):
+    if 'trellis_relief' not in r:
+        raise KeyError("rules/paint-fill.json: нет ключа 'trellis_relief'")
+    for k in ('gain_max', 'clip_k', 'patch_frac', 'patch_dl', 'dilate_px', 'part_max_share', 'band_lo', 'band_hi', 'sigma_lo_min', 'sigma_lo_max', 'sigma_hi_max', 'far_w', 'p95_cap',
+              'ok_erode_px', 'allowed_families', 'homog_max_std', 'fade_len', 'smooth_pool_rejected'):
+        if k not in r['trellis_relief']:
+            raise KeyError(f'rules/paint-fill.json: trellis_relief.{k} не задан')
+    for k in ('quilt_extreme', 'mirror_extreme'):
+        if 'black_rel' not in r[k]:
+            raise KeyError(f'rules/paint-fill.json: {k}.black_rel не задан')
+    for k in ('pool_rejected_pct', 'empty_pct', 'dE00_front_back', 'filled_faces_step_pct', 'far_excess_pct', 'known_changed_share_pct', 'time_s'):
         if k not in r['thresholds']:
             raise KeyError(f'rules/paint-fill.json: threshold {k!r} не задан')
     return r
@@ -1474,7 +1665,7 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     if parts is None:
         parts, parts_note = parts_from_geometry(geoms)
     draft = None
-    if (cfg or {}).get('source') == 'trellis':
+    if (cfg or {}).get('source') in ('trellis', 'trellis_relief'):
         draft = draft_texels(geoms, TC.load_geoms(draft_glb), cfg)
     kback = known_from_photo(geoms, azimuths=(180.0,))
 
@@ -1490,7 +1681,7 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
         nfail = sum(0 if PS.judge(vals[k], th[k][0], th[k][1]) else 1 for k in vals)
         return {'rep': rp, 'tex': tx_, 'de': de_, 'big': bg, 'de_worst': dw, 'vals': vals, 'nfail': nfail, 'key': (nfail, dw if dw is not None else 99.0, vals['far_excess_pct'] if vals['far_excess_pct'] is not None else 99.0)}
     tried = {}
-    if draft is not None and dict(FILL, **(cfg or {}))['draft_fallback']:      # Б и А: Б берётся, только если мерки не хуже (число непрошедших, затем ΔE перёд↔зад, затем пятна)
+    if draft is not None and (cfg or {}).get('source') == 'trellis' and dict(FILL, **(cfg or {}))['draft_fallback']:      # Б и А: Б берётся, только если мерки не хуже (число непрошедших, затем ΔE перёд↔зад, затем пятна)
         cA = one(dict(cfg or {}, source='stat'), None)
         tried = {'stat': {'nfail': cA['nfail'], **cA['vals']}}
         if cA['nfail'] == 0 and dict(FILL, **(cfg or {}))['draft_when'] == 'a_fails':    # А прошёл все мерки — Б не считаем (экономия времени этапа)
@@ -1520,6 +1711,7 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
         'filled_faces_step_pct': {'value': rep['steps']['after']['filled_faces_step_pct'], 'threshold': th['filled_faces_step_pct'][1], 'op': th['filled_faces_step_pct'][0]},
         'far_excess_pct': {'value': rep['far_pct']['excess'], 'threshold': th['far_excess_pct'][1], 'op': th['far_excess_pct'][0]},
         'known_changed_share_pct': {'value': kchg['share_pct'], 'threshold': th['known_changed_share_pct'][1], 'op': th['known_changed_share_pct'][0]},
+        'pool_rejected_pct': {'value': round(100.0 * max(rep.get('quilt_rejected_share', {}).values(), default=0.0), 1), 'threshold': th['pool_rejected_pct'][1], 'op': th['pool_rejected_pct'][0]},     # мягкий провал: больше половины пула блоков отбраковано правилом — образец беден, запасной режим (плитка) вместо квилта
         'time_s': {'value': round(secs, 1), 'threshold': th['time_s'][1], 'op': th['time_s'][0]},
     }
     for m in metrics.values():
