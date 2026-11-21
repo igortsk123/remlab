@@ -36,6 +36,7 @@ ap.add_argument('--color-size', type=int, default=None, help='сторона н�
 ap.add_argument('--weld', action='store_true', help='проба T-167: склеить вершины родной формы по швам UV/нормалей ПЕРЕД упрощением (glTF режет вершину по каждому шву; упрощение не сливает грани через шов — щепки и полосы); по умолчанию выкл.')
 ap.add_argument('--presmooth', type=int, default=0, help='проба T-167: проходов сглаживания Таубина родной формы ПЕРЕД упрощением (0 = выкл.; гасит мелкие складки сетки TRELLIS, объём держится)')
 ap.add_argument('--presmooth-lambda', type=float, default=0.5, help='шаг сжатия Таубина (второй проход делает шаг растяжения чуть больше по модулю)')
+ap.add_argument('--pad', choices=['nearest', 'interior', 'repair'], default='nearest', help='заполнение поля вокруг островков карты цвета: nearest (по умолчанию, как было) | interior (дилатация изнутри: кольцо границы и поле берут цвет внутренних текселей) | repair (перекрасить только крошку кольца)')
 ap.add_argument('--no-ladder', action='store_true', help='с --color-from при отказе переноса пересобираются развёртка и карта по ступеням `rules/sg-prep-ladder.json`; этим флагом — одна ступень (по умолчанию ступени включены)')
 a = ap.parse_args(argv)
 a.explicit_unwrap = a.angle is not None or a.color_size is not None       # явные --angle/--color-size = одна ступень как просили
@@ -183,6 +184,8 @@ if a.color_from:
             cmd += ['--size', str(st['size'])]
         if a.no_plate_strip:
             cmd += ['--no-plate-strip']
+        if a.pad != 'nearest':
+            cmd += ['--pad', a.pad]
         last = state['last'] = subprocess.run(cmd, capture_output=True, text=True)
         print(last.stdout.strip()[-800:], flush=True)
         m = re.search(r'^перенос-итог: (\{.*\})$', last.stdout, re.M)

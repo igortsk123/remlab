@@ -153,6 +153,38 @@ def main() -> int:
         check('эталон: без предобработки — сырые вершины и нормали файла; с ней — склеенные, сглаженные, нормали единичные и смотрят вверх/вниз',
               len(rv0) == len(np.unique(seam_f)) and len(rv) < len(rv0) and np.allclose(np.linalg.norm(rn, axis=1), 1.0, atol=1e-6) and (np.abs(rn[:, 2]) > 0.9).mean() > 0.8, (len(rv0), len(rv), float((np.abs(rn[:, 2]) > 0.9).mean())))
 
+        # заполнение поля вокруг островков (T-167, кромка): nearest как было | interior — дилатация изнутри | repair — только крошка кольца
+        S = 40
+        arr = np.zeros((S, S, 4), np.uint8)
+        arr[..., 3] = 255
+        filled = np.zeros((S, S), bool)
+        filled[8:32, 8:32] = True
+        arr[filled] = (120, 100, 80, 255)
+        arr[8, 8:32] = (250, 250, 250, 255)                      # кольцо границы острова — светлая «крошка» целиком по верхней кромке
+        arr[20, 8] = (0, 0, 0, 255)                              # и одна чёрная крошка на левой кромке
+        small = np.zeros((S, S), bool)
+        small[2:4, 34:38] = True                                 # узкий остров 2 текселя — «внутри» нет
+        filled2 = filled | small
+        arr[small] = (10, 200, 10, 255)
+        pn = T.pad_islands(arr, filled2, "nearest")
+        it = T.pad_islands(arr, filled2, 'interior')
+        rp = T.pad_islands(arr, filled2, 'repair')
+        check('поле: nearest — как раньше (поле над верхней кромкой берёт светлую крошку)', tuple(pn[7, 15, :3]) == (250, 250, 250) and (pn == T._fill_empty(arr, filled2)).all())
+        check('поле: interior — кольцо границы и поле берут цвет внутренних текселей, крошка кромки уходит', tuple(it[8, 15, :3]) == (120, 100, 80) and tuple(it[7, 15, :3]) == (120, 100, 80) and tuple(it[20, 8, :3]) == (120, 100, 80), (it[8, 15], it[7, 15], it[20, 8]))
+        check('поле: interior — внутренность острова не тронута', (it[10:30, 10:30] == arr[10:30, 10:30]).all())
+        check('поле: interior — узкий остров без «внутри» остаётся как в nearest', (it[small] == pn[small]).all() and tuple(it[1, 35, :3]) == tuple(pn[1, 35, :3]))
+        arr[12, 8] = (150, 130, 100, 255)                        # лёгкое отличие кольца (разница 30 из 255) — не крошка
+        rp = T.pad_islands(arr, filled2, 'repair')
+        check('поле: repair — чинит резкую крошку кольца (чёрная точка, светлая полоса), а лёгкое отличие (30 из 255) оставляет родным', tuple(rp[20, 8, :3]) == (120, 100, 80) and tuple(rp[8, 15, :3]) == (120, 100, 80) and tuple(rp[12, 8, :3]) == (150, 130, 100), (rp[20, 8], rp[8, 15], rp[12, 8]))
+        bad_mode = False
+        try:
+            T.pad_islands(arr, filled2, 'нет-такого')
+        except ValueError:
+            bad_mode = True
+        check('поле: неизвестный режим — ошибка', bad_mode)
+        sp = T.speckle_share(arr, filled2)
+        check('крошка атласа: доля текселей, резко отличных от медианы 3×3 (справочно): есть у атласа с чёрной точкой и нет у чистого', sp > 0.0 and T.speckle_share(it, filled2) < sp / 5, (sp, T.speckle_share(it, filled2)))
+
         # лестница отказов переноса (T-167): правила в JSON, порядок ступеней, остановка на успехе и на сбое, след
         st = T.ladder_rules()
         check('лестница: правила из JSON — три ступени, первая — карта родной при 89°, последняя — меньший угол', len(st) == 3 and st[0] == {'size': None, 'angle': 89.0} and st[-1]['angle'] < st[0]['angle'], st)
