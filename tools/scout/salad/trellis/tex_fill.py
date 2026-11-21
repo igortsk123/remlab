@@ -297,6 +297,18 @@ def _blur_norm(img, known, sigma: float):
     return num / np.maximum(den, 1e-9)[..., None], den
 
 
+def part_pattern(txs: list, labs: list, kn: list, part_ids: list, c: dict, tone_l: dict) -> tuple:
+    """Узорность частей — ОДНА истина для 07 и для мерки Б (Ш6, 21.11): хроматический разброс высоких частот известных текселей (a/b), с поправкой на тёмный тон.
+    tone_l {часть: L тона}. → ({часть: pat_std}, {часть: pat_eff}); часть узорная ⇔ pat_eff > c['pattern_chroma']."""
+    lowb = [_blur_norm(labs[gi], kn[gi], c['pattern_blur_px'])[0] for gi in range(len(txs))]
+    pat_std, pat_eff = {}, {}
+    for p in part_ids:
+        Hp = np.concatenate([(labs[gi] - lowb[gi]).reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)]] for gi, tx in enumerate(txs)])
+        pat_std[p] = float(np.hypot(Hp[:, 1].std(), Hp[:, 2].std())) if len(Hp) else 0.0
+        pat_eff[p] = pat_std[p] * (min(1.0, max(float(tone_l.get(p, 0.0)), 0.0) / float(c['pattern_dark_ref'])) if float(c['pattern_dark_ref']) > 0 else 1.0)
+    return pat_std, pat_eff
+
+
 def tone_of(L, c) -> np.ndarray:
     """Тон части по Lab-точкам L (n,3): мода — самый частый цвет (фон; узор кладётся поверх остатком), без затенённых (L ниже квантиля `tone_shadow_q`). tone='median' — медиана."""
     if len(L) == 0:
@@ -862,11 +874,6 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     glob_l = np.concatenate(glob_l) if glob_l else np.zeros((0, 3))
     g_mean = tone_of(glob_l, c)
     g_std = glob_l.std(axis=0) if len(glob_l) else np.zeros(3)
-    lowb = [_blur_norm(labs[gi], kn[gi], c['pattern_blur_px'])[0] for gi in range(len(txs))]
-    pat_std, pat_eff = {}, {}
-    for p in part_ids:
-        Hp = np.concatenate([(labs[gi] - lowb[gi]).reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)]] for gi, tx in enumerate(txs)])
-        pat_std[p] = float(np.hypot(Hp[:, 1].std(), Hp[:, 2].std())) if len(Hp) else 0.0
     for p in part_ids:
         L = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)]] for gi, tx in enumerate(txs)])
         if len(L) >= c['min_known']:
@@ -874,7 +881,9 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         else:
             stat[p] = (g_mean, g_std, len(L), True)
             rep['fallback_global'] += 1
-        pat_eff[p] = pat_std[p] * (min(1.0, max(float(stat[p][0][0]), 0.0) / float(c['pattern_dark_ref'])) if float(c['pattern_dark_ref']) > 0 else 1.0)
+    pat_std, pat_eff = part_pattern(txs, labs, kn, part_ids, c, {p: float(stat[p][0][0]) for p in part_ids})              # одна функция на 07 и на мерку Б (мишень wholepart не узорная)
+    for p in part_ids:
+        L = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)]] for gi, tx in enumerate(txs)])
         rep['parts'][p] = {'known_texels': int(len(L)), 'pattern': bool(pat_eff[p] > c['pattern_chroma']), 'pattern_chroma_std': round(float(pat_std[p]), 2), 'pattern_chroma_eff': round(float(pat_eff[p]), 2), 'mean_lab': [round(float(x), 2) for x in stat[p][0]], 'std_lab': [round(float(x), 2) for x in stat[p][1]], 'stats_from_global': stat[p][3]}
     rep['tone_shared'] = {}
     roles_ = c.get('part_role') or {}

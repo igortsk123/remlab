@@ -142,9 +142,12 @@ def make_wholepart(geoms, known, txs, roles: dict) -> dict:
         if cnt[p] >= 200:
             tone[p] = np.mean(np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[sel[gi]]] for gi, tx in enumerate(txs)]), axis=0)
     spac = {p: float(np.median(np.concatenate([TF.texel_spacing(tx)[tx.part == p] for tx in txs if (tx.part == p).any()]))) for p in ids if any((tx.part == p).any() for tx in txs)}
+    c_ = dict(TF.FILL)
+    _, pat_eff = TF.part_pattern(txs, labs, known, ids, c_, {p: float(tone[p][0]) for p in tone})                 # узорность — ТА ЖЕ функция, что в 07 (одна истина; Ш6 21.11): узорная часть не мишень и не донор
+    pattern = {p for p in tone if pat_eff.get(p, 0.0) > float(c_['pattern_chroma'])}
     cands = []
     for p in ids:
-        if p not in tone or cnt[p] < P['wp_min_part'] or roles.get(p) is None:
+        if p not in tone or cnt[p] < P['wp_min_part'] or roles.get(p) is None or p in pattern:
             continue
         sp = spac.get(p, 0.0)
         if sp <= 0:
@@ -153,7 +156,7 @@ def make_wholepart(geoms, known, txs, roles: dict) -> dict:
         low = np.concatenate([TF._blur_norm(np.repeat(labs[gi][..., 0][..., None], 3, axis=2), known[gi], s_hi)[0][..., 0].reshape(-1)[tx.ti[known[gi].reshape(-1)[tx.ti] & (tx.part == p)]] for gi, tx in enumerate(txs)])
         if float(low.std()) > R['homog_max_std']:
             continue                                                    # узорная/неоднотонная часть: макро-рисунок настоящий, переносить нечего — не мишень
-        don = [q for q in ids if q != p and q in tone and cnt[q] >= P['wp_min_donor'] and roles.get(q) == roles.get(p) and float(np.linalg.norm(tone[p] - tone[q])) <= P['wp_max_de']]
+        don = [q for q in ids if q != p and q in tone and q not in pattern and cnt[q] >= P['wp_min_donor'] and roles.get(q) == roles.get(p) and float(np.linalg.norm(tone[p] - tone[q])) <= P['wp_max_de']]
         if don:
             cands.append((cnt[p], p, don))
     if not cands:

@@ -911,6 +911,35 @@ def test_tone_only():
     ok(o1['report']['parts'][0]['known_texels'] == int(kb.sum()), 'тон-слой не вошёл в статистику части (известных столько же)')
 
 
+def test_part_pattern_single_truth():
+    print("part_pattern: узорность части — одна функция на 07 и на мерку Б:")
+    rng = np.random.RandomState(9)
+    big = Quads()
+    big.quad([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], (0, 0, .5, 1))
+    big.quad([[2, 0, 0], [3, 0, 0], [3, 1, 0], [2, 1, 0]], (.5, 0, 1, 1))
+    tex = np.full((256, 256, 3), 140, np.uint8)
+    tex[:, :128] = np.clip(140 + rng.normal(0, 4, (256, 128, 1)), 0, 255)                       # часть 0: серая однотонная (шум только по яркости: ткань без цветного рисунка)
+    sp = np.zeros((256, 128), bool)
+    sp[::16, ::16] = True
+    from scipy.ndimage import binary_dilation as _bd
+    sp = _bd(sp, iterations=3)
+    right = np.full((256, 128, 3), 140, np.uint8)
+    right[sp] = (210, 90, 120)                                                                  # часть 1: розовые пятна на сером
+    tex[:, 128:] = right
+    g = big.geom(tex)
+    kn = np.ones((256, 256), bool)
+    nf = len(g['F'])
+    pf = np.zeros(nf, np.int32)
+    pf[nf // 2:] = 1
+    tx = TF.Tex(g, np.asarray(g['V'], float), 256, pf)
+    labs = [TF.rgb2lab(tex.reshape(-1, 3)).reshape(256, 256, 3)]
+    c = dict(TF.FILL)
+    _, eff = TF.part_pattern([tx], labs, [kn], [0, 1], c, {0: 60.0, 1: 60.0})
+    ok(eff[1] > c['pattern_chroma'] >= eff[0], f'узорная часть выше порога, однотонная ниже (eff {eff[0]:.2f} / {eff[1]:.2f}, порог {c["pattern_chroma"]})')
+    o = TF.fill([g], [kn], [pf], cfg={'gutter': 0, 'erode_known': 0}, mirror=False)
+    ok(bool(o['report']['parts'][1]['pattern']) and not o['report']['parts'][0]['pattern'], 'отчёт 07 даёт тот же вердикт, что part_pattern')
+
+
 def test_pr_camera_and_winding():
     print("камера образца узора из этапа 4 (az, el) и обмотка граней:")
     cfg, note = TF.pr_camera_from_extra({'camera': {'az': 341.3, 'el': 8.5}}, {})
@@ -1177,7 +1206,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0
