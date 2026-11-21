@@ -208,5 +208,14 @@ sc_bad = PF.pose_score(PF.splat_mask(Pt, {**cam_true, 'az': 40 + 90}, 128), Mt)
 sc_ok = PF.pose_score(Mt, Mt)
 check('оценка позы: точная > повёрнутая на 90°', sc_ok['score'] > sc_bad['score'], f"{sc_ok['score']} vs {sc_bad['score']}")
 
+# --- уточнение по кромкам не должно ронять силуэт (стул 12914: 0,86 → 0,72 из-за заглушки «кромок нет») ---
+check('edge_term: «кромок нет» → нейтрально 0 (не штраф)', PF.edge_term({'agree': -1.0, 'no_edges': True}) == 0.0)
+check('edge_term: обычные кромки как есть', PF.edge_term({'agree': 0.4, 'no_edges': False}) == 0.4 and PF.edge_term({'agree': 0.2}) == 0.2)
+check('refine_ok: падение 0,03 — принимаем', PF.refine_ok(0.90, 0.87))
+check('refine_ok: падение 0,14 (12914) — отклоняем', not PF.refine_ok(0.8578, 0.7178))
+check('refine_ok: рост — принимаем', PF.refine_ok(0.85, 0.86))
+ms_r = {'ran': True, 'starts': [{'score': 0.76 - i * 0.01, 'iou': 0.50, 'iou_sil': 0.85 - i * 0.005} for i in range(5)]}
+check('shape_mismatch: коридор по IoU ДО уточнения (iou_sil), а не после', CC.shape_mismatch(0.80, ms_r, RULES)[1]['iou_spread'] <= 0.03, str(CC.shape_mismatch(0.80, ms_r, RULES)[1]))
+
 print('all ok' if not bad else f'FAILED: {bad}')
 sys.exit(1 if bad else 0)

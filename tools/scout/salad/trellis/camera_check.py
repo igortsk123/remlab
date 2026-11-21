@@ -77,7 +77,7 @@ def shape_mismatch(iou: float, ms: dict | None, rules: dict) -> tuple[bool, dict
     top = sorted(ms['starts'], key=lambda s: -s['score'])[:k]
     if len(top) < k:
         return False, {}
-    ious = [float(s['iou']) for s in top]
+    ious = [float(s.get('iou_sil', s['iou'])) for s in top]          # IoU подбора ДО уточнения по кромкам (если записан)
     spread = max(ious) - min(ious)
     info = {'top_k': k, 'iou_spread': round(spread, 4), 'iou_best': round(max(ious), 4), 'eps': rules.get('shape_corridor_eps', 0.03)}
     return bool(spread <= info['eps'] and iou < rules['iou_min']), info

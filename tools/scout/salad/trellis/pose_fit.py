@@ -30,6 +30,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.normpath(os.path.join(HERE, '..', '..')))
 
+REFINE_IOU_DROP = 0.05               # уточнение по кромкам не должно ронять IoU силуэта сильнее этого: иначе оно отклоняется (стул 12914: IoU 0,86 → 0,72 из-за «нет кромок»)
 TIE_IOU = 0.03                     # кандидаты с IoU не ниже лучшего − этого выбираются по совпадению кромок
 GRID_AZ = tuple(range(0, 360, 15))
 GRID_EL = (-10, 0, 10, 20, 30, 40)
@@ -325,7 +326,18 @@ def edge_score(geo: dict, cam: dict, photo: np.ndarray, alpha: np.ndarray, cv: d
     L_ph = PM.rgb_to_lab(ph)[..., 0].astype(np.float32)
     L_b = PM.rgb_to_lab(img)[..., 0].astype(np.float32)
     ea = PFR.edge_agreement(L_ph, L_b, S & A_fr, width, PFR.EDGE_MIN_LEN) if width >= 16 else {'agree': -1.0}
-    return {'agree': ea['agree'], 'iou_frame': round(iou(S, A_fr), 4), 'width_px': round(float(width), 1)}
+    return {'agree': ea['agree'], 'iou_frame': round(iou(S, A_fr), 4), 'width_px': round(float(width), 1), 'no_edges': bool(width < 16)}
+
+
+def edge_term(e: dict) -> float:
+    """Вклад кромок в цель уточнения: «кромок нет» (общая полоса < 16 px, в `edge_score` agree = −1.0 как заглушка) — нейтрально 0, а не штраф +1:
+    иначе Нелдер–Мид уходит в позу, где полоса достаточна, ценой силуэта (стул 12914: IoU 0,86 → 0,72)."""
+    return 0.0 if e.get('no_edges') else float(e['agree'])
+
+
+def refine_ok(iou_before: float, iou_after: float, drop: float = None) -> bool:
+    """Уточнение по кромкам принимается, пока IoU силуэта не упал больше `REFINE_IOU_DROP` (кромки уточняют позу в пределах силуэта, а не меняют его)."""
+    return (iou_before - iou_after) <= (REFINE_IOU_DROP if drop is None else drop)
 
 
 def refine_by_edges(geo: dict, cam: dict, photo: np.ndarray, alpha: np.ndarray, cv: dict, tex: np.ndarray, n: int = 512, maxiter: int = 110, log=print) -> tuple[dict, dict]:
@@ -342,7 +354,7 @@ def refine_by_edges(geo: dict, cam: dict, photo: np.ndarray, alpha: np.ndarray, 
         if key not in cache:
             c = _cam(v)
             e = edge_score(geo, c, photo, alpha, cv, tex, n)
-            cache[key] = (W_IOU * (1.0 - e['iou_frame']) - e['agree'], e)
+            cache[key] = (W_IOU * (1.0 - e['iou_frame']) - edge_term(e), e)
         return cache[key][0]
 
     def f(v):
@@ -428,9 +440,15 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
             log(f"  кандидат az={c['cam']['az']:.1f} el={c['cam']['el']:.1f} d={c['cam']['d']:.2f} IoU {c['iou']} кромки до ECC {c['edge']['agree']}")
         for c in pool:                                                 # уточнение по внутренним кромкам: силуэт один, поз с разными кромками много
             c['cam_sil'] = dict(c['cam'])
+            c['iou_sil'] = c['iou']                                    # IoU силуэта ДО уточнения (коридор shape_mismatch в camera_check считает по нему)
+            edge_before = c['edge']
             c['cam'], c['edge'] = refine_by_edges(geo, c['cam'], photo, alpha, cv, tex, log=log)
             c['iou'] = round(iou(splat_mask(geo['V'][:: max(1, len(geo['V']) // 150000)], c['cam'], n), Mp), 4)
             log(f"  после уточнения az={c['cam']['az']:.1f} el={c['cam']['el']:.1f} d={c['cam']['d']:.2f} IoU(силуэт) {c['iou']} кромки до ECC {c['edge']['agree']}")
+            c['refine_rejected'] = not refine_ok(c['iou_sil'], c['iou'])
+            if c['refine_rejected']:
+                log(f"  уточнение отклонено: IoU силуэта {c['iou_sil']} → {c['iou']} (падение > {REFINE_IOU_DROP}); остаётся поза по силуэту")
+                c['cam'], c['edge'], c['iou'] = dict(c['cam_sil']), edge_before, c['iou_sil']
         pick = max(pool, key=lambda c: c['edge']['agree'])
         cam = pick['cam']
         front = _bbox_fit(geo['V'][:: max(1, len(geo['V']) // 150000)], 0.0, 0.0, 1000.0, (lambda ys, xs: (xs.min() / n, ys.min() / n, (xs.max() + 1) / n, (ys.max() + 1) / n))(*np.nonzero(Mp)))
