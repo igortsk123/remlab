@@ -1,5 +1,5 @@
 """ДРАЙВЕР StableGen БЕЗ ОКНА (T-20261119-90/5, этап 1). Запускается ВНУТРИ Blender (не `-b`: модальные операторы аддона тикают только в цикле окна):
-  xvfb-run -a blender --factory-startup --python-use-system-env --python sg_drive.py -- <config.json>
+  xvfb_run.sh -a blender --factory-startup --python-use-system-env --python sg_drive.py -- <config.json>
 Аддон не имеет готового пакетного режима (генерация — модальный оператор на таймере окна, `texturing/generator.py`), поэтому этот скрипт по таймеру (`bpy.app.timers`) ведёт шаги и ждёт,
 пока `sg_modal_active` станет ложью:  импорт формы → пресет и настройки → камеры (`object.add_cameras`) → генерация (`object.test_stable`, ComfyUI на дальнем сервере) → запекание в НАШУ
 развёртку (`object.bake_textures`, `try_unwrap=none`) → экспорт GLB. Форма и UV НЕ меняются. Ход пишется в `<out>/drive.log` и `<out>/status.json`.

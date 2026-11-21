@@ -1,0 +1,9 @@
+#!/bin/bash
+# Подмена Xvfb для xvfb_run.sh (T-20261120-162): xvfb-run запускает Xvfb со всеми унаследованными fd — в т.ч. fd замка heavy-slot
+# (`pass_fds` обёртки), и осиротевший Xvfb (xvfb-run убит -9/по таймауту, trap не сработал) держал слот часами.
+# 1) закрываем все fd, кроме 0–2: Xvfb замок не нужен (его держит команда — Blender, это задумано);
+# 2) --pdeathsig TERM: родитель (xvfb-run) умер любым способом — Xvfb уходит вместе с ним, дисплей не утекает.
+for fd in $(ls /proc/$$/fd); do
+  [ "$fd" -gt 2 ] 2>/dev/null && eval "exec $fd>&-" 2>/dev/null
+done
+exec setpriv --pdeathsig TERM /usr/bin/Xvfb "$@"
