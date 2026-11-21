@@ -808,6 +808,23 @@ def test_tone_from_neighbour():
     ok('tone_from_neighbour' in r, "отчёт: tone_from_neighbour записан, заливка не падает")
 
 
+def test_pr_camera_and_winding():
+    print("камера образца узора из этапа 4 (az, el) и обмотка граней:")
+    cfg, note = TF.pr_camera_from_extra({'camera': {'az': 341.3, 'el': 8.5}}, {})
+    ok(abs(cfg['pr_az'] + 18.7) < 1e-6 and cfg['pr_el'] == 8.5, f"az 341,3 → −18,7, el 8,5: {cfg['pr_az']:.1f}/{cfg['pr_el']}")
+    ok(TF.pr_camera_from_extra({'camera': {'az': 341.3, 'el': 8.5}}, {'pr_az': 0.0})[0]['pr_az'] == 0.0, "явный pr_az в cfg сильнее камеры")
+    ok(TF.pr_camera_from_extra({'camera': {'az': 341.3, 'el': 8.5}}, {'pr_from_camera': False})[0].get('pr_az') is None, "pr_from_camera=false — камера не читается")
+    c0, n0 = TF.pr_camera_from_extra({'camera': {'yaw': 0}}, {})
+    ok(n0['source'].startswith('нет камеры') and c0['pattern_side_cos'] is None, "нет az в check — правило по стороне фото молчит (не az 0), заметка")
+    n = np.array([[0.0, 0.0, 1.0], [0.9, 0.0, 0.43], [-1.0, 0.0, 0.0]])
+    ok(TF.pattern_side_ok(n, 0.0, 0.2).tolist() == [True, True, False], "камера в лоб: лицо и косой бок — да, боковая стенка слева — нет")
+    ok(TF.pattern_side_ok(n, -60.0, 0.2).tolist() == [True, False, True], "камера слева-сбоку (az −60): лицо (cos 0,5) и левая стенка — да, правый бок — нет")
+    ok(TF.pattern_side_ok(np.array([[0.0, 1.0, 0.0]]), 0.0, 0.2, 30.0).tolist() == [True], "наклон камеры 30° вверх: верх (+Y) обращён к камере (cos 0,5)")
+    ok(TF.winding_by_known(n, np.array([True, False, False]), 0.0) == 1.0, "известное смотрит на камеру — обмотка как есть")
+    ok(TF.winding_by_known(-n, np.array([True, False, False]), 0.0) == -1.0, "известное смотрит от камеры — обмотка перевёрнута")
+    ok(TF.winding_by_known(n, np.zeros(3, bool), 0.0) == 1.0, "известного нет — +1")
+
+
 def test_hidden_visible():
     print("мерка «скрытое видимое» (tex_fill_hidden_visible): срез, метрики, свод:")
     import tex_fill_hidden_visible as HV
@@ -1057,7 +1074,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

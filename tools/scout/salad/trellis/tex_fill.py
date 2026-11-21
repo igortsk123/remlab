@@ -77,7 +77,7 @@ FILL = {
     'pattern_chroma': 1.5,           # часть, у которой МЕЛКИЙ разброс хромы (σ остатка от размытия pattern_blur_px, sqrt(σa²+σb²)) больше — «узорная»: остаток берётся от тона части (цветы/прожилки целиком), иначе — от размытия
     'pattern_blur_px': 12.0,         # размытие для отделения мелкого узора от крупных зон цвета (две большие зоны — не узор)
     'pattern_render': True,          # узорная часть: блоки квилта — из НЕПРЕРЫВНОГО кадра видимой стороны (az `pr_az`), а не из дырявой развёртки; мало блоков — прежний путь
-    'pr_az': 0.0, 'pr_res': 1024, 'pr_ortho': 1.25, 'pr_cos_min': 0.5,   # кадр образца: азимут (0 = в лоб), сторона, охват, косинус к камере (вскользь — не образец)
+    'pr_az': 0.0, 'pr_el': 0.0, 'pr_from_camera': True, 'pr_res': 1024, 'pr_ortho': 1.25, 'pr_cos_min': 0.5,   # кадр образца: азимут (0 = в лоб), сторона, охват, косинус к камере (вскользь — не образец)
     'pr_block_frac': 0.35,           # блок из кадра не меньше этой доли стороны видимого участка части (√ числа пикселей): мелкий период ткани не режет крупный узор
     'pr_clip_l': 2.5, 'pr_clip_l_min': 8.0,   # срез светлого в образце узора: k·σ(MAD) остатка яркости, не меньше pr_clip_l_min (L*)
     'pr_block_max': 320,             # блок квилта из кадра: до этой стороны В ПИКСЕЛЯХ КАДРА (кадр непрерывный — ветка и цветок целиком), потом пересчёт в масштаб карты
@@ -398,6 +398,31 @@ def pattern_period(resL: np.ndarray, ok: np.ndarray, lo: int, hi: int) -> int:
         lag.append(int(below[0]) + 1 if len(below) else hi)
     ell = float(min(lag))                                  # полосы вдоль одной оси: берём короткий период
     return int(np.clip(int(round(3.0 * ell / 4.0)) * 4, lo, hi))
+
+
+def winding_by_known(normals: np.ndarray, known: np.ndarray, az_deg: float, el_deg: float = 0.0) -> float:
+    """Знак обмотки граней по известному: известные тексели (взяты с фото) по определению обращены к камере, значит среднее (нормаль по обмотке · на камеру) у них > 0; < 0 — обмотка перевёрнутая → -1.
+    Не по объёму сетки (у открытых сеток он врёт). Известного нет — +1."""
+    kn = np.asarray(known, bool)
+    if not kn.any():
+        return 1.0
+    return -1.0 if float(np.mean(np.asarray(normals)[kn] @ photo_views([az_deg], el_deg)[0][0])) < 0 else 1.0
+
+
+def pr_camera_from_extra(extra: dict | None, cfg: dict | None) -> tuple:
+    """Камера образца узора (`pr_az`, `pr_el`) — ПОДОБРАННАЯ камера этапа 4 из `06-visible/check.json` (`extra.camera`: az, el), а не 0°/0°: у товара, снятого под углом, «сторона фото» иначе не та (T-164, Codex 21.11).
+    Явно заданный `pr_az` в cfg или `pr_from_camera=false` — как есть. → (cfg, заметка для report.pr_camera)."""
+    cfg = dict(cfg or {})
+    if 'pr_az' in cfg or not dict(FILL, **cfg).get('pr_from_camera', True):
+        return cfg, {'source': 'cfg/по умолчанию', 'az': cfg.get('pr_az', FILL['pr_az']), 'el': cfg.get('pr_el', FILL['pr_el'])}
+    cam = (extra or {}).get('camera')
+    if not isinstance(cam, dict) or not isinstance(cam.get('az'), (int, float)):
+        cfg['pattern_side_cos'] = None                           # камеры нет — «стороны фото» не знаем: правило узора по стороне молчит (не az 0); кадр образца — как раньше (az 0)
+        return cfg, {'source': 'нет камеры в check этапа 6 — правило по стороне фото молчит', 'az': FILL['pr_az'], 'el': FILL['pr_el'], 'side_rule': False}
+    az = ((float(cam['az']) + 180.0) % 360.0) - 180.0
+    el = float(cam['el']) if isinstance(cam.get('el'), (int, float)) else 0.0
+    cfg['pr_az'], cfg['pr_el'] = az, el
+    return cfg, {'source': 'этап 4 (камера в check этапа 6)', 'az': round(az, 2), 'el': round(el, 2)}
 
 
 def view_samples(geoms: list, azimuth: float, res: int, ortho: float, elevation: float = 0.0) -> dict:
@@ -1087,7 +1112,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             rp = None
             if p in pat_parts and c["pattern_render"]:                  # узорная: блоки — из непрерывного кадра видимой стороны (az фото), не из дырявой развёртки
                 if pr_S is None:
-                    pr_S = view_samples(geoms, c["pr_az"], int(c["pr_res"]), c["pr_ortho"])
+                    pr_S = view_samples(geoms, c["pr_az"], int(c["pr_res"]), c["pr_ortho"], c["pr_el"])
                     pr_lab = sample_view(pr_S, labs)
                     pr_kn = sample_view(pr_S, kn)
                     pr_pm = sample_view(pr_S, [blk[gi][1] for gi in range(len(txs))], -1)
@@ -1248,7 +1273,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             continue
         px, py = tx.ti[unk_flat] % T, tx.ti[unk_flat] // T
         add = np.zeros((len(px), 3))
-        side_ok = pattern_side_ok(tx.N[unk_flat], c['pr_az'], c['pattern_side_cos'])             # тексель обращён к фото
+        side_ok = pattern_side_ok(tx.N[unk_flat] * winding_by_known(tx.N, kn[gi].reshape(-1)[tx.ti], c['pr_az'], c['pr_el']), c['pr_az'], c['pattern_side_cos'], c['pr_el'])             # тексель обращён к фото
         roles_ = c.get('part_role') or {}
         for p in part_ids:
             if p not in patches:
@@ -1591,14 +1616,13 @@ def tone_donor(p: int, roles: dict, known_cnt: dict, total: dict, borders: dict,
     return best
 
 
-def pattern_side_ok(normals: np.ndarray, az_deg: float, cos_min: float | None) -> np.ndarray:
+def pattern_side_ok(normals: np.ndarray, az_deg: float, cos_min: float | None, el_deg: float = 0.0) -> np.ndarray:
     """Правило узора (T-164, Sakura 21.11): узор кладётся только на тексели, обращённые к фото — cos(нормаль, направление на камеру az) ≥ cos_min (кадр GLB: лицом +Z, az 0 — в лоб).
     Зад, сиденье, низ — тон ткани без цветов. cos_min=None — правило выключено (все True)."""
     n = len(normals)
     if cos_min is None:
         return np.ones(n, bool)
-    a = np.radians(az_deg)
-    return (np.asarray(normals) @ np.array([np.sin(a), 0.0, np.cos(a)])) >= cos_min
+    return (np.asarray(normals) @ photo_views([az_deg], el_deg)[0][0]) >= cos_min        # направление на камеру фото — с наклоном (el)
 
 
 def smooth_part_rule(role, jump_l, pattern: bool, c: dict) -> bool:
@@ -1694,7 +1718,7 @@ def pattern_metrics(geoms: list, parts, known: list, tex_after: list, rep: dict,
     labs_ = [rgb2lab(np.asarray(t)[..., :3].reshape(-1, 3)).reshape(Ts[gi], Ts[gi], 3) for gi, t in enumerate(tex_after)]
     views = {}
     for nm, az in (('front', c['pr_az']), ('back', c['pr_az'] + 180.0)):
-        S = view_samples(geoms, az, int(c['pr_res']), c['pr_ortho'])
+        S = view_samples(geoms, az, int(c['pr_res']), c['pr_ortho'], c['pr_el'])
         cs = np.zeros(S['res'] * S['res'])
         cs[S['hit']] = S['cos']
         views[nm] = (sample_view(S, labs_), sample_view(S, pms, -1), sample_view(S, [np.asarray(k, bool) for k in known]), cs.reshape(S['res'], S['res']) >= c['pr_cos_min'])
@@ -1778,6 +1802,8 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
             return {'check': chk, 'refused': True, 'report': None, 'dir': d}
     geoms = TC.load_geoms(glb)
     tex_before = [np.asarray(g['tex']).copy() for g in geoms]
+    _chk6 = PS.read_check(prev_dir) if prev_dir else None
+    cfg, cam_note = pr_camera_from_extra((_chk6 or {}).get('extra'), cfg)               # камера образца узора — из этапа 4
     if known is None:
         known = known_from_photo(geoms)
     parts_note = 'заданы'
@@ -1827,6 +1853,7 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     except Exception as e:  # noqa: BLE001
         rep['pattern_metric'] = {'error': f'{type(e).__name__}: {e}'}
     rep['source_used'], rep['source_tried'] = used, tried
+    rep['pr_camera'] = cam_note
     write_glb(geoms, tex_after, os.path.join(d, 'filled.glb'))
     a = render_ortho(geoms, tex_before, 180.0)
     b = render_ortho(geoms, tex_after, 180.0)
