@@ -118,7 +118,7 @@ def make_spec(keys):
 LEDGER = []
 
 
-def drive(tmp, keys, job_s, job_min, price=0.6, **kw):
+def drive(tmp, keys, job_s, job_min, price=0.6, gw_cls=None, **kw):
     clock = Clock()
     mg, br = MG(), BR(clock)
     KD.gpu_class = lambda MG_, name, tier, fetch=None: ('cls', price)
@@ -135,7 +135,7 @@ def drive(tmp, keys, job_s, job_min, price=0.6, **kw):
     d.update(kw)
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        rc = KD.run_probe(argparse.Namespace(**d), mg, br, make_spec(keys), gw_factory=lambda base, key: GW(clock, job_s), sleep=clock.sleep, clock=clock,
+        rc = KD.run_probe(argparse.Namespace(**d), mg, br, make_spec(keys), gw_factory=lambda base, key: (gw_cls or GW)(clock, job_s), sleep=clock.sleep, clock=clock,
                           slot_check=lambda: None, image_check=lambda *x, **k: (True, 'ok', 1.0), ledger=lambda rec: LEDGER.append(rec))
     p = os.path.join(tmp, 'out', 'summary-kit-loop-t.json')
     return rc, (json.load(open(p)) if os.path.exists(p) else {}), out.getvalue(), br
@@ -186,6 +186,69 @@ with tempfile.TemporaryDirectory() as tmp:
 with tempfile.TemporaryDirectory() as tmp:
     rc, summ, out, br = drive(tmp, 'a', job_s=400.0, job_min=0)
     check('ход задания a: шаг «sampling»' in out, 'ход задания из /health виден в журнале драйвера')
+
+# 7. зависшее задание (урок b1, P3-SAM 21.11: 15 мин молчания): шаг тот же и GPU 0 % дольше порога → гасим по ходу, не ждём потолка
+class GwGpu(GW):
+    gpu = 0.0
+    step_name = 'sampling'
+
+    def call(self, method, path, body=None, timeout=60, raw=False):
+        c, h = super().call(method, path, body, timeout, raw)
+        if path == '/health' and h.get('job'):
+            h['job'].update(gpu_util=self.gpu, gpu_mem_mb=900.0, line='sampler: тишина', step=self.step_name)
+        return c, h
+
+
+class GwGpuBusy(GwGpu):
+    gpu = 88.0
+
+
+class GwStepMoves(GwGpu):
+    def call(self, method, path, body=None, timeout=60, raw=False):
+        self.step_name = f'dit {int(self.clock() // 120)}/25'                  # шаг меняется каждые 2 мин, GPU при этом 0 % (например, CPU-подготовка частями)
+        return super().call(method, path, body, timeout, raw)
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    rc, summ, out, br = drive(tmp, 'a', job_s=10 ** 9, job_min=0, gw_cls=GwGpu, stuck_min=4)
+    check(summ.get('stopped_by') == 'job_stuck' and summ.get('jobs', {}).get('a', {}).get('status') == 'stuck' and summ.get('stop_verified'),
+          f'шаг тот же, GPU 0 % > 4 мин: стоп job_stuck с проверкой ({summ.get("stopped_by")})')
+    check(summ.get('cost_usd_est', 9) < 0.2 and 'зависло' in out and 'sampler: тишина' in out and 'GPU 0.0 %' in out, f'остановка быстро (≈$0.0x, не потолок), в журнале последняя строка и GPU ({summ.get("cost_usd_est")})')
+with tempfile.TemporaryDirectory() as tmp:
+    rc, summ, out, br = drive(tmp, 'a', job_s=900.0, job_min=0, gw_cls=GwGpuBusy, stuck_min=4)
+    check(summ.get('stopped_by') == 'done' and 'зависло' not in out, 'GPU 88 % — считает, не гасим')
+with tempfile.TemporaryDirectory() as tmp:
+    rc, summ, out, br = drive(tmp, 'a', job_s=900.0, job_min=0, gw_cls=GwStepMoves, stuck_min=4)
+    check(summ.get('stopped_by') == 'done' and 'зависло' not in out, 'шаг меняется (GPU 0 %) — не зависло')
+with tempfile.TemporaryDirectory() as tmp:
+    rc, summ, out, br = drive(tmp, 'a', job_s=1500.0, job_min=0, gw_cls=GwGpu, stuck_min=0)
+    check(summ.get('stopped_by') == 'done' and 'зависло' not in out, '--stuck-min 0 выключает сторож')
+with tempfile.TemporaryDirectory() as tmp:
+    rc, summ, out, br = drive(tmp, 'a', job_s=900.0, job_min=0)                 # воркер без GPU в ходе (старый) — GPU None не считаем «нулём»
+    check(summ.get('stopped_by') == 'done' and 'зависло' not in out, 'нет GPU в ходе — по умолчанию не гасим (None не 0 %)')
+
+# 8. до создания группы: воркер без хода задания в коде — отказ, деньги не тратятся
+with tempfile.TemporaryDirectory() as tmp:
+    bad = os.path.join(tmp, 'worker_bad.py')
+    open(bad, 'w', encoding='utf-8').write('import kit_worker as KW\nKW.serve(1)\n')
+    good = os.path.join(tmp, 'worker_good.py')
+    open(good, 'w', encoding='utf-8').write('import kit_worker as KW\nstate.begin_job(j)\nengine.on_step = state.step\n')
+    spec_bad = make_spec('a')
+    spec_bad.worker_file = bad
+    n0 = len(LEDGER)
+    clock = Clock()
+    mg, br = MG(), BR(clock)
+    KD.gpu_class = lambda MG_, name, tier, fetch=None: ('cls', 0.6)
+    a = argparse.Namespace(image='x@sha256:1', suffix='t', tier='high', apply=True, cap=4.0, probe_cap=1.0, max_min=600, running_min=30, start_min=20, health_min=8, ready_min=30,
+                           stall_min=5, stall_gb=0.05, job_min=0, out=os.path.join(tmp, 'out'))
+    o = io.StringIO()
+    with contextlib.redirect_stdout(o):
+        rc = KD.run_probe(a, mg, br, spec_bad, gw_factory=lambda base, key: GW(clock, 10.0), sleep=clock.sleep, clock=clock, slot_check=lambda: None,
+                          image_check=lambda *x, **k: (True, 'ok', 1.0), ledger=lambda rec: LEDGER.append(rec))
+    check(rc == 3 and 'нет живого хода задания' in o.getvalue() and 'денег не потрачено' in o.getvalue() and len(LEDGER) == n0 and not os.path.exists(os.path.join(tmp, 'out')),
+          'воркер без хода: отказ ДО создания группы (код 3), денег нет')
+    check(not KD.worker_progress_refusal(good), 'воркер с begin_job и step проходит')
+    check('не читается' in KD.worker_progress_refusal(os.path.join(tmp, 'нет.py')), 'нет файла воркера — отказ')
 
 # ---- сторож докачки ОБРАЗА (уроки 734/357; проба d2 21.11: 30 мин «downloading», нода медленная)
 def line(rate_pct_min, minutes, start=0.0, step_s=10.0):

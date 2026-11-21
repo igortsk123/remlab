@@ -373,6 +373,45 @@ with tempfile.TemporaryDirectory() as tmp:
     out = subprocess.run([sys.executable] + cmd[1:], env={**os.environ, 'KIT_WORKER_Z': z}, cwd=tmp, capture_output=True, text=True, timeout=30)
     ok(out.stdout.strip() == 'MAIN __main__ make_server kit_worker', f'bundle: код едет в env и выполняется ({out.stdout.strip()!r} {out.stderr[-120:]})')
 
+# ================================================================ ЖИВОЙ ХОД ЗАДАНИЯ (урок b1 21.11, P3-SAM: 15 мин молчания)
+_st = KW.State()
+_st.begin_job('j1')
+_st.step('prep', 'первая строка')
+_st.note('  строка лога модели  ')
+_jv = _st.job_view()
+ok(_jv['step'] == 'prep' and _jv['line'] == 'строка лога модели' and 'gpu_util' in _jv and 'gpu_mem_mb' in _jv and _jv['step_s'] >= 0 and _jv['done'][0][0] == 'старт',
+   'ход задания: шаг, секунды шага, последняя строка, GPU % и память в job_view')
+_st.step('prep', 'вторая')
+ok(_st.job_view()['line'] == 'вторая' and len(_st.job_view()['done']) == 1, 'строка обновляется без смены шага; шаг не дублируется')
+_st.note('x' * 500)
+ok(len(_st.job_view()['line']) == 160, 'строка лога обрезается до 160 знаков (health не раздуваем)')
+_st.end_job()
+ok(_st.job_view() is None, 'нет задания — нет хода')
+_st.step('мимо')
+ok(_st.job is None, 'step/note вне задания молча игнорируются')
+
+class _R:
+    stdout = '87, 23456\n'
+ok(KW.gpu_util_mem(lambda *a, **k: _R()) == (87.0, 23456.0), 'gpu_util_mem разбирает nvidia-smi')
+ok(KW.gpu_util_mem(lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError())) == (None, None), 'нет nvidia-smi — (None, None), не падаем')
+
+_jv = {'id': 'j', 'step': 's1', 'gpu_util': 0.0, 'line': 'тишина'}
+_sl = KD.JobStall(4)
+ok(_sl.step(0, _jv) is None and _sl.step(239, _jv) is None and 'зависло' in (_sl.step(241, _jv) or '') and 'тишина' in (_sl.step(300, _jv) or ''),
+   'JobStall: шаг тот же и GPU 0 % > 4 мин — стоп, в причине последняя строка')
+_sl = KD.JobStall(4)
+_sl.step(0, _jv)
+_sl.step(200, {**_jv, 'gpu_util': 60.0})
+ok(_sl.step(300, _jv) is None and _sl.step(530, _jv) is None and _sl.step(541, _jv) is not None, 'JobStall: всплеск GPU сбрасывает счёт; 4 мин считаются заново и подряд')
+_sl = KD.JobStall(4)
+_sl.step(0, _jv)
+ok(_sl.step(400, {**_jv, 'step': 's2'}) is None and _sl.step(600, {**_jv, 'step': 's2'}) is None and _sl.step(650, {**_jv, 'step': 's2'}) is not None, 'JobStall: смена шага — счёт заново')
+_sl = KD.JobStall(4)
+ok(all(_sl.step(t, {**_jv, 'gpu_util': None}) is None for t in (0, 500, 5000)), 'JobStall: GPU неизвестен — не гасим (None ≠ 0 %)')
+ok(KD.JobStall(0).step(10 ** 6, _jv) is None and KD.JobStall(4).step(10 ** 6, None) is None, 'JobStall: порог 0 — выключен; задания нет — молчим')
+ok(not KD.progress_problems('state.begin_job(j)\nengine.on_step = state.step') and len(KD.progress_problems('print(1)')) == 2, 'progress_problems: begin_job + step обязательны')
+ok(len(KD.progress_problems('state.begin_job(j)')) == 1, 'progress_problems: begin_job без шагов — ловится')
+
 # ================================================================ СТОРОЖ РЕПОЗИТОРИЯ
 SERVES = re.compile(r'ThreadingHTTPServer\(|[^A-Za-z]HTTPServer\(|uvicorn\.run\(|KW\.serve\(|make_server\(')
 KIT_IMPORT = re.compile(r'^\s*(import kit_worker|from kit_worker import)', re.M)

@@ -17,6 +17,7 @@ import base64
 import json
 import os
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -85,6 +86,16 @@ def is_cuda_oom(exc: BaseException) -> bool:
     return type(exc).__name__ == 'OutOfMemoryError' or ('out of memory' in low and 'cuda' in low)
 
 
+def gpu_util_mem(run=None) -> tuple:
+    """Загрузка GPU, % и занятая видеопамять, МБ — по nvidia-smi (то, что видит карта, не torch). Нет nvidia-smi/ответа — (None, None). `run` подставляется в тестах."""
+    try:
+        r = (run or subprocess.run)(['nvidia-smi', '--query-gpu=utilization.gpu,memory.used', '--format=csv,noheader,nounits'], capture_output=True, text=True, timeout=5)
+        u, m = [x.strip() for x in r.stdout.strip().splitlines()[0].split(',')]
+        return float(u), float(m)
+    except Exception:  # noqa: BLE001
+        return None, None
+
+
 class State:
     def __init__(self):
         self.phase = 'weights'
@@ -98,16 +109,25 @@ class State:
 
     def begin_job(self, job_id: str) -> None:
         now = time.time()
-        self.job = {'id': job_id, 't0': now, 'step': 'старт', 'step_t': now, 'done': []}
+        self.job = {'id': job_id, 't0': now, 'step': 'старт', 'step_t': now, 'done': [], 'line': None}
 
-    def step(self, name: str) -> None:
-        """Модель сообщает, на каком шаге она сейчас; прошлый шаг уходит в `done` с длительностью."""
+    def step(self, name: str, line: str | None = None) -> None:
+        """Модель сообщает, на каком шаге она сейчас; прошлый шаг уходит в `done` с длительностью. `line` — последняя строка лога модели (для /health)."""
         j = self.job
-        if j is None or j['step'] == name:
+        if j is None:
+            return
+        if line is not None:
+            j['line'] = str(line).strip()[:160]
+        if j['step'] == name:
             return
         now = time.time()
         j['done'].append([j['step'], round(now - j['step_t'], 1)])
         j['step'], j['step_t'] = name, now
+
+    def note(self, line: str) -> None:
+        """Последняя строка лога модели без смены шага (вывод субпроцесса, прогресс сэмплера)."""
+        if self.job is not None and str(line).strip():
+            self.job['line'] = str(line).strip()[:160]
 
     def end_job(self) -> None:
         self.job = None
@@ -117,7 +137,9 @@ class State:
         if j is None:
             return None
         now = time.time()
-        return {'id': j['id'], 'elapsed_s': round(now - j['t0']), 'step': j['step'], 'step_s': round(now - j['step_t']), 'done': list(j['done'])[-12:]}
+        util, mem = gpu_util_mem()
+        return {'id': j['id'], 'elapsed_s': round(now - j['t0']), 'step': j['step'], 'step_s': round(now - j['step_t']), 'done': list(j['done'])[-12:],
+                'line': j.get('line'), 'gpu_util': util, 'gpu_mem_mb': mem}          # урок b1 21.11 (P3-SAM): 15 мин молчания — шаг, секунды шага, GPU %, последняя строка лога
 
 
 class Watchdog:

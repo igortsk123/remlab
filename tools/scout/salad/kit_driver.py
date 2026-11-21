@@ -363,6 +363,57 @@ PULL_WINDOW_S = 300.0         # темп — по последним 5 мину�
 PULL_MAX_CULLS = 3            # пересадок на запуск (общий бюджет node_health — отдельно)
 
 
+STUCK_MIN = 10.0        # задание «зависло»: шаг не менялся и GPU < STUCK_GPU_PCT непрерывно дольше N мин (урок b1 21.11, P3-SAM: 15 мин молчания). Параметр `--stuck-min`; 0 — выключить
+STUCK_GPU_PCT = 5.0
+
+
+def progress_problems(text: str) -> list[str]:
+    """Воркер платной пробы обязан отдавать живой ход задания (шаг, секунды шага, GPU %, последняя строка) в /health: `begin_job` + `step`/`on_step`/`note`.
+    Без этого «считает или завис» не отличить (b1: 15 мин молчания). Пусто — хода нет в коде воркера."""
+    out = []
+    if 'begin_job(' not in text:
+        out.append('воркер не открывает ход задания (`state.begin_job(id)`) — /health.job будет пуст')
+    if not re.search(r'\.step\(|on_step|\.note\(|set_step\(', text):
+        out.append('воркер не сообщает шаги (`state.step(имя)` / `engine.on_step = state.step`) — не видно, где задание')
+    return out
+
+
+def worker_progress_refusal(path: str) -> str:
+    """'' — ход в коде воркера есть; иначе причина отказа (проверка ДО создания группы, деньги не тратятся). Нет файла — отказ."""
+    try:
+        text = open(path, encoding='utf-8').read()
+    except OSError as exc:
+        return f'код воркера не читается ({path}): {exc}'
+    bad = progress_problems(text)
+    return '; '.join(bad)
+
+
+class JobStall:
+    """Сторож зависшего задания по ходу из /health (`State.job_view`): шаг тот же и GPU < порога подряд дольше `stuck_min` → причина стопа. Время подаёт вызывающий."""
+
+    def __init__(self, stuck_min: float = STUCK_MIN, gpu_pct: float = STUCK_GPU_PCT):
+        self.stuck_s = stuck_min * 60
+        self.gpu_pct = gpu_pct
+        self.key: tuple | None = None
+        self.since: float | None = None
+
+    def step(self, t: float, jv: dict | None) -> str | None:
+        if not self.stuck_s or not jv:
+            self.key = self.since = None
+            return None
+        key = (jv.get('id'), jv.get('step'))
+        util = jv.get('gpu_util')
+        if key != self.key or util is None or util >= self.gpu_pct:
+            self.key, self.since = key, (t if util is not None and util < self.gpu_pct else None)
+            return None
+        if self.since is None:
+            self.since = t
+        if t - self.since >= self.stuck_s:
+            return (f'задание «{jv.get("id")}» зависло: шаг «{jv.get("step")}» не меняется, GPU {util:g} % уже {(t - self.since) / 60:.0f} мин '
+                    f'(порог {self.stuck_s / 60:g} мин); последняя строка: {jv.get("line")}')
+        return None
+
+
 def pull_txt(inst: dict) -> str:
     """« 37%» — доля скачанного образа в минутной строке журнала (d2 21.11: «downloading» без процента — не видно, ползёт или стоит)."""
     p = inst.get('pulling_progress')
@@ -620,6 +671,7 @@ class Spec:
     health_keys: tuple = ('phase', 'root_gb', 'weights', 'cuda', 'error')
     ready_keys: tuple = ('version',)
     z_keys: tuple = ()
+    worker_file: str = ''                                          # код воркера пробы: до создания группы проверяем, что он отдаёт ход задания в /health (урок b1); пусто — проверка не делается (только тесты)
     cuda_archs: tuple = ()                                         # архитектуры CUDA образа ('12.0',): пусто — сверка с картой не делается (урок 742)
 
 
@@ -657,6 +709,12 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
         say('ОТКАЗ:', bad_arch)
         say('группу НЕ создаю, денег не потрачено')
         return 3
+    if spec.worker_file:
+        bad_prog = worker_progress_refusal(spec.worker_file)
+        if bad_prog:
+            say('ОТКАЗ: нет живого хода задания в воркере —', bad_prog)
+            say('группу НЕ создаю, денег не потрачено')
+            return 3
     if spec.preflight:
         ok, why = spec.preflight()
         say('проверки до создания (бесплатно):', why)
@@ -691,6 +749,7 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
     streak = 0
     busy_waits = 0
     last_job_look = 0.0
+    stall = JobStall(getattr(a, 'stuck_min', STUCK_MIN))
     pending = list(spec.jobs)
     cur = None
     last_say = 0.0
@@ -770,7 +829,16 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
                         hc, hb = gw.call('GET', '/health', timeout=20)
                         jv = (hb or {}).get('job') if hc == 200 else None
                         if jv:
-                            say(f'ход задания {cur["key"]}: шаг «{jv.get("step")}» {jv.get("step_s")} с, всего {jv.get("elapsed_s")} с; пройдено {jv.get("done")}')
+                            say(f'ход задания {cur["key"]}: шаг «{jv.get("step")}» {jv.get("step_s")} с, всего {jv.get("elapsed_s")} с, GPU {jv.get("gpu_util")} % / {jv.get("gpu_mem_mb")} МБ; '
+                                f'строка: {jv.get("line")}; пройдено {jv.get("done")}')
+                        elif hc == 200:
+                            say(f'ход задания {cur["key"]}: /health.job пуст — воркер не отдаёт ход (урок b1)')
+                        why_stuck = stall.step(t, jv)
+                        if why_stuck:
+                            say(f'!! {why_stuck} — гашу')
+                            summary['jobs'][cur['key']] = {'status': 'stuck', 'error': why_stuck}
+                            summary['stopped_by'] = 'job_stuck'
+                            break
                     status, info = spec.poll(gw, cur, t)
                     if status == 'running' and a.job_min and t - cur['t0'] > a.job_min * 60:       # job_min=0 (по умолчанию) — задание живёт до потолка пробы; срезать только явным --job-min
                         status, info = 'failed', {'status': 'timeout'}
