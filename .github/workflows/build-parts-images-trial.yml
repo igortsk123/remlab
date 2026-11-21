@@ -1,0 +1,83 @@
+# СБОРКА ОБРАЗОВ МОДЕЛЕЙ ЧАСТЕЙ (P3-SAM, PartLLM) НА GITHUB ACTIONS (Ш5/T-183, сборка T-20261121-179) — не на pakardev (диск общий с базой tamara; решение директора 18.11).
+# Запускается ТОЛЬКО пушем в ветку `trial/sh5-images-1121` (или вручную из неё). Каждый образ — отдельная задача матрицы: свой Dockerfile в tools/scout/salad/parts/, веса внутри образа, пуш в GHCR
+# `ghcr.io/<владелец>/mesh-parts-trial:<имя>`; в сводке шага — digest и СЖАТЫЙ размер по манифесту (порог 30 ГБ, лимит Salad 35). Деплоя и запусков машин нет.
+name: build-parts-images-trial
+
+on:
+  push:
+    branches: ['trial/sh5-images-1121']
+    paths:
+      - 'tools/scout/salad/parts/**'
+      - '.github/workflows/build-parts-images-trial.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-parts-images-trial
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REPO: ghcr.io/${{ github.repository_owner }}/mesh-parts-trial
+  CTX: tools/scout/salad/parts
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/trial/sh5-images-1121'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [p3sam, partllm]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Освободить диск сборщика
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      /usr/share/swift /usr/local/share/powershell /usr/local/julia* || true
+          sudo docker system prune -af || true
+          df -h /
+          FREE_GB=$(df -BG --output=avail / | tail -1 | tr -dc 0-9)
+          echo "свободно: ${FREE_GB} ГБ"
+          [ "$FREE_GB" -ge 45 ] || { echo "::error::после очистки меньше 45 ГБ — образ может не поместиться"; exit 1; }
+
+      - name: Вход в GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Сборка ${{ matrix.name }}
+        run: |
+          set +e
+          IMAGE="$REPO:${{ matrix.name }}"
+          docker build --progress=plain -f "$CTX/Dockerfile.${{ matrix.name }}" -t "$IMAGE" "$CTX" > build.log 2>&1
+          rc=$?
+          tail -60 build.log
+          if [ "$rc" -ne 0 ]; then
+            # логи Actions без токена не читаются — хвост уходит в аннотации (публичный API check-runs) и в сводку шага
+            python3 tools/scout/salad/trellis/ci_annotate.py build.log 96 12
+            exit "$rc"
+          fi
+          SIZE=$(docker image inspect "$IMAGE" --format '{{.Size}}')
+          echo "размер образа (распакованный): $(python3 -c "print(round($SIZE/2**30,2))") ГБ"
+
+      - name: BUILD_INFO из образа
+        run: docker run --rm --entrypoint cat "$REPO:${{ matrix.name }}" /opt/BUILD_INFO_PARTS.txt
+
+      - name: Публикация в GHCR и проверка манифеста
+        run: |
+          IMAGE="$REPO:${{ matrix.name }}"
+          docker push "$IMAGE" || { echo "::error::push не удался"; exit 1; }
+          DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
+          COMPRESSED=$(docker manifest inspect "$DIGEST" 2>/dev/null | python3 -c 'import json,sys; m=json.load(sys.stdin); print(sum(l["size"] for l in m.get("layers",[])))' || echo 0)
+          GB=$(python3 -c "print(round($COMPRESSED/2**30,2))")
+          {
+            echo "### Образ ${{ matrix.name }} (модели частей, веса внутри)"
+            echo "- адрес: \`$IMAGE\`"
+            echo "- digest: \`$DIGEST\`"
+            echo "- сжатый размер в реестре: **${GB} ГБ** (лимит Salad 35, наш порог 30)"
+            echo "- коммит: \`${GITHUB_SHA}\`"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 -c "import sys; sys.exit(1 if $COMPRESSED/2**30 > 30 else 0)" || { echo "::error::образ больше 30 ГБ"; exit 1; }
