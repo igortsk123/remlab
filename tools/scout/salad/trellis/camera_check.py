@@ -2,8 +2,11 @@
 """T-20261119-112/2: проверка этапа 04-камера (план `paint-photo-fill-01`, «Проверка на каждом этапе», владелец TG 187).
 
 Вход — папка прогона `pose_fit.py` (`pose.json`, `stage_loss.json`, `stages/render_view0/mask.png`) и фото. Пишет в `<out>/`:
-  check.json — общий формат `tools/scout/paint_stage.py` (version 1, писатель — он один): stage `04-camera`, главная мерка iou_silhouette ≥ 0,85, edge_agree — справочно (порога нет, пометка edge_below_ref при <0,5); в extra — camera, yaw, pairs, photo
-               (не прошёл — товар идёт нынешним путём, fail-closed);
+  check.json — общий формат `tools/scout/paint_stage.py` (version 1, писатель — он один): stage `04-camera`; passed = IoU И miss И extra (всего кадра и нижней полосы):
+               iou_silhouette (главная), miss («фото не закрыто формой»: доля силуэта фото вне формы), extra («форма вне фото»: доля силуэта формы вне фото), те же две — по нижней
+               полосе (15 % высоты силуэта от низа: плита-подложка, ножки); пороги — `tools/scout/rules/camera-check.json`; edge_agree — справочно (пометка edge_below_ref);
+               если в `<корень>/<sku>/02-prep/check.json` plate_found=true, а среза нет — камера unreliable (passed=false, причина в extra.unreliable_reason);
+               в extra — camera, yaw, pairs, photo (не прошёл — товар идёт нынешним путём, fail-closed);
   frame.png  — «фото поверх рендера»: фото 50 % + рендер формы с камеры 50 %; красный контур — силуэт рендера, зелёный — силуэт фото.
   camera_check.py --run <out-run = <корень прогона>/<sku>> --photo <фото .rgba.png> [--view0 <рендер с камеры .png>] [--yaw N]
 Папка этапа — `<корень>/<sku>/04-camera/` (sku = имя папки out-run, корень = её родитель), как у остальных этапов пути покраски.
@@ -25,14 +28,74 @@ sys.path.insert(0, os.path.normpath(os.path.join(HERE, '..', '..')))
 import stage_loss as SL  # noqa: E402
 import paint_stage as PS  # noqa: E402
 
-IOU_MIN = 0.85    # порог плана paint-photo-fill-01, шаг 1: IoU силуэта фото на кадр камеры
-EDGE_REF = 0.5    # согласие внутренних кромок: СПРАВОЧНАЯ мерка (гейт плана — только IoU силуэта); ниже 0,5 — пометка edge_below_ref, на passed не влияет
+RULES_PATH = os.path.join(HERE, '..', '..', 'rules', 'camera-check.json')
 
 
-def verdict(iou: float, edge: float) -> tuple[bool, str]:
-    if iou < IOU_MIN:
-        return False, f'IoU силуэта {iou:.3f} < {IOU_MIN} — товар идёт нынешним путём'
-    return True, 'камера легла' + (f' (внутренние кромки {edge:.3f} < {EDGE_REF}: справочно, проверить глазами)' if edge < EDGE_REF else '')
+def load_rules(path: str = RULES_PATH) -> dict:
+    with open(path, encoding='utf-8') as f:
+        return json.load(f)
+
+
+def silhouette_shares(S: np.ndarray, A: np.ndarray, strip_frac: float) -> dict:
+    """Две доли несовпадения силуэтов (маски bool одной формы, S — форма с камеры, A — фото в кадре камеры).
+    miss  — доля силуэта ФОТО, не закрытая формой (|A∖S| / |A|); extra — доля силуэта ФОРМЫ вне фото (|S∖A| / |S|).
+    Отдельно по нижней полосе: строки от низа объединения S∪A, высота strip_frac × высота объединения. Пустое с одной стороны — 1,0 (не прятать: фото есть, формы нет — miss 1),
+    пусто с обеих — 0."""
+    S = np.asarray(S, bool)
+    A = np.asarray(A, bool)
+    if S.shape != A.shape:
+        raise ValueError('маски разной формы')
+
+    def sh(num_mask: np.ndarray, den_mask: np.ndarray, other: np.ndarray) -> float:
+        den = int(den_mask.sum())
+        if den == 0:
+            return 1.0 if other.any() else 0.0
+        return float(num_mask.sum()) / den
+
+    U = S | A
+    rows = np.flatnonzero(U.any(axis=1))
+    if rows.size == 0:
+        return {'miss': 0.0, 'extra': 0.0, 'miss_bottom': 0.0, 'extra_bottom': 0.0, 'strip_rows': None}
+    y1 = int(rows[-1])
+    h = y1 - int(rows[0]) + 1
+    y0 = max(y1 - max(1, int(round(strip_frac * h))) + 1, 0)
+    Sb, Ab = S[y0:y1 + 1], A[y0:y1 + 1]
+    return {'miss': sh(A & ~S, A, S), 'extra': sh(S & ~A, S, A),
+            'miss_bottom': sh(Ab & ~Sb, Ab, Sb), 'extra_bottom': sh(Sb & ~Ab, Sb, Ab), 'strip_rows': [y0, y1]}
+
+
+def prep_plate_unreliable(root: str, sku: str) -> tuple[bool, str]:
+    """02-prep: plate_found=true без среза (нет выходного файла и report.written ложно) → камера по такой форме ненадёжна (форма с плитой; IoU по силуэту плиту не видит).
+    Нет check.json этапа 02-prep — не знаем, не флажим (False, '')."""
+    c = PS.read_check(os.path.join(root, PS.safe_name(sku), '02-prep'))
+    if not c:
+        return False, ''
+    pf = ((c.get('metrics') or {}).get('plate_found') or {}).get('value')
+    if pf is None:
+        pf = (c.get('extra') or {}).get('plate_found')
+    if not pf:
+        return False, ''
+    rep = (c.get('extra') or {}).get('report') or {}
+    cut = bool(c.get('outputs')) or bool(rep.get('written'))
+    if cut:
+        return False, ''
+    return True, '02-prep: plate_found=true, среза нет — форма с плитой-подложкой, камера по ней ненадёжна'
+
+
+def verdict(iou: float, shares: dict, edge: float, rules: dict, unreliable: str = '') -> tuple[bool, str]:
+    """→ (ok, причина). Порядок причин: unreliable, IoU, miss/extra кадра, miss/extra нижней полосы. Кромки — только справочная пометка."""
+    bad: list[str] = []
+    if unreliable:
+        bad.append(unreliable)
+    if iou < rules['iou_min']:
+        bad.append(f"IoU силуэта {iou:.3f} < {rules['iou_min']}")
+    for k, lim, what in (('miss', 'miss_max', 'фото не закрыто формой'), ('extra', 'extra_max', 'форма вне фото'),
+                         ('miss_bottom', 'miss_bottom_max', 'фото не закрыто формой внизу'), ('extra_bottom', 'extra_bottom_max', 'форма вне фото внизу')):
+        if shares[k] > rules[lim]:
+            bad.append(f"{what}: {k} {shares[k]:.3f} > {rules[lim]}")
+    if bad:
+        return False, '; '.join(bad) + ' — товар идёт нынешним путём'
+    return True, 'камера легла' + (f" (внутренние кромки {edge:.3f} < {rules['edge_ref']}: справочно, проверить глазами)" if edge < rules['edge_ref'] else '')
 
 
 def main() -> int:
@@ -53,7 +116,9 @@ def main() -> int:
     reg = sl['registration']
     iou = float(reg['iou'])
     edge = float(pose['picked']['edge']['agree'])
-    ok, reason = verdict(iou, edge)
+    rules = load_rules()
+    root, sku = os.path.dirname(run), os.path.basename(run)
+    unrel, unrel_why = prep_plate_unreliable(root, sku) if rules.get('plate_check', True) else (False, '')
 
     S = np.asarray(Image.open(os.path.join(a.run, 'stages', 'render_view0', 'mask.png')).convert('L')) > 127
     h, w = S.shape
@@ -61,6 +126,8 @@ def main() -> int:
     P = np.array(reg['P'], np.float64).reshape(3, 3)
     ph = SL.warp_inv(photo[..., :3], P, (w, h))
     pa = SL.warp_inv((photo[..., 3] > 127).astype(np.uint8) * 255, P, (w, h), interp=cv2.INTER_NEAREST) > 127
+    shares = silhouette_shares(S, pa, rules['strip_frac'])
+    ok, reason = verdict(iou, shares, edge, rules, unrel_why)
     if a.view0 and os.path.exists(a.view0):
         rend = np.asarray(Image.open(a.view0).convert('RGB'))
         if rend.shape[:2] != (h, w):
@@ -77,13 +144,19 @@ def main() -> int:
         cv2.drawContours(blend, cs, -1, col, 2)
     Image.fromarray(blend).save(os.path.join(out, 'frame.png'))
 
-    res = PS.write_check(out, '04-camera', os.path.basename(run),
-                         metric={'name': 'iou_silhouette', 'value': round(iou, 4), 'threshold': IOU_MIN, 'op': '>='},
-                         metrics={'edge_agree': {'value': round(edge, 4)}},
+    def lim(name: str, key: str) -> dict:
+        return {'value': round(shares[name], 4), 'threshold': rules[key], 'op': '<='}
+    res = PS.write_check(out, '04-camera', os.path.basename(run), passed=ok,
+                         metric={'name': 'iou_silhouette', 'value': round(iou, 4), 'threshold': rules['iou_min'], 'op': '>='},
+                         metrics={'miss': lim('miss', 'miss_max'), 'extra': lim('extra', 'extra_max'),
+                                  'miss_bottom': lim('miss_bottom', 'miss_bottom_max'), 'extra_bottom': lim('extra_bottom', 'extra_bottom_max'),
+                                  'edge_agree': {'value': round(edge, 4)}},
                          reason=reason if not ok else '', seconds=round(time.time() - t0, 1), outputs=['frame.png'], frame='frame.png',
-                         edge_ref_min=EDGE_REF, edge_below_ref=bool(edge < EDGE_REF), note=reason if ok else '', camera=pose['camera'], yaw=a.yaw if a.yaw is not None else pose.get('yaw'), pairs=None, photo=a.photo, method=reg.get('method'),
+                         edge_ref_min=rules['edge_ref'], edge_below_ref=bool(edge < rules['edge_ref']), note=reason if ok else '', strip_rows=shares['strip_rows'], strip_frac=rules['strip_frac'],
+                         unreliable=bool(unrel), unreliable_reason=unrel_why, rules_file='tools/scout/rules/camera-check.json',
+                         camera=pose['camera'], yaw=a.yaw if a.yaw is not None else pose.get('yaw'), pairs=None, photo=a.photo, method=reg.get('method'),
                          textured=pose.get('textured'), frame_note='фото 50 % + рендер 50 %; красный контур — рендер формы, зелёный — фото')
-    print(f"{'OK ' if res['passed'] else 'НЕТ'} IoU {iou:.3f} кромки {edge:.3f} — {reason}")
+    print(f"{'OK ' if res['passed'] else 'НЕТ'} IoU {iou:.3f} miss {shares['miss']:.3f}/{shares['miss_bottom']:.3f} extra {shares['extra']:.3f}/{shares['extra_bottom']:.3f} (всё/низ) кромки {edge:.3f} — {reason}")
     return 0
 
 
