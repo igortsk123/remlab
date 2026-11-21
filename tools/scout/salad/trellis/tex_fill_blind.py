@@ -5,7 +5,7 @@
 после снятия света); цвет не подгоняем. Режимы: local — связный кусок ≈35 % допустимого; far — дальняя половина по оси «на камеру»; side — боковые грани (|n·n_front| < 0,5). Симметрия: mirror вкл и выкл.
   python3 tex_fill_blind.py freeze [--margin N] [--spec-win N] <выход> <корень:метка> [<корень:метка> …]      — посчитать и ЗАМОРОЗИТЬ маски (frozen.json с хешами входов и масок + masks.npz)
   python3 tex_fill_blind.py run <выход> <папка frozen> [--cfg '{…}'] [--tag имя] [--modes far,side] [--source trellis_relief --draft-dir <папка>]   — прогнать 07 на замороженных масках (хеши сверяются; расхождение — отказ), метрики и свод
-Метрики на оценочном участке (как в tex_fill_hidden_visible): dE_low (ΔE00 тона), band_ratio (фактура залитого/настоящего, 1 — та же сила, цель ≥0,5 «не гладко»), spec_dist, ori_dist; рисунок: macro_true / macro_fill
+Метрики на оценочном участке (как в tex_fill_hidden_visible): dE_low (ΔE00 тона), band_ratio (фактура залитого/настоящего: ориентир 1 (±: 0,7–1,4); <0,7 — гладче фото, >1,4 — шумнее фото), spec_dist, ori_dist; рисунок: macro_true / macro_fill
 (MAD-σ полосы σ_hi…4σ_hi) и pattern_invented — залитое имеет макро-рисунка заметно больше, чем настоящее (выдумано). Бесплатно (процессор), только под heavy-slot."""
 from __future__ import annotations
 
@@ -24,8 +24,8 @@ import tex_fill as TF  # noqa: E402
 import tex_fill_hidden_visible as HV  # noqa: E402
 from scipy.ndimage import binary_dilation, binary_erosion, distance_transform_edt, label  # noqa: E402
 
-MODES = ('local', 'far', 'side')
-PARAMS = {'margin_px': 6, 'highlight_q': [0.04, 0.96], 'highlight_dilate': 2, 'local_keep_q': 0.65, 'side_cos': 0.5, 'min_blob': 300, 'min_hidden': 800, 'eval_erode': 2, 'seed': 7, 'spec_win': 32}
+MODES = ('local', 'far', 'side', 'wholepart')
+PARAMS = {'margin_px': 6, 'highlight_q': [0.04, 0.96], 'highlight_dilate': 2, 'local_keep_q': 0.65, 'side_cos': 0.5, 'min_blob': 300, 'min_hidden': 800, 'eval_erode': 2, 'seed': 7, 'spec_win': 32, 'wp_min_part': 6000, 'wp_min_donor': 3000, 'wp_max_de': 6.0}
 
 
 def sha_file(path: str) -> str:
@@ -127,6 +127,64 @@ def make_masks(geoms, known, txs) -> dict:
     return {'part': int(part), 'modes': modes, 'why': why, 'front_axis': [round(float(x), 4) for x in nf]}
 
 
+def make_wholepart(geoms, known, txs, roles: dict) -> dict:
+    """Режим wholepart (Codex 21.11, Ш6): прячем ВСЕ известные тексели ОДНОЙ части целиком — как у части зада без фото; она запрещена как донор; у неё должен быть «брат» — часть той же роли, тон близок
+    (ΔE ≤ wp_max_de), известного ≥ wp_min_donor. Часть-мишень: роль задана, известного ≥ wp_min_part, однотонная (σ низких частот ≤ homog_max_std), больше всех известного. Оценочный участок — связный, с отступом от границы части и бликов/теней.
+    → {'part', 'donors', 'hidden': [bool (T,T)] | None, 'eval': [bool (T,T)] | None, 'why'}."""
+    P = PARAMS
+    R = TF.RULES['trellis_relief']
+    ids = sorted({int(p) for tx in txs for p in np.unique(tx.part)})
+    labs = [TF.rgb2lab(np.asarray(g['tex']).reshape(-1, 3)).reshape(tx.T, tx.T, 3) for g, tx in zip(geoms, txs)]
+    cnt, tone = {}, {}
+    for p in ids:
+        sel = [known[gi].reshape(-1)[tx.ti] & (tx.part == p) for gi, tx in enumerate(txs)]
+        cnt[p] = int(sum(x.sum() for x in sel))
+        if cnt[p] >= 200:
+            tone[p] = np.mean(np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[sel[gi]]] for gi, tx in enumerate(txs)]), axis=0)
+    spac = {p: float(np.median(np.concatenate([TF.texel_spacing(tx)[tx.part == p] for tx in txs if (tx.part == p).any()]))) for p in ids if any((tx.part == p).any() for tx in txs)}
+    cands = []
+    for p in ids:
+        if p not in tone or cnt[p] < P['wp_min_part'] or roles.get(p) is None:
+            continue
+        sp = spac.get(p, 0.0)
+        if sp <= 0:
+            continue
+        s_hi = float(np.clip(R['band_hi'] / sp, 4.0, R['sigma_hi_max']))
+        low = np.concatenate([TF._blur_norm(np.repeat(labs[gi][..., 0][..., None], 3, axis=2), known[gi], s_hi)[0][..., 0].reshape(-1)[tx.ti[known[gi].reshape(-1)[tx.ti] & (tx.part == p)]] for gi, tx in enumerate(txs)])
+        if float(low.std()) > R['homog_max_std']:
+            continue                                                    # узорная/неоднотонная часть: макро-рисунок настоящий, переносить нечего — не мишень
+        don = [q for q in ids if q != p and q in tone and cnt[q] >= P['wp_min_donor'] and roles.get(q) == roles.get(p) and float(np.linalg.norm(tone[p] - tone[q])) <= P['wp_max_de']]
+        if don:
+            cands.append((cnt[p], p, don))
+    if not cands:
+        return {'part': -1, 'donors': [], 'hidden': None, 'eval': None, 'why': 'нет части с ролью, однотонной, с братом той же роли и близким тоном'}
+    _, part, don = max(cands)
+    Lall = np.concatenate([labs[gi][..., 0].reshape(-1)[tx.ti][known[gi].reshape(-1)[tx.ti] & (tx.part == part)] for gi, tx in enumerate(txs)])
+    lo, hi = np.quantile(Lall, P['highlight_q'])
+    hid, ev, tot = [], [], 0
+    for gi, tx in enumerate(txs):
+        T = tx.T
+        pm = np.zeros(T * T, bool)
+        pm[tx.ti[tx.part == part]] = True
+        pk = (pm & known[gi].reshape(-1)).reshape(T, T)
+        core = distance_transform_edt(pk) >= P['margin_px']
+        L = labs[gi][..., 0]
+        e = core & ~binary_dilation((L < lo) | (L > hi), iterations=P['highlight_dilate'])
+        lab_, n = label(e)
+        if n:
+            sz = np.bincount(lab_.ravel())
+            keep = sz >= P['min_blob']
+            keep[0] = False
+            e = keep[lab_]
+        hid.append(pk)
+        ev.append(e)
+        tot += int(e.sum())
+    if tot < P['min_hidden']:
+        return {'part': int(part), 'donors': [int(q) for q in don], 'hidden': None, 'eval': None, 'why': f'оценочных текселей {tot} < {P["min_hidden"]}'}
+    return {'part': int(part), 'donors': [int(q) for q in don], 'hidden': hid, 'eval': ev,
+            'why': f'спрятана часть целиком: {int(sum(int(h.sum()) for h in hid))} известных текселей, оценочных {tot}; братья {[int(q) for q in don]}, роль {roles.get(part)}'}
+
+
 def _opts(a: list) -> list:
     """--margin N (отступ, текс.) и --spec-win N (окно спектра) до <выход>; пишутся в frozen.json и возвращаются при run."""
     while len(a) > 2 and a[0] in ('--margin', '--spec-win'):
@@ -136,14 +194,31 @@ def _opts(a: list) -> list:
 
 
 def cmd_freeze(argv: list) -> int:
-    argv = _opts(list(argv))
+    argv = list(argv)
+    wp = '--wholepart' in argv
+    argv = _opts([x for x in argv if x != '--wholepart'])
     out, items = argv[0], argv[1:]
     fd = os.path.join(out, 'frozen')
     os.makedirs(fd, exist_ok=True)
     fz, arrs = {'params': PARAMS, 'code_sha256': sha_file(os.path.join(HERE, 'tex_fill.py')), 'tool_sha256': sha_file(os.path.abspath(__file__)), 'items': []}, {}
     for it in items:
         root, sku = it.rsplit(':', 1)
-        _, _, geoms, known, parts, txs = load_item(root, sku)
+        _, npz_, geoms, known, parts, txs = load_item(root, sku)
+        if wp:
+            w = make_wholepart(geoms, known, txs, TF.roles_from_parts_json(os.path.join(os.path.dirname(npz_), 'parts.json')))
+            rec = {'root': root, 'sku': sku, 'part': w['part'], 'donors': w['donors'], 'inputs': inputs_hash(root, sku), 'modes': {}}
+            if w['hidden'] is None:
+                rec['modes']['wholepart'] = {'skipped': w['why']}
+            else:
+                rec['modes']['wholepart'] = {'why': w['why'], 'sha256': [sha_arr(x) for x in w['hidden']], 'texels': [int(x.sum()) for x in w['hidden']],
+                                             'eval_sha256': [sha_arr(x) for x in w['eval']], 'eval_texels': [int(x.sum()) for x in w['eval']]}
+                for gi, (x, y) in enumerate(zip(w['hidden'], w['eval'])):
+                    arrs[f'{sku}|wholepart|{gi}'] = np.packbits(x)
+                    arrs[f'{sku}|wholepart|{gi}|shape'] = np.array(x.shape)
+                    arrs[f'{sku}|wholepart_eval|{gi}'] = np.packbits(y)
+            fz['items'].append(rec)
+            print(sku, w['why'], flush=True)
+            continue
         m = make_masks(geoms, known, txs)
         rec = {'root': root, 'sku': sku, 'part': m['part'], 'front_axis': m['front_axis'], 'inputs': inputs_hash(root, sku), 'modes': {}}
         for mode, ms in m['modes'].items():
@@ -218,7 +293,7 @@ def cmd_run(argv: list) -> int:
             for mode, md in it['modes'].items():
                 if 'skipped' in md or (modes_only and mode not in modes_only):
                     continue
-                hidden = []
+                hidden, evm = [], []
                 for gi, tx in enumerate(txs):
                     k = f'{sku}|{mode}|{gi}'
                     shp = tuple(Z[k + '|shape'])
@@ -226,6 +301,13 @@ def cmd_run(argv: list) -> int:
                     if sha_arr(h) != md['sha256'][gi]:
                         raise RuntimeError(f'маска {mode}/{gi}: хеш не совпал')
                     hidden.append(h)
+                    if mode == 'wholepart':
+                        e_ = np.unpackbits(Z[f'{sku}|wholepart_eval|{gi}'])[:shp[0] * shp[1]].astype(bool).reshape(shp)
+                        if sha_arr(e_) != md['eval_sha256'][gi]:
+                            raise RuntimeError(f'оценочная маска wholepart/{gi}: хеш не совпал')
+                        evm.append(e_)
+                    else:
+                        evm.append(h)
                 geoms_h, kn_h = [], []
                 for gi, g in enumerate(geoms):
                     tex = np.asarray(g['tex']).copy()
@@ -234,6 +316,8 @@ def cmd_run(argv: list) -> int:
                     kn_h.append(known[gi] & ~hidden[gi])
                 for sym in (True, False):
                     cfg = dict({'erode_known': 0}, **cfgb)
+                    if mode == 'wholepart' and cfg.get('part_role') is None:
+                        cfg['part_role'] = TF.roles_from_parts_json(os.path.join(os.path.dirname(npz), 'parts.json'))      # как в проде (run_stage): роли этапа 3 → донор тона и заимствование
                     dr = None
                     if draft_g is not None:
                         cfg['source'] = source
@@ -241,7 +325,7 @@ def cmd_run(argv: list) -> int:
                     res = TF.fill(geoms_h, kn_h, parts, cfg=cfg, mirror=sym, draft=dr)
                     agg = {}
                     for gi, tx in enumerate(txs):
-                        ev = binary_erosion(hidden[gi], iterations=PARAMS['eval_erode'])
+                        ev = binary_erosion(evm[gi], iterations=PARAMS['eval_erode'])
                         if ev.sum() < 100:
                             continue
                         lf = TF.rgb2lab(res['tex'][gi].reshape(-1, 3)).reshape(tx.T, tx.T, 3)
@@ -257,6 +341,11 @@ def cmd_run(argv: list) -> int:
                     if 'macro_true' in rec:
                         rec['pattern_invented'] = bool(rec['macro_fill'] > 1.5 * rec['macro_true'] + 0.5)
                     rec['no_patch'] = res['report'].get('no_patch')
+                    if mode == 'wholepart':
+                        rep_ = res['report']
+                        rec['texture_src'] = (rep_.get('texture_src') or {}).get(part)
+                        rec['borrowed_from'] = (rep_.get('borrowed') or {}).get(part)
+                        rec['tone_from'] = ((rep_.get('tone_from_neighbour') or {}).get(part) or {}).get('donor')
                     recs.append(rec)
                     print(json.dumps(rec, ensure_ascii=False), flush=True)
         except Exception as e:  # noqa: BLE001 — один сбой не рушит пакет, счётчик отказов в итоге
@@ -268,14 +357,14 @@ def cmd_run(argv: list) -> int:
             f.write(json.dumps(r, ensure_ascii=False) + '\n')
     good = [r for r in recs if 'error' not in r]
     lines = [f'метка {tag} · код tex_fill {sha_file(os.path.join(HERE, "tex_fill.py"))[:12]} (заморожено на {fz["code_sha256"][:12]}) · записей {len(good)} · ошибок {bad}',
-             'режим · симметрия · n · dE_low (меньше лучше) · band_ratio (цель ≥0,5; 1 — как фото) · доля band_ratio≥0,5 · spec_dist · ori_dist · macro заливка/фото · выдуман рисунок']
+             'режим · симметрия · n · dE_low (меньше лучше) · band_ratio (ориентир 1: 0,7–1,4 — как фото) · доля в 0,7–1,4 / гладче / шумнее · spec_dist · ori_dist · macro заливка/фото · выдуман рисунок']
     for mode in MODES:
         for sym in (True, False):
             rs = [r for r in good if r['mode'] == mode and r['mirror'] == sym]
             if not rs:
                 continue
             mean = lambda k: float(np.mean([r[k] for r in rs if r.get(k) is not None])) if any(r.get(k) is not None for r in rs) else float('nan')  # noqa: E731
-            lines.append(f"{mode:<5} · зеркало {'вкл ' if sym else 'выкл'} · n={len(rs)} · dE_low {mean('dE_low'):5.2f} · band {mean('band_ratio'):4.2f} · ≥0,5: {100 * np.mean([r['band_ratio'] >= 0.5 for r in rs]):3.0f} % · spec {mean('spec_dist'):5.3f} · ori {mean('ori_dist'):5.3f} · macro {mean('macro_fill'):4.2f}/{mean('macro_true'):4.2f} · выдуман {100 * np.mean([bool(r.get('pattern_invented')) for r in rs]):3.0f} %")
+            lines.append(f"{mode:<5} · зеркало {'вкл ' if sym else 'выкл'} · n={len(rs)} · dE_low {mean('dE_low'):5.2f} · band {mean('band_ratio'):4.2f} · в 0,7–1,4: {100 * np.mean([0.7 <= r['band_ratio'] <= 1.4 for r in rs]):3.0f} % (гладче {100 * np.mean([r['band_ratio'] < 0.7 for r in rs]):3.0f} %, шумнее {100 * np.mean([r['band_ratio'] > 1.4 for r in rs]):3.0f} %) · spec {mean('spec_dist'):5.3f} · ori {mean('ori_dist'):5.3f} · macro {mean('macro_fill'):4.2f}/{mean('macro_true'):4.2f} · выдуман {100 * np.mean([bool(r.get('pattern_invented')) for r in rs]):3.0f} %")
     txt = '\n'.join(lines)
     with open(os.path.join(out, f'summary-{tag}.txt'), 'w', encoding='utf-8') as f:
         f.write(txt + '\n')
