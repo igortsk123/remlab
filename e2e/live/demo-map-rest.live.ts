@@ -648,7 +648,17 @@ test("2.44 «во весь экран»: свайп вбок — соседни�
     const photo0 = await page.evaluate("VW.photo") as number;
     // кнопки «⤢ во весь экран» над фото нет с 07.11 (владелец TG 522, T-65): во весь экран — клик (тап) по самому фото
     if (label === "компьютер") await page.locator("#shot .shotwrap img.vmain").click();
-    else await page.locator("#shot .shotwrap img.vmain").tap();
+    else {
+      // тап — тап, если за 150 мс до него лента не прокручивалась (`vwTapZoom`, защита от «тапа в конце прокрутки»); после переключения в «фото» сайт сам
+      // доводит фото до середины (`vwPhotoFocus`: scrollLeft 352 → 136, ~0,5 с) — тап в эти мгновения окна не открывает (T-115/3: 3 круга из 3 без паузы — нет окна,
+      // с паузой 0,7 с — 3 из 3 открыто). Ждём, пока прокрутка встанет, как живой человек
+      let prev = -1;
+      await expect.poll(async () => {
+        const cur = (await page.evaluate("document.querySelector('#shot .shotwrap img.vmain').parentElement.scrollLeft")) as number;
+        const same = cur === prev; prev = cur; return same;
+      }, { message: "лента фото перестала прокручиваться", intervals: [300], timeout: 10_000 }).toBe(true);
+      await page.locator("#shot .shotwrap img.vmain").tap();
+    }
     await expect(page.locator("#vzoom")).toHaveClass(/\bon\b/);
     const st = () => page.evaluate(() => {
       const z = document.getElementById("vzoom")!;

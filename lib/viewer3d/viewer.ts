@@ -36,7 +36,7 @@ import { renderThumbs } from "@/lib/viewer3d/thumbs";
 import { SwapGhosts, standsOn } from "@/lib/viewer3d/swap-ghost";
 import { buildRoom, buildSurroundings } from "@/lib/viewer3d/rooms";
 import { boxPoints, livePitchDeg, liveSpot, lookPitchRange, LIVE_EYE_CM, type LiveBand, type LivePoint } from "@/lib/viewer3d/live-eye";
-import { canStand, frameSpot, inRooms, nearestStandable, obstacleDistanceCm, walkArea, walkRoomAt, type WalkArea } from "@/lib/viewer3d/walk";
+import { blocksWalk, canStand, frameSpot, inRooms, nearestStandable, obstacleDistanceCm, walkArea, walkRoomAt, type WalkArea } from "@/lib/viewer3d/walk";
 import { followRoute, newRoute, planRoute, slideStep, type RouteState, type SlideMemo } from "@/lib/viewer3d/walk-motion";
 import { chooseAim, seeThroughWins, type WalkHits } from "@/lib/viewer3d/walk-aim";
 import { createWalkMarker, placeWalkMarker, pulseWalkMarker, type WalkMarker } from "@/lib/viewer3d/walk-marker";
@@ -528,7 +528,7 @@ export class FlatViewer {
     // набор санузла описан коробкой на всю комнату (сантехника внутри расставляется кодом) — его след не препятствие;
     // производное (ТВ над тумбой) стоит на тумбе или висит на стене — препятствие уже тумба
     this.area = walkArea(this.apartment, 28, all
-      .filter((sp) => !isFlatOnSurface(sp) && sp.kind !== "bathroom" && !isExtra(sp.slotId) && sp.placement.hCm > 10)
+      .filter((sp) => !isFlatOnSurface(sp) && sp.kind !== "bathroom" && !isExtra(sp.slotId) && blocksWalk(sp.placement))
       .map((sp) => ({ x: sp.placement.x, y: sp.placement.y, w: sp.placement.wCm, d: sp.placement.dCm, rot: sp.placement.rot, h: sp.placement.hCm })));
     // счётчик считаем ЗАНОВО на каждой синхронизации: раньше он копился между вызовами и
     // «загружено» обгоняло «всего» — процент прыгал выше 100 (находка советника 30.09)
@@ -1489,7 +1489,7 @@ export class FlatViewer {
     const inRoom = [...this.placed.values()].filter((p) => p.spec.roomId === roomId);
     // ковёр и плоское — пол, а не препятствие (как у прогулки): с ковром из витрины в /flat (demo-05 п.9) середина комнаты и
     // середины стен считались «занятыми», и старт оставался у торца ТВ-тумбы
-    const obstacles = inRoom.filter((p) => !isFlatOnSurface(p.spec) && p.spec.placement.hCm > 10).map((p) => p.spec.placement);
+    const obstacles = inRoom.filter((p) => !isFlatOnSurface(p.spec) && blocksWalk(p.spec.placement)).map((p) => p.spec.placement);
     // Расстояние до ПРЯМОУГОЛЬНИКА предмета, а не до круга вокруг него: кухонная линия
     // 340×60 «кругом» занимала всю комнату, и любая точка считалась занятой (кадр 29.09).
     // ВЫСОКОЕ — ДАЛЬШЕ (demo-05 п.5: /flat стартовал вплотную к торшеру, абажур на уровне глаз закрывал треть кадра): от
