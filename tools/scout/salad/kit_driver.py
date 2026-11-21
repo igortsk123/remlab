@@ -434,6 +434,31 @@ def ledger_total(since: str = '', path: str | None = None) -> float:
     return round(total, 4)
 
 
+def ledger_window(seconds: float = 86400, path: str | None = None, now: float | None = None) -> tuple[int, float]:
+    """(число проб, сумма `cost_usd_est`) за последние `seconds` секунд — для общего отчёта денег (`money_guard.heartbeat`)."""
+    p = path or ledger_path()
+    since = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime((now if now is not None else time.time()) - seconds))
+    n, total = 0, 0.0
+    try:
+        for line in open(p, encoding='utf-8'):
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if str(r.get('ts', '')) >= since:
+                n += 1
+                total += float(r.get('cost_usd_est') or 0)
+    except OSError:
+        pass
+    return n, round(total, 2)
+
+
+def ledger_line(seconds: float = 86400, path: str | None = None, now: float | None = None) -> str:
+    """Одна строка для отчёта: «пробы Salad за сутки: N, ≈$X» (счёт проб отдельный, итог читает общий отчёт)."""
+    n, usd = ledger_window(seconds, path, now)
+    return f'пробы Salad за сутки: {n} шт ≈ ${usd:.2f}'
+
+
 # ---------------------------------------------------------------- общий цикл пробы
 @dataclass
 class Spec:

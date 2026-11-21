@@ -213,6 +213,8 @@ with tempfile.TemporaryDirectory() as tmp:
     ok(KD.ledger_append({'group': 'a', 'cost_usd_est': 0.2}, p) is None and KD.ledger_append({'group': 'b', 'cost_usd_est': 0.3}, p) is None, 'учёт: две строки записаны')
     ok(len(open(p).read().splitlines()) == 2 and abs(KD.ledger_total('', p) - 0.5) < 1e-9, 'учёт: сумма расходов')
     ok(KD.ledger_total('2999-01-01', p) == 0.0, 'учёт: окно по дате')
+    ok(KD.ledger_window(86400, p) == (2, 0.5) and KD.ledger_line(86400, p) == 'пробы Salad за сутки: 2 шт ≈ $0.50', 'учёт: сводка за сутки для общего отчёта')
+    ok(KD.ledger_window(86400, p, now=time.time() + 3 * 86400) == (0, 0.0) and KD.ledger_window(1, os.path.join(tmp, 'нет.jsonl')) == (0, 0.0), 'учёт: старше окна и нет файла — ноль')
     os.environ['SALAD_PROBE_LEDGER'] = '/proc/nope/x.jsonl'
     ok('учёт не записан' in (KD.ledger_append({'a': 1}) or ''), 'учёт: ошибка записи видна, а не глотается')
     del os.environ['SALAD_PROBE_LEDGER']

@@ -596,6 +596,17 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
 weights_slow = KD.weights_slow                                     # скорость докачки весов — одна на все пробы (kit_driver)
 
 
+def slot_wrap_argv(a, argv: list[str], env=None) -> list[str] | None:
+    """Боевой запуск (`--apply`) обязан идти под heavy-slot --prio 2 (набор: kit_driver.require_slot). Не под слотом — команда, которая перезапустит этот же драйвер
+    под слотом (иначе пакет падал бы с кодом 4); уже под слотом, разбор без --apply или явный --no-slot — None (перезапуск не нужен). Ожидание очереди — до HEAVY_SLOT_WAIT_S (по умолчанию 4 ч)."""
+    env = os.environ if env is None else env
+    if not getattr(a, 'apply', False) or env.get('HEAVY_SLOT_HELD') or env.get('HEAVY_SLOT_NOSLOT'):
+        return None
+    heavy = os.path.join(SCOUT, '..', 'ops', 'heavy-slot.sh')
+    return [heavy, f'sg-salad-{a.suffix}', '--prio', '2', '--cores', '1', '--min-gb', '1', '--timeout', str(int(env.get('HEAVY_SLOT_WAIT_S', '14400'))),
+            '--', sys.executable, os.path.abspath(__file__)] + argv
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--image', help='образ группы: тег или digest, ghcr.io/igortsk123/mesh-comfy-trial:stablegen-0460')
@@ -635,6 +646,11 @@ def main() -> int:
         sys.exit('нужен --runs <товар>[@форма][+cut-метка]:<вариант>[,…] (товар по умолчанию в коде запрещён, T-20261120-147)')
     if not a.image or ('@' not in a.image and ':' not in a.image):
         sys.exit('нужен --image: тег или digest с именем репозитория')
+    wrapped = slot_wrap_argv(a, sys.argv[1:])
+    if wrapped:                                                   # не под слотом — перезапуск под heavy-slot --prio 2 (без него набор отказал бы кодом 4)
+        say('перезапуск под heavy-slot --prio 2:', os.path.basename(wrapped[0]), wrapped[1])
+        sys.stdout.flush()
+        os.execv(wrapped[0], wrapped)
     return run(a, MG, BR, ledger=KD.ledger_append, image_check=KD.check_image, slot_check=KD.require_slot)
 
 
