@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 python3
     && rm -rf /var/lib/apt/lists/* && ln -sf /usr/bin/python3 /usr/local/bin/python
 RUN python -m pip install --upgrade pip setuptools wheel
 RUN pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cu121
-RUN pip install "numpy<2" scipy scikit-learn addict timm "huggingface_hub<1.0" safetensors viser fpsample trimesh numba pillow tqdm \
+RUN pip install "numpy<2" scipy scikit-learn addict timm "huggingface_hub<1.0" safetensors viser fpsample trimesh numba pillow tqdm omegaconf \
     && pip install spconv-cu120 \
     && pip install "https://data.pyg.org/whl/torch-2.4.0+cu121/torch_scatter-2.1.2+pt24cu121-cp310-cp310-linux_x86_64.whl" \
     && pip install --no-deps "https://github.com/Dao-AILab/flash-attention/releases/download/v2.6.3/flash_attn-2.6.3+cu123torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl"
@@ -24,7 +24,7 @@ RUN python -c "from huggingface_hub import hf_hub_download as h; print(h('facebo
 RUN test -s /opt/weights/hy3d-part/p3sam/p3sam.safetensors && test -s /root/sonata/sonata.pth && du -sh /opt/weights /root/sonata \
     && { echo "P3-SAM: Hunyuan3D-Part ${CODE_COMMIT}; p3sam ${P3SAM_REV}; sonata ${SONATA_REV}; torch 2.4.0+cu121 py3.10"; python -m pip list 2>/dev/null | grep -i -E "^(torch|spconv|flash|numpy|timm|huggingface|fpsample|numba|trimesh) " | tr -s " "; } > /opt/BUILD_INFO_PARTS.txt
 # проверка импортов без видеокарты — НЕ валит сборку (на машине без CUDA часть модулей может не грузиться); итог в BUILD_INFO
-RUN { python -c "import sys; sys.path.insert(0,'/opt/Hunyuan3D-Part/XPart/partgen'); import torch, spconv.pytorch, torch_scatter, flash_attn, fpsample, numba, trimesh; from models import sonata; print('импорты P3-SAM ok, torch', torch.__version__)" || echo 'ПРЕДУПРЕЖДЕНИЕ: импорт без видеокарты не прошёл (проверка — на живой машине)'; } 2>&1 | tee -a /opt/BUILD_INFO_PARTS.txt
+RUN { python -c "import sys; sys.path.insert(0,'/opt/Hunyuan3D-Part/XPart/partgen'); import torch, spconv.pytorch, torch_scatter, flash_attn, fpsample, numba, trimesh; from models import sonata; from utils.misc import smart_load_model; print('импорты P3-SAM ok, torch', torch.__version__)" || echo 'ПРЕДУПРЕЖДЕНИЕ: импорт без видеокарты не прошёл (проверка — на живой машине)'; } 2>&1 | tee -a /opt/BUILD_INFO_PARTS.txt
 RUN printf '#!/bin/bash\ncd /opt/Hunyuan3D-Part/P3-SAM/demo && exec python auto_mask.py --ckpt_path /opt/weights/hy3d-part/p3sam/p3sam.safetensors "$@"\n' > /usr/local/bin/p3sam-auto && chmod +x /usr/local/bin/p3sam-auto
 COPY worker_parts.py /app/worker_parts.py
 ENV HF_HUB_OFFLINE=1 HF_HOME=/data/hf OUT_DIR=/data/out MODEL=p3sam PORT=8000

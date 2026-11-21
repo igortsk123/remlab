@@ -21,11 +21,11 @@ say = TT.say
 MODELS = ('p3sam', 'partllm')
 
 
-def build_body(name, image, tier, model, cpu, mem_mb, auth):
+def build_body(name, image, tier, model, cpu, mem_mb, auth, pre=''):
     env = {'MODEL': model, 'HF_HOME': '/data/hf', 'OUT_DIR': '/data/out', 'PORT': str(TT.PORT), 'NVIDIA_DRIVER_CAPABILITIES': 'all',
            'DEPLOYMENT_EPOCH': f'20261121-{name}', 'IMAGE_NOTE': image.split('@')[-1][:19]}
     # код воркера едет в `command` (как у trellis_trial): образ не пересобирается; в образе лежит та же копия (/app/worker_parts.py) как запасная
-    cmd, z = TT.worker_command(os.path.join(HERE, 'worker_parts.py'), python='python')
+    cmd, z = TT.worker_command(os.path.join(HERE, 'worker_parts.py'), python='python', pre=pre)
     env['TRIAL_WORKER_Z'] = z
     return {'name': name, 'display_name': name,
             'container': {'image': image, 'command': cmd, 'resources': {'cpu': cpu, 'memory': mem_mb, 'gpu_classes': [TT.CARD['class_id']], 'storage_amount': 40 * 2 ** 30, 'shm_size': 2048},
@@ -77,6 +77,7 @@ def main() -> int:
     ap.add_argument('--health-min', type=int, default=12, help='минут от started до первого ответа /health')
     ap.add_argument('--ready-min', type=int, default=25, help='минут от started до phase=ready')
     ap.add_argument('--job-timeout', type=int, default=15)
+    ap.add_argument('--pre', default='', help='команда перед воркером (временная заплатка к образу, напр. pip install; в отчёт — отдельной строкой)')
     ap.add_argument('--params', default='{}', help='JSON параметров модели (POST /run params)')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--stop-only', action='store_true')
@@ -96,7 +97,7 @@ def main() -> int:
     src = 'живая'
     if price is None:
         price, src = TT.price_usd_h(a.tier), 'СНИМОК'
-    body = build_body(name, a.image, a.tier, a.model, a.cpu, a.mem_mb, MG.ghcr_auth())
+    body = build_body(name, a.image, a.tier, a.model, a.cpu, a.mem_mb, MG.ghcr_auth(), a.pre)
     say('группа', name, TT.CARD['class_name'], 'тариф', a.tier, 'цена $/ч', price, f'[{src}]', 'мешей', len(items), 'потолок $', a.cap)
     if not a.apply:
         b = json.loads(json.dumps(body))
