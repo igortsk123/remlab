@@ -41,6 +41,20 @@ def stage_status(run: str, sku: str, stage: str, check_rules: dict) -> dict:
     return PC.classify_stage(stage, chk, check_rules, run)
 
 
+def product_record(a: dict, sku: str) -> dict | None:
+    """Запись товара из выгрузки каталога (`--catalog`, JSON-список или одна запись {sid, name, role, params} — тот же формат, что `material_class.py build --input`
+    и `product.json` этапа 8; чтение каталога здесь не дублируется — файл готовит тот же путь). Нет файла или товара → None."""
+    p = a.get('catalog')
+    if not p:
+        return None
+    with open(p, encoding='utf-8') as f:
+        data = json.load(f)
+    for r in data if isinstance(data, list) else [data]:
+        if r.get('sid') == sku:
+            return {'sid': sku, 'name': r.get('name') or '', 'role': r.get('role') or '', 'params': r.get('params') or {}}
+    return None
+
+
 def make_ctx(run: str, sku: str, a: dict, rules: dict, stage_dones: dict | None = None) -> dict:
     root = a.get('root') or os.path.abspath(os.path.join(HERE, '..', '..'))
     home = os.path.expanduser('~')
@@ -48,9 +62,33 @@ def make_ctx(run: str, sku: str, a: dict, rules: dict, stage_dones: dict | None 
     ctx = {'py': os.path.join(home, 'venvs', 'scout', 'bin', 'python'), 'blender': os.path.join(home, 'opt', 'blender-4.5.9', 'blender'),
            'root': root, 'run': run, 'sku': sku, 'sku_dir': os.path.join(run, PS.safe_name(sku)), 'work': work,
            'prep_glb': os.path.join(work, sku + '-n1024.glb'), 'native': a.get('native', ''), 'photo': a.get('photo', ''),
-           'product_role': a.get('product_role', ''), 'channels': a.get('channels', ''), 'cam_az_args': ''}
+           'channels': a.get('channels', ''), 'cam_az_args': [], '_record': product_record(a, sku)}
+    ctx['product_role'] = a.get('product_role') or (ctx['_record'] or {}).get('role', '')
+    ctx['photo_cam'], ctx['photo_vis'], ctx['body_only_args'] = ctx['photo'], ctx['photo'], []
     ctx.update(rules.get('paths', {}))
     return ctx
+
+
+def dynamic_ctx(run: str, sku: str, ctx: dict, rules: dict) -> dict:
+    """Значения, зависящие от ФАКТИЧЕСКИХ check.json предыдущих этапов (правила — `rules.dynamic`, по порядку, поздние видят ранние):
+    `from_extra [этап, ключ]` — значение из extra (нет → fallback); `file_if_ok [этап, файл]` — файл этапа, если этап passed, мерка не N/A и файл есть (иначе fallback);
+    `if_extra_true [этап, ключ]` + `args` — список аргументов, если флаг в extra истинный."""
+    out = dict(ctx)
+    base = os.path.join(run, PS.safe_name(sku))
+    for key, d in rules.get('dynamic', {}).items():
+        if 'from_extra' in d:
+            chk = PS.read_check(os.path.join(base, d['from_extra'][0])) or {}
+            out[key] = (chk.get('extra') or {}).get(d['from_extra'][1]) or out[d['fallback']]
+        elif 'file_if_ok' in d:
+            st, fn = d['file_if_ok']
+            chk = PS.read_check(os.path.join(base, st)) or {}
+            path = os.path.join(base, st, fn)
+            usable = chk.get('passed') and not (chk.get('metric') or {}).get('na') and os.path.exists(path)
+            out[key] = path if usable else out[d['fallback']]
+        elif 'if_extra_true' in d:
+            chk = PS.read_check(os.path.join(base, d['if_extra_true'][0])) or {}
+            out[key] = list(d['args']) if (chk.get('extra') or {}).get(d['if_extra_true'][1]) else []
+    return out
 
 
 def cam_az_args(run: str, sku: str, check_rules: dict, rules: dict) -> list:
@@ -79,13 +117,14 @@ def _subst(argv: list, ctx: dict) -> list:
 def resolve_steps(stage: dict, ctx: dict, extra: dict | None = None) -> list:
     """Шаги этапа с подставленными путями: [{argv, heavy, retry_extra}]. Пустое `{channels}`/`{product_role}` — соответствующие флаги выпадают (`optional`)."""
     steps = []
+    ctx = {**ctx, **(extra or {})}
     for s in stage.get('steps', []):
         argv = []
         for tok in s['argv']:
-            if tok == '{cam_az_args}':
-                argv += (extra or {}).get('cam_az_args', [])
-                continue
             m = _PH.fullmatch(tok)
+            if m and isinstance(ctx.get(m.group(1)), list):
+                argv += [str(x) for x in ctx[m.group(1)]]                   # {cam_az_args}, {body_only_args}: список аргументов (пустой — ничего)
+                continue
             if m and m.group(1) in ('channels', 'product_role') and not ctx.get(m.group(1)):
                 if argv and argv[-1].startswith('--'):
                     argv.pop()                                              # убрать и сам флаг без значения
@@ -98,6 +137,8 @@ def resolve_steps(stage: dict, ctx: dict, extra: dict | None = None) -> list:
 def resolve_files(stage: dict, ctx: dict) -> dict:
     """Служебные файлы этапа (манифест, product.json): {путь: содержимое}; строки внутри проходят те же подстановки."""
     def sub(o):
+        if o == '$product_record':
+            return ctx['_record']
         if isinstance(o, str):
             return _PH.sub(lambda m: str(ctx[m.group(1)]), o)
         if isinstance(o, list):
@@ -116,6 +157,13 @@ def _heavy(step: dict, name: str, ctx: dict, rules: dict) -> list:
             '--min-gb', str(h.get('min_gb', 3)), '--cores', str(h.get('cores', 2)), '--'] + step['argv']
 
 
+def _tolerated(run: str, sku: str, need: str, st: dict) -> bool:
+    """Отказ нужного этапа не блокирует этот, если в его extra истинен флаг из `needs_tolerate` (напр. 04 bottom_shape_mismatch: корпус лёг, низ — нет → 06 идёт с --body-only)."""
+    flags = st.get('needs_tolerate', {}).get(need, [])
+    chk = PS.read_check(os.path.join(run, PS.safe_name(sku), need)) or {}
+    return any((chk.get('extra') or {}).get(f) for f in flags)
+
+
 def plan(run: str, sku: str, a: dict, rules: dict, check_rules: dict, only: list | None = None) -> list:
     """Чистое решение «что и в каком порядке» по текущим check.json: [{stage, action: run|skip|blocked|pending, why, steps}] — без запуска."""
     ctx = make_ctx(run, sku, a, rules)
@@ -131,8 +179,12 @@ def plan(run: str, sku: str, a: dict, rules: dict, check_rules: dict, only: list
         blocked = []
         for n in st.get('needs', []):
             s = state.get(n) or stage_status(run, sku, n, check_rules)['status']
+            if s == 'refused' and _tolerated(run, sku, n, st):
+                continue
             if s in ('refused', 'missing'):
                 blocked.append(f'{n}: {s}')
+        if st.get('needs_catalog') and ctx['_record'] is None and not blocked:
+            blocked.append('нет записи товара в каталоге (--catalog: JSON с {sid, name, role, params}; params не выдумываем)')
         item = {'stage': name, 'produces': produces, 'steps': [], 'why': ''}
         if blocked:
             item.update(action='blocked', why='; '.join(blocked))
@@ -147,8 +199,9 @@ def plan(run: str, sku: str, a: dict, rules: dict, check_rules: dict, only: list
             for h in have:
                 state[h['stage']] = h['status']
         else:
-            extra = {'cam_az_args': cam_az_args(run, sku, check_rules, rules)}
-            item.update(action='run', steps=resolve_steps(st, ctx, extra), files=resolve_files(st, ctx))
+            dctx = dynamic_ctx(run, sku, ctx, rules)
+            dctx['cam_az_args'] = cam_az_args(run, sku, check_rules, rules)
+            item.update(action='run', steps=resolve_steps(st, dctx), files=resolve_files(st, dctx))
             for p in produces:
                 state[p] = 'ok'                                             # оптимистично: настоящий статус — после запуска
         res.append(item)
@@ -218,6 +271,7 @@ def main(argv: list) -> int:
     ap.add_argument('--product-role', default='')
     ap.add_argument('--channels', default='')
     ap.add_argument('--root', default='')
+    ap.add_argument('--catalog', default='', help='выгрузка каталога: JSON-список (или одна запись) {sid, name, role, params}; нужен этапу 8, тип товара берётся оттуда, если нет --product-role')
     ap.add_argument('--only', default='')
     ap.add_argument('--force', action='store_true')
     ap.add_argument('--heavy', action='store_true', help='тяжёлые шаги — через tools/ops/heavy-slot.sh (на pakardev всегда включать)')
@@ -225,7 +279,7 @@ def main(argv: list) -> int:
     a = ap.parse_args(argv)
     rules, cr = load_rules(), PC.load_rules()
     only = [x for x in a.only.split(',') if x] or None
-    d = {'native': a.native, 'photo': a.photo, 'product_role': a.product_role, 'channels': a.channels, 'root': a.root, 'force': a.force, 'heavy': a.heavy}
+    d = {'native': a.native, 'photo': a.photo, 'product_role': a.product_role, 'channels': a.channels, 'root': a.root, 'catalog': a.catalog, 'force': a.force, 'heavy': a.heavy}
     if a.cmd == 'status':
         for name in rules['order']:
             for p in rules['stages'][name]['produces']:

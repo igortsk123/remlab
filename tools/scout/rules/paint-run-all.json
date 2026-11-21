@@ -1,73 +1,343 @@
 {
   "_about": "ЧТО запускать на каждом этапе пути покраски (T-20261121-169/4). Код обвязки paint_run_all.py ничего не знает про этапы: порядок, команды, зависимости (`needs` — этапы, чей статус отказ/нет блокирует этот), служебные файлы — здесь. Подстановки {…}: py, blender, root, run, sku, sku_dir, work, prep_glb, native, photo, product_role, channels, cam_az_args. Пустые {product_role}/{channels} выпадают вместе со своим флагом.",
-  "_unverified": "Команды собраны по шапкам/CLI скриптов на ветках (sg_prep_shape, sg_color_transfer stages, pose_fit, camera_check, parts_sam, paint_delight, tex_visible, material_stage), НЕ запускались. Сомнительные места до первого запуска: (1) вход этапов 5/6 — берут ли они выход предыдущего этапа или prep_glb; (2) product.json этапа 8 — настоящие params каталога; (3) этап 6 флаг --body-only при bottom_shape_mismatch; (4) этап 7 — команда не подключена (tex_fill.run_stage + parts_from_npz у р.3).",
+  "_unverified": "Команды собраны по шапкам/CLI скриптов на ветках, НЕ запускались. Сомнительное до первого запуска: (1) этап 7 — ветка paint-fill-1120 (f137a675) должна быть влита; (2) запись каталога (`--catalog`): сопоставление sid == sku точное; (3) порядок 04 до 03 — роли берут азимут камеры только при passed 4; (4) parts.npz этапа 3 и GLB этапа 6 — одно число граней (проверено на 3 формах out30-v3: 149999 = 149999, одна геометрия; для многогеометрийных этап 7 сам даст ValueError → rc 2).",
   "heavy_slot": "tools/ops/heavy-slot.sh",
   "camera_stage": "04-camera",
-  "order": ["01-02", "04", "03", "05", "06", "07", "08", "09"],
+  "order": [
+    "01-02",
+    "04",
+    "03",
+    "05",
+    "06",
+    "07",
+    "08",
+    "09"
+  ],
   "_order_note": "04 стоит ДО 03: роли частей берут фронт (азимут) из камеры, и только если этап 4 passed. Нумерация папок этапов от этого не меняется.",
   "stages": {
     "01-02": {
-      "produces": ["01-trellis", "02-prep"],
+      "produces": [
+        "01-trellis",
+        "02-prep"
+      ],
       "needs": [],
       "steps": [
-        {"argv": ["{blender}", "-b", "-P", "{root}/tools/scout/stablegen/sg_prep_shape.py", "--", "--glb", "{native}", "--out", "{prep_glb}", "--faces", "150000", "--color-from", "{native}", "--presmooth", "3"],
-         "heavy": {"prio": 1, "min_gb": 6, "cores": 2}, "retry_extra": ["--color-size", "4096"]},
-        {"argv": ["{py}", "{root}/tools/scout/stablegen/sg_color_transfer.py", "stages", "--run", "{run}", "--sku", "{sku}", "--native", "{native}", "--out", "{prep_glb}"]}
+        {
+          "argv": [
+            "{blender}",
+            "-b",
+            "-P",
+            "{root}/tools/scout/stablegen/sg_prep_shape.py",
+            "--",
+            "--glb",
+            "{native}",
+            "--out",
+            "{prep_glb}",
+            "--faces",
+            "150000",
+            "--color-from",
+            "{native}",
+            "--presmooth",
+            "3"
+          ],
+          "heavy": {
+            "prio": 1,
+            "min_gb": 6,
+            "cores": 2
+          },
+          "retry_extra": [
+            "--color-size",
+            "4096"
+          ]
+        },
+        {
+          "argv": [
+            "{py}",
+            "{root}/tools/scout/stablegen/sg_color_transfer.py",
+            "stages",
+            "--run",
+            "{run}",
+            "--sku",
+            "{sku}",
+            "--native",
+            "{native}",
+            "--out",
+            "{prep_glb}"
+          ]
+        }
       ]
     },
     "04": {
-      "produces": ["04-camera"],
-      "needs": ["02-prep"],
+      "produces": [
+        "04-camera"
+      ],
+      "needs": [
+        "02-prep"
+      ],
       "steps": [
-        {"argv": ["{py}", "{root}/tools/scout/salad/trellis/pose_fit.py", "--glb", "{prep_glb}", "--photo", "{photo}", "--out-run", "{sku_dir}"],
-         "heavy": {"prio": 1, "min_gb": 4, "cores": 2}},
-        {"argv": ["{py}", "{root}/tools/scout/salad/trellis/camera_check.py", "--run", "{sku_dir}", "--photo", "{photo}"]}
+        {
+          "argv": [
+            "{py}",
+            "{root}/tools/scout/salad/trellis/pose_fit.py",
+            "--glb",
+            "{prep_glb}",
+            "--photo",
+            "{photo}",
+            "--out-run",
+            "{sku_dir}"
+          ],
+          "heavy": {
+            "prio": 1,
+            "min_gb": 4,
+            "cores": 2
+          }
+        },
+        {
+          "argv": [
+            "{py}",
+            "{root}/tools/scout/salad/trellis/camera_check.py",
+            "--run",
+            "{sku_dir}",
+            "--photo",
+            "{photo}"
+          ]
+        }
       ]
     },
     "03": {
-      "produces": ["03-parts"],
-      "needs": ["02-prep"],
+      "produces": [
+        "03-parts"
+      ],
+      "needs": [
+        "02-prep"
+      ],
       "steps": [
-        {"argv": ["{blender}", "-b", "-P", "{root}/tools/assets/parts_orbit_blender.py", "--", "{prep_glb}", "{work}/orbit"], "heavy": {"prio": 1, "min_gb": 4, "cores": 2}},
-        {"argv": ["{py}", "-I", "{root}/tools/assets/parts_sam.py", "run", "--glb", "{prep_glb}", "--orbit", "{work}/orbit", "--run", "{run}", "--sku", "{sku}", "--product-role", "{product_role}", "--channels", "{channels}", "{cam_az_args}"],
-         "heavy": {"prio": 1, "min_gb": 6, "cores": 4}}
+        {
+          "argv": [
+            "{blender}",
+            "-b",
+            "-P",
+            "{root}/tools/assets/parts_orbit_blender.py",
+            "--",
+            "{prep_glb}",
+            "{work}/orbit"
+          ],
+          "heavy": {
+            "prio": 1,
+            "min_gb": 4,
+            "cores": 2
+          }
+        },
+        {
+          "argv": [
+            "{py}",
+            "-I",
+            "{root}/tools/assets/parts_sam.py",
+            "run",
+            "--glb",
+            "{prep_glb}",
+            "--orbit",
+            "{work}/orbit",
+            "--run",
+            "{run}",
+            "--sku",
+            "{sku}",
+            "--product-role",
+            "{product_role}",
+            "--channels",
+            "{channels}",
+            "{cam_az_args}"
+          ],
+          "heavy": {
+            "prio": 1,
+            "min_gb": 6,
+            "cores": 4
+          }
+        }
       ]
     },
     "05": {
-      "produces": ["05-delight"],
-      "needs": ["02-prep"],
-      "write_files": {"{work}/manifest05.json": [{"sku": "{sku}", "path": "{prep_glb}"}]},
+      "produces": [
+        "05-delight"
+      ],
+      "needs": [
+        "04-camera"
+      ],
+      "write_files": {
+        "{work}/manifest05.json": [
+          {
+            "sku": "{sku}",
+            "path": "{photo_cam}"
+          }
+        ]
+      },
       "steps": [
-        {"argv": ["{py}", "{root}/tools/scout/paint_delight.py", "run", "{run}", "{work}/manifest05.json"], "heavy": {"prio": 1, "min_gb": 4, "cores": 2}}
-      ]
+        {
+          "argv": [
+            "{py}",
+            "{root}/tools/scout/paint_delight.py",
+            "run",
+            "{run}",
+            "{work}/manifest05.json"
+          ],
+          "heavy": {
+            "prio": 1,
+            "min_gb": 4,
+            "cores": 2
+          }
+        }
+      ],
+      "needs_tolerate": {
+        "04-camera": [
+          "bottom_shape_mismatch"
+        ]
+      }
     },
     "06": {
-      "produces": ["06-visible"],
-      "needs": ["04-camera", "05-delight"],
+      "produces": [
+        "06-visible"
+      ],
+      "needs": [
+        "02-prep",
+        "04-camera",
+        "05-delight"
+      ],
       "steps": [
-        {"argv": ["{py}", "{root}/tools/scout/salad/trellis/tex_visible.py", "{prep_glb}", "{photo}", "{sku_dir}", "{run}", "{sku}"], "heavy": {"prio": 1, "min_gb": 4, "cores": 2}}
-      ]
+        {
+          "argv": [
+            "{py}",
+            "{root}/tools/scout/salad/trellis/tex_visible.py",
+            "{body_only_args}",
+            "{prep_glb}",
+            "{photo_vis}",
+            "{sku_dir}",
+            "{run}",
+            "{sku}"
+          ],
+          "heavy": {
+            "prio": 1,
+            "min_gb": 4,
+            "cores": 2
+          }
+        }
+      ],
+      "needs_tolerate": {
+        "04-camera": [
+          "bottom_shape_mismatch"
+        ]
+      }
     },
     "07": {
-      "produces": ["07-fill"],
-      "needs": ["03-parts", "06-visible"],
-      "pending": "команда не подключена: ждёт tex_fill.run_stage с parts_from_npz(run, sku) у р.3 — этап 7 остаётся без check.json, 08 и итог «нет этапа»",
-      "steps": []
+      "produces": [
+        "07-fill"
+      ],
+      "needs": [
+        "03-parts",
+        "06-visible"
+      ],
+      "steps": [
+        {
+          "argv": [
+            "{py}",
+            "-I",
+            "{root}/tools/scout/salad/trellis/tex_fill.py",
+            "run_stage",
+            "{run}",
+            "{sku}"
+          ],
+          "heavy": {
+            "prio": 1,
+            "min_gb": 4,
+            "cores": 2
+          }
+        }
+      ],
+      "_about": "вход по умолчанию — <sku>/06-visible/{visible.glb, known*.png, check.json} и <sku>/03-parts/parts.npz (р.3, f137a675); rc 0 = отработал (отказ тоже 0), rc 2 = сбой; выход 07-fill/{filled.glb, report.json, frame.png, check.json}"
     },
     "08": {
-      "produces": ["08-material"],
-      "needs": ["03-parts", "07-fill"],
-      "write_files": {"{work}/product.json": {"sid": "{sku}", "name": "{sku}", "role": "{product_role}", "params": {}}},
+      "produces": [
+        "08-material"
+      ],
+      "needs": [
+        "03-parts",
+        "07-fill"
+      ],
+      "write_files": {
+        "{work}/product.json": "$product_record"
+      },
       "steps": [
-        {"argv": ["{py}", "{root}/tools/assets/material_stage.py", "stage", "--glb", "{prep_glb}", "--run", "{run}", "--sku", "{sku}", "--product", "{work}/product.json", "--parts-dir", "{sku_dir}/03-parts"], "heavy": {"prio": 1, "min_gb": 4, "cores": 2}}
-      ]
+        {
+          "argv": [
+            "{py}",
+            "{root}/tools/assets/material_stage.py",
+            "stage",
+            "--glb",
+            "{sku_dir}/07-fill/filled.glb",
+            "--run",
+            "{run}",
+            "--sku",
+            "{sku}",
+            "--product",
+            "{work}/product.json",
+            "--parts-dir",
+            "{sku_dir}/03-parts"
+          ],
+          "heavy": {
+            "prio": 1,
+            "min_gb": 4,
+            "cores": 2
+          }
+        }
+      ],
+      "needs_catalog": true
     },
     "09": {
-      "produces": ["09-check"],
+      "produces": [
+        "09-check"
+      ],
       "needs": [],
       "steps": [
-        {"argv": ["{py}", "{root}/tools/scout/paint_check.py", "run", "{run}", "{sku}"], "heavy": {"prio": 1, "min_gb": 3, "cores": 2}}
+        {
+          "argv": [
+            "{py}",
+            "{root}/tools/scout/paint_check.py",
+            "run",
+            "{run}",
+            "{sku}"
+          ],
+          "heavy": {
+            "prio": 1,
+            "min_gb": 3,
+            "cores": 2
+          }
+        }
       ]
     }
-  }
+  },
+  "dynamic": {
+    "photo_cam": {
+      "from_extra": [
+        "04-camera",
+        "photo"
+      ],
+      "fallback": "photo"
+    },
+    "photo_vis": {
+      "file_if_ok": [
+        "05-delight",
+        "delight.rgba.png"
+      ],
+      "fallback": "photo_cam"
+    },
+    "body_only_args": {
+      "if_extra_true": [
+        "04-camera",
+        "bottom_shape_mismatch"
+      ],
+      "args": [
+        "--body-only"
+      ]
+    }
+  },
+  "_dynamic_about": "Зависящее от факта: photo_cam — фото камеры этапа 4 (его extra.photo); photo_vis — фото для этапа 6: результат этапа 5 (delight.rgba.png), если 05 passed и мерка не N/A, иначе исходное фото камеры; body_only_args — `--body-only` для этапа 6, если 04 дал bottom_shape_mismatch (общее правило, директор 21.11)."
 }

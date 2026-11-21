@@ -128,6 +128,58 @@ try:
 except KeyError:
     ok(True, 'неизвестная подстановка — ошибка до запуска')
 
+# 7б. входы по факту: фото камеры из extra.photo 04, фото для 6 — результат 05 или исходное; --body-only при bottom_shape_mismatch; допуск отказа 04 по этому флагу
+def put(run, sku, stage, passed, metric=None, **extra):
+    d = PS.stage_dir(run, sku, stage)
+    PS.write_check(d, stage, sku, passed=passed, metric=metric or {'name': 'm', 'value': 1.0, 'threshold': 0.5, 'op': '>=', 'ok': passed}, reason='' if passed else 'не прошёл', **extra)
+    return d
+
+
+with tempfile.TemporaryDirectory() as run:
+    ctx0 = RA.make_ctx(run, 'k', dict(A, photo='orig.png'), REAL)
+    d = RA.dynamic_ctx(run, 'k', ctx0, REAL)
+    ok(d['photo_cam'] == 'orig.png' and d['photo_vis'] == 'orig.png' and d['body_only_args'] == [], 'ничего ещё нет → фото исходное, --body-only нет')
+    put(run, 'k', '04-camera', True, photo='cam.png')
+    d = RA.dynamic_ctx(run, 'k', ctx0, REAL)
+    ok(d['photo_cam'] == 'cam.png' and d['photo_vis'] == 'cam.png', 'фото камеры — extra.photo этапа 4; без этапа 5 фото для 6 то же')
+    d5 = put(run, 'k', '05-delight', True, metric={'name': 'iid_shading_removed', 'value': 0.2, 'threshold': 0.5, 'op': '<=', 'ok': True, 'na': False})
+    open(os.path.join(d5, 'delight.rgba.png'), 'wb').write(b'x')
+    d = RA.dynamic_ctx(run, 'k', ctx0, REAL)
+    ok(d['photo_vis'] == os.path.join(d5, 'delight.rgba.png'), '05 passed, не N/A, файл есть → этап 6 берёт снятое фото')
+    put(run, 'k', '05-delight', True, metric={'name': 'iid_shading_removed', 'value': 0.9, 'threshold': 0.5, 'op': '<=', 'ok': None, 'na': True})
+    ok(RA.dynamic_ctx(run, 'k', ctx0, REAL)['photo_vis'] == 'cam.png', '05 N/A → исходное фото камеры')
+    put(run, 'k', '05-delight', False, metric={'name': 'iid_shading_removed', 'value': 0.9, 'threshold': 0.5, 'op': '<=', 'ok': False, 'na': False})
+    ok(RA.dynamic_ctx(run, 'k', ctx0, REAL)['photo_vis'] == 'cam.png', '05 не прошёл (мягко) → исходное фото камеры')
+
+with tempfile.TemporaryDirectory() as run:
+    for stg in ('01-trellis', '02-prep'):
+        put(run, 'k', stg, True)
+    put(run, 'k', '04-camera', False, photo='cam.png', bottom_shape_mismatch=True)
+    pl = {i['stage']: i for i in RA.plan(run, 'k', dict(A, photo='o.png'), REAL, CR)}
+    ok(pl['05']['action'] == 'run', '04 отказ с bottom_shape_mismatch: 05 идёт (допуск отказа по флагу)')
+    put(run, 'k', '05-delight', True, metric={'name': 'x', 'value': 1, 'threshold': 2, 'op': '<=', 'ok': True, 'na': True})
+    pl = {i['stage']: i for i in RA.plan(run, 'k', dict(A, photo='o.png'), REAL, CR)}
+    cmd = pl['06']['steps'][0]['argv']
+    ok(pl['06']['action'] == 'run' and '--body-only' in cmd and 'cam.png' in cmd, '04 bottom_shape_mismatch + 05 готов → 06 с --body-only и фото камеры')
+    put(run, 'k', '04-camera', False, photo='cam.png')
+    pl = {i['stage']: i for i in RA.plan(run, 'k', dict(A, photo='o.png'), REAL, CR)}
+    ok(pl['06']['action'] == 'blocked' and '04-camera' in pl['06']['why'], '04 отказ по иной причине → 05/06 заблокированы')
+
+# 7в. каталог: тип и params — из записи; нет записи — этап 8 заблокирован, params не выдумываются
+with tempfile.TemporaryDirectory() as run:
+    cat = os.path.join(run, 'cat.json')
+    json.dump([{'sid': 'k', 'name': 'Комод', 'role': 'комод', 'params': {'Материал фасада': 'МДФ'}}, {'sid': 'o', 'name': 'x', 'role': 'диван', 'params': {}}], open(cat, 'w'))
+    rec = RA.product_record({'catalog': cat}, 'k')
+    ok(rec == {'sid': 'k', 'name': 'Комод', 'role': 'комод', 'params': {'Материал фасада': 'МДФ'}}, 'запись товара из каталога по sid')
+    ok(RA.product_record({'catalog': cat}, 'нет') is None and RA.product_record({}, 'k') is None, 'нет товара/каталога → None')
+    ok(RA.make_ctx(run, 'k', dict(A, catalog=cat), REAL)['product_role'] == 'комод', 'тип товара берётся из каталога, если не задан')
+    for stg in ('03-parts', '07-fill'):
+        put(run, 'k', stg, True)
+    pl = {i['stage']: i for i in RA.plan(run, 'k', dict(A, catalog=cat), REAL, CR)}
+    ok(pl['08']['action'] == 'run' and list(pl['08']['files'].values())[0]['params'] == {'Материал фасада': 'МДФ'}, 'этап 8: product.json из записи каталога (params настоящие)')
+    pl = {i['stage']: i for i in RA.plan(run, 'k', A, REAL, CR)}
+    ok(pl['08']['action'] == 'blocked' and 'каталог' in pl['08']['why'], 'каталога нет → этап 8 заблокирован с понятной причиной')
+
 # 8. настоящие правила: целостность
 names = set(REAL['stages'])
 ok(set(REAL['order']) == names, 'order и stages совпадают')
@@ -141,7 +193,9 @@ ok(not re.search(r'\b\d{9,}\b', txt), 'ID товаров в коде и прав
 with tempfile.TemporaryDirectory() as run:
     pl = RA.plan(run, 'k', dict(A, product_role='комод'), REAL, CR)
     acts = {i['stage']: i['action'] for i in pl}
-    ok(len(pl) == 8 and acts['07'] == 'pending' and acts['08'] == 'blocked' and acts['09'] == 'run' and acts['01-02'] == 'run', 'настоящий план строится без запуска: 07 не подключён → 08 заблокирован, 09 идёт')
+    ok(len(pl) == 8 and acts['07'] == 'run' and acts['08'] == 'blocked' and acts['09'] == 'run' and acts['01-02'] == 'run', 'настоящий план строится без запуска: 07 подключён; 08 без каталога заблокирован, 09 идёт')
+    c07 = [i for i in pl if i['stage'] == '07'][0]['steps'][0]['argv']
+    ok(c07[-4:] == ['tex_fill.py', 'run_stage', run, 'k'] or c07[-3:] == ['run_stage', run, 'k'], 'команда этапа 7: tex_fill.py run_stage <run> <sku>')
 
 print(f'paint_run_all: ошибок {FAIL}')
 sys.exit(1 if FAIL else 0)
