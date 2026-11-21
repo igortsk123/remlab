@@ -130,17 +130,21 @@ class Roles(unittest.TestCase):
         v, f, part = assemble([box(0, 1.0, 0, 1.0, 0.06, 1.0, n=20), box(0, 0.4, 0, 0.4, 0.8, 0.4, n=10)])   # плита и толстая тумба
         r = pr.assign_roles(feats(v, f, part, {0: "body", 1: "body"}), self.rules, "стол обеденный", {"legs"})
         self.assertEqual(r[0]["role"], "top")
-        self.assertEqual(r[1]["role"], "unknown")                           # тумба — материал другой части каталог не называет
+        self.assertEqual(r[1]["role"], "unknown")                           # у стола body нет вовсе: тумба — материал каталог не называет
         self.assertEqual(r[1]["unknown_reason"], "body_scope")
 
     def test_thick_plinth_under_sofa_is_unclear(self):
         body = box(0, 0.6, 0, 1.0, 0.8, 0.6, n=24)                          # главная часть над полом
         plinth = box(0, 0.1, 0, 0.45, 0.2, 0.3, n=12)                        # толстый цоколь на полу — ни ножки, ни обивка наверняка
         v, f, part = assemble([body, plinth])
-        r = pr.assign_roles(feats(v, f, part, {0: "body", 1: "body"}), self.rules, "диван", {"legs"})
+        lab = np.zeros((len(f), 3))
+        lab[part == 1] = [30, 0, 0]                                         # цоколь заметно темнее обивки — вето снимает body
+        r = pr.assign_roles(feats(v, f, part, {0: "body", 1: "body"}, lab=lab), self.rules, "диван", {"legs"})
         self.assertEqual(r[0]["role"], "body")
         self.assertEqual(r[1]["role"], "unknown")
         self.assertEqual(r[1]["unknown_reason"], "support_unclear")
+        r2 = pr.assign_roles(feats(v, f, part, {0: "body", 1: "body"}, lab=np.zeros((len(f), 3))), self.rules, "диван", {"legs"})
+        self.assertEqual(r2[1]["role"], "body")                             # тот же цвет — повода сомневаться нет
 
     def test_merged_legs_with_stretchers_are_legs(self):
         top = box(0, 1.0, 0, 1.0, 0.06, 1.0, n=40)
