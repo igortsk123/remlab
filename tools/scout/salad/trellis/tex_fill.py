@@ -498,7 +498,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     ctr, size = frame_of(geoms)
     offs = np.cumsum([0] + [len(g['V']) for g in geoms])
     Pall = (np.concatenate([np.asarray(g['V'], np.float64) for g in geoms]) - ctr) / size
-    txs, labs, kn, tex_in = [], [], [], []
+    txs, labs, kn, tex_in, kn_keep = [], [], [], [], []
     for gi, g in enumerate(geoms):
         T = _grid(g)
         tx = Tex(g, Pall[offs[gi]:offs[gi + 1]], T, None if parts is None else parts[gi], c['cross_islands'])
@@ -506,11 +506,13 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         if rgb.shape[0] != T:
             raise ValueError('текстура больше сетки карты (cap) — загрузите с её размером')
         k = np.asarray(known[gi], bool).copy()
+        k0 = k & ~unpainted_mask(rgb)                      # известное этапа 6 и покрашенное — НЕ перезаписывается никогда (правило «заливка не меняет известное»)
         if c['erode_known'] > 0:
             k = binary_erosion(k, iterations=int(c['erode_known']))
         k &= ~unpainted_mask(rgb)
         txs.append(tx)
         kn.append(k)
+        kn_keep.append(k0)
         tex_in.append(rgb)
         labs.append(rgb2lab(rgb.reshape(-1, 3)).reshape(T, T, 3))
     rep = {'geoms': [], 'parts': {}, 'mirror': None, 'fallback_global': 0, 'no_patch': 0, 'time_s': {}}
@@ -904,7 +906,7 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         rgb = tex_in[gi].copy()
         new = lab2rgb(out_lab[gi].reshape(-1, 3)[tx.ti])
         new = np.where((new.max(axis=1) <= BLACK_MAX)[:, None], np.maximum(new, BLACK_MAX + 1), new)    # тёмное — не «чёрное непокрашенное»: сторож охвата считает ≤ порога дырой
-        keepk = kn[gi].reshape(-1)[tx.ti]
+        keepk = kn_keep[gi].reshape(-1)[tx.ti]
         rgb.reshape(-1, 3)[tx.ti[~keepk]] = new[~keepk]
         occ = np.zeros((T, T), bool)
         occ.reshape(-1)[tx.ti] = True
@@ -1049,13 +1051,25 @@ def render_ortho(geoms: list, texs: list, azimuth: float = 180.0, res: int = 102
 
 # ---------------------------------------------------------------- этап 07 пути покраски: выход, проверка, кадр ----
 STAGE = '07-fill'
-THRESHOLDS = {                                   # пороги этапа (check.json): плана R1 — ΔE00 перёд↔зад ≤ 5–6; «ступени» — предварительно, уточнить по прогонам
-    'empty_pct': ('<=', 0.5),                    # ОБЩЕЕ «не закрашено» после заливки (все тексели, дно и зад тоже), % — решение директора 20.11, порог ≈0,5 %
-    'dE00_front_back': ('<=', 6.0),              # перёд↔зад одной части: худшая из частей, у которых известного ≥ 1 % известного предмета
-    'filled_faces_step_pct': ('<=', 10.0),       # доля достроенных граней со скачком цвета к соседу той же части (ΔE00 > FILL['step_de'])
-    'far_excess_pct': ('<=', 10.0),              # мера пятен: доля достроенных текселей с ΔE00 > far_de от цвета части МИНУС та же доля у видимых (фактура фото не «пятно»)
-    'time_s': ('<=', 120.0),                     # план R1: < 2 мин на товар
-}
+RULES_PATH = os.environ.get('FILL_RULES') or os.path.join(HERE, '..', '..', 'rules', 'paint-fill.json')
+
+
+def load_rules(path: str | None = None) -> dict:
+    """Правила этапа 07 — `tools/scout/rules/paint-fill.json` (пороги check.json, ΔE «известное изменилось»); нет ключа — KeyError."""
+    import json
+    with open(path or RULES_PATH, encoding='utf-8') as f:
+        r = json.load(f)
+    for k in ('thresholds', 'known_change_de'):
+        if k not in r:
+            raise KeyError(f'rules/paint-fill.json: нет ключа {k!r}')
+    for k in ('empty_pct', 'dE00_front_back', 'filled_faces_step_pct', 'far_excess_pct', 'known_changed_share_pct', 'time_s'):
+        if k not in r['thresholds']:
+            raise KeyError(f'rules/paint-fill.json: threshold {k!r} не задан')
+    return r
+
+
+RULES = load_rules()
+THRESHOLDS = {k: (v[0], float(v[1])) for k, v in RULES['thresholds'].items()}   # пороги этапа (check.json) из rules/paint-fill.json: ΔE00 перёд↔зад (худшая часть с известным ≥ 1 %), ступени, пятна, «известное не изменено» (0), время
 
 
 def parts_from_geometry(geoms: list):
@@ -1145,6 +1159,19 @@ def write_glb(geoms: list, texs: list, dst: str) -> None:
     sc.export(dst)
 
 
+def known_changed_share(known: list, before: list, after: list, de_min: float) -> dict:
+    """Доля известных этапу 6 (и покрашенных) текселей, цвет которых после заливки изменился больше de_min (ΔE00) — по правилу заливка их не трогает, ожидаем 0. → {'share_pct', 'known', 'changed'}."""
+    tot, chg = 0, 0
+    for k, b, a in zip(known, before, after):
+        kk = np.asarray(k, bool) & ~unpainted_mask(b.reshape(-1, 3)).reshape(b.shape[:2])
+        tot += int(kk.sum())
+        diff = kk & np.any(np.asarray(a)[..., :3] != np.asarray(b)[..., :3], axis=2)
+        if diff.any():
+            la, lb = rgb2lab(np.asarray(a)[..., :3][diff]), rgb2lab(np.asarray(b)[..., :3][diff])
+            chg += int((TC.de2000_v(la, lb) > de_min).sum())
+    return {'share_pct': round(100.0 * chg / max(tot, 1), 4), 'known': tot, 'changed': chg}
+
+
 def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=None, cfg: dict | None = None, thresholds: dict | None = None, mirror: bool = True, draft_glb: str | None = None, out_name: str | None = None, parts_npz: str | None = None) -> dict:
     """Этап 07 «докрасить невидимое»: GLB (текстура = фото на видимом) → `<run>/<sku>/07-fill/` {filled.glb, report.json, frame.png (az180 до | после), check.json}.
     `known` — маска «видно с камеры фото» по геометриям (нет — из `known_from_photo`: az0/az45); `parts` — части граней (нет — `parts_from_geometry`). Не прошёл (check.json passed=false) — товар дальше не идёт.
@@ -1193,6 +1220,8 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     else:
         pick, used = one(cfg, draft), ((cfg or {}).get('source') or 'stat')
     rep, tex_after, de, big, de_worst = pick['rep'], pick['tex'], pick['de'], pick['big'], pick['de_worst']
+    kchg = known_changed_share(known, tex_before, tex_after, RULES['known_change_de'])
+    rep['known_changed'] = kchg
     rep['source_used'], rep['source_tried'] = used, tried
     write_glb(geoms, tex_after, os.path.join(d, 'filled.glb'))
     a = render_ortho(geoms, tex_before, 180.0)
@@ -1204,6 +1233,7 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
         'dE00_front_back': {'value': de_worst, 'threshold': th['dE00_front_back'][1], 'op': th['dE00_front_back'][0]},
         'filled_faces_step_pct': {'value': rep['steps']['after']['filled_faces_step_pct'], 'threshold': th['filled_faces_step_pct'][1], 'op': th['filled_faces_step_pct'][0]},
         'far_excess_pct': {'value': rep['far_pct']['excess'], 'threshold': th['far_excess_pct'][1], 'op': th['far_excess_pct'][0]},
+        'known_changed_share_pct': {'value': kchg['share_pct'], 'threshold': th['known_changed_share_pct'][1], 'op': th['known_changed_share_pct'][0]},
         'time_s': {'value': round(secs, 1), 'threshold': th['time_s'][1], 'op': th['time_s'][0]},
     }
     for m in metrics.values():

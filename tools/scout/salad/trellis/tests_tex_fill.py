@@ -510,6 +510,32 @@ def test_quilt_holes():
     ok(out['report']['no_patch'] == 0 and out['report']['unpainted_after_pct'] == 0.0, 'после заливки пустого нет')
 
 
+def test_known_unchanged():
+    print('правило «заливка не меняет известное этапу 6» (known_changed_share_pct = 0, пороги из rules/paint-fill.json):')
+    import tempfile
+    import paint_stage as PS
+    ok(TF.THRESHOLDS['known_changed_share_pct'] == ('<=', 0.0) and TF.RULES['known_change_de'] > 0, 'порог 0 и ΔE изменения берутся из rules/paint-fill.json')
+    q = Quads()
+    q.quad([[-0.5, 0, 0], [0.5, 0, 0], [0.5, 1, 0], [-0.5, 1, 0]], (0, 0, .9, .9), sub=8)
+    q.quad([[-0.5, 0, -0.4], [0.5, 0, -0.4], [0.5, 1, -0.4], [-0.5, 1, -0.4]], (.9, .9, 1.0, 1.0), sub=2)
+    tex = np.zeros((T, T, 3), np.uint8)
+    m = tile_mask((0, 0, .9, .9))
+    ys, xs = np.nonzero(m)
+    tex[ys, xs] = np.stack([(120 + (xs * 7 + ys * 3) % 60).astype(np.uint8), np.full(len(xs), 140, np.uint8), np.full(len(xs), 200, np.uint8)], 1)    # известное — с рисунком
+    g = q.geom(tex)
+    with tempfile.TemporaryDirectory() as td:
+        TF.write_glb([g], [tex], os.path.join(td, 'in.glb'))
+        r = TF.run_stage(td, 'sku:k', os.path.join(td, 'in.glb'), known=[m], parts=None, cfg={'gutter': 0}, mirror=False)           # erode_known по умолчанию (3): образцы без края, но перезаписи известного нет
+        mt = r['check']['metrics']['known_changed_share_pct']
+        ok(mt['value'] == 0.0 and mt['ok'] and mt['threshold'] == 0.0, f'известное не изменилось (доля {mt["value"]} %)')
+        c = PS.read_check(r['dir'])
+        ok('known_changed_share_pct' in c['metrics'], 'мерка записана в check.json')
+        bad = [a.copy() for a in r['tex_after']]
+        bad[0][ys[:50], xs[:50]] = 255 - bad[0][ys[:50], xs[:50]]
+        sh = TF.known_changed_share([m], r['tex_before'], bad, TF.RULES['known_change_de'])
+        ok(sh['changed'] >= 40 and sh['share_pct'] > 0, f'контроль: подмена известных текселей мерка ловит ({sh})')
+
+
 def test_run_stage_fallback():
     print('этап 07 с черновиком: считаются А и Б, берётся Б только если мерки не хуже; check.json:')
     import tempfile
@@ -568,7 +594,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0
