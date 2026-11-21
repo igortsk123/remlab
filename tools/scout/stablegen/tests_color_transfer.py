@@ -147,7 +147,10 @@ def main() -> int:
         check('сайдкар предобработки: нет файла — пусто', T.read_prep(pj) == {}, T.read_prep(pj))
         with open(T.prep_sidecar_path(pj), 'w', encoding='utf-8') as fp:
             fp.write('{"weld": true, "presmooth": 3, "presmooth_lambda": 0.5}')
-        check('сайдкар предобработки: читается', T.read_prep(pj) == {'weld': True, 'presmooth': 3, 'presmooth_lambda': 0.5}, T.read_prep(pj))
+        check('сайдкар предобработки: читается (sharpen без ключа в файле — False)', T.read_prep(pj) == {'weld': True, 'presmooth': 3, 'presmooth_lambda': 0.5, 'sharpen': False}, T.read_prep(pj))
+        with open(T.prep_sidecar_path(pj), 'w', encoding='utf-8') as fp:
+            fp.write('{"weld": true, "presmooth": 3, "presmooth_lambda": 0.5, "sharpen": true}')
+        check('сайдкар предобработки: sharpen=true читается (T-175, эталон мерки строится по выпрямленной форме)', T.read_prep(pj) == {'weld': True, 'presmooth': 3, 'presmooth_lambda': 0.5, 'sharpen': True}, T.read_prep(pj))
         rv, rn = T.native_reference(seam_v, seam_f, np.tile([0.0, 0.0, 1.0], (len(seam_v), 1)), {'weld': True, 'presmooth': 3, 'presmooth_lambda': 0.5})
         rv0, rn0 = T.native_reference(seam_v, seam_f, np.tile([0.0, 0.0, 1.0], (len(seam_v), 1)), {})
         check('эталон: без предобработки — сырые вершины и нормали файла; с ней — склеенные, сглаженные, нормали единичные и смотрят вверх/вниз',
