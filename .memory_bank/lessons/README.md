@@ -607,3 +607,10 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 802 — образ TRELLIS.2 без рецепта прогрева Hunyuan → `lessons/mesh-salad-pool.md`
 - 803 — UltraTex учителем на 40 и эталон со страниц магазинов → `lessons/memory-process.md`
 - 804 — rsync -a без -H раздувает жёсткие ссылки → `lessons/dev-ops.md`
+- 805 — UltraTex считал две одинаковые ветки CFG → `lessons/mesh-salad-pool.md`
+- 806 — растр (z-буфер) не причина «камера не легла» → `lessons/mesh-salad-pool.md`
+- 807 — родная текстура TRELLIS красит невидимое цветом фона → `lessons/mesh-salad-pool.md`
+- 808 — стоп платного драйвера сигналом не работает → `lessons/mesh-salad-pool.md`
+- 809 — тест с временным git под хуком наследует GIT_* → `lessons/dev-ops.md`
+- 810 — база веток покраски: merge/paint-1121 vs main → `lessons/dev-ops.md`
+- 811 — Telegram: длинная подпись к фото → IMAGE_PROCESS_FAILED → `lessons/dev-ops.md`
