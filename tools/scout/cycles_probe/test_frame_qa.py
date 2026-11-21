@@ -489,6 +489,37 @@ def test_cover_fraction_uses_blender_row_order():
     assert Q.cover_fraction(np, lab, rect_low, [2]) == 0.0      # собственный номер слота не в счёт
 
 
+def test_lens_hidden_rule():
+    """Створка у объектива (T-20261119-106): камера в 2–3 см от тонкой створки в проёме — створку скрываем; предмет дальше порога — нет; ноль — правило выключено."""
+    mn, mx = (0.053, -0.8, 0.0), (0.071, 0.0, 2.05)       # створка: тонкая плита на 5–7 см от стены, проём шириной 80 см
+    eye = (0.03, -0.41, 1.5)                               # камера в проёме
+    assert abs(Q.aabb_dist_cm(eye, mn, mx) - 2.3) < 1e-6
+    assert Q.lens_hidden(eye, mn, mx, 15) and not Q.lens_hidden(eye, mn, mx, 0)
+    assert not Q.lens_hidden((1.0, -0.41, 1.5), mn, mx, 15)           # камера в метре от двери — дверь остаётся
+    assert Q.aabb_dist_cm((0.06, -0.4, 1.0), mn, mx) == 0.0           # внутри ящика
+    assert not Q.lens_hidden((0.3, -0.41, 1.5), mn, mx, 15)           # порог строгий: 23 см > 15 см
+
+
+def test_seen_from_behind_majority():
+    """Штора в кадре (T-20261119-106): камера за шторой — все попадания в изнанку, штору скрываем; взгляд спереди (в складках пара задних граней) — не скрываем."""
+    behind = [("штора", True)] * 6 + [("пол", False)] * 3
+    assert Q.seen_from_behind(behind) == {"штора"}
+    front = [("штора", False)] * 8 + [("штора", True)] * 2
+    assert Q.seen_from_behind(front) == set()
+    assert Q.seen_from_behind([]) == set()
+    assert Q.seen_from_behind([("а", True), ("а", False)]) == set()      # поровну — не скрываем
+
+
+def test_preset_flags_pass_worker_arg_check():
+    """Флаги пресета уходят воркеру Salad; он принимает в аргументах только латиницу (`jobs_proto._arg_ok`). Кириллица (например «дверь») = bad_job и «Снимок сейчас сделать не получается» (T-20261119-106, поймал tests_render_executor)."""
+    sys.path.insert(0, os.path.join(HERE, "..", "render_gpu"))
+    import jobs_proto as JP  # noqa: E402
+    with open(os.path.join(HERE, "render-preset.json"), encoding="utf-8") as f:
+        flags = json.load(f)["flags"]
+    bad = [a for a in flags if not JP._arg_ok(a)]
+    assert not bad, f"воркер отклонит флаги пресета: {bad}"
+
+
 if __name__ == "__main__":
     n = 0
     for k, v in sorted(globals().items()):
