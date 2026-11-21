@@ -19,6 +19,7 @@
 Код возврата 0."""
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -104,9 +105,33 @@ def judge(PC, PS, rules, run, sku, stages):
             continue
         c = PC.classify_stage(st, chk, rules)
         ms = c.get('metrics') or {}
-        res.append({'stage': st, 'status': c['status'], 'reason': c['reason'],
+        res.append({'stage': st, 'status': c['status'], 'reason': c['reason'], 'margin': stage_margin(ms),
                     'failed': [fmt_metric(k, ms.get(k, {})) for k in c['hard_failed']], 'soft': [fmt_metric(k, ms.get(k, {})) for k in c['soft_failed']]})
     return res
+
+
+def stage_margin(ms):
+    """Запас этапа до порога: наименьший по меркам с порогом (≥0 — прошла с запасом, <0 — не дотянула). Доля «≥ t при v ≤ 1» (охват, доля граней) — от оставшегося до 1 (запас (v−t)/(1−t)),
+    остальные — от порога; целые счётчики и флаги (оба целые: число граней под потолком, «есть/нет») не мерим — потолок и булево запаса не дают. Порог 0 — запас 1 при выполнении. None — мерок нет."""
+    out = []
+    for m in (ms or {}).values():
+        v, t, op = m.get('value'), m.get('threshold'), m.get('op')
+        if isinstance(v, bool) or isinstance(t, bool) or not isinstance(v, (int, float)) or not isinstance(t, (int, float)) or op not in ('>=', '<=', '>', '<') or m.get('na'):
+            continue
+        if isinstance(v, int) and isinstance(t, int) and t:
+            continue
+        d = (v - t) if op in ('>=', '>') else (t - v)
+        if op in ('>=', '>') and 0 < t < 1 and v <= 1:
+            out.append(min(1.0, d / (1 - t)))
+        else:
+            out.append(min(1.0, d / abs(t)) if t else (1.0 if d >= 0 else -1.0))
+    return min(out) if out else None
+
+
+def row_margin(rows):
+    """Запас товара: наименьший по этапам 01–08, где он есть (этап 9 — итог, не мерка)."""
+    ms = [r['margin'] for r in rows if r.get('margin') is not None]
+    return min(ms) if ms else None
 
 
 def analyse(PC, PS, rules, run):
@@ -122,7 +147,138 @@ def passed_all(rows, strict=False):
     return all(r['status'] not in bad for r in rows)
 
 
-def funnel_text(label, run, stages, per):
+def pct(n, d):
+    return f' ({100 * n / d:.0f} %)' if d else ''
+
+
+def wilson(k, n, z=1.96):
+    """95 % доверительный интервал доли k/n (Уилсон) — на малой выборке честнее «k/n»."""
+    if not n:
+        return None
+    p = k / n
+    c = (p + z * z / (2 * n)) / (1 + z * z / n)
+    h = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / (1 + z * z / n)
+    return max(0.0, c - h), min(1.0, c + h)
+
+
+def read_grades(path):
+    """Оценки глазами: TSV `sku<TAB>этап<TAB>вердикт(ок|плохо)<TAB>что`; пустой вердикт — не оценено; несколько строк на товар — товар плохой, если есть хоть одно «плохо»."""
+    g = {}
+    if not path or not os.path.exists(path):
+        return g
+    for ln in open(path, encoding='utf-8'):
+        if ln.startswith('#') or not ln.strip() or ln.lower().startswith('sku\t'):
+            continue
+        p = ln.rstrip('\n').split('\t')
+        if len(p) < 3:
+            continue
+        v = p[2].strip().lower()
+        if v in ('ок', 'ok', 'хорошо', 'good'):
+            g.setdefault(p[0].strip(), []).append(('ok', p[1].strip(), p[3].strip() if len(p) > 3 else ''))
+        elif v in ('плохо', 'bad', 'нет'):
+            g.setdefault(p[0].strip(), []).append(('bad', p[1].strip(), p[3].strip() if len(p) > 3 else ''))
+    return g
+
+
+def yield_lines(label, per, submitted=None, grades=None):
+    """Две цифры сводки. publishable_yield = прошли все 9 СТРОГО (ни одного отказа, ни одного «мягко») / все поданные (папки прогона + список `--submitted`, если дан);
+    false_accept_rate = плохие среди принятых по выборке глазами (если оценок нет — «не оценён»). «Мягко» ≠ прошёл; прежняя мягкая доля — отдельной справочной строкой."""
+    M = len(set(per) | set(submitted or []))
+    n_strict = sum(1 for s in per if passed_all(per[s], True))
+    n_soft = sum(1 for s in per if passed_all(per[s]))
+    out = [f'ИТОГ {label}: publishable_yield = прошли 01–09 СТРОГО (без отказов и без «мягко»): {n_strict} из {M}' + pct(n_strict, M)]
+    if submitted and M > len(per):
+        out[0] += f' [поданных {M}, из них в прогоне {len(per)}: остальные до этапов не дошли]'
+    out.append(f'  справочно, мягкая мерка (отказов нет, «мягко» не считается отказом — прежняя, к ИТОГУ не относится): {n_soft} из {M}' + pct(n_soft, M))
+    acc = {s for s in per if passed_all(per[s], True)}
+    gr = {s: v for s, v in (grades or {}).items() if s in acc}
+    stray = len([s for s in (grades or {}) if s in per and s not in acc])
+    if not gr:
+        out.append('  false_accept_rate: не оценён (выборка «посмотреть глазами» не размечена; `--sample N` пишет look.txt + grades.tsv, `--grades grades.tsv` считает)')
+        return out
+    bad = sum(1 for v in gr.values() if any(x[0] == 'bad' for x in v))
+    ci = wilson(bad, len(gr))
+    far = bad / len(gr)
+    out.append(f'  false_accept_rate = плохие среди принятых: {bad} из {len(gr)} оценённых' + pct(bad, len(gr)) + (f', 95 % интервал {100 * ci[0]:.0f}–{100 * ci[1]:.0f} %' if ci else '')
+               + f'; принятых всего {len(acc)}, оценено {len(gr)}' + (f'; {stray} оценок не по принятым — не учтены' if stray else ''))
+    out.append(f'  с поправкой: publishable_yield × (1 − false_accept_rate) ≈ {100 * n_strict / M * (1 - far):.0f} % от поданных' if M else '')
+    return out
+
+
+def product_type(run, PS, sku):
+    """Тип товара (страта выборки): `product_role` этапа 3 (extra.roles_summary), иначе группа, иначе «?»."""
+    chk = read(PS, os.path.join(run, sku, '03-parts'))
+    rs = ((chk or {}).get('extra') or {}).get('roles_summary') or {}
+    return rs.get('product_role') or rs.get('group') or '?'
+
+
+def make_sample(per, types, n, seed, margin_min, conf_share):
+    """Стратифицированная выборка из ПРИНЯТЫХ (строгих): по типу пропорционально (минимум один на тип, пока хватает n), в каждом типе — не менее `conf_share` уверенно прошедших
+    (запас ≥ `margin_min` от порога на самом тесном этапе) и остальные «на грани» (случайно из менее уверенных). Сид фиксирован — повтор даёт ту же выборку. → [(sku, тип, уверенно, запас)]."""
+    import random
+    rnd = random.Random(seed)
+    acc = sorted(s for s in per if passed_all(per[s], True))
+    by = {}
+    for s in acc:
+        by.setdefault(types.get(s, '?'), []).append(s)
+    if not acc or n <= 0:
+        return []
+    n = min(n, len(acc))
+    tp = sorted(by, key=lambda t: (-len(by[t]), t))
+    quota = {t: 0 for t in tp}
+    for t in tp[:n]:
+        quota[t] = 1
+    left = n - sum(quota.values())
+    if left > 0:
+        raw = {t: min(len(by[t]), left * len(by[t]) / len(acc)) for t in tp}
+        for t in tp:
+            add = min(len(by[t]) - quota[t], int(raw[t]))
+            quota[t] += add
+        left = n - sum(quota.values())
+        for t in sorted(tp, key=lambda t: -(raw[t] - int(raw[t]))):
+            if left <= 0:
+                break
+            if quota[t] < len(by[t]):
+                quota[t] += 1
+                left -= 1
+        for t in tp:                                                       # остаток — в самые большие типы
+            while left > 0 and quota[t] < len(by[t]):
+                quota[t] += 1
+                left -= 1
+    out = []
+    for t in tp:
+        ss = by[t][:]
+        rnd.shuffle(ss)
+        mg = {s: row_margin(per[s]) for s in ss}
+        conf = [s for s in ss if mg[s] is not None and mg[s] >= margin_min]
+        edge = [s for s in ss if s not in conf]
+        k = quota[t]
+        want_c = min(len(conf), math.ceil(k * conf_share))
+        pick_c = conf[:max(want_c, k - len(edge))]
+        pick_e = edge[:k - len(pick_c)]
+        for s in pick_c + pick_e:
+            out.append((s, t, s in pick_c, mg[s]))
+    return out
+
+
+def write_sample(sample, runof, PS, outdir, label):
+    """look.txt (что смотреть: товар, тип, уверенно/на грани, запас, кадры этапов) и grades.tsv (бланк оценки: товар, этап, ок/плохо, что) — в `<outdir>/<label>/`."""
+    d = os.path.join(outdir, label)
+    os.makedirs(d, exist_ok=True)
+    look = [f'# выборка «посмотреть глазами» — {label}: {len(sample)} принятых (строго) товаров; «уверенно» = запас до порога ≥ заданного, «на грани» — меньше',
+            '# что смотреть: кадры этапов (frame.png в папках этапов) и итоговую модель; плохое — вписать в grades.tsv']
+    tsv = ['sku\tэтап\tвердикт\tчто', '# вердикт: ок | плохо (пусто — не оценено); этап — где видно плохое (09-check — если в целом); один товар можно писать несколькими строками']
+    for s, t, conf, mg in sample:
+        run = runof[s]
+        frames = [os.path.join(run, s, st, PS.FRAME) for st in sorted(os.listdir(os.path.join(run, s))) if re.match(r'^\d\d-', st) and os.path.exists(os.path.join(run, s, st, PS.FRAME))]
+        look.append(f'{s}\t{t}\t{"уверенно" if conf else "на грани"}\tзапас {("—" if mg is None else f"{100 * mg:.0f} %")}\t' + ' '.join(frames))
+        tsv.append(f'{s}\t\t\t')
+    open(os.path.join(d, 'look.txt'), 'w', encoding='utf-8').write('\n'.join(look) + '\n')
+    open(os.path.join(d, 'grades.tsv'), 'w', encoding='utf-8').write('\n'.join(tsv) + '\n')
+    return d
+
+
+def funnel_text(label, run, stages, per, submitted=None, grades=None):
     M = len(per)
     out = [f'=== {label}: {run} — товаров {M} ===', f'{"этап":<14}{"дошло":>7}{"прошло":>8}{"мягко":>7}{"отказ":>7}']
     refusals = {}
@@ -147,12 +303,13 @@ def funnel_text(label, run, stages, per):
                 soft.setdefault((r['stage'], re.sub(r' [-\d.]+.*$', '', f)), []).append(s)
     if soft:
         out += ['', 'мягко (пометки; этап не останавливают): ' + '; '.join(f'{st} · {k} ×{len(v)}' for (st, k), v in sorted(soft.items()))]
-    n_ok = sum(1 for s in per if passed_all(per[s]))
-    n_strict = sum(1 for s in per if passed_all(per[s], True))
-    out += ['', f'ИТОГ {label}: прошли 01–09: {n_ok} из {M}' + (f' ({100 * n_ok / M:.0f} %)' if M else '') + f'; без единой пометки: {n_strict} из {M}']
+    out += [''] + [x for x in yield_lines(label, per, submitted, grades) if x]
     blockers = [f'{s}: ' + next((f'{r["stage"]} — {(r["failed"] or [r["reason"]])[0]}' for r in per[s] if r['status'] in ('refused', 'missing')), '') for s in per if not passed_all(per[s])]
+    soft_only = [s for s in per if passed_all(per[s]) and not passed_all(per[s], True)]
     if blockers:
         out += ['не прошли (первая остановка):'] + ['  ' + b[:230] for b in blockers]
+    if soft_only:
+        out += ['прошли только «мягко» (в ИТОГ не входят): ' + ', '.join(soft_only[:8]) + (' …' if len(soft_only) > 8 else '')]
     return out
 
 
@@ -172,23 +329,50 @@ def compare_text(la, per_a, lb, per_b, stages):
                 out.append(f'{s:<{w}}  {st:<12}{MARK[a[i]["status"]]:<14}{MARK[b[i]["status"]]:<14}' + ((b[i]['failed'] or [b[i]['reason']])[0][:70] if b[i]['status'] == 'refused' else (a[i]['failed'] or [a[i]['reason']])[0][:70] if a[i]['status'] == 'refused' else ''))
     if not diff:
         out.append('этапы по всем общим товарам совпали')
-    na = sum(1 for s in common if passed_all(per_a[s]))
-    nb = sum(1 for s in common if passed_all(per_b[s]))
-    out.append(f'прошли 01–09 на общих: {la} {na} из {len(common)}, {lb} {nb} из {len(common)}')
+    na, nb = (sum(1 for s in common if passed_all(p[s], True)) for p in (per_a, per_b))
+    sa, sb = (sum(1 for s in common if passed_all(p[s])) for p in (per_a, per_b))
+    out.append(f'прошли 01–09 СТРОГО на общих: {la} {na} из {len(common)}, {lb} {nb} из {len(common)}; справочно мягко: {la} {sa}, {lb} {sb}')
+    return out
+
+
+def before_after(res, union=None):
+    """Таблица «было → стало» по прогонам: было — прежняя мягкая доля (мягко ≈ прошёл), стало — строгая (publishable_yield)."""
+    out = ['=== было → стало (прежняя мягкая доля → строгая publishable_yield) ===', f'{"прогон":<28}{"поданных":>9}{"было, мягко":>14}{"стало, строго":>16}{"только мягко":>14}']
+    tot = [0, 0, 0, 0]
+    for label, per, _st in res:
+        M, soft = len(per), sum(1 for s in per if passed_all(per[s]))
+        strict = sum(1 for s in per if passed_all(per[s], True))
+        out.append(f'{label:<28}{M:>9}{f"{soft} ({100 * soft / M:.0f} %)" if M else "—":>14}{f"{strict} ({100 * strict / M:.0f} %)" if M else "—":>16}{soft - strict:>14}')
+        tot = [tot[0] + M, tot[1] + soft, tot[2] + strict, tot[3] + soft - strict]
+    if len(res) > 1 and tot[0]:
+        out.append(f'{"сумма прогонов":<28}{tot[0]:>9}{f"{tot[1]} ({100 * tot[1] / tot[0]:.0f} %)":>14}{f"{tot[2]} ({100 * tot[2] / tot[0]:.0f} %)":>16}{tot[3]:>14}')
+    if union:
+        M, soft = len(union), sum(1 for s in union if passed_all(union[s]))
+        strict = sum(1 for s in union if passed_all(union[s], True))
+        out.append(f'{"все вместе (без повторов)":<28}{M:>9}{f"{soft} ({100 * soft / M:.0f} %)" if M else "—":>14}{f"{strict} ({100 * strict / M:.0f} %)" if M else "—":>16}{soft - strict:>14}')
     return out
 
 
 def main(argv):
-    ap = argparse.ArgumentParser(description='воронка 01–09 по папкам прогонов')
+    ap = argparse.ArgumentParser(description='воронка 01–09 по папкам прогонов: строгая доля (publishable_yield) и выборка «ложно принятых» (false_accept_rate)')
     ap.add_argument('runs', nargs='*', help='папки прогонов; сравнение — первого со вторым')
     ap.add_argument('--repo')
     ap.add_argument('--json')
     ap.add_argument('--union', action='store_true', help='посчитать все прогоны вместе как один набор товаров (повтор sku — берётся из первого прогона, где он есть)')
+    ap.add_argument('--submitted', help='файл со списком поданных товаров (по строке на sku): знаменатель publishable_yield, если поданных больше, чем папок в прогоне')
+    ap.add_argument('--sample', type=int, default=0, help='N: выбрать N принятых (строго) товаров стратифицированно по типу — часть уверенно прошедших — и записать look.txt + grades.tsv в --sample-dir')
+    ap.add_argument('--sample-dir', default='funnel-sample', help='куда писать look.txt и бланк grades.tsv (по подпапке на прогон)')
+    ap.add_argument('--seed', type=int, default=0, help='сид выборки (повтор даёт ту же)')
+    ap.add_argument('--confident-margin', type=float, default=0.25, help='«уверенно прошёл»: запас до порога на самом тесном этапе ≥ этой доли порога')
+    ap.add_argument('--confident-share', type=float, default=0.5, help='доля уверенно прошедших в выборке каждого типа (не меньше)')
+    ap.add_argument('--grades', help='TSV с оценками глазами (бланк grades.tsv после заполнения): считается false_accept_rate')
     a = ap.parse_args(argv)
     runs = [os.path.expanduser(r).rstrip('/') for r in (a.runs or RUNS)]
     PC, PS, rules, repo = load_pc(a.repo)
     print(f'правила и разбор этапов: {repo}\n')
-    res, dump = [], {}
+    submitted = [x.strip() for x in open(a.submitted, encoding='utf-8') if x.strip()] if a.submitted else None
+    grades = read_grades(a.grades)
+    res, dump, runof, types = [], {}, {}, {}
     for r in runs:
         if not os.path.isdir(r):
             print(f'=== {r}: нет папки ===\n')
@@ -196,18 +380,34 @@ def main(argv):
         stages, per = analyse(PC, PS, rules, r)
         label = os.path.basename(r)
         res.append((label, per, stages))
-        print('\n'.join(funnel_text(label, r, stages, per)) + '\n')
+        for sk in per:
+            runof.setdefault(sk, r)
+            types.setdefault(sk, product_type(r, PS, sk))
+        print('\n'.join(funnel_text(label, r, stages, per, submitted if len(runs) == 1 else None, grades)) + '\n')
         dump[label] = {s: [{k: x[k] for k in ('stage', 'status', 'reason')} for x in rows] for s, rows in per.items()}
+        if a.sample:
+            sm = make_sample(per, types, a.sample, a.seed, a.confident_margin, a.confident_share)
+            d = write_sample(sm, runof, PS, a.sample_dir, label)
+            print(f'выборка «посмотреть глазами» {label}: {len(sm)} из {sum(1 for s in per if passed_all(per[s], True))} принятых → {d}/look.txt, бланк {d}/grades.tsv; типы: ' + ', '.join(f'{t} ×{sum(1 for x in sm if x[1] == t)}' for t in sorted({x[1] for x in sm})) + '\n')
+    merged = {}
     if a.union and len(res) >= 2:
-        merged = {}
         for _l, per, _st in res:
             for sku, rows in per.items():
                 merged.setdefault(sku, rows)
-        print('\n'.join(funnel_text('вместе ' + '+'.join(x[0] for x in res), 'union', res[0][2], merged)) + '\n')
+        ul = 'вместе ' + '+'.join(x[0] for x in res)
+        print('\n'.join(funnel_text(ul, 'union', res[0][2], merged, submitted, grades)) + '\n')
+        if a.sample:
+            sm = make_sample(merged, types, a.sample, a.seed, a.confident_margin, a.confident_share)
+            d = write_sample(sm, runof, PS, a.sample_dir, 'union')
+            print(f'выборка «посмотреть глазами» (все прогоны вместе): {len(sm)} → {d}/look.txt, бланк {d}/grades.tsv\n')
     if len(res) >= 2 and not a.union:
-        print('\n'.join(compare_text(res[0][0], res[0][1], res[1][0], res[1][1], res[0][2])))
+        print('\n'.join(compare_text(res[0][0], res[0][1], res[1][0], res[1][1], res[0][2])) + '\n')
+    if res:
+        print('\n'.join(before_after(res, merged or None)))
     if a.json:
-        json.dump(dump, open(a.json, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        out = dict(dump)
+        out['_yield'] = {l: {'publishable_yield': (sum(1 for s in p if passed_all(p[s], True)) / len(p)) if p else None, 'soft_reference': (sum(1 for s in p if passed_all(p[s])) / len(p)) if p else None, 'submitted': len(p)} for l, p, _s in res}
+        json.dump(out, open(a.json, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     return 0
 
 
