@@ -88,6 +88,30 @@ class State:
         self.busy = False
         self.lock = threading.Lock()
         self.t_start = time.time()
+        self.job: dict | None = None                              # ход ТЕКУЩЕГО задания: виден в /health (урок p4 21.11: 16 мин «busy» без видимого шага — не отличить медленное от зависшего)
+
+    def begin_job(self, job_id: str) -> None:
+        now = time.time()
+        self.job = {'id': job_id, 't0': now, 'step': 'старт', 'step_t': now, 'done': []}
+
+    def step(self, name: str) -> None:
+        """Модель сообщает, на каком шаге она сейчас; прошлый шаг уходит в `done` с длительностью."""
+        j = self.job
+        if j is None or j['step'] == name:
+            return
+        now = time.time()
+        j['done'].append([j['step'], round(now - j['step_t'], 1)])
+        j['step'], j['step_t'] = name, now
+
+    def end_job(self) -> None:
+        self.job = None
+
+    def job_view(self) -> dict | None:
+        j = self.job
+        if j is None:
+            return None
+        now = time.time()
+        return {'id': j['id'], 'elapsed_s': round(now - j['t0']), 'step': j['step'], 'step_s': round(now - j['step_t']), 'done': list(j['done'])[-12:]}
 
 
 class Watchdog:
@@ -178,7 +202,7 @@ class KitHandler(BaseHTTPRequestHandler):
     def health_body(self) -> dict:
         s = self.state
         return {'phase': s.phase, 'weights': s.weights, 'error': s.error, 'version': self.version, 'root_gb': dir_gb(self.root_dir) if self.root_dir else None,
-                'cuda': cuda_info(), 'uptime_s': round(time.time() - s.t_start), 'busy': s.busy, **self.health_extra()}
+                'cuda': cuda_info(), 'uptime_s': round(time.time() - s.t_start), 'busy': s.busy, 'job': s.job_view(), **self.health_extra()}
 
     def handle_get(self, path: str) -> bool:
         return False

@@ -271,6 +271,29 @@ with tempfile.TemporaryDirectory() as root:
 ok(KW.make_server(0, Ping, host='0.0.0.0').address_family == socket.AF_INET, 'явный 0.0.0.0 остаётся IPv4 (только для тестов)')
 
 
+# --- ход задания в /health
+sj = KW.State()
+ok(sj.job_view() is None, 'ход задания: заданий нет — job = None')
+sj.begin_job('j1')
+sj.step('te')
+sj.step('te')                                                  # тот же шаг повторно — не плодит записей
+sj.step('dit')
+v = sj.job_view()
+ok(v['id'] == 'j1' and v['step'] == 'dit' and [d[0] for d in v['done']] == ['старт', 'te'] and v['elapsed_s'] >= 0, f'ход задания: шаг и пройденные шаги ({v})')
+sj.end_job()
+ok(sj.job_view() is None, 'ход задания: после конца — None')
+with tempfile.TemporaryDirectory() as root2:
+    sj2 = KW.State()
+    sj2.begin_job('j2')
+    sj2.step('vae')
+    srv2 = KW.make_server(0, Ping.bind(sj2, KW.Watchdog(1e9, 1e9), threading.Event(), 'v', root_dir=root2))
+    threading.Thread(target=srv2.serve_forever, daemon=True).start()
+    c, h = http(f'http://127.0.0.1:{srv2.server_address[1]}/health')
+    ok(c == 200 and h['job']['step'] == 'vae' and h['job']['id'] == 'j2', '/health отдаёт ход задания (шаг, время)')
+    srv2.shutdown()
+    srv2.server_close()
+
+
 # --- прогрев
 class Denied(RuntimeError):
     code = 'WEIGHTS_DENIED'
