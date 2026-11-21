@@ -8,6 +8,7 @@ import unittest
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import parts_colour as pcol  # noqa: E402
 import parts_vote as pv  # noqa: E402
 
 RULES = pv.load_rules()
@@ -110,6 +111,20 @@ class PartsVote(unittest.TestCase):
         self.assertFalse(pv.colour_verdict(True, 0.4, RULES)[0], "плоская текстура — отказ")
         self.assertFalse(pv.colour_verdict(True, None, RULES)[0])
         self.assertTrue(pv.colour_verdict(True, 40.0, RULES)[0])
+
+    def test_part_colours_split_wood_from_fabric(self):
+        lab = pcol.rgb_to_lab(np.array([[255, 255, 255], [0, 0, 0], [200, 160, 110]]))
+        self.assertAlmostEqual(float(lab[0, 0]), 100.0, delta=0.5)
+        self.assertAlmostEqual(float(lab[1, 0]), 0.0, delta=0.5)
+        part = np.where(self.top, 0, 1).astype(np.int32)
+        rgb = np.where(self.top[:, None], np.array([230, 225, 215]), np.array([120, 80, 45])).astype(np.uint8)
+        cols = pcol.part_colours(part, rgb)
+        self.assertGreater(cols[0]["lab_median"][0], cols[1]["lab_median"][0] + 30, "обивка светлее дерева")
+        self.assertEqual(pcol.mixed_parts(cols, RULES), [])
+        rgb2 = rgb.copy()
+        rgb2[:30] = np.array([120, 80, 45])                       # в части «обивка» дерево
+        rgb2[30:60:2] = np.array([40, 30, 20])
+        self.assertIn(0, pcol.mixed_parts(pcol.part_colours(part, rgb2), RULES), "два цвета в одной части — помечена")
 
     def test_rules_have_no_product_ids_and_are_complete(self):
         import json

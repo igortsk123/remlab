@@ -183,11 +183,19 @@ def run(args) -> int:
         geom["status"] = rec.get("status")
     except Exception as e:  # геометрия не ответила — части остаются, сверки нет
         geom = {"error": str(e)[:200]}
+    colours, mixed = {}, []
+    try:                                                              # цвет частей по текстуре входа — сверка «в части два разных цвета»; сбой не роняет этап
+        import parts_colour as pcol
+        tex = np.array(mesh.visual.material.baseColorTexture.convert("RGB"))
+        colours = pcol.part_colours(part, pcol.face_rgb(np.array(mesh.visual.uv), mesh.faces, tex))
+        mixed = pcol.mixed_parts(colours, rules)
+    except Exception as e:
+        colours = {"error": str(e)[:160]}
     ids, cnt = np.unique(part[part >= 0], return_counts=True)
     parts = []
     for p, c in sorted(zip(ids, cnt), key=lambda t: -t[1]):
         role = (geom or {}).get("roles", {}).get(int(p), {}).get("role") if geom else None
-        parts.append({"id": int(p), "face_share": round(float(c) / nf, 4), "role": role or f"part-{int(p)}", "vl": None})
+        parts.append({"id": int(p), "face_share": round(float(c) / nf, 4), "role": role or f"part-{int(p)}", "vl": None, "colour": colours.get(int(p))})
     np.savez_compressed(os.path.join(sdir, "parts.npz"), part=part.astype(np.int16), agree=res["agree"].astype(np.float16))
     json.dump({"faces": nf, "n_views": len(names), "regions_per_view": per_view_regions, "n_parts_raw": res["n_parts_raw"], "parts": parts, "geometry": geom},
               open(os.path.join(sdir, "parts.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
@@ -199,7 +207,7 @@ def run(args) -> int:
         "frames_agreement_mean": {"value": q["frames_agreement_mean"], "threshold": rules["check"]["min_agreement"], "op": ">=", "ok": q["frames_agreement_mean"] >= rules["check"]["min_agreement"]},
     }
     ps.write_check(sdir, "03-parts", args.sku, passed=q["ok"], metric={"name": "n_parts", **metrics["n_parts"]}, reason=q["reason"], metrics=metrics, seconds=time.time() - t0,
-                   outputs=["parts.npz", "parts.json"], frame="frame.png", faces_seen_by_views_share=q["faces_seen_by_views_share"], part_face_shares=q["part_face_shares"], geometry=geom)
+                   outputs=["parts.npz", "parts.json"], frame="frame.png", faces_seen_by_views_share=q["faces_seen_by_views_share"], part_face_shares=q["part_face_shares"], geometry=geom, mixed_colour_parts=mixed)
     print(json.dumps({"ok": q["ok"], "reason": q["reason"], "n_parts": q["n_parts"], "agree": q["frames_agreement_mean"], "with_part": q["faces_with_part_share"], "geometry": geom and {k: v for k, v in geom.items() if k != "roles"}}, ensure_ascii=False))
     return 0
 
