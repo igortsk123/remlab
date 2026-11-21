@@ -605,6 +605,29 @@ class LegsGuard(unittest.TestCase):
         self.assertEqual(self.rules["decision"]["legs_guard"]["mode"], "dry")
 
 
+class SeenCliff(unittest.TestCase):
+    """abstain.seen_exempt_area_share: крупная почти не видная часть не обрывается порогом seen (unreliable), мелкая — по-прежнему."""
+    rules = pr.load_rules()
+
+    def setUp(self):
+        v, f, part = table()
+        self.ft = feats(v, f, part, {0: "body", 1: "thin", 2: "thin", 3: "thin", 4: "thin"})
+        self.ft[0].update({"area_share": 0.14, "seen": 0.04, "agree": 0.95})
+
+    def roles(self, exempt):
+        ab = {**self.rules["decision"]["abstain"], "seen_exempt_area_share": exempt}
+        return pr.assign_roles(self.ft, {**self.rules, "decision": {**self.rules["decision"], "abstain": ab}}, "диван", {"legs"})[0]
+
+    def test_cliff_by_default_and_exempt_for_big_part(self):
+        self.assertIsNone(self.rules["decision"]["abstain"]["seen_exempt_area_share"])
+        self.assertEqual(self.roles(None)["unknown_reason"], "unreliable")
+        self.assertNotEqual(self.roles(0.10)["role"], "unknown")
+
+    def test_small_part_still_unreliable(self):
+        self.ft[0]["area_share"] = 0.06
+        self.assertEqual(self.roles(0.10)["unknown_reason"], "unreliable")
+
+
 class RulesFile(unittest.TestCase):
     def test_no_product_ids_and_known_types(self):
         import json

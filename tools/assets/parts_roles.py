@@ -124,7 +124,8 @@ def assign_roles(features: dict[int, dict], rules: dict, product_role: str | Non
     for p, f in features.items():
         if f["area_share"] < ab["tiny_area_share"]:
             done(p, "unknown", f"площадь {f['area_share']:.4f} меньше {ab['tiny_area_share']}", rc["unknown"], "tiny")
-        elif (f["agree"] is not None and f["agree"] < ab["min_agree"]) or (f["seen"] is not None and f["seen"] < ab["min_seen_share"]):
+        elif (f["agree"] is not None and f["agree"] < ab["min_agree"]) or (f["seen"] is not None and f["seen"] < ab["min_seen_share"]
+                                                                         and not (ab.get("seen_exempt_area_share") and f["area_share"] >= ab["seen_exempt_area_share"])):   # крупная часть почти не видна камерам: решает геометрия, а не обрыв порога seen (T-169, комод HD: 0,051→0,048 ронял роль)
             done(p, "unknown", f"доверие этапа 3: agree={f['agree']}, seen={f['seen']}", rc["unknown"], "unreliable")
         else:
             live.append(p)
