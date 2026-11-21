@@ -697,6 +697,76 @@ def test_cli_run_stage():
         ok(rc2 == 0 and c2 is not None and c2["passed"] is False, "нет выхода этапа 6 → check.json passed=false, не сбой запуска")
 
 
+def test_orphan_parts():
+    print("запасное деление по геометрии: часть-сирота (доля ПЛОЩАДИ < refine.orphan_max_area_share) вливается в соседа:")
+    import trimesh
+    n = 30
+    gx, gy = np.meshgrid(np.arange(n + 1, dtype=float), np.arange(n + 1, dtype=float))
+    V = np.stack([gx.ravel(), gy.ravel(), np.zeros(gx.size)], 1)
+    idx = np.arange((n + 1) * (n + 1)).reshape(n + 1, n + 1)
+    F = []
+    for i in range(n):
+        for j in range(n):
+            a, b, c, d = idx[i, j], idx[i, j + 1], idx[i + 1, j + 1], idx[i + 1, j]
+            F += [[a, b, c], [a, c, d]]
+    nbig = len(F)
+    V = np.vstack([V, [[0.5, -0.001, 0.0]]])
+    F.append([idx[0, 0], idx[0, 1], len(V) - 1])                      # крошечный треугольник на краю сетки: площадь ~5e-4 из ~900
+    F = np.array(F)
+    mesh = trimesh.Trimesh(V, F, process=False)
+    part = np.zeros(len(F), np.int32)
+    part[: nbig // 2] = 1
+    part[-1] = 2
+    new, note = TF.merge_orphan_parts(mesh, part)
+    if "нет parts_refine" in note:
+        print("  – пропущено: parts_refine / parts-sam-rules.json (этап 3, T-169) в этой ветке ещё нет; проверяется после влития")
+        ok(np.array_equal(new, part), "без модуля этапа 3 части не меняются")
+        return
+    ok(int(new[-1]) in (0, 1) and len(np.unique(new)) == 2 and "сирот влито 1" in note, f"сирота влита в соседа, части 0/1 остались ({note})")
+    ok(set(np.unique(new)) == {0, 1}, "номера частей плотные")
+    big = part.copy()
+    big[nbig // 2: nbig // 2 + 400] = 2                                # часть с большой долей площади — не сирота
+    new2, note2 = TF.merge_orphan_parts(mesh, big)
+    ok(len(np.unique(new2)) == 3 and "сирот" not in note2, "крупная часть не вливается")
+
+
+def test_cli_parts_flags():
+    print("CLI: --no-parts-npz (этап 3 отказал → части по геометрии) и --parts-npz:")
+    import json
+    import tempfile
+    import paint_stage as PS
+    from PIL import Image
+    q = Quads()
+    q.quad([[-0.5, 0, 0], [0.5, 0, 0], [0.5, 1, 0], [-0.5, 1, 0]], (0, 0, .9, .9), sub=8)
+    q.quad([[-0.5, 0, -0.4], [0.5, 0, -0.4], [0.5, 1, -0.4], [-0.5, 1, -0.4]], (.9, .9, 1.0, 1.0), sub=2)
+    tex = np.zeros((T, T, 3), np.uint8)
+    m = tile_mask((0, 0, .9, .9))
+    tex[m] = (130, 140, 200)
+    g = q.geom(tex)
+    with tempfile.TemporaryDirectory() as td:
+        v = os.path.join(td, "s1", "06-visible")
+        os.makedirs(v)
+        TF.write_glb([g], [tex], os.path.join(v, "visible.glb"))
+        Image.fromarray((m * 255).astype(np.uint8)).save(os.path.join(v, "known.png"))
+        json.dump({"version": 1, "stage": "06-visible", "sku": "s1", "passed": True, "reason": "", "metric": None, "metrics": {}, "outputs": [], "frame": None, "extra": {}}, open(os.path.join(v, "check.json"), "w"))
+        os.makedirs(os.path.join(td, "s1", "03-parts"))
+        np.savez(os.path.join(td, "s1", "03-parts", "parts.npz"), part=np.zeros(3, np.int16))        # parts.npz отказавшего этапа 3: число граней не то
+        rc_bad = TF.main(["run_stage", td, "s1", "--no-mirror"])
+        c_bad = PS.read_check(os.path.join(td, "s1", "07-fill"))
+        ok(rc_bad == 2 and c_bad["passed"] is False and "сбой этапа 7" in c_bad["reason"], "без флага parts.npz подхватывается и чужой → сбой запуска rc 2, сбой записан в check.json")
+        rc_ok = TF.main(["run_stage", td, "s1", "--no-mirror", "--no-parts-npz"])
+        c_ok = PS.read_check(os.path.join(td, "s1", "07-fill"))
+        ok(rc_ok == 0 and c_ok["passed"] is not None and "parts.npz" not in str(c_ok["extra"].get("parts")), f"--no-parts-npz → части по геометрии, rc 0 ({c_ok['extra'].get('parts')})")
+        rc_exp = TF.main(["run_stage", td, "s1", "--no-mirror", "--parts-npz", os.path.join(td, "s1", "03-parts", "parts.npz")])
+        ok(rc_exp == 2, "явный --parts-npz с чужим файлом → rc 2")
+        try:
+            TF.main(["run_stage", td, "s1", "--parts-npz", "x.npz", "--no-parts-npz"])
+            both = False
+        except SystemExit as e:
+            both = e.code == 2
+        ok(both, "оба флага вместе — ошибка аргументов")
+
+
 def test_render_low():
     print('кадр снизу (дно) — elevation −90:')
     q = Quads()
@@ -715,7 +785,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_stage6_gate, test_cli_run_stage, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

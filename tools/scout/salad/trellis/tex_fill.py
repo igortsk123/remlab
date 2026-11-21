@@ -1243,6 +1243,27 @@ RULES = load_rules()
 THRESHOLDS = {k: (v[0], float(v[1])) for k, v in RULES['thresholds'].items()}   # пороги этапа (check.json) из rules/paint-fill.json: ΔE00 перёд↔зад (худшая часть с известным ≥ 1 %), ступени, пятна, «известное не изменено» (0), время
 
 
+def merge_orphan_parts(mesh, part: np.ndarray):
+    """Запасное деление по геометрии: часть-«сирота» (доля ПЛОЩАДИ < `refine.orphan_max_area_share` из parts-sam-rules.json) вливается в соседа с самой длинной границей — общее правило этапа 3 (`parts_refine.merge_orphans`, T-169), не дубль.
+    У сироты нет текселей с фото, она красилась бы тоном целого (светлый клин у верха ножки). Нет модулей этапа 3 или порога — части как были. → (части с плотными номерами, строка для note: '' | '; сирот влито N')."""
+    try:
+        sys.path.insert(0, os.path.join(HERE, '..', '..', '..', 'assets'))
+        import parts_refine as PR
+        import parts_vote as PV
+        thr = PV.load_rules().get('refine', {}).get('orphan_max_area_share')
+    except Exception:  # noqa: BLE001 — нет parts_refine/parts_vote/правил (ветка этапа 3 не влита): прежний путь
+        return part, '; сирот не ищем (нет parts_refine)'
+    if not thr:
+        return part, ''
+    V = np.asarray(mesh.vertices, np.float64)
+    F = np.asarray(mesh.faces)
+    new, trace = PR.merge_orphans(np.asarray(part, np.int32), PV.weld_adjacency(V, F), PR._face_areas(V, F), thr)
+    if not trace:
+        return part, ''
+    _, dense = np.unique(new, return_inverse=True)
+    return dense.reshape(-1).astype(np.int32), f'; сирот влито {len(trace)}'
+
+
 def parts_from_geometry(geoms: list):
     """Части граней по геометрии `tools/assets/material_parts.py`: 0 обивка/корпус, 1 ножки, 2 нейтральное (тонкое, полоса у ножек); нет уверенного деления — одна часть. → (список по геометриям | None, строка о способе)."""
     try:
@@ -1262,8 +1283,9 @@ def parts_from_geometry(geoms: list):
                 p = np.zeros(nf, np.int32)
                 p[leg] = 1
                 p[neu] = 2
+                p, onote = merge_orphan_parts(g['mesh'], p)
                 out.append(p)
-                note.append(f"split ножки {int(leg.sum())} нейтр. {int(neu.sum())} из {nf}")
+                note.append(f"split ножки {int(leg.sum())} нейтр. {int(neu.sum())} из {nf}{onote}")
                 continue
             note.append(f"{rec.get('status')} → одна часть")
         except Exception as e:  # noqa: BLE001
@@ -1526,7 +1548,7 @@ def load_known_png(visible: str) -> list:
 
 def main(argv: list | None = None) -> int:
     """CLI этапа 07 в формате paint_stage (обвязка сквозного прогона 01→09):
-      python3 tools/scout/salad/trellis/tex_fill.py run_stage <run> <sku> [--visible <папка 06-visible>] [--parts-npz <parts.npz>] [--cfg <json>] [--no-mirror]
+      python3 tools/scout/salad/trellis/tex_fill.py run_stage <run> <sku> [--visible <папка 06-visible>] [--parts-npz <parts.npz> | --no-parts-npz] [--cfg <json>] [--no-mirror]
     Вход по умолчанию: выход этапа 6 `<run>/<sku>/06-visible/{visible.glb, known*.png, check.json}` и части этапа 3 `<run>/<sku>/03-parts/parts.npz` (нет файла — части по геометрии).
     Выход: `<run>/<sku>/07-fill/{filled.glb, report.json, frame.png, check.json}`. Этап 6 отказал (камера не прошла, нет выхода) — check.json passed=false, refused=true, заливки нет.
     Код выхода: 0 — этап отработал (прошёл или не прошёл — см. check.json), 2 — сбой запуска (нет входа, исключение)."""
@@ -1539,12 +1561,16 @@ def main(argv: list | None = None) -> int:
     ap.add_argument("sku")
     ap.add_argument("--visible", default=None)
     ap.add_argument("--parts-npz", default=None)
+    ap.add_argument("--no-parts-npz", action="store_true")
     ap.add_argument("--cfg", default=None)
     ap.add_argument("--no-mirror", action="store_true")
     a = ap.parse_args(argv)
     base = os.path.join(a.run, PS.safe_name(a.sku))
     visible = a.visible or os.path.join(base, "06-visible")
-    parts_npz = a.parts_npz or (os.path.join(base, "03-parts", "parts.npz") if os.path.exists(os.path.join(base, "03-parts", "parts.npz")) else None)
+    if a.no_parts_npz and a.parts_npz:
+        ap.error("--parts-npz и --no-parts-npz вместе нельзя")
+    default_npz = os.path.join(base, "03-parts", "parts.npz")
+    parts_npz = None if a.no_parts_npz else (a.parts_npz or (default_npz if os.path.exists(default_npz) else None))      # --no-parts-npz: этап 3 отказал — parts.npz не брать, части по геометрии (+ сироты)
     cfg = dict({"erode_known": 0}, **(json.loads(a.cfg) if a.cfg else {}))      # вход этапа 6: маска «взято с фото» уже честная
     try:
         r = run_stage(a.run, a.sku, os.path.join(visible, "visible.glb"), known=load_known_png(visible) or None, cfg=cfg, mirror=not a.no_mirror, parts_npz=parts_npz, prev_dir=visible)
