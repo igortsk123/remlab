@@ -445,7 +445,67 @@ def _fill_empty(arr, filled):
     return arr[idx[0], idx[1]]
 
 
-def transfer(native_path: str, shape_path: str, out_path: str, size: int | None = None, max_dist: float = MAX_DIST, strip_plate: bool = True) -> dict:
+PAD_RING = 1.0          # «кольцо границы острова»: занятые тексели не дальше этого (в текселях) от свободного — их цвет берётся с края фигуры и чаще всего «крошка»
+PAD_REACH = 3.0         # дальше этого от внутренних текселей перекраска кольца/поля не идёт (узкие острова без «внутри» остаются как есть)
+
+
+SPECKLE_DE = 60          # «крошка»: тексель отличается от медианы 3×3 хоть по одному каналу больше чем на столько (из 255)
+
+
+def speckle_share(res, filled) -> float:
+    """Доля занятых развёрткой текселей атласа, резко отличных от медианы 3×3 (крошка по кромке, точки по раме). Справочная мерка для check.json этапа 02."""
+    import numpy as np
+    from scipy import ndimage
+    if not filled.any():
+        return 0.0
+    rgb = np.asarray(res)[..., :3]
+    med = np.stack([ndimage.median_filter(rgb[..., c], size=3) for c in range(3)], -1)
+    diff = np.abs(rgb.astype(np.int16) - med.astype(np.int16)).max(2)
+    return round(float((diff[filled] > SPECKLE_DE).mean()), 5)
+
+
+def atlas_speckle(g) -> float | None:
+    """Крошка атласа готового GLB (по занятым развёрткой текселям)."""
+    import numpy as np
+    if g['base'] is None:
+        return None
+    n = g['base'].size[0]
+    py, px, _ = texel_points(g['V'], g['F'], g['UV'], n)
+    filled = np.zeros((n, n), bool)
+    filled[py, px] = True
+    return speckle_share(np.asarray(g['base'].convert('RGBA')), filled)
+
+
+def pad_islands(arr, filled, mode: str = 'nearest', ring: float = PAD_RING, reach: float = PAD_REACH, de: int = 60):
+    """Заполнение поля вокруг островков и кольца границы. `nearest` — как было: свободные тексели берут цвет ближайшего занятого. `interior` — стандартная «дилатация изнутри»: кольцо границы (занятые не дальше `ring` от
+    свободного) и поле берут цвет ближайшего ВНУТРЕННЕГО тексела (дальше `ring` от границы), край острова не распространяется в поле. `repair` — как interior, но кольцо перекрашивается только там, где тексель резко
+    (> de из 255 по каналу) отличается от медианы 3×3, остальное кольцо остаётся родным; поле — от исправленного. Острова без «внутри» (уже `reach`) остаются как в nearest."""
+    import numpy as np
+    from scipy import ndimage
+    base = _fill_empty(arr, filled)
+    if mode == 'nearest' or filled.all() or not filled.any():
+        return base
+    d_in = ndimage.distance_transform_edt(filled)
+    core = filled & (d_in > ring)
+    if not core.any():
+        return base
+    d_core, idx = ndimage.distance_transform_edt(~core, return_indices=True)
+    near_core = arr[idx[0], idx[1]]
+    if mode == 'interior':
+        sel = (d_core > 0) & (d_core <= reach)
+        out = base.copy()
+        out[sel] = near_core[sel]
+        return out
+    if mode == 'repair':
+        med = np.stack([ndimage.median_filter(arr[..., c], size=3) for c in range(arr.shape[2])], -1)
+        crumb = filled & (d_in <= ring) & (np.abs(arr.astype(np.int16) - med.astype(np.int16)).max(2) > de) & (d_core <= reach)
+        fixed = arr.copy()
+        fixed[crumb] = near_core[crumb]
+        return _fill_empty(fixed, filled)
+    raise ValueError(f'неизвестный режим заполнения поля: {mode}')
+
+
+def transfer(native_path: str, shape_path: str, out_path: str, size: int | None = None, max_dist: float = MAX_DIST, strip_plate: bool = True, pad: str = 'nearest') -> dict:
     """Главная функция: родной GLB (с цветом) + упрощённая форма с НОВОЙ развёрткой → GLB с перенесёнными baseColor / металл-шероховатость / альфа. Возвращает отчёт."""
     import numpy as np
     import trimesh
@@ -478,9 +538,9 @@ def transfer(native_path: str, shape_path: str, out_path: str, size: int | None 
     if resmr is not None:
         resmr[ty[ok], tx[ok]] = oc_mr[ok]
     filled[ty[ok], tx[ok]] = True
-    res = _fill_empty(res, filled)
+    res = pad_islands(res, filled, pad)
     if resmr is not None:
-        resmr = _fill_empty(resmr, filled)
+        resmr = pad_islands(resmr, filled, pad)
     share = float(ok.mean()) if len(ok) else 0.0
     mat = trimesh.visual.material.PBRMaterial(
         baseColorTexture=Image.fromarray(res, 'RGBA'), baseColorFactor=np.array([255, 255, 255, 255], np.uint8),
@@ -626,6 +686,7 @@ def stage02(run: str, sku: str, native_glb: str, out_glb: str, rep: dict | None 
     cov = face_coverage(g['V'], g['F'], g['UV'], g['base'].size[0] if g['base'] is not None else rep.get('size') or 1024)
     ch_mean, ch_p99 = chamfer_ratio(native_glb, out_glb, strip_plate=strip_plate)
     metrics = {'faces': {'value': faces, 'threshold': faces_max, 'op': '<='},
+               'speckle_share': {'value': atlas_speckle(g), 'op': '<=', 'note': f'справочная, без порога: доля занятых текселей атласа, отличных от медианы 3×3 больше чем на {SPECKLE_DE} из 255 (крошка кромки)'},
                'sliver_share': {'value': round(sliver_share(g['V'], g['F']), 5), 'op': '<=', 'note': f'справочная, без порога (порог — по таблице 30): доля граней-щепок с качеством q < {SLIVER_Q}'},
                'chamfer_diag': {'value': round(ch_mean, 5), 'threshold': CHAMFER_MAX, 'op': '<='},
                'chamfer_p99_diag': {'value': round(ch_p99, 5)},
@@ -671,6 +732,7 @@ def main() -> int:
     t.add_argument('--out', required=True)
     t.add_argument('--size', type=int, default=None)
     t.add_argument('--max-dist', type=float, default=MAX_DIST)
+    t.add_argument('--pad', choices=['nearest', 'interior', 'repair'], default='nearest', help='заполнение поля вокруг островков: nearest (как было) | interior (дилатация изнутри) | repair (только крошка кольца границы)')
     t.add_argument('--min-share', type=float, default=MIN_SHARE)
     t.add_argument('--no-plate-strip', action='store_true', help='не вычитать плиту-подложку из родной формы (если sg_prep_shape.py плиту не резал)')
     g = sub.add_parser('guard')
@@ -700,7 +762,7 @@ def main() -> int:
                 print('  ', r)
         print(line)
         return code
-    rep = transfer(a.native, a.shape, a.out, a.size, a.max_dist, strip_plate=not a.no_plate_strip)
+    rep = transfer(a.native, a.shape, a.out, a.size, a.max_dist, strip_plate=not a.no_plate_strip, pad=a.pad)
     print('перенос:', rep)
     import json
     print('перенос-итог:', json.dumps({'size': rep.get('size'), 'share': rep.get('share'), 'faces_with_texel': rep.get('faces_with_texel')}))   # строка для sg_prep_shape.py (лестница отказов)
