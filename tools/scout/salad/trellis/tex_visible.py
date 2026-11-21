@@ -45,7 +45,6 @@ def _rules() -> dict:
 R = _rules()
 COS_MIN = float(R.get('cos_min', 0.40))          # cos угла к лучу: 66° и больше — вскользь, не берём (rules/tex-visible.json)
 DEPTH_JUMP = float(R.get('depth_jump_px', 12.0))  # разрыв глубины между соседними пикселями кадра больше стольких px_len — край складки/щели: полоса вокруг не берётся
-COS_MED = int(R.get('cos_median_px', 5))     # медиана карты cos по занятым пикселям (рябь от грани к грани)
 DEPTH_MED = int(R.get('depth_median_px', 7))   # медиана карты глубины перед поиском разрыва: на рёбрах треугольников в ней пятна-выбросы
 DEPTH_BAND = int(R.get('depth_band_px', 2))      # ширина этой полосы, пикселей кадра
 COS_FULL = float(R.get('cos_full', 0.60))         # полный вес с этого косинуса; между COS_MIN и COS_FULL — плавная передача заготовке
@@ -109,9 +108,6 @@ def load_stage(pose_run: str) -> dict:
     depth, px_len = dz['depth'], float(dz['px_len'])
     cos = np.asarray(Image.open(os.path.join(rd, 'aoi_cos16.png')), np.float32) / 65535.0
     mask = np.asarray(Image.open(os.path.join(rd, 'mask.png'))) > 127
-    if COS_MED > 1 and mask.any():
-        from scipy.ndimage import median_filter
-        cos = np.where(mask, median_filter(np.where(mask, cos, float(np.median(cos[mask]))), size=COS_MED), 0.0).astype(np.float32)
     px = ids.shape[0]
     P = np.array(sl['registration']['P'], np.float64).reshape(3, 3)
     return {'ids': ids, 'uv': uv, 'depth': depth, 'px_len': px_len, 'cos': cos, 'mask': mask, 'px': px, 'P': P, 'camera': sl.get('camera'), 'iou_frame': sl['registration'].get('iou'), 'pose_run': pose_run}
