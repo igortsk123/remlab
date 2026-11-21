@@ -55,6 +55,20 @@ def product_record(a: dict, sku: str) -> dict | None:
     return None
 
 
+def catalog_channels(record: dict | None) -> tuple[str, str]:
+    """Каналы материала и их классы из записи каталога — тем же `material_class.classify`, что у этапа 8: ("legs,frame", "legs=wood_solid,frame=wood_solid"). Нет записи/ошибка — пусто."""
+    if not record:
+        return '', ''
+    try:
+        sys.path.insert(0, os.path.join(HERE, '..', 'assets'))
+        import material_class as mc
+        parts = mc.classify(mc.load_rules(), {'role': record.get('role') or '', 'name': record.get('name') or '', 'params': record.get('params') or {}}).get('parts') or {}
+    except Exception:
+        return '', ''
+    ks = sorted(k for k, v in parts.items() if isinstance(v, dict) and v.get('class'))
+    return ','.join(ks), ','.join(f"{k}={parts[k]['class']}" for k in ks)
+
+
 def prep_glb_path(a: dict, sku: str) -> str | None:
     """Готовая форма этапа 2 (`--prep-glb` явно, либо `--prep-dir` + `<sku>-n1024.glb`); нет — None (форму строит этап 01-02)."""
     if a.get('prep_glb'):
@@ -74,6 +88,9 @@ def make_ctx(run: str, sku: str, a: dict, rules: dict, stage_dones: dict | None 
            'prep_glb': os.path.join(work, sku + '-n1024.glb'), 'native': a.get('native', ''), 'photo': a.get('photo', ''),
            'channels': a.get('channels', ''), 'cam_az_args': [], '_record': product_record(a, sku)}
     ctx['prep_glb'] = prep_glb_path(a, sku) or ctx['prep_glb']
+    ctx['channel_classes'] = a.get('channel_classes', '')
+    if ctx['_record'] and not ctx['channels']:                                                        # каналы — из каталога (раньше уходили пустыми: роли с каналом frame/handles/shade не срабатывали)
+        ctx['channels'], ctx['channel_classes'] = catalog_channels(ctx['_record'])
     ctx['product_role'] = a.get('product_role') or (ctx['_record'] or {}).get('role', '')
     ctx['photo_cam'], ctx['photo_vis'], ctx['body_only_args'] = ctx['photo'], ctx['photo'], []
     ctx.update(rules.get('paths', {}))
@@ -149,7 +166,7 @@ def resolve_steps(stage: dict, ctx: dict, extra: dict | None = None) -> list:
             if m and isinstance(ctx.get(m.group(1)), list):
                 argv += [str(x) for x in ctx[m.group(1)]]                   # {cam_az_args}, {body_only_args}: список аргументов (пустой — ничего)
                 continue
-            if m and m.group(1) in ('channels', 'product_role') and not ctx.get(m.group(1)):
+            if m and m.group(1) in ('channels', 'product_role', 'channel_classes') and not ctx.get(m.group(1)):
                 if argv and argv[-1].startswith('--'):
                     argv.pop()                                              # убрать и сам флаг без значения
                 continue

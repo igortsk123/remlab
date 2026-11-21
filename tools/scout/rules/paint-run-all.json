@@ -151,6 +151,8 @@
             "{product_role}",
             "--channels",
             "{channels}",
+            "--channel-classes",
+            "{channel_classes}",
             "{cam_az_args}"
           ],
           "heavy": {

@@ -215,7 +215,8 @@ def run(args) -> int:
         feats = pfe.part_features(part, mesh.vertices, mesh.faces, kind_f, pr.part_kinds(part, kind_f), lab=lab_face, cam_az=args.cam_az, adj=res["adj"],
                                   agree=res["agree"], seen=res["seen_any"], **pro.load_rules()["features_params"])
         rrules = pro.load_rules()
-        roles = pro.assign_roles(feats, rrules, args.product_role, set(filter(None, (args.channels or "").split(","))))
+        cclasses = dict(kv.split("=", 1) for kv in (args.channel_classes or "").split(",") if "=" in kv)
+        roles = pro.assign_roles(feats, rrules, args.product_role, set(filter(None, (args.channels or "").split(","))), catalog_classes=cclasses)
         unk = {}
         for r_ in roles.values():
             if r_["role"] == "unknown":
@@ -234,7 +235,7 @@ def run(args) -> int:
         rr = roles.get(int(p))
         parts.append({"id": int(p), "face_share": round(float(c) / nf, 4), "role": (rr["role"] if rr else (role or f"part-{int(p)}")), "vl": None, "colour": colours.get(int(p)),
                       **({"merged_orphan": mo_by[int(p)]} if int(p) in mo_by else {}),
-                      **({k: rr[k] for k in ("role_title", "material_channel", "role_conf", "role_why", "unknown_reason")} | {"features": feats.get(int(p))} if rr else {})})
+                      **({k: rr[k] for k in ("role_title", "material_channel", "role_conf", "role_why", "unknown_reason")} | {"features": feats.get(int(p))} | ({"unseen_hint": rr["unseen_hint"]} if rr.get("unseen_hint") else {}) if rr else {})})
     np.savez_compressed(os.path.join(sdir, "parts.npz"), part=part.astype(np.int16), agree=res["agree"].astype(np.float16),
                         vote_part=vote_part.astype(np.int16), vote_agree=vote_agree.astype(np.float16), seen=res["seen_any"])   # vote_* — до доводки: доводку можно переиграть без SAM2
     json.dump({"faces": nf, "n_views": len(names), "regions_per_view": per_view_regions, "n_parts_raw": res["n_parts_raw"], "parts": parts, "geometry": geom, "refine": refine_rep, "roles": roles_sum},
@@ -274,6 +275,7 @@ def main() -> int:
     r.add_argument("--limit", type=int, default=0)
     r.add_argument("--product-role", default=None, help="тип товара каталога («диван», «комод»…): группа правил ролей; нет — группа any")
     r.add_argument("--channels", default="", help="каналы материала каталога через запятую (legs,frame,handles,shade)")
+    r.add_argument("--channel-classes", default="", help="классы материала каналов каталога: legs=wood_solid,frame=wood_solid (нужны режиму leg_rescue.wood)")
     r.add_argument("--cam-az", type=float, default=None, help="азимут камеры фото из pose.json этапа 4 — ТОЛЬКО если этап passed; нет — роли с фронтом воздерживаются")
     a = ap.parse_args()
     return run(a)
