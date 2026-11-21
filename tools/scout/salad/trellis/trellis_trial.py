@@ -44,6 +44,9 @@ READINESS = {'http': {'path': '/health', 'port': PORT, 'scheme': 'http', 'header
              'initial_delay_seconds': 30, 'period_seconds': 10, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 3}
 STARTUP = {'http': {'path': '/health', 'port': PORT, 'scheme': 'http', 'headers': []},
            'initial_delay_seconds': 10, 'period_seconds': 60, 'timeout_seconds': 5, 'success_threshold': 1, 'failure_threshold': 20}   # API Salad: failure_threshold ≤ 20 (400 от 18.11) → 20 мин на докачку весов
+# T-179/1: образ с весами внутри прогревается за ~50 с, а проба старта раз в 60 с добавляла до минуты ожидания (замер: running → ready 195 с при 49,5 с самого воркера).
+# Частая проба (10 с) даёт ≤ 20×10 = 200 с на прогрев (потолок failure_threshold Salad — 20) — для образа со скачиванием весов на старте этого МАЛО, поэтому только по флагу `--baked`.
+STARTUP_BAKED = dict(STARTUP, period_seconds=10)
 NO_FAIL_STREAK = 2
 TEX_ALIGNS = ('fit', 'official')      # pixal3d-tex: как кадрировать фото под форму (`worker_trellis.texture_on_shape`)
 
@@ -210,7 +213,7 @@ def worker_command(path: str | None = None, python: str = 'python', pre: str = '
 
 
 def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu: int, mem_mb: int, run_note: str, auth: dict, donor: dict | None = None,
-               extra_env: dict | None = None) -> dict:
+               extra_env: dict | None = None, baked: bool = False) -> dict:
     """Тело группы Salad. `auth` — доступ к приватному реестру (`migrate_groups.ghcr_auth()`); приёмника на проде (`MESH_SINK_*`) в окружении НЕТ.
     `donor` (только hunyuan21) — боевая группа-образец: берём её переменные окружения (STAGED, PIPELINE_VERSION, …) БЕЗ секретов приёмника и очереди."""
     env = {'MODEL': model, 'IMAGE_NOTE': run_note, 'HF_TOKEN': hf_token, 'HF_HOME': '/data/hf', 'OUT_DIR': '/data/out',
@@ -247,7 +250,7 @@ def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu:
         'autostart_policy': False, 'restart_policy': 'never', 'replicas': 1, 'priority': tier, 'country_codes': [],
         'networking': {'protocol': 'http', 'port': PORT, 'auth': True, 'load_balancer': 'round_robin', 'single_connection_limit': False,
                        'client_request_timeout': 100000, 'server_response_timeout': 100000},
-        'readiness_probe': READINESS, 'startup_probe': STARTUP,
+        'readiness_probe': READINESS, 'startup_probe': STARTUP_BAKED if baked else STARTUP,
     }
     if command:
         body['container']['command'] = command
@@ -361,7 +364,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     for j in jobs:
         j['role'] = (inputs.get(j['sku']) or {}).get('role') or meta.get(j['sku'], {}).get('role')
         j['dims_cm'] = meta.get(j['sku'], {}).get('dims_cm')
-    body = build_body(name, a.image, a.tier, a.model, hf, a.cpu, a.mem_mb, a.image.split('@')[-1][:19], MG.ghcr_auth(), donor, extra_env=wenv)
+    body = build_body(name, a.image, a.tier, a.model, hf, a.cpu, a.mem_mb, a.image.split('@')[-1][:19], MG.ghcr_auth(), donor, extra_env=wenv, baked=getattr(a, 'baked', False))
     if wenv:
         say('окружение воркера (отладка/настройки):', wenv)
     say('группа', name, CARD['class_name'], 'тариф', a.tier, 'цена $/ч', price, f'[{price_src}]', 'заданий', len(jobs), 'потолок $', a.cap)
@@ -618,6 +621,7 @@ def main() -> int:
     ap.add_argument('--hold-after', type=int, default=0, help='пауза на тёплой ноде: после N готовых заданий (проба) не слать следующие, пока не появится файл --hold-file (разрешение партии); 0 — без паузы')
     ap.add_argument('--hold-file', default=None, help='файл-разрешение (создаёт ведущий/рабочий после «ок» по пробе); нужен вместе с --hold-after')
     ap.add_argument('--hold-max-min', type=int, default=30, help='сколько минут ждать файл-разрешение, иначе группа гасится (потолок денег --cap действует и в паузе)')
+    ap.add_argument('--baked', action='store_true', help='образ с весами внутри (trellis2-fast): проба старта раз в 10 с вместо 60 (T-179/1); для образа с докачкой весов на старте НЕ ставить — 200 с не хватит')
     ap.add_argument('--tier', default='high', choices=['batch', 'low', 'medium', 'high'])
     ap.add_argument('--cpu', type=int, default=8)
     ap.add_argument('--mem-mb', type=int, default=32768)
