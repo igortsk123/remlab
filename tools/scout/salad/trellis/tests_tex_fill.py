@@ -597,6 +597,8 @@ def test_render_pattern():
     back = tile_mask((.9, .9, 1.0, 1.0))
     ab = TF.rgb2lab(out["tex"][0][back])
     ok(float(np.hypot(ab[:, 1].std(), ab[:, 2].std())) > 2.0, f"залитое с узором, не плоское (σ хромы {float(np.hypot(ab[:, 1].std(), ab[:, 2].std())):.1f})")
+    pmx = TF.pattern_metrics([g], None, [m], out["tex"], rep, dict(TF.FILL, pr_res=256))
+    ok(0 in pmx and pmx[0].get("dist") is not None and pmx[0]["spot_area_back"] > 0, f"pattern_metrics считается на залитом: {pmx}")
     off = TF.fill([g], [m], None, cfg={"gutter": 0, "erode_known": 0, "pattern_render": False}, mirror=False)["report"]
     ok("pattern_src" not in off, "pattern_render=False — прежний путь по развёртке")
     # мерка узора: одинаковая статистика → 0, точки против полос → больше

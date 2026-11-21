@@ -77,7 +77,8 @@ FILL = {
     'pattern_blur_px': 12.0,         # размытие для отделения мелкого узора от крупных зон цвета (две большие зоны — не узор)
     'pattern_render': True,          # узорная часть: блоки квилта — из НЕПРЕРЫВНОГО кадра видимой стороны (az `pr_az`), а не из дырявой развёртки; мало блоков — прежний путь
     'pr_az': 0.0, 'pr_res': 1024, 'pr_ortho': 1.25, 'pr_cos_min': 0.5,   # кадр образца: азимут (0 = в лоб), сторона, охват, косинус к камере (вскользь — не образец)
-    'pr_block_max': 96,              # блок квилта из кадра: до этой стороны (кадр непрерывный — крупный узор целиком), пикселей карты после пересчёта в масштаб карты
+    'pr_clip_l': 2.5, 'pr_clip_l_min': 8.0,   # срез светлого в образце узора: k·σ(MAD) остатка яркости, не меньше pr_clip_l_min (L*)
+    'pr_block_max': 320,             # блок квилта из кадра: до этой стороны В ПИКСЕЛЯХ КАДРА (кадр непрерывный — ветка и цветок целиком), потом пересчёт в масштаб карты
     'src_dev_pattern': 8.0,          # узорная часть: цвет-источник геодезической заливки не дальше этого ΔE (Lab) от тона части — розовый цветок у края не растекается по стойке
     'pm_spot_chroma': 10.0,          # мерка узора: «пятно» — хрома остатка от тона части больше этого
     'draft_blur_px': 6.0,            # trellis: размытие черновика внутри части до переноса статистики (штрих и муар черновика не переносятся)
@@ -886,6 +887,10 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 cosimg[pr_S["hit"]] = pr_S["cos"]
                 okr = pr_kn & (pr_pm == p) & (cosimg.reshape(pr_S["res"], pr_S["res"]) >= c["pr_cos_min"])
                 resr = (pr_lab - stat[p][0]) * (pr_lab[..., 0] >= shade_lo[p])[..., None]
+                if c["pr_clip_l"] > 0 and okr.any():                      # блики и белая кайма рамы (светлее тона) в образец узора не входят: плюс по яркости срезается; тёмное (ветки) остаётся
+                    rl = resr[..., 0][okr]
+                    lim = max(c["pr_clip_l"] * 1.4826 * float(np.median(np.abs(rl - np.median(rl)))), c["pr_clip_l_min"])
+                    resr[..., 0] = np.minimum(resr[..., 0], lim)
                 sc = texel_scale(geoms, parts, p, pr_S["ppu"])
                 rp = render_pool(resr * okr[..., None], okr, c, sc)
                 rep.setdefault("pattern_src", {})[int(p)] = ({"render": True, "pixels": int(okr.sum()), "scale": round(sc, 3), "block": rp[0], "pool": len(rp[1])} if rp is not None else {"render": False, "pixels": int(okr.sum()), "scale": round(sc, 3)})
@@ -1275,10 +1280,11 @@ def _part_map(g, T: int, part_f) -> np.ndarray:
     """Карта частей развёртки (T,T): номер части грани в тексele, −1 вне развёртки."""
     UV = np.asarray(g['UV'], np.float64)
     ids, _ = TC.raster(np.stack([UV[:, 0] * T, (1.0 - UV[:, 1]) * T], 1), np.asarray(g['F'], np.int64), T)
-    pm = np.full((T, T), -1, np.int32)
+    ids = np.asarray(ids).reshape(-1)
+    pm = np.full(T * T, -1, np.int32)
     m = ids >= 0
     pm[m] = np.asarray(part_f, np.int32)[ids[m]]
-    return pm
+    return pm.reshape(T, T)
 
 
 def _pattern_hists(lab: np.ndarray, mask: np.ndarray, tone: np.ndarray, spot_chroma: float) -> dict | None:
