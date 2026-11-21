@@ -5,7 +5,8 @@
   ① жёстко: роль ставится, если выполнены ВСЕ `require` и ни один `forbid`; роль с `only_if_catalog_channel` — только если такой канал есть у товара в каталоге;
   ② воздержание (`unknown` + причина): мелкая часть (tiny), недоверие этапа 3 (agree/seen — роль не может быть увереннее разбиения), две подходящие роли (ambiguous),
      нет фронта у роли с фронтом (no_front), нет контакта/опоры (no_contact), нет подходящего правила (no_rule), у типа нет канала (no_channel), тип неизвестен (группа `any`);
-  ③ body — запасная: объёмная (kind body) часть, не подошедшая под иную роль и прошедшая доверие; тонкая/средняя без правила остаётся unknown;
+  ③ body — запасная: объёмная (kind body) часть, не подошедшая под иную роль и прошедшая доверие; у типов с отдельными материалами столешницы/фасада (стол, корпусная мебель) — только крупнейшая;
+     тонкая/средняя без правила остаётся unknown;
   ④ glass_mirror геометрия не ставит никогда; ΔE в роль не входит.
 Тип товара — `role` каталога → группа в `data/flat3d/material-classes.json` (тот же источник, что у этапа 8); каналы — ключи `parts` результата `material_class.classify`.
 """
@@ -118,6 +119,11 @@ def assign_roles(features: dict[int, dict], rules: dict, product_role: str | Non
                 if "only_if_catalog_channel" in r and r["only_if_catalog_channel"] not in channels:
                     continue
                 ok, why = _eval(r["require"], f, ctx)
+                for alt in r.get("alt_require", []):                                   # запасной набор условий (OR): ножки с царгой в одной части, у которой рамка «толстая»
+                    ok_a, _ = _eval(alt, f, ctx)
+                    if ok_a:
+                        ok, why = True, None
+                        break
                 if any(_eval([c], f, ctx)[0] for c in r.get("forbid", [])):          # forbid: сработало ХОТЬ ОДНО условие — роль запрещена
                     continue
                 if not ok:
@@ -137,6 +143,8 @@ def assign_roles(features: dict[int, dict], rules: dict, product_role: str | Non
             done(p, "unknown", "роль возможна, но не хватает " + ("фронта (камера этапа 4 не passed)" if fail[p] == "no_front" else "контакта/опоры"), rc["unknown"], fail[p])
         elif product_role in grp.get("no_body_for_types", []):
             done(p, "unknown", f"тип «{product_role}»: канала материала для частей нет", rc["unknown"], "no_channel")
+        elif f["kind"] == "body" and grp.get("body_scope", "all") == "largest" and not f["is_largest"]:
+            done(p, "unknown", "объёмная часть типа, где материал столешницы/фасада/корпуса назван отдельно — body только у крупнейшей", rc["unknown"], "body_scope")
         elif f["kind"] == "body":
             done(p, "body", "объёмная часть, не подошедшая ни под одну роль", rc["body"])
         else:

@@ -126,6 +126,22 @@ class Roles(unittest.TestCase):
         self.assertEqual(r[0]["role"], "body")
         self.assertEqual(r[1]["role"], "body")                              # без типа ручку не выделяем — всё объёмное body
 
+    def test_table_non_largest_body_is_unknown(self):
+        v, f, part = assemble([box(0, 1.0, 0, 1.0, 0.06, 1.0, n=20), box(0, 0.4, 0, 0.4, 0.8, 0.4, n=10)])   # плита и толстая тумба
+        r = pr.assign_roles(feats(v, f, part, {0: "body", 1: "body"}), self.rules, "стол обеденный", {"legs"})
+        self.assertEqual(r[0]["role"], "top")
+        self.assertEqual(r[1]["role"], "unknown")                           # тумба — материал другой части каталог не называет
+        self.assertEqual(r[1]["unknown_reason"], "body_scope")
+
+    def test_merged_legs_with_stretchers_are_legs(self):
+        top = box(0, 1.0, 0, 1.0, 0.06, 1.0, n=40)
+        legs = [box(x, 0.485, z, 0.05, 0.97, 0.05, n=4) for x in (-0.45, 0.45) for z in (-0.45, 0.45)]
+        bar = box(0, 0.5, -0.45, 0.9, 0.04, 0.04, n=6)                      # царга между ножками: одна часть «ножки+царга»
+        v, f, part = assemble([top, legs[0], legs[1], legs[2], legs[3], bar])
+        part[part >= 2] = np.where(part[part >= 2] == 5, 1, part[part >= 2])
+        r = pr.assign_roles(feats(v, f, part, {0: "body", 1: "mid", 2: "thin", 3: "thin", 4: "thin"}), self.rules, "столик", {"legs"})
+        self.assertEqual(r[1]["role"], "legs")
+
     def test_chandelier_without_channels(self):
         v, f, part = assemble([box(0, 0.7, 0, 0.6, 0.3, 0.6, n=8), box(0, 0.3, 0, 0.5, 0.4, 0.5, n=8)])
         r = pr.assign_roles(feats(v, f, part, {0: "body", 1: "body"}), self.rules, "люстра", {"shade"})
