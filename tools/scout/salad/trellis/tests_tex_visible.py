@@ -224,6 +224,20 @@ class TestTexVisible(unittest.TestCase):
         self.assertFalse(band[mid, Q0 + 3])                          # далеко от него — нет
         self.assertTrue(TV.depth_band(fake_stage()).sum() == 0)      # ровная поверхность — полосы нет
 
+    def test_edge_bg_fringe_rejects_background_coloured_edge_for_dark_and_cream_fabric(self):
+        n = 200
+        pm = np.zeros((n, n), bool); pm[20:180, 20:180] = True
+        inner = np.zeros((n, n), bool); inner[24:176, 24:176] = True            # кайма 4 px у края фото
+        for fabric in ((30, 60, 120), (214, 206, 192)):                           # тёмная ткань и кремовая (почти как фон)
+            prgb = np.full((n, n, 3), 255, np.uint8)
+            prgb[inner] = fabric
+            st = {'mask': pm.copy(), 'cos': np.ones((n, n), np.float32)}
+            fr = TV.edge_bg_fringe(st, prgb, pm)
+            self.assertTrue(fr[pm & ~inner].all(), fabric)                         # белая кайма у края — отброшена
+            self.assertFalse(fr[inner].any(), fabric)                              # сама ткань — нет, даже кремовая
+        white = np.full((n, n, 3), 255, np.uint8); white[inner] = (246, 246, 244)       # белая ткань на белом фоне: «светлее фона» — сама ткань, правило не режет и мерка N/A
+        self.assertFalse(TV.edge_bg_fringe({'mask': pm.copy(), 'cos': np.ones((n, n), np.float32)}, white, pm).any())
+
     def test_multi_material_is_decided_by_bimodal_lightness_not_by_product(self):
         rng = np.random.default_rng(0)
         two = np.concatenate([rng.normal(25, 4, 4000), rng.normal(80, 4, 4000)])       # дерево + светлая обивка в одной части

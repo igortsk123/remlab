@@ -47,6 +47,11 @@ COS_MIN = float(R.get('cos_min', 0.40))          # cos угла к лучу: 66�
 DEPTH_JUMP = float(R.get('depth_jump_px', 12.0))  # разрыв глубины между соседними пикселями кадра больше стольких px_len — край складки/щели: полоса вокруг не берётся
 MM_GAP = float(R.get('multi_material_gap_L', 25.0))      # бимодальный L* внутри части → мерка перёд↔бок N/A
 MM_SHARE = float(R.get('multi_material_min_share', 0.20))
+EDGE_BG_PX = float(os.environ.get('EDGE_BG_PX', R.get('edge_bg_reject_px', 8.0)))   # 0 — правило выкл.
+EDGE_BG_MEASURE = float(R.get('edge_bg_measure_px', 6.0))
+EDGE_BG_DL = float(R.get('edge_bg_dL', 6.0))
+EDGE_BG_WHITE_L = float(R.get('edge_bg_white_L', 90.0))   # медиана ядра светлее — ткань белая, мерка и правило каймы слепы (N/A)
+EDGE_BG_MAX = float(R.get('edge_bg_share_max', 0.05))
 DEPTH_MED = int(R.get('depth_median_px', 7))   # медиана карты глубины перед поиском разрыва: на рёбрах треугольников в ней пятна-выбросы
 DEPTH_BAND = int(R.get('depth_band_px', 2))      # ширина этой полосы, пикселей кадра
 COS_FULL = float(R.get('cos_full', 0.60))         # полный вес с этого косинуса; между COS_MIN и COS_FULL — плавная передача заготовке
@@ -64,6 +69,7 @@ GATE = {                # (порог, op) — провизорно, см. ша�
     'known_share': (0.15, '>='),
     'edge_corr': (0.90, '>='),
     'lab_dE': (3.0, '<='),
+    'edge_bg_share': (EDGE_BG_MAX, '<='),      # светлая кайма/ореол вырезки среди взятых у края (нет достаточно краевых пикселей — мерки нет, это не отказ)
 }
 
 
@@ -154,6 +160,64 @@ def face_maps(st: dict, nF: int, off: int = 0) -> dict:
     return out
 
 
+def _de(lab: np.ndarray, ref: np.ndarray) -> np.ndarray:
+    import recolor_lp as LP
+    flat = lab.reshape(-1, 3)
+    return LP.de2000(flat, np.broadcast_to(np.asarray(ref, np.float64), flat.shape)).reshape(lab.shape[:-1])
+
+
+def bg_like(lab: np.ndarray, med: np.ndarray) -> np.ndarray:
+    """Цвет «как фон вырезки»: ближе к белому, чем к цвету ткани (медиана ядра), и светлее ткани на EDGE_BG_DL L*."""
+    white = _lab(np.full((1, 1, 3), 255, np.uint8))[0, 0]
+    return (_de(lab, white) < _de(lab, med)) & (lab[..., 0] > med[0] + EDGE_BG_DL)
+
+
+def core_median(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarray:
+    """Цвет ткани по фото: медиана Lab пикселей прямо к камере (cos >= 0.8), глубже 12 px от края фото и силуэта растра."""
+    from scipy.ndimage import distance_transform_edt
+    core = st['mask'] & pmask & (st['cos'] >= 0.8) & (distance_transform_edt(pmask) > 12) & (distance_transform_edt(st['mask']) > 12)
+    if core.sum() < 100:
+        core = st['mask'] & pmask & (st['cos'] >= TV_FALLBACK_COS)
+    return np.median(_lab(prgb)[core], axis=0)
+
+
+TV_FALLBACK_COS = 0.5
+
+
+def edge_bg_fringe(st: dict, prgb: np.ndarray, pmask: np.ndarray) -> np.ndarray:
+    """Пиксели кадра у края альфы фото (<= EDGE_BG_PX), чей цвет — фон вырезки, а не ткань: в перенос не идут (общее правило, не по товару)."""
+    if EDGE_BG_PX <= 0:
+        return np.zeros(pmask.shape, bool)
+    from scipy.ndimage import distance_transform_edt
+    med = core_median(st, prgb, pmask)
+    if med[0] > EDGE_BG_WHITE_L:
+        return np.zeros(pmask.shape, bool)
+    return bg_like(_lab(prgb), med) & (distance_transform_edt(pmask) <= EDGE_BG_PX) & pmask
+
+
+def edge_bg_share(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, tr: dict, after: np.ndarray) -> dict:
+    """Автопроверка: доля «светлых как фон» среди ВЗЯТЫХ пикселей кадра у края (<= EDGE_BG_MEASURE px от края альфы фото или силуэта растра)."""
+    from scipy.ndimage import distance_transform_edt
+    ids, uv, mask = st['ids'], st['uv'], st['mask']
+    offs = np.cumsum([0] + [len(g['F']) for g in geoms])
+    gid = np.full(ids.shape, -1, np.int32)
+    gid[ids >= 0] = np.searchsorted(offs, ids[ids >= 0], side='right') - 1
+    kn = np.zeros(mask.shape, bool)
+    for gi, k in enumerate(tr['known']):
+        T = k.shape[0]
+        ys, xs = np.nonzero((gid == gi) & mask)
+        tx = np.clip(np.floor(uv[ys, xs, 0] * T).astype(np.int64), 0, T - 1)
+        ty = np.clip(np.floor(uv[ys, xs, 1] * T).astype(np.int64), 0, T - 1)
+        kn[ys, xs] = k[ty, tx]
+    near = (np.minimum(distance_transform_edt(pmask), distance_transform_edt(mask)) <= EDGE_BG_MEASURE) & kn
+    med = core_median(st, prgb, pmask)
+    if med[0] > EDGE_BG_WHITE_L:
+        return {'edge_bg_share': None, 'edge_known_px': int(near.sum()), 'edge_bg_px': 0, 'edge_bg_na': f'N/A: белая ткань (медиана ядра L* {med[0]:.1f} > {EDGE_BG_WHITE_L:g}), мерка слепа'}
+    bg = bg_like(_lab(after), med) & near
+    n = int(near.sum())
+    return {'edge_bg_share': None if n < 200 else round(float(bg.sum() / n), 4), 'edge_known_px': n, 'edge_bg_px': int(bg.sum())}
+
+
 def depth_band(st: dict) -> np.ndarray:
     """Маска кадра: пиксели у разрыва глубины (край складки, щель между подушками, торец за выступом) шире DEPTH_BAND px — фото там берёт тень щели, а не поверхность."""
     from scipy.ndimage import binary_dilation, median_filter
@@ -185,6 +249,8 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
     dist_edge = distance_transform_edt(pmask)
     nogo = depth_band(st)
     n_nogo = int((nogo & st['mask']).sum())
+    fringe = edge_bg_fringe(st, prgb, pmask)
+    nogo = nogo | fringe
     edge_px = max(EDGE_FRAC * px, 1.0)
     z_eps = max(float(st.get('px_len') or 0.0), 1e-6) * DEPTH_PX
     texs, knowns, stats = [], [], []
@@ -243,7 +309,7 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
         texs.append(np.clip(tex + 0.5, 0, 255).astype(np.uint8))
         knowns.append(known)
         stats.append({'name': g['name'], 'T': T, 'occupied': int(occ.sum()), 'known': int(known.sum()), 'faces_ok': int(fm['ok'].sum()), 'faces_seen': int((fm['cnt'] > 0).sum()), 'texels_taken': int(use.sum()), 'known_facemap': n_face, 'known_splat': n_splat, 'known_filled': n_fill})
-    return {'tex': texs, 'known': knowns, 'stats': stats, 'depth_band_share': round(n_nogo / max(int(st['mask'].sum()), 1), 4)}
+    return {'tex': texs, 'known': knowns, 'stats': stats, 'depth_band_share': round(n_nogo / max(int(st['mask'].sum()), 1), 4), 'edge_bg_fringe_px': int((fringe & st['mask']).sum())}
 
 
 def write_glb(geoms: list, texs: list, dst: str) -> None:
@@ -351,6 +417,8 @@ def metrics(geoms, st, prgb, pmask, tr, after: np.ndarray, cos_min: float) -> di
                     continue
                 fs[g['name']] = {'dE': round(float(LP.de2000(mf[None], ms[None])[0]), 3), 'dL': round(float(mf[0] - ms[0]), 2), 'n_front': int(fr.sum()), 'n_side': int(sd.sum())}
         out['front_side'] = fs
+    eb = edge_bg_share(geoms, st, prgb, pmask, tr, after)
+    out.update({k: v for k, v in eb.items() if v is not None})                   # None (мало краевых или белая ткань) — мерки нет; gate её тогда не требует
     return out
 
 
@@ -358,6 +426,8 @@ def gate(m: dict) -> tuple[dict, list]:
     """Мерки с порогами (формат paint_stage) и список причин отказа. Нет измерения — не «ок»."""
     mm, why = {}, []
     for k, (thr, op) in GATE.items():
+        if k == 'edge_bg_share' and k not in m:
+            continue
         mm[k] = {'value': m.get(k), 'threshold': thr, 'op': op}
         if k not in m or not PS.judge(m[k], op, thr):
             why.append(f'{k} {m.get(k, "нет измерения")} (нужно {op} {thr})')
