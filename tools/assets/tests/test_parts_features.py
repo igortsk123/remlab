@@ -632,6 +632,15 @@ class SimilarToTrusted(unittest.TestCase):
     """similar_to_trusted: неизвестная часть берёт канал доверенной части того же товара по цвету+текстуре; дерево↔ткань не смешивается, без доверенных — unknown, ножки — только при legs_guard."""
     rules = pr.load_rules()
 
+    def make_with(self, colours, st):
+        rd = self.rules["roles"]
+        def o(role, ch, reason=None):
+            return {"role": role, "role_title": rd[role]["titleRu"] if role in rd else role, "material_channel": ch, "role_conf": 0.9, "role_why": "тест", "unknown_reason": reason}
+        out = {0: o("body", "main"), 1: o("legs", "legs"), 2: o("unknown", None, "support_unclear")}
+        ft = {q: {"agree": 0.95, "seen": 0.5, "kind": "body", "up_q90": 0.1, "delta_e_main": 40.0} for q in out}
+        pr._similar_to_trusted(ft, out, st, colours, self.rules)
+        return out
+
     def make(self, colours, mode="dry", **ft_over):
         rd = self.rules["roles"]
         def o(role, ch, reason=None):
@@ -683,6 +692,20 @@ class SimilarToTrusted(unittest.TestCase):
         self.assertEqual(self.make(col, "on")[2]["role"], "body")                              # дыры в текстуре — не разброс ткани
         col[2] = {**hole, "spread_p90_clean": 60.0}                                           # а настоящий разброс (дерево) — по-прежнему стоп
         self.assertEqual(self.make(col, "on")[2]["role"], "unknown")
+
+    def test_tx_skip_de_pattern_fabric(self):
+        plain = {"lab_median": [68.2, 0.4, 4.7], "spread_p90": 2.0}                           # гладкая часть той же ткани, что узорная (спред 1,2 у C_BODY; здесь узорные спред 30)
+        pat = {"lab_median": [68.0, 0.3, 4.6], "spread_p90": 30.0}
+        col = {0: pat, 1: self.C_LEGS, 2: plain}
+        self.assertEqual(self.make(col, "on")[2]["role"], "unknown")                           # по умолчанию узор≠гладкое
+        st = {**self.rules["decision"]["similar_to_trusted"], "mode": "on", "enabled": True, "tx_skip_de": 2.0}
+        o2 = self.make_with(col, st)
+        self.assertEqual(o2[2]["role"], "body")
+        wood_like = {"lab_median": [45.0, 8.0, 20.0], "spread_p90": 2.0}                       # цвет как у доверенных ножек → берёт канал ножек, а не ткани (цвет решает, разброс не пускает дерево в ткань)
+        r = self.make_with({0: pat, 1: self.C_LEGS, 2: wood_like}, st)[2]
+        self.assertEqual((r["role"], r["material_channel"]), ("legs", "legs"))
+        mid = {"lab_median": [60.0, 4.0, 12.0], "spread_p90": 2.0}                              # посередине: ни к ткани, ни к дереву (ΔE > tx_skip_de) → гейт по тексту → unknown
+        self.assertEqual(self.make_with({0: pat, 1: self.C_LEGS, 2: mid}, st)[2]["role"], "unknown")
 
     def test_part_colours_dark_holes(self):
         import numpy as np

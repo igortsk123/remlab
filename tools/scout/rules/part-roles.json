@@ -99,6 +99,7 @@
    "enabled": true,
    "mode": "dry",
    "tx_key": "spread_p90_clean",
+   "tx_skip_de": null,
    "de_max": 8,
    "tx_max": 1.5,
    "trusted_min_agree": 0.8,

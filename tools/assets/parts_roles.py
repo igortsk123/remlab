@@ -93,6 +93,8 @@ def _colour_gate(cq: dict | None, ct: dict | None, st: dict) -> bool:
     k = st.get("tx_key", "spread_p90_clean")
     sq, stt = cq.get(k, cq.get("spread_p90", 0)), ct.get(k, ct.get("spread_p90", 0))
     tx = abs(math.log2((sq + 1) / (stt + 1)))
+    if st.get("tx_skip_de") is not None and de <= st["tx_skip_de"]:                  # цвет совпал почти точно: узорная ткань и гладкая часть той же ткани отличаются разбросом, а не материалом
+        return True
     return de <= st["de_max"] and tx <= st["tx_max"]
 
 
