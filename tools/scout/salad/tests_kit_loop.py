@@ -410,5 +410,35 @@ with tempfile.TemporaryDirectory() as tmp:
     rc, summ, out, calls = drive_pull(tmp, running_min=14, spec_mod={'card': 'RTX 5090 (32 GB)', 'cuda_archs': ('8.9',)})
     check(rc == 3 and 'no kernel image' in out and 'группу НЕ создаю' in out and not os.path.exists(os.path.join(tmp, 'out')), 'цикл: образ под 8.9 на карте 5090 — отказ ДО создания группы, код 3, /bin/bash (урок 742)')
 
+# before_job: плановый стоп (--max-meshes / файл-стоп / не уложится в потолок) — код 0, 'planned'; аварийный «!причина» — код 1
+with tempfile.TemporaryDirectory() as tmp:
+    _orig_ms = make_spec
+    seen = []
+
+    def _ms(keys):
+        sp = _orig_ms(keys)
+        sp.before_job = lambda k, cost, cap: (seen.append((k, round(cost, 3), cap)) or ('--max-meshes 2 достигнут' if len(seen) > 2 else None))
+        return sp
+    make_spec = _ms
+    rc, summ, out, br = drive(tmp, 'a,b,c,d', job_s=60.0, job_min=0)
+    make_spec = _orig_ms
+    st = {k: v.get('status') for k, v in summ.get('jobs', {}).items()}
+    check(summ.get('stopped_by') == 'planned' and st == {'a': 'done', 'b': 'done'} and rc == 0 and summ.get('stop_verified'),
+          f'before_job: после двух заданий плановый стоп — код 0, c и d не посланы ({summ.get("stopped_by")}, {st}, rc {rc})')
+    check('новые задания не отправляю: --max-meshes 2 достигнут' in out and [x[0] for x in seen][:3] == ['a', 'b', 'c'], 'before_job: вызывается с ключом СЛЕДУЮЩЕГО задания, причина в журнале')
+
+with tempfile.TemporaryDirectory() as tmp:
+    _orig_ms = make_spec
+
+    def _ms2(keys):
+        sp = _orig_ms(keys)
+        sp.before_job = lambda k, cost, cap: '!first_failed'
+        return sp
+    make_spec = _ms2
+    rc, summ, out, br = drive(tmp, 'a,b', job_s=60.0, job_min=0)
+    make_spec = _orig_ms
+    check(summ.get('stopped_by') == 'first_failed' and rc == 1 and not summ.get('jobs') and summ.get('stop_verified'),
+          f'before_job: «!причина» — аварийный стоп, код 1, ничего не послано ({summ.get("stopped_by")}, rc {rc})')
+
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПАДЕНИЙ {len(FAILS)}')
 sys.exit(1 if FAILS else 0)

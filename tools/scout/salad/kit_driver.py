@@ -673,6 +673,8 @@ class Spec:
     z_keys: tuple = ()
     worker_file: str = ''                                          # код воркера пробы: ОБЯЗАТЕЛЕН — до создания группы проверяем, что он отдаёт ход задания в /health (урок b1); пусто → отказ до группы (код 3)
     allow_no_worker_check: bool = False                            # пропуск проверки хода — ТОЛЬКО для тестов драйвера с поддельным воркером; в боевой пробе не ставить
+    before_job: Callable[[str, float, float], str | None] | None = None   # (следующий ключ, деньги сейчас $, потолок сейчас $) → причина планового стопа или None: --max-meshes, файл-стоп,
+                                                                           # «по средней длительности не успеет до потолка», первый провал (платное не шлём впустую); стоп = 'planned:<причина>', код 0
     cuda_archs: tuple = ()                                         # архитектуры CUDA образа ('12.0',): пусто — сверка с картой не делается (урок 742)
 
 
@@ -815,6 +817,13 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
                     say(msg)
             seen_ev = len(w.events)
             if w.ready_at is not None:
+                if cur is None and pending and spec.before_job:
+                    why_plan = spec.before_job(pending[0], w.cost(t), w.cap_now())
+                    if why_plan:
+                        say(f'новые задания не отправляю: {why_plan} — гашу')
+                        summary['stopped_by'] = 'planned' if not str(why_plan).startswith('!') else str(why_plan)[1:]       # «!причина» — аварийный стоп (код 1), иначе плановый
+                        summary['planned_reason'] = str(why_plan)
+                        break
                 if cur is None and pending:
                     k = pending.pop(0)
                     cur, info = spec.submit(gw, k, t)
@@ -882,4 +891,4 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
         if warn:
             say('!!', warn)
         say('ИТОГ', json.dumps({k: summary.get(k) for k in ('group', 'stopped_by', 'stop_verified', 'failed', 'running_s', 'cost_usd_est')}, ensure_ascii=False))
-    return 0 if summary['stop_verified'] and summary['stopped_by'] == 'done' else 1
+    return 0 if summary['stop_verified'] and summary['stopped_by'] in ('done', 'planned') and not summary['failed'] else 1
