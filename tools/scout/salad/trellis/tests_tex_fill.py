@@ -158,7 +158,7 @@ def scene_parts():
 def test_parts():
     print('заливка: известное цело; невидимое — цветом СВОЕЙ части, не через границу части и островка:')
     g, parts, known, tl, col = scene_parts()
-    out = TF.fill([g], known, parts, cfg={'gutter': 0, 'erode_known': 0, 'tone': 'median'}, mirror=False)     # часть 1 двухцветная (синий + жёлтый островок): геометрия заливки проверяется при медиане, мода — отдельный тест
+    out = TF.fill([g], known, parts, cfg={"gutter": 0, "erode_known": 0, "tone": "median", "src_dev_pattern": 0}, mirror=False)     # часть 1 двухцветная (синий + жёлтый островок): геометрия заливки проверяется при медиане, мода — отдельный тест
     tex, rep = out['tex'][0], out['report']
     tex0 = g['tex']
     kn = known[0]
@@ -489,6 +489,53 @@ def test_quilt_efros():
     ok(abs(float(t_flat[0]) - float(np.median(spread[:, 0]))) < 1.0, f'равномерный разброс (ворс) — медиана, не случайная мода ({t_flat[0]:.1f})')
 
 
+def test_quilt_holes():
+    print('квилт при дырявом известном (вход этапа 6: грани мельче пикселя фото):')
+    q = Quads()
+    q.quad([[0, 0, 0], [2, 0, 0], [2, 1, 0], [0, 1, 0]], (0, 0, .9, .9), sub=8)
+    q.quad([[0, 0, -1], [2, 0, -1], [2, 1, -1], [0, 1, -1]], (.9, .9, 1.0, 1.0), sub=2)
+    tex = np.zeros((T, T, 3), np.uint8)
+    m = tile_mask((0, 0, .9, .9))
+    ys, xs = np.nonzero(m)
+    tex[ys, xs] = [235, 225, 200]
+    flower = ((xs // 12 + ys // 12) % 7 == 0) & ((xs % 12) < 8) & ((ys % 12) < 8)
+    tex[ys[flower], xs[flower]] = [220, 60, 110]
+    g = q.geom(tex)
+    kn = m.copy()
+    kn[::5, ::5] = False                                                   # редкие одиночные дыры
+    kn[(np.arange(T)[:, None] + np.arange(T)[None, :]) % 3 == 0] &= (np.random.RandomState(2).rand(T, T) > 0.6)[(np.arange(T)[:, None] + np.arange(T)[None, :]) % 3 == 0]   # плюс дырявость
+    out = TF.fill([g], [kn], None, cfg={'gutter': 0, 'erode_known': 0}, mirror=False)
+    qi = out['report'].get('quilt_info', {})
+    ok(len(qi) == 1 and list(qi.values())[0]['pool'] >= 4, f'квилт собран при дырявом известном: {qi}')
+    ok(out['report']['no_patch'] == 0 and out['report']['unpainted_after_pct'] == 0.0, 'после заливки пустого нет')
+
+
+def test_known_unchanged():
+    print('правило «заливка не меняет известное этапу 6» (known_changed_share_pct = 0, пороги из rules/paint-fill.json):')
+    import tempfile
+    import paint_stage as PS
+    ok(TF.THRESHOLDS['known_changed_share_pct'] == ('<=', 0.0) and TF.RULES['known_change_de'] > 0, 'порог 0 и ΔE изменения берутся из rules/paint-fill.json')
+    q = Quads()
+    q.quad([[-0.5, 0, 0], [0.5, 0, 0], [0.5, 1, 0], [-0.5, 1, 0]], (0, 0, .9, .9), sub=8)
+    q.quad([[-0.5, 0, -0.4], [0.5, 0, -0.4], [0.5, 1, -0.4], [-0.5, 1, -0.4]], (.9, .9, 1.0, 1.0), sub=2)
+    tex = np.zeros((T, T, 3), np.uint8)
+    m = tile_mask((0, 0, .9, .9))
+    ys, xs = np.nonzero(m)
+    tex[ys, xs] = np.stack([(120 + (xs * 7 + ys * 3) % 60).astype(np.uint8), np.full(len(xs), 140, np.uint8), np.full(len(xs), 200, np.uint8)], 1)    # известное — с рисунком
+    g = q.geom(tex)
+    with tempfile.TemporaryDirectory() as td:
+        TF.write_glb([g], [tex], os.path.join(td, 'in.glb'))
+        r = TF.run_stage(td, 'sku:k', os.path.join(td, 'in.glb'), known=[m], parts=None, cfg={'gutter': 0}, mirror=False)           # erode_known по умолчанию (3): образцы без края, но перезаписи известного нет
+        mt = r['check']['metrics']['known_changed_share_pct']
+        ok(mt['value'] == 0.0 and mt['ok'] and mt['threshold'] == 0.0, f'известное не изменилось (доля {mt["value"]} %)')
+        c = PS.read_check(r['dir'])
+        ok('known_changed_share_pct' in c['metrics'], 'мерка записана в check.json')
+        bad = [a.copy() for a in r['tex_after']]
+        bad[0][ys[:50], xs[:50]] = 255 - bad[0][ys[:50], xs[:50]]
+        sh = TF.known_changed_share([m], r['tex_before'], bad, TF.RULES['known_change_de'])
+        ok(sh['changed'] >= 40 and sh['share_pct'] > 0, f'контроль: подмена известных текселей мерка ловит ({sh})')
+
+
 def test_run_stage_fallback():
     print('этап 07 с черновиком: считаются А и Б, берётся Б только если мерки не хуже; check.json:')
     import tempfile
@@ -529,6 +576,116 @@ def test_run_stage_fallback():
         ok(r2['report']['source_used'] == 'trellis' and r2['report']['source_tried'] == {}, 'draft_fallback выключен — только Б')
 
 
+def test_render_pattern():
+    print("узор из непрерывного кадра видимой стороны + мерка узора (отчёт):")
+    q = Quads()
+    q.quad([[-0.5, 0, 0], [0.5, 0, 0], [0.5, 1, 0], [-0.5, 1, 0]], (0, 0, .9, .9), sub=8)
+    q.quad([[-0.5, 0, -0.4], [0.5, 0, -0.4], [0.5, 1, -0.4], [-0.5, 1, -0.4]], (.9, .9, 1.0, 1.0), sub=2)
+    m = tile_mask((0, 0, .9, .9))
+    tex = np.zeros((T, T, 3), np.uint8)
+    ys, xs = np.nonzero(m)
+    dots = ((xs // 6) % 2 == 0) & ((ys // 6) % 2 == 0)      # 25 % площади — не «тень» (ниже квантиля яркости)
+    base = np.array([232, 226, 214])
+    col = np.where(dots[:, None], np.array([200, 60, 90]), base[None]).astype(np.uint8)
+    tex[ys, xs] = col
+    g = q.geom(tex)
+    out = TF.fill([g], [m], None, cfg={"gutter": 0, "erode_known": 0, "pr_res": 256}, mirror=False)
+    rep = out["report"]
+    ps = rep.get("pattern_src", {}).get(0)
+    ok(ps is not None and ps["render"] and ps["pool"] >= 4, f"блоки взяты из кадра видимой стороны: {ps}")
+    ok(rep["known_pct"] > 0, "известное есть")
+    back = tile_mask((.9, .9, 1.0, 1.0))
+    ab = TF.rgb2lab(out["tex"][0][back])
+    ok(float(np.hypot(ab[:, 1].std(), ab[:, 2].std())) > 2.0, f"залитое с узором, не плоское (σ хромы {float(np.hypot(ab[:, 1].std(), ab[:, 2].std())):.1f})")
+    pmx = TF.pattern_metrics([g], None, [m], out["tex"], rep, dict(TF.FILL, pr_res=256))
+    ok(0 in pmx and pmx[0].get("dist") is not None and pmx[0]["spot_area_back"] > 0, f"pattern_metrics считается на залитом: {pmx}")
+    off = TF.fill([g], [m], None, cfg={"gutter": 0, "erode_known": 0, "pattern_render": False}, mirror=False)["report"]
+    ok("pattern_src" not in off, "pattern_render=False — прежний путь по развёртке")
+    # мерка узора: одинаковая статистика → 0, точки против полос → больше
+    R = 160
+    yy, xx = np.mgrid[0:R, 0:R]
+    tone = np.array([70.0, 5.0, 12.0])
+    lab_d = np.zeros((R, R, 3)); lab_d[...] = tone
+    lab_d[((xx // 5) % 4 == 0) & ((yy // 5) % 4 == 0)] = [60, 40, 20]
+    lab_d2 = np.roll(lab_d, 7, axis=1)
+    lab_s = np.zeros((R, R, 3)); lab_s[...] = tone
+    lab_s[(xx % 9) < 3] = [60, 40, 20]
+    mk = np.ones((R, R), bool)
+    h1, h2, h3 = (TF._pattern_hists(a, mk, tone, 10.0) for a in (lab_d, lab_d2, lab_s))
+    d12 = 0.5 * float(np.abs(h1["orient"] - h2["orient"]).sum()) + 0.5 * float(np.abs(h1["spot_sizes"] - h2["spot_sizes"]).sum())
+    d13 = 0.5 * float(np.abs(h1["orient"] - h3["orient"]).sum()) + 0.5 * float(np.abs(h1["spot_sizes"] - h3["spot_sizes"]).sum())
+    ok(d12 < 0.2 and d13 > d12 + 0.2, f"мерка узора: те же точки со сдвигом {d12:.3f} < точки против полос {d13:.3f}")
+
+
+def test_outlier_blocks():
+    print("отбраковка блоков с чужеродным пятном (тёмный скол на ножке; пороги из rules/paint-fill.json):")
+    rng = np.random.RandomState(2)
+    qo = TF.RULES["quilt_outlier"]
+    pool = [rng.normal(0, 2.0, (24, 24, 3)) for _ in range(20)]
+    bad = rng.normal(0, 2.0, (24, 24, 3)); bad[4:14, 4:20, 0] -= 40.0           # тёмная дыра
+    bad2 = rng.normal(0, 2.0, (24, 24, 3)); bad2[2:10, 2:10, :] += 60.0       # белый фон на краю фото
+    keep, nrej = TF.reject_outlier_blocks(pool + [bad, bad2], qo["k"], qo["floor"], qo["quantile"])
+    ok(nrej == 2 and len(keep) == 20, f"отброшены оба блока с пятном, нормальные целы (отброшено {nrej}, осталось {len(keep)})")
+    keep0, nrej0 = TF.reject_outlier_blocks(pool, qo["k"], qo["floor"], qo["quantile"])
+    ok(nrej0 == 0, f"чистый пул не режется ({nrej0})")
+    qe = TF.RULES["quilt_extreme"]
+    tone_l = 67.0                                                                 # узорная часть: остаток от тона; дерево ножки L≈67
+    pp = [rng.normal(0, 3.0, (24, 24, 3)) for _ in range(20)]
+    blk_black = rng.normal(0, 3.0, (24, 24, 3)); blk_black[4:14, 4:20, 0] = 16.0 - tone_l       # чёрная дыра (L 16)
+    blk_white = rng.normal(0, 3.0, (24, 24, 3)); blk_white[2:12, 2:12, 0] = 28.0                # белый фон на краю фото (светлее тона на 28)
+    branch = rng.normal(0, 3.0, (24, 24, 3)); branch[8:16, 2:22, 0] = -35.0; branch[8:16, 2:22, 1:] += 25.0   # ветка/цветок: темнее и с цветом, не чёрная
+    keep2, nrej2 = TF.reject_extreme_blocks(pp + [blk_black, blk_white, branch], tone_l, qe["dL_hi"], qe["black_abs"], qe["share"])
+    ok(nrej2 == 2 and len(keep2) == 21, f"чёрная дыра и белый фон отброшены, ветка цела (отброшено {nrej2})")
+
+
+def test_stage6_gate():
+    print("этап 7 отказывает, если этап 6 отказал (камера не прошла / нет выхода); мягкий провал мерок — не отказ:")
+    import json
+    import tempfile
+    import paint_stage as PS
+    with tempfile.TemporaryDirectory() as td:
+        def mk(name, doc, glb):
+            d = os.path.join(td, name, "06-visible")
+            os.makedirs(d)
+            if doc is not None:
+                json.dump(doc, open(os.path.join(d, "check.json"), "w"))
+            if glb:
+                open(os.path.join(d, "visible.glb"), "wb").write(b"x")
+            return d
+        base = {"version": 1, "stage": "06-visible", "sku": "x", "metric": None, "metrics": {}, "outputs": [], "frame": None}
+        d1 = mk("cam", dict(base, passed=False, reason="камера этапа 4 не прошла", extra={"camera_failed": True, "camera_gate": "failed"}), False)
+        d2 = mk("soft", dict(base, passed=False, reason="known_share 0.14 < 0.15", extra={"needs_qwen": True}), True)
+        d3 = mk("ok", dict(base, passed=True, reason="", extra={}), True)
+        d4 = mk("nochk", None, True)
+        d5 = mk("noglb", dict(base, passed=True, reason="", extra={}), False)
+        g = {k: TF.stage6_gate(d) for k, d in (("cam", d1), ("soft", d2), ("ok", d3), ("nochk", d4), ("noglb", d5))}
+        ok(g["cam"][0] and "камера" in g["cam"][1], f"камера не прошла → отказ ({g['cam'][1][:40]})")
+        ok(not g["soft"][0] and g["soft"][2].get("soft_fail") is True, "мягкий провал мерок этапа 6 (есть выход) → заливка идёт, провал записан")
+        ok(not g["ok"][0] and g["ok"][2].get("soft_fail") is False, "этап 6 прошёл → заливка идёт")
+        ok(g["nochk"][0] and g["noglb"][0], "нет check.json или visible.glb → отказ")
+        r = TF.run_stage(td, "cam", os.path.join(d1, "visible.glb"), prev_dir=d1)
+        c = PS.read_check(PS.stage_dir(td, "cam", TF.STAGE))
+        ok(r.get("refused") and c is not None and c["passed"] is False and c["extra"].get("refused") is True and c["outputs"] == [], "run_stage при отказе: check.json passed=false, refused, выхода нет, GLB не читался")
+
+
+def test_cli_run_stage():
+    print("CLI `tex_fill.py run_stage <run> <sku>`: вход из <run>/<sku>/06-visible, выход — 07-fill/check.json в формате paint_stage:")
+    import json
+    import tempfile
+    import paint_stage as PS
+    with tempfile.TemporaryDirectory() as td:
+        v = os.path.join(td, "sku1", "06-visible")
+        os.makedirs(v)
+        json.dump({"version": 1, "stage": "06-visible", "sku": "sku1", "passed": False, "reason": "камера этапа 4 не прошла", "metric": None, "metrics": {}, "outputs": [], "frame": None,
+                   "extra": {"camera_failed": True, "camera_gate": "failed"}}, open(os.path.join(v, "check.json"), "w"))
+        rc = TF.main(["run_stage", td, "sku1"])
+        c = PS.read_check(os.path.join(td, "sku1", "07-fill"))
+        ok(rc == 0 and c is not None and c["stage"] == "07-fill" and c["passed"] is False and c["extra"].get("refused") is True, "этап 6 отказал → rc 0, check.json 07-fill passed=false refused")
+        rc2 = TF.main(["run_stage", td, "нет-такого"])
+        c2 = PS.read_check(os.path.join(td, "нет-такого", "07-fill"))
+        ok(rc2 == 0 and c2 is not None and c2["passed"] is False, "нет выхода этапа 6 → check.json passed=false, не сбой запуска")
+
+
 def test_render_low():
     print('кадр снизу (дно) — elevation −90:')
     q = Quads()
@@ -547,7 +704,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_stage6_gate, test_cli_run_stage, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

@@ -26,13 +26,16 @@ def probe(rund: str, out: str, label: str, cfg: dict | None = None, draft_glb: s
     import sg_tex_guard
     from PIL import Image
     if visible:
+        cfg = dict({'erode_known': 0}, **(cfg or {}))          # вход этапа 6: маска «взято с фото» уже честная (дыры ≤2,5 текселя закрыты); отступ в 3 пикселя съедал бы известное (грани мельче пикселя) и затирал бы кадр фото
         kn = []
         for i in range(64):
             fp = os.path.join(visible, 'known.png' if i == 0 else f'known{i}.png')
             if not os.path.exists(fp):
                 break
             kn.append(np.asarray(Image.open(fp).convert('L')) > 127)
-        r = TF.run_stage(out, label, os.path.join(visible, 'visible.glb'), known=kn, cfg=cfg, draft_glb=draft_glb)
+        r = TF.run_stage(out, label, os.path.join(visible, 'visible.glb'), known=kn, cfg=cfg, draft_glb=draft_glb, prev_dir=visible)
+        if r.get('refused'):                                   # этап 6 отказал (камера не прошла, нет выхода) — этап 7 не заливает; это не сбой пробы
+            return {'run': label, 'refused': True, 'passed': False, 'reason': r['check']['reason'], 'seconds': r['check']['seconds']}
     else:
         r = TF.run_stage(out, label, sg_tex_guard.glb_of(rund), cfg=cfg, draft_glb=draft_glb)
     geoms, before, after, rep = r['geoms'], r['tex_before'], r['tex_after'], r['report']
@@ -65,7 +68,7 @@ def probe(rund: str, out: str, label: str, cfg: dict | None = None, draft_glb: s
 
 def main() -> int:
     args = sys.argv[1:]
-    cfg, draft_dir, visible_root = {}, None, None
+    cfg, draft_dir, visible_root, draft_pat = {}, None, None, '{base}-1024-42-0.glb'
     while args and args[0].startswith('--'):
         k, v = args[0], args[1]
         if k == '--source':
@@ -74,10 +77,14 @@ def main() -> int:
             draft_dir = v
         elif k == '--draft-fallback':                 # on|off: этап считает и А, берёт Б только если мерки не хуже (по умолчанию on); off — Б «как есть» для сравнения
             cfg['draft_fallback'] = (v == 'on')
+        elif k == '--draft-pattern':                 # имя черновика в --draft-dir, {base} — имя прогона/товара (по умолчанию родной TRELLIS.2: {base}-1024-42-0.glb; out30: {base}-n1024.glb)
+            draft_pat = v
         elif k == '--visible-root':                   # корень выхода этапа 6 (`<root>/<sku>/06-visible/`): вместо папок прогонов — имена товаров (sku)
             visible_root = v
         elif k == '--draft-texture':                  # on|off: класть на черновик Б лоскут фактуры фото (квилт)
             cfg['draft_texture'] = (v == 'on')
+        elif k == '--cfg':                            # JSON-добавка к FILL (варианты проб): '{"pattern_render": false, "pr_block_max": 64}'
+            cfg.update(json.loads(v))
         else:
             print(__doc__)
             return 2
@@ -92,7 +99,7 @@ def main() -> int:
         base = os.path.basename(rund.rstrip('/'))
         label = (base[-12:] if visible_root else base.split('-q2509')[0].split('@')[0][-12:] + '_' + base.split('@')[-1][:12])
         try:
-            dg = os.path.join(draft_dir, base.split('@')[0] + '-1024-42-0.glb') if draft_dir else None
+            dg = os.path.join(draft_dir, draft_pat.format(base=base.split('@')[0])) if draft_dir else None
             if dg and not os.path.exists(dg):
                 raise FileNotFoundError(f'нет черновика {dg}')
             rec = probe(rund, out, label, cfg, dg, os.path.join(visible_root, base, '06-visible') if visible_root else None)
