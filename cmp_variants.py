@@ -36,7 +36,7 @@ for root, sku in ITEMS:
     known = [np.asarray(Image.open(R + '/06-visible/known.png').convert('L')) > 127]
     runs = {}
     for nm, cfg, dg in (('now', {'erode_known': 0}, None), ('v1', {'erode_known': 0, 'borrow_texture': True}, None),
-                        ('v2', {'erode_known': 0, 'source': 'trellis_relief'}, DR + f'/{sku}-1024-42-0.glb')):
+                        ('v2', {'erode_known': 0, 'source': 'trellis_relief', 'relief_calib_donor': True}, DR + f'/{sku}-1024-42-0.glb')):
         if nm == 'v2' and not os.path.exists(dg):
             continue
         runs[nm] = TF.run_stage(OUT + '/' + sku + '-' + nm, sku, R + '/06-visible/visible.glb', known=known, cfg=cfg, draft_glb=dg, prev_dir=R + '/06-visible', parts_npz=R + '/03-parts/parts.npz')
@@ -69,7 +69,7 @@ for root, sku in ITEMS:
             sp = HV.spec_signature(La, mu, np.random.RandomState(3), 16, 24)
             dist = None if sp is None or sr is None else float(np.mean(np.abs(sp - sr)))
             rows[(p, nm)] = (h, hr, dist)
-            print(f'  ч.{p} эталон ч.{ref} · {nm}: HP зада {h if h is None else round(h, 2)} · HP чистой ткани фото {hr if hr is None else round(hr, 2)} · отношение {"—" if not h or not hr else str(round(100 * h / hr)) + " %"} · спектр-расстояние {dist if dist is None else round(dist, 3)} · заём {r["report"].get("borrowed", {}).get(p)}', flush=True)
+            print(f'  ч.{p} эталон ч.{ref} · {nm}: HP зада {h if h is None else round(h, 2)} · HP чистой ткани фото {hr if hr is None else round(hr, 2)} · отношение {"—" if not h or not hr else str(round(100 * h / hr)) + " %"} · спектр-расстояние {dist if dist is None else round(dist, 3)} · заём {r["report"].get("borrowed", {}).get(p)} · рельеф {(lambda i: None if not i else (i.get("fallback") or ("калибр. по ч.%s, gain %s, годно %s" % (i.get("calib_donor"), i.get("gain"), i.get("usable_texels")))))((r["report"].get("relief") or {}).get(p))}', flush=True)
     ims = []
     for nm in ('now', 'v1', 'v2'):
         if nm in runs:

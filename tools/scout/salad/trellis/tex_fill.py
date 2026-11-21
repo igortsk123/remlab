@@ -99,6 +99,7 @@ FILL = {
     'pattern_side_cos': 0.2,         # узорная часть: узор кладётся только на тексели, обращённые к фото (cos нормали с направлением камеры pr_az ≥ порога); обратная сторона/сиденье/низ — тон ткани без цветов (дефект Sakura 21.11: цветы спинки на заду и сиденье)
     'smooth_roles': ['legs', 'frame', 'handles'],   # роли без плитки фактуры на недостроенном: тон части без блоков («ёлочка» стыков на дереве, Sakura 21.11)
     'tone_share_roles': ['legs', 'frame', 'handles'],   # роли, у которых тон един на все части одной роли (один материал — один тон: задние ножки темнее передних из-за теней)
+    'relief_calib_donor': False,     # Ш6 вариант 2: часть без своего фото берёт калибровку рельефа TRELLIS (σ/p95 чистой ткани) у донора тона той же роли; по умолчанию выкл. (без него рельеф у таких частей = stat)
     'borrow_texture': False,         # Ш6 вариант 1: часть без чистых блоков (нет квилта/блока) берёт микрофактуру у части ТОЙ ЖЕ материальной зоны (роль и тон близки, не узорная); по умолчанию выкл.
     'borrow_max_de': 6.0,            # …тон (Lab, евклид) донорской части ближе этого
     'nail_twins': True,              # мелкие тёмные компактные пятна (шляпки гвоздей) невидимой стороны: цвет — как у видимых двойников этой части с фото, форма — нативная (ряд гвоздей сзади не стирается тоном ткани)
@@ -685,7 +686,7 @@ def _band(lab_l: np.ndarray, mask: np.ndarray, s_lo: float, s_hi: float) -> tupl
     return b1 - b2[..., 0], w2
 
 
-def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, pat_parts: set, c: dict, R: dict) -> tuple:
+def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, pat_parts: set, c: dict, R: dict, calib: dict | None = None) -> tuple:
     """Вариант C-gated (T-164, Codex+директор 21.11): цвет — как stat, фактура невидимого — рельеф яркости черновика TRELLIS (DoG-полоса в МАСШТАБЕ ПОВЕРХНОСТИ, без цвета и пятен), только там, где это безопасно.
     Ворота по части: узорная (pat_parts) → stat; класс материала части (`c['part_class']`: {часть: семья}) вне `allowed_families` (дерево, металл, стекло…) → без рельефа; класса нет → только «однотонная» (σ низкочастотной L известного ≤ homog_max_std).
     Полоса: σ_lo/σ_hi = band_lo/band_hi (доли размера предмета) ÷ шаг текселя части (texel_spacing, поправка плотности UV). Амплитуда: gain = min(gain_max, σ_фото / σ_черновика) — оба σ робастные (MAD), фото — только уверенно известное
@@ -716,6 +717,17 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
         s_hi = float(np.clip(R['band_hi'] / sp, 2.0 * s_lo, R['sigma_hi_max']))
         selk = [kn[gi].reshape(-1)[tx.ti] & (tx.part == p) for gi, tx in enumerate(txs)]
         Lk = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[selk[gi]], 0] for gi, tx in enumerate(txs)])
+        s_lo_k, s_hi_k, calib_q = s_lo, s_hi, None
+        if len(Lk) < c['min_known'] and calib and p in calib and calib[p] not in pat_parts:
+            # Ш6 вариант 2 для части БЕЗ своего фото: «чистую ткань» (σ и p95 полосы) берём у части-донора тона той же роли (этап 3), полосу фото считаем в масштабе ДОНОРА (его шаг текселя),
+            # полосу черновика — в масштабе этой части: сравниваются одинаковые физические размеры; своего фото нет → «ворота однотонности» смотрят на донора
+            calib_q = int(calib[p])
+            selk = [kn[gi].reshape(-1)[tx.ti] & (tx.part == calib_q) for gi, tx in enumerate(txs)]
+            Lk = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[selk[gi]], 0] for gi, tx in enumerate(txs)])
+            spq = float(np.median(np.concatenate([spacing[gi][tx.part == calib_q] for gi, tx in enumerate(txs)] or [np.zeros(0)]))) if any((tx.part == calib_q).any() for tx in txs) else 0.0
+            if spq > 0:
+                s_lo_k = float(np.clip(R['band_lo'] / spq, R['sigma_lo_min'], R['sigma_lo_max']))
+                s_hi_k = float(np.clip(R['band_hi'] / spq, 2.0 * s_lo_k, R['sigma_hi_max']))
         if len(Lk) < c['min_known']:
             rp[p] = {'fallback': f'мало известного ({len(Lk)} текселей) — stat'}
             continue
@@ -725,7 +737,7 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
             T = tx.T
             Lm = labs[gi][..., 0]
             m_vis = kn[gi] & (Lm >= shade)
-            band, w2 = _band(Lm, m_vis, s_lo, s_hi)
+            band, w2 = _band(Lm, m_vis, s_lo_k, s_hi_k)
             pb.append(band.reshape(-1)[tx.ti[selk[gi] & (w2.reshape(-1)[tx.ti] >= R['far_w']) & (Lm.reshape(-1)[tx.ti] >= shade)]])
             dl = draft['lab'][gi][..., 0]
             band_d, wd = _band(dl, dok[gi], s_lo, s_hi)
@@ -745,8 +757,8 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
             rp[p] = {'fallback': f'мало черновика в части ({len(DD)}) — stat', 'spacing': round(sp, 5)}
             continue
         sd = _mad_sigma(DD)
-        homog = float(np.concatenate([_blur_norm(np.repeat(labs[gi][..., 0][..., None], 3, axis=2), kn[gi], s_hi)[0][..., 0].reshape(-1)[tx.ti[selk[gi]]] for gi, tx in enumerate(txs)]).std())
-        info = {'family': fam, 'spacing': round(sp, 5), 'sigma_lo_px': round(s_lo, 2), 'sigma_hi_px': round(s_hi, 2), 'sigma_photo': round(sv, 3), 'sigma_draft': round(sd, 3), 'p95_photo': round(p95, 3), 'homog_std': round(homog, 2), 'fallback': None}
+        homog = float(np.concatenate([_blur_norm(np.repeat(labs[gi][..., 0][..., None], 3, axis=2), kn[gi], s_hi_k)[0][..., 0].reshape(-1)[tx.ti[selk[gi]]] for gi, tx in enumerate(txs)]).std())
+        info = {'family': fam, 'spacing': round(sp, 5), 'sigma_lo_px': round(s_lo, 2), 'sigma_hi_px': round(s_hi, 2), 'sigma_photo': round(sv, 3), 'sigma_draft': round(sd, 3), 'p95_photo': round(p95, 3), 'homog_std': round(homog, 2), 'calib_donor': calib_q, 'fallback': None}
         if fam is None and homog > R['homog_max_std']:
             info['fallback'] = f'класса нет, часть неоднотонная (σ низких частот {homog:.1f} > {R["homog_max_std"]}) — stat'
             rp[p] = info
@@ -1289,7 +1301,8 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
     rep['texture_src'] = {int(p): ('borrow' if p in rep.get('borrowed', {}) else 'quilt' if p in rep.get('quilt_info', {}) else ('patch' if p in patches else 'none')) for p in part_ids}      # чем даётся фактура на каждой части: квилт из чистых блоков / один блок / ничем (гладко, счётчик no_patch)
     relief = None
     if c['source'] == 'trellis_relief':
-        relief, rep['relief'] = draft_relief(txs, draft, labs, kn, part_ids, set(raw_mean) | set(pat_parts), c, RULES['trellis_relief'])
+        calib_ = {int(p_): int(v_['donor']) for p_, v_ in rep.get('tone_from_neighbour', {}).items()} if c.get('relief_calib_donor') else None
+        relief, rep['relief'] = draft_relief(txs, draft, labs, kn, part_ids, set(raw_mean) | set(pat_parts), c, RULES['trellis_relief'], calib=calib_)
         Rr = RULES['trellis_relief']
         spac = [texel_spacing(tx) for tx in txs]
         fade = []
