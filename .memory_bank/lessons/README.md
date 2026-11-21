@@ -593,3 +593,11 @@ _Скрипты переноса и проверки (parse/split/verify) — в
 - 788 — полосы формы от швов родных GLB, мерка + p99 → `lessons/mesh-salad-pool.md`
 - 789 — «30/30 по числам» ≠ красиво, показывать цвет всех → `lessons/mesh-salad-pool.md`
 - 790 — «платного не было» только после журнала → `lessons/memory-process.md`
+- 791 — каналы каталога не доходили до этапа 3 → `lessons/mesh-salad-pool.md`
+- 792 — «Белый ≠ опал» Codex против счёта каталога → `lessons/mesh-salad-pool.md`
+- 793 — HD-формы по глубине хуже превью → `lessons/mesh-salad-pool.md`
+- 794 — заливка узора с камерой az 0 → `lessons/mesh-salad-pool.md`
+- 795 — этап 5: мерка — сходимость верх−бок одной части → `lessons/mesh-salad-pool.md`
+- 796 — кадры по этапам только у контрольных → `lessons/memory-process.md`
+- 797 — пакет из живого worktree: товар из двух версий → `lessons/dev-ops.md`
+- 798 — PNG RGBA 2 МБ не уходит фото в TG → `lessons/dev-ops.md`
