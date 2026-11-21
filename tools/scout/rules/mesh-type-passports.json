@@ -1,0 +1,589 @@
+{
+ "_why": "РЕЕСТР ПАСПОРТОВ ТИПОВ (план mesh-type-passports-01, фаза 1 «реестр + тень»). Тип → aliases, family, provisional, mode, route, cutout.{chain_flags,guards[]}, paint.*, sample. Единственный загрузчик — tools/scout/mesh_type_passports.py. Фаза 1: сторожа только у кровати (К1) и подушки (К3), остальные типы — provisional (ничего не блокируют и не маршрутизируют); режим у всех observe. route ссылается на rules/asset-strategies.json (копий нет; сверка — --selftest). Идентификаторов товаров здесь быть не должно (схема и линт); sample — только агрегаты.",
+ "version": 1,
+ "types": {
+  "кровать": {
+   "aliases": [],
+   "family": "мягкое",
+   "provisional": false,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [
+     "attached_prune"
+    ],
+    "guards": [
+     {
+      "name": "headboard_loss",
+      "stage": "cropped",
+      "measurement_version": "k1.v1",
+      "needs_source": true,
+      "blocking": true,
+      "blocking_verdicts": [
+       "headboard_loss"
+      ],
+      "pixel_params": [
+       "loss_de",
+       "register_err_max"
+      ],
+      "thresholds": {
+       "loss_de": 2.5,
+       "register_err_max": 40.0,
+       "loss_area_share": 0.04,
+       "loss_width_share": 0.2,
+       "hb_back_sub": 0.25
+      }
+     }
+    ]
+   },
+   "paint": {
+    "photo_views": "grain_only"
+   },
+   "sample": {
+    "count": 131,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "комод": {
+   "aliases": [],
+   "family": "корпусное",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [
+     "solid_body"
+    ],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 130,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "стул": {
+   "aliases": [],
+   "family": "каркасное",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 93,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "ковёр": {
+   "aliases": [
+    "ковер"
+   ],
+   "family": "плоское",
+   "provisional": true,
+   "mode": "observe",
+   "route": "procedural_plane",
+   "needs_3d": false,
+   "cutout": {
+    "chain_flags": [
+     "grow"
+    ],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 90,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "подушка": {
+   "aliases": [],
+   "family": "мягкое",
+   "provisional": false,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [],
+    "guards": [
+     {
+      "name": "pillow_plain",
+      "stage": "cropped",
+      "measurement_version": "k3.v1",
+      "needs_source": false,
+      "blocking": false,
+      "blocking_verdicts": [],
+      "pixel_params": [
+       "edge_erode"
+      ],
+      "thresholds": {
+       "edge_erode": 0.03,
+       "p95_max": 4.0,
+       "cluster2_max": 0.05,
+       "boundary_max": 0.02,
+       "micro_fine_min": 2.0
+      }
+     }
+    ]
+   },
+   "paint": {
+    "photo_views": "grain_only"
+   },
+   "sample": {
+    "count": 89,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "кресло": {
+   "aliases": [],
+   "family": "мягкое",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [
+     "attached_prune"
+    ],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 89,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "тв-тумба": {
+   "aliases": [],
+   "family": "корпусное",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [
+     "solid_body"
+    ],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 85,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "диван": {
+   "aliases": [],
+   "family": "мягкое",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [
+     "attached_prune",
+     "solid_body"
+    ],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 71,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "шкаф": {
+   "aliases": [],
+   "family": "корпусное",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [
+     "solid_body"
+    ],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 67,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "тумба прикроватная": {
+   "aliases": [],
+   "family": "корпусное",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [
+     "solid_body"
+    ],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 65,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "пуф": {
+   "aliases": [],
+   "family": "смешанное",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [
+     "attached_prune",
+     "solid_body"
+    ],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 60,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "стеллаж": {
+   "aliases": [],
+   "family": "корпусное",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 54,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "картина": {
+   "aliases": [],
+   "family": "плоское",
+   "provisional": true,
+   "mode": "observe",
+   "route": "procedural_plane",
+   "needs_3d": false,
+   "cutout": {
+    "chain_flags": [],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 51,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "столик": {
+   "aliases": [],
+   "family": "каркасное",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 39,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "стол обеденный": {
+   "aliases": [],
+   "family": "каркасное",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 36,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "кашпо": {
+   "aliases": [],
+   "family": "смешанное",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [
+     "solid_silhouette",
+     "solid_body"
+    ],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 33,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "ваза": {
+   "aliases": [],
+   "family": "вращательное",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [
+     "solid_silhouette",
+     "solid_body"
+    ],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 31,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "торшер": {
+   "aliases": [],
+   "family": "свет",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 29,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "шторы": {
+   "aliases": [],
+   "family": "текстиль",
+   "provisional": true,
+   "mode": "observe",
+   "route": "cutout",
+   "needs_3d": false,
+   "cutout": {
+    "chain_flags": [],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 27,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "плед": {
+   "aliases": [
+    "покрывало"
+   ],
+   "family": "текстиль",
+   "provisional": true,
+   "mode": "observe",
+   "route": "cutout",
+   "needs_3d": false,
+   "cutout": {
+    "chain_flags": [],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 11,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "витрина": {
+   "aliases": [],
+   "family": "корпусное",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 9,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "лампа": {
+   "aliases": [],
+   "family": "свет",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 3,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "люстра": {
+   "aliases": [],
+   "family": "свет",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [],
+    "guards": []
+   },
+   "paint": {},
+   "sample": {
+    "count": 2,
+    "period": "2026-11-20",
+    "source": "замер T-151 на прогоне t104 (агрегат)"
+   }
+  },
+  "статуэтка": {
+   "aliases": [],
+   "family": "декор",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [
+     "solid_silhouette",
+     "solid_body"
+    ],
+    "guards": []
+   },
+   "paint": {}
+  },
+  "бра": {
+   "aliases": [],
+   "family": "свет",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [],
+    "guards": []
+   },
+   "paint": {}
+  },
+  "зеркало": {
+   "aliases": [],
+   "family": "плоское",
+   "provisional": true,
+   "mode": "observe",
+   "route": "procedural_plane",
+   "needs_3d": false,
+   "cutout": {
+    "chain_flags": [],
+    "guards": []
+   },
+   "paint": {}
+  },
+  "полка": {
+   "aliases": [],
+   "family": "настенное",
+   "provisional": true,
+   "mode": "observe",
+   "route": "cutout",
+   "needs_3d": false,
+   "cutout": {
+    "chain_flags": [],
+    "guards": []
+   },
+   "paint": {}
+  },
+  "растение": {
+   "aliases": [],
+   "family": "декор",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [],
+    "guards": []
+   },
+   "paint": {}
+  },
+  "стенка": {
+   "aliases": [],
+   "family": "корпусное",
+   "provisional": true,
+   "mode": "observe",
+   "route": "hunyuan3d",
+   "needs_3d": true,
+   "cutout": {
+    "chain_flags": [],
+    "guards": []
+   },
+   "paint": {}
+  },
+  "часы": {
+   "aliases": [],
+   "family": "декор",
+   "provisional": true,
+   "mode": "observe",
+   "route": "cutout",
+   "needs_3d": false,
+   "cutout": {
+    "chain_flags": [],
+    "guards": []
+   },
+   "paint": {}
+  }
+ }
+}

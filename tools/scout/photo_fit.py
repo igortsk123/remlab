@@ -153,6 +153,84 @@ def reverdict() -> dict:
     return {'to_too_small': n_off, 'back_to_ok': len(plan) - n_off}
 
 
+def shadow_verdict(role: str, metrics: dict | None, passport: dict | None, results: dict) -> tuple[str, str | None]:
+    """ТЕНЬ паспорта (план mesh-type-passports-01, фаза 1): вердикт, который БЫ вынес паспорт. НИЧЕГО не блокирует — его пишет только `passport_shadow`.
+    Порядок: (1) физический размер/коллаж — прежний `verdict_from_metrics` по измерениям ноды (если они есть; проход по тёплой части их не имеет — там размер
+    уже вынесен в `photo_assessment`); (2) блокирующие метки сторожей паспорта (`blocking_verdicts` — у К1 `headboard_loss`); (3) мягкие метки (К3) — подпись,
+    не вердикт. `results` = {имя сторожа: (вердикт, подтип)}. Чистая функция (существующие `verdict_from_metrics`/`reverdict*` не тронуты)."""
+    if metrics:
+        v, why = verdict_from_metrics(role, metrics)
+        if v != 'ok':
+            return v, why
+    guards = {g['name']: g for g in ((passport or {}).get('cutout') or {}).get('guards') or ()}
+    for name, (gv, _sub) in results.items():
+        g = guards.get(name)
+        if g and g.get('blocking') and gv in g.get('blocking_verdicts', ()):
+            return gv, f'сторож {name}'
+    for name, (gv, _sub) in results.items():
+        if gv == 'ambiguous':      # не совместилось с исходником: НЕ «годно» — молча в ok не кладём
+            return 'ambiguous', f'сторож {name}: не совместилось'
+    return 'ok', None
+
+
+def shadow_reverdict_plan(rows: list, reg: dict | None = None) -> list:
+    """rows [(source_sha, роль, версия_замера, metrics_json, хранимый_вердикт)] → [(source_sha, роль, версия_замера, новый_вердикт)] по ТЕКУЩИМ порогам паспорта
+    из СОХРАНЁННЫХ чисел, без пикселей (порог площади/ширины/hb_back меняется перевердиктом; пиксельный ΔE — новая версия замера, не здесь).
+    Трогаем только вердикты, выносимые сторожами (ok/ambiguous/блокирующие): размер/коллаж в тени не пересчитать — их метрик в строке нет. Чистая функция."""
+    import cutout_guards as CG
+    import mesh_type_passports as MTP
+    reg = reg or MTP.load()
+    out = []
+    for sha, role, mv, raw, stored in rows:
+        p = reg['types'].get(role)
+        g = next((x for x in ((p or {}).get('cutout') or {}).get('guards') or () if x['measurement_version'] == mv), None)
+        if not g:
+            continue
+        own = {'ok', 'ambiguous', *g.get('blocking_verdicts', ())}
+        if stored not in own:
+            continue
+        try:
+            m = json.loads(raw) if raw else {}
+        except Exception:  # noqa: BLE001
+            continue
+        gv, sub = CG.verdict(g['name'], m, g['thresholds'])
+        new = shadow_verdict(role, None, p, {g['name']: (gv, sub)})[0]
+        if new != stored:
+            out.append((sha, role, mv, new))
+    return out
+
+
+def shadow_digest_targets(reg: dict | None = None) -> list:
+    """[(роль, версия замера, ТЕКУЩИЙ хеш паспорта)] по всем сторожам реестра — какой штамп `policy_digest` должен стоять у строк тени после перевердикта. Чистая функция."""
+    import mesh_type_passports as MTP
+    reg = reg or MTP.load()
+    return [(t, g['measurement_version'], MTP.digest_of(p)) for t, p in sorted(reg['types'].items()) for g in p['cutout']['guards']]
+
+
+def _sdb(sql: str) -> list[list[str]]:
+    """Запрос к `passport_shadow` через `PgStore.db` с жёстким потолком (SHADOW_CANDIDATES_TIMEOUT_S: чтение всех строк тени дольше обычного) — не голый `_db`."""
+    import passport_shadow as PS
+    return PS.STORE.db(sql, timeout=PS.candidates_timeout())
+
+
+def shadow_reverdict() -> dict:
+    """Привести `passport_shadow.shadow_verdict` к текущим порогам паспорта (пишет ТОЛЬКО в passport_shadow). Идемпотентно. → счётчик {'старый→новый': n}."""
+    from collections import Counter
+    rows = _sdb("select source_sha, normalized_role, measurement_version, metrics::text, shadow_verdict from passport_shadow where status = 'done' and metrics is not null")
+    stored = {(r[0], r[1], r[2]): r[4] for r in rows if len(r) == 5}
+    plan = shadow_reverdict_plan([r for r in rows if len(r) == 5])
+    cnt = Counter()
+    for sha, role, mv, new in plan:
+        _sdb(f"update passport_shadow set shadow_verdict = '{new}', updated = now() where source_sha = '{sha}' and normalized_role = '{role}' and measurement_version = '{mv}'")
+        cnt[f'{stored[(sha, role, mv)]}→{new}'] += 1
+    # строки приведены к ТЕКУЩИМ порогам — штамп хеша паспорта тоже текущий (иначе `observe_gate` считал бы их устаревшими: фильтр по policy_digest)
+    for role, mv, dg in shadow_digest_targets():
+        _sdb(f"update passport_shadow set policy_digest = '{dg}', updated = now() where normalized_role = '{role}' and measurement_version = '{mv}' "
+            f"and status = 'done' and metrics is not null and policy_digest <> '{dg}'")
+    print(f'[photo_fit] тень паспортов: перевердикт {sum(cnt.values())} {dict(cnt)}', flush=True)
+    return dict(cnt)
+
+
 def photo_fit(sku: str) -> str:
     """ok | collage | tiny_object | photo_too_small | bad_cutout | unknown."""
     return _load().get(sku, 'unknown')

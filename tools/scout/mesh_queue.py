@@ -387,6 +387,25 @@ def reconcile_legacy() -> int:
     return n
 
 
+def passport_observe(items: dict) -> None:
+    """Гейт паспорта типа в `observe` (план mesh-type-passports-01, фаза 1) на платных входах очереди: SKU→роль → счётчик «заблокировал бы», РЕШЕНИЕ ИГНОРИРУЕТСЯ.
+    Спрос, ключи заданий, экспорт и манифест Salad не меняются (полей в манифест не добавляем). Всё в своём try: сбой реестра/таблицы очередь не трогает."""
+    try:
+        import passport_shadow as PS
+        PS.observe_gate(items)      # чтение вердиктов — своим psql с потолком SHADOW_OBSERVE_TIMEOUT_S, не `db` очереди (у него таймаута нет)
+    except Exception as e:  # noqa: BLE001
+        print(f'WARN:passport_registry: гейт очереди не вызван ({type(e).__name__}) — очередь не меняется', flush=True)
+
+
+def passport_report() -> None:
+    """Строка гейтов паспортов в итог шага (сколько пропущено, «заблокировал бы», роли без паспорта). Не бросает."""
+    try:
+        import mesh_type_passports as MTP
+        print(MTP.report_line(), flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f'гейты паспортов: отчёт не собран ({type(e).__name__})', flush=True)
+
+
 def size_guard() -> int:
     """Сторож размера (ADR-0452): привести хранимые вердикты к порогу `rules/mesh-photo.json` и вернуть, сколько спроса сейчас отсечено
     (`photo_too_small`) — это число идёт в строку итога ночи. Сбой не роняет шаг, но виден в журнале."""
@@ -443,6 +462,7 @@ def run() -> None:
     # уходит в not_required ниже; готовый меш при этом не трогаем
     want = {k: v for k, v in want.items() if v.get('role')}
     want = prefer_hd(want)
+    passport_observe({sku: v['role'] for sku, v in want.items()})     # фаза 1 «тень»: гейт спроса в observe, только счётчик
     for sku, v in want.items():
         db(f"""insert into mesh_demand (sku, role, priority, image_url, dims, name)
                values ({q(sku)}, {q(v['role'])}, {v['priority']}, {q(v['image_url'])},
@@ -481,6 +501,7 @@ def run() -> None:
     new = []
     print(f'[mesh_queue] спрос {len(want)} | ingest +{got} | legacy-ревизий {legacy} | '
           f'новых заданий {len(new)} | отсечено сторожем размера (photo_too_small) {small}', flush=True)
+    passport_report()
 
 
 def export(path: str) -> None:
@@ -535,6 +556,9 @@ def export(path: str) -> None:
     npin = sum(1 for jb in jobs if jb['sku'] in pin)
     print(f'[mesh_queue] экспорт {len(jobs)} заданий → {path}'
           + (f'; из них закреплённых владельцем первыми: {npin}' if npin else ''), flush=True)
+    # ПОСЛЕ записи манифеста и вне него: гейт паспорта (observe) — только счётчик, в задания Salad ничего не добавляется, список не фильтруется
+    passport_observe({jb['sku']: jb['role'] for jb in jobs})
+    passport_report()
 
 
 def report() -> None:
