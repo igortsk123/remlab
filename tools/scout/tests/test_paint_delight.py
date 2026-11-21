@@ -42,6 +42,36 @@ def test_no_product_ids():
     assert not pat.search(SRC) and not pat.search(json.dumps(RULE))
 
 
+def test_photo_only_from_camera():
+    """Общее правило конвейера: фото этапа 05 — только из пути, записанного этапом 04; «фото не то, что у камеры», нет пути, камера не прошла → отказ с причиной, без картинки."""
+    import tempfile
+    import numpy as np
+    from PIL import Image
+    rules = D.load_rules()
+    boom = lambda *a: (_ for _ in ()).throw(AssertionError('при отказе модель не нужна'))  # noqa: E731
+    with tempfile.TemporaryDirectory(prefix='delight-cam-') as t:
+        cam_photo, other = os.path.join(t, 'cam.png'), os.path.join(t, 'vyb.png')
+        for p in (cam_photo, other):
+            Image.fromarray(np.full((40, 40, 4), 255, np.uint8), 'RGBA').save(p)
+        run = os.path.join(t, 'run')
+
+        def cam(sku, passed=True, **extra):
+            D.PS.write_check(D.PS.stage_dir(run, sku, D.CAMERA_STAGE), D.CAMERA_STAGE, sku, passed, None, '' if passed else 'не легла', **extra)
+
+        cam('a', photo=cam_photo)
+        cam('nopath')
+        cam('failed', passed=False, photo=cam_photo)
+        cam('gone', photo=os.path.join(t, 'нет-такого.png'))
+        assert D.camera_photo(run, 'a') == cam_photo and D.camera_photo(run, 'a', cam_photo) == cam_photo
+        for sku, declared, word in (('a', other, 'фото не то'), ('nopath', None, 'не записал путь'), ('failed', None, 'камера не прошла'),
+                                    ('gone', None, 'не найдено'), ('nocam', None, 'не посчитана')):
+            doc, cached = D.run_one(sku, run, rules, declared, model_fn=boom)
+            assert not cached and doc['passed'] is False and doc['extra']['refused'] and word in doc['reason'] and not doc['outputs'], (sku, doc['reason'])
+            assert not os.path.exists(os.path.join(run, sku, D.STAGE, 'delight.rgba.png'))
+    # свой путь в обход камеры невозможен: публичного входа с произвольным файлом нет
+    assert 'path' not in D.run_one.__code__.co_varnames[:D.run_one.__code__.co_argcount]
+
+
 def test_rules_required():
     """Нет ключа правила — падаем, а не берём умолчание из кода."""
     import tempfile

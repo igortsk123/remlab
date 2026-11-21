@@ -11,8 +11,11 @@
 Это «убрано то, что IID счёл светом», а НЕ «свет снят на самом деле»: если IID принял тень за цвет, мерка пройдёт. Независимая проверка по нормалям меша (R2) — позже:
 в check.json стоит `independent_check: pending`. Света на фото мало (разброс < порога N/A) — мерка N/A, passed не краснеет. ΔL* к каталогу — НЕ здесь (шаг цвета).
 
-  paint_delight.py run <run> <manifest.json> [--force]   manifest = [{"sku","path"}, …]; повтор пропускает товары с готовым check.json
+  paint_delight.py run <run> <manifest.json> [--force]   manifest = [{"sku"[,"path"]}, …]; <run> — папка-прогон, где этап 04 уже положил `<sku>/04-camera/check.json`; повтор пропускает готовое
   paint_delight.py --selftest
+ФОТО БЕРЁТСЯ ТОЛЬКО ОТ КАМЕРЫ (правило конвейера, директор 21.11): путь — из `<run>/<sku>/04-camera/check.json` → `extra.photo` (его же пишет pose_fit). Своё фото этап не выбирает:
+нет check.json камеры / нет пути / файла нет / камера не прошла → отказ с причиной (check.json 05 passed=false, без картинки); `path` в манифесте, если задан, обязан совпасть с путём камеры — иначе «фото не то, что у камеры».
+Зачем: этап 6 ставит снятое фото на ту форму и камеру, что посчитаны по фото камеры; другая вырезка → силуэт не сходится (IoU 0,19/0,00).
 Окружение: SIGMA — доля вместо `sigma` правила; DELIGHT_RULES — другой файл правил; THREADS — потоки torch; HF_HOME — кэш модели; PAINT_STAGE_DIR — папка с paint_stage.py."""
 from __future__ import annotations
 
@@ -210,13 +213,48 @@ def frame(photo8, res8, title_l, title_r, path):
     im.save(path)
 
 
-def run_one(sku, path, run, rules, sigma=None, force=False, model_fn=None):
-    """Один товар → (check.json-словарь, пропущен_как_готовый)."""
+CAMERA_STAGE = '04-camera'
+
+
+class PhotoRefused(Exception):
+    """Фото для этапа 05 нельзя взять от камеры (нет пути, камера не прошла, фото не то)."""
+
+
+def camera_photo(run, sku, declared=None):
+    """Путь фото — ТОЛЬКО из check.json этапа 04 в этом же прогоне (`extra.photo`). Нет пути / камера не прошла / `declared` не совпал → PhotoRefused с причиной."""
+    cam = PS.read_check(os.path.join(run, PS.safe_name(sku), CAMERA_STAGE))
+    if cam is None:
+        raise PhotoRefused(f'нет {CAMERA_STAGE}/check.json в {run} — камера не посчитана, фото брать неоткуда')
+    path = (cam.get('extra') or {}).get('photo')
+    if not path:
+        raise PhotoRefused(f'этап {CAMERA_STAGE} не записал путь к фото (extra.photo) — своё фото этап 05 не выбирает')
+    if not os.path.isfile(path):
+        raise PhotoRefused(f'фото камеры не найдено: {path}')
+    if cam.get('passed') is False:
+        raise PhotoRefused(f'камера не прошла ({cam.get("reason") or "passed=false"}) — снимать свет не на чем')
+    if declared and os.path.realpath(declared) != os.path.realpath(path):
+        raise PhotoRefused(f'фото не то, что у камеры: в манифесте {declared}, у камеры {path}')
+    return path
+
+
+def run_one(sku, run, rules, declared=None, sigma=None, force=False, model_fn=None):
+    """Один товар → (check.json-словарь, пропущен_как_готовый). Фото — от камеры (`camera_photo`); отказ пишется в check.json 05 (passed=false, причина), исключения нет."""
+    d = PS.stage_dir(run, sku, STAGE)
+    try:
+        path = camera_photo(run, sku, declared)
+    except PhotoRefused as e:
+        return PS.write_check(d, STAGE, sku, False, None, str(e), outputs=[], refused=True, independent_check='pending'), False
+    old = PS.read_check(d)
+    if old is not None and not force and not old['extra'].get('refused') and old['extra'].get('source_photo') == path \
+            and os.path.exists(os.path.join(d, 'delight.rgba.png')):
+        return old, True
+    return _delight_file(sku, path, run, rules, sigma, model_fn)
+
+
+def _delight_file(sku, path, run, rules, sigma=None, model_fn=None):
+    """Снять свет с файла `path` (его даёт только `run_one` — от камеры)."""
     sigma = rules['sigma'] if sigma is None else sigma
     d = PS.stage_dir(run, sku, STAGE)
-    old = PS.read_check(d)
-    if old is not None and not force and os.path.exists(os.path.join(d, 'delight.rgba.png')):
-        return old, True
     t0 = time.time()
     im = Image.open(path).convert('RGBA')
     alpha = np.asarray(im)[..., 3]
@@ -260,7 +298,10 @@ def table(run, man):
         doc = PS.read_check(os.path.join(run, PS.safe_name(it['sku']), STAGE))
         if not doc:
             continue
-        ex, ms, m = doc['extra'], doc['metrics'], doc['metric']
+        ex, ms, m = doc['extra'], doc['metrics'], doc['metric'] or {}
+        if ex.get('refused'):
+            rows.append([it['sku'], '', None, '', None, None, None, None, None, 0, doc['reason']])
+            continue
         rows.append([it['sku'], 'x'.join(map(str, ex['size'])), m['value'], 'N/A' if m.get('na') else '', ms['hf_corr']['value'], ms['hf_energy_ratio']['value'],
                      ex.get('light_spread_photo'), ex.get('light_spread_result'), ex.get('light_clusters'), int(doc['passed']), doc['reason']])
     with open(os.path.join(run, 'table-05-delight.tsv'), 'w', newline='', encoding='utf-8') as fh:
@@ -281,10 +322,14 @@ def cmd_run(run, manifest, force=False):
     sigma = float(os.environ['SIGMA']) if os.environ.get('SIGMA') else None
     man = json.load(open(manifest, encoding='utf-8'))
     os.makedirs(run, exist_ok=True)
-    fails, t0, ok = [], time.time(), 0
+    fails, refused, t0, ok = [], [], time.time(), 0
     for n, it in enumerate(man, 1):
         try:
-            doc, cached = run_one(it['sku'], it['path'], run, rules, sigma, force)
+            doc, cached = run_one(it['sku'], run, rules, it.get('path'), sigma, force)
+            if doc['extra'].get('refused'):
+                refused.append((it['sku'], doc['reason']))
+                print(f'[{n}/{len(man)}] {it["sku"]} ОТКАЗ: {doc["reason"]}', flush=True)
+                continue
             ok += 1
             m = doc.get('metric') or {}
             print(f'[{n}/{len(man)}] {it["sku"]} {"(готово раньше)" if cached else ""} passed={doc["passed"]} iid_shading_removed={m.get("value")}{" N/A" if m.get("na") else ""} '
@@ -294,7 +339,7 @@ def cmd_run(run, manifest, force=False):
             print(f'[{n}/{len(man)}] {it["sku"]} СБОЙ {type(e).__name__}: {e}', flush=True)
             traceback.print_exc()
     rows = table(run, man)
-    print(f'готово: {ok}/{len(man)} товаров за {time.time() - t0:.0f} с, строк в таблице {rows}, сбоев {len(fails)}: {fails}', flush=True)
+    print(f'готово: {ok}/{len(man)} товаров за {time.time() - t0:.0f} с, строк в таблице {rows}, отказов {len(refused)}: {refused}, сбоев {len(fails)}: {fails}', flush=True)
     return 1 if fails else 0
 
 
@@ -335,7 +380,8 @@ def selftest() -> int:
             Image.fromarray(rgba, 'RGBA').save(src)
             run = os.path.join(tmp, 'run')
             fake = (lambda small, r, alb=alb: Image.fromarray(alb).resize(small.size))      # подмена модели: «идеальный» albedo без света
-            doc, cached = run_one(tag, src, run, rules, model_fn=fake)
+            PS.write_check(PS.stage_dir(run, tag, CAMERA_STAGE), CAMERA_STAGE, tag, True, None, '', photo=src)      # «камера» записала путь фото
+            doc, cached = run_one(tag, run, rules, model_fn=fake)
             d = PS.stage_dir(run, tag, STAGE)
             out = np.asarray(Image.open(os.path.join(d, 'delight.rgba.png')))
             ok(not cached and out.shape == rgba.shape, f'{tag}: размер сохранён')
@@ -351,16 +397,26 @@ def selftest() -> int:
             else:
                 ok(doc['metric']['na'] and doc['metric']['ok'] is None and doc['passed'], 'flat: света мало → N/A, passed не краснеет')
         # повтор — готовое не пересчитывается; кэш albedo берётся с диска
-        doc2, cached2 = run_one('lit', os.path.join(tmp, 'lit.png'), run, rules, model_fn=lambda *a: (_ for _ in ()).throw(AssertionError('модель не нужна')))
+        doc2, cached2 = run_one('lit', run, rules, model_fn=lambda *a: (_ for _ in ()).throw(AssertionError('модель не нужна')))
         ok(cached2 and doc2['passed'], 'повтор пропущен как готовый')
         # пустая маска → ошибка словами
         empty = os.path.join(tmp, 'empty.png')
         Image.fromarray(np.zeros((64, 64, 4), np.uint8), 'RGBA').save(empty)
+        PS.write_check(PS.stage_dir(run, 'empty', CAMERA_STAGE), CAMERA_STAGE, 'empty', True, None, '', photo=empty)
         try:
-            run_one('empty', empty, run, rules)
+            run_one('empty', run, rules)
             ok(False, 'пустая маска должна падать')
         except ValueError:
             pass
+        # фото — только от камеры: другой путь в манифесте / нет пути / нет камеры / камера не прошла → отказ с причиной, без картинки
+        other = os.path.join(tmp, 'flat.png')
+        PS.write_check(PS.stage_dir(run, 'nopath', CAMERA_STAGE), CAMERA_STAGE, 'nopath', True, None, '')                                  # камера не записала путь
+        PS.write_check(PS.stage_dir(run, 'camfail', CAMERA_STAGE), CAMERA_STAGE, 'camfail', False, None, 'не легла', photo=other)        # камера не прошла
+        no_model = lambda *a: (_ for _ in ()).throw(AssertionError('модель не нужна при отказе'))  # noqa: E731
+        for what, sku, declared in (('в манифесте другое фото', 'lit', other), ('нет камеры', 'nocam', None), ('нет пути', 'nopath', None), ('камера не прошла', 'camfail', None)):
+            doc3, _ = run_one(sku, run, rules, declared, force=True, model_fn=no_model)
+            ok(doc3['passed'] is False and doc3['extra'].get('refused') and doc3['reason'] and not doc3['outputs'], f'отказ: {what} → {doc3["reason"][:60]}')
+        ok('фото не то' in run_one('lit', run, rules, other, force=True, model_fn=no_model)[0]['reason'], 'отказ «фото не то, что у камеры»')
         ok(table(run, [{'sku': 'lit'}, {'sku': 'flat'}]) == 2, 'таблица по готовым check.json')
         # параметры чужого σ: больше σ — снято меньше
         rgba, alb = _synthetic()
