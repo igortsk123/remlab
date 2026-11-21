@@ -235,7 +235,7 @@ def run(args) -> int:
         rr = roles.get(int(p))
         parts.append({"id": int(p), "face_share": round(float(c) / nf, 4), "role": (rr["role"] if rr else (role or f"part-{int(p)}")), "vl": None, "colour": colours.get(int(p)),
                       **({"merged_orphan": mo_by[int(p)]} if int(p) in mo_by else {}),
-                      **({k: rr[k] for k in ("role_title", "material_channel", "role_conf", "role_why", "unknown_reason")} | {"features": feats.get(int(p))} | ({"unseen_hint": rr["unseen_hint"]} if rr.get("unseen_hint") else {}) if rr else {})})
+                      **({k: rr[k] for k in ("role_title", "material_channel", "role_conf", "role_why", "unknown_reason")} | {"features": feats.get(int(p))} | {k: rr[k] for k in ("unseen_hint", "dry_hint") if rr.get(k)} if rr else {})})
     np.savez_compressed(os.path.join(sdir, "parts.npz"), part=part.astype(np.int16), agree=res["agree"].astype(np.float16),
                         vote_part=vote_part.astype(np.int16), vote_agree=vote_agree.astype(np.float16), seen=res["seen_any"])   # vote_* — до доводки: доводку можно переиграть без SAM2
     json.dump({"faces": nf, "n_views": len(names), "regions_per_view": per_view_regions, "n_parts_raw": res["n_parts_raw"], "parts": parts, "geometry": geom, "refine": refine_rep, "roles": roles_sum},
