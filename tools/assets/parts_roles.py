@@ -7,6 +7,7 @@
      нет фронта у роли с фронтом (no_front), нет контакта/опоры (no_contact), нет подходящего правила (no_rule), у типа нет канала (no_channel), тип неизвестен (группа `any`);
   ③ body — запасная: объёмная (kind body) часть, не подошедшая под иную роль и прошедшая доверие; у типов с отдельными материалами столешницы/фасада (стол, корпусная мебель) — только крупнейшая;
      тонкая/средняя без правила остаётся unknown;
+  ③б объёмная часть, что стоит на полу и держит главную (цоколь, нижний модуль), но под ножки не подошла, — unknown:support_unclear: материал основания мог быть иным;
   ④ glass_mirror геометрия не ставит никогда; ΔE в роль не входит.
 Тип товара — `role` каталога → группа в `data/flat3d/material-classes.json` (тот же источник, что у этапа 8); каналы — ключи `parts` результата `material_class.classify`.
 """
@@ -143,6 +144,8 @@ def assign_roles(features: dict[int, dict], rules: dict, product_role: str | Non
             done(p, "unknown", "роль возможна, но не хватает " + ("фронта (камера этапа 4 не passed)" if fail[p] == "no_front" else "контакта/опоры"), rc["unknown"], fail[p])
         elif product_role in grp.get("no_body_for_types", []):
             done(p, "unknown", f"тип «{product_role}»: канала материала для частей нет", rc["unknown"], "no_channel")
+        elif f["kind"] == "body" and f["supports_body"] and f["area_share"] <= ab["support_unclear_max_share"]:
+            done(p, "unknown", "объёмная часть держит корпус на полу, но на ножки не похожа — материал основания не угадываем", rc["unknown"], "support_unclear")
         elif f["kind"] == "body" and grp.get("body_scope", "all") == "largest" and not f["is_largest"]:
             done(p, "unknown", "объёмная часть типа, где материал столешницы/фасада/корпуса назван отдельно — body только у крупнейшей", rc["unknown"], "body_scope")
         elif f["kind"] == "body":
