@@ -190,3 +190,41 @@ def test_nightstand_steps_keep_base_when_not_better(composer, monkeypatch):
     got = composer.nightstand_steps(base, 'bedroom-2', 'couple', 'сканди', 'комфорт', {}, [], {})
     assert 'ns_step' not in got and got['layout'] is base['layout']
     assert got['ns_steps_tried'] == ['slim: NO_FIT_AFTER_TRIES', 'wall_hung: one_side · B']
+
+
+def test_check_bank_lamp_needs_item_or_explicit_reason(composer, monkeypatch):
+    """T-20261120-118 (П1.70): у ячейки с прикроватными тумбами лампа — либо товар, либо причина в `gaps`; молча — нарушение."""
+    monkeypatch.setenv('BEDROOM_ENGINE', 'groups')
+    spec = CB.room_spec('bedroom-1', 'registry-17.5')
+    room = CB._room_model(spec, 'couple')
+    lay = solve_bedroom(room, [Item(role='кровать', w_cm=175, d_cm=215, h_cm=110),
+                               Item(role='тумба прикроватная', w_cm=45, d_cm=40, h_cm=55),
+                               Item(role='комод', w_cm=100, d_cm=45, h_cm=85)])
+    rec = _bank_rec(lay, spec)
+
+    def lamp_probs():
+        return [p for p in CB.check_bank([rec], composer.R, composer.tol) if 'ламп' in p]
+    probs = lamp_probs()                                              # ни лампы, ни причины — молчаливый пропуск
+    assert len(probs) == 1 and not probs[0].startswith('~') and 'молчаливый' in probs[0]
+    rec['gaps'] = ['лампа: нет подходящей']                           # причина есть — предупреждение «без лампы: причина»
+    probs = lamp_probs()
+    assert len(probs) == 1 and probs[0].startswith('~ ') and 'без лампы — лампа: нет подходящей' in probs[0]
+    rec['gaps'] = []
+    rec['items']['лампа'] = {'sid': 'l', 'w': 20, 'd': 20, 'h': 40, 'qty': 2}      # лампа есть — чисто
+    rec['alternates']['лампа'] = [{}] * CB.SPARE_MIN                               # (запас замен — отдельное предупреждение)
+    assert lamp_probs() == []
+
+
+def test_check_bank_lamp_not_required_where_slot_not_declared(composer, monkeypatch):
+    """Назначение без слота лампы (кабинет: `decor` пуст) лампу не требует."""
+    import copy
+    R = copy.deepcopy(composer.R)
+    R['purposes']['couple']['decor'].pop('лампа')
+    monkeypatch.setenv('BEDROOM_ENGINE', 'groups')
+    spec = CB.room_spec('bedroom-1', 'registry-17.5')
+    room = CB._room_model(spec, 'couple')
+    lay = solve_bedroom(room, [Item(role='кровать', w_cm=175, d_cm=215, h_cm=110),
+                               Item(role='тумба прикроватная', w_cm=45, d_cm=40, h_cm=55),
+                               Item(role='комод', w_cm=100, d_cm=45, h_cm=85)])
+    rec = _bank_rec(lay, spec)
+    assert not [p for p in CB.check_bank([rec], R, composer.tol) if 'ламп' in p]
