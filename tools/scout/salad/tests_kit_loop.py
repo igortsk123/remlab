@@ -186,5 +186,120 @@ with tempfile.TemporaryDirectory() as tmp:
     rc, summ, out, br = drive(tmp, 'a', job_s=400.0, job_min=0)
     check('ход задания a: шаг «sampling»' in out, 'ход задания из /health виден в журнале драйвера')
 
+# ---- сторож докачки ОБРАЗА (уроки 734/357; проба d2 21.11: 30 мин «downloading», нода медленная)
+def line(rate_pct_min, minutes, start=0.0, step_s=10.0):
+    """Наблюдения каждые 10 с: прогресс растёт rate_pct_min %/мин."""
+    n = int(minutes * 60 / step_s)
+    return [(i * step_s, min(1.0, start + rate_pct_min / 100.0 * (i * step_s / 60.0))) for i in range(n + 1)]
+
+
+check(KD.pull_verdict(line(14, 8)) is None, 'докачка: быстрая (14 %/мин: образ за 7 мин, как d1) — не трогаем')
+check(KD.pull_verdict(line(0.5, 10)) is not None, 'докачка: 0,5 %/мин, 5 % за 10 мин → пересадка (прогноз ≫15 мин)')
+check(KD.pull_verdict(line(0.5, 7)) is None, 'докачка: до 8-й минуты не судим')
+stuck = [(i * 10.0, 0.5) for i in range(61)]
+check('не растёт' in (KD.pull_verdict(stuck) or ''), 'докачка: стоит на 50 % 10 мин → пересадка («не растёт»)')
+check(KD.pull_verdict(line(3.0, 9, start=0.65)) is None, 'докачка: 92 % и темп 3 %/мин — доедет за ~2,5 мин, не трогаем')
+check(KD.pull_verdict(line(0, 10, start=1.0)) is None, 'докачка: догрузившую (100 %) не трогаем никогда')
+check(KD.pull_verdict([(0.0, 0.1)]) is None, 'докачка: одно наблюдение — судить не по чему')
+
+
+def guard_with(calls, slots=1, ok=True, **kw):
+    def take():
+        nonlocal slots
+        slots, got = max(0, slots - 1), (1 if slots else 0)
+        return got
+    return KD.PullGuard('g', take_slot=take, realloc=lambda g, i, w: (calls.append((g, i)) or ok), say_fn=lambda *a: None, **kw)
+
+
+def feed(guard, iid, minutes, rate, t0=0.0):
+    """Прогнать ноду iid минуту за минутой; вернуть, пересадили ли."""
+    for k in range(int(minutes * 6) + 1):
+        t = t0 + k * 10.0
+        if guard.step(t, [{'id': iid, 'state': 'downloading', 'pulling_progress': min(1.0, rate / 100.0 * (k * 10.0 / 60.0))}]):
+            return True
+    return False
+
+
+calls = []
+g = guard_with(calls)
+check(feed(g, 'n1', 10, 0.5) and calls == [('g', 'n1')] and g.culls == 1, 'сторож: медленная нода → одна пересадка через общий бюджет')
+check(not feed(g, 'n2', 12, 0.5, t0=1000.0) and len(calls) == 1, 'урок 357: замена тоже медленная → пересадки больше нет (медленен образ/сеть), ждём')
+
+calls = []
+g = guard_with(calls, slots=0)
+check(not feed(g, 'n1', 10, 0.5) and calls == [], 'сторож: общий бюджет пересадок исчерпан → не пересаживает, ждёт')
+
+calls = []
+g = guard_with(calls, ok=False)
+check(not feed(g, 'n1', 10, 0.5) and g.culls == 0, 'сторож: пересадка не удалась (404/ошибка) → не засчитана')
+
+calls = []
+g = guard_with(calls, max_culls=0)
+check(not feed(g, 'n1', 10, 0.5) and calls == [], 'сторож: предел пересадок на запуск')
+
+calls = []
+g = guard_with(calls)
+check(not feed(g, 'n1', 10, 14) and calls == [], 'сторож: быстрая нода не трогается')
+check(not g.step(0.0, [{'id': 'x', 'state': 'running', 'pulling_progress': 0.1}, {'id': 'y', 'state': 'downloading'}]), 'сторож: running и без pulling_progress игнорируются')
+
+
+# ---- в цикле пробы: медленная нода пересажена, «нода не выдана» считается заново, замена качает быстро → проба доходит до готовности
+class PullBR(BR):
+    """Первая нода качает 0,5 %/мин; после пересадки замена качает 12 %/мин и становится running."""
+    def __init__(self, clock):
+        super().__init__(clock)
+        self.realloc_at = None
+
+    def instances(self, name):
+        if self.t0 is None:
+            return 200, []
+        now = self.clock()
+        if self.realloc_at is None:
+            return 200, [{'id': 'n1', 'state': 'downloading', 'started': False, 'pulling_progress': 0.005 * (now - self.t0) / 60.0}]
+        pr = 0.12 * (now - self.realloc_at) / 60.0
+        if pr >= 1.0:
+            return 200, [{'id': 'n2', 'state': 'running', 'started': True, 'pulling_progress': 1.0}]
+        return 200, [{'id': 'n2', 'state': 'downloading', 'started': False, 'pulling_progress': pr}]
+
+
+def drive_pull(tmp, running_min, fast_second=True):
+    clock = Clock()
+    mg, br = MG(), PullBR(clock)
+    KD.gpu_class = lambda MG_, name, tier, fetch=None: ('cls', 0.6)
+    orig = mg.api
+    mg.api = lambda path, method='GET', body=None: (setattr(br, 't0', clock()) if (method == 'POST' and path.endswith('/start')) else None) or orig(path, method, body)
+    calls = []
+
+    def realloc(g_, iid, why):
+        calls.append(iid)
+        br.realloc_at = clock()
+        if not fast_second:
+            br.realloc_at = None
+        return True
+    a = argparse.Namespace(image='x@sha256:1', suffix='t', tier='high', apply=True, cap=4.0, probe_cap=1.0, max_min=600, running_min=running_min, start_min=20, health_min=8, ready_min=30,
+                           stall_min=5, stall_gb=0.05, job_min=0, out=os.path.join(tmp, 'out'))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = KD.run_probe(a, mg, br, make_spec('a'), gw_factory=lambda base, key: GW(clock, 100.0), sleep=clock.sleep, clock=clock, slot_check=lambda: None,
+                          image_check=lambda *x, **k: (True, 'ok', 1.0), ledger=lambda rec: LEDGER.append(rec),
+                          pull_guard=lambda name: KD.PullGuard(name, take_slot=lambda: 1, realloc=realloc))
+    p = os.path.join(tmp, 'out', 'summary-kit-loop-t.json')
+    return rc, json.load(open(p)), buf.getvalue(), calls
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    rc, summ, out, calls = drive_pull(tmp, running_min=14)
+    check(calls == ['n1'] and summ.get('pull_culls') == 1 and summ.get('stopped_by') == 'done' and summ['jobs']['a']['status'] == 'done',
+          f'цикл: медленная нода пересажена, замена доехала, проба готова (пересадок {calls}, {summ.get("stopped_by")})')
+    check('сторож докачки: нода n1' in out, 'цикл: пересадка видна в журнале драйвера')
+
+with tempfile.TemporaryDirectory() as tmp:
+    clock_probe = drive_pull(tmp, running_min=14)
+    check(clock_probe[1].get('stopped_by') != 'no_machine', '«нода не выдана» считается от пересадки, а не от /start (иначе 14-минутный срок вышел бы в ту же минуту)')
+
+with tempfile.TemporaryDirectory() as tmp:
+    rc, summ, out, calls = drive_pull(tmp, running_min=14, fast_second=False)
+    check(summ.get('stopped_by') == 'no_machine' and summ.get('stop_verified') and summ.get('cost_usd_est', 9) == 0.0, 'цикл: нода так и не пришла → no_machine, стоп с проверкой, $0 (до running не списывается)')
+
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПАДЕНИЙ {len(FAILS)}')
 sys.exit(1 if FAILS else 0)

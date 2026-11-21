@@ -8,6 +8,7 @@
   • 737 деньги по ЖИВОЙ цене, потолок пробы и общий ......................... `gpu_class`, `cost_usd`, `Watch` (`money`/`probe_cap`)
   • 724/754 «running, started=false, 503»: ждать started, не running ........ `Watch` (`no_start` от running, `no_health` от started)
   • 734/740 докачка весов стоит .............................................. `weights_slow`/`weights_stalled` (`download_stalled`)
+  • 734/357 докачка ОБРАЗА медленная (прогноз >15 мин через 8) → пересадка ... `pull_verdict`, `PullGuard` (общий бюджет `node_health`, ≤3, обе медленные → ждём)
   • 748/755 молчащая платная нода .............................................. журнал раз в минуту (`say`), `not_ready`, `time`, `no_machine`
   • 578/700 стоп с проверкой «0 нод», в `finally` ................................ `stop_and_verify`
   • правило р.5 («--no-slot») платное только под `heavy-slot --prio 2` ....... `require_slot`
@@ -325,6 +326,105 @@ def weights_stalled(hist: list[tuple[float, float]], window_s: float, min_gb: fl
     return weights_slow(hist, window_s, min_gb * 60.0 / window_s) is not None
 
 
+# ---------------------------------------------------------------- сторож докачки ОБРАЗА (уроки 734/740/357; владелец 21.11, TG 1069/1070)
+# Образ тянется ДО running и не оплачивается, но 21.11 (проба d2) нода «downloading» 30 мин, у соседней пробы было 6,7 мин: драйвер ждал только running и погас по no_machine.
+# Здесь общее решение (чистая функция, тестируется без сети) и исполнитель: пересадка через ОБЩИЙ бюджет `node_health` (6/ч на пул мешей и пробы), не копия логики пула.
+PULL_AFTER_S = 480.0          # судить не раньше 8-й минуты наблюдений (урок 734)
+PULL_MAX_TOTAL_MIN = 15.0     # полная докачка с первого наблюдения дольше — нода медленная (норма образа ≈7 ГиБ: 6–8 мин)
+PULL_MIN_ETA_MIN = 3.0        # осталось меньше — доедет, пересадка с нуля дороже
+PULL_WINDOW_S = 300.0         # темп — по последним 5 минутам, не по среднему с начала
+PULL_MAX_CULLS = 3            # пересадок на запуск (общий бюджет node_health — отдельно)
+
+
+def pull_verdict(obs: list, after_s: float = PULL_AFTER_S, max_total_min: float = PULL_MAX_TOTAL_MIN, min_eta_min: float = PULL_MIN_ETA_MIN,
+                 window_s: float = PULL_WINDOW_S) -> str | None:
+    """Медленная ли докачка образа. obs — [(время_с, доля 0..1)] по возрастанию. Причина пересадки или None.
+    Догрузившую (≥0,999) не трогаем никогда (05.09: выбросить готовую ноду = заплатить за прогрев дважды)."""
+    if len(obs) < 2:
+        return None
+    t1, p1 = obs[-1]
+    if p1 >= 0.999:
+        return None
+    age = t1 - obs[0][0]
+    if age < after_s:
+        return None
+    ta, pa = next(o for o in obs if t1 - o[0] <= window_s)
+    if t1 - ta < 120.0:
+        return None
+    rate = (p1 - pa) / ((t1 - ta) / 60.0)                   # доля образа в минуту
+    eta = (1.0 - p1) / rate if rate > 1e-6 else float('inf')
+    if eta < min_eta_min:
+        return None
+    total = age / 60.0 + eta
+    if total > max_total_min:
+        eta_txt = 'не растёт' if eta == float('inf') else f'ещё {eta:.0f} мин'
+        return f'образ {p1:.0%} за {age / 60:.0f} мин, темп {max(rate, 0):.1%}/мин ({eta_txt}) — прогноз докачки дольше {max_total_min:.0f} мин'
+    return None
+
+
+class PullGuard:
+    """Исполнитель сторожа докачки образа. На каждом шаге получает экземпляры Salad (`pulling_progress`, `state`) и при медленной докачке пересаживает ноду.
+    Урок 357: если медленны ДВЕ ноды (отстающая и её замена) — медленен образ/сеть, а не машина: дальше не пересаживаем, ждём (каждая замена начинала бы с нуля).
+    `take_slot()` — общий бюджет пересадок (`node_health.take_cull_slot`), `realloc(group, iid, why)` — `node_health.reallocate`; оба подменяются в тестах."""
+
+    def __init__(self, group: str, max_culls: int = PULL_MAX_CULLS, take_slot: Callable[[], int] | None = None, realloc: Callable[[str, str, str], bool] | None = None,
+                 say_fn=say, **verdict_kw):
+        self.group, self.max_culls, self.verdict_kw, self.say = group, max_culls, verdict_kw, say_fn
+        self.take_slot, self.realloc = take_slot, realloc
+        self.hist: dict = {}
+        self.slow: set = set()
+        self.culls = 0
+        self.noted: set = set()
+
+    def _nh(self):
+        if self.take_slot is None or self.realloc is None:
+            import sys
+            here = os.path.dirname(os.path.abspath(__file__))
+            if here not in sys.path:
+                sys.path.insert(0, here)
+            import node_health as NH
+            self.take_slot = self.take_slot or NH.take_cull_slot
+            self.realloc = self.realloc or NH.reallocate
+
+    def _note(self, key: str, msg: str) -> None:
+        if key not in self.noted:
+            self.noted.add(key)
+            self.say(msg)
+
+    def step(self, t: float, ins: list) -> bool:
+        """True — ноду пересадили на этом шаге (драйвер сбрасывает отсчёт «нода не выдана»)."""
+        for i in ins:
+            iid, prog = i.get('id'), i.get('pulling_progress')
+            if not iid or i.get('state') != 'downloading' or prog is None:
+                continue
+            obs = self.hist.setdefault(iid, [])
+            if obs and float(prog) < obs[-1][1] - 0.10:         # откат >10 п.п. — загрузка началась заново
+                obs.clear()
+            obs.append((t, float(prog)))
+            if len(obs) > 200:
+                del obs[1:len(obs) - 150]                        # первое наблюдение держим (возраст), хвост — для темпа
+            why = pull_verdict(obs, **self.verdict_kw)
+            if not why:
+                continue
+            self.slow.add(iid)
+            if len(self.slow) >= 2:
+                self._note('fleet', f'сторож докачки: медленны обе ноды (отстающая и замена) — это образ или сеть, а не машина (урок 357); пересадку прекращаю, жду: {why}')
+                continue
+            if self.culls >= self.max_culls:
+                self._note('max', f'сторож докачки: уже {self.culls} пересадок — больше не пересаживаю, жду: {why}')
+                continue
+            self._nh()
+            if not self.take_slot():
+                self._note('slot', f'сторож докачки: общий бюджет пересадок на час исчерпан — жду: {why}')
+                continue
+            self.say(f'сторож докачки: нода {iid[:8]} — {why} → пересаживаю (№{self.culls + 1} из {self.max_culls})')
+            if self.realloc(self.group, iid, why):
+                self.culls += 1
+                self.hist.pop(iid, None)
+                return True
+        return False
+
+
 # ---------------------------------------------------------------- сторож пробы (чистое решение, тестируется без сети)
 @dataclass
 class Watch:
@@ -341,6 +441,7 @@ class Watch:
     ready_min: float = 30
     stall_min: float = 5
     stall_gb: float = 0.05
+    last_cull: float | None = None                   # пересадка ноды при медленной докачке образа: «нода не выдана» считаем заново от неё
     run_since: float | None = None
     started_since: float | None = None
     ready_at: float | None = None
@@ -370,7 +471,7 @@ class Watch:
             return ('money' if self.first_done else 'probe_cap'), f'≈${self.cost(t):.3f}, потолок ${self.cap_now()}'
         if self.run_since is not None and self.running_s(t) > self.max_min * 60:
             return 'time', f'{self.max_min} мин с running'
-        if self.run_since is None and (t - self.t_start) > self.running_min * 60:
+        if self.run_since is None and (t - max(self.t_start, self.last_cull or 0.0)) > self.running_min * 60:
             return 'no_machine', f'{self.running_min} мин нода не выдана'
         return None, ''
 
@@ -477,7 +578,7 @@ class Spec:
 
 
 def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock=time.time, slot_check=require_slot,
-              image_check=check_image, ledger=ledger_append, wait_s: float = 2400) -> int:
+              image_check=check_image, ledger=ledger_append, wait_s: float = 2400, pull_guard: Callable[[str], PullGuard] | None = None) -> int:
     """Платная проба на Salad по общему образцу. `a`: image, suffix, tier, apply, cap, probe_cap, max_min, running_min, start_min, health_min, ready_min, stall_min, stall_gb,
     job_min, out. Без `--apply` — только разбор (тело без секретов, группа НЕ создаётся)."""
     name = f'{spec.prefix}-{a.suffix}'
@@ -532,6 +633,7 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
         say('ИТОГ', json.dumps({k: summary.get(k) for k in ('group', 'stopped_by', 'stop_verified')}, ensure_ascii=False))
         return 1
     w = Watch(t_start, price, a.probe_cap, a.cap, a.max_min, a.running_min, a.start_min, a.health_min, a.ready_min, a.stall_min, a.stall_gb)
+    guard = (pull_guard or PullGuard)(name) if getattr(a, 'pull_guard', True) else None      # --no-pull-guard выключает (a.pull_guard=False)
     gw = None
     streak = 0
     busy_waits = 0
@@ -548,6 +650,9 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
             _, st, _cnt = BR.group_state(name)
             _, ins = BR.instances(name)
             last_ins = ins
+            if guard is not None and w.run_since is None and guard.step(t, ins):       # образ качается слишком медленно → пересадка (бесплатно: до running не списывается)
+                w.last_cull = t
+                summary['pull_culls'] = guard.culls
             why, detail = w.money_time(t, ins)
             summary['cost_usd_est'] = round(w.cost(t), 3)
             if why:
