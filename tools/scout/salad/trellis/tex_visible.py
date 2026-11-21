@@ -55,6 +55,8 @@ W_TAKE = 0.25           # вес меньше — тексель не берём
 HOLE_R = 2.5            # дыры между взятыми текселями (пикселей кадра реже текселей) закрываются ближайшим взятым не дальше этого, текселей
 DEPTH_PX = 3.0          # допуск «тексель не заслонён»: расхождение глубины точки и буфера глубины камеры не больше стольких пикселей предмета (у косых граней — шире)
 GREY = 128
+FRONT_COS = 0.80       # мерка света «перёд↔бок»: перёд — cos ≥ этого, бок — от cos_min до SIDE_COS
+SIDE_COS = 0.65
 GATE = {                # (порог, op) — провизорно, см. шапку
     'silhouette_iou': (0.85, '>='),
     'known_share': (0.15, '>='),
@@ -320,6 +322,16 @@ def metrics(geoms, st, prgb, pmask, tr, after: np.ndarray, cos_min: float) -> di
             if mk.sum() > 100:
                 per[g['name']] = round(float(np.median(LP.de2000(Lp[mk], La[mk]))), 3)
         out['lab_dE_by_part'] = per
+        # независимая мерка света: одна ткань, перёд против бока — медианы Lab фото на пикселях «перёд» (cos ≥ FRONT_COS) и «бок» (cos между COS_MIN и SIDE_COS) внутри части, без полосы разрыва глубины
+        free = both & ~depth_band(st)
+        fs = {}
+        for gi, g in enumerate(geoms):
+            mk = free & (gid == gi)
+            fr, sd = mk & (st['cos'] >= FRONT_COS), mk & (st['cos'] >= cos_min) & (st['cos'] < SIDE_COS)
+            if fr.sum() > 300 and sd.sum() > 300:
+                mf, ms = np.median(Lp[fr], axis=0), np.median(Lp[sd], axis=0)
+                fs[g['name']] = {'dE': round(float(LP.de2000(mf[None], ms[None])[0]), 3), 'dL': round(float(mf[0] - ms[0]), 2), 'n_front': int(fr.sum()), 'n_side': int(sd.sum())}
+        out['front_side'] = fs
     return out
 
 
