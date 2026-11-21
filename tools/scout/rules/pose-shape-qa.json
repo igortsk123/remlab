@@ -1,0 +1,39 @@
+{
+  "_doc": "Пороги аудита «поза или форма» (pose_shape_qa.py, T-183/Ш2б). Стартовые ЗНАЧЕНИЯ заданы ДО просмотра трудных товаров и служат полом: после `calibrate` по «легшим» камерам (нулевая выборка, ≥8, затем ~25–30) порог = max(нуль)×1,25, не ниже пола. Файл rules/pose-shape-qa.calibrated.json перекрывает `thresholds`. Пока калибровки нет (calibration.n_null пусто), SHAPE_MISMATCH_LIKELY не выдаётся никогда — только LIKELY_OK / INDETERMINATE и рекомендации REFINE / LIMIT_PROJECTION / REVIEW_*.",
+  "version": "1",
+  "n": 256,
+  "region_bins": 8,
+  "max_near": 6,
+  "use_zbuf": true,
+  "probe_only_disputed": true,
+  "thresholds": {
+    "near_delta": 0.03,
+    "flip_az_tol": 30.0,
+    "flip_gap_max": 0.02,
+    "disp_max": 0.05,
+    "region_max": 0.35,
+    "iou_ok": 0.9,
+    "local_res_min": 0.06,
+    "shift_expl_max": 0.5,
+    "shift_expl_refine": 0.7,
+    "body_res_max": 0.04,
+    "gain_min": 0.05,
+    "pen_max": 0.5,
+    "disp_max_floor": 0.05,
+    "region_max_floor": 0.35,
+    "local_res_min_floor": 0.06,
+    "gain_min_floor": 0.05
+  },
+  "zones": {"min_area_share": 0.003, "bottom_frac": 0.2, "top_frac": 0.2, "side_frac": 0.15},
+  "shift": {"scales": [0.97, 1.0, 1.03], "shifts_px": [-6, -4, -2, 0, 2, 4, 6]},
+  "probe": {
+    "families": ["legs_h", "band_w"],
+    "legs_h_max": 0.35,
+    "legs_frac": 0.2,
+    "band_w_max": 0.15,
+    "bands": 5,
+    "lambda": 0.05,
+    "maxiter": 120,
+    "cam_maxiter": 200
+  }
+}
