@@ -2622,11 +2622,9 @@ def cache_images(data: dict) -> dict:
     for v in data.get('variants') or []:
         for it in v['items']:
             fix(it.get('sku'))
-            # предмет комнаты без фото остаётся (он расставлен, у него меш, размеры, цена и ссылка): страница рисует плашку
-            # «нет фото» (T-65); замена другим товаром сдвинула бы расстановку и 3D
-            sk = it.get('sku') or {}
-            if sk and not sk.get('img'):
-                no_photo.append(f"{v.get('id')} {it.get('role')}: {sk.get('name')}")
+            # предмет комнаты без фото остаётся, если замены нет (он расставлен, у него меш, размеры, цена и ссылка): страница рисует
+            # плашку «нет фото» (T-65). Замена — ниже, после пересчёта лент (`photo_replace`): ближайшим из ленты того же стиля и роли
+            # с картинкой, в допуске габаритов — место и размеры предмета те же, расстановка и 3D не сдвигаются
         for x in v.get('decor') or []:              # не скачалось — остаётся адрес магазина: строка декора из списка не пропадает
             sk = x.get('sku') or {}
             if sk.get('img'):
@@ -2673,6 +2671,15 @@ def cache_images(data: dict) -> dict:
         if not data['feeds'][role]:
             data['feeds'].pop(role)
     data['sofa_feed'] = data.get('feeds', {}).get('диван', [])
+    # ПРЕДМЕТ ВАРИАНТА БЕЗ СКАЧАННОЙ КАРТИНКИ → БЛИЖАЙШИЙ ИЗ ЛЕНТЫ С КАРТИНКОЙ (T-20261119-115/3, живая 2.20: ковёр set10): после пересчёта лент,
+    # когда в них остались только товары с картинкой; допуск габаритов — `rules/demo-swap.json → no_photo_replace`
+    import demo_room as _DRR
+    import photo_replace as _PRP
+    _pr = _PRP.replace_no_photo(data.get('variants') or [], data.get('feeds') or {}, _DRR.room_key,
+                                _SWAP_RULES['no_photo_replace']['max_size_gap_cm'])
+    no_photo = [row.split(' — замены нет')[0] for row in _pr['left_rows']]
+    print(f"предметов вариантов без картинки: {_pr['without']}, заменено ближайшим из ленты: {_pr['replaced']}"
+          + (' — ' + '; '.join(_pr['replaced_rows']) if _pr['replaced_rows'] else ''))
     swapped = 0
     for kit in (data.get('sets') or []):
         fixed = {}
@@ -2699,7 +2706,7 @@ def cache_images(data: dict) -> dict:
           + (' — ' + '; '.join(no_photo) if no_photo else ''))
     data['_img_cached'] = {'ok': ok, 'total': len(urls), 'dropped_no_photo': dropped,
                            'capped': capped, 'retried': retried, 'from_published': rescued,
-                           'variant_items_no_photo': len(no_photo)}
+                           'variant_items_no_photo': len(no_photo), 'variant_items_photo_replaced': _pr['replaced']}
     large = sum(1 for v in got.values() if v and os.path.exists(os.path.join(OUT, v[:-4] + '-l.jpg')))
     print(f'крупных копий для карточки товара: {large} из {ok}')
     data['_img_large'] = large > 0                 # страница пробует `<id>-l.jpg` только при этом флаге (нет файла — остаётся плитка)

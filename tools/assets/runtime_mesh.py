@@ -198,14 +198,16 @@ def count_triangles(js: dict) -> int:
     return tri
 
 
-def pack(src_path: str, dst_path: str, simplify: float = 0.0, ktx2: bool = True) -> tuple[bool, str]:
-    """Сжатие геометрии (meshopt) и текстур (KTX2). Нет бинаря — честно говорим и не падаем."""
+def pack(src_path: str, dst_path: str, simplify: float = 0.0, ktx2: bool = True, tex_flags: tuple | list = ()) -> tuple[bool, str]:
+    """Сжатие геометрии (meshopt) и текстур (KTX2). Нет бинаря — честно говорим и не падаем. `tex_flags` — добавочные ключи gltfpack для текстур (например `-tu` UASTC),
+    только вместе с KTX2; по умолчанию пусто — копии сайта собираются как раньше."""
     exe = GLTFPACK if os.path.exists(GLTFPACK) else shutil.which("gltfpack")
     if not exe:
         return False, "gltfpack не найден — модель осталась без сжатия геометрии"
     cmd = [exe, "-i", src_path, "-o", dst_path, "-cc"]
     if ktx2:
         cmd.append("-tc")
+        cmd += list(tex_flags)
     if simplify > 0:
         cmd += ["-si", str(simplify)]
     try:
@@ -235,7 +237,7 @@ def copy_problems(path: str, expect_texture: bool = True) -> list[str]:
     return probs
 
 
-def build_copy(tmp: str, dst: str, simplify: float, ktx2: bool, expect_texture: bool) -> tuple[bool, str, list[str]]:
+def build_copy(tmp: str, dst: str, simplify: float, ktx2: bool, expect_texture: bool, tex_flags: tuple | list = ()) -> tuple[bool, str, list[str]]:
     """Упаковать `tmp` → `dst` с проверкой картинок. (сжато, как, проблемы). Порядок: gltfpack с KTX2 → проверка; битая —
     перепаковка без KTX2 (JPEG, gltfpack тогда во временные файлы не пишет) → проверка; не упаковалось — `tmp` как есть
     (прежний путь «без сжатия, но рабочая») → проверка. Проблемы непустые — копия негодна, `dst` не тронут; файл `.new` убран."""
@@ -243,7 +245,7 @@ def build_copy(tmp: str, dst: str, simplify: float, ktx2: bool, expect_texture: 
     tries = [("KTX2", ktx2), ("без KTX2", False)] if ktx2 else [("без KTX2", False)]
     probs: list[str] = []
     for how, k in tries:
-        packed, why = pack(tmp, new, simplify, k)
+        packed, why = pack(tmp, new, simplify, k, tex_flags) if (k and tex_flags) else pack(tmp, new, simplify, k)   # флаги — только когда заданы: прежние вызовы и подмены `pack` в тестах не меняются
         if not packed:
             probs = [f"gltfpack {how}: {why}"]
             break                                   # не упаковалось вовсе — дальше только исходная копия
@@ -323,7 +325,7 @@ def ladder_steps(rule: dict, size: int, simplify: float) -> list[tuple[str, int,
     return steps
 
 
-def build_light(src: bytes, dst: str, size: int, quality: int, simplify: float, ktx2: bool, rule: dict) -> dict:
+def build_light(src: bytes, dst: str, size: int, quality: int, simplify: float, ktx2: bool, rule: dict, tex_flags: tuple | list = ()) -> dict:
     """Одна лёгкая копия по лестнице веса. Кандидат пишется в `<dst>.cand`, а не в `dst`: тяжёлый не затирает прежнюю годную копию.
     Шаг не вышел по весу (`> max_bytes`) — следующий; упаковка битая по текстуре — отказ сразу (это не вес, лестница не лечит).
     Рабочие файлы (`.srcN.glb`, `.cand`, `.new`) убираются при любом выходе, в том числе при ошибке.
@@ -345,7 +347,7 @@ def build_light(src: bytes, dst: str, size: int, quality: int, simplify: float, 
             if simp and min_tri and stats["triangles"] * simp < min_tri:
                 tried.append({"step": label, "size": sz, "simplify": simp, "skip": f"граней {stats['triangles']}×{simp:g} < {min_tri}"})
                 break                                      # дальше упрощение только мельче — стоп (силуэт не едим)
-            packed, how, probs = build_copy(tmp, cand, simp, ktx2, stats["images_out"] > 0)
+            packed, how, probs = build_copy(tmp, cand, simp, ktx2, stats["images_out"] > 0, tex_flags)
             if probs:
                 tried.append({"step": label, "size": sz, "simplify": simp, "problems": probs[:2]})
                 res.update(kind="texture", probs=probs, stats=stats)

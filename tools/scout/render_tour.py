@@ -213,6 +213,11 @@ class TourWarmer:
     # ——— постановка
     def ingest(self, jid: str, bundle_path: str, ttl_s: float, limit: int) -> dict:
         """Данные версии → заготовки. → {'jid', 'variants', 'have', 'queued', 'skipped', 'state'}; state: ok | cap | no_data."""
+        import log_stamp as LS
+        with LS.context(tour=f'tour:{jid}'):                    # строки постановки — с номером тура (T-20261118-22/8)
+            return self._ingest(jid, bundle_path, ttl_s, limit)
+
+    def _ingest(self, jid: str, bundle_path: str, ttl_s: float, limit: int) -> dict:
         import render_exec as RX
         try:
             data = json.load(open(bundle_path, encoding='utf-8'))

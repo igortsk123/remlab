@@ -1,0 +1,11 @@
+{
+  "_about": "Релиз KTX-Software (утилита `ktx`: раскодирует KTX2 в PNG для проверки этапа 10 нового пути покраски, tools/scout/paint_web.py; T-20261121-171/2). ЕДИНСТВЕННОЕ место версии и контрольных сумм: их читает tools/ops/install-ktx.sh. sha1 — из файла .sha1 релиза на GitHub, sha256 посчитан с проверенного архива. Новая версия — править здесь, не в скрипте.",
+  "version": "4.4.2",
+  "archive": "KTX-Software-4.4.2-Linux-x86_64.tar.bz2",
+  "url": "https://github.com/KhronosGroup/KTX-Software/releases/download/v4.4.2/KTX-Software-4.4.2-Linux-x86_64.tar.bz2",
+  "sha1": "c6b08c817f8c8dd299deccae4f2fbb8d55e9acd2",
+  "sha256": "a8781bad05f9624edbf910b7f258cd0a4ba7d3e63b49ecc0a0ab440bf6a0a245",
+  "size_bytes": 7030325,
+  "install_dir": "~/.local/opt/ktx-software",
+  "binary": "bin/ktx"
+}
