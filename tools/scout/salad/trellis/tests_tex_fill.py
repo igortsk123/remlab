@@ -883,6 +883,34 @@ def test_borrow_donors():
     ok(TF.borrow_donors([1], [0, 4], tones2, {0: 'body', 1: 'body', 4: 'body'}, set(), 6.0, {(1, 4): 120})[1] == 4, "общая граница важнее близости тона (берёт ч.4, соседнюю)")
 
 
+def test_tone_only():
+    print("tone_only (Ш6, р.8): цвет тон-слоя остаётся, фактура кладётся поверх; в известные и статистику не входит:")
+    rng = np.random.RandomState(5)
+    big = Quads()
+    big.quad([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], (0, 0, .5, 1))
+    big.quad([[2, 0, 0], [3, 0, 0], [3, 1, 0], [2, 1, 0]], (.5, 0, 1, 1))
+    t2 = np.full((256, 256, 3), 120, np.uint8)
+    t2[:, :128] = np.clip(120 + rng.normal(0, 8, (256, 128, 3)), 0, 255)
+    to = np.zeros((256, 256), bool)
+    to[40:200, 150:230] = True
+    t2[to] = (150, 100, 100)                                   # тон-слой: другой цвет, чем «серая» заливка
+    gb = big.geom(t2)
+    kb = np.zeros((256, 256), bool)
+    kb[:, :128] = True
+    cfg = {'gutter': 0, 'erode_known': 0}
+    o0 = TF.fill([gb], [kb], None, cfg=cfg, mirror=False)
+    o1 = TF.fill([gb], [kb], None, cfg=cfg, mirror=False, tone_only=[to])
+    lab0 = TF.rgb2lab(o0['tex'][0][to].reshape(-1, 3))
+    lab1 = TF.rgb2lab(o1['tex'][0][to].reshape(-1, 3))
+    lab_in = TF.rgb2lab(t2[to].reshape(-1, 3))
+    ok(float(np.abs(lab1.mean(axis=0) - lab_in.mean(axis=0)).max()) < 2.0, f'среднее тон-слоя сохранено (Lab вход {lab_in.mean(axis=0).round(1)}, итог {lab1.mean(axis=0).round(1)})')
+    ok(float(np.abs(lab0.mean(axis=0) - lab_in.mean(axis=0)).max()) > 5.0, 'без tone_only тон-слой перекрашивается заливкой (контроль различимости)')
+    ok(float(lab1[:, 0].std()) > 0.5, f'фактура положена поверх (разброс L {lab1[:, 0].std():.2f})')
+    ok(o1['report'].get('tone_only_texels', 0) > 0, f'отчёт: тон-только тексели {o1["report"].get("tone_only_texels")}')
+    ok(np.array_equal(o1['tex'][0][kb], o0['tex'][0][kb]), 'известное не изменилось')
+    ok(o1['report']['parts'][0]['known_texels'] == int(kb.sum()), 'тон-слой не вошёл в статистику части (известных столько же)')
+
+
 def test_pr_camera_and_winding():
     print("камера образца узора из этапа 4 (az, el) и обмотка граней:")
     cfg, note = TF.pr_camera_from_extra({'camera': {'az': 341.3, 'el': 8.5}}, {})
@@ -1149,7 +1177,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

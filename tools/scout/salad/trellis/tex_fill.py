@@ -99,6 +99,7 @@ FILL = {
     'pattern_side_cos': 0.2,         # узорная часть: узор кладётся только на тексели, обращённые к фото (cos нормали с направлением камеры pr_az ≥ порога); обратная сторона/сиденье/низ — тон ткани без цветов (дефект Sakura 21.11: цветы спинки на заду и сиденье)
     'smooth_roles': ['legs', 'frame', 'handles'],   # роли без плитки фактуры на недостроенном: тон части без блоков («ёлочка» стыков на дереве, Sakura 21.11)
     'tone_share_roles': ['legs', 'frame', 'handles'],   # роли, у которых тон един на все части одной роли (один материал — один тон: задние ножки темнее передних из-за теней)
+    'tone_only_use': True,           # run_stage: читать `tone_only.png` из папки этапа 6 (нет файла — прежнее поведение)
     'relief_calib_donor': False,     # Ш6 вариант 2: часть без своего фото берёт калибровку рельефа TRELLIS (σ/p95 чистой ткани) у донора тона той же роли; по умолчанию выкл. (без него рельеф у таких частей = stat)
     'borrow_texture': False,         # Ш6 вариант 1: часть без чистых блоков (нет квилта/блока) берёт микрофактуру у части ТОЙ ЖЕ материальной зоны (роль и тон близки, не узорная); по умолчанию выкл.
     'borrow_luma_only': True,        # заимствованный лоскут даёт только яркость (a/b — нет): цвет остаётся тоном части
@@ -813,10 +814,12 @@ def draft_relief(txs: list, draft: dict, labs: list, kn: list, part_ids: list, p
 
 
 # ---------------------------------------------------------------- заливка ---------------------------------------
-def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None = None, mirror: bool = True, draft: dict | None = None) -> dict:
+def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None = None, mirror: bool = True, draft: dict | None = None, tone_only: list | None = None) -> dict:
     """geoms — `tex_coverage.load_geoms`; known — по геометрии (T×T bool), parts — по геометрии номера частей ГРАНЕЙ (None — одна часть).
     draft — черновик TRELLIS на ту же форму/развёртку (`draft_texels`): {'lab': [(T,T,3) Lab], 'ok': [(T,T) bool]}; нужен при cfg['source']=='trellis': невидимое берёт цвет черновика,
     сдвинутый переносом статистики Lab (медиана/разброс части: черновик → видимое фото), детали черновика сохраняются; стыки — та же растушёвка. 'stat' (по умолчанию) — цвет части + лоскут фактуры.
+    tone_only — (Ш6, р.8) по геометриям T×T bool: тексели с ТОНОВЫМ полем этапа 6 (цвет есть в visible.glb, фото-правды нет; в `known` НЕ входят). Цвет такого тексела остаётся как есть (тон-поле, среднее сохраняется),
+    а фактура/заём кладутся поверх как на неизвестный (остаток без среднего); в статистику частей, пул блоков и доноры они не входят. Нет — поведение прежнее.
     → {'tex': [uint8 (T,T,3) по геометриям], 'report': {...}}. Форма и развёртка не меняются."""
     from scipy.ndimage import binary_erosion, distance_transform_edt
     from scipy.sparse import coo_matrix
@@ -839,6 +842,8 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         if rgb.shape[0] != T:
             raise ValueError('текстура больше сетки карты (cap) — загрузите с её размером')
         k = np.asarray(known[gi], bool).copy()
+        if tone_only is not None and gi < len(tone_only):
+            k &= ~np.asarray(tone_only[gi], bool)              # тон-только — не фото-правда: в известные не входит (фактура и статистика — не отсюда)
         k0 = k & ~unpainted_mask(rgb)                      # известное этапа 6 и покрашенное — НЕ перезаписывается никогда (правило «заливка не меняет известное»)
         if c['erode_known'] > 0:
             k = binary_erosion(k, iterations=int(c['erode_known']))
@@ -1373,6 +1378,14 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             add[m_, 1:] = 0.0
             rep.setdefault('relief_texels', 0)
             rep['relief_texels'] += int(m_.sum())
+        if tone_only is not None and gi < len(tone_only):
+            ts_ = np.asarray(tone_only[gi], bool).reshape(-1)[tx.ti][unk_flat] & ~unpainted_mask(tex_in[gi].reshape(-1, 3)[tx.ti[unk_flat]])
+            if ts_.any():                                                       # цвет тон-только тексела — его собственный (поле этапа 6), не геодезическая заливка; остаток (без среднего) — поверх
+                ob_ = out_lab[gi].reshape(-1, 3)
+                ti_ = tx.ti[unk_flat][ts_]
+                ob_[ti_] = labs[gi].reshape(-1, 3)[ti_]
+                rep.setdefault('tone_only_texels', 0)
+                rep['tone_only_texels'] += int(ts_.sum())
         out_lab[gi].reshape(-1, 3)[tx.ti[unk_flat]] += add
     rep['time_s']['texture'] = round(time.time() - t0, 2)
     # --- итог: RGB, желоб, проверка покрытия
@@ -2035,9 +2048,10 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     if (cfg or {}).get('source') in ('trellis', 'trellis_relief'):
         draft = draft_texels(geoms, TC.load_geoms(draft_glb), cfg)
     kback = known_from_photo(geoms, azimuths=(180.0,))
+    _to = load_tone_only_png(prev_dir) if (prev_dir and (cfg or {}).get('tone_only_use', True)) else None      # тон-слой этапа 6 (р.8): цвет оставить, фактуру положить поверх
 
     def one(cfg_, draft_):
-        r_ = fill(geoms, known, parts, cfg_, mirror, draft_)
+        r_ = fill(geoms, known, parts, cfg_, mirror, draft_, tone_only=_to)
         rp, tx_ = r_['report'], r_['tex']
         de_ = part_deltas(geoms, parts, known, kback, tex_before, tx_)
         kt = max(sum(v['known_texels'] for v in rp['parts'].values()), 1)
@@ -2092,6 +2106,18 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     check = PS.write_check(d, out_name or STAGE, sku, None, dict(metrics['empty_pct'], name='empty_pct'), '', metrics={k: v for k, v in metrics.items() if k != 'empty_pct'}, seconds=secs,
                            outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried, pattern_metric=rep['pattern_metric'], pattern_src=rep.get('pattern_src'), stage6=s6, quilt_rejected=rep.get('quilt_rejected'))
     return {'check': check, 'report': rep, 'geoms': geoms, 'tex_before': tex_before, 'tex_after': tex_after, 'known': known, 'parts': parts, 'dir': d, 'deltaE': de, 'kback': kback}
+
+
+def load_tone_only_png(visible: str) -> list | None:
+    """Маски «тон-только» этапа 6 (р.8): `tone_only.png`, `tone_only1.png`, … (белое = цвет есть, фото-правды нет). Нет файла — None (прежнее поведение)."""
+    from PIL import Image
+    out = []
+    for i in range(64):
+        fp = os.path.join(visible, "tone_only.png" if i == 0 else f"tone_only{i}.png")
+        if not os.path.exists(fp):
+            break
+        out.append(np.asarray(Image.open(fp).convert("L")) > 127)
+    return out or None
 
 
 def load_known_png(visible: str) -> list:
