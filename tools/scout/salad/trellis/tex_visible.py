@@ -45,6 +45,8 @@ def _rules() -> dict:
 R = _rules()
 COS_MIN = float(R.get('cos_min', 0.40))          # cos угла к лучу: 66° и больше — вскользь, не берём (rules/tex-visible.json)
 DEPTH_JUMP = float(R.get('depth_jump_px', 12.0))  # разрыв глубины между соседними пикселями кадра больше стольких px_len — край складки/щели: полоса вокруг не берётся
+MM_GAP = float(R.get('multi_material_gap_L', 25.0))      # бимодальный L* внутри части → мерка перёд↔бок N/A
+MM_SHARE = float(R.get('multi_material_min_share', 0.20))
 DEPTH_MED = int(R.get('depth_median_px', 7))   # медиана карты глубины перед поиском разрыва: на рёбрах треугольников в ней пятна-выбросы
 DEPTH_BAND = int(R.get('depth_band_px', 2))      # ширина этой полосы, пикселей кадра
 COS_FULL = float(R.get('cos_full', 0.60))         # полный вес с этого косинуса; между COS_MIN и COS_FULL — плавная передача заготовке
@@ -152,17 +154,6 @@ def face_maps(st: dict, nF: int, off: int = 0) -> dict:
     return out
 
 
-def smooth_depth(st: dict) -> np.ndarray:
-    """Глубина растра, очищенная от пятен-выбросов на рёбрах треугольников (медиана 3×3 по занятым пикселям; пустое остаётся 0)."""
-    from scipy.ndimage import median_filter
-    d = st['depth'].astype(np.float64)
-    ok = d > 0
-    if not ok.any():
-        return d
-    sm = median_filter(np.where(ok, d, float(np.median(d[ok]))), size=3)
-    return np.where(ok, sm, 0.0)
-
-
 def depth_band(st: dict) -> np.ndarray:
     """Маска кадра: пиксели у разрыва глубины (край складки, щель между подушками, торец за выступом) шире DEPTH_BAND px — фото там берёт тень щели, а не поверхность."""
     from scipy.ndimage import binary_dilation, median_filter
@@ -186,8 +177,7 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
     """Новые текстуры + маски «известно» по геометриям. Каждый занятый тексель идёт на фото СВОЕЙ точкой (карта грани, `face_maps`), берётся, если: его грань видна с углом лучше `cos_min`,
     глубина точки совпадает с буфером глубины камеры (не заслонена), точка внутри силуэта фото с отступом от края. Цвет — билинейно с фото; невидимое остаётся прежним."""
     from scipy.ndimage import distance_transform_edt, map_coordinates
-    ids = st['ids']
-    depth = smooth_depth(st)                                        # сырая карта в пятнах на рёбрах треугольников: проверка «не заслонён» — по медиане 3×3
+    ids, depth = st['ids'], st['depth']
     px = st['px']
     offs = np.cumsum([0] + [len(g['F']) for g in geoms])
     if ids.max() >= offs[-1]:
@@ -308,6 +298,20 @@ def hatch(tex: np.ndarray, known: np.ndarray) -> np.ndarray:
     return out
 
 
+def multi_material(L: np.ndarray) -> bool:
+    """L* пикселей части бимодален: два заметных пика (каждый >= MM_SHARE/2 части в бине 5 L*), пики отстоят >= MM_GAP, между ними провал глубже половины меньшего пика.
+    Скошенное распределение одной ткани с хвостом (узор, тени) под это не попадает; признак по пикселям части, не по товару."""
+    if L.size < 600:
+        return False
+    h = np.histogram(L, bins=20, range=(0.0, 100.0))[0] / float(L.size)
+    pk = [i for i in range(20) if h[i] >= MM_SHARE / 2 and h[i] >= (h[i - 1] if i else 0) and h[i] >= (h[i + 1] if i < 19 else 0)]
+    for i in pk:
+        for j in pk:
+            if j > i and (j - i) * 5.0 >= MM_GAP and h[i + 1:j].min() < 0.5 * min(h[i], h[j]):
+                return True
+    return False
+
+
 def metrics(geoms, st, prgb, pmask, tr, after: np.ndarray, cos_min: float) -> dict:
     from scipy.ndimage import binary_erosion
     import recolor_lp as LP
@@ -342,6 +346,9 @@ def metrics(geoms, st, prgb, pmask, tr, after: np.ndarray, cos_min: float) -> di
             fr, sd = mk & (st['cos'] >= FRONT_COS), mk & (st['cos'] >= cos_min) & (st['cos'] < SIDE_COS)
             if fr.sum() > 300 and sd.sum() > 300:
                 mf, ms = np.median(Lp[fr], axis=0), np.median(Lp[sd], axis=0)
+                if multi_material(Lp[mk][:, 0]):
+                    fs[g['name']] = {'dE': None, 'n_a': 'N/A: часть из разных материалов (бимодальный L* внутри части)', 'dE_raw': round(float(LP.de2000(mf[None], ms[None])[0]), 3), 'n_front': int(fr.sum()), 'n_side': int(sd.sum())}
+                    continue
                 fs[g['name']] = {'dE': round(float(LP.de2000(mf[None], ms[None])[0]), 3), 'dL': round(float(mf[0] - ms[0]), 2), 'n_front': int(fr.sum()), 'n_side': int(sd.sum())}
         out['front_side'] = fs
     return out

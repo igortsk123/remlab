@@ -224,6 +224,17 @@ class TestTexVisible(unittest.TestCase):
         self.assertFalse(band[mid, Q0 + 3])                          # далеко от него — нет
         self.assertTrue(TV.depth_band(fake_stage()).sum() == 0)      # ровная поверхность — полосы нет
 
+    def test_multi_material_is_decided_by_bimodal_lightness_not_by_product(self):
+        rng = np.random.default_rng(0)
+        two = np.concatenate([rng.normal(25, 4, 4000), rng.normal(80, 4, 4000)])       # дерево + светлая обивка в одной части
+        one = rng.normal(60, 6, 8000)                                                    # одна ткань
+        rare = np.concatenate([rng.normal(85, 4, 7600), rng.normal(30, 4, 400)])         # узор: тёмных пикселей мало
+        tail = np.concatenate([rng.normal(88, 4, 5500), rng.uniform(40, 80, 2500)])      # одна ткань с длинным хвостом (дерево/узор/тени), без второго пика
+        self.assertTrue(TV.multi_material(two))
+        self.assertFalse(TV.multi_material(one))
+        self.assertFalse(TV.multi_material(rare))
+        self.assertFalse(TV.multi_material(tail))
+
     def test_import_error_writes_failed_check_instead_of_raising(self):
         with tempfile.TemporaryDirectory() as d:
             photo = os.path.join(d, 'p.png')
