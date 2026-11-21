@@ -2,7 +2,7 @@
 // Только относительный путь из короткого списка: за прокси req.url — внутренний адрес (https://0.0.0.0:3000),
 // абсолютный редирект из него браузер не открывает (T-20261112-118/3); чужой адрес в to= — не открытый редирект.
 
-export const LOGIN_TARGETS = ["/lab/mesh-review", "/lab/mesh-check"] as const;
+export const LOGIN_TARGETS = ["/lab/mesh-review", "/lab/mesh-check", "/lab/cutout-check"] as const;
 export const DEFAULT_LOGIN_TARGET = LOGIN_TARGETS[0];
 
 /** Путь из to=, если он в списке; иначе путь по умолчанию. */
