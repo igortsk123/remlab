@@ -454,6 +454,41 @@ def test_tone_mode_pattern():
     ok(float(TC.de2000_v(np.array(big['parts'][0]['mean_lab'])[None], cream[None])[0]) <= float(TC.de2000_v(tone[None], cream[None])[0]) + 8.0, 'контроль: медиана на этой сцене тоже рабочая (сравнение режимов)')
 
 
+def test_quilt_efros():
+    print('квилт Efros–Freeman: период узора, шов по минимальной ошибке, выравнивание блоков, мода/медиана тона:')
+    rng = np.random.RandomState(4)
+    n = 256
+    yy, xx = np.mgrid[0:n, 0:n]
+    stripes = 10.0 * np.sin(2 * np.pi * xx / 24.0)                      # период 24 px
+    okm = np.ones((n, n), bool)
+    per = TF.pattern_period(stripes, okm, 16, 48)
+    ok(16 <= per <= 48 and per % 4 == 0, f'блок от периода узора, кратен 4 и в пределах (период 24 → блок {per})')
+    per_noise = TF.pattern_period(rng.randn(n, n), okm, 16, 48)
+    ok(per_noise == 16, f'шум без периода → минимальный блок ({per_noise})')
+    B, o = 24, 6
+    base = np.stack([stripes[:B, :B]] * 3, -1) * np.array([1.0, 0.2, 0.2])
+    pool_raw = np.stack([base + rng.uniform(-12, 12, 3)[None, None, :] for _ in range(60)])        # блоки с разным средним (градиент фото)
+    off = pool_raw.reshape(60, -1, 3).mean(axis=1)
+    pool_norm = pool_raw - off[:, None, None, :]
+    q_raw = TF.quilt_image(pool_raw, 6, o, np.random.RandomState(1))
+    q_nrm = TF.quilt_image(pool_norm, 6, o, np.random.RandomState(1))
+    j_raw, j_nrm = TF.quilt_jump(q_raw, B - o), TF.quilt_jump(q_nrm, B - o)
+    ok(q_nrm.shape == (6 * (B - o) + o,) * 2 + (3,) and j_nrm < 0.5 * j_raw, f'выровненные блоки: межблочный скачок {j_nrm:.2f} < половины невыровненного {j_raw:.2f}')
+    ws = TF.wrap_soften(q_nrm)
+    ok(ws.shape == q_nrm.shape and float(np.abs(ws - q_nrm).mean()) < 0.5 * float(np.abs(q_nrm).mean()) + 1e-6, 'плитка сглажена на стыке краёв, содержимое сохранено')
+    e = np.zeros((8, 5))
+    e[:, 2] = -1.0                                                         # дешёвая колонка 2
+    msk = TF._mincut_v(e)
+    ok(msk.shape == (8, 5) and bool(msk[:, 3:].all()) and not bool(msk[:, :2].any()), 'шов идёт по самой дешёвой колонке перекрытия')
+    c0 = dict(TF.FILL)
+    nz = np.concatenate([np.full((600, 3), [60.0, 5.0, 5.0]) + rng.randn(600, 3) * 0.5, np.tile(np.array([[30.0, 0, 0], [50.0, 5, 5], [70.0, -5, 5], [90.0, 10, -5]]), (200, 1)) + rng.randn(800, 3) * 3.0])
+    t_dom = TF.tone_of(nz[:600], c0)
+    ok(abs(float(t_dom[0]) - 60.0) < 2.0, f'есть доминантный фон — мода ({t_dom[0]:.1f} ≈ 60)')
+    spread = np.stack([np.linspace(20, 90, 3000), np.zeros(3000), np.zeros(3000)], 1)
+    t_flat = TF.tone_of(spread, c0)
+    ok(abs(float(t_flat[0]) - float(np.median(spread[:, 0]))) < 1.0, f'равномерный разброс (ворс) — медиана, не случайная мода ({t_flat[0]:.1f})')
+
+
 def test_run_stage_fallback():
     print('этап 07 с черновиком: считаются А и Б, берётся Б только если мерки не хуже; check.json:')
     import tempfile
@@ -470,7 +505,7 @@ def test_run_stage_fallback():
     with tempfile.TemporaryDirectory() as td:
         TF.write_glb([g], [tex], os.path.join(td, 'in.glb'))
         TF.write_glb([g], [dtex], os.path.join(td, 'draft.glb'))
-        r = TF.run_stage(td, 'sku:1', os.path.join(td, 'in.glb'), known=[tile_mask((0, 0, .9, .9))], parts=None, cfg={'source': 'trellis', 'gutter': 0, 'erode_known': 0}, draft_glb=os.path.join(td, 'draft.glb'), mirror=False)
+        r = TF.run_stage(td, 'sku:1', os.path.join(td, 'in.glb'), known=[tile_mask((0, 0, .9, .9))], parts=None, cfg={'source': 'trellis', 'gutter': 0, 'erode_known': 0, 'draft_when': 'always'}, draft_glb=os.path.join(td, 'draft.glb'), mirror=False)
         rep = r['report']
         ok(set(rep['source_tried']) == {'stat', 'trellis'} and rep['source_used'] in ('stat', 'trellis'), f'считаны А и Б, выбран {rep["source_used"]}: {rep["source_tried"]}')
         c = PS.read_check(r['dir'])
@@ -485,6 +520,11 @@ def test_run_stage_fallback():
             ok(False, 'части другого меша отвергнуты')
         except ValueError:
             ok(True, 'части другого меша (число граней не то) отвергнуты')
+        r3 = TF.run_stage(td, 'sku:3', os.path.join(td, 'in.glb'), known=[tile_mask((0, 0, .9, .9))], parts=None, cfg={'source': 'trellis', 'gutter': 0, 'erode_known': 0}, draft_glb=os.path.join(td, 'draft.glb'), mirror=False)
+        if r3['report']['source_tried']['stat']['nfail'] == 0:
+            ok(set(r3['report']['source_tried']) == {'stat'} and r3['report']['source_used'] == 'stat', 'А прошёл все мерки — Б не считается (draft_when=a_fails)')
+        else:
+            ok(set(r3['report']['source_tried']) == {'stat', 'trellis'}, 'А не прошёл — считан и Б')
         r2 = TF.run_stage(td, 'sku:2', os.path.join(td, 'in.glb'), known=[tile_mask((0, 0, .9, .9))], parts=None, cfg={'source': 'trellis', 'gutter': 0, 'erode_known': 0, 'draft_fallback': False}, draft_glb=os.path.join(td, 'draft.glb'), mirror=False)
         ok(r2['report']['source_used'] == 'trellis' and r2['report']['source_tried'] == {}, 'draft_fallback выключен — только Б')
 
@@ -507,7 +547,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

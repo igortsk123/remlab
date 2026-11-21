@@ -62,7 +62,15 @@ FILL = {
     'patch_mode': 'quilt',           # фактура: quilt — сборка из мелких блоков (вся статистика частей, узор не теряется); block — один «типичный» блок 64/32/16 (как было)
     'quilt_pixels': 16,              # размер мелкого блока квилта, пикселей карты
     'quilt_known': 0.9,              # доля известного в блоке квилта
-    'quilt_cells': 8,                # квилт = cells×cells блоков (сторона 128 пикселей при блоке 16)
+    'quilt_cells': 6,                # квилт = cells×cells блоков (не меньше `quilt_side` пикселей стороны)
+    'quilt_side': 96,                # минимальная сторона плитки квилта, пикселей
+    'quilt_overlap': 0.25,           # перекрытие блоков Efros–Freeman, доля блока (1/6–1/4)
+    'quilt_block_min': 16, 'quilt_block_max': 48,   # блок — от периода узора (автокорреляция известного), в этих пределах
+    'quilt_pool': 600,               # блоков-кандидатов на часть (шаг полблока, только чистые по части и известные)
+    'quilt_tries': 40,               # случайных кандидатов на каждое место квилта
+    'quilt_gain': (0.75, 1.33),      # выравнивание разброса блока к типичному: границы множителя (узорная часть; прочие — 0,6–1,6)
+    'tone_dominance': 0.4,           # мода тона берётся, только если ячейка моды (с соседями) — не менее этой доли точек части; иначе медиана (ворс, полосы)
+    'draft_when': 'a_fails',         # trellis с откатом: Б считается только если А не прошёл все мерки (a_fails); always — считать оба всегда
     'pattern_chroma': 6.0,           # часть, у которой МЕЛКИЙ разброс хромы (σ остатка от размытия pattern_blur_px, sqrt(σa²+σb²)) больше — «узорная»: остаток берётся от тона части (цветы/прожилки целиком), иначе — от размытия
     'pattern_blur_px': 12.0,         # размытие для отделения мелкого узора от крупных зон цвета (две большие зоны — не узор)
     'draft_blur_px': 6.0,            # trellis: размытие черновика внутри части до переноса статистики (штрих и муар черновика не переносятся)
@@ -273,7 +281,103 @@ def tone_of(L, c) -> np.ndarray:
     b = int(u[int(np.argmax(cnt))])
     bq = np.array([b // (1024 * 1024), (b // 1024) % 1024, b % 1024])
     near = (np.abs(q - bq) <= 1).all(axis=1)
+    if float(near.mean()) < c['tone_dominance']:             # единого фона нет (ворс, полосы, пёстрая ткань): мода случайна и тянет тон в сторону — берём медиану, как до моды
+        return np.median(L, axis=0)
     return np.median(M[near], axis=0)
+
+
+def _mincut_v(err: np.ndarray) -> np.ndarray:
+    """Путь минимальной ошибки сверху вниз по зоне перекрытия err (H,W) → маска (H,W): True справа от пути (берём новый блок), слева — прежний."""
+    H, W = err.shape
+    E = err.astype(np.float64).copy()
+    for i in range(1, H):
+        up = E[i - 1]
+        E[i] += np.minimum(np.minimum(np.r_[np.inf, up[:-1]], up), np.r_[up[1:], np.inf])
+    path = np.zeros(H, np.int64)
+    path[-1] = int(np.argmin(E[-1]))
+    for i in range(H - 2, -1, -1):
+        j = int(path[i + 1])
+        lo, hi = max(0, j - 1), min(W, j + 2)
+        path[i] = lo + int(np.argmin(E[i, lo:hi]))
+    return np.arange(W)[None, :] >= path[:, None]
+
+
+def quilt_image(pool: np.ndarray, cells: int, overlap: int, rng, tries: int = 40) -> np.ndarray:
+    """Image quilting (Efros–Freeman) из блоков pool (N,B,B,3): блоки с перекрытием `overlap` пикселей, на каждом месте — лучший по ошибке перекрытия из `tries` случайных (из близких к лучшему — случайный), шов — путь минимальной ошибки.
+    → (S,S,3), S = cells·(B−overlap)+overlap."""
+    N, B = pool.shape[0], pool.shape[1]
+    o = int(max(1, min(overlap, B // 2)))
+    step = B - o
+    S = cells * step + o
+    out = np.zeros((S, S, 3))
+    for i in range(cells):
+        for j in range(cells):
+            y, x = i * step, j * step
+            idx = rng.choice(N, size=min(tries, N), replace=N < tries)
+            cand = pool[idx]
+            err = np.zeros(len(idx))
+            if j > 0:
+                err += ((cand[:, :, :o] - out[y:y + B, x:x + o][None]) ** 2).sum(axis=(1, 2, 3))
+            if i > 0:
+                err += ((cand[:, :o, :] - out[y:y + o, x:x + B][None]) ** 2).sum(axis=(1, 2, 3))
+            if i > 0 or j > 0:
+                good = np.nonzero(err <= err.min() * 1.1 + 1e-9)[0]
+                k = int(good[rng.randint(len(good))])
+            else:
+                k = 0
+            blk = cand[k]
+            new = np.ones((B, B), bool)
+            if j > 0:
+                new[:, :o] &= _mincut_v(((out[y:y + B, x:x + o] - blk[:, :o]) ** 2).sum(axis=2))
+            if i > 0:
+                new[:o, :] &= _mincut_v(((out[y:y + o, x:x + B] - blk[:o, :]) ** 2).sum(axis=2).T).T
+            cur = out[y:y + B, x:x + B]
+            out[y:y + B, x:x + B] = np.where(new[..., None], blk, cur)
+    return out
+
+
+def wrap_soften(img: np.ndarray, sigma: float = 2.0, reach: int = 4) -> np.ndarray:
+    """Плитка повторяется с периодом S: шов краёв (левый↔правый, верх↔низ) сглаживается — сдвиг на пол-периода, размытие узкой полосы по кресту, обратный сдвиг."""
+    from scipy.ndimage import gaussian_filter
+    S = img.shape[0]
+    h = S // 2
+    R = np.roll(img, (h, h), (0, 1))
+    bl = np.stack([gaussian_filter(R[..., k], sigma, mode='nearest') for k in range(R.shape[2])], -1)
+    d = np.minimum(np.abs(np.arange(S) - h)[:, None], np.abs(np.arange(S) - h)[None, :]).astype(np.float64)
+    w = np.exp(-0.5 * (d / max(reach / 2.0, 1e-6)) ** 2)[..., None]
+    return np.roll(R * (1.0 - w) + bl * w, (-h, -h), (0, 1))
+
+
+def quilt_jump(patch: np.ndarray, step: int) -> float:
+    """Межблочный скачок: средний |ΔL| между средними яркостями соседних клеток квилта (шахматка по яркости ↔ большое значение)."""
+    S = patch.shape[0]
+    n = max(1, S // max(step, 1))
+    L = patch[:n * step, :n * step, 0].reshape(n, step, n, step).mean(axis=(1, 3))
+    if n < 2:
+        return 0.0
+    return float(0.5 * (np.abs(np.diff(L, axis=0)).mean() + np.abs(np.diff(L, axis=1)).mean()))
+
+
+def pattern_period(resL: np.ndarray, ok: np.ndarray, lo: int, hi: int) -> int:
+    """Размер блока квилта по периоду узора: длина автокорреляции остатка яркости на известной части (первый лаг, где корреляция < 1/e, по осям), блок ≈ 3 длины, в [lo,hi], кратно 4."""
+    from scipy.fft import rfft2, irfft2, next_fast_len
+    T = resL.shape[0]
+    s = next_fast_len(T + 2 * hi)
+    m = ok.astype(np.float32)
+    x = (resL.astype(np.float32) - float((resL * ok).sum() / max(float(m.sum()), 1.0))) * m
+    Fx, Fm = rfft2(x, (s, s)), rfft2(m, (s, s))
+    ac = irfft2(Fx * np.conj(Fx), (s, s))
+    nm = np.maximum(irfft2(Fm * np.conj(Fm), (s, s)), 1.0)
+    r = ac / nm
+    if r[0, 0] <= 1e-9:
+        return lo
+    r = r / r[0, 0]
+    lag = []
+    for prof in (r[0, 1:hi + 1], r[1:hi + 1, 0]):
+        below = np.nonzero(prof < 0.37)[0]
+        lag.append(int(below[0]) + 1 if len(below) else hi)
+    ell = float(min(lag))                                  # полосы вдоль одной оси: берём короткий период
+    return int(np.clip(int(round(3.0 * ell / 4.0)) * 4, lo, hi))
 
 
 def symmetry(txs: list, known_flat: list, size_eps: float, sample: int, cos_min: float) -> dict:
@@ -645,38 +749,59 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         Lv = np.concatenate([labs[gi].reshape(-1, 3)[tx.ti[kn[gi].reshape(-1)[tx.ti] & (tx.part == p)], 0] for gi, tx in enumerate(txs)])
         shade_lo[p] = float(np.quantile(Lv, c['tone_shadow_q'])) if len(Lv) and c['tone_shadow_q'] > 0 else -1e9
     if c['patch_mode'] == 'quilt' and (dshift is None or c['draft_texture']):
-        Bq, nq = int(c['quilt_pixels']), int(c['quilt_cells'])
         qrng = np.random.RandomState(7)
         for p in part_ids:
-            cands = []
+            resg, okg = [], []
             for gi, tx in enumerate(txs):
-                T = tx.T
                 res_, pm, _im = blk[gi]
-                n = T // Bq
-                if n < 1:
-                    continue
-                m = n * Bq
                 if p in pat_parts:                               # узорная: остаток от тона части; затенённые тексели (складки) в узор не входят — нулевое отклонение
                     resq = (labs[gi] - stat[p][0]) * (labs[gi][..., 0] >= shade_lo[p])[..., None]
                 else:
                     resq = res_
-                resq = resq * kn[gi][..., None]
+                resg.append(resq * kn[gi][..., None])
+                okg.append(kn[gi] & (pm == p))
+            cnt = [int(o.sum()) for o in okg]
+            if sum(cnt) < 200:
+                continue
+            gbest = int(np.argmax(cnt))                           # период узора — по геометрии, где у части больше всего известного
+            Bq = pattern_period(resg[gbest][..., 0], okg[gbest], int(c['quilt_block_min']), int(c['quilt_block_max']))
+            oq = max(2, int(round(Bq * c['quilt_overlap'])))
+            pool = []
+            for gi, tx in enumerate(txs):
+                T = tx.T
+                pm = blk[gi][1]
+                if T < Bq or cnt[gi] < Bq * Bq:
+                    continue
+                s = max(Bq // 2, 1)
+                ys = np.arange(0, T - Bq + 1, s)
+                I_ok = np.pad(okg[gi].astype(np.float64).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+                I_pm = np.pad((pm == p).astype(np.float64).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+                Y, X = np.meshgrid(ys, ys, indexing='ij')
 
-                def tq(a):
-                    ex = a.shape[2:]
-                    return a[:m, :m].reshape(n, Bq, n, Bq, *ex).transpose(0, 2, 1, 3, *range(4, 4 + len(ex))).reshape(n, n, Bq * Bq, *ex)
-                okb = (tq(kn[gi]).mean(axis=2) >= c['quilt_known']) & (tq(pm).min(axis=2) == p) & (tq(pm).max(axis=2) == p)
-                rb = tq(resq)
-                for by, bx in zip(*np.nonzero(okb)):
-                    cands.append(rb[by, bx].reshape(Bq, Bq, 3))
-            if len(cands) >= 4:
-                pick = qrng.choice(len(cands), size=nq * nq, replace=len(cands) < nq * nq)
-                rows = [np.concatenate([cands[int(pick[r * nq + q])] for q in range(nq)], axis=1) for r in range(nq)]
-                patches[p] = np.concatenate(rows, axis=0)
-                patch_gain[p] = 1.0
-                rep['quilt'] = rep.get('quilt', 0) + 1
-                if p in pat_parts:
-                    raw_mean[p] = patches[p].mean(axis=(0, 1))          # узорная: плитка без вычитания среднего и без смешения (фон = тон, цветы поверх)
+                def bsum(I):
+                    return I[Y + Bq, X + Bq] - I[Y, X + Bq] - I[Y + Bq, X] + I[Y, X]
+                good = (bsum(I_pm) >= Bq * Bq - 0.5) & (bsum(I_ok) >= c['quilt_known'] * Bq * Bq)
+                for by, bx in zip(*np.nonzero(good)):
+                    pool.append(resg[gi][Y[by, bx]:Y[by, bx] + Bq, X[by, bx]:X[by, bx] + Bq])
+            if len(pool) < 4:
+                continue
+            if len(pool) > int(c['quilt_pool']):
+                pool = [pool[i] for i in qrng.choice(len(pool), int(c['quilt_pool']), replace=False)]
+            P = np.stack(pool).astype(np.float64)
+            # выравнивание блока к тону части: среднее (узорная — медиана: цветы не сдвигают фон) → 0; разброс → к типичному
+            off = np.median(P.reshape(len(P), -1, 3), axis=1) if p in pat_parts else P.reshape(len(P), -1, 3).mean(axis=1)
+            P = P - off[:, None, None, :]
+            sd = P.reshape(len(P), -1).std(axis=1)
+            glo, ghi = c['quilt_gain'] if p in pat_parts else (0.6, 1.6)
+            P = P * np.clip(float(np.median(sd)) / np.maximum(sd, 1e-6), glo, ghi)[:, None, None, None]
+            nq = int(max(c['quilt_cells'], np.ceil((c['quilt_side'] - oq) / (Bq - oq))))
+            q = wrap_soften(quilt_image(P, nq, oq, qrng, int(c['quilt_tries'])))
+            patches[p] = q
+            patch_gain[p] = 1.0
+            rep['quilt'] = rep.get('quilt', 0) + 1
+            rep.setdefault('quilt_info', {})[int(p)] = {'block': Bq, 'overlap': oq, 'cells': nq, 'pool': len(pool), 'jump_L': round(quilt_jump(q, Bq - oq), 3)}
+            if p in pat_parts:
+                raw_mean[p] = q.mean(axis=(0, 1))                 # узорная: плитка без вычитания среднего и без смешения (фон = тон, цветы поверх)
     for p in (part_ids if (dshift is None or c['draft_texture']) else []):
         if p in patches:
             continue
@@ -1050,9 +1175,13 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     tried = {}
     if draft is not None and dict(FILL, **(cfg or {}))['draft_fallback']:      # Б и А: Б берётся, только если мерки не хуже (число непрошедших, затем ΔE перёд↔зад, затем пятна)
         cA = one(dict(cfg or {}, source='stat'), None)
-        cB = one(cfg, draft)
-        tried = {'stat': {'nfail': cA['nfail'], **cA['vals']}, 'trellis': {'nfail': cB['nfail'], **cB['vals']}}
-        pick, used = (cB, 'trellis') if cB['key'] <= cA['key'] else (cA, 'stat')
+        tried = {'stat': {'nfail': cA['nfail'], **cA['vals']}}
+        if cA['nfail'] == 0 and dict(FILL, **(cfg or {}))['draft_when'] == 'a_fails':    # А прошёл все мерки — Б не считаем (экономия времени этапа)
+            pick, used = cA, 'stat'
+        else:
+            cB = one(cfg, draft)
+            tried['trellis'] = {'nfail': cB['nfail'], **cB['vals']}
+            pick, used = (cB, 'trellis') if cB['key'] <= cA['key'] else (cA, 'stat')
     else:
         pick, used = one(cfg, draft), ((cfg or {}).get('source') or 'stat')
     rep, tex_after, de, big, de_worst = pick['rep'], pick['tex'], pick['de'], pick['big'], pick['de_worst']
