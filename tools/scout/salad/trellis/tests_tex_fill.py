@@ -617,6 +617,19 @@ def test_render_pattern():
     ok(d12 < 0.2 and d13 > d12 + 0.2, f"мерка узора: те же точки со сдвигом {d12:.3f} < точки против полос {d13:.3f}")
 
 
+def test_outlier_blocks():
+    print("отбраковка блоков с чужеродным пятном (тёмный скол на ножке; пороги из rules/paint-fill.json):")
+    rng = np.random.RandomState(2)
+    qo = TF.RULES["quilt_outlier"]
+    pool = [rng.normal(0, 2.0, (24, 24, 3)) for _ in range(20)]
+    bad = rng.normal(0, 2.0, (24, 24, 3)); bad[4:14, 4:20, 0] -= 40.0           # тёмная дыра
+    bad2 = rng.normal(0, 2.0, (24, 24, 3)); bad2[2:10, 2:10, :] += 60.0       # белый фон на краю фото
+    keep, nrej = TF.reject_outlier_blocks(pool + [bad, bad2], qo["k"], qo["floor"], qo["quantile"])
+    ok(nrej == 2 and len(keep) == 20, f"отброшены оба блока с пятном, нормальные целы (отброшено {nrej}, осталось {len(keep)})")
+    keep0, nrej0 = TF.reject_outlier_blocks(pool, qo["k"], qo["floor"], qo["quantile"])
+    ok(nrej0 == 0, f"чистый пул не режется ({nrej0})")
+
+
 def test_render_low():
     print('кадр снизу (дно) — elevation −90:')
     q = Quads()
@@ -635,7 +648,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

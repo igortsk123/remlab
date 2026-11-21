@@ -451,6 +451,16 @@ def texel_scale(geoms: list, parts: list | None, p: int, ppu: float) -> float:
     return float(np.median(r) / ppu) if len(r) else 1.0
 
 
+def reject_outlier_blocks(pool: list, k: float, floor: float, quantile: float):
+    """Отбраковка блоков-кандидатов с чужеродным пятном: мера блока — квантиль `quantile` модуля остатка Lab от медианы блока; блок с мерой > k·max(медиана мер пула, floor) отбрасывается
+    (тёмная дыра, белый фон на краю фото, шов — у нормального блока такой контраст редок). Пороги — rules/paint-fill.json. → (оставшиеся блоки, сколько отброшено)."""
+    P = np.stack(pool).astype(np.float64)
+    r = P - np.median(P.reshape(len(P), -1, 3), axis=1)[:, None, None, :]
+    mag = np.quantile(np.linalg.norm(r, axis=3).reshape(len(P), -1), quantile, axis=1)
+    keep = mag <= k * max(float(np.median(mag)), floor)
+    return [b for b, kp in zip(pool, keep) if kp], int((~keep).sum())
+
+
 def render_pool(resq: np.ndarray, okr: np.ndarray, c: dict, scale: float):
     """Блоки узора из НЕПРЕРЫВНОГО кадра видимой стороны: `resq` (res,res,3) — остаток цвета от тона части, `okr` — пиксели «известное, эта часть, лицом к камере». Блок — по периоду узора, дыры ≤ `quilt_fill_px`
     закрываются ближайшим известным; блоки пересчитываются в масштаб карты (`scale` = текселей на пиксель кадра). → (сторона блока в текселях, [блоки]) | None, если блоков мало."""
@@ -929,6 +939,12 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                         break
             if len(pool) < 4:
                 continue
+            qo = RULES['quilt_outlier']
+            if p not in pat_parts and qo['k'] > 0 and len(pool) >= int(qo['min_pool']):       # неузорная часть: блок с чужеродным тёмным/светлым пятном (тень, шов, фон на краю фото) в образец не идёт
+                pool, nrej = reject_outlier_blocks(pool, qo['k'], qo['floor'], qo['quantile'])
+                rep.setdefault('quilt_rejected', {})[int(p)] = nrej
+                if len(pool) < 4:
+                    continue
             if len(pool) > int(c['quilt_pool']):
                 pool = [pool[i] for i in qrng.choice(len(pool), int(c['quilt_pool']), replace=False)]
             P = np.stack(pool).astype(np.float64)
@@ -1193,7 +1209,7 @@ def load_rules(path: str | None = None) -> dict:
     import json
     with open(path or RULES_PATH, encoding='utf-8') as f:
         r = json.load(f)
-    for k in ('thresholds', 'known_change_de'):
+    for k in ('thresholds', 'known_change_de', 'quilt_outlier'):
         if k not in r:
             raise KeyError(f'rules/paint-fill.json: нет ключа {k!r}')
     for k in ('empty_pct', 'dE00_front_back', 'filled_faces_step_pct', 'far_excess_pct', 'known_changed_share_pct', 'time_s'):
