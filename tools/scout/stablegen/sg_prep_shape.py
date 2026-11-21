@@ -38,7 +38,13 @@ ap.add_argument('--presmooth', type=int, default=0, help='проба T-167: пр
 ap.add_argument('--presmooth-lambda', type=float, default=0.5, help='шаг сжатия Таубина (второй проход делает шаг растяжения чуть больше по модулю)')
 ap.add_argument('--pad', choices=['nearest', 'interior', 'repair'], default='nearest', help='заполнение поля вокруг островков карты цвета: nearest (по умолчанию, как было) | interior (дилатация изнутри: кольцо границы и поле берут цвет внутренних текселей) | repair (перекрасить только крошку кольца)')
 ap.add_argument('--no-ladder', action='store_true', help='с --color-from при отказе переноса пересобираются развёртка и карта по ступеням `rules/sg-prep-ladder.json`; этим флагом — одна ступень (по умолчанию ступени включены)')
+ap.add_argument('--sharpen', action='store_true', help='T-175 путь А2: выпрямить плоскости и кромки (`tools/scout/edge_sharpen.py`, правила `rules/edge-sharpen.json`) ПОСЛЕ склейки и ДО Таубина; Таубин потом не трогает тронутые вершины (по умолчанию выкл.)')
+ap.add_argument('--sharpen-after', action='store_true', help='T-175 путь А: ещё раз выпрямить ПОСЛЕ упрощения по плоскостям родной (упрощение сбивает плоскости и кромки)')
+ap.add_argument('--sharpen-measure', action='store_true', help='T-175: только мерки волны кромок и шершавости плоскостей по плоскостям родной (до/после Таубина/упрощения), форма не меняется; сайдкар `<выход>.sharpen.json`')
+ap.add_argument('--edge-weights', default=None, help='T-175 путь Б: веса группы вершин для упрощения «кромка,плоскость,прочее», напр. 0.05,1,0.5 (в Blender Decimate вес МЕНЬШЕ — вершина сохраняется сильнее; 0 — не схлопывается)')
+ap.add_argument('--sharpen-role', default=None, help='T-175: тип товара из каталога (cat_role); указан — выпрямляем только типы из правила; не указан — без проверки роли (проба)')
 a = ap.parse_args(argv)
+SHARP = bool(a.sharpen or a.sharpen_after or a.sharpen_measure or a.edge_weights)
 a.explicit_unwrap = a.angle is not None or a.color_size is not None       # явные --angle/--color-size = одна ступень как просили
 if a.angle is None:
     a.angle = 89.0 if a.color_from else 66.0
@@ -95,7 +101,7 @@ if a.color_from and not a.no_plate_strip:
     n0 = len(obj.data.polygons)
     print(f'prep: плита {"срезана" if rep_plate.get("plate_found") and not rep_plate.get("refused") else "не срезана"} ({rep_plate.get("refused") or "нет плиты" if not rep_plate.get("plate_found") else "найдена"}); граней после среза {n0}, {time.time() - t0:.1f} с', flush=True)
 
-if a.weld or a.presmooth > 0:
+if a.weld or a.presmooth > 0 or SHARP:
     import bmesh
     bm = bmesh.new()                                  # glTF режет вершины по швам UV/нормалей: без склейки упрощение не схлопывает рёбра через шов (щепки), а сглаживание рвало бы швы
     bm.from_mesh(obj.data)
@@ -105,6 +111,66 @@ if a.weld or a.presmooth > 0:
     bm.free()
     obj.data.update()
     print(f'prep: склейка вершин по швам {nvb} → {len(obj.data.vertices)}', flush=True)
+
+sh = {'on': False, 'kind': None, 'Vs': None, 'planes': None, 'rules': None, 'timeline': {}, 'rep': {}, 'seconds': {}}
+
+
+def mesh_vf(o):
+    import numpy as np
+    me = o.data
+    me.calc_loop_triangles()
+    Vv = np.empty(len(me.vertices) * 3)
+    me.vertices.foreach_get('co', Vv)
+    Ff = np.empty(len(me.loop_triangles) * 3, np.int64)
+    me.loop_triangles.foreach_get('vertices', Ff)
+    return Vv.reshape(-1, 3), Ff.reshape(-1, 3)
+
+
+def sharpen_measure(tag):
+    if sh['planes'] is None:
+        return
+    t1 = time.time()
+    Vm, Fm = mesh_vf(obj)
+    m_ = ES.measure(Vm, Fm, sh['planes'], sh['rules'], sh.get('edges'))
+    if sh.get('edges') is None:
+        sh['edges'] = m_['edge_list']                       # одни и те же кромки на всех стадиях
+    sh['timeline'][tag] = m_
+    sh['seconds']['measure_' + tag] = round(time.time() - t1, 1)
+    print(f'prep: мерки кромок [{tag}]: {sh["timeline"][tag]}', flush=True)
+
+
+if SHARP:
+    import numpy as np
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    import edge_sharpen as ES
+    sh['rules'] = ES.load_rules()
+    t1 = time.time()
+    Vc, Fc = mesh_vf(obj)
+    if a.sharpen_role is not None and not ES.role_allowed(a.sharpen_role, sh['rules']):
+        sh['rep'] = {'refused': f'тип товара «{a.sharpen_role}» не в правиле — не трогаем'}
+        print('prep: выпрямление ОТКАЗ:', sh['rep']['refused'], flush=True)
+    else:
+        planes_, ctx_ = ES.find_planes(Vc, Fc, sh['rules'])
+        sh['seconds']['find_planes'] = round(time.time() - t1, 1)
+        share_ = float(sum(p_['share'] for p_ in planes_))
+        if share_ < sh['rules']['flat_share_min']:
+            sh['rep'] = {'refused': f'плоского {share_:.2f} < {sh["rules"]["flat_share_min"]} — форма не корпусная, не трогаем', 'flat_share': round(share_, 4), 'planes': len(planes_)}
+            print('prep: выпрямление ОТКАЗ:', sh['rep']['refused'], flush=True)
+        else:
+            sh['planes'] = planes_
+            sharpen_measure('native')
+            t1 = time.time()
+            Vs_, kind_, rep_ = ES.sharpen(Vc, Fc, planes_, sh['rules'], ctx_)
+            sh['seconds']['sharpen'] = round(time.time() - t1, 1)
+            sh['rep'] = rep_
+            sh['kind'] = kind_
+            print(f'prep: выпрямление: {rep_}', flush=True)
+            if a.sharpen:
+                obj.data.vertices.foreach_set('co', Vs_.ravel())
+                obj.data.update()
+                sh['on'] = True
+                sh['Vs'] = Vs_
+                sharpen_measure('sharp')
 
 if a.presmooth > 0:
     # Сглаживание Таубина — та же функция, что строит эталон мерки нормалей (sg_color_transfer.taubin_smooth): шум сетки гаснет, форма почти не садится. Только форма для упрощения; родная для цвета и Chamfer не трогается.
@@ -119,25 +185,57 @@ if a.presmooth > 0:
     Ft = np.empty(len(me.loop_triangles) * 3, np.int64)
     me.loop_triangles.foreach_get('vertices', Ft)
     Q = sc.taubin_smooth(P0, Ft.reshape(-1, 3), a.presmooth, a.presmooth_lambda)
+    if sh['on']:
+        keep_ = sh['kind'] > 0
+        Q[keep_] = sh['Vs'][keep_]                          # Таубин с маской: выпрямленные вершины остаются на месте
     me.vertices.foreach_set('co', Q.ravel())
     me.update()
     shift = np.linalg.norm(Q - P0, axis=1)
     diag = float(np.linalg.norm(P0.max(0) - P0.min(0)))
+    sharpen_measure('smooth')
     print(f'prep: сглаживание Таубина {a.presmooth} проходов (λ {a.presmooth_lambda}): сдвиг вершин средний {shift.mean() / diag:.5f}, максимум {shift.max() / diag:.5f} диагонали, {time.time() - t0:.1f} с', flush=True)
 
 if a.color_from:
     # Сайдкар предобработки: этап 02 и перенос нормалей берут эталон из родной после ТОЙ ЖЕ склейки и сглаживания (sg_color_transfer.native_reference). Пишем всегда (пустой = родная как есть).
     import json
     with open((a.out[:-4] if a.out.endswith('.glb') else a.out) + '.prep.json', 'w', encoding='utf-8') as fp:
-        json.dump({'weld': bool(a.weld or a.presmooth > 0), 'presmooth': int(a.presmooth), 'presmooth_lambda': float(a.presmooth_lambda)}, fp)
+        json.dump({'weld': bool(a.weld or a.presmooth > 0 or SHARP), 'presmooth': int(a.presmooth), 'presmooth_lambda': float(a.presmooth_lambda), 'sharpen': bool(sh['on'])}, fp)
 
 if n0 > a.faces:
     md = obj.modifiers.new('dec', 'DECIMATE')
+    if a.edge_weights and sh['kind'] is not None:
+        w_edge, w_flat, w_rest = [float(x) for x in a.edge_weights.split(',')]
+        vg = obj.vertex_groups.new(name='keep_edges')
+        kd = sh['kind']
+        for wv, sel in ((w_edge, kd == 2), (w_flat, kd == 1), (w_rest, kd == 0)):
+            ids = np.nonzero(sel)[0].tolist()
+            if ids:
+                vg.add(ids, wv, 'REPLACE')
+        md.vertex_group = 'keep_edges'
+        md.vertex_group_factor = 1.0
+        print(f'prep: веса упрощения: кромка {w_edge} ({int((kd == 2).sum())} вершин), плоскость {w_flat} ({int((kd == 1).sum())}), прочее {w_rest} ({int((kd == 0).sum())})', flush=True)
     md.decimate_type = 'COLLAPSE'
     md.ratio = a.faces / n0
     md.use_collapse_triangulate = True
     bpy.ops.object.modifier_apply(modifier=md.name)
 n1 = len(obj.data.polygons)
+sharpen_measure('decim')
+if a.sharpen_after and sh['planes'] is not None:
+    t1 = time.time()
+    Vd, Fd = mesh_vf(obj)
+    ctx_d = ES.context(Vd, Fd, sh['rules'])
+    planes_d = [dict(p_, vid=ES.assign(Vd, Fd, ctx_d, p_, sh['rules'])) for p_ in sh['planes']]
+    Vd2, kind_d, rep_d = ES.sharpen(Vd, Fd, planes_d, sh['rules'], ctx_d)
+    obj.data.vertices.foreach_set('co', Vd2.ravel())
+    obj.data.update()
+    sh['rep']['after'] = rep_d
+    sh['seconds']['sharpen_after'] = round(time.time() - t1, 1)
+    print(f'prep: выпрямление после упрощения: {rep_d}', flush=True)
+    sharpen_measure('after')
+if SHARP:
+    import json as _json
+    with open((a.out[:-4] if a.out.endswith('.glb') else a.out) + '.sharpen.json', 'w', encoding='utf-8') as fp:
+        _json.dump({'sharpen': a.sharpen, 'edge_weights': a.edge_weights, 'rep': sh['rep'], 'timeline': sh['timeline'], 'seconds': sh['seconds'], 'faces_after': n1}, fp, ensure_ascii=False)
 print(f'prep: после упрощения {n1} граней, {time.time() - t0:.1f} с', flush=True)
 
 export_to = (a.out[:-4] if a.out.endswith('.glb') else a.out) + '.nocolor.glb' if a.color_from else a.out

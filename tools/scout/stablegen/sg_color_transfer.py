@@ -122,7 +122,7 @@ def read_prep(out_glb: str) -> dict:
         return {}
     with open(p, encoding='utf-8') as f:
         d = json.load(f)
-    return {'weld': bool(d.get('weld')), 'presmooth': int(d.get('presmooth') or 0), 'presmooth_lambda': float(d.get('presmooth_lambda') or 0.5)}
+    return {'weld': bool(d.get('weld')), 'presmooth': int(d.get('presmooth') or 0), 'presmooth_lambda': float(d.get('presmooth_lambda') or 0.5), 'sharpen': bool(d.get('sharpen'))}
 
 
 LADDER_RULES_PATH = os.path.join(os.path.dirname(HERE), 'rules', 'sg-prep-ladder.json')     # ступени лестницы отказов переноса — в JSON, не в коде
@@ -229,13 +229,25 @@ def native_reference(nat_V, nat_F, nat_N, prep: dict):
     Таубин) — та же склейка и то же сглаживание, нормали из получившейся геометрии: мерка проверяет только то, что сломало упрощение, а не то, что предобработка убрала сознательно."""
     import numpy as np
     used = np.unique(nat_F)
-    if not prep or not (prep.get('weld') or prep.get('presmooth')):
+    if not prep or not (prep.get('weld') or prep.get('presmooth') or prep.get('sharpen')):
         return nat_V[used], nat_N[used]
     remap = np.full(len(nat_V), -1, np.int64)
     remap[used] = np.arange(len(used))
     V, F = weld_vertices(nat_V[used], remap[nat_F])
+    Vs = kind = None
+    if prep.get('sharpen'):
+        # T-175: форма для упрощения была выпрямлена (edge_sharpen) — эталон тот же: те же плоскости (сид в правилах), иначе цвет/мерка сравниваются с невыпрямленной
+        sys.path.insert(0, os.path.dirname(HERE))       # tools/scout
+        import edge_sharpen as ES
+        rules = ES.load_rules()
+        planes, ctx = ES.find_planes(V, F, rules)
+        Vs, kind, _ = ES.sharpen(V, F, planes, rules, ctx)
+        V = Vs
     if prep.get('presmooth'):
-        V = taubin_smooth(V, F, prep['presmooth'], prep.get('presmooth_lambda') or 0.5)
+        Q = taubin_smooth(V, F, prep['presmooth'], prep.get('presmooth_lambda') or 0.5)
+        if kind is not None:
+            Q[kind > 0] = Vs[kind > 0]                  # та же маска, что в sg_prep_shape
+        V = Q
     return V, vertex_normals_area(V, F)
 
 
