@@ -59,5 +59,23 @@
   "samples": 48,
   "azimuthDeg": 35,
   "elevationDeg": 12
+ },
+ "geometry": {
+  "_about": "Товар БЕЗ частей этапа 3 (T-20261121-170/4): класс из каталога (`material_class`), а какие грани к какому материалу — по ФОРМЕ (tools/assets/part_shapes.py): linear — тонкая стойка/трубка → материал рамы/ножек из каталога или металл, если он есть в каталоге; blob в верхней части (≥ top_from высоты) → плафон из каталога; мелкий blob (≤ handles_max_share) → ручки; остальное — главный материал корпуса. Радиусы и отношения — доли наибольшего габарита L, при любом масштабе модели.",
+  "k": 96,
+  "radius_frac": 0.05,
+  "min_neighbors": 8,
+  "linear_ratio": 0.25,
+  "planar_ratio": 0.25,
+  "top_from": 0.55,
+  "min_part_share": 0.01,
+  "handles_max_share": 0.06,
+  "confidence": {
+   "linear": 0.6,
+   "blob_top": 0.6,
+   "blob_handles": 0.55,
+   "other_main": 0.5
+  },
+  "cells_per_radius": 5
  }
 }

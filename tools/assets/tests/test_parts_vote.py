@@ -14,6 +14,7 @@ import part_shapes as shp  # noqa: E402
 import parts_vote as pv  # noqa: E402
 
 RULES = pv.load_rules()
+SHAPE = pr.shape_cfg(RULES)
 
 
 def strip_mesh(n: int):
@@ -165,7 +166,7 @@ class PartsVote(unittest.TestCase):
         verts, faces, is_rod = self.chair_like()
         part = np.zeros(len(faces), dtype=np.int32)                    # SAM2 склеил всё в одну часть
         adj = pv.weld_adjacency(verts, faces, 5)
-        kind, _, _ = shp.face_shapes(verts, faces, RULES["shape"])
+        kind, _, _ = shp.face_shapes(verts, faces, SHAPE)
         self.assertGreater(float((kind[is_rod] == shp.LINEAR).mean()), 0.8, "стержень — linear")
         self.assertLess(float((kind[~is_rod] == shp.LINEAR).mean()), 0.1, "объём — не linear")
         self.assertGreater(pr.linear_in_blob_share(part, kind), 0.9)
@@ -191,7 +192,7 @@ class PartsVote(unittest.TestCase):
         pairs = cKDTree(c).query_pairs(0.03, output_type="ndarray")
         adj = sparse.coo_matrix((np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])), shape=(len(c), len(c))).tocsr()
         adj = (adj + adj.T).tocsr()
-        kind, _, _ = shp.face_shapes(verts, faces, RULES["shape"])
+        kind, _, _ = shp.face_shapes(verts, faces, SHAPE)
         part = np.where(is_rod, 1, 0).astype(np.int32)
         speck = (~is_rod) & (c[:, 0] > 0.40) & (c[:, 2] > 0.40)         # мозаичный кусок объёмной части того же цвета
         part[speck] = 2
@@ -204,9 +205,21 @@ class PartsVote(unittest.TestCase):
         out2 = pr.merge_small(part, kind, adj, lab2, RULES, RULES["refine"]["colour_merge_max_share"], RULES["refine"]["colour_merge_de"])
         self.assertTrue((out2[speck] == 2).all(), "другой цвет — не сливается")
 
+    def test_shape_thresholds_are_the_ones_of_stage_08(self):
+        """Один источник: этап 3 и этап 08 берут пороги формы из `material-recipes.json` → `geometry`; отличаться могут только ключи `refine.shape_override`."""
+        import json
+        shared = json.load(open(pr.RECIPES, encoding="utf-8"))["geometry"]
+        ov = {k: v for k, v in RULES["refine"]["shape_override"].items() if not k.startswith("_")}
+        self.assertTrue(set(ov) <= {"radius_frac", "linear_ratio"}, "переопределять можно только радиус и отношение")
+        for k in ("k", "radius_frac", "min_neighbors", "linear_ratio", "planar_ratio", "cells_per_radius"):
+            self.assertEqual(SHAPE[k], ov.get(k, shared[k]), k)
+        self.assertNotIn("shape", RULES, "копии порогов формы в parts-sam-rules.json быть не должно")
+
     def test_rules_have_no_product_ids_and_are_complete(self):
         import json
-        raw = json.dumps({k: v for k, v in RULES.items() if not k.startswith("_")})
+        def strip(o):
+            return {k: strip(v) for k, v in o.items() if not k.startswith("_")} if isinstance(o, dict) else o
+        raw = json.dumps(strip(RULES), ensure_ascii=False)
         self.assertNotRegex(raw, r"\d{6,}", "ID товаров в правилах не нужны")
         for k in ("orbit", "sam", "region", "merge", "geometry", "check"):
             self.assertIn(k, RULES)

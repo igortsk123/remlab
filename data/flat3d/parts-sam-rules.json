@@ -31,14 +31,11 @@
   "geometry": {
     "legs_overlap": 0.5
   },
-  "shape": {
-    "_doc": "Форма куска (part_shapes.py): те же значения, что `geometry` в material-recipes.json р.7; при слиянии веток свести в один источник.",
-    "k": 96, "radius_frac": 0.05, "min_neighbors": 8, "linear_ratio": 0.25, "planar_ratio": 0.25, "cells_per_radius": 5
-  },
   "refine": {
     "thin_min_share": 0.003,
     "colour_merge_max_share": 0.04,
-    "colour_merge_de": 8.0
+    "colour_merge_de": 8.0,
+    "shape_override": {"_doc": "замер на кресле/комоде: при радиусе 0.05·L и отношении 0.25 linear-граней 0 даже на ножках; 0.10 и 0.45 — ножки 70–100 %, ложных нет (стол-тюльпан 0)", "radius_frac": 0.10, "linear_ratio": 0.45}
   },
   "check": {
     "min_faces_with_part": 0.98,

@@ -7,13 +7,29 @@
   ② цвет: малая часть (< `colour_merge_max_share`) того же вида (тонкая с тонкой, объёмная с объёмной) и почти того же цвета (ΔE76 медианы Lab < `colour_merge_de`)
      вливается в соседа с самой длинной общей границей; потом малые (< `region.min_part_face_share`) — в соседа того же вида по границе.
 Мерка `linear_in_blob_part_share` — доля linear-граней, оставшихся в объёмной части (до и после доводки); в check.json этапа 3.
-Пороги — `data/flat3d/parts-sam-rules.json` → `refine`, `shape` (значения `shape` те же, что `geometry` в material-recipes.json р.7; при слиянии веток свести в один источник).
+Пороги доводки — `data/flat3d/parts-sam-rules.json` → `refine`; пороги формы — `data/flat3d/material-recipes.json` → `geometry` (общие с этапом 08, `load_shape_cfg`).
 """
 from __future__ import annotations
+
+import json
+import os
 
 import numpy as np
 
 import part_shapes as shp
+
+RECIPES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "data", "flat3d", "material-recipes.json")
+
+
+def load_shape_cfg(path: str = RECIPES) -> dict:
+    """Пороги формы — ТОТ ЖЕ блок `geometry` в material-recipes.json, что читает этап 08 (один источник истины; р.7 и этап 3 видят одни числа)."""
+    return json.load(open(path, encoding="utf-8"))["geometry"]
+
+
+def shape_cfg(rules: dict, path: str = RECIPES) -> dict:
+    """Общие пороги формы + ТОЛЬКО перечисленные в `refine.shape_override` (радиус и отношение для мебельных ножек: на мебели радиус 0.05·L даёт 0 linear-граней
+    даже у тонких ножек — замер T-169/2 на кресле: см. отчёт; прочие ключи — строго общие)."""
+    return {**load_shape_cfg(path), **rules["refine"].get("shape_override", {})}
 
 
 def _onehot(part: np.ndarray, n: int):
@@ -111,7 +127,7 @@ def refine(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, adj, lab_f
     """Доводка: срез тонкого → слияние пёстрых по цвету → малые в соседа. Возвращает (новые части без дыр в нумерации, отчёт с меркой)."""
     from parts_vote import renumber
 
-    kind, up, rep = shp.face_shapes(vertices, faces, rules["shape"])
+    kind, up, rep = shp.face_shapes(vertices, faces, shape_cfg(rules))
     rf = rules["refine"]
     before = linear_in_blob_share(part, kind)
     n_before = int(len(np.unique(part[part >= 0])))
