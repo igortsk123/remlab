@@ -125,6 +125,57 @@ def read_prep(out_glb: str) -> dict:
     return {'weld': bool(d.get('weld')), 'presmooth': int(d.get('presmooth') or 0), 'presmooth_lambda': float(d.get('presmooth_lambda') or 0.5)}
 
 
+LADDER_RULES_PATH = os.path.join(os.path.dirname(HERE), 'rules', 'sg-prep-ladder.json')     # ступени лестницы отказов переноса — в JSON, не в коде
+
+
+def ladder_rules(path: str = LADDER_RULES_PATH) -> list:
+    """Ступени лестницы отказов: [{'size': сторона карты или None (=как у родной), 'angle': угол Smart UV в градусах}, …] по порядку. Нет файла или он негоден — ошибка (тихо одну ступень не берём)."""
+    import json
+    if not os.path.exists(path):
+        raise SystemExit(f'нет файла правил {path}: лестница отказов без него не запускается')
+    with open(path, encoding='utf-8') as f:
+        d = json.load(f)
+    steps = d.get('steps')
+    if not isinstance(steps, list) or not steps:
+        raise SystemExit(f'{path}: нужен непустой список steps')
+    out = []
+    for s in steps:
+        ang = s.get('angle')
+        size = s.get('size')
+        if not isinstance(ang, (int, float)) or not 1.0 <= float(ang) <= 89.9 or (size is not None and (not isinstance(size, int) or size < 256)):
+            raise SystemExit(f'{path}: негодная ступень {s}')
+        out.append({'size': size, 'angle': float(ang)})
+    return out
+
+
+def ladder_path(out_glb: str) -> str:
+    """`<выход>.ladder.json` — след лестницы отказов (пишет sg_prep_shape.py): какая ступень сработала и мерки каждой попытки."""
+    return (out_glb[:-4] if out_glb.endswith('.glb') else out_glb) + '.ladder.json'
+
+
+def read_ladder(out_glb: str) -> dict:
+    import json
+    p = ladder_path(out_glb)
+    if not os.path.exists(p):
+        return {}
+    with open(p, encoding='utf-8') as f:
+        return json.load(f)
+
+
+def run_ladder(steps: list, attempt) -> tuple:
+    """Пройти ступени по порядку: `attempt(k, step) -> (код, отчёт переноса или {})`. Код 0 — готово, 3 — отказ по мерке (идём на следующую ступень), другой код — сбой (ступенью не лечится, стоп).
+    → (номер сработавшей ступени или None, список попыток [{'step','angle','size','rc','faces_with_texel','share'}])."""
+    attempts = []
+    for k, st in enumerate(steps):
+        rc, rep = attempt(k, st)
+        attempts.append({'step': k, 'angle': st['angle'], 'size': rep.get('size') or st.get('size'), 'rc': rc, 'faces_with_texel': rep.get('faces_with_texel'), 'share': rep.get('share')})
+        if rc == 0:
+            return k, attempts
+        if rc != 3:
+            break
+    return None, attempts
+
+
 def weld_vertices(V, F, tol: float = 1e-7):
     """Склеить вершины с совпадающими координатами (glTF режет вершину по каждому шву UV/нормалей). → (V, F) без неиспользуемых вершин."""
     import numpy as np
@@ -598,7 +649,7 @@ def stage02(run: str, sku: str, native_glb: str, out_glb: str, rep: dict | None 
                           reason=(f'форма не от этого черновика: chamfer_diag {ch_mean:.3f} > {CHAMFER_MAX} (Chamfer родной↔упрощённая, доля диагонали)' if ch_mean > CHAMFER_MAX else
                                   normals_reason(nd_mean, nd_p99, has_n, nr)),
                           seconds=seconds, outputs=['shape.glb'], frame=frame, native_texels=rep.get('native_texels'), target_texels=rep.get('target_texels'),
-                          dist_p50=rep.get('dist_p50'), dist_p99=rep.get('dist_p99'), atlas=rep.get('size'), has_mr=rep.get('has_mr'), native_prep=read_prep(out_glb))
+                          dist_p50=rep.get('dist_p50'), dist_p99=rep.get('dist_p99'), atlas=rep.get('size'), has_mr=rep.get('has_mr'), native_prep=read_prep(out_glb), ladder=read_ladder(out_glb))
 
 
 
@@ -651,6 +702,8 @@ def main() -> int:
         return code
     rep = transfer(a.native, a.shape, a.out, a.size, a.max_dist, strip_plate=not a.no_plate_strip)
     print('перенос:', rep)
+    import json
+    print('перенос-итог:', json.dumps({'size': rep.get('size'), 'share': rep.get('share'), 'faces_with_texel': rep.get('faces_with_texel')}))   # строка для sg_prep_shape.py (лестница отказов)
     print(f'перенос: с цветом {rep["share"]:.2%} текселей нового атласа (цель ≥ {a.min_share:.0%}), граней с цветом верного места {rep["faces_with_texel"]:.2%} (цель ≥ {FACES_TEXEL_MIN:.0%}), расстояние p50 {rep["dist_p50"]}, p99 {rep["dist_p99"]}, {rep["sec_total"]} с')
     if rep['share'] >= a.min_share and rep['faces_with_texel'] >= FACES_TEXEL_MIN:
         return 0

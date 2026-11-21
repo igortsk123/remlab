@@ -9,6 +9,9 @@
 (`sg_color_transfer.py`, numpy+scipy+trimesh во внешнем питоне: `--color-python`, иначе $SG_COLOR_PYTHON, иначе `~/venvs/scout/bin/python`). Доля текселей с цветом < 99 % или сбой →
 выход 3 (срез плиты-подложки TRELLIS до упрощения — `plate_strip.py`, отчёт `<выход>.plate.json`, выключатель `--no-plate-strip`; мерки: доля текселей с цветом и доля граней с цветом верного места, обе ≥ 99 %; с флагом развёртка крупнее — угол 89, поле 0.0005, без флага прежняя 66 / 0.003), а форма без цвета остаётся как `<выход>.nocolor.glb` (под именем выхода файла НЕТ — пакетный скрипт не примет её за готовую).
 
+Лестница отказов (T-167, включена с --color-from, срабатывает ТОЛЬКО при отказе переноса): ступени из `tools/scout/rules/sg-prep-ladder.json` (карта родная@угол 89 → 4096@89 → родная@75); у граней, крутых к плоскости проекции, при угле 89
+развёртка почти нулевая — меньший угол режет острова чаще. Форма не меняется. Явные `--angle`/`--color-size` или `--no-ladder` — одна ступень. След: `<выход>.ladder.json` (какая ступень, мерки каждой), отложенные отказы — `<выход>.rejected-step<k>.glb`.
+
 Предобработка родной перед упрощением (T-167, по умолчанию ВЫКЛ.; сайдкар `<выход>.prep.json`, по нему этап 02 строит эталон нормалей из родной после ТОЙ ЖЕ предобработки): `--weld` — склейка вершин по швам
 UV/нормалей (glTF режет вершину по каждому шву, упрощение не сливает грани через шов — щепки и полосы на гладком), `--presmooth N` — ещё N проходов сглаживания Таубина (`--presmooth-lambda`, 0.5)."""
 import argparse
@@ -33,7 +36,9 @@ ap.add_argument('--color-size', type=int, default=None, help='сторона н�
 ap.add_argument('--weld', action='store_true', help='проба T-167: склеить вершины родной формы по швам UV/нормалей ПЕРЕД упрощением (glTF режет вершину по каждому шву; упрощение не сливает грани через шов — щепки и полосы); по умолчанию выкл.')
 ap.add_argument('--presmooth', type=int, default=0, help='проба T-167: проходов сглаживания Таубина родной формы ПЕРЕД упрощением (0 = выкл.; гасит мелкие складки сетки TRELLIS, объём держится)')
 ap.add_argument('--presmooth-lambda', type=float, default=0.5, help='шаг сжатия Таубина (второй проход делает шаг растяжения чуть больше по модулю)')
+ap.add_argument('--no-ladder', action='store_true', help='с --color-from при отказе переноса пересобираются развёртка и карта по ступеням `rules/sg-prep-ladder.json`; этим флагом — одна ступень (по умолчанию ступени включены)')
 a = ap.parse_args(argv)
+a.explicit_unwrap = a.angle is not None or a.color_size is not None       # явные --angle/--color-size = одна ступень как просили
 if a.angle is None:
     a.angle = 89.0 if a.color_from else 66.0
 if a.margin is None:
@@ -134,37 +139,69 @@ if n0 > a.faces:
 n1 = len(obj.data.polygons)
 print(f'prep: после упрощения {n1} граней, {time.time() - t0:.1f} с', flush=True)
 
-while obj.data.uv_layers:
-    obj.data.uv_layers.remove(obj.data.uv_layers[0])
-obj.data.uv_layers.new(name='BakeUV')
-bpy.ops.object.mode_set(mode='EDIT')
-bpy.ops.mesh.select_all(action='SELECT')
-bpy.ops.uv.smart_project(angle_limit=math.radians(a.angle), island_margin=a.margin)
-bpy.ops.object.mode_set(mode='OBJECT')
-print(f'prep: развёртка готова, {time.time() - t0:.1f} с', flush=True)
-
 export_to = (a.out[:-4] if a.out.endswith('.glb') else a.out) + '.nocolor.glb' if a.color_from else a.out
-bpy.ops.export_scene.gltf(filepath=export_to, export_format='GLB', use_selection=False)
-print(f'prep: записано {export_to} ({n1} граней), всего {time.time() - t0:.1f} с', flush=True)
+
+
+def unwrap_and_export(angle: float) -> None:
+    """Развёртка Smart UV Project с заданным углом в слой BakeUV и запись формы в export_to (форма не меняется — только развёртка)."""
+    while obj.data.uv_layers:
+        obj.data.uv_layers.remove(obj.data.uv_layers[0])
+    obj.data.uv_layers.new(name='BakeUV')
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.uv.smart_project(angle_limit=math.radians(angle), island_margin=a.margin)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    print(f'prep: развёртка готова (угол {angle}°), {time.time() - t0:.1f} с', flush=True)
+    bpy.ops.export_scene.gltf(filepath=export_to, export_format='GLB', use_selection=False)
+    print(f'prep: записано {export_to} ({n1} граней), всего {time.time() - t0:.1f} с', flush=True)
+
+
+if not a.color_from:
+    unwrap_and_export(a.angle)
 
 if a.color_from:
-    import os
+    import json
+    import re
     import shutil
     import subprocess
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import sg_color_transfer as sc
+    base = a.out[:-4] if a.out.endswith('.glb') else a.out
+    # Лестница отказов (правила `tools/scout/rules/sg-prep-ladder.json`, нет файла — отказ): при отказе переноса (доля граней с текселем < цели) развёртка и карта пересобираются следующей ступенью. Явные --angle / --color-size
+    # или --no-ladder = одна ступень (как раньше). След — `<выход>.ladder.json` → check.json этапа 02.
+    steps = sc.ladder_rules() if not (a.no_ladder or a.explicit_unwrap) else [{'size': a.color_size, 'angle': a.angle}]
     native_copy = (a.out[:-4] if a.out.endswith('.glb') else a.out) + '.native.glb'
     if os.path.abspath(a.color_from) != os.path.abspath(native_copy) and not os.path.exists(native_copy):
         shutil.copy2(a.color_from, native_copy)          # родной GLB с цветом сохраняем до всего прочего: источник для переноса и для повторов
     py = a.color_python or os.environ.get('SG_COLOR_PYTHON') or os.path.expanduser('~/venvs/scout/bin/python')
-    cmd = [py, '-I', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sg_color_transfer.py'), 'transfer', '--native', a.color_from, '--shape', export_to, '--out', a.out]
-    if a.color_size:
-        cmd += ['--size', str(a.color_size)]
-    if a.no_plate_strip:
-        cmd += ['--no-plate-strip']
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    print(r.stdout.strip()[-800:], flush=True)
-    if r.returncode == 0:
+    state = {'last': None}
+
+    def attempt(k, st):
+        unwrap_and_export(st['angle'])
+        cmd = [py, '-I', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sg_color_transfer.py'), 'transfer', '--native', a.color_from, '--shape', export_to, '--out', a.out]
+        if st.get('size'):
+            cmd += ['--size', str(st['size'])]
+        if a.no_plate_strip:
+            cmd += ['--no-plate-strip']
+        last = state['last'] = subprocess.run(cmd, capture_output=True, text=True)
+        print(last.stdout.strip()[-800:], flush=True)
+        m = re.search(r'^перенос-итог: (\{.*\})$', last.stdout, re.M)
+        rep = json.loads(m.group(1)) if m else {}
+        if last.returncode != 0:
+            rej = base + '.rejected.glb'                             # отказ ступени: отложенный результат не затрёт следующая ступень
+            if os.path.exists(rej):
+                os.replace(rej, f'{base}.rejected-step{k}.glb')
+            if last.returncode == 3 and k + 1 < len(steps):
+                print(f'prep: отказ ступени {k} (угол {st["angle"]}°, карта {rep.get("size")}, граней с текселем {rep.get("faces_with_texel")}) — следующая ступень {k + 1}', flush=True)
+        return last.returncode, rep
+
+    done, attempts = sc.run_ladder(steps, attempt)
+    last = state['last']
+    with open(base + '.ladder.json', 'w', encoding='utf-8') as fp:
+        json.dump({'step': done, 'steps': len(steps), 'attempts': attempts}, fp, ensure_ascii=False)
+    if done is not None:
         os.remove(export_to)
-        print(f'prep: цвет перенесён → {a.out}, всего {time.time() - t0:.1f} с', flush=True)
+        print(f'prep: цвет перенесён (ступень {done} из {len(steps)}) → {a.out}, всего {time.time() - t0:.1f} с', flush=True)
     else:
-        print(f'prep: ЦВЕТ НЕ ПЕРЕНЕСЁН (код {r.returncode}): {r.stderr.strip()[-400:]} — форма без цвета осталась как {export_to}', flush=True)
+        print(f'prep: ЦВЕТ НЕ ПЕРЕНЕСЁН (код {last.returncode}, ступеней опробовано {len(attempts)}): {last.stderr.strip()[-400:]} — форма без цвета осталась как {export_to}', flush=True)
         sys.exit(3)

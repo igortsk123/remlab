@@ -153,6 +153,48 @@ def main() -> int:
         check('эталон: без предобработки — сырые вершины и нормали файла; с ней — склеенные, сглаженные, нормали единичные и смотрят вверх/вниз',
               len(rv0) == len(np.unique(seam_f)) and len(rv) < len(rv0) and np.allclose(np.linalg.norm(rn, axis=1), 1.0, atol=1e-6) and (np.abs(rn[:, 2]) > 0.9).mean() > 0.8, (len(rv0), len(rv), float((np.abs(rn[:, 2]) > 0.9).mean())))
 
+        # лестница отказов переноса (T-167): правила в JSON, порядок ступеней, остановка на успехе и на сбое, след
+        st = T.ladder_rules()
+        check('лестница: правила из JSON — три ступени, первая — карта родной при 89°, последняя — меньший угол', len(st) == 3 and st[0] == {'size': None, 'angle': 89.0} and st[-1]['angle'] < st[0]['angle'], st)
+        bad = os.path.join(d, 'bad-ladder.json')
+        failed_ok = False
+        try:
+            T.ladder_rules(os.path.join(d, 'нет-такого.json'))
+        except SystemExit:
+            failed_ok = True
+        with open(bad, 'w', encoding='utf-8') as fp:
+            fp.write('{"steps": [{"size": null, "angle": 120}]}')
+        try:
+            T.ladder_rules(bad)
+            failed_ok = False
+        except SystemExit:
+            pass
+        check('лестница: нет файла правил или негодная ступень — ошибка, не тихая одна ступень', failed_ok)
+        calls = []
+
+        def fake(rcs):
+            def attempt(k, s):
+                calls.append(k)
+                return rcs[k], ({'size': 2048, 'faces_with_texel': 0.99, 'share': 1.0} if rcs[k] == 0 else {'size': 2048, 'faces_with_texel': 0.97, 'share': 1.0})
+            return attempt
+        calls.clear()
+        done, att = T.run_ladder(st, fake([0, 0, 0]))
+        check('лестница: прошла первая ступень — вторая и третья не запускаются (срабатывает только при отказе)', done == 0 and calls == [0] and len(att) == 1, (done, calls))
+        calls.clear()
+        done, att = T.run_ladder(st, fake([3, 3, 0]))
+        check('лестница: два отказа — прошла третья; след: все три попытки с мерками', done == 2 and calls == [0, 1, 2] and [x['rc'] for x in att] == [3, 3, 0] and att[0]['faces_with_texel'] == 0.97 and att[2]['angle'] == st[2]['angle'], (done, att))
+        calls.clear()
+        done, att = T.run_ladder(st, fake([3, 3, 3]))
+        check('лестница: все ступени отказали — готово None, попыток три', done is None and len(att) == 3, (done, att))
+        calls.clear()
+        done, att = T.run_ladder(st, fake([1, 0, 0]))
+        check('лестница: сбой (не отказ по мерке) — стоп без следующих ступеней', done is None and calls == [0], (done, calls))
+        lp = os.path.join(d, 'lad.glb')
+        check('лестница: нет следа — пусто', T.read_ladder(lp) == {})
+        with open(T.ladder_path(lp), 'w', encoding='utf-8') as fp:
+            fp.write('{"step": 2, "steps": 3, "attempts": []}')
+        check('лестница: след читается (какая ступень)', T.read_ladder(lp).get('step') == 2, T.read_ladder(lp))
+
         # доля граней-щепок: сетка из ровных треугольников — 0, добавленные иглы — ровно их доля
         gv = np.array([[x, y, 0.0] for y in range(6) for x in range(6)], float)
         gf = np.array([[y * 6 + x, y * 6 + x + 1, (y + 1) * 6 + x] for y in range(5) for x in range(5)] + [[y * 6 + x + 1, (y + 1) * 6 + x + 1, (y + 1) * 6 + x] for y in range(5) for x in range(5)])
