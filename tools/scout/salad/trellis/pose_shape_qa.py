@@ -83,12 +83,14 @@ def region_bins(centroids: np.ndarray, bins: int = 8) -> np.ndarray:
     return q[:, 0] * bins * bins + q[:, 1] * bins + q[:, 2]
 
 
-def region_disagreement(ids_a: np.ndarray, ids_b: np.ndarray, face_bin: np.ndarray) -> float:
-    """Доля пикселей, видимых в обоих кадрах, где под пикселем РАЗНЫЕ области поверхности (0 — одна и та же поверхность под тем же пикселем)."""
+def region_disagreement(ids_a: np.ndarray, ids_b: np.ndarray, cent: np.ndarray, diag: float, q: float = 90.0) -> float:
+    """Расхождение поверхности под пикселем между двумя камерами: q-й процентиль 3D-расстояния между центрами граней, видимых в этом пикселе, в долях диагонали предмета
+    (0 — под пикселем одна и та же точка поверхности). Не корзины: малый поворот камеры плоскую грань «сдвигает» по корзинам, а расстояние остаётся малым."""
     both = (ids_a >= 0) & (ids_b >= 0)
     if not both.any():
         return 1.0
-    return float((face_bin[ids_a[both]] != face_bin[ids_b[both]]).mean())
+    d = np.linalg.norm(cent[ids_a[both]] - cent[ids_b[both]], axis=1) / max(diag, 1e-9)
+    return float(np.percentile(d, q))
 
 
 def render_zbuf(geo: dict, cam: dict, n: int) -> dict:
@@ -407,17 +409,20 @@ def audit_product(glb: str, photo: str, out: str, rules: dict | None = None, log
     vv = vis_vertices(R0['ids'], F)
     Vv = V[vv[:: max(1, len(vv) // 20000)]]
     best, nb = near_best(starts, th['near_delta'])
-    gap, flip = flip_gap(starts, best, th['flip_az_tol'])
+    gap, flip = flip_gap(starts, {'cam': cam, 'score': best['score']}, th['flip_az_tol'])
     disps, regs, cand = [], [], []
-    ref_cam = best['cam']
+    ref_cam = cam                                          # эталон — ВЫБРАННАЯ камера (pose_fit выбирает из пула по кромкам, не по оценке старта)
+    pool_s = [s for s in starts if s['score'] >= best['score'] - th['near_delta']]
+    cent = V[F].mean(1)
+    diag = float(np.linalg.norm(V.max(0) - V.min(0)))
     rend = (lambda g, c, k: render_zbuf(g, c, k)) if rules.get('use_zbuf') else PF.render_persp
     R_ref = rend(geo, ref_cam, n)
-    for s in nb[: rules['max_near']]:
-        if az_flip(ref_cam, s['cam'], th['flip_az_tol']):
-            continue
+    for s in pool_s[: rules['max_near'] + 1]:
+        if az_flip(ref_cam, s['cam'], th['flip_az_tol']) or cam_displacement(Vv, ref_cam, s['cam'], n, scale_px) < 0.005:
+            continue                                       # «через 180°» — отдельный тест (flip_gap); та же камера — не соперник
         Rs = rend(geo, s['cam'], n)
         d = cam_displacement(Vv, ref_cam, s['cam'], n, scale_px)
-        g = region_disagreement(R_ref['ids'], Rs['ids'], face_bin)
+        g = region_disagreement(R_ref['ids'], Rs['ids'], cent, diag)
         disps.append(d)
         regs.append(g)
         cand.append({'cam': s['cam'], 'score': s['score'], 'disp': round(d, 4), 'region_dis': round(g, 4)})
@@ -427,7 +432,7 @@ def audit_product(glb: str, photo: str, out: str, rules: dict | None = None, log
     shift = global_shift_explained(S, Mp, rules)
     iou_tri = iou(S, Mp)
     cm = _contour_metrics(S, Mp)
-    Pc = V[:: max(1, len(V) // 150000)]
+    Pc = PF._surf_points(geo, int(rules.get('surf_n', 200000)))        # облако с поверхности граней: у плоских граней TRELLIS вершин мало, маска по вершинам дырявая (комод 13224: IoU 0,72 против 0,89)
     pr = None
     disputed = iou_tri < th['iou_ok'] or res['local_share'] >= th['local_res_min'] or pose_status != 'GOOD'
     if probe and (disputed or not rules.get('probe_only_disputed', True)):          # G_shape — только на спорных (директор 21.11); на чистых — нечего проверять
