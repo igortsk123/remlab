@@ -112,7 +112,8 @@ def make_spec(keys):
     def poll(gw, cur, t):
         c, r = gw.call('GET', f'/result/{cur["id"]}')
         return ('done', {'x': 1}) if r.get('status') == 'done' else ('running', {})
-    return KD.Spec(prefix='kit-loop', card='RTX X', model='m', jobs=keys.split(','), build_body=lambda n, c, a: {'name': n}, submit=submit, poll=poll)
+    return KD.Spec(prefix='kit-loop', card='RTX X', model='m', jobs=keys.split(','), build_body=lambda n, c, a: {'name': n}, submit=submit, poll=poll,
+                   allow_no_worker_check=True)                      # поддельный воркер теста: кода воркера нет (в боевой пробе worker_file обязателен)
 
 
 LEDGER = []
@@ -247,6 +248,21 @@ with tempfile.TemporaryDirectory() as tmp:
                           image_check=lambda *x, **k: (True, 'ok', 1.0), ledger=lambda rec: LEDGER.append(rec))
     check(rc == 3 and 'нет живого хода задания' in o.getvalue() and 'денег не потрачено' in o.getvalue() and len(LEDGER) == n0 and not os.path.exists(os.path.join(tmp, 'out')),
           'воркер без хода: отказ ДО создания группы (код 3), денег нет')
+    spec_none = make_spec('a')                                                   # боевая проба без worker_file и без явного пропуска — отказ до группы
+    spec_none.allow_no_worker_check = False
+    o2 = io.StringIO()
+    with contextlib.redirect_stdout(o2):
+        rc2 = KD.run_probe(a, mg, br, spec_none, gw_factory=lambda base, key: GW(clock, 10.0), sleep=clock.sleep, clock=clock, slot_check=lambda: None,
+                           image_check=lambda *x, **k: (True, 'ok', 1.0), ledger=lambda rec: LEDGER.append(rec))
+    check(rc2 == 3 and 'не указан код воркера' in o2.getvalue() and 'денег не потрачено' in o2.getvalue() and not os.path.exists(os.path.join(tmp, 'out')),
+          'пустой worker_file без явного allow_no_worker_check: отказ ДО группы (код 3), денег нет')
+    spec_good = make_spec('a')
+    spec_good.worker_file = good
+    spec_good.allow_no_worker_check = False
+    with contextlib.redirect_stdout(io.StringIO()):
+        rc3 = KD.run_probe(a, mg, br, spec_good, gw_factory=lambda base, key: GW(clock, 10.0), sleep=clock.sleep, clock=clock, slot_check=lambda: None,
+                           image_check=lambda *x, **k: (True, 'ok', 1.0), ledger=lambda rec: LEDGER.append(rec))
+    check(rc3 != 3 or os.path.exists(os.path.join(tmp, 'out')), 'worker_file с ходом: проверка пройдена, группа создаётся')
     check(not KD.worker_progress_refusal(good), 'воркер с begin_job и step проходит')
     check('не читается' in KD.worker_progress_refusal(os.path.join(tmp, 'нет.py')), 'нет файла воркера — отказ')
 

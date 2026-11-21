@@ -498,5 +498,20 @@ for path in files(lambda f: not f.startswith(('test', 'tests', 'kit_')) and f !=
 ok(n_w > 0, f'найдено воркеров с HTTP-сервером: {n_w}')
 ok(n_d > 0, f'найдено драйверов платных проб: {n_d}')
 
+
+def spec_problems(text: str) -> list[str]:
+    """Проба, собирающая `KD.Spec(`, обязана указать `worker_file=` (код воркера → проверка хода задания до группы); пропуск — только `allow_no_worker_check` в тестах."""
+    if not re.search(r'\bKD\.Spec\(|kit_driver\.Spec\(', text):
+        return []
+    return [] if 'worker_file' in text else ['KD.Spec без worker_file: ход задания до платного запуска не проверить (урок b1)']
+
+
+ok(spec_problems('return KD.Spec(prefix="x", worker_file=WF)') == [] and spec_problems('return KD.Spec(prefix="x")') and spec_problems('x = 1') == [], 'сторож Spec: worker_file обязателен')
+for path in files(lambda f: not f.startswith(('test', 'tests', 'kit_')) and f != 'bench_run.py'):
+    text = open(path, encoding='utf-8').read()
+    pr = spec_problems(text)
+    if pr:
+        ok(False, f'проба {rel(path)}: {"; ".join(pr)}')
+
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПРОВАЛОВ: {len(FAILS)}')
 sys.exit(1 if FAILS else 0)

@@ -671,7 +671,8 @@ class Spec:
     health_keys: tuple = ('phase', 'root_gb', 'weights', 'cuda', 'error')
     ready_keys: tuple = ('version',)
     z_keys: tuple = ()
-    worker_file: str = ''                                          # код воркера пробы: до создания группы проверяем, что он отдаёт ход задания в /health (урок b1); пусто — проверка не делается (только тесты)
+    worker_file: str = ''                                          # код воркера пробы: ОБЯЗАТЕЛЕН — до создания группы проверяем, что он отдаёт ход задания в /health (урок b1); пусто → отказ до группы (код 3)
+    allow_no_worker_check: bool = False                            # пропуск проверки хода — ТОЛЬКО для тестов драйвера с поддельным воркером; в боевой пробе не ставить
     cuda_archs: tuple = ()                                         # архитектуры CUDA образа ('12.0',): пусто — сверка с картой не делается (урок 742)
 
 
@@ -707,6 +708,10 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
     bad_arch = arch_refusal(spec.card, spec.cuda_archs)
     if bad_arch:
         say('ОТКАЗ:', bad_arch)
+        say('группу НЕ создаю, денег не потрачено')
+        return 3
+    if not spec.worker_file and not spec.allow_no_worker_check:
+        say('ОТКАЗ: у пробы не указан код воркера (`Spec.worker_file`) — без него не проверить, что воркер отдаёт ход задания (урок b1: 15 мин молчания). Укажи путь к файлу воркера')
         say('группу НЕ создаю, денег не потрачено')
         return 3
     if spec.worker_file:
