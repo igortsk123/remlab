@@ -79,10 +79,12 @@ def make_ctx(run: str, sku: str, a: dict, rules: dict, stage_dones: dict | None 
     return ctx
 
 
-def dynamic_ctx(run: str, sku: str, ctx: dict, rules: dict) -> dict:
+def dynamic_ctx(run: str, sku: str, ctx: dict, rules: dict, state: dict | None = None, check_rules: dict | None = None) -> dict:
     """Значения, зависящие от ФАКТИЧЕСКИХ check.json предыдущих этапов (правила — `rules.dynamic`, по порядку, поздние видят ранние):
     `from_extra [этап, ключ]` — значение из extra (нет → fallback); `file_if_ok [этап, файл]` — файл этапа, если этап passed, мерка не N/A и файл есть (иначе fallback);
-    `if_extra_true [этап, ключ]` + `args` — список аргументов, если флаг в extra истинный."""
+    `if_extra_true [этап, ключ]` + `args` — список аргументов, если флаг в extra истинный;
+    `if_stage_ok {stage, file, args, else_args}` — `args` (с `{path}` = файл этапа), если этап прошёл (ok/soft; в плане — «как будет» из `state`) и файл есть, иначе `else_args`
+    (этап 07: части этапа 3 — основной путь, геометрическое разбиение — запасной, когда 3 отказ/нет; файл отказанного 3 мог остаться на диске — потому запасной путь просит явный флаг)."""
     out = dict(ctx)
     base = os.path.join(run, PS.safe_name(sku))
     for key, d in rules.get('dynamic', {}).items():
@@ -98,6 +100,13 @@ def dynamic_ctx(run: str, sku: str, ctx: dict, rules: dict) -> dict:
         elif 'if_extra_true' in d:
             chk = PS.read_check(os.path.join(base, d['if_extra_true'][0])) or {}
             out[key] = list(d['args']) if (chk.get('extra') or {}).get(d['if_extra_true'][1]) else []
+        elif 'if_stage_ok' in d:
+            c = d['if_stage_ok']
+            st = (state or {}).get(c['stage']) or stage_status(run, sku, c['stage'], check_rules or {})['status']
+            path = os.path.join(base, c['stage'], c['file'])
+            planned = not os.path.exists(os.path.join(base, c['stage'], 'check.json'))               # этап ещё не запускался: файл появится в прогоне
+            use = st in ('ok', 'soft') and (os.path.exists(path) or planned)
+            out[key] = [x.replace('{path}', path) for x in (c['args'] if use else c.get('else_args', []))]
     return out
 
 
@@ -225,7 +234,7 @@ def plan(run: str, sku: str, a: dict, rules: dict, check_rules: dict, only: list
             for h in have:
                 state[h['stage']] = h['status']
         else:
-            dctx = dynamic_ctx(run, sku, ctx, rules)
+            dctx = dynamic_ctx(run, sku, ctx, rules, state, check_rules)
             dctx['cam_az_args'] = cam_az_args(run, sku, check_rules, rules)
             item.update(action='run', steps=resolve_steps(st, dctx), files=resolve_files(st, dctx))
             for p in produces:

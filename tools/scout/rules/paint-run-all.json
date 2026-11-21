@@ -234,7 +234,6 @@
         "07-fill"
       ],
       "needs": [
-        "03-parts",
         "06-visible"
       ],
       "steps": [
@@ -245,7 +244,8 @@
             "{root}/tools/scout/salad/trellis/tex_fill.py",
             "run_stage",
             "{run}",
-            "{sku}"
+            "{sku}",
+            "{parts_args}"
           ],
           "heavy": {
             "prio": 1,
@@ -317,6 +317,19 @@
     }
   },
   "dynamic": {
+    "parts_args": {
+      "if_stage_ok": {
+        "stage": "03-parts",
+        "file": "parts.npz",
+        "args": [
+          "--parts-npz",
+          "{path}"
+        ],
+        "else_args": [
+          "--no-parts-npz"
+        ]
+      }
+    },
     "photo_cam": {
       "from_extra": [
         "04-camera",
@@ -341,5 +354,5 @@
       ]
     }
   },
-  "_dynamic_about": "Зависящее от факта: photo_cam — фото камеры этапа 4 (его extra.photo); photo_vis — фото для этапа 6: результат этапа 5 (delight.rgba.png), если 05 passed и мерка не N/A, иначе исходное фото камеры; body_only_args — `--body-only` для этапа 6, если 04 дал bottom_shape_mismatch (общее правило, директор 21.11)."
+  "_dynamic_about": "parts_args — части для этапа 7: этап 3 прошёл (ok/soft) → `--parts-npz` из 03-parts (клина-сироты и т. п. нет вовсе); 3 отказ/нет → `--no-parts-npz` = запасной путь, геометрическое разбиение (флаг ждёт р.3 в tex_fill: без него отказанный 3 с оставшимся parts.npz подхватился бы по умолчанию); Зависящее от факта: photo_cam — фото камеры этапа 4 (его extra.photo); photo_vis — фото для этапа 6: результат этапа 5 (delight.rgba.png), если 05 passed и мерка не N/A, иначе исходное фото камеры; body_only_args — `--body-only` для этапа 6, если 04 дал bottom_shape_mismatch (общее правило, директор 21.11)."
 }

@@ -225,7 +225,36 @@ with tempfile.TemporaryDirectory() as run:
     acts = {i['stage']: i['action'] for i in pl}
     ok(len(pl) == 8 and acts['07'] == 'run' and acts['08'] == 'blocked' and acts['09'] == 'run' and acts['01-02'] == 'run', 'настоящий план строится без запуска: 07 подключён; 08 без каталога заблокирован, 09 идёт')
     c07 = [i for i in pl if i['stage'] == '07'][0]['steps'][0]['argv']
-    ok(c07[-4:] == ['tex_fill.py', 'run_stage', run, 'k'] or c07[-3:] == ['run_stage', run, 'k'], 'команда этапа 7: tex_fill.py run_stage <run> <sku>')
+    sku_dir = os.path.join(run, 'k')
+    ok(c07[-5:] == ['run_stage', run, 'k', '--parts-npz', os.path.join(sku_dir, '03-parts', 'parts.npz')], 'этап 3 в плане идёт → этап 7 берёт его части явным --parts-npz (основной путь)')
+
+# 9. этап 7: части этапа 3 — основной путь, геометрия — запасной (только если 3 отказ/нет)
+def c07_of(run, sku='k'):
+    pl = {i['stage']: i for i in RA.plan(run, sku, dict(A, product_role='комод'), REAL, CR)}
+    return pl, pl['07']['steps'][0]['argv'] if pl['07']['steps'] else None
+
+
+with tempfile.TemporaryDirectory() as run:
+    for stg in ('01-trellis', '02-prep', '04-camera', '05-delight', '06-visible'):
+        put(run, 'k', stg, True)
+    d3 = put(run, 'k', '03-parts', True)
+    open(os.path.join(d3, 'parts.npz'), 'wb').write(b'x')
+    pl, c = c07_of(run)
+    ok(pl['07']['action'] == 'run' and c[-2:] == ['--parts-npz', os.path.join(d3, 'parts.npz')], '3 прошёл, parts.npz есть → --parts-npz из 03-parts')
+    put(run, 'k', '03-parts', True, metric={'name': 'm', 'value': 1.0, 'threshold': 0.5, 'op': '>=', 'ok': True}, soft=True)
+    pl, c = c07_of(run)
+    ok(c[-2:] == ['--parts-npz', os.path.join(d3, 'parts.npz')], '3 мягко прошёл → тоже его части')
+    put(run, 'k', '03-parts', False)                                                      # отказ качества: parts.npz остался на диске
+    pl, c = c07_of(run)
+    ok(pl['07']['action'] == 'run' and c[-1] == '--no-parts-npz' and '--parts-npz' not in c, '3 отказ (файл остался) → 7 идёт запасным путём, явно без parts.npz')
+    ok(pl['08']['action'] == 'blocked' and '03-parts' in pl['08']['why'], 'а 8 без частей этапа 3 не идёт (нужны роли)')
+with tempfile.TemporaryDirectory() as run:
+    for stg in ('01-trellis', '02-prep', '04-camera', '05-delight', '06-visible'):
+        put(run, 'k', stg, True)
+    pl, c = c07_of(run)
+    ok(pl['03']['action'] == 'run' and c[-2] == '--parts-npz', '3 ещё не запускали (в плане «будет») → путь к будущему parts.npz')
+    pl = {i['stage']: i for i in RA.plan(run, 'k', dict(A, product_role='комод'), REAL, CR, only=['07'])}
+    ok(pl['07']['steps'][0]['argv'][-1] == '--no-parts-npz', 'только этап 7 без прошедшего 3 → запасной путь')
 
 print(f'paint_run_all: ошибок {FAIL}')
 sys.exit(1 if FAIL else 0)
