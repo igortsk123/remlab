@@ -184,6 +184,17 @@ class TestTexVisible(unittest.TestCase):
             with open(os.path.join(sd, 'check.json'), encoding='utf-8') as fh:
                 self.assertTrue(json.load(fh)['extra']['camera_failed'])
 
+    def test_import_error_writes_failed_check_instead_of_raising(self):
+        with tempfile.TemporaryDirectory() as d:
+            photo = os.path.join(d, 'p.png')
+            Image.fromarray(photo_red_blue()).save(photo)
+            r = TV.run(os.path.join(d, 'нет-такой-формы.glb'), photo, d, os.path.join(d, 'run'), 'sku:3')
+            self.assertFalse(r['passed'])
+            with open(os.path.join(d, 'run', 'sku_3', '06-visible', 'check.json'), encoding='utf-8') as fh:
+                ch = json.load(fh)
+            self.assertFalse(ch['passed'])
+            self.assertIn('этап 6 не выполнен', ch['reason'])
+
     def test_missing_ids_asks_to_recompute_camera(self):
         with tempfile.TemporaryDirectory() as d:
             os.makedirs(os.path.join(d, 'stages', 'render_view0'))

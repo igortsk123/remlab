@@ -286,6 +286,19 @@ def frame(path: str, prgb: np.ndarray, pmask: np.ndarray, after: np.ndarray, dst
 # ── этап ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 def run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: float = COS_MIN) -> dict:
+    """Этап 6 для одного товара. Любая ошибка (форма не читается, нет файлов камеры, не та форма) — НЕ роняет пакет: пишет check.json passed=false с причиной (fail-closed, T-168)."""
+    t0 = time.time()
+    try:
+        return _run(glb, photo, pose_run, run_dir, sku, cos_min)
+    except Exception as e:  # noqa: BLE001 — причина уходит в check.json и в ответ, пакет идёт дальше
+        d = PS.stage_dir(run_dir, sku, '06-visible')
+        why = f'{type(e).__name__}: {e}'[:400]
+        PS.write_check(d, '06-visible', sku, passed=False, metric={'name': 'silhouette_iou', 'value': 0.0, 'threshold': GATE['silhouette_iou'][0], 'op': '>='},
+                       reason=f'этап 6 не выполнен: {why}', seconds=round(time.time() - t0, 1), needs_qwen=False, stage_error=why, pose_run=pose_run)
+        return {'sku': sku, 'passed': False, 'reason': 'error', 'why': [why], 'dir': d}
+
+
+def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: float = COS_MIN) -> dict:
     t0 = time.time()
     d = PS.stage_dir(run_dir, sku, '06-visible')
     geoms = load_shape(glb)
