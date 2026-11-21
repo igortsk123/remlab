@@ -241,8 +241,8 @@ def execute(run: str, sku: str, a: dict, rules: dict, check_rules: dict, only: l
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 with open(path, 'w', encoding='utf-8') as f:
                     json.dump(body, f, ensure_ascii=False, indent=1)
-            for s in item['steps']:
-                r = _run_step(s, name, ctx, rules, timeout, bool(a.get('heavy')))
+            for i, s in enumerate(item['steps']):
+                r = _run_step(s, f'{name}-{i + 1}', ctx, rules, timeout, bool(a.get('heavy')))     # имя заявки heavy-slot у каждого шага своё
                 entry['steps'].append(r)
                 if r['rc'] != 0:
                     break                                                   # дальнейшие шаги этапа без первого не имеют смысла; статус скажет check.json
@@ -291,8 +291,8 @@ def main(argv: list) -> int:
             print(f"{it['stage']:8} {it['action']:8} {it['why']}")
             for path in it.get('files', {}):
                 print('           [файл] ' + path)
-            for s in it['steps']:
-                print('           ' + ' '.join(_heavy(s, it['stage'], make_ctx(a.run, a.sku, d, rules), rules) if a.heavy else s['argv']))
+            for i, s in enumerate(it['steps']):
+                print('           ' + ' '.join(_heavy(s, f"{it['stage']}-{i + 1}", make_ctx(a.run, a.sku, d, rules), rules) if a.heavy else s['argv']))
         return 0
     miss = [k for k in ('native', 'photo') if not d[k]]
     if miss:
