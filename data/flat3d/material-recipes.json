@@ -179,6 +179,12 @@
   "confident_from": 0.5,
   "legs_part_share": 0.6
  },
+ "roles": {
+  "_about": "Роли частей от этапа 3 (parts.json → role, material_channel; правила ролей — tools/scout/rules/part-roles.json). Канал main (body/top/facade) — основной класс товара (у стола — каталожный материал столешницы); legs/frame/handles/shade — материал этого канала в каталоге (нет канала в каталоге — прежняя политика). unknown, glass_mirror и любая другая роль — прежняя политика (форма, цвет, «не уверен»): металл и стекло из роли не выводим.",
+  "known": ["body", "top", "facade", "legs", "frame", "handles", "shade"],
+  "channels": ["legs", "frame", "handles", "shade"],
+  "confidence": { "main": 0.7, "channel": 0.8 }
+ },
  "unsure_report": {
   "_about": "Отчёт по неуверенным частям (check.json → unsure_parts): где часть по центроиду. Высота — доля высоты модели (≥ up_top верх, ≤ up_bottom низ), боковое смещение от оси — доля полуширины (≤ off_centre центр, ≥ off_edge край). Только описание для подписи ролей, на вердикт не влияет.",
   "up_top": 0.66,

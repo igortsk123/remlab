@@ -113,6 +113,8 @@ def resolve_parts(parts: list[dict], cls: dict, recipes: dict, parts_known: bool
             r = {"class": cat["legs"]["class"], "source": "catalog:legs-inferred" if inferred else "catalog:legs",
                  "confidence": conf["legs_catalog_inferred"] if inferred else conf["legs_catalog"],
                  "reason": f"ножки по геометрии; каталог{' (по каркасу, своего поля нет)' if inferred else ''}: {cat['legs']['reason']}"}
+        elif p is not main and _role_class(p, cls, cat, recipes) is not None:
+            r = _role_class(p, cls, cat, recipes)
         elif str(p.get("role", "")).startswith("shape:") and p is not main:
             r = _shape_class(p, cls, cat, recipes)
         elif p is main:
@@ -167,6 +169,22 @@ def unsure_parts_report(mesh, part: np.ndarray, parts_rep: list[dict], parts: li
                     "de_main": r.get("de_main"), "main_id": r.get("main_id"), "lab": [round(float(x), 1) for x in lab] if lab else None,
                     "where": {"up": round(up, 2), "off": round(off, 2), "label": f"{vert}, {side}"}, "reason": r["reason"]})
     return sorted(out, key=lambda d: -d["area_share"])
+
+
+def _role_class(p: dict, cls: dict, cat: dict, recipes: dict) -> dict | None:
+    """Роль части от этапа 3 (`parts.json` → `role`, `material_channel`; правила — `part-roles.json`): канал материала `main` (body/top/facade) — основной класс товара
+    (у стола — каталожный материал столешницы); канал legs/frame/handles/shade — материал этого канала в каталоге. Канала нет в каталоге, роль unknown/glass_mirror/прочее —
+    None (дальше прежняя политика: форма, цвет, «не уверен»). Название роли и каналы — в JSON `roles` (рецепты), не здесь."""
+    rl = recipes["roles"]
+    role, ch = p.get("role"), p.get("material_channel")
+    if role not in rl["known"] or not ch:
+        return None
+    sc = rl["confidence"]
+    if ch == "main":
+        return {"class": cls["class"], "source": "role:main", "confidence": sc["main"], "reason": f"роль «{role}» этапа 3 — основной материал товара: {cls['reason']}"}
+    if ch in cat and ch in rl["channels"]:
+        return {"class": cat[ch]["class"], "source": f"role:{ch}", "confidence": sc["channel"], "reason": f"роль «{role}» этапа 3 — канал «{ch}» каталога: {cat[ch]['reason']}"}
+    return None
 
 
 def _shape_class(p: dict, cls: dict, cat: dict, recipes: dict) -> dict:
@@ -267,7 +285,7 @@ def mark_legs(parts: list[dict], part: np.ndarray, legs: np.ndarray, share_min: 
         sel = part == p["id"]
         sh = float((legs & sel).sum()) / max(1, int(sel.sum()))
         p["legs_share"] = round(sh, 3)
-        if p["id"] != main and p.get("role") != "legs" and sh >= share_min:
+        if p["id"] != main and p.get("role") != "legs" and sh >= share_min and not (p.get("material_channel") and p.get("role") != "unknown"):   # роль этапа 3 (с каналом) главнее геометрии
             p["role"] = "legs"
 
 

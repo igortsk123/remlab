@@ -316,6 +316,46 @@ def test_soft_body_inherits_upholstery():
     ok(res[1]["class"] == "glass", "часть формы (плафон из каталога) правилом корпуса не перекрывается")
 
 
+def test_stage3_roles():
+    col = lambda L: {"lab_median": [L, 0.0, 0.0]}   # noqa: E731
+    def prt(i, share, role, ch, L):
+        return {"id": i, "face_share": share, "role": role, "material_channel": ch, "vl": None, "colour": col(L)}
+    parts = [prt(0, 0.4, "body", "main", 70.0), prt(1, 0.2, "top", "main", 20.0), prt(2, 0.15, "facade", "main", 90.0), prt(3, 0.1, "legs", "legs", 5.0),
+             prt(4, 0.06, "frame", "frame", 5.0), prt(5, 0.04, "handles", "handles", 5.0), prt(6, 0.03, "shade", "shade", 5.0), prt(7, 0.02, "unknown", None, 5.0)]
+    cls = dict(_cls("ldsp", 0.9, legs="metal", frame="steel", handles="metal", shade="glass"), group="case")
+    cls["parts"]["frame"]["class"] = "metal"
+    res = MS.resolve_parts(parts, cls, R, parts_known=True)
+    for i in (1, 2):
+        ok(res[i]["class"] == "ldsp" and res[i]["source"] == "role:main" and res[i]["confident"], f"роль {parts[i]['role']} — основной класс товара, цвет (ΔE) не решает")
+    ok(res[0]["source"].startswith("catalog:"), "главная часть — прежней веткой главной")
+    ok(res[3]["class"] == "metal" and res[3]["source"] == "catalog:legs", "ножки — канал каталога (прежняя ветка)")
+    ok(res[4]["class"] == "metal" and res[4]["source"] == "role:frame", "каркас — канал «frame» каталога")
+    ok(res[5]["class"] == "metal" and res[5]["source"] == "role:handles", "ручки — канал «handles» каталога")
+    ok(res[6]["class"] == "glass" and res[6]["source"] == "role:shade", "плафон — канал «shade» каталога")
+    ok(res[7]["source"] == "unsure" and not res[7]["confident"], "unknown — прежняя политика: чёрный кусок с другим цветом — «не уверен»")
+    bare = dict(_cls("ldsp", 0.9), group="case")
+    res = MS.resolve_parts(parts, bare, R, parts_known=True)
+    ok(res[4]["source"] == "unsure" and res[5]["source"] == "unsure" and res[6]["source"] == "unsure", "канала нет в каталоге — роль каналом не становится: прежняя политика, стекло/металл не придумываем")
+    glass = [dict(p) for p in parts]; glass[7] = dict(glass[7], role="glass_mirror", material_channel=None)
+    res = MS.resolve_parts(glass, cls, R, parts_known=True)
+    ok(res[7]["class"] != "glass", "роль glass_mirror без канала стеклом не становится")
+    # у стола: top — каталожный материал столешницы (класс товара)
+    tab = dict(_cls("glass", 0.9, legs="metal"), group="table")
+    pt = [prt(0, 0.7, "top", "main", 60.0), prt(1, 0.3, "legs", "legs", 10.0)]
+    res = MS.resolve_parts(pt, tab, R, parts_known=True)
+    ok(res[0]["class"] == "glass" and res[1]["class"] == "metal", "стол: столешница — класс по каталогу (стекло), ножки — металл")
+    pm = [prt(0, 0.6, "body", "main", 70.0), prt(1, 0.3, "unknown", None, 20.0), prt(2, 0.1, "body", "main", 10.0)]
+    legs = np.array([False] * 10)
+    import copy
+    pm2 = copy.deepcopy(pm)
+    for q in pm2:
+        q["legs_share"] = 0
+    part_arr = np.array([0] * 6 + [1] * 3 + [2], dtype=np.int64)
+    leg_mask = np.array([False] * 6 + [True] * 4)
+    MS.mark_legs(pm2, part_arr, leg_mask, 0.6)
+    ok(pm2[2]["role"] == "body" and pm2[1]["role"] == "legs", "роль этапа 3 (body с каналом) геометрией ножек не перекрывается; unknown — добирается геометрией")
+
+
 def test_top_zone_bigger_than_body():
     parts = [{"id": 0, "face_share": 0.2, "role": "shape:blob", "vl": None, "colour": None},
              {"id": 1, "face_share": 0.5, "role": "shape:blob-top", "vl": None, "colour": None},
@@ -365,7 +405,7 @@ def test_stage_geometry_and_inherited():
 
 
 if __name__ == "__main__":
-    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_soft_body_inherits_upholstery, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited):
+    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_unsure_parts_report, test_soft_body_inherits_upholstery, test_stage3_roles, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited):
         print(t.__name__)
         t()
     print(f"material_stage tests: ошибок {FAIL}")
