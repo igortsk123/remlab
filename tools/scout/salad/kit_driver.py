@@ -4,7 +4,7 @@
 
 ЧТО ДАЁТ (урок → функция):
   • 755 «создано = 201 + группа видна», повтор 502/503/504 ................ `api_retry`, `create_and_start` (старт на большой образ → HTTP 400 → ждём бесплатно до `wait_s`, e022e305)
-  • ADR-0137 образ только по digest + сжатый размер ≤ 30 ГиБ до /start .... `check_image` (манифест реестра, бесплатно)
+  • ADR-0137 образ только по digest + сжатый размер ≤ 35 ГиБ до /start .... `check_image` (манифест реестра, бесплатно)
   • 737 деньги по ЖИВОЙ цене, потолок пробы и общий ......................... `gpu_class`, `cost_usd`, `Watch` (`money`/`probe_cap`)
   • 724/754 «running, started=false, 503»: ждать started, не running ........ `Watch` (`no_start` от running, `no_health` от started)
   • 734/740 докачка весов стоит .............................................. `weights_slow`/`weights_stalled` (`download_stalled`)
@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 UA = 'remlab-mesh/1.0'                  # без User-Agent API Salad и Cloudflare отвечают 403 (урок 748)
-MAX_IMAGE_GIB = 30.0                    # сжатый размер образа: больше — Salad держит pending слишком долго (р.5: 22 ГиБ ≈ 25 мин; ADR-0137)
+MAX_IMAGE_GIB = 35.0                    # сжатый размер образа: предел Salad 35 ГБ (https://docs.salad.com/container-engine/explanation/infrastructure-platform/container-registries, «может измениться») и канон ADR-0137 «веса вшиты, лимит 35»; 30 был строже канона без основания (21.11, решение директора). Медленную докачку большого образа ловит PullGuard (норма от размера)
 DIGEST_RE = re.compile(r'^[A-Za-z0-9._\-/:]+@sha256:[0-9a-f]{64}$')
 DEFAULT_API_RULES = {'retries': 4, 'status_codes': [502, 503, 504], 'pauses_s': [5, 15, 30, 60]}
 SLOT_PRIO = 2                           # платные пробы — heavy-slot --prio 2 (P-038)
