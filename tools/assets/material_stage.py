@@ -150,6 +150,27 @@ def _shape_class(p: dict, cls: dict, cat: dict, recipes: dict) -> dict:
     return {"class": cls["class"], "source": "geometry:body", "confidence": gc["other_main"], "reason": f"часть формы «{kind}», другого материала для неё в каталоге нет — материал корпуса: {cls['reason']}"}
 
 
+def stand_near_axis(mesh, key: np.ndarray, up: np.ndarray, g: dict, linear_kind: int) -> np.ndarray:
+    """Маска граней верхней зоны (key 3), лежащих у оси единственной тонкой стойки (ближе `stand_k`·радиус стойки): стык стойки с цоколем лампы, крышка.
+    Ось и радиус — по linear-граням ниже `top_from` (вертикаль — Y); стойка должна быть одна и тонкой (радиус ≤ `stand_max_radius_frac` габарита): ножки по углам или
+    толстая ножка стола — не стойка, тогда маска пустая. Нет `stand_k` в JSON — правило выключено."""
+    none = np.zeros(len(key), dtype=bool)
+    sk = g.get("stand_k")
+    nf = len(key)
+    low = (key == 1) & (up < g["top_from"])
+    if not sk or low.sum() < max(10, int(g["min_part_share"] * nf)):
+        return none
+    c = np.asarray(mesh.vertices)[np.asarray(mesh.faces)].mean(axis=1)
+    xz = c[:, [0, 2]]
+    ax = np.median(xz[low], axis=0)
+    r = float(np.median(np.linalg.norm(xz[low] - ax, axis=1)))
+    ll = float((c.max(axis=0) - c.min(axis=0)).max())
+    spread = float(np.linalg.norm(xz[low] - ax, axis=1).max())
+    if r <= 0 or r > g["stand_max_radius_frac"] * ll or spread > g["stand_max_radius_frac"] * ll * 3:
+        return none
+    return (key == 3) & (np.linalg.norm(xz - ax, axis=1) <= sk * r)
+
+
 def geometry_shape_parts(mesh, mp, cat_parts: dict, recipes: dict) -> tuple[np.ndarray, list[dict], dict]:
     """Части без этапа 3 по форме: ножки (геометрия `material_parts`) + остальное делится на planar / linear / blob / blob-top (`part_shapes`); мелкие группы (< min_part_share)
     вливаются в крупнейшую. → (part на грань, parts как в parts.json, отчёт формы)."""
@@ -161,6 +182,8 @@ def geometry_shape_parts(mesh, mp, cat_parts: dict, recipes: dict) -> tuple[np.n
     # 0 planar, 1 linear, 2 blob, 3 top. Верхняя зона: всё, что не тонкая стойка, — «верх» (плафон; шар крупнее радиуса на вид «плоский» и дробился на пятна)
     key = np.where(kind == psh.LINEAR, 1, np.where(up >= g["top_from"], 3, np.where(kind == psh.BLOB, 2, 0)))
     names = {0: "planar", 1: "linear", 2: "blob", 3: "blob-top"}   # blob-top: классом плафона станет материал каталога (стекло, ткань…), не «стекло» вообще
+    stand = stand_near_axis(mesh, key, up, g, psh.LINEAR)             # стык стойки с цоколем лампы в верхней зоне — стойка, не плафон
+    key[stand] = 1
     key = np.where(legs, -1, key)
     shares = {k: float((key == k).sum()) / nf for k in (0, 1, 2, 3)}
     big = max(shares, key=shares.get)

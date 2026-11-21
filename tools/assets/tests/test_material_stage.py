@@ -229,6 +229,48 @@ def test_top_zone_shade():
     ok(by["shape:blob-top"]["class"] == "metal", "плафона в каталоге нет — верх остаётся материалом корпуса, стекла не придумываем")
 
 
+def test_stand_junction_is_metal():
+    import trimesh
+    mc, mp = MS._siblings()
+    rot = trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0])
+    base = _lamp_mesh()
+    cap = trimesh.creation.cylinder(radius=0.011, height=0.05, sections=12)    # цоколь на стойке под плафоном: чуть толще стойки (1,4 её радиуса)
+    cap.apply_transform(rot)
+    cap.apply_translation([0, 1.225, 0])
+    v, f = trimesh.remesh.subdivide_to_size(cap.vertices, cap.faces, max_edge=0.015)
+    big = trimesh.creation.icosphere(subdivisions=4, radius=0.13)
+    big.apply_translation([0.0, 1.5, 0.0])
+    v2, f2 = trimesh.remesh.subdivide_to_size(big.vertices, big.faces, max_edge=0.02)
+    m = trimesh.util.concatenate([base, trimesh.Trimesh(v, f, process=False), trimesh.Trimesh(v2, f2, process=False)])
+    part, parts, _ = MS.geometry_shape_parts(m, mp, {}, R)
+    cen = m.vertices[m.faces].mean(axis=1)
+    near = (np.hypot(cen[:, 0], cen[:, 2]) > 0.0095) & (np.hypot(cen[:, 0], cen[:, 2]) <= 0.012) & (cen[:, 1] > 1.2) & (cen[:, 1] < 1.25)   # боковые грани цоколя
+    role_of = {p["id"]: p["role"] for p in parts}
+    share_top = float(np.mean([role_of[i] == "shape:blob-top" for i in part[near]])) if near.any() else 1.0
+    ok(near.sum() > 10 and share_top < 0.05, f"стык стойки с цоколем (у оси, верхняя зона) — не плафон (в плафоне {share_top:.0%} из {int(near.sum())} граней)")
+    res = MS.resolve_parts(parts, _cls("metal", 0.9, shade="glass"), R, parts_known=True)
+    by = {p["role"]: res[p["id"]] for p in parts}
+    ok(by["shape:blob-top"]["class"] == "glass" and by["shape:linear"]["class"] == "metal", "плафон — стекло, стойка с цоколем — металл")
+    far = (np.hypot(cen[:, 0], cen[:, 2]) > 0.05) & (cen[:, 1] > 1.4)
+    ok(float(np.mean([role_of[i] == "shape:blob-top" for i in part[far]])) > 0.95, "плафон вдали от оси остался плафоном")
+    g2 = dict(R["geometry"]); g2.pop("stand_k")
+    R2 = dict(R); R2["geometry"] = g2
+    part2, parts2, _ = MS.geometry_shape_parts(m, mp, {}, R2)
+    role2 = {p["id"]: p["role"] for p in parts2}
+    ok(float(np.mean([role2[i] == "shape:blob-top" for i in part2[near]])) > 0.3, "без stand_k правило выключено (тест различает: цоколь был бы плафоном)")
+    t = trimesh.creation.box(extents=[0.9, 0.04, 0.5]); t.apply_translation([0, 0.72, 0])
+    legs4 = []
+    for sx in (-0.4, 0.4):
+        for sz in (-0.2, 0.2):
+            L = trimesh.creation.cylinder(radius=0.015, height=0.7, sections=10); L.apply_transform(rot); L.apply_translation([sx, 0.35, sz]); legs4.append(L)
+    tab = trimesh.util.concatenate(legs4 + [t])
+    v3, f3 = trimesh.remesh.subdivide_to_size(tab.vertices, tab.faces, max_edge=0.02)
+    tab = trimesh.Trimesh(v3, f3, process=False)
+    part3, parts3, _ = MS.geometry_shape_parts(tab, mp, {}, R)
+    c3 = tab.vertices[tab.faces].mean(axis=1)
+    ok(MS.stand_near_axis(tab, np.where((np.abs(c3[:, 1] - 0.35) < 0.3), 1, 3), np.clip(c3[:, 1] / 0.74, 0, 1), R["geometry"], 1).sum() == 0, "четыре ножки по углам — не «одна стойка»: правило молчит (столешница не станет стойкой)")
+
+
 def test_top_zone_bigger_than_body():
     parts = [{"id": 0, "face_share": 0.2, "role": "shape:blob", "vl": None, "colour": None},
              {"id": 1, "face_share": 0.5, "role": "shape:blob-top", "vl": None, "colour": None},
@@ -278,7 +320,7 @@ def test_stage_geometry_and_inherited():
 
 
 if __name__ == "__main__":
-    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited):
+    for t in (test_rules_complete, test_no_ids_in_code, test_resolve, test_legs_and_colour, test_bake, test_patch_glb, test_stage_end_to_end, test_shapes_without_stage3, test_top_zone_shade, test_stand_junction_is_metal, test_top_zone_bigger_than_body, test_inherit_unseen, test_stage_geometry_and_inherited):
         print(t.__name__)
         t()
     print(f"material_stage tests: ошибок {FAIL}")
