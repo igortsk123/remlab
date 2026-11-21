@@ -188,7 +188,7 @@
           ],
           "heavy": {
             "prio": 1,
-            "min_gb": 9,
+            "min_gb": 8.5,
             "cores": 2
           }
         }
