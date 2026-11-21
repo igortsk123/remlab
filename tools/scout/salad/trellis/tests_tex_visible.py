@@ -159,7 +159,7 @@ class TestTexVisible(unittest.TestCase):
             self.assertIn('needs_qwen', ch['extra'])
             self.assertEqual(ch['passed'], r['passed'])
             self.assertGreater(ch['metric']['value'], 0.85)
-            self.assertGreater(r['metrics']['edge_corr'], 0.7)         # перенос не потерян при записи GLB (резкая синтетическая кромка: 1 пиксель сдвига уже снижает меру)
+            self.assertGreater(r['metrics']['edge_corr'], 0.5)         # перенос не потерян при записи GLB (резкая синтетическая кромка + жёсткая эрозия 2 px по краю: мера на 200-пиксельном кадре низкая по построению)
             self.assertGreater(r['metrics']['known_share'], 0.15)
             self.assertLess(r['metrics']['lab_dE'], 1.0)
 

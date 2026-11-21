@@ -35,10 +35,12 @@ sys.path[:0] = [HERE, SALAD, SCOUT]
 import tex_coverage as TC  # noqa: E402
 import paint_stage as PS  # noqa: E402
 
-COS_MIN = 0.34          # cos угла к лучу: 70° и больше — вскользь, не берём (план: «угол < ~70°»)
-COS_FULL = 0.55         # полный вес с этого косинуса; между COS_MIN и COS_FULL — плавная передача заготовке
+COS_MIN = 0.40          # cos угла к лучу: 70° и больше — вскользь, не берём (план: «угол < ~70°»)
+COS_FULL = 0.60         # полный вес с этого косинуса; между COS_MIN и COS_FULL — плавная передача заготовке
 EDGE_FRAC = 4.0 / 480   # отступ от силуэта фото внутрь, доли стороны кадра: вес растёт от 0 до 1 (там фон и ореол)
 GUTTER = 6              # желоб вокруг островков, пикселей текстуры (билинейная выборка у шва не берёт серый фон)
+EDGE_ERODE = 2.0        # жёсткая эрозия маски фото: пиксели ближе к краю силуэта не берутся совсем (там белый фон и ореол; директор 21.11)
+W_TAKE = 0.25           # вес меньше — тексель не берём (остаётся прежним), вес выше — цвет фото целиком, без подмеса светлой заготовки (иначе светлые полосы на вскользь видимых краях)
 HOLE_R = 2.5            # дыры между взятыми текселями (пикселей кадра реже текселей) закрываются ближайшим взятым не дальше этого, текселей
 DEPTH_PX = 3.0          # допуск «тексель не заслонён»: расхождение глубины точки и буфера глубины камеры не больше стольких пикселей предмета (у косых граней — шире)
 GREY = 128
@@ -170,27 +172,27 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
         front = np.abs(z - depth[yi, xi]) <= z_eps * np.maximum(1.0, 1.0 / np.maximum(fm['cos'][f], 0.2))       # у косых граней глубина меняется быстрее по пикселю — допуск растёт
         cs = fm['cos'][f]
         w_ang = np.clip((cs - cos_min) / max(COS_FULL - cos_min, 1e-6), 0.0, 1.0)
-        w_edge = np.clip(map_coordinates(dist_edge.astype(np.float32), [y - 0.5, x - 0.5], order=1, mode='nearest') / edge_px, 0.0, 1.0)
+        w_edge = np.clip((map_coordinates(dist_edge.astype(np.float32), [y - 0.5, x - 0.5], order=1, mode='nearest') - EDGE_ERODE) / edge_px, 0.0, 1.0)
         w = np.where(inside & front & (depth[yi, xi] > 0) & pmask[yi, xi], w_ang * w_edge, 0.0)
-        use = w > 0
+        use = w >= W_TAKE
         col = np.stack([map_coordinates(prgb[..., c].astype(np.float32), [y[use] - 0.5, x[use] - 0.5], order=1, mode='nearest') for c in range(3)], 1)
         tex = g['tex'].astype(np.float64).copy()
         sel = (ty[use], tx[use])
-        tex[sel] = w[use, None] * col + (1.0 - w[use, None]) * tex[sel]
+        tex[sel] = col
         wmap = np.zeros((T, T), np.float64)
         wmap[ty, tx] = w
-        known = wmap >= 0.5
+        known = wmap >= W_TAKE
         n_face = int(known.sum())
         ys, xs = np.nonzero(st['mask'] & (ids >= offs[gi]) & (ids < offs[gi + 1]))             # проход 2: пиксели растра камеры — каждый на тексель СВОЕЙ развёртки (грани мельче пикселя карту грани не строят)
-        wp = np.clip((st['cos'][ys, xs] - cos_min) / max(COS_FULL - cos_min, 1e-6), 0.0, 1.0) * np.clip(dist_edge[ys, xs] / edge_px, 0.0, 1.0) * pmask[ys, xs]
-        keep = wp > 0
+        wp = np.clip((st['cos'][ys, xs] - cos_min) / max(COS_FULL - cos_min, 1e-6), 0.0, 1.0) * np.clip((dist_edge[ys, xs] - EDGE_ERODE) / edge_px, 0.0, 1.0) * pmask[ys, xs]
+        keep = wp >= W_TAKE
         ys, xs, wp = ys[keep], xs[keep], wp[keep]
         tpx = np.clip(np.floor(st['uv'][ys, xs, 0] * T).astype(np.int64), 0, T - 1)
         tpy = np.clip(np.floor(st['uv'][ys, xs, 1] * T).astype(np.int64), 0, T - 1)
         flat = tpy * T + tpx
         sw = np.bincount(flat, wp, T * T).reshape(T, T)
         scol = np.stack([np.bincount(flat, wp * prgb[ys, xs, c].astype(np.float64), T * T).reshape(T, T) for c in range(3)], 2)
-        take = occ & ~known & (sw > 0.25)
+        take = occ & ~known & (sw >= W_TAKE)
         tex[take] = scol[take] / sw[take][:, None]
         known = known | take
         n_splat = int(take.sum())
