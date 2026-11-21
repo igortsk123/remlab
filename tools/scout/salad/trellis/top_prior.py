@@ -66,9 +66,19 @@ def card_class(card: dict | None, rules: dict) -> dict:
     return {'class': cls, 'group': None, 'reason': rec.get('reason'), 'stage': rec.get('stage')}
 
 
+def card_pattern(card: dict | None, rules: dict) -> dict:
+    """Класс рисунка товара по слову карточки: {'bin_classes': […], 'layout': 'planks'|'none', 'word': слово|None}. Первая запись by_word, чьё слово встретилось (с начала слова); нет — default."""
+    text = ' '.join(str(v) for v in (card or {}).values()).lower()
+    for e in rules['pattern']['by_word']:
+        for w in e['words']:
+            if re.search(r'(?<![а-яёa-z])' + re.escape(w), text):
+                return {'bin_classes': list(e['bin_classes']), 'layout': e['layout'], 'word': w}
+    return dict(rules['pattern']['default'], word=None)
+
+
 def card_dims(card: dict | None) -> dict:
     """Толщина верха и наибольший габарит из карточки, см: «Толщина столешницы 1 см», «160x90» в названии/модификации. Нет — None (полоса кромки по умолчанию)."""
-    out = {'thickness_cm': None, 'length_cm': None}
+    out = {'thickness_cm': None, 'length_cm': None, 'width_cm': None}
     if not card:
         return out
     for k, v in card.items():
@@ -81,6 +91,7 @@ def card_dims(card: dict | None) -> dict:
     m = re.search(r'(\d{2,3})\s*[xх×]\s*(\d{2,3})', text)
     if m:
         out['length_cm'] = float(max(int(m.group(1)), int(m.group(2))))
+        out['width_cm'] = float(min(int(m.group(1)), int(m.group(2))))
     return out
 
 
@@ -153,7 +164,7 @@ def decide(voices: dict, rules: dict) -> dict:
     return out
 
 
-def library_bin(tone_lab, kind: str, library: dict, rules: dict, cls: str | None = None) -> dict:
+def library_bin(tone_lab, kind: str, library: dict, rules: dict, cls: str | None = None, bin_classes: list | None = None) -> dict:
     """Бин библиотеки по тону: kind 'decor' (плоская плёнка/краска/ЛДСП) — без рисунка; 'library' — ближайший по ΔE00 скан дерева. → {'bin','dE00','grain_axis','tile_cm'}."""
     if tone_lab is None:
         return {'bin': None}
@@ -164,12 +175,14 @@ def library_bin(tone_lab, kind: str, library: dict, rules: dict, cls: str | None
     for a, v in library['items'].items():
         if v.get('family', 'wood') not in fam:
             continue
+        if bin_classes and v.get('pattern_class', 'straight') not in bin_classes:
+            continue
         d = _de(tone_lab, v['lab'])
         if best is None or d < best[0]:
             best = (d, a, v)
     if best is None:
-        return {'bin': None, 'note': f'нет бинов семейств {fam}'}
-    return {'bin': best[1], 'dE00': round(best[0], 1), 'lab': best[2]['lab'], 'grain_axis': best[2].get('grain_axis'), 'tile_cm': best[2].get('tile_cm'), 'family': best[2].get('family', 'wood')}
+        return {'bin': None, 'note': f'нет бинов семейств {fam} и классов {bin_classes}'}
+    return {'bin': best[1], 'dE00': round(best[0], 1), 'lab': best[2]['lab'], 'grain_axis': best[2].get('grain_axis'), 'tile_cm': best[2].get('tile_cm'), 'family': best[2].get('family', 'wood'), 'pattern_class': best[2].get('pattern_class')}
 
 
 # ---------------------------------------------------------------- голоса по прогону -------------------------------
@@ -274,7 +287,9 @@ def analyze(run_dir: str, card: dict | None, rules: dict | None = None, filled_g
     voices['card'] = cc
     res = decide(voices, rules)
     lib_path = os.path.join(ROOT, rules['library'])
-    res['library'] = library_bin(res['tone_lab'], cc.get('group') or 'library', json.load(open(lib_path, encoding='utf-8')), rules, cc.get('class')) if os.path.exists(lib_path) else {'bin': None, 'note': 'нет library.json'}
+    pat_spec = card_pattern(card, rules)
+    res['pattern_spec'] = pat_spec
+    res['library'] = library_bin(res['tone_lab'], cc.get('group') or 'library', json.load(open(lib_path, encoding='utf-8')), rules, cc.get('class'), pat_spec['bin_classes']) if os.path.exists(lib_path) else {'bin': None, 'note': 'нет library.json'}
     res['other_part_vertical'] = {'n': int(len(ov)), 'lab': [round(float(x), 1) for x in TF.tone_of(ov, TF.FILL)] if len(ov) else None, 'note': 'вертикальные видимые тексели ДРУГИХ частей (царга/корпус); голосом не служат'}
     res['top_texels'] = n_top
     res['known_source'] = known_src
@@ -320,10 +335,29 @@ def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float
         u = (xz @ ax) * an['size'] * 100.0 / tile                           # сантиметры вдоль длинной стороны → доли плитки
         s = (xz @ np.array([-ax[1], ax[0]])) * an['size'] * 100.0 / tile
         lab = np.tile(tone, (int(sel.sum()), 1))
+        planks = rep.get('pattern_spec', {}).get('layout') == 'planks'
+        if planks:                                                          # планки: индекс планки вдоль ширины, свой сдвиг узора и тон на планку, шов между ними
+            pr = rules['pattern']
+            dm = rep.get('card_dims') or {}
+            wcm = dm.get('width_cm') or 90.0
+            n_pl = max(1, int(round(wcm / pr['plank_target_cm'])))
+            plank_cm = wcm / n_pl
+            s_cm = s * tile
+            s_cm = s_cm - s_cm.min()
+            pi = np.floor(s_cm / plank_cm).astype(int)
+            frac = (s_cm / plank_cm) - pi
+            h = (pi * 2654435761) % 4294967296                                # детерминированный «случайный» сдвиг по индексу планки
+            u = u + (h % 1000) / 1000.0
+            s = (s_cm - pi * plank_cm) / tile                               # внутри планки — своя полоса узора (волокно идёт вдоль неё)
+            jit = (((h >> 8) % 1000) / 500.0 - 1.0) * pr['plank_tone_jitter_L']
+            groove = (frac * plank_cm < pr['plank_groove_cm']) | (frac * plank_cm > plank_cm - pr['plank_groove_cm'] / 2)
         if pat is not None:
             iu = (np.floor((u % 1.0) * 512)).astype(int) % 512
             iv = (np.floor((s % 1.0) * 512)).astype(int) % 512
             lab = lab + pat[iv, iu]
+        if planks:
+            lab[:, 0] += jit
+            lab[groove, 0] -= rules['pattern']['plank_groove_dL']
         rgb = TF.lab2rgb(lab)
         img = out[t['gi']]
         flat = img.reshape(-1, img.shape[2]) if img.ndim == 3 else None

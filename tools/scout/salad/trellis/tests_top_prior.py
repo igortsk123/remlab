@@ -122,11 +122,35 @@ class RealKnown(unittest.TestCase):
 class CardDims(unittest.TestCase):
     def test_thickness_and_length_from_card(self):
         d = TP.card_dims({'Толщина столешницы': '1 см', 'name': 'Стол 160x90 Древесный'})
-        self.assertEqual((d['thickness_cm'], d['length_cm']), (1.0, 160.0))
+        self.assertEqual((d['thickness_cm'], d['length_cm'], d['width_cm']), (1.0, 160.0, 90.0))
 
     def test_millimetres_and_missing(self):
         self.assertEqual(TP.card_dims({'Толщина столешницы': '25 мм'})['thickness_cm'], 2.5)
-        self.assertEqual(TP.card_dims(None), {'thickness_cm': None, 'length_cm': None})
+        self.assertEqual(TP.card_dims(None), {'thickness_cm': None, 'length_cm': None, 'width_cm': None})
+
+
+class PatternClass(unittest.TestCase):
+    def test_polywood_is_planks_on_straight(self):
+        r = TP.card_pattern({'m': 'древесно-полимерный композит (поливуд)'}, RULES)
+        self.assertEqual((r['layout'], r['bin_classes'], r['word']), ('planks', ['straight'], 'поливуд'))
+
+    def test_veneer_solid_ldsp_and_default(self):
+        self.assertEqual(TP.card_pattern({'m': 'Шпон дуба'}, RULES)['layout'], 'none')
+        self.assertEqual(TP.card_pattern({'m': 'массив бука'}, RULES)['bin_classes'], ['straight', 'swirl'])
+        self.assertEqual(TP.card_pattern({'m': 'ЛДСП'}, RULES)['bin_classes'][0], 'flat')
+        d = TP.card_pattern({'m': 'серый'}, RULES)
+        self.assertEqual((d['bin_classes'], d['layout'], d['word']), (['straight'], 'none', None))
+
+    def test_word_start_only(self):
+        self.assertEqual(TP.card_pattern({'m': 'пластик'}, RULES)['word'], None)              # «тик» внутри слова не считается
+
+    def test_bin_filtered_by_pattern_class(self):
+        lib = {'items': {'S': {'lab': [60.0, 8.0, 24.0], 'family': 'wood', 'pattern_class': 'swirl'},
+                         'T': {'lab': [70.0, 8.0, 24.0], 'family': 'wood', 'pattern_class': 'straight'},
+                         'B': {'lab': [60.0, 8.0, 24.0], 'family': 'wood', 'pattern_class': 'blocks'}}}
+        self.assertEqual(TP.library_bin([60.0, 8.0, 24.0], 'library', lib, RULES, 'wood_solid', ['straight'])['bin'], 'T')
+        self.assertEqual(TP.library_bin([60.0, 8.0, 24.0], 'library', lib, RULES, 'wood_solid', ['straight', 'swirl'])['bin'], 'S')
+        self.assertIsNone(TP.library_bin([60.0, 8.0, 24.0], 'library', lib, RULES, 'wood_solid', ['flat'])['bin'])
 
 
 class Library(unittest.TestCase):

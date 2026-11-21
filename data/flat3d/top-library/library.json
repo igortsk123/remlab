@@ -21,7 +21,14 @@
    ],
    "sha256_zip": "2c22b561b8a155c29ff95b0f00a2eca843bc7be6beede75d28b04736ae8abde1",
    "path": "raw/Wood047",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.241,
+    "n_blocks": 1006
+   },
+   "pattern_class": "swirl",
+   "pattern_class_metric": "swirl",
+   "pattern_class_source": "метрика"
   },
   "Wood010": {
    "lab": [
@@ -42,7 +49,14 @@
    ],
    "sha256_zip": "a4df80d16c7821e03a8820c1bd9dd92c24ec1af8b08a1e8d750af811f825a396",
    "path": "raw/Wood010",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.013,
+    "n_blocks": 1020
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Wood069": {
    "lab": [
@@ -63,7 +77,14 @@
    ],
    "sha256_zip": "d69846387b3f88165831a6c4023e3f7e11dd7460e59244c51a2984a6427f1e4a",
    "path": "raw/Wood069",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.0,
+    "n_blocks": 1024
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Wood026": {
    "lab": [
@@ -84,7 +105,14 @@
    ],
    "sha256_zip": "66ce02780f03e68068fb8d1bc7d5797819073d0218c6f83d7ecf310991b30407",
    "path": "raw/Wood026",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.0,
+    "n_blocks": 1021
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Wood033": {
    "lab": [
@@ -105,7 +133,14 @@
    ],
    "sha256_zip": "a66687d79dbb78ddf59a591f464ac114a86ce27ca838b5e29ad10ec785f2eac8",
    "path": "raw/Wood033",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.015,
+    "n_blocks": 860
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Wood016": {
    "lab": [
@@ -126,7 +161,14 @@
    ],
    "sha256_zip": "8ff322dbf48d349fd88d978c34a499e211eaaffed87830d94dbd7eebd2e6a541",
    "path": "raw/Wood016",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.011,
+    "n_blocks": 1017
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Wood052": {
    "lab": [
@@ -147,7 +189,14 @@
    ],
    "sha256_zip": "e228eefd8bd5809034ad6ebbee76aa606452db757fe7c457ec7c90fd7c4034e9",
    "path": "raw/Wood052",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.001,
+    "n_blocks": 1020
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Chipboard006": {
    "lab": [
@@ -168,7 +217,14 @@
    ],
    "sha256_zip": "d073daef61d97ad2db127fd67565a9bff0a31d2437cd838e1c665542376adb5a",
    "path": "raw/Chipboard006",
-   "family": "chipboard"
+   "family": "chipboard",
+   "pattern_metrics": {
+    "swirl_share16": 0.252,
+    "n_blocks": 717
+   },
+   "pattern_class": "flat",
+   "pattern_class_metric": "flat",
+   "pattern_class_source": "метрика"
   },
   "Wood015": {
    "lab": [
@@ -189,7 +245,14 @@
    ],
    "sha256_zip": "3b803a03775306bb52a3632c83de9c9eae8aa83d162eb148454fe87619542630",
    "path": "raw/Wood015",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.02,
+    "n_blocks": 1011
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Wood008": {
    "lab": [
@@ -210,7 +273,14 @@
    ],
    "sha256_zip": "0256333d9eabd2de521bcb91d49f7b183412e1b4a67f79b5327b4a148401578f",
    "path": "raw/Wood008",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.004,
+    "n_blocks": 1021
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Wood051": {
    "lab": [
@@ -231,7 +301,14 @@
    ],
    "sha256_zip": "debf3d60f69a09c30613dc95a94da49c8116160ab8a29f77ac8e32cc33f1a1c3",
    "path": "raw/Wood051",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.008,
+    "n_blocks": 1024
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Wood025": {
    "lab": [
@@ -252,7 +329,14 @@
    ],
    "sha256_zip": "689208b2a7d61f6dd0c941b078ddc2d7252d212cec3f6a3d2622cb61db6960af",
    "path": "raw/Wood025",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.001,
+    "n_blocks": 1014
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Wood041": {
    "lab": [
@@ -273,7 +357,14 @@
    ],
    "sha256_zip": "84dc97abec809e606b21961db07f6ed05d590b71a3a132e34d9db52cae9ed84b",
    "path": "raw/Wood041",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.033,
+    "n_blocks": 986
+   },
+   "pattern_class": "blocks",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "review.json (глаз)"
   },
   "Wood023": {
    "lab": [
@@ -294,7 +385,14 @@
    ],
    "sha256_zip": "944e3eef179ccadda87a223374f717a1b52e23aa816f8f15ef8cd7e413932e7d",
    "path": "raw/Wood023",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.001,
+    "n_blocks": 863
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Wood027": {
    "lab": [
@@ -315,7 +413,14 @@
    ],
    "sha256_zip": "99e7a2ff0b4ead60e9350463b1551223ae5665930cae9f4b7be56d8a03768fbf",
    "path": "raw/Wood027",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.0,
+    "n_blocks": 998
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Wood024": {
    "lab": [
@@ -336,7 +441,14 @@
    ],
    "sha256_zip": "3294d75efdf3b84ff0f9dee0911c04232c891c11e7656ce326e1890bc82fd3af",
    "path": "raw/Wood024",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.002,
+    "n_blocks": 968
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Wood019": {
    "lab": [
@@ -357,7 +469,14 @@
    ],
    "sha256_zip": "4ed9ab409873af5ac624b402599be84386791105df6fdfba3db725b4401ba025",
    "path": "raw/Wood019",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.014,
+    "n_blocks": 1017
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Wood071": {
    "lab": [
@@ -378,7 +497,14 @@
    ],
    "sha256_zip": "9981337f61736bef68ac8abc3889c5791a627d6f517e5c5b1d325d04df74c829",
    "path": "raw/Wood071",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.495,
+    "n_blocks": 888
+   },
+   "pattern_class": "blocks",
+   "pattern_class_metric": "flat",
+   "pattern_class_source": "review.json (глаз)"
   },
   "Wood056": {
    "lab": [
@@ -399,7 +525,14 @@
    ],
    "sha256_zip": "3356cfe9dfcb63c0123413e688a8a2264a84e073fa9150848b53532ea7320bc7",
    "path": "raw/Wood056",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.027,
+    "n_blocks": 624
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Wood028": {
    "lab": [
@@ -420,7 +553,14 @@
    ],
    "sha256_zip": "8e7fb99b09996e4dfd891f2802a542b07d124c53c540a9310d1fd05a2c07af78",
    "path": "raw/Wood028",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.005,
+    "n_blocks": 846
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Wood005": {
    "lab": [
@@ -441,7 +581,14 @@
    ],
    "sha256_zip": "87ec83a27b2af3fddb50cae30e4a74f055138d4454d77f6b12a7546efcb0b069",
    "path": "raw/Wood005",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.0,
+    "n_blocks": 1024
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Wood057": {
    "lab": [
@@ -462,7 +609,14 @@
    ],
    "sha256_zip": "94d33ac4e1a4d02978cc87981f4511dc36912af2e9fe96602b4336a94a2a04ff",
    "path": "raw/Wood057",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.694,
+    "n_blocks": 601
+   },
+   "pattern_class": "flat",
+   "pattern_class_metric": "flat",
+   "pattern_class_source": "метрика"
   },
   "Wood050": {
    "lab": [
@@ -483,7 +637,14 @@
    ],
    "sha256_zip": "22ccc4c3602b1d2965b622ab01d8258adcf180c253702842ce66728d235f3bcc",
    "path": "raw/Wood050",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.002,
+    "n_blocks": 1013
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Wood055": {
    "lab": [
@@ -504,7 +665,14 @@
    ],
    "sha256_zip": "a077f59a93e18e889afadc2375a6785f2a160d097057b69f8607d75f98648078",
    "path": "raw/Wood055",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.667,
+    "n_blocks": 568
+   },
+   "pattern_class": "flat",
+   "pattern_class_metric": "flat",
+   "pattern_class_source": "метрика"
   },
   "Wood002": {
    "lab": [
@@ -525,7 +693,14 @@
    ],
    "sha256_zip": "d6bf03521b562d6fb9899e8f8b61031a049db20cb74147de51f243358717fb7a",
    "path": "raw/Wood002",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.028,
+    "n_blocks": 917
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Wood043": {
    "lab": [
@@ -546,7 +721,14 @@
    ],
    "sha256_zip": "b8f025ea8392460ecb742c9f31e6f725987479a8ccd09a0a283659458224b09f",
    "path": "raw/Wood043",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.032,
+    "n_blocks": 993
+   },
+   "pattern_class": "blocks",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "review.json (глаз)"
   },
   "Wood021": {
    "lab": [
@@ -567,7 +749,14 @@
    ],
    "sha256_zip": "e4a7741c154314390a45acf946e3ca41c77137269c95ef520334243d7999fc82",
    "path": "raw/Wood021",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.003,
+    "n_blocks": 781
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   },
   "Wood018": {
    "lab": [
@@ -588,7 +777,14 @@
    ],
    "sha256_zip": "c0d04a3d1cce48d3458777db8eb41af47456bfff2d82754706f23dff3ef91cf9",
    "path": "raw/Wood018",
-   "family": "wood"
+   "family": "wood",
+   "pattern_metrics": {
+    "swirl_share16": 0.017,
+    "n_blocks": 1009
+   },
+   "pattern_class": "straight",
+   "pattern_class_metric": "straight",
+   "pattern_class_source": "метрика"
   }
  }
 }
