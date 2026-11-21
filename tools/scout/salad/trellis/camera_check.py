@@ -60,8 +60,20 @@ def silhouette_shares(S: np.ndarray, A: np.ndarray, strip_frac: float) -> dict:
     h = y1 - int(rows[0]) + 1
     y0 = max(y1 - max(1, int(round(strip_frac * h))) + 1, 0)
     Sb, Ab = S[y0:y1 + 1], A[y0:y1 + 1]
+    St, At = S[:y0], A[:y0]                                              # верх: всё выше нижней полосы (корпус)
+    un = float((St | At).sum())
+    iou_top = float((St & At).sum()) / un if un else None
     return {'miss': sh(A & ~S, A, S), 'extra': sh(S & ~A, S, A),
-            'miss_bottom': sh(Ab & ~Sb, Ab, Sb), 'extra_bottom': sh(Sb & ~Ab, Sb, Ab), 'strip_rows': [y0, y1]}
+            'miss_bottom': sh(Ab & ~Sb, Ab, Sb), 'extra_bottom': sh(Sb & ~Ab, Sb, Ab), 'iou_top': iou_top, 'strip_rows': [y0, y1]}
+
+
+def bottom_shape_mismatch(shares: dict, coarse: bool, rules: dict) -> bool:
+    """Форма низа не совпадает с фото (ножки: кресло 1167 — на фото два полоза, у формы четыре ножки), а корпус лёг: доли внизу (extra или miss) выше порога, маска фото внизу НЕ грубая,
+    IoU верхней части (выше полосы) ≥ bottom_top_iou_min. Это отдельная причина в check.json (extra.bottom_shape_mismatch): этапы 05/07 не переносят фото на ножки такой формы."""
+    if coarse or shares.get('iou_top') is None:
+        return False
+    low = shares['extra_bottom'] > rules['extra_bottom_max'] or shares['miss_bottom'] > rules['miss_bottom_max']
+    return bool(low and shares['iou_top'] >= rules.get('bottom_top_iou_min', rules['iou_min']))
 
 
 def bottom_mask_quality(rgb: np.ndarray, A: np.ndarray, strip_rows) -> dict:
@@ -157,6 +169,10 @@ def main() -> int:
     coarse_note = 'низ: маска фото грубая (мало пикселей маски в нижней полосе, низкий контраст) — доли внизу шумят, порог под такие не подгонять' if coarse else ''
     if coarse_note:
         reason = reason + '; ' + coarse_note if not ok else reason + ' (' + coarse_note + ')'
+    bsm = bottom_shape_mismatch(shares, coarse, rules)
+    if bsm:
+        reason = 'bottom_shape_mismatch: форма низа не совпадает с фото (ножки), корпус лёг (IoU верха %.3f) — фото на ножки не переносить; ' % shares['iou_top'] + reason
+        ok = False
     if a.view0 and os.path.exists(a.view0):
         rend = np.asarray(Image.open(a.view0).convert('RGB'))
         if rend.shape[:2] != (h, w):
@@ -182,7 +198,8 @@ def main() -> int:
                                   'edge_agree': {'value': round(edge, 4)}},
                          reason=reason if not ok else '', seconds=round(time.time() - t0, 1), outputs=['frame.png'], frame='frame.png',
                          edge_ref_min=rules['edge_ref'], edge_below_ref=bool(edge < rules['edge_ref']), note=reason if ok else '', strip_rows=shares['strip_rows'], strip_frac=rules['strip_frac'],
-                         bottom_mask_coarse=coarse, bottom_mask=bq, unreliable=bool(unrel), unreliable_reason=unrel_why, rules_file='tools/scout/rules/camera-check.json',
+                         bottom_mask_coarse=coarse, bottom_mask=bq, bottom_shape_mismatch=bsm, iou_top=None if shares['iou_top'] is None else round(shares['iou_top'], 4),
+                         bottom_top_iou_min=rules.get('bottom_top_iou_min', rules['iou_min']), unreliable=bool(unrel), unreliable_reason=unrel_why, rules_file='tools/scout/rules/camera-check.json',
                          camera=pose['camera'], yaw=a.yaw if a.yaw is not None else pose.get('yaw'), pairs=None, photo=a.photo, method=reg.get('method'),
                          textured=pose.get('textured'), frame_note='фото 50 % + рендер 50 %; красный контур — рендер формы, зелёный — фото')
     print(f"{'OK ' if res['passed'] else 'НЕТ'} IoU {iou:.3f} miss {shares['miss']:.3f}/{shares['miss_bottom']:.3f} extra {shares['extra']:.3f}/{shares['extra_bottom']:.3f} (всё/низ) кромки {edge:.3f} — {reason}")

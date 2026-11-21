@@ -144,6 +144,32 @@ check('маска не грубая: тёмные ножки → контрас�
 q = CC.bottom_mask_quality(rgb_dark, A, None)
 check('нет полосы → None', q['thin_share'] is None)
 
+# 9б. bottom_shape_mismatch: корпус лёг, ножки формы другие, маска не грубая → причина; грубая маска или плохой корпус → нет
+def chair_photo() -> np.ndarray:
+    m = rect(40, 130, 30, 170)
+    for x in (36, 160):                                                  # на фото две толстые боковые ножки
+        m |= rect(130, 170, x, x + 14)
+    return m
+
+
+Ach = chair_photo()
+S_legs4 = rect(40, 130, 30, 170)
+for x in (36, 80, 112, 160):                                             # у формы четыре ножки, две из них там, где на фото пусто
+    S_legs4 |= rect(130, 175, x, x + 14)
+sh = CC.silhouette_shares(S_legs4, Ach, RULES['strip_frac'])
+check('iou_top считается (корпус совпал, верх ≥ 0,9)', sh['iou_top'] is not None and sh['iou_top'] > 0.9, str(sh['iou_top']))
+check('кресло: extra внизу выше порога', sh['extra_bottom'] > RULES['extra_bottom_max'], str(sh['extra_bottom']))
+check('bottom_shape_mismatch: корпус лёг, ножки не те, маска не грубая → да', CC.bottom_shape_mismatch(sh, False, RULES))
+check('bottom_shape_mismatch: маска грубая → нет', not CC.bottom_shape_mismatch(sh, True, RULES))
+check('bottom_shape_mismatch: идеальные ножки → нет', not CC.bottom_shape_mismatch(CC.silhouette_shares(Ach, Ach, RULES['strip_frac']), False, RULES))
+S_bad_top = np.roll(S_legs4, 40, axis=1)                                 # корпус сдвинут — поза плохая, это не про ножки
+sh2 = CC.silhouette_shares(S_bad_top, Ach, RULES['strip_frac'])
+check('bottom_shape_mismatch: корпус не лёг (IoU верха < порога) → нет', not CC.bottom_shape_mismatch(sh2, False, RULES), str(sh2['iou_top']))
+with tempfile.TemporaryDirectory() as root:
+    chair = e2e('chair', S_legs4, Ach, root)
+    check('e2e кресло: passed=false, bottom_shape_mismatch=true, причина названа', not chair['passed'] and chair['extra']['bottom_shape_mismatch'] is True and 'bottom_shape_mismatch' in chair['reason'], chair['reason'][:120])
+    check('e2e: в check.json есть iou_top и bottom_mask', chair['extra']['iou_top'] is not None and 'bottom_mask' in chair['extra'])
+
 # 10. мультистарт pose_fit: стол с четырьмя ножками, камера на 40°/15°; от стартов MS_AZ × MS_EL находит позу с IoU ≥ 0,9, и оценка лучшего старта выше худшего
 import pose_fit as PF  # noqa: E402
 rng = np.random.default_rng(1)
