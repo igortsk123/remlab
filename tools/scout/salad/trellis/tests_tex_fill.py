@@ -668,6 +668,24 @@ def test_stage6_gate():
         ok(r.get("refused") and c is not None and c["passed"] is False and c["extra"].get("refused") is True and c["outputs"] == [], "run_stage при отказе: check.json passed=false, refused, выхода нет, GLB не читался")
 
 
+def test_cli_run_stage():
+    print("CLI `tex_fill.py run_stage <run> <sku>`: вход из <run>/<sku>/06-visible, выход — 07-fill/check.json в формате paint_stage:")
+    import json
+    import tempfile
+    import paint_stage as PS
+    with tempfile.TemporaryDirectory() as td:
+        v = os.path.join(td, "sku1", "06-visible")
+        os.makedirs(v)
+        json.dump({"version": 1, "stage": "06-visible", "sku": "sku1", "passed": False, "reason": "камера этапа 4 не прошла", "metric": None, "metrics": {}, "outputs": [], "frame": None,
+                   "extra": {"camera_failed": True, "camera_gate": "failed"}}, open(os.path.join(v, "check.json"), "w"))
+        rc = TF.main(["run_stage", td, "sku1"])
+        c = PS.read_check(os.path.join(td, "sku1", "07-fill"))
+        ok(rc == 0 and c is not None and c["stage"] == "07-fill" and c["passed"] is False and c["extra"].get("refused") is True, "этап 6 отказал → rc 0, check.json 07-fill passed=false refused")
+        rc2 = TF.main(["run_stage", td, "нет-такого"])
+        c2 = PS.read_check(os.path.join(td, "нет-такого", "07-fill"))
+        ok(rc2 == 0 and c2 is not None and c2["passed"] is False, "нет выхода этапа 6 → check.json passed=false, не сбой запуска")
+
+
 def test_render_low():
     print('кадр снизу (дно) — elevation −90:')
     q = Quads()
@@ -686,7 +704,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_stage6_gate, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_stage6_gate, test_cli_run_stage, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

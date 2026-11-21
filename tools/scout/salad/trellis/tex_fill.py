@@ -1505,3 +1505,53 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     check = PS.write_check(d, out_name or STAGE, sku, None, dict(metrics['empty_pct'], name='empty_pct'), '', metrics={k: v for k, v in metrics.items() if k != 'empty_pct'}, seconds=secs,
                            outputs=['filled.glb', 'report.json'], frame=PS.FRAME, known_pct=rep['known_pct'], mirrored_pct=rep['mirrored_pct'], empty_before_pct=rep['unpainted_before_pct'], empty_by_view=rep['unpainted_by_view'], steps=rep['steps'], parts=parts_note, source_used=used, source_tried=tried, pattern_metric=rep['pattern_metric'], pattern_src=rep.get('pattern_src'), stage6=s6, quilt_rejected=rep.get('quilt_rejected'))
     return {'check': check, 'report': rep, 'geoms': geoms, 'tex_before': tex_before, 'tex_after': tex_after, 'known': known, 'parts': parts, 'dir': d, 'deltaE': de, 'kback': kback}
+
+
+def load_known_png(visible: str) -> list:
+    """Маски «известно» этапа 6: `known.png`, `known1.png`, … (по геометриям, белое = известно)."""
+    from PIL import Image
+    kn = []
+    for i in range(64):
+        fp = os.path.join(visible, "known.png" if i == 0 else f"known{i}.png")
+        if not os.path.exists(fp):
+            break
+        kn.append(np.asarray(Image.open(fp).convert("L")) > 127)
+    return kn
+
+
+def main(argv: list | None = None) -> int:
+    """CLI этапа 07 в формате paint_stage (обвязка сквозного прогона 01→09):
+      python3 tools/scout/salad/trellis/tex_fill.py run_stage <run> <sku> [--visible <папка 06-visible>] [--parts-npz <parts.npz>] [--cfg <json>] [--no-mirror]
+    Вход по умолчанию: выход этапа 6 `<run>/<sku>/06-visible/{visible.glb, known*.png, check.json}` и части этапа 3 `<run>/<sku>/03-parts/parts.npz` (нет файла — части по геометрии).
+    Выход: `<run>/<sku>/07-fill/{filled.glb, report.json, frame.png, check.json}`. Этап 6 отказал (камера не прошла, нет выхода) — check.json passed=false, refused=true, заливки нет.
+    Код выхода: 0 — этап отработал (прошёл или не прошёл — см. check.json), 2 — сбой запуска (нет входа, исключение)."""
+    import argparse
+    import json
+    import paint_stage as PS
+    ap = argparse.ArgumentParser(prog="tex_fill.py run_stage")
+    ap.add_argument("cmd", choices=["run_stage"])
+    ap.add_argument("run")
+    ap.add_argument("sku")
+    ap.add_argument("--visible", default=None)
+    ap.add_argument("--parts-npz", default=None)
+    ap.add_argument("--cfg", default=None)
+    ap.add_argument("--no-mirror", action="store_true")
+    a = ap.parse_args(argv)
+    base = os.path.join(a.run, PS.safe_name(a.sku))
+    visible = a.visible or os.path.join(base, "06-visible")
+    parts_npz = a.parts_npz or (os.path.join(base, "03-parts", "parts.npz") if os.path.exists(os.path.join(base, "03-parts", "parts.npz")) else None)
+    cfg = dict({"erode_known": 0}, **(json.loads(a.cfg) if a.cfg else {}))      # вход этапа 6: маска «взято с фото» уже честная
+    try:
+        r = run_stage(a.run, a.sku, os.path.join(visible, "visible.glb"), known=load_known_png(visible) or None, cfg=cfg, mirror=not a.no_mirror, parts_npz=parts_npz, prev_dir=visible)
+    except Exception as e:                                                       # noqa: BLE001 — сбой запуска: в check.json, не молча
+        d = PS.stage_dir(a.run, a.sku, STAGE)
+        PS.write_check(d, STAGE, a.sku, False, None, f"сбой этапа 7: {type(e).__name__}: {e}"[:300], outputs=[])
+        print(f"сбой: {type(e).__name__}: {e}", file=sys.stderr)
+        return 2
+    c = r["check"]
+    print(f"07-fill {a.sku}: passed={c['passed']} {c['reason']}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
