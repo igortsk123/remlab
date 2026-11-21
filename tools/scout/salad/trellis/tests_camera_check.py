@@ -170,6 +170,22 @@ with tempfile.TemporaryDirectory() as root:
     check('e2e кресло: passed=false, bottom_shape_mismatch=true, причина названа', not chair['passed'] and chair['extra']['bottom_shape_mismatch'] is True and 'bottom_shape_mismatch' in chair['reason'], chair['reason'][:120])
     check('e2e: в check.json есть iou_top и bottom_mask', chair['extra']['iou_top'] is not None and 'bottom_mask' in chair['extra'])
 
+# 9в. shape_mismatch: лучшие старты сходятся в узком коридоре и IoU низкий → форма, а не поза
+def ms_of(ious) -> dict:
+    return {'ran': True, 'starts': [{'iou': i, 'score': i - 0.2, 'cam': {}} for i in ious]}
+
+
+ok_, info = CC.shape_mismatch(0.71, ms_of([0.70, 0.705, 0.71, 0.69, 0.70, 0.55, 0.30]), RULES)
+check('shape_mismatch: 5 лучших в коридоре, IoU 0,71 < 0,85 → да', ok_ and info['iou_spread'] <= RULES['shape_corridor_eps'], str(info))
+ok_, info = CC.shape_mismatch(0.71, ms_of([0.71, 0.65, 0.60, 0.55, 0.50, 0.40]), RULES)
+check('shape_mismatch: старты разбросаны (не нашли позу) → нет', not ok_, str(info))
+ok_, info = CC.shape_mismatch(0.90, ms_of([0.90, 0.90, 0.89, 0.90, 0.90]), RULES)
+check('shape_mismatch: коридор есть, но IoU ≥ порога → нет', not ok_)
+check('shape_mismatch: мультистарта не было → нет', CC.shape_mismatch(0.5, None, RULES) == (False, {}) and CC.shape_mismatch(0.5, {'ran': False, 'starts': []}, RULES) == (False, {}))
+check('shape_mismatch: стартов меньше shape_top_k → нет', not CC.shape_mismatch(0.5, ms_of([0.5, 0.5]), RULES)[0])
+for k in ('shape_top_k', 'shape_corridor_eps', 'bottom_top_iou_min'):
+    check(f'rules: {k} — число > 0', isinstance(RULES.get(k), (int, float)) and RULES[k] > 0)
+
 # 10. мультистарт pose_fit: стол с четырьмя ножками, камера на 40°/15°; от стартов MS_AZ × MS_EL находит позу с IoU ≥ 0,9, и оценка лучшего старта выше худшего
 import pose_fit as PF  # noqa: E402
 rng = np.random.default_rng(1)

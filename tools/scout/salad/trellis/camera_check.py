@@ -67,6 +67,22 @@ def silhouette_shares(S: np.ndarray, A: np.ndarray, strip_frac: float) -> dict:
             'miss_bottom': sh(Ab & ~Sb, Ab, Sb), 'extra_bottom': sh(Sb & ~Ab, Sb, Ab), 'iou_top': iou_top, 'strip_rows': [y0, y1]}
 
 
+def shape_mismatch(iou: float, ms: dict | None, rules: dict) -> tuple[bool, dict]:
+    """«Форма не совпала с фото, позой не лечится» (стул 13195: все 36 стартов мультистарта сходятся на IoU 0,69–0,71). Признак: мультистарт шёл, `shape_top_k` лучших стартов по оценке лежат в узком коридоре
+    (разброс их IoU силуэта ≤ `shape_corridor_eps`) И итоговый IoU кадра ниже iou_min. Отличает «форму» (много разных поз упираются в один потолок) от «не нашли позу» (старты разбросаны).
+    Мультистарта не было (хороший обычный подбор) → (False, {}). Такие товары — в список на перегенерацию формы."""
+    if not ms or not ms.get('ran') or not ms.get('starts'):
+        return False, {}
+    k = int(rules.get('shape_top_k', 5))
+    top = sorted(ms['starts'], key=lambda s: -s['score'])[:k]
+    if len(top) < k:
+        return False, {}
+    ious = [float(s['iou']) for s in top]
+    spread = max(ious) - min(ious)
+    info = {'top_k': k, 'iou_spread': round(spread, 4), 'iou_best': round(max(ious), 4), 'eps': rules.get('shape_corridor_eps', 0.03)}
+    return bool(spread <= info['eps'] and iou < rules['iou_min']), info
+
+
 def bottom_shape_mismatch(shares: dict, coarse: bool, rules: dict) -> bool:
     """Форма низа не совпадает с фото (ножки: кресло 1167 — на фото два полоза, у формы четыре ножки), а корпус лёг: доли внизу (extra или miss) выше порога, маска фото внизу НЕ грубая,
     IoU верхней части (выше полосы) ≥ bottom_top_iou_min. Это отдельная причина в check.json (extra.bottom_shape_mismatch): этапы 05/07 не переносят фото на ножки такой формы."""
@@ -169,6 +185,11 @@ def main() -> int:
     coarse_note = 'низ: маска фото грубая (мало пикселей маски в нижней полосе, низкий контраст) — доли внизу шумят, порог под такие не подгонять' if coarse else ''
     if coarse_note:
         reason = reason + '; ' + coarse_note if not ok else reason + ' (' + coarse_note + ')'
+    shm, shm_info = shape_mismatch(iou, pose.get('multistart'), rules)
+    if shm:
+        reason = ('shape_mismatch: форма не совпадает с фото, позой не лечится (%d лучших из %d стартов в коридоре IoU %.3f–%.3f) — в список на перегенерацию формы, этап 6 не красит; '
+                  % (shm_info['top_k'], len(pose['multistart']['starts']), shm_info['iou_best'] - shm_info['iou_spread'], shm_info['iou_best'])) + reason
+        ok = False
     bsm = bottom_shape_mismatch(shares, coarse, rules)
     if bsm:
         reason = 'bottom_shape_mismatch: форма низа не совпадает с фото (ножки), корпус лёг (IoU верха %.3f) — фото на ножки не переносить; ' % shares['iou_top'] + reason
@@ -198,7 +219,7 @@ def main() -> int:
                                   'edge_agree': {'value': round(edge, 4)}},
                          reason=reason if not ok else '', seconds=round(time.time() - t0, 1), outputs=['frame.png'], frame='frame.png',
                          edge_ref_min=rules['edge_ref'], edge_below_ref=bool(edge < rules['edge_ref']), note=reason if ok else '', strip_rows=shares['strip_rows'], strip_frac=rules['strip_frac'],
-                         bottom_mask_coarse=coarse, bottom_mask=bq, bottom_shape_mismatch=bsm, iou_top=None if shares['iou_top'] is None else round(shares['iou_top'], 4),
+                         bottom_mask_coarse=coarse, bottom_mask=bq, bottom_shape_mismatch=bsm, shape_mismatch=shm, shape_corridor=shm_info, regen_form=bool(shm), iou_top=None if shares['iou_top'] is None else round(shares['iou_top'], 4),
                          bottom_top_iou_min=rules.get('bottom_top_iou_min', rules['iou_min']), unreliable=bool(unrel), unreliable_reason=unrel_why, rules_file='tools/scout/rules/camera-check.json',
                          camera=pose['camera'], yaw=a.yaw if a.yaw is not None else pose.get('yaw'), pairs=None, photo=a.photo, method=reg.get('method'),
                          textured=pose.get('textured'), frame_note='фото 50 % + рендер 50 %; красный контур — рендер формы, зелёный — фото')
