@@ -35,6 +35,7 @@
     "min_parts": 2,
     "max_parts": 12,
     "min_agreement": 0.6,
-    "agreement_face": 0.7
+    "agreement_face": 0.7,
+    "input_min_texture_std": 3.0
   }
 }

@@ -88,6 +88,18 @@ def sam_masks(model, proc, rgb: np.ndarray, obj_mask: np.ndarray, rules: dict) -
     return keep
 
 
+def input_colour(mesh) -> tuple[bool, float | None]:
+    """Есть ли у входа цветная текстура и каков разброс яркости по её непустым пикселям (0–255)."""
+    tex = getattr(getattr(mesh.visual, "material", None), "baseColorTexture", None)
+    if tex is None:
+        return False, None
+    a = np.array(tex.convert("RGBA"))
+    px = a[a[..., 3] > 127][:, :3].astype(np.float32)
+    if len(px) == 0:
+        return True, 0.0
+    return True, float(px.mean(axis=1).std())
+
+
 def load_view(orbit: str, name: str):
     from PIL import Image
 
@@ -135,6 +147,14 @@ def run(args) -> int:
     if info["faces"] != nf:
         ps.write_check(sdir, "03-parts", args.sku, passed=False, reason=f"число граней Blender {info['faces']} ≠ меша {nf}", seconds=time.time() - t0)
         return 1
+    has_tex, tex_std = input_colour(mesh)
+    ok_in, why_in = pv.colour_verdict(has_tex, tex_std, rules)
+    if not ok_in:                                                        # без цвета SAM2 не запускаем: отказ с причиной, дальше товар не идёт
+        ps.write_check(sdir, "03-parts", args.sku, passed=False, reason=why_in, seconds=time.time() - t0,
+                       metrics={"input_texture_std": {"value": tex_std, "threshold": rules["check"]["input_min_texture_std"], "op": ">=", "ok": False}},
+                       has_texture=has_tex)
+        print(json.dumps({"ok": False, "reason": why_in}, ensure_ascii=False))
+        return 2
     model, proc = load_sam(rules["sam"]["model"])
     names = [v["name"] for v in info["views"]][: args.limit or None]
     regions, viss, weights, frames = [], [], [], []

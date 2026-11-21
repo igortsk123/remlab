@@ -209,6 +209,17 @@ def geometry_overlap(part: np.ndarray, legs: np.ndarray, rules: dict) -> dict:
     return {"roles": roles, "legs_iou": None if iou is None else round(iou, 3), "geometry_legs_faces": int(legs.sum())}
 
 
+def colour_verdict(has_texture: bool, texture_std: float | None, rules: dict) -> tuple[bool, str]:
+    """Годен ли вход по цвету. SAM2 на форме без цвета («глина») идёт за тенями и рвёт столешницу на клинья, а ножки — на отдельные части (T-169: стол, 16 частей, согласие кадров 0,49),
+    поэтому вход без baseColor или с плоской текстурой — отказ этапа, а не «ноль частей»."""
+    if not has_texture:
+        return False, "вход без цвета (нет baseColor): SAM2 по теням рвёт части — нужен родной цвет TRELLIS.2 или покраска"
+    lo = rules["check"]["input_min_texture_std"]
+    if texture_std is None or texture_std < lo:
+        return False, f"текстура входа плоская (разброс яркости {texture_std if texture_std is None else round(texture_std, 1)} < {lo}): цвета для частей нет"
+    return True, "ok"
+
+
 def quality(part: np.ndarray, agree: np.ndarray, seen_any: np.ndarray, rules: dict) -> dict:
     """Мерки этапа 3 для check.json: доля граней с частью, число частей, согласие кадров, доля граней, увиденных хотя бы одним кадром."""
     nf = len(part)

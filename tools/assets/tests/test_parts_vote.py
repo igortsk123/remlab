@@ -104,6 +104,13 @@ class PartsVote(unittest.TestCase):
         empty = pv.quality(np.full(self.nf, -1, dtype=np.int32), np.zeros(self.nf, dtype=np.float32), np.zeros(self.nf, dtype=bool), RULES)
         self.assertFalse(empty["ok"], "пустой результат не проходит")
 
+    def test_colourless_input_is_refused_with_reason(self):
+        self.assertFalse(pv.colour_verdict(False, None, RULES)[0])
+        self.assertIn("без цвета", pv.colour_verdict(False, None, RULES)[1])
+        self.assertFalse(pv.colour_verdict(True, 0.4, RULES)[0], "плоская текстура — отказ")
+        self.assertFalse(pv.colour_verdict(True, None, RULES)[0])
+        self.assertTrue(pv.colour_verdict(True, 40.0, RULES)[0])
+
     def test_rules_have_no_product_ids_and_are_complete(self):
         import json
         raw = json.dumps({k: v for k, v in RULES.items() if not k.startswith("_")})
