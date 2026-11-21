@@ -33,6 +33,8 @@ class Runs(unittest.TestCase):
             for w in v['weights']:
                 self.assertIn(w, cat, f'{var}: нет весов {w}')
             names = [(cat[w][3] or os.path.basename(cat[w][1])) for w in v['weights']]
+            if v.get('job'):                                                              # V2-проба: Blender/GGUF нет, свой граф
+                continue
             self.assertIn(v['unet'], names, f'{var}: имя GGUF в списке сервера ≠ имя файла воркера')
             if v['lora']:
                 self.assertIn(v['lora'], names, f'{var}: имя LoRA в списке сервера ≠ имя файла воркера')
@@ -1000,6 +1002,31 @@ class AlbedoPb1(unittest.TestCase):
         self.assertTrue(c['guard'])
         self.assertIn('mv2_base', S.weights_for([(KEY, 'pb1')]).split(','))
         self.assertNotIn('mv2_base', S.weights_for([(KEY, 'q2509g1')]).split(','))               # другим вариантам +22,5 ГБ не качаем
+
+
+class V2Probe(unittest.TestCase):
+    """T-160/1 (директор 21.11): V2 albedo по вырезкам фото через ComfyUI-граф, без Blender; веса — только V2 (без te/vae Qwen)."""
+
+    def test_weights_only_v2_for_probe_and_mixed_runs_keep_common(self):
+        self.assertEqual(S.weights_for([('a', 'v2probe'), ('b', 'v2probe')]), 'mv2_base,mv2_lora,mv2_vae,mv2_cond')
+        self.assertTrue(S.weights_for([('a', 'v2probe'), ('b', 'q2509g1')]).startswith('te,vae,'))
+
+    def test_graph_matches_addon_one_step_albedo(self):
+        import sg_v2_albedo as V
+        p = V.build_prompt('x.png', 1024, 768)
+        self.assertEqual(p['11']['inputs']['sigmas'], '0.5, 0')
+        self.assertEqual(p['5']['inputs'], {'model': ['4', 0], 'shift': 1.73, 'sampling': 'img_to_img_velocity'})
+        self.assertEqual(p['15']['inputs']['prediction'], 'albedo')
+        self.assertEqual(p['16']['class_type'], 'SaveImage')
+        self.assertEqual((p['3']['inputs']['unet_name'], p['4']['inputs']['lora_name'], p['7']['inputs']['vae_name'], p['6']['inputs']['conditioning_name']),
+                         ('qwen_image_edit_2509_int8_convrot.safetensors', 'marigold_v2_albedo.safetensors', 'marigold_v2_albedo_vae.safetensors', 'marigold_v2_albedo_conditioning.safetensors'))
+
+    def test_proc_size_like_addon(self):
+        import sg_v2_albedo as V
+        self.assertEqual(V.proc_size(800, 600, 1024), (1024, 768))
+        self.assertEqual(V.proc_size(2560, 1188, 1024), (1024, 480))
+        self.assertEqual(V.proc_size(900, 900, 1024), (1024, 1024))
+        self.assertEqual(V.proc_size(3000, 2000, 2048), (2048, 1360))
 
 
 if __name__ == '__main__':
