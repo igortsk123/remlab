@@ -628,6 +628,14 @@ def test_outlier_blocks():
     ok(nrej == 2 and len(keep) == 20, f"отброшены оба блока с пятном, нормальные целы (отброшено {nrej}, осталось {len(keep)})")
     keep0, nrej0 = TF.reject_outlier_blocks(pool, qo["k"], qo["floor"], qo["quantile"])
     ok(nrej0 == 0, f"чистый пул не режется ({nrej0})")
+    qe = TF.RULES["quilt_extreme"]
+    tone_l = 67.0                                                                 # узорная часть: остаток от тона; дерево ножки L≈67
+    pp = [rng.normal(0, 3.0, (24, 24, 3)) for _ in range(20)]
+    blk_black = rng.normal(0, 3.0, (24, 24, 3)); blk_black[4:14, 4:20, 0] = 16.0 - tone_l       # чёрная дыра (L 16)
+    blk_white = rng.normal(0, 3.0, (24, 24, 3)); blk_white[2:12, 2:12, 0] = 28.0                # белый фон на краю фото (светлее тона на 28)
+    branch = rng.normal(0, 3.0, (24, 24, 3)); branch[8:16, 2:22, 0] = -35.0; branch[8:16, 2:22, 1:] += 25.0   # ветка/цветок: темнее и с цветом, не чёрная
+    keep2, nrej2 = TF.reject_extreme_blocks(pp + [blk_black, blk_white, branch], tone_l, qe["dL_hi"], qe["black_abs"], qe["share"])
+    ok(nrej2 == 2 and len(keep2) == 21, f"чёрная дыра и белый фон отброшены, ветка цела (отброшено {nrej2})")
 
 
 def test_stage6_gate():
