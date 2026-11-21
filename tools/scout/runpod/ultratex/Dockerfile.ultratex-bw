@@ -1,0 +1,43 @@
+# ОБРАЗ ПРОБЫ UltraTex ПОД RTX 5090 (Blackwell sm_120, 32 ГБ) — T-20261121-178/1 (владелец TG 841: «запускают и на 16 ГБ»). Тот же воркер и код авторов, что в `Dockerfile.ultratex` (80 ГБ),
+# но база CUDA 12.8.1 / Ubuntu 24.04 / py3.12 / torch 2.8.0 cu128 (как `Dockerfile.trellis2-bw`); веса на карту по очереди — `ULTRATEX_OFFLOAD=swap` в окружении группы (нужно ≥48 ГБ ОЗУ ноды).
+# Разреженное внимание авторов (Triton-ядро SLA, писано под triton 3.1/H100): `ULTRATEX_SPARSE=auto` — воркер проверяет ядро на карте и без него выключает (в /health `sparse`).
+# Собирается на GitHub Actions (`.github/workflows/build-ultratex-trial.yml`, тег `ultratex-bw`), НЕ на pakardev. Веса НЕ в образе (≈36 ГБ, докачка на старте; FLUX.2 — только с токеном HF с принятыми условиями).
+# Лицензии: код UltraTex — MIT; ultratex_core — MIT; SLA — Apache-2.0; moderngl, xatlas, trimesh — MIT/Apache; Mesa — MIT. Веса FLUX.2-klein — FLUX Non-Commercial: ТОЛЬКО эталон для сравнения, не для сайта.
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
+
+ARG ULTRATEX_COMMIT=a726678f3f3631fe2c5e3d1fb4597114784c7a8b
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# 1. системное: Python 3.12 (deadsnakes), git, EGL/Mesa для moderngl (рендер 6 видов без экрана; llvmpipe — запасной путь, NVIDIA EGL — если драйвер его отдаёт)
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git \
+    && apt-get install -y --no-install-recommends python3 python3-venv python3-dev build-essential \
+       libegl1 libegl-mesa0 libgl1 libgl1-mesa-dri libglx-mesa0 libgbm1 libglvnd0 libopengl0 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m venv /opt/venv
+
+ENV PATH=/opt/venv/bin:$PATH \
+    NVIDIA_DRIVER_CAPABILITIES=all \
+    PYOPENGL_PLATFORM=egl \
+    ULTRATEX_DIR=/opt/UltraTex ULTRATEX_ROOT=/workspace/ultratex PORT=8000
+
+# 2. код авторов по закреплённому коммиту
+RUN git clone https://github.com/yiboz2001/UltraTex.git /opt/UltraTex && cd /opt/UltraTex && git checkout ${ULTRATEX_COMMIT}
+
+# 3. torch 2.8.0/cu128 — как в образах TRELLIS.2 под 5090 (`Dockerfile.trellis2-bw`, `Dockerfile.localmesh`: sm_120 там проверен); triton ставится вместе с ним (3.4).
+#    Зависимости ИХ файла — без пинов torch/torchvision/triton (их пины cu124/H100 на Blackwell не идут), без deepspeed/tensorboard
+RUN pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cu128 \
+    && grep -v -E '^(deepspeed|tensorboard|torch|torchvision|triton|--extra-index-url|#)' /opt/UltraTex/requirements.txt | grep -v '^$' > /tmp/req.txt \
+    && pip install -r /tmp/req.txt
+
+# 4. наше: рендер/запекание (moderngl, xatlas, trimesh, scipy), загрузка весов (modelscope), pytest для проверки
+RUN pip install moderngl==5.12.0 xatlas==0.0.9 trimesh==4.5.3 scipy modelscope==1.34.0 pygltflib
+
+# 5. текстовая проверка пакетов и BUILD_INFO (без GPU)
+RUN python -c "import importlib.util as u; names=['torch','triton','accelerate','peft','transformers','einops','safetensors','moderngl','xatlas','trimesh','scipy','modelscope','cv2','skimage']; miss=[n for n in names if u.find_spec(n) is None]; print('нет модулей:', miss); raise SystemExit(1 if miss else 0)" \
+    && { echo "UltraTex ${ULTRATEX_COMMIT}"; python --version; pip freeze; } > /opt/BUILD_INFO_ULTRATEX.txt
+
+COPY ultratex_core /app/ultratex_core
+COPY worker_ultratex.py /app/worker_ultratex.py
+WORKDIR /app
+EXPOSE 8000
+CMD ["python", "/app/worker_ultratex.py"]

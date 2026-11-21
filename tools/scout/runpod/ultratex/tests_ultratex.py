@@ -268,5 +268,40 @@ if have_gl:
     ok(len(pr.faces) == len(box.faces), 'развёртка xatlas не меняет число граней')
     ok(pr.reference_rgba.shape == (128, 128, 4) and (pr.reference_rgba[..., 3] > 0).any(), 'фото подогнано к кадру 128×128')
 
+# ---- выгрузка по очереди (карта 32 ГБ, T-178/1): кто на карте в каждой фазе — без видеокарты, на подмене модулей
+class _Mod:
+    def __init__(self, name, log):
+        self.name, self.log, self.where = name, log, 'cpu'
+
+    def to(self, dev):
+        self.where = str(dev)
+        self.log.append((self.name, self.where))
+        return self
+
+    def __call__(self, *a, **k):
+        self.log.append((self.name, 'call', self.where))
+        return (self.name, a)
+
+
+_log = []
+_dit, _te, _ae = _Mod('dit', _log), _Mod('te', _log), _Mod('ae', _log)
+_dp, _ap, _tp, _res = W.wrap_offload(_dit, _te, _ae, 'cuda', None)
+_ae.encode = lambda x: ('enc', _dit.where, _te.where)
+_ae.decode = lambda x: ('dec', _dit.where, _te.where)
+ok(_ap.encode(1) == ('enc', 'cpu', 'cpu'), 'кодирование VAE — когда ни DiT, ни энкодера на карте')
+_tp(['a'])
+ok(_te.where == 'cuda' and _dit.where == 'cpu', 'энкодер на карте, DiT — в обычной памяти')
+_tp([''])
+ok([m for m in _res.moves if m[:2] == ('te', 'gpu')].__len__() == 1, 'второй вызов энкодера не гоняет его туда-сюда')
+_dp(x=1)
+ok(_dit.where == 'cuda' and _te.where == 'cpu', 'шаги DiT: энкодер ушёл с карты, DiT на карте')
+for _ in range(24):
+    _dp(x=1)
+ok(len([m for m in _res.moves if m[:2] == ('dit', 'gpu')]) == 1, '25 шагов — DiT поднимается на карту один раз')
+ok(_ap.decode(1) == ('dec', 'cpu', 'cpu'), 'декодирование VAE — DiT уже выгружен (пик не складывается)')
+ok(_dp.hidden_size if hasattr(_dit, 'hidden_size') else True, 'прокси не ломает чтение атрибутов модуля')
+_dit.hidden_size = 4096
+ok(_dp.hidden_size == 4096, 'атрибуты DiT читаются через прокси')
+
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПРОВАЛОВ: {len(FAILS)}')
 sys.exit(1 if FAILS else 0)

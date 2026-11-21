@@ -29,6 +29,7 @@ import sys
 import threading
 import time
 import traceback
+import types
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import numpy as np
@@ -38,7 +39,7 @@ sys.path.insert(0, HERE)
 
 log = logging.getLogger('ultratex-worker')
 
-VERSION = 'ultratex-worker-1'
+VERSION = 'ultratex-worker-2'
 ULTRATEX_COMMIT = 'a726678f3f3631fe2c5e3d1fb4597114784c7a8b'     # код авторов (MIT), клонируется в образ
 GRID_ORDER = [[0, 1, 3], [2, 4, 5]]                              # раскладка 2×3 как у авторов (render.GRID_ORDER)
 RESOLUTIONS = (1024, 2048)                                       # разрешение вида; LoRA обучена на 2048 (FLUX.2-ветка)
@@ -219,6 +220,94 @@ class Watchdog:
         return None
 
 
+# ---------------------------------------------------------------- выгрузка по очереди (карта 32 ГБ вместо 80, T-178/1)
+class Residency:
+    """Кто сейчас на карте: DiT (18 ГБ), текстовый энкодер Qwen3-8B (16 ГБ) или никто; VAE (0,4 ГБ) живёт на карте всегда.
+    Порядок задания у авторов: VAE-кодирование → текстовый энкодер (2 вызова) → шаги DiT → VAE-декод. Пока работает одно — второе лежит в обычной памяти.
+    Модели и числа не меняются, только место. Фазовые пики VRAM пишутся в метрики (`phases`)."""
+
+    def __init__(self, dit, te, ae, device, torch_mod=None, clock=time.time):
+        self.mods = {'dit': dit, 'te': te}
+        self.ae, self.device = ae, device
+        self.on_gpu = {'dit': False, 'te': False}
+        self.torch, self.clock = torch_mod, clock
+        self.phases: dict = {}
+        self.moves: list = []
+        self._phase = 'start'
+
+    def _cuda(self) -> bool:
+        return bool(self.torch is not None and self.torch.cuda.is_available())
+
+    def _close_phase(self, name: str) -> None:
+        if self._cuda():
+            peak = self.torch.cuda.max_memory_allocated() / 2 ** 30
+            self.phases[self._phase] = max(self.phases.get(self._phase, 0.0), round(peak, 2))
+            self.torch.cuda.reset_peak_memory_stats()
+        self._phase = name
+
+    def _move(self, name: str, to_gpu: bool) -> None:
+        if self.on_gpu[name] == to_gpu:
+            return
+        t0 = self.clock()
+        self.mods[name].to(self.device if to_gpu else 'cpu')
+        if not to_gpu and self._cuda():
+            self.torch.cuda.empty_cache()
+        self.on_gpu[name] = to_gpu
+        self.moves.append((name, 'gpu' if to_gpu else 'cpu', round(self.clock() - t0, 2)))
+
+    def use(self, name: str) -> None:
+        """name = 'dit' | 'te' | 'ae' (VAE: ни DiT, ни энкодер на карте)."""
+        self._close_phase(name)
+        for other in ('dit', 'te'):
+            if other != name:
+                self._move(other, False)
+        if name in self.mods:
+            self._move(name, True)
+
+    def release_all(self) -> None:
+        for n in ('dit', 'te'):
+            self._move(n, False)
+
+
+class _Proxy:
+    """Передаёт всё модулю, а при вызове сперва ставит его на карту."""
+
+    def __init__(self, res: Residency, name: str):
+        object.__setattr__(self, '_res', res)
+        object.__setattr__(self, '_name', name)
+
+    def __call__(self, *a, **k):
+        self._res.use(self._name)
+        return self._res.mods[self._name](*a, **k)
+
+    def __getattr__(self, attr):
+        return getattr(self._res.mods[self._name], attr)
+
+
+class _AeProxy:
+    """VAE: кодирование и декодирование — только когда ни DiT, ни энкодера на карте (иначе пик = 18 ГБ DiT + VAE-активации 2048²)."""
+
+    def __init__(self, res: Residency):
+        object.__setattr__(self, '_res', res)
+
+    def encode(self, *a, **k):
+        self._res.use('ae')
+        return self._res.ae.encode(*a, **k)
+
+    def decode(self, *a, **k):
+        self._res.use('ae')
+        return self._res.ae.decode(*a, **k)
+
+    def __getattr__(self, attr):
+        return getattr(self._res.ae, attr)
+
+
+def wrap_offload(dit, te, ae, device, torch_mod=None):
+    """→ (dit_proxy, ae_proxy, te_proxy, Residency). ae должен быть уже на карте."""
+    res = Residency(dit, te, ae, device, torch_mod)
+    return _Proxy(res, 'dit'), _AeProxy(res), _Proxy(res, 'te'), res
+
+
 # ---------------------------------------------------------------- модель и задание (нужны GPU и тяжёлые пакеты — только здесь)
 class Engine:
     """Загружает код авторов и модель один раз, потом принимает задания."""
@@ -229,21 +318,53 @@ class Engine:
         self.models = None
 
     def load(self, resolution_hint: int = 2048):
+        """ULTRATEX_OFFLOAD=swap — карта 32 ГБ (веса DiT/энкодера в обычной памяти ≥48 ГБ ОЗУ, на карту по очереди); none (по умолчанию) — всё на карте, 80 ГБ.
+        ULTRATEX_SPARSE=1|0|auto: разреженное внимание авторов (Triton-ядро); auto — проба ядра на карте, не собралось → выключено (в /health `sparse`)."""
         env = weights_env(self.root)
         os.environ.update(env)
         os.environ.setdefault('WANDB_MODE', 'offline')
         sys.path.insert(0, self.upstream)
         os.chdir(self.upstream)
+        import torch
         import inference_flux2 as inf                          # код авторов
         from accelerate import Accelerator
         self.inf = inf
         self.accelerator = Accelerator(mixed_precision='bf16')
         ckpt = os.path.join(self.root, 'checkpoints', 'flux2', 'lora', 'dit_lora.safetensors')
+        sparse_mode = os.environ.get('ULTRATEX_SPARSE', 'auto').lower()
+        self.offload = os.environ.get('ULTRATEX_OFFLOAD', 'none').lower()
         self.args = inf.InferenceArgs(resolution=resolution_hint, decoder_ckpt=os.path.join(self.root, 'checkpoints', 'flux2', 'decoder.pt'),
-                                      resume_from_checkpoint=ckpt, project_dir=os.path.join(self.root, 'out'))
+                                      resume_from_checkpoint=ckpt, project_dir=os.path.join(self.root, 'out'), sparse_attention=sparse_mode != '0')
         self.trainer = inf.get_trainer('albedo')
-        self.models = inf.load_inference_models(self.args, self.accelerator, inf.Path(ckpt), self.trainer)
+        if self.offload == 'swap':
+            host = types.SimpleNamespace(device=torch.device('cpu'))      # load_inference_models берёт у ускорителя только .device: всё грузим в обычную память
+            model, ae, te = inf.load_inference_models(self.args, host, inf.Path(ckpt), self.trainer)
+            ae.to(self.accelerator.device)
+            dit_p, ae_p, te_p, self.residency = wrap_offload(model, te, ae, self.accelerator.device, torch)
+            self.models = (dit_p, ae_p, te_p)
+        else:
+            self.residency = None
+            self.models = inf.load_inference_models(self.args, self.accelerator, inf.Path(ckpt), self.trainer)
+        self.sparse = {'mode': sparse_mode, 'on': sparse_mode != '0', 'note': ''}
+        if sparse_mode == 'auto':
+            self.sparse_probe()
         self.ready = True
+
+    def sparse_probe(self):
+        """Ядро разреженного внимания на карте: маленький вызов. Не собралось (Triton под эту архитектуру) → внимание авторов без разреженности, причина — в /health."""
+        import torch
+        from ultratex.backbones.flux2 import model as M
+        try:
+            q = torch.randn(1, 8, 1024, 128, device=self.accelerator.device, dtype=torch.bfloat16)
+            out = M._SPARSE_ATTENTION(q, q, q)
+            torch.cuda.synchronize()
+            if not bool(torch.isfinite(out).all()):
+                raise RuntimeError('ядро вернуло нечисла')
+            self.sparse.update(on=True, note='проба ядра прошла')
+        except Exception as exc:                               # noqa: BLE001 — любой отказ ядра/компиляции = без разреженности
+            M.configure_sparse_attention(enabled=False)
+            self.sparse.update(on=False, note=f'ядро не собралось, выключено: {type(exc).__name__}: {str(exc)[:160]}')
+            log.warning('разреженное внимание выключено: %s', self.sparse['note'])
 
     def _batch(self, cond: dict):
         import torch
@@ -285,6 +406,14 @@ class Engine:
                                             guidance=p['guidance'], remove_background=True, drop_background_tokens=True, num_steps=p['steps'])
         m['sample_s'] = round(time.time() - t1, 2)
         m['vram_peak_gb'] = round(torch.cuda.max_memory_allocated() / 2 ** 30, 2)
+        m['offload'] = getattr(self, 'offload', 'none')
+        m['sparse'] = getattr(self, 'sparse', {})
+        if getattr(self, 'residency', None) is not None:
+            self.residency.use('ae')                                 # закрыть последнюю фазу и убрать DiT/энкодер с карты до запекания
+            m['vram_phases_gb'] = dict(self.residency.phases)
+            m['offload_moves_s'] = [f'{n}→{w} {t}с' for n, w, t in self.residency.moves]
+            self.residency.phases.clear()
+            self.residency.moves.clear()
         views = tiles_from_grid(np.asarray(result.convert('RGB'), dtype=np.float32) / 255.0, p['resolution'])
         t2 = time.time()
         masks = np.stack([np.asarray(Image.fromarray(prep.normal_rgba[v, ..., 3]).resize((p['resolution'],) * 2, Image.Resampling.BILINEAR)) > 0 for v in range(6)])
@@ -333,7 +462,8 @@ def make_handler(state: State, engine: Engine, wd: Watchdog, stop: threading.Eve
             wd.touch()
             if self.path == '/health':
                 return self._json(200, {'phase': state.phase, 'weights': state.weights, 'error': state.error, 'version': VERSION,
-                                        'uptime_s': round(time.time() - state.t_start), 'busy': state.busy})
+                                        'uptime_s': round(time.time() - state.t_start), 'busy': state.busy,
+                                        'offload': getattr(engine, 'offload', None), 'sparse': getattr(engine, 'sparse', None)})
             parts = self.path.strip('/').split('/')
             if parts[0] == 'result' and len(parts) >= 2:
                 j = state.jobs.get(parts[1])

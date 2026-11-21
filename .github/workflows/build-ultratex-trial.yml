@@ -2,7 +2,7 @@
 # Запускается ТОЛЬКО пушем в ветки `trial/trellis2*` при правке Dockerfile.ultratex, воркера, ultratex_core или этого файла, либо вручную из такой ветки.
 # Что делает: освобождает диск сборщика → собирает `tools/scout/runpod/ultratex/Dockerfile.ultratex` (CUDA 12.4 runtime + Python 3.12 + код авторов по закреплённому коммиту; веса НЕ в образе) →
 # проверки БЕЗ видеокарты внутри образа (импорт воркера и ultratex_core, EGL-контекст moderngl на llvmpipe, тесты воркера) → печатает размер и digest → пушит в GHCR.
-# Куда: `ghcr.io/<владелец>/mesh-ultratex-trial:ultratex-trial` (тот же способ, что у supratex; при 403 — привязать пакет к репо или пуш личным токеном).
+# Куда: `ghcr.io/<владелец>/mesh-ultratex-trial:ultratex-bw` (5090; прежний тег ultratex-trial — образ 80 ГБ, не трогаем; тот же способ, что у supratex; при 403 — привязать пакет к репо или пуш личным токеном).
 # Боевые группы не затрагивает. Деплоя нет. RunPod тянет образ отсюда (пакет должен быть доступен поду: публичный или с реквизитами реестра в теле пода).
 name: build-ultratex-trial
 
@@ -23,7 +23,7 @@ permissions:
   packages: write
 
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/mesh-ultratex-trial:ultratex-trial
+  IMAGE: ghcr.io/${{ github.repository_owner }}/mesh-ultratex-trial:ultratex-bw
   CTX: tools/scout/runpod/ultratex
 
 jobs:
@@ -49,7 +49,7 @@ jobs:
       - name: Сборка
         run: |
           set +e
-          docker build --progress=plain -f "$CTX/Dockerfile.ultratex" -t "$IMAGE" "$CTX" > build.log 2>&1
+          docker build --progress=plain -f "$CTX/Dockerfile.ultratex-bw" -t "$IMAGE" "$CTX" > build.log 2>&1
           rc=$?
           tail -40 build.log
           if [ "$rc" -ne 0 ]; then
