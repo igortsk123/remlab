@@ -14,6 +14,7 @@
   python3 paint_funnel.py                              # два прогона по умолчанию: ~/remlab-logs/e2e30-1121 (первый) и ~/remlab-logs/e2eHD-1121
   python3 paint_funnel.py <прогон> [<прогон> …]        # любые другие; сравнение — первого со вторым
   python3 paint_funnel.py --repo <путь к репо> …       # откуда брать paint_check и правила (по умолчанию первое найденное из списка REPOS)
+  python3 paint_funnel.py --union <прогон> <прогон> …    # все прогоны вместе как один набор (для двух партий одного пути)
   python3 paint_funnel.py --json out.json …            # то же машинно (для сверки до/после влития правила)
 Код возврата 0."""
 import argparse
@@ -182,6 +183,7 @@ def main(argv):
     ap.add_argument('runs', nargs='*', help='папки прогонов; сравнение — первого со вторым')
     ap.add_argument('--repo')
     ap.add_argument('--json')
+    ap.add_argument('--union', action='store_true', help='посчитать все прогоны вместе как один набор товаров (повтор sku — берётся из первого прогона, где он есть)')
     a = ap.parse_args(argv)
     runs = [os.path.expanduser(r).rstrip('/') for r in (a.runs or RUNS)]
     PC, PS, rules, repo = load_pc(a.repo)
@@ -196,7 +198,13 @@ def main(argv):
         res.append((label, per, stages))
         print('\n'.join(funnel_text(label, r, stages, per)) + '\n')
         dump[label] = {s: [{k: x[k] for k in ('stage', 'status', 'reason')} for x in rows] for s, rows in per.items()}
-    if len(res) >= 2:
+    if a.union and len(res) >= 2:
+        merged = {}
+        for _l, per, _st in res:
+            for sku, rows in per.items():
+                merged.setdefault(sku, rows)
+        print('\n'.join(funnel_text('вместе ' + '+'.join(x[0] for x in res), 'union', res[0][2], merged)) + '\n')
+    if len(res) >= 2 and not a.union:
         print('\n'.join(compare_text(res[0][0], res[0][1], res[1][0], res[1][1], res[0][2])))
     if a.json:
         json.dump(dump, open(a.json, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
