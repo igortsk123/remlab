@@ -792,20 +792,29 @@ def test_stage7_side_tone_smooth_rules():
 
 
 def test_tone_from_neighbour():
-    print("тон по случайным кусочкам известного → тон соседней части той же роли с наибольшей границей:")
+    print("иерархия тона части: своя → донор той же роли (совместимый тон) → каталог → не красить; global через материал — нет:")
     roles = {0: 'body', 1: 'body', 2: 'body', 3: 'legs'}
-    known = {0: 5000, 1: 30, 2: 4000, 3: 4000}
-    total = {0: 10000, 1: 10000, 2: 10000, 3: 10000}
-    borders = {(0, 1): 40, (1, 2): 90, (1, 3): 500}
-    d = TF.tone_donor(1, roles, known, total, borders, 0.02, 50)
-    ok(d == 2, f"часть 1 (известного 0,3 %) берёт тон соседа той же роли с большей границей (2, не дерево 3 и не 0): {d}")
-    ok(TF.tone_donor(0, roles, known, total, borders, 0.02, 50) is None, "хватает известного — тон свой")
-    ok(TF.tone_donor(1, {}, known, total, borders, 0.02, 50) is None, "ролей нет — правило молчит")
-    ok(TF.tone_donor(1, roles, known, total, {(1, 3): 500}, 0.02, 50) is None, "нет соседа той же роли — тон свой")
-    ok(TF.tone_donor(1, roles, known, total, borders, 0.0, 50) is None, "порог 0 — правило выключено")
+    c = dict(TF.FILL, min_known=50, part_role=roles)
+    tones = {0: (88, 1, 3), 1: (88, 1, 3), 2: (88, 1, 3), 3: (72, 4, 20)}
+    pids = [0, 1, 2, 3]
+    kc, tot = {0: 5000, 1: 30, 2: 4000, 3: 4000}, {p: 10000 for p in pids}
+    fg = {0: False, 1: True, 2: False, 3: False}
+    bor = {(0, 1): 40, (1, 2): 90, (1, 3): 500}
+    r = TF.choose_tone_sources(pids, roles, kc, tot, fg, tones, bor, c)
+    ok(r[1]['source'] == 'donor' and r[1]['donor'] == 2, f"часть 1 (известного 30 < min_known) берёт донора той же роли с большей границей (2, не дерево 3): {r[1]}")
+    ok(r[0]['source'] == 'own' and r[3]['source'] == 'own', "хватает известного — тон свой")
+    ok(TF.choose_tone_sources(pids, {}, kc, tot, fg, tones, bor, c)[1]['source'] == 'global_legacy', "ролей нет (нет этапа 3) — прежнее поведение, global")
+    r2 = TF.choose_tone_sources(pids, roles, kc, tot, fg, tones, {(1, 3): 500}, c)
+    ok(r2[1]['source'] == 'skip', f"нет соседа той же роли → не красить (не global через материал): {r2[1]}")
+    r3 = TF.choose_tone_sources(pids, roles, kc, tot, fg, tones, {(1, 3): 500}, dict(c, catalog_tone={'body': (90, 0, 0)}))
+    ok(r3[1]['source'] == 'catalog', "нет донора, есть каталожный тон роли — каталог")
+    kc2, fg2 = {**kc, 1: 3000}, {**fg, 1: False}
+    r4 = TF.choose_tone_sources(pids, roles, kc2, tot, fg2, {**tones, 1: (72, 4, 20)}, bor, dict(c, tone_known_min_share=0.5, tone_compat_de=10.0))
+    ok(r4[1]['source'] != 'donor' and r4[1].get('rejected'), f"свой видимый тон (известного 3000) несовместим с донором (ΔE > порога) — донор отвергнут: {r4[1]}")
+    ok(r4[1]['source'] == 'own_weak', "свой тон есть, донора нет — свой слабый (не skip)")
     g, parts, kn, tl, col = scene_parts()
     r = TF.fill([g], kn, parts, cfg={"gutter": 0, "erode_known": 0, "tone": "median", "src_dev_pattern": 0, "part_role": {0: "body", 1: "body"}}, mirror=False)['report']
-    ok('tone_from_neighbour' in r, "отчёт: tone_from_neighbour записан, заливка не падает")
+    ok('tone_source' in r and 'tone_skipped_parts' in r, "отчёт: tone_source по частям и tone_skipped_parts записаны, заливка не падает")
 
 
 def test_pr_camera_and_winding():

@@ -100,6 +100,8 @@ FILL = {
     'smooth_roles': ['legs', 'frame', 'handles'],   # роли без плитки фактуры на недостроенном: тон части без блоков («ёлочка» стыков на дереве, Sakura 21.11)
     'tone_share_roles': ['legs', 'frame', 'handles'],   # роли, у которых тон един на все части одной роли (один материал — один тон: задние ножки темнее передних из-за теней)
     'tone_known_min_share': 0.02,    # часть с ролью этапа 3, у которой известного < этой доли её текселей: её тон — по случайным кусочкам (накладка подлокотника: известны торцы-дерево, тон вышел «песочным»); берёт тон соседней части ТОЙ ЖЕ роли с наибольшей общей границей
+    'tone_compat_min_known': 1500, 'tone_compat_de': 25.0,   # донор той же роли: если у части известного ≥ порога — её видимый тон не должен отличаться от донора больше ΔE (иначе донор отвергнут)
+    'catalog_tone': None, 'skip_global_tone': True,          # каталожный тон роли {роль: Lab}; часть с ролью без своего тона и без донора/каталога НЕ красится (не тон всего товара)
     'quilt_jump_max': 0.5,           # неузорная часть: скачок на швах плитки (jump_L) выше — плитка не кладётся, тон части (швы заметны)
     'part_class': None,              # trellis_relief: {часть: роль/семья из этапа 3} (run_stage --part-roles); нет — ворота только по однородности известного
 }
@@ -856,16 +858,25 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         for p in mem:
             stat[p] = (tone, stat[p][1], stat[p][2], False)
         rep['tone_shared'][role] = {'parts': [int(p) for p in mem], 'tone': [round(float(x), 2) for x in tone], 'known': int(len(Lp))}
-    rep['tone_from_neighbour'] = {}
-    if c.get('tone_known_min_share', 0) > 0 and (c.get('part_role') or {}):               # тон по случайным кусочкам известного → тон соседней части той же роли
+    rep['tone_from_neighbour'], rep['tone_source'], skip_parts = {}, {}, set()
+    if c.get('part_role'):                                       # иерархия источника тона части: своя → донор той же роли (совместимый тон) → каталог → не красить
         tot_ = {p: int(sum(int((tx.part == p).sum()) for tx in txs)) for p in part_ids}
-        kc_ = {p: int(stat[p][2]) if not stat[p][3] else 0 for p in part_ids}
-        bor_ = part_borders(txs)
+        kc_ = {p: int(stat[p][2]) for p in part_ids}
+        fg_ = {p: bool(stat[p][3]) for p in part_ids}
+        info_ = choose_tone_sources(part_ids, c['part_role'], kc_, tot_, fg_, {p: stat[p][0] for p in part_ids}, part_borders(txs), c)
         for p in part_ids:
-            q = tone_donor(p, c['part_role'], kc_, tot_, bor_, c['tone_known_min_share'], int(c['min_known']))
-            if q is not None:
+            i_ = info_[p]
+            rep['tone_source'][int(p)] = dict(i_, known=kc_[p], texels=tot_[p])
+            if i_['source'] == 'donor':
+                q = i_['donor']
                 stat[p] = (stat[q][0], stat[q][1], stat[p][2], False)
                 rep['tone_from_neighbour'][int(p)] = {'donor': int(q), 'known': kc_[p], 'texels': tot_[p], 'tone': [round(float(x), 2) for x in stat[q][0]]}
+            elif i_['source'] == 'catalog':
+                role = c['part_role'].get(p, c['part_role'].get(str(p)))
+                stat[p] = (np.asarray(c['catalog_tone'][role], float), stat[p][1], stat[p][2], False)
+            elif i_['source'] == 'skip':
+                skip_parts.add(p)
+    rep['tone_skipped_parts'] = sorted(int(p) for p in skip_parts)
     dshift = None
     if c['source'] == 'trellis':                     # перенос статистики Lab: черновик части → видимое фото той же части (медиана и разброс по каналам)
         dshift = []
@@ -1319,6 +1330,8 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
         new = lab2rgb(out_lab[gi].reshape(-1, 3)[tx.ti])
         new = np.where((new.max(axis=1) <= BLACK_MAX)[:, None], np.maximum(new, BLACK_MAX + 1), new)    # тёмное — не «чёрное непокрашенное»: сторож охвата считает ≤ порога дырой
         keepk = kn_keep[gi].reshape(-1)[tx.ti]
+        if skip_parts:                                                  # часть с ролью без тона (не тон всего товара) не красится: остаётся как на входе, пометка в отчёте
+            keepk = keepk | (np.isin(tx.part, sorted(skip_parts)) & ~mirrored[gi].reshape(-1)[tx.ti])
         rgb.reshape(-1, 3)[tx.ti[~keepk]] = new[~keepk]
         occ = np.zeros((T, T), bool)
         occ.reshape(-1)[tx.ti] = True
@@ -1599,21 +1612,44 @@ def part_borders(txs: list) -> dict:
     return out
 
 
-def tone_donor(p: int, roles: dict, known_cnt: dict, total: dict, borders: dict, min_share: float, min_known: int):
-    """Часть p с ролью, но слишком малым известным (< min_share своих текселей): донор тона — соседняя часть ТОЙ ЖЕ роли с надёжным тоном и наибольшей общей границей; нет — None."""
-    role = roles.get(p, roles.get(str(p)))
-    if role is None or min_share <= 0 or known_cnt[p] >= min_share * total[p]:
-        return None
-    best, bn = None, 0
-    for (a, b), n in borders.items():
-        if p not in (a, b):
+def choose_tone_sources(part_ids, roles: dict, known_cnt: dict, total: dict, from_global: dict, tones: dict, borders: dict, c: dict) -> dict:
+    """Иерархия источника тона части (Codex 21.11, T-164): своя часть → та же роль И совместимый видимый тон (ΔE к известным текселям части, если их достаточно) → каталожный тон роли (`catalog_tone`) → НЕ красить.
+    Тон ВСЕГО товара (`stats_from_global`) через границу материала не берётся: часть с ролью и без своего тона (известного < min_known) — `skip` (пометка в отчёте), а не global. Частям без роли (нет этапа 3 — материал неизвестен) прежнее поведение (`global_legacy`).
+    → {p: {'source': own|own_weak|donor|catalog|skip|global_legacy, 'donor', 'de', 'rejected': [(q, ΔE)]}}."""
+    mk, ms = int(c['min_known']), float(c.get('tone_known_min_share') or 0.0)
+    role_of = lambda p: roles.get(p, roles.get(str(p)))  # noqa: E731
+    reliable = {p: (not from_global[p]) and known_cnt[p] >= max(mk, ms * total[p]) for p in part_ids}
+    out = {}
+    for p in part_ids:
+        role = role_of(p)
+        if role is None or not roles:
+            out[p] = {'source': 'global_legacy' if from_global[p] else 'own'}
             continue
-        q = b if a == p else a
-        if roles.get(q, roles.get(str(q))) != role or known_cnt[q] < max(min_known, min_share * total[q]):
+        if reliable[p]:
+            out[p] = {'source': 'own'}
             continue
-        if n > bn:
-            best, bn = q, n
-    return best
+        cands = sorted(((n, (b if a == p else a)) for (a, b), n in borders.items() if p in (a, b) and role_of(b if a == p else a) == role), reverse=True)
+        picked, rej = None, []
+        for n, q in cands:
+            if not reliable[q]:
+                continue
+            de = None
+            if not from_global[p] and known_cnt[p] >= int(c.get('tone_compat_min_known', 1500)):          # свой видимый тон достаточно надёжен, чтобы проверить совместимость
+                de = float(TC.de2000_v(np.asarray(tones[p], float)[None], np.asarray(tones[q], float)[None])[0])
+                if de > float(c.get('tone_compat_de', 25.0)):
+                    rej.append((int(q), round(de, 1)))
+                    continue
+            picked = (q, de)
+            break
+        if picked is not None:
+            out[p] = {'source': 'donor', 'donor': int(picked[0]), 'de': None if picked[1] is None else round(picked[1], 1), 'rejected': rej}
+        elif (c.get('catalog_tone') or {}).get(role) is not None:
+            out[p] = {'source': 'catalog', 'rejected': rej}
+        elif from_global[p] and c.get('skip_global_tone', True):
+            out[p] = {'source': 'skip', 'rejected': rej}
+        else:
+            out[p] = {'source': 'own_weak' if not from_global[p] else 'global_legacy', 'rejected': rej}
+    return out
 
 
 def pattern_side_ok(normals: np.ndarray, az_deg: float, cos_min: float | None, el_deg: float = 0.0) -> np.ndarray:
