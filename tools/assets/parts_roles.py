@@ -160,6 +160,9 @@ def assign_roles(features: dict[int, dict], rules: dict, product_role: str | Non
     gc = rules["decision"].get("group_consistency", {})
     if gc.get("enabled"):
         _group_consistency(features, out, gc, rules)
+    ua = rules["decision"].get("unseen_adopt", {})
+    if ua.get("enabled"):
+        _unseen_adopt(features, out, ua)
     return out
 
 
@@ -216,6 +219,28 @@ def _leg_rescue(features: dict[int, dict], out: dict[int, dict], grp: dict, lr: 
             out[p] = {"role": role, "role_title": rd["titleRu"], "material_channel": rd.get("material_channel"), "role_conf": rc["matched"],
                       "role_why": f"ножка вместе со стойкой (одно дерево): тонкая, стоит на полу, касается тела, в его объёме {f['body_overlap']:.0%}, высота до {f['up_q90']}; ножки у предмета уже есть",
                       "unknown_reason": None}
+
+
+def _unseen_adopt(features: dict[int, dict], out: dict[int, dict], ua: dict) -> None:
+    """НЕВИДИМАЯ ЧАСТЬ БЕРЁТ РОЛЬ СОСЕДА (T-169, розовые пятна Sakura HD: части 5 и 7 — ни одна камера их не видит, голосов нет).
+    Часть с причиной из `from_reasons` (unreliable; tiny не в счёт) и видимостью seen ≤ `max_seen` получает роль соседней части с НАИБОЛЬШЕЙ общей границей,
+    если у соседа роль известна и его доля границы ≥ `min_share`. Соседа выбираем по итоговым ролям после остальных правил (за один проход, цепочек нет).
+    Видимая часть с неясной ролью сюда не попадает: невидимость — причина, по которой голосам верить нечему, а не признак «не знаем, что это»."""
+    snap = {p: dict(o) for p, o in out.items()}
+    for p, o in snap.items():
+        f = features[p]
+        if o["unknown_reason"] not in ua["from_reasons"] or (f.get("seen") or 0.0) > ua["max_seen"]:
+            continue
+        sh = f.get("shared_faces") or {}
+        tot = sum(sh.values())
+        if not tot:
+            continue
+        q = max(sh, key=lambda k: sh[k])
+        if snap[q]["role"] == "unknown" or sh[q] / tot < ua["min_share"]:
+            continue
+        out[p] = {**snap[q], "role_conf": min(snap[q]["role_conf"], ua["role_conf"]),
+                  "role_why": f"невидимая часть (seen={f.get('seen')}, голосов нет) берёт роль соседа {q} с наибольшей общей границей ({sh[q] / tot:.0%} её границы)",
+                  "unknown_reason": None}
 
 
 def _group_consistency(features: dict[int, dict], out: dict[int, dict], gc: dict, rules: dict) -> None:

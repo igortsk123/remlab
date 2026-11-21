@@ -156,6 +156,12 @@ def part_features(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, kin
         for a, b in set(zip(pa[pa != pb].tolist(), pb[pa != pb].tolist())):
             if a >= 0 and b >= 0:
                 contacts[a].add(b)
+    shared: dict[int, dict[int, int]] = {p: {} for p in ids}                  # длина общей границы в парах граней: p → {сосед: число}
+    if adj is not None:
+        diff = pa != pb
+        for a, b in zip(pa[diff].tolist(), pb[diff].tolist()):
+            if a >= 0 and b >= 0:
+                shared[a][b] = shared[a].get(b, 0) + 1
     trees = {}
     for p in ids:
         vp = vertices[faces[part == p]].reshape(-1, 3)
@@ -179,6 +185,7 @@ def part_features(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, kin
     for p in ids:
         f = out[p]
         f["contacts"] = sorted(contacts[p])
+        f["shared_faces"] = shared[p]
         f["contacts_main"] = largest in contacts[p]
         f["floor_contact"] = f["up_min"] <= floor_eps
         f["supports_near_body"] = bool(p != largest and f["floor_near"] and f["contacts_main"] and main_up_min > floor_eps)

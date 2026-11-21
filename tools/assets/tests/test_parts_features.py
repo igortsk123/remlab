@@ -365,6 +365,43 @@ class LegWood(unittest.TestCase):
         self.assertEqual((r["role"], r["unknown_reason"]), ("unknown", "unreliable"))
 
 
+class UnseenAdopt(unittest.TestCase):
+    """unseen_adopt: часть, которой не видит ни одна камера (seen≈0, unreliable), берёт роль соседа с наибольшей общей границей — только при явном перевесе."""
+    ua = pr.load_rules()["decision"]["unseen_adopt"]
+
+    @staticmethod
+    def role(r, conf=0.8, why=None):
+        return {"role": r, "role_title": r, "material_channel": None, "role_conf": conf, "role_why": "", "unknown_reason": why}
+
+    def case(self, shared, seen=0.0, reason="unreliable", neighbor_roles=("body", "legs")):
+        ft = {0: {"seen": 0.9, "shared_faces": {1: sum(shared.values())}},
+              1: {"seen": seen, "shared_faces": dict(zip((0, 2), shared.values()))},
+              2: {"seen": 0.9, "shared_faces": {1: 5}}}
+        out = {0: self.role(neighbor_roles[0]), 1: self.role("unknown", 0.0, reason), 2: self.role(neighbor_roles[1])}
+        pr._unseen_adopt(ft, out, self.ua)
+        return out
+
+    def test_adopts_role_of_dominant_neighbor(self):
+        o = self.case({0: 90, 2: 10})
+        self.assertEqual((o[1]["role"], o[1]["unknown_reason"]), ("body", None))
+        self.assertLessEqual(o[1]["role_conf"], self.ua["role_conf"])
+        self.assertIn("сосед", o[1]["role_why"])
+
+    def test_even_split_is_not_adopted(self):
+        self.assertEqual(self.case({0: 51, 2: 49})[1]["role"], "unknown")        # 51/49 — перевеса нет
+
+    def test_visible_or_tiny_or_unknown_neighbor_is_untouched(self):
+        self.assertEqual(self.case({0: 90, 2: 10}, seen=0.5)[1]["role"], "unknown")   # видимую часть голоса уже оценили
+        self.assertEqual(self.case({0: 90, 2: 10}, reason="tiny")[1]["unknown_reason"], "tiny")
+        self.assertEqual(self.case({0: 90, 2: 10}, neighbor_roles=("unknown", "legs"))[1]["role"], "unknown")   # сосед сам без роли
+
+    def test_shared_faces_is_symmetric(self):
+        v, f, part = table()
+        ft = feats(v, f, part, {0: "body", 1: "thin", 2: "thin", 3: "thin", 4: "thin"})
+        for p, q in ((0, 1), (0, 2), (1, 2)):
+            self.assertEqual(ft[p]["shared_faces"].get(q, 0), ft[q]["shared_faces"].get(p, 0))
+
+
 class RulesFile(unittest.TestCase):
     def test_no_product_ids_and_known_types(self):
         import json
