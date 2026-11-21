@@ -878,6 +878,9 @@ def test_borrow_donors():
     ok(TF.borrow_donors([1], [0], tones, roles, {1}, 6.0) == {}, "сама часть из «плохих» не берёт")
     ok(TF.borrow_donors([1], [0], {0: tones[0]}, roles, set(), 6.0) == {}, "нет своего тона у части — не берёт")
     ok(TF.borrow_donors([1], [0, 4], tones, roles, set(), 0.5) == {}, "порог тона строже расстояния — не берёт")
+    tones2 = {1: [70, 2, 4], 0: [70.3, 2, 4], 4: [72, 2, 5]}
+    ok(TF.borrow_donors([1], [0, 4], tones2, {0: 'body', 1: 'body', 4: 'body'}, set(), 6.0)[1] == 0, "без границ — ближайший по тону (ч.0)")
+    ok(TF.borrow_donors([1], [0, 4], tones2, {0: 'body', 1: 'body', 4: 'body'}, set(), 6.0, {(1, 4): 120})[1] == 4, "общая граница важнее близости тона (берёт ч.4, соседнюю)")
 
 
 def test_pr_camera_and_winding():

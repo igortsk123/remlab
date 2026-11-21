@@ -101,6 +101,8 @@ FILL = {
     'tone_share_roles': ['legs', 'frame', 'handles'],   # роли, у которых тон един на все части одной роли (один материал — один тон: задние ножки темнее передних из-за теней)
     'relief_calib_donor': False,     # Ш6 вариант 2: часть без своего фото берёт калибровку рельефа TRELLIS (σ/p95 чистой ткани) у донора тона той же роли; по умолчанию выкл. (без него рельеф у таких частей = stat)
     'borrow_texture': False,         # Ш6 вариант 1: часть без чистых блоков (нет квилта/блока) берёт микрофактуру у части ТОЙ ЖЕ материальной зоны (роль и тон близки, не узорная); по умолчанию выкл.
+    'borrow_luma_only': True,        # заимствованный лоскут даёт только яркость (a/b — нет): цвет остаётся тоном части
+    'borrow_rescale': True,          # заимствованный лоскут читается в масштабе поверхности: шаг текселя части ÷ шаг текселя донора
     'borrow_max_de': 6.0,            # …тон (Lab, евклид) донорской части ближе этого
     'nail_twins': True,              # мелкие тёмные компактные пятна (шляпки гвоздей) невидимой стороны: цвет — как у видимых двойников этой части с фото, форма — нативная (ряд гвоздей сзади не стирается тоном ткани)
     'nail_dark_drop': 25.0,          # пятно темнее тона части на столько L
@@ -1290,14 +1292,26 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
                 rep['quilt'] = rep.get('quilt', 0) + 1
             else:
                 rep['no_patch'] += 1
+    borrow_ratio = {}
     if c.get('borrow_texture'):
         tones_ = {int(q): np.asarray(stat[q][0], float) for q in part_ids if not stat[q][3]}
         need_ = [q for q in part_ids if q not in patches]
-        bd = borrow_donors(need_, [q for q in part_ids if q in rep.get('quilt_info', {})], tones_, {int(q): roles_.get(q, roles_.get(str(q))) for q in part_ids}, set(skip_parts) | set(pat_parts), float(c['borrow_max_de']))
+        bd = borrow_donors(need_, [q for q in part_ids if q in rep.get('quilt_info', {})], tones_, {int(q): roles_.get(q, roles_.get(str(q))) for q in part_ids}, set(skip_parts) | set(pat_parts), float(c['borrow_max_de']), part_borders(txs))
         for q, d_ in bd.items():
             patches[q] = patches[d_]
             patch_gain[q] = patch_gain.get(d_, 1.0)
         rep['borrowed'] = {int(q): int(d_) for q, d_ in bd.items()}
+        if bd:
+            sp_all = [texel_spacing(tx) for tx in txs]
+
+            def _msp(pp):
+                v = np.concatenate([sp_all[gi][tx.part == pp] for gi, tx in enumerate(txs)] or [np.zeros(0)])
+                return float(np.median(v)) if len(v) else 0.0
+            borrow_ratio = {int(q): (float(np.clip(_msp(q) / _msp(d_), 0.25, 4.0)) if _msp(q) > 0 and _msp(d_) > 0 else 1.0) for q, d_ in bd.items()}
+            bb_ = part_borders(txs)
+            rep['borrowed_info'] = {int(q): {'donor': int(d_), 'adjacent': bool(bb_.get((min(q, d_), max(q, d_)), 0) > 0), 'ratio': round(borrow_ratio[int(q)], 3)} for q, d_ in bd.items()}
+        else:
+            borrow_ratio = {}
     rep['texture_src'] = {int(p): ('borrow' if p in rep.get('borrowed', {}) else 'quilt' if p in rep.get('quilt_info', {}) else ('patch' if p in patches else 'none')) for p in part_ids}      # чем даётся фактура на каждой части: квилт из чистых блоков / один блок / ничем (гладко, счётчик no_patch)
     relief = None
     if c['source'] == 'trellis_relief':
@@ -1331,10 +1345,15 @@ def fill(geoms: list, known: list, parts: list | None = None, cfg: dict | None =
             ox1, oy1 = rng.randint(0, Bp, 2)
             ox2, oy2 = rng.randint(0, Bp, 2)
             t2 = np.rot90(tile)
-            r1 = tile[(py[sel] + oy1) % Bp, (px[sel] + ox1) % Bp]
-            r2 = t2[(py[sel] * 3 // 2 + oy2) % Bp, (px[sel] * 3 // 2 + ox2) % Bp]
+            qx_, qy_ = px[sel], py[sel]
+            if p in borrow_ratio and c.get('borrow_rescale', True):                                  # лоскут донора — в масштабе поверхности (физический размер зерна тот же)
+                qx_, qy_ = (qx_ * borrow_ratio[p]).astype(np.int64), (qy_ * borrow_ratio[p]).astype(np.int64)
+            r1 = tile[(qy_ + oy1) % Bp, (qx_ + ox1) % Bp]
+            r2 = t2[(qy_ * 3 // 2 + oy2) % Bp, (qx_ * 3 // 2 + ox2) % Bp]
             gain = float(np.clip(patch_gain[p], c['gain_min'], c['gain_max']))
             add[sel] = gain * (r1 + r2) / np.sqrt(2.0) if p not in raw_mean else r1                  # узорная: узор из фото целиком (отклонение от тона), без смешения двух сдвигов
+            if p in borrow_ratio and c.get('borrow_luma_only', True):
+                add[sel, 1:] = 0.0                                                                    # заём: только яркость
             if p in raw_mean:                                                                         # узор только на стороне фото: зад, сиденье, низ — тон без цветов
                 add[sel & ~side_ok] = 0.0
             smooth_p = smooth_part_rule(roles_.get(p, roles_.get(str(p))), rep.get('quilt_info', {}).get(p, {}).get('jump_L'), p in raw_mean, c)
@@ -1680,7 +1699,7 @@ def _compact_blobs(mask, c: dict):
     return acc, np.where(acc, lab, 0), int(keep.sum())
 
 
-def borrow_donors(need: list, quilted: list, tones: dict, roles: dict, bad: set, max_de: float) -> dict:
+def borrow_donors(need: list, quilted: list, tones: dict, roles: dict, bad: set, max_de: float, borders: dict | None = None) -> dict:
     """Ш6 вариант 1: {часть без своей фактуры → часть-донор того же материала}. need — части без блока/квилта; quilted — части с квилтом (есть чему делиться);
     tones {часть: Lab} (нет ключа — тон не свой, не берём); roles {часть: роль}; bad — части, которым/у которых брать нельзя (узорные, skip). Донор: та же роль, тон ближе max_de, самый близкий по тону."""
     out = {}
@@ -1692,8 +1711,9 @@ def borrow_donors(need: list, quilted: list, tones: dict, roles: dict, bad: set,
             if q == p or q in bad or q not in tones or roles.get(q) != roles.get(p):
                 continue
             d = float(np.linalg.norm(np.asarray(tones[p], float) - np.asarray(tones[q], float)))
-            if d <= max_de and (best is None or d < best[0]):
-                best = (d, q)
+            adj = 0 if borders and borders.get((min(p, q), max(p, q)), 0) > 0 else 1              # Ш6 п.2: часть с общей границей — материал почти наверняка тот же — идёт первой
+            if d <= max_de and (best is None or (adj, d) < best[0]):
+                best = ((adj, d), q)
         if best is not None:
             out[p] = best[1]
     return out
