@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import math
 import json
 import os
 
@@ -84,8 +85,71 @@ def _eval(conds: list[dict], f: dict, ctx: dict) -> tuple[bool, str | None]:
     return False, None
 
 
+def _colour_gate(cq: dict | None, ct: dict | None, st: dict) -> bool:
+    """Часть «похожа» на доверенную: цвет по текстуре входа (ΔE по lab_median по всем граням части) и разброс (p90 ΔE до медианы без чёрных дыр текстуры — `spread_p90_clean`, иначе `spread_p90`; в `tx_max` раз по log2)."""
+    if not isinstance(cq, dict) or not isinstance(ct, dict) or "lab_median" not in cq or "lab_median" not in ct:
+        return False
+    de = sum((a - b) ** 2 for a, b in zip(cq["lab_median"], ct["lab_median"])) ** 0.5
+    k = st.get("tx_key", "spread_p90_clean")
+    sq, stt = cq.get(k, cq.get("spread_p90", 0)), ct.get(k, ct.get("spread_p90", 0))
+    tx = abs(math.log2((sq + 1) / (stt + 1)))
+    if st.get("tx_skip_de") is not None and de <= st["tx_skip_de"]:                  # цвет совпал почти точно: узорная ткань и гладкая часть той же ткани отличаются разбросом, а не материалом
+        return True
+    return de <= st["de_max"] and tx <= st["tx_max"]
+
+
+def _similar_to_trusted(features: dict, out: dict, st: dict, colours: dict, rules: dict) -> None:
+    """«Материал по частям» (T-169 ②, 21.11): неизвестная часть берёт канал ДОВЕРЕННЫХ частей того же товара (роль задана, agree/seen не ниже `trusted_*`), чей цвет и текстура по видимым
+    текселям фото близки, если у всех прошедших один канал (иначе остаётся unknown). Ножки по этому пути — только при выполненной защите legs_guard (низкое основание не того же цвета, что главная часть).
+    Классы каталога дерево↔ткань не пересекаются сами: канал берётся у доверенной части этого же товара. dry — `dry_hint`, иначе роль меняется (P-062)."""
+    trusted = {q: o for q, o in out.items() if o["role"] != "unknown" and o.get("material_channel") and features[q]["agree"] is not None and features[q]["agree"] >= st["trusted_min_agree"]
+               and features[q]["seen"] is not None and features[q]["seen"] >= st["trusted_min_seen"]}
+    rc = rules["decision"]["role_conf"]
+    lg = rules["decision"].get("legs_guard", {})
+    for q, o in list(out.items()):
+        if o["role"] != "unknown" or o.get("unknown_reason") in st.get("skip_reasons", ["tiny"]):
+            continue
+        match = [t for t in trusted if t != q and _colour_gate(colours.get(q), colours.get(t), st)]
+        chans = {trusted[t]["material_channel"] for t in match}
+        if len(chans) != 1:
+            continue
+        roles = {trusted[t]["role"] for t in match}
+        role = next(iter(roles)) if len(roles) == 1 else ("body" if chans == {"main"} else None)
+        if role is None or role not in rules["roles"]:
+            continue
+        f = features[q]
+        if role == "legs" and lg.get("enabled") and f["kind"] in lg.get("kinds", ["body"]):          # крупная объёмная «ножка» — только низкая и не цвета главной (как legs_guard)
+            de = f.get("delta_e_main")
+            if f["up_q90"] > lg["max_up_q90"] or (de is not None and de < lg["min_de_main"]):
+                continue
+        rd = rules["roles"][role]
+        new = {**o, "role": role, "role_title": rd["titleRu"], "material_channel": rd.get("material_channel"), "role_conf": rc["matched"], "unknown_reason": None,
+               "role_why": f"сходство с доверенной частью(ями) {sorted(match)}: цвет ΔE<={st['de_max']}, текстура x{2 ** st['tx_max']:.1f}, канал {next(iter(chans))}"}
+        _rule_apply(st, q, out, "similar_to_trusted", new)
+
+
+def _legs_guard_veto(f: dict, rules: dict, ctx: dict, p: int) -> bool:
+    """Защита legs (T-169, 21.11): крупная ОБЪЁМНАЯ часть (kind body) не ножка, если она высокая (up_q90 > max_up_q90) или по цвету близка к главной части (ΔE < min_de_main):
+    цоколь модуля мягкой мебели той же обивки. Низкое плоское основание с другим цветом (ножки-основание дивана) проходит. mode "dry": роль остаётся, в out пишется dry_hint; "on": вето."""
+    g = rules["decision"].get("legs_guard", {})
+    if not g.get("enabled") or f["kind"] not in g.get("kinds", ["body"]) or f["area_share"] < g.get("min_area_share", 0.03):
+        return False
+    de = f.get("delta_e_main")
+    why = []
+    if f["up_q90"] > g["max_up_q90"]:
+        why.append(f"высота up_q90 {f['up_q90']:.2f} > {g['max_up_q90']}")
+    if de is not None and de < g["min_de_main"]:
+        why.append(f"ΔE к главной {de:.1f} < {g['min_de_main']}")
+    if not why:
+        return False
+    if g.get("mode") == "on":
+        return True
+    ctx.setdefault("legs_hints", {})[p] = "; ".join(why)
+    return False
+
+
 def assign_roles(features: dict[int, dict], rules: dict, product_role: str | None, catalog_channels: set[str] | None = None,
-                 classes: dict | None = None, catalog_classes: dict[str, str] | None = None) -> dict[int, dict]:
+                 classes: dict | None = None, catalog_classes: dict[str, str] | None = None, colours: dict[int, dict] | None = None) -> dict[int, dict]:
     """Роль каждой части: {id: {role, role_title, material_channel, role_conf, role_why, unknown_reason}}.
     `features` — `parts_features.part_features`; `catalog_channels` — ключи `parts` из `material_class.classify` товара (legs, frame, handles, shade)."""
     g = group_of(product_role, classes)
@@ -104,7 +168,8 @@ def assign_roles(features: dict[int, dict], rules: dict, product_role: str | Non
     for p, f in features.items():
         if f["area_share"] < ab["tiny_area_share"]:
             done(p, "unknown", f"площадь {f['area_share']:.4f} меньше {ab['tiny_area_share']}", rc["unknown"], "tiny")
-        elif (f["agree"] is not None and f["agree"] < ab["min_agree"]) or (f["seen"] is not None and f["seen"] < ab["min_seen_share"]):
+        elif (f["agree"] is not None and f["agree"] < ab["min_agree"]) or (f["seen"] is not None and f["seen"] < ab["min_seen_share"]
+                                                                         and not (ab.get("seen_exempt_area_share") and f["area_share"] >= ab["seen_exempt_area_share"])):   # крупная часть почти не видна камерам: решает геометрия, а не обрыв порога seen (T-169, комод HD: 0,051→0,048 ронял роль)
             done(p, "unknown", f"доверие этапа 3: agree={f['agree']}, seen={f['seen']}", rc["unknown"], "unreliable")
         else:
             live.append(p)
@@ -132,6 +197,8 @@ def assign_roles(features: dict[int, dict], rules: dict, product_role: str | Non
                 if not ok:
                     if why:
                         fail.setdefault(p, why)
+                    continue
+                if name == "legs" and _legs_guard_veto(f, rules, ctx, p):
                     continue
                 matched[p].append(name)
     for p in live:
@@ -165,6 +232,12 @@ def assign_roles(features: dict[int, dict], rules: dict, product_role: str | Non
     ua = rules["decision"].get("unseen_adopt", {})
     if ua.get("enabled"):
         _unseen_adopt(features, out, ua)
+    st = rules["decision"].get("similar_to_trusted", {})
+    if st.get("enabled") and colours:
+        _similar_to_trusted(features, out, st, colours, rules)
+    for q, h in (ctx.get("legs_hints") or {}).items():
+        if out.get(q, {}).get("role") == "legs":
+            out[q].setdefault("dry_hint", []).append({"rule": "legs_guard", "role": "не legs", "why": h})
     return out
 
 

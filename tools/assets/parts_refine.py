@@ -218,6 +218,85 @@ def cap_parts(part: np.ndarray, kind: np.ndarray, adj, lab: np.ndarray | None, m
     return part
 
 
+def absorb_islands(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, seen: np.ndarray | None, cfg: dict, kind_f: np.ndarray | None = None) -> tuple[np.ndarray, dict]:
+    """Крошка на границе частей: малый связный кусок части (< `max_faces` граней, не главный кусок части, не больше `max_rel_main` главного куска — настоящие ножки/подушки сравнимы
+    по размеру, крошка нет), >= `foreign` граничных рёбер которого уходят в ОДНУ другую часть, — вливается в неё. `side`: hidden — только куски, где < 50 % граней видны хоть одной
+    камерой этапа 3 (на видимых границах решает разбиение по голосам); visible — наоборот; both — все. `kind_f` (виды граней формы): вливать только в часть СОВМЕСТИМОГО вида
+    (`compatible`: тонкая ножка/стойка в объём — никогда; иначе дерево ножки утекло бы в обивку). Возвращает (части, отчёт: куски/грани по сторонам)."""
+    import scipy.sparse as sp
+    import scipy.sparse.csgraph as cg
+
+    n = len(faces)
+    v = np.round(np.asarray(vertices) * 1e5).astype(np.int64)
+    _, inv = np.unique(v, axis=0, return_inverse=True)
+    f = inv.reshape(-1)[np.asarray(faces).reshape(-1)].reshape(np.asarray(faces).shape)
+    e = np.concatenate([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]])
+    fid = np.tile(np.arange(n), 3)
+    e.sort(axis=1)
+    key = e[:, 0] * (e.max() + 1) + e[:, 1]
+    order = np.argsort(key, kind="stable")
+    ks, fs = key[order], fid[order]
+    same = ks[1:] == ks[:-1]
+    i, j = fs[:-1][same], fs[1:][same]
+    part = part.copy()
+    rep = {"islands": 0, "faces": 0, "hidden": 0, "visible": 0}
+    sn = np.zeros(n, dtype=bool) if seen is None else seen.astype(bool)
+    for _ in range(int(cfg.get("passes", 2))):
+        eq = (part[i] == part[j]) & (part[i] >= 0)
+        g = sp.coo_matrix((np.ones(int(eq.sum()), dtype=np.int8), (i[eq], j[eq])), shape=(n, n))
+        nc, lab = cg.connected_components(g, directed=False)
+        size = np.bincount(lab, minlength=nc)
+        cpart = np.zeros(nc, dtype=np.int64)
+        cpart[lab] = part
+        cseen = np.bincount(lab, weights=sn.astype(np.float64), minlength=nc) / np.maximum(size, 1)
+        main = {}
+        for c in range(nc):
+            p = cpart[c]
+            if p >= 0 and (p not in main or size[c] > size[main[p]]):
+                main[p] = c
+        is_main = np.zeros(nc, dtype=bool)
+        is_main[list(main.values())] = True
+        diff = (part[i] != part[j]) & (part[i] >= 0) & (part[j] >= 0)
+        P = int(part.max()) + 2
+        a = np.concatenate([lab[i[diff]], lab[j[diff]]])
+        b = np.concatenate([part[j[diff]], part[i[diff]]])
+        cnt = np.bincount(a * P + b, minlength=nc * P).reshape(nc, P)
+        tot = cnt.sum(axis=1)
+        top = cnt.argmax(axis=1)
+        frac = cnt.max(axis=1) / np.maximum(tot, 1)
+        mainsize = np.array([size[main[int(p)]] if p in main else 1 for p in cpart])
+        side = cfg.get("side", "hidden")
+        sidem = (cseen < 0.5) if side == "hidden" else (cseen >= 0.5) if side == "visible" else np.ones(nc, dtype=bool)
+        if kind_f is not None:
+            pk = part_kinds(part, kind_f)
+            okk = np.array([compatible(pk.get(int(cpart[c])), pk.get(int(top[c]))) for c in range(nc)])
+        else:
+            okk = np.ones(nc, dtype=bool)
+        psize = np.bincount(part[part >= 0]) if (part >= 0).any() else np.zeros(1, dtype=np.int64)
+        pshare = np.array([psize[int(q)] if 0 <= q < len(psize) else 1 for q in cpart], dtype=np.float64)
+        lim = cfg["max_part_share"] * pshare if cfg.get("max_part_share") else np.full(nc, float(cfg["max_faces"]))   # размер крошки — доля СВОЕЙ части (не зависит от плотности меша)
+        sel = okk & (~is_main) & (cpart >= 0) & (size < lim) & (size <= cfg.get("max_rel_main", 0.2) * mainsize) & (tot > 0) & (frac >= cfg.get("foreign", 0.8)) & sidem
+        en = cfg.get("enclosed") or {}
+        if en.get("enabled") and kind_f is not None:                                   # накладка: крупнее крошки, но ОКРУЖЕНА одной частью и не стоит на полу — не ножка
+            fy = np.asarray(vertices)[np.asarray(faces)][:, :, 1].min(axis=1)
+            cmin = np.full(nc, np.inf)
+            np.minimum.at(cmin, lab, fy)
+            ymin = float(np.asarray(vertices)[:, 1].min())
+            hgt = max(float(np.asarray(vertices)[:, 1].max()) - ymin, 1e-9)
+            thin_to_body = np.array([pk.get(int(cpart[c])) == "thin" and pk.get(int(top[c])) == "body" for c in range(nc)])
+            sel2 = (~sel) & thin_to_body & (~is_main) & (cpart >= 0) & (size <= en.get("max_part_share", 0.10) * pshare) & (size <= en.get("max_rel_main", 0.3) * mainsize) & (tot >= en.get("min_border", 20)) & (frac >= en.get("foreign", 0.95)) & ((cmin - ymin) / hgt > en.get("floor_gap", 0.1)) & sidem
+            rep["enclosed"] = rep.get("enclosed", 0) + int(sel2.sum())
+            sel = sel | sel2
+        if not sel.any():
+            break
+        for c in np.where(sel)[0]:
+            part[lab == c] = top[c]
+            rep["islands"] += 1
+            rep["faces"] += int(size[c])
+            rep["hidden" if cseen[c] < 0.5 else "visible"] += 1
+    return part, rep
+
+
 def refine(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, adj, lab_face: np.ndarray | None, rules: dict,
            agree: np.ndarray | None = None, seen: np.ndarray | None = None) -> tuple[np.ndarray, dict]:
     """Доводка: срез тонкого → слияние пёстрых по цвету → малые в соседа → потолок числа частей. Возвращает (новые части без дыр в нумерации, отчёт с меркой)."""
@@ -238,6 +317,10 @@ def refine(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, adj, lab_f
         area = _face_areas(vertices, faces)
         new, orphans = merge_orphans(new, adj, area, rf["orphan_max_area_share"], agree)
     new = cap_parts(new, kind, adj, lab_face, rules["check"]["max_parts"], rf["colour_cap_de"])
+    isl = rf.get("islands") or {}
+    isl_rep = None
+    if isl.get("enabled") and seen is not None:                                    # P-062: выключено, пока директор не посмотрел «было | стало»
+        new, isl_rep = absorb_islands(new, vertices, faces, seen, isl, kind)
     new = renumber(new)
     for o in orphans:
         o["into"] = int(new[o.pop("into_face0")])                                # итоговый номер части-приёмника (после cap/перенумерации)
@@ -246,4 +329,6 @@ def refine(part: np.ndarray, vertices: np.ndarray, faces: np.ndarray, adj, lab_f
               "parts_before": n_before, "parts_split_off": n_split, "parts_after": int(len(np.unique(new[new >= 0])))}
     if orphans:
         report["merged_orphan"] = orphans
+    if isl_rep is not None:
+        report["absorbed_islands"] = isl_rep
     return new, report

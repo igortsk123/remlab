@@ -114,8 +114,37 @@ def load_view(orbit: str, name: str):
     return rgb, mask, z["u"], z["v"], z["vis"], z["cos"]
 
 
-def paint_frame(orbit: str, name: str, part: np.ndarray, u: np.ndarray, v: np.ndarray, vis: np.ndarray, rgb: np.ndarray, mask: np.ndarray) -> np.ndarray:
-    """Кадр, раскрашенный по частям: цвета граней разносятся на пиксели ближайшего центра видимой грани (по сетке пикселей), картинка предмета — подложка."""
+def add_legend(img: np.ndarray, items: list[tuple[str, tuple]], height: int = 34) -> np.ndarray:
+    """Легенда цветов прямо на кадре (директор 21.11): плашка сверху, квадрат цвета + подпись латиницей (шрифта с кириллицей на машинах нет)."""
+    from PIL import Image as _I, ImageDraw as _D
+
+    w = img.shape[1]
+    bar = _I.new("RGB", (w, height), (255, 255, 255))
+    d = _D.Draw(bar)
+    x = 8
+    for name, rgb in items:
+        if rgb == "hatch":                                              # «без роли»: серая штриховка (красный legs и малиновый unknown путали, директор 21.11)
+            yy, xx = np.mgrid[0:19, 0:19]
+            st = ((xx + yy) // 5) % 2 == 0
+            sw = np.zeros((19, 19, 3), np.uint8)
+            sw[st], sw[~st] = HATCH_DARK, HATCH_LIGHT
+            bar.paste(_I.fromarray(sw), (x, 8))
+            d.rectangle([x, 8, x + 18, 26], outline=(60, 60, 60))
+        else:
+            d.rectangle([x, 8, x + 18, 26], fill=tuple(int(c) for c in rgb), outline=(60, 60, 60))
+        d.text((x + 24, 10), name, fill=(0, 0, 0))
+        x += 24 + 7 * len(name) + 22
+        if x > w - 60:
+            break
+    return np.concatenate([np.asarray(bar), img], axis=0)
+
+
+HATCH_LIGHT, HATCH_DARK = (232, 232, 232), (110, 110, 110)
+ROLE_ORDER = ["legs", "frame", "handles", "top", "facade", "shade", "body", "unknown"]
+
+
+def paint_frame(orbit: str, name: str, part: np.ndarray, u: np.ndarray, v: np.ndarray, vis: np.ndarray, rgb: np.ndarray, mask: np.ndarray, hatch: int | None = None) -> np.ndarray:
+    """Кадр, раскрашенный по частям: цвета граней разносятся на пиксели ближайшего центра видимой грани (по сетке пикселей), картинка предмета — подложка. `hatch` — метка, которая рисуется серой диагональной штриховкой (кадр ролей: без роли)."""
     from scipy import ndimage
 
     h, w = mask.shape
@@ -128,6 +157,11 @@ def paint_frame(orbit: str, name: str, part: np.ndarray, u: np.ndarray, v: np.nd
     col = np.zeros((h, w, 3), dtype=np.uint8)
     for p in np.unique(full[full >= 0]):
         col[full == p] = PALETTE[int(p) % len(PALETTE)]
+    if hatch is not None:
+        yy, xx = np.mgrid[0:h, 0:w]
+        stripes = ((xx + yy) // 5) % 2 == 0
+        col[(full == hatch) & stripes] = HATCH_DARK
+        col[(full == hatch) & ~stripes] = HATCH_LIGHT
     out = (0.35 * rgb + 0.65 * col).astype(np.uint8)
     out[~mask] = 255
     return out
@@ -216,7 +250,8 @@ def run(args) -> int:
                                   agree=res["agree"], seen=res["seen_any"], **pro.load_rules()["features_params"])
         rrules = pro.load_rules()
         cclasses = dict(kv.split("=", 1) for kv in (args.channel_classes or "").split(",") if "=" in kv)
-        roles = pro.assign_roles(feats, rrules, args.product_role, set(filter(None, (args.channels or "").split(","))), catalog_classes=cclasses)
+        roles = pro.assign_roles(feats, rrules, args.product_role, set(filter(None, (args.channels or "").split(","))), catalog_classes=cclasses,
+                                colours={k: v for k, v in colours.items() if isinstance(v, dict)})
         unk = {}
         for r_ in roles.values():
             if r_["role"] == "unknown":
@@ -241,15 +276,16 @@ def run(args) -> int:
     json.dump({"faces": nf, "n_views": len(names), "regions_per_view": per_view_regions, "n_parts_raw": res["n_parts_raw"], "parts": parts, "geometry": geom, "refine": refine_rep, "roles": roles_sum},
               open(os.path.join(sdir, "parts.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     tiles = [paint_frame(args.orbit, n, part, u, v, vis, rgb, mask) for (n, rgb, mask, u, v, vis) in (frames[0:8:2] if len(frames) >= 8 else frames[:4])]
-    Image.fromarray(np.concatenate(tiles, axis=1)).save(os.path.join(sdir, "frame.png"))
+    pids = [int(q) for q in np.unique(part[part >= 0])][:12]
+    Image.fromarray(add_legend(np.concatenate(tiles, axis=1), [(f"part {q}", PALETTE[q % len(PALETTE)]) for q in pids])).save(os.path.join(sdir, "frame.png"))
     if roles:                                                         # кадр ролей: та же облётка, цвет = роль (ножки, ручки, плафон, body, unknown…)
-        order = ["legs", "frame", "handles", "top", "facade", "shade", "body", "unknown"]
+        order = ROLE_ORDER
         ridx = np.full(int(part.max()) + 1, order.index("unknown"), dtype=np.int32)
         for p_, r_ in roles.items():
             ridx[p_] = order.index(r_["role"]) if r_["role"] in order else order.index("unknown")
         rpart = np.where(part >= 0, ridx[np.maximum(part, 0)], -1)
-        rtiles = [paint_frame(args.orbit, n, rpart, u, v, vis, rgb, mask) for (n, rgb, mask, u, v, vis) in (frames[0:8:2] if len(frames) >= 8 else frames[:4])]
-        Image.fromarray(np.concatenate(rtiles, axis=1)).save(os.path.join(sdir, "frame_roles.png"))
+        rtiles = [paint_frame(args.orbit, n, rpart, u, v, vis, rgb, mask, hatch=order.index("unknown")) for (n, rgb, mask, u, v, vis) in (frames[0:8:2] if len(frames) >= 8 else frames[:4])]
+        Image.fromarray(add_legend(np.concatenate(rtiles, axis=1), [(("no role (unknown)" if r_ == "unknown" else r_), ("hatch" if r_ == "unknown" else PALETTE[i_ % len(PALETTE)])) for i_, r_ in enumerate(order)])).save(os.path.join(sdir, "frame_roles.png"))
     metrics = {
         "faces_with_part_share": {"value": q["faces_with_part_share"], "threshold": rules["check"]["min_faces_with_part"], "op": ">=", "ok": q["faces_with_part_share"] >= rules["check"]["min_faces_with_part"]},
         "n_parts": {"value": q["n_parts"], "threshold": f"{rules['check']['min_parts']}–{rules['check']['max_parts']}", "op": "in", "ok": rules["check"]["min_parts"] <= q["n_parts"] <= rules["check"]["max_parts"]},

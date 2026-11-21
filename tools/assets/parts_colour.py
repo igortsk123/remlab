@@ -30,8 +30,11 @@ def face_rgb(uv: np.ndarray, faces: np.ndarray, tex: np.ndarray) -> np.ndarray:
     return tex[y, x, :3]
 
 
-def part_colours(part: np.ndarray, rgb: np.ndarray, min_faces: int = 30) -> dict[int, dict]:
-    """Цвет каждой части: медиана Lab, хрома, тон, разброс (p90 ΔE76 до медианы)."""
+def part_colours(part: np.ndarray, rgb: np.ndarray, min_faces: int = 30, dark_max_l: float = 25.0, dark_far: float = 20.0) -> dict[int, dict]:
+    """Цвет каждой части: медиана Lab, хрома, тон, разброс (p90 ΔE76 до медианы) по ВСЕМ граням части текстуры входа (не только видимым).
+
+    Чёрные дыры текстуры (L* < dark_max_l и дальше dark_far от медианы части — не тёмная ткань, а необожжённые острова) дают `dark_share` и не вешают шум на разброс:
+    `spread_p90_clean` — тот же p90 без этих граней (T-169, Брера HD: дыры у 13–34 % граней части давали p90 = 65 при 1,4 без них). `spread_p90` не меняется."""
     lab = rgb_to_lab(rgb)
     out = {}
     for p in np.unique(part[part >= 0]):
@@ -41,11 +44,18 @@ def part_colours(part: np.ndarray, rgb: np.ndarray, min_faces: int = 30) -> dict
         L = lab[sel]
         med = np.median(L, axis=0)
         de = np.linalg.norm(L - med, axis=1)
+        dark = (L[:, 0] < dark_max_l) & (de > dark_far)
+        clean = de
+        if dark.any() and (~dark).sum() >= min_faces:
+            m2 = np.median(L[~dark], axis=0)
+            clean = np.linalg.norm(L[~dark] - m2, axis=1)
         out[int(p)] = {
             "lab_median": [round(float(v), 1) for v in med],
             "chroma_median": round(float(np.hypot(med[1], med[2])), 1),
             "hue_deg": round(float(np.degrees(np.arctan2(med[2], med[1])) % 360), 0),
             "spread_p90": round(float(np.percentile(de, 90)), 1),
+            "spread_p90_clean": round(float(np.percentile(clean, 90)), 1),
+            "dark_share": round(float(dark.mean()), 3),
             "faces_sampled": int(sel.sum()),
         }
     return out
