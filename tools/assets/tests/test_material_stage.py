@@ -12,6 +12,9 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
+sys.path.append(os.path.join(HERE, "..", "..", "scout"))  # tools/scout — помощник временного
+import remlab_tmp  # noqa: E402
+remlab_tmp.use("test_material_stage")
 import material_stage as MS  # noqa: E402
 
 R = MS.load_recipes()

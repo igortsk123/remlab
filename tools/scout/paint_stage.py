@@ -143,6 +143,8 @@ def summary(run: str) -> str:
 
 
 def selftest() -> int:
+    import remlab_tmp  # временное самопроверки — в REMLAB_TMP, не в /tmp
+    remlab_tmp.use("paint_stage_selftest")
     bad = 0
 
     def ok(c, name):
