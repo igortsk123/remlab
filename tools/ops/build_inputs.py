@@ -31,7 +31,9 @@ ROOT_DEFAULT = os.path.abspath(os.path.join(HERE, '..', '..'))
 START = 'tools/scout/flat215_demo.py'
 # сам держит список — его строки не чтение; `bank_tiers.py` — настройки ступеней БАНКА (`rules/bank-price-tiers.json`): их читают сборщики
 # банка (compose*, bank_invariants), а витрина лишь импортирует эти модули ради помощников и банк не собирает (T-20261118-61/7)
-SKIP = ('tools/scout/build_stamp.py', 'tools/scout/bank_tiers.py')
+# mesh_type_passports.py — реестр паспортов читают очередь/экспорт/планировщик (observe); витрина импортирует mesh_queue только ради db,
+# гейт не зовёт (T-20261120-151/6); страховка на ходу — build_stamp.watch_rules() даст WARN, если сборка реально откроет реестр.
+SKIP = ('tools/scout/build_stamp.py', 'tools/scout/bank_tiers.py', 'tools/scout/mesh_type_passports.py')
 PY_DIRS = ('tools/scout', 'services/planner-solver', 'tools/assets', 'tools/flat3d', 'tools/ops')
 RUNNERS = {'run', 'Popen', 'check_output', 'check_call', 'call'}
 SCRIPT = re.compile(r'[\w./-]*?([\w-]+\.(?:py|mjs|cjs|js))(?![\w.])')

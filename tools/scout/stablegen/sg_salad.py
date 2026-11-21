@@ -259,6 +259,17 @@ def glb_has_uv(path: str) -> bool | None:
     return bool(prims) and all('TEXCOORD_0' in p.get('attributes', {}) for p in prims)
 
 
+def _passport_observe(role: str) -> None:
+    """Пред-платной гейт паспорта типа в режиме `observe` (план mesh-type-passports-01, фаза 1): считает «заблокировал бы», решение ИГНОРИРУЕТСЯ.
+    Сам по себе не бросает (`gate` ловит всё), но и импорт/вызов — в своём try: паспорт не должен менять платный путь ни при каком сбое."""
+    try:
+        sys.path.insert(0, os.path.dirname(HERE))
+        import mesh_type_passports as MTP
+        MTP.passport_preflight(role)
+    except Exception as e:  # noqa: BLE001
+        say(f'WARN:passport_registry: гейт покраски не вызван ({type(e).__name__}) — платный путь не меняется')
+
+
 def build_cfg(key: str, var: str, out: str, server: str, cameras: int, texture: int, seed: int, timeout_s: int) -> dict:
     """Конфиг драйвера Blender для одного прогона: пресет «Qwen Precise», 8–10 камер вокруг предмета, фото-вырезка как внешний стиль (решение владельца TG 2005)."""
     v = VARIANTS[var]
@@ -283,6 +294,7 @@ def build_cfg(key: str, var: str, out: str, server: str, cameras: int, texture: 
             cfg[k] = v[k]
     attrs = catalog_attrs(prod)                              # T-90/10: подсказка — из каталога (роль + материал + цвет), для ВСЕХ товаров; словаря по ID нет
     cfg['cat_role'] = attrs.get('role', '')
+    _passport_observe(cfg['cat_role'])                       # фаза 1 «тень»: только счётчик гейта паспорта, cfg и платный вход НЕ меняются
     cfg['catalog_name'] = attrs.get('name', '')
     cfg['colour'] = attrs.get('colour')                     # T-154/1: слово цвета каталога — сторож цвета и исключение для розового/фиолетового
     parts = None

@@ -60,6 +60,7 @@ import preprocess as PRE  # noqa: E402  (defringe/trim_alpha/mask_verdict — о
 import photo_hash as PH   # noqa: E402  (единственный писатель хеша фото, план mesh-14)
 import pool_gate as PG    # noqa: E402  (ворота пула и граница 0.65)
 import mesh_photo as MP    # noqa: E402  (ЕДИНОЕ правило фото меша и сторож размера, ADR-0452)
+import passport_shadow as PS  # noqa: E402  (тень паспортов типов, без torch; фаза 1)
 
 CACHE = os.path.expanduser(os.environ.get('CUTOUT_CACHE', '~/scout-scenes/cutouts'))
 BACKEND = os.environ.get('CUTOUT_BACKEND', 'fal')
@@ -276,6 +277,18 @@ def chain_shape(src: Image.Image, net: Image.Image, role: str | None = None) -> 
     return shape, info
 
 
+def crop_box(shape: Image.Image, pad: int = 8) -> tuple[int, int, int, int]:
+    """Рамка обрезки, ЗЕРКАЛО `PRE.trim_alpha` (альфа > 8, поле `pad`, в пределах кадра; пустая альфа → весь кадр) — а не `getbbox()`.
+    Смещение вырезки в исходном кадре (`photo.object_xy` = левый верх рамки) нужно сторожам паспортов (К1: сравнить исходник с вырезкой без поиска совмещения).
+    Совпадение с `trim_alpha` по байтам держит тест (`shape.crop(crop_box(shape)).tobytes() == trim_alpha(shape).tobytes()`)."""
+    a = np.asarray(shape)[..., 3]
+    ys, xs = np.where(a > 8)
+    if not len(ys):
+        return 0, 0, shape.width, shape.height
+    return (int(max(0, xs.min() - pad)), int(max(0, ys.min() - pad)),
+            int(min(shape.width, xs.max() + pad + 1)), int(min(shape.height, ys.max() + pad + 1)))
+
+
 def chain(src: Image.Image, net: Image.Image, role: str | None = None) -> tuple[Image.Image, dict]:
     """Наша цепочка — ровно та же, что в `salad/preprocess._cut_chain`, но с готовой маской.
 
@@ -284,6 +297,7 @@ def chain(src: Image.Image, net: Image.Image, role: str | None = None) -> tuple[
     """
     shape, info = chain_shape(src, net, role=role)
     cut = PRE.trim_alpha(shape)
+    box = crop_box(shape)
     info.update(PRE.mask_verdict(cut))
     if info['collage']['verdict']:
         info.update(verdict='bad', reason='фото-коллаж: ' + ', '.join(info['collage']['why'][1:] or ['баннер']))
@@ -292,7 +306,8 @@ def chain(src: Image.Image, net: Image.Image, role: str | None = None) -> tuple[
     info['photo'] = {'frame_wh': [fw, fh], 'object_wh': [cw, ch],
                      'object_share': round(cw * ch / max(fw * fh, 1), 4),
                      'object_rel_side': round(max(cw, ch) / max(max(fw, fh), 1), 3),
-                     'object_min_side': int(min(cw, ch))}
+                     'object_min_side': int(min(cw, ch)),
+                     'object_xy': [box[0], box[1]]}   # смещение вырезки в кадре — для сторожей паспортов (фаза 1 «тень»)
     return cut, info
 
 
@@ -387,6 +402,9 @@ def one(job) -> tuple[str, str | None]:
            f"{q(json.dumps(info, ensure_ascii=False))}::jsonb, {q(verdict)}) "
            "on conflict (source_sha, assessor_version) do update set "
            "metrics=excluded.metrics, verdict=excluded.verdict")
+        # ТЕНЬ паспортов (план mesh-type-passports-01, фаза 1): вердикты сторожей роли — только в `passport_shadow`, в СВОЁМ try внутри
+        # `after_assessment` (не бросает; сбой = WARN + счётчик shadow_fail, вырезка остаётся `ok`, FAIL_STREAK_MAX не трогаем).
+        PS.after_assessment(role, sku, sha, raw, dst, info)
         return 'ok', None
     except FatalBackend as e:
         STOP.set()
@@ -436,6 +454,8 @@ def run_jobs(jobs: list[tuple[str, str, str, str]], label: str = '', fn=None) ->
                       f"фото сменилось {stat['moved']}", flush=True)
     print(f"вырезано{label} {stat['ok']}, фото сменилось у {stat['moved']}, отказов {stat['fail']}"
           + (f", не начато {stat['skipped']}" if stat['skipped'] else ''))
+    if PS.RUN.ok or PS.RUN.fail or PS.RUN.table_missing:
+        print(PS.run_line(), flush=True)    # строка тени в ночном отчёте (сбои тени ≠ отказы вырезки)
     if why:
         print(f'WARN:cutout: прогон остановлен — {why}', flush=True)
     for e in errs[:10]:
@@ -550,6 +570,17 @@ def main() -> int:
     if '--report' in sys.argv:
         report()
         return 0
+    if '--shadow-backfill' in sys.argv:
+        # ТЕНЬ паспортов по уже вырезанному (без нового запроса к fal/Salad и без записи в photo_assessment и кэш вырезок): состояние — в passport_shadow
+        if '--retry-quarantine' in sys.argv:
+            try:
+                print(f'карантин тени возвращён в повтор: {PS.STORE.release_quarantine()}', flush=True)
+            except PS.TableMissing:
+                print('WARN:passport_shadow: таблицы passport_shadow нет (миграция 018 не применена) — карантин не возвращён', flush=True)
+            except Exception as e:  # noqa: BLE001 — fail-open: сбой возврата карантина не валит проход
+                print(f'WARN:passport_shadow: карантин не возвращён ({type(e).__name__}: {str(e)[:100]})', flush=True)
+        PS.run_backfill(PRE.ASSESSOR_VERSION, CACHE, fetch)
+        return 0   # сбой тени не валит ночную цепочку (сам проход не бросает; причины — WARN в журнале)
     if BACKEND not in BACKENDS:
         print(f'неизвестный источник маски: {BACKEND}')
         return 1
