@@ -4,7 +4,7 @@
   "n": 256,
   "region_bins": 8,
   "max_near": 6,
-  "use_zbuf": true,
+  "use_zbuf": false,
   "probe_only_disputed": true,
   "thresholds": {
     "near_delta": 0.03,

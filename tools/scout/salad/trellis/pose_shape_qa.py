@@ -399,16 +399,18 @@ def audit_product(glb: str, photo: str, out: str, rules: dict | None = None, log
     S = R0['mask']
     ys, xs = np.nonzero(S | Mp)
     scale_px = float(np.hypot(xs.max() - xs.min(), ys.max() - ys.min()))
-    Rz = render_zbuf(geo, cam, n)
-    zb = zbuf_check(R0, Rz, face_bin)                    # первым делом: врёт ли растр по средней глубине (id видимой грани → область под пикселем)
-    R0 = {**R0, 'ids': Rz['ids'] if rules.get('use_zbuf', True) else R0['ids']}
+    zb = None
+    if rules.get('use_zbuf'):                            # диагностика: врёт ли растр по средней глубине; по умолчанию выкл. — растр и его починка у р.4 (pose_fit), вердикты тут идут на её растре
+        Rz = render_zbuf(geo, cam, n)
+        zb = zbuf_check(R0, Rz, face_bin)
+        R0 = {**R0, 'ids': Rz['ids']}
     vv = vis_vertices(R0['ids'], F)
     Vv = V[vv[:: max(1, len(vv) // 20000)]]
     best, nb = near_best(starts, th['near_delta'])
     gap, flip = flip_gap(starts, best, th['flip_az_tol'])
     disps, regs, cand = [], [], []
     ref_cam = best['cam']
-    rend = (lambda g, c, k: render_zbuf(g, c, k)) if rules.get('use_zbuf', True) else PF.render_persp
+    rend = (lambda g, c, k: render_zbuf(g, c, k)) if rules.get('use_zbuf') else PF.render_persp
     R_ref = rend(geo, ref_cam, n)
     for s in nb[: rules['max_near']]:
         if az_flip(ref_cam, s['cam'], th['flip_az_tol']):
