@@ -23,9 +23,14 @@ SLIM_DROP = ('session.blend',)                             # после успе
 SLIM_DROP_DIRS = ('inpaint', 'controlnet', 'baked')        # промежуточные копии внутри sg-output/<сцена>/<время>/
 
 
-def slim_run(d: str) -> int:
-    """Убрать тяжёлое промежуточное из папки УСПЕШНОГО прогона; вернёт освобождённые байты. Ошибки удаления — молча (не ронять драйвер)."""
+def slim_run(d: str, keep_guard: bool = False) -> int:
+    """Убрать тяжёлое промежуточное из папки УСПЕШНОГО прогона; вернёт освобождённые байты. Ошибки удаления — молча (не ронять драйвер).
+    Черновики сторожа (`blender/guard/`, неудачные попытки видов) — чистятся; остаются, только если какой-то вид отклонён (разбор)."""
     freed = 0
+    gd = os.path.join(d, 'blender', 'guard')
+    if os.path.isdir(gd) and not keep_guard:
+        freed += sum(os.path.getsize(os.path.join(a, b)) for a, _x, bs in os.walk(gd) for b in bs)
+        shutil.rmtree(gd, ignore_errors=True)
     for f in SLIM_DROP:
         p = os.path.join(d, 'blender', f)
         if os.path.isfile(p):
@@ -82,6 +87,7 @@ class RunQueue:
         self.on_ok = on_ok                                 # успешный прогон → склад мешей (`sg_store.store_run`): поля идут в запись прогона; сбой — громко, не молча
         self.cur, self.baking = None, []
         self.fail_streak, self.ever_ok = 0, False
+        self.retried = set()
         summary.setdefault('runs', [])
         summary.setdefault('failed', 0)
 
@@ -148,13 +154,35 @@ class RunQueue:
                 except Exception as e:  # noqa: BLE001 — прогон удался, а в склад не легло: пишем причину и говорим, ход очереди не роняем
                     rec['store_error'] = f'{type(e).__name__}: {str(e)[:120]}'
                     self.say(f'!! в склад покраски не записано: {it["key"]} {it["variant"]} — {rec["store_error"]}')
+            g = json_status(it).get('guard')                                # T-154/1: сторож видов — сколько повторено/отклонено, причина; в запись прогона и в сводку группы
+            if g:
+                rec['guard'] = {k: g.get(k) for k in ('views_retried', 'views_rejected', 'colour_unresolved', 'catalog_dE', 'review')}
+                self.summary['views_retried_total'] = self.summary.get('views_retried_total', 0) + len(g.get('views_retried') or [])
+                self.summary['views_rejected_total'] = self.summary.get('views_rejected_total', 0) + len(g.get('views_rejected') or [])
+                if g.get('review'):
+                    self.summary['review_total'] = self.summary.get('review_total', 0) + 1
+                    self.say(f'!! {it["key"]}: модель НЕ принимается автоматически — {g["review"]}')
+                if g.get('views_retried') or g.get('views_rejected'):
+                    self.say(f'сторож видов у {it["key"]}: повторено {g.get("views_retried")}, отклонено {g.get("views_rejected")}')
             if ok:
-                freed = slim_run(it['dir'])
+                freed = slim_run(it['dir'], keep_guard=bool((g or {}).get('views_rejected')))
                 rec['freed_mb'] = round(freed / 2 ** 20)
             self.summary['runs'].append(rec)
             self.summary['failed'] += not ok
             self.say('прогон', it['key'], it['variant'], 'ГОТОВО' if ok else f'УПАЛ (rc={rc}, смотри {it["dir"]}/run.log)', f'{rec["seconds"]} с')
             self.fail_streak = 0 if ok else self.fail_streak + 1
+            if not ok and 'NONE_FOUND' in str(json_status(it).get('error') or '') and (it['key'], it['variant']) not in self.retried:
+                self.retried.add((it['key'], it['variant']))        # список моделей на ноде ещё пуст — один повтор товара, а не стоп группы (T-154/1, 20.11)
+                self.pending.insert(0, (it['key'], it['variant']))
+                self.say(f'повтор товара {it["key"]}: список моделей на ноде был пуст (NONE_FOUND)')
+                if it is self.cur:
+                    self.cur = None
+                else:
+                    self.baking.remove(it)
+                self.summary['runs'].pop()
+                self.summary['failed'] -= 1
+                self.fail_streak = max(0, self.fail_streak - 1)
+                continue
             probe = not ok and not self.ever_ok
             self.ever_ok = self.ever_ok or ok
             if it is self.cur:

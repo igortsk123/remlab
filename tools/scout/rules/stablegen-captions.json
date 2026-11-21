@@ -1,0 +1,65 @@
+{
+  "_doc": "Подписи StableGen — ДАННЫЕ (T-20261120-154/1, Codex 20.11): фразы материала и зада по классу. Утверждения, без отрицаний: слова «двери/ручки» даже в отрицании подсказывают нежелательный мотив. Читает sg_views.py; нет файла — встроенные запасные значения.",
+  "material_phrase": {
+    "velour": "fine short-pile velour upholstery with uniform low-contrast nap, matte",
+    "velvet": "ribbed corduroy upholstery with fine parallel cords, matte",
+    "rogozhka": "coarse woven slubby linen-like upholstery, matte",
+    "chenille": "soft chenille upholstery with a fine dense pile, matte",
+    "boucle": "looped bouclé upholstery with a curly nubby texture, matte",
+    "leather": "smooth leather upholstery with a fine grain and a soft sheen",
+    "wood_solid": "solid wood with a visible natural grain",
+    "wood_veneer": "wood veneer with a fine straight grain",
+    "ldsp": "matte laminated chipboard finish with a fine uniform surface",
+    "mdf_film": "smooth matte painted finish",
+    "metal": "brushed metal",
+    "glass": "clear glass"
+  },
+  "back_by_class": {
+    "casework": "one uninterrupted flat construction back panel in the carcass finish, simple fastening seams"
+  },
+  "material_phrase_bare": {
+    "_doc": "фраза материала для видов БЕЗ фото (T-154/1, разбор T-155): только класс материала, без слов рисунка (pattern_words) — они рисуют жилки/сетку на заду",
+    "rogozhka": "woven linen-like upholstery, matte",
+    "boucle": "bouclé upholstery, matte",
+    "chenille": "chenille upholstery, matte",
+    "velour": "velour upholstery, matte",
+    "velvet": "corduroy upholstery, matte"
+  },
+  "pattern_words": [
+    "marbled",
+    "mottled",
+    "veined",
+    "speckled",
+    "slubby",
+    "nubby",
+    "curly",
+    "flecked",
+    "streaked",
+    "crushed",
+    "parallel cords",
+    "pile"
+  ],
+  "parts": {
+    "_doc": "Цвет по частям (T-20261120-161, П6, Codex v2 20.11): подпись-композиция — ОДНА общая подпись «верх такого-то цвета, каркас и ножки такого-то», это не разметка граней (утечки и выдумка сзади возможны — меряем). Включается вариантом `parts_caption`. Шаблон — по роли (после нормализации); {c1} — цвет верха, {c2} — цвет каркаса и ножек. Цвета — по порядку в поле «Цвет основной» (иначе в названии); если в каталоге есть «цвет столешницы» — он и есть верх. Двух разных цветов нет — прежняя подпись.",
+    "by_role": {
+      "стол обеденный": "with a {c1} top and {c2} frame and legs",
+      "столик": "with a {c1} top and {c2} frame and legs"
+    },
+    "slots": {
+      "_doc": "Слоты материала на гранях (T-161, вариант `parts_slots`, код sg_parts.py): два слота — тело и ножки — только когда геометрия формы уверенно `split` (material_parts.py) и доля площади ножек между min и max; иначе слотов нет, красим как сейчас. Замеры 20.11: кресло 23 split (ножки 0,9%), стол 16 unsure, лампа 37 whole — этим двум слоты не кладём.",
+      "legs_share_min": 0.002,
+      "legs_share_max": 0.3,
+      "names": ["body", "legs"]
+    },
+    "colour_phrases": [
+      ["светл\\w* дерев\\w*", "light natural wood"],
+      ["темн\\w* дерев\\w*", "dark wood"],
+      ["тёмн\\w* дерев\\w*", "dark wood"],
+      ["натуральн\\w*", "natural wood"]
+    ]
+  },
+  "colour_template": {
+    "_doc": "как слово цвета входит в подпись: по умолчанию «a <цвет> <предмет>»; классам из списка — слово относится только к основной поверхности, детали (ножки, ручки, столешница) ведёт образец (разбор T-155: «white» от столешницы красил ножки)",
+    "open_frame": "{head} with {art} {colour} main surface"
+  }
+}

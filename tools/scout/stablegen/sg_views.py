@@ -8,7 +8,9 @@
   • «перёд» — направление камеры-зерна (камеры, ближайшей к фото по силуэту), а не допущение «−Y» (Codex: −Y — соглашение рендера стенда, не контракт формы);
   • фото товара — только первому виду (qwen_external_style_initial_only): тексты следующих видов продолжают материал уже покрашенных соседних участков, не ссылаются на «style reference»;
   • верх: кольцо камер приподнято (≈26°), верх виден на обычных боковых видах — формулировка про верх входит в тексты классов; «top view» — лишь при угле места > 60°."""
+import json
 import math
+import os
 import re
 import unicodedata
 
@@ -167,6 +169,9 @@ def short_side_text(cat_role, cam_dir, front, back_suffix=''):
         return '', meta
     if a <= 120.0:
         return f"the plain {'left' if ang > 0 else 'right'} side of the same {noun}", meta
+    back_phrase = BACK_BY_CLASS.get(role_class(cat_role)[0])        # T-154/1: зад корпусной мебели — позитивно «одна сплошная задняя панель», без слов «двери/ручки» даже в отрицании
+    if back_phrase:
+        return f'the back of the same {noun}, {back_phrase}{back_suffix}', meta
     return f'the plain back of the same {noun}{back_suffix}', meta
 
 
@@ -194,20 +199,41 @@ ROLE_NOUN_BY_WORDS = {_words(k): v for k, v in ROLE_NOUN.items()}
 def role_noun(cat_role):
     """Английское существительное роли; порядок слов не важен; нет в словаре → None (вызывающий ставит «piece of furniture»)."""
     return ROLE_NOUN.get(norm_role(cat_role)) or ROLE_NOUN_BY_WORDS.get(_words(cat_role))
-MATERIAL_PHRASE = {
-    'velour': 'crushed velvet upholstery, soft marbled mottled pile, matte',
-    'velvet': 'ribbed corduroy upholstery with fine parallel cords, matte',
-    'rogozhka': 'coarse woven slubby linen-like upholstery, matte',
-    'chenille': 'soft chenille upholstery with a fine dense pile, matte',
-    'boucle': 'looped bouclé upholstery with a curly nubby texture, matte',
-    'leather': 'smooth leather upholstery with a fine grain and a soft sheen',
-    'wood_solid': 'solid wood with a visible natural grain',
-    'wood_veneer': 'wood veneer with a fine straight grain',
-    'ldsp': 'matte laminated chipboard finish with a fine uniform surface',
-    'mdf_film': 'smooth matte painted finish',
-    'metal': 'brushed metal',
-    'glass': 'clear glass',
+_CAPTIONS_PATH = os.environ.get('SG_CAPTIONS_RULES') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'rules', 'stablegen-captions.json')
+_CAPTIONS_FALLBACK = {                       # запасные значения, если файла данных нет (как был встроенный словарь); рабочие тексты — в rules/stablegen-captions.json
+    'material_phrase': {'velour': 'fine short-pile velour upholstery with uniform low-contrast nap, matte', 'velvet': 'ribbed corduroy upholstery with fine parallel cords, matte',
+                        'rogozhka': 'coarse woven slubby linen-like upholstery, matte', 'chenille': 'soft chenille upholstery with a fine dense pile, matte',
+                        'boucle': 'looped bouclé upholstery with a curly nubby texture, matte', 'leather': 'smooth leather upholstery with a fine grain and a soft sheen',
+                        'wood_solid': 'solid wood with a visible natural grain', 'wood_veneer': 'wood veneer with a fine straight grain',
+                        'ldsp': 'matte laminated chipboard finish with a fine uniform surface', 'mdf_film': 'smooth matte painted finish', 'metal': 'brushed metal', 'glass': 'clear glass'},
+    'back_by_class': {'casework': 'one uninterrupted flat construction back panel in the carcass finish, simple fastening seams'},
+    'parts': {'by_role': {}, 'colour_phrases': []},
 }
+
+
+def load_captions(path=None):
+    """Подписи — данные (T-154/1): фразы материала и зада по классу. Нет файла — запасные значения."""
+    try:
+        with open(path or _CAPTIONS_PATH, encoding='utf-8') as fh:
+            d = json.load(fh)
+    except OSError:
+        return _CAPTIONS_FALLBACK
+    out = {k: d.get(k) or _CAPTIONS_FALLBACK[k] for k in _CAPTIONS_FALLBACK}
+    out['material_phrase_bare'] = {k: x for k, x in (d.get('material_phrase_bare') or {}).items() if not k.startswith('_')}
+    out['pattern_words'] = list(d.get('pattern_words') or [])
+    out['colour_template'] = {k: x for k, x in (d.get('colour_template') or {}).items() if not k.startswith('_')}
+    pt = d.get('parts') or {}
+    out['parts'] = {'by_role': {norm_role(k): x for k, x in (pt.get('by_role') or {}).items() if not k.startswith('_')},       # T-161: цвет по частям — данные, не код
+                    'colour_phrases': [(re.compile(rx), en) for rx, en in (pt.get('colour_phrases') or [])]}
+    return out
+
+
+CAPTIONS = load_captions()
+MATERIAL_PHRASE = CAPTIONS['material_phrase']
+BACK_BY_CLASS = CAPTIONS['back_by_class']
+BARE_PHRASE = CAPTIONS['material_phrase_bare']
+COLOUR_TEMPLATE = CAPTIONS['colour_template']
+PARTS = CAPTIONS['parts']
 # русские названия и частые слова → id класса (точное совпадение после нормализации; нечёткого поиска нет)
 MATERIAL_WORDS = {norm_role(w): c for c, ws in {
     'velour': ['велюр', 'велюра'], 'velvet': ['вельвет'], 'rogozhka': ['рогожка'], 'chenille': ['шенилл'], 'boucle': ['букле'],
@@ -257,6 +283,41 @@ def colour_from_texts(texts):
     return None
 
 
+def colours_in_order(texts):
+    """Слова цвета по порядку появления в тексте (T-161, П6): слова таблицы COLOUR_WORDS и фразы данных `parts.colour_phrases` («светлое дерево»).
+    Берётся первый текст, где два и больше РАЗНЫХ цвета; иначе первый, где есть хоть один; нет — []."""
+    first = []
+    for t in texts:
+        s = unicodedata.normalize('NFKC', t or '').casefold()
+        hits = []                                                               # (начало, конец, слово)
+        for rx, en in PARTS['colour_phrases']:
+            hits += [(m.start(), m.end(), en) for m in rx.finditer(s)]
+        for m in re.finditer(r'\w+', s):
+            if m.group() in COLOUR_WORDS and not any(a <= m.start() < b for a, b, _ in hits):
+                hits.append((m.start(), m.end(), COLOUR_WORDS[m.group()]))
+        out = []
+        for _, _, en in sorted(hits):
+            if en not in out:
+                out.append(en)
+        if len(out) >= 2:
+            return out
+        if out and not first:
+            first = out
+    return first
+
+
+def parts_phrase(cat_role, colours, top_colours=None):
+    """Подпись-композиция «with a white top and natural wood frame and legs» (T-161, П6) по шаблону роли из данных; None — шаблона нет или цвет один (прежняя подпись).
+    `top_colours` — цвета из поля «цвет столешницы», если оно есть в каталоге: найденный среди `colours` — верх, другой — каркас и ножки."""
+    tpl = PARTS['by_role'].get(norm_role(cat_role))
+    cols = list(colours or [])
+    if not tpl or len(cols) < 2:
+        return None
+    top = next((c for c in (top_colours or []) if c in cols), cols[0])
+    rest = next((c for c in cols if c != top), None)
+    return tpl.format(c1=top, c2=rest) if rest else None
+
+
 def strip_colour(prompt):
     """T-90/11: подпись без слова цвета — для видов С фото (их ведёт фото, цвет из каталога им лишний и «серит» узор): «a graphite chest of drawers, matte …» → «a chest of drawers, matte …».
     Слово цвета берём из таблицы COLOUR_WORDS (значения), только в первой фразе до запятой; артикль a/an пересчитывается. Нет слова цвета — подпись как есть."""
@@ -273,7 +334,30 @@ def strip_colour(prompt):
     return prompt
 
 
-def build_prompt(cat_role, material, colour=None):
+def _art(word):
+    return 'an' if word[:1].casefold() in 'aeiou' else 'a'
+
+
+def add_colour(prompt, word, cat_role=None, parts=None):
+    """Слово цвета в подпись без цвета: «a chair, matte …» → «a <цвет> chair, matte …» (данные colour_template: классу — слово только к основной поверхности:
+    «a dining table with a white main surface», детали ведёт образец). Слова цвета уже есть / нет слова / нет артикля — подпись как есть.
+    `parts` (T-161, П6) — готовая подпись-композиция («with a white top and natural wood frame and legs»): вместо слова цвета, «a dining table with a white top and …»."""
+    if parts:
+        head, sep, tail = prompt.partition(',')
+        return f'{head.strip()} {parts}{sep}{tail}' if re.match(r'^an?\s', head.strip(), flags=re.I) and parts not in prompt else prompt
+    if not word or strip_colour(prompt) != prompt:
+        return prompt
+    head, sep, tail = prompt.partition(',')
+    m = re.match(r'^(an?)\s+(.*)$', head.strip(), flags=re.I)
+    if not m:
+        return prompt
+    tpl = COLOUR_TEMPLATE.get(role_class(cat_role)[0]) if cat_role else None
+    if tpl:
+        return tpl.format(head=head.strip(), art=_art(word), colour=word) + sep + tail
+    return f'{_art(word)} {word} {m.group(2)}{sep}{tail}'
+
+
+def build_prompt(cat_role, material, colour=None, bare=False, parts=None):
     """Основной промпт из атрибутов каталога: «a <цвет> <предмет по роли>, <фраза материала>». Никогда не подменяется «заготовкой по ID»:
     неизвестная роль → «piece of furniture», неизвестный материал/цвет → честно без них. Возвращает (промпт, флаги)."""
     flags = []
@@ -287,9 +371,11 @@ def build_prompt(cat_role, material, colour=None):
     if not colour:
         flags.append('unknown_colour')
     head = f'{colour} {noun}' if colour else noun
+    if parts:                                                                    # T-161: цвет по частям — «a dining table with a white top and … frame and legs» (общая подпись, не разметка граней)
+        head = f'{noun} {parts}'
     text = f"{'an' if head[0] in 'aeiou' else 'a'} {head}"
     if mc:
-        text += f', {MATERIAL_PHRASE[mc]}'
+        text += f', {(BARE_PHRASE.get(mc) or MATERIAL_PHRASE[mc]) if bare else MATERIAL_PHRASE[mc]}'
     return text, flags
 
 
@@ -354,6 +440,23 @@ def side_sample_camera(dirs, front, order):
             k = (round(abs(a - 90.0), 1), i)
             if key is None or k < key:
                 best, key = n, k
+    return best
+
+
+def side_sample_for(ang, angles, order, usable):
+    """T-154/1 (Codex): образец материала заднему виду — готовый вид бока ТОГО ЖЕ знака угла (+135° → +90°, −135° → −90°); строго сзади (|угол| > 165°) — любой из двух ближайший к 90°.
+    angles {камера: знаковый азимут}, order — порядок обхода, usable — множество камер, чьи виды ПРИНЯТЫ (отклонённые образцом не служат). Нет подходящего — None."""
+    best, key = None, None
+    for i, n in enumerate(order):
+        if n not in usable or n not in angles:
+            continue
+        a = angles[n]
+        if not (60.0 <= abs(a) <= 120.0):
+            continue
+        mismatch = 0 if (abs(ang) > 165.0 or a * ang > 0) else 1
+        k = (mismatch, round(abs(abs(a) - 90.0), 1), i)
+        if key is None or k < key:
+            best, key = n, k
     return best
 
 

@@ -209,6 +209,171 @@ class SaladApiRetry(unittest.TestCase):
         self.assertEqual(S.api_retry(mg, '', 'POST', {}, 'g', lambda *a: None, lambda s: None)[::2], (400, 0))
 
 
+
+class ViewGuard(unittest.TestCase):
+    """T-154/1: сторож вида до проекции (sg_guard) + образец бока по знаку угла + подписи из данных."""
+
+    @staticmethod
+    def _img(obj=(200, 190, 180), mag_frac=0.0, size=96):
+        import numpy as np
+        a = np.full((size, size, 3), 140, np.uint8)                 # серый фон
+        a[20:76, 20:76] = obj                                        # предмет по центру
+        if mag_frac:
+            n = int(56 * 56 * mag_frac / 56)
+            a[20:76, 20:20 + max(1, n)] = (230, 20, 220)
+        return a
+
+    def test_magenta_judged_by_object_share_and_component(self):
+        import sg_guard as G
+        R = G.load_rules()
+        ok, _ = G.judge_magenta(G.view_stats(self._img(), R), R)
+        self.assertTrue(ok)
+        bad, why = G.judge_magenta(G.view_stats(self._img(mag_frac=0.3), R), R)
+        self.assertFalse(bad)
+        self.assertIn('малиновое', why)
+        few = self._img()
+        few[30:32, 30:32] = (230, 20, 220)                                          # 4 пикселя — не повод для повтора
+        self.assertTrue(G.judge_magenta(G.view_stats(few, R), R)[0])
+
+    def test_pink_catalog_product_is_exempt_but_jump_is_caught(self):
+        import sg_guard as G
+        R = G.load_rules()
+        self.assertTrue(G.is_pink_colour('pink', R) and not G.is_pink_colour('mint', R))
+        pinkish = G.view_stats(self._img(obj=(230, 20, 220)), R)                    # весь предмет «розовый» — цвет каталога
+        self.assertFalse(G.judge_magenta(pinkish, R)[0])
+        self.assertTrue(G.judge_magenta(pinkish, R, baseline=pinkish['mag_frac'], exempt=True)[0])
+        clean = G.view_stats(self._img(), R)
+        self.assertFalse(G.judge_magenta(G.view_stats(self._img(mag_frac=0.3), R), R, baseline=clean['mag_frac'], exempt=False)[0])
+
+    def test_colour_guard_neighbour_and_catalog(self):
+        import sg_guard as G
+        R = G.load_rules()
+        mint = G.view_stats(self._img(obj=(160, 225, 195)), R)
+        greywhite = G.view_stats(self._img(obj=(225, 225, 222)), R)
+        self.assertTrue(G.judge_colour(mint, R, catalog=G.catalog_lab('mint', R))[0])
+        ok, why, info = G.judge_colour(greywhite, R, catalog=G.catalog_lab('mint', R))      # «серо-белый фасад» у мятного шкафа (владелец TG 2770)
+        self.assertFalse(ok)
+        self.assertIn('каталога', why)
+        ok, why, info = G.judge_colour(mint, R, neighbour_lab=greywhite['lab'])
+        self.assertFalse(ok)
+        self.assertIn('соседнего', why)
+        self.assertTrue(G.judge_colour(mint, R, neighbour_lab=mint['lab'], catalog=None)[0])
+        self.assertTrue(G.judge_colour(mint, R, catalog=G.catalog_lab('дерево', R))[0])    # нет слова в справочнике — проверки цвета каталога нет
+
+    def test_repair_replaces_only_magenta_pixels(self):
+        import numpy as np
+        import sg_guard as G
+        R = G.load_rules()
+        a = self._img(mag_frac=0.3)
+        fixed = G.repair_magenta(a, R, G.srgb_to_lab((200, 190, 180)))
+        self.assertFalse(G.magenta_mask(fixed, R).any())
+        self.assertTrue((fixed[0, 0] == a[0, 0]).all())
+        self.assertLessEqual(int(np.abs(fixed[30, 30].astype(int) - (200, 190, 180)).max()), 2)
+
+    def test_png_decoder_matches_pillow(self):
+        import io
+        import numpy as np
+        import sg_guard as G
+        from PIL import Image
+        rng = np.random.default_rng(1)
+        a = rng.integers(0, 255, (33, 47, 3), dtype=np.uint8)
+        buf = io.BytesIO()
+        Image.fromarray(a).save(buf, format='PNG')
+        self.assertTrue((G._decode_png(buf.getvalue()) == a).all())
+
+    def test_side_sample_by_sign_of_angle(self):
+        import sg_views as V
+        angles = {'c0': 0.0, 'c1': 45.0, 'c2': -45.0, 'c3': 90.0, 'c4': -90.0, 'c5': 135.0, 'c6': -135.0, 'c7': 180.0}
+        order = ['c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7']
+        usable = set(order[:5])
+        self.assertEqual(V.side_sample_for(135.0, angles, order, usable), 'c3')
+        self.assertEqual(V.side_sample_for(-135.0, angles, order, usable), 'c4')
+        self.assertIn(V.side_sample_for(180.0, angles, order, usable), ('c3', 'c4'))
+        self.assertEqual(V.side_sample_for(135.0, angles, order, usable - {'c3'}), 'c4')       # образец той же стороны отклонён — берём другую
+        self.assertIsNone(V.side_sample_for(135.0, angles, order, {'c0', 'c1'}))
+
+    def test_captions_are_data(self):
+        import json
+        import os
+        import sg_views as V
+        p = os.path.join(os.path.dirname(V.__file__), '..', 'rules', 'stablegen-captions.json')
+        d = json.load(open(p, encoding='utf-8'))
+        self.assertEqual(V.MATERIAL_PHRASE['velour'], d['material_phrase']['velour'])
+        self.assertEqual(V.BACK_BY_CLASS['casework'], d['back_by_class']['casework'])
+        self.assertNotIn('marbled', d['material_phrase']['velour'])
+
+    def test_add_colour_and_bare_captions(self):
+        """Разбор T-155: подпись видов без фото — без слов рисунка и СО словом цвета; для открытых каркасов слово — только к основной поверхности."""
+        import sg_views as V
+        self.assertEqual(V.add_colour('an armchair, velour upholstery, matte', 'olive', 'кресло'), 'an olive armchair, velour upholstery, matte')
+        self.assertEqual(V.add_colour('a sofa, matte', 'grey', 'диван'), 'a grey sofa, matte')
+        self.assertEqual(V.add_colour('a dining table, solid wood with a visible natural grain', 'white', 'стол обеденный'),
+                         'a dining table with a white main surface, solid wood with a visible natural grain')
+        self.assertEqual(V.add_colour('an olive chair, matte', 'grey', 'стул'), 'an olive chair, matte')      # цвет уже есть — не дублируем
+        self.assertEqual(V.add_colour('a sofa', None, 'диван'), 'a sofa')
+        patterns = V.CAPTIONS['pattern_words']
+        self.assertIn('marbled', patterns)
+        for mat in ('rogozhka', 'boucle', 'chenille', 'velour', 'velvet'):
+            txt, _ = V.build_prompt('диван', mat, None, bare=True)
+            self.assertFalse([w for w in patterns if w in txt.lower()], (mat, txt))
+        full, _ = V.build_prompt('диван', 'rogozhka', None)
+        self.assertIn('slubby', full)                                 # подпись фото-вида прежняя
+
+    def test_parts_caption_two_colours(self):
+        """T-161 П6: «Белый Светлое дерево» → верх белый, каркас и ножки светлое дерево; один цвет, неизвестная роль, верх из каталога — честно."""
+        import sg_views as V
+        cols = V.colours_in_order(['Белый Светлое дерево', 'Кухонный стол Таргет 80х80 Белый/Натуральный'])
+        self.assertEqual(cols, ['white', 'light natural wood'])
+        self.assertEqual(V.colours_in_order(['Белый', 'Стол Белый/Натуральный']), ['white', 'natural wood'])     # в основном поле цвет один → берём название, где два
+        self.assertEqual(V.colours_in_order(['', 'Комод Модерн Графитовый']), ['graphite'])
+        self.assertEqual(V.colours_in_order(['', '']), [])
+        ph = V.parts_phrase('стол обеденный', cols)
+        self.assertEqual(ph, 'with a white top and light natural wood frame and legs')
+        self.assertEqual(V.parts_phrase('стол обеденный', ['light natural wood', 'white'], ['white']), ph)         # «цвет столешницы» белый → верх белый, порядок слов в каталоге не важен
+        self.assertIsNone(V.parts_phrase('стол обеденный', ['white']))                                           # один цвет — прежняя подпись
+        self.assertIsNone(V.parts_phrase('диван', cols))                                                         # нет шаблона для роли — прежняя подпись
+        p, _ = V.build_prompt('стол обеденный', 'массив', 'white', parts=ph)
+        self.assertEqual(p, 'a dining table with a white top and light natural wood frame and legs, solid wood with a visible natural grain')
+        bare, _ = V.build_prompt('стол обеденный', 'массив', None, bare=True)
+        self.assertEqual(V.add_colour(bare, 'white', 'стол обеденный', parts=ph), p)                                # виды без фото — та же композиция
+        self.assertEqual(V.add_colour(p, 'white', 'стол обеденный', parts=ph), p)                                  # дважды не дублируем
+        self.assertEqual(V.add_colour(bare, 'white', 'стол обеденный'), 'a dining table with a white main surface, solid wood with a visible natural grain')   # без parts — прежнее
+        self.assertNotIn('no ', ph)                                                                              # утверждения, не отрицания (правило подписей)
+
+    def test_parts_variant_flags(self):
+        """Вариант pc0 включает композицию; прочие варианты её не включают (прежние подписи не меняются)."""
+        self.assertTrue(S.VARIANTS['q2509pc0'].get('parts_caption'))
+        self.assertFalse(S.VARIANTS['q2509g1'].get('parts_caption'))
+        self.assertEqual(S.VARIANTS['q2509pc0']['guard'], S.VARIANTS['q2509g1']['guard'])
+
+    def test_photo_colour_word(self):
+        import sg_guard as G
+        r = G.load_rules()
+        st = G.view_stats(self._img(obj=(178, 136, 89)), r)         # дубовая столешница
+        w, d = G.photo_colour_word(st, r)
+        self.assertIn(w, ('tan', 'light brown', 'sand', 'mustard', 'terracotta', 'brown'))
+        self.assertLess(d, r['photo_colour']['max_dE_to_word'])
+        st_pale = G.view_stats(self._img(obj=(175, 190, 182)), r)    # бледный серо-мятный, как у шкафа 17 по фото
+        self.assertIn(G.photo_colour_word(st_pale, r)[0], ('light grey', 'mint', 'grey', 'light blue'))
+        self.assertEqual(G.photo_colour_word({'lab': None, 'obj_frac': 0.0}, r), (None, None))
+
+    def test_stop_only_works_without_runs(self):
+        """T-154/1: «гасилка» группы (--stop-only) падала на обязательном --runs и не гасила платную группу; без --runs обычный запуск по-прежнему отказывает."""
+        import sys
+        import types
+        from unittest import mock
+        calls = []
+        br = types.SimpleNamespace(stop_and_verify=lambda name: calls.append(name) or True)
+        mg = types.SimpleNamespace(env_from_file=lambda: None)
+        with mock.patch.dict(sys.modules, {'bench_run': br, 'migrate_groups': mg}):
+            with mock.patch.object(sys, 'argv', ['sg_salad.py', '--suffix', 'zz', '--stop-only']):
+                self.assertEqual(S.main(), 0)
+            self.assertEqual(calls, ['trial-sg-zz'])
+            with mock.patch.object(sys, 'argv', ['sg_salad.py', '--suffix', 'zz', '--image', 'r/i@sha256:x']):
+                with self.assertRaises(SystemExit):
+                    S.main()
+
+
 class Experiments(unittest.TestCase):
     def test_no_lora_variant_config(self):
         c = S.build_cfg('K', 'q2509nl', '/o', 's', 8, 2048, 42, 60)
@@ -318,12 +483,12 @@ class Views(unittest.TestCase):
         self.assertIsNone(V.material_from_texts(['Ткань', 'Диван Модерн']))
         p, fl = V.build_prompt('диван', 'velour', 'blue')
         self.assertEqual(fl, [])
-        self.assertTrue(p.startswith('a blue sofa, crushed velvet'))
-        self.assertIn('marbled mottled pile', p)
+        self.assertTrue(p.startswith('a blue sofa, fine short-pile velour'))      # T-154/1: «marbled mottled» убрано (Qwen его утрировал на тыле); фразы — данные rules/stablegen-captions.json
+        self.assertNotIn('marbled', p)
         p, fl = V.build_prompt('диван', None, 'beige')                                        # нет материала — честно без него, флаг
         self.assertEqual((p, fl), ('a beige sofa', ['unknown_material']))
         p, fl = V.build_prompt('абажур', 'velour', None)                                      # нет роли и цвета — «piece of furniture», флаги
-        self.assertTrue(p.startswith('a piece of furniture, crushed velvet'))
+        self.assertTrue(p.startswith('a piece of furniture, fine short-pile velour'))
         self.assertEqual(fl, ['unknown_role_noun', 'unknown_colour'])
         self.assertEqual(V.build_prompt('кресло', 'wood_solid', 'oak')[0][:9], 'an oak ar')   # артикль
         self.assertEqual(V.colour_from_texts(['Комод divan.ru Модерн 93x88 Графитовый']), 'graphite')
@@ -437,16 +602,19 @@ class RunpodDriverStops(unittest.TestCase):
             self.assertEqual(txt(az), '')
         self.assertEqual(txt(90), 'the plain left side of the same chest of drawers')
         self.assertEqual(txt(-90), 'the plain right side of the same chest of drawers')
-        self.assertEqual(txt(135), 'the plain back of the same chest of drawers')
-        self.assertEqual(txt(180), 'the plain back of the same chest of drawers')
-        self.assertEqual(txt(-135), 'the plain back of the same chest of drawers')
+        back = 'the back of the same chest of drawers, one uninterrupted flat construction back panel in the carcass finish, simple fastening seams'
+        for az in (135, 180, -135):
+            self.assertEqual(txt(az), back)
+            self.assertNotRegex(txt(az).casefold(), r'door|handle|drawer front')         # слова «двери/ручки» подсказывают мотив даже в отрицании
+        self.assertEqual(txt(180, 'диван'), 'the plain back of the same sofa')              # другой класс — прежняя короткая подпись
         self.assertEqual(txt(90, 'неизвестная роль'), 'the plain left side of the same piece of furniture')
 
     def test_t5b_back_suffix_only_on_back(self):
         import sg_views as V
         self.assertEqual(S.VARIANTS['q2509t5b']['back_suffix'], ', same colour and material as its side panels')
         r = math.radians(180)
-        self.assertTrue(V.short_side_text('комод', (math.sin(r), -math.cos(r), 0.3), (0, -1, 0), ', X')[0].endswith('chest of drawers, X'))
+        self.assertTrue(V.short_side_text('диван', (math.sin(r), -math.cos(r), 0.3), (0, -1, 0), ', X')[0].endswith('sofa, X'))
+        self.assertTrue(V.short_side_text('комод', (math.sin(r), -math.cos(r), 0.3), (0, -1, 0), ', X')[0].endswith('seams, X'))
         r = math.radians(90)
         self.assertEqual(V.short_side_text('комод', (math.sin(r), -math.cos(r), 0.3), (0, -1, 0), ', X')[0], 'the plain left side of the same chest of drawers')
 
@@ -688,6 +856,23 @@ class RunpodDriverStops(unittest.TestCase):
         self.assertEqual(rc, 1)
 
 
+class WeightsSpeed(unittest.TestCase):
+    """Сторож скорости докачки весов (T-154/1, ga 20.11: 0,1 ГБ/мин при ~23 ГБ — часы платной простоя)."""
+
+    def test_slow_node_detected_after_window(self):
+        import sg_salad as S
+        hist = [(0, 1.7), (60, 1.8), (120, 1.9), (180, 2.0), (240, 2.1)]
+        r = S.weights_slow(hist, 180, 0.5)
+        self.assertIsNotNone(r)
+        self.assertLess(r, 0.5)
+
+    def test_fast_node_and_short_history_not_flagged(self):
+        import sg_salad as S
+        self.assertIsNone(S.weights_slow([(0, 0.0), (60, 5.0), (120, 10.0), (200, 16.0)], 180, 0.5))   # ≈4,8 ГБ/мин
+        self.assertIsNone(S.weights_slow([(0, 1.7), (60, 1.75), (120, 1.8)], 180, 0.5))                 # окно 3 мин ещё не набралось
+        self.assertIsNone(S.weights_slow([(0, 1.7)], 180, 0.5))
+
+
 class QueueTests(unittest.TestCase):
     """Общая очередь прогонов (sg_queue.RunQueue) — одни правила для RunPod и Salad (T-90/12)."""
 
@@ -725,6 +910,21 @@ class QueueTests(unittest.TestCase):
             self.assertIsNone(q.step(0))
             procs['a'].rc = 1
             self.assertEqual(q.step(1), 'probe_failed')
+
+    def test_none_found_retries_product_once_instead_of_stopping(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            q, procs, said = self.make([('a', 'v')], tmp, {})
+            q.step(0)
+            json.dump({'stage': 'settings', 'error': "enum 'x.gguf' not found in ('NONE_FOUND')", 'steps': []}, open(os.path.join(tmp, 'a', 'blender', 'status.json'), 'w'))
+            procs['a'].rc = 1
+            self.assertIsNone(q.step(1))                     # первый отказ с пустым списком моделей — повтор, не стоп
+            self.assertEqual(q.pending, [('a', 'v')])
+            self.assertEqual(q.summary['failed'], 0)
+            q.step(2)
+            procs['a'].rc = 1
+            self.assertEqual(q.step(3), 'probe_failed')      # второй раз — уже настоящий отказ
 
     def test_second_failure_after_success_does_not_stop_but_two_in_a_row_do(self):
         import tempfile
@@ -889,6 +1089,82 @@ class XvfbRunNoLock(unittest.TestCase):
     def test_orphan_xvfb_does_not_hold_lock(self):
         here = os.path.dirname(os.path.abspath(__file__))
         self.assertTrue(self._run([os.path.join(here, 'xvfb_run.sh')]), 'осиротевший Xvfb держит замок')
+
+
+class PartsSlots(unittest.TestCase):
+    """T-161: слоты материала «тело/ножки» по геометрии формы (sg_parts.py) — на синтетике из trimesh, без сети и чужих мешей."""
+
+    @staticmethod
+    def _glb(tmp, name, parts):
+        import trimesh
+        ms = []
+        for sx, sy, sz, cx, cy, cz in parts:
+            m = trimesh.creation.box(extents=(sx, sy, sz))
+            m.apply_translation((cx, cy, cz))
+            ms.append(m)
+        p = os.path.join(tmp, name)
+        trimesh.util.concatenate(ms).export(p)
+        return p
+
+    LEGGED = [(2.0, 0.5, 1.0, 0, 0.5, 0)] + [(0.06, 0.25, 0.06, sx, 0.125, sz) for sx in (-0.9, 0.9) for sz in (-0.4, 0.4)]
+
+    def test_legged_body_gets_two_slots(self):
+        import tempfile
+        import sg_parts as P
+        with tempfile.TemporaryDirectory() as tmp:
+            r = P.face_slots(self._glb(tmp, 'a.glb', self.LEGGED))
+            self.assertTrue(r['ok'], r)
+            self.assertEqual(r['status'], 'split')
+            self.assertGreater(len(r['legs']), 0)
+            self.assertLess(len(r['legs']), r['faces'])
+            self.assertTrue(0.002 <= r['legs_share'] <= 0.30, r['legs_share'])
+            f = P.write_faces(r, os.path.join(tmp, 'sub', 'parts-faces.json'))              # папку создаёт сам
+            idx = P.slot_indices(__import__('json').load(open(f, encoding='utf-8')), r['faces'])
+            self.assertEqual(len(idx), r['faces'])
+            self.assertEqual(sum(1 for x in idx if x == P.LEGS), len(r['legs']))
+            self.assertEqual(set(idx), {P.BODY, P.LEGS})
+
+    def test_solid_box_has_no_slots(self):
+        """Сплошной ящик без ножек (whole) — слотов нет, красим как сейчас; не выдумываем разметку."""
+        import tempfile
+        import sg_parts as P
+        with tempfile.TemporaryDirectory() as tmp:
+            r = P.face_slots(self._glb(tmp, 'b.glb', [(2.0, 0.6, 1.0, 0, 0.3, 0)]))
+            self.assertFalse(r['ok'])
+            self.assertEqual(r['legs'], [])
+            self.assertIn('слотов нет', r['reason'])
+
+    def test_unreadable_shape_does_not_crash(self):
+        import sg_parts as P
+        r = P.face_slots('/nonexistent/shape.glb')
+        self.assertFalse(r['ok'])
+        self.assertIn('недоступна', r['reason'])
+
+    def test_decide_thresholds_from_data(self):
+        import sg_parts as P
+        rules = P.load_slot_rules()
+        rec = {'status': 'split', 'confidence': 0.75, 'reason': 'x'}
+        self.assertTrue(P.decide(rec, 0.009, rules, 0.6)[0])                                  # кресло 23: ножки 0,9 %
+        self.assertFalse(P.decide(rec, 0.0, rules, 0.6)[0])                                   # ножек нет по площади
+        self.assertFalse(P.decide(rec, 0.6, rules, 0.6)[0])                                   # «ножки» — больше трети предмета: не верим
+        self.assertFalse(P.decide(dict(rec, confidence=0.4), 0.05, rules, 0.6)[0])            # уверенность ниже порога правил геометрии
+        for st in ('whole', 'unsure', 'skip'):                                                # стол 16 unsure, лампа 37 whole
+            self.assertFalse(P.decide({'status': st, 'confidence': 0.9}, 0.05, rules, 0.6)[0])
+
+    def test_slot_indices_count_mismatch_means_no_slots(self):
+        import sg_parts as P
+        doc = {'faces': 12, 'legs': [0, 1]}
+        self.assertEqual(P.slot_indices(doc, 12), [1, 1] + [0] * 10)
+        self.assertIsNone(P.slot_indices(doc, 14))                                           # Blender пересобрал форму
+        self.assertIsNone(P.slot_indices({'faces': 12, 'legs': [99]}, 12))                   # индекс вне формы
+        self.assertIsNone(P.slot_indices({'faces': 12, 'legs': []}, 12))
+        self.assertIsNone(P.slot_indices({}, 12))
+
+    def test_variant_flags(self):
+        self.assertTrue(S.VARIANTS['q2509pc1'].get('parts_slots'))
+        self.assertTrue(S.VARIANTS['q2509pc1'].get('parts_caption'))                          # pc1 = pc0 + слоты
+        self.assertFalse(S.VARIANTS['q2509pc0'].get('parts_slots'))
+        self.assertFalse(S.VARIANTS['q2509g1'].get('parts_slots'))
 
 
 if __name__ == '__main__':

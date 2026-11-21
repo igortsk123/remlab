@@ -81,6 +81,10 @@ VARIANTS['q2509t5e'] = dict(_T5BASE, back_mode='side_sample', label='T5e: T5b + 
 VARIANTS['q2509t5g'] = dict(_T5BASE, back_mode='no_photo', back_limit=100.0, label='T5g: T5b + порядок от переда; фото получают виды ≤±90°, виды ±135° и 180° — без фото (только подпись и контекст чистых боков)')
 VARIANTS['q2509t5h'] = dict(VARIANTS['q2509t5g'], back_suffix=', same colour and material as its side panels, top same as the front view top', label='T5h: как T5g + в подписи видов сзади «цвет и материал как у боков, верх как у переда» (общее правило: невидимые стороны = материал боков)')
 VARIANTS['q2509t5i'] = dict(VARIANTS['q2509t5g'], photo_no_colour=True, label='T5i: как T5g, но у ПЕРВОГО вида (зерно, с фото) подпись без цвета (тип+материал); остальным — с цветом каталога (директор 20.11: перёд vid0 вышел серым; на всех видах с фото бока ушли в дуб — комод T5i)')
+VARIANTS['q2509g1'] = dict(VARIANTS['q2509t5i'], back_mode='side_sample_sign', guard=True, scene_props={'qwen_guidance_background_color': (0.5, 0.5, 0.5)},
+                           label='G1 (T-154/1): как T5i + сторож каждого вида (малиновое/цвет → повтор → без контекста → отклонить), заднему виду — образец бока по знаку угла вместо «без фото», серый фон контекста')
+VARIANTS['q2509pc0'] = dict(VARIANTS['q2509g1'], parts_caption=True, label='PC0 (T-161, П6): как G1 + подпись-композиция «верх … цвета, каркас и ножки … цвета» из каталога (общая подпись, не разметка граней; утечки и выдумка сзади — меряем)')
+VARIANTS['q2509pc1'] = dict(VARIANTS['q2509pc0'], parts_slots=True, label='PC1 (T-161, П6): как PC0 + слоты материала «тело/ножки» на гранях формы — только если геометрия уверенно split (кресла, диваны с ножками); слитые формы (стол-табурет, лампа) — без слотов, как PC0')
 VARIANTS['q2509t5f'] = dict(_T5BASE, back_mode='no_photo', label='T5f: T5b + порядок от переда; виду сзади фото не даём, только подпись и последовательный контекст')
 VARIANTS['q2509t3'] = dict(VARIANTS['q2509vp'], label='диагностика: подсказки видов + прежний короткий промпт')
 VARIANTS['q2509t4'] = dict(VARIANTS['q2509q5'], scene_props={'qwen_external_style_initial_only': True}, label='диагностика: прежний промпт, фото только первому виду')
@@ -264,13 +268,29 @@ def build_cfg(key: str, var: str, out: str, server: str, cameras: int, texture: 
     cfg = {'glb': glb, 'out': out, 'server': server, 'preset': 'QWEN PRECISE', 'prompt': 'a piece of furniture',
            'cameras': {'mode': 'orbit_ring', 'num': cameras}, 'texture_resolution': texture, 'bake_samples': 16, 'seed': seed, 'timeout_s': timeout_s,
            'style_image': style, 'model_unet': v['unet'], 'lora_name': v['lora']}
-    for k in ('no_lora', 'scene_props', 'megapixels', 'bake_margin', 'bake_denoise', 'view_prompts', 'vp_off', 'short_side', 'back_suffix', 'order_mode', 'back_mode', 'back_limit', 'photo_no_colour'):
+    for k in ('no_lora', 'scene_props', 'megapixels', 'bake_margin', 'bake_denoise', 'view_prompts', 'vp_off', 'short_side', 'back_suffix', 'order_mode', 'back_mode', 'back_limit', 'photo_no_colour', 'guard', 'parts_caption', 'parts_slots'):
         if k in v:
             cfg[k] = v[k]
     attrs = catalog_attrs(prod)                              # T-90/10: подсказка — из каталога (роль + материал + цвет), для ВСЕХ товаров; словаря по ID нет
     cfg['cat_role'] = attrs.get('role', '')
     cfg['catalog_name'] = attrs.get('name', '')
-    cfg['prompt'], cfg['prompt_flags'] = sg_views.build_prompt(attrs.get('role', ''), attrs.get('material'), attrs.get('colour'))
+    cfg['colour'] = attrs.get('colour')                     # T-154/1: слово цвета каталога — сторож цвета и исключение для розового/фиолетового
+    parts = None
+    if v.get('parts_caption'):                               # T-161 П6: подпись-композиция «верх такого-то цвета, каркас и ножки такого-то» из каталога; двух цветов/шаблона нет → прежняя подпись + флаг
+        parts = sg_views.parts_phrase(attrs.get('role', ''), attrs.get('colours'), attrs.get('top_colours'))
+    cfg['parts_phrase'] = parts
+    cfg['prompt'], cfg['prompt_flags'] = sg_views.build_prompt(attrs.get('role', ''), attrs.get('material'), attrs.get('colour'), parts=parts)
+    cfg['prompt_bare'] = sg_views.build_prompt(attrs.get('role', ''), attrs.get('material'), None, bare=True)[0]     # T-154/1: подпись видов БЕЗ фото — без слов рисунка и без цвета (цвет подставит драйвер)
+    if v.get('parts_caption') and not parts:
+        cfg['prompt_flags'] = list(cfg['prompt_flags']) + ['parts_caption_unavailable']
+    if v.get('parts_slots'):                                 # T-161: слоты «тело/ножки» по геометрии формы (sg_parts.py); нет уверенной разметки → без слотов, красим как сейчас + флаг
+        import sg_parts
+        info = sg_parts.face_slots(glb)
+        cfg['parts_slots_reason'] = info['reason']
+        if info['ok']:
+            cfg['parts_faces'] = sg_parts.write_faces(info, os.path.join(out, 'parts-faces.json'))
+        else:
+            cfg['prompt_flags'] = list(cfg['prompt_flags']) + ['parts_slots_unavailable']
     if not attrs:
         cfg['prompt_flags'] = list(cfg['prompt_flags']) + ['catalog_unavailable']
     return cfg
@@ -281,18 +301,20 @@ def catalog_attrs(prod: str) -> dict:
     shop, _, ext = prod.partition('_')
     if not shop.isdigit() or not ext.isdigit():
         return {}
-    q = (f"select cat_role, name, coalesce(params->>'Материал обивки',''), coalesce(params->>'Материал фасада',''), coalesce(params->>'Материал корпуса',''), coalesce(params->>'Цвет основной',''), coalesce(params->>'Расцветка материала обивки',''), coalesce(params->>'Цвет шкафа: Цвет корпуса',''), coalesce(params->>'Цвет шкафа: Цвет фасада','') "
+    q = (f"select cat_role, name, coalesce(params->>'Материал обивки',''), coalesce(params->>'Материал фасада',''), coalesce(params->>'Материал корпуса',''), coalesce(params->>'Цвет основной',''), coalesce(params->>'Расцветка материала обивки',''), coalesce(params->>'Цвет шкафа: Цвет корпуса',''), coalesce(params->>'Цвет шкафа: Цвет фасада',''), coalesce(params->>'Материал столешницы: Цвет столешницы','') "
          f"from products where shop_mid::text='{shop}' and external_id='{ext}'")
     try:
         r = subprocess.run(['docker', 'exec', '-i', 'remlab-devdb', 'psql', '-U', 'remlab', '-d', 'remlab', '-At', '-F', '|', '-c', q], capture_output=True, text=True, timeout=20)
         row = r.stdout.strip().split('\n')[0].split('|') if r.returncode == 0 and r.stdout.strip() else None
     except (OSError, subprocess.TimeoutExpired):
         row = None
-    if not row or len(row) < 9:
+    if not row or len(row) < 10:
         return {}
-    role, name, upholstery, facade, body, c_main, c_uph, c_body, c_facade = row[:9]
+    role, name, upholstery, facade, body, c_main, c_uph, c_body, c_facade, c_top = row[:10]
     return {'role': role, 'name': name, 'material': sg_views.material_from_texts([upholstery, facade, body, name]),
-            'colour': sg_views.colour_from_texts([name, c_uph, c_main, c_body, c_facade])}
+            'colour': sg_views.colour_from_texts([name, c_uph, c_main, c_body, c_facade]),
+            'colours': sg_views.colours_in_order([c_main, name]),            # T-161 П6: все цвета по порядку («Белый Светлое дерево» → white, light natural wood); верх — из «цвет столешницы», если есть
+            'top_colours': sg_views.colours_in_order([c_top])}
 
 
 def progress_line(stage: str, cost: float, cap: float, extra: str = '') -> str:
@@ -406,6 +428,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
         say('start HTTP', code)
         gw, ready_at, ever_ok, last_gb, last_gb_t, last_say, minute_say = None, None, False, None, None, 0.0, 0.0
         pending = list(runs)
+        gb_hist = []                                              # (время, ГБ весов) — для сторожа скорости докачки
 
         def start_run(key, var, t):
             stamp = time.strftime('%H%M%S', time.gmtime())
@@ -481,6 +504,14 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
                     if t - last_say >= 60 and not h.get('warm'):           # прогрев — строка раз в минуту (в бою ход прогонов — каждые 10 минут)
                         last_say = t
                         say(progress_line(f'прогрев, фаза {h.get("phase")}', summary['cost_usd_est'], a.cap, f'· кэш весов {gb} ГБ, диск {h.get("disk_gb")}'))
+                    if h.get('phase') == 'weights' and gb is not None:
+                        gb_hist.append((t, float(gb)))
+                        slow = weights_slow(gb_hist, a.slow_window_s, a.min_gb_min)
+                        if slow is not None:
+                            say(f'!! веса качаются {slow:.2f} ГБ/мин < {a.min_gb_min} уже {a.slow_window_s // 60} мин — нода медленная, гашу (беру другую)')
+                            summary['stopped_by'] = 'download_slow'
+                            summary['weights_gb_min'] = round(slow, 3)
+                            break
                     if h.get('phase') == 'weights' and last_gb_t is not None and t - last_gb_t > a.stall_min * 60:
                         say(f'!! докачка весов стоит {a.stall_min} мин — гашу')
                         summary['stopped_by'] = 'download_stalled'
@@ -528,10 +559,23 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, head=h
     return 0 if summary['stop_verified'] and summary['stopped_by'] == 'done' else 1
 
 
+def weights_slow(hist: list, window_s: float, min_gb_min: float) -> float | None:
+    """Скорость докачки весов за последние window_s секунд, если она ниже min_gb_min ГБ/мин (иначе None). hist — [(время_с, ГБ)] по возрастанию времени; нужна выборка, покрывающая всё окно."""
+    if len(hist) < 2:
+        return None
+    t1, g1 = hist[-1]
+    old = [(t, g) for t, g in hist if t <= t1 - window_s]
+    if not old:
+        return None                                             # окно ещё не набралось
+    t0, g0 = old[-1]
+    rate = (g1 - g0) / ((t1 - t0) / 60)
+    return rate if rate < min_gb_min else None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--image', help='образ группы: тег или digest, ghcr.io/igortsk123/mesh-comfy-trial:stablegen-0460')
-    ap.add_argument('--runs', required=True, help='<товар>[@форма][+cut-метка]:<вариант>[,…]')   # без значения по умолчанию: ID товара в коде запрещён (T-20261120-147)
+    ap.add_argument('--runs', default=None, help='<товар>[@форма][+cut-метка]:<вариант>[,…]')   # без значения по умолчанию: ID товара в коде запрещён (T-20261120-147)
     ap.add_argument('--tier', default='high', choices=['batch', 'low', 'medium', 'high'])
     ap.add_argument('--cpu', type=int, default=8)
     ap.add_argument('--mem-mb', type=int, default=32768)
@@ -551,6 +595,8 @@ def main() -> int:
     ap.add_argument('--relay-deps', default=os.path.join(SG_HOME, 'fake-deps'), help='папка с aiohttp для моста')
     ap.add_argument('--card', default=None, help='класс карты Salad по имени, напр. «RTX 5090 (32 GB)» (по умолчанию 4090)')
     ap.add_argument('--relay-port', type=int, default=None, help='порт моста (разные у одновременных групп)')
+    ap.add_argument('--min-gb-min', type=float, default=0.5, help='скорость докачки весов, ГБ/мин: ниже столько же --slow-window-s секунд подряд — нода медленная, гасим (директор 20.11)')
+    ap.add_argument('--slow-window-s', type=int, default=180)
     ap.add_argument('--running-min', type=int, default=60, help='минут от /start до running (нода выдана); дольше — группу гасим (директор 20.11: 15)')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--stop-only', action='store_true')
@@ -560,6 +606,8 @@ def main() -> int:
     if a.stop_only:
         MG.env_from_file()
         return 0 if BR.stop_and_verify(f'trial-sg-{a.suffix}') else 1
+    if not a.runs:
+        sys.exit('нужен --runs <товар>[@форма][+cut-метка]:<вариант>[,…] (товар по умолчанию в коде запрещён, T-20261120-147)')
     if not a.image or ('@' not in a.image and ':' not in a.image):
         sys.exit('нужен --image: тег или digest с именем репозитория')
     return run(a, MG, BR)
