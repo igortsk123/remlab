@@ -114,7 +114,7 @@ def main() -> int:
     ap.add_argument('--job-timeout', type=int, default=15)
     ap.add_argument('--pre', default='', help='команда перед воркером (временная заплатка к образу, напр. pip install; в отчёт — отдельной строкой)')
     ap.add_argument('--max-realloc', type=int, default=3, help='сколько раз пересадить медленно качающую образ ноду (0 = не пересаживать); бюджет общий с пулом (node_health)')
-    ap.add_argument('--stuck-min', type=float, default=4.0, help='шаг задания не меняется и GPU <5 % дольше N мин → считаем зависшим, гасим')
+    ap.add_argument('--stuck-min', type=float, default=4.0, help='шаг задания не меняется и GPU меньше 5 процентов дольше N мин → считаем зависшим, гасим')
     ap.add_argument('--max-meshes', type=int, default=0, help='после N отправленных прогонов новые не отправлять (0 = без ограничения); дождаться текущего и погасить')
     ap.add_argument('--stop-file', default='', help='если файл существует — новые прогоны не отправлять (текущий дожидаемся, потом гасим); сигнал фоновому процессу НЕ работает')
     ap.add_argument('--variants', default='', help='JSON-файл [{"tag","params"}]: каждый меш прогоняется по всем вариантам подряд (меш за мешом); результаты в <out>/<tag>/<sid>/')
