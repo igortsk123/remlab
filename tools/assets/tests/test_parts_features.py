@@ -201,6 +201,17 @@ class Roles(unittest.TestCase):
         legs = [box(x, 0.1, z, 0.04, 0.2, 0.04, n=3) for x in (-0.45, 0.45) for z in (-0.2, 0.2)]
         return assemble([body, handle] + legs)
 
+    def test_case_second_bulk_part_is_body_table_is_not(self):
+        main = box(0, 0.6, 0, 1.0, 0.7, 0.5, n=12)
+        block = box(0, 0.88, 0, 0.9, 0.3, 0.45, n=10)                       # вторая объёмная часть корпуса (верхний ярус ящиков), не плита и не у пола
+        legs = [box(x, 0.1, z, 0.04, 0.2, 0.04, n=3) for x in (-0.45, 0.45) for z in (-0.2, 0.2)]
+        v, f, part = assemble([main, block] + legs)
+        kinds = {0: "body", 1: "body", 2: "thin", 3: "thin", 4: "thin", 5: "thin"}
+        r = pr.assign_roles(feats(v, f, part, kinds), self.rules, "комод", {"legs"})
+        self.assertEqual(r[1]["role"], "body")                              # у корпуса фасад/верх/короб — один основной класс: тот же материал, что у крупнейшей
+        r = pr.assign_roles(feats(v, f, part, kinds), self.rules, "стол обеденный", {"legs"})
+        self.assertEqual(r[1]["unknown_reason"], "body_scope")              # у стола столешница/ножки названы отдельно — body нет вовсе
+
     def test_handle_needs_front(self):
         v, f, part = self._chest()
         kinds = {0: "body", 1: "body", 2: "thin", 3: "thin", 4: "thin", 5: "thin"}
