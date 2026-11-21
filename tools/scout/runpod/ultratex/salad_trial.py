@@ -25,6 +25,7 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 SALAD = os.path.abspath(os.path.join(HERE, '..', '..', 'salad'))
 sys.path.insert(0, SALAD)
+sys.path.insert(0, os.path.abspath(os.path.join(HERE, '..', '..', 'render_gpu')))     # bench_run (group_state/instances/stop_and_verify)
 
 CARD_NAME = 'RTX 5090 (32 GB)'
 PORT = 8000
