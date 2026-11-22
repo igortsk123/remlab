@@ -345,13 +345,14 @@ def boundary_rough(tx, mask: np.ndarray, occ: np.ndarray, tmm: float, sigma_mm: 
         nb = np.roll(np.roll(mk, dy, 0), dx, 1)
         no = np.roll(np.roll(o, dy, 0), dx, 1)
         edge |= mk & ~nb & no & o
-    edge &= gm > 1e-4
+    n_all = int(edge.sum())
+    edge &= (gm > 1e-4) & (np.abs(g - 0.5) < 0.3)                      # только полоса перехода гладкой маски: у островков развёртки/узких кусков g насыщена, расстояние до контура g=0.5 там не определено
     n = int(edge.sum())
     if not n:
-        return {'edge_texels': 0, 'rough_rms_mm': 0.0, 'rough_p95_mm': 0.0, 'perimeter_mm': 0.0, 'rough_per_perimeter': 0.0}
-    d = np.abs(g[edge] - 0.5) / gm[edge] * tmm                       # мм до контура g=0.5
+        return {'edge_texels': 0, 'edge_all': n_all, 'rough_rms_mm': 0.0, 'rough_p95_mm': 0.0, 'perimeter_mm': 0.0, 'rough_per_perimeter': 0.0}
+    d = np.minimum(np.abs(g[edge] - 0.5) / gm[edge] * tmm, 3.0 * sigma_mm)    # мм до контура g=0.5 (не дальше 3σ)
     per = n * tmm
-    return {'edge_texels': n, 'rough_rms_mm': round(float(np.sqrt((d ** 2).mean())), 3), 'rough_p95_mm': round(float(np.percentile(d, 95)), 3),
+    return {'edge_texels': n, 'edge_all': n_all, 'rough_rms_mm': round(float(np.sqrt((d ** 2).mean())), 3), 'rough_p95_mm': round(float(np.percentile(d, 95)), 3),
             'perimeter_mm': round(per, 1), 'rough_per_perimeter': round(float((d ** 2).mean() ** 0.5 / max(sigma_mm, 1e-6)), 4)}
 
 

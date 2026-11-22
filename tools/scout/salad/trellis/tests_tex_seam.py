@@ -200,7 +200,7 @@ def test_fill_end_to_end():
     known.reshape(-1)[tx.ti[x < 0.5]] = True
     g2 = dict(g)
     g2['tex'] = base.copy()
-    out = TF.fill([g2], [known], None, cfg={'gutter': 0, 'erode_known': 0, 'seam': {'size_mm': smm, 'tone_decay_mm': 25.0}}, mirror=False)
+    out = TF.fill([g2], [known], None, cfg={'gutter': 0, 'erode_known': 0, 'seam': {'enabled': True, 'size_mm': smm, 'tone_decay_mm': 25.0}}, mirror=False)
     sm = out['report']['seam']
     ok(sm['enabled'] and len(sm['geoms']) == 1 and sm['geoms'][0]['after']['pairs'] > 0, 'отчёт шва: есть пары до/после', str(sm)[:200])
     mid = np.zeros((T, T), bool)
