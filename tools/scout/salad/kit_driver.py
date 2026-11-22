@@ -877,8 +877,8 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
                         busy_waits += 1
                         if busy_waits in (1, 6) or busy_waits % 30 == 0:
                             say(f'задание {k}: нода занята (429) — жду, не провал (ожидание №{busy_waits})')
-                    elif cur is None and info.get('http') == -1 and k not in post_retried:
-                        # POST без ответа и воркер задание не видит (T-178 22.11): не провал — один повтор в конец очереди той же ноды
+                    elif cur is None and (info.get('post') or {}).get('worker_saw_job') is False and k not in post_retried:
+                        # POST без ответа/503 шлюза и воркер задание не видит (T-178 22.11): не провал — один повтор в конец очереди той же ноды
                         post_retried.add(k)
                         pending.append(k)
                         summary.setdefault('post_timeouts', []).append({'key': k, **(info.get('post') or {})})

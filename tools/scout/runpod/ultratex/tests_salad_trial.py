@@ -83,6 +83,7 @@ class BR:
 
 class GW:
     """ready_after — через сколько секунд после создания шлюза нода «готова»; job_s — длительность задания; fail — задание падает."""
+    post_code = -1                                                   # что отвечает POST /generate, пока post_fail > 0 (-1 = нет ответа, 503 = HTML шлюза)
     post_fail = 0                                                    # сколько первых POST /generate остаются без ответа (-1)
     accepted_on_timeout = False                                      # воркер при этом задание всё-таки принял
 
@@ -119,7 +120,7 @@ class GW:
                 if GW.accepted_on_timeout:
                     self.dur[body['job_id']] = self._next_dur()
                     self.jobs[body['job_id']] = t
-                return -1, {}
+                return GW.post_code, {}
             if any(t - t0 < self.dur[j] for j, t0 in self.jobs.items()):    # как настоящий воркер: одно задание за раз
                 return 429, {'error': 'занят другим заданием'}
             self.dur[body['job_id']] = self._next_dur()
@@ -236,7 +237,7 @@ with tempfile.TemporaryDirectory() as tmp:
     finally:
         GW.post_fail, GW.accepted_on_timeout = 0, False
     st = {k: v.get('status') for k, v in summ.get('jobs', {}).items()}
-    check(st == {'a': 'done', 'b': 'done'} and not summ.get('post_timeouts') and 'воркер его принял' in out, 'POST без ответа, но воркер задание принял → без повтора, то же задание считается')
+    check(st == {'a': 'done', 'b': 'done'} and not summ.get('post_timeouts') and 'воркер задание принял' in out, 'POST без ответа, но воркер задание принял → без повтора, то же задание считается')
 with tempfile.TemporaryDirectory() as tmp:
     GW.post_fail, GW.accepted_on_timeout = 99, False
     try:
@@ -244,6 +245,23 @@ with tempfile.TemporaryDirectory() as tmp:
     finally:
         GW.post_fail = 0
     check(summ.get('jobs', {}).get('a', {}).get('status') == 'not_accepted' and len(summ.get('post_timeouts', [])) == 1, 'повтор тоже без ответа → not_accepted (повтор один, не бесконечный)')
+
+with tempfile.TemporaryDirectory() as tmp:
+    GW.post_fail, GW.post_code, GW.accepted_on_timeout = 1, 503, False
+    try:
+        rc, summ, out, mg, br = drive(tmp, 'a,b')
+    finally:
+        GW.post_fail, GW.post_code = 0, -1
+    st = {k: v.get('status') for k, v in summ.get('jobs', {}).items()}
+    check(st == {'a': 'done', 'b': 'done'} and summ.get('post_timeouts') and summ['post_timeouts'][0].get('code') == 503 and 'код 503' in out,
+          '503 (HTML шлюза) на POST → то же, что нет ответа: воркер задание не видит → один повтор в конец очереди, оба готовы, код 503 в сводке')
+with tempfile.TemporaryDirectory() as tmp:
+    GW.post_fail, GW.post_code = 99, 503
+    try:
+        rc, summ, out, mg, br = drive(tmp, 'a')
+    finally:
+        GW.post_fail, GW.post_code = 0, -1
+    check(summ.get('jobs', {}).get('a', {}).get('status') == 'not_accepted' and summ['jobs']['a'].get('http') == 503, '503 два раза подряд → not_accepted с кодом 503 в причине')
 
 # 3. разбор без --apply: группа не создаётся
 with tempfile.TemporaryDirectory() as tmp:
