@@ -246,6 +246,10 @@ def test_ultratex_full():
     ok(o[~known].std() > 4.0, f'невидимое получило рисунок UltraTex (σ {o[~known].std():.1f})')
     ok(abs(o[~known].mean() - 120) < 8, f'средний тон остался нашим ({o[~known].mean():.0f}), градиент яркости перёд↔зад не перенесён')
     ok(rep['risky_parts'] == [0] and rep['parts'][0]['ratio'] > 2.0, f'на видимой стороне фото гладкое, UltraTex рябит — риск отмечен (ratio {rep["parts"][0]["ratio"]})')
+    ut_box = ut.copy()
+    ut_box[20:44, 36:60] = 250                                                              # «ручка/шов ДВП»: яркий прямоугольник с резкими краями на невидимой стороне
+    _o, rep_b = RZ.ultratex_full([dict(base_g, tex=flat)], [flat], [known], [dict(base_g, tex=ut_box)], [np.zeros(2, np.int32)])
+    ok(not rep['sharp_parts'][0]['sharp'] and rep_b['sharp_parts'][0]['edge_share'] > rep['sharp_parts'][0]['edge_share'], f'мерка резких линий: шум не считается, прямоугольник даёт рост доли ({rep["sharp_parts"][0]["edge_share"]} → {rep_b["sharp_parts"][0]["edge_share"]})')
     ph = np.clip(flat.astype(float) + rng.normal(0, 14, flat.shape), 0, 255).astype(np.uint8)
     out2, rep2 = RZ.ultratex_full([dict(base_g, tex=ph)], [ph], [known], [dict(base_g, tex=ut)], [np.zeros(2, np.int32)])
     ok(rep2['risky_parts'] == [] and rep2['parts'][0]['ratio'] < 2.0, f'на фото та же рябь — риска нет (ratio {rep2["parts"][0]["ratio"]})')

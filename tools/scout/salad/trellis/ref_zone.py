@@ -640,8 +640,8 @@ def ultratex_full(geoms: list, tex_after: list, known: list, ut_geoms: list, par
     → (текстуры, отчёт {'parts': {часть: {...}}, 'risky_parts', 'texels_changed'})."""
     import cv2
     import tex_coverage as TC
-    F = dict({'sigma': 12.0, 'clip': 35.0, 'risk_ratio': 2.0, 'photo_floor': 0.8, 'min_visible': 500}, **R.get('full', {}))
-    out, rep = [], {'parts': {}, 'risky_parts': [], 'texels_changed': 0}
+    F = dict({'sigma': 12.0, 'clip': 35.0, 'risk_ratio': 2.0, 'photo_floor': 0.8, 'min_visible': 500, 'edge_thr': 8.0, 'edge_share_max': 0.01}, **R.get('full', {}))
+    out, rep = [], {'parts': {}, 'risky_parts': [], 'texels_changed': 0, 'sharp_parts': {}}
     for gi, g in enumerate(geoms):
         tex = np.asarray(tex_after[gi], np.uint8)
         T = int(tex.shape[0])
@@ -663,6 +663,12 @@ def ultratex_full(geoms: list, tex_after: list, known: list, ut_geoms: list, par
             det = np.clip(Lu - _nconv(Lu, mp, F['sigma']), -F['clip'], F['clip'])
             unk = mp & ~kn
             lab[..., 0][unk] += det[unk]
+            if unk.sum() >= F['min_visible']:                                    # резкие линии/прямоугольники на невидимом (ручки, швы ДВП): конструкция из «целиком» не вычитается — только отметка
+                dsm = cv2.GaussianBlur(det.astype(np.float32), (0, 0), 1.5)
+                gx, gy = cv2.Sobel(dsm, cv2.CV_32F, 1, 0, ksize=3) / 8.0, cv2.Sobel(dsm, cv2.CV_32F, 0, 1, ksize=3) / 8.0
+                gm = np.sqrt(gx ** 2 + gy ** 2)[cv2.erode(unk.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)]
+                sh = float((gm > F['edge_thr']).mean()) if gm.size else 0.0
+                rep['sharp_parts'][int(pid)] = {'edge_share': round(sh, 4), 'sharp': bool(sh > F['edge_share_max'])}
             rep['texels_changed'] += int(unk.sum())
             kv = mp & kn
             if int(kv.sum()) >= F['min_visible']:
