@@ -593,7 +593,7 @@ def cutout_page(items: list, chain: dict, photos: str, cuts: str, out: str, W: d
     summ = (f"<div class='sum'><div><b>вошло {n}</b> · <b>вырезка есть {s['made']}</b> (чистая {c['ok']}, с замечаниями {c['soft']}) · <b>не получилась {c['refused']}</b> · нет в журнале {c['missing']}</div>"
             + (f"<div class='why'><b>На кадре:</b> {e(legend)}</div>" if legend else '') + (f"<div class='why'><b>ОШИБКА СВОДКИ:</b> {e('; '.join(s['errors']))}</div>" if s['errors'] else '') + '</div>')
     words = {'ok': 'вырезка чистая', 'soft': 'вырезка с замечаниями', 'refused': 'вырезка не получилась', 'missing': 'нет в журнале'}
-    body = ''.join(_card(cd, cd['status'], words[cd['status']], W, cap, 'исходное фото', legend or 'вырезка', say(W, cd['reason']) if cd['reason'] else '', cd['reason']) for cd in cards)
+    body = ''.join(_card(cd, cd['status'], words[cd['status']], W, cap, 'исходное фото', 'вырезка без фона', say(W, cd['reason']) if cd['reason'] else '', cd['reason']) for cd in cards)
     open(os.path.join(out, 'index.html'), 'w', encoding='utf-8').write(_head(f'{label}: {cap}', f"<h1>{e(cap)}</h1>{summ}{body}"))
     json.dump({k: v for k, v in s.items()}, open(os.path.join(out, 'summary.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     return s, s['errors']
