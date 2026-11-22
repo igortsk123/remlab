@@ -417,6 +417,7 @@ def test_state_running_by_heavy_slot_job(tmp_path):
     (hs / 'wait').mkdir(parents=True)
     (hs / 'wait' / '1-1').write_text(f'label=paint-03-2-1\npid={os.getpid()}\ncmd=python x.py {run}/k_1/work/m.json\n', encoding='utf-8')       # живой процесс, команда называет прогон
     (hs / 'wait' / '2-2').write_text(f'label=чужой\npid={os.getpid()}\ncmd=python x.py {tmp_path}/другой-прогон/k\n', encoding='utf-8')
+    (hs / 'wait' / '4-4').write_text(f'label=t183-wardrobe\\npid={os.getpid()}\\ncmd=python facade.py --glb {run}/k_1/m.glb\\n', encoding='utf-8')                       # живая, но не задание прогона (метка не paint-) — не считается
     (hs / 'wait' / '3-3').write_text(f'label=умер\npid=999999999\ncmd=python x.py {run}\n', encoding='utf-8')                                   # процесса нет — не считается
     st = prr.run_state([str(run)], state_dir=str(hs))
     assert st['running'] is True and st['jobs'] == ['paint-03-2-1'] and 'ещё идёт' in st['text'] and 'heavy-slot' in st['text']

@@ -70,7 +70,7 @@ def _pid_alive(pid) -> bool:
 
 
 def heavy_jobs(runs: list, state_dir: str | None = None) -> list:
-    """Живые задания heavy-slot (держатели `holder*` и очередь `wait/*`), чья команда `cmd=` называет папку одного из прогонов. Файл состояния без живого процесса не считается. Возвращает метки заданий."""
+    """Живые задания heavy-slot (держатели `holder*` и очередь `wait/*`) с меткой `paint-…`, чья команда `cmd=` называет папку одного из прогонов. Файл состояния без живого процесса не считается. Возвращает метки заданий."""
     d = os.path.expanduser(state_dir or os.environ.get('HEAVY_SLOT_DIR') or '~/.cache/remlab-heavy-slot')
     files = []
     try:
@@ -85,7 +85,7 @@ def heavy_jobs(runs: list, state_dir: str | None = None) -> list:
             kv = dict(ln.rstrip('\n').split('=', 1) for ln in open(f, encoding='utf-8') if '=' in ln)
         except OSError:
             continue
-        if _pid_alive(kv.get('pid')) and any(p.search(kv.get('cmd', '')) for p in pats):
+        if _pid_alive(kv.get('pid')) and (kv.get('label') or '').startswith('paint-') and any(p.search(kv.get('cmd', '')) for p in pats):   # только задания самого прогона (`paint-…`); чужая задача, читающая файлы из папки, прогоном не считается
             out.append(kv.get('label') or os.path.basename(f))
     return sorted(set(out))
 
