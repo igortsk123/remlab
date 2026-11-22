@@ -74,6 +74,11 @@ TONE_CREASE_W = float(R.get('tone_crease_weight', 0.25))    # … плюс до�
 TONE_REACH_FRAC = float(R.get('tone_reach_frac', 0.3))     # тон растекается от наблюдавшейся грани не дальше доли габарита формы (по поверхности)
 TONE_MAX_DE = float(R.get('tone_max_de', 20.0))             # ΔE00(наблюдение, опора) больше — другой материал или блик: не красим
 TONE_MIN_OBS = int(R.get('tone_min_obs_px', 30))            # меньше наблюдений в геометрии — тона нет
+BACK_ON = bool(int(os.environ['TEX_VISIBLE_BACK'])) if 'TEX_VISIBLE_BACK' in os.environ else bool(R.get('back_cull', True))
+BACK_WINDING_MIN = float(R.get('back_winding_min', 0.95))           # знаковую нормаль грани берём, только если обход граней сетки согласован (доля парных рёбер с противоположными направлениями) и объём положителен
+BACK_CREASE_DEG = float(R.get('back_panel_crease_deg', 15.0))       # панель = связная по рёбрам группа граней с изломом между соседями не больше этого
+BACK_MIN_SHARE = float(R.get('back_panel_min_known_share', 0.05))   # на крупной панели с долей известного с фото меньше этой известное снимается (страховка; 07 красит панель тоном своей зоны)
+BACK_MIN_OCC = float(R.get('back_panel_min_occ_share', 0.01))       # «крупная» панель: не меньше этой доли занятых текселей геометрии (мелкие панели рельефа/обивки не трогаем)
 PROV = {'direct': 1, 'splat': 2, 'hole': 3, 'synth': 4}     # провенанс known (карта prov.png), 0 — не известно
 GREY = 128
 PHOTO_INTERP = str(R.get('photo_interp', 'lanczos'))   # перевод фото в кадр: lanczos (T-197: линейная теряла ~⅓ мелкого контраста при растяжке фото ×2) | cubic | linear
@@ -390,6 +395,75 @@ def tone_oblique(tex: np.ndarray, occ: np.ndarray, known: np.ndarray, fid: np.nd
     return {'take': take, 'rgb': rgb, 'info': info}
 
 
+def back_face_mask(geoms: list, st: dict):
+    """Грани «спиной к камере» по ЗНАКОВОЙ нормали (порядок обхода) — этап 4 рисует кадр без z-буфера (дальние первыми по средней глубине граней) и берёт cos = |n·v|, поэтому у тонкой двойной стенки
+    (фасад TRELLIS: передний и задний слой почти рядом) задняя грань может оказаться «видимой» и пройти и порог cos, и допуск глубины (её глубина — из неё же). → (bool на грань по всем геометриям | None, пометка)."""
+    cam = st.get('camera')
+    if not BACK_ON:
+        return None, 'выключено'
+    if not cam:
+        return None, 'нет камеры'
+    if len(geoms) != 1:
+        return None, 'несколько геометрий'
+    try:
+        import worker_trellis as W
+        yaw = 0.0
+        mp = os.path.join(st.get('pose_run') or '', 'stages', 'manifest.json')
+        if os.path.exists(mp):
+            yaw = float(json.load(open(mp, encoding='utf-8')).get('yaw_deg') or 0.0)
+        P, _c, _s, _R = W.to_cube(geoms[0]['V'], yaw)
+        if 'az' in cam:
+            import pose_fit as PF
+            C = PF.cam_basis(cam['az'], cam['el'], cam['d'])[0]
+        else:
+            C = None                                                    # ортографическая камера этапа 4: смотрит на сторону +Z кубa
+    except Exception as e:  # noqa: BLE001 — правило страховочное, не роняет этап
+        return None, f'пропуск: {type(e).__name__}: {str(e)[:80]}'
+    F = np.asarray(geoms[0]['F'], np.int64)
+    nF = len(F)
+    q = np.round(P / 1e-6).astype(np.int64)
+    _, vid = np.unique(q, axis=0, return_inverse=True)
+    Fv = vid.ravel()[F]
+    e = np.concatenate([Fv[:, [0, 1]], Fv[:, [1, 2]], Fv[:, [2, 0]]])
+    key = np.minimum(e[:, 0], e[:, 1]) * (int(vid.max()) + 1) + np.maximum(e[:, 0], e[:, 1])
+    fl = (e[:, 0] < e[:, 1])
+    o = np.argsort(key, kind='stable')
+    ks, fl = key[o], fl[o]
+    same = ks[1:] == ks[:-1]
+    cons = float((fl[1:] != fl[:-1])[same].mean()) if same.any() else 0.0
+    vol = float(np.einsum('ij,ij->i', P[F[:, 0]], np.cross(P[F[:, 1]], P[F[:, 2]])).sum())
+    if cons < BACK_WINDING_MIN or vol <= 0:
+        return None, f'пропуск: обход граней не согласован ({cons:.3f}) или объём ≤ 0'
+    fn = np.cross(P[F[:, 1]] - P[F[:, 0]], P[F[:, 2]] - P[F[:, 0]])
+    vv = (np.array([0.0, 0.0, 1.0])[None, :] if C is None else C[None, :] - P[F].mean(1))
+    return ((fn * vv).sum(1) < 0.0), f'согласованность обхода {cons:.3f}'
+
+
+def prune_panels(g: dict, fid: np.ndarray, occ: np.ndarray, known: np.ndarray, tex: np.ndarray, tex0: np.ndarray, prov: np.ndarray) -> int:
+    """Страховка: панель (связная группа граней с изломом ≤ BACK_CREASE_DEG), крупная (≥ BACK_MIN_OCC занятых текселей геометрии), где с фото известно < BACK_MIN_SHARE, — известное на ней снимается
+    (цвет заготовки, прежний этап 7 красит её тоном своей зоны). → число снятых текселей."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    F, V = g['F'], g['V']
+    nF = len(F)
+    _A, B, _cen, _ext = _face_graph(V, F)
+    r, c = B.nonzero()
+    n = np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]])
+    n = n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+    ok = np.abs((n[r] * n[c]).sum(1)) >= np.cos(np.radians(BACK_CREASE_DEG))
+    G = coo_matrix((np.ones(int(ok.sum())), (r[ok], c[ok])), shape=(nF, nF)).tocsr()
+    _k, lab = connected_components(G, directed=False)
+    oc = np.bincount(fid[occ], minlength=nF).astype(np.float64)
+    kc = np.bincount(fid[known & occ], minlength=nF).astype(np.float64)
+    po, pk = np.bincount(lab, oc), np.bincount(lab, kc)
+    bad = (po >= BACK_MIN_OCC * max(float(oc.sum()), 1.0)) & (pk > 0) & (pk < BACK_MIN_SHARE * np.maximum(po, 1.0))
+    clear = known & occ & bad[lab[np.clip(fid, 0, None)]]
+    tex[clear] = tex0[clear]
+    known[clear] = False
+    prov[clear] = 0
+    return int(clear.sum())
+
+
 def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min: float = COS_MIN, tone: bool | None = None) -> dict:
     """Новые текстуры + маски «известно» по геометриям. Каждый занятый тексель идёт на фото СВОЕЙ точкой (карта грани, `face_maps`), берётся, если: его грань видна с углом лучше `cos_min`,
     глубина точки совпадает с буфером глубины камеры (не заслонена), точка внутри силуэта фото с отступом от края. Цвет — билинейно с фото; невидимое остаётся прежним.
@@ -397,6 +471,15 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
     не перекрашивают), `known_photo` — только с фото (гейт и мерки), `prov` — карта провенанса (PROV: 1 direct, 2 splat, 3 hole, 4 synth)."""
     from scipy.ndimage import distance_transform_edt, map_coordinates
     use_tone = TONE_ON if tone is None else bool(tone)
+    back, back_note = back_face_mask(geoms, st)
+    back_info = {'back_cull': back_note}
+    if back is not None and back.any():                                                              # грани спиной к камере из растра убираем (как нижняя полоса body_only): с них ничего не берётся
+        hit = (st['ids'] >= 0) & (st['ids'] < len(back)) & back[np.clip(st['ids'], 0, len(back) - 1)]
+        back_info.update({'back_faces_visible': int(np.unique(st['ids'][hit]).size), 'back_px_removed': int(hit.sum())})
+        st = dict(st)
+        st['ids'] = np.where(hit, -1, st['ids'])
+        st['mask'] = st['mask'] & ~hit
+        st['cos'] = np.where(hit, 0.0, st['cos'])
     ids, depth = st['ids'], st['depth']
     px = st['px']
     offs = np.cumsum([0] + [len(g['F']) for g in geoms])
@@ -462,6 +545,7 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
         known = known | fill
         prov[fill] = PROV['hole']
         n_fill = int(fill.sum())
+        n_pruned = prune_panels(g, fid, occ, known, tex, g['tex'].astype(np.float64), prov) if BACK_ON else 0
         known_photo = known.copy()                                                                     # известное С ФОТО (без тона): по нему считаются гейт и мерки
         tone_info, n_synth = {}, 0
         if use_tone:                                                                                    # Ш3б: тон с острого угла на наблюдаемых камерой неизвестных текселях
@@ -477,7 +561,7 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
         knowns.append(known)
         known_photos.append(known_photo)
         provs.append(prov)
-        stats.append({'name': g['name'], 'T': T, 'occupied': int(occ.sum()), 'known': int(known_photo.sum()), 'known_synth': n_synth, **tone_info, 'faces_ok': int(fm['ok'].sum()), 'faces_seen': int((fm['cnt'] > 0).sum()), 'texels_taken': int(use.sum()), 'known_facemap': n_face, 'known_splat': n_splat, 'known_filled': n_fill})
+        stats.append({'name': g['name'], 'T': T, 'occupied': int(occ.sum()), 'known': int(known_photo.sum()), 'known_synth': n_synth, **tone_info, **back_info, 'known_pruned_panels': n_pruned, 'faces_ok': int(fm['ok'].sum()), 'faces_seen': int((fm['cnt'] > 0).sum()), 'texels_taken': int(use.sum()), 'known_facemap': n_face, 'known_splat': n_splat, 'known_filled': n_fill})
     return {'tex': texs, 'known': knowns, 'known_photo': known_photos, 'prov': provs, 'stats': stats, 'depth_band_share': round(n_nogo / max(int(st['mask'].sum()), 1), 4), 'edge_bg_fringe_px': int((fringe & st['mask']).sum())}
 
 

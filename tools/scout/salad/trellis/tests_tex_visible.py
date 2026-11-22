@@ -412,5 +412,61 @@ class TestTexVisible(unittest.TestCase):
         self.assertLess(int(np.abs(miss[0] - np.array([20, 50, 90])).max()), 120, 'остаётся цвет заготовки, не белое')
         self.assertEqual(TV.caption(np.full((120, 160, 3), 255, np.uint8), 'тест').shape, (120, 160, 3))
 
+    def _stage_on_cell(self, cell, cos=1.0):
+        """Растр, где в квадрате лицевой области «видна» грань ячейки cell (0 — перёд; 1 — задняя стенка: ошибка рисования без z-буфера у двойной стенки)."""
+        st = fake_stage(cos_front=cos)
+        ys, xs = np.mgrid[Q0:Q1, Q0:Q1]
+        fx = (xs + 0.5 - Q0) / (Q1 - Q0)
+        fy = 1.0 - (ys + 0.5 - Q0) / (Q1 - Q0)
+        cx, cy = cell % 3, cell // 3
+        st['ids'][Q0:Q1, Q0:Q1] = np.where(fx >= fy, 2 * cell, 2 * cell + 1)
+        st['uv'][Q0:Q1, Q0:Q1, 0] = (cx + 0.05 + 0.9 * fx) / 3.0
+        st['uv'][Q0:Q1, Q0:Q1, 1] = 1.0 - (cy + 0.05 + 0.9 * fy) / 2.0
+        return st
+
+    def test_back_facing_face_is_not_a_photo_source(self):
+        """Двойная стенка: растр показывает ЗАДНЮЮ грань (нормаль от камеры) на месте лицевой — с неё ничего не берётся (знаковая нормаль), контроль — лицевая берётся."""
+        pr, pm = TV.photo_to_frame(photo_red_blue(), np.eye(3), PX)
+        T = self.geoms[0]['tex'].shape[0]
+        cell = lambda c: (slice((1 - c // 3) * T // 2, (2 - c // 3) * T // 2), slice((c % 3) * T // 3, (c % 3 + 1) * T // 3))      # строка текстуры = 1 − v
+        ok = TV.transfer(self.geoms, self._stage_on_cell(0), pr, pm)
+        self.assertGreater(int(ok['known'][0][cell(0)].sum()), 2000)
+        bad = TV.transfer(self.geoms, self._stage_on_cell(1), pr, pm)
+        self.assertEqual(int(bad['known'][0][cell(1)].sum()), 0, 'с задней грани взято фото')
+        self.assertGreater(bad['stats'][0]['back_faces_visible'], 0)
+        keep = TV.BACK_ON
+        try:
+            TV.BACK_ON = False
+            old = TV.transfer(self.geoms, self._stage_on_cell(1), pr, pm)
+        finally:
+            TV.BACK_ON = keep
+        self.assertGreater(int(old['known'][0][cell(1)].sum()), 2000, 'контроль: без правила задняя грань берётся (это и был дефект)')
+
+    def test_big_panel_with_few_known_texels_loses_them(self):
+        """Страховка: крупная панель (верх коробки), где с фото известна горстка текселей (< 5 %), теряет их; контроль — без правила остаются."""
+        st = fake_stage()
+        ys, xs = np.mgrid[Q0:Q0 + 6, Q0:Q0 + 6]
+        st['ids'][:] = -1
+        st['mask'][:] = False
+        st['ids'][ys, xs] = 8                                                       # верх коробки: клочок 6×6 пикселей, фронтально (cos 1)
+        st['uv'][ys, xs, 0] = (1 + 0.5) / 3.0
+        st['uv'][ys, xs, 1] = 1.0 - (1 + 0.5) / 2.0
+        st['cos'][:] = 0.0
+        st['cos'][ys, xs] = 1.0
+        st['mask'] = st['ids'] >= 0
+        st['depth'] = np.where(st['mask'], 3.0, 0.0).astype(np.float32)
+        pr, pm = TV.photo_to_frame(photo_red_blue(), np.eye(3), PX)
+        keep = TV.BACK_ON
+        try:
+            TV.BACK_ON = False
+            raw = TV.transfer(self.geoms, st, pr, pm, tone=False)
+            TV.BACK_ON = True
+            fixed = TV.transfer(self.geoms, st, pr, pm, tone=False)
+        finally:
+            TV.BACK_ON = keep
+        self.assertGreater(int(raw['known'][0].sum()), 0, 'контроль: без правила клочок известен')
+        self.assertEqual(int(fixed['known'][0].sum()), 0)
+        self.assertGreater(fixed['stats'][0]['known_pruned_panels'], 0)
+
 if __name__ == '__main__':
     unittest.main()
