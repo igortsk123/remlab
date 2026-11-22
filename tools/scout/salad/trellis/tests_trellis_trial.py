@@ -123,15 +123,18 @@ class FakeMG:
 
 
 class FakeBR:
-    def __init__(self, running_after=1):
+    def __init__(self, running_after=1, pull=None):
         self.stops, self.n = [], 0
         self.running_after = running_after
+        self.pull = pull                                              # n → доля скачанного образа (None — сразу running); экземпляр i1 в состоянии downloading
 
     def group_state(self, name):
         return 200, 'stopped', {}
 
     def instances(self, name):
         self.n += 1
+        if self.pull is not None and self.n < self.running_after:
+            return 200, [{'id': 'i1', 'state': 'downloading', 'pulling_progress': self.pull(self.n)}]
         return 200, ([{'state': 'running'}] if self.n >= self.running_after else [])
 
     def stop_and_verify(self, name, timeout_s=300):
@@ -195,7 +198,7 @@ def make_inputs(tmp, skus=('a:1',)):
     json.dump(inp, open(os.path.join(tmp, 'inputs.json'), 'w'))
 
 
-def go(tmp, mg=None, br=None, hf=200, script=None, **kw):
+def go(tmp, mg=None, br=None, hf=200, script=None, run_kw=None, **kw):
     FakeGW.script = {'warm': True, 'fail_jobs': 0, 'health_error': None, 'raise_on': None, 'phase': None, 'no_health': False, 'hf_gb': None, 'disk_free': 50.0,
                      'fatal_jobs': False, 'broken': None, 'job_hangs': False, **(script or {})}
     clock = [0.0]
@@ -204,7 +207,7 @@ def go(tmp, mg=None, br=None, hf=200, script=None, **kw):
         clock[0] += s
     mg, br = mg or FakeMG(), br or FakeBR()
     try:
-        rc = T.run(args(tmp, **kw), mg, br, gw_factory=FakeGW, sleep=sleep, clock=lambda: clock[0], hf_head=lambda p, t: hf)
+        rc = T.run(args(tmp, **kw), mg, br, gw_factory=FakeGW, sleep=sleep, clock=lambda: clock[0], hf_head=lambda p, t: hf, **({'image_gib': 22.46} | (run_kw or {})))
     except RuntimeError as e:
         rc = f'exc:{e}'
     summ = None
@@ -281,6 +284,26 @@ ok('POST → 503 (HTML шлюза): воркер задание не видит 
    s['failed'] == 0 and len(s['jobs']) == 2 and s['jobs'][-1].get('retried') is True and s['post_timeouts'][0]['code'] == 503)
 rc, mg, br, s = go(d3, suffix='p5', skus=['a:1'], plan='1024:1', script={'post_timeouts': 9, 'post_code': 503})
 ok('503 два раза подряд → failed с кодом «POST 503» в причине (повтор один)', s['failed'] == 1 and 'POST 503' in str(s['jobs'][0]['error']) and len(s['post_timeouts']) == 2)
+# T-178/2 (22.11): сторож докачки образа до running — общий, из kit_driver; медленная докачка → пересадка экземпляра, не ждать 60 мин
+_rl, _sl = [], []
+brs = FakeBR(running_after=10 ** 6, pull=lambda n: 0.01 + n * 10 / 60.0 * 0.001)                # 1 % → ≈2 % за 15 мин (≈0,1 %/мин), как 22.11
+def _mkg(max_culls=3):
+    def _f(name):
+        return T.KD.PullGuard(name, max_culls=max_culls, take_slot=lambda: (_sl.append(1) or 1), realloc=lambda g, i, w: (_rl.append((g, i)) or setattr(brs, 'running_after', brs.n + 2) or True), say_fn=lambda *a: None)
+    return _f
+rc, mg, br, s = go(d3, suffix='g1', skus=['a:1'], plan='1024:1', br=brs, run_kw={'pull_guard': _mkg()})
+ok('образ качается ≈0,1 %/мин → экземпляр пересажен (без новой группы), после пересадки нода пошла, задание готово, стоп с проверкой',
+   _rl == [('trial-trellis2-g1', 'i1')] and s['stopped_by'] == 'done' and s['pull_culls'] == 1 and s['failed'] == 0 and br.stops == ['trial-trellis2-g1'])
+brs = FakeBR(running_after=10 ** 6, pull=lambda n: 0.01 + n * 10 / 60.0 * 0.001)
+_rl.clear()
+def _mkg2(name):
+    return T.KD.PullGuard(name, max_culls=1, take_slot=lambda: 1, realloc=lambda g, i, w: (_rl.append(i) or True), say_fn=lambda *a: None)
+rc, mg, br, s = go(d3, suffix='g2', skus=['a:1'], plan='1024:1', br=brs, run_kw={'pull_guard': _mkg2})
+ok('и после пересадки всё медленно (образ или сеть) → pull_slow: гашу, $0, стоп подтверждён, пересадка одна', s['stopped_by'] == 'pull_slow' and len(_rl) == 1 and s['cost_usd_est'] == 0.0 and br.stops == ['trial-trellis2-g2'])
+brs = FakeBR(running_after=60, pull=lambda n: 0.01 + n * 10 / 60.0 * 0.001)
+_rl.clear()
+rc, mg, br, s = go(d3, suffix='g3', skus=['a:1'], plan='1024:1', br=brs, pull_guard=False, run_kw={'pull_guard': _mkg2})
+ok('--no-pull-guard выключает сторож: медленная докачка никого не пересаживает, пока нода сама не поднялась', _rl == [] and s['stopped_by'] == 'done' and 'pull_culls' not in s)
 ok('драйвер зовёт ОБЩУЮ функцию kit_driver: таймаут POST растёт с телом, ограничен max_s, --post-timeout > 0 перекрывает',
    T.KD.post_timeout_s(0) == 90 and 120 <= T.KD.post_timeout_s(1 * 2 ** 20) <= 130 and T.KD.post_timeout_s(2 * 2 ** 20) > T.KD.post_timeout_s(1 * 2 ** 20)
    and T.KD.post_timeout_s(500 * 2 ** 20) == 300 and T.KD.post_timeout_s(10 ** 9, 45) == 45)

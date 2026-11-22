@@ -290,7 +290,7 @@ class Gateway:
             return -1, {}
 
 
-def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_head=None) -> int:
+def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_head=None, pull_guard=None, image_gib=None) -> int:
     """Весь замер. `MG` — `migrate_groups` (API Salad), `BR` — `bench_run` (состояние группы, остановка с проверкой). Подмена обоих + `gw_factory`/`sleep`/`clock`/`hf_head` — тесты."""
     inputs = json.load(open(os.path.join(a.inputs, 'inputs.json'), encoding='utf-8'))
     skus = a.skus or [k for k, v in inputs.items() if isinstance(v, dict) and v.get('input_png_sha256')]      # без --skus — весь набор из inputs.json (30 товаров)
@@ -403,6 +403,15 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                'stop_verified': False, 'stopped_by': None}
     os.makedirs(a.out, exist_ok=True)
     t_start = run_since = None
+    guard = (pull_guard or KD.PullGuard)(name) if getattr(a, 'pull_guard', True) else None     # сторож докачки образа до running (общий, kit_driver; числа — rules/salad-groups.json → pull_guard)
+    if guard is not None:
+        if image_gib is None:
+            try:
+                image_gib = KD.check_image(a.image, MG.ghcr_auth())[2]                           # манифест реестра, бесплатно; не прочитан — норма «размер неизвестен»
+            except Exception:  # noqa: BLE001
+                image_gib = None
+        guard.configure(image_gib)
+        say('сторож докачки образа: размер', f'{image_gib} ГиБ' if image_gib else 'неизвестен', f'→ допуск полной докачки {guard.verdict_kw["max_total_min"]:.0f} мин')
     try:
         for _ in range(480):                              # создание группы Salad идёт 2–25 минут (T-179: образ 22 ГиБ — было >10 мин, `start` ушёл раньше времени → HTTP 400)
             _, st, _c = BR.group_state(name)
@@ -428,6 +437,14 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
                 summary['to_first_running_s'] = round(t - t_start, 1)
                 say(f'первый running: t+{t - t_start:.0f} с от /start')
             running_s = (t - run_since) if run_since is not None else 0.0
+            if guard is not None and run_since is None:
+                if guard.step(t, ins):                                   # образ качается слишком медленно (T-178 22.11: 2 % на 15-й минуте) → экземпляр пересажен (бесплатно: до running не списывается)
+                    summary['pull_culls'] = guard.culls
+                    last_wait_say = -1e9
+                if guard.give_up:
+                    say(f'!! {guard.give_up} — гашу')
+                    summary['stopped_by'] = 'pull_slow'
+                    break
             if run_since is None and t - last_wait_say >= 120:          # до первого running лог молчал 15–25 мин (образ тянется): строка хода раз в 2 мин, P-039
                 last_wait_say = t
                 i0 = ins[0] if ins else {}
@@ -634,6 +651,7 @@ def main() -> int:
     ap.add_argument('--ready-min', type=int, default=75, help='сколько минут после running ждать прогрева модели (холодный старт с докачкой весов — часть результата пробы)')
     ap.add_argument('--health-min', type=int, default=20, help='сколько минут после running ждать ПЕРВОГО ответа /health, иначе стоп (воркер мёртв)')
     ap.add_argument('--disk-min-gb', type=float, default=3.0, help='стоп, если свободного места на диске контейнера меньше, ГиБ')
+    ap.add_argument('--no-pull-guard', dest='pull_guard', action='store_false', help='выключить сторож докачки образа до running (по умолчанию включён: медленная докачка → пересадка экземпляра)')
     ap.add_argument('--stall-min', type=int, default=10, help='сколько минут докачка весов может не расти, иначе стоп')
     ap.add_argument('--job-timeout', type=int, default=15)
     ap.add_argument('--post-timeout', type=int, default=0, help='секунд ждать ответ на POST /generate; 0 (по умолчанию) — по размеру тела: base_s + per_mb_s × МБ, не больше max_s '
