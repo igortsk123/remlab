@@ -287,6 +287,38 @@ class Gateway:
             return -1, {}
 
 
+def post_timeout_s(body_chars: int, override: int = 0, rules: dict | None = None) -> int:
+    """Таймаут POST задания по размеру тела: base_s + per_mb_s × МБ (base64), не больше max_s — из `rules/salad-groups.json` → `gateway_post`
+    (T-178 22.11: шлюз Salad отвечает 76–90+ с на холодной ноде, зашитые 90/120 с срывали первое задание). `override` > 0 — явное значение; нет правила — 90 + 30/МБ, ≤ 300."""
+    if override and override > 0:
+        return int(override)
+    g = rules
+    if g is None:
+        try:
+            g = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'rules', 'salad-groups.json'), encoding='utf-8')).get('gateway_post') or {}
+        except (OSError, ValueError):
+            g = {}
+    base, per_mb, top = float(g.get('base_s', 90)), float(g.get('per_mb_s', 30)), float(g.get('max_s', 300))
+    return int(min(top, base + per_mb * body_chars / 2 ** 20))
+
+
+def post_job(gw, path: str, body: dict, check_path: str, override: int = 0, say_fn=say) -> tuple[int, dict, dict | None]:
+    """ОДИН общий вход «отправить задание» для обоих драйверов (trellis_trial, salad_trial): POST с таймаутом по размеру тела; клиент не дождался ответа (код -1) —
+    это НЕ отказ: спросить воркера `GET check_path` (его запись о задании). 200 → задание принято (вернём 202); иначе -1 остаётся, а повтор — решает вызывающий
+    (один раз, в конец очереди той же ноды). Возвращает (код, ответ, сведения о таймауте или None) — сведения для сводки."""
+    to = post_timeout_s(sum(len(v) for v in body.values() if isinstance(v, str)), override)
+    c, r = gw.call('POST', path, body, timeout=to)
+    if c != -1:
+        return c, r, None
+    cj, _ = gw.call('GET', check_path, timeout=30)
+    info = {'job_id': body.get('job_id'), 'timeout_s': to, 'worker_saw_job': cj == 200}
+    if cj == 200:
+        say_fn('задание', body.get('job_id'), f'→ POST без ответа за {to} с, но воркер его принял ({check_path} 200) — продолжаю')
+        return 202, {}, info
+    say_fn('задание', body.get('job_id'), f'→ POST без ответа за {to} с, воркер задание не видит')
+    return -1, {}, info
+
+
 def head(url: str, token: str = '') -> int:
     h = {'User-Agent': UA}
     if token:
