@@ -1,0 +1,19 @@
+# ОБРАЗ ПРОБЫ SALAD «ЭТАПЫ 06/07» (T-189/1): Python 3.12 (Ubuntu 24.04) + numpy/scipy/trimesh/Pillow/opencv ТОЧНО тех версий, что в нашем ~/venvs/scout (pip freeze 22.11) — чтобы сверка «у нас / на Salad» была честной.
+# Видеокарта этапам не нужна (процессор). Основа — та же nvidia/cuda …-base по digest, что у образов кадров/камеры (ADR-0137; у Salad нет класса без видеокарты — профиль `cpu_stage`, самая дешёвая карта).
+# Правила набора (Dockerfile.kit-template): основа по digest; сжатый образ ≪ 35 ГиБ (здесь ≈0,5 ГиБ); воркер в образ НЕ запекаем — едет в env группы (kit_worker.bundle); весов нет.
+# Код этапов — `stage_files.txt` (контекст готовит `stage_stage_code.py <корень репо> <ctx>/code`; CI: build-stage-trial.yml). Python-пакеты — в venv /opt/venv (PEP 668), `--no-cache-dir`.
+ARG BASE=nvidia/cuda:12.6.3-base-ubuntu24.04@sha256:c87e78933f4c16e3272123bf2f75537306596d0fbaa395a29696a22786e5ee0e
+FROM ${BASE}
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv python-is-python3 ca-certificates libgomp1 libglib2.0-0t64 \
+    && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
+    && /opt/venv/bin/pip install --no-cache-dir numpy==2.5.1 scipy==1.18.0 trimesh==5.0.0 pillow==12.3.0 opencv-python-headless==5.0.0.93 networkx==3.6.1 shapely==2.1.2 rtree==1.4.1 mapbox_earcut==2.0.0
+ENV PATH=/opt/venv/bin:$PATH
+COPY code/ /opt/scout-root/
+ARG GIT_SHA=unknown
+RUN printf 'stage-worker image\ncommit=%s\npython=%s\n' "$GIT_SHA" "$(python -V 2>&1)" > /opt/BUILD_INFO_STAGE.txt && pip freeze >> /opt/BUILD_INFO_STAGE.txt
+# проверка комплектности ВО ВРЕМЯ СБОРКИ: библиотеки импортируются, оба этапа импортируются из кода образа
+RUN python -c "import numpy, scipy, trimesh, PIL, cv2; print(numpy.__version__, scipy.__version__, trimesh.__version__, PIL.__version__, cv2.__version__)" \
+    && cd /opt/scout-root/tools/scout/salad/trellis && python -I -c "import sys; sys.path[:0]=['.']; import tex_visible, tex_fill; print('этапы 06/07 импортируются')"
+ENV STAGE_CODE=/opt/scout-root STAGE_WORK=/tmp/stage

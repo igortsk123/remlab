@@ -1,0 +1,17 @@
+# Файлы кода в образе этапов 06/07 (Dockerfile.stage): ЕДИНЫЙ список для сборки (stage_stage_code.py) и теста. Путь от корня репозитория. Состав — замыкание импортов tex_visible.py и tex_fill.py
+# (проверено: чистая копия только этих файлов импортирует оба этапа). Правила этапов — те же JSON, что у локального счёта (числа в правилах, не в коде).
+tools/scout/paint_stage.py
+tools/scout/remlab_tmp.py
+tools/scout/mesh_color_check.py
+tools/scout/mesh_render.py
+tools/scout/salad/color_o2.py
+tools/scout/salad/color_steps.py
+tools/scout/salad/recolor_lp.py
+tools/scout/salad/recolor_variants_gate.py
+tools/scout/salad/trellis/mv_geometry.py
+tools/scout/salad/trellis/tex_coverage.py
+tools/scout/salad/trellis/tex_fill.py
+tools/scout/salad/trellis/tex_visible.py
+tools/scout/rules/tex-visible.json
+tools/scout/rules/paint-fill.json
+tools/scout/rules/mesh-color-guard.json
