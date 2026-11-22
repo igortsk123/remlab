@@ -900,7 +900,7 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
         if lu is not None:
             for k in set(vis) | set(hid):
                 if k in ugrp:
-                    ustat[k] = (np.median(lu[ugrp[k]], axis=0), detail(lu[:, 0], ugrp[k], T)[1])
+                    ustat[k] = (np.median(lu[ugrp[k]], axis=0), detail(lu[:, 0], ugrp[k], T, clean=True)[1])      # σ без края панели/бликов/выбросов: кромка и щель не считаются «фактурой»
         photo_med = {k: np.median(lab[grp[k][kn[grp[k]]]], axis=0) for k in vis}
         newlab, newrgb = lab.copy(), None
         paint = {}
@@ -937,7 +937,7 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
                 frac = cv2.boxFilter(dm.astype(np.float32), -1, (B, B), normalize=True, borderType=cv2.BORDER_CONSTANT)
                 ys, xs = np.nonzero(frac[B // 2:T - B // 2 + 1:B // 2, B // 2:T - B // 2 + 1:B // 2] > 0.999)
                 pool = [tex[y * (B // 2):y * (B // 2) + B, x * (B // 2):x * (B // 2) + B] for y, x in zip(ys, xs)]
-                info.update({'tone_from': 'donor', 'donor_panel': int(v), 'hue_dE_ab': round(best[1], 2), 'tex_ratio': round(best[2], 2), 'donor_blocks': len(pool)})
+                info.update({'tone_from': 'donor', 'donor_panel': int(v), 'hue_dE_ab': round(best[1], 2), 'tex_ratio': round(best[2], 2), 'donor_blocks': len(pool), 'ut_sigma': [round(float(ustat[k][1]), 2), round(float(ustat[v][1]), 2)]})
                 rep['with_donor'] += 1
                 if len(pool) >= 4:
                     if len(pool) > O['quilt_pool']:
@@ -954,7 +954,7 @@ def own_panel_tone(geoms: list, tex_after: list, known: list, ut_geoms: list | N
                 newlab[sel] = tone
                 info.update({'tone_from': 'own', 'why': 'нет UltraTex' if k not in ustat else ('оттенок совпал, фактура нет' if hue_only else 'нет панели того же оттенка')})
                 if hue_only:
-                    info.update({'hue_only_panel': int(hue_only[0]), 'hue_dE_ab': round(hue_only[1], 2), 'tex_ratio': round(hue_only[2], 2)})
+                    info.update({'hue_only_panel': int(hue_only[0]), 'hue_dE_ab': round(hue_only[1], 2), 'tex_ratio': round(hue_only[2], 2), 'ut_sigma': [round(float(ustat[k][1]), 2), round(float(ustat[hue_only[0]][1]), 2)]})
                 if O['ut_detail'] and lu is not None and k in ugrp:
                     d, _ = detail(lu[:, 0], ugrp[k], T, clean=True)              # суть UltraTex на месте: тот же шаг, что в каноне (тексель в тексель — тот же меш и раскладка)
                     dm_ = np.zeros(T * T, np.float32)
