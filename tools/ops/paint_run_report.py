@@ -472,7 +472,7 @@ CSS = """
 h1{font-size:1.25rem;margin:0 0 8px}h2{font-size:1.05rem;margin:20px 0 8px}.sum{background:var(--card);border-radius:10px;padding:12px 14px;margin-bottom:16px}
 .sum b{font-weight:650}.sum ul{margin:6px 0 0;padding-left:18px}.sum li{margin:3px 0;font-size:.92rem;word-break:break-word}.sum a{color:inherit}
 .card{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:16px}.card h3{font-size:1rem;margin:0}.id,.meta,small{color:var(--mut);font-size:.78rem;opacity:.85}.meta{font-size:.85rem;opacity:1}
-.badge{display:inline-block;font-size:.8rem;border-radius:99px;padding:1px 9px;border:1px solid currentColor;margin-left:6px;white-space:nowrap}.ok{color:var(--ok)}.soft{color:var(--soft)}.refused,.missing{color:var(--bad)}
+.badge{display:inline-block;font-size:.8rem;border-radius:99px;padding:1px 9px;border:1px solid currentColor;margin-left:6px;white-space:nowrap}.ok{color:var(--ok)}.soft{color:var(--soft)}.refused,.missing{color:var(--bad)}.waitb{color:var(--mut)}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}.pair figure{margin:0}.pair img{width:100%;height:auto;display:block;border-radius:6px;background:#e8e8e8}
 .pair figcaption{font-size:.8rem;color:var(--mut);text-align:center;margin-top:2px}.why{font-size:.9rem;margin-top:6px}details{margin-top:4px;font-size:.8rem;color:var(--mut)}details summary{cursor:pointer}
 .nofr{display:flex;align-items:center;justify-content:center;min-height:120px;border:1px dashed var(--line);border-radius:6px;color:var(--mut);font-size:.85rem}nav{margin:6px 0 12px;font-size:.95rem}nav a{padding:0 2px}
@@ -966,7 +966,7 @@ def forms_page(items: list, chain: dict, photos: str, glbs: str, frames: str, ou
     os.makedirs(d, exist_ok=True)
     CW = W.get('forms') or {}
     words = {'ok': CW.get('ok') or 'форма есть', 'failed': CW.get('failed') or 'форма упала', 'small': CW.get('small') or 'фото мало', 'wait': CW.get('wait') or 'форма ещё считается'}
-    css = {'ok': 'ok', 'failed': 'refused', 'small': 'soft', 'wait': 'missing'}
+    css = {'ok': 'ok', 'failed': 'refused', 'small': 'soft', 'wait': 'waitb'}
     c = {k: 0 for k in words}
     errs, blocks = [], []
     for n, it in enumerate(items, 1):
