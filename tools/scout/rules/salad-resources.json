@@ -1,56 +1,166 @@
 {
-  "_about": "ПРОФИЛЬ РЕСУРСОВ SALAD ПО ТИПУ РАБОТЫ (T-186/1, владелец TG 1456/1457/1470). Группу Salad создаёт ТОЛЬКО kit_driver и ТОЛЬКО по строке этого файла: нет строки — отказ до создания группы (код 3), свои числа мимо профиля — отказ. Тариф: `tier` (low), нет машин — один раз `tier_fallback` (medium); выше и `batch` — запрещены. Цены тут не хранятся: только живые (kit_driver.gpu_class). `basis`: `measured` — нужны `measured.date` и `measured.log`; `estimate` — «по оценке», не мерили (в журнал проб пишется явно). Воркер отдаёт пики в /health (peak_rss_gb, peak_vram_gb, disk_free_gb, disk_mb_s, weights_gb_min); после прогона `resource_profile.py --suggest <summary>` печатает расхождения, строку правит человек. `expect.weights_gb_min_min` — нижняя скорость докачки весов для DiskGuard (если нет — из salad-groups.json → disk_guard).",
-  "profiles": {
-    "trellis_shape": {
-      "card": "RTX 5090 (32 GB)", "card_fallbacks": [],
-      "cpu": 4, "memory_mb": 24576, "storage_gb": 50, "shm_mb": 2048,
-      "tier": "low", "tier_fallback": "medium",
-      "expect": {"job_s": 132, "peak_vram_gb": 12.3},
-      "basis": "estimate",
-      "basis_note": "карта, время и пик VRAM (12,3 ГБ занято, 18,2 резерв) — замер t178-forms-1122 (22.11, 29 заданий); vCPU/RAM/диск/shm — старый шаблон, не мерили. Кандидат: 16-ГБ карта (проба после «да»)."
-    },
-    "ultratex": {
-      "card": "RTX 5090 (32 GB)", "card_fallbacks": [],
-      "cpu": 8, "memory_mb": 49152, "storage_gb": 80, "shm_mb": 2048,
-      "tier": "low", "tier_fallback": "medium",
-      "expect": {"job_s": 341, "peak_vram_gb": 25.2, "weights_gb": 32.7, "weights_gb_min_min": 2.0},
-      "variants": {"diag": {"storage_gb": 20}},
-      "basis": "estimate",
-      "basis_note": "время и пик VRAM — замер t178-1121 (21.11, 341 с на товар, 25,2 ГБ > 24 ГБ → только 5090); RAM 48 ГБ под выгрузку te/dit — по оценке директора (22.11), пик RAM не мерили; диск 80 ГБ: веса 32,7 + запас."
-    },
-    "parts_segment": {
-      "card": "RTX 4090 (24 GB)", "card_fallbacks": [],
-      "cpu": 8, "memory_mb": 32768, "storage_gb": 40, "shm_mb": 2048,
-      "tier": "low", "tier_fallback": "medium",
-      "expect": {},
-      "basis": "estimate",
-      "basis_note": "числа прежних проб parts_trial (T-183), пики не мерили"
-    },
-    "forms_render": {
-      "card": "RTX 3090 (24 GB)", "card_fallbacks": [],
-      "cpu": 8, "memory_mb": 16384, "storage_gb": 10, "shm_mb": 1024,
-      "tier": "low", "tier_fallback": "medium",
-      "expect": {"job_s": 261, "per_item_render_s_min": 68, "per_item_render_s_max": 98},
-      "basis": "measured",
-      "measured": {"date": "2026-11-22", "log": "~/remlab-logs/t184-1122/render-out/summary-trial-forms-11221555.json",
-                   "what": "T-184/1 р.6 очередь 3: RTX 3090, тариф low ($0,127/ч), 8 vCPU, 5 форм одним пакетом за 261 с (рендер 68–98 с на форму, 10–12 кадров), 5/5 готово, ≈$0,014; пики RAM/диск/shm в /health тогда не отдавались — не мерили"},
-      "basis_note": "карта, vCPU, диск 10 ГиБ, shm 1024 и время — как гоняли в пробе р.6 (см. measured); RAM 16 ГБ — прежнее число пробы, пик не мерили"
-    },
-    "pose_camera": {
-      "card": "GTX 1650 (4 GB)", "card_fallbacks": ["GTX 1050 Ti (4 GB)", "RTX 3050 Laptop (4 GB)"],
-      "cpu": 8, "memory_mb": 16384, "storage_gb": 10, "shm_mb": 1024,
-      "tier": "low", "tier_fallback": "medium",
-      "expect": {"job_s": 646},
-      "basis": "estimate",
-      "basis_note": "камера 04: GPU не нужна, у Salad нет класса без видеокарты — самый дешёвый GTX 1650 4 ГБ ($0,017/ч low, прайс 22.11; карта выбрана в T-184); 646 с на товар — наш CPU на 1 ядро (n=8), на ноде не мерили"
-    },
-    "cpu_stage": {
-      "card": "GTX 1650 (4 GB)", "card_fallbacks": ["GTX 1050 Ti (4 GB)", "RTX 3050 Laptop (4 GB)"],
-      "cpu": 4, "memory_mb": 8192, "storage_gb": 20, "shm_mb": 1024,
-      "tier": "low", "tier_fallback": "medium",
-      "expect": {},
-      "basis": "estimate",
-      "basis_note": "этапы 06–09 (перенос фото/заливка/материал/проверка) — пока у нас; строка на случай 50k, не мерили"
+ "_about": "ПРОФИЛЬ РЕСУРСОВ SALAD ПО ТИПУ РАБОТЫ (T-186/1, владелец TG 1456/1457/1470). Группу Salad создаёт ТОЛЬКО kit_driver и ТОЛЬКО по строке этого файла: нет строки — отказ до создания группы (код 3), свои числа мимо профиля — отказ. Тариф: `tier` (low), нет машин — один раз `tier_fallback` (medium); выше и `batch` — запрещены. Цены тут не хранятся: только живые (kit_driver.gpu_class). `basis`: `measured` — нужны `measured.date` и `measured.log`; `estimate` — «по оценке», не мерили (в журнал проб пишется явно). Воркер отдаёт пики в /health (peak_rss_gb, peak_vram_gb, disk_free_gb, disk_mb_s, weights_gb_min); после прогона `resource_profile.py --suggest <summary>` печатает расхождения, строку правит человек. `expect.weights_gb_min_min` — нижняя скорость докачки весов для DiskGuard (если нет — из salad-groups.json → disk_guard).",
+ "profiles": {
+  "trellis_shape": {
+   "card": "RTX 5090 (32 GB)",
+   "card_fallbacks": [
+    "RTX 5060 Ti (16 GB)",
+    "RTX 4060 Ti (16 GB)"
+   ],
+   "cpu": 8,
+   "memory_mb": 32768,
+   "storage_gb": 80,
+   "shm_mb": 1024,
+   "tier": "low",
+   "tier_fallback": "medium",
+   "expect": {
+    "job_s": 132,
+    "peak_vram_gb": 12.3
+   },
+   "basis": "estimate",
+   "basis_note": "карта 5090, время и пик VRAM (12,3 ГБ занято, 18,2 резерв) — замер t178-forms-1122 (22.11, 29 заданий); vCPU/RAM/диск/shm — параметры того же запуска (умолчания trellis_trial: 8/32 ГБ/80 ГиБ/1 ГБ, диск: кэш HF ≈42 ГиБ + результаты, директор 19.11), пики RAM/диска не мерили. Кандидаты 16 ГБ (5060 Ti, 4060 Ti) — проба T-186/1 после «да»"
+  },
+  "ultratex": {
+   "card": "RTX 5090 (32 GB)",
+   "card_fallbacks": [],
+   "cpu": 8,
+   "memory_mb": 49152,
+   "storage_gb": 80,
+   "shm_mb": 2048,
+   "tier": "low",
+   "tier_fallback": "medium",
+   "expect": {
+    "job_s": 341,
+    "peak_vram_gb": 25.2,
+    "weights_gb": 32.7,
+    "weights_gb_min_min": 2.0
+   },
+   "variants": {
+    "diag": {
+     "storage_gb": 20
     }
+   },
+   "basis": "estimate",
+   "basis_note": "время и пик VRAM — замер t178-1121 (21.11, 341 с на товар, 25,2 ГБ > 24 ГБ → только 5090); RAM 48 ГБ под выгрузку te/dit — по оценке директора (22.11), пик RAM не мерили: ПРОВЕРИТЬ ПЕРВЫМ ПРОГОНОМ по /health (peak_rss_gb) и `resource_profile.py --suggest`; диск 80 ГБ: веса 32,7 + запас."
+  },
+  "parts_segment": {
+   "card": "RTX 4090 (24 GB)",
+   "card_fallbacks": [],
+   "cpu": 8,
+   "memory_mb": 32768,
+   "storage_gb": 40,
+   "shm_mb": 2048,
+   "tier": "low",
+   "tier_fallback": "medium",
+   "expect": {},
+   "basis": "estimate",
+   "basis_note": "числа прежних проб parts_trial (T-183), пики не мерили"
+  },
+  "forms_render": {
+   "card": "RTX 3090 (24 GB)",
+   "card_fallbacks": [],
+   "cpu": 8,
+   "memory_mb": 16384,
+   "storage_gb": 10,
+   "shm_mb": 1024,
+   "tier": "low",
+   "tier_fallback": "medium",
+   "expect": {
+    "job_s": 261,
+    "per_item_render_s_min": 68,
+    "per_item_render_s_max": 98
+   },
+   "basis": "measured",
+   "measured": {
+    "date": "2026-11-22",
+    "log": "~/remlab-logs/t184-1122/render-out/summary-trial-forms-11221555.json",
+    "what": "T-184/1 р.6 очередь 3: RTX 3090, тариф low ($0,127/ч), 8 vCPU, 5 форм одним пакетом за 261 с (рендер 68–98 с на форму, 10–12 кадров), 5/5 готово, ≈$0,014; пики RAM/диск/shm в /health тогда не отдавались — не мерили"
+   },
+   "basis_note": "карта, vCPU, диск 10 ГиБ, shm 1024 и время — как гоняли в пробе р.6 (см. measured); RAM 16 ГБ — прежнее число пробы, пик не мерили"
+  },
+  "pose_camera": {
+   "card": "GTX 1650 (4 GB)",
+   "card_fallbacks": [
+    "GTX 1050 Ti (4 GB)",
+    "RTX 3050 Laptop (4 GB)"
+   ],
+   "cpu": 8,
+   "memory_mb": 16384,
+   "storage_gb": 10,
+   "shm_mb": 1024,
+   "tier": "low",
+   "tier_fallback": "medium",
+   "expect": {
+    "job_s": 1140,
+    "per_item_s_min": 277,
+    "per_item_s_max": 855
+   },
+   "basis": "measured",
+   "measured": {
+    "date": "2026-11-22",
+    "log": "~/remlab-logs/t184-1122/pose-out/summary-trial-pose-11221503.json (+ probe-apply.log)",
+    "what": "T-184 р.1: GTX 1650 4 ГБ, тариф low, 8 vCPU, 5 форм параллельно на одной ноде за 1140 с (277–855 с на форму), 5/5 готово, ≈$0,006; пики RAM/диск/shm в /health тогда не отдавались — не мерили"
+   },
+   "basis_note": "карта, vCPU и время — замер T-184 22.11 (см. measured); RAM 16 ГБ, диск 10 ГБ, shm 1024 — прежние числа пробы, пики не мерили"
+  },
+  "cpu_stage": {
+   "card": "GTX 1650 (4 GB)",
+   "card_fallbacks": [
+    "GTX 1050 Ti (4 GB)",
+    "RTX 3050 Laptop (4 GB)"
+   ],
+   "cpu": 4,
+   "memory_mb": 8192,
+   "storage_gb": 20,
+   "shm_mb": 1024,
+   "tier": "low",
+   "tier_fallback": "medium",
+   "expect": {},
+   "basis": "estimate",
+   "basis_note": "этапы 06–09 (перенос фото/заливка/материал/проверка) — пока у нас; строка на случай 50k, не мерили"
+  },
+  "mesh_pixal3d": {
+   "card": "RTX 4090 (24 GB)",
+   "card_fallbacks": [],
+   "cpu": 8,
+   "memory_mb": 32768,
+   "storage_gb": 80,
+   "shm_mb": 1024,
+   "tier": "low",
+   "tier_fallback": "medium",
+   "expect": {},
+   "basis": "estimate",
+   "basis_note": "Pixal3D / Pixal3D-tex пробы (trellis_trial): прежние умолчания драйвера 8 vCPU/32 ГБ/80 ГиБ/1 ГБ, пики не мерили"
+  },
+  "mesh_localmesh": {
+   "card": "RTX 4060 Ti (16 GB)",
+   "card_fallbacks": [
+    "RTX 4090 (24 GB)"
+   ],
+   "cpu": 8,
+   "memory_mb": 32768,
+   "storage_gb": 80,
+   "shm_mb": 1024,
+   "tier": "low",
+   "tier_fallback": "medium",
+   "expect": {},
+   "basis": "estimate",
+   "basis_note": "LocalMesh (trellis_trial): прежние умолчания драйвера, карта 4060 Ti 16 ГБ — по комментарию драйвера, пики не мерили"
+  },
+  "pose_camera_gpu": {
+   "card": "RTX 3090 (24 GB)",
+   "card_fallbacks": [],
+   "cpu": 4,
+   "memory_mb": 16384,
+   "storage_gb": 10,
+   "shm_mb": 1024,
+   "tier": "low",
+   "tier_fallback": "medium",
+   "expect": {
+    "job_s": 30
+   },
+   "basis": "estimate",
+   "basis_note": "этап 04 на torch (T-185/1): время — оценка из профиля (CPU 696 с → ≈25–60 с), ещё не мерили; vCPU 4 = 4 процесса на ноду (Нелдер–Мид на CPU, одно ядро на процесс); RAM/диск/shm — по аналогии с pose_camera, пики мерить первой пробой; VRAM малая (силуэт+кадр 768 px). Строка — по просьбе рабочего router-7 (T-185/1)."
   }
+ }
 }
