@@ -22,19 +22,26 @@ import kit_driver as KD  # noqa: E402
 import kit_worker as KW  # noqa: E402
 
 say = KD.say
-MODELS = ('p3sam', 'partllm')
+MODELS = ('p3sam', 'partllm', 'segvigen')
 CARD = 'RTX 4090 (24 GB)'
 CUDA_ARCHS = ('8.0', '8.6', '8.9')                                   # TORCH_CUDA_ARCH_LIST образа (Dockerfile.p3sam)
+CARDS = {'p3sam': (CARD, CUDA_ARCHS), 'partllm': (CARD, CUDA_ARCHS),
+         'segvigen': ('RTX 5090 (32 GB)', ('12.0',))}              # SegviGen: образ на основе pixal3d-bw (sm_120), ≥24 ГБ памяти карты — на 4090 не идёт
 PORT = 8000
 WORKER = os.path.join(HERE, 'worker_parts.py')
+SEGVIGEN_MOD = os.path.join(HERE, 'segvigen_backend.py')           # модуль бэкенда SegviGen едет в KIT_WORKER_Z рядом с воркером
 
 
 def build_body(name, class_id, auth, a):
     env = {'MODEL': a.model, 'HF_HOME': '/data/hf', 'OUT_DIR': '/data/out', 'PORT': str(PORT), 'NVIDIA_DRIVER_CAPABILITIES': 'all', 'DEPLOYMENT_EPOCH': f'20261121-{name}',
            'MAX_LIFETIME_S': str(min(a.max_min * 60 + 600, 3 * 3600)), 'IDLE_S': '1200', 'IMAGE_NOTE': a.image.split('@')[-1][:19]}
-    cmd, z = KW.bundle(WORKER)                                        # код воркера — в env группы (KIT_WORKER_Z), образ не пересобирается
+    if a.model == 'segvigen':
+        env.update({'HF_HUB_OFFLINE': '1', 'TRANSFORMERS_OFFLINE': '1'})     # все веса в образе: любое обращение в сеть HF (gated) — сразу ошибка, а не ожидание
+        cmd, z = KW.bundle(WORKER, mods={'kit_worker': os.path.join(SALAD, 'kit_worker.py'), 'segvigen_backend': SEGVIGEN_MOD})
+    else:
+        cmd, z = KW.bundle(WORKER)                                    # код воркера — в env группы (KIT_WORKER_Z), образ не пересобирается
     env['KIT_WORKER_Z'] = z
-    resources = {'cpu': a.cpu, 'memory': a.mem_mb, 'storage_amount': 40 * 2 ** 30, 'shm_size': 2048}
+    resources = {'cpu': a.cpu, 'memory': a.mem_mb, 'storage_amount': (a.storage_gb or (80 if a.model == 'segvigen' else 40)) * 2 ** 30, 'shm_size': 2048}
     return KD.group_body(name, a.image, a.tier, class_id, PORT, env, resources, auth, command=cmd)
 
 
@@ -162,9 +169,9 @@ def make_spec(a, plan, price_ref):
                 return f'по средней длительности ({mean:.0f} с) не уложится в потолок ${cap}'
         return None
 
-    return KD.Spec(prefix=f'trial-parts-{a.model}', card=CARD, model=f'parts-{a.model}', jobs=[k for k, _i, _v in plan], build_body=lambda n, c, auth: build_body(n, c, auth, a),
+    return KD.Spec(prefix=f'trial-parts-{a.model}', card=CARDS.get(a.model, CARDS['p3sam'])[0], model=f'parts-{a.model}', jobs=[k for k, _i, _v in plan], build_body=lambda n, c, auth: build_body(n, c, auth, a),
                    submit=submit, poll=poll, preflight=preflight, health_keys=('phase', 'root_gb', 'weights', 'cuda', 'error', 'load_s'), ready_keys=('version', 'model', 'load_s'),
-                   z_keys=('KIT_WORKER_Z',), worker_file=WORKER, cuda_archs=CUDA_ARCHS, before_job=before_job)
+                   z_keys=('KIT_WORKER_Z',), worker_file=WORKER, cuda_archs=CARDS.get(a.model, CARDS['p3sam'])[1], before_job=before_job)
 
 
 def main() -> int:
@@ -177,6 +184,7 @@ def main() -> int:
     ap.add_argument('--tier', default='high', choices=['batch', 'low', 'medium', 'high'])
     ap.add_argument('--cpu', type=int, default=8)
     ap.add_argument('--mem-mb', type=int, default=32768)
+    ap.add_argument('--storage-gb', type=int, default=0, help='диск группы, ГиБ (0 = 40; для segvigen 80: образ с весами)')
     ap.add_argument('--cap', type=float, default=0.5, help='общий потолок денег на группу, $')
     ap.add_argument('--probe-cap', type=float, default=None, help='потолок до первого готового задания, $ (по умолчанию = --cap)')
     ap.add_argument('--max-min', type=int, default=45, help='предел минут после running')
@@ -214,7 +222,7 @@ def main() -> int:
     price_ref = [None]
     spec = make_spec(a, plan, price_ref)
     MG.env_from_file()
-    _cid, price = KD.gpu_class(MG, CARD, a.tier)
+    _cid, price = KD.gpu_class(MG, CARDS.get(a.model, CARDS['p3sam'])[0], a.tier)
     price_ref[0] = price
 
     def pg(group):

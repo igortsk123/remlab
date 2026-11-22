@@ -371,6 +371,9 @@ class PartLlmBackend:
 
 
 def make_backend():
+    if MODEL == 'segvigen':
+        import segvigen_backend as SB                      # на ноде — модуль из KIT_WORKER_Z (parts_trial.build_body), локально — рядом с воркером
+        return SB.SegviGenBackend(step=set_step)
     return {'fake': FakeBackend, 'p3sam': P3SamBackend, 'partllm': PartLlmBackend}[MODEL]()
 
 

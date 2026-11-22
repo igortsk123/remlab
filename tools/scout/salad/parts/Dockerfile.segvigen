@@ -1,0 +1,58 @@
+# ОБРАЗ SegviGen ДЛЯ ПРОБЫ «ОТДЕЛЯЕТ ЛИ ДВЕРИ И ЯЩИКИ» — Ш5 / T-183, под RTX 5090 (Blackwell, sm_120, ≥24 ГБ: так просит README апстрима).
+# ТОНКИЙ СЛОЙ поверх образа `trellis2-bw` (digest в ARG BASE — тот же, что у trellis2-fast; ≈10 ГиБ сжатых): CUDA 12.8.1, torch 2.8/cu128, CuMesh/FlexGEMM/o-voxel/nvdiffrast собраны под sm_120,
+# ENV ATTN_BACKEND=sdpa. Сверено по исходникам коммита 65d1e13b: в o_voxel есть всё, что зовёт SegviGen (convert.mesh_to_flexible_dual_grid, convert.textured_mesh_to_volumetric_attr, io.read/write .vxz, serialize.encode_seq).
+# Что добавляем (всё ВНУТРИ образа, сети на ноде не нужно; скачивание образа до running бесплатно):
+#   • код SegviGen @81ec99ed (MIT; внутри копия trellis2 — лицензия TRELLIS.2) в /opt/SegviGen + патч разреженного внимания sdpa (flash-attn под sm_120 нет, а SegviGen знает только xformers/flash_attn;
+#     тот же приём, что T-94 для TRELLIS.2: `segvigen_backend.patch_sparse_sdpa`, идемпотентен, воркер повторяет его при загрузке);
+#   • веса SegviGen full_seg.ckpt (7,3 ГиБ; лицензии у весов нет — владелец снял запрет TG 909) — ТОЛЬКО он (ignore_patterns: два других чекпойнта не нужны);
+#   • веса TRELLIS.2-4B ровно те, что открывает `inference_full.py` (pipeline.json; shape/tex enc/dec; tex-flow 512 bf16) ≈5,5 ГиБ — перечень проверен по коду (inference_full.py:306–330), комплектность
+#     сверяется ниже сборкой (нет файла — сборка падает, а не нода);
+#   • DINOv3 vitl16 (gated у facebook) — из ОТКРЫТОГО зеркала camenduru/…: `model.safetensors` ПОБАЙТНО тот же (sha256 сверяется ниже, расхождение = сборка падает); токена HF не нужно;
+#   • Blender 4.0.2 (бинарник; sha256 с blender.org сверяется) — кадр-условие рисует он подпроцессом: pip-колесо bpy 4.0 только под py3.10, а у основы py3.12. RMBG-2.0 (gated, CC-BY-NC) НЕ нужен: фон — по альфе кадра.
+# Итого сжатый размер ≈ 10 + 5,5 + 7,3 + 1,2 + 0,4 ≈ 24,5 ГиБ — гейт сборки (workflow) ≤ 30 ГиБ (лимит Salad 35).
+# Урок Ш5 (22.11): проверять ФАЙЛЫ ОБРАЗА, а не список ревизии — комплектность ниже проверяется по тем путям, которые реально открывает код (`segvigen_backend.missing_files` в рантайме делает то же).
+ARG BASE=ghcr.io/igortsk123/mesh-pixal3d-trial@sha256:cc1e0088ff03fb86e957914a18d00b8cb97f8dc40ae204fa992c82f92aea12ff
+FROM ${BASE}
+ARG SEGVIGEN_COMMIT=81ec99ede1fbe566c73322dd968cd64bb508f5f7
+ARG SEGVIGEN_WEIGHTS_REV=73326b77a17b5194bcc918dbf13d8d5cefb1cca5
+ARG BLENDER_VER=4.0.2
+ARG BLENDER_SHA256=5583a5588736da8858c522ef17fff5d73be59c47a6fe91ad29c6f3263e22086a
+ARG DINOV3_SHA256=dcb2e45127cccbf1601e5f42fef165eea275c8e5213197e8dcf3f48822718179
+ENV HF_HUB_ENABLE_HF_TRANSFER=0 DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
+# слой 1: системные библиотеки Blender (фоновый режим) + curl/xz для его распаковки
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates xz-utils libx11-6 libxi6 libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 libsm6 libxext6 libgl1 libegl1 \
+    && rm -rf /var/lib/apt/lists/*
+# слой 2: Blender (портативный; свой python с numpy и mathutils внутри), контрольная сумма с blender.org
+RUN curl -fsSL -o /tmp/blender.tar.xz "https://download.blender.org/release/Blender4.0/blender-${BLENDER_VER}-linux-x64.tar.xz" \
+    && echo "${BLENDER_SHA256}  /tmp/blender.tar.xz" | sha256sum -c - \
+    && mkdir -p /opt/blender && tar -xJf /tmp/blender.tar.xz -C /opt/blender --strip-components=1 && rm -f /tmp/blender.tar.xz \
+    && /opt/blender/blender -b --python-expr "import numpy, mathutils, bpy; print('blender python ok', bpy.app.version_string)"
+# слой 3: код SegviGen (без .git и тяжёлых примеров), патч sdpa. Python-пакеты — из основы (/opt/venv: transformers 4.57.3 как в Space апстрима, scipy, trimesh, kornia, timm) — не трогаем.
+COPY segvigen_backend.py /tmp/segvigen_backend.py
+RUN git clone https://github.com/Nelipot-Lee/SegviGen.git /opt/SegviGen && cd /opt/SegviGen && git checkout ${SEGVIGEN_COMMIT} \
+    && rm -rf .git assets data_toolkit/assets \
+    && python -c "import sys; sys.path.insert(0, '/tmp'); import segvigen_backend as S; print('sdpa patch:', S.patch_sparse_sdpa('/opt/SegviGen'), S.patch_sparse_sdpa('/opt/SegviGen'))" \
+    && python -c "from transformers import DINOv3ViTModel; print('DINOv3ViTModel ok')" \
+    && { echo "SegviGen ${SEGVIGEN_COMMIT}; Blender ${BLENDER_VER}; transformers — из основы; sdpa-патч разреженного внимания (T-183)"; } >> /opt/BUILD_INFO_PIXAL3D_BW.txt
+# слой 4: чекпойнт SegviGen (только full_seg.ckpt)
+RUN python -c "from huggingface_hub import snapshot_download as s; \
+s('fenghora/SegviGen', revision='${SEGVIGEN_WEIGHTS_REV}', local_dir='/opt/weights/SegviGen', ignore_patterns=['interactive_seg.ckpt', 'full_seg_w_2d_map.ckpt', '*.md', '.gitattributes'], max_workers=4)" \
+    && test -s /opt/weights/SegviGen/full_seg.ckpt && ls -l /opt/weights/SegviGen && rm -rf /opt/weights/SegviGen/.cache
+# слой 5: веса TRELLIS.2-4B — ровно открываемые inference_full.py
+RUN python -c "from huggingface_hub import snapshot_download as s; \
+s('microsoft/TRELLIS.2-4B', local_dir='/opt/weights/TRELLIS.2-4B', allow_patterns=['pipeline.json', 'ckpts/shape_enc_next_dc_f16c32_fp16.*', 'ckpts/tex_enc_next_dc_f16c32_fp16.*', 'ckpts/shape_dec_next_dc_f16c32_fp16.*', 'ckpts/tex_dec_next_dc_f16c32_fp16.*', 'ckpts/slat_flow_imgshape2tex_dit_1_3B_512_bf16.*'], max_workers=4)" \
+    && rm -rf /opt/weights/TRELLIS.2-4B/.cache
+# слой 6: DINOv3 из открытого зеркала + побайтовая сверка с оригиналом
+RUN python -c "from huggingface_hub import snapshot_download as s; \
+s('camenduru/dinov3-vitl16-pretrain-lvd1689m', local_dir='/opt/weights/dinov3-vitl16-pretrain-lvd1689m', ignore_patterns=['*.bin', '*.pt', '*.pth', '*.ckpt', '*.gguf', '*.onnx', '*.h5', '*.msgpack', '*.ot'], max_workers=4)" \
+    && rm -rf /opt/weights/dinov3-vitl16-pretrain-lvd1689m/.cache \
+    && python -c "import hashlib; h=hashlib.sha256(); f=open('/opt/weights/dinov3-vitl16-pretrain-lvd1689m/model.safetensors','rb'); [h.update(c) for c in iter(lambda: f.read(1<<24), b'')]; \
+print('dinov3 sha256', h.hexdigest()); raise SystemExit(0 if h.hexdigest()=='${DINOV3_SHA256}' else 'DINOv3: sha256 зеркала не совпал с оригиналом facebook')"
+# комплектность по тем путям, что открывает код (то же делает бэкенд при загрузке)
+RUN python -c "import sys; sys.path.insert(0, '/tmp'); import segvigen_backend as S; m = S.missing_files('/opt/weights/TRELLIS.2-4B', '/opt/SegviGen', '/opt/weights/SegviGen/full_seg.ckpt', '/opt/weights/dinov3-vitl16-pretrain-lvd1689m', '/opt/blender/blender'); print('нет файлов:', m) if m else print('образ комплектен'); raise SystemExit(1 if m else 0)" \
+    && du -sh /opt/weights/* /opt/SegviGen /opt/blender && rm -f /tmp/segvigen_backend.py
+# проверка импортов без видеокарты (если упадёт — это дёшево на сборке, а не на платной ноде)
+RUN python -c "import sys; sys.path.insert(0, '/opt/SegviGen'); import trellis2.modules.sparse as sp; from trellis2 import models; from trellis2.modules.image_feature_extractor import DinoV3FeatureExtractor; from trellis2.representations import MeshWithVoxel; from trellis2.pipelines.rembg import BiRefNet; print('питоновские импорты SegviGen ok')" \
+    && { python -c "import o_voxel, flex_gemm, cumesh; print('расширения CUDA импортируются')" || echo 'ПРЕДУПРЕЖДЕНИЕ: импорт расширений CUDA без видеокарты не прошёл (как у основы) — проверка на живой машине'; }
+ENV SEGVIGEN_DIR=/opt/SegviGen SEGVIGEN_CKPT=/opt/weights/SegviGen/full_seg.ckpt TRELLIS_MODEL=/opt/weights/TRELLIS.2-4B DINOV3_DIR=/opt/weights/dinov3-vitl16-pretrain-lvd1689m BLENDER=/opt/blender/blender \
+    ATTN_BACKEND=sdpa MODEL=segvigen PORT=8000 HF_HOME=/data/hf OUT_DIR=/data/out

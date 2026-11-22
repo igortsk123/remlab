@@ -1,0 +1,88 @@
+# СБОРКА ОБРАЗА SegviGen (Ш5 / T-183) ПОД RTX 5090 НА GITHUB ACTIONS — не на pakardev (диск общий с базой tamara; решение директора 18.11).
+# Запускается ТОЛЬКО пушем в ветку `trial/sh5-segvigen-1125` (на main и остальные ветки не срабатывает) или вручную из этой же ветки.
+# Что делает: освобождает диск сборщика → собирает `tools/scout/salad/parts/Dockerfile.segvigen` (тонкий слой поверх trellis2-bw по digest) → ГЕЙТ размера (сжатый ≤30 ГБ; лимит Salad 35)
+# ДО публикации тега → пушит в GHCR `mesh-parts-trial:segvigen` (запасной адрес — как у trellis2-fast) → печатает digest. Боевые группы закреплены по digest, тег их не затрагивает. Деплоя нет.
+name: build-segvigen-trial
+
+on:
+  push:
+    branches: ['trial/sh5-segvigen-1125']
+    paths:
+      - 'tools/scout/salad/parts/Dockerfile.segvigen'
+      - 'tools/scout/salad/parts/segvigen_backend.py'
+      - '.github/workflows/build-segvigen-trial.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-segvigen-trial
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  PRIMARY: ghcr.io/${{ github.repository_owner }}/mesh-parts-trial:segvigen
+  FALLBACK: ghcr.io/${{ github.repository_owner }}/mesh-pixal3d-trial:segvigen
+  CTX: tools/scout/salad/parts
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/trial/sh5-segvigen-1125'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Освободить диск сборщика
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      /usr/share/swift /usr/local/share/powershell /usr/local/julia* || true
+          sudo docker system prune -af || true
+          sudo apt-get clean || true
+          df -h /
+          FREE_GB=$(df -BG --output=avail / | tail -1 | tr -dc 0-9)
+          [ "$FREE_GB" -ge 55 ] || { echo "::error::после очистки меньше 55 ГБ — образ может не поместиться"; exit 1; }
+
+      - name: Вход в GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Сборка
+        run: |
+          set +e
+          docker build --progress=plain -f "$CTX/Dockerfile.segvigen" -t "$PRIMARY" "$CTX" > build.log 2>&1
+          rc=$?
+          tail -60 build.log
+          if [ "$rc" -ne 0 ]; then
+            # логи Actions без токена не читаются — хвост уходит в аннотации (публичный API check-runs) и в сводку шага
+            python3 tools/scout/stablegen/ci_annotate.py build.log 96 12
+            exit "$rc"
+          fi
+          echo "размер образа (распакованный): $(python3 -c "print(round($(docker image inspect "$PRIMARY" --format '{{.Size}}')/2**30,2))") ГБ"
+          df -h /
+
+      - name: BUILD_INFO и проверка Blender/веса из образа
+        run: |
+          docker run --rm --entrypoint cat "$PRIMARY" /opt/BUILD_INFO_PIXAL3D_BW.txt
+          docker run --rm --entrypoint /opt/blender/blender "$PRIMARY" -b --python-expr "import bpy; print('blender', bpy.app.version_string)"
+
+      - name: Публикация в GHCR (основной адрес, при отказе — запасной) и гейт размера
+        run: |
+          set +e
+          TARGET="$PRIMARY"
+          if ! docker push "$PRIMARY"; then
+            echo "::warning::push в $PRIMARY отказан (скорее всего, пакет не привязан к репо) — пробую запасной адрес"
+            docker tag "$PRIMARY" "$FALLBACK" && docker push "$FALLBACK" || { echo "::error::push не удался ни в один адрес"; exit 1; }
+            TARGET="$FALLBACK"
+          fi
+          DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' "$TARGET")
+          COMPRESSED=$(docker manifest inspect "$DIGEST" 2>/dev/null | python3 -c 'import json,sys; m=json.load(sys.stdin); print(sum(l["size"] for l in m.get("layers",[])))' || echo 0)
+          GB=$(python3 -c "print(round($COMPRESSED/2**30,2))")
+          {
+            echo "### Образ SegviGen (Blackwell, 5090), тег segvigen"
+            echo "- адрес: \`$TARGET\`"
+            echo "- digest: \`$DIGEST\`"
+            echo "- сжатый размер в реестре: **${GB} ГБ** (лимит Salad 35, наш порог 30)"
+            echo "- коммит: \`${GITHUB_SHA}\`"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 -c "import sys; sys.exit(1 if $COMPRESSED/2**30 > 30 or $COMPRESSED == 0 else 0)" || { echo "::error::образ больше 30 ГБ или размер не получен"; exit 1; }
