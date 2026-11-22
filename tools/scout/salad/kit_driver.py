@@ -33,6 +33,7 @@ DIGEST_RE = re.compile(r'^[A-Za-z0-9._\-/:]+@sha256:[0-9a-f]{64}$')
 DEFAULT_API_RULES = {'retries': 4, 'status_codes': [502, 503, 504], 'pauses_s': [5, 15, 30, 60]}
 SLOT_PRIO = 2                           # платные пробы — heavy-slot --prio 2 (P-038)
 SAFE_PREFIXES = ('mesh-', 'render-', 'trial-')       # чужие боевые группы не трогаем и не считаем «посторонними»
+HOLD = 'hold'                                         # before_job вернул HOLD → очередное задание пока не отправляем (нода прогрета и ждёт решения), цикл идёт дальше
 
 
 def say(*a) -> None:
@@ -867,14 +868,16 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
                     say(msg)
             seen_ev = len(w.events)
             if w.ready_at is not None:
+                held = False                                                     # before_job вернул HOLD: задание пока не шлём (ждём решения, нода прогрета)
                 if cur is None and pending and spec.before_job:
                     why_plan = spec.before_job(pending[0], w.cost(t), w.cap_now())
-                    if why_plan:
+                    held = why_plan == HOLD
+                    if why_plan and not held:
                         say(f'новые задания не отправляю: {why_plan} — гашу')
                         summary['stopped_by'] = 'planned' if not str(why_plan).startswith('!') else str(why_plan)[1:]       # «!причина» — аварийный стоп (код 1), иначе плановый
                         summary['planned_reason'] = str(why_plan)
                         break
-                if cur is None and pending:
+                if cur is None and pending and not held:
                     k = pending.pop(0)
                     cur, info = spec.submit(gw, k, t)
                     if cur is None and info.get('http') == 429:
@@ -926,9 +929,10 @@ def run_probe(a, MG, BR, spec: Spec, gw_factory=Gateway, sleep=time.sleep, clock
                             say(f'задание {cur["key"]}: ОШИБКА', info.get('error') or info.get('status'))
                         cur = None
                 summary['failed'] = sum(1 for v in summary['jobs'].values() if v.get('status') != 'done')
-                if streak >= 2:
+                max_streak = int(getattr(a, 'fail_streak', 2) or 2)                # сколько отказов подряд до стопа (по умолчанию 2; пакет — --fail-streak 3)
+                if streak >= max_streak:
                     summary['stopped_by'] = 'fail_streak'
-                    say('!! 2 задания подряд не удались — гашу (чинить в коде)')
+                    say(f'!! {max_streak} задания подряд не удались — гашу (чинить в коде)')
                     break
                 if cur is None and not pending:
                     summary['stopped_by'] = 'done' if w.first_done and summary['failed'] == 0 else ('first_failed' if not w.first_done else 'done_with_failures')

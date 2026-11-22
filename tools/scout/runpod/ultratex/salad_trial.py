@@ -152,7 +152,31 @@ def make_spec(a, head_fn=head) -> KD.Spec:
             return 'failed', {'status': 'failed', 'error': r.get('error'), 'trace': r.get('trace')}
         return 'running', {}
 
-    return KD.Spec(prefix='trial-ultratex', card=CARD_NAME, model='ultratex', jobs=jobs, build_body=build, submit=submit, poll=poll, preflight=preflight,
+    sent = [0]
+    hold = {'t0': None}
+    _submit = submit
+
+    def submit(gw, k, t):                                              # noqa: F811 — считаем отправленные для затвора контроля
+        sent[0] += 1
+        return _submit(gw, k, t)
+
+    def before_job(nxt, cost, cap):
+        """Плановые стопы пакета: файл `<out>/STOP` (после текущего задания); затвор контроля `--gate-first-min N`: после ПЕРВОГО задания (контрольный товар) остальные не шлём,
+        пока владелец пакета не положил `<out>/GO` (проверил кадры, текст-кэш, /health); нет GO за N минут — плановый стоп; первое не получено — аварийный стоп."""
+        if os.path.exists(os.path.join(a.out, 'STOP')):
+            return 'файл-стоп STOP'
+        n = int(getattr(a, 'gate_first_min', 0) or 0)
+        if n and sent[0] == 1 and not os.path.exists(os.path.join(a.out, 'GO')):
+            if not os.path.exists(os.path.join(a.out, f'{jobs[0]}.ultratex.glb')):
+                return '!контрольное задание (первое) не получено — остальные не шлю'
+            now = time.time()
+            hold['t0'] = hold['t0'] or now
+            if now - hold['t0'] > n * 60:
+                return f'контроль первого товара не подтверждён (нет файла GO) за {n} мин'
+            return KD.HOLD
+        return None
+
+    return KD.Spec(prefix='trial-ultratex', card=CARD_NAME, model='ultratex', jobs=jobs, build_body=build, submit=submit, poll=poll, preflight=preflight, before_job=before_job,
                    ready_keys=('version', 'offload', 'sparse', 'gate'), z_keys=('KIT_WORKER_Z',), worker_file=os.path.join(HERE, 'worker_ultratex.py'), cuda_archs=CUDA_ARCHS)
 
 
@@ -187,6 +211,8 @@ def main() -> int:
     ap.add_argument('--worker-from-image', action='store_true', help='запускать воркер из образа, а не код из env группы')
     ap.add_argument('--post-timeout', type=int, default=0, help='секунд ждать ответ на POST /generate; 0 (по умолчанию) — по размеру тела из rules/salad-groups.json → gateway_post (kit_driver.post_timeout_s)')
     ap.add_argument('--job-min', type=int, default=0, help='срезать задание дольше N минут; 0 (по умолчанию) — до потолка пробы (p4 21.11: срезка на 30-й минуте лишила результата)')
+    ap.add_argument('--fail-streak', type=int, default=2, help='сколько заданий подряд могут не удаться до стопа (по умолчанию 2)')
+    ap.add_argument('--gate-first-min', type=int, default=0, help='затвор контроля: после первого задания ждать файл <out>/GO (N минут), только потом остальные; 0 — без затвора. Файл <out>/STOP — плановый стоп между заданиями')
     ap.add_argument('--idle-s', type=int, default=900)
     ap.add_argument('--suffix', default=time.strftime('%m%d%H%M', time.gmtime()))
     ap.add_argument('--diag', action='store_true', help='диагностика карты БЕЗ весов (ULTRATEX_NO_WEIGHTS=1): слив VRAM в системную память, ядро на реальных длинах, пик DiT на случайных весах')

@@ -140,7 +140,7 @@ class GW:
         return 404, {}
 
 
-def setup(tmp, keys=('a', 'b')):
+def setup(tmp, keys=('a', 'b', 'c', 'd')):
     sh, inp = os.path.join(tmp, 'shapes'), os.path.join(tmp, 'inputs')
     os.makedirs(sh)
     os.makedirs(inp)
@@ -166,6 +166,7 @@ def drive(tmp, jobs, price=0.6, ready_after=120.0, job_s=200.0, fail=False, head
     sh, inp = setup(tmp)
     clock = Clock()
     mg, br = MG(), BR(clock, running_after, started_delay)
+    globals()['CLK'] = clock                                         # часы последнего прогона: тест затвора подменяет S.time.time
     KD.gpu_class = lambda MG_, name, tier, fetch=None: ('cls-5090', price)
     LEDGER.clear()
     orig_api = mg.api
@@ -420,6 +421,45 @@ check(os.path.isfile(S.make_spec(_a).worker_file) and os.path.isfile(S.make_diag
 check(S.make_spec(_a).cuda_archs == ('12.0',) and S.make_diag_spec(_a).cuda_archs == ('12.0',) and S.KD.arch_refusal(S.CARD_NAME, S.CUDA_ARCHS) == ''
       and S.KD.arch_refusal('RTX 4090 (24 GB)', S.CUDA_ARCHS) != '', 'п.6: образ заявляет sm_120; карта 5090 проходит, чужая архитектура — отказ до группы')
 check('ULTRATEX_DIAG_FIRST' not in S.make_spec(_a).build_body('n', 'cls', {})['container']['environment_variables'], 'без --diag-first затвора нет')
+
+# 28. пакет 27 (T-178/3): --fail-streak (по умолчанию 2, пакет 3), файл-стоп STOP, затвор контроля --gate-first-min (остальные — только после GO)
+with tempfile.TemporaryDirectory() as tmp:
+    rc, summ, out, mg, br = drive(tmp, 'a,b,c,d', ready_after=20.0, job_s=60.0, fail=True)
+    check(summ.get('stopped_by') == 'fail_streak' and summ.get('failed') == 2, f'по умолчанию стоп на 2 отказах подряд ({summ.get("stopped_by")}, failed {summ.get("failed")})')
+with tempfile.TemporaryDirectory() as tmp:
+    rc, summ, out, mg, br = drive(tmp, 'a,b,c,d', ready_after=20.0, job_s=60.0, fail=True, fail_streak=3)
+    check(summ.get('stopped_by') == 'fail_streak' and summ.get('failed') == 3 and br.stopped >= 1 and summ.get('stop_verified'), f'--fail-streak 3: стоп на 3-м отказе, не на 2-м, нода погашена ({summ.get("failed")})')
+with tempfile.TemporaryDirectory() as tmp:
+    os.makedirs(os.path.join(tmp, 'out'))
+    open(os.path.join(tmp, 'out', 'STOP'), 'w').write('')
+    rc, summ, out, mg, br = drive(tmp, 'a,b', ready_after=20.0, job_s=60.0)
+    check(summ.get('stopped_by') == 'planned' and not summ.get('jobs') and 'файл-стоп' in summ.get('planned_reason', ''), 'файл STOP: плановый стоп до первого задания, ни одно не отправлено')
+import types
+_real_time = S.time
+with tempfile.TemporaryDirectory() as tmp:
+    S.time = types.SimpleNamespace(time=lambda: CLK.t, strftime=_real_time.strftime, gmtime=_real_time.gmtime)
+    try:
+        rc, summ, out, mg, br = drive(tmp, 'a,b,c', ready_after=20.0, job_s=60.0, gate_first_min=5)
+    finally:
+        S.time = _real_time
+    check(summ.get('stopped_by') == 'planned' and set(summ.get('jobs', {})) == {'a'} and summ['jobs']['a']['status'] == 'done' and 'GO' in summ.get('planned_reason', '')
+          and br.stopped >= 1, f'затвор: первое (контрольное) готово, GO нет → остальные не посланы, через 5 мин плановый стоп ({summ.get("stopped_by")}, {list(summ.get("jobs", {}))})')
+with tempfile.TemporaryDirectory() as tmp:
+    os.makedirs(os.path.join(tmp, 'out'))
+    open(os.path.join(tmp, 'out', 'GO'), 'w').write('')
+    S.time = types.SimpleNamespace(time=lambda: CLK.t, strftime=_real_time.strftime, gmtime=_real_time.gmtime)
+    try:
+        rc, summ, out, mg, br = drive(tmp, 'a,b,c', ready_after=20.0, job_s=60.0, gate_first_min=5)
+    finally:
+        S.time = _real_time
+    check(rc == 0 and summ.get('stopped_by') == 'done' and set(summ.get('jobs', {})) == {'a', 'b', 'c'}, 'затвор: файл GO есть → все три задания идут на той же ноде')
+with tempfile.TemporaryDirectory() as tmp:
+    S.time = types.SimpleNamespace(time=lambda: CLK.t, strftime=_real_time.strftime, gmtime=_real_time.gmtime)
+    try:
+        rc, summ, out, mg, br = drive(tmp, 'a,b,c', ready_after=20.0, job_s=60.0, fail=True, gate_first_min=5)
+    finally:
+        S.time = _real_time
+    check(set(summ.get('jobs', {})) == {'a'} and str(summ.get('stopped_by', '')).startswith('контрольное') and br.stopped >= 1, f'затвор: первое упало → остальные не шлём, аварийный стоп ({summ.get("stopped_by")})')
 
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПАДЕНИЙ {len(FAILS)}')
 sys.exit(1 if FAILS else 0)
