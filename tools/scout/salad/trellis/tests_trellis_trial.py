@@ -64,7 +64,7 @@ ok('живая цена: другой класс и тариф; нет клас�
 ok('нет связи с Salad — живая цена None (запасной путь — снимок)', T.live_price_usd_h(object(), 'RTX 4090 (24 GB)', 'high') is None)
 
 print('[2] тело группы')
-body = T.build_body('trial-trellis2-x', 'ghcr.io/x/y:t', 'high', 'trellis2', 'hf_SECRET', 8, 32768, 'note', {'basic': {'username': 'u', 'password': 'PW'}})
+body = T.build_body('trial-trellis2-x', 'ghcr.io/x/y:t', 'low', 'trellis2', 'hf_SECRET', 'note', {'basic': {'username': 'u', 'password': 'PW'}})
 env = body['container']['environment_variables']
 ok('карта — только RTX 4090', body['container']['resources']['gpu_classes'] == [T.CARD['class_id']])
 ok('приёмника на проде нет (ни MESH_SINK_URL, ни токена приёмника)', not any(k.startswith('MESH_SINK') for k in env))
@@ -74,7 +74,7 @@ ok('пороги проб в пределах API Salad (failure_threshold ≤ 2
 donor = {'container': {'image': 'ghcr.io/igortsk123/mesh-hunyuan@sha256:' + 'a' * 64, 'resources': {'cpu': 4, 'memory': 24576, 'storage_amount': 64424509440, 'shm_size': 64, 'gpu_classes': ['x', 'y']},
                        'environment_variables': {'STAGED': '1', 'PIPELINE_VERSION': 'v2', 'MESH_SINK_URL': 'https://sink', 'MESH_SINK_TOKEN': 'SINKSECRET',
                                                  'STORAGE_BACKEND': 'http', 'TQDM_DISABLE': '1'}}}
-hb = T.build_body('trial-hunyuan21-x', donor['container']['image'], 'high', 'hunyuan21', '', 8, 32768, 'note', {'basic': {}}, donor)
+hb = T.build_body('trial-hunyuan21-x', donor['container']['image'], 'low', 'hunyuan21', '', 'note', {'basic': {}}, donor)
 henv = hb['container']['environment_variables']
 ok('контроль: приёмник и очередь боевой группы НЕ попадают в пробную (ни URL, ни токен)', not any(k.startswith('MESH_SINK') for k in henv) and 'SINKSECRET' not in json.dumps(hb))
 ok('контроль: боевые ручки образца (STAGED, PIPELINE_VERSION) сохранены, GPU — только 4090, ресурсы образца', henv.get('STAGED') == '1' and henv.get('PIPELINE_VERSION') == 'v2'
@@ -83,11 +83,11 @@ ok('контроль: код воркера едет в command + env TRIAL_WORK
    hb['container']['command'][:3] == ['python', '-u', '-c'] and __import__('zlib').decompress(__import__('base64').b64decode(henv['TRIAL_WORKER_Z'])) == open(os.path.join(HERE, 'worker_trellis.py'), 'rb').read())
 ok('TRELLIS.2: воркер едет через command (bash: pip-пин transformers с повторами → exec python3) без пересборки образа',
    body['container']['command'][:2] == ['bash', '-c'] and 'transformers==4.56' in body['container']['command'][2] and 'exec python3 -u -c' in body['container']['command'][2] and __import__('zlib').decompress(__import__('base64').b64decode(env['TRIAL_WORKER_Z'])) == open(os.path.join(HERE, 'worker_trellis.py'), 'rb').read())
-pb = T.build_body('trial-pixal3d-x', 'ghcr.io/x/y@sha256:' + 'b' * 64, 'high', 'pixal3d', 'hf_SECRET', 8, 32768, 'n', {'basic': {}})
+pb = T.build_body('trial-pixal3d-x', 'ghcr.io/x/y@sha256:' + 'b' * 64, 'low', 'pixal3d', 'hf_SECRET', 'n', {'basic': {}})
 ok('Pixal3D: MODEL=pixal3d, воркер через command (python3), при старте пин huggingface_hub==0.35.3, пина transformers TRELLIS.2 НЕТ (образ с 4.57.3), карта 4090, диск 80 ГиБ',
    pb['container']['environment_variables']['MODEL'] == 'pixal3d' and pb['container']['command'][-1] is not None and 'huggingface_hub==0.35.3' in json.dumps(pb['container']['command']) and T.TRELLIS_PIP_PIN not in json.dumps(pb['container']['command'])
    and pb['container']['resources']['gpu_classes'] == [T.CARD['class_id']] and pb['container']['resources']['storage_amount'] == 80 * 2 ** 30)
-lb = T.build_body('trial-localmesh-x', 'ghcr.io/x/y@sha256:' + 'c' * 64, 'high', 'localmesh', 'hf_SECRET', 8, 32768, 'n', {'basic': {}})
+lb = T.build_body('trial-localmesh-x', 'ghcr.io/x/y@sha256:' + 'c' * 64, 'low', 'localmesh', 'hf_SECRET', 'n', {'basic': {}})
 ok('LocalMesh: MODEL=localmesh, воркер через command (python3), без pip-пина TRELLIS.2, HF_TOKEN только в env',
    lb['container']['environment_variables']['MODEL'] == 'localmesh' and lb['container']['command'][:3] == ['python3', '-u', '-c'] and 'pip' not in json.dumps(lb['container']['command'])
    and lb['container']['environment_variables']['HF_TOKEN'] == 'hf_SECRET' and 'hf_SECRET' not in json.dumps(lb['container']['command']))
@@ -183,9 +183,13 @@ class FakeGW:
         return 404, {}
 
 
+_REAL_PROF = T.KD.resource_profile      # сценарии драйвера идут на карте 4090 (снимок цен в rules/salad-groups.json); ресурсы и тариф — по-прежнему из профиля
+T.KD.resource_profile = lambda wt, path=None: {**_REAL_PROF(wt, path), 'card': T.CARD['class_name']}
+
+
 def args(tmp, **kw):
-    d = dict(donor='mesh-q-low-1', set=None, fail_streak=2, model='trellis2', image='ghcr.io/x/y:t', inputs=tmp, skus=['a:1'], plan='1024:1', seed=42, decimation=500000, texture=2048, tier='high', cpu=8,
-             mem_mb=32768, cap=3.0, max_min=90, ready_min=40, health_min=20, stall_min=10, disk_min_gb=3.0, job_timeout=15, suffix='t1', out=os.path.join(tmp, 'out'), apply=True, stop_only=False)
+    d = dict(donor='mesh-q-low-1', set=None, fail_streak=2, model='trellis2', image='ghcr.io/x/y:t', inputs=tmp, skus=['a:1'], plan='1024:1', seed=42, decimation=500000, texture=2048, tier='low',
+             cap=3.0, max_min=90, ready_min=40, health_min=20, stall_min=10, disk_min_gb=3.0, job_timeout=15, suffix='t1', out=os.path.join(tmp, 'out'), apply=True, stop_only=False)
     d.update(kw)
     return types.SimpleNamespace(**d)
 

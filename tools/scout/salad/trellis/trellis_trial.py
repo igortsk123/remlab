@@ -36,6 +36,7 @@ sys.path.insert(0, HERE)
 import kit_driver as KD  # noqa: E402 — общий вход «отправить задание» (post_job: таймаут по размеру тела, POST без ответа → вопрос воркеру)
 
 CARD = {'class_name': 'RTX 4090 (24 GB)', 'class_id': 'ed563892-aacd-40f5-80b7-90c9be6c759b'}
+WORK_TYPES = {'trellis2': 'trellis_shape', 'pixal3d': 'mesh_pixal3d', 'pixal3d-tex': 'mesh_pixal3d', 'localmesh': 'mesh_localmesh'}      # модель → профиль ресурсов rules/salad-resources.json (T-186/1); hunyuan21 — копия боевой группы-донора
 HF_GATED = {'trellis2': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json',
             'pixal3d': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json',
             'pixal3d-tex': 'facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json',
@@ -212,13 +213,22 @@ def worker_command(path: str | None = None, python: str = 'python', pre: str = '
     return [python, '-u', '-c', code], z
 
 
-def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu: int, mem_mb: int, run_note: str, auth: dict, donor: dict | None = None,
+def build_body(name: str, image: str, tier: str, model: str, hf_token: str, run_note: str, auth: dict, donor: dict | None = None,
                extra_env: dict | None = None) -> dict:
     """Тело группы Salad. `auth` — доступ к приватному реестру (`migrate_groups.ghcr_auth()`); приёмника на проде (`MESH_SINK_*`) в окружении НЕТ.
     `donor` (только hunyuan21) — боевая группа-образец: берём её переменные окружения (STAGED, PIPELINE_VERSION, …) БЕЗ секретов приёмника и очереди."""
     env = {'MODEL': model, 'IMAGE_NOTE': run_note, 'HF_TOKEN': hf_token, 'HF_HOME': '/data/hf', 'OUT_DIR': '/data/out',
            'NVIDIA_DRIVER_CAPABILITIES': 'all', 'DEPLOYMENT_EPOCH': f'20261118-{name}'}
-    res = {'cpu': cpu, 'memory': mem_mb, 'gpu_classes': [CARD['class_id']], 'storage_amount': 80 * 2 ** 30, 'shm_size': 1024}      # 80 ГиБ: кэш HF ≈ 42 ГиБ + запас на 30 результатов (директор 19.11)
+    if donor is None:                                      # ресурсы — ТОЛЬКО из профиля типа работы (T-186/1); нет профиля у модели или тариф вне low/medium — отказ до группы
+        prof = KD.resource_profile(WORK_TYPES.get(model, ''))
+        bad = KD.tier_refusal(prof, tier)
+        if bad:
+            raise KD.ProfileRefused(bad)
+        res = {**KD.profile_resources(prof), 'gpu_classes': [CARD['class_id']]}
+    else:
+        if tier in KD.FORBIDDEN_TIERS:
+            raise KD.ProfileRefused(f'тариф «{tier}» запрещён (владелец TG 1456/1457)')
+        res = {}
     command = None
     if donor is None and model in ('pixal3d', 'pixal3d-tex'):        # образ Pixal3D: transformers 4.57.3 требует huggingface-hub <1.0, а в образе оказался 2.4.0 (px0, 19.11: ImportError на прогреве) — пин при старте, пересборка не нужна
         pre = ('for i in 1 2 3; do python3 -m pip install -q "huggingface_hub==0.35.3" && break; echo "[pip] попытка $i не удалась"; sleep 5; done; '
@@ -238,7 +248,7 @@ def build_body(name: str, image: str, tier: str, model: str, hf_token: str, cpu:
         env.update({'MODEL': model, 'IMAGE_NOTE': run_note, 'OUT_DIR': '/tmp/trial-out', 'DEPLOYMENT_EPOCH': f'20261118-{name}'})
         command, env['TRIAL_WORKER_Z'] = worker_command()
         dres = donor['container']['resources']
-        res = {'cpu': dres.get('cpu', cpu), 'memory': dres.get('memory', mem_mb), 'gpu_classes': [CARD['class_id']],
+        res = {'cpu': dres.get('cpu', 8), 'memory': dres.get('memory', 32768), 'gpu_classes': [CARD['class_id']],
                'storage_amount': dres.get('storage_amount', 60 * 2 ** 30), 'shm_size': dres.get('shm_size', 1024)}
     body = {
         'name': name, 'display_name': name,
@@ -314,7 +324,20 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
         say('--worker-env: только ИМЯ=ЗНАЧЕНИЕ из PIXTEX_*, CUDA_LAUNCH_BLOCKING, TORCH_SHOW_CPP_STACKTRACES и только для --model pixal3d-tex; --debug-cuda — тоже только для неё — группа не создаётся')
         return 2
     MG.env_from_file()
-    card = getattr(a, 'card', None) or CARD['class_name']
+    prof_name = WORK_TYPES.get(a.model)
+    if prof_name:                                          # профиль ресурсов (T-186/1): тариф и карта — из него; нет профиля у модели — отказ до группы и денег
+        try:
+            prof = KD.resource_profile(prof_name)
+            bad = KD.tier_refusal(prof, a.tier) or (KD.card_refusal(prof, a.card) if getattr(a, 'card', None) else None)
+        except KD.ProfileRefused as exc:
+            bad = str(exc)
+        if bad:
+            say('ОТКАЗ по профилю ресурсов:', bad, '— группа не создаётся')
+            return 3
+    elif a.model != 'hunyuan21':
+        say(f'ОТКАЗ по профилю ресурсов: у модели «{a.model}» нет профиля в rules/salad-resources.json — группа не создаётся')
+        return 3
+    card = getattr(a, 'card', None) or (prof['card'] if prof_name else CARD['class_name'])
     if card != CARD['class_name']:                        # другая карта (localmesh — 4060 Ti 16 ГБ): id по полному имени среди классов организации
         import recreate_group as RG
         try:
@@ -364,7 +387,7 @@ def run(a, MG, BR, gw_factory=Gateway, sleep=time.sleep, clock=time.time, hf_hea
     for j in jobs:
         j['role'] = (inputs.get(j['sku']) or {}).get('role') or meta.get(j['sku'], {}).get('role')
         j['dims_cm'] = meta.get(j['sku'], {}).get('dims_cm')
-    body = build_body(name, a.image, a.tier, a.model, hf, a.cpu, a.mem_mb, a.image.split('@')[-1][:19], MG.ghcr_auth(), donor, extra_env=wenv)
+    body = build_body(name, a.image, a.tier, a.model, hf, a.image.split('@')[-1][:19], MG.ghcr_auth(), donor, extra_env=wenv)
     if wenv:
         say('окружение воркера (отладка/настройки):', wenv)
     say('группа', name, CARD['class_name'], 'тариф', a.tier, 'цена $/ч', price, f'[{price_src}]', 'заданий', len(jobs), 'потолок $', a.cap)
@@ -637,7 +660,7 @@ def main() -> int:
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--decimation', type=int, default=500000)
     ap.add_argument('--texture', type=int, default=2048)
-    ap.add_argument('--card', default=CARD['class_name'], help='класс карты по полному имени ("RTX 4060 Ti (16 GB)" для localmesh)')
+    ap.add_argument('--card', default=None, help='класс карты по полному имени ("RTX 4060 Ti (16 GB)" для localmesh)')
     ap.add_argument('--detail', default='high', choices=['draft', 'standard', 'high', 'max'], help='localmesh: ярус качества (high = форма 1024, 16 шагов, 250 тыс. граней)')
     ap.add_argument('--ladder', default=None, help='trellis2: JSON со ступенями лесенки формы (имя, input cur|hd, res, шаги/rescale формы, max_num_tokens, export_raw) — по заданию на ступень на товар; HD-фото — `<товар>.hd.rgba.png` в --inputs')
     ap.add_argument('--texture-mesh', default=None, help='контроль: готовая форма (GLB) — TRELLIS.2 только перекрасит её по фото (один товар в --skus)')
@@ -645,9 +668,7 @@ def main() -> int:
     ap.add_argument('--hold-after', type=int, default=0, help='пауза на тёплой ноде: после N готовых заданий (проба) не слать следующие, пока не появится файл --hold-file (разрешение партии); 0 — без паузы')
     ap.add_argument('--hold-file', default=None, help='файл-разрешение (создаёт ведущий/рабочий после «ок» по пробе); нужен вместе с --hold-after')
     ap.add_argument('--hold-max-min', type=int, default=30, help='сколько минут ждать файл-разрешение, иначе группа гасится (потолок денег --cap действует и в паузе)')
-    ap.add_argument('--tier', default='high', choices=['batch', 'low', 'medium', 'high'])
-    ap.add_argument('--cpu', type=int, default=8)
-    ap.add_argument('--mem-mb', type=int, default=32768)
+    ap.add_argument('--tier', default='low', choices=['low', 'medium'], help='low; нет машин — повторить с medium вручную (платить не за что); batch/high запрещены (владелец TG 1456/1457)')
     ap.add_argument('--cap', type=float, default=2.0, help='потолок денег на ОДИН запуск (одну модель), $ — владелец TG 2064: $2 на модель, $10 на всю пробу')
     ap.add_argument('--max-min', type=int, default=180)
     ap.add_argument('--ready-min', type=int, default=75, help='сколько минут после running ждать прогрева модели (холодный старт с докачкой весов — часть результата пробы)')

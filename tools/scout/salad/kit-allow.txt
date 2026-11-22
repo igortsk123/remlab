@@ -11,3 +11,4 @@ salad-api tools/scout/salad/recreate_group.py  # пересоздание бое
 salad-api tools/scout/salad/migrate_groups.py  # миграция боевых групп пула мешей; решает директор
 salad-api tools/scout/salad/money_guard.py  # учёт/сторож денег пула: читает ресурсы групп, не создаёт
 salad-api tools/scout/stablegen/sg_salad.py  # StableGen на Salad (отдельная служба): свой шаблон; решает директор
+salad-api tools/scout/salad/trellis/trellis_trial.py  # hunyuan21: копия ресурсов боевой группы-донора (пул мешей); остальные модели (trellis2, pixal3d, localmesh) — по профилям rules/salad-resources.json (build_body, T-186/1)
