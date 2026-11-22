@@ -356,6 +356,49 @@ def boundary_rough(tx, mask: np.ndarray, occ: np.ndarray, tmm: float, sigma_mm: 
             'perimeter_mm': round(per, 1), 'rough_per_perimeter': round(float((d ** 2).mean() ** 0.5 / max(sigma_mm, 1e-6)), 4)}
 
 
+def reflect_detail(tx, zone: np.ndarray, lab: np.ndarray, solid: np.ndarray, fillpure: np.ndarray, s_out: np.ndarray, c: dict, size_mm: float, tmm: float) -> tuple:
+    """③б Фактура гладкой заливки у границы: к яркости заливки добавляется высокочастотная часть ФОТО, отражённая через границу (точка заливки на глубине s ← фото на той же глубине s по ту сторону),
+    с затуханием exp(−s/contrast_decay_mm) и долей `1 − σ_заливки/σ_фото` по зоне (уже живая заливка не трогается). Это продолжение фактуры фото в заливку, без полос и повторов плиткой.
+    → (добавка к L (n,), отчёт: доля текселей, получивших фактуру). Нет парного фото (не нашлось на отражённой точке) — тексель не меняется."""
+    from scipy.spatial import cKDTree
+    n = len(lab)
+    add = np.zeros(n)
+    sig = max(c['hi_sigma_mm'] / max(tmm, 1e-6), 1.0)
+    L = lab[:, 0]
+    hp = high_pass(tx, L, solid, sig)
+    hf = high_pass(tx, L, fillpure, sig)
+    reach = float(c.get('reflect_reach_mm', 40.0))
+    stp, stf = solid & (s_out <= c['probe_mm']), fillpure & (s_out <= c['probe_mm'])
+    gz = {}
+    for p in np.unique(zone[fillpure & np.isfinite(s_out)]):
+        a, b = stp & (zone == p), stf & (zone == p)
+        if a.sum() < c['min_cell'] or b.sum() < c['min_cell']:
+            continue
+        sp, sf = _mad_sigma(hp[a]), _mad_sigma(hf[b])
+        if sp < 1e-6:
+            continue
+        gz[int(p)] = float(np.clip(1.0 - sf / sp, 0.0, 1.0))
+    src = np.nonzero(solid)[0]
+    tgt = np.nonzero(fillpure & np.isfinite(s_out) & (s_out <= reach) & np.isin(zone, list(gz)))[0] if gz else np.zeros(0, int)
+    rep = {'zones': len(gz), 'targets': int(len(tgt)), 'applied': 0}
+    if not len(src) or not len(tgt):
+        return add, rep
+    tr = cKDTree(tx.Q[src])
+    d0, j0 = tr.query(tx.Q[tgt], k=1, distance_upper_bound=(c['probe_mm'] + reach) / size_mm)
+    ok0 = np.isfinite(d0)
+    t1, j1 = tgt[ok0], src[j0[ok0]]
+    qr = 2.0 * tx.Q[j1] - tx.Q[t1]                                # точка заливки, отражённая через ближайшую точку фото
+    d1, j2 = tr.query(qr, k=1, distance_upper_bound=max(3.0 * tmm, 3.0) / size_mm)
+    ok1 = np.isfinite(d1)
+    t2, j3 = t1[ok1], src[j2[ok1]]
+    same = zone[t2] == zone[j3]
+    t2, j3 = t2[same], j3[same]
+    k = np.array([gz[int(zone[t])] for t in t2]) * np.exp(-s_out[t2] / c['contrast_decay_mm']) * float(c.get('reflect_strength', 1.0))
+    add[t2] = k * hp[j3]
+    rep['applied'] = int(len(t2))
+    return add, rep
+
+
 def blend_seam(tx, out_lab: np.ndarray, photo_lab: np.ndarray, keep0: np.ndarray, conf: np.ndarray | None, skip: np.ndarray, c: dict, size_mm: float) -> dict:
     """Один растр: ① вес фото по доверию → ② сдвиг тона заливки → ③ контраст фактуры + плавный переход на сомнительных краевых текселях фото.
     out_lab (n,3) — результат заливки (у фото-текселей = фото); photo_lab — Lab фото; keep0 — известное и покрашенное (защита k0); skip — зоны без перекраски (не трогаем вовсе).
@@ -387,6 +430,9 @@ def blend_seam(tx, out_lab: np.ndarray, photo_lab: np.ndarray, keep0: np.ndarray
         lab[fillpure] += dl[fillpure]
         add, rep['contrast'] = contrast_gain(tx, zone, lab, solid, fillpure, s_in, s_out, c, size_mm, tmm)
         lab[fillpure, 0] += add[fillpure]
+        if c.get('reflect', False):
+            addr, rep['reflect'] = reflect_detail(tx, zone, lab, solid, fillpure, s_out, c, size_mm, tmm)
+            lab[fillpure, 0] += addr[fillpure]
     if fe > 0 and solid.any():                                    # заливка у границы, куда вес границы ещё >0: цвет — ближайшее фото (≤ 2·feather), плавно к заливке (wb)
         ext = np.nonzero(fillpure & (wb > 1e-3))[0]
         if len(ext):
