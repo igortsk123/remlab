@@ -293,6 +293,7 @@ def analyze(run_dir: str, card: dict | None, rules: dict | None = None, filled_g
     res['other_part_vertical'] = {'n': int(len(ov)), 'lab': [round(float(x), 1) for x in TF.tone_of(ov, TF.FILL)] if len(ov) else None, 'note': 'вертикальные видимые тексели ДРУГИХ частей (царга/корпус); голосом не служат'}
     res['top_texels'] = n_top
     res['known_source'] = known_src
+    res['evidence_std_L'] = round(float(ed[:, 0].std()), 2) if len(ed) >= dcfg['min_edge_texels'] else None
     res['card_dims'] = dict(dims, edge_band=round(cfg['edge_band'], 4))
     res['top_parts'] = {str(k): v for k, v in top_part_roles.items()}
     res['top_own_part'] = any(r == 'top' for r in top_part_roles.values())
@@ -319,6 +320,10 @@ def hypothesis_textures(an: dict, rules: dict, base_texs: list, length_cm: float
             im = np.asarray(Image.open(p).convert('RGB').resize((512, 512)), np.uint8)
             L = TC.rgb2lab(im.reshape(-1, 3)).reshape(512, 512, 3)
             pat = L - L.reshape(-1, 3).mean(0)
+            ev, pr_ = rep.get('evidence_std_L'), rules['pattern']
+            amp = pr_['amp_default'] if ev is None else float(np.clip(ev / max(float(pat[:, :, 0].std()), 1e-6), pr_['amp_min'], 1.0))
+            rep['pattern_amp'] = round(amp, 2)
+            pat = pat * amp
             if lib.get('grain_axis') == 'v':
                 pat = np.transpose(pat, (1, 0, 2))
     tile = (lib.get('tile_cm') or [None])[0] or rules['fallback_tile_cm']
@@ -401,6 +406,10 @@ def main(argv: list[str]) -> int:
     lib_dir = os.path.expanduser(a.lib_raw) if a.lib_raw else os.path.join(ROOT, os.path.dirname(rules['library']), 'raw')
     after = hypothesis_textures(an, rules, before, a.length_cm or rules['fallback_length_cm'], lib_dir)
     render_pair(base, before, after, os.path.join(out, 'top_prior_frame.png'))
+    rep['pattern_amp'] = an['report'].get('pattern_amp')
+    rep['before_source'] = '07-fill/filled.glb' if os.path.exists(fg) else '06-visible/visible.glb (07 не запускался)'
+    with open(os.path.join(out, 'top_prior.json'), 'w', encoding='utf-8') as f:
+        json.dump(rep, f, ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
     print(json.dumps({k: rep[k] for k in ('source', 'type', 'tone_lab', 'confidence', 'agree', 'reason', 'library', 'other_material_hint', 'trellis_unknown')}, ensure_ascii=False, default=str))
     for c in rep['candidates']:
         print('  ', c)
