@@ -1300,6 +1300,26 @@ def test_cli_parts_flags():
         ok(rc_ok == 0 and c_ok["passed"] is not None and "parts.npz" not in str(c_ok["extra"].get("parts")), f"--no-parts-npz → части по геометрии, rc 0 ({c_ok['extra'].get('parts')})")
         rc_exp = TF.main(["run_stage", td, "s1", "--no-mirror", "--parts-npz", os.path.join(td, "s1", "03-parts", "parts.npz")])
         ok(rc_exp == 2, "явный --parts-npz с чужим файлом → rc 2")
+        was = TF.RULES.get("zones_from")
+        TF.RULES["zones_from"] = "panels"                                        # T-198/1: zones_from=panels — parts.npz из 03-parts не подхватывается, явный --parts-npz сильнее флага
+        try:
+            rc_pan = TF.main(["run_stage", td, "s1", "--no-mirror"])
+            c_pan = PS.read_check(os.path.join(td, "s1", "07-fill"))
+            ok(rc_pan == 0 and "parts.npz" not in str(c_pan["extra"].get("parts")), f"zones_from=panels: чужой parts.npz не берётся, rc 0 ({c_pan['extra'].get('parts')})")
+            rc_pan2 = TF.main(["run_stage", td, "s1", "--no-mirror", "--parts-npz", os.path.join(td, "s1", "03-parts", "parts.npz")])
+            ok(rc_pan2 == 2, "zones_from=panels + явный --parts-npz → файл берётся (здесь чужой → rc 2)")
+            TF.RULES["zones_from"] = "x"
+            try:
+                TF.main(["run_stage", td, "s1", "--no-mirror"])
+                bad_flag = False
+            except SystemExit as e:
+                bad_flag = e.code == 2
+            ok(bad_flag, "zones_from с чужим значением → ошибка аргументов")
+        finally:
+            if was is None:
+                TF.RULES.pop("zones_from", None)
+            else:
+                TF.RULES["zones_from"] = was
         try:
             TF.main(["run_stage", td, "s1", "--parts-npz", "x.npz", "--no-parts-npz"])
             both = False

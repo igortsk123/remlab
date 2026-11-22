@@ -2347,7 +2347,10 @@ def main(argv: list | None = None) -> int:
     if a.no_parts_npz and a.parts_npz:
         ap.error("--parts-npz и --no-parts-npz вместе нельзя")
     default_npz = os.path.join(base, "03-parts", "parts.npz")
-    parts_npz = None if a.no_parts_npz else (a.parts_npz or (default_npz if os.path.exists(default_npz) else None))      # --no-parts-npz: этап 3 отказал — parts.npz не брать, части по геометрии (+ сироты)
+    zones_from = RULES.get("zones_from", "parts")                                  # rules/paint-fill.json: parts (части этапа 3, если есть) | panels (только панели формы) — T-198/1
+    if zones_from not in ("parts", "panels"):
+        ap.error(f"rules/paint-fill.json: zones_from={zones_from!r}, ожидалось parts или panels")
+    parts_npz = None if (a.no_parts_npz or (zones_from == "panels" and not a.parts_npz)) else (a.parts_npz or (default_npz if os.path.exists(default_npz) else None))      # --no-parts-npz: этап 3 отказал — parts.npz не брать, части по геометрии (+ сироты); явный --parts-npz сильнее флага
     cfg = dict({"erode_known": 0}, **(json.loads(a.cfg) if a.cfg else {}))      # вход этапа 6: маска «взято с фото» уже честная
     try:
         r = run_stage(a.run, a.sku, os.path.join(visible, "visible.glb"), known=load_known_png(visible) or None, cfg=cfg, mirror=not a.no_mirror, ut_glb=a.ut_glb, parts_npz=parts_npz, prev_dir=visible)
