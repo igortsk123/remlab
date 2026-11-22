@@ -254,6 +254,19 @@ def test_tie_picks_front_on_back():
         vals.update({90: 0.5, 270: None})
         out, rep = TF.own_panel_tone_hook([0], [0], [0], [0], None, (2, 1), 0.6)
         ok(rep['ut_align']['yaw_deg'] == 90, 'у одного front_on_back не измерен (None) — берётся тот, где измерен и ≤ порога')
+
+        def fake_align4(geoms, tex, known, ut, yaw=None):
+            if yaw is None:
+                return None, {'status': 'tied', 'ties': [0, 90, 180, 270], 'corr': {'0': 0.30, '90': 0.50, '180': 0.45, '270': 0.20}, 'why': 'тест'}
+            return [yaw], {'status': 'forced', 'yaw_deg': yaw}
+
+        RZ.align_ut = fake_align4
+        vals.update({0: 0.01, 90: 0.4, 180: 0.3, 270: 0.02})
+        del seen[:]
+        out, rep = TF.own_panel_tone_hook([0], [0], [0], [0], None, (2, 1), 0.6)
+        ok(rep['ut_align']['ties_tried'] == [90, 180] and len(seen) == 2 and rep['ut_align']['yaw_deg'] == 180,
+           f'ничья из 4: пробуются только 2 лучших по энергии (90, 180), не все четыре; выбран 180: {rep["ut_align"].get("ties_tried")}, заливок {len(seen)}')
+        ok('sec_hook' in rep and 'sec_align' in rep['ut_align'], 'время ступеней — в отчёте (sec_hook, sec_align)')
     finally:
         RZ.align_ut, RZ.own_panel_tone, TF.front_on_back_corr = saved
 
