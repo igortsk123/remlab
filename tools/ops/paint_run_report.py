@@ -1017,7 +1017,7 @@ def forms_page(items: list, chain: dict, photos: str, glbs: str, frames: str, ou
     if len(blocks) != n_all:
         errs.append(f'форма: карточек {len(blocks)} ≠ N {n_all}')
     line = f"<b>вошло {n_all}</b> · <b>форма есть {c['ok']}</b> · <b>форма упала {c['failed']}</b> · <b>фото мало {c['small']}</b>" + (f" · форма ещё считается {c['wait']}" if c['wait'] else '') + (f" · идёт повтор {c['retry']}" if c['retry'] else '')
-    cap = f"этап форма · {(W.get('forms') or {}).get('title') or 'форма товара'}"
+    cap = (W.get('forms') or {}).get('title') or 'Формы 3D по новой вырезке — утвердите'
     ask = (W.get('forms') or {}).get('ask') or 'Номер товара — крупно в углу карточки: напишите «не годны: № …», если форма не подходит.'
     summ = f"<div class='sum'><div>{line}</div><div class='why'>{e(ask)}</div>" + (f"<div class='why'><b>ОШИБКА СВОДКИ:</b> {e('; '.join(errs))}</div>" if errs else '') + '</div>'
     open(os.path.join(out, 'index.html'), 'w', encoding='utf-8').write(_head(f'{label}: {cap}', f"<h1>{e(cap)}</h1>{summ}{''.join(blocks)}"))
