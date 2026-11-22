@@ -52,7 +52,9 @@ def suggest(summary: dict, prof: dict | None = None) -> list[str]:
         out.append(f'докачка весов: {wgm} ГБ/мин, нижняя норма сторожа {low}' + (' — НИЖЕ нормы, нода медленная' if wgm < low else ''))
     if summary.get('disk_culls'):
         out.append(f'сторож диска пересаживал {summary["disk_culls"]} раз(а), скорости медленных нод {summary.get("disk_slow_rates")} ГБ/мин')
-    done = [v.get('wall_s') for v in (summary.get('jobs') or {}).values() if v.get('status') == 'done' and v.get('wall_s')]
+    jobs = summary.get('jobs') or {}
+    jobs = list(jobs.values()) if isinstance(jobs, dict) else list(jobs)                  # kit-драйверы пишут словарь, trellis_trial — список
+    done = [v.get('wall_s') or v.get('seconds') for v in jobs if v.get('status') == 'done' and (v.get('wall_s') or v.get('seconds'))]
     exp_job = (prof.get('expect') or {}).get('job_s')
     if done:
         mean = sum(done) / len(done)
