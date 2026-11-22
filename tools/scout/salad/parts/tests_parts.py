@@ -199,6 +199,30 @@ def main() -> int:
     check(hashlib.sha1(b'blob %d\0' % len(b) + b).hexdigest() == W.PARTLLM_CHAT_TEMPLATE_BLOB, 'вшитый chat_template совпадает с файлом весов (git blob)')
     check(W.ensure_chat_template(d_tpl) is True and open(os.path.join(d_tpl, 'chat_template.jinja'), encoding='utf-8').read() == W.PARTLLM_CHAT_TEMPLATE, 'ensure_chat_template пишет шаблон, когда его нет в папке весов')
     check(W.ensure_chat_template(d_tpl) is False, 'ensure_chat_template не трогает уже лежащий файл')
+    # --- check_faces/order_verdict (pl4 22.11: ложная тревога на разметке из 2 частей) и поимка настоящей перестановки граней
+    import parts_trial as PT0
+    sph = trimesh.creation.icosphere(subdivisions=4)
+    gl = os.path.join(tmp, 'sph.glb')
+    sph.export(gl)
+    cz = sph.triangles_center[:, 2]
+    two = (cz > np.quantile(cz, 0.11)).astype(np.int32)           # ≈89/11 → перемешанная база ≈0,8, как на комоде coarse
+    p2 = os.path.join(tmp, 'two.npy')
+    np.save(p2, two)
+    r2 = PT0.check_faces(gl, p2)
+    check(not (r2['adj_agree'] > r2['adj_agree_shuffled'] + 0.2), f'условие теста: прежнее правило agree>shuf+0,2 тут дало бы ложную тревогу ({r2["adj_agree"]} vs {r2["adj_agree_shuffled"]})')
+    check(r2['count_ok'] and r2['n_parts'] == 2 and r2['adj_agree_shuffled'] > 0.75 and r2['order_ok'] is True, f'разметка из 2 частей в верном порядке — order_ok, не ложная тревога ({r2})')
+    pp = os.path.join(tmp, 'perm.npy')
+    np.save(pp, np.random.default_rng(1).permutation(two))
+    check(PT0.check_faces(gl, pp)['order_ok'] is False, 'те же 2 части, но грани в чужом порядке (перестановка меток) — order_ok=False')
+    four = ((cz > 0).astype(np.int32) + 2 * (sph.triangles_center[:, 0] > 0).astype(np.int32))
+    p4 = os.path.join(tmp, 'four.npy')
+    np.save(p4, four)
+    check(PT0.check_faces(gl, p4)['order_ok'] is True, '4 части в верном порядке — order_ok')
+    p4b = os.path.join(tmp, 'four-perm.npy')
+    np.save(p4b, np.random.default_rng(2).permutation(four))
+    check(PT0.check_faces(gl, p4b)['order_ok'] is False, '4 части, перестановка граней — order_ok=False')
+    check(PT0.order_verdict(0.9986, 0.8025) is True and PT0.order_verdict(0.8, 0.5) is False and PT0.order_verdict(1.0, 1.0) is True and PT0.order_verdict(0.90, 0.87) is False,
+          'order_verdict: комод coarse да; agree<0,85 нет; одна часть да; почти-как-перемешанные нет')
     W.make_backend = orig
     srv.shutdown()
     print('FAILS:', FAILS or 'нет')

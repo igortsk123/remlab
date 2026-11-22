@@ -38,6 +38,19 @@ def build_body(name, class_id, auth, a):
     return KD.group_body(name, a.image, a.tier, class_id, PORT, env, resources, auth, command=cmd)
 
 
+def order_verdict(agree: float, shuf: float) -> bool:
+    """Порядок граней верный? `agree` — согласие смежных граней по меткам воркера, `shuf` — то же по случайно перемешанным меткам (база «порядок потерян»).
+    Правило: доля НЕсогласия упала минимум в 5 раз против перемешанных — (1−agree)/(1−shuf) < 0,2, и agree ≥ 0,85. Прежнее «agree > shuf + 0,2» давало ложную
+    тревогу на разметке из 2–3 частей (комод PartLLM coarse: agree 0,9986, перемешанные 0,80 — запас +0,2 недостижим, pl4 22.11). Одна часть на всю сетку
+    (shuf≈1) порядок не выдаёт и от него не зависит — тогда достаточно agree ≥ 0,85."""
+    if agree < 0.85:
+        return False
+    base = 1.0 - shuf
+    if base < 1e-3:
+        return True
+    return (1.0 - agree) / base < 0.2
+
+
 def check_faces(glb_path, faces_path):
     """БЕСПЛАТНО на нашей стороне: число меток = граней; согласие смежных граней против перемешанных меток (ловит «грани в другом порядке»)."""
     import numpy as np
@@ -60,7 +73,7 @@ def check_faces(glb_path, faces_path):
     okg = (ga >= 0) & (gb >= 0)
     shuf = float((ga[okg] == gb[okg]).mean()) if okg.any() else 0.0
     r.update(adj_pairs=int(len(adj)), adj_agree=round(agree, 4), adj_agree_shuffled=round(shuf, 4), n_parts=int(len([x for x in np.unique(f) if x >= 0])),
-             share_unlabeled=round(float((f < 0).mean()), 4), order_ok=bool(agree >= 0.85 and agree > shuf + 0.2))
+             share_unlabeled=round(float((f < 0).mean()), 4), order_ok=order_verdict(agree, shuf))
     return r
 
 
