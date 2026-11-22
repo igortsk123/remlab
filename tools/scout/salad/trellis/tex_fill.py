@@ -1599,7 +1599,7 @@ def load_rules(path: str | None = None) -> dict:
     for k in ('quilt_extreme', 'mirror_extreme'):
         if 'black_rel' not in r[k]:
             raise KeyError(f'rules/paint-fill.json: {k}.black_rel не задан')
-    for k in ('pool_rejected_pct', 'empty_pct', 'dE00_front_back', 'filled_faces_step_pct', 'far_excess_pct', 'known_changed_share_pct', 'time_s'):
+    for k in ('pool_rejected_pct', 'empty_pct', 'dE00_front_back', 'dL_front_back', 'filled_faces_step_pct', 'far_excess_pct', 'known_changed_share_pct', 'time_s'):
         if k not in r['thresholds']:
             raise KeyError(f'rules/paint-fill.json: threshold {k!r} не задан')
     return r
@@ -1910,12 +1910,33 @@ def part_deltas(geoms: list, parts, kfront: list, kback: list, tex_before: list,
         r = {}
         for nm, (fr, bk) in sets.items():
             if fr and bk:
-                a, b = np.concatenate(fr).mean(axis=0, keepdims=True), np.concatenate(bk).mean(axis=0, keepdims=True)
+                F_, B_ = np.concatenate(fr), np.concatenate(bk)
+                a, b = F_.mean(axis=0, keepdims=True), B_.mean(axis=0, keepdims=True)
                 r[nm] = round(float(TC.de2000_v(a, b)[0]), 2)
+                r['dL_' + nm] = round(float(np.median(B_[:, 0]) - np.median(F_[:, 0])), 2)       # медиана L* зад − перёд (светлее/темнее), единицы L*
             else:
                 r[nm] = None
+                r['dL_' + nm] = None
         res[p] = r
     return res
+
+
+def lighter_than_photo_share(after_rgb: np.ndarray, photo_rgb: np.ndarray, mask: np.ndarray, dl: float | None = None, edge_px: int | None = None, grad_thr: float | None = None) -> dict:
+    """Пятна «светлее фото» (T-187/1, разбор пятен 06): в кадре камеры 04 внутри силуэта, дальше `edge_px` от края и от перепадов яркости фото, доля пикселей, где итог светлее фото больше чем на `dl` L*.
+    Пороги — rules/paint-fill.json `lighter_than_photo`; допустимая доля — thresholds.lighter_than_photo_pct. → {'share_pct', 'inner_px', 'spot_px'}."""
+    import cv2
+    r = RULES['lighter_than_photo']
+    dl, edge_px, grad_thr = float(dl if dl is not None else r['dl']), int(edge_px if edge_px is not None else r['edge_px']), float(grad_thr if grad_thr is not None else r['grad_thr'])
+    h_, w_ = np.asarray(photo_rgb).shape[:2]
+    La = rgb2lab(np.asarray(after_rgb, np.uint8).reshape(-1, 3))[:, 0].reshape(h_, w_)
+    Lp = rgb2lab(np.asarray(photo_rgb, np.uint8).reshape(-1, 3))[:, 0].reshape(h_, w_)
+    m = np.asarray(mask, bool)
+    dist = cv2.distanceTransform(m.astype(np.uint8), cv2.DIST_L2, 3)
+    gy, gx = np.gradient(cv2.GaussianBlur(Lp.astype(np.float32), (0, 0), 1.5))
+    near_edge = cv2.dilate((np.hypot(gx, gy) > grad_thr).astype(np.uint8), np.ones((9, 9), np.uint8)) > 0
+    inner = m & (dist > edge_px) & ~near_edge
+    spot = inner & ((La - Lp) > dl)
+    return {'share_pct': round(100.0 * float(spot.sum()) / max(int(inner.sum()), 1), 3), 'inner_px': int(inner.sum()), 'spot_px': int(spot.sum())}
 
 
 def _part_map(g, T: int, part_f) -> np.ndarray:
@@ -2074,8 +2095,10 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
         kt = max(sum(v['known_texels'] for v in rp['parts'].values()), 1)
         bg = [p for p, v in rp['parts'].items() if v['known_texels'] >= 0.01 * kt]
         da = {int(p): v['after'] for p, v in de_.items() if v['after'] is not None}
+        dls = [abs(de_[p]['dL_after']) for p in bg if p in de_ and de_[p].get('dL_after') is not None]
+        dlw = max(dls) if dls else None
         dw = max([da[p] for p in bg if p in da] or [None]) if any(p in da for p in bg) else None
-        vals = {'empty_pct': rp['unpainted_after_pct'], 'dE00_front_back': dw, 'filled_faces_step_pct': rp['steps']['after']['filled_faces_step_pct'], 'far_excess_pct': rp['far_pct']['excess']}
+        vals = {'empty_pct': rp['unpainted_after_pct'], 'dE00_front_back': dw, 'dL_front_back': dlw, 'filled_faces_step_pct': rp['steps']['after']['filled_faces_step_pct'], 'far_excess_pct': rp['far_pct']['excess']}
         nfail = sum(0 if PS.judge(vals[k], th[k][0], th[k][1]) else 1 for k in vals)
         return {'rep': rp, 'tex': tx_, 'de': de_, 'big': bg, 'de_worst': dw, 'vals': vals, 'nfail': nfail, 'key': (nfail, dw if dw is not None else 99.0, vals['far_excess_pct'] if vals['far_excess_pct'] is not None else 99.0)}
     tried = {}
@@ -2107,6 +2130,7 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     metrics = {
         'empty_pct': {'value': rep['unpainted_after_pct'], 'threshold': th['empty_pct'][1], 'op': th['empty_pct'][0]},
         'dE00_front_back': {'value': de_worst, 'threshold': th['dE00_front_back'][1], 'op': th['dE00_front_back'][0]},
+        'dL_front_back': {'value': pick['vals']['dL_front_back'], 'threshold': th['dL_front_back'][1], 'op': th['dL_front_back'][0]},
         'filled_faces_step_pct': {'value': rep['steps']['after']['filled_faces_step_pct'], 'threshold': th['filled_faces_step_pct'][1], 'op': th['filled_faces_step_pct'][0]},
         'far_excess_pct': {'value': rep['far_pct']['excess'], 'threshold': th['far_excess_pct'][1], 'op': th['far_excess_pct'][0]},
         'known_changed_share_pct': {'value': kchg['share_pct'], 'threshold': th['known_changed_share_pct'][1], 'op': th['known_changed_share_pct'][0]},

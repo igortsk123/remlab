@@ -177,6 +177,23 @@ def test_parts():
     ok(TF.THRESHOLDS['empty_pct'] == ('<=', 0.5), 'порог общего «не закрашено» после заливки — 0,5 % (решение директора 20.11)')
 
 
+def test_lighter_than_photo():
+    print("светлее фото (T-187/1): тёмная пластина с щелью — серая заготовка в щели видна, тон соседа — нет:")
+    n = 200
+    photo = np.full((n, n, 3), 40, np.uint8)                       # тёмная пластина (графит)
+    yy = np.arange(n, dtype=np.float32)[:, None]
+    dip = (30.0 * np.exp(-((yy - 100.0) / 12.0) ** 2)).astype(np.float32)          # мягкая тёмная щель (перепад яркости ниже порога края)
+    photo = np.clip(photo.astype(np.float32) - dip[:, :, None], 0, 255).astype(np.uint8)
+    mask = np.zeros((n, n), bool)
+    mask[10:190, 10:190] = True
+    bad = photo.copy()
+    bad[90:110, 20:180] = 128                                      # не взятый тексель = серая заготовка 128 в полосе щели
+    good = photo.copy()                                            # залито тоном соседа: цвет, как у фото в этом месте
+    rb, rg = TF.lighter_than_photo_share(bad, photo, mask), TF.lighter_than_photo_share(good, photo, mask)
+    ok(rb['share_pct'] > TF.THRESHOLDS['lighter_than_photo_pct'][1], f"серая заготовка в щели — дефект виден: {rb}")
+    ok(rg['share_pct'] <= TF.THRESHOLDS['lighter_than_photo_pct'][1], f"щель залита тоном соседа — в норме: {rg}")
+
+
 def test_no_known_part():
     print('часть без известного: статистика по всему предмету (счётчик), чёрного нет:')
     g, parts, known, tl, col = scene_parts()
@@ -1213,7 +1230,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_color, test_photo, test_parts, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
+    for f in (test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

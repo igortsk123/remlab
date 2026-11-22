@@ -3,6 +3,8 @@
   "thresholds": {
     "empty_pct": ["<=", 0.5],
     "dE00_front_back": ["<=", 6.0],
+    "dL_front_back": ["<=", 5.0],
+    "lighter_than_photo_pct": ["<=", 0.2],
     "filled_faces_step_pct": ["<=", 10.0],
     "far_excess_pct": ["<=", 10.0],
     "pool_rejected_pct": ["<=", 50.0],
@@ -10,6 +12,7 @@
     "time_s": ["<=", 120.0]
   },
   "known_change_de": 1.0,
+  "lighter_than_photo": {"dl": 10.0, "edge_px": 12, "grad_thr": 3.0},
   "stage6_gate": {
     "_note": "Что этап 7 считает ЖЁСТКОЙ причиной отказа этапа 6 (заливать нельзя) — всё остальное МЯГКОЕ (passed=false по меркам, но выход есть: заливаем, провал пишем в check.json extra.stage6). Список — здесь, не в коде: следующие этапы решают так же.",
     "hard": {

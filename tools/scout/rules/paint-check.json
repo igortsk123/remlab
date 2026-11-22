@@ -18,7 +18,7 @@
     "everywhere": ["seconds", "time_s"],
     "05-delight": "*",
     "06-visible": ["known_share", "edge_corr"],
-    "07-fill": ["dE00_front_back", "filled_faces_step_pct"]
+    "07-fill": ["dE00_front_back", "dL_front_back", "filled_faces_step_pct"]
   },
   "final_glb": {
     "stages": ["08-material", "07-fill"],
