@@ -102,10 +102,75 @@ class TestTexVisible(unittest.TestCase):
         back = tex[T // 2:, T // 3: 2 * T // 3]
         self.assertTrue((np.abs(back.reshape(-1, 3).astype(int) - 128) <= 1).mean() > 0.95)    # зад — серая заготовка
 
-    def test_grazing_band_not_taken(self):
-        tr, _p, _m = self._transfer(fake_stage(cos_band=(80, 100, 0.1)))     # полоса вскользь (cos<0,34) — не берётся
+    def _top_tone(self, top_rgb, cos=0.2, tone=True):
+        """Лицо — красное, фронтально; над ним полоса кадра (строки 20..Q0) — верхняя грань коробки (ячейка 4, грани 8/9) под острым углом cos, фото в ней — top_rgb.
+        Возвращает (tr, маска ячейки верха в текстуре: строки 0..T/2, столбцы T/3..2T/3)."""
+        st = fake_stage()
+        R0 = 20
+        ys, xs = np.mgrid[R0:Q0, Q0:Q1]
+        fx = (xs + 0.5 - Q0) / (Q1 - Q0)
+        fy = 1.0 - (ys + 0.5 - R0) / (Q0 - R0)
+        st['ids'][R0:Q0, Q0:Q1] = np.where(fx >= fy, 8, 9)
+        st['uv'][R0:Q0, Q0:Q1, 0] = (1 + 0.05 + 0.9 * fx) / 3.0
+        st['uv'][R0:Q0, Q0:Q1, 1] = 1.0 - (1 + 0.05 + 0.9 * fy) / 2.0
+        st['cos'][R0:Q0, Q0:Q1] = cos
+        st['mask'] = st['ids'] >= 0
+        st['depth'] = np.where(st['mask'], 3.0, 0.0).astype(np.float32)
+        ph = np.zeros((PX, PX, 4), np.uint8)
+        ph[Q0:Q1, Q0:Q1] = (220, 30, 30, 255)
+        ph[R0:Q0, Q0:Q1] = (*top_rgb, 255)
+        prgb, pm = TV.photo_to_frame(ph, st['P'], PX)
+        tr = TV.transfer(self.geoms, st, prgb, pm, tone=tone)
         T = tr['tex'][0].shape[0]
-        k = tr['known'][0][T // 2:, : T // 3]
+        cell = np.zeros((T, T), bool)
+        cell[: T // 2, T // 3: 2 * T // 3] = True
+        return tr, cell
+
+    def test_oblique_band_gets_tone_with_provenance_not_photo_texture(self):
+        tr, cell = self._top_tone((130, 20, 20))                                    # верх виден вскользь и темнее (130,20,20) при красной опоре лица (220,30,30)
+        pv, tex = tr['prov'][0], tr['tex'][0]
+        self.assertGreater(int(((pv == TV.PROV['synth']) & cell).sum()), 2500)       # верх закрашен тоном (ячейка ~76×76 текселей), провенанс synth
+        self.assertEqual(int((tr['known_photo'][0] & cell).sum()), 0)               # с фото на верхе ничего не взято (острый угол)
+        self.assertTrue(tr['known'][0][pv == TV.PROV['synth']].all())               # но known включает тон (этап 7 не перекрашивает)
+        col = tex[cell & (pv == TV.PROV['synth'])].astype(float).mean(0)
+        self.assertTrue(130 < col[0] < 220)                                         # не копия наблюдения и не копия опоры
+        self.assertTrue(abs(col[0] - 220) < abs(col[0] - 130))                      # ближе к опоре: светлота доверена слабо (WL=0,3)
+        st0 = tr['stats'][0]
+        self.assertEqual(st0['known'], int(tr['known_photo'][0].sum()))             # known_share считается без synth
+        self.assertGreater(st0['known_synth'], 0)
+        self.assertEqual(st0['known_synth'], int((pv == TV.PROV['synth']).sum()))
+
+    def test_tone_off_is_old_behaviour(self):
+        tr, cell = self._top_tone((130, 20, 20), tone=False)
+        self.assertEqual(int((tr['known'][0] & cell).sum()), 0)
+        self.assertEqual(int((tr['prov'][0] == TV.PROV['synth']).sum()), 0)
+        self.assertEqual(tr['stats'][0]['known_synth'], 0)
+
+    def test_tone_not_painted_where_observation_is_other_material(self):
+        tr, cell = self._top_tone((20, 200, 20))                                    # зелёное при красной опоре: ΔE00 > tone_max_de — другой материал, оставить неизвестным
+        self.assertEqual(int((tr['prov'][0][cell] == TV.PROV['synth']).sum()), 0)
+        self.assertGreater(tr['stats'][0]['tone_dropped_de'], 0)
+
+    def test_tone_spreads_over_surface_but_not_beyond_reach(self):
+        tr, cell = self._top_tone((130, 20, 20))
+        T = tr['tex'][0].shape[0]
+        pv = tr['prov'][0]
+        bottom = np.zeros((T, T), bool)
+        bottom[: T // 2, 2 * T // 3:] = True                                        # нижняя грань (ячейка 5): через всю коробку от наблюдавшегося верха, дальше tone_reach_frac·габарит
+        back = np.zeros((T, T), bool)
+        back[T // 2:, T // 3: 2 * T // 3] = True                                    # задняя грань (ячейка 1)
+        self.assertEqual(int(((pv == TV.PROV['synth']) & bottom).sum()), 0)
+        self.assertEqual(int(((pv == TV.PROV['synth']) & back).sum()), 0)
+        self.assertGreater(int(((pv == TV.PROV['synth']) & cell).sum()), 0)
+
+    def test_tone_below_min_cos_is_not_observed(self):
+        tr, cell = self._top_tone((130, 20, 20), cos=0.03)                          # луч почти вдоль поверхности (cos < tone_cos_min) — наблюдение ничего не стоит
+        self.assertEqual(int((tr['prov'][0] == TV.PROV['synth']).sum()), 0)
+
+    def test_grazing_band_not_taken(self):
+        tr, _p, _m = self._transfer(fake_stage(cos_band=(80, 100, 0.1)))     # полоса вскользь (cos<0,34) — текстура с фото не берётся (тон — отдельно, known_photo)
+        T = tr['tex'][0].shape[0]
+        k = tr['known_photo'][0][T // 2:, : T // 3]
         cols = np.arange(T // 3)
         band = (cols > T // 3 * (80 - Q0) / (Q1 - Q0) * 0.95 + 8) & (cols < T // 3 * (100 - Q0) / (Q1 - Q0) * 0.95 - 8)
         self.assertEqual(int(k[:, band].sum()), 0)
