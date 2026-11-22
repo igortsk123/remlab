@@ -561,6 +561,46 @@ def build_body(name: str, image: str, tier: str, model: str, hf_token: str, run_
     return body
 
 
+def run_auto(a, MG, BR, **kw) -> int:
+    """`run` + ОДИН автоматический повтор упавших по памяти карты заданий на большой карте (T-186/2). Старт — малая карта профиля (5060 Ti); задание, упавшее «out of memory» / сбоем
+    аллокатора CUDA (`KD.is_oom_error`), после остановки группы идёт ТЕМ ЖЕ образом отдельной следующей группой на первой большой карте `card_rule.large` (5090). Повтор не цепляется
+    (у повторной группы `oom_retry=False`) — потолок 1 повтор на задание; счётчик `retries_oom` отдельно от `failed` (отказы), деньги повтора — из остатка потолка `--cap`.
+    Повторяются ВСЕ ступени лесенки товара (`--ladder`) — в боевом наборе у товара одна ступень hd 1024. Ничего не падало по памяти / карта уже большая / нет `card_rule` — просто `run`."""
+    rc = run(a, MG, BR, **kw)
+    prof_name = WORK_TYPES.get(a.model)
+    if not prof_name or not getattr(a, 'oom_retry', True) or not getattr(a, 'apply', False):
+        return rc
+    try:
+        prof = KD.resource_profile(prof_name)
+    except KD.ProfileRefused:
+        return rc
+    big = KD.retry_card(prof, getattr(a, 'card', None) or prof['card'])
+    sp = os.path.join(a.out, f'summary-trial-{a.model}-{a.suffix}.json')
+    if not big or not os.path.exists(sp):
+        return rc
+    summ = json.load(open(sp, encoding='utf-8'))
+    bad = [j for j in summ.get('jobs', []) if j.get('status') == 'failed' and KD.is_oom_error(j.get('error'))]
+    summ['failed_oom'] = len(bad)
+    if not bad:
+        json.dump(summ, open(sp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        return rc
+    import copy
+    a2 = copy.copy(a)
+    a2.skus = list(dict.fromkeys(j['sku'] for j in bad))
+    a2.card, a2.suffix, a2.oom_retry = big, f'{a.suffix}r', False
+    a2.cap = max(0.05, float(a.cap) - float(summ.get('cost_usd_est') or 0))
+    say(f'ПОВТОР по памяти: {len(bad)} задан. упали на «{summ.get("tier")}»-карте профиля (нехватка памяти) → одна повторная группа на {big}, потолок ${a2.cap:.2f}')
+    rc2 = run(a2, MG, BR, **kw)
+    sp2 = os.path.join(a2.out, f'summary-trial-{a2.model}-{a2.suffix}.json')
+    s2 = json.load(open(sp2, encoding='utf-8')) if os.path.exists(sp2) else {}
+    summ['retries_oom'] = {'limit': 1, 'jobs': [j.get('job_id') for j in bad], 'card': big, 'group': s2.get('group'), 'rc': rc2,
+                           'done': sum(j.get('status') == 'done' for j in s2.get('jobs', [])), 'failed': sum(j.get('status') == 'failed' for j in s2.get('jobs', [])),
+                           'cost_usd_est': s2.get('cost_usd_est')}
+    json.dump(summ, open(sp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    say('ПОВТОР по памяти: итог', json.dumps(summ['retries_oom'], ensure_ascii=False))
+    return rc or rc2
+
+
 def safe_print(body: dict) -> None:
     b = json.loads(json.dumps(body))
     b['container'].pop('registry_authentication', None)
@@ -1128,6 +1168,7 @@ def main() -> int:
     ap.add_argument('--worker-env', action='append', default=[], metavar='ИМЯ=ЗНАЧЕНИЕ', help='pixal3d-tex / mvadapter-i2tex / mvpainter: переменная окружения воркера (повторяемая), только PIXTEX_* (ALLOC_CONF, LOW_VRAM, INFERENCE_MODE, OOM_PROBE512), MVTEX_* (ALLOC_CONF, OFFLOAD), MVP_* (CKPT, LOAD_CPU, STAGE_TIMEOUT, PREFETCH), '
                     'CUDA_LAUNCH_BLOCKING, TORCH_SHOW_CPP_STACKTRACES; другим моделям не передаётся')
     ap.add_argument('--debug-cuda', action='store_true', help='pixal3d-tex / mvadapter-i2tex / mvpainter: CUDA_LAUNCH_BLOCKING=1 и TORCH_SHOW_CPP_STACKTRACES=1 в группу (ошибка CUDA — на своей строке, со стеком C++; медленнее). По умолчанию выключено')
+    ap.add_argument('--no-oom-retry', dest='oom_retry', action='store_false', help='выключить автоповтор упавших по памяти заданий на большой карте (по умолчанию: один повтор, T-186/2)')
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--stop-only', action='store_true')
     a = ap.parse_args()
@@ -1140,7 +1181,7 @@ def main() -> int:
         sys.exit('нужен --image')
     if a.image and '@' not in a.image and ':' not in a.image:
         sys.exit('--image: тег или digest с именем репозитория')
-    return run(a, MG, BR)
+    return run_auto(a, MG, BR)
 
 
 if __name__ == '__main__':
