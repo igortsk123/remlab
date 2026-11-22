@@ -497,15 +497,14 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
                 pool = [c for c in cands if c['score'] >= cands[0]['score'] - TIE_IOU]
             else:
                 pool = None
-            if trig == 'bottom' and not any(c is std0 for c in pool):
-                pool.append(std0)
+            evalset = pool + ([std0] if trig == 'bottom' and not any(c is std0 for c in pool) else [])   # std0 считаем (кромки, уточнение) для сравнения, но в выбор `best` она не входит, пока не была в пуле
             best_iou = cands[0]['iou']
             if pool is None:
                 pool = [c for c in cands if c['iou'] >= best_iou - TIE_IOU]
-            for c in pool:
+            for c in evalset:
                 c['edge'] = edge_score(geo, c['cam'], photo, alpha, cv, tex)
                 log(f"  кандидат az={c['cam']['az']:.1f} el={c['cam']['el']:.1f} d={c['cam']['d']:.2f} IoU {c['iou']} кромки до ECC {c['edge']['agree']}")
-            for c in pool:                                             # уточнение по внутренним кромкам: силуэт один, поз с разными кромками много
+            for c in evalset:                                          # уточнение по внутренним кромкам: силуэт один, поз с разными кромками много
                 c['cam_sil'] = dict(c['cam'])
                 c['iou_sil'] = c['iou']                                # IoU силуэта ДО уточнения (коридор shape_mismatch в camera_check считает по нему)
                 edge_before = c['edge']
