@@ -209,6 +209,16 @@ def soft_iou(S: np.ndarray, Bp: np.ndarray) -> float:
     return float(np.minimum(Bs, Bp).sum()) / den if den else 0.0
 
 
+def pool_and_evalset(cands: list, std0: dict, trig: str | None) -> tuple:
+    """(пул ничьих — из него выбирается `best`, кандидаты для расчёта кромок/уточнения). Без мультистарта (trig=None): пул по IoU, расчёт = пул (как до 1315c19b). После мультистарта: пул по score;
+    при trig='bottom' поза обычного подбора std0 считается ДОПОЛНИТЕЛЬНО (для ms_accept), но в выбор best не входит, если её не было в пуле."""
+    if trig is None:
+        pool = [c for c in cands if c['iou'] >= cands[0]['iou'] - TIE_IOU]
+        return pool, list(pool)
+    pool = [c for c in cands if c['score'] >= cands[0]['score'] - TIE_IOU]
+    return pool, pool + ([std0] if trig == 'bottom' and not any(c is std0 for c in pool) else [])
+
+
 def ms_accept(new: dict, old: dict, new_edge, old_edge, rules: dict | None = None) -> tuple:
     """Брать ли позу мультистарта (триггер bottom) вместо позы обычного подбора. new/old — pose_score ПОСЛЕ уточнения; *_edge — согласие кромок (None — нет).
     Берём новую, только если её низ ПРОХОДИТ гейт и кромки не хуже старых больше чем на ms_bottom_accept.edge_agree_tol (rules/camera-check.json). → (bool, причина)."""
@@ -494,13 +504,7 @@ def fit_pose(glb: str, photo_path: str, out_run: str, yaw: float = 0.0, px: int 
                 ms_pick, ms_all = multistart_fit(PTS, Mp, n, topk, log=log)
                 ms_info.update({'ran': True, 'starts': ms_all, 'weights': 'оценка = IoU − 0,5·(miss+extra) − 0,125·(miss_низ+extra_низ)'})
                 cands = sorted(cands + ms_pick, key=lambda t: -t['score'])[: topk + len(ms_pick)]
-                pool = [c for c in cands if c['score'] >= cands[0]['score'] - TIE_IOU]
-            else:
-                pool = None
-            evalset = pool + ([std0] if trig == 'bottom' and not any(c is std0 for c in pool) else [])   # std0 считаем (кромки, уточнение) для сравнения, но в выбор `best` она не входит, пока не была в пуле
-            best_iou = cands[0]['iou']
-            if pool is None:
-                pool = [c for c in cands if c['iou'] >= best_iou - TIE_IOU]
+            pool, evalset = pool_and_evalset(cands, std0, trig)
             for c in evalset:
                 c['edge'] = edge_score(geo, c['cam'], photo, alpha, cv, tex)
                 log(f"  кандидат az={c['cam']['az']:.1f} el={c['cam']['el']:.1f} d={c['cam']['d']:.2f} IoU {c['iou']} кромки до ECC {c['edge']['agree']}")

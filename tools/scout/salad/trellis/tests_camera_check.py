@@ -221,6 +221,17 @@ TOL = RULES['ms_bottom_accept']['edge_agree_tol']
 check('ms_accept: допуск кромок — из rules, не из кода', 0 < TOL < 0.2)
 ok_, _w = PF.ms_accept({'miss_bottom': 0.171, 'extra_bottom': 0.079}, {'miss_bottom': 0.808, 'extra_bottom': 0.703}, 0.4469, 0.46, RULES)
 check('ms_accept: кресло 44846 (низ 0,17/0,08 проходит, кромки 0,46 → 0,447) → новая', ok_ is True, _w)
+_a, _b, _c = {'iou': 0.95, 'score': 0.90}, {'iou': 0.94, 'score': 0.85}, {'iou': 0.70, 'score': 0.40}
+_pool, _ev = PF.pool_and_evalset([_a, _b, _c], _a, None)
+check('pool_and_evalset: без мультистарта (trig=None) не падает, пул по IoU, расчёт = пул', _pool == [_a, _b] and _ev == [_a, _b] and _ev is not _pool, str(_pool))
+_m = {'iou': 0.60, 'score': 0.99}
+for _trig in ('iou', 'on'):
+    _pool, _ev = PF.pool_and_evalset([_m, _a, _b, _c], _a, _trig)
+    check(f'pool_and_evalset: trig={_trig} — пул по score, std0 лишней не добавляется', _pool == [_m] and _ev == [_m], str(_pool))
+_pool, _ev = PF.pool_and_evalset([_m, _a, _b], _a, 'bottom')
+check('pool_and_evalset: trig=bottom, std0 вне пула → считается дополнительно, в пул не входит', _pool == [_m] and _ev == [_m, _a], str(_ev))
+_pool, _ev = PF.pool_and_evalset([_a, _m], _a, 'bottom')
+check('pool_and_evalset: trig=bottom, std0 уже в пуле → без дубля', _ev == _pool and _ev.count(_a) == 1, str(_ev))
 ok_, _w = PF.ms_accept({'miss_bottom': 0.249, 'extra_bottom': 0.253}, {'miss_bottom': 0.411, 'extra_bottom': 0.468}, 0.7342, 0.7514, RULES)
 check('ms_accept: комод 3635 (низ 0,25/0,25 проходит, кромки 0,75 → 0,73) → новая', ok_ is True, _w)
 ok_, _w = PF.ms_accept({'miss_bottom': 0.481, 'extra_bottom': 0.23}, {'miss_bottom': 0.65, 'extra_bottom': 0.023}, 0.4746, 0.7489, RULES)
