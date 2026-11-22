@@ -223,6 +223,20 @@ def test_mirror_off_by_default():
     ok(not rm['applied'] and rm.get('off') == 'rules mirror_enabled=false' and rm['texels'] == 0, f'mirror=True при правиле mirror_enabled=false: зеркало не применено ({rm.get("off")})')
 
 
+def test_shrink_layout():
+    print('пробная раскладка ничьи: каждый step-й тексель, UV те же; не массивы — без изменений:')
+    g = [{'V': np.zeros((3, 3)), 'F': np.zeros((1, 3), int), 'UV': np.zeros((3, 2)), 'tex': np.zeros((1024, 1024, 3), np.uint8)}]
+    k = [np.ones((1024, 1024), bool)]
+    ut = [{'tex': np.zeros((2048, 2048, 4), np.uint8)}]
+    g2, t2, k2, u2 = TF._shrink_layout(2, g, [g[0]['tex']], k, ut)
+    ok(g2[0]['tex'].shape == (512, 512, 3) and t2[0].shape == (512, 512, 3) and k2[0].shape == (512, 512) and u2[0]['tex'].shape == (1024, 1024, 4) and g2[0]['UV'] is g[0]['UV'],
+       'текстуры, маски и UltraTex — вдвое по стороне, UV и грани те же')
+    g3, *_ = TF._shrink_layout(1, g, [g[0]['tex']], k, ut)
+    ok(g3 is g, 'step 1 — без изменений')
+    g4, *_ = TF._shrink_layout(2, [0], [0], [0], None)
+    ok(g4 == [0], 'не массивы (тесты хука) — без изменений')
+
+
 def test_tie_picks_front_on_back():
     print('два поворота UltraTex почти равны (ничья): берётся тот, у кого front_on_back после заливки минимален и ≤ порога; нет такого — UltraTex не используется:')
     import ref_zone as RZ
@@ -1359,7 +1373,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_mirror_off_by_default, test_tie_picks_front_on_back, test_front_on_back, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
+    for f in (test_mirror_off_by_default, test_shrink_layout, test_tie_picks_front_on_back, test_front_on_back, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

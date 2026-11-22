@@ -2138,6 +2138,19 @@ def RZ_same_mesh(a: list, b: list) -> bool:
     return bool(RZ.same_mesh(a, b).get('same'))
 
 
+def _shrink_layout(step: int, geoms: list, tex_after: list, known: list, ut_g: list | None) -> tuple:
+    """Та же раскладка с каждым `step`-м тексельем (UV не меняются — те же места на модели): для пробных заливок ничьей (быстро), результат пробы — только число front_on_back.
+    Не массивы текстур (тесты) или step ≤ 1 — без изменений."""
+    def ok(a):
+        return isinstance(a, np.ndarray) and a.ndim >= 2 and a.shape[0] >= 512 and a.shape[0] % step == 0
+    if step <= 1 or not geoms or not all(ok(np.asarray(g['tex'])) if isinstance(g, dict) and 'tex' in g else False for g in geoms):
+        return geoms, tex_after, known, ut_g
+    sh = lambda a: np.ascontiguousarray(np.asarray(a)[::step, ::step])
+    g2 = [dict(g, tex=sh(g['tex'])) for g in geoms]
+    u2 = [dict(g, tex=sh(g['tex'])) for g in ut_g] if ut_g is not None else None
+    return g2, [sh(t) for t in tex_after], [sh(k) for k in known], u2
+
+
 def own_panel_tone_hook(geoms: list, tex_after: list, known: list, ut_g: list | None, parts, front: tuple | None = None, thr: float = 0.6) -> tuple:
     """Хук 07 (T-187/6): невидимые панели — донор по оттенку+фактуре UltraTex (тон и куски фото донора) или тон своей зоны + суть UltraTex; чужого квилта нет (ref_zone.own_panel_tone). Сбой не роняет этап."""
     import ref_zone as RZ
@@ -2152,17 +2165,24 @@ def own_panel_tone_hook(geoms: list, tex_after: list, known: list, ut_g: list | 
             cand = sorted(al['ties'], key=lambda y: -float((al.get('corr') or {}).get(str(y), 0.0)))[:mx]
             al['ties_tried'] = cand
             t_tie = time.time()
+            stp = int(((RZ.R.get('align') or {}).get('trial_step')) or 2)     # пробы — на уменьшенной раскладке (в stp² раз быстрее), полная заливка — только победителю
+            g_t, ta_t, kn_t, ug_t = _shrink_layout(stp, geoms, tex_after, known, ut_g)
+            al['trial_step'] = stp if g_t is not geoms else 1
             for y in cand:
-                ut_y, _ = RZ.align_ut(geoms, tex_after, known, ut_g, yaw=y)
-                o_y, r_y = RZ.own_panel_tone(geoms, tex_after, known, ut_y, parts)
-                c_y = front_on_back_corr(geoms, o_y, front).get('corr')
+                ut_y, _ = RZ.align_ut(g_t, ta_t, kn_t, ug_t, yaw=y)
+                o_y, r_y = RZ.own_panel_tone(g_t, ta_t, kn_t, ut_y, parts)
+                c_y = front_on_back_corr(g_t, o_y, front).get('corr')
                 fb_by[str(y)] = c_y
                 if c_y is not None and c_y <= thr and (best is None or c_y < best[0]):
                     best = (c_y, y, o_y, r_y)
             al['tie_front_on_back'] = fb_by
             al['sec_tie'] = round(time.time() - t_tie, 1)
             if best is not None:
-                out, rep = best[2], best[3]
+                if g_t is not geoms:                                              # победитель — заново на полной раскладке
+                    ut_w, _ = RZ.align_ut(geoms, tex_after, known, ut_g, yaw=best[1])
+                    out, rep = RZ.own_panel_tone(geoms, tex_after, known, ut_w, parts)
+                else:
+                    out, rep = best[2], best[3]
                 al.update({'status': 'aligned_by_front_on_back', 'yaw_deg': best[1], 'chosen_front_on_back': best[0]})
             else:
                 al.update({'status': 'uncertain', 'yaw_deg': None, 'why': f'{al.get("why")}; front_on_back не ≤ {thr} ни у одного (или не измерен)'})
