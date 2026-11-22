@@ -11,6 +11,7 @@
 `code_tar_sha256`; воркер считает ИМЕННО этот код (образ — только среда), в ответе `code_sha`/`_code.json` — сверяется. Срез проверяется до платной группы (импорт точек входа из чистой распаковки).
 Входы — файл `inputs.json`: {"<товар>": {"glb": путь, "photo": путь RGBA-вырезки, "pose_run": папка камеры этапа 4, "body_only": false}} (список — аргументом, в код не зашит).
 Только этап 07 по готовому 06: `--stages 07 --vis-root <папка с <товар>/06-visible/>` (без `--inputs`; товары — все папки с visible.glb и check.json, сузить — `--skus a,b`): вход 07 берётся оттуда, выход — в `--out`.
+07 и шов одним пакетом: `--stages 07,seam --vis-root …` (шов берёт выход 07 из `--out` сразу после того, как 07 всех товаров готов).
 Только шов «фото | заливка» (T-196/1) по готовым 06 и 07: `--stages seam --fill-root <папка с <товар>/07-fill/> --vis-root <папка с <товар>/06-visible/>` → `<out>/<товар>/07-seam/`.
 Выход: `<out>/<товар>/06-visible/…`, `<out>/<товар>/07-fill/…` (sha256 сверен), `<out>/items-06.json`, `<out>/items-07.json` (время, пик памяти этапа, метрики).
 """
@@ -334,11 +335,13 @@ def main() -> int:
     if a.stop_only:
         MG.env_from_file()
         return 0 if KD.stop_and_verify(BR, f'{PREFIX}-{a.suffix}') else 1
-    if not a.image or not (a.inputs or (a.vis_root and stages_of(a) == ['07']) or (a.vis_root and a.fill_root and stages_of(a) == ['seam'])):
-        sys.exit('нужны --image и --inputs (или --stages 07 --vis-root, или --stages seam --fill-root --vis-root)')
-    if a.inputs and a.vis_root and stages_of(a) == ['07']:
+    st_ = stages_of(a)
+    only07 = st_ in (['07'], ['07', 'seam'])                                       # 07 по готовому 06 (и шов сразу за ним: вход шва — выход 07 из --out, одним пакетом)
+    if not a.image or not (a.inputs or (a.vis_root and only07) or (a.vis_root and a.fill_root and st_ == ['seam'])):
+        sys.exit('нужны --image и --inputs (или --stages 07[,seam] --vis-root, или --stages seam --fill-root --vis-root)')
+    if a.inputs and a.vis_root and only07:
         sys.exit('--inputs и --vis-root вместе не нужны: у товара в inputs.json может быть поле "vis"')
-    inputs = load_inputs(a.inputs) if a.inputs else (seam_inputs(a.fill_root, a.vis_root, a.skus) if stages_of(a) == ['seam'] else vis_inputs(a.vis_root, a.skus))
+    inputs = load_inputs(a.inputs) if a.inputs else (seam_inputs(a.fill_root, a.vis_root, a.skus) if st_ == ['seam'] else vis_inputs(a.vis_root, a.skus))
     if not inputs:
         sys.exit('нет товаров для пакета')
     return KD.run_probe(a, MG, BR, make_spec(a, inputs))

@@ -579,6 +579,8 @@ ok(cmds[cmds.index('-I') + 1] == '/tmp/w/j/code/tools/scout/salad/trellis/seam_s
    'команда шва: seam_stage.py из code_root, вход 07-fill + 06-visible, выход 07-seam')
 ok(WS.missing_inputs('seam', list(WS.NEED_SEAM)) == [] and '07-fill/filled.glb' in WS.missing_inputs('seam', ['06-visible/known.png']), 'вход шва: known.png и filled.glb обязательны')
 ok('seam' in WS.DRIVER_STAGES and 'seam' not in WS.STAGES, 'шов в списке драйвера, но не в образе-запасе')
+import argparse as _ap
+ok(ST.stages_of(_ap.Namespace(stages='07,seam')) == ['07', 'seam'] and ST.stages_of(_ap.Namespace(stages='seam')) == ['seam'], 'драйвер: --stages 07,seam и seam разбираются')
 
 # ---- пул: код только из задания
 C2 = dict(C, work=tmpdir('work3'), allow_baked=False)
