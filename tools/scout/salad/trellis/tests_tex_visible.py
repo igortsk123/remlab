@@ -359,5 +359,24 @@ class TestTexVisible(unittest.TestCase):
         far = TV.fit_registration(self._shifted_square_alpha(5.0, 0.0), st['P'], st['mask'])
         self.assertLessEqual(abs(far['dx']), TV.REG_MAX_PX + 1e-6)         # больше потолка не берём
 
+    def test_fit_registration_convention_of_pixel_centres(self):
+        """Соглашение пикселя (T-197/3): фото = кадр, уменьшенный вдвое по центрам пикселей (PIL), P с поправкой 0,5·(s−1) — подгонка находит ≤0,03 px (в коде этапа сдвига нет);
+        P «угловая» (как `pose_fit.canvas_P`, без поправки) даёт сдвиг (1−s)/(2s) = 0,5 px кадра — это известное соглашение, камеры подогнаны под него, менять нельзя."""
+        st = fake_stage()
+        s = 0.5
+        big = Image.fromarray((st['mask'] * 255).astype(np.uint8))
+        small = np.asarray(big.resize((int(PX * s), int(PX * s)), Image.LANCZOS))
+        ph = np.zeros((small.shape[0], small.shape[1], 4), np.uint8)
+        ph[..., 3] = small
+        off = 0.5 * (s - 1.0)
+        Pc = np.array([[s, 0, off], [0, s, off], [0, 0, 1.0]])
+        fc = TV.fit_registration(ph, Pc, st['mask'])
+        self.assertLessEqual(abs(fc['dx']), 0.03, fc)
+        self.assertLessEqual(abs(fc['dy']), 0.03, fc)
+        fk = TV.fit_registration(ph, np.diag([s, s, 1.0]), st['mask'])           # угловая P
+        want = (1.0 - s) / (2.0 * s)
+        self.assertLessEqual(abs(fk['dx'] - want), 0.08, fk)
+        self.assertLessEqual(abs(fk['dy'] - want), 0.08, fk)
+
 if __name__ == '__main__':
     unittest.main()
