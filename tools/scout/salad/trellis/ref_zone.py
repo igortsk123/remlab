@@ -745,11 +745,12 @@ def _yaw_rotate(P: np.ndarray, center: np.ndarray, deg: float) -> np.ndarray:
     return out
 
 
-def align_ut(geoms: list, tex_after: list, known: list, ut_geoms: list | None) -> tuple:
+def align_ut(geoms: list, tex_after: list, known: list, ut_geoms: list | None, yaw: int | None = None) -> tuple:
     """UltraTex → поза НАШЕГО фото (владелец TG 1744 п.①). UltraTex красит ту же форму, но «перёд» кладёт на ту сторону, которую считает фото-стороной, — она может не совпасть с нашей.
     Перебор поворота UltraTex вокруг вертикали (`align.cands`, град.): для каждого берётся цвет UltraTex в повёрнутой 3D-точке каждого нашего текселя (ближайший тексель UltraTex); оценка — корреляция
     детали L (L − маскированный низкий пас σ `full.sigma`, лёгкое размытие) UltraTex и ФОТО на известных текселях. Лучший поворот принят, если корреляция ≥ `align.min_corr` и лучше нулевого на ≥ `align.margin`
-    (симметричный предмет — любой поворот одинаков, берётся 0); нет отрыва/нет детали → 'uncertain' (UltraTex дальше не используется). → (список {'V','F','UV','tex'} в НАШЕЙ раскладке | None, отчёт)."""
+    (симметричный предмет — любой поворот одинаков, берётся 0); нет детали → 'uncertain' (UltraTex дальше не используется); несколько поворотов почти равны (отрыв < `align.margin`) → 'tied' + `ties` — выбор за
+    вызывающим (07: по автопроверке front_on_back после заливки); `yaw` задан — без оценки, UltraTex сразу переносится в этот поворот. → (список {'V','F','UV','tex'} в НАШЕЙ раскладке | None, отчёт)."""
     import cv2
     from scipy.spatial import cKDTree
     A = dict({'cands': [0, 90, 180, 270], 'min_score': 0.3, 'margin': 0.10, 'samples': 40000, 'ut_points_max': 1500000, 'seed': 3, 'energy_sigma': 6.0, 'eps': 0.3}, **R.get('align', {}))
@@ -759,7 +760,7 @@ def align_ut(geoms: list, tex_after: list, known: list, ut_geoms: list | None) -
         return None, rep
     rng = np.random.RandomState(int(A['seed']))
     res = []
-    scores = {int(d): [] for d in A['cands']}
+    scores = {int(d): [] for d in ([int(yaw)] if yaw is not None else A['cands'])}
     cache = []
     for gi, g in enumerate(geoms):
         tex = np.asarray(tex_after[gi], np.uint8)
@@ -795,29 +796,31 @@ def align_ut(geoms: list, tex_after: list, known: list, ut_geoms: list | None) -
             a_, b_ = hp_p[idx_o[kn_idx]], hp_u[idx_u[j]]
             scores[d].append((a_, b_))
         cache.append((g, ug, ut, T, Tu, idx_o, Po, idx_u, tree, center))
-    corr = {}
-    eps = float(A['eps'])
-    for d, lst in scores.items():
-        a_, b_ = np.concatenate([x[0] for x in lst]), np.concatenate([x[1] for x in lst])
-        if len(a_) <= 200:
-            corr[d] = None
-            continue
-        lvl = float(np.exp(-abs(np.log((b_.mean() + eps) / (a_.mean() + eps)))))            # уровень энергии детали: у фото и у UltraTex на тех же местах один порядок
-        cc = float(np.corrcoef(a_, b_)[0, 1]) if a_.std() > 1e-6 and b_.std() > 1e-6 else 0.0
-        corr[d] = round(lvl * (0.5 + 0.5 * max(cc, 0.0)), 3)
-    rep['corr'] = {str(k): v for k, v in corr.items()}
-    ok_ = {d: c for d, c in corr.items() if c is not None}
-    best, c_best = (max(ok_.items(), key=lambda kv: kv[1]) if ok_ else (None, None))
-    c0 = ok_.get(0, -1.0)
-    if best is None or c_best < A['min_score']:
-        rep.update({'status': 'uncertain', 'yaw_deg': None, 'why': 'нет детали на фото/UltraTex для сверки'})
-        return None, rep
-    second = max([c for d, c in ok_.items() if d != best] or [-1.0])
-    if c_best - second < A['margin']:                                          # два поворота почти равны (№11: 90° и 270°) — выбирать нечем: UltraTex не используется
-        rep.update({'status': 'uncertain', 'yaw_deg': None, 'corr_best': c_best, 'why': f'повороты не различаются (лучший {c_best}, второй {round(second, 3)}, нужен отрыв {A["margin"]})'})
-        return None, rep
-    yaw = int(best)
-    rep.update({'status': 'aligned' if yaw else 'identity', 'yaw_deg': yaw, 'corr_best': c_best})
+    if yaw is not None:
+        rep.update({'status': 'forced', 'yaw_deg': int(yaw)})
+    else:
+        corr = {}
+        eps = float(A['eps'])
+        for d, lst in scores.items():
+            a_, b_ = np.concatenate([x[0] for x in lst]), np.concatenate([x[1] for x in lst])
+            if len(a_) <= 200:
+                corr[d] = None
+                continue
+            lvl = float(np.exp(-abs(np.log((b_.mean() + eps) / (a_.mean() + eps)))))        # уровень энергии детали: у фото и у UltraTex на тех же местах один порядок
+            cc = float(np.corrcoef(a_, b_)[0, 1]) if a_.std() > 1e-6 and b_.std() > 1e-6 else 0.0
+            corr[d] = round(lvl * (0.5 + 0.5 * max(cc, 0.0)), 3)
+        rep['corr'] = {str(k): v for k, v in corr.items()}
+        ok_ = {d: c for d, c in corr.items() if c is not None}
+        best, c_best = (max(ok_.items(), key=lambda kv: kv[1]) if ok_ else (None, None))
+        if best is None or c_best < A['min_score']:
+            rep.update({'status': 'uncertain', 'yaw_deg': None, 'why': 'нет детали на фото/UltraTex для сверки'})
+            return None, rep
+        ties = sorted(d for d, c in ok_.items() if c >= c_best - A['margin'])
+        if len(ties) > 1:                                                                   # несколько поворотов почти равны (№11: 90° и 270°) — выбор по front_on_back у вызывающего
+            rep.update({'status': 'tied', 'yaw_deg': None, 'corr_best': c_best, 'ties': ties, 'why': f'повороты {ties} различаются меньше отрыва {A["margin"]}'})
+            return None, rep
+        yaw = int(best)
+        rep.update({'status': 'aligned' if yaw else 'identity', 'yaw_deg': yaw, 'corr_best': c_best})
     for g, ug, ut, T, Tu, idx_o, Po, idx_u, tree, center in cache:
         _dist, j = tree.query(_yaw_rotate(Po, center, yaw))
         flat = ut.reshape(Tu * Tu, 3)

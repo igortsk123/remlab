@@ -223,6 +223,41 @@ def test_mirror_off_by_default():
     ok(not rm['applied'] and rm.get('off') == 'rules mirror_enabled=false' and rm['texels'] == 0, f'mirror=True при правиле mirror_enabled=false: зеркало не применено ({rm.get("off")})')
 
 
+def test_tie_picks_front_on_back():
+    print('два поворота UltraTex почти равны (ничья): берётся тот, у кого front_on_back после заливки минимален и ≤ порога; нет такого — UltraTex не используется:')
+    import ref_zone as RZ
+    saved = (RZ.align_ut, RZ.own_panel_tone, TF.front_on_back_corr)
+    vals = {}
+    seen = []
+
+    def fake_align(geoms, tex, known, ut, yaw=None):
+        if yaw is None:
+            return None, {'status': 'tied', 'ties': [90, 270], 'why': 'тест'}
+        return [yaw], {'status': 'forced', 'yaw_deg': yaw}
+
+    def fake_own(geoms, tex, known, ut, parts):
+        seen.append(ut)
+        return [('tex', ut[0] if ut else None)], {'panels': {}}
+
+    def fake_fob(geoms, tl, front, **k):
+        return {'corr': vals[tl[0][1]], 'pairs': 1000, 'axis': 2}
+
+    RZ.align_ut, RZ.own_panel_tone, TF.front_on_back_corr = fake_align, fake_own, fake_fob
+    try:
+        vals.update({90: 0.45, 270: 0.15})
+        out, rep = TF.own_panel_tone_hook([0], [0], [0], [0], None, (2, 1), 0.6)
+        ok(rep['ut_align']['yaw_deg'] == 270 and rep['ut_align']['status'] == 'aligned_by_front_on_back', f'ничья 90/270 → выбран 270 (front_on_back 0,15 < 0,45): {rep["ut_align"]}')
+        vals.update({90: 0.8, 270: 0.9})
+        del seen[:]
+        out, rep = TF.own_panel_tone_hook([0], [0], [0], [0], None, (2, 1), 0.6)
+        ok(rep['ut_align']['status'] == 'uncertain' and rep['ut_align']['yaw_deg'] is None and seen[-1] is None, 'оба выше порога 0,6 → uncertain, UltraTex не используется (тон своей зоны)')
+        vals.update({90: 0.5, 270: None})
+        out, rep = TF.own_panel_tone_hook([0], [0], [0], [0], None, (2, 1), 0.6)
+        ok(rep['ut_align']['yaw_deg'] == 90, 'у одного front_on_back не измерен (None) — берётся тот, где измерен и ≤ порога')
+    finally:
+        RZ.align_ut, RZ.own_panel_tone, TF.front_on_back_corr = saved
+
+
 def test_front_on_back():
     print('автопроверка «перёд на заду» (коробка с двумя симметриями, ручки на лице):')
     rng = np.random.default_rng(5)
@@ -1291,7 +1326,7 @@ def test_render_low():
 
 
 def main() -> int:
-    for f in (test_mirror_off_by_default, test_front_on_back, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
+    for f in (test_mirror_off_by_default, test_tie_picks_front_on_back, test_front_on_back, test_color, test_photo, test_parts, test_lighter_than_photo, test_no_known_part, test_mirror, test_texture, test_gutter_render, test_seam_steps_concavity, test_diffuse_quilt_far, test_draft_source, test_tone_mode_pattern, test_quilt_efros, test_quilt_holes, test_known_unchanged, test_render_pattern, test_outlier_blocks, test_dark_fabric, test_trellis_relief, test_part_roles_from_stage3, test_stage7_side_tone_smooth_rules, test_tone_from_neighbour, test_nail_twins, test_borrow_donors, test_tone_only, test_part_pattern_single_truth, test_pr_camera_and_winding, test_hidden_visible, test_stage6_gate, test_cli_run_stage, test_orphan_parts, test_cli_parts_flags, test_run_stage_fallback, test_render_low):
         f()
     print(f'tests_tex_fill: ошибок {bad}')
     return 1 if bad else 0

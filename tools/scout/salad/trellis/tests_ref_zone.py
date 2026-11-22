@@ -490,8 +490,31 @@ def test_own_panel_smooth_no_quilt():
     ok(txt and all('квилт' not in str(x) for x in txt), f'в отчёте нет квилта: {txt}')
 
 
+def test_align_tied():
+    print('коробка с двумя равными поворотами (UltraTex одинаков на лице и на заду): ничья → tied с ties, yaw задан — перенос без оценки:')
+    sys.path[:0] = [os.path.join(HERE, '..'), os.path.join(HERE, '..', '..')]
+    T = 192
+    g, side, mk = box_uv_geom(T)
+    rng = np.random.default_rng(13)
+    cw, ch = T // 3, T // 2
+    stripes = np.full((ch, cw), 110.0)
+    stripes[:] = 110.0 + rng.normal(0, 25, stripes.shape)                                   # зерно с ровной энергией: повороты 0 и 180 неразличимы
+    base = np.stack([np.clip(stripes + rng.normal(0, 2, stripes.shape), 0, 255)] * 3, -1).astype(np.uint8)
+    full = np.tile(base, (T // ch + 1, T // cw + 1, 1))[:T, :T]
+    photo = np.full((T, T, 3), 90, np.uint8)
+    photo[mk['front']] = full[mk['front']]
+    ut = np.full((T, T, 3), 100, np.uint8)
+    for n in ("front", "back"):
+        ut[mk[n]] = np.clip(110.0 + rng.normal(0, 25, (T, T, 1)) + np.zeros((T, T, 3)), 0, 255).astype(np.uint8)[mk[n]]
+    al, r = RZ.align_ut([dict(g, tex=photo)], [photo], [mk['front']], [dict(g, tex=ut)])
+    ok(r['status'] == 'tied' and sorted(r.get("ties", [])) == [0, 180], f'ничья между 0 и 180 → tied {r.get("ties")} (оценки {r["corr"]})')
+    ok(al is None, 'при ничьей геометрий нет (выбор — у вызывающего)')
+    al2, r2 = RZ.align_ut([dict(g, tex=photo)], [photo], [mk['front']], [dict(g, tex=ut)], yaw=180)
+    ok(al2 is not None and r2['status'] == 'forced' and r2["yaw_deg"] == 180, 'yaw=180 задан — UltraTex перенесён без оценки')
+
+
 def main():
-    for f in (test_own_panel_smooth_no_quilt, test_align_ut, test_own_panel_clean_detail, test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
+    for f in (test_align_tied, test_own_panel_smooth_no_quilt, test_align_ut, test_own_panel_clean_detail, test_own_panel_tone, test_same_mesh, test_decide, test_gate_per_property, test_propagate, test_object_basis, test_inconsistent_winding, test_outer_only, test_panel_with_bottom, test_panels, test_apply_to_fill, test_relief_source, test_ultratex_full):
         f()
     print(f'tests_ref_zone: ошибок {len(FAILS)}')
     return 1 if FAILS else 0

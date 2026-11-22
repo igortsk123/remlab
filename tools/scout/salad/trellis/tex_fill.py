@@ -2128,12 +2128,29 @@ def RZ_same_mesh(a: list, b: list) -> bool:
     return bool(RZ.same_mesh(a, b).get('same'))
 
 
-def own_panel_tone_hook(geoms: list, tex_after: list, known: list, ut_g: list | None, parts) -> tuple:
+def own_panel_tone_hook(geoms: list, tex_after: list, known: list, ut_g: list | None, parts, front: tuple | None = None, thr: float = 0.6) -> tuple:
     """Хук 07 (T-187/6): невидимые панели — донор по оттенку+фактуре UltraTex (тон и куски фото донора) или тон своей зоны + суть UltraTex; чужого квилта нет (ref_zone.own_panel_tone). Сбой не роняет этап."""
     import ref_zone as RZ
     try:
         ut_al, al = RZ.align_ut(geoms, tex_after, known, ut_g)                # UltraTex → поза фото; нет уверенности — UltraTex не используется (тон своей зоны)
-        out, rep = RZ.own_panel_tone(geoms, tex_after, known, ut_al, parts)
+        out = rep = None
+        if al.get('status') == 'tied':                                        # несколько поворотов почти равны: второй ступенью — тот, у кого front_on_back после заливки минимален и ≤ порога
+            fb_by, best = {}, None
+            for y in al['ties']:
+                ut_y, _ = RZ.align_ut(geoms, tex_after, known, ut_g, yaw=y)
+                o_y, r_y = RZ.own_panel_tone(geoms, tex_after, known, ut_y, parts)
+                c_y = front_on_back_corr(geoms, o_y, front).get('corr')
+                fb_by[str(y)] = c_y
+                if c_y is not None and c_y <= thr and (best is None or c_y < best[0]):
+                    best = (c_y, y, o_y, r_y)
+            al['tie_front_on_back'] = fb_by
+            if best is not None:
+                out, rep = best[2], best[3]
+                al.update({'status': 'aligned_by_front_on_back', 'yaw_deg': best[1], 'chosen_front_on_back': best[0]})
+            else:
+                al.update({'status': 'uncertain', 'yaw_deg': None, 'why': f'{al.get("why")}; front_on_back не ≤ {thr} ни у одного (или не измерен)'})
+        if rep is None:
+            out, rep = RZ.own_panel_tone(geoms, tex_after, known, ut_al, parts)
         rep['ut_align'] = al
         return out, rep
     except Exception as e:  # noqa: BLE001
@@ -2225,7 +2242,7 @@ def run_stage(run: str, sku: str, glb: str, known: list | None = None, parts=Non
     if ut_glb and os.path.isfile(ut_glb):
         _ug = TC.load_geoms(ut_glb)
         ut_g = _ug if RZ_same_mesh(geoms, _ug) else None
-    tex_after, rep['own_panel'] = own_panel_tone_hook(geoms, tex_after, known, ut_g, parts)
+    tex_after, rep['own_panel'] = own_panel_tone_hook(geoms, tex_after, known, ut_g, parts, front_axis_of_check(_chk6), float(th['front_on_back_corr'][1]))
     rep['front_on_back'] = front_on_back_corr(geoms, tex_after, front_axis_of_check(_chk6))
     kchg = known_changed_share(known, tex_before, tex_after, RULES['known_change_de'])
     rep['known_changed'] = kchg
