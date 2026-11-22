@@ -1,0 +1,89 @@
+# СБОРКА ОБРАЗА ПРОБЫ SALAD «КАДРЫ ФОРМ» НА GITHUB ACTIONS (T-184/1, очередь 3) — не на pakardev (диск общий с базой). Тот же путь, что у build-pose-trial.yml.
+# Запускается пушем в ветки `trial/render*` при правке tools/scout/salad/render/** или этого файла, либо вручную из такой ветки. Пуш делает директор (решение 22.11).
+# Что делает: готовит контекст (код по render_files.txt) → собирает Dockerfile.render (CUDA-основа по digest + Blender 4.5.9 по sha256) → проверки внутри образа БЕЗ видеокарты
+# (тесты воркера на настоящем HTTP + реальный CPU-кадр куба через render_stand.py, т.е. Blender с нашим кодом работает) → печатает размер и digest → пушит в GHCR:
+# ghcr.io/<владелец>/mesh-render-trial:render-gpu. Деплоя нет, боевое не трогает.
+name: build-render-trial
+
+on:
+  push:
+    branches: ['trial/render*']
+    paths:
+      - 'tools/scout/salad/render/**'
+      - 'tools/scout/stablegen/render_stand.py'
+      - 'tools/ops/forms_render.py'
+      - '.github/workflows/build-render-trial.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-render-trial
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/mesh-render-trial:render-gpu
+  CTX: tools/scout/salad/render
+
+jobs:
+  build:
+    if: startsWith(github.ref, 'refs/heads/trial/render')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Контекст сборки — код по списку
+        run: python3 "$CTX/stage_render_code.py" . "$RUNNER_TEMP/ctx/code"
+
+      - name: Вход в GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Сборка
+        run: |
+          set +e
+          cp "$CTX/Dockerfile.render" "$RUNNER_TEMP/ctx/Dockerfile.render"
+          docker build --progress=plain --build-arg GIT_SHA="${GITHUB_SHA}" -f "$RUNNER_TEMP/ctx/Dockerfile.render" -t "$IMAGE" "$RUNNER_TEMP/ctx" > build.log 2>&1
+          rc=$?
+          tail -40 build.log
+          if [ "$rc" -ne 0 ]; then
+            grep -nE "ERROR|error:|Error" build.log | tail -12 | sed 's/^/::error::/'
+            exit "$rc"
+          fi
+          SIZE=$(docker image inspect "$IMAGE" --format '{{.Size}}')
+          echo "размер образа (распакованный): $(python3 -c "print(round($SIZE/2**30,2))") ГБ"
+
+      - name: Проверки без видеокарты (тесты воркера + реальный кадр куба на процессоре)
+        run: |
+          set +e
+          docker run --rm -v "$PWD:/repo:ro" -w /repo/tools/scout/salad/render --entrypoint python "$IMAGE" tests_render.py > check.log 2>&1
+          rc=$?
+          tail -30 check.log
+          if [ "$rc" -ne 0 ]; then grep -nE "FAIL|ERROR|Error" check.log | tail -12 | sed 's/^/::error::/'; exit 1; fi
+          docker run --rm -v "$PWD:/repo:ro" --entrypoint bash "$IMAGE" -c '
+            set -e
+            mkdir -p /tmp/smoke && cd /tmp/smoke
+            /opt/blender/blender -b --python-expr "import bpy; bpy.ops.mesh.primitive_cube_add(size=1); bpy.ops.export_scene.gltf(filepath=\"/tmp/smoke/cube.glb\")" > export.log 2>&1
+            test -f /tmp/smoke/cube.glb
+            /opt/blender/blender -b -P /opt/scout-root/tools/scout/stablegen/render_stand.py -- --glb /tmp/smoke/cube.glb --out /tmp/smoke/out --samples 2 --modes clay --views az000:0:15 --lights key --threads 2 --w 160 --h 120 --device CPU > render.log 2>&1
+            test -f /tmp/smoke/out/01_az000_clay.png && echo "кадр куба на процессоре: есть"
+            set +e; /opt/blender/blender -b -P /opt/scout-root/tools/scout/stablegen/render_stand.py -- --glb /tmp/smoke/cube.glb --out /tmp/smoke/out2 --samples 2 --modes clay --views az000:0:15 --lights key --device GPU > gpu.log 2>&1; echo "GPU без карты: код $? (ожидаем 3, не «молча на процессор»)"
+          ' 2>&1 | tail -8
+
+      - name: Публикация в GHCR
+        id: push
+        run: |
+          docker push "$IMAGE"
+          DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
+          COMPRESSED=$(docker manifest inspect "$DIGEST" 2>/dev/null | python3 -c 'import json,sys; m=json.load(sys.stdin); print(sum(l["size"] for l in m.get("layers",[])))' || echo 0)
+          GB=$(python3 -c "print(round($COMPRESSED/2**30,2))")
+          {
+            echo "### Образ пробы «кадры форм»"
+            echo "- адрес: \`$IMAGE\`"
+            echo "- digest: \`$DIGEST\`"
+            echo "- сжатый размер в реестре: **${GB} ГБ**"
+            echo "- коммит: \`${GITHUB_SHA}\`"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
