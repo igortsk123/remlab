@@ -1613,16 +1613,29 @@ RULES = load_rules()
 THRESHOLDS = {k: (v[0], float(v[1])) for k, v in RULES['thresholds'].items()}   # пороги этапа (check.json) из rules/paint-fill.json: ΔE00 перёд↔зад (худшая часть с известным ≥ 1 %), ступени, пятна, «известное не изменено» (0), время
 
 
+def load_part_modules():
+    """Модули частей граней из `tools/assets` (material_parts, parts_refine, parts_vote) и их правила. → (MP, PR, PV, правила material_parts, правила parts_vote).
+    НЕ ГЛОТАЕТ ошибки загрузки (T-193/3, 22.11): нет модуля/файла правил (ImportError/OSError/ValueError) — исключение, этап падает. Раньше `except Exception` превращал это в «частей нет»,
+    и на Salad (в срезе кода не было tools/assets) 07 тихо считался БЕЗ частей, расходясь с локальным (сверка T-193/2)."""
+    assets = os.path.abspath(os.path.join(HERE, '..', '..', '..', 'assets'))
+    if assets not in sys.path:
+        sys.path.insert(0, assets)
+    import material_parts as MP
+    import parts_refine as PR
+    import parts_vote as PV
+
+    def rules_of(mod) -> str:                                     # ROOT/data/flat3d/x.json; в срезе кода для Salad те же байты лежат как tools/assets/_data/flat3d/x.json (воркер распаковывает только tools/…, code_tar.packed_name)
+        p = mod.RULES_PATH
+        packed = os.path.join(assets, '_data', 'flat3d', os.path.basename(p))
+        return p if os.path.isfile(p) or not os.path.isfile(packed) else packed
+    return MP, PR, PV, MP.load_rules(rules_of(MP)), PV.load_rules(rules_of(PV))
+
+
 def merge_orphan_parts(mesh, part: np.ndarray):
     """Запасное деление по геометрии: часть-«сирота» (доля ПЛОЩАДИ < `refine.orphan_max_area_share` из parts-sam-rules.json) вливается в соседа с самой длинной границей — общее правило этапа 3 (`parts_refine.merge_orphans`, T-169), не дубль.
-    У сироты нет текселей с фото, она красилась бы тоном целого (светлый клин у верха ножки). Нет модулей этапа 3 или порога — части как были. → (части с плотными номерами, строка для note: '' | '; сирот влито N')."""
-    try:
-        sys.path.insert(0, os.path.join(HERE, '..', '..', '..', 'assets'))
-        import parts_refine as PR
-        import parts_vote as PV
-        thr = PV.load_rules().get('refine', {}).get('orphan_max_area_share')
-    except Exception:  # noqa: BLE001 — нет parts_refine/parts_vote/правил (ветка этапа 3 не влита): прежний путь
-        return part, '; сирот не ищем (нет parts_refine)'
+    У сироты нет текселей с фото, она красилась бы тоном целого (светлый клин у верха ножки). Нет порога в правилах — части как были; нет МОДУЛЕЙ/правил — ошибка (`load_part_modules`). → (части с плотными номерами, строка для note: '' | '; сирот влито N')."""
+    _, PR, PV, _, vote_rules = load_part_modules()
+    thr = vote_rules.get('refine', {}).get('orphan_max_area_share')
     if not thr:
         return part, ''
     V = np.asarray(mesh.vertices, np.float64)
@@ -1636,12 +1649,7 @@ def merge_orphan_parts(mesh, part: np.ndarray):
 
 def parts_from_geometry(geoms: list):
     """Части граней по геометрии `tools/assets/material_parts.py`: 0 обивка/корпус, 1 ножки, 2 нейтральное (тонкое, полоса у ножек); нет уверенного деления — одна часть. → (список по геометриям | None, строка о способе)."""
-    try:
-        sys.path.insert(0, os.path.join(HERE, '..', '..', '..', 'assets'))
-        import material_parts as MP
-        rules = MP.load_rules()
-    except Exception as e:  # noqa: BLE001 — частей нет, заливка идёт одной частью
-        return None, f'частей нет ({type(e).__name__})'
+    MP, _, _, rules, _ = load_part_modules()                      # нет модулей/правил — исключение (не «частей нет»), см. load_part_modules
     out, note = [], []
     for g in geoms:
         nf = len(g['F'])
@@ -1658,6 +1666,8 @@ def parts_from_geometry(geoms: list):
                 note.append(f"split ножки {int(leg.sum())} нейтр. {int(neu.sum())} из {nf}{onote}")
                 continue
             note.append(f"{rec.get('status')} → одна часть")
+        except ImportError:                                       # не хватает модуля внутри разбора — отказ этапа, не тихий откат (T-193/3)
+            raise
         except Exception as e:  # noqa: BLE001
             note.append(f'сбой частей {type(e).__name__}')
         out.append(np.zeros(nf, np.int32))

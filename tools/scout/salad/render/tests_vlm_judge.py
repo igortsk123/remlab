@@ -18,7 +18,7 @@ except ImportError as exc:                                                      
     raise SystemExit(f'нет зависимостей: {exc}')
 
 RULES = FC.load_rules()
-J = RULES['vlm_judge']
+J = dict(RULES['vlm_judge'], runs=2, yes_min=2)                                 # тесты старых случаев — на двух прогонах «оба»; голос 2 из 3 — отдельный тест
 
 
 def mk_inputs():
@@ -72,9 +72,9 @@ class T(unittest.TestCase):
         self.assertTrue(by['vlm_ragged_facade']['flag'])
         self.assertEqual(by['vlm_ragged_facade']['value'], 2)
         self.assertFalse(by['vlm_no_gaps']['flag'])
-        self.assertEqual(ch.calls, 4)                       # группа a и b × 2 прогона
+        self.assertEqual(ch.calls, 6)                       # группы a, b и c × 2 прогона
         out2 = VJ.judge('s', glb, ph, fr, 'шкаф', J, cache, ch)
-        self.assertEqual(ch.calls, 4)                       # кэш: повтор бесплатный
+        self.assertEqual(ch.calls, 6)                       # кэш: повтор бесплатный
         self.assertEqual([c['flag'] for c in out], [c['flag'] for c in out2])
 
     def test_one_yes_is_not_flag(self):
@@ -83,6 +83,46 @@ class T(unittest.TestCase):
         c = next(x for x in out if x['name'] == 'vlm_no_gaps')
         self.assertEqual(c['value'], 1)
         self.assertFalse(c['flag'])
+        ck = next(x for x in out if x['name'] == 'vlm_no_gaps_check')              # «да» в одном прогоне — второй уровень «на глаз»
+        self.assertTrue(ck['flag'])
+        self.assertEqual(ck['value'], 1)
+        other = next(x for x in out if x['name'] == 'vlm_skewed_body_check')
+        self.assertFalse(other['flag'])
+        self.assertNotIn('vlm_no_gaps_check', RULES['block'])
+
+    def test_both_yes_sets_both_levels_and_zero_yes_neither(self):
+        d, fr, ph, glb = mk_inputs()
+        out = VJ.judge('s', glb, ph, fr, 'шкаф', J, os.path.join(d, 'c'), Chat({'no_gaps'}))
+        by = {c['name']: c for c in out}
+        self.assertTrue(by['vlm_no_gaps']['flag'] and by['vlm_no_gaps_check']['flag'])
+        self.assertFalse(by['vlm_ragged_facade']['flag'] or by['vlm_ragged_facade_check']['flag'])
+
+    def test_vote_two_of_three_from_rules(self):
+        d, fr, ph, glb = mk_inputs()
+        RJ = RULES['vlm_judge']
+        self.assertEqual((RJ['runs'], RJ['yes_min']), (3, 2))
+        seq = {'no_gaps': iter([True, True, False]), 'count_mismatch': iter([True, False, False])}
+        calls = []
+
+        def chat(model, messages, **kw):
+            txt = messages[0]['content'][0]['text']
+            ks = [k for k in VJ.KINDS if f'"{k}":' in txt.split('Отвечай строго')[1]]
+            calls.append(ks)
+            ans = {k: {'verdict': 'да' if (k in seq and next(seq[k])) else 'нет', 'where': '', 'photo': 'двери 3', 'model': 'двери 1'} for k in ks}
+            return {'choices': [{'message': {'content': json.dumps(ans, ensure_ascii=False)}}], 'usage': {}}
+        out = VJ.judge('s', glb, ph, fr, 'шкаф', RJ, os.path.join(d, 'c'), chat)
+        by = {c['name']: c for c in out}
+        self.assertTrue(by['vlm_no_gaps']['flag'])                    # 2 из 3
+        self.assertEqual(by['vlm_no_gaps']['value'], 2)
+        self.assertFalse(by['vlm_count_mismatch']['flag'])            # 1 из 3 — только «на глаз»
+        self.assertTrue(by['vlm_count_mismatch_check']['flag'])
+        self.assertIn('фото: двери 3; модель: двери 1', by['vlm_count_mismatch_check']['note'])
+        self.assertEqual(len(calls), 9)                               # a, b, c × 3 прогона
+
+    def test_count_mismatch_for_cabinet_roles_only(self):
+        self.assertIn('count_mismatch', VJ.applicable('комод', J['kinds']))
+        self.assertNotIn('count_mismatch', VJ.applicable('диван', J['kinds']))
+        self.assertEqual(VJ.parse('{"count_mismatch": {"photo": "двери 3", "model": "двери 1", "verdict": "да", "where": ""}}', ['count_mismatch'])['count_mismatch']['where'], 'фото: двери 3; модель: двери 1')
 
     def test_version_change_invalidates_cache(self):
         d, fr, ph, glb = mk_inputs()

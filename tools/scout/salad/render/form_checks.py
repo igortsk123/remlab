@@ -15,7 +15,7 @@
   legs_match    · ножки: компоненты нижней полосы маски фото ↔ формы парой по центрам, макс. смещение центра / шаг между соседними ножками фото (силуэт IoU этого не видит; нормировка на ширину предмета не разводила) · «Пропали ножки», «ножки не там» (р.3, T-191/1)
   relief_graze  · мелкий рельеф кадра 0° при боковом свете ВНУТРИ маски формы (альфа, без фона и тени)  · «Дыры, рваный фасад»
   back_relief   · то же на кадре 180°: у корпусной мебели с плоской спиной (`flat_back_roles`) сильный рельеф сзади — каркас/копия фасада · «Открытая сломанная спина», «фасад сзади»
-  vlm_<вид>     · оценщик по картинке (vlm_judge.py, T-184/9): «да» в обоих прогонах VLM по виду брака из паспорта, виды и роли — в rules `vlm_judge` · «Дыры, рваный фасад», «грани», «фасад без щелей», «перекос корпуса», «зад=копия», «выдуманная деталь»
+  vlm_<вид>     · оценщик по картинке (vlm_judge.py, T-184/9): «да» в обоих прогонах VLM по виду брака из паспорта (`vlm_<вид>_check` — «да» хотя бы в одном: на глаз директору), виды и роли — в rules `vlm_judge` · «Дыры, рваный фасад», «грани», «фасад без щелей», «перекос корпуса», «зад=копия», «выдуманная деталь»
   body_skew     · перекос корпуса по 3D: завал и трапеция стенок корпуса (спереди и сбоку), градусы; только корпусные роли · «перекос корпуса»
   back_dup_mask · рельеф 0° и 180° внутри маски совпадает (прямо/зеркально), только для ролей с плоской спиной · «фасад продублирован на задней стенке»
 Режим: `block` в rules — проверки, чей флаг даёт статус `shape_reject` (в списке только то, у чего 0 ложных на годных формах); остальные — `observe`.
@@ -316,13 +316,15 @@ def energy(hp, inner) -> float:
     return float(hp[inner].std())
 
 
-def edge_slopes(u: np.ndarray, y: np.ndarray, ylo: float, yhi: float, nb: int = 14) -> tuple[float, float] | None:
+def edge_slopes(u: np.ndarray, y: np.ndarray, ylo: float, yhi: float, nb: int = 14, min_share: float = 0.5) -> tuple[float, float] | None:
     """Левая/правая кромка u(y): перцентили по полосам высоты → линейная подгонка → углы от вертикали, градусы (знак +, если верх смещён вправо)."""
     edges = np.linspace(ylo, yhi, nb + 1)
     ys, lo, hi = [], [], []
-    for a, b in zip(edges[:-1], edges[1:]):
+    cnt = [int(((y >= a) & (y < b)).sum()) for a, b in zip(edges[:-1], edges[1:])]
+    med = float(np.median([c for c in cnt if c > 0])) if any(cnt) else 0.0
+    for (a, b), c in zip(zip(edges[:-1], edges[1:]), cnt):
         s = (y >= a) & (y < b)
-        if s.sum() < 200:
+        if c < 200 or c < min_share * med:                             # полосы с редкими точками — ножки/опоры/проём, не корпус: в подгонку не берём
             continue
         ys.append((a + b) / 2)
         lo.append(np.percentile(u[s], 0.3))
@@ -407,7 +409,7 @@ def summary(recs: list[dict], eye: dict) -> str:
 
 
 # ---------- один товар ----------
-def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, rules: dict, pose_roots: list[str] | None = None, alpha_dir: str | None = None, role: str = '', vlm_cache: str | None = None, chat=None) -> dict:
+def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, rules: dict, pose_roots: list[str] | None = None, alpha_dir: str | None = None, role: str = '', vlm_cache: str | None = None, chat=None, vlm_kw: dict | None = None) -> dict:
     R = rules['thresholds']
     block = rules.get('block', [])
     rec: dict = {'sku': sku, 'observe': not block, 'block': block, 'checks': []}
@@ -433,7 +435,7 @@ def run_sku(sku: str, glb: str | None, photo: str | None, frames: str | None, ru
         rec['checks'] += mask_checks(alpha_dir, role, R)
     if vlm_cache and frames and rules.get('vlm_judge'):
         import vlm_judge as VJ
-        rec['checks'] += VJ.judge(sku, glb, photo, frames, role, rules['vlm_judge'], vlm_cache, chat)
+        rec['checks'] += VJ.judge(sku, glb, photo, frames, role, rules['vlm_judge'], vlm_cache, chat, **(vlm_kw or {}))
     flags = [c['name'] for c in rec['checks'] if c['flag']]
     rec['auto'] = 'flag' if flags else 'ok'
     rec['status'] = status_of(rec['checks'], block)

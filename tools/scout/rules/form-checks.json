@@ -47,7 +47,7 @@
     "legs_match": 0.2,
     "body_skew_deg": 3.0,
     "body_skew_points": 300000,
-    "body_skew_leg_cut": 0.12
+    "body_skew_leg_cut": 0.45
   },
   "block": [
     "glb_sane",
@@ -58,7 +58,7 @@
   "vlm_judge": {
     "version": "2026-11-22.2",
     "model": "google/gemini-2.5-flash",
-    "runs": 2,
+    "runs": 3,
     "groups": {
       "a": {
         "frames": [
@@ -73,6 +73,11 @@
           "01_az000_clay.png",
           "02_az000_clay_graze.png",
           "09_top40_clay.png"
+        ]
+      },
+      "c": {
+        "frames": [
+          "01_az000_clay.png"
         ]
       }
     },
@@ -134,8 +139,48 @@
           "буфет",
           "витрин"
         ]
+      },
+      "count_mismatch": {
+        "group": "c",
+        "roles": [
+          "шкаф",
+          "комод",
+          "тумб",
+          "стеллаж",
+          "сервант",
+          "буфет",
+          "витрин"
+        ]
       }
     },
-    "_about": "Оценщик по картинке, OBSERVE (T-184/9): флаг vlm_<вид> = «да» в обоих прогонах. Версию менять при ЛЮБОЙ правке вопроса (ключ кэша). Роли — подстроки роли каталога, пусто = все. legs_wrong и «рельеф» не спрашиваем: на 31 форме 12 ложных из 27 (шум)."
+    "_about": "Оценщик по картинке, OBSERVE (T-184/9): флаг vlm_<вид> = «да» в обоих прогонах. Версию менять при ЛЮБОЙ правке вопроса (ключ кэша). Роли — подстроки роли каталога, пусто = все. legs_wrong и «рельеф» не спрашиваем: на 31 форме 12 ложных из 27 (шум).",
+    "check_min_yes": 1,
+    "yes_min": 2,
+    "default_kinds": [
+      "no_gaps",
+      "count_mismatch",
+      "skewed_body"
+    ],
+    "cost": {
+      "usd_per_m_in": 0.3,
+      "usd_per_m_out": 2.5,
+      "tokens_per_call": {
+        "a": [
+          1900,
+          2000
+        ],
+        "b": [
+          1509,
+          932
+        ],
+        "c": [
+          916,
+          588
+        ]
+      },
+      "measured": "22.11 по vlm-cache-block (81+81+96 вызовов): токены вход/выход на вызов; цена — публичная google/gemini-2.5-flash"
+    },
+    "budget_usd_per_form": 0.015,
+    "budget_usd_max": 0.3
   }
 }

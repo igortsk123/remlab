@@ -467,6 +467,7 @@ V = S.parse_variants('{"std": {}, "lite": {"resolution": 1024, "steps": 12, "tex
 _a = types.SimpleNamespace(resolution=2048, steps=25, seed=42, texture=4096)
 check(S.job_params(_a, V, 'x@lite') == {'resolution': 1024, 'steps': 12, 'seed': 42, 'texture_size': 1024} and S.job_params(_a, V, 'x@std') == {'resolution': 2048, 'steps': 25, 'seed': 42, 'texture_size': 4096}
       and S.job_params(_a, V, 'x') == {'resolution': 2048, 'steps': 25, 'seed': 42, 'texture_size': 4096}, 'параметры задания: вариант переопределяет только свои ключи, остальное — общие')
+check((S.DEF_RESOLUTION, S.DEF_STEPS, S.DEF_TEXTURE) == (1024, 20, 1024), 'T-189/5: режим UltraTex по умолчанию — 1024·20 (текстура 1024), качественный — только вариантом')
 for bad in ('{"lite": {"foo": 1}}', '{"lite": {"steps": "12"}}', '{"li te": {"steps": 12}}', '[1]', 'не json'):
     try:
         S.parse_variants(bad)

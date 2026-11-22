@@ -297,5 +297,41 @@ class TestTexVisible(unittest.TestCase):
         self.assertEqual((n['az_cam'], n['pitch']), (0.0, 10.0))
 
 
+    def _grating_contrast(self, photo_period, scale=1.0, amp=60.0):
+        """Фото — решётка известной частоты (период photo_period px фото), камера смотрит на лицевую грань; возвращает σ(текстуры)/σ(истины) на взятых текселях ячейки."""
+        n = int(PX * scale)
+        xs = np.arange(n)[None, :].repeat(n, 0)
+        g = 128.0 + amp * np.sin(2 * np.pi * (xs + 0.5) / photo_period)
+        ph = np.zeros((n, n, 4), np.uint8)
+        a0, a1 = int(Q0 * scale), int(Q1 * scale)
+        ph[a0:a1, a0:a1, :3] = np.clip(g[a0:a1, a0:a1, None], 0, 255).astype(np.uint8)
+        ph[a0:a1, a0:a1, 3] = 255
+        st = fake_stage()
+        P = np.diag([scale, scale, 1.0])                                   # кадр → фото (фото мельче кадра в 1/scale раз)
+        prgb, pm = TV.photo_to_frame(ph, P, PX)
+        tr = TV.transfer(self.geoms, st, prgb, pm)
+        tex, known = tr['tex'][0], tr['known'][0]
+        T = tex.shape[0]
+        w3 = T // 3
+        fr = (slice(T // 2 + 8, T - 8), slice(int(w3 * 0.20), int(w3 * 0.80)))   # ячейка 0 без каймы у шва/силуэта
+        k = known[fr]
+        self.assertGreater(k.mean(), 0.9)
+        v = tex[fr][..., 1][k].astype(np.float64)
+        return float(v.std() / (amp / np.sqrt(2.0)))
+
+    def test_fine_contrast_survives_photo_transfer(self):
+        """Мелкий контраст (T-197): решётка периодом 4 px фото (вдвое длиннее периода Найквиста), фото вдвое мельче кадра — текстура несёт ≥90 % контраста истины; прежний путь (линейный перевод и выборка) давал ~82 %."""
+        keep = (TV.PHOTO_INTERP, TV.SAMPLE_ORDER)
+        try:
+            new = self._grating_contrast(4.0, scale=0.5)
+            eq = self._grating_contrast(4.0, scale=1.0)
+            TV.PHOTO_INTERP, TV.SAMPLE_ORDER = 'linear', 1
+            old = self._grating_contrast(4.0, scale=0.5)
+        finally:
+            TV.PHOTO_INTERP, TV.SAMPLE_ORDER = keep
+        self.assertGreaterEqual(new, 0.90, f'фото вдвое мельче кадра: {new:.3f}')
+        self.assertGreaterEqual(eq, 0.90, f'фото = кадр: {eq:.3f}')
+        self.assertLess(old, new - 0.03, f'контроль: линейная {old:.3f} должна быть хуже бикубики {new:.3f}')
+
 if __name__ == '__main__':
     unittest.main()

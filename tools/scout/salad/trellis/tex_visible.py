@@ -34,6 +34,7 @@ sys.path[:0] = [HERE, SALAD, SCOUT]
 
 import tex_coverage as TC  # noqa: E402
 import paint_stage as PS  # noqa: E402
+import crease_mask as CM  # noqa: E402     # мерки полос у изломов и карта уверенности текселя (T-194/1, T-194/2); текстуру не меняет
 
 def _rules() -> dict:
     try:
@@ -63,6 +64,8 @@ W_TAKE = 0.25           # вес меньше — тексель не берём
 HOLE_R = 2.5            # дыры между взятыми текселями (пикселей кадра реже текселей) закрываются ближайшим взятым не дальше этого, текселей
 DEPTH_PX = 3.0          # допуск «тексель не заслонён»: расхождение глубины точки и буфера глубины камеры не больше стольких пикселей предмета (у косых граней — шире)
 GREY = 128
+PHOTO_INTERP = str(R.get('photo_interp', 'lanczos'))   # перевод фото в кадр: lanczos (T-197: линейная теряла ~⅓ мелкого контраста при растяжке фото ×2) | cubic | linear
+SAMPLE_ORDER = int(R.get('sample_order', 3))             # выборка цвета в тексель из кадра: порядок сплайна (3 — бикубика; 1 — билинейная, теряла 15–40 % мелкого контраста; T-197)
 FRONT_COS = 0.80       # мерка света «перёд↔бок»: перёд — cos ≥ этого, бок — от cos_min до SIDE_COS
 SIDE_COS = 0.65
 GATE = {                # (порог, op) — провизорно, см. шапку
@@ -127,7 +130,7 @@ def photo_to_frame(photo_rgba: np.ndarray, P: np.ndarray, px: int) -> tuple[np.n
     import cv2
     a = photo_rgba[..., 3:4].astype(np.float32) / 255.0
     src = np.concatenate([photo_rgba[..., :3].astype(np.float32) * a, a], axis=2)
-    fl = cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP
+    fl = {'lanczos': cv2.INTER_LANCZOS4, 'cubic': cv2.INTER_CUBIC, 'linear': cv2.INTER_LINEAR}[PHOTO_INTERP] | cv2.WARP_INVERSE_MAP
     w = cv2.warpAffine(src, np.asarray(P, np.float64)[:2], (px, px), flags=fl, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
     al = w[..., 3]
     rgb = np.where(al[..., None] > 1e-3, w[..., :3] / np.maximum(al[..., None], 1e-3), 0.0)
@@ -271,9 +274,12 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
     n_nogo = int((nogo & st['mask']).sum())
     fringe = edge_bg_fringe(st, prgb, pmask)
     nogo = nogo | fringe
+    crr = CM.load_rules()
+    crs = CM.crease_shadow(prgb, pmask, st, geoms, crr)                         # полоса изломов в кадре — для мерки и уверенности (текстуру не трогает)
+    cf = CM.frame_confidence(prgb, pmask, st, crs, crr)                    # уверенность пикселя: у излома и блика ниже (шаг сведения швов)
     edge_px = max(EDGE_FRAC * px, 1.0)
     z_eps = max(float(st.get('px_len') or 0.0), 1e-6) * DEPTH_PX
-    texs, knowns, stats = [], [], []
+    texs, knowns, confs, stats = [], [], [], []
     for gi, g in enumerate(geoms):
         T = int(g['tex'].shape[0])
         F, UV = g['F'], g['UV']
@@ -297,13 +303,16 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
         w_edge = np.clip((map_coordinates(dist_edge.astype(np.float32), [y - 0.5, x - 0.5], order=1, mode='nearest') - EDGE_ERODE) / edge_px, 0.0, 1.0)
         w = np.where(inside & front & (depth[yi, xi] > 0) & pmask[yi, xi] & ~nogo[yi, xi], w_ang * w_edge, 0.0)
         use = w >= W_TAKE
-        col = np.stack([map_coordinates(prgb[..., c].astype(np.float32), [y[use] - 0.5, x[use] - 0.5], order=1, mode='nearest') for c in range(3)], 1)
+        col = np.clip(np.stack([map_coordinates(prgb[..., c].astype(np.float32), [y[use] - 0.5, x[use] - 0.5], order=SAMPLE_ORDER, mode='nearest') for c in range(3)], 1), 0.0, 255.0)   # бикубика выходит за 0..255 у резких границ
         tex = g['tex'].astype(np.float64).copy()
         sel = (ty[use], tx[use])
         tex[sel] = col
         wmap = np.zeros((T, T), np.float64)
         wmap[ty, tx] = w
         known = wmap >= W_TAKE
+        cmap = np.zeros((T, T), np.float32)                              # уверенность известных текселей 0…1: угол обзора × край силуэта × (излом, блик)
+        cmap[ty, tx] = (w * cf[yi, xi]).astype(np.float32)
+        cmap[~known] = 0.0
         n_face = int(known.sum())
         ys, xs = np.nonzero(st['mask'] & (ids >= offs[gi]) & (ids < offs[gi + 1]))             # проход 2: пиксели растра камеры — каждый на тексель СВОЕЙ развёртки (грани мельче пикселя карту грани не строят)
         wp = np.clip((st['cos'][ys, xs] - cos_min) / max(COS_FULL - cos_min, 1e-6), 0.0, 1.0) * np.clip((dist_edge[ys, xs] - EDGE_ERODE) / edge_px, 0.0, 1.0) * pmask[ys, xs] * (~nogo[ys, xs])
@@ -313,14 +322,18 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
         tpy = np.clip(np.floor(st['uv'][ys, xs, 1] * T).astype(np.int64), 0, T - 1)
         flat = tpy * T + tpx
         sw = np.bincount(flat, wp, T * T).reshape(T, T)
+        cnt2 = np.bincount(flat, None, T * T).reshape(T, T)
+        scf = np.bincount(flat, wp * cf[ys, xs], T * T).reshape(T, T)
         scol = np.stack([np.bincount(flat, wp * prgb[ys, xs, c].astype(np.float64), T * T).reshape(T, T) for c in range(3)], 2)
         take = occ & ~known & (sw >= W_TAKE)
         tex[take] = scol[take] / sw[take][:, None]
+        cmap[take] = (scf[take] / np.maximum(cnt2[take], 1)).astype(np.float32)
         known = known | take
         n_splat = int(take.sum())
         hd, (hy, hx) = distance_transform_edt(~known, return_distances=True, return_indices=True)       # дыры между пикселями: ближайший взятый тексель не дальше HOLE_R
         fill = occ & ~known & (hd <= HOLE_R)
         tex[fill] = tex[hy[fill], hx[fill]]
+        cmap[fill] = cmap[hy[fill], hx[fill]] * float(crr['conf_fill'])     # дыра — цвет соседа, уверенность вдвое ниже
         known = known | fill
         n_fill = int(fill.sum())
         gd, (iy, ix) = distance_transform_edt(~occ, return_distances=True, return_indices=True)     # желоб: ближайший занятый тексель на GUTTER пикселей наружу
@@ -328,8 +341,9 @@ def transfer(geoms: list, st: dict, prgb: np.ndarray, pmask: np.ndarray, cos_min
         tex[ring] = tex[iy[ring], ix[ring]]
         texs.append(np.clip(tex + 0.5, 0, 255).astype(np.uint8))
         knowns.append(known)
+        confs.append(np.where(known, cmap, 0.0).astype(np.float32))
         stats.append({'name': g['name'], 'T': T, 'occupied': int(occ.sum()), 'known': int(known.sum()), 'faces_ok': int(fm['ok'].sum()), 'faces_seen': int((fm['cnt'] > 0).sum()), 'texels_taken': int(use.sum()), 'known_facemap': n_face, 'known_splat': n_splat, 'known_filled': n_fill})
-    return {'tex': texs, 'known': knowns, 'stats': stats, 'depth_band_share': round(n_nogo / max(int(st['mask'].sum()), 1), 4), 'edge_bg_fringe_px': int((fringe & st['mask']).sum())}
+    return {'tex': texs, 'known': knowns, 'conf': confs, 'stats': stats, 'depth_band_share': round(n_nogo / max(int(st['mask'].sum()), 1), 4), 'edge_bg_fringe_px': int((fringe & st['mask']).sum()), 'crease': crs}
 
 
 def write_glb(geoms: list, texs: list, dst: str) -> None:
@@ -579,7 +593,16 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
     write_glb(geoms, tr['tex'], dst)
     for i, k in enumerate(tr['known']):
         Image.fromarray((k * 255).astype(np.uint8)).save(os.path.join(d, 'known.png' if i == 0 else f'known{i}.png'))
+        Image.fromarray(np.clip(tr['conf'][i] * 255.0 + 0.5, 0, 255).astype(np.uint8)).save(os.path.join(d, 'conf.png' if i == 0 else f'conf{i}.png'))     # уверенность текселя 0…255 (T-194/1)
     after = frame_from_tex(st, geoms, tr['tex'])
+    cs = tr['crease']
+    kvalid = known_px(geoms, st, tr)
+    cn = np.concatenate([c[k] for c, k in zip(tr['conf'], tr['known'])]) if tr['known'] else np.zeros(0)
+    zone, zcut = CM.body_zone(st['mask'], cut_row=cut_row)                  # корпус: выше нижней кромки (T-194/4); ножки — отдельной меркой
+    crease_info = {'body_cut_row': zcut, 'confidence_mean': round(float(cn.mean()), 4) if cn.size else None, 'confidence_low_share': round(float((cn < 0.5).mean()), 4) if cn.size else None, **cs['stats'],
+                   'dark_streak': CM.dark_streak_share(after, cs['band'], cs['groove'], kvalid, st['mask'], zone=zone), 'dark_streak_new': CM.dark_streak_new(after, prgb, pmask, cs['band'], cs['groove'], kvalid, st['mask'], zone=zone),
+                   'dark_streak_legs': CM.dark_streak_new(after, prgb, pmask, cs['band'], cs['groove'], kvalid, st['mask'], zone=~zone),
+                   'slit_contrast': CM.slit_contrast_ratio(prgb, after, cs, st['mask'], kvalid)}
     m = metrics(geoms, st, prgb, pmask, tr, after, cos_min)
     view = os.path.join(d, '_view.glb')                                 # для показа: непросмотренное — штриховка; в visible.glb заготовка не тронута (этап 7 заливает её)
     write_glb(geoms, [hatch(t, k) for t, k in zip(tr['tex'], tr['known'])], view)
@@ -590,8 +613,8 @@ def _run(glb: str, photo: str, pose_run: str, run_dir: str, sku: str, cos_min: f
     main = mm.pop('silhouette_iou')
     ok = not why
     PS.write_check(d, '06-visible', sku, passed=ok, metric={'name': 'silhouette_iou', **{k: main[k] for k in ('value', 'threshold', 'op')}}, metrics=mm,
-                   reason='' if ok else '; '.join(why), seconds=round(time.time() - t0, 1), outputs=['visible.glb', 'known.png', 'frame.png'], frame='frame.png',
-                   needs_qwen=(not ok), cos_min=cos_min, camera=st['camera'], side_views=side_views, pose_run=pose_run, stats=tr['stats'], depth_band_share=tr['depth_band_share'], body_only=(cut_row is not None), cut_row=cut_row, legs_left_to_stage8=(cut_row is not None), extra_metrics={k: v for k, v in m.items() if k not in GATE})
+                   reason='' if ok else '; '.join(why), seconds=round(time.time() - t0, 1), outputs=['visible.glb', 'known.png', 'conf.png', 'frame.png'], frame='frame.png',
+                   needs_qwen=(not ok), cos_min=cos_min, camera=st['camera'], side_views=side_views, pose_run=pose_run, crease_shadow=crease_info, stats=tr['stats'], depth_band_share=tr['depth_band_share'], body_only=(cut_row is not None), cut_row=cut_row, legs_left_to_stage8=(cut_row is not None), extra_metrics={k: v for k, v in m.items() if k not in GATE})
     return {'sku': sku, 'passed': ok, 'metrics': m, 'why': why, 'dir': d}
 
 

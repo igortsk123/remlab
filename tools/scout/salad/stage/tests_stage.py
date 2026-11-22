@@ -282,7 +282,7 @@ try:
 except SystemExit:
     ok(True, 'stager: непустая папка назначения — отказ')
 
-DIRS = [os.path.join(SCOUT, 'salad', 'trellis'), os.path.join(SCOUT, 'salad'), SCOUT]
+DIRS = [os.path.join(SCOUT, 'salad', 'trellis'), os.path.join(SCOUT, 'salad'), SCOUT, os.path.join(ROOT, 'tools', 'assets')]   # + tools/assets: части граней (tex_fill импортирует их внутри функции) — T-193/3
 
 
 def local_module(name: str) -> str | None:
@@ -312,7 +312,8 @@ def top_imports(path: str, deep: bool) -> set[str]:
     return out
 
 
-DEEP = {'tools/scout/salad/trellis/tex_visible.py', 'tools/scout/salad/trellis/tex_fill.py', 'tools/scout/paint_stage.py', 'tools/scout/salad/trellis/tex_coverage.py', 'tools/scout/salad/recolor_lp.py'}
+DEEP = {'tools/scout/salad/trellis/tex_visible.py', 'tools/scout/salad/trellis/tex_fill.py', 'tools/scout/paint_stage.py', 'tools/scout/salad/trellis/tex_coverage.py', 'tools/scout/salad/recolor_lp.py',
+        'tools/assets/material_parts.py', 'tools/assets/parts_refine.py', 'tools/assets/parts_vote.py'}      # глубокий разбор (импорты внутри функций и try): parts_refine импортирует parts_vote внутри функции
 missing = set()
 for f in [x for x in files if x.endswith('.py')]:
     for m in top_imports(f, f in DEEP):
@@ -439,6 +440,87 @@ try:
     ok(not miss, f'срез HEAD: все .py из stage_files.txt (замыкание образа) входят и в срез кода ({sorted(miss)[:3]})')
 except CT.CodeTarError as exc:
     ok(False, f'срез HEAD не собран: {exc}')
+
+# ---- T-193/3 (22.11): на Salad 07 считался БЕЗ частей — модулей tools/assets (материал/ножки) не было в срезе, а «частей нет (ModuleNotFoundError)» глоталось заметкой
+PARTS_PY = {'tools/assets/material_parts.py', 'tools/assets/parts_refine.py', 'tools/assets/parts_vote.py', 'tools/assets/part_shapes.py'}
+try:
+    real2 = CT.build(ROOT, 'HEAD')
+    ok(PARTS_PY <= set(real2['files']) and {CT.packed_name(d) for d in CT.DATA_FILES} <= set(real2['files']),
+       f'срез HEAD: модули частей (material_parts, parts_refine, parts_vote, part_shapes) и их правила (data/flat3d/*.json → tools/assets/_data/flat3d/*.json: воркер распаковывает только tools/…) в срезе кода ({sorted(PARTS_PY - set(real2["files"]))})')
+    real3 = CT.build(ROOT, 'HEAD')
+    ok(real2['tar'] == real3['tar'] and real2['tar_sha256'] == real3['tar_sha256'], 'срез HEAD с перенесёнными правилами — всё ещё побайтно детерминирован')
+    with tarfile.open(fileobj=io.BytesIO(real2['tar'])) as _tf:
+        _b = _tf.extractfile('tools/assets/_data/flat3d/material-part-rules.json').read()
+    ok(_b == open(os.path.join(ROOT, 'data/flat3d/material-part-rules.json'), 'rb').read(), 'правила в срезе — те же байты, что data/flat3d/material-part-rules.json (один источник)')
+    ok(PARTS_PY <= {f for f in files} and set(CT.DATA_FILES) <= set(files), 'stage_files.txt: те же модули частей и правила в списке образа')
+    ok(CT.selfcheck(real2['tar'], real2['entries']) == '', 'срез HEAD: из ЧИСТОЙ распаковки (python -I) tex_fill находит и загружает модули частей и правила (`load_part_modules`)')
+except CT.CodeTarError as exc:
+    ok(False, f'срез HEAD с частями не собран: {exc}')
+# срез без правил частей, но с модулями — отказ ДО платной группы
+repo3 = tmpdir('mini-repo3')
+run(repo3, 'git', 'init', '-q')
+commit_tree(repo3, {f'{TRE}/tex_visible.py': 'X = 1\n', f'{TRE}/tex_fill.py': 'import material_parts\n', 'tools/assets/material_parts.py': 'Y = 1\n', 'tools/scout/rules/a.json': '{}\n'}, 'модуль частей без правил')
+try:
+    CT.build(repo3, 'HEAD')
+    ok(False, 'срез: модули частей есть, правил data/flat3d нет — отказ')
+except CT.CodeTarError as exc:
+    ok('правил' in str(exc), 'срез: модули частей есть, правил data/flat3d нет — отказ с причиной')
+# tex_fill: нет модуля частей — ИСКЛЮЧЕНИЕ, а не «частей нет» (этап падает, check.json «сбой этапа 7»)
+try:
+    sys.path.insert(0, os.path.join(SALAD, 'trellis'))
+    import tex_fill as TF  # noqa: E402
+    saved = {k: sys.modules.get(k) for k in ('material_parts', 'parts_refine', 'parts_vote')}
+    for k in saved:
+        sys.modules[k] = None                                   # import → ImportError (как «нет файла в срезе»)
+    try:
+        raised = ''
+        try:
+            TF.parts_from_geometry([])
+        except ImportError as exc:
+            raised = type(exc).__name__
+        ok(raised in ('ImportError', 'ModuleNotFoundError'), f'tex_fill.parts_from_geometry: нет модуля частей → исключение, не тихое «частей нет» ({raised or "вернул заметку"})')
+        raised = ''
+        try:
+            TF.merge_orphan_parts(None, None)
+        except ImportError as exc:
+            raised = type(exc).__name__
+        ok(raised in ('ImportError', 'ModuleNotFoundError'), f'tex_fill.merge_orphan_parts: нет модуля этапа 3 → исключение, не «сирот не ищем» ({raised or "вернул заметку"})')
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+    out_g, note_g = TF.parts_from_geometry([])
+    ok(out_g == [] and 'частей нет' not in note_g, 'tex_fill.parts_from_geometry: при наличии модулей загружается (пустой список геометрий → пусто)')
+except Exception as exc:  # noqa: BLE001
+    ok(False, f'tex_fill (части): тест не выполнен: {type(exc).__name__}: {exc}')
+
+
+def swallowed_imports(path: str) -> list[str]:
+    """Места, где `try:` с import внутри ловит Exception/BaseException/голый except и НЕ перебрасывает — тихий откат вместо отказа этапа."""
+    t = ast.parse(open(path, encoding='utf-8').read())
+    bad = []
+    for n in ast.walk(t):
+        if not isinstance(n, ast.Try):
+            continue
+        if not any(isinstance(m, (ast.Import, ast.ImportFrom)) for b in n.body for m in ast.walk(b)):
+            continue
+        for h in n.handlers:
+            broad = h.type is None or (isinstance(h.type, ast.Name) and h.type.id in ('Exception', 'BaseException'))
+            if broad and not any(isinstance(m, ast.Raise) for m in ast.walk(h)):
+                bad.append(f'{os.path.basename(path)}:{h.lineno}')
+    return bad
+
+
+STAGE_SCRIPTS = [os.path.join(ROOT, 'tools/scout/salad/trellis/tex_fill.py'), os.path.join(ROOT, 'tools/scout/salad/trellis/tex_visible.py')]
+# известные ОСОЗНАННЫЕ откаты (необязательные библиотеки/диагностика) — с причиной; всё новое — отказ этапа, не откат
+ALLOWED_SWALLOW: set[str] = set()
+sw = [x for p in STAGE_SCRIPTS for x in swallowed_imports(p) if x not in ALLOWED_SWALLOW]
+ok(not sw, f'этапы 06/07: ни один `import` внутри try не прячется за `except Exception` без raise (ImportError = отказ этапа): {sw}')
+_syn = os.path.join(tmpdir('swallow'), 'syn.py')
+open(_syn, 'w', encoding='utf-8').write('def a():\n    try:\n        import zzz\n    except Exception:\n        return 1\n\n\ndef b():\n    try:\n        import yyy\n    except ImportError:\n        raise\n\n\ndef c():\n    try:\n        import xxx\n    except Exception:\n        raise\n')
+ok(swallowed_imports(_syn) == ['syn.py:4'], 'самопроверка разборщика: ловит только проглоченный import (a), не перебрасываемый (b, c)')
 
 
 def mktar(members: list) -> bytes:

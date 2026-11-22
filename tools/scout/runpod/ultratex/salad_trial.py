@@ -67,6 +67,7 @@ def parse_jobs(spec: str) -> list[str]:
     return [x.strip() for x in spec.split(',') if x.strip()]
 
 
+DEF_RESOLUTION, DEF_STEPS, DEF_TEXTURE = 1024, 20, 1024     # режим UltraTex по умолчанию — 1024·20 (владелец TG 1763, 22.11); качественный 2048·25·4096 — только явным --variants
 JOB_PARAM_KEYS = ('resolution', 'steps', 'guidance', 'seed', 'texture_size')
 
 
@@ -237,10 +238,10 @@ def main() -> int:
     ap.add_argument('--inputs', default='')
     ap.add_argument('--out', default=os.path.expanduser('~/remlab-logs/t178-1121/salad-out'))
     ap.add_argument('--tier', default='low', choices=['low', 'medium'], help='low; нет машин — ядро само пробует medium один раз; batch/high запрещены (владелец TG 1456/1457)')
-    ap.add_argument('--resolution', type=int, default=2048)
-    ap.add_argument('--steps', type=int, default=25)
+    ap.add_argument('--resolution', type=int, default=DEF_RESOLUTION)
+    ap.add_argument('--steps', type=int, default=DEF_STEPS)
     ap.add_argument('--seed', type=int, default=42)
-    ap.add_argument('--texture', type=int, default=4096)
+    ap.add_argument('--texture', type=int, default=DEF_TEXTURE)
     ap.add_argument('--silence-min', type=float, default=10, help='сторож тишины: через N мин без готового задания и без новой готовности ноды — строка «!! ТИШИНА …» (повтор каждые N мин; до готовности ноды ×2,5); 0 — выключить')
     ap.add_argument('--slow-window-min', dest='slow_window_s', type=lambda x: float(x) * 60, default=0, help='сторож медленной сборки весов на running-ноде: окно, мин (0 — выключен)')
     ap.add_argument('--slow-gb-min', type=float, default=2.0, help='…и порог ГБ/мин: ниже — пересадить ноду (здоровая ≈7,5, медленная ≈0,95)')
