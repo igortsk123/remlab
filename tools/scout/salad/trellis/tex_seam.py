@@ -433,7 +433,7 @@ def patch_detail(tx, zone: np.ndarray, lab: np.ndarray, solid: np.ndarray, fillp
         okj = (sj >= 0) & (src_r < T) & (src_c < T)
         sj2 = np.where(okj, sj, 0)
         okj &= solid[sj2] & (zone[sj2] == p)
-        k = gp * np.exp(-s_out[zt] / c['contrast_decay_mm']) * strength
+        k = gp * np.exp(-s_out[zt] / float(c.get('patch_decay_mm', c['contrast_decay_mm']))) * strength
         add[zt[okj]] = (k * hp[sj2])[okj]
         rep['applied'] += int(okj.sum())
     return add, rep

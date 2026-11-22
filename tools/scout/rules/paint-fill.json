@@ -101,7 +101,8 @@
     "accept_p95_ratio": 1.0,
     "accept_p95_abs": 0.3,
     "patch_texture": true,
-    "patch_reach_mm": 40.0,
+    "patch_reach_mm": 70.0,
+    "patch_decay_mm": 45.0,
     "patch_strength": 1.0,
     "patch_mm": 14.0,
     "texture_band_mm": 25.0

@@ -1652,7 +1652,7 @@ def load_rules(path: str | None = None) -> dict:
     if 'trellis_relief' not in r:
         raise KeyError("rules/paint-fill.json: нет ключа 'trellis_relief'")
     for k in ('enabled', 'size_mm_default', 'conf_min', 'conf_full', 'edge_mm', 'probe_mm', 'cell_mm', 'reach_mm', 'tone_decay_mm', 'tone_max', 'min_cell', 'hi_sigma_mm', 'contrast_decay_mm',
-              'contrast_gmin', 'contrast_gmax', 'contrast_floor', 'pair_mm', 'pair_cos', 'de_bad', 'poisson', 'crease_deg', 'normal_smooth_iters', 'min_panel_faces', 'feather_mm', 'feather_lo', 'feather_hi', 'rough_sigma_mm', 'accept_p95_ratio', 'accept_p95_abs', 'patch_texture', 'patch_reach_mm', 'patch_strength', 'patch_mm', 'texture_band_mm'):
+              'contrast_gmin', 'contrast_gmax', 'contrast_floor', 'pair_mm', 'pair_cos', 'de_bad', 'poisson', 'crease_deg', 'normal_smooth_iters', 'min_panel_faces', 'feather_mm', 'feather_lo', 'feather_hi', 'rough_sigma_mm', 'accept_p95_ratio', 'accept_p95_abs', 'patch_texture', 'patch_reach_mm', 'patch_strength', 'patch_mm', 'patch_decay_mm', 'texture_band_mm'):
         if k not in (r.get('seam') or {}):
             raise KeyError(f'rules/paint-fill.json: seam.{k} не задан')
     for k in ('gain_max', 'clip_k', 'patch_frac', 'patch_dl', 'dilate_px', 'part_max_share', 'band_lo', 'band_hi', 'sigma_lo_min', 'sigma_lo_max', 'sigma_hi_max', 'far_w', 'p95_cap',
