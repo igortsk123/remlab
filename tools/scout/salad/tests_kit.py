@@ -6,6 +6,7 @@
 (зовёт `BR.stop_and_verify(`) импортирует `kit_driver`. Исключения — только в `kit-allow.txt`, строка `worker|driver <путь>  # причина`. Новая проба или воркер мимо набора роняют тест (уроки 724, 748, 754, 755…)."""
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -233,7 +234,7 @@ ok(st['period_seconds'] == 10, 'стартовая проба: период 10 �
 ok(KD.card_arch('RTX 5090 (32 GB)') == '12.0' and KD.card_arch('RTX 4090 (24 GB)') == '8.9' and KD.card_arch('RTX 3090 (24 GB)') == '8.6' and KD.card_arch('Quadro Q') is None, 'карта → архитектура: 5090=12.0, 4090=8.9, 3090=8.6, незнакомая — None')
 ok(KD.arch_refusal('RTX 5090 (32 GB)', ('12.0',)) == '' and KD.arch_refusal('RTX 5090 (32 GB)', ()) == '' and KD.arch_refusal('Quadro Q', ('8.9',)) == '', 'сверка: подходит / модель не заявила / карта незнакомая — без отказа')
 ok('no kernel image' in KD.arch_refusal('RTX 5090 (32 GB)', ('8.9',)) and 'no kernel image' in KD.arch_refusal('RTX 3090 (24 GB)', ('8.9', '12.0')), 'сверка: образ под 8.9 на 5090/3090 — отказ ДО создания группы (урок 742)')
-body = KD.group_body('g', 'img@sha256:x', 'high', 'cls', 8000, {'HF_TOKEN': 'S1', 'KIT_WORKER_Z': 'zzzz'}, {'cpu': 8}, {'basic': {'password': 'S2'}}, ['python'])
+body = KD.group_body('g', 'img@sha256:x', 'low', 'cls', 8000, {'HF_TOKEN': 'S1', 'KIT_WORKER_Z': 'zzzz'}, {'basic': {'password': 'S2'}}, ['python'], work_type='ultratex')
 ok(body['container']['resources']['gpu_classes'] == ['cls'] and body['autostart_policy'] is False and body['restart_policy'] == 'never' and body['replicas'] == 1, 'группа: 1 нода, без автостарта и перезапуска')
 import contextlib  # noqa: E402
 import io  # noqa: E402
@@ -571,6 +572,108 @@ _moved = [_pg.step(float(t), [{'id': 'inst-1', 'state': 'downloading', 'pulling_
 ok(any(_moved) and _rl == [('g', 'inst-1')] and _pg.culls == 1, 'PullGuard: темп 0,1 %/мин → пересадка этого экземпляра (без новой группы), ровно одна')
 ok(KD.post_timeout_s(0) == 90 and KD.post_timeout_s(500 * 2 ** 20) == 300 and KD.post_timeout_s(10 ** 9, 45) == 45
    and KD.post_timeout_s(2 ** 20, rules={'base_s': 10, 'per_mb_s': 5, 'max_s': 100}) == 15, 'post_timeout_s: формула, потолок max_s, override и правила из rules')
+
+# ---------------------------------------------------------------- T-186/1: профиль ресурсов Salad по типу работы + сторож «мимо профиля»
+PROFS = KD.load_profiles()
+ok(len(PROFS) >= 5 and {'trellis_shape', 'ultratex', 'forms_render', 'pose_camera', 'parts_segment'} <= set(PROFS), f'профили на месте: {sorted(PROFS)}')
+for wt, pr in PROFS.items():
+    bad = KD.profile_problems(pr)
+    ok(not bad, f'профиль «{wt}»: поля, тариф low/medium, basis честный' + (f' — {bad}' if bad else ''))
+    ok(pr['tier'] == 'low' and pr['tier_fallback'] == 'medium', f'профиль «{wt}»: low, нет машин — medium (владелец TG 1456/1457)')
+    ok(KD.basis_text(pr) == 'по оценке' or 'замер' in KD.basis_text(pr), f'профиль «{wt}»: откуда числа — {KD.basis_text(pr)}')
+_good = dict(PROFS['ultratex'])
+ok(KD.profile_problems({k: v for k, v in _good.items() if k != 'basis'}), 'профиль без basis — негоден')
+ok(KD.profile_problems(dict(_good, basis='measured')), 'basis=measured без measured.date/log — негоден')
+ok(not KD.profile_problems(dict(_good, basis='measured', measured={'date': '2026-11-22', 'log': 't178-forms-1122'})), 'basis=measured с датой и логом — годен')
+ok(KD.profile_problems(dict(_good, basis='estimate', basis_note='')), 'basis=estimate без пояснения, что не мерили — негоден')
+ok(KD.profile_problems(dict(_good, tier='batch')) and KD.profile_problems(dict(_good, tier_fallback='high')), 'в профиле batch/high запрещены')
+ok(KD.tier_refusal(_good, 'batch') and KD.tier_refusal(_good, 'high') and not KD.tier_refusal(_good, 'low') and not KD.tier_refusal(_good, 'medium'), 'тариф: low/medium можно, batch/high нельзя')
+ok(KD.card_refusal(_good, 'RTX 3050 Laptop (4 GB)') and not KD.card_refusal(_good, _good['card']), 'карта вне профиля — отказ')
+_r = KD.profile_resources(PROFS['ultratex'])
+ok(_r == {'cpu': 8, 'memory': 49152, 'storage_amount': 80 * 2 ** 30, 'shm_size': 2048}, f'ultratex: 8 vCPU / 48 ГБ / 80 ГиБ диска ({_r})')
+ok(KD.profile_resources(PROFS['ultratex'], 'diag')['storage_amount'] == 20 * 2 ** 30, 'ultratex diag: диск 20 ГиБ из варианта профиля')
+for _bad_call, _frag in ((lambda: KD.group_body('g', 'i', 'low', 'c', 8000, {}, {}, work_type=''), 'не указан тип'), (lambda: KD.group_body('g', 'i', 'low', 'c', 8000, {}, {}, work_type='x-нет'), 'нет профиля'),
+                         (lambda: KD.group_body('g', 'i', 'low', 'c', 8000, {}, {}, work_type='ultratex', resources={'cpu': 1}), 'мимо профиля'),
+                         (lambda: KD.group_body('g', 'i', 'batch', 'c', 8000, {}, {}, work_type='ultratex'), 'запрещён'),
+                         (lambda: KD.group_body('g', 'i', 'low', 'c', 8000, {}, {}, work_type='ultratex', card='RTX 3050 Laptop (4 GB)'), 'вне профиля')):
+    try:
+        _bad_call()
+        _got = ''
+    except KD.ProfileRefused as _e:
+        _got = str(_e)
+    ok(_frag in _got, f'group_body реальным профилем: «{_frag}» → отказ')
+
+SALAD_API = re.compile(r'\bgpu_classes\b|\bstorage_amount\b|container-groups')
+
+
+def profile_bypass(text: str) -> list[str]:
+    """Вызов `group_body(` без `work_type=` или со своими `resources=` — мимо профиля ресурсов."""
+    out = []
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return []
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call):
+            f = n.func
+            name = f.attr if isinstance(f, ast.Attribute) else getattr(f, 'id', None)
+            if name == 'group_body':
+                kws = {k.arg for k in n.keywords}
+                if 'work_type' not in kws:
+                    out.append(f'строка {n.lineno}: group_body без work_type — группа мимо профиля ресурсов')
+                if 'resources' in kws:
+                    out.append(f'строка {n.lineno}: group_body со своими resources — числа только из rules/salad-resources.json')
+    return out
+
+
+def api_bypass(text: str) -> list[str]:
+    """Файл сам собирает ресурсы/классы групп Salad (gpu_classes, storage_amount, container-groups) мимо `kit_driver.group_body(work_type=…)`."""
+    return ['сам собирает ресурсы/классы группы Salad (gpu_classes/storage_amount/container-groups) мимо профиля — зови KD.group_body(work_type=…) или внеси в kit-allow.txt с причиной'] if SALAD_API.search(text) else []
+
+
+ok(profile_bypass('KD.group_body(n, i, t, c, 8000, e, a, work_type="x")') == [] and profile_bypass('KD.group_body(n, i, t, c, 8000, e, a)') and profile_bypass('group_body(n, i, t, c, 8000, e, a, work_type="x", resources={})'),
+   'сторож профиля: group_body без work_type и со своими resources ловится')
+ok(api_bypass("r = {'gpu_classes': [c]}") and api_bypass("requests.post(U + '/container-groups', json=b)") and not api_bypass('x = 1'), 'сторож профиля: самодельное тело группы / POST container-groups ловится')
+_al = allow()
+_n_gb = _n_api = 0
+for path in files(lambda f: not f.startswith(('test', 'tests')) and f != 'kit_driver.py'):
+    text = open(path, encoding='utf-8').read()
+    pr = profile_bypass(text)
+    if 'group_body' in text:
+        _n_gb += 1
+        ok(not pr, f'{rel(path)}: group_body только с work_type' if not pr else f'{rel(path)}: {"; ".join(pr)}')
+    pr = api_bypass(text)
+    if pr:
+        if ('salad-api', rel(path)) in _al:
+            ok(True, f'{rel(path)}: в списке исключений — {_al[("salad-api", rel(path))]}')
+        else:
+            ok(False, f'{rel(path)}: {"; ".join(pr)}')
+        _n_api += 1
+ok(_n_gb >= 2, f'драйверов с group_body найдено: {_n_gb}')
+
+# воркер: пики и скорости диска в /health (профиль уточняется после каждого прогона)
+_dt = KW.disk_speed_test(tempfile.mkdtemp(), 8)
+ok(_dt.get('write_mb_s', 0) > 0 and _dt.get('read_mb_s', 0) > 0, f'замер диска на старте: запись/чтение МБ/с ({_dt})')
+_st = KW.State()
+_rv = _st.resources_view(1.0, '')
+ok({'peak_rss_gb', 'peak_vram_gb', 'disk_free_gb', 'disk_mb_s', 'weights_gb_min'} <= set(_rv) and (_rv['peak_rss_gb'] or 0) > 0 and (_rv['disk_free_gb'] or 0) > 0,
+   f'/health отдаёт peak_rss_gb, peak_vram_gb, disk_free_gb, disk_mb_s, weights_gb_min ({_rv})')
+_st.disk_test = {'write_mb_s': 123.4, 'read_mb_s': 200.0}
+_st.peak_gpu_mb = 20480.0
+_st._w_hist = [(time.time() - 60, 1.0)]
+_st.phase = 'weights'
+_rv2 = _st.resources_view(7.0, '')
+ok(_rv2['disk_mb_s'] == 123.4 and _rv2['peak_vram_gb'] == 20.0 and _rv2['weights_gb_min'] is not None and _rv2['weights_gb_min'] > 0, f'пик VRAM из nvidia-smi, скорость диска и докачки видны ({_rv2})')
+
+# resource_profile.py --suggest: расхождения профиль ↔ замер (профиль правит человек, скрипт только печатает)
+import resource_profile as RP  # noqa: E402
+_sum = {'work_type': 'ultratex', 'last_health': {'body': {'peak_rss_gb': 44.0, 'peak_vram_gb': 25.2, 'disk_free_gb': 40.0, 'disk_mb_s': 310.0, 'disk_read_mb_s': 900.0, 'weights_gb_min': 0.95}},
+        'jobs': {'k': {'status': 'done', 'wall_s': 341}}, 'disk_culls': 1, 'disk_slow_rates': [0.95]}
+_sg = RP.suggest(_sum)
+ok(any('RAM' in x and 'не влезает' in x for x in _sg), 'suggest: пик RAM 44 ГБ с запасом не влезает в 48 → поднять memory_mb')
+ok(any('НИЖЕ нормы' in x for x in _sg) and any('пересаживал 1' in x for x in _sg) and any('среднее 341' in x for x in _sg), 'suggest: медленная докачка, пересадка и время задания видны')
+ok(any('по оценке' in x for x in _sg), 'suggest: напоминает, что основание профиля — «по оценке»')
+ok(any('не пришёл' in x for x in RP.suggest({'work_type': 'ultratex', 'last_health': {'body': {}}})), 'suggest: нет замера — так и говорит')
 
 print('\nИТОГ:', 'ВСЁ ЗЕЛЁНОЕ' if not FAILS else f'ПРОВАЛОВ: {len(FAILS)}')
 sys.exit(1 if FAILS else 0)
