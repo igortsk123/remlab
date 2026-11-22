@@ -83,6 +83,19 @@ class T(unittest.TestCase):
         c = next(x for x in out if x['name'] == 'vlm_no_gaps')
         self.assertEqual(c['value'], 1)
         self.assertFalse(c['flag'])
+        ck = next(x for x in out if x['name'] == 'vlm_no_gaps_check')              # «да» в одном прогоне — второй уровень «на глаз»
+        self.assertTrue(ck['flag'])
+        self.assertEqual(ck['value'], 1)
+        other = next(x for x in out if x['name'] == 'vlm_skewed_body_check')
+        self.assertFalse(other['flag'])
+        self.assertNotIn('vlm_no_gaps_check', RULES['block'])
+
+    def test_both_yes_sets_both_levels_and_zero_yes_neither(self):
+        d, fr, ph, glb = mk_inputs()
+        out = VJ.judge('s', glb, ph, fr, 'шкаф', J, os.path.join(d, 'c'), Chat({'no_gaps'}))
+        by = {c['name']: c for c in out}
+        self.assertTrue(by['vlm_no_gaps']['flag'] and by['vlm_no_gaps_check']['flag'])
+        self.assertFalse(by['vlm_ragged_facade']['flag'] or by['vlm_ragged_facade_check']['flag'])
 
     def test_version_change_invalidates_cache(self):
         d, fr, ph, glb = mk_inputs()
